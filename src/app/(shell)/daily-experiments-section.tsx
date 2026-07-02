@@ -11,7 +11,10 @@
  */
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import type { DailyExperimentsView } from "./daily-experiments-data";
+import { stageDailyPickInWixAction } from "./stage-in-wix-actions";
+import { stageRouteForLever, type StagingAvailability } from "@/domains/push/stage-route";
 import type { DailyExperimentPlanRecord, PlannedExperimentRecord } from "@/domains/experiments/daily-plan-types";
 import type { ExecutionChecklist, ExecutionItemView } from "@/domains/experiments/execution-checklist";
 import type { DailyExperimentItemStatus } from "@/domains/experiments/execution-state";
@@ -226,6 +229,7 @@ function SerpReaction({ e }: { e: PlannedExperimentRecord }) {
       <span className="text-gray-400 dark:text-neutral-500">What wins on Google now: </span>
       {serp.format} pages, led by {serp.winningDomains.join(", ")}.
       {serp.whatToDo ? <> {stripBannedDashes(serp.whatToDo)}</> : null}
+      {serp.rankMovement ? <> {stripBannedDashes(serp.rankMovement)}</> : null}
     </div>
   );
 }
@@ -308,8 +312,11 @@ function PreviewCard({ e, spark }: { e: PlannedExperimentRecord; spark?: SparkPo
   );
 }
 
-/** One approved item, with the apply -> confirm -> tell-Google flow (science unchanged). */
-function ExecutionCard({ planId, item, spark }: { planId: string; item: ExecutionItemView; spark?: SparkPoint[] }) {
+/** One approved item, with the apply -> confirm -> tell-Google flow (science unchanged).
+ *  Item 15: when the site is armed and the change has a one-click path, "Stage in Wix"
+ *  puts it into Wix through the existing publish rails; the paste flow stays the
+ *  visible fallback and the confirm-live science is untouched. */
+function ExecutionCard({ planId, item, spark, staging }: { planId: string; item: ExecutionItemView; spark?: SparkPoint[]; staging?: StagingAvailability }) {
   const e = item.experiment;
   const paste = stripBannedDashes(e.proposedText);
   const why = stripBannedDashes(e.whyNow);
@@ -318,6 +325,10 @@ function ExecutionCard({ planId, item, spark }: { planId: string; item: Executio
   const [pending, start] = useTransition();
   const [msg, setMsg] = useState<string | null>(null);
   const [status, setStatus] = useState<DailyExperimentItemStatus>(item.status);
+  // Item 15 - one-click staging state. canStage only OFFERS the button; the server
+  // action re-checks every gate and fails closed to the paste instruction.
+  const canStage = Boolean(staging?.enabled) && stageRouteForLever(e.lever) != null;
+  const [stagedReceipt, setStagedReceipt] = useState<string | null>(null);
   const [failure, setFailure] = useState<{ reason: string; expected?: string; observed?: string } | null>(
     item.status === "verification_failed" && item.verification && !item.verification.verified
       ? { reason: item.verification.reason, expected: item.verification.expected, observed: item.verification.observed }
@@ -341,6 +352,15 @@ function ExecutionCard({ planId, item, spark }: { planId: string; item: Executio
       setFailure({ reason: reasonCopy(r.reason) });
       setMsg(null);
     }
+  });
+
+  // Item 15 - stage the change in Wix through the existing armed-publish rails.
+  // The receipt renders on the card; the confirm-live step (the science) is unchanged.
+  const stage = () => start(async () => {
+    setMsg("Putting this change into Wix...");
+    const r = await stageDailyPickInWixAction({ planId, experimentId: e.id, editedText: text });
+    if (r.staged) { setStagedReceipt(r.receiptLine); setMsg(null); }
+    else setMsg(r.receiptLine);
   });
 
   const submit = () => start(async () => {
@@ -429,12 +449,26 @@ function ExecutionCard({ planId, item, spark }: { planId: string; item: Executio
       ) : status === "skipped" ? (
         <div className="mt-3 text-[13px] text-gray-500 dark:text-neutral-400">Set aside. Its comparison pages were freed up and nothing changed.</div>
       ) : (
-        <div className="mt-3 flex flex-wrap items-center gap-2">
-          <button type="button" disabled={pending} aria-busy={pending} onClick={() => copyText(text, setMsg)} className={BTN_SECONDARY}>Copy</button>
-          <a href={e.url} target="_blank" rel="noopener noreferrer" className={LINK_CLS}>Open page</a>
-          <button type="button" disabled={pending} aria-busy={pending} onClick={apply} className={`${BTN_PRIMARY} min-w-[130px]`}>{pending ? "Checking the page..." : status === "verification_failed" ? "Try again" : "I did it in Wix"}</button>
-          <button type="button" disabled={pending} aria-busy={pending} onClick={skip} className={BTN_GHOST}>Not now</button>
-        </div>
+        <>
+          {/* Item 15 - the staging receipt: the change is in Wix, the old version is saved. */}
+          {stagedReceipt ? (
+            <div role="status" aria-live="polite" className="mt-3 rounded-xl border border-emerald-100 bg-emerald-50 px-3 py-2.5 text-[13px] leading-relaxed text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-200">
+              {stagedReceipt} Click &ldquo;Check it is live&rdquo; and I start tracking.
+            </div>
+          ) : null}
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            {canStage ? (
+              <button type="button" disabled={pending} aria-busy={pending} onClick={stage} className={`${BTN_PRIMARY} min-w-[120px]`}>{pending ? "Working..." : "Stage in Wix"}</button>
+            ) : null}
+            <button type="button" disabled={pending} aria-busy={pending} onClick={() => copyText(text, setMsg)} className={BTN_SECONDARY}>Copy</button>
+            <a href={e.url} target="_blank" rel="noopener noreferrer" className={LINK_CLS}>Open page</a>
+            <button type="button" disabled={pending} aria-busy={pending} onClick={apply} className={canStage ? BTN_SECONDARY : `${BTN_PRIMARY} min-w-[130px]`}>{pending ? "Checking the page..." : status === "verification_failed" ? "Try again" : stagedReceipt ? "Check it is live" : "I did it in Wix"}</button>
+            <button type="button" disabled={pending} aria-busy={pending} onClick={skip} className={BTN_GHOST}>Not now</button>
+          </div>
+          {canStage ? (
+            <div className="mt-1.5 text-[11px] text-gray-400 dark:text-neutral-500">Stage in Wix makes the change for you and saves the old version first, or copy and paste it yourself.</div>
+          ) : null}
+        </>
       )}
 
       <HowWeKnow e={e} steps={item.instructions} />
@@ -443,7 +477,7 @@ function ExecutionCard({ planId, item, spark }: { planId: string; item: Executio
   );
 }
 
-function ExecutionChecklistView({ checklist, sparklineByUrl }: { checklist: ExecutionChecklist; sparklineByUrl: Record<string, SparkPoint[]> }) {
+function ExecutionChecklistView({ checklist, sparklineByUrl, staging }: { checklist: ExecutionChecklist; sparklineByUrl: Record<string, SparkPoint[]>; staging?: StagingAvailability }) {
   const s = checklist.summary;
   const router = useRouter();
   const [pending, start] = useTransition();
@@ -471,6 +505,14 @@ function ExecutionChecklistView({ checklist, sparklineByUrl }: { checklist: Exec
       <div className="mb-3 rounded-xl border border-emerald-100 bg-emerald-50 px-3 py-2.5 text-sm leading-relaxed text-emerald-900 tabular-nums dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-200">
         <strong>Today’s changes.</strong> {s.active} live and tracking, {s.submitted} sent to Google, {s.left} left to apply.<br />
         Apply each one in Wix, then click “I did it in Wix”. I’ll confirm it’s live before I start tracking, so nothing is recorded until it really shipped.
+        {/* Item 15 - the quiet nudge: publishing is possible here but not armed yet. */}
+        {staging && staging.wixTarget && !staging.armed && s.left > 0 ? (
+          <div className="mt-1.5 text-[12px] font-normal text-emerald-800/80 dark:text-emerald-300/80">
+            I can put these into Wix for you.{" "}
+            <Link href="/settings/connectors" className="font-semibold underline underline-offset-2">Turn on publishing</Link>{" "}
+            and each change becomes one click.
+          </div>
+        ) : null}
         {s.left > 0 ? (
           <div className="mt-1.5">
             <button
@@ -493,7 +535,7 @@ function ExecutionChecklistView({ checklist, sparklineByUrl }: { checklist: Exec
           </div>
         ) : null}
       </div>
-      {checklist.items.map((item) => <ExecutionCard key={item.experiment.id} planId={checklist.planId} item={item} spark={sparklineByUrl[item.experiment.url]} />)}
+      {checklist.items.map((item) => <ExecutionCard key={item.experiment.id} planId={checklist.planId} item={item} spark={sparklineByUrl[item.experiment.url]} staging={staging} />)}
       {/* Item 62 - the sticky batch bar: while tonight's items are pending, the count
           follows the operator down the page so finishing never falls off-screen. */}
       {s.left > 0 ? (
@@ -579,7 +621,7 @@ export function DailyExperimentsSection({ view }: { view: DailyExperimentsView }
       )}
 
       {accepted && checklist ? (
-        <ExecutionChecklistView checklist={checklist} sparklineByUrl={view.sparklineByUrl} />
+        <ExecutionChecklistView checklist={checklist} sparklineByUrl={view.sparklineByUrl} staging={view.staging} />
       ) : preview ? (
         <div>
           <div className="mb-2 text-sm leading-relaxed text-gray-700 tabular-nums dark:text-neutral-300">

@@ -92,8 +92,8 @@
 - [ ]  86 [W3][P1/M] Standing adversarial regression: encode the operator's cases as tests that run on
 - [ ]  87 [W3][P1/S] Per-page dossier route (/page/[path]): everything the team knows about one page in
 - [ ]  88 [W3][P2/M] Cannibalization + internal-link intelligence into the debate: the GSC cannibalization
-- [ ]  89 [W3][P2/M] Trend radar goes live on real deltas: WoW query-spike detection from gsc_daily_rows
-- [ ]  90 [W3][P2/L] Wix draft-writing where possible: for CMS-pushable fields, "Apply in Wix" becomes
+- [x]  89 [W3][P2/M] Trend radar goes live on real deltas: WoW query-spike detection from gsc_daily_rows
+- [x]  90 [W3][P2/L] Wix draft-writing where possible: for CMS-pushable fields, "Apply in Wix" becomes
 - [ ]  91 [W3][P2/M] GSC indexing queue polish: after verify-live, one screen lists the URLs to request
 - [x]  92 [W3][P1/S] Spend receipts page (settings): "$1.42 spent this month of $50" per provider with
 - [x]  93 [W2][P0/M] Today warm render under 2s: persist the TodayView + war-room reads with the SWR

@@ -12,6 +12,9 @@ import { runRevenueFactsPass } from "@/domains/revenue/compute-unit-economics";
 import { checkPipelineInvariants } from "@/domains/ops/pipeline-invariants";
 import { gatherPipelineReadings } from "@/domains/ops/pipeline-readings";
 import { buildPipelineHealthRow, writePipelineHealth } from "@/domains/ops/pipeline-health-store";
+import { loadQuerySpikeRows } from "@/domains/trend-radar/load-query-spikes";
+import { computeQuerySpikes, anchorDateOf } from "@/domains/trend-radar/query-spikes";
+import { writeQuerySpikeSummary } from "@/domains/trend-radar/spike-store";
 
 /** The READ sources a nightly refresh pulls. Wix is publish-only and excluded
  *  (it has no inbound data to sync). Mirrors REFRESH_ALL_SOURCES in the
@@ -304,6 +307,37 @@ export async function syncAllConnectedForActiveTenants(): Promise<CronSyncResult
       }
     } catch (e) {
       log.warn("[cron-sync] revenue facts failed", {
+        tenantId: t.id,
+        error: e instanceof Error ? e.message.slice(0, 200) : String(e),
+      });
+    }
+  }
+
+  // PHASE 1c - trend radar (master plan item 14): week-over-week query spikes
+  // from tonight's fresh gsc_daily_rows (this week vs the trailing 4-week
+  // baseline), persisted so the Today Demand band + the daily plan builder read
+  // them at $0. Deterministic, FREE (bounded Supabase reads, no LLM, no paid
+  // API), latest-wins upsert; an empty list is written too so "checked, quiet"
+  // stays distinguishable from "never checked". Isolated try/catch per tenant.
+  for (const t of tenants) {
+    try {
+      const rows = await loadQuerySpikeRows(t.id);
+      const spikes = computeQuerySpikes(rows);
+      await writeQuerySpikeSummary({
+        tenant_id: t.id,
+        computed_at: new Date().toISOString(),
+        anchor_date: anchorDateOf(rows),
+        spikes,
+      });
+      if (spikes.length > 0) {
+        log.info("[cron-sync] trend radar found spikes", {
+          tenantId: t.id,
+          spikes: spikes.length,
+          top: spikes[0]?.query,
+        });
+      }
+    } catch (e) {
+      log.warn("[cron-sync] trend radar failed", {
         tenantId: t.id,
         error: e instanceof Error ? e.message.slice(0, 200) : String(e),
       });

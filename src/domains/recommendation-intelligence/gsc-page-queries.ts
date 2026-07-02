@@ -267,7 +267,15 @@ export async function loadDailyClicksByPagesForTenant(
   }
 }
 
-export type TenantQuery = { query: string; clicks: number; impressions: number };
+export type TenantQuery = {
+  query: string;
+  clicks: number;
+  impressions: number;
+  /** Impression-weighted average position over the window. Only populated by
+   *  loadTopTenantQueries (2026-07-02, keyword-gap "already ranks" join); the
+   *  ILIKE loaders leave it undefined. */
+  position?: number | null;
+};
 
 /**
  * Site-wide top queries (aggregated across ALL pages) for the tenant over the
@@ -286,23 +294,30 @@ export async function loadTopTenantQueries(
     const since = sinceDateIso(opts.windowDays ?? WINDOW_DAYS);
     const { data, error } = await sb
       .from("gsc_daily_rows")
-      .select("query, clicks, impressions")
+      .select("query, clicks, impressions, position")
       .eq("tenant_id", tenantId)
       .gte("date", since)
       .order("impressions", { ascending: false })
       .limit(ROW_BUDGET);
     if (error || !data) return [];
-    const byQuery = new Map<string, { clicks: number; impressions: number }>();
+    const byQuery = new Map<string, { clicks: number; impressions: number; posW: number }>();
     for (const r of data) {
       const query = (r.query as string)?.trim();
       if (!query) continue;
-      const a = byQuery.get(query) ?? { clicks: 0, impressions: 0 };
+      const a = byQuery.get(query) ?? { clicks: 0, impressions: 0, posW: 0 };
+      const impr = Number(r.impressions) || 0;
       a.clicks += Number(r.clicks) || 0;
-      a.impressions += Number(r.impressions) || 0;
+      a.impressions += impr;
+      a.posW += (Number(r.position) || 0) * impr;
       byQuery.set(query, a);
     }
     return [...byQuery.entries()]
-      .map(([query, a]) => ({ query, clicks: a.clicks, impressions: a.impressions }))
+      .map(([query, a]) => ({
+        query,
+        clicks: a.clicks,
+        impressions: a.impressions,
+        position: a.impressions > 0 && a.posW > 0 ? a.posW / a.impressions : null,
+      }))
       .sort((x, y) => y.impressions - x.impressions)
       .slice(0, limit);
   } catch (e) {

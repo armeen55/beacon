@@ -10,6 +10,7 @@ import { parsePreparedPack } from "@/domains/demand-graph/prepared-move-pack";
 import type { CreatePageBrief } from "@/domains/llm/schemas";
 import { evaluateCreatePageBriefQuality, evaluateDraftQuality, type DraftQualityResult } from "@/domains/drafts/draft-quality";
 import { readAllCachedKeywordDemand, type KeywordDemand } from "@/domains/serp/dataforseo-keywords";
+import { readKeywordGapResults, type StoredKeywordGaps } from "@/domains/serp/keyword-gap-store";
 import { matchKeywordDemand } from "@/domains/demand/keyword-match";
 import { cleanTopicLabel, isJunkTopic } from "@/domains/demand-graph/clean-topic-label";
 
@@ -86,6 +87,10 @@ export type NewPageOpportunity = {
     competitorPages: string[];
     ownCitedUrls: string[];
   } | null;
+  /** Competitor keyword gap named evidence (2026-07-02, item 16) - present only on
+   *  cards sourced from the persisted gap engine ("X ranks 3 on Google for this,
+   *  about 1,900 searches a month"). Undefined on graph-sourced cards. */
+  gapEvidence?: string | null;
 };
 
 export type NewPagesData = {
@@ -141,8 +146,9 @@ export async function buildNewPagesData(tenantId: string): Promise<NewPagesData>
   let savedDrafts = new Map<string, MoveDraftRow>();
   let ownDomain = "";
   let kwDemandRows: KeywordDemand[] = [];
+  let storedGaps: StoredKeywordGaps | null = null;
   try {
-    const [graphRes, auditRes, draftRes, kwDemand] = await Promise.all([
+    const [graphRes, auditRes, draftRes, kwDemand, gapRes] = await Promise.all([
       withTimeout<Awaited<ReturnType<typeof loadDemandGraphForTenantCached>> | null>(
         loadDemandGraphForTenantCached(tenantId),
         // Was 8s — too tight for a cold graph, which made the whole New Pages board
@@ -158,8 +164,12 @@ export async function buildNewPagesData(tenantId: string): Promise<NewPagesData>
       // keyword-demand store (the same cache that powers /worklist). Replaces the
       // permanently-null searchVolume left after SEMrush was removed. Degrade-safe.
       withTimeout(readAllCachedKeywordDemand(), 4000, [] as Awaited<ReturnType<typeof readAllCachedKeywordDemand>>),
+      // Competitor keyword gap engine (2026-07-02, item 16) — the persisted gap
+      // run ("what else the winners rank for"), read at $0. Degrade-safe.
+      withTimeout(readKeywordGapResults(tenantId), 4000, null as StoredKeywordGaps | null),
     ]);
     kwDemandRows = kwDemand;
+    storedGaps = gapRes;
     if (!graphRes) return { opportunities: [], totalCandidates: 0, ownDomain: "" };
     moves = graphRes.graph.moves;
     ownDomain = deriveOwnDomain(graphRes.graph.pageNodes);
@@ -312,7 +322,58 @@ export async function buildNewPagesData(tenantId: string): Promise<NewPagesData>
     };
   });
 
-  return { opportunities, totalCandidates: createMoves.length, ownDomain };
+  // Competitor keyword gap cards (2026-07-02, item 16) — ADDITIVE: topics the gap
+  // engine found (competitor ranks top 20 on Google, tenant absent) that no
+  // graph-sourced card already covers. Persisted-store read only ($0 render);
+  // capped at 3 so the board stays a board, not a keyword dump.
+  const gapCards = buildGapOpportunities(storedGaps, [
+    ...opportunities.map((o) => o.topic),
+    ...createMoves.map((m) => m.label),
+  ]);
+
+  return { opportunities: [...opportunities, ...gapCards], totalCandidates: createMoves.length, ownDomain };
+}
+
+const MAX_GAP_CARDS = 3;
+
+/** Map the persisted keyword-gap run to New Page cards, skipping topics an existing
+ *  card/move already covers (simple containment on normalized labels). */
+function buildGapOpportunities(
+  stored: StoredKeywordGaps | null,
+  existingLabels: string[],
+): NewPageOpportunity[] {
+  if (!stored || stored.gaps.length === 0) return [];
+  const norm = (s: string) => s.toLowerCase().replace(/\s+/g, " ").trim();
+  const existing = existingLabels.map(norm).filter(Boolean);
+  const out: NewPageOpportunity[] = [];
+  for (const g of stored.gaps) {
+    if (out.length >= MAX_GAP_CARDS) break;
+    const kw = norm(g.keyword);
+    if (!kw || isJunkTopic(kw)) continue;
+    if (existing.some((e) => e.includes(kw) || kw.includes(e))) continue;
+    out.push({
+      id: `kwgap::${kw.replace(/\s+/g, "-")}`,
+      topic: cleanTopicLabel(titleCase(kw)),
+      competitorCount: 0, // Google-rank evidence, not AI-citation counts — stay honest
+      topCompetitor: g.competitorDomain,
+      whatWins: null,
+      searchVolume: g.volume,
+      keywordMatch: g.volume != null ? { keyword: kw, volume: g.volume, confidence: "exact" } : null,
+      tier: "emerging",
+      score: g.score,
+      savedOpening: null,
+      competitorDomains: [g.competitorDomain, ...g.alsoWonBy].slice(0, 6),
+      preparedVerdict: null,
+      preparedBrief: null,
+      briefQuality: null,
+      openingQuality: null,
+      aeoReceipt: null,
+      alsoCovers: [],
+      briefFromRelated: false,
+      gapEvidence: g.evidence,
+    });
+  }
+  return out;
 }
 
 export const loadNewPagesData = cache(

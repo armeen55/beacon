@@ -27,14 +27,17 @@ import { readCachedSerpPatterns, enrichPickSerpPatterns } from "@/domains/serp/r
 import type { SerpPattern } from "@/domains/serp/research-enrichment";
 import { loadChangePacksForTenant } from "@/domains/demand-graph/gap-compiler";
 import {
-  buildKeywordBrief, buildSerpEvidence, buildCompetitorEvidence,
+  buildKeywordBrief, buildSerpEvidence, buildCompetitorEvidence, buildRankMovementSentence,
   type CachedDemand, type SerpPatternLite, type EvidenceCompetitor, type DailyEvidenceBrief,
 } from "./daily-evidence-brief";
+import { rankDelta } from "@/domains/serp/serp-history";
 import { normalizePath } from "./daily-plan-types";
 import { aggregateSettled, proofHistoryLine } from "./proof-history-voice";
 import { reviewCandidateWithTeam } from "./team-review";
 import { loadEngineGapNotes } from "@/domains/ai-visibility/gap-store";
 import type { EngineGapNote } from "@/domains/ai-visibility/candidate-feed";
+import { loadQuerySpikes } from "@/domains/trend-radar/spike-store";
+import { buildSpikeHintNotes } from "@/domains/trend-radar/spike-hints";
 
 const ANIMAL = /\/iran-animals(\/|$)/;
 const pathOf = (u: string) => (u.replace(/^https?:\/\/[^/]+/, "") || "/").replace(/[?#].*$/, "").replace(/\/$/, "") || "/";
@@ -52,7 +55,7 @@ export type TodayPreviewResult = {
 };
 
 export async function buildTodayExperimentPreview(tenantId: string, now: Date = new Date()): Promise<TodayPreviewResult> {
-  const [signals, ledger, snaps, keywordDemand, serpPatterns, changePacks, engineGapsByUrl] = await Promise.all([
+  const [signals, ledger, snaps, keywordDemand, serpPatterns, changePacks, engineGapsByUrl, querySpikes] = await Promise.all([
     loadGscPageSignalsForTenant(tenantId),
     loadProofLedger(tenantId).catch(() => []),
     getPageSnapshots(),
@@ -68,6 +71,9 @@ export async function buildTodayExperimentPreview(tenantId: string, now: Date = 
     // Item 4: $0 read of last night's AI-engine gap diff (one engine cites a page, others do not),
     // bounded to 3 notes/night. Empty until the nightly 4-engine poll has run. Fail-soft to none.
     loadEngineGapNotes(tenantId, now).catch(() => new Map<string, EngineGapNote>()),
+    // Item 14: $0 read of last night's query-spike radar (this week vs the trailing 4-week
+    // baseline). Empty until the nightly pass has run. Fail-soft to none.
+    loadQuerySpikes(tenantId, now).catch(() => []),
   ]);
 
   // Keyword demand indexed by lowercased term, for the daily card's keyword-research evidence.
@@ -110,6 +116,16 @@ export async function buildTodayExperimentPreview(tenantId: string, now: Date = 
       snapshotFetchedAt: s.fetched_at,
     });
   }
+
+  // Item 14 - the trend-radar hint feed (engineGapsByUrl precedent): a spiking search only
+  // becomes a hint when its best page VERIFIABLY lacks an on-page answer for it (the same
+  // deterministic proposeAnswerGap test the answer lever uses, over cached crawl facts).
+  // Bounded to 3/night; a page without crawl facts gets no hint (never fabricate urgency).
+  const spikeHintsByPath = buildSpikeHintNotes(querySpikes, (topPageUrl, query) => {
+    const f = factsByPath.get(pathOf(topPageUrl));
+    if (!f) return false;
+    return proposeAnswerGap({ label: labelOf(topPageUrl), h1: f.h1, topQuery: query, bodyParagraphs: f.bodyParagraphs ?? [] }) != null;
+  });
 
   // Active topology (treated/control paths) + protected-destination predicate.
   const states = deriveExperimentStates(ledger, now);
@@ -266,6 +282,14 @@ export async function buildTodayExperimentPreview(tenantId: string, now: Date = 
     const queries = queriesByUrl.get(c.url) ?? [c.targetQuery];
     const kw = buildKeywordBrief(queries, demandByTerm);
     const serp = buildSerpEvidence(queries, serpByTerm);
+    // Item 17 - the literal observed Google position. When the append-only SERP history
+    // holds two observed positions for this pick's search (inside 45 days), say the real
+    // movement on the live-SERP evidence line. $0 read, fail-soft to honest silence.
+    if (serp) {
+      const delta = await rankDelta(tenantId, serp.query, 45, now).catch(() => null);
+      const movement = buildRankMovementSentence(delta);
+      if (movement) serp.rankMovement = movement;
+    }
     const competitor = competitorByPath.get(normalizePath(c.url));
     if (kw || serp || competitor) {
       c.evidenceBrief = {
@@ -287,7 +311,9 @@ export async function buildTodayExperimentPreview(tenantId: string, now: Date = 
       c.teamReview.voices.push({
         specialist: "dataforseo",
         label: "Live Google results",
-        claim: `On Google right now, ${shape} pages win for this search${led ? `, led by ${led}` : ""}.`,
+        // Item 17: when history holds two observed positions, the literal movement rides
+        // the same sentence ("You moved 9 to 6 on Google for this search since Jun 20.").
+        claim: `On Google right now, ${shape} pages win for this search${led ? `, led by ${led}` : ""}.${serp.rankMovement ? ` ${serp.rankMovement}` : ""}`,
         confidencePct: 75,
       });
     }
@@ -303,6 +329,18 @@ export async function buildTodayExperimentPreview(tenantId: string, now: Date = 
         specialist: "dataforseo",
         label: "Keyword research",
         claim: `${(best.volume ?? 0).toLocaleString()} searches a month for "${best.term}"${comp}${more}.`,
+        confidencePct: 80,
+      });
+    }
+    // Item 14 - the TREND-RADAR voice: when this pick's page has a spiking search it does not
+    // answer yet, the week-over-week jump argues for shipping THIS week. Deterministic, from
+    // last night's persisted spike pass ($0).
+    const spikeHint = spikeHintsByPath.get(normalizePath(c.url));
+    if (spikeHint && c.teamReview && !c.teamReview.voices.some((v) => v.label === "Search demand spike")) {
+      c.teamReview.voices.push({
+        specialist: "gsc",
+        label: "Search demand spike",
+        claim: `${spikeHint.sentence} The page has no direct answer for it yet, so this change is worth shipping this week.`,
         confidencePct: 80,
       });
     }

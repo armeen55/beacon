@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
-  buildKeywordBrief, buildSerpEvidence, whatToSteal, buildCompetitorEvidence,
+  buildKeywordBrief, buildSerpEvidence, whatToSteal, buildCompetitorEvidence, buildRankMovementSentence,
   type CachedDemand, type SerpPatternLite,
 } from "./daily-evidence-brief";
 
@@ -145,5 +145,41 @@ describe("buildCompetitorEvidence", () => {
       url: "https://en.wikipedia.org/wiki/Flag_of_Iran",
       whatToSteal: "a direct answer at the top, an FAQ section",
     });
+  });
+});
+
+describe("buildRankMovementSentence (item 17)", () => {
+  it("turns a real observed delta into the literal movement sentence", () => {
+    const s = buildRankMovementSentence({ fromRank: 9, toRank: 6, fromAt: "2026-06-20T00:00:00Z" });
+    expect(s).toBe("You moved 9 to 6 on Google for this search since Jun 20.");
+  });
+
+  it("states a drop just as plainly (owned, not dressed up)", () => {
+    const s = buildRankMovementSentence({ fromRank: 4, toRank: 8, fromAt: "2026-06-20T00:00:00Z" });
+    expect(s).toBe("You moved 4 to 8 on Google for this search since Jun 20.");
+  });
+
+  it("says held when the observed position did not change", () => {
+    const s = buildRankMovementSentence({ fromRank: 6, toRank: 6, fromAt: "2026-06-20T00:00:00Z" });
+    expect(s).toBe("You have held spot 6 on Google for this search since Jun 20.");
+  });
+
+  it("is honest silence (null) without a delta or with a bad date", () => {
+    expect(buildRankMovementSentence(null)).toBeNull();
+    expect(buildRankMovementSentence(undefined)).toBeNull();
+    expect(buildRankMovementSentence({ fromRank: 9, toRank: 6, fromAt: "not-a-date" })).toBeNull();
+    expect(buildRankMovementSentence({ fromRank: Number.NaN, toRank: 6, fromAt: "2026-06-20T00:00:00Z" })).toBeNull();
+  });
+
+  it("never emits an em or en dash (dash guard)", () => {
+    const sentences = [
+      buildRankMovementSentence({ fromRank: 9, toRank: 6, fromAt: "2026-06-20T00:00:00Z" }),
+      buildRankMovementSentence({ fromRank: 6, toRank: 6, fromAt: "2026-06-20T00:00:00Z" }),
+      buildRankMovementSentence({ fromRank: 4, toRank: 8, fromAt: "2026-12-31T00:00:00Z" }),
+    ];
+    for (const s of sentences) {
+      expect(s).toBeTruthy();
+      expect(s).not.toMatch(/[–—]/);
+    }
   });
 });

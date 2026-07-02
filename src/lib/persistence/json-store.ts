@@ -91,6 +91,16 @@ const SUPABASE_MIRRORED_STORES = new Set<string>([
   // must survive lambda recycling; losing the marker only costs a harmless
   // re-warm, but the mirror keeps the receipt line truthful on hosted prod.
   "precompute-warm-receipts",
+  // 2026-07-02 item 14 - nightly query-spike radar. Written by the cron (Vercel
+  // lambda: no disk), read by the Today Demand band + the daily plan builder;
+  // without the mirror this week's spikes would be silent-empty on hosted prod.
+  "trend-query-spikes",
+  // 2026-07-02 item 16 - competitor keyword gap engine. The Labs cache is a COST
+  // guarantee (a re-run within 30 days must not re-spend, which only holds on
+  // Vercel with the mirror); the results store is what the New Pages board reads
+  // at $0. File-only, both would be silent-empty on hosted prod.
+  "dataforseo-labs-cache",
+  "keyword-gap-results",
 ]);
 
 const BLOBS_TABLE = "json_store_blobs";

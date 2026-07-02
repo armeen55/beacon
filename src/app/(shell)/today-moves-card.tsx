@@ -21,6 +21,7 @@ import {
 } from "lucide-react";
 import { respondToRecommendation } from "./recommendation-actions";
 import { draftMoveAnswerBlockAction, draftMoveFaqAction } from "./today-moves-actions";
+import { stageMoveInWixAction } from "./stage-in-wix-actions";
 import type { TodayMove } from "./today-moves-data";
 import { teammateOf } from "@/domains/team/identity";
 import { Sparkline } from "@/components/data/sparkline";
@@ -226,6 +227,36 @@ export function MoveCard({ m, rank }: { m: TodayMove; rank: number }) {
       }
     });
   };
+
+  // Item 15 - "Stage in Wix": one click puts a pushable change into Wix through
+  // the existing armed-publish rails (snapshot first, daily cap, Ritz blocked).
+  // Only offered when the loader says the site is armed + this change is
+  // pushable; the server action re-checks every gate and fails closed to paste.
+  const canStage = Boolean(m.staging?.enabled) && !m.alreadyMeasuring && !m.pageMeasuring;
+  const [stagedLine, setStagedLine] = useState<string | null>(null);
+  const [stageMsg, setStageMsg] = useState<string | null>(null);
+  const stage = () => {
+    startTransition(async () => {
+      setStageMsg(null);
+      try {
+        const r = await stageMoveInWixAction({ moveId: m.id });
+        if (r.staged) {
+          setStagedLine(r.receiptLine);
+          // Record the same accepted response "Ship it" records, so the loop
+          // (confirm live -> measure) continues unchanged. Best-effort: the
+          // stage already landed and is snapshot-protected.
+          try {
+            await respondToRecommendation(m.id, "accepted", { targetPageUrl: m.targetUrl, actionType: m.action, query: m.query });
+          } catch { /* the queue can still be actioned from /recommendations */ }
+          setState("shipped");
+        } else {
+          setStageMsg(r.receiptLine);
+        }
+      } catch {
+        setStageMsg("I could not stage this one in Wix, so copy and paste it yourself.");
+      }
+    });
+  };
   const snooze = () => {
     setState("snoozed"); // optimistic
     startTransition(async () => {
@@ -244,7 +275,10 @@ export function MoveCard({ m, rank }: { m: TodayMove; rank: number }) {
           <Check className="h-4 w-4" aria-hidden />
         </span>
         <div className="flex-1">
-          <div className="font-semibold">Shipped - {titleCase(m.query)}</div>
+          <div className="font-semibold">{stagedLine ? "Staged in Wix" : "Shipped"} - {titleCase(m.query)}</div>
+          {stagedLine ? (
+            <div role="status" className="text-xs text-emerald-700 dark:text-emerald-300">{stagedLine}</div>
+          ) : null}
           <div className="text-xs text-emerald-700 dark:text-emerald-300">
             Once it&apos;s live on the page,{" "}
             <Link href={`/proof?page=${encodeURIComponent(m.targetUrl)}`} className={`rounded-sm font-semibold underline hover:text-emerald-900 dark:hover:text-emerald-100 ${FOCUS}`}>
@@ -933,13 +967,26 @@ export function MoveCard({ m, rank }: { m: TodayMove; rank: number }) {
       ) : null}
 
       <div className="mt-4 flex items-center gap-3 border-t border-gray-100 pt-3 dark:border-neutral-800">
+        {/* Item 15 - the primary apply affordance becomes "Stage in Wix" when the
+            site is armed and this change is pushable; Ship it stays as the manual
+            fallback ("I did it myself"). */}
+        {canStage ? (
+          <button
+            onClick={stage}
+            disabled={pending}
+            className={`inline-flex items-center gap-1 rounded-lg px-3.5 py-1.5 text-xs font-semibold text-white transition-colors disabled:opacity-60 ${tone.btn} ${FOCUS}`}
+            title="I make this change in Wix for you and save the old version first, so one click restores it."
+          >
+            <Zap className="h-3.5 w-3.5" aria-hidden />Stage in Wix
+          </button>
+        ) : null}
         {/* Already mid-measurement on this exact page+action: a second ship would
             contaminate the open proof window - demote Ship, don't block it. */}
         <button
           onClick={ship}
           disabled={pending}
           className={
-            m.alreadyMeasuring || m.pageMeasuring
+            m.alreadyMeasuring || m.pageMeasuring || canStage
               ? `inline-flex items-center gap-1 rounded-lg border border-gray-300 bg-white px-3.5 py-1.5 text-xs font-semibold text-gray-600 transition-colors hover:bg-gray-50 disabled:opacity-60 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-300 dark:hover:bg-neutral-800 ${FOCUS}`
               : `inline-flex items-center gap-1 rounded-lg px-3.5 py-1.5 text-xs font-semibold text-white transition-colors disabled:opacity-60 ${tone.btn} ${FOCUS}`
           }
@@ -948,10 +995,12 @@ export function MoveCard({ m, rank }: { m: TodayMove; rank: number }) {
               ? "This page+change is already measuring - shipping again would muddy the proof window"
               : m.pageMeasuring
                 ? "This page is mid-measurement on another change - a second change muddies the open proof window"
-                : undefined
+                : canStage
+                  ? "Applied the change yourself? Click this and I start the measure loop."
+                  : undefined
           }
         >
-          {m.alreadyMeasuring || m.pageMeasuring ? "Ship anyway" : <><Zap className="h-3.5 w-3.5" aria-hidden />Ship it</>}
+          {m.alreadyMeasuring || m.pageMeasuring ? "Ship anyway" : canStage ? "I did it myself" : <><Zap className="h-3.5 w-3.5" aria-hidden />Ship it</>}
         </button>
         {hasDraft ? (
           <button
@@ -988,6 +1037,26 @@ export function MoveCard({ m, rank }: { m: TodayMove; rank: number }) {
           Not relevant
         </button>
       </div>
+
+      {/* Item 15 - the paste flow stays the visible fallback next to staging. */}
+      {canStage ? (
+        <p className="mt-1.5 text-[11px] text-gray-400 dark:text-neutral-500">
+          Stage in Wix makes this change for you and saves the old version first, or copy and paste it yourself and click I did it myself.
+        </p>
+      ) : null}
+      {stageMsg ? (
+        <p role="status" aria-live="polite" className="mt-1.5 text-[11px] text-amber-600 dark:text-amber-400">{stageMsg}</p>
+      ) : null}
+      {/* Item 15 - quiet nudge: this change is pushable, but publishing is not armed. */}
+      {m.staging?.nudge && !canStage ? (
+        <p className="mt-1.5 text-[11px] text-gray-400 dark:text-neutral-500">
+          I can put this change into Wix for you.{" "}
+          <Link href="/settings/connectors" className={`rounded-sm font-medium underline underline-offset-2 hover:text-gray-700 dark:hover:text-neutral-300 ${FOCUS}`}>
+            Turn on publishing
+          </Link>{" "}
+          and it becomes one click.
+        </p>
+      ) : null}
     </div>
   );
 }

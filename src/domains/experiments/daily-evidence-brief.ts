@@ -28,6 +28,13 @@ export type EvidenceSerp = {
   winningDomains: string[];
   /** The on-page move the winning shape implies (e.g. "lead with a direct answer"). */
   whatToDo: string;
+  /**
+   * Item 17: the literal observed movement of the tenant's own Google position for
+   * this search, e.g. "You moved 9 to 6 on Google for this search since Jun 20."
+   * Absent until the append-only SERP history holds two observed positions - honest
+   * silence, never inferred.
+   */
+  rankMovement?: string;
 };
 
 /** The top competitor page beating this page, and the specific thing to steal from it. */
@@ -86,6 +93,32 @@ export function buildSerpEvidence(
     }
   }
   return null;
+}
+
+/** The observed own-rank movement the sentence builder needs (from serp-history's rankDelta). */
+export type RankMovementInput = {
+  fromRank: number;
+  toRank: number;
+  /** ISO timestamp of the earlier observation - becomes the "since Jun 20" date. */
+  fromAt: string;
+};
+
+/**
+ * Item 17: turn a REAL observed rank delta into one first-person sentence for the daily
+ * card's live-SERP evidence line. Pure. Null in (no two observed positions yet) = null
+ * out - honest silence. Lower rank number = higher on Google, so 9 to 6 is a win; we
+ * state the literal numbers either way and never dress a drop up as anything else.
+ */
+export function buildRankMovementSentence(delta: RankMovementInput | null | undefined): string | null {
+  if (!delta) return null;
+  if (!Number.isFinite(delta.fromRank) || !Number.isFinite(delta.toRank)) return null;
+  const sinceMs = Date.parse(delta.fromAt);
+  if (!Number.isFinite(sinceMs)) return null;
+  const since = new Date(sinceMs).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
+  if (delta.fromRank === delta.toRank) {
+    return `You have held spot ${delta.toRank} on Google for this search since ${since}.`;
+  }
+  return `You moved ${delta.fromRank} to ${delta.toRank} on Google for this search since ${since}.`;
 }
 
 /**

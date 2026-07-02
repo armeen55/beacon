@@ -15,6 +15,11 @@ import { loadCrawlCitationFunnel } from "@/domains/ai-visibility/load-crawl-cita
 import { funnelSummaryLine } from "@/domains/ai-visibility/crawl-citation-funnel";
 import { currentTenantSlug } from "@/lib/tenant-context";
 import { loadDemandOpportunities } from "@/domains/demand/load-demand-opportunities";
+import { loadQuerySpikes } from "@/domains/trend-radar/spike-store";
+import { matchSpikeToMove, type MatchableMove } from "@/domains/trend-radar/spike-move-match";
+import type { QuerySpike } from "@/domains/trend-radar/query-spikes";
+import { readWorklistSurface } from "./worklist-surface-store";
+import { deriveStatus, statusView } from "@/domains/changes/canonical-change";
 import Link from "next/link";
 import { WarRoomCopyButton } from "./war-room-copy-button";
 
@@ -210,15 +215,40 @@ export async function AiCrawlerSection({ tenantId }: { tenantId: string }) {
   }
 }
 
+/** Item 14 - this week's query spikes ($0 store read from last night's radar pass),
+ *  each deep-linked to its matching worklist change when one exists. The match runs
+ *  against the cached WORKLIST SURFACE rows (the exact rows /worklist renders, $0
+ *  read, no compute on miss) and only rows in the default To do / Ready views, so
+ *  the "See the matching change" link can never land on an empty filter. Fail-soft
+ *  to sentence-only rows; silence when nothing is spiking. */
+async function loadSpikeRows(tenantId: string): Promise<Array<{ spike: QuerySpike; searchTerm: string | null }>> {
+  const spikes = (await loadQuerySpikes(tenantId).catch(() => [])).slice(0, 2);
+  if (spikes.length === 0) return [];
+  const surface = await readWorklistSurface().catch(() => null);
+  const moves: MatchableMove[] = (surface?.data.moves ?? [])
+    .filter((m) => {
+      const view = statusView(
+        deriveStatus({ proofStatus: m.proofStatus, alreadyMeasuring: m.alreadyMeasuring, pageMeasuring: m.pageMeasuring }),
+      );
+      return view === "todo" || view === "ready";
+    })
+    .map((m) => ({ label: m.pageLabel, query: m.query, ownedUrl: m.targetUrl }));
+  return spikes.map((spike) => ({ spike, searchTerm: matchSpikeToMove(spike, moves)?.searchTerm ?? null }));
+}
+
 /** Market demand (DataForSEO teammate): real search demand you don't own yet, from the cached
- *  keyword universe. Self-hides until keyword research has run; once research HAS run and
+ *  keyword universe, PLUS this week's query spikes from your own Google data (item 14).
+ *  Self-hides until keyword research has run AND nothing is spiking; once research HAS run and
  *  found no gap, that is a finding worth one quiet card (item 21), never a blank space. */
 export async function DemandOpportunitiesSection({ tenantId }: { tenantId: string }) {
   try {
-    const res = await loadDemandOpportunities(tenantId, { limit: 5 });
-    // Research never ran: nothing honest to say yet, stay silent.
-    if (res.keywordsConsidered === 0) return null;
-    if (res.opportunities.length === 0 && res.trends.length === 0) {
+    const [res, spikeRows] = await Promise.all([
+      loadDemandOpportunities(tenantId, { limit: 5 }),
+      loadSpikeRows(tenantId),
+    ]);
+    // Research never ran and nothing is spiking: nothing honest to say yet, stay silent.
+    if (res.keywordsConsidered === 0 && spikeRows.length === 0) return null;
+    if (res.opportunities.length === 0 && res.trends.length === 0 && spikeRows.length === 0) {
       // Item 21 - designed empty state: keyword research DID run and found no new gap.
       return (
         <section aria-label="Demand opportunities" className={CARD}>
@@ -237,10 +267,34 @@ export async function DemandOpportunitiesSection({ tenantId }: { tenantId: strin
       <section aria-label="Demand opportunities" className={CARD}>
         <div className="flex items-baseline justify-between gap-2">
           <div className={HEAD}>Demand you do not own yet</div>
-          <span className="text-[11px] tabular-nums text-gray-400 dark:text-neutral-500">{res.keywordsConsidered.toLocaleString()} keywords researched</span>
+          {res.keywordsConsidered > 0 ? (
+            <span className="text-[11px] tabular-nums text-gray-400 dark:text-neutral-500">{res.keywordsConsidered.toLocaleString()} keywords researched</span>
+          ) : null}
         </div>
-        <p className="mt-1 text-xs text-gray-500 dark:text-neutral-400">Real monthly searches (DataForSEO) where no page of yours is the answer today.</p>
+        <p className="mt-1 text-xs text-gray-500 dark:text-neutral-400">
+          {spikeRows.length > 0
+            ? "Searches moving this week in your own Google data, then gaps from keyword research."
+            : "Real monthly searches (DataForSEO) where no page of yours is the answer today."}
+        </p>
         <div className="mt-2 space-y-1.5">
+          {/* Item 14 - this week's query spikes: time-boxed demand from last night's radar pass. */}
+          {spikeRows.map(({ spike, searchTerm }) => (
+            <div key={`s-${spike.query}`} className="rounded-xl bg-amber-50/70 px-3 py-2 dark:bg-amber-950/30">
+              <p className="text-[13px] font-medium text-amber-900 dark:text-amber-200">{spike.sentence}</p>
+              <p className="mt-0.5 flex flex-wrap items-baseline gap-x-2 text-[12px] text-amber-800/90 dark:text-amber-300/90">
+                {spike.topPage ? <span>Your best matching page: {prettyPath(spike.topPage)}.</span> : null}
+                <span>Worth a same-week answer.</span>
+                {searchTerm ? (
+                  <Link
+                    href={`/worklist?search=${encodeURIComponent(searchTerm)}`}
+                    className={`rounded-sm font-medium text-amber-700 underline underline-offset-2 hover:text-amber-900 dark:text-amber-300 dark:hover:text-amber-100 ${FOCUS}`}
+                  >
+                    See the matching change
+                  </Link>
+                ) : null}
+              </p>
+            </div>
+          ))}
           {res.opportunities.slice(0, 5).map((o) => (
             <div key={o.id} className="flex flex-wrap items-baseline gap-2 rounded-xl bg-gray-50 px-3 py-2 dark:bg-neutral-800/60">
               <span className="text-[13px] font-semibold text-gray-800 dark:text-neutral-200">{o.primaryKeyword}</span>
@@ -304,9 +358,16 @@ export async function WarRoomQuietLine({ tenantId }: { tenantId: string }) {
       )
       .catch(() => true),
     // Demand band renders whenever keyword research has run (gaps or the item-21 empty
-    // state), so quiet = research never ran and nothing surfaced.
-    loadDemandOpportunities(tenantId, { limit: 5 })
-      .then((res) => res.keywordsConsidered === 0 && res.opportunities.length === 0 && res.trends.length === 0)
+    // state) OR a query spike exists (item 14, a $0 store read), so quiet = research
+    // never ran, nothing surfaced, and nothing is spiking.
+    Promise.all([
+      loadDemandOpportunities(tenantId, { limit: 5 }),
+      loadQuerySpikes(tenantId).catch(() => []),
+    ])
+      .then(
+        ([res, spikes]) =>
+          res.keywordsConsidered === 0 && res.opportunities.length === 0 && res.trends.length === 0 && spikes.length === 0,
+      )
       .catch(() => true),
   ]);
   if (!clarityQuiet || !aiQuiet || !demandQuiet) return null;

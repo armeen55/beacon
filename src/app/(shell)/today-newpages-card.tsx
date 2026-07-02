@@ -162,6 +162,14 @@ export function NewPageCard({ o, ownDomain, enableAeoBrief = false }: { o: NewPa
           </p>
         ) : null}
         {o.topCompetitor ? <p className="mt-1 text-[11px] text-gray-400">e.g. {o.topCompetitor}</p> : null}
+        {o.gapEvidence ? (
+          <p
+            className="mt-1.5 rounded-md bg-indigo-50/70 px-2 py-1 text-[11px] leading-snug text-indigo-900 ring-1 ring-indigo-100"
+            title="From the competitor keyword gap check (Google index data, cached 30 days)"
+          >
+            {o.gapEvidence}
+          </p>
+        ) : null}
         {o.aeoReceipt ? (
           <div className="mt-2 rounded-lg border border-violet-100 bg-violet-50/60 px-2.5 py-2">
             <div className="text-[10px] font-semibold uppercase tracking-wide text-violet-700">✦ AI-validated</div>

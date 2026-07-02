@@ -239,6 +239,14 @@ export const GLOBAL_STORES = new Set<string>([
   // 14-day cache actually persist (the cost-discipline guarantee).
   "dataforseo-serp-cache", // SERP top-10 cache (domains/serp/dataforseo-serp.ts)
   "dataforseo-keywords-cache", // keyword-volume cache (domains/serp/dataforseo-keywords.ts)
+  // Competitor keyword gap engine (2026-07-02, master plan item 16). The Labs
+  // cache is public market data (keyed by endpoint+location+lang+domain, no
+  // tenant secrets) - global like the other DataForSEO caches so its 30-day
+  // TTL actually prevents re-spend. The results store carries tenant_id rows
+  // (ai-engine-gap-summary precedent: the precompute path reads it with no
+  // ambient request context, so per-tenant path routing would misfile it).
+  "dataforseo-labs-cache", // ranked_keywords/domain_intersection 30d cache (domains/serp/dataforseo-labs.ts)
+  "keyword-gap-results", // latest per-tenant gap run (domains/serp/keyword-gap-store.ts)
   // Nightly AI-engines poll (2026-07-01, master plan item 4). Single files whose
   // rows carry tenant_id; the cron fans out across tenants with no ambient
   // request context, so per-tenant path routing would misfile them.
@@ -252,6 +260,10 @@ export const GLOBAL_STORES = new Set<string>([
   // fan-out rationale: rows carry tenant_id. Per-day run marker (double-fire
   // idempotency) + the "last warmed" receipts /diagnostics shows.
   "precompute-warm-receipts",
+  // Trend radar (2026-07-02, master plan item 14). Same cron fan-out rationale:
+  // rows carry tenant_id. Latest per-tenant week-over-week query-spike list
+  // ($0 Today Demand band + daily plan hint reads).
+  "trend-query-spikes",
   "adjudicator-history", // LLM call audit log; operator-shared
   "llm-budget", // operator-paid monthly LLM spend cap
   "llm-history-specific-edits", // Sprint 6A.2c (2026-04-26) — Specific

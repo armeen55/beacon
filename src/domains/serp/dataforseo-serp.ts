@@ -2,7 +2,7 @@ import "server-only";
 
 import { log } from "@/lib/logger";
 import { readStore, writeStore } from "@/lib/persistence/json-store";
-import { currentTenantId } from "@/lib/tenant-context";
+import { currentTenantId, currentTenant } from "@/lib/tenant-context";
 import {
   recordSpendSupabase,
   getTenantSpentThisMonthUsd,
@@ -111,11 +111,50 @@ export function planSerpCall(
   };
 }
 
-type CacheRow = { key: string; snapshot: SerpSnapshot; fetchedAt: string };
+/** One 14-day cache row. Exported (type-only) so the history backfill script can
+ *  read the real cache without re-declaring its shape. */
+export type SerpCacheRow = { key: string; snapshot: SerpSnapshot; fetchedAt: string };
+type CacheRow = SerpCacheRow;
 const cacheKey = (plan: SerpPlan): string => `${plan.locationCode}|${plan.languageCode}|${plan.query.toLowerCase()}`;
 
-/** Parse a DataForSEO organic-live response body into our SerpSnapshot. */
-export function parseDataForSeoSerp(query: string, body: unknown, nowIso: string): SerpSnapshot {
+/** One organic result in rank order: the minimal { rank, domain, url } triple the
+ *  history table stores per snapshot (item 17). */
+export type SerpOrganicItem = { rank: number; domain: string; url: string };
+
+/** parseDataForSeoSerp's return: the existing SerpSnapshot PLUS the ranked organic
+ *  triples. Additive - every existing consumer keeps treating it as a SerpSnapshot. */
+export type ParsedSerp = SerpSnapshot & { organicItems: SerpOrganicItem[] };
+
+/** The ranked { rank, domain, url } triples of a snapshot's organic results. Pure. */
+export function organicItemsOf(snapshot: SerpSnapshot): SerpOrganicItem[] {
+  return snapshot.results.map((r) => ({ rank: r.rank, domain: r.domain, url: r.url }));
+}
+
+/**
+ * Where does the tenant's OWN domain sit in this snapshot? Pure. Handles the known
+ * URL traps: schemeless forms ("www.iranopedia.com/x"), scheme + www prefixes on
+ * the tenant domain itself, and subdomains ("blog.iranopedia.com" counts as owned).
+ * Suffix look-alikes ("notiranopedia.com") do NOT match. Returns nulls when the
+ * domain is absent from the captured results - never guessed.
+ */
+export function resolveOwnRank(
+  items: SerpOrganicItem[],
+  tenantDomain: string | null | undefined,
+): { ownRank: number | null; ownUrl: string | null } {
+  const own = rootDomain((tenantDomain ?? "").trim());
+  if (!own) return { ownRank: null, ownUrl: null };
+  for (const it of items) {
+    // Result domains come from rootDomain(url) (lowercased, www-stripped); item
+    // urls may still be schemeless, so normalize defensively here too.
+    const d = (it.domain || rootDomain(it.url)).toLowerCase();
+    if (d === own || d.endsWith(`.${own}`)) return { ownRank: it.rank, ownUrl: it.url };
+  }
+  return { ownRank: null, ownUrl: null };
+}
+
+/** Parse a DataForSEO organic-live response body into our SerpSnapshot (+ ranked
+ *  organic triples, item 17 - additive; consumers of SerpSnapshot are unchanged). */
+export function parseDataForSeoSerp(query: string, body: unknown, nowIso: string): ParsedSerp {
   const results: SerpResult[] = [];
   const features = new Set<SerpFeature>();
   const FEATURE_MAP: Record<string, SerpFeature> = {
@@ -146,7 +185,77 @@ export function parseDataForSeoSerp(query: string, body: unknown, nowIso: string
   } catch {
     /* malformed body → empty results (honest, never throws) */
   }
-  return { query, results, features: [...features], source: "dataforseo", fetchedAt: nowIso };
+  const snapshot: SerpSnapshot = { query, results, features: [...features], source: "dataforseo", fetchedAt: nowIso };
+  return { ...snapshot, organicItems: organicItemsOf(snapshot) };
+}
+
+// ─── Append-only SERP history (item 17) ─────────────────────────────────────
+//
+// Every OK live read ALSO appends one durable row to dataforseo_serp_history -
+// the time dimension the overwrite-style cache destroys. $0 marginal cost (the
+// read is already paid for). APPEND-ONLY: inserts use ON CONFLICT DO NOTHING;
+// nothing here ever updates or deletes a history row.
+
+/** One append-only history row - mirrors migrations/2026-07-02_dataforseo_serp_history.sql. */
+export type SerpHistoryRow = {
+  tenant_id: string;
+  id: string;
+  query: string;
+  location: string;
+  captured_at: string;
+  own_rank: number | null;
+  own_url: string | null;
+  top_domains: SerpOrganicItem[];
+  serp_features: string[];
+  raw_cost_usd: number;
+};
+
+/** Build the history row for one captured snapshot. Pure - shared by the live
+ *  writer and the backfill script so both produce byte-identical rows. */
+export function buildSerpHistoryRow(input: {
+  tenantId: string;
+  query: string;
+  location: string;
+  snapshot: SerpSnapshot;
+  tenantDomain: string | null;
+  capturedAt: string;
+  costUsd: number;
+}): SerpHistoryRow {
+  const normQuery = input.query.trim().toLowerCase();
+  const items = organicItemsOf(input.snapshot);
+  const own = resolveOwnRank(items, input.tenantDomain);
+  return {
+    tenant_id: input.tenantId,
+    id: `${normQuery}|${input.capturedAt}`,
+    query: normQuery,
+    location: input.location,
+    captured_at: input.capturedAt,
+    own_rank: own.ownRank,
+    own_url: own.ownUrl,
+    top_domains: items,
+    serp_features: [...input.snapshot.features],
+    raw_cost_usd: input.costUsd,
+  };
+}
+
+/** Default history appender: insert-or-ignore into Supabase (append-only). Throws
+ *  on error - the caller treats any failure as fail-soft (log + move on). */
+async function appendSerpHistorySupabase(row: SerpHistoryRow): Promise<void> {
+  const { getSupabaseAdmin } = await import("@/lib/persistence/supabase");
+  const { error } = await getSupabaseAdmin()
+    .from("dataforseo_serp_history")
+    .upsert(row, { onConflict: "tenant_id,id", ignoreDuplicates: true });
+  if (error) throw new Error(error.message ?? String(error));
+}
+
+/** Default tenant-domain resolver for own-rank extraction. Null when the tenant
+ *  record is unavailable (CLI without registry, misconfig) - fail-soft, never throws. */
+async function currentTenantDomain(): Promise<string | null> {
+  try {
+    return (await currentTenant()).domain ?? null;
+  } catch {
+    return null;
+  }
 }
 
 export type SerpRunDeps = {
@@ -158,6 +267,10 @@ export type SerpRunDeps = {
   readCache: () => Promise<CacheRow[]>;
   writeCache: (rows: CacheRow[]) => Promise<void>;
   fetchImpl: typeof fetch;
+  /** Item 17: the tenant's own domain for own-rank extraction (null = unknown). */
+  tenantDomain: () => Promise<string | null>;
+  /** Item 17: append ONE durable history row (append-only; failures are fail-soft). */
+  appendHistory: (row: SerpHistoryRow) => Promise<void>;
 };
 
 const defaultDeps: SerpRunDeps = {
@@ -169,6 +282,8 @@ const defaultDeps: SerpRunDeps = {
   readCache: () => readStore<CacheRow>(SERP_CACHE_STORE, []),
   writeCache: (rows) => writeStore(SERP_CACHE_STORE, rows),
   fetchImpl: fetch,
+  tenantDomain: currentTenantDomain,
+  appendHistory: appendSerpHistorySupabase,
 };
 
 /**
@@ -251,6 +366,29 @@ export async function runSerpQuery(
       await deps.writeCache(rows);
     } catch {
       /* cache write failure is non-fatal */
+    }
+    // Item 17 - append-only history row riding this already-paid read ($0 marginal).
+    // Best-effort + fail-soft: NEVER fails the main read; runs ONLY on real "ok"
+    // (never on cache hits / dry-run / capped / error). Awaited behind a catch so
+    // serverless does not silently drop the write - the same posture as recordSpend.
+    try {
+      const tenantDomain = await deps.tenantDomain().catch(() => null);
+      await deps.appendHistory(
+        buildSerpHistoryRow({
+          tenantId,
+          query: q,
+          location: `${plan.locationCode}|${plan.languageCode}`,
+          snapshot,
+          tenantDomain,
+          capturedAt: now.toISOString(),
+          costUsd: plan.estCostUsd,
+        }),
+      );
+    } catch (err) {
+      log.warn("[dataforseo-serp] history append failed (non-fatal)", {
+        query: q,
+        error: err instanceof Error ? err.message : String(err),
+      });
     }
     log.info("[dataforseo-serp] LEDGER", {
       tenantId,

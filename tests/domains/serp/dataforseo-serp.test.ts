@@ -7,7 +7,11 @@ import {
   isDataForSeoConfigured,
   isDryRun,
   monthlyCapUsd,
+  organicItemsOf,
+  resolveOwnRank,
+  buildSerpHistoryRow,
   type SerpRunDeps,
+  type SerpHistoryRow,
 } from "@/domains/serp/dataforseo-serp";
 
 const CONFIGURED = {
@@ -16,9 +20,15 @@ const CONFIGURED = {
   BEACON_SERP_PROVIDER: "dataforseo",
 } as unknown as NodeJS.ProcessEnv;
 
-function baseDeps(over: Partial<SerpRunDeps> = {}): { d: Partial<SerpRunDeps>; fetchCalls: number; spends: number[] } {
+function baseDeps(over: Partial<SerpRunDeps> = {}): {
+  d: Partial<SerpRunDeps>;
+  fetchCalls: number;
+  spends: number[];
+  historyRows: SerpHistoryRow[];
+} {
   let fetchCalls = 0;
   const spends: number[] = [];
+  const historyRows: SerpHistoryRow[] = [];
   const d: Partial<SerpRunDeps> = {
     env: { ...CONFIGURED, DATAFORSEO_DRY_RUN: "false" } as unknown as NodeJS.ProcessEnv,
     now: () => new Date("2026-06-25T00:00:00Z"),
@@ -39,9 +49,13 @@ function baseDeps(over: Partial<SerpRunDeps> = {}): { d: Partial<SerpRunDeps>; f
         ] }] }] }),
       } as unknown as Response;
     }) as unknown as typeof fetch,
+    tenantDomain: async () => "iranopedia.com",
+    appendHistory: async (row) => {
+      historyRows.push(row);
+    },
     ...over,
   };
-  return { d, get fetchCalls() { return fetchCalls; }, spends };
+  return { d, get fetchCalls() { return fetchCalls; }, spends, historyRows };
 }
 
 describe("DataForSEO SERP — config + helpers", () => {
@@ -73,6 +87,103 @@ describe("DataForSEO SERP — config + helpers", () => {
     expect(snap.results).toHaveLength(1);
     expect(snap.results[0].domain).toBe("a.com");
     expect(snap.features).toContain("featured_snippet");
+  });
+
+  it("parseDataForSeoSerp ADDITIONALLY returns ranked organicItems (item 17, additive)", () => {
+    const snap = parseDataForSeoSerp("q", { tasks: [{ result: [{ items: [
+      { type: "organic", url: "https://a.com/x", title: "X" },
+      { type: "people_also_ask" },
+      { type: "organic", url: "https://b.com/y", title: "Y" },
+    ] }] }] }, "2026-06-25T00:00:00Z");
+    expect(snap.organicItems).toEqual([
+      { rank: 1, domain: "a.com", url: "https://a.com/x" },
+      { rank: 2, domain: "b.com", url: "https://b.com/y" },
+    ]);
+    // organicItemsOf reproduces the same triples from any SerpSnapshot.
+    expect(organicItemsOf(snap)).toEqual(snap.organicItems);
+  });
+});
+
+describe("resolveOwnRank — the tenant's literal Google position", () => {
+  const items = [
+    { rank: 1, domain: "theknot.com", url: "https://theknot.com/persian-wedding" },
+    { rank: 2, domain: "iranopedia.com", url: "https://www.iranopedia.com/persian-wedding" },
+    { rank: 3, domain: "brides.com", url: "https://brides.com/x" },
+  ];
+
+  it("finds the own rank for a bare tenant domain", () => {
+    expect(resolveOwnRank(items, "iranopedia.com")).toEqual({
+      ownRank: 2,
+      ownUrl: "https://www.iranopedia.com/persian-wedding",
+    });
+  });
+
+  it("handles scheme + www forms of the tenant domain (the schemeless trap)", () => {
+    expect(resolveOwnRank(items, "https://www.iranopedia.com").ownRank).toBe(2);
+    expect(resolveOwnRank(items, "www.iranopedia.com").ownRank).toBe(2);
+    expect(resolveOwnRank(items, "IRANOPEDIA.COM").ownRank).toBe(2);
+  });
+
+  it("matches subdomains of the tenant domain", () => {
+    const withSub = [{ rank: 4, domain: "blog.iranopedia.com", url: "https://blog.iranopedia.com/p" }];
+    expect(resolveOwnRank(withSub, "iranopedia.com").ownRank).toBe(4);
+  });
+
+  it("resolves schemeless result urls when the domain field is empty", () => {
+    const schemeless = [{ rank: 5, domain: "", url: "www.iranopedia.com/persian-cats" }];
+    expect(resolveOwnRank(schemeless, "iranopedia.com")).toEqual({
+      ownRank: 5,
+      ownUrl: "www.iranopedia.com/persian-cats",
+    });
+  });
+
+  it("does NOT match suffix look-alikes and answers null honestly", () => {
+    const lookAlike = [{ rank: 1, domain: "notiranopedia.com", url: "https://notiranopedia.com/x" }];
+    expect(resolveOwnRank(lookAlike, "iranopedia.com")).toEqual({ ownRank: null, ownUrl: null });
+    expect(resolveOwnRank(items, "ritzbuilders.com")).toEqual({ ownRank: null, ownUrl: null });
+    expect(resolveOwnRank(items, null)).toEqual({ ownRank: null, ownUrl: null });
+    expect(resolveOwnRank(items, "")).toEqual({ ownRank: null, ownUrl: null });
+  });
+});
+
+describe("buildSerpHistoryRow — the append-only history row", () => {
+  it("builds a normalized, fully-populated row (shared by live writer + backfill)", () => {
+    const snapshot = parseDataForSeoSerp("Persian Wedding", { tasks: [{ result: [{ items: [
+      { type: "organic", url: "https://theknot.com/x", title: "X" },
+      { type: "organic", url: "https://iranopedia.com/persian-wedding", title: "Y" },
+      { type: "people_also_ask" },
+    ] }] }] }, "2026-06-25T00:00:00Z");
+    const row = buildSerpHistoryRow({
+      tenantId: "tenant-iranopedia",
+      query: " Persian Wedding ",
+      location: "2840|en",
+      snapshot,
+      tenantDomain: "iranopedia.com",
+      capturedAt: "2026-06-25T00:00:00.000Z",
+      costUsd: 0.003,
+    });
+    expect(row.tenant_id).toBe("tenant-iranopedia");
+    expect(row.query).toBe("persian wedding");
+    expect(row.id).toBe("persian wedding|2026-06-25T00:00:00.000Z");
+    expect(row.location).toBe("2840|en");
+    expect(row.own_rank).toBe(2);
+    expect(row.own_url).toBe("https://iranopedia.com/persian-wedding");
+    expect(row.top_domains).toHaveLength(2);
+    expect(row.top_domains[0]).toEqual({ rank: 1, domain: "theknot.com", url: "https://theknot.com/x" });
+    expect(row.serp_features).toEqual(["people_also_ask"]);
+    expect(row.raw_cost_usd).toBe(0.003);
+  });
+
+  it("answers null own_rank when the tenant domain is unknown or absent", () => {
+    const snapshot = parseDataForSeoSerp("q", { tasks: [{ result: [{ items: [
+      { type: "organic", url: "https://a.com/x", title: "X" },
+    ] }] }] }, "2026-06-25T00:00:00Z");
+    const row = buildSerpHistoryRow({
+      tenantId: "t", query: "q", location: "", snapshot, tenantDomain: null,
+      capturedAt: "2026-06-25T00:00:00.000Z", costUsd: 0,
+    });
+    expect(row.own_rank).toBeNull();
+    expect(row.own_url).toBeNull();
   });
 });
 
@@ -128,5 +239,79 @@ describe("runSerpQuery — money guardrails", () => {
     expect(bd.spends).toHaveLength(1);
     expect(r.snapshot?.results[0]?.domain).toBe("theknot.com");
     expect(r.snapshot?.features).toContain("people_also_ask");
+  });
+});
+
+describe("runSerpQuery — append-only SERP history (item 17)", () => {
+  it("OK live read appends exactly ONE history row with the observed data", async () => {
+    const bd = baseDeps();
+    const r = await runSerpQuery("Persian Wedding", {}, bd.d);
+    expect(r.status).toBe("ok");
+    expect(bd.historyRows).toHaveLength(1);
+    const row = bd.historyRows[0];
+    expect(row.tenant_id).toBe("tenant-iranopedia");
+    expect(row.query).toBe("persian wedding");
+    expect(row.id).toBe("persian wedding|2026-06-25T00:00:00.000Z");
+    expect(row.location).toBe("2840|en");
+    expect(row.captured_at).toBe("2026-06-25T00:00:00.000Z");
+    // theknot.com holds rank 1; iranopedia.com is absent → own_rank stays null (honest).
+    expect(row.own_rank).toBeNull();
+    expect(row.top_domains).toEqual([{ rank: 1, domain: "theknot.com", url: "https://theknot.com/persian-wedding" }]);
+    expect(row.serp_features).toEqual(["people_also_ask"]);
+    expect(row.raw_cost_usd).toBe(r.costUsd);
+  });
+
+  it("history append failure is FAIL-SOFT — the read still returns ok", async () => {
+    const bd = baseDeps({
+      appendHistory: async () => {
+        throw new Error("table missing");
+      },
+    });
+    const r = await runSerpQuery("persian wedding", {}, bd.d);
+    expect(r.status).toBe("ok");
+    expect(r.snapshot?.results).toHaveLength(1);
+  });
+
+  it("tenantDomain failure is FAIL-SOFT — row still appends with null own_rank", async () => {
+    const bd = baseDeps({
+      tenantDomain: async () => {
+        throw new Error("no tenant registry");
+      },
+    });
+    const r = await runSerpQuery("persian wedding", {}, bd.d);
+    expect(r.status).toBe("ok");
+    expect(bd.historyRows).toHaveLength(1);
+    expect(bd.historyRows[0].own_rank).toBeNull();
+  });
+
+  it("cache hit → NO history write (history rides paid reads only)", async () => {
+    const bd = baseDeps({
+      readCache: async () => [
+        { key: "2840|en|iran flag", snapshot: { query: "iran flag", results: [], features: [], source: "dataforseo", fetchedAt: "2026-06-20T00:00:00Z" }, fetchedAt: "2026-06-20T00:00:00Z" },
+      ],
+    });
+    const r = await runSerpQuery("iran flag", {}, bd.d);
+    expect(r.status).toBe("cache_hit");
+    expect(bd.historyRows).toHaveLength(0);
+  });
+
+  it("dry-run → NO history write", async () => {
+    const bd = baseDeps({ env: { ...CONFIGURED } as unknown as NodeJS.ProcessEnv });
+    const r = await runSerpQuery("iran flag", {}, bd.d);
+    expect(r.status).toBe("dry_run");
+    expect(bd.historyRows).toHaveLength(0);
+  });
+
+  it("capped / error paths → NO history write", async () => {
+    const capped = baseDeps({ spentThisMonthUsd: async () => 999 });
+    await runSerpQuery("iran flag", {}, capped.d);
+    expect(capped.historyRows).toHaveLength(0);
+
+    const errored = baseDeps({
+      fetchImpl: (async () => ({ ok: false, status: 500 })) as unknown as typeof fetch,
+    });
+    const r = await runSerpQuery("iran flag", {}, errored.d);
+    expect(r.status).toBe("error");
+    expect(errored.historyRows).toHaveLength(0);
   });
 });

@@ -43,6 +43,8 @@ import {
 import { proofCheckDates } from "@/domains/proof-gsc/measure";
 import { loadDemandGraphForTenantCached } from "@/domains/demand-graph/load-graph";
 import { buildMeasuringHold, isHeldForMeasurement } from "./today-measuring-hold";
+import { getStagingAvailability } from "@/domains/push/stage-change";
+import { stageRouteForActionType, STAGING_OFF } from "@/domains/push/stage-route";
 
 /**
  * today-moves-data (2026-06-24) - the loader behind the premium "Today's Moves"
@@ -228,6 +230,11 @@ export type TodayMove = {
       warnings: string[];
     } | null;
   } | null;
+  /** Item 15 - one-click "Stage in Wix" (armed publishing). `enabled` shows the
+   *  button (armed + permitted + a pushable change with real text); `nudge` shows
+   *  the quiet publishing-settings pointer (Wix target, pushable, but not armed).
+   *  Optional + additive: precomputed snapshots without it keep paste behavior. */
+  staging?: { enabled: boolean; nudge: boolean };
 };
 
 export type TodayMovesHeroData = {
@@ -417,6 +424,11 @@ export async function buildTodayMovesData(
         [] as Awaited<ReturnType<typeof loadDemandGraphForTenantCached>>["graph"]["moves"],
       ),
     ]);
+    // Item 15 - can this operator one-click stage a pushable change in Wix right
+    // now? One read per build; fails to OFF (paste behavior) on any uncertainty,
+    // including the nightly precompute path which has no request context.
+    const stagingAvail = await getStagingAvailability(tenantId).catch(() => STAGING_OFF);
+
     // Learned-prior tag per demand key (from the outcome re-weight on the graph).
     const learnedByKey = new Map(graphMoves.map((m) => [m.demandKey, m.learnedPrior ?? null]));
     const cautionByKey = new Map(graphMoves.map((m) => [m.demandKey, m.outcomeCaution ?? null]));
@@ -647,9 +659,19 @@ export async function buildTodayMovesData(
       }
 
       const moveId = (e as { rec_id?: string; id?: string }).rec_id ?? (e as { id?: string }).id ?? pk;
+      // Item 15 - "Stage in Wix": only OFFER the button for a change the existing
+      // push routes could carry, with real proposed text. The server action
+      // re-checks every gate and fails closed to paste.
+      const stageRoute = stageRouteForActionType(e.action_type, e.target_element_key ?? null);
+      const hasStageText = Boolean((e.proposed_text ?? "").trim());
+      const staging = {
+        enabled: stagingAvail.enabled && stageRoute != null && hasStageText,
+        nudge: stagingAvail.wixTarget && !stagingAvail.armed && stageRoute != null && hasStageText,
+      };
       moves.push({
         id: moveId,
         action: e.action_type,
+        staging,
         actionLabel: meta.label,
         actionTone: meta.tone,
         query: packet?.move?.label ?? (e as { topic_cluster_label?: string }).topic_cluster_label ?? prettyPage(targetUrl),

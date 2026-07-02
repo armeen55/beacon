@@ -4,7 +4,9 @@ import { Suspense } from "react";
 import Link from "next/link";
 import { PageHeader } from "@/components/data/page-header";
 import { loadCompetitorIntel, type CompetitorIntel } from "@/domains/competitors/load-competitor-intel";
+import { isOperatorModeServer } from "@/lib/operator-mode";
 import { ReadQueueButton } from "./read-queue-button";
+import { KeywordGapButton } from "./keyword-gap-button";
 
 /**
  * /competitors (2026-06-28 — ActionPack execution loop, Phase 6) — the real enemy
@@ -205,13 +207,17 @@ async function CompetitorsBody() {
   );
 }
 
-export default function CompetitorsPage() {
+export default async function CompetitorsPage() {
+  const operator = await isOperatorModeServer();
   return (
     <div className="max-w-5xl space-y-6">
       <PageHeader
         title="Competitors"
         description="Who AI and Google cite instead of you, the pages they win with, and the moves to beat them."
-      />
+      >
+        {/* Item 16: keyword gap engine trigger — bounded, cached, dry-run safe. */}
+        {operator ? <KeywordGapButton /> : null}
+      </PageHeader>
       <Suspense fallback={<div className="h-40 animate-pulse rounded-2xl border border-gray-100 bg-gray-50" />}>
         <CompetitorsBody />
       </Suspense>

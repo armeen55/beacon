@@ -14,6 +14,8 @@ import { buildExecutionChecklist, type ExecutionChecklist } from "@/domains/expe
 import { getLatestPreviewPlan, getAcceptedPlan, listActiveReservations, listReservationsForPlan } from "@/domains/experiments/daily-experiment-plan-store";
 import { normalizePath, type PlannedExperimentRecord } from "@/domains/experiments/daily-plan-types";
 import { reviewRecommendation } from "@/domains/recommendations/recommendation-quality";
+import { getStagingAvailability } from "@/domains/push/stage-change";
+import { STAGING_OFF, type StagingAvailability } from "@/domains/push/stage-route";
 
 export type QualitySummary = { total: number; passed: number; cautioned: number; flagged: number };
 
@@ -25,6 +27,10 @@ export type DailyExperimentsView = {
   qualitySummary: QualitySummary | null;
   /** Item 4: 70-day daily clicks per plan-item URL (sparkline next to each page name). */
   sparklineByUrl: Record<string, Array<{ date: string; clicks: number }>>;
+  /** Item 15 - can the operator one-click "Stage in Wix" (armed + permitted + live Wix
+   *  target)? Fails to OFF on any uncertainty; the card then keeps today's paste-only
+   *  behavior exactly. */
+  staging: StagingAvailability;
 };
 
 /** Re-run the quality gate over the active plan's items so the panel can honestly say
@@ -47,11 +53,12 @@ function summarizeQuality(items: PlannedExperimentRecord[]): QualitySummary {
 export async function loadDailyExperimentsView(): Promise<DailyExperimentsView> {
   const tenantId = await currentTenantId();
   const now = new Date();
-  const [ledger, previewPlan, acceptedPlan, reservations] = await Promise.all([
+  const [ledger, previewPlan, acceptedPlan, reservations, staging] = await Promise.all([
     loadProofLedger(tenantId).catch(() => []),
     getLatestPreviewPlan(tenantId),
     getAcceptedPlan(tenantId),
     listActiveReservations(tenantId),
+    getStagingAvailability(tenantId).catch(() => STAGING_OFF),
   ]);
   const dashboard = buildDailyExperimentDashboard({
     ledger, now,
@@ -78,5 +85,5 @@ export async function loadDailyExperimentsView(): Promise<DailyExperimentsView> 
   const sparklineByUrl: DailyExperimentsView["sparklineByUrl"] = {};
   for (const [url, series] of sparkMap) sparklineByUrl[url] = series;
 
-  return { dashboard, protectedWarning: protectedControlWarning(dashboard), checklist, qualitySummary, sparklineByUrl };
+  return { dashboard, protectedWarning: protectedControlWarning(dashboard), checklist, qualitySummary, sparklineByUrl, staging };
 }
