@@ -15,8 +15,8 @@ import { loadTopTenantQueriesWithOwner } from "@/domains/recommendation-intellig
 import { currentTenant, currentTenantId } from "@/lib/tenant-context";
 
 /**
- * keyword-library (2026-07-02, MASTER PLAN v2 UX2 first slice — the operator's
- * own idea) — EVERY keyword Beacon has ever researched, merged from every cache
+ * keyword-library (2026-07-02, MASTER PLAN v2 UX2 first slice, the operator's
+ * own idea). EVERY keyword Beacon has ever researched, merged from every cache
  * we already paid for, into one row per keyword. Fires ZERO new paid calls: it
  * only reads what earlier DataForSEO / GSC / SERP work already stored.
  *
@@ -24,20 +24,21 @@ import { currentTenant, currentTenantId } from "@/lib/tenant-context";
  * impressions are two different numbers and must never be conflated.
  *   - `searchesPerMo` = DataForSEO's real market volume, or null when unknown
  *     (never guessed, never backfilled from impressions).
- *   - `timesShownPerMo` = GSC impressions ("times shown on Google" — never call
+ *   - `timesShownPerMo` = GSC impressions ("times shown on Google", never call
  *     this "searches" anywhere in the UI).
  *
  * Sources merged (all $0, all cache/DB reads, no live API call here):
- *   (a) GSC query portfolio — loadTopTenantQueriesWithOwner (clicks, impressions,
+ *   (a) GSC query portfolio: loadTopTenantQueriesWithOwner (clicks, impressions,
  *       position, best owner page), tenant-wide bounded read.
- *   (b) DataForSEO keyword demand cache — readAllCachedKeywordDemand.
- *   (c) DataForSEO keyword difficulty cache — readAllCachedKeywordDifficulty.
- *   (d) Competitor keyword-gap store — readKeywordGapResults (competitor owners
- *       + the volume/CPC that run already resolved).
- *   (e) SERP history — loadLatestSerpReadingsByQuery (own rank + top domains
+ *   (b) DataForSEO keyword demand cache: readAllCachedKeywordDemand.
+ *   (c) DataForSEO keyword difficulty cache: readAllCachedKeywordDifficulty.
+ *   (d) Competitor keyword-gap store: readKeywordGapResults (competitor owners
+ *       plus the volume/CPC that run already resolved).
+ *   (e) SERP history: loadLatestSerpReadingsByQuery (own rank + top domains
  *       from the most recent LIVE Google reading) and featureStealHistoryRows
  *       (People Also Ask questions Google rendered for that query).
- *   (f) Trend Radar — loadQuerySpikes (this-week-vs-typical spike tag).
+ *   (f) Trend Radar and Seasonal store: loadQuerySpikes (this-week spike tag)
+ *       and loadSeasonalQueries (recurring calendar-peak tag).
  *
  * One row per keyword, normalized by trim + lowercase (matches the identity key
  * every cache above already uses). Pure merge logic below is exported and unit
@@ -79,7 +80,7 @@ export type KeywordLibraryRow = {
 
 export type KeywordLibrary = {
   rows: KeywordLibraryRow[];
-  /** How many rows carry a real DataForSEO market-volume number — the honest
+  /** How many rows carry a real DataForSEO market-volume number. The honest
    *  coverage line ("I have volume data for N of TOTAL keywords"). */
   volumeCoverage: number;
   total: number;
@@ -102,7 +103,7 @@ const normKey = (k: string): string => k.trim().toLowerCase();
 
 /**
  * PURE merge: combine every cache's rows into one row per normalized keyword.
- * No I/O, no Date.now() side effects beyond what callers pass in — fully unit
+ * No I/O, no Date.now() side effects beyond what callers pass in. Fully unit
  * testable. Exported so keyword-library.test.ts can pin the label rule and the
  * dedupe/merge behavior without touching a database.
  */
@@ -142,7 +143,7 @@ export function mergeKeywordLibrary(input: MergeInputs): KeywordLibrary {
     if (!row.lastChecked || Date.parse(at) > Date.parse(row.lastChecked)) row.lastChecked = at;
   };
 
-  // (a) GSC query portfolio — impressions/clicks/position/owner page.
+  // (a) GSC query portfolio: impressions/clicks/position/owner page.
   for (const q of input.gscQueries) {
     if (!q.query) continue;
     const row = getOrCreate(q.query);
@@ -156,7 +157,7 @@ export function mergeKeywordLibrary(input: MergeInputs): KeywordLibrary {
     addSource(row, "gsc");
   }
 
-  // (b) DataForSEO keyword demand cache — real market volume, never guessed.
+  // (b) DataForSEO keyword demand cache: real market volume, never guessed.
   for (const d of input.demand) {
     if (!d.keyword) continue;
     const row = getOrCreate(d.keyword);
@@ -173,7 +174,7 @@ export function mergeKeywordLibrary(input: MergeInputs): KeywordLibrary {
     addSource(row, "dataforseo_difficulty");
   }
 
-  // (d) Competitor keyword-gap store — competitor owners + a volume backfill
+  // (d) Competitor keyword-gap store: competitor owners plus a volume backfill
   // when DataForSEO demand cache never covered this exact keyword string.
   for (const g of input.gapKeywords) {
     if (!g.keyword) continue;
@@ -186,7 +187,7 @@ export function mergeKeywordLibrary(input: MergeInputs): KeywordLibrary {
     addSource(row, "keyword_gap");
   }
 
-  // (e) SERP history — live-observed own rank + who else Google shows.
+  // (e) SERP history: live-observed own rank plus who else Google shows.
   for (const [query, reading] of input.serpReadings) {
     if (!query) continue;
     const row = getOrCreate(query);
@@ -200,7 +201,7 @@ export function mergeKeywordLibrary(input: MergeInputs): KeywordLibrary {
     bumpLastChecked(row, reading.capturedAt);
   }
 
-  // (e2) PAA questions from the same SERP history table — related questions.
+  // (e2) PAA questions from the same SERP history table: related questions.
   for (const [query, questions] of input.paaByQuery) {
     if (!query || questions.length === 0) continue;
     const row = getOrCreate(query);
@@ -209,7 +210,7 @@ export function mergeKeywordLibrary(input: MergeInputs): KeywordLibrary {
     }
   }
 
-  // (f) Seasonal store — queries with a recurring calendar peak. Applied before
+  // (f) Seasonal store: queries with a recurring calendar peak. Applied before
   // spike so an in-season query that ALSO spiked this week shows the more
   // urgent "spike" tag (checked next).
   for (const query of input.seasonalQueries) {
@@ -219,7 +220,7 @@ export function mergeKeywordLibrary(input: MergeInputs): KeywordLibrary {
     addSource(row, "trend_radar");
   }
 
-  // Trend Radar — this-week spike tag (takes priority over seasonal when both apply).
+  // Trend Radar: this-week spike tag (takes priority over seasonal when both apply).
   for (const query of input.spikeQueries) {
     if (!query) continue;
     const row = getOrCreate(query);
@@ -242,17 +243,17 @@ export function mergeKeywordLibrary(input: MergeInputs): KeywordLibrary {
   return { rows: out, volumeCoverage, total: out.length, bySource };
 }
 
-/** Cap how many GSC queries feed the library — keeps the merge + client table
+/** Cap how many GSC queries feed the library. Keeps the merge + client table
  *  fast without a heavy virtualization dependency (per the perf note in the
  *  build brief: paginate client-side above this only via "show more"). */
 const GSC_QUERY_LIMIT = 2000;
 
 /**
- * The full merged Keywords library for the current tenant. $0 — every source
+ * The full merged Keywords library for the current tenant. $0: every source
  * is a cache or an already-paid-for DB table. React `cache()`-d per request so
  * the page and any nested reads share one round-trip. Fail-soft: any single
  * source failing just means that source's facts are missing from the rows
- * that need it — it never blocks the whole library from rendering.
+ * that need it. It never blocks the whole library from rendering.
  */
 export const loadKeywordLibrary = cache(async (): Promise<KeywordLibrary> => {
   const tenantId = await currentTenantId().catch(() => "");

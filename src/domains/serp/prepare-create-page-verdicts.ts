@@ -14,6 +14,7 @@ import { matchKeywordDemand } from "@/domains/demand/keyword-match";
 import { evaluateCreatePageBriefQuality } from "@/domains/drafts/draft-quality";
 import { runBulkKeywordDifficulty, runBulkDomainRanks, runBacklinksSummary } from "./dataforseo-labs";
 import type { Winnability } from "./winnability";
+import { checkTopicCoherence } from "@/domains/demand-graph/topic-coherence-gate";
 
 /**
  * prepare-create-page-verdicts (2026-06-25, Phase 4-auto) - the "prepared, not a
@@ -68,6 +69,11 @@ export type PrepareSummary = {
   capped: boolean;
   /** Item 18: spend from the three batched winnability reads (difficulty + domain ranks + backlinks), separate from SERP costUsd. */
   winnabilityCostUsd: number;
+  /** UX0 (2026-07-02) - candidates that failed the topic-coherence quality check
+   *  (an incoherent label vs its own fanouts/competitor evidence) and were skipped
+   *  BEFORE spending a SERP call on them. Honest, never silent: "skipped 3 that
+   *  failed my quality check". Empty on a clean run. */
+  skippedQualityGate: { label: string; reason: string }[];
 };
 
 /** Item 18: bound the backlinks read to a small, cheap set of URLs per run (not per candidate). */
@@ -114,7 +120,7 @@ export async function prepareCreatePageVerdicts(
 ): Promise<PrepareSummary> {
   const max = opts.maxValidations ?? 25;
   const now = opts.now ?? (() => new Date());
-  const summary: PrepareSummary = { validated: 0, cached: 0, skipped: 0, briefs: 0, costUsd: 0, briefCostUsd: 0, capped: false, winnabilityCostUsd: 0 };
+  const summary: PrepareSummary = { validated: 0, cached: 0, skipped: 0, briefs: 0, costUsd: 0, briefCostUsd: 0, capped: false, winnabilityCostUsd: 0, skippedQualityGate: [] };
 
   let graph;
   try {
@@ -127,6 +133,31 @@ export async function prepareCreatePageVerdicts(
   const ownDomain = deriveOwnDomain(graph.pageNodes);
   const ownReferencePage = deriveOwnReferencePage(graph.pageNodes);
   let createMoves = graph.moves.filter((m) => m.gap === "create_page");
+
+  // UX0 (2026-07-02) - Prepare-all safety: never spend a SERP call (or an LLM brief)
+  // on a candidate whose own label disagrees with its own evidence (fanout seeds +
+  // competitor URLs). The upstream demand-graph coherence gate already suppresses
+  // the worst offenders before they become Moves, but this is the direct, honest
+  // "skip it and say why" check the bulk action itself owns.
+  const qualityChecked = createMoves.map((m) => ({
+    m,
+    verdict: checkTopicCoherence(m.label, [
+      ...(m.fanoutSeeds ?? []).map((q) => ({ id: q, text: q })),
+      ...(m.competitorUrls ?? []).map((u) => ({ id: u, text: u })),
+    ]),
+  }));
+  for (const { m, verdict } of qualityChecked) {
+    if (verdict.suppressCandidate) {
+      summary.skippedQualityGate.push({ label: m.label, reason: verdict.reason });
+    }
+  }
+  createMoves = qualityChecked.filter(({ verdict }) => !verdict.suppressCandidate).map(({ m }) => m);
+  if (summary.skippedQualityGate.length > 0) {
+    log.info("[prepare-verdicts] skipped candidates that failed the quality check", {
+      tenantId,
+      skipped: summary.skippedQualityGate.map((s) => s.label),
+    });
+  }
 
   // Optional: skip candidates that already have a fresh serp_verdict (re-validate only
   // missing/stale) and/or restrict to strong/exact keyword-volume matches, volume-first.

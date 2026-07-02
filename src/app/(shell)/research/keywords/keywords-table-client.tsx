@@ -7,14 +7,14 @@ import type { KeywordLibraryRow, KeywordLibrarySource } from "@/domains/research
 import { normalizeUrl } from "@/lib/url/normalize";
 
 /**
- * Keywords library table (MASTER PLAN v2 UX2 first slice — the operator's own
+ * Keywords library table (MASTER PLAN v2 UX2 first slice, the operator's own
  * idea). Dense, instant client-side sort + filter + tabs over every keyword
- * Beacon has ever researched, no server round-trip per interaction — the whole
+ * Beacon has ever researched, no server round-trip per interaction. The whole
  * merged library ships once from the server component and this file slices it.
  *
  * Label rule (operator hard correction): "searches/mo" = real market volume,
  * "times shown" = GSC impressions. Never render one number under the other's
- * label. No "SERP" anywhere in this UI — it says "Google results".
+ * label. No "SERP" anywhere in this UI, it says "Google results".
  */
 
 const FOCUS = "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-1";
@@ -85,7 +85,7 @@ export function matchesFilter(row: KeywordLibraryRow, needle: string): boolean {
 /** PURE: sort comparator. Every column flips with `dir` as expected, EXCEPT
  *  that a row with no real value for the active column (unranked position,
  *  unknown volume/difficulty) always sorts to the bottom regardless of
- *  direction — flipping direction should never surface "unknown" above a
+ *  direction. Flipping direction should never surface "unknown" above a
  *  worst-but-real number. Exported for testing. */
 export function sortRows(rows: KeywordLibraryRow[], key: SortKey, dir: 1 | -1): KeywordLibraryRow[] {
   const val = (r: KeywordLibraryRow): number | string | null => {

@@ -158,7 +158,10 @@ function Row({ c, move, rank }: { c: CanonicalChange; move: ChangesView["movesBy
           <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-gray-400 dark:text-neutral-500">
             <span>{c.opportunityType}</span>
             {effort != null ? <span>~{effort} min</span> : null}
-            {fmt(c.upside) ? <span className="text-sky-600 dark:text-sky-400" title={`${formatMetric(c.upside)} searches a month at stake`}>{fmt(c.upside)} searches/mo at stake</span> : null}
+            {/* UX0 (2026-07-02) - c.upside is GSC impressions (times shown on Google), never
+                true market search volume (that only ever comes from DataForSEO) - the two
+                numbers must never share a label or they read as the same thing. */}
+            {fmt(c.upside) ? <span className="text-sky-600 dark:text-sky-400" title={`${formatMetric(c.upside)} times shown on Google a month, at stake`}>{fmt(c.upside)} shown on Google/mo at stake</span> : null}
             {c.expectedOutcome && (c.status === "ready" || c.status === "suggested") ? <span className="text-emerald-600 dark:text-emerald-400">{c.expectedOutcome}</span> : null}
             <span className={EVIDENCE_CLS[c.evidenceStrength] ?? "text-gray-500 dark:text-neutral-400"}>{EVIDENCE_LABEL[c.evidenceStrength] ?? "Tracking only"}</span>
             {c.blockedReason ? <span className="inline-flex items-center gap-1 text-gray-400 dark:text-neutral-500" title={c.blockedReason}><Hourglass className="h-3.5 w-3.5 shrink-0" aria-hidden />wait</span> : null}
@@ -256,7 +259,15 @@ export function ChangesListClient({ view }: { view: ChangesView }) {
       return { title: "No changes match these filters.", hint: "Try another status, strategy, or goal.", action: { label: "Reset filters", onClick: () => { setGoal("recommended"); setQ(""); } } };
     }
     if (tab === "results") return { title: "No mature results yet.", hint: "Your active changes are still collecting data. Early checkpoints stay in Measuring.", action: null };
-    if (tab === "measuring") return { title: "No changes are measuring yet.", hint: "Applied and verified changes will appear here.", action: null };
+    if (tab === "measuring") {
+      // UX0 (2026-07-02) - never say "none measuring" when the canonical ledger count
+      // says otherwise; this worklist's list is a subset (e.g. a page-factory or
+      // AI-visibility measurement with no matching worklist move).
+      if (view.measuringCountCanonical > 0) {
+        return { title: `${view.measuringCountCanonical} change${view.measuringCountCanonical === 1 ? " is" : "s are"} measuring tenant-wide.`, hint: "None of them have a matching item in this worklist yet — check Today for the full list.", action: null };
+      }
+      return { title: "No changes are measuring yet.", hint: "Applied and verified changes will appear here.", action: null };
+    }
     if (tab === "ready") return { title: "No changes are fully prepared.", hint: "Prepare a recommendation from To do, or accept today’s plan above.", action: null };
     return { title: "No changes to do right now.", hint: "Once your Google + AI demand data syncs, ranked changes appear here.", action: null };
   };
@@ -287,10 +298,19 @@ export function ChangesListClient({ view }: { view: ChangesView }) {
             </button>
             {TABS.map((t) => {
               const active = !grouped && tab === t.id;
+              // UX0 (2026-07-02) - the Measuring tab shows the SAME canonical count Today
+              // shows (the proof ledger's own verdict field), never a separately-derived
+              // number that can silently disagree (ground-truth: Today said 16, this tab
+              // said 10). When this worklist only has a subset of the tenant's measuring
+              // changes, the badge is honest about it ("10 of 16").
+              const displayCount = t.id === "measuring" ? view.measuringCountCanonical : s[t.id];
+              const badgeLabel = t.id === "measuring" && view.measuringCountCanonical > s.measuring
+                ? `${s.measuring} of ${view.measuringCountCanonical}`
+                : String(displayCount);
               return (
-                <button key={t.id} type="button" onClick={() => { setTab(t.id); setGrouped(false); }} aria-pressed={active} aria-label={`${t.label}, ${s[t.id]} ${s[t.id] === 1 ? "change" : "changes"}`}
+                <button key={t.id} type="button" onClick={() => { setTab(t.id); setGrouped(false); }} aria-pressed={active} aria-label={`${t.label}, ${displayCount} ${displayCount === 1 ? "change" : "changes"}`}
                   className={`min-h-[32px] shrink-0 whitespace-nowrap rounded-md px-2.5 py-1 text-xs font-medium ${FOCUS} ${active ? "bg-sky-600 text-white hover:bg-sky-500" : "text-gray-600 hover:bg-gray-50 dark:text-neutral-300 dark:hover:bg-neutral-800"}`}>
-                  {t.label} <span aria-hidden className={active ? "text-sky-100" : "text-gray-400 dark:text-neutral-500"}>{s[t.id]}</span>
+                  {t.label} <span aria-hidden className={active ? "text-sky-100" : "text-gray-400 dark:text-neutral-500"}>{badgeLabel}</span>
                 </button>
               );
             })}

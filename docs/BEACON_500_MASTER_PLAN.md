@@ -99,6 +99,69 @@ slugs, internal keys, jargon, or unexplained zeros. Judge performance on prod, n
 
 ---
 
+## DREAM SITE V1 (OPERATOR DIRECTIVE 2026-07-02: NUMBER 1 PRIORITY, JUMPS THE ENTIRE LINE)
+
+**The operator's own words, verbatim (the mission; do not reinterpret):**
+"all i really need dream state is aeo native checker (thats our internal profound) then it
+analyzes all of the recurring people on those lists, the pages recurring, where we are, arent
+(EVERYTHING profound has including query fanouts), which are all literally free to scrape from the
+prompt - i am ok w deleting all mentions and anything profound to start the aeo from scratch ---
+but then our difference is we scrape the top 5 results for each prompt to see what they have in
+common... take the best ideologies to either make our new page for new gap, or edit our current
+page in the gap... alongside using query fanouts for this new content edits.. alongside doing
+keyword research.. alongside everything else we can do ??? then 2) not only is it just the aeo
+results scraping.. then we scrape by the keyword, competitors that are beating our keywords or
+phrases in gsc, the serps, and then steal the best among the top 5 in the serps as well maybe
+more -- so combined then combining all of these across everything we have.. i should have the
+best list ever.. then in order to not be a copy paste wasteland.. we make everything edit wise
+atomic so that we have max evidence for the edit. but for new pages it can be complete new page
+based on all the data... and at all times everything should be working together.. the changes
+should be in a constant loop of what changes worked why they didnt what we can do next time
+continuously getting smarter.. the aeo seo are always one team sharing data with each other --
+query fanouts being shared w keyword research being shared with both their scrapes -- ga4 has all
+landing pages.. landing pages to money spent.. cart checkouts every key event.. money.. what
+paths everything make the paths better conversion optimization.... then gsc for our actual
+rankings --- i want to log on everyday.. do whatever number of changes i want to do.. it can be 1
+it can be every single change on that list.. if its dynamic maybe you auto do it for me then tell
+me to publish or something and keep a counter... or if its static im ok for testing for now for
+me to do everything then mark it as edited and the app just double checks once i mark it
+published or something... but once i make the edits then it dynamically goes to next best edit
+and so on... or NEXT BEST OPPORTUNITY (and all opportunities shouldnt just be a guess of yea this
+is 500k ppl at risk since u got 1k clicks of 501k impressions.. it should be a real smart formula
+that guesses based on x % you can presume x improvement in x days or something and a constant
+guessing. so maybe that can fund our learnings hypothesis. ask section can also just be an llm
+tied internal model that helps me analyze that would be fucking sick if that can go through my
+data and talk. THIS IS VERSION 1 DREAM SITE."
+
+**Build translation (D-track; existing machinery reused, never rebuilt):**
+- [ ] D1. **AEO native engine as THE source:** the built 4-engine poller becomes the internal
+  Profound: analyze the native answers for recurring domains, recurring pages, where we are and
+  are not, per prompt per engine; native question expansion from the answers themselves; Profound
+  becomes optional input, deletable. (Poller BUILT; the analysis layer over prompt_answer_observations is the work.)
+- [ ] D2. **Per-prompt top-5 cited-source scrape:** politely read the top cited pages per prompt,
+  extract what they have in common (consensus outline/patterns), feed the gap verdict: new page
+  for an unowned gap, atomic edit for an owned one, fanouts seeding the content. (Teardown engine
+  BUILT for Profound citations; wire it to native citations + add commonality extraction.)
+- [ ] D3. **SEO mirror:** for GSC keywords/phrases where competitors beat us, read the SERP top 5
+  and steal the best (SERP history + feature-steal + clone briefs BUILT; unify with D2 so both
+  scrape lanes share one teardown library).
+- [ ] D4. **ONE combined best list:** AEO gaps + SEO gaps + keyword research + fanouts + GA4 money
+  in one ranked list (this IS N1 the allocator; D4 = N1 pulled forward).
+- [ ] D5. **Atomic edits, full new pages:** every edit atomic for max evidence (BUILT); new pages
+  complete from all the data, behind the coherence/ownership gates (UX0 shipped them).
+- [ ] D6. **The daily ritual loop:** log on, do 1 or all changes; static mode: mark edited, the app
+  double-checks once marked published, then advances to the next best opportunity; dynamic mode:
+  auto-prepare + publish counter. One continuous flow, no dead ends.
+- [ ] D7. **Honest opportunity math everywhere:** kill naive at-stake guesses; every opportunity
+  carries "based on X percent you can presume X improvement in X days" from the tenant CTR curve +
+  position deltas + settled history; every forecast becomes a learnable hypothesis.
+- [ ] D8. **Ask talks to ALL the data** (retrieval twin BUILT; deepen coverage + conversation).
+- [ ] D9. **Full trace audit:** verify the last 20 hours of shipped work is real, wired, not faked;
+  delete every dead row/dead code found; then continue down the list.
+
+The N-track (Constitution) and UX-track continue INSIDE the D-track where they overlap (N1=D4,
+UX3/UX4 render D6, UX0 gates D5). GA4 money-path depth (checkouts, key events, paths) rides D4/D7.
+
 ## UX VISION TRACK (operator verdict 2026-07-02: explore, not read; decided YES on all three vision calls)
 
 The product must feel like a world of clickable OBJECTS (page, query, topic, change, competitor,
@@ -120,11 +183,18 @@ a malformed recommendation prettier.
   visitor behavior, citations, competitors, change history, active measurements, planned work,
   results). One interaction model everywhere. (The /page/[...path] dossier exists; complete it
   and wire every surface into it.)
-- [ ] UX2. **Research hub with the Keywords library:** nav group Research becomes a real hub:
-  Keywords (EVERY cached keyword with intent, volume, trend, owner page, rank, related questions,
-  competitor owners, proposed destination - all the cached research in one sortable, filterable
-  table), Pages, Topics, AI questions, Competitors, Content roadmap. The operator's own idea;
-  build Keywords first.
+- [x] UX2 (first slice, 2026-07-02). **Research hub with the Keywords library, Keywords slice
+  DONE:** `/research/keywords` merges every cache Beacon has ever paid for into one row per
+  keyword (searches/mo from DataForSEO, times-shown/clicks/position from GSC, difficulty,
+  competitor owners from the keyword-gap store and live SERP history, related questions from
+  People Also Ask history, spike/seasonal trend tags) with instant client-side sort, a text
+  filter (keyboard `/`), tabs (All/You rank/Close to page 1/Not owned/Trending/Seasonal),
+  expandable rows linking to the page dossier and a "plan a change" deep link into `/worklist`.
+  Zero new paid calls - purely cache/DB reads. Nav: "Keywords" added to the Research group
+  before AI questions. Loader: `src/domains/research/keyword-library.ts`. UI:
+  `src/app/(shell)/research/keywords/page.tsx` + `keywords-table-client.tsx`. Verified live on
+  Iranopedia: 298 keywords merged, 190 with real market volume. Remaining UX2 scope (Pages,
+  Topics, Content roadmap sub-hubs) is not started.
 - [ ] UX3. **Changes as a dense inbox:** compact rows (page, goal, exact action, expected upside,
   evidence strength, effort, status) + split detail panel that opens without losing list position;
   applied batches collapse to one summary row; ONE command "Prepare tonight's plan" replacing the

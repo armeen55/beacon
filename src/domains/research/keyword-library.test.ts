@@ -37,7 +37,7 @@ function rowFor(rows: KeywordLibraryRow[], keyword: string): KeywordLibraryRow |
   return rows.find((r) => r.keyword.toLowerCase() === keyword.toLowerCase());
 }
 
-describe("mergeKeywordLibrary — label rule (operator hard correction)", () => {
+describe("mergeKeywordLibrary, label rule (operator hard correction)", () => {
   it("keeps searchesPerMo (market volume) and timesShownPerMo (GSC impressions) as two distinct numbers", () => {
     const lib = mergeKeywordLibrary({
       ...EMPTY_INPUT,
@@ -50,7 +50,7 @@ describe("mergeKeywordLibrary — label rule (operator hard correction)", () => 
     expect(row.searchesPerMo).not.toBe(row.timesShownPerMo);
   });
 
-  it("never fabricates a market volume from GSC impressions — stays null when DataForSEO has no data", () => {
+  it("never fabricates a market volume from GSC impressions, stays null when DataForSEO has no data", () => {
     const lib = mergeKeywordLibrary({
       ...EMPTY_INPUT,
       gscQueries: [{ query: "chaharshanbe suri 2026", clicks: 3, impressions: 400, position: 8, ownerPage: null }],
@@ -61,7 +61,7 @@ describe("mergeKeywordLibrary — label rule (operator hard correction)", () => 
   });
 });
 
-describe("mergeKeywordLibrary — dedupe + merge across sources", () => {
+describe("mergeKeywordLibrary, dedupe + merge across sources", () => {
   it("collapses one keyword string from multiple sources into ONE row, case/whitespace-insensitive", () => {
     const lib = mergeKeywordLibrary({
       ...EMPTY_INPUT,
@@ -176,7 +176,7 @@ describe("mergeKeywordLibrary — dedupe + merge across sources", () => {
   });
 });
 
-describe("mergeKeywordLibrary — coverage stats + sort order", () => {
+describe("mergeKeywordLibrary, coverage stats + sort order", () => {
   it("counts volumeCoverage as only rows with a real (non-null) searchesPerMo", () => {
     const lib = mergeKeywordLibrary({
       ...EMPTY_INPUT,
@@ -200,7 +200,7 @@ describe("mergeKeywordLibrary — coverage stats + sort order", () => {
       demand: [demandRow({ keyword: "volume only kw", searchVolume: 9000 })],
     });
     // A keyword with zero GSC impressions sorts after any keyword with real impressions,
-    // even a small one — impressions reflect this tenant's own observed demand.
+    // even a small one. Impressions reflect this tenant's own observed demand.
     expect(lib.rows.map((r) => r.keyword)).toEqual(["high impressions", "low impressions", "volume only kw"]);
   });
 

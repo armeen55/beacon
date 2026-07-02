@@ -16,6 +16,11 @@ import { statusView } from "@/domains/changes/canonical-change";
 import type { TodayMove } from "./today-moves-data";
 import { ctrOpportunity90d } from "@/domains/experiments/pick-expectations";
 import { readPublishHealth } from "@/domains/push/publish-canary-store";
+// UX0 (2026-07-02) - the SAME canonical "measuring" count Today reads (page.tsx A2:
+// the proof ledger's own verdict field), so the worklist header never shows a
+// different number than Today for the same word. Read-only import; proof-gsc is
+// owned by a concurrent workstream, this file only reads its cached loader.
+import { loadProofLedgerCached } from "@/domains/proof-gsc/load-ledger";
 
 export type ChangesView = {
   changes: CanonicalChange[];
@@ -26,6 +31,13 @@ export type ChangesView = {
   /** B7 (worklist fix batch) - only set when Ready is 0, so the tab isn't a bare "0" with no
    *  reason. Distinguishes "your Wix pages aren't mapped yet" from "nothing to prepare right now". */
   readyZeroHint: string | null;
+  /** UX0 (2026-07-02) - THE canonical "measuring" count (same proof-ledger verdict field
+   *  Today's page.tsx A2 reads). `summary.measuring` above stays the count of changes in
+   *  THIS list that are measuring (a worklist-scoped subset); this is the whole-tenant
+   *  truth so the Measuring tab can say "10 of 16 here" instead of silently disagreeing
+   *  with Today's number. Equal to `summary.measuring` whenever every measuring proof
+   *  record also has a matching worklist move (the common case). */
+  measuringCountCanonical: number;
 };
 
 export async function loadChangesView(): Promise<ChangesView> {
@@ -33,12 +45,14 @@ export async function loadChangesView(): Promise<ChangesView> {
   // Move 3 — every source is fail-soft so one failing store can never blank the whole
   // Changes list. A plan-store outage drops the "today" slice but keeps the ranked moves;
   // a worklist outage keeps any selected plan items. The page renders with what loaded.
-  const [wl, accepted, preview, reservations] = await Promise.all([
+  const [wl, accepted, preview, reservations, ledgerRows] = await Promise.all([
     loadMovesWorklist().catch(() => ({ moves: [] as TodayMove[], stats: undefined })),
     getAcceptedPlan(tenantId).catch(() => null),
     getLatestPreviewPlan(tenantId).catch(() => null),
     listActiveReservations(tenantId).catch(() => []),
+    loadProofLedgerCached(tenantId).catch(() => []),
   ]);
+  const measuringCountCanonical = ledgerRows.filter((r) => r.verdict === "measuring").length;
   const plan = accepted ?? preview;
   const moves = (wl.moves ?? []) as TodayMove[];
 
@@ -95,5 +109,5 @@ export async function loadChangesView(): Promise<ChangesView> {
         : "0 ready right now.";
   }
 
-  return { changes, movesById, summary, hasPlan: !!plan, planAccepted: !!accepted, readyZeroHint };
+  return { changes, movesById, summary, hasPlan: !!plan, planAccepted: !!accepted, readyZeroHint, measuringCountCanonical };
 }

@@ -5,9 +5,9 @@ import { loadKeywordLibrary } from "@/domains/research/keyword-library";
 import { KeywordsTableClient } from "./keywords-table-client";
 
 /**
- * /research/keywords — the Keywords library (MASTER PLAN v2 UX2 first slice,
+ * /research/keywords: the Keywords library (MASTER PLAN v2 UX2 first slice,
  * the operator's own idea): EVERY keyword Beacon has ever researched, merged
- * from cache, in one sortable table. No new paid calls happen on this page —
+ * from cache, in one sortable table. No new paid calls happen on this page.
  * loadKeywordLibrary only reads what earlier work already stored.
  */
 export default async function KeywordsPage() {

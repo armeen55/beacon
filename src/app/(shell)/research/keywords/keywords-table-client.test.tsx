@@ -24,7 +24,7 @@ function row(overrides: Partial<KeywordLibraryRow> = {}): KeywordLibraryRow {
   };
 }
 
-describe("keywords-table-client — tab filters (pure)", () => {
+describe("keywords-table-client, tab filters (pure)", () => {
   it("'ranking' matches only rows with a top-10 own position", () => {
     expect(inTab(row({ yourPosition: 3 }), "ranking")).toBe(true);
     expect(inTab(row({ yourPosition: 15 }), "ranking")).toBe(false);
@@ -54,7 +54,7 @@ describe("keywords-table-client — tab filters (pure)", () => {
   });
 });
 
-describe("keywords-table-client — text filter (pure)", () => {
+describe("keywords-table-client, text filter (pure)", () => {
   it("matches on keyword, owner page, competitor domains, and related questions", () => {
     const r = row({
       keyword: "sofreh aghd meaning",
@@ -73,7 +73,7 @@ describe("keywords-table-client — text filter (pure)", () => {
   });
 });
 
-describe("keywords-table-client — sort (pure)", () => {
+describe("keywords-table-client, sort (pure)", () => {
   const rows = [
     row({ keyword: "b kw", searchesPerMo: 100, timesShownPerMo: 50, clicks: 5, yourPosition: 8, difficulty: 10 }),
     row({ keyword: "a kw", searchesPerMo: 900, timesShownPerMo: 10, clicks: 1, yourPosition: 2, difficulty: 80 }),
@@ -117,7 +117,7 @@ describe("keywords-table-client — sort (pure)", () => {
   });
 });
 
-describe("KeywordsTableClient — static render smoke", () => {
+describe("KeywordsTableClient, static render smoke", () => {
   it("renders the header row, real keyword rows, and the honest count line", () => {
     const html = renderToStaticMarkup(
       <KeywordsTableClient

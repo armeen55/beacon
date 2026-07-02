@@ -27,6 +27,7 @@ type Move = {
   gap: string;
   components: { demand: number };
   competitorUrls: string[];
+  fanoutSeeds?: string[];
   aeoEvidence?: { fanoutQueries?: string[]; prompts?: string[] };
 };
 
@@ -176,5 +177,35 @@ describe("prepareCreatePageVerdicts + winnability integration (item 18)", () => 
     const [, , , content] = vi.mocked(saveMoveDraft).mock.calls[0];
     const persisted = parsePreparedVerdict(content as string);
     expect(persisted?.reason ?? "").not.toMatch(/[–—]/);
+  });
+});
+
+describe("prepareCreatePageVerdicts — UX0 quality gate (Prepare-all safety)", () => {
+  it("skips a candidate whose own evidence disagrees with its label, never spends a SERP call on it, and reports it honestly", async () => {
+    const incoherent: Move = {
+      demandKey: "gap:travel",
+      label: "Travel Iran Beautiful Natural Wonders",
+      gap: "create_page",
+      components: { demand: 10 },
+      competitorUrls: ["https://example.com/superstitions-iran", "https://example.com/most-popular-sports-iran", "https://example.com/most-common-name-in-iran"],
+      fanoutSeeds: [],
+    };
+    vi.mocked(loadDemandGraphForTenant).mockResolvedValue({
+      graph: {
+        pageNodes: [{ url: "https://iranopedia.com/home", isOwned: true, gscImpressions: 500 }],
+        moves: [incoherent, move("persian wedding sofreh")],
+      },
+    } as never);
+    const summary = await prepareCreatePageVerdicts("tenant-iranopedia", { skipBriefs: true });
+    expect(summary.skippedQualityGate.length).toBe(1);
+    expect(summary.skippedQualityGate[0].label).toBe("Travel Iran Beautiful Natural Wonders");
+    // Only the coherent candidate reached the SERP runner.
+    expect(vi.mocked(runSerpQuery)).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(runSerpQuery)).toHaveBeenCalledWith("persian wedding sofreh", expect.anything());
+  });
+
+  it("a clean run reports an empty skippedQualityGate list", async () => {
+    const summary = await prepareCreatePageVerdicts("tenant-iranopedia", { skipBriefs: true });
+    expect(summary.skippedQualityGate).toEqual([]);
   });
 });
