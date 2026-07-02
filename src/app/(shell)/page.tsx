@@ -312,33 +312,31 @@ function AttentionSection({ items }: { items: TodayView["attention"] }) {
 }
 
 function MeasuringSection({ today, measuringCount }: { today: TodayView; measuringCount: number }) {
-  // A2 - "Showing N of M" always uses the SAME canonical (proof ledger) M the standup chip
-  // and the counts tile use, so this section never quotes a different total than the rest
-  // of the page. The row list itself is unchanged (today.measuring, capped upstream).
+  // A3 (2026-07-02) - collapse to one compact strip: count + next-verdicts date + link.
+  // Compute the earliest nextCheckpoint across all visible measuring items to show
+  // "Next verdicts around [date]". If all items lack a checkpoint, fall back to null.
+  const nextCheckpoints = today.measuring
+    .map((m) => m.nextCheckpoint)
+    .filter((cp): cp is string => cp !== null && cp.length > 0);
+  const earliestCheckpoint = nextCheckpoints.length > 0
+    ? nextCheckpoints.sort()[0] // ISO dates sort lexicographically
+    : null;
+  let nextVerdictLine = "";
+  if (earliestCheckpoint) {
+    const [year, month, day] = earliestCheckpoint.split("-");
+    const d = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
+    const formatted = d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+    nextVerdictLine = ` Next verdicts around ${formatted}.`;
+  }
+
   return (
-    <section className="space-y-1.5" aria-label="Measuring">
-      <div className="flex items-center justify-between gap-2">
-        <h2 className="text-sm font-semibold text-gray-900">Measuring</h2>
-        <Link href="/proof" className="text-xs font-medium text-gray-500 underline underline-offset-2 hover:text-gray-700">View all in Results →</Link>
+    <section aria-label="Measuring">
+      <div className="flex items-center justify-between gap-3 rounded-lg border border-gray-100 bg-white px-3 py-2">
+        <span className="text-sm text-gray-700">
+          <span className="font-semibold text-gray-900">{measuringCount}</span> change{measuringCount === 1 ? "" : "s"} measuring.{nextVerdictLine}
+        </span>
+        <Link href="/proof" className="shrink-0 text-xs font-medium text-gray-500 underline underline-offset-2 hover:text-gray-700">View all in Results →</Link>
       </div>
-      <div className="space-y-1.5">
-        {today.measuring.map((m) => (
-          <div key={m.changeId} className="rounded-lg border border-gray-100 bg-white px-3 py-2">
-            <div className="flex items-center gap-2">
-              <span className="min-w-0 break-words text-sm font-medium text-gray-800">{m.pageLabel}</span>
-              <span className="shrink-0 rounded-full border border-emerald-200 bg-emerald-100 px-2 py-0.5 text-[10px] font-medium text-emerald-700">Measuring</span>
-            </div>
-            <div className="mt-0.5 break-words text-xs text-gray-500">
-              {m.headline}
-              {m.nextCheckpoint ? <span className="text-gray-400"> · next read {m.nextCheckpoint}</span> : null}
-              {m.attributionLimited ? <span className="text-amber-600"> · overlapping edit</span> : null}
-            </div>
-          </div>
-        ))}
-      </div>
-      {measuringCount > today.measuring.length ? (
-        <p className="text-[11px] text-gray-400">Showing {today.measuring.length} of {measuringCount} measuring.</p>
-      ) : null}
     </section>
   );
 }
