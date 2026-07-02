@@ -189,6 +189,12 @@ export const TENANT_SCOPED_STORES = new Set<string>([
   // elsewhere in this file, so it belongs in the file-routed TENANT_SCOPED set rather
   // than GLOBAL.
   "ask-history",
+  // Wikidata entity grounding (2026-07-02, master plan item 73). Per-entity cache of
+  // wbsearchentities lookups keyed by queried person name (src/lib/connectors/wikidata/
+  // client.ts). Written from the schema-move build path (a request/build context that
+  // already knows the tenant), not a cron fan-out with no ambient context — tenant-scoped
+  // like ask-history above, not global like the Wikipedia/DataForSEO market-data caches.
+  "wikidata-entity-cache",
 ]);
 
 export const SINGLETON_STORES = new Set<string>([
@@ -281,6 +287,18 @@ export const GLOBAL_STORES = new Set<string>([
   // (seasonal windows cross-checked against DataForSEO Labs historical
   // volume) the daily plan candidate feed + any operator calendar surface read.
   "seasonal-peak-calendar",
+  // Seasonality engine, family profiles + event calendar (2026-07-02, master
+  // plan item 69). Same cron fan-out rationale: rows carry tenant_id. Latest
+  // per-tenant per-pageFamily weekly+annual demand profiles (family-demand-
+  // profile.ts), read by the event-calendar deriver and the measurement-read
+  // seasonal-inflection flag at $0.
+  "seasonal-family-profiles",
+  // The tenant's own event calendar (BEACON_500 item 69): named recurring
+  // windows per page family, either operator-entered or derived from this
+  // tenant's own annual GSC peak. Rows carry tenant_id so the derive pass
+  // (which runs alongside the seasonality pass, no ambient request context)
+  // can merge freshly-derived entries without clobbering operator edits.
+  "event-calendar",
   // Beat-Wikipedia finder (2026-07-02, master plan item 23). The article-facts
   // cache is public Wikipedia data (keyed by article title, no tenant secrets) -
   // global like the DataForSEO caches so its 30-day TTL prevents re-fetching the

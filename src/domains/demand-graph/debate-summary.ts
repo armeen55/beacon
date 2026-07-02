@@ -29,6 +29,7 @@ export const SPECIALIST_LABELS: Record<Specialist, string> = {
   wix: "Publishing",
   llm: "Strategist",
   commerce_asset: "Commerce strategist",
+  seasonal: "Seasonal timing",
 };
 
 const OBJECTION_LABELS: Record<ObjectionKind, string> = {
@@ -39,6 +40,7 @@ const OBJECTION_LABELS: Record<ObjectionKind, string> = {
   off_topic_competitor: "The competitor match is weak",
   no_measured_demand: "No proven search demand yet",
   thin_evidence: "Not enough evidence yet",
+  seasonal_demand_cliff: "Timing risk - a seasonal wave is about to drop off",
 };
 
 /** Initialisms the operator reads as words - these stay uppercase. */

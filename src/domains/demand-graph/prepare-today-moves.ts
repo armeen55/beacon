@@ -2,6 +2,7 @@ import "server-only";
 import { loadChangePacksForTenant } from "./gap-compiler";
 import { attachOpinions, type Specialist } from "./specialist-opinions";
 import { routeMove, type MoveRouterDecision } from "./move-router";
+import { loadSpecialistWeightTable } from "@/domains/team-scoreboard/load-team-scoreboard";
 import {
   buildPreparedMovePack,
   toPersistedPack,
@@ -25,7 +26,17 @@ import { evaluatePreparedPackQuality } from "@/domains/drafts/draft-quality";
 import { ExperimentPlanSchema, type ExperimentPlan, type ImplementationStep } from "@/domains/llm/schemas";
 import type { EvidencePacket } from "./evidence-packet";
 import { classifyQueryIntent } from "@/domains/experiments/answer-intent";
+import { loadFamilyDemandProfiles } from "@/domains/seasonal/family-demand-profile-store";
 import { log } from "@/lib/logger";
+
+/** First path segment groups a family - mirrors pageFamilyOf in
+ *  daily-experiment-planner.ts (duplicated here to avoid an experiments ->
+ *  demand-graph dependency; both copies are pinned by tests). */
+function pageFamilyOfUrl(url: string): string {
+  const path = url.replace(/^https?:\/\/[^/]+/, "").replace(/[?#].*$/, "");
+  const segs = path.split("/").filter(Boolean);
+  return segs.length >= 2 ? segs[0]! : (segs[0] ?? "root");
+}
 
 /**
  * prepare-today-moves (2026-06-25, P5 — "Prepare my top 10") — turn the top
@@ -41,7 +52,7 @@ import { log } from "@/lib/logger";
  * Pages board). Tenant-agnostic.
  */
 
-const ALL_SPECIALISTS: Specialist[] = ["gsc", "ga4", "clarity", "profound", "dataforseo", "wix", "llm", "commerce_asset"];
+const ALL_SPECIALISTS: Specialist[] = ["gsc", "ga4", "clarity", "profound", "dataforseo", "wix", "llm", "commerce_asset", "seasonal"];
 const MAX_PERSIST_CHARS = 11_500; // under the move_drafts 12k content cap
 
 export type PrepareMoveOutcome = {
@@ -163,7 +174,16 @@ async function draftForPacket(
     { query: packet.move.label, impressions: 2 },
     ...(packet.demand.fanoutSeeds ?? []).map((q) => ({ query: q, impressions: 1 })),
   ])?.dominant;
-  const common = { query: packet.move.label, pageLabel: packet.yourPage.url ?? packet.move.label, outline: packet.draft.outline, evidenceHints, intent, tenantId };
+  const common = {
+    query: packet.move.label,
+    pageLabel: packet.yourPage.url ?? packet.move.label,
+    outline: packet.draft.outline,
+    evidenceHints,
+    intent,
+    tenantId,
+    // Item 74: lets the drafter pull winning-pattern few-shots for this page family.
+    pageFamily: packet.yourPage.url ? pageFamilyOfUrl(packet.yourPage.url) : undefined,
+  };
   if (packet.move.gapType === "answer_block") {
     return draftAnswerBlockStructured(
       { ...common, brief: packet.draft.answerBlockBrief, faqs: packet.draft.faqQuestions.length ? packet.draft.faqQuestions : packet.demand.fanoutSeeds },
@@ -287,11 +307,29 @@ export async function prepareTodayMovesForTenant(
 
   const saved = await getLatestMoveDrafts(tenantId).catch(() => new Map());
 
+  // Seasonality voice (BEACON_500 item 69): loaded ONCE per run (a cheap $0
+  // json-store read), then looked up per Move by page family, so the team's
+  // seasonal specialist can object to shipping into a demand cliff / flag
+  // proactive prep the same way every other specialist reasons from its own
+  // pre-loaded evidence.
+  const seasonalProfiles = await loadFamilyDemandProfiles(tenantId).catch(() => []);
+  const seasonalProfileByFamily = new Map(seasonalProfiles.map((p) => [p.pageFamily, p] as const));
+
+  // Item 70: learned per-specialist vote weights (neutral 1.0 until the scoreboard has
+  // settled verdicts, so cold routing stays byte-identical). Loaded once per prepare run.
+  const specialistWeightTable = await loadSpecialistWeightTable(tenantId).catch(() => null);
+  const specialistWeight = specialistWeightTable
+    ? (s: string, f: string) => specialistWeightTable.get(s, f)
+    : undefined;
+
   for (const packet of targets) {
     const moveId = packet.move.key;
     try {
-      const opinions = attachOpinions(packet, { nowIso });
-      const decision = routeMove({ packet, opinions });
+      const seasonalProfile = packet.yourPage.url
+        ? (seasonalProfileByFamily.get(pageFamilyOfUrl(packet.yourPage.url)) ?? null)
+        : null;
+      const opinions = attachOpinions(packet, { nowIso, seasonalProfile });
+      const decision = routeMove({ packet, opinions, specialistWeight });
 
       // Cache-first: serve a non-stale persisted pack that already has a draft —
       // UNLESS that cached draft fails the quality gate (generic / too-thin / off-topic

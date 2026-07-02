@@ -32,6 +32,7 @@ import { log } from "@/lib/logger";
 import { loadShippedChanges, type ShippedChangeRecord } from "@/domains/proof-gsc/shipped-change-store";
 import { actionFamilyOf, type ExperimentFamily } from "@/domains/experiments/experiment-eligibility";
 import { deriveMeasurementMaturity } from "@/domains/proof-gsc/measurement-maturity";
+import { classifyDraftPattern, aggregateWinsByPattern, bestConfidentPattern, patternInsightSentence, MIN_DECIDED_FOR_CONFIDENCE, PATTERN_LABEL, type DraftPatternId, type PatternOutcomeRow, type PatternCellTally } from "./draft-pattern";
 
 const STORE = "winner-memory";
 /** Newest-first cap per (tenant, actionFamily) - keep the store small and the
@@ -59,6 +60,9 @@ export type WinnerExample = {
   beforeText: string | null;
   afterText: string;
   features: StructuralFeatures;
+  /** BEACON_500 item 74: the winning text's deterministic structural pattern, computed
+   *  once at harvest time from the same afterText these features were extracted from. */
+  pattern: DraftPatternId;
   /** Observational CTR lift (0-1 scale) from the mature 28-day window, when known. */
   measuredLift: number | null;
   verdict: "won";
@@ -162,6 +166,7 @@ export async function harvestWinners(
         beforeText: r.before && r.before.trim() !== "" ? r.before.trim() : null,
         afterText,
         features: extractStructuralFeatures(afterText),
+        pattern: classifyDraftPattern(afterText),
         measuredLift: matureCtrLift(r),
         verdict: "won",
         shippedAt: r.shippedAt,
@@ -259,3 +264,132 @@ export async function buildWinnerFewShots(
   }
   return lines.join("\n");
 }
+
+// ── pattern aggregation (BEACON_500 item 74) ────────────────────────────────
+// Read-time only: classifies EVERY decided shipped artifact (win, loss, or flat -
+// not just wins) into a structural pattern and tallies outcomes by (pattern,
+// pageFamily). Never mutates shipped_change_proof or move_drafts - this is a pure
+// projection computed fresh from loadShippedChanges() on every call.
+
+/** A mature/decided GSC verdict counts toward the pattern tally; "measuring" (an
+ *  active, still-running window) is honestly excluded as pending, matching the
+ *  same maturity gate harvestWinners already applies to "won". */
+function isDecided(record: ShippedChangeRecord, now: Date): boolean {
+  if (record.verdict === "measuring") return false;
+  const maturity = deriveMeasurementMaturity({
+    shippedAt: record.shippedAt,
+    now,
+    latestGscDate: record.measuredAt,
+    windows: record.windows.map((w) => ({ day: w.day, ran: w.ran })),
+    verdict: record.verdict,
+    controlsUsed: record.controlPages.length,
+    baselineImpressions: record.baseline?.impressions ?? 0,
+    live: record.verifiedLive,
+  });
+  return maturity === "mature_result" || maturity === "inconclusive";
+}
+
+function ledgerVerdictOf(record: ShippedChangeRecord): "won" | "lost" | "inconclusive" | "insufficient_data" {
+  if (record.verdict === "won") return "won";
+  if (record.verdict === "lost") return "lost";
+  if (record.verdict === "insufficient_data") return "insufficient_data";
+  return "inconclusive";
+}
+
+/** One shipped artifact tagged with its pattern + page family - the row shape the
+ *  aggregate is built from, retained alongside the tally so a caller can point at a
+ *  REAL example page for a confident cell (never a fabricated "the block that won"). */
+export type TaggedShippedRow = PatternOutcomeRow & { page: string };
+
+/**
+ * Read every shipped artifact for this tenant (any verdict, not just wins), classify
+ * its after-text pattern, and tally decided outcomes by (pattern, pageFamily). Cells
+ * below MIN_DECIDED_FOR_CONFIDENCE stay `confident: false` in the output - callers
+ * must never quote a winRate from an unconfident cell. Fail-soft -> [] on any error.
+ */
+export async function loadPatternAggregate(
+  tenantId: string,
+  opts: { now?: Date } = {},
+): Promise<PatternCellTally[]> {
+  const { cells } = await loadPatternAggregateWithRows(tenantId, opts);
+  return cells;
+}
+
+/** Same read as loadPatternAggregate, but also returns the tagged rows the tally was
+ *  built from (so a caller can name a real winning page for a confident cell). */
+export async function loadPatternAggregateWithRows(
+  tenantId: string,
+  opts: { now?: Date } = {},
+): Promise<{ cells: PatternCellTally[]; rows: TaggedShippedRow[] }> {
+  if (!tenantId) return { cells: [], rows: [] };
+  const now = opts.now ?? new Date();
+  try {
+    const records = await loadShippedChanges();
+    const rows: TaggedShippedRow[] = [];
+    for (const r of records) {
+      const afterText = (r.after ?? "").trim();
+      if (afterText === "") continue; // nothing to classify - honest skip
+      if (!isDecided(r, now)) continue; // pending window - excluded from the tally entirely
+      rows.push({
+        pattern: classifyDraftPattern(afterText),
+        pageFamily: pageFamilyOfUrl(r.page || r.path),
+        verdict: ledgerVerdictOf(r),
+        citationVerdict: r.citationOutcome?.verdict ?? null,
+        page: r.page || r.path,
+      });
+    }
+    return { cells: aggregateWinsByPattern(rows), rows };
+  } catch (e) {
+    log.warn("[winner-memory] pattern aggregate failed (non-blocking)", {
+      tenantId,
+      error: e instanceof Error ? e.message : String(e),
+    });
+    return { cells: [], rows: [] };
+  }
+}
+
+/** The most recent WON page matching a confident cell's (pattern, pageFamily), or null
+ *  when none of the decided rows for that cell happened to be a win (a confident cell
+ *  can be confident about a LOSS pattern too - never invent a "won on X" claim then). */
+function winningPageForCell(rows: TaggedShippedRow[], cell: PatternCellTally): string | null {
+  const match = rows.find((r) => r.pattern === cell.pattern && r.pageFamily === cell.pageFamily && r.verdict === "won");
+  return match?.page ?? null;
+}
+
+/** First path segment groups a page family (mirrors daily-experiment-planner's
+ *  pageFamilyOf, duplicated here as a tiny pure helper to avoid an experiments->llm
+ *  edit surface; both must stay in lockstep with the same "first path segment" rule). */
+function pageFamilyOfUrl(urlOrPath: string): string {
+  const path = (urlOrPath ?? "").replace(/^https?:\/\/[^/]+/, "").replace(/[?#].*$/, "");
+  const segs = path.split("/").filter(Boolean);
+  return segs.length >= 2 ? segs[0]! : (segs[0] ?? "root");
+}
+
+/**
+ * Pattern-aware few-shot fragment (item 74): same winning examples as
+ * buildWinnerFewShots, but when the pattern aggregate has a CONFIDENT cell for this
+ * move's page family, appends one explicit style hint naming the winning pattern.
+ * Returns the EXACT SAME string as buildWinnerFewShots (byte-identical) whenever no
+ * confident cell exists for this page family - the caller's prompt is unaffected
+ * until the ledger has actually earned an opinion. Examples are always framed as
+ * STYLE references only; the caller's system prompt still owns the no-invented-
+ * numbers rule for the model's own output.
+ */
+export async function buildWinnerFewShotsWithPattern(
+  tenantId: string,
+  lever: ExperimentFamily,
+  pageFamily: string,
+): Promise<{ fragment: string; patternHint: (PatternCellTally & { winningPage: string | null }) | null }> {
+  const fragment = await buildWinnerFewShots(tenantId, lever);
+  if (!tenantId || !pageFamily) return { fragment, patternHint: null };
+  const { cells, rows } = await loadPatternAggregateWithRows(tenantId);
+  const best = bestConfidentPattern(cells, pageFamily);
+  if (!best) return { fragment, patternHint: null };
+  const winningPage = winningPageForCell(rows, best);
+  const hintLine = `\nWinning style for ${pageFamily} pages here: ${patternInsightSentence(best)} Where it fits the topic, favor a ${PATTERN_LABEL[best.pattern]} structure - this is a STYLE cue only, never license to invent a number that is not in the grounding.`;
+  return { fragment: fragment + hintLine, patternHint: { ...best, winningPage } };
+}
+
+/** Re-exported for callers that only need the sample floor constant. */
+export { MIN_DECIDED_FOR_CONFIDENCE };
+export type { DraftPatternId, PatternCellTally };

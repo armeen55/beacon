@@ -14,6 +14,8 @@ import { loadOutreachPipelineAction } from "./outreach-actions";
 import { readCloneBriefResults } from "@/domains/serp/clone-brief-store";
 import { currentTenantId } from "@/lib/tenant-context";
 import type { CloneBrief } from "@/domains/serp/clone-brief";
+import { loadSecondOrderCitationPlaybook } from "@/domains/ai-visibility/second-order-citations";
+import { SecondOrderCitationsSection } from "./second-order-citations-section";
 
 /**
  * /competitors (2026-06-28 — ActionPack execution loop, Phase 6) — the real enemy
@@ -278,6 +280,16 @@ async function OutreachBody() {
   return <OutreachSection initialRows={rows} />;
 }
 
+/** Item 72: the second-order citation playbook - "the sources AI already
+ *  trusts." Computed on render (react cache(), no store, no migration).
+ *  Self-hiding inside SecondOrderCitationsSection when there is no data. */
+async function SecondOrderCitationsBody() {
+  const result = await loadSecondOrderCitationPlaybook().catch(
+    (): Awaited<ReturnType<typeof loadSecondOrderCitationPlaybook>> => ({ domains: [], rowsScanned: 0 }),
+  );
+  return <SecondOrderCitationsSection result={result} />;
+}
+
 /** Item 60: reads the persisted clone-and-beat briefs for the current tenant.
  *  $0 on render — no live Labs call or competitor fetch ever fires here. */
 async function CloneBriefsBody() {
@@ -314,6 +326,14 @@ export default async function CompetitorsPage() {
           operator has run it at least once. */}
       <Suspense fallback={null}>
         <CloneBriefsBody />
+      </Suspense>
+      {/* Item 72: second-order citation playbook, the third-party domains AI
+          already trusts and cites on this tenant's topics, with the class of
+          site (directory/listicle/media vs. reference/community) and a plain
+          suggested action. Self-hiding when empty; operator-only outward
+          actions (never auto-sent). */}
+      <Suspense fallback={null}>
+        <SecondOrderCitationsBody />
       </Suspense>
       {/* Item 57: outreach execution pipeline — mine leads, draft pitches, operator
           clicks Send. Operator-only: it exposes real send/status controls. */}

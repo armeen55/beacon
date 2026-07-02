@@ -7,6 +7,274 @@
 
 ---
 
+## 2026-07-02 - BEACON 500 item 71 (align AI answers to pages sentence by sentence: the passage that beat you, the line AI quoted, worktree, NOT committed)
+
+**Built:**
+
+- `src/domains/ai-visibility/answer-alignment.ts` (pure, no I/O): `splitSentences` (abbreviation-aware sentence splitter), `shingles`/`shingleContainment` (order-sensitive 5-gram containment), `alignAnswerToPage`/`bestAlignedPassage` (best-matching page sentence per answer sentence, sorted, score-floored), `summarizeWinningShapes` (length band, list/table/prose structure, entity/number/definition-first opening pattern - EXPORT ONLY, not wired into structured-drafter.ts/llm-answer-block.ts per scope), `alignmentContentHash` (cache key).
+- `src/domains/ai-visibility/answer-alignment-store.ts` (server-only): reads `profound_answer_rows.response_excerpt` (paged, tenant-scoped, `.not("response_excerpt", "is", null)`), a lean scoped `page_snapshots` reader for one owned URL's `body_paragraph_sample`/`card_texts`/`faqs`, and builds real (if coarser) competitor page text from the already-cached `CompetitorPageFacts` (title/metaDescription/outline/faqQuestions - raw competitor body text is never persisted in this codebase). `getCompetitorAnswerAlignment`/`getOwnedAnswerAlignment` run the alignment and persist via `saveMoveDraft`/`getLatestMoveDrafts` (kind `"answer_alignment"`) keyed by content hash so an unchanged re-render skips recompute entirely.
+- `src/domains/ai-visibility/answer-alignment-actions.ts` (`"use server"`, async-only exports as Next.js requires): `getCompetitorAnswerAlignmentForClient` resolves `currentTenantId()` server-side before delegating - a client component's card cannot supply its own tenantId.
+- One additive line in `src/domains/demand-graph/move-draft-store.ts`'s `MoveDraftKind` union (`"answer_alignment"`, free-text DB column, no migration - matches the exact pattern every prior kind used).
+- `src/app/(shell)/today-moves-card.tsx` (the worklist Move card, rendered on `/worklist` via the Changes list): a lazy one-shot `useEffect` fetch (only when a real competitor teardown already exists) renders "The exact words the AI used: ..." under the existing "Steal this" line.
+- `src/app/(shell)/proof/page.tsx` (the ledger card, `LedgerCard`): a new async `AiQuotedReceipt` server component renders "AI quoted this line: ..." directly under the existing "AI answers:" lane, gated on `citationOutcome.verdict === "gained"` or a real post-ship `treatedPostCount > 0`.
+
+**Tests:** `src/domains/ai-visibility/answer-alignment.test.ts` (37 - sentence splitting incl. abbreviations/newlines/empty/garbage, shingle order-sensitivity/case-insensitivity/custom-n, containment asymmetry, full alignment incl. score sort/maxResults/no-overlap/empty-input/adversarial-length, `summarizeWinningShapes` for every length band/structure/opening pattern combination, content-hash determinism/whitespace-stability) and `src/domains/ai-visibility/answer-alignment-store.test.ts` (20 - competitor text assembly from facts, topic-to-answer-row matching incl. a regression test for a real ground-truth bug found below, truncation to the 12k-safe cap, JSON round-trip, malformed-content safety). **57/57 passing.** `npm run typecheck` clean in every file this item touches (a handful of unrelated pre-existing errors exist elsewhere in this shared worktree from other concurrent agents - confirmed by name, not touched here).
+
+**Ground-truth (tenant-iranopedia, read-only probes, $0):**
+
+- `profound_answer_rows`: 4,314 rows carry non-empty `response_excerpt` text (990/1000 sampled, avg 498 of the 500-char cap applied at write time in `sync-prompt-intelligence.ts`). `prompt_answer_observations` (native engine-poll) has 0 rows for this tenant today.
+- `page_snapshots`: 210/217 rows have real `body_paragraph_sample`/`card_texts` text.
+- Owned-side alignment (full cross-product scan, prose-only filter): **200 clean hits.** Best: a perfect score-1.0 match - ChatGPT's answer to "What are famous Rumi quotes about love?" quotes `"Let yourself be silently drawn by the strange pull of what you really love."` verbatim, aligned to the exact same sentence on `iranopedia.com/famous-iranian-philosophers`. Second-best: score 0.778 on the Nowruz page (ChatGPT's "It celebrates the arrival of spring and the beginning of the new year" vs the page's near-identical sentence).
+- Competitor-side alignment on real Moves: **0/30 sampled Moves with a competitor URL produced a hit** even after fixing a real topic-matching bug (see below). Root cause confirmed via a 3-gram/4-gram/5-gram diagnostic: the cached competitor facts (headings + FAQ questions + meta description, never raw body paragraphs) are structurally too coarse to share literal word runs with an AI's prose answer, even on a genuinely on-topic page (e.g. parentcalc.com's Persian-boy-names page vs a ChatGPT answer listing the same names in prose - both are about the same topic, neither shares a 3-word run). This is an honest data-coverage gap in `competitor-page-audit.ts` (out of this item's ownership), not a defect in the alignment math.
+- Bug found and fixed during ground-truthing: `pickAnswerExcerptForTopic`'s original 0.3 one-sided-containment floor let a single coincidental shared word decide a "topic match" (e.g. "iran flag" matched a "What are the most beautiful cities in Iran?" prompt purely via "iran"). Fixed to require 2+ shared non-generic tokens and raised the floor to 0.5; re-ran the same probe and confirmed the false-positive class is gone (topic-matched moves dropped from 12/30 to the correct 6/30). Added 3 regression tests pinning this exact bug.
+
+**Honest caveats:** the durable Profound answer store only ever holds a 500-char excerpt of what may have been a much longer live answer - this module never claims to see the "full" answer, only whatever excerpt exists. The competitor-side feature will render nothing on most cards today, correctly, because the underlying page text it has access to is genuinely too coarse; it is not silently faking a match. No migration, no new store, no LLM, no em/en dashes in any new copy (`proof-jargon-guard.test.ts` still 31/31 passing after this change).
+
+**Built (all new, under `src/domains/seasonal/`, extends the existing item-21/63 seasonal domain):**
+
+- `family-demand-profile.ts` (pure): per-pageFamily weekly + annual demand profiles. Annual half
+  reuses `seasonality.ts`'s exact share (>=0.6) + floor (>=200 impressions) method, grouped by
+  `pageFamilyOf(topPage)` instead of by raw query, over `gsc_monthly_archive` rows. Weekly half buckets
+  recent `gsc_daily_page_totals` rows by ISO week-of-year, same share/floor discipline, gated on
+  `MIN_WEEKS_FOR_WEEKLY_PROFILE` (4) distinct weeks before it will name a window.
+- `load-family-daily-rows.ts`: bounded, paged (1000-row PostgREST pages) read of `gsc_daily_page_totals`
+  for a whole tenant, mirroring `load-monthly-archive.ts` exactly.
+- `family-demand-profile-store.ts` + `run-family-demand-profiles.ts`: GLOBAL json-store
+  (`seasonal-family-profiles`, tenant_id rows, Supabase-mirrored), same sibling pattern as
+  `seasonal-store.ts`/`peak-calendar-store.ts`. Orchestrator loads both sources, builds profiles, persists.
+- `event-calendar.ts` + `event-calendar-store.ts`: the tenant's event calendar (GLOBAL json-store
+  `event-calendar`, tenant_id rows, Supabase-mirrored). Entries are `{id, name, dateRule, learnedFromData,
+  pageFamilies, confidence?, observedImpressions?}`. `deriveEventsFromProfiles` turns a family's detected
+  annual window into an entry named after the family SLUG (never a curated holiday - title-cased
+  `pageFamilyOf`, e.g. "Iran Flags"), `mergeDerivedEntries`/`mergeDerivedEventsIntoCalendar` never
+  overwrite an id already present, so an operator's rename/edit survives every re-derivation. Full CRUD
+  (upsert/delete) for operator-entered entries.
+- `seasonal-inflection.ts` + `attach-seasonal-inflection.ts`: computed-only
+  `measuredAcrossSeasonalInflection` flag. `computeSeasonalInflection` checks whether a measurement
+  window [start, end) overlaps a family's detected annual (calendar months) or weekly (ISO weeks)
+  window. Wired into `measurement-maturity.ts`'s `MaturityInput`/`MeasurementPresentation` as new
+  optional `seasonalInflection`/`seasonalInflectionCaveat` fields, additive exactly like
+  `weakComparison`/`shockWindows` - a caller that never passes it sees byte-identical output, and when
+  it fires it additively demotes `learningEligibility` to false and renders a caveat. Wired into the real
+  read site (`src/app/(shell)/proof/page.tsx`) via `attachSeasonalInflectionForLedger`, which loads the
+  tenant's family profiles once and computes the flag per ledger row. HARD RULE respected: nothing here
+  is added to `recordToRow` in `shipped-change-store.ts` - there is no column for it, so it cannot be
+  persisted even by mistake; it is recomputed fresh on every read.
+- `seasonality-voice.ts`: a new `"seasonal"` teammate through the exact `SpecialistOpinion` contract
+  (added `"seasonal"` to the `Specialist` union and `"seasonal_demand_cliff"` to `ObjectionKind` in
+  `specialist-opinions.ts`, plus label entries in `debate-summary.ts`). `emitSeasonalOpinion` abstains
+  with no computed profile; objects (DOWNGRADE, never veto) against `create_page`/`edit_existing_page`/
+  `change_title_meta`/`add_answer_block` when "now" sits inside a family's peak window within
+  `CLIFF_LOOKAHEAD_DAYS` (10) of it closing ("shipping into a demand cliff"); flags proactive prep
+  (informational, no objection) when the next window opens 4-8 weeks out ("prep now"). Wired into
+  `attachOpinions` in `specialist-opinions.ts` (the real pipeline entrypoint every call site already
+  uses) and threaded per-Move by page family in `prepare-today-moves.ts` (loads all profiles once,
+  looks up per packet).
+
+**Tests:** 5 new test files, 61 new tests (`family-demand-profile.test.ts` 15,
+`load-family-daily-rows.test.ts` 4, `event-calendar.test.ts` 16, `seasonal-inflection.test.ts` 12,
+`seasonality-voice.test.ts` 14 including a pluralization regression found during ground-truth). Full
+`src/domains/seasonal/` suite (12 files) plus every downstream consumer touched
+(`measurement-maturity.test.ts`, `specialist-opinions.test.ts`, `debate-summary.test.ts`,
+`move-router.test.ts`, `prepared-move-pack.test.ts`, `proof-outcome-caution.test.ts`,
+`proof-weather-caveat.test.ts`, the `gsc-no-hardcoded-site-url` architecture test): **258/258 passing**.
+`npm run typecheck`: clean.
+
+**Ground truth (tenant-iranopedia, real data, 2026-07-02):**
+
+- `runFamilyDemandProfiles`: 54 families detected in ~4.2s. `gsc_monthly_archive` currently holds only
+  2 distinct months (May + June 2026 - the archive-rollup started recently), so every family's annual
+  window reads `months=[5,6] share=1 confidence=one_season` - this is HONEST, not a bug: the existing,
+  already-shipped `detectSeasonalQueries` (item 21) shows the identical pattern on the same tenant/data
+  (verified side-by-side), and `confidence` correctly never claims "repeated" with only 1 year of
+  history. The flag rate will fall naturally as the archive accumulates more months/years.
+- Event calendar: 54 candidate entries derived (e.g. "Iran Flags", "Iran Animals", "Persian Male
+  Names"), each named after the family slug. Merge is idempotent (re-running produced 54, not 108).
+- Seasonal-inflection check against the real 25-row proof ledger: 19/25 rows flagged as spanning the
+  currently-detected window (honest given the 2-month-old archive - 6/25 correctly passed through
+  unflagged, confirming the check discriminates rather than flagging everything).
+- Seasonality voice: fired 0/40 on real Moves as of 2026-07-02 (correct - the May-June window closed 1-2
+  days before probe time, past the 10-day cliff lookahead, and the next occurrence is ~10 months out,
+  past the 4-8 week prep band). Hand-verified both branches fire correctly at the right calendar
+  offsets (cliff fires within 10 days of window close, e.g. "closes in about 1 day"; prep fires 4-8
+  weeks before the next window opens) via a timing probe with simulated `now` values.
+
+**Caveats:** `src/domains/llm/draft-pattern.ts`/`.test.ts` are untracked files from a concurrent agent in
+this shared worktree, not touched by this item. `docs/BEACON_500_MASTER_PLAN.md`,
+`docs/HANDOFF_VERIFIED_STATE.md`, and several `src/` files outside `src/domains/seasonal/` show as
+modified in `git status` from other concurrent agents' work in the same worktree - none of that is this
+item's changes (verified via targeted `git status --porcelain` filtering before finishing).
+
+---
+
+## 2026-07-02 - BEACON 500 item 70 (learned per-specialist vote weights by lever family, with calibration shrink, worktree, NOT committed)
+
+**Built:**
+
+- `src/domains/team-scoreboard/specialist-weights.ts` (new, pure, no store): extends the
+  `src/domains/learning/experiment-prior.ts` pattern (MIN_DECIDED=3, clamp band, explainable counts,
+  neutral-until-proven) from Moves to TEAMMATES. `resolveSpecialistWeight(specialist, family, overall,
+  familyCell, label)` resolves a bounded [0.85, 1.15] weight from a (specialist, lever-family) settled
+  won/lost cell when it has >= MIN_DECIDED (3) decided votes; below that it backs off to the
+  specialist's overall record; below that it is neutral (weight 1, basis "neutral", tag null).
+  `shrinkForBand`/`worstShrinkAcrossBands`/`applyCalibrationShrink` independently bucket
+  `calibration.ts`'s existing conviction bands and fold a bounded shrink (floor 0.85) into an earned
+  weight when a band's stated conviction exceeds its measured win rate by more than 15 points on >= 5
+  samples (`OVERCONFIDENCE_MARGIN`, `MIN_BAND_SAMPLE_FOR_SHRINK`). `buildSpecialistWeightTable(cells,
+  labelFor)` builds a read-time lookup table from the scoreboard's existing per-specialist rows (no new
+  persisted store - computed fresh from whatever `compute-scoreboard.ts` already wrote).
+- `src/domains/demand-graph/move-router.ts` (owned slice): new optional `specialistWeight` field on
+  `RouteInput` (type `SpecialistWeightLookup = (specialist, family) => { weight, tag } | null |
+  undefined`). Inside the vote tally, each opinion's per-action confidence share is now multiplied by
+  `specialistWeight?.(o.specialist, actionFamilyOf(a))?.weight ?? 1` before being added to that action's
+  running vote total; `totalVoteWeight` folds in the same (averaged, across an opinion's suggested
+  actions) weight so a boosted/shrunk specialist moves its real share of the team's total voice, not
+  just its own action's tally. New `appliedWeights: AppliedSpecialistWeight[]` field on
+  `MoveRouterDecision` records every non-neutral (weight != 1) resolution actually used, deduped per
+  (specialist, family). With no `specialistWeight` passed (every existing call site: `team-review.ts`,
+  `prepare-today-moves.ts`, `today-moves-data.ts`), every weight defaults to exactly 1 and the vote math
+  is numerically identical to before this change - `appliedWeights` is always `[]`.
+- `src/domains/team-scoreboard/load-team-scoreboard.ts`: new `loadSpecialistWeightTable(tenantId)`
+  (React `cache()`'d, fail-soft to an all-neutral table) is the $0 read edge a caller can bind into
+  `routeMove`'s `specialistWeight` lookup. New `loadActiveSpecialistWeights(tenantId)` returns every
+  currently non-neutral `ReliabilityWeight` across the tenant's scoreboard, for a surface that wants the
+  full list without re-deriving per Move.
+- `src/app/(shell)/team-standup.tsx` (the existing item-38/43 scoreboard surface, not a shared worklist
+  card): `loadScoreboardForStandup` now also calls `loadActiveSpecialistWeights` and appends one
+  plain-English line per specialist with an active learned weight (deduped to its first/strongest
+  cell), e.g. "Search demand has called 8 of its last 11 winners here, so its vote counts a bit more."
+  Stacked under the existing footer/calibration/objection lines; silent (empty array) until a cell
+  clears MIN_DECIDED, same honest-silence posture as every other accountability line on this strip.
+
+**Verified:**
+
+- `npm run typecheck` clean in every file this item owns (`move-router.ts`, `specialist-weights.ts`,
+  `load-team-scoreboard.ts`, `team-standup.tsx`). Three pre-existing/concurrent errors remain in
+  `src/domains/demand-graph/debate-summary.ts` and `src/domains/demand-graph/specialist-opinions.ts`
+  from another in-flight agent's session adding a `"seasonal"` specialist to the `Specialist` union -
+  explicitly out of this item's ownership (`specialist-opinions.ts` is on the do-not-touch list) and
+  confirmed via `git status` that neither file is touched by this change.
+- 49 new/updated targeted tests, all green:
+  - `src/domains/team-scoreboard/specialist-weights.test.ts` (24 new): MIN_DECIDED gating on both the
+    family and overall cells (below/at-exactly/above the floor), family-then-overall backoff (thin
+    family backs off to a proven overall record; both thin resolves neutral), clamp band holds across
+    the full 0..20 win-rate sweep (never exceeds [0.85, 1.15]), shrink math (no shrink below the sample
+    floor, no shrink when the overshoot is inside the 15-point margin, a real shrink when overshoot
+    exceeds it, floored at 0.85 under extreme overconfidence, null `winRatePct` never shrinks),
+    `worstShrinkAcrossBands` picks the single worst band, `applyCalibrationShrink` leaves a neutral
+    resolution untouched and re-clamps + replaces the tag on an earned one, and
+    `buildSpecialistWeightTable` cold-start-neutral / unknown-specialist-neutral / family-miss-backs-
+    off-to-overall.
+  - `src/domains/demand-graph/move-router.test.ts` (25 new, appended to the existing 25 pre-existing
+    cases which all still pass): a dedicated "byte-identical when cold" suite - no lookup passed, an
+    always-neutral-returning lookup, and an always-`undefined`-returning lookup all produce output
+    `toEqual` the no-lookup baseline; a real up-weight nudging a close election (without asserting it
+    must flip, since the bound is deliberately small); a down-weight visibly shrinking a family's vote
+    share; `appliedWeights` populated/deduped correctly including the two-distinct-families-from-one-
+    opinion case; `appliedWeights` empty when a lookup returns a tag at weight exactly 1 (nothing to
+    explain); and a pin that the veto/downgrade/overlap-boost score machinery (the `create_page`
+    overlap-boost `1300` case) is completely unaffected by vote weighting.
+  - Full `src/domains/team-scoreboard/` suite re-run (119 tests, 6 files) - all still green, no
+    regressions from the new `load-team-scoreboard.ts` additions.
+- No em/en dashes in any new or touched file (`specialist-weights.ts`, its test, `move-router.ts`, its
+  test, `load-team-scoreboard.ts`, `team-standup.tsx`) - checked by direct byte search, zero matches.
+
+**Ground-truthed live on Iranopedia** (`tenant-iranopedia`, read-only probes, $0, no writes beyond the
+existing idempotent scoreboard recompute):
+
+- The real team scoreboard (`scripts/ground-truth-team-scoreboard.ts`) currently has **0 specialists
+  and 0 settled-and-joined picks** (`totalSettled=0`, `settledJoined=0` from a fresh
+  `buildTeamScoreboardSummary` run). Root cause, confirmed directly: 25 real proof-ledger rows exist (1
+  won, 3 lost, 5 inconclusive, 16 measuring) but under the maturity gate ALL 25 are still
+  `collecting`/`early_checkpoint` (16 collecting, 9 early_checkpoint) - none has reached
+  `mature_result` yet. Separately and independently, of the 2 real plan records in history, **0 plan
+  picks carry a `teamReview`** - the team-review wiring postdates both plans, exactly the same drought
+  item 38's own ground-truth already documented.
+- Because the scoreboard itself has nothing settled to learn from, every `specialist-weights.ts`
+  resolution is honestly neutral today: `buildSpecialistWeightTable([])` (equivalent to the current
+  empty-cells state) resolves every `(specialist, family)` lookup to `{ weight: 1, basis: "neutral",
+  tag: null }`, so `loadActiveSpecialistWeights("tenant-iranopedia")` returns `[]` and the new standup
+  line does not render for any specialist right now. This is the expected, honest cold-start state, not
+  a bug - it will self-activate the same day item 38's own scoreboard first reports real settled+joined
+  votes for any specialist (>= 3 decided votes in a family, or overall).
+
+**Caveat:** the three existing `routeMove` call sites (`team-review.ts`, `prepare-today-moves.ts`,
+`today-moves-data.ts`) are outside this item's ownership boundary (only `move-router.ts` +
+`team-scoreboard/**` were owned this slice) and were intentionally left unwired - they continue to omit
+`specialistWeight`, so today's routing behavior is unchanged end to end. `loadSpecialistWeightTable`/
+`loadActiveSpecialistWeights` exist as the ready-to-bind read edge for whichever slice wires a real
+caller in next.
+
+---
+
+## 2026-07-02 - BEACON 500 item 72 (second-order citation playbook: get listed on the sources AI already trusts, worktree, NOT committed)
+
+**Built:**
+
+- `src/domains/ai-visibility/second-order-citations.ts` (new): pure ranking (`rankSecondOrderDomains`)
+  and deterministic classification (`classifyDomain`, host/URL-path pattern based - reference,
+  ugc_community, media_press, directory, listicle, other) plus a `react cache()` loader
+  (`loadSecondOrderCitationPlaybook`, no store, no migration). The loader reads `profound_citation_rows`
+  (Supabase, tenant-scoped, PAGE-read past the 1000-row PostgREST cap, MAX_ROWS 50,000) and the
+  `dataforseo-llm-mentions` 7-day cache (`readAllCachedLlmMentions`) for real tracked prompts when
+  available. Excludes the tenant's own domain (from `getBusinessConfig(tenantId).domain`) and reuses
+  the EXISTING noise-domain list (`domainOf`/`isNoiseDomain` from `domains/evidence/relevance-gate.ts`)
+  rather than writing a new blocklist. `isRealisticOutreachTarget` flags directory/listicle/media_press
+  as real outreach targets; reference and ugc_community are flagged "different playbook" (never a pitch
+  email target). Optionally links a domain to an existing `outreach_pipeline` row by domain key
+  (read-only; conceptual link only, nothing here sends anything).
+- `src/app/(shell)/competitors/second-order-citations-section.tsx` (new): self-hiding section, "The
+  sources AI already trusts," top 8 domains with a class chip, "cited N times on your topics," the
+  example cited page + a prompt it wins, and the plain-English suggested action. Renders nothing when
+  `result.domains.length === 0`.
+- `src/app/(shell)/competitors/page.tsx`: 2 import lines + 1 new `SecondOrderCitationsBody` async
+  component + 1 `Suspense`-wrapped mount line, placed after the clone-brief cards and before the
+  operator-only outreach pipeline section. No other page edits.
+
+**Verified:** `npm run typecheck` clean (0 errors project-wide at the time of this change). 20 new
+targeted tests in `src/domains/ai-visibility/second-order-citations.test.ts`, all green: classification
+per class (reference/ugc_community/media_press/directory/listicle/other), outreach-target flags
+(directory/listicle/media_press yes, reference/ugc_community no), own-domain exclusion, noise-domain
+exclusion via the reused `relevance-gate.ts` list, ranking order by citation count, real-prompt-hint vs
+topic-derived fallback for `examplePrompt`, outreach-pipeline linkage by domain key, empty-input honesty,
+and a pin that generated copy (`suggestedAction`, `examplePrompt`) never contains an em or en dash.
+
+**Ground-truthed live on Iranopedia** (`tenant-iranopedia`, read-only probe, $0 - no paid calls fire on
+render): `scripts` ad hoc probe via `set -a; . ./.env.local; set +a; BEACON_TENANT_ID=tenant-iranopedia
+npx tsx --require ./scripts/mock-server-only.cjs <probe>` confirmed 20,712 real `profound_citation_rows`
+for this tenant (the initial MAX_ROWS of 20,000 silently truncated 712 rows on the first pass - caught
+via a direct `count: "exact"` query and fixed by raising the cap to 50,000 before finalizing). Real
+output, 2,985 distinct third-party domains ranked after exclusions:
+
+| domain | class | outreach target | citations | example topic |
+|---|---|---|---|---|
+| wikipedia.org | reference | no (different playbook) | 1,328 | Hafez / Taarof / Chaharshanbe Suri |
+| persiscollection.com | other | no | 411 | Persian housewarming gifts |
+| talkpal.ai | other | no | 261 | Persian vocabulary/culture |
+| britannica.com | reference | no (different playbook) | 245 | Hafez biography |
+| surfiran.com | listicle | yes | 238 | Best Persian foods |
+| adventureiran.com | other | no | 200 | Iran's most beautiful places |
+| mypersiancorner.com | other | no | 168 | Persian/Farsi terminology |
+| orienttrips.com | listicle | yes | 164 | Historical sites in Iran |
+| iranicaonline.org | other | no | 148 | Iranian cinema |
+| visitouriran.com | other | no | 136 | Iran travel guides |
+
+Own domain `iranopedia.com` correctly excluded (0 leakage rows). Class distribution across all 2,985
+domains: other 2,744, listicle 178, media_press 48, ugc_community 7, directory 5, reference 3 - 231
+domains total classify as realistic outreach targets. 0 domains currently linked in the outreach
+pipeline (empty for this tenant today, so every card renders with `inOutreachPipeline: false`).
+
+**Honest caveat:** most of this tenant's real citing domains are travel/culture blogs with no
+directory-shaped path and no press-host match, so they classify as "other" rather than a false-positive
+guess - the classifier is intentionally conservative (pattern match or "other," never inferred). Only 8
+of 2,985 domains are directory-shaped on this tenant's real data; `google.com` appears in the raw feed
+(DataForSEO/Profound sometimes cite a Google SERP-viewer URL as the citation target) and correctly
+classifies as `other`/not-an-outreach-target rather than being hidden, since the reused noise-domain list
+is scoped to social/UGC/recipe-aggregator noise, not search engines, and a new list was out of scope for
+this item.
+
+---
+
 ## 2026-07-02 - BEACON 500 item 63 (seasonality engine: proven peak calendar + GSC deep backfill, worktree, NOT committed)
 
 **Built:**
@@ -30550,3 +30818,17 @@ Post-deploy verification of the live stack (main `0688c251`, prod deploy succeed
 **Real Iranopedia probe (read-only, `scripts/ground-truth-bayesian-target-query.ts`, no paid calls, nothing written):** the `/famous-iranian-singers` shipped-change record (`section_add`, shipped 2026-06-21, targetQueries: "iranian singers"/"persian singers"/"famous iranian singers"/"famous persian singers"/"persian singer") with its stored verdict UNCHANGED at `won`/`high` confidence (7-day window). Real `bayesianRead`: pWin=0.82, 90% credible interval [-9, 33] extra clicks/month, sentence "We are 82 percent sure this helped, likely 9 fewer to 33 extra clicks a month." - and since 0.82 clears the 0.7 agreement threshold for a `won` verdict, the Results-row headline genuinely upgrades to this Bayesian wording (confirmed via the same `selectHeadlineSentence` the UI calls). Real `targetQueryRead`: 2 of the 5 target queries had enough data to report (the other 3 were too thin, honestly silent) - "iranian singers" (position 11.1 to 8.3, click rate down 0.3 points, likely a rank-not-yet-converted-to-clicks case) and "persian singers" (click rate up 2.7 points, position flat at 14.6). Both queries reported `controlsUsed=0` (the 4 assigned comparison pages, entrepreneur/scientist/athlete/male-names lists, genuinely do not rank for singer-related queries in `gsc_daily_rows`, so the sentence correctly falls back to the treated page's own raw movement rather than fabricating a control adjustment from zero usable comparators).
 
 **Honest caveats:** the Bayesian read is intentionally NOT a diff-in-diff (reads the treated page's own pre vs post, never subtracts control-page drift) because a closed-form Bayesian treatment of a three-way treated-pre/treated-post/control-drift comparison has no simple conjugate form without silently breaking the beta/gamma conjugacy this module leans on; this is documented in the module header as the explicit trade (the Bayesian read answers "how sure am I THIS PAGE moved", the floor verdict still answers "how sure am I this page moved MORE than similar pages"), which is why the headline upgrade requires directional AGREEMENT between the two rather than ever replacing the floor verdict as the decision-maker. The normal-moment-matching approximation is honest but not exact for thin samples (documented + gated via `smallSample`, verified in the real probe's case as `false` since the singers page has real volume). `targetQueryRead`'s control adjustment can silently degrade to zero controls (as seen in the real probe) when no comparison page shares demand for a specific long-tail query - this is the correct, honest behavior (no fabricated adjustment) but means the per-query sentence sometimes reports raw movement rather than a true diff-in-diff; this is called out explicitly in the sentence's own framing ("On the exact search we aimed at") which never claims to be control-adjusted. `writeCalibrationIfDue`'s call site in `run-measurement.ts` and other nearby code were being concurrently edited by other agents in this shared worktree during this session (confirmed via repeated `git status`/re-read checks after two mid-session full-file reverts of `run-measurement.ts`/`shipped-change-store.ts` back to their pre-edit state, both re-applied and re-verified); the final on-disk state was re-confirmed intact and green immediately before this report.
+
+---
+
+### 2026-07-02 - BEACON_500 item 74: pattern tagging + few-shot from the ledger
+
+**What changed:** new `src/domains/llm/draft-pattern.ts` (pure) classifies any draft/answer-block text into one of `definition_first | stat_first | table | qa_pair | step_list | prose_other` from markdown/HTML structure alone, plus a pure `aggregateWinsByPattern` that tallies decided proof-ledger outcomes by `(pattern, pageFamily)` with a hard `MIN_DECIDED_FOR_CONFIDENCE = 3` floor (unconfident cells never surface a claim). `winner-memory.ts` extended: each harvested `WinnerExample` is now tagged with its `pattern` at harvest time (computed-only, the ledger/`shipped_change_proof` rows are never mutated); new `loadPatternAggregate`/`loadPatternAggregateWithRows` read the WHOLE ledger (not just wins) fresh on every call and classify+tally every decided shipped artifact; new `buildWinnerFewShotsWithPattern(tenantId, lever, pageFamily)` returns the existing item-30 fragment plus, only when a confident cell exists for that page family, one appended style-hint line naming the winning pattern and a real winning page (never fabricated - `winningPageForCell` only names a page whose row actually won). `structured-drafter.ts`: `AnswerBlockStructuredInput`/`AtomicEditStructuredInput` gained an optional `pageFamily` field (omitting it is fully backward compatible - every existing caller is untouched and behaves byte-identically); `StructuredDraftResult`'s "drafted" branch gained an optional `fewShot` field; the atomic-edit drafter prepends the exact controlled provenance sentence ("I wrote this the way your last winners were written: <pattern>, like the block that won on <page>.") to the model's own `rationale` (re-capped at the schema's 400-char limit) only when a confident cell backed the draft, which rides through the ALREADY-WIRED `rationale` -> `llmRationale` -> `WrittenByBeacon` channel with zero changes to `build-today-preview.ts`/`daily-plan-types.ts`. The one draft-provenance component, `src/app/(shell)/daily-experiments-section.tsx`, gained a pure exported `splitFewShotLine` that detects the controlled-sentence prefix and renders it as a second, visually distinct line under the existing "Beacon wrote this" line - a pure renderer of whatever the drafter decided, no new fields threaded through the daily-plan types.
+
+**Not wired end-to-end yet (explicitly out of scope for this slice's ownership):** no caller currently passes `pageFamily` into `draftAnswerBlockStructured`/`draftAtomicEditStructured` (`build-today-preview.ts`/`prepare-today-moves.ts` are outside this item's ownership, which was scoped strictly to `src/domains/llm/**` + the one component), so the pattern-aware few-shot path is fully built and tested but not yet activated in the real nightly batch. Threading `pageFamily` from those callers is the natural next slice.
+
+**Verified:** `npm run typecheck` clean (0 errors). Targeted tests only (CI-minutes discipline): 101 tests across 4 files - `draft-pattern.test.ts` (26, new: classifier fixture matrix for all 6 patterns + priority ordering + HTML-stripping + jargon-free labels; `aggregateWinsByPattern`'s floor discipline including the exact-at-floor boundary, pending exclusion, and citation-outcome folding; `bestConfidentPattern`'s honest null when no cell/family clears the floor), `winner-memory.test.ts` (37, +11 new: pattern tagging at harvest, the whole-ledger aggregate's floor discipline, page-family grouping via the first-path-segment rule, and `buildWinnerFewShotsWithPattern`'s byte-identical-when-cold pin plus its confident-cell injection and the honest-null-winning-page-on-all-losses case), `structured-drafter.test.ts` (32, +9 new: byte-identical system prompt when no pageFamily or no confident cell, the pattern-hint fragment appended only when confident, the `fewShot` result field only ever present on a "drafted" status, and the atomic-edit rationale prepend + 400-char recap pin), `daily-experiments-section.test.ts` (6, new: `splitFewShotLine`'s prefix-detection matrix including the no-trailing-text case and a dash guard). All other tests that import either owned file re-verified green (9 files, 126 tests: `rewrite-page`, `batch-adjudicator`, `draft-full-page`, `run-strategy-review`, `ask/composer`, `load-experiment-outcomes`, `retrieval-budget`, `prepare-create-page-verdicts`, `draft-pitch`).
+
+**Real Iranopedia probe (read-only, `scripts/_probe-draft-pattern-item74.ts`, no writes, no LLM calls):** 25 shipped_change_proof rows, all with non-empty after-text. Real pattern distribution: `prose_other` 21, `stat_first` 3, `definition_first` 1 (zero `table`/`qa_pair`/`step_list` so far - expected, Iranopedia's ledger so far is mostly title/meta/schema edits and operator notes, not yet answer-block-heavy content). Real verdict distribution: `measuring` 16, `inconclusive` 5, `lost` 3, `won` 1 - but the honest `isDecided` gate (mirroring `winner-memory`'s existing maturity discipline) found **zero** decided rows: every non-measuring record's actual measurement maturity resolves to `early_checkpoint` (only the 7-day window has closed on all of them), so none has reached `mature_result`/`inconclusive` maturity yet even though their stored `verdict` field already shows a non-"measuring" value. Confirmed this is correct, not a bug, by cross-checking `deriveMeasurementMaturity` directly against each record's real windows. Result: the `(pattern, pageFamily)` aggregate is honestly empty and no page family has a confident pattern yet - the few-shot pattern hint would not fire tonight for any pick, which is the expected state this early in the ledger's life (need >=3 MATURE 28-day-window decided ships in the same pattern+family before any claim surfaces).
+
+**Honest caveats:** pattern classification is a deterministic structural heuristic, not a semantic read - a JSON-LD schema blob or an operator's shipped-change note (both of which appear in the real ledger's `after` field alongside genuine answer-block prose) classifies as `prose_other` rather than crashing or mislabeling, which is the correct fail-soft behavior but means the "pattern" signal is only as clean as what actually gets stored in `after`. The pattern-aware few-shot capability is fully built, tested, and pinned but genuinely inert in production until a follow-up slice threads `pageFamily` through `build-today-preview.ts`/`prepare-today-moves.ts` (both outside this item's ownership) AND the ledger accumulates enough mature, decided, same-pattern-same-family ships to clear the floor - both preconditions are currently unmet on the real tenant, and this log says so plainly rather than overstating readiness.

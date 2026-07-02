@@ -14,11 +14,27 @@ vi.mock("@/domains/recommendations/adjudicator-budget", () => ({
 // BEACON_500 item 30: control the winner-memory lookup deterministically so the
 // prompt-injection pin can assert both the "winners exist" and "no winners"
 // (byte-identical prompt) paths without touching the real json-store.
-const { buildWinnerFewShotsMock } = vi.hoisted(() => ({
-  buildWinnerFewShotsMock: vi.fn(async () => ""),
+// BEACON_500 item 74: same posture for the pattern-aware builder - defaults to "no
+// confident cell yet" so every pre-existing test (which never passes pageFamily) is
+// unaffected, and this item's own tests override the resolved value per-case.
+type PatternHintFixture = {
+  pattern: "definition_first" | "stat_first" | "table" | "qa_pair" | "step_list" | "prose_other";
+  pageFamily: string;
+  wins: number;
+  losses: number;
+  pending: number;
+  decided: number;
+  winRate: number;
+  confident: boolean;
+  winningPage: string | null;
+};
+const { buildWinnerFewShotsMock, buildWinnerFewShotsWithPatternMock } = vi.hoisted(() => ({
+  buildWinnerFewShotsMock: vi.fn(async (): Promise<string> => ""),
+  buildWinnerFewShotsWithPatternMock: vi.fn(async (): Promise<{ fragment: string; patternHint: PatternHintFixture | null }> => ({ fragment: "", patternHint: null })),
 }));
 vi.mock("./winner-memory", () => ({
   buildWinnerFewShots: buildWinnerFewShotsMock,
+  buildWinnerFewShotsWithPattern: buildWinnerFewShotsWithPatternMock,
 }));
 
 import {
@@ -59,6 +75,8 @@ beforeEach(() => {
   recordSpendMock.mockResolvedValue(undefined);
   buildWinnerFewShotsMock.mockReset();
   buildWinnerFewShotsMock.mockResolvedValue(""); // default: no winners → prompts unchanged
+  buildWinnerFewShotsWithPatternMock.mockReset();
+  buildWinnerFewShotsWithPatternMock.mockResolvedValue({ fragment: "", patternHint: null }); // default: no confident cell
 });
 afterEach(() => {
   process.env.BEACON_LLM_PROVIDER = ORIGINAL_PROVIDER;
@@ -281,6 +299,136 @@ describe("BEACON_500 item 30 - winner few-shot injection (additive, fail-soft)",
     );
     expect(capturedSystem.endsWith(fragment)).toBe(true);
     expect(fragment).not.toMatch(/[–—]/);
+  });
+});
+
+describe("BEACON_500 item 74 - pattern-aware few-shot injection (additive, fail-soft)", () => {
+  it("answer_block: never calls the pattern-aware builder when no pageFamily is given (back-compat)", async () => {
+    await draftAnswerBlockStructured(
+      { query: "chaharshanbe suri", pageLabel: "Chaharshanbe Suri", brief: null, outline: [], faqs: [], tenantId: "tenant-a" },
+      { complete: fakeComplete([{ text: JSON.stringify(validAnswer) }]) },
+    );
+    expect(buildWinnerFewShotsWithPatternMock).not.toHaveBeenCalled();
+    expect(buildWinnerFewShotsMock).toHaveBeenCalledWith("tenant-a", "answer");
+  });
+
+  it("answer_block: system prompt is BYTE-IDENTICAL to the no-pattern-hint path when the aggregate has no confident cell", async () => {
+    buildWinnerFewShotsWithPatternMock.mockResolvedValue({ fragment: "", patternHint: null });
+    let systemNoFamily = "";
+    let systemWithFamily = "";
+    await draftAnswerBlockStructured(
+      { query: "chaharshanbe suri", pageLabel: "Chaharshanbe Suri", brief: null, outline: [], faqs: [], tenantId: "tenant-a" },
+      { complete: async ({ system }) => { systemNoFamily = system; return { text: JSON.stringify(validAnswer) }; } },
+    );
+    await draftAnswerBlockStructured(
+      { query: "chaharshanbe suri", pageLabel: "Chaharshanbe Suri", brief: null, outline: [], faqs: [], tenantId: "tenant-a", pageFamily: "holidays" },
+      { complete: async ({ system }) => { systemWithFamily = system; return { text: JSON.stringify(validAnswer) }; } },
+    );
+    expect(buildWinnerFewShotsWithPatternMock).toHaveBeenCalledWith("tenant-a", "answer", "holidays");
+    expect(systemWithFamily).toBe(systemNoFamily);
+  });
+
+  it("answer_block: result carries NO fewShot field when the aggregate has no confident cell", async () => {
+    buildWinnerFewShotsWithPatternMock.mockResolvedValue({ fragment: "", patternHint: null });
+    const r = await draftAnswerBlockStructured(
+      { query: "chaharshanbe suri", pageLabel: "Chaharshanbe Suri", brief: null, outline: [], faqs: [], tenantId: "tenant-a", pageFamily: "holidays" },
+      { complete: fakeComplete([{ text: JSON.stringify(validAnswer) }]) },
+    );
+    expect(r.status).toBe("drafted");
+    if (r.status === "drafted") expect(r.fewShot).toBeUndefined();
+  });
+
+  it("answer_block: appends the pattern hint fragment AND sets fewShot when the aggregate has a confident cell", async () => {
+    buildWinnerFewShotsWithPatternMock.mockResolvedValue({
+      fragment: "\nWinning style for holidays pages here: stat-first blocks won 100 percent of the time (3 of 3 decided).",
+      patternHint: { pattern: "stat_first", pageFamily: "holidays", wins: 3, losses: 0, pending: 0, decided: 3, winRate: 1, confident: true, winningPage: "https://iranopedia.com/nowruz" },
+    });
+    let capturedSystem = "";
+    const r = await draftAnswerBlockStructured(
+      { query: "chaharshanbe suri", pageLabel: "Chaharshanbe Suri", brief: null, outline: [], faqs: [], tenantId: "tenant-a", pageFamily: "holidays" },
+      { complete: async ({ system }) => { capturedSystem = system; return { text: JSON.stringify(validAnswer) }; } },
+    );
+    expect(capturedSystem).toContain("Winning style for holidays pages here");
+    expect(r.status).toBe("drafted");
+    if (r.status === "drafted") {
+      expect(r.fewShot?.pattern).toBe("stat_first");
+      expect(r.fewShot?.winningPage).toBe("https://iranopedia.com/nowruz");
+      expect(r.fewShot?.sentence).toContain("stat-first");
+      expect(r.fewShot?.sentence).toContain("nowruz");
+      expect(r.fewShot?.sentence).not.toMatch(/[–—]/);
+    }
+  });
+
+  it("atomic_edit: system prompt is byte-identical with no confident cell, present when one exists", async () => {
+    const validEdit = {
+      field: "title", before: "Old Title", after: "New Sharper Title", rationale: "matches intent",
+      evidenceRefs: [{ source: "gsc", detail: "low CTR at position 4" }], confidence: "high", risks: [],
+      operatorSteps: ["Update the title tag"], proofPlan: { metrics: ["CTR"], windowsDays: [7, 14, 28], controls: "comparable pages" },
+    };
+    let systemNoFamily = "";
+    let systemWithFamily = "";
+    await draftAtomicEditStructured(
+      { query: "iranian singers", pageLabel: "Singers", field: "title", currentValue: "Old Title", outline: [], tenantId: "tenant-a" },
+      { complete: async ({ system }) => { systemNoFamily = system; return { text: JSON.stringify(validEdit) }; } },
+    );
+    await draftAtomicEditStructured(
+      { query: "iranian singers", pageLabel: "Singers", field: "title", currentValue: "Old Title", outline: [], tenantId: "tenant-a", pageFamily: "singers" },
+      { complete: async ({ system }) => { systemWithFamily = system; return { text: JSON.stringify(validEdit) }; } },
+    );
+    expect(systemWithFamily).toBe(systemNoFamily);
+    expect(buildWinnerFewShotsWithPatternMock).toHaveBeenCalledWith("tenant-a", "title", "singers");
+  });
+
+  it("atomic_edit: prepends the exact controlled provenance sentence to the model's own rationale when confident", async () => {
+    buildWinnerFewShotsWithPatternMock.mockResolvedValue({
+      fragment: "\nWinning style for singers pages here: stat-first blocks won 100 percent of the time (3 of 3 decided).",
+      patternHint: { pattern: "stat_first", pageFamily: "singers", wins: 3, losses: 0, pending: 0, decided: 3, winRate: 1, confident: true, winningPage: "https://iranopedia.com/singers" },
+    });
+    const validEdit = {
+      field: "title", before: "Old Title", after: "New Sharper Title", rationale: "matches the searcher's intent",
+      evidenceRefs: [{ source: "gsc", detail: "low CTR at position 4" }], confidence: "high", risks: [],
+      operatorSteps: ["Update the title tag"], proofPlan: { metrics: ["CTR"], windowsDays: [7, 14, 28], controls: "comparable pages" },
+    };
+    const r = await draftAtomicEditStructured(
+      { query: "iranian singers", pageLabel: "Singers", field: "title", currentValue: "Old Title", outline: [], tenantId: "tenant-a", pageFamily: "singers" },
+      { complete: fakeComplete([{ text: JSON.stringify(validEdit) }]) },
+    );
+    expect(r.status).toBe("drafted");
+    if (r.status === "drafted") {
+      expect(r.value.rationale.startsWith("I wrote this the way your last winners were written:")).toBe(true);
+      expect(r.value.rationale).toContain("stat-first");
+      expect(r.value.rationale).toContain("like the block that won on https://iranopedia.com/singers");
+      expect(r.value.rationale).toContain("matches the searcher's intent"); // the model's own sentence survives
+      expect(r.value.rationale.length).toBeLessThanOrEqual(400); // schema cap re-applied
+      expect(r.fewShot?.pattern).toBe("stat_first");
+    }
+  });
+
+  it("atomic_edit: rationale is UNCHANGED (no prepended sentence) when the aggregate has no confident cell", async () => {
+    const validEdit = {
+      field: "title", before: "Old Title", after: "New Sharper Title", rationale: "matches the searcher's intent",
+      evidenceRefs: [{ source: "gsc", detail: "low CTR at position 4" }], confidence: "high", risks: [],
+      operatorSteps: ["Update the title tag"], proofPlan: { metrics: ["CTR"], windowsDays: [7, 14, 28], controls: "comparable pages" },
+    };
+    const r = await draftAtomicEditStructured(
+      { query: "iranian singers", pageLabel: "Singers", field: "title", currentValue: "Old Title", outline: [], tenantId: "tenant-a", pageFamily: "singers" },
+      { complete: fakeComplete([{ text: JSON.stringify(validEdit) }]) },
+    );
+    expect(r.status).toBe("drafted");
+    if (r.status === "drafted") expect(r.value.rationale).toBe("matches the searcher's intent");
+  });
+
+  it("no fewShotProvenance is ever threaded onto a non-drafted result (blocked/validation_failed)", async () => {
+    buildWinnerFewShotsWithPatternMock.mockResolvedValue({
+      fragment: "\nWinning style: stat-first blocks won 100 percent of the time (3 of 3 decided).",
+      patternHint: { pattern: "stat_first", pageFamily: "singers", wins: 3, losses: 0, pending: 0, decided: 3, winRate: 1, confident: true, winningPage: null },
+    });
+    const r = await draftAnswerBlockStructured(
+      { query: "chaharshanbe suri", pageLabel: "Chaharshanbe Suri", brief: null, outline: [], faqs: [], tenantId: "tenant-a", pageFamily: "singers" },
+      { complete: fakeComplete([{ text: "not json" }]) },
+    );
+    expect(r.status).toBe("validation_failed");
+    expect((r as { fewShot?: unknown }).fewShot).toBeUndefined();
   });
 });
 

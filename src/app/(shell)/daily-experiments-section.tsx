@@ -72,12 +72,37 @@ function copyText(text: string, onDone: (m: string) => void) {
   } else onDone("Clipboard unavailable, select the text manually.");
 }
 
+// BEACON_500 item 74: the structured drafter (src/domains/llm/structured-drafter.ts)
+// prepends this exact sentence to an atomic-edit rationale when a confident house
+// pattern backed the draft. Detecting the prefix here (rather than re-deriving the
+// aggregate client-side) keeps this component a pure renderer of whatever the drafter
+// already decided, with zero new fields threaded through daily-plan-types.ts.
+export const FEW_SHOT_PREFIX = "I wrote this the way your last winners were written:";
+
+/** Splits an llmRationale that may carry the item-74 few-shot sentence prepended to the
+ *  model's own one-line rationale. Returns { fewShotLine, rest } - fewShotLine is null
+ *  when the prefix is absent (the common case: no confident pattern cell yet). Exported
+ *  for a direct unit-test pin (daily-experiments-section.test.ts) since this component
+ *  otherwise has no test coverage of its own. */
+export function splitFewShotLine(rationale: string | undefined): { fewShotLine: string | null; rest: string | undefined } {
+  if (!rationale || !rationale.startsWith(FEW_SHOT_PREFIX)) return { fewShotLine: null, rest: rationale };
+  const end = rationale.indexOf(". ");
+  if (end === -1) return { fewShotLine: rationale, rest: undefined };
+  return { fewShotLine: rationale.slice(0, end + 1), rest: rationale.slice(end + 2).trim() || undefined };
+}
+
 /** Shown under the paste box when the LLM wrote the text, so the operator knows to review it. */
 function WrittenByBeacon({ e }: { e: PlannedExperimentRecord }) {
   if (e.draftSource !== "llm") return null;
+  const { fewShotLine, rest } = splitFewShotLine(e.llmRationale);
   return (
-    <div className="mt-1 text-[11px] text-gray-400 dark:text-neutral-500">
-      Beacon wrote this{e.llmRationale ? `: ${e.llmRationale}` : ""}. Copy it and tweak as you like before you publish.
+    <div className="mt-1 space-y-0.5">
+      <div className="text-[11px] text-gray-400 dark:text-neutral-500">
+        Beacon wrote this{rest ? `: ${rest}` : ""}. Copy it and tweak as you like before you publish.
+      </div>
+      {fewShotLine && (
+        <div className="text-[11px] text-gray-500 dark:text-neutral-400">{fewShotLine}</div>
+      )}
     </div>
   );
 }

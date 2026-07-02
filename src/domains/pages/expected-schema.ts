@@ -126,6 +126,27 @@ export const CONTENT_PAGE_EXPECTED_SCHEMA: ExpectedSchema = {
 };
 
 /**
+ * Biography content-page expectation (2026-07-02, item 73, Wikidata
+ * grounding). A content page the `biography-detector` classifies as a
+ * person's page should ALSO carry Person JSON-LD alongside Article. AI
+ * answer engines resolve people to knowledge-graph entities before citing
+ * sources, and Person is Google's own structured-data type for exactly
+ * this ("Person" markup: name plus optionally birthDate/jobTitle/sameAs, no
+ * required properties beyond `name`, same "add what applies" posture as
+ * Article). BreadcrumbList stays recommended, matching the base content
+ * spec above.
+ *
+ * Deliberately vertical-neutral: this spec is only ever selected for a
+ * page the pure `detectBiographyPage()` already classified as biography
+ * shaped from the page's OWN signals, never applied blanket to all
+ * content pages.
+ */
+export const CONTENT_PAGE_BIOGRAPHY_EXPECTED_SCHEMA: ExpectedSchema = {
+  required: ["Article", "Person"],
+  recommended: ["BreadcrumbList"],
+};
+
+/**
  * Given the observed `schema_types` on a page and the page's `asset_type`,
  * return a structured coverage diff. Caller decides whether to emit a
  * finding (Day 2 of Phase 1 wires this).

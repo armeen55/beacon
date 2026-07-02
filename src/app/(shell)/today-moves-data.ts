@@ -27,6 +27,7 @@ import {
 import type { EvidencePacket } from "@/domains/demand-graph/evidence-packet";
 import { attachOpinions } from "@/domains/demand-graph/specialist-opinions";
 import { routeMove, type MoveRouterDecision } from "@/domains/demand-graph/move-router";
+import { loadSpecialistWeightTable } from "@/domains/team-scoreboard/load-team-scoreboard";
 import { summarizeSpecialistDebate, type DebateSummary } from "@/domains/demand-graph/debate-summary";
 import {
   buildPreparedMovePack,
@@ -548,6 +549,13 @@ export async function buildTodayMovesData(
       byPage.set(pk, arr);
     }
 
+    // Item 70: learned per-specialist vote weights (neutral until verdicts settle, so
+    // cold routing is byte-identical). cache()'d loader - one scoreboard read per render.
+    const specialistWeightTable = await loadSpecialistWeightTable(tenantId).catch(() => null);
+    const specialistWeight = specialistWeightTable
+      ? (s: string, f: string) => specialistWeightTable.get(s, f)
+      : undefined;
+
     const moves: TodayMove[] = [];
     for (const [pk, pageEdits] of byPage) {
       pageEdits.sort(
@@ -565,7 +573,7 @@ export async function buildTodayMovesData(
       // CMS pushability) aren't threaded here yet, so DataForSEO/Wix abstain
       // honestly (broad SERP runs are P5/P6). Null-safe when there's no packet.
       const opinions = packet ? attachOpinions(packet, { nowIso }) : [];
-      const decision: MoveRouterDecision | null = packet ? routeMove({ packet, opinions }) : null;
+      const decision: MoveRouterDecision | null = packet ? routeMove({ packet, opinions, specialistWeight }) : null;
       const inMemoryPack =
         packet && decision
           ? buildPreparedMovePack({ tenantId, packet, opinions, decision, nowIso })

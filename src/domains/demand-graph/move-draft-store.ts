@@ -47,7 +47,13 @@ export type MoveDraftKind =
   // BEACON 500 item 62: the entity-attribute page factory's own drafted brief
   // for a factory candidate (keyed by the candidate's stable slug, not a real
   // rec id — factory candidates never touch the recommendations table).
-  | "factory_page_brief";
+  | "factory_page_brief"
+  // BEACON 500 item 71: the deterministic sentence-alignment result between a
+  // cited AI answer excerpt and a page's own text (competitor teardown text or
+  // our own page_snapshots body) — "the passage that beat you" / "AI quoted this
+  // line". Column is free-text → no migration. Cached by content hash inside the
+  // persisted JSON so a re-render with unchanged inputs skips recompute.
+  | "answer_alignment";
 
 export type MoveDraftRow = {
   recId: string;

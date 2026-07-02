@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import Link from "next/link";
 import {
   ArrowDown,
@@ -21,6 +21,7 @@ import {
 } from "lucide-react";
 import { respondToRecommendation } from "./recommendation-actions";
 import { draftMoveAnswerBlockAction, draftMoveFaqAction } from "./today-moves-actions";
+import { getCompetitorAnswerAlignmentForClient } from "@/domains/ai-visibility/answer-alignment-actions";
 import { stageMoveInWixAction } from "./stage-in-wix-actions";
 import type { TodayMove } from "./today-moves-data";
 import { teammateOf } from "@/domains/team/identity";
@@ -130,6 +131,27 @@ export function MoveCard({ m, rank }: { m: TodayMove; rank: number }) {
       })
       .catch(() => {});
   };
+
+  // BEACON 500 item 71: "the N words that beat you" - the literal passage the AI
+  // answer shares with the cited competitor's page. Lazy, one fetch per card, only
+  // when there is already a real teardown to enrich ($0 deterministic compute,
+  // cached server-side by content hash - a re-render never re-runs the work).
+  const [stealPassage, setStealPassage] = useState<{ text: string; engine: string | null } | null>(null);
+  useEffect(() => {
+    if (!m.whoCited || !m.competitorSteal) return;
+    let cancelled = false;
+    getCompetitorAnswerAlignmentForClient(m.id, m.whoCited, m.query)
+      .then((alignment) => {
+        if (cancelled) return;
+        const top = alignment?.passages[0];
+        if (top) setStealPassage({ text: top.pageSentence, engine: alignment?.engine ?? null });
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [m.id, m.whoCited, m.competitorSteal, m.query]);
 
   // On-demand LLM answer-block draft (off unless BEACON_LLM_PROVIDER=openai; the
   // action is operator-gated + budget-gated + safety-firewalled). Fires only on click.
@@ -645,6 +667,13 @@ export function MoveCard({ m, rank }: { m: TodayMove; rank: number }) {
           {m.competitorSteal ? (
             <div className="mt-1 text-[11px] text-gray-500 dark:text-neutral-400">
               <span className="font-semibold text-gray-600 dark:text-neutral-300">Steal this:</span> {stripBannedDashes(m.competitorSteal)}
+            </div>
+          ) : null}
+          {stealPassage ? (
+            <div className="mt-1.5 rounded-lg border border-gray-200 bg-white px-2.5 py-2 text-[11px] leading-relaxed text-gray-600 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-300">
+              <span className="font-semibold text-gray-700 dark:text-neutral-200">The exact words the AI used: </span>
+              &quot;{stripBannedDashes(stealPassage.text)}&quot;
+              {stealPassage.engine ? <span className="text-gray-400 dark:text-neutral-500"> ({stealPassage.engine})</span> : null}
             </div>
           ) : null}
         </div>

@@ -36,6 +36,7 @@ import { buildFeatureStealHintNotes } from "@/domains/serp/feature-steal";
 import { normalizePath } from "./daily-plan-types";
 import { aggregateSettled, proofHistoryLine } from "./proof-history-voice";
 import { reviewCandidateWithTeam } from "./team-review";
+import { loadSpecialistWeightTable } from "@/domains/team-scoreboard/load-team-scoreboard";
 import { findEvidenceGaps, buyEvidenceForPick, type EvidenceGapCandidate } from "./buy-missing-evidence";
 import { loadEngineGapNotes } from "@/domains/ai-visibility/gap-store";
 import type { EngineGapNote } from "@/domains/ai-visibility/candidate-feed";
@@ -349,6 +350,8 @@ export async function buildTodayExperimentPreview(tenantId: string, now: Date = 
           evidenceHints: citability?.topFixes,
           intent: gap!.intent,
           tenantId,
+          // Item 74: winning-pattern few-shots for this page family, when any have settled.
+          pageFamily: pageFamilyOfPath(normalizePath(p.url)),
         });
         if (res.status === "drafted" && res.value.answer?.trim()) {
           writtenAnswersByUrl.set(p.url, { text: res.value.answer.trim(), question: gap!.question });
@@ -397,9 +400,16 @@ export async function buildTodayExperimentPreview(tenantId: string, now: Date = 
   const historyLine = (pageFamily: string, actionFamily: string): string | null =>
     proofHistoryLine(settledByKey, pageFamily, actionFamily);
 
+  // Item 70: learned per-specialist vote weights (neutral until the scoreboard has
+  // settled verdicts, so cold review behavior is byte-identical). One read per batch.
+  const specialistWeightTable = await loadSpecialistWeightTable(tenantId).catch(() => null);
+  const specialistWeight = specialistWeightTable
+    ? (s: string, f: string) => specialistWeightTable.get(s, f)
+    : undefined;
+
   let teamVetoed = 0;
   const teamReviewed = gatedBuilt.filter((b) => {
-    const result = reviewCandidateWithTeam(packetByPath.get(normalizePath(b.url)), nowIso);
+    const result = reviewCandidateWithTeam(packetByPath.get(normalizePath(b.url)), nowIso, {}, specialistWeight);
     if (result.review) {
       b.teamReview = result.review;
       const hist = historyLine(b.pageFamily ?? "", b.actionFamily);
@@ -504,7 +514,18 @@ export async function buildTodayExperimentPreview(tenantId: string, now: Date = 
     const outline = buildOutlineFromFacts(pageFacts);
     const citability = url ? citabilityHintsByPath.get(normalizePath(url)) : undefined;
     const evidenceHints = citability?.topFixes;
-    const r = await draftAtomicEditStructured({ query, pageLabel, field, currentValue, outline, evidenceHints, intent, tenantId });
+    const r = await draftAtomicEditStructured({
+      query,
+      pageLabel,
+      field,
+      currentValue,
+      outline,
+      evidenceHints,
+      intent,
+      tenantId,
+      // Item 74: winning-pattern few-shots for this page family, when any have settled.
+      pageFamily: url ? pageFamilyOfPath(normalizePath(url)) : undefined,
+    });
     return r.status === "drafted" ? { text: r.value.after, rationale: r.value.rationale } : null;
   };
   await enrichDailyCandidatesWithLlm(selected, intentByUrl, llmDrafter).catch(() => 0);
@@ -721,7 +742,7 @@ export async function buildTodayExperimentPreview(tenantId: string, now: Date = 
         // debate the card shows reflects the teammate that just spoke instead of the stale one
         // that abstained. Every other pick is untouched.
         const packet = packetByPath.get(normalizePath(c.url));
-        const result = reviewCandidateWithTeam(packet, nowIso, { serpVerdict: purchase.serpVerdict });
+        const result = reviewCandidateWithTeam(packet, nowIso, { serpVerdict: purchase.serpVerdict }, specialistWeight);
         if (result.review) {
           c.teamReview = result.review;
           const hist = historyLine(c.pageFamily ?? "", c.actionFamily);

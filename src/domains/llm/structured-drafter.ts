@@ -3,7 +3,8 @@ import { z } from "zod";
 import { checkBudget, recordSpend } from "@/domains/recommendations/adjudicator-budget";
 import { saveMoveDraft } from "@/domains/demand-graph/move-draft-store";
 import { log } from "@/lib/logger";
-import { buildWinnerFewShots } from "./winner-memory";
+import { buildWinnerFewShots, buildWinnerFewShotsWithPattern } from "./winner-memory";
+import type { DraftPatternId } from "./draft-pattern";
 import {
   SCHEMA_BY_KIND,
   draftStringValues,
@@ -36,11 +37,24 @@ const OPENAI_CHAT_API = "https://api.openai.com/v1/chat/completions";
 const MODEL = "gpt-5-mini";
 const MAX_DRAFT_CHARS = 11_500; // stay under the move_drafts 12k content cap
 
+/** BEACON_500 item 74: present on a "drafted" result only when a CONFIDENT house
+ *  pattern cell backed this draft's prompt (winner-memory's pattern aggregate cleared
+ *  the minimum-sample floor for this page family). Absent (not merely null) whenever
+ *  the ledger has no confident opinion yet - callers must treat absence as "no claim". */
+export type FewShotProvenance = {
+  /** The structural pattern the winning few-shot examples were tagged with. */
+  pattern: DraftPatternId;
+  /** The sibling page whose measured win backs this pattern (best-known example). */
+  winningPage: string | null;
+  /** Plain, jargon-free sentence describing the winning cell (no "experiment"/"cell"). */
+  sentence: string;
+};
+
 export type StructuredDraftResult<T> =
   | { status: "off" }
   | { status: "blocked_budget"; reason: string }
   | { status: "validation_failed"; reason: string; errors: string[]; costUsd: number; retried: boolean }
-  | { status: "drafted"; kind: StructuredDraftKind; value: T; costUsd: number; retried: boolean };
+  | { status: "drafted"; kind: StructuredDraftKind; value: T; costUsd: number; retried: boolean; fewShot?: FewShotProvenance };
 
 /** Injectable completion fn (default = real OpenAI). Returns text or an error. */
 export type CompleteFn = (args: {
@@ -52,6 +66,22 @@ export type CompleteFn = (args: {
 
 function isOn(): boolean {
   return (process.env.BEACON_LLM_PROVIDER ?? "").trim().toLowerCase() === "openai";
+}
+
+/** BEACON_500 item 74: turn a confident pattern-hint cell into the one-line, plain-
+ *  English provenance the draft-provenance surface shows. Pure - no I/O. Names the
+ *  real winning page when one is known; otherwise names the page family only (never
+ *  fabricates a page). */
+function fewShotProvenanceFrom(
+  hint: { pattern: DraftPatternId; pageFamily: string; winningPage: string | null } | null,
+  pageFamily: string,
+): FewShotProvenance | undefined {
+  if (!hint) return undefined;
+  const styleWord = hint.pattern.replace(/_/g, "-");
+  const sentence = hint.winningPage
+    ? `I wrote this the way your last winners were written: ${styleWord}, like the block that won on ${hint.winningPage}.`
+    : `I wrote this the way your last winners were written: ${styleWord}, the structure that has won most often on ${pageFamily} pages here.`;
+  return { pattern: hint.pattern, winningPage: hint.winningPage, sentence };
 }
 
 /** Rough gpt-5-mini cost (~$0.25/1M in, ~$2/1M out; ~4 chars/token). */
@@ -160,6 +190,12 @@ export type StructuredDraftRequest<K extends StructuredDraftKind> = {
   now?: Date;
   /** Injected for tests; defaults to the real OpenAI call. */
   complete?: CompleteFn;
+  /** BEACON_500 item 74: carried straight onto a "drafted" result's `fewShot` field
+   *  when present. The engine does not compute this itself - it only threads through
+   *  whatever the concrete drafter (e.g. draftAnswerBlockStructured) already resolved
+   *  from winner-memory's pattern aggregate, so the prompt-building and the result
+   *  metadata always agree on whether a confident cell was actually used. */
+  fewShotProvenance?: FewShotProvenance;
 };
 
 /**
@@ -227,6 +263,7 @@ export async function callStructuredLLM<K extends StructuredDraftKind>(
       value: result.data as z.infer<(typeof SCHEMA_BY_KIND)[K]>,
       costUsd: totalCost,
       retried,
+      ...(req.fewShotProvenance ? { fewShot: req.fewShotProvenance } : {}),
     };
   }
 
@@ -269,6 +306,11 @@ export type AnswerBlockStructuredInput = {
    *  winners for the few-shot injection below. Optional - omitting it just means no
    *  few-shot examples are added (prompt unchanged), never an error. */
   tenantId?: string;
+  /** BEACON_500 item 74: the page's family (first path segment, e.g. "iran-animals"),
+   *  used ONLY to look up a CONFIDENT winning pattern for this family in winner-memory's
+   *  pattern aggregate. Optional - omitting it (or having no confident cell yet) leaves
+   *  the prompt byte-identical to the item-30 few-shot behavior, never an error. */
+  pageFamily?: string;
 };
 
 const ANSWER_BLOCK_SYSTEM =
@@ -308,9 +350,21 @@ export async function draftAnswerBlockStructured(
     .filter(Boolean)
     .join("\n");
 
-  // BEACON_500 item 30: additive-only. buildWinnerFewShots returns '' when the tenant
-  // has no measured "answer" winners yet, leaving the system prompt byte-identical.
-  const fewShots = input.tenantId ? await buildWinnerFewShots(input.tenantId, "answer").catch(() => "") : "";
+  // BEACON_500 item 30/74: additive-only. When a pageFamily is known, use the pattern-
+  // aware builder (item 74) so a CONFIDENT winning structural pattern for this family
+  // gets named alongside the existing before/after examples; otherwise fall back to the
+  // item-30 builder unchanged. Both return '' (or the unchanged fragment) when the
+  // tenant has no measured "answer" winners yet - the system prompt stays byte-identical
+  // to today whenever there is nothing confident to say.
+  let fewShots = "";
+  let fewShotProvenance: FewShotProvenance | undefined;
+  if (input.tenantId && input.pageFamily) {
+    const res = await buildWinnerFewShotsWithPattern(input.tenantId, "answer", input.pageFamily).catch(() => ({ fragment: "", patternHint: null }));
+    fewShots = res.fragment;
+    fewShotProvenance = fewShotProvenanceFrom(res.patternHint, input.pageFamily);
+  } else if (input.tenantId) {
+    fewShots = await buildWinnerFewShots(input.tenantId, "answer").catch(() => "");
+  }
 
   return callStructuredLLM({
     kind: "answer_block",
@@ -320,6 +374,7 @@ export async function draftAnswerBlockStructured(
     projectedCostUsd: 0.02,
     complete: opts.complete,
     now: opts.now,
+    fewShotProvenance,
   });
 }
 
@@ -338,6 +393,10 @@ export type AtomicEditStructuredInput = {
    *  winners (same field/lever) for the few-shot injection below. Optional - omitting
    *  it just means no few-shot examples are added (prompt unchanged), never an error. */
   tenantId?: string;
+  /** BEACON_500 item 74: the page's family (first path segment), used ONLY to look up
+   *  a CONFIDENT winning pattern for this family. Optional - omitting it (or having no
+   *  confident cell yet) leaves the prompt byte-identical, never an error. */
+  pageFamily?: string;
 };
 
 const ATOMIC_EDIT_SYSTEM =
@@ -374,12 +433,22 @@ export async function draftAtomicEditStructured(
     .filter(Boolean)
     .join("\n");
 
-  // BEACON_500 item 30: additive-only. buildWinnerFewShots returns '' when the tenant
-  // has no measured winners yet for this exact field, leaving the prompt byte-identical.
+  // BEACON_500 item 30/74: additive-only, same posture as draftAnswerBlockStructured
+  // above - the pattern-aware builder only fires when a pageFamily is known, and both
+  // paths return '' (or the unchanged fragment) when the tenant has no measured winners
+  // yet for this exact field, leaving the prompt byte-identical to today.
   const lever = input.field === "title" ? "title" : "meta";
-  const fewShots = input.tenantId ? await buildWinnerFewShots(input.tenantId, lever).catch(() => "") : "";
+  let fewShots = "";
+  let fewShotProvenance: FewShotProvenance | undefined;
+  if (input.tenantId && input.pageFamily) {
+    const res = await buildWinnerFewShotsWithPattern(input.tenantId, lever, input.pageFamily).catch(() => ({ fragment: "", patternHint: null }));
+    fewShots = res.fragment;
+    fewShotProvenance = fewShotProvenanceFrom(res.patternHint, input.pageFamily);
+  } else if (input.tenantId) {
+    fewShots = await buildWinnerFewShots(input.tenantId, lever).catch(() => "");
+  }
 
-  return callStructuredLLM({
+  const result = await callStructuredLLM({
     kind: "atomic_edit",
     system: ATOMIC_EDIT_SYSTEM + fewShots,
     user,
@@ -387,7 +456,22 @@ export async function draftAtomicEditStructured(
     projectedCostUsd: 0.02,
     complete: opts.complete,
     now: opts.now,
+    fewShotProvenance,
   });
+
+  // BEACON_500 item 74: the atomic-edit rationale is the ONE free-text channel that
+  // already flows end-to-end into the daily card's "Beacon wrote this: <rationale>"
+  // line (build-today-preview.ts reads value.rationale into llmRationale). When a
+  // confident pattern backed this draft, prepend our exact controlled sentence so the
+  // card surfaces it without any change to that unrelated wiring - the model's own
+  // rationale sentence is kept right after it, never replaced.
+  if (result.status === "drafted" && result.fewShot) {
+    // Re-apply the schema's own 400-char rationale cap so this stays a VALID
+    // AtomicEditDraft (deserializeStructuredDraft re-validates on every read).
+    const merged = `${result.fewShot.sentence} ${result.value.rationale}`.trim().slice(0, 400);
+    return { ...result, value: { ...result.value, rationale: merged } };
+  }
+  return result;
 }
 
 // ── concrete drafter: CreatePageBrief (a brand-new page) ──────────────────────

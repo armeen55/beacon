@@ -6,11 +6,18 @@
  * Fail-soft -> null/silent throughout.
  */
 import "server-only";
+import { cache } from "react";
 
 import { teammateOf } from "@/domains/team/identity";
 import { buildBestForecasterLine, recordLine, type SpecialistScoreboardRow } from "./brier";
 import { buildCalibrationLine, buildObjectionTrackRecordLine, type BandTally, type ObjectionTally } from "./calibration";
 import { loadTeamScoreboard, type TeamScoreboardSnapshot } from "./team-scoreboard-store";
+import {
+  buildSpecialistWeightTable,
+  type SpecialistScoreboardCell,
+  type SpecialistWeightTable,
+  type ReliabilityWeight,
+} from "./specialist-weights";
 
 /** Below this many settled-and-joined picks, the standup footer stays silent (item 38's surface
  *  contract) - a best-forecaster claim off a handful of picks is not yet honest. */
@@ -113,6 +120,60 @@ export async function loadObjectionTrackRecord(tenantId: string): Promise<Object
   try {
     const snapshot = await loadTeamScoreboard(tenantId);
     return snapshot?.objections ?? [];
+  } catch {
+    return [];
+  }
+}
+
+/** BEACON_500 item 70 - the $0 read edge for the learned per-specialist vote-weight table
+ *  (specialist-weights.ts): reads the tenant's last-computed scoreboard (no recompute - same
+ *  fail-soft posture as every other loader here) and builds a SpecialistWeightTable a caller can
+ *  pass straight into routeMove's optional `specialistWeight` lookup. Request-memoized with React's
+ *  cache() so a render that resolves weights for many Moves only reads the scoreboard once. Returns
+ *  a table whose every lookup is neutral (weight 1, tag null) when the scoreboard has never run -
+ *  the same cold-start safety routeMove's own byte-identical test pins at the call-site end. */
+export const loadSpecialistWeightTable = cache(async (tenantId: string): Promise<SpecialistWeightTable> => {
+  const neutralTable = buildSpecialistWeightTable([], (s) => teammateOf(s).name);
+  try {
+    const snapshot = await loadTeamScoreboard(tenantId);
+    if (!snapshot) return neutralTable;
+    const cells: SpecialistScoreboardCell[] = snapshot.specialists.map((s) => ({
+      specialist: s.specialist,
+      overall: s.overall,
+      byFamily: s.by_family,
+      calibrationBands: s.calibration_bands,
+    }));
+    return buildSpecialistWeightTable(cells, (s) => teammateOf(s).name);
+  } catch {
+    return neutralTable;
+  }
+});
+
+/** BEACON_500 item 70 - every NON-neutral learned weight in the tenant's last-computed scoreboard,
+ *  across every (specialist, family) cell that cleared MIN_DECIDED (family or overall backoff), for
+ *  a scoreboard/roundtable surface that wants to show "which votes are counting more/less right
+ *  now" without re-deriving the table per Move. Deterministic order (specialist, then family,
+ *  alphabetical). Empty when nothing has settled enough yet - the common, honest case early on. */
+export async function loadActiveSpecialistWeights(tenantId: string): Promise<ReliabilityWeight[]> {
+  try {
+    const snapshot = await loadTeamScoreboard(tenantId);
+    if (!snapshot) return [];
+    const table = await loadSpecialistWeightTable(tenantId);
+    const out: ReliabilityWeight[] = [];
+    for (const s of [...snapshot.specialists].sort((a, b) => a.specialist.localeCompare(b.specialist))) {
+      const families = new Set<string>(Object.keys(s.by_family));
+      // Always also resolve "overall" backoff visibility even when byFamily is empty, by checking
+      // a synthetic lookup against the specialist's own overall record - resolveSpecialistWeight's
+      // caller (buildSpecialistWeightTable) only resolves a family that is ASKED for, so if a
+      // specialist has no family cells at all we still want its overall-backed weight to surface
+      // once (family key "overall" reads oddly here, so we key it as "general").
+      const keys = families.size > 0 ? [...families].sort() : ["general"];
+      for (const family of keys) {
+        const resolved = table.get(s.specialist, family);
+        if (resolved.basis !== "neutral" && resolved.weight !== 1) out.push(resolved);
+      }
+    }
+    return out;
   } catch {
     return [];
   }

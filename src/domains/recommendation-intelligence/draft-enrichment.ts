@@ -32,6 +32,7 @@ import type { PageSnapshot } from "@/domains/pages/types";
 import type { RecommendationCandidateRow } from "@/domains/recommendation-intelligence/emitter/candidate-row";
 import type { DeterministicPromotionEditRow } from "@/domains/recommendation-intelligence/promotion-result-to-edit-row";
 import { actionableSchemaWarnings } from "@/domains/recommendation-intelligence/triggers/invalid-schema";
+import { detectBiographyPage } from "@/domains/pages/biography-detector";
 
 export type DraftEnrichmentContext = {
   /** Latest snapshot per canonical URL (caller dedupes by fetched_at). */
@@ -46,6 +47,25 @@ export type DraftEnrichmentContext = {
    * undefined → falls back to inference (prior behavior preserved).
    */
   businessName?: string | null;
+  /**
+   * Item 73 (2026-07-02), Wikidata grounding. Pre-resolved entity match
+   * per page URL, keyed by the SAME `target_url` a biography candidate
+   * carries. This module stays PURE (no I/O, no fetch); the async
+   * Wikidata lookup happens upstream (src/lib/connectors/wikidata/client.ts)
+   * and the caller passes the resolved result in here, exactly like
+   * `snapshotByUrl` is pre-populated. Only `confidence: "high"` matches
+   * may contribute a `sameAs` link to the emitted Person schema; a
+   * `needs-confirm` match is never auto-emitted (operator-confirmable
+   * elsewhere), and this map may simply omit a URL when no lookup ran.
+   */
+  wikidataMatchByUrl?: ReadonlyMap<
+    string,
+    {
+      confidence: "high" | "needs-confirm" | "none";
+      wikidataUrl: string | null;
+      wikipediaUrl: string | null;
+    }
+  >;
 };
 
 /**
@@ -942,10 +962,59 @@ function composeContentRecipeDirective(): DraftFill {
   };
 }
 
-function composeContentArticleSchema(
+/**
+ * Item 73 (2026-07-02), build the Person JSON-LD block for a biography
+ * shaped content page. Deterministic from the page's own extracted
+ * fields (via `detectBiographyPage`) plus an OPTIONAL pre-resolved
+ * Wikidata match. Every field is independently omitted when not
+ * confidently known, never invented:
+ *   - name: required (the detector already guarantees a non-empty name
+ *     for a biography classification).
+ *   - birthDate: only when the detector extracted one.
+ *   - jobTitle: only when an occupation phrase was extracted.
+ *   - sameAs: ONLY for a `confidence: "high"` Wikidata match. A
+ *     `needs-confirm` match is never auto-emitted here (surfaced
+ *     separately as an operator-confirmable suggestion).
+ *
+ * Returns null when the page isn't biography-shaped (caller skips the
+ * Person block entirely; Article-only drafting is unaffected).
+ */
+export function buildPersonBlock(
+  snap: PageSnapshot,
+  wikidataMatch:
+    | { confidence: "high" | "needs-confirm" | "none"; wikidataUrl: string | null; wikipediaUrl: string | null }
+    | undefined,
+): Record<string, unknown> | null {
+  const detection = detectBiographyPage(snap);
+  if (!detection.isBiography || !detection.extracted) return null;
+
+  const { name, birthDate, occupation } = detection.extracted;
+  if (!name) return null;
+
+  const sameAs: string[] = [];
+  if (wikidataMatch?.confidence === "high") {
+    if (wikidataMatch.wikidataUrl) sameAs.push(wikidataMatch.wikidataUrl);
+    if (wikidataMatch.wikipediaUrl) sameAs.push(wikidataMatch.wikipediaUrl);
+  }
+
+  return {
+    "@type": "Person",
+    name,
+    ...(birthDate ? { birthDate } : {}),
+    ...(occupation ? { jobTitle: occupation } : {}),
+    ...(sameAs.length > 0 ? { sameAs } : {}),
+  };
+}
+
+export function composeContentArticleSchema(
   candidate: RecommendationCandidateRow,
   snap: PageSnapshot,
   brand: { separator: string; suffix: string } | null,
+  wikidataMatch?: {
+    confidence: "high" | "needs-confirm" | "none";
+    wikidataUrl: string | null;
+    wikipediaUrl: string | null;
+  },
 ): DraftFill | null {
   // audit-wave3 #6: a CMS template placeholder ("Page Title"/"Untitled") must
   // NOT be asserted as the page's entity name in JSON-LD — treat it as no headline.
@@ -983,18 +1052,32 @@ function composeContentArticleSchema(
   };
 
   const blocks: string[] = [jsonLdScript(article)];
+
+  // Item 73 (2026-07-02), Wikidata grounding: a biography-shaped page also
+  // gets a Person block (own JSON-LD script, additive to Article since
+  // Google allows multiple JSON-LD scripts per page).
+  const personBlock = buildPersonBlock(snap, wikidataMatch);
+  const isBiography = personBlock != null;
+  if (personBlock) {
+    blocks.push(
+      jsonLdScript({ "@context": "https://schema.org", ...personBlock }),
+    );
+  }
+
   const crumb = buildBreadcrumbBlock(pageUrl, headline, orgName);
   if (crumb) blocks.push(crumb);
 
   return {
-    display_label:
-      "Add Article structured data so AI engines understand this page",
+    display_label: isBiography
+      ? "Add Article + Person structured data so AI engines recognize this person"
+      : "Add Article structured data so AI engines understand this page",
     current_text: null,
     proposed_text:
       "Add these JSON-LD blocks to the page <head> — they are complete and ready to paste:\n" +
       blocks.join("\n"),
-    expected_impact:
-      "Structured data is the page explaining itself in the engines' own language.",
+    expected_impact: isBiography
+      ? "AI answer engines resolve people to knowledge-graph entities before citing sources. Person structured data (plus a verified Wikidata link when confirmed) is the page identifying its subject in the engines' own language."
+      : "Structured data is the page explaining itself in the engines' own language.",
     measurement_plan: FIX_VERIFY_PLAN,
   };
 }
@@ -1099,14 +1182,20 @@ function composeSchema(
   candidate: RecommendationCandidateRow,
   snap: PageSnapshot | undefined,
   brand: { separator: string; suffix: string } | null,
+  wikidataMatch?: {
+    confidence: "high" | "needs-confirm" | "none";
+    wikidataUrl: string | null;
+    wikipediaUrl: string | null;
+  },
 ): DraftFill | null {
   if (!snap) return null;
 
   // Content Schema Engine (2026-06-12): content-page candidates get a
   // complete Article (+BreadcrumbList) draft instead of the generic
-  // skeleton below.
+  // skeleton below. Item 73 (2026-07-02): a biography-shaped page also
+  // gets a Person block (buildPersonBlock no-ops for non-biography pages).
   if (candidate.trigger_signal === "missing_schema_content") {
-    return composeContentArticleSchema(candidate, snap, brand);
+    return composeContentArticleSchema(candidate, snap, brand, wikidataMatch);
   }
 
   // Wix SEO push slice (2026-06-12): store-product pages get a
@@ -1439,7 +1528,11 @@ export function enrichPromotionRow(
       break;
     case "add_schema": {
       const brand = resolveBrand(ctx);
-      fill = composeSchema(candidate, snap, brand);
+      const wikidataMatch =
+        candidate.target_url != null
+          ? ctx.wikidataMatchByUrl?.get(candidate.target_url)
+          : undefined;
+      fill = composeSchema(candidate, snap, brand, wikidataMatch);
       break;
     }
     case "fix_schema":

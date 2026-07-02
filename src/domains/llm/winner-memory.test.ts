@@ -29,6 +29,8 @@ import {
   loadWinners,
   loadWinnersForLever,
   buildWinnerFewShots,
+  loadPatternAggregate,
+  buildWinnerFewShotsWithPattern,
 } from "./winner-memory";
 import { classifyStore } from "@/lib/persistence/store-classification";
 import type { ShippedChangeRecord } from "@/domains/proof-gsc/shipped-change-store";
@@ -154,6 +156,14 @@ describe("harvestWinners - mature-won-only pin", () => {
     expect(winners[0]!.afterText).toBe("Top Iranian Singers: 12 Legendary Voices");
     expect(winners[0]!.actionFamily).toBe("title");
     expect(winners[0]!.measuredLift).toBeCloseTo(0.028);
+  });
+
+  it("BEACON_500 item 74: tags the winner with its structural pattern at harvest time", async () => {
+    // "Top Iranian Singers: 12 Legendary Voices" opens with a number -> stat_first.
+    ledger = [record()];
+    await harvestWinners("tenant-a", { now: NOW });
+    const winners = await loadWinners("tenant-a");
+    expect(winners[0]!.pattern).toBe("stat_first");
   });
 
   it("retains after-only text honestly when before is missing (no fabrication)", async () => {
@@ -285,5 +295,121 @@ describe("buildWinnerFewShots - fragment shape + empty case", () => {
     await harvestWinners("tenant-a", { now: NOW });
     const fragment = await buildWinnerFewShots("tenant-a", "title");
     expect(fragment).not.toMatch(/[–—]/);
+  });
+});
+
+describe("loadPatternAggregate - BEACON_500 item 74 (min-sample floor over the WHOLE ledger)", () => {
+  it("classifies every decided shipped artifact, not just wins", async () => {
+    ledger = [
+      record({ id: "a::1", after: "12 legendary voices lead this list." }), // won, stat_first
+      record({ id: "a::2", after: "10 more names round out the ranking.", verdict: "lost" }), // lost, stat_first
+    ];
+    const cells = await loadPatternAggregate("tenant-a", { now: NOW });
+    const cell = cells.find((c) => c.pattern === "stat_first" && c.pageFamily === "singers");
+    expect(cell).toBeTruthy();
+    expect(cell!.wins).toBe(1);
+    expect(cell!.losses).toBe(1);
+    expect(cell!.decided).toBe(2);
+  });
+
+  it("stays unconfident below the sample floor even with a 100% win rate", async () => {
+    ledger = [
+      record({ id: "a::1", after: "12 legendary voices lead this list." }),
+      record({ id: "a::2", after: "15 more voices round out the list.", shippedAt: "2026-05-21T00:00:00.000Z" }),
+    ];
+    const cells = await loadPatternAggregate("tenant-a", { now: NOW });
+    const cell = cells.find((c) => c.pattern === "stat_first" && c.pageFamily === "singers");
+    expect(cell!.confident).toBe(false);
+  });
+
+  it("clears the floor at 3 decided samples and exposes an honest winRate", async () => {
+    ledger = [
+      record({ id: "a::1", after: "12 legendary voices lead this list." }),
+      record({ id: "a::2", after: "15 more voices round out the list.", shippedAt: "2026-05-21T00:00:00.000Z" }),
+      record({ id: "a::3", after: "9 fewer known names complete the set.", shippedAt: "2026-05-22T00:00:00.000Z", verdict: "lost" }),
+    ];
+    const cells = await loadPatternAggregate("tenant-a", { now: NOW });
+    const cell = cells.find((c) => c.pattern === "stat_first" && c.pageFamily === "singers");
+    expect(cell!.confident).toBe(true);
+    expect(cell!.decided).toBe(3);
+    expect(cell!.winRate).toBeCloseTo(2 / 3);
+  });
+
+  it("excludes a still-measuring (pending) record from the tally entirely", async () => {
+    ledger = [record({ id: "a::1", windows: [{ ...win28(), day: 7 }], verdict: "measuring" })];
+    const cells = await loadPatternAggregate("tenant-a", { now: NOW });
+    expect(cells).toHaveLength(0);
+  });
+
+  it("skips a record with no after text (nothing to classify)", async () => {
+    ledger = [record({ id: "a::1", after: null })];
+    const cells = await loadPatternAggregate("tenant-a", { now: NOW });
+    expect(cells).toHaveLength(0);
+  });
+
+  it("groups by the FIRST path segment as the page family (mirrors pageFamilyOf)", async () => {
+    ledger = [
+      record({ id: "a::1", page: "https://iranopedia.com/iran-animals/cheetah", after: "12 legendary voices." }),
+      record({ id: "a::2", page: "https://iranopedia.com/iran-animals/leopard", after: "9 fewer names." }),
+    ];
+    const cells = await loadPatternAggregate("tenant-a", { now: NOW });
+    expect(cells.every((c) => c.pageFamily === "iran-animals")).toBe(true);
+  });
+
+  it("empty ledger -> empty aggregate, never throws", async () => {
+    ledger = [];
+    expect(await loadPatternAggregate("tenant-a", { now: NOW })).toEqual([]);
+  });
+
+  it("no tenantId -> empty aggregate", async () => {
+    ledger = [record()];
+    expect(await loadPatternAggregate("", { now: NOW })).toEqual([]);
+  });
+});
+
+describe("buildWinnerFewShotsWithPattern - BEACON_500 item 74 (confident-cell injection)", () => {
+  it("returns the SAME fragment as buildWinnerFewShots (byte-identical) when no confident cell exists yet", async () => {
+    ledger = [record()]; // 1 win only - below the floor, and buildWinnerFewShots itself has 1 winner
+    await harvestWinners("tenant-a", { now: NOW });
+    const plain = await buildWinnerFewShots("tenant-a", "title");
+    const withPattern = await buildWinnerFewShotsWithPattern("tenant-a", "title", "singers");
+    expect(withPattern.fragment).toBe(plain);
+    expect(withPattern.patternHint).toBeNull();
+  });
+
+  it("appends a pattern hint line once a confident cell clears the floor for that page family", async () => {
+    ledger = [
+      record({ id: "a::1", after: "12 legendary voices lead this list." }),
+      record({ id: "a::2", after: "15 more voices round out the list.", shippedAt: "2026-05-21T00:00:00.000Z" }),
+      record({ id: "a::3", after: "20 total names complete the roster.", shippedAt: "2026-05-22T00:00:00.000Z" }),
+    ];
+    await harvestWinners("tenant-a", { now: NOW });
+    const { fragment, patternHint } = await buildWinnerFewShotsWithPattern("tenant-a", "title", "singers");
+    expect(patternHint).not.toBeNull();
+    expect(patternHint!.pattern).toBe("stat_first");
+    expect(patternHint!.winningPage).toBe("https://iranopedia.com/singers");
+    expect(fragment).toContain("Winning style for singers pages here");
+    expect(fragment).toContain("stat-first");
+    expect(fragment).not.toMatch(/[–—]/);
+  });
+
+  it("names a real winning page, never a fabricated one, when the confident cell's decided rows are all losses", async () => {
+    ledger = [
+      record({ id: "a::1", after: "12 legendary voices lead this list.", verdict: "lost" }),
+      record({ id: "a::2", after: "15 more voices round out the list.", shippedAt: "2026-05-21T00:00:00.000Z", verdict: "lost" }),
+      record({ id: "a::3", after: "20 total names complete the roster.", shippedAt: "2026-05-22T00:00:00.000Z", verdict: "lost" }),
+    ];
+    const { patternHint } = await buildWinnerFewShotsWithPattern("tenant-a", "title", "singers");
+    expect(patternHint).not.toBeNull();
+    expect(patternHint!.winningPage).toBeNull(); // honest: no win in this cell, never invent one
+  });
+
+  it("returns null patternHint (fragment unchanged) when pageFamily is empty", async () => {
+    ledger = [record()];
+    await harvestWinners("tenant-a", { now: NOW });
+    const plain = await buildWinnerFewShots("tenant-a", "title");
+    const { fragment, patternHint } = await buildWinnerFewShotsWithPattern("tenant-a", "title", "");
+    expect(fragment).toBe(plain);
+    expect(patternHint).toBeNull();
   });
 });

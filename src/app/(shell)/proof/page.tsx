@@ -21,6 +21,7 @@ import { scheduleAutoMeasure } from "@/domains/proof-gsc/auto-measure-on-use";
 import { loadDailyClicksByPathsForTenant } from "@/domains/proof-gsc/daily-series";
 import { buildShockWindows, type ShockWindow } from "@/domains/proof-gsc/algorithm-weather";
 import { loadDetectedChangepoints } from "@/domains/proof-gsc/algorithm-weather-store";
+import { attachSeasonalInflectionForLedger } from "@/domains/seasonal/attach-seasonal-inflection";
 import { Sparkline, type SparkPoint } from "@/components/data/sparkline";
 import { loadActionPackWorklistForTenant } from "@/domains/action-pack/load";
 import { linkProofRowsToActionPacks, type ProofLink } from "@/domains/action-pack/proof-linker";
@@ -40,6 +41,7 @@ import {
 } from "@/domains/proof-gsc/measure";
 import { citationLineFor } from "@/domains/proof-gsc/citation-outcome";
 import { shouldShowChangeDollarLine } from "@/domains/proof-gsc/change-dollar-value";
+import { getOwnedAnswerAlignment } from "@/domains/ai-visibility/answer-alignment-store";
 import { permutationSentenceFromCounts } from "@/domains/proof-gsc/permutation-null";
 import { selectHeadlineSentence } from "@/domains/proof-gsc/bayesian-read";
 import type { ShippedChangeRecord } from "@/domains/proof-gsc/shipped-change-store";
@@ -143,6 +145,16 @@ export default async function ProofPage({
   const detectedChangepoints = await loadDetectedChangepoints(tenantId).catch(() => []);
   const shockWindows: ShockWindow[] = buildShockWindows({ dailySeries: [], priorChangepoints: detectedChangepoints });
 
+  // Seasonality guard (master plan item 69): does this row's measurement window span a
+  // detected demand inflection for its page family? Computed-only (never persisted),
+  // same read-time posture as the weather guard above - a page shipped 3 weeks before a
+  // seasonal peak (or a family that IS the seasonal topic) reads its verdict cautiously
+  // instead of as a clean win/loss.
+  const seasonalInflectionById = await attachSeasonalInflectionForLedger(
+    tenantId,
+    ledger.map((l) => ({ id: l.id, path: l.path, shippedAt: l.shippedAt, windows: l.windows ?? [] })),
+  ).catch(() => new Map());
+
   // Move 2 - the shared maturity presentation per row, so every card reads the same
   // honest measurement language (an early read is never a final verdict, never red/green).
   const overlapById = detectMeasurementOverlaps(ledger.map((l) => ({ id: l.id, path: l.path, shippedAt: l.shippedAt })));
@@ -167,6 +179,10 @@ export default async function ProofPage({
           // before the ship) - additive, computed straight from the ledger
           // field the matcher wrote at selection time.
           weakComparison: l.controlMatchWeak === true,
+          // Seasonality guard (master plan item 69): computed above from this
+          // tenant's own family demand profile - additive, never mutates verdict.
+          seasonalInflection: seasonalInflectionById.get(l.id)?.measuredAcrossSeasonalInflection === true,
+          seasonalInflectionCaveat: seasonalInflectionById.get(l.id)?.caveat ?? null,
         }),
       ] as const;
     }),
@@ -745,6 +761,13 @@ function LedgerCard({ rec, link, pres, spark, band, revert, restored, calibratio
         <p className="mt-1 text-[12px] text-amber-700">{pres.weakComparisonCaveat}</p>
       ) : null}
 
+      {/* Seasonality guard (master plan item 69): this row's measurement window spans a
+          detected demand swing for its page family, so I am flagging the read as cautious
+          the same way an algorithm-weather overlap is flagged above. */}
+      {pres?.seasonalInflectionCaveat ? (
+        <p className="mt-1 text-[12px] text-amber-700">{pres.seasonalInflectionCaveat}</p>
+      ) : null}
+
       {/* Dollar-ROI proof (gap #1): the GA4 traffic + conversion outcome next to
           the Search verdict. Revenue is honestly absent for this property, so the
           label never implies money (see the header note). */}
@@ -791,6 +814,11 @@ function LedgerCard({ rec, link, pres, spark, band, revert, restored, calibratio
           </p>
         ) : null;
       })()}
+
+      {/* BEACON 500 item 71: "AI quoted this line" - the literal words the citing
+          answer shares with our own page, once we know AI actually cited it post-ship.
+          Silent when the page was never cited or there's no usable overlap. */}
+      <AiQuotedReceipt rec={rec} />
 
       {/* Live-SERP rank re-check (item 19): the literal Google position at ship
           vs the freshest read, for whichever window last came due. Silence when
@@ -931,5 +959,38 @@ function LedgerCard({ rec, link, pres, spark, band, revert, restored, calibratio
         </div>
       ) : null}
     </div>
+  );
+}
+
+/**
+ * AiQuotedReceipt (BEACON 500 item 71) - "AI quoted this line." Once we know a
+ * ship's page was actually cited post-ship (citationOutcome shows a real gain),
+ * this aligns one of the citing prompts' cached AI answer excerpt against the
+ * page's own body text and shows the literal shared wording, one compact line.
+ * Deterministic, no LLM, cached by content hash in move_drafts - silent on any
+ * missing input (no citation, no cached answer excerpt, no real overlap).
+ */
+async function AiQuotedReceipt({ rec }: { rec: ShippedChangeRecord }) {
+  const outcome = rec.citationOutcome;
+  const citingPrompts = outcome?.promptsNowCiting ?? [];
+  if (!outcome || citingPrompts.length === 0) return null;
+  if (outcome.verdict !== "gained" && outcome.treatedPostCount <= 0) return null;
+
+  let alignment;
+  try {
+    const tenantId = await currentTenantId();
+    alignment = await getOwnedAnswerAlignment(tenantId, rec.id, rec.page, citingPrompts);
+  } catch {
+    return null; // fail-soft: a lookup error here must never break the ledger card
+  }
+  const top = alignment?.passages[0];
+  if (!top) return null;
+
+  return (
+    <p className="mt-1 rounded-md border border-border/40 bg-surface-inset/30 px-2.5 py-2 text-[12px] text-foreground/80">
+      <span className="font-medium text-foreground/60">AI quoted this line: </span>
+      &quot;{top.pageSentence}&quot;
+      {alignment?.engine ? <span className="text-muted-foreground"> ({alignment.engine})</span> : null}
+    </p>
   );
 }

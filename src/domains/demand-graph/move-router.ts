@@ -13,11 +13,24 @@
  * which objections fired, and why the alternatives lost - so a card can show the
  * whole debate, not a black box.
  *
+ * BEACON_500 item 70 (2026-07-02) - learned per-specialist vote weights: an OPTIONAL
+ * `specialistWeight` lookup (RouteInput.specialistWeight) resolves each opinion's
+ * bounded reliability weight (src/domains/team-scoreboard/specialist-weights.ts,
+ * itself built from the team scoreboard's settled won/lost record per specialist and
+ * lever family) and multiplies it into that opinion's vote-tally weight - a specialist
+ * that has actually called more winners in this family gets a bit more say. This
+ * module stays a leaf: it takes the resolved weight through a plain callback rather
+ * than importing team-scoreboard, exactly the pattern src/domains/learning/
+ * experiment-prior.ts's `resolvePrior` uses for its own optional `globalLookup`. NO
+ * caller is required to pass it; when omitted every weight defaults to 1.0 and
+ * behavior is byte-identical to before item 70 (pinned by move-router.test.ts).
+ *
  * PURE / deterministic / no I/O. Pinned by move-router.test.ts.
  */
 
 import type { EvidencePacket } from "./evidence-packet";
 import type { GapKind, MoveCandidate, ConfidenceLevel } from "./build-graph";
+import { actionFamilyOf } from "@/domains/experiments/experiment-eligibility";
 import type {
   MoveRouterAction,
   Objection,
@@ -67,6 +80,11 @@ export type MoveRouterDecision = {
    *  action's share, i.e. how decisively the team outvoted the default (0 when electedBy
    *  is "seed" or there were no votes to compare). */
   margin: number;
+  /** BEACON_500 item 70 - the specialists whose vote weight was actually learned (non-neutral)
+   *  for this Move, with the plain-English tag explaining the tilt. Empty when no
+   *  `specialistWeight` lookup was passed, or every resolved weight was neutral (1.0) - the
+   *  common case until the team scoreboard has enough settled history. */
+  appliedWeights: AppliedSpecialistWeight[];
 };
 
 export const GAP_TO_ACTION: Record<GapKind, MoveRouterAction> = {
@@ -131,11 +149,45 @@ const ACTION_PLAIN_FOR_DEBATE: Record<MoveRouterAction, string> = {
   optimize_product_page: "a product page update", wait: "waiting",
 };
 
+/** BEACON_500 item 70 - one resolved specialist reliability weight, threaded in by the caller
+ *  rather than imported so this module stays a leaf (see the module doc). Matches the shape
+ *  src/domains/team-scoreboard/specialist-weights.ts's ReliabilityWeight already returns; only the
+ *  two fields the router needs are declared here to avoid a type-only import across the domain
+ *  boundary. */
+export type SpecialistVoteWeight = {
+  /** Bounded [0.85, 1.15], 1.0 when neutral (no proven record yet). */
+  weight: number;
+  /** Plain-English explainable line ("Search demand has called 8 of its last 11 winners here, so
+   *  its vote counts a bit more."), or null when neutral. */
+  tag: string | null;
+};
+
+/** BEACON_500 item 70 - resolves ONE specialist's vote weight for ONE lever family (the
+ *  MoveRouterAction it is voting for, mapped through actionFamilyOf so it lines up with the same
+ *  family keys the team scoreboard already tallies by). Optional: omitted entirely, every opinion's
+ *  weight is 1.0 and routeMove is byte-identical to its pre-item-70 behavior. */
+export type SpecialistWeightLookup = (specialist: string, family: string) => SpecialistVoteWeight | null | undefined;
+
 type RouteInput = {
   packet: EvidencePacket;
   opinions: SpecialistOpinion[];
   /** The full MoveCandidate when the caller has it (richer than packet.move). */
   move?: MoveCandidate | null;
+  /** BEACON_500 item 70 - the caller's resolved specialist-weight table lookup (typically
+   *  specialist-weights.ts's SpecialistWeightTable.get, bound). Omitted by default; every existing
+   *  call site keeps its current, unweighted behavior until it opts in. */
+  specialistWeight?: SpecialistWeightLookup;
+};
+
+/** BEACON_500 item 70 - one specialist's resolved vote weight as applied to a routed decision,
+ *  attached for a scoreboard/roundtable surface to explain "why this vote counted more/less".
+ *  Only opinions with a non-neutral (weight !== 1) resolution are included - a neutral weight has
+ *  nothing to explain. */
+export type AppliedSpecialistWeight = {
+  specialist: string;
+  family: string;
+  weight: number;
+  tag: string;
 };
 
 /**
@@ -144,7 +196,7 @@ type RouteInput = {
  * wiring it in can never regress today's behavior.
  */
 export function routeMove(input: RouteInput): MoveRouterDecision {
-  const { packet, opinions } = input;
+  const { packet, opinions, specialistWeight } = input;
   const gap = input.move?.gap ?? packet.move.gapType;
   const baseScore = input.move?.score ?? packet.move.score;
   const baseConfidence =
@@ -161,16 +213,38 @@ export function routeMove(input: RouteInput): MoveRouterDecision {
   //    (item 49). A voice listing two actions (e.g. ["add_answer_block", "add_schema"]) casts
   //    0.5 confidence-weight to each instead of its full confidence to both, so a single opinion
   //    can never out-vote two opinions that each committed to one action.
+  //
+  //    Item 70 - BEFORE splitting, each action's share of an opinion's confidence is multiplied by
+  //    that specialist's learned reliability weight for the LEVER FAMILY the action belongs to
+  //    (actionFamilyOf), when a `specialistWeight` lookup was passed. A specialist proven to call
+  //    more winners in that family gets a bit more say; the reverse for a chronically-missed or
+  //    overconfident one. With no lookup (the default), every weight is 1 and the tally below is
+  //    numerically identical to before item 70 - pinned by move-router.test.ts.
   const votes = new Map<MoveRouterAction, number>();
+  const appliedWeights: AppliedSpecialistWeight[] = [];
+  const seenWeightKeys = new Set<string>();
   let totalVoteWeight = 0;
   for (const o of opinions) {
     const n = o.suggestedMoveTypes.length;
     if (n === 0) continue;
-    const share = o.confidence / n;
+    const baseShare = o.confidence / n;
+    let opinionWeightSum = 0;
     for (const a of o.suggestedMoveTypes) {
-      votes.set(a, (votes.get(a) ?? 0) + share);
+      const family = actionFamilyOf(a);
+      const resolved = specialistWeight?.(o.specialist, family);
+      const w = resolved?.weight ?? 1;
+      votes.set(a, (votes.get(a) ?? 0) + baseShare * w);
+      opinionWeightSum += w;
+      const dedupeKey = `${o.specialist}::${family}`;
+      if (resolved && resolved.tag && w !== 1 && !seenWeightKeys.has(dedupeKey)) {
+        seenWeightKeys.add(dedupeKey);
+        appliedWeights.push({ specialist: o.specialist, family, weight: w, tag: resolved.tag });
+      }
     }
-    totalVoteWeight += o.confidence;
+    // The opinion's contribution to totalVoteWeight also reflects the (average, across its
+    // suggested actions) learned weight, so a decisively up-weighted or down-weighted specialist
+    // moves its real share of the team's total voice, not just its own action's tally.
+    totalVoteWeight += o.confidence * (opinionWeightSum / n);
   }
 
   // 2b) ELECT the winner from the tally when it clearly beats the seed (item 49). The sorted
@@ -304,5 +378,6 @@ export function routeMove(input: RouteInput): MoveRouterDecision {
     staleAt,
     electedBy,
     margin,
+    appliedWeights,
   };
 }

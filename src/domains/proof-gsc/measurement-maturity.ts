@@ -80,6 +80,17 @@ export type MaturityInput = {
    *  Computed at READ time from the SAME matcher numbers the ledger row's
    *  controlMatchNotes explains; never mutates the stored verdict. */
   weakComparison?: boolean;
+  /** Seasonality guard (master plan item 69): true when this measurement
+   *  window overlaps a detected demand inflection for the page's family
+   *  (src/domains/seasonal/seasonal-inflection.ts). Additive - a caller that
+   *  never passes this (the default) sees byte-identical output to before
+   *  this field existed. Computed at READ time from the tenant's own family
+   *  demand profile; never mutates the stored verdict. */
+  seasonalInflection?: boolean;
+  /** Plain first-person caveat sentence for the seasonal-inflection guard,
+   *  when it fired (null otherwise). Passed through so the read site doesn't
+   *  need to re-derive the sentence itself. */
+  seasonalInflectionCaveat?: string | null;
 };
 
 /** Minimum sufficiency for a MATURE verdict (mirrors measure.ts thresholds). */
@@ -192,6 +203,17 @@ export type MeasurementPresentation = {
    *  a reader that only needs the exclusion decision doesn't have to
    *  string-match weakComparisonCaveat. */
   weakComparisonFlagged: boolean;
+  /** Seasonality guard (master plan item 69): non-null when this measurement
+   *  window overlapped a detected demand inflection for the page's family.
+   *  Renders as a visible caveat on the Results row and, like weatherCaveat
+   *  and weakComparisonCaveat, additively demotes learningEligibility to
+   *  false - a page shipped into (or measured across) its own family's demand
+   *  swing should never quietly train the ranking prior as a clean win/loss. */
+  seasonalInflectionCaveat: string | null;
+  /** True when the seasonal-inflection guard fired - separate from the
+   *  sentence so a reader that only needs the exclusion decision doesn't have
+   *  to string-match seasonalInflectionCaveat. */
+  seasonalInflectionFlagged: boolean;
 };
 
 /** Plain first-person caveat sentence for a Results row whose comparison pages
@@ -280,11 +302,21 @@ export function buildMeasurementPresentation(input: MaturityInput): MeasurementP
   const weakComparisonFlagged = input.weakComparison === true;
   const weakComparisonCaveat = weakComparisonFlagged ? weakComparisonSentence() : null;
 
+  // Seasonality guard (item 69): additive, same posture as the weather guard
+  // and the parallel-trends veto above - a caller that never passes
+  // seasonalInflection sees byte-identical output to before this field
+  // existed.
+  const seasonalInflectionFlagged = input.seasonalInflection === true;
+  const seasonalInflectionCaveat = seasonalInflectionFlagged
+    ? (input.seasonalInflectionCaveat ?? "This page's family has a recurring demand swing that overlaps this measurement window, so I am reading this result cautiously.")
+    : null;
+
   const learningEligibility =
     maturity === "mature_result" &&
     attributionQuality === "clean" &&
     !weatherQuarantined &&
-    !weakComparisonFlagged;
+    !weakComparisonFlagged &&
+    !seasonalInflectionFlagged;
 
   const verdict: MeasurementPresentation["verdict"] =
     maturity === "mature_result"
@@ -360,6 +392,8 @@ export function buildMeasurementPresentation(input: MaturityInput): MeasurementP
     weatherQuarantined,
     weakComparisonCaveat,
     weakComparisonFlagged,
+    seasonalInflectionCaveat,
+    seasonalInflectionFlagged,
   };
 }
 

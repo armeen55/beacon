@@ -1,7 +1,9 @@
 import { describe, it, expect } from "vitest";
 import {
   diffSchemaCoverage,
+  diffSchemaCoverageForSpec,
   EXPECTED_SCHEMA_BY_ASSET_TYPE,
+  CONTENT_PAGE_BIOGRAPHY_EXPECTED_SCHEMA,
 } from "./expected-schema";
 
 describe("diffSchemaCoverage — city_page", () => {
@@ -232,5 +234,37 @@ describe("EXPECTED_SCHEMA_BY_ASSET_TYPE — invariants", () => {
     const live = ["HomeAndConstructionBusiness", "WebPage", "BreadcrumbList", "FAQPage"];
     const result = diffSchemaCoverage("city_page", live);
     expect(result.satisfies_all_required).toBe(true);
+  });
+});
+
+describe("CONTENT_PAGE_BIOGRAPHY_EXPECTED_SCHEMA (item 73, Wikidata grounding)", () => {
+  it("requires BOTH Article and Person", () => {
+    expect(CONTENT_PAGE_BIOGRAPHY_EXPECTED_SCHEMA.required).toEqual([
+      "Article",
+      "Person",
+    ]);
+  });
+
+  it("Article-only content page is missing Person", () => {
+    const result = diffSchemaCoverageForSpec(
+      CONTENT_PAGE_BIOGRAPHY_EXPECTED_SCHEMA,
+      ["Article"],
+    );
+    expect(result.missing_required).toEqual(["Person"]);
+    expect(result.satisfies_all_required).toBe(false);
+  });
+
+  it("Article + Person satisfies all required", () => {
+    const result = diffSchemaCoverageForSpec(
+      CONTENT_PAGE_BIOGRAPHY_EXPECTED_SCHEMA,
+      ["Article", "Person"],
+    );
+    expect(result.satisfies_all_required).toBe(true);
+  });
+
+  it("recommends BreadcrumbList, same as the base content spec", () => {
+    expect(CONTENT_PAGE_BIOGRAPHY_EXPECTED_SCHEMA.recommended).toEqual([
+      "BreadcrumbList",
+    ]);
   });
 });

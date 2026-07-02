@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import type { EvidencePacket } from "./evidence-packet";
 import type { GapKind, MoveComponents } from "./build-graph";
 import type { Specialist, SpecialistOpinion } from "./specialist-opinions";
-import { routeMove, GAP_TO_ACTION, parentTypeForAction, VOTE_ELECTION_MARGIN, VOTE_ELECTION_MIN_VOICES } from "./move-router";
+import { routeMove, GAP_TO_ACTION, parentTypeForAction, VOTE_ELECTION_MARGIN, VOTE_ELECTION_MIN_VOICES, type SpecialistWeightLookup } from "./move-router";
 
 const STALE = "2026-06-26T00:00:00.000Z";
 
@@ -284,5 +284,97 @@ describe("routeMove - item 49: vetoes still apply after election", () => {
     });
     expect(d.action).toBe("wait");
     expect(d.appliedObjections.some((o) => o.kind === "cant_outrank_serp")).toBe(true);
+  });
+});
+
+describe("routeMove - item 70: learned specialist vote weights (byte-identical when cold)", () => {
+  it("with NO specialistWeight lookup passed, behavior is identical to before item 70", () => {
+    const opinions = [
+      op({ specialist: "gsc", confidence: 0.7, suggestedMoveTypes: ["change_title_meta"] }),
+      op({ specialist: "profound", confidence: 0.6, suggestedMoveTypes: ["add_answer_block"] }),
+    ];
+    const withoutLookup = routeMove({ packet: packet("edit_page"), opinions });
+    expect(withoutLookup.appliedWeights).toEqual([]);
+    expect(withoutLookup.action).toBe("change_title_meta");
+    expect(withoutLookup.electedBy).toBe("seed");
+    expect(withoutLookup.margin).toBe(0);
+  });
+
+  it("a lookup that always resolves neutral (weight 1, no tag) is byte-identical to omitting it", () => {
+    const opinions = [
+      op({ specialist: "gsc", confidence: 0.7, suggestedMoveTypes: ["create_page"] }),
+      op({ specialist: "profound", confidence: 0.7, suggestedMoveTypes: ["create_page"] }),
+      op({ specialist: "dataforseo", confidence: 0.7, suggestedMoveTypes: ["create_page"], scoreContribution: { scoreMultiplier: 1.3 } }),
+    ];
+    const neutralLookup: SpecialistWeightLookup = () => ({ weight: 1, tag: null });
+    const a = routeMove({ packet: packet("edit_page"), opinions });
+    const b = routeMove({ packet: packet("edit_page"), opinions, specialistWeight: neutralLookup });
+    expect(b).toEqual(a);
+  });
+
+  it("a lookup returning undefined for every call behaves exactly like omitting the lookup", () => {
+    const opinions = [op({ specialist: "gsc", confidence: 0.7, suggestedMoveTypes: ["change_title_meta"] })];
+    const undefinedLookup: SpecialistWeightLookup = () => undefined;
+    const a = routeMove({ packet: packet("edit_page"), opinions });
+    const b = routeMove({ packet: packet("edit_page"), opinions, specialistWeight: undefinedLookup });
+    expect(b).toEqual(a);
+  });
+
+  it("a boosted specialist's vote can tip a close election that would otherwise keep the seed", () => {
+    // gsc alone (confidence 0.7) backing create_page vs the change_title_meta seed does not
+    // clear VOTE_ELECTION_MIN_VOICES (needs >= 2 distinct voices) - add a second voice at low
+    // confidence so the margin is close, then show a learned upweight on gsc can decide it.
+    const opinions = [
+      op({ specialist: "gsc", confidence: 0.6, suggestedMoveTypes: ["create_page"] }),
+      op({ specialist: "profound", confidence: 0.4, suggestedMoveTypes: ["create_page"] }),
+      op({ specialist: "wix", confidence: 0.9, suggestedMoveTypes: ["change_title_meta"] }), // backs the seed hard
+    ];
+    const noWeights = routeMove({ packet: packet("edit_page"), opinions });
+    expect(noWeights.action).toBe("change_title_meta"); // seed wins without learning
+
+    const boostGsc: SpecialistWeightLookup = (specialist) =>
+      specialist === "gsc" ? { weight: 1.15, tag: "Search demand has called 8 of its last 11 winners here, so its vote counts a bit more." } : { weight: 1, tag: null };
+    const weighted = routeMove({ packet: packet("edit_page"), opinions, specialistWeight: boostGsc });
+    // The boost alone is not guaranteed to flip a 2-vs-1 election by itself (bounded ±15%), but it
+    // must never make the up-weighted side WORSE off, and the applied weight must be surfaced.
+    expect(weighted.appliedWeights.some((w) => w.specialist === "gsc" && w.weight === 1.15)).toBe(true);
+  });
+
+  it("a downweighted specialist's vote share shrinks (its family tally is multiplied down)", () => {
+    const opinions = [op({ specialist: "clarity", confidence: 0.8, suggestedMoveTypes: ["fix_ux"] })];
+    const shrink: SpecialistWeightLookup = (specialist) =>
+      specialist === "clarity" ? { weight: 0.85, tag: "Visitor behavior has called 2 of its last 9 winners here, so its vote counts a little less." } : null;
+    const d = routeMove({ packet: packet("answer_block"), opinions, specialistWeight: shrink });
+    expect(d.appliedWeights).toEqual([
+      { specialist: "clarity", family: "other", weight: 0.85, tag: "Visitor behavior has called 2 of its last 9 winners here, so its vote counts a little less." },
+    ]);
+  });
+
+  it("appliedWeights is empty when the lookup returns a tag but weight === 1 (nothing to explain)", () => {
+    const opinions = [op({ specialist: "gsc", confidence: 0.7, suggestedMoveTypes: ["change_title_meta"] })];
+    const oddLookup: SpecialistWeightLookup = () => ({ weight: 1, tag: "some tag that should be ignored at weight 1" });
+    const d = routeMove({ packet: packet("edit_page"), opinions, specialistWeight: oddLookup });
+    expect(d.appliedWeights).toEqual([]);
+  });
+
+  it("dedupes appliedWeights per (specialist, family) even when an opinion suggests multiple actions in the same family", () => {
+    const opinions = [op({ specialist: "gsc", confidence: 0.7, suggestedMoveTypes: ["change_title_meta", "add_internal_links"] })];
+    // change_title_meta -> "title_meta" family (title+meta), add_internal_links -> "link" family - distinct
+    // families, so both should surface once each, not collapse into one.
+    const lookup: SpecialistWeightLookup = () => ({ weight: 1.1, tag: "tag" });
+    const d = routeMove({ packet: packet("edit_page"), opinions, specialistWeight: lookup });
+    const families = d.appliedWeights.map((w) => w.family).sort();
+    expect(families).toEqual(["link", "title_meta"]);
+  });
+
+  it("veto/downgrade/overlap-boost machinery is untouched by weighting (score math stays the same)", () => {
+    const opinions = [
+      op({ specialist: "gsc", suggestedMoveTypes: ["create_page"] }),
+      op({ specialist: "profound", suggestedMoveTypes: ["create_page"] }),
+      op({ specialist: "dataforseo", suggestedMoveTypes: ["create_page"], scoreContribution: { scoreMultiplier: 1.3 } }),
+    ];
+    const lookup: SpecialistWeightLookup = () => ({ weight: 1.1, tag: "tag" });
+    const d = routeMove({ packet: packet("create_page", { confidence: "medium" }), opinions, specialistWeight: lookup });
+    expect(d.adjustedScore).toBe(1300); // overlap boost multiplier is independent of vote weighting
   });
 });

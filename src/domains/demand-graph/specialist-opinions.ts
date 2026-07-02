@@ -19,6 +19,7 @@
 import type { EvidencePacket } from "./evidence-packet";
 import type { SerpValidation } from "@/domains/serp/serp-validation";
 import { competitorRelevance } from "@/domains/evidence/relevance-gate";
+import { emitSeasonalOpinion } from "@/domains/seasonal/seasonality-voice";
 
 /** The teammates. Each maps to a connector (or, for the last two, a synthesis
  *  role). `commerce_asset` is the Opportunity/Asset/Commerce Strategist - it
@@ -31,7 +32,8 @@ export type Specialist =
   | "dataforseo"
   | "wix"
   | "llm"
-  | "commerce_asset";
+  | "commerce_asset"
+  | "seasonal";
 
 /** The Move taxonomy the team can route to (the action level, distinct from the
  *  recommendation-queue ActionType). `wait` is a real, first-class recommendation. */
@@ -82,7 +84,8 @@ export type ObjectionKind =
   | "not_pushable"
   | "off_topic_competitor"
   | "no_measured_demand"
-  | "thin_evidence";
+  | "thin_evidence"
+  | "seasonal_demand_cliff";
 
 export type Objection = {
   kind: ObjectionKind;
@@ -137,6 +140,11 @@ export type SpecialistExtras = {
   /** Whether this Move's target is field-publishable on the tenant's CMS (Wix).
    *  undefined ⇒ unknown ⇒ the Wix specialist abstains. */
   pushable?: boolean;
+  /** This Move's page family's demand profile (BEACON_500 item 69), when known -
+   *  threaded by the loader from family-demand-profile-store.ts. undefined ⇒ no
+   *  profile computed yet for this tenant/family ⇒ the seasonal specialist
+   *  abstains (never fabricates a seasonal read off missing data). */
+  seasonalProfile?: import("@/domains/seasonal/family-demand-profile").FamilyDemandProfile | null;
 };
 
 // ── cadences (staleAt = now + cadence). Real, per the connector audit:
@@ -151,6 +159,11 @@ const CADENCE_MS: Record<Specialist, number> = {
   wix: HOUR,
   llm: HOUR,
   commerce_asset: HOUR,
+  // The family demand profile is a nightly-computed pass over the permanent
+  // monthly archive + recent daily rows (family-demand-profile-store.ts caps
+  // itself at 14 days old) - a day's cadence matches how often that pass can
+  // meaningfully change, without recomputing on every Move.
+  seasonal: 24 * HOUR,
 };
 
 function clamp01(n: number): number {
@@ -502,5 +515,6 @@ export function attachOpinions(p: EvidencePacket, extras: SpecialistExtras = {})
     emitWixOpinion(p, ctx),
     emitLlmOpinion(p, ctx),
     emitCommerceAssetOpinion(p, ctx),
+    emitSeasonalOpinion(p, ctx),
   ].filter((o): o is SpecialistOpinion => o != null);
 }

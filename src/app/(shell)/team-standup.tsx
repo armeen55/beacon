@@ -15,7 +15,7 @@ import { readAllCachedKeywordDemand } from "@/domains/serp/dataforseo-keywords";
 import { loadBotReferralSignals } from "@/domains/profound-deep/load-bot-referral-signals";
 import { loadShippedChanges } from "@/domains/proof-gsc/shipped-change-store";
 import { readAllCachedLlmMentions } from "@/domains/serp/dataforseo-llm-mentions";
-import { loadTeamScoreboardView } from "@/domains/team-scoreboard/load-team-scoreboard";
+import { loadTeamScoreboardView, loadActiveSpecialistWeights } from "@/domains/team-scoreboard/load-team-scoreboard";
 import { recordLine } from "@/domains/team-scoreboard/brier";
 import { buildCalibrationLine } from "@/domains/team-scoreboard/calibration";
 import { currentTenantSlug } from "@/lib/tenant-context";
@@ -161,10 +161,18 @@ async function loadScoreboardForStandup(tenantId: string): Promise<{
   footer: string | null;
   calibrationLine: string | null;
   objectionLine: string | null;
+  weightLines: string[];
   records: Map<string, string>;
   calibrations: Map<string, string>;
 }> {
-  const empty = { footer: null, calibrationLine: null, objectionLine: null, records: new Map<string, string>(), calibrations: new Map<string, string>() };
+  const empty = {
+    footer: null,
+    calibrationLine: null,
+    objectionLine: null,
+    weightLines: [] as string[],
+    records: new Map<string, string>(),
+    calibrations: new Map<string, string>(),
+  };
   try {
     const view = await loadTeamScoreboardView(tenantId);
     if (!view) return empty;
@@ -179,7 +187,20 @@ async function loadScoreboardForStandup(tenantId: string): Promise<{
         if (calibrationLine) calibrations.set(row.specialist, calibrationLine);
       }
     }
-    return { footer: view.footerLine, calibrationLine: view.calibrationLine, objectionLine: view.objectionLine, records, calibrations };
+    // Item 70 - one plain-English line per specialist whose learned vote weight is currently
+    // active (a non-neutral, MIN_DECIDED-cleared cell), e.g. "Search demand has called 8 of its
+    // last 11 winners here, so its vote counts a bit more." De-duped to ONE line per specialist
+    // (its most specific/first-resolved family cell) so a specialist proven in several families
+    // doesn't spam the standup footer with repeats of the same idea.
+    const weights = await loadActiveSpecialistWeights(tenantId);
+    const seenSpecialists = new Set<string>();
+    const weightLines: string[] = [];
+    for (const w of weights) {
+      if (!w.tag || seenSpecialists.has(w.specialist)) continue;
+      seenSpecialists.add(w.specialist);
+      weightLines.push(w.tag);
+    }
+    return { footer: view.footerLine, calibrationLine: view.calibrationLine, objectionLine: view.objectionLine, weightLines, records, calibrations };
   } catch {
     return empty;
   }
@@ -195,7 +216,7 @@ function chipTitle(calibration: string | undefined, freshness: string | undefine
 
 export async function TeamStandup({ tenantId, picksTonight }: { tenantId: string; picksTonight: number }) {
   try {
-    const { footer, calibrationLine, objectionLine, records, calibrations } = await loadScoreboardForStandup(tenantId);
+    const { footer, calibrationLine, objectionLine, weightLines, records, calibrations } = await loadScoreboardForStandup(tenantId);
     const lines = await buildLines(tenantId, picksTonight, records, calibrations);
     if (lines.length === 0) return null;
     // Item 46 - honest degradation: the SAME connector reads /settings/connectors and the item-10
@@ -207,7 +228,10 @@ export async function TeamStandup({ tenantId, picksTonight }: { tenantId: string
     // Item 43 - stack the calibration and objection lines under the item-38 footer whenever each
     // clears its own 5-observation minimum (both loaders already return null below that bar, so this
     // is a plain filter, never an extra gate). Either, both, or neither can render independently.
-    const footerLines = [footer, calibrationLine, objectionLine].filter((l): l is string => Boolean(l));
+    // Item 70 - append one line per specialist with an active learned vote weight, same honest
+    // silence-below-the-bar posture (loadActiveSpecialistWeights already returns [] until a cell
+    // clears MIN_DECIDED).
+    const footerLines = [footer, calibrationLine, objectionLine, ...weightLines].filter((l): l is string => Boolean(l));
     return (
       <div className="flex flex-col gap-1.5 beacon-rise-in">
         <section aria-label="Team standup" className="flex flex-wrap gap-2">

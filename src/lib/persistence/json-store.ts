@@ -105,6 +105,13 @@ const SUPABASE_MIRRORED_STORES = new Set<string>([
   // by the cron (Vercel lambda: no disk), read by the daily plan candidate
   // feed; without the mirror the calendar would be silent-empty on hosted prod.
   "seasonal-peak-calendar",
+  // 2026-07-02 item 69 - per-pageFamily weekly+annual demand profiles and the
+  // tenant's event calendar (derived entries + operator edits). Written by the
+  // seasonality pass / operator CRUD (Vercel lambda: no disk); without the
+  // mirror both would be silent-empty (profiles) or lose operator edits
+  // (calendar) on hosted prod after a lambda recycle.
+  "seasonal-family-profiles",
+  "event-calendar",
   // 2026-07-02 item 24 - nightly Farsi/Finglish language-gap matrix pass.
   // Written by the cron (Vercel lambda: no disk), read by the Today Demand
   // band + the daily plan builder; without the mirror the detected gaps
@@ -210,6 +217,10 @@ const SUPABASE_MIRRORED_STORES = new Set<string>([
   // calibration feed. Without the mirror each night's captured batch would vanish on
   // the next lambda recycle, and the comparison would never accumulate a real sample.
   "shadow-portfolio-candidates",
+  // 2026-07-02 item 73 - Wikidata entity grounding. Same COST/POLITENESS rationale as
+  // wiki-gap-article-cache: a re-run within 30 days must not re-hit the free Wikidata
+  // API, which only holds on Vercel with the mirror (file-only writes skip disk there).
+  "wikidata-entity-cache",
 ]);
 
 const BLOBS_TABLE = "json_store_blobs";

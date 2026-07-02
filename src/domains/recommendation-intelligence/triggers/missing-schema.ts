@@ -51,9 +51,11 @@ import {
 } from "../page-classifier";
 import {
   CONTENT_PAGE_EXPECTED_SCHEMA,
+  CONTENT_PAGE_BIOGRAPHY_EXPECTED_SCHEMA,
   diffSchemaCoverage,
   diffSchemaCoverageForSpec,
 } from "@/domains/pages/expected-schema";
+import { detectBiographyPage } from "@/domains/pages/biography-detector";
 
 export type MissingSchemaInput = {
   tenantId: string;
@@ -119,6 +121,21 @@ function pageTypeToAssetType(pageType: PageType): AssetType | null {
  *     (separate) invalid-schema/fix_schema slice. Comparison is
  *     case-insensitive on the observed @type strings (derived data
  *     hygiene, not vocabulary).
+ *
+ * Item 73 (2026-07-02), Wikidata grounding / Person schema. Reuses this
+ * SAME `missing_schema_content` trigger plus candidate row (no parallel
+ * trigger): the pure `detectBiographyPage()` classifier decides, from the
+ * page's own snapshot signals, whether the page's expected-schema spec
+ * should be `CONTENT_PAGE_BIOGRAPHY_EXPECTED_SCHEMA` (Article + Person)
+ * instead of the base `CONTENT_PAGE_EXPECTED_SCHEMA` (Article only). The
+ * existing `diffSchemaCoverageForSpec` machinery does the rest: a
+ * biography page missing Person now shows up as a `missing_required`
+ * entry exactly like a non-biography page missing Article, and
+ * `composeContentArticleSchema` (draft-enrichment.ts) already knows to
+ * emit the Person block when the detector fires. Wikidata `sameAs` is
+ * NOT resolved here, since that's an async, I/O-bound lookup and this
+ * predicate module is PURE; the match is threaded in later via
+ * `DraftEnrichmentContext.wikidataMatchByUrl` at compose time.
  */
 function missingSchemaContent(args: {
   tenantId: string;
@@ -187,8 +204,17 @@ function missingSchemaContent(args: {
     ];
   }
 
+  // Item 73 (2026-07-02): a page the pure detector classifies as
+  // biography-shaped (from its OWN title/body signals) gets the Article
+  // + Person spec instead of the base Article-only spec. Every other
+  // content page's behavior is unchanged.
+  const biography = detectBiographyPage(snapshot);
+  const expectedSpec = biography.isBiography
+    ? CONTENT_PAGE_BIOGRAPHY_EXPECTED_SCHEMA
+    : CONTENT_PAGE_EXPECTED_SCHEMA;
+
   const coverage = diffSchemaCoverageForSpec(
-    CONTENT_PAGE_EXPECTED_SCHEMA,
+    expectedSpec,
     snapshot.schema_types,
   );
   if (coverage.satisfies_all_required) return [];
@@ -234,6 +260,9 @@ function missingSchemaContent(args: {
       operator_evidence:
         "page_type=" +
         pageType +
+        (biography.isBiography
+          ? "(biography, confidence=" + biography.confidence + ")"
+          : "") +
         "; schema_types=[" +
         (snapshot.schema_types.length > 0
           ? snapshot.schema_types.join(", ")

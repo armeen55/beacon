@@ -15,7 +15,7 @@
 
 import type { EvidencePacket } from "@/domains/demand-graph/evidence-packet";
 import { attachOpinions, type SpecialistExtras } from "@/domains/demand-graph/specialist-opinions";
-import { routeMove } from "@/domains/demand-graph/move-router";
+import { routeMove, type SpecialistWeightLookup } from "@/domains/demand-graph/move-router";
 import { summarizeSpecialistDebate } from "@/domains/demand-graph/debate-summary";
 
 /** Self-contained render-ready debate (persisted on the plan record, so no type imports leak). */
@@ -94,13 +94,14 @@ export function reviewCandidateWithTeam(
   packet: EvidencePacket | null | undefined,
   nowIso: string,
   extras: SpecialistExtras = {},
+  specialistWeight?: SpecialistWeightLookup,
 ): TeamReviewResult {
   if (!packet) return { review: null, scoreMultiplier: 1, vetoed: false, vetoReason: null };
 
   const opinions = attachOpinions(packet, { ...extras, nowIso });
   if (opinions.length === 0) return { review: null, scoreMultiplier: 1, vetoed: false, vetoReason: null };
 
-  const decision = routeMove({ packet, opinions });
+  const decision = routeMove({ packet, opinions, specialistWeight });
   const summary = summarizeSpecialistDebate(opinions);
 
   // Card verdict in operator language. The router's raw rationale carries graph-internal phrasing
