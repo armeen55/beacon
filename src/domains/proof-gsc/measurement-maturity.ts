@@ -244,7 +244,7 @@ export function buildMeasurementPresentation(input: MaturityInput): MeasurementP
       break;
     case "blocked_data":
       headline = "Waiting for Google data";
-      explanation = `Checkpoint date reached, waiting for Search Console data through ${requiredDataThrough ?? "the window close"}. This experiment is not stalled.`;
+      explanation = `Checkpoint date reached, waiting for Search Console data through ${requiredDataThrough ?? "the window close"}. This measurement is not stalled.`;
       tone = "waiting";
       break;
     case "attribution_limited":

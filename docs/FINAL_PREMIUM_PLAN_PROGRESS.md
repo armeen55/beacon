@@ -6,7 +6,7 @@
 - [x]   3 [W1][P0/S] One-line verdict under the chart: "Last 7 days: 412 clicks, up 9% vs the week before.
 - [x]   4 [W2][P1/M] Per-page mini-charts: every card that names a page (daily card, MoveCard, Results row)
 - [x]   5 [W2][P1/M] Before/after chart on every Results row: treated page line vs control-average line,
-- [ ]   6 [W2][P1/S] Countdown chips: "first read in 3 days" on every measuring item, computed from the
+- [x]   6 [W2][P1/S] Countdown chips: "first read in 3 days" on every measuring item, computed from the
 - [ ]   7 [W3][P2/M] A weekly recap band on Today (Mondays): "Last week: 6 shipped, 1 win (+31 clicks/mo on
 - [ ]   8 [W3][P1/S] Streak + totals in the header area: "22 changes shipped in 14 days" with a small flame
 - [ ]   9 [W3][P2/S] AI-visibility mini-scoreboard: citations-over-time sparkline (profound_citation_rows
@@ -68,11 +68,11 @@
 - [ ]  65 [W3][P1/S] Rename ambiguous statuses in UI copy: "suggested/ready/measuring/won" everywhere;
 - [ ]  66 [W3][P2/S] Show the safety net proudly: a quiet line above the list: "12 pages are protected
 - [ ]  67 [W3][P2/M] Undo/rollback affordance on shipped items: every applied change shows its rollback
-- [ ]  68 [W2][P0/L] Rewrite the page as three bands: "Wins" (mature, won, celebrated), "Learning"
-- [ ]  69 [W2][P0/M] De-jargon the entire surface: 47 "experiment", 35 "control", 29 "baseline" instances
-- [ ]  70 [W2][P0/M] Every row gets the before/after mini-chart (A5) as the row's centerpiece; the
-- [ ]  71 [W2][P1/S] Win rows state the money: "+31 clicks/mo on /finglish since Jun 12" as the headline,
-- [ ]  72 [W2][P1/S] Learning rows state the lesson: "Title changes did not move flags pages. The team
+- [x]  68 [W2][P0/L] Rewrite the page as three bands: "Wins" (mature, won, celebrated), "Learning"
+- [x]  69 [W2][P0/M] De-jargon the entire surface: 47 "experiment", 35 "control", 29 "baseline" instances
+- [x]  70 [W2][P0/M] Every row gets the before/after mini-chart (A5) as the row's centerpiece; the
+- [x]  71 [W2][P1/S] Win rows state the money: "+31 clicks/mo on /finglish since Jun 12" as the headline,
+- [x]  72 [W2][P1/S] Learning rows state the lesson: "Title changes did not move flags pages. The team
 - [ ]  73 [W3][P1/S] A verdict calendar strip: the next 14 days with dots for upcoming 7/14/28 reads, so
 - [ ]  74 [W3][P2/S] Filter by teammate: "show changes the Behavior teammate drove" etc.
 - [ ]  75 [W3][P1/S] Aggregate honesty header: "16 measuring, 1 win, 3 no-lift, next verdicts Friday" as

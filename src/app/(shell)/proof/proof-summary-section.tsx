@@ -81,7 +81,7 @@ export async function ProofSummarySection() {
       <div>
         <h2 className="text-xl font-bold tracking-tight text-gray-900">Proof at a glance</h2>
         <p className="mt-1 max-w-xl text-sm text-gray-500">
-          What your shipped changes actually drove, re-measured against Search Console vs control pages.
+          What your shipped changes actually drove, re-measured against Search Console vs comparison pages you did not change.
           Only changes that reach the full 28-day window count as final results; the rest are still measuring.
         </p>
       </div>

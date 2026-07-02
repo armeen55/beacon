@@ -312,7 +312,7 @@ export function RecordShippedButton({
           })
         }
         className="rounded-md border border-foreground bg-foreground px-2.5 py-1 text-[11px] font-medium text-background hover:opacity-90 disabled:opacity-50"
-        title="Confirm you shipped this change live (e.g. manually in Wix). Beacon snapshots the Search baseline now and measures the next 7/14/28 days vs comparable pages. Nothing publishes."
+        title="Confirm you shipped this change live (e.g. manually in Wix). Beacon records how the page performs today and measures the next 7/14/28 days vs comparison pages. Nothing publishes."
       >
         {pending ? "Saving…" : "I made this change"}
       </button>

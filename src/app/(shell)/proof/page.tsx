@@ -27,7 +27,9 @@ import {
   pickProofMetric,
   proofOutcomeSentence,
   formatWindowLift,
+  addDays,
   type GscProofVerdict,
+  type ProofMetric,
 } from "@/domains/proof-gsc/measure";
 import type { ShippedChangeRecord } from "@/domains/proof-gsc/shipped-change-store";
 import {
@@ -137,6 +139,23 @@ export default async function ProofPage({
       ] as const;
     }),
   );
+
+  // Item 68 - three outcome bands instead of one flat list. A mature win is a Win;
+  // a mature non-win is knowledge gained ("What we learned"); everything still
+  // measuring or waiting on data is "In flight". Presentation-only; the measurement
+  // math and stores are untouched.
+  const winRows = ledger.filter((l) => {
+    const p = presById.get(l.id);
+    return !!p && isMatureOutcome(p.maturity) && l.verdict === "won";
+  });
+  const learningRows = ledger.filter((l) => {
+    const p = presById.get(l.id);
+    return !!p && isMatureOutcome(p.maturity) && l.verdict !== "won";
+  });
+  const inFlightRows = ledger.filter((l) => {
+    const p = presById.get(l.id);
+    return !p || !isMatureOutcome(p.maturity);
+  });
 
   // Passive auto-measure (2026-06-29): when the operator opens Results, fire-and-forget a
   // due-row measurement pass AFTER the response (next/after → zero render latency) so
@@ -262,11 +281,57 @@ export default async function ProofPage({
             </p>
           ) : null}
           <WhatHappensNext />
-          <div className="mt-3 space-y-2.5">
-            {ledger.map((rec) => (
-              <LedgerCard key={rec.id} rec={rec} link={linkByRowId.get(rec.id) ?? null} pres={presById.get(rec.id) ?? null} spark={sparkByPath.get(rec.path)} />
-            ))}
-          </div>
+
+          {/* Item 68 band 1: mature wins, celebrated in one sentence, still factual. */}
+          {winRows.length > 0 ? (
+            <div className="mt-4">
+              <h3 className="text-[12px] font-semibold uppercase tracking-wide text-emerald-700">
+                Wins ({winRows.length})
+              </h3>
+              <p className="mt-0.5 text-[11px] text-muted-foreground">
+                These changes beat their comparison pages over the full window. Real lifts, measured.
+              </p>
+              <div className="mt-2 space-y-2.5">
+                {winRows.map((rec) => (
+                  <LedgerCard key={rec.id} rec={rec} band="win" link={linkByRowId.get(rec.id) ?? null} pres={presById.get(rec.id) ?? null} spark={sparkByPath.get(rec.path)} />
+                ))}
+              </div>
+            </div>
+          ) : null}
+
+          {/* Item 68 band 2: mature non-wins, framed as knowledge gained, never failure. */}
+          {learningRows.length > 0 ? (
+            <div className="mt-4">
+              <h3 className="text-[12px] font-semibold uppercase tracking-wide text-foreground/70">
+                What we learned ({learningRows.length})
+              </h3>
+              <p className="mt-0.5 text-[11px] text-muted-foreground">
+                These changes did not move the number, and that teaches us which lever to try next on pages like these.
+              </p>
+              <div className="mt-2 space-y-2.5">
+                {learningRows.map((rec) => (
+                  <LedgerCard key={rec.id} rec={rec} band="learning" link={linkByRowId.get(rec.id) ?? null} pres={presById.get(rec.id) ?? null} spark={sparkByPath.get(rec.path)} />
+                ))}
+              </div>
+            </div>
+          ) : null}
+
+          {/* Item 68 band 3: everything still measuring or waiting on data. */}
+          {inFlightRows.length > 0 ? (
+            <div className="mt-4">
+              <h3 className="text-[12px] font-semibold uppercase tracking-wide text-muted-foreground">
+                In flight ({inFlightRows.length})
+              </h3>
+              <p className="mt-0.5 text-[11px] text-muted-foreground">
+                Still collecting data. Each one gets its verdict when its full window closes.
+              </p>
+              <div className="mt-2 space-y-2.5">
+                {inFlightRows.map((rec) => (
+                  <LedgerCard key={rec.id} rec={rec} band="inflight" link={linkByRowId.get(rec.id) ?? null} pres={presById.get(rec.id) ?? null} spark={sparkByPath.get(rec.path)} />
+                ))}
+              </div>
+            </div>
+          ) : null}
         </div>
       ) : null}
 
@@ -378,7 +443,7 @@ export default async function ProofPage({
                 <ul className="mt-2 space-y-0.5">
                   {r.metricsToCheck.map((m) => (
                     <li key={m.label} className="text-[12px] text-muted-foreground">
-                      <span className="text-foreground/80">{m.label}</span>, baseline{" "}
+                      <span className="text-foreground/80">{m.label}</span> before the change:{" "}
                       <span className="tabular-nums">{m.baseline}</span>
                     </li>
                   ))}
@@ -468,7 +533,27 @@ const SOURCE_LABEL: Record<string, string> = {
   competitor_teardown: "Competitor teardown", rank_revenue: "Demand graph",
 };
 
-function LedgerCard({ rec, link, pres, spark }: { rec: ShippedChangeRecord; link?: ProofLink | null; pres?: MeasurementPresentation | null; spark?: SparkPoint[] }) {
+/** Item 72 - plain-business words for the change type in the lesson line. */
+const PLAIN_ACTION: Record<string, string> = {
+  edit_meta: "description change",
+  edit_title: "title change",
+  add_answer_block: "direct answer",
+  add_internal_link: "internal link",
+  add_schema: "structured data",
+};
+function plainAction(actionType: string): string {
+  return PLAIN_ACTION[actionType] ?? actionType.replace(/_/g, " ");
+}
+/** Item 72 - the judged metric in plain words. */
+const PLAIN_METRIC: Record<ProofMetric, string> = {
+  ctr: "the click rate",
+  position: "the ranking",
+  clicks: "clicks",
+};
+
+type LedgerBand = "win" | "learning" | "inflight";
+
+function LedgerCard({ rec, link, pres, spark, band }: { rec: ShippedChangeRecord; link?: ProofLink | null; pres?: MeasurementPresentation | null; spark?: SparkPoint[]; band?: LedgerBand }) {
   // Judge a meta/title test on CTR, a content test on position, else clicks, so
   // every line on this card reads in the unit that actually moved.
   const metric = pickProofMetric(rec.actionType);
@@ -499,6 +584,23 @@ function LedgerCard({ rec, link, pres, spark }: { rec: ShippedChangeRecord; link
               plain Helped / Did not help (green/red). */}
           {pres ? pres.headline : proofMaturityLabel(rec.verdict, basis?.day ?? null)}
         </span>
+        {/* Item 6 - in-flight countdown: when the next reading lands, from this row's
+            own windows (smallest unread window vs today). "any day now" covers the
+            Google data lag once the calendar date has passed. */}
+        {band === "inflight" ? (() => {
+          const next = rec.windows.filter((w) => !w.ran).sort((a, b) => a.day - b.day)[0];
+          if (!next) return null;
+          const anyRead = rec.windows.some((w) => w.ran);
+          const dueOn = addDays(rec.shippedAt, next.day);
+          const daysLeft = Math.ceil((Date.parse(dueOn) - Date.now()) / 86_400_000);
+          return (
+            <span className="rounded-full border border-border/50 bg-muted/50 px-2 py-0.5 text-[10px] tabular-nums text-muted-foreground">
+              {daysLeft <= 0
+                ? "any day now"
+                : `${anyRead ? "next" : "first"} read in ${daysLeft} day${daysLeft === 1 ? "" : "s"}`}
+            </span>
+          );
+        })() : null}
         <span className="text-[11px] text-muted-foreground">
           {rec.actionType.replace(/_/g, " ")} · shipped {rec.shippedAt.slice(0, 10)}
         </span>
@@ -516,9 +618,12 @@ function LedgerCard({ rec, link, pres, spark }: { rec: ShippedChangeRecord; link
         const shipDay = rec.shippedAt.slice(0, 10);
         const lastDataDay = spark[spark.length - 1]!.date;
         const markerVisible = lastDataDay >= shipDay;
+        // Item 70 - the chart is the centerpiece on a settled row (win/learning),
+        // so it renders slightly larger there; numbers are supporting cast.
+        const settled = band === "win" || band === "learning";
         return (
           <div className="mt-1.5 flex items-center gap-2">
-            <Sparkline points={spark} markerDate={shipDay} width={200} height={34} />
+            <Sparkline points={spark} markerDate={shipDay} width={settled ? 240 : 200} height={settled ? 40 : 34} />
             <span className="text-[10px] text-muted-foreground">
               {markerVisible
                 ? `daily clicks, ${spark.length} days · dot = when this shipped, tinted = after`
@@ -545,6 +650,21 @@ function LedgerCard({ rec, link, pres, spark }: { rec: ShippedChangeRecord; link
       ) : (
         <p className="mt-1.5 text-[11px] text-gray-400">↩ Manual or legacy change, not traced to a ranked move.</p>
       )}
+
+      {/* Item 71 - a win leads with the number: the lift, the page, the date. */}
+      {band === "win" && basis ? (
+        <p className="mt-1.5 text-[14px] font-semibold text-emerald-700">
+          {`${formatWindowLift(metric, basis)} on ${rec.path} since ${rec.shippedAt.slice(0, 10)}`}
+        </p>
+      ) : null}
+
+      {/* Item 72 - a settled non-win reads as a lesson: what we tried, what it did
+          not move, and that the next pick on pages like this uses a different lever. */}
+      {band === "learning" ? (
+        <p className="mt-1.5 text-[12px] text-foreground/80">
+          {`A ${plainAction(rec.actionType)} on this page did not move ${PLAIN_METRIC[metric]} in the full window. The team now tries a different lever on pages like this.`}
+        </p>
+      ) : null}
 
       <p className="mt-1.5 text-[12px] text-foreground/80">
         <span className="font-medium text-foreground/60">Search:</span> {sentence}
@@ -625,7 +745,7 @@ function LedgerCard({ rec, link, pres, spark }: { rec: ShippedChangeRecord; link
       ) : null}
 
       <p className="mt-2 text-[11px] text-muted-foreground">
-        Baseline (28d before): {metricsLine(rec)}
+        Before the change (28 days prior): {metricsLine(rec)}
       </p>
 
       {/* Per-window diff-in-diff vs controls, with the check-in dates. */}
@@ -638,7 +758,7 @@ function LedgerCard({ rec, link, pres, spark }: { rec: ShippedChangeRecord; link
             <span className="font-medium">{w.day}d</span>{" "}
             {w.ran ? (
               <>
-                lift {formatWindowLift(metric, w)} ({w.controlsUsed} control
+                lift {formatWindowLift(metric, w)} ({w.controlsUsed} comparison page
                 {w.controlsUsed === 1 ? "" : "s"})
               </>
             ) : (
@@ -649,8 +769,8 @@ function LedgerCard({ rec, link, pres, spark }: { rec: ShippedChangeRecord; link
       </div>
 
       <p className="mt-2 text-[10px] text-muted-foreground">
-        {`Compared against ${controlsCount} comparable untreated page${controlsCount === 1 ? "" : "s"} on the same site.`}{" "}
-        Observational, directional, not a controlled experiment.
+        {`Compared against ${controlsCount} similar page${controlsCount === 1 ? "" : "s"} you did not change on the same site.`}{" "}
+        A strong directional read, not a lab-perfect test.
       </p>
 
       {rec.notes ? (
