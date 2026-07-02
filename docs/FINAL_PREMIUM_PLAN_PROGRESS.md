@@ -55,11 +55,11 @@
 - [ ]  52 [W3][P1/S] Remove the "Switch to Ritz Builders" pill from the header for daily use (move tenant
 - [ ]  53 [W3][P2/M] New Pages board on Today shows its 3 best only with "See all 9" into /worklist, so
 - [ ]  54 [W3][P1/S] Chart + hero must be dash-clean and jargon-clean (23 em/en dashes currently visible
-- [ ]  55 [W2][P0/M] Face-lift the row density: each row = identity chip of the lever, page name with
-- [ ]  56 [W2][P1/S] "Tonight's 30 minutes" mode: a toggle that filters to the accepted plan + top ready
-- [ ]  57 [W2][P1/S] Group by goal, not status, as the default view ("Win more clicks" / "Get cited by
+- [x]  55 [W2][P0/M] Face-lift the row density: each row = identity chip of the lever, page name with
+- [x]  56 [W2][P1/S] "Tonight's 30 minutes" mode: a toggle that filters to the accepted plan + top ready
+- [x]  57 [W2][P1/S] Group by goal, not status, as the default view ("Win more clicks" / "Get cited by
 - [x]  58 [W2][P0/S] Kill the "Treatment:" label in the /changes detail attribution drilldown (the last
-- [ ]  59 [W2][P1/M] Search that actually finds: search across page path, query, teammate claims, and
+- [x]  59 [W2][P1/M] Search that actually finds: search across page path, query, teammate claims, and
 - [x]  60 [W2][P1/S] Bulk "copy all tonight's pastes": one button that copies a numbered, Wix-ordered
 - [x]  61 [W2][P1/S] Every ready row shows its expected outcome range (same estimate as C34) so the list
 - [ ]  62 [W3][P2/S] Sticky batch bar at the bottom while items from tonight's plan are pending: "2 left,

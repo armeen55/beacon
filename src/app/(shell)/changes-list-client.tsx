@@ -16,6 +16,7 @@ import type { CanonicalChange, Strategy, Goal, StatusView } from "@/domains/chan
 import { EVIDENCE_LABEL, statusView } from "@/domains/changes/canonical-change";
 import { rankChanges, goalMatches, inStatusView } from "@/domains/changes/strategy";
 import { MoveCard } from "./today-moves-card";
+import { Sparkline } from "@/components/data/sparkline";
 
 const STRATEGIES: { id: Strategy; label: string; hint: string }[] = [
   { id: "balanced", label: "Balanced", hint: "Best mix of upside, effort, risk, and evidence (recommended)." },
@@ -43,6 +44,28 @@ const STATUS_CHIP: Record<CanonicalChange["status"], { label: string; cls: strin
 };
 const EVIDENCE_CLS: Record<string, string> = { strong: "text-emerald-600", directional: "text-amber-600", tracking: "text-gray-500" };
 
+// Item 55 - one identity chip per lever family so rows scan by shape, not by reading.
+const FAMILY_CHIP: Record<string, { label: string; cls: string }> = {
+  meta: { label: "Description", cls: "bg-sky-50 text-sky-700 ring-sky-200" },
+  title: { label: "Title", cls: "bg-indigo-50 text-indigo-700 ring-indigo-200" },
+  title_meta: { label: "Title + description", cls: "bg-indigo-50 text-indigo-700 ring-indigo-200" },
+  h1: { label: "Headline", cls: "bg-violet-50 text-violet-700 ring-violet-200" },
+  answer: { label: "Direct answer", cls: "bg-pink-50 text-pink-700 ring-pink-200" },
+  link: { label: "Internal link", cls: "bg-teal-50 text-teal-700 ring-teal-200" },
+  schema: { label: "Structured data", cls: "bg-slate-50 text-slate-600 ring-slate-200" },
+  new_page: { label: "New page", cls: "bg-emerald-50 text-emerald-700 ring-emerald-200" },
+  cro: { label: "Experience", cls: "bg-amber-50 text-amber-700 ring-amber-200" },
+  other: { label: "Page edit", cls: "bg-gray-50 text-gray-600 ring-gray-200" },
+};
+
+// Item 57 - the goal groups the default view reads in (business language first).
+const GOAL_GROUPS: { id: string; title: string; match: (c: CanonicalChange) => boolean }[] = [
+  { id: "clicks", title: "Win more clicks", match: (c) => c.opportunityType === "Capture clicks" },
+  { id: "ai", title: "Get cited by AI", match: (c) => c.opportunityType === "Win AI citations" },
+  { id: "experience", title: "Fix the experience", match: (c) => c.opportunityType === "Fix experience" },
+  { id: "pages", title: "Build new pages", match: (c) => c.opportunityType === "New page" },
+];
+
 const FOCUS = "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-1";
 
 function fmt(n: number | null | undefined): string {
@@ -62,7 +85,12 @@ function Row({ c, move, rank }: { c: CanonicalChange; move: ChangesView["movesBy
       <div className="flex items-center gap-3 px-3 py-2.5">
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+            {(() => {
+              const fam = FAMILY_CHIP[c.changeFamily] ?? FAMILY_CHIP.other!;
+              return <span className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold ring-1 ${fam.cls}`}>{fam.label}</span>;
+            })()}
             <span className="min-w-0 break-words text-sm font-semibold text-gray-900">{c.pageLabel}</span>
+            {move?.sparkline && move.sparkline.length >= 5 ? <Sparkline points={move.sparkline} width={56} height={14} className="inline-block opacity-70" /> : null}
             <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium ${chip.cls}`}>{chip.label}</span>
             {c.selectedForToday && <span className="shrink-0 rounded-full border border-indigo-200 bg-indigo-100 px-2 py-0.5 text-[10px] font-medium text-indigo-700">Today</span>}
           </div>
@@ -132,12 +160,39 @@ export function ChangesListClient({ view }: { view: ChangesView }) {
   const [tab, setTab] = useState<StatusView>(initialTab);
   const [goal, setGoal] = useState<Goal>(pGoal && GOAL_IDS.has(pGoal) ? (pGoal as Goal) : "recommended");
   const [q, setQ] = useState(params.get("search") ?? "");
+  // Item 57 - group by GOAL is the default read ("Win more clicks" before "Ready"); picking a
+  // status tab switches to the flat status view. A deep-linked ?status= starts flat.
+  const [grouped, setGrouped] = useState<boolean>(!(pStatus && TAB_IDS.has(pStatus)));
+  // Item 56 - "Tonight's 30 minutes": the accepted plan + top ready items that fit a 30-minute budget.
+  const [tonight, setTonight] = useState(false);
 
   const ranked = useMemo(() => rankChanges(view.changes, strategy), [view.changes, strategy]);
   const visible = useMemo(() => {
     const needle = q.trim().toLowerCase();
-    return ranked.filter((c) => inStatusView(c, tab) && goalMatches(c, goal) && (!needle || `${c.pageLabel} ${c.pagePath} ${c.recommendation}`.toLowerCase().includes(needle)));
-  }, [ranked, tab, goal, q]);
+    // Item 59 - search that actually finds: page, query, why, teammate claims, verdicts, outcomes.
+    const hay = (c: CanonicalChange): string => {
+      const m = c.sourceIds[0] ? view.movesById[c.sourceIds[0]] : undefined;
+      return [
+        c.pageLabel, c.pagePath, c.recommendation, c.rationale, c.opportunityType, c.changeType,
+        c.measurementHeadline ?? "", c.result ?? "", c.expectedOutcome ?? "",
+        m?.query ?? "", m?.why ?? "", m?.rankWhy ?? "",
+      ].join(" ").toLowerCase();
+    };
+    // Grouped (by goal) reads the actionable slice (to do + ready + apply); flat view uses the tab.
+    const statusOk = (c: CanonicalChange) => (grouped ? inStatusView(c, "todo") || inStatusView(c, "ready") : inStatusView(c, tab));
+    let rows = ranked.filter((c) => statusOk(c) && goalMatches(c, goal) && (!needle || hay(c).includes(needle)));
+    if (tonight) {
+      const actionable = rows.filter((c) => c.selectedForToday || c.status === "ready" || c.status === "apply");
+      const picked: CanonicalChange[] = [];
+      let budget = 30;
+      for (const c of [...actionable].sort((a, b) => (b.selectedForToday ? 1 : 0) - (a.selectedForToday ? 1 : 0))) {
+        const mins = Number.isFinite(c.estimatedEffortMinutes) ? c.estimatedEffortMinutes : 5;
+        if (mins <= budget) { picked.push(c); budget -= mins; }
+      }
+      rows = picked;
+    }
+    return rows;
+  }, [ranked, tab, goal, q, tonight, grouped, view.movesById]);
 
   const s = view.summary;
   const isFiltered = q.trim().length > 0 || goal !== "recommended";
@@ -176,10 +231,14 @@ export function ChangesListClient({ view }: { view: ChangesView }) {
       <div className="flex flex-wrap items-center gap-2">
         <div role="group" aria-label="Filter by status" className="-mx-1 max-w-full overflow-x-auto px-1">
           <div className="inline-flex rounded-lg border border-gray-200 p-0.5">
+            <button type="button" onClick={() => setGrouped(true)} aria-pressed={grouped}
+              className={`min-h-[32px] shrink-0 whitespace-nowrap rounded-md px-2.5 py-1 text-xs font-medium ${FOCUS} ${grouped ? "bg-gray-900 text-white" : "text-gray-600 hover:bg-gray-50"}`}>
+              By goal
+            </button>
             {TABS.map((t) => {
-              const active = tab === t.id;
+              const active = !grouped && tab === t.id;
               return (
-                <button key={t.id} type="button" onClick={() => setTab(t.id)} aria-pressed={active} aria-label={`${t.label}, ${s[t.id]} ${s[t.id] === 1 ? "change" : "changes"}`}
+                <button key={t.id} type="button" onClick={() => { setTab(t.id); setGrouped(false); }} aria-pressed={active} aria-label={`${t.label}, ${s[t.id]} ${s[t.id] === 1 ? "change" : "changes"}`}
                   className={`min-h-[32px] shrink-0 whitespace-nowrap rounded-md px-2.5 py-1 text-xs font-medium ${FOCUS} ${active ? "bg-sky-600 text-white" : "text-gray-600 hover:bg-gray-50"}`}>
                   {t.label} <span aria-hidden className={active ? "text-sky-100" : "text-gray-400"}>{s[t.id]}</span>
                 </button>
@@ -187,6 +246,11 @@ export function ChangesListClient({ view }: { view: ChangesView }) {
             })}
           </div>
         </div>
+        <button type="button" onClick={() => setTonight((v) => !v)} aria-pressed={tonight}
+          title="Just the accepted plan plus the top ready items that fit 30 minutes."
+          className={`min-h-[32px] rounded-md border px-2.5 py-1 text-xs font-medium ${FOCUS} ${tonight ? "border-indigo-300 bg-indigo-600 text-white" : "border-gray-200 text-gray-600 hover:bg-gray-50"}`}>
+          Tonight&apos;s 30 minutes
+        </button>
         <select aria-label="Filter by goal" value={goal} onChange={(e) => setGoal(e.target.value as Goal)} className={`min-h-[32px] rounded-md border border-gray-200 px-2 py-1 text-xs text-gray-700 ${FOCUS}`}>
           {GOALS.map((g) => <option key={g.id} value={g.id}>{g.label}</option>)}
         </select>
@@ -201,8 +265,43 @@ export function ChangesListClient({ view }: { view: ChangesView }) {
             <button type="button" onClick={em.action.onClick} className={`mt-3 inline-flex min-h-[34px] items-center rounded-md border border-gray-200 px-3 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50 ${FOCUS}`}>{em.action.label}</button>
           ) : null}
         </div>
+      ) : grouped && !tonight ? (
+        // Item 57 - the default read: goals first, business language, status still on each row.
+        <div className="space-y-4">
+          {GOAL_GROUPS.map((g) => {
+            const rows = visible.filter(g.match);
+            if (rows.length === 0) return null;
+            return (
+              <section key={g.id} aria-label={g.title}>
+                <h3 className="mb-1.5 text-[12px] font-semibold uppercase tracking-wide text-gray-400">
+                  {g.title} <span className="font-normal normal-case">· {rows.length}</span>
+                </h3>
+                <div className="space-y-1.5">
+                  {rows.map((c, i) => <Row key={c.id} c={c} move={c.sourceIds[0] ? view.movesById[c.sourceIds[0]] : undefined} rank={i + 1} />)}
+                </div>
+              </section>
+            );
+          })}
+          {(() => {
+            const other = visible.filter((c) => !GOAL_GROUPS.some((g) => g.match(c)));
+            if (other.length === 0) return null;
+            return (
+              <section aria-label="Other improvements">
+                <h3 className="mb-1.5 text-[12px] font-semibold uppercase tracking-wide text-gray-400">Other improvements · {other.length}</h3>
+                <div className="space-y-1.5">
+                  {other.map((c, i) => <Row key={c.id} c={c} move={c.sourceIds[0] ? view.movesById[c.sourceIds[0]] : undefined} rank={i + 1} />)}
+                </div>
+              </section>
+            );
+          })()}
+        </div>
       ) : (
         <div className="space-y-1.5">
+          {tonight ? (
+            <p className="text-[11px] text-gray-400 tabular-nums">
+              Tonight&apos;s set: {visible.length} change{visible.length === 1 ? "" : "s"}, about {visible.reduce((t, c) => t + (Number.isFinite(c.estimatedEffortMinutes) ? c.estimatedEffortMinutes : 5), 0)} minutes.
+            </p>
+          ) : null}
           {visible.map((c, i) => <Row key={c.id} c={c} move={c.sourceIds[0] ? view.movesById[c.sourceIds[0]] : undefined} rank={i + 1} />)}
         </div>
       )}
