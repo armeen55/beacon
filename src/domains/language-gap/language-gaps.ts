@@ -100,7 +100,7 @@ export function findContentLanguageGap(
   // suggest writing translated content. The move is an ENGLISH one - make
   // sure the page names the topic with the spellings and terms people
   // actually type, so this demand still lands here.
-  const sentence = `This page draws ${shown} searches typed in another script${example}. The English move: name the topic with the spellings people actually type, so those searches still land here.`;
+  const sentence = `This page is shown on Google ${shown} times a month for queries typed in another script${example}. The English move: name the topic with the spellings people actually type, so those searches still land here.`;
 
   return { page, gapKind: "farsi_demand_no_farsi_content", impressions, topVariants, sentence };
 }

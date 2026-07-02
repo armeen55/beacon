@@ -12,7 +12,7 @@ import { readAllCachedLlmMentions } from "@/domains/serp/dataforseo-llm-mentions
 import { loadEngineGapTodayLine } from "@/domains/ai-visibility/gap-store";
 import { loadAiReferralSummary, aiReferralTodayLine } from "@/domains/ai-visibility/ai-referrals";
 import { loadCrawlCitationFunnel } from "@/domains/ai-visibility/load-crawl-citation-funnel";
-import { funnelSummaryLine } from "@/domains/ai-visibility/crawl-citation-funnel";
+import { funnelSummaryLine, type FunnelReport } from "@/domains/ai-visibility/crawl-citation-funnel";
 import { loadAiOverviewGapTodayLine } from "@/domains/serp/serp-history";
 import { currentTenantSlug } from "@/lib/tenant-context";
 import { loadDemandOpportunities } from "@/domains/demand/load-demand-opportunities";
@@ -73,6 +73,61 @@ function parseRateFromEvidence(evidence: string): number {
   return Number.isFinite(pct) ? pct / 100 : 0;
 }
 
+/** Task A (2026-07-02, operator-experience) - one horizontal stage of the crawl-to-conversion
+ *  funnel. Pure display shape derived from data the AI band already loaded (funnel.pages /
+ *  funnel.stageCounts); no new reads. */
+type FunnelStageBlock = {
+  key: string;
+  label: string;
+  count: number;
+  /** true on the stage where the count first drops below the previous stage - the
+   *  honest "this is where it stalls" highlight. */
+  isStall: boolean;
+};
+
+/** Turns the already-loaded funnel report into the 4 named stages (Crawled -> Cited ->
+ *  Visited -> Converted) PLUS the one honest stall sentence, using ONLY fields the AI band
+ *  already fetched (funnel.pages, funnel.stageCounts, funnel.feeds). Since PageFunnel.stage is
+ *  the FURTHEST proven step for a page, each later stage's count is a subset of the one before
+ *  it, so these four numbers are genuinely cumulative (a real funnel, not four independent
+ *  tallies). The stall is the first stage whose count is strictly less than the one before it
+ *  and less than the very first stage (so a flat "0 crawled" funnel does not highlight amber
+ *  everywhere) - that is where the drop-off actually starts. PURE, no I/O. */
+function deriveFunnelStages(funnel: FunnelReport): { stages: FunnelStageBlock[]; stallLine: string | null } {
+  const crawled = funnel.pages.length; // every page in the report was seen by at least one AI feed
+  const cited = funnel.stageCounts.cited_no_clicks + funnel.stageCounts.converting;
+  const visited = funnel.stageCounts.converting;
+  const converted = funnel.pages.filter((p) => p.stage === "converting" && p.aiClicks.keyEvents > 0).length;
+
+  const raw: Array<{ key: string; label: string; count: number }> = [
+    { key: "crawled", label: "Crawled", count: crawled },
+    { key: "cited", label: "Cited", count: cited },
+    { key: "visited", label: "Visited", count: visited },
+    { key: "converted", label: "Converted", count: converted },
+  ];
+
+  let stallKey: string | null = null;
+  for (let i = 1; i < raw.length; i++) {
+    if (raw[i].count < raw[i - 1].count) {
+      stallKey = raw[i].key;
+      break;
+    }
+  }
+
+  const stages: FunnelStageBlock[] = raw.map((r) => ({ ...r, isStall: r.key === stallKey }));
+
+  // The honest one-liner: reuse the exact bottleneck sentence the pure funnel module already
+  // wrote for the worst-ranked stalled page (same $0 data, no new copy invented here). Prefer a
+  // stalled page whose stage matches the stall we just highlighted so the sentence explains the
+  // SAME gap the bars show.
+  const stallStageName = stallKey === "cited" ? "cited_no_clicks" : stallKey === "visited" ? "crawled_not_cited" : stallKey === "converted" ? "converting" : null;
+  const stallPage =
+    (stallStageName ? funnel.stalled.find((p) => p.stage === stallStageName) : null) ?? funnel.stalled[0] ?? null;
+  const stallLine = stallPage ? stallPage.bottleneckSentence : null;
+
+  return { stages, stallLine };
+}
+
 /** Item 21 - tiny decorative all-clear mark for the designed empty states. Pure decoration,
  *  hidden from screen readers (the sentence next to it carries the meaning). */
 function QuietCheckIllustration() {
@@ -114,7 +169,7 @@ export async function FrictionFixesSection({ tenantId }: { tenantId: string }) {
       // Item 21 - designed empty state: Clarity watched real visitor sessions this week
       // and no page cleared the friction thresholds. Say so instead of leaving a gap.
       return (
-        <section aria-label="Visitor friction fixes" className={CARD}>
+        <section id="friction-fixes" aria-label="Visitor friction fixes" className={CARD}>
           <div className="flex items-center gap-3">
             <QuietCheckIllustration />
             <div className="min-w-0">
@@ -127,38 +182,52 @@ export async function FrictionFixesSection({ tenantId }: { tenantId: string }) {
       );
     }
     return (
-      <section aria-label="Visitor friction fixes" className={CARD}>
+      <section id="friction-fixes" aria-label="Visitor friction fixes" className={CARD}>
         <div className="flex items-baseline justify-between gap-2">
           <div className={HEAD}>Visitor behavior found friction</div>
           <span className="text-[11px] tabular-nums text-gray-400 dark:text-neutral-500">
             {totalFriction > rows.length ? `showing ${rows.length} of ${totalFriction} pages` : `${rows.length} page${rows.length === 1 ? "" : "s"}`} · sessions from the last 28 days
           </span>
         </div>
-        <p className="mt-1 text-xs text-gray-500 dark:text-neutral-400">Real visitor sessions on these pages hit problems. Fixing them protects every click the other changes win.</p>
-        <div className="mt-2 space-y-2">
+        {/* Task B (2026-07-02) - one compact line per page instead of a repeated paragraph:
+            page link, a severity bar (width = rate, amber -> red as severity rises), the rate
+            + small-sample raw count, and the existing Copy-the-fix button. The explainer
+            sentence that used to repeat on every row now appears once, as a footnote below. */}
+        <div className="mt-2 space-y-1.5">
           {rows.map(({ s, d }) => {
             // A8 - a rate off a small sample reads as more precise than it is (e.g. "49.6%"
             // from 6 sessions). Below 30 sessions, add the raw count alongside the percent so
             // the reader can judge the sample size for themselves.
             const rawCount = smallSampleCount(d, s.sessions);
+            const rate = parseRateFromEvidence(d.evidence);
+            const barPct = Math.max(Math.round(rate * 100), rate > 0 ? 4 : 0);
+            const href = dossierHref(s.url);
+            const barColor = d.severity === "high" ? "bg-red-500 dark:bg-red-500" : "bg-amber-400 dark:bg-amber-500";
             return (
-              <div key={s.url} className="rounded-xl bg-gray-50 px-3 py-2 dark:bg-neutral-800/60">
-                <div className="flex flex-wrap items-baseline gap-2">
-                  <span className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${d.severity === "high" ? "bg-red-100 text-red-700 dark:bg-red-950/40 dark:text-red-300" : "bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300"}`}>
-                    {CLARITY_MOVE_LABEL[d.moveType]}
-                  </span>
-                  <span className="text-[12px] font-medium text-gray-700 dark:text-neutral-300">{prettyPath(s.url)}</span>
-                  <span className="text-[11px] text-gray-400 dark:text-neutral-500">
-                    {d.evidence}
-                    {rawCount ? ` (${rawCount})` : ""}
-                  </span>
-                  <WarRoomCopyButton text={`${CLARITY_MOVE_LABEL[d.moveType]} on ${s.url}\nEvidence: ${d.evidence}${rawCount ? ` (${rawCount})` : ""}\nWhy: ${d.reason}`} />
-                </div>
-                <p className="mt-0.5 text-[12px] text-gray-600 dark:text-neutral-300">{d.reason}</p>
+              <div key={s.url} className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-xl bg-gray-50 px-3 py-2 dark:bg-neutral-800/60">
+                <span className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold ${d.severity === "high" ? "bg-red-100 text-red-700 dark:bg-red-950/40 dark:text-red-300" : "bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300"}`}>
+                  {CLARITY_MOVE_LABEL[d.moveType]}
+                </span>
+                {href ? (
+                  <Link href={href} className={`shrink-0 text-[12px] font-medium text-gray-700 underline underline-offset-2 hover:text-gray-900 dark:text-neutral-300 dark:hover:text-neutral-100 ${FOCUS}`}>
+                    {prettyPath(s.url)}
+                  </Link>
+                ) : (
+                  <span className="shrink-0 text-[12px] font-medium text-gray-700 dark:text-neutral-300">{prettyPath(s.url)}</span>
+                )}
+                <span className="h-1.5 w-16 shrink-0 overflow-hidden rounded-full bg-gray-200 dark:bg-neutral-700" aria-hidden="true">
+                  <span className={`block h-full rounded-full ${barColor}`} style={{ width: `${barPct}%` }} />
+                </span>
+                <span className="text-[11px] text-gray-500 dark:text-neutral-400">
+                  {d.evidence}
+                  {rawCount ? ` (${rawCount})` : ""}
+                </span>
+                <WarRoomCopyButton text={`${CLARITY_MOVE_LABEL[d.moveType]} on ${s.url}\nEvidence: ${d.evidence}${rawCount ? ` (${rawCount})` : ""}\nWhy: ${d.reason}`} />
               </div>
             );
           })}
         </div>
+        <p className="mt-2 text-[11px] text-gray-400 dark:text-neutral-500">Real visitor sessions on these pages hit problems. Fixing them protects every click the other changes win.</p>
       </section>
     );
   } catch {
@@ -186,6 +255,11 @@ export async function AiCrawlerSection({ tenantId }: { tenantId: string }) {
     const referralLine = referralSummary ? aiReferralTodayLine(referralSummary) : null;
     const funnelLine = funnel && funnel.hasData ? funnelSummaryLine(funnel) : null;
     const funnelRows = funnel && funnel.hasData ? funnel.stalled.slice(0, 3) : [];
+    // Task A (2026-07-02) - the 4-stage horizontal funnel shape, derived purely from the
+    // same `funnel` report (no new reads). Empty stage list when the funnel has no data so
+    // the section falls back to the pre-existing text-only presence checks below unchanged.
+    const { stages: funnelStages, stallLine: funnelStallLine } =
+      funnel && funnel.hasData ? deriveFunnelStages(funnel) : { stages: [], stallLine: null };
     if (
       !sig.hasData &&
       llmMentions.length === 0 &&
@@ -223,22 +297,61 @@ export async function AiCrawlerSection({ tenantId }: { tenantId: string }) {
             </p>
           ) : null}
           {funnelLine || funnelRows.length > 0 ? (
-            <div className="rounded-xl bg-gray-50 px-3 py-2 sm:col-span-2 dark:bg-neutral-800/60">
+            <div className="rounded-xl bg-gray-50 px-3 py-3 sm:col-span-2 dark:bg-neutral-800/60">
               <div className="text-[12px] font-medium text-gray-700 dark:text-neutral-300">Where pages stall on the way to AI visitors</div>
-              {funnelLine ? <p className="mt-0.5 text-[12px] text-gray-500 dark:text-neutral-400">{funnelLine}</p> : null}
+              {/* Task A (2026-07-02) - a real 4-stage horizontal funnel (Crawled -> Cited ->
+                  Visited -> Converted) instead of prose rows. Widths step down with the actual
+                  count so the shape of the drop-off is visible at a glance; the stage where the
+                  count first falls is highlighted amber with its honest one-liner underneath. */}
+              <div className="mt-2 flex items-stretch gap-1.5">
+                {funnelStages.map((stage) => {
+                  const pct = funnelStages[0].count > 0 ? Math.max((stage.count / funnelStages[0].count) * 100, stage.count > 0 ? 14 : 6) : 6;
+                  return (
+                    <div key={stage.key} className="flex-1" style={{ flexGrow: Math.max(pct, 6) }}>
+                      <div
+                        className={`flex h-14 flex-col items-center justify-center rounded-lg border text-center ${
+                          stage.isStall
+                            ? "border-amber-300 bg-amber-100 dark:border-amber-800 dark:bg-amber-950/40"
+                            : "border-gray-200 bg-white dark:border-neutral-700 dark:bg-neutral-900"
+                        }`}
+                        style={{ opacity: stage.count > 0 ? Math.max(pct / 100, 0.35) + 0.35 : 0.45 }}
+                      >
+                        <span
+                          className={`text-[15px] font-semibold tabular-nums ${stage.isStall ? "text-amber-800 dark:text-amber-200" : "text-gray-800 dark:text-neutral-200"}`}
+                        >
+                          {stage.count.toLocaleString()}
+                        </span>
+                        <span
+                          className={`text-[10px] font-medium uppercase tracking-wide ${stage.isStall ? "text-amber-700 dark:text-amber-300" : "text-gray-500 dark:text-neutral-400"}`}
+                        >
+                          {stage.label}
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+              {funnelStallLine ? (
+                <p className="mt-1.5 rounded-lg bg-amber-50 px-2.5 py-1.5 text-[12px] text-amber-800 dark:bg-amber-950/30 dark:text-amber-200">{funnelStallLine}</p>
+              ) : funnelLine ? (
+                <p className="mt-1.5 text-[12px] text-gray-500 dark:text-neutral-400">{funnelLine}</p>
+              ) : null}
               {funnelRows.length > 0 ? (
-                <div className="mt-1 space-y-0.5">
+                <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 border-t border-gray-200 pt-2 dark:border-neutral-700">
                   {funnelRows.map((f) => {
                     const href = dossierHref(f.pagePath);
-                    return (
-                      <p key={f.pagePath} className="text-[12px] text-gray-600 dark:text-neutral-300">
-                        {href ? (
-                          <Link href={href} className="font-semibold text-gray-800 underline underline-offset-2 dark:text-neutral-200">{prettyPath(f.pagePath)}</Link>
-                        ) : (
-                          <span className="font-semibold text-gray-800 dark:text-neutral-200">{prettyPath(f.pagePath)}</span>
-                        )}
-                        : {f.bottleneckSentence}
-                      </p>
+                    return href ? (
+                      <Link
+                        key={f.pagePath}
+                        href={href}
+                        className={`rounded-sm text-[12px] font-medium text-gray-700 underline underline-offset-2 hover:text-gray-900 dark:text-neutral-300 dark:hover:text-neutral-100 ${FOCUS}`}
+                      >
+                        {prettyPath(f.pagePath)}
+                      </Link>
+                    ) : (
+                      <span key={f.pagePath} className="text-[12px] font-medium text-gray-500 dark:text-neutral-400">
+                        {prettyPath(f.pagePath)}
+                      </span>
                     );
                   })}
                 </div>

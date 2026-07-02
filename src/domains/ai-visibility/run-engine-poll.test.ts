@@ -94,7 +94,47 @@ describe("runEnginePollForTenant - idempotency + caps", () => {
       deps({ loadPrompts: async () => [], runDataForSeoEngine: runDataForSeoEngine as unknown as RunEnginePollDeps["runDataForSeoEngine"] }),
     );
     expect(r.status).toBe("no_prompts");
+    expect(r.detail).toContain(TENANT_ID);
     expect(runDataForSeoEngine).not.toHaveBeenCalled();
+  });
+});
+
+describe("runEnginePollForTenant - tenant-scoped question loading (D1 ground-truth fix)", () => {
+  it("passes the polling tenant's own id into loadPrompts, never a different tenant's", async () => {
+    const loadPrompts = vi.fn(async (tenantId: string) =>
+      tenantId === TENANT_ID ? [{ id: "prm-a", prompt_text: "iranopedia question", topic: "iran" }] : [],
+    );
+    const r = await runEnginePollForTenant(TENANT_ID, deps({ loadPrompts }));
+    expect(loadPrompts).toHaveBeenCalledWith(TENANT_ID);
+    expect(loadPrompts).not.toHaveBeenCalledWith("tenant-ritz-founder");
+    expect(r.promptsRequested).toBe(1);
+  });
+
+  it("tenant A's poll never sees tenant B's questions even when both are loaded from the same fake store", async () => {
+    const OTHER_TENANT = "tenant-ritz-founder";
+    const store: Record<string, Array<{ id: string; prompt_text: string; topic: string | null }>> = {
+      [TENANT_ID]: [{ id: "prm-iran", prompt_text: "best persian food in tehran", topic: "iran" }],
+      [OTHER_TENANT]: [{ id: "prm-ritz", prompt_text: "best kitchen remodeler near me", topic: "ritz" }],
+    };
+    const loadPrompts = vi.fn(async (tenantId: string) => store[tenantId] ?? []);
+    const asked: string[] = [];
+    const openAiClient = vi.fn(async (q: string) => {
+      asked.push(q);
+      return { answerText: "no links here", citedUrls: [], model: "gpt-test" };
+    });
+
+    const r = await runEnginePollForTenant(TENANT_ID, deps({ loadPrompts, openAiClient }));
+
+    expect(r.status).toBe("ok");
+    expect(asked).toEqual(["best persian food in tehran"]);
+    expect(asked).not.toContain("best kitchen remodeler near me");
+  });
+
+  it("a genuinely empty tenant library reports no_prompts naming the tenant, not another tenant's questions", async () => {
+    const r = await runEnginePollForTenant(TENANT_ID, deps({ loadPrompts: async () => [] }));
+    expect(r.status).toBe("no_prompts");
+    expect(r.promptsRequested).toBe(0);
+    expect(r.detail).toContain(TENANT_ID);
   });
 });
 

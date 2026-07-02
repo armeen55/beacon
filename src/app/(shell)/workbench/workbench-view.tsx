@@ -664,7 +664,7 @@ export function WorkbenchView({ data }: { data: WorkbenchData }) {
                 Almost on page 1
               </div>
               <p className="mb-1.5 text-[11px] text-muted-foreground">
-                These searches happen the number of times a month shown below, and you are close to
+                Google shows this page this many times a month for these, and you are close to
                 ranking. Worth targeting.
               </p>
               <ul className="flex flex-wrap gap-1.5">
@@ -673,7 +673,7 @@ export function WorkbenchView({ data }: { data: WorkbenchData }) {
                     key={k.keyword}
                     className="rounded-full border border-blue-200 bg-blue-50 px-2 py-0.5 text-[11px] text-blue-700"
                   >
-                    {k.keyword} · #{k.position} · {k.volume.toLocaleString()}/mo
+                    {k.keyword} · #{k.position} · shown {k.volume.toLocaleString()}/mo
                   </li>
                 ))}
               </ul>

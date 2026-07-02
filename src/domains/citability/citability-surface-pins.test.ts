@@ -18,7 +18,6 @@ const MINER = readFileSync(resolve(__dirname, "mine-answer-patterns.ts"), "utf8"
 const CLASSIFIER = readFileSync(resolve(__dirname, "pattern-classifier.ts"), "utf8");
 const SCORE = readFileSync(resolve(__dirname, "citability-score.ts"), "utf8");
 const HINTS = readFileSync(resolve(__dirname, "citability-hints.ts"), "utf8");
-const STORE = readFileSync(resolve(__dirname, "citability-store.ts"), "utf8");
 const STORE_CLASSIFICATION = readFileSync(resolve(__dirname, "../../lib/persistence/store-classification.ts"), "utf8");
 const JSON_STORE = readFileSync(resolve(__dirname, "../../lib/persistence/json-store.ts"), "utf8");
 
@@ -79,15 +78,6 @@ describe("daily card renders the deliverable-4 evidence line", () => {
   });
 });
 
-describe("store registration (citability-pattern-profile)", () => {
-  it("is registered as a GLOBAL store (cron fan-out rationale, rows carry tenant_id)", () => {
-    expect(STORE_CLASSIFICATION).toContain('"citability-pattern-profile"');
-  });
-
-  it("is Supabase-mirrored so the mined profile survives Vercel's read-only filesystem", () => {
-    expect(JSON_STORE).toContain('"citability-pattern-profile"');
-  });
-});
 
 describe("no em or en dashes anywhere in the citability module (hard rule)", () => {
   const files: Array<[string, string]> = [
@@ -95,7 +85,6 @@ describe("no em or en dashes anywhere in the citability module (hard rule)", () 
     ["pattern-classifier.ts", CLASSIFIER],
     ["citability-score.ts", SCORE],
     ["citability-hints.ts", HINTS],
-    ["citability-store.ts", STORE],
   ];
   for (const [name, src] of files) {
     it(`${name} contains no em or en dashes`, () => {

@@ -17,6 +17,9 @@ import { CronHealthPanel } from "./cron-health-panel";
 export const dynamic = "force-dynamic";
 
 export default async function ConnectorsPage() {
+  // Awaited as a function call (not a JSX tag) so the async panel resolves before
+  // render - renderToStaticMarkup in the route tests cannot handle a suspending child.
+  const cronHealthPanel = await CronHealthPanel();
   // GSC is the v1 Google card. GBP card is deferred (Section 7 wire-up).
   // GA4 card added in Slice 9.A1β (2026-05-18) — consumes the GA4
   // connector substrate that shipped in Slice 9.A1α (commit e88a060).
@@ -141,7 +144,7 @@ export default async function ConnectorsPage() {
       {/* Cron health panel (2026-07-03, item 85) - "I showed up every night this
           week" for every scheduled job, plus any 3+ night failure streaks. */}
       <div className="mt-6">
-        <CronHealthPanel />
+        {cronHealthPanel}
       </div>
     </div>
   );

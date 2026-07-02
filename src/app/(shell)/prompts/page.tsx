@@ -19,6 +19,8 @@ import { PromptsV2Client } from "./prompts-v2-client";
 import { loadAiQuestions } from "./ai-questions-data";
 import { AiQuestionsView } from "./ai-questions-view";
 import { SovWeeklySection } from "./sov-weekly-section";
+import { loadNativeIntel } from "@/domains/ai-visibility/native-intel-loader";
+import { NativeIntelView } from "./native-intel-view";
 import {
   createPerfTrace,
   readPerfTraceIdFromHeaders,
@@ -101,11 +103,20 @@ export default async function PromptsPage({
   // Awaited as a function call (not a JSX tag) so the async section resolves before
   // render - renderToStaticMarkup in the route tests cannot handle a suspending child.
   const sovSection = await SovWeeklySection();
+  // D1 (2026-07-02, DREAM SITE V1): the NATIVE twin of the Profound-powered
+  // AiQuestionsView above - built entirely from Beacon's own 4-engine poll
+  // (prompt_answer_observations), never from Profound. Self-hiding component:
+  // renders nothing until the native poll has written real rows. Profound
+  // stays wired (see run-engine-poll.ts header) - this is additive, not a
+  // replacement; deleting Profound is a staged D1-followup, not done here.
+  const nativeIntel = await loadNativeIntel().catch(() => null);
+  const nativeIntelSection = nativeIntel ? <NativeIntelView report={nativeIntel} /> : null;
   if (aiQuestions && aiQuestions.questions.length > 0) {
     trace.data("ai_questions_count", aiQuestions.questions.length);
     return (
-      <div className="max-w-4xl">
+      <div className="max-w-4xl space-y-6">
         {sovSection}
+        {nativeIntelSection}
         <AiQuestionsView data={aiQuestions} />
       </div>
     );
@@ -169,6 +180,7 @@ export default async function PromptsPage({
       />
 
       {sovSection}
+      {nativeIntelSection}
 
       {totalPrompts === 0 ? (
         <EmptyState

@@ -538,9 +538,9 @@ function buildCandidate(
     ? `This page mentions "${link.anchorText}" (a page owned by ${link.destinationLabel}) without linking to it, a ${link.relationship.replace(/_/g, " ")} link that helps both pages. This page already ranks #${p.topQueryPosition.toFixed(1)} for "${p.topQuery}".`
     : answer
       ? answer.operation === "add_new_text"
-        ? `People search "${p.topQuery}" (${p.topQueryImpressions} searches) but this page has no direct answer at the top. Beacon wrote one for you to review before it goes live. The page ranks #${p.topQueryPosition.toFixed(1)}, so leading with the answer should win more of those clicks.`
+        ? `Google shows this page for "${p.topQuery}" (${p.topQueryImpressions} times a month) but this page has no direct answer at the top. Beacon wrote one for you to review before it goes live. The page ranks #${p.topQueryPosition.toFixed(1)}, so leading with the answer should win more of those clicks.`
         : `People search "${answer.question}" and this page already answers it, but the answer is buried in paragraph ${answer.paragraphIndex + 1}. Moving that exact sentence to the top is what earns the click. It ranks #${p.topQueryPosition.toFixed(1)} for "${p.topQuery}".`
-      : `This page ranks #${p.topQueryPosition.toFixed(1)} for "${p.topQuery}" (${p.topQueryImpressions} searches) but only ${(p.topQueryCtr * 100).toFixed(1)}% click. The ${proposal.leverField === "meta" ? "description" : proposal.leverField} is the weak link, so a sharper one should win more of those clicks.`;
+      : `This page ranks #${p.topQueryPosition.toFixed(1)} for "${p.topQuery}" (shown on Google ${p.topQueryImpressions} times a month) but only ${(p.topQueryCtr * 100).toFixed(1)}% click. The ${proposal.leverField === "meta" ? "description" : proposal.leverField} is the weak link, so a sharper one should win more of those clicks.`;
   // Item 4: when the nightly 4-engine poll found this page cited by one AI engine but
   // absent on others, the card says so - the change aims at that gap too.
   const whyEngine = engineGap ? `${baseWhyNow} ${engineGap.sentence}` : baseWhyNow;

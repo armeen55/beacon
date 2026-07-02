@@ -110,11 +110,11 @@ describe("extractor — body_paragraph_sample", () => {
     expect(snap.body_paragraph_sample?.[0]).toContain("body sample capture");
   });
 
-  it("caps at 10 entries × 300 chars each", () => {
+  it("caps at 20 entries x 300 chars each (N19 raised the excerpt budget)", () => {
     const longP = "x ".repeat(200); // 400 chars
-    const ps = Array.from({ length: 15 }, (_, i) => `<p>Paragraph number ${i} with enough words to pass the floor ${longP}</p>`).join("");
+    const ps = Array.from({ length: 25 }, (_, i) => `<p>Paragraph number ${i} with enough words to pass the floor ${longP}</p>`).join("");
     const snap = extract(`<html><body><main>${ps}</main></body></html>`);
-    expect(snap.body_paragraph_sample?.length).toBe(10);
+    expect(snap.body_paragraph_sample?.length).toBe(20);
     for (const p of snap.body_paragraph_sample ?? []) {
       expect(p.length).toBeLessThanOrEqual(300);
     }

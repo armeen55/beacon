@@ -158,13 +158,15 @@ export function buildWinnerSectionSentence(gap: WinnerSectionGap): string {
   return `The winning page (${gap.domain}) added a "${gap.sectionTitle}" section${yearPart}. Yours does not cover that yet.`;
 }
 
-/** Build the plain-business sentence naming the new-query gaps, e.g. "People search 'X' (140
- *  searches a month) but no section on this page answers it." No em or en dashes ever. */
+/** Build the plain-business sentence naming the new-query gaps, e.g. "Google shows this page
+ *  for 'X' (140 times a month) but no section on this page answers it." impressions are
+ *  TIMES SHOWN on Google, never "searches" (that word is reserved for real DataForSEO
+ *  market volume). No em or en dashes ever. */
 export function buildNewQueryGapSentence(gaps: NewQueryGap[]): string | null {
   if (gaps.length === 0) return null;
   const top = gaps[0]!;
   const more = gaps.length > 1 ? `, plus ${gaps.length - 1} more` : "";
-  return `People search "${top.query}" (${top.impressions.toLocaleString("en-US")} searches) but no section on this page answers it${more}.`;
+  return `Google shows this page for "${top.query}" (${top.impressions.toLocaleString("en-US")} times a month) but no section on this page answers it${more}.`;
 }
 
 /** Build the plain-business sentence naming the losing queries, e.g. "You are losing 'X'

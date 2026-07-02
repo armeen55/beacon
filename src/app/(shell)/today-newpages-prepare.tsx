@@ -25,10 +25,16 @@ export function NewPagesPrepareButton({ alreadyPrepared, total }: { alreadyPrepa
           return;
         }
         const s = r.summary;
-        setMsg(`Prepared ${s.validated + s.cached} (${s.cached} cached) · $${s.costUsd.toFixed(3)}${s.capped ? " · cap hit" : ""}`);
+        // UX0 (2026-07-02) - Prepare-all safety: never silently drop a malformed
+        // candidate; say exactly how many failed the quality check and why the
+        // count skipped.
+        const qualityNote = s.skippedQualityGate.length > 0
+          ? ` · skipped ${s.skippedQualityGate.length} that failed my quality check`
+          : "";
+        setMsg(`Prepared ${s.validated + s.cached} (${s.cached} cached) · $${s.costUsd.toFixed(3)}${s.capped ? " · cap hit" : ""}${qualityNote}`);
         router.refresh();
       } catch {
-        setMsg("Prepare failed — try again.");
+        setMsg("Prepare failed, try again.");
       }
     });
   }
@@ -39,7 +45,7 @@ export function NewPagesPrepareButton({ alreadyPrepared, total }: { alreadyPrepa
         type="button"
         onClick={run}
         disabled={pending}
-        title="Run a live Google SERP check on the top create-page candidates and verdict them (build/wait/skip) — capped + cached, so re-runs are cheap"
+        title="Run a live Google SERP check on the top create-page candidates and verdict them (build/wait/skip), capped + cached, so re-runs are cheap"
         className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-300 bg-white px-3.5 py-1.5 text-xs font-semibold text-emerald-700 transition-colors hover:border-emerald-400 hover:bg-emerald-50 disabled:opacity-60"
       >
         {pending ? (

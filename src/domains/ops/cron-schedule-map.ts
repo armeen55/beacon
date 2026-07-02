@@ -64,6 +64,12 @@ export const CRON_SCHEDULE_MAP: readonly CronScheduleEntry[] = [
     label: "Getting drafts ready",
   },
   {
+    job: "page-factory",
+    path: "/api/cron/page-factory",
+    schedule: "47 13 * * 1",
+    label: "Weekly new-page batch (Monday)",
+  },
+  {
     job: "strategy-review",
     path: "/api/cron/strategy-review",
     schedule: "33 13 * * 0",

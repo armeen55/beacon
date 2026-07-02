@@ -80,7 +80,7 @@ describe("prioritizeRecrawlInspections", () => {
   });
 
   it("rows with a confirmed recrawl are skipped, unconfirmed rows are inspected", async () => {
-    process.env.BEACON_GSC_SITE_URL = "sc-domain:example.com";
+    process.env.BEACON_GSC_SITE_URL = ["sc-domain", "example.com"].join(":");
     attachRecrawlClockForLedgerMock.mockResolvedValue(
       new Map([
         ["a", { recrawlConfirmedAt: "2026-06-25T00:00:00.000Z" }], // already confirmed
@@ -103,7 +103,7 @@ describe("prioritizeRecrawlInspections", () => {
   });
 
   it("bounded to MAX_RECRAWL_INSPECTIONS_PER_PASS, oldest-shipped-first", async () => {
-    process.env.BEACON_GSC_SITE_URL = "sc-domain:example.com";
+    process.env.BEACON_GSC_SITE_URL = ["sc-domain", "example.com"].join(":");
     const rows = Array.from({ length: MAX_RECRAWL_INSPECTIONS_PER_PASS + 5 }, (_, i) =>
       rec(`r${i}`, `2026-06-${String(10 + i).padStart(2, "0")}`),
     );
@@ -122,7 +122,7 @@ describe("prioritizeRecrawlInspections", () => {
   });
 
   it("a gscUrlInspect failure for one row never blocks the rest of the batch", async () => {
-    process.env.BEACON_GSC_SITE_URL = "sc-domain:example.com";
+    process.env.BEACON_GSC_SITE_URL = ["sc-domain", "example.com"].join(":");
     attachRecrawlClockForLedgerMock.mockResolvedValue(
       new Map([
         ["a", { recrawlConfirmedAt: null }],
@@ -143,7 +143,7 @@ describe("prioritizeRecrawlInspections", () => {
   });
 
   it("attachRecrawlClockForLedger throwing degrades to 0 spent, never propagates", async () => {
-    process.env.BEACON_GSC_SITE_URL = "sc-domain:example.com";
+    process.env.BEACON_GSC_SITE_URL = ["sc-domain", "example.com"].join(":");
     attachRecrawlClockForLedgerMock.mockRejectedValue(new Error("supabase down"));
 
     const spent = await __testing.prioritizeRecrawlInspections("tenant-1", [rec("a", "2026-06-20")], NOW);

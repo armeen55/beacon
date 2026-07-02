@@ -11,7 +11,7 @@
  *       name. The operator can rename/edit/delete any entry afterward.
  *
  * PURE module: types + the derivation function. Persistence lives in
- * event-calendar-store.ts; the read-time overlap check measurement-maturity
+ * (store removed as dead 2026-07-02); the read-time overlap check measurement-maturity
  * needs lives in seasonal-inflection.ts.
  */
 

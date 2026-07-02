@@ -33,8 +33,7 @@
 import "server-only";
 
 import { log } from "@/lib/logger";
-import { getActivePrompts } from "@/domains/prompts/prompt-library";
-import type { LibraryPrompt } from "@/domains/prompts/types";
+import { loadTenantQuestionLibrary } from "@/domains/ai-visibility/tenant-question-library";
 import { getTenant } from "@/domains/tenants/store";
 import type { BeaconTenant } from "@/domains/tenants/types";
 import { syncPromptAnswerObservations } from "@/lib/persistence/dual-write";
@@ -65,6 +64,7 @@ import {
 import {
   buildQuestionUniverse,
   type FanoutQuestionInput,
+  type LibraryQuestionInput,
   type ProfoundQuestionInput,
   type QuestionSource,
   type UniverseQuestion,
@@ -334,7 +334,9 @@ export type EnginePollResult = {
 export type RunEnginePollDeps = {
   env: NodeJS.ProcessEnv;
   now: () => Date;
-  loadPrompts: () => Promise<LibraryPrompt[]>;
+  /** The ACTIVE TENANT's own tracked_prompts, tenant-scoped. Never a global
+   *  or shared corpus - see tenant-question-library.ts for why that matters. */
+  loadPrompts: (tenantId: string) => Promise<LibraryQuestionInput[]>;
   /** The tenant's real Profound tracked prompts (topic-scoped). Fail-soft []. */
   loadProfoundQuestions: (tenantId: string) => Promise<ProfoundQuestionInput[]>;
   /** Ranked fanout sub-queries from profound_fanout_rows. Fail-soft []. */
@@ -361,7 +363,7 @@ function defaultDeps(): RunEnginePollDeps {
   return {
     env,
     now: () => new Date(),
-    loadPrompts: getActivePrompts,
+    loadPrompts: loadTenantQuestionLibrary,
     loadProfoundQuestions: loadProfoundQuestionSeeds,
     loadFanoutSeeds: loadFanoutQuestionSeeds,
     loadTenant: (id) => getTenant(id),
@@ -477,11 +479,12 @@ export async function runEnginePollForTenant(
     const ownedRoot = rootDomain(tenant.domain);
     const brandVariants = [tenant.business_name, ownedRoot.replace(/\..*$/, "")].filter((v) => v.length >= 3);
 
-    // (2) the question universe (item 8): library prompts + the tenant's real
-    // Profound prompts + ranked fanout sub-queries, junk-filtered, deduped,
-    // CAPPED at NIGHTLY_PROMPT_CAP. Profound/fanout loads are fail-soft so a
-    // miss degrades to library-only, never a dead poll.
-    const libraryPrompts = await deps.loadPrompts();
+    // (2) the question universe (item 8): THIS TENANT's own tracked_prompts
+    // (never a global/shared corpus - see tenant-question-library.ts) + the
+    // tenant's real Profound prompts + ranked fanout sub-queries,
+    // junk-filtered, deduped, CAPPED at NIGHTLY_PROMPT_CAP. Profound/fanout
+    // loads are fail-soft so a miss degrades to library-only, never a dead poll.
+    const libraryPrompts = await deps.loadPrompts(tenantId);
     const [profoundQuestions, fanoutSeeds] = await Promise.all([
       deps.loadProfoundQuestions(tenantId).catch(() => [] as ProfoundQuestionInput[]),
       deps.loadFanoutSeeds(tenantId).catch(() => [] as FanoutQuestionInput[]),
@@ -495,7 +498,13 @@ export async function runEnginePollForTenant(
     });
     const questions = universe.questions;
     if (questions.length === 0) {
-      return { ...base, status: "no_prompts", detail: "no usable questions from the library, Profound, or fanouts" };
+      // Fail-loud: name the tenant so an empty-library night is impossible to
+      // miss in the logs (this used to silently borrow another tenant's
+      // questions instead of ever reaching this branch).
+      log.warn("[engine-poll] tenant has zero pollable questions across library, Profound, and fanouts - skipping the night honestly", {
+        tenantId,
+      });
+      return { ...base, status: "no_prompts", detail: `tenant ${tenantId} has no usable questions from its own library, Profound, or fanouts` };
     }
 
     const observedAtIso = now.toISOString();

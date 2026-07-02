@@ -19,13 +19,38 @@ import { groupCreatePageCandidates, type CanonCandidate } from "@/domains/demand
 import { matchKeywordDemand, topicDistinguishingTokens } from "@/domains/demand/keyword-match";
 import { cleanTopicLabel } from "@/domains/demand-graph/clean-topic-label";
 import type { KeywordDemand } from "@/domains/serp/dataforseo-keywords";
+import { computeOpportunity } from "@/domains/forecast/opportunity-math";
 import type {
   ActionPack,
   ActionType,
   EvidenceSource,
   ActionPackConfidence,
   ActionPackSerpValidation,
+  ActionPackForecast,
 } from "./types";
+
+/** D7 (honest opportunity math) - one shared forecast builder for both adapters below. Null
+ *  gscDemand (no position/impression history) -> null forecast, never a guess. `tenantId` +
+ *  `page` + `lever` identify the hypothesis the same way opportunity-math.ts does everywhere
+ *  else, so this pack's forecast and the Changes-list forecast for the SAME page+lever share one
+ *  hypothesisId. */
+function forecastForPack(
+  tenantId: string,
+  page: string,
+  lever: string,
+  gsc: ActionPack["gscDemand"],
+): ActionPackForecast | null {
+  if (!gsc || gsc.position == null || gsc.impressions <= 0) return null;
+  const f = computeOpportunity({
+    tenantId,
+    page,
+    lever,
+    currentPosition: gsc.position,
+    impressions90d: gsc.impressions,
+    clicks90d: gsc.clicks,
+  });
+  return { lowPerMonth: f.lowPerMonth, highPerMonth: f.highPerMonth, days: f.days, basis: f.basis, hypothesisId: f.hypothesisId };
+}
 
 /** Map a cached DataForSEO prepared verdict → ActionPack validation evidence.
  *  Honest: only call this when a real cached verdict exists (never synthesize). */
@@ -144,6 +169,9 @@ export function moveCandidateToActionPack(
     proofPlan: packet?.proofPlan ?? null,
     dataforseoValidation,
     whyNotNoise: whyNotNoiseForMove(m, profoundReceipt, gscDemand, competitors),
+    // D7 (honest opportunity math) - null when gscDemand has no position/impression history
+    // (e.g. a create_new_page candidate, or a coverage-only signal) - never a guess.
+    forecast: forecastForPack(tenantId, m.ownedUrl ?? m.label, actionType, gscDemand),
     origin: "rank_revenue",
     evidenceHash: packet?.evidenceHash ?? hashId(`${m.demandKey}|${m.score}`),
   };
@@ -190,6 +218,11 @@ export function aeoActionPackToActionPack(tenantId: string, p: AeoActionPack): A
     draftStatus: p.directAnswerBrief ? "ready" : "none",
     proofPlan: p.measurementPlan.length > 0 ? { metrics: p.measurementPlan, windowsDays: [7, 14, 28], controls: "topic-matched control pages" } : null,
     whyNotNoise: `AI is asked "${p.prompt}"${p.faqQuestions.length ? ` (+${p.faqQuestions.length} fan-outs)` : ""}${competitors.length ? `, cites ${profoundReceipt.citedDomains.join(", ")}` : ""}; you are absent.`,
+    // D7 (honest opportunity math) - coverage packs carry no GSC position/impression signal
+    // (Profound-sourced only, see the sourcing note above), so this is always null: "I do not
+    // have enough history to size this yet" would be true for every one, so we say nothing
+    // rather than repeat a caveat on every card - the absence of a forecast IS the honest signal.
+    forecast: null,
     origin: "profound_coverage",
     evidenceHash: hashId(`${p.promptId ?? p.prompt}|${p.priorityScore}`),
   };
@@ -243,6 +276,7 @@ export function dedupeActionPacks(packs: ActionPack[]): { packs: ActionPack[]; r
       ga4Value: prev.ga4Value ?? p.ga4Value,
       clarityFriction: prev.clarityFriction ?? p.clarityFriction,
       dataforseoValidation: prev.dataforseoValidation ?? p.dataforseoValidation,
+      forecast: prev.forecast ?? p.forecast,
     });
   }
   return { packs: [...byKey.values()].sort((a, b) => b.priorityScore - a.priorityScore), removed };
@@ -349,6 +383,7 @@ export function collapseCreateContentPacks(
         profoundReceipt,
         gscDemand: p.gscDemand ?? sibs.find((s) => s.gscDemand)?.gscDemand ?? null,
         dataforseoValidation,
+        forecast: p.forecast ?? sibs.find((s) => s.forecast)?.forecast ?? null,
         canonicalGroup: { alsoCovers: meta.alsoCovers, reason: meta.reason, confidence: meta.confidence },
       };
     });

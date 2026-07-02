@@ -49,6 +49,7 @@ import { stageRouteForActionType, STAGING_OFF } from "@/domains/push/stage-route
 import { getWixUrlMap } from "@/lib/connectors/wix/url-map";
 import { getWixConnectorToken } from "@/lib/connector-store";
 import { buildWixEditorLink } from "@/domains/push/wix-deep-link";
+import { computeOpportunity } from "@/domains/forecast/opportunity-math";
 
 /**
  * today-moves-data (2026-06-24) - the loader behind the premium "Today's Moves"
@@ -1062,7 +1063,26 @@ export async function buildTodayMovesData(
     );
     const top = pool.slice(0, limit);
 
-    const demandAtStake = top.reduce((s, m) => s + (m.demand ?? 0), 0);
+    // D7 (honest opportunity math, DREAM SITE V1) - this USED to be a raw sum of demand-graph
+    // weight/impressions ("500k people at risk" territory - a number nobody could act on). It is
+    // now the sum of each shown move's own CTR-curve forecast midpoint (opportunity-math.ts):
+    // real monthly clicks a real change plausibly captures, honest-zero when a move has no
+    // position/impression history yet. Never inflates on a page that merely gets a lot of
+    // impressions at a position that already earns its fair share of clicks.
+    const demandAtStake = top.reduce((s, m) => {
+      const tq = [...m.topQueries].sort((a, b) => b.impressions - a.impressions)[0];
+      if (!tq || tq.impressions <= 0) return s;
+      const forecast = computeOpportunity({
+        tenantId,
+        page: m.targetUrl,
+        lever: m.action,
+        currentPosition: tq.position,
+        impressions90d: tq.impressions,
+        clicks90d: tq.clicks,
+      });
+      if (forecast.lowPerMonth == null || forecast.highPerMonth == null) return s;
+      return s + (forecast.lowPerMonth + forecast.highPerMonth) / 2;
+    }, 0);
     const citationsContested = top.filter((m) => m.action === "add_answer_block").length;
     const pagesCovered = new Set(top.map((m) => canon(m.targetUrl))).size;
     // "Ready" = any paste-ready artifact: a saved AI answer/FAQ, OR (for clicks

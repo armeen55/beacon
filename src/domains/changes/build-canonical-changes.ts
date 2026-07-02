@@ -9,7 +9,7 @@ import { normalizePath, type DailyExperimentPlanRecord, type ControlReservationR
 import { itemStatus, LEVER_TO_ACTION_TYPE } from "@/domains/experiments/execution-state";
 import { wixInstructions } from "@/domains/experiments/execution-checklist";
 import { internalLinkRelevance } from "@/domains/evidence/relevance-gate";
-import { forecastRange } from "@/domains/experiments/pick-expectations";
+import { computeOpportunity, computeOpportunityFromGap, type OpportunityForecast } from "@/domains/forecast/opportunity-math";
 import {
   changeTypeFamily, effortForFamily, expectedEvidenceStrength, defaultEvidenceStrength, deriveStatus,
   type CanonicalChange, type CanonicalStatus, type ProofSignal,
@@ -27,8 +27,22 @@ export type CanonicalMoveInput = {
   rankWhy?: string;
   score?: number;
   demand?: number | null;
-  /** Item 61: 90d CTR-curve opportunity (clicks left on the table) for the outcome range. */
+  /** Item 61: 90d CTR-curve opportunity (clicks left on the table) for the outcome range.
+   *  Superseded by opportunity-math.ts (D7) when the raw position/ctr/impressions below are
+   *  present; kept as the fallback path for callers that have not been updated yet. */
   ctrOpportunityClicks?: number | null;
+  /** D7 (honest opportunity math) - the raw signal opportunity-math.ts needs to compute an
+   *  honest range + basis sentence itself, instead of the caller pre-computing a bare clicks
+   *  number. All optional: omitted -> honest "not enough history" path, never a fabricated
+   *  range. Position/impressions come from the page's top real query. */
+  topQueryPosition?: number | null;
+  topQueryImpressions90d?: number | null;
+  topQueryClicks90d?: number | null;
+  /** D7 - the tenant's own bias-correction factor + empirical capture band, when the caller has
+   *  loaded them from forecast-calibration.ts. Omitted -> forecastRange's honest defaults. */
+  correctionFactor?: number | null;
+  captureBand?: { low: number; high: number; n: number; isEmpirical: boolean } | null;
+  settledResultsCount?: number | null;
   proofStatus?: ProofSignal;
   alreadyMeasuring?: boolean;
   pageMeasuring?: boolean;
@@ -66,6 +80,15 @@ function changeId(tenantId: string, pagePath: string, family: string): string {
   return `${tenantId}::${pagePath}::${family}`;
 }
 
+/** Same djb2 hash opportunity-math.ts uses for hypothesisId, kept local so a plan-pick's
+ *  already-computed forecast (buildPickExpectations, not a computeOpportunity() call) still gets
+ *  an id in the SAME (tenant, page, lever, day) shape - one hypothesis space, two producers. */
+function hashId(s: string): string {
+  let h = 5381;
+  for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) >>> 0;
+  return h.toString(16);
+}
+
 /** A daily-plan selected item → CanonicalChange (today's picks; exact instructions + strong evidence). */
 function fromPlanItem(
   tenantId: string,
@@ -93,8 +116,24 @@ function fromPlanItem(
     rationale: `Selected for today — “${e.targetQuery}”. Beacon will measure it against ${e.controls.length} comparison pages.`,
     estimatedEffortMinutes: e.effortMinutes,
     impactScore: 500, // today's picks rank prominently within their status view
-    upside: null,
+    // D7: the plan pick already carries a numeric forecast from buildPickExpectations
+    // (pick-expectations.ts) - the SAME honest CTR-curve + correction-factor + empirical
+    // capture-band machinery opportunity-math.ts composes. `upside` is that range's midpoint,
+    // never a raw demand number (plan items never had one here).
+    upside:
+      e.expectations?.forecastLow != null && e.expectations?.forecastHigh != null
+        ? Math.round((e.expectations.forecastLow + e.expectations.forecastHigh) / 2)
+        : null,
     expectedOutcome: e.expectations?.forecast ?? null,
+    expectedOutcomeLow: e.expectations?.forecastLow ?? null,
+    expectedOutcomeHigh: e.expectations?.forecastHigh ?? null,
+    // Plan picks always promise the 14-day read (see pick-expectations.ts's changeOurMind line,
+    // "If clicks do not move by the 14-day read...") - the same number, not a separate guess.
+    expectedOutcomeDays: e.expectations?.forecastLow != null ? 14 : null,
+    // Same deterministic id shape opportunity-math.ts uses (tenant+page+lever+day), so this plan
+    // pick's hypothesis can be logged the same way even though its range came from
+    // buildPickExpectations directly rather than a computeOpportunity() call.
+    hypothesisId: e.expectations?.forecastLow != null ? hashId(`${tenantId}|${pagePath}|${e.lever}|${new Date().toISOString().slice(0, 10)}`) : null,
     riskLevel: "low",
     evidenceStrength: "strong", // reserved diff-in-diff controls
     measurementMethod: `Diff-in-diff vs ${e.controls.length} control pages`,
@@ -141,6 +180,31 @@ function fromMove(tenantId: string, m: CanonicalMoveInput, controlPaths: Set<str
   }
   const proofResultLabel =
     m.proofStatus === "won" ? "Mature result" : m.proofStatus === "no_lift" || m.proofStatus === "no_clear_lift" ? "Mature result" : null;
+  // D7 (honest opportunity math) - one canonical forecast call. Prefers the raw position/ctr/
+  // impressions signal (opportunity-math.ts's own honest CTR-curve + capture-band composition);
+  // falls back to a pre-computed ctrOpportunityClicks (legacy callers) via the SAME forecastRange
+  // math opportunity-math.ts calls internally, so neither path can silently disagree.
+  const opportunityBase = {
+    tenantId,
+    page: pagePath,
+    lever: m.actionType,
+    correctionFactor: m.correctionFactor,
+    captureBand: m.captureBand,
+    settledResultsCount: m.settledResultsCount,
+  };
+  const opportunity: OpportunityForecast =
+    m.topQueryPosition != null
+      ? computeOpportunity({
+          ...opportunityBase,
+          currentPosition: m.topQueryPosition,
+          impressions90d: m.topQueryImpressions90d,
+          clicks90d: m.topQueryClicks90d,
+        })
+      : // Legacy fallback: the caller has not threaded the raw position/impressions signal
+        // through yet, only a pre-computed 90d CTR-curve gap. Same forecastRange math, same
+        // hypothesisId shape - never a second, divergent formula - just without the plain-English
+        // position clause in the basis sentence (added once the caller supplies a real position).
+        computeOpportunityFromGap(opportunityBase, m.ctrOpportunityClicks ?? 0);
   return {
     id: changeId(tenantId, pagePath, family),
     tenantId,
@@ -157,14 +221,26 @@ function fromMove(tenantId: string, m: CanonicalMoveInput, controlPaths: Set<str
     after: m.after ?? null,
     rationale: m.rankWhy || m.why,
     estimatedEffortMinutes: effortForFamily(family),
+    // impactScore stays a RANKING signal only (never shown to the operator as a claim) - it may
+    // fall back to the raw demand score when no source score exists, which is fine for sort order
+    // but would NOT be fine as a displayed "upside" number, which is why `upside` below is always
+    // opportunity-math's own forecast midpoint, never m.demand.
     impactScore: m.score ?? m.demand ?? 0,
-    upside: m.demand ?? null,
-    // Item 61: the same honest CTR-curve estimate the daily card shows, so the ranked
-    // list reads like an investment menu. Null when the opportunity is too small.
-    expectedOutcome: (() => {
-      const r = forecastRange(m.ctrOpportunityClicks ?? 0);
-      return r ? `roughly ${r.low.toLocaleString()} to ${r.high.toLocaleString()} extra clicks a month if it works (estimate)` : null;
-    })(),
+    // D7 (honest opportunity math): the midpoint of opportunity-math's own CTR-curve range -
+    // never a raw impressions/demand-score sum. Null exactly when expectedOutcome is (not enough
+    // history to size this honestly).
+    upside: opportunity.lowPerMonth != null && opportunity.highPerMonth != null
+      ? Math.round((opportunity.lowPerMonth + opportunity.highPerMonth) / 2)
+      : null,
+    // Item 61 / D7: the plain-English basis sentence from opportunity-math.ts (the tenant's own
+    // CTR curve + settled-history capture band), replacing the old bare "roughly X to Y" line.
+    // Null exactly when there is not enough history - see the honest fallback in
+    // opportunity-math.ts, never a fabricated range.
+    expectedOutcome: opportunity.basis,
+    expectedOutcomeLow: opportunity.lowPerMonth,
+    expectedOutcomeHigh: opportunity.highPerMonth,
+    expectedOutcomeDays: opportunity.days,
+    hypothesisId: opportunity.hypothesisId,
     riskLevel: family === "new_page" ? "medium" : "low",
     // Move 2 / B1 fix - evidence strength follows real comparison data, never the lever
     // TYPE alone. Only a mature, settled result is "strong"; an early/interim/overlapping

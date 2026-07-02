@@ -47,9 +47,11 @@ export function buildPageBriefMarkdown(b: PageBriefInput, opts: { dateLabel?: st
   lines.push("");
 
   if (b.strikingDistance.length > 0) {
-    lines.push(`## Quick wins — ranking just off the top (improve these)`);
+    lines.push(`## Quick wins, ranking just off the top (improve these)`);
     for (const s of b.strikingDistance) {
-      lines.push(`- "${s.keyword}" — position ${s.position.toFixed(1)}, ${s.volume.toLocaleString()} searches/mo`);
+      // s.volume is GSC impressions (times shown on Google), never real market search
+      // volume (that only ever comes from DataForSEO) - the label must say so.
+      lines.push(`- "${s.keyword}", position ${s.position.toFixed(1)}, shown on Google ${s.volume.toLocaleString()}/mo`);
     }
     lines.push("");
   }

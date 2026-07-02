@@ -16,6 +16,8 @@ import { loadQuerySpikeRows } from "@/domains/trend-radar/load-query-spikes";
 import { computeQuerySpikes, anchorDateOf } from "@/domains/trend-radar/query-spikes";
 import { writeQuerySpikeSummary } from "@/domains/trend-radar/spike-store";
 import { runMonthlyArchiveRollup } from "@/domains/seasonal/archive-rollup";
+import { runFamilyDemandProfiles } from "@/domains/seasonal/run-family-demand-profiles";
+import { runGlobalPatternsNightlyAggregation } from "@/domains/global-patterns/nightly-aggregate";
 import { loadMonthlyArchiveRows } from "@/domains/seasonal/load-monthly-archive";
 import { detectSeasonalQueries } from "@/domains/seasonal/seasonality";
 import { writeSeasonalSummary } from "@/domains/seasonal/seasonal-store";
@@ -377,6 +379,17 @@ export async function syncAllConnectedForActiveTenants(): Promise<CronSyncResult
   // does not touch PHASE 1c above.
   for (const t of tenants) {
     try {
+      // D9 truth-gap fix (2026-07-02): the per-family demand profiles that the
+      // seasonal voice and prepare-today-moves READ were never populated by any
+      // job - the store stayed empty and the voice stayed silent. Populate them
+      // right after the archive rollup they derive from. Fail-soft: a profile
+      // failure never blocks the rollup or the rest of the sync.
+      try {
+        const fam = await runFamilyDemandProfiles(t.id);
+        log.info("[cron-sync] family demand profiles", { tenantId: t.id, ...("profilesWritten" in fam ? { profilesWritten: (fam as { profilesWritten?: number }).profilesWritten } : {}) });
+      } catch (e) {
+        log.warn("[cron-sync] family demand profiles failed (fail-soft)", { tenantId: t.id, error: e instanceof Error ? e.message : String(e) });
+      }
       const rollup = await runMonthlyArchiveRollup(t.id);
       if (rollup.ran && rollup.monthsRolled.length > 0) {
         log.info("[cron-sync] seasonal archive rollup", {
@@ -766,6 +779,20 @@ export async function syncAllConnectedForActiveTenants(): Promise<CronSyncResult
         error: e instanceof Error ? e.message.slice(0, 200) : String(e),
       });
     }
+  }
+
+  // D9 truth-gap fix (2026-07-02): the anonymous cross-tenant pattern brain
+  // (global_patterns, item 66) had a complete write pipeline that NO job ever
+  // invoked - the table stayed empty and priors never got their global backoff
+  // cells. Run it once per nightly sync, fleet-level, after all tenants synced.
+  // Fail-soft: an aggregation failure never touches the sync above.
+  try {
+    const agg = await runGlobalPatternsNightlyAggregation();
+    log.info("[cron-sync] global patterns aggregated", { ...agg });
+  } catch (e) {
+    log.warn("[cron-sync] global patterns aggregation failed (fail-soft)", {
+      error: e instanceof Error ? e.message.slice(0, 200) : String(e),
+    });
   }
 
   // PHASE 5 - Google token-expiry forecast + warning email (BEACON_500 item 84,

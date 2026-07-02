@@ -223,3 +223,9 @@
 @media (prefers-reduced-motion: reduce) {
   .beacon-rise-in, .beacon-chart-draw, .beacon-win-glow, .beacon-pop { animation: none; }
 }
+
+/* Item 47 - the team standup pills are native <details>/<summary> so each teammate's
+   briefing expands inline with zero JS. Tailwind's list-none clears the marker in
+   Chrome/Firefox; Safari needs the webkit pseudo-element hidden separately. */
+.beacon-standup-pill > summary::-webkit-details-marker { display: none; }
+.beacon-standup-pill > summary::marker { content: ""; }

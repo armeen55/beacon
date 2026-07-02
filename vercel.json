@@ -28,6 +28,10 @@
     {
       "path": "/api/cron/strategy-review",
       "schedule": "33 13 * * 0"
+    },
+    {
+      "path": "/api/cron/page-factory",
+      "schedule": "47 13 * * 1"
     }
   ]
 }

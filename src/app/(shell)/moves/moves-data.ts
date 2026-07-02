@@ -11,6 +11,7 @@ import { ACTION_LABEL, actionFamily, type ActionPack } from "@/domains/action-pa
 import { after } from "next/server";
 import { loadTodayMovesHeroData, type TodayMove, type TodayMovesHeroData } from "../today-moves-data";
 import { readWorklistSurface, writeWorklistSurface, isSurfaceStale } from "../worklist-surface-store";
+import { computeOpportunity } from "@/domains/forecast/opportunity-math";
 
 /**
  * /moves data (2026-06-27) — the worklist is now driven by the CANONICAL ActionPack
@@ -200,9 +201,30 @@ async function loadUncached(tenantId: string): Promise<TodayMovesHeroData> {
   const trueTotal = moves.length;
   const shown = moves.slice(0, MOVES_CAP);
 
+  // D7 (honest opportunity math, DREAM SITE V1) - was a raw sum of demand-graph weight/GSC
+  // impressions ("500k people at risk" territory). Now the sum of each move's own CTR-curve
+  // forecast midpoint (opportunity-math.ts) - honest-zero for a move with no position/impression
+  // history yet (e.g. a coverage-only pack with no topQueries), never an inflated impression count.
+  const demandAtStake = Math.round(
+    moves.reduce((s, m) => {
+      const tq = [...m.topQueries].sort((a, b) => b.impressions - a.impressions)[0];
+      if (!tq || tq.impressions <= 0) return s;
+      const forecast = computeOpportunity({
+        tenantId,
+        page: m.targetUrl,
+        lever: m.action,
+        currentPosition: tq.position,
+        impressions90d: tq.impressions,
+        clicks90d: tq.clicks,
+      });
+      if (forecast.lowPerMonth == null || forecast.highPerMonth == null) return s;
+      return s + (forecast.lowPerMonth + forecast.highPerMonth) / 2;
+    }, 0),
+  );
+
   const stats: TodayMovesHeroData["stats"] = {
     movesReady: trueTotal,
-    demandAtStake: Math.round(moves.reduce((s, m) => s + (m.demand ?? 0), 0)),
+    demandAtStake,
     citationsContested: moves.filter((m) => m.actionTone === "citation").length,
     pagesCovered: new Set(moves.map((m) => m.targetUrl)).size,
     draftsReady: moves.filter((m) => m.savedAnswerBlock || m.preparedChecklist?.draftPrepared).length,

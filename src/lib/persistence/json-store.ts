@@ -111,7 +111,6 @@ const SUPABASE_MIRRORED_STORES = new Set<string>([
   // mirror both would be silent-empty (profiles) or lose operator edits
   // (calendar) on hosted prod after a lambda recycle.
   "seasonal-family-profiles",
-  "event-calendar",
   // 2026-07-02 item 24 - nightly Farsi/Finglish language-gap matrix pass.
   // Written by the cron (Vercel lambda: no disk), read by the Today Demand
   // band + the daily plan builder; without the mirror the detected gaps
@@ -127,7 +126,6 @@ const SUPABASE_MIRRORED_STORES = new Set<string>([
   // (no disk on Vercel lambdas), read by the daily card's evidence brief
   // and the citability hint feed; without the mirror the profile would be
   // silent-empty on hosted prod.
-  "citability-pattern-profile",
   // 2026-07-02 items 27/28 - the forecast calibration ledger (per-pick forecast
   // range vs the realized 28-day monthly click lift, plus outcome inside/above/
   // below). Written by the day-28 measure pass (Vercel lambda, no disk); read by
@@ -235,6 +233,12 @@ const SUPABASE_MIRRORED_STORES = new Set<string>([
   // url-map would only ever be visible for one warm-lambda instance, not the
   // durable "I checked your connection last night" the operator relies on.
   "publish-health",
+  // 2026-07-02 DREAM SITE V1 item D7 - the opportunity hypothesis log (every
+  // forecast opportunity-math.ts renders to the operator, logged so a later
+  // day-28 settle can be graded against it). Written from request-context page
+  // loads (Vercel lambda: no disk) - without the mirror the log would vanish on
+  // the next lambda recycle and forecasts could never be graded for real.
+  "opportunity-hypotheses",
 ]);
 
 const BLOBS_TABLE = "json_store_blobs";

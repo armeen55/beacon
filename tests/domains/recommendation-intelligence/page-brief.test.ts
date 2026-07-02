@@ -27,9 +27,13 @@ describe("buildPageBriefMarkdown", () => {
     expect(md).toContain("**Title:** Persian Girl Names");
     expect(md).toContain("**Meta description:** _(none)_"); // null → explicit none
     expect(md).toContain("## Quick wins");
-    expect(md).toContain('"persian girl names" — position 5.7');
+    // UX0 (2026-07-02): strikingDistance.volume is GSC impressions (times shown on
+    // Google), never real market search volume, so the line says "shown on Google"
+    // and never "searches/mo" - and never an em/en dash.
+    expect(md).toContain('"persian girl names", position 5.7, shown on Google 6,041/mo');
     expect(md).toContain("| Query | Position | Clicks/mo | Impressions/mo |");
     expect(md).toContain("| persian girl names | 5.7 | 73 | 6,041 |");
+    expect(md).not.toMatch(/[–—]/); // no em or en dashes ever
   });
 
   it("omits empty sections + the do-this-first when there's no move", () => {

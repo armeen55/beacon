@@ -65,7 +65,7 @@ export function checkTopicCoherence(headTopic: string, members: readonly Coheren
   const coherentFraction = kept.length / members.length;
   const suppressCandidate = coherentFraction < MIN_COHERENT_FRACTION;
   const reason = suppressCandidate
-    ? `only ${kept.length}/${members.length} members share a distinguishing token with "${headTopic}" — incoherent cluster, suppress`
+    ? `only ${kept.length}/${members.length} members share a distinguishing token with "${headTopic}", incoherent cluster, suppress`
     : dropped.length > 0
       ? `dropped ${dropped.length}/${members.length} off-topic member(s); kept ${kept.length} on-topic`
       : "all members on-topic";

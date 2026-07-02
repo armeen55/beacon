@@ -23,6 +23,15 @@ export type FanoutSeed = {
   weight: number;
   /** Distinct tracked prompts that expanded into this sub-query. */
   prompts: string[];
+  /**
+   * D1 (2026-07-02, DREAM SITE V1) - where this seed came from: "profound"
+   * (Profound's fanout export, the original source) or "native" (extracted
+   * from Beacon's own 4-engine poll answers, see native-intel.ts). Optional
+   * and defaults to "profound" in existing data - added so downstream
+   * consumers (evidence-packet, FAQ drafter, keyword research) can show
+   * their source honestly without a breaking type change.
+   */
+  source?: "profound" | "native";
 };
 
 const QUERY_KEYS = ["query", "fanout_query", "fanout", "search_query", "sub_query", "expanded_query"];
@@ -78,6 +87,7 @@ export function summarizeFanouts(
     subQuery,
     weight: e.weight,
     prompts: [...e.prompts],
+    source: "profound" as const,
   }));
   seeds.sort((a, b) => b.weight - a.weight || a.subQuery.localeCompare(b.subQuery));
   return opts.limit != null ? seeds.slice(0, opts.limit) : seeds;

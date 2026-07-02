@@ -54,10 +54,30 @@ export type CanonicalChange = {
   rationale: string;
   estimatedEffortMinutes: number;
   impactScore: number; // for ranking (demand/score-derived)
-  upside: number | null; // monthly demand at stake (display)
-  /** Item 61: honest monthly outcome range ("roughly 20 to 60 extra clicks a month"),
-   *  from the same CTR-curve estimate the daily card shows. Null when too small/unknown. */
+  /** Monthly opportunity for display/ranking. D7 (honest opportunity math): this is the
+   *  MIDPOINT of the same CTR-curve range `expectedOutcome` describes in prose, never a raw
+   *  impressions/demand-score sum - the "biggest upside" goal filter now sorts on real forecast
+   *  math instead of an unactionable raw number. Null exactly when `expectedOutcome` is (not
+   *  enough history to size this honestly). */
+  upside: number | null;
+  /** Item 61 / D7: honest monthly outcome range ("roughly 20 to 60 extra clicks a month"),
+   *  from opportunity-math.ts (the tenant's own CTR curve + settled-history capture band). Null
+   *  when there is not enough history to size this honestly - see `expectedOutcomeBasis` for the
+   *  honest reason, never a fabricated range. */
   expectedOutcome: string | null;
+  /** D7 numeric twins of the range `expectedOutcome` describes in prose (same pattern as
+   *  PickExpectations.forecastLow/High) - present exactly when `expectedOutcome` names a range. */
+  expectedOutcomeLow?: number | null;
+  expectedOutcomeHigh?: number | null;
+  /** D7 - days until the first real read for this forecast (opportunity-math.ts's own
+   *  lever-family default, or a measured time-to-signal when one exists). Always present once a
+   *  forecast was computed, even in the honest "not enough history" case (a caller still knows
+   *  when to check back). */
+  expectedOutcomeDays?: number | null;
+  /** D7 - the deterministic hypothesis id opportunity-math.ts generated for this exact rendered
+   *  forecast, so the caller (changes-data.ts) can log it via hypothesis-log.ts. Present whenever
+   *  a forecast (even a "not enough history" one) was computed for this change. */
+  hypothesisId?: string | null;
   riskLevel: "low" | "medium" | "high";
   evidenceStrength: EvidenceStrength;
   measurementMethod: string;

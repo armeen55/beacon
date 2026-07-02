@@ -61,6 +61,19 @@ export type ActionPackProfoundReceipt = {
   ownAbsent: boolean;
 };
 
+/** D7 (honest opportunity math, DREAM SITE V1) - the ONE forecast every ActionPack carries,
+ *  computed by opportunity-math.ts. `lowPerMonth`/`highPerMonth` are null exactly when there is
+ *  not enough position/impression history to size a claim honestly (`basis` then says so in plain
+ *  words) - never a fabricated range. Replaces raw impressions/demand-score being displayed as if
+ *  it were "opportunity" or "at stake". */
+export type ActionPackForecast = {
+  lowPerMonth: number | null;
+  highPerMonth: number | null;
+  days: number;
+  basis: string;
+  hypothesisId: string;
+};
+
 export type ActionPackSerpValidation = {
   verdict: "build" | "wait" | "skip";
   confidence: string;
@@ -110,6 +123,11 @@ export type ActionPack = {
   proofPlan: { metrics: string[]; windowsDays: number[]; controls: string } | null;
   /** The one-line justification — why this is a real move, not noise. */
   whyNotNoise: string;
+  /** D7 (honest opportunity math) - the tenant-CTR-curve forecast for this pack, computed by
+   *  opportunity-math.ts from `gscDemand` when present. Null for a pack with no GSC position/
+   *  impression signal (e.g. a coverage-only Profound pack, or a brand-new create_new_page) -
+   *  honest absence, never a guess. */
+  forecast: ActionPackForecast | null;
   origin: ActionPackOrigin;
   /** Cache/staleness key carried from the source. */
   evidenceHash: string;

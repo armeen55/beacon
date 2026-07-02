@@ -20,11 +20,13 @@ describe("summarizeFanouts — Profound query-fanout summary (#Iranopedia)", () 
       subQuery: "persian food near me",
       weight: 15,
       prompts: ["best persian restaurants", "best persian food"],
+      source: "profound",
     });
     expect(seeds[1]).toEqual({
       subQuery: "authentic persian cuisine",
       weight: 3,
       prompts: ["p"],
+      source: "profound",
     });
   });
 

@@ -74,6 +74,15 @@ async function upsertObservationRunToDb(run: ObservationRun): Promise<void> {
       competitor_universe_scope: run.competitor_universe_scope ?? null,
       competitor_universe_pin_status:
         run.competitor_universe_pin_status ?? null,
+      // 2026-07-02 D1 ground-truth fix: tenant_id was never included in this
+      // upsert payload even though ObservationRun.tenant_id is required and
+      // populated by every caller. observation_runs has a NOT NULL
+      // (tenant_id_nonempty_chk) constraint, so every write through this path
+      // failed the upsert outright - caught above and logged as "non-fatal",
+      // which made the failure invisible. Additive: just carry the field
+      // through, same as the parallel dual-write.ts syncObservationRuns path
+      // already does via tenantizeRows.
+      tenant_id: run.tenant_id,
     },
     { onConflict: "run_id" },
   );

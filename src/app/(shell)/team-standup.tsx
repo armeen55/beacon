@@ -5,6 +5,7 @@
  * honest (a teammate with nothing new says so; a teammate with no data says that). Reuses the
  * request-cached loaders the page already touches, so the strip costs almost nothing extra.
  */
+import Link from "next/link";
 import { teammateOf } from "@/domains/team/identity";
 import { loadDailyTotalsForTenant } from "@/domains/recommendation-intelligence/gsc-page-queries";
 import { loadClarityPageSignalsForTenant } from "@/domains/recommendation-intelligence/clarity-page-signals";
@@ -23,7 +24,18 @@ import { loadTeammateFreshness, type TeammateFreshnessMap } from "@/domains/team
 import { loadRecentDriftEvents, type DriftEventWithMatch } from "@/domains/ai-visibility/answer-drift-loader";
 import { stripBannedDashes } from "@/lib/copy/strip-dashes";
 
-type StandupLine = { key: string; line: string; active: boolean; title?: string };
+type StandupLine = { key: string; line: string; active: boolean; title?: string; brief?: TeammateBrief };
+
+/** Item 47 (2026-07-02) - the pill's inline briefing when the operator opens it: what this
+ *  teammate watched, its key number, its current read, and one link to where its work lives.
+ *  Built ONLY from data buildLines already loaded for the one-line chip text (zero new I/O). */
+type TeammateBrief = {
+  watched: string;
+  number: string;
+  concern: string;
+  href: string;
+  linkLabel: string;
+};
 
 /** Item 46 (2026-07-02, CARRY-OVER 115) - "honest degradation everywhere": the amber/red dot
  *  color for a teammate whose backing data source is stale or dead. Fresh (or no freshness claim
@@ -115,6 +127,20 @@ async function buildLines(
       key: "gsc",
       line: `${last7.toLocaleString()} clicks this week${delta != null ? ` (${delta >= 0 ? "+" : ""}${delta}%)` : ""}${recordSuffixFor(records, "gsc")}`,
       active: true,
+      brief: {
+        watched: `I watched your Google clicks over the last ${daily.length} days.`,
+        number: `${last7.toLocaleString()} clicks this week.`,
+        concern:
+          delta == null
+            ? "Not enough history yet to compare to last week."
+            : delta > 3
+              ? `That is up ${delta}% from the week before. Good direction.`
+              : delta < -3
+                ? `That is down ${Math.abs(delta)}% from the week before. I am watching it.`
+                : "That is about flat versus last week.",
+        href: "#scoreboard-section",
+        linkLabel: "See the chart",
+      },
     });
   }
 
@@ -124,6 +150,19 @@ async function buildLines(
     key: "clarity",
     line: `${frictionPages > 0 ? `friction on ${frictionPages} page${frictionPages === 1 ? "" : "s"}` : "no new friction"}${recordSuffixFor(records, "clarity")}`,
     active: frictionPages > 0,
+    brief: {
+      watched: `I watched real visitor sessions on ${clarity.size.toLocaleString()} page${clarity.size === 1 ? "" : "s"}.`,
+      number:
+        frictionPages > 0
+          ? `${frictionPages} page${frictionPages === 1 ? "" : "s"} with friction.`
+          : "0 pages with friction.",
+      concern:
+        frictionPages > 0
+          ? "People are hitting dead clicks, errors, or the wrong answer on those pages."
+          : "Nothing broken this week. Clean pages.",
+      href: "#friction-fixes",
+      linkLabel: "See the friction fixes",
+    },
   });
 
   // Live Google results: research coverage.
@@ -133,6 +172,19 @@ async function buildLines(
     key: "dataforseo",
     line: `${kwCount > 0 ? `${kwCount.toLocaleString()} keyword volumes, ${serpCount} live searches read` : "no keyword research yet"}${recordSuffixFor(records, "dataforseo")}`,
     active: kwCount > 0,
+    brief: {
+      watched: "I checked live Google results and keyword volumes for your topics.",
+      number:
+        kwCount > 0
+          ? `${kwCount.toLocaleString()} keyword volumes, ${serpCount.toLocaleString()} live searches read.`
+          : "0 keywords checked yet.",
+      concern:
+        kwCount > 0
+          ? "This is what real people search and what is already ranking for it."
+          : "I have not pulled fresh keyword research yet.",
+      href: "/research/keywords",
+      linkLabel: "See the keyword research",
+    },
   });
 
   // AI citations: crawler + referral reality.
@@ -141,6 +193,13 @@ async function buildLines(
       key: "profound",
       line: `AI sent ${aeo.referralSummary.totalVisits.toLocaleString()} visits, crawled ${aeo.botSummary.pages} pages${recordSuffixFor(records, "profound")}`,
       active: true,
+      brief: {
+        watched: `I watched AI crawlers and referrals across ${aeo.botSummary.pages.toLocaleString()} page${aeo.botSummary.pages === 1 ? "" : "s"}.`,
+        number: `${aeo.referralSummary.totalVisits.toLocaleString()} visits sent from AI.`,
+        concern: "This is real traffic AI answers are sending you, not a guess.",
+        href: "/prompts",
+        linkLabel: "See the AI questions",
+      },
     });
   } else if (llmMentions.length > 0) {
     // Owned AI-visibility (DataForSEO LLM answers): are WE cited for the topics we checked?
@@ -154,9 +213,37 @@ async function buildLines(
       llmMentions.length < MIN_TOPICS_FOR_RATIO
         ? `${llmMentions.length} topic${llmMentions.length === 1 ? "" : "s"} checked so far${recordSuffixFor(records, "profound")}`
         : `AI answers cite you on ${citedUs} of ${llmMentions.length} topics checked${recordSuffixFor(records, "profound")}`;
-    lines.push({ key: "profound", line, active: citedUs > 0 });
+    lines.push({
+      key: "profound",
+      line,
+      active: citedUs > 0,
+      brief: {
+        watched: `I asked AI ${llmMentions.length} question${llmMentions.length === 1 ? "" : "s"} people actually search for.`,
+        number:
+          llmMentions.length < MIN_TOPICS_FOR_RATIO
+            ? `${llmMentions.length} topic${llmMentions.length === 1 ? "" : "s"} checked so far.`
+            : `Cited on ${citedUs} of ${llmMentions.length} topics.`,
+        concern:
+          citedUs > 0
+            ? "AI is naming you in at least some answers."
+            : "AI is not naming you yet on the topics I checked.",
+        href: "/prompts",
+        linkLabel: "See the AI questions",
+      },
+    });
   } else {
-    lines.push({ key: "profound", line: "watching who AI cites for your topics", active: false });
+    lines.push({
+      key: "profound",
+      line: "watching who AI cites for your topics",
+      active: false,
+      brief: {
+        watched: "I am watching who AI names when people ask about your topics.",
+        number: "No AI checks recorded yet.",
+        concern: "Nothing to report until the first check runs.",
+        href: "/prompts",
+        linkLabel: "See the AI questions",
+      },
+    });
   }
 
   // Revenue: pages carrying conversion value.
@@ -165,6 +252,19 @@ async function buildLines(
     key: "ga4",
     line: `${ga4.size > 0 ? `tracking value on ${moneyPages > 0 ? moneyPages : ga4.size} page${ga4.size === 1 ? "" : "s"}` : "no analytics data yet"}${recordSuffixFor(records, "ga4")}`,
     active: ga4.size > 0,
+    brief: {
+      watched: `I watched revenue and conversions across ${ga4.size.toLocaleString()} page${ga4.size === 1 ? "" : "s"}.`,
+      number:
+        ga4.size > 0
+          ? `${moneyPages > 0 ? moneyPages : ga4.size} page${(moneyPages > 0 ? moneyPages : ga4.size) === 1 ? "" : "s"} carrying real value.`
+          : "0 pages tracked yet.",
+      concern:
+        ga4.size > 0
+          ? "These are the pages worth protecting and growing first."
+          : "I do not have analytics data to work from yet.",
+      href: "/worklist",
+      linkLabel: "See the worklist",
+    },
   });
 
   // Strategist: tonight + the measurement book. A2 (operator-experience fix batch,
@@ -181,6 +281,23 @@ async function buildLines(
           ? `${measuringCount} change${measuringCount === 1 ? "" : "s"} measuring${won > 0 ? `, ${won} won` : ""}`
           : "reviewing the next batch") + recordSuffixFor(records, "llm"),
     active: picksTonight > 0 || measuringCount > 0,
+    brief: {
+      watched: "I picked tonight's changes and I am tracking every change already live.",
+      number:
+        picksTonight > 0
+          ? `${picksTonight} change${picksTonight === 1 ? "" : "s"} picked tonight.`
+          : measuringCount > 0
+            ? `${measuringCount} change${measuringCount === 1 ? "" : "s"} measuring.`
+            : "No picks queued yet.",
+      concern:
+        won > 0
+          ? `${won} of my changes have already won.`
+          : measuringCount > 0
+            ? "Still waiting on enough days of data to call a winner."
+            : "I am reviewing the next batch of ideas now.",
+      href: "#daily-experiments",
+      linkLabel: "See tonight's picks",
+    },
   });
 
   // Item 43 - each chip gains its own calibration line as a hover title when that specialist has
@@ -298,21 +415,45 @@ export async function TeamStandup({
             const fresh = freshness.get(l.key);
             const degraded = fresh && fresh.status !== "fresh";
             const dotColor = degraded ? FRESHNESS_DOT_COLOR[fresh.status as "stale" | "dead"] : t.color;
+            const pillTitle = chipTitle(l.title, degraded ? fresh.sentence : undefined);
             return (
-              <span
-                key={l.key}
-                title={chipTitle(l.title, degraded ? fresh.sentence : undefined)}
-                className="inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11.5px]"
-                style={{ background: t.bg, borderColor: `${t.color}33`, color: t.text }}
-              >
-                <span
-                  aria-label={degraded ? `${t.name}: ${fresh.sentence}` : undefined}
-                  className="h-2 w-2 shrink-0 rounded-full"
-                  style={{ background: dotColor, opacity: l.active ? 1 : 0.35 }}
-                />
-                <span className="font-semibold">{t.short}</span>
-                <span style={{ opacity: 0.85 }}>{l.line}</span>
-              </span>
+              <details key={l.key} className="beacon-standup-pill group">
+                <summary
+                  title={pillTitle}
+                  className="inline-flex cursor-pointer select-none list-none items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11.5px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-1"
+                  style={{ background: t.bg, borderColor: `${t.color}33`, color: t.text }}
+                >
+                  <span
+                    aria-label={degraded ? `${t.name}: ${fresh.sentence}` : undefined}
+                    className="h-2 w-2 shrink-0 rounded-full"
+                    style={{ background: dotColor, opacity: l.active ? 1 : 0.35 }}
+                  />
+                  <span className="font-semibold">{t.short}</span>
+                  <span style={{ opacity: 0.85 }}>{l.line}</span>
+                  {l.brief ? (
+                    <svg
+                      aria-hidden="true"
+                      viewBox="0 0 12 12"
+                      className="h-2.5 w-2.5 shrink-0 opacity-60 transition-transform group-open:rotate-180"
+                    >
+                      <path d="M2.5 4.5L6 8l3.5-3.5" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                  ) : null}
+                </summary>
+                {l.brief ? (
+                  <div
+                    className="mt-1.5 max-w-xs rounded-xl border px-3 py-2 text-[12px] leading-relaxed"
+                    style={{ background: t.bg, borderColor: `${t.color}33`, color: t.text }}
+                  >
+                    <p>{l.brief.watched}</p>
+                    <p className="mt-1 font-semibold">{l.brief.number}</p>
+                    <p className="mt-1" style={{ opacity: 0.85 }}>{l.brief.concern}</p>
+                    <Link href={l.brief.href} className="mt-1.5 inline-block font-semibold underline underline-offset-2">
+                      {l.brief.linkLabel}
+                    </Link>
+                  </div>
+                ) : null}
+              </details>
             );
           })}
         </section>

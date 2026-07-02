@@ -18,6 +18,7 @@ const pack = (o: Partial<ActionPack> & { id: string; label: string; actionType: 
   draftStatus: "none",
   proofPlan: null,
   whyNotNoise: "",
+  forecast: null,
   origin: "rank_revenue",
   evidenceHash: "h",
   ...o,

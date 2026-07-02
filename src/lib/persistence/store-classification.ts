@@ -318,7 +318,6 @@ export const GLOBAL_STORES = new Set<string>([
   // tenant's own annual GSC peak. Rows carry tenant_id so the derive pass
   // (which runs alongside the seasonality pass, no ambient request context)
   // can merge freshly-derived entries without clobbering operator edits.
-  "event-calendar",
   // Beat-Wikipedia finder (2026-07-02, master plan item 23). The article-facts
   // cache is public Wikipedia data (keyed by article title, no tenant secrets) -
   // global like the DataForSEO caches so its 30-day TTL prevents re-fetching the
@@ -341,7 +340,6 @@ export const GLOBAL_STORES = new Set<string>([
   // with no ambient request context, same rationale as the stores above.
   // The mined "what AI actually quotes" pattern profile the daily card +
   // citability hint feed read at $0.
-  "citability-pattern-profile",
   // Forecast calibration ledger (2026-07-02, master plan items 27/28). Rows carry
   // tenant_id; written from the day-28 measure pass (no ambient request context,
   // same fan-out rationale as the stores above). Append-only per-pick forecast vs
@@ -437,6 +435,14 @@ export const GLOBAL_STORES = new Set<string>([
   // the publishing-mode card so a dead token or stale url-map surfaces
   // before an operator-accepted change actually fails to push.
   "publish-health",
+  // Opportunity hypothesis log (2026-07-02, DREAM SITE V1 item D7). Rows carry
+  // tenant_id; written the moment opportunity-math.ts renders a forecast to the
+  // operator (page render has ambient request context today, but a future nightly
+  // digest/batch render would not — same fan-out rationale as the stores above).
+  // Append-only per (tenant, page, lever, day) log of every forecast Beacon ever
+  // showed, so forecast-calibration-store.ts's day-28 settle can be joined back to
+  // the exact hypothesis that was on screen when the operator acted (or didn't).
+  "opportunity-hypotheses",
 ]);
 
 /**

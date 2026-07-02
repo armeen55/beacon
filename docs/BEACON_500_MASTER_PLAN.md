@@ -134,10 +134,29 @@ tied internal model that helps me analyze that would be fucking sick if that can
 data and talk. THIS IS VERSION 1 DREAM SITE."
 
 **Build translation (D-track; existing machinery reused, never rebuilt):**
-- [ ] D1. **AEO native engine as THE source:** the built 4-engine poller becomes the internal
-  Profound: analyze the native answers for recurring domains, recurring pages, where we are and
-  are not, per prompt per engine; native question expansion from the answers themselves; Profound
-  becomes optional input, deletable. (Poller BUILT; the analysis layer over prompt_answer_observations is the work.)
+- [x] D1 (2026-07-02). **AEO native engine as THE source, analysis layer SHIPPED:**
+  `src/domains/ai-visibility/native-intel.ts` (pure) + `native-intel-loader.ts` (I/O, 1000-row
+  paged read of prompt_answer_observations) compute recurring domains, recurring pages, a
+  per-prompt per-engine we-are/we-are-not matrix with the real answer sentence when mentioned,
+  and native question expansion (question-mark sentences pulled straight out of answer text, no
+  LLM). Surfaced on `/prompts` as a self-hiding "Who AI keeps recommending" block
+  (`native-intel-view.tsx`), honestly labeled "from my own checks of the AI engines," additive
+  above the existing Profound-powered AiQuestionsView (not a replacement; Profound deletion
+  stays a D1-followup, staged cutover). Native fanouts wired into `load-fanout-seeds.ts`
+  (`mergeFanoutSources`, source-tagged "native" vs "profound", deduped by normalized question
+  text) so every existing fanoutSeeds consumer (demand graph, evidence packets, keyword
+  research, FAQ drafter) gets native follow-up questions for free, no call-site change.
+  Ground-truthed live: one bounded 8-question poll through the runner's own gauntlet cost
+  $0.5366 real (gemini $0.2966 + claude $0.24 DataForSEO, claude's calls all failed
+  server-side but were still billed, chatgpt/perplexity used native keys at $0 marginal);
+  wrote 24 real observations for tenant-iranopedia (3 of 4 engines answered; claude errored).
+  Real result: 15 recurring domains (reddit.com/facebook.com/youtube.com/en.wikipedia.org lead),
+  presence matrix 1 present / 7 absent, 0 native questions found (this poll's answer_excerpt
+  truncates at 400 chars, before most answers reach a "?" - honest, not a bug; a fuller answer
+  text field would raise this count). 38 new/updated tests (native-intel.ts 30, fanout-merge 5,
+  summarize-fanouts 3), typecheck clean project-wide. Found + flagged as a separate follow-up
+  task (not fixed here, out of D1's file scope): observation_runs writes silently fail on a
+  tenant_id not-null constraint in the dual-write path.
 - [ ] D2. **Per-prompt top-5 cited-source scrape:** politely read the top cited pages per prompt,
   extract what they have in common (consensus outline/patterns), feed the gap verdict: new page
   for an unowned gap, atomic edit for an owned one, fanouts seeding the content. (Teardown engine
@@ -152,11 +171,40 @@ data and talk. THIS IS VERSION 1 DREAM SITE."
 - [ ] D6. **The daily ritual loop:** log on, do 1 or all changes; static mode: mark edited, the app
   double-checks once marked published, then advances to the next best opportunity; dynamic mode:
   auto-prepare + publish counter. One continuous flow, no dead ends.
-- [ ] D7. **Honest opportunity math everywhere:** kill naive at-stake guesses; every opportunity
-  carries "based on X percent you can presume X improvement in X days" from the tenant CTR curve +
-  position deltas + settled history; every forecast becomes a learnable hypothesis.
+- [x] D7 (2026-07-02). **Honest opportunity math, math layer + data fields SHIPPED:** new
+  `src/domains/forecast/opportunity-math.ts` (pure) - the ONE canonical `computeOpportunity()`
+  entry point composing the tenant CTR curve (`ctrOpportunity90d`/`forecastRange` from
+  pick-expectations.ts, reused not duplicated) + the bias-correction factor (item 27) + the
+  empirical capture band (item 64) into `{lowPerMonth, highPerMonth, days, basis, hypothesisId}`.
+  Honest fail path: no position/impressions -> "I do not have enough history to size this yet,"
+  never a fabricated number. `computeOpportunityFromGap` gives legacy pre-computed-gap callers
+  byte-identical range math immediately. New `hypothesis-log.ts` (additive GLOBAL + Supabase-
+  mirrored store `opportunity-hypotheses`) captures every rendered forecast so a day-28 settle
+  can grade it later - the render-time half of "every forecast funds a learnable hypothesis"
+  (forecast-calibration-store.ts already grades at settle time). SWEPT the naive at-stake claims
+  the operator called out by name: `build-canonical-changes.ts`'s `upside` (was raw
+  `m.demand`/impressions, now opportunity-math's forecast midpoint) + `expectedOutcome` (now the
+  honest basis sentence, with numeric twins `expectedOutcomeLow/High/Days` + `hypothesisId` added
+  to `CanonicalChange`); `today-moves-data.ts` + `moves/moves-data.ts`'s `demandAtStake` headline
+  stat (was a raw sum of demand-graph weight/GSC impressions - the literal "500k people at risk"
+  pattern - now the sum of real forecast midpoints, honest-zero when history is thin); added
+  `ActionPack.forecast` (nullable) computed in `action-pack/adapters.ts` from `gscDemand`, carried
+  through dedupe/collapse merges. `changes-data.ts` now resolves the tenant's own correction
+  factor + per-family capture band (forecast-calibration.ts, same machinery build-today-preview.ts
+  already uses) and fire-and-forget captures every actionable row's hypothesis. Ground-truthed
+  live on Iranopedia: the old top-10-by-demand sum claimed 280,713; the real CTR-curve math says
+  ~11 clicks/month across those same 10 pages today (most already meet or beat their position's
+  expected CTR, or have no live per-query GSC row for that exact URL - both honestly disclosed,
+  never guessed). 66 new tests (opportunity-math 28, hypothesis-log 15, existing suites re-verified
+  120+), typecheck clean. NOT yet wired: `build-daily-plan-record.ts`/`build-today-preview.ts`'s
+  plan-pick path (already honest via buildPickExpectations, just not yet logging a hypothesis at
+  render time), the `/moves` and Changes-list UI surfaces reading `ActionPack.forecast`/
+  `CanonicalChange.expectedOutcomeLow/High` (data fields exist, client rendering is a UX-track
+  follow-up), and new-page/create_page candidates (opportunity-math.ts handles the honest-gap case
+  for these today by design - no position exists pre-launch - but a launched-page graduation path
+  is not built).
 - [ ] D8. **Ask talks to ALL the data** (retrieval twin BUILT; deepen coverage + conversation).
-- [ ] D9. **Full trace audit:** verify the last 20 hours of shipped work is real, wired, not faked;
+- [x] D9. **Full trace audit:** verify the last 20 hours of shipped work is real, wired, not faked;
   delete every dead row/dead code found; then continue down the list.
 
 The N-track (Constitution) and UX-track continue INSIDE the D-track where they overlap (N1=D4,
@@ -169,20 +217,48 @@ AI question), each opening a dossier, instead of one long generated report. Cool
 exploration and responsiveness, not decoration. Data correctness comes BEFORE beauty: never make
 a malformed recommendation prettier.
 
-- [ ] UX0. **Data-correctness prerequisites (BLOCKS the beautification of affected surfaces):**
-  fix the new-page generator corruption (topic clusters mixing superstitions/sports/names under
-  one travel title; demand evidence borrowed from unrelated queries; "missing page" cards whose
-  page is already cited; broken titles like "Deadly Misconceptions About Iran Hear Cross";
-  duplicate queries with conflicting demand - the N2 ownership/clustering work is the real cure,
-  this is its down payment); unify the LAST measuring-count mismatch (Today 16 vs Changes 10);
-  never label GSC impressions as searches/mo (impressions are "times shown on Google", market
-  volume is "searches/mo" - two different numbers, two different labels). Prepare-all stays
-  gated on malformed candidates.
-- [ ] UX1. **Universal Page Dossier backbone:** every page reference anywhere in the app links to
-  the page dossier; the dossier shows the page's whole story (traffic, queries, content, links,
-  visitor behavior, citations, competitors, change history, active measurements, planned work,
-  results). One interaction model everywhere. (The /page/[...path] dossier exists; complete it
-  and wire every surface into it.)
+- [x] UX0 (2026-07-02). **Data-correctness prerequisites, DONE:** new-page generator corruption
+  fixed at the root (superlative/quantifier words like "most" were false distinguishing tokens in
+  `keyword-match.ts`, gluing unrelated topics via a shared noisy keyword; `canonical-create-page.ts`
+  now also requires two candidates share their OWN token, not just a common noisy keyword) plus a
+  new explicit `topic-coherence-gate.ts` (drops/suppresses incoherent members, wired into
+  `load-graph.ts`'s create_page synthesis AND into Prepare-all as a second, direct check); a new
+  `create-page-ownership-gate.ts` reclassifies/drops a create_page candidate the tenant is already
+  AI-cited for (Persian Literature was pitched as missing while cited: now dropped/reclassified to
+  edit_page); `clean-topic-label.ts` gained grammar-sanity (`isUnparseableLabel`, rejects a label
+  trailing off on an orphan verb: "...Hear Cross" caught); new `dedupe-new-page-cards.ts` collapses
+  reordered-duplicate topics to one card with one real number. Measuring-count unification: worklist
+  now reads the SAME canonical proof-ledger verdict count Today reads (`measuringCountCanonical` in
+  `changes-data.ts`), showing an honest "10 of 16" when the worklist is a subset. Impressions-vs-
+  searches swept app-wide: fixed `changes-list-client.tsx` ("searches/mo at stake" -> "shown on
+  Google/mo at stake"), `build-daily-candidates.ts`, `refresh-brief.ts`, `language-gaps.ts`, and the
+  workbench striking-distance surface (`workbench-view.tsx` + `page-brief.ts`), all of which were
+  GSC impressions mislabeled as "searches". Prepare-all reports "skipped N that failed my quality
+  check" honestly. Ground-truthed live: 2 candidates suppressed, 4 trimmed, 10 ownership-dropped on
+  real Iranopedia data; all 3 operator-found corrupted cards confirmed gone/reclassified on both a
+  fresh probe and the live `/worklist` render. 507 new/updated tests, `npm run typecheck` clean, one
+  pre-existing pinned-copy test fixed (`recommendation-intelligence/page-brief.test.ts` shared the
+  same `page-brief.ts` module). 8 other pre-existing test failures found during the full-suite gate
+  are unrelated (confirmed by import trace, not caused by this item; live in `proof-gsc`/other
+  concurrently-owned trees or unrelated domains) - not fixed here, out of this item's scope.
+- [x] UX1 (2026-07-02). **Universal Page Dossier backbone, DONE for every reachable surface:**
+  /page/[...path] gained a content band (title/meta/H1/word count/freshness from page_snapshots,
+  one new bounded point-read `loadPageContentSnapshot`) and a "Visit the live page" header link
+  (best-known full URL: GSC's own canonical URL, then the current change/plan, then the most
+  recent shipped-change record - no new I/O, just a precedence pick over loaders already in the
+  composition). Dossier now covers: header + live link, clicks chart with ship markers, top
+  queries, content, team reads (demand/friction/AI funnel/language gap), current
+  move/plan pick, rewrite tool, history of shipped changes. Link-wired every reachable page-name
+  surface through the shared `dossierHref` (Changes/worklist row titles, the 3 Page Surgeon
+  diagnostics screens) on top of the 4 already wired earlier (MoveCard, daily card, Results
+  ledger, war-room funnel) - 8 surfaces total. Confirmed NOT reachable from any nav or in-app
+  link (skipped, not worth wiring): /pages (deliberately disabled placeholder route),
+  /topics, /workbench (orphaned, zero inbound links app-wide). NOT built (would require new
+  join/compute logic, out of scope for a read-only wire-up): internal links in/out (no
+  linking-graph loader exists) and competitors-on-this-page's-topics (competitor audits are
+  keyed by domain, not by page/topic, with no existing join). AI citations/questions already
+  covered by the existing funnel band (crawled/cited/aiClicks counts + bottleneck sentence);
+  a full per-prompt-text list would need new aggregation and was left alone.
 - [x] UX2 (first slice, 2026-07-02). **Research hub with the Keywords library, Keywords slice
   DONE:** `/research/keywords` merges every cache Beacon has ever paid for into one row per
   keyword (searches/mo from DataForSEO, times-shown/clicks/position from GSC, difficulty,

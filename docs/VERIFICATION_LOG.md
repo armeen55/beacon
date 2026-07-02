@@ -7,6 +7,387 @@
 
 ---
 
+## 2026-07-02 - DREAM SITE V1 item D7: honest opportunity math (math layer + data fields)
+
+**What changed:** new `src/domains/forecast/opportunity-math.ts` (pure) - the ONE canonical
+`computeOpportunity()` entry point every naive at-stake number should route through. Composes,
+never duplicates: `ctrOpportunity90d`/`forecastRange` (`@/domains/experiments/pick-expectations`)
+for the tenant CTR curve, the bias-correction factor (item 27, `clampCorrectionFactor`), and the
+empirical capture band (item 64, `blendCaptureBand`/`captureBandForFamily` inputs, passed in by
+the caller). Output: `{lowPerMonth, highPerMonth, days, basis, hypothesisId}`. `days` defaults per
+lever family (14 for text-level changes - title/meta/h1/answer/link - matching the existing
+14-day-read language in `pick-expectations.ts`'s `changeOurMind`; 28 for structural/new-page
+changes) and accepts a measured override when a caller has one. `basis` is a plain sentence naming
+real evidence ("Based on your own click rates at each Google position and N settled results, a
+title change at position 9 usually adds 6 to 15 clicks a month within 28 days.") or, honestly,
+"I do not have enough history to size this yet" (no position/impressions) / "the gap here is too
+small to size honestly right now" (a real position exists but the page already meets or beats its
+curve's expected CTR - never a fabricated range either way). `hypothesisId` is a deterministic
+djb2 hash of `tenant|page|lever|day` so repeated renders of the same opportunity on the same day
+log once, and the same id space is shared by `build-canonical-changes.ts`'s plan-pick path (which
+already had a numeric forecast via `buildPickExpectations`) via a local copy of the same hash.
+`computeOpportunityFromGap` is a second, lower-level entry point for a caller that only has a
+pre-computed 90-day CTR-curve gap (not yet migrated to pass raw position/impressions) - same
+`forecastRange` call, same output shape, byte-identical range math, just without the plain-English
+position clause in the basis sentence.
+
+**Hypothesis capture:** new `src/domains/forecast/hypothesis-log.ts` - an additive-only, fail-soft
+I/O store (`captureHypothesis`/`loadHypothesisLog`/`hasHypothesisRecord`/
+`computeAndCaptureOpportunity`) following the exact `forecast-calibration-store.ts` sibling
+pattern: GLOBAL classification (rows carry `tenant_id`) + Supabase-mirrored (`opportunity-
+hypotheses`, registered in `src/lib/persistence/store-classification.ts`'s `GLOBAL_STORES` and
+`src/lib/persistence/json-store.ts`'s `SUPABASE_MIRRORED_STORES`). This is the render-time half of
+"every forecast funds a learnable hypothesis" - `forecast-calibration-store.ts` already grades a
+forecast at its day-28 settle; this store proves the exact hypothesis was on screen beforehand, so
+the two can be joined by `hypothesisId`/page/lever later. Idempotent per `hypothesisId` (a repeat
+capture of the same day's hypothesis is a no-op, first capture stands, never mutated).
+
+**Naive-claim sweep (data layer only, per the item's explicit file-scope restriction):**
+- `src/domains/changes/canonical-change.ts` / `build-canonical-changes.ts`: `upside` was
+  `m.demand ?? null` (a raw GSC-impressions/demand-graph-weight number labeled "monthly demand at
+  stake") - now the midpoint of `computeOpportunity`'s own range, null exactly when the range is.
+  `expectedOutcome` was a bare `forecastRange(...)` call with no correction factor or capture
+  band applied - now the full `basis` sentence from `computeOpportunity`/`computeOpportunityFromGap`.
+  Added additive optional fields `expectedOutcomeLow/High/Days` and `hypothesisId` to
+  `CanonicalChange` (numeric twins of the prose range, same pattern as `PickExpectations.
+  forecastLow/High`, item 28).
+- `src/app/(shell)/changes-data.ts`: now loads `forecast-calibration-store.ts`'s ledger, resolves
+  the tenant's own `correctionFactor` + per-`actionFamily` `captureBand` via
+  `forecast-calibration.ts` (the SAME machinery `build-today-preview.ts` already uses for the
+  nightly plan - not a second implementation), threads the real `topQueryPosition/Impressions/
+  Clicks90d` signal into `CanonicalMoveInput`, and fire-and-forget captures every actionable
+  (`suggested`/`ready`/`apply`) row's hypothesis via `captureHypothesis` (best-effort; a logging
+  hiccup can never slow or break the render).
+- `src/app/(shell)/today-moves-data.ts` + `src/app/(shell)/moves/moves-data.ts`: `demandAtStake`
+  was literally `top.reduce((s, m) => s + (m.demand ?? 0), 0)` - the exact "500k people at risk"
+  pattern the operator named verbatim in the DREAM SITE V1 mission text. Now the sum of each shown
+  move's own `computeOpportunity` forecast midpoint (using its real top query's position/
+  impressions/clicks when present), honest-zero for a move with no live per-query GSC signal -
+  never an inflated impression/weight count.
+- `src/domains/action-pack/types.ts` / `adapters.ts`: added nullable `ActionPack.forecast`
+  (`ActionPackForecast`), computed in both `moveCandidateToActionPack` and
+  `aeoActionPackToActionPack` (always null for the latter - Profound-coverage packs carry no GSC
+  position signal, so every one would honestly read "not enough history," which would just be
+  visual noise repeated on every card - the field's absence IS the honest signal). Carried through
+  both `dedupeActionPacks` and `collapseCreateContentPacks`'s merge logic (prefer existing/richer,
+  same posture as the other optional evidence fields).
+
+**What was deliberately left alone (in scope for a future slice, not this one):**
+`adapters.ts`'s `whyNotNoiseForMove` still surfaces a raw `demand`/`dollarValue`/`impressions`
+number - but explicitly LABELED as such ("demand 26981", "$-signal 412", "26,981 GSC impressions")
+as evidence-of-relevance provenance text, not presented as a clicks/revenue forecast; this is a
+different, already-honest pattern (trust receipts) and changing it was out of this item's naive-
+claims-only scope. `build-daily-plan-record.ts`/`build-today-preview.ts`'s plan-pick path was not
+touched - it already computes an honest range via `buildPickExpectations` (CTR curve + correction
+factor + empirical capture band, same machinery), it simply does not yet call
+`captureHypothesis`; wiring that in is listed as follow-up, not done here, since it sits in a file
+this item's rules did not require touching and doing so risked a larger blast radius than the
+sweep needed.
+
+**Tests:** 28 new (`src/domains/forecast/opportunity-math.test.ts`) covering the honest-gap path,
+byte-identical range math vs a direct `forecastRange`/`ctrOpportunity90d` call, correction-factor
+and capture-band composition, the basis sentence's real-evidence content (position/target/settled-
+count clauses), lever-name coverage across both the `ExperimentLever` and `ActionType`
+vocabularies (a real regression: an unmapped lever produced "a change change" until fixed), time-
+to-impact defaults + measured override, hypothesisId determinism, and `computeOpportunityFromGap`'s
+byte-identical legacy path. 15 new (`src/domains/forecast/hypothesis-log.test.ts`) covering round-
+trip, tenant scoping, idempotency, the honest null-range capture case, fail-soft read/write, and
+additive-only (never-mutates) history. `src/domains/action-pack/collapse-create-page-packs.test.ts`
+updated (added `forecast: null` to its literal `ActionPack` factory). Re-verified: 154 existing
+targeted tests across `src/domains/forecast`, `src/domains/changes`, `src/domains/action-pack`,
+`src/domains/experiments/{pick-expectations,forecast-calibration,forecast-calibration-store,
+empirical-capture}.test.ts`, and `src/lib/persistence` all green; the full `src/app/(shell)` suite
+(41 files, 452 passed, 1 pre-existing skip) green. `npm run typecheck` clean project-wide.
+
+**Ground-truth (real Supabase, tenant-iranopedia, read-only, no writes):**
+`scripts/_d7-opportunity-math-probe.ts` loads the real ranked worklist + real GSC per-query rows
+and prints the OLD claim vs the NEW range/basis for the top 10 pages ranked by the OLD naive
+demand number (the pages most likely to have carried an inflated claim). Result: OLD sum across
+these 10 = 280,713 (raw demand-graph weight/impressions); NEW sum = ~11 real clicks/month. Per-row
+detail: 3 of 10 have a real live per-query GSC signal (`/persian-male-names` pos 3.76/10.0% CTR
+vs curve's ~8% at pos 4 - already overperforming, honest null; `/persian-female-first-names` pos
+5.62/6.51% CTR vs curve's ~5% - already overperforming, honest null; `/iran-flags` pos 8.53/0.08%
+CTR vs curve's ~3% at pos 9 - genuine gap, forecasts "6 to 15 clicks a month within 28 days");
+7 of 10 have no live per-query row for that exact URL variant today (honest "I do not have enough
+history to size this yet", not a stale reuse of the demand-graph's precomputed weight). Command:
+`set -a; . ./.env.local; set +a; BEACON_TENANT_ID=tenant-iranopedia npx tsx --require
+./scripts/mock-server-only.cjs scripts/_d7-opportunity-math-probe.ts`.
+
+**Scope compliance:** confirmed zero diff on `src/app/(shell)/changes-list-client.tsx`, demand-
+graph candidate generation (`build-graph.ts`, `gap-compiler.ts`, `load-graph.ts`,
+`evidence-packet.ts`), `src/app/(shell)/research/keywords/**`, and `src/app/(shell)/page/[...path]/
+**` (the dossier route) - all owned by concurrent agents per this item's explicit instructions.
+
+**Not yet wired (follow-up, listed not built):** the `/moves` and Changes-list UI components
+actually rendering `ActionPack.forecast` / `CanonicalChange.expectedOutcomeLow/High/basis` (data
+fields exist and are populated end to end; client rendering is a UX-track follow-up;
+`changes-list-client.tsx` already renders `c.expectedOutcome` unconditionally when truthy, so it
+picks up the new honest sentence automatically with zero code change, but does not yet show the
+new numeric range or a "why" breakdown); `build-daily-plan-record.ts`/`build-today-preview.ts`'s
+plan-pick path capturing a hypothesis at render time; a launched-page graduation path for
+`create_page`/`create_new_page` candidates (correctly honest-gap today since no position exists
+pre-launch, by design - not a bug, just unbuilt).
+
+---
+
+## 2026-07-02 - DREAM SITE V1 item D1: native 4-engine poller becomes the internal Profound (analysis layer)
+
+**What changed:** the analysis layer over the already-built native 4-engine poller
+(`src/domains/ai-visibility/run-engine-poll.ts`, unchanged). New pure module
+`src/domains/ai-visibility/native-intel.ts` computes, from `prompt_answer_observations` rows
+only: recurring domains (third-party sites AI keeps citing across distinct prompts, ranked by
+distinct-prompt count then citation count, own-domain and search-engine redirect-wrapper hosts
+excluded), recurring exact pages at the same ranking shape, a per-prompt per-engine
+we-are/we-are-not matrix with the real answer sentence quoted when mentioned (null, never
+fabricated, when the mention falls outside the stored 400-char excerpt), and native question
+expansion (question-mark sentences extracted from answer text, list-marker prefixes stripped,
+deduped, never a question expanding into its own source prompt). New
+`src/domains/ai-visibility/native-intel-loader.ts` does the one paged Supabase read (1000-row
+cap, most-recent-first, tenant-scoped) and builds tenant brand variants; fail-soft to an honest
+empty report throughout.
+
+**Surface:** `/prompts` gained a new self-hiding "Who AI keeps recommending" block
+(`src/app/(shell)/prompts/native-intel-view.tsx`), rendered above the existing Profound-powered
+`AiQuestionsView` in both page branches of `src/app/(shell)/prompts/page.tsx`, honestly labeled
+"From my own checks of the AI engines... not from Profound." Additive, not a replacement:
+Profound stays wired; full deletion is a staged D1-followup per the operator's own "ok to
+delete... but" framing in the DREAM SITE V1 mission text, not executed here.
+
+**Fanout pipeline:** `src/domains/demand-graph/load-fanout-seeds.ts` (the single loader every
+`fanoutSeeds` consumer reads - demand graph, evidence packets, keyword research, FAQ drafter) now
+merges Profound fanout rows with native question-expansion seeds via new `mergeFanoutSources`
+(pure): same `FanoutSeed` shape, new additive optional `source: "profound" | "native"` field
+added to the type in `src/lib/connectors/profound/summarize-fanouts.ts`, deduped by normalized
+question text (weight summed, prompts unioned on overlap), so every existing consumer gets native
+follow-up questions for free with zero call-site changes.
+
+**Ground truth (real spend, real data):** `prompt_answer_observations` was empty for
+tenant-iranopedia going into this work (first real nightly cron run was pending). Ran ONE bounded
+live poll of 8 real Iranopedia questions (the tenant's own synced Profound prompt seeds via
+`loadProfoundQuestionSeeds`, not the global prompt-library store, which currently holds a
+different tenant's questions - confirmed a pre-existing condition, out of scope here) through
+`runEnginePollForTenant`'s own existing budget gauntlet (native OpenAI/Perplexity keys +
+DataForSEO cache/dry-run/monthly-cap path). Real cost: **$0.5366** (gemini $0.2966 + claude $0.24,
+both real DataForSEO spend; claude's 8 calls all failed server-side and were still billed;
+chatgpt + perplexity ran on native API keys at $0 marginal cost). DataForSEO monthly spend before
+this run was $0.129 of the $50 cap; after, $0.666.
+
+Wrote 24 real observation rows across 3 working engines (chatgpt, gemini, perplexity; claude
+errored on every call). Real native-intel output over those 24 rows: 15 recurring domains led by
+reddit.com (7 of 8 prompts, Perplexity), facebook.com (5 of 8, Perplexity), youtube.com (4 of 8,
+chatgpt/perplexity), en.wikipedia.org (3 of 8, chatgpt/perplexity); we-are/we-are-not matrix 1
+present / 7 absent (Iranopedia's own `/persian-female-first-names` page was cited by ChatGPT at
+citation rank 4 on "What are beautiful Persian girl names and their meanings?", mention position
+1016 characters into the answer, outside the 400-char excerpt window so no sentence could be
+quoted for that cell - honest, not a bug); 0 native follow-up questions found this run (the
+400-char `answer_excerpt` truncates before most markdown-formatted answers reach a "?" - a real,
+documented limitation of the current storage, not a defect in the extractor, confirmed by manual
+inspection of all 24 raw excerpts).
+
+**Rendered proof:** `curl -m 180` against the running dev server, `/prompts`, tenant-iranopedia.
+Block renders with the real numbers above: "From my own checks of the AI engines (ChatGPT, Gemini
+and Perplexity), not from Profound. I asked 8 real questions directly and read what came back."
+"You showed up: 1." "You were absent: 7." "Sites that keep coming up: 15." Per-prompt engine
+badges render real prompt text and per-engine status (e.g. "ChatGPT: does not"). The empty
+native-questions sub-section correctly self-hides (verified zero occurrences of its header string
+in the rendered HTML) rather than showing a hollow placeholder.
+
+**Tests:** 38 new/updated, all green - `native-intel.test.ts` (30, covering recurrence ranking,
+own-domain and redirect-wrapper exclusion, sentence extraction, the presence matrix including
+latest-observation-wins and absent-everywhere sorting, question extraction and rollup, the
+combined report), `tests/domains/demand-graph/load-fanout-seeds.test.ts` (+5 for
+`mergeFanoutSources`), `summarize-fanouts.test.ts` (2 updated for the new `source` field). Broader
+targeted run across the `ai-visibility` domain (`run-engine-poll`, `engine-gaps`,
+`question-universe`, `answer-drift-loader`, `second-order-citations`): 106/106 pass, no
+regressions. `npm run typecheck` clean project-wide.
+
+**Found and flagged, not fixed (outside D1's file scope):** `observation_runs` writes silently
+fail with a `tenant_id` NOT NULL constraint violation somewhere in the dual-write path during the
+live poll, even though `run-engine-poll.ts` sets `tenant_id` correctly on the row it builds - this
+breaks any "did last night's poll actually run" audit read from that table. Spawned as a separate
+background task rather than fixed here since the root cause lives in `dual-write.ts` /
+`persist-run.ts`, outside the analysis-layer scope of this item.
+
+**Caveats:** the global prompt-library store (`src/domains/prompts/prompt-library.ts`) is
+tenant-agnostic (GLOBAL, per its own file header) and currently holds a different tenant's
+prompts; the real nightly cron for tenant-iranopedia would poll those irrelevant questions unless
+this is fixed, which is a pre-existing condition outside D1's scope, not introduced or fixed here.
+Native question expansion will read as under-populated until either the stored answer excerpt is
+lengthened or more nights of real polling accumulate more raw text to extract from - the pipeline
+is correct and tested; the current live count (0) is a data-volume/truncation fact, not a bug.
+
+---
+
+## 2026-07-02 - MASTER PLAN v2 item UX0: New Pages data-correctness prerequisites
+
+**What changed (operator personally found all of these live, fixed all 4):**
+
+**1. New-page generator corruption, root-caused and fixed:**
+- **Root cause of the topic-gluing bug:** `src/domains/demand/keyword-match.ts`'s `FILLER` set
+  didn't include superlatives/quantifiers ("most", "many", "common", etc.), so "most beautiful
+  natural places" and "most common name in iran" shared the word "most" and falsely matched as a
+  weak keyword hit. That false match then let `src/domains/demand/canonical-create-page.ts` merge
+  two UNRELATED topics because both loosely touched the same noisy cached keyword. Fixed both:
+  the FILLER set now excludes superlatives, and `mergeSignal()` requires the two candidates ALSO
+  share a distinguishing token with EACH OTHER (not just the shared keyword) before a weak-keyword
+  merge is allowed.
+- **New explicit coherence gate** (`src/domains/demand-graph/topic-coherence-gate.ts`, PURE): tests
+  a candidate's member sub-queries/URLs against its own head label (reusing
+  `evidence/relevance-gate.ts`'s distinguishing-token rule); drops disagreeing members, suppresses
+  the whole candidate when <50% agree. Wired into `load-graph.ts`'s create_page synthesis (drops/
+  suppresses BEFORE a candidate becomes a Move, logged) and, independently, into
+  `prepare-create-page-verdicts.ts`'s Prepare-all action (never spends a SERP call on an incoherent
+  candidate; reports `skippedQualityGate` back to the operator).
+- **New ownership gate** (`src/domains/demand-graph/create-page-ownership-gate.ts`, PURE): a
+  create_page Move whose OWN attached AEO evidence shows `ownCitationCount > 0` (AI already cites
+  the tenant for this topic) is reclassified to `edit_page` (pointing at the actual cited owned
+  URL) or dropped - never left claiming "you have no page yet". Runs right after the Profound
+  evidence attach, before canonicalization.
+- **Title-grammar hardening** (`src/domains/demand-graph/clean-topic-label.ts`): new
+  `isUnparseableLabel()` rejects a label trailing off on a bare orphan verb (generic English list:
+  hear/read/see/cross/keep/etc.) - catches "Deadly Misconceptions About Iran Hear Cross". Wired
+  into both `isJunkTopic` (board-facing gate) and `load-graph.ts`'s local `isJunkTopicLabel`
+  (upstream candidate-creation gate).
+- **Duplicate-topic dedup** (`src/domains/demand-graph/dedupe-new-page-cards.ts`, PURE): a final
+  pass over the New Pages board's combined card list (graph + keyword-gap + wiki-gap cards)
+  collapses reordered/near-duplicate topics ("restaurants in tehran" vs "tehran restaurants") to
+  ONE card, keeping the one with a real DataForSEO search-volume number over a proxy score.
+
+**2. Measuring-count unification:** `src/app/(shell)/changes-data.ts` now also reads
+`loadProofLedgerCached` (same canonical source `page.tsx`'s A2 fix already threads on Today) and
+exposes `measuringCountCanonical` on `ChangesView`. `changes-list-client.tsx`'s Measuring tab badge
+shows the canonical count, and says "N of M" (e.g. "10 of 16") whenever this worklist's own subset
+is smaller than the tenant-wide total - never a bare number that silently disagrees with Today.
+
+**3. Impressions vs. searches, swept app-wide:** `c.upside` in `changes-list-client.tsx` (GSC
+impressions/demandWeight) was labeled "searches/mo at stake" - fixed to "shown on Google/mo at
+stake". A repo-wide audit (deep-research subagent) found 4 more instances of the same bug class,
+all fixed: `build-daily-candidates.ts` ("People search X (N searches)" -> "Google shows this page
+for X (N times a month)"), `refresh-brief.ts` (`buildNewQueryGapSentence`, same fix),
+`language-gaps.ts` ("This page draws N searches typed in..." -> "shown on Google N times a month
+for queries typed in..."), and the workbench striking-distance surface (`workbench-view.tsx` +
+`page-brief.ts`) whose `strikingDistance.volume` field is GSC impressions dressed as "searches/mo"
+because the intended DataForSEO/SEMrush source (`packet.semrush`) has been permanently dead code
+since the Phase F.1 SEMrush removal - relabeled to "shown ...{n}/mo" (a real DataForSEO rewire is
+flagged as a separate future item, out of this pass's scope).
+
+**4. Prepare-all safety:** `prepareCreatePageVerdicts` now runs the same coherence gate directly
+(belt-and-suspenders with the upstream load-graph gate) and reports `skippedQualityGate: {label,
+reason}[]` in its summary; `NewPagesPrepareButton` surfaces "skipped N that failed my quality
+check" in its result message. Also fixed 2 pre-existing em-dash violations in that button's copy
+while editing it.
+
+**Ground truth (real tenant-iranopedia data, dev server on :3142, `curl -m 180`, plus a
+`scripts/_ux0-newpages-gate-probe.ts` tsx probe against the live Supabase-backed demand graph):**
+- Coherence gate: 2 candidates SUPPRESSED ("all about nowruz kids", "how create relaxing spa" -
+  each only 1/3 members on-topic), 4 candidates TRIMMED (1-2 off-topic members dropped, card kept).
+- Ownership gate: 10 candidates DROPPED for being already AI-cited under their own domain
+  (including "persian literature", "gifts", "irans most beautiful places" and 7 others) - 0
+  reclassified to edit_page this run (no specific owned URL was identified in the cited-pages set
+  for any of them, so the gate correctly dropped rather than guessed a URL).
+- Live `/worklist` render, quoted: the "Iran Natural Attractions" card now shows "Also covers:
+  Travel Iran Beautiful Natural Wonders" (absorbed as a sibling under a coherent parent, not its
+  own corrupted card). "Persian Literature" and "Deadly Misconceptions About Iran Hear Cross" do
+  not appear anywhere in the rendered board. The Measuring tab renders literally `Measuring 10 of
+  16` (quoted from the live HTML). A ranked-change row renders `13 shown on Google/mo at stake`
+  (tooltip: "13 times shown on Google a month, at stake") where it previously said "13 searches/mo
+  at stake".
+- All 3 operator-found corrupted labels confirmed gone/reclassified by both the fresh-snapshot
+  probe and the live curl.
+
+**Tests:** 46 test files / 580 tests green across every touched module (topic-coherence-gate.ts,
+create-page-ownership-gate.ts, dedupe-new-page-cards.ts, clean-topic-label.ts, keyword-match.ts,
+canonical-create-page.ts, load-graph.ts, prepare-create-page-verdicts.ts, changes-list-client.tsx,
+build-daily-candidates.ts, refresh-brief.ts, language-gaps.ts, page-brief.ts and its shared
+recommendation-intelligence pinned-copy test). `npm run typecheck` clean. One pre-existing pinned
+test was updated to match the new, correct, dash-free copy
+(`tests/domains/recommendation-intelligence/page-brief.test.ts`, which imports the SAME
+`page-brief.ts` module the workbench uses). A full `npx vitest run` (20k tests) surfaced 8
+additional pre-existing failures, all confirmed by direct import-trace to be unrelated to this
+item's files (concurrent work in `proof-gsc`/`experiments`/`citability`/unrelated diagnostics
+domains) - not fixed here, out of scope, flagged for their respective owners.
+
+**Recommended capability for next step: Balanced** - UX1 (Universal Page Dossier) is DONE per the
+master plan; UX2's first slice (Keywords library) is also DONE. Next up per the locked sequencing
+is continuing UX2's remaining sub-hubs (Pages, Topics, Content roadmap) or UX3 (Changes as a dense
+inbox) - medium-complexity UI + data-flow work, not architecture-level, so Sonnet-tier is right.
+
+## 2026-07-02 - MASTER PLAN v2 item UX1: Universal Page Dossier backbone
+
+**What changed:** completed `/page/[...path]` (the page dossier route) and wired every reachable
+page-name surface in the app to it. Added a content band (title/meta description/H1/word
+count/last-crawled freshness) and a "Visit the live page" header link. New bounded loader
+`loadPageContentSnapshot(tenantId, url)` in `src/domains/recommendation-intelligence/page-freshness.ts`
+does one `.eq("tenant_id").eq("url")` point read against `page_snapshots` (same pattern as
+`answer-alignment-store.ts`/`factual-entailment-store.ts`, including the www./bare-host retry),
+never a bulk scan. `PageDossier.liveUrl` resolves the best-known full URL from data already loaded
+in the composition (GSC canonical URL, then the current change/plan pick, then the latest shipped
+record) with zero new I/O.
+
+**Dossier sections, before -> after:** chart, queries, team reads, current move, rewrite, history
+(6 bands) -> chart, queries, content (new), team reads, current move, rewrite, history (7 bands).
+
+**Link-wiring swept the app** for plain-text page-path/URL renders not yet going through the
+shared `dossierHref` helper. Newly wired: `changes-list-client.tsx` (`/worklist` Changes row
+title - the single highest-traffic unwired surface), `diagnostics/page-surgeon/page-surgeon-client.tsx`,
+`diagnostics/page-surgeon/proof/page.tsx`, `diagnostics/page-surgeon/review/review-client.tsx`.
+Already wired before this item (confirmed, untouched): `today-moves-card.tsx` (MoveCard),
+`daily-experiments-section.tsx`, `proof/page.tsx` (Results ledger), `war-room-sections.tsx`.
+8 reachable surfaces total link into the dossier now.
+
+**Investigated and explicitly skipped** (confirmed orphaned - zero inbound links anywhere in the
+app, not in `src/lib/navigation.ts`'s `navigationGroups`, not linked from any card): `/pages`
+(deliberately disabled placeholder route, own file header says so), `/topics`, `/workbench`.
+
+**Investigated and explicitly not built** (would need new join/aggregation logic, out of scope
+for a read-only composition item that must not add heavy new computation): an internal
+links-in/out band (no linking-graph loader exists anywhere in the codebase today) and a
+competitors-on-this-page's-topics band (competitor teardown audits are keyed by domain, not by
+page or topic, and no existing join bridges the two). AI citations/questions-answered are already
+covered by the existing `teamReads.funnel` band (crawled/cited/aiClicks counts + a plain
+bottleneck sentence).
+
+**Fixed in passing:** 15 pre-existing em/en dash violations across the 4 newly-touched files
+(`changes-list-client.tsx`, `page-surgeon-client.tsx`, the Page Surgeon proof page, the Page
+Surgeon review client) - found while editing those files, fixed per the operator's absolute
+no-dash rule since they sat immediately next to the new code.
+
+**Tests:** 7 new tests for `loadPageContentSnapshot` (empty input, found row, www-fallback
+found, no row either variant, read error, thrown exception, malformed-URL is a no-op retry) in
+`src/domains/recommendation-intelligence/page-freshness.test.ts`. Extended
+`page-dossier-data.test.ts` (content/liveUrl composition + fail-soft cases) and
+`dossier-sections.test.ts` (Suspense count, content-band empty state + definition-list shape,
+header live-link markup, 4 new cross-app link pins). 65 total dossier-area tests pass.
+`npm run typecheck` clean project-wide.
+
+**Ground-truthed live on tenant-iranopedia** via `curl -m 180` against the running dev server
+(`http://localhost:3142`):
+
+- `/page/persian-female-first-names` rendered end to end with real data: header with "Visit the
+  live page ↗"; a 59-day clicks chart; 10 real top queries (top: "persian girl names", 429
+  clicks / 6,588 impressions / position 5.6); the new content band ("Popular Persian Girl Names
+  List with Meanings" title, a real meta description, "Popular Persian Female(Girl) First Names
+  and their Meanings" H1, 1,091 words, "Last crawled 21 days ago"); team reads (1,510 clicks /
+  44,430 impressions over 90 days; visitor friction with a real rage/dead-click read; "AI answers
+  cited this page 11 times"); a live current recommendation ("Capture clicks... clicks dropped
+  51% (226 -> 110)"); an honest empty history band.
+- `/worklist` rendered real `/page/...` links on Changes row titles: `/page/ahvaz`,
+  `/page/cities`, `/page/famous-iranian-poets`, and 20+ other distinct pages linked on one render.
+- `/diagnostics/page-surgeon/proof` rendered `/page/persian-male-names` and the corrected
+  "Page Surgeon, proof plan" heading (dash removed).
+- Zero em/en dashes found in any of the three rendered pages' raw HTML.
+
+**Caveats:** internal-links and competitors-per-page bands remain unbuilt (see above, both need
+new join logic this item's scope excludes). `/pages`/`/topics`/`/workbench` still exist as routes
+but stay unwired since nothing in the live app can navigate to them today; if they are ever
+revived, they should get dossier links too. One other agent committed unrelated concurrent work
+(`4c73c154`, `77a0e024`) to this shared branch/worktree during this session; this item's changes
+rode along inside those commits since `git commit` on a shared worktree captures the full working
+tree, not just one agent's files - confirmed byte-for-byte via `git show`/`git diff` that nothing
+of this item's work was lost or altered by that overlap.
+
+---
+
 ## 2026-07-03 - MASTER PLAN v2 item N13: detect and replace comparison pages edited mid-window (worktree, NOT committed)
 
 **What changed:** a ship's diff-in-diff comparison pages (controlPages) are chosen once at
@@ -31400,3 +31781,25 @@ Real prepared-Move structured drafts (24 with a draft, all 24 had a matching pag
 **Honest caveats:** (1) `difficulty` shows "?" for every one of the top 200 rows sampled - the cached keyword-difficulty run and the tenant's actual top GSC queries do not currently overlap; the merge logic is correct (pinned by a direct unit test) but has nothing to show yet for this tenant's real top keywords. (2) `relatedQuestions` and `competitorOwners` depend on how many queries have a live SERP history reading or a fresh keyword-gap run - a keyword with only GSC history shows those columns empty, which is the honest state, not a bug. (3) This is the FIRST UX2 slice only: Pages, Topics, AI questions (already existed), Competitors (already existed), and Content roadmap sub-hubs are not built.
 
 **Next action:** UX2's remaining sub-hubs (Pages, Topics, Content roadmap) per the master plan, OR continue sequencing into UX3 (Changes as a dense inbox) per the locked UX0 -> UX1 -> UX2 -> UX3 -> UX4 -> UX5 order.
+
+## 2026-07-02 - D1 ground-truth fix: nightly poll read another tenant's questions; observation_runs tenant_id silently dropped
+
+**Root cause 1 (borrowed-tenant questions):** `run-engine-poll.ts`'s `defaultDeps().loadPrompts` called `getActivePrompts()` from `src/domains/prompts/prompt-library.ts`, which reads the operator-shared, NON-tenant-scoped `.data/prompt-library.json` store (its own file header says "GLOBAL ... no tenant_id on rows"). Nothing in that read path filtered by tenant, so polling tenant-iranopedia asked whatever was in that one shared file. Ground truth confirmed `tracked_prompts` (the REAL tenant-scoped question table, already used by settings/prompts and onboarding launch) held zero active rows for `tenant-iranopedia` in the live DB - the tenant's own library had never been (re)seeded there, so the poll was silently substituting the shared global corpus instead of failing loud.
+
+**Fix 1:** new `src/domains/ai-visibility/tenant-question-library.ts` with `loadTenantQuestionLibrary(tenantId)`, which reads `tracked_prompts` filtered by `.eq("tenant_id", tenantId)` only. `run-engine-poll.ts`'s `RunEnginePollDeps.loadPrompts` signature changed from `() => Promise<LibraryPrompt[]>` to `(tenantId: string) => Promise<LibraryQuestionInput[]>`, default wired to the new tenant-scoped loader, call site passes `tenantId`. Zero-question tenants now hit a named `log.warn` ("tenant has ZERO active tracked_prompts...") both inside the loader and again in the orchestrator's `no_prompts` branch, and the returned `detail` string names the tenant explicitly - impossible to mistake for a healthy poll again.
+
+**Fix 2 (idempotent reseed):** `tenant-question-library.ts` also exports `seedTenantQuestionLibraryIfEmpty` (only writes when the tenant's `tracked_prompts` is genuinely empty) which merges GSC question-shaped queries (`gsc_daily_rows`, filtered to queries that start with a wh-word/aux-verb or end in "?", ranked by impressions) with existing synced `profound_prompt_rows` text for that tenant, dedupes, and caps at 50 - all $0 reads of data already in the DB, no new external calls.
+
+**Root cause 2 (observation_runs silent write failure):** `observation_runs` carries a NOT NULL `tenant_id_nonempty_chk` constraint. `ObservationRun.tenant_id` is a required field and every caller populates it correctly, but `persist-run.ts`'s `upsertObservationRunToDb` built its Supabase upsert payload with an explicit column list that never included `tenant_id` - every dual-write upsert through this path violated the constraint and failed, caught and logged as "non-fatal" (`console.error`), which made the failure invisible. The parallel `dual-write.ts` `syncObservationRuns` path already stamped `tenant_id` correctly via `tenantizeRows`; this was the one path that had not been fixed.
+
+**Fix 3:** added `tenant_id: run.tenant_id` to the upsert payload in `upsertObservationRunToDb` (additive, one field).
+
+**Tests added:** `src/domains/ai-visibility/tenant-question-library.test.ts` (12 tests: tenant-A-never-sees-tenant-B scoping x3, fail-loud zero-question warning, empty-tenantId refusal, seed-candidate merge/dedupe/cap x2, idempotent reseed x3 including the no-op-when-already-populated case). `src/domains/observations/persist-run.test.ts` (2 tests: tenant_id carried through to the Supabase upsert payload for two different tenants, no cross-tenant bleed). `src/domains/ai-visibility/run-engine-poll.test.ts` gained a new describe block (3 tests: `loadPrompts` called with the polling tenant's own id and never another tenant's; a shared fake per-tenant store proves tenant A's poll never asks tenant B's questions; a genuinely empty tenant's `no_prompts` detail names the tenant).
+
+**Verified:** `npm run typecheck` clean. Targeted vitest: 39 passed across the 4 directly touched/added test files (`tenant-question-library.test.ts`, `run-engine-poll.test.ts`, `persist-run.test.ts`, `question-universe.test.ts`); a wider sweep of `src/domains/ai-visibility`, `src/domains/observations`, `src/domains/prompts`, `settings/prompts`, and `onboard` (18 files) all passed (319 tests), confirming no regression from the `loadPrompts` signature change.
+
+**Ground truth (real Supabase, env sourced, one-off `scripts/_d1-tenant-question-probe.ts` run then deleted - not part of the shipped fix):** BEFORE: `tenant-iranopedia` = 0 active tracked_prompts, `tenant-ritz-founder` = 0 active tracked_prompts (both empty; ritz-founder was never the source of leaked questions in the live DB itself - the leak was via the separate global `prompt-library` json-store, not cross-reads of `tracked_prompts`). Ran the idempotent reseed for `tenant-iranopedia` only: inserted 50 questions (merged from 200 Profound-prompt-text candidates + 1 GSC question-shaped query, deduped/capped). AFTER: `tenant-iranopedia` = 50 active questions, first 5 all genuinely Iranopedia-relevant ("What are good websites for learning basic Persian phrases?", "What Persian names work well for Iranian-American babies?", "What are popular Persian kebab varieties?", "What are beautiful Persian girl names and their meanings?", "What are the most beautiful words in the Persian language?"). `tenant-ritz-founder` re-checked after the reseed: still 0, confirmed untouched. No live engine poll was run (no spend).
+
+**Honest caveat:** the reseed only ran once, manually, from the probe - it is NOT wired into the nightly poll itself (by design, so the poll never silently mutates the tenant's question set on its own). If `tenant-ritz-founder` (or any other tenant) is also genuinely empty in `tracked_prompts`, the same `seedTenantQuestionLibraryIfEmpty` function is available to reseed it the same way once real GSC/Profound source data exists for that tenant.
+
+**Next action:** wire `seedTenantQuestionLibraryIfEmpty` as a one-time-per-tenant guard inside the onboarding/launch flow (or a small ops script triggerable per tenant) so a newly onboarded tenant with zero tracked_prompts gets auto-seeded from its own GSC/Profound data instead of requiring a manual probe run.
