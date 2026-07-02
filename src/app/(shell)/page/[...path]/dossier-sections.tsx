@@ -84,6 +84,57 @@ export async function DossierQueriesSection({ path }: { path: string }) {
   );
 }
 
+function daysAgoLabel(iso: string | null): string | null {
+  if (!iso) return null;
+  const then = new Date(iso).getTime();
+  if (!Number.isFinite(then)) return null;
+  const days = Math.max(0, Math.floor((Date.now() - then) / 86_400_000));
+  if (days === 0) return "today";
+  if (days === 1) return "1 day ago";
+  return `${days} days ago`;
+}
+
+export async function DossierContentSection({ path }: { path: string }) {
+  const dossier = await loadPageDossier(path);
+  const content = dossier.content;
+  if (!content) {
+    return (
+      <div className={CARD}>
+        <div className={LABEL}>Content on the page</div>
+        <p className="mt-2 text-[13px] text-muted-foreground">
+          I have not crawled this page yet, so I cannot show its title, meta description, or headline here.
+        </p>
+      </div>
+    );
+  }
+  const freshness = daysAgoLabel(content.fetchedAt);
+  return (
+    <div className={CARD}>
+      <div className="flex items-baseline justify-between gap-2">
+        <div className={LABEL}>Content on the page</div>
+        {freshness ? <span className="text-[11px] text-muted-foreground">Last crawled {freshness}</span> : null}
+      </div>
+      <dl className="mt-2 space-y-2">
+        <div>
+          <dt className="text-[11px] font-medium text-muted-foreground">Title tag</dt>
+          <dd className="text-[13px] text-foreground">{content.title || "Not found"}</dd>
+        </div>
+        <div>
+          <dt className="text-[11px] font-medium text-muted-foreground">Meta description</dt>
+          <dd className="text-[13px] text-foreground">{content.metaDescription || "Not found"}</dd>
+        </div>
+        <div>
+          <dt className="text-[11px] font-medium text-muted-foreground">Headline (H1)</dt>
+          <dd className="text-[13px] text-foreground">{content.h1 || "Not found"}</dd>
+        </div>
+      </dl>
+      {content.wordCount > 0 ? (
+        <p className="mt-2 text-[11px] text-muted-foreground">{formatMetric(content.wordCount)} words on the page.</p>
+      ) : null}
+    </div>
+  );
+}
+
 export async function DossierTeamReadsSection({ path }: { path: string }) {
   const dossier = await loadPageDossier(path);
   const { demand, friction, funnel, languageGaps } = dossier.teamReads;

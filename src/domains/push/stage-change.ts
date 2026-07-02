@@ -23,6 +23,17 @@ import "server-only";
  *      schema, additive body section). No route -> paste.
  *   7. For a worklist move: the deterministic QA verdict must not have
  *      downgraded it (same backstop the armed one-click accept uses).
+ *   7b. N8 (law 3): the proposed text must pass factual entailment against the
+ *      page's own stored body (page_snapshots body_paragraph_sample) - a draft
+ *      naming a number, entity, or superlative found NOWHERE (not the page,
+ *      not a dated fact) never auto-publishes. A claim that CONTRADICTS the
+ *      page but is backed by a dated, sourced fact is an allowed CORRECTION
+ *      (the page can be stale; fixing it is the point) - it stages normally
+ *      and the correction rides on the success receipt. Fails OPEN to a paste
+ *      instruction on a real block (never blocks the human from pasting it
+ *      themselves after reading the warning) and fails LENIENT on any
+ *      read/check error - this is a MORE conservative check on top of
+ *      executePush, never a replacement for it.
  *   8. executePush runs every structural rail and does the write.
  *
  * Receipt contract: { staged, receiptLine, reason? }. receiptLine is always
@@ -64,6 +75,8 @@ import {
 } from "@/domains/recommendations/recommended-edits-persistence";
 import { stripBannedDashes } from "@/lib/copy/strip-dashes";
 import { scheduleIndexNowPing } from "@/lib/connectors/indexnow/ping-on-verify";
+import { checkFactualEntailment, type AuthoritativeFact } from "@/domains/drafts/factual-entailment";
+import { readPageBodyTextForEntailment } from "@/domains/drafts/factual-entailment-store";
 
 export type { StagingAvailability } from "./stage-route";
 
@@ -96,6 +109,55 @@ export type StageDeps = PushDeps & { fetchImpl?: typeof fetch };
 /** Daily-pick item states a stage click is allowed from. Anything already
  *  live/tracking (or skipped) refuses; a second push would muddy the proof. */
 const DAILY_STAGEABLE_STATUSES = new Set(["ready_to_apply", "verification_failed"]);
+
+/** Action types whose proposed_text is prose worth entailment-checking (title/
+ *  meta/h1 rewrites and additive body/answer-block sections). Schema and other
+ *  structural pushes carry no free-text factual claims, so they are exempt. */
+const ENTAILMENT_CHECKED_ACTIONS = new Set([
+  "edit_title",
+  "edit_meta",
+  "change_h1",
+  "add_answer_block",
+  "add_faq",
+  "add_h2_section",
+]);
+
+export type EntailmentGateResult = {
+  /** True when the stage must be BLOCKED (an unsupported invention was found). */
+  blocked: boolean;
+  /** Plain-English violation lines (only present when blocked). */
+  violations: string[];
+  /** Plain-English correction lines - a claim that contradicts the page but is
+   *  backed by a dated authoritative fact. NEVER blocks the stage; the page
+   *  itself can be stale, and correcting it is Beacon's job. Callers should
+   *  surface these alongside a successful stage so the operator sees what
+   *  changed and why. */
+  corrections: string[];
+};
+
+/** N8 publish-gate decision (PURE - the I/O of reading the page body /
+ *  authoritative facts lives in the caller). Never blocks action types with no
+ *  free-text claim to verify, and never blocks when there is no page body to
+ *  check against (an ungrounded gate would be a false positive machine, not a
+ *  safety rail - see factual-entailment.ts's own no-grounding abstention).
+ *
+ *  OPERATOR CORRECTION (2026-07-02): the page itself may be stale or wrong;
+ *  fixing that is Beacon's job. A claim that CONTRADICTS the page but is
+ *  backed by a dated, sourced `AuthoritativeFact` is an allowed CORRECTION,
+ *  not a violation - it never blocks the stage. Only an unsupported
+ *  INVENTION (found nowhere - not the page, not the evidence, not a dated
+ *  fact) blocks. */
+export function entailmentGateForEdit(
+  edit: Pick<RecommendedEditRow, "action_type" | "proposed_text">,
+  pageBodyText: string | null,
+  authoritativeFacts?: readonly AuthoritativeFact[],
+): EntailmentGateResult | null {
+  if (!ENTAILMENT_CHECKED_ACTIONS.has(edit.action_type)) return null;
+  const draftText = (edit.proposed_text ?? "").trim();
+  if (!draftText) return null;
+  const result = checkFactualEntailment({ draftText, pageBodyText, authoritativeFacts });
+  return { blocked: !result.entailed, violations: result.violations, corrections: result.corrections };
+}
 
 function notStaged(reason: string): StageChangeReceipt {
   return {
@@ -189,6 +251,9 @@ export async function stageChangeForRecord(
       : await resolveMove(tenantId, input);
   if (!resolved.ok) return notStaged(resolved.reason);
   const { edit } = resolved;
+  const correctionSuffix = resolved.corrections?.length
+    ? ` ${resolved.corrections[0]}`
+    : "";
 
   // Gate 8: the existing write authority. Caps, snapshot, merge, ledger, and
   // the Ritz/structural rails all live inside executePush - unchanged.
@@ -237,12 +302,12 @@ export async function stageChangeForRecord(
 
   return {
     staged: true,
-    receiptLine: stripBannedDashes(`${stagedReceiptLine(now)}${probeSuffix}`),
+    receiptLine: stripBannedDashes(`${stagedReceiptLine(now)}${probeSuffix}${correctionSuffix}`),
   };
 }
 
 type Resolved =
-  | { ok: true; edit: RecommendedEditRow }
+  | { ok: true; edit: RecommendedEditRow; corrections?: string[] }
   | { ok: false; reason: string };
 
 /** A daily-plan pick -> a synthetic pushable edit row (the plan is the source
@@ -378,5 +443,27 @@ async function resolveMove(
     /* lenient: the structural rails in executePush still apply */
   }
 
-  return { ok: true, edit };
+  // N8 entailment backstop (law 3; operator correction 2026-07-02): an
+  // UNSUPPORTED claim (a number, entity, or superlative found nowhere - not
+  // the page, not a dated fact) never auto-publishes from this one-click
+  // path. A claim that CONTRADICTS the page but is backed by a dated
+  // authoritative fact is an allowed CORRECTION - the page itself can be
+  // stale, and correcting it is the point, so it stages normally and the
+  // correction is carried onto the receipt for the operator to see. Lenient
+  // on a read failure - executePush's structural rails still protect the
+  // write, and the operator can still paste it manually after seeing the
+  // reason on a real block.
+  let corrections: string[] | undefined;
+  try {
+    const pageBodyText = await readPageBodyTextForEntailment(tenantId, edit.target_url);
+    const gate = entailmentGateForEdit(edit, pageBodyText);
+    if (gate?.blocked) {
+      return { ok: false, reason: gate.violations[0]! };
+    }
+    if (gate && gate.corrections.length > 0) corrections = gate.corrections;
+  } catch {
+    /* lenient: the structural rails in executePush still apply */
+  }
+
+  return { ok: true, edit, ...(corrections ? { corrections } : {}) };
 }

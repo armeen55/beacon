@@ -1,9 +1,11 @@
 "use client";
 
 import { useMemo, useState, useTransition } from "react";
+import Link from "next/link";
 
 import type { PageSurgeonReviewRow } from "../actions";
 import { getPageSurgeonHistory, recordReviewDecision, runPageSurgeonReview } from "../actions";
+import { dossierHref } from "@/lib/page-dossier-link";
 
 type HistoryEntry = Awaited<ReturnType<typeof getPageSurgeonHistory>>[number];
 import type { ArtifactBundle, ChangeArtifact, SnippetPreview } from "@/domains/recommendation-intelligence/page-surgeon/artifact-bundle";
@@ -39,7 +41,7 @@ function CharBar({ count, limit }: { count: number; limit: number }) {
       <div className="h-1 w-full overflow-hidden rounded bg-surface-inset/60">
         <div className={`h-full ${over ? "bg-red-500" : "bg-status-success"}`} style={{ width: `${pct}%` }} />
       </div>
-      <p className={`mt-0.5 text-[10px] ${over ? "text-red-600" : "text-muted-foreground"}`}>{count}/{limit} chars{over ? " — over limit" : ""}</p>
+      <p className={`mt-0.5 text-[10px] ${over ? "text-red-600" : "text-muted-foreground"}`}>{count}/{limit} chars{over ? ", over limit" : ""}</p>
     </div>
   );
 }
@@ -148,7 +150,7 @@ function BundleView({ bundle, qa, canonUrl }: { bundle: ArtifactBundle; qa: QaVe
 
       {bundle.deferred.length > 0 && (
         <details className="text-[11px] text-muted-foreground">
-          <summary className="cursor-pointer">Follow-up ({bundle.deferred.length}) — real changes deferred to keep this plan focused</summary>
+          <summary className="cursor-pointer">Follow-up ({bundle.deferred.length}): real changes deferred to keep this plan focused</summary>
           <div className="ml-2 mt-1 space-y-2">
             {bundle.deferred.map((c, i) => <ArtifactCard key={i} c={c} label="follow-up" />)}
           </div>
@@ -157,7 +159,7 @@ function BundleView({ bundle, qa, canonUrl }: { bundle: ArtifactBundle; qa: QaVe
 
       {bundle.wordingResearch.length > 0 && (
         <details className="text-[11px] text-muted-foreground">
-          <summary className="cursor-pointer">Wording researched ({bundle.wordingResearch.length}) — alternatives weighed, grounded in GSC/SEMrush</summary>
+          <summary className="cursor-pointer">Wording researched ({bundle.wordingResearch.length}): alternatives weighed, grounded in GSC/SEMrush</summary>
           <ul className="ml-4 mt-1 list-disc">
             {bundle.wordingResearch.map((w, i) => (
               <li key={i}>“{w.variant}” → <span className="text-foreground/80">{w.best_placement}</span>{w.evidence ? ` (${w.evidence})` : ""}</li>
@@ -168,9 +170,9 @@ function BundleView({ bundle, qa, canonUrl }: { bundle: ArtifactBundle; qa: QaVe
 
       {bundle.rejected.length > 0 && (
         <details className="text-[11px] text-muted-foreground">
-          <summary className="cursor-pointer">Rejected ({bundle.rejected.length}) — why these were not chosen</summary>
+          <summary className="cursor-pointer">Rejected ({bundle.rejected.length}): why these were not chosen</summary>
           <ul className="ml-4 mt-1 list-disc">
-            {bundle.rejected.map((r, i) => <li key={i}><span className="font-medium text-foreground/80">{r.action}</span> — {r.reason}</li>)}
+            {bundle.rejected.map((r, i) => <li key={i}><span className="font-medium text-foreground/80">{r.action}</span>: {r.reason}</li>)}
           </ul>
         </details>
       )}
@@ -188,7 +190,7 @@ function BundleView({ bundle, qa, canonUrl }: { bundle: ArtifactBundle; qa: QaVe
         <button type="button" disabled={pending} onClick={() => record("approve")} className="rounded-md bg-status-success px-3 py-1.5 text-[12px] font-medium text-white transition-colors hover:opacity-90 disabled:opacity-50">Approve</button>
         <button type="button" disabled={pending} onClick={() => record("needs_edit")} className="rounded-md bg-amber-500 px-3 py-1.5 text-[12px] font-medium text-white transition-colors hover:opacity-90 disabled:opacity-50">Needs edit</button>
         <button type="button" disabled={pending} onClick={() => record("reject")} className="rounded-md border border-border px-3 py-1.5 text-[12px] font-medium text-foreground transition-colors hover:bg-surface-inset/60 disabled:opacity-50">Reject</button>
-        <span className="text-[10px] text-muted-foreground">Publishing is disabled — nothing is pushed.</span>
+        <span className="text-[10px] text-muted-foreground">Publishing is disabled. Nothing is pushed.</span>
         </div>
       </div>
       {recorded && <p className="text-[11px] text-status-success">{recorded}</p>}
@@ -197,20 +199,20 @@ function BundleView({ bundle, qa, canonUrl }: { bundle: ArtifactBundle; qa: QaVe
         className="text-[11px] text-muted-foreground"
         onToggle={(e) => { if ((e.target as HTMLDetailsElement).open) loadHistory(); }}
       >
-        <summary className="cursor-pointer">Change history — how this page&apos;s plan evolved</summary>
+        <summary className="cursor-pointer">Change history: how this page&apos;s plan evolved</summary>
         {histLoading && <p className="ml-2 mt-1">Loading…</p>}
         {history && history.length === 0 && <p className="ml-2 mt-1">No prior versions recorded yet.</p>}
         {history && history.length > 0 && (
           <ul className="ml-4 mt-1 list-disc">
             {history.map((h, i) => (
               <li key={h.evidence_hash}>
-                <span className="text-foreground/80">{new Date(h.created_at).toLocaleString()}</span> — {h.headline_action || "(no action)"}{i === 0 ? " · current" : ""}
+                <span className="text-foreground/80">{new Date(h.created_at).toLocaleString()}</span>: {h.headline_action || "(no action)"}{i === 0 ? " . current" : ""}
               </li>
             ))}
           </ul>
         )}
       </details>
-      <p className="text-[10px] text-muted-foreground">Evidence: {bundle.sourceCoverage.filter((s) => s.used).map((s) => s.source).join(", ") || "—"} · decided by {bundle.decidedBy}</p>
+      <p className="text-[10px] text-muted-foreground">Evidence: {bundle.sourceCoverage.filter((s) => s.used).map((s) => s.source).join(", ") || "none"} . decided by {bundle.decidedBy}</p>
       {bundle.evidenceGaps.length > 0 && (
         <p className="text-[10px] text-amber-600">Missing sources: {bundle.evidenceGaps.join(" · ")}</p>
       )}
@@ -234,11 +236,18 @@ function ReviewCard({ row }: { row: PageSurgeonReviewRow }) {
     });
 
   const path = row.pageUrl.replace(/^https?:\/\/[^/]+/, "") || "/";
+  const href = dossierHref(row.pageUrl);
   return (
     <div className="rounded-lg border border-border/60 bg-surface-inset/20 p-4">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <p className="truncate text-[13px] font-semibold text-foreground">{path}</p>
+          {href ? (
+            <Link href={href} className="block truncate text-[13px] font-semibold text-foreground underline-offset-2 hover:underline">
+              {path}
+            </Link>
+          ) : (
+            <p className="truncate text-[13px] font-semibold text-foreground">{path}</p>
+          )}
           <p className="truncate text-[12px] text-muted-foreground">now: “{row.currentTitle ?? "(no title)"}”</p>
           {row.gsc && (
             <p className="mt-0.5 text-[11px] text-muted-foreground">
@@ -256,7 +265,7 @@ function ReviewCard({ row }: { row: PageSurgeonReviewRow }) {
           <button type="button" onClick={run} disabled={pending || !row.hasOpenAi} className="rounded-md bg-foreground px-3 py-1.5 text-[12px] font-medium text-background transition-colors hover:opacity-90 disabled:opacity-50">
             {pending ? "Drafting…" : bundle ? "Re-draft" : "Draft change"}
           </button>
-          {stale && <span className="text-[10px] text-amber-600">evidence changed — re-draft</span>}
+          {stale && <span className="text-[10px] text-amber-600">evidence changed, re-draft</span>}
           {!row.hasOpenAi && <span className="text-[10px] text-muted-foreground">no OpenAI key</span>}
         </div>
       </div>
@@ -264,7 +273,7 @@ function ReviewCard({ row }: { row: PageSurgeonReviewRow }) {
       {bundle && qa && qa.pass && <BundleView bundle={bundle} qa={qa} canonUrl={row.canonUrl} />}
       {bundle && qa && !qa.pass && (
         <div className="mt-3 rounded-md border border-red-500/30 bg-red-500/[0.04] p-3 text-[12px]">
-          <p className="font-semibold text-red-600">Withheld by auto-QA — not shown for approval</p>
+          <p className="font-semibold text-red-600">Withheld by auto-QA, not shown for approval</p>
           <ul className="ml-4 mt-1 list-disc text-muted-foreground">
             {qa.failures.map((f, i) => <li key={i}>{f}</li>)}
           </ul>

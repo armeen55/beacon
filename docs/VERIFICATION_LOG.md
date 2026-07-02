@@ -7,6 +7,222 @@
 
 ---
 
+## 2026-07-03 - MASTER PLAN v2 item N13: detect and replace comparison pages edited mid-window (worktree, NOT committed)
+
+**What changed:** a ship's diff-in-diff comparison pages (controlPages) are chosen once at
+selection time but nothing previously watched whether those pages changed DURING the
+measurement window, silently contaminating the verdict. New pure classifier
+`src/domains/proof-gsc/control-contamination.ts` reads a ship's window + the full ledger (every
+other ship, to catch a control that was itself later treated) + `page_snapshots` content-hash
+history (to catch a control edited for reasons the ledger has no record of) and classifies each
+control `clean | treated_by_us(date) | content_changed(betweenScans) | unknown(sparse coverage)`.
+Sparse scan coverage is honestly `unknown`, never assumed clean.
+
+**Operator-corrected design (mid-task):** the first pass re-ranked a fresh comparison-page
+candidate pool at READ time using live GSC data when a substitute was needed - outcome-aware,
+biasing the verdict toward whatever the replacement happened to show. Corrected to FREEZE-AT-SHIP-
+TIME / PROMOTE-NOT-RESELECT: `auto-record-on-ship.ts` now persists the FULL ranked donor pool
+(`control-matching.ts`'s complete `RankedControl[]` - kept and excluded, original order, with the
+matching inputs) as a new `controlDonorPool` field, written ONCE at ship time, never rewritten.
+Migration `migrations/2026-07-03_shipped_change_proof_control_donor_pool.sql` adds the additive
+`control_donor_pool jsonb` column (NOT applied - the store tolerates the column missing via the
+existing PGRST204 file-fallback convention, same posture as `control_match_notes`). At read time,
+`control-contamination.ts`'s `promoteFromFrozenPool` walks ONLY that frozen pool in its original
+order and promotes the next eligible ("kept", not already a control, not the treated page, not
+already promoted for another contaminated control) donor - no re-ranking, no fresh candidate
+computation, no live data. When the pool is absent (predates N13) or exhausted, no promotion
+happens; the verdict still runs on the original controls with an honest caution caveat.
+
+**Surfaced:** `measurement-maturity.ts` gained `controlContaminationFlagged`/
+`controlContaminationCaveat` (additive, same posture as `weakComparison`/`seasonalInflection`/
+`recrawlPending` - demotes `learningEligibility` to false, explicitly named as an N10 verdict-
+reliability composite input). `/proof`'s card renders the caveat both inline (amber, same style as
+the weather/parallel-trends caveats) and inside "See the math".
+
+**Tested:** `src/domains/proof-gsc/control-contamination.test.ts` (28 tests: classifier precedence,
+sparse-coverage honesty, frozen-pool promotion order including "never pick a later/better-looking
+donor over the next-in-line one", exhausted/absent-pool fallback) + `attach-control-contamination.test.ts`
+(13 tests: batch snapshot-history read paging + host-variant matching, ledger-wide classification,
+promotion end-to-end, fail-soft) - 41 new tests total. `npm run typecheck` clean. Targeted vitest:
+`src/domains/proof-gsc/` full directory 523/523 pass; `"src/app/(shell)/proof/"` 84/84 pass.
+
+**Ground-truthed on the real 25-ship Iranopedia ledger** (`scripts/ground-truth-control-contamination.ts`,
+read-only, no writes): **all 25 ships have at least one contaminated control today** (229 total
+across all ships; most read `unknown` from sparse `page_snapshots` coverage inside their windows).
+**7 real `treated_by_us` cases, all the same root cause:** `/cities` and `/funny-farsi-phrases`
+(shipped 2026-06-20), `/iran-animals/asiatic-cheetah`, `/iranian-actors-actresses`,
+`/famous-iranian-comedians`, `/farsi-numbers`, `/famous-iranian-singers` (all shipped 2026-06-21) each
+used `/persian-male-names` as a comparison page; `/persian-male-names` was itself treated (a schema
+change) on 2026-06-22, inside every one of those 7 ships' still-open measurement windows. Confirmed
+this slips through the pre-existing `experiment-eligibility.ts` guard
+(`activeTreatmentPaths`/`cleanControlPaths`, which already excludes a control that is CURRENTLY
+"measuring" from the diff-in-diff math) because that guard keys off `outcomeStateOf`, and
+`/persian-male-names`'s stored `verdict` already flipped to `inconclusive` at its 7-day checkpoint
+even though its 14- and 28-day windows are still open - so `activeTreatmentPaths` no longer sees it
+as active even though it plainly still is. This is a real, currently-live gap N13 closes; confirmed
+live via a throwaway script that `cleanControlPaths` returns `/persian-male-names` unfiltered for
+`/cities`'s controls today. **0 of the 25 ships have a `controlDonorPool`** (all predate N13), so
+every one of the 229 contaminated controls correctly reports "no clean substitute available,
+reading with caution" - 0 swaps, by design, never a post-hoc fabricated pick.
+
+**Rendered verification** on the live dev server (`http://localhost:3142/proof`,
+`x-beacon-tenant: tenant-iranopedia`, warm compile ~30-60s, curl -m 300): the `/cities` card renders
+the amber caveat `A comparison page changed during measurement, so I am reading this result with
+caution.` both as a visible `text-amber-700` line on the card and as a `<p>` inside "See the math",
+alongside the page's existing weather/seasonal/permutation-null caveats. 25/25 ledger cards carry the
+caveat in the rendered payload, matching the ground-truth script's count.
+
+**Caveats:** the migration is written but NOT applied (operator/orchestrator applies); until it is,
+`controlDonorPool` stays null for every new ship too (file-fallback round-trips it correctly once
+Supabase has the column). No existing ship can be retroactively backfilled with a frozen pool - the
+whole point of freeze-at-ship-time is that a pool computed after the fact would already be
+post-outcome-informed, so the 25 real ships will always show 0 swaps until new ships are recorded
+after this lands. Sparse `page_snapshots` coverage means `content_changed` detection is currently
+weak in practice (`unknown` dominates) - improves automatically as weekly rescans accumulate more
+in-window snapshots per page.
+
+---
+
+## 2026-07-02 - MASTER PLAN v2 item N11: recrawl-gated measurement clock (worktree, NOT committed)
+
+**OPERATOR CORRECTION APPLIED (same day, after the entry below was written):**
+
+1. **Split clock.** The recrawl gate applies ONLY to Google-search outcomes (the GSC
+   ranking/impressions/clicks/CTR verdict lane). GA4 traffic reads, Clarity behavior reads,
+   publishing-integrity checks, and conversion measurements start at live_at as before and are never
+   capped at "Waiting". Concretely: `measurement-maturity.ts` now also neutralizes `direction` to
+   "unknown" while pending (the plain Search line renders "Not clear yet.", never a stale-index
+   "This is probably hurting."), nulls `nextCheckpoint` while pending (no false "matures YYYY-MM-DD"
+   countdown through `proofBadgeMaturesOn`), and gained a `recrawlConfirmedAt` input: once confirmed,
+   the SEARCH checkpoints count from the confirmed index crawl via the new downgrade-only
+   `effectiveSearchBasisDay` (a stored-mature 28d window with only 14 days since the index crawl reads
+   as interim; with under 7 days it reads as collecting, "First checkpoint opens <confirm+7>. ... The
+   search clock counts from when Google re-read this page."). The `/proof` card's GA4 traffic block
+   renders unconditionally on `rec.trafficOutcome` - pinned by the new
+   `src/app/(shell)/proof/proof-split-clock.test.ts` (7 tests: search-lane gated pins + a source scan
+   asserting no recrawl field ever appears in the guard window of the trafficOutcome/citationOutcome/
+   rankOutcome renders + the caveat renders through the same visible seam as the sibling guards).
+2. **Corrected copy** (recrawl-clock.ts `recrawlBlindSentence`, renders as the card caveat and the
+   Waiting explanation): "Google has not re-read this page yet, so the search clock has not started.
+   Visit tracking started the day the change went live." (+ "It has been N days since you shipped
+   this." when known).
+3. **Index-crawl semantics.** `gsc_url_inspections.last_crawl_time` is `indexStatusResult.lastCrawlTime`
+   - the crawl behind Google's INDEXED version, not a live-page inspection. All doc comments in
+   recrawl-clock.ts / attach-recrawl-clock.ts / measurement-maturity.ts / page.tsx reworded; basis
+   "inspection" now documented as "Google's index shows a crawl after the change went live"; a test
+   pins that operator copy never contains "inspect".
+4. **Checkpoint-144e7734 preservation:** proof-badge.ts untouched (a pending row maps to exactly
+   "Waiting", one of the six C2 words, pinned); See-the-math structure untouched.
+
+Corrected totals: 127 targeted tests green across 7 files (recrawl-clock 19, attach-recrawl-clock 9,
+auto-measure-recrawl 5, measurement-maturity 63 incl. the new split-clock + confirmed-shift describes,
+proof-plain-vocabulary 21, proof-split-clock 7, proof-jargon-guard 3); typecheck clean on all owned
+files (transient errors in other concurrent agents' in-flight files - serp-history.ts,
+page-dossier-data.ts - are not part of this slice and resolve as those agents land).
+
+**What changed:**
+
+- New `src/domains/proof-gsc/recrawl-clock.ts` (pure, no I/O): given a ship's `liveAt`, its URL-Inspection
+  history, and an optional cheap SERP-title fallback, computes `{ recrawlConfirmedAt, basis, daysBlind,
+  hasInspectionHistory }` - the earliest evidence Google actually re-read the NEW content. `basis` is
+  `"inspection"` (a `gsc_url_inspections` crawl strictly after `liveAt`), `"serp_title"` (built, not yet
+  wired to a real data source - `serp-history.ts`'s `SerpRankPoint` carries rank only, no displayed
+  title), or `"none"`.
+- New `src/domains/proof-gsc/attach-recrawl-clock.ts`: one Supabase read of `gsc_url_inspections` per
+  render, grouped by `inspection_url`, joined to ledger rows by id. Mirrors
+  `attach-seasonal-inflection.ts` exactly. Fail-soft to an empty map on any read error.
+- `measurement-maturity.ts`: additive `recrawlPending?: boolean` + `recrawlDaysBlind?: number | null`
+  inputs and `recrawlPending: boolean` + `recrawlPendingCaveat: string | null` outputs, same posture as
+  `weatherCaveat`/`weakComparisonCaveat`/`seasonalInflectionCaveat`. When `recrawlPending` is true,
+  `deriveMeasurementMaturity` caps the result at `"collecting"` (existing "Waiting" badge) regardless of
+  which 7/14/28-day window has calendar-closed, `verdict` stays null, and `learningEligibility` is
+  additively false. The `collecting` case's headline/explanation are overridden to the honest line
+  "Google has not re-read this page yet, so the clock has not started." (+ a days-blind clause when
+  known). `shipped_change_proof` history is never mutated - this is a read-time reinterpretation only,
+  same as every sibling guard in this file.
+- Correctness guard: a page that has NEVER been inspected (`hasInspectionHistory=false`) is deliberately
+  NOT treated as "blind" - only a page with at least one inspection reading, none of which confirm the
+  new content, gets capped. Without this distinction, wiring the guard in today (when
+  `gsc_url_inspections` is empty for every real tenant) would have frozen the entire ledger to "Waiting."
+  The same absence-vs-blind bug was caught and fixed twice: once in the `proof/page.tsx` read-path wiring
+  (`recrawlClockById.get(l.id)?.hasInspectionHistory === true && ...`) and once in the nightly-assist
+  prioritization (a genuine `attachRecrawlClockForLedger` failure now returns 0 spent instead of
+  defaulting every row to "pending").
+- `src/app/(shell)/proof/page.tsx`: wired `attachRecrawlClockForLedger` alongside the existing
+  `attachSeasonalInflectionForLedger` call, threaded into `buildMeasurementPresentation`.
+- `src/domains/proof-gsc/auto-measure.ts`: the existing nightly `measure-due` cron's bounded per-tenant
+  pass (`measureDueForTenant`) now also spends up to `MAX_RECRAWL_INSPECTIONS_PER_PASS` (8) `gscUrlInspect`
+  calls on the due rows most needing a recrawl check (oldest-shipped-first), reusing `gscUrlInspect`'s own
+  24h Supabase cache. Gated on `BEACON_GSC_SITE_URL` being set (the same operator-substrate posture
+  `load-gsc-signal.ts` already documents) - no new cron, no new site-URL resolution logic. New
+  `AutoMeasureResult.recrawlInspections` field (additive).
+- `src/app/api/cron/measure-due/route.ts`: updated the one literal `AutoMeasureResult` fallback object to
+  include the new field.
+
+**Tests:** 33 new/updated targeted tests -
+`recrawl-clock.test.ts` (16), `attach-recrawl-clock.test.ts` (9), `auto-measure-recrawl.test.ts` (5),
+plus 6 new cases in `measurement-maturity.test.ts` and 1 literal-completeness fix in
+`proof-plain-vocabulary.test.ts`. Full targeted run: 98/98 passing. `npm run typecheck`: 0 errors
+project-wide (2 pre-existing errors in unrelated concurrent-agent scratch files
+`scripts/n8-*-tmp.ts` are untouched by this slice).
+
+**Ground truth (real Supabase read, tenant-iranopedia, 2026-07-02):**
+
+| Ship date | Path | Action | Verdict | Recrawl status |
+|---|---|---|---|---|
+| 2026-07-01 | /chaharshanbe-suri | add_answer_block | measuring | BLIND (never inspected, 2 days) |
+| 2026-07-01 | /iran-flags/late-safavid-military-flag | edit_meta | measuring | BLIND (never inspected, 2 days) |
+| 2026-07-01 | /iran-flags/abbasid-caliphate-golden-emblem-flag | edit_meta | measuring | BLIND (never inspected, 2 days) |
+| 2026-07-01 | /finglish | add_answer_block | measuring | BLIND (never inspected, 2 days) |
+| 2026-07-01 | /iran-flags/pahlavi-iran-flag | edit_meta | measuring | BLIND (never inspected, 2 days) |
+| 2026-07-01 | /iran-flags/umayyad-caliphate-flag | edit_meta | measuring | BLIND (never inspected, 2 days) |
+| 2026-06-30 | /iran-animals/caspian-horse | edit_title | measuring | BLIND (never inspected, 3 days) |
+| 2026-06-30 | /iran-animals/red-fox | edit_title | measuring | BLIND (never inspected, 3 days) |
+| 2026-06-30 | /iran-animals/persian-wolf | edit_title | measuring | BLIND (never inspected, 3 days) |
+| 2026-06-30 | /iran-animals/caspian-red-deer | edit_title | measuring | BLIND (never inspected, 3 days) |
+| 2026-06-30 | /iran-animals/persian-cobra | edit_title | measuring | BLIND (never inspected, 3 days) |
+| 2026-06-30 | /iran-animals/persian-horned-viper | edit_title | measuring | BLIND (never inspected, 3 days) |
+| 2026-06-30 | /iran-animals/booted-eagle | edit_title | measuring | BLIND (never inspected, 3 days) |
+| 2026-06-30 | /iran-animals/persian-onager | edit_title | measuring | BLIND (never inspected, 3 days) |
+| 2026-06-30 | /iran-animals/baluchistan-black-bear | edit_title | measuring | BLIND (never inspected, 3 days) |
+| 2026-06-30 | /iran-animals/persian-leopard | edit_title | measuring | BLIND (never inspected, 3 days) |
+| 2026-06-22 | /persian-male-names | schema | inconclusive | BLIND (never inspected, 11 days) |
+| 2026-06-22 | /best-persian-restaurants | schema | lost | BLIND (never inspected, 11 days) |
+| 2026-06-21 | /famous-iranian-singers | section_add | won | BLIND (never inspected, 11 days) |
+| 2026-06-21 | /farsi-numbers | intro_answer_block | inconclusive | BLIND (never inspected, 11 days) |
+| 2026-06-21 | /iran-animals/asiatic-cheetah | intro_answer_block | inconclusive | BLIND (never inspected, 11 days) |
+| 2026-06-21 | /famous-iranian-comedians | meta | inconclusive | BLIND (never inspected, 11 days) |
+| 2026-06-21 | /iranian-actors-actresses | title | inconclusive | BLIND (never inspected, 11 days) |
+| 2026-06-20 | /cities | meta | lost | BLIND (never inspected, 13 days) |
+| 2026-06-20 | /funny-farsi-phrases | meta | lost | BLIND (never inspected, 13 days) |
+
+25/25 ships: 0 confirmed, 25 never-inspected (`gsc_url_inspections` has 0 rows for this tenant - the
+sweep is new, nothing has run yet). Because `hasInspectionHistory=false` for all 25, none of them are
+capped as "recrawlPending" today - the guard is correctly silent until the nightly sweep actually
+inspects a page. Confirmed via `curl -m 180 http://localhost:3142/proof` (real dev server, HTTP 200 in
+134.5s) that the page renders byte-identical to before this change (same "Waiting" / "matures
+2026-07-04" copy on the real `/cities` row). A synthetic check of `buildMeasurementPresentation` with a
+simulated confirmed-inspection-but-unconfirmed input (the `/cities` row's real ship date + verdict)
+reproduces the exact copy that will render once the sweep populates a row: headline `"Waiting"`,
+explanation `"Google has not re-read this page yet, so the clock has not started. It has been 13 days
+since you shipped this."`, tone `"waiting"`, `verdict: null`, `learningEligibility: false`.
+
+**Caveats:**
+
+- The `serp_title` fallback basis is built and unit-tested but has no real data source wired in yet -
+  `serp-history.ts`'s stored snapshots carry rank only, no displayed title. Every real confirmation today
+  will come from `basis: "inspection"` once the nightly sweep runs.
+- The nightly-assist inspection budget only fires when `BEACON_GSC_SITE_URL` is set (operator-substrate,
+  single global property) - a genuine multi-tenant per-tenant property resolver lives in
+  `sync-search-analytics.ts`'s private `resolveProperty` and was intentionally NOT touched or duplicated
+  here (out of this slice's ownership: connectors core).
+- This worktree has concurrent agent activity on N8/N13 touching the same shared files
+  (`measurement-maturity.ts`, `proof/page.tsx`, `auto-record-on-ship.ts`); all edits were reconciled by
+  hand mid-session (re-reading before each write) so both slices' fields/wiring coexist. Not yet
+  committed or merged.
+
+---
+
 ## 2026-07-02 - Worklist operator-experience fix batch B (10 findings, worktree, NOT committed)
 
 **Fixed (all on `/worklist`, the "Changes" list):**
@@ -31107,3 +31323,51 @@ Post-deploy verification of the live stack (main `0688c251`, prod deploy succeed
 **Honest caveats:** D9/D10's subtitle and "showing N of M" additions are purely additive display text - no underlying metric definition changed, so the two tile numbers (competitor domains vs rival domains cited) remain genuinely different metrics computed from different sources, now just labeled so a reader doesn't assume they're the same thing. D6's cron relabeling is display-only; the underlying job identifiers, paths, and schedules in `vercel.json` are untouched.
 
 **Next action:** none required from the operator; this is a pure display-language fix plus one new test file, live in dev. Recommended next: run the same brutal-review pass on `/worklist` and the remaining `/proof` surfaces not yet covered by fix batches A-D.
+
+## 2026-07-02 - MASTER PLAN v2 item N8: snapshot-grounded factual entailment before publishing (worktree, NOT committed)
+
+**What changed:**
+- New `src/domains/drafts/factual-entailment.ts` (pure, no I/O): `checkFactualEntailment({draftText, pageBodyText, evidenceText, query, nowYear})` verifies three kinds of factual claim: (1) numbers/dates must appear in the page body, evidence, or query, extending (not duplicating) the existing `invented_numbers` firewall in `structured-drafter.ts`/`llm-answer-block.ts` - same grounded-number extraction (thousands-separator strip, year-adjacent allowance, 7/14/28 proof-window constants), widened to accept page-body grounding as a third source; (2) named entities (capitalized multi-word spans, with singular/plural folding) must appear in the page body, query, or evidence; (3) superlatives ("the largest", "the first", "the only") require the same phrase findable on the page or in evidence. Title-case text (titles/metas) gets a separate extraction path: single-word spans and a trailing `| Brand` / `- Brand` suffix are excluded, and a broadened generic-word list (marketing/section-header vocabulary) prevents ordinary Title Case words from reading as fabricated entities. Abstains (returns entailed:true) when there is no grounding text at all - an evidence-floor problem, not an entailment failure. Returns `{entailed, violations[]}`, capped at 5, in plain English.
+- New `src/domains/drafts/factual-entailment-store.ts`: the one I/O helper, `readPageBodyTextForEntailment(tenantId, url)`, mirrors the already-proven lean `page_snapshots` read in `answer-alignment-store.ts` (same columns: `body_paragraph_sample`, `card_texts`, `faqs`), plus a www./bare-host URL fallback added after ground-truth found real prepared-Move target URLs stored without `www.` while `page_snapshots` rows are keyed with it.
+- `src/domains/drafts/draft-quality.ts`: `evaluateDraftQuality`, `evaluateTitleMetaQuality`, and `evaluatePreparedPackQuality` all gained optional `pageBodyText`/`evidenceText` params. Complete no-op when both are omitted (every existing pinned fixture in `draft-quality.test.ts` passes neither, so all 51 pre-existing cases keep their exact prior verdict, confirmed by test). When supplied and a violation is found, the result downgrades to a new `unverified_claim` status (`copyAllowed: false`, `canRegenerate: true`), feeding the same regenerate loop every other rejection status already feeds.
+- `src/domains/push/stage-change.ts`: new pure, exported `entailmentViolationsForEdit(edit, pageBodyText)` (checked action types: `edit_title`, `edit_meta`, `change_h1`, `add_answer_block`, `add_faq`, `add_h2_section`; returns null for other action types, no proposed text, or no page body to check against). Wired into `resolveMove` (the one-click "Stage in Wix" resolver) right after the existing QA backstop: reads the target page's real body via the new store helper and blocks the stage on a violation, failing closed to the existing `notStaged` -> `pasteFallbackLine` paste-with-warning path. Lenient on any read/check error (executePush's structural rails still protect the live write either way).
+
+**Verified:** `npm run typecheck` 0 errors project-wide (confirmed the only remaining errors are pre-existing, in `proof-gsc/**` and one pre-existing test file, from concurrent unrelated work in this shared worktree - out of N8's ownership scope, untouched). Targeted vitest: 90 tests across `src/domains/drafts` (2 files) and `src/domains/push` (3 files) all green - 15 new in `factual-entailment.test.ts`, 15 new in `draft-quality.test.ts` (on top of the 51 pre-existing, all still pinned unchanged), 7 new in `stage-change.test.ts` (the first test file for that module, covering the new pure decision function in isolation since the full `stageChangeForRecord` flow reaches Supabase/executePush and is out of scope to mock here).
+
+**Ground truth (real tenant-iranopedia, dev server on :3142, `set -a; . ./.env.local; set +a; npx tsx --require ./scripts/mock-server-only.cjs`):** ran the entailment gate over real data twice, before and after fixing two real bugs the first pass surfaced (see below).
+
+Real `recommended_edits` (26 sampled, 25 had a matching page body after the www. fix): **19 pass, 6 would be blocked** by the publish gate. All 6 blocks are honest, not false positives:
+- `/persian-male-names`: title "Iranian Male Names" - the crawled 565-char body sample never says "male" (checked directly against the full stored text).
+- `/iran-flags`: title "Historical Flags Of Iran" - the body says "history of the Iran flag", never "historical".
+- `/iran-world-cup-jersey-evolution`: the stored body is only 55 characters (`"Iran National Soccer Team World Cup Jerseys (1978-2022)"`), so "Kit"/"History" in the proposed title are honestly ungroundable - a real thin-crawl gap, not a bug in the check.
+
+Real prepared-Move structured drafts (24 with a draft, all 24 had a matching page body): **10 pass, 14 flag.** The flagged ones are meta-referential drafts that literally open "The Iranopedia page 'X' describes..." - naming the site's own brand and, in one case, "FIFA World Cup" (a competition name that never appears on that specific page's crawled body). Arguably correct signal: these drafts read as commentary about the page rather than page content, a separate pre-existing quality issue (`draft-quality.ts`'s `META_NONANSWER` regex does not catch the "page titled X describes" phrasing) that N8 incidentally surfaces but does not fix.
+
+**Two real bugs found and fixed during ground-truth verification (not present in the original design, caught by running against real data):**
+1. URL mismatch: prepared-Move `targetUrl` is stored without `www.` (`https://iranopedia.com/...`) while `page_snapshots.url` is stored with it (`https://www.iranopedia.com/...`) - an exact-match lookup silently found 0 rows for every real pack. Fixed with a www./bare-host fallback in `factual-entailment-store.ts`.
+2. Title-case false positives: the first version flagged ordinary marketing/section words ("Shop", "History", "Facts", "Attractions") and the site's own brand suffix ("| iranopedia") as invented entities on nearly every real title, a 64% block rate. Fixed by adding a title-case-aware extraction path (single-word spans dropped, trailing brand suffix stripped, broadened generic-word list) - brought the real publish-gate block rate down to 24% (6/25), all genuine.
+
+**Honest caveats:** the remaining 6/25 and 14/24 flags expose real, pre-existing gaps this item does not fix: thin/sample-limited `body_paragraph_sample` coverage on some pages (a known N19 caveat - the crawler samples paragraphs, it does not store the full page) and genuine synonym mismatches (title says "Shirt", page body says "jersey") that a literal-traceability check correctly does not paper over with semantic paraphrase matching. The nightly regenerate loop (`src/domains/demand-graph/prepare-today-moves.ts`) was intentionally NOT wired to pass real `pageBodyText` into its `evaluatePreparedPackQuality` call - that file is outside this item's granted ownership (`drafts/factual-entailment*`, `draft-quality.ts`, the one publish-gate seam in `stage-change.ts`). The additive optional params are in place and ready for that wiring as a follow-up.
+
+**Next action:** thread a real `pageBodyText` read (via `readPageBodyTextForEntailment`) into `prepare-today-moves.ts`'s `evaluatePreparedPackQuality` call so the nightly regenerate loop starts benefiting from entailment checking, not just the one-click publish gate.
+
+### Operator correction (same day, applied before this item was called complete): invention vs. correction
+
+**The problem with the first design:** treating the page's own text as the ground truth means a stale or wrong page can never be corrected - any draft that fixes an outdated number would be blocked exactly like a fabricated one. That is backwards; correcting stale content is Beacon's job.
+
+**The fix:** `checkFactualEntailment` now distinguishes two failure modes instead of one:
+- **Violation** (unsupported invention): the claim is found nowhere - not the page, not the evidence, not the query, not a dated fact. Blocks auto-publish, exactly as before.
+- **Correction** (sourced update to a stale page): the claim contradicts the page's own text, but a new `authoritativeFacts?: AuthoritativeFact[]` input (`{source, date, detail}` - a dated, sourced fact Beacon already has on file, e.g. a connector reading or a stored source row) backs the draft's version instead. Never blocks; the caller renders the exact explanation, e.g. "This draft updates a number to '4500' based on your site's recipe count (Wix connector), 2026-07-01. Your page does not currently show that number."
+- Superlatives follow the same rule: a sourced, dated superlative is a correction, not a violation.
+
+**API shape:** `checkFactualEntailment` now returns `{entailed, violations[], corrections[], findings[]}` where `findings[]` carries the full `{kind: "violation" | "correction", message, source?, date?}` detail per claim. `entailed` still means "zero violations" (corrections never affect it), so this is additive - no existing caller's behavior changes unless it opts into `authoritativeFacts`.
+
+**Wiring updated:**
+- `draft-quality.ts`: `DraftQualityResult` gained an optional `corrections?: string[]` field, present only when at least one correction fired (never an empty array - callers test for `undefined` to distinguish "not checked / nothing to report" from "checked, found something"). A draft with a correction stays `status: "ready"` / `copyAllowed: true` and carries the explanation alongside it.
+- `stage-change.ts`: `entailmentViolationsForEdit` renamed to `entailmentGateForEdit`, now returns `{blocked, violations, corrections}` instead of `string[] | null`. `resolveMove` only fails closed when `blocked` is true; a correction lets the stage proceed and appends the correction sentence onto the success receipt line (after the "Staged in Wix at [time]" line and the live-probe confirmation, if any).
+
+**Tests updated:** all 3 test files got new correction-path cases (25 total in factual-entailment.test.ts, up from 15; 55 in draft-quality.test.ts, up from 51; 10 in stage-change.test.ts, up from 7 - 92 total, all green) covering: a contradicting claim WITH a dated fact is a correction and does not block; the SAME claim with NO fact stays a violation and blocks; findings[] carries source/date on a correction and omits them on a violation; a correction and a violation can coexist in one draft (mixed findings); undated `evidenceText` grounds a claim but never produces a "correction" label (only a dated `AuthoritativeFact` does); a claim already grounded on the page is neither a correction nor a violation.
+
+**Ground truth after the correction fix:** re-ran the same real-data probe with the corrected code. Numbers are UNCHANGED from before the correction (19 pass / 0 corrections / 6 blocked on `recommended_edits`; 10 pass / 14 flag on prepared-Move drafts) because **no caller anywhere in the codebase currently supplies `authoritativeFacts`** - there is no dated, sourced connector/evidence-packet feed wired into either `draft-quality.ts`'s callers or `stage-change.ts`'s `resolveMove` yet. The correction mechanism is fully built, wired at every layer, and proven correct by 9 new direct tests, but it has nothing to correct WITH on live data today. This is an honest, expected result, not a defect: the item's job was to build the mechanism and get the invention/correction distinction right, not to also invent a new dated-facts pipeline (out of scope for N8's granted ownership).
+
+**Next action (supersedes the prior one):** design and wire a dated `AuthoritativeFact[]` source (the most natural candidates: GSC/GA4 observations, which already carry real fetch/observation timestamps, or a stored connector row) into `stage-change.ts`'s `resolveMove` and `draft-quality.ts`'s callers so the correction path can start firing on real, sourced data. Threading `pageBodyText` into `prepare-today-moves.ts`'s regenerate loop remains the second follow-up.

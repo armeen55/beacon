@@ -49,6 +49,9 @@ import {
 } from "./build-graph";
 import { attachProfoundEvidenceToMoves } from "./profound-evidence-fusion";
 import { collapseCreatePageSiblings } from "./collapse-create-page-siblings";
+import { checkTopicCoherence } from "./topic-coherence-gate";
+import { gateCreatePageOwnership } from "./create-page-ownership-gate";
+import { isUnparseableLabel } from "./clean-topic-label";
 import { readAllCachedKeywordDemand, type KeywordDemand } from "@/domains/serp/dataforseo-keywords";
 import { getLatestMoveDrafts } from "./move-draft-store";
 import { loadCachedPromptOpportunities } from "@/domains/profound-coverage/load-cached";
@@ -69,6 +72,14 @@ export type DemandGraphCoverage = {
   createPageCandidates: number;
   ownedCited: number;
   emptySources: string[];
+  /** UX0 (2026-07-02) — the topic coherence gate's honest tally: create_page
+   *  candidates SUPPRESSED entirely (mostly-incoherent member mix) and candidates
+   *  that survived with one or more off-topic members trimmed. Zero on a clean
+   *  tenant; never silent when the gate actually fires. */
+  coherence: { suppressedCandidates: { label: string; reason: string }[]; trimmedCandidates: { label: string; droppedCount: number; reason: string }[] };
+  /** UX0 (2026-07-02) — create_page candidates the ownership gate reclassified
+   *  (own page already cited -> edit_page) or dropped (cited but no specific URL). */
+  ownershipReclassified: { label: string; action: "reclassified" | "dropped"; ownedUrl: string | null; reason: string }[];
 };
 
 export type LoadGraphResult = {
@@ -158,6 +169,10 @@ export function isJunkTopicLabel(label: string): boolean {
   // geo/id slug e.g. g293998 (letter-prefixed) or a long pure-digit id — but NOT
   // a 4-digit year (2026/1998 are legit topic tokens).
   if (tokens.some((t) => /^[a-z]{1,2}\d{3,}$/.test(t) || /^\d{5,}$/.test(t))) return true;
+  // Grammar sanity (2026-07-02 UX0): drop it here too, before it ever becomes a
+  // create_page candidate — ground-truth found a URL-slug label trailing off on a
+  // bare verb ("...Hear Cross") that reached the board as a broken title.
+  if (isUnparseableLabel(tokens.join(" "))) return true;
   return false;
 }
 // Display label for a create_page candidate: drop the leaked CMS-section prefixes so
@@ -417,7 +432,15 @@ export async function loadDemandGraphForTenant(
   // ── match competitor cited pages to owned demand, or synthesize create_page ──
   const competitorCitations: CompetitorCitationInput[] = [];
   let competitorEdges = 0;
-  type CreateCand = { label: string; urls: string[]; citationCount: number; modelCount: number };
+  type CreateCand = {
+    label: string;
+    urls: string[];
+    /** Per-URL label (from the competitor's own URL slug), for the coherence gate —
+     *  parallel to `urls` (member i's label is memberLabels[i]). */
+    memberLabels: string[];
+    citationCount: number;
+    modelCount: number;
+  };
   const createByTopic = new Map<string, CreateCand>();
 
   for (const c of competitors) {
@@ -449,8 +472,9 @@ export async function loadDemandGraphForTenant(
     ) {
       // unmatched content competitor → a create_page candidate, grouped by topic
       const tkey = "gap:" + c.topicTokens.slice(0, 3).sort().join("-");
-      const ex = createByTopic.get(tkey) ?? { label: cleanTopicLabel(c.label), urls: [], citationCount: 0, modelCount: 0 };
+      const ex = createByTopic.get(tkey) ?? { label: cleanTopicLabel(c.label), urls: [], memberLabels: [], citationCount: 0, modelCount: 0 };
       ex.urls.push(c.url);
+      ex.memberLabels.push(c.label);
       ex.citationCount += c.citationCount;
       ex.modelCount = Math.max(ex.modelCount, c.modelCount);
       createByTopic.set(tkey, ex);
@@ -460,8 +484,43 @@ export async function loadDemandGraphForTenant(
   // Top create_page candidates by AI attention (breadth × volume). Demand is an
   // AI-citation proxy (NOT measured search volume) → confidence stays LOW. Scaled
   // ×100 to read as an "AI-attention score" (citation_count is share-scaled).
-  const createTop = [...createByTopic.entries()]
-    .map(([k, v]) => ({ k, ...v, proxy: Math.max(1, Math.round(v.citationCount * (1 + v.modelCount) * 100)) }))
+  // UX0 coherence gate (2026-07-02): a bucket can still land unrelated member URLs
+  // when their first-3-sorted-tokens key happens to collide (rare, but ground-truth
+  // proved it happens) — before this candidate becomes a Move, verify its OWN members
+  // actually agree with its head label; drop the disagreeing ones, and suppress the
+  // whole candidate when most of them disagree (never publish an averaged-together
+  // topic). Logged so `npm run` probes can list exactly what got dropped/suppressed.
+  const coherenceDropped: Array<{ tkey: string; label: string; droppedUrls: string[]; reason: string }> = [];
+  const coherenceSuppressed: Array<{ tkey: string; label: string; reason: string }> = [];
+  const createTopRaw = [...createByTopic.entries()]
+    .map(([k, v]) => {
+      // Gate on each member's human-readable slug label (a stronger coherence signal
+      // than the raw URL), then map surviving indices back to their URL.
+      const members = v.memberLabels.map((text, i) => ({ id: String(i), text }));
+      const verdict = checkTopicCoherence(v.label, members);
+      const keptIdx = new Set(verdict.kept.map((m) => Number(m.id)));
+      const keptUrls = v.urls.filter((_, i) => keptIdx.has(i));
+      const droppedUrls = v.urls.filter((_, i) => !keptIdx.has(i));
+      if (droppedUrls.length > 0) {
+        coherenceDropped.push({ tkey: k, label: v.label, droppedUrls, reason: verdict.reason });
+      }
+      if (verdict.suppressCandidate) {
+        coherenceSuppressed.push({ tkey: k, label: v.label, reason: verdict.reason });
+        return null;
+      }
+      return { k, label: v.label, urls: keptUrls, citationCount: v.citationCount, modelCount: v.modelCount };
+    })
+    .filter((v): v is { k: string; label: string; urls: string[]; citationCount: number; modelCount: number } => v !== null && v.urls.length > 0);
+  if (coherenceDropped.length > 0 || coherenceSuppressed.length > 0) {
+    log.info("[load-graph] topic coherence gate", {
+      tenantId,
+      droppedMemberBuckets: coherenceDropped.length,
+      suppressedCandidates: coherenceSuppressed.length,
+      suppressed: coherenceSuppressed.map((s) => s.label),
+    });
+  }
+  const createTop = createTopRaw
+    .map((v) => ({ ...v, proxy: Math.max(1, Math.round(v.citationCount * (1 + v.modelCount) * 100)) }))
     .sort((a, b) => b.proxy - a.proxy)
     .slice(0, MAX_CREATE_CANDIDATES);
 
@@ -531,6 +590,27 @@ export async function loadDemandGraphForTenant(
   } catch {
     // evidence is additive — never let it affect the graph
   }
+  // UX0 ownership gate (2026-07-02) — a create_page Move whose own AEO evidence shows
+  // the tenant is ALREADY cited for this topic must never say "you have no page yet"
+  // (ground-truth: "Persian Literature" pitched as missing while iranopedia.com's own
+  // URL was in the cited pages). Runs right after the AEO attach (needs aeoEvidence)
+  // and BEFORE canonicalization (a reclassified move must not merge as a sibling).
+  let ownershipReclassified: ReturnType<typeof gateCreatePageOwnership>["changes"] = [];
+  try {
+    const gated = gateCreatePageOwnership(moves);
+    moves = gated.moves;
+    ownershipReclassified = gated.changes;
+    if (ownershipReclassified.length > 0) {
+      log.info("[load-graph] create_page ownership gate", {
+        tenantId,
+        reclassified: ownershipReclassified.filter((c) => c.action === "reclassified").length,
+        dropped: ownershipReclassified.filter((c) => c.action === "dropped").length,
+        labels: ownershipReclassified.map((c) => c.label),
+      });
+    }
+  } catch (e) {
+    log.warn("[load-graph] create_page ownership gate skipped", { tenantId, error: e instanceof Error ? e.message : String(e) });
+  }
   // Canonicalize near-duplicate create_page moves (2026-06-29) — the 3 nowruz labels,
   // persian/iranian wedding, etc. collapse to ONE canonical move per opportunity so
   // EVERY consumer (New Pages board, ActionPack worklist, prepare-verdicts) sees one
@@ -563,6 +643,11 @@ export async function loadDemandGraphForTenant(
       createPageCandidates: createTop.length,
       ownedCited: ownedCitedHits,
       emptySources,
+      coherence: {
+        suppressedCandidates: coherenceSuppressed.map((s) => ({ label: s.label, reason: s.reason })),
+        trimmedCandidates: coherenceDropped.map((d) => ({ label: d.label, droppedCount: d.droppedUrls.length, reason: d.reason })),
+      },
+      ownershipReclassified: ownershipReclassified.map((c) => ({ label: c.label, action: c.action, ownedUrl: c.ownedUrl, reason: c.reason })),
     },
   };
 }

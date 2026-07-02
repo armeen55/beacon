@@ -25,9 +25,22 @@
  *    is, with a plain-English fix instead of a lint label. Additive: it only
  *    fires on drafts that already pass every earlier check, so no existing
  *    "ready" verdict flips without a real quotability problem (pinned by test).
+ *
+ *  - N8 (2026-07-02, Quality Constitution law 3) added a FACTUAL ENTAILMENT
+ *    check to `evaluateDraftQuality`: numbers/dates, named entities, and
+ *    superlatives in the draft must be backed by the target page's own stored
+ *    body (page_snapshots body_paragraph_sample), the evidence text, or the
+ *    query (src/domains/drafts/factual-entailment.ts). Strictly additive and
+ *    opt-in: it only runs when a caller supplies `pageBodyText` and/or
+ *    `evidenceText`, so every existing pinned fixture (none of which pass
+ *    those fields) keeps its exact prior verdict. When it does run and finds
+ *    a violation, the draft downgrades to "unverified_claim" (copy blocked)
+ *    with the plain-English violation as the reason - the same shape every
+ *    other rejection in this file already uses.
  */
 
 import { checkPassageRules } from "@/domains/pages/passage-answerability";
+import { checkFactualEntailment, type AuthoritativeFact } from "@/domains/drafts/factual-entailment";
 
 export type DraftQualityStatus =
   | "ready"
@@ -40,7 +53,8 @@ export type DraftQualityStatus =
   | "malformed"
   | "missing_source"
   | "stale_data_changed"
-  | "not_quotable";
+  | "not_quotable"
+  | "unverified_claim";
 
 export type DraftQualityResult = {
   status: DraftQualityStatus;
@@ -50,6 +64,15 @@ export type DraftQualityResult = {
   /** Re-drafting this is likely to help (generic/thin/off-topic/malformed). */
   canRegenerate: boolean;
   confidence: "high" | "medium" | "low";
+  /** N8 (2026-07-02, operator correction): plain-English lines for claims that
+   *  CONTRADICT the target page's own text but are backed by a dated,
+   *  authoritative source (a stale page being corrected, not an invention).
+   *  Present only when the factual-entailment check ran AND found at least
+   *  one correction; absent otherwise (never an empty array vs. "not checked"
+   *  ambiguity - callers test for `undefined`). A draft can be "ready" AND
+   *  carry corrections at the same time - corrections never block copy/publish,
+   *  they are shown alongside it so the operator sees what changed and why. */
+  corrections?: string[];
 };
 
 // ── shared vocabulary + helpers ───────────────────────────────────────────────
@@ -115,6 +138,17 @@ export type EvaluateDraftInput = {
   evidenceRefs?: number;
   /** Content-context vocabulary; defaults to DEFAULT_CONTEXT_TOKENS. */
   contextTokens?: string[];
+  /** N8: the target page's OWN stored body text (page_snapshots
+   *  body_paragraph_sample joined). Supplying this (and/or evidenceText) turns
+   *  ON the factual-entailment check below; omitting both leaves this function
+   *  byte-identical to its pre-N8 behavior. */
+  pageBodyText?: string | null;
+  /** N8: flattened evidence-packet text (numbers/facts the draft may cite). */
+  evidenceText?: string | null;
+  /** N8 (operator correction): dated, sourced facts Beacon already has on
+   *  file. A claim that contradicts the page but is backed by one of these is
+   *  an ALLOWED CORRECTION, not a violation - see factual-entailment.ts. */
+  authoritativeFacts?: readonly AuthoritativeFact[];
 };
 
 /** Evaluate a prepared answer block / opening. */
@@ -215,7 +249,44 @@ export function evaluateDraftQuality(input: EvaluateDraftInput): DraftQualityRes
     };
   }
 
-  return { status: "ready", reasons: ["Answers the topic with page-specific context; no risky claims detected."], copyAllowed: true, canRegenerate: false, confidence: "high" };
+  // 8. Factual entailment (N8, law 3; operator correction 2026-07-02) - only
+  //    runs when a caller supplies page body and/or evidence text; otherwise
+  //    this is a no-op (see the module docstring). Every number, named entity,
+  //    and superlative in the draft must be traceable to the page's own body,
+  //    the evidence, the query, or a dated authoritative fact. An UNSUPPORTED
+  //    claim (found nowhere) blocks copy. A claim that contradicts the page
+  //    but IS backed by a dated fact is an allowed CORRECTION - it never
+  //    blocks, it rides along on a "ready" result so the operator sees what
+  //    changed and why.
+  let entailmentCorrections: string[] | undefined;
+  if (input.pageBodyText || input.evidenceText || input.authoritativeFacts?.length) {
+    const entailment = checkFactualEntailment({
+      draftText: answer,
+      pageBodyText: input.pageBodyText,
+      evidenceText: input.evidenceText,
+      query: input.query ?? input.topicLabel ?? null,
+      authoritativeFacts: input.authoritativeFacts,
+    });
+    if (!entailment.entailed) {
+      return {
+        status: "unverified_claim",
+        reasons: entailment.violations,
+        copyAllowed: false,
+        canRegenerate: true,
+        confidence: "high",
+      };
+    }
+    if (entailment.corrections.length > 0) entailmentCorrections = entailment.corrections;
+  }
+
+  return {
+    status: "ready",
+    reasons: ["Answers the topic with page-specific context; no risky claims detected."],
+    copyAllowed: true,
+    canRegenerate: false,
+    confidence: "high",
+    ...(entailmentCorrections ? { corrections: entailmentCorrections } : {}),
+  };
 }
 
 // ── title / meta (atomic edit) quality ────────────────────────────────────────
@@ -226,6 +297,10 @@ export type EvaluateTitleInput = {
   field?: "title" | "meta" | string;
   query?: string | null;
   contextTokens?: string[];
+  /** N8: same opt-in factual-entailment inputs as EvaluateDraftInput. */
+  pageBodyText?: string | null;
+  evidenceText?: string | null;
+  authoritativeFacts?: readonly AuthoritativeFact[];
 };
 
 /** Evaluate an atomic title/meta rewrite. */
@@ -273,7 +348,40 @@ export function evaluateTitleMetaQuality(input: EvaluateTitleInput): DraftQualit
       confidence: "medium",
     };
   }
-  return { status: "ready", reasons: ["Entity-forward rewrite, no boilerplate or unsupported claim."], copyAllowed: true, canRegenerate: false, confidence: "high" };
+
+  // Factual entailment (N8, law 3; operator correction 2026-07-02) - same
+  // opt-in contract as evaluateDraftQuality: a claim contradicting the page
+  // but backed by a dated authoritative fact is an allowed correction, never
+  // a violation - see the module docstring on evaluateDraftQuality.
+  let entailmentCorrections: string[] | undefined;
+  if (input.pageBodyText || input.evidenceText || input.authoritativeFacts?.length) {
+    const entailment = checkFactualEntailment({
+      draftText: after,
+      pageBodyText: input.pageBodyText,
+      evidenceText: input.evidenceText,
+      query: input.query ?? null,
+      authoritativeFacts: input.authoritativeFacts,
+    });
+    if (!entailment.entailed) {
+      return {
+        status: "unverified_claim",
+        reasons: entailment.violations,
+        copyAllowed: false,
+        canRegenerate: true,
+        confidence: "high",
+      };
+    }
+    if (entailment.corrections.length > 0) entailmentCorrections = entailment.corrections;
+  }
+
+  return {
+    status: "ready",
+    reasons: ["Entity-forward rewrite, no boilerplate or unsupported claim."],
+    copyAllowed: true,
+    canRegenerate: false,
+    confidence: "high",
+    ...(entailmentCorrections ? { corrections: entailmentCorrections } : {}),
+  };
 }
 
 // ── create-page brief quality ─────────────────────────────────────────────────
@@ -470,6 +578,12 @@ export type EvaluatePackInput = {
   preparedStatus?: string | null;
   moveType?: string | null;
   contextTokens?: string[];
+  /** N8: same opt-in factual-entailment inputs as EvaluateDraftInput, threaded
+   *  through to the answer_block/atomic_edit dispatch below. Omitting both
+   *  leaves this function byte-identical to its pre-N8 behavior. */
+  pageBodyText?: string | null;
+  evidenceText?: string | null;
+  authoritativeFacts?: readonly AuthoritativeFact[];
 };
 
 /** Evaluate a PreparedMovePack by dispatching on its structuredDraft kind. A pack
@@ -486,6 +600,9 @@ export function evaluatePreparedPackQuality(input: EvaluatePackInput): DraftQual
       answer: typeof v.answer === "string" ? v.answer : "",
       evidenceRefs: Array.isArray(v.evidenceRefs) ? v.evidenceRefs.length : 0,
       contextTokens: input.contextTokens,
+      pageBodyText: input.pageBodyText,
+      evidenceText: input.evidenceText,
+      authoritativeFacts: input.authoritativeFacts,
     });
   }
   if (sd.kind === "atomic_edit") {
@@ -494,6 +611,9 @@ export function evaluatePreparedPackQuality(input: EvaluatePackInput): DraftQual
       after: typeof v.after === "string" ? v.after : "",
       field: typeof v.field === "string" ? v.field : undefined,
       contextTokens: input.contextTokens,
+      pageBodyText: input.pageBodyText,
+      evidenceText: input.evidenceText,
+      authoritativeFacts: input.authoritativeFacts,
     });
   }
   if (sd.kind === "create_page_brief") {
@@ -541,5 +661,6 @@ export function qualityLabel(status: DraftQualityStatus): string {
     case "missing_source": return "Needs source";
     case "stale_data_changed": return "Data changed";
     case "not_quotable": return "Not quotable";
+    case "unverified_claim": return "Unverified claim";
   }
 }

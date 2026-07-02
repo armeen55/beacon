@@ -329,6 +329,78 @@ export async function loadTopTenantQueries(
   }
 }
 
+export type TenantQueryWithOwner = TenantQuery & {
+  /** The page that took the most impressions for this query in the window, or
+   *  null when no page ever earned an impression for it. Never a guess. */
+  ownerPage: string | null;
+};
+
+/**
+ * Same bounded tenant-wide read as loadTopTenantQueries, but ALSO tracks which
+ * page earned the most impressions for each query — the Keywords library's
+ * "owner page" column (UX2, BEACON_500 master plan). One query, one Supabase
+ * round-trip; no second read fired just to learn the page. Fail-soft → [].
+ */
+export async function loadTopTenantQueriesWithOwner(
+  tenantId: string,
+  opts: { limit?: number; windowDays?: number } = {},
+): Promise<TenantQueryWithOwner[]> {
+  if (!tenantId) return [];
+  const limit = Math.max(1, Math.min(opts.limit ?? 300, 1000));
+  try {
+    const sb = getSupabaseAdmin();
+    const since = sinceDateIso(opts.windowDays ?? WINDOW_DAYS);
+    const { data, error } = await sb
+      .from("gsc_daily_rows")
+      .select("query, page, clicks, impressions, position")
+      .eq("tenant_id", tenantId)
+      .gte("date", since)
+      .order("impressions", { ascending: false })
+      .limit(ROW_BUDGET);
+    if (error || !data) return [];
+    type Agg = { clicks: number; impressions: number; posW: number; byPage: Map<string, number> };
+    const byQuery = new Map<string, Agg>();
+    for (const r of data) {
+      const query = (r.query as string)?.trim();
+      if (!query) continue;
+      const page = (r.page as string)?.trim() || null;
+      const a = byQuery.get(query) ?? { clicks: 0, impressions: 0, posW: 0, byPage: new Map() };
+      const impr = Number(r.impressions) || 0;
+      a.clicks += Number(r.clicks) || 0;
+      a.impressions += impr;
+      a.posW += (Number(r.position) || 0) * impr;
+      if (page) a.byPage.set(page, (a.byPage.get(page) ?? 0) + impr);
+      byQuery.set(query, a);
+    }
+    return [...byQuery.entries()]
+      .map(([query, a]) => {
+        let ownerPage: string | null = null;
+        let bestImpr = -1;
+        for (const [page, impr] of a.byPage) {
+          if (impr > bestImpr) {
+            bestImpr = impr;
+            ownerPage = page;
+          }
+        }
+        return {
+          query,
+          clicks: a.clicks,
+          impressions: a.impressions,
+          position: a.impressions > 0 && a.posW > 0 ? a.posW / a.impressions : null,
+          ownerPage,
+        };
+      })
+      .sort((x, y) => y.impressions - x.impressions)
+      .slice(0, limit);
+  } catch (e) {
+    log.warn("[gsc-page-queries] top-tenant-queries-with-owner threw", {
+      tenantId,
+      error: e instanceof Error ? e.message : String(e),
+    });
+    return [];
+  }
+}
+
 /**
  * Tool-intent queries: gsc_daily_rows whose QUERY contains an interactive-asset
  * word (converter/calculator/generator/quiz/…). DB-filtered (ILIKE OR) so the

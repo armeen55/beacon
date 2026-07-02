@@ -23,13 +23,19 @@ const LINK_HELPER = readFileSync(resolve(__dirname, "../../../../lib/page-dossie
 describe("dossier route composition", () => {
   it("every band streams behind its own Suspense with a skeleton", () => {
     const suspenseCount = (ROUTE.match(/<Suspense/g) ?? []).length;
-    expect(suspenseCount).toBeGreaterThanOrEqual(6); // header + 5 bands
+    expect(suspenseCount).toBeGreaterThanOrEqual(7); // header + 6 bands
     expect(ROUTE).toContain("fallback={<CardSkeleton />}");
     expect(ROUTE).toContain("animate-pulse");
   });
 
   it("the route derives its path through pathFromSegments (normalized, decoded)", () => {
     expect(ROUTE).toContain("pathFromSegments(segments ?? [])");
+  });
+
+  it("the header links out to the live page when a URL is known", () => {
+    expect(ROUTE).toContain("dossier.liveUrl");
+    expect(ROUTE).toContain("Visit the live page");
+    expect(ROUTE).toContain('target="_blank"');
   });
 
   it("the loader composes EXISTING loaders only (no supabase import, no new query logic)", () => {
@@ -42,6 +48,7 @@ describe("dossier route composition", () => {
     expect(LOADER).toContain("loadLanguageGaps");
     expect(LOADER).toContain("loadProofLedgerCached");
     expect(LOADER).toContain("loadChangesView");
+    expect(LOADER).toContain("loadPageContentSnapshot");
   });
 
   it("the loader is request-memoized with react cache and every source is fail-soft", () => {
@@ -55,9 +62,18 @@ describe("dossier sections", () => {
   it("every band has an honest empty state", () => {
     expect(SECTIONS).toContain("I do not have enough days of search data for this page yet");
     expect(SECTIONS).toContain("I have not matched any Google search queries to this page yet");
+    expect(SECTIONS).toContain("I have not crawled this page yet");
     expect(SECTIONS).toContain("None of the team have a read on this page yet");
     expect(SECTIONS).toContain("I have not shipped any change on this page yet");
     expect(SECTIONS).toContain("Nothing is queued for this page right now");
+  });
+
+  it("the content band renders title/meta/H1 as a compact definition list, not paragraphs", () => {
+    expect(SECTIONS).toContain("DossierContentSection");
+    expect(SECTIONS).toContain("<dl");
+    expect(SECTIONS).toContain("Title tag");
+    expect(SECTIONS).toContain("Meta description");
+    expect(SECTIONS).toContain("Headline (H1)");
   });
 
   it("the chart band reuses the shared AreaChart with ship-marker events", () => {
@@ -83,15 +99,19 @@ describe("dossier sections", () => {
   });
 });
 
-describe("cross-app dossier links (the 4 highest-traffic page-name surfaces)", () => {
+describe("cross-app dossier links (every reachable page-name surface)", () => {
   const surfaces = [
     "../../today-moves-card.tsx", // worklist MoveCard
     "../../daily-experiments-section.tsx", // daily card
     "../../proof/page.tsx", // proof ledger rows
     "../../war-room-sections.tsx", // war-room funnel band
+    "../../changes-list-client.tsx", // Changes (/worklist) row titles
+    "../../diagnostics/page-surgeon/page-surgeon-client.tsx", // Page Surgeon brief cards
+    "../../diagnostics/page-surgeon/proof/page.tsx", // Page Surgeon proof plan rows
+    "../../diagnostics/page-surgeon/review/review-client.tsx", // Page Surgeon review cards
   ];
   for (const rel of surfaces) {
-    it(`${rel.replace("../../", "")} links page names through the shared dossierHref helper`, () => {
+    it(`${rel.replace(/^(\.\.\/)+/, "")} links page names through the shared dossierHref helper`, () => {
       const src = readFileSync(resolve(__dirname, rel), "utf8");
       expect(src).toContain('import { dossierHref } from "@/lib/page-dossier-link"');
       expect(src).toContain("dossierHref(");

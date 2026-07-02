@@ -17,7 +17,7 @@ import { cache } from "react";
 
 import { getSupabaseAdmin, isSupabaseConfigured } from "@/lib/persistence/supabase";
 import { currentTenant } from "@/lib/tenant-context";
-import type { AiOverviewCitedDomain, ParsedFeaturedSnippet, ParsedPaaQuestion } from "./dataforseo-serp";
+import type { AiOverviewCitedDomain, ParsedFeaturedSnippet, ParsedPaaQuestion, SerpOrganicItem } from "./dataforseo-serp";
 import { computeAiOverviewGaps, aiOverviewGapHeadline, type AiOverviewHistoryRow } from "./ai-overview-gaps";
 import { computeFeatureSteals, type FeatureStealCandidate, type FeatureStealHistoryRow } from "./feature-steal";
 
@@ -238,5 +238,58 @@ export const loadFeatureStealCandidates = cache(async (tenantId: string, now: Da
     return computeFeatureSteals(rows, domain);
   } catch {
     return [];
+  }
+});
+
+// ─── Own-rank + competitor-owner reads (Keywords library, UX2) ─────────────
+
+/** One query's most recent Google reading: the tenant's own observed rank and
+ *  the top domains Google showed at capture time (rank order). */
+export type QueryLatestSerpReading = {
+  query: string;
+  capturedAt: string;
+  ownRank: number | null;
+  topDomains: SerpOrganicItem[];
+};
+
+/** Bound how far back the tenant-wide latest-reading scan looks and how many
+ *  rows it can return — a diagnostic read, not an unbounded table scan. */
+const LATEST_READING_LOOKBACK_DAYS = 90;
+const LATEST_READING_ROW_LIMIT = 1500;
+
+/**
+ * The MOST RECENT live Google reading for every query this tenant has ever
+ * checked with a live SERP call, keyed by query. Powers the Keywords library's
+ * "your position" cross-check and "who else owns this" column with a real
+ * observed reading (never a guess) — $0, one bounded read over the append-only
+ * history table. Fail-soft → empty map (no history yet, table missing, or
+ * Supabase unreachable never throws into a render).
+ */
+export const loadLatestSerpReadingsByQuery = cache(async (tenantId: string, now: Date = new Date()): Promise<Map<string, QueryLatestSerpReading>> => {
+  const out = new Map<string, QueryLatestSerpReading>();
+  if (!tenantId || !isSupabaseConfigured()) return out;
+  try {
+    const cutoffIso = new Date(now.getTime() - LATEST_READING_LOOKBACK_DAYS * 24 * 60 * 60 * 1000).toISOString();
+    const { data, error } = await getSupabaseAdmin()
+      .from("dataforseo_serp_history")
+      .select("query, captured_at, own_rank, top_domains")
+      .eq("tenant_id", tenantId)
+      .gte("captured_at", cutoffIso)
+      .order("captured_at", { ascending: true }) // ascending so the last write per query wins below
+      .limit(LATEST_READING_ROW_LIMIT);
+    if (error || !Array.isArray(data)) return out;
+    for (const r of data as Array<{ query: string; captured_at: string; own_rank: number | null; top_domains: SerpOrganicItem[] | null }>) {
+      const query = (r.query ?? "").trim();
+      if (!query) continue;
+      out.set(query, {
+        query,
+        capturedAt: r.captured_at,
+        ownRank: typeof r.own_rank === "number" ? r.own_rank : null,
+        topDomains: Array.isArray(r.top_domains) ? r.top_domains : [],
+      });
+    }
+    return out;
+  } catch {
+    return out;
   }
 });

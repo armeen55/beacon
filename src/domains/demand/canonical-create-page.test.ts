@@ -66,6 +66,13 @@ describe("groupCreatePageCandidates — conservative canonical clustering", () =
     ]);
     expect(groups.length).toBe(2);
   });
+  it("operator ground-truth: two candidates that both weak-match the SAME noisy keyword but share NOTHING with each other stay SEPARATE (never merge on the keyword alone)", () => {
+    const groups = groupCreatePageCandidates([
+      c({ demandKey: "travel", label: "Travel Iran Beautiful Natural Wonders", distinctTokens: ["travel", "beautiful", "natural", "wonder"], keyword: "most common name in iran", strongKeyword: false, volume: 70 }),
+      c({ demandKey: "sports", label: "Most Popular Sports Iran", distinctTokens: ["sport"], keyword: "most common name in iran", strongKeyword: false, volume: 70 }),
+    ]);
+    expect(groups.length).toBe(2);
+  });
   it("singletons return a group with no siblings", () => {
     const groups = groupCreatePageCandidates([c({ demandKey: "x", label: "Persian Astronomy", distinctTokens: ["astronomy"] })]);
     expect(groups.length).toBe(1);

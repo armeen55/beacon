@@ -7,6 +7,7 @@ import {
   LineChart,
   Plug,
   Users,
+  Search,
   type LucideIcon,
 } from "lucide-react";
 
@@ -60,6 +61,10 @@ export const navigationGroups: NavGroup[] = [
   {
     label: "Research",
     items: [
+      // UX2 (BEACON_500 master plan, the operator's own idea) - every cached
+      // keyword in one sortable library. First hub item; more (Pages, Topics,
+      // Content roadmap) land in later UX2 slices.
+      { label: "Keywords", href: "/research/keywords", icon: Search },
       { label: "AI questions", href: "/prompts", icon: ListChecks },
       { label: "Competitors", href: "/competitors", icon: Users },
     ],

@@ -36,6 +36,10 @@ function pres(overrides: Partial<MeasurementPresentation>): MeasurementPresentat
     weakComparisonFlagged: false,
     seasonalInflectionCaveat: null,
     seasonalInflectionFlagged: false,
+    recrawlPending: false,
+    recrawlPendingCaveat: null,
+    controlContaminationFlagged: false,
+    controlContaminationCaveat: null,
     ...overrides,
   };
 }

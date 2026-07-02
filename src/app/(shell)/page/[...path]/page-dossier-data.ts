@@ -8,6 +8,7 @@ import { loadDailyClicksByPathsForTenant } from "@/domains/proof-gsc/daily-serie
 import { loadGscPageSignalsForTenant, type GscQuerySignal } from "@/domains/recommendation-intelligence/gsc-page-signals";
 import type { DailyClicks } from "@/domains/recommendation-intelligence/gsc-page-queries";
 import { loadClarityPageSignalsForTenant, type ClarityPageSignal } from "@/domains/recommendation-intelligence/clarity-page-signals";
+import { loadPageContentSnapshot, type PageContentSnapshot } from "@/domains/recommendation-intelligence/page-freshness";
 import { loadCrawlCitationFunnel } from "@/domains/ai-visibility/load-crawl-citation-funnel";
 import { funnelPathKey, type PageFunnel } from "@/domains/ai-visibility/crawl-citation-funnel";
 import { loadLanguageGaps } from "@/domains/language-gap/language-gap-store";
@@ -58,6 +59,11 @@ export type PageDossier = {
   pageLabel: string;
   /** Whether ANY source recognized this page at all. */
   hasAnyData: boolean;
+  /** Best-known full live URL for this page (GSC signal wins, then the current
+   *  change/plan pick, then the most recent shipped-change record) so the header
+   *  can link straight to the real site. Null when no source has ever seen a full
+   *  URL for this path (e.g. a page that only exists as a proposal). */
+  liveUrl: string | null;
 
   chart: {
     daily: DailyClicks[];
@@ -68,6 +74,8 @@ export type PageDossier = {
   queries: {
     topQueries: GscQuerySignal[];
   };
+
+  content: PageContentSnapshot | null;
 
   teamReads: {
     demand: { clicks90d: number; impressions90d: number; ctr90d: number; position90d: number } | null;
@@ -198,6 +206,13 @@ async function loadDossierUncached(tenantId: string, path: string): Promise<Page
   const rawLabel = change?.pageLabel || pick?.pageLabel || labelFromPath(path);
   const pageLabel = /\p{Lu}/u.test(rawLabel) ? rawLabel : rawLabel.replace(/\b\p{Ll}/gu, (c) => c.toUpperCase());
 
+  // Best-known full URL for the "visit the live page" link: GSC's own canonical
+  // URL wins (it is Google's crawl of the real page), then whatever the worklist
+  // or plan already resolved, then the most recent shipped-change record.
+  const liveUrl = gscEntry?.page || change?.pageUrl || pick?.canonicalUrl || pick?.url || history[0]?.page || null;
+
+  const content = liveUrl ? await loadPageContentSnapshot(tenantId, liveUrl).catch(() => null) : null;
+
   const hasAnyData =
     daily.length > 0 ||
     !!gscEntry ||
@@ -206,14 +221,17 @@ async function loadDossierUncached(tenantId: string, path: string): Promise<Page
     pageLanguageGaps.length > 0 ||
     history.length > 0 ||
     !!currentMove ||
-    !!currentPlanPick;
+    !!currentPlanPick ||
+    !!content;
 
   return {
     path,
     pageLabel,
     hasAnyData,
+    liveUrl,
     chart: { daily, shipMarkers },
     queries: { topQueries: gscEntry?.topQueries ?? [] },
+    content,
     teamReads: {
       demand: gscEntry
         ? { clicks90d: gscEntry.clicks90d, impressions90d: gscEntry.impressions90d, ctr90d: gscEntry.ctr90d, position90d: gscEntry.position90d }

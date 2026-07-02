@@ -23,11 +23,15 @@ import type { KeywordDemand } from "@/domains/serp/dataforseo-keywords";
  *  topic shares them). Tenant-agnostic default; could be config-driven later. */
 const GENERIC = new Set(["iran", "iranian", "persian", "farsi", "tehran", "irani", "irania"]);
 /** Boilerplate that carries no demand meaning — stripped from BOTH sides. Singularized
- *  to match `tokens()` output (it depluralizes words >4 chars ending in "s"). */
+ *  to match `tokens()` output (it depluralizes words >4 chars ending in "s"). Includes
+ *  superlatives/quantifiers ("most", "many", "several") — operator ground-truth found
+ *  "most beautiful natural places" falsely matching "most common name in iran" on the
+ *  shared word "most" alone; a superlative is never a topic's distinguishing subject. */
 const FILLER = new Set([
   "guide", "complete", "ultimate", "list", "thing", "things", "highlight", "highlights",
   "usa", "best", "top", "overview", "intro", "introduction", "explained", "full", "idea",
   "fact", "info", "information", "detail", "popular", "famou", "famous",
+  "most", "many", "few", "several", "various", "some", "all", "common", "main",
 ]);
 
 /** Tokens that don't distinguish a topic for demand-matching (generic + filler +

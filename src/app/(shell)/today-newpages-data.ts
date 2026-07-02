@@ -15,6 +15,8 @@ import { readWikiGapResults, type StoredWikiGaps } from "@/domains/wiki-gap/wiki
 import { matchKeywordDemand } from "@/domains/demand/keyword-match";
 import { cleanTopicLabel, isJunkTopic } from "@/domains/demand-graph/clean-topic-label";
 import { deserializeFullPageDraft, reassembleFromPersisted, type AssembledDraftPage } from "@/domains/llm/draft-full-page";
+import { dedupeNewPageCards } from "@/domains/demand-graph/dedupe-new-page-cards";
+import { log } from "@/lib/logger";
 
 /**
  * today-newpages-data (2026-06-24) — the loader behind the "New Pages to Build"
@@ -379,8 +381,23 @@ export async function buildNewPagesData(tenantId: string): Promise<NewPagesData>
     ...gapCards.map((c) => c.topic),
   ]);
 
+  // UX0 dedup pass (2026-07-02) — the per-source skip-lists above only catch a plain
+  // substring match; a reordered duplicate ("restaurants in tehran" vs "tehran
+  // restaurants") can still slip through as TWO cards with two different demand
+  // numbers (ground-truth finding). Collapse the final combined list by normalized
+  // topic, keeping the card with a real search-volume number over a proxy score.
+  const combined = [...opportunities, ...gapCards, ...wikiGapCards];
+  const { kept, dropped } = dedupeNewPageCards(
+    combined.map((o) => ({ id: o.id, topic: o.topic, searchVolume: o.searchVolume, score: o.score })),
+  );
+  if (dropped.length > 0) {
+    log.info("[new-pages] deduped near-duplicate topic cards", { tenantId, dropped: dropped.map((d) => d.reason) });
+  }
+  const keptIds = new Set(kept.map((k) => k.id));
+  const deduped = combined.filter((o) => keptIds.has(o.id));
+
   return {
-    opportunities: [...opportunities, ...gapCards, ...wikiGapCards],
+    opportunities: deduped,
     totalCandidates: createMoves.length,
     ownDomain,
   };

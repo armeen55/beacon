@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { cleanTopicLabel, isJunkTopic } from "./clean-topic-label";
+import { cleanTopicLabel, isJunkTopic, isUnparseableLabel } from "./clean-topic-label";
 
 describe("isJunkTopic", () => {
   it("drops news/security headline fragments", () => {
@@ -25,6 +25,25 @@ describe("isJunkTopic", () => {
     expect(isJunkTopic("Persian Wedding Traditions")).toBe(false);
     expect(isJunkTopic("Culture Iran")).toBe(false);
     expect(isJunkTopic("Nowruz Activities USA")).toBe(false);
+  });
+  it("operator ground-truth: drops a broken title trailing off on an orphan verb ('...Hear Cross')", () => {
+    expect(isJunkTopic("Deadly Misconceptions About Iran Hear Cross")).toBe(true);
+  });
+});
+
+describe("isUnparseableLabel", () => {
+  it("flags a title-assembly fragment ending in a bare verb", () => {
+    expect(isUnparseableLabel("Deadly Misconceptions About Iran Hear Cross")).toBe(true);
+    expect(isUnparseableLabel("What You Should Know Before You Go")).toBe(true);
+  });
+  it("does not flag real noun-phrase topics", () => {
+    expect(isUnparseableLabel("Persian Wedding Traditions")).toBe(false);
+    expect(isUnparseableLabel("Nowruz Activities USA")).toBe(false);
+    expect(isUnparseableLabel("Culture of Iran")).toBe(false);
+    expect(isUnparseableLabel("Persian Literature")).toBe(false);
+  });
+  it("does not judge single-word labels (too short for grammar rules)", () => {
+    expect(isUnparseableLabel("Gifts")).toBe(false);
   });
 });
 

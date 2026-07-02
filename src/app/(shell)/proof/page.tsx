@@ -22,6 +22,8 @@ import { loadDailyClicksByPathsForTenant } from "@/domains/proof-gsc/daily-serie
 import { buildShockWindows, type ShockWindow } from "@/domains/proof-gsc/algorithm-weather";
 import { loadDetectedChangepoints } from "@/domains/proof-gsc/algorithm-weather-store";
 import { attachSeasonalInflectionForLedger } from "@/domains/seasonal/attach-seasonal-inflection";
+import { attachRecrawlClockForLedger } from "@/domains/proof-gsc/attach-recrawl-clock";
+import { attachControlContaminationForLedger } from "@/domains/proof-gsc/attach-control-contamination";
 import { Sparkline, type SparkPoint } from "@/components/data/sparkline";
 import { loadActionPackWorklistForTenant } from "@/domains/action-pack/load";
 import { linkProofRowsToActionPacks, type ProofLink } from "@/domains/action-pack/proof-linker";
@@ -158,6 +160,28 @@ export default async function ProofPage({
     ledger.map((l) => ({ id: l.id, path: l.path, shippedAt: l.shippedAt, windows: l.windows ?? [] })),
   ).catch(() => new Map());
 
+  // Recrawl-gated SEARCH clock (master plan N11): does Google's index hold this
+  // page's new content yet? Computed-only from gsc_url_inspections (an INDEXED-
+  // version crawl timestamp, never a live-page fetch; never persisted, never
+  // mutates windows/verdict). Gates ONLY the Search verdict lane - a row with no
+  // confirmed index crawl reads its SEARCH badge as "Waiting" below regardless
+  // of which calendar window has closed, while the GA4 traffic line and every
+  // other live_at-clocked attachment on the card keeps rendering.
+  const recrawlClockById = await attachRecrawlClockForLedger(
+    tenantId,
+    ledger.map((l) => ({ id: l.id, page: l.page, shippedAt: l.shippedAt, actionType: l.actionType, after: l.after })),
+  ).catch(() => new Map());
+
+  // Control-contamination guard (master plan N13): did any of THIS row's
+  // comparison pages change mid-measurement (we treated it ourselves, or its
+  // own content edited between scans)? Computed-only from the full ledger +
+  // page_snapshots history - when a clean substitute exists it is swapped in
+  // and the swap is named on the card; when none exists the read still runs,
+  // capped with an honest caution caveat. Never mutates the stored ship row.
+  const contaminationById = await attachControlContaminationForLedger(tenantId, ledger).catch(
+    () => new Map(),
+  );
+
   // Move 2 - the shared maturity presentation per row, so every card reads the same
   // honest measurement language (an early read is never a final verdict, never red/green).
   const overlapById = detectMeasurementOverlaps(ledger.map((l) => ({ id: l.id, path: l.path, shippedAt: l.shippedAt })));
@@ -186,6 +210,31 @@ export default async function ProofPage({
           // tenant's own family demand profile - additive, never mutates verdict.
           seasonalInflection: seasonalInflectionById.get(l.id)?.measuredAcrossSeasonalInflection === true,
           seasonalInflectionCaveat: seasonalInflectionById.get(l.id)?.caveat ?? null,
+          // Recrawl-gated SEARCH clock (master plan N11): computed above from
+          // this tenant's own gsc_url_inspections history - additive, never
+          // mutates windows/verdict/shippedAt, and gates only the Search lane
+          // (the GA4 traffic line below keeps its live_at clock). Only flags
+          // "pending" when Beacon has actually inspected this URL at least
+          // once and none of those index crawls post-date the ship; a page
+          // NEVER inspected yet (hasInspectionHistory false - true for most
+          // rows today, since the sweep is new) reads as unknown, not blind,
+          // so wiring this in does not freeze the whole ledger to "Waiting"
+          // on day one. Once confirmed, the search checkpoints count from
+          // recrawlConfirmedAt instead of the ship date.
+          recrawlPending:
+            recrawlClockById.get(l.id)?.hasInspectionHistory === true &&
+            recrawlClockById.get(l.id)?.recrawlConfirmedAt == null,
+          recrawlDaysBlind: recrawlClockById.get(l.id)?.daysBlind ?? null,
+          recrawlConfirmedAt: recrawlClockById.get(l.id)?.recrawlConfirmedAt ?? null,
+          // Control-contamination guard (master plan N13): computed above from
+          // the full ledger + snapshot history - additive, never mutates the
+          // stored controlPages/verdict. The short card caveat is the LAST
+          // note (buildContaminationNotes appends the one-line swap/caution
+          // summary after the per-control reasons); the full per-control
+          // detail still renders in "See the math" via controlContaminationNotes.
+          controlContaminated: contaminationById.get(l.id)?.verdict.hasContamination === true,
+          controlContaminationCaveat:
+            contaminationById.get(l.id)?.notes.at(-1) ?? null,
         }),
       ] as const;
     }),
@@ -840,7 +889,7 @@ function LedgerCard({ rec, link, pres, spark, band, revert, restored, calibratio
           and untouched-page counts, one click away from the plain primary lines
           above. Nothing here is new data - it is the same sentence/counts the
           product already computed, just moved out of the headline position. */}
-      {sentence !== plainHeadline || (rec.permutationRead && rec.permutationRead.nTotal > 0) || pres?.seasonalInflectionCaveat ? (
+      {sentence !== plainHeadline || (rec.permutationRead && rec.permutationRead.nTotal > 0) || pres?.seasonalInflectionCaveat || pres?.controlContaminationCaveat ? (
         <details className="mt-1">
           <summary className="cursor-pointer text-[11px] text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-1">
             See the math
@@ -851,6 +900,11 @@ function LedgerCard({ rec, link, pres, spark, band, revert, restored, calibratio
               <p>{permutationSentenceFromCounts(rec.permutationRead.nGreater, rec.permutationRead.nTotal)}</p>
             ) : null}
             {pres?.seasonalInflectionCaveat ? <p>{pres.seasonalInflectionCaveat}</p> : null}
+            {/* Control-contamination guard (master plan N13): the full receipt -
+                which comparison page changed, when, and whether a clean
+                substitute was swapped in. The short caution line already shows
+                on the card itself below; this is the detailed "why". */}
+            {pres?.controlContaminationCaveat ? <p>{pres.controlContaminationCaveat}</p> : null}
           </div>
         </details>
       ) : null}
@@ -870,6 +924,15 @@ function LedgerCard({ rec, link, pres, spark, band, revert, restored, calibratio
             ))
         : null}
 
+      {/* Recrawl-gated SEARCH clock (master plan N11): Google's index does not
+          show the new version of this page yet, so the SEARCH clock has not
+          started. Names the split honestly - the GA4 traffic line above/below
+          keeps its live_at clock and keeps reading. Same visible-caveat seam
+          as the weather guard directly below. */}
+      {pres?.recrawlPendingCaveat ? (
+        <p className="mt-1 text-[12px] text-amber-700">{pres.recrawlPendingCaveat}</p>
+      ) : null}
+
       {/* Algorithm-weather guard (master plan item 32): this row's measurement window
           overlapped a confirmed Google update or a sitewide shift I detected, so I am
           flagging the read as cautious instead of quietly treating it as clean evidence. */}
@@ -882,6 +945,15 @@ function LedgerCard({ rec, link, pres, spark, band, revert, restored, calibratio
           read as cautious the same way an algorithm-weather overlap is flagged above. */}
       {pres?.weakComparisonCaveat ? (
         <p className="mt-1 text-[12px] text-amber-700">{pres.weakComparisonCaveat}</p>
+      ) : null}
+
+      {/* Control-contamination guard (master plan N13): a comparison page changed
+          mid-measurement (I treated it myself, or its content edited between
+          scans). When a clean substitute was found this names the swap; when
+          none existed this is the honest caution line. The full receipt with
+          dates lives in "See the math" above. */}
+      {pres?.controlContaminationCaveat ? (
+        <p className="mt-1 text-[12px] text-amber-700">{pres.controlContaminationCaveat}</p>
       ) : null}
 
       {/* Item C7 - the seasonal-overlap caveat used to repeat its full paragraph on

@@ -3,6 +3,7 @@ import {
   deriveMeasurementMaturity,
   buildMeasurementPresentation,
   basisDayOf,
+  effectiveSearchBasisDay,
   directionOf,
   isMatureOutcome,
   isInFlight,
@@ -348,5 +349,114 @@ describe("parallel-trends veto (master plan item 33) — additive, computed at r
       input({ windows: win(true, true, true), verdict: "won", controlsUsed: 3, baselineImpressions: 5000, weakComparison: true }),
     );
     expect(p.weakComparisonCaveat).not.toMatch(/[–—]/);
+  });
+});
+
+describe("recrawl-gated SEARCH clock (master plan N11) — additive, gates only the search lane", () => {
+  it("a record with recrawlPending unset (default) behaves exactly as before this field existed", () => {
+    const p = buildMeasurementPresentation(input({ windows: win(true, true, true), verdict: "won", controlsUsed: 3, baselineImpressions: 5000 }));
+    expect(p.recrawlPending).toBe(false);
+    expect(p.recrawlPendingCaveat).toBeNull();
+    expect(p.maturity).toBe("mature_result");
+    expect(p.learningEligibility).toBe(true);
+  });
+  it("recrawlPending caps a MATURE 28-day SEARCH window at collecting/Waiting - a search verdict against the old indexed page is never final", () => {
+    const p = buildMeasurementPresentation(
+      input({
+        windows: win(true, true, true),
+        verdict: "won",
+        controlsUsed: 3,
+        baselineImpressions: 5000,
+        recrawlPending: true,
+        recrawlDaysBlind: 12,
+      }),
+    );
+    expect(p.maturity).toBe("collecting");
+    expect(p.verdict).toBeNull();
+    expect(p.headline).toBe("Waiting");
+    expect(p.tone).toBe("waiting");
+    expect(p.learningEligibility).toBe(false);
+    expect(p.recrawlPending).toBe(true);
+    expect(p.recrawlPendingCaveat).toMatch(/Google has not re-read this page yet, so the search clock has not started/);
+    expect(p.recrawlPendingCaveat).toMatch(/Visit tracking started the day the change went live/);
+    expect(p.recrawlPendingCaveat).toMatch(/12 days/);
+  });
+  it("split clock: the pending copy names the SEARCH clock and the ungated visit clock in one sentence pair", () => {
+    const p = buildMeasurementPresentation(input({ windows: win(false, false, false), recrawlPending: true, recrawlDaysBlind: 3 }));
+    expect(p.explanation).toContain("so the search clock has not started");
+    expect(p.explanation).toContain("Visit tracking started the day the change went live.");
+    // Never claims a live inspection happened - the signal is Google's index.
+    expect(p.explanation.toLowerCase()).not.toContain("inspect");
+  });
+  it("recrawlPending neutralizes direction - no stale-index lean may leak onto the Search line", () => {
+    const p = buildMeasurementPresentation(
+      input({ shippedAt: "2026-06-20", windows: win(true, false, false), verdict: "lost", recrawlPending: true }),
+    );
+    expect(p.maturity).toBe("collecting");
+    expect(p.direction).toBe("unknown"); // "This is probably hurting." off old-index data would be an ungated search read
+    expect(p.verdict).toBeNull();
+    expect(p.basisDay).toBeNull(); // the search clock reads from nothing until the index confirms
+  });
+  it("recrawlPending shows no false 'matures YYYY-MM-DD' countdown - nextCheckpoint is null while the clock has not started", () => {
+    const p = buildMeasurementPresentation(
+      input({ shippedAt: "2026-06-20", windows: win(true, false, false), verdict: "lost", recrawlPending: true }),
+    );
+    expect(p.nextCheckpoint).toBeNull();
+  });
+  it("recrawlPending never overrides scheduled (nothing shipped has nothing to recrawl)", () => {
+    const p = buildMeasurementPresentation(input({ shippedAt: null, recrawlPending: true }));
+    expect(p.maturity).toBe("scheduled");
+  });
+  it("recrawlDaysBlind null/0 renders the day-agnostic split-clock line", () => {
+    const p = buildMeasurementPresentation(input({ windows: win(false, false, false), recrawlPending: true, recrawlDaysBlind: null }));
+    expect(p.recrawlPendingCaveat).toBe(
+      "Google has not re-read this page yet, so the search clock has not started. Visit tracking started the day the change went live.",
+    );
+  });
+  it("emits no em or en dashes in the caveat sentence", () => {
+    const p = buildMeasurementPresentation(input({ windows: win(true, true, true), verdict: "won", recrawlPending: true, recrawlDaysBlind: 5 }));
+    expect(p.recrawlPendingCaveat).not.toMatch(/[–—]/);
+  });
+});
+
+describe("recrawl-CONFIRMED shift (N11) — search checkpoints count from recrawlConfirmedAt, not live_at", () => {
+  // NOW is 2026-06-30 (module const). Ship 2026-06-01: all three windows stored-closed.
+  const allRan = win(true, true, true);
+
+  it("no recrawlConfirmedAt (default) keeps the ship-based clock - byte-identical legacy output", () => {
+    const withOut = buildMeasurementPresentation(input({ shippedAt: "2026-06-01", windows: allRan, verdict: "won", controlsUsed: 3, baselineImpressions: 5000 }));
+    const withNull = buildMeasurementPresentation(input({ shippedAt: "2026-06-01", windows: allRan, verdict: "won", controlsUsed: 3, baselineImpressions: 5000, recrawlConfirmedAt: null }));
+    expect(withNull).toEqual(withOut);
+    expect(withOut.maturity).toBe("mature_result");
+  });
+  it("confirm 5 days ago downgrades a stored-mature 28d window to collecting - not even a 7-day search read exists yet", () => {
+    const p = buildMeasurementPresentation(
+      input({ shippedAt: "2026-06-01", windows: allRan, verdict: "won", controlsUsed: 3, baselineImpressions: 5000, recrawlConfirmedAt: "2026-06-25T08:00:00Z" }),
+    );
+    expect(p.maturity).toBe("collecting");
+    expect(p.verdict).toBeNull();
+    expect(p.basisDay).toBeNull();
+    // Next checkpoint counts from the confirmed index crawl: 06-25 + 7 = 07-02.
+    expect(p.nextCheckpoint).toBe("2026-07-02");
+    expect(p.explanation).toContain("The search clock counts from when Google re-read this page.");
+  });
+  it("confirm 20 days ago reads a stored-mature 28d window as interim (14d since the index crawl), never mature", () => {
+    const p = buildMeasurementPresentation(
+      input({ shippedAt: "2026-06-01", windows: allRan, verdict: "won", controlsUsed: 3, baselineImpressions: 5000, recrawlConfirmedAt: "2026-06-10T00:00:00Z" }),
+    );
+    expect(p.maturity).toBe("interim_checkpoint");
+    expect(p.basisDay).toBe(14);
+    expect(p.verdict).toBeNull();
+    // Final checkpoint shifts to confirm + 28 = 07-08.
+    expect(p.explanation).toContain("2026-07-08");
+  });
+  it("effectiveSearchBasisDay is downgrade-only: it never closes a window that did not stored-close", () => {
+    // Only the 7d window stored-closed; a confirmation long ago cannot invent a 14/28d basis.
+    const day = effectiveSearchBasisDay({ windows: win(true, false, false), recrawlConfirmedAt: "2026-01-01T00:00:00Z", now: NOW });
+    expect(day).toBe(7);
+  });
+  it("effectiveSearchBasisDay with no confirmation equals basisDayOf exactly", () => {
+    expect(effectiveSearchBasisDay({ windows: win(true, true, false), recrawlConfirmedAt: null, now: NOW })).toBe(14);
+    expect(effectiveSearchBasisDay({ windows: win(false, false, false), recrawlConfirmedAt: null, now: NOW })).toBe(null);
   });
 });

@@ -1,12 +1,16 @@
 /**
- * Topic-label hygiene (2026-06-28 — New Pages quality gate, operator Phase 6).
+ * Topic-label hygiene (2026-06-28 — New Pages quality gate, operator Phase 6; hardened
+ * 2026-07-02 UX0 — grammar sanity).
  *
  * The demand graph derives create-page topics from cited prompts/fanouts, which can
  * surface (a) news/security headline fragments ("Chinese Iranian Hackers Keep Using
- * Boost"), (b) duplicated phrases ("Iranian Culture Iranian Culture Etiquette"), and
- * (c) too-generic one-word topics ("Gifts"). This module cleans the display label and
- * drops the junk before it reaches the New Pages board. PURE / tenant-agnostic — no
- * tenant vocabulary baked in (so it works for any site, per the no-hardcode contract).
+ * Boost"), (b) duplicated phrases ("Iranian Culture Iranian Culture Etiquette"), (c)
+ * too-generic one-word topics ("Gifts"), and (d) label assembly concatenating junk
+ * tokens into an ungrammatical fragment ("Deadly Misconceptions About Iran Hear
+ * Cross" — an orphan verb + a dangling word from a mangled URL-slug join). This module
+ * cleans the display label and drops the junk before it reaches the New Pages board.
+ * PURE / tenant-agnostic — no tenant vocabulary baked in (so it works for any site,
+ * per the no-hardcode contract).
  */
 
 // Headline / news / security / spam markers — a topic containing these is a scraped
@@ -24,6 +28,18 @@ const GENERIC_SINGLE_WORDS = new Set([
   "things", "list", "lists", "review", "reviews", "deals",
 ]);
 
+// A real page topic is a noun phrase; it never legitimately ENDS on a bare
+// imperative/present-tense verb (a title-assembly bug leaves these dangling —
+// operator ground-truth: "...Hear Cross"). Generic English verbs only, no tenant
+// vocabulary. Deliberately excludes words that double as nouns in common topic
+// phrases (e.g. "guide", "watch" as a noun) to avoid false rejects.
+const ORPHAN_VERBS = new Set([
+  "hear", "read", "see", "click", "learn", "cross", "keep", "make", "get", "go",
+  "come", "did", "does", "do", "was", "were", "has", "have", "had", "is", "are",
+  "be", "been", "being", "will", "would", "should", "could", "can", "may", "might",
+  "must", "shall", "let", "says", "said", "tell", "told", "ask", "asked",
+]);
+
 const ACRONYM_FIX: Record<string, string> = {
   usa: "USA", uk: "UK", uae: "UAE", faq: "FAQ", diy: "DIY", ai: "AI",
   suv: "SUV", nyc: "NYC", la: "LA", us: "US",
@@ -31,6 +47,18 @@ const ACRONYM_FIX: Record<string, string> = {
 
 function words(raw: string): string[] {
   return raw.trim().replace(/\s+/g, " ").split(" ").filter(Boolean);
+}
+
+/** True when a label's own grammar marks it as an unparseable/mangled fragment
+ *  (title-assembly concatenated junk tokens) — a real page topic is a noun phrase
+ *  and never trails off on a bare verb. Exported separately from `isJunkTopic` so
+ *  callers that only care about grammar sanity (not the fuller junk/generic rules)
+ *  can check it directly. */
+export function isUnparseableLabel(raw: string): boolean {
+  const ws = dedupeWords(words((raw ?? "").trim()));
+  if (ws.length < 2) return false; // too short to judge grammar; other rules handle single words
+  const last = ws[ws.length - 1]!.toLowerCase().replace(/[^a-z]/g, "");
+  return ORPHAN_VERBS.has(last);
 }
 
 /** True when a topic is scraped junk / a slug fragment / too generic to build. */
@@ -42,6 +70,10 @@ export function isJunkTopic(raw: string): boolean {
   // URL / slug garbage (query chars, or a long hyphen-slug that was never humanized).
   if (/[/?#=]/.test(t)) return true;
   if (/^[a-z0-9]+(?:-[a-z0-9]+){3,}$/.test(t)) return true;
+  // Grammar sanity (2026-07-02): a label assembled from concatenated junk tokens
+  // that trails off on a bare verb is not a buildable page topic — reject it here
+  // rather than letting a broken title reach the board.
+  if (isUnparseableLabel(t)) return true;
   // De-duplicated word count: a single generic word is not a page topic.
   const distinct = dedupeWords(words(lower));
   if (distinct.length <= 1 && GENERIC_SINGLE_WORDS.has(distinct[0] ?? "")) return true;

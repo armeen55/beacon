@@ -73,6 +73,15 @@ describe("matchKeywordDemand — cultural-aware deterministic matcher", () => {
   it("ignores zero/null-volume keywords", () => {
     expect(matchKeywordDemand("widget", null, [kw("widget", null), kw("widget", 0)]).confidence).toBe("none");
   });
+  it("operator ground-truth: 'most beautiful natural places' does NOT match 'most common name in iran' (shared word is only the superlative 'most')", () => {
+    const m = matchKeywordDemand(
+      "beautiful iran travel",
+      "What are the most beautiful natural places in Iran?",
+      [kw("most common name in iran", 70)],
+    );
+    expect(m.confidence).toBe("none");
+    expect(m.keyword).toBeNull();
+  });
 });
 
 describe("matchKeywordDemand — commerce keyword can't go 'strong' on a non-commerce topic", () => {

@@ -55,14 +55,28 @@ function equalSets(a: string[], b: string[]): boolean {
   return a.every((t) => sb.has(t));
 }
 
+/** Any shared distinguishing token between the two candidates THEMSELVES (not just via
+ *  a shared keyword). Two candidates that both loosely touch the same noisy keyword but
+ *  share NOTHING with each other are unrelated (ground-truth: "Travel Iran Beautiful
+ *  Natural Wonders" and "Most Popular Sports Iran" must never merge just because both
+ *  weak-matched a generic cached keyword). */
+function shareOwnToken(a: CanonCandidate, b: CanonCandidate): boolean {
+  const sb = new Set(b.distinctTokens);
+  return a.distinctTokens.some((t) => sb.has(t));
+}
+
 /** Same matched keyword is the strongest signal (the nowruz trio all anchor on "nowruz
  *  persian new year"); an identical distinguishing-token set is the brand-variant signal
  *  (persian wedding ≡ iranian wedding). A keyword merge is "strong" only when BOTH sides
  *  matched it strongly — a weak-keyword merge still collapses the card but is "weak"
- *  (medium confidence, won't inherit a brief). Nothing else merges. */
+ *  (medium confidence, won't inherit a brief), and ONLY when the two candidates ALSO
+ *  share a distinguishing token with each other (never merge on the keyword alone — a
+ *  noisy cached keyword can loosely touch two genuinely unrelated topics). Nothing else
+ *  merges. */
 function mergeSignal(a: CanonCandidate, b: CanonCandidate): "keyword" | "keyword_weak" | "tokens" | null {
   if (a.keyword && b.keyword && a.keyword === b.keyword) {
-    return a.strongKeyword && b.strongKeyword ? "keyword" : "keyword_weak";
+    if (a.strongKeyword && b.strongKeyword) return "keyword";
+    return shareOwnToken(a, b) ? "keyword_weak" : null;
   }
   if (equalSets(a.distinctTokens, b.distinctTokens)) return "tokens";
   return null;

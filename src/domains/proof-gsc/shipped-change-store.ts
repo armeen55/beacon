@@ -32,6 +32,7 @@ import type { ChangeDollarValue } from "./change-dollar-value";
 import type { PermutationRead } from "./permutation-null";
 import type { BayesianRead } from "./bayesian-read";
 import type { TargetQueryRead } from "./target-query-read";
+import type { RankedControl } from "./control-matching";
 
 const TABLE = "shipped_change_proof";
 const STORE = "proof-gsc-ledger";
@@ -132,6 +133,19 @@ export type ShippedChangeRecord = {
    *  reads identically to "not flagged". Set ONCE at selection time; never
    *  rewritten by re-measurement. */
   controlMatchWeak?: boolean;
+  /** BEACON_500 N13 (2026-07-03): the FULL ranked comparison-page candidate
+   *  list (control-matching.ts's RankedControl[] - kept AND excluded, in
+   *  original candidate order, with the matching inputs that produced each
+   *  verdict) frozen at THIS ship's selection time. This is the ONLY pool a
+   *  later contamination-driven promotion may draw from (control-
+   *  contamination.ts's promoteFromFrozenPool) - it is NEVER re-ranked with
+   *  post-ship data, because choosing a replacement using information that
+   *  arrived after the ship would bias the verdict toward whatever outcome
+   *  the replacement happened to show. Null for older rows that predate N13
+   *  (no frozen pool exists) or when the matcher itself failed at selection
+   *  time (the top-3-by-demand fallback has nothing ranked to freeze). Set
+   *  ONCE at selection time; never rewritten by re-measurement. */
+  controlDonorPool?: RankedControl[] | null;
   /** Operator override that PINS the learning verdict to "inconclusive",
    *  excluding this change from the per-action_type outcome prior that steers
    *  recommendation ranking. Use when a measured "won"/"lost" is mis-attributed
@@ -177,6 +191,10 @@ type LedgerRow = {
   control_match_notes?: string[] | null;
   /** Additive column, same posture as control_match_notes. */
   control_match_weak?: boolean | null;
+  /** N13 additive column, same posture as control_match_notes/control_match_weak
+   *  - a missing column trips PGRST204 -> isUndefinedTableError -> file
+   *  fallback, which round-trips this field with no schema at all. */
+  control_donor_pool?: RankedControl[] | null;
   created_at: string;
   updated_at: string;
 };
@@ -252,6 +270,11 @@ export function recordToRow(tid: string, r: ShippedChangeRecord): LedgerRow {
     // value on re-record, same round-trip safety as every other nullable column.
     control_match_notes: r.controlMatchNotes ?? null,
     control_match_weak: r.controlMatchWeak ?? false,
+    // N13, write-once at selection time (never rewritten by re-measurement or
+    // by the read-time contamination check) - emit unconditionally so a null
+    // still overwrites a stale value, same round-trip safety as every other
+    // nullable column here.
+    control_donor_pool: r.controlDonorPool ?? null,
     created_at: r.createdAt,
     updated_at: r.updatedAt,
   };
@@ -285,6 +308,9 @@ export function rowToRecord(row: LedgerRow): ShippedChangeRecord {
       ? row.control_match_notes
       : null,
     controlMatchWeak: row.control_match_weak === true,
+    controlDonorPool: Array.isArray(row.control_donor_pool) && row.control_donor_pool.length > 0
+      ? row.control_donor_pool
+      : null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };

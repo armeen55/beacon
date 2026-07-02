@@ -22,6 +22,9 @@ vi.mock("@/domains/recommendation-intelligence/gsc-page-signals", () => ({
 vi.mock("@/domains/recommendation-intelligence/clarity-page-signals", () => ({
   loadClarityPageSignalsForTenant: vi.fn(async () => new Map()),
 }));
+vi.mock("@/domains/recommendation-intelligence/page-freshness", () => ({
+  loadPageContentSnapshot: vi.fn(async () => null),
+}));
 vi.mock("@/domains/ai-visibility/load-crawl-citation-funnel", () => ({
   loadCrawlCitationFunnel: vi.fn(async () => null),
 }));
@@ -43,6 +46,7 @@ import { loadPageDossier, pathFromSegments, labelFromPath } from "./page-dossier
 import { loadDailyClicksByPathsForTenant } from "@/domains/proof-gsc/daily-series";
 import { loadGscPageSignalsForTenant } from "@/domains/recommendation-intelligence/gsc-page-signals";
 import { loadClarityPageSignalsForTenant } from "@/domains/recommendation-intelligence/clarity-page-signals";
+import { loadPageContentSnapshot } from "@/domains/recommendation-intelligence/page-freshness";
 import { loadCrawlCitationFunnel } from "@/domains/ai-visibility/load-crawl-citation-funnel";
 import { loadLanguageGaps } from "@/domains/language-gap/language-gap-store";
 import { loadProofLedgerCached } from "@/domains/proof-gsc/load-ledger";
@@ -113,6 +117,10 @@ describe("loadPageDossier composition", () => {
     expect(d.currentMove).toBeNull();
     expect(d.currentPlanPick).toBeNull();
     expect(d.pageLabel).toBe("Cities");
+    expect(d.liveUrl).toBeNull();
+    expect(d.content).toBeNull();
+    // No source resolved a live URL, so the content loader must not even run.
+    expect(loadPageContentSnapshot).not.toHaveBeenCalled();
   });
 
   it("passes the dossier path straight to the daily-clicks loader and keys the chart off it", async () => {
@@ -136,6 +144,26 @@ describe("loadPageDossier composition", () => {
     expect(d.teamReads.demand).toEqual({ clicks90d: 120, impressions90d: 4000, ctr90d: 0.03, position90d: 6.5 });
     expect(d.queries.topQueries).toHaveLength(1);
     expect(d.queries.topQueries[0].query).toBe("iran cities");
+    // The GSC signal's own canonical URL is the best-known live URL.
+    expect(d.liveUrl).toBe("https://www.iranopedia.com/cities/");
+  });
+
+  it("fetches the content snapshot for the resolved live URL and surfaces it as-is", async () => {
+    vi.mocked(loadGscPageSignalsForTenant).mockResolvedValue(
+      new Map([["https://iranopedia.com/cities", { page: "https://iranopedia.com/cities", clicks90d: 10, impressions90d: 100, ctr90d: 0.1, position90d: 5, topQueries: [] }]]),
+    );
+    vi.mocked(loadPageContentSnapshot).mockResolvedValue({
+      title: "Cities of Iran",
+      metaDescription: "A tour of Iran's major cities.",
+      h1: "Cities of Iran",
+      wordCount: 1200,
+      fetchedAt: "2026-06-30T00:00:00Z",
+    });
+    const d = await loadPageDossier(PATH);
+    expect(loadPageContentSnapshot).toHaveBeenCalledWith("tenant-test", "https://iranopedia.com/cities");
+    expect(d.content?.title).toBe("Cities of Iran");
+    expect(d.content?.wordCount).toBe(1200);
+    expect(d.hasAnyData).toBe(true);
   });
 
   it("filters the ledger to this page only and sorts newest first, deriving ship markers", async () => {
@@ -206,8 +234,10 @@ describe("loadPageDossier composition", () => {
     vi.mocked(getAcceptedPlan).mockRejectedValue(new Error("boom"));
     vi.mocked(getLatestPreviewPlan).mockRejectedValue(new Error("boom"));
     vi.mocked(loadCrawlCitationFunnel).mockRejectedValue(new Error("boom"));
+    vi.mocked(loadPageContentSnapshot).mockRejectedValue(new Error("boom"));
     const d = await loadPageDossier(PATH);
     expect(d.hasAnyData).toBe(false);
     expect(d.pageLabel).toBe("Cities");
+    expect(d.content).toBeNull();
   });
 });

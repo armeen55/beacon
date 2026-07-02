@@ -167,6 +167,143 @@ describe("evaluateDraftQuality - quotability (BEACON 500 item 78, additive)", ()
   });
 });
 
+describe("evaluateDraftQuality - factual entailment (N8, additive/opt-in)", () => {
+  // Pin: every pre-existing fixture above passes NO pageBodyText/evidenceText,
+  // so the entailment check never runs for them - already proven by the fact
+  // every earlier test in this file still passes unmodified. These new cases
+  // only cover the opt-in path itself.
+
+  it("does nothing when neither pageBodyText nor evidenceText is supplied (byte-identical to pre-N8)", () => {
+    const r = evaluateDraftQuality({
+      answer:
+        "Iran's national animal is the Asiatic cheetah, a critically endangered subspecies native to the country's central plateau. Conservation programs work to protect the small remaining population across protected reserves and national parks in Iran.",
+      evidenceRefs: 0,
+    });
+    expect(r.status).toBe("useful_but_needs_review");
+  });
+
+  it("PASSES a ready draft whose claims are all grounded in the page body", () => {
+    const r = evaluateDraftQuality({
+      answer:
+        "Nowruz Activities USA refers to community and cultural events held across the United States to observe Nowruz, the Persian New Year. These activities include Haft-Seen displays and traditional Persian music performances hosted by Iranian-American community organizations nationwide.",
+      pageBodyText:
+        "Nowruz Activities USA covers community and cultural events across the United States marking Nowruz, the Persian New Year, including Haft-Seen displays and traditional Persian music performances by Iranian-American community organizations.",
+    });
+    expect(r.status).toBe("ready");
+    expect(r.copyAllowed).toBe(true);
+  });
+
+  it("REJECTS an otherwise-ready draft with a number the page body does not support", () => {
+    const r = evaluateDraftQuality({
+      answer:
+        "Nowruz has been celebrated in Iran for more than 3000 years, marking the arrival of spring with family gatherings, music, poetry readings, and shared meals across the region every March.",
+      // evidenceRefs:1 clears the earlier unsourced-specific-fact check (step 6)
+      // so this fixture actually reaches the entailment check (step 8) - a
+      // "sourced" draft still has to match the REAL page body, not just claim
+      // to be grounded.
+      evidenceRefs: 1,
+      pageBodyText:
+        "Nowruz is the Persian new year, celebrated in Iran with family gatherings, music, poetry readings, and shared meals marking the arrival of spring every March.",
+    });
+    expect(r.status).toBe("unverified_claim");
+    expect(r.copyAllowed).toBe(false);
+    expect(r.canRegenerate).toBe(true);
+    expect(r.reasons[0]).toContain("3000");
+    expect(r.reasons[0]).toContain("could not find that number");
+  });
+
+  it("PASSES the same 3000-year claim when the page body actually supports it", () => {
+    const r = evaluateDraftQuality({
+      answer:
+        "Nowruz has been celebrated in Iran for more than 3000 years, marking the arrival of spring with family gatherings, music, poetry readings, and shared meals across the region every March.",
+      evidenceRefs: 1,
+      pageBodyText:
+        "Nowruz is a 3000 year old Persian tradition celebrated in Iran, marking the arrival of spring every March with family gatherings, music, and poetry readings.",
+    });
+    expect(r.status).toBe("ready");
+  });
+
+  it("REJECTS an atomic title/meta rewrite that introduces an unsupported number", () => {
+    const r = evaluateTitleMetaQuality({
+      before: "Persian New Year Traditions",
+      after: "Persian New Year: 3000 Years of Nowruz Traditions in Iran",
+      field: "title",
+      pageBodyText: "Nowruz is the Persian new year, celebrated across Iran every spring.",
+    });
+    expect(r.status).toBe("unverified_claim");
+    expect(r.copyAllowed).toBe(false);
+  });
+
+  it("PASSES an atomic title/meta rewrite whose claim is grounded", () => {
+    const r = evaluateTitleMetaQuality({
+      before: "Persian New Year Traditions",
+      after: "Persian New Year: 3000 Years of Nowruz Traditions in Iran",
+      field: "title",
+      pageBodyText: "Nowruz is a 3000 year old Persian tradition celebrated across Iran every spring.",
+    });
+    expect(r.status).toBe("ready");
+  });
+});
+
+describe("evaluateDraftQuality / evaluateTitleMetaQuality - operator correction (page is stale, dated evidence backs the draft)", () => {
+  it("a draft that CONTRADICTS the page but is backed by a dated authoritative fact stays ready AND carries the correction", () => {
+    const r = evaluateDraftQuality({
+      answer:
+        "Iranopedia now lists 4500 Persian recipes in its growing collection, spanning regional dishes, holiday specialties, and everyday family meals from every corner of Iran and its many worldwide diaspora communities.",
+      evidenceRefs: 1,
+      pageBodyText:
+        "Iranopedia lists 3000 Persian recipes in its growing collection, spanning regional dishes and everyday family meals across Iran.",
+      authoritativeFacts: [
+        { source: "your site's recipe count (Wix connector)", date: "2026-07-01", detail: "4500 recipes are currently published" },
+      ],
+    });
+    expect(r.status).toBe("ready");
+    expect(r.copyAllowed).toBe(true);
+    expect(r.corrections).toBeDefined();
+    expect(r.corrections!.some((c) => c.includes("4500") && c.includes("2026-07-01"))).toBe(true);
+  });
+
+  it("the SAME contradicting number with no authoritative fact stays unverified_claim (blocked)", () => {
+    const r = evaluateDraftQuality({
+      answer:
+        "Iranopedia now lists 4500 Persian recipes in its growing collection, spanning regional dishes, holiday specialties, and everyday family meals from every corner of Iran and its many worldwide diaspora communities.",
+      evidenceRefs: 1,
+      pageBodyText:
+        "Iranopedia lists 3000 Persian recipes in its growing collection, spanning regional dishes and everyday family meals across Iran.",
+    });
+    expect(r.status).toBe("unverified_claim");
+    expect(r.copyAllowed).toBe(false);
+    expect(r.corrections).toBeUndefined();
+  });
+
+  it("a ready draft with no correction never carries the corrections field (undefined, not empty array)", () => {
+    const r = evaluateDraftQuality({
+      answer:
+        "Nowruz Activities USA refers to community and cultural events held across the United States to observe Nowruz, the Persian New Year. These activities include Haft-Seen displays and traditional Persian music performances hosted by Iranian-American community organizations nationwide.",
+      pageBodyText:
+        "Nowruz Activities USA covers community and cultural events across the United States marking Nowruz, the Persian New Year, including Haft-Seen displays and traditional Persian music performances by Iranian-American community organizations.",
+    });
+    expect(r.status).toBe("ready");
+    expect(r.corrections).toBeUndefined();
+  });
+
+  it("an atomic title/meta correction stays ready AND carries the correction line with source + date", () => {
+    const r = evaluateTitleMetaQuality({
+      before: "Persian New Year Traditions",
+      after: "Persian New Year: 4500 Recipes and Nowruz Traditions in Iran",
+      field: "title",
+      pageBodyText: "Nowruz is the Persian new year, celebrated across Iran every spring with 3000 traditional recipes.",
+      authoritativeFacts: [
+        { source: "your site's recipe count (Wix connector)", date: "2026-07-01", detail: "4500 recipes are currently published" },
+      ],
+    });
+    expect(r.status).toBe("ready");
+    expect(r.corrections).toBeDefined();
+    expect(r.corrections![0]).toContain("your site's recipe count (Wix connector)");
+    expect(r.corrections![0]).toContain("2026-07-01");
+  });
+});
+
 describe("evaluateTitleMetaQuality — atomic edits", () => {
   it("PASSES an entity-forward rewrite (rec-0: Persian Wolf)", () => {
     const r = evaluateTitleMetaQuality({

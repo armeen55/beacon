@@ -19,6 +19,7 @@ import { rankChanges, goalMatches, inStatusView } from "@/domains/changes/strate
 import { MoveCard } from "./today-moves-card";
 import { Sparkline } from "@/components/data/sparkline";
 import { formatMetric, formatMetricCompact } from "@/lib/format-metric";
+import { dossierHref } from "@/lib/page-dossier-link";
 
 const STRATEGIES: { id: Strategy; label: string; hint: string }[] = [
   { id: "balanced", label: "Balanced", hint: "Best mix of upside, effort, risk, and evidence (recommended)." },
@@ -116,6 +117,7 @@ function Row({ c, move, rank }: { c: CanonicalChange; move: ChangesView["movesBy
   const panelId = `change-detail-${c.id}`;
   const effort = Number.isFinite(c.estimatedEffortMinutes) ? c.estimatedEffortMinutes : null;
   const label = displayPageLabel(c, move);
+  const href = dossierHref(c.pagePath || c.pageUrl);
   return (
     <div className={`rounded-lg border border-gray-100 bg-white dark:border-neutral-800 dark:bg-neutral-900 ${c.status === "blocked" ? "opacity-70" : ""}`}>
       <div className="flex items-center gap-3 px-3 py-2.5">
@@ -125,7 +127,17 @@ function Row({ c, move, rank }: { c: CanonicalChange; move: ChangesView["movesBy
               const fam = FAMILY_CHIP[c.changeFamily] ?? FAMILY_CHIP.other!;
               return <span className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold ring-1 ${fam.cls}`}>{fam.label}</span>;
             })()}
-            <span className="min-w-0 break-words text-sm font-semibold capitalize text-gray-900 dark:text-neutral-100" title={label.secondary ?? undefined}>{label.title}</span>
+            {href ? (
+              <Link
+                href={href}
+                className="min-w-0 break-words text-sm font-semibold capitalize text-gray-900 underline-offset-2 hover:underline dark:text-neutral-100"
+                title={label.secondary ?? undefined}
+              >
+                {label.title}
+              </Link>
+            ) : (
+              <span className="min-w-0 break-words text-sm font-semibold capitalize text-gray-900 dark:text-neutral-100" title={label.secondary ?? undefined}>{label.title}</span>
+            )}
             {label.secondary ? <span className="shrink-0 text-[10px] text-gray-400 dark:text-neutral-500">{label.secondary}</span> : null}
             {move?.sparkline && move.sparkline.length >= 5 ? <Sparkline points={move.sparkline} width={56} height={14} className="inline-block opacity-70" /> : null}
             <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium ${chip.cls}`}>{chip.label}</span>

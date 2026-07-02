@@ -7,6 +7,7 @@ import { pathFromSegments, loadPageDossier, labelFromPath } from "./page-dossier
 import {
   DossierChartSection,
   DossierQueriesSection,
+  DossierContentSection,
   DossierTeamReadsSection,
   DossierHistorySection,
   DossierCurrentMoveSection,
@@ -37,6 +38,9 @@ export default async function PageDossierPage({ params }: { params: Promise<{ pa
         <DossierQueriesSection path={path} />
       </Suspense>
       <Suspense fallback={<CardSkeleton />}>
+        <DossierContentSection path={path} />
+      </Suspense>
+      <Suspense fallback={<CardSkeleton />}>
         <DossierTeamReadsSection path={path} />
       </Suspense>
       <Suspense fallback={<CardSkeleton />}>
@@ -60,7 +64,18 @@ async function DossierHeader({ path }: { path: string }) {
           ? `Everything I know about ${path}, in one place.`
           : `I do not have any data on ${path} yet. Once a source reports on it, I will show it here.`
       }
-    />
+    >
+      {dossier.liveUrl ? (
+        <a
+          href={dossier.liveUrl}
+          target="_blank"
+          rel="noreferrer"
+          className="inline-flex items-center gap-1 rounded-md border border-border/60 bg-surface-inset/60 px-2.5 py-1.5 text-[12px] font-medium text-foreground hover:bg-surface-inset"
+        >
+          Visit the live page <span aria-hidden>&#8599;</span>
+        </a>
+      ) : null}
+    </PageHeader>
   );
 }
 

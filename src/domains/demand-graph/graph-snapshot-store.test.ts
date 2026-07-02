@@ -47,6 +47,8 @@ function snapshot(moves: MoveCandidate[]): LoadGraphResult {
     coverage: {
       gscPages: 197, ga4Pages: 397, clarityPages: 179, competitorCitations: 9510,
       competitorEdges: 2061, createPageCandidates: 40, ownedCited: 37, emptySources: [],
+      coherence: { suppressedCandidates: [], trimmedCandidates: [] },
+      ownershipReclassified: [],
     },
   };
 }

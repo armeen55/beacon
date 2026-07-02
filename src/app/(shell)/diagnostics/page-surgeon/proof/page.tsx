@@ -1,20 +1,22 @@
+import Link from "next/link";
 import { listProofPlan } from "../actions";
+import { dossierHref } from "@/lib/page-dossier-link";
 
 export const dynamic = "force-dynamic";
 
 /**
- * Page Surgeon — PROOF PLAN (operator-only, PS6). NOT A/B testing. For every
+ * Page Surgeon, PROOF PLAN (operator-only, PS6). NOT A/B testing. For every
  * REVIEWED change (approve / needs_edit) this lays out exactly how it will be
  * proven: the measurement window (7 / 14 / 28-day check-ins from the decision),
  * the GSC metrics that will be re-checked with today's baseline, and the control
- * pages chosen for a diff-in-diff. No cron, no writes — the loop the operator (or
+ * pages chosen for a diff-in-diff. No cron, no writes, the loop the operator (or
  * a later runner) executes to prove a shipped edit actually moved the number.
  */
 export default async function PageSurgeonProof() {
   const { rows } = await listProofPlan();
   return (
     <div className="mx-auto max-w-3xl px-4 py-8">
-      <h1 className="text-lg font-semibold tracking-tight">Page Surgeon — proof plan</h1>
+      <h1 className="text-lg font-semibold tracking-tight">Page Surgeon, proof plan</h1>
       <p className="mt-1 text-[13px] leading-relaxed text-muted-foreground">
         Every change you approved or flagged for edit, with the plan to prove it
         worked: when to re-check (7 / 14 / 28 days), which Google Search metrics to
@@ -32,10 +34,17 @@ export default async function PageSurgeonProof() {
         <ul className="mt-6 space-y-4">
           {rows.map((r) => {
             const path = r.pageUrl.replace(/^https?:\/\/[^/]+/, "") || "/";
+            const href = dossierHref(r.pageUrl);
             return (
               <li key={r.pageUrl} className="rounded-lg border border-border/60 bg-surface-inset/20 p-4">
                 <div className="flex flex-wrap items-center gap-2">
-                  <span className="text-[13px] font-semibold text-foreground">{path}</span>
+                  {href ? (
+                    <Link href={href} className="text-[13px] font-semibold text-foreground underline-offset-2 hover:underline">
+                      {path}
+                    </Link>
+                  ) : (
+                    <span className="text-[13px] font-semibold text-foreground">{path}</span>
+                  )}
                   <span className={`inline-flex items-center rounded-md px-2 py-0.5 text-[11px] font-semibold ${r.verdict === "approve" ? "bg-status-success/15 text-status-success" : "bg-amber-500/15 text-amber-600"}`}>
                     {r.verdict === "approve" ? "Approved" : "Needs edit"}
                   </span>

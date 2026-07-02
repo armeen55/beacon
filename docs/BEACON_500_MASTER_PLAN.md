@@ -53,12 +53,12 @@ slugs, internal keys, jargon, or unexplained zeros. Judge performance on prod, n
 - [ ] N5. **Information-gain gate**: every new page or section must contribute something competitors do not. (NEW; precondition for any factory)
 - [x] N6. **Intent classifier that vetoes the wrong lever** (v1 130; extend the shipped answer-intent classifier into a router veto) - SHIPPED 2026-07-02 (worktree, not yet merged): `src/domains/demand-graph/intent-veto.ts` wired into `move-router.ts`'s existing veto/downgrade machinery; 2 real vetoes on live Iranopedia data, 32 new tests. See `docs/VERIFICATION_LOG.md`.
 - [x] N7. **SERP-overlap clustering so one page owns one intent** (v1 120; feeds N2) - SHIPPED 2026-07-02: intent-clusters.ts (union-find over stored SERP overlap) + conflict trigger; honest 7/300 SERP coverage today, grows with every paid SERP read.
-- [ ] N8. **Snapshot-grounded factual verification before publishing** (v1 147 entailment check; law 3)
+- [x] N8. **Snapshot-grounded factual verification before publishing** (v1 147 entailment check; law 3) - SHIPPED 2026-07-02 (worktree, not yet merged): `src/domains/drafts/factual-entailment.ts` (pure numbers/entities/superlatives check) wired as an additive check into `draft-quality.ts` and as a publish-gate backstop in `stage-change.ts`'s `resolveMove`. Operator-corrected mid-build: the page is one grounding source, not the final word - a claim contradicting the page but backed by a dated `AuthoritativeFact` is an allowed CORRECTION (never blocks, may auto-publish with the source+date explanation); only an unsupported INVENTION (found nowhere) blocks. 92 new/updated tests. Ground truth on live Iranopedia data: 25 real recommended_edits checked, 6 blocked as genuine inventions, 0 corrections (no dated-facts source is wired into any caller yet - the mechanism is built and tested, not yet fed real data), 19 pass. See `docs/VERIFICATION_LOG.md`.
 - [x] N9. **Pause recommendations when data sources contradict** (v1 162 cross-check; law 1) - SHIPPED 2026-07-02 (worktree, not yet merged): `src/domains/evidence/source-contradiction.ts` (3 deterministic rules, absence-never-fires) wired into `reviewRecommendation` as a new `paused_source_contradiction` decision, excluded from the nightly plan by the existing `passesDailyGate`; 4 real contradictions found live on Iranopedia, 37 new tests. See `docs/VERIFICATION_LOG.md`.
 - [ ] N10. **One verdict-reliability grade**: recrawl, completeness, contamination, controls, volatility, sample strength in one grade. (NEW; absorbs v1 290 coherence, 337 unreliable days, 379 completeness guard, 504 verdict stability)
-- [ ] N11. **Recrawl-gated measurement clock** (v1 132+153+183 merged: measure only after Google recrawls)
+- [x] N11. **Recrawl-gated measurement clock** (v1 132+153+183 merged: measure only after Google recrawls) - SHIPPED 2026-07-02 + operator-corrected same day (worktree, not yet merged): `src/domains/proof-gsc/recrawl-clock.ts` (pure) + `attach-recrawl-clock.ts` wired into `measurement-maturity.ts`'s `recrawlPending`/`recrawlDaysBlind`/`recrawlConfirmedAt`. SPLIT CLOCK per operator correction: gates ONLY the Google-search verdict lane (SEARCH maturity capped at Waiting, direction neutralized, checkpoints count from the confirmed index crawl once known); GA4/Clarity/conversion reads keep their live_at clock and keep rendering (pinned by proof-split-clock.test.ts). Semantics locked: last_crawl_time = Google's INDEXED-version crawl, never a live inspection. Nightly assist in `auto-measure.ts` (bounded `gscUrlInspect` prioritization, no new cron). 127 targeted tests. Ground truth: all 25 real Iranopedia ships read blind today (0 `gsc_url_inspections` rows exist yet - the sweep is new). See `docs/HANDOFF_VERIFIED_STATE.md`.
 - [ ] N12. **Block concurrent experiments competing for the same queries** (v1 149; with N2)
-- [ ] N13. **Detect and replace comparison pages edited mid-window** (v1 87+175 merged; contamination chip v1 391 rides along)
+- [x] N13. **Detect and replace comparison pages edited mid-window** (v1 87+175 merged; contamination chip v1 391 rides along) - SHIPPED 2026-07-03 (worktree, not yet merged): `src/domains/proof-gsc/control-contamination.ts` (pure classifier: treated_by_us / content_changed / unknown / clean, honest on sparse scan coverage) + `attach-control-contamination.ts` (read-path join) wired into `measurement-maturity.ts`'s `controlContaminationFlagged`/`controlContaminationCaveat` (N10-bound seam) and the `/proof` card's visible caveat + "See the math". PROMOTION not re-selection (operator-corrected design): a contaminated control is replaced ONLY from that ship's own FROZEN donor pool (`control_donor_pool`, a new additive jsonb column persisted ONCE at ship time in `auto-record-on-ship.ts`, migration `migrations/2026-07-03_shipped_change_proof_control_donor_pool.sql` NOT yet applied) - never a fresh, post-ship-data-informed pick. 41 new tests. Ground truth on the real 25-ship Iranopedia ledger: all 25 ships have at least one contaminated control today (229 total; sparse page_snapshots coverage - 0 in-window scans - dominates as "unknown"); 7 real `treated_by_us` cases confirmed (`/cities`, `/funny-farsi-phrases` shipped 2026-06-20; `/iran-animals/asiatic-cheetah`, `/iranian-actors-actresses`, `/famous-iranian-comedians`, `/farsi-numbers`, `/famous-iranian-singers` shipped 2026-06-21, all used `/persian-male-names` as a control, which was itself treated 2026-06-22 inside their still-open windows) - this slips through the pre-existing `activeTreatmentPaths` guard because that guard only tracks `outcomeStateOf === "measuring"`, and `/persian-male-names`'s stored verdict already flipped to `inconclusive` at its 7-day checkpoint even though its 14/28-day windows are still open. All 25 ships predate `controlDonorPool` (0 swaps possible today, correctly, since no post-hoc substitute can be picked without post-ship data) - every one reads "no clean substitute available, reading with caution" honestly instead of a fabricated swap. Rendered on live dev `/proof` (tenant-iranopedia): the `/cities` card shows the amber caveat "A comparison page changed during measurement, so I am reading this result with caution." both inline and inside "See the math".
 - [ ] N14. **Full interference graph**: internal links, templates, sitewide changes, redirects, overlapping topics. (NEW; generalizes N12/N13)
 - [ ] N15. **Learn from effect sizes, not binary wins** (v1 141; plus 142 beta-posterior shrinkage, 496 recency half-life)
 - [ ] N16. **Sustainable control-pool strategy** for when good comparison pages get treated. (NEW; absorbs v1 199 donor repair, 200 median band, 211 synthetic control, 434 holdouts)
@@ -98,6 +98,53 @@ slugs, internal keys, jargon, or unexplained zeros. Judge performance on prod, n
 - [ ] N50. **Canary rollout for new recommendation policies** before they hit every nightly batch (NEW; with N35)
 
 ---
+
+## UX VISION TRACK (operator verdict 2026-07-02: explore, not read; decided YES on all three vision calls)
+
+The product must feel like a world of clickable OBJECTS (page, query, topic, change, competitor,
+AI question), each opening a dossier, instead of one long generated report. Coolness comes from
+exploration and responsiveness, not decoration. Data correctness comes BEFORE beauty: never make
+a malformed recommendation prettier.
+
+- [ ] UX0. **Data-correctness prerequisites (BLOCKS the beautification of affected surfaces):**
+  fix the new-page generator corruption (topic clusters mixing superstitions/sports/names under
+  one travel title; demand evidence borrowed from unrelated queries; "missing page" cards whose
+  page is already cited; broken titles like "Deadly Misconceptions About Iran Hear Cross";
+  duplicate queries with conflicting demand - the N2 ownership/clustering work is the real cure,
+  this is its down payment); unify the LAST measuring-count mismatch (Today 16 vs Changes 10);
+  never label GSC impressions as searches/mo (impressions are "times shown on Google", market
+  volume is "searches/mo" - two different numbers, two different labels). Prepare-all stays
+  gated on malformed candidates.
+- [ ] UX1. **Universal Page Dossier backbone:** every page reference anywhere in the app links to
+  the page dossier; the dossier shows the page's whole story (traffic, queries, content, links,
+  visitor behavior, citations, competitors, change history, active measurements, planned work,
+  results). One interaction model everywhere. (The /page/[...path] dossier exists; complete it
+  and wire every surface into it.)
+- [ ] UX2. **Research hub with the Keywords library:** nav group Research becomes a real hub:
+  Keywords (EVERY cached keyword with intent, volume, trend, owner page, rank, related questions,
+  competitor owners, proposed destination - all the cached research in one sortable, filterable
+  table), Pages, Topics, AI questions, Competitors, Content roadmap. The operator's own idea;
+  build Keywords first.
+- [ ] UX3. **Changes as a dense inbox:** compact rows (page, goal, exact action, expected upside,
+  evidence strength, effort, status) + split detail panel that opens without losing list position;
+  applied batches collapse to one summary row; ONE command "Prepare tonight's plan" replacing the
+  Improve-top-3/Enrich/Prepare-top-10 machinery buttons; strategy names in buyer language (Best
+  opportunities, Quick wins, Protect traffic, Win AI citations, Build authority, Improve
+  experience); learning always-on (no "Clean tests" chore); multi-select + keyboard + saved views.
+- [ ] UX4. **Today as a concise briefing:** lead story first (what matters most right now); compact
+  alert with Investigate/Retry + expandable technicals; teammate pills open that teammate's
+  briefing (evidence, concerns, actions); chart gains Google/AI/Visitors/Value tabs; applied
+  changes collapse to six compact rows; measuring collapses to one line; friction gets severity
+  bars; the AI funnel renders as an actual funnel with clickable stalled stages; demand section
+  splits into its distinct tools; only the top 3 new pages (the rest live in Research); refresh
+  moves to the header. Separate Connected / Healthy / Fresh / Has data so the health strip can
+  never contradict an alert.
+- [ ] UX5. **Legacy deletion sweep:** anything dead, orphaned, or superseded is deleted outright,
+  not hidden (operator hard rule; extends P18).
+
+Sequencing: UX0 first (correctness), then UX1 (backbone), UX2 (Keywords), UX3, UX4, UX5
+opportunistically. The Constitution head (N-items) continues interleaved; N2's ownership registry
+and UX0 are the same fight.
 
 ## TIER 0 INTERLEAVE: FLY-AWAY SURVIVAL (may jump the queue; the operator must be able to run alone)
 

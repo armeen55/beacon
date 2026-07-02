@@ -1,0 +1,23 @@
+-- GSC Proof ledger, frozen comparison-page donor pool (BEACON_500 N13, 2026-07-03).
+-- Additive + idempotent. Stores the FULL ranked comparison-page candidate list
+-- (control-matching.ts's RankedControl[], kept AND excluded, in original
+-- candidate order, with the matching inputs, baseline scale, pre-ship trend,
+-- query overlap, that produced each verdict) frozen at THIS ship's selection
+-- time. NULL = this row predates N13, or the matcher itself failed at
+-- selection time (nothing ranked to freeze).
+--
+-- This is the ONLY pool a later contamination-driven promotion (control-
+-- contamination.ts's promoteFromFrozenPool, read at /proof render time) may
+-- draw from when one of the ship's original controlPages is found to have
+-- changed mid-measurement. It is NEVER re-ranked with post-ship data, since
+-- picking a replacement using information that arrived after the ship would
+-- bias the verdict toward whatever outcome the replacement happened to show.
+-- Written ONCE at selection time in auto-record-on-ship.ts alongside
+-- control_match_notes / control_match_weak; never rewritten by re-measurement
+-- or by the read-time contamination check.
+--
+-- The store tolerates this column being absent (PGRST204 -> file fallback), so
+-- applying this migration is deploy-order-independent, same posture as the
+-- 2026-07-02 control_match_notes / control_match_weak migration it extends.
+alter table public.shipped_change_proof
+  add column if not exists control_donor_pool jsonb;

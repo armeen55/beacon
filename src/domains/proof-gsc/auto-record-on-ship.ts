@@ -329,6 +329,20 @@ export function buildControlMatchNotes(matched: ReadonlyArray<RankedControl>): s
     .map((m) => `Left out ${m.url} as a comparison page: ${m.reason}.`);
 }
 
+/**
+ * Top same-site pages by real GSC demand that also have a crawl - the SAME raw
+ * candidate pool auto-record-on-ship.ts scores at ship-selection time. Exported
+ * standalone (not just as the inline defaultDeps closure below) so a READ-time
+ * caller - control-contamination's substitute search (N13) - can pull a fresh
+ * pool without importing the whole AutoRecordDeps shape. No persisted "donor
+ * pool" exists anywhere in this codebase; this recomputes it live every call,
+ * same as the selection-time path always has.
+ */
+export async function loadControlCandidatesForTenant(tenantId: string, n: number): Promise<string[]> {
+  const ctx = await loadPageSurgeonContext(tenantId);
+  return topPagesByDemand(ctx, n);
+}
+
 export type AutoRecordDeps = {
   captureChangeMeta: typeof captureChangeMeta;
   recordShippedChange: typeof recordShippedChange;
@@ -348,10 +362,7 @@ const defaultDeps: AutoRecordDeps = {
   recordShippedChange,
   loadShippedChanges,
   upsertShippedChange,
-  loadControlCandidates: async (tenantId, n) => {
-    const ctx = await loadPageSurgeonContext(tenantId);
-    return topPagesByDemand(ctx, n);
-  },
+  loadControlCandidates: loadControlCandidatesForTenant,
   matchControls: matchControlsForShip,
   shipDate: () => dateOnly(defaultPacificShipDate()),
 };
@@ -426,6 +437,14 @@ export async function autoRecordShippedChangeForRec(
     let controlPages: string[] = [];
     let controlMatchNotes: string[] = [];
     let controlMatchWeak = false;
+    // N13 (2026-07-03): the FULL ranked candidate list (matched.all - kept AND
+    // excluded, in original order, with the matching inputs that produced each
+    // verdict) frozen at THIS ship's selection time. This is the ONLY donor
+    // pool a later contamination-driven promotion may draw from - never
+    // re-ranked with post-ship data (see control-contamination.ts's
+    // promoteFromFrozenPool). Null when the matcher itself failed (the
+    // top-3-by-demand fallback below has no ranked pool to freeze).
+    let controlDonorPool: RankedControl[] | null = null;
     try {
       const matched = await deps.matchControls({
         tenantId: args.tenantId,
@@ -436,6 +455,7 @@ export async function autoRecordShippedChangeForRec(
       controlPages = matched.kept;
       controlMatchNotes = buildControlMatchNotes(matched.matched);
       controlMatchWeak = matched.usedFallback && controlPages.length > 0;
+      controlDonorPool = matched.matched;
       if (controlMatchWeak) {
         controlMatchNotes.push(
           "I could not find enough closely matched comparison pages, so I used the closest available ones. I will read this result cautiously.",
@@ -480,6 +500,10 @@ export async function autoRecordShippedChangeForRec(
       recrawlRequestedAt: new Date().toISOString(),
       controlMatchNotes: controlMatchNotes.length > 0 ? controlMatchNotes : null,
       controlMatchWeak,
+      // N13: the frozen, ranked donor pool this ship's contamination-driven
+      // promotion (if ever needed) must draw from - written ONCE here, never
+      // rewritten by re-measurement or by the read-time contamination check.
+      controlDonorPool,
     };
     await deps.upsertShippedChange(stamped);
     log.info("[ship->proof] auto-recorded shipped change", {

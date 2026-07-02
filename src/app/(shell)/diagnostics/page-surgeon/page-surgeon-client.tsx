@@ -1,9 +1,11 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import Link from "next/link";
 
 import { runPageSurgeonBrief, type PageSurgeonRow } from "./actions";
 import type { PageAtomicDecision } from "@/domains/recommendation-intelligence/page-surgeon/page-decision";
+import { dossierHref } from "@/lib/page-dossier-link";
 
 function Pill({ children, tone = "muted" }: { children: React.ReactNode; tone?: "muted" | "good" | "warn" }) {
   const cls =
@@ -32,7 +34,7 @@ function ChangeBlock({ c, label }: { c: Change; label: string }) {
       <p className="mt-1.5"><span className="font-semibold text-foreground">Do:</span> {c.exact_change}</p>
       {(c.before_after.before || c.before_after.after) && (
         <p className="text-muted-foreground">
-          <span className="font-medium text-foreground/80">{c.before_after.before ?? "—"}</span> → <span className="font-medium text-foreground/80">{c.before_after.after ?? "—"}</span>
+          <span className="font-medium text-foreground/80">{c.before_after.before ?? "none"}</span> {"->"} <span className="font-medium text-foreground/80">{c.before_after.after ?? "none"}</span>
         </p>
       )}
       <p className="text-muted-foreground"><span className="font-medium text-foreground/80">Why:</span> {c.hypothesis}</p>
@@ -55,7 +57,7 @@ function Brief({ d }: { d: PageAtomicDecision }) {
         <Pill>{d.decided_by}</Pill>
       </div>
 
-      {/* Source coverage — what evidence actually fed this brief */}
+      {/* Source coverage: what evidence actually fed this brief */}
       <div>
         <p className="font-semibold text-foreground">Source coverage:</p>
         <div className="mt-1 flex flex-wrap gap-1.5">
@@ -96,7 +98,7 @@ function Brief({ d }: { d: PageAtomicDecision }) {
           <p className="font-semibold text-foreground">Rejected:</p>
           <ul className="ml-4 list-disc text-muted-foreground">
             {d.rejected_changes.map((r, i) => (
-              <li key={i}><span className="font-medium text-foreground/80">{r.action}</span> — {r.reason}</li>
+              <li key={i}><span className="font-medium text-foreground/80">{r.action}</span>: {r.reason}</li>
             ))}
           </ul>
         </div>
@@ -129,11 +131,18 @@ function Card({ row }: { row: PageSurgeonRow }) {
   };
 
   const path = row.pageUrl.replace(/^https?:\/\/[^/]+/, "") || "/";
+  const href = dossierHref(row.pageUrl);
   return (
     <div className="rounded-lg border border-border/60 bg-surface-inset/20 p-4">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <p className="truncate text-[13px] font-semibold text-foreground">{path}</p>
+          {href ? (
+            <Link href={href} className="block truncate text-[13px] font-semibold text-foreground underline-offset-2 hover:underline">
+              {path}
+            </Link>
+          ) : (
+            <p className="truncate text-[13px] font-semibold text-foreground">{path}</p>
+          )}
           <p className="truncate text-[12px] text-muted-foreground">
             now: “{row.currentTitle ?? "(no title)"}”
           </p>
@@ -155,7 +164,7 @@ function Card({ row }: { row: PageSurgeonRow }) {
           >
             {pending ? "Running…" : decision ? "Re-run" : "Run Page Surgeon"}
           </button>
-          {stale && <span className="text-[10px] text-amber-600">evidence changed — re-run</span>}
+          {stale && <span className="text-[10px] text-amber-600">evidence changed, re-run</span>}
           {!row.hasOpenAi && <span className="text-[10px] text-muted-foreground">no OpenAI key</span>}
         </div>
       </div>

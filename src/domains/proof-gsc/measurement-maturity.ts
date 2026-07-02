@@ -21,6 +21,7 @@
 
 import { addDays, proofCheckDates, PROOF_WINDOW_DAYS, type ProofWindowDay } from "./measure";
 import { overlappingShock, weatherCaveatSentence, type ShockWindow } from "./algorithm-weather";
+import { recrawlBlindSentence } from "./recrawl-clock";
 
 export type MeasurementMaturity =
   | "scheduled" // not yet live / activated — no measurement language at all
@@ -91,6 +92,49 @@ export type MaturityInput = {
    *  when it fired (null otherwise). Passed through so the read site doesn't
    *  need to re-derive the sentence itself. */
   seasonalInflectionCaveat?: string | null;
+  /** Recrawl-gated SEARCH clock (master plan item N11, operator-corrected
+   *  scope): true when Google's index has NOT yet been observed holding this
+   *  page's new content (recrawl-clock.ts's computeRecrawlClock returned
+   *  basis "none"). Gates ONLY the Google-search verdict lane this
+   *  presentation describes (GSC ranking / impressions / clicks / CTR) - the
+   *  computed traffic/behavior attachments on the record (trafficOutcome,
+   *  citationOutcome, dollarValue, etc.) keep their live_at clock and keep
+   *  rendering on the card. Additive - a caller that never passes this (the
+   *  default) sees byte-identical output to before this field existed.
+   *  Computed at READ time from gsc_url_inspections (an INDEXED-version
+   *  crawl timestamp, never a live-page fetch); NEVER mutates
+   *  windows/verdict/shippedAt. When true, the SEARCH presentation is capped
+   *  at a waiting state regardless of which calendar window has closed - a
+   *  search verdict must never be read as final before Google's index has
+   *  actually seen the change. */
+  recrawlPending?: boolean;
+  /** How many days the change has gone without a confirmed recrawl (from
+   *  recrawl-clock.ts's daysBlind). Feeds the honest secondary sentence;
+   *  null/undefined renders the day-agnostic fallback line. */
+  recrawlDaysBlind?: number | null;
+  /** ISO timestamp Google's index first showed a crawl AFTER the ship
+   *  (recrawl-clock.ts's recrawlConfirmedAt). When set, the SEARCH checkpoint
+   *  clock counts from here instead of shippedAt: a stored window that closed
+   *  on the ship-based calendar reads as a checkpoint only once the same
+   *  number of days have ALSO passed since this date (downgrade-only - this
+   *  can never upgrade a window that has not stored-closed, and never changes
+   *  the stored windows/lift math). GA4/Clarity/conversion attachments are
+   *  NOT affected - their clock stays live_at. Additive - absent/null means
+   *  the ship-based clock, byte-identical output to before this field
+   *  existed. */
+  recrawlConfirmedAt?: string | null;
+  /** Control-contamination guard (master plan N13): true when at least one of
+   *  this ship's comparison pages changed mid-window (treated by us, or its
+   *  own content edited) per control-contamination.ts's classifier. Additive -
+   *  a caller that never passes this (the default) sees byte-identical output
+   *  to before this field existed. Computed at READ time from the full ledger
+   *  + snapshot history; NEVER mutates the stored controlPages/verdict. */
+  controlContaminated?: boolean;
+  /** Plain first-person caveat sentence for the contamination guard, when it
+   *  fired (null otherwise). Passed through so the read site doesn't need to
+   *  re-derive the sentence itself - either the swap receipt ("I swapped it
+   *  for a clean one") or the caution line when no substitute existed. */
+  controlContaminationCaveat?: string | null;
 };
 
 /** Minimum sufficiency for a MATURE verdict (mirrors measure.ts thresholds). */
@@ -104,6 +148,35 @@ export function basisDayOf(windows: ReadonlyArray<{ day: number; ran: boolean }>
   const ran = windows.filter((w) => w.ran).map((w) => w.day).sort((a, b) => b - a);
   const top = ran[0];
   return top === 7 || top === 14 || top === 28 ? (top as ProofWindowDay) : null;
+}
+
+/**
+ * The basis window day the SEARCH clock may actually read from (master plan
+ * N11): the stored closed window (basisDayOf), additionally capped by the
+ * recrawl-confirmed clock when one exists - a 7-day search read only counts
+ * once 7 days have ALSO passed since Google's index first showed the new
+ * content, not just since the ship. Downgrade-only: this can never mark a
+ * window closed that did not stored-close, and with no recrawlConfirmedAt it
+ * returns basisDayOf unchanged (byte-identical legacy behavior). Calendar
+ * check only - the stored `ran` flag already encoded GSC data availability
+ * for the ship-based window, and the stored lift numbers themselves are
+ * ship-based either way; this cap is the read-time honesty layer over how
+ * much post-index-crawl exposure the read actually had. PURE.
+ */
+export function effectiveSearchBasisDay(
+  input: Pick<MaturityInput, "windows" | "recrawlConfirmedAt" | "now">,
+): ProofWindowDay | null {
+  const stored = basisDayOf(input.windows);
+  if (stored == null) return null;
+  const confirmed = input.recrawlConfirmedAt ? input.recrawlConfirmedAt.slice(0, 10) : null;
+  if (!confirmed || !/^\d{4}-\d{2}-\d{2}$/.test(confirmed)) return stored;
+  const today = dayStr(input.now);
+  for (const d of [28, 14, 7] as ProofWindowDay[]) {
+    if (d > stored) continue;
+    if (!input.windows.some((w) => w.day === d && w.ran)) continue;
+    if (today >= addDays(confirmed, d)) return d;
+  }
+  return null;
 }
 
 /** Which way the basis window moved (independent of maturity). PURE. */
@@ -122,12 +195,30 @@ function attributionQualityOf(overlap?: OverlapContext | null): AttributionQuali
 /**
  * The single maturity resolver. PURE. Reads which window actually CLOSED (not the
  * stored verdict) plus the GSC watermark, so an early read is always recognized as
- * early. Precedence is "dominant caveat first": scheduled → accidental-overlap →
- * blocked-data → by basis window (28/14/7) → collecting.
+ * early. Precedence is "dominant caveat first": scheduled → recrawl-pending →
+ * accidental-overlap → blocked-data → by basis window (28/14/7) → collecting.
  */
 export function deriveMeasurementMaturity(input: MaturityInput): MeasurementMaturity {
   if (!input.shippedAt || input.live === false) return "scheduled";
-  const basis = basisDayOf(input.windows);
+
+  // Recrawl-gated SEARCH clock (master plan N11): no calendar window, however
+  // long closed, outranks the fact that Google's index has not yet picked up
+  // the new content. A SEARCH verdict computed against the OLD indexed page
+  // is not a verdict at all - cap at "collecting" (renders as the honest
+  // "Waiting" badge) until recrawl-clock.ts confirms the index saw the
+  // change. Dominates even a mature/inconclusive basis window, but never
+  // overrides "scheduled" above (nothing shipped yet has nothing to recrawl).
+  // SCOPE: this caps ONLY this search-lane presentation - the record's
+  // computed traffic/behavior attachments (trafficOutcome etc.) keep their
+  // live_at clock and keep rendering on the card, untouched by this module.
+  if (input.recrawlPending === true) return "collecting";
+
+  // Once confirmed, the SEARCH clock counts from recrawlConfirmedAt, not
+  // shippedAt: a stored window only reads as a checkpoint after the same
+  // number of days have also passed since Google's index picked up the
+  // change (effectiveSearchBasisDay; downgrade-only, legacy-identical when
+  // no confirmation is known).
+  const basis = effectiveSearchBasisDay(input);
 
   // Accidental overlap weakens attribution for ANY readable/active measurement — it
   // dominates the headline (a package shipped on purpose is "compound", not limited).
@@ -214,6 +305,33 @@ export type MeasurementPresentation = {
    *  sentence so a reader that only needs the exclusion decision doesn't have
    *  to string-match seasonalInflectionCaveat. */
   seasonalInflectionFlagged: boolean;
+  /** Recrawl-gated SEARCH clock (master plan N11): true when Google's index
+   *  has not yet been observed holding this page's new content. While true,
+   *  the SEARCH maturity is capped at "collecting" (the "Waiting" badge)
+   *  regardless of which calendar window has closed, direction reads
+   *  "unknown" (no stale-index lean may leak), and learningEligibility is
+   *  additively false - exposed here so the N10 verdict-reliability
+   *  composite can read it without re-deriving the clock itself. Gates ONLY
+   *  this search-lane presentation: the record's computed traffic/behavior
+   *  attachments (trafficOutcome etc.) keep their live_at clock and keep
+   *  rendering on the card. */
+  recrawlPending: boolean;
+  /** Honest secondary sentence for a recrawl-pending row: "Google has not
+   *  re-read this page yet, so the search clock has not started. Visit
+   *  tracking started the day the change went live." Null when the recrawl
+   *  is confirmed (or the caller never passed recrawl input at all - same
+   *  additive posture as the other caveats above). */
+  recrawlPendingCaveat: string | null;
+  /** Control-contamination guard (master plan N13): true when at least one
+   *  comparison page changed mid-window. Renders as a visible caveat on the
+   *  Results row and, like the other guards above, additively demotes
+   *  learningEligibility to false - exposed here so the N10 verdict-
+   *  reliability composite can read it without re-deriving the classifier. */
+  controlContaminationFlagged: boolean;
+  /** Honest caveat sentence for the contamination guard, when it fired: the
+   *  swap receipt when a clean substitute was found and used, or the caution
+   *  line when none was available. Null when no control was contaminated. */
+  controlContaminationCaveat: string | null;
 };
 
 /** Plain first-person caveat sentence for a Results row whose comparison pages
@@ -265,15 +383,52 @@ function evidenceStrengthOf(maturity: MeasurementMaturity, attribution: Attribut
 /** Build the full presentation for a record. PURE — the one place language is decided. */
 export function buildMeasurementPresentation(input: MaturityInput): MeasurementPresentation {
   const maturity = deriveMeasurementMaturity(input);
-  const direction = directionOf(input.verdict);
+  // Recrawl-gated SEARCH clock (N11): before Google's index has the new
+  // content, the stored verdict was measured against the OLD page, so no
+  // search direction may leak onto the card ("This is probably hurting."
+  // off stale-index data would be an ungated search read). Direction reads
+  // "unknown" -> the primary Search line renders "Not clear yet." The
+  // traffic/behavior attachments on the record are untouched - their live_at
+  // clock keeps running and the card keeps rendering them.
+  const direction: MeasurementDirection =
+    input.recrawlPending === true ? "unknown" : directionOf(input.verdict);
   const attributionQuality = attributionQualityOf(input.overlap);
-  const basisDay = basisDayOf(input.windows);
-  const checks = input.shippedAt ? proofCheckDates(input.shippedAt) : null;
+  // Once recrawl is confirmed, the SEARCH checkpoints count from
+  // recrawlConfirmedAt, not shippedAt (downgrade-only; identical to legacy
+  // when no confirmation is known). While pending there is no search basis
+  // at all - the clock has not started.
+  const basisDay = input.recrawlPending === true ? null : effectiveSearchBasisDay(input);
+  const searchClockStart =
+    input.recrawlConfirmedAt &&
+    /^\d{4}-\d{2}-\d{2}/.test(input.recrawlConfirmedAt) &&
+    input.shippedAt &&
+    input.recrawlConfirmedAt.slice(0, 10) >= input.shippedAt.slice(0, 10)
+      ? input.recrawlConfirmedAt.slice(0, 10)
+      : null;
+  const checks = input.shippedAt ? proofCheckDates(searchClockStart ?? input.shippedAt) : null;
 
+  // A window is EFFECTIVELY closed for the search clock only when it stored-
+  // closed AND (when the clock is shifted) the same day count has passed
+  // since the confirmed index crawl. With no shift this is exactly the
+  // stored `ran` flag - legacy-identical.
+  const effectivelyClosed = (d: ProofWindowDay): boolean => {
+    if (!input.windows.some((w) => w.day === d && w.ran)) return false;
+    if (!searchClockStart) return true;
+    return dayStr(input.now) >= addDays(searchClockStart, d);
+  };
   const nextDay = input.shippedAt
-    ? (PROOF_WINDOW_DAYS.find((d) => !input.windows.some((w) => w.day === d && w.ran)) ?? null)
+    ? (PROOF_WINDOW_DAYS.find((d) => !effectivelyClosed(d)) ?? null)
     : null;
-  const nextCheckpoint = nextDay != null && checks ? checks[nextDay as ProofWindowDay] : null;
+  // While recrawl is pending there IS no known next search checkpoint - the
+  // clock has not started, so a ship-based "matures YYYY-MM-DD" date would be
+  // the exact false countdown the caveat sentence refutes. Null flows through
+  // proofBadgeMaturesOn so the badge's secondary text stays silent.
+  const nextCheckpoint =
+    input.recrawlPending === true
+      ? null
+      : nextDay != null && checks
+        ? checks[nextDay as ProofWindowDay]
+        : null;
   const finalCheckpoint = checks ? checks[28] : null;
   const requiredDataThrough =
     maturity === "blocked_data" && nextCheckpoint ? addDays(nextCheckpoint, -1) : null;
@@ -311,12 +466,37 @@ export function buildMeasurementPresentation(input: MaturityInput): MeasurementP
     ? (input.seasonalInflectionCaveat ?? "This page's family has a recurring demand swing that overlaps this measurement window, so I am reading this result cautiously.")
     : null;
 
+  // Recrawl-gated SEARCH clock (master plan N11): additive, same posture as
+  // the guards above, but scoped to the search lane only - the traffic and
+  // behavior attachments computed on the record are never gated here.
+  // deriveMeasurementMaturity() already forced maturity to "collecting" when
+  // this fired, so learningEligibility below is already false via the
+  // mature_result check - listed explicitly anyway so the exclusion reason
+  // is legible at this call site, matching every sibling guard's style.
+  const recrawlPending = input.recrawlPending === true;
+  const recrawlPendingCaveat = recrawlPending
+    ? recrawlBlindSentence(input.recrawlDaysBlind ?? null)
+    : null;
+
+  // Control-contamination guard (master plan N13): additive, same posture as
+  // the guards above - a caller that never passes controlContaminated sees
+  // byte-identical output to before this field existed. The caveat sentence
+  // itself (swap receipt vs caution line) is computed by
+  // control-contamination.ts's buildContaminationNotes and passed straight
+  // through, same as seasonalInflectionCaveat above.
+  const controlContaminationFlagged = input.controlContaminated === true;
+  const controlContaminationCaveat = controlContaminationFlagged
+    ? (input.controlContaminationCaveat ?? "A comparison page changed during measurement, so I am reading this result with caution.")
+    : null;
+
   const learningEligibility =
     maturity === "mature_result" &&
     attributionQuality === "clean" &&
     !weatherQuarantined &&
     !weakComparisonFlagged &&
-    !seasonalInflectionFlagged;
+    !seasonalInflectionFlagged &&
+    !recrawlPending &&
+    !controlContaminationFlagged;
 
   const verdict: MeasurementPresentation["verdict"] =
     maturity === "mature_result"
@@ -334,11 +514,30 @@ export function buildMeasurementPresentation(input: MaturityInput): MeasurementP
       tone = "neutral";
       break;
     case "collecting":
-      headline = "Collecting data";
-      explanation = nextCheckpoint
-        ? `First checkpoint opens ${nextCheckpoint}.${input.latestGscDate ? ` Google data currently available through ${input.latestGscDate}.` : ""}`
-        : "Gathering the first Search Console window.";
-      tone = "progress";
+      if (recrawlPending) {
+        // Recrawl-gated SEARCH clock (master plan N11): the calendar may have
+        // moved, but nothing here is a real SEARCH checkpoint until Google's
+        // index picks up the page - say so plainly instead of a
+        // "collecting"/"first checkpoint opens X" line that implies a normal
+        // countdown is already running. The sentence also names the split:
+        // visit tracking (GA4/Clarity) started at live_at and keeps reading.
+        headline = "Waiting";
+        explanation = recrawlPendingCaveat ?? recrawlBlindSentence(null);
+        tone = "waiting";
+      } else {
+        headline = "Collecting data";
+        explanation = nextCheckpoint
+          ? `First checkpoint opens ${nextCheckpoint}.${input.latestGscDate ? ` Google data currently available through ${input.latestGscDate}.` : ""}`
+          : "Gathering the first Search Console window.";
+        // Confirmed-shift honesty (N11): when the search clock counts from
+        // the confirmed index crawl, the checkpoint date above is already
+        // shifted - name why so a later-than-expected date never reads as a
+        // stall.
+        if (searchClockStart && searchClockStart > (input.shippedAt ?? "").slice(0, 10)) {
+          explanation += " The search clock counts from when Google re-read this page.";
+        }
+        tone = "progress";
+      }
       break;
     case "early_checkpoint":
       headline = direction === "positive" ? "Early positive signal" : direction === "negative" ? "Early negative signal" : "Too early to call";
@@ -394,6 +593,10 @@ export function buildMeasurementPresentation(input: MaturityInput): MeasurementP
     weakComparisonFlagged,
     seasonalInflectionCaveat,
     seasonalInflectionFlagged,
+    recrawlPending,
+    recrawlPendingCaveat,
+    controlContaminationFlagged,
+    controlContaminationCaveat,
   };
 }
 

@@ -33,7 +33,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       try {
         results.push(await measureDueForTenant(t.id));
       } catch (e) {
-        results.push({ tenantId: t.id, measuring: 0, remeasured: 0, settled: 0, errors: 1 });
+        results.push({ tenantId: t.id, measuring: 0, remeasured: 0, settled: 0, errors: 1, recrawlInspections: 0 });
         log.warn("[measure-due] tenant failed", { tenantId: t.id, error: e instanceof Error ? e.message : "?" });
       }
     }
