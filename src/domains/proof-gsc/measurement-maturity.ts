@@ -72,6 +72,14 @@ export type MaturityInput = {
    *  to before this field existed. Computed at READ time; never mutates the
    *  stored verdict. */
   shockWindows?: ReadonlyArray<ShockWindow>;
+  /** Parallel-trends veto (master plan item 33): true when this record's
+   *  comparison pages were NOT moving like the treated page before the ship
+   *  (a baseline-scale mismatch or a diverging pre-ship trend slope, per
+   *  control-matching.ts). Additive - a caller that never passes this (the
+   *  default) sees byte-identical output to before this field existed.
+   *  Computed at READ time from the SAME matcher numbers the ledger row's
+   *  controlMatchNotes explains; never mutates the stored verdict. */
+  weakComparison?: boolean;
 };
 
 /** Minimum sufficiency for a MATURE verdict (mirrors measure.ts thresholds). */
@@ -174,7 +182,23 @@ export type MeasurementPresentation = {
    *  reader that only needs the exclusion decision (the prior/lesson gate)
    *  doesn't have to string-match weatherCaveat. */
   weatherQuarantined: boolean;
+  /** Parallel-trends veto (master plan item 33): non-null when this record's
+   *  comparison pages were not moving like the treated page before the ship
+   *  (mismatched baseline scale or a diverging pre-ship trend). Renders as a
+   *  visible caveat on the Results row and, like weatherCaveat, additively
+   *  demotes learningEligibility to false. */
+  weakComparisonCaveat: string | null;
+  /** True when the weak-comparison veto fired - separate from the sentence so
+   *  a reader that only needs the exclusion decision doesn't have to
+   *  string-match weakComparisonCaveat. */
+  weakComparisonFlagged: boolean;
 };
+
+/** Plain first-person caveat sentence for a Results row whose comparison pages
+ *  were not moving like the treated page before the ship. No dashes. PURE. */
+export function weakComparisonSentence(): string {
+  return "The comparison pages were not moving like this page before the change, so I am reading this result cautiously.";
+}
 
 /**
  * The measurement window a proof record's BASIS checkpoint actually covers:
@@ -248,7 +272,19 @@ export function buildMeasurementPresentation(input: MaturityInput): MeasurementP
   const weatherCaveat = shockHit ? weatherCaveatSentence(shockHit) : null;
   const weatherQuarantined = shockHit != null;
 
-  const learningEligibility = maturity === "mature_result" && attributionQuality === "clean" && !weatherQuarantined;
+  // Parallel-trends veto (item 33): additive, same posture as the weather
+  // guard above - a record whose comparison pages diverged from the treated
+  // page's pre-ship trend/scale reads cautiously even though its window
+  // otherwise closed cleanly. A caller that never passes weakComparison sees
+  // byte-identical output to before this field existed.
+  const weakComparisonFlagged = input.weakComparison === true;
+  const weakComparisonCaveat = weakComparisonFlagged ? weakComparisonSentence() : null;
+
+  const learningEligibility =
+    maturity === "mature_result" &&
+    attributionQuality === "clean" &&
+    !weatherQuarantined &&
+    !weakComparisonFlagged;
 
   const verdict: MeasurementPresentation["verdict"] =
     maturity === "mature_result"
@@ -322,6 +358,8 @@ export function buildMeasurementPresentation(input: MaturityInput): MeasurementP
     tone,
     weatherCaveat,
     weatherQuarantined,
+    weakComparisonCaveat,
+    weakComparisonFlagged,
   };
 }
 

@@ -8,6 +8,7 @@ import {
   isInFlight,
   detectMeasurementOverlaps,
   measurementWindowOf,
+  weakComparisonSentence,
   type MaturityInput,
 } from "./measurement-maturity";
 
@@ -279,5 +280,73 @@ describe("algorithm-weather guard (master plan item 32) — additive, computed a
       }),
     );
     expect(p.weatherCaveat).not.toMatch(/[–—]/);
+  });
+});
+
+describe("parallel-trends veto (master plan item 33) — additive, computed at read time", () => {
+  it("a record with weakComparison unset (default) behaves exactly as before this field existed", () => {
+    const p = buildMeasurementPresentation(input({ windows: win(true, true, true), verdict: "won", controlsUsed: 3, baselineImpressions: 5000 }));
+    expect(p.weakComparisonCaveat).toBeNull();
+    expect(p.weakComparisonFlagged).toBe(false);
+    expect(p.learningEligibility).toBe(true);
+  });
+  it("a mature win flagged weakComparison gets the honest caveat and loses learning eligibility", () => {
+    const p = buildMeasurementPresentation(
+      input({
+        windows: win(true, true, true),
+        verdict: "won",
+        controlsUsed: 3,
+        baselineImpressions: 5000,
+        weakComparison: true,
+      }),
+    );
+    // Maturity/verdict/headline are UNCHANGED (additive, never rewrites the headline call).
+    expect(p.maturity).toBe("mature_result");
+    expect(p.verdict).toBe("helped");
+    expect(p.headline).toBe("Helped");
+    // But the caveat is visible and learning is revoked.
+    expect(p.weakComparisonFlagged).toBe(true);
+    expect(p.weakComparisonCaveat).toBe(weakComparisonSentence());
+    expect(p.weakComparisonCaveat).toMatch(/comparison pages were not moving like this page/);
+    expect(p.weakComparisonCaveat).toMatch(/reading this result cautiously/);
+    expect(p.learningEligibility).toBe(false);
+  });
+  it("weakComparison=false explicitly reads the same as unset", () => {
+    const p = buildMeasurementPresentation(
+      input({ windows: win(true, true, true), verdict: "won", controlsUsed: 3, baselineImpressions: 5000, weakComparison: false }),
+    );
+    expect(p.weakComparisonFlagged).toBe(false);
+    expect(p.weakComparisonCaveat).toBeNull();
+    expect(p.learningEligibility).toBe(true);
+  });
+  it("an in-flight (early_checkpoint) record can also carry the flag, still non-learning either way", () => {
+    const p = buildMeasurementPresentation(
+      input({ shippedAt: "2026-06-20", windows: win(true, false, false), verdict: "won", weakComparison: true }),
+    );
+    expect(p.maturity).toBe("early_checkpoint");
+    expect(p.weakComparisonFlagged).toBe(true);
+    expect(p.learningEligibility).toBe(false); // already false pre-maturity; guard does not flip it true
+  });
+  it("composes with the weather guard - both can fire on the same record independently", () => {
+    const p = buildMeasurementPresentation(
+      input({
+        windows: win(true, true, true),
+        verdict: "won",
+        controlsUsed: 3,
+        baselineImpressions: 5000,
+        weakComparison: true,
+        shockWindows: [{ id: "confirmed:x", start: "2026-07-08", end: "2026-07-22", kind: "confirmed", label: "the July update" }],
+      }),
+    );
+    expect(p.weakComparisonFlagged).toBe(true);
+    expect(p.weatherQuarantined).toBe(true);
+    expect(p.learningEligibility).toBe(false);
+  });
+  it("emits no em or en dashes in the caveat sentence", () => {
+    expect(weakComparisonSentence()).not.toMatch(/[–—]/);
+    const p = buildMeasurementPresentation(
+      input({ windows: win(true, true, true), verdict: "won", controlsUsed: 3, baselineImpressions: 5000, weakComparison: true }),
+    );
+    expect(p.weakComparisonCaveat).not.toMatch(/[–—]/);
   });
 });

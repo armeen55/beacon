@@ -311,6 +311,21 @@ export const GLOBAL_STORES = new Set<string>([
   // the stores above). Latest per-tenant detected shocks, read by the Results
   // page caveat line and the prior/lesson exclusion gate at $0.
   "algorithm-weather-shocks",
+  // Pooled batch verdicts (2026-07-02, master plan item 34). Rows carry
+  // tenant_id; written from the measure-pass tail (no ambient request context,
+  // same fan-out rationale as the stores above). One row per (plan, action
+  // family) batch that reached the pooling floor, read by /proof's compact
+  // batch line at $0. Computed-only - never mutates a per-page ledger row.
+  "pooled-verdicts",
+  // Team scoreboard (2026-07-02, master plan item 38). Rows carry tenant_id;
+  // written from the measure-pass tail (no ambient request context, same
+  // fan-out rationale as the stores above). Full recompute every time
+  // (idempotent, no incremental state) of per-specialist and per (specialist,
+  // actionFamily) Brier scores and won/flat/lost tallies, joined from settled
+  // proof-ledger verdicts back to the TeamReview voices frozen on the plan
+  // pick that shipped them. Read by the Today standup strip's honest
+  // best-forecaster footer at $0.
+  "team-scoreboard",
   "adjudicator-history", // LLM call audit log; operator-shared
   "llm-budget", // operator-paid monthly LLM spend cap
   "llm-history-specific-edits", // Sprint 6A.2c (2026-04-26) — Specific

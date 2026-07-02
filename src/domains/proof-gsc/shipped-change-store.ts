@@ -29,6 +29,7 @@ import type { TrafficOutcome } from "./traffic-outcome";
 import type { CitationOutcome } from "./citation-outcome";
 import type { RankRecheckResult } from "./rank-recheck";
 import type { ChangeDollarValue } from "./change-dollar-value";
+import type { PermutationRead } from "./permutation-null";
 
 const TABLE = "shipped_change_proof";
 const STORE = "proof-gsc-ledger";
@@ -79,6 +80,14 @@ export type ShippedChangeRecord = {
    *  no traffic outcome yet, or when no revenue model is configured (in which
    *  case the sentence still names the extra visits, in clicks only). */
   dollarValue?: ChangeDollarValue | null;
+  /** Permutation-null read (master plan item 37): where the treated lift lands
+   *  against every untreated page's same-window pseudo-lift (percentile 0-1,
+   *  plus the raw nGreater/nTotal counts the plain-English sentence names).
+   *  Same computed-only posture as trafficOutcome/citationOutcome/rankOutcome/
+   *  dollarValue: NOT persisted (recordToRow omits it), recomputed on every
+   *  measure. Null when fewer than MIN_NULL_PAGES untreated pages were
+   *  available (honest skip, never a fabricated percentile off a thin pool). */
+  permutationRead?: PermutationRead | null;
   /** Operator free-text on the shipped change. */
   notes: string | null;
   /** Operator confirmed it's live on the site (manual ship). */
@@ -87,6 +96,23 @@ export type ShippedChangeRecord = {
   liveSourceUrl: string | null;
   /** ISO timestamp the operator manually requested a Google recrawl/indexing. */
   recrawlRequestedAt: string | null;
+  /** BEACON_500 items 33 + 36 (2026-07-02): plain-language receipt lines for any
+   *  raw comparison-page candidate the matcher left out at selection time (scale
+   *  mismatch, diverging pre-ship trend, or too much shared search demand with
+   *  the treated page). Additive, optional (older rows never had a matcher run) -
+   *  null means either no candidates were excluded or this row predates item 33.
+   *  Set ONCE at selection time in auto-record-on-ship.ts; never rewritten by
+   *  re-measurement. */
+  controlMatchNotes?: string[] | null;
+  /** BEACON_500 item 33 (2026-07-02): true when the matcher had to fall back
+   *  to its best-available comparison pages because too few candidates passed
+   *  the baseline-scale + pre-ship trend bands (control-matching.ts's
+   *  usedFallback). Feeds measurement-maturity.ts's weakComparison input at
+   *  read time so the parallel-trends veto can downgrade the presentation.
+   *  Additive, optional (older rows never had a matcher run) - undefined/false
+   *  reads identically to "not flagged". Set ONCE at selection time; never
+   *  rewritten by re-measurement. */
+  controlMatchWeak?: boolean;
   /** Operator override that PINS the learning verdict to "inconclusive",
    *  excluding this change from the per-action_type outcome prior that steers
    *  recommendation ranking. Use when a measured "won"/"lost" is mis-attributed
@@ -125,6 +151,13 @@ type LedgerRow = {
    *  missing column on read/write is tolerated by isUndefinedTableError
    *  (PGRST204) → file fallback. */
   operator_verdict_override?: "inconclusive" | null;
+  /** BEACON_500 items 33 + 36 additive column. Optional in the row type (same
+   *  posture as operator_verdict_override) so a pre-migration environment keeps
+   *  working — a missing column trips PGRST204 -> isUndefinedTableError ->
+   *  file fallback, which round-trips this field with no schema at all. */
+  control_match_notes?: string[] | null;
+  /** Additive column, same posture as control_match_notes. */
+  control_match_weak?: boolean | null;
   created_at: string;
   updated_at: string;
 };
@@ -195,6 +228,11 @@ export function recordToRow(tid: string, r: ShippedChangeRecord): LedgerRow {
     // PGRST204 → isUndefinedTableError routes to the full-record file fallback
     // (which clears it correctly), so this is safe before AND after the migration.
     operator_verdict_override: r.operatorVerdictOverride,
+    // Additive, write-once at selection time (never operator-cleared like the
+    // override above) — emit unconditionally so a null still overwrites a stale
+    // value on re-record, same round-trip safety as every other nullable column.
+    control_match_notes: r.controlMatchNotes ?? null,
+    control_match_weak: r.controlMatchWeak ?? false,
     created_at: r.createdAt,
     updated_at: r.updatedAt,
   };
@@ -224,6 +262,10 @@ export function rowToRecord(row: LedgerRow): ShippedChangeRecord {
     recrawlRequestedAt: row.recrawl_requested_at ?? null,
     operatorVerdictOverride:
       row.operator_verdict_override === "inconclusive" ? "inconclusive" : null,
+    controlMatchNotes: Array.isArray(row.control_match_notes) && row.control_match_notes.length > 0
+      ? row.control_match_notes
+      : null,
+    controlMatchWeak: row.control_match_weak === true,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };

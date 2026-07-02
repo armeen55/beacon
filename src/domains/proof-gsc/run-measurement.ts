@@ -57,6 +57,7 @@ import {
   type ProofWindowDay,
 } from "./measure";
 import { readFloorsFor } from "./aa-calibration-store";
+import { buildPermutationNull, percentileOf, hasEnoughNullPages, type PermutationRead } from "./permutation-null";
 import type { ShippedChangeRecord } from "./shipped-change-store";
 import type { GscProofVerdict } from "./measure";
 
@@ -375,17 +376,49 @@ export async function measureRecord(
   // aa-calibration.ts itself never writes to this ledger.
   const floors = await readFloorsFor(tenantId, trafficTierOf(baselineImpressions)).catch(() => ({}));
 
+  // Item 37 (permutation null): expand the 3-control comparison to every
+  // untreated page with adequate traffic, sharing this window's EXACT dates
+  // (same market weather), and report where the treated lift lands in that
+  // null distribution. Computed BEFORE summarizeVerdict so its HIGH-confidence
+  // gate can read the percentile; fail-soft -> null (honest skip) whenever
+  // fewer than MIN_NULL_PAGES untreated pages are available, so a thin site
+  // never fabricates a percentile off a handful of comparison pages.
+  const metric = pickProofMetric(record.actionType);
+  const basisForPermutation = windows.filter((w) => w.ran).sort((a, b) => b.day - a.day)[0] ?? null;
+  let permutationRead: PermutationRead | null = null;
+  if (basisForPermutation) {
+    try {
+      const liftOf = (w: ProofWindowResult): number =>
+        metric === "ctr" ? w.adjustedCtrLift : metric === "position" ? w.adjustedPosLift : w.adjustedLift;
+      const excludePaths = new Set([record.path, ...record.controlPages]);
+      const nullDist = await buildPermutationNull({
+        tenantId,
+        shipDate,
+        windowDays: basisForPermutation.day,
+        preWindowDays: BASELINE_WINDOW_DAYS,
+        excludePaths,
+      });
+      if (hasEnoughNullPages(nullDist)) {
+        const { percentile, nGreater, nTotal } = percentileOf(liftOf(basisForPermutation), nullDist);
+        permutationRead = { percentile, nGreater, nTotal };
+      }
+    } catch {
+      permutationRead = null;
+    }
+  }
+
   const { verdict: computedVerdict, confidence } = summarizeVerdict({
     windows,
     baselineImpressions,
     baselineClicks: treatedPre?.clicks ?? record.baseline.clicks,
     // The metric that actually measures this change type (CTR for a meta/title
     // test, position for a rank play, else clicks for coverage/new-content).
-    metric: pickProofMetric(record.actionType),
+    metric,
     // Answer-block plays can win the snippet (CTR down, rank held) — don't read
     // that as a loss.
     snippetCapturePlay: isSnippetCapturePlay(record.actionType),
     floors,
+    permutationP: permutationRead?.percentile,
   });
 
   // Operator override: a mis-attributed "won"/"lost" (control contamination,
@@ -476,6 +509,7 @@ export async function measureRecord(
     citationOutcome,
     rankOutcome,
     dollarValue,
+    permutationRead,
     measuredAt: now.toISOString(),
     updatedAt: now.toISOString(),
   };

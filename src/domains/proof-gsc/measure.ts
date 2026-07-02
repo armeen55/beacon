@@ -168,6 +168,12 @@ export type VerdictFloors = {
   minLiftCtr?: number;
 };
 
+/** Item 37 (permutation null): the empirical percentile a treated lift must
+ *  clear (be at or below) for the null-distribution evidence to support HIGH
+ *  confidence. 0.05 matches the harness's target false-positive rate (item
+ *  31) - at most 1 in 20 untreated pages should move this much by chance. */
+export const PERMUTATION_P_HIGH_MAX = 0.05;
+
 function pad(n: number): string {
   return n < 10 ? `0${n}` : `${n}`;
 }
@@ -310,6 +316,15 @@ export function summarizeVerdict(args: {
    *  falls back to the hand-picked DEFAULT_MIN_LIFT_* constant, so calling
    *  this with no `floors` is BYTE-IDENTICAL to the pre-calibration behavior. */
   floors?: VerdictFloors;
+  /** Item 37 (permutation null): the empirical two-sided percentile of the
+   *  treated lift against every untreated page's same-window pseudo-lift
+   *  (permutation-null.ts's percentileOf). Undefined when there weren't
+   *  enough untreated pages to build an honest null (run-measurement.ts's
+   *  fail-soft skip) - so calling this with no `permutationP` is
+   *  BYTE-IDENTICAL to the pre-item-37 behavior. When present, HIGH
+   *  confidence additionally requires this to clear PERMUTATION_P_HIGH_MAX;
+   *  it can only ever make confidence STRICTER, never looser. */
+  permutationP?: number;
 }): {
   verdict: GscProofVerdict;
   confidence: GscProofConfidence;
@@ -417,8 +432,14 @@ export function summarizeVerdict(args: {
     wonOnImpressions = true;
   }
 
+  // Item 37: when a permutation read exists, HIGH confidence additionally
+  // requires the treated lift to clear the null-distribution bar (few
+  // untreated pages moved this much by chance) - additive-only, so a call
+  // with no `permutationP` (the pre-item-37 shape) is unaffected.
+  const permutationOk = args.permutationP == null || args.permutationP <= PERMUTATION_P_HIGH_MAX;
+
   let confidence: GscProofConfidence = "low";
-  if (basis.controlsUsed >= MIN_CONTROLS_FOR_HIGH && args.baselineImpressions >= 3000) {
+  if (basis.controlsUsed >= MIN_CONTROLS_FOR_HIGH && args.baselineImpressions >= 3000 && permutationOk) {
     confidence = "high";
   } else if (
     basis.controlsUsed >= MIN_CONTROLS_FOR_COMPUTED &&

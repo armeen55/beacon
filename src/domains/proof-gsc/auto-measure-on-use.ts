@@ -5,6 +5,7 @@ import { after } from "next/server";
 import { log } from "@/lib/logger";
 import { autoMeasureDuePass } from "./auto-measure-pass";
 import { harvestWinners } from "@/domains/llm/winner-memory";
+import { buildTeamScoreboardSummary } from "@/domains/team-scoreboard/compute-scoreboard";
 
 /**
  * auto-measure-on-use (2026-06-29) — PASSIVE settle of due proof rows when the operator
@@ -29,6 +30,11 @@ import { harvestWinners } from "@/domains/llm/winner-memory";
  * next draft. harvestWinners is itself fail-soft/idempotent/$0 (re-reads the ledger,
  * no LLM call) - an isolated try/catch here means a harvest failure can never affect the
  * measurement pass it rides along with.
+ *
+ * BEACON_500 item 38 (2026-07-02): a second, equally isolated tail step full-recomputes the
+ * specialist scoreboard (buildTeamScoreboardSummary) whenever this pass settled anything - the
+ * same "re-read the whole ledger, $0, idempotent" posture as harvestWinners, so a fresh won/lost
+ * verdict is reflected in each specialist's Brier score on the very next Today render.
  */
 const lastRunAt = new Map<string, number>();
 const MIN_GAP_MS = 10 * 60_000;
@@ -60,6 +66,14 @@ export function scheduleAutoMeasure(tenantId: string): void {
             await harvestWinners(tenantId);
           } catch (e) {
             log.warn("[auto-measure-on-use] winner harvest failed (non-blocking)", {
+              tenantId,
+              error: e instanceof Error ? e.message : String(e),
+            });
+          }
+          try {
+            await buildTeamScoreboardSummary(tenantId);
+          } catch (e) {
+            log.warn("[auto-measure-on-use] team scoreboard recompute failed (non-blocking)", {
               tenantId,
               error: e instanceof Error ? e.message : String(e),
             });

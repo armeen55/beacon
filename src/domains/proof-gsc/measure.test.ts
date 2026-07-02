@@ -601,6 +601,80 @@ describe("summarizeVerdict — item 31 calibrated floors (VerdictFloors injectio
   });
 });
 
+describe("summarizeVerdict - item 37 permutation gate on HIGH confidence (additive)", () => {
+  // High-confidence-eligible on controls/impressions alone (mirrors the
+  // existing HIGH-confidence fixture shape: 3 controls, 3000+ baseline impr).
+  const win28High = (adjustedLift: number): ProofWindowResult =>
+    ({
+      day: 28, checkOn: "x", ran: true,
+      treatedDelta: 0, controlDelta: 0, adjustedLift,
+      treatedCtrDelta: 0, controlCtrDelta: 0, adjustedCtrLift: 0,
+      treatedPosDelta: 0, controlPosDelta: 0, adjustedPosLift: 0,
+      controlsUsed: 3, treatedPostImpressions: 5000,
+    }) as ProofWindowResult;
+
+  it("with no `permutationP`, behavior is BYTE-IDENTICAL to the pre-item-37 default (the pin)", () => {
+    const without = summarizeVerdict({
+      windows: [win28High(DEFAULT_MIN_LIFT_CLICKS + 1)],
+      baselineImpressions: 5000,
+      baselineClicks: 10,
+      metric: "clicks",
+    });
+    expect(without.confidence).toBe("high");
+    expect(without.verdict).toBe("won");
+  });
+
+  it("a permutation p at or below the 0.05 bar keeps HIGH confidence", () => {
+    const r = summarizeVerdict({
+      windows: [win28High(DEFAULT_MIN_LIFT_CLICKS + 1)],
+      baselineImpressions: 5000,
+      baselineClicks: 10,
+      metric: "clicks",
+      permutationP: 0.05,
+    });
+    expect(r.confidence).toBe("high");
+  });
+
+  it("a permutation p above the bar demotes an otherwise-HIGH read to MEDIUM, never LOW or a changed verdict", () => {
+    const withoutPermutation = summarizeVerdict({
+      windows: [win28High(DEFAULT_MIN_LIFT_CLICKS + 1)],
+      baselineImpressions: 5000,
+      baselineClicks: 10,
+      metric: "clicks",
+    });
+    const withWeakPermutation = summarizeVerdict({
+      windows: [win28High(DEFAULT_MIN_LIFT_CLICKS + 1)],
+      baselineImpressions: 5000,
+      baselineClicks: 10,
+      metric: "clicks",
+      permutationP: 0.5, // half of untreated pages moved this much - unremarkable
+    });
+    expect(withoutPermutation.confidence).toBe("high");
+    expect(withWeakPermutation.confidence).toBe("medium");
+    expect(withWeakPermutation.verdict).toBe(withoutPermutation.verdict);
+    expect(withWeakPermutation.lift).toBe(withoutPermutation.lift);
+  });
+
+  it("never upgrades confidence: a low-controls/low-impressions read with a great permutation p stays at its floor-derived tier", () => {
+    const r = summarizeVerdict({
+      windows: [
+        {
+          day: 28, checkOn: "x", ran: true,
+          treatedDelta: 0, controlDelta: 0, adjustedLift: DEFAULT_MIN_LIFT_CLICKS + 1,
+          treatedCtrDelta: 0, controlCtrDelta: 0, adjustedCtrLift: 0,
+          treatedPosDelta: 0, controlPosDelta: 0, adjustedPosLift: 0,
+          controlsUsed: 1, treatedPostImpressions: 200,
+        } as ProofWindowResult,
+      ],
+      baselineImpressions: 250, // below the medium/high impression floors
+      baselineClicks: 10,
+      metric: "clicks",
+      permutationP: 0, // strongest possible permutation evidence
+    });
+    expect(r.confidence).toBe("low");
+  });
+});
+
 describe("trafficTierOf — item 31 traffic-tier bucketing (pure)", () => {
   it("buckets by baseline impressions using the documented thresholds", () => {
     expect(trafficTierOf(199)).toBe("low");

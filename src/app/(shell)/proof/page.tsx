@@ -24,6 +24,7 @@ import { loadActionPackWorklistForTenant } from "@/domains/action-pack/load";
 import { linkProofRowsToActionPacks, type ProofLink } from "@/domains/action-pack/proof-linker";
 import { ProofSummarySection } from "./proof-summary-section";
 import { ForecastCalibrationSection } from "./forecast-calibration-section";
+import { PooledVerdictSection } from "./pooled-verdict-section";
 import { computeOutcomePriorDiagnostics } from "@/domains/recommendation-intelligence/outcome-prior";
 import {
   pickProofMetric,
@@ -35,6 +36,7 @@ import {
 } from "@/domains/proof-gsc/measure";
 import { citationLineFor } from "@/domains/proof-gsc/citation-outcome";
 import { shouldShowChangeDollarLine } from "@/domains/proof-gsc/change-dollar-value";
+import { permutationSentenceFromCounts } from "@/domains/proof-gsc/permutation-null";
 import type { ShippedChangeRecord } from "@/domains/proof-gsc/shipped-change-store";
 import {
   findExistingRevertRecord,
@@ -150,6 +152,11 @@ export default async function ProofPage({
           overlap: overlapById.get(l.id) ?? null,
           live: true,
           shockWindows,
+          // Parallel-trends veto (master plan item 33): this row's comparison
+          // pages were a fallback match (not moving like the treated page
+          // before the ship) - additive, computed straight from the ledger
+          // field the matcher wrote at selection time.
+          weakComparison: l.controlMatchWeak === true,
         }),
       ] as const;
     }),
@@ -318,6 +325,13 @@ export default async function ProofPage({
           summary above; self-hides until at least 3 picks have settled at their 28-day window. */}
       <Suspense fallback={null}>
         <ForecastCalibrationSection />
+      </Suspense>
+
+      {/* Item 34 - pooled batch verdict: when a same-plan same-lever batch of 3+ pages has
+          measured reads, one confident "as a group" line above the per-page rows below.
+          Self-hides otherwise. */}
+      <Suspense fallback={null}>
+        <PooledVerdictSection />
       </Suspense>
 
       {/* Record a shipped change for ANY page (manual-ship companion). Prefills
@@ -655,11 +669,30 @@ function LedgerCard({ rec, link, pres, spark, band, revert, restored }: { rec: S
         <span className="font-medium text-foreground/60">Search:</span> {sentence}
       </p>
 
+      {/* Permutation-null read (master plan item 37): the plain-English "how many
+          untouched pages moved this much" line. Additive - only renders when
+          measureRecord found enough untreated pages (>= 20) to build an honest
+          comparison; otherwise the confidence line above stands on its own,
+          exactly as before this landed. Uses the SAME nGreater/nTotal counts
+          computed at measure time, so this line can never disagree with the
+          confidence gate that read them. */}
+      {rec.permutationRead ? (() => {
+        const line = permutationSentenceFromCounts(rec.permutationRead.nGreater, rec.permutationRead.nTotal);
+        return line ? <p className="mt-1 text-[12px] text-foreground/80">{line}</p> : null;
+      })() : null}
+
       {/* Algorithm-weather guard (master plan item 32): this row's measurement window
           overlapped a confirmed Google update or a sitewide shift I detected, so I am
           flagging the read as cautious instead of quietly treating it as clean evidence. */}
       {pres?.weatherCaveat ? (
         <p className="mt-1 text-[12px] text-amber-700">{pres.weatherCaveat}</p>
+      ) : null}
+
+      {/* Parallel-trends veto (master plan item 33): this row's comparison pages
+          were not moving like this page before the change, so I am flagging the
+          read as cautious the same way an algorithm-weather overlap is flagged above. */}
+      {pres?.weakComparisonCaveat ? (
+        <p className="mt-1 text-[12px] text-amber-700">{pres.weakComparisonCaveat}</p>
       ) : null}
 
       {/* Dollar-ROI proof (gap #1): the GA4 traffic + conversion outcome next to

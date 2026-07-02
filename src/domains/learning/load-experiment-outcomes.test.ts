@@ -71,6 +71,7 @@ function record(over: Partial<ShippedChangeRecord> = {}): ShippedChangeRecord {
     confidence: "high",
     measuredAt: "2026-05-19T00:00:00.000Z",
     operatorVerdictOverride: null,
+    ...over,
   } as ShippedChangeRecord;
 }
 
@@ -142,6 +143,57 @@ describe("loadProofOutcomeRows - same additive gate on the page-caution read pat
 
   it("keeps the real confidence when no shock overlaps", async () => {
     ledger = [record({ confidence: "high" })];
+    const out = await loadProofOutcomeRows("iranopedia");
+    expect(out[0]!.verdict).toBe("won");
+    expect(out[0]!.confidence).toBe("high");
+  });
+});
+
+/**
+ * Parallel-trends veto (master plan item 33) - the SAME additive exclusion
+ * pattern as the algorithm-weather guard above, gated on
+ * ShippedChangeRecord.controlMatchWeak (set once at selection time by
+ * auto-record-on-ship.ts's matcher when it had to fall back to its
+ * best-available comparison pages). Without the flag, output is byte-
+ * identical to pre-item-33 behavior.
+ */
+describe("loadExperimentOutcomes - parallel-trends veto excludes a weak-comparison mature verdict", () => {
+  it("neutralizes a mature win to measuring when controlMatchWeak is true", async () => {
+    ledger = [record({ controlMatchWeak: true })];
+    const out = await loadExperimentOutcomes("iranopedia");
+    expect(out[0]!.verdict).toBe("measuring");
+  });
+
+  it("does NOT exclude a mature verdict when controlMatchWeak is false", async () => {
+    ledger = [record({ controlMatchWeak: false })];
+    const out = await loadExperimentOutcomes("iranopedia");
+    expect(out[0]!.verdict).toBe("won");
+  });
+
+  it("does NOT exclude a mature verdict when controlMatchWeak is undefined (rows that predate item 33)", async () => {
+    ledger = [record()]; // no controlMatchWeak field at all
+    const out = await loadExperimentOutcomes("iranopedia");
+    expect(out[0]!.verdict).toBe("won");
+  });
+
+  it("composes with the weather guard - either condition alone is enough to neutralize", async () => {
+    ledger = [record({ controlMatchWeak: true })];
+    // No shock on record at all - the weak-comparison flag alone still fires.
+    const out = await loadExperimentOutcomes("iranopedia");
+    expect(out[0]!.verdict).toBe("measuring");
+  });
+});
+
+describe("loadProofOutcomeRows - parallel-trends veto on the page-caution read path", () => {
+  it("downgrades confidence to low and neutralizes the verdict when controlMatchWeak is true", async () => {
+    ledger = [record({ confidence: "high", controlMatchWeak: true })];
+    const out = await loadProofOutcomeRows("iranopedia");
+    expect(out[0]!.verdict).toBe("measuring");
+    expect(out[0]!.confidence).toBe("low");
+  });
+
+  it("keeps the real confidence when controlMatchWeak is false", async () => {
+    ledger = [record({ confidence: "high", controlMatchWeak: false })];
     const out = await loadProofOutcomeRows("iranopedia");
     expect(out[0]!.verdict).toBe("won");
     expect(out[0]!.confidence).toBe("high");

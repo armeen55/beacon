@@ -49,6 +49,9 @@ import { loadCrawlCitationFunnel } from "@/domains/ai-visibility/load-crawl-cita
 import { buildCitabilityHintNotes } from "@/domains/citability/citability-hints";
 import { loadCalibrationRecords } from "./forecast-calibration-store";
 import { summarizeForecastCalibration } from "./forecast-calibration";
+import { loadDailyClicksByPagesForTenant } from "@/domains/recommendation-intelligence/gsc-page-queries";
+import { forecastRange } from "./pick-expectations";
+import { computeMde, estimateNoiseCv, assessPower } from "./power-analysis";
 
 const ANIMAL = /\/iran-animals(\/|$)/;
 const pathOf = (u: string) => (u.replace(/^https?:\/\/[^/]+/, "") || "/").replace(/[?#].*$/, "").replace(/\/$/, "") || "/";
@@ -66,7 +69,7 @@ export type TodayPreviewResult = {
 };
 
 export async function buildTodayExperimentPreview(tenantId: string, now: Date = new Date()): Promise<TodayPreviewResult> {
-  const [signals, ledger, snaps, keywordDemand, keywordDifficulty, serpPatterns, changePacks, engineGapsByUrl, querySpikes, seasonalQueries, featureSteals, languageGaps, citationFunnel] = await Promise.all([
+  const [signals, ledger, snaps, keywordDemand, keywordDifficulty, serpPatterns, changePacks, engineGapsByUrl, querySpikes, seasonalQueries, featureSteals, languageGaps, citationFunnel, correctionFactor] = await Promise.all([
     loadGscPageSignalsForTenant(tenantId),
     loadProofLedger(tenantId).catch(() => []),
     getPageSnapshots(),
@@ -108,6 +111,12 @@ export async function buildTodayExperimentPreview(tenantId: string, now: Date = 
       .catch(() => "")
       .then((slug) => (slug ? loadCrawlCitationFunnel(tenantId, slug) : null))
       .catch(() => null),
+    // Item 27 - the measured forecast bias (default 1.0 = no correction). Loaded here (moved up
+    // from its old post-planning spot) because item 35's power gate needs the SAME numeric forecast
+    // pick-expectations.ts will persist, and that forecast depends on this factor. Fail-soft to 1.
+    loadCalibrationRecords(tenantId)
+      .then((rows) => summarizeForecastCalibration(rows).correctionFactor)
+      .catch(() => 1),
   ]);
 
   // Keyword demand indexed by lowercased term, for the daily card's keyword-research evidence. Item 18:
@@ -325,6 +334,33 @@ export async function buildTodayExperimentPreview(tenantId: string, now: Date = 
     return true;
   });
 
+  // Item 35 - THE POWER GATE: before the planner scores/selects, ask whether each candidate's own
+  // page has enough traffic to actually SEE its forecast effect within the 28-day read. Bounded to
+  // the top POWER_CHECK_CAP candidates by raw opportunity (ctrOpportunityClicks) so a busy night
+  // never turns into an unbounded per-page fan-out; a candidate outside the cap is left unassessed
+  // (power stays undefined -> neutral score, never penalized for a check that didn't run).
+  const POWER_CHECK_CAP = 20;
+  const topByOpportunity = [...teamReviewed].sort((a, b) => b.ctrOpportunityClicks - a.ctrOpportunityClicks).slice(0, POWER_CHECK_CAP);
+  const dailySeriesByUrl = topByOpportunity.length
+    ? await loadDailyClicksByPagesForTenant(tenantId, topByOpportunity.map((c) => c.url), 90).catch(() => new Map<string, { date: string; clicks: number }[]>())
+    : new Map<string, { date: string; clicks: number }[]>();
+  for (const c of topByOpportunity) {
+    const range = forecastRange(c.ctrOpportunityClicks, correctionFactor);
+    if (!range) continue; // nothing forecast honestly -> nothing to power-check either
+    const sig = signals.get(c.url);
+    const baselineDailyClicks = sig ? sig.clicks90d / 90 : 0;
+    const baselineDailyImpressions = sig ? sig.impressions90d / 90 : c.impressions / 90;
+    const { noiseCv } = estimateNoiseCv(dailySeriesByUrl.get(c.url) ?? []);
+    const mde = computeMde({ baselineDailyClicks, baselineDailyImpressions, windowDays: 28, noiseCv });
+    c.power = assessPower({ forecastLow: range.low, forecastHigh: range.high, mde });
+    // Item 35 - the roundtable gains a measurement voice ONLY when the read is genuinely thin
+    // (marginal or worse); a well-powered pick needs no extra reassurance and stays silent, so this
+    // never floods the debate on an ordinary night.
+    if (c.power.band !== "well_powered" && c.teamReview && !c.teamReview.voices.some((v) => v.label === "How sure we can be")) {
+      c.teamReview.voices.push({ specialist: "proof", label: "How sure we can be", claim: c.power.sentence, confidencePct: 60 });
+    }
+  }
+
   const plan = planDailyExperiments({ tenantId, date: now.toISOString().slice(0, 10), candidates: teamReviewed, proofLedger: ledger, config: { ...PLANNER_CONFIG, now } });
 
   const byUrl = new Map(built.map((b) => [b.url, b]));
@@ -536,14 +572,8 @@ export async function buildTodayExperimentPreview(tenantId: string, now: Date = 
     }),
   );
 
-  // Item 27 - feed the measured forecast bias back into tonight's ranges: read the calibration
-  // ledger (fail-soft, defaults to 1.0 = no correction on any error or a too-thin sample) and pass
-  // the resulting factor through so every pick's forecast shifts toward what past picks actually
-  // delivered. Never blocks planning - a calibration-store outage plans exactly as before.
-  const correctionFactor = await loadCalibrationRecords(tenantId)
-    .then((rows) => summarizeForecastCalibration(rows).correctionFactor)
-    .catch(() => 1);
-
+  // Item 27's correctionFactor is loaded up front now (see the initial Promise.all) so item 35's
+  // power gate and this final plan record share the exact same forecast numbers.
   const record = buildDailyPlanRecord({
     tenantId, date: now.toISOString().slice(0, 10), now, selected, backups,
     activeSnapshot: { proofIds: activeProofIds, treatedUrls: [...activeTreated], controlUrls: [...activeControl], influencedUrls: [] },

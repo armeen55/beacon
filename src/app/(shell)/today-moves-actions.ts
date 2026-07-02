@@ -20,6 +20,7 @@ export type { PrepareMovesSummary } from "@/domains/demand-graph/prepare-today-m
 import { autoRecordShippedChangeForRec } from "@/domains/proof-gsc/auto-record-on-ship";
 import { autoMeasureDuePass, type AutoMeasurePassResult } from "@/domains/proof-gsc/auto-measure-pass";
 import { harvestWinners } from "@/domains/llm/winner-memory";
+import { buildTeamScoreboardSummary } from "@/domains/team-scoreboard/compute-scoreboard";
 
 export type SharpenMovesResult =
   | { status: "off" }
@@ -220,6 +221,9 @@ export async function measureAppliedMovesAction(opts: { maxRecords?: number } = 
     // error must never surface as a measure-pass failure.
     if (result.settled > 0) {
       await harvestWinners(tenantId).catch(() => {});
+      // BEACON_500 item 38: equally isolated - full-recompute the specialist scoreboard so a
+      // fresh won/lost verdict updates each teammate's Brier score on the next Today render.
+      await buildTeamScoreboardSummary(tenantId).catch(() => {});
     }
     revalidatePath("/");
     revalidatePath("/worklist");

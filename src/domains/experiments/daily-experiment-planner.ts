@@ -18,6 +18,7 @@ import {
   type EligibilityReason,
   type ExternalFlags,
 } from "./experiment-eligibility";
+import { EXTREME_SHORTFALL_RATIO, type PowerAssessment } from "./power-analysis";
 
 /** First path segment groups a family (iran-animals/*, iran-flags/*); top-level slugs are
  *  their own family. Generic — no hardcoded vocabulary. */
@@ -49,6 +50,13 @@ export type DailyCandidate = {
   /** R1 (2026-07-01): bounded 0.5..1.5 multiplier from the specialist-team debate (move-router
    *  adjustedScore/baseScore). Absent/1 = team silent or neutral - identical pre-team score. */
   teamScoreMultiplier?: number;
+  /** Item 35 (2026-07-02): the power-analysis verdict for this candidate's page - can this page's
+   *  own traffic and noise actually resolve the forecast effect within the batch's read window?
+   *  Computed by the caller (build-today-preview.ts) from a bounded per-page daily-series read +
+   *  the candidate's own numeric forecast (pick-expectations.ts forecastLow/forecastHigh); absent
+   *  when no forecast exists yet (nothing to assess) or the read was skipped (budget/cache miss) -
+   *  absence is treated as neutral, never as a penalty or an exclusion. */
+  power?: PowerAssessment;
 };
 
 export type PlannerConfig = {
@@ -76,7 +84,7 @@ const DEFAULTS = {
 };
 
 export type PlannedExperiment = DailyCandidate & { pageFamily: string; score: number };
-export type ExcludedReason = EligibilityReason | "page_family_cap" | "action_family_cap" | "high_traffic_cap" | "budget_full" | "over_max" | "influenced_conflict";
+export type ExcludedReason = EligibilityReason | "page_family_cap" | "action_family_cap" | "high_traffic_cap" | "budget_full" | "over_max" | "influenced_conflict" | "underpowered";
 export type ExcludedExperiment = {
   url: string;
   actionFamily: ExperimentFamily;
@@ -116,6 +124,20 @@ function expectedCtr(pos: number): number {
   return 0.006;
 }
 
+/** Item 35 - the power-band score multiplier: a well-powered pick is unaffected, a marginal pick
+ *  is downranked (still eligible - worth doing, just not tonight's FIRST choice when a
+ *  well-powered alternative exists), an underpowered pick is downranked hard (it only survives
+ *  selection at all when nothing better fills the batch - see EXTREME_SHORTFALL_RATIO for the
+ *  harder hard-exclude line applied in the selection loop below). Absent power = neutral (1): a
+ *  candidate the caller never assessed (no forecast yet, or the bounded read didn't reach it)
+ *  must never be silently punished for a gate that hasn't run. */
+function powerScoreFactor(power: PowerAssessment | undefined): number {
+  if (!power) return 1;
+  if (power.band === "well_powered") return 1;
+  if (power.band === "marginal") return 0.6;
+  return 0.25;
+}
+
 /** Deterministic "tonight value" — rewards page-1 rank, weak CTR, clear ownership, medium
  *  traffic; the CTR opportunity (extra clicks) is the spine. PURE. */
 export function scoreCandidate(c: DailyCandidate): number {
@@ -126,7 +148,10 @@ export function scoreCandidate(c: DailyCandidate): number {
   const ownershipFactor = 0.5 + Math.min(0.5, c.ownership);
   // The team's bounded, visible adjustment (R1). Neutral when the team abstained.
   const teamFactor = Math.max(0.5, Math.min(1.5, c.teamScoreMultiplier ?? 1));
-  return c.ctrOpportunityClicks * positionFactor * mediumFactor * (weakCtr / 1.5) * ownershipFactor * teamFactor;
+  // Item 35 - a candidate this page's own traffic can't resolve within the window is worth less
+  // tonight than one we can actually verify, even if the raw opportunity looks identical.
+  const powerFactor = powerScoreFactor(c.power);
+  return c.ctrOpportunityClicks * positionFactor * mediumFactor * (weakCtr / 1.5) * ownershipFactor * teamFactor * powerFactor;
 }
 
 /** Plan today's safe, diversified, effort-bounded batch. PURE. */
@@ -148,6 +173,15 @@ export function planDailyExperiments(input: {
     const elig = assessEligibility({ url: c.url, family: c.actionFamily, states, external: c.external });
     if (!elig.eligible) {
       excluded.push({ url: c.url, actionFamily: c.actionFamily, reason: elig.reason, availableAt: elig.availableAt, relatedProofIds: elig.relatedProofIds });
+      continue;
+    }
+    // Item 35 - honest degrade, not silent shrink: a MARGINAL or plain UNDERPOWERED pick still
+    // enters the pool (scoreCandidate already downranks it, see powerScoreFactor) so the operator's
+    // plan never quietly loses a slot to a gate they can't see. Only an EXTREME shortfall (the
+    // forecast midpoint sits below half the page's own detectable floor - the test is doomed even
+    // with patience) is hard-excluded, and the reason is recorded so nothing disappears silently.
+    if (c.power && c.power.ratio < EXTREME_SHORTFALL_RATIO) {
+      excluded.push({ url: c.url, actionFamily: c.actionFamily, reason: "underpowered" });
       continue;
     }
     eligible.push({ ...c, pageFamily: c.pageFamily ?? pageFamilyOf(c.url), score: scoreCandidate(c) });

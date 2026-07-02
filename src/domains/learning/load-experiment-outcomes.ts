@@ -56,6 +56,13 @@ async function loadShockWindowsForGate(tenantId: string): Promise<ShockWindow[]>
  * read already is. A shift in the whole site's baseline during the window makes the
  * diff-in-diff comparison to controls unreliable for that specific record, so it
  * must not permanently bias the prior even though the window itself closed cleanly.
+ *
+ * Extended again by the parallel-trends veto (item 33): a record whose comparison
+ * pages were not moving like the treated page before the ship (control-matching.ts's
+ * usedFallback, persisted as ShippedChangeRecord.controlMatchWeak) is ALSO
+ * neutralized to "measuring" - the diff-in-diff isn't trustworthy enough to
+ * permanently bias the prior even though the window closed cleanly and no shock
+ * overlapped it.
  */
 function maturityGatedVerdict(
   r: ShippedChangeRecord,
@@ -82,6 +89,10 @@ function maturityGatedVerdict(
   if (window && shockWindows.length > 0 && overlappingShock(window.start, window.end, shockWindows)) {
     return "measuring";
   }
+  // Additive parallel-trends gate (item 33): same posture as the weather gate -
+  // a mature, cleanly-attributed, weather-clean result STILL doesn't train the
+  // prior when its own comparison pages were a fallback match.
+  if (r.controlMatchWeak === true) return "measuring";
   return r.verdict;
 }
 

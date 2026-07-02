@@ -208,14 +208,23 @@ function FinalReviewCaution({ e }: { e: PlannedExperimentRecord }) {
 }
 
 /** Items 31 + 34: what to expect if it works, and what would change our mind (the exit plan).
- *  Both deterministic, persisted on the plan record; self-hides for pre-field plans. */
+ *  Both deterministic, persisted on the plan record; self-hides for pre-field plans.
+ *  Item 35: when this pick's page is thin on traffic, the honest power line rides right here too,
+ *  next to the forecast it qualifies, never buried in an expander. */
 function ExpectationLines({ e }: { e: PlannedExperimentRecord }) {
   const x = e.expectations;
-  if (!x) return null;
+  const power = e.power && e.power.band !== "well_powered" ? e.power : null;
+  if (!x && !power) return null;
   return (
     <div className="mt-2 grid gap-1 text-[13px] leading-relaxed text-gray-600 tabular-nums dark:text-neutral-300">
-      {x.forecast ? <div><span className="font-semibold text-gray-500 dark:text-neutral-400">If it works: </span>{stripBannedDashes(x.forecast).replace(/^If this works: /, "")}</div> : null}
-      <div><span className="font-semibold text-gray-500 dark:text-neutral-400">What would change our mind: </span>{stripBannedDashes(x.changeOurMind)}</div>
+      {x?.forecast ? <div><span className="font-semibold text-gray-500 dark:text-neutral-400">If it works: </span>{stripBannedDashes(x.forecast).replace(/^If this works: /, "")}</div> : null}
+      {power ? (
+        <div className={power.band === "underpowered" ? "text-amber-700 dark:text-amber-400" : "text-gray-500 dark:text-neutral-400"}>
+          <span className="font-semibold">{power.band === "underpowered" ? "Slot spent elsewhere: " : "Takes longer to prove: "}</span>
+          {stripBannedDashes(power.sentence)}
+        </div>
+      ) : null}
+      {x ? <div><span className="font-semibold text-gray-500 dark:text-neutral-400">What would change our mind: </span>{stripBannedDashes(x.changeOurMind)}</div> : null}
     </div>
   );
 }

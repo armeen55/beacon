@@ -25,6 +25,7 @@ import { runAaCalibrationForTenant } from "@/domains/proof-gsc/aa-calibration";
 import { loadDailyTotalsForTenant } from "@/domains/recommendation-intelligence/gsc-page-queries";
 import { detectChangepoints } from "@/domains/proof-gsc/changepoint";
 import { writeAlgorithmWeatherSummary } from "@/domains/proof-gsc/algorithm-weather-store";
+import { computePooledVerdicts } from "@/domains/proof-gsc/pooled-verdict-runner";
 
 /** The READ sources a nightly refresh pulls. Wix is publish-only and excluded
  *  (it has no inbound data to sync). Mirrors REFRESH_ALL_SOURCES in the
@@ -497,6 +498,36 @@ export async function syncAllConnectedForActiveTenants(): Promise<CronSyncResult
       }
     } catch (e) {
       log.warn("[cron-sync] algorithm-weather pass failed", {
+        tenantId: t.id,
+        error: e instanceof Error ? e.message.slice(0, 200) : String(e),
+      });
+    }
+  }
+
+  // PHASE 1h - pooled batch verdicts (master plan item 34): the live daily batch ships ONE
+  // lever across many sibling pages in one accepted plan, yet each page's own diff-in-diff
+  // read is individually underpowered. Group this tenant's ledger by (planId, actionFamily),
+  // and for every batch with >= 3 measured pages, stack the per-page adjusted lifts with
+  // inverse-variance weights into ONE confident batch-level verdict (pooled-verdict.ts).
+  // Deterministic, FREE (reads already-synced GSC daily series + already-persisted plans/
+  // ledger, no LLM, no paid API), computed-only (never touches shipped_change_proof).
+  // Isolated try/catch per tenant, does not touch PHASE 1c/1d/1e/1f/1g above.
+  for (const t of tenants) {
+    if (pastDeadline()) {
+      log.info("[cron-sync] enrichment deadline reached, skipping remaining pooled-verdict pass");
+      break;
+    }
+    try {
+      const result = await computePooledVerdicts(t.id);
+      if (result.groupsPooled > 0) {
+        log.info("[cron-sync] pooled batch verdicts computed", {
+          tenantId: t.id,
+          groupsPooled: result.groupsPooled,
+          groupsConsidered: result.groupsConsidered,
+        });
+      }
+    } catch (e) {
+      log.warn("[cron-sync] pooled-verdict pass failed", {
         tenantId: t.id,
         error: e instanceof Error ? e.message.slice(0, 200) : String(e),
       });

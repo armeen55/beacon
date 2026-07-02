@@ -137,6 +137,12 @@ const SUPABASE_MIRRORED_STORES = new Set<string>([
   // mirror the detected shocks would be silent-empty on hosted prod after
   // every lambda recycle, and quarantined verdicts would silently un-quarantine.
   "algorithm-weather-shocks",
+  // 2026-07-02 item 34 - pooled batch verdicts (same-plan same-lever multi-page
+  // batches stacked into one powered estimate). Written by a Vercel lambda (no
+  // disk) from the measure-pass tail; read by /proof's batch line. Without the
+  // mirror every pooled verdict would be silent-empty on hosted prod after every
+  // lambda recycle, hiding a real cross-page pattern the operator paid to learn.
+  "pooled-verdicts",
   // 2026-07-02 item 16 - competitor keyword gap engine. The Labs cache is a COST
   // guarantee (a re-run within 30 days must not re-spend, which only holds on
   // Vercel with the mirror); the results store is what the New Pages board reads
@@ -150,6 +156,13 @@ const SUPABASE_MIRRORED_STORES = new Set<string>([
   // silent-empty on hosted prod.
   "wiki-gap-article-cache",
   "wiki-gap-results",
+  // 2026-07-02 item 38 - team scoreboard (per-specialist and per (specialist,
+  // actionFamily) Brier scores + won/flat/lost tallies, joined from settled proof
+  // verdicts back to the TeamReview voices on the plan pick that shipped them).
+  // Written by a Vercel lambda (no disk) from the measure-pass tail; read by the
+  // Today standup strip's honest best-forecaster footer. Without the mirror the
+  // scoreboard would be silent-empty on hosted prod after every lambda recycle.
+  "team-scoreboard",
 ]);
 
 const BLOBS_TABLE = "json_store_blobs";

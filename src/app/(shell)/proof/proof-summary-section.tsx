@@ -104,6 +104,12 @@ export async function ProofSummarySection() {
       baselineImpressions: r.baseline?.impressions ?? 0,
       overlap: overlaps.get(r.id) ?? null,
       live: true,
+      // Parallel-trends veto (master plan item 33), additive: a mature win
+      // whose comparison pages were a fallback match still counts toward the
+      // at-a-glance totals below (this section counts outcomes, it doesn't
+      // gate learning), but the flag rides along so future counts can split
+      // on it without another data pass.
+      weakComparison: r.controlMatchWeak === true,
     });
   };
 

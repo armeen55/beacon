@@ -455,6 +455,11 @@ export async function buildTodayMovesData(
         baselineImpressions: r.baseline?.impressions ?? 0,
         overlap: overlapById.get(r.id) ?? null,
         live: true,
+        // Parallel-trends veto (master plan item 33), additive - same posture
+        // as the rest of this call site's omissions (e.g. shockWindows): a
+        // missing field here just means this card doesn't show the caveat,
+        // it never breaks the maturity/verdict computed above.
+        weakComparison: r.controlMatchWeak === true,
       });
     };
     // Learning summary (hero) - count MATURE outcomes only; everything else is still
