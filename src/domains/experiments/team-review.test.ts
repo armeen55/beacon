@@ -97,3 +97,18 @@ describe("reviewCandidateWithTeam", () => {
     expect(/[–—]/.test(all.replace(/\\u201[34]/g, ""))).toBe(false);
   });
 });
+
+describe("silentTeammatesLine (item 37)", () => {
+  it("names the silent teammates when fewer than 3 voices spoke", async () => {
+    const { silentTeammatesLine } = await import("./team-review");
+    const line = silentTeammatesLine(new Set(["gsc", "profound"]));
+    expect(line).toContain("Quiet this time:");
+    expect(line).toContain("abstain rather than guess");
+    expect(line).not.toContain("Search demand"); // spoke -> not listed
+  });
+
+  it("stays silent itself when 3 or more voices spoke", async () => {
+    const { silentTeammatesLine } = await import("./team-review");
+    expect(silentTeammatesLine(new Set(["gsc", "profound", "dataforseo"]))).toBeNull();
+  });
+});

@@ -11,6 +11,7 @@
 import { useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
+import { Hourglass, TriangleAlert } from "lucide-react";
 import type { ChangesView } from "./changes-data";
 import type { CanonicalChange, Strategy, Goal, StatusView } from "@/domains/changes/canonical-change";
 import { EVIDENCE_LABEL, statusView } from "@/domains/changes/canonical-change";
@@ -113,8 +114,8 @@ function Row({ c, move, rank }: { c: CanonicalChange; move: ChangesView["movesBy
             {fmt(c.upside) ? <span className="text-sky-600 dark:text-sky-400" title={`${formatMetric(c.upside)} searches a month at stake`}>{fmt(c.upside)}/mo at stake</span> : null}
             {c.expectedOutcome && (c.status === "ready" || c.status === "suggested") ? <span className="text-emerald-600 dark:text-emerald-400">{c.expectedOutcome}</span> : null}
             <span className={EVIDENCE_CLS[c.evidenceStrength] ?? "text-gray-500 dark:text-neutral-400"}>{EVIDENCE_LABEL[c.evidenceStrength] ?? "Tracking only"}</span>
-            {c.blockedReason ? <span className="text-gray-400 dark:text-neutral-500" title={c.blockedReason}>⏳ wait</span> : null}
-            {c.qualityDecision === "flagged" ? <span className="text-amber-600 dark:text-amber-400" title={c.qualityNote ?? "Review before shipping"}>⚠ review</span> : c.qualityDecision === "caution" ? <span className="text-amber-500 dark:text-amber-400" title={c.qualityNote ?? "Quality caution"}>quality caution</span> : null}
+            {c.blockedReason ? <span className="inline-flex items-center gap-1 text-gray-400 dark:text-neutral-500" title={c.blockedReason}><Hourglass className="h-3.5 w-3.5 shrink-0" aria-hidden />wait</span> : null}
+            {c.qualityDecision === "flagged" ? <span className="inline-flex items-center gap-1 text-amber-600 dark:text-amber-400" title={c.qualityNote ?? "Review before shipping"}><TriangleAlert className="h-3.5 w-3.5 shrink-0" aria-hidden />review</span> : c.qualityDecision === "caution" ? <span className="text-amber-500 dark:text-amber-400" title={c.qualityNote ?? "Quality caution"}>quality caution</span> : null}
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-2">
@@ -224,7 +225,7 @@ export function ChangesListClient({ view }: { view: ChangesView }) {
             const active = strategy === st.id;
             return (
               <button key={st.id} type="button" onClick={() => setStrategy(st.id)} title={st.hint} aria-pressed={active}
-                className={`min-h-[32px] rounded-md px-2.5 py-1 text-xs font-medium ${FOCUS} ${active ? "bg-gray-900 text-white dark:bg-neutral-100 dark:text-neutral-900" : "text-gray-600 hover:bg-gray-50 dark:text-neutral-300 dark:hover:bg-neutral-800"}`}>{st.label}</button>
+                className={`min-h-[32px] rounded-md px-2.5 py-1 text-xs font-medium ${FOCUS} ${active ? "bg-gray-900 text-white hover:bg-gray-700 dark:bg-neutral-100 dark:text-neutral-900 dark:hover:bg-neutral-300" : "text-gray-600 hover:bg-gray-50 dark:text-neutral-300 dark:hover:bg-neutral-800"}`}>{st.label}</button>
             );
           })}
         </div>
@@ -234,14 +235,14 @@ export function ChangesListClient({ view }: { view: ChangesView }) {
         <div role="group" aria-label="Filter by status" className="-mx-1 max-w-full overflow-x-auto px-1">
           <div className="inline-flex rounded-lg border border-gray-200 p-0.5 dark:border-neutral-700">
             <button type="button" onClick={() => setGrouped(true)} aria-pressed={grouped}
-              className={`min-h-[32px] shrink-0 whitespace-nowrap rounded-md px-2.5 py-1 text-xs font-medium ${FOCUS} ${grouped ? "bg-gray-900 text-white dark:bg-neutral-100 dark:text-neutral-900" : "text-gray-600 hover:bg-gray-50 dark:text-neutral-300 dark:hover:bg-neutral-800"}`}>
+              className={`min-h-[32px] shrink-0 whitespace-nowrap rounded-md px-2.5 py-1 text-xs font-medium ${FOCUS} ${grouped ? "bg-gray-900 text-white hover:bg-gray-700 dark:bg-neutral-100 dark:text-neutral-900 dark:hover:bg-neutral-300" : "text-gray-600 hover:bg-gray-50 dark:text-neutral-300 dark:hover:bg-neutral-800"}`}>
               By goal
             </button>
             {TABS.map((t) => {
               const active = !grouped && tab === t.id;
               return (
                 <button key={t.id} type="button" onClick={() => { setTab(t.id); setGrouped(false); }} aria-pressed={active} aria-label={`${t.label}, ${s[t.id]} ${s[t.id] === 1 ? "change" : "changes"}`}
-                  className={`min-h-[32px] shrink-0 whitespace-nowrap rounded-md px-2.5 py-1 text-xs font-medium ${FOCUS} ${active ? "bg-sky-600 text-white" : "text-gray-600 hover:bg-gray-50 dark:text-neutral-300 dark:hover:bg-neutral-800"}`}>
+                  className={`min-h-[32px] shrink-0 whitespace-nowrap rounded-md px-2.5 py-1 text-xs font-medium ${FOCUS} ${active ? "bg-sky-600 text-white hover:bg-sky-500" : "text-gray-600 hover:bg-gray-50 dark:text-neutral-300 dark:hover:bg-neutral-800"}`}>
                   {t.label} <span aria-hidden className={active ? "text-sky-100" : "text-gray-400 dark:text-neutral-500"}>{s[t.id]}</span>
                 </button>
               );
@@ -250,7 +251,7 @@ export function ChangesListClient({ view }: { view: ChangesView }) {
         </div>
         <button type="button" onClick={() => setTonight((v) => !v)} aria-pressed={tonight}
           title="Just the accepted plan plus the top ready items that fit 30 minutes."
-          className={`min-h-[32px] rounded-md border px-2.5 py-1 text-xs font-medium ${FOCUS} ${tonight ? "border-indigo-300 bg-indigo-600 text-white dark:border-indigo-700" : "border-gray-200 text-gray-600 hover:bg-gray-50 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800"}`}>
+          className={`min-h-[32px] rounded-md border px-2.5 py-1 text-xs font-medium ${FOCUS} ${tonight ? "border-indigo-300 bg-indigo-600 text-white hover:bg-indigo-500 dark:border-indigo-700" : "border-gray-200 text-gray-600 hover:bg-gray-50 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800"}`}>
           Tonight&apos;s 30 minutes
         </button>
         <select aria-label="Filter by goal" value={goal} onChange={(e) => setGoal(e.target.value as Goal)} className={`min-h-[32px] rounded-md border border-gray-200 px-2 py-1 text-xs text-gray-700 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-300 ${FOCUS}`}>

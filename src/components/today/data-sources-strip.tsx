@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { Check } from "lucide-react";
 import { teammateOf } from "@/domains/team/identity";
 
 import {
@@ -207,11 +208,11 @@ export function DataSourcesStripView({
       >
         <div className="flex flex-wrap items-center justify-between gap-2">
           <p className="text-[12px] text-muted-foreground">
-            <span aria-hidden="true">✓ </span>
+            <Check aria-hidden="true" className="mr-1 inline-block h-3.5 w-3.5" />
             All data sources connected.{" "}
             <Link
               href={CONNECTORS_PATH}
-              className="text-accent-primary underline underline-offset-2 hover:text-accent-primary/85"
+              className="rounded-sm text-accent-primary underline underline-offset-2 hover:text-accent-primary/85 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary/40"
             >
               Manage
             </Link>
@@ -234,7 +235,7 @@ export function DataSourcesStripView({
         <div className="flex flex-wrap items-center gap-2">
           <Link
             href={CONNECTORS_PATH}
-            className="text-[12px] text-accent-primary underline underline-offset-2 hover:text-accent-primary/85"
+            className="rounded-sm text-[12px] text-accent-primary underline underline-offset-2 hover:text-accent-primary/85 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary/40"
           >
             Manage all
           </Link>

@@ -19,11 +19,11 @@
 - [x]  16 [W3][P1/S] Celebrate wins. When a verdict flips to won, the Results row and the Today recap get
 - [x]  17 [W3][P1/M] Dark mode done properly across the new surfaces (the daily card's inline styles
 - [x]  18 [W3][P0/S] Number formatting discipline: tabular-nums everywhere, thousands separators, "26.5k"
-- [ ]  19 [W3][P1/S] Iconography: one icon set (lucide), 16px, consistent stroke. Kill the mixed unicode
+- [x]  19 [W3][P1/S] Iconography: one icon set (lucide), 16px, consistent stroke. Kill the mixed unicode
 - [x]  20 [W3][P1/M] The header becomes a cockpit bar: business name, the scoreboard number (7-day clicks
 - [ ]  21 [W3][P2/M] Empty states designed: every self-hiding section gets a designed empty state when it
 - [ ]  22 [W3][P2/S] Consistent skeletons sized to real content for every Suspense boundary (worklist and
-- [ ]  23 [W3][P1/S] Focus + hover states on every interactive element (several buttons have none).
+- [x]  23 [W3][P1/S] Focus + hover states on every interactive element (several buttons have none).
 - [ ]  24 [W3][P2/M] Mobile pass on Today + war room: cards stack cleanly at 375px, chart resizes, no
 - [x]  25 [W1][P0/L] LLM-written verdicts (grounded): replace the templated "Biggest opportunity the team
 - [x]  26 [W1][P0/M] Give every voice a number. Audit all 8 emitters in specialist-opinions.ts: no claim
@@ -37,7 +37,7 @@
 - [x]  34 [W2][P1/M] Expected outcome ranges per pick: honest forecast from CTR-curve math already in
 - [x]  35 [W2][P1/S] Name the operator's cost: every card face shows "2 minutes in Wix". Effort clarity
 - [ ]  36 [W3][P2/M] A "Challenge this" button per pick: one click asks the LLM to argue AGAINST the
-- [ ]  37 [W3][P1/M] Fix the abstain problem structurally: when fewer than 3 voices speak on a pick, the
+- [x]  37 [W3][P1/M] Fix the abstain problem structurally: when fewer than 3 voices speak on a pick, the
 - [ ]  38 [W3][P2/S] Roundtable everywhere the product recommends anything: New Pages board cards and
 - [x]  39 [W3][P1/S] Kill remaining robotic phrasings in debate strings: "competitor page(s)" (pick the
 - [ ]  40 [W3][P2/M] The Strategist voice gets a memory: reference the operator's own history ("You

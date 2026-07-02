@@ -16,6 +16,8 @@ import { WarRoomCopyButton } from "./war-room-copy-button";
 
 const CARD = "rounded-2xl border border-gray-200 bg-white p-4 beacon-rise-in dark:border-neutral-800 dark:bg-neutral-900";
 const HEAD = "text-[11px] font-semibold uppercase tracking-wide text-gray-400 dark:text-neutral-500";
+/** Item 23 - shared visible keyboard-focus ring for interactive elements in the war-room bands. */
+const FOCUS = "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-1";
 
 function prettyPath(u: string): string {
   const p = (u.replace(/^https?:\/\/[^/]+/i, "") || "/").replace(/\/$/, "") || "/";
@@ -161,7 +163,7 @@ export async function DemandOpportunitiesSection({ tenantId }: { tenantId: strin
               {o.estDemand > 0 ? (
                 <span className="text-[11px] text-gray-500 dark:text-neutral-400">{o.estDemand.toLocaleString()} searches/mo</span>
               ) : null}
-              <Link href="#new-pages" className="ml-auto text-[11px] font-medium text-violet-600 underline-offset-2 hover:underline dark:text-violet-400">
+              <Link href="#new-pages" className={`ml-auto rounded-sm text-[11px] font-medium text-violet-600 underline-offset-2 hover:underline dark:text-violet-400 ${FOCUS}`}>
                 {String(o.action).replace(/_/g, " ")} below
               </Link>
             </div>

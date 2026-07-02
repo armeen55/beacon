@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import { Check, Minus, Plus } from "lucide-react";
 
 import {
   recordShippedChangeAction,
@@ -32,9 +33,13 @@ const CHANGE_TYPE_OPTIONS: { value: string; label: string }[] = [
   { value: "change", label: "Other change" },
 ];
 
+/** Item 23 - shared visible keyboard-focus ring for every interactive element here. */
+const FOCUS =
+  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-1";
+
 const FIELD_LABEL = "block text-[11px] font-medium text-foreground/80";
 const FIELD_INPUT =
-  "mt-1 w-full rounded-md border border-border bg-background px-2.5 py-1.5 text-[12px] text-foreground placeholder:text-muted-foreground/60";
+  `mt-1 w-full rounded-md border border-border bg-background px-2.5 py-1.5 text-[12px] text-foreground placeholder:text-muted-foreground/60 ${FOCUS}`;
 
 /**
  * Record a shipped change for ANY page (not just review-approved ones). Quick
@@ -118,13 +123,13 @@ export function RecordAnyPageForm({ initialPage = "" }: { initialPage?: string }
             if (e.key === "Enter" && !showDetails) submit();
           }}
           placeholder="/cities  or  https://www.iranopedia.com/cities"
-          className="min-w-[260px] flex-1 rounded-md border border-border bg-background px-2.5 py-1.5 text-[12px] text-foreground placeholder:text-muted-foreground/60"
+          className={`min-w-[260px] flex-1 rounded-md border border-border bg-background px-2.5 py-1.5 text-[12px] text-foreground placeholder:text-muted-foreground/60 ${FOCUS}`}
         />
         <button
           type="button"
           disabled={pending || !pageUrl.trim()}
           onClick={submit}
-          className="rounded-md border border-foreground bg-foreground px-3 py-1.5 text-[12px] font-medium text-background hover:opacity-90 disabled:opacity-50"
+          className={`rounded-md border border-foreground bg-foreground px-3 py-1.5 text-[12px] font-medium text-background hover:opacity-90 disabled:opacity-50 ${FOCUS}`}
         >
           {pending ? "Saving…" : "I made this change"}
         </button>
@@ -133,9 +138,19 @@ export function RecordAnyPageForm({ initialPage = "" }: { initialPage?: string }
       <button
         type="button"
         onClick={() => setShowDetails((v) => !v)}
-        className="mt-2 text-[11px] font-medium text-muted-foreground hover:text-foreground"
+        className={`mt-2 inline-flex items-center gap-1 rounded-sm text-[11px] font-medium text-muted-foreground hover:text-foreground ${FOCUS}`}
       >
-        {showDetails ? "− Hide details" : "+ Add details (change type, before/after, date)"}
+        {showDetails ? (
+          <>
+            <Minus className="h-3.5 w-3.5 shrink-0" aria-hidden />
+            Hide details
+          </>
+        ) : (
+          <>
+            <Plus className="h-3.5 w-3.5 shrink-0" aria-hidden />
+            Add details (change type, before/after, date)
+          </>
+        )}
       </button>
 
       {showDetails ? (
@@ -241,7 +256,7 @@ export function RecordAnyPageForm({ initialPage = "" }: { initialPage?: string }
                 type="checkbox"
                 checked={verifiedLive}
                 onChange={(e) => setVerifiedLive(e.target.checked)}
-                className="mt-0.5"
+                className={`mt-0.5 rounded-sm ${FOCUS}`}
               />
               <span>
                 I confirmed this change is live on the site.
@@ -290,7 +305,10 @@ export function RecordShippedButton({
 
   if (alreadyRecorded) {
     return (
-      <span className="text-[11px] text-emerald-700">✓ Recorded, measuring below</span>
+      <span className="inline-flex items-center gap-1 text-[11px] text-emerald-700">
+        <Check className="h-3.5 w-3.5 shrink-0" aria-hidden />
+        Recorded, measuring below
+      </span>
     );
   }
 
@@ -311,7 +329,7 @@ export function RecordShippedButton({
             }
           })
         }
-        className="rounded-md border border-foreground bg-foreground px-2.5 py-1 text-[11px] font-medium text-background hover:opacity-90 disabled:opacity-50"
+        className={`rounded-md border border-foreground bg-foreground px-2.5 py-1 text-[11px] font-medium text-background hover:opacity-90 disabled:opacity-50 ${FOCUS}`}
         title="Confirm you shipped this change live (e.g. manually in Wix). Beacon records how the page performs today and measures the next 7/14/28 days vs comparison pages. Nothing publishes."
       >
         {pending ? "Saving…" : "I made this change"}
@@ -346,10 +364,17 @@ export function RollbackCopyButton({ before }: { before: string }) {
           /* clipboard blocked — operator can still read the before text above */
         }
       }}
-      className="rounded-md border border-border px-2 py-0.5 text-[10px] font-medium text-muted-foreground hover:text-foreground"
+      className={`inline-flex items-center gap-1 rounded-md border border-border px-2 py-0.5 text-[10px] font-medium text-muted-foreground hover:text-foreground ${FOCUS}`}
       title="Copy the original (before) copy so you can paste it back into your CMS to roll back. Beacon never auto-reverts."
     >
-      {copied ? "Copied before copy ✓" : "Roll back: copy before"}
+      {copied ? (
+        <>
+          Copied before copy
+          <Check className="h-3.5 w-3.5 shrink-0" aria-hidden />
+        </>
+      ) : (
+        "Roll back: copy before"
+      )}
     </button>
   );
 }
@@ -387,7 +412,7 @@ export function RecrawlButton({
           type="button"
           disabled={pending}
           onClick={() => toggle(false)}
-          className="underline-offset-2 hover:underline disabled:opacity-50"
+          className={`rounded-sm underline-offset-2 hover:underline disabled:opacity-50 ${FOCUS}`}
         >
           Undo
         </button>
@@ -402,7 +427,7 @@ export function RecrawlButton({
         type="button"
         disabled={pending}
         onClick={() => toggle(true)}
-        className="rounded-md border border-border px-2 py-0.5 text-[10px] font-medium text-muted-foreground hover:text-foreground disabled:opacity-50"
+        className={`rounded-md border border-border px-2 py-0.5 text-[10px] font-medium text-muted-foreground hover:text-foreground disabled:opacity-50 ${FOCUS}`}
         title="Mark that you manually requested indexing / recrawl in Google Search Console. This only records the note; it does not call Google."
       >
         I asked Google to re-check this page
@@ -445,7 +470,7 @@ export function ExcludeFromLearningButton({
           type="button"
           disabled={pending}
           onClick={() => toggle(false)}
-          className="underline-offset-2 hover:underline disabled:opacity-50"
+          className={`rounded-sm underline-offset-2 hover:underline disabled:opacity-50 ${FOCUS}`}
         >
           Include again
         </button>
@@ -460,7 +485,7 @@ export function ExcludeFromLearningButton({
         type="button"
         disabled={pending}
         onClick={() => toggle(true)}
-        className="rounded-md border border-border px-2 py-0.5 text-[10px] font-medium text-muted-foreground hover:text-foreground disabled:opacity-50"
+        className={`rounded-md border border-border px-2 py-0.5 text-[10px] font-medium text-muted-foreground hover:text-foreground disabled:opacity-50 ${FOCUS}`}
         title="Stop this result from teaching Beacon (use when the win/loss looks mis-attributed). It still shows here; it just won't sway future rankings."
       >
         Exclude from learning
@@ -495,7 +520,7 @@ export function RecomputeLedgerButton({
             if (res.success) router.refresh();
           })
         }
-        className="rounded-md border border-border px-2.5 py-1 text-[11px] font-medium text-muted-foreground hover:text-foreground disabled:opacity-50"
+        className={`rounded-md border border-border px-2.5 py-1 text-[11px] font-medium text-muted-foreground hover:text-foreground disabled:opacity-50 ${FOCUS}`}
         title={
           disabled
             ? disabledReason ?? "No measurement window has closed yet."

@@ -1,5 +1,6 @@
 import { Suspense } from "react";
 import { notFound } from "next/navigation";
+import { Check, CornerUpLeft } from "lucide-react";
 
 import { isOperatorModeServer } from "@/lib/operator-mode";
 import { ResultsTimeline } from "../changes/results-timeline";
@@ -605,8 +606,9 @@ function LedgerCard({ rec, link, pres, spark, band }: { rec: ShippedChangeRecord
           {rec.actionType.replace(/_/g, " ")} · shipped {rec.shippedAt.slice(0, 10)}
         </span>
         {rec.verifiedLive ? (
-          <span className="rounded border border-emerald-300 bg-emerald-50 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700">
-            ✓ verified live
+          <span className="inline-flex items-center gap-1 rounded border border-emerald-300 bg-emerald-50 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700">
+            <Check className="h-3.5 w-3.5 shrink-0" aria-hidden />
+            verified live
           </span>
         ) : null}
       </div>
@@ -638,8 +640,9 @@ function LedgerCard({ rec, link, pres, spark, band }: { rec: ShippedChangeRecord
           recommended it, or is honestly labelled manual/legacy. */}
       {link && link.actionPack ? (
         <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[11px]">
-          <span className="rounded-full bg-indigo-50 px-2 py-0.5 font-medium text-indigo-700 ring-1 ring-indigo-100">
-            ↩ {LINK_LABEL[link.confidence]}: {link.actionPack.label}
+          <span className="inline-flex items-center gap-1 rounded-full bg-indigo-50 px-2 py-0.5 font-medium text-indigo-700 ring-1 ring-indigo-100">
+            <CornerUpLeft className="h-3.5 w-3.5 shrink-0" aria-hidden />
+            {LINK_LABEL[link.confidence]}: {link.actionPack.label}
           </span>
           {link.actionPack.evidenceSources.map((s) => (
             <span key={s} className="rounded bg-gray-50 px-1.5 py-0.5 text-[10px] font-medium text-gray-500 ring-1 ring-gray-200">
@@ -648,7 +651,10 @@ function LedgerCard({ rec, link, pres, spark, band }: { rec: ShippedChangeRecord
           ))}
         </div>
       ) : (
-        <p className="mt-1.5 text-[11px] text-gray-400">↩ Manual or legacy change, not traced to a ranked move.</p>
+        <p className="mt-1.5 flex items-center gap-1 text-[11px] text-gray-400">
+          <CornerUpLeft className="h-3.5 w-3.5 shrink-0" aria-hidden />
+          Manual or legacy change, not traced to a ranked move.
+        </p>
       )}
 
       {/* Item 71 - a win leads with the number: the lift, the page, the date. */}
@@ -710,7 +716,7 @@ function LedgerCard({ rec, link, pres, spark, band }: { rec: ShippedChangeRecord
                 <span className="font-medium text-foreground/70">What changed:</span>{" "}
                 Added structured data that helps Google and AI understand this page.
                 <details className="mt-1">
-                  <summary className="cursor-pointer text-muted-foreground hover:text-foreground">
+                  <summary className="cursor-pointer rounded-sm text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-1">
                     View technical code
                   </summary>
                   <pre className="mt-1 max-h-40 overflow-auto rounded bg-surface-inset/50 p-2 text-[10px] leading-snug text-muted-foreground">

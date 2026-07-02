@@ -30,6 +30,9 @@ export type TeamReview = {
   objections: Array<{ label: string; reason: string; severity: "veto" | "downgrade"; detail: string }>;
   /** The strongest road NOT taken, in plain words ("Considered a new page: you already rank"). */
   whyNot?: string;
+  /** Item 37 - when fewer than 3 voices spoke, say WHY the silent teammates abstained
+   *  (they abstain rather than guess - that is a feature, and it should read like one). */
+  silent?: string;
 };
 
 export type TeamReviewResult = {
@@ -63,6 +66,26 @@ const ACTION_PLAIN: Record<string, string> = {
   wait: "holding this page for now",
 };
 
+/** Item 37 - plain reason each data teammate abstains (no data = no guess). Internal synthesis
+ *  roles (strategist, commerce) are not listed; their silence is not a data gap. */
+const SILENT_REASON: Record<string, string> = {
+  gsc: "Search demand had no Google data for this page",
+  ga4: "Revenue saw no conversion signal here",
+  clarity: "Visitor behavior has no session data for this page",
+  profound: "AI citations found no answers mentioning this topic",
+  dataforseo: "Live Google results have not been checked for this search yet",
+  wix: "Publishing has no field mapping for this page",
+};
+
+/** One quiet sentence naming the silent teammates and why (null when 3+ voices spoke). */
+export function silentTeammatesLine(spoke: ReadonlySet<string>): string | null {
+  if (spoke.size >= 3) return null;
+  const silent = Object.entries(SILENT_REASON).filter(([k]) => !spoke.has(k));
+  if (silent.length === 0) return null;
+  const parts = silent.slice(0, 3).map(([, reason]) => reason.charAt(0).toLowerCase() + reason.slice(1));
+  return `Quiet this time: ${parts.join("; ")}. They abstain rather than guess.`;
+}
+
 /** Run the full team over one candidate page. PURE. Null packet -> honest abstain. */
 export function reviewCandidateWithTeam(
   packet: EvidencePacket | null | undefined,
@@ -88,9 +111,12 @@ export function reviewCandidateWithTeam(
   const whyNotRaw = decision.whyNotAlternatives[0] ?? null;
   const whyNot = whyNotRaw ? whyNotRaw.replace(/_/g, " ").replace(/\s+/g, " ").trim() : undefined;
 
+  const silent = silentTeammatesLine(new Set(summary.voices.map((v) => v.specialist))) ?? undefined;
+
   const review: TeamReview = {
     verdict,
     whyNot,
+    silent,
     headline: summary.headline,
     consensusPct: summary.consensusPct,
     voices: summary.voices.map((v) => ({

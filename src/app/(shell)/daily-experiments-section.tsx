@@ -184,6 +184,10 @@ function TeamRoundtable({ e }: { e: PlannedExperimentRecord }) {
           Also weighed: {clean(t.whyNot)}
         </div>
       ) : null}
+      {/* Item 37 - a thin debate is explained, never hidden: name the silent teammates and why. */}
+      {t.silent ? (
+        <div className="mt-1 text-[11px] text-gray-400 dark:text-neutral-500">{clean(t.silent)}</div>
+      ) : null}
     </div>
   );
 }
