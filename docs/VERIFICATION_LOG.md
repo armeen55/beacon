@@ -7,6 +7,13 @@
 
 ---
 
+## 2026-07-02 - FINAL PREMIUM PLAN Wave 2 COMPLETE (items 55-57,59,68-72,6,93 + earlier checkpoint)
+
+- Worklist command center: goal-grouped default, 30-minute mode, lever chips + row sparklines, wide search (888b49e6)
+- Results three bands + countdown chips + zero-jargon guard w/ empty whitelist (8a842716); live-verified In flight + 50 chips
+- Today SWR surface: warm 1.79s measured; surfaces mirrored to json_store_blobs (447fe5b3)
+- Wave gate: 943+ files, 15,744 passed / 0 failed (clean shell); build compiled; prod smoke login 200 / root 307
+
 ## 2026-07-01 (later) - FINAL PREMIUM PLAN Wave 2 checkpoint (items 4,5,27,28,29,31,33,34,35,58,60,61)
 
 - Charts: src/components/data/sparkline.tsx (+5 tests incl. GSC-lag honesty), MoveCard/daily-card sparklines, /proof before/after lines via proof-gsc/daily-series.ts (16 rows live-verified, 58-day series)
