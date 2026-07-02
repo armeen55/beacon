@@ -7,6 +7,15 @@
 
 ---
 
+## 2026-07-01 (later) - FINAL PREMIUM PLAN Wave 2 checkpoint (items 4,5,27,28,29,31,33,34,35,58,60,61)
+
+- Charts: src/components/data/sparkline.tsx (+5 tests incl. GSC-lag honesty), MoveCard/daily-card sparklines, /proof before/after lines via proof-gsc/daily-series.ts (16 rows live-verified, 58-day series)
+- Team voices: proof-history redirection (+6 tests), keyword-research voice, live-SERP voice through enrichPickSerpPatterns (same cap/cache/ledger gauntlet; live-verified wikipedia/reddit/etsy reads on real picks)
+- Expectations: pick-expectations.ts (+4 tests) -> forecast range, exit plan, effort on daily cards; expectedOutcome on ready worklist rows (live-verified)
+- Copy: Treatment: -> Change went live:; bulk paste checklist button; em/en dashes stripped from all touched files
+- Gates: typecheck green throughout; full suite (clean shell) 943 files / 15,736 passed / 0 failed; npm run build compiled; deploy smoke login 200 / root 307
+- Commits: c23643be, 5e7d237b, b15ee200, 1abbf8c3, 4840e354 (all pushed to main, Vercel auto-deployed)
+
 ## 2026-07-01 — Phase 1d (competitor "steal this" on the /worklist MoveCard) + card dash-clean
 
 **What changed (commit `05298d8a`):** brought the daily card's reasoning to the demand-graph MoveCard on /worklist. A read-only map first confirmed the MoveCard ALREADY surfaces keyword volume + SERP winners (via the Research Pack), so the only missing layer was the actionable competitor **"steal this"** breakdown (it showed raw "what wins" text, not what STRUCTURE to take).
