@@ -6,6 +6,7 @@
  */
 
 import type { BuiltCandidate } from "./build-daily-candidates";
+import { buildPickExpectations } from "./pick-expectations";
 import {
   stableHash, normalizePath, type DailyExperimentPlanRecord, type PlannedExperimentRecord,
   type ProposedControlRecord, type ExperimentLever,
@@ -76,6 +77,7 @@ function toExperimentRecord(planId: string, c: BuiltCandidate, controls: Propose
     rollbackText: c.rollbackText,
     effortMinutes: c.effortMinutes,
     risk: "low",
+    expectations: buildPickExpectations({ lever, ctrOpportunityClicks: c.ctrOpportunityClicks, effortMinutes: c.effortMinutes }),
     controls,
     influencedUrls: (c.influencedUrls ?? []).map(normalizePath),
     evidenceHash,

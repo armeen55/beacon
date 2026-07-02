@@ -143,6 +143,13 @@ function TeamRoundtable({ e }: { e: PlannedExperimentRecord }) {
             <span className="font-semibold">{o.label} pushed back:</span> {stripBannedDashes(o.reason)}
           </div>
         ))}
+        {/* Item 33 - disagreement is a feature: when voices conflicted, say how it resolved. */}
+        {t.objections.length > 0 && t.voices.length > 0 ? (
+          <div className="text-[12px] leading-relaxed text-gray-500">
+            {stripBannedDashes(t.voices[0]!.label)} says go, {stripBannedDashes(t.objections[0]!.label)} raised a concern.
+            The team went ahead because the concern stayed below the veto line, it lowered this pick&apos;s priority instead of blocking it.
+          </div>
+        ) : null}
       </div>
       {t.verdict ? (
         <div className="mt-1.5 text-[13px] leading-relaxed text-gray-700">
@@ -154,6 +161,19 @@ function TeamRoundtable({ e }: { e: PlannedExperimentRecord }) {
           Also weighed: {stripBannedDashes(t.whyNot)}
         </div>
       ) : null}
+    </div>
+  );
+}
+
+/** Items 31 + 34: what to expect if it works, and what would change our mind (the exit plan).
+ *  Both deterministic, persisted on the plan record; self-hides for pre-field plans. */
+function ExpectationLines({ e }: { e: PlannedExperimentRecord }) {
+  const x = e.expectations;
+  if (!x) return null;
+  return (
+    <div className="mt-2 grid gap-1 text-[13px] leading-relaxed text-gray-600 tabular-nums">
+      {x.forecast ? <div><span className="font-semibold text-gray-500">If it works: </span>{stripBannedDashes(x.forecast).replace(/^If this works: /, "")}</div> : null}
+      <div><span className="font-semibold text-gray-500">What would change our mind: </span>{stripBannedDashes(x.changeOurMind)}</div>
     </div>
   );
 }
@@ -219,7 +239,7 @@ function PreviewCard({ e, spark }: { e: PlannedExperimentRecord; spark?: SparkPo
     <div className={CARD_CLS}>
       <div className="flex items-baseline justify-between gap-2">
         <span className={LABEL_CLS}>The move</span>
-        <span className="text-[11px] text-gray-400">{LEVER_LABEL[e.lever] ?? e.lever}</span>
+        <span className="text-[11px] text-gray-400">{LEVER_LABEL[e.lever] ?? e.lever}{e.expectations ? ` · ${e.expectations.effort}` : ""}</span>
       </div>
       <strong className="mt-1 block text-[15px] font-semibold leading-snug text-gray-900">{moveHeadline(e)}</strong>
       <div className="mt-0.5 flex flex-wrap items-center gap-2 text-[11px] text-gray-400">
@@ -234,6 +254,7 @@ function PreviewCard({ e, spark }: { e: PlannedExperimentRecord; spark?: SparkPo
         </>
       ) : null}
       <TeamRoundtable e={e} />
+      <ExpectationLines e={e} />
 
       <div className={`mt-3 mb-1 ${LABEL_CLS}`}>Paste this</div>
       <div className={PASTE_CLS}>{paste}</div>
@@ -298,7 +319,7 @@ function ExecutionCard({ planId, item, spark }: { planId: string; item: Executio
       <div className="flex items-center justify-between gap-2">
         <span className={LABEL_CLS}>The move</span>
         <span className="flex items-center gap-2">
-          <span className="text-[11px] text-gray-400">{LEVER_LABEL[e.lever] ?? e.lever}</span>
+          <span className="text-[11px] text-gray-400">{LEVER_LABEL[e.lever] ?? e.lever}{e.expectations ? ` · ${e.expectations.effort}` : ""}</span>
           <StatusBadge status={status} />
         </span>
       </div>
@@ -315,6 +336,7 @@ function ExecutionCard({ planId, item, spark }: { planId: string; item: Executio
         </>
       ) : null}
       <TeamRoundtable e={e} />
+      <ExpectationLines e={e} />
 
       <div className={`mt-3 mb-1 ${LABEL_CLS}`}>Paste this{editable && !isActive && status !== "skipped" ? " (edit it first if you want)" : ""}</div>
       {editable && !isActive && status !== "skipped" ? (

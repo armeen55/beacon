@@ -61,6 +61,12 @@ export type PlannedExperimentRecord = {
   effortMinutes: number;
   risk: "low";
 
+  /** Items 31/34/35: honest per-pick expectation lines, deterministic at plan time (forecast
+   *  range from the CTR curve, the falsifiability exit plan, the operator's real effort).
+   *  Optional so plans persisted before this field parse unchanged. Type lives in
+   *  ./pick-expectations (type-only import - no runtime cycle). */
+  expectations?: import("./pick-expectations").PickExpectations;
+
   controls: ProposedControlRecord[];
   influencedUrls: string[];
 

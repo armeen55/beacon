@@ -31,11 +31,11 @@
 - [x]  28 [W2][P0/M] Add the KEYWORD-RESEARCH voice: volume + competition from the cached universe as its
 - [ ]  29 [W2][P1/M] SERP voice on existing-page picks: run the gauntlet-gated live SERP for the target
 - [x]  30 [W1][P0/S] Render "why not the alternatives": the router already computes whyNotAlternatives;
-- [ ]  31 [W2][P1/S] Render "what would change our mind": one falsifiability line per pick, deterministic
+- [x]  31 [W2][P1/S] Render "what would change our mind": one falsifiability line per pick, deterministic
 - [x]  32 [W1][P0/S] Conviction as a visual meter on the card face (thin bar + "Team conviction: high"),
-- [ ]  33 [W2][P1/S] Disagreement is a feature: when voices conflict, render the tension explicitly
-- [ ]  34 [W2][P1/M] Expected outcome ranges per pick: honest forecast from CTR-curve math already in
-- [ ]  35 [W2][P1/S] Name the operator's cost: every card face shows "2 minutes in Wix". Effort clarity
+- [x]  33 [W2][P1/S] Disagreement is a feature: when voices conflict, render the tension explicitly
+- [x]  34 [W2][P1/M] Expected outcome ranges per pick: honest forecast from CTR-curve math already in
+- [x]  35 [W2][P1/S] Name the operator's cost: every card face shows "2 minutes in Wix". Effort clarity
 - [ ]  36 [W3][P2/M] A "Challenge this" button per pick: one click asks the LLM to argue AGAINST the
 - [ ]  37 [W3][P1/M] Fix the abstain problem structurally: when fewer than 3 voices speak on a pick, the
 - [ ]  38 [W3][P2/S] Roundtable everywhere the product recommends anything: New Pages board cards and
