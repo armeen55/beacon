@@ -115,7 +115,7 @@ export async function ProofSummarySection() {
               >
                 <span className="font-medium text-gray-800">{prettyPath(w.path)}</span>
                 <span className="text-xs text-emerald-700">
-                  {w.actionType.replace(/_/g, " ")} · {w.confidence} confidence ✓
+                  {w.actionType.replace(/_/g, " ")} · {w.confidence} confidence
                 </span>
               </li>
             ))}

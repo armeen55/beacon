@@ -21,8 +21,8 @@
 - [x]  18 [W3][P0/S] Number formatting discipline: tabular-nums everywhere, thousands separators, "26.5k"
 - [x]  19 [W3][P1/S] Iconography: one icon set (lucide), 16px, consistent stroke. Kill the mixed unicode
 - [x]  20 [W3][P1/M] The header becomes a cockpit bar: business name, the scoreboard number (7-day clicks
-- [ ]  21 [W3][P2/M] Empty states designed: every self-hiding section gets a designed empty state when it
-- [ ]  22 [W3][P2/S] Consistent skeletons sized to real content for every Suspense boundary (worklist and
+- [x]  21 [W3][P2/M] Empty states designed: every self-hiding section gets a designed empty state when it
+- [x]  22 [W3][P2/S] Consistent skeletons sized to real content for every Suspense boundary (worklist and
 - [x]  23 [W3][P1/S] Focus + hover states on every interactive element (several buttons have none).
 - [ ]  24 [W3][P2/M] Mobile pass on Today + war room: cards stack cleanly at 375px, chart resizes, no
 - [x]  25 [W1][P0/L] LLM-written verdicts (grounded): replace the templated "Biggest opportunity the team
@@ -49,7 +49,7 @@
 - [x]  46 [W2][P1/S] War-room band headers get counts + freshness: "Visitor behavior found friction (4
 - [x]  47 [W2][P1/M] Friction fixes become actionable cards: each row gets "Add to tonight" (creates a
 - [x]  48 [W2][P1/M] Demand band links to action: each unowned-demand row gets "Draft this page" (routes
-- [ ]  49 [W3][P2/S] War room self-summarizes when quiet: "The team found nothing urgent beyond tonight's
+- [x]  49 [W3][P2/S] War room self-summarizes when quiet: "The team found nothing urgent beyond tonight's
 - [ ]  50 [W3][P1/M] "While you were away" block when the operator has not opened Beacon for 48h+: what
 - [x]  51 [W3][P2/M] Make DataSourcesStrip the "team health" strip: same teammate identities, green dot
 - [x]  52 [W3][P1/S] Remove the "Switch to Ritz Builders" pill from the header for daily use (move tenant
@@ -65,8 +65,8 @@
 - [ ]  62 [W3][P2/S] Sticky batch bar at the bottom while items from tonight's plan are pending: "2 left,
 - [ ]  63 [W3][P1/S] Row-level freshness: "evidence read 2h ago" chip; anything stale (>14d SERP, >7d
 - [ ]  64 [W3][P2/M] Keyboard flow: j/k to move, enter to expand, c to copy paste text. Power feel.
-- [ ]  65 [W3][P1/S] Rename ambiguous statuses in UI copy: "suggested/ready/measuring/won" everywhere;
-- [ ]  66 [W3][P2/S] Show the safety net proudly: a quiet line above the list: "12 pages are protected
+- [x]  65 [W3][P1/S] Rename ambiguous statuses in UI copy: "suggested/ready/measuring/won" everywhere;
+- [x]  66 [W3][P2/S] Show the safety net proudly: a quiet line above the list: "12 pages are protected
 - [ ]  67 [W3][P2/M] Undo/rollback affordance on shipped items: every applied change shows its rollback
 - [x]  68 [W2][P0/L] Rewrite the page as three bands: "Wins" (mature, won, celebrated), "Learning"
 - [x]  69 [W2][P0/M] De-jargon the entire surface: 47 "experiment", 35 "control", 29 "baseline" instances

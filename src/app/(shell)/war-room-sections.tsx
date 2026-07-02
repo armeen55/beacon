@@ -24,6 +24,18 @@ function prettyPath(u: string): string {
   return p.length > 48 ? p.slice(0, 45) + "..." : p;
 }
 
+/** Item 21 - tiny decorative all-clear mark for the designed empty states. Pure decoration,
+ *  hidden from screen readers (the sentence next to it carries the meaning). */
+function QuietCheckIllustration() {
+  return (
+    <svg width="40" height="40" viewBox="0 0 40 40" aria-hidden="true" className="shrink-0">
+      <circle cx="20" cy="20" r="18" className="fill-emerald-50 dark:fill-emerald-950/40" />
+      <circle cx="20" cy="20" r="18" fill="none" strokeWidth="1.5" className="stroke-emerald-200 dark:stroke-emerald-800" />
+      <path d="M13 20.5l4.5 4.5L27 15.5" fill="none" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="stroke-emerald-500 dark:stroke-emerald-400" />
+    </svg>
+  );
+}
+
 const CLARITY_MOVE_LABEL: Record<ClarityMoveType, string> = {
   fix_js_errors: "Fix the page errors",
   fix_dead_click: "Fix the broken click",
@@ -33,16 +45,33 @@ const CLARITY_MOVE_LABEL: Record<ClarityMoveType, string> = {
 };
 
 /** Visitor behavior (Clarity teammate): the pages where real visitors hit friction, routed to a
- *  specific fix. Self-hides when no page clears the evidence thresholds. */
+ *  specific fix. Self-hides only when Clarity has no page data at all; when it checked real
+ *  pages and none crossed the thresholds, that is good news worth one quiet card (item 21). */
 export async function FrictionFixesSection({ tenantId }: { tenantId: string }) {
   try {
     const signals = await loadClarityPageSignalsForTenant(tenantId);
+    if (signals.size === 0) return null;
     const rows = [...signals.values()]
       .map((s) => ({ s, d: routeClarityFriction(s) }))
       .filter((x): x is { s: (typeof x)["s"]; d: NonNullable<(typeof x)["d"]> } => x.d != null)
       .sort((a, b) => (a.d.severity === b.d.severity ? b.s.sessions - a.s.sessions : a.d.severity === "high" ? -1 : 1))
       .slice(0, 4);
-    if (rows.length === 0) return null;
+    if (rows.length === 0) {
+      // Item 21 - designed empty state: Clarity watched real visitor sessions this week
+      // and no page cleared the friction thresholds. Say so instead of leaving a gap.
+      return (
+        <section aria-label="Visitor friction fixes" className={CARD}>
+          <div className="flex items-center gap-3">
+            <QuietCheckIllustration />
+            <div className="min-w-0">
+              <div className={HEAD}>Visitor behavior</div>
+              <p className="mt-0.5 text-[13px] text-gray-600 dark:text-neutral-300">No friction found this week. Clean pages.</p>
+              <p className="mt-0.5 text-[11px] tabular-nums text-gray-400 dark:text-neutral-500">I watched sessions on {signals.size.toLocaleString()} page{signals.size === 1 ? "" : "s"} from the last 28 days.</p>
+            </div>
+          </div>
+        </section>
+      );
+    }
     return (
       <section aria-label="Visitor friction fixes" className={CARD}>
         <div className="flex items-baseline justify-between gap-2">
@@ -144,11 +173,28 @@ export async function AiCrawlerSection({ tenantId }: { tenantId: string }) {
 }
 
 /** Market demand (DataForSEO teammate): real search demand you don't own yet, from the cached
- *  keyword universe. Self-hides until keyword research has run. */
+ *  keyword universe. Self-hides until keyword research has run; once research HAS run and
+ *  found no gap, that is a finding worth one quiet card (item 21), never a blank space. */
 export async function DemandOpportunitiesSection({ tenantId }: { tenantId: string }) {
   try {
     const res = await loadDemandOpportunities(tenantId, { limit: 5 });
-    if (res.opportunities.length === 0 && res.trends.length === 0) return null;
+    // Research never ran: nothing honest to say yet, stay silent.
+    if (res.keywordsConsidered === 0) return null;
+    if (res.opportunities.length === 0 && res.trends.length === 0) {
+      // Item 21 - designed empty state: keyword research DID run and found no new gap.
+      return (
+        <section aria-label="Demand opportunities" className={CARD}>
+          <div className="flex items-center gap-3">
+            <QuietCheckIllustration />
+            <div className="min-w-0">
+              <div className={HEAD}>Demand you do not own yet</div>
+              <p className="mt-0.5 text-[13px] text-gray-600 dark:text-neutral-300">No new demand gaps this week. Your pages already cover what people search for.</p>
+              <p className="mt-0.5 text-[11px] tabular-nums text-gray-400 dark:text-neutral-500">I checked {res.keywordsConsidered.toLocaleString()} keywords against your pages.</p>
+            </div>
+          </div>
+        </section>
+      );
+    }
     return (
       <section aria-label="Demand opportunities" className={CARD}>
         <div className="flex items-baseline justify-between gap-2">
@@ -183,4 +229,40 @@ export async function DemandOpportunitiesSection({ tenantId }: { tenantId: strin
   } catch {
     return null;
   }
+}
+
+/** Item 49 - the war room self-summarizes when quiet. Re-runs the same presence checks the
+ *  sections above rely on and renders ONE line only when every band would stay fully silent
+ *  (render null, not even a designed empty state), so a clean day reads as a deliberate
+ *  "all clear" instead of a heading over nothing.
+ *
+ *  COST: this adds no real work to the request. loadClarityPageSignalsForTenant and
+ *  loadBotReferralSignals are react.cache request-memoized, so the section components have
+ *  already paid for these exact calls in this same request and we get the memoized results
+ *  for free; readAllCachedLlmMentions and loadDemandOpportunities are $0 local-cache reads
+ *  (no paid API call ever happens on render, and the demand graph read inside is react.cache
+ *  memoized too). Each check fails soft to "quiet", matching how the sections fail soft to null. */
+export async function WarRoomQuietLine({ tenantId }: { tenantId: string }) {
+  const [clarityQuiet, aiQuiet, demandQuiet] = await Promise.all([
+    // Friction band renders something whenever Clarity has page signals (rows or the
+    // item-21 empty state), so quiet = no signals at all.
+    loadClarityPageSignalsForTenant(tenantId)
+      .then((signals) => signals.size === 0)
+      .catch(() => true),
+    // AI band renders when either feed has data.
+    Promise.all([loadBotReferralSignals(tenantId), readAllCachedLlmMentions().catch(() => [])])
+      .then(([sig, mentions]) => !sig.hasData && mentions.length === 0)
+      .catch(() => true),
+    // Demand band renders whenever keyword research has run (gaps or the item-21 empty
+    // state), so quiet = research never ran and nothing surfaced.
+    loadDemandOpportunities(tenantId, { limit: 5 })
+      .then((res) => res.keywordsConsidered === 0 && res.opportunities.length === 0 && res.trends.length === 0)
+      .catch(() => true),
+  ]);
+  if (!clarityQuiet || !aiQuiet || !demandQuiet) return null;
+  return (
+    <p className="rounded-xl border border-gray-100 bg-gray-50/60 px-4 py-2.5 text-[13px] text-gray-500 dark:border-neutral-800 dark:bg-neutral-900/60 dark:text-neutral-400">
+      The team found nothing urgent beyond tonight&apos;s picks. Clean day.
+    </p>
+  );
 }

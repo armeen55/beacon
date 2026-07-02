@@ -1,5 +1,16 @@
 import Link from "next/link";
 
+// Item 65 - verdict codes never reach the operator raw ("insufficient_data" -> "Not enough data").
+const VERDICT_PLAIN: Record<string, string> = {
+  won: "Helped",
+  lost: "Did not help",
+  inconclusive: "No clear lift",
+  measuring: "Measuring",
+  insufficient_data: "Not enough data yet",
+};
+const verdictPlain = (v: string) => VERDICT_PLAIN[v] ?? v.replace(/_/g, " ");
+
+
 import { isOperatorModeServer } from "@/lib/operator-mode";
 import { currentTenantId } from "@/lib/tenant-context";
 import { loadProofLedger } from "@/domains/proof-gsc/load-ledger";
@@ -84,7 +95,7 @@ function CompactExperimentRow({ rec }: { rec: ShippedChangeRecord }) {
   return (
     <div className="flex flex-wrap items-center gap-2 px-4 py-2 text-[12px]">
       <span className={`text-[10px] font-medium uppercase tracking-wide ${verdictColor}`}>
-        {rec.verdict.replace(/_/g, " ")}
+        {verdictPlain(rec.verdict)}
       </span>
       <span className="font-medium text-foreground">{rec.path}</span>
       <span className="text-[11px] text-muted-foreground">
@@ -111,7 +122,7 @@ function ActiveExperimentCard({ rec }: { rec: ShippedChangeRecord }) {
     <div className="rounded-lg border border-blue-200 bg-blue-50/40 p-4">
       <div className="flex flex-wrap items-center gap-2">
         <span className="rounded border border-blue-300 bg-blue-50 px-1.5 py-0.5 text-[10px] font-medium uppercase text-blue-700">
-          {rec.verdict.replace(/_/g, " ")}
+          {verdictPlain(rec.verdict)}
         </span>
         <span className="text-[14px] font-semibold text-foreground">{rec.path}</span>
         <span className="text-[11px] text-muted-foreground">

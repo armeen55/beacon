@@ -259,6 +259,12 @@ export function ChangesListClient({ view }: { view: ChangesView }) {
         </select>
         <input aria-label="Search pages" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search pages…" className={`min-h-[32px] w-full rounded-md border border-gray-200 px-2 py-1 text-xs sm:ml-auto sm:w-44 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-200 dark:placeholder:text-neutral-500 ${FOCUS}`} />
       </div>
+      {/* Item 66 - the invisible gate, made visible: protected pages are trust, not absence. */}
+      {s.protectedPages > 0 ? (
+        <p className="text-[11px] text-gray-400 tabular-nums dark:text-neutral-500">
+          {s.protectedPages} page{s.protectedPages === 1 ? " is" : "s are"} protected right now (mid-measurement or serving as comparisons). I will not suggest changes there until their results settle.
+        </p>
+      ) : null}
       {/* List */}
       {visible.length === 0 ? (
         <div role="status" className="rounded-lg border border-dashed border-gray-200 bg-white p-6 text-center dark:border-neutral-700 dark:bg-neutral-900">

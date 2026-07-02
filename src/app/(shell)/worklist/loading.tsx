@@ -1,7 +1,8 @@
 /**
- * /worklist route loading skeleton (Move 3) — stable dimensions that resemble the
- * Changes layout (header → strategy control → status tabs → compact rows) so cold
- * navigation never flashes blank or shifts when the real list hydrates.
+ * /worklist route loading skeleton (Move 3, sized in item 22) - stable dimensions that
+ * resemble the Changes layout (header, strategy control, status tabs, compact rows,
+ * New Pages board) so cold navigation never flashes blank or shifts when the real
+ * list hydrates.
  */
 export default function WorklistLoading() {
   const rows = Array.from({ length: 6 }, (_, i) => i);
@@ -36,6 +37,17 @@ export default function WorklistLoading() {
               </div>
               <div className="h-7 w-16 shrink-0 rounded-md bg-muted/20" />
             </div>
+          ))}
+        </div>
+      </div>
+      {/* New Pages board (item 22) - the grid of page cards below the list, so the tail
+          of the page holds its shape too instead of popping in after the rows. */}
+      <div className="rounded-3xl border border-gray-200 bg-gray-50/60 p-6">
+        <div className="h-5 w-36 rounded bg-muted/35" />
+        <div className="mt-2 h-3.5 w-2/3 max-w-md rounded bg-muted/20" />
+        <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          {[0, 1, 2].map((i) => (
+            <div key={i} className="h-40 rounded-2xl border border-gray-100 bg-white" />
           ))}
         </div>
       </div>

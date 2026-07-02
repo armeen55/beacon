@@ -11,7 +11,7 @@ import { loadTodayView } from "./today-view-data";
 import { DailyExperimentsSection } from "./daily-experiments-section";
 import { EVIDENCE_LABEL } from "@/domains/changes/canonical-change";
 import { currentTenantId } from "@/lib/tenant-context";
-import { FrictionFixesSection, AiCrawlerSection, DemandOpportunitiesSection } from "./war-room-sections";
+import { FrictionFixesSection, AiCrawlerSection, DemandOpportunitiesSection, WarRoomQuietLine } from "./war-room-sections";
 import { ScoreboardSection } from "./scoreboard-section";
 import { loadProofLedgerCached } from "@/domains/proof-gsc/load-ledger";
 import { buildWeeklyRecap, shippedInLastDays, weeklyRecapSentence } from "@/domains/proof-gsc/weekly-recap";
@@ -21,10 +21,10 @@ import type { TodayView } from "@/domains/changes/today-view";
 import { createPerfTrace, readPerfTraceIdFromHeaders } from "@/lib/perf-trace";
 
 /**
- * Today `/` — the focused daily slice of the ONE canonical model (2026-07-01, Move 5).
+ * Today `/` - the focused daily slice of the ONE canonical model (2026-07-01, Move 5).
  *
  * Today is no longer a second "what should I do?" surface: it derives from the same
- * CanonicalChange[] that powers /worklist (Changes). Four operational sections — what
+ * CanonicalChange[] that powers /worklist (Changes). Four operational sections - what
  * needs attention, today's changes (the daily plan), what's measuring, what's next if
  * today is empty. No research-heavy MoveCards, no giant New Pages board, no duplicate
  * recommendation engine. Changes is the complete backlog; Today is the operational slice.
@@ -72,7 +72,7 @@ function CockpitSkeleton() {
 }
 
 async function Cockpit() {
-  // Perf trace (disabled by default via BEACON_PERF_TRACE) — the trace lives in
+  // Perf trace (disabled by default via BEACON_PERF_TRACE) - the trace lives in
   // this nested async component, not the top-level page export, so the Suspense
   // shell still streams instantly. Times the two real loaders + flushes on every
   // exit path (demo / first-reading / error / success) via finally.
@@ -172,10 +172,17 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
           (competitor teardowns). All stream in under Suspense, self-hide when empty, fail soft. */}
       <section aria-label="What the team found" className="space-y-3">
         <h2 className="text-sm font-semibold text-gray-700">What the team found today</h2>
-        <Suspense fallback={null}><FrictionFixesSection tenantId={tenantId} /></Suspense>
-        <Suspense fallback={null}><AiCrawlerSection tenantId={tenantId} /></Suspense>
-        <Suspense fallback={null}><DemandOpportunitiesSection tenantId={tenantId} /></Suspense>
-        <Suspense fallback={null}><TodayNewPagesSection limit={3} /></Suspense>
+        {/* Item 22 - each band streams in behind a skeleton sized like a real war-room
+            card, so the section never flashes blank while a teammate is still loading. */}
+        <Suspense fallback={<WarRoomCardSkeleton />}><FrictionFixesSection tenantId={tenantId} /></Suspense>
+        <Suspense fallback={<WarRoomCardSkeleton />}><AiCrawlerSection tenantId={tenantId} /></Suspense>
+        <Suspense fallback={<WarRoomCardSkeleton />}><DemandOpportunitiesSection tenantId={tenantId} /></Suspense>
+        <Suspense fallback={<WarRoomCardSkeleton />}><TodayNewPagesSection limit={3} /></Suspense>
+        {/* Item 49 - when every band above stays silent, the war room says so in one quiet
+            line instead of leaving a heading over nothing. The presence checks re-call the
+            same loaders the sections use; those are react.cache request-memoized (or $0
+            cache-only reads), so this re-check costs nothing extra in the same request. */}
+        <Suspense fallback={null}><WarRoomQuietLine tenantId={tenantId} /></Suspense>
       </section>
 
       {today.nextOpportunities.length > 0 ? <OpportunitiesSection today={today} /> : null}
@@ -183,6 +190,12 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
       <Suspense fallback={null}><DataSourcesStrip /></Suspense>
     </div>
   );
+}
+
+/** Item 22 - a war-room band while it streams: one card-shaped placeholder (rounded-2xl,
+ *  ~h-24 like the real cards) so the section holds its shape instead of flashing blank. */
+function WarRoomCardSkeleton() {
+  return <div aria-hidden className="block h-24 animate-pulse rounded-2xl border border-gray-100 bg-gray-50 dark:border-neutral-800 dark:bg-neutral-900" />;
 }
 
 function TodayCounts({ counts }: { counts: TodayView["counts"] }) {

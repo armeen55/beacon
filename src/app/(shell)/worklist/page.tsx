@@ -10,7 +10,7 @@ import { loadChangesView } from "../changes-data";
 import { ChangesListClient } from "../changes-list-client";
 
 /**
- * /worklist → the canonical CHANGES list (2026-07-01 consolidation). One object — a CHANGE — across
+ * /worklist → the canonical CHANGES list (2026-07-01 consolidation). One object, a CHANGE, across
  * one lifecycle (suggested → ready → apply → verify → measuring → result), shown as one compact
  * list with a strategy control + status views + goal filter. Today's selected batch (the Daily
  * experiments panel) is the "Ready/Today" slice of this same list, not a competing surface; New Pages
