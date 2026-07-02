@@ -388,6 +388,17 @@ function ExecutionCard({ planId, item, spark }: { planId: string; item: Executio
         </div>
       )}
 
+      {/* Item 67 - undo is always one click away: the old text is saved and copyable. */}
+      {isActive && e.rollbackText ? (
+        <button
+          type="button"
+          className={BTN_SMALL}
+          onClick={() => copyText(stripBannedDashes(e.rollbackText), setMsg)}
+          title="Copies the text this page had BEFORE the change, so you can paste it back in your site editor. I never auto-revert a live page."
+        >
+          Roll back: copy the old text
+        </button>
+      ) : null}
       {isActive ? (
         status === "gsc_submitted" ? (
           <div className="mt-3 text-[13px] text-teal-600 dark:text-teal-400">✓ Live and tracking. You told Google to re-check, so results should come in faster.</div>
@@ -469,6 +480,21 @@ function ExecutionChecklistView({ checklist, sparklineByUrl }: { checklist: Exec
         ) : null}
       </div>
       {checklist.items.map((item) => <ExecutionCard key={item.experiment.id} planId={checklist.planId} item={item} spark={sparklineByUrl[item.experiment.url]} />)}
+      {/* Item 62 - the sticky batch bar: while tonight's items are pending, the count
+          follows the operator down the page so finishing never falls off-screen. */}
+      {s.left > 0 ? (
+        <div className="sticky bottom-3 z-10 mt-3 flex items-center justify-between gap-3 rounded-xl border border-gray-200 bg-white/95 px-4 py-2.5 shadow-lg backdrop-blur dark:border-neutral-700 dark:bg-neutral-900/95">
+          <span className="text-[13px] font-semibold text-gray-800 tabular-nums dark:text-neutral-200">
+            Tonight: {s.left} left to apply
+          </span>
+          <span className="flex flex-1 gap-0.5" aria-hidden>
+            {Array.from({ length: s.accepted }, (_, i) => (
+              <span key={i} className={`h-1.5 flex-1 rounded-full ${i < s.accepted - s.left ? "bg-emerald-500" : "bg-gray-200 dark:bg-neutral-700"}`} />
+            ))}
+          </span>
+          <span className="text-[11px] text-gray-400 dark:text-neutral-500 tabular-nums">about {s.left} minute{s.left === 1 ? "" : "s"}</span>
+        </div>
+      ) : null}
       {s.left === 0 && s.accepted > 0 && (
         <div className="mt-3 flex flex-wrap items-center gap-2">
           <button type="button" disabled={pending} aria-busy={pending} onClick={finish} className={BTN_PRIMARY}>{pending ? "Wrapping up..." : "Finish for today"}</button>

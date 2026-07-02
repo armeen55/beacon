@@ -62,12 +62,12 @@
 - [x]  59 [W2][P1/M] Search that actually finds: search across page path, query, teammate claims, and
 - [x]  60 [W2][P1/S] Bulk "copy all tonight's pastes": one button that copies a numbered, Wix-ordered
 - [x]  61 [W2][P1/S] Every ready row shows its expected outcome range (same estimate as C34) so the list
-- [ ]  62 [W3][P2/S] Sticky batch bar at the bottom while items from tonight's plan are pending: "2 left,
+- [x]  62 [W3][P2/S] Sticky batch bar at the bottom while items from tonight's plan are pending: "2 left,
 - [ ]  63 [W3][P1/S] Row-level freshness: "evidence read 2h ago" chip; anything stale (>14d SERP, >7d
 - [ ]  64 [W3][P2/M] Keyboard flow: j/k to move, enter to expand, c to copy paste text. Power feel.
 - [x]  65 [W3][P1/S] Rename ambiguous statuses in UI copy: "suggested/ready/measuring/won" everywhere;
 - [x]  66 [W3][P2/S] Show the safety net proudly: a quiet line above the list: "12 pages are protected
-- [ ]  67 [W3][P2/M] Undo/rollback affordance on shipped items: every applied change shows its rollback
+- [x]  67 [W3][P2/M] Undo/rollback affordance on shipped items: every applied change shows its rollback
 - [x]  68 [W2][P0/L] Rewrite the page as three bands: "Wins" (mature, won, celebrated), "Learning"
 - [x]  69 [W2][P0/M] De-jargon the entire surface: 47 "experiment", 35 "control", 29 "baseline" instances
 - [x]  70 [W2][P0/M] Every row gets the before/after mini-chart (A5) as the row's centerpiece; the
