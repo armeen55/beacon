@@ -55,6 +55,10 @@ import {
   loadFreshCanonicalData,
 } from "@/storage/canonical-store";
 import { ensureRecommendationResponsesSeeded } from "@/domains/product/recommendation-response-store";
+import {
+  selectRecrawlDemotions,
+  latestSnapshotByPath,
+} from "./recrawl-demotion";
 import { createPerfTrace } from "@/lib/perf-trace";
 import type { PromptAnswerObservation } from "@/domains/prompt-answer-observations/types";
 import type { TrackedPrompt } from "@/domains/tracked-prompts/types";
@@ -472,7 +476,37 @@ export async function loadLiveRecommendationQueue(
     ),
   );
   if (editsRes.error) errors.push(editsRes.error);
-  const recommendedEdits = editsRes.value;
+  // N13 recrawl demotion (2026-07-03): a rec whose precondition the LATEST crawl
+  // proves is already met (title now reads as suggested, schema now present, the
+  // H2 already exists) is RETIRED here at read time, so it never renders as a
+  // confident move. Retired rows become `expired` (machine hygiene, downstream
+  // already treats them as non-actionable) and carry the honest "You already
+  // fixed this. I retired it." note on `why`. Byte-identical when nothing is
+  // resolved: selectRecrawlDemotions returns [] and the rows pass through
+  // unchanged. Pure + deterministic; reuses the same page_snapshots read above.
+  const recommendedEditsRaw = editsRes.value;
+  const demotions = selectRecrawlDemotions(
+    recommendedEditsRaw,
+    latestSnapshotByPath(pageSnapshots),
+  );
+  trace.data("recrawl_demotions_count", demotions.length);
+  const recommendedEdits =
+    demotions.length === 0
+      ? recommendedEditsRaw
+      : (() => {
+          const noteById = new Map(
+            demotions.map((d) => [d.row.id, d.note] as const),
+          );
+          return recommendedEditsRaw.map((row) =>
+            noteById.has(row.id)
+              ? {
+                  ...row,
+                  implementation_status: "expired" as const,
+                  why: noteById.get(row.id)!,
+                }
+              : row,
+          );
+        })();
   const editsByRecId = new Map<string, RecommendedEditRow[]>();
   for (const row of recommendedEdits) {
     const list = editsByRecId.get(row.rec_id);

@@ -283,4 +283,28 @@ describe("/prompts/[id] drilldown smoke", () => {
       Page({ params: Promise.resolve({ id: "does-not-exist" }) }),
     ).rejects.toThrow("NEXT_NOT_FOUND");
   });
+
+  // R24 item 1 (2026-07-03): the SSR <title> names the actual question so
+  // a shared link / browser tab reads it, not the generic "Beacon".
+  it("generateMetadata names the specific question in the SSR title", async () => {
+    const { generateMetadata } = await import(
+      "@/app/(shell)/prompts/[id]/page"
+    );
+    const meta = await generateMetadata({
+      params: Promise.resolve({ id: "p-outranked" }),
+    });
+    expect(meta.title).toBe(
+      "Best builders in the Bay Area for a whole-home renovation? - Beacon",
+    );
+  });
+
+  it("generateMetadata falls back to a calm title when the id is unknown", async () => {
+    const { generateMetadata } = await import(
+      "@/app/(shell)/prompts/[id]/page"
+    );
+    const meta = await generateMetadata({
+      params: Promise.resolve({ id: "does-not-exist" }),
+    });
+    expect(meta.title).toBe("AI question not found - Beacon");
+  });
 });

@@ -25,7 +25,11 @@
  */
 
 import { deriveRowTopicFit } from "./topic-fit-from-evidence";
-import { enforceExpertConfidence, type FinalConfidence } from "./expert-verdict";
+import {
+  enforceExpertConfidence,
+  reviewExpertQuality,
+  type FinalConfidence,
+} from "./expert-verdict";
 import { detectCopyArtifact, exceedsPublishLengthLimit } from "./copy-artifact-guard";
 import type { ActionRowType, RecommendationActionRow } from "./recommendation-action-rows";
 import { INTENT_FIT_FLOOR, type PageTopicFit } from "./page-topic-fit";
@@ -238,13 +242,44 @@ export function buildRecommendationQaVerdict(args: {
   // the scorer's weaker floor — so `shouldUseQueryForOptimization` is folded
   // into `deterministicReject` only when the mismatch is confident, and the
   // real scores still band the non-severe cases (weak fit → low, not rejected).
-  const verdict = enforceExpertConfidence({
+  const baseVerdict = enforceExpertConfidence({
     deterministicReject: args.deterministicReject === true || isConfidentMismatch(intentFit),
     shouldUseQueryForOptimization: null,
     hasCoreEvidence,
     topicMatchScore: intentFit?.topicMatchScore ?? null,
     intentMatchScore: intentFit?.intentMatchScore ?? null,
     copySafe,
+  });
+
+  const whyExists = d.motiveLabel ?? whyExistsFallback(row.actionType, row.targetLabel);
+
+  // N48 expert-review pass (2026-07-03): a final deterministic read over a rec
+  // that already cleared the confidence gate, checking it reads like an expert
+  // wrote it (a concrete number, a real next step, no generic filler, no self-
+  // contradiction). Lower-only: it can HOLD a rec but never raises confidence.
+  // When it passes it returns `baseVerdict` unchanged, so a good rec surfaces
+  // nothing new. A quoted evidence line (a GSC/Clarity/AEO bullet, incl. the
+  // N47 primary-source line) satisfies the "has a concrete number" check.
+  const hasQuotedEvidence =
+    gsc ||
+    clarity ||
+    aeo ||
+    (d.gscEvidenceLines ?? []).length > 0 ||
+    (d.clarityEvidenceLines ?? []).length > 0 ||
+    (d.aeoEvidenceLines ?? []).length > 0;
+  // A rec is a concrete action when it carries proposed copy to ship, or its
+  // action type is a paste-ready edit (edit_title/add_faq/etc.); the edit
+  // itself is the next step even when the motive prose reads as a diagnosis.
+  const actionIsConcrete =
+    (d.proposedText?.trim().length ?? 0) > 0 ||
+    (PUSH_READINESS_BY_ACTION[row.actionType] ?? "review_only") === "paste_ready";
+  const verdict = reviewExpertQuality(baseVerdict, {
+    whyExists,
+    proposedText: d.proposedText,
+    measurementPlan: d.measurementPlan,
+    confidenceReason: baseVerdict.gateNotes[0] ?? null,
+    hasQuotedEvidence,
+    actionIsConcrete,
   });
 
   const evidenceSupports: string[] = [];
@@ -265,10 +300,13 @@ export function buildRecommendationQaVerdict(args: {
     evidenceMissing.push("On-page behaviour (connect Microsoft Clarity)");
   }
 
-  const whyExists = d.motiveLabel ?? whyExistsFallback(row.actionType, row.targetLabel);
   const whyMatchValid = intentFit ? intentFit.matchExplanation : null;
 
-  const confidenceParts: string[] = [verdict.gateNotes[0] ?? ""];
+  // Lead with the base gate note, then append any later note (e.g. the N48
+  // expert-review hold reason, which reviewExpertQuality pushes onto gateNotes).
+  // A rec that PASSED the review returns the base verdict unchanged (one note),
+  // so this reads byte-identically to before for a clean rec.
+  const confidenceParts: string[] = [...verdict.gateNotes];
   if (!copySafe) {
     confidenceParts.push("The proposed copy needs review before it's paste-ready.");
   }

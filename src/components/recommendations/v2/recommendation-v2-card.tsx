@@ -523,6 +523,24 @@ export function RecommendationV2Card({
                 {line.value}
               </span>{" "}
               <span className="text-muted-foreground">{line.label}</span>
+              {/* N47 primary-source (2026-07-03): a claim about a search query
+                  should point at the real search, not just restate our stored
+                  number. Rendered only when the line carries a clickable
+                  primary source, so lines without one look identical to before. */}
+              {line.sourceUrl && (
+                <>
+                  {" "}
+                  <a
+                    href={line.sourceUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-accent-primary hover:underline underline-offset-2"
+                    data-recommendation-v2-gsc-evidence-source={line.key}
+                  >
+                    {line.sourceLabel ?? "See the source"} →
+                  </a>
+                </>
+              )}
             </li>
           ))}
         </ul>

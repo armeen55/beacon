@@ -147,6 +147,56 @@ describe("Bundle 2A — RecommendationV2Card", () => {
     expect(html).not.toContain('data-recommendation-v2-why="true"');
   });
 
+  // N47 primary-source (2026-07-03): a GSC evidence line carries a clickable
+  // link to the REAL Google search, so the claim points at something the
+  // operator can open and verify.
+  it("renders a clickable primary-source link on a GSC evidence line when present", () => {
+    const html = renderToStaticMarkup(
+      <RecommendationV2Card
+        row={makeRow({
+          detail: {
+            ...makeRow().detail,
+            gscEvidenceLines: [
+              {
+                key: "headline_query",
+                value: "“iran flag”",
+                label: "9,137 times shown · you rank #3",
+                detail: "People saw your page for “iran flag” 9,137 times.",
+                sourceUrl: "https://www.google.com/search?q=iran%20flag",
+                sourceLabel: "See this search on Google",
+              },
+            ],
+          },
+        })}
+      />,
+    );
+    expect(html).toContain('data-recommendation-v2-gsc-evidence-source="headline_query"');
+    expect(html).toContain('href="https://www.google.com/search?q=iran%20flag"');
+    expect(html).toContain("See this search on Google");
+  });
+
+  it("omits the primary-source link when the GSC line carries no sourceUrl (byte-identical)", () => {
+    const html = renderToStaticMarkup(
+      <RecommendationV2Card
+        row={makeRow({
+          detail: {
+            ...makeRow().detail,
+            gscEvidenceLines: [
+              {
+                key: "headline_query",
+                value: "“iran flag”",
+                label: "9,137 times shown · you rank #3",
+                detail: "People saw your page for “iran flag” 9,137 times.",
+              },
+            ],
+          },
+        })}
+      />,
+    );
+    expect(html).toContain('data-recommendation-v2-gsc-evidence-line="headline_query"');
+    expect(html).not.toContain("data-recommendation-v2-gsc-evidence-source");
+  });
+
   it("renders evidence chips with the deterministic chip set", () => {
     const html = renderToStaticMarkup(<RecommendationV2Card row={makeRow()} />);
     expect(html).toContain('data-recommendation-v2-chip="type"');

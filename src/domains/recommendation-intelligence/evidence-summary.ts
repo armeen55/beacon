@@ -49,7 +49,30 @@ export type EvidenceLine = {
   value: string;
   label: string;
   detail?: string;
+  /**
+   * N47 primary-source (2026-07-03): an optional link to the ACTUAL thing this
+   * claim rests on, so the operator can click through and verify it themselves
+   * (the real Google search for the query, the competitor's page, the SERP
+   * result). Absent when there is no clickable primary source, in which case
+   * the line renders byte-identically to before. Reuses this same EvidenceLine
+   * shape rather than a parallel evidence system.
+   */
+  sourceUrl?: string | null;
+  /** Plain-English label for the primary-source link (e.g. "See this search on Google"). */
+  sourceLabel?: string;
 };
+
+/**
+ * N47 primary-source (2026-07-03): the real Google search for a tracked query,
+ * so "People saw your page for X" points at the exact SERP the operator can open
+ * and read. This is the query's PRIMARY source: the live search itself, not a
+ * restatement of our stored number. Pure; returns null for an empty query.
+ */
+export function googleSearchUrlForQuery(query: string): string | null {
+  const q = query.trim();
+  if (q.length === 0) return null;
+  return `https://www.google.com/search?q=${encodeURIComponent(q)}`;
+}
 
 /** Minimum 90-day impressions for a query before we quote it. Below this a
  *  CTR/position is noise — mirrors the trigger floor (gsc-low-ctr.ts
@@ -170,6 +193,8 @@ export function buildGscEvidenceLines(
         value: `“${query.query}”`,
         label: `${volume} times shown · you rank #${rank}`,
         detail: `People saw your page for “${query.query}” ${volume} times in the last 90 days and you rank #${rank}. ${ctrClause}${recoverClause}`,
+        sourceUrl: googleSearchUrlForQuery(query.query),
+        sourceLabel: "See this search on Google",
       });
     } else {
       // striking distance
@@ -187,6 +212,8 @@ export function buildGscEvidenceLines(
         value: `“${query.query}”`,
         label: `${volume} times shown · you rank #${rank} (striking distance)`,
         detail: `You already rank #${rank} for “${query.query}”, shown ${volume} times in the last 90 days, just short of page one.${recoverClause}`,
+        sourceUrl: googleSearchUrlForQuery(query.query),
+        sourceLabel: "See this search on Google",
       });
     }
   }

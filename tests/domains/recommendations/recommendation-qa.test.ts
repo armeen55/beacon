@@ -239,4 +239,38 @@ describe("buildRecommendationQaVerdict — the deterministic list authority", ()
     });
     expect(v.evidenceMissing.some((m) => m.includes("Search demand"))).toBe(true);
   });
+
+  // N48 expert-review pass (2026-07-03): a GSC-backed, on-topic rec whose
+  // proposed copy reads like generic marketing filler is HELD for review with
+  // an honest reason, instead of being shown as a confident move.
+  it("N48: holds a rec whose proposed copy is generic filler", () => {
+    const v = buildRecommendationQaVerdict({
+      row: row({
+        gsc: [gscLine("koobideh kabob recipe")],
+        proposedText: "Optimize your content and leverage best practices today",
+      }),
+      affectedPromptTexts: [],
+    });
+    expect(v.confidence).toBe("needs_more_evidence");
+    expect(v.approve).toBe(false);
+    expect(v.confidenceReason).toContain("held this one back for review");
+    expect(v.confidenceReason).toContain("generic filler");
+    // No lab jargon, no banned dashes in the honest hold reason.
+    expect(/[‒–—―]/.test(v.confidenceReason)).toBe(false);
+  });
+
+  // N48: a clean, specific, GSC-backed edit passes the review untouched. The
+  // review adds nothing to a good rec.
+  it("N48: passes a clean specific rec (approved, no hold note)", () => {
+    const v = buildRecommendationQaVerdict({
+      row: row({
+        gsc: [gscLine("koobideh kabob recipe")],
+        proposedText: "Persian Koobideh Kabob Recipe: 6 Steps, 45 Minutes",
+      }),
+      affectedPromptTexts: [],
+    });
+    expect(["high", "medium"]).toContain(v.confidence);
+    expect(v.approve).toBe(true);
+    expect(v.confidenceReason).not.toContain("held this one back");
+  });
 });

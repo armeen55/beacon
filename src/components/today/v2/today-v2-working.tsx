@@ -165,14 +165,16 @@ export function TodayV2Working({
         </Link>
         {pendingImplementationCount > 0 && visibleChanges.length > 0 && (
           <Link
-            // 2026-06-16: the legacy `/changes` table (which honored
-            // `?tab=pending_implementation`) was deleted in the dual-surface
-            // collapse, so the prior `?legacy=1` escape now no-ops. Point at
-            // the live v2 `/changes` (matches the sibling pending CTAs in
-            // implementation-queue + today-do-next-card). NOTE: v2 /changes
-            // does not yet filter by tab — surfacing a deep-linked
-            // pending-implementation view in v2 is a tracked follow-up.
-            href="/changes?tab=pending_implementation"
+            // R24 item 2 (2026-07-03): the prior `?tab=pending_implementation`
+            // param was inert - the canonical `/changes` list reads
+            // `?status=<todo|ready|measuring|results>` (see
+            // changes-list-client.tsx), never `?tab=`, so this "View pending"
+            // link silently opened the DEFAULT view instead of the pending
+            // bucket the label promises. Accepted-but-not-live changes (the
+            // pendingImplementation count) map to the `ready` StatusView
+            // (canonical-change.ts `statusView`: ready/apply/verify -> "ready"),
+            // so `?status=ready` opens the exact slice this CTA names.
+            href="/changes?status=ready"
             className="text-muted-foreground hover:text-foreground"
             data-today-v2-cta="pending"
           >

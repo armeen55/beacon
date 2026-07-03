@@ -212,3 +212,160 @@ export function enforceExpertConfidence(args: {
     gateNotes: [`Weak fit (topic ${topic}/100, intent ${intent}/100) — not strong enough to act on yet.`],
   };
 }
+
+/* ────────────────────────────────────────────────────────────────────────── */
+
+/**
+ * N48 expert-review pass (2026-07-03): the FINAL deterministic read over a rec
+ * that already cleared the confidence gate, checking it reads like an expert
+ * actually wrote it before it's shown as a confident move. Four checks, all
+ * pure string inspection over the rec's own copy:
+ *
+ *   1. A specific NUMBER is present somewhere in the reasoning/impact, so an
+ *      expert cites a figure ("9,137 times shown"), never a vague "improve
+ *      this".
+ *   2. A concrete NEXT STEP is present, so the operator can see what to do, not
+ *      just why it matters.
+ *   3. No GENERIC FILLER: no "optimize your content", "leverage synergies",
+ *      "best practices" hand-waving.
+ *   4. No CONTRADICTION: the copy doesn't say a page both ranks well and does
+ *      not rank, or is both present and absent.
+ *
+ * This is a LOWER-ONLY gate, same posture as `applyCriticToVerdict`: it can
+ * hold a rec (drop it to needs-more-evidence with an honest reason) but never
+ * raises confidence and never rescues a reject. When every check passes it
+ * returns the verdict UNCHANGED (byte-identical) so nothing new surfaces on a
+ * good rec. Pure / deterministic / no I/O.
+ */
+export type ExpertReviewInput = {
+  /** The "why this exists" motive sentence shown to the operator. */
+  whyExists: string;
+  /** The proposed copy the operator would ship, when the action has one. */
+  proposedText?: string | null;
+  /** What Beacon will watch after acceptance (the next-step / measurement plan). */
+  measurementPlan?: string | null;
+  /** The confidence reason line already composed by the QA gate. */
+  confidenceReason?: string | null;
+  /** Whether the rec carries at least one clickable/number-bearing evidence line. */
+  hasQuotedEvidence: boolean;
+  /**
+   * Whether the rec IS a concrete action (a paste-ready edit with proposed copy,
+   * or a well-defined action type): an edit-title/add-faq rec with a proposed
+   * change is itself the next step, even when the motive prose reads as a
+   * diagnosis. When true, the next-step check is satisfied by the action itself.
+   */
+  actionIsConcrete: boolean;
+};
+
+/** Marketing hand-waving an expert would never write. Lower-cased match. */
+const GENERIC_FILLER_PHRASES: ReadonlyArray<string> = [
+  "optimize your content",
+  "leverage synergies",
+  "best practices",
+  "take it to the next level",
+  "unlock your potential",
+  "world-class",
+  "cutting-edge",
+  "game-changer",
+  "move the needle",
+  "low-hanging fruit",
+];
+
+/** True when the text contains a digit-bearing figure (a real number). */
+function hasSpecificNumber(text: string): boolean {
+  return /\d/.test(text);
+}
+
+/**
+ * True when the text names a concrete action the operator can take. We look for
+ * imperative action verbs an expert rec uses ("add", "write", "fix", "publish",
+ * "rank", "recover", "track", "watch"), which distinguishes a next-step sentence
+ * from a pure diagnosis.
+ */
+function hasConcreteNextStep(text: string): boolean {
+  return /\b(add|write|edit|fix|publish|rank|recover|track|watch|answer|include|create|update|target|reach)\b/i.test(
+    text,
+  );
+}
+
+function containsGenericFiller(text: string): boolean {
+  const lower = text.toLowerCase();
+  return GENERIC_FILLER_PHRASES.some((p) => lower.includes(p));
+}
+
+/**
+ * A blunt self-contradiction scan: the same claim asserted both ways in one
+ * rec's copy. Deliberately narrow (only the pairs a rec genuinely can garble)
+ * so it never false-positives on legitimate "you rank #8 but few click" copy.
+ */
+function containsContradiction(text: string): boolean {
+  const lower = text.toLowerCase();
+  const ranksWell = /\branks?\s+(well|highly|#?[1-3]\b)/.test(lower);
+  const doesNotRank = /\b(does\s+not|doesn't|not)\s+rank/.test(lower);
+  const present = /\byou(?:'re| are)\s+(?:the\s+)?(?:primary|cited|mentioned|present)/.test(lower);
+  const absent = /\byou(?:'re| are)\s+(?:not\s+)?(?:absent|not\s+mentioned|not\s+cited)/.test(lower);
+  return (ranksWell && doesNotRank) || (present && absent);
+}
+
+export function reviewExpertQuality(
+  verdict: ExpertVerdict,
+  input: ExpertReviewInput,
+): ExpertVerdict {
+  // Only review recs that cleared the bar (high/medium + approved). A rec the
+  // gate already held/rejected keeps its verdict verbatim; the review adds
+  // nothing to an already-honest hold.
+  if (!verdict.enforcedApprove) return verdict;
+  if (verdict.enforcedConfidence !== "high" && verdict.enforcedConfidence !== "medium") {
+    return verdict;
+  }
+
+  const corpus = [
+    input.whyExists,
+    input.proposedText ?? "",
+    input.measurementPlan ?? "",
+    input.confidenceReason ?? "",
+  ]
+    .filter((s) => s.trim().length > 0)
+    .join(" ");
+
+  const failures: string[] = [];
+
+  // 1. a specific number, unless the rec already carries a quoted evidence
+  // line (the number lives on the bullet, not in this prose).
+  if (!input.hasQuotedEvidence && !hasSpecificNumber(corpus)) {
+    failures.push("it doesn't cite a single concrete number");
+  }
+  // 2. a concrete next step: either the copy names an action, or the rec IS a
+  // concrete action (a proposed edit with a target).
+  if (!input.actionIsConcrete && !hasConcreteNextStep(corpus)) {
+    failures.push("it doesn't say what to actually do next");
+  }
+  // 3. no generic filler.
+  if (containsGenericFiller(corpus)) {
+    failures.push("it reads like generic filler, not a specific expert call");
+  }
+  // 4. no contradiction.
+  if (containsContradiction(corpus)) {
+    failures.push("it contradicts itself on how the page is doing");
+  }
+
+  if (failures.length === 0) {
+    // Clean read, nothing new surfaces. Byte-identical to the input verdict.
+    return verdict;
+  }
+
+  // Hold it, honestly. Lower-only: never below needs-more-evidence here (this is
+  // a copy-quality hold, not a safety reject), never approved.
+  const reason =
+    failures.length === 1
+      ? `I held this one back for review because ${failures[0]}. I want it to read like an expert wrote it before you act on it.`
+      : `I held this one back for review because ${failures
+          .slice(0, -1)
+          .join(", ")} and ${failures[failures.length - 1]}. I want it to read like an expert wrote it before you act on it.`;
+
+  return {
+    enforcedConfidence: "needs_more_evidence",
+    enforcedApprove: false,
+    gateNotes: [...verdict.gateNotes, reason],
+  };
+}

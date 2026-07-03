@@ -1,5 +1,6 @@
 import "server-only";
 
+import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { cn } from "@/lib/utils";
@@ -29,6 +30,51 @@ function headerSubjectFromPrompt(promptText: string): string {
   const text = promptText.trim();
   if (text.length === 0) return "AI question";
   return text.length > 64 ? `${text.slice(0, 63).trimEnd()}...` : text;
+}
+
+/**
+ * R24 item 1 (2026-07-03) - server-rendered <title> for a shared link and
+ * the browser tab. Before this, `/prompts/[id]` had NO `generateMetadata`,
+ * so the SSR document title fell back to the root layout's generic
+ * "Beacon" - a pasted link read "Beacon" with no clue which question it
+ * pointed at. The `<HeaderTitle/>` client component only updates the in-app
+ * header row after hydration; it never touches the SSR <title>.
+ *
+ * This reads ONLY `getTrackedPrompts()` (a small ~100-row table) to name
+ * the question - no drilldown build, no observation fan-out, no Supabase
+ * primary-share read. Bounded to 90 chars so a long prompt cannot produce
+ * an unwieldy tab/share title, then suffixed with " - Beacon" for context.
+ */
+export function titleSubjectFromPrompt(promptText: string): string {
+  const text = promptText.replace(/\s+/g, " ").trim();
+  if (text.length === 0) return "AI question";
+  return text.length > 90 ? `${text.slice(0, 89).trimEnd()}...` : text;
+}
+
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ id: string }>;
+}): Promise<Metadata> {
+  const { id } = await params;
+  const decoded = decodePromptRouteId(id);
+  if (decoded === null) {
+    return { title: "AI question not found - Beacon" };
+  }
+  try {
+    const tenantId = await currentTenantId();
+    const tenantRepo = getRepository().forTenant(tenantId);
+    const trackedPrompts = await tenantRepo.getTrackedPrompts();
+    const prompt = trackedPrompts.find((p) => p.id === decoded);
+    if (!prompt) {
+      return { title: "AI question not found - Beacon" };
+    }
+    return { title: `${titleSubjectFromPrompt(prompt.text)} - Beacon` };
+  } catch {
+    // A momentary read failure must never crash the shared link; fall back
+    // to a calm, honest generic title rather than throwing at build/SSR.
+    return { title: "AI question - Beacon" };
+  }
 }
 
 // 2026-05-15 — Section 6 C5 prerender safety. Mirrors

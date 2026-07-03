@@ -4,6 +4,7 @@ import {
   buildAeoEvidenceLines,
   buildClarityEvidenceLines,
   buildGscEvidenceLines,
+  googleSearchUrlForQuery,
   pickHeadlineQuery,
 } from "./evidence-summary";
 import type { GscPageSignal, GscQuerySignal } from "./gsc-page-signals";
@@ -65,6 +66,12 @@ describe("buildGscEvidenceLines — specific, number-rich customer copy", () => 
     expect(line.detail).toMatch(/Google may rewrite/i);
     // Never fabricates a difficulty / competitor we don't have.
     expect(line.detail).not.toMatch(/difficulty|competitor/i);
+    // N47 primary-source: the claim points at the REAL Google search for the
+    // query, not just a restatement of our stored number.
+    expect(line.sourceUrl).toBe(
+      "https://www.google.com/search?q=iran%20flag",
+    );
+    expect(line.sourceLabel).toBe("See this search on Google");
   });
 
   it("striking-distance query: states rank, volume, and top-3 upside", () => {
@@ -93,6 +100,11 @@ describe("buildGscEvidenceLines — specific, number-rich customer copy", () => 
     expect(line.detail).toContain("2,400 times in the last 90 days");
     expect(line.detail).toMatch(/top 3 could win an estimated [\d,]+ more clicks/);
     expect(line.detail).toMatch(/estimate, not a guarantee/i);
+    // N47 primary-source: striking-distance lines also carry the real search.
+    expect(line.sourceUrl).toBe(
+      "https://www.google.com/search?q=iran%20population",
+    );
+    expect(line.sourceLabel).toBe("See this search on Google");
   });
 
   it("omits clauses honestly: no recoverable-visits clause when there's no gap", () => {
@@ -298,5 +310,24 @@ describe("buildAeoEvidenceLines — white-label answer-engine gap", () => {
     expect(buildAeoEvidenceLines([])).toEqual([]);
     expect(buildAeoEvidenceLines(null)).toEqual([]);
     expect(buildAeoEvidenceLines(undefined)).toEqual([]);
+  });
+});
+
+describe("googleSearchUrlForQuery N47 primary source", () => {
+  it("builds the real Google search URL for a query, encoding spaces", () => {
+    expect(googleSearchUrlForQuery("iran flag")).toBe(
+      "https://www.google.com/search?q=iran%20flag",
+    );
+  });
+
+  it("encodes special characters so the URL is always valid", () => {
+    expect(googleSearchUrlForQuery("café & tea near me?")).toBe(
+      "https://www.google.com/search?q=caf%C3%A9%20%26%20tea%20near%20me%3F",
+    );
+  });
+
+  it("returns null for an empty / whitespace-only query (no dead link)", () => {
+    expect(googleSearchUrlForQuery("")).toBeNull();
+    expect(googleSearchUrlForQuery("   ")).toBeNull();
   });
 });

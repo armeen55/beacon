@@ -43,4 +43,27 @@ describe("Architecture — /prompts/[id] force-dynamic (Section 6 C5)", () => {
     expect(PAGE_SRC).toMatch(/decodePromptRouteId\s*\(/);
     expect(PAGE_SRC).toMatch(/PromptDetailV2NotFound/);
   });
+
+  // R24 item 1 (2026-07-03): the SSR <title> must name the specific
+  // prompt so a shared link / browser tab reads the actual question,
+  // not the root layout's generic "Beacon". Pins the generateMetadata
+  // export and that it derives the title from the tracked prompt text.
+  it("exports generateMetadata that names the prompt in the SSR title", () => {
+    expect(PAGE_SRC).toMatch(/export\s+async\s+function\s+generateMetadata\s*\(/);
+    expect(PAGE_SRC).toMatch(/getTrackedPrompts\s*\(/);
+    expect(PAGE_SRC).toMatch(/titleSubjectFromPrompt\s*\(/);
+    // The metadata read short-circuits an invalid id and never builds the
+    // heavy drilldown, keep it cheap. Scope the check to the
+    // generateMetadata body (up to the next top-level export).
+    const metaStart = PAGE_SRC.indexOf(
+      "export async function generateMetadata",
+    );
+    expect(metaStart).toBeGreaterThan(-1);
+    const nextExport = PAGE_SRC.indexOf("\nexport ", metaStart + 1);
+    const metaBody = PAGE_SRC.slice(
+      metaStart,
+      nextExport === -1 ? undefined : nextExport,
+    );
+    expect(metaBody).not.toMatch(/buildPromptDrilldown/);
+  });
 });

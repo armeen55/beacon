@@ -48,17 +48,30 @@ describe("v2 QA polish — sidebar Changes badge filter (P1-2)", () => {
 
 describe("v2 QA polish — Today Working pending CTA (P2-2)", () => {
   const working = read("src/components/today/v2/today-v2-working.tsx");
+  const changesClient = read("src/app/(shell)/changes-list-client.tsx");
 
-  it("pending-implementation CTA points at the live v2 /changes (no dead ?legacy=1 escape)", () => {
-    // 2026-06-16: the legacy /changes table was deleted in the dual-surface
-    // collapse, so the old `?legacy=1` escape no-ops. The CTA now points at
-    // the live v2 /changes, consistent with the sibling pending CTAs in
-    // implementation-queue + today-do-next-card.
-    expect(working).toContain('href="/changes?tab=pending_implementation"');
+  it("pending-implementation CTA deep-links to the pending slice via ?status=ready", () => {
+    // R24 item 2 (2026-07-03): the canonical /changes list reads
+    // `?status=<todo|ready|measuring|results>`, never `?tab=`. The prior
+    // `?tab=pending_implementation` param was inert - "View pending"
+    // silently opened the DEFAULT view. Accepted-but-not-live changes map to
+    // the `ready` StatusView, so `?status=ready` opens the exact slice the
+    // CTA names.
+    expect(working).toContain('href="/changes?status=ready"');
   });
 
-  it("does NOT keep the dead ?legacy=1 escape link", () => {
+  it("does NOT keep either dead deep-link param (?legacy=1 or ?tab=)", () => {
     expect(working).not.toContain('href="/changes?legacy=1');
+    expect(working).not.toContain('href="/changes?tab=');
+  });
+
+  it("the /changes list actually honors the ?status= deep-link param", () => {
+    // Link-target-resolves guard: the pending CTA is only correct if the
+    // destination reads `?status=` and treats `ready` as a valid tab.
+    expect(changesClient).toMatch(/params\.get\(["']status["']\)/);
+    expect(changesClient).toMatch(/TAB_IDS\.has\(pStatus\)/);
+    // `ready` is a real StatusView id in the tab list.
+    expect(changesClient).toMatch(/id:\s*["']ready["']/);
   });
 });
 
