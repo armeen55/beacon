@@ -111,6 +111,18 @@ export type EvidenceRetrieval = {
   sentence: string;
 };
 
+/** N3 (R13, 2026-07-03): one checked fact this draft leans on, with its
+ *  provenance line ("From your /iran-flags page, confirmed Mar 2026." /
+ *  "From britannica.com, seen 3 weeks ago."). Built from the claim graph
+ *  (src/domains/provenance/claim-graph.ts); absent when no registered claim
+ *  matches this draft or page - honest silence, never a fabricated source. */
+export type EvidenceClaimSource = {
+  /** Short fact label (the claim sentence, capped). */
+  fact: string;
+  /** The plain source + date line. */
+  sourceLine: string;
+};
+
 export type DailyEvidenceBrief = {
   /** The page's top searches with whatever cached demand we have (best-first). */
   keywords: EvidenceKeyword[];
@@ -133,6 +145,10 @@ export type DailyEvidenceBrief = {
   /** Item 50: the retrieval-twin's answer-race verdict for this page's best-matching question -
    *  absent until an operator runs the bounded index + report (honest silence otherwise). */
   retrieval?: EvidenceRetrieval;
+  /** N3 (R13): the checked facts this draft leans on, one provenance line per
+   *  claim (capped at 3). Absent until the nightly claim graph holds a claim
+   *  matching this draft or page - honest silence, never a fabricated source. */
+  claims?: EvidenceClaimSource[];
 };
 
 /**

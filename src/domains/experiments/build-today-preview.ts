@@ -73,6 +73,8 @@ import { measurementWindowOf } from "@/domains/proof-gsc/measurement-maturity";
 import { classifyOpportunityFreshness } from "@/domains/changes/opportunity-expiry";
 import { buildShadowCandidates } from "./shadow-portfolio-capture";
 import { writeShadowPortfolioBatch } from "./shadow-portfolio-store";
+import { loadClaimGraphForTenant } from "@/domains/provenance/claim-graph-loader";
+import { claimEvidenceForDraft } from "@/domains/provenance/claim-graph";
 
 const ANIMAL = /\/iran-animals(\/|$)/;
 const pathOf = (u: string) => (u.replace(/^https?:\/\/[^/]+/, "") || "/").replace(/[?#].*$/, "").replace(/\/$/, "") || "/";
@@ -689,6 +691,10 @@ export async function buildTodayExperimentPreview(tenantId: string, now: Date = 
     }
   }
 
+  // N3 (R13, 2026-07-03) - the claim provenance graph, read once for the batch
+  // ($0 store read, fail-soft to empty = byte-identical silence on every card).
+  const claimRecords = await loadClaimGraphForTenant(tenantId).catch(() => []);
+
   // Slice E: attach the "how we know" evidence to each selected move: keyword research (volume +
   // competition), the live Google SERP reaction (winning shape + domains + what to do), and the top
   // competitor teardown (what to steal). All $0 cached reads; each section is omitted when absent, so
@@ -839,6 +845,22 @@ export async function buildTodayExperimentPreview(tenantId: string, now: Date = 
           claim: c.familyWin.sentence,
           confidencePct: 85,
         });
+      }
+    }
+    // N3 (R13, 2026-07-03) - claim provenance: the checked facts this draft leans on, each
+    // with its source and date ("From your /iran-flags page, confirmed Mar 2026." / "From
+    // britannica.com, seen 3 weeks ago."). One line per claim, capped at 3, conflicting
+    // claims excluded (they surface through the conflict trigger, never as confirmed
+    // sources). Deterministic, from the nightly claim graph ($0). Absent when nothing
+    // matches - honest silence, byte-identical to before this feature existed.
+    if (claimRecords.length > 0) {
+      const claimSources = claimEvidenceForDraft(claimRecords, {
+        pageUrl: c.url,
+        draftText: c.proposedText,
+        nowIso,
+      });
+      if (claimSources.length > 0) {
+        c.evidenceBrief = { ...(c.evidenceBrief ?? { keywords: [], addressableVolume: null }), claims: claimSources };
       }
     }
     // Item 46 (CARRY-OVER 115) - honest degradation: when a voice that argued this pick was

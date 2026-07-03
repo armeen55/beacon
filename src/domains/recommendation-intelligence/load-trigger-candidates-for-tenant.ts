@@ -108,6 +108,9 @@ import { displacementCheckAlert } from "./triggers/displacement-check-alert";
 import { citationLossAlert } from "./triggers/citation-loss-alert";
 import { connectorFailureStreak } from "./triggers/connector-failure-streak";
 import { intentClusterConflict } from "./triggers/intent-cluster-conflict";
+import { claimConflictCandidates } from "@/domains/provenance/claim-conflict-trigger";
+import { findClaimConflicts } from "@/domains/provenance/claim-graph";
+import { loadClaimGraphForTenant } from "@/domains/provenance/claim-graph-loader";
 import { loadIntentClustersForTenant } from "@/domains/serp/intent-clusters-loader";
 import type { IntentCluster } from "@/domains/serp/intent-clusters";
 import { loadOwnershipRegistryForTenant } from "@/domains/ownership/registry-loader";
@@ -625,6 +628,28 @@ export async function loadTriggerCandidatesForTenant(options: {
   // over the pre-loaded, already-computed SERP-overlap clusters; no paid
   // SERP call happens here or in the loader above.
   all.push(...intentClusterConflict({ tenantId, clusters: intentClusters, signalAt: new Date().toISOString() }));
+  // Claim conflict (BEACON_500 R13 / N3, 2026-07-03): two of the tenant's own
+  // pages carry MATERIALLY different values for the same fact (numbers more
+  // than 5 percent apart, or differing dates - never punctuation). Pure over
+  // the nightly-persisted claim graph ($0 store read); capped at 3; an empty
+  // or missing graph contributes nothing - byte-identical. Fail-soft: a read
+  // failure skips this predicate, never the loader.
+  try {
+    const claimRecords = await loadClaimGraphForTenant(tenantId);
+    if (claimRecords.length > 0) {
+      all.push(
+        ...claimConflictCandidates({
+          tenantId,
+          conflicts: findClaimConflicts(claimRecords),
+          signalAt: new Date().toISOString(),
+        }),
+      );
+    }
+  } catch (err) {
+    console.error(
+      `[trigger-loader] claim-conflict check failed for ${tenantId} (claim_conflict skips): ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
   // Snippet-promise audit (BEACON_500 R8 / N18, 2026-07-03): does each page
   // deliver, in its first 200 words, what its title/meta promised the search
   // snippet? Cross-snapshot (capped at 5, highest impressions first), pure

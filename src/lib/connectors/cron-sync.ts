@@ -9,6 +9,7 @@ import { syncProfoundNightlyForTenant } from "@/lib/connectors/profound/sync-nig
 import { precomputeMoveDraftsForTenant } from "@/domains/demand-graph/precompute-drafts";
 import { auditTopCompetitorsForTenant } from "@/domains/demand-graph/competitor-page-audit";
 import { rebuildQuestionUniverseForTenant } from "@/domains/research/question-universe-loader";
+import { rebuildClaimGraphForTenant } from "@/domains/provenance/claim-graph-loader";
 import { runRevenueFactsPass } from "@/domains/revenue/compute-unit-economics";
 import { checkPipelineInvariants } from "@/domains/ops/pipeline-invariants";
 import { gatherPipelineReadings } from "@/domains/ops/pipeline-readings";
@@ -756,6 +757,39 @@ export async function syncAllConnectedForActiveTenants(): Promise<CronSyncResult
         error: e instanceof Error ? e.message.slice(0, 200) : String(e),
       });
       await reportPhaseError("question-universe", t.id, e);
+    }
+  }
+
+  // PHASE 2a-r (BEACON_500 R13 / N3) - claim-level provenance graph. Mines the
+  // factual claims (numbers, dates, is-a definitions) out of the stored page
+  // bodies + FAQ answers for the highest-traffic pages, attaches dated teardown
+  // sources, and persists the capped per-tenant graph to the "claim-graph"
+  // store. $0 (stored reads only, no LLM, no paid call). Feeds the daily card's
+  // per-claim source lines, the claim-conflict trigger, and
+  // /diagnostics/provenance. Isolated fail-soft: rebuildClaimGraphForTenant
+  // never throws, and a failure here never touches the sync result.
+  for (const t of tenants) {
+    if (pastDeadline()) {
+      log.info("[cron-sync] enrichment deadline reached, skipping remaining claim-graph builds");
+      break;
+    }
+    try {
+      const cg = await rebuildClaimGraphForTenant(t.id);
+      if (cg.claims > 0) {
+        log.info("[cron-sync] claim graph", {
+          tenantId: t.id,
+          claims: cg.claims,
+          conflicting: cg.conflicting,
+          consistent: cg.consistent,
+          unverified: cg.unverified,
+        });
+      }
+    } catch (e) {
+      log.warn("[cron-sync] claim graph failed", {
+        tenantId: t.id,
+        error: e instanceof Error ? e.message.slice(0, 200) : String(e),
+      });
+      await reportPhaseError("claim-graph", t.id, e);
     }
   }
 

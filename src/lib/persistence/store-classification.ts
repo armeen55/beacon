@@ -466,6 +466,13 @@ export const GLOBAL_STORES = new Set<string>([
   // Capped at 300 rows per tenant on every rebuild
   // (src/domains/research/question-universe-loader.ts).
   "question-universe",
+  // Claim-level provenance graph (2026-07-03, BEACON_500 R13 / N3). Rows
+  // carry tenant_id; rebuilt + written by the nightly cron fan-out (no
+  // ambient request context - same rationale as question-universe above)
+  // AND appended from the ship path when a draft's checked facts register.
+  // Capped at 500 rows per tenant on every rebuild
+  // (src/domains/provenance/claim-graph-loader.ts).
+  "claim-graph",
 ]);
 
 /**

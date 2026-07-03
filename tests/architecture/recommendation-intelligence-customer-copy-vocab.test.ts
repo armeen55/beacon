@@ -199,6 +199,13 @@ const PROBE_SETS: Record<string, ReadonlyArray<Probe>> = {
     ["persian new year date", "smallblog.com", "a short paragraph answer", 2, "Lead with a two sentence direct answer high on the page"],
     ["farsi numbers chart", "example.org", "a table", 10, "Match the table format with a compact table high on the page"],
   ],
+  // N3 (R13, 2026-07-03) - claim conflict: subject label, each side's
+  // literal value + page path. Probe the pinned Persepolis example + a
+  // number-shaped conflict.
+  claimConflictCopy: [
+    ["the year Persepolis was built", "515 BC", "/persepolis", "518 BC", "/iran-history"],
+    ['the number for "persepolis columns"', "72", "/persepolis", "79", "/iran-history"],
+  ],
 };
 
 function scanForViolations(output: string): string[] {

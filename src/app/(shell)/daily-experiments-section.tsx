@@ -337,6 +337,24 @@ function CitabilityEvidence({ e }: { e: PlannedExperimentRecord }) {
   );
 }
 
+/** N3 (R13): the checked facts this draft leans on, one provenance line per claim
+ *  ("From your /iran-flags page, confirmed Mar 2026." / "From britannica.com, seen
+ *  3 weeks ago."). Absent until the claim graph holds a matching claim. */
+function ClaimSources({ e }: { e: PlannedExperimentRecord }) {
+  const claims = e.evidenceBrief?.claims;
+  if (!claims || claims.length === 0) return null;
+  return (
+    <>
+      {claims.map((c, i) => (
+        <div key={i}>
+          <span className="text-muted-foreground">Fact I am relying on: </span>
+          {stripBannedDashes(c.fact)} {stripBannedDashes(c.sourceLine)}
+        </div>
+      ))}
+    </>
+  );
+}
+
 /** Item 46 (CARRY-OVER 115): honest degradation - one of the voices behind this pick was reading
  *  from a stale or dead data source, so "how we know" says so plainly instead of presenting every
  *  number as equally live. Absent when every voice's source was fresh. */
@@ -367,6 +385,7 @@ function HowWeKnow({ e, steps }: { e: PlannedExperimentRecord; steps?: string })
         <SerpReaction e={e} />
         <CompetitorSteal e={e} />
         <CitabilityEvidence e={e} />
+        <ClaimSources e={e} />
         <div><span className="text-muted-foreground">On the page now: </span>{stripBannedDashes(e.currentText) || "no answer at the top"}</div>
         {detailLine && <div>{detailLine}</div>}
         {e.controls.length > 0 && (

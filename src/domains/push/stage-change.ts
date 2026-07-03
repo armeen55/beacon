@@ -77,6 +77,7 @@ import { stripBannedDashes } from "@/lib/copy/strip-dashes";
 import { scheduleIndexNowPing } from "@/lib/connectors/indexnow/ping-on-verify";
 import { checkFactualEntailment, type AuthoritativeFact } from "@/domains/drafts/factual-entailment";
 import { readPageBodyTextForEntailment } from "@/domains/drafts/factual-entailment-store";
+import { registerShippedDraftClaims } from "@/domains/provenance/claim-graph-loader";
 
 export type { StagingAvailability } from "./stage-route";
 
@@ -299,6 +300,18 @@ export async function stageChangeForRecord(
       /* observability only - never fail a landed stage on the probe */
     }
   }
+
+  // N3 (R13, 2026-07-03): the shipped draft's checked facts REGISTER into the
+  // claim provenance graph with their evidence (the same seam the N8
+  // entailment gate occupies - registration re-runs the pure check so any
+  // dated correction finding attaches as a correction_evidence source).
+  // Fail-soft and additive: registerShippedDraftClaims never throws and can
+  // never affect this already-landed stage.
+  await registerShippedDraftClaims({
+    tenantId,
+    targetUrl: edit.target_url,
+    draftText: edit.proposed_text,
+  }).catch(() => {});
 
   return {
     staged: true,

@@ -464,3 +464,33 @@ export function snippetCaptureCopy(
     " to compete for that box."
   );
 }
+
+/**
+ * Claim conflict (BEACON_500 R13 / N3, 2026-07-03). Two of the tenant's own
+ * pages carry materially different values for the same fact. Args: the plain
+ * subject label ("the year Persepolis was built"), each side's literal value
+ * and page path. The ask is a decision, not an edit - once the operator
+ * picks one, Beacon keeps the pages consistent (the N26 seed). NO em or en
+ * dashes (hard rule).
+ */
+export function claimConflictCopy(
+  subjectLabel: string,
+  valueA: string,
+  pageA: string,
+  valueB: string,
+  pageB: string,
+): string {
+  return (
+    "Two of your pages disagree about " +
+    subjectLabel +
+    " (" +
+    valueA +
+    " on " +
+    pageA +
+    ", " +
+    valueB +
+    " on " +
+    pageB +
+    "). Pick one and I will keep them consistent."
+  );
+}

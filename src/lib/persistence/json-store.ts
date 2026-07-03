@@ -261,6 +261,13 @@ const SUPABASE_MIRRORED_STORES = new Set<string>([
   // section, New Pages brief questions) would read empty on hosted prod the
   // moment the lambda recycled, silently muting the whole N30 feature.
   "question-universe",
+  // 2026-07-03 BEACON_500 R13 / N3 - the claim-level provenance graph.
+  // Rebuilt by the nightly cron on Vercel lambdas (no disk) and appended
+  // from the ship path (also a lambda); without the mirror every consumer
+  // (the daily card's per-claim source lines, the claim-conflict trigger,
+  // /diagnostics/provenance) would read empty on hosted prod the moment the
+  // lambda recycled, silently muting the whole N3 feature.
+  "claim-graph",
 ]);
 
 const BLOBS_TABLE = "json_store_blobs";
