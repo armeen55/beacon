@@ -39,7 +39,9 @@ describe("ChangesListClient - UX3 split detail panel", () => {
 
   it("the desktop panel renders only on lg+ and the inline fallback only below lg, so exactly one copy of the detail shows at a time per breakpoint", () => {
     expect(SRC).toMatch(/hidden max-h-\[calc\(100vh-2rem\)\][^"]*lg:block/);
-    expect(SRC).toMatch(/border-t border-gray-100 px-1 py-1 lg:hidden/);
+    // FP6b (2026-07-02): border-gray-100 migrated to the border-border-subtle token; same
+    // layout assertion (border-t ... px-1 py-1 lg:hidden), now on the token class.
+    expect(SRC).toMatch(/border-t border-border-subtle px-1 py-1 lg:hidden/);
   });
 
   it("the row's own aria-expanded button still drives selectedId (keyboard Enter + the D6 banner's Open-it still work unmodified)", () => {

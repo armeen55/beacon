@@ -10,6 +10,8 @@ import { loadChangesView } from "../changes-data";
 import { ChangesListClient } from "../changes-list-client";
 import { loadFactoryBatchCardData } from "../page-factory-batch-data";
 import { PageFactoryBatchCard } from "../page-factory-batch-card";
+import { loadWithDeadline } from "@/lib/load-with-deadline";
+import { HonestDelay } from "@/components/honest-delay";
 
 /**
  * /worklist → the canonical CHANGES list (2026-07-01 consolidation). One object, a CHANGE, across
@@ -19,10 +21,21 @@ import { PageFactoryBatchCard } from "../page-factory-batch-card";
  * board below. The old per-move rich card is reused on demand (expand a row), not the default view.
  */
 
+// W2-A (2026-07-02) - FP1 always-paint floor extended to this page: every async section
+// body is deadline-bounded so a wedged Supabase read (each 522 is ~30s) can never strand
+// a Suspense fallback or hold the HTTP stream open forever. The main list gets a generous
+// window (it has an SWR snapshot that normally answers in seconds; a cold rebuild is the
+// slow path); the three self-hiding side sections time out to null, same as their
+// existing fail-soft posture.
+const MAIN_LIST_DEADLINE_MS = 25_000;
+const SIDE_SECTION_DEADLINE_MS = 15_000;
+
 async function ChangesSection() {
   let view;
   try {
-    view = await loadChangesView();
+    const raced = await loadWithDeadline(loadChangesView(), MAIN_LIST_DEADLINE_MS);
+    if (raced.timedOut) return <HonestDelay />;
+    view = raced.data;
   } catch {
     return (
       <p className="rounded-2xl border border-dashed border-gray-200 bg-white p-8 text-center text-sm text-gray-500">
@@ -54,21 +67,53 @@ async function ChangesSection() {
 
 async function DailyExperiments() {
   try {
-    const view = await loadDailyExperimentsView();
-    return <DailyExperimentsSection view={view} />;
+    const raced = await loadWithDeadline(loadDailyExperimentsView(), SIDE_SECTION_DEADLINE_MS);
+    if (raced.timedOut) return null; // same fail-soft posture as the catch below
+    return <DailyExperimentsSection view={raced.data} />;
   } catch {
     return null; // fail-soft: never block the page on the Today panel
   }
 }
 
+/**
+ * W2-A - page-level bound for the SHARED New Pages board (also rendered on Today), so
+ * this page never depends on the shared file staying bounded. The section carries its
+ * own inner deadline today (FP1 put one on its loader), which normally answers first;
+ * this outer race is the belt-and-suspenders floor and times out to null because the
+ * board is self-hiding on this page.
+ */
+async function NewPagesBoard() {
+  const raced = await loadWithDeadline(
+    TodayNewPagesSection({ enableAeoBrief: true }),
+    SIDE_SECTION_DEADLINE_MS,
+  );
+  return raced.timedOut ? null : raced.data;
+}
+
 async function PageFactoryBatch() {
   try {
-    const data = await loadFactoryBatchCardData();
-    if (!data) return null;
-    return <PageFactoryBatchCard data={data} />;
+    const raced = await loadWithDeadline(loadFactoryBatchCardData(), SIDE_SECTION_DEADLINE_MS);
+    if (raced.timedOut || !raced.data) return null;
+    return <PageFactoryBatchCard data={raced.data} />;
   } catch {
     return null; // fail-soft: never block the page on the batch review card
   }
+}
+
+/** W2-A - content-shaped fallback for the main list: honest copy + row-shaped
+ *  placeholders instead of one mute gray pulse box. Paired with the 25s deadline
+ *  above, so it can never strand. */
+function ChangesListFallback() {
+  return (
+    <div className="space-y-2 rounded-2xl border border-gray-100 bg-white p-4">
+      <p className="text-[12px] text-gray-400">
+        Pulling your ranked changes together. This usually takes a few seconds.
+      </p>
+      <div className="h-9 animate-pulse rounded-lg bg-gray-50" />
+      <div className="h-9 animate-pulse rounded-lg bg-gray-50" />
+      <div className="h-9 animate-pulse rounded-lg bg-gray-50" />
+    </div>
+  );
 }
 
 export default function WorklistPage() {
@@ -81,11 +126,11 @@ export default function WorklistPage() {
       <Suspense fallback={null}>
         <DailyExperiments />
       </Suspense>
-      <Suspense fallback={<div className="h-40 animate-pulse rounded-2xl border border-gray-100 bg-gray-50" />}>
+      <Suspense fallback={<ChangesListFallback />}>
         <ChangesSection />
       </Suspense>
       <Suspense fallback={null}>
-        <TodayNewPagesSection enableAeoBrief />
+        <NewPagesBoard />
       </Suspense>
       <Suspense fallback={null}>
         <PageFactoryBatch />

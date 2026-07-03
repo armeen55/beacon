@@ -24,8 +24,11 @@ describe("Results page wires the pooled-verdict batch line (item 34)", () => {
   });
 
   it("renders the batch line ABOVE the Measured outcomes per-page rows", () => {
+    // W2-A (2026-07-02): the section renders through the page-level deadline wrapper
+    // (BoundedSection) so a wedged read can never strand its Suspense boundary; the
+    // pin now targets that render call instead of a bare JSX tag.
     const s = pageSrc();
-    const batchIdx = s.indexOf("<PooledVerdictSection");
+    const batchIdx = s.indexOf("PooledVerdictSection()");
     const measuredIdx = s.indexOf("Measured outcomes");
     expect(batchIdx).toBeGreaterThan(-1);
     expect(measuredIdx).toBeGreaterThan(-1);

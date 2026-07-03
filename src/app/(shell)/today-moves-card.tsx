@@ -29,6 +29,9 @@ import { Sparkline } from "@/components/data/sparkline";
 import { formatMetric, formatMetricCompact } from "@/lib/format-metric";
 import { stripBannedDashes } from "@/lib/copy/strip-dashes";
 import { dossierHref } from "@/lib/page-dossier-link";
+import { Card } from "@/components/ui/card";
+import { Pill, type PillIntent } from "@/components/ui/pill";
+import { cn } from "@/lib/utils";
 
 /**
  * today-moves-card (2026-06-24) - the interactive §7 Move card. One-tap "Ship it"
@@ -39,47 +42,60 @@ import { dossierHref } from "@/lib/page-dossier-link";
  * no Wix, no new writes beyond the existing response store.
  */
 
+// The action-category identity bar (citation/clicks/experience/page) is a deliberate
+// exception to the token system: each category needs its OWN distinguishable hue so the
+// left-edge bar reads as "which kind of move" at a glance, and four categories don't fit
+// the six verdict-based Pill intents. Kept as a one-off gradient per FP6b instructions.
 const TONE: Record<
   TodayMove["actionTone"],
-  { bar: string; pill: string; ring: string; dot: string; btn: string }
+  { bar: string; ring: string; dot: string; btn: string }
 > = {
   citation: {
     bar: "bg-gradient-to-b from-violet-500 to-indigo-500",
-    pill: "bg-violet-50 text-violet-700 ring-violet-200 dark:bg-violet-950/40 dark:text-violet-300 dark:ring-violet-900",
-    ring: "hover:ring-violet-200 dark:hover:ring-violet-800",
+    ring: "hover:ring-accent-primary-muted",
     dot: "bg-violet-500",
     btn: "bg-violet-600 hover:bg-violet-500",
   },
   clicks: {
     bar: "bg-gradient-to-b from-sky-500 to-blue-600",
-    pill: "bg-sky-50 text-sky-700 ring-sky-200 dark:bg-sky-950/40 dark:text-sky-300 dark:ring-sky-900",
-    ring: "hover:ring-sky-200 dark:hover:ring-sky-800",
+    ring: "hover:ring-accent-primary-muted",
     dot: "bg-sky-500",
-    btn: "bg-blue-600 hover:bg-blue-500",
+    btn: "bg-accent-primary hover:opacity-90",
   },
   experience: {
     bar: "bg-gradient-to-b from-amber-400 to-orange-500",
-    pill: "bg-amber-50 text-amber-700 ring-amber-200 dark:bg-amber-950/40 dark:text-amber-300 dark:ring-amber-900",
-    ring: "hover:ring-amber-200 dark:hover:ring-amber-800",
+    ring: "hover:ring-status-warning/30",
     dot: "bg-amber-500",
     btn: "bg-orange-600 hover:bg-orange-500",
   },
   page: {
     bar: "bg-gradient-to-b from-emerald-400 to-green-600",
-    pill: "bg-emerald-50 text-emerald-700 ring-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:ring-emerald-900",
-    ring: "hover:ring-emerald-200 dark:hover:ring-emerald-800",
+    ring: "hover:ring-status-success/30",
     dot: "bg-emerald-500",
-    btn: "bg-emerald-600 hover:bg-emerald-500",
+    btn: "bg-status-success hover:opacity-90",
   },
 };
 
-/** Item 23 - shared visible keyboard-focus ring for every interactive element on the card. */
-const FOCUS = "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-1";
+/** The action-category label chip (e.g. "Add an answer block") next to the rank badge -
+ *  identity, not a verdict, so it rides the same per-category color as the TONE bar above
+ *  rather than a Pill intent. */
+const TONE_PILL_CLS: Record<TodayMove["actionTone"], string> = {
+  citation: "bg-violet-50 text-violet-700 ring-1 ring-violet-200",
+  clicks: "bg-accent-primary-light text-accent-primary ring-1 ring-accent-primary-muted",
+  experience: "bg-amber-50 text-amber-700 ring-1 ring-amber-200",
+  page: "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200",
+};
 
-const CONF: Record<TodayMove["confidence"], { label: string; cls: string }> = {
-  high: { label: "High confidence", cls: "bg-emerald-50 text-emerald-700 ring-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:ring-emerald-900" },
-  medium: { label: "Medium confidence", cls: "bg-amber-50 text-amber-700 ring-amber-200 dark:bg-amber-950/40 dark:text-amber-300 dark:ring-amber-900" },
-  low: { label: "Worth a look", cls: "bg-gray-100 text-gray-600 ring-gray-200 dark:bg-neutral-800 dark:text-neutral-300 dark:ring-neutral-700" },
+/** Item 23 - shared visible keyboard-focus ring for every interactive element on the card. */
+const FOCUS = "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1";
+
+// Confidence is a forecast, not a verdict - "won" stays reserved for a proven result. High
+// confidence borrows the same soft-green "live" tone, medium borrows "waiting" amber, and
+// low borrows plain "neutral" gray, matching the original hue intent through Pill's intents.
+const CONF: Record<TodayMove["confidence"], { label: string; intent: PillIntent }> = {
+  high: { label: "High confidence", intent: "live" },
+  medium: { label: "Medium confidence", intent: "waiting" },
+  low: { label: "Worth a look", intent: "neutral" },
 };
 
 function titleCase(s: string): string {
@@ -308,18 +324,18 @@ export function MoveCard({
 
   if (state === "shipped") {
     return (
-      <div className="flex items-center gap-3 rounded-2xl border border-emerald-200 bg-emerald-50/70 px-5 py-4 text-sm text-emerald-800 transition-all dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-200">
-        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-emerald-600 text-white">
+      <div className="flex items-center gap-3 rounded-2xl border border-status-success/30 bg-status-success-bg px-5 py-4 text-body text-status-success transition-all">
+        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-status-success text-background">
           <Check className="h-4 w-4" aria-hidden />
         </span>
         <div className="flex-1">
           <div className="font-semibold">{stagedLine ? "Staged in Wix" : "Shipped"} - {titleCase(m.query)}</div>
           {stagedLine ? (
-            <div role="status" className="text-xs text-emerald-700 dark:text-emerald-300">{stagedLine}</div>
+            <div role="status" className="text-meta text-status-success">{stagedLine}</div>
           ) : null}
-          <div className="text-xs text-emerald-700 dark:text-emerald-300">
+          <div className="text-meta text-status-success">
             Once it&apos;s live on the page,{" "}
-            <Link href={`/proof?page=${encodeURIComponent(m.targetUrl)}`} className={`rounded-sm font-semibold underline hover:text-emerald-900 dark:hover:text-emerald-100 ${FOCUS}`}>
+            <Link href={`/proof?page=${encodeURIComponent(m.targetUrl)}`} className={`rounded-sm font-semibold underline hover:opacity-80 ${FOCUS}`}>
               confirm it&apos;s live →
             </Link>{" "}
             so Beacon can measure the lift.
@@ -330,12 +346,12 @@ export function MoveCard({
   }
   if (state === "snoozed") {
     return (
-      <div className="flex items-center justify-between rounded-2xl border border-gray-200 bg-gray-50 px-5 py-3 text-sm text-gray-500 dark:border-neutral-800 dark:bg-neutral-800/60 dark:text-neutral-400">
+      <Card variant="quiet" padding="none" className="flex items-center justify-between rounded-2xl px-5 py-3 text-body text-muted-foreground">
         <span>Snoozed “{titleCase(m.query)}”.</span>
-        <button onClick={() => setState("idle")} className={`rounded-sm text-xs font-medium text-gray-600 hover:text-gray-900 dark:text-neutral-300 dark:hover:text-neutral-100 ${FOCUS}`}>
+        <button onClick={() => setState("idle")} className={`rounded-sm text-meta font-medium text-foreground-secondary hover:text-foreground ${FOCUS}`}>
           Undo
         </button>
-      </div>
+      </Card>
     );
   }
 
@@ -348,61 +364,58 @@ export function MoveCard({
   // B2 (worklist fix batch) - at most ONE quality pill word ("Needs review"). The precise
   // reason (generic / off-topic / too thin) stays in the expanded detail text below
   // (q.reasons[0]), not as its own list-level pill vocabulary word.
-  const preparedPill: { label: string; cls: string } | null = qualityHidesReady
-    ? { label: "Needs review", cls: "bg-amber-50 text-amber-700 ring-amber-200 dark:bg-amber-950/40 dark:text-amber-300 dark:ring-amber-900" }
+  const preparedPill: { label: string; intent: PillIntent } | null = qualityHidesReady
+    ? { label: "Needs review", intent: "waiting" }
     : m.preparedStatus === "ready_to_review" || m.preparedStatus === "draft_ready" || m.preparedStatus === "proof_ready"
-      ? { label: "Prepared", cls: "bg-emerald-50 text-emerald-700 ring-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:ring-emerald-900" }
+      ? { label: "Prepared", intent: "live" }
       : m.preparedStatus === "failed"
-        ? { label: "Needs review", cls: "bg-amber-50 text-amber-700 ring-amber-200 dark:bg-amber-950/40 dark:text-amber-300 dark:ring-amber-900" }
+        ? { label: "Needs review", intent: "waiting" }
         : m.preparedStatus === "shipped" || m.preparedStatus === "measuring" || m.preparedStatus === "won" || m.preparedStatus === "lost"
           ? null
-          : { label: "Ready to draft", cls: "bg-indigo-50 text-indigo-600 ring-indigo-200 dark:bg-indigo-950/40 dark:text-indigo-300 dark:ring-indigo-900" };
+          : { label: "Ready to draft", intent: "neutral" };
+
+  const proofPillIntent: PillIntent =
+    m.proofStatus === "won" ? "won" : m.proofStatus === "measuring" ? "measuring" : "neutral";
 
   return (
-    <div
-      className={`group relative overflow-hidden rounded-2xl border border-gray-200 bg-white p-5 pl-6 shadow-sm ring-1 ring-transparent transition-all hover:-translate-y-0.5 hover:shadow-lg dark:border-neutral-800 dark:bg-neutral-900 ${tone.ring} ${pending ? "opacity-60" : ""}`}
+    <Card
+      padding="none"
+      className={cn(
+        "group relative overflow-hidden rounded-2xl p-5 pl-6 shadow-sm ring-1 ring-transparent transition-all hover:-translate-y-0.5 hover:shadow-lg",
+        tone.ring,
+        pending ? "opacity-60" : "",
+      )}
     >
       <span className={`absolute inset-y-0 left-0 w-1.5 ${tone.bar}`} aria-hidden />
       <div className="flex flex-wrap items-center gap-2">
-        <span className="flex h-6 w-6 items-center justify-center rounded-full bg-gray-900 text-[11px] font-semibold text-white dark:bg-neutral-100 dark:text-neutral-900">{rank}</span>
-        <span className={`rounded-full px-2.5 py-0.5 text-[11px] font-semibold ring-1 ${tone.pill}`}>{m.actionLabel}</span>
-        <span className={`rounded-full px-2.5 py-0.5 text-[11px] font-medium ring-1 ${conf.cls}`}>{conf.label}</span>
-        {preparedPill ? (
-          <span className={`rounded-full px-2.5 py-0.5 text-[11px] font-semibold ring-1 ${preparedPill.cls}`}>{preparedPill.label}</span>
-        ) : null}
+        <span className="flex h-6 w-6 items-center justify-center rounded-full bg-foreground text-meta font-semibold text-background">{rank}</span>
+        <span className={`rounded-full px-2.5 py-0.5 text-meta font-semibold ${TONE_PILL_CLS[m.actionTone]}`}>{m.actionLabel}</span>
+        <Pill intent={conf.intent}>{conf.label}</Pill>
+        {preparedPill ? <Pill intent={preparedPill.intent}>{preparedPill.label}</Pill> : null}
         {m.proofStatus ? (
-          <span
-            className={`rounded-full px-2.5 py-0.5 text-[11px] font-semibold ring-1 ${
-              m.proofStatus === "won"
-                ? "bg-emerald-50 text-emerald-700 ring-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:ring-emerald-900"
-                : m.proofStatus === "measuring"
-                  ? "bg-sky-50 text-sky-700 ring-sky-200 dark:bg-sky-950/40 dark:text-sky-300 dark:ring-sky-900"
-                  : "bg-gray-100 text-gray-500 ring-gray-200 dark:bg-neutral-800 dark:text-neutral-400 dark:ring-neutral-700"
-            }`}
-            title="From Results - the last shipped change on this page"
-          >
+          <Pill intent={proofPillIntent} title="From Results - the last shipped change on this page">
             {m.alreadyMeasuring ? "Already measuring" : m.pageMeasuring ? "Page measuring" : m.proofLabel}
-          </span>
+          </Pill>
         ) : null}
         {m.proofStatus === "measuring" && m.targetUrl && m.targetUrl !== "needs_new_page" ? (
           <Link
             href={`/proof?page=${encodeURIComponent(m.targetUrl)}`}
-            className={`rounded-sm text-[11px] font-medium text-sky-700 underline underline-offset-2 hover:text-sky-900 dark:text-sky-400 dark:hover:text-sky-300 ${FOCUS}`}
+            className={`rounded-sm text-meta font-medium text-status-info underline underline-offset-2 hover:opacity-80 ${FOCUS}`}
           >
             View in Results →
           </Link>
         ) : null}
         {m.demand != null && m.demand > 0 ? (
-          <span className="rounded-full bg-gray-50 px-2.5 py-0.5 text-[11px] font-medium text-gray-600 ring-1 ring-gray-200 dark:bg-neutral-800/60 dark:text-neutral-300 dark:ring-neutral-700">
+          <Pill intent="neutral">
             {fmtNum(m.demand)} {m.demandBasis === "ai_attention" ? "AI demand" : "monthly demand"}
-          </span>
+          </Pill>
         ) : null}
       </div>
 
       {/* P6 - compounding-edit guard: a page mid-measurement loses proof clarity if you
           ship again now. Name the checkpoint; "Ship anyway" below is already demoted. */}
       {(m.alreadyMeasuring || m.pageMeasuring) ? (
-        <p className="mt-2 flex items-start gap-1.5 rounded-md bg-amber-50 px-2.5 py-1.5 text-[11px] font-medium text-amber-800 ring-1 ring-amber-100 dark:bg-amber-950/40 dark:text-amber-200 dark:ring-amber-900">
+        <p className="mt-2 flex items-start gap-1.5 rounded-md bg-status-warning-bg px-2.5 py-1.5 text-meta font-medium text-status-warning ring-1 ring-status-warning/20">
           <TriangleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
           <span>
             This page is mid-measurement{m.proofNextCheckpoint ? ` (next read ~${m.proofNextCheckpoint})` : ""} - shipping another change now muddies the proof. Wait for the read, or use “Ship anyway” below.
@@ -410,12 +423,12 @@ export function MoveCard({
         </p>
       ) : null}
 
-      <h3 className="mt-3 text-lg font-semibold leading-snug tracking-tight text-gray-900 dark:text-neutral-100">{titleCase(m.query)}</h3>
-      <p className="mt-0.5 flex flex-wrap items-center gap-2 text-xs text-gray-400 dark:text-neutral-500">
+      <h3 className="mt-3 text-section font-semibold leading-snug tracking-tight text-foreground">{titleCase(m.query)}</h3>
+      <p className="mt-0.5 flex flex-wrap items-center gap-2 text-meta text-muted-foreground">
         {(() => {
           const href = dossierHref(m.targetUrl);
           return href ? (
-            <Link href={href} className={`underline underline-offset-2 hover:text-gray-600 dark:hover:text-neutral-300 ${FOCUS}`}>on {m.pageLabel}</Link>
+            <Link href={href} className={`underline underline-offset-2 hover:text-foreground-secondary ${FOCUS}`}>on {m.pageLabel}</Link>
           ) : (
             <span>on {m.pageLabel}</span>
           );
@@ -423,12 +436,12 @@ export function MoveCard({
         {m.sparkline && m.sparkline.length >= 5 ? (
           <Sparkline points={m.sparkline} width={72} height={18} className="inline-block align-middle opacity-80" />
         ) : null}
-        {m.rankWhy ? <span className="text-gray-300 dark:text-neutral-600">· ranked here: {m.rankWhy}</span> : null}
+        {m.rankWhy ? <span className="text-muted-foreground/70">· ranked here: {m.rankWhy}</span> : null}
       </p>
-      <p className="mt-2 text-sm leading-relaxed text-gray-600 dark:text-neutral-300">{m.why}</p>
+      <p className="mt-2 text-body leading-relaxed text-foreground-secondary">{m.why}</p>
 
       {m.learnedTag ? (
-        <p className="mt-1.5 inline-flex items-center gap-1 rounded-md bg-indigo-50 px-2 py-0.5 text-[11px] font-medium text-indigo-700 ring-1 ring-indigo-100 dark:bg-indigo-950/40 dark:text-indigo-300 dark:ring-indigo-900">
+        <p className="mt-1.5 inline-flex items-center gap-1 rounded-md bg-accent-primary-light px-2 py-0.5 text-meta font-medium text-accent-primary ring-1 ring-accent-primary-muted">
           <Brain className="h-3.5 w-3.5 shrink-0" aria-hidden /> {m.learnedTag}
         </p>
       ) : null}
@@ -438,12 +451,12 @@ export function MoveCard({
       {m.outcomeCaution?.label ? (
         <span className="mt-1.5 flex flex-wrap items-center gap-1.5">
           <span
-            className={`inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] font-medium ring-1 ${
+            className={`inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-meta font-medium ring-1 ${
               m.outcomeCaution.kind === "lifted"
-                ? "bg-emerald-50 text-emerald-700 ring-emerald-100 dark:bg-emerald-950/40 dark:text-emerald-300 dark:ring-emerald-900"
+                ? "bg-status-success-bg text-status-success ring-status-success/20"
                 : m.outcomeCaution.kind === "no_lift"
-                  ? "bg-gray-100 text-gray-600 ring-gray-200 dark:bg-neutral-800 dark:text-neutral-300 dark:ring-neutral-700"
-                  : "bg-sky-50 text-sky-700 ring-sky-100 dark:bg-sky-950/40 dark:text-sky-300 dark:ring-sky-900"
+                  ? "bg-status-neutral-bg text-status-neutral ring-status-neutral/20"
+                  : "bg-status-info-bg text-status-info ring-status-info/20"
             }`}
             title={m.outcomeCaution.reason ?? undefined}
           >
@@ -452,7 +465,7 @@ export function MoveCard({
           {m.outcomeCaution.evidence.length && m.targetUrl && m.targetUrl !== "needs_new_page" ? (
             <Link
               href={`/proof?page=${encodeURIComponent(m.targetUrl)}`}
-              className={`rounded-sm text-[11px] font-medium text-sky-700 underline underline-offset-2 hover:text-sky-900 dark:text-sky-400 dark:hover:text-sky-300 ${FOCUS}`}
+              className={`rounded-sm text-meta font-medium text-status-info underline underline-offset-2 hover:opacity-80 ${FOCUS}`}
             >
               View in Results →
             </Link>
@@ -460,7 +473,7 @@ export function MoveCard({
           {/* After a no-lift loss, the deterministic "try a different lever" next action
               so the settled failure becomes a better next move, not just a demote. */}
           {m.outcomeCaution.nextLever ? (
-            <span className="flex w-full items-start gap-1 text-[11px] leading-snug text-gray-500 dark:text-neutral-400">
+            <span className="flex w-full items-start gap-1 text-meta leading-snug text-muted-foreground">
               <CornerDownRight className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
               {m.outcomeCaution.nextLever}
             </span>
@@ -484,45 +497,45 @@ export function MoveCard({
         const lab = (l: string) => LL[l] ?? l;
         const rp = m.researchPack;
         return (
-          <div className="mt-3 rounded-xl border border-violet-100 bg-violet-50/40 px-3 py-2 dark:border-violet-900 dark:bg-violet-950/30">
-            <div className="text-[10px] font-semibold uppercase tracking-wide text-violet-600 dark:text-violet-400">Research - what this page should own</div>
+          <div className="mt-3 rounded-xl border border-violet-100 bg-violet-50/40 px-3 py-2">
+            <div className="text-meta font-semibold uppercase tracking-wide text-violet-600">Research - what this page should own</div>
             {typeof rp.addressableVolume === "number" && rp.addressableVolume > 0 ? (
-              <p className="mt-1 text-xs text-violet-900 dark:text-violet-200">
+              <p className="mt-1 text-body text-violet-900">
                 <span className="font-semibold">Addressable demand:</span>{" "}
-                <span title={`${formatMetric(rp.addressableVolume)} searches a month across this page's queries`}>~{formatMetricCompact(rp.addressableVolume)} searches/mo</span> <span className="text-violet-500 dark:text-violet-400">(DataForSEO)</span>
+                <span title={`${formatMetric(rp.addressableVolume)} searches a month across this page's queries`}>~{formatMetricCompact(rp.addressableVolume)} searches/mo</span> <span className="text-violet-500">(DataForSEO)</span>
               </p>
             ) : null}
             {rp.serpPattern ? (
-              <p className="mt-1 text-[11px] text-violet-800 dark:text-violet-300">
+              <p className="mt-1 text-meta text-violet-800">
                 <span className="font-semibold">SERP rewards:</span> {rp.serpPattern.format}: {stripBannedDashes(rp.serpPattern.elementImplication)}
-                {rp.serpPattern.winningDomains.length ? <span className="text-violet-500 dark:text-violet-400"> · winners: {rp.serpPattern.winningDomains.join(", ")}</span> : null}
+                {rp.serpPattern.winningDomains.length ? <span className="text-violet-500"> · winners: {rp.serpPattern.winningDomains.join(", ")}</span> : null}
               </p>
             ) : null}
             {rp.own.length ? (
-              <p className="mt-1 text-xs text-violet-900 dark:text-violet-200"><span className="font-semibold">Own:</span> {rp.own.join(", ")}</p>
+              <p className="mt-1 text-body text-violet-900"><span className="font-semibold">Own:</span> {rp.own.join(", ")}</p>
             ) : null}
             {rp.sibling.length ? (
-              <p className="mt-0.5 text-xs text-violet-700 dark:text-violet-300"><span className="font-semibold">Cross-link, don&apos;t merge:</span> {rp.sibling.join(", ")}</p>
+              <p className="mt-0.5 text-body text-violet-700"><span className="font-semibold">Cross-link, don&apos;t merge:</span> {rp.sibling.join(", ")}</p>
             ) : null}
             {rp.onPagePlan?.doFirst ? (
-              <div className="mt-1.5 border-t border-violet-100 pt-1.5 dark:border-violet-900">
-                <p className="text-[11px] text-violet-900 dark:text-violet-200"><ChevronRight className="inline-block h-3.5 w-3.5" aria-hidden /> <span className="font-semibold">Do first:</span> {rp.onPagePlan.doFirst.recommendation}</p>
-                <p className="text-[10px] text-violet-500 dark:text-violet-400">{rp.onPagePlan.doFirst.evidence}</p>
+              <div className="mt-1.5 border-t border-violet-100 pt-1.5">
+                <p className="text-meta text-violet-900"><ChevronRight className="inline-block h-3.5 w-3.5" aria-hidden /> <span className="font-semibold">Do first:</span> {rp.onPagePlan.doFirst.recommendation}</p>
+                <p className="text-meta text-violet-500">{rp.onPagePlan.doFirst.evidence}</p>
                 {rp.onPagePlan.sections.length ? (
-                  <p className="mt-1 text-[11px] text-violet-800 dark:text-violet-300"><span className="font-medium">Add sections:</span> {rp.onPagePlan.sections.map((s) => s.recommendation).join(" ")}</p>
+                  <p className="mt-1 text-meta text-violet-800"><span className="font-medium">Add sections:</span> {rp.onPagePlan.sections.map((s) => s.recommendation).join(" ")}</p>
                 ) : null}
                 {rp.onPagePlan.faqs.length ? (
-                  <p className="mt-0.5 text-[11px] text-violet-800 dark:text-violet-300"><span className="font-medium">FAQ targets:</span> {rp.onPagePlan.faqs.map((f) => f.recommendation).join(" ")}</p>
+                  <p className="mt-0.5 text-meta text-violet-800"><span className="font-medium">FAQ targets:</span> {rp.onPagePlan.faqs.map((f) => f.recommendation).join(" ")}</p>
                 ) : null}
                 {rp.onPagePlan.warnings.length ? (
-                  <p className="mt-1 text-[11px] text-amber-700 dark:text-amber-300"><TriangleAlert className="inline-block h-3.5 w-3.5" aria-hidden /> {rp.onPagePlan.warnings[0]}</p>
+                  <p className="mt-1 text-meta text-status-warning"><TriangleAlert className="inline-block h-3.5 w-3.5" aria-hidden /> {rp.onPagePlan.warnings[0]}</p>
                 ) : null}
               </div>
             ) : rp.primaryLever ? (
-              <p className="mt-1 text-[11px] text-violet-800 dark:text-violet-300"><ChevronRight className="inline-block h-3.5 w-3.5" aria-hidden /> Do first: <span className="font-medium">{lab(rp.primaryLever.lever)}</span></p>
+              <p className="mt-1 text-meta text-violet-800"><ChevronRight className="inline-block h-3.5 w-3.5" aria-hidden /> Do first: <span className="font-medium">{lab(rp.primaryLever.lever)}</span></p>
             ) : null}
             {rp.blockedLevers.length ? (
-              <p className="mt-0.5 text-[11px] text-gray-500 dark:text-neutral-400"><X className="inline-block h-3.5 w-3.5" aria-hidden /> Skip (proof says flat): {rp.blockedLevers.map((b) => lab(b.lever)).join(", ")}</p>
+              <p className="mt-0.5 text-meta text-muted-foreground"><X className="inline-block h-3.5 w-3.5" aria-hidden /> Skip (proof says flat): {rp.blockedLevers.map((b) => lab(b.lever)).join(", ")}</p>
             ) : null}
           </div>
         );
@@ -535,44 +548,39 @@ export function MoveCard({
         <div className="mt-2 flex flex-wrap items-center gap-1.5">
           {m.competitorInformed ? (
             <span
-              className="inline-flex items-center gap-1 rounded-md bg-violet-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-violet-700 ring-1 ring-violet-200 dark:bg-violet-950/40 dark:text-violet-300 dark:ring-violet-900"
+              className="inline-flex items-center gap-1 rounded-md bg-violet-50 px-2 py-0.5 text-meta font-bold uppercase tracking-wide text-violet-700 ring-1 ring-violet-200"
               title={`This draft was rewritten using ${m.competitorInformed.domain} - the page that currently wins this topic.`}
             >
               <Sparkles className="h-3.5 w-3.5 shrink-0" aria-hidden /> Competitor-informed
             </span>
           ) : null}
           {m.dataforseoVerdict ? (
-            <span
-              className={`inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ring-1 ${
-                m.dataforseoVerdict.verdict === "build"
-                  ? "bg-emerald-50 text-emerald-700 ring-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:ring-emerald-900"
-                  : m.dataforseoVerdict.verdict === "wait"
-                    ? "bg-amber-50 text-amber-700 ring-amber-200 dark:bg-amber-950/40 dark:text-amber-300 dark:ring-amber-900"
-                    : "bg-gray-100 text-gray-500 ring-gray-200 dark:bg-neutral-800 dark:text-neutral-400 dark:ring-neutral-700"
-              }`}
+            <Pill
+              intent={m.dataforseoVerdict.verdict === "build" ? "live" : m.dataforseoVerdict.verdict === "wait" ? "waiting" : "neutral"}
+              className="font-bold uppercase tracking-wide"
               title={m.dataforseoVerdict.topDomains.length ? `Google top results: ${m.dataforseoVerdict.topDomains.join(", ")}` : undefined}
             >
               Google: {m.dataforseoVerdict.verdict}
               {m.dataforseoVerdict.overlap > 0 ? (
                 <span className="font-medium normal-case"> · {m.dataforseoVerdict.overlap} AI-cited rival{m.dataforseoVerdict.overlap === 1 ? "" : "s"} rank</span>
               ) : null}
-            </span>
+            </Pill>
           ) : null}
           {(m.sourceChips ?? []).map((s) => (
-            <span key={s} className="inline-flex items-center rounded bg-gray-50 px-1.5 py-0.5 text-[10px] font-medium text-gray-500 ring-1 ring-gray-200 dark:bg-neutral-800/60 dark:text-neutral-400 dark:ring-neutral-700">
+            <Pill key={s} intent="neutral">
               {SOURCE_LABEL[s] ?? s}
-            </span>
+            </Pill>
           ))}
         </div>
       ) : null}
 
       {m.preparedChecklist ? (
-        <div className="mt-3 rounded-xl border border-indigo-100 bg-indigo-50/50 px-3 py-2.5 dark:border-indigo-900 dark:bg-indigo-950/30">
+        <div className="mt-3 rounded-xl border border-indigo-100 bg-indigo-50/50 px-3 py-2.5">
           <div className="flex flex-wrap items-center gap-1.5">
             {m.preparedChecklist.readyToReview ? (
-              <span className="rounded-full bg-indigo-600 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white">Ready to review</span>
+              <span className="rounded-full bg-indigo-600 px-2 py-0.5 text-meta font-bold uppercase tracking-wide text-background">Ready to review</span>
             ) : m.preparedStale ? (
-              <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-800 ring-1 ring-amber-200 dark:bg-amber-950/40 dark:text-amber-200 dark:ring-amber-900">Re-prepare (data changed)</span>
+              <Pill intent="waiting" className="font-semibold">Re-prepare (data changed)</Pill>
             ) : null}
             {(
               [
@@ -587,7 +595,7 @@ export function MoveCard({
             ).map(([label, ok]) => (
               <span
                 key={label}
-                className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium ${ok ? "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-100 dark:bg-emerald-950/40 dark:text-emerald-300 dark:ring-emerald-900" : "bg-gray-100 text-gray-400 dark:bg-neutral-800 dark:text-neutral-500"}`}
+                className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-meta font-medium ${ok ? "bg-status-success-bg text-status-success ring-1 ring-status-success/20" : "bg-status-neutral-bg text-muted-foreground"}`}
               >
                 {ok ? <Check className="h-3.5 w-3.5 shrink-0" aria-hidden /> : <Circle className="h-3.5 w-3.5 shrink-0" aria-hidden />} {label}
               </span>
@@ -601,61 +609,61 @@ export function MoveCard({
               return (
                 <div className="mt-2">
                   <div className="flex items-center justify-between gap-2">
-                    <div className="text-[9px] font-semibold uppercase tracking-wide text-indigo-500 dark:text-indigo-400">
+                    <div className="text-meta font-semibold uppercase tracking-wide text-indigo-500">
                       {label}{copyOk ? " - paste-ready" : ""}
                     </div>
                     {copyOk ? (
                       <button
                         type="button"
                         onClick={copyPrepared}
-                        className={`inline-flex items-center gap-1 rounded border border-indigo-200 bg-white px-1.5 py-0.5 text-[10px] font-semibold text-indigo-600 transition-colors hover:bg-indigo-50 dark:border-indigo-800 dark:bg-neutral-900 dark:text-indigo-300 dark:hover:bg-indigo-950/40 ${FOCUS}`}
+                        className={`inline-flex items-center gap-1 rounded border border-indigo-200 bg-card px-1.5 py-0.5 text-meta font-semibold text-indigo-600 transition-colors hover:bg-indigo-50 ${FOCUS}`}
                       >
                         {copiedPrepared ? <>Copied<Check className="h-3.5 w-3.5" aria-hidden /></> : "Copy"}
                       </button>
                     ) : null}
                   </div>
                   {q && q.status !== "ready" && q.reasons[0] ? (
-                    <p className="mt-0.5 text-[10px] text-amber-700 dark:text-amber-300">{q.reasons[0]}</p>
+                    <p className="mt-0.5 text-meta text-status-warning">{q.reasons[0]}</p>
                   ) : null}
                   {m.competitorInformed ? (
-                    <p className="mt-0.5 text-[10px] text-violet-700 dark:text-violet-300">Improved using the page that currently wins: {m.competitorInformed.domain}</p>
+                    <p className="mt-0.5 text-meta text-violet-700">Improved using the page that currently wins: {m.competitorInformed.domain}</p>
                   ) : null}
-                  <p className={`mt-0.5 rounded-lg p-2 text-[12px] leading-relaxed ring-1 ${copyOk ? "bg-white text-gray-800 ring-indigo-100 dark:bg-neutral-900 dark:text-neutral-200 dark:ring-indigo-900" : "bg-gray-50 text-gray-500 ring-gray-200 dark:bg-neutral-800/60 dark:text-neutral-400 dark:ring-neutral-700"}`}>{m.preparedDraftText}</p>
+                  <p className={`mt-0.5 rounded-lg p-2 text-meta leading-relaxed ring-1 ${copyOk ? "bg-card text-foreground-secondary ring-indigo-100" : "bg-surface-inset text-muted-foreground ring-border"}`}>{m.preparedDraftText}</p>
                 </div>
               );
             })()
           ) : null}
           {m.preparedExperiment ? (
-            <p className="mt-1.5 text-[10px] text-gray-500 dark:text-neutral-400">
-              <span className="font-semibold text-gray-600 dark:text-neutral-300">What we expect:</span> {m.preparedExperiment}
+            <p className="mt-1.5 text-meta text-muted-foreground">
+              <span className="font-semibold text-foreground-secondary">What we expect:</span> {m.preparedExperiment}
             </p>
           ) : null}
         </div>
       ) : null}
 
       {m.debate && m.debate.voices.length > 0 ? (
-        <details open className="mt-3 rounded-xl border border-gray-200 bg-white px-3 py-2 dark:border-neutral-800 dark:bg-neutral-900">
-          <summary className={`cursor-pointer list-none rounded text-[12px] font-semibold text-gray-700 hover:text-gray-900 dark:text-neutral-300 dark:hover:text-neutral-100 ${FOCUS}`}>
-            <ChevronDown className="inline-block h-3.5 w-3.5 text-gray-400 dark:text-neutral-500" aria-hidden /> Your team on this move
-            <span className="ml-1.5 font-normal text-gray-400 dark:text-neutral-500">{m.debate.headline}</span>
+        <details open className="mt-3 rounded-xl border border-border bg-card px-3 py-2">
+          <summary className={`cursor-pointer list-none rounded text-meta font-semibold text-foreground-secondary hover:text-foreground ${FOCUS}`}>
+            <ChevronDown className="inline-block h-3.5 w-3.5 text-muted-foreground" aria-hidden /> Your team on this move
+            <span className="ml-1.5 font-normal text-muted-foreground">{m.debate.headline}</span>
           </summary>
           <div className="mt-2 space-y-1.5">
             {m.debate.voices.map((v) => (
-              <div key={v.specialist} className="flex items-baseline gap-2 text-[12px]">
+              <div key={v.specialist} className="flex items-baseline gap-2 text-meta">
                 <span
-                  className="shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold"
+                  className="shrink-0 rounded px-1.5 py-0.5 text-meta font-semibold"
                   style={{ background: teammateOf(v.specialist).bg, color: teammateOf(v.specialist).text }}
                 >{v.label}</span>
-                <span className="text-gray-700 dark:text-neutral-300">{v.claim}</span>
-                <span className="ml-auto shrink-0 text-[10px] text-gray-400 dark:text-neutral-500">{v.confidencePct}%</span>
+                <span className="text-foreground-secondary">{v.claim}</span>
+                <span className="ml-auto shrink-0 text-meta text-muted-foreground">{v.confidencePct}%</span>
               </div>
             ))}
             {m.debate.objections.map((o, i) => (
-              <div key={`obj-${i}`} className="flex items-baseline gap-2 text-[12px]">
-                <span className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold ${o.severity === "veto" ? "bg-red-100 text-red-700 dark:bg-red-950/40 dark:text-red-300" : "bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300"}`}>
+              <div key={`obj-${i}`} className="flex items-baseline gap-2 text-meta">
+                <span className={`shrink-0 rounded px-1.5 py-0.5 text-meta font-semibold ${o.severity === "veto" ? "bg-status-danger-bg text-status-danger" : "bg-status-warning-bg text-status-warning"}`}>
                   {o.severity === "veto" ? "Blocks" : "Caution"} · {o.label}
                 </span>
-                <span className="text-gray-600 dark:text-neutral-300">{o.reason}</span>
+                <span className="text-foreground-secondary">{o.reason}</span>
               </div>
             ))}
           </div>
@@ -663,33 +671,33 @@ export function MoveCard({
       ) : null}
 
       <div className="mt-4 grid gap-3 sm:grid-cols-2">
-        <div className="rounded-xl bg-gray-50 px-3 py-2.5 dark:bg-neutral-800/60">
-          <div className="text-[10px] font-semibold uppercase tracking-wide text-gray-400 dark:text-neutral-500">Who AI cites now</div>
-          <div className="mt-0.5 text-sm font-medium text-gray-700 dark:text-neutral-300">
+        <div className="rounded-xl bg-surface-raised px-3 py-2.5">
+          <div className="text-meta font-semibold uppercase tracking-wide text-muted-foreground">Who AI cites now</div>
+          <div className="mt-0.5 text-body font-medium text-foreground-secondary">
             {m.whoCited ? (
               m.whoCited
             ) : m.looselyMatched ? (
-              <span className="text-gray-500 dark:text-neutral-400">AI cites a tangential page - confirm with a quick search</span>
+              <span className="text-muted-foreground">AI cites a tangential page - confirm with a quick search</span>
             ) : (
-              <span className="text-emerald-600 dark:text-emerald-400">Open - no one owns this yet</span>
+              <span className="text-status-success">Open - no one owns this yet</span>
             )}
           </div>
         </div>
-        <div className="rounded-xl bg-gray-50 px-3 py-2.5 dark:bg-neutral-800/60">
-          <div className="text-[10px] font-semibold uppercase tracking-wide text-gray-400 dark:text-neutral-500">What wins</div>
-          <div className="mt-0.5 text-sm font-medium text-gray-700 dark:text-neutral-300">
-            {m.whatWins ? stripBannedDashes(m.whatWins) : <span className="text-gray-400 dark:text-neutral-500">Add a clear, quotable answer up top</span>}
+        <div className="rounded-xl bg-surface-raised px-3 py-2.5">
+          <div className="text-meta font-semibold uppercase tracking-wide text-muted-foreground">What wins</div>
+          <div className="mt-0.5 text-body font-medium text-foreground-secondary">
+            {m.whatWins ? stripBannedDashes(m.whatWins) : <span className="text-muted-foreground">Add a clear, quotable answer up top</span>}
           </div>
           {m.competitorSteal ? (
-            <div className="mt-1 text-[11px] text-gray-500 dark:text-neutral-400">
-              <span className="font-semibold text-gray-600 dark:text-neutral-300">Steal this:</span> {stripBannedDashes(m.competitorSteal)}
+            <div className="mt-1 text-meta text-muted-foreground">
+              <span className="font-semibold text-foreground-secondary">Steal this:</span> {stripBannedDashes(m.competitorSteal)}
             </div>
           ) : null}
           {stealPassage ? (
-            <div className="mt-1.5 rounded-lg border border-gray-200 bg-white px-2.5 py-2 text-[11px] leading-relaxed text-gray-600 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-300">
-              <span className="font-semibold text-gray-700 dark:text-neutral-200">The exact words the AI used: </span>
+            <div className="mt-1.5 rounded-lg border border-border bg-card px-2.5 py-2 text-meta leading-relaxed text-foreground-secondary">
+              <span className="font-semibold text-foreground-secondary">The exact words the AI used: </span>
               &quot;{stripBannedDashes(stealPassage.text)}&quot;
-              {stealPassage.engine ? <span className="text-gray-400 dark:text-neutral-500"> ({stealPassage.engine})</span> : null}
+              {stealPassage.engine ? <span className="text-muted-foreground"> ({stealPassage.engine})</span> : null}
             </div>
           ) : null}
         </div>
@@ -698,33 +706,29 @@ export function MoveCard({
       {m.ga4 || m.friction ? (
         <div className="mt-3 flex flex-wrap items-center gap-1.5">
           {m.ga4 ? (
-            <span className="inline-flex items-center gap-1 rounded-md bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-800 ring-1 ring-emerald-100 dark:bg-emerald-950/40 dark:text-emerald-200 dark:ring-emerald-900">
+            <Pill intent="live">
               {(m.ga4.sessions ?? 0).toLocaleString()} visits / 28d
               {(m.ga4.conversions ?? 0) > 0 ? ` · ${(m.ga4.conversions ?? 0).toLocaleString()} conversions` : ""} (GA4)
-            </span>
+            </Pill>
           ) : null}
           {m.friction ? (
-            <span
-              className="inline-flex items-center gap-1 rounded-md bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-800 ring-1 ring-amber-100 dark:bg-amber-950/40 dark:text-amber-200 dark:ring-amber-900"
+            <Pill
+              intent="waiting"
               title={`Microsoft Clarity: ${m.friction.deadPct ?? 0}% of sessions had dead clicks, ${m.friction.ragePct ?? 0}% rage clicks - visitors are hitting friction on this page.`}
             >
               <TriangleAlert className="h-3.5 w-3.5 shrink-0" aria-hidden /> {m.friction.deadPct ?? 0}% dead clicks{(m.friction.ragePct ?? 0) > 0 ? ` · ${m.friction.ragePct ?? 0}% rage` : ""} (Clarity)
-            </span>
+            </Pill>
           ) : null}
         </div>
       ) : null}
 
       {m.topQueries.length > 0 ? (
         <div className="mt-3 flex flex-wrap items-center gap-1.5">
-          <span className="text-[10px] font-semibold uppercase tracking-wide text-sky-500 dark:text-sky-400">Ranks for</span>
+          <span className="text-meta font-semibold uppercase tracking-wide text-status-info">Ranks for</span>
           {m.topQueries.map((q) => (
-            <span
+            <Pill
               key={q.query}
-              className={`inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] ring-1 ${
-                q.strikingDistance
-                  ? "bg-amber-50 text-amber-800 ring-amber-200 dark:bg-amber-950/40 dark:text-amber-200 dark:ring-amber-900"
-                  : "bg-sky-50 text-sky-800 ring-sky-100 dark:bg-sky-950/40 dark:text-sky-200 dark:ring-sky-900"
-              }`}
+              intent={q.strikingDistance ? "waiting" : "measuring"}
               title={
                 q.strikingDistance
                   ? `Striking distance - ranks position ${q.position.toFixed(1)} for ${q.impressions.toLocaleString()} monthly impressions; climbing a few spots captures outsized clicks.`
@@ -733,35 +737,35 @@ export function MoveCard({
             >
               {q.strikingDistance ? <ArrowUp className="h-3.5 w-3.5 shrink-0" aria-hidden /> : null}
               <span className="font-medium">{q.query}</span>
-              <span className={q.strikingDistance ? "text-amber-600 dark:text-amber-400" : "text-sky-500 dark:text-sky-400"}>
+              <span>
                 pos {q.position.toFixed(1)} · {fmtNum(q.impressions)} impr
               </span>
-            </span>
+            </Pill>
           ))}
         </div>
       ) : null}
 
       {m.declines.length > 0 ? (
         <div className="mt-3 flex flex-wrap items-center gap-1.5">
-          <span className="text-[10px] font-semibold uppercase tracking-wide text-rose-500 dark:text-rose-400">Losing ground</span>
+          <span className="text-meta font-semibold uppercase tracking-wide text-status-danger">Losing ground</span>
           {m.declines.map((d) => (
-            <span
+            <Pill
               key={d.query}
-              className="inline-flex items-center gap-1 rounded-md bg-rose-50 px-2 py-0.5 text-[11px] text-rose-800 ring-1 ring-rose-100 dark:bg-rose-950/40 dark:text-rose-200 dark:ring-rose-900"
+              intent="attention"
               title={`Clicks fell ${d.dropPct}% (${d.priorClicks.toLocaleString()} → ${d.recentClicks.toLocaleString()}) vs the prior 28 days${d.positionSlip >= 1 ? `; slipped ${d.positionSlip.toFixed(1)} positions` : ""}.`}
             >
               <ArrowDown className="h-3.5 w-3.5 shrink-0" aria-hidden />
               <span className="font-medium">{d.query}</span>
-              <span className="text-rose-500 dark:text-rose-400">−{d.dropPct}% clicks</span>
-            </span>
+              <span>−{d.dropPct}% clicks</span>
+            </Pill>
           ))}
         </div>
       ) : null}
 
       {m.cannibalization.length > 0 ? (
-        <div className="mt-3 rounded-xl border border-orange-100 bg-orange-50/50 px-3 py-2 dark:border-orange-900 dark:bg-orange-950/30">
+        <div className="mt-3 rounded-xl border border-status-warning/20 bg-status-warning-bg px-3 py-2">
           <div className="flex flex-wrap items-center gap-1.5">
-            <span className="text-[10px] font-semibold uppercase tracking-wide text-orange-500 dark:text-orange-400">Competing with yourself</span>
+            <span className="text-meta font-semibold uppercase tracking-wide text-status-warning">Competing with yourself</span>
             {m.cannibalization.map((c) => {
               // Show a DISTINCT competing page, never "iran animals vs your iran
               // animals" - that collision happens when the other page's label equals
@@ -770,12 +774,12 @@ export function MoveCard({
               return (
                 <span
                   key={c.query}
-                  className="inline-flex items-center gap-1 rounded-md bg-white px-2 py-0.5 text-[11px] text-orange-800 ring-1 ring-orange-100 dark:bg-neutral-900 dark:text-orange-200 dark:ring-orange-900"
+                  className="inline-flex items-center gap-1 rounded-md bg-card px-2 py-0.5 text-meta text-status-warning ring-1 ring-status-warning/20"
                   title={c.fix}
                 >
                   <Swords className="h-3.5 w-3.5 shrink-0" aria-hidden />
                   <span className="font-medium">{c.query}</span>
-                  <span className="text-orange-500 dark:text-orange-400">
+                  <span>
                     {distinct
                       ? `vs your ${distinct}${c.otherPages.length > 1 ? ` +${c.otherPages.length - 1}` : ""}`
                       : `· split across ${c.otherPages.length + 1} of your pages`}
@@ -789,13 +793,13 @@ export function MoveCard({
               to it - never show "fold X into it" while the research module says
               "cross-link, don't merge" (that contradiction is the boy/girl-names bug). */}
           {m.researchPack?.sibling?.length ? (
-            <p className="mt-1.5 text-xs text-orange-700 dark:text-orange-300">Keep these as separate pages and cross-link them (below) - don&apos;t merge. See &ldquo;what this page should own&rdquo; above.</p>
+            <p className="mt-1.5 text-body text-status-warning">Keep these as separate pages and cross-link them (below) - don&apos;t merge. See &ldquo;what this page should own&rdquo; above.</p>
           ) : (
-            <p className="mt-1.5 text-xs text-orange-700 dark:text-orange-300">{m.cannibalization[0]!.fix}</p>
+            <p className="mt-1.5 text-body text-status-warning">{m.cannibalization[0]!.fix}</p>
           )}
           {m.cannibalization[0]!.linkSnippet ? (
             <div className="mt-1.5 flex items-center gap-2">
-              <code className="truncate rounded bg-white px-2 py-1 text-[10px] text-orange-900 ring-1 ring-orange-100 dark:bg-neutral-900 dark:text-orange-200 dark:ring-orange-900">
+              <code className="truncate rounded bg-card px-2 py-1 text-meta text-status-warning ring-1 ring-status-warning/20">
                 {m.cannibalization[0]!.linkSnippet}
               </code>
               <button
@@ -805,7 +809,7 @@ export function MoveCard({
                     setTimeout(() => setCannibalCopied(false), 1800);
                   }).catch(() => {});
                 }}
-                className={`inline-flex shrink-0 items-center gap-1 rounded-md bg-orange-600 px-2 py-1 text-[10px] font-semibold text-white hover:bg-orange-500 ${FOCUS}`}
+                className={`inline-flex shrink-0 items-center gap-1 rounded-md bg-status-warning px-2 py-1 text-meta font-semibold text-background hover:opacity-90 ${FOCUS}`}
               >
                 {cannibalCopied ? <>Copied<Check className="h-3.5 w-3.5" aria-hidden /></> : "Copy link"}
               </button>
@@ -815,46 +819,46 @@ export function MoveCard({
       ) : null}
 
       {m.yourGap ? (
-        <div className="mt-3 flex items-start gap-2 rounded-xl border border-rose-100 bg-rose-50/60 px-3 py-2 dark:border-rose-900 dark:bg-rose-950/30">
-          <span className="mt-0.5 text-[10px] font-semibold uppercase tracking-wide text-rose-400 dark:text-rose-400">Your gap</span>
-          <span className="text-sm font-medium text-rose-700 dark:text-rose-300">{m.yourGap}</span>
+        <div className="mt-3 flex items-start gap-2 rounded-xl border border-status-danger/20 bg-status-danger-bg px-3 py-2">
+          <span className="mt-0.5 text-meta font-semibold uppercase tracking-wide text-status-danger">Your gap</span>
+          <span className="text-body font-medium text-status-danger">{m.yourGap}</span>
         </div>
       ) : null}
 
       {m.outline.length > 0 ? (
         <div className="mt-3 flex flex-wrap items-center gap-1.5">
-          <span className="text-[10px] font-semibold uppercase tracking-wide text-gray-400 dark:text-neutral-500">Cover</span>
+          <span className="text-meta font-semibold uppercase tracking-wide text-muted-foreground">Cover</span>
           {m.outline.map((o) => (
-            <span key={o} className="rounded-md bg-white px-2 py-0.5 text-[11px] text-gray-600 ring-1 ring-gray-200 dark:bg-neutral-900 dark:text-neutral-300 dark:ring-neutral-700">{o}</span>
+            <Pill key={o} intent="neutral">{o}</Pill>
           ))}
         </div>
       ) : null}
 
       {m.titleVariants.length > 0 ? (
-        <div className="mt-4 rounded-xl border border-sky-100 bg-sky-50/50 p-3 dark:border-sky-900 dark:bg-sky-950/30">
-          <div className="text-[10px] font-semibold uppercase tracking-wide text-sky-700/70 dark:text-sky-300/70">
+        <div className="mt-4 rounded-xl border border-status-info/20 bg-status-info-bg p-3">
+          <div className="text-meta font-semibold uppercase tracking-wide text-status-info/70">
             Title options · pick one, copy, paste
           </div>
           <ul className="mt-2 space-y-1.5">
             {m.titleVariants.map((v, i) => (
               <li
                 key={v.title}
-                className="rounded-lg bg-white px-2.5 py-1.5 ring-1 ring-gray-200 dark:bg-neutral-900 dark:ring-neutral-700"
+                className="rounded-lg bg-card px-2.5 py-1.5 ring-1 ring-border"
               >
                 <div className="flex items-center justify-between gap-2">
-                  <span className="min-w-0 flex-1 truncate text-xs text-gray-800 dark:text-neutral-200" title={v.title}>
-                    {i === 0 ? <span className="mr-1 text-[10px] font-bold text-sky-600 dark:text-sky-400">BEST</span> : null}
+                  <span className="min-w-0 flex-1 truncate text-meta text-foreground-secondary" title={v.title}>
+                    {i === 0 ? <span className="mr-1 text-meta font-bold text-status-info">BEST</span> : null}
                     {v.title}
                   </span>
                   <button
                     onClick={() => copyTitle(i, v.title)}
-                    className={`inline-flex shrink-0 items-center gap-1 rounded-md bg-gray-900 px-2 py-0.5 text-[10px] font-semibold text-white transition-colors hover:bg-gray-700 dark:bg-neutral-100 dark:text-neutral-900 dark:hover:bg-neutral-300 ${FOCUS}`}
+                    className={`inline-flex shrink-0 items-center gap-1 rounded-md bg-foreground px-2 py-0.5 text-meta font-semibold text-background transition-colors hover:opacity-80 ${FOCUS}`}
                   >
                     {copiedTitle === i ? <>Copied<Check className="h-3.5 w-3.5" aria-hidden /></> : "Copy"}
                   </button>
                 </div>
                 {v.reason ? (
-                  <p className="mt-0.5 text-[10px] leading-snug text-gray-400 dark:text-neutral-500">{v.reason}</p>
+                  <p className="mt-0.5 text-meta leading-snug text-muted-foreground">{v.reason}</p>
                 ) : null}
               </li>
             ))}
@@ -863,50 +867,50 @@ export function MoveCard({
       ) : null}
 
       {m.also.length > 0 ? (
-        <p className="mt-3 text-xs text-gray-500 dark:text-neutral-400">
-          <span className="font-semibold text-gray-400 dark:text-neutral-500">While you&apos;re on this page, also:</span>{" "}
+        <p className="mt-3 text-meta text-muted-foreground">
+          <span className="font-semibold text-muted-foreground">While you&apos;re on this page, also:</span>{" "}
           {m.also.join(" · ")}
         </p>
       ) : null}
 
       {m.proof ? (
-        <p className="mt-3 flex items-start gap-1.5 text-xs text-gray-500 dark:text-neutral-400">
+        <p className="mt-3 flex items-start gap-1.5 text-meta text-muted-foreground">
           <span className={`mt-1 h-1.5 w-1.5 shrink-0 rounded-full ${tone.dot}`} aria-hidden />
           {m.proof}
         </p>
       ) : null}
 
       {showDraft && hasDraft ? (
-        <div className="mt-3 rounded-xl border border-gray-200 bg-gray-50/80 p-3.5 dark:border-neutral-800 dark:bg-neutral-800/50">
+        <div className="mt-3 rounded-xl border border-border bg-surface-raised/80 p-3.5">
           <div className="mb-2 flex items-center justify-between">
-            <span className="text-[10px] font-semibold uppercase tracking-wide text-gray-400 dark:text-neutral-500">
+            <span className="text-meta font-semibold uppercase tracking-wide text-muted-foreground">
               Paste-ready draft · grounded, no AI guesses
             </span>
             <button
               onClick={copyDraft}
-              className={`inline-flex items-center gap-1 rounded-md bg-gray-900 px-2.5 py-1 text-[11px] font-semibold text-white transition-colors hover:bg-gray-700 dark:bg-neutral-100 dark:text-neutral-900 dark:hover:bg-neutral-300 ${FOCUS}`}
+              className={`inline-flex items-center gap-1 rounded-md bg-foreground px-2.5 py-1 text-meta font-semibold text-background transition-colors hover:opacity-80 ${FOCUS}`}
             >
               {copied ? <>Copied<Check className="h-3.5 w-3.5" aria-hidden /></> : "Copy draft"}
             </button>
           </div>
-          <dl className="space-y-2 text-xs">
+          <dl className="space-y-2 text-meta">
             {m.draftTitle ? (
               <div>
-                <dt className="font-semibold text-gray-500 dark:text-neutral-400">Title</dt>
-                <dd className="text-gray-800 dark:text-neutral-200">{m.draftTitle}</dd>
+                <dt className="font-semibold text-muted-foreground">Title</dt>
+                <dd className="text-foreground-secondary">{m.draftTitle}</dd>
               </div>
             ) : null}
             {m.answerBrief ? (
               <div>
-                <dt className="font-semibold text-gray-500 dark:text-neutral-400">Answer block</dt>
-                <dd className="text-gray-800 dark:text-neutral-200">{m.answerBrief}</dd>
+                <dt className="font-semibold text-muted-foreground">Answer block</dt>
+                <dd className="text-foreground-secondary">{m.answerBrief}</dd>
               </div>
             ) : null}
             {m.faqs.length ? (
               <div>
-                <dt className="font-semibold text-gray-500 dark:text-neutral-400">FAQ to answer</dt>
+                <dt className="font-semibold text-muted-foreground">FAQ to answer</dt>
                 <dd>
-                  <ul className="mt-0.5 list-disc space-y-0.5 pl-4 text-gray-700 dark:text-neutral-300">
+                  <ul className="mt-0.5 list-disc space-y-0.5 pl-4 text-foreground-secondary">
                     {m.faqs.map((q) => (
                       <li key={q}>{q}</li>
                     ))}
@@ -916,38 +920,38 @@ export function MoveCard({
             ) : null}
             {m.schema.length ? (
               <div>
-                <dt className="font-semibold text-gray-500 dark:text-neutral-400">Schema to add</dt>
-                <dd className="text-gray-700 dark:text-neutral-300">{m.schema.join(", ")}</dd>
+                <dt className="font-semibold text-muted-foreground">Schema to add</dt>
+                <dd className="text-foreground-secondary">{m.schema.join(", ")}</dd>
               </div>
             ) : null}
           </dl>
 
           {m.actionTone === "citation" ? (
-            <div className="mt-3 border-t border-gray-200 pt-3 dark:border-neutral-700">
+            <div className="mt-3 border-t border-border pt-3">
               {aiStatus === "ok" ? (
                 <div>
                   <div className="mb-1 flex items-center justify-between">
-                    <span className="inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-violet-500 dark:text-violet-400">
+                    <span className="inline-flex items-center gap-1 text-meta font-semibold uppercase tracking-wide text-violet-500">
                       <Sparkles className="h-3.5 w-3.5 shrink-0" aria-hidden /> AI-written answer block
                     </span>
                     <div className="flex items-center gap-1.5">
                       <button
                         onClick={aiGenerate}
                         disabled={pending}
-                        className={`inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-[11px] font-medium text-gray-400 hover:text-violet-600 disabled:opacity-60 dark:text-neutral-500 dark:hover:text-violet-400 ${FOCUS}`}
+                        className={`inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-meta font-medium text-muted-foreground hover:text-violet-600 disabled:opacity-60 ${FOCUS}`}
                         title="Generate a fresh draft"
                       >
                         {pending ? "…" : <><RefreshCw className="h-3.5 w-3.5" aria-hidden />Regenerate</>}
                       </button>
                       <button
                         onClick={copyAi}
-                        className={`inline-flex items-center gap-1 rounded-md bg-violet-600 px-2.5 py-1 text-[11px] font-semibold text-white transition-colors hover:bg-violet-500 ${FOCUS}`}
+                        className={`inline-flex items-center gap-1 rounded-md bg-violet-600 px-2.5 py-1 text-meta font-semibold text-background transition-colors hover:bg-violet-500 ${FOCUS}`}
                       >
                         {aiCopied ? <>Copied<Check className="h-3.5 w-3.5" aria-hidden /></> : "Copy"}
                       </button>
                     </div>
                   </div>
-                  <p className="rounded-lg bg-white p-2.5 text-xs leading-relaxed text-gray-800 ring-1 ring-violet-100 dark:bg-neutral-900 dark:text-neutral-200 dark:ring-violet-900">
+                  <p className="rounded-lg bg-card p-2.5 text-body leading-relaxed text-foreground-secondary ring-1 ring-violet-100">
                     {aiText}
                   </p>
                 </div>
@@ -956,18 +960,18 @@ export function MoveCard({
                   <button
                     onClick={aiGenerate}
                     disabled={pending || aiStatus === "pending"}
-                    className={`inline-flex items-center gap-1 rounded-lg border border-violet-200 bg-violet-50 px-3 py-1.5 text-xs font-semibold text-violet-700 transition-colors hover:bg-violet-100 disabled:opacity-60 dark:border-violet-800 dark:bg-violet-950/40 dark:text-violet-300 dark:hover:bg-violet-950/60 ${FOCUS}`}
+                    className={`inline-flex items-center gap-1 rounded-lg border border-violet-200 bg-violet-50 px-3 py-1.5 text-body font-semibold text-violet-700 transition-colors hover:bg-violet-100 disabled:opacity-60 ${FOCUS}`}
                   >
                     {aiStatus === "pending" ? "Writing…" : <><Sparkles className="h-3.5 w-3.5" aria-hidden />Draft with AI</>}
                   </button>
                   {aiStatus === "off" ? (
-                    <span className="text-[11px] text-gray-400 dark:text-neutral-500">AI drafting is off - using the outline above.</span>
+                    <span className="text-meta text-muted-foreground">AI drafting is off - using the outline above.</span>
                   ) : aiStatus === "blocked" ? (
-                    <span className="text-[11px] text-amber-600 dark:text-amber-400">Monthly AI budget reached.</span>
+                    <span className="text-meta text-status-warning">Monthly AI budget reached.</span>
                   ) : aiStatus === "rejected" ? (
-                    <span className="text-[11px] text-amber-600 dark:text-amber-400">Draft failed the fact-safety check - use the outline.</span>
+                    <span className="text-meta text-status-warning">Draft failed the fact-safety check - use the outline.</span>
                   ) : aiStatus === "error" ? (
-                    <span className="text-[11px] text-gray-400 dark:text-neutral-500">Couldn&apos;t draft right now - use the outline.</span>
+                    <span className="text-meta text-muted-foreground">Couldn&apos;t draft right now - use the outline.</span>
                   ) : null}
                 </div>
               )}
@@ -977,38 +981,38 @@ export function MoveCard({
                   {faqStatus === "ok" ? (
                     <div>
                       <div className="mb-1 flex items-center justify-between">
-                        <span className="inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-violet-500 dark:text-violet-400"><Sparkles className="h-3.5 w-3.5 shrink-0" aria-hidden /> FAQ schema (JSON-LD)</span>
+                        <span className="inline-flex items-center gap-1 text-meta font-semibold uppercase tracking-wide text-violet-500"><Sparkles className="h-3.5 w-3.5 shrink-0" aria-hidden /> FAQ schema (JSON-LD)</span>
                         <div className="flex items-center gap-1.5">
                           <button
                             onClick={faqGenerate}
                             disabled={pending}
-                            className={`inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-[11px] font-medium text-gray-400 hover:text-violet-600 disabled:opacity-60 dark:text-neutral-500 dark:hover:text-violet-400 ${FOCUS}`}
+                            className={`inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-meta font-medium text-muted-foreground hover:text-violet-600 disabled:opacity-60 ${FOCUS}`}
                             title="Generate a fresh FAQ schema"
                           >
                             {pending ? "…" : <><RefreshCw className="h-3.5 w-3.5" aria-hidden />Regenerate</>}
                           </button>
-                          <button onClick={copyFaq} className={`inline-flex items-center gap-1 rounded-md bg-violet-600 px-2.5 py-1 text-[11px] font-semibold text-white hover:bg-violet-500 ${FOCUS}`}>
+                          <button onClick={copyFaq} className={`inline-flex items-center gap-1 rounded-md bg-violet-600 px-2.5 py-1 text-meta font-semibold text-background hover:bg-violet-500 ${FOCUS}`}>
                             {faqCopied ? <>Copied<Check className="h-3.5 w-3.5" aria-hidden /></> : "Copy JSON-LD"}
                           </button>
                         </div>
                       </div>
-                      <pre className="max-h-44 overflow-auto rounded-lg bg-gray-900 p-2.5 text-[10px] leading-relaxed text-gray-100 dark:bg-neutral-950 dark:ring-1 dark:ring-neutral-700">{faqJsonLd}</pre>
+                      <pre className="max-h-44 overflow-auto rounded-lg bg-foreground p-2.5 text-meta leading-relaxed text-background">{faqJsonLd}</pre>
                     </div>
                   ) : (
                     <div className="flex items-center gap-2">
                       <button
                         onClick={faqGenerate}
                         disabled={pending || faqStatus === "pending"}
-                        className={`inline-flex items-center gap-1 rounded-lg border border-violet-200 bg-violet-50 px-3 py-1.5 text-xs font-semibold text-violet-700 transition-colors hover:bg-violet-100 disabled:opacity-60 dark:border-violet-800 dark:bg-violet-950/40 dark:text-violet-300 dark:hover:bg-violet-950/60 ${FOCUS}`}
+                        className={`inline-flex items-center gap-1 rounded-lg border border-violet-200 bg-violet-50 px-3 py-1.5 text-body font-semibold text-violet-700 transition-colors hover:bg-violet-100 disabled:opacity-60 ${FOCUS}`}
                       >
                         {faqStatus === "pending" ? "Generating…" : <><Sparkles className="h-3.5 w-3.5" aria-hidden />Generate FAQ schema</>}
                       </button>
                       {faqStatus === "off" ? (
-                        <span className="text-[11px] text-gray-400 dark:text-neutral-500">AI drafting is off.</span>
+                        <span className="text-meta text-muted-foreground">AI drafting is off.</span>
                       ) : faqStatus === "blocked" ? (
-                        <span className="text-[11px] text-amber-600 dark:text-amber-400">Monthly AI budget reached.</span>
+                        <span className="text-meta text-status-warning">Monthly AI budget reached.</span>
                       ) : faqStatus === "rejected" || faqStatus === "error" ? (
-                        <span className="text-[11px] text-gray-400 dark:text-neutral-500">Couldn&apos;t generate - try later.</span>
+                        <span className="text-meta text-muted-foreground">Couldn&apos;t generate - try later.</span>
                       ) : null}
                     </div>
                   )}
@@ -1019,7 +1023,7 @@ export function MoveCard({
         </div>
       ) : null}
 
-      <div className="mt-4 flex items-center gap-3 border-t border-gray-100 pt-3 dark:border-neutral-800">
+      <div className="mt-4 flex items-center gap-3 border-t border-border-subtle pt-3">
         {/* Item 15 - the primary apply affordance becomes "Stage in Wix" when the
             site is armed and this change is pushable; Ship it stays as the manual
             fallback ("I did it myself"). */}
@@ -1027,7 +1031,7 @@ export function MoveCard({
           <button
             onClick={stage}
             disabled={pending}
-            className={`inline-flex items-center gap-1 rounded-lg px-3.5 py-1.5 text-xs font-semibold text-white transition-colors disabled:opacity-60 ${tone.btn} ${FOCUS}`}
+            className={`inline-flex items-center gap-1 rounded-lg px-3.5 py-1.5 text-body font-semibold text-background transition-colors disabled:opacity-60 ${tone.btn} ${FOCUS}`}
             title="I make this change in Wix for you and save the old version first, so one click restores it."
           >
             <Zap className="h-3.5 w-3.5" aria-hidden />Stage in Wix
@@ -1040,8 +1044,8 @@ export function MoveCard({
           disabled={pending}
           className={
             m.alreadyMeasuring || m.pageMeasuring || canStage
-              ? `inline-flex items-center gap-1 rounded-lg border border-gray-300 bg-white px-3.5 py-1.5 text-xs font-semibold text-gray-600 transition-colors hover:bg-gray-50 disabled:opacity-60 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-300 dark:hover:bg-neutral-800 ${FOCUS}`
-              : `inline-flex items-center gap-1 rounded-lg px-3.5 py-1.5 text-xs font-semibold text-white transition-colors disabled:opacity-60 ${tone.btn} ${FOCUS}`
+              ? `inline-flex items-center gap-1 rounded-lg border border-border bg-card px-3.5 py-1.5 text-body font-semibold text-foreground-secondary transition-colors hover:bg-surface-raised disabled:opacity-60 ${FOCUS}`
+              : `inline-flex items-center gap-1 rounded-lg px-3.5 py-1.5 text-body font-semibold text-background transition-colors disabled:opacity-60 ${tone.btn} ${FOCUS}`
           }
           title={
             m.alreadyMeasuring
@@ -1058,26 +1062,26 @@ export function MoveCard({
         {hasDraft ? (
           <button
             onClick={() => setShowDraft((v) => !v)}
-            className={`inline-flex items-center gap-1 rounded-sm text-xs font-medium text-gray-600 hover:text-gray-900 dark:text-neutral-300 dark:hover:text-neutral-100 ${FOCUS}`}
+            className={`inline-flex items-center gap-1 rounded-sm text-body font-medium text-foreground-secondary hover:text-foreground ${FOCUS}`}
           >
             {showDraft ? "Hide draft" : "See the draft"}
           </button>
         ) : null}
-        <Link href="/recommendations" className={`inline-flex items-center gap-1 rounded-sm text-xs font-medium text-gray-600 hover:text-gray-900 dark:text-neutral-300 dark:hover:text-neutral-100 ${FOCUS}`}>
+        <Link href="/recommendations" className={`inline-flex items-center gap-1 rounded-sm text-body font-medium text-foreground-secondary hover:text-foreground ${FOCUS}`}>
           Open in queue →
         </Link>
-        <a href={m.targetUrl} target="_blank" rel="noopener noreferrer" className={`inline-flex items-center gap-1 rounded-sm text-xs font-medium text-gray-400 hover:text-gray-700 dark:text-neutral-500 dark:hover:text-neutral-300 ${FOCUS}`}>
+        <a href={m.targetUrl} target="_blank" rel="noopener noreferrer" className={`inline-flex items-center gap-1 rounded-sm text-body font-medium text-muted-foreground hover:text-foreground-secondary ${FOCUS}`}>
           View page<ArrowUpRight className="h-3.5 w-3.5" aria-hidden />
         </a>
         {/* Item 45 - deep link straight into the Wix editor for this page's mapped
             CMS item (or its Stores product editor). Null renders nothing: never a
             dead link. Read-only affordance, no auto-action. */}
         {m.wixEditorUrl ? (
-          <a href={m.wixEditorUrl} target="_blank" rel="noopener noreferrer" className={`inline-flex items-center gap-1 rounded-sm text-xs font-medium text-gray-400 hover:text-gray-700 dark:text-neutral-500 dark:hover:text-neutral-300 ${FOCUS}`}>
+          <a href={m.wixEditorUrl} target="_blank" rel="noopener noreferrer" className={`inline-flex items-center gap-1 rounded-sm text-body font-medium text-muted-foreground hover:text-foreground-secondary ${FOCUS}`}>
             Open in Wix<ArrowUpRight className="h-3.5 w-3.5" aria-hidden />
           </a>
         ) : null}
-        <button onClick={snooze} disabled={pending} className={`ml-auto rounded-sm text-xs font-medium text-gray-400 hover:text-gray-700 disabled:opacity-60 dark:text-neutral-500 dark:hover:text-neutral-300 ${FOCUS}`}>
+        <button onClick={snooze} disabled={pending} className={`ml-auto rounded-sm text-body font-medium text-muted-foreground hover:text-foreground-secondary disabled:opacity-60 ${FOCUS}`}>
           Not now
         </button>
         <button
@@ -1092,7 +1096,7 @@ export function MoveCard({
             });
           }}
           disabled={pending}
-          className={`rounded-sm text-xs font-medium text-gray-300 hover:text-rose-500 disabled:opacity-60 dark:text-neutral-600 dark:hover:text-rose-400 ${FOCUS}`}
+          className={`rounded-sm text-body font-medium text-muted-foreground/70 hover:text-status-danger disabled:opacity-60 ${FOCUS}`}
           title="Permanently remove this move"
         >
           Not relevant
@@ -1101,23 +1105,23 @@ export function MoveCard({
 
       {/* Item 15 - the paste flow stays the visible fallback next to staging. */}
       {canStage ? (
-        <p className="mt-1.5 text-[11px] text-gray-400 dark:text-neutral-500">
+        <p className="mt-1.5 text-meta text-muted-foreground">
           Stage in Wix makes this change for you and saves the old version first, or copy and paste it yourself and click I did it myself.
         </p>
       ) : null}
       {stageMsg ? (
-        <p role="status" aria-live="polite" className="mt-1.5 text-[11px] text-amber-600 dark:text-amber-400">{stageMsg}</p>
+        <p role="status" aria-live="polite" className="mt-1.5 text-meta text-status-warning">{stageMsg}</p>
       ) : null}
       {/* Item 15 - quiet nudge: this change is pushable, but publishing is not armed. */}
       {m.staging?.nudge && !canStage ? (
-        <p className="mt-1.5 text-[11px] text-gray-400 dark:text-neutral-500">
+        <p className="mt-1.5 text-meta text-muted-foreground">
           I can put this change into Wix for you.{" "}
-          <Link href="/settings/connectors" className={`rounded-sm font-medium underline underline-offset-2 hover:text-gray-700 dark:hover:text-neutral-300 ${FOCUS}`}>
+          <Link href="/settings/connectors" className={`rounded-sm font-medium underline underline-offset-2 hover:text-foreground-secondary ${FOCUS}`}>
             Turn on publishing
           </Link>{" "}
           and it becomes one click.
         </p>
       ) : null}
-    </div>
+    </Card>
   );
 }

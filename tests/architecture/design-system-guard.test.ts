@@ -78,10 +78,13 @@ const TYPE_SCALE_PINNED = new Set([
  */
 // 2026-07-02: 2860 was counted mid-wave while FP1/FP2 were concurrently adding UI
 // (top-3 picks card, Ready-0 explanation, honest-delay states); wave 1 closed at 2884.
-// This number may ONLY go down from here; the FP6b migration of the five worst files
-// (today-moves-card, changes-list-client, daily-experiments-section, war-room-sections,
-// today-newpages-card) is expected to cut it by several hundred.
-const RAW_PALETTE_BASELINE = 2884;
+// FP6b (2026-07-02) migrated the three worst files onto tokens + Card/Pill/SectionHeader
+// (today-moves-card 597->69, changes-list-client 340->34, daily-experiments-section
+// 280->0; the remaining counts in today-moves-card/changes-list-client are the deliberate
+// per-category identity colors called out in their source comments). Measured live total
+// under src/app/(shell) after the migration: 1773. war-room-sections.tsx and
+// today-newpages-card.tsx remain for a later wave. This number may ONLY go down from here.
+const RAW_PALETTE_BASELINE = 1773;
 
 function walkSourceFiles(dir: string, out: string[] = []): string[] {
   for (const name of readdirSync(dir)) {

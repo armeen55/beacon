@@ -1,4 +1,4 @@
-import { Suspense } from "react";
+import { Suspense, type ReactNode } from "react";
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import { Check, CornerUpLeft } from "lucide-react";
@@ -68,6 +68,8 @@ import {
   ExcludeFromLearningButton,
   RestoreOldVersionButton,
 } from "./proof-ledger-client";
+import { loadWithDeadline, valueWithDeadline } from "@/lib/load-with-deadline";
+import { HonestDelay } from "@/components/honest-delay";
 
 /**
  * Proof / Learning - operator-OS rebuild, surface (6). Every REVIEWED change
@@ -115,6 +117,25 @@ function toPath(url: string): string {
   }
 }
 
+// W2-A (2026-07-02) - FP1 always-paint floor extended to this page: every awaited read
+// on the render path is deadline-bounded so one wedged Supabase read (each 522 is ~30s)
+// can never hold the stream open forever. The ledger (the page's spine) gets the
+// generous window and times out to an honest one-liner; every sibling read keeps its
+// existing fail-soft fallback, just bounded. Section internals are untouched (FP8).
+const LEDGER_DEADLINE_MS = 20_000;
+const SIDE_READ_DEADLINE_MS = 15_000;
+
+/**
+ * W2-A - page-level deadline around a self-hiding streamed section. Races the section's
+ * own render promise so its `fallback={null}` Suspense boundary can never strand the
+ * stream when a read inside it wedges; a timeout renders nothing, matching the
+ * section's own self-hiding posture. The section files themselves are untouched.
+ */
+async function BoundedSection({ render }: { render: () => Promise<ReactNode> }): Promise<ReactNode> {
+  const raced = await loadWithDeadline(render(), SIDE_READ_DEADLINE_MS);
+  return raced.timedOut ? null : raced.data;
+}
+
 export default async function ProofPage({
   searchParams,
 }: {
@@ -125,13 +146,30 @@ export default async function ProofPage({
     Promise.resolve<Record<string, string | string[] | undefined>>({}));
   const initialPage = typeof params.page === "string" ? params.page : "";
   const tenantId = await currentTenantId();
-  const [ledger, connHealth, worklist, latestGscDate, calibrationRecords] = await Promise.all([
-    loadProofLedgerCached(tenantId).catch(() => [] as ShippedChangeRecord[]),
-    loadConnectionHealth(tenantId).catch(() => []),
-    loadActionPackWorklistForTenant(tenantId).catch(() => null),
-    readLastFinalizedDate(tenantId).catch(() => null),
-    loadCalibrationRecords(tenantId).catch(() => [] as CalibrationRecord[]),
+  const [ledgerRaced, connHealth, worklist, latestGscDate, calibrationRecords] = await Promise.all([
+    loadWithDeadline(loadProofLedgerCached(tenantId).catch(() => [] as ShippedChangeRecord[]), LEDGER_DEADLINE_MS),
+    valueWithDeadline(loadConnectionHealth(tenantId).catch(() => []), [], SIDE_READ_DEADLINE_MS),
+    valueWithDeadline(loadActionPackWorklistForTenant(tenantId).catch(() => null), null, SIDE_READ_DEADLINE_MS),
+    valueWithDeadline(readLastFinalizedDate(tenantId).catch(() => null), null, SIDE_READ_DEADLINE_MS),
+    valueWithDeadline(loadCalibrationRecords(tenantId).catch(() => [] as CalibrationRecord[]), [] as CalibrationRecord[], SIDE_READ_DEADLINE_MS),
   ]);
+  // W2-A - a timed-out ledger must never render as a confident-looking empty page
+  // (that would read as "no changes yet", a lie). Say so honestly and stop.
+  if (ledgerRaced.timedOut) {
+    return (
+      <div className="mx-auto max-w-4xl px-6 py-8">
+        <h1 className="text-2xl font-semibold tracking-tight">Results</h1>
+        <p className="mt-1 text-[14px] text-muted-foreground">
+          Every change you have made and whether it helped. We compare each page
+          to how it did before, and to similar pages you did not change.
+        </p>
+        <div className="mt-5">
+          <HonestDelay />
+        </div>
+      </div>
+    );
+  }
+  const ledger = ledgerRaced.data;
   const recordedPaths = new Set(ledger.map((l) => l.path));
   // Item 42 - per-row forecast receipts: a settled calibration record (item 28's day-28 writer)
   // is keyed by proofId, which IS the shipped-change ledger row's own id (see
@@ -140,10 +178,14 @@ export default async function ProofPage({
 
   // Item 5 - a before/after daily-clicks line on every measured row (ship date marked),
   // so "won/lost" is never a naked label. Bounded to the first 16 rows; fail-soft.
-  const sparkByPath = await loadDailyClicksByPathsForTenant(
-    tenantId,
-    ledger.slice(0, 16).map((l) => l.path),
-  ).catch(() => new Map<string, SparkPoint[]>());
+  const sparkByPath = await valueWithDeadline(
+    loadDailyClicksByPathsForTenant(
+      tenantId,
+      ledger.slice(0, 16).map((l) => l.path),
+    ).catch(() => new Map<string, SparkPoint[]>()),
+    new Map<string, SparkPoint[]>(),
+    SIDE_READ_DEADLINE_MS,
+  );
 
   // GSC-LAG CLARITY: Google Search Console data lags wall-clock, so a 7-day window
   // whose calendar date has passed often can't be judged yet. Count the rows that are
@@ -159,7 +201,11 @@ export default async function ProofPage({
   // last night's detected sitewide changepoints, so a verdict whose window overlapped
   // one gets a visible caveat below. Fail-soft -> [] (no known shocks = no caveats,
   // never a crash). No fresh CUSUM run here (that is the nightly cron's job).
-  const detectedChangepoints = await loadDetectedChangepoints(tenantId).catch(() => []);
+  const detectedChangepoints = await valueWithDeadline(
+    loadDetectedChangepoints(tenantId).catch(() => []),
+    [],
+    SIDE_READ_DEADLINE_MS,
+  );
   const shockWindows: ShockWindow[] = buildShockWindows({ dailySeries: [], priorChangepoints: detectedChangepoints });
 
   // Seasonality guard (master plan item 69): does this row's measurement window span a
@@ -167,10 +213,14 @@ export default async function ProofPage({
   // same read-time posture as the weather guard above - a page shipped 3 weeks before a
   // seasonal peak (or a family that IS the seasonal topic) reads its verdict cautiously
   // instead of as a clean win/loss.
-  const seasonalInflectionById = await attachSeasonalInflectionForLedger(
-    tenantId,
-    ledger.map((l) => ({ id: l.id, path: l.path, shippedAt: l.shippedAt, windows: l.windows ?? [] })),
-  ).catch(() => new Map());
+  const seasonalInflectionById = await valueWithDeadline(
+    attachSeasonalInflectionForLedger(
+      tenantId,
+      ledger.map((l) => ({ id: l.id, path: l.path, shippedAt: l.shippedAt, windows: l.windows ?? [] })),
+    ).catch(() => new Map()),
+    new Map(),
+    SIDE_READ_DEADLINE_MS,
+  );
 
   // Recrawl-gated SEARCH clock (master plan N11): does Google's index hold this
   // page's new content yet? Computed-only from gsc_url_inspections (an INDEXED-
@@ -179,10 +229,14 @@ export default async function ProofPage({
   // confirmed index crawl reads its SEARCH badge as "Waiting" below regardless
   // of which calendar window has closed, while the GA4 traffic line and every
   // other live_at-clocked attachment on the card keeps rendering.
-  const recrawlClockById = await attachRecrawlClockForLedger(
-    tenantId,
-    ledger.map((l) => ({ id: l.id, page: l.page, shippedAt: l.shippedAt, actionType: l.actionType, after: l.after })),
-  ).catch(() => new Map());
+  const recrawlClockById = await valueWithDeadline(
+    attachRecrawlClockForLedger(
+      tenantId,
+      ledger.map((l) => ({ id: l.id, page: l.page, shippedAt: l.shippedAt, actionType: l.actionType, after: l.after })),
+    ).catch(() => new Map()),
+    new Map(),
+    SIDE_READ_DEADLINE_MS,
+  );
 
   // Control-contamination guard (master plan N13): did any of THIS row's
   // comparison pages change mid-measurement (we treated it ourselves, or its
@@ -190,8 +244,10 @@ export default async function ProofPage({
   // page_snapshots history - when a clean substitute exists it is swapped in
   // and the swap is named on the card; when none exists the read still runs,
   // capped with an honest caution caveat. Never mutates the stored ship row.
-  const contaminationById = await attachControlContaminationForLedger(tenantId, ledger).catch(
-    () => new Map(),
+  const contaminationById = await valueWithDeadline(
+    attachControlContaminationForLedger(tenantId, ledger).catch(() => new Map()),
+    new Map(),
+    SIDE_READ_DEADLINE_MS,
   );
 
   // Move 2 - the shared maturity presentation per row, so every card reads the same
@@ -330,24 +386,36 @@ export default async function ProofPage({
       })
       .slice(0, 6);
     if (negativeRows.length > 0) {
-      const autopilotConfig = await getAutopilotConfig().catch(() => null);
-      for (const rec of negativeRows) {
-        const p = presById.get(rec.id)!;
-        const source = await resolveRevertSource(tenantId, rec).catch(() => null);
-        const decision = decideRevert({
-          tenantId,
-          direction: p.direction,
-          windowDay: p.basisDay,
-          attributionQuality: p.attributionQuality,
-          lever: rec.actionType,
-          config: autopilotConfig,
-          snapshotAvailable: source != null,
-          alreadyReverted: false,
-          now: new Date(),
-          liftLabel: liftLabelFor(rec),
-        });
-        if (decision.action !== "none") revertById.set(rec.id, decision);
-      }
+      // W2-A - up to 6 sequential snapshot lookups; bounded as ONE unit so a wedged
+      // read costs at most one deadline, not one per row. On a timeout the restore
+      // offers simply don't show this visit - the rows themselves still render.
+      const offers = await valueWithDeadline(
+        (async () => {
+          const autopilotConfig = await getAutopilotConfig().catch(() => null);
+          const out: Array<readonly [string, RevertDecision]> = [];
+          for (const rec of negativeRows) {
+            const p = presById.get(rec.id)!;
+            const source = await resolveRevertSource(tenantId, rec).catch(() => null);
+            const decision = decideRevert({
+              tenantId,
+              direction: p.direction,
+              windowDay: p.basisDay,
+              attributionQuality: p.attributionQuality,
+              lever: rec.actionType,
+              config: autopilotConfig,
+              snapshotAvailable: source != null,
+              alreadyReverted: false,
+              now: new Date(),
+              liftLabel: liftLabelFor(rec),
+            });
+            if (decision.action !== "none") out.push([rec.id, decision] as const);
+          }
+          return out;
+        })(),
+        [],
+        SIDE_READ_DEADLINE_MS,
+      );
+      for (const [id, decision] of offers) revertById.set(id, decision);
     }
   }
 
@@ -388,7 +456,10 @@ export default async function ProofPage({
   // away from (the prior that steers ranking). Lets the operator SEE a skew and
   // use "Exclude from learning" on a mis-measured result. Only types with a
   // trusted prior or an excluded result are worth showing.
-  const learningDiag = isOperatorModeServer()
+  // W2-A drive-by fix: this used to call isOperatorModeServer() without awaiting it -
+  // a Promise is always truthy, so the operator-only section leaked to everyone. Use
+  // the already-awaited isOperator from above.
+  const learningDiag = isOperator
     ? computeOutcomePriorDiagnostics(ledger).filter(
         (d) => d.prior !== null || d.excluded > 0,
       )
@@ -439,20 +510,20 @@ export default async function ProofPage({
           the Move → Ship → Prove loop. Own Suspense / self-hides when nothing is
           shipped; reads the request-cached re-measured ledger. */}
       <Suspense fallback={null}>
-        <ProofSummarySection />
+        <BoundedSection render={() => ProofSummarySection()} />
       </Suspense>
 
       {/* Item 27 - the promise ledger: forecast vs delivered, reconciled monthly. Sibling to the
           summary above; self-hides until at least 3 picks have settled at their 28-day window. */}
       <Suspense fallback={null}>
-        <ForecastCalibrationSection />
+        <BoundedSection render={() => ForecastCalibrationSection()} />
       </Suspense>
 
       {/* Item 34 - pooled batch verdict: when a same-plan same-lever batch of 3+ pages has
           measured reads, one confident "as a group" line above the per-page rows below.
           Self-hides otherwise. */}
       <Suspense fallback={null}>
-        <PooledVerdictSection />
+        <BoundedSection render={() => PooledVerdictSection()} />
       </Suspense>
 
       {/* Record a shipped change for ANY page (manual-ship companion). Prefills
@@ -579,7 +650,7 @@ export default async function ProofPage({
           Your changes
         </h2>
         <Suspense fallback={null}>
-          <ResultsTimeline />
+          <BoundedSection render={() => ResultsTimeline()} />
         </Suspense>
       </div>
 

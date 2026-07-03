@@ -13,10 +13,20 @@ import { ConnectorsClient } from "./connectors-client";
 import { PublishingModeCard } from "./publishing-mode-card";
 import { AutopilotCard } from "./autopilot-card";
 import { CronHealthPanel } from "./cron-health-panel";
+import { loadWithDeadline } from "@/lib/load-with-deadline";
+import { HonestDelay } from "@/components/honest-delay";
 
 export const dynamic = "force-dynamic";
 
-export default async function ConnectorsPage() {
+// W2-A (2026-07-02) - FP1 always-paint floor: this page awaits eight connector-store
+// reads before it can render anything; one wedged Supabase read (each 522 is ~30s)
+// used to hold the whole stream open forever. The reads are gathered into one loader
+// below and raced as a unit; past the deadline the page says so honestly instead.
+const CONNECTORS_DEADLINE_MS = 15_000;
+
+/** Everything the page body needs, loaded exactly as before - just gathered into one
+ *  bounded unit. Behavior of each individual read is unchanged. */
+async function loadConnectorsPageData() {
   // Awaited as a function call (not a JSX tag) so the async panel resolves before
   // render - renderToStaticMarkup in the route tests cannot handle a suspending child.
   const cronHealthPanel = await CronHealthPanel();
@@ -108,12 +118,40 @@ export default async function ConnectorsPage() {
         })
       : null;
 
+  return { cronHealthPanel, googleGsc, googleGa4, yelp, wix, profound, clarity, cfg, gbpTok, gscStaleCopy, gscReadiness, ga4StaleCopy };
+}
+
+const CONNECTORS_DESCRIPTION =
+  "Connect the tools your business already uses so Beacon can see what's happening and suggest what to do next. Connect Google so Beacon sees what people search to find you. Connect Google Analytics to see what visitors do on your site. Connect Clarity to see where visitors get stuck. Connect Wix so approved edits can publish to your site. Connect the rest as you're ready, or import a spreadsheet instead under Settings → Import.";
+
+export default async function ConnectorsPage() {
+  const raced = await loadWithDeadline(loadConnectorsPageData(), CONNECTORS_DEADLINE_MS);
+  if (raced.timedOut) {
+    return (
+      <div>
+        <PageHeader title="Connect your tools" description={CONNECTORS_DESCRIPTION} />
+        <HonestDelay />
+      </div>
+    );
+  }
+  const {
+    cronHealthPanel,
+    googleGsc,
+    googleGa4,
+    yelp,
+    wix,
+    profound,
+    clarity,
+    cfg,
+    gbpTok,
+    gscStaleCopy,
+    gscReadiness,
+    ga4StaleCopy,
+  } = raced.data;
+
   return (
     <div>
-      <PageHeader
-        title="Connect your tools"
-        description="Connect the tools your business already uses so Beacon can see what's happening and suggest what to do next. Connect Google so Beacon sees what people search to find you. Connect Google Analytics to see what visitors do on your site. Connect Clarity to see where visitors get stuck. Connect Wix so approved edits can publish to your site. Connect the rest as you're ready, or import a spreadsheet instead under Settings → Import."
-      />
+      <PageHeader title="Connect your tools" description={CONNECTORS_DESCRIPTION} />
       <ConnectorsClient
         google={googleGsc}
         googleSelectedLocation={

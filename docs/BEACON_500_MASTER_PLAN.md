@@ -52,7 +52,7 @@ The 10 moves, strictly ranked (kill list quotes live in the diagnosis run wf_b48
       merged. Rider: Ask citation chips stop rendering raw slugs and internal keys.
 - [ ] FP5. One home per job: tonight's cards live on Today only, New Pages board renders once,
       measuring lives on Results only, the /proof double-stack merges.
-- [~] FP6 (6a SHIPPED 2026-07-02 wave 1; 6b migration open). Design system: Card, Pill (5 status intents), SectionHeader, EmptyState, PageShell on
+- [~] FP6 (6a wave 1; 6b wave 2 migrated today-moves-card 597 to 69, changes-list-client 340 to 34, daily-experiments-section 280 to 0, ratchet 2884 to 1773; war-room-sections + today-newpages-card remain). Design system: Card, Pill (5 status intents), SectionHeader, EmptyState, PageShell on
       the existing tokens + raw-palette-count ratchet guard (6a, WAVE 1); then migrate the five
       worst files (today-moves-card 482 raw classes, changes-list-client 225,
       daily-experiments-section, today-newpages-card, war-room-sections) (6b). Rider: one
@@ -71,7 +71,7 @@ NOT NOW (real but parked): MoveCard density refactor, connector brand icons, aut
 flash, first-session choreography + morning-brief email (single-user today), per-keyword bulk
 actions, hand-fixing dark-mode classes (FP6 makes them free), blue Leaning-bad pill semantics.
 
-WAVE 1 SHIPPED 2026-07-02: FP1 (shell paints instantly, / and /competitors close in 8s through a live Supabase 522 storm; the honest-delay sentence replaces stranded pulse boxes), FP2+FP9 (fallback stamp killed at the root, dedupe, top 3 + capped list), FP7, FP6a (primitives + 2884 raw-palette ratchet). WAVE 2 adds: bound the remaining page bodies (worklist, keywords, connectors, ask hang on unbounded Supabase reads; the local 522 storm amplifies them into never-closing streams). WAVE 2: FP3+FP5 (one agent, shared files), FP6b
+WAVE 1 SHIPPED 2026-07-02: FP1 (shell paints instantly, / and /competitors close in 8s through a live Supabase 522 storm; the honest-delay sentence replaces stranded pulse boxes), FP2+FP9 (fallback stamp killed at the root, dedupe, top 3 + capped list), FP7, FP6a (primitives + 2884 raw-palette ratchet). WAVE 2 SHIPPED 2026-07-02: every page now closes (worklist 25s, keywords/connectors/ask 15s, proof 20s, measured live on the 522 fault path, declared boundaries == resolved on all five); empty-rebuild guard on the worklist SWR snapshot (an outage rebuild can never poison a real snapshot again; the current empty one self-heals on the first healthy rebuild); operator-only learning section no longer leaks to every viewer (un-awaited promise gate); FP6b three worst files migrated to tokens/primitives. WAVE 2: FP3+FP5 (one agent, shared files), FP6b
 migration. WAVE 3: FP4, FP8, FP10, voice rider. N-track and packs resume after FP10.
 
 ---

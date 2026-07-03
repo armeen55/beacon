@@ -30,6 +30,20 @@ export async function readWorklistSurface(): Promise<WorklistSurfaceRow | null> 
 }
 
 export async function writeWorklistSurface(data: TodayMovesHeroData, computedAtIso: string): Promise<void> {
+  // Empty-rebuild guard (2026-07-02): loadUncached is fail-soft, so during a Supabase
+  // outage it can "successfully" build a surface with zero moves. Persisting that over a
+  // real snapshot poisons the SWR cache and the operator's main list renders empty until
+  // the next healthy rebuild. An empty rebuild never replaces a non-empty snapshot; a
+  // legitimate reset goes through invalidateWorklistSurface() explicitly.
+  if (data.moves.length === 0) {
+    const existing = await readWorklistSurface();
+    if (existing && existing.data.moves.length > 0) {
+      console.warn(
+        `[worklist-surface] refusing to overwrite a snapshot holding ${existing.data.moves.length} moves with an empty rebuild (likely a degraded build during a data outage); keeping the snapshot from ${existing.computedAt}`,
+      );
+      return;
+    }
+  }
   await writeStore<WorklistSurfaceRow>(STORE, [{ computedAt: computedAtIso, data }]).catch(() => {});
 }
 

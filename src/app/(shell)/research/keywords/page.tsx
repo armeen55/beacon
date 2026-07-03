@@ -3,6 +3,8 @@ export const dynamic = "force-dynamic";
 import { PageHeader } from "@/components/data/page-header";
 import { loadKeywordLibrary, summarizeKeywordLibrary } from "@/domains/research/keyword-library";
 import { KeywordsTableClient } from "./keywords-table-client";
+import { loadWithDeadline } from "@/lib/load-with-deadline";
+import { HonestDelay } from "@/components/honest-delay";
 
 /**
  * /research/keywords: the Keywords library (MASTER PLAN v2 UX2 first slice,
@@ -10,10 +12,26 @@ import { KeywordsTableClient } from "./keywords-table-client";
  * from cache, in one sortable table. No new paid calls happen on this page.
  * loadKeywordLibrary only reads what earlier work already stored.
  */
+
+// W2-A (2026-07-02) - FP1 always-paint floor: the library merge fans across several
+// cached stores; one wedged Supabase read (each 522 is ~30s) used to hold this page's
+// stream open forever. Past the deadline the page says so honestly and the abandoned
+// merge keeps warming the cache for the next visit.
+const KEYWORDS_DEADLINE_MS = 15_000;
+
 export default async function KeywordsPage() {
   let library;
   try {
-    library = await loadKeywordLibrary();
+    const raced = await loadWithDeadline(loadKeywordLibrary(), KEYWORDS_DEADLINE_MS);
+    if (raced.timedOut) {
+      return (
+        <div className="max-w-6xl space-y-6">
+          <PageHeader title="Keywords" description="Every keyword I have researched for you, in one place." />
+          <HonestDelay />
+        </div>
+      );
+    }
+    library = raced.data;
   } catch {
     return (
       <div className="max-w-6xl space-y-6">
