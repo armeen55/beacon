@@ -23,6 +23,8 @@ const CLASS_LABEL: Record<AskDossier["questionClass"], string> = {
   measurement: "what we shipped and measured",
   competitor: "who else AI is citing",
   plan: "what is planned next",
+  keyword_next: "which keyword to chase next",
+  system_health: "whether anything is broken right now",
 };
 
 function askAnswerSystemPrompt(): string {

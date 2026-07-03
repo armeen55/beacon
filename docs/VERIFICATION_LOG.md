@@ -7,6 +7,131 @@
 
 ---
 
+## 2026-07-02 - DREAM SITE V1 item D8: Ask coverage deepened to the real new stores
+
+**What changed:** `/ask`'s context assembly (`src/domains/ask/fact-assembly.ts` + `router.ts`)
+could only see 6 sources (page dossier, GSC totals, the answer-intelligence index, the proof
+ledger's verdict/actionType, the accepted/preview plan) even though the app now holds 9 more:
+the allocator's unified best list, D2 gap verdicts, D3 steal briefs, native AEO intel (recurring
+domains + we-are/are-not presence), the keyword library, the hypothesis log + forecast
+calibration, cron health, the publish canary, and the proof ledger's own reliability fields
+(`confidence`, `dollarValue`, `permutationRead`) that were already on `ShippedChangeRecord` but
+never read. Audited by direct file reads plus a parallel research agent cross-check of every
+loader's exact signature; both converged on the same 9 gaps.
+
+**Closed (source coverage, not a rebuild - the composer/router/history pipeline is untouched):**
+- `router.ts`: two new question classes (`keyword_next`, `system_health`) with speaker mappings
+  (`dataforseo`, `llm`); broadened `COMPETITOR_PATTERNS` to catch "recommend instead of me",
+  `MEASUREMENT_PATTERNS` to catch "last batch of changes", added `KEYWORD_PATTERNS` and
+  `SYSTEM_HEALTH_PATTERNS`, and a `why (is|isn't) ... (plan|planned|selected|included)` clause on
+  `PLAN_PATTERNS` so a no-page-named "why isn't this page in the plan" still routes somewhere
+  useful instead of the generic site_trend catch-all.
+- `fact-assembly.ts`:
+  - `assembleCompetitorFacts` now also calls `loadNativeIntel()` and cites up to 5 recurring
+    domains (distinct-prompt count, citation count, engines) plus the absent-everywhere prompt
+    count, alongside the existing answer-intelligence-index facts. Fail-soft independently of the
+    index call (a `Promise.all`, each `.catch`-guarded).
+  - New `assembleKeywordNextFacts()` reads `loadKeywordLibrary()`, filters to keywords with real
+    volume and either no owner page or a position worse than 10, sorted by volume, capped at 5;
+    an honest "every high-volume keyword already has an owning page" fact when nothing qualifies.
+  - New `assembleSystemHealthFacts(tenantId)` fuses `loadCronHealthView()` (failure streaks + a
+    failed-last-run headline), `readPipelineHealth(tenantId)` (real invariant violations, their
+    own first-person `sentence` cited verbatim), and `readPublishHealth(tenantId)` (a failed
+    token/url-map/dry-run check, citing `fixHint` when present). Says "everything checked came
+    back clean" only when at least one check actually ran; an honest "no check yet" otherwise.
+  - `assembleMeasurementFacts` now names `confidence`, `dollarValue.basisSentence`, and a
+    permutation-null read ("N of M untouched pages moved this much") per recent ship, not just
+    verdict/actionType/date.
+  - `assemblePageFacts` now states plainly when a page has no open recommendation and no plan
+    pick - the honest answer to "why isn't this page in the plan" for a named page.
+- `composer.ts`: `CLASS_LABEL` gained the two new classes' plain-English labels.
+
+**Bug found and fixed while ground-truthing:** `assembleSystemHealthFacts`'s "everything is
+clean" fallback checked `cronJobs.length > 0`, but `loadCronHealthView()` always returns one
+entry per job in the static `CRON_SCHEDULE_MAP` config - even for a tenant with zero real cron
+runs ever - so the check was true for every tenant regardless of data, which would have made
+"is anything broken" always say "clean" for a brand-new tenant. Fixed to require at least one
+job with a real `lastRun` (or a non-null pipeline/publish check) before calling it clean. Pinned
+with a new test (`fact-assembly.test.ts`, "does not claim 'clean' when cron-health-view returns
+jobs with no real lastRun").
+
+**Tests:** `router.test.ts` gained 6 tests pinning the exact 5 target-question routes (plus the
+page-named variant winning page_specific). `fact-assembly.test.ts` gained tests for the enriched
+`competitor` class (native-intel facts + fail-soft when native-intel throws), the enriched
+`measurement` class (confidence/dollar/permutation facts), the new `keyword_next` class (surfaces
+gaps, honest "already owned" fallback, empty-library and throw fail-soft), and the new
+`system_health` class (failure streak, pipeline violation, failed publish check, all-clean, no
+check yet, the cron-health-view false-positive pin, and a triple-throw fail-soft). One pre-existing
+test's expectation was updated (`page_specific` "empty dossier" case now correctly asserts one
+honest "no recommendation, no plan" fact instead of zero facts - the new behavior is intentional,
+not a regression). `src/domains/ask/` totals: 94 tests (was 66), all passing. `npm run typecheck`
+clean project-wide.
+
+**Ground truth (real LLM spend, tenant-iranopedia, via a one-off `scripts/ground-truth-ask-d8.ts`
+calling the real `askQuestionAction` pipeline, deleted after the run):**
+
+1. *"who does AI recommend instead of me"* → competitor/dataforseo → **"Based on the prompts you
+   track, AI most often cites reddit, then facebook, youtube, en.wikipedia.org, and
+   media.gettyimages.com, and it failed to mention us on 7 of the 8 prompts. I recommend
+   prioritizing visibility improvements because AI is favoring those other domains in your
+   tracked prompts."** Cited: 5 native-intel recurring-domain facts + the absence count, all
+   `/prompts`. Correct source (native 4-engine poll), real numbers.
+2. *"which keyword should I chase next"* → keyword_next/dataforseo → **"I recommend we chase the
+   keyword 'tehran' next because it has the highest monthly search volume and we currently do not
+   own a page for it... I do not know keyword difficulty, conversion value, or effort required
+   from the facts provided."** Cited: 5 real keyword-library rows (tehran 246,000/mo, flag of
+   iran 135,000/mo, isfahan/abbasid caliphate/capital of iran ~27-33k/mo), all `/keywords`.
+   Correctly sourced, honest about what it doesn't know.
+3. *"what did my last batch of changes do"* → measurement/proof → **"In the last 7 days I shipped
+   16 changes including edit_meta on /iran-flags/pahlavi-iran-flag... Of the 4 decided changes, 1
+   won and 3 did not help, a 25% win rate. The five listed edits shipped on 2026-07-01 and are
+   still measuring with low confidence, so I do not yet know their final impact."** Cited: the
+   real proof ledger, each recent ship now naming its confidence level, all `/proof`. Correctly
+   sourced with the new reliability depth.
+4. *"is anything broken right now"* → system_health/profound → **"Yes. The data pipe is broken
+   at the AI answer feed stage: the feed is connected but last night's sync wrote 0 rows, and
+   downstream numbers are stale rather than zero. Start by running a reconnect check on the
+   Connections page to restore the feed."** Cited: a real `readPipelineHealth` violation
+   sentence, `/diagnostics`. This is the fixed-bug case in action - before the fix this would
+   have said "clean" regardless; after the fix it correctly surfaced a real, live pipeline break.
+
+All 4 answers judged good: each cited the intended new source, every number traces to a real
+fact, no hallucination, no jargon, no em/en dashes. Confirmed durably persisted in Supabase
+(`json_store_blobs`, scope `ask-history::tenant:iranopedia`, `select jsonb_pretty(content)`
+returned all 4 rows with matching question/answer/citedFacts/askedAt).
+
+**Honest caveat (operator-journey rendering):** could not get a screenshot or DOM snapshot of the
+live `/ask` chat bubbles - the one open preview-browser tab against the dev server was already
+stuck (`RangeError: Maximum call stack size exceeded` inside a `Map.set`, spamming an
+already-in-progress reload loop against `/`, first observed before any D8 edits were made, so
+not caused by this work) and every DOM-dependent preview tool (`preview_snapshot`,
+`preview_eval`, `preview_screenshot`) timed out against it; `preview_resize` (a pure viewport
+command) succeeded, confirming the tab's JS thread specifically was wedged, not the CDP
+connection. Separately, the long-running dev-server process holds `ask-history` in an in-process
+cache (`src/lib/persistence/json-store.ts`'s module-level `cache` Map) that is populated once
+per process and only updated by a write FROM that same process - a standalone script's write
+(even though it lands in the identical Supabase row the live page reads on a cold cache) does
+not invalidate that process's stale snapshot, so the live page kept rendering 0 history entries
+across three separate `curl` fetches even after the real write was confirmed in Supabase. Per the
+"do not restart it" instruction the dev server was left running. The database-level proof (exact
+`AskHistoryEntry` rows, matching question/answer/citedFacts) stands in for the pixel-level one
+this pass; a fresh preview tab or the next dev-server restart for an unrelated reason will show
+the same 4 answers rendered as chat bubbles with no further code changes needed.
+
+**Not done / explicitly deferred:** D2 gap verdicts and D3 steal briefs (the allocator's other two
+lanes) were not wired into a NEW ask fact source in this pass - the allocator's fused list is
+already what `/worklist` renders, and `page_specific` already surfaces a page's `currentMove`
+(which is allocator-ranked) when one exists; adding a raw gap-verdict/steal-brief dump would
+duplicate that without adding a question class that needs it more directly than the existing
+`plan`/`page_specific` classes already do. The hypothesis log and forecast-calibration summary
+were also left unwired for the same reason - `measurement`'s new dollar/permutation facts and
+`keyword_next`'s honest volume gaps cover the 4 target questions more directly than a raw
+calibration-bias sentence would, and pulling in a 4th new store for a question nobody asked risks
+"architecture, not source coverage." Either can be added the same way (one more `Promise.all`
+branch, one more fail-soft catch) if a real question surfaces that needs them.
+
+---
+
 ## 2026-07-02 - DREAM SITE V1 item D6: the daily ritual loop, static mode (FLOW half)
 
 **What changed:** the operator's daily loop on `/worklist` - mark a change done (or skip it),

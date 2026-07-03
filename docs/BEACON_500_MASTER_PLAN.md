@@ -271,7 +271,9 @@ data and talk. THIS IS VERSION 1 DREAM SITE."
   follow-up), and new-page/create_page candidates (opportunity-math.ts handles the honest-gap case
   for these today by design - no position exists pre-launch - but a launched-page graduation path
   is not built).
-- [ ] D8. **Ask talks to ALL the data** (retrieval twin BUILT; deepen coverage + conversation).
+- [x] D8. **Ask talks to ALL the data** (retrieval twin BUILT; coverage deepened 2026-07-02: native
+  AEO intel, keyword library, cron/pipeline/publish health, proof-ledger reliability depth wired
+  into fact-assembly; see HANDOFF for the 4 ground-truthed Q&A transcripts).
 - [x] D9. **Full trace audit:** verify the last 20 hours of shipped work is real, wired, not faked;
   delete every dead row/dead code found; then continue down the list.
 

@@ -40,6 +40,28 @@ vi.mock("@/domains/experiments/daily-experiment-plan-store", () => ({
   getAcceptedPlan: vi.fn(async () => null),
   getLatestPreviewPlan: vi.fn(async () => null),
 }));
+vi.mock("@/domains/ai-visibility/native-intel-loader", () => ({
+  loadNativeIntel: vi.fn(async () => ({
+    recurringDomains: [],
+    recurringPages: [],
+    presence: { rows: [], totals: { promptsChecked: 0, present: 0, absent: 0 } },
+    nativeQuestions: [],
+    rowsScanned: 0,
+    enginesSeen: [],
+  })),
+}));
+vi.mock("@/domains/research/keyword-library", () => ({
+  loadKeywordLibrary: vi.fn(async () => ({ rows: [], volumeCoverage: 0, total: 0, bySource: {} })),
+}));
+vi.mock("@/domains/ops/cron-health-view", () => ({
+  loadCronHealthView: vi.fn(async () => []),
+}));
+vi.mock("@/domains/ops/pipeline-health-store", () => ({
+  readPipelineHealth: vi.fn(async () => null),
+}));
+vi.mock("@/domains/push/publish-canary-store", () => ({
+  readPublishHealth: vi.fn(async () => null),
+}));
 
 import { assembleAskDossier } from "./fact-assembly";
 import { loadPageDossier } from "@/app/(shell)/page/[...path]/page-dossier-data";
@@ -47,6 +69,11 @@ import { loadDailyTotalsForTenant } from "@/domains/recommendation-intelligence/
 import { loadProofLedgerCached } from "@/domains/proof-gsc/load-ledger";
 import { getAnswerIntelligenceIndex } from "@/domains/answer-intelligence/store";
 import { getAcceptedPlan } from "@/domains/experiments/daily-experiment-plan-store";
+import { loadNativeIntel } from "@/domains/ai-visibility/native-intel-loader";
+import { loadKeywordLibrary } from "@/domains/research/keyword-library";
+import { loadCronHealthView } from "@/domains/ops/cron-health-view";
+import { readPipelineHealth } from "@/domains/ops/pipeline-health-store";
+import { readPublishHealth } from "@/domains/push/publish-canary-store";
 import type { RoutedQuestion } from "./router";
 
 beforeEach(() => {
@@ -58,10 +85,15 @@ function routed(over: Partial<RoutedQuestion> = {}): RoutedQuestion {
 }
 
 describe("ask/fact-assembly - page_specific", () => {
-  it("returns hasData: false and an empty fact list when the dossier is empty", async () => {
+  // D8: even a page with zero GSC/Clarity/Profound data still gets ONE honest fact - that
+  // it has no open recommendation and no plan pick - so "why isn't this page in the plan"
+  // is never met with total silence. hasData is true because that absence IS real,
+  // sourced information, not a gap to hide.
+  it("names the missing recommendation/plan when the dossier has no other data", async () => {
     const dossier = await assembleAskDossier(routed());
-    expect(dossier.hasData).toBe(false);
-    expect(dossier.facts).toEqual([]);
+    expect(dossier.hasData).toBe(true);
+    expect(dossier.facts).toHaveLength(1);
+    expect(dossier.facts[0]!.value).toContain("no open recommendation and no plan pick");
     expect(dossier.pagePath).toBe("/cheetah");
   });
 
@@ -155,6 +187,43 @@ describe("ask/fact-assembly - ai_visibility", () => {
     const dossier = await assembleAskDossier(routed({ questionClass: "ai_visibility", pagePath: null }));
     expect(dossier.hasData).toBe(false);
   });
+
+  // D8: "who does AI recommend instead of me" should also draw on the native 4-engine
+  // poll (recurring domains + presence matrix), not just the borrowed Profound index.
+  it("adds native-intel recurring domains and absence count to the competitor class", async () => {
+    vi.mocked(loadNativeIntel).mockResolvedValueOnce({
+      recurringDomains: [{ domain: "rival2.com", distinctPrompts: 4, citationCount: 9, engines: ["chatgpt", "perplexity"], examplePrompts: [] }],
+      recurringPages: [],
+      presence: { rows: [], totals: { promptsChecked: 12, present: 8, absent: 4 } },
+      nativeQuestions: [],
+      rowsScanned: 50,
+      enginesSeen: ["chatgpt", "perplexity"],
+    } as never);
+    const dossier = await assembleAskDossier(routed({ questionClass: "competitor", pagePath: null }));
+    expect(dossier.hasData).toBe(true);
+    expect(dossier.facts.some((f) => f.value.includes("rival2.com"))).toBe(true);
+    expect(dossier.facts.some((f) => f.value.includes("4 of them"))).toBe(true);
+  });
+
+  it("fails soft when native-intel throws, keeping any answer-intelligence facts", async () => {
+    vi.mocked(loadNativeIntel).mockRejectedValueOnce(new Error("boom"));
+    vi.mocked(getAnswerIntelligenceIndex).mockResolvedValueOnce({
+      built_at: "2026-07-01T00:00:00Z",
+      brand_name: "Iranopedia",
+      owned_domain: "iranopedia.com",
+      total_observations: 500,
+      total_with_answer_text: 420,
+      brand_positioning: [],
+      visibility_cells: [],
+      co_citation: { owned_domain: "iranopedia.com", total_answers_with_owned: 1, total_answers_without_owned: 1, competitors: [{ domain: "rival.com", when_owned_present: 1, when_owned_absent: 1, total_answer_appearances: 2, displacement_ratio: 0.5 }], by_topic: [] },
+      narrative_shifts: [],
+      topic_platform_summary: {},
+      tenant_id: "tenant-test",
+    } as never);
+    const dossier = await assembleAskDossier(routed({ questionClass: "competitor", pagePath: null }));
+    expect(dossier.hasData).toBe(true);
+    expect(dossier.facts.some((f) => f.value.includes("rival.com"))).toBe(true);
+  });
 });
 
 describe("ask/fact-assembly - measurement", () => {
@@ -166,6 +235,25 @@ describe("ask/fact-assembly - measurement", () => {
     expect(dossier.hasData).toBe(true);
     expect(dossier.facts.some((f) => f.source === "proof")).toBe(true);
     expect(dossier.facts.every((f) => f.href === "/proof")).toBe(true);
+  });
+
+  // D8: reliability depth - confidence, dollar value, and permutation-null read should
+  // all surface so "what did my last batch of changes do" answers with real weight.
+  it("names confidence, dollar value, and the permutation-null read when present", async () => {
+    vi.mocked(loadProofLedgerCached).mockResolvedValueOnce([
+      {
+        id: "1", page: "https://x/cheetah", path: "/cheetah", actionType: "edit_title", before: "a", after: "b",
+        shippedAt: new Date().toISOString(),
+        baseline: { clicks: 1, impressions: 1, ctr: 1, position: 1, windowDays: 28 },
+        targetQueries: [], controlPages: [], windows: [], verdict: "won", confidence: "high", measuredAt: null,
+        dollarValue: { usdPerMonth: 42, basisSentence: "At your rate, this is worth about 42 dollars a month.", confidence: "medium" },
+        permutationRead: { percentile: 0.04, nGreater: 2, nTotal: 50 },
+      } as never,
+    ]);
+    const dossier = await assembleAskDossier(routed({ questionClass: "measurement", pagePath: null }));
+    expect(dossier.facts.some((f) => f.value.includes("confidence: high"))).toBe(true);
+    expect(dossier.facts.some((f) => f.value.includes("42 dollars a month"))).toBe(true);
+    expect(dossier.facts.some((f) => f.value.includes("2 of 50 untouched pages"))).toBe(true);
   });
 
   it("returns no facts when the ledger is empty", async () => {
@@ -195,6 +283,133 @@ describe("ask/fact-assembly - plan", () => {
   it("returns no facts when there is no plan", async () => {
     const dossier = await assembleAskDossier(routed({ questionClass: "plan", pagePath: null }));
     expect(dossier.hasData).toBe(false);
+  });
+});
+
+describe("ask/fact-assembly - keyword_next (D8)", () => {
+  it("surfaces the highest-volume keyword with no owner or a weak position", async () => {
+    vi.mocked(loadKeywordLibrary).mockResolvedValueOnce({
+      rows: [
+        { keyword: "persian cat facts", searchesPerMo: 800, timesShownPerMo: 500, clicks: 10, yourPosition: null, difficulty: 40, trend: null, ownerPage: null, ownerPageHref: null, competitorOwners: [], relatedQuestions: [], sources: ["dataforseo_demand"], lastChecked: "2026-07-01" },
+        { keyword: "iranian cheetah", searchesPerMo: 200, timesShownPerMo: 300, clicks: 50, yourPosition: 2, difficulty: 20, trend: null, ownerPage: "/cheetah", ownerPageHref: "/page/cheetah", competitorOwners: [], relatedQuestions: [], sources: ["gsc"], lastChecked: "2026-07-01" },
+      ],
+      volumeCoverage: 2,
+      total: 2,
+      bySource: {} as never,
+    } as never);
+    const dossier = await assembleAskDossier(routed({ questionClass: "keyword_next", pagePath: null }));
+    expect(dossier.hasData).toBe(true);
+    expect(dossier.facts.some((f) => f.value.includes("persian cat facts"))).toBe(true);
+    expect(dossier.facts.some((f) => f.value.includes("iranian cheetah"))).toBe(false);
+    expect(dossier.facts[0]!.source).toBe("dataforseo");
+  });
+
+  it("names the library's own coverage line when every high-volume keyword is already owned and ranking", async () => {
+    vi.mocked(loadKeywordLibrary).mockResolvedValueOnce({
+      rows: [{ keyword: "iranian cheetah", searchesPerMo: 200, timesShownPerMo: 300, clicks: 50, yourPosition: 2, difficulty: 20, trend: null, ownerPage: "/cheetah", ownerPageHref: "/page/cheetah", competitorOwners: [], relatedQuestions: [], sources: ["gsc"], lastChecked: "2026-07-01" }],
+      volumeCoverage: 1,
+      total: 1,
+      bySource: {} as never,
+    } as never);
+    const dossier = await assembleAskDossier(routed({ questionClass: "keyword_next", pagePath: null }));
+    expect(dossier.hasData).toBe(true);
+    expect(dossier.facts[0]!.value).toContain("already has an owning page");
+  });
+
+  it("returns no facts when the library is empty", async () => {
+    const dossier = await assembleAskDossier(routed({ questionClass: "keyword_next", pagePath: null }));
+    expect(dossier.hasData).toBe(false);
+  });
+
+  it("fails soft when the keyword library throws", async () => {
+    vi.mocked(loadKeywordLibrary).mockRejectedValueOnce(new Error("boom"));
+    const dossier = await assembleAskDossier(routed({ questionClass: "keyword_next", pagePath: null }));
+    expect(dossier.hasData).toBe(false);
+    expect(dossier.facts).toEqual([]);
+  });
+});
+
+describe("ask/fact-assembly - system_health (D8)", () => {
+  it("names a cron failure streak", async () => {
+    vi.mocked(loadCronHealthView).mockResolvedValueOnce([
+      {
+        job: "nightly-sync", label: "Nightly sync", nextScheduledAtIso: null,
+        lastRun: { startedAt: "2026-07-01T08:00:00Z", ok: false, durationMs: 100 },
+        headline: "I showed up 3 of 7 nights this week.",
+        perSourceThisWeek: [],
+        failureStreaks: [{ tenantId: "tenant-test", provider: "google_gsc", label: "Search Console", consecutiveFailures: 4, lastFailureDetail: "token expired" }],
+      },
+    ] as never);
+    const dossier = await assembleAskDossier(routed({ questionClass: "system_health", pagePath: null }));
+    expect(dossier.hasData).toBe(true);
+    expect(dossier.facts.some((f) => f.value.includes("Search Console") && f.value.includes("4 nights"))).toBe(true);
+  });
+
+  it("names a pipeline invariant violation", async () => {
+    vi.mocked(readPipelineHealth).mockResolvedValueOnce({
+      tenant_id: "tenant-test",
+      checked_at: "2026-07-01T00:00:00Z",
+      violations: [{ stage: "gsc" as never, expected: "recent rows", actual: "none", sentence: "I have not seen a fresh Search Console row in 9 days." }],
+      summary: { gscRecentRows: 0, ga4RecentRows: null, profoundRecentRows: null, planCandidates: null, graphNodes: null, graphMoves: null },
+    } as never);
+    const dossier = await assembleAskDossier(routed({ questionClass: "system_health", pagePath: null }));
+    expect(dossier.hasData).toBe(true);
+    expect(dossier.facts.some((f) => f.value.includes("fresh Search Console row"))).toBe(true);
+  });
+
+  it("names a failed publish canary check", async () => {
+    vi.mocked(readPublishHealth).mockResolvedValueOnce({
+      tenant_id: "tenant-test", whenIso: "2026-07-01T00:00:00Z", tokenOk: false, urlMapOk: null, dryRunOk: null,
+      fixHint: "Reconnect Wix from Settings to restore publishing.",
+    } as never);
+    const dossier = await assembleAskDossier(routed({ questionClass: "system_health", pagePath: null }));
+    expect(dossier.hasData).toBe(true);
+    expect(dossier.facts.some((f) => f.value.includes("Reconnect Wix"))).toBe(true);
+    expect(dossier.facts.some((f) => f.source === "wix")).toBe(true);
+  });
+
+  it("says everything is clean when all three checks pass", async () => {
+    vi.mocked(loadCronHealthView).mockResolvedValueOnce([
+      { job: "nightly-sync", label: "Nightly sync", nextScheduledAtIso: null, lastRun: { startedAt: "2026-07-01T08:00:00Z", ok: true, durationMs: 100 }, headline: "I showed up 7 of 7 nights this week.", perSourceThisWeek: [], failureStreaks: [] },
+    ] as never);
+    vi.mocked(readPipelineHealth).mockResolvedValueOnce({
+      tenant_id: "tenant-test", checked_at: "2026-07-01T00:00:00Z", violations: [],
+      summary: { gscRecentRows: 10, ga4RecentRows: 10, profoundRecentRows: 10, planCandidates: 5, graphNodes: 5, graphMoves: 5 },
+    } as never);
+    vi.mocked(readPublishHealth).mockResolvedValueOnce({
+      tenant_id: "tenant-test", whenIso: "2026-07-01T00:00:00Z", tokenOk: true, urlMapOk: true, dryRunOk: true,
+    } as never);
+    const dossier = await assembleAskDossier(routed({ questionClass: "system_health", pagePath: null }));
+    expect(dossier.hasData).toBe(true);
+    expect(dossier.facts[0]!.value).toContain("came back clean");
+  });
+
+  it("gives an honest no-check-yet answer when nothing has ever run", async () => {
+    const dossier = await assembleAskDossier(routed({ questionClass: "system_health", pagePath: null }));
+    expect(dossier.hasData).toBe(true);
+    expect(dossier.facts[0]!.value).toContain("do not have a recent health check yet");
+  });
+
+  // PIN (ground-truth finding): loadCronHealthView() always returns one entry per job in
+  // the static CRON_SCHEDULE_MAP, even for a tenant that has never run a single cron -
+  // cronJobs.length > 0 alone must NOT read as "checked and clean" for that tenant.
+  it("does not claim 'clean' when cron-health-view returns jobs with no real lastRun", async () => {
+    vi.mocked(loadCronHealthView).mockResolvedValueOnce([
+      { job: "sync-connectors", label: "Nightly data sync", nextScheduledAtIso: "2026-07-03T09:00:00Z", lastRun: null, headline: "I have not run yet.", perSourceThisWeek: [], failureStreaks: [] },
+      { job: "publish-canary", label: "Wix connection check", nextScheduledAtIso: "2026-07-03T08:51:00Z", lastRun: null, headline: "I have not run yet.", perSourceThisWeek: [], failureStreaks: [] },
+    ] as never);
+    const dossier = await assembleAskDossier(routed({ questionClass: "system_health", pagePath: null }));
+    expect(dossier.facts[0]!.value).toContain("do not have a recent health check yet");
+    expect(dossier.facts[0]!.value).not.toContain("came back clean");
+  });
+
+  it("fails soft when every health source throws", async () => {
+    vi.mocked(loadCronHealthView).mockRejectedValueOnce(new Error("boom"));
+    vi.mocked(readPipelineHealth).mockRejectedValueOnce(new Error("boom"));
+    vi.mocked(readPublishHealth).mockRejectedValueOnce(new Error("boom"));
+    const dossier = await assembleAskDossier(routed({ questionClass: "system_health", pagePath: null }));
+    expect(dossier.hasData).toBe(true);
+    expect(dossier.facts[0]!.value).toContain("do not have a recent health check yet");
   });
 });
 

@@ -19,7 +19,9 @@ export type AskQuestionClass =
   | "ai_visibility"
   | "measurement"
   | "competitor"
-  | "plan";
+  | "plan"
+  | "keyword_next"
+  | "system_health";
 
 export type RoutedQuestion = {
   questionClass: AskQuestionClass;
@@ -41,6 +43,8 @@ const SPEAKER_BY_CLASS: Record<AskQuestionClass, TeammateKey> = {
   measurement: "proof",
   competitor: "dataforseo",
   plan: "llm",
+  keyword_next: "dataforseo",
+  system_health: "llm",
 };
 
 /** Extract a page path from free text: an explicit "/slug" token, or a bare word right
@@ -83,10 +87,16 @@ function normalizeExtractedPath(raw: string): string {
 // specific signal. Past-tense/completed-action phrasing with no such intent phrase
 // (e.g. "what did we ship this week") falls through to MEASUREMENT_PATTERNS instead.
 const PLAN_INTENT_PATTERNS = /\b(plan(ning)? to|going to (ship|do|change|fix)|will (we|you|it))\b/i;
-const MEASUREMENT_PATTERNS = /\b(did it work|work(ed)?|verdict|measur\w*|proof|result|ship(ped)?|what did we do|win rate|\bwon\b|\blost\b|before.?and.?after|lift|impact of)\b/i;
+const MEASUREMENT_PATTERNS = /\b(did it work|work(ed)?|verdict|measur\w*|proof|result|ship(ped)?|what did we do|what did .*(batch|change|edit)s? do|last (batch|change)|win rate|\bwon\b|\blost\b|before.?and.?after|lift|impact of)\b/i;
 const AI_VISIBILITY_PATTERNS = /\b(chatgpt|perplexity|gemini|claude|copilot|ai (answer|citation|visib|mention|overview)|answer box|cited|citation|mentioned by ai|ai search|\bllm\b)\b/i;
-const COMPETITOR_PATTERNS = /\b(competitor|which (competitor|rival)|rival|vs\.?\s|compare[sd]? to|ranking (above|below|higher|lower)|outrank(ing)?)\b/i;
-const PLAN_PATTERNS = /\b(what should|what are we doing|todo|to.?do|coming up|next (move|step|change))\b/i;
+const COMPETITOR_PATTERNS = /\b(competitor|which (competitor|rival)|rival|vs\.?\s|compare[sd]? to|ranking (above|below|higher|lower)|outrank(ing)?|recommend(s|ed)? instead of me|instead of (me|us)|who does ai recommend)\b/i;
+// "which keyword"/"what keyword" wins over the generic PLAN_PATTERNS "what should" so a
+// keyword-specific ask never gets the generic plan answer instead of the real keyword library.
+const KEYWORD_PATTERNS = /\b(which |what )?keyword\w* (should|to|next|worth|chase|target)|keyword should i (chase|target|go after)\b/i;
+// "is anything broken" / "is everything working" - system-health questions about the
+// pipeline itself (crons, publish path), never about page traffic.
+const SYSTEM_HEALTH_PATTERNS = /\b(anything broken|is everything (ok|okay|working|fine|running)|system (health|status|ok)|is (the )?(site|pipeline|connector\w*) (broken|down|working)|are (my )?(crons?|connectors?) (running|working|healthy)|pipeline (health|status))\b/i;
+const PLAN_PATTERNS = /\b(what should|what are we doing|todo|to.?do|coming up|next (move|step|change)|why (is|isn'?t) .*(plan|planned|selected|included))\b/i;
 const SITE_TREND_PATTERNS = /\b(site.?wide|overall|across the site|this month|this week|total clicks|traffic (drop|dip|spike|jump)|algorithm|core update|google update)\b/i;
 
 /**
@@ -97,9 +107,12 @@ const SITE_TREND_PATTERNS = /\b(site.?wide|overall|across the site|this month|th
  * class. Among the non-page classes, checks run most-specific first: explicit
  * forward-looking intent ("planning to", "going to") wins outright (plan); then a named
  * AI platform or "answer box"/"cited" (ai_visibility) even when the question also says
- * "beating me"; then a named competitor/outrank cue (competitor); then completed-action
- * language (measurement); then remaining forward-looking phrasing (plan); site_trend is
- * the generic catch-all.
+ * "beating me"; then a named competitor/outrank/"instead of me" cue (competitor); then a
+ * keyword-specific ask (keyword_next); then a system/pipeline-health cue (system_health,
+ * checked before measurement so "is anything broken" never reads as a shipped-change
+ * question); then completed-action language (measurement); then remaining
+ * forward-looking phrasing including "why isn't X in the plan" (plan); site_trend is the
+ * generic catch-all.
  */
 export function routeQuestion(rawQuestion: string): RoutedQuestion {
   const question = (rawQuestion ?? "").trim();
@@ -114,6 +127,10 @@ export function routeQuestion(rawQuestion: string): RoutedQuestion {
     questionClass = "ai_visibility";
   } else if (COMPETITOR_PATTERNS.test(question)) {
     questionClass = "competitor";
+  } else if (KEYWORD_PATTERNS.test(question)) {
+    questionClass = "keyword_next";
+  } else if (SYSTEM_HEALTH_PATTERNS.test(question)) {
+    questionClass = "system_health";
   } else if (MEASUREMENT_PATTERNS.test(question)) {
     questionClass = "measurement";
   } else if (PLAN_PATTERNS.test(question)) {

@@ -101,4 +101,42 @@ describe("ask/router - routeQuestion", () => {
     expect(r.questionClass).toBe("site_trend");
     expect(r.pagePath).toBeNull();
   });
+
+  // D8: the 4 real coverage-gap questions the operator will actually ask, plus the
+  // 5th "why is this page not in the plan" phrasing with no page named.
+  it("routes 'who does AI recommend instead of me' to competitor", () => {
+    const r = routeQuestion("who does AI recommend instead of me");
+    expect(r.questionClass).toBe("competitor");
+    expect(r.speaker).toBe("dataforseo");
+  });
+
+  it("routes 'which keyword should I chase next' to keyword_next", () => {
+    const r = routeQuestion("which keyword should I chase next");
+    expect(r.questionClass).toBe("keyword_next");
+    expect(r.speaker).toBe("dataforseo");
+  });
+
+  it("routes 'what did my last batch of changes do' to measurement", () => {
+    const r = routeQuestion("what did my last batch of changes do");
+    expect(r.questionClass).toBe("measurement");
+    expect(r.speaker).toBe("proof");
+  });
+
+  it("routes 'is anything broken right now' to system_health", () => {
+    const r = routeQuestion("is anything broken right now");
+    expect(r.questionClass).toBe("system_health");
+    expect(r.speaker).toBe("llm");
+  });
+
+  it("routes 'why is this page not in the plan' (no page named) to plan", () => {
+    const r = routeQuestion("why is this page not in the plan");
+    expect(r.questionClass).toBe("plan");
+    expect(r.pagePath).toBeNull();
+  });
+
+  it("routes 'why is the cheetah page not in the plan' (page named) to page_specific", () => {
+    const r = routeQuestion("why is the cheetah page not in the plan");
+    expect(r.questionClass).toBe("page_specific");
+    expect(r.pagePath).toBe("/cheetah");
+  });
 });
