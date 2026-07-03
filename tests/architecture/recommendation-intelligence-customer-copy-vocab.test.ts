@@ -371,6 +371,14 @@ const PROBE_SETS: Record<string, ReadonlyArray<Probe>> = {
     ["Iranopedia", "no_sameas"],
     ["X", "no_org_schema"],
   ],
+  // P20 (2026-07-03) - spelling-demand consolidation. Args: (canonical,
+  // combinedDemand, spellingCount, topSpellingDemand). Probe a 2-spelling case,
+  // a many-spelling case, and a large-count edge (comma formatting).
+  spellingDemandConsolidationCopy: [
+    ["saffron", 1400, 4, 620],
+    ["nowruz", 210, 2, 140],
+    ["kebab", 250000, 6, 90000],
+  ],
 };
 
 function scanForViolations(output: string): string[] {

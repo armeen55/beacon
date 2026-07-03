@@ -51,6 +51,21 @@ export type TenantFeatures = {
   geo_pages?: boolean;
 };
 
+/**
+ * P20 (2026-07-03) — spelling / transliteration demand group. GENERIC and
+ * language-agnostic: a tenant whose audience types the SAME thing several ways
+ * (transliterations, alternate spellings, script variants) declares each group
+ * so Beacon can consolidate the demand to one canonical term. Absent / empty →
+ * the whole spelling-demand engine is a no-op (byte-identical behavior). NO
+ * language is hardcoded anywhere; every string here is tenant-supplied config.
+ *   • canonical — the spelling the tenant wants to own (shown in copy).
+ *   • variants  — the OTHER spellings people type for the same thing.
+ */
+export type SpellingVariantGroup = {
+  canonical: string;
+  variants: string[];
+};
+
 export type PublishTargetKind = "wix_cms" | "git_pr" | "dev_note";
 
 export type BeaconTenant = {
@@ -65,6 +80,14 @@ export type BeaconTenant = {
   budget_range: "under_1m" | "1m_5m" | "5m_plus" | "mixed";
   /** Optional per-tenant engine toggles; absent → segment defaults. */
   features?: TenantFeatures;
+  /**
+   * P20 (2026-07-03): optional spelling / transliteration demand groups. A
+   * tenant whose audience types the same thing several ways declares each
+   * group here; the spelling-demand engine then consolidates search demand to
+   * the canonical term. Absent / empty → the engine is a no-op (byte-identical
+   * behavior everywhere). Generic + language-agnostic; nothing hardcoded.
+   */
+  spelling_variants?: SpellingVariantGroup[];
   /**
    * §push (2026-06-10): where approved Change Cards publish.
    *   • wix_cms  — Wix Data API edit path (Iranopedia)

@@ -84,7 +84,12 @@ function isGuideShaped(snap: PageSnapshot): boolean {
 
   const headline = (snap.h1?.trim() || snap.title?.trim() || "").toLowerCase();
   if (!headline) return false;
-  const bare = headline.split(/\s[|–—-]\s/)[0]?.trim() ?? headline;
+  // Strip a trailing " - Site Name" / " | Site Name" suffix. The separator
+  // class matches a hyphen, pipe, en dash, or em dash a real page title might
+  // use; the dashes are written as \u escapes so this source file carries no
+  // literal dash character (the hard no-dash rule applies to source too).
+  const bare =
+    headline.split(/\s[|\-\u2013\u2014]\s/)[0]?.trim() ?? headline;
   const tokens = bare.split(/\s+/).filter(Boolean);
   if (tokens.length < 2) return false;
 

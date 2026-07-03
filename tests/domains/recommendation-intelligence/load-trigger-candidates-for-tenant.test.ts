@@ -233,7 +233,7 @@ describe("loadTriggerCandidatesForTenant", () => {
     expect(result.candidates).toEqual([]);
     expect(result.diagnostic_only).toEqual([]);
     expect(result.meta.snapshot_count).toBe(0);
-    expect(result.meta.predicates_run).toBe(33);
+    expect(result.meta.predicates_run).toBe(34);
   });
 
   it("filters snapshots by tenant_id", async () => {
@@ -484,7 +484,7 @@ describe("loadTriggerCandidatesForTenant", () => {
     expect(result.meta.snapshot_count).toBe(1);
   });
 
-  it("reports predicates_run=33 in meta on the ok path (P10 entity + author pack: +entity_link_gap, +author_byline_gap, +brand_presence_gap)", async () => {
+  it("reports predicates_run=34 in meta on the ok path (P10 entity + author pack: +entity_link_gap, +author_byline_gap, +brand_presence_gap; P20: +spelling_demand_move)", async () => {
     _getPageSnapshotsMock.mockResolvedValue([
       makeSnapshot({ tenant_id: "tenant-a" }),
     ]);
@@ -494,7 +494,7 @@ describe("loadTriggerCandidatesForTenant", () => {
     const result = await loadTriggerCandidatesForTenant({
       tenantId: "tenant-a",
     });
-    expect(result.meta.predicates_run).toBe(33);
+    expect(result.meta.predicates_run).toBe(34);
   });
 
   // ── α₂ extensions ────────────────────────────────────────────────────

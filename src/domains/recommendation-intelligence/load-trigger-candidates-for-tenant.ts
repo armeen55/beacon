@@ -230,6 +230,13 @@ import { sitemapMissing } from "./triggers/sitemap-missing";
 import { titleH1Mismatch } from "./triggers/title-h1-mismatch";
 import { weakH1 } from "./triggers/weak-h1";
 import { weakH2 } from "./triggers/weak-h2";
+// P20 (2026-07-03) - spelling / transliteration demand: consolidate demand
+// across a tenant's declared spelling groups onto the canonical term and emit a
+// create_page Move to own all of them at once. GENERIC + language-agnostic;
+// reads the tenant config + the ALREADY-LOADED GSC signals ($0). With no
+// configured groups the loader adds nothing -> byte-identical to before P20.
+import { spellingDemandMove } from "./triggers/spelling-demand-move";
+import { loadSpellingDemandMoveItems } from "@/domains/spelling-demand/load-spelling-demand";
 
 export type TriggerCandidatesLoadStatus =
   | "ok"
@@ -259,8 +266,8 @@ export type TriggerCandidatesLoadResult = {
 };
 
 // 30 predicates + P10 entity + author pack's 3 (entity_link_gap,
-// author_byline_gap, brand_presence_gap) = 33.
-const PREDICATE_COUNT = 33;
+// author_byline_gap, brand_presence_gap) = 33, + P20 spelling_demand_move = 34.
+const PREDICATE_COUNT = 34;
 
 function emptyResult(
   status: TriggerCandidatesLoadStatus,
@@ -782,6 +789,35 @@ export async function loadTriggerCandidatesForTenant(options: {
   } catch (err) {
     console.error(
       `[trigger-loader] internal-authority family failed for ${tenantId} (buried_page / entity_interlink / term_coverage_gap skip): ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+  // ── P20 (2026-07-03): spelling / transliteration demand. GENERIC +
+  //    language-agnostic. Reads the tenant's declared spelling groups (config)
+  //    + the ALREADY-LOADED GSC signals ($0), consolidates demand across
+  //    spellings onto the canonical term, and emits a create_page Move when the
+  //    combined demand clears the floor AND no owned page already captures the
+  //    variants. With NO configured groups loadSpellingDemandMoveItems returns
+  //    [] immediately -> the loader adds nothing -> byte-identical to before
+  //    P20. Fail-soft as its own block; any failure skips only this Move.
+  try {
+    const spellingItems = await loadSpellingDemandMoveItems({ tenantId, gscSignals });
+    if (spellingItems.length > 0) {
+      const rootDomain = businessConfig.domain
+        ?.trim()
+        .replace(/^https?:\/\//, "")
+        .replace(/\/$/, "");
+      all.push(
+        ...spellingDemandMove({
+          tenantId,
+          items: spellingItems,
+          siteRootUrl: rootDomain ? "https://" + rootDomain + "/" : null,
+          signalAt: new Date().toISOString(),
+        }),
+      );
+    }
+  } catch (err) {
+    console.error(
+      `[trigger-loader] spelling-demand-move failed for ${tenantId} (spelling_demand_move skips): ${err instanceof Error ? err.message : String(err)}`,
     );
   }
   // (SEMrush cannibalization + keyword-gap triggers removed Phase F.1 — SEMrush
@@ -1465,9 +1501,14 @@ export async function loadTriggerCandidatesForTenant(options: {
   //   3. brand_presence_gap - a connector-free, cold-start-safe check that the
   //      site root establishes the brand as an entity (Organization + sameAs).
   //      At most one add_schema card for the whole tenant, site-root anchored.
-  // The entity/brand cards reuse add_schema (same cooldown key as missing_schema
-  // / invalid_schema); anything a schema trigger already claimed for a URL this
-  // run defers, so no page emits two schema cards. Empty inputs -> byte-identical.
+  // The entity/brand cards reuse add_schema, whose cooldown key collides with
+  // the generic missing_schema / invalid_schema cards on the SAME URL. Rather
+  // than blindly defer, the P10 schema cards are the stronger, customer-facing
+  // framing of "add schema here" (medium confidence, names the exact people and
+  // things the page is about), so they SUPERSEDE a prior LOW-confidence
+  // (diagnostic-only) generic schema card on the same cooldown key, while still
+  // deferring to a medium/high schema card already queued for a real edit.
+  // Empty inputs -> byte-identical to before this family existed.
   try {
     const nowIso = new Date().toISOString();
     const eeat = await loadEeatSignalsForTenant({
@@ -1475,33 +1516,53 @@ export async function loadTriggerCandidatesForTenant(options: {
       snapshots,
       businessConfig,
     });
-    const claimedEeat = new Set(all.map((r) => r.cooldown_key));
 
-    const entityRows = entityLinkGap({
-      tenantId,
-      gaps: eeat.entityLinkGaps,
-      signalAt: nowIso,
-    }).filter((r) => !claimedEeat.has(r.cooldown_key));
-    for (const r of entityRows) claimedEeat.add(r.cooldown_key);
-    all.push(...entityRows);
+    // A cooldown key is "claimed hard" only by a medium/high card; a prior
+    // low-confidence card is superseded (removed) when a P10 schema card lands
+    // on the same key.
+    const hardClaimed = new Set(
+      all.filter((r) => r.confidence !== "low").map((r) => r.cooldown_key),
+    );
+    const supersededKeys = new Set<string>();
 
-    // Author byline uses add_answer_block (a distinct cooldown key from the
-    // schema cards), so it never collides with the entity/brand cards; still
-    // dedupe defensively against anything already claimed for the URL+action.
+    const schemaRows = [
+      ...entityLinkGap({ tenantId, gaps: eeat.entityLinkGaps, signalAt: nowIso }),
+      ...brandPresenceGap({ tenantId, gap: eeat.brandPresenceGap, signalAt: nowIso }),
+    ].filter((r) => !hardClaimed.has(r.cooldown_key));
+    for (const r of schemaRows) {
+      hardClaimed.add(r.cooldown_key);
+      supersededKeys.add(r.cooldown_key);
+    }
+
+    // Author byline uses add_answer_block, whose COARSE cooldown key (tenant +
+    // action + url) collides with answer-block-readiness on the same page even
+    // though they are distinct intents (answer the question vs credit the
+    // author). Dedup by the FINER dedupe_key (which includes the "Author trust"
+    // topic) so an author-trust directive can coexist with an answer-block
+    // directive on one page, while a true duplicate author card is still
+    // dropped by the final dedupeByKey pass.
+    const authorClaimed = new Set(all.map((r) => r.dedupe_key));
     const authorRows = authorBylineGap({
       tenantId,
       gaps: eeat.authorGaps,
       signalAt: nowIso,
-    }).filter((r) => !claimedEeat.has(r.cooldown_key));
-    for (const r of authorRows) claimedEeat.add(r.cooldown_key);
-    all.push(...authorRows);
+    }).filter((r) => !authorClaimed.has(r.dedupe_key));
 
-    const brandRows = brandPresenceGap({
-      tenantId,
-      gap: eeat.brandPresenceGap,
-      signalAt: nowIso,
-    }).filter((r) => !claimedEeat.has(r.cooldown_key));
-    all.push(...brandRows);
+    // Drop any prior LOW-confidence schema card the P10 schema cards supersede,
+    // then append the stronger P10 cards + the author directives.
+    if (supersededKeys.size > 0) {
+      for (let i = all.length - 1; i >= 0; i--) {
+        const r = all[i]!;
+        if (
+          r.confidence === "low" &&
+          r.action_type === "add_schema" &&
+          supersededKeys.has(r.cooldown_key)
+        ) {
+          all.splice(i, 1);
+        }
+      }
+    }
+    all.push(...schemaRows, ...authorRows);
   } catch (err) {
     console.error(
       `[trigger-loader] entity + author pack failed for ${tenantId} (entity_link_gap / author_byline_gap / brand_presence_gap skip): ${err instanceof Error ? err.message : String(err)}`,

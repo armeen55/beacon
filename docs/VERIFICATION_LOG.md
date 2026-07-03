@@ -7,6 +7,105 @@
 
 ---
 
+## 2026-07-03 - R23 P23: reports pack (export-a-win card + internal monthly report, INTERNAL-only)
+
+**Goal:** build the two operator-facing "proof it worked" artifacts (v1 233 export-a-win card;
+v1 257+575 merged internal monthly report page). Both COMPOSE already-computed proof-ledger data
+(no new store, no new measure, no LLM); numbers must agree with /results and /changes.
+
+**What changed (NEW `src/app/(shell)/reports/` island + one navigation title entry):**
+1. **Report read-model** - `reports-data.ts` (`loadReportModel`, request-cached) reads the EXACT
+   same snapshot /results reads (`loadResultsLedgerSurface`), and `report-model.ts` shapes it PURELY.
+   Count agreement is by construction: bands + shipped/won/measuring/decided come from
+   `computeCumulativeOutcome` (which calls `splitLedgerLifecycle`, THE ONE-COUNT RULE), the total
+   clicks figure IS `outcome.winClicksPerMonth`, and the misses reuse `buildRecapItems` (the same
+   items /results' "We got this wrong" renders).
+2. **Export-a-win card (v1 233)** - `win-card.tsx` `WinCardView` renders one measured win,
+   screenshot-ready, tokens/primitives only (Card/Pill/ReceiptLine). Per-win route
+   `reports/win/[id]/page.tsx`. Self-hides via `WinCardEmpty`. Rendered copy (28-day win, +38/mo):
+   "Measured win  28-day read  +38 clicks a month  on the persian comedians page, since we shipped
+   the title rewrite on Jun 25.  From your Search Console data, measured against comparison pages you
+   did not change, checked just now." Empty state: "No measured wins yet. Ship a change and I will
+   show the first one here in a few weeks, once its full read comes in."
+3. **Internal monthly report (v1 257/575)** - `reports/page.tsx`, operator-gated
+   (`BEACON_OPERATOR_MODE`, same guard as /diagnostics) + `force-dynamic`, hidden from nav. Rendered
+   headline: "This month I shipped 5 changes. Across everything I am tracking, 2 won, 2 are still
+   measuring, and 1 did not move the needle." Misses line: "1 change did not move the needle. Here is
+   what we learned." One miss item: "That one did not work: the meta description rewrite on
+   /persian-singers. Here is what we learned: the full read showed the effect was too small to
+   matter." Empty ledger -> "No changes shipped yet. Ship a move from your Changes list and this
+   report fills in as its read comes back."
+
+**Verified:** `npm run typecheck` clean. Tests: reports pack 22/22 (report-model count-agreement +
+win-card shaping + jargon/dash guard + renderToStaticMarkup copy pins) all green; affected suites
+green - design-system-guard (ratchet held at 1298; the 5 reports source files add 0 raw palette
+classes, tokens/primitives only), catalog-sync, proof-jargon-guard, results-ledger-data,
+cumulative-outcome, lifecycle-counts, results-recap, app-sidebar, customer-nav-exposure. Count
+agreement asserted directly against `computeCumulativeOutcome` + `countLedgerLifecycle`. Needs live
+data: real rendered numbers appear only once Iranopedia has a matured 28-day win (the code + copy are
+proven via static render). No dev server used (route only proves live data).
+
+## 2026-07-03 - R23 P10: entity + author (E-E-A-T) system (3 highest-impact Moves)
+
+**Goal:** build the three highest-impact E-E-A-T Moves (v1 118+218, 243+263, 372, 507) that extend
+the SHIPPED Wikidata/QID biography work into a sitewide entity + author trust layer. All
+deterministic over data Beacon already has, English-first, tenant-agnostic, empty-safe.
+
+**What changed (NEW `src/domains/entity/eeat-*` island + ONE new trigger file):**
+1. **Sitewide entity + sameAs (v1 118/218)** - `eeat-entity-link.ts` `classifyEntityLinkGaps` +
+   `composeEntityAboutSchema`. A content page whose own title/H1/H2 names an entity Beacon already
+   resolved to a Wikidata QID (the shipped `wikidata-entity-cache`) but does not link it earns an
+   `add_schema` Move with a ready-to-paste WebPage/about/sameAs block. Rendered copy: "This page is
+   about Nowruz and 2 other things your page names, which Google already knows in its Knowledge
+   Graph. I built the structured data that links your page to it. Paste it into the page so Google
+   and AI connect your page to the topic." Composed JSON-LD validated by the scanner's own
+   `validateSchema` (0 warnings).
+2. **Author / reviewer Person byline (v1 243/263)** - `eeat-author.ts` `classifyAuthorGaps` +
+   `hasVisibleByline`. A guide-shaped content page with no Person schema AND no visible "By <Name>"
+   byline earns an `add_answer_block` DIRECTIVE (Beacon never invents a person's name). Empty when a
+   byline / Person schema is already present. Rendered copy: "This guide page does not say who wrote
+   it. Add a real author byline and Person structured data so Google and AI can trust who wrote
+   this. A named, credible author is one of the strongest trust signals a content page can carry."
+3. **Knowledge-Graph / brand presence (v1 372/507)** - `eeat-brand-presence.ts`
+   `classifyBrandPresence` + `composeBrandEntitySchema` (reuses the shipped `buildEntitySchema`).
+   Connector-free, cold-start-safe: reads only the site-root snapshot's schema. Honesty gate: the
+   check abstains unless the homepage was actually crawled. Self-hides when Organization schema +
+   sameAs are already present. Rendered copy (no_org_schema): "Google does not yet clearly know
+   Iranopedia as a brand. I built the Organization structured data that names who you are and links
+   to your site. Paste it into your homepage, then add your real profile links, so Google can lock
+   in who you are."
+
+**Wiring:** `load-eeat-signals.ts` is the ONE I/O boundary (reads the Wikidata cache + joins to the
+already-loaded snapshots; NEVER calls Wikidata or an LLM). The ONE new trigger
+`triggers/entity-eeat.ts` holds three PURE predicates. Loader runs the pack after the image-SEO
+lane; the P10 schema cards SUPERSEDE a prior LOW-confidence generic `missing_schema` card on the
+same URL (they are the stronger, customer-facing framing) while deferring to any medium/high card;
+the author directive dedups by the finer dedupe_key so it can coexist with an answer-block directive
+on the same page.
+
+**Counter pins (all fixed):** `PREDICATE_COUNT` 30 -> 33 in
+`load-trigger-candidates-for-tenant.ts`; both `predicates_run` assertions in the loader test (30 ->
+33); the two `30` assertions + the it() title in `recommendation-triggers-page.test.tsx` (30 -> 33,
+incl. the `>30<` regex and `data-description-predicates-run` + `30</span> active` prose pins). Repo
+grep confirms no remaining `predicates_run`/`PREDICATE_COUNT`-adjacent `30`.
+
+**Empty-safe pins:** each detector has an EMPTY-input test; the three predicates each have an
+empty-input test; brand self-hides (null) when well represented AND when the homepage was not
+crawled (honesty gate); entity gap empty when the cache is empty or the page names no known entity;
+author gap empty when a byline/Person schema is present.
+
+**Verify:** `npm run typecheck` clean. 49 new tests (11 entity-link + 11 author + 6 brand + 11
+loader-signals + 6 trigger + 4 loader-integration) all green. Affected suites green together (69
+files / 1207 tests): entity, demand-graph entity-schema, recommendation-intelligence (loader +
+triggers + copy-templates), expected-schema, diagnostics recommendation-triggers page,
+customer-copy-vocab, predicate-purity, page-classifier-applied, catalog-sync, design-system-guard,
+no-banned-dash. 3 new copy templates registered with probe sets in the copy-vocab invariant. Rendered
+copy quoted via `renderToStaticMarkup` (all first-person, concrete, next-step, no dash, no lab word).
+No dev server (generation-path, operator-diagnostic feature). Design-system ratchet unchanged (no new
+raw-palette shell surfaces).
+
+---
+
 ## 2026-07-03 - R23 P5: team-deliberation pack (visible debate quality on the roundtable)
 
 **Goal:** deepen the VISIBLE debate on the daily card so it reads like a real team argued the
@@ -33209,3 +33308,29 @@ for Iranopedia; on hosted Supabase the egress-lean snapshot projection must also
 persistence-owner follow-up (works end-to-end on the file backend today). ROADMAPPED: image
 filesize/format audit, next-gen-format nudges, and NEW original/licensed images (behind N5's
 gate) are the rest of the P24 pack.
+
+---
+
+2026-07-03 - P20 transliteration + spelling-variant demand (v1 129). Built a GENERIC,
+tenant-configured canonical-spelling demand engine (english-first, NO language hardcoding).
+New optional per-tenant config `BeaconTenant.spelling_variants` (array of {canonical, variants[]});
+absent/empty = the whole feature is a byte-identical no-op (pinned). New domain
+`src/domains/spelling-demand/**`: pure `consolidateSpellingDemand` (sums demand across a group's
+spellings onto the canonical, returns only genuinely-split groups; script-agnostic normalization
+that preserves any writing system), pure `buildSpellingDemandMoveItems` (demand floor + suppresses
+when one owned page already ranks for 2+ spellings), and a server `loadSpellingDemandMoveItems`
+(reads config + the ALREADY-LOADED GSC signals, $0). ONE new trigger
+`triggers/spelling-demand-move.ts` emits a `create_page` Move (reuses existing action type;
+trigger_signal `spelling_demand_move`) anchored on the site root. One new copy template
+`spellingDemandConsolidationCopy` + its copy-vocab probe set. Wired into the shared trigger loader
+as a config-gated fail-soft block. PREDICATE_COUNT 33 -> 34; ALL counter pins updated (loader const
++ 2 loader-test assertions + it()-title + the 2 triggers-page test assertions + the it()-title).
+VERIFIED: `npm run typecheck` clean; new suites green (consolidate 20, build-move-items 8,
+load-spelling-demand 7, spelling-demand-move trigger 12); registry-adjacent suites green (loader,
+triggers-page, copy-vocab, predicate-purity, catalog-sync, design-system-guard,
+diagnostic-source-and-copy = 215 tests); keyword-portfolio + tenants + action-types green.
+Rendered copy (quoted): "'saffron' and 3 other spellings of it get 1,400 searches a month combined,
+more than any single spelling shows on its own (the biggest one is only 620). One page built around
+'saffron' that also names the other spellings can own all of that demand at once." ROADMAPPED (v1 374):
+optional native-script term surfaced INSIDE the drafted answer/page body; a tenant-config editor UI
+for declaring spelling groups (no UI shipped this slice, config is a data field).

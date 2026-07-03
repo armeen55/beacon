@@ -1081,3 +1081,37 @@ export function brandPresenceGapCopy(
     " as a brand. I built the Organization structured data that names who you are and links to your site. Paste it into your homepage, then add your real profile links, so Google can lock in who you are."
   );
 }
+
+/**
+ * Spelling-demand consolidation (BEACON 500 P20, v1 129, 2026-07-03). People
+ * type the same thing several ways, so the demand splits across spellings and no
+ * single one shows its true size. This adds them up and points at owning all of
+ * them with one page. Args: the canonical spelling, the combined monthly demand,
+ * how many spellings folded together, and the biggest single spelling's demand.
+ * Concrete numbers, a clear next step, no lab words. NO em or en dashes.
+ */
+export function spellingDemandConsolidationCopy(
+  canonical: string,
+  combinedDemand: number,
+  spellingCount: number,
+  topSpellingDemand: number,
+): string {
+  const otherCount = Math.max(0, spellingCount - 1);
+  const spellingsPhrase =
+    otherCount === 1
+      ? "1 other spelling of it"
+      : otherCount + " other spellings of it";
+  return (
+    "“" +
+    canonical +
+    "” and " +
+    spellingsPhrase +
+    " get " +
+    combinedDemand.toLocaleString("en-US") +
+    " searches a month combined, more than any single spelling shows on its own (the biggest one is only " +
+    topSpellingDemand.toLocaleString("en-US") +
+    "). One page built around “" +
+    canonical +
+    "” that also names the other spellings can own all of that demand at once."
+  );
+}
