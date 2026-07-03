@@ -108,14 +108,30 @@ export type PlannedExperiment = DailyCandidate & {
    *  previously-retired (pageFamily, lever) cell. Absent on every ordinary pick. */
   retest?: RetestFlag;
 };
-export type ExcludedReason = EligibilityReason | "page_family_cap" | "action_family_cap" | "high_traffic_cap" | "budget_full" | "over_max" | "influenced_conflict" | "underpowered" | "lever_retired";
+export type ExcludedReason = EligibilityReason | "page_family_cap" | "action_family_cap" | "high_traffic_cap" | "budget_full" | "over_max" | "influenced_conflict" | "underpowered" | "lever_retired" | "interference_hold";
 export type ExcludedExperiment = {
   url: string;
   actionFamily: ExperimentFamily;
   reason: ExcludedReason;
   availableAt?: string;
   relatedProofIds?: string[];
+  /** Item N14: present only for reason "interference_hold" - the plain
+   *  first-person sentence from interference-graph.ts's
+   *  interferenceSummarySentence naming WHY (e.g. "I am holding this
+   *  because the page shares its template family with 3 changes still
+   *  measuring."). Absent for every other exclusion reason. */
+  plainReason?: string;
 };
+
+/** Item N14: the per-candidate interference read the caller (build-daily-
+ *  candidates.ts / build-today-preview.ts) has already computed from
+ *  interference-graph.ts, keyed by the SAME host-stripped path
+ *  experiment-eligibility.ts uses. Optional - a caller that never wires this
+ *  (the default, undefined map) sees byte-identical plans to before N14
+ *  existed. Kept as a plain lookup (not the full InterferenceGraphResult
+ *  type) so this module stays free of a hard dependency on proof-gsc's
+ *  interference-graph.ts; the caller does the one-line adaptation. */
+export type InterferenceHoldLookup = ReadonlyMap<string, { hold: boolean; reason: string }>;
 
 export type ControlAvailabilitySummary = {
   /** Pages with NO active treatment/control — the clean pool a new batch can draw controls from. */
@@ -205,10 +221,16 @@ export function planDailyExperiments(input: {
   candidates: DailyCandidate[];
   proofLedger: ShippedChangeRecord[];
   config?: PlannerConfig;
+  /** Item N14: per-candidate interference read (interference-graph.ts),
+   *  keyed by host-stripped path. Optional - omitted (the default) yields
+   *  byte-identical plans to before N14 existed. */
+  interference?: InterferenceHoldLookup;
 }): DailyExperimentPlan {
   const cfg = { ...DEFAULTS, ...(input.config ?? {}) };
   const now = input.config?.now ?? new Date();
   const states = deriveExperimentStates(input.proofLedger, now);
+  const normPathForInterference = (u: string) =>
+    (u.replace(/^https?:\/\/[^/]+/, "").replace(/[?#].*$/, "") || "/");
 
   const excluded: ExcludedExperiment[] = [];
   const eligible: PlannedExperiment[] = [];
@@ -226,6 +248,22 @@ export function planDailyExperiments(input: {
     // with patience) is hard-excluded, and the reason is recorded so nothing disappears silently.
     if (c.power && c.power.ratio < EXTREME_SHORTFALL_RATIO) {
       excluded.push({ url: c.url, actionFamily: c.actionFamily, reason: "underpowered" });
+      continue;
+    }
+    // Item N14 - the general interference graph generalizes N12 (same-query
+    // blocking) and N13 (control contamination): a candidate whose target
+    // page has a SIGNIFICANT interference edge into an in-flight measurement
+    // (a directly linked page, a same-template-family page, overlapping
+    // search demand, or a sitewide shock still being measured elsewhere)
+    // gets the same hold treatment as an active-treatment/control exclusion,
+    // with the plain reason threaded through so the operator sees WHY, not
+    // just a bare status code. Only fires when the caller wired the lookup
+    // (interference-graph.ts's honest floors already keep a weak edge from
+    // ever reaching `hold: true`); an unwired caller sees byte-identical
+    // behavior to every planner version before N14.
+    const holdEntry = input.interference?.get(normPathForInterference(c.url));
+    if (holdEntry?.hold) {
+      excluded.push({ url: c.url, actionFamily: c.actionFamily, reason: "interference_hold", plainReason: holdEntry.reason });
       continue;
     }
     eligible.push({ ...c, pageFamily: c.pageFamily ?? pageFamilyOf(c.url), score: scoreCandidate(c) });

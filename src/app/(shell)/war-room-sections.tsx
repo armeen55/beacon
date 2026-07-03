@@ -501,105 +501,122 @@ export async function DemandOpportunitiesSection({ tenantId }: { tenantId: strin
             ? "Searches moving this week in your own Google data, then gaps from keyword research."
             : "Real monthly searches (DataForSEO) where no page of yours is the answer today."}
         </p>
-        <div className="mt-2 space-y-1.5">
-          {/* Item 14 - this week's query spikes: time-boxed demand from last night's radar pass. */}
-          {spikeRows.map(({ spike, searchTerm }) => (
-            <div key={`s-${spike.query}`} className="rounded-xl bg-amber-50/70 px-3 py-2 dark:bg-amber-950/30">
-              <p className="text-[13px] font-medium text-amber-900 dark:text-amber-200">{spike.sentence}</p>
-              <p className="mt-0.5 flex flex-wrap items-baseline gap-x-2 text-[12px] text-amber-800/90 dark:text-amber-300/90">
-                {spike.topPage ? <span>Your best matching page: {prettyPath(spike.topPage)}.</span> : null}
-                <span>Worth a same-week answer.</span>
-                {searchTerm ? (
-                  <Link
-                    href={`/worklist?search=${encodeURIComponent(searchTerm)}`}
-                    className={`rounded-sm font-medium text-amber-700 underline underline-offset-2 hover:text-amber-900 dark:text-amber-300 dark:hover:text-amber-100 ${FOCUS}`}
-                  >
-                    See the matching change
-                  </Link>
-                ) : null}
-              </p>
-            </div>
-          ))}
-          {/* Master plan item 21 - the single most urgent upcoming seasonal window, from the
-              permanent GSC monthly archive. Below the spikes; silent when nothing is due. */}
-          {seasonalRow ? (
-            <div key={`season-${seasonalRow.query}`} className="rounded-xl bg-sky-50/70 px-3 py-2 dark:bg-sky-950/30">
-              <p className="text-[13px] font-medium text-sky-900 dark:text-sky-200">{seasonalRow.sentence}</p>
-              {seasonalRow.topPage ? (
-                <p className="mt-0.5 text-[12px] text-sky-800/90 dark:text-sky-300/90">Your best matching page: {prettyPath(seasonalRow.topPage)}.</p>
+        {/* UX4 item 4 - the stream splits into its distinct tools under mini-headers instead of
+            one long unlabeled list, so each teammate's kind of finding reads as its own idea:
+            time-boxed movement this week, longer-running keyword-research gaps, and language
+            gaps. A cluster with nothing to show renders no header at all. */}
+        <div className="mt-2 space-y-3">
+          {(spikeRows.length > 0 || seasonalRow || fadingRow) ? (
+            <div className="space-y-1.5">
+              <p className="px-0.5 text-[11px] font-semibold text-gray-500 dark:text-neutral-400">Searches moving this week</p>
+              {/* Item 14 - this week's query spikes: time-boxed demand from last night's radar pass. */}
+              {spikeRows.map(({ spike, searchTerm }) => (
+                <div key={`s-${spike.query}`} className="rounded-xl bg-amber-50/70 px-3 py-2 dark:bg-amber-950/30">
+                  <p className="text-[13px] font-medium text-amber-900 dark:text-amber-200">{spike.sentence}</p>
+                  <p className="mt-0.5 flex flex-wrap items-baseline gap-x-2 text-[12px] text-amber-800/90 dark:text-amber-300/90">
+                    {spike.topPage ? <span>Your best matching page: {prettyPath(spike.topPage)}.</span> : null}
+                    <span>Worth a same-week answer.</span>
+                    {searchTerm ? (
+                      <Link
+                        href={`/worklist?search=${encodeURIComponent(searchTerm)}`}
+                        className={`rounded-sm font-medium text-amber-700 underline underline-offset-2 hover:text-amber-900 dark:text-amber-300 dark:hover:text-amber-100 ${FOCUS}`}
+                      >
+                        See the matching change
+                      </Link>
+                    ) : null}
+                  </p>
+                </div>
+              ))}
+              {/* Master plan item 21 - the single most urgent upcoming seasonal window, from the
+                  permanent GSC monthly archive. Below the spikes; silent when nothing is due. */}
+              {seasonalRow ? (
+                <div key={`season-${seasonalRow.query}`} className="rounded-xl bg-sky-50/70 px-3 py-2 dark:bg-sky-950/30">
+                  <p className="text-[13px] font-medium text-sky-900 dark:text-sky-200">{seasonalRow.sentence}</p>
+                  {seasonalRow.topPage ? (
+                    <p className="mt-0.5 text-[12px] text-sky-800/90 dark:text-sky-300/90">Your best matching page: {prettyPath(seasonalRow.topPage)}.</p>
+                  ) : null}
+                </div>
               ) : null}
+              {/* Master plan item 56 - the single worst FADING page, from last night's refresh-queue
+                  pass (quarter-over-quarter GSC clicks). Below the seasonal row; silent when
+                  nothing is fading. The same queue feeds the nightly plan, so the fix is a plan
+                  pick away, not a separate workflow. */}
+              {fadingRow ? (
+                <div key={`fade-${fadingRow.page}`} className="rounded-xl bg-rose-50/70 px-3 py-2 dark:bg-rose-950/30">
+                  <p className="text-[13px] font-medium text-rose-900 dark:text-rose-200">
+                    {prettyPath(fadingRow.page)}: {fadingRow.rank.sentence}
+                  </p>
+                  <p className="mt-0.5 flex flex-wrap items-baseline gap-x-2 text-[12px] text-rose-800/90 dark:text-rose-300/90">
+                    {briefSentences(fadingRow)[0] ? <span>{briefSentences(fadingRow)[0]}</span> : null}
+                    <span>I put a refresh in tonight&apos;s plan when there is a concrete section to add.</span>
+                    <Link
+                      href="#daily-experiments"
+                      className={`rounded-sm font-medium text-rose-700 underline underline-offset-2 hover:text-rose-900 dark:text-rose-300 dark:hover:text-rose-100 ${FOCUS}`}
+                    >
+                      See tonight&apos;s picks
+                    </Link>
+                  </p>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+          {(res.opportunities.length > 0 || res.trends.length > 0) ? (
+            <div className="space-y-1.5">
+              <p className="px-0.5 text-[11px] font-semibold text-gray-500 dark:text-neutral-400">Research gaps</p>
+              {res.opportunities.slice(0, 5).map((o) => (
+                <div key={o.id} className="flex flex-wrap items-baseline gap-2 rounded-xl bg-gray-50 px-3 py-2 dark:bg-neutral-800/60">
+                  <span className="text-[13px] font-semibold text-gray-800 dark:text-neutral-200">{o.primaryKeyword}</span>
+                  {o.estDemand > 0 ? (
+                    <span className="text-[11px] text-gray-500 dark:text-neutral-400">{o.estDemand.toLocaleString()} searches/mo</span>
+                  ) : null}
+                  <Link href="#new-pages" className={`ml-auto rounded-sm text-[11px] font-medium text-violet-600 underline-offset-2 hover:underline dark:text-violet-400 ${FOCUS}`}>
+                    {String(o.action).replace(/_/g, " ")} below
+                  </Link>
+                </div>
+              ))}
+              {/* Operator-experience checkpoint (2026-07-02, roasts #4/#16): the trends
+                  block sat under the opportunities list with no heading and could repeat
+                  the SAME keyword with a different demand number from a different source,
+                  reading as the app contradicting itself. Dedupe against the keywords
+                  already shown above and label the block so it reads as its own idea. */}
+              {(() => {
+                const shownKeywords = new Set(
+                  res.opportunities.slice(0, 5).map((o) => o.primaryKeyword.trim().toLowerCase()),
+                );
+                const freshTrends = res.trends
+                  .filter((t) => !shownKeywords.has(t.query.trim().toLowerCase()))
+                  .slice(0, 2);
+                if (freshTrends.length === 0) return null;
+                return (
+                  <>
+                    <p className="mt-1 px-3 text-[11px] font-medium text-gray-500 dark:text-neutral-400">
+                      Heating up right now
+                    </p>
+                    {freshTrends.map((t) => (
+                      <div key={`t-${t.id}`} className="flex flex-wrap items-baseline gap-2 rounded-xl bg-emerald-50/60 px-3 py-2 dark:bg-emerald-950/30">
+                        <span className="text-[13px] font-semibold text-gray-800 dark:text-neutral-200">{t.query}</span>
+                        <span className="text-[11px] text-emerald-700 dark:text-emerald-300">{t.seasonal ? "seasonal, peak coming" : "searches climbing"}</span>
+                        {typeof t.estDemand === "number" && t.estDemand > 0 ? (
+                          <span className="text-[11px] text-gray-500 dark:text-neutral-400">{t.estDemand.toLocaleString()} searches/mo</span>
+                        ) : null}
+                      </div>
+                    ))}
+                  </>
+                );
+              })()}
             </div>
           ) : null}
           {/* Master plan item 24 - the single biggest Farsi/Finglish language gap, from last
-              night's language-gap matrix pass. Below the seasonal row; silent when none found. */}
+              night's language-gap matrix pass; silent when none found. */}
           {languageGapRow ? (
-            <div key={`lang-${languageGapRow.page}`} className="rounded-xl bg-violet-50/70 px-3 py-2 dark:bg-violet-950/30">
-              <p className="text-[13px] font-medium text-violet-900 dark:text-violet-200">{languageGapRow.sentence}</p>
-              <p className="mt-0.5 text-[12px] text-violet-800/90 dark:text-violet-300/90">Page: {prettyPath(languageGapRow.page)}.</p>
+            <div className="space-y-1.5">
+              <p className="px-0.5 text-[11px] font-semibold text-gray-500 dark:text-neutral-400">Language gaps</p>
+              <div key={`lang-${languageGapRow.page}`} className="rounded-xl bg-violet-50/70 px-3 py-2 dark:bg-violet-950/30">
+                <p className="text-[13px] font-medium text-violet-900 dark:text-violet-200">{languageGapRow.sentence}</p>
+                <p className="mt-0.5 text-[12px] text-violet-800/90 dark:text-violet-300/90">Page: {prettyPath(languageGapRow.page)}.</p>
+              </div>
             </div>
           ) : null}
-          {/* Master plan item 56 - the single worst FADING page, from last night's refresh-queue
-              pass (quarter-over-quarter GSC clicks). Below the language-gap row; silent when
-              nothing is fading. The same queue feeds the nightly plan, so the fix is a plan
-              pick away, not a separate workflow. */}
-          {fadingRow ? (
-            <div key={`fade-${fadingRow.page}`} className="rounded-xl bg-rose-50/70 px-3 py-2 dark:bg-rose-950/30">
-              <p className="text-[13px] font-medium text-rose-900 dark:text-rose-200">
-                {prettyPath(fadingRow.page)}: {fadingRow.rank.sentence}
-              </p>
-              <p className="mt-0.5 flex flex-wrap items-baseline gap-x-2 text-[12px] text-rose-800/90 dark:text-rose-300/90">
-                {briefSentences(fadingRow)[0] ? <span>{briefSentences(fadingRow)[0]}</span> : null}
-                <span>I put a refresh in tonight&apos;s plan when there is a concrete section to add.</span>
-                <Link
-                  href="#daily-experiments"
-                  className={`rounded-sm font-medium text-rose-700 underline underline-offset-2 hover:text-rose-900 dark:text-rose-300 dark:hover:text-rose-100 ${FOCUS}`}
-                >
-                  See tonight&apos;s picks
-                </Link>
-              </p>
-            </div>
-          ) : null}
-          {res.opportunities.slice(0, 5).map((o) => (
-            <div key={o.id} className="flex flex-wrap items-baseline gap-2 rounded-xl bg-gray-50 px-3 py-2 dark:bg-neutral-800/60">
-              <span className="text-[13px] font-semibold text-gray-800 dark:text-neutral-200">{o.primaryKeyword}</span>
-              {o.estDemand > 0 ? (
-                <span className="text-[11px] text-gray-500 dark:text-neutral-400">{o.estDemand.toLocaleString()} searches/mo</span>
-              ) : null}
-              <Link href="#new-pages" className={`ml-auto rounded-sm text-[11px] font-medium text-violet-600 underline-offset-2 hover:underline dark:text-violet-400 ${FOCUS}`}>
-                {String(o.action).replace(/_/g, " ")} below
-              </Link>
-            </div>
-          ))}
-          {/* Operator-experience checkpoint (2026-07-02, roasts #4/#16): the trends
-              block sat under the opportunities list with no heading and could repeat
-              the SAME keyword with a different demand number from a different source,
-              reading as the app contradicting itself. Dedupe against the keywords
-              already shown above and label the block so it reads as its own idea. */}
-          {(() => {
-            const shownKeywords = new Set(
-              res.opportunities.slice(0, 5).map((o) => o.primaryKeyword.trim().toLowerCase()),
-            );
-            const freshTrends = res.trends
-              .filter((t) => !shownKeywords.has(t.query.trim().toLowerCase()))
-              .slice(0, 2);
-            if (freshTrends.length === 0) return null;
-            return (
-              <>
-                <p className="mt-1 px-3 text-[11px] font-medium text-gray-500 dark:text-neutral-400">
-                  Heating up right now
-                </p>
-                {freshTrends.map((t) => (
-                  <div key={`t-${t.id}`} className="flex flex-wrap items-baseline gap-2 rounded-xl bg-emerald-50/60 px-3 py-2 dark:bg-emerald-950/30">
-                    <span className="text-[13px] font-semibold text-gray-800 dark:text-neutral-200">{t.query}</span>
-                    <span className="text-[11px] text-emerald-700 dark:text-emerald-300">{t.seasonal ? "seasonal, peak coming" : "searches climbing"}</span>
-                    {typeof t.estDemand === "number" && t.estDemand > 0 ? (
-                      <span className="text-[11px] text-gray-500 dark:text-neutral-400">{t.estDemand.toLocaleString()} searches/mo</span>
-                    ) : null}
-                  </div>
-                ))}
-              </>
-            );
-          })()}
         </div>
       </section>
     );

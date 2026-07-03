@@ -29,6 +29,7 @@ function base(over: Partial<VerdictReliabilityInput> = {}): VerdictReliabilityIn
     controlsUsed: 3,
     baselineImpressions: 3000,
     permutationRead: null,
+    interferenceFlagged: false,
     ...over,
   };
 }
@@ -104,6 +105,18 @@ describe("shaky", () => {
 
   it("stacks multiple reasons when more than one problem is present", () => {
     const r = gradeVerdictReliability(base({ controlContaminationFlagged: true, weakComparisonFlagged: true }));
+    expect(r.grade).toBe("shaky");
+    expect(r.reasons.length).toBe(2);
+  });
+
+  it("interference guard (N14): a significant interference edge demotes an otherwise-clean mature result", () => {
+    const r = gradeVerdictReliability(base({ interferenceFlagged: true }));
+    expect(r.grade).toBe("shaky");
+    expect(r.reasons.join(" ")).toMatch(/linked or same-family page/);
+  });
+
+  it("interference guard stacks with other shaky reasons", () => {
+    const r = gradeVerdictReliability(base({ interferenceFlagged: true, controlContaminationFlagged: true }));
     expect(r.grade).toBe("shaky");
     expect(r.reasons.length).toBe(2);
   });
@@ -252,6 +265,22 @@ describe("gradeAllowsLearning alignment with MeasurementPresentation.learningEli
   it("weakComparison directly on the presentation input still aligns", () => {
     checkAlignment({ weakComparison: true });
   });
+
+  it("interference guard (N14): gradeFromPresentation demotes a clean mature result when interferenceFlagged is passed", () => {
+    const pres = buildMeasurementPresentation(maturityInput({}));
+    expect(pres.learningEligibility).toBe(true); // presentation itself is unaware of N14 - unaffected
+    const withoutInterference = gradeFromPresentation(pres, { controlsUsed: 3, baselineImpressions: 3000 }, null, false);
+    const withInterference = gradeFromPresentation(pres, { controlsUsed: 3, baselineImpressions: 3000 }, null, true);
+    expect(withoutInterference.grade).toBe("solid");
+    expect(withInterference.grade).toBe("shaky");
+    expect(gradeAllowsLearning(withInterference.grade)).toBe(false);
+  });
+
+  it("interference guard omitted entirely is byte-identical to before the parameter existed", () => {
+    const pres = buildMeasurementPresentation(maturityInput({}));
+    const withDefault = gradeFromPresentation(pres, { controlsUsed: 3, baselineImpressions: 3000 }, null);
+    expect(withDefault.grade).toBe("solid");
+  });
 });
 
 describe("copy guard - dash-clean, no em or en dashes in source", () => {
@@ -270,6 +299,7 @@ describe("copy guard - dash-clean, no em or en dashes in source", () => {
       base({ weatherQuarantined: true }),
       base({ seasonalInflectionFlagged: true }),
       base({ attributionShared: true }),
+      base({ interferenceFlagged: true }),
       base({ controlsUsed: 1 }),
       base({ permutationRead: { nGreater: 10, nTotal: 60 } }),
       base({ maturity: "early_checkpoint", basisDay: 7 }),

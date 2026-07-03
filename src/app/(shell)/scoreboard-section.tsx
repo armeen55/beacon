@@ -34,6 +34,7 @@ import {
 } from "@/domains/proof-gsc/portfolio-counterfactual";
 import { compareShadowPortfolio } from "@/domains/proof-gsc/shadow-portfolio-drift";
 import { loadShadowPortfolioMeasurement } from "@/domains/experiments/shadow-portfolio-measure";
+import { ScoreboardChartTabs, type ChartTabDef } from "./scoreboard-chart-tabs";
 
 const W = 720;
 const H = 170;
@@ -288,6 +289,16 @@ export async function ScoreboardSection({
     // this section renders exactly as before for tenants without dollars.
     const moneyLine = buildMoneyLine(revenueDays);
 
+    // UX4 item 2 - the chart's Google/AI visibility/Value tabs, built from series ALREADY loaded
+    // above for this same section (citations.daily, revenueDays) - no new reads. A GA4 sessions
+    // day-series loader does not exist yet, so Visitors passes an empty series and the tab
+    // self-hides rather than inventing a load or a fake chart.
+    const chartTabs: ChartTabDef[] = [
+      { id: "ai", label: "AI visibility", color: "#db2777", unitLabel: "citations", points: citations.daily.map((d) => ({ date: d.date, value: d.clicks })) },
+      { id: "visitors", label: "Visitors", color: "#0891b2", unitLabel: "sessions", points: [] },
+      { id: "value", label: "Value", color: "#059669", unitLabel: "dollars", points: revenueDays.filter((d) => d.revenueUsd > 0).map((d) => ({ date: d.day, value: d.revenueUsd })) },
+    ];
+
     // Items 40 + 41 - the lifetime earnings odometer and the portfolio
     // counterfactual, both computed from the SAME re-measured ledger, both
     // independently self-hiding (null when the honest minimum isn't met).
@@ -329,9 +340,7 @@ export async function ScoreboardSection({
             <span className="inline-flex items-center gap-1"><span className="inline-block h-2 w-2 rounded-full bg-slate-400" /> measuring</span>
           </div>
         </div>
-        <div className="mt-2 text-gray-800 dark:text-neutral-200">
-          <Chart s={s} />
-        </div>
+        <ScoreboardChartTabs googleChart={<Chart s={s} />} otherTabs={chartTabs} />
         <p className="mt-1 text-[13px] text-gray-600 dark:text-neutral-300">{s.verdictLine}</p>
         {moneyLine ? (
           <p className="mt-1 text-[13px] font-medium text-emerald-700 dark:text-emerald-300">{moneyLine}</p>

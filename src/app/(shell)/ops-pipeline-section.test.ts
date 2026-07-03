@@ -58,7 +58,9 @@ describe("OpsPipelineSection contract", () => {
     expect(page).toContain('import { OpsPipelineSection } from "./ops-pipeline-section"');
     expect(page).toContain("<OpsPipelineSection tenantId={tenantId} />");
     const opsIdx = page.indexOf("<OpsPipelineSection tenantId={tenantId} />");
-    const heroIdx = page.indexOf("<PageHeader title={greeting} description={brief} />");
+    // UX4 item 6 moved the header's "Update data" button into <PageHeader>'s children, so the
+    // hero is no longer self-closing; match its opening tag instead.
+    const heroIdx = page.indexOf("<PageHeader title={greeting} description={brief}>");
     expect(opsIdx).toBeGreaterThan(-1);
     expect(heroIdx).toBeGreaterThan(-1);
     expect(opsIdx).toBeLessThan(heroIdx);

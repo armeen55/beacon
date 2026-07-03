@@ -84,6 +84,19 @@ export type VerdictReliabilityInput = {
    *  simply not required (a caller that never wires this sees the grade
    *  computed from everything else, unchanged). */
   permutationRead?: { nGreater: number; nTotal: number } | null;
+  /** Interference guard (master plan N14): true when interference-graph.ts
+   *  found at least one significant edge (a directly linked page, a same-
+   *  template-family page, or overlapping search demand still measuring;
+   *  or a sitewide shock) overlapping this ship's window that the OTHER
+   *  feeders above did not already catch. Additive - a caller that never
+   *  wires this (the default, undefined) sees byte-identical grades to
+   *  before this field existed. Deliberately named distinctly from
+   *  controlContaminationFlagged/weatherQuarantined/attributionShared so a
+   *  caller that already computed one of those from the SAME interference
+   *  graph (e.g. a sitewide shock is also surfaced via weatherQuarantined)
+   *  is never double-penalized for restating it here - pass this only for
+   *  interference NOT already covered by the other flags. */
+  interferenceFlagged?: boolean;
 };
 
 export type VerdictReliabilityResult = {
@@ -171,6 +184,9 @@ export function gradeVerdictReliability(input: VerdictReliabilityInput): Verdict
   if (input.attributionShared) {
     reasons.push("another change touches this page within the same window");
   }
+  if (input.interferenceFlagged) {
+    reasons.push("a linked or same-family page still measuring could bleed into this result");
+  }
   if (!sampleIsAdequate(input.controlsUsed, input.baselineImpressions)) {
     reasons.push("traffic is too thin to be confident yet");
   }
@@ -243,6 +259,12 @@ export function gradeFromPresentation(
   >,
   sufficiency: { controlsUsed: number; baselineImpressions: number },
   permutationRead?: { nGreater: number; nTotal: number } | null,
+  /** Interference guard (master plan N14): the caller's own
+   *  interference-graph.ts read for this ship, when computed. Optional -
+   *  omitted (the default) yields byte-identical grades to before this
+   *  parameter existed. Pass `hasSignificantInterference` from
+   *  computeInterferenceGraph, or false when the graph found nothing. */
+  interferenceFlagged?: boolean,
 ): VerdictReliabilityResult {
   return gradeVerdictReliability({
     maturity: pres.maturity,
@@ -256,6 +278,7 @@ export function gradeFromPresentation(
     controlsUsed: sufficiency.controlsUsed,
     baselineImpressions: sufficiency.baselineImpressions,
     permutationRead: permutationRead ?? null,
+    interferenceFlagged: interferenceFlagged ?? false,
   });
 }
 

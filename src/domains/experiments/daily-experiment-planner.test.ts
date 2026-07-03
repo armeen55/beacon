@@ -479,3 +479,55 @@ describe("planDailyExperiments — item 81 lever retirement wiring", () => {
     expect(hasBannedDash(decision.leverPlain)).toBe(false);
   });
 });
+
+describe("planDailyExperiments — item N14 interference hold", () => {
+  it("excludes a candidate the caller's interference lookup marks held, with the plain reason threaded through", () => {
+    const candidates = [
+      cand({ url: "https://iranopedia.com/iran-flags/late-safavid-military-flag", pageFamily: "iran-flags" }),
+    ];
+    const interference = new Map([
+      [
+        "/iran-flags/late-safavid-military-flag",
+        { hold: true, reason: "I am holding this because the page shares its template family with 3 changes still measuring." },
+      ],
+    ]);
+    const plan = planDailyExperiments({ tenantId: "t", date: "d", candidates, proofLedger: [], config: { now: NOW }, interference });
+    expect(plan.selected).toHaveLength(0);
+    expect(plan.excluded).toHaveLength(1);
+    expect(plan.excluded[0].reason).toBe("interference_hold");
+    expect(plan.excluded[0].plainReason).toMatch(/template family with 3 changes still measuring/);
+    expect(hasBannedDash(plan.excluded[0].plainReason!)).toBe(false);
+  });
+
+  it("a candidate the lookup does NOT mark held stays eligible even when other paths are held", () => {
+    const candidates = [
+      cand({ url: "https://iranopedia.com/iran-flags/held-page", pageFamily: "iran-flags" }),
+      cand({ url: "https://iranopedia.com/cities/yazd", pageFamily: "cities" }),
+    ];
+    const interference = new Map([["/iran-flags/held-page", { hold: true, reason: "held" }]]);
+    const plan = planDailyExperiments({ tenantId: "t", date: "d", candidates, proofLedger: [], config: { now: NOW }, interference });
+    expect(plan.selected.map((s) => s.url)).toEqual(["https://iranopedia.com/cities/yazd"]);
+    expect(plan.excluded.map((e) => e.reason)).toEqual(["interference_hold"]);
+  });
+
+  it("omitting the interference lookup entirely is byte-identical to before N14 existed", () => {
+    const candidates = [cand({ url: "https://iranopedia.com/cities/yazd", pageFamily: "cities" })];
+    const withoutLookup = planDailyExperiments({ tenantId: "t", date: "d", candidates, proofLedger: [], config: { now: NOW } });
+    expect(withoutLookup.selected.map((s) => s.url)).toEqual(["https://iranopedia.com/cities/yazd"]);
+    expect(withoutLookup.excluded).toHaveLength(0);
+  });
+
+  it("an entry with hold:false never excludes (only hold:true fires)", () => {
+    const candidates = [cand({ url: "https://iranopedia.com/cities/yazd", pageFamily: "cities" })];
+    const interference = new Map([["/cities/yazd", { hold: false, reason: "" }]]);
+    const plan = planDailyExperiments({ tenantId: "t", date: "d", candidates, proofLedger: [], config: { now: NOW }, interference });
+    expect(plan.selected.map((s) => s.url)).toEqual(["https://iranopedia.com/cities/yazd"]);
+  });
+
+  it("interference hold is checked AFTER ledger eligibility, so an active-treatment exclusion still wins its own reason", () => {
+    const candidates = [cand({ url: "https://iranopedia.com/iran-animals/persian-wolf" })]; // active treatment per `ledger`
+    const interference = new Map([["/iran-animals/persian-wolf", { hold: true, reason: "would also be held" }]]);
+    const plan = planDailyExperiments({ tenantId: "t", date: "d", candidates, proofLedger: ledger, config: { now: NOW }, interference });
+    expect(plan.excluded[0].reason).toBe("same_family_measuring");
+  });
+});

@@ -42,11 +42,13 @@ export async function TodayNewPagesSection({ enableAeoBrief = false, limit }: { 
         <div className="flex items-start gap-2">
           {operator && !limit ? <NewPagesPrepareButton alreadyPrepared={preparedCount} total={data.opportunities.length} /> : null}
           {limit && data.opportunities.length > limit ? (
+            // UX4 item 5 - Today shows only the top 3; the rest live in Changes (/worklist),
+            // named explicitly so the operator knows exactly where the other N went.
             <Link
               href="/worklist#new-pages"
               className="rounded-lg border border-gray-300 bg-white px-3.5 py-1.5 text-xs font-semibold text-gray-700 transition-colors hover:border-gray-400 hover:bg-gray-50"
             >
-              See all {data.opportunities.length} →
+              See all {data.opportunities.length} in Changes →
             </Link>
           ) : null}
           {!limit && data.totalCandidates > data.opportunities.length ? (

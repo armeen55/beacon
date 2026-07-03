@@ -1,5 +1,5 @@
 /**
- * "Your data sources" quick-connect strip (2026-06-15).
+ * "Your data sources" quick-connect strip (2026-06-15; UX4 four-state split 2026-07-02).
  *
  * Pins the strip's render contract via the pure presentational view
  * (`DataSourcesStripView`), so we exercise fixed connected / not-connected /
@@ -14,23 +14,20 @@
  *      render an honest ⚠ treatment with the plain-English reason — NEVER the
  *      success-green ✓ — and deep-link to the connectors page to fix it.
  *   4. ALL six fully connected → the heavy strip collapses to a tiny
- *      "All data sources connected" confirmation (no per-source list). A
- *      single needs_attention source keeps the full strip visible.
+ *      confirmation naming the four distinct counts (Connected / Healthy /
+ *      Fresh / Has data, UX4 item 3) instead of a single "all connected"
+ *      claim, so it can never contradict an alert shown above it. A single
+ *      needs_attention source keeps the full strip visible.
  *   5. Connect affordances are accessible (each carries an aria-label naming
  *      the source) and tap-target sized (min-h-[44px]).
  *
- * Markup-only assertions (renderToStaticMarkup) — no behavior to drive.
+ * Markup-only assertions (renderToStaticMarkup) — no behavior to drive. The
+ * strip no longer mounts a refresh button (UX4 item 6 moved that control to
+ * the page header), so no router stub is needed here.
  */
 
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
-
-// The strip now mounts the <RefreshMyDataButton /> client island, which calls
-// useRouter(). Stub next/navigation so renderToStaticMarkup can render the
-// button shell without a real Next router context.
-vi.mock("next/navigation", () => ({
-  useRouter: () => ({ refresh: () => {} }),
-}));
 
 import { DataSourcesStripView } from "./data-sources-strip";
 import type { ConnectorHealth, ConnectorProvider } from "@/lib/connector-store";
@@ -63,11 +60,15 @@ function resolveHealth(patch: Partial<StatusInput> | undefined): ConnectorHealth
 function statuses(over: Partial<Record<ConnectorProvider, Partial<StatusInput>>> = {}) {
   return ALL_SIX.map((s) => {
     const patch = over[s.provider];
+    const health = resolveHealth(patch);
     return {
       source: { provider: s.provider, label: s.label, cardAnchor: null },
-      health: resolveHealth(patch),
+      health,
       healthReason: patch?.healthReason ?? null,
       lastSynced: patch?.lastSynced ?? null,
+      // A fully-healthy fixture source is treated as synced just now (fresh); every
+      // other state has no sync timestamp, matching readStatuses' real behavior.
+      lastSyncedAtIso: health === "connected" ? new Date().toISOString() : null,
     };
   });
 }
@@ -191,7 +192,7 @@ describe("DataSourcesStripView — needs_attention state", () => {
       wix: { connected: true },
     });
     // The collapse confirmation must NOT appear while a source needs attention.
-    expect(html).not.toContain("All data sources connected");
+    expect(html).not.toContain("6 connected, 6 healthy");
     expect(html).toContain(
       "Connected — pick your Analytics property to start pulling data.",
     );
@@ -208,11 +209,50 @@ describe("DataSourcesStripView — all-connected state", () => {
       profound: { connected: true },
       wix: { connected: true },
     });
-    expect(html).toContain("All data sources connected");
+    // UX4 item 3 - names the four distinct counts instead of one blanket claim.
+    expect(html).toContain("6 connected, 6 healthy.");
     // No Connect affordances at all in the all-connected confirmation.
     expect(html).not.toContain("Connect →");
     expect(html).not.toContain('aria-label="Connect');
     // Still offers a way into the connectors page to manage them.
     expect(html).toContain('href="/settings/connectors"');
+  });
+
+  it("never claims a blanket \"all connected\" state (UX4 item 3 removed that phrase)", () => {
+    const html = render({
+      google_gsc: { connected: true },
+      google_ga4: { connected: true },
+      semrush: { connected: true },
+      clarity: { connected: true },
+      profound: { connected: true },
+      wix: { connected: true },
+    });
+    expect(html).not.toContain("All data sources connected");
+  });
+});
+
+describe("DataSourcesStripView — four-state health summary (UX4 item 3)", () => {
+  it("shows a needs-attention count alongside connected/healthy when one source is degraded", () => {
+    const html = render({
+      google_gsc: { connected: true },
+      google_ga4: {
+        health: "needs_attention",
+        healthReason: "Connected — pick your Analytics property to start pulling data.",
+      },
+      semrush: { connected: true },
+      clarity: { connected: true },
+      profound: { connected: true },
+      wix: { connected: true },
+    });
+    expect(html).toContain("6 connected, 5 healthy, 1 needs attention.");
+  });
+
+  it("shows a not-connected count when a source has never been connected", () => {
+    const html = render({
+      google_gsc: { connected: true },
+      google_ga4: { connected: true },
+    });
+    // Only 2 of 6 connected; the rest are not_connected.
+    expect(html).toContain("2 connected, 2 healthy, 4 not connected.");
   });
 });

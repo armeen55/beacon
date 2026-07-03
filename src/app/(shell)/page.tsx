@@ -5,7 +5,8 @@ import Link from "next/link";
 
 import { PageHeader } from "@/components/data/page-header";
 import { FirstReadingWaiting } from "@/components/today/first-reading-waiting";
-import { DataSourcesStrip } from "@/components/today/data-sources-strip";
+import { DataSourcesStrip, countConnectedDataSources } from "@/components/today/data-sources-strip";
+import { RefreshMyDataButton } from "@/components/today/refresh-my-data-button";
 import { loadTodayV2GateData } from "./today-v2-data";
 import { loadTodayView } from "./today-view-data";
 import { DailyExperimentsSection } from "./daily-experiments-section";
@@ -28,6 +29,9 @@ import { readPipelineHealth } from "@/domains/ops/pipeline-health-store";
 import { InvestigationSection } from "./investigation-section";
 import type { TodayView } from "@/domains/changes/today-view";
 import { createPerfTrace, readPerfTraceIdFromHeaders } from "@/lib/perf-trace";
+import { selectLeadStory, type LeadStory } from "@/domains/changes/lead-story";
+import { loadDailyTotalsForTenant } from "@/domains/recommendation-intelligence/gsc-page-queries";
+import { moveHeadline } from "./daily-experiments-copy";
 
 /**
  * Today `/` - the focused daily slice of the ONE canonical model (2026-07-01, Move 5).
@@ -127,6 +131,11 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
   const { today, daily } = composite;
   const tenantId = await currentTenantId();
 
+  // UX4 item 6 - the one-click "Update data" control now lives in the page header, not the
+  // bottom of the page. Reads the same count the data-sources strip below computes for itself,
+  // so the header button and the strip's own affordances never disagree.
+  const connectedSourceCount = await countConnectedDataSources(tenantId).catch(() => 0);
+
   // A1 (operator-experience fix batch, 2026-07-02) - read the pipeline health check once here
   // so both the top-of-page alert AND the hero stat can react to a broken/stale data pipe. $0
   // persisted read, fails soft to null (treated as healthy - never blocks the page).
@@ -189,6 +198,23 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
         .catch(() => null)
     : null;
 
+  // UX4 item 1 - the lead story: "what matters most right now" in ONE deterministic card, built
+  // ONLY from data already loaded above (the ledger, today.attention, tonight's plan) plus the
+  // same 84-day click series the scoreboard reads (react.cache-shared, so this costs nothing
+  // extra in this request). Priority: a landed verdict > a fired alert > tonight's top pick > the
+  // biggest mover. Any rule with nothing real to say is skipped; the whole card self-hides if
+  // every rule comes up empty.
+  const tonightFirstPick = activePlan?.selected[0] ?? null;
+  const leadStoryDays = await loadDailyTotalsForTenant(tenantId, 84).catch(() => []);
+  const leadStory: LeadStory | null = selectLeadStory({
+    ledger: ledgerRows.map((r) => ({ path: r.path, shippedAt: r.shippedAt, verdict: r.verdict, pageLabel: null })),
+    attention: today.attention.map((a) => ({ title: a.title, message: a.message, href: a.href })),
+    tonightTopPick: tonightFirstPick
+      ? { pageLabel: tonightFirstPick.pageLabel, whyNow: tonightFirstPick.whyNow, headline: moveHeadline(tonightFirstPick) }
+      : null,
+    moverDays: leadStoryDays.map((d) => ({ date: d.date, clicks: d.clicks })),
+  });
+
   return (
     <div className="space-y-6">
       {/* A1 (operator-experience fix batch, 2026-07-02) - the data-pipe alert moves to the very
@@ -196,7 +222,13 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
           card, so a broken sync is never buried below numbers that look confident but aren't.
           Self-hides when the pipe is healthy (readPipelineHealth returns null/no violations). */}
       <Suspense fallback={null}><OpsPipelineSection tenantId={tenantId} /></Suspense>
-      <PageHeader title={greeting} description={brief} />
+      {/* UX4 item 1 - the lead story sits right after any broken-pipe alert and before the
+          greeting, so "what matters most right now" is the very first content block on a
+          healthy day. */}
+      {leadStory ? <LeadStoryCard story={leadStory} /> : null}
+      <PageHeader title={greeting} description={brief}>
+        <RefreshMyDataButton connectedCount={connectedSourceCount} />
+      </PageHeader>
       <DailyCounterStrip shipped={shippedTodayCount} doubleChecking={doubleCheckingTodayCount} />
       {recapSentence ? (
         <div className="rounded-xl border border-emerald-100 bg-emerald-50/70 px-4 py-2.5 text-[13px] leading-relaxed text-emerald-900 tabular-nums">
@@ -279,6 +311,44 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
  *  ~h-24 like the real cards) so the section holds its shape instead of flashing blank. */
 function WarRoomCardSkeleton() {
   return <div aria-hidden className="block h-24 animate-pulse rounded-2xl border border-gray-100 bg-gray-50 dark:border-neutral-800 dark:bg-neutral-900" />;
+}
+
+/** UX4 item 1 - "what matters most right now" in ONE card, right after any broken-pipe alert
+ *  and before the greeting. Tone maps to a small color language: a win reads green, a miss or
+ *  a fired alert reads amber/red, a neutral pick or a rising mover reads the app's default ink. */
+const LEAD_STORY_TONE: Record<LeadStory["tone"], string> = {
+  good: "border-emerald-200 bg-emerald-50/70 text-emerald-900 dark:border-emerald-900/60 dark:bg-emerald-950/30 dark:text-emerald-200",
+  bad: "border-gray-200 bg-gray-50 text-gray-800 dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-200",
+  warning: "border-amber-200 bg-amber-50/70 text-amber-900 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-200",
+  neutral: "border-gray-200 bg-white text-gray-800 dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-200",
+};
+const LEAD_STORY_LINK_TONE: Record<LeadStory["tone"], string> = {
+  good: "text-emerald-700 dark:text-emerald-300",
+  bad: "text-gray-600 dark:text-neutral-300",
+  warning: "text-amber-700 dark:text-amber-300",
+  neutral: "text-gray-600 dark:text-neutral-300",
+};
+
+function LeadStoryCard({ story }: { story: LeadStory }) {
+  return (
+    <section
+      aria-label="What matters most right now"
+      className={`rounded-2xl border px-4 py-3 ${LEAD_STORY_TONE[story.tone]}`}
+    >
+      <div className="flex flex-wrap items-start justify-between gap-x-3 gap-y-1.5">
+        <div className="min-w-0">
+          <span className="text-[11px] font-semibold uppercase tracking-wide opacity-70">{story.label}</span>
+          <p className="mt-0.5 break-words text-[14px] font-medium leading-relaxed">{story.sentence}</p>
+        </div>
+        <Link
+          href={story.href}
+          className={`shrink-0 text-[12px] font-semibold underline underline-offset-2 hover:opacity-80 ${LEAD_STORY_LINK_TONE[story.tone]}`}
+        >
+          {story.actionLabel} →
+        </Link>
+      </div>
+    </section>
+  );
 }
 
 /** D6 (daily ritual loop) - "Today you shipped N changes. The app is double-checking M of them."

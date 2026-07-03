@@ -9,7 +9,6 @@ import {
   type ConnectorProvider,
 } from "@/lib/connector-store";
 import { CONNECTOR_CAPABILITY } from "@/components/connectors/connector-capability-copy";
-import { RefreshMyDataButton } from "@/components/today/refresh-my-data-button";
 
 /**
  * "Your data sources" quick-connect strip (2026-06-15).
@@ -37,10 +36,15 @@ import { RefreshMyDataButton } from "@/components/today/refresh-my-data-button";
  *     owner lands on the exact card to finish the connect in one place.
  *
  * Render contract:
- *   - When ALL six sources are connected, render a tiny "All sources
- *     connected" confirmation (never a heavy empty block).
+ *   - When ALL six sources are fully healthy, render a tiny confirmation
+ *     (never a heavy empty block) that still names the four DISTINCT counts
+ *     (Connected / Healthy / Fresh / Has data, UX4 item 3) instead of a single
+ *     "all connected" claim, so this strip can never contradict a
+ *     broken-pipe alert shown higher on the page.
  *   - Honest copy only: "Connected" / "Connect →". No phantom-automation
  *     claims — connecting just grants access; nothing runs on a schedule.
+ *   - The one-click refresh control lives in the PAGE HEADER (UX4 item 6),
+ *     not here; this strip is connect/status only.
  *
  * This is a server component island: it reads statuses server-side and emits
  * static markup + links (no client JS needed). Status reads are fail-soft per
@@ -129,7 +133,14 @@ type SourceStatus = {
   /** Plain-English reason for a needs_attention source; null otherwise. */
   healthReason: string | null;
   lastSynced: string | null;
+  /** Raw ISO sync timestamp (independent of the display string above), used to
+   *  compute the UX4 four-state freshness summary without re-parsing prose. */
+  lastSyncedAtIso: string | null;
 };
+
+/** UX4 item 3 - how long ago counts as "fresh" for the compact health summary. A source that
+ *  synced within this window is fresh; older than this (or never synced) is stale. */
+const FRESH_WINDOW_MS = 24 * 60 * 60 * 1000;
 
 /**
  * Read every source's health in parallel, fail-soft per provider. A read
@@ -158,9 +169,58 @@ async function readStatuses(tenantId?: string): Promise<SourceStatus[]> {
           health === "connected"
             ? formatLastSynced(info?.last_synced_at ?? null, now)
             : null,
+        lastSyncedAtIso: info?.last_synced_at ?? null,
       };
     }),
   );
+}
+
+/**
+ * UX4 item 3 - four DISTINCT, honest counts instead of one collapsing "all connected" claim, so
+ * this strip can never contradict a broken-pipe alert higher on the page:
+ *   - connected: has a live token at all (connected or needs_attention; a dead/revoked token
+ *     that getConnectorHealth would fail on is not_connected).
+ *   - healthy: connected AND actually delivering data (no needs_attention reason).
+ *   - fresh: healthy AND synced within the last 24 hours.
+ *   - hasData: has synced at least once, ever (even if that sync is now stale) - distinguishes
+ *     "never pulled anything" from "pulled something, just not recently".
+ * PURE given the already-read statuses; no new I/O.
+ */
+export function summarizeDataSourceHealth(statuses: SourceStatus[]): {
+  total: number;
+  connected: number;
+  healthy: number;
+  fresh: number;
+  hasData: number;
+} {
+  const now = Date.now();
+  let connected = 0;
+  let healthy = 0;
+  let fresh = 0;
+  let hasData = 0;
+  for (const s of statuses) {
+    if (s.health === "connected" || s.health === "needs_attention") connected += 1;
+    if (s.health === "connected") healthy += 1;
+    if (s.lastSyncedAtIso) {
+      hasData += 1;
+      const then = Date.parse(s.lastSyncedAtIso);
+      if (s.health === "connected" && Number.isFinite(then) && now - then <= FRESH_WINDOW_MS) fresh += 1;
+    }
+  }
+  return { total: statuses.length, connected, healthy, fresh, hasData };
+}
+
+/** UX4 item 3 - the compact one-line summary, e.g. "4 connected, 3 healthy, 1 needs attention".
+ *  Always names the gap plainly (needs attention / no data yet) instead of a single "all good"
+ *  claim, so it can never read as contradicting an alert shown above it on the page. */
+export function dataSourceHealthLine(summary: ReturnType<typeof summarizeDataSourceHealth>): string {
+  const { total, connected, healthy } = summary;
+  const needsAttention = connected - healthy;
+  const notConnected = total - connected;
+  const parts = [`${connected} connected`, `${healthy} healthy`];
+  if (needsAttention > 0) parts.push(`${needsAttention} needs attention`);
+  if (notConnected > 0) parts.push(`${notConnected} not connected`);
+  return parts.join(", ") + ".";
 }
 
 /**
@@ -178,6 +238,20 @@ export async function DataSourcesStrip({
 }
 
 /**
+ * UX4 item 6 - the header's "Update data" button needs the same connected-source count the
+ * strip computes for its own refresh button, so the two never disagree. Exported so the page
+ * header (which renders the button ABOVE this strip now) can read one shared number instead of
+ * re-deriving its own. Same fail-soft posture as readStatuses: a read error counts a source as
+ * not connected.
+ */
+export async function countConnectedDataSources(tenantId?: string): Promise<number> {
+  const statuses = await readStatuses(tenantId);
+  return statuses.filter(
+    (s) => (s.health === "connected" || s.health === "needs_attention") && s.source.provider !== "wix",
+  ).length;
+}
+
+/**
  * Pure presentational view — split out so tests can render fixed states
  * without a Supabase round-trip.
  */
@@ -190,15 +264,10 @@ export function DataSourcesStripView({
   // connected-but-needs-attention source keeps the full strip visible so its
   // ⚠ reason is never hidden behind a green "all good" confirmation.
   const allConnected = statuses.every((s) => s.health === "connected");
-  // The READ sources a one-click refresh pulls (Wix is publish-only and never
-  // counts toward what "Refresh my data" can do). Mirrors REFRESH_ALL_SOURCES
-  // in settings/connectors/actions.ts. A needs_attention source still has a
-  // live token, so it counts toward what a refresh will attempt.
-  const connectedCount = statuses.filter(
-    (s) =>
-      (s.health === "connected" || s.health === "needs_attention") &&
-      s.source.provider !== "wix",
-  ).length;
+  // UX4 item 3 - the four-state summary line (Connected / Healthy / Fresh / Has data), so this
+  // strip can never contradict a broken-pipe alert shown higher on the page with a single
+  // over-confident "all good" claim.
+  const summary = summarizeDataSourceHealth(statuses);
 
   if (allConnected) {
     return (
@@ -209,7 +278,7 @@ export function DataSourcesStripView({
         <div className="flex flex-wrap items-center justify-between gap-2">
           <p className="text-[12px] text-muted-foreground">
             <Check aria-hidden="true" className="mr-1 inline-block h-3.5 w-3.5" />
-            All data sources connected.{" "}
+            {dataSourceHealthLine(summary)}{" "}
             <Link
               href={CONNECTORS_PATH}
               className="rounded-sm text-accent-primary underline underline-offset-2 hover:text-accent-primary/85 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary/40"
@@ -217,7 +286,6 @@ export function DataSourcesStripView({
               Manage
             </Link>
           </p>
-          <RefreshMyDataButton connectedCount={connectedCount} />
         </div>
       </section>
     );
@@ -229,18 +297,20 @@ export function DataSourcesStripView({
       className="rounded-lg border border-border/60 bg-surface-inset/20 px-4 py-3"
     >
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h2 className="text-[12px] font-semibold text-foreground tracking-tight">
-          Your data sources
-        </h2>
-        <div className="flex flex-wrap items-center gap-2">
-          <Link
-            href={CONNECTORS_PATH}
-            className="rounded-sm text-[12px] text-accent-primary underline underline-offset-2 hover:text-accent-primary/85 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary/40"
-          >
-            Manage all
-          </Link>
-          <RefreshMyDataButton connectedCount={connectedCount} />
+        <div>
+          <h2 className="text-[12px] font-semibold text-foreground tracking-tight">
+            Your data sources
+          </h2>
+          {/* UX4 item 3 - the same four-state line here too, so a source that needs
+              attention is never buried under a bare heading. */}
+          <p className="text-[11px] text-muted-foreground">{dataSourceHealthLine(summary)}</p>
         </div>
+        <Link
+          href={CONNECTORS_PATH}
+          className="rounded-sm text-[12px] text-accent-primary underline underline-offset-2 hover:text-accent-primary/85 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary/40"
+        >
+          Manage all
+        </Link>
       </div>
       <ul className="mt-2 flex flex-wrap gap-2">
         {statuses.map(({ source, health, healthReason, lastSynced }) => {
