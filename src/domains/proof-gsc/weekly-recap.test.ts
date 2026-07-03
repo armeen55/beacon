@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { buildWeeklyRecap, shippedInLastDays, weeklyRecapSentence } from "./weekly-recap";
+import { buildWeeklyRecap, shippedInLastDays, shippedToday, stillDoubleCheckingCount, weeklyRecapSentence } from "./weekly-recap";
 
-const NOW = Date.parse("2026-07-02T00:00:00Z");
+// Noon UTC on 2026-07-02 = still 2026-07-02 in Pacific (UTC-7 in July), well clear of the
+// midnight boundary so the fixture isn't flaky against the Pacific day-key computation.
+const NOW = Date.parse("2026-07-02T12:00:00Z");
 const daysAgo = (n: number) => new Date(NOW - n * 86_400_000).toISOString();
 
 describe("weekly-recap (items 7+8)", () => {
@@ -29,5 +31,40 @@ describe("weekly-recap (items 7+8)", () => {
     const s = weeklyRecapSentence({ shipped: 6, won: 1, wonPaths: ["/finglish"], noLift: 2, stillMeasuring: 3 });
     expect(s).toBe("Last 7 days: 6 changes shipped, 1 win (/finglish), 2 with no clear lift, 3 still measuring.");
     expect(weeklyRecapSentence({ shipped: 0, won: 0, wonPaths: [], noLift: 0, stillMeasuring: 0 })).toBeNull();
+  });
+});
+
+describe("shippedToday (D6 daily counter)", () => {
+  it("counts only rows shipped on today's Pacific calendar date", () => {
+    const rows = [
+      { shippedAt: new Date(NOW).toISOString() }, // today
+      { shippedAt: daysAgo(1) }, // yesterday
+      { shippedAt: daysAgo(0.001) }, // still today (a few seconds ago)
+    ];
+    expect(shippedToday(rows, NOW)).toBe(2);
+  });
+
+  it("is 0 on a fresh day with nothing shipped yet", () => {
+    expect(shippedToday([{ shippedAt: daysAgo(1) }, { shippedAt: daysAgo(2) }], NOW)).toBe(0);
+  });
+
+  it("ignores unparseable timestamps", () => {
+    expect(shippedToday([{ shippedAt: "garbage" }], NOW)).toBe(0);
+  });
+});
+
+describe("stillDoubleCheckingCount (D6 daily counter)", () => {
+  it("counts today's ships still measuring, not settled ones", () => {
+    const rows = [
+      { shippedAt: new Date(NOW).toISOString(), verdict: "measuring" },
+      { shippedAt: new Date(NOW).toISOString(), verdict: "won" },
+      { shippedAt: new Date(NOW).toISOString(), verdict: "measuring" },
+      { shippedAt: daysAgo(1), verdict: "measuring" }, // not today
+    ];
+    expect(stillDoubleCheckingCount(rows, NOW)).toBe(2);
+  });
+
+  it("is 0 when nothing shipped today", () => {
+    expect(stillDoubleCheckingCount([{ shippedAt: daysAgo(1), verdict: "measuring" }], NOW)).toBe(0);
   });
 });

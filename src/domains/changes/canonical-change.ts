@@ -100,6 +100,13 @@ export type CanonicalChange = {
   qualityNote?: string | null;
   sourceIds: string[];
   alternateOpportunities: string[]; // other levers available on this page (kept under the primary)
+  /** D4/N1 (unified allocator, 2026-07-02) - which opportunity lanes independently surfaced this
+   *  change ("worklist", "aeo_gap" AI-answer teardown, "serp_steal" SERP-beaten-keyword teardown,
+   *  "keyword_library" undercovered demand). Absent/single-item = the pre-D4 default (every row
+   *  came from one place); 2+ items = multiple lanes agree on the same page, the operator's
+   *  "everything working together" signal, rendered as a small provenance chip. Plain-language
+   *  labels only (never a raw lane key) - see allocator/unified-list.ts's LANE_LABEL. */
+  sources?: string[];
 };
 
 const NEW_PAGE_FAMILIES = new Set(["new_page", "hub"]);

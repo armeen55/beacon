@@ -76,6 +76,41 @@ export type GapVerdict = {
   reason: string | null;
 };
 
+// ── Persistence helpers (D4, 2026-07-02) — PURE key/serialize/parse only, no
+// I/O. The verdict was computed nightly by native-teardown-runner.ts and
+// discarded; D4 (the unified allocator) needs to read it back without
+// re-running the teardown, so callers persist it via move-draft-store.ts's
+// "gap_verdict" kind, same read/write contract serp-steal-lane.ts's StealBrief
+// already uses (latest row per key wins). Kept here (not in the runner) so the
+// key/shape stays colocated with the type it serializes. ──────────────────
+
+/** The stored row: the pure GapVerdict plus the two I/O-layer facts D4 needs
+ *  to build a CanonicalChange without re-reading raw observation rows
+ *  (promptText for the card label, ownedUrl to resolve the target page). */
+export type PersistedGapVerdict = GapVerdict & { promptText: string; ownedUrl: string | null };
+
+/** Stable move_drafts key for one tenant+prompt pair - a re-run lands on the
+ *  same row (latest wins, same read contract as serp-steal-lane's steal briefs). */
+export function gapVerdictDraftKey(promptId: string): string {
+  return `gap_verdict:${promptId.trim().toLowerCase()}`;
+}
+
+export const GAP_VERDICT_KIND = "gap_verdict" as const;
+
+export function serializeGapVerdict(verdict: PersistedGapVerdict): string {
+  return JSON.stringify({ __kind: "gap_verdict", ...verdict });
+}
+
+export function parseGapVerdict(content: string | null | undefined): PersistedGapVerdict | null {
+  if (!content) return null;
+  try {
+    const v = JSON.parse(content) as { __kind?: string } & PersistedGapVerdict;
+    return v && v.__kind === "gap_verdict" && typeof v.promptId === "string" ? v : null;
+  } catch {
+    return null;
+  }
+}
+
 export type OwnershipSignal = {
   /** The tenant's own URL AI/the poll already cites for this prompt's topic,
    *  if any. Reuses the exact signal create-page-ownership-gate.ts uses

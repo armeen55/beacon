@@ -8,7 +8,7 @@
  * keyboard + screen-reader semantics (aria-pressed/expanded, focus rings, role=status), state shown
  * by text + border (not color alone), and cause-specific empty states.
  */
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { Hourglass, TriangleAlert } from "lucide-react";
@@ -20,6 +20,8 @@ import { MoveCard } from "./today-moves-card";
 import { Sparkline } from "@/components/data/sparkline";
 import { formatMetric, formatMetricCompact } from "@/lib/format-metric";
 import { dossierHref } from "@/lib/page-dossier-link";
+import { respondToRecommendation } from "./recommendation-actions";
+import { useWorklistSession, WorklistSessionBanner } from "./worklist-session-strip";
 
 const STRATEGIES: { id: Strategy; label: string; hint: string }[] = [
   { id: "balanced", label: "Balanced", hint: "Best mix of upside, effort, risk, and evidence (recommended)." },
@@ -107,7 +109,33 @@ function displayPageLabel(c: CanonicalChange, move: ChangesView["movesById"][str
   return { title, secondary: c.pageLabel !== title ? c.pageLabel : null };
 }
 
-function Row({ c, move, rank }: { c: CanonicalChange; move: ChangesView["movesById"][string] | undefined; rank: number }) {
+function Row({
+  c,
+  move,
+  rank,
+  highlighted,
+  keyboardActive,
+  onAction,
+  registerRef,
+}: {
+  c: CanonicalChange;
+  move: ChangesView["movesById"][string] | undefined;
+  rank: number;
+  /** D6 - true when this is the "next best" row the session banner is pointing at; gets a
+   *  visible ring so "auto-scroll/highlight the next unblocked top item" is honest, not just a
+   *  scroll with nothing to look at once you land. */
+  highlighted?: boolean;
+  /** D6 - true when j/k keyboard navigation has this row focused (independent of `highlighted`,
+   *  which tracks the session's next-best pointer, not keyboard position). */
+  keyboardActive?: boolean;
+  /** D6 - fires once MoveCard's own ship/stage/snooze action actually persists, so the session
+   *  loop can advance + count it. Undefined when this row has no expandable MoveCard (nothing
+   *  to reuse), which is fine - not every row is markable from here. */
+  onAction?: (kind: "done" | "skip") => void;
+  /** D6 - hands the row's DOM node up so keyboard nav (enter) and auto-scroll (next-best) can
+   *  target it without a brittle document.querySelector by id. */
+  registerRef?: (id: string, el: HTMLDivElement | null) => void;
+}) {
   const [open, setOpen] = useState(false);
   const chip = STATUS_CHIP[c.status] ?? STATUS_CHIP.suggested;
   const statusDetail = STATUS_DETAIL[c.status];
@@ -118,8 +146,23 @@ function Row({ c, move, rank }: { c: CanonicalChange; move: ChangesView["movesBy
   const effort = Number.isFinite(c.estimatedEffortMinutes) ? c.estimatedEffortMinutes : null;
   const label = displayPageLabel(c, move);
   const href = dossierHref(c.pagePath || c.pageUrl);
+  // D6 - the ring makes "auto-scroll/highlight the next unblocked top item" honest: landing on
+  // a row that looks identical to every other row would defeat the point of pointing at it.
+  // Keyboard focus gets its own (subtler) ring so j/k navigation is visible without being
+  // confused for the session's "next best" pointer.
+  const ringCls = highlighted
+    ? "ring-2 ring-emerald-400 dark:ring-emerald-600"
+    : keyboardActive
+      ? "ring-2 ring-sky-300 dark:ring-sky-700"
+      : "";
   return (
-    <div className={`rounded-lg border border-gray-100 bg-white dark:border-neutral-800 dark:bg-neutral-900 ${c.status === "blocked" ? "opacity-70" : ""}`}>
+    <div
+      ref={(el) => registerRef?.(c.id, el)}
+      id={`change-row-${c.id}`}
+      data-change-row={c.id}
+      tabIndex={-1}
+      className={`rounded-lg border border-gray-100 bg-white transition-shadow dark:border-neutral-800 dark:bg-neutral-900 ${c.status === "blocked" ? "opacity-70" : ""} ${ringCls}`}
+    >
       <div className="flex items-center gap-3 px-3 py-2.5">
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
@@ -164,6 +207,13 @@ function Row({ c, move, rank }: { c: CanonicalChange; move: ChangesView["movesBy
             {fmt(c.upside) ? <span className="text-sky-600 dark:text-sky-400" title={`${formatMetric(c.upside)} times shown on Google a month, at stake`}>{fmt(c.upside)} shown on Google/mo at stake</span> : null}
             {c.expectedOutcome && (c.status === "ready" || c.status === "suggested") ? <span className="text-emerald-600 dark:text-emerald-400">{c.expectedOutcome}</span> : null}
             <span className={EVIDENCE_CLS[c.evidenceStrength] ?? "text-gray-500 dark:text-neutral-400"}>{EVIDENCE_LABEL[c.evidenceStrength] ?? "Tracking only"}</span>
+            {/* D4/N1 (unified allocator, 2026-07-02) - when 2+ opportunity lanes independently
+                found the SAME page, say so in plain words. This is the operator's "everything
+                working together" signal - a page confirmed by both AI answers and Google results
+                is a higher-confidence move than either alone. */}
+            {c.sources && c.sources.length > 1 ? (
+              <span className="text-indigo-600 dark:text-indigo-400" title="Multiple opportunity sources agree on this page">{c.sources.join(" + ")} agree</span>
+            ) : null}
             {c.blockedReason ? <span className="inline-flex items-center gap-1 text-gray-400 dark:text-neutral-500" title={c.blockedReason}><Hourglass className="h-3.5 w-3.5 shrink-0" aria-hidden />wait</span> : null}
             {c.qualityDecision === "flagged" ? <span className="inline-flex items-center gap-1 text-amber-600 dark:text-amber-400" title={c.qualityNote ?? "Review before shipping"}><TriangleAlert className="h-3.5 w-3.5 shrink-0" aria-hidden />Flagged</span> : c.qualityDecision === "caution" ? <span className="text-amber-500 dark:text-amber-400" title={c.qualityNote ?? "Quality caution"}>quality caution</span> : null}
           </div>
@@ -174,14 +224,38 @@ function Row({ c, move, rank }: { c: CanonicalChange; move: ChangesView["movesBy
           ) : c.status === "blocked" ? (
             <span className="text-[11px] text-gray-400 dark:text-neutral-500" title={c.blockedReason ?? "Not actionable right now"}>Not now</span>
           ) : (
-            <button type="button" onClick={() => setOpen((o) => !o)} aria-expanded={open} aria-controls={panelId} className={`inline-flex min-h-[34px] items-center rounded-md border border-gray-200 px-2.5 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800 ${FOCUS}`}>{open ? "Hide" : cta}</button>
+            <>
+              <button type="button" onClick={() => setOpen((o) => !o)} aria-expanded={open} aria-controls={panelId} className={`inline-flex min-h-[34px] items-center rounded-md border border-gray-200 px-2.5 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800 ${FOCUS}`}>{open ? "Hide" : cta}</button>
+              {/* D6 - a bare skip button for rows the operator wants to pass on WITHOUT opening
+                  the full card (e.g. no draft to review yet). Feeds the same dismissal-learning
+                  path ("deferred") the MoveCard's own "Not now" already uses, and, like every
+                  other row action, always hands off to the next best row - never a dead end. */}
+              {onAction ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    // Same dismissal-learning path MoveCard's own snooze() uses (the "deferred"
+                    // status respondToRecommendation already records), reused rather than
+                    // duplicated. When there's no matching worklist move (rare - a change with
+                    // no sourceIds entry), this still advances the session; there's just nothing
+                    // server-side to defer.
+                    if (move) void respondToRecommendation(move.id, "deferred", { targetPageUrl: move.targetUrl });
+                    onAction("skip");
+                  }}
+                  className={`inline-flex min-h-[34px] items-center rounded-md px-2 py-1 text-[11px] font-medium text-gray-400 hover:text-gray-700 dark:text-neutral-500 dark:hover:text-neutral-300 ${FOCUS}`}
+                  title="Not now - I will pick this up another day"
+                >
+                  Skip
+                </button>
+              ) : null}
+            </>
           )}
         </div>
       </div>
       {open && (
         <div id={panelId} className="border-t border-gray-100 px-1 py-1 dark:border-neutral-800">
           {move ? (
-            <MoveCard m={move} rank={rank} />
+            <MoveCard m={move} rank={rank} onAction={(kind) => onAction?.(kind === "shipped" ? "done" : "skip")} />
           ) : (
             <div className="px-3 py-2 text-sm">
               {c.before != null && <div className="break-words text-xs"><span className="text-gray-500 dark:text-neutral-400">Current: </span>{c.before || "(none)"}</div>}
@@ -246,6 +320,66 @@ export function ChangesListClient({ view }: { view: ChangesView }) {
     }
     return rows;
   }, [ranked, tab, goal, q, tonight, grouped, view.movesById]);
+
+  // D6 (daily ritual loop) - the session loop: after ANY row action (done/skip/not-now), always
+  // point at the next best row + count it. Walks the SAME `visible` (already ranked + filtered)
+  // list every row renders from, so "next best" never disagrees with what the list shows.
+  const session = useWorklistSession(visible);
+  const rowAction = useCallback(
+    (id: string, kind: "done" | "skip") => session.handleRowAction(id, kind === "done" ? "done" : "skip"),
+    [session],
+  );
+
+  // Keyboard: j/k move a lightweight "keyboard focus" between visible rows, enter opens the
+  // focused row's detail, d marks it done (only when it has a real MoveCard to reuse - ship()
+  // there is the actual mark-edited affordance; a row with no matching move has nothing to
+  // "d" into, so d silently no-ops rather than fabricating a fake done state). Native listeners
+  // on this existing list client - no new framework.
+  const [kbIndex, setKbIndex] = useState<number>(-1);
+  const rowRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+  const registerRowRef = useCallback((id: string, el: HTMLDivElement | null) => {
+    if (el) rowRefs.current.set(id, el);
+    else rowRefs.current.delete(id);
+  }, []);
+  useEffect(() => {
+    function isTypingTarget(el: EventTarget | null): boolean {
+      const tag = (el as HTMLElement | null)?.tagName;
+      return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT";
+    }
+    function onKeyDown(e: KeyboardEvent) {
+      if (isTypingTarget(e.target) || e.metaKey || e.ctrlKey || e.altKey) return;
+      if (visible.length === 0) return;
+      if (e.key === "j") {
+        e.preventDefault();
+        setKbIndex((i) => Math.min(i + 1, visible.length - 1));
+      } else if (e.key === "k") {
+        e.preventDefault();
+        setKbIndex((i) => Math.max(i - 1, 0));
+      } else if (e.key === "Enter") {
+        if (kbIndex < 0 || kbIndex >= visible.length) return;
+        const el = rowRefs.current.get(visible[kbIndex].id);
+        el?.querySelector<HTMLButtonElement>("button[aria-expanded]")?.click();
+      } else if (e.key === "d") {
+        if (kbIndex < 0 || kbIndex >= visible.length) return;
+        const c = visible[kbIndex];
+        const move = c.sourceIds[0] ? view.movesById[c.sourceIds[0]] : undefined;
+        if (!move) return; // nothing markable without a real MoveCard - honest no-op, not fake state
+        e.preventDefault();
+        void respondToRecommendation(move.id, "accepted", { targetPageUrl: move.targetUrl, actionType: move.action, query: move.query });
+        rowAction(c.id, "done");
+      }
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [visible, kbIndex, view.movesById, rowAction]);
+
+  // Auto-scroll to the next-best row once the session points at one (after a mark/skip), so
+  // "immediately surface the next best row" is a real scroll, not just a banner off-screen.
+  useEffect(() => {
+    if (!session.nextBest) return;
+    const el = rowRefs.current.get(session.nextBest.id);
+    el?.scrollIntoView({ behavior: "smooth", block: "center" });
+  }, [session.nextBest]);
 
   const s = view.summary;
   const isFiltered = q.trim().length > 0 || goal !== "recommended";
@@ -326,6 +460,18 @@ export function ChangesListClient({ view }: { view: ChangesView }) {
         </select>
         <input aria-label="Search pages" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search pages…" className={`min-h-[32px] w-full rounded-md border border-gray-200 px-2 py-1 text-xs sm:ml-auto sm:w-44 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-200 dark:placeholder:text-neutral-500 ${FOCUS}`} />
       </div>
+      {/* D6 - the daily ritual loop's session strip: "You have shipped N changes today" +
+          "Next best: <exactWhat>" once an action fires. Self-hides on a fresh session. */}
+      <WorklistSessionBanner
+        shippedCount={session.shippedCount}
+        banner={session.banner}
+        onDismiss={session.dismissBanner}
+        onOpenNext={
+          session.nextBest
+            ? () => rowRefs.current.get(session.nextBest!.id)?.querySelector<HTMLButtonElement>("button[aria-expanded]")?.click()
+            : undefined
+        }
+      />
       {/* Item 66 - the invisible gate, made visible: protected pages are trust, not absence. */}
       {s.protectedPages > 0 ? (
         <p className="text-[11px] text-gray-400 tabular-nums dark:text-neutral-500">
@@ -367,7 +513,18 @@ export function ChangesListClient({ view }: { view: ChangesView }) {
                   {g.title} <span className="font-normal normal-case">· {rows.length}</span>
                 </h3>
                 <div className="space-y-1.5">
-                  {rows.map((c, i) => <Row key={c.id} c={c} move={c.sourceIds[0] ? view.movesById[c.sourceIds[0]] : undefined} rank={i + 1} />)}
+                  {rows.map((c, i) => (
+                    <Row
+                      key={c.id}
+                      c={c}
+                      move={c.sourceIds[0] ? view.movesById[c.sourceIds[0]] : undefined}
+                      rank={i + 1}
+                      highlighted={session.nextBest?.id === c.id}
+                      keyboardActive={visible[kbIndex]?.id === c.id}
+                      onAction={(kind) => rowAction(c.id, kind)}
+                      registerRef={registerRowRef}
+                    />
+                  ))}
                 </div>
               </section>
             );
@@ -379,7 +536,18 @@ export function ChangesListClient({ view }: { view: ChangesView }) {
               <section aria-label="Other improvements">
                 <h3 className="mb-1.5 text-[12px] font-semibold uppercase tracking-wide text-gray-400 dark:text-neutral-500">Other improvements · {other.length}</h3>
                 <div className="space-y-1.5">
-                  {other.map((c, i) => <Row key={c.id} c={c} move={c.sourceIds[0] ? view.movesById[c.sourceIds[0]] : undefined} rank={i + 1} />)}
+                  {other.map((c, i) => (
+                    <Row
+                      key={c.id}
+                      c={c}
+                      move={c.sourceIds[0] ? view.movesById[c.sourceIds[0]] : undefined}
+                      rank={i + 1}
+                      highlighted={session.nextBest?.id === c.id}
+                      keyboardActive={visible[kbIndex]?.id === c.id}
+                      onAction={(kind) => rowAction(c.id, kind)}
+                      registerRef={registerRowRef}
+                    />
+                  ))}
                 </div>
               </section>
             );
@@ -392,7 +560,18 @@ export function ChangesListClient({ view }: { view: ChangesView }) {
               Tonight&apos;s set: {visible.length} change{visible.length === 1 ? "" : "s"}, about {visible.reduce((t, c) => t + (Number.isFinite(c.estimatedEffortMinutes) ? c.estimatedEffortMinutes : 5), 0)} minutes.
             </p>
           ) : null}
-          {visible.map((c, i) => <Row key={c.id} c={c} move={c.sourceIds[0] ? view.movesById[c.sourceIds[0]] : undefined} rank={i + 1} />)}
+          {visible.map((c, i) => (
+            <Row
+              key={c.id}
+              c={c}
+              move={c.sourceIds[0] ? view.movesById[c.sourceIds[0]] : undefined}
+              rank={i + 1}
+              highlighted={session.nextBest?.id === c.id}
+              keyboardActive={visible[kbIndex]?.id === c.id}
+              onAction={(kind) => rowAction(c.id, kind)}
+              registerRef={registerRowRef}
+            />
+          ))}
         </div>
       )}
     </div>

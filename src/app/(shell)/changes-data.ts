@@ -29,6 +29,11 @@ import { captureHypothesis } from "@/domains/forecast/hypothesis-log";
 // different number than Today for the same word. Read-only import; proof-gsc is
 // owned by a concurrent workstream, this file only reads its cached loader.
 import { loadProofLedgerCached } from "@/domains/proof-gsc/load-ledger";
+// D4/N1 (unified allocator, 2026-07-02) - fuse D2's AEO gap verdicts + D3's SERP steal briefs +
+// undercovered keyword-library demand onto this SAME ranked list, so /worklist becomes the
+// operator's "one ranked decision" across every opportunity source, not just the ActionPack
+// worklist. Read-only additive lanes; a lane outage narrows the fused set, never blocks the page.
+import { fuseUnifiedList } from "@/domains/allocator/load-unified-list";
 
 export type ChangesView = {
   changes: CanonicalChange[];
@@ -108,7 +113,13 @@ export async function loadChangesView(): Promise<ChangesView> {
     };
   });
 
-  const changes = buildCanonicalChanges({ tenantId, moves: moveInputs, plan: plan ?? null, reservations });
+  const worklistChanges = buildCanonicalChanges({ tenantId, moves: moveInputs, plan: plan ?? null, reservations });
+
+  // D4/N1 (unified allocator) - fuse in the lanes buildCanonicalChanges cannot see: D2's AEO gap
+  // verdicts, D3's SERP steal briefs, and undercovered keyword-library demand, into ONE ranked
+  // CanonicalChange[]. Fail-soft as a whole (fuseUnifiedList never throws); on any unexpected
+  // failure fall back to the worklist-only list rather than blanking the page.
+  const { changes } = await fuseUnifiedList(tenantId, worklistChanges).catch(() => ({ changes: worklistChanges }));
 
   // D7 (hypothesis capture) - every forecast actually rendered to the operator on this list is
   // logged as a falsifiable hypothesis, so the day-28 settle can grade it later. Fire-and-forget,

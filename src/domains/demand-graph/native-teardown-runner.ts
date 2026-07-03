@@ -40,7 +40,16 @@ import {
   type CompetitorAuditDeps,
 } from "./competitor-page-audit";
 import { buildCommonalityBrief, type CommonalityBrief, type OwnedPageFactsForCommonality } from "./teardown-commonality";
-import { routeGapVerdict, type GapVerdict } from "./teardown-commonality-verdict";
+import {
+  routeGapVerdict,
+  gapVerdictDraftKey,
+  serializeGapVerdict,
+  parseGapVerdict,
+  GAP_VERDICT_KIND,
+  type GapVerdict,
+  type PersistedGapVerdict,
+} from "./teardown-commonality-verdict";
+import { getLatestMoveDrafts, saveMoveDraft } from "./move-draft-store";
 
 export const MAX_PROMPTS_PER_NIGHT = 10;
 
@@ -267,6 +276,32 @@ export async function runNativeTeardownForTenant(
       results.push({ promptId: t.promptId, promptText: t.promptText, targets: t.urls, audits, brief, verdict });
     }
 
+    // D4 (unified allocator) needs to read these verdicts back without re-running the
+    // teardown - persist one row per prompt the SAME way serp-steal-lane.ts persists steal
+    // briefs (latest wins, only re-write on real content change, never blocks the run).
+    // promptText/ownedUrl are carried on the stored payload (not the pure GapVerdict type)
+    // since only this I/O layer knows them.
+    if (results.length > 0) {
+      const existingDrafts = await getLatestMoveDrafts(tenantId).catch(() => new Map());
+      await Promise.all(
+        results
+          .filter((r) => r.verdict.outcome !== "no_verdict")
+          .map(async (r) => {
+            const draftKey = gapVerdictDraftKey(r.promptId);
+            const already = existingDrafts.get(`${draftKey}::${GAP_VERDICT_KIND}`);
+            const alreadyVerdict = already ? parseGapVerdict(already.content) : null;
+            const payload: PersistedGapVerdict = {
+              ...r.verdict,
+              promptText: r.promptText,
+              ownedUrl: resolveOwnedUrlForPrompt(inputs, r.promptId, ownedRoot),
+            };
+            if (!alreadyVerdict || JSON.stringify(alreadyVerdict) !== JSON.stringify(payload)) {
+              await saveMoveDraft(tenantId, draftKey, GAP_VERDICT_KIND, serializeGapVerdict(payload)).catch(() => false);
+            }
+          }),
+      );
+    }
+
     return {
       promptsAnalyzed: results.length,
       torndownPages: audited.filter((a) => a.fetchStatus === "ok").length,
@@ -277,5 +312,27 @@ export async function runNativeTeardownForTenant(
   } catch (e) {
     log.warn("[native-teardown-runner] run failed", { tenantId, error: e instanceof Error ? e.message : String(e) });
     return EMPTY_SUMMARY;
+  }
+}
+
+/**
+ * Read every persisted gap verdict for a tenant - the $0 read D4 (the unified
+ * allocator) consumes, mirroring serp-steal-lane.ts's loadStealBriefsForTenant.
+ * Never re-runs the teardown; fail-soft -> [].
+ */
+export async function loadGapVerdictsForTenant(tenantId: string): Promise<PersistedGapVerdict[]> {
+  if (!tenantId) return [];
+  try {
+    const drafts = await getLatestMoveDrafts(tenantId);
+    const out: PersistedGapVerdict[] = [];
+    for (const [key, row] of drafts) {
+      if (!key.endsWith(`::${GAP_VERDICT_KIND}`)) continue;
+      const v = parseGapVerdict(row.content);
+      if (v) out.push(v);
+    }
+    return out;
+  } catch (e) {
+    log.warn("[native-teardown-runner] gap verdict read threw", { tenantId, error: e instanceof Error ? e.message : String(e) });
+    return [];
   }
 }

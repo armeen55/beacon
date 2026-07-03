@@ -102,7 +102,19 @@ const SOURCE_LABEL: Record<string, string> = {
   rank_revenue: "Demand graph",
 };
 
-export function MoveCard({ m, rank }: { m: TodayMove; rank: number }) {
+export function MoveCard({
+  m,
+  rank,
+  onAction,
+}: {
+  m: TodayMove;
+  rank: number;
+  /** D6 (daily ritual loop) - fires once the underlying action actually persisted (ship,
+   *  stage-in-Wix, or snooze), so a wrapping list can advance to the next best row and bump
+   *  its session counter. Optional and additive: every existing caller that doesn't pass it
+   *  behaves exactly as before. */
+  onAction?: (action: "shipped" | "snoozed") => void;
+}) {
   // Defensive: an unexpected actionTone/confidence must never crash the card.
   const tone = TONE[m.actionTone] ?? TONE.clicks;
   const conf = CONF[m.confidence] ?? CONF.medium;
@@ -245,6 +257,7 @@ export function MoveCard({ m, rank }: { m: TodayMove; rank: number }) {
     startTransition(async () => {
       try {
         await respondToRecommendation(m.id, "accepted", { targetPageUrl: m.targetUrl, actionType: m.action, query: m.query });
+        onAction?.("shipped");
       } catch {
         setState("idle"); // revert on failure
       }
@@ -272,6 +285,7 @@ export function MoveCard({ m, rank }: { m: TodayMove; rank: number }) {
             await respondToRecommendation(m.id, "accepted", { targetPageUrl: m.targetUrl, actionType: m.action, query: m.query });
           } catch { /* the queue can still be actioned from /recommendations */ }
           setState("shipped");
+          onAction?.("shipped");
         } else {
           setStageMsg(r.receiptLine);
         }
@@ -285,6 +299,7 @@ export function MoveCard({ m, rank }: { m: TodayMove; rank: number }) {
     startTransition(async () => {
       try {
         await respondToRecommendation(m.id, "deferred", { targetPageUrl: m.targetUrl });
+        onAction?.("snoozed");
       } catch {
         setState("idle");
       }

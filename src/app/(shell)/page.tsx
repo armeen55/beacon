@@ -14,7 +14,7 @@ import { currentTenantId } from "@/lib/tenant-context";
 import { FrictionFixesSection, AiCrawlerSection, DemandOpportunitiesSection, WarRoomQuietLine } from "./war-room-sections";
 import { ScoreboardSection } from "./scoreboard-section";
 import { loadProofLedgerCached } from "@/domains/proof-gsc/load-ledger";
-import { buildWeeklyRecap, shippedInLastDays, weeklyRecapSentence } from "@/domains/proof-gsc/weekly-recap";
+import { buildWeeklyRecap, shippedInLastDays, shippedToday, stillDoubleCheckingCount, weeklyRecapSentence } from "@/domains/proof-gsc/weekly-recap";
 import { loadCalibrationRecords } from "@/domains/experiments/forecast-calibration-store";
 import { summarizeForecastCalibration, MIN_SETTLED_FOR_CALIBRATION } from "@/domains/experiments/forecast-calibration";
 import { loadLatestStrategyMix } from "@/domains/strategy-review/strategy-mix-store";
@@ -145,6 +145,12 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
   // disagree). The measuring list itself still shows its own capped rows, but says "showing N of
   // M" against this canonical M.
   const measuringCount = ledgerRows.filter((r) => r.verdict === "measuring").length;
+  // D6 (daily ritual loop) - the daily counter strip's two real numbers, both read from the
+  // SAME ledger rows the streak above already loaded. Server truth, never localStorage: the
+  // per-session "shipped N today" the worklist keeps client-side is a today-only nice-to-have,
+  // this is the number that survives a refresh or a different device.
+  const shippedTodayCount = shippedToday(ledgerRows, Date.now());
+  const doubleCheckingTodayCount = stillDoubleCheckingCount(ledgerRows, Date.now());
 
   // Item 42: the assistant sets the scene like a person would.
   const nowPacific = new Date();
@@ -191,6 +197,7 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
           Self-hides when the pipe is healthy (readPipelineHealth returns null/no violations). */}
       <Suspense fallback={null}><OpsPipelineSection tenantId={tenantId} /></Suspense>
       <PageHeader title={greeting} description={brief} />
+      <DailyCounterStrip shipped={shippedTodayCount} doubleChecking={doubleCheckingTodayCount} />
       {recapSentence ? (
         <div className="rounded-xl border border-emerald-100 bg-emerald-50/70 px-4 py-2.5 text-[13px] leading-relaxed text-emerald-900 tabular-nums">
           {recapSentence}
@@ -272,6 +279,20 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
  *  ~h-24 like the real cards) so the section holds its shape instead of flashing blank. */
 function WarRoomCardSkeleton() {
   return <div aria-hidden className="block h-24 animate-pulse rounded-2xl border border-gray-100 bg-gray-50 dark:border-neutral-800 dark:bg-neutral-900" />;
+}
+
+/** D6 (daily ritual loop) - "Today you shipped N changes. The app is double-checking M of them."
+ *  Server truth: both numbers come from the shipped-change ledger (the same rows the header
+ *  streak reads), not the per-session client counter on /worklist. Self-hides on a day with
+ *  nothing shipped yet - a bare "0 shipped" strip every morning would just be noise. */
+function DailyCounterStrip({ shipped, doubleChecking }: { shipped: number; doubleChecking: number }) {
+  if (shipped === 0) return null;
+  const checking = doubleChecking > 0 ? ` I am double-checking ${doubleChecking} of them.` : "";
+  return (
+    <div className="rounded-xl border border-gray-100 bg-gray-50/70 px-4 py-2.5 text-[13px] leading-relaxed text-gray-700 tabular-nums dark:border-neutral-800 dark:bg-neutral-900/60 dark:text-neutral-300">
+      Today you shipped {shipped} change{shipped === 1 ? "" : "s"}.{checking}
+    </div>
+  );
 }
 
 function TodayCounts({ counts, measuringCount }: { counts: TodayView["counts"]; measuringCount: number }) {

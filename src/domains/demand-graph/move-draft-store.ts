@@ -59,7 +59,15 @@ export type MoveDraftKind =
   // real rec id — the query is the unit, not a queued recommendation), so a
   // re-check on the same query lands on the same row (latest wins, same read
   // contract as every other kind). Column is free-text → no migration.
-  | "displacement_check";
+  | "displacement_check"
+  // DREAM SITE V1 item D2/D4: a persisted GapVerdict (teardown-commonality-
+  // verdict.ts) — the native-cited teardown's atomic_edit / new_page routing
+  // for one prompt. Was computed nightly and discarded (warm-caches.ts only
+  // logged a summary); D4 (the unified allocator) needs to read these back
+  // without re-running the teardown, so it is now persisted the same way D3's
+  // steal briefs are. Keyed by a synthetic `gap_verdict:<promptId>` id (never
+  // a real rec id — the prompt is the unit). Column is free-text → no migration.
+  | "gap_verdict";
 
 export type MoveDraftRow = {
   recId: string;

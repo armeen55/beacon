@@ -2,6 +2,12 @@
  * weekly-recap (FINAL PREMIUM PLAN items 7 + 8) - pure math for the Monday recap band and the
  * header streak line, computed from the shipped-change ledger. No I/O. Pinned by
  * weekly-recap.test.ts.
+ *
+ * D6 (daily ritual loop) addition: `shippedToday` / `stillDoubleCheckingCount` give the Today
+ * page's daily counter strip its two real numbers, both read from the SAME ledger rows this
+ * file already summarizes - server truth, never localStorage. "Today" is the Pacific calendar
+ * date (matches `defaultPacificShipDate` in run-measurement.ts, the same clock every ship is
+ * dated against), not a rolling 24h window.
  */
 
 export type RecapRow = {
@@ -49,6 +55,38 @@ export function buildWeeklyRecap(rows: RecapRow[], nowMs: number): WeeklyRecap {
     noLift: noLift.length,
     stillMeasuring: measuring.length,
   };
+}
+
+/** Pacific calendar-date key ("2026-07-02"), the same clock `defaultPacificShipDate` dates ships
+ *  against, so "today" here always means the same day a ship recorded itself under. */
+function pacificDateKey(iso: string | number): string | null {
+  const d = typeof iso === "number" ? new Date(iso) : new Date(iso);
+  if (Number.isNaN(d.getTime())) return null;
+  return d.toLocaleDateString("en-CA", { timeZone: "America/Los_Angeles" });
+}
+
+/** Count of changes shipped on today's Pacific calendar date - the D6 daily counter's first
+ *  number ("You shipped N changes today"). Server truth: reads the same ledger rows the streak
+ *  and weekly recap read, never a client-side count. */
+export function shippedToday(rows: Array<Pick<RecapRow, "shippedAt">>, nowMs: number): number {
+  const today = pacificDateKey(nowMs);
+  let n = 0;
+  for (const r of rows) {
+    if (pacificDateKey(r.shippedAt) === today) n += 1;
+  }
+  return n;
+}
+
+/** Of today's ships, how many are still mid-verification/measurement (not yet a settled result) -
+ *  the D6 daily counter's second number ("Beacon is double-checking M of them"). Matches
+ *  `buildWeeklyRecap`'s own "measuring" filter (the only non-settled verdict). */
+export function stillDoubleCheckingCount(rows: Array<Pick<RecapRow, "shippedAt" | "verdict">>, nowMs: number): number {
+  const today = pacificDateKey(nowMs);
+  let n = 0;
+  for (const r of rows) {
+    if (pacificDateKey(r.shippedAt) === today && r.verdict === "measuring") n += 1;
+  }
+  return n;
 }
 
 /** One plain sentence for the band. Null when nothing shipped (band self-hides). */

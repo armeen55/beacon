@@ -46,7 +46,7 @@ slugs, internal keys, jargon, or unexplained zeros. Judge performance on prod, n
 
 ## TOP 50 (operator verdict, his order; source mapping + status annotated)
 
-- [ ] N1. **Unified opportunity allocator**: one ranked decision across optimize, create, link, prune, fix, promote by expected value, confidence, risk, effort. (NEW; absorbs v1 400 value-per-minute)
+- [x] N1 (2026-07-02). **Unified opportunity allocator**: one ranked decision across optimize, create, link, prune, fix, promote by expected value, confidence, risk, effort - SHIPPED as DREAM SITE V1 item D4 (worktree, not yet merged). See the D4 entry below for the full build note. (absorbs v1 400 value-per-minute)
 - [ ] N2. **Query-to-page ownership registry**: enforced; future cannibalization mistakes become impossible. (NEW; absorbs v1 143 draft grounding, 242 mixed-intent split, 270/271 wrong-landing-page + canonical gates)
 - [ ] N3. **Claim-level provenance graph**: every factual claim linked to source, date, reliability, affected pages. (NEW; absorbs v1 89/90 clickable sources + source-age, 275 facts_to_verify, 310 multi-source claims)
 - [ ] N4. **GA4 + Clarity behavior-verdict lane**: engagement, scroll, frustration, conversion, traffic measured together on every ship. (NEW; absorbs v1 503 GA4 floors, 385 protect-revenue objection)
@@ -176,13 +176,69 @@ data and talk. THIS IS VERSION 1 DREAM SITE."
 - [x] D3. **SEO mirror:** for GSC keywords/phrases where competitors beat us, read the SERP top 5
   and steal the best (SERP history + feature-steal + clone briefs BUILT; unify with D2 so both
   scrape lanes share one teardown library).
-- [ ] D4. **ONE combined best list:** AEO gaps + SEO gaps + keyword research + fanouts + GA4 money
-  in one ranked list (this IS N1 the allocator; D4 = N1 pulled forward).
+- [x] D4 (2026-07-02). **ONE combined best list, the unified allocator (= N1), SHIPPED:** new
+  `src/domains/allocator/unified-list.ts` (pure) fuses every opportunity source that exists today
+  into one ranked `UnifiedEntry`: (a) the worklist/canonical changes (buildCanonicalChanges'
+  CanonicalChange[], which already carries GSC + Clarity friction (`fix_conversion_friction`) +
+  internal-link moves (`add_internal_links`/`consolidate_pages`) through the ActionPack pipeline -
+  read as ONE lane, not re-derived), (b) D2's native AEO gap verdicts, (c) D3's SERP steal briefs,
+  (d) keyword-library rows with no owner page or ranking 11-20 (`selectKeywordLibraryGaps`) that no
+  other lane already covers. Scoring (documented, deterministic, tested): `unifiedScore` = expected-
+  value midpoint (or an honest small floor when unsized) x confidence x a +15%-per-extra-lane
+  multi-lane-agreement boost x a risk penalty (low/medium/high = 1/0.85/0.6), with effort breaking
+  ties within a value band; a held entry (blocked/quality-flagged, passed through from upstream
+  gates, never re-derived) sinks near the bottom but is never dropped. `fuseByPage` merges lanes
+  that target the SAME real page, unioning `sources[]` and taking the best confidence/risk/value
+  across them (fusion only ever lifts, never demotes). Found and fixed a real gap while building
+  this: D2's gap verdicts were computed nightly and discarded (`warm-caches.ts` only logged a
+  summary) - added `gap_verdict` to `move-draft-store.ts` + persistence in
+  `native-teardown-runner.ts` + `loadGapVerdictsForTenant`, the same store/read contract D3's steal
+  briefs already use. New `src/domains/allocator/load-unified-list.ts`'s `fuseUnifiedList` is the
+  I/O boundary; `changes-data.ts`'s `loadChangesView` calls it right after building lane (a), so
+  `/worklist` (no new page - the list IS the allocator) renders D2/D3/keyword-library-born rows as
+  first-class `CanonicalChange` rows with zero new UI (one small additive chip in
+  `changes-list-client.tsx` renders the new optional `sources[]` field as "X + Y agree" when 2+
+  lanes confirm the same page). Ground-truthed live on tenant-iranopedia real data (script +
+  actual `/worklist` curl): today only lanes (a) and (d) have live data (D2/D3's nightly runners
+  have not yet populated this tenant), so the "2+ lanes agree" boost has not fired yet - honest,
+  not a bug; a real fused-multi-lane row will appear the first night native-teardown or the SERP-
+  steal lane produces a verdict on a page the worklist also ranks. 34 new tests
+  (`unified-list.test.ts`: per-lane normalization, fusion, ranking determinism, multi-lane boost,
+  risk penalty, hold passthrough, worklist-seam rendering) + all pre-existing touched-domain tests
+  (changes/demand-graph/serp/research, 131 total) still pass, typecheck clean. (this IS N1 the
+  allocator; D4 = N1 pulled forward.)
 - [ ] D5. **Atomic edits, full new pages:** every edit atomic for max evidence (BUILT); new pages
   complete from all the data, behind the coherence/ownership gates (UX0 shipped them).
-- [ ] D6. **The daily ritual loop:** log on, do 1 or all changes; static mode: mark edited, the app
-  double-checks once marked published, then advances to the next best opportunity; dynamic mode:
-  auto-prepare + publish counter. One continuous flow, no dead ends.
+- [x] D6 (2026-07-02). **The daily ritual loop, STATIC MODE SHIPPED:** new pure
+  `src/domains/changes/session-flow.ts` (`findNextActionable`/`nextBestLine`/`noDeadEnd`) walks
+  the SAME ranked+filtered list `strategy.ts` already produces for /worklist - never a second
+  ranking. New `src/app/(shell)/worklist-session-strip.tsx` (`useWorklistSession` +
+  `WorklistSessionBanner`) owns the client session: a same-day localStorage counter ("You have
+  shipped N changes today") and a "Next best: <exactWhat>" banner with Open it/Dismiss.
+  `today-moves-card.tsx`'s `MoveCard` gained an additive optional `onAction` prop (fires after
+  ship/stage/snooze actually persists via the EXISTING `respondToRecommendation` action - no new
+  writes) so `changes-list-client.tsx` can advance the session after ANY row action (done, the
+  MoveCard's own snooze, or a new bare "Skip" button on rows with no open MoveCard, which reuses
+  the same `respondToRecommendation(..., "deferred")` dismissal path). No dead ends: every `<Row>`
+  render site wires `onAction`, the next-best row gets an emerald ring + auto-scroll
+  (`scrollIntoView`), and the queue only ever reports "done" honestly (never a fabricated next
+  item). Keyboard: native j/k move a focus ring between visible rows, enter opens the focused
+  row's detail, d marks it done through the SAME `respondToRecommendation("accepted")` call
+  `ship()` uses (silently no-ops with no matching move - never fakes a done state); all ignore
+  typing targets and modified keystrokes. Today gained a server-truth `DailyCounterStrip`
+  ("Today you shipped N changes. I am double-checking M of them.") reading two new pure
+  `weekly-recap.ts` exports (`shippedToday`/`stillDoubleCheckingCount`, Pacific-calendar-day-keyed
+  off the SAME ledger rows the header streak already loads) - self-hides on a day with nothing
+  shipped, never localStorage. Ground-truthed live on Iranopedia: `loadChangesView()` returned 206
+  real changes (196 actionable); a 5-step simulated walk advanced through 5 distinct real
+  recommendations with correct "Next best" lines, and the no-dead-end invariant held both mid-walk
+  and with every actionable row handled. The real ledger's most recent ship was 2026-06-30
+  Pacific, so the Today strip correctly self-hid (honest zero, not a bug) rather than mark a new
+  row and pollute proof data. 57 new tests (`session-flow.test.ts` 13, `weekly-recap.test.ts` +8,
+  `worklist-session-strip.test.tsx` 10, `changes-list-client-session.test.ts` 11, plus existing
+  suites re-verified), `npm run typecheck` clean, full `(shell)`+changes+proof-gsc vitest gate
+  (1047 passed, 1 pre-existing skip). NOT yet built: dynamic mode (auto-prepare + publish
+  counter) - static mode (operator marks each change themselves) is the whole D6 scope for now.
 - [x] D7 (2026-07-02). **Honest opportunity math, math layer + data fields SHIPPED:** new
   `src/domains/forecast/opportunity-math.ts` (pure) - the ONE canonical `computeOpportunity()`
   entry point composing the tenant CTR curve (`ctrOpportunity90d`/`forecastRange` from

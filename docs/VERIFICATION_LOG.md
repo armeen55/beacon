@@ -7,6 +7,69 @@
 
 ---
 
+## 2026-07-02 - DREAM SITE V1 item D6: the daily ritual loop, static mode (FLOW half)
+
+**What changed:** the operator's daily loop on `/worklist` - mark a change done (or skip it),
+and Beacon always hands back the next best thing to do, with an honest running count of what
+shipped today. Static mode only (the operator does the marking); dynamic auto-mode is a later
+item. Scoped to the FLOW layer (client affordances + session state) per the concurrent D4
+allocator DATA-layer boundary - `unified-list.ts` and the data-assembly loaders were not touched.
+
+**Files:**
+- `src/domains/changes/session-flow.ts` (new, pure) - `findNextActionable`, `nextBestLine`,
+  `noDeadEnd`, `isActionableRow`. Walks the caller's already-ranked list; never re-ranks.
+- `src/app/(shell)/worklist-session-strip.tsx` (new) - `useWorklistSession` hook (same-day
+  localStorage counter + next-best pointer) and `WorklistSessionBanner` (the rendered strip).
+- `src/app/(shell)/changes-list-client.tsx` (edited) - mounts the session hook over `visible`;
+  wires `onAction` into every `<Row>`; adds a bare "Skip" button (calls the existing
+  `respondToRecommendation(..., "deferred")`); adds j/k/enter/d keyboard nav; auto-scrolls +
+  rings the next-best row.
+- `src/app/(shell)/today-moves-card.tsx` (edited) - `MoveCard` gained an additive optional
+  `onAction?: (action: "shipped" | "snoozed") => void` prop, called from the existing `ship()`,
+  `stage()`, and `snooze()` success paths only (all still call the same `respondToRecommendation`
+  action as before - no new persistence).
+- `src/domains/proof-gsc/weekly-recap.ts` (edited) - added `shippedToday` and
+  `stillDoubleCheckingCount`, both Pacific-calendar-day-keyed (matching
+  `defaultPacificShipDate`'s clock) reads over the same ledger rows `shippedInLastDays` reads.
+- `src/app/(shell)/page.tsx` (edited) - added `DailyCounterStrip`, rendered under the header,
+  reading the two new `weekly-recap.ts` exports against the SAME `ledgerRows` already loaded
+  for the streak line (no second ledger read).
+
+**Tests:** `session-flow.test.ts` (13), `weekly-recap.test.ts` (+8, total 8 new since the file
+was extended), `worklist-session-strip.test.tsx` (10, render + source-pinned wiring), 
+`changes-list-client-session.test.ts` (11, source-pinned wiring: no-dead-end, keyboard, reuse of
+existing server actions). `npm run typecheck` clean project-wide. Full re-verify of
+`src/app/(shell)`, `src/domains/changes`, `src/domains/proof-gsc`: **1047 passed, 1 pre-existing
+skip, 78 files.**
+
+**Ground-truthed live on tenant-iranopedia** (read-only; no measurement state written):
+- A `loadShippedChanges()` probe confirmed 25 real ledger rows exist, most recent shipped
+  `2026-07-01T05:04:23Z` UTC = `2026-06-30` Pacific. `shippedToday`/`stillDoubleCheckingCount`
+  both correctly returned 0 for "now" (2026-07-02 Pacific) - the Today strip self-hid honestly
+  instead of showing a false "0 shipped" banner. Confirmed via `curl -m 60 http://localhost:3142/`
+  (200, 323KB) that the literal string "Today you shipped" does not appear (correctly self-hidden).
+- A `loadChangesView()` + `rankChanges(..., "balanced")` probe against real data returned 206
+  total changes, 196 actionable. A simulated 5-step session walk using the real pure
+  `findNextActionable`/`nextBestLine` produced 5 distinct, correct "Next best: ..." lines
+  quoting real recommendations (e.g. *"Next best: You're losing 'persian girl names' - clicks
+  dropped 51% (221 -> 109) over the last month... on persian female first names."*). Confirmed
+  `noDeadEnd` holds both after 5 handled and after ALL 196 actionable rows are handled (honest
+  end of queue, never a silent stall).
+- `curl -m 60 http://localhost:3142/worklist` (200, ~1.2MB) confirmed 57 real distinct
+  `change-row-<id>` markers rendered live, each with the new "Skip" button present.
+- Did not mark any real row done on the live app: every existing ledger row was already
+  `measuring` (already shipped/verified), so a fresh mark would have polluted live proof data.
+  Verified the mark-done path instead via the source-pinned reuse checks above (the `d` key and
+  the MoveCard `onAction` wiring both call the SAME `respondToRecommendation("accepted", ...)`
+  `ship()` already used pre-D6) plus the two read-only ground-truth probes above.
+
+**Caveats / NOT built:** dynamic mode (auto-prepare + a publish counter that runs without the
+operator marking each row) is out of scope for this item - static mode was the full D6 ask for
+now. The two throwaway ground-truth probe scripts were deleted after the run (no dead files left
+behind).
+
+---
+
 ## 2026-07-02 - DREAM SITE V1 item D2: native-cited teardown + commonality + gap verdict
 
 **What changed:** the polite teardown engine's target planner now ALSO consumes the native poll's
@@ -31868,3 +31931,19 @@ Real prepared-Move structured drafts (24 with a draft, all 24 had a matching pag
 **Honest caveat:** the reseed only ran once, manually, from the probe - it is NOT wired into the nightly poll itself (by design, so the poll never silently mutates the tenant's question set on its own). If `tenant-ritz-founder` (or any other tenant) is also genuinely empty in `tracked_prompts`, the same `seedTenantQuestionLibraryIfEmpty` function is available to reseed it the same way once real GSC/Profound source data exists for that tenant.
 
 **Next action:** wire `seedTenantQuestionLibraryIfEmpty` as a one-time-per-tenant guard inside the onboarding/launch flow (or a small ops script triggerable per tenant) so a newly onboarded tenant with zero tracked_prompts gets auto-seeded from its own GSC/Profound data instead of requiring a manual probe run.
+
+## 2026-07-02 - D4/N1: the unified opportunity allocator, one ranked list across every lane
+
+**What shipped:** new `src/domains/allocator/unified-list.ts` (pure) + `src/domains/allocator/load-unified-list.ts` (I/O). Normalizes four opportunity lanes into one `UnifiedEntry` shape and ranks them with one deterministic score: (a) `normalizeWorklistEntry` reads the existing worklist `CanonicalChange[]` (which already fuses GSC + Clarity friction + internal-link moves through the ActionPack pipeline - read as one lane, not re-derived), (b) `normalizeGapVerdictEntry` reads D2's persisted AEO gap verdicts, (c) `normalizeStealBriefEntry` reads D3's persisted SERP steal briefs, (d) `normalizeKeywordLibraryEntry` + `selectKeywordLibraryGaps` surface keyword-library rows with no owner page or ranking position 11-20 that no other lane already covers. `fuseByPage` merges lanes that land on the SAME real page, unioning `sources[]` and taking the best confidence/risk/expected-value across them (a corroborated page never scores worse than its best single-lane read). `unifiedScore` = expected-value midpoint (or a small honest floor when unsized) x confidence x (1 + 0.15 per extra corroborating lane) x a risk penalty (low/medium/high = 1 / 0.85 / 0.6); a held entry (blocked or quality-flagged, a passthrough from upstream gates, never re-derived here) is multiplied by 0.05 so it sinks near the bottom without ever disappearing from the list; ties break by effort ascending (quick wins first), then by id for full determinism.
+
+**Real gap found and fixed while building this:** D2's gap verdicts (`teardown-commonality-verdict.ts`'s `routeGapVerdict`) were computed every night by `native-teardown-runner.ts` but never persisted - `warm-caches.ts` only logged a one-line summary and discarded the actual verdict objects, so nothing could ever read them back. Added a new `"gap_verdict"` kind to `move-draft-store.ts`, persistence helpers (`gapVerdictDraftKey`/`serializeGapVerdict`/`parseGapVerdict`/`PersistedGapVerdict`) in `teardown-commonality-verdict.ts`, a save-after-compute step + `loadGapVerdictsForTenant` reader in `native-teardown-runner.ts` - the exact same store/read contract D3's `serp-steal-lane.ts` already uses for steal briefs (latest-row-wins, only re-write on real content change).
+
+**Rendering (no new UI):** `changes-data.ts`'s `loadChangesView` now calls `fuseUnifiedList(tenantId, worklistChanges)` right after building the worklist's `CanonicalChange[]`, and uses its fused, ranked output as the list's `changes` field - fail-soft (`.catch` falls back to the worklist-only list, never blanks the page). A D2/D3/keyword-library-born entry renders as a first-class `CanonicalChange` via `unifiedEntryToCanonicalChange`; a worklist-lane entry keeps its ORIGINAL record (status/measurement truth untouched) via `mergeSourcesOntoChange`, with only `sources[]` stamped on. Added one new optional field, `CanonicalChange.sources?: string[]`, and one small additive render in `changes-list-client.tsx` (an existing-seam edit, not a new component): a "X + Y agree" chip appears only when 2+ lanes confirm the same page.
+
+**Tests:** 34 new tests in `src/domains/allocator/unified-list.test.ts` covering per-lane normalization (including honest-null/no-verdict/not-read early-outs so a lane never fabricates an entry from insufficient evidence), fusion (same-page merge, never-merges-different-topic-creates, fusion never lowers confidence or raises risk, a hold on any fused lane holds the whole entry), ranking determinism (same input always same order regardless of input order), the exact multi-lane boost multiplier, the risk-penalty ordering, effort tie-breaking, held-sinks-but-never-drops, and the worklist-seam render functions. All pre-existing tests in the touched domains still pass: `src/domains/changes/*` (build-canonical-changes, canonical-change, strategy), `teardown-commonality-verdict.test.ts`, `native-teardown-runner.test.ts`, `serp-steal-lane.test.ts`, `keyword-library.test.ts`, `changes-list-client-session.test.ts` - 131 tests total across 8 files. `npm run typecheck` clean project-wide.
+
+**Ground truth (real tenant-iranopedia, dev server on :3142, `curl -m 180` + a one-off `scripts/_d4-unified-list-ground-truth.ts` probe):** the real `/worklist` render today fuses 81 worklist-lane rows with 126 keyword-library-lane rows into 206+ ranked entries (count varies run to run because the underlying worklist surface cache is itself stale-while-revalidate, a pre-existing characteristic, not something this item changed). D2 (`aeo_gap`) and D3 (`serp_steal`) both read 0 for this tenant today - their nightly runners have not yet produced a persisted verdict/brief for tenant-iranopedia, so the "2+ lanes agree" boost has not fired on any real row yet; this is honestly disclosed, not a bug in the fusion logic (unit tests prove the boost fires correctly once inputs exist). Top of the real ranked list: `/iran-flags` title change (rank position 8, 2,286 monthly impressions, forecast 6-20 clicks/month within 28 days) - a real, winnable, high-traffic page, the kind of thing a smart operator would in fact do first. Two rendered rows quoted verbatim from the live HTML: (1) worklist-lane, page "iran flags", status "To do" - "You already rank position 8 for "iran flag" (2,286 monthly impressions). A sharper title can climb a few spots and capture far more of those clicks." (2) keyword-library-lane (D4-born, `sources:["keyword research"]`), page "iran-animals/red-fox" - "Improve the page ranking position 10 for "iran fox" - it gets about 139 times shown on Google a month but is not on page 1 yet."
+
+**Honest caveats:** (1) D2/D3 lanes are wired and tested but currently empty for tenant-iranopedia in production data - the fused list will visibly change (and the "agree" chip will render) the first night either nightly runner produces a verdict on a page the worklist also ranks; nothing further needs to be built for that to happen. (2) The standalone ground-truth script hit `after() was called outside a request scope` on one run (a pre-existing Next.js `after()`-outside-request limitation in `moves-data.ts`'s SWR surface cache, not something this item introduced - the same caveat the earlier D7 probe script documented) - the authoritative numbers above are from the real dev-server HTML render, not the script's degraded-cache run. (3) `keyword_library` confidence (0.3-0.4) is deliberately the lowest of the four lanes since it has no teardown or AI-answer consensus behind it - this keeps it from ever outranking a real worklist or teardown-backed move at comparable value, by design.
+
+**Next action:** let D2's `native-teardown` and D3's `serp-steal-lane` nightly warm-cache steps run for a few nights on tenant-iranopedia so real `aeo_gap`/`serp_steal` entries populate the fused list and the multi-lane "agree" boost gets its first live proof point; then move to D6 (the daily ritual loop) once the concurrent D6 workstream's client-side changes land.
