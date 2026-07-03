@@ -106,28 +106,13 @@ function domainOf(url: string): string {
 const canon = (u: string): string => (canonicalizeCitationUrl(u) ?? u).toLowerCase().replace(/\/+$/, "");
 const ACTION_LABEL_FALLBACK = (a: string) => a.replace(/_/g, " ");
 
-async function loadUncached(tenantId: string): Promise<CompetitorIntel> {
-  const [wl, audits] = await Promise.all([
-    loadActionPackWorklistForTenant(tenantId).catch(() => null),
-    getCompetitorAuditsForTenant().catch(() => new Map()),
-  ]);
-  if (!wl) return EMPTY;
-  const packs = wl.packs;
+type DomainAgg = { citations: number; prompts: Set<string>; packs: Set<string>; pages: Set<string> };
 
-  // Index teardown audits by canonical URL.
-  const auditByUrl = new Map<string, { fetchStatus: string; facts: unknown }>();
-  for (const a of audits.values()) {
-    auditByUrl.set(canon(a.url), { fetchStatus: a.fetchStatus, facts: a.facts });
-  }
-  const teardownStatusOf = (url: string): CompetitorPage["teardownStatus"] => {
-    const a = auditByUrl.get(canon(url));
-    if (!a) return "not_read";
-    if (a.fetchStatus === "ok") return "read";
-    return "blocked";
-  };
-
-  // ── Domains (who AI cites instead of us) — from profound receipts ──
-  const domMap = new Map<string, { citations: number; prompts: Set<string>; packs: Set<string>; pages: Set<string> }>();
+/** Domains (who AI cites instead of us) from profound receipts + pages-to-beat.
+ *  PURE over the packs - no audit cache, no teardown planner, no extra reads.
+ *  Shared by the full intel loader and the lean rivals loader (FP10b). */
+function buildDomains(packs: ActionPack[]): { domains: CompetitorDomain[]; domMap: Map<string, DomainAgg> } {
+  const domMap = new Map<string, DomainAgg>();
   const bump = (d: string) => {
     const e = domMap.get(d) ?? { citations: 0, prompts: new Set<string>(), packs: new Set<string>(), pages: new Set<string>() };
     domMap.set(d, e);
@@ -162,6 +147,68 @@ async function loadUncached(tenantId: string): Promise<CompetitorIntel> {
       topPages: [...e.pages].slice(0, 4),
     }))
     .sort((a, b) => b.citationCount - a.citationCount || b.actionPackCount - a.actionPackCount);
+  return { domains, domMap };
+}
+
+/** ActionPacks tied to competitor pages. PURE over the packs. */
+function buildActionPacks(packs: ActionPack[]): CompetitorActionPack[] {
+  return packs
+    .map((p: ActionPack) => ({ p, beat: pagesToBeatFor(p) }))
+    .filter(({ beat }) => beat.length > 0)
+    .map(({ p, beat }) => ({
+      actionPackId: p.id,
+      title: p.label,
+      targetUrl: p.targetUrl,
+      action: ACTION_LABEL_FALLBACK(p.actionType),
+      competitorPagesToBeat: beat.slice(0, 5),
+      evidenceSources: p.evidenceSources,
+    }))
+    .sort((a, b) => b.competitorPagesToBeat.length - a.competitorPagesToBeat.length);
+}
+
+/** The lean slice the /prompts "Who AI recommends instead of you" section
+ *  (FP10b) needs: rival domains + the moves that beat them. Reads ONLY the
+ *  request-memoized ActionPack worklist - never the teardown audit cache or
+ *  the teardown planner, whose demand-graph walk is what makes the full
+ *  loader slow enough to need a render deadline. */
+export type CompetitorRivals = {
+  domains: CompetitorDomain[];
+  actionPacks: CompetitorActionPack[];
+};
+
+async function loadRivalsUncached(tenantId: string): Promise<CompetitorRivals> {
+  const wl = await loadActionPackWorklistForTenant(tenantId).catch(() => null);
+  if (!wl) return { domains: [], actionPacks: [] };
+  return { domains: buildDomains(wl.packs).domains, actionPacks: buildActionPacks(wl.packs) };
+}
+
+/** Request-memoized lean rivals loader (domains + moves only). */
+export const loadCompetitorRivals = cache(
+  async (): Promise<CompetitorRivals> => loadRivalsUncached(await currentTenantId()),
+);
+
+async function loadUncached(tenantId: string): Promise<CompetitorIntel> {
+  const [wl, audits] = await Promise.all([
+    loadActionPackWorklistForTenant(tenantId).catch(() => null),
+    getCompetitorAuditsForTenant().catch(() => new Map()),
+  ]);
+  if (!wl) return EMPTY;
+  const packs = wl.packs;
+
+  // Index teardown audits by canonical URL.
+  const auditByUrl = new Map<string, { fetchStatus: string; facts: unknown }>();
+  for (const a of audits.values()) {
+    auditByUrl.set(canon(a.url), { fetchStatus: a.fetchStatus, facts: a.facts });
+  }
+  const teardownStatusOf = (url: string): CompetitorPage["teardownStatus"] => {
+    const a = auditByUrl.get(canon(url));
+    if (!a) return "not_read";
+    if (a.fetchStatus === "ok") return "read";
+    return "blocked";
+  };
+
+  // ── Domains (who AI cites instead of us) — from profound receipts ──
+  const { domains, domMap } = buildDomains(packs);
 
   // ── Pages to beat — from competitorPagesToBeat, with teardown status ──
   const pageMap = new Map<string, CompetitorPage>();
@@ -191,18 +238,7 @@ async function loadUncached(tenantId: string): Promise<CompetitorIntel> {
   );
 
   // ── ActionPacks tied to competitors ──
-  const actionPacks: CompetitorActionPack[] = packs
-    .map((p: ActionPack) => ({ p, beat: pagesToBeatFor(p) }))
-    .filter(({ beat }) => beat.length > 0)
-    .map(({ p, beat }) => ({
-      actionPackId: p.id,
-      title: p.label,
-      targetUrl: p.targetUrl,
-      action: ACTION_LABEL_FALLBACK(p.actionType),
-      competitorPagesToBeat: beat.slice(0, 5),
-      evidenceSources: p.evidenceSources,
-    }))
-    .sort((a, b) => b.competitorPagesToBeat.length - a.competitorPagesToBeat.length);
+  const actionPacks: CompetitorActionPack[] = buildActionPacks(packs);
 
   // ── Prioritized "read these first" queue ──
   // CRITICAL: planTeardownTargetsForTenant is the SAME function the crawler runs, over

@@ -7,9 +7,8 @@
  * `/diagnostics/competitor-intel`.
  *
  * Posture: operator-gated; sequential + robots-respecting + bounded
- * inside `refreshCompetitorIntel`; no cron. Revalidates both the
- * diagnostic and the customer /competitors page (its sections read the
- * stores this refresh writes).
+ * inside `refreshCompetitorIntel`; no cron. Revalidates this diagnostic
+ * page (its own sections read the stores this refresh writes).
  */
 
 import { revalidatePath } from "next/cache";
@@ -28,7 +27,6 @@ export async function refreshCompetitorIntelAction(): Promise<RefreshCompetitorI
   if (!isOperatorModeServer()) return { ok: false, reason: "not_operator" };
   const result = await refreshCompetitorIntel();
   revalidatePath("/diagnostics/competitor-intel");
-  revalidatePath("/competitors");
   return result;
 }
 

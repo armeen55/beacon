@@ -39,7 +39,9 @@ export function CommandPalette({ targets }: { targets: PaletteTarget[] }) {
       }));
     const routeEntries: Entry[] = [
       { label: "Proof — what your changes did", hint: "Page", go: () => router.push("/proof") },
-      { label: "Competitors — who AI recommends", hint: "Page", go: () => router.push("/competitors") },
+      // FP10b (2026-07-02): /competitors retired; "who AI recommends instead
+      // of you" now lives on AI questions (/prompts).
+      { label: "AI questions - who AI recommends instead of you", hint: "Page", go: () => router.push("/prompts") },
       { label: "Changes — your shipped log", hint: "Page", go: () => router.push("/changes") },
       { label: "Settings — connectors & data", hint: "Page", go: () => router.push("/settings/connectors") },
       {

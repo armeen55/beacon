@@ -73,8 +73,13 @@ import {
 // header, the band headings, and every cross-surface count (Today's tiles, the
 // measuring strip's "View all in Results" link) name the same numbers.
 import { splitLedgerLifecycle } from "@/domains/changes/lifecycle-counts";
-import { loadLifecycleCounts } from "../lifecycle-counts-data";
-import { ResultsHeaderStrip } from "./results-header-strip";
+// FP8 (2026-07-02) - the header strip grew into THE cumulative outcome strip (shared
+// with Today): the same counts sentence from the same lifecycle split, plus the
+// measured monthly click lift the wins are adding (or the honest first-verdict date
+// when nothing has settled) and the clearly-labeled dollar estimate when one exists.
+import { CumulativeOutcomeSection } from "../cumulative-outcome-strip";
+import { Card } from "@/components/ui/card";
+import { Pill, type PillIntent } from "@/components/ui/pill";
 import { loadWithDeadline, valueWithDeadline } from "@/lib/load-with-deadline";
 import { HonestDelay } from "@/components/honest-delay";
 
@@ -87,23 +92,24 @@ import { HonestDelay } from "@/components/honest-delay";
 export const dynamic = "force-dynamic";
 
 
-const OUTCOME_STYLE: Record<GscProofVerdict, string> = {
-  won: "border-emerald-300 bg-emerald-50 text-emerald-700",
-  lost: "border-rose-300 bg-rose-50 text-rose-700",
-  inconclusive: "border-border bg-muted/40 text-muted-foreground",
-  measuring: "border-blue-300 bg-blue-50 text-blue-700",
-  insufficient_data: "border-border bg-muted/40 text-muted-foreground",
+/** Move 2 / FP8 - the badge is a Pill primitive colored by MATURITY tone, never by
+ *  the raw verdict. Red/green appear only at a mature result; an early signal reads
+ *  as the blue "measuring" intent, waiting-for-data as amber "waiting". */
+const TONE_PILL_INTENT: Record<MeasurementPresentation["tone"], PillIntent> = {
+  positive: "won",
+  negative: "attention",
+  neutral: "neutral",
+  progress: "measuring",
+  waiting: "waiting",
 };
-
-/** Move 2 - color by MATURITY tone, never by the raw verdict. Red/green appear only
- *  at a mature result; an early signal is blue "progress", waiting-for-data is amber. */
-const TONE_STYLE: Record<MeasurementPresentation["tone"], string> = {
-  positive: "border-emerald-300 bg-emerald-50 text-emerald-700",
-  negative: "border-rose-300 bg-rose-50 text-rose-700",
-  neutral: "border-border bg-muted/40 text-muted-foreground",
-  progress: "border-blue-300 bg-blue-50 text-blue-700",
-  waiting: "border-amber-300 bg-amber-50 text-amber-700",
-};
+/** Legacy fallback (no presentation available): same maturity-honest posture -
+ *  a pre-28-day won/lost never earns the final red/green treatment. */
+function verdictPillIntent(verdict: GscProofVerdict, basisDay: number | null): PillIntent {
+  if (verdict === "won") return basisDay === 28 ? "won" : "measuring";
+  if (verdict === "lost") return basisDay === 28 ? "attention" : "measuring";
+  if (verdict === "measuring" || verdict === "insufficient_data") return "waiting";
+  return "neutral";
+}
 
 /** One verdict-reliability grade (master plan N10): a neutral gray scale, never
  *  red/green, so it never competes with the badge's own maturity color above -
@@ -353,14 +359,6 @@ export default async function ProofPage({
   const winRows = bands.won;
   const learningRows = bands.learned;
   const inFlightRows = bands.measuring;
-  // The header strip reads the shared loader (react.cache shares the ledger read this
-  // page already paid for), so Results says the same numbers everywhere the loader is
-  // consumed. Bounded like every sibling read; a timeout just hides the strip.
-  const lifecycle = await valueWithDeadline(
-    loadLifecycleCounts().catch(() => null),
-    null,
-    SIDE_READ_DEADLINE_MS,
-  );
 
   // Item C7 - the seasonal-overlap caveat used to render its full paragraph on
   // every affected card (15 identical copies on a page with 15 seasonal
@@ -486,16 +484,16 @@ export default async function ProofPage({
             Every change you have made and whether it helped. We compare each page
             to how it did before, and to similar pages you did not change.
           </p>
-          {/* FP3 - the one-line count strip: the same numbers as the bands below,
-              from the same shared classifier, so the header never promises a count
-              the page does not show. */}
-          {lifecycle ? (
-            <ResultsHeaderStrip
-              measuring={lifecycle.measuring}
-              decided={lifecycle.decided}
-              won={lifecycle.won}
-            />
-          ) : null}
+          {/* FP3 + FP8 - the cumulative outcome strip: the same count numbers as the
+              bands below (same shared classifier over the same request-cached ledger),
+              extended with the measured value the wins are adding, so the header never
+              promises a count the page does not show and the total value won is
+              asserted, not buried. */}
+          <div className="mt-3">
+            <Suspense fallback={null}>
+              <CumulativeOutcomeSection />
+            </Suspense>
+          </div>
         </div>
         {ledger.length > 0 ? (
           <RecomputeLedgerButton
@@ -874,36 +872,73 @@ function LedgerCard({ rec, link, pres, grade, spark, band, revert, restored, cal
     !!pres &&
     rec.trafficOutcome?.ran === true &&
     searchAndTrafficDisagree(pres.direction, rec.trafficOutcome?.adjustedSessionsPct);
+  // FP8 - the collapsed summary's single most important number: the measured basis
+  // window lift for a settled row (in the unit the verdict was judged on), the
+  // countdown to the next read for an in-flight one. Never invented - a settled row
+  // without a basis window shows no number at all.
+  const keyNumber = (() => {
+    if (band === "win" || band === "learning") {
+      return basis ? `${formatWindowLift(metric, basis)} over ${basis.day} days` : null;
+    }
+    const next = rec.windows.filter((w) => !w.ran).sort((a, b) => a.day - b.day)[0];
+    if (next) {
+      const anyRead = rec.windows.some((w) => w.ran);
+      const daysLeft = Math.ceil((Date.parse(addDays(rec.shippedAt, next.day)) - Date.now()) / 86_400_000);
+      return daysLeft <= 0
+        ? "verdict due any day now"
+        : `${anyRead ? "next" : "first"} read in ${daysLeft} day${daysLeft === 1 ? "" : "s"}`;
+    }
+    return badgeMaturesOn;
+  })();
   return (
-    <div className={`rounded-lg border border-border/60 bg-background p-4${band === "win" ? " beacon-win-glow" : ""}`}>
+    <Card padding="md" className={band === "win" ? "beacon-win-glow" : undefined}>
+      {/* FP8 - ONE scannable summary line per card: the page, what changed, the
+          verdict-or-maturity word, and the single most important number. The full
+          chip grid (evidence, caveats, math, comparison detail, actions) moves
+          behind "Show the full read" below - all still reachable, none shouting.
+          Item C2's six-word badge and Move 2's maturity-tone rule are unchanged:
+          the Pill intent comes from pres.tone, so red/green still never appear
+          before a mature result. */}
       <div className="flex flex-wrap items-center gap-2">
         {(() => {
           const href = dossierHref(rec.path);
           return href ? (
-            <Link href={href} className="text-[14px] font-semibold text-foreground underline underline-offset-2 hover:text-foreground/80">{rec.path}</Link>
+            <Link href={href} className="text-sub font-semibold text-foreground underline underline-offset-2 hover:text-foreground/80">{rec.path}</Link>
           ) : (
-            <span className="text-[14px] font-semibold text-foreground">{rec.path}</span>
+            <span className="text-sub font-semibold text-foreground">{rec.path}</span>
           );
         })()}
-        <span
-          className={
-            "rounded border px-1.5 py-0.5 text-[10px] font-medium uppercase " +
-            (pres ? TONE_STYLE[pres.tone] : OUTCOME_STYLE[rec.verdict])
-          }
-        >
-          {/* Item C2 - the visible badge is one of exactly six words (Waiting /
-              Leaning good / Leaning bad / Helped / Did not help / No clear
-              change); the maturity-toned color still comes from pres.tone
-              underneath, and the precise internal wording (pres.headline)
-              still renders inside "See the math" below. */}
+        <Pill intent={pres ? TONE_PILL_INTENT[pres.tone] : verdictPillIntent(rec.verdict, basis?.day ?? null)}>
           {pres ? proofBadgeLabel(pres) : proofBadgeLabelFromVerdict(rec.verdict, basis?.day ?? null)}
+        </Pill>
+        {keyNumber ? (
+          <span
+            className={
+              band === "win"
+                ? "text-meta font-semibold text-status-success tabular-nums"
+                : "text-meta text-muted-foreground tabular-nums"
+            }
+          >
+            {keyNumber}
+          </span>
+        ) : null}
+        <span className="text-meta text-muted-foreground">
+          {plainAction(rec.actionType)} · shipped {rec.shippedAt.slice(0, 10)}
         </span>
+      </div>
+
+      <details className="mt-2">
+      <summary className="cursor-pointer text-meta text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1">
+        Show the full read
+      </summary>
+
+      <div className="mt-2 flex flex-wrap items-center gap-2">
         {pres && badgeMaturesOn ? (
           <span className="text-[10px] text-muted-foreground">{badgeMaturesOn}</span>
         ) : null}
-        {/* One verdict-reliability grade (master plan N10): a single word next to
-            the badge for how much to trust this specific read, combining recrawl,
-            window completeness, contamination, comparison quality, shock/seasonal
+        {/* One verdict-reliability grade (master plan N10): a single word for how
+            much to trust this specific read, combining recrawl, window
+            completeness, contamination, comparison quality, shock/seasonal
             overlap, and sample strength. The full reasons render inside "See the
             math" below - this chip is just the scan-it-in-one-glance summary. */}
         {grade ? (
@@ -916,26 +951,6 @@ function LedgerCard({ rec, link, pres, grade, spark, band, revert, restored, cal
             {grade.grade}
           </span>
         ) : null}
-        {/* Item 6 - in-flight countdown: when the next reading lands, from this row's
-            own windows (smallest unread window vs today). "any day now" covers the
-            Google data lag once the calendar date has passed. */}
-        {band === "inflight" ? (() => {
-          const next = rec.windows.filter((w) => !w.ran).sort((a, b) => a.day - b.day)[0];
-          if (!next) return null;
-          const anyRead = rec.windows.some((w) => w.ran);
-          const dueOn = addDays(rec.shippedAt, next.day);
-          const daysLeft = Math.ceil((Date.parse(dueOn) - Date.now()) / 86_400_000);
-          return (
-            <span className="rounded-full border border-border/50 bg-muted/50 px-2 py-0.5 text-[10px] tabular-nums text-muted-foreground">
-              {daysLeft <= 0
-                ? "any day now"
-                : `${anyRead ? "next" : "first"} read in ${daysLeft} day${daysLeft === 1 ? "" : "s"}`}
-            </span>
-          );
-        })() : null}
-        <span className="text-[11px] text-muted-foreground">
-          {rec.actionType.replace(/_/g, " ")} · shipped {rec.shippedAt.slice(0, 10)}
-        </span>
         {rec.verifiedLive ? (
           <span className="inline-flex items-center gap-1 rounded border border-emerald-300 bg-emerald-50 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700">
             <Check className="h-3.5 w-3.5 shrink-0" aria-hidden />
@@ -1316,7 +1331,8 @@ function LedgerCard({ rec, link, pres, grade, spark, band, revert, restored, cal
           </span>
         </div>
       ) : null}
-    </div>
+      </details>
+    </Card>
   );
 }
 

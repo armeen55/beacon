@@ -31,9 +31,12 @@ function useBreadcrumb(pathname: string) {
     segments[1] === "opportunity" &&
     segments.length >= 3
   ) {
+    // FP10b (2026-07-02): /competitors retired as a destination (it now
+    // redirects to /prompts); point the breadcrumb at the real destination
+    // instead of a page that immediately bounces the visitor elsewhere.
     return {
       title: "Opportunity detail",
-      parent: { label: "Competitors", href: "/competitors" },
+      parent: { label: "AI questions", href: "/prompts" },
     };
   }
   const base = "/" + segments[0];

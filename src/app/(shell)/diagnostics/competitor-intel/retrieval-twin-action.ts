@@ -57,7 +57,8 @@ export async function checkAnswerRaceAction(): Promise<AnswerRaceActionResponse>
   }
 
   if (indexResult.status === "ok") {
-    revalidatePath("/competitors");
+    revalidatePath("/diagnostics/competitor-intel");
+    revalidatePath("/prompts");
     revalidatePath("/worklist");
     revalidatePath("/");
   }

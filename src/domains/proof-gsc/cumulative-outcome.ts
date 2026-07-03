@@ -1,0 +1,185 @@
+/**
+ * cumulative-outcome (2026-07-02, FP8 - "total value won is never asserted") - the ONE
+ * pure aggregation behind the cumulative outcome strip rendered on BOTH Today and
+ * Results. PURE, no I/O; the caller feeds it the already-loaded proof ledger rows.
+ *
+ * HONESTY CONTRACT (same posture as lifetime-earnings.ts / change-dollar-value.ts):
+ *   - Band membership reuses splitLedgerLifecycle (THE ONE-COUNT RULE in
+ *     domains/changes/lifecycle-counts.ts), so shipped/decided/won/measuring here can
+ *     never disagree with the Results bands or Today's tiles.
+ *   - The clicks-per-month figure is the SUM of each won change's own MEASURED basis
+ *     window delta (adjustedLift: treated minus comparison-page clicks), rolled to a
+ *     monthly rate with the same toMonthlyRate change-dollar-value.ts uses. Never
+ *     invented, never projected off a measuring row - a won row without a measured
+ *     clicks delta contributes 0.
+ *   - Dollars appear ONLY when at least one won row already carries a computed
+ *     dollarValue.usdPerMonth (GA4 traffic outcome x the operator's own rate) and the
+ *     sum is positive. The sentence names the basis and says "estimate", never
+ *     "measured revenue". No rate configured -> no money line, ever.
+ *   - Zero final reads -> the honest still-measuring frame with the REAL date the
+ *     earliest still-measuring change's 28-day window closes (soonest future close
+ *     first; when every close date has already passed, say we are waiting on Google's
+ *     data instead of naming a date in the past).
+ *   - Read-only. Never mutates rows. No em or en dash anywhere in generated copy.
+ *
+ * Pinned by tests/domains/proof-gsc/cumulative-outcome.test.ts.
+ */
+
+import { splitLedgerLifecycle } from "@/domains/changes/lifecycle-counts";
+import { toMonthlyRate } from "./change-dollar-value";
+import { addDays } from "./measure";
+
+/** The minimal ledger-row shape this module needs - structurally satisfied by
+ *  ShippedChangeRecord (shipped-change-store.ts), including the re-measured
+ *  ledger's computed-only dollarValue attachment. */
+export type CumulativeOutcomeRow = {
+  id: string;
+  path: string;
+  shippedAt: string;
+  verdict: string;
+  windows: ReadonlyArray<{
+    day: number;
+    ran: boolean;
+    controlsUsed?: number | null;
+    /** Basis window's measured clicks delta vs comparison pages (diff-in-diff).
+     *  Optional for legacy rows; a missing value contributes 0, never a guess. */
+    adjustedLift?: number;
+  }>;
+  baseline?: { impressions?: number | null } | null;
+  /** Computed-only attachment from the re-measured ledger (change-dollar-value.ts).
+   *  Null/absent when no GA4 traffic outcome or no revenue model exists. */
+  dollarValue?: { usdPerMonth: number | null } | null;
+};
+
+export type CumulativeOutcome = {
+  /** All-time shipped changes (every ledger row). */
+  shipped: number;
+  /** Changes with a final read (mature won + lost) - same rule as Results' bands. */
+  decided: number;
+  /** Decided changes that won. */
+  won: number;
+  /** Shipped changes still without a final read. */
+  measuring: number;
+  /** Sum of the won changes' measured basis-window click deltas, as a monthly rate
+   *  (rounded whole). 0 when no won change has a measured clicks delta. */
+  winClicksPerMonth: number;
+  /** Sum of the won changes' computed dollar rates, or null when none carries one. */
+  estimatedUsdPerMonth: number | null;
+  /** ISO date (YYYY-MM-DD) the earliest still-measuring 28-day window closes -
+   *  soonest future close, falling back to the earliest past close. Null when
+   *  nothing is measuring or no ship date parses. */
+  firstVerdictOn: string | null;
+  /** The wins-value sentence. Null unless won > 0 and the measured monthly clicks
+   *  sum is positive (never a fabricated or negative-spun claim). */
+  valueLine: string | null;
+  /** The honest zero-final-reads frame with the real first-verdict date. Null once
+   *  anything has a final read. */
+  waitingLine: string | null;
+  /** The clearly-labeled estimate line. Null when no won row carries a dollar rate. */
+  dollarLine: string | null;
+};
+
+const fmtCount = (n: number): string =>
+  Math.abs(Math.round(n)).toLocaleString("en-US", { maximumFractionDigits: 0 });
+
+const fmtUsd = (n: number): string =>
+  Math.round(Math.abs(n)).toLocaleString("en-US", { maximumFractionDigits: 0 });
+
+/** "Jul 18" style label from an ISO date, UTC so it is deterministic. */
+function monthDayLabel(iso: string): string {
+  return new Date(`${iso}T00:00:00Z`).toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    timeZone: "UTC",
+  });
+}
+
+const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
+
+/**
+ * Aggregate the whole proof ledger into the one cumulative outcome the strip
+ * renders. Returns null when nothing has shipped (the strip self-hides; an
+ * empty ledger has its own empty state). PURE and deterministic for a fixed
+ * `now`.
+ */
+export function computeCumulativeOutcome(
+  rows: ReadonlyArray<CumulativeOutcomeRow>,
+  now: Date = new Date(),
+): CumulativeOutcome | null {
+  if (rows.length === 0) return null;
+
+  const split = splitLedgerLifecycle(rows, now);
+  const won = split.won.length;
+  const decided = won + split.learned.length;
+  const measuring = split.measuring.length;
+  const shipped = rows.length;
+
+  // Sum each won change's OWN measured basis-window clicks delta as a monthly rate.
+  let clicksPerMonth = 0;
+  let usdTotal = 0;
+  let usdCount = 0;
+  for (const r of split.won) {
+    const basis = [...r.windows].filter((w) => w.ran).sort((a, b) => b.day - a.day)[0];
+    if (basis && Number.isFinite(basis.adjustedLift)) {
+      clicksPerMonth += toMonthlyRate(basis.adjustedLift as number, basis.day);
+    }
+    const usd = r.dollarValue?.usdPerMonth;
+    if (usd != null && Number.isFinite(usd)) {
+      usdTotal += usd;
+      usdCount += 1;
+    }
+  }
+  const winClicksPerMonth = Math.round(clicksPerMonth);
+  const estimatedUsdPerMonth = usdCount > 0 ? Math.round(usdTotal * 100) / 100 : null;
+
+  // The real first-verdict date: earliest FUTURE 28-day close among still-measuring
+  // ships; when every close date already passed, keep the earliest past one so the
+  // waiting sentence can say "waiting on Google's data" instead of a stale date.
+  const today = now.toISOString().slice(0, 10);
+  let earliestFuture: string | null = null;
+  let earliestAny: string | null = null;
+  for (const r of split.measuring) {
+    const ship = (r.shippedAt ?? "").slice(0, 10);
+    if (!ISO_DAY.test(ship)) continue;
+    const closes = addDays(ship, 28);
+    if (earliestAny == null || closes < earliestAny) earliestAny = closes;
+    if (closes >= today && (earliestFuture == null || closes < earliestFuture)) {
+      earliestFuture = closes;
+    }
+  }
+  const firstVerdictOn = earliestFuture ?? earliestAny;
+
+  const valueLine =
+    won > 0 && winClicksPerMonth > 0
+      ? won === 1
+        ? `Your win is adding about ${fmtCount(winClicksPerMonth)} extra clicks a month, measured against similar pages we did not change.`
+        : `Together your ${fmtCount(won)} wins are adding about ${fmtCount(winClicksPerMonth)} extra clicks a month, measured against similar pages we did not change.`
+      : null;
+
+  const waitingLine =
+    decided === 0 && measuring > 0
+      ? firstVerdictOn == null
+        ? "No final verdicts yet. The first one lands when the earliest 28-day window closes."
+        : firstVerdictOn >= today
+          ? `No final verdicts yet. The first one lands around ${monthDayLabel(firstVerdictOn)} when the earliest 28-day window closes.`
+          : "No final verdicts yet. The earliest 28-day window has already closed, so the first one lands as soon as Google's data catches up."
+      : null;
+
+  const dollarLine =
+    estimatedUsdPerMonth != null && estimatedUsdPerMonth > 0
+      ? `At your rate, that is about $${fmtUsd(estimatedUsdPerMonth)} a month. This is an estimate, your rate times the extra visits the ${won === 1 ? "win" : "wins"} earned, not measured revenue.`
+      : null;
+
+  return {
+    shipped,
+    decided,
+    won,
+    measuring,
+    winClicksPerMonth,
+    estimatedUsdPerMonth,
+    firstVerdictOn,
+    valueLine,
+    waitingLine,
+    dollarLine,
+  };
+}

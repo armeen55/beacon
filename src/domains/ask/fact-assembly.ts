@@ -235,7 +235,7 @@ async function assembleAiVisibilityFacts(): Promise<AskFact[]> {
       fact(
         `${c.domain} appears in AI answers ${c.total_answer_appearances} times, ${c.when_owned_absent} of those when we were NOT cited (${Math.round(c.displacement_ratio * 100)}% displacement risk).`,
         "profound",
-        "/competitors",
+        "/prompts",
       ),
     );
   }
@@ -265,7 +265,7 @@ async function assembleCompetitorFacts(): Promise<AskFact[]> {
         fact(
           `${c.domain}: appears in AI answers ${c.total_answer_appearances} times total (${c.when_owned_present} alongside us, ${c.when_owned_absent} instead of us).`,
           "dataforseo",
-          "/competitors",
+          "/prompts",
         ),
       );
     }
@@ -273,7 +273,7 @@ async function assembleCompetitorFacts(): Promise<AskFact[]> {
     for (const topic of index.co_citation.by_topic.slice(0, 3)) {
       const topWhenAbsent = topic.top_when_absent.slice(0, 2).map((c) => c.domain).join(", ");
       if (topWhenAbsent) {
-        facts.push(fact(`On "${topic.topic}", when we are not cited AI most often cites: ${topWhenAbsent}.`, "dataforseo", "/competitors"));
+        facts.push(fact(`On "${topic.topic}", when we are not cited AI most often cites: ${topWhenAbsent}.`, "dataforseo", "/prompts"));
       }
     }
   }

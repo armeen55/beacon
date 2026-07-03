@@ -20,7 +20,10 @@ export function pagesProofSubtitle(): string {
 }
 
 /**
- * Short bullets for Layer-2 collapsed disclosures on Market (`/competitors`).
+ * Short bullets for Layer-2 collapsed disclosures on Market (formerly
+ * `/competitors`, retired FP10b 2026-07-02; the "who AI recommends instead of
+ * you" surface now lives on `/prompts`). Unused currently - kept for the next
+ * surface that needs this methodology framing.
  * Wording aligned with methodology §Citation Share / sample quality / directional scope.
  */
 export const LAYER2_MARKET_METHODOLOGY_BULLETS: readonly string[] = [

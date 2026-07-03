@@ -8,7 +8,8 @@ import { getOutreachRow, markSent } from "./outreach-store";
  * outreach/send-pitch (BEACON_500 item 57, 2026-07-02) - THE ONLY MODULE IN THE
  * ENTIRE CODEBASE THAT MAY SEND AN OUTREACH EMAIL. It is called from exactly one
  * place: the operator's explicit Send button server action
- * (src/app/(shell)/competitors/outreach-actions.ts::sendOutreachPitchAction).
+ * (src/app/(shell)/diagnostics/competitor-intel/outreach-actions.ts::sendOutreachPitchAction,
+ * moved here FP10b 2026-07-02 when the customer-facing /competitors shell was retired).
  *
  * CRITICAL SAFETY RULE (item 57): every email send is an explicit operator
  * click. Beacon NEVER auto-sends. There is no cron, no batch, no "auto-follow-up"

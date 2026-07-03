@@ -69,7 +69,7 @@ export function computePulse(opts: {
       severity: opts.geoCoverage.gaps.length >= 5 ? "high" : "medium",
       title: `${opts.geoCoverage.gaps.length} local markets with competitor pressure`,
       detail: `Markets where competitors have pages but you have limited or no presence.`,
-      href: "/competitors",
+      href: "/prompts",
       created_at: now,
     });
   }

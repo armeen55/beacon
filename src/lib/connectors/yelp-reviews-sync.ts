@@ -219,7 +219,7 @@ export async function runYelpReviewsSync(): Promise<YelpReviewsSyncResult> {
 
   safeRevalidatePath("/settings/connectors");
   safeRevalidatePath("/local");
-  safeRevalidatePath("/competitors");
+  safeRevalidatePath("/prompts");
   safeRevalidatePath("/", "layout");
 
   log.info("Yelp reviews sync completed", {

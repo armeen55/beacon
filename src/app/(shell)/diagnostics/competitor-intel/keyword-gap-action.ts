@@ -28,8 +28,10 @@ export async function findCompetitorKeywordGapsAction(): Promise<KeywordGapActio
   const tenantId = await currentTenantId();
   const r = await produceKeywordGaps(tenantId);
   if (r.status === "ok") {
-    // New gaps feed the New Pages board (Today + /worklist) and this page.
-    revalidatePath("/competitors");
+    // New gaps feed the New Pages board (Today + /worklist), the AI questions
+    // page's competitor section, and this diagnostic.
+    revalidatePath("/diagnostics/competitor-intel");
+    revalidatePath("/prompts");
     revalidatePath("/worklist");
     revalidatePath("/");
   }

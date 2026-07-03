@@ -4,6 +4,19 @@
  * (the loaders survived the June cockpit fold; the UI did not - this restores the strongest
  * coherent version, not the old museum). Every section self-hides when it has no real data,
  * fails soft to null, and speaks operator language. No em dashes, no lab jargon.
+ *
+ * FP6b-3 (2026-07-02) - migrated onto the FP6a design system: Pill for every status/severity
+ * chip (the six intents), tokens for every gray/border/background, and the five-size type
+ * scale. Every band is a <section> (id/aria-label anchors matter here - #daily-experiments,
+ * #friction-fixes, etc.), so containers use the shared CARD constant, which mirrors Card's
+ * own default-variant classes exactly (same precedent as daily-experiments-section.tsx's
+ * top-level <section id="daily-experiments">, not the Card component itself). The per-teammate
+ * identity colors on the Demand band rows (amber=this-week spike, sky=seasonal, rose=fading,
+ * emerald=heating up, violet=new page / language gap) are a deliberate exception, same
+ * precedent as today-moves-card.tsx's TONE map and today-newpages-card.tsx: they mark WHICH
+ * teammate/category found a thing, not a verdict, so they don't map onto the six Pill intents.
+ * Kept as one-off classes with a comment at each use, dark: variants dropped to match the
+ * fully-migrated siblings. No logic changed.
  */
 import { loadClarityPageSignalsForTenant, type ClarityPageSignal } from "@/domains/recommendation-intelligence/clarity-page-signals";
 import { routeClarityFriction, type ClarityMoveType, type ClarityMoveDecision } from "@/domains/recommendation-intelligence/clarity-move-router";
@@ -32,11 +45,15 @@ import Link from "next/link";
 import { WarRoomCopyButton } from "./war-room-copy-button";
 import { loadWithDeadline } from "@/lib/load-with-deadline";
 import { HonestDelay } from "@/components/honest-delay";
+import { Pill, type PillIntent } from "@/components/ui/pill";
 
-const CARD = "rounded-2xl border border-gray-200 bg-white p-4 beacon-rise-in dark:border-neutral-800 dark:bg-neutral-900";
-const HEAD = "text-[11px] font-semibold uppercase tracking-wide text-gray-400 dark:text-neutral-500";
+// These sections are <section> elements (aria-label/id anchors matter here), so they can't be
+// the Card component itself (always a div) - CARD mirrors Card's own "default" variant token
+// classes exactly, same tokens, same radius, just on a semantic element.
+const CARD = "rounded-xl border border-border bg-card p-4 beacon-rise-in";
+const HEAD = "text-meta font-semibold uppercase tracking-wide text-muted-foreground";
 /** Item 23 - shared visible keyboard-focus ring for interactive elements in the war-room bands. */
-const FOCUS = "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-1";
+const FOCUS = "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1";
 
 function prettyPath(u: string): string {
   const p = (u.replace(/^https?:\/\/[^/]+/i, "") || "/").replace(/\/$/, "") || "/";
@@ -135,9 +152,9 @@ function deriveFunnelStages(funnel: FunnelReport): { stages: FunnelStageBlock[];
 function QuietCheckIllustration() {
   return (
     <svg width="40" height="40" viewBox="0 0 40 40" aria-hidden="true" className="shrink-0">
-      <circle cx="20" cy="20" r="18" className="fill-emerald-50 dark:fill-emerald-950/40" />
-      <circle cx="20" cy="20" r="18" fill="none" strokeWidth="1.5" className="stroke-emerald-200 dark:stroke-emerald-800" />
-      <path d="M13 20.5l4.5 4.5L27 15.5" fill="none" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="stroke-emerald-500 dark:stroke-emerald-400" />
+      <circle cx="20" cy="20" r="18" className="fill-status-success-bg" />
+      <circle cx="20" cy="20" r="18" fill="none" strokeWidth="1.5" className="stroke-status-success/25" />
+      <path d="M13 20.5l4.5 4.5L27 15.5" fill="none" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="stroke-status-success" />
     </svg>
   );
 }
@@ -179,8 +196,8 @@ export async function FrictionFixesSection({ tenantId }: { tenantId: string }) {
             <QuietCheckIllustration />
             <div className="min-w-0">
               <div className={HEAD}>Visitor behavior</div>
-              <p className="mt-0.5 text-[13px] text-gray-600 dark:text-neutral-300">No friction found this week. Clean pages.</p>
-              <p className="mt-0.5 text-[11px] tabular-nums text-gray-400 dark:text-neutral-500">I watched sessions on {signals.size.toLocaleString()} page{signals.size === 1 ? "" : "s"} from the last 28 days.</p>
+              <p className="mt-0.5 text-body text-foreground-secondary">No friction found this week. Clean pages.</p>
+              <p className="mt-0.5 text-meta tabular-nums text-muted-foreground">I watched sessions on {signals.size.toLocaleString()} page{signals.size === 1 ? "" : "s"} from the last 28 days.</p>
             </div>
           </div>
         </section>
@@ -190,7 +207,7 @@ export async function FrictionFixesSection({ tenantId }: { tenantId: string }) {
       <section id="friction-fixes" aria-label="Visitor friction fixes" className={CARD}>
         <div className="flex items-baseline justify-between gap-2">
           <div className={HEAD}>Visitor behavior found friction</div>
-          <span className="text-[11px] tabular-nums text-gray-400 dark:text-neutral-500">
+          <span className="text-meta tabular-nums text-muted-foreground">
             {totalFriction > rows.length ? `showing ${rows.length} of ${totalFriction} pages` : `${rows.length} page${rows.length === 1 ? "" : "s"}`} · sessions from the last 28 days
           </span>
         </div>
@@ -207,23 +224,24 @@ export async function FrictionFixesSection({ tenantId }: { tenantId: string }) {
             const rate = parseRateFromEvidence(d.evidence);
             const barPct = Math.max(Math.round(rate * 100), rate > 0 ? 4 : 0);
             const href = dossierHref(s.url);
-            const barColor = d.severity === "high" ? "bg-red-500 dark:bg-red-500" : "bg-amber-400 dark:bg-amber-500";
+            // Severity is a real verdict (high = act now, medium = queued), so it rides the
+            // matching Pill intent colors (attention/waiting) instead of a one-off palette class.
+            const severityIntent: PillIntent = d.severity === "high" ? "attention" : "waiting";
+            const barColor = d.severity === "high" ? "bg-status-danger" : "bg-status-warning";
             return (
-              <div key={s.url} className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-xl bg-gray-50 px-3 py-2 dark:bg-neutral-800/60">
-                <span className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold ${d.severity === "high" ? "bg-red-100 text-red-700 dark:bg-red-950/40 dark:text-red-300" : "bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300"}`}>
-                  {CLARITY_MOVE_LABEL[d.moveType]}
-                </span>
+              <div key={s.url} className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-xl bg-surface-raised px-3 py-2">
+                <Pill intent={severityIntent} className="shrink-0">{CLARITY_MOVE_LABEL[d.moveType]}</Pill>
                 {href ? (
-                  <Link href={href} className={`shrink-0 text-[12px] font-medium text-gray-700 underline underline-offset-2 hover:text-gray-900 dark:text-neutral-300 dark:hover:text-neutral-100 ${FOCUS}`}>
+                  <Link href={href} className={`shrink-0 text-body font-medium text-foreground-secondary underline underline-offset-2 hover:text-foreground ${FOCUS}`}>
                     {prettyPath(s.url)}
                   </Link>
                 ) : (
-                  <span className="shrink-0 text-[12px] font-medium text-gray-700 dark:text-neutral-300">{prettyPath(s.url)}</span>
+                  <span className="shrink-0 text-body font-medium text-foreground-secondary">{prettyPath(s.url)}</span>
                 )}
-                <span className="h-1.5 w-16 shrink-0 overflow-hidden rounded-full bg-gray-200 dark:bg-neutral-700" aria-hidden="true">
+                <span className="h-1.5 w-16 shrink-0 overflow-hidden rounded-full bg-status-neutral-bg" aria-hidden="true">
                   <span className={`block h-full rounded-full ${barColor}`} style={{ width: `${barPct}%` }} />
                 </span>
-                <span className="text-[11px] text-gray-500 dark:text-neutral-400">
+                <span className="text-meta text-muted-foreground">
                   {d.evidence}
                   {rawCount ? ` (${rawCount})` : ""}
                 </span>
@@ -232,7 +250,7 @@ export async function FrictionFixesSection({ tenantId }: { tenantId: string }) {
             );
           })}
         </div>
-        <p className="mt-2 text-[11px] text-gray-400 dark:text-neutral-500">Real visitor sessions on these pages hit problems. Fixing them protects every click the other changes win.</p>
+        <p className="mt-2 text-meta text-muted-foreground">Real visitor sessions on these pages hit problems. Fixing them protects every click the other changes win.</p>
       </section>
     );
   } catch {
@@ -293,27 +311,27 @@ export async function AiCrawlerSection({ tenantId }: { tenantId: string }) {
       <section aria-label="AI crawlers and referrals" className={CARD}>
         <div className="flex items-baseline justify-between gap-2">
           <div className={HEAD}>AI is reading your site</div>
-          {sig.latestDate ? <span className="text-[11px] tabular-nums text-gray-400 dark:text-neutral-500">through {sig.latestDate}</span> : null}
+          {sig.latestDate ? <span className="text-meta tabular-nums text-muted-foreground">through {sig.latestDate}</span> : null}
         </div>
         <div className="mt-2 grid gap-3 sm:grid-cols-2">
           {referralLine ? (
-            <p className="rounded-xl bg-emerald-50/70 px-3 py-2 text-[12px] font-medium text-emerald-800 sm:col-span-2 dark:bg-emerald-950/30 dark:text-emerald-200">
+            <p className="rounded-xl bg-status-success-bg px-3 py-2 text-body font-medium text-status-success sm:col-span-2">
               {referralLine}
             </p>
           ) : null}
           {engineGapLine ? (
-            <p className="rounded-xl bg-amber-50/70 px-3 py-2 text-[12px] font-medium text-amber-800 sm:col-span-2 dark:bg-amber-950/30 dark:text-amber-200">
+            <p className="rounded-xl bg-status-warning-bg px-3 py-2 text-body font-medium text-status-warning sm:col-span-2">
               {engineGapLine}
             </p>
           ) : null}
           {aiOverviewGapLine ? (
-            <p className="rounded-xl bg-amber-50/70 px-3 py-2 text-[12px] font-medium text-amber-800 sm:col-span-2 dark:bg-amber-950/30 dark:text-amber-200">
+            <p className="rounded-xl bg-status-warning-bg px-3 py-2 text-body font-medium text-status-warning sm:col-span-2">
               {aiOverviewGapLine}
             </p>
           ) : null}
           {funnelLine || funnelRows.length > 0 ? (
-            <div className="rounded-xl bg-gray-50 px-3 py-3 sm:col-span-2 dark:bg-neutral-800/60">
-              <div className="text-[12px] font-medium text-gray-700 dark:text-neutral-300">Where pages stall on the way to AI visitors</div>
+            <div className="rounded-xl bg-surface-raised px-3 py-3 sm:col-span-2">
+              <div className="text-body font-medium text-foreground-secondary">Where pages stall on the way to AI visitors</div>
               {/* Task A (2026-07-02) - a real 4-stage horizontal funnel (Crawled -> Cited ->
                   Visited -> Converted) instead of prose rows. Widths step down with the actual
                   count so the shape of the drop-off is visible at a glance; the stage where the
@@ -326,18 +344,18 @@ export async function AiCrawlerSection({ tenantId }: { tenantId: string }) {
                       <div
                         className={`flex h-14 flex-col items-center justify-center rounded-lg border text-center ${
                           stage.isStall
-                            ? "border-amber-300 bg-amber-100 dark:border-amber-800 dark:bg-amber-950/40"
-                            : "border-gray-200 bg-white dark:border-neutral-700 dark:bg-neutral-900"
+                            ? "border-status-warning/30 bg-status-warning-bg"
+                            : "border-border bg-card"
                         }`}
                         style={{ opacity: stage.count > 0 ? Math.max(pct / 100, 0.35) + 0.35 : 0.45 }}
                       >
                         <span
-                          className={`text-[15px] font-semibold tabular-nums ${stage.isStall ? "text-amber-800 dark:text-amber-200" : "text-gray-800 dark:text-neutral-200"}`}
+                          className={`text-sub font-semibold tabular-nums ${stage.isStall ? "text-status-warning" : "text-foreground-secondary"}`}
                         >
                           {stage.count.toLocaleString()}
                         </span>
                         <span
-                          className={`text-[10px] font-medium uppercase tracking-wide ${stage.isStall ? "text-amber-700 dark:text-amber-300" : "text-gray-500 dark:text-neutral-400"}`}
+                          className={`text-meta font-medium uppercase tracking-wide ${stage.isStall ? "text-status-warning" : "text-muted-foreground"}`}
                         >
                           {stage.label}
                         </span>
@@ -347,24 +365,24 @@ export async function AiCrawlerSection({ tenantId }: { tenantId: string }) {
                 })}
               </div>
               {funnelStallLine ? (
-                <p className="mt-1.5 rounded-lg bg-amber-50 px-2.5 py-1.5 text-[12px] text-amber-800 dark:bg-amber-950/30 dark:text-amber-200">{funnelStallLine}</p>
+                <p className="mt-1.5 rounded-lg bg-status-warning-bg px-2.5 py-1.5 text-body text-status-warning">{funnelStallLine}</p>
               ) : funnelLine ? (
-                <p className="mt-1.5 text-[12px] text-gray-500 dark:text-neutral-400">{funnelLine}</p>
+                <p className="mt-1.5 text-body text-muted-foreground">{funnelLine}</p>
               ) : null}
               {funnelRows.length > 0 ? (
-                <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 border-t border-gray-200 pt-2 dark:border-neutral-700">
+                <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 border-t border-border pt-2">
                   {funnelRows.map((f) => {
                     const href = dossierHref(f.pagePath);
                     return href ? (
                       <Link
                         key={f.pagePath}
                         href={href}
-                        className={`rounded-sm text-[12px] font-medium text-gray-700 underline underline-offset-2 hover:text-gray-900 dark:text-neutral-300 dark:hover:text-neutral-100 ${FOCUS}`}
+                        className={`rounded-sm text-body font-medium text-foreground-secondary underline underline-offset-2 hover:text-foreground ${FOCUS}`}
                       >
                         {prettyPath(f.pagePath)}
                       </Link>
                     ) : (
-                      <span key={f.pagePath} className="text-[12px] font-medium text-gray-500 dark:text-neutral-400">
+                      <span key={f.pagePath} className="text-body font-medium text-muted-foreground">
                         {prettyPath(f.pagePath)}
                       </span>
                     );
@@ -374,41 +392,41 @@ export async function AiCrawlerSection({ tenantId }: { tenantId: string }) {
             </div>
           ) : null}
           {sig.hasBotData ? (
-            <div className="rounded-xl bg-gray-50 px-3 py-2 dark:bg-neutral-800/60">
-              <div className="text-[12px] font-medium text-gray-700 dark:text-neutral-300">
+            <div className="rounded-xl bg-surface-raised px-3 py-2">
+              <div className="text-body font-medium text-foreground-secondary">
                 AI crawlers read {sig.botSummary.pages} page{sig.botSummary.pages === 1 ? "" : "s"} ({sig.botSummary.totalHits.toLocaleString()} visits)
               </div>
               {topBots.length > 0 ? (
-                <p className="mt-0.5 text-[12px] text-gray-500 dark:text-neutral-400">
+                <p className="mt-0.5 text-body text-muted-foreground">
                   Most active: {topBots.map((b: { bot: string; hits: number }) => `${b.bot} (${b.hits.toLocaleString()})`).join(", ")}
                 </p>
               ) : null}
             </div>
           ) : null}
           {sig.hasReferralData ? (
-            <div className="rounded-xl bg-gray-50 px-3 py-2 dark:bg-neutral-800/60">
-              <div className="text-[12px] font-medium text-gray-700 dark:text-neutral-300">
+            <div className="rounded-xl bg-surface-raised px-3 py-2">
+              <div className="text-body font-medium text-foreground-secondary">
                 AI answers sent {sig.referralSummary.totalVisits.toLocaleString()} visitor{sig.referralSummary.totalVisits === 1 ? "" : "s"} ({trendWord})
               </div>
               {topSources.length > 0 ? (
-                <p className="mt-0.5 text-[12px] text-gray-500 dark:text-neutral-400">
+                <p className="mt-0.5 text-body text-muted-foreground">
                   From: {topSources.map((s: { source: string; visits: number }) => `${s.source} (${s.visits.toLocaleString()})`).join(", ")}
                 </p>
               ) : null}
             </div>
           ) : null}
           {llmMentions.length > 0 ? (
-            <div className="rounded-xl bg-gray-50 px-3 py-2 sm:col-span-2 dark:bg-neutral-800/60">
-              <div className="text-[12px] font-medium text-gray-700 dark:text-neutral-300">What AI answers cite for your topics (live check)</div>
+            <div className="rounded-xl bg-surface-raised px-3 py-2 sm:col-span-2">
+              <div className="text-body font-medium text-foreground-secondary">What AI answers cite for your topics (live check)</div>
               <div className="mt-1 space-y-0.5">
                 {llmMentions.slice(0, 4).map((r) => {
                   const us = slug ? r.mentions.some((m) => m.domain.includes(slug)) : false;
                   const rivals = r.mentions.filter((m) => !slug || !m.domain.includes(slug)).slice(0, 3);
                   return (
-                    <p key={r.topic} className="text-[12px] text-gray-600 dark:text-neutral-300">
-                      <span className="font-semibold text-gray-800 dark:text-neutral-200">{r.topic}:</span>{" "}
-                      {us ? <span className="font-medium text-emerald-700 dark:text-emerald-300">cites you</span> : <span className="font-medium text-amber-700 dark:text-amber-300">does not cite you</span>}
-                      {rivals.length > 0 ? <span className="text-gray-500 dark:text-neutral-400"> · also {rivals.map((m) => m.domain).join(", ")}</span> : null}
+                    <p key={r.topic} className="text-body text-foreground-secondary">
+                      <span className="font-semibold text-foreground-secondary">{r.topic}:</span>{" "}
+                      {us ? <span className="font-medium text-status-success">cites you</span> : <span className="font-medium text-status-warning">does not cite you</span>}
+                      {rivals.length > 0 ? <span className="text-muted-foreground"> · also {rivals.map((m) => m.domain).join(", ")}</span> : null}
                     </p>
                   );
                 })}
@@ -501,8 +519,8 @@ export async function DemandOpportunitiesSection({ tenantId }: { tenantId: strin
             <QuietCheckIllustration />
             <div className="min-w-0">
               <div className={HEAD}>Demand you do not own yet</div>
-              <p className="mt-0.5 text-[13px] text-gray-600 dark:text-neutral-300">No new demand gaps this week. Your pages already cover what people search for.</p>
-              <p className="mt-0.5 text-[11px] tabular-nums text-gray-400 dark:text-neutral-500">I checked {res.keywordsConsidered.toLocaleString()} keywords against your pages.</p>
+              <p className="mt-0.5 text-body text-foreground-secondary">No new demand gaps this week. Your pages already cover what people search for.</p>
+              <p className="mt-0.5 text-meta tabular-nums text-muted-foreground">I checked {res.keywordsConsidered.toLocaleString()} keywords against your pages.</p>
             </div>
           </div>
         </section>
@@ -513,10 +531,10 @@ export async function DemandOpportunitiesSection({ tenantId }: { tenantId: strin
         <div className="flex items-baseline justify-between gap-2">
           <div className={HEAD}>Demand you do not own yet</div>
           {res.keywordsConsidered > 0 ? (
-            <span className="text-[11px] tabular-nums text-gray-400 dark:text-neutral-500">{res.keywordsConsidered.toLocaleString()} keywords researched</span>
+            <span className="text-meta tabular-nums text-muted-foreground">{res.keywordsConsidered.toLocaleString()} keywords researched</span>
           ) : null}
         </div>
-        <p className="mt-1 text-xs text-gray-500 dark:text-neutral-400">
+        <p className="mt-1 text-meta text-muted-foreground">
           {spikeRows.length > 0
             ? "Searches moving this week in your own Google data, then gaps from keyword research."
             : "Real monthly searches (DataForSEO) where no page of yours is the answer today."}
@@ -524,22 +542,27 @@ export async function DemandOpportunitiesSection({ tenantId }: { tenantId: strin
         {/* UX4 item 4 - the stream splits into its distinct tools under mini-headers instead of
             one long unlabeled list, so each teammate's kind of finding reads as its own idea:
             time-boxed movement this week, longer-running keyword-research gaps, and language
-            gaps. A cluster with nothing to show renders no header at all. */}
+            gaps. A cluster with nothing to show renders no header at all.
+            Below, each row cluster (this-week spikes, seasonal, fading, research gaps, heating-up
+            trends, language gaps) keeps a DELIBERATE per-teammate identity hue (amber/sky/rose/
+            gray/emerald/violet) instead of a Pill verdict - same precedent as today-moves-card.tsx's
+            TONE map: these mark WHICH teammate found the row, not a live/waiting/won verdict. */}
         <div className="mt-2 space-y-3">
           {(spikeRows.length > 0 || seasonalRow || fadingRow) ? (
             <div className="space-y-1.5">
-              <p className="px-0.5 text-[11px] font-semibold text-gray-500 dark:text-neutral-400">Searches moving this week</p>
-              {/* Item 14 - this week's query spikes: time-boxed demand from last night's radar pass. */}
+              <p className="px-0.5 text-meta font-semibold text-muted-foreground">Searches moving this week</p>
+              {/* Item 14 - this week's query spikes: time-boxed demand from last night's radar
+                  pass. Identity color: amber marks "search demand" rows. */}
               {spikeRows.map(({ spike, searchTerm }) => (
-                <div key={`s-${spike.query}`} className="rounded-xl bg-amber-50/70 px-3 py-2 dark:bg-amber-950/30">
-                  <p className="text-[13px] font-medium text-amber-900 dark:text-amber-200">{spike.sentence}</p>
-                  <p className="mt-0.5 flex flex-wrap items-baseline gap-x-2 text-[12px] text-amber-800/90 dark:text-amber-300/90">
+                <div key={`s-${spike.query}`} className="rounded-xl bg-amber-50/70 px-3 py-2">
+                  <p className="text-body font-medium text-amber-900">{spike.sentence}</p>
+                  <p className="mt-0.5 flex flex-wrap items-baseline gap-x-2 text-meta text-amber-800/90">
                     {spike.topPage ? <span>Your best matching page: {prettyPath(spike.topPage)}.</span> : null}
                     <span>Worth a same-week answer.</span>
                     {searchTerm ? (
                       <Link
                         href={`/worklist?search=${encodeURIComponent(searchTerm)}`}
-                        className={`rounded-sm font-medium text-amber-700 underline underline-offset-2 hover:text-amber-900 dark:text-amber-300 dark:hover:text-amber-100 ${FOCUS}`}
+                        className={`rounded-sm font-medium text-amber-700 underline underline-offset-2 hover:text-amber-900 ${FOCUS}`}
                       >
                         See the matching change
                       </Link>
@@ -548,30 +571,31 @@ export async function DemandOpportunitiesSection({ tenantId }: { tenantId: strin
                 </div>
               ))}
               {/* Master plan item 21 - the single most urgent upcoming seasonal window, from the
-                  permanent GSC monthly archive. Below the spikes; silent when nothing is due. */}
+                  permanent GSC monthly archive. Below the spikes; silent when nothing is due.
+                  Identity color: sky marks "seasonal calendar" rows. */}
               {seasonalRow ? (
-                <div key={`season-${seasonalRow.query}`} className="rounded-xl bg-sky-50/70 px-3 py-2 dark:bg-sky-950/30">
-                  <p className="text-[13px] font-medium text-sky-900 dark:text-sky-200">{seasonalRow.sentence}</p>
+                <div key={`season-${seasonalRow.query}`} className="rounded-xl bg-sky-50/70 px-3 py-2">
+                  <p className="text-body font-medium text-sky-900">{seasonalRow.sentence}</p>
                   {seasonalRow.topPage ? (
-                    <p className="mt-0.5 text-[12px] text-sky-800/90 dark:text-sky-300/90">Your best matching page: {prettyPath(seasonalRow.topPage)}.</p>
+                    <p className="mt-0.5 text-meta text-sky-800/90">Your best matching page: {prettyPath(seasonalRow.topPage)}.</p>
                   ) : null}
                 </div>
               ) : null}
               {/* Master plan item 56 - the single worst FADING page, from last night's refresh-queue
                   pass (quarter-over-quarter GSC clicks). Below the seasonal row; silent when
                   nothing is fading. The same queue feeds the nightly plan, so the fix is a plan
-                  pick away, not a separate workflow. */}
+                  pick away, not a separate workflow. Identity color: rose marks "losing ground". */}
               {fadingRow ? (
-                <div key={`fade-${fadingRow.page}`} className="rounded-xl bg-rose-50/70 px-3 py-2 dark:bg-rose-950/30">
-                  <p className="text-[13px] font-medium text-rose-900 dark:text-rose-200">
+                <div key={`fade-${fadingRow.page}`} className="rounded-xl bg-rose-50/70 px-3 py-2">
+                  <p className="text-body font-medium text-rose-900">
                     {prettyPath(fadingRow.page)}: {fadingRow.rank.sentence}
                   </p>
-                  <p className="mt-0.5 flex flex-wrap items-baseline gap-x-2 text-[12px] text-rose-800/90 dark:text-rose-300/90">
+                  <p className="mt-0.5 flex flex-wrap items-baseline gap-x-2 text-meta text-rose-800/90">
                     {briefSentences(fadingRow)[0] ? <span>{briefSentences(fadingRow)[0]}</span> : null}
                     <span>I put a refresh in tonight&apos;s plan when there is a concrete section to add.</span>
                     <Link
                       href="#daily-experiments"
-                      className={`rounded-sm font-medium text-rose-700 underline underline-offset-2 hover:text-rose-900 dark:text-rose-300 dark:hover:text-rose-100 ${FOCUS}`}
+                      className={`rounded-sm font-medium text-rose-700 underline underline-offset-2 hover:text-rose-900 ${FOCUS}`}
                     >
                       See tonight&apos;s picks
                     </Link>
@@ -582,14 +606,16 @@ export async function DemandOpportunitiesSection({ tenantId }: { tenantId: strin
           ) : null}
           {(res.opportunities.length > 0 || res.trends.length > 0) ? (
             <div className="space-y-1.5">
-              <p className="px-0.5 text-[11px] font-semibold text-gray-500 dark:text-neutral-400">Research gaps</p>
+              <p className="px-0.5 text-meta font-semibold text-muted-foreground">Research gaps</p>
               {res.opportunities.slice(0, 5).map((o) => (
-                <div key={o.id} className="flex flex-wrap items-baseline gap-2 rounded-xl bg-gray-50 px-3 py-2 dark:bg-neutral-800/60">
-                  <span className="text-[13px] font-semibold text-gray-800 dark:text-neutral-200">{o.primaryKeyword}</span>
+                <div key={o.id} className="flex flex-wrap items-baseline gap-2 rounded-xl bg-surface-raised px-3 py-2">
+                  <span className="text-body font-semibold text-foreground-secondary">{o.primaryKeyword}</span>
                   {o.estDemand > 0 ? (
-                    <span className="text-[11px] text-gray-500 dark:text-neutral-400">{o.estDemand.toLocaleString()} searches/mo</span>
+                    <span className="text-meta text-muted-foreground">{o.estDemand.toLocaleString()} searches/mo</span>
                   ) : null}
-                  <Link href="#new-pages" className={`ml-auto rounded-sm text-[11px] font-medium text-violet-600 underline-offset-2 hover:underline dark:text-violet-400 ${FOCUS}`}>
+                  {/* Identity color: violet marks "new page to build" rows (same hue as the
+                      New Pages board it links into). */}
+                  <Link href="#new-pages" className={`ml-auto rounded-sm text-meta font-medium text-violet-600 underline-offset-2 hover:underline ${FOCUS}`}>
                     {String(o.action).replace(/_/g, " ")} below
                   </Link>
                 </div>
@@ -609,15 +635,16 @@ export async function DemandOpportunitiesSection({ tenantId }: { tenantId: strin
                 if (freshTrends.length === 0) return null;
                 return (
                   <>
-                    <p className="mt-1 px-3 text-[11px] font-medium text-gray-500 dark:text-neutral-400">
+                    <p className="mt-1 px-3 text-meta font-medium text-muted-foreground">
                       Heating up right now
                     </p>
+                    {/* Identity color: emerald marks "climbing right now" rows. */}
                     {freshTrends.map((t) => (
-                      <div key={`t-${t.id}`} className="flex flex-wrap items-baseline gap-2 rounded-xl bg-emerald-50/60 px-3 py-2 dark:bg-emerald-950/30">
-                        <span className="text-[13px] font-semibold text-gray-800 dark:text-neutral-200">{t.query}</span>
-                        <span className="text-[11px] text-emerald-700 dark:text-emerald-300">{t.seasonal ? "seasonal, peak coming" : "searches climbing"}</span>
+                      <div key={`t-${t.id}`} className="flex flex-wrap items-baseline gap-2 rounded-xl bg-emerald-50/60 px-3 py-2">
+                        <span className="text-body font-semibold text-foreground-secondary">{t.query}</span>
+                        <span className="text-meta text-emerald-700">{t.seasonal ? "seasonal, peak coming" : "searches climbing"}</span>
                         {typeof t.estDemand === "number" && t.estDemand > 0 ? (
-                          <span className="text-[11px] text-gray-500 dark:text-neutral-400">{t.estDemand.toLocaleString()} searches/mo</span>
+                          <span className="text-meta text-muted-foreground">{t.estDemand.toLocaleString()} searches/mo</span>
                         ) : null}
                       </div>
                     ))}
@@ -627,13 +654,15 @@ export async function DemandOpportunitiesSection({ tenantId }: { tenantId: strin
             </div>
           ) : null}
           {/* Master plan item 24 - the single biggest Farsi/Finglish language gap, from last
-              night's language-gap matrix pass; silent when none found. */}
+              night's language-gap matrix pass; silent when none found. Identity color: violet
+              marks "language gap" rows (a different shade family than the new-page violet link
+              above, so it reads as its own row kind while the two never appear adjacent). */}
           {languageGapRow ? (
             <div className="space-y-1.5">
-              <p className="px-0.5 text-[11px] font-semibold text-gray-500 dark:text-neutral-400">Language gaps</p>
-              <div key={`lang-${languageGapRow.page}`} className="rounded-xl bg-violet-50/70 px-3 py-2 dark:bg-violet-950/30">
-                <p className="text-[13px] font-medium text-violet-900 dark:text-violet-200">{languageGapRow.sentence}</p>
-                <p className="mt-0.5 text-[12px] text-violet-800/90 dark:text-violet-300/90">Page: {prettyPath(languageGapRow.page)}.</p>
+              <p className="px-0.5 text-meta font-semibold text-muted-foreground">Language gaps</p>
+              <div key={`lang-${languageGapRow.page}`} className="rounded-xl bg-violet-50/70 px-3 py-2">
+                <p className="text-body font-medium text-violet-900">{languageGapRow.sentence}</p>
+                <p className="mt-0.5 text-meta text-violet-800/90">Page: {prettyPath(languageGapRow.page)}.</p>
               </div>
             </div>
           ) : null}
@@ -664,7 +693,7 @@ export async function WarRoomQuietLine({ tenantId }: { tenantId: string }) {
   const [clarityQuiet, aiQuiet, demandQuiet] = raced.data;
   if (!clarityQuiet || !aiQuiet || !demandQuiet) return null;
   return (
-    <p className="rounded-xl border border-gray-100 bg-gray-50/60 px-4 py-2.5 text-[13px] text-gray-500 dark:border-neutral-800 dark:bg-neutral-900/60 dark:text-neutral-400">
+    <p className="rounded-xl border border-border-subtle bg-surface-raised/60 px-4 py-2.5 text-body text-muted-foreground">
       The team found nothing urgent beyond tonight&apos;s picks. Clean day.
     </p>
   );

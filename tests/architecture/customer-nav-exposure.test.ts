@@ -79,15 +79,18 @@ describe("customer nav exposure — Invariant 1: SIDEBAR is the unified workflow
   // to Today/Changes/Results - it answers questions about the same change
   // lifecycle in plain language rather than being a separate deep-evidence
   // destination, so it belongs in the core workflow group, not Research.
+  // 2026-07-02 (FP10b): removed /competitors. It was an empty shell whose
+  // promised content ("who AI cites instead of you") already lives, with real
+  // intelligence, inside /prompts (AI questions) - /competitors now redirects
+  // there so old links keep working, but the nav no longer duplicates it.
   const EXPECTED_HREFS = new Set([
     "/",
     "/worklist",
     "/proof",
     "/ask",
     "/prompts",
-    "/competitors",
     "/research/keywords",
-        "/settings/connectors",
+    "/settings/connectors",
     "/settings",
   ]);
 
@@ -102,8 +105,10 @@ describe("customer nav exposure — Invariant 1: SIDEBAR is the unified workflow
     const allHrefs = new Set(
       navigationGroups.flatMap((g) => g.items.map((i) => i.href)),
     );
-    // /competitors + /connections + /opportunities + /experiments + /proof are
-    // now intentionally exposed (IA consolidation). These remain dead/debug.
+    // /connections + /opportunities + /experiments + /proof are now
+    // intentionally exposed (IA consolidation). These remain dead/debug.
+    // /competitors rejoined this list 2026-07-02 (FP10b): it now redirects to
+    // /prompts instead of being a nav destination.
     const FORBIDDEN = [
       "/pages",
       "/local",
@@ -118,6 +123,7 @@ describe("customer nav exposure — Invariant 1: SIDEBAR is the unified workflow
       "/changes/truth",
       "/settings/health",
       "/settings/exit-gates",
+      "/competitors",
     ];
     for (const h of FORBIDDEN) {
       expect(allHrefs.has(h), `forbidden route in sidebar: ${h}`).toBe(false);

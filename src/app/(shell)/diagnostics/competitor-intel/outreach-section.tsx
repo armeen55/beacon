@@ -14,10 +14,12 @@ import {
 
 /**
  * OutreachSection (BEACON_500 item 57, 2026-07-02) - the get-cited/link-reclaim
- * pitch pipeline on /competitors. Mine leads from existing evidence -> draft a
- * pitch per lead -> review/edit -> the operator clicks Send (never automatic) ->
- * track status by hand (replied/won/dead) -> queue a follow-up draft for a
- * silent-7-day row (also never auto-sent).
+ * pitch pipeline, moved to /diagnostics/competitor-intel (FP10b) when the
+ * customer-facing /competitors shell was retired in favor of /prompts. Mine
+ * leads from existing evidence -> draft a pitch per lead -> review/edit -> the
+ * operator clicks Send (never automatic) -> track status by hand
+ * (replied/won/dead) -> queue a follow-up draft for a silent-7-day row (also
+ * never auto-sent).
  */
 
 const STATUS_LABEL: Record<OutreachStatus, string> = {

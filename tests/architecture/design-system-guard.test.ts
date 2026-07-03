@@ -90,8 +90,21 @@ const TYPE_SCALE_PINNED = new Set([
 // the light-only gradient card was replaced with Card/SectionHeader tokens so dark mode
 // renders correctly). Measured live total under src/app/(shell) after this migration: 1651.
 // war-room-sections.tsx (187) is now the largest holdout and the last big wave-2 target.
+// FP6b-3 (2026-07-02) migrated war-room-sections.tsx (187->19; the remaining 19 are the
+// deliberate per-teammate identity colors on the Demand band rows - amber (this-week search
+// spike), sky (seasonal window), rose (fading page), emerald (heating-up trend), and violet
+// (new-page-to-build link + language gap), each commented at its use site, same precedent as
+// today-moves-card's TONE map). Every container is now the shared CARD token string (mirrors
+// Card's own default-variant classes on the <section> elements this file needs for aria-label/
+// id anchors), every severity/verdict chip rides a Pill intent, and every dark: variant was
+// dropped to match the fully-migrated siblings (today-moves-card.tsx and today-newpages-card.tsx
+// carry zero dark: classes). Measured live total under src/app/(shell) after this migration: 1481.
+// FP8 (2026-07-02) collapsed the /proof ledger cards onto Card/Pill for the summary line
+// (deleting the TONE_STYLE/OUTCOME_STYLE palette maps; the maturity-tone rule now rides Pill
+// intents) and shipped the token-only cumulative outcome strip shared by Today and Results.
+// Measured live total under src/app/(shell) after FP8: 1342.
 // This number may ONLY go down from here.
-const RAW_PALETTE_BASELINE = 1651;
+const RAW_PALETTE_BASELINE = 1342;
 
 function walkSourceFiles(dir: string, out: string[] = []): string[] {
   for (const name of readdirSync(dir)) {

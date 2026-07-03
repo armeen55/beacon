@@ -10,6 +10,12 @@
  * Operator-only: gated behind BEACON_OPERATOR_MODE; 404s otherwise.
  * Resilient — failed reads render empty states, never crash the build.
  *
+ * FP10b (2026-07-02): the customer-facing /competitors shell was retired
+ * (its real intelligence folded into /prompts). Its operator job-trigger
+ * buttons (keyword-gap / wiki-gap / retrieval-twin) and the outreach
+ * execution pipeline moved here - the natural operator-only home for
+ * bounded, budgeted, on-demand competitor jobs.
+ *
  * Pinned by tests/app/diagnostics/competitor-intel-page.test.tsx.
  */
 
@@ -21,6 +27,12 @@ import { loadCompetitorMoves, type CompetitorMoveWithEvidence } from "@/domains/
 import { getCompetitorStructuralChanges } from "@/domains/competitor-intel/structural-changes-store";
 import type { CompetitorStructuralChange } from "@/domains/competitor-intel/types";
 import { refreshCompetitorIntelFromForm } from "./actions";
+import { KeywordGapButton } from "./keyword-gap-button";
+import { WikiGapButton } from "./wiki-gap-button";
+import { RetrievalTwinButton } from "./retrieval-twin-button";
+import { OutreachSection } from "./outreach-section";
+import { loadOutreachPipelineAction } from "./outreach-actions";
+import type { OutreachPipelineRow } from "@/domains/outreach/types";
 
 export const dynamic = "force-dynamic";
 
@@ -28,12 +40,14 @@ type LoadedState = {
   lastCrawlAt: string | null;
   moves: CompetitorMoveWithEvidence[];
   structuralChanges: CompetitorStructuralChange[];
+  outreachRows: OutreachPipelineRow[];
 };
 
 async function loadState(): Promise<LoadedState> {
   let lastCrawlAt: string | null = null;
   let moves: CompetitorMoveWithEvidence[] = [];
   let structuralChanges: CompetitorStructuralChange[] = [];
+  let outreachRows: OutreachPipelineRow[] = [];
   try {
     lastCrawlAt = (await getCompetitorMonitoringState()).lastCrawlAt;
   } catch {
@@ -49,7 +63,12 @@ async function loadState(): Promise<LoadedState> {
   } catch {
     /* soft-fail */
   }
-  return { lastCrawlAt, moves, structuralChanges };
+  try {
+    outreachRows = await loadOutreachPipelineAction();
+  } catch {
+    /* soft-fail */
+  }
+  return { lastCrawlAt, moves, structuralChanges, outreachRows };
 }
 
 export default async function CompetitorIntelDiagnosticPage() {
@@ -57,13 +76,13 @@ export default async function CompetitorIntelDiagnosticPage() {
     notFound();
   }
 
-  const { lastCrawlAt, moves, structuralChanges } = await loadState();
+  const { lastCrawlAt, moves, structuralChanges, outreachRows } = await loadState();
 
   return (
     <div className="space-y-6 p-6">
       <PageHeader
         title="Competitor intel"
-        description="Crawl tracked competitors' sitemaps, fetch their most-cited pages, diff structure, and join each change with its AI-citation aftermath. Feeds the customer 'Their winning moves' + 'Why them, not you' sections. Operator-mode only."
+        description="Crawl tracked competitors' sitemaps, fetch their most-cited pages, diff structure, and join each change with its AI-citation aftermath. Feeds the AI questions page's competitor section. Operator-mode only."
       />
 
       <section className="rounded-lg border border-border/40 bg-surface-inset/30 p-4">
@@ -86,6 +105,19 @@ export default async function CompetitorIntelDiagnosticPage() {
           Sequential + robots-respecting + bounded (top-cited pages and
           just-changed URLs only). No schedule — refresh deliberately.
         </p>
+      </section>
+
+      {/* FP10b: the three bounded, budgeted, on-demand competitor jobs that
+          used to live as buttons on the customer-facing /competitors shell. */}
+      <section className="rounded-lg border border-border/40 bg-surface-inset/30 p-4">
+        <h2 className="mb-3 text-sm font-semibold uppercase tracking-wider text-muted-foreground">
+          On-demand checks
+        </h2>
+        <div className="flex flex-wrap items-start gap-3">
+          <KeywordGapButton />
+          <WikiGapButton />
+          <RetrievalTwinButton />
+        </div>
       </section>
 
       <section className="rounded-lg border border-border/40 bg-surface-inset/30 p-4">
@@ -142,6 +174,10 @@ export default async function CompetitorIntelDiagnosticPage() {
           </ul>
         )}
       </section>
+
+      {/* FP10b: the outreach execution pipeline (mine leads, draft pitches,
+          operator clicks Send), moved here from the retired /competitors shell. */}
+      <OutreachSection initialRows={outreachRows} />
     </div>
   );
 }

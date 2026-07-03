@@ -116,7 +116,7 @@ export async function sharpenMovesWithTeardownAction(
   });
   await invalidateWorklistSurface().catch(() => {}); // fresh teardown → "what wins" changes → recompute
   revalidatePath("/");
-  revalidatePath("/competitors");
+  revalidatePath("/prompts");
   revalidatePath("/worklist");
   return { status: "ok", audited: audited.length, targets, cached };
 }

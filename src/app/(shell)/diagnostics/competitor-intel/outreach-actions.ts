@@ -17,7 +17,7 @@ import type { OutreachLead, OutreachPipelineRow, OutreachStatus } from "@/domain
 
 /**
  * outreach-actions (BEACON_500 item 57, 2026-07-02) - the operator-gated server
- * actions behind the outreach pipeline section on /competitors. Every action
+ * actions behind the outreach pipeline section on /diagnostics/competitor-intel. Every action
  * checks isOperatorModeServer() first. The ONLY action that can send an email is
  * sendOutreachPitchAction, which calls send-pitch.ts's sendOutreachPitch - the
  * exclusive, operator-click-only send path (see send-pitch.ts's module comment).
@@ -59,7 +59,7 @@ export async function draftOutreachPitchAction(lead: OutreachLead): Promise<Draf
   const tenantId = await currentTenantId();
   const own = await ownContext();
   const r = await draftPitchForLead(tenantId, lead, own);
-  if (r.ok) revalidatePath("/competitors");
+  if (r.ok) revalidatePath("/diagnostics/competitor-intel");
   return r;
 }
 
@@ -68,7 +68,7 @@ export async function draftOutreachFollowupAction(row: OutreachPipelineRow): Pro
   const tenantId = await currentTenantId();
   const own = await ownContext();
   const r = await draftFollowupForRow(tenantId, row, own);
-  if (r.ok) revalidatePath("/competitors");
+  if (r.ok) revalidatePath("/diagnostics/competitor-intel");
   return r;
 }
 
@@ -79,7 +79,7 @@ export async function editOutreachDraftAction(
   if (!(await isOperatorModeServer())) return { ok: false };
   const tenantId = await currentTenantId();
   const ok = await editOutreachDraft(tenantId, id, patch);
-  if (ok) revalidatePath("/competitors");
+  if (ok) revalidatePath("/diagnostics/competitor-intel");
   return { ok };
 }
 
@@ -90,7 +90,7 @@ export async function setOutreachStatusAction(
   if (!(await isOperatorModeServer())) return { ok: false };
   const tenantId = await currentTenantId();
   const ok = await transitionOutreachStatus(tenantId, id, status);
-  if (ok) revalidatePath("/competitors");
+  if (ok) revalidatePath("/diagnostics/competitor-intel");
   return { ok };
 }
 
@@ -106,7 +106,7 @@ export async function sendOutreachPitchAction(id: string): Promise<SendOutreachA
   const tenantId = await currentTenantId();
   const r = await sendOutreachPitch(tenantId, id);
   if (r.ok) {
-    revalidatePath("/competitors");
+    revalidatePath("/diagnostics/competitor-intel");
     return { ok: true };
   }
   const reasons: Record<string, string> = {

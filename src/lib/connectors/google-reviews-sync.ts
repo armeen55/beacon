@@ -348,7 +348,7 @@ export async function runGoogleReviewsSync(): Promise<GoogleReviewsSyncResult> {
 
   safeRevalidatePath("/settings/connectors");
   safeRevalidatePath("/local");
-  safeRevalidatePath("/competitors");
+  safeRevalidatePath("/prompts");
   safeRevalidatePath("/", "layout");
 
   log.info("GBP reviews sync completed", {

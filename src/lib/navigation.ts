@@ -6,7 +6,6 @@ import {
   MessageCircle,
   LineChart,
   Plug,
-  Users,
   Search,
   type LucideIcon,
 } from "lucide-react";
@@ -42,6 +41,11 @@ export type NavGroup = {
  * core workflow (not under Research) because it answers questions about the SAME
  * change lifecycle in plain language, pulling from every surface at once rather than
  * being its own deep-evidence destination.
+ *
+ * "Competitors" (FP10b, 2026-07-02) - removed as a top-level Research entry. It was
+ * an empty shell whose promised content ("who AI cites instead of you") already
+ * lives, with real intelligence, inside AI questions (/prompts). /competitors now
+ * redirects there so old links keep working; the nav no longer duplicates it.
  */
 export const navigationGroups: NavGroup[] = [
   {
@@ -66,7 +70,6 @@ export const navigationGroups: NavGroup[] = [
       // Content roadmap) land in later UX2 slices.
       { label: "Keywords", href: "/research/keywords", icon: Search },
       { label: "AI questions", href: "/prompts", icon: ListChecks },
-      { label: "Competitors", href: "/competitors", icon: Users },
     ],
   },
   {

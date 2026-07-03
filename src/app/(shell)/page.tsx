@@ -14,6 +14,7 @@ import { EVIDENCE_LABEL } from "@/domains/changes/canonical-change";
 import { currentTenantId } from "@/lib/tenant-context";
 import { FrictionFixesSection, AiCrawlerSection, DemandOpportunitiesSection, WarRoomQuietLine } from "./war-room-sections";
 import { ScoreboardSection } from "./scoreboard-section";
+import { CumulativeOutcomeSection } from "./cumulative-outcome-strip";
 import { loadProofLedgerCached } from "@/domains/proof-gsc/load-ledger";
 import { buildWeeklyRecap, shippedInLastDays, shippedToday, stillDoubleCheckingCount, weeklyRecapSentence } from "@/domains/proof-gsc/weekly-recap";
 import { loadCalibrationRecords } from "@/domains/experiments/forecast-calibration-store";
@@ -289,6 +290,11 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
           greeting, so "what matters most right now" is the very first content block on a
           healthy day. */}
       {leadStory ? <LeadStoryCard story={leadStory} /> : null}
+      {/* FP8 - THE cumulative outcome strip (same component Results renders): all-time
+          shipped/wins, the measured monthly click lift the wins are adding, the honest
+          first-verdict date when nothing has settled, and the clearly-labeled dollar
+          estimate only when GA4-backed rates exist. Ledger read is request-cache shared. */}
+      <Suspense fallback={null}><CumulativeOutcomeSection /></Suspense>
       <PageHeader title={greeting} description={brief}>
         <RefreshMyDataButton connectedCount={connectedSourceCount} />
       </PageHeader>

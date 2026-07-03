@@ -51,7 +51,7 @@ The 10 moves, strictly ranked (kill list quotes live in the diagnosis run wf_b48
       registry drives every page title, ~60 legacy routes deleted or redirected, Settings menus
       merged. Rider: Ask citation chips stop rendering raw slugs and internal keys.
 - [x] FP5 (2026-07-02, wave 3). One home per job: tonight's cards on Today only (worklist shows one chip), New Pages board once on the worklist (Today shows one line), measuring lives on Results, /proof double-stack merged behind 'See the raw change log'; singular/plural topic twins deduped via the ownership-registry tokens.
-- [~] FP6 (6a wave 1; 6b waves 2-3: today-moves-card 597 to 69, changes-list-client 340 to 34, daily-experiments-section 280 to 0, today-newpages-card 144 to 22 incl. the dark-broken board fix; ratchet 2884 to 1651; war-room-sections 187 is the last big holdout). Design system: Card, Pill (5 status intents), SectionHeader, EmptyState, PageShell on
+- [~] FP6 (6a wave 1; 6b waves 2-3: today-moves-card 597 to 69, changes-list-client 340 to 34, daily-experiments-section 280 to 0, today-newpages-card 144 to 22 incl. the dark-broken board fix; ratchet 2884 to 1342 across waves 2-4; war-room-sections done 187 to 19, only per-teammate identity colors remain by design). Design system: Card, Pill (5 status intents), SectionHeader, EmptyState, PageShell on
       the existing tokens + raw-palette-count ratchet guard (6a, WAVE 1); then migrate the five
       worst files (today-moves-card 482 raw classes, changes-list-client 225,
       daily-experiments-section, today-newpages-card, war-room-sections) (6b). Rider: one
@@ -59,11 +59,10 @@ The 10 moves, strictly ranked (kill list quotes live in the diagnosis run wf_b48
 - [x] FP7 (2026-07-02, wave 1). Hide dead-data UI: Difficulty column (0/298), empty related-questions chrome, cron
       panel collapses to one line until it has a real receipt, zero-signal keyword rows behind an
       expander, keywords hero synthesis line. (WAVE 1)
-- [ ] FP8. Cumulative outcome ledger on Today + Results: shipped, won, click lift, value since
-      signup, honest still-measuring framing; collapse the 12-chip proof cards to summary+expand.
+- [x] FP8 (2026-07-03, wave 4). Cumulative outcome ledger on Today + Results (one strip: shipped, wins, measured click lift/mo, GA4-backed dollar estimate only when real, honest first-verdict date when nothing matured); 12-chip proof cards collapsed to one line + 'Show the full read'.
 - [x] FP9 (2026-07-02, wave 1, with FP2). Curate the queue: top 3 visually dominant, list capped ~20 behind an expander,
       Ready 0 explained in a real sentence. (WAVE 1, with FP2)
-- [~] FP10 (10a Connections collapse SHIPPED 2026-07-02 wave 3: '2 of 5 connected' strip, one-line connected rows, repeated facts 5-plus to 1; 10b competitors-into-AI-questions open). Fold /competitors into AI questions; Connections page collapses to one summary strip + one-line rows.
+- [x] FP10 (10a wave 3; 10b wave 4: 'Who AI recommends instead of you' with real rows on /prompts, en.wikipedia.org 74 citations + steal-this move links; /competitors redirects to /prompts; debug console moved to /diagnostics/competitor-intel; nav Research = Keywords + AI questions). DONE.
 
 NOT NOW (real but parked): MoveCard density refactor, connector brand icons, autopilot hydration
 flash, first-session choreography + morning-brief email (single-user today), per-keyword bulk

@@ -1,6 +1,7 @@
 import "server-only";
 
 import Link from "next/link";
+import { valueWithDeadline } from "@/lib/load-with-deadline";
 import { PageHeader } from "@/components/data/page-header";
 import { cn } from "@/lib/utils";
 import { prettifySlug } from "./[id]/page";
@@ -21,6 +22,7 @@ import { AiQuestionsView } from "./ai-questions-view";
 import { SovWeeklySection } from "./sov-weekly-section";
 import { loadNativeIntel } from "@/domains/ai-visibility/native-intel-loader";
 import { NativeIntelView } from "./native-intel-view";
+import { CompetitorRivalsSection } from "./competitor-rivals-section";
 import {
   createPerfTrace,
   readPerfTraceIdFromHeaders,
@@ -99,18 +101,34 @@ export default async function PromptsPage({
   // tracked_prompts library, which is empty for Iranopedia (the page used to lie
   // "no questions added" while Profound had hundreds). When the brain has Profound
   // questions, that IS the page; fall through to the legacy view only when it doesn't.
-  const aiQuestions = await loadAiQuestions().catch(() => null);
+  // FINISHED PRODUCT wave 4: every head read is deadline-bounded so a wedged
+  // Supabase data plane can never hold the /prompts stream open (the pre-existing
+  // stall found during FP10b). Fallbacks degrade to the legacy/self-hiding paths.
+  const aiQuestions = await valueWithDeadline(
+    loadAiQuestions().catch(() => null),
+    null,
+    15_000,
+  );
   // Awaited as a function call (not a JSX tag) so the async section resolves before
   // render - renderToStaticMarkup in the route tests cannot handle a suspending child.
-  const sovSection = await SovWeeklySection();
+  const sovSection = await valueWithDeadline(SovWeeklySection(), null, 15_000);
   // D1 (2026-07-02, DREAM SITE V1): the NATIVE twin of the Profound-powered
   // AiQuestionsView above - built entirely from Beacon's own 4-engine poll
   // (prompt_answer_observations), never from Profound. Self-hiding component:
   // renders nothing until the native poll has written real rows. Profound
   // stays wired (see run-engine-poll.ts header) - this is additive, not a
   // replacement; deleting Profound is a staged D1-followup, not done here.
-  const nativeIntel = await loadNativeIntel().catch(() => null);
+  const nativeIntel = await valueWithDeadline(
+    loadNativeIntel().catch(() => null),
+    null,
+    15_000,
+  );
   const nativeIntelSection = nativeIntel ? <NativeIntelView report={nativeIntel} /> : null;
+  // FP10b (2026-07-02): the real competitor intelligence /competitors used to
+  // gatekeep behind a debug console now lives here - self-hiding when there
+  // are no cited rival domains yet, and deadline-guarded so it can never
+  // stall the page (see competitor-rivals-section.tsx).
+  const competitorRivalsSection = await CompetitorRivalsSection();
   if (aiQuestions && aiQuestions.questions.length > 0) {
     trace.data("ai_questions_count", aiQuestions.questions.length);
     return (
@@ -118,23 +136,30 @@ export default async function PromptsPage({
         {sovSection}
         {nativeIntelSection}
         <AiQuestionsView data={aiQuestions} />
+        {competitorRivalsSection}
       </div>
     );
   }
   const tenantRepo = getRepository().forTenant(tenantId);
+  // Bounded as one unit: past the deadline the page renders the empty legacy
+  // view instead of holding the stream open on a wedged data plane.
   const [trackedPrompts, promptAnswerObservations, trackedEntities] =
-    await trace.time("prompts_3_parallel_reads", () =>
-      Promise.all([
-        trace.time("tenantRepo.getTrackedPrompts", () =>
-          tenantRepo.getTrackedPrompts(),
-        ),
-        trace.time("tenantRepo.getPromptAnswerObservations(14d)", () =>
-          tenantRepo.getPromptAnswerObservations({ since: observationsSince }),
-        ),
-        trace.time("tenantRepo.getTrackedEntities", () =>
-          tenantRepo.getTrackedEntities(),
-        ),
-      ]),
+    await valueWithDeadline(
+      trace.time("prompts_3_parallel_reads", () =>
+        Promise.all([
+          trace.time("tenantRepo.getTrackedPrompts", () =>
+            tenantRepo.getTrackedPrompts(),
+          ),
+          trace.time("tenantRepo.getPromptAnswerObservations(14d)", () =>
+            tenantRepo.getPromptAnswerObservations({ since: observationsSince }),
+          ),
+          trace.time("tenantRepo.getTrackedEntities", () =>
+            tenantRepo.getTrackedEntities(),
+          ),
+        ]),
+      ),
+      [[], [], []],
+      15_000,
     );
   trace.data("trackedPrompts_count", trackedPrompts.length);
   trace.data("observations_count", promptAnswerObservations.length);
@@ -212,6 +237,7 @@ export default async function PromptsPage({
           </div>
         </>
       )}
+      {competitorRivalsSection ? <div className="mt-8">{competitorRivalsSection}</div> : null}
     </div>
   );
   } finally {

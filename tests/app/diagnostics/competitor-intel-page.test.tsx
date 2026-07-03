@@ -3,6 +3,10 @@
  * gate (404), refresh action operator-gate + delegation, empty states,
  * all-tier move listing (quiet included here, unlike the customer
  * surface).
+ *
+ * FP10b (2026-07-02): the on-demand check buttons (keyword-gap / wiki-gap /
+ * retrieval-twin) and the outreach pipeline moved here from the retired
+ * /competitors shell — both use next/navigation's useRouter client-side.
  */
 
 import { describe, expect, it, vi, beforeEach } from "vitest";
@@ -18,6 +22,7 @@ vi.mock("next/navigation", () => ({
   notFound: () => {
     throw new NotFoundError();
   },
+  useRouter: () => ({ refresh: () => {}, push: () => {} }),
 }));
 vi.mock("next/cache", () => ({ revalidatePath: () => {} }));
 

@@ -17,7 +17,12 @@ import { join } from "node:path";
  */
 
 const OUTREACH_DOMAIN_DIR = join(process.cwd(), "src/domains/outreach");
-const OUTREACH_SURFACE_DIR = join(process.cwd(), "src/app/(shell)/competitors");
+// FP10b (2026-07-02): the outreach surface moved from the retired customer
+// /competitors shell to /diagnostics/competitor-intel (operator-only home).
+const OUTREACH_SURFACE_DIR = join(
+  process.cwd(),
+  "src/app/(shell)/diagnostics/competitor-intel",
+);
 
 function tsFilesIn(dir: string): string[] {
   return readdirSync(dir)
@@ -71,9 +76,9 @@ describe("architecture pin - sendEmail has exactly one caller in the outreach fe
   });
 
   it("no email/pitch text in this feature contains an em or en dash (dash guard)", () => {
-    // Scope to files THIS item owns - the shared /competitors surface directory
-    // also holds sibling features' files (read-queue-button.tsx etc.) that are
-    // out of scope for item 57 and owned by other agents.
+    // Scope to files THIS item owns - the shared /diagnostics/competitor-intel
+    // surface directory also holds sibling features' files (keyword-gap-button.tsx
+    // etc.) that are out of scope for item 57 and owned by other agents.
     const OUTREACH_SURFACE_FILES = ["outreach-actions.ts", "outreach-section.tsx"];
     const files = [
       ...tsFilesIn(OUTREACH_DOMAIN_DIR),

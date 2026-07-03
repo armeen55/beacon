@@ -7,6 +7,14 @@
 
 ---
 
+## 2026-07-03 - FINISHED PRODUCT FP8: the "$250 answer" (cumulative outcome strip + collapsed proof cards)
+
+**What changed:** (1) New pure aggregator `src/domains/proof-gsc/cumulative-outcome.ts` reuses FP3's `splitLedgerLifecycle` (the ONE-COUNT rule) and sums each WON change's own measured basis-window clicks delta (`adjustedLift`, rolled monthly via the same `toMonthlyRate` change-dollar-value uses; never invented, legacy rows without a delta contribute 0), sums per-win `dollarValue.usdPerMonth` when the GA4-backed rate exists, and computes the REAL first-verdict date (earliest still-measuring ship + 28 days, soonest future close first). (2) New `src/app/(shell)/cumulative-outcome-strip.tsx` - ONE strip rendered on BOTH Today (below the lead story, one import + one Suspense slot in `page.tsx`) and Results (the header strip slot in `proof/page.tsx`, which grew into this strip; the FP3 counts sentence renders inside it via the unchanged `ResultsHeaderStrip`, now token-classed). Wins state: "You have shipped 3 changes. 1 has a final read (1 win), and 2 are still measuring below." + "Your win is adding about 90 extra clicks a month, measured against similar pages we did not change." + (only when a rate exists) "At your rate, that is about $42 a month. This is an estimate, your rate times the extra visits the win earned, not measured revenue." Zero-verdict state: "You have shipped 2 changes, all still measuring below." + "No final verdicts yet. The first one lands around Jul 18 when the earliest 28-day window closes." (past-close variant honestly says it is waiting on Google's data). (3) `/proof` ledger cards collapsed: ONE summary line per card (page link, six-word badge as a Pill colored by maturity tone, the single most important number - measured basis lift for settled rows, next-read countdown for in-flight - plus plain action + ship date); the full chip grid, sparkline, caveats (recrawl/weather/contamination/seasonal render exactly as before), math, comparisons, and actions moved behind a "Show the full read" expander. Deleted the raw-palette `TONE_STYLE`/`OUTCOME_STYLE` maps (Pill intents now carry the maturity-tone rule). Measurement history untouched; read-only aggregation.
+
+**Tests:** new `tests/domains/proof-gsc/cumulative-outcome.test.ts` (12) and `src/app/(shell)/cumulative-outcome-strip.test.tsx` (5, renderToStaticMarkup pins of both states). Targeted sweep: proof-gsc domain + all `src/app/(shell)` tests + changes domain = 65 files / 756 passed; full `tests/architecture` = 219 files / 4482 passed. `npm run typecheck` clean; eslint clean on every touched file. Design ratchet lowered 1481 -> 1342 (measured live).
+
+---
+
 ## 2026-07-03 - FINISHED PRODUCT FP3 + FP5: one count per stage, one home per job
 
 **What changed (FP3, contradicting counts):** new `src/domains/changes/lifecycle-counts.ts` is THE ONE-COUNT RULE: a shipped change is DECIDED exactly at a mature result (28d window + 2 comparisons + 200 baseline impressions + won/lost verdict + no overlapping edit, i.e. `deriveMeasurementMaturity === "mature_result"`); everything else shipped is MEASURING (the exact set Results shows as In flight); tonight's picked/applied reuse execution-checklist's `summary.left` formula. New request-cached loader `src/app/(shell)/lifecycle-counts-data.ts` feeds it the canonical stores once per request. Consumers rewired: Today (`page.tsx` tiles + standup + measuring strip + results-ready alert remap), the Changes list (`changes-data.ts` `measuringCountCanonical` now rule-based + new `decidedCountCanonical`; Measuring AND Results tabs show "X of Y" against the canonical numbers), and Results (`proof/page.tsx` band membership now `splitLedgerLifecycle`, plus a new `ResultsHeaderStrip`: "You have shipped 25 changes. 9 have a final read (3 wins), and 16 are still measuring below."). This kills the 16-vs-25 cross-link class at the source: Today's "N measuring -> View all in Results" now equals In flight (N).
@@ -32333,3 +32341,15 @@ at 1651 (one new raw focus ring converted to the ring token during the gate). Ga
 clean, guard 19/19, proof 88/88, 300+ targeted tests + 1,300+ in the FP3+FP5 lane, 124 connectors,
 48 newpages. Live streams still show honest-delay fallbacks locally (Supabase 522 storm ongoing);
 copy verified via render tests; prod unaffected.
+
+## 2026-07-03 FINISHED PRODUCT wave 4 (FP8, FP6b-3, FP10b, prompts anti-stall)
+FP8 the $250 answer: one cumulative outcome strip on Today + Results ("Your win is adding about 90
+extra clicks a month, measured against similar pages we did not change." / zero-verdict state names
+the real first-verdict date); dollar line only when GA4-backed; 12-chip proof cards collapsed to
+one line + Show-the-full-read; 12 new pure aggregation tests. FP6b-3: war-room-sections 187 to 19
+raw classes, 107 pin tests green. FP10b: competitor intelligence folded into /prompts with real
+rows (en.wikipedia.org 74 citations, steal-this links into the worklist), /competitors redirects,
+debug console relocated to /diagnostics/competitor-intel, outreach pipeline preserved there, nav
+Research = Keywords + AI questions. Rider: /prompts head reads deadline-bounded (the pre-existing
+indefinite stall FP10b found is closed). Ratchet 1342. Gates: typecheck clean; wave-4 batch 951
+tests green; FP8 sweeps 756 + 4482 architecture; FP10b final gate 964. Prod smoke pending deploy.
