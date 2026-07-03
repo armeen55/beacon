@@ -25,6 +25,11 @@ import { EFFECT_MIN_MULTIPLIER, EFFECT_MAX_MULTIPLIER, type EffectPrior } from "
 import {
   computeLeverRetirementDecisions, RetirementIndex, type LeverRetirementDecision, type SettledLeverRow,
 } from "./lever-retirement";
+// R6 (N12) - the SAME honest Jaccard floors interference-graph.ts's query_overlap edge already
+// enforces on ledger ships, reused verbatim for the intra-batch check below (never reimplemented,
+// never loosened). interference-graph.ts is pure (no I/O), so this import adds no new dependency
+// surface beyond two numeric constants.
+import { MIN_QUERY_OVERLAP_JACCARD, MIN_QUERIES_FOR_OVERLAP_JUDGMENT } from "@/domains/proof-gsc/interference-graph";
 
 /** First path segment groups a family (iran-animals/*, iran-flags/*); top-level slugs are
  *  their own family. Generic — no hardcoded vocabulary. */
@@ -38,6 +43,13 @@ export type DailyCandidate = {
   url: string;
   actionFamily: ExperimentFamily;
   targetQuery: string;
+  /** R6 / N12 (2026-07-03): every query this page's own change is really chasing, impression-
+   *  sorted, when the caller has one (build-today-preview.ts's queriesByUrl - the page's real
+   *  GSC top queries, already computed for the keyword-research brief). Absent falls back to
+   *  the singleton [targetQuery] - the honest default when only one query is known. This is the
+   *  set the same-query blocking check below compares with the ledger's own targetQueries
+   *  Jaccard floors, so a candidate is never blocked on a query it doesn't actually chase. */
+  relatedQueries?: ReadonlyArray<string>;
   impressions: number;
   position: number;
   ctr: number;
@@ -78,6 +90,14 @@ export type DailyCandidate = {
    *  byte-identical plans. Complements learnedPrior: that one learns how OFTEN a kind of
    *  change wins, this one learns how MUCH it moved clicks when it settled. */
   effectPrior?: EffectPrior;
+  /** N46 (R6, 2026-07-03): this candidate's own evidence-freshness verdict from
+   *  src/domains/changes/opportunity-expiry.ts (classifyOpportunityFreshness), resolved by the
+   *  caller (build-today-preview.ts) from whatever dated evidence it actually has for this pick.
+   *  Absent (the default) means "nothing to judge" and is treated as fresh, never as a penalty -
+   *  a fresh tenant or a caller that never wires evidence dates yields byte-identical plans to
+   *  before N46 existed. Only "expired" changes selection (see ExcludedReason
+   *  "evidence_expired"); "aging" is presentation-only and never touches the planner. */
+  evidenceFreshness?: "fresh" | "aging" | "expired";
 };
 
 /** Item 81 (2026-07-02): a candidate admitted through a (pageFamily, lever) cell's ONE scheduled
@@ -117,19 +137,21 @@ export type PlannedExperiment = DailyCandidate & {
    *  previously-retired (pageFamily, lever) cell. Absent on every ordinary pick. */
   retest?: RetestFlag;
 };
-export type ExcludedReason = EligibilityReason | "page_family_cap" | "action_family_cap" | "high_traffic_cap" | "budget_full" | "over_max" | "influenced_conflict" | "underpowered" | "lever_retired" | "interference_hold" | "last_clean_donor";
+export type ExcludedReason = EligibilityReason | "page_family_cap" | "action_family_cap" | "high_traffic_cap" | "budget_full" | "over_max" | "influenced_conflict" | "underpowered" | "lever_retired" | "interference_hold" | "last_clean_donor" | "query_overlap_hold" | "evidence_expired";
 export type ExcludedExperiment = {
   url: string;
   actionFamily: ExperimentFamily;
   reason: ExcludedReason;
   availableAt?: string;
   relatedProofIds?: string[];
-  /** Item N14 / N16: present only for reasons "interference_hold" and
-   *  "last_clean_donor" - the plain first-person sentence naming WHY (e.g.
-   *  "I am holding this because the page shares its template family with 3
-   *  changes still measuring." or "I am holding this page because it is the
-   *  last clean comparison page for a change I am still measuring on
-   *  /iran-flags."). Absent for every other exclusion reason. */
+  /** Item N14 / N16 / R6 N12: present only for reasons "interference_hold",
+   *  "last_clean_donor", and "query_overlap_hold" - the plain first-person
+   *  sentence naming WHY (e.g. "I am holding this because the page shares its
+   *  template family with 3 changes still measuring." or "I am holding this
+   *  page because it is the last clean comparison page for a change I am
+   *  still measuring on /iran-flags." or "I am holding this because it
+   *  competes for the same searches as a change I am already measuring on
+   *  /persian-cat."). Absent for every other exclusion reason. */
   plainReason?: string;
 };
 
@@ -153,6 +175,45 @@ export type InterferenceHoldLookup = ReadonlyMap<string, { hold: boolean; reason
  *  planner-side AVOIDANCE input only; frozen-pool ordering (N13) is inviolable
  *  and nothing here re-selects or re-ranks any donor. */
 export type LastCleanDonorHoldLookup = ReadonlyMap<string, string>;
+
+/** R6 (N12, 2026-07-03): the NARROW, query-overlap-only interference read the
+ *  caller computes from interference-graph.ts's computeQueryOverlapHoldsForLedger
+ *  (query_overlap edges only - never same_template_family or linked_page_treated,
+ *  the too-aggressive N14 edge kinds documented as not-yet-safe-to-flip-live).
+ *  Keyed by the SAME host-stripped path convention as InterferenceHoldLookup.
+ *  Optional - a caller that never wires this (the default, undefined) sees
+ *  byte-identical plans to before N12 existed. Kept as its own type (not reused
+ *  as InterferenceHoldLookup) so a future caller can wire N14's full hold and
+ *  N12's narrow hold independently, each with its own honest ExcludedReason. */
+export type QueryOverlapHoldLookup = ReadonlyMap<string, { hold: boolean; reason: string }>;
+
+/** R6 (N12): the query set a candidate is really chasing - relatedQueries when
+ *  the caller supplied it, else the honest singleton fallback [targetQuery].
+ *  Exported so build-today-preview.ts and tests can reuse the exact same
+ *  fallback rule the planner itself applies. */
+export function candidateQuerySet(c: Pick<DailyCandidate, "targetQuery" | "relatedQueries">): string[] {
+  const list = c.relatedQueries && c.relatedQueries.length > 0 ? c.relatedQueries : [c.targetQuery];
+  return [...new Set(list.map((q) => (q ?? "").trim().toLowerCase()).filter(Boolean))];
+}
+
+/** R6 (N12): same Jaccard-plus-floors test interference-graph.ts's
+ *  buildQueryOverlapEdges applies to ledger ships, reused verbatim here for
+ *  TWO candidates inside tonight's own batch (intra-batch blocking) rather
+ *  than reimplemented. A single shared query (either side's SMALLER set below
+ *  MIN_QUERIES_FOR_OVERLAP_JUDGMENT) never fires - the exact same honest floor
+ *  as the ledger-side check, so "one shared generic query" is never treated as
+ *  evidence in either direction. */
+function queriesOverlap(a: ReadonlyArray<string>, b: ReadonlyArray<string>): boolean {
+  const setA = new Set(a);
+  const setB = new Set(b);
+  const smaller = Math.min(setA.size, setB.size);
+  if (smaller < MIN_QUERIES_FOR_OVERLAP_JUDGMENT) return false;
+  let shared = 0;
+  for (const q of setA) if (setB.has(q)) shared++;
+  const union = setA.size + setB.size - shared;
+  const jaccard = union > 0 ? shared / union : 0;
+  return jaccard >= MIN_QUERY_OVERLAP_JACCARD;
+}
 
 export type ControlAvailabilitySummary = {
   /** Pages with NO active treatment/control — the clean pool a new batch can draw controls from. */
@@ -262,6 +323,12 @@ export function planDailyExperiments(input: {
   /** N16: last-clean-donor holds (see LastCleanDonorHoldLookup). Optional -
    *  omitted (the default) yields byte-identical plans to before N16 existed. */
   lastCleanDonorHolds?: LastCleanDonorHoldLookup;
+  /** R6 (N12): the narrow query-overlap-only interference read (see
+   *  QueryOverlapHoldLookup) - a candidate whose queries overlap an OPEN
+   *  measurement's target queries is held with reason "query_overlap_hold".
+   *  Optional - omitted (the default) yields byte-identical plans to before
+   *  N12 existed. */
+  queryOverlapHolds?: QueryOverlapHoldLookup;
 }): DailyExperimentPlan {
   const cfg = { ...DEFAULTS, ...(input.config ?? {}) };
   const now = input.config?.now ?? new Date();
@@ -285,6 +352,18 @@ export function planDailyExperiments(input: {
     // with patience) is hard-excluded, and the reason is recorded so nothing disappears silently.
     if (c.power && c.power.ratio < EXTREME_SHORTFALL_RATIO) {
       excluded.push({ url: c.url, actionFamily: c.actionFamily, reason: "underpowered" });
+      continue;
+    }
+    // N46 (R6, 2026-07-03) - EXPIRED EVIDENCE: a candidate whose own evidence has already
+    // expired (opportunity-expiry.ts's classifyOpportunityFreshness - stale SERP/teardown/GSC/
+    // seasonal/keyword-library evidence, or a seasonal window that already passed) is skipped
+    // tonight rather than shipped on a pitch Beacon no longer trusts. This is selection-only -
+    // nothing is deleted, and the SAME row is picked back up automatically once its evidence
+    // next refreshes (evidenceFreshness simply stops being "expired" on a later call). "aging"
+    // is presentation-only and never reaches this check. Absent evidenceFreshness (the default)
+    // is treated as fresh, so a caller that never wires evidence dates sees byte-identical plans.
+    if (c.evidenceFreshness === "expired") {
+      excluded.push({ url: c.url, actionFamily: c.actionFamily, reason: "evidence_expired" });
       continue;
     }
     // Item N14 - the general interference graph generalizes N12 (same-query
@@ -316,9 +395,49 @@ export function planDailyExperiments(input: {
       excluded.push({ url: c.url, actionFamily: c.actionFamily, reason: "last_clean_donor", plainReason: donorHold });
       continue;
     }
+    // R6 (N12) - SAME-QUERY BLOCKING, part 1: never pick a candidate whose target
+    // queries overlap an OPEN measurement's target queries (the ledger-native
+    // targetQueries Jaccard, computed by the caller from interference-graph.ts's
+    // query_overlap edges - see QueryOverlapHoldLookup). This is the narrow subset
+    // of N14's full interference hold that is safe to flip live today (see N14's
+    // master-plan note on why the full graph is not yet flipped). Only fires when
+    // the caller wired the lookup; an unwired caller sees byte-identical behavior.
+    const queryHold = input.queryOverlapHolds?.get(normPathForInterference(c.url));
+    if (queryHold?.hold) {
+      excluded.push({ url: c.url, actionFamily: c.actionFamily, reason: "query_overlap_hold", plainReason: queryHold.reason });
+      continue;
+    }
     eligible.push({ ...c, pageFamily: c.pageFamily ?? pageFamilyOf(c.url), score: scoreCandidate(c) });
   }
   eligible.sort((a, b) => b.score - a.score);
+
+  // R6 (N12) - SAME-QUERY BLOCKING, part 2: INTRA-BATCH. Never let tonight's own
+  // batch pick two candidates whose target queries overlap each other, even when
+  // neither is measuring yet - shipping both tonight would make it impossible to
+  // tell which change moved the shared searches. First-ranked (by score, already
+  // sorted above) wins; a later-ranked candidate whose queries overlap an
+  // ALREADY-ACCEPTED one this pass is held with the "tonight's pick" sentence
+  // instead of the "already measuring" one. Applied to the full eligible pool
+  // (not just what fits the effort budget) so the exclusion reason is honest
+  // regardless of which other caps end up removing a pick later.
+  const acceptedForQueryCheck: PlannedExperiment[] = [];
+  const afterQueryOverlap: PlannedExperiment[] = [];
+  for (const e of eligible) {
+    const myQueries = candidateQuerySet(e);
+    const collider = acceptedForQueryCheck.find((a) => queriesOverlap(myQueries, candidateQuerySet(a)));
+    if (collider) {
+      const colliderPath = normPathForInterference(collider.url);
+      excluded.push({
+        url: e.url,
+        actionFamily: e.actionFamily,
+        reason: "query_overlap_hold",
+        plainReason: `I am holding this because it competes for the same searches as tonight's pick for ${colliderPath}.`,
+      });
+      continue;
+    }
+    acceptedForQueryCheck.push(e);
+    afterQueryOverlap.push(e);
+  }
 
   // Item 81 - AUTO-RETIRE repeatedly-losing (pageFamily, lever) cells, with one scheduled
   // retest after 90 days. Computed fresh from the settled ledger every call (see
@@ -333,7 +452,7 @@ export function planDailyExperiments(input: {
   const leverRetirements = computeLeverRetirementDecisions(settledRows, now, pageFamilyOf, actionFamilyOf);
   const retirementIndex = new RetirementIndex(leverRetirements);
   const afterRetirement: PlannedExperiment[] = [];
-  for (const e of eligible) {
+  for (const e of afterQueryOverlap) {
     const admission = retirementIndex.admit(e.pageFamily, e.actionFamily);
     if (admission.blocked) {
       excluded.push({ url: e.url, actionFamily: e.actionFamily, reason: "lever_retired" });

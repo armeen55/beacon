@@ -41,6 +41,20 @@ import { runInvestigationForTenant } from "@/domains/investigation/run-investiga
 import { recordCronRun, type CronRunSourceResult as LedgerSourceResult } from "@/domains/ops/cron-runs-store";
 import { checkTokenExpiryForTenants } from "@/domains/ops/token-expiry-notify";
 import { homepageUrlForDomain, probeHomepage, recordSiteProbe } from "@/domains/ops/site-uptime-store";
+import { recordAppError, errorFieldsFrom } from "@/lib/obs/error-ledger";
+
+/** N39 error spine: record one phase failure to the durable app-errors ledger
+ *  (the log.warn lines below vanish when Vercel rotates function logs). NEVER
+ *  throws (recordAppError absorbs every failure), so calling it inside each
+ *  phase's catch cannot change the fail-soft contract of the sync. */
+function reportPhaseError(action: string, tenantId: string | null, e: unknown): Promise<void> {
+  return recordAppError({
+    route: "cron/sync-connectors",
+    tenantId,
+    action,
+    ...errorFieldsFrom(e),
+  });
+}
 
 /** The READ sources a nightly refresh pulls. Wix is publish-only and excluded
  *  (it has no inbound data to sync). Mirrors REFRESH_ALL_SOURCES in the
@@ -165,6 +179,7 @@ async function syncOneTenant(tenantId: string): Promise<CronSyncSourceResult[]> 
           provider: s.provider,
           error: err.slice(0, 200),
         });
+        await reportPhaseError(`sync-${s.provider}`, tenantId, outcome.reason);
         return { tenantId, provider: s.provider, ok: false, detail: err.slice(0, 200) };
       }
       const verdict = syncSucceeded(outcome.value);
@@ -289,6 +304,7 @@ export async function syncAllConnectedForActiveTenants(): Promise<CronSyncResult
     } catch (e) {
       const err = e instanceof Error ? e.message : String(e);
       log.error("[cron-sync] tenant failed", { tenantId: t.id, error: err.slice(0, 200) });
+      await reportPhaseError("tenant-sync", t.id, e);
     }
   }
 
@@ -314,6 +330,7 @@ export async function syncAllConnectedForActiveTenants(): Promise<CronSyncResult
         tenantId: t.id,
         error: e instanceof Error ? e.message.slice(0, 200) : String(e),
       });
+      await reportPhaseError("ai-referrals", t.id, e);
     }
   }
 
@@ -336,6 +353,7 @@ export async function syncAllConnectedForActiveTenants(): Promise<CronSyncResult
         tenantId: t.id,
         error: e instanceof Error ? e.message.slice(0, 200) : String(e),
       });
+      await reportPhaseError("revenue-facts", t.id, e);
     }
   }
 
@@ -367,6 +385,7 @@ export async function syncAllConnectedForActiveTenants(): Promise<CronSyncResult
         tenantId: t.id,
         error: e instanceof Error ? e.message.slice(0, 200) : String(e),
       });
+      await reportPhaseError("trend-radar", t.id, e);
     }
   }
 
@@ -390,6 +409,7 @@ export async function syncAllConnectedForActiveTenants(): Promise<CronSyncResult
         log.info("[cron-sync] family demand profiles", { tenantId: t.id, ...("profilesWritten" in fam ? { profilesWritten: (fam as { profilesWritten?: number }).profilesWritten } : {}) });
       } catch (e) {
         log.warn("[cron-sync] family demand profiles failed (fail-soft)", { tenantId: t.id, error: e instanceof Error ? e.message : String(e) });
+        await reportPhaseError("family-demand-profiles", t.id, e);
       }
       const rollup = await runMonthlyArchiveRollup(t.id);
       if (rollup.ran && rollup.monthsRolled.length > 0) {
@@ -420,6 +440,7 @@ export async function syncAllConnectedForActiveTenants(): Promise<CronSyncResult
         tenantId: t.id,
         error: e instanceof Error ? e.message.slice(0, 200) : String(e),
       });
+      await reportPhaseError("seasonal-archive", t.id, e);
     }
   }
 
@@ -446,6 +467,7 @@ export async function syncAllConnectedForActiveTenants(): Promise<CronSyncResult
         tenantId: t.id,
         error: e instanceof Error ? e.message.slice(0, 200) : String(e),
       });
+      await reportPhaseError("gsc-deep-backfill", t.id, e);
     }
   }
 
@@ -489,6 +511,7 @@ export async function syncAllConnectedForActiveTenants(): Promise<CronSyncResult
         tenantId: t.id,
         error: e instanceof Error ? e.message.slice(0, 200) : String(e),
       });
+      await reportPhaseError("peak-calendar", t.id, e);
     }
   }
 
@@ -526,6 +549,7 @@ export async function syncAllConnectedForActiveTenants(): Promise<CronSyncResult
         tenantId: t.id,
         error: e instanceof Error ? e.message.slice(0, 200) : String(e),
       });
+      await reportPhaseError("language-gap", t.id, e);
     }
   }
 
@@ -556,6 +580,7 @@ export async function syncAllConnectedForActiveTenants(): Promise<CronSyncResult
         tenantId: t.id,
         error: e instanceof Error ? e.message.slice(0, 200) : String(e),
       });
+      await reportPhaseError("aa-calibration", t.id, e);
     }
   }
 
@@ -596,6 +621,7 @@ export async function syncAllConnectedForActiveTenants(): Promise<CronSyncResult
         tenantId: t.id,
         error: e instanceof Error ? e.message.slice(0, 200) : String(e),
       });
+      await reportPhaseError("algorithm-weather", t.id, e);
     }
   }
 
@@ -626,6 +652,7 @@ export async function syncAllConnectedForActiveTenants(): Promise<CronSyncResult
         tenantId: t.id,
         error: e instanceof Error ? e.message.slice(0, 200) : String(e),
       });
+      await reportPhaseError("pooled-verdicts", t.id, e);
     }
   }
 
@@ -667,6 +694,7 @@ export async function syncAllConnectedForActiveTenants(): Promise<CronSyncResult
         tenantId: t.id,
         error: e instanceof Error ? e.message.slice(0, 200) : String(e),
       });
+      await reportPhaseError("refresh-queue", t.id, e);
     }
   }
 
@@ -695,6 +723,7 @@ export async function syncAllConnectedForActiveTenants(): Promise<CronSyncResult
         tenantId: t.id,
         error: e instanceof Error ? e.message.slice(0, 200) : String(e),
       });
+      await reportPhaseError("competitor-teardown", t.id, e);
     }
   }
 
@@ -722,6 +751,7 @@ export async function syncAllConnectedForActiveTenants(): Promise<CronSyncResult
         tenantId: t.id,
         error: e instanceof Error ? e.message.slice(0, 200) : String(e),
       });
+      await reportPhaseError("move-draft-precompute", t.id, e);
     }
   }
   // PHASE 3 - pipeline volume invariants (master plan item 10). AFTER every sync
@@ -747,6 +777,7 @@ export async function syncAllConnectedForActiveTenants(): Promise<CronSyncResult
         tenantId: t.id,
         error: e instanceof Error ? e.message.slice(0, 200) : String(e),
       });
+      await reportPhaseError("pipeline-invariants", t.id, e);
     }
   }
 
@@ -779,6 +810,7 @@ export async function syncAllConnectedForActiveTenants(): Promise<CronSyncResult
         tenantId: t.id,
         error: e instanceof Error ? e.message.slice(0, 200) : String(e),
       });
+      await reportPhaseError("forensic-investigation", t.id, e);
     }
   }
 
@@ -819,6 +851,7 @@ export async function syncAllConnectedForActiveTenants(): Promise<CronSyncResult
         tenantId: t.id,
         error: e instanceof Error ? e.message.slice(0, 200) : String(e),
       });
+      await reportPhaseError("site-uptime-probe", t.id, e);
     }
   }
 
@@ -834,6 +867,7 @@ export async function syncAllConnectedForActiveTenants(): Promise<CronSyncResult
     log.warn("[cron-sync] global patterns aggregation failed (fail-soft)", {
       error: e instanceof Error ? e.message.slice(0, 200) : String(e),
     });
+    await reportPhaseError("global-patterns", null, e);
   }
 
   // PHASE 5 - Google token-expiry forecast + warning email (BEACON_500 item 84,
@@ -861,6 +895,7 @@ export async function syncAllConnectedForActiveTenants(): Promise<CronSyncResult
     log.warn("[cron-sync] token-expiry check failed", {
       error: e instanceof Error ? e.message.slice(0, 200) : String(e),
     });
+    await reportPhaseError("token-expiry", null, e);
   }
 
   const ok = results.filter((r) => r.ok).length;
@@ -902,6 +937,7 @@ export async function syncAllConnectedForActiveTenants(): Promise<CronSyncResult
     log.warn("[cron-sync] ledger write threw unexpectedly (sync result unaffected)", {
       error: e instanceof Error ? e.message.slice(0, 200) : String(e),
     });
+    await reportPhaseError("cron-ledger", null, e);
   }
 
   return { ranAt, tenants: tenants.length, connectedSources: results.length, ok, failed, results };

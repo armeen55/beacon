@@ -3,6 +3,7 @@
 import { revalidatePath, updateTag } from "next/cache";
 import { buildRecQueueCacheTag } from "@/domains/recommendations/load-queue";
 import { log } from "@/lib/logger";
+import { recordAppError, errorFieldsFrom } from "@/lib/obs/error-ledger";
 import { scheduleIndexNowPing } from "@/lib/connectors/indexnow/ping-on-verify";
 import {
   recordResponse,
@@ -539,6 +540,16 @@ export async function acceptRecommendation(
         stableKey: payload.stableKey,
         error: e instanceof Error ? e.message : String(e),
       });
+      // N39 error spine: the operator clicked Accept and it did NOT take.
+      // Record durably (never throws) so repeated accept failures surface
+      // on /diagnostics/errors instead of vanishing with the lambda logs.
+      await recordAppError({
+        route: "action/accept-recommendation",
+        tenantId,
+        action: "per-edit-fanout",
+        ...errorFieldsFrom(e),
+        context: { stableKey: payload.stableKey },
+      });
       return {
         success: false,
         error: `Failed to create per-edit changelog entries: ${
@@ -869,6 +880,16 @@ export async function approveAndPushRecommendedEdit(args: {
       tenantId,
       editId: args.editId,
       reason: result.reason,
+    });
+    // N39 error spine: an operator-initiated live publish that the push rails
+    // refused. Record durably (never throws) - the armed one-click path funnels
+    // here too, so repeated publish failures surface on /diagnostics/errors.
+    await recordAppError({
+      route: "action/approve-and-push",
+      tenantId,
+      action: "push-refused",
+      message: result.reason,
+      context: { editId: args.editId },
     });
     return { ok: false, reason: result.reason };
   }

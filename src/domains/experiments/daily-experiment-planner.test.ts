@@ -605,3 +605,151 @@ describe("planDailyExperiments — N16 last-clean-donor hold", () => {
     expect(plan.excluded[0]?.reason).toBe("last_clean_donor");
   });
 });
+
+describe("planDailyExperiments — R6 / N12 same-query experiment blocking", () => {
+  it("excludes a candidate the caller's query-overlap lookup marks held (open-measurement overlap), with the plain reason threaded through", () => {
+    const candidates = [
+      cand({ url: "https://iranopedia.com/iran-flags/late-safavid-military-flag", pageFamily: "iran-flags" }),
+    ];
+    const queryOverlapHolds = new Map([
+      [
+        "/iran-flags/late-safavid-military-flag",
+        { hold: true, reason: "I am holding this because it competes for the same searches as a change I am already measuring on /iran-flags/umayyad-caliphate-flag." },
+      ],
+    ]);
+    const plan = planDailyExperiments({ tenantId: "t", date: "d", candidates, proofLedger: [], config: { now: NOW }, queryOverlapHolds });
+    expect(plan.selected).toHaveLength(0);
+    expect(plan.excluded).toHaveLength(1);
+    expect(plan.excluded[0].reason).toBe("query_overlap_hold");
+    expect(plan.excluded[0].plainReason).toBe(
+      "I am holding this because it competes for the same searches as a change I am already measuring on /iran-flags/umayyad-caliphate-flag.",
+    );
+    expect(hasBannedDash(plan.excluded[0].plainReason!)).toBe(false);
+  });
+
+  it("a candidate the lookup does NOT mark held stays eligible even when another path is held", () => {
+    const candidates = [
+      cand({ url: "https://iranopedia.com/iran-flags/held-page", pageFamily: "iran-flags" }),
+      cand({ url: "https://iranopedia.com/cities/yazd", pageFamily: "cities" }),
+    ];
+    const queryOverlapHolds = new Map([["/iran-flags/held-page", { hold: true, reason: "held" }]]);
+    const plan = planDailyExperiments({ tenantId: "t", date: "d", candidates, proofLedger: [], config: { now: NOW }, queryOverlapHolds });
+    expect(plan.selected.map((s) => s.url)).toEqual(["https://iranopedia.com/cities/yazd"]);
+    expect(plan.excluded.map((e) => e.reason)).toEqual(["query_overlap_hold"]);
+  });
+
+  it("intra-batch: never selects two candidates whose target queries overlap, holding the LATER-ranked one with the tonight's-pick sentence", () => {
+    const strong = cand({
+      url: "https://iranopedia.com/iran-animals/persian-cat",
+      relatedQueries: ["persian cat facts", "persian cat breed", "persian cat price"],
+      ctrOpportunityClicks: 500, // scores higher -> first-ranked, wins the slot
+    });
+    const weak = cand({
+      url: "https://iranopedia.com/iran-animals/persian-cat-guide",
+      relatedQueries: ["persian cat facts", "persian cat breed", "persian cat food"],
+      ctrOpportunityClicks: 50, // scores lower -> later-ranked, held
+    });
+    const plan = planDailyExperiments({ tenantId: "t", date: "d", candidates: [weak, strong], proofLedger: [], config: { now: NOW } });
+    expect(plan.selected.map((s) => s.url)).toEqual(["https://iranopedia.com/iran-animals/persian-cat"]);
+    const held = plan.excluded.find((e) => e.url.includes("persian-cat-guide"));
+    expect(held?.reason).toBe("query_overlap_hold");
+    expect(held?.plainReason).toBe(
+      "I am holding this because it competes for the same searches as tonight's pick for /iran-animals/persian-cat.",
+    );
+    expect(hasBannedDash(held?.plainReason ?? "")).toBe(false);
+  });
+
+  it("intra-batch floor respected: a single shared query between two candidates never blocks either one", () => {
+    const a = cand({ url: "https://iranopedia.com/iran-animals/persian-cat", relatedQueries: ["persian cat facts"] });
+    const b = cand({ url: "https://iranopedia.com/iran-animals/caracal", relatedQueries: ["persian cat facts"] });
+    const plan = planDailyExperiments({ tenantId: "t", date: "d", candidates: [a, b], proofLedger: [], config: { now: NOW } });
+    expect(plan.selected.map((s) => s.url).sort()).toEqual(
+      ["https://iranopedia.com/iran-animals/caracal", "https://iranopedia.com/iran-animals/persian-cat"].sort(),
+    );
+    expect(plan.excluded).toHaveLength(0);
+  });
+
+  it("intra-batch floor respected: overlap below MIN_QUERY_OVERLAP_JACCARD never blocks", () => {
+    const a = cand({
+      url: "https://iranopedia.com/iran-animals/persian-cat",
+      relatedQueries: ["lion facts", "lion habitat", "lion diet", "lion pride"],
+    });
+    const b = cand({
+      url: "https://iranopedia.com/iran-animals/caracal",
+      relatedQueries: ["lion facts", "fox facts", "fox habitat", "fox diet"],
+    });
+    const plan = planDailyExperiments({ tenantId: "t", date: "d", candidates: [a, b], proofLedger: [], config: { now: NOW } });
+    expect(plan.selected).toHaveLength(2);
+    expect(plan.excluded).toHaveLength(0);
+  });
+
+  it("omitting queryOverlapHolds and relatedQueries entirely is byte-identical to before N12 existed", () => {
+    const candidates = [
+      cand({ url: "https://iranopedia.com/cities/yazd" }),
+      cand({ url: "https://iranopedia.com/cities/tehran", actionFamily: "meta" }),
+    ];
+    const before = planDailyExperiments({ tenantId: "t", date: "d", candidates, proofLedger: [], config: { now: NOW } });
+    expect(before.selected.map((s) => s.url).sort()).toEqual(
+      ["https://iranopedia.com/cities/tehran", "https://iranopedia.com/cities/yazd"].sort(),
+    );
+    expect(before.excluded).toEqual([]);
+  });
+
+  it("an entry with hold:false never excludes (only hold:true fires)", () => {
+    const candidates = [cand({ url: "https://iranopedia.com/cities/yazd" })];
+    const queryOverlapHolds = new Map([["/cities/yazd", { hold: false, reason: "" }]]);
+    const plan = planDailyExperiments({ tenantId: "t", date: "d", candidates, proofLedger: [], config: { now: NOW }, queryOverlapHolds });
+    expect(plan.selected.map((s) => s.url)).toEqual(["https://iranopedia.com/cities/yazd"]);
+  });
+
+  it("query-overlap hold is checked AFTER ledger eligibility, so an active-treatment exclusion still wins its own reason", () => {
+    const candidates = [cand({ url: "https://iranopedia.com/iran-animals/persian-wolf" })]; // active treatment per `ledger`
+    const queryOverlapHolds = new Map([["/iran-animals/persian-wolf", { hold: true, reason: "would also be held" }]]);
+    const plan = planDailyExperiments({ tenantId: "t", date: "d", candidates, proofLedger: ledger, config: { now: NOW }, queryOverlapHolds });
+    expect(plan.excluded[0].reason).toBe("same_family_measuring");
+  });
+});
+
+describe("planDailyExperiments — N46 opportunity expiration (planner skip)", () => {
+  it("skips a candidate whose evidenceFreshness is expired, with reason evidence_expired", () => {
+    const candidates = [
+      cand({ url: "https://iranopedia.com/cities/yazd", evidenceFreshness: "expired" }),
+      cand({ url: "https://iranopedia.com/cities/tehran", actionFamily: "meta" }),
+    ];
+    const plan = planDailyExperiments({ tenantId: "t", date: "d", candidates, proofLedger: [], config: { now: NOW } });
+    expect(plan.selected.map((s) => s.url)).toEqual(["https://iranopedia.com/cities/tehran"]);
+    const held = plan.excluded.find((e) => e.url.includes("yazd"));
+    expect(held?.reason).toBe("evidence_expired");
+  });
+
+  it("an aging (not expired) candidate is untouched by the planner - presentation-only", () => {
+    const candidates = [cand({ url: "https://iranopedia.com/cities/yazd", evidenceFreshness: "aging" })];
+    const plan = planDailyExperiments({ tenantId: "t", date: "d", candidates, proofLedger: [], config: { now: NOW } });
+    expect(plan.selected.map((s) => s.url)).toEqual(["https://iranopedia.com/cities/yazd"]);
+    expect(plan.excluded).toEqual([]);
+  });
+
+  it("omitting evidenceFreshness entirely (the default) is byte-identical to before N46 existed", () => {
+    const candidates = [
+      cand({ url: "https://iranopedia.com/cities/yazd" }),
+      cand({ url: "https://iranopedia.com/cities/tehran", actionFamily: "meta" }),
+    ];
+    const before = planDailyExperiments({ tenantId: "t", date: "d", candidates, proofLedger: [], config: { now: NOW } });
+    expect(before.selected.map((s) => s.url).sort()).toEqual(
+      ["https://iranopedia.com/cities/tehran", "https://iranopedia.com/cities/yazd"].sort(),
+    );
+    expect(before.excluded).toEqual([]);
+  });
+
+  it("evidence_expired is checked AFTER ledger eligibility, so an active-treatment exclusion still wins its own reason", () => {
+    const candidates = [cand({ url: "https://iranopedia.com/iran-animals/persian-wolf", evidenceFreshness: "expired" })]; // active treatment per `ledger`
+    const plan = planDailyExperiments({ tenantId: "t", date: "d", candidates, proofLedger: ledger, config: { now: NOW } });
+    expect(plan.excluded[0].reason).toBe("same_family_measuring");
+  });
+
+  it("an explicit fresh verdict behaves exactly like the absent default", () => {
+    const candidates = [cand({ url: "https://iranopedia.com/cities/yazd", evidenceFreshness: "fresh" })];
+    const plan = planDailyExperiments({ tenantId: "t", date: "d", candidates, proofLedger: [], config: { now: NOW } });
+    expect(plan.selected.map((s) => s.url)).toEqual(["https://iranopedia.com/cities/yazd"]);
+  });
+});

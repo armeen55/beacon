@@ -45,6 +45,7 @@ import "server-only";
  *     write.test.ts (existing scan set already covers this file)
  */
 
+import { recordAppError, errorFieldsFrom } from "@/lib/obs/error-ledger";
 import {
   checkBudget,
   recordSpend,
@@ -129,7 +130,17 @@ export async function draftProposedTextForCandidate(
   let bundle: SpecificEditBundle;
   try {
     bundle = await openaiProvider.generate(input.packet);
-  } catch {
+  } catch (e) {
+    // N39 error spine: the fail-closed path used to swallow WHY the call
+    // threw. Record it durably (recordAppError never throws, so the gateway's
+    // fail-closed contract is unchanged) before returning the stable marker.
+    await recordAppError({
+      route: "llm/draft-gateway",
+      tenantId: input.packet.tenantId,
+      action: "draft-proposed-text",
+      ...errorFieldsFrom(e),
+      context: { recId: input.packet.recId },
+    });
     return {
       status: "validation_failed",
       validation_errors: ["llm_call_threw"],

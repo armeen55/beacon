@@ -1,0 +1,16 @@
+{
+  "product": {
+    "id": "prod-123",
+    "name": "Saffron Threads 2g",
+    "slug": "saffron-threads-2g",
+    "seoData": {
+      "tags": [
+        { "type": "title", "children": "Saffron Threads 2g | Iranopedia Shop" },
+        {
+          "type": "meta",
+          "props": { "name": "description", "content": "Premium Persian saffron threads, 2 grams." }
+        }
+      ]
+    }
+  }
+}

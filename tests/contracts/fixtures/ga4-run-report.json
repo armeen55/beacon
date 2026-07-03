@@ -1,0 +1,29 @@
+{
+  "dimensionHeaders": [{ "name": "date" }, { "name": "pagePath" }],
+  "metricHeaders": [
+    { "name": "sessions", "type": "TYPE_INTEGER" },
+    { "name": "engagedSessions", "type": "TYPE_INTEGER" },
+    { "name": "conversions", "type": "TYPE_FLOAT" }
+  ],
+  "rows": [
+    {
+      "dimensionValues": [{ "value": "20260701" }, { "value": "/koobideh-kabob" }],
+      "metricValues": [{ "value": "31" }, { "value": "24" }, { "value": "2" }]
+    },
+    {
+      "dimensionValues": [{ "value": "20260701" }, { "value": "/persian-cat" }],
+      "metricValues": [{ "value": "12" }, { "value": "7" }, { "value": "0" }]
+    },
+    {
+      "dimensionValues": [{ "value": "2026-07-01" }, { "value": "/bad-date-format" }],
+      "metricValues": [{ "value": "5" }, { "value": "3" }, { "value": "0" }]
+    },
+    {
+      "dimensionValues": [{ "value": "20260702" }],
+      "metricValues": [{ "value": "9" }, { "value": "4" }, { "value": "1" }]
+    }
+  ],
+  "rowCount": 4,
+  "metadata": { "currencyCode": "USD", "timeZone": "America/Los_Angeles" },
+  "kind": "analyticsData#runReport"
+}

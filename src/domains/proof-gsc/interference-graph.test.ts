@@ -14,6 +14,8 @@ import {
   interferenceSummarySentence,
   interferenceByKind,
   toPlannerHoldEntry,
+  toQueryOverlapHoldEntry,
+  computeQueryOverlapHoldsForLedger,
   MIN_QUERY_OVERLAP_JACCARD,
   MIN_QUERIES_FOR_OVERLAP_JUDGMENT,
   type InterferenceLedgerShip,
@@ -488,6 +490,64 @@ describe("computeInterferenceGraphForLedger (batch entry point)", () => {
 
   it("returns an empty map for an empty ledger", () => {
     expect(computeInterferenceGraphForLedger({ ships: [] }).size).toBe(0);
+  });
+});
+
+describe("toQueryOverlapHoldEntry (R6 / N12 selection-time adapter, query_overlap only)", () => {
+  it("holds with the planner's own first-person sentence when a query_overlap edge is significant", () => {
+    const t = target({ targetQueries: ["lion facts", "lion habitat", "lion diet"] });
+    const o = ship({ targetQueries: ["lion facts", "lion habitat", "fox facts"] });
+    const result = computeInterferenceGraph({ target: t, otherShips: [o] });
+    const entry = toQueryOverlapHoldEntry(result);
+    expect(entry.hold).toBe(true);
+    expect(entry.reason).toBe(`I am holding this because it competes for the same searches as a change I am already measuring on ${o.path}.`);
+    expect(entry.reason).not.toMatch(/[–—]/);
+  });
+
+  it("never holds on a link-only or family-only graph (query_overlap edges only, never the broader kinds)", () => {
+    const linkRows: PageLinkRow[] = [{ sourcePath: "/animals/lion", targetHrefs: ["/animals/fox"] }];
+    const result = computeInterferenceGraph({ target: target(), otherShips: [ship()], linkRows });
+    // Sanity: the full graph DOES see this as significant (a linked_page_treated edge)...
+    expect(result.hasSignificantInterference).toBe(true);
+    // ...but the query-overlap-only adapter correctly ignores it.
+    const entry = toQueryOverlapHoldEntry(result);
+    expect(entry.hold).toBe(false);
+    expect(entry.reason).toBe("");
+  });
+
+  it("never holds on a clean graph, with an empty reason", () => {
+    const result = computeInterferenceGraph({ target: target(), otherShips: [] });
+    const entry = toQueryOverlapHoldEntry(result);
+    expect(entry.hold).toBe(false);
+    expect(entry.reason).toBe("");
+  });
+
+  it("honest floor still applies: a single shared query never holds", () => {
+    const t = target({ targetQueries: ["lion facts"] });
+    const o = ship({ targetQueries: ["lion facts"] });
+    const result = computeInterferenceGraph({ target: t, otherShips: [o] });
+    expect(toQueryOverlapHoldEntry(result).hold).toBe(false);
+  });
+});
+
+describe("computeQueryOverlapHoldsForLedger (R6 / N12 batch entry point)", () => {
+  it("returns hold entries keyed by host-stripped path for ships with a real query_overlap edge", () => {
+    const t = target({ targetQueries: ["lion facts", "lion habitat", "lion diet"] });
+    const o = ship({ targetQueries: ["lion facts", "lion habitat", "fox facts"] });
+    const byPath = computeQueryOverlapHoldsForLedger({ ships: [t, o] });
+    expect(byPath.get("/animals/lion")?.hold).toBe(true);
+    expect(byPath.get("/animals/fox")?.hold).toBe(true);
+  });
+
+  it("omits a ship with no significant query overlap entirely (never a false hold:false entry cluttering the map)", () => {
+    const t = target({ targetQueries: [] });
+    const o = ship({ targetQueries: [] });
+    const byPath = computeQueryOverlapHoldsForLedger({ ships: [t, o] });
+    expect(byPath.size).toBe(0);
+  });
+
+  it("returns an empty map for an empty ledger", () => {
+    expect(computeQueryOverlapHoldsForLedger({ ships: [] }).size).toBe(0);
   });
 });
 

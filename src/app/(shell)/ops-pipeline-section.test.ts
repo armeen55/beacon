@@ -20,8 +20,15 @@ describe("OpsPipelineSection contract", () => {
     expect(SRC).not.toContain("checkPipelineInvariants");
   });
 
-  it("self-hides when the pipe is clean AND the deadman is quiet (one shared home)", () => {
-    expect(SRC).toContain("if (!pipelineFires && !deadmanFires) return null");
+  it("self-hides when the pipe is clean, the deadman is quiet, AND no error spike (one shared home)", () => {
+    expect(SRC).toContain("if (!pipelineFires && !deadmanFires && !spikeFires) return null");
+  });
+
+  it("N39: the error-spike line joins this block (never a second widget) and is deadline-bound", () => {
+    expect(SRC).toContain('from "@/domains/ops/error-spike"');
+    expect(SRC).toContain("loadErrorSpikeLine(tenantId)");
+    expect(SRC).toContain('data-error-spike="true"');
+    expect(SRC).toContain('href="/diagnostics/errors"');
   });
 
   it("T0c: the deadman verdict joins this block (never a second widget) and is deadline-bound", () => {

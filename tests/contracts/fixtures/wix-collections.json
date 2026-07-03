@@ -1,0 +1,24 @@
+{
+  "collections": [
+    {
+      "id": "Recipes",
+      "displayName": "Recipes",
+      "fields": [
+        { "key": "title", "displayName": "Title", "type": "TEXT" },
+        { "key": "seoTitle", "displayName": "SEO Title", "fieldType": "TEXT" },
+        { "key": "seoDescription", "displayName": "SEO Description", "type": "TEXT" },
+        { "key": "slug", "displayName": "Slug", "type": "TEXT" },
+        { "key": "mysteryField" },
+        { "displayName": "malformed field with no key" }
+      ]
+    },
+    {
+      "displayName": "malformed collection with no id",
+      "fields": []
+    },
+    {
+      "id": "Cities",
+      "fields": [{ "key": "name", "type": "TEXT" }]
+    }
+  ]
+}

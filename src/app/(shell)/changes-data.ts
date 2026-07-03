@@ -44,6 +44,7 @@ import { cache } from "react";
 // operator's "one ranked decision" across every opportunity source, not just the ActionPack
 // worklist. Read-only additive lanes; a lane outage narrows the fused set, never blocks the page.
 import { fuseUnifiedList } from "@/domains/allocator/load-unified-list";
+import { classifyOpportunityFreshness, summarizeExpiry } from "@/domains/changes/opportunity-expiry";
 
 export type ChangesView = {
   changes: CanonicalChange[];
@@ -72,6 +73,11 @@ export type ChangesView = {
    *  one quiet line instead of just showing fewer rows with no acknowledgment. Null when nothing
    *  was suppressed this load. */
   suppressedRowsNote: string | null;
+  /** N46 (R6, 2026-07-02) - present exactly when at least one row's evidence has expired (45d+,
+   *  or a seasonal window that already passed) this load. Renders as an honest sub-line inside
+   *  the SAME "N more lower-priority ideas" expander (see changes-list-client.tsx) - never a
+   *  second expander, never a bare status word. Null when nothing expired. */
+  expiredSubline: string | null;
 };
 
 /** FP2 (2026-07-02, killer finding 1) - normalized identity for the dedupe pass below: the
@@ -206,6 +212,30 @@ export function dropBoardDuplicateNewPageRows(
  *  Changes list hostage (on a timeout we simply skip the dedupe this visit). */
 const BOARD_TOPICS_DEADLINE_MS = 10_000;
 
+/** N46 (R6, 2026-07-03) - opportunity expiration, wired AFTER dedupe/rank (this NEVER re-ranks,
+ *  only marks freshness/agingChip on the existing rows - order is untouched). Today the only
+ *  genuinely dated evidence available at this seam is the accepted/preview PLAN's own createdAt
+ *  (a real "this batch's research was assembled at X" timestamp) for rows sourced from tonight's
+ *  plan (fromPlanItem sets sourceIds: [e.id], matched here via planItemIds). A worklist-sourced
+ *  row (the majority of this list) has no dated evidence threaded to this layer yet, so it is
+ *  left unclassified - classifyOpportunityFreshness's own honest default (fresh, never a
+ *  fabricated age). PURE; exported for a direct test pin. */
+export function applyOpportunityFreshness(
+  changes: readonly CanonicalChange[],
+  planCreatedAt: string | null,
+  planItemIds: ReadonlySet<string>,
+  now: Date = new Date(),
+): CanonicalChange[] {
+  if (!planCreatedAt || planItemIds.size === 0) return [...changes];
+  return changes.map((c) => {
+    const fromPlan = c.sourceIds.some((id) => planItemIds.has(id));
+    if (!fromPlan) return c;
+    const result = classifyOpportunityFreshness([{ kind: "plan_batch", date: planCreatedAt }], now);
+    if (result.verdict === "fresh") return c;
+    return { ...c, freshness: result.verdict, agingChip: result.agingChip };
+  });
+}
+
 // FP3 - react.cache()'d so the FP3 lifecycle-counts loader and the page section that
 // renders the list share ONE computation per request instead of building it twice.
 export const loadChangesView = cache(async (): Promise<ChangesView> => {
@@ -325,7 +355,14 @@ export const loadChangesView = cache(async (): Promise<ChangesView> => {
   // card must not ALSO render as a ranked list row ("biggest cities in iran" appearing
   // three times in two formats). The board is the richer home; the list keeps every
   // create topic the board does not carry.
-  const changes = dropBoardDuplicateNewPageRows(demoted, boardTopicKeys);
+  const boardCleaned = dropBoardDuplicateNewPageRows(demoted, boardTopicKeys);
+
+  // N46 (R6, 2026-07-03) - OPPORTUNITY EXPIRATION, applied AFTER dedupe/rank (never re-ranks,
+  // only marks freshness + agingChip on the existing rows in place). Today's plan's own
+  // createdAt is the one genuinely dated piece of evidence available at this seam.
+  const planItemIds = new Set<string>([...(plan?.selected ?? []).map((e) => e.id), ...(plan?.backups ?? []).map((e) => e.id)]);
+  const changes = applyOpportunityFreshness(boardCleaned, plan?.createdAt ?? null, planItemIds);
+  const expirySummary = summarizeExpiry(changes.map((c) => c.freshness ?? "fresh"));
 
   // D7 (hypothesis capture) - every forecast actually rendered to the operator on this list is
   // logged as a falsifiable hypothesis, so the day-28 settle can grade it later. Fire-and-forget,
@@ -376,5 +413,16 @@ export const loadChangesView = cache(async (): Promise<ChangesView> => {
     }
   }
 
-  return { changes, movesById, summary, hasPlan: !!plan, planAccepted: !!accepted, readyZeroHint, measuringCountCanonical, decidedCountCanonical, suppressedRowsNote };
+  return {
+    changes,
+    movesById,
+    summary,
+    hasPlan: !!plan,
+    planAccepted: !!accepted,
+    readyZeroHint,
+    measuringCountCanonical,
+    decidedCountCanonical,
+    suppressedRowsNote,
+    expiredSubline: expirySummary.expiredSubline,
+  };
 });

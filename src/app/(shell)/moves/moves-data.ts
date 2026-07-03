@@ -9,6 +9,7 @@ import { competitorRelevance } from "@/domains/evidence/relevance-gate";
 import { ACTION_LABEL, actionFamily, type ActionPack } from "@/domains/action-pack/types";
 
 import { after } from "next/server";
+import { recordAppError, errorFieldsFrom } from "@/lib/obs/error-ledger";
 import { loadTodayMovesHeroData, type TodayMove, type TodayMovesHeroData } from "../today-moves-data";
 import { readWorklistSurface, writeWorklistSurface, isSurfaceStale } from "../worklist-surface-store";
 import { computeOpportunity } from "@/domains/forecast/opportunity-math";
@@ -267,8 +268,16 @@ async function loadSurfaceWithSwr(tenantId: string): Promise<TodayMovesHeroData>
         try {
           const fresh = await loadUncached(tenantId);
           await writeWorklistSurface(fresh, new Date().toISOString());
-        } catch {
-          /* best-effort background refresh; the next visit retries */
+        } catch (e) {
+          // Best-effort background refresh; the next visit retries. N39: record
+          // it durably so a silently-always-stale worklist is visible on
+          // /diagnostics/errors instead of vanishing with the lambda logs.
+          await recordAppError({
+            route: "/changes",
+            tenantId,
+            action: "background-refresh",
+            ...errorFieldsFrom(e),
+          });
         }
       });
     }

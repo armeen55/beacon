@@ -1,0 +1,118 @@
+{
+  "version": "0.1.20260620",
+  "status_code": 20000,
+  "status_message": "Ok.",
+  "cost": 0.002,
+  "tasks_count": 1,
+  "tasks": [
+    {
+      "id": "07031234-1535-0066-0000-abcdef012345",
+      "status_code": 20000,
+      "status_message": "Ok.",
+      "cost": 0.002,
+      "result_count": 1,
+      "result": [
+        {
+          "keyword": "koobideh kabob",
+          "type": "organic",
+          "se_domain": "google.com",
+          "location_code": 2840,
+          "language_code": "en",
+          "items_count": 6,
+          "items": [
+            {
+              "type": "ai_overview",
+              "rank_group": 1,
+              "rank_absolute": 1,
+              "markdown": "Koobideh kabob is a classic Persian grilled kabob made from ground lamb or beef mixed with grated onion and seasonings, shaped onto flat skewers and grilled over open flame.",
+              "references": [
+                {
+                  "domain": "www.seriouseats.com",
+                  "url": "https://www.seriouseats.com/kabab-koobideh",
+                  "title": "Kabab Koobideh (Persian Ground Meat Kabobs)",
+                  "source": "Serious Eats"
+                },
+                {
+                  "url": "https://www.iranopedia.com/koobideh-kabob",
+                  "title": "Koobideh Kabob",
+                  "source": "Iranopedia"
+                },
+                { "title": "malformed reference with no url", "source": "nowhere" }
+              ],
+              "items": [
+                {
+                  "type": "ai_overview_element",
+                  "references": [
+                    {
+                      "domain": "www.seriouseats.com",
+                      "url": "https://www.seriouseats.com/kabab-koobideh"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "featured_snippet",
+              "rank_group": 1,
+              "rank_absolute": 2,
+              "domain": "www.thecaspianchef.com",
+              "title": "Kabob Koobideh",
+              "description": "Koobideh is made with ground lamb or a lamb and beef mix, grated onion squeezed dry, salt, and sumac, kneaded until sticky so it grips the skewer.",
+              "url": "https://www.thecaspianchef.com/koobideh-kabob",
+              "featured_snippet_type": "paragraph"
+            },
+            {
+              "type": "organic",
+              "rank_group": 1,
+              "rank_absolute": 3,
+              "domain": "www.seriouseats.com",
+              "title": "Kabab Koobideh (Persian Ground Meat Kabobs) Recipe",
+              "url": "https://www.seriouseats.com/kabab-koobideh",
+              "breadcrumb": "https://www.seriouseats.com › recipes"
+            },
+            {
+              "type": "people_also_ask",
+              "rank_group": 1,
+              "rank_absolute": 4,
+              "items": [
+                {
+                  "type": "people_also_ask_element",
+                  "title": "What is koobideh made of?",
+                  "expanded_element": [
+                    {
+                      "type": "people_also_ask_expanded_element",
+                      "featured_title": "Koobideh Kabob",
+                      "url": "https://www.iranopedia.com/koobideh-kabob",
+                      "domain": "www.iranopedia.com",
+                      "description": "Koobideh is made of ground lamb or beef with grated onion."
+                    }
+                  ]
+                },
+                {
+                  "type": "people_also_ask_element",
+                  "title": "Why does my koobideh fall off the skewer?"
+                }
+              ]
+            },
+            {
+              "type": "organic",
+              "rank_group": 2,
+              "rank_absolute": 5,
+              "domain": "www.iranopedia.com",
+              "title": "Koobideh Kabob: The Complete Persian Recipe",
+              "url": "https://www.iranopedia.com/koobideh-kabob"
+            },
+            {
+              "type": "organic",
+              "rank_group": 3,
+              "rank_absolute": 6,
+              "domain": "www.thecaspianchef.com",
+              "title": "Kabob Koobideh - The Caspian Chef",
+              "url": "https://www.thecaspianchef.com/koobideh-kabob"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

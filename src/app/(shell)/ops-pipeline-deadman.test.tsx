@@ -19,6 +19,11 @@ vi.mock("@/domains/ops/pipeline-health-store", () => ({
 vi.mock("@/domains/ops/deadman-view", () => ({
   loadDeadmanVerdict: async () => verdict,
 }));
+// N39: the error-spike line joins the same block; pin it quiet here so these
+// deadman-focused tests stay deterministic (the spike has its own render test).
+vi.mock("@/domains/ops/error-spike", () => ({
+  loadErrorSpikeLine: async () => null,
+}));
 
 import { OpsPipelineSection } from "./ops-pipeline-section";
 

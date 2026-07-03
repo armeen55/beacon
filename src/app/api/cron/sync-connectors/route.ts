@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { syncAllConnectedForActiveTenants } from "@/lib/connectors/cron-sync";
 import { log } from "@/lib/logger";
+import { recordAppError, errorFieldsFrom } from "@/lib/obs/error-ledger";
 
 // Pure HTTP→Supabase fan-out across tenants; must never be statically rendered.
 export const dynamic = "force-dynamic";
@@ -39,6 +40,14 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   } catch (e) {
     const err = e instanceof Error ? e.message : String(e);
     log.error("[cron-sync] route failed", { error: err.slice(0, 300) });
+    // N39: the whole nightly run died before its own fail-soft phases could
+    // record anything. Fleet-level row (no tenant context at this altitude).
+    await recordAppError({
+      route: "cron/sync-connectors",
+      tenantId: null,
+      action: "route",
+      ...errorFieldsFrom(e),
+    });
     return NextResponse.json({ ok: false, error: err.slice(0, 300) }, { status: 500 });
   }
 }

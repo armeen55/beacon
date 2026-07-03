@@ -9,11 +9,12 @@
  * and build-canonical-changes.test.ts already use for CanonicalChange fixtures).
  */
 import { describe, expect, it } from "vitest";
-import { dedupeIdentity, strongerChange, dedupeChanges, demoteUnsized, reconcileCannibalizationRationale, dropBoardDuplicateNewPageRows } from "./changes-data";
+import { dedupeIdentity, strongerChange, dedupeChanges, demoteUnsized, reconcileCannibalizationRationale, dropBoardDuplicateNewPageRows, applyOpportunityFreshness } from "./changes-data";
 import { topicIdentityKey } from "@/domains/demand-graph/dedupe-new-page-cards";
 import type { CanonicalChange, CanonicalStatus } from "@/domains/changes/canonical-change";
 import { rankChanges } from "@/domains/changes/strategy";
 import type { TodayMove } from "./today-moves-data";
+import { hasBannedDash } from "@/lib/copy/strip-dashes";
 
 function cc(id: string, status: CanonicalStatus, over: Partial<CanonicalChange> = {}): CanonicalChange {
   return {
@@ -279,6 +280,66 @@ describe("dropBoardDuplicateNewPageRows (FP5b - 'new-page ideas appear three tim
   it("is a no-op when the board read failed (empty key set - honest degradation, never a blank list)", () => {
     const rows = [cc("a", "suggested", { changeFamily: "new_page", pagePath: "", pageLabel: "biggest cities in iran" })];
     expect(dropBoardDuplicateNewPageRows(rows, new Set())).toHaveLength(1);
+  });
+});
+
+describe("applyOpportunityFreshness (N46, R6 - wired AFTER dedupe/rank, presentation + selection only)", () => {
+  const NOW = new Date("2026-07-03T00:00:00Z");
+  const daysAgo = (days: number): string => new Date(NOW.getTime() - days * 86_400_000).toISOString();
+
+  it("is byte-identical when no plan is loaded (no createdAt to judge by)", () => {
+    const rows = [cc("a", "suggested"), cc("b", "ready")];
+    const out = applyOpportunityFreshness(rows, null, new Set(), NOW);
+    expect(out).toEqual(rows);
+  });
+
+  it("is byte-identical when the plan has no items at all", () => {
+    const rows = [cc("a", "suggested")];
+    const out = applyOpportunityFreshness(rows, daysAgo(60), new Set(), NOW);
+    expect(out).toEqual(rows);
+  });
+
+  it("leaves a worklist-sourced row (not in planItemIds) completely untouched, even with a stale plan", () => {
+    const rows = [cc("a", "suggested", { sourceIds: ["worklist-move-1"] })];
+    const out = applyOpportunityFreshness(rows, daysAgo(60), new Set(["plan-item-9"]), NOW);
+    expect(out[0]!.freshness).toBeUndefined();
+  });
+
+  it("marks a fresh plan-sourced row's freshness field absent (not 'fresh' - never adds noise for the common case)", () => {
+    const rows = [cc("a", "ready", { sourceIds: ["plan-item-1"] })];
+    const out = applyOpportunityFreshness(rows, daysAgo(2), new Set(["plan-item-1"]), NOW);
+    expect(out[0]!.freshness).toBeUndefined();
+    expect(out[0]).toEqual(rows[0]);
+  });
+
+  it("marks an aging plan-sourced row with the quiet chip", () => {
+    const rows = [cc("a", "ready", { sourceIds: ["plan-item-1"] })];
+    const out = applyOpportunityFreshness(rows, daysAgo(25), new Set(["plan-item-1"]), NOW);
+    expect(out[0]!.freshness).toBe("aging");
+    expect(out[0]!.agingChip).toBe("evidence from 4 weeks ago");
+    expect(hasBannedDash(out[0]!.agingChip ?? "")).toBe(false);
+  });
+
+  it("marks an expired plan-sourced row, never deleting it (still present, order untouched)", () => {
+    const rows = [cc("a", "ready", { sourceIds: ["plan-item-1"] }), cc("b", "ready", { sourceIds: ["plan-item-2"] })];
+    const out = applyOpportunityFreshness(rows, daysAgo(60), new Set(["plan-item-1", "plan-item-2"]), NOW);
+    expect(out).toHaveLength(2);
+    expect(out.map((c) => c.id)).toEqual(["a", "b"]); // order preserved - never re-ranked
+    expect(out[0]!.freshness).toBe("expired");
+    expect(out[0]!.agingChip).toBeNull();
+  });
+
+  it("never mutates the input array's objects", () => {
+    const rows = [cc("a", "ready", { sourceIds: ["plan-item-1"] })];
+    const out = applyOpportunityFreshness(rows, daysAgo(60), new Set(["plan-item-1"]), NOW);
+    expect(out[0]).not.toBe(rows[0]);
+    expect(rows[0]!.freshness).toBeUndefined();
+  });
+
+  it("matches a row via ANY of its sourceIds (a deduped row can carry multiple)", () => {
+    const rows = [cc("a", "ready", { sourceIds: ["worklist-1", "plan-item-1"] })];
+    const out = applyOpportunityFreshness(rows, daysAgo(60), new Set(["plan-item-1"]), NOW);
+    expect(out[0]!.freshness).toBe("expired");
   });
 });
 

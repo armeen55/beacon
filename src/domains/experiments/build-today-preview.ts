@@ -67,6 +67,10 @@ import { loadExperimentOutcomes, gateRecordsToEffectObservations } from "@/domai
 import { computeDimPriors, resolvePrior, canonicalMoveType, pageTypeFromUrl, queryClusterKey } from "@/domains/learning/experiment-prior";
 import { computeEffectSizeTable, resolveEffectPrior } from "@/domains/learning/effect-size-prior";
 import { attachControlContaminationForLedger, computeLastCleanDonorHolds } from "@/domains/proof-gsc/attach-control-contamination";
+import { computeQueryOverlapHoldsForLedger, type InterferenceLedgerShip } from "@/domains/proof-gsc/interference-graph";
+import { outcomeStateOf } from "@/domains/proof-gsc/measure-lifecycle";
+import { measurementWindowOf } from "@/domains/proof-gsc/measurement-maturity";
+import { classifyOpportunityFreshness } from "@/domains/changes/opportunity-expiry";
 import { buildShadowCandidates } from "./shadow-portfolio-capture";
 import { writeShadowPortfolioBatch } from "./shadow-portfolio-store";
 
@@ -215,8 +219,16 @@ export async function buildTodayExperimentPreview(tenantId: string, now: Date = 
 
   // SERP patterns indexed by lowercased query (the shape build-today-preview's brief looks up).
   const serpByTerm = new Map<string, SerpPatternLite>();
-  for (const [q, p] of serpPatterns as Map<string, { format: string; winningDomains: string[]; elementImplication: string }>) {
+  // N46 (R6) - the SAME cached read's own fetchedAt, kept alongside (not folded into) serpByTerm
+  // so evidence-freshness classification never changes serpByTerm's existing shape. This is a
+  // real cache date (research-enrichment-producer.ts's readCachedSerpPatterns has no TTL of its
+  // own today - a stale SERP pattern would otherwise linger unchecked); when the tenant has no
+  // cached SERP pattern for a query at all, the map simply has no entry (honest "nothing to
+  // judge", never a fabricated date).
+  const serpFetchedAtByTerm = new Map<string, string>();
+  for (const [q, p] of serpPatterns as Map<string, { format: string; winningDomains: string[]; elementImplication: string; fetchedAt?: string | null }>) {
     serpByTerm.set(q.toLowerCase(), { format: p.format, winningDomains: p.winningDomains ?? [], elementImplication: p.elementImplication ?? "" });
+    if (p.fetchedAt) serpFetchedAtByTerm.set(q.toLowerCase(), p.fetchedAt);
   }
 
   // Competitor teardown indexed by normalized owned-page path. Only keep a RELEVANT, on-topic
@@ -568,7 +580,51 @@ export async function buildTodayExperimentPreview(tenantId: string, now: Date = 
     /* additive - a failed pool-health read must never block or alter a nightly plan */
   }
 
-  const plan = planDailyExperiments({ tenantId, date: now.toISOString().slice(0, 10), candidates: teamReviewed, proofLedger: ledger, config: { ...PLANNER_CONFIG, now }, lastCleanDonorHolds });
+  // R6 (N12) - SAME-QUERY BLOCKING: the narrow, query-overlap-only subset of N14's full
+  // interference graph, safe to flip live tonight (N14's full graph hits 100% of ships on the
+  // real ledger - too aggressive without an operator review pass; query_overlap alone is a much
+  // narrower, self-evidently correct rule). Reuses the SAME ledger the rest of this pipeline
+  // already loaded - no new store, no new read. Each candidate's own queries also ride along
+  // (relatedQueries, from queriesByUrl - the page's real GSC top queries, already computed above
+  // for the keyword-research brief) so the planner's intra-batch check compares real query sets,
+  // not just each candidate's single displayed targetQuery. Fail-soft -> no holds (byte-identical
+  // to before N12 existed).
+  for (const c of teamReviewed) {
+    const related = queriesByUrl.get(c.url);
+    if (related && related.length > 0) c.relatedQueries = related;
+  }
+  let queryOverlapHolds: ReadonlyMap<string, { hold: boolean; reason: string }> = new Map();
+  try {
+    const ships: InterferenceLedgerShip[] = ledger.map((r) => ({
+      id: r.id,
+      path: r.path,
+      shippedAt: r.shippedAt,
+      measuring: outcomeStateOf(r, now) === "measuring",
+      window: measurementWindowOf(r.shippedAt, r.windows ?? []),
+      targetQueries: r.targetQueries ?? [],
+      controlPages: r.controlPages ?? [],
+    }));
+    queryOverlapHolds = computeQueryOverlapHoldsForLedger({ ships });
+  } catch {
+    /* additive - a failed graph read must never block or alter a nightly plan */
+  }
+
+  // N46 (R6, 2026-07-03) - OPPORTUNITY EXPIRATION: a candidate whose best cached SERP-pattern
+  // read (research-enrichment-producer.ts's readCachedSerpPatterns, which carries no TTL of its
+  // own) has gone stale gets classified here from the SAME serpFetchedAtByTerm map built above -
+  // no new store, no new read. A candidate with no cached SERP date at all (most candidates
+  // today - SERP enrichment is opportunistic, not guaranteed) has nothing to judge and stays
+  // "fresh" by classifyOpportunityFreshness's own honest default. Only "expired" changes
+  // selection (see the planner's evidence_expired skip); "aging" rides through for the Changes
+  // list's own presentation-only chip.
+  for (const c of teamReviewed) {
+    const queries = queriesByUrl.get(c.url) ?? [c.targetQuery];
+    const serpDate = queries.map((q) => serpFetchedAtByTerm.get(q.toLowerCase())).find((d): d is string => !!d);
+    if (!serpDate) continue;
+    c.evidenceFreshness = classifyOpportunityFreshness([{ kind: "serp_verdict", date: serpDate }], now).verdict;
+  }
+
+  const plan = planDailyExperiments({ tenantId, date: now.toISOString().slice(0, 10), candidates: teamReviewed, proofLedger: ledger, config: { ...PLANNER_CONFIG, now }, lastCleanDonorHolds, queryOverlapHolds });
 
   const byUrl = new Map(built.map((b) => [b.url, b]));
   const selected = plan.selected.map((s) => byUrl.get(s.url)).filter(Boolean) as BuiltCandidate[];

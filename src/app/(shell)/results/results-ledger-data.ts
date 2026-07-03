@@ -4,6 +4,7 @@ import { cache } from "react";
 import { after } from "next/server";
 
 import { currentTenantId } from "@/lib/tenant-context";
+import { recordAppError, errorFieldsFrom } from "@/lib/obs/error-ledger";
 import { loadProofLedger } from "@/domains/proof-gsc/load-ledger";
 import type { ShippedChangeRecord } from "@/domains/proof-gsc/shipped-change-store";
 import {
@@ -39,8 +40,16 @@ export async function loadLedgerWithSwr(tenantId: string): Promise<ResultsLedger
       after(async () => {
         try {
           await rebuildResultsSurface(tenantId);
-        } catch {
-          /* best-effort background refresh; the next visit retries */
+        } catch (e) {
+          // Best-effort background refresh; the next visit retries. N39: record
+          // it durably so a silently-always-stale results page is visible on
+          // /diagnostics/errors instead of vanishing with the lambda logs.
+          await recordAppError({
+            route: "/results",
+            tenantId,
+            action: "background-refresh",
+            ...errorFieldsFrom(e),
+          });
         }
       });
     }

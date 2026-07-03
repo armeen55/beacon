@@ -1,0 +1,114 @@
+/**
+ * N40 contract test - Google Search Console searchanalytics.query + sites.list.
+ *
+ * Feeds a checked-in fixture of the REAL response shape through the ACTUAL
+ * client code path (gscSearchAnalyticsQuery / gscListSites with an injected
+ * fetchImpl - the same functions the nightly sync calls), so a silent upstream
+ * change that breaks our parsing fails a named test here instead of surfacing
+ * as a quietly-empty sync. NO live calls: the fetch is a local fixture.
+ */
+
+import { describe, it, expect, vi } from "vitest";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+
+import {
+  gscSearchAnalyticsQuery,
+  gscListSites,
+  pickGscPropertyForDomain,
+  GSC_SA_ROW_LIMIT,
+} from "@/lib/connectors/gsc/search-analytics";
+
+function fixture(name: string): unknown {
+  return JSON.parse(readFileSync(resolve(__dirname, "fixtures", name), "utf-8"));
+}
+
+function jsonResponse(body: unknown): Response {
+  return new Response(JSON.stringify(body), {
+    status: 200,
+    headers: { "Content-Type": "application/json" },
+  });
+}
+
+describe("GSC searchanalytics.query contract", () => {
+  it("parses the documented row shape: keys[] in dimension order + 4 numeric metrics", async () => {
+    const calls: Array<{ url: string; init: RequestInit | undefined }> = [];
+    const fetchImpl = vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
+      calls.push({ url: String(url), init });
+      return jsonResponse(fixture("gsc-searchanalytics.json"));
+    }) as unknown as typeof fetch;
+
+    const rows = await gscSearchAnalyticsQuery(
+      {
+        accessToken: "test-token",
+        siteUrl: "sc-domain:iranopedia.com",
+        startDate: "2026-07-01",
+        endDate: "2026-07-01",
+        dimensions: ["page", "query"],
+      },
+      { fetchImpl },
+    );
+
+    expect(rows).not.toBeNull();
+    expect(rows).toHaveLength(3);
+    for (const row of rows!) {
+      // keys arrive in REQUEST dimension order: [page, query].
+      expect(Array.isArray(row.keys)).toBe(true);
+      expect(row.keys).toHaveLength(2);
+      expect(row.keys[0]).toMatch(/^https:\/\//);
+      expect(typeof row.keys[1]).toBe("string");
+      expect(typeof row.clicks).toBe("number");
+      expect(typeof row.impressions).toBe("number");
+      // ctr is a 0..1 FRACTION (not a percentage) per Google's contract.
+      expect(row.ctr).toBeGreaterThanOrEqual(0);
+      expect(row.ctr).toBeLessThanOrEqual(1);
+      // position is a 1-based average.
+      expect(row.position).toBeGreaterThanOrEqual(1);
+    }
+
+    // Our REQUEST contract: the body carries the fields Google documents.
+    const sent = JSON.parse(String(calls[0]!.init?.body));
+    expect(sent).toMatchObject({
+      startDate: "2026-07-01",
+      endDate: "2026-07-01",
+      dimensions: ["page", "query"],
+      type: "web",
+      rowLimit: GSC_SA_ROW_LIMIT,
+      startRow: 0,
+      dataState: "final",
+    });
+  });
+
+  it("a body with NO rows key (quiet day) parses to [] rather than null/throw", async () => {
+    const fetchImpl = (async () => jsonResponse({ responseAggregationType: "byPage" })) as typeof fetch;
+    const rows = await gscSearchAnalyticsQuery(
+      {
+        accessToken: "t",
+        siteUrl: "sc-domain:iranopedia.com",
+        startDate: "2026-07-01",
+        endDate: "2026-07-01",
+        dimensions: ["page"],
+      },
+      { fetchImpl },
+    );
+    expect(rows).toEqual([]);
+  });
+});
+
+describe("GSC sites.list contract", () => {
+  it("parses siteEntry[] and property selection prefers the sc-domain property, skipping unverified", async () => {
+    const fetchImpl = (async () => jsonResponse(fixture("gsc-sites-list.json"))) as typeof fetch;
+    const sites = await gscListSites("test-token", { fetchImpl });
+
+    // The malformed entry (no siteUrl) is dropped; the rest keep their shape.
+    expect(sites).toHaveLength(3);
+    for (const s of sites) {
+      expect(typeof s.siteUrl).toBe("string");
+      expect(typeof s.permissionLevel).toBe("string");
+    }
+
+    expect(pickGscPropertyForDomain(sites, "iranopedia.com")).toBe("sc-domain:iranopedia.com");
+    // Unverified-only domains resolve to null (we cannot read their analytics).
+    expect(pickGscPropertyForDomain(sites, "unverified.example.com")).toBeNull();
+  });
+});

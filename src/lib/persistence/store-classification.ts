@@ -445,6 +445,13 @@ export const GLOBAL_STORES = new Set<string>([
   // the publishing-mode card so a dead token or stale url-map surfaces
   // before an operator-accepted change actually fails to push.
   "publish-health",
+  // Production error spine (2026-07-03, BEACON_500 R7 / N39). Rows carry
+  // tenantId (nullable for fleet-level failures); the highest-value writers
+  // are cron fan-outs and next/after background refreshes with NO ambient
+  // request context, so per-tenant path routing would throw - same rationale
+  // as cron-runs / pipeline-violations above. Capped at 200 rows per tenant
+  // bucket on every write (src/lib/obs/error-ledger.ts).
+  "app-errors",
   // Opportunity hypothesis log (2026-07-02, DREAM SITE V1 item D7). Rows carry
   // tenant_id; written the moment opportunity-math.ts renders a forecast to the
   // operator (page render has ambient request context today, but a future nightly

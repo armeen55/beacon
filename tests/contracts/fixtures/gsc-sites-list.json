@@ -1,0 +1,8 @@
+{
+  "siteEntry": [
+    { "siteUrl": "https://www.iranopedia.com/", "permissionLevel": "siteFullUser" },
+    { "siteUrl": "sc-domain:iranopedia.com", "permissionLevel": "siteOwner" },
+    { "siteUrl": "https://unverified.example.com/", "permissionLevel": "siteUnverifiedUser" },
+    { "permissionLevel": "siteOwner" }
+  ]
+}

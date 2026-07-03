@@ -1,0 +1,22 @@
+{
+  "dataItems": [
+    {
+      "id": "item-koobideh",
+      "dataCollectionId": "Recipes",
+      "data": {
+        "title": "Koobideh Kabob",
+        "slug": "koobideh-kabob",
+        "seoTitle": "Koobideh Kabob Recipe: Authentic Persian Ground Meat Kabob",
+        "seoDescription": "The authentic Persian koobideh kabob recipe with ground lamb, grated onion, and saffron.",
+        "link-recipes-slug": "/recipes/koobideh-kabob"
+      }
+    },
+    {
+      "id": "item-no-data"
+    },
+    {
+      "data": { "title": "malformed item with no id" }
+    }
+  ],
+  "pagingMetadata": { "count": 3, "offset": 0 }
+}

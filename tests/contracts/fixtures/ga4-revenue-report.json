@@ -1,0 +1,17 @@
+{
+  "dimensionHeaders": [{ "name": "date" }, { "name": "pagePath" }],
+  "metricHeaders": [
+    { "name": "transactions", "type": "TYPE_INTEGER" },
+    { "name": "totalRevenue", "type": "TYPE_CURRENCY" },
+    { "name": "purchaseRevenue", "type": "TYPE_CURRENCY" }
+  ],
+  "rows": [
+    {
+      "dimensionValues": [{ "value": "20260701" }, { "value": "/shop/saffron" }],
+      "metricValues": [{ "value": "3" }, { "value": "84.5" }, { "value": "84.5" }]
+    }
+  ],
+  "rowCount": 1,
+  "metadata": { "currencyCode": "USD" },
+  "kind": "analyticsData#runReport"
+}

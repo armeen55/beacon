@@ -107,6 +107,17 @@ export type CanonicalChange = {
    *  "everything working together" signal, rendered as a small provenance chip. Plain-language
    *  labels only (never a raw lane key) - see allocator/unified-list.ts's LANE_LABEL. */
   sources?: string[];
+  /** N46 (R6, 2026-07-03) - opportunity-expiry.ts's freshness verdict for this row's underlying
+   *  evidence, computed by changes-data.ts AFTER dedupe/rank from whatever dated evidence is
+   *  actually available (today only: the accepted/preview plan's own createdAt, for rows sourced
+   *  from tonight's plan). Absent = nothing dated to judge, the same as "fresh" (never a penalty
+   *  for a row this classifier hasn't been wired to see yet). Presentation-only: this NEVER
+   *  changes rank, and an "expired" row is folded into the existing capped-list expander rather
+   *  than removed - see changes-list-client.tsx. */
+  freshness?: "fresh" | "aging" | "expired";
+  /** N46 - present only when freshness is "aging": the quiet chip sentence ("evidence from 3
+   *  weeks ago"). Absent otherwise. */
+  agingChip?: string | null;
 };
 
 const NEW_PAGE_FAMILIES = new Set(["new_page", "hub"]);

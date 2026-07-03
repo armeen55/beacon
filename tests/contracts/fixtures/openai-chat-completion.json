@@ -1,0 +1,24 @@
+{
+  "id": "chatcmpl-contractfixture001",
+  "object": "chat.completion",
+  "created": 1782000000,
+  "model": "gpt-5-mini-2026-06-01",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "{\"recommendations\":[{\"actionType\":\"edit_title\",\"targetUrl\":\"https://www.iranopedia.com/koobideh-kabob\",\"targetElement\":{\"elementKey\":\"title:koobideh-kabob\",\"displayLabel\":\"Page title\",\"currentText\":\"Koobideh Kabob\",\"proposedText\":\"Koobideh Kabob Recipe: Authentic Persian Ground Meat Kabob\"},\"why\":\"The page already ranks for recipe-intent queries but the title omits the word recipe, so searchers skip it for competitors that name the intent.\",\"evidence\":[{\"type\":\"owned_page\",\"url\":\"https://www.iranopedia.com/koobideh-kabob\"},{\"type\":\"competitor\",\"competitorName\":\"The Caspian Chef\"}],\"expectedImpact\":\"Higher click-through on recipe queries the page already shows for\",\"difficulty\":\"low\",\"confidence\":\"medium\",\"measurementPlan\":\"Compare the page CTR for 14 days before and after the title change.\",\"risks\":[\"Title churn can briefly wobble rankings while Google re-evaluates the page\"]}]}",
+        "refusal": null
+      },
+      "finish_reason": "stop"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 1200,
+    "completion_tokens": 800,
+    "completion_tokens_details": {
+      "reasoning_tokens": 128
+    }
+  }
+}

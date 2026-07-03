@@ -19,6 +19,7 @@
 import Link from "next/link";
 import { readPipelineHealth } from "@/domains/ops/pipeline-health-store";
 import { loadDeadmanVerdict } from "@/domains/ops/deadman-view";
+import { loadErrorSpikeLine } from "@/domains/ops/error-spike";
 import type { PipelineViolation } from "@/domains/ops/pipeline-invariants";
 import { valueWithDeadline } from "@/lib/load-with-deadline";
 import { recoveryForCronFailure, recoveryForSiteDown } from "@/domains/ops/recovery-actions";
@@ -78,10 +79,18 @@ function jobForSentence(jobs: readonly JobPace[], sentence: string): JobPace | n
 
 export async function OpsPipelineSection({ tenantId }: { tenantId: string }) {
   try {
-    const [health, deadman] = await Promise.all([
+    const [health, deadman, errorSpike] = await Promise.all([
       readPipelineHealth(tenantId).catch(() => null),
       valueWithDeadline(
         loadDeadmanVerdict(tenantId).catch(() => null),
+        null,
+        DEADMAN_DEADLINE_MS,
+      ),
+      // N39 error spine: ONE honest line when things kept failing in the last
+      // 24h (>= 10 failures). Same one-widget rule as the deadman: it joins
+      // THIS block, never a second red box. Self-hides (null) otherwise.
+      valueWithDeadline(
+        loadErrorSpikeLine(tenantId).catch(() => null),
         null,
         DEADMAN_DEADLINE_MS,
       ),
@@ -89,7 +98,8 @@ export async function OpsPipelineSection({ tenantId }: { tenantId: string }) {
     const violations = health?.violations ?? [];
     const pipelineFires = violations.length > 0;
     const deadmanFires = deadman != null && deadman.alarm && deadman.sentences.length > 0;
-    if (!pipelineFires && !deadmanFires) return null;
+    const spikeFires = errorSpike != null;
+    if (!pipelineFires && !deadmanFires && !spikeFires) return null;
 
     const shown = pipelineFires ? violations.slice(0, MAX_SHOWN) : [];
     const hidden = violations.length - shown.length;
@@ -106,10 +116,13 @@ export async function OpsPipelineSection({ tenantId }: { tenantId: string }) {
         : null;
 
     // One heading for the one home: the pipe wording when stage checks fired,
-    // the plainer machinery wording when only the deadman is alarming.
+    // the plainer machinery wording when the deadman is alarming, and the
+    // failure-count wording when only the error spike fired.
     const heading = pipelineFires
       ? "Your data pipe needs attention"
-      : "My overnight work is not running";
+      : deadmanFires
+        ? "My overnight work is not running"
+        : "Some of my background work kept failing";
 
     return (
       <section aria-label="Data pipe check" className="space-y-1.5" data-machinery-alert="true">
@@ -144,6 +157,22 @@ export async function OpsPipelineSection({ tenantId }: { tenantId: string }) {
               return <DeadmanRow key={s} sentence={s} fix={fix} />;
             })
           : null}
+        {errorSpike ? (
+          <div
+            className="rounded-lg border border-status-warning/40 bg-status-warning-bg px-3 py-2"
+            data-error-spike="true"
+          >
+            <p className="min-w-0 break-words text-[13px] leading-relaxed text-status-warning tabular-nums">
+              {errorSpike}{" "}
+              <Link
+                href="/diagnostics/errors"
+                className="underline underline-offset-2 hover:opacity-80"
+              >
+                See what failed
+              </Link>
+            </p>
+          </div>
+        ) : null}
         <p className="text-[11px] text-gray-500 dark:text-neutral-400">
           I recheck this after every nightly sync. Connections live in{" "}
           <Link href="/settings/connectors" className="underline underline-offset-2 hover:text-gray-700 dark:hover:text-neutral-200">Settings, Connections</Link>.

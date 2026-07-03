@@ -12,6 +12,8 @@
 
 import { revalidatePath } from "next/cache";
 import { isOperatorModeServer } from "@/lib/operator-mode";
+import { currentTenantId } from "@/lib/tenant-context";
+import { recordAppError, errorFieldsFrom } from "@/lib/obs/error-ledger";
 import {
   stageChangeForRecord,
   type StageChangeReceipt,
@@ -35,6 +37,19 @@ function failClosed(e: unknown): StageInWixResult {
   };
 }
 
+/** N39 error spine: a staging throw is an operator-visible action that did not
+ *  work. Record it durably (never throws) before returning the fail-closed
+ *  receipt, so repeated staging failures show up on /diagnostics/errors. */
+async function reportStageError(action: string, e: unknown): Promise<void> {
+  const tenantId = await currentTenantId().catch(() => null);
+  await recordAppError({
+    route: "action/stage-in-wix",
+    tenantId,
+    action,
+    ...errorFieldsFrom(e),
+  });
+}
+
 /** Stage ONE accepted daily-plan pick in Wix (the paste flow stays the fallback). */
 export async function stageDailyPickInWixAction(input: {
   planId: string;
@@ -55,6 +70,7 @@ export async function stageDailyPickInWixAction(input: {
     }
     return receipt;
   } catch (e) {
+    await reportStageError("stage-daily-pick", e);
     return failClosed(e);
   }
 }
@@ -74,6 +90,7 @@ export async function stageMoveInWixAction(input: {
     }
     return receipt;
   } catch (e) {
+    await reportStageError("stage-move", e);
     return failClosed(e);
   }
 }

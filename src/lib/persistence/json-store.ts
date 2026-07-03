@@ -241,6 +241,14 @@ const SUPABASE_MIRRORED_STORES = new Set<string>([
   // url-map would only ever be visible for one warm-lambda instance, not the
   // durable "I checked your connection last night" the operator relies on.
   "publish-health",
+  // 2026-07-03 BEACON_500 R7 / N39 - the production error spine (app-errors).
+  // Errors are recorded almost exclusively ON Vercel lambdas (cron phases,
+  // background refreshes, server actions) where file writes skip disk; without
+  // the mirror /diagnostics/errors and the Today error-spike line would be
+  // silent-empty on hosted prod, which is exactly the failure class the spine
+  // exists to end. The blob helpers' PGRST205/42P01 handling doubles as the
+  // required file-fallback before the json_store_blobs migration exists.
+  "app-errors",
   // 2026-07-02 DREAM SITE V1 item D7 - the opportunity hypothesis log (every
   // forecast opportunity-math.ts renders to the operator, logged so a later
   // day-28 settle can be graded against it). Written from request-context page

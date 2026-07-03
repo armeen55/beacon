@@ -297,6 +297,10 @@ function Row({
             ) : null}
             {c.blockedReason ? <span className="inline-flex items-center gap-1 text-muted-foreground" title={c.blockedReason}><Hourglass className="h-3.5 w-3.5 shrink-0" aria-hidden />wait</span> : null}
             {c.qualityDecision === "flagged" ? <span className="inline-flex items-center gap-1 text-status-warning" title={c.qualityNote ?? "Review before shipping"}><TriangleAlert className="h-3.5 w-3.5 shrink-0" aria-hidden />Flagged</span> : c.qualityDecision === "caution" ? <span className="text-status-warning" title={c.qualityNote ?? "Quality caution"}>quality caution</span> : null}
+            {/* N46 (R6, 2026-07-03) - a quiet chip naming how old this row's evidence is, never a
+                bare status word. Only "aging" rows show it; "expired" rows don't reach this render
+                path by default (folded into the expander above). */}
+            {c.freshness === "aging" && c.agingChip ? <span className="text-muted-foreground">{c.agingChip}</span> : null}
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-2">
@@ -528,12 +532,23 @@ export function ChangesListClient({ view }: { view: ChangesView }) {
   // "Tonight's 30 minutes" is already a small, deliberately-bounded set.
   const CURATION_CAP = 20;
   const [showAllRanked, setShowAllRanked] = useState(false);
-  const curationRows = canCollapseBatch ? rowsWithoutBatch : visible;
+  // N46 (R6) - opportunity expiration: an EXPIRED row sinks to the tail of the curated pool
+  // (never removed, never re-ranked among its fresh/aging peers - a stable partition, so
+  // rankChanges's own order is untouched within each group) so it naturally falls into the
+  // SAME honest expander rather than occupying one of the top/capped slots with a pitch Beacon
+  // no longer trusts. It still shows up in full once the operator clicks "show all".
+  const curationRows = useMemo(() => {
+    const rows = canCollapseBatch ? rowsWithoutBatch : visible;
+    const fresh = rows.filter((c) => c.freshness !== "expired");
+    const expired = rows.filter((c) => c.freshness === "expired");
+    return expired.length > 0 ? [...fresh, ...expired] : rows;
+  }, [canCollapseBatch, rowsWithoutBatch, visible]);
   const applyCuration = canCollapseBatch && !showBatchSummary;
   const topPicks = applyCuration ? curationRows.slice(0, 3) : [];
   const afterTop = applyCuration ? curationRows.slice(3) : curationRows;
   const cappedRows = applyCuration && !showAllRanked ? afterTop.slice(0, CURATION_CAP) : afterTop;
   const hiddenRankedCount = applyCuration ? afterTop.length - cappedRows.length : 0;
+  const expiredHiddenCount = applyCuration && !showAllRanked ? afterTop.filter((c) => c.freshness === "expired").length : 0;
 
   const s = view.summary;
   const isFiltered = q.trim().length > 0 || goal !== "recommended";
@@ -800,15 +815,22 @@ export function ChangesListClient({ view }: { view: ChangesView }) {
               onToggleDetail={toggleDetail}
             />
           ))}
-          {/* FP9 - the honest expander: lower-priority ideas are capped from view, never lost. */}
+          {/* FP9 - the honest expander: lower-priority ideas are capped from view, never lost.
+              N46 (R6) - when some of those hidden ideas expired, the SAME expander says so with
+              an honest sub-line instead of a second expander or a bare status word. */}
           {applyCuration && hiddenRankedCount > 0 ? (
-            <button
-              type="button"
-              onClick={() => setShowAllRanked(true)}
-              className={`flex w-full items-center justify-center rounded-lg border border-dashed border-border px-3 py-2 text-body font-medium text-muted-foreground hover:bg-surface-raised ${FOCUS}`}
-            >
-              {hiddenRankedCount} more lower-priority idea{hiddenRankedCount === 1 ? "" : "s"}. I keep them ranked so nothing is lost.
-            </button>
+            <div className="space-y-1">
+              <button
+                type="button"
+                onClick={() => setShowAllRanked(true)}
+                className={`flex w-full items-center justify-center rounded-lg border border-dashed border-border px-3 py-2 text-body font-medium text-muted-foreground hover:bg-surface-raised ${FOCUS}`}
+              >
+                {hiddenRankedCount} more lower-priority idea{hiddenRankedCount === 1 ? "" : "s"}. I keep them ranked so nothing is lost.
+              </button>
+              {expiredHiddenCount > 0 && view.expiredSubline ? (
+                <p className="text-center text-meta text-muted-foreground">{view.expiredSubline}</p>
+              ) : null}
+            </div>
           ) : applyCuration && showAllRanked && afterTop.length > CURATION_CAP ? (
             <button
               type="button"

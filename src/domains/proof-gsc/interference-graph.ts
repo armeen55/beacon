@@ -604,6 +604,51 @@ export function toPlannerHoldEntry(result: InterferenceGraphResult): { hold: boo
   return { hold: result.hasSignificantInterference, reason: sentence ?? "" };
 }
 
+/** N12 (R6, 2026-07-03) - THE NARROW SUBSET OF toPlannerHoldEntry ABOVE: same
+ *  shape, but scoped to `query_overlap` edges only. N14's full interference
+ *  hold (linked pages, same-template-family, sitewide shocks, query overlap
+ *  all together) hit 100 percent of ships on the real Iranopedia ledger - too
+ *  aggressive to flip live without an operator review pass (see the N14
+ *  master-plan entry). query_overlap alone is a much narrower, self-evidently
+ *  correct rule ("don't compete with yourself for the same searches") that N12
+ *  flips live on its own. Reuses the SAME honest floors (MIN_QUERY_OVERLAP_JACCARD
+ *  + MIN_QUERIES_FOR_OVERLAP_JUDGMENT) and the SAME buildQueryOverlapEdges
+ *  builder - this function does no new edge computation, it only filters an
+ *  already-computed graph down to one edge kind before deciding hold/reason. */
+export function toQueryOverlapHoldEntry(result: InterferenceGraphResult): { hold: boolean; reason: string } {
+  const queryEdges = significantEdges(result).filter((e) => e.kind === "query_overlap");
+  if (queryEdges.length === 0) return { hold: false, reason: "" };
+  // The planner's own first-person hold voice (matches N14's interference_hold and N16's
+  // last_clean_donor sentences: "I am holding this because..."), naming the STRONGEST
+  // overlapping page - never the graph builder's own descriptive reason text, which speaks
+  // in third person ("This page and X target overlapping searches...") for a different
+  // (read-time, /results) audience.
+  const strongest = [...queryEdges].sort((a, b) => (a.strength === b.strength ? 0 : a.strength === "strong" ? -1 : 1))[0]!;
+  return {
+    hold: true,
+    reason: `I am holding this because it competes for the same searches as a change I am already measuring on ${strongest.otherPath}.`,
+  };
+}
+
+/**
+ * N12 batch entry point: the SAME shape as computeInterferenceGraphForLedger's
+ * output, filtered to query_overlap-only hold entries, keyed by host-stripped
+ * path. This is the ONE function build-today-preview.ts calls to get tonight's
+ * query-overlap-only lookup - callers never need to filter edges themselves.
+ */
+export function computeQueryOverlapHoldsForLedger(args: {
+  ships: ReadonlyArray<InterferenceLedgerShip>;
+  intentClusters?: ReadonlyArray<Pick<IntentCluster, "clusterId" | "ownPagesInCluster" | "conflict">>;
+}): Map<string, { hold: boolean; reason: string }> {
+  const graphs = computeInterferenceGraphForLedger({ ships: args.ships, intentClusters: args.intentClusters });
+  const out = new Map<string, { hold: boolean; reason: string }>();
+  for (const [path, result] of graphs) {
+    const entry = toQueryOverlapHoldEntry(result);
+    if (entry.hold) out.set(path, entry);
+  }
+  return out;
+}
+
 /**
  * Batch entry point: compute the interference graph for EVERY ledger ship at
  * once, keyed by host-stripped path, ready to hand to daily-experiment-
