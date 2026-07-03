@@ -41,6 +41,11 @@ import { runAaCalibrationForTenant } from "@/domains/proof-gsc/aa-calibration";
 import { loadDailyTotalsForTenant } from "@/domains/recommendation-intelligence/gsc-page-queries";
 import { detectChangepoints } from "@/domains/proof-gsc/changepoint";
 import { writeAlgorithmWeatherSummary } from "@/domains/proof-gsc/algorithm-weather-store";
+import { buildShockWindows } from "@/domains/proof-gsc/algorithm-weather";
+import { buildExternalEventLedger, type OutageSignal } from "@/domains/events/external-event-ledger";
+import { writeExternalEventLedger } from "@/domains/events/external-event-store";
+import { loadProofLedger } from "@/domains/proof-gsc/load-ledger";
+import { loadDeadmanVerdict } from "@/domains/ops/deadman-view";
 import { computePooledVerdicts } from "@/domains/proof-gsc/pooled-verdict-runner";
 import { runInvestigationForTenant } from "@/domains/investigation/run-investigation";
 import { recordCronRun, type CronRunSourceResult as LedgerSourceResult } from "@/domains/ops/cron-runs-store";
@@ -698,6 +703,55 @@ export async function syncAllConnectedForActiveTenants(): Promise<CronSyncResult
         error: e instanceof Error ? e.message.slice(0, 200) : String(e),
       });
       await reportPhaseError("algorithm-weather", t.id, e);
+    }
+  }
+
+  // PHASE 1g2 - external-event ledger (BEACON_500 N32): ONE honest-context ledger
+  // recording the things that move rankings for reasons no single page edit
+  // explains - Google updates + detected sitewide traffic shocks (reused verbatim
+  // from the algorithm-weather shocks just persisted above, NEVER re-detected, so
+  // the two layers can never disagree), connector outages (deadman.ts's stalled
+  // jobs / down site), and own-site change clusters (>= 2 distinct pages shipped
+  // on one day). The Results caveat line reads this at $0 and dedupes shock
+  // sentences against the weather guard (eventCaveatForWindow), so a window over a
+  // shock never shows two sentences. Deterministic, FREE (reads already-synced GSC
+  // totals + already-persisted receipts/ledger, no LLM, no paid API), latest-wins
+  // upsert; an empty event list is written too so "checked, nothing happened" stays
+  // distinguishable from "never checked". Isolated try/catch per tenant.
+  for (const t of tenants) {
+    if (pastDeadline()) {
+      log.info("[cron-sync] enrichment deadline reached — skipping remaining external-event ledger pass");
+      break;
+    }
+    try {
+      const totals = await loadDailyTotalsForTenant(t.id, 90);
+      const dailySeries = totals.map((d) => ({ date: d.date, value: d.clicks }));
+      const shockWindows = buildShockWindows({ dailySeries });
+      // Reduce the deadman verdict to severe outage signals (stalled jobs +
+      // a down site), each dated from the job's last-known-good run.
+      const deadman = await loadDeadmanVerdict(t.id).catch(() => null);
+      const nowIso = new Date().toISOString();
+      const outageSignals: OutageSignal[] = (deadman?.jobs ?? [])
+        .filter((j) => j.pace === "stalled")
+        .map((j) => ({ label: j.sentence ?? j.label, lastRunAt: j.lastRunAt, observedAt: nowIso, severe: true }));
+      const proofLedger = await loadProofLedger(t.id).catch(() => []);
+      const shippedChanges = proofLedger.map((r) => ({ path: r.path, shippedAt: r.shippedAt }));
+      const events = buildExternalEventLedger({ shockWindows, outageSignals, shippedChanges, dailySeries });
+      await writeExternalEventLedger({
+        tenant_id: t.id,
+        computed_at: nowIso,
+        anchor_date: totals.length > 0 ? totals[totals.length - 1]!.date : null,
+        events,
+      });
+      if (events.length > 0) {
+        log.info("[cron-sync] external-event ledger built", { tenantId: t.id, events: events.length });
+      }
+    } catch (e) {
+      log.warn("[cron-sync] external-event ledger pass failed", {
+        tenantId: t.id,
+        error: e instanceof Error ? e.message.slice(0, 200) : String(e),
+      });
+      await reportPhaseError("external-event-ledger", t.id, e);
     }
   }
 

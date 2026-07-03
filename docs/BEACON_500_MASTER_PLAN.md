@@ -142,8 +142,28 @@ QUEUE (strict order; [G] = operator-gated, surface it and continue):
 - [x] R18 (2026-07-03). N23 internal PageRank + P7 linking/content-depth levers. Effort L.
 - [x] R19 (2026-07-03). N24 evidence-based pruning/merging/retiring + N21/N22 rendered-crawl checks. Effort M. SHIPPED (worktree, not committed): three pure engines in `src/domains/lifecycle/` (`content-lifecycle.ts` = keep/improve/merge/prune/retire classifier with the pinned never-prune-with-demand floor + 5:1 merge-dominance gate + prepared redirect target; `js-shell.ts` = N22 dual-fetch JS-shell smell heuristic, honest it does not run a headless render; `technical-demand.ts` = N21 demand-first noindex/broken-status/canonical-elsewhere from stored snapshot fields), one pure assembly boundary (`load-lifecycle-inputs.ts`), three capped demand-ranked trigger adapters (`triggers/content-lifecycle.ts` -> merge_pages triple-locked to diagnostic_only, `triggers/js-shell-content.ts` -> fix_page_experience, `triggers/technical-demand.ts` -> fix_status_code/fix_noindex/fix_canonical) wired LAST in `load-trigger-candidates-for-tenant.ts` (shared single authority read + cross-source cooldown_key dedup + fail-soft). 8 new vocab-scanned copy templates. NEVER auto-executes a prune/redirect (operator-approved only). typecheck clean; 315 affected test files (5976 tests) green incl. all boundary/never-prune/merge-ratio/js-shell/technical/byte-identical-empty pins + the pre-existing stale /diagnostics predicates_run count corrected 18 -> 21.
 - [x] R20 (2026-07-03). D6 dynamic auto-mode (auto-prepare + publish counter; autopilot rails exist). Effort M.
-- [ ] R21. N32 external-event ledger + N31 solar-calendar rollover + N44 topic objectives + N45
-      dependency planner + N49 calibrated abstention. Effort M batch.
+- [~] R21 (2026-07-03, worktree - N32 + N45 + N49 SHIPPED; N31 solar-calendar + N44 topic
+      objectives DEFERRED to a later slice to keep this bounded). Three pure cores + additive
+      surfacing, all extending shipped engines. N32 external-event ledger
+      (`src/domains/events/external-event-ledger.ts` + `external-event-store.ts`): ONE honest-context
+      ledger of google_update/traffic_shock (reused verbatim from algorithm-weather shocks, never
+      re-detected), connector_outage (deadman stalled jobs/down site), own_site_change (>= 2 distinct
+      pages shipped one day). eventCaveatForWindow DEDUPES shock sentences against the weather guard
+      (one sentence per shock, reusing weatherCaveatSentence); eventReliabilityFlagsForWindow feeds
+      N10 the shock as its EXISTING weatherQuarantined input (no double-count) + the two non-shock
+      kinds as a fresh machineryOrCompoundFlagged bit. Persisted nightly in cron-sync PHASE 1g2
+      (GLOBAL + Supabase-mirrored store registered). N49 calibrated abstention
+      (`src/domains/recommendations/abstention.ts`): law 2 made enforceable - a candidate with NONE of
+      {demand signal, competitor teardown, GSC/behavior signal} is HELD in a "watching" state, never
+      shown as a confident move; partitionByEvidence is byte-identical when every item is evidenced;
+      heldForEvidenceLine surfaces the honest count. N45 dependency planner
+      (`src/domains/experiments/dependency-planner.ts`): derives prerequisite edges (fix_technical_block
+      / build_hub_page / add_schema_first), holds a dependent with the planner's new
+      "prerequisite_pending" ExcludedReason + plain sentence until its prerequisite ships; additive to
+      daily-experiment-planner (new optional `prerequisiteHolds` lookup, byte-identical when omitted).
+      140 new tests (57 N32 + 34 N49 + 34 N45 + 4 planner wiring + 1 copy) all green; affected suites
+      green (proof-gsc + experiments + recommendation-intelligence + recommendations + events +
+      persistence = 2834 pass, 2 skipped). typecheck clean. Tests only, no dev server.
 - [ ] R22. Safety/eval train: N33 benchmark, N34 ablation, N35 replay, N36 gold library, N37
       synthetic journey, N41 outbox/idempotency, N42 model-fallback benchmark, N43 cost breaker,
       N50 canary policies, T0d backups/rotation drill, T0f weekly QA sample. Effort L, sliced.
@@ -305,7 +325,7 @@ migration. WAVE 3: FP4, FP8, FP10, voice rider. N-track and packs resume after F
 - [x] N29 (2026-07-03, R11). **Featured-snippet capture + format-matched steal moves** (v1 109; EXTENDS the shipped feature-steal columns and spike hints, not a new engine) - snippet-capture.ts: rank 2-10 + competitor-owned answer box emits a format-matched add_answer_block candidate through the existing trigger pipeline, capped 5, deduped against steal-lane cards by query.
 - [x] N30 (2026-07-03, R11). **Demand-ranked question universe** from GSC, PAA, AI fanouts, SERPs (v1 127+370 merged; feeds drafting and coverage) - research/question-universe.ts + nightly-persisted store; seeds the FAQ/answer-block drafters, the /prompts unanswered-questions section, and New Pages brief questions.
 - [ ] N31. **Solar-calendar year-rollover engine** (v1 104; tenant-configured calendar awareness, english-first output)
-- [ ] N32. **External-event ledger**: Google updates, outages, PR, social spikes, major site changes recorded automatically (NEW; absorbs v1 170 annotations; generalizes the shipped algorithm-weather)
+- [x] N32 (2026-07-03, R21). **External-event ledger**: Google updates, outages, PR, social spikes, major site changes recorded automatically (NEW; absorbs v1 170 annotations; generalizes the shipped algorithm-weather)
 - [ ] N33. **Blind Beacon-vs-human-expert benchmark** (NEW; scored recommendation face-off on real pages)
 - [ ] N34. **Teammate ablation testing**: prove which specialists actually improve decisions (NEW; absorbs v1 161 veto paper trades)
 - [ ] N35. **Historical policy replay before new planner logic ships** (NEW; absorbs v1 454 debate replay in CI, 315 shadow challenger)
@@ -318,7 +338,7 @@ migration. WAVE 3: FP4, FP8, FP10, voice rider. N-track and packs resume after F
 - [ ] N42. **Model-fallback quality benchmark** so cheaper models cannot silently degrade output (NEW; absorbs v1 276 provider failover, 501 retry escalation, 146 task routing)
 - [ ] N43. **Cross-vendor cost circuit breaker**: LLM, DataForSEO, crawl, polling under one governor (NEW; absorbs v1 472 spend velocity, 407 daily pacing, 419 per-class budgets, 279 envelopes, 453 one ledger primitive)
 - [ ] N44. **Topic-level strategic objective**: balance non-brand traffic, citations, revenue, authority, risk per topic (NEW; N1 reads this)
-- [ ] N45. **Recommendation dependency planner**: prerequisites before dependent changes (NEW; with N14)
+- [~] N45 (core 2026-07-03, R21; live wire-in R21b). **Recommendation dependency planner**: prerequisites before dependent changes (NEW; with N14)
 - [x] N46. **Opportunity expiration**: stale SERPs, seasonal moves, old evidence leave the queue
       automatically (NEW; absorbs v1 164 veto expiry, 360 freshness chips, 468 aging) - SHIPPED
       2026-07-03 (worktree, not yet merged, R6). New pure `src/domains/changes/opportunity-expiry.ts`:
@@ -359,7 +379,7 @@ migration. WAVE 3: FP4, FP8, FP10, voice rider. N-track and packs resume after F
       5778 tests green (32 pre-existing skips, matching baseline).
 - [ ] N47. **Primary-source acquisition planner**: interviews, datasets, expert quotes, surveys, original research (NEW; absorbs v1 261; the shipped dataset pages are its first output lane)
 - [ ] N48. **Expert-review + disputed-fact workflow** for sensitive, historical, medical, contested claims (NEW; with N3)
-- [ ] N49. **Calibrated abstention**: Beacon knows when evidence is insufficient and declines (NEW; law 2; absorbs v1 311 escalation rules, 202 thin_evidence objection)
+- [~] N49 (core 2026-07-03, R21; live wire-in R21b). **Calibrated abstention**: Beacon knows when evidence is insufficient and declines (NEW; law 2; absorbs v1 311 escalation rules, 202 thin_evidence objection)
 - [ ] N50. **Canary rollout for new recommendation policies** before they hit every nightly batch (NEW; with N35)
 
 ---

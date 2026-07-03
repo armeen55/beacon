@@ -170,6 +170,12 @@ const SUPABASE_MIRRORED_STORES = new Set<string>([
   // mirror the detected shocks would be silent-empty on hosted prod after
   // every lambda recycle, and quarantined verdicts would silently un-quarantine.
   "algorithm-weather-shocks",
+  // 2026-07-03 BEACON_500 N32 - external-event ledger (nightly merge of
+  // algorithm-weather shocks + deadman connector outages + own-site change
+  // clusters into ONE honest-context ledger). Written by a Vercel lambda (no
+  // disk); read by the Results caveat line. Without the mirror every detected
+  // outage/cluster would be silent-empty on hosted prod after a lambda recycle.
+  "external-event-ledger",
   // 2026-07-02 item 34 - pooled batch verdicts (same-plan same-lever multi-page
   // batches stacked into one powered estimate). Written by a Vercel lambda (no
   // disk) from the measure-pass tail; read by /results's batch line. Without the

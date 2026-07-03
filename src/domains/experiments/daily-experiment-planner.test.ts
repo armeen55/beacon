@@ -753,3 +753,43 @@ describe("planDailyExperiments — N46 opportunity expiration (planner skip)", (
     expect(plan.selected.map((s) => s.url)).toEqual(["https://iranopedia.com/cities/yazd"]);
   });
 });
+
+describe("planDailyExperiments — N45 prerequisite hold", () => {
+  it("excludes a candidate the caller's prerequisite lookup marks held, with the plain reason threaded through", () => {
+    const candidates = [cand({ url: "https://iranopedia.com/iran-flags/umayyad-caliphate-flag", pageFamily: "iran-flags" })];
+    const prerequisiteHolds = new Map([
+      [
+        "/iran-flags/umayyad-caliphate-flag",
+        "Fix the indexing problem on /iran-flags/umayyad-caliphate-flag first. Optimizing a page Google is told to ignore wastes the work.",
+      ],
+    ]);
+    const plan = planDailyExperiments({ tenantId: "t", date: "d", candidates, proofLedger: [], config: { now: NOW }, prerequisiteHolds });
+    expect(plan.selected).toHaveLength(0);
+    expect(plan.excluded).toHaveLength(1);
+    expect(plan.excluded[0].reason).toBe("prerequisite_pending");
+    expect(plan.excluded[0].plainReason).toContain("Fix the indexing problem");
+    expect(hasBannedDash(plan.excluded[0].plainReason!)).toBe(false);
+  });
+
+  it("omitting the prerequisite lookup entirely is byte-identical to before N45 existed", () => {
+    const candidates = [
+      cand({ url: "https://iranopedia.com/cities/yazd", pageFamily: "cities" }),
+      cand({ url: "https://iranopedia.com/iran-flags/late-safavid-military-flag", pageFamily: "iran-flags" }),
+    ];
+    const withOut = planDailyExperiments({ tenantId: "t", date: "d", candidates, proofLedger: [], config: { now: NOW } });
+    const withEmpty = planDailyExperiments({ tenantId: "t", date: "d", candidates, proofLedger: [], config: { now: NOW }, prerequisiteHolds: new Map() });
+    expect(withEmpty.selected.map((s) => s.url)).toEqual(withOut.selected.map((s) => s.url));
+    expect(withEmpty.excluded.map((e) => e.reason)).toEqual(withOut.excluded.map((e) => e.reason));
+  });
+
+  it("a candidate the lookup does NOT mark held stays eligible even when another path is held", () => {
+    const candidates = [
+      cand({ url: "https://iranopedia.com/iran-flags/held-page", pageFamily: "iran-flags" }),
+      cand({ url: "https://iranopedia.com/cities/yazd", pageFamily: "cities" }),
+    ];
+    const prerequisiteHolds = new Map([["/iran-flags/held-page", "Fix the indexing problem on /iran-flags/held-page first."]]);
+    const plan = planDailyExperiments({ tenantId: "t", date: "d", candidates, proofLedger: [], config: { now: NOW }, prerequisiteHolds });
+    expect(plan.selected.map((s) => s.url)).toEqual(["https://iranopedia.com/cities/yazd"]);
+    expect(plan.excluded.map((e) => e.reason)).toEqual(["prerequisite_pending"]);
+  });
+});

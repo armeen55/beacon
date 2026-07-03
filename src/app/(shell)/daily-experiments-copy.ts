@@ -54,10 +54,10 @@ export function trackingLine(controlCount: number): string {
 
 /**
  * R14a - plain first-person sentences for every planner ExcludedReason code, so the
- * "Why not the others?" expander can never show a raw code. The three hold reasons
- * (interference_hold / last_clean_donor / query_overlap_hold) normally arrive with the
- * planner's own richer plainReason sentence frozen on the record; these entries are
- * their fallbacks. Keys mirror ExcludedReason in daily-experiment-planner.ts +
+ * "Why not the others?" expander can never show a raw code. The four hold reasons
+ * (interference_hold / last_clean_donor / query_overlap_hold / prerequisite_pending)
+ * normally arrive with the planner's own richer plainReason sentence frozen on the
+ * record; these entries are their fallbacks. Keys mirror ExcludedReason in daily-experiment-planner.ts +
  * EligibilityReason in experiment-eligibility.ts (pinned by daily-experiments-copy.test.ts).
  */
 export const EXCLUDED_REASON_COPY: Record<string, string> = {
@@ -84,6 +84,7 @@ export const EXCLUDED_REASON_COPY: Record<string, string> = {
   last_clean_donor: "It is the last clean comparison page for a change I am still tracking.",
   query_overlap_hold: "It competes for the same searches as a change I am already tracking.",
   evidence_expired: "The evidence behind it went stale, so I am re-checking before I act.",
+  prerequisite_pending: "Something else needs to happen on this page first, so I am holding this until that is done.",
 };
 
 /** One plain sentence for an excluded candidate: the planner's own frozen sentence when it

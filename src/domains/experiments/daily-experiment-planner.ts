@@ -138,21 +138,23 @@ export type PlannedExperiment = DailyCandidate & {
    *  previously-retired (pageFamily, lever) cell. Absent on every ordinary pick. */
   retest?: RetestFlag;
 };
-export type ExcludedReason = EligibilityReason | "page_family_cap" | "action_family_cap" | "high_traffic_cap" | "budget_full" | "over_max" | "influenced_conflict" | "underpowered" | "lever_retired" | "interference_hold" | "last_clean_donor" | "query_overlap_hold" | "evidence_expired";
+export type ExcludedReason = EligibilityReason | "page_family_cap" | "action_family_cap" | "high_traffic_cap" | "budget_full" | "over_max" | "influenced_conflict" | "underpowered" | "lever_retired" | "interference_hold" | "last_clean_donor" | "query_overlap_hold" | "evidence_expired" | "prerequisite_pending";
 export type ExcludedExperiment = {
   url: string;
   actionFamily: ExperimentFamily;
   reason: ExcludedReason;
   availableAt?: string;
   relatedProofIds?: string[];
-  /** Item N14 / N16 / R6 N12: present only for reasons "interference_hold",
-   *  "last_clean_donor", and "query_overlap_hold" - the plain first-person
-   *  sentence naming WHY (e.g. "I am holding this because the page shares its
-   *  template family with 3 changes still measuring." or "I am holding this
-   *  page because it is the last clean comparison page for a change I am
-   *  still measuring on /iran-flags." or "I am holding this because it
+  /** Item N14 / N16 / R6 N12 / N45: present only for reasons "interference_hold",
+   *  "last_clean_donor", "query_overlap_hold", and "prerequisite_pending" - the
+   *  plain first-person sentence naming WHY (e.g. "I am holding this because the
+   *  page shares its template family with 3 changes still measuring." or "I am
+   *  holding this page because it is the last clean comparison page for a change
+   *  I am still measuring on /iran-flags." or "I am holding this because it
    *  competes for the same searches as a change I am already measuring on
-   *  /persian-cat."). Absent for every other exclusion reason. */
+   *  /persian-cat." or "Fix the indexing problem on /iran-flags first.
+   *  Optimizing a page Google is told to ignore wastes the work."). Absent for
+   *  every other exclusion reason. */
   plainReason?: string;
 };
 
@@ -187,6 +189,20 @@ export type LastCleanDonorHoldLookup = ReadonlyMap<string, string>;
  *  as InterferenceHoldLookup) so a future caller can wire N14's full hold and
  *  N12's narrow hold independently, each with its own honest ExcludedReason. */
 export type QueryOverlapHoldLookup = ReadonlyMap<string, { hold: boolean; reason: string }>;
+
+/** N45 (R21, 2026-07-03): the prerequisite holds the caller computed from
+ *  dependency-planner.ts (planDependencies -> dependencyHoldLookup), keyed by
+ *  the candidate's OWN url (host-stripped path, same convention as the other
+ *  lookups) and valued with the plain first-person hold sentence ("Fix the
+ *  indexing problem on /X first. ..."). A candidate whose prerequisite is still
+ *  pending is held with reason "prerequisite_pending" until the prerequisite
+ *  ships. Optional - omitted (the default) yields byte-identical plans to before
+ *  N45 existed. Kept as a plain path->sentence map (like LastCleanDonorHoldLookup)
+ *  so this module stays free of any hard dependency on dependency-planner.ts;
+ *  the caller does the one-line adaptation. NOTE: dependency-planner keys its
+ *  own held list by candidate ID; the caller re-keys by host-stripped path here
+ *  so the planner's existing normPathForInterference lookup applies unchanged. */
+export type PrerequisiteHoldLookup = ReadonlyMap<string, string>;
 
 /** R6 (N12): the query set a candidate is really chasing - relatedQueries when
  *  the caller supplied it, else the honest singleton fallback [targetQuery].
@@ -325,6 +341,11 @@ export function planDailyExperiments(input: {
    *  Optional - omitted (the default) yields byte-identical plans to before
    *  N12 existed. */
   queryOverlapHolds?: QueryOverlapHoldLookup;
+  /** N45 (R21): prerequisite holds (see PrerequisiteHoldLookup) - a candidate
+   *  whose prerequisite (a technical fix, a hub page, or schema) is still
+   *  pending is held with reason "prerequisite_pending". Optional - omitted
+   *  (the default) yields byte-identical plans to before N45 existed. */
+  prerequisiteHolds?: PrerequisiteHoldLookup;
 }): DailyExperimentPlan {
   const cfg = { ...DEFAULTS, ...(input.config ?? {}) };
   const now = input.config?.now ?? new Date();
@@ -401,6 +422,20 @@ export function planDailyExperiments(input: {
     const queryHold = input.queryOverlapHolds?.get(normPathForInterference(c.url));
     if (queryHold?.hold) {
       excluded.push({ url: c.url, actionFamily: c.actionFamily, reason: "query_overlap_hold", plainReason: queryHold.reason });
+      continue;
+    }
+    // N45 (R21) - PREREQUISITE HOLD: a candidate whose prerequisite is still
+    // pending (a technical indexing fix on the same page, a hub page it links
+    // into not built yet, or the schema its rich result needs) is held tonight
+    // rather than shipped on work that would be wasted until the prerequisite
+    // lands. Same additive pattern as the interference/donor/query holds above:
+    // the plain sentence rides plainReason so the operator sees WHY, and the
+    // SAME row is picked up automatically once its prerequisite ships (the
+    // caller's dependency plan simply stops listing it). Only fires when the
+    // caller wired the lookup; an unwired caller sees byte-identical behavior.
+    const prereqHold = input.prerequisiteHolds?.get(normPathForInterference(c.url));
+    if (prereqHold) {
+      excluded.push({ url: c.url, actionFamily: c.actionFamily, reason: "prerequisite_pending", plainReason: prereqHold });
       continue;
     }
     eligible.push({ ...c, pageFamily: c.pageFamily ?? pageFamilyOf(c.url), score: scoreCandidate(c) });

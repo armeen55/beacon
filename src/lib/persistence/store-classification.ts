@@ -392,6 +392,12 @@ export const GLOBAL_STORES = new Set<string>([
   // the stores above). Latest per-tenant detected shocks, read by the Results
   // page caveat line and the prior/lesson exclusion gate at $0.
   "algorithm-weather-shocks",
+  // External-event ledger (2026-07-03, BEACON_500 N32). Rows carry tenant_id;
+  // written from the nightly pass that merges algorithm-weather shocks +
+  // deadman outages + own-site change clusters into ONE honest-context ledger
+  // (no ambient request context, same fan-out rationale as the stores above).
+  // Latest per-tenant events, read by the Results caveat line at $0.
+  "external-event-ledger",
   // Pooled batch verdicts (2026-07-02, master plan item 34). Rows carry
   // tenant_id; written from the measure-pass tail (no ambient request context,
   // same fan-out rationale as the stores above). One row per (plan, action

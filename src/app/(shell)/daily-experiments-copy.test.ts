@@ -92,6 +92,7 @@ describe("excludedReasonSentence (R14a)", () => {
     "insufficient_controls", "page_family_cap", "action_family_cap", "high_traffic_cap",
     "budget_full", "over_max", "influenced_conflict", "underpowered", "lever_retired",
     "interference_hold", "last_clean_donor", "query_overlap_hold", "evidence_expired",
+    "prerequisite_pending",
   ];
 
   it("every ExcludedReason code has first-person plain copy with no jargon and no dashes", () => {
