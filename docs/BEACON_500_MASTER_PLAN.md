@@ -168,8 +168,16 @@ QUEUE (strict order; [G] = operator-gated, surface it and continue):
       T0d backups) + R22b (N33 benchmark, N34 ablation, N35 replay, N36 gold library, N37 synthetic
       journey, N42 model-fallback benchmark, + the R22a canary-wire follow-up into run-autopilot).
       REMAINING: T0f weekly QA sample. Effort L, sliced.
-- [ ] R23. Remaining packs in plan order: P5, P8, P9, P10, P11, P12, P13, P14, P15, P16, P17,
-      P19, P20, P21, P22, P23, P24 (P18 code health rides inside every slice, never standalone).
+- [~] R23. Remaining packs in plan order. HIGHEST-IMPACT SLICES SHIPPED 2026-07-03 (the two
+      primary screens first): P14 Today (lead headline + smoke alarm w/ page blame + goal pace /
+      start-my-day + still-arriving shading; ratchet DROPPED 1342->1298) and P13 Worklist UX (rank
+      explanation + honest minute math + word-level diff + not-now durations / redraft). Each is
+      additive, self-hiding, byte-identical on no-op, rendered-copy verified. ROADMAPPED (multi-
+      session, not one-sitting to the finished-product bar): P5 team-deliberation, P8 AEO-defense,
+      P9 competitor-watch, P10 entity+author, P11 technical-SEO, P12 push-depth, P15 learning-depth,
+      P16 onboarding, P17 performance, P19 DataForSEO-depth (mostly operator-gated on cap raise),
+      P20 transliteration, P21 digest+memory, P22 zero-result+review-mining, P23 reports, P24 image-
+      SEO, plus the P13/P14 tails. P18 code-health rides inside every slice, never standalone.
 - [x] R24. Campaign tail: /prompts detail SSR subject title, today-v2-working deep link, N13
       recrawl demotion, N47/N48 primary-source + expert-review lanes. SHIPPED 2026-07-03
       (worktree, not yet merged): (1) `generateMetadata` on `src/app/(shell)/prompts/[id]/page.tsx`

@@ -33,9 +33,18 @@ import type { TodayView } from "@/domains/changes/today-view";
 import { createPerfTrace, readPerfTraceIdFromHeaders } from "@/lib/perf-trace";
 import { loadWithDeadline, valueWithDeadline } from "@/lib/load-with-deadline";
 import { HonestDelay } from "@/components/honest-delay";
-import { selectLeadStory, type LeadStory } from "@/domains/changes/lead-story";
 import { loadDailyTotalsForTenant } from "@/domains/recommendation-intelligence/gsc-page-queries";
 import { moveHeadline } from "./daily-experiments-copy";
+// P14 (Today dashboard pack) - the four top-of-Today briefing blocks. Pure selectors +
+// token-only cards live in my owned src/components/today/**; page.tsx just feeds them data it
+// already loaded for its other sections and renders them (each self-hides when its selector
+// returns null), so no raw-palette class is added under (shell).
+import { buildTodayLeadHeadline, adaptProofRecordForLead } from "@/components/today/today-lead-headline";
+import { buildTodaySmokeAlarm } from "@/components/today/today-smoke-alarm";
+import { buildTodayGoalPace } from "@/components/today/today-goal-pace";
+import { TodayLeadHeadlineCard, TodaySmokeAlarmCard, TodayGoalPaceCard } from "@/components/today/today-briefing";
+import { loadGscDecaySignalsForTenant } from "@/domains/recommendation-intelligence/gsc-page-signals";
+import { buildReceiptLine } from "@/components/data/receipt-line";
 
 /**
  * Today `/` - the focused daily slice of the ONE canonical model (2026-07-01, Move 5).
@@ -259,24 +268,77 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
       )
     : null;
 
-  // UX4 item 1 - the lead story: "what matters most right now" in ONE deterministic card, built
-  // ONLY from data already loaded above (the ledger, today.attention, tonight's plan) plus the
-  // same 84-day click series the scoreboard reads (react.cache-shared, so this costs nothing
-  // extra in this request). Priority: a landed verdict > a fired alert > tonight's top pick > the
-  // biggest mover. Any rule with nothing real to say is skipped; the whole card self-hides if
-  // every rule comes up empty.
+  // P14 item 1 (v1 459/461) - THE lead headline: the single most important thing today, told as
+  // ONE plain line - the biggest win this week PLUS the next move - built ONLY from data already
+  // loaded above (the re-measured ledger, today.attention, tonight's plan) plus the same 84-day
+  // click series the scoreboard reads (react.cache-shared, so this costs nothing extra). Every
+  // clause reuses a number another surface owns; the win-lift comes from each won record's own
+  // closed measurement window (adaptProofRecordForLead), so a hard lift number never shows off an
+  // open window. Self-hides when both clauses are empty. This is the ONE lead block on Today - it
+  // subsumes the earlier single-signal lead card so there are never two "what matters most" widgets.
   const tonightFirstPick = activePlan?.selected[0] ?? null;
   const leadStoryDays = await valueWithDeadline(
     loadDailyTotalsForTenant(tenantId, 84).catch(() => [] as Awaited<ReturnType<typeof loadDailyTotalsForTenant>>),
     [],
   );
-  const leadStory: LeadStory | null = selectLeadStory({
-    ledger: ledgerRows.map((r) => ({ path: r.path, shippedAt: r.shippedAt, verdict: r.verdict, pageLabel: null })),
-    attention: attentionItems.map((a) => ({ title: a.title, message: a.message, href: a.href })),
-    tonightTopPick: tonightFirstPick
-      ? { pageLabel: tonightFirstPick.pageLabel, whyNow: tonightFirstPick.whyNow, headline: moveHeadline(tonightFirstPick) }
-      : null,
+  const nowMs = Date.now();
+  const leadHeadline = buildTodayLeadHeadline({
+    ledger: ledgerRows.map((r) =>
+      adaptProofRecordForLead({ path: r.path, pageLabel: null, shippedAt: r.shippedAt, verdict: r.verdict, windows: r.windows }),
+    ),
     moverDays: leadStoryDays.map((d) => ({ date: d.date, clicks: d.clicks })),
+    nextPick: tonightFirstPick
+      ? { pageLabel: tonightFirstPick.pageLabel, headline: moveHeadline(tonightFirstPick) }
+      : null,
+    topAlert: attentionItems[0] ? { title: attentionItems[0].title, href: attentionItems[0].href } : null,
+    nowMs,
+  });
+
+  // P14 item 2 (v1 324) - the smoke alarm with page blame: ONE honest line naming the exact page
+  // bleeding clicks and the number, from the SAME per-page GSC decay signal the war-room friction
+  // band + the GSC scoreboard card read. It deliberately does NOT re-raise the data-pipe alarm
+  // (OpsPipelineSection above owns that) - this is the page-blame lane the pipe alert can't fill.
+  // pagesWithFixReady = the pages tonight's plan already has a queued change for, so "I have a fix
+  // ready" is only said when it is true. Self-hides when no drop clears the floor. $0-ish read,
+  // fail-soft to null (no alarm), deadline-bounded like the other page reads.
+  const decaySignals = await valueWithDeadline(
+    loadGscDecaySignalsForTenant(tenantId, new Date()).catch(() => new Map()),
+    new Map(),
+    TODAY_HERO_DEADLINE_MS,
+  );
+  const pagesWithFixReady = new Set<string>(
+    (activePlan?.selected ?? []).map((s) => {
+      const p = (s.pageLabel || "").replace(/^https?:\/\/[^/]+/i, "").replace(/\/$/, "");
+      return p || "/";
+    }),
+  );
+  const smokeAlarm = buildTodaySmokeAlarm({
+    decay: Array.from((decaySignals as Map<string, { page: string; clicksNow: number; clicksPrior: number }>).values())
+      .map((d) => ({ page: d.page, clicksNow: d.clicksNow, clicksPrior: d.clicksPrior })),
+    pagesWithFixReady,
+  });
+
+  // P14 item 3 (v1 329/331) - goal pace + start-my-day: the honest weekly pace read plus the
+  // concrete 20-minute ritual step. Every number reuses an existing count - shippedThisWeek is the
+  // same trailing-7d ledger tally the recap band reads, `ready` is picks minus applied (the same
+  // tonight-chip number), `measuring` is the shared FP3 lifecycle count. The weekly goal, with no
+  // separate store, is everything committed to this week: shipped plus still-ready. Self-hides on a
+  // fresh empty tenant.
+  const shippedThisWeek = shippedInLastDays(ledgerRows, nowMs, 7);
+  const readyCount = Math.max(0, lifecycle.tonightPicked - lifecycle.tonightApplied);
+  const goalPace = buildTodayGoalPace({
+    shippedThisWeek,
+    weeklyGoal: shippedThisWeek + readyCount,
+    ready: readyCount,
+    measuring: lifecycle.measuring,
+    topReadyPage: tonightFirstPick?.pageLabel ?? null,
+    nowMs,
+  });
+  const goalPaceReceipt = buildReceiptLine({
+    source: "your shipped-change ledger",
+    checkedAt: new Date(nowMs).toISOString(),
+    verb: "counted",
+    nowMs,
   });
 
   return (
@@ -286,10 +348,14 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
           card, so a broken sync is never buried below numbers that look confident but aren't.
           Self-hides when the pipe is healthy (readPipelineHealth returns null/no violations). */}
       <Suspense fallback={null}><OpsPipelineSection tenantId={tenantId} /></Suspense>
-      {/* UX4 item 1 - the lead story sits right after any broken-pipe alert and before the
-          greeting, so "what matters most right now" is the very first content block on a
-          healthy day. */}
-      {leadStory ? <LeadStoryCard story={leadStory} /> : null}
+      {/* P14 item 2 (v1 324) - the smoke alarm with page blame sits right under any broken-pipe
+          alert: a specific page bleeding clicks is the next-most-urgent thing after a broken sync.
+          Self-hides when no page's real drop clears the floor. */}
+      {smokeAlarm ? <TodaySmokeAlarmCard alarm={smokeAlarm} /> : null}
+      {/* P14 item 1 (v1 459/461) - THE lead headline: the biggest win this week plus the next
+          move, in one plain line, right after the alarms and before the greeting, so "what
+          matters most" is the very first content block on a healthy day. */}
+      {leadHeadline ? <TodayLeadHeadlineCard headline={leadHeadline} /> : null}
       {/* FP8 - THE cumulative outcome strip (same component Results renders): all-time
           shipped/wins, the measured monthly click lift the wins are adding, the honest
           first-verdict date when nothing has settled, and the clearly-labeled dollar
@@ -299,6 +365,10 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
         <RefreshMyDataButton connectedCount={connectedSourceCount} />
       </PageHeader>
       <DailyCounterStrip shipped={shippedTodayCount} doubleChecking={doubleCheckingTodayCount} />
+      {/* P14 item 3 (v1 329/331) - goal pace + start-my-day: the honest weekly pace read plus the
+          20-minute ritual step, right under the day's greeting/counter so "start my day" is the
+          first thing after the brief. Self-hides on a fresh empty tenant. */}
+      {goalPace ? <TodayGoalPaceCard pace={goalPace} checkedLine={goalPaceReceipt} /> : null}
       {recapSentence ? (
         <div className="rounded-xl border border-emerald-100 bg-emerald-50/70 px-4 py-2.5 text-[13px] leading-relaxed text-emerald-900 tabular-nums">
           {recapSentence}
@@ -390,44 +460,6 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
  *  ~h-24 like the real cards) so the section holds its shape instead of flashing blank. */
 function WarRoomCardSkeleton() {
   return <div aria-hidden className="block h-24 animate-pulse rounded-2xl border border-gray-100 bg-gray-50 dark:border-neutral-800 dark:bg-neutral-900" />;
-}
-
-/** UX4 item 1 - "what matters most right now" in ONE card, right after any broken-pipe alert
- *  and before the greeting. Tone maps to a small color language: a win reads green, a miss or
- *  a fired alert reads amber/red, a neutral pick or a rising mover reads the app's default ink. */
-const LEAD_STORY_TONE: Record<LeadStory["tone"], string> = {
-  good: "border-emerald-200 bg-emerald-50/70 text-emerald-900 dark:border-emerald-900/60 dark:bg-emerald-950/30 dark:text-emerald-200",
-  bad: "border-gray-200 bg-gray-50 text-gray-800 dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-200",
-  warning: "border-amber-200 bg-amber-50/70 text-amber-900 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-200",
-  neutral: "border-gray-200 bg-white text-gray-800 dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-200",
-};
-const LEAD_STORY_LINK_TONE: Record<LeadStory["tone"], string> = {
-  good: "text-emerald-700 dark:text-emerald-300",
-  bad: "text-gray-600 dark:text-neutral-300",
-  warning: "text-amber-700 dark:text-amber-300",
-  neutral: "text-gray-600 dark:text-neutral-300",
-};
-
-function LeadStoryCard({ story }: { story: LeadStory }) {
-  return (
-    <section
-      aria-label="What matters most right now"
-      className={`rounded-2xl border px-4 py-3 ${LEAD_STORY_TONE[story.tone]}`}
-    >
-      <div className="flex flex-wrap items-start justify-between gap-x-3 gap-y-1.5">
-        <div className="min-w-0">
-          <span className="text-[11px] font-semibold uppercase tracking-wide opacity-70">{story.label}</span>
-          <p className="mt-0.5 break-words text-[14px] font-medium leading-relaxed">{story.sentence}</p>
-        </div>
-        <Link
-          href={story.href}
-          className={`shrink-0 text-[12px] font-semibold underline underline-offset-2 hover:opacity-80 ${LEAD_STORY_LINK_TONE[story.tone]}`}
-        >
-          {story.actionLabel} →
-        </Link>
-      </div>
-    </section>
-  );
 }
 
 /** D6 (daily ritual loop) - "Today you shipped N changes. The app is double-checking M of them."

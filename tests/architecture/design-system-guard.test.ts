@@ -103,8 +103,12 @@ const TYPE_SCALE_PINNED = new Set([
 // (deleting the TONE_STYLE/OUTCOME_STYLE palette maps; the maturity-tone rule now rides Pill
 // intents) and shipped the token-only cumulative outcome strip shared by Today and Results.
 // Measured live total under src/app/(shell) after FP8: 1342.
+// P14 (Today dashboard pack, 2026-07-03) replaced the old single-signal LeadStoryCard in
+// page.tsx with the composite lead headline whose presentation lives token-only in
+// src/components/today/** (outside this ratchet). Deleting LeadStoryCard's raw-palette tone maps
+// dropped the (shell) total by 44 to 1298.
 // This number may ONLY go down from here.
-const RAW_PALETTE_BASELINE = 1342;
+const RAW_PALETTE_BASELINE = 1298;
 
 function walkSourceFiles(dir: string, out: string[] = []): string[] {
   for (const name of readdirSync(dir)) {
