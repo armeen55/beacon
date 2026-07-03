@@ -60,8 +60,16 @@ QUEUE (strict order; [G] = operator-gated, surface it and continue):
       at 5. 52 new tests; graph snapshot schema bumped to v2.
 - [x] R9 (2026-07-03). P3 tenant CTR curve (ONE implementation: fit from own GSC, retrain title scorer, pin the
       survivor) - feeds every forecast and title move. Effort M.
-- [~] R10 (10a SHIPPED 2026-07-03: query panel, weekday baselines, early-decisive/futile, novelty decay, all computed-only feeding N10; 10b remaining: alpha-spending, equivalence, FDR, clean-window salvage, distinct-query growth). P4 measurement rigor pack (fixed query panel, day-of-week baselines, adaptive windows,
-      equivalence testing, FDR) - all feed N10's grade. Effort L, split into 2 slices.
+- [x] R10 (10a SHIPPED 2026-07-03: query panel, weekday baselines, early-decisive/futile, novelty decay, all
+      computed-only feeding N10; 10b DONE 2026-07-03 worktree: distinct-query growth v1 151 `query-breadth.ts`
+      reach-vs-depth on the win card, equivalence testing v1 289 `equivalence.ts` provenNeutral graded
+      solid-for-learning distinct from inconclusive, FDR v1 291 `fdr-adjust.ts` pool-wide champagne-hold applied
+      at the load-ledger choke point demoting too-close wins solid to decent, clean-window salvage v1 152
+      `clean-window-salvage.ts` clean-days lift rendered under the weather caveat; alpha-spending v1 286 is
+      honestly resolved by R10a's design - early looks are presentation-only and never close or shorten a
+      window, so no error budget is ever spent early). P4 measurement rigor pack (fixed query panel,
+      day-of-week baselines, adaptive windows, equivalence testing, FDR) - all feed N10's grade. Effort L,
+      split into 2 slices.
 - [x] R11 (2026-07-03, worktree). N30 demand-ranked question universe + N20 SERP-consensus study + N29
       snippet-capture extension (all extend shipped engines). Effort M. N30:
       src/domains/research/question-universe.ts (pure merge of GSC question-shaped queries + AI fanouts +

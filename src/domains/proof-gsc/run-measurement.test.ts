@@ -41,7 +41,7 @@ vi.mock("@/domains/recommendation-intelligence/page-surgeon/bridge", () => ({
   loadPageSurgeonForUrl: vi.fn(async () => ({ status: "none" })),
 }));
 
-const { rankRecheckMock, readFloorsForMock, dailyClicksMock } = vi.hoisted(() => ({
+const { rankRecheckMock, readFloorsForMock, dailyClicksMock, changepointsMock } = vi.hoisted(() => ({
   rankRecheckMock: vi.fn(),
   // Item 31: defaults to the fail-soft "no calibration yet" shape so every
   // existing test in this file (written before item 31) keeps its exact
@@ -51,6 +51,10 @@ const { rankRecheckMock, readFloorsForMock, dailyClicksMock } = vi.hoisted(() =>
   // and novelty-decay attachments. Defaults to the fail-soft empty map so every
   // pre-existing test keeps its exact behavior (all three attachments null).
   dailyClicksMock: vi.fn(async () => new Map<string, Array<{ date: string; clicks: number }>>()),
+  // P4 R10b (v1 152): the persisted changepoints behind the clean-window
+  // salvage's SELF-read path (when no shockWindows param is passed). Defaults
+  // to [] so pre-existing tests never pick up a developer's local .data state.
+  changepointsMock: vi.fn(async () => [] as Array<{ date: string; direction: "up" | "down" }>),
 }));
 
 vi.mock("@/domains/serp/serp-history", () => ({
@@ -69,9 +73,13 @@ vi.mock("./aa-calibration-store", () => ({
 vi.mock("./daily-series", () => ({
   loadDailyClicksByPathsForTenant: dailyClicksMock,
 }));
+vi.mock("./algorithm-weather-store", () => ({
+  loadDetectedChangepoints: changepointsMock,
+}));
 
 import { measureRecord } from "./run-measurement";
 import type { ShippedChangeRecord } from "./shipped-change-store";
+import type { ShockWindow } from "./algorithm-weather";
 
 function record(overrides: Partial<ShippedChangeRecord> = {}): ShippedChangeRecord {
   return {
@@ -378,6 +386,118 @@ describe("measureRecord - P4 R10a query-panel + daily-shape attachments", () => 
     expect(result.weekdayAdjustedLift).toBeNull();
     expect(result.earlySignal).toBeNull();
     expect(result.noveltyDecay).toBeNull();
+  });
+});
+
+describe("measureRecord - P4 R10b breadth + equivalence + clean-window salvage", () => {
+  beforeEach(() => {
+    rankRecheckMock.mockReset();
+    rankRecheckMock.mockResolvedValue(null);
+    readFloorsForMock.mockReset();
+    readFloorsForMock.mockResolvedValue({});
+    dailyClicksMock.mockReset();
+    dailyClicksMock.mockResolvedValue(new Map());
+    changepointsMock.mockReset();
+    changepointsMock.mockResolvedValue([]);
+  });
+
+  function dailySeries(shipDate: string, baseline: number, post: number[]): Array<{ date: string; clicks: number }> {
+    const addDays = (d: string, n: number): string => {
+      const dt = new Date(`${d}T00:00:00Z`);
+      dt.setUTCDate(dt.getUTCDate() + n);
+      return dt.toISOString().slice(0, 10);
+    };
+    const out: Array<{ date: string; clicks: number }> = [];
+    for (let i = -28; i < 0; i++) out.push({ date: addDays(shipDate, i), clicks: baseline });
+    post.forEach((clicks, i) => out.push({ date: addDays(shipDate, i), clicks }));
+    return out;
+  }
+
+  it("queryBreadth is honestly null when gsc_daily_rows is unreachable (fail-soft), verdict untouched", async () => {
+    const now = new Date("2026-05-09T00:00:00Z");
+    const result = await measureRecord("tenant-iranopedia", record(), now, "2026-07-01");
+    expect(result.queryBreadth).toBeNull();
+    expect(result.verdict).toBeDefined();
+    expect(result.windows.length).toBe(3);
+  });
+
+  it("attaches an equivalence read on a mature non-win with a Bayesian read, without touching the verdict", async () => {
+    const now = new Date("2026-05-09T00:00:00Z");
+    const result = await measureRecord("tenant-iranopedia", record(), now, "2026-07-01");
+    // The fixture's verdict is a non-win (no comparison pages -> the floor
+    // verdict reads insufficient_data) with a closed 28 day window and a real
+    // CTR Bayesian read - so the equivalence test RAN. Its interval here is
+    // far wider than the band, so neutrality is honestly NOT proven.
+    expect(result.verdict).not.toBe("won");
+    expect(result.equivalence).not.toBeNull();
+    expect(result.equivalence?.provenNeutral).toBe(false);
+    expect(result.equivalence?.sentence).toBeNull();
+  });
+
+  it("equivalence is null before the 28 day window closes (nothing mature to prove)", async () => {
+    const now = new Date("2026-05-09T00:00:00Z");
+    // Watermark at 2026-05-10: only the 7-day window has closed.
+    const result = await measureRecord("tenant-iranopedia", record(), now, "2026-05-10");
+    expect(result.windows.find((w) => w.day === 28)?.ran).toBe(false);
+    expect(result.equivalence).toBeNull();
+  });
+
+  it("computes cleanWindowLift from caller-passed shock windows WITHOUT reading the changepoint store", async () => {
+    const now = new Date("2026-07-01T00:00:00Z");
+    dailyClicksMock.mockResolvedValue(new Map([["/singers", dailySeries("2026-05-01", 10, Array(28).fill(12))]]));
+    const shocks: ShockWindow[] = [
+      { id: "confirmed:test", start: "2026-05-06", end: "2026-05-14", kind: "confirmed", label: "a test update" },
+    ];
+    const withShocks = await measureRecord("tenant-iranopedia", record(), now, "2026-07-01", new Set(), true, shocks);
+    expect(withShocks.cleanWindowLift).not.toBeNull();
+    expect(withShocks.cleanWindowLift?.muddiedDays).toBe(9);
+    expect(withShocks.cleanWindowLift?.cleanDays).toBe(19);
+    expect(withShocks.cleanWindowLift?.sentence).toBe(
+      "A Google update muddied 9 of these 28 days; on the 19 clean days this change is still up 20 percent.",
+    );
+    expect(changepointsMock).not.toHaveBeenCalled();
+
+    // An explicitly-empty shock list means nothing muddied -> honest null,
+    // and the verdict is identical either way (salvage never touches it).
+    const noShocks = await measureRecord("tenant-iranopedia", record(), now, "2026-07-01", new Set(), true, []);
+    expect(noShocks.cleanWindowLift).toBeNull();
+    expect(noShocks.verdict).toBe(withShocks.verdict);
+    expect(noShocks.windows).toEqual(withShocks.windows);
+  });
+
+  it("self-reads the persisted changepoints when no shock list is passed (and the May 2026 confirmed update salvages)", async () => {
+    const now = new Date("2026-07-01T00:00:00Z");
+    dailyClicksMock.mockResolvedValue(new Map([["/singers", dailySeries("2026-05-01", 10, Array(28).fill(12))]]));
+    const result = await measureRecord("tenant-iranopedia", record(), now, "2026-07-01");
+    expect(changepointsMock).toHaveBeenCalledWith("tenant-iranopedia");
+    // The seeded May 2026 core update (May 21 to June 2) muddies post days
+    // 21 through 28 of this window; the other 20 days salvage cleanly.
+    expect(result.cleanWindowLift).not.toBeNull();
+    expect(result.cleanWindowLift?.shockKind).toBe("confirmed");
+    expect(result.cleanWindowLift?.muddiedDays).toBe(8);
+    expect(result.cleanWindowLift?.cleanDays).toBe(20);
+    expect(result.cleanWindowLift?.sentence).toContain("A Google update muddied 8 of these 28 days");
+  });
+
+  it("a thrown changepoint-store read never blocks the salvage path or the verdict (fail-soft)", async () => {
+    const now = new Date("2026-07-01T00:00:00Z");
+    dailyClicksMock.mockResolvedValue(new Map([["/singers", dailySeries("2026-05-01", 10, Array(28).fill(12))]]));
+    changepointsMock.mockRejectedValue(new Error("store down"));
+    const result = await measureRecord("tenant-iranopedia", record(), now, "2026-07-01");
+    // The rejected store read fails soft to [] but the seeded confirmed
+    // update list still applies - and the verdict is untouched regardless.
+    expect(result.verdict).toBeDefined();
+    expect(result.windows.length).toBe(3);
+    expect(result.cleanWindowLift?.muddiedDays).toBe(8);
+  });
+
+  it("cleanWindowLift is null with no daily series (unknown days are never zeros)", async () => {
+    const now = new Date("2026-07-01T00:00:00Z");
+    const shocks: ShockWindow[] = [
+      { id: "confirmed:test", start: "2026-05-06", end: "2026-05-14", kind: "confirmed", label: "a test update" },
+    ];
+    const result = await measureRecord("tenant-iranopedia", record(), now, "2026-07-01", new Set(), true, shocks);
+    expect(result.cleanWindowLift).toBeNull();
   });
 });
 

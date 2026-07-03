@@ -66,6 +66,11 @@ import { loadDailyClicksByPathsForTenant } from "./daily-series";
 import { computeWeekdayAdjustedLift, type WeekdayAdjustedRead } from "./weekday-baseline";
 import { computeEarlySignal, type EarlySignalRead } from "./early-signal";
 import { computeNoveltyDecay, type NoveltyDecayRead } from "./novelty-decay";
+import { buildQueryBreadth, type QueryBreadthRead } from "./query-breadth";
+import { computeEquivalence, type EquivalenceRead } from "./equivalence";
+import { computeCleanWindowSalvage, type CleanWindowLift } from "./clean-window-salvage";
+import { buildShockWindows, type ShockWindow } from "./algorithm-weather";
+import { loadDetectedChangepoints } from "./algorithm-weather-store";
 import type { ShippedChangeRecord } from "./shipped-change-store";
 import type { GscProofVerdict } from "./measure";
 
@@ -324,6 +329,12 @@ export async function measureRecord(
    *  used up MAX_RANK_RECHECKS_PER_PASS for the run, so the $0.003-per-call spend
    *  stays bounded across a whole pass, not just per record. */
   allowRankRecheck: boolean = true,
+  /** P4 R10b (v1 152): the tenant's known shock windows for the clean-window
+   *  salvage read. Pass `undefined` to have measureRecord read the persisted
+   *  changepoints itself (single "Measure now" path); batch callers
+   *  (loadProofLedger) read them ONCE and pass the built list so a whole
+   *  ledger never re-reads the store per record. */
+  shockWindows?: ReadonlyArray<ShockWindow>,
 ): Promise<ShippedChangeRecord> {
   const shipDate = dateOnly(record.shippedAt);
   const lastFinal =
@@ -603,6 +614,50 @@ export async function measureRecord(
     }
   }
 
+  // Distinct-query growth (P4 R10b, v1 item 151): did this page start showing
+  // up for MORE distinct searches (reach) or did the same searches click more
+  // (depth)? Two EQUAL-LENGTH windows either side of the ship (never the full
+  // 28-day baseline vs a shorter basis window, which would bias the distinct
+  // count purely by window length). Feeds the presentation only - never the
+  // verdict, not an N10 input. Computed-only + fail-soft -> null, same
+  // posture as every attachment on this record.
+  let queryBreadth: QueryBreadthRead | null = null;
+  if (basisForPermutation) {
+    try {
+      queryBreadth = await buildQueryBreadth({
+        tenantId,
+        page: record.page,
+        preStart: addDays(shipDate, -basisForPermutation.day),
+        preEnd: shipDate,
+        postStart: shipDate,
+        postEnd: addDays(shipDate, basisForPermutation.day),
+        windowDays: basisForPermutation.day,
+      });
+    } catch {
+      queryBreadth = null;
+    }
+  }
+
+  // Equivalence read (P4 R10b, v1 item 289): once the FULL 28 day window has
+  // closed on a non-win, check whether the Bayesian read's plausible effect
+  // range (item 67) sits entirely inside the too-small-to-matter band - a
+  // PROVEN "did nothing", categorically different from an inconclusive "do
+  // not know". A "won" verdict keeps its win lane untouched (doubtful wins
+  // are the ledger-level many-measurements pass's job, item 291), and a
+  // position-judged change has no Bayesian read, so it honestly gets no
+  // equivalence read either. Feeds N10 as provenNeutral; never touches the
+  // stored verdict/windows/clocks.
+  let equivalence: EquivalenceRead | null = null;
+  if (day28?.ran && verdict !== "won" && bayesianRead != null) {
+    const baselineClicks = treatedPre?.clicks ?? record.baseline.clicks;
+    equivalence = computeEquivalence({
+      ci90Low: bayesianRead.ci90Low,
+      ci90High: bayesianRead.ci90High,
+      smallSample: bayesianRead.smallSample,
+      baselineMonthlyClicks: (Math.max(0, baselineClicks) / BASELINE_WINDOW_DAYS) * 30,
+    });
+  }
+
   // Daily-shape reads (P4 R10a): one bounded daily-clicks read powers the
   // weekday-aligned comparison (v1 285), the early-decisive/early-futile
   // presentation flags (v1 288), and the novelty-decay check (v1 378). All
@@ -614,6 +669,7 @@ export async function measureRecord(
   let weekdayAdjustedLift: WeekdayAdjustedRead | null = null;
   let earlySignal: EarlySignalRead | null = null;
   let noveltyDecay: NoveltyDecayRead | null = null;
+  let cleanWindowLift: CleanWindowLift | null = null;
   if (lastFinal != null && lastFinal >= shipDate) {
     try {
       const today = dateOnly(now.toISOString());
@@ -636,6 +692,31 @@ export async function measureRecord(
             preWindowDays: BASELINE_WINDOW_DAYS,
             knownFrom,
             lastFinalizedDate: lastFinal,
+          });
+          // Clean-window salvage (P4 R10b, v1 item 152): when a Google update
+          // or a detected sitewide shock muddied part of this basis window,
+          // re-read the treated page's own lift on the clean days alone
+          // (>= 10 required) so a partially-muddied read is salvaged instead
+          // of written off wholesale. The shock list comes from the caller
+          // when it read the store once for a whole ledger; a lone "Measure
+          // now" call reads the persisted changepoints itself (fail-soft).
+          // The pure module returns null when nothing was muddied, so a
+          // shock-free window costs nothing beyond this lookup.
+          const shocks =
+            shockWindows !== undefined
+              ? shockWindows
+              : buildShockWindows({
+                  dailySeries: [],
+                  priorChangepoints: await loadDetectedChangepoints(tenantId).catch(() => []),
+                });
+          cleanWindowLift = computeCleanWindowSalvage({
+            series,
+            shipDate,
+            windowDays: basisForPermutation.day,
+            preWindowDays: BASELINE_WINDOW_DAYS,
+            knownFrom,
+            lastFinalizedDate: lastFinal,
+            shocks,
           });
         }
         // Early signals only matter while the full window is still open; once
@@ -661,6 +742,7 @@ export async function measureRecord(
       weekdayAdjustedLift = null;
       earlySignal = null;
       noveltyDecay = null;
+      cleanWindowLift = null;
     }
   }
 
@@ -701,6 +783,9 @@ export async function measureRecord(
     weekdayAdjustedLift,
     earlySignal,
     noveltyDecay,
+    queryBreadth,
+    equivalence,
+    cleanWindowLift,
     measuredAt: now.toISOString(),
     updatedAt: now.toISOString(),
   };

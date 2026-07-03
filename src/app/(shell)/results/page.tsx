@@ -359,15 +359,22 @@ export default async function ProofPage({
               ? { nGreater: l.permutationRead.nGreater, nTotal: l.permutationRead.nTotal }
               : null,
             undefined,
-            // P4 R10a measurement-rigor extras, straight off the record's own
-            // computed attachments: a target-panel/page direction disagreement
-            // (v1 150) or a faded first-week jump (v1 378) demotes to shaky; an
-            // unmistakable early direction (v1 288) strengthens the decent
-            // sentence without ever upgrading the grade past the 28-day clock.
+            // P4 R10a + R10b measurement-rigor extras, straight off the
+            // record's own computed attachments: a target-panel/page direction
+            // disagreement (v1 150) or a faded first-week jump (v1 378)
+            // demotes to shaky; an unmistakable early direction (v1 288)
+            // strengthens the decent sentence without ever upgrading the grade
+            // past the 28-day clock; a proven-neutral equivalence read (v1
+            // 289) grades a closed 28-day "did nothing" solid-for-learning;
+            // and the many-measurements caution (v1 291) demotes a win too
+            // close to the by-chance line from solid to decent.
             {
               panelDisagrees: l.panelOutcome?.disagreesWithPage === true,
               noveltyDecay: l.noveltyDecay?.noveltyDecay === true,
               earlyDecisive: l.earlySignal?.earlyDecisive === true,
+              provenNeutral: l.equivalence?.provenNeutral === true,
+              fdrCaution: l.fdrRead?.fdrCaution === true,
+              fdrPoolSize: l.fdrRead?.poolSize,
             },
           )
         : { grade: "too early" as const, reasons: [], sentence: "I would call this too early to read: no measurement presentation is available yet." };
@@ -1044,12 +1051,35 @@ function LedgerCard({ rec, link, pres, grade, spark, band, revert, restored, cal
         </p>
       ) : null}
 
+      {/* Distinct-query growth (P4 R10b, v1 151): name WHICH KIND of win this
+          is - reach (more distinct searches ranking) or depth (the same
+          searches clicking more). Win rows only; the raw before/after counts
+          live in "See the math" for every row. */}
+      {band === "win" && rec.queryBreadth?.sentence ? (
+        <p className="mt-1 text-[12px] text-foreground/80">{rec.queryBreadth.sentence}</p>
+      ) : null}
+
+      {/* Many-measurements caution (P4 R10b, v1 291): this win cleared its own
+          bar but sits too close to the line where one of many simultaneous
+          measurements looks good by chance - hold the champagne. */}
+      {rec.fdrRead?.sentence ? (
+        <p className="mt-1 text-[12px] text-amber-700">{rec.fdrRead.sentence}</p>
+      ) : null}
+
       {/* Item 72 - a settled non-win reads as a lesson: what we tried, what it did
           not move, and that the next pick on pages like this uses a different lever. */}
       {band === "learning" ? (
         <p className="mt-1.5 text-[12px] text-foreground/80">
           {`A ${plainAction(rec.actionType)} on this page did not move ${PLAIN_METRIC[metric]} in the full window. The team now tries a different lever on pages like this.`}
         </p>
+      ) : null}
+
+      {/* Equivalence read (P4 R10b, v1 289): the plausible effect range is
+          proven too small to matter - "genuinely did nothing" is a reliable
+          lesson, which is different from not knowing. Never renders on a win
+          (the read is only computed for non-wins). */}
+      {rec.equivalence?.sentence ? (
+        <p className="mt-1 text-[12px] text-foreground/80">{rec.equivalence.sentence}</p>
       ) : null}
 
       {/* Item C4 - the PRIMARY line is a short plain call ("This probably hurt." /
@@ -1125,7 +1155,7 @@ function LedgerCard({ rec, link, pres, grade, spark, band, revert, restored, cal
           and untouched-page counts, one click away from the plain primary lines
           above. Nothing here is new data - it is the same sentence/counts the
           product already computed, just moved out of the headline position. */}
-      {sentence !== plainHeadline || (rec.permutationRead && rec.permutationRead.nTotal > 0) || pres?.seasonalInflectionCaveat || pres?.controlContaminationCaveat || pres?.controlPoolHealthLine || rec.panelOutcome || grade ? (
+      {sentence !== plainHeadline || (rec.permutationRead && rec.permutationRead.nTotal > 0) || pres?.seasonalInflectionCaveat || pres?.controlContaminationCaveat || pres?.controlPoolHealthLine || rec.panelOutcome || rec.queryBreadth || grade ? (
         <details className="mt-1">
           <summary className="cursor-pointer text-[11px] text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1">
             See the math
@@ -1143,6 +1173,10 @@ function LedgerCard({ rec, link, pres, grade, spark, band, revert, restored, cal
                 panel's own before/after totals, always available here even
                 when it agrees with the page-level read. */}
             {rec.panelOutcome ? <p>{rec.panelOutcome.panelLine}</p> : null}
+            {/* Distinct-query growth (P4 R10b, v1 151): the raw before/after
+                distinct-search counts behind the reach/depth call, always
+                available here even when the headline stayed quiet. */}
+            {rec.queryBreadth ? <p>{rec.queryBreadth.breadthLine}</p> : null}
             {pres?.seasonalInflectionCaveat ? <p>{pres.seasonalInflectionCaveat}</p> : null}
             {/* Control-contamination guard (master plan N13): the full receipt -
                 which comparison page changed, when, and whether a clean
@@ -1186,6 +1220,14 @@ function LedgerCard({ rec, link, pres, grade, spark, band, revert, restored, cal
           flagging the read as cautious instead of quietly treating it as clean evidence. */}
       {pres?.weatherCaveat ? (
         <p className="mt-1 text-[12px] text-amber-700">{pres.weatherCaveat}</p>
+      ) : null}
+
+      {/* Clean-window salvage (P4 R10b, v1 152): the caveat above stays named,
+          but when 10 or more clean days exist outside the shock this reads the
+          change on those days alone, so a partially-muddied window is salvaged
+          instead of written off wholesale. Verdict untouched. */}
+      {pres?.weatherCaveat && rec.cleanWindowLift?.sentence ? (
+        <p className="mt-1 text-[12px] text-foreground/80">{rec.cleanWindowLift.sentence}</p>
       ) : null}
 
       {/* Parallel-trends veto (master plan item 33): this row's comparison pages

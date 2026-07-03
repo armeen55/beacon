@@ -73,8 +73,10 @@ export type TargetQueryRead = {
 /** Both the raw host GSC's property used AND its www-swapped counterpart, so
  *  a canonicalized (www.-stripped) page URL still matches whichever form
  *  `gsc_daily_rows` actually stored. Mirrors auto-record-on-ship.ts's
- *  withWwwVariant exactly (same table, same trap, proven fix). */
-function withWwwVariant(url: string): string[] {
+ *  withWwwVariant exactly (same table, same trap, proven fix). Exported (P4
+ *  R10b) so query-breadth.ts's distinct-query read hits the same both-host
+ *  forms instead of re-deriving the trap fix. */
+export function withWwwVariant(url: string): string[] {
   try {
     const u = new URL(url);
     if (u.hostname.startsWith("www.")) {

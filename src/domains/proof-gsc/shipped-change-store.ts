@@ -37,6 +37,10 @@ import type { QueryPanelOutcome } from "./query-panel";
 import type { WeekdayAdjustedRead } from "./weekday-baseline";
 import type { EarlySignalRead } from "./early-signal";
 import type { NoveltyDecayRead } from "./novelty-decay";
+import type { QueryBreadthRead } from "./query-breadth";
+import type { EquivalenceRead } from "./equivalence";
+import type { FdrRead } from "./fdr-adjust";
+import type { CleanWindowLift } from "./clean-window-salvage";
 
 const TABLE = "shipped_change_proof";
 const STORE = "proof-gsc-ledger";
@@ -136,6 +140,35 @@ export type ShippedChangeRecord = {
    *  lasting win. Feeds N10 as a demotion input. Computed-only, never
    *  persisted; null before 28 finalized post-ship days exist. */
   noveltyDecay?: NoveltyDecayRead | null;
+  /** Distinct-query growth (P4 R10b, v1 item 151): did this page start
+   *  showing up for MORE distinct searches (reach) or did the same searches
+   *  click more (depth)? Equal-length windows either side of the ship, from
+   *  gsc_daily_rows' page+query grain. Feeds the presentation only, never
+   *  the verdict and not N10. Computed-only, never persisted; null without
+   *  query-grain data or a closed window. */
+  queryBreadth?: QueryBreadthRead | null;
+  /** Equivalence read (P4 R10b, v1 item 289): the plausible effect range of
+   *  a mature non-win sits entirely inside the too-small-to-matter band, so
+   *  "did nothing" is PROVEN rather than unknown. Feeds N10 as provenNeutral
+   *  (grades solid-for-learning, distinct from inconclusive). Computed-only,
+   *  never persisted; null before the 28 day window closes, for a win, or
+   *  when the sample is too thin to prove anything. */
+  equivalence?: EquivalenceRead | null;
+  /** Many-measurements caution (P4 R10b, v1 item 291): with N simultaneous
+   *  mature wins, the pool-wide adjustment holds the champagne on wins too
+   *  close to the by-chance line. Attached by the LEDGER pass (load-ledger
+   *  .ts) - the only place all rows are in hand at once - never by
+   *  measureRecord. N10 demotes an fdrCaution win from solid to decent.
+   *  Computed-only, never persisted (recordToRow omits it). */
+  fdrRead?: FdrRead | null;
+  /** Clean-window salvage (P4 R10b, v1 item 152): when a Google update or
+   *  sitewide shock muddied part of this window, the treated page's own lift
+   *  re-read on the >= 10 clean days alone, so a partially-muddied read is
+   *  salvaged instead of written off wholesale. Presentation only - renders
+   *  under the weather caveat; the verdict, learning gates, and clocks are
+   *  untouched. Computed-only, never persisted; null when no shock muddied a
+   *  day or too few clean days remain. */
+  cleanWindowLift?: CleanWindowLift | null;
   /** Operator free-text on the shipped change. */
   notes: string | null;
   /** Operator confirmed it's live on the site (manual ship). */

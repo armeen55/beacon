@@ -116,6 +116,23 @@ export type VerdictReliabilityInput = {
    *  strengthens the decent sentence so an unmistakable early read is not
    *  presented with the same hedging as a marginal one. Additive. */
   earlyDecisive?: boolean;
+  /** Equivalence read (P4 R10b, v1 item 289): true when the plausible effect
+   *  range of a closed 28 day window is PROVEN to sit inside the too-small-
+   *  to-matter band (EquivalenceRead.provenNeutral). A proven "did nothing"
+   *  is a reliable LESSON, categorically different from an inconclusive "do
+   *  not know" - grades solid-for-learning even though the change did not
+   *  win. Only read with basisDay 28, and never rescues a read any shaky
+   *  disqualifier above already caught. Additive: a caller that never wires
+   *  this sees byte-identical grades. */
+  provenNeutral?: boolean;
+  /** Many-measurements caution (P4 R10b, v1 item 291): true when this win
+   *  cleared its own bar but lost the pool-wide adjustment across all
+   *  simultaneous mature wins (FdrRead.fdrCaution). Demotes a would-be solid
+   *  win to decent - hold the champagne. Additive, same posture as above. */
+  fdrCaution?: boolean;
+  /** How many mature wins were adjusted together, for the honest sentence
+   *  ("with 12 changes measured at once"). Only read when fdrCaution. */
+  fdrPoolSize?: number;
 };
 
 export type VerdictReliabilityResult = {
@@ -230,6 +247,28 @@ export function gradeVerdictReliability(input: VerdictReliabilityInput): Verdict
 
   // ── decent vs solid: both clean of the above; split on maturity + sample depth ──
   const daysLabel = `${input.basisDay} days`;
+
+  // Equivalence read (P4 R10b, v1 289): a closed 28 day window whose whole
+  // plausible effect range is PROVEN too small to matter is a reliable
+  // lesson, distinct from inconclusive - solid-for-learning even though the
+  // change did not win. Checked BEFORE the maturity split because a proven
+  // neutral's stored verdict is usually not won/lost, so its maturity reads
+  // "inconclusive" rather than "mature_result" - exactly the case this
+  // distinguishes. Gated on basisDay 28 (bounds from a shorter window prove
+  // nothing final) and never reached when any shaky disqualifier fired above.
+  if (input.provenNeutral === true && input.basisDay === 28) {
+    return {
+      grade: "solid",
+      reasons: [
+        "28 days mature",
+        "the plausible effect range is proven too small to matter",
+        "the lesson is reliable even though the change did not win",
+      ],
+      sentence:
+        "I would treat this read as solid: this change genuinely did nothing, and I can prove that now; that is different from not knowing. The lesson still counts.",
+    };
+  }
+
   if (input.maturity !== "mature_result") {
     // Adaptive-window read (v1 288): an unmistakable early direction earns a
     // stronger DECENT sentence, never a higher grade - the 28-day clock rules
@@ -255,6 +294,23 @@ export function gradeVerdictReliability(input: VerdictReliabilityInput): Verdict
       grade: "decent",
       reasons: softReasons,
       sentence: `I would treat this read as decent: ${daysLabel} mature and clean, but the sample is not deep enough to call it solid.`,
+    };
+  }
+
+  // Many-measurements caution (P4 R10b, v1 291): this win cleared its own bar
+  // but lost the pool-wide adjustment across every simultaneous mature win -
+  // a would-be solid demotes to decent. Hold the champagne.
+  if (input.fdrCaution === true) {
+    const poolPhrase =
+      input.fdrPoolSize != null && input.fdrPoolSize >= 2
+        ? `with ${input.fdrPoolSize} changes measured at once`
+        : "with several changes measured at once";
+    return {
+      grade: "decent",
+      reasons: [
+        "measured alongside many changes at once, this win sits close to the line where one of them looks good by chance",
+      ],
+      sentence: `I would treat this read as decent: ${poolPhrase}, one or two will look like winners by chance, and this one is close enough to that line that I am holding the champagne.`,
     };
   }
 
@@ -300,17 +356,24 @@ export function gradeFromPresentation(
    *  parameter existed. Pass `hasSignificantInterference` from
    *  computeInterferenceGraph, or false when the graph found nothing. */
   interferenceFlagged?: boolean,
-  /** P4 R10a measurement-rigor extras, all optional and additive (omitting
-   *  this argument yields byte-identical grades): the fixed-query-panel
-   *  disagreement (v1 150, demotes to shaky), the novelty-decay flag (v1
-   *  378, demotes to shaky), and the early-decisive flag (v1 288,
-   *  strengthens the decent sentence, never upgrades the grade). Read them
+  /** P4 R10a + R10b measurement-rigor extras, all optional and additive
+   *  (omitting this argument yields byte-identical grades): the fixed-query-
+   *  panel disagreement (v1 150, demotes to shaky), the novelty-decay flag
+   *  (v1 378, demotes to shaky), the early-decisive flag (v1 288,
+   *  strengthens the decent sentence, never upgrades the grade), the proven-
+   *  neutral equivalence flag (v1 289, a closed 28 day window whose effect
+   *  is proven too small to matter grades solid-for-learning), and the
+   *  many-measurements caution (v1 291, demotes a would-be solid win to
+   *  decent, with the pool count for the honest sentence). Read them
    *  straight off the record's computed attachments (panelOutcome /
-   *  noveltyDecay / earlySignal). */
+   *  noveltyDecay / earlySignal / equivalence / fdrRead). */
   extras?: {
     panelDisagrees?: boolean;
     noveltyDecay?: boolean;
     earlyDecisive?: boolean;
+    provenNeutral?: boolean;
+    fdrCaution?: boolean;
+    fdrPoolSize?: number;
   },
 ): VerdictReliabilityResult {
   return gradeVerdictReliability({
@@ -329,6 +392,9 @@ export function gradeFromPresentation(
     panelDisagrees: extras?.panelDisagrees ?? false,
     noveltyDecay: extras?.noveltyDecay ?? false,
     earlyDecisive: extras?.earlyDecisive ?? false,
+    provenNeutral: extras?.provenNeutral ?? false,
+    fdrCaution: extras?.fdrCaution ?? false,
+    fdrPoolSize: extras?.fdrPoolSize,
   });
 }
 
@@ -337,9 +403,14 @@ export function gradeFromPresentation(
  *  disqualifier learningEligibility checks (maturity, attribution, weather,
  *  weak comparison, seasonal, recrawl, contamination) is also a "shaky" or
  *  "too early" disqualifier here, so solid/decent is a superset-safe proxy -
- *  never wider than the real learningEligibility gate. Exposed so a caller
- *  that only has the grade (not the full presentation) can still apply the
- *  same "only solid/decent train priors" rule without re-deriving it. */
+ *  never wider than the real learningEligibility gate, with ONE deliberate
+ *  exception (P4 R10b, v1 289): a proven-neutral 28 day read grades solid
+ *  even though its maturity reads "inconclusive" (verdict not won/lost), so
+ *  the reliable "this lever did nothing here" LESSON can train priors. Every
+ *  integrity disqualifier still demotes it to shaky first. Exposed so a
+ *  caller that only has the grade (not the full presentation) can still
+ *  apply the same "only solid/decent train priors" rule without re-deriving
+ *  it. */
 export function gradeAllowsLearning(grade: VerdictReliabilityGrade): boolean {
   return grade === "solid" || grade === "decent";
 }

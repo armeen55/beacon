@@ -358,6 +358,89 @@ describe("gradeAllowsLearning alignment with MeasurementPresentation.learningEli
     expect(grade.grade).toBe("decent");
     expect(grade.sentence).toMatch(/do not need the full 28 days/);
   });
+
+  it("P4 R10b (v1 289): a proven-neutral 28 day read grades solid THROUGH the inconclusive maturity, the whole point", () => {
+    // A proven neutral's stored verdict is not won/lost, so its maturity reads
+    // "inconclusive" - without the flag that is a decent directional read;
+    // with it the lesson is solid-for-learning, distinct from not knowing.
+    const pres = buildMeasurementPresentation(maturityInput({ verdict: "inconclusive" }));
+    expect(pres.maturity).toBe("inconclusive");
+    const without = gradeFromPresentation(pres, { controlsUsed: 3, baselineImpressions: 3000 }, null);
+    expect(without.grade).toBe("decent");
+    const withProof = gradeFromPresentation(pres, { controlsUsed: 3, baselineImpressions: 3000 }, null, undefined, { provenNeutral: true });
+    expect(withProof.grade).toBe("solid");
+    expect(withProof.sentence).toMatch(/genuinely did nothing/);
+    expect(withProof.sentence).toMatch(/different from not knowing/);
+    expect(gradeAllowsLearning(withProof.grade)).toBe(true);
+  });
+
+  it("P4 R10b (v1 291): fdrCaution demotes a would-be solid win to decent with the pool count in the sentence", () => {
+    const pres = buildMeasurementPresentation(maturityInput({}));
+    const clean = gradeFromPresentation(pres, { controlsUsed: 3, baselineImpressions: 3000 }, null);
+    expect(clean.grade).toBe("solid");
+    const cautioned = gradeFromPresentation(pres, { controlsUsed: 3, baselineImpressions: 3000 }, null, undefined, { fdrCaution: true, fdrPoolSize: 12 });
+    expect(cautioned.grade).toBe("decent");
+    expect(cautioned.sentence).toContain("with 12 changes measured at once");
+    expect(cautioned.sentence).toContain("holding the champagne");
+    expect(gradeAllowsLearning(cautioned.grade)).toBe(true);
+  });
+});
+
+describe("P4 R10b: provenNeutral (v1 289) and fdrCaution (v1 291) in the grade ladder", () => {
+  it("provenNeutral on a clean mature 28 day read grades solid with the honest close", () => {
+    const r = gradeVerdictReliability(base({ provenNeutral: true }));
+    expect(r.grade).toBe("solid");
+    expect(r.sentence).toBe(
+      "I would treat this read as solid: this change genuinely did nothing, and I can prove that now; that is different from not knowing. The lesson still counts.",
+    );
+    expect(r.reasons.join(" ")).toMatch(/reliable even though the change did not win/);
+  });
+
+  it("provenNeutral trumps the thin-sample decent path (tight bounds ARE the depth evidence)", () => {
+    // controlsUsed 2 / baseline 800: adequate but not deep -> decent without
+    // the flag, solid with it.
+    const thin = { controlsUsed: 2, baselineImpressions: 800 };
+    expect(gradeVerdictReliability(base(thin)).grade).toBe("decent");
+    expect(gradeVerdictReliability(base({ ...thin, provenNeutral: true })).grade).toBe("solid");
+  });
+
+  it("provenNeutral never rescues a shaky read (contamination, weather, inadequate traffic)", () => {
+    expect(gradeVerdictReliability(base({ provenNeutral: true, controlContaminationFlagged: true })).grade).toBe("shaky");
+    expect(gradeVerdictReliability(base({ provenNeutral: true, weatherQuarantined: true })).grade).toBe("shaky");
+    expect(gradeVerdictReliability(base({ provenNeutral: true, controlsUsed: 1 })).grade).toBe("shaky");
+  });
+
+  it("provenNeutral is gated on a closed 28 day window, never an early checkpoint", () => {
+    const r = gradeVerdictReliability(
+      base({ provenNeutral: true, maturity: "early_checkpoint", basisDay: 7 }),
+    );
+    expect(r.grade).toBe("decent");
+    expect(r.sentence).not.toMatch(/genuinely did nothing/);
+  });
+
+  it("fdrCaution demotes solid to decent; without a pool size the sentence stays honest but generic", () => {
+    const withPool = gradeVerdictReliability(base({ fdrCaution: true, fdrPoolSize: 9 }));
+    expect(withPool.grade).toBe("decent");
+    expect(withPool.sentence).toContain("with 9 changes measured at once");
+    const withoutPool = gradeVerdictReliability(base({ fdrCaution: true }));
+    expect(withoutPool.grade).toBe("decent");
+    expect(withoutPool.sentence).toContain("with several changes measured at once");
+    expect(withoutPool.sentence).toContain("holding the champagne");
+  });
+
+  it("fdrCaution never upgrades or rescues anything: shaky stays shaky, thin-sample decent stays decent", () => {
+    expect(gradeVerdictReliability(base({ fdrCaution: true, weatherQuarantined: true })).grade).toBe("shaky");
+    const thinDecent = gradeVerdictReliability(base({ fdrCaution: true, controlsUsed: 2, baselineImpressions: 800 }));
+    expect(thinDecent.grade).toBe("decent");
+    // The thin-sample reason wins the sentence (it fired first in the ladder).
+    expect(thinDecent.sentence).toMatch(/not deep enough/);
+  });
+
+  it("omitting both flags is byte-identical to the pre-R10b grade", () => {
+    const before = gradeVerdictReliability(base());
+    const after = gradeVerdictReliability(base({ provenNeutral: false, fdrCaution: false }));
+    expect(after).toEqual(before);
+  });
 });
 
 describe("copy guard - dash-clean, no em or en dashes in source", () => {
@@ -387,6 +470,9 @@ describe("copy guard - dash-clean, no em or en dashes in source", () => {
       base({ panelDisagrees: true }),
       base({ noveltyDecay: true }),
       base({ maturity: "early_checkpoint", basisDay: 7, earlyDecisive: true }),
+      base({ provenNeutral: true }),
+      base({ fdrCaution: true, fdrPoolSize: 9 }),
+      base({ fdrCaution: true }),
     ];
     for (const c of cases) {
       const r = gradeVerdictReliability(c);
