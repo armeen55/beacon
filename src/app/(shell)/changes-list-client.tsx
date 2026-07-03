@@ -543,16 +543,30 @@ export function ChangesListClient({ view }: { view: ChangesView }) {
     if (strategy === "clean" && view.changes.length > 0) {
       return { title: "No clean tests are available right now.", hint: "Switch to Balanced to include changes Beacon can track directionally.", action: { label: "Switch to Balanced", onClick: () => setStrategy("balanced") } };
     }
+    if (goal === "new_pages") {
+      // FP5b - new-page ideas' single home is the New Pages board on this same page;
+      // a bare "no matches" here would read as "Beacon has no page ideas", a lie.
+      return { title: "New page ideas live on the New pages board below.", hint: "Every topic worth building has one card there, with the competitor teardown and a draft.", action: null };
+    }
     if (isFiltered) {
       return { title: "No changes match these filters.", hint: "Try another status, strategy, or goal.", action: { label: "Reset filters", onClick: () => { setGoal("recommended"); setQ(""); } } };
     }
-    if (tab === "results") return { title: "No mature results yet.", hint: "Your active changes are still collecting data. Early checkpoints stay in Measuring.", action: null };
+    if (tab === "results") {
+      // FP3 - never say "no results" when the canonical count says otherwise; this
+      // list is a subset (a decided change may have no matching worklist move).
+      if (view.decidedCountCanonical > 0) {
+        return { title: `${view.decidedCountCanonical} change${view.decidedCountCanonical === 1 ? " has" : "s have"} a final read.`, hint: "None of them have a matching item in this worklist. They all live on the Results page.", action: null };
+      }
+      return { title: "No mature results yet.", hint: "Your active changes are still collecting data. Early checkpoints stay in Measuring.", action: null };
+    }
     if (tab === "measuring") {
       // UX0 (2026-07-02) - never say "none measuring" when the canonical ledger count
       // says otherwise; this worklist's list is a subset (e.g. a page-factory or
       // AI-visibility measurement with no matching worklist move).
       if (view.measuringCountCanonical > 0) {
-        return { title: `${view.measuringCountCanonical} change${view.measuringCountCanonical === 1 ? " is" : "s are"} measuring tenant-wide.`, hint: "None of them have a matching item in this worklist yet, check Today for the full list.", action: null };
+        // FP5d - the measuring list's single home is Results; this tab only ever
+        // holds the subset with a matching worklist item.
+        return { title: `${view.measuringCountCanonical} change${view.measuringCountCanonical === 1 ? " is" : "s are"} measuring right now.`, hint: "None of them have a matching item in this worklist. The full measuring list lives on the Results page.", action: null };
       }
       return { title: "No changes are measuring yet.", hint: "Applied and verified changes will appear here.", action: null };
     }
@@ -587,14 +601,17 @@ export function ChangesListClient({ view }: { view: ChangesView }) {
             </button>
             {TABS.map((t) => {
               const active = !grouped && tab === t.id;
-              // UX0 (2026-07-02) - the Measuring tab shows the SAME canonical count Today
-              // shows (the proof ledger's own verdict field), never a separately-derived
-              // number that can silently disagree (ground-truth: Today said 16, this tab
-              // said 10). When this worklist only has a subset of the tenant's measuring
-              // changes, the badge is honest about it ("10 of 16").
-              const displayCount = t.id === "measuring" ? view.measuringCountCanonical : s[t.id];
-              const badgeLabel = t.id === "measuring" && view.measuringCountCanonical > s.measuring
-                ? `${s.measuring} of ${view.measuringCountCanonical}`
+              // UX0/FP3 (2026-07-02) - the Measuring and Results tabs show the SAME
+              // canonical counts Today and the Results page show (the ONE-COUNT RULE in
+              // domains/changes/lifecycle-counts.ts), never a separately-derived number
+              // that can silently disagree (ground-truth: Today said 16, this tab said
+              // 10). When this worklist only has a subset of the tenant's measuring or
+              // decided changes, the badge is honest about it ("10 of 16").
+              const canonical =
+                t.id === "measuring" ? view.measuringCountCanonical : t.id === "results" ? view.decidedCountCanonical : null;
+              const displayCount = canonical ?? s[t.id];
+              const badgeLabel = canonical != null && canonical > s[t.id]
+                ? `${s[t.id]} of ${canonical}`
                 : String(displayCount);
               return (
                 <button key={t.id} type="button" onClick={() => { setTab(t.id); setGrouped(false); }} aria-pressed={active} aria-label={`${t.label}, ${displayCount} ${displayCount === 1 ? "change" : "changes"}`}

@@ -1,5 +1,6 @@
 import "server-only";
 
+import { cache } from "react";
 import { currentTenantId } from "@/lib/tenant-context";
 import { loadLatestFactoryBatch, type FactoryBatchRecord } from "@/domains/page-factory/batch-store";
 import { getLatestMoveDrafts } from "@/domains/demand-graph/move-draft-store";
@@ -39,7 +40,10 @@ export type FactoryBatchCardData = {
   items: FactoryBatchCardItem[];
 };
 
-export async function loadFactoryBatchCardData(): Promise<FactoryBatchCardData | null> {
+// FP5b (2026-07-02) - react.cache()'d: /worklist now reads this twice per request (the
+// batch card itself + the New Pages board's exclude-topics dedupe), so the store read
+// happens once and both consumers see the same rows.
+export const loadFactoryBatchCardData = cache(async (): Promise<FactoryBatchCardData | null> => {
   const tenantId = await currentTenantId();
   const batch = await loadLatestFactoryBatch(tenantId).catch(() => null);
   if (!batch || batch.items.length === 0) return null;
@@ -96,4 +100,4 @@ export async function loadFactoryBatchCardData(): Promise<FactoryBatchCardData |
     queuedCount: batch.queuedForKeywordBatch.length,
     items,
   };
-}
+});

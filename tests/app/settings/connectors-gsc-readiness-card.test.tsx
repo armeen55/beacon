@@ -136,7 +136,10 @@ describe("GSC card — readiness surfacing", () => {
       },
     });
     expect(html).toContain('data-gsc-readiness="connected_no_data"');
-    expect(html).toContain("Connected · no data yet, pull to backfill");
+    // FP10a (2026-07-02) — the connected card collapses to one summary line;
+    // the badge shortens to "No data yet" there (the fuller "Connected, but
+    // no Search Console data yet" headline still renders once, expanded).
+    expect(html).toContain("No data yet");
     expect(html).toContain("Connected, but no Search Console data yet");
   });
 
@@ -168,8 +171,11 @@ describe("GSC card — readiness surfacing", () => {
         property: null,
       },
     });
+    // FP10a (2026-07-02) — the disconnected card no longer stacks a second
+    // "Not ready" badge under "Not connected"; that was the same fact said
+    // twice. "Not connected" is the single, plain state line now.
     expect(html).toContain('data-gsc-readiness="not_connected"');
-    expect(html).toContain(">Not ready<");
+    expect(html).toContain("Not connected");
   });
 
   it("no readiness prop → card still renders with default not_connected attr (back-compat)", () => {

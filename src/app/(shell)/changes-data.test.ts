@@ -9,7 +9,8 @@
  * and build-canonical-changes.test.ts already use for CanonicalChange fixtures).
  */
 import { describe, expect, it } from "vitest";
-import { dedupeIdentity, strongerChange, dedupeChanges, demoteUnsized, reconcileCannibalizationRationale } from "./changes-data";
+import { dedupeIdentity, strongerChange, dedupeChanges, demoteUnsized, reconcileCannibalizationRationale, dropBoardDuplicateNewPageRows } from "./changes-data";
+import { topicIdentityKey } from "@/domains/demand-graph/dedupe-new-page-cards";
 import type { CanonicalChange, CanonicalStatus } from "@/domains/changes/canonical-change";
 import { rankChanges } from "@/domains/changes/strategy";
 import type { TodayMove } from "./today-moves-data";
@@ -245,6 +246,39 @@ describe("reconcileCannibalizationRationale (killer finding 3 - the secondary li
     const movesById = { m1: moveWithCannibalization("m1", fix) };
     const [out] = reconcileCannibalizationRationale([c], movesById);
     expect(out!.rationale).not.toMatch(/[–—]/);
+  });
+});
+
+describe("dropBoardDuplicateNewPageRows (FP5b - 'new-page ideas appear three times in two formats')", () => {
+  const boardKeys = new Set([topicIdentityKey("Biggest Cities In Iran")]);
+
+  it("drops a page-less create row whose topic already has a New Pages board card, across singular/plural phrasing", () => {
+    const rows = [
+      cc("a", "suggested", { changeFamily: "new_page", pagePath: "", pageLabel: "biggest city in iran" }),
+      cc("b", "suggested", { changeFamily: "meta", pagePath: "/some-page" }),
+    ];
+    const out = dropBoardDuplicateNewPageRows(rows, boardKeys);
+    expect(out.map((c) => c.id)).toEqual(["b"]);
+  });
+
+  it("keeps a create topic the board does NOT carry (nothing is lost)", () => {
+    const rows = [cc("a", "suggested", { changeFamily: "new_page", pagePath: "", pageLabel: "persian wedding sofreh" })];
+    expect(dropBoardDuplicateNewPageRows(rows, boardKeys)).toHaveLength(1);
+  });
+
+  it("never drops a row that targets a REAL page, even when its label matches a board topic", () => {
+    const rows = [cc("a", "suggested", { changeFamily: "new_page", pagePath: "/biggest-cities", pageLabel: "biggest cities in iran" })];
+    expect(dropBoardDuplicateNewPageRows(rows, boardKeys)).toHaveLength(1);
+  });
+
+  it("never drops a non-new-page row", () => {
+    const rows = [cc("a", "suggested", { changeFamily: "answer", pagePath: "", pageLabel: "biggest cities in iran" })];
+    expect(dropBoardDuplicateNewPageRows(rows, boardKeys)).toHaveLength(1);
+  });
+
+  it("is a no-op when the board read failed (empty key set - honest degradation, never a blank list)", () => {
+    const rows = [cc("a", "suggested", { changeFamily: "new_page", pagePath: "", pageLabel: "biggest cities in iran" })];
+    expect(dropBoardDuplicateNewPageRows(rows, new Set())).toHaveLength(1);
   });
 });
 

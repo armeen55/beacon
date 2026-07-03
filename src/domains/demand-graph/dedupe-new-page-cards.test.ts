@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { dedupeNewPageCards, type DedupableCard } from "./dedupe-new-page-cards";
+import { dedupeNewPageCards, topicIdentityKey, type DedupableCard } from "./dedupe-new-page-cards";
 
 const card = (o: Partial<DedupableCard> & { id: string; topic: string }): DedupableCard => ({
   searchVolume: null,
@@ -49,5 +49,30 @@ describe("dedupeNewPageCards", () => {
     const cards = [card({ id: "a", topic: "Persian Gardens" }), card({ id: "b", topic: "Persian Mythology" })];
     const { kept } = dedupeNewPageCards(cards);
     expect(kept.map((c) => c.id)).toEqual(["a", "b"]);
+  });
+
+  it("FP5b killer finding: collapses singular/plural twins ('biggest cities in iran' vs 'biggest city in iran') into ONE card", () => {
+    const cards = [
+      card({ id: "a", topic: "Biggest Cities In Iran", searchVolume: 880, score: 30 }),
+      card({ id: "b", topic: "Biggest City In Iran", searchVolume: null, score: 60 }),
+    ];
+    const { kept, dropped } = dedupeNewPageCards(cards);
+    expect(kept.length).toBe(1);
+    expect(kept[0].id).toBe("a"); // real volume still wins
+    expect(dropped.length).toBe(1);
+  });
+});
+
+describe("topicIdentityKey (the shared ownership-registry normalizer)", () => {
+  it("singularizes properly, so 'cities' and 'city' share one identity", () => {
+    expect(topicIdentityKey("Biggest Cities In Iran")).toBe(topicIdentityKey("biggest city in iran"));
+  });
+
+  it("ignores word order", () => {
+    expect(topicIdentityKey("Tehran Restaurants")).toBe(topicIdentityKey("Restaurants in Tehran"));
+  });
+
+  it("falls back to the exact lowercased string for token-less generic labels (never over-collapses)", () => {
+    expect(topicIdentityKey("Guide")).not.toBe(topicIdentityKey("Tips"));
   });
 });

@@ -9,10 +9,11 @@ import {
 } from "@/lib/connectors/gsc/readiness";
 import { currentTenantId } from "@/lib/tenant-context";
 import { PageHeader } from "@/components/data/page-header";
-import { ConnectorsClient } from "./connectors-client";
+import { ConnectorsClient, type LastSyncState } from "./connectors-client";
 import { PublishingModeCard } from "./publishing-mode-card";
 import { AutopilotCard } from "./autopilot-card";
 import { CronHealthPanel } from "./cron-health-panel";
+import { loadCronHealthView } from "@/domains/ops/cron-health-view";
 import { loadWithDeadline } from "@/lib/load-with-deadline";
 import { HonestDelay } from "@/components/honest-delay";
 
@@ -118,11 +119,58 @@ async function loadConnectorsPageData() {
         })
       : null;
 
-  return { cronHealthPanel, googleGsc, googleGa4, yelp, wix, profound, clarity, cfg, gbpTok, gscStaleCopy, gscReadiness, ga4StaleCopy };
+  // FP10a (2026-07-02) - one summary strip fact instead of the same three
+  // facts stated five-plus times across the page. "N of M connected" counts
+  // the five self-serve sources that actually render a card on this page
+  // (GSC, GA4, Wix, Profound, Clarity); Yelp is removed from the UI
+  // (2026-06-18) and GBP is deferred, so neither counts toward M.
+  const connectedCount = [googleGsc, googleGa4, wix, profound, clarity].filter(
+    (c) => c.status === "connected",
+  ).length;
+  const totalCount = 5;
+
+  // "Last night's sync" reads the same sync-connectors cron job the health
+  // panel below renders in full - one source of truth, not a second story.
+  let lastSyncState: LastSyncState = "none";
+  let lastSyncHeadline = "I have not run yet.";
+  try {
+    const jobs = await loadCronHealthView();
+    const syncJob = jobs.find((j) => j.job === "sync-connectors");
+    if (syncJob?.lastRun) {
+      lastSyncState = syncJob.lastRun.ok ? "ok" : "issues";
+      lastSyncHeadline = syncJob.headline;
+    }
+  } catch {
+    // Soft-fail: the health panel below will show its own honest state;
+    // the summary strip just falls back to "none".
+  }
+
+  return {
+    cronHealthPanel,
+    googleGsc,
+    googleGa4,
+    yelp,
+    wix,
+    profound,
+    clarity,
+    cfg,
+    gbpTok,
+    gscStaleCopy,
+    gscReadiness,
+    ga4StaleCopy,
+    connectedCount,
+    totalCount,
+    lastSyncState,
+    lastSyncHeadline,
+  };
 }
 
+// FP10a (2026-07-02) - the per-connector "what it feeds" line now lives once
+// on each connector's own row (see connectors-client.tsx SOURCE_SUMMARY), so
+// this description stays a single plain sentence instead of repeating each
+// source's story here too.
 const CONNECTORS_DESCRIPTION =
-  "Connect the tools your business already uses so Beacon can see what's happening and suggest what to do next. Connect Google so Beacon sees what people search to find you. Connect Google Analytics to see what visitors do on your site. Connect Clarity to see where visitors get stuck. Connect Wix so approved edits can publish to your site. Connect the rest as you're ready, or import a spreadsheet instead under Settings → Import.";
+  "The tools your business already uses, so I can see what's happening and tell you what to do next.";
 
 export default async function ConnectorsPage() {
   const raced = await loadWithDeadline(loadConnectorsPageData(), CONNECTORS_DEADLINE_MS);
@@ -147,6 +195,10 @@ export default async function ConnectorsPage() {
     gscStaleCopy,
     gscReadiness,
     ga4StaleCopy,
+    connectedCount,
+    totalCount,
+    lastSyncState,
+    lastSyncHeadline,
   } = raced.data;
 
   return (
@@ -168,6 +220,10 @@ export default async function ConnectorsPage() {
         gscStaleCopy={gscStaleCopy}
         gscReadiness={gscReadiness}
         ga4StaleCopy={ga4StaleCopy}
+        connectedCount={connectedCount}
+        totalCount={totalCount}
+        lastSyncState={lastSyncState}
+        lastSyncHeadline={lastSyncHeadline}
       />
       {/* Armed publishing (2026-06-16) — opt in to one-click live publishing
           for safe, mapped, high-confidence edits. Default stays two-click. */}

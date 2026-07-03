@@ -7,11 +7,19 @@
  * restaurants") — operator ground-truth found duplicate restaurant queries reaching
  * the board with two DIFFERENT demand numbers from two sources, reading as the app
  * contradicting itself. This normalizes every card's topic to its distinguishing-
- * token set (reusing keyword-match.ts's tenant-agnostic tokenizer) and keeps exactly
- * one card per set: the one with a real (non-null) search volume, else the higher
- * score. PURE / no I/O.
+ * token set and keeps exactly one card per set: the one with a real (non-null)
+ * search volume, else the higher score. PURE / no I/O.
+ *
+ * FP5b (2026-07-02): the normalizer is now topicTokens from the evidence relevance
+ * gate - the SAME normalizer the ownership registry resolves topics with. Unlike the
+ * previous keyword-match tokenizer (a naive trailing-s strip: "cities" -> "citie",
+ * "city" -> "city"), it singularizes properly ("cities" and "city" both -> "city"),
+ * which closes the exact "biggest cities in iran" vs "biggest city in iran"
+ * two-separate-to-dos bug. `topicIdentityKey` is exported so every surface that must
+ * dedupe against the board (changes-data.ts, the board's excludeTopics prop) keys
+ * topics identically.
  */
-import { topicDistinguishingTokens } from "@/domains/demand/keyword-match";
+import { topicTokens } from "@/domains/evidence/relevance-gate";
 
 export type DedupableCard = {
   id: string;
@@ -26,8 +34,12 @@ export type DedupeResult<T extends DedupableCard> = {
   dropped: { id: string; topic: string; keptInstead: string; reason: string }[];
 };
 
-function tokenKey(topic: string): string {
-  const t = topicDistinguishingTokens(topic);
+/** ONE topic identity for "is this the same not-yet-built page?" across every surface:
+ *  the sorted distinguishing-token set (singularized, generic brand words dropped), or
+ *  the exact lowercased string when a label is too generic to tokenize (so two generic
+ *  labels never over-collapse). */
+export function topicIdentityKey(topic: string): string {
+  const t = topicTokens(topic);
   return t.length > 0 ? [...t].sort().join(" ") : topic.trim().toLowerCase();
 }
 
@@ -53,7 +65,7 @@ export function dedupeNewPageCards<T extends DedupableCard>(cards: readonly T[])
   const dropped: DedupeResult<T>["dropped"] = [];
 
   for (const card of cards) {
-    const key = tokenKey(card.topic);
+    const key = topicIdentityKey(card.topic);
     const existing = byKey.get(key);
     if (!existing) {
       byKey.set(key, card);

@@ -1,0 +1,48 @@
+import "server-only";
+import { cache } from "react";
+
+/**
+ * lifecycle-counts-data (2026-07-02, FP3) - the ONE request-cached loader behind every
+ * rendered lifecycle-stage count. Reads the canonical stores exactly once per request
+ * (the proof ledger via the already-request-cached loadProofLedgerCached, the daily
+ * plan store, and the canonical Changes list for the backlog count) and runs the pure
+ * ONE-COUNT-RULE math in src/domains/changes/lifecycle-counts.ts.
+ *
+ * Consumers: Today (tiles + standup + measuring strip), the worklist Tonight chip,
+ * and the Results header strip. Because loadProofLedgerCached and loadChangesView are
+ * both react.cache()'d, calling this on a page that already loads them costs nothing
+ * extra - the counts are computed from the SAME row objects those surfaces render.
+ *
+ * Fail-soft: any single store outage zeroes only its own counts, never throws into a
+ * page render. The backlog read is deadline-bounded (it is the heaviest source; on
+ * /worklist it is free because the list itself already computed it this request).
+ */
+import { currentTenantId } from "@/lib/tenant-context";
+import { loadProofLedgerCached } from "@/domains/proof-gsc/load-ledger";
+import { getAcceptedPlan, getLatestPreviewPlan } from "@/domains/experiments/daily-experiment-plan-store";
+import { computeLifecycleCounts, type LifecycleCounts } from "@/domains/changes/lifecycle-counts";
+import { loadChangesView } from "./changes-data";
+import { valueWithDeadline } from "@/lib/load-with-deadline";
+
+/** The backlog count is a nice-to-have on pages that don't render it (Today, Results);
+ *  never let it hold the ledger/tonight counts hostage on a cold cache. Kept well
+ *  under every caller's own outer deadline so a slow worklist build degrades ONLY
+ *  toDo (to 0), never the measuring/decided/tonight numbers. On /worklist the read
+ *  is react.cache-shared with the list section itself, so it is usually instant,
+ *  and a deadline here never cancels that shared computation. */
+const BACKLOG_DEADLINE_MS = 3_500;
+
+export const loadLifecycleCounts = cache(async (): Promise<LifecycleCounts> => {
+  const tenantId = await currentTenantId();
+  const [ledger, accepted, preview, backlogToDo] = await Promise.all([
+    loadProofLedgerCached(tenantId).catch(() => []),
+    getAcceptedPlan(tenantId).catch(() => null),
+    getLatestPreviewPlan(tenantId).catch(() => null),
+    valueWithDeadline(
+      loadChangesView().then((v) => v.summary.todo).catch(() => 0),
+      0,
+      BACKLOG_DEADLINE_MS,
+    ),
+  ]);
+  return computeLifecycleCounts({ ledger, acceptedPlan: accepted, previewPlan: preview, backlogToDo });
+});

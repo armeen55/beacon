@@ -7,6 +7,18 @@
 
 ---
 
+## 2026-07-03 - FINISHED PRODUCT FP3 + FP5: one count per stage, one home per job
+
+**What changed (FP3, contradicting counts):** new `src/domains/changes/lifecycle-counts.ts` is THE ONE-COUNT RULE: a shipped change is DECIDED exactly at a mature result (28d window + 2 comparisons + 200 baseline impressions + won/lost verdict + no overlapping edit, i.e. `deriveMeasurementMaturity === "mature_result"`); everything else shipped is MEASURING (the exact set Results shows as In flight); tonight's picked/applied reuse execution-checklist's `summary.left` formula. New request-cached loader `src/app/(shell)/lifecycle-counts-data.ts` feeds it the canonical stores once per request. Consumers rewired: Today (`page.tsx` tiles + standup + measuring strip + results-ready alert remap), the Changes list (`changes-data.ts` `measuringCountCanonical` now rule-based + new `decidedCountCanonical`; Measuring AND Results tabs show "X of Y" against the canonical numbers), and Results (`proof/page.tsx` band membership now `splitLedgerLifecycle`, plus a new `ResultsHeaderStrip`: "You have shipped 25 changes. 9 have a final read (3 wins), and 16 are still measuring below."). This kills the 16-vs-25 cross-link class at the source: Today's "N measuring -> View all in Results" now equals In flight (N).
+
+**What changed (FP5, duplicate homes):** (a) `DailyExperimentsSection` renders ONLY on Today; `/worklist` shows the one-line `TonightSummaryChip` ("Tonight: 6 picked, 6 applied. See them on Today →") from the same FP3 counts. (b) The New Pages board's single home is `/worklist`; Today shows `TodayNewPagesSummaryLine` ("I found 9 new pages worth building. The full board, with drafts and competitor teardowns, lives in Changes."); the board's dedupe normalizer switched to the ownership-registry `topicTokens` (proper singularization: "biggest cities in iran" == "biggest city in iran"), exported as `topicIdentityKey`; page-less create rows already on the board are dropped from the ranked list (`dropBoardDuplicateNewPageRows`); board cards duplicating this week's page-factory batch are excluded via `excludeTopics`. (c) On `/proof` the "Your changes" timeline no longer stacks as a second full list under the measured-outcomes ledger; it lives behind one collapsed "See the raw change log" expander (BoundedSection wrapper intact). (d) Measuring's single home is Results; the worklist measuring/results empty states say so.
+
+**Tests:** new `lifecycle-counts.test.ts` (23), `tonight-summary-chip.test.tsx` (4), `results-header-strip.test.tsx` (4), `today-newpages-summary.test.ts` (3); `changes-data.test.ts` +5 (board dedupe), `dedupe-new-page-cards.test.ts` +4 (singular/plural pins). Targeted sweep across every touched area (`src/domains/changes`, `src/domains/proof-gsc`, `src/domains/allocator`, `src/domains/demand`, shell proof/worklist/today tests): 90+ files, 1300+ tests green. `npx tsc --noEmit` clean.
+
+**Ground truth:** dev server on :3142 returns 200 on `/`, `/worklist`, `/proof`; sections render honest-delay fallbacks because local Supabase reads 522 (pre-existing), so rendered copy is pinned by the renderToStaticMarkup tests above (the quoted chip and header-strip sentences are exact test assertions).
+
+---
+
 ## 2026-07-03 - MASTER PLAN v2 item UX3: Changes as a dense inbox
 
 **What changed:** `/worklist`'s `ChangesListClient` (`src/app/(shell)/changes-list-client.tsx`) rows were already one compact line (status via border+text, page/dossier link, the exact action, the honest D7 upside range, evidence chip, effort, status); this pass closed the remaining four UX3 pieces without touching the D6 daily-ritual session loop it also owns.
@@ -32308,3 +32320,16 @@ isOperatorModeServer always truthy). FP6b: three worst files migrated onto token
 Caveat: real-content visual pass blocked by the ongoing local Supabase data-path outage (health
 endpoint answers, REST reads wedge); prod unaffected (login 200 in 1.7s). Re-verify visuals after
 recovery or on prod.
+
+## 2026-07-02 FINISHED PRODUCT wave 3 (FP3+FP5, FP6b-2, FP10a)
+One-count story: lifecycle-counts.ts encodes the single DECIDED/MEASURING/TONIGHT rule; Today
+tiles, Changes strip, Results header and bands all read it; Results header renders "You have
+shipped 25 changes. 9 have a final read (3 wins), and 16 are still measuring below." and the
+worklist chip renders "Tonight: 6 picked, 6 applied. See them on Today." One home per job:
+tonight's cards, New Pages board, measuring list, and the /proof archive each render exactly
+once (see the wave's duplication table in the FP3+FP5 report). today-newpages-card 144 to 22 raw
+classes + dark-broken board fixed; Connections collapsed to a real status surface. Ratchet holds
+at 1651 (one new raw focus ring converted to the ring token during the gate). Gates: typecheck
+clean, guard 19/19, proof 88/88, 300+ targeted tests + 1,300+ in the FP3+FP5 lane, 124 connectors,
+48 newpages. Live streams still show honest-delay fallbacks locally (Supabase 522 storm ongoing);
+copy verified via render tests; prod unaffected.

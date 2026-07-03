@@ -118,7 +118,11 @@ describe("GA4 card — CONNECTED + NO PROPERTY state", () => {
         ga4_account_display_name: null,
       },
     });
-    expect(html).toContain("Connected to Google Analytics");
+    // FP10a (2026-07-02) — connected cards collapse to one summary line
+    // with a "Manage" expand; the header no longer repeats "Connected to
+    // Google Analytics" verbatim (the card + authorized date already say so).
+    expect(html).toContain('data-connector-card="google-ga4"');
+    expect(html).toContain("Authorized");
     // #197 — non-color "Action needed:" prefix + role=status (was color-only).
     expect(html).toContain("Action needed:");
     expect(html).toContain("select a property to finish setup");
@@ -141,7 +145,7 @@ describe("GA4 card — CONNECTED + WITH PROPERTY state", () => {
         ga4_account_display_name: "Ritz Builders LLC",
       },
     });
-    expect(html).toContain("Connected to Google Analytics");
+    expect(html).toContain('data-connector-card="google-ga4"');
     expect(html).toContain("Selected: Ritz Builders — Production");
     expect(html).toContain("Ritz Builders LLC");
     expect(html).toContain("Choose a different property");

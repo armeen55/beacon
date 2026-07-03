@@ -9,24 +9,32 @@ import type { NewPageOpportunity } from "./today-newpages-data";
 import { BriefButton } from "./diagnostics/profound-intelligence/brief-button";
 import type { AssembledDraftPage } from "@/domains/llm/draft-full-page";
 import { plainSchemaTypes, plainSerpReason } from "@/lib/plain-language";
+import { Card } from "@/components/ui/card";
+import { Pill, type PillIntent } from "@/components/ui/pill";
 
 /**
  * today-newpages-card (2026-06-24) — interactive "New page to build" card. Adds an
  * on-demand "✨ Draft the opening" that writes a real 40–60 word opener for a page
  * that doesn't exist yet — reusing the gated/safe answer-block drafter (OFF unless
  * BEACON_LLM_PROVIDER=openai; operator-gated; budget + fact-safety firewalled).
+ *
+ * FP6b-2 (2026-07-02) - migrated onto the FP6a design system (Card/Pill + tokens
+ * + the five-size type scale). Violet (AI-drafted opening/brief) and indigo (the
+ * full-page draft) stay as deliberate identity colors, matching the precedent
+ * set in today-moves-card.tsx: those two accents mark "AI generated this" and
+ * do not correspond to any of the six Pill verdict intents.
  */
 
-const TIER: Record<NewPageOpportunity["tier"], { label: string; cls: string }> = {
-  hot: { label: "Hot", cls: "bg-rose-50 text-rose-600 ring-rose-200" },
-  warm: { label: "Warm", cls: "bg-amber-50 text-amber-700 ring-amber-200" },
-  emerging: { label: "Emerging", cls: "bg-gray-100 text-gray-500 ring-gray-200" },
+const TIER: Record<NewPageOpportunity["tier"], { label: string; intent: PillIntent }> = {
+  hot: { label: "Hot", intent: "attention" },
+  warm: { label: "Warm", intent: "waiting" },
+  emerging: { label: "Emerging", intent: "neutral" },
 };
 
-const VERDICT_STYLE: Record<string, { label: string; cls: string }> = {
-  build: { label: "BUILD", cls: "bg-emerald-600 text-white" },
-  wait: { label: "WAIT", cls: "bg-amber-100 text-amber-800 ring-1 ring-amber-200" },
-  reject: { label: "SKIP", cls: "bg-gray-200 text-gray-600" },
+const VERDICT_STYLE: Record<string, { label: string; intent: PillIntent }> = {
+  build: { label: "BUILD", intent: "live" },
+  wait: { label: "WAIT", intent: "waiting" },
+  reject: { label: "SKIP", intent: "neutral" },
 };
 
 export function NewPageCard({ o, ownDomain, enableAeoBrief = false }: { o: NewPageOpportunity; ownDomain: string; enableAeoBrief?: boolean }) {
@@ -183,28 +191,26 @@ export function NewPageCard({ o, ownDomain, enableAeoBrief = false }: { o: NewPa
   };
 
   return (
-    <div className="group flex min-w-0 flex-col justify-between overflow-hidden rounded-2xl border border-gray-200 bg-white p-4 shadow-sm transition-all hover:-translate-y-0.5 hover:border-emerald-200 hover:shadow-md">
+    <Card padding="none" className="group flex min-w-0 flex-col justify-between overflow-hidden rounded-2xl p-4 shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md">
       <div>
         <div className="flex items-center justify-between gap-2">
-          <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700 ring-1 ring-emerald-200">
-            New page
-          </span>
-          <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ring-1 ${tier.cls}`}>{tier.label}</span>
+          <Pill intent="live">New page</Pill>
+          <Pill intent={tier.intent}>{tier.label}</Pill>
         </div>
-        <h3 className="mt-2.5 text-[15px] font-semibold leading-snug tracking-tight text-gray-900">{o.topic}</h3>
+        <h3 className="mt-2.5 text-sub font-semibold leading-snug tracking-tight text-foreground">{o.topic}</h3>
         {o.alsoCovers && o.alsoCovers.length > 0 ? (
-          <p className="mt-1 text-[11px] text-gray-400">
+          <p className="mt-1 text-meta text-muted-foreground">
             Also covers: {o.alsoCovers.slice(0, 3).join(", ")}
             {o.alsoCovers.length > 3 ? ` +${o.alsoCovers.length - 3}` : ""}
           </p>
         ) : null}
-        <p className="mt-1.5 text-xs leading-relaxed text-gray-500">
+        <p className="mt-1.5 text-body leading-relaxed text-foreground-secondary">
           {/* A7 (operator-experience fix batch, 2026-07-02) - the "get cited for this, you have
               no page yet" sentence now lives once in the section subhead above; each card only
               names its own count so the boilerplate stops repeating verbatim across cards. */}
           {o.competitorCount > 0 ? (
             <>
-              <span className="font-medium text-gray-700">{o.competitorCount}</span> competitor page
+              <span className="font-medium text-foreground">{o.competitorCount}</span> competitor page
               {o.competitorCount === 1 ? "" : "s"} cite this topic.
             </>
           ) : (
@@ -212,21 +218,16 @@ export function NewPageCard({ o, ownDomain, enableAeoBrief = false }: { o: NewPa
           )}
         </p>
         {o.keywordMatch && o.searchVolume && o.searchVolume > 0 ? (
-          <p
-            className={`mt-1.5 inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] font-medium ring-1 ${
-              o.keywordMatch.confidence === "weak"
-                ? "bg-gray-50 text-gray-600 ring-gray-200"
-                : "bg-sky-50 text-sky-800 ring-sky-100"
-            }`}
-            title={`DataForSEO cached search volume, matched ${o.keywordMatch.confidence}`}
-          >
-            {o.searchVolume.toLocaleString()}/mo {o.keywordMatch.confidence === "weak" ? "≈ via" : "via"} “{o.keywordMatch.keyword}”
+          <p className="mt-1.5" title={`DataForSEO cached search volume, matched ${o.keywordMatch.confidence}`}>
+            <Pill intent={o.keywordMatch.confidence === "weak" ? "neutral" : "measuring"}>
+              {o.searchVolume.toLocaleString()}/mo {o.keywordMatch.confidence === "weak" ? "≈ via" : "via"} “{o.keywordMatch.keyword}”
+            </Pill>
           </p>
         ) : null}
-        {o.topCompetitor ? <p className="mt-1 text-[11px] text-gray-400">e.g. {o.topCompetitor}</p> : null}
+        {o.topCompetitor ? <p className="mt-1 text-meta text-muted-foreground">e.g. {o.topCompetitor}</p> : null}
         {o.gapEvidence ? (
           <p
-            className="mt-1.5 rounded-md bg-indigo-50/70 px-2 py-1 text-[11px] leading-snug text-indigo-900 ring-1 ring-indigo-100"
+            className="mt-1.5 rounded-md bg-surface-raised px-2 py-1 text-meta leading-snug text-foreground-secondary"
             title="From the competitor keyword gap check (Google index data, cached 30 days)"
           >
             {o.gapEvidence}
@@ -234,7 +235,7 @@ export function NewPageCard({ o, ownDomain, enableAeoBrief = false }: { o: NewPa
         ) : null}
         {o.wikiGapEvidence ? (
           <p
-            className="mt-1.5 rounded-md bg-amber-50/70 px-2 py-1 text-[11px] leading-snug text-amber-900 ring-1 ring-amber-100"
+            className="mt-1.5 rounded-md bg-status-warning-bg px-2 py-1 text-meta leading-snug text-status-warning"
             title="From the beat-Wikipedia check (Wikipedia's free API, cached 30 days)"
           >
             {o.wikiGapEvidence}
@@ -242,17 +243,17 @@ export function NewPageCard({ o, ownDomain, enableAeoBrief = false }: { o: NewPa
         ) : null}
         {o.aeoReceipt ? (
           <div className="mt-2 rounded-lg border border-violet-100 bg-violet-50/60 px-2.5 py-2">
-            <div className="text-[10px] font-semibold uppercase tracking-wide text-violet-700">✦ AI-validated</div>
-            <p className="mt-1 text-[11px] leading-snug text-gray-700">
-              AI asks: <span className="font-medium text-gray-900">“{o.aeoReceipt.topPrompt}”</span>
+            <div className="text-meta font-semibold uppercase tracking-wide text-violet-700">✦ AI-validated</div>
+            <p className="mt-1 text-body leading-snug text-foreground-secondary">
+              AI asks: <span className="font-medium text-foreground">“{o.aeoReceipt.topPrompt}”</span>
             </p>
             {o.aeoReceipt.fanoutCount > 0 ? (
-              <p className="mt-0.5 text-[10px] text-gray-500">
+              <p className="mt-0.5 text-meta text-muted-foreground">
                 Fans out into {o.aeoReceipt.fanoutCount} related question{o.aeoReceipt.fanoutCount === 1 ? "" : "s"}
               </p>
             ) : null}
-            <p className="mt-0.5 text-[10px] text-gray-500">AI cites: {o.aeoReceipt.citedDomains.join(", ")}</p>
-            <p className="mt-0.5 text-[10px] font-medium text-violet-700">
+            <p className="mt-0.5 text-meta text-muted-foreground">AI cites: {o.aeoReceipt.citedDomains.join(", ")}</p>
+            <p className="mt-0.5 text-meta font-medium text-violet-700">
               {o.aeoReceipt.ownAbsent ? "Iranopedia not cited yet" : "Your page: cited"}
             </p>
             {enableAeoBrief ? (
@@ -275,52 +276,50 @@ export function NewPageCard({ o, ownDomain, enableAeoBrief = false }: { o: NewPa
             const ready = !q || q.status === "ready";
             const needsReview = q?.status === "useful_but_needs_review";
             const copyOk = q ? q.copyAllowed : true;
-            const tone = ready ? "emerald" : needsReview ? "amber" : "gray";
-            const cls =
-              tone === "emerald"
-                ? "border-emerald-200 bg-emerald-50/60"
-                : tone === "amber"
-                  ? "border-amber-200 bg-amber-50/60"
-                  : "border-gray-200 bg-gray-50";
+            const cls = ready
+              ? "border-status-success/20 bg-status-success-bg"
+              : needsReview
+                ? "border-status-warning/20 bg-status-warning-bg"
+                : "border-border bg-surface-raised";
             const heading = ready ? "✦ Page brief ready" : needsReview ? "Brief drafted, needs review" : "Brief needs work";
-            const headCls = tone === "emerald" ? "text-emerald-700" : tone === "amber" ? "text-amber-700" : "text-gray-500";
+            const headCls = ready ? "text-status-success" : needsReview ? "text-status-warning" : "text-muted-foreground";
             return (
           <div className={`mt-2 rounded-lg border px-2.5 py-2 ${cls}`}>
             <div className="flex items-center justify-between">
-              <span className={`text-[10px] font-semibold uppercase tracking-wide ${headCls}`}>{heading}</span>
+              <span className={`text-meta font-semibold uppercase tracking-wide ${headCls}`}>{heading}</span>
               {copyOk ? (
-                <button onClick={copyBrief} className="rounded-md bg-emerald-600 px-2 py-0.5 text-[10px] font-semibold text-white hover:bg-emerald-500">
+                <button onClick={copyBrief} className="rounded-md bg-status-success px-2 py-0.5 text-meta font-semibold text-background hover:opacity-90">
                   {briefCopied ? "Copied ✓" : "Copy brief"}
                 </button>
               ) : null}
             </div>
             {q && q.status !== "ready" && q.reasons[0] ? (
-              <p className={`mt-0.5 text-[10px] ${tone === "amber" ? "text-amber-700" : "text-gray-500"}`}>{q.reasons[0]}</p>
+              <p className={`mt-0.5 text-meta ${needsReview ? "text-status-warning" : "text-muted-foreground"}`}>{q.reasons[0]}</p>
             ) : null}
             {o.briefFromRelated ? (
-              <p className="mt-0.5 text-[10px] text-gray-400">Brief from a related topic in this group, adapt the title/slug.</p>
+              <p className="mt-0.5 text-meta text-muted-foreground">Brief from a related topic in this group, adapt the title/slug.</p>
             ) : null}
-            <p className="mt-1 text-[11px] font-semibold leading-snug text-gray-900">{o.preparedBrief.title}</p>
-            <p className="mt-0.5 text-[10px] leading-snug text-gray-500">{o.preparedBrief.meta}</p>
-            <p className="mt-1 rounded bg-white p-1.5 text-[11px] leading-relaxed text-gray-800 ring-1 ring-emerald-100">{o.preparedBrief.opening}</p>
+            <p className="mt-1 text-body font-semibold leading-snug text-foreground">{o.preparedBrief.title}</p>
+            <p className="mt-0.5 text-meta leading-snug text-muted-foreground">{o.preparedBrief.meta}</p>
+            <p className="mt-1 rounded bg-card p-1.5 text-body leading-relaxed text-foreground-secondary ring-1 ring-status-success/15">{o.preparedBrief.opening}</p>
             {o.preparedBrief.outline.length > 0 ? (
               <div className="mt-1.5">
-                <div className="text-[9px] font-semibold uppercase tracking-wide text-gray-400">Outline</div>
+                <div className="text-meta font-semibold uppercase tracking-wide text-muted-foreground">Outline</div>
                 <ul className="mt-0.5 space-y-0.5">
                   {o.preparedBrief.outline.slice(0, 6).map((h, i) => (
-                    <li key={i} className="text-[10px] leading-snug text-gray-600">• {h}</li>
+                    <li key={i} className="text-meta leading-snug text-foreground-secondary">• {h}</li>
                   ))}
                   {o.preparedBrief.outline.length > 6 ? (
-                    <li className="text-[10px] text-gray-400">+{o.preparedBrief.outline.length - 6} more sections</li>
+                    <li className="text-meta text-muted-foreground">+{o.preparedBrief.outline.length - 6} more sections</li>
                   ) : null}
                 </ul>
               </div>
             ) : null}
             {o.preparedBrief.faqQuestions.length > 0 ? (
-              <p className="mt-1 text-[10px] text-gray-500">{o.preparedBrief.faqQuestions.length} FAQ question{o.preparedBrief.faqQuestions.length === 1 ? "" : "s"} drafted</p>
+              <p className="mt-1 text-meta text-muted-foreground">{o.preparedBrief.faqQuestions.length} FAQ question{o.preparedBrief.faqQuestions.length === 1 ? "" : "s"} drafted</p>
             ) : null}
             {o.preparedBrief.schemaTypes.length > 0 ? (
-              <p className="mt-0.5 text-[10px] text-gray-500">Behind-the-scenes labels AI reads: {plainSchemaTypes(o.preparedBrief.schemaTypes)}</p>
+              <p className="mt-0.5 text-meta text-muted-foreground">Behind-the-scenes labels AI reads: {plainSchemaTypes(o.preparedBrief.schemaTypes)}</p>
             ) : null}
           </div>
             );
@@ -332,42 +331,42 @@ export function NewPageCard({ o, ownDomain, enableAeoBrief = false }: { o: NewPa
               <button
                 type="button"
                 onClick={() => setFullPageOpen((v) => !v)}
-                className="text-[10px] font-semibold uppercase tracking-wide text-indigo-700"
+                className="text-meta font-semibold uppercase tracking-wide text-indigo-700"
               >
                 {fullPageOpen ? "▾" : "▸"} Full page drafted ({fullPage.stats.sectionsDrafted}/{fullPage.stats.sectionsDrafted + fullPage.stats.sectionsFallback} sections)
               </button>
-              <button onClick={copyFullPage} className="rounded-md bg-indigo-600 px-2 py-0.5 text-[10px] font-semibold text-white hover:bg-indigo-500">
+              <button onClick={copyFullPage} className="rounded-md bg-indigo-600 px-2 py-0.5 text-meta font-semibold text-background hover:bg-indigo-500">
                 {fullPageCopied ? "Copied ✓" : "Copy full page"}
               </button>
             </div>
             {fullPageReceipt ? (
-              <p className="mt-1 text-[10px] text-gray-500">
+              <p className="mt-1 text-meta text-muted-foreground">
                 Spent ${fullPageReceipt.costUsd.toFixed(3)}
                 {fullPageReceipt.persisted ? " · saved" : " · not saved (too large)"}
                 {fullPage.stats.sectionsFallback > 0 ? ` · ${fullPage.stats.sectionsFallback} section${fullPage.stats.sectionsFallback === 1 ? "" : "s"} needs a rewrite` : ""}
               </p>
             ) : fullPage.stats.sectionsFallback > 0 ? (
-              <p className="mt-1 text-[10px] text-amber-700">
+              <p className="mt-1 text-meta text-status-warning">
                 {fullPage.stats.sectionsFallback} section{fullPage.stats.sectionsFallback === 1 ? "" : "s"} could not be drafted confidently. See the stub below.
               </p>
             ) : null}
             {fullPageOpen ? (
-              <div className="mt-2 max-h-72 space-y-2 overflow-y-auto rounded bg-white p-2 ring-1 ring-indigo-100">
+              <div className="mt-2 max-h-72 space-y-2 overflow-y-auto rounded bg-card p-2 ring-1 ring-indigo-100">
                 {fullPage.sections.map((s, i) => (
                   <div key={i}>
-                    <p className="text-[11px] font-semibold text-gray-900">{s.heading}</p>
-                    <p className="mt-0.5 text-[10px] leading-relaxed text-gray-700">{s.body}</p>
-                    <p className="mt-0.5 text-[9px] text-gray-400">
+                    <p className="text-body font-semibold text-foreground">{s.heading}</p>
+                    <p className="mt-0.5 text-meta leading-relaxed text-foreground-secondary">{s.body}</p>
+                    <p className="mt-0.5 text-meta text-muted-foreground">
                       Sources: {s.sources.map((src) => src.detail).join("; ")}
                     </p>
                   </div>
                 ))}
                 {fullPage.sourcesAppendix.length > 0 ? (
-                  <div className="border-t border-gray-100 pt-1.5">
-                    <div className="text-[9px] font-semibold uppercase tracking-wide text-gray-400">Sources appendix</div>
+                  <div className="border-t border-border-subtle pt-1.5">
+                    <div className="text-meta font-semibold uppercase tracking-wide text-muted-foreground">Sources appendix</div>
                     <ul className="mt-0.5 space-y-0.5">
                       {fullPage.sourcesAppendix.map((s) => (
-                        <li key={s.n} className="text-[9px] text-gray-500">
+                        <li key={s.n} className="text-meta text-muted-foreground">
                           {s.n}. ({s.kind}) {s.detail}
                         </li>
                       ))}
@@ -379,41 +378,39 @@ export function NewPageCard({ o, ownDomain, enableAeoBrief = false }: { o: NewPa
           </div>
         ) : null}
         {o.whatWins ? (
-          <div className="mt-2 rounded-lg bg-gray-50 px-2.5 py-1.5">
-            <div className="text-[9px] font-semibold uppercase tracking-wide text-gray-400">What the cited page has</div>
-            <div className="mt-0.5 text-[11px] leading-snug text-gray-600">{o.whatWins}</div>
+          <div className="mt-2 rounded-lg bg-surface-raised px-2.5 py-1.5">
+            <div className="text-meta font-semibold uppercase tracking-wide text-muted-foreground">What the cited page has</div>
+            <div className="mt-0.5 text-body leading-snug text-foreground-secondary">{o.whatWins}</div>
           </div>
         ) : null}
         {shown ? (
           (() => {
             const vs = VERDICT_STYLE[shown.verdict] ?? VERDICT_STYLE.wait;
             return (
-              <div className="mt-2 rounded-lg border border-sky-100 bg-sky-50/60 px-2.5 py-2">
+              <div className="mt-2 rounded-lg border border-status-info/15 bg-status-info-bg px-2.5 py-2">
                 <div className="flex flex-wrap items-center gap-1.5">
-                  <span className={`rounded px-1.5 py-0.5 text-[10px] font-bold tracking-wide ${vs.cls}`}>{vs.label}</span>
-                  <span className="text-[10px] font-medium uppercase tracking-wide text-gray-500">{shown.confidence} confidence</span>
-                  <span className="inline-flex items-center gap-1 rounded bg-emerald-50 px-1.5 py-0.5 text-[9px] font-semibold text-emerald-700 ring-1 ring-emerald-100">
-                    ✓ Google checked{shown.prepared ? "" : " · just now"}
-                  </span>
+                  <Pill intent={vs.intent} className="font-bold tracking-wide">{vs.label}</Pill>
+                  <span className="text-meta font-medium uppercase tracking-wide text-muted-foreground">{shown.confidence} confidence</span>
+                  <Pill intent="live">✓ Google checked{shown.prepared ? "" : " · just now"}</Pill>
                 </div>
-                <p className="mt-1 text-[11px] leading-snug text-gray-700">{plainSerpReason(shown.reason)}</p>
-                <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-[10px] text-gray-500">
+                <p className="mt-1 text-body leading-snug text-foreground-secondary">{plainSerpReason(shown.reason)}</p>
+                <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-meta text-muted-foreground">
                   <span>{shown.contentDomainCount}/10 content</span>
                   {/* B10 (worklist fix batch) - plain labels, not unlabeled counts. */}
                   {shown.marketplaceUgcCount > 0 ? <span>{shown.marketplaceUgcCount} shopping site{shown.marketplaceUgcCount === 1 ? "" : "s"} rank{shown.marketplaceUgcCount === 1 ? "s" : ""} here</span> : null}
-                  {shown.profoundOverlapCount > 0 ? <span className="font-semibold text-emerald-700">cited by AI alongside {shown.profoundOverlapCount} rival{shown.profoundOverlapCount === 1 ? "" : "s"}</span> : null}
-                  {shown.ownAlreadyRanks ? <span className="font-semibold text-amber-700">you already rank</span> : null}
+                  {shown.profoundOverlapCount > 0 ? <span className="font-semibold text-status-success">cited by AI alongside {shown.profoundOverlapCount} rival{shown.profoundOverlapCount === 1 ? "" : "s"}</span> : null}
+                  {shown.ownAlreadyRanks ? <span className="font-semibold text-status-warning">you already rank</span> : null}
                 </div>
                 {shown.topDomains.length > 0 ? (
-                  <p className="mt-1 truncate text-[10px] text-gray-400">SERP: {shown.topDomains.slice(0, 5).join(", ")}</p>
+                  <p className="mt-1 truncate text-meta text-muted-foreground">SERP: {shown.topDomains.slice(0, 5).join(", ")}</p>
                 ) : null}
               </div>
             );
           })()
         ) : serp && !serp.ok ? (
-          <p className="mt-2 text-[10px] text-gray-400">{serp.reason}</p>
+          <p className="mt-2 text-meta text-muted-foreground">{serp.reason}</p>
         ) : serp && serp.ok ? (
-          <p className="mt-2 text-[10px] text-gray-400">
+          <p className="mt-2 text-meta text-muted-foreground">
             {serp.status === "dry_run" ? "Dry run, set DATAFORSEO_DRY_RUN=false to validate live." : serp.status === "capped" ? "SERP budget cap reached." : serp.status === "disabled" ? "DataForSEO not connected." : "No SERP result."}
           </p>
         ) : null}
@@ -429,17 +426,17 @@ export function NewPageCard({ o, ownDomain, enableAeoBrief = false }: { o: NewPa
             return (
               <div className="mt-2">
                 <div className="mb-1 flex items-center justify-between">
-                  <span className={`text-[9px] font-semibold uppercase tracking-wide ${flagged ? "text-amber-600" : "text-violet-500"}`}>
+                  <span className={`text-meta font-semibold uppercase tracking-wide ${flagged ? "text-status-warning" : "text-violet-500"}`}>
                     {flagged ? "Draft opening, needs review" : "Draft opening"}
                   </span>
                   {copyOk ? (
-                    <button onClick={copy} className="rounded-md bg-violet-600 px-2 py-0.5 text-[10px] font-semibold text-white hover:bg-violet-500">
+                    <button onClick={copy} className="rounded-md bg-violet-600 px-2 py-0.5 text-meta font-semibold text-background hover:bg-violet-500">
                       {copied ? "Copied ✓" : "Copy"}
                     </button>
                   ) : null}
                 </div>
-                {flagged && oq!.reasons[0] ? <p className="mb-1 text-[10px] text-amber-700">{oq!.reasons[0]}</p> : null}
-                <p className={`rounded-lg p-2 text-[11px] leading-relaxed ring-1 ${copyOk ? "bg-white text-gray-800 ring-violet-100" : "bg-gray-50 text-gray-500 ring-gray-200"}`}>{aiText}</p>
+                {flagged && oq!.reasons[0] ? <p className="mb-1 text-meta text-status-warning">{oq!.reasons[0]}</p> : null}
+                <p className={`rounded-lg p-2 text-body leading-relaxed ring-1 ${copyOk ? "bg-card text-foreground-secondary ring-violet-100" : "bg-surface-raised text-muted-foreground ring-border"}`}>{aiText}</p>
               </div>
             );
           })()
@@ -449,7 +446,7 @@ export function NewPageCard({ o, ownDomain, enableAeoBrief = false }: { o: NewPa
       <div className="mt-3 flex flex-wrap items-center gap-2">
         <Link
           href="/worklist#new-pages"
-          className="inline-flex items-center gap-1 rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-xs font-semibold text-gray-700 transition-colors hover:border-emerald-400 hover:bg-emerald-50 hover:text-emerald-700"
+          className="inline-flex items-center gap-1 rounded-lg border border-border bg-card px-3 py-1.5 text-body font-semibold text-foreground-secondary transition-colors hover:border-status-success/40 hover:bg-status-success-bg hover:text-status-success"
         >
           Plan this page →
         </Link>
@@ -457,7 +454,7 @@ export function NewPageCard({ o, ownDomain, enableAeoBrief = false }: { o: NewPa
           onClick={validate}
           disabled={serpPending}
           title="Run a live Google SERP check (DataForSEO) and verdict this page: build, wait, or skip"
-          className="inline-flex items-center gap-1 rounded-lg border border-sky-200 bg-sky-50 px-2.5 py-1.5 text-xs font-semibold text-sky-700 transition-colors hover:bg-sky-100 disabled:opacity-60"
+          className="inline-flex items-center gap-1 rounded-lg border border-status-info/20 bg-status-info-bg px-2.5 py-1.5 text-body font-semibold text-status-info transition-colors hover:opacity-80 disabled:opacity-60"
         >
           {serpPending ? "Checking SERP…" : shown ? "↻ Re-check SERP" : "Validate with live SERP"}
         </button>
@@ -465,36 +462,36 @@ export function NewPageCard({ o, ownDomain, enableAeoBrief = false }: { o: NewPa
           <button
             onClick={generate}
             disabled={pending || aiStatus === "pending"}
-            className="inline-flex items-center gap-1 rounded-lg border border-violet-200 bg-violet-50 px-2.5 py-1.5 text-xs font-semibold text-violet-700 transition-colors hover:bg-violet-100 disabled:opacity-60"
+            className="inline-flex items-center gap-1 rounded-lg border border-violet-200 bg-violet-50 px-2.5 py-1.5 text-body font-semibold text-violet-700 transition-colors hover:bg-violet-100 disabled:opacity-60"
           >
             {aiStatus === "pending" ? "Writing…" : "✨ Draft the opening"}
           </button>
         ) : null}
         {aiStatus === "off" ? (
-          <span className="text-[10px] text-gray-400">AI drafting is off</span>
+          <span className="text-meta text-muted-foreground">AI drafting is off</span>
         ) : aiStatus === "blocked" ? (
-          <span className="text-[10px] text-amber-600">budget reached</span>
+          <span className="text-meta text-status-warning">budget reached</span>
         ) : aiStatus === "rejected" || aiStatus === "error" ? (
-          <span className="text-[10px] text-gray-400">try again later</span>
+          <span className="text-meta text-muted-foreground">try again later</span>
         ) : null}
         {o.preparedBrief && (o.briefQuality?.status === "ready" || o.briefQuality?.status === "useful_but_needs_review" || !o.briefQuality) ? (
           <button
             onClick={draftFullPage}
             disabled={fullPagePending || fullPageStatus === "pending"}
             title="Walk the brief section by section into a paste-ready page with sources (up to 8 sections, about $0.02 to $0.05, one page per click)"
-            className="inline-flex items-center gap-1 rounded-lg border border-indigo-200 bg-indigo-50 px-2.5 py-1.5 text-xs font-semibold text-indigo-700 transition-colors hover:bg-indigo-100 disabled:opacity-60"
+            className="inline-flex items-center gap-1 rounded-lg border border-indigo-200 bg-indigo-50 px-2.5 py-1.5 text-body font-semibold text-indigo-700 transition-colors hover:bg-indigo-100 disabled:opacity-60"
           >
             {fullPageStatus === "pending" ? "Drafting page…" : fullPage ? "↻ Redraft full page" : "Draft the full page (~$0.02-0.05)"}
           </button>
         ) : null}
         {fullPageStatus === "off" ? (
-          <span className="text-[10px] text-gray-400">AI drafting is off</span>
+          <span className="text-meta text-muted-foreground">AI drafting is off</span>
         ) : fullPageStatus === "budget" ? (
-          <span className="text-[10px] text-amber-600">budget reached</span>
+          <span className="text-meta text-status-warning">budget reached</span>
         ) : fullPageStatus === "error" ? (
-          <span className="text-[10px] text-gray-400">try again later</span>
+          <span className="text-meta text-muted-foreground">try again later</span>
         ) : null}
       </div>
-    </div>
+    </Card>
   );
 }

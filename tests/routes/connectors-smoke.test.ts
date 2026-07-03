@@ -28,6 +28,22 @@ vi.mock("next/navigation", () => ({
   usePathname: () => "/settings/connectors",
 }));
 
+// FP10a (2026-07-02) - the summary strip's "last night's sync" fact reads
+// this same job the health panel below renders in full.
+vi.mock("@/domains/ops/cron-health-view", () => ({
+  loadCronHealthView: vi.fn(async () => [
+    {
+      job: "sync-connectors",
+      label: "Nightly data sync",
+      nextScheduledAtIso: null,
+      lastRun: { startedAt: "2026-07-02T09:00:00.000Z", ok: true, durationMs: 1200 },
+      headline: "I showed up 7 of 7 nights this week.",
+      perSourceThisWeek: [],
+      failureStreaks: [],
+    },
+  ]),
+}));
+
 describe("Connectors settings route smoke", () => {
   it("renders connector page with the GSC + GA4 + Clarity connector cards", async () => {
     const { default: ConnectorsPage } = await import(
@@ -48,10 +64,39 @@ describe("Connectors settings route smoke", () => {
     // content/AEO tenants). Assert the cards that DO ship instead.
     expect(html).not.toContain("Enter Yelp API Key");
     expect(html).toContain('data-connector-card="clarity"');
-    // 2026-06-22 — connectors auto-refresh on use (no hidden always-on cron);
-    // the intro now says it keeps sources fresh automatically while you use it.
-    expect(html).toContain("a nightly job keeps your data fresh and checks that each connection is healthy");
-    expect(html).toContain("The one thing that never happens on its own is a change to your live site");
+    // FP10a (2026-07-02) — the summary strip replaces the old five-plus-times
+    // repeated "what's connected / how syncs work" paragraphs with one line
+    // up top plus a single intro sentence.
+    expect(html).toContain('data-connectors-summary-strip="true"');
+    expect(html).toContain("connected");
+    expect(html).toContain("Last night’s sync:");
+    expect(html).toContain("The only thing I never do on my own is change your live site");
     expect(html).toContain("Manual CSV/JSON import remains available");
+  });
+
+  it("computes 'N of M connected' from the real per-provider connector reads, and surfaces last night's sync headline", async () => {
+    const { getConnectorInfo } = await import("@/lib/connector-store");
+    vi.mocked(getConnectorInfo).mockImplementation(async (provider: string) => {
+      const connected = provider === "google_gsc" || provider === "wix";
+      return {
+        status: connected ? "connected" : "disconnected",
+        connected_at: connected ? "2026-06-01T00:00:00.000Z" : null,
+        expires_at: null,
+        last_synced_at: connected ? "2026-07-01T09:00:00.000Z" : null,
+      };
+    });
+
+    const { default: ConnectorsPage } = await import(
+      "@/app/(shell)/settings/connectors/page"
+    );
+    const tree = await ConnectorsPage();
+    const html = renderToStaticMarkup(tree as ReactElement);
+
+    // 2 of the 5 counted self-serve sources (GSC, GA4, Wix, Profound,
+    // Clarity) are connected in this mock.
+    expect(html).toContain("2 of 5 connected");
+    // The last-night's-sync fact came from the mocked cron-health-view job,
+    // not a second, independently-worded story.
+    expect(html).toContain("Last night’s sync: I showed up 7 of 7 nights this week.");
   });
 });

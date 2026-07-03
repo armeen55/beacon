@@ -46,13 +46,12 @@ The 10 moves, strictly ranked (kill list quotes live in the diagnosis run wf_b48
       every section loader, snapshot-first reads reusing the existing SWR pattern. (WAVE 1)
 - [x] FP2 (2026-07-02, wave 1). Worklist quality: kill the 90x stamped fallback sentence at the root, dedupe rows,
       fix the double-render + stray glyph, fix the contradicting cannibalization line. (WAVE 1)
-- [ ] FP3. One lifecycle-count loader consumed by Today, Changes, Results; one story everywhere.
+- [x] FP3 (2026-07-02, wave 3). One lifecycle-count loader (domains/changes/lifecycle-counts.ts, one DECIDED/MEASURING/TONIGHT rule) consumed by Today, Changes, Results; the 16-vs-25 class of contradiction dead at the link source.
 - [ ] FP4. Vocabulary + route collapse: /worklist becomes /changes, /proof becomes /results, nav
       registry drives every page title, ~60 legacy routes deleted or redirected, Settings menus
       merged. Rider: Ask citation chips stop rendering raw slugs and internal keys.
-- [ ] FP5. One home per job: tonight's cards live on Today only, New Pages board renders once,
-      measuring lives on Results only, the /proof double-stack merges.
-- [~] FP6 (6a wave 1; 6b wave 2 migrated today-moves-card 597 to 69, changes-list-client 340 to 34, daily-experiments-section 280 to 0, ratchet 2884 to 1773; war-room-sections + today-newpages-card remain). Design system: Card, Pill (5 status intents), SectionHeader, EmptyState, PageShell on
+- [x] FP5 (2026-07-02, wave 3). One home per job: tonight's cards on Today only (worklist shows one chip), New Pages board once on the worklist (Today shows one line), measuring lives on Results, /proof double-stack merged behind 'See the raw change log'; singular/plural topic twins deduped via the ownership-registry tokens.
+- [~] FP6 (6a wave 1; 6b waves 2-3: today-moves-card 597 to 69, changes-list-client 340 to 34, daily-experiments-section 280 to 0, today-newpages-card 144 to 22 incl. the dark-broken board fix; ratchet 2884 to 1651; war-room-sections 187 is the last big holdout). Design system: Card, Pill (5 status intents), SectionHeader, EmptyState, PageShell on
       the existing tokens + raw-palette-count ratchet guard (6a, WAVE 1); then migrate the five
       worst files (today-moves-card 482 raw classes, changes-list-client 225,
       daily-experiments-section, today-newpages-card, war-room-sections) (6b). Rider: one
@@ -64,8 +63,7 @@ The 10 moves, strictly ranked (kill list quotes live in the diagnosis run wf_b48
       signup, honest still-measuring framing; collapse the 12-chip proof cards to summary+expand.
 - [x] FP9 (2026-07-02, wave 1, with FP2). Curate the queue: top 3 visually dominant, list capped ~20 behind an expander,
       Ready 0 explained in a real sentence. (WAVE 1, with FP2)
-- [ ] FP10. Fold /competitors into AI questions; Connections page collapses to one summary strip
-      + one-line rows for healthy connectors.
+- [~] FP10 (10a Connections collapse SHIPPED 2026-07-02 wave 3: '2 of 5 connected' strip, one-line connected rows, repeated facts 5-plus to 1; 10b competitors-into-AI-questions open). Fold /competitors into AI questions; Connections page collapses to one summary strip + one-line rows.
 
 NOT NOW (real but parked): MoveCard density refactor, connector brand icons, autopilot hydration
 flash, first-session choreography + morning-brief email (single-user today), per-keyword bulk

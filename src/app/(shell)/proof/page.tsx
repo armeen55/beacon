@@ -68,6 +68,13 @@ import {
   ExcludeFromLearningButton,
   RestoreOldVersionButton,
 } from "./proof-ledger-client";
+// FP3 (2026-07-02) - THE ONE-COUNT RULE: band membership and the header strip both come
+// from the shared lifecycle classifier (domains/changes/lifecycle-counts.ts), so the
+// header, the band headings, and every cross-surface count (Today's tiles, the
+// measuring strip's "View all in Results" link) name the same numbers.
+import { splitLedgerLifecycle } from "@/domains/changes/lifecycle-counts";
+import { loadLifecycleCounts } from "../lifecycle-counts-data";
+import { ResultsHeaderStrip } from "./results-header-strip";
 import { loadWithDeadline, valueWithDeadline } from "@/lib/load-with-deadline";
 import { HonestDelay } from "@/components/honest-delay";
 
@@ -337,18 +344,23 @@ export default async function ProofPage({
   // a mature non-win is knowledge gained ("What we learned"); everything still
   // measuring or waiting on data is "In flight". Presentation-only; the measurement
   // math and stores are untouched.
-  const winRows = ledger.filter((l) => {
-    const p = presById.get(l.id);
-    return !!p && isMatureOutcome(p.maturity) && l.verdict === "won";
-  });
-  const learningRows = ledger.filter((l) => {
-    const p = presById.get(l.id);
-    return !!p && isMatureOutcome(p.maturity) && l.verdict !== "won";
-  });
-  const inFlightRows = ledger.filter((l) => {
-    const p = presById.get(l.id);
-    return !p || !isMatureOutcome(p.maturity);
-  });
+  // FP3 (2026-07-02) - band membership now comes from the shared lifecycle classifier
+  // (the same mature-result rule as before: 28-day window + sufficiency + won/lost +
+  // no overlapping edit), so these band counts, the header strip above them, and every
+  // count promised by a cross-link (Today's "N measuring") are ONE computation. The
+  // full presentation (presById) still drives every badge and caveat on the cards.
+  const bands = splitLedgerLifecycle(ledger);
+  const winRows = bands.won;
+  const learningRows = bands.learned;
+  const inFlightRows = bands.measuring;
+  // The header strip reads the shared loader (react.cache shares the ledger read this
+  // page already paid for), so Results says the same numbers everywhere the loader is
+  // consumed. Bounded like every sibling read; a timeout just hides the strip.
+  const lifecycle = await valueWithDeadline(
+    loadLifecycleCounts().catch(() => null),
+    null,
+    SIDE_READ_DEADLINE_MS,
+  );
 
   // Item C7 - the seasonal-overlap caveat used to render its full paragraph on
   // every affected card (15 identical copies on a page with 15 seasonal
@@ -474,6 +486,16 @@ export default async function ProofPage({
             Every change you have made and whether it helped. We compare each page
             to how it did before, and to similar pages you did not change.
           </p>
+          {/* FP3 - the one-line count strip: the same numbers as the bands below,
+              from the same shared classifier, so the header never promises a count
+              the page does not show. */}
+          {lifecycle ? (
+            <ResultsHeaderStrip
+              measuring={lifecycle.measuring}
+              decided={lifecycle.decided}
+              won={lifecycle.won}
+            />
+          ) : null}
         </div>
         {ledger.length > 0 ? (
           <RecomputeLedgerButton
@@ -639,20 +661,25 @@ export default async function ProofPage({
         </div>
       ) : null}
 
-      {/* ── Your changes timeline (IA consolidation 2026-06-23) ──
-          The former /changes proof timeline, embedded here so Results is the
-          ONE place for "what changed / is it measuring / did it work". Its own
-          Suspense boundary (heavy changelog + scorecard + URL-history compute)
-          so it never blocks the ledger above; header suppressed (this page's
-          "Results" header already covers it). */}
-      <div className="mb-6">
-        <h2 className="mb-2 text-[13px] font-semibold uppercase tracking-wide text-muted-foreground">
-          Your changes
-        </h2>
+      {/* ── FP5c (2026-07-02, killer finding "why is there a second list of changes
+          under the first list of changes") ── The former "Your changes" timeline used
+          to render as a second full stack directly under the measured-outcomes list,
+          repeating the same changes in a second format. The measured list above IS the
+          one list now; the raw change log (which also holds detected site edits from
+          before measurement started) stays reachable behind one collapsed line instead
+          of duplicating the page. The W2-A BoundedSection wrapper is kept intact. */}
+      <details className="mb-6">
+        <summary className="cursor-pointer text-[12px] font-medium text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1">
+          See the raw change log
+        </summary>
+        <p className="mb-2 mt-1 text-[11px] text-muted-foreground">
+          The same changes as the list above, in raw log form, plus site edits I detected
+          from before measurement started. Nothing here is a second to-do list.
+        </p>
         <Suspense fallback={null}>
           <BoundedSection render={() => ResultsTimeline()} />
         </Suspense>
-      </div>
+      </details>
 
     </div>
   );
@@ -1017,7 +1044,7 @@ function LedgerCard({ rec, link, pres, grade, spark, band, revert, restored, cal
           product already computed, just moved out of the headline position. */}
       {sentence !== plainHeadline || (rec.permutationRead && rec.permutationRead.nTotal > 0) || pres?.seasonalInflectionCaveat || pres?.controlContaminationCaveat || grade ? (
         <details className="mt-1">
-          <summary className="cursor-pointer text-[11px] text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-1">
+          <summary className="cursor-pointer text-[11px] text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1">
             See the math
           </summary>
           <div className="mt-1 space-y-1 rounded-md border border-border/40 bg-surface-inset/30 p-2 text-[11px] text-foreground/70">
@@ -1176,7 +1203,7 @@ function LedgerCard({ rec, link, pres, grade, spark, band, revert, restored, cal
                 <span className="font-medium text-foreground/70">What changed:</span>{" "}
                 Added structured data that helps Google and AI understand this page.
                 <details className="mt-1">
-                  <summary className="cursor-pointer rounded-sm text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-1">
+                  <summary className="cursor-pointer rounded-sm text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1">
                     View technical code
                   </summary>
                   <pre className="mt-1 max-h-40 overflow-auto rounded bg-surface-inset/50 p-2 text-[10px] leading-snug text-muted-foreground">

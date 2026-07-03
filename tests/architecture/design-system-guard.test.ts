@@ -83,8 +83,15 @@ const TYPE_SCALE_PINNED = new Set([
 // 280->0; the remaining counts in today-moves-card/changes-list-client are the deliberate
 // per-category identity colors called out in their source comments). Measured live total
 // under src/app/(shell) after the migration: 1773. war-room-sections.tsx and
-// today-newpages-card.tsx remain for a later wave. This number may ONLY go down from here.
-const RAW_PALETTE_BASELINE = 1773;
+// today-newpages-card.tsx remain for a later wave.
+// FP6b-2 (2026-07-02) migrated today-newpages-card.tsx (131->22; the remaining 22 are the
+// deliberate violet/indigo "AI generated this" identity colors, same precedent as
+// today-moves-card) and the New Pages board shell in today-newpages-section.tsx (13->0,
+// the light-only gradient card was replaced with Card/SectionHeader tokens so dark mode
+// renders correctly). Measured live total under src/app/(shell) after this migration: 1651.
+// war-room-sections.tsx (187) is now the largest holdout and the last big wave-2 target.
+// This number may ONLY go down from here.
+const RAW_PALETTE_BASELINE = 1651;
 
 function walkSourceFiles(dir: string, out: string[] = []): string[] {
   for (const name of readdirSync(dir)) {

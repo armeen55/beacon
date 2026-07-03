@@ -22,7 +22,8 @@ import { loadLatestStrategyMix } from "@/domains/strategy-review/strategy-mix-st
 import { strategyMemoLine } from "@/domains/strategy-review/surface";
 import { TeamStandup } from "./team-standup";
 import { CircuitBreakerSection } from "./circuit-breaker-section";
-import { TodayNewPagesSection } from "./today-newpages-section";
+import { TodayNewPagesSummaryLine } from "./today-newpages-section";
+import { loadLifecycleCounts } from "./lifecycle-counts-data";
 import { CoverageMapSection } from "./coverage-map-section";
 import { OpsPipelineSection } from "./ops-pipeline-section";
 import { readPipelineHealth } from "@/domains/ops/pipeline-health-store";
@@ -177,19 +178,42 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
     [],
   );
   const streak = shippedInLastDays(ledgerRows, Date.now());
-  // A2 (operator-experience fix batch, 2026-07-02) - THE canonical "measuring" count: the proof
-  // ledger's own verdict field. The team standup chip, the counts tile, and the measuring list
-  // heading all read this SAME number now instead of each computing their own (the standup used
-  // the ledger, the counts tile used a separately-derived CanonicalChange status - the two could
-  // disagree). The measuring list itself still shows its own capped rows, but says "showing N of
-  // M" against this canonical M.
-  const measuringCount = ledgerRows.filter((r) => r.verdict === "measuring").length;
+  // FP3 (2026-07-02, supersedes A2's verdict-field count) - THE ONE-COUNT RULE: every
+  // lifecycle count on this page (the standup chip, the tiles, the measuring strip, the
+  // results-ready alert) comes from the shared lifecycle loader, which classifies the
+  // SAME request-cached ledger rows with the SAME rule Results uses for its bands. So
+  // "16 measuring" here lands on exactly 16 "In flight" rows on Results, and the
+  // Results tile equals the decided (Wins + What we learned) total there - never three
+  // contradicting answers on three surfaces. Fail-soft to zeros, never blocks the page.
+  const lifecycle = await valueWithDeadline(
+    loadLifecycleCounts().catch(() => ({ toDo: 0, tonightPicked: 0, tonightApplied: 0, measuring: 0, decided: 0, won: 0 })),
+    { toDo: 0, tonightPicked: 0, tonightApplied: 0, measuring: 0, decided: 0, won: 0 },
+    // Matches the hero deadline: the ledger inside is request-cache-shared with the
+    // reads above (instant), and the loader bounds its own backlog read at 3.5s, so
+    // this only bites when things are genuinely wedged.
+    TODAY_HERO_DEADLINE_MS,
+  );
+  const measuringCount = lifecycle.measuring;
   // D6 (daily ritual loop) - the daily counter strip's two real numbers, both read from the
   // SAME ledger rows the streak above already loaded. Server truth, never localStorage: the
   // per-session "shipped N today" the worklist keeps client-side is a today-only nice-to-have,
   // this is the number that survives a refresh or a different device.
   const shippedTodayCount = shippedToday(ledgerRows, Date.now());
   const doubleCheckingTodayCount = stillDoubleCheckingCount(ledgerRows, Date.now());
+
+  // FP3 - the SWR snapshot's "N mature results ready" alert carries a list-derived count
+  // computed at snapshot time; rewrite it from the canonical decided count so the alert,
+  // the Results tile below, and the Results page it links to always say the same number.
+  // Self-drops when nothing is decided.
+  const attentionItems = today.attention
+    .map((a) =>
+      a.kind === "results_ready"
+        ? lifecycle.decided > 0
+          ? { ...a, title: `${lifecycle.decided} result${lifecycle.decided === 1 ? "" : "s"} ready to review` }
+          : null
+        : a,
+    )
+    .filter((a): a is TodayView["attention"][number] => a !== null);
 
   // Item 42: the assistant sets the scene like a person would.
   const nowPacific = new Date();
@@ -247,7 +271,7 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
   );
   const leadStory: LeadStory | null = selectLeadStory({
     ledger: ledgerRows.map((r) => ({ path: r.path, shippedAt: r.shippedAt, verdict: r.verdict, pageLabel: null })),
-    attention: today.attention.map((a) => ({ title: a.title, message: a.message, href: a.href })),
+    attention: attentionItems.map((a) => ({ title: a.title, message: a.message, href: a.href })),
     tonightTopPick: tonightFirstPick
       ? { pageLabel: tonightFirstPick.pageLabel, whyNow: tonightFirstPick.whyNow, headline: moveHeadline(tonightFirstPick) }
       : null,
@@ -292,10 +316,15 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
           (before the team standup) so a paused autopilot is the first thing seen. */}
       <Suspense fallback={null}><CircuitBreakerSection /></Suspense>
       {/* Item 43: the team, at a glance - each teammate's one-line daily report.
-          A2 - measuringCount is passed in so the Strategist chip agrees with the counts
-          tile and the measuring list below, all reading the ledger's own verdict count. */}
+          FP3 - measuringCount comes from the shared lifecycle loader so the Strategist
+          chip, the tiles, the measuring strip, and Results all say the same number. */}
       <Suspense fallback={null}><TeamStandup tenantId={tenantId} picksTonight={picks} measuringCount={measuringCount} /></Suspense>
-      <TodayCounts counts={today.counts} measuringCount={measuringCount} />
+      <TodayCounts
+        readyToday={today.counts.readyToday}
+        needsAttention={attentionItems.length}
+        measuring={lifecycle.measuring}
+        results={lifecycle.decided}
+      />
 
       {/* Item 1-3: THE SCOREBOARD - the line you are trying to move, with your changes on it.
           A1 - when the pipe is degraded, the citations stat below carries an honest
@@ -309,12 +338,15 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
           most likely cause. $0 persisted read, self-hides when nothing fired. */}
       <Suspense fallback={null}><InvestigationSection tenantId={tenantId} /></Suspense>
 
-      {today.attention.length > 0 ? <AttentionSection items={today.attention} /> : null}
+      {attentionItems.length > 0 ? <AttentionSection items={attentionItems} /> : null}
 
-      {/* Tonight: the team's picks (the daily plan panel). */}
+      {/* Tonight: the team's picks (the daily plan panel). FP5a - this panel's ONE home;
+          /worklist shows a one-line chip with the same FP3 counts instead. */}
       {daily ? <DailyExperimentsSection view={daily} /> : null}
 
-      {today.measuring.length > 0 ? <MeasuringSection today={today} measuringCount={measuringCount} /> : null}
+      {/* FP3 - render on the canonical count, not the snapshot's capped list, so the
+          strip can never hide while the tiles say changes are measuring. */}
+      {measuringCount > 0 ? <MeasuringSection today={today} measuringCount={measuringCount} /> : null}
 
       {/* THE WAR ROOM (R3, 2026-07-01) - what the team found today, beyond tonight's picks.
           Each band is a live teammate's intelligence: visitor behavior (Clarity), AI crawlers +
@@ -327,7 +359,9 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
         <Suspense fallback={<WarRoomCardSkeleton />}><FrictionFixesSection tenantId={tenantId} /></Suspense>
         <Suspense fallback={<WarRoomCardSkeleton />}><AiCrawlerSection tenantId={tenantId} /></Suspense>
         <Suspense fallback={<WarRoomCardSkeleton />}><DemandOpportunitiesSection tenantId={tenantId} /></Suspense>
-        <Suspense fallback={<WarRoomCardSkeleton />}><TodayNewPagesSection limit={3} /></Suspense>
+        {/* FP5b - the New Pages board's ONE home is /worklist; Today gets one honest
+            sentence with the same count the board shows, plus the link there. */}
+        <Suspense fallback={null}><TodayNewPagesSummaryLine /></Suspense>
         {/* Item 49 - when every band above stays silent, the war room says so in one quiet
             line instead of leaving a heading over nothing. The presence checks re-call the
             same loaders the sections use; those are react.cache request-memoized (or $0
@@ -404,15 +438,25 @@ function DailyCounterStrip({ shipped, doubleChecking }: { shipped: number; doubl
   );
 }
 
-function TodayCounts({ counts, measuringCount }: { counts: TodayView["counts"]; measuringCount: number }) {
-  // A2 - the Measuring tile reads the SAME canonical (proof ledger) count as the team
-  // standup chip and the measuring list heading, instead of its own CanonicalChange-derived
-  // number, so the three widgets never disagree on how many changes are measuring.
+function TodayCounts({
+  readyToday,
+  needsAttention,
+  measuring,
+  results,
+}: {
+  readyToday: number;
+  needsAttention: number;
+  measuring: number;
+  results: number;
+}) {
+  // FP3 - every tile value arrives from the shared lifecycle loader (or the remapped
+  // attention list built from it), never a second CanonicalChange-derived count, so
+  // these tiles, the standup chip, the measuring strip, and Results always agree.
   const tiles: { label: string; value: number; cls: string; show: boolean }[] = [
-    { label: "Ready today", value: counts.readyToday, cls: "text-sky-700", show: counts.readyToday > 0 },
-    { label: "Needs attention", value: counts.needsAttention, cls: "text-amber-700", show: counts.needsAttention > 0 },
-    { label: "Measuring", value: measuringCount, cls: "text-emerald-700", show: measuringCount > 0 },
-    { label: "Results", value: counts.resultsAvailable, cls: "text-violet-700", show: counts.resultsAvailable > 0 },
+    { label: "Ready today", value: readyToday, cls: "text-sky-700", show: readyToday > 0 },
+    { label: "Needs attention", value: needsAttention, cls: "text-amber-700", show: needsAttention > 0 },
+    { label: "Measuring", value: measuring, cls: "text-emerald-700", show: measuring > 0 },
+    { label: "Results", value: results, cls: "text-violet-700", show: results > 0 },
   ].filter((t) => t.show);
   if (tiles.length === 0) return null;
   return (

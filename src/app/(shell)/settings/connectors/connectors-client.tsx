@@ -4,8 +4,7 @@ import { useEffect, useState, useTransition } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import type { ConnectorInfo } from "@/lib/connector-store";
 import type { Ga4Property } from "@/lib/connectors/ga4/types";
-import { ConnectorCapability } from "@/components/connectors/connector-capability";
-import { CONNECTOR_CAPABILITY } from "@/components/connectors/connector-capability-copy";
+import { Pill } from "@/components/ui/pill";
 import {
   getGoogleAuthUrl,
   getGoogleGscConnectorStatus,
@@ -38,6 +37,10 @@ import type { ConnectorSyncNowResult } from "./actions";
 type SelectedLocation = { id: string; name: string } | null;
 
 type LocationOption = { locationId: string; locationName: string; address: string | null };
+
+/** FP10a (2026-07-02) - "last night's sync" state for the summary strip,
+ *  computed server-side in page.tsx from the sync-connectors cron job. */
+export type LastSyncState = "ok" | "issues" | "none";
 
 /**
  * 2026-05-16, GSC scope split: the Google card is GSC-focused for v1.
@@ -90,6 +93,27 @@ type Props = {
    *  page.tsx. Present only when the GA4 connector has a non-null
    *  `expires_at` AND status is "disconnected". `null` otherwise. */
   ga4StaleCopy?: string | null;
+  /** FP10a (2026-07-02), summary strip counts: how many of the self-serve
+   *  sources (GSC, GA4, Wix, Profound, Clarity) are connected right now,
+   *  out of how many exist. Computed server-side in page.tsx. Defaults keep
+   *  older render-test callers (pre-FP10a) working without every prop. */
+  connectedCount?: number;
+  totalCount?: number;
+  /** FP10a (2026-07-02), "last night's sync" state + plain-English headline,
+   *  read from the same sync-connectors cron job the health panel renders. */
+  lastSyncState?: LastSyncState;
+  lastSyncHeadline?: string;
+};
+
+/** FP10a (2026-07-02) - one line per source: what it actually feeds, in
+ *  plain English. Lives here once so it never has to repeat in a footer
+ *  paragraph, a capability block, AND a page-level intro. */
+const SOURCE_SUMMARY: Record<string, string> = {
+  google_gsc: "Feeds what people search to find you.",
+  google_ga4: "Feeds which pages bring in visitors.",
+  wix: "Publishes approved edits to your live site.",
+  profound: "Feeds where AI assistants mention you.",
+  clarity: "Feeds where visitors get stuck on a page.",
 };
 
 const ERROR_MESSAGES: Record<string, string> = {
@@ -164,6 +188,10 @@ export function ConnectorsClient({
   gscStaleCopy = null,
   gscReadiness,
   ga4StaleCopy = null,
+  connectedCount = 0,
+  totalCount = 5,
+  lastSyncState = "none",
+  lastSyncHeadline = "I have not run yet.",
 }: Props) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -651,75 +679,49 @@ export function ConnectorsClient({
 
   const anySync = googleSyncInFlight || yelpSyncInFlight;
 
+  // FP10a (2026-07-02) - one health color for the summary strip. All
+  // connected + last sync clean is "live"; any sync issue is "attention";
+  // still missing sources is "waiting"; nothing connected yet is "neutral".
+  const summaryIntent =
+    lastSyncState === "issues"
+      ? "attention"
+      : connectedCount >= totalCount && connectedCount > 0
+        ? "live"
+        : connectedCount > 0
+          ? "waiting"
+          : "neutral";
+
+  // lastSyncHeadline (from cron-health-view's buildHeadline) already ends in
+  // its own period ("I showed up 7 of 7 nights this week."); the "none"
+  // fallback doesn't, so only that branch gets one appended below.
+  const lastSyncCopy =
+    lastSyncState === "none" ? "has not run yet." : lastSyncHeadline;
+
   return (
     <div className="space-y-6">
-      {/* 2026-06-22, connectors now auto-refresh on use (next/after), throttled
-          per-source by last_synced_at. D1 (2026-07-02): the old copy claimed
-          Beacon "never runs in the background" directly above a panel listing
-          7 nightly jobs. Honest version: background jobs DO run nightly to
-          keep data fresh and check health; the one thing that never happens
-          without a click is a change to the live site. */}
-      <div className="rounded-lg border border-border/60 bg-surface-inset/20 px-4 py-3">
-        <p className="text-[12px] text-foreground leading-relaxed">
-          Connecting a tool just gives Beacon access. From there, a nightly job
-          keeps your data fresh and checks that each connection is healthy, and
-          whenever you use the app it also quietly refreshes anything that has
-          gone stale (at most every few hours each, so it never runs up any
-          usage limits). You can always refresh right now with the
-          &ldquo;Update now&rdquo; button. The one thing that never happens on
-          its own is a change to your live site, that only happens after your
-          click, unless you arm autopilot yourself.
+      {/* ── Summary strip (FP10a, 2026-07-02) ──
+          The diagnosis: the same three facts (what's connected, whether
+          syncs are working, that nothing auto-publishes) were stated
+          five-plus times down the page. One line up top replaces the
+          count + sync-health facts; everything else keeps exactly one
+          home further down. */}
+      <div
+        className="flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-lg border border-border/60 bg-surface-inset/20 px-4 py-3"
+        data-connectors-summary-strip="true"
+      >
+        <Pill intent={summaryIntent}>
+          {connectedCount} of {totalCount} connected
+        </Pill>
+        <p className="text-[12px] text-muted-foreground">
+          Last night&rsquo;s sync: {lastSyncCopy}
         </p>
       </div>
       <p className="text-[12px] text-muted-foreground leading-relaxed">
-        Each source updates independently. Connecting a tool is additive; it does not replace manual import.
+        Once a source is connected I read it in the background and turn what
+        I find into fixes. The only thing I never do on my own is change
+        your live site, that always waits for your one-click approval unless
+        you arm autopilot yourself.
       </p>
-
-      {/* ── What you'll get once everything's connected ──
-          Honest autopilot framing from the connector-automation research
-          (docs/CONNECTOR_AUTOMATION_MAP.md): Beacon runs the find→fix→prove
-          loop on its own, and the one thing it never does without you is
-          push a change live (every Wix publish is one-click approve; no
-          zero-touch auto-publish). */}
-      <div className="rounded-lg border border-accent-primary/30 bg-accent-primary/[0.04] px-4 py-3.5 space-y-2.5">
-        <h2 className="text-[12px] font-semibold text-foreground">
-          What you&rsquo;ll get once everything&rsquo;s connected
-        </h2>
-        <p className="text-[12px] text-foreground leading-relaxed">
-          Once everything is connected, a nightly job pulls in your latest
-          numbers, finds problems, and drafts fixes, and you can also click
-          &ldquo;Update my data&rdquo; any time to refresh sooner. The one
-          thing Beacon never does on its own is change your live site: every
-          change to your website needs your one-click approval first, unless
-          you turn on autopilot for a specific proven change type yourself.
-        </p>
-        <ul className="space-y-1.5 text-[12px] text-muted-foreground leading-relaxed">
-          <li className="flex gap-2">
-            <span aria-hidden="true" className="text-accent-primary">•</span>
-            <span>
-              When you refresh, Beacon spots where the AI assistants recommend a
-              competitor on a topic real people are already searching for, and
-              drafts the answer for you to add first, so your effort lands where
-              customers are actually looking.
-            </span>
-          </li>
-          <li className="flex gap-2">
-            <span aria-hidden="true" className="text-accent-primary">•</span>
-            <span>
-              It ranks those fixes by the pages that actually make you money, not
-              just the ones with the most clicks.
-            </span>
-          </li>
-          <li className="flex gap-2">
-            <span aria-hidden="true" className="text-accent-primary">•</span>
-            <span>
-              After you approve a change, Beacon records it and re-measures your
-              rankings, traffic, and AI mentions each time you open Beacon, so
-              you can see whether the fix actually worked.
-            </span>
-          </li>
-        </ul>
-      </div>
 
       {error && (
         <div
@@ -742,359 +744,325 @@ export function ConnectorsClient({
       {/* ── Google Search Console (GSC) ── */}
       {/* GBP card is deferred to a follow-up slice. The GBP server action +
           OAuth path are still wired (kind="gbp"); no UI exposes them yet. */}
-      <div
-        id="connector-google-gsc"
-        data-connector-card="google-gsc"
-        data-gsc-readiness={gscReadiness?.verdict ?? "not_connected"}
-        className="rounded-lg border border-border/60 bg-surface-inset/20"
-      >
-        <div className="px-5 py-4 flex items-start justify-between gap-4">
-          <div className="min-w-0 space-y-1">
-            <h3 className="text-[13px] font-semibold text-foreground">
-              Google Search Console
-            </h3>
-            {google.status === "connected" ? (
-              <>
-                <p className="text-[12px] text-muted-foreground">
-                  Connected to Google Search Console &middot; Authorized {formatDate(google.connected_at)}
-                </p>
-                {GBP_AFFORDANCES_ENABLED ? (
-                  <>
-                    {selectedLocation ? (
-                      <p className="text-[12px] text-muted-foreground">
-                        Selected: {selectedLocation.name}
-                      </p>
-                    ) : (
-                      // #197, setup-blocking state. The amber color alone
-                      // was the only urgency cue (color-only) and nothing
-                      // announced the state change. A non-color "Action
-                      // needed:" prefix + role="status" makes it legible to
-                      // color-blind users and announced to screen readers.
-                      <p className="text-[12px] text-status-warning" role="status">
-                        <span className="font-semibold">Action needed:</span>{" "}
-                        No location selected. Choose one below before syncing
-                      </p>
-                    )}
-                    <p className="text-[12px] text-muted-foreground">
-                      Last synced: {formatDate(google.last_synced_at)}
-                    </p>
-                  </>
-                ) : null}
-                {gscSyncResult ? (
-                  <p
-                    className={`text-[12px] ${gscSyncResult.ok ? "text-status-success" : "text-status-warning"}`}
-                  >
-                    {gscSyncResult.text}
-                  </p>
-                ) : null}
-              </>
-            ) : (
-              <>
-                {/* J5 (2026-05-18), soft-disconnect aware copy. When
-                    a previously-authorized GSC connector is now
-                    disconnected, surface the "Last refreshed at X
-                    days ago" tooltip alongside the "Not connected"
-                    label so the operator sees cached state is
-                    preserved. The pre-rendered string comes from
-                    page.tsx (formatLastRefreshedCopy lives in the
-                    server-only expiry-handler module). */}
-                <p className="text-[12px] text-muted-foreground">
-                  {google.connected_at ? "Disconnected · cached data preserved" : "Not connected"}
-                </p>
-                {gscStaleCopy ? (
-                  <p
-                    className="text-[12px] text-muted-foreground"
-                    data-gsc-stale-tooltip="true"
-                    title={gscStaleCopy}
-                  >
-                    {gscStaleCopy}
-                  </p>
-                ) : null}
-              </>
-            )}
-          </div>
-
-          <div className="flex shrink-0 flex-col items-end gap-2">
-            {google.status === "connected" ? (
-              <>
-                {GBP_AFFORDANCES_ENABLED ? (
-                  <button
-                    type="button"
-                    onClick={() => void handleGoogleSyncNow()}
-                    disabled={googleSyncInFlight || isPending || !selectedLocation}
-                    className="rounded-md bg-foreground px-3 py-1.5 text-[12px] font-medium text-background transition-colors hover:opacity-90 disabled:opacity-50"
-                  >
-                    {googleSyncInFlight ? "Updating…" : "Update data"}
-                  </button>
-                ) : null}
-                <button
-                  type="button"
-                  onClick={() =>
-                    handleConnectorSyncNow(syncGscNow, setGscSyncPending, setGscSyncResult)
-                  }
-                  disabled={gscSyncPending || isPending}
-                  className="rounded-md bg-foreground px-3 py-1.5 text-[12px] font-medium text-background transition-colors hover:opacity-90 disabled:opacity-50"
+      {google.status === "connected" ? (
+        <details
+          id="connector-google-gsc"
+          data-connector-card="google-gsc"
+          data-gsc-readiness={gscReadiness?.verdict ?? "not_connected"}
+          className="group rounded-lg border border-border/60 bg-surface-inset/20"
+        >
+          <summary className="flex cursor-pointer list-none items-center justify-between gap-4 px-5 py-3">
+            <div className="min-w-0 flex items-center gap-2.5">
+              <h3 className="text-[13px] font-semibold text-foreground shrink-0">
+                Google Search Console
+              </h3>
+              <span className="text-[12px] text-muted-foreground truncate">
+                {SOURCE_SUMMARY.google_gsc} Last synced {formatDate(google.last_synced_at)}.
+              </span>
+            </div>
+            <div className="flex shrink-0 items-center gap-2">
+              {gscReadiness && gscReadiness.verdict !== "ready" ? (
+                <span
+                  className={`inline-flex items-center gap-1.5 rounded-md px-2 py-0.5 text-[11px] font-semibold ${
+                    gscReadiness.tone === "attention"
+                      ? "bg-status-warning/[0.12] text-status-warning"
+                      : "bg-surface-inset/60 text-muted-foreground"
+                  }`}
                 >
-                  {gscSyncPending ? "Syncing…" : "Pull my Search Console data"}
-                </button>
-                <button
-                  type="button"
-                  onClick={handleDisconnect}
-                  disabled={isPending || anySync}
-                  className="rounded-md border border-border/60 px-3 py-1.5 text-[12px] font-medium text-muted-foreground transition-colors hover:text-foreground hover:border-foreground/30 disabled:opacity-50"
-                  title="Disconnects Google Search Console and any connected Google Business Profile. Historical data stays cached; no new data refreshes until you reconnect."
-                >
-                  {isPending ? "Disconnecting…" : "Disconnect Google"}
-                </button>
-              </>
-            ) : (
-              <button
-                type="button"
-                onClick={handleConnect}
-                disabled={isPending}
-                className="rounded-md bg-foreground px-3 py-1.5 text-[12px] font-medium text-background transition-colors hover:opacity-90 disabled:opacity-50"
-              >
-                {isPending ? "Connecting…" : "Connect Google Search Console"}
-              </button>
-            )}
-          </div>
-        </div>
+                  {gscReadiness.verdict === "needs_reconnect"
+                    ? "Reconnect needed"
+                    : gscReadiness.verdict === "connected_no_data"
+                      ? "No data yet"
+                      : "Not ready"}
+                </span>
+              ) : null}
+              <span className="text-[11px] font-medium text-muted-foreground group-open:hidden">
+                Manage
+              </span>
+              <span className="hidden text-[11px] font-medium text-muted-foreground group-open:inline">
+                Hide
+              </span>
+            </div>
+          </summary>
 
-        <div className="px-5 pb-3">
-          <ConnectorCapability {...CONNECTOR_CAPABILITY.google_gsc} />
-        </div>
-
-        {/* ── Readiness (MAX_SEO_AEO Phase 4, 2026-06-16) ──
-            Surfaces the RESOLVED property (derived from the tenant's own synced
-            rows, never hardcoded), the backfill window + freshness, and a hard
-            NOT-READY line when the connection can't actually deliver data.
-            READ-ONLY: every figure is pre-composed server-side from persisted
-            state (no live Google call). The verdict is also mirrored onto
-            data-gsc-readiness on the card wrapper for testability. */}
-        {gscReadiness ? (
-          <div
-            className="border-t border-border/40 px-5 py-3 space-y-1"
-            data-gsc-readiness-section={gscReadiness.verdict}
-          >
-            {gscReadiness.verdict !== "ready" ? (
-              <p
-                className={`inline-flex items-center gap-1.5 rounded-md px-2 py-0.5 text-[11px] font-semibold ${
-                  gscReadiness.tone === "attention"
-                    ? "bg-status-warning/[0.12] text-status-warning"
-                    : "bg-surface-inset/60 text-muted-foreground"
-                }`}
-                role="status"
-              >
-                {gscReadiness.verdict === "needs_reconnect"
-                  ? "Reconnect needed"
-                  : gscReadiness.verdict === "connected_no_data"
-                    ? "Connected · no data yet, pull to backfill"
-                    : "Not ready"}
-              </p>
-            ) : (
-              <p className="inline-flex items-center gap-1.5 rounded-md bg-status-success/[0.12] px-2 py-0.5 text-[11px] font-semibold text-status-success">
-                Ready
-              </p>
-            )}
-            <p className="text-[12px] font-medium text-foreground">
-              {gscReadiness.headline}
-            </p>
+          <div className="border-t border-border/40 px-5 py-4 space-y-1">
             <p className="text-[12px] text-muted-foreground">
-              {gscReadiness.detail}
+              Authorized {formatDate(google.connected_at)}
             </p>
-          </div>
-        ) : null}
-
-        {/* ── Location picker (Google connected), GBP only ── */}
-        {GBP_AFFORDANCES_ENABLED && google.status === "connected" ? (
-          <div className="border-t border-border/40 px-5 py-3 space-y-3">
-            {locationError && (
-              <p className="text-[12px] text-status-warning">{locationError}</p>
-            )}
-
-            {!locationOptions ? (
-              <button
-                type="button"
-                onClick={() => void handleLoadLocations()}
-                disabled={locationsLoading || isPending}
-                className="rounded-md border border-border/60 px-3 py-1.5 text-[12px] font-medium text-foreground transition-colors hover:border-foreground/30 disabled:opacity-50"
-              >
-                {locationsLoading ? "Loading locations…" : selectedLocation ? "Change location" : "Load locations"}
-              </button>
-            ) : locationOptions.length === 0 ? (
-              <p className="text-[12px] text-muted-foreground">
-                No locations found for this Google account. Make sure your Google Business Profile has at least one verified location.
-              </p>
-            ) : (
-              <div className="space-y-2">
-                <label className="block text-[11px] font-medium text-foreground/90">
-                  Choose location to sync
-                </label>
-                <div className="space-y-1.5 max-h-60 overflow-y-auto">
-                  {locationOptions.map((loc) => {
-                    const isSelected = selectedLocation?.id === loc.locationId;
-                    return (
-                      <button
-                        key={loc.locationId}
-                        type="button"
-                        onClick={() => void handleSelectLocation(loc)}
-                        disabled={isPending}
-                        className={`w-full text-left rounded-md border px-3 py-2 text-[12px] transition-colors disabled:opacity-50 ${
-                          isSelected
-                            ? "border-accent-primary/60 bg-accent-primary/[0.06] text-foreground"
-                            : "border-border/60 bg-background text-foreground hover:border-foreground/30"
-                        }`}
-                      >
-                        <span className="font-medium">{loc.locationName}</span>
-                        {loc.address ? (
-                          <span className="block text-[11px] text-muted-foreground mt-0.5">
-                            {loc.address}
-                          </span>
-                        ) : null}
-                        {isSelected ? (
-                          <span className="block text-[11px] text-accent-primary mt-0.5">
-                            Currently selected
-                          </span>
-                        ) : null}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-          </div>
-        ) : null}
-
-        <div className="border-t border-border/40 px-5 py-3 bg-surface-inset/10 space-y-1.5">
-          <p className="text-[11px] text-muted-foreground leading-relaxed">
-            {google.status === "connected" ? (
+            {GBP_AFFORDANCES_ENABLED ? (
               <>
-                Beacon reads URL Inspection + Search Analytics data. Read-only
-                access, no writes to your Search Console property. Pull the
-                latest any time with the &ldquo;Pull my Search Console
-                data&rdquo; button above.
-              </>
-            ) : (
-              <>
-                Connect Google Search Console to give Beacon read-only
-                access to URL Inspection + Search Analytics for your
-                verified sites. The Google consent screen will show
-                a single permission: View Search Console data for
-                verified sites.
-              </>
-            )}
-          </p>
-        </div>
-      </div>
-
-      {/* ── Google Analytics (GA4), Slice 9.A1β (2026-05-18) ── */}
-      <div
-        id="connector-google-ga4"
-        className="rounded-lg border border-border/60 bg-surface-inset/20 scroll-mt-24"
-        data-connector-card="google-ga4"
-      >
-        <div className="px-5 py-4 flex items-start justify-between gap-4">
-          <div className="min-w-0 space-y-1">
-            <h3 className="text-[13px] font-semibold text-foreground">
-              Google Analytics
-            </h3>
-            {ga4.status === "connected" ? (
-              <>
-                <p className="text-[12px] text-muted-foreground">
-                  Connected to Google Analytics &middot; Authorized {formatDate(ga4.connected_at)}
-                </p>
-                {ga4.ga4_property_id ? (
+                {selectedLocation ? (
                   <p className="text-[12px] text-muted-foreground">
-                    Selected: {ga4.ga4_property_display_name ?? "Property"}
-                    {ga4.ga4_account_display_name
-                      ? ` · ${ga4.ga4_account_display_name}`
-                      : ""}
+                    Selected: {selectedLocation.name}
                   </p>
                 ) : (
-                  // #197, setup-blocking state (half-wired connector). The
-                  // amber color was the only cue; add a non-color "Action
-                  // needed:" prefix + role="status" so it's not color-only
-                  // and is announced when the state changes after connect.
+                  // #197, setup-blocking state. The amber color alone
+                  // was the only urgency cue (color-only) and nothing
+                  // announced the state change. A non-color "Action
+                  // needed:" prefix + role="status" makes it legible to
+                  // color-blind users and announced to screen readers.
                   <p className="text-[12px] text-status-warning" role="status">
                     <span className="font-semibold">Action needed:</span>{" "}
-                    Connected, select a property to finish setup.
+                    No location selected. Choose one below before syncing
                   </p>
                 )}
-                {ga4SyncResult ? (
-                  <p
-                    className={`text-[12px] ${ga4SyncResult.ok ? "text-status-success" : "text-status-warning"}`}
-                  >
-                    {ga4SyncResult.text}
-                  </p>
-                ) : null}
               </>
-            ) : (
-              <>
-                <p className="text-[12px] text-muted-foreground">
-                  {ga4.connected_at
-                    ? "Disconnected · cached data preserved"
-                    : "Not connected"}
-                </p>
-                {ga4StaleCopy ? (
-                  <p
-                    className="text-[12px] text-muted-foreground"
-                    data-ga4-stale-tooltip="true"
-                    title={ga4StaleCopy}
-                  >
-                    {ga4StaleCopy}
-                  </p>
-                ) : null}
-              </>
-            )}
+            ) : null}
+            {gscSyncResult ? (
+              <p
+                className={`text-[12px] ${gscSyncResult.ok ? "text-status-success" : "text-status-warning"}`}
+              >
+                {gscSyncResult.text}
+              </p>
+            ) : null}
           </div>
 
-          <div className="flex shrink-0 flex-col items-end gap-2">
-            {ga4.status === "connected" ? (
-              <>
-                {ga4.ga4_property_id ? (
-                  <button
-                    type="button"
-                    onClick={() =>
-                      handleConnectorSyncNow(syncGa4Now, setGa4SyncPending, setGa4SyncResult)
-                    }
-                    disabled={ga4SyncPending || isPending}
-                    className="rounded-md bg-foreground px-3 py-1.5 text-[12px] font-medium text-background transition-colors hover:opacity-90 disabled:opacity-50"
-                  >
-                    {ga4SyncPending ? "Syncing…" : "Pull my data now"}
-                  </button>
-                ) : null}
-                <button
-                  type="button"
-                  onClick={handleDisconnectGa4}
-                  disabled={isPending || anySync}
-                  className="rounded-md border border-border/60 px-3 py-1.5 text-[12px] font-medium text-muted-foreground transition-colors hover:text-foreground hover:border-foreground/30 disabled:opacity-50"
-                  title="Soft disconnect: historical data stays cached but no new data refreshes until you reconnect."
-                >
-                  {isPending ? "Disconnecting…" : "Disconnect"}
-                </button>
-              </>
-            ) : (
+          <div className="flex flex-wrap gap-2 px-5 pb-4">
+            {GBP_AFFORDANCES_ENABLED ? (
               <button
                 type="button"
-                onClick={handleConnectGa4}
-                disabled={isPending}
+                onClick={() => void handleGoogleSyncNow()}
+                disabled={googleSyncInFlight || isPending || !selectedLocation}
                 className="rounded-md bg-foreground px-3 py-1.5 text-[12px] font-medium text-background transition-colors hover:opacity-90 disabled:opacity-50"
               >
-                {isPending ? "Connecting…" : "Connect Google Analytics"}
+                {googleSyncInFlight ? "Updating…" : "Update data"}
               </button>
-            )}
+            ) : null}
+            <button
+              type="button"
+              onClick={() =>
+                handleConnectorSyncNow(syncGscNow, setGscSyncPending, setGscSyncResult)
+              }
+              disabled={gscSyncPending || isPending}
+              className="rounded-md bg-foreground px-3 py-1.5 text-[12px] font-medium text-background transition-colors hover:opacity-90 disabled:opacity-50"
+            >
+              {gscSyncPending ? "Syncing…" : "Pull my Search Console data"}
+            </button>
+            <button
+              type="button"
+              onClick={handleDisconnect}
+              disabled={isPending || anySync}
+              className="rounded-md border border-border/60 px-3 py-1.5 text-[12px] font-medium text-muted-foreground transition-colors hover:text-foreground hover:border-foreground/30 disabled:opacity-50"
+              title="Disconnects Google Search Console and any connected Google Business Profile. Historical data stays cached; no new data refreshes until you reconnect."
+            >
+              {isPending ? "Disconnecting…" : "Disconnect Google"}
+            </button>
           </div>
-        </div>
 
-        <div className="px-5 pb-3">
-          <ConnectorCapability {...CONNECTOR_CAPABILITY.google_ga4} />
-        </div>
+          {/* ── Readiness (MAX_SEO_AEO Phase 4, 2026-06-16) ──
+              Surfaces the RESOLVED property (derived from the tenant's own synced
+              rows, never hardcoded), the backfill window + freshness, and a hard
+              NOT-READY line when the connection can't actually deliver data.
+              READ-ONLY: every figure is pre-composed server-side from persisted
+              state (no live Google call). The verdict is also mirrored onto
+              data-gsc-readiness on the card wrapper for testability. */}
+          {gscReadiness ? (
+            <div
+              className="border-t border-border/40 px-5 py-3 space-y-1"
+              data-gsc-readiness-section={gscReadiness.verdict}
+            >
+              {gscReadiness.verdict === "ready" ? (
+                <p className="inline-flex items-center gap-1.5 rounded-md bg-status-success/[0.12] px-2 py-0.5 text-[11px] font-semibold text-status-success">
+                  Ready
+                </p>
+              ) : null}
+              <p className="text-[12px] font-medium text-foreground">
+                {gscReadiness.headline}
+              </p>
+              <p className="text-[12px] text-muted-foreground">
+                {gscReadiness.detail}
+              </p>
+            </div>
+          ) : null}
 
-        {/* Property picker, only when connected. Properties load on
-            click only (NEVER on mount) so no GA4 API call fires on
-            page render. Pinned by the `ga4-no-page-load-call`
-            architecture invariant. */}
-        {ga4.status === "connected" ? (
+          {/* ── Location picker (Google connected), GBP only ── */}
+          {GBP_AFFORDANCES_ENABLED ? (
+            <div className="border-t border-border/40 px-5 py-3 space-y-3">
+              {locationError && (
+                <p className="text-[12px] text-status-warning">{locationError}</p>
+              )}
+
+              {!locationOptions ? (
+                <button
+                  type="button"
+                  onClick={() => void handleLoadLocations()}
+                  disabled={locationsLoading || isPending}
+                  className="rounded-md border border-border/60 px-3 py-1.5 text-[12px] font-medium text-foreground transition-colors hover:border-foreground/30 disabled:opacity-50"
+                >
+                  {locationsLoading ? "Loading locations…" : selectedLocation ? "Change location" : "Load locations"}
+                </button>
+              ) : locationOptions.length === 0 ? (
+                <p className="text-[12px] text-muted-foreground">
+                  No locations found for this Google account. Make sure your Google Business Profile has at least one verified location.
+                </p>
+              ) : (
+                <div className="space-y-2">
+                  <label className="block text-[11px] font-medium text-foreground/90">
+                    Choose location to sync
+                  </label>
+                  <div className="space-y-1.5 max-h-60 overflow-y-auto">
+                    {locationOptions.map((loc) => {
+                      const isSelected = selectedLocation?.id === loc.locationId;
+                      return (
+                        <button
+                          key={loc.locationId}
+                          type="button"
+                          onClick={() => void handleSelectLocation(loc)}
+                          disabled={isPending}
+                          className={`w-full text-left rounded-md border px-3 py-2 text-[12px] transition-colors disabled:opacity-50 ${
+                            isSelected
+                              ? "border-accent-primary/60 bg-accent-primary/[0.06] text-foreground"
+                              : "border-border/60 bg-background text-foreground hover:border-foreground/30"
+                          }`}
+                        >
+                          <span className="font-medium">{loc.locationName}</span>
+                          {loc.address ? (
+                            <span className="block text-[11px] text-muted-foreground mt-0.5">
+                              {loc.address}
+                            </span>
+                          ) : null}
+                          {isSelected ? (
+                            <span className="block text-[11px] text-accent-primary mt-0.5">
+                              Currently selected
+                            </span>
+                          ) : null}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+          ) : null}
+        </details>
+      ) : (
+        <div
+          id="connector-google-gsc"
+          data-connector-card="google-gsc"
+          data-gsc-readiness={gscReadiness?.verdict ?? "not_connected"}
+          className="rounded-lg border border-border/60 bg-surface-inset/20 px-5 py-4"
+        >
+          <div className="flex items-start justify-between gap-4">
+            <div className="min-w-0 space-y-1">
+              <h3 className="text-[13px] font-semibold text-foreground">
+                Google Search Console
+              </h3>
+              {/* J5 (2026-05-18), soft-disconnect aware copy. When a
+                  previously-authorized GSC connector is now disconnected,
+                  surface the "Last refreshed at X days ago" tooltip
+                  alongside "Not connected" so the operator sees cached
+                  state is preserved. */}
+              <p className="text-[12px] text-muted-foreground">
+                {google.connected_at ? "Disconnected · cached data preserved" : "Not connected"}
+                {gscStaleCopy ? (
+                  <span data-gsc-stale-tooltip="true"> · {gscStaleCopy}</span>
+                ) : null}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={handleConnect}
+              disabled={isPending}
+              className="shrink-0 rounded-md bg-foreground px-3 py-1.5 text-[12px] font-medium text-background transition-colors hover:opacity-90 disabled:opacity-50"
+            >
+              {isPending ? "Connecting…" : "Connect Google Search Console"}
+            </button>
+          </div>
+          <p className="mt-2 text-[12px] text-muted-foreground leading-relaxed">
+            Read-only access to see what people search to find you, no
+            writes to your Search Console property. The Google consent
+            screen shows one permission: View Search Console data.
+          </p>
+        </div>
+      )}
+
+      {/* ── Google Analytics (GA4), Slice 9.A1β (2026-05-18) ── */}
+      {ga4.status === "connected" ? (
+        <details
+          id="connector-google-ga4"
+          className="group rounded-lg border border-border/60 bg-surface-inset/20 scroll-mt-24"
+          data-connector-card="google-ga4"
+        >
+          <summary className="flex cursor-pointer list-none items-center justify-between gap-4 px-5 py-3">
+            <div className="min-w-0 flex items-center gap-2.5">
+              <h3 className="text-[13px] font-semibold text-foreground shrink-0">
+                Google Analytics
+              </h3>
+              <span className="text-[12px] text-muted-foreground truncate">
+                {ga4.ga4_property_id
+                  ? `${SOURCE_SUMMARY.google_ga4} Tracking ${ga4.ga4_property_display_name ?? "a property"}.`
+                  : SOURCE_SUMMARY.google_ga4}
+              </span>
+            </div>
+            <div className="flex shrink-0 items-center gap-2">
+              {!ga4.ga4_property_id ? (
+                <span className="text-[11px] font-semibold text-status-warning" role="status">
+                  Select a property
+                </span>
+              ) : null}
+              <span className="text-[11px] font-medium text-muted-foreground group-open:hidden">
+                Manage
+              </span>
+              <span className="hidden text-[11px] font-medium text-muted-foreground group-open:inline">
+                Hide
+              </span>
+            </div>
+          </summary>
+
+          <div className="border-t border-border/40 px-5 py-4 space-y-1">
+            <p className="text-[12px] text-muted-foreground">
+              Authorized {formatDate(ga4.connected_at)}
+            </p>
+            {ga4.ga4_property_id ? (
+              <p className="text-[12px] text-muted-foreground">
+                Selected: {ga4.ga4_property_display_name ?? "Property"}
+                {ga4.ga4_account_display_name
+                  ? ` · ${ga4.ga4_account_display_name}`
+                  : ""}
+              </p>
+            ) : (
+              // #197, setup-blocking state (half-wired connector).
+              <p className="text-[12px] text-status-warning" role="status">
+                <span className="font-semibold">Action needed:</span>{" "}
+                Connected, select a property to finish setup.
+              </p>
+            )}
+            {ga4SyncResult ? (
+              <p
+                className={`text-[12px] ${ga4SyncResult.ok ? "text-status-success" : "text-status-warning"}`}
+              >
+                {ga4SyncResult.text}
+              </p>
+            ) : null}
+          </div>
+
+          <div className="flex flex-wrap gap-2 px-5 pb-4">
+            {ga4.ga4_property_id ? (
+              <button
+                type="button"
+                onClick={() =>
+                  handleConnectorSyncNow(syncGa4Now, setGa4SyncPending, setGa4SyncResult)
+                }
+                disabled={ga4SyncPending || isPending}
+                className="rounded-md bg-foreground px-3 py-1.5 text-[12px] font-medium text-background transition-colors hover:opacity-90 disabled:opacity-50"
+              >
+                {ga4SyncPending ? "Syncing…" : "Pull my data now"}
+              </button>
+            ) : null}
+            <button
+              type="button"
+              onClick={handleDisconnectGa4}
+              disabled={isPending || anySync}
+              className="rounded-md border border-border/60 px-3 py-1.5 text-[12px] font-medium text-muted-foreground transition-colors hover:text-foreground hover:border-foreground/30 disabled:opacity-50"
+              title="Soft disconnect: historical data stays cached but no new data refreshes until you reconnect."
+            >
+              {isPending ? "Disconnecting…" : "Disconnect"}
+            </button>
+          </div>
+
+          {/* Property picker. Properties load on click only (NEVER on
+              mount) so no GA4 API call fires on page render. Pinned by
+              the `ga4-no-page-load-call` architecture invariant. */}
           <div className="border-t border-border/40 px-5 py-3 space-y-3">
             {ga4PropertyError && (
               <p className="text-[12px] text-status-warning">
@@ -1158,27 +1126,44 @@ export function ConnectorsClient({
               </div>
             )}
           </div>
-        ) : null}
-
-        <div className="border-t border-border/40 px-5 py-3 bg-surface-inset/10 space-y-1.5">
-          <p className="text-[11px] text-muted-foreground leading-relaxed">
-            {ga4.status === "connected" ? (
-              <>
-                Beacon sees which pages get the most visitors, so it knows
-                which to fix first. Read-only access, no writes to your Google
-                Analytics property.
-              </>
-            ) : (
-              <>
-                Connect Google Analytics to give Beacon read-only access
-                to your GA4 property. The Google consent screen will
-                show a single permission: View your Google Analytics
-                data.
-              </>
-            )}
+        </details>
+      ) : (
+        <div
+          id="connector-google-ga4"
+          className="rounded-lg border border-border/60 bg-surface-inset/20 scroll-mt-24 px-5 py-4"
+          data-connector-card="google-ga4"
+        >
+          <div className="flex items-start justify-between gap-4">
+            <div className="min-w-0 space-y-1">
+              <h3 className="text-[13px] font-semibold text-foreground">
+                Google Analytics
+              </h3>
+              <p className="text-[12px] text-muted-foreground">
+                {ga4.connected_at
+                  ? "Disconnected · cached data preserved"
+                  : "Not connected"}
+                {ga4StaleCopy ? (
+                  <span data-ga4-stale-tooltip="true"> · {ga4StaleCopy}</span>
+                ) : null}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={handleConnectGa4}
+              disabled={isPending}
+              className="shrink-0 rounded-md bg-foreground px-3 py-1.5 text-[12px] font-medium text-background transition-colors hover:opacity-90 disabled:opacity-50"
+            >
+              {isPending ? "Connecting…" : "Connect Google Analytics"}
+            </button>
+          </div>
+          <p className="mt-2 text-[12px] text-muted-foreground leading-relaxed">
+            Read-only access to see which pages bring in the most
+            visitors, no writes to your Analytics property. The Google
+            consent screen shows one permission: View your Google
+            Analytics data.
           </p>
         </div>
-      </div>
+      )}
 
       {/* Yelp connector removed 2026-06-18 (operator request, not relevant to
           content/AEO tenants). State + actions remain wired but no card renders. */}
@@ -1188,27 +1173,31 @@ export function ConnectorsClient({
           Wix API key + site id. Connecting NEVER publishes anything -
           every edit still goes through Approve & Push (your click,
           daily caps, non-destructive guard). */}
-      <div
-        id="connector-wix"
-        className="rounded-lg border border-border/60 bg-surface-inset/20 scroll-mt-24"
-        data-connector-card="wix"
-      >
-        <div className="px-5 py-4 flex items-start justify-between gap-4">
-          <div className="min-w-0 space-y-1">
-            <h3 className="text-[13px] font-semibold text-foreground">Wix</h3>
-            {wix.status === "connected" ? (
-              <p className="text-[12px] text-muted-foreground">
-                Connected &middot; Authorized {formatDate(wix.connected_at)}
-              </p>
-            ) : (
-              <p className="text-[12px] text-muted-foreground">
-                Connect your Wix site so Beacon can prepare publish-ready
-                edits. Nothing changes on your live site without your
-                approval.
-              </p>
-            )}
-          </div>
-          {wix.status === "connected" ? (
+      {wix.status === "connected" ? (
+        <details
+          id="connector-wix"
+          className="group rounded-lg border border-border/60 bg-surface-inset/20 scroll-mt-24"
+          data-connector-card="wix"
+        >
+          <summary className="flex cursor-pointer list-none items-center justify-between gap-4 px-5 py-3">
+            <div className="min-w-0 flex items-center gap-2.5">
+              <h3 className="text-[13px] font-semibold text-foreground shrink-0">Wix</h3>
+              <span className="text-[12px] text-muted-foreground truncate">
+                {SOURCE_SUMMARY.wix}
+              </span>
+            </div>
+            <span className="shrink-0 text-[11px] font-medium text-muted-foreground group-open:hidden">
+              Manage
+            </span>
+            <span className="hidden shrink-0 text-[11px] font-medium text-muted-foreground group-open:inline">
+              Hide
+            </span>
+          </summary>
+
+          <div className="border-t border-border/40 px-5 py-4 space-y-2">
+            <p className="text-[12px] text-muted-foreground">
+              Authorized {formatDate(wix.connected_at)}
+            </p>
             <button
               type="button"
               onClick={handleDisconnectWix}
@@ -1217,15 +1206,34 @@ export function ConnectorsClient({
             >
               Disconnect
             </button>
-          ) : null}
-        </div>
+          </div>
 
-        <div className="px-5 pb-3">
-          <ConnectorCapability {...CONNECTOR_CAPABILITY.wix} />
-        </div>
+          <div className="border-t border-border/40 px-5 py-3 bg-surface-inset/10">
+            <p className="text-[11px] text-muted-foreground leading-relaxed">
+              Only used when you approve an edit for publishing. Daily caps and
+              the non-destructive guard apply to every change, and disconnecting
+              stops all publishing instantly.
+            </p>
+          </div>
+        </details>
+      ) : (
+        <div
+          id="connector-wix"
+          className="rounded-lg border border-border/60 bg-surface-inset/20 scroll-mt-24 px-5 py-4"
+          data-connector-card="wix"
+        >
+          <h3 className="text-[13px] font-semibold text-foreground">Wix</h3>
+          <p className="mt-1 text-[12px] text-muted-foreground">
+            Connect your Wix site so I can prepare publish-ready edits.
+            Nothing changes on your live site without your approval.
+          </p>
+          <p className="mt-1 text-[11px] text-muted-foreground leading-relaxed">
+            Only used when you approve an edit for publishing. Daily caps and
+            the non-destructive guard apply to every change, and disconnecting
+            stops all publishing instantly.
+          </p>
 
-        {wix.status !== "connected" ? (
-          <div className="border-t border-border/40 px-5 py-4 space-y-2">
+          <div className="mt-3 space-y-2">
             <p className="text-[12px] text-muted-foreground">
               From your Wix dashboard: Settings → API Keys → create a key
               with content-write access, and copy your Site ID from
@@ -1269,76 +1277,87 @@ export function ConnectorsClient({
               </p>
             </div>
           </div>
-        ) : null}
-
-        <div className="border-t border-border/40 px-5 py-3 bg-surface-inset/10">
-          <p className="text-[11px] text-muted-foreground leading-relaxed">
-            Only used when you approve an edit for publishing. Daily caps and
-            the non-destructive guard apply to every change, and disconnecting
-            stops all publishing instantly.
-          </p>
         </div>
-      </div>
+      )}
 
       {/* ── Profound, Connect-cards slice (2026-06-12) ── */}
-      <div
-        id="connector-profound"
-        className="rounded-lg border border-border/60 bg-surface-inset/20 scroll-mt-24"
-        data-connector-card="profound"
-      >
-        <div className="px-5 py-4 flex items-start justify-between gap-4">
-          <div className="min-w-0 space-y-1">
-            <h3 className="text-[13px] font-semibold text-foreground">Profound</h3>
-            {profound.status === "connected" ? (
-              <>
-                <p className="text-[12px] text-muted-foreground">
-                  Connected &middot; Authorized {formatDate(profound.connected_at)}
-                </p>
-                {profoundSyncResult ? (
-                  <p
-                    className={`text-[12px] ${profoundSyncResult.ok ? "text-status-success" : "text-status-warning"}`}
-                  >
-                    {profoundSyncResult.text}
-                  </p>
-                ) : null}
-              </>
-            ) : (
-              <p className="text-[12px] text-muted-foreground">
-                Connect your Profound API key so Beacon can track how AI
-                assistants mention and cite your site, and where rivals
-                get cited instead. Pulls run on demand only and use your
-                Profound plan&apos;s quota each time.
-              </p>
-            )}
-          </div>
-          {profound.status === "connected" ? (
-            <div className="flex shrink-0 flex-col items-end gap-2">
-              <button
-                type="button"
-                onClick={() =>
-                  handleConnectorSyncNow(syncProfoundNow, setProfoundSyncPending, setProfoundSyncResult)
-                }
-                disabled={profoundSyncPending || isPending}
-                className="rounded-md bg-foreground px-3 py-1.5 text-[12px] font-medium text-background transition-colors hover:opacity-90 disabled:opacity-50"
-              >
-                {profoundSyncPending ? "Syncing…" : "Pull my data now"}
-              </button>
-              <button
-                type="button"
-                onClick={() => handleSimpleDisconnect(disconnectProfound, setProfound)}
-                disabled={isPending}
-                className="rounded-md border border-border/60 px-3 py-1.5 text-[12px] font-medium text-muted-foreground transition-colors hover:text-foreground hover:border-foreground/30 disabled:opacity-50"
-              >
-                Disconnect
-              </button>
+      {profound.status === "connected" ? (
+        <details
+          id="connector-profound"
+          className="group rounded-lg border border-border/60 bg-surface-inset/20 scroll-mt-24"
+          data-connector-card="profound"
+        >
+          <summary className="flex cursor-pointer list-none items-center justify-between gap-4 px-5 py-3">
+            <div className="min-w-0 flex items-center gap-2.5">
+              <h3 className="text-[13px] font-semibold text-foreground shrink-0">Profound</h3>
+              <span className="text-[12px] text-muted-foreground truncate">
+                {SOURCE_SUMMARY.profound}
+              </span>
             </div>
-          ) : null}
-        </div>
-        <div className="px-5 pb-3">
-          <ConnectorCapability {...CONNECTOR_CAPABILITY.profound} />
-        </div>
-        {profound.status !== "connected" ? (
-          <div className="border-t border-border/40 px-5 py-4 space-y-2">
+            <span className="shrink-0 text-[11px] font-medium text-muted-foreground group-open:hidden">
+              Manage
+            </span>
+            <span className="hidden shrink-0 text-[11px] font-medium text-muted-foreground group-open:inline">
+              Hide
+            </span>
+          </summary>
+
+          <div className="border-t border-border/40 px-5 py-4 space-y-1">
+            <p className="text-[12px] text-muted-foreground">
+              Authorized {formatDate(profound.connected_at)}
+            </p>
+            {profoundSyncResult ? (
+              <p
+                className={`text-[12px] ${profoundSyncResult.ok ? "text-status-success" : "text-status-warning"}`}
+              >
+                {profoundSyncResult.text}
+              </p>
+            ) : null}
+          </div>
+
+          <div className="flex flex-wrap gap-2 px-5 pb-4">
+            <button
+              type="button"
+              onClick={() =>
+                handleConnectorSyncNow(syncProfoundNow, setProfoundSyncPending, setProfoundSyncResult)
+              }
+              disabled={profoundSyncPending || isPending}
+              className="rounded-md bg-foreground px-3 py-1.5 text-[12px] font-medium text-background transition-colors hover:opacity-90 disabled:opacity-50"
+            >
+              {profoundSyncPending ? "Syncing…" : "Pull my data now"}
+            </button>
+            <button
+              type="button"
+              onClick={() => handleSimpleDisconnect(disconnectProfound, setProfound)}
+              disabled={isPending}
+              className="rounded-md border border-border/60 px-3 py-1.5 text-[12px] font-medium text-muted-foreground transition-colors hover:text-foreground hover:border-foreground/30 disabled:opacity-50"
+            >
+              Disconnect
+            </button>
+          </div>
+
+          <div className="border-t border-border/40 px-5 py-3 bg-surface-inset/10">
+            <p className="text-[11px] text-muted-foreground leading-relaxed">
+              Reconnecting and running Sync now pulls fresh data and uses API
+              units again.
+            </p>
+          </div>
+        </details>
+      ) : (
+        <div
+          id="connector-profound"
+          className="rounded-lg border border-border/60 bg-surface-inset/20 scroll-mt-24 px-5 py-4"
+          data-connector-card="profound"
+        >
+          <h3 className="text-[13px] font-semibold text-foreground">Profound</h3>
+          <p className="mt-1 text-[12px] text-muted-foreground">
+            Connect your Profound API key so I can track how AI assistants
+            mention and cite your site, and where rivals get cited instead.
+            Pulls run on demand only and use your Profound plan&apos;s
+            quota each time.
+          </p>
+
+          <div className="mt-3 space-y-2">
             <label htmlFor="profound-api-key" className="sr-only">
               Profound API key
             </label>
@@ -1371,79 +1390,88 @@ export function ConnectorsClient({
               </p>
             </div>
           </div>
-        ) : null}
-        {profound.status === "connected" ? (
-          <div className="border-t border-border/40 px-5 py-3 bg-surface-inset/10">
-            <p className="text-[11px] text-muted-foreground leading-relaxed">
-              Reconnecting and running Sync now pulls fresh data and uses API
-              units again.
-            </p>
-          </div>
-        ) : null}
-      </div>
+        </div>
+      )}
 
       {/* ── Microsoft Clarity, Connect-cards slice (2026-06-12) ── */}
-      <div
-        id="connector-clarity"
-        className="rounded-lg border border-border/60 bg-surface-inset/20 scroll-mt-24"
-        data-connector-card="clarity"
-      >
-        <div className="px-5 py-4 flex items-start justify-between gap-4">
-          <div className="min-w-0 space-y-1">
-            <h3 className="text-[13px] font-semibold text-foreground">
-              Microsoft Clarity
-            </h3>
-            {clarity.status === "connected" ? (
-              <>
-                <p className="text-[12px] text-muted-foreground">
-                  Connected &middot; Authorized {formatDate(clarity.connected_at)}
-                </p>
-                {claritySyncResult ? (
-                  <p
-                    className={`text-[12px] ${claritySyncResult.ok ? "text-status-success" : "text-status-warning"}`}
-                  >
-                    {claritySyncResult.text}
-                  </p>
-                ) : null}
-              </>
-            ) : (
-              <p className="text-[12px] text-muted-foreground">
-                Connect a Clarity API token so Beacon can see where
-                visitors get stuck on each page (rage clicks, dead
-                clicks, scroll depth). Clarity only shares the last 1-3
-                days, so refresh every couple of days to build history
-                without gaps.
-              </p>
-            )}
-          </div>
-          {clarity.status === "connected" ? (
-            <div className="flex shrink-0 flex-col items-end gap-2">
-              <button
-                type="button"
-                onClick={() =>
-                  handleConnectorSyncNow(syncClarityNow, setClaritySyncPending, setClaritySyncResult)
-                }
-                disabled={claritySyncPending || isPending}
-                className="rounded-md bg-foreground px-3 py-1.5 text-[12px] font-medium text-background transition-colors hover:opacity-90 disabled:opacity-50"
-              >
-                {claritySyncPending ? "Syncing…" : "Pull my data now"}
-              </button>
-              <button
-                type="button"
-                onClick={() => handleSimpleDisconnect(disconnectClarity, setClarity)}
-                disabled={isPending}
-                className="rounded-md border border-border/60 px-3 py-1.5 text-[12px] font-medium text-muted-foreground transition-colors hover:text-foreground hover:border-foreground/30 disabled:opacity-50"
-              >
-                Disconnect
-              </button>
+      {clarity.status === "connected" ? (
+        <details
+          id="connector-clarity"
+          className="group rounded-lg border border-border/60 bg-surface-inset/20 scroll-mt-24"
+          data-connector-card="clarity"
+        >
+          <summary className="flex cursor-pointer list-none items-center justify-between gap-4 px-5 py-3">
+            <div className="min-w-0 flex items-center gap-2.5">
+              <h3 className="text-[13px] font-semibold text-foreground shrink-0">
+                Microsoft Clarity
+              </h3>
+              <span className="text-[12px] text-muted-foreground truncate">
+                {SOURCE_SUMMARY.clarity}
+              </span>
             </div>
-          ) : null}
-        </div>
-        <div className="px-5 pb-3">
-          <ConnectorCapability {...CONNECTOR_CAPABILITY.clarity} />
-        </div>
-        {clarity.status !== "connected" ? (
-          <div className="border-t border-border/40 px-5 py-4 space-y-2">
+            <span className="shrink-0 text-[11px] font-medium text-muted-foreground group-open:hidden">
+              Manage
+            </span>
+            <span className="hidden shrink-0 text-[11px] font-medium text-muted-foreground group-open:inline">
+              Hide
+            </span>
+          </summary>
+
+          <div className="border-t border-border/40 px-5 py-4 space-y-1">
+            <p className="text-[12px] text-muted-foreground">
+              Authorized {formatDate(clarity.connected_at)}
+            </p>
+            {claritySyncResult ? (
+              <p
+                className={`text-[12px] ${claritySyncResult.ok ? "text-status-success" : "text-status-warning"}`}
+              >
+                {claritySyncResult.text}
+              </p>
+            ) : null}
+            <p className="text-[12px] text-muted-foreground">
+              Clarity only shares the last 1 to 3 days, so pull data every
+              couple of days to keep history without gaps.
+            </p>
+          </div>
+
+          <div className="flex flex-wrap gap-2 px-5 pb-4">
+            <button
+              type="button"
+              onClick={() =>
+                handleConnectorSyncNow(syncClarityNow, setClaritySyncPending, setClaritySyncResult)
+              }
+              disabled={claritySyncPending || isPending}
+              className="rounded-md bg-foreground px-3 py-1.5 text-[12px] font-medium text-background transition-colors hover:opacity-90 disabled:opacity-50"
+            >
+              {claritySyncPending ? "Syncing…" : "Pull my data now"}
+            </button>
+            <button
+              type="button"
+              onClick={() => handleSimpleDisconnect(disconnectClarity, setClarity)}
+              disabled={isPending}
+              className="rounded-md border border-border/60 px-3 py-1.5 text-[12px] font-medium text-muted-foreground transition-colors hover:text-foreground hover:border-foreground/30 disabled:opacity-50"
+            >
+              Disconnect
+            </button>
+          </div>
+        </details>
+      ) : (
+        <div
+          id="connector-clarity"
+          className="rounded-lg border border-border/60 bg-surface-inset/20 scroll-mt-24 px-5 py-4"
+          data-connector-card="clarity"
+        >
+          <h3 className="text-[13px] font-semibold text-foreground">
+            Microsoft Clarity
+          </h3>
+          <p className="mt-1 text-[12px] text-muted-foreground">
+            Connect a Clarity API token so I can see where visitors get
+            stuck on each page (rage clicks, dead clicks, scroll depth).
+            Clarity only shares the last 1 to 3 days, so pull data every
+            couple of days to keep history without gaps.
+          </p>
+
+          <div className="mt-3 space-y-2">
             <p className="text-[12px] text-muted-foreground">
               In Clarity: Settings → Data Export → Generate new API token.
             </p>
@@ -1479,8 +1507,8 @@ export function ConnectorsClient({
               </p>
             </div>
           </div>
-        ) : null}
-      </div>
+        </div>
+      )}
 
       {/* ── Manual import note ── */}
       <div className="rounded-lg border border-border/40 bg-surface-inset/10 px-5 py-3">

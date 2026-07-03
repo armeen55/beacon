@@ -24,11 +24,21 @@ import { summarizeForecastCalibration, captureDistributionFromCalibrationRecords
 import { canonicalMoveType } from "@/domains/learning/experiment-prior";
 import { blendCaptureBand } from "@/domains/experiments/empirical-capture";
 import { captureHypothesis } from "@/domains/forecast/hypothesis-log";
-// UX0 (2026-07-02) - the SAME canonical "measuring" count Today reads (page.tsx A2:
-// the proof ledger's own verdict field), so the worklist header never shows a
-// different number than Today for the same word. Read-only import; proof-gsc is
-// owned by a concurrent workstream, this file only reads its cached loader.
+// UX0 (2026-07-02) - the SAME canonical "measuring" count Today reads, so the worklist
+// header never shows a different number than Today for the same word. Read-only import;
+// proof-gsc is owned by a concurrent workstream, this file only reads its cached loader.
 import { loadProofLedgerCached } from "@/domains/proof-gsc/load-ledger";
+// FP3 (2026-07-02) - THE ONE-COUNT RULE: measuring/decided are computed by the shared
+// lifecycle classifier (the same split Results renders as its bands), never by this
+// file's own verdict-field filter. See domains/changes/lifecycle-counts.ts.
+import { countLedgerLifecycle } from "@/domains/changes/lifecycle-counts";
+// FP5b (2026-07-02) - the New Pages board is the ONE home for not-yet-built topics; a
+// page-less create row whose topic already has a board card is a duplicate, not a
+// second opportunity. Same normalizer the board's own dedupe pass uses.
+import { loadNewPagesData } from "./today-newpages-data";
+import { topicIdentityKey } from "@/domains/demand-graph/dedupe-new-page-cards";
+import { valueWithDeadline } from "@/lib/load-with-deadline";
+import { cache } from "react";
 // D4/N1 (unified allocator, 2026-07-02) - fuse D2's AEO gap verdicts + D3's SERP steal briefs +
 // undercovered keyword-library demand onto this SAME ranked list, so /worklist becomes the
 // operator's "one ranked decision" across every opportunity source, not just the ActionPack
@@ -44,13 +54,18 @@ export type ChangesView = {
   /** B7 (worklist fix batch) - only set when Ready is 0, so the tab isn't a bare "0" with no
    *  reason. Distinguishes "your Wix pages aren't mapped yet" from "nothing to prepare right now". */
   readyZeroHint: string | null;
-  /** UX0 (2026-07-02) - THE canonical "measuring" count (same proof-ledger verdict field
-   *  Today's page.tsx A2 reads). `summary.measuring` above stays the count of changes in
-   *  THIS list that are measuring (a worklist-scoped subset); this is the whole-tenant
-   *  truth so the Measuring tab can say "10 of 16 here" instead of silently disagreeing
-   *  with Today's number. Equal to `summary.measuring` whenever every measuring proof
-   *  record also has a matching worklist move (the common case). */
+  /** UX0/FP3 (2026-07-02) - THE canonical "measuring" count (the ONE-COUNT RULE in
+   *  domains/changes/lifecycle-counts.ts: every shipped change without a final read,
+   *  the same set Results shows as "In flight"). `summary.measuring` above stays the
+   *  count of changes in THIS list that are measuring (a worklist-scoped subset); this
+   *  is the whole-tenant truth so the Measuring tab can say "10 of 16 here" instead of
+   *  silently disagreeing with Today's number. */
   measuringCountCanonical: number;
+  /** FP3 (2026-07-02) - THE canonical "decided" count (shipped changes with a final
+   *  read: Results' Wins + What we learned bands). Same subset treatment as
+   *  measuringCountCanonical: `summary.results` is this list's own settled rows, this
+   *  is the whole-tenant truth. */
+  decidedCountCanonical: number;
   /** FP2 (2026-07-02) - "Fix the experience rows silently vanish" finding. Set exactly when
    *  a row TYPE got filtered upstream (the worklist render cap in moves/moves-data.ts truncates
    *  to its strongest N and keeps the true count in stats.movesReady) so the list can say so in
@@ -167,20 +182,57 @@ export function reconcileCannibalizationRationale(
   });
 }
 
-export async function loadChangesView(): Promise<ChangesView> {
+/** FP5b (2026-07-02, killer finding "New-page ideas appear three times") - drop a
+ *  page-less create row whose normalized topic already has a card on the New Pages
+ *  board (its single home). Rows with a real page are never dropped (an edit to an
+ *  existing page is not "a page I don't have yet"), and topics the board does NOT
+ *  carry stay on the list so nothing is lost. PURE; exported for a direct test pin. */
+export function dropBoardDuplicateNewPageRows(
+  changes: readonly CanonicalChange[],
+  boardTopicKeys: ReadonlySet<string>,
+): CanonicalChange[] {
+  if (boardTopicKeys.size === 0) return [...changes];
+  return changes.filter(
+    (c) =>
+      !(
+        c.changeFamily === "new_page" &&
+        !c.pagePath.trim() &&
+        boardTopicKeys.has(topicIdentityKey(c.pageLabel))
+      ),
+  );
+}
+
+/** FP5b - the board's topics, bounded so a cold demand-graph build can never hold the
+ *  Changes list hostage (on a timeout we simply skip the dedupe this visit). */
+const BOARD_TOPICS_DEADLINE_MS = 10_000;
+
+// FP3 - react.cache()'d so the FP3 lifecycle-counts loader and the page section that
+// renders the list share ONE computation per request instead of building it twice.
+export const loadChangesView = cache(async (): Promise<ChangesView> => {
   const tenantId = await currentTenantId();
   // Move 3 — every source is fail-soft so one failing store can never blank the whole
   // Changes list. A plan-store outage drops the "today" slice but keeps the ranked moves;
   // a worklist outage keeps any selected plan items. The page renders with what loaded.
-  const [wl, accepted, preview, reservations, ledgerRows, calibrationRecords] = await Promise.all([
+  const [wl, accepted, preview, reservations, ledgerRows, calibrationRecords, boardTopicKeys] = await Promise.all([
     loadMovesWorklist().catch(() => ({ moves: [] as TodayMove[], stats: undefined })),
     getAcceptedPlan(tenantId).catch(() => null),
     getLatestPreviewPlan(tenantId).catch(() => null),
     listActiveReservations(tenantId).catch(() => []),
     loadProofLedgerCached(tenantId).catch(() => []),
     loadCalibrationRecords(tenantId).catch(() => []),
+    valueWithDeadline(
+      loadNewPagesData()
+        .then((d) => new Set(d.opportunities.map((o) => topicIdentityKey(o.topic))))
+        .catch(() => new Set<string>()),
+      new Set<string>(),
+      BOARD_TOPICS_DEADLINE_MS,
+    ),
   ]);
-  const measuringCountCanonical = ledgerRows.filter((r) => r.verdict === "measuring").length;
+  // FP3 - THE ONE-COUNT RULE (domains/changes/lifecycle-counts.ts): the same classifier
+  // Results uses for its bands, run on the same request-cached ledger rows.
+  const ledgerCounts = countLedgerLifecycle(ledgerRows);
+  const measuringCountCanonical = ledgerCounts.measuring;
+  const decidedCountCanonical = ledgerCounts.decided;
   const plan = accepted ?? preview;
   const moves = (wl.moves ?? []) as TodayMove[];
 
@@ -268,7 +320,12 @@ export async function loadChangesView(): Promise<ChangesView> {
   // history"/"gap too small" fallback must never outrank a row with a real forecast. strategy.ts's
   // ranking is untouched; this only adjusts the ranking INPUT so unsized rows sort to the bottom
   // of their status bucket instead of mixing in among sized ones.
-  const changes = demoteUnsized(reconciled);
+  const demoted = demoteUnsized(reconciled);
+  // FP5b - one home per job: a not-yet-built topic that already has a New Pages board
+  // card must not ALSO render as a ranked list row ("biggest cities in iran" appearing
+  // three times in two formats). The board is the richer home; the list keeps every
+  // create topic the board does not carry.
+  const changes = dropBoardDuplicateNewPageRows(demoted, boardTopicKeys);
 
   // D7 (hypothesis capture) - every forecast actually rendered to the operator on this list is
   // logged as a falsifiable hypothesis, so the day-28 settle can grade it later. Fire-and-forget,
@@ -319,5 +376,5 @@ export async function loadChangesView(): Promise<ChangesView> {
     }
   }
 
-  return { changes, movesById, summary, hasPlan: !!plan, planAccepted: !!accepted, readyZeroHint, measuringCountCanonical, suppressedRowsNote };
-}
+  return { changes, movesById, summary, hasPlan: !!plan, planAccepted: !!accepted, readyZeroHint, measuringCountCanonical, decidedCountCanonical, suppressedRowsNote };
+});
