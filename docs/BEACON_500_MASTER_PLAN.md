@@ -31,7 +31,7 @@ order, and the locked priority function (any stopping point leaves a solo operat
 to stand alone), preferring highest-impact medium-effort work.
 
 QUEUE (strict order; [G] = operator-gated, surface it and continue):
-- [ ] R1. Post-nightly receipts verification (first unattended run ~2 AM PT: cron_runs rows, the
+- [~] R1 (blocked on an external outage, retry each ship cycle). Post-nightly receipts verification: Vercel crons DID fire on schedule (UTC 9:00-12:03 = 2-5 AM PT, confirmed via vercel crons ls + deploy history), but the Supabase data plane has been unreachable for hours from both the local network and Supabase's own management API (project reports ACTIVE_HEALTHY; connections time out at the pooler). Receipts unreadable until it recovers; the just-shipped deadman + error ledger will surface any failed syncs on the app itself. Post-nightly receipts verification (first unattended run ~2 AM PT: cron_runs rows, the
       one-line cron panel flips to the full table, teardown lanes, ga4_ai_referral_daily,
       empty-snapshot self-heal on /changes, first multi-lane agree boost). Effort S, gates R5.
 - [x] R2 (2026-07-03). T0c operational deadman: stalled-cron banner when receipts stop, env + cron-registration
