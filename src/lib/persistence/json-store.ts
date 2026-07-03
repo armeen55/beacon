@@ -268,6 +268,11 @@ const SUPABASE_MIRRORED_STORES = new Set<string>([
   // /diagnostics/provenance) would read empty on hosted prod the moment the
   // lambda recycled, silently muting the whole N3 feature.
   "claim-graph",
+  // 2026-07-03 BEACON_500 R13b / N26 - fact-propagation plans. Appended from
+  // the ship path (a lambda); without the mirror the propagation history on
+  // /diagnostics/provenance would vanish on the next lambda recycle and the
+  // operator could never see which prepared one-line fixes are still open.
+  "fact-propagation-plans",
 ]);
 
 const BLOBS_TABLE = "json_store_blobs";

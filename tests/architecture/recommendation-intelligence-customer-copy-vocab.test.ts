@@ -206,6 +206,13 @@ const PROBE_SETS: Record<string, ReadonlyArray<Probe>> = {
     ["the year Persepolis was built", "515 BC", "/persepolis", "518 BC", "/iran-history"],
     ['the number for "persepolis columns"', "72", "/persepolis", "79", "/iran-history"],
   ],
+  // N25 (R13b, 2026-07-03) - stale-fact check: page path, deterministic fact
+  // label, age label, plural fact word. Probe the pinned population example +
+  // a date-shaped fact.
+  staleFactCopy: [
+    ["/iran-population", "a 2023 population figure", "8 months ago", "Numbers"],
+    ["/persepolis", "a persepolis date", "7 months ago", "Dates"],
+  ],
 };
 
 function scanForViolations(output: string): string[] {

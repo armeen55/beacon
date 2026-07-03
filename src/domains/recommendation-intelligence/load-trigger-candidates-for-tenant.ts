@@ -108,8 +108,7 @@ import { displacementCheckAlert } from "./triggers/displacement-check-alert";
 import { citationLossAlert } from "./triggers/citation-loss-alert";
 import { connectorFailureStreak } from "./triggers/connector-failure-streak";
 import { intentClusterConflict } from "./triggers/intent-cluster-conflict";
-import { claimConflictCandidates } from "@/domains/provenance/claim-conflict-trigger";
-import { findClaimConflicts } from "@/domains/provenance/claim-graph";
+import { claimTriggerSlot } from "@/domains/provenance/stale-fact-trigger";
 import { loadClaimGraphForTenant } from "@/domains/provenance/claim-graph-loader";
 import { loadIntentClustersForTenant } from "@/domains/serp/intent-clusters-loader";
 import type { IntentCluster } from "@/domains/serp/intent-clusters";
@@ -628,26 +627,32 @@ export async function loadTriggerCandidatesForTenant(options: {
   // over the pre-loaded, already-computed SERP-overlap clusters; no paid
   // SERP call happens here or in the loader above.
   all.push(...intentClusterConflict({ tenantId, clusters: intentClusters, signalAt: new Date().toISOString() }));
-  // Claim conflict (BEACON_500 R13 / N3, 2026-07-03): two of the tenant's own
-  // pages carry MATERIALLY different values for the same fact (numbers more
-  // than 5 percent apart, or differing dates - never punctuation). Pure over
-  // the nightly-persisted claim graph ($0 store read); capped at 3; an empty
-  // or missing graph contributes nothing - byte-identical. Fail-soft: a read
-  // failure skips this predicate, never the loader.
+  // Claim triggers (BEACON_500 R13 / N3 + R13b / N25, 2026-07-03): the ONE
+  // shared cap-3 slot for the claim family. Conflicts (two owned pages
+  // carrying MATERIALLY different values for the same fact - numbers more
+  // than 5 percent apart, or differing dates, never punctuation) outrank
+  // stale checks (a fact past its volatility class's freshness deadline)
+  // when both exist. Pure over the nightly-persisted claim graph ($0 store
+  // read); an empty or missing graph contributes nothing - byte-identical.
+  // Fail-soft: a read failure skips this family (claim_conflict and
+  // stale_fact skip), never the loader.
   try {
     const claimRecords = await loadClaimGraphForTenant(tenantId);
     if (claimRecords.length > 0) {
       all.push(
-        ...claimConflictCandidates({
+        ...claimTriggerSlot({
           tenantId,
-          conflicts: findClaimConflicts(claimRecords),
+          records: claimRecords,
+          nowIso: new Date().toISOString(),
           signalAt: new Date().toISOString(),
+          trafficFor: (url) =>
+            gscSignals.get(canonicalizeCitationUrl(url) ?? url)?.impressions90d ?? 0,
         }),
       );
     }
   } catch (err) {
     console.error(
-      `[trigger-loader] claim-conflict check failed for ${tenantId} (claim_conflict skips): ${err instanceof Error ? err.message : String(err)}`,
+      `[trigger-loader] claim trigger check failed for ${tenantId} (claim_conflict and stale_fact skip): ${err instanceof Error ? err.message : String(err)}`,
     );
   }
   // Snippet-promise audit (BEACON_500 R8 / N18, 2026-07-03): does each page

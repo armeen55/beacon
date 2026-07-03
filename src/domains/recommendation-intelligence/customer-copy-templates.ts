@@ -494,3 +494,30 @@ export function claimConflictCopy(
     "). Pick one and I will keep them consistent."
   );
 }
+
+/**
+ * Stale-fact check (BEACON_500 R13b / N25, 2026-07-03). A fact whose newest
+ * confirmation is past its freshness deadline. Args: page path, a plain
+ * deterministic fact label ("a 2023 population figure"), the age label
+ * ("8 months ago"), and the plural fact word ("Numbers" / "Dates" /
+ * "Details"). Honest by construction: says the fact is OLD, never that it
+ * is wrong (calibrated abstention). NO em or en dashes (hard rule).
+ */
+export function staleFactCopy(
+  pagePath: string,
+  factLabel: string,
+  ageLabel: string,
+  factWordPlural: string,
+): string {
+  return (
+    "Your " +
+    pagePath +
+    " page cites " +
+    factLabel +
+    " I last confirmed " +
+    ageLabel +
+    ". " +
+    factWordPlural +
+    " like this age; worth a fresh check."
+  );
+}

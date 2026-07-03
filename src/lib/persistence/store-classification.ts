@@ -473,6 +473,11 @@ export const GLOBAL_STORES = new Set<string>([
   // Capped at 500 rows per tenant on every rebuild
   // (src/domains/provenance/claim-graph-loader.ts).
   "claim-graph",
+  // Fact-propagation plans (2026-07-03, BEACON_500 R13b / N26). Rows carry
+  // tenant_id; appended from the ship path (same lambda rationale as
+  // claim-graph above). Capped at 100 plans per tenant
+  // (src/domains/provenance/claim-graph-loader.ts).
+  "fact-propagation-plans",
 ]);
 
 /**

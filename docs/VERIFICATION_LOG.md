@@ -32608,3 +32608,12 @@ triggered through the real cron path: 200 in 115s, Iranopedia synced GSC + GA4 +
 Profound, Ritz honestly failed google_gsc (transient) + google_ga4 (token expired, the recovery
 map's exact case). First real receipt persisted to cron_runs and the deadman/receipts panel now
 runs on real data. Empty worklist snapshot self-heals on the next healthy rebuild.
+
+## 2026-07-03 R13b (N25 N26 N27) + live pipeline ground truth
+Stale-fact detection (deadlines 180d/540d/never, aged-year auto-fast, says old never wrong),
+fact propagation (one bundled once-only plan per correction, prepared atomic fixes on the
+diagnostics history, never-auto-push pinned by construction), volatility deadlines. 155
+provenance tests + 112 adjacent + 548 regression green; typecheck clean. LIVE GROUND TRUTH after
+the CRON_SECRET fix: question-universe blob 37.7KB written 13:00 UTC by phase 2a-q's first real
+run, site-uptime-probes written 13:01 by the R2 probe's first run, ga4_ai_referral_daily 226
+rows; worklist-surface still the pre-outage empty snapshot, self-heals on next visit/precompute.

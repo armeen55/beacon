@@ -46,7 +46,10 @@
 export type ClaimSourceKind = "page_extract" | "teardown" | "operator" | "correction_evidence";
 export type ClaimReliability = "high" | "medium" | "low";
 export type ClaimVolatility = "static" | "slow" | "fast";
-export type ClaimStatus = "consistent" | "conflicting" | "unverified";
+/** stale_check_due (R13b / N27, additive to the R13 set): the claim's newest
+ *  source observation is past its volatility class's freshness deadline. It
+ *  says the fact is OLD, never that it is wrong (calibrated abstention). */
+export type ClaimStatus = "consistent" | "conflicting" | "unverified" | "stale_check_due";
 export type ClaimValueKind = "number" | "date" | "name" | "free";
 
 export type ClaimSource = {
@@ -90,6 +93,10 @@ export type ClaimRecord = {
   affectedPages: string[];
   volatilityClass: ClaimVolatility;
   status: ClaimStatus;
+  /** N26 (R13b): set once when a correction's propagation plan for this
+   *  record emitted, so the plan fires once, not nightly forever. Preserved
+   *  across rebuilds like firstSeenAt. Optional: legacy rows predate it. */
+  propagationPlannedAt?: string | null;
 };
 
 /** Cap the graph per tenant; highest-traffic pages register first. */
@@ -305,14 +312,71 @@ export function makeSource(kind: ClaimSourceKind, ref: string, observedAt: strin
 }
 
 // ---------------------------------------------------------------------------
-// volatility (the N27 seed: rule-based defaults by claim shape)
+// volatility (N27: rule-based classes by claim shape, each with a freshness
+// deadline)
 // ---------------------------------------------------------------------------
 
-export function volatilityFor(value: ClaimValue): ClaimVolatility {
+/**
+ * N27 freshness deadlines, in days, per volatility class. A fast fact (years,
+ * dates, anything whose value carries an already-old year) is due a fresh
+ * check after 180 days; a slow fact (counts, figures) after 540 days; a
+ * static fact (definitions) never ages out. A claim whose newest source
+ * observation is older than its deadline flips to status "stale_check_due" -
+ * that status says the fact is OLD, never that it is wrong.
+ */
+export const FAST_FRESHNESS_DEADLINE_DAYS = 180;
+export const SLOW_FRESHNESS_DEADLINE_DAYS = 540;
+
+/** Days before a claim of this class is due a fresh check; null = never. */
+export function freshnessDeadlineDays(volatility: ClaimVolatility): number | null {
+  if (volatility === "fast") return FAST_FRESHNESS_DEADLINE_DAYS;
+  if (volatility === "slow") return SLOW_FRESHNESS_DEADLINE_DAYS;
+  return null; // static: definitions stay put
+}
+
+/** How many whole years back a year inside a VALUE must sit before the claim
+ *  is automatically fast-class (a "population of Tehran in 2023" style fact
+ *  ages by definition). Strictly older than 2 years ago: with today in 2026,
+ *  a 2023 value is aged, a 2024 value is not yet. */
+const AGED_YEAR_LOOKBACK_YEARS = 2;
+
+function valueCarriesAgedYear(value: ClaimValue, nowIso: string): boolean {
+  const nowMs = Date.parse(nowIso);
+  if (!Number.isFinite(nowMs)) return false;
+  const nowYear = new Date(nowMs).getUTCFullYear();
+  for (const m of value.normalized.match(/\b[12]\d{3}\b/g) ?? []) {
+    const year = Number.parseInt(m, 10);
+    if (year < nowYear - AGED_YEAR_LOOKBACK_YEARS) return true;
+  }
+  return false;
+}
+
+/** Rule-based class by claim shape: years/dates fast, populations/counts
+ *  slow, definitions static. N27 refinement: a value carrying a year older
+ *  than 2 years ago is automatically fast (a "population of Tehran in 2023"
+ *  style fact ages by definition). Number values are exempt from the year
+ *  scan - a four-digit COUNT ("1,200 shops") is not a year, and extraction
+ *  already classifies real year values as dates. */
+export function volatilityFor(value: ClaimValue, nowIso?: string): ClaimVolatility {
+  if (nowIso && value.kind !== "number" && valueCarriesAgedYear(value, nowIso)) return "fast";
   if (value.kind === "date") return "fast";
   if (value.kind === "number") return "slow";
   if (value.kind === "name") return "static";
   return "slow";
+}
+
+/** N27: is this claim past its class's freshness deadline? Compares the
+ *  newest source observation (lastConfirmedAt) against the deadline. */
+export function isStaleCheckDue(
+  record: Pick<ClaimRecord, "volatilityClass" | "lastConfirmedAt">,
+  nowIso: string,
+): boolean {
+  const deadlineDays = freshnessDeadlineDays(record.volatilityClass);
+  if (deadlineDays == null) return false;
+  const last = Date.parse(record.lastConfirmedAt);
+  const now = Date.parse(nowIso);
+  if (!Number.isFinite(last) || !Number.isFinite(now)) return false;
+  return now - last > deadlineDays * 86_400_000;
 }
 
 // ---------------------------------------------------------------------------
@@ -457,6 +521,29 @@ export function findClaimConflicts(records: readonly ClaimRecord[]): ClaimConfli
   return out;
 }
 
+/**
+ * N26: the exact sentence of a page's stored text that carries a claim -
+ * the SAME rule affectedPages uses (the sentence must contain the value plus
+ * at least CLAIM_TOKEN_FLOOR subject tokens), applied sentence-by-sentence so
+ * a propagation fix can quote the one line to change. Null when no sentence
+ * qualifies (the page may have changed since the graph was built).
+ */
+export function findClaimSentence(
+  text: string,
+  claim: Pick<ClaimRecord, "value" | "subject">,
+): string | null {
+  for (const sentence of splitSentences(text)) {
+    const hay = normalizeForCompare(sentence);
+    if (!hay.includes(claim.value.normalized)) continue;
+    let hits = 0;
+    for (const token of claim.subject) {
+      if (hay.includes(depluralize(token))) hits++;
+      if (hits >= CLAIM_TOKEN_FLOOR) return sentence;
+    }
+  }
+  return null;
+}
+
 // ---------------------------------------------------------------------------
 // graph build (merge extraction + teardown attach + prior records; cap;
 // affected pages; statuses)
@@ -547,8 +634,11 @@ export function buildClaimGraph(args: BuildClaimGraphArgs): ClaimRecord[] {
         firstSeenAt: prior?.firstSeenAt ?? args.nowIso,
         lastConfirmedAt: args.nowIso,
         affectedPages: [],
-        volatilityClass: volatilityFor(extracted.value),
+        volatilityClass: volatilityFor(extracted.value, args.nowIso),
         status: "unverified",
+        // N26: a plan already emitted for this claim stays emitted (once-only
+        // survives the nightly rebuild, exactly like firstSeenAt).
+        propagationPlannedAt: prior?.propagationPlannedAt ?? null,
       };
       // Preserve operator/correction sources registered by shipped drafts.
       for (const s of prior?.sources ?? []) {
@@ -629,6 +719,9 @@ export function buildClaimGraph(args: BuildClaimGraphArgs): ClaimRecord[] {
   // 5. Statuses: conflicting when ANY record (or source) on the same subject
   //    carries a materially different value; consistent when confirmed (2+
   //    sources or one high-reliability source); unverified otherwise.
+  //    N27: a non-conflicting claim whose newest source observation is past
+  //    its volatility class's freshness deadline becomes stale_check_due
+  //    (a conflict is the more urgent flag, so it always outranks age).
   const bySubject = new Map<string, ClaimRecord[]>();
   for (const r of capped) {
     const list = bySubject.get(r.subjectKey);
@@ -639,6 +732,7 @@ export function buildClaimGraph(args: BuildClaimGraphArgs): ClaimRecord[] {
     for (const r of group) {
       const disputed = group.some((other) => other !== r && valuesMateriallyDiffer(r.value, other.value));
       if (disputed) r.status = "conflicting";
+      else if (isStaleCheckDue(r, args.nowIso)) r.status = "stale_check_due";
       else if (r.sources.length >= 2 || r.sources.some((s) => s.reliability === "high")) r.status = "consistent";
       else r.status = "unverified";
     }
@@ -697,7 +791,7 @@ export function registrationRecordsForDraft(args: {
       firstSeenAt: args.nowIso,
       lastConfirmedAt: args.nowIso,
       affectedPages: [args.targetUrl],
-      volatilityClass: volatilityFor(extracted.value),
+      volatilityClass: volatilityFor(extracted.value, args.nowIso),
       status: "consistent",
     });
   }
@@ -717,6 +811,9 @@ export function mergeRegisteredRecords(existing: readonly ClaimRecord[], registe
     for (const s of reg.sources) mergeSources(prior.sources, s);
     prior.lastConfirmedAt = lastConfirmedOf(prior.sources, prior.firstSeenAt);
     if (prior.status === "unverified") prior.status = "consistent";
+    // N27: a just-shipped operator source IS a fresh confirmation - the
+    // stale check is answered until the deadline runs down again.
+    if (prior.status === "stale_check_due") prior.status = "consistent";
     if (!prior.affectedPages.includes(reg.affectedPages[0]!) && prior.affectedPages.length < MAX_AFFECTED_PAGES) {
       prior.affectedPages = [...prior.affectedPages, reg.affectedPages[0]!];
     }
@@ -738,7 +835,9 @@ function monthYear(iso: string | null): string | null {
   return `${MONTHS_SHORT[d.getUTCMonth()]} ${d.getUTCFullYear()}`;
 }
 
-function relativeAge(iso: string | null, nowIso: string): string | null {
+/** "today" / "3 days ago" / "3 weeks ago" / "8 months ago". Exported for the
+ *  N25 stale-fact sentence ("I last confirmed 8 months ago"). */
+export function relativeAge(iso: string | null, nowIso: string): string | null {
   if (!iso) return null;
   const then = Date.parse(iso);
   const now = Date.parse(nowIso);

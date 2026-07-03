@@ -1,29 +1,40 @@
 import "server-only";
 
 /**
- * /diagnostics/provenance (BEACON_500 R13 / N3, 2026-07-03) - operator-only
- * window into the claim-level provenance graph: every factual claim Beacon
- * has mined from the stored pages (numbers, dates, is-a definitions), each
- * linked to its sources, dates, reliability, and affected pages.
+ * /diagnostics/provenance (BEACON_500 R13 / N3 + R13b / N25 + N26,
+ * 2026-07-03) - operator-only window into the claim-level provenance graph:
+ * every factual claim Beacon has mined from the stored pages (numbers,
+ * dates, is-a definitions), each linked to its sources, dates, reliability,
+ * and affected pages.
  *
- * Read-only: reads the nightly-persisted "claim-graph" store rows for the
- * current tenant ($0, no scan, no paid call). Shows the counts by status and
- * the conflicting list - the same conflicts the claim_conflict trigger feeds
- * the pipeline (capped there at 3; uncapped here so the operator sees the
- * whole backlog). Operator-gated; no writes.
+ * Read-only: reads the nightly-persisted "claim-graph" store rows plus the
+ * ship-time "fact-propagation-plans" history for the current tenant ($0, no
+ * scan, no paid call). Shows the counts by status, the conflicting list, the
+ * stale list (facts past their freshness deadline - the same findings the
+ * stale_fact trigger feeds the pipeline, uncapped here so the operator sees
+ * the whole backlog), and the propagation history (the prepared one-line
+ * fixes after each correction). Operator-gated; no writes; nothing here
+ * pushes anywhere.
  */
 
 import { notFound } from "next/navigation";
 
 import { isOperatorModeServer } from "@/lib/operator-mode";
 import { currentTenantId } from "@/lib/tenant-context";
-import { loadClaimGraphForTenant } from "@/domains/provenance/claim-graph-loader";
+import {
+  loadClaimGraphForTenant,
+  loadFactPropagationPlansForTenant,
+} from "@/domains/provenance/claim-graph-loader";
 import {
   findClaimConflicts,
   bestSourceOf,
   formatClaimSourceLine,
   type ClaimRecord,
 } from "@/domains/provenance/claim-graph";
+import {
+  findStaleFactFindings,
+  staleFactSentence,
+} from "@/domains/provenance/stale-fact-trigger";
 
 export const dynamic = "force-dynamic";
 
@@ -31,12 +42,14 @@ const STATUS_LABEL: Record<ClaimRecord["status"], string> = {
   consistent: "Consistent",
   conflicting: "Conflicting",
   unverified: "Unverified",
+  stale_check_due: "Stale check due",
 };
 
 const STATUS_CLASS: Record<ClaimRecord["status"], string> = {
   consistent: "text-status-success",
   conflicting: "text-status-danger",
   unverified: "text-muted-foreground",
+  stale_check_due: "text-status-warning",
 };
 
 const VOLATILITY_LABEL: Record<ClaimRecord["volatilityClass"], string> = {
@@ -50,11 +63,20 @@ export default async function ProvenanceDiagnosticsPage() {
   if (!(await isOperatorModeServer())) return notFound();
 
   const tenantId = await currentTenantId();
-  const records = await loadClaimGraphForTenant(tenantId);
+  const [records, propagationPlans] = await Promise.all([
+    loadClaimGraphForTenant(tenantId),
+    loadFactPropagationPlansForTenant(tenantId),
+  ]);
   const conflicts = findClaimConflicts(records);
+  const staleFindings = findStaleFactFindings(records);
   const nowIso = new Date().toISOString();
 
-  const byStatus: Record<ClaimRecord["status"], number> = { consistent: 0, conflicting: 0, unverified: 0 };
+  const byStatus: Record<ClaimRecord["status"], number> = {
+    consistent: 0,
+    conflicting: 0,
+    unverified: 0,
+    stale_check_due: 0,
+  };
   const byVolatility: Record<ClaimRecord["volatilityClass"], number> = { fast: 0, slow: 0, static: 0 };
   for (const r of records) {
     byStatus[r.status]++;
@@ -77,7 +99,7 @@ export default async function ProvenanceDiagnosticsPage() {
         </p>
       ) : (
         <>
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
             <div className="rounded-xl border border-border bg-card p-4">
               <div className="text-2xl font-semibold tabular-nums text-foreground">{records.length}</div>
               <div className="text-sm text-muted-foreground">claims tracked</div>
@@ -116,6 +138,70 @@ export default async function ProvenanceDiagnosticsPage() {
                       {" "}({c.a.value} on {c.a.pagePath}, {c.b.value} on {c.b.pagePath}). Pick one and I will keep
                       them consistent.
                     </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+
+          <section>
+            <h2 className="text-base font-semibold text-foreground">
+              Facts due a fresh check {staleFindings.length > 0 ? `(${staleFindings.length} pages)` : ""}
+            </h2>
+            {staleFindings.length === 0 ? (
+              <p className="mt-2 text-sm text-foreground-secondary">
+                Nothing is overdue right now. Fast-aging facts get a check after 180 days, slow ones
+                after 540; definitions never age out.
+              </p>
+            ) : (
+              <ul className="mt-2 space-y-2">
+                {staleFindings.slice(0, 15).map((f) => (
+                  <li
+                    key={f.pagePath}
+                    className="rounded-xl border border-status-warning/20 bg-status-warning-bg p-3 text-sm"
+                  >
+                    <span className="text-foreground">{staleFactSentence(f, nowIso)}</span>
+                    {f.staleClaimsOnPage > 1 ? (
+                      <span className="text-muted-foreground">
+                        {" "}{f.staleClaimsOnPage - 1} more {f.staleClaimsOnPage === 2 ? "fact" : "facts"} on this
+                        page {f.staleClaimsOnPage === 2 ? "is" : "are"} due a check too.
+                      </span>
+                    ) : null}
+                  </li>
+                ))}
+              </ul>
+            )}
+            {staleFindings.length > 15 ? (
+              <p className="mt-2 text-sm text-muted-foreground">
+                Showing the first 15 of {staleFindings.length} pages.
+              </p>
+            ) : null}
+          </section>
+
+          <section>
+            <h2 className="text-base font-semibold text-foreground">
+              Fixes I spread after your corrections {propagationPlans.length > 0 ? `(${propagationPlans.length})` : ""}
+            </h2>
+            {propagationPlans.length === 0 ? (
+              <p className="mt-2 text-sm text-foreground-secondary">
+                No corrections have needed spreading yet. When you fix a fact on one page and other
+                pages still carry the old value, the prepared one-line fixes show up here.
+              </p>
+            ) : (
+              <ul className="mt-2 space-y-2">
+                {propagationPlans.slice(0, 10).map((plan) => (
+                  <li key={plan.id} className="rounded-xl border border-border bg-card p-3 text-sm">
+                    <p className="font-medium text-foreground">{plan.summary}</p>
+                    <ul className="mt-1.5 space-y-1">
+                      {plan.carriers.map((c) => (
+                        <li key={c.pagePath} className="text-foreground-secondary">
+                          {c.instruction}
+                        </li>
+                      ))}
+                    </ul>
+                    <p className="mt-1.5 text-xs text-muted-foreground">
+                      Each fix waits for your approval on its page; I never push these myself.
+                    </p>
                   </li>
                 ))}
               </ul>

@@ -16,6 +16,9 @@ import {
   claimEvidenceForDraft,
   extractClaimsFromText,
   findClaimConflicts,
+  findClaimSentence,
+  freshnessDeadlineDays,
+  isStaleCheckDue,
   makeSource,
   mergeRegisteredRecords,
   registrationRecordsForDraft,
@@ -24,6 +27,8 @@ import {
   valuesMateriallyDiffer,
   volatilityFor,
   formatClaimSourceLine,
+  FAST_FRESHNESS_DEADLINE_DAYS,
+  SLOW_FRESHNESS_DEADLINE_DAYS,
   MAX_CLAIMS_PER_TENANT,
   type ClaimRecord,
   type ClaimValue,
@@ -153,6 +158,115 @@ describe("volatility defaults (the N27 seed)", () => {
   });
   it("definitions are static", () => {
     expect(volatilityFor({ kind: "name", raw: "a subspecies", normalized: "a subspecies" })).toBe("static");
+  });
+});
+
+describe("N27 volatility deadlines + the year-value auto-fast rule", () => {
+  it("pins the deadline table: fast 180 days, slow 540, static never", () => {
+    expect(FAST_FRESHNESS_DEADLINE_DAYS).toBe(180);
+    expect(SLOW_FRESHNESS_DEADLINE_DAYS).toBe(540);
+    expect(freshnessDeadlineDays("fast")).toBe(180);
+    expect(freshnessDeadlineDays("slow")).toBe(540);
+    expect(freshnessDeadlineDays("static")).toBeNull();
+  });
+
+  it("fast boundary: exactly 180 days is still fresh, 181 is due", () => {
+    const at = (lastConfirmedAt: string) =>
+      isStaleCheckDue({ volatilityClass: "fast", lastConfirmedAt }, NOW);
+    expect(at("2026-01-04T00:00:00.000Z")).toBe(false); // exactly 180 days
+    expect(at("2026-01-03T00:00:00.000Z")).toBe(true); // 181 days
+  });
+
+  it("slow boundary: exactly 540 days is still fresh, 541 is due", () => {
+    const at = (lastConfirmedAt: string) =>
+      isStaleCheckDue({ volatilityClass: "slow", lastConfirmedAt }, NOW);
+    expect(at("2025-01-09T00:00:00.000Z")).toBe(false); // exactly 540 days
+    expect(at("2025-01-08T00:00:00.000Z")).toBe(true); // 541 days
+  });
+
+  it("static never goes stale, however old", () => {
+    expect(
+      isStaleCheckDue({ volatilityClass: "static", lastConfirmedAt: "2015-01-01T00:00:00.000Z" }, NOW),
+    ).toBe(false);
+  });
+
+  it("a value carrying a year older than 2 years ago is automatically fast, whatever its shape", () => {
+    const aged: ClaimValue = { kind: "free", raw: "estimated in 2023", normalized: "estimated in 2023" };
+    expect(volatilityFor(aged, NOW)).toBe("fast");
+    // Exactly 2 years ago is not yet aged; the base class holds.
+    const recent: ClaimValue = { kind: "free", raw: "estimated in 2024", normalized: "estimated in 2024" };
+    expect(volatilityFor(recent, NOW)).toBe("slow");
+    // A plain count with no year keeps its slow default even with nowIso.
+    expect(volatilityFor({ kind: "number", raw: "1200", normalized: "1200" }, NOW)).toBe("slow");
+  });
+
+  it("buildClaimGraph flips an aged non-conflicting claim to stale_check_due", () => {
+    const records = graphOf([
+      page({
+        url: "https://site.com/iran-population",
+        traffic: 100,
+        text: "The population of Iran reached 85 million in 2023.",
+        observedAt: "2025-11-05T00:00:00.000Z", // 8 months before NOW, past the 180 day fast deadline
+      }),
+    ]);
+    expect(records).toHaveLength(1);
+    expect(records[0]!.volatilityClass).toBe("fast");
+    expect(records[0]!.status).toBe("stale_check_due");
+  });
+
+  it("a conflict always outranks age: two disagreeing aged pages stay conflicting", () => {
+    const records = graphOf([
+      page({
+        url: "https://site.com/persepolis",
+        traffic: 100,
+        text: "Persepolis was built in 515 BC.",
+        observedAt: "2025-11-05T00:00:00.000Z",
+      }),
+      page({
+        url: "https://site.com/iran-history",
+        traffic: 50,
+        text: "Persepolis was built in 518 BC.",
+        observedAt: "2025-11-05T00:00:00.000Z",
+      }),
+    ]);
+    expect(records.every((r) => r.status === "conflicting")).toBe(true);
+  });
+
+  it("a fresh registration answers the stale check (mergeRegisteredRecords)", () => {
+    const stale = graphOf([
+      page({
+        url: "https://site.com/iran-population",
+        traffic: 100,
+        text: "The population of Iran reached 85 million in 2023.",
+        observedAt: "2025-11-05T00:00:00.000Z",
+      }),
+    ]);
+    expect(stale[0]!.status).toBe("stale_check_due");
+    const fresh = registrationRecordsForDraft({
+      tenantId: "tenant-x",
+      targetUrl: "https://site.com/iran-population",
+      draftText: "The population of Iran reached 85 million in 2023.",
+      nowIso: NOW,
+    });
+    const merged = mergeRegisteredRecords(stale, fresh);
+    expect(merged.find((r) => r.id === stale[0]!.id)!.status).toBe("consistent");
+  });
+});
+
+describe("findClaimSentence (the N26 carrier-fix rule)", () => {
+  const record = {
+    value: { kind: "date" as const, raw: "515 BC", normalized: "515 bc" },
+    subject: ["persepolis", "built"],
+  };
+
+  it("finds the exact sentence carrying the value plus the subject tokens", () => {
+    const text = "The terrace covers the hillside. Persepolis was built in 515 BC. Visitors arrive daily.";
+    expect(findClaimSentence(text, record)).toBe("Persepolis was built in 515 BC.");
+  });
+
+  it("returns null when the value appears without the subject (same rule as affectedPages)", () => {
+    expect(findClaimSentence("The old fortress dates from 515 BC in the south.", record)).toBeNull();
+    expect(findClaimSentence("", record)).toBeNull();
   });
 });
 
@@ -428,7 +542,13 @@ describe("claimEvidenceForDraft (the evidence seam)", () => {
 });
 
 describe("no em or en dashes anywhere in the provenance module (hard rule)", () => {
-  for (const name of ["claim-graph.ts", "claim-graph-loader.ts", "claim-conflict-trigger.ts"]) {
+  for (const name of [
+    "claim-graph.ts",
+    "claim-graph-loader.ts",
+    "claim-conflict-trigger.ts",
+    "stale-fact-trigger.ts",
+    "fact-propagation.ts",
+  ]) {
     it(`${name} contains no em or en dashes`, () => {
       const src = readFileSync(resolve(__dirname, name), "utf8");
       expect(src).not.toMatch(/[–—]/);

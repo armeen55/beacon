@@ -13,6 +13,7 @@ import { checkFactualEntailment } from "@/domains/drafts/factual-entailment";
 
 import {
   buildClaimGraph,
+  findClaimSentence,
   mergeRegisteredRecords,
   registrationRecordsForDraft,
   MAX_CLAIMS_PER_TENANT,
@@ -21,6 +22,14 @@ import {
   type PageTextInput,
   type TeardownTextInput,
 } from "./claim-graph";
+import {
+  buildFactPropagationPlan,
+  findFactCorrections,
+  prepareCarrierFix,
+  propagationCarriers,
+  type FactPropagationCarrierFix,
+  type FactPropagationPlan,
+} from "./fact-propagation";
 
 /**
  * claim-graph-loader (BEACON_500 R13 / N3, 2026-07-03) - the I/O boundary for
@@ -47,11 +56,17 @@ import {
  */
 
 export const CLAIM_GRAPH_STORE = "claim-graph";
+/** N26 (R13b): the per-correction propagation plans, newest first. */
+export const FACT_PROPAGATION_STORE = "fact-propagation-plans";
 
 /** Bound the nightly read: this many highest-traffic pages feed extraction. */
 const MAX_EXTRACT_PAGES = 60;
 /** Bound the teardown attach pass. */
 const MAX_TEARDOWN_SOURCES = 40;
+/** One ship never plans more than this many corrections (bounded I/O). */
+const MAX_PROPAGATION_PLANS_PER_SHIP = 3;
+/** The propagation history is capped per tenant, newest kept. */
+const MAX_PROPAGATION_PLANS_PER_TENANT = 100;
 
 type SnapshotBodyRow = {
   url: string;
@@ -254,16 +269,73 @@ export async function registerShippedDraftClaims(args: {
     } catch {
       /* registration proceeds with operator sources only */
     }
+    const nowIso = new Date().toISOString();
     const registered = registrationRecordsForDraft({
       tenantId: args.tenantId,
       targetUrl: args.targetUrl,
       draftText,
       corrections,
-      nowIso: new Date().toISOString(),
+      nowIso,
     });
     if (registered.length === 0) return;
     const existing = await readTenantRows(args.tenantId).catch(() => [] as ClaimRecord[]);
-    await writeTenantRows(args.tenantId, mergeRegisteredRecords(existing, registered));
+    let merged = mergeRegisteredRecords(existing, registered);
+
+    // N26 (R13b): the operator just corrected a fact when a shipped claim
+    // MATERIALLY differs from a prior record on the same subject. Plan the
+    // propagation ONCE per corrected record (propagationPlannedAt), find
+    // every OTHER affected page still carrying the old value, and prepare
+    // the same one-line fix for each from its stored sentence. Fail-soft:
+    // a propagation failure never blocks the registration write.
+    try {
+      const plannedIds = new Set<string>();
+      const plans: FactPropagationPlan[] = [];
+      for (const correction of findFactCorrections({ existing, registered }).slice(
+        0,
+        MAX_PROPAGATION_PLANS_PER_SHIP,
+      )) {
+        const carriers = propagationCarriers(correction.oldRecord, args.targetUrl);
+        if (carriers.length === 0) continue;
+        const fixes: FactPropagationCarrierFix[] = [];
+        for (const carrier of carriers) {
+          const pageText = await readPageBodyTextForEntailment(args.tenantId, carrier.pageUrl).catch(
+            () => null,
+          );
+          fixes.push(
+            prepareCarrierFix({
+              ...carrier,
+              sentence: pageText ? findClaimSentence(pageText, correction.oldRecord) : null,
+              oldValueRaw: correction.oldRecord.value.raw,
+              newValueRaw: correction.newValue.raw,
+            }),
+          );
+        }
+        plans.push(
+          buildFactPropagationPlan({
+            tenantId: args.tenantId,
+            correction,
+            correctedPageUrl: args.targetUrl,
+            carriers: fixes,
+            nowIso,
+          }),
+        );
+        plannedIds.add(correction.oldRecord.id);
+      }
+      if (plans.length > 0) {
+        merged = merged.map((r) =>
+          plannedIds.has(r.id) ? { ...r, propagationPlannedAt: nowIso } : r,
+        );
+        await appendPropagationPlans(args.tenantId, plans);
+      }
+    } catch (e) {
+      log.warn("[claim-graph] fact propagation planning failed (fail-soft)", {
+        tenantId: args.tenantId,
+        targetUrl: args.targetUrl,
+        error: e instanceof Error ? e.message.slice(0, 200) : String(e),
+      });
+    }
+
+    await writeTenantRows(args.tenantId, merged);
   } catch (e) {
     log.warn("[claim-graph] shipped-draft registration failed (fail-soft)", {
       tenantId: args.tenantId,
@@ -272,3 +344,46 @@ export async function registerShippedDraftClaims(args: {
     });
   }
 }
+
+// ---------------------------------------------------------------------------
+// N26 propagation plan store (append at ship time; read by diagnostics)
+// ---------------------------------------------------------------------------
+
+/** Append this ship's plans (newest first), replacing ONLY this tenant's
+ *  slice, deduped by plan id, capped per tenant. */
+async function appendPropagationPlans(
+  tenantId: string,
+  plans: readonly FactPropagationPlan[],
+): Promise<void> {
+  const all = await readStore<FactPropagationPlan>(FACT_PROPAGATION_STORE, []);
+  const others = all.filter((p) => p.tenant_id !== tenantId);
+  const seen = new Set<string>();
+  const mine: FactPropagationPlan[] = [];
+  for (const p of [...plans, ...all.filter((r) => r.tenant_id === tenantId)]) {
+    if (seen.has(p.id) || mine.length >= MAX_PROPAGATION_PLANS_PER_TENANT) continue;
+    seen.add(p.id);
+    mine.push(p);
+  }
+  await writeStore(FACT_PROPAGATION_STORE, [...others, ...mine]);
+}
+
+/**
+ * The propagation history for /diagnostics/provenance, newest first. Empty
+ * until a correction ships that other pages still carry - every consumer
+ * treats empty as byte-identical silence. Never throws.
+ */
+export const loadFactPropagationPlansForTenant = cache(
+  async (tenantId: string): Promise<FactPropagationPlan[]> => {
+    if (!tenantId) return [];
+    try {
+      const all = await readStore<FactPropagationPlan>(FACT_PROPAGATION_STORE, []);
+      return all.filter((p) => p.tenant_id === tenantId);
+    } catch (e) {
+      log.warn("[claim-graph] propagation plan read failed (fail-soft to empty)", {
+        tenantId,
+        error: e instanceof Error ? e.message.slice(0, 200) : String(e),
+      });
+      return [];
+    }
+  },
+);

@@ -25,6 +25,7 @@ const TRIGGER_LOADER = readFileSync(
   "utf8",
 );
 const STAGE = readFileSync(resolve(__dirname, "../push/stage-change.ts"), "utf8");
+const LOADER = readFileSync(resolve(__dirname, "./claim-graph-loader.ts"), "utf8");
 const STORE_CLASSIFICATION = readFileSync(resolve(__dirname, "../../lib/persistence/store-classification.ts"), "utf8");
 const JSON_STORE = readFileSync(resolve(__dirname, "../../lib/persistence/json-store.ts"), "utf8");
 const CRON = readFileSync(resolve(__dirname, "../../lib/connectors/cron-sync.ts"), "utf8");
@@ -77,22 +78,78 @@ describe("daily card renders one line per claim in How we know", () => {
   });
 });
 
-describe("trigger pipeline wiring (claim_conflict)", () => {
-  it("the loader feeds conflicts through the existing candidate pipeline, fail-soft", () => {
-    expect(TRIGGER_LOADER).toContain('from "@/domains/provenance/claim-conflict-trigger"');
+describe("trigger pipeline wiring (the shared claim slot: conflicts + stale checks)", () => {
+  it("the loader feeds the claim family through ONE shared cap-3 slot, fail-soft", () => {
+    expect(TRIGGER_LOADER).toContain('from "@/domains/provenance/stale-fact-trigger"');
     expect(TRIGGER_LOADER).toContain("loadClaimGraphForTenant(tenantId)");
-    expect(TRIGGER_LOADER).toContain("findClaimConflicts(claimRecords)");
-    expect(TRIGGER_LOADER).toContain("claimConflictCandidates({");
+    expect(TRIGGER_LOADER).toContain("claimTriggerSlot({");
+    // GSC traffic ranks the stale sweep.
+    expect(TRIGGER_LOADER).toContain("trafficFor: (url) =>");
     // Byte-identical when the graph is empty.
     expect(TRIGGER_LOADER).toContain("if (claimRecords.length > 0)");
-    // Fail-soft: a read failure skips the predicate, never the loader.
-    expect(TRIGGER_LOADER).toContain("claim_conflict skips");
+    // Fail-soft: a read failure skips the family, never the loader.
+    expect(TRIGGER_LOADER).toContain("claim_conflict and stale_fact skip");
   });
 
-  it("the copy template exists and carries the decision ask", () => {
+  it("the conflict copy template exists and carries the decision ask", () => {
     expect(COPY).toContain("export function claimConflictCopy(");
     expect(COPY).toContain("Two of your pages disagree about ");
     expect(COPY).toContain("Pick one and I will keep them consistent.");
+  });
+
+  it("the stale copy template exists and says old, never wrong", () => {
+    expect(COPY).toContain("export function staleFactCopy(");
+    expect(COPY).toContain(" like this age; worth a fresh check.");
+    expect(COPY).toContain(" I last confirmed ");
+  });
+});
+
+describe("fact propagation (N26) rides the ship seam, once-only, never auto-pushed", () => {
+  it("registerShippedDraftClaims plans propagation from the shipped corrections, fail-soft", () => {
+    expect(LOADER).toContain('from "./fact-propagation"');
+    expect(LOADER).toContain("findFactCorrections({ existing, registered })");
+    expect(LOADER).toContain("propagationCarriers(correction.oldRecord, args.targetUrl)");
+    expect(LOADER).toContain("buildFactPropagationPlan({");
+    expect(LOADER).toContain("appendPropagationPlans(args.tenantId, plans)");
+    // Once-only: the plan stamps the corrected claim record.
+    expect(LOADER).toContain("propagationPlannedAt: nowIso");
+    // Fail-soft: propagation failure never blocks the registration write.
+    expect(LOADER).toContain("fact propagation planning failed (fail-soft)");
+  });
+
+  it("nothing in the propagation path touches the push machinery", () => {
+    const FACT_PROPAGATION = readFileSync(resolve(__dirname, "./fact-propagation.ts"), "utf8");
+    expect(FACT_PROPAGATION).not.toContain("executePush");
+    expect(FACT_PROPAGATION).not.toContain("stageChangeForRecord");
+    expect(LOADER).not.toContain("executePush");
+  });
+
+  it("the fact-propagation-plans store is registered (GLOBAL + Supabase mirror)", () => {
+    expect(LOADER).toContain('FACT_PROPAGATION_STORE = "fact-propagation-plans"');
+    const globalStart = STORE_CLASSIFICATION.indexOf("GLOBAL_STORES");
+    expect(STORE_CLASSIFICATION.indexOf('"fact-propagation-plans"')).toBeGreaterThan(globalStart);
+    const mirrorStart = JSON_STORE.indexOf("SUPABASE_MIRRORED_STORES");
+    expect(JSON_STORE.indexOf('"fact-propagation-plans"')).toBeGreaterThan(mirrorStart);
+  });
+});
+
+describe("diagnostics surface gains the stale list + propagation history (no new customer widget)", () => {
+  it("renders the stale list through the same sentence the trigger uses", () => {
+    expect(DIAGNOSTICS).toContain("findStaleFactFindings");
+    expect(DIAGNOSTICS).toContain("staleFactSentence(f, nowIso)");
+    expect(DIAGNOSTICS).toContain("Facts due a fresh check");
+  });
+
+  it("renders the propagation history with the per-page prepared fixes", () => {
+    expect(DIAGNOSTICS).toContain("loadFactPropagationPlansForTenant");
+    expect(DIAGNOSTICS).toContain("Fixes I spread after your corrections");
+    expect(DIAGNOSTICS).toContain("{plan.summary}");
+    expect(DIAGNOSTICS).toContain("{c.instruction}");
+    expect(DIAGNOSTICS).toContain("I never push these myself.");
+  });
+
+  it("the stale status renders with a plain label, not a raw key", () => {
+    expect(DIAGNOSTICS).toContain('stale_check_due: "Stale check due"');
   });
 });
 
