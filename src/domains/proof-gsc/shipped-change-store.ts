@@ -41,6 +41,7 @@ import type { QueryBreadthRead } from "./query-breadth";
 import type { EquivalenceRead } from "./equivalence";
 import type { FdrRead } from "./fdr-adjust";
 import type { CleanWindowLift } from "./clean-window-salvage";
+import type { VerdictRevision } from "./verdict-revisions";
 
 const TABLE = "shipped_change_proof";
 const STORE = "proof-gsc-ledger";
@@ -207,6 +208,15 @@ export type ShippedChangeRecord = {
    *  time (the top-3-by-demand fallback has nothing ranked to freeze). Set
    *  ONCE at selection time; never rewritten by re-measurement. */
   controlDonorPool?: RankedControl[] | null;
+  /** R14a (2026-07-03): APPEND-ONLY trail of verdict CHANGES. Written at the
+   *  measureRecord seam ONLY when a re-measurement actually changed the stored
+   *  verdict (won -> inconclusive, measuring -> won); the first measurement is
+   *  an announcement, not a revision, and past entries are NEVER rewritten.
+   *  This is the one field that makes a rewritten verdict honest: /results
+   *  renders it in the card expand and the "We got this wrong" recap reads it.
+   *  Additive, optional - null on rows that never flipped. PERSISTED (unlike
+   *  the computed attachments above) because it is history, not a recompute. */
+  verdictRevisions?: VerdictRevision[] | null;
   /** Operator override that PINS the learning verdict to "inconclusive",
    *  excluding this change from the per-action_type outcome prior that steers
    *  recommendation ranking. Use when a measured "won"/"lost" is mis-attributed
@@ -256,6 +266,10 @@ type LedgerRow = {
    *  - a missing column trips PGRST204 -> isUndefinedTableError -> file
    *  fallback, which round-trips this field with no schema at all. */
   control_donor_pool?: RankedControl[] | null;
+  /** R14a additive column, same posture as control_donor_pool: pre-migration a
+   *  missing column trips PGRST204 -> full-record file fallback, which
+   *  round-trips this field with no schema at all. */
+  verdict_revisions?: VerdictRevision[] | null;
   created_at: string;
   updated_at: string;
 };
@@ -336,6 +350,10 @@ export function recordToRow(tid: string, r: ShippedChangeRecord): LedgerRow {
     // still overwrites a stale value, same round-trip safety as every other
     // nullable column here.
     control_donor_pool: r.controlDonorPool ?? null,
+    // R14a, APPEND-ONLY history written by the measureRecord seam - emit
+    // unconditionally so a null still overwrites a stale value, same
+    // round-trip safety as every other nullable column here.
+    verdict_revisions: r.verdictRevisions ?? null,
     created_at: r.createdAt,
     updated_at: r.updatedAt,
   };
@@ -371,6 +389,9 @@ export function rowToRecord(row: LedgerRow): ShippedChangeRecord {
     controlMatchWeak: row.control_match_weak === true,
     controlDonorPool: Array.isArray(row.control_donor_pool) && row.control_donor_pool.length > 0
       ? row.control_donor_pool
+      : null,
+    verdictRevisions: Array.isArray(row.verdict_revisions) && row.verdict_revisions.length > 0
+      ? row.verdict_revisions
       : null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,

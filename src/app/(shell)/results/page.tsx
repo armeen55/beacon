@@ -88,6 +88,10 @@ import { Card } from "@/components/ui/card";
 import { Pill, type PillIntent } from "@/components/ui/pill";
 import { loadWithDeadline, valueWithDeadline } from "@/lib/load-with-deadline";
 import { HonestDelay } from "@/components/honest-delay";
+// R14a (2026-07-03) - trust receipts: the append-only verdict revision trail on the
+// card expand, and the "We got this wrong" recap below the bands (misses owned plainly).
+import { buildVerdictRevisionLines } from "@/domains/proof-gsc/verdict-revisions";
+import { buildRecapItems, WeGotThisWrongSection } from "./results-recap";
 
 /**
  * Proof / Learning - operator-OS rebuild, surface (6). Every REVIEWED change
@@ -664,6 +668,12 @@ export default async function ProofPage({
         </div>
       ) : null}
 
+      {/* ── R14a "We got this wrong" (P1 trust receipts): revised-downward verdicts +
+          proven-did-nothing changes, owned plainly, max 5, each linking to its own
+          card above. Self-hiding when there is nothing to own - most days it is
+          absent, which is exactly the point. */}
+      <WeGotThisWrongSection items={buildRecapItems(ledger, plainAction)} />
+
       {/* ── What Beacon has learned (operator-only): per-action_type prior that
           steers ranking, so a skew is visible and excludable. ── */}
       {learningDiag.length > 0 ? (
@@ -935,7 +945,9 @@ function LedgerCard({ rec, link, pres, grade, spark, band, revert, restored, cal
     return badgeMaturesOn;
   })();
   return (
-    <Card padding="md" className={band === "win" ? "beacon-win-glow" : undefined}>
+    // R14a - the stable per-record anchor so the /activity stream and the
+    // "We got this wrong" recap can deep-link straight to this card.
+    <Card padding="md" id={`proof-${rec.id}`} className={band === "win" ? "beacon-win-glow" : undefined}>
       {/* FP8 - ONE scannable summary line per card: the page, what changed, the
           verdict-or-maturity word, and the single most important number. The full
           chip grid (evidence, caveats, math, comparison detail, actions) moves
@@ -1095,6 +1107,21 @@ function LedgerCard({ rec, link, pres, grade, spark, band, revert, restored, cal
           the card with no reconciliation between them. */}
       {trafficDisagrees ? (
         <p className="mt-1 text-[12px] text-amber-700">{reconciliationSentence()}</p>
+      ) : null}
+
+      {/* R14a - the append-only verdict revision trail: when a later read changed an
+          earlier call on THIS record, say so on the card instead of silently
+          rewriting history ("I first called this a win; the 28-day read on
+          2026-07-19 revised it to no clear effect."). Absent on the vast majority
+          of rows - a verdict that never flipped renders nothing here. */}
+      {rec.verdictRevisions && rec.verdictRevisions.length > 0 ? (
+        <div className="mt-1 space-y-0.5">
+          {buildVerdictRevisionLines(rec.verdictRevisions).map((line) => (
+            <p key={line} className="text-[12px] text-foreground/80">
+              {line}
+            </p>
+          ))}
+        </div>
       ) : null}
 
       {/* Fixed query panel (P4 R10a, v1 150): the exact searches this change

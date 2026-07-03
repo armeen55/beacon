@@ -87,11 +87,16 @@ describe("customer nav exposure — Invariant 1: SIDEBAR is the unified workflow
   // /worklist to /changes and the results page from /proof to /results so the
   // URL, the nav label, and the page h1 agree; the old URLs are permanent
   // redirects.
+  // 2026-07-03 (R14a, P1 trust receipts): added /activity, the unified audit
+  // log ("what has Beacon done while I was away"). It sits in the system group
+  // next to Connections/Settings because it is a receipt surface over the
+  // whole product, not a work stage.
   const EXPECTED_HREFS = new Set([
     "/",
     "/changes",
     "/results",
     "/ask",
+    "/activity",
     "/prompts",
     "/research/keywords",
     "/settings/connectors",

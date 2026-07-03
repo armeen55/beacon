@@ -11,7 +11,7 @@ import { blendCaptureBand, type FamilyCaptureBand } from "./empirical-capture";
 import { canonicalMoveType } from "@/domains/learning/experiment-prior";
 import {
   stableHash, normalizePath, type DailyExperimentPlanRecord, type PlannedExperimentRecord,
-  type ProposedControlRecord, type ExperimentLever,
+  type ProposedControlRecord, type ExperimentLever, type ExcludedPickRecord,
 } from "./daily-plan-types";
 
 export const PLANNER_VERSION = "safe-levers-v3"; // meta + internal-link + answer-block
@@ -145,6 +145,25 @@ function assignCleanControls(
   });
 }
 
+/** R14a: cap on the exclusions frozen onto a plan record (the "Why not the others?"
+ *  expander renders exactly this many). Plain-sentence holds first - they carry the
+ *  planner's own richest explanations - then the rest in planner order. PURE. */
+const MAX_EXCLUDED_ON_RECORD = 8;
+export function capExcludedForRecord(
+  excluded: ReadonlyArray<ExcludedPickRecord>,
+): ExcludedPickRecord[] {
+  const withSentence = excluded.filter((e) => e.plainReason);
+  const rest = excluded.filter((e) => !e.plainReason);
+  return [...withSentence, ...rest]
+    .slice(0, MAX_EXCLUDED_ON_RECORD)
+    .map((e) => ({
+      url: e.url,
+      actionFamily: e.actionFamily,
+      reason: e.reason,
+      ...(e.plainReason ? { plainReason: e.plainReason } : {}),
+    }));
+}
+
 export function buildDailyPlanRecord(input: {
   tenantId: string;
   date: string;
@@ -163,6 +182,10 @@ export function buildDailyPlanRecord(input: {
    *  map, e.g. a fresh tenant or an older test) resolves every family to the untouched static 25/75
    *  band - byte-identical to pre-item-64 output. */
   captureDistribution?: ReadonlyMap<string, FamilyCaptureBand>;
+  /** R14a: the planner's own exclusion list (ExcludedExperiment rows, adapted by the caller),
+   *  frozen on the record capped at 8 so "Why not the others?" renders at $0. Omitted (or empty,
+   *  e.g. every older caller/test) leaves the record byte-identical to before R14a. */
+  excluded?: ReadonlyArray<ExcludedPickRecord>;
 }): DailyExperimentPlanRecord {
   const nowIso = input.now.toISOString();
   const expiresAt = new Date(input.now.getTime() + (input.expiresInMinutes ?? DEFAULT_EXPIRY_MIN) * 60_000).toISOString();
@@ -190,6 +213,11 @@ export function buildDailyPlanRecord(input: {
   }
   const estimatedMinutes = selected.reduce((s, e) => s + e.effortMinutes, 0);
 
+  // R14a: freeze the planner's exclusions (capped, plain-sentence holds first) so the
+  // "Why not the others?" expander is pure surfacing. Omitted entirely when empty so
+  // an exclusion-free plan (and every pre-R14a fixture) stays byte-identical.
+  const excluded = capExcludedForRecord(input.excluded ?? []);
+
   return {
     version: 1,
     id,
@@ -203,6 +231,7 @@ export function buildDailyPlanRecord(input: {
     activeExperimentSnapshot: { ...input.activeSnapshot, capturedAt: nowIso },
     selected,
     backups,
+    ...(excluded.length > 0 ? { excluded } : {}),
     distribution: { byLever, byPageFamily },
     estimatedMinutes,
   };

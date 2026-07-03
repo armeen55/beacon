@@ -73,6 +73,7 @@ import { buildShockWindows, type ShockWindow } from "./algorithm-weather";
 import { loadDetectedChangepoints } from "./algorithm-weather-store";
 import type { ShippedChangeRecord } from "./shipped-change-store";
 import type { GscProofVerdict } from "./measure";
+import { appendVerdictRevision } from "./verdict-revisions";
 
 const BASELINE_WINDOW_DAYS = 28;
 /** Stand-in for a page/window with no Search reading (clicks 0 is valid; the
@@ -767,11 +768,29 @@ export async function measureRecord(
     }
   }
 
+  // R14a (2026-07-03): the append-only verdict revision trail. Computed HERE -
+  // the one seam every re-measurement flows through (operator "Measure now",
+  // passive auto-measure, the nightly pass) - by comparing the verdict as it
+  // was STORED against the verdict this pass computed. Appends at most ONE
+  // entry, only on a real change on a RE-measurement; never rewrites a past
+  // entry. Persisted by whichever caller persists this returned record.
+  const verdictRevisions = appendVerdictRevision({
+    existing: record.verdictRevisions,
+    previousVerdict: record.verdict,
+    previousMeasuredAt: record.measuredAt,
+    nextVerdict: verdict,
+    basisDay: basisForPermutation?.day ?? null,
+    overrideApplied:
+      record.operatorVerdictOverride === "inconclusive" && computedVerdict !== "inconclusive",
+    now,
+  });
+
   return {
     ...record,
     windows,
     verdict,
     confidence,
+    verdictRevisions,
     trafficOutcome,
     citationOutcome,
     rankOutcome,

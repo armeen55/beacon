@@ -15,7 +15,7 @@ import Link from "next/link";
 import type { DailyExperimentsView } from "./daily-experiments-data";
 import { stageDailyPickInWixAction } from "./stage-in-wix-actions";
 import { stageRouteForLever, type StagingAvailability } from "@/domains/push/stage-route";
-import type { DailyExperimentPlanRecord, PlannedExperimentRecord } from "@/domains/experiments/daily-plan-types";
+import type { DailyExperimentPlanRecord, ExcludedPickRecord, PlannedExperimentRecord } from "@/domains/experiments/daily-plan-types";
 import type { ExecutionChecklist, ExecutionItemView } from "@/domains/experiments/execution-checklist";
 import type { DailyExperimentItemStatus } from "@/domains/experiments/execution-state";
 import {
@@ -23,7 +23,7 @@ import {
   markDailyExperimentAppliedAction, confirmGscSubmissionAction, skipDailyExperimentItemAction, completeDailyPlanAction,
 } from "./daily-experiments-actions";
 import { failureForReason } from "@/domains/diagnostics/operator-failure";
-import { LEVER_LABEL, STATUS_LABEL, moveHeadline, trackingLine } from "./daily-experiments-copy";
+import { LEVER_LABEL, STATUS_LABEL, excludedReasonSentence, moveHeadline, trackingLine } from "./daily-experiments-copy";
 import { stripBannedDashes } from "@/lib/copy/strip-dashes";
 import { humanizeDebateLine } from "@/domains/demand-graph/debate-summary";
 import { teammateOf } from "@/domains/team/identity";
@@ -716,6 +716,30 @@ function ExecutionChecklistView({ checklist, sparklineByUrl, staging, wixEditorU
   );
 }
 
+/** R14a - the quiet "Why not the others?" expander: the candidates tonight's planner
+ *  looked at and set aside, with the planner's OWN frozen sentences (plainReason) or the
+ *  reason-code translation from daily-experiments-copy.ts. Pure surfacing of what the
+ *  plan record already carries (capped at 8 at persist time); self-hiding when the
+ *  planner excluded nothing. Exported for a direct render pin in
+ *  daily-experiments-section.test.ts. */
+export function WhyNotOthers({ excluded }: { excluded?: ExcludedPickRecord[] }) {
+  if (!excluded || excluded.length === 0) return null;
+  const rows = excluded.slice(0, 8);
+  return (
+    <details className="mt-3">
+      <summary className="cursor-pointer text-meta font-medium text-muted-foreground transition-colors hover:text-foreground-secondary">Why not the others?</summary>
+      <div className="mt-2 grid gap-1 text-sub leading-relaxed text-foreground-secondary">
+        {rows.map((e) => (
+          <div key={`${e.url}::${e.reason}`}>
+            <span className="text-muted-foreground">{e.url}: </span>
+            {stripBannedDashes(excludedReasonSentence(e))}
+          </div>
+        ))}
+      </div>
+    </details>
+  );
+}
+
 /** One honest line: everything I'm suggesting passed today's quality checks. */
 function QualityLine({ summary }: { summary: DailyExperimentsView["qualitySummary"] }) {
   if (!summary || summary.total === 0) return null;
@@ -806,6 +830,11 @@ export function DailyExperimentsSection({ view }: { view: DailyExperimentsView }
       ) : (
         <button type="button" disabled={pending} aria-busy={pending} onClick={plan} className={BTN_PRIMARY}>{pending ? "Thinking..." : "Show me today’s changes"}</button>
       )}
+
+      {/* R14a - "Why not the others?": the candidates tonight's planner set aside, with
+          its own frozen reasons. Renders for whichever plan is on screen (accepted or
+          preview); absent when the record predates R14a or nothing was excluded. */}
+      <WhyNotOthers excluded={(accepted ?? preview)?.excluded} />
 
       {msg && <div role="status" aria-live="polite" className="mt-3 text-sub text-muted-foreground">{msg}</div>}
     </section>

@@ -96,8 +96,14 @@ QUEUE (strict order; [G] = operator-gated, surface it and continue):
       detection + N26 fact propagation + N27 volatility deadlines ride the shipped substrate
       in the follow-up slice (volatilityClass + lastConfirmedAt + affectedPages + the conflict
       trigger are the designed seams). Effort M remaining.
-- [ ] R14. P1 trust receipts pack (receipts everywhere, see-the-math, /activity log, we-got-this-
-      wrong recap). Effort L, split.
+- [~] R14. P1 trust receipts pack (receipts everywhere, see-the-math, /activity log, we-got-this-
+      wrong recap). Effort L, split. R14a SHIPPED 2026-07-03 (slice 1 of 2): /activity unified
+      audit stream (nav-reachable, composed from existing stores only, paged 50), append-only
+      verdict_revisions at the measureRecord seam (+ jsonb column applied to beacon-main) rendered
+      in the /results card expand, the "We got this wrong" recap below the /results bands, and
+      the "Why not the others?" expander on the daily card (plan records now freeze the planner's
+      own exclusions, capped 8). R14b takes the remaining P1 items (receipts everywhere +
+      see-the-math sweep over items 91/173-177/204/214/334-339/390/405/463-464/523-525).
 - [ ] R15. N4 behavior-verdict lane (GA4+Clarity on every ship) + N17 task-completion. Effort M.
 - [ ] R16. P6 LLM engine pack (one gateway, schema registry, prompt versioning + regression
       harness, call cache; absorbs task 95). Effort L.

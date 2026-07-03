@@ -1,6 +1,7 @@
 import {
   Sun,
   Settings,
+  History,
   ListChecks,
   ListTodo,
   MessageCircle,
@@ -76,6 +77,11 @@ export const navigationGroups: NavGroup[] = [
   {
     label: "",
     items: [
+      // R14a (2026-07-03): the audit log - "what has Beacon done while I was
+      // away". It sits with the system rows (not the workflow group) because
+      // it is a receipt surface over the whole product, not a work stage; the
+      // stream itself deep-links back into Today / Results / Connections.
+      { label: "Activity", href: "/activity", icon: History },
       { label: "Connections", href: "/settings/connectors", icon: Plug },
       { label: "Settings", href: "/settings", icon: Settings },
     ],

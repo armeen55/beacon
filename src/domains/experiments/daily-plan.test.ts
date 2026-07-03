@@ -62,6 +62,39 @@ describe("buildDailyPlanRecord", () => {
     expect(bRec.controls.length).toBe(3); // the treated page dropped, 3 clean remain
   });
 
+  // R14a - the "Why not the others?" substrate: exclusions freeze onto the record.
+  it("freezes the planner's exclusions on the record, capped at 8 with plain-sentence holds first (R14a)", () => {
+    const excluded = [
+      ...Array.from({ length: 6 }, (_, i) => ({ url: `https://i.com/x${i}`, actionFamily: "meta", reason: "page_family_cap" })),
+      {
+        url: "https://i.com/hold",
+        actionFamily: "meta",
+        reason: "query_overlap_hold",
+        plainReason: "I am holding this because it competes for the same searches as tonight's pick for /persian-cat.",
+      },
+      ...Array.from({ length: 4 }, (_, i) => ({ url: `https://i.com/y${i}`, actionFamily: "meta", reason: "budget_full" })),
+    ];
+    const plan = buildDailyPlanRecord({
+      tenantId: "t", date: "2026-07-01", now: NOW,
+      selected: [cand({ url: "https://i.com/a" })], backups: [], activeSnapshot: SNAP, excluded,
+    });
+    expect(plan.excluded).toHaveLength(8);
+    // the planner's own frozen sentence leads the capped list
+    expect(plan.excluded![0]!.url).toBe("https://i.com/hold");
+    expect(plan.excluded![0]!.plainReason).toContain("competes for the same searches");
+    // exclusions never enter the content-addressed id (same picks -> same plan)
+    const without = buildDailyPlanRecord({
+      tenantId: "t", date: "2026-07-01", now: NOW,
+      selected: [cand({ url: "https://i.com/a" })], backups: [], activeSnapshot: SNAP,
+    });
+    expect(plan.id).toBe(without.id);
+  });
+
+  it("omits the excluded field entirely when nothing was excluded (older plans parse unchanged)", () => {
+    const plan = buildDailyPlanRecord({ tenantId: "t", date: "2026-07-01", now: NOW, selected: [cand({ url: "https://i.com/a" })], backups: [], activeSnapshot: SNAP });
+    expect(plan.excluded).toBeUndefined();
+  });
+
   it("records internal-link influencedUrls on the experiment", () => {
     const link = cand({ url: "https://i.com/src", leverField: "internal_link", actionFamily: "link", effortMinutes: 3,
       influencedUrls: ["/cities/san-diego"],

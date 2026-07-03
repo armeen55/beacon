@@ -972,6 +972,15 @@ export async function buildTodayExperimentPreview(tenantId: string, now: Date = 
     activeSnapshot: { proofIds: activeProofIds, treatedUrls: [...activeTreated], controlUrls: [...activeControl], influencedUrls: [] },
     correctionFactor,
     captureDistribution,
+    // R14a: freeze the planner's OWN exclusions (with their plain hold sentences) on the
+    // record so the "Why not the others?" expander renders them at $0 - pure surfacing,
+    // zero re-derivation. buildDailyPlanRecord caps at 8, plain-sentence holds first.
+    excluded: plan.excluded.map((e) => ({
+      url: e.url,
+      actionFamily: e.actionFamily,
+      reason: e.reason,
+      plainReason: e.plainReason,
+    })),
   });
 
   // Item 65 - THE SHADOW PORTFOLIO: capture tonight's top rejected-but-eligible candidates (the

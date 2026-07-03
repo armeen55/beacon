@@ -108,6 +108,20 @@ export type PlannedExperimentRecord = {
     | { kind: "refresh_section"; briefSentences: string[]; clicksLostPerMonth: number };
 };
 
+/** R14a (2026-07-03): one candidate tonight's planner looked at and set aside, frozen on the
+ *  plan record so the "Why not the others?" expander renders the planner's OWN sentences at $0
+ *  (never a re-derivation, never a raw code - daily-experiments-copy.ts translates `reason`).
+ *  `plainReason` carries the planner's first-person hold sentence when it computed one
+ *  (interference_hold / last_clean_donor / query_overlap_hold). */
+export type ExcludedPickRecord = {
+  url: string;
+  /** Planner action family (e.g. "meta", "answer_block"); label applied at render. */
+  actionFamily?: string;
+  /** The planner's ExcludedReason code. NEVER rendered raw. */
+  reason: string;
+  plainReason?: string;
+};
+
 export type DailyExperimentPlanRecord = {
   version: 1;
   id: string; // content-addressed: `${tenantId}::${date}::${inputHash12}`
@@ -135,6 +149,11 @@ export type DailyExperimentPlanRecord = {
 
   selected: PlannedExperimentRecord[];
   backups: PlannedExperimentRecord[];
+
+  /** R14a: the candidates the planner set aside tonight, capped at 8 (plain-sentence holds
+   *  first), so the operator can always answer "why not the others?". Additive + optional:
+   *  plans persisted before this field parse unchanged, and an empty exclusion list omits it. */
+  excluded?: ExcludedPickRecord[];
 
   distribution: { byLever: Record<string, number>; byPageFamily: Record<string, number> };
   estimatedMinutes: number;
