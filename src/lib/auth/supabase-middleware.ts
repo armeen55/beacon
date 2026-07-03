@@ -65,8 +65,23 @@ export async function updateSession(request: NextRequest): Promise<NextResponse>
   // reads request headers. Mutating `requestHeaders` is the canonical Next
   // way to forward modified request headers; direct `request.headers` set
   // is unsupported.
+  //
+  // ONE trusted exception (2026-07-03): a cron self-call. The per-tenant cache
+  // warmer must run each tenant under ITS OWN ambient context (the surface
+  // stores resolve scope from this header), so the cron route re-invokes
+  // itself once per tenant with the header set. Only the holder of
+  // CRON_SECRET can do this, and only on /api/cron paths, so it is exactly
+  // as trusted as the cron invocation itself.
   const requestHeaders = new Headers(request.headers);
-  requestHeaders.delete("x-beacon-tenant");
+  const cronSecret = process.env.CRON_SECRET;
+  const isTrustedCronCall =
+    request.nextUrl.pathname.startsWith("/api/cron") &&
+    typeof cronSecret === "string" &&
+    cronSecret.length > 0 &&
+    request.headers.get("authorization") === `Bearer ${cronSecret}`;
+  if (!isTrustedCronCall) {
+    requestHeaders.delete("x-beacon-tenant");
+  }
   // Strip + reset the perf-trace header (untrusted from client). When
   // tracing is enabled the middleware re-sets it below with a fresh ID.
   requestHeaders.delete(PERF_TRACE_HEADER_NAME);

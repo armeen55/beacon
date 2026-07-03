@@ -9,6 +9,43 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
 /**
+ * Warm one tenant under ITS OWN ambient context via a self-call carrying the
+ * cron secret + x-beacon-tenant (the middleware forwards the header only for
+ * trusted cron requests). When the ambient context already matches (the env
+ * fallback tenant), warm inline with no extra hop. Self-call failures fall
+ * back to the inline attempt so the guard's honest skip receipt still lands.
+ */
+async function warmTenantForRequest(
+  request: NextRequest,
+  secret: string,
+  tenantId: string,
+): Promise<WarmRunReceipt> {
+  const ambient = process.env.BEACON_TENANT_ID ?? null;
+  if (ambient === tenantId) {
+    return warmTenantCaches(tenantId, new Date());
+  }
+  try {
+    const selfUrl = new URL(request.nextUrl.href);
+    selfUrl.searchParams.set("tenant", tenantId);
+    const res = await fetch(selfUrl.toString(), {
+      headers: {
+        authorization: `Bearer ${secret}`,
+        "x-beacon-tenant": tenantId,
+      },
+      cache: "no-store",
+    });
+    const body = (await res.json()) as { receipt?: WarmRunReceipt };
+    if (body.receipt) return body.receipt;
+  } catch (e) {
+    log.warn("[precompute] per-tenant self-call failed, falling back inline", {
+      tenantId,
+      error: e instanceof Error ? e.message.slice(0, 200) : String(e),
+    });
+  }
+  return warmTenantCaches(tenantId, new Date());
+}
+
+/**
  * /api/cron/precompute (2026-07-02, BEACON 500 item 13) - the ~5am Pacific
  * (12:00 UTC) warm pass. Rebuilds the demand-graph snapshot, the /changes
  * and Today SWR surfaces, and tonight's daily plan preview BEFORE the
@@ -30,6 +67,19 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   }
   if (request.headers.get("authorization") !== `Bearer ${secret}`) {
     return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
+  }
+
+  // Per-tenant self-call mode (2026-07-03): the surface stores resolve their
+  // scope from the request's ambient tenant context, which one invocation
+  // cannot switch mid-flight. The fan-out below re-invokes this route once
+  // per tenant with x-beacon-tenant set (the middleware forwards it only for
+  // requests carrying the cron secret), so each tenant warms under its OWN
+  // context instead of being skipped by warm-caches' cross-tenant guard.
+  const selfTenant = request.nextUrl.searchParams.get("tenant");
+  if (selfTenant) {
+    // The fan-out parent records the receipt; this branch only computes it.
+    const receipt = await warmTenantCaches(selfTenant, new Date());
+    return NextResponse.json({ ok: receipt.ok, receipt });
   }
 
   // T0c deadman receipt: one cron_runs row per invocation (fail-soft) so the
@@ -56,7 +106,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
           });
           continue;
         }
-        const receipt = await warmTenantCaches(t.id, new Date());
+        const receipt = await warmTenantForRequest(request, secret, t.id);
         results.push(receipt);
         // Persist the receipt (it doubles as the per-day marker when ok). A
         // failed pass is recorded too, but does NOT mark the day - a re-fire
