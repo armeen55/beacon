@@ -420,7 +420,14 @@ export function ChangesListClient({ view }: { view: ChangesView }) {
   // D6 (daily ritual loop) - the session loop: after ANY row action (done/skip/not-now), always
   // point at the next best row + count it. Walks the SAME `visible` (already ranked + filtered)
   // list every row renders from, so "next best" never disagrees with what the list shows.
-  const session = useWorklistSession(visible);
+  // R20 (D6 dynamic auto-mode) - feed the session strip the server-truth FP3 lifecycle numbers
+  // (prepared-but-not-shipped, whole-tenant measuring, shipped this week) so its live counter
+  // agrees with every other surface. All three come from the ChangesView the server already built.
+  const session = useWorklistSession(visible, {
+    ready: view.readyCount,
+    measuring: view.measuringCountCanonical,
+    shippedThisWeek: view.shippedThisWeekCount,
+  });
   const rowAction = useCallback(
     (id: string, kind: "done" | "skip") => session.handleRowAction(id, kind === "done" ? "done" : "skip"),
     [session],
@@ -668,6 +675,9 @@ export function ChangesListClient({ view }: { view: ChangesView }) {
       <WorklistSessionBanner
         shippedCount={session.shippedCount}
         banner={session.banner}
+        progressLine={session.progressLine}
+        weeklyLine={session.weeklyLine}
+        prepareStatus={session.prepareStatus}
         onDismiss={session.dismissBanner}
         onOpenNext={
           session.nextBest

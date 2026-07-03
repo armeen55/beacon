@@ -19,7 +19,13 @@
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { CanonicalChange } from "@/domains/changes/canonical-change";
-import { findNextActionable, nextBestLine } from "@/domains/changes/session-flow";
+import {
+  findNextActionable,
+  nextBestLine,
+  sessionProgressLine,
+  weeklyOutcomeLine,
+} from "@/domains/changes/session-flow";
+import { autoAdvancePrepareAction } from "./today-moves-actions";
 
 function todayKey(): string {
   // Pacific calendar date, matching the same clock the shipped-change ledger dates ships
@@ -47,6 +53,24 @@ function writeStoredCount(n: number): void {
   }
 }
 
+/** R20 - server-truth lifecycle numbers the strip shows alongside the live session counter.
+ *  These come from the SAME FP3 lifecycle-counts loader every other surface reads (passed in
+ *  from the page), so the strip never re-derives a number the Tonight chip or Results already
+ *  own. All optional: absent = that clause self-hides. */
+export type WorklistSessionCounts = {
+  /** Prepared, not-yet-shipped picks (FP3 tonightPicked - tonightApplied). */
+  ready?: number;
+  /** Whole-tenant "In flight" set (FP3 measuring). */
+  measuring?: number;
+  /** Changes shipped in the trailing 7 days (proof ledger). */
+  shippedThisWeek?: number;
+};
+
+/** R20 - the honest status of the background auto-advance prepare. "idle" before any ship,
+ *  "preparing" while the next best is being drafted in the background, "ready" once it lands.
+ *  Reuses ONLY the existing Preparing/Ready words - never a new lifecycle status. */
+export type PrepareStatus = "idle" | "preparing" | "ready";
+
 export type WorklistSessionState = {
   /** "You have shipped N changes today" - same-day, localStorage-backed convenience counter. */
   shippedCount: number;
@@ -54,7 +78,16 @@ export type WorklistSessionState = {
   nextBest: CanonicalChange | null;
   /** One line naming it ("Next best: <exactWhat>"), or null when there is none. */
   banner: string | null;
-  /** Call after ANY row action (done, skip, not-now) - never leaves the operator at a dead end. */
+  /** R20 - the live progress line ("3 shipped today, 2 ready, next best is /iran-flags"), or
+   *  null when there is nothing to say yet. Pure from lifecycle counts + this session. */
+  progressLine: string | null;
+  /** R20 - the cumulative week line ("5 shipped this week, 3 measuring"), or null on a cold
+   *  week. */
+  weeklyLine: string | null;
+  /** R20 - the background auto-advance prepare state, surfaced honestly on the strip. */
+  prepareStatus: PrepareStatus;
+  /** Call after ANY row action (done, skip, not-now) - never leaves the operator at a dead end.
+   *  On "done" it also kicks off the background auto-advance prepare (fail-soft). */
   handleRowAction: (handledId: string, kind: "done" | "skip" | "not_now") => void;
   /** Clears the banner (e.g. once the operator opens the next row themselves). */
   dismissBanner: () => void;
@@ -63,12 +96,18 @@ export type WorklistSessionState = {
 /**
  * Owns the D6 session loop for one /changes render. `orderedChanges` is the SAME ranked +
  * filtered list the list component already computes (rankChanges + goal/status predicates) -
- * this hook never re-ranks, just walks it.
+ * this hook never re-ranks, just walks it. `counts` (R20) carries the server-truth lifecycle
+ * numbers (from the FP3 loader) so the strip's progress line and week line agree with every
+ * other surface.
  */
-export function useWorklistSession(orderedChanges: ReadonlyArray<CanonicalChange>): WorklistSessionState {
+export function useWorklistSession(
+  orderedChanges: ReadonlyArray<CanonicalChange>,
+  counts: WorklistSessionCounts = {},
+): WorklistSessionState {
   const [shippedCount, setShippedCount] = useState(0);
   const [handledIds, setHandledIds] = useState<ReadonlySet<string>>(new Set());
   const [nextBest, setNextBest] = useState<CanonicalChange | null>(null);
+  const [prepareStatus, setPrepareStatus] = useState<PrepareStatus>("idle");
   const hydrated = useRef(false);
 
   // Hydrate the counter from localStorage after mount (SSR-safe: first paint matches server).
@@ -91,6 +130,15 @@ export function useWorklistSession(orderedChanges: ReadonlyArray<CanonicalChange
           writeStoredCount(next);
           return next;
         });
+        // R20 - auto-advance: the moment a change ships, prepare the next best opportunity in
+        // the background so it is ready by the time the operator reaches it. Fail-soft and
+        // never blocking - the server schedules the work via next/after and returns instantly;
+        // this only reflects the honest "Preparing... -> Ready" status on the strip. An error
+        // silently falls back to "ready" (the existing on-demand Prepare button still works).
+        setPrepareStatus("preparing");
+        void autoAdvancePrepareAction()
+          .then(() => setPrepareStatus("ready"))
+          .catch(() => setPrepareStatus("ready"));
       }
       // NO DEAD ENDS: after any action, always compute and surface the next actionable row.
       const upcoming = findNextActionable(orderedChanges, handledId, handledIds);
@@ -101,42 +149,96 @@ export function useWorklistSession(orderedChanges: ReadonlyArray<CanonicalChange
 
   const dismissBanner = useCallback(() => setNextBest(null), []);
 
+  // R20 - the live progress line reuses the FP3 counts + this session's shipped tally + the
+  // next best page. Derived, never a second store.
+  const progressLine = sessionProgressLine({
+    shippedToday: shippedCount,
+    ready: counts.ready ?? 0,
+    nextBestPage: nextBest ? (nextBest.pageLabel || nextBest.pagePath) : null,
+  });
+  const weeklyLine = weeklyOutcomeLine({
+    shippedThisWeek: counts.shippedThisWeek ?? 0,
+    measuring: counts.measuring ?? 0,
+  });
+
   return {
     shippedCount,
     nextBest,
     banner: nextBestLine(nextBest),
+    progressLine,
+    weeklyLine,
+    prepareStatus,
     handleRowAction,
     dismissBanner,
   };
 }
 
-/** "You have shipped N changes today" + the "Next best: <exactWhat>" banner. Self-hides both
- *  lines when there is nothing to say yet (a fresh session with no actions taken). */
+/** The honest one-liner for the background auto-advance prepare state. "preparing" while the
+ *  next best is being drafted, "ready" once it lands, nothing before the first ship. Reuses the
+ *  existing Preparing/Ready words only. */
+function prepareStatusLine(status: PrepareStatus): string | null {
+  if (status === "preparing") return "Preparing the next one while you work...";
+  if (status === "ready") return "The next one is ready.";
+  return null;
+}
+
+/**
+ * The session strip (R20 - D6 dynamic auto-mode): the live progress line ("3 shipped today,
+ * 2 ready, next best is /iran-flags"), the cumulative week line ("5 shipped this week, 3
+ * measuring"), the honest auto-advance prepare status, and the "Next best: <exactWhat>" banner
+ * with Open it / Dismiss. Self-hides entirely when there is nothing to say yet (a fresh session
+ * with no actions taken). Every number comes from the shared FP3 lifecycle counts + this
+ * session; no new store, no new lifecycle word.
+ */
 export function WorklistSessionBanner({
   shippedCount,
   banner,
+  progressLine,
+  weeklyLine,
+  prepareStatus,
   onDismiss,
   onOpenNext,
 }: {
   shippedCount: number;
   banner: string | null;
+  /** R20 - "N shipped today, M ready, next best is /page" (optional; falls back to the classic
+   *  "You have shipped N changes today" line when absent so existing callers keep working). */
+  progressLine?: string | null;
+  /** R20 - "X shipped this week, Y measuring" (optional). */
+  weeklyLine?: string | null;
+  /** R20 - the background auto-advance prepare status (optional; defaults to idle). */
+  prepareStatus?: PrepareStatus;
   onDismiss: () => void;
   onOpenNext?: () => void;
 }) {
-  if (shippedCount === 0 && !banner) return null;
+  const prepLine = prepareStatusLine(prepareStatus ?? "idle");
+  if (shippedCount === 0 && !banner && !progressLine && !weeklyLine) return null;
+  // R20 - the live progress line replaces the classic count sentence when present; the classic
+  // "You have shipped N changes today." remains the fallback for callers that pass no counts.
+  const leadLine =
+    progressLine ??
+    (shippedCount > 0
+      ? `You have shipped ${shippedCount} change${shippedCount === 1 ? "" : "s"} today.`
+      : null);
   return (
     <div
       role="status"
       aria-live="polite"
-      className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-emerald-200 bg-emerald-50/70 px-3 py-2 text-[12px] text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-200"
+      className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-status-success/30 bg-status-success-bg px-3 py-2 text-[12px] text-status-success"
     >
       <span className="min-w-0 break-words">
-        {shippedCount > 0 ? (
-          <span className="font-medium">
-            You have shipped {shippedCount} change{shippedCount === 1 ? "" : "s"} today.
+        {leadLine ? <span className="font-medium">{leadLine}</span> : null}
+        {weeklyLine ? (
+          <span className={leadLine ? " ml-1.5 text-status-success" : "text-status-success"}>
+            {weeklyLine}
           </span>
         ) : null}
-        {banner ? <span className={shippedCount > 0 ? " ml-1.5" : ""}>{banner}</span> : null}
+        {prepLine ? (
+          <span className="ml-1.5 text-status-success">{prepLine}</span>
+        ) : null}
+        {banner ? (
+          <span className={leadLine || weeklyLine || prepLine ? " ml-1.5" : ""}>{banner}</span>
+        ) : null}
       </span>
       {banner ? (
         <span className="flex shrink-0 items-center gap-2">
@@ -144,7 +246,7 @@ export function WorklistSessionBanner({
             <button
               type="button"
               onClick={onOpenNext}
-              className="rounded-sm text-[11px] font-semibold text-emerald-700 underline underline-offset-2 hover:text-emerald-900 dark:text-emerald-300 dark:hover:text-emerald-100"
+              className="rounded-sm text-[11px] font-semibold text-status-success underline underline-offset-2 hover:opacity-80"
             >
               Open it
             </button>
@@ -153,7 +255,7 @@ export function WorklistSessionBanner({
             type="button"
             onClick={onDismiss}
             aria-label="Dismiss"
-            className="rounded-sm text-[11px] text-emerald-600 hover:text-emerald-900 dark:text-emerald-400 dark:hover:text-emerald-100"
+            className="rounded-sm text-[11px] text-status-success hover:opacity-80"
           >
             Dismiss
           </button>

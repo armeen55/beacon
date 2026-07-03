@@ -69,6 +69,8 @@ export type AutopilotSettingsView = {
   /** The advise-only site can never arm autopilot. */
   adviseOnly: boolean;
   config: AutopilotConfig;
+  /** R20 - "prepare tomorrow's top picks overnight" is on. Prepare-ahead only, never publish. */
+  prepareAheadOvernight: boolean;
   usedThisWeek: number;
   levers: AutopilotLeverView[];
   recentReceipts: AutopilotReceiptView[];
@@ -118,6 +120,7 @@ export async function loadAutopilotSettings(): Promise<AutopilotSettingsView> {
     publishingArmed: modeState.mode === "armed",
     adviseOnly: tenantId === AUTOPILOT_RITZ_TENANT_ID,
     config: state.config,
+    prepareAheadOvernight: state.config.prepareAheadOvernight === true,
     usedThisWeek: countAutoShippedInLastDays(state, new Date()),
     levers,
     recentReceipts: state.receipts.slice(0, 5).map((r) => ({
@@ -160,6 +163,26 @@ export async function setAutopilotEnabled(args: {
   }
 
   const config = await updateAutopilotConfig({ enabled: args.enabled === true });
+  revalidatePath("/settings/connectors");
+  return { ok: true, config };
+}
+
+/**
+ * R20 (D6 dynamic auto-mode) - turn "prepare tomorrow's top picks overnight" on/off. This is a
+ * DISTINCT switch from publish-autopilot (`setAutopilotEnabled`): it is PREPARE-ahead only.
+ * When on, the nightly warm pass drafts + SERP-checks the top Moves so the morning queue is
+ * already prepared - it NEVER publishes anything. Because it can never write to the site, it does
+ * NOT require one-click publishing to be armed and is allowed on the advise-only site too;
+ * publishing always waits for the operator (or the separate publish-autopilot switch). Gated only
+ * on operator permission, fail-closed.
+ */
+export async function setPrepareAheadOvernight(args: {
+  enabled: boolean;
+}): Promise<AutopilotUpdateResult> {
+  if (!(await canPublishForCurrentTenant())) {
+    return { ok: false, reason: "You don't have permission to change publishing for this site." };
+  }
+  const config = await updateAutopilotConfig({ prepareAheadOvernight: args.enabled === true });
   revalidatePath("/settings/connectors");
   return { ok: true, config };
 }

@@ -32798,3 +32798,36 @@ x-beacon-tenant set; middleware forwards that header ONLY for requests carrying 
 (trusted). VERIFIED: triggered post-deploy, Iranopedia warmed in 71s all-ok, worklist-surface
 538 bytes -> 168,433 bytes, today-surface -> 55,495, results-surface 135,338. The empty-snapshot
 guard correctly allowed the non-empty rebuild to overwrite the poisoned empty one.
+
+## 2026-07-03 R20 (D6 dynamic auto-mode): auto-advance prepare + live counter + prepare-ahead toggle
+Built on the EXISTING D6 static rails (session-flow.ts, worklist-session-strip.tsx) and the
+armed-publishing/autopilot rails; nothing rebuilt.
+(1) AUTO-ADVANCE PREPARE: the moment a change ships in the session flow, the next best
+opportunity auto-prepares in the background. autoAdvancePrepareAction (today-moves-actions.ts)
+schedules ONE bounded prepareTodayMovesForTenant pass via next/after (zero latency, never blocks),
+cache-first + capped (maxN 3, $0.05) so a warm cache is $0; fail-soft to the on-demand Prepare
+button. The card shows honest "Preparing the next one while you work..." -> "The next one is
+ready." (reuses Preparing/Ready, no new lifecycle word). PREPARE only, never publishes.
+(2) LIVE COUNTER: the session strip shows "N shipped today, M ready, next best is /page." +
+"X shipped this week, Y measuring." Derived purely (sessionProgressLine/weeklyOutcomeLine in
+session-flow.ts) from the SAME FP3 lifecycle counts (readyCount = tonightPicked-tonightApplied,
+measuringCountCanonical, shippedThisWeekCount) now threaded through ChangesView; no new store.
+(3) PREPARE-AHEAD TOGGLE: AutopilotConfig.prepareAheadOvernight (DEFAULT OFF, additive) + a
+DISTINCT settings toggle (setPrepareAheadOvernight, autopilot-card.tsx) + a new gated
+"prepare-ahead" step in warm-caches.ts. Off = byte-identical skip (nightly path unchanged, no
+config side effect); on = drafts+SERP-checks the top Moves (maxN 10, $0.15 cap, cache-first).
+NEVER publishes - publishing stays operator-gated / the separate publish-autopilot switch. Runs
+LAST + isolated + fail-soft. Safe even without one-click publishing armed (it can't write to the
+site) and allowed on advise-only Ritz.
+VERIFIED: npm run typecheck clean. New/updated unit tests: session-flow (+9: progress/weekly line
+arithmetic, self-hide, dash+jargon guards), warm-caches (+3: prepare-ahead off=byte-identical
+skip / on=runs last+honest note / failure isolated; existing order+count pins updated for the new
+step), autopilot-policy (+3: prepareAheadOvernight default-off/explicit-true-only/independent of
+publish), autopilot-actions (+5: perm-gated, on-without-publishing-armed, advise-only allowed,
+round-trip, view surfaces flag), worklist-session-strip (+7 render+pins: new lines, prepare
+status, done-only auto-advance, single call site, fail-soft to Ready), changes-list-client
+session pins updated. Targeted suites green: push+ops+autopilot+settings+changes+tests/app/changes
+(675), session-flow+warm-caches+autopilot-policy+strip+session+settings (134). Full shell/app run:
+1827 passed, 1 skipped; the only 2 failures are the documented Google-OAuth-callback env-
+contamination class (pass in a clean shell: `env -u OAUTH_STATE_SECRET ...` -> 11/11), unrelated
+to this change. Full suite deliberately not run per slice (CI-minutes rule).

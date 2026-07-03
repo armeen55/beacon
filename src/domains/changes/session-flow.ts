@@ -52,6 +52,58 @@ export function nextBestLine(next: CanonicalChange | null): string | null {
 export type SessionAction = "done" | "skip" | "not_now";
 
 /**
+ * R20 (D6 dynamic auto-mode) - the live progress line for the session strip. PURE arithmetic
+ * over the FP3 lifecycle counts (domains/attribution/lifecycle-counts.ts) plus this session's
+ * own "shipped today" tally and the next-best row, so the counter never re-derives a number
+ * another surface already owns.
+ *
+ * `shippedToday` is the session's client counter (marks made this session); `ready` is the
+ * count of prepared, not-yet-shipped picks (tonightPicked minus tonightApplied - the same two
+ * FP3 numbers the Tonight chip shows, so this can never disagree with it); `nextBest` names the
+ * exact page the operator should open next. Every clause is dropped when its number is zero or
+ * absent, so a fresh session with nothing done returns null (the strip self-hides), and the
+ * result reuses ONLY existing lifecycle words (shipped / ready / measuring) - no new status word.
+ */
+export function sessionProgressLine(input: {
+  shippedToday: number;
+  ready: number;
+  nextBestPage: string | null;
+}): string | null {
+  const parts: string[] = [];
+  if (input.shippedToday > 0) {
+    parts.push(`${input.shippedToday} shipped today`);
+  }
+  if (input.ready > 0) {
+    parts.push(`${input.ready} ready`);
+  }
+  if (parts.length === 0) return null;
+  let line = parts.join(", ");
+  if (input.nextBestPage) {
+    line += `, next best is ${input.nextBestPage}`;
+  }
+  return `${line}.`;
+}
+
+/**
+ * R20 - the cumulative week line for the session strip ("X shipped this week, Y measuring").
+ * PURE over the same FP3-derived weekly counts the cumulative-outcome strip already computes
+ * (measuring here is the whole-tenant "In flight" set). Returns null when nothing has shipped
+ * this week, so the strip stays quiet on a cold week. Reuses only shipped / measuring - never
+ * a new lifecycle word.
+ */
+export function weeklyOutcomeLine(input: {
+  shippedThisWeek: number;
+  measuring: number;
+}): string | null {
+  if (input.shippedThisWeek <= 0) return null;
+  const shipped = `${input.shippedThisWeek} shipped this week`;
+  if (input.measuring > 0) {
+    return `${shipped}, ${input.measuring} measuring.`;
+  }
+  return `${shipped}.`;
+}
+
+/**
  * No-dead-end invariant, exposed as pure logic so a component (or test) can assert it directly:
  * given the ordered list and everything handled so far, is there ALWAYS still a next actionable
  * row offered until the queue genuinely empties? Returns true either when a next row exists, or

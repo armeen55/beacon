@@ -49,6 +49,16 @@ import "server-only";
  *                            fail-soft, same posture as displacement-check
  *                            and serp-steal-lane. See
  *                            native-teardown-runner.ts.
+ *   9. prepare-ahead      - R20 (D6 dynamic auto-mode): PREPARE-ahead only,
+ *                            gated on the operator's prepare-ahead-overnight
+ *                            toggle (autopilot config, DEFAULT OFF). Off ->
+ *                            a byte-identical skip (nightly path unchanged).
+ *                            On -> drafts + SERP-checks the top Moves so the
+ *                            morning queue is already prepared. NEVER
+ *                            publishes (publishing waits for the operator, or
+ *                            the separate publish-autopilot switch). Capped +
+ *                            cache-first (a warm cache is $0), isolated +
+ *                            fail-soft, runs last. See prepare-today-moves.ts.
  *
  * Money posture (verified in the callees, none edited here):
  *   - graph/changes/today loaders are cached/durable reads only ($0).
@@ -80,6 +90,7 @@ import type { TodayPreviewResult } from "@/domains/experiments/build-today-previ
 import type { DisplacementCheckSummary } from "@/domains/serp/displacement-check";
 import type { StealLaneRunSummary } from "@/domains/serp/serp-steal-lane";
 import type { NativeTeardownRunSummary } from "@/domains/demand-graph/native-teardown-runner";
+import type { PrepareMovesSummary } from "@/domains/demand-graph/prepare-today-moves";
 import type { WarmRunReceipt, WarmStepReceipt } from "./warm-receipt-store";
 
 export type WarmCachesDeps = {
@@ -116,6 +127,17 @@ export type WarmCachesDeps = {
    *  tear down -> what winners share -> atomic-edit or new-page verdict).
    *  Returns a short summary for the step's receipt note. */
   runNativeTeardown: (tenantId: string, now: Date) => Promise<NativeTeardownRunSummary>;
+  /** R20 (D6 dynamic auto-mode): is prepare-ahead-overnight turned on for this
+   *  tenant? Read from the SAME autopilot config the settings toggle writes.
+   *  Default OFF - a false here makes the prepare-ahead step a byte-identical
+   *  skip, so the nightly path is unchanged until the operator opts in. */
+  isPrepareAheadEnabled: (tenantId: string) => Promise<boolean>;
+  /** R20: the capped nightly PREPARE-ahead pass (draft + SERP-check the top
+   *  Moves so the morning queue is already prepared). PREPARE only - it NEVER
+   *  publishes. Reuses the exact operator-triggered prepare pipeline, capped
+   *  and cache-first (a warm cache is $0). Returns a short summary for the
+   *  step's receipt note. */
+  runPrepareAhead: (tenantId: string, now: Date) => Promise<PrepareMovesSummary>;
 };
 
 /** YYYY-MM-DD in America/Los_Angeles (same helper family as run-autopilot). */
@@ -206,6 +228,32 @@ async function defaultRunNativeTeardown(tenantId: string, _now: Date): Promise<N
   return await runNativeTeardownForTenant(tenantId, { maxPrompts: MAX_NATIVE_TEARDOWN_PROMPTS_PER_NIGHT });
 }
 
+/** R20: prepare-ahead is read from the SAME autopilot config the settings toggle writes,
+ *  fail-CLOSED (any read error -> false -> the step skips), so a store hiccup can never turn
+ *  prepare-ahead on by accident. */
+async function defaultIsPrepareAheadEnabled(_tenantId: string): Promise<boolean> {
+  try {
+    const { getAutopilotConfig } = await import("@/domains/autopilot/autopilot-store");
+    return (await getAutopilotConfig()).prepareAheadOvernight === true;
+  } catch {
+    return false;
+  }
+}
+
+/** R20: at most this many top Moves prepared per night, under a hard per-run $ cap so the
+ *  prepare-ahead lane can never outspend the existing budgets. Cache-first (a warm cache is $0). */
+const MAX_PREPARE_AHEAD_MOVES_PER_NIGHT = 10;
+const MAX_PREPARE_AHEAD_USD_PER_NIGHT = 0.15;
+
+async function defaultRunPrepareAhead(tenantId: string, now: Date): Promise<PrepareMovesSummary> {
+  const { prepareTodayMovesForTenant } = await import("@/domains/demand-graph/prepare-today-moves");
+  return await prepareTodayMovesForTenant(tenantId, {
+    maxN: MAX_PREPARE_AHEAD_MOVES_PER_NIGHT,
+    maxUsd: MAX_PREPARE_AHEAD_USD_PER_NIGHT,
+    now: () => now,
+  });
+}
+
 const defaultDeps: WarmCachesDeps = {
   ambientTenantId: defaultAmbientTenantId,
   refreshDemandGraph: defaultRefreshDemandGraph,
@@ -220,6 +268,8 @@ const defaultDeps: WarmCachesDeps = {
   runDisplacementChecks: defaultRunDisplacementChecks,
   runStealLane: defaultRunStealLane,
   runNativeTeardown: defaultRunNativeTeardown,
+  isPrepareAheadEnabled: defaultIsPrepareAheadEnabled,
+  runPrepareAhead: defaultRunPrepareAhead,
 };
 
 /** Hard per-step ceiling - a hung step is recorded as failed and the pass moves on. */
@@ -386,6 +436,24 @@ export async function warmTenantCaches(
         return { skipped: true, note: "no native-poll prompts with cited pages to tear down tonight" };
       }
       const note = `analyzed ${summary.promptsAnalyzed} native prompt(s), read ${summary.torndownPages} competitor page(s) (${summary.fromCache} from cache), verdicts: ${summary.verdicts.filter((v) => v.outcome === "atomic_edit").length} atomic edit, ${summary.verdicts.filter((v) => v.outcome === "new_page").length} new page, ${summary.verdicts.filter((v) => v.outcome === "no_verdict").length} not enough winners yet`;
+      return { note };
+    }),
+  );
+  // R20 (D6 dynamic auto-mode): prepare-ahead-overnight. DEFAULT OFF, so with the toggle off
+  // this step is a byte-identical skip (no config read side effect, no prepare, no spend) - the
+  // nightly path is unchanged until the operator opts in. When ON, it PREPARES (drafts +
+  // SERP-checks) the top Moves so the morning queue is already prepared; it NEVER publishes.
+  // Isolated + fail-soft like every step above; capped + cache-first (a warm cache is $0), so
+  // it stays inside the existing budgets. Runs LAST so a slow prepare pass never delays any
+  // cache warm above it.
+  steps.push(
+    await runStep("prepare-ahead", async () => {
+      const enabled = await deps.isPrepareAheadEnabled(tenantId);
+      if (!enabled) {
+        return { skipped: true, note: "prepare-ahead-overnight is off, so the morning queue prepares on demand" };
+      }
+      const summary = await deps.runPrepareAhead(tenantId, now);
+      const note = `prepared ${summary.prepared} Move(s) (${summary.cached} already prepared, ${summary.readyToReview} ready to review), spent $${summary.llmCostUsd.toFixed(3)}${summary.stoppedForBudget ? " (stopped at the nightly cap)" : ""}${summary.failed ? `, ${summary.failed} need a look` : ""}`;
       return { note };
     }),
   );

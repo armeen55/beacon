@@ -85,6 +85,7 @@ import {
   setLeverPolicy,
   setLeverPolicyDailyCap,
   setLeverPolicyToReview,
+  setPrepareAheadOvernight,
 } from "@/app/(shell)/settings/connectors/autopilot-actions";
 
 beforeEach(() => {
@@ -222,6 +223,43 @@ describe("setLeverPolicyDailyCap", () => {
     const res = await setLeverPolicyDailyCap({ actionType: "edit_meta", dailyCap: NaN });
     expect(res.ok).toBe(false);
     if (!res.ok) expect(res.reason).not.toMatch(/[\u2013\u2014]/);
+  });
+});
+
+describe("setPrepareAheadOvernight (R20 - prepare-ahead, distinct from publish autopilot)", () => {
+  it("refuses without publish permission", async () => {
+    mem.canPublish = false;
+    const res = await setPrepareAheadOvernight({ enabled: true });
+    expect(res.ok).toBe(false);
+  });
+
+  it("turns prepare-ahead ON without requiring publishing to be armed (it never publishes)", async () => {
+    mem.publishingMode = "staged"; // one-click publishing is NOT armed
+    const res = await setPrepareAheadOvernight({ enabled: true });
+    expect(res.ok).toBe(true);
+    if (res.ok) expect(res.config.prepareAheadOvernight).toBe(true);
+    // Publish-autopilot's own switch is untouched by prepare-ahead - they never couple.
+    expect(mem.config.enabled).toBe(true);
+  });
+
+  it("is allowed on the advise-only Ritz tenant (prepare-ahead can never write to the site)", async () => {
+    mem.tenantId = "tenant-ritz-founder";
+    const res = await setPrepareAheadOvernight({ enabled: true });
+    expect(res.ok).toBe(true);
+    if (res.ok) expect(res.config.prepareAheadOvernight).toBe(true);
+  });
+
+  it("turns prepare-ahead back off in one click and it round-trips", async () => {
+    mem.config.prepareAheadOvernight = true;
+    const res = await setPrepareAheadOvernight({ enabled: false });
+    expect(res.ok).toBe(true);
+    if (res.ok) expect(res.config.prepareAheadOvernight).toBe(false);
+  });
+
+  it("loadAutopilotSettings surfaces the prepare-ahead flag", async () => {
+    mem.config.prepareAheadOvernight = true;
+    const view = await loadAutopilotSettings();
+    expect(view.prepareAheadOvernight).toBe(true);
   });
 });
 

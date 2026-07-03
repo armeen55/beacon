@@ -1,6 +1,8 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { after } from "next/server";
+import { log } from "@/lib/logger";
 import { invalidateWorklistSurface } from "./worklist-surface-store";
 import { invalidateDemandGraph } from "@/domains/demand-graph/graph-snapshot-store";
 import { isOperatorModeServer } from "@/lib/operator-mode";
@@ -49,6 +51,67 @@ export async function prepareTopMovesAction(opts: { maxN?: number } = {}): Promi
     return { ok: true, summary };
   } catch (e) {
     return { ok: false, reason: e instanceof Error ? e.message.slice(0, 120) : "prepare failed" };
+  }
+}
+
+export type AutoAdvancePrepareResult =
+  | { ok: false; reason: string }
+  | { ok: true; scheduled: boolean };
+
+/**
+ * R20 (D6 dynamic auto-mode) - auto-advance prepare. When the operator ships a change in the
+ * session flow, the NEXT best opportunity should already be prepared by the time they reach it.
+ * This schedules ONE bounded prepare pass AFTER the response via next/after, so it adds ZERO
+ * latency and never blocks the operator's next click. It reuses prepareTodayMovesForTenant's
+ * exact single-move path, which is CACHE-FIRST (a non-stale pack with a good draft is skipped at
+ * $0) and CAPPED (a hard per-run $ ceiling), so on a warm cache this is free and on a cold one
+ * it prepares the top unprepared Move within a tight budget. Fail-soft: any error is logged and
+ * swallowed; the operator's existing on-demand Prepare button remains the fallback. NO publish,
+ * NO SERP, NO migration. This is prepare-ahead only - it never ships anything.
+ */
+const AUTO_ADVANCE_MAX_N = 3;
+const AUTO_ADVANCE_MAX_USD = 0.05;
+
+export async function autoAdvancePrepareAction(): Promise<AutoAdvancePrepareResult> {
+  if (!(await isOperatorModeServer())) return { ok: false, reason: "Operator mode only." };
+  let tenantId: string;
+  try {
+    tenantId = await currentTenantId();
+  } catch {
+    return { ok: false, reason: "No tenant context." };
+  }
+  try {
+    after(async () => {
+      try {
+        const summary = await prepareTodayMovesForTenant(tenantId, {
+          maxN: AUTO_ADVANCE_MAX_N,
+          maxUsd: AUTO_ADVANCE_MAX_USD,
+        });
+        // Only recompute the surface when a prepare actually changed something (a fresh
+        // draft, not a pure cache hit) - a cache-only pass leaves the surface identical, so
+        // we skip the invalidate/revalidate to keep this genuinely $0 and side-effect-free.
+        if (summary.prepared > 0) {
+          await invalidateWorklistSurface().catch(() => {});
+          revalidatePath("/changes");
+        }
+        log.info("[auto-advance-prepare] ran after ship", {
+          tenantId,
+          prepared: summary.prepared,
+          cached: summary.cached,
+          readyToReview: summary.readyToReview,
+          llmCostUsd: summary.llmCostUsd,
+        });
+      } catch (e) {
+        log.warn("[auto-advance-prepare] pass failed (non-blocking)", {
+          tenantId,
+          error: e instanceof Error ? e.message.slice(0, 200) : String(e),
+        });
+      }
+    });
+    return { ok: true, scheduled: true };
+  } catch {
+    // after() is only valid inside a request scope - never fail the operator's action on it.
+    return { ok: true, scheduled: false };
   }
 }
 

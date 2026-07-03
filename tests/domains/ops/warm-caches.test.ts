@@ -82,6 +82,25 @@ function makeDeps(overrides: Partial<WarmCachesDeps> = {}) {
       calls.push("native-teardown");
       return { promptsAnalyzed: 0, torndownPages: 0, fromCache: 0, verdicts: [], results: [] };
     }),
+    // R20: prepare-ahead defaults OFF in these deps, so it is a byte-identical skip (runPrepareAhead
+    // is never invoked) unless a test flips isPrepareAheadEnabled on. This mirrors the DEFAULT_
+    // AUTOPILOT_CONFIG default (prepareAheadOvernight: false).
+    isPrepareAheadEnabled: vi.fn(async () => false),
+    runPrepareAhead: vi.fn(async () => {
+      calls.push("prepare-ahead");
+      return {
+        considered: 0,
+        prepared: 0,
+        readyToReview: 0,
+        draftReady: 0,
+        cached: 0,
+        failed: 0,
+        regenerated: 0,
+        stoppedForBudget: false,
+        llmCostUsd: 0,
+        outcomes: [],
+      };
+    }),
     ...overrides,
   };
   return { deps, calls };
@@ -109,7 +128,13 @@ describe("warmTenantCaches", () => {
       "displacement-check",
       "serp-steal-lane",
       "native-teardown",
+      "prepare-ahead",
     ]);
+    // R20: prepare-ahead is OFF by default, so runPrepareAhead is never invoked (not in `calls`)
+    // and the step records an honest skip - the nightly work is byte-identical to before.
+    const prep = receipt.steps.find((s) => s.name === "prepare-ahead");
+    expect(prep?.skipped).toBe(true);
+    expect(prep?.note).toContain("prepare-ahead-overnight is off");
     expect(receipt.ok).toBe(true);
     expect(receipt.date).toBe(TODAY);
   });
@@ -132,7 +157,8 @@ describe("warmTenantCaches", () => {
       "native-teardown",
     ]);
     expect(receipt.ok).toBe(false);
-    expect(receipt.steps.filter((s) => s.ok)).toHaveLength(7);
+    // 9 steps total (incl. the R20 prepare-ahead skip); only demand-graph failed, so 8 are ok.
+    expect(receipt.steps.filter((s) => s.ok)).toHaveLength(8);
   });
 
   it("displacement-check failure is isolated and never affects the warm steps above it", async () => {
@@ -230,6 +256,76 @@ describe("warmTenantCaches", () => {
     expect(step?.ok).toBe(true);
     expect(step?.skipped).toBe(true);
     expect(step?.note).toContain("no native-poll prompts");
+  });
+
+  // R20 (D6 dynamic auto-mode): prepare-ahead-overnight gates the nightly prepare path and
+  // stays publish-safe (it only PREPARES, it never publishes).
+  it("prepare-ahead OFF: byte-identical skip, runPrepareAhead is NEVER invoked, no spend", async () => {
+    const { deps, calls } = makeDeps({ isPrepareAheadEnabled: vi.fn(async () => false) });
+    const receipt = await warmTenantCaches(TENANT, NOW, deps);
+    expect(deps.runPrepareAhead).not.toHaveBeenCalled();
+    expect(calls).not.toContain("prepare-ahead");
+    const step = receipt.steps.find((s) => s.name === "prepare-ahead");
+    expect(step?.ok).toBe(true);
+    expect(step?.skipped).toBe(true);
+    expect(step?.note).toContain("prepare-ahead-overnight is off");
+  });
+
+  it("prepare-ahead ON: runs the capped prepare pass and reports an honest note", async () => {
+    const { deps, calls } = makeDeps({
+      isPrepareAheadEnabled: vi.fn(async () => true),
+      runPrepareAhead: vi.fn(async () => {
+        calls.push("prepare-ahead");
+        return {
+          considered: 8,
+          prepared: 5,
+          readyToReview: 4,
+          draftReady: 1,
+          cached: 3,
+          failed: 0,
+          regenerated: 0,
+          stoppedForBudget: false,
+          llmCostUsd: 0.042,
+          outcomes: [],
+        };
+      }),
+    });
+    const receipt = await warmTenantCaches(TENANT, NOW, deps);
+    expect(deps.runPrepareAhead).toHaveBeenCalledWith(TENANT, NOW);
+    expect(calls).toContain("prepare-ahead");
+    // Prepare-ahead runs LAST (after native-teardown), so a slow prepare never delays a warm.
+    expect(calls[calls.length - 1]).toBe("prepare-ahead");
+    const step = receipt.steps.find((s) => s.name === "prepare-ahead");
+    expect(step?.ok).toBe(true);
+    expect(step?.skipped).toBeUndefined();
+    expect(step?.note).toContain("prepared 5 Move");
+    expect(step?.note).toContain("3 already prepared");
+    expect(step?.note).toContain("4 ready to review");
+    expect(step?.note).toContain("$0.042");
+  });
+
+  it("prepare-ahead failure is isolated and never affects the steps above it", async () => {
+    const { deps, calls } = makeDeps({
+      isPrepareAheadEnabled: vi.fn(async () => true),
+      runPrepareAhead: vi.fn(async () => { throw new Error("prepare ahead blew up"); }),
+    });
+    const receipt = await warmTenantCaches(TENANT, NOW, deps);
+    // Every warm/native step above it still ran and succeeded.
+    expect(calls).toEqual([
+      "demand-graph",
+      "worklist-surface",
+      "plan-preview",
+      "today-surface",
+      "displacement-check",
+      "serp-steal-lane",
+      "native-teardown",
+    ]);
+    const otherSteps = receipt.steps.filter((s) => s.name !== "prepare-ahead");
+    expect(otherSteps.every((s) => s.ok)).toBe(true);
+    const step = receipt.steps.find((s) => s.name === "prepare-ahead");
+    expect(step?.ok).toBe(false);
+    expect(step?.note).toContain("prepare ahead blew up");
+    expect(receipt.ok).toBe(false);
   });
 
   it("serp-steal-lane reports an honest note summarizing what it found and read", async () => {

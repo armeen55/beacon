@@ -285,6 +285,32 @@ describe("normalizeAutopilotConfig", () => {
     expect(normalizeAutopilotConfig({ enabled: undefined }).enabled).toBe(false);
     expect(normalizeAutopilotConfig({}).enabled).toBe(false);
   });
+
+  // R20 (D6 dynamic auto-mode): prepare-ahead-overnight is additive + DEFAULT OFF, so old
+  // configs parse publish-safe and a fresh tenant's nightly path is unchanged.
+  it("prepareAheadOvernight defaults OFF (old configs + fresh tenant stay publish-safe)", () => {
+    expect(DEFAULT_AUTOPILOT_CONFIG.prepareAheadOvernight).toBe(false);
+    expect(normalizeAutopilotConfig(null).prepareAheadOvernight).toBe(false);
+    expect(normalizeAutopilotConfig({}).prepareAheadOvernight).toBe(false);
+    // A legacy config with no such key parses to off, never accidentally on.
+    expect(normalizeAutopilotConfig({ enabled: true, weeklyCap: 3 }).prepareAheadOvernight).toBe(false);
+  });
+
+  it("prepareAheadOvernight is preserved ONLY when explicitly true (never coerced from truthy junk)", () => {
+    expect(normalizeAutopilotConfig({ prepareAheadOvernight: true }).prepareAheadOvernight).toBe(true);
+    expect(normalizeAutopilotConfig({ prepareAheadOvernight: false }).prepareAheadOvernight).toBe(false);
+    // Non-boolean truthy values do not turn it on (fail-safe like `enabled`).
+    expect(
+      normalizeAutopilotConfig({ prepareAheadOvernight: 1 as unknown as boolean }).prepareAheadOvernight,
+    ).toBe(false);
+  });
+
+  it("prepare-ahead is INDEPENDENT of publish-autopilot: on-prepare with off-publish is valid", () => {
+    const config = normalizeAutopilotConfig({ enabled: false, prepareAheadOvernight: true });
+    // Publishing stays off (operator-gated), prepare-ahead is on - the two never couple.
+    expect(config.enabled).toBe(false);
+    expect(config.prepareAheadOvernight).toBe(true);
+  });
 });
 
 describe("leverLabel", () => {

@@ -24,6 +24,7 @@ import {
   setAutopilotWeeklyCap,
   setLeverPolicyDailyCap,
   setLeverPolicyToReview,
+  setPrepareAheadOvernight,
   type AutopilotSettingsView,
 } from "./autopilot-actions";
 import { loadCircuitBreakerCardView, type CircuitBreakerCardView } from "../../circuit-breaker-actions";
@@ -66,6 +67,25 @@ export function AutopilotCard() {
       setActionError(null);
       startTransition(async () => {
         const res = await setAutopilotEnabled({ enabled });
+        if (res.ok) {
+          await refresh();
+          router.refresh();
+        } else {
+          setActionError(res.reason);
+        }
+      });
+    },
+    [refresh, router],
+  );
+
+  // R20 (D6 dynamic auto-mode): the prepare-ahead-overnight toggle. DISTINCT from the publish
+  // autopilot above - this only PREPARES tomorrow's picks (drafts + SERP checks), it never
+  // publishes, so it is safe to turn on even without one-click publishing armed.
+  const onTogglePrepareAhead = useCallback(
+    (enabled: boolean) => {
+      setActionError(null);
+      startTransition(async () => {
+        const res = await setPrepareAheadOvernight({ enabled });
         if (res.ok) {
           await refresh();
           router.refresh();
@@ -179,6 +199,45 @@ export function AutopilotCard() {
       </div>
 
       {loadError && <p className="mt-4 text-[13px] text-status-danger">{loadError}</p>}
+
+      {/* R20 (D6 dynamic auto-mode): prepare-ahead-overnight. A DISTINCT switch from the publish
+          autopilot below - it only PREPARES tomorrow's top picks (drafts + SERP checks) overnight
+          so the morning queue is already ready to review. It NEVER publishes; publishing always
+          waits for your click (or the publish autopilot below). Safe to turn on even without
+          one-click publishing armed. */}
+      {view != null && canPublish && (
+        <div
+          className="mt-4 rounded-md border border-border/50 bg-surface-inset/40 px-3 py-2.5"
+          data-prepare-ahead-card="true"
+          data-prepare-ahead-enabled={view.prepareAheadOvernight ? "on" : "off"}
+        >
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="text-[13px] font-semibold text-foreground">
+                Prepare tomorrow&apos;s top picks overnight
+              </p>
+              <p className="mt-1 text-[12px] leading-relaxed text-muted-foreground">
+                {view.prepareAheadOvernight
+                  ? "On. Overnight I draft and fact-check your top picks so your morning queue is already prepared. I never publish anything, you still ship every change yourself."
+                  : "Off. Turn this on and overnight I will draft and fact-check your top picks, so your morning queue arrives ready to review. This never publishes, it only prepares."}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => onTogglePrepareAhead(!view.prepareAheadOvernight)}
+              disabled={pending}
+              className="shrink-0 rounded-md border border-border/60 px-3 py-1.5 text-[12px] font-semibold text-foreground hover:bg-surface-inset/60 disabled:opacity-50"
+              data-prepare-ahead-action={view.prepareAheadOvernight ? "disable" : "enable"}
+            >
+              {pending
+                ? "Saving…"
+                : view.prepareAheadOvernight
+                  ? "Turn off"
+                  : "Turn on"}
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Item 80: "I paused myself" - self-hides unless the breaker is tripped. */}
       {breakerView != null && (

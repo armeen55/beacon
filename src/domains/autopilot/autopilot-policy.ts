@@ -46,6 +46,16 @@ export type AutopilotConfig = {
    * EITHER path says yes.
    */
   perLeverPolicies?: PerLeverPolicy[] | null;
+  /**
+   * R20 (D6 dynamic auto-mode, additive): "prepare tomorrow's top picks overnight".
+   * DEFAULT OFF. This is PREPARE-ahead, NOT publish-ahead: when on, the nightly warm
+   * pass drafts + SERP-checks the top Moves so the morning queue is already prepared.
+   * It NEVER publishes anything - publishing still waits for the operator (or the
+   * separate, unchanged publish-autopilot `enabled` switch above). Old persisted
+   * configs parse fine (absent = off), and with this off the nightly path is
+   * byte-identical to before.
+   */
+  prepareAheadOvernight?: boolean;
 };
 
 /** "review" (default) holds every pick of this lever for the operator's click.
@@ -67,6 +77,7 @@ export const DEFAULT_AUTOPILOT_CONFIG: AutopilotConfig = {
   minNonRegressionRate: 0.8,
   leverAllowlist: null,
   perLeverPolicies: null,
+  prepareAheadOvernight: false,
 };
 
 /** Hard bounds so a bad write can never arm an unbounded budget. */
@@ -127,6 +138,9 @@ export function normalizeAutopilotConfig(
     minNonRegressionRate,
     leverAllowlist: allow && allow.length > 0 ? allow : null,
     perLeverPolicies: perLeverPolicies.length > 0 ? perLeverPolicies : null,
+    // R20 (additive): default OFF so old configs + a fresh tenant stay publish-safe and
+    // byte-identical on the nightly path until the operator explicitly turns prepare-ahead on.
+    prepareAheadOvernight: raw?.prepareAheadOvernight === true,
   };
 }
 

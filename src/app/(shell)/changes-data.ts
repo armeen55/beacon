@@ -31,7 +31,7 @@ import { loadProofLedgerCached } from "@/domains/proof-gsc/load-ledger";
 // FP3 (2026-07-02) - THE ONE-COUNT RULE: measuring/decided are computed by the shared
 // lifecycle classifier (the same split Results renders as its bands), never by this
 // file's own verdict-field filter. See domains/changes/lifecycle-counts.ts.
-import { countLedgerLifecycle } from "@/domains/changes/lifecycle-counts";
+import { countLedgerLifecycle, tonightCounts } from "@/domains/changes/lifecycle-counts";
 // FP5b (2026-07-02) - the New Pages board is the ONE home for not-yet-built topics; a
 // page-less create row whose topic already has a board card is a duplicate, not a
 // second opportunity. Same normalizer the board's own dedupe pass uses.
@@ -85,6 +85,14 @@ export type ChangesView = {
    *  computed and from what source, plus when tonight's picks were assembled when a plan
    *  exists. Built server-side so the rendered string is hydration-stable. */
   receiptLine: string | null;
+  /** R20 (D6 dynamic auto-mode) - the live session-strip counter's server-truth numbers, all
+   *  from the SAME FP3 lifecycle rule so the strip never disagrees with the Tonight chip or
+   *  Results. `readyCount` = tonight's picks not yet applied (prepared, waiting on the
+   *  operator's edit); `shippedThisWeekCount` = changes shipped in the trailing 7 days. The
+   *  measuring number the strip shows is `measuringCountCanonical` above (reused, not
+   *  re-derived). */
+  readyCount: number;
+  shippedThisWeekCount: number;
 };
 
 /** FP2 (2026-07-02, killer finding 1) - normalized identity for the dedupe pass below: the
@@ -271,6 +279,19 @@ export const loadChangesView = cache(async (): Promise<ChangesView> => {
   const measuringCountCanonical = ledgerCounts.measuring;
   const decidedCountCanonical = ledgerCounts.decided;
   const plan = accepted ?? preview;
+
+  // R20 (D6 dynamic auto-mode) - the session strip's live counter numbers, from the SAME FP3
+  // lifecycle rule the Tonight chip uses. `readyCount` = tonight's picks not yet applied
+  // (prepared, still waiting on the operator's edit); `shippedThisWeekCount` = changes shipped
+  // in the trailing 7 days from the SAME proof ledger the counts above read. Both derived here,
+  // no second store.
+  const tonight = tonightCounts(accepted, preview);
+  const readyCount = Math.max(0, tonight.picked - tonight.applied);
+  const weekCutoffMs = Date.now() - 7 * 24 * 60 * 60 * 1000;
+  const shippedThisWeekCount = ledgerRows.filter((r) => {
+    const t = Date.parse(r.shippedAt);
+    return Number.isFinite(t) && t >= weekCutoffMs;
+  }).length;
   const moves = (wl.moves ?? []) as TodayMove[];
 
   // FP2 (killer finding 5) - "Fix the experience rows silently vanish". moves/moves-data.ts caps
@@ -445,5 +466,7 @@ export const loadChangesView = cache(async (): Promise<ChangesView> => {
     suppressedRowsNote,
     expiredSubline: expirySummary.expiredSubline,
     receiptLine,
+    readyCount,
+    shippedThisWeekCount,
   };
 });

@@ -17,7 +17,15 @@ const SRC = readFileSync(resolve(__dirname, "changes-list-client.tsx"), "utf8");
 
 describe("ChangesListClient - D6 session loop reuses existing affordances", () => {
   it("mounts useWorklistSession over the same ranked+filtered `visible` list every row renders", () => {
-    expect(SRC).toMatch(/useWorklistSession\(visible\)/);
+    // R20 added a second arg (the FP3 lifecycle counts) - still the SAME `visible` list, never
+    // a re-ranked or re-filtered copy.
+    expect(SRC).toMatch(/useWorklistSession\(\s*visible\s*,/);
+  });
+
+  it("R20 - feeds the session strip server-truth FP3 counts (ready / measuring / shipped this week), not re-derived numbers", () => {
+    expect(SRC).toContain("ready: view.readyCount");
+    expect(SRC).toContain("measuring: view.measuringCountCanonical");
+    expect(SRC).toContain("shippedThisWeek: view.shippedThisWeekCount");
   });
 
   it("MoveCard's onAction (ship/stage/snooze) feeds the session loop, not a duplicate action", () => {

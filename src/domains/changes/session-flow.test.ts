@@ -1,5 +1,12 @@
 import { describe, it, expect } from "vitest";
-import { findNextActionable, isActionableRow, nextBestLine, noDeadEnd } from "./session-flow";
+import {
+  findNextActionable,
+  isActionableRow,
+  nextBestLine,
+  noDeadEnd,
+  sessionProgressLine,
+  weeklyOutcomeLine,
+} from "./session-flow";
 import type { CanonicalChange, CanonicalStatus } from "./canonical-change";
 
 function cc(id: string, status: CanonicalStatus, over: Partial<CanonicalChange> = {}): CanonicalChange {
@@ -94,6 +101,50 @@ describe("nextBestLine", () => {
   it("never contains an em or en dash", () => {
     const line = nextBestLine(cc("a", "suggested", { recommendation: "Add an FAQ", pageLabel: "Some Page" }));
     expect(line).not.toMatch(/[–—]/);
+  });
+});
+
+describe("sessionProgressLine (R20 - live counter arithmetic from lifecycle counts)", () => {
+  it("names shipped-today, ready, and the next best page in one line", () => {
+    const line = sessionProgressLine({ shippedToday: 3, ready: 2, nextBestPage: "/iran-flags" });
+    expect(line).toBe("3 shipped today, 2 ready, next best is /iran-flags.");
+  });
+  it("drops the ready clause when nothing is prepared and waiting", () => {
+    const line = sessionProgressLine({ shippedToday: 1, ready: 0, nextBestPage: "/x" });
+    expect(line).toBe("1 shipped today, next best is /x.");
+  });
+  it("drops the shipped clause before the first ship, showing only what is ready + next", () => {
+    const line = sessionProgressLine({ shippedToday: 0, ready: 4, nextBestPage: "/y" });
+    expect(line).toBe("4 ready, next best is /y.");
+  });
+  it("omits the next-best clause at the honest end of the queue", () => {
+    const line = sessionProgressLine({ shippedToday: 2, ready: 0, nextBestPage: null });
+    expect(line).toBe("2 shipped today.");
+  });
+  it("returns null when nothing has shipped and nothing is ready (strip self-hides)", () => {
+    expect(sessionProgressLine({ shippedToday: 0, ready: 0, nextBestPage: null })).toBeNull();
+    // Even with a next best page, a session that has done nothing yet says nothing.
+    expect(sessionProgressLine({ shippedToday: 0, ready: 0, nextBestPage: "/z" })).toBeNull();
+  });
+  it("reuses only existing lifecycle words and never emits an em/en dash", () => {
+    const line = sessionProgressLine({ shippedToday: 5, ready: 3, nextBestPage: "/persian-names" });
+    expect(line).not.toMatch(/[–—]/);
+    expect(line).not.toMatch(/\b(experiment|control|baseline|treatment|reservation|SERP)\b/i);
+  });
+});
+
+describe("weeklyOutcomeLine (R20 - cumulative week line from FP3 weekly counts)", () => {
+  it("names shipped-this-week and measuring together", () => {
+    expect(weeklyOutcomeLine({ shippedThisWeek: 5, measuring: 3 })).toBe("5 shipped this week, 3 measuring.");
+  });
+  it("drops the measuring clause when nothing is measuring", () => {
+    expect(weeklyOutcomeLine({ shippedThisWeek: 2, measuring: 0 })).toBe("2 shipped this week.");
+  });
+  it("returns null on a cold week (nothing shipped)", () => {
+    expect(weeklyOutcomeLine({ shippedThisWeek: 0, measuring: 4 })).toBeNull();
+  });
+  it("never emits an em/en dash", () => {
+    expect(weeklyOutcomeLine({ shippedThisWeek: 9, measuring: 2 })).not.toMatch(/[–—]/);
   });
 });
 
