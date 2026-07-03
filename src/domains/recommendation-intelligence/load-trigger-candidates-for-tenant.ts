@@ -205,6 +205,13 @@ import { deadUrlRecovery } from "./triggers/dead-url-recovery";
 import { brokenLinks } from "./triggers/broken-links";
 import { redirectHygiene } from "./triggers/redirect-hygiene";
 import { uncitedContent } from "./triggers/uncited-content";
+// P24 (2026-07-03) - image-SEO lane: alt-text gap on real-demand pages. Reads
+// the `images` field the scanner now captures on each snapshot ($0, no new
+// crawl), joins the GSC demand already loaded, and deterministically drafts a
+// description for each picture missing alt text. Pure over pre-assembled inputs,
+// deduped against any prior card by cooldown_key. Empty inputs -> byte-identical.
+import { classifyAltTextGap } from "@/domains/image-seo/classify";
+import { addImageAltText } from "./triggers/add-image-alt-text";
 import { robotsBlocksAiBots } from "./triggers/robots-blocks-ai-bots";
 import { robotsBlocksGooglebot } from "./triggers/robots-blocks-googlebot";
 import { sitemapMissing } from "./triggers/sitemap-missing";
@@ -239,7 +246,7 @@ export type TriggerCandidatesLoadResult = {
   };
 };
 
-const PREDICATE_COUNT = 29;
+const PREDICATE_COUNT = 30;
 
 function emptyResult(
   status: TriggerCandidatesLoadStatus,
@@ -1392,6 +1399,43 @@ export async function loadTriggerCandidatesForTenant(options: {
   } catch (err) {
     console.error(
       `[trigger-loader] technical-seo pack failed for ${tenantId} (dead_url_recovery / broken_internal_links / redirect_hygiene skip): ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+
+  // ── P24 (2026-07-03): image-SEO lane (alt-text gap) ───────────────────────
+  // Runs after the technical-SEO pack so its cross-source cooldown dedupe sees
+  // every card already claimed this run. Reads the `images` field the scanner
+  // now captures on each snapshot ($0, no new crawl), joins the GSC demand
+  // already loaded, and per page composes the alt-audit coverage math with the
+  // deterministic alt-text drafter. Only EXISTING pictures are touched (never
+  // proposes a NEW image, so N5's gate is not involved). Fail-soft as one
+  // isolated block. Empty inputs (old snapshots with no images, all-alt-present
+  // pages, no-demand pages) -> byte-identical to before this lane existed.
+  try {
+    const nowIso = new Date().toISOString();
+    const claimedAlt = new Set(all.map((r) => r.cooldown_key));
+    const altFindings = snapshots
+      .map((s) => {
+        const sig = gscSignals.get(canonicalizeCitationUrl(s.url) ?? s.url);
+        return classifyAltTextGap({
+          url: s.url,
+          images: s.images,
+          h1: s.h1,
+          pageTitle: s.title,
+          topQuery: sig?.topQueries?.[0]?.query ?? null,
+          impressions90d: sig?.impressions90d ?? 0,
+        });
+      })
+      .filter((f): f is NonNullable<typeof f> => f != null);
+    const altRows = addImageAltText({
+      tenantId,
+      findings: altFindings,
+      signalAt: nowIso,
+    }).filter((r) => !claimedAlt.has(r.cooldown_key));
+    all.push(...altRows);
+  } catch (err) {
+    console.error(
+      `[trigger-loader] image-seo alt-text lane failed for ${tenantId} (add_image_alt_text skips): ${err instanceof Error ? err.message : String(err)}`,
     );
   }
 

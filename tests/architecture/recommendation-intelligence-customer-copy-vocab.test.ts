@@ -264,6 +264,13 @@ const PROBE_SETS: Record<string, ReadonlyArray<Probe>> = {
   ],
   // R19 / N22 (2026-07-03) - JS-shell content warning. Arg: (pagePath).
   jsShellContentCopy: [["/persian-cities"], ["/x"]],
+  // P24 (2026-07-03) - image-SEO lane: add alt text. Args: (pagePath,
+  // missingCount, firstDraft). Probe the singular case + a multi-picture case
+  // with a realistic drafted description.
+  addImageAltTextCopy: [
+    ["/persian-food", 3, "Plate of Persian koobideh kabob with saffron rice"],
+    ["/x", 1, "Nowruz haft-sin table"],
+  ],
   // R19 / N21 (2026-07-03) - noindex on a page with demand. Args: (pagePath,
   // impressions).
   noindexOnDemandPageCopy: [

@@ -105,6 +105,24 @@ export type FaqItem = {
 /** How confident the extractor is about a structural field */
 export type ExtractionCertainty = "confirmed" | "uncertain";
 
+/**
+ * One <img> captured during the page scan (P24 image-SEO lane, 2026-07-03).
+ * `alt` is `null` when the tag has no alt attribute at all, `""` when it has an
+ * empty one (a decorative-image signal), and the trimmed string otherwise. The
+ * distinction matters: a missing alt is a gap the alt-text lever fixes; an
+ * intentionally-empty alt is a decorative image we leave alone. `width`/`height`
+ * are the tag's declared numeric attributes (not the rendered size), null when
+ * absent or non-numeric.
+ */
+export type PageImage = {
+  /** The raw src attribute, resolved to an absolute URL where possible. */
+  src: string;
+  /** null = no alt attribute; "" = empty alt (decorative); else the alt text. */
+  alt: string | null;
+  width: number | null;
+  height: number | null;
+};
+
 export type PageSnapshot = {
   id: string;
   page_id: string;
@@ -148,6 +166,18 @@ export type PageSnapshot = {
   table_count?: number;
   /** All internal links on this page — href + anchor text. Populated after scan. */
   internal_links?: { href: string; anchor_text: string }[];
+
+  /**
+   * P24 image-SEO lane (2026-07-03): every <img> found on the page, with its
+   * src + alt state + declared dimensions. Optional so every snapshot captured
+   * before this field existed stays byte-identical (undefined, not `[]`). The
+   * alt-text audit + lever read this; a page with no captured images (undefined
+   * or empty) contributes nothing. Cap 200 entries to bound a gallery page. On
+   * the egress-lean Supabase projection this column is not selected by default
+   * (same posture as internal_links), so hosted firing needs the projection +
+   * migration follow-up; the file backend round-trips it in full for
+   * dev/tests + the generation path can consume the extractor output inline. */
+  images?: PageImage[];
 
   // ── Plan A + B1 (2026-04-20): broader page-content extraction ──
   // All new fields are optional so pre-existing snapshots stay valid.

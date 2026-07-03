@@ -941,6 +941,39 @@ export function serpFeatureDisappearedCopy(featureLabel: string, query: string):
 }
 
 /**
+ * Add image alt text (BEACON_500 P24 image-SEO lane, v1 248, 2026-07-03). One or
+ * more pictures on a real-demand page have no alt text, the words screen readers
+ * and Google Images read. Names the page path and the count, and shows the
+ * description Beacon drafted for the first one so the fix is one copy-paste away.
+ * Says "picture"/"alt text" plainly, never a lab word. Args: the page path, the
+ * missing count, and the first drafted description. NO em or en dashes (hard
+ * rule) - commas and periods only.
+ */
+export function addImageAltTextCopy(
+  pagePath: string,
+  missingCount: number,
+  firstDraft: string,
+): string {
+  const pictures = missingCount === 1 ? "picture" : "pictures";
+  const has = missingCount === 1 ? "has" : "have";
+  const them = missingCount === 1 ? "it" : "them";
+  return (
+    missingCount.toLocaleString("en-US") +
+    " " +
+    pictures +
+    " on " +
+    pagePath +
+    " " +
+    has +
+    " no alt text, the words screen readers and Google read. Add short descriptions so Google Images and screen readers understand " +
+    them +
+    ". I drafted: “" +
+    firstDraft +
+    "”."
+  );
+}
+
+/**
  * AEO zero-source opening (BEACON 500 P8 v1 ~192, 2026-07-03). A question AI
  * gets asked where AI does not confidently recommend anyone yet, so it is a
  * first-mover opening. Args: the plain topic label, the number of AI answers

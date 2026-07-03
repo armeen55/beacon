@@ -5,7 +5,7 @@
 
 import { load as cheerioLoad } from "cheerio";
 import { createHash } from "node:crypto";
-import type { PageSnapshot, FaqItem } from "./types";
+import type { PageSnapshot, FaqItem, PageImage } from "./types";
 import { validateSchemaToStrings } from "./schema-validator";
 
 function hash(input: string): string {
@@ -335,6 +335,53 @@ export function extractPageSnapshot(
     if (rows >= 2) tableCount++; // At least header + 1 data row
   });
 
+  // ── Image inventory (P24 image-SEO lane, 2026-07-03) ──
+  // Capture every <img> with its src, alt STATE, and declared dimensions so the
+  // alt-text audit + lever can run off already-scanned data (no second crawl).
+  //   • alt = null   -> the tag has NO alt attribute (a real gap to fix)
+  //   • alt = ""     -> the tag has an EMPTY alt (a decorative-image signal we
+  //                     deliberately leave alone; never flagged as missing)
+  //   • alt = "text" -> the trimmed alt text present
+  // Images without a usable src (empty, or a data:/blob: placeholder) are
+  // skipped: there is no picture to describe. Resolve relative/protocol-relative
+  // srcs against the page URL so /img/x.jpg and //cdn/x.jpg become absolute.
+  // Cap at 200 to bound a runaway gallery page. Additive + empty-safe: a page
+  // with zero <img> yields an empty array, stored as `undefined` (byte-identical
+  // to snapshots captured before this field existed).
+  const MAX_IMAGES = 200;
+  const images: PageImage[] = [];
+  $("img").each((_, el) => {
+    if (images.length >= MAX_IMAGES) return;
+    const rawSrc = ($(el).attr("src") ?? "").trim();
+    // Skip images with no real source, or inline data/blob placeholders (there
+    // is no fetchable/describable picture behind those).
+    if (!rawSrc) return;
+    if (/^(data:|blob:)/i.test(rawSrc)) return;
+    let resolvedSrc = rawSrc;
+    try {
+      resolvedSrc = new URL(rawSrc, url).href;
+    } catch {
+      // keep the raw src if it will not resolve (still a real reference)
+      resolvedSrc = rawSrc;
+    }
+    // Distinguish "no alt attribute" (null) from "empty alt" (""). cheerio
+    // returns undefined when the attribute is absent and "" when it is present
+    // but empty.
+    const rawAlt = $(el).attr("alt");
+    const alt = rawAlt === undefined ? null : rawAlt.trim();
+    const parseDim = (v: string | undefined): number | null => {
+      if (v === undefined) return null;
+      const n = Number.parseInt(v.trim(), 10);
+      return Number.isFinite(n) && n > 0 ? n : null;
+    };
+    images.push({
+      src: resolvedSrc,
+      alt,
+      width: parseDim($(el).attr("width")),
+      height: parseDim($(el).attr("height")),
+    });
+  });
+
   // ── Word count (page CONTENT only) ──
   // Exclude nav/header/footer/aside CHROME as well as non-text nodes, so shared
   // menus/footers don't inflate the count and mask genuinely thin pages. Use a
@@ -411,6 +458,9 @@ export function extractPageSnapshot(
     internal_link_count: internalLinkCount,
     external_link_count: externalLinks,
     internal_links: internalLinksArr.length > 0 ? internalLinksArr : undefined,
+    // P24 (2026-07-03): image inventory. Empty -> undefined (byte-identical to
+    // pre-field snapshots).
+    images: images.length > 0 ? images : undefined,
     word_count: wordCount,
     robots_meta: robotsMeta,
     has_canonical_mismatch: hasCanonicalMismatch,

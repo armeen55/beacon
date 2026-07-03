@@ -16,6 +16,7 @@ import "server-only";
  * own enums. Operator substrate (no customer surface writes here).
  */
 
+import { cache } from "react";
 import { getSupabaseAdmin } from "@/lib/persistence/supabase";
 import { currentTenantId } from "@/lib/tenant-context";
 import { readStore, writeStore } from "@/lib/persistence/json-store";
@@ -422,7 +423,36 @@ async function writeFile(records: ShippedChangeRecord[]): Promise<void> {
 }
 
 /** All shipped-change records for the ambient tenant, newest ship first. Fail-soft → []. */
-export async function loadShippedChanges(): Promise<ShippedChangeRecord[]> {
+/**
+ * R23 P17 (2026-07-03, read-path perf): request-cached ledger read.
+ *
+ * `loadShippedChanges` is the hottest read on the /changes and cockpit paths: a
+ * single /changes render reads it FIVE times in one request (four learners inside
+ * the demand-graph build, win-rate prior + effect-size prior + page-outcome
+ * caution + dismissal do-not-repeat, plus the ActionPack's daily-experiment
+ * gate), and the cockpit reads it again from the scoreboard, the stand-up, and
+ * the moves loader. Each call is a real `SELECT * FROM shipped_change_proof`
+ * round-trip on hosted Supabase (no `readStore` in-process cache; that only
+ * backs the file fallback).
+ *
+ * Wrapping the read in `react.cache` collapses ALL same-request reads to ONE
+ * query (identical to the ga4-page-values / clarity-page-signals / fanout-seeds
+ * caches already in this codebase). BEHAVIOR-PRESERVING: `react.cache` is scoped
+ * to a single React request/render, so every caller in one render sees the exact
+ * same rows it would have read alone (identical output, byte for byte); it just
+ * skips the redundant network reads. Outside a request scope (crons, scripts,
+ * tests) `cache()` degrades to a plain passthrough, so the nightly measurement
+ * loops keep reading live.
+ *
+ * SAFE against mutations: audited every writer, and no code path does
+ * read, then upsert, then read-fresh WITHIN one request expecting the new value;
+ * every server action reads once, upserts, then `revalidatePath()` (which starts
+ * a fresh request with a fresh cache). The measurement/revert loops that upsert
+ * many rows run in cron scope where the cache is a no-op.
+ */
+export const loadShippedChanges = cache(loadShippedChangesUncached);
+
+async function loadShippedChangesUncached(): Promise<ShippedChangeRecord[]> {
   let admin;
   try {
     admin = getSupabaseAdmin();

@@ -530,6 +530,14 @@ export const ACTION_TYPE_REGISTRY: Record<ActionType, ActionTypeSpec> = {
     requiresProposedText: true,
     changelogAssetType: "service_page",
     operatorLabel: "Add image alt text",
+    // ACTIVATED as a DIRECTIVE card (BEACON_500 P24 image-SEO lane, 2026-07-03):
+    // the `add_image_alt_text` predicate + the PageSnapshot image extractor now
+    // exist, so the lever fires. It stays generatorActive:false ON PURPOSE - the
+    // predicate DETERMINISTICALLY drafts the alt text and carries it inline in
+    // the card copy, so the LLM/deterministic generator path is never involved
+    // (same directive-card convention as broken_competitor / content_lifecycle /
+    // js_shell). Keeping it out of defaultAllowedActionTypes() prevents the LLM
+    // provider from being told to draft an edit type it has no generator for.
     generatorActive: false,
   },
 

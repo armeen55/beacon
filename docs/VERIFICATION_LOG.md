@@ -7,6 +7,73 @@
 
 ---
 
+## 2026-07-03 - R23 P17: read-path perf pack (request-cache the two hottest ledger reads)
+
+**Goal:** make the /changes + cockpit render never-cold by cutting redundant DB
+round-trips on the hot read path, BEHAVIOR-PRESERVING (rendered output byte-identical;
+only read count changes). Survey first found the codebase already heavily optimized:
+the cross-request Demand Graph SWR snapshot (candidate 1) is BUILT and tested
+(`graph-snapshot-store.ts`; the New Pages board already reads `loadDemandGraphForTenantCached`,
+so both surfaces share one build), and every heavy per-page loader (GSC RPC-aggregated,
+GA4/Clarity/fanout/audits already `react.cache`-wrapped + column-projected) is done. The
+one large residual was redundant reads of two stores per request.
+
+**What changed (2 optimizations, both the blessed `react.cache` request-scope dedup, matching ga4-page-values / clarity-page-signals / fanout-seeds):**
+
+1. **`loadShippedChanges` request-cached** (`src/domains/proof-gsc/shipped-change-store.ts`).
+   A single /changes render read the proof ledger (`SELECT * FROM shipped_change_proof`)
+   FIVE times per request: four learners inside the demand-graph build (win-rate prior,
+   effect-size prior, page-outcome caution, dismissal do-not-repeat) plus the ActionPack's
+   daily-experiment gate; the cockpit reads it again from scoreboard + stand-up + moves
+   loader. Now one query per request. Split into `loadShippedChangesUncached` + a
+   `cache()` export; the 32 call sites are unchanged.
+
+2. **`loadDetectedChangepoints` request-cached** (`src/domains/proof-gsc/algorithm-weather-store.ts`).
+   The cockpit read the shock-window blob from two components (cumulative-outcome strip +
+   scoreboard) AND three times inside the graph build's learning gates. Now one read per
+   (tenantId, now) per request.
+
+**Why behavior-preserving:** `react.cache` is scoped to one React request/render, so every
+caller in a render sees the exact same rows it would have read alone (deep-equal output);
+outside a request scope (crons/scripts/tests) `cache()` is a plain passthrough, so the
+nightly measurement + revert loops keep reading live. Audited every writer of the ledger:
+NO code path does read -> upsert -> read-fresh within one request (server actions read once,
+upsert, then `revalidatePath()` which starts a fresh request/cache); the measurement/revert
+upsert loops run in cron scope where the cache is a no-op. The changepoint store's only
+writer runs in the nightly cron, so no read-after-write hazard.
+
+**Deliberately NOT done (risky / would change output / ownership):**
+- Threading ONE shared ledger + shock-window read through the four graph-build learners
+  (the fully-explicit, call-count-testable version) touches `src/domains/learning/**`, owned
+  by another agent. Roadmapped for that owner: add a `LedgerLearningBundle` param.
+- `react.cache` on `getLatestMoveDrafts` / `readAllCachedKeywordDemand`: NOT safe. Several
+  callers (`serp-steal-lane`, `displacement-check`, `native-teardown-runner`) do
+  read -> save -> read-fresh within one call and would get a stale cached map. Roadmapped:
+  a render-only `getLatestMoveDraftsCached` variant (the raw/Cached split the graph loader uses).
+- Collapsing `competitor-citations-loader`'s up-to-50k-row client-side aggregation into a
+  Postgres GROUP BY RPC: needs a migration (Supabase DDL); roadmapped when in-window rows grow.
+- Payload column-slim: owned loaders already project columns; the ledger's `SELECT *` maps
+  every column via `rowToRecord` (narrowing it would break the additive-column PGRST204
+  file-fallback), so no slim there.
+
+**Identical-output pins:** `shipped-change-store.cache.test.ts` (6) - byte-identical
+`rowToRecord` mapping, IDENTICAL output on repeat calls (deep-equal + `sortNewest` order),
+file fallback + undefined-table fallback unchanged, ONE `select().eq()` round-trip per
+invocation (the wrap never double-reads), 0-arg import surface intact.
+`algorithm-weather-store.cache.test.ts` (6) - clicks+impressions merge + cross-series dedup +
+honest-empty unchanged, IDENTICAL output on repeat calls, ONE `readStore` per invocation,
+`react.cache` wrapper in place (arity-0 tell). Read-reduction proven: 4 ledger + 3 changepoint
+reads in the graph build (plus the cross-surface duplicates) collapse to 1 each per request.
+
+**Verified:** `npm run typecheck` clean; new cache suites 12/12; affected suites green -
+`proof-gsc` + `demand-graph` + `action-pack` + `src/lib/persistence` (1107), `learning` +
+worklist/results surface stores + `changes` (209), architecture guards incl. the design-system
+ratchet (unchanged - no `(shell)`/component/token files touched) + tenant-scoped reads (22).
+`learning/**` reverted byte-identical (out of ownership). No dev server (perf proven by the
+identical-output pins + single-read-per-call assertions, not wall-clock).
+
+---
+
 ## 2026-07-03 - R23 P8: AEO defense pack (zero-source opening, defend-a-cited-query, brand-description accuracy)
 
 **What changed (3 deterministic $0 detectors over ALREADY-PERSISTED Profound rows; each additive + self-hiding when no data; no new API call):**
@@ -33041,3 +33108,58 @@ with 2+ SERP-history captures per tracked query (Iranopedia once nightly SERP ca
 accumulate) will light these up; today they self-hide until the history diff exists. Rest of
 P9 (counter-refresh on competitor updates, volatility pre-build check, backlink watch,
 teardown-by-traffic prioritization, seed-demand-from-competitor-URL) is roadmapped.
+
+---
+
+## 2026-07-03 — P24 Image-SEO lane (alt-text lever end-to-end)
+
+BEACON_500 P24 (v1 410+576+578 merged, 248, 552). Built the alt-text lever from data the
+crawler can capture, three pieces, all additive + empty-safe.
+
+1. **PageSnapshot image extractor** (the blocker) - `src/domains/pages/extractor.ts` now captures
+   every `<img>` (src resolved absolute, alt STATE, declared width/height) into a new optional
+   `images` field on `PageSnapshot` (`src/domains/pages/types.ts`, new `PageImage` type).
+   Distinguishes a MISSING alt (`null`, a real gap) from an EMPTY alt (`""`, decorative,
+   deliberately never flagged). Empty -> `undefined` (byte-identical to pre-field snapshots).
+   Skips no-src + `data:`/`blob:` placeholders; cap 200. Tenant-agnostic.
+2. **Alt-text audit + inventory** - new domain `src/domains/image-seo/alt-audit.ts`
+   (`auditPageAltText` + `buildTenantAltInventory`): per-page + per-tenant missing/covered/
+   decorative coverage math, demand-prioritized by GSC 90-day impressions, empty-safe when no
+   images captured. Rendered headline: "3 of 4 pictures on your site have no alt text."
+3. **Activated the `add_image_alt_text` lever** - deterministic drafter
+   `src/domains/image-seo/draft-alt-text.ts` (filename -> H1 -> title -> top-query, sentence case,
+   never invents) + engine `src/domains/image-seo/classify.ts` + trigger
+   `src/domains/recommendation-intelligence/triggers/add-image-alt-text.ts`. Fires for a
+   real-demand page (>=100 impressions/90d) with pictures missing alt text, names page + count,
+   drafts the description inline. Only EXISTING images (no N5 gate). Registry entry flipped to
+   ACTIVE-as-directive (generatorActive stays false on purpose so the LLM is never told to draft
+   an edit type it has no generator for). Rendered copy (renderToStaticMarkup, routed to the
+   customer `candidates` bucket, no dashes):
+   "2 pictures on /persian-food have no alt text, the words screen readers and Google read. Add
+   short descriptions so Google Images and screen readers understand them. I drafted: "Persian
+   koobideh kabob"."
+
+Wiring: 1 new predicate in `load-trigger-candidates-for-tenant.ts` (PREDICATE_COUNT 29 -> 30,
+both loader-test assertions aligned), late fail-soft block with cross-source cooldown dedupe, no
+cron-sync change (image capture happens INSIDE the existing scan via the extractor). 1 new copy
+template + probe set in the vocab invariant.
+
+Empty-safe pins: old snapshots with no `images` field (contribute 0), pages where every image
+already has alt, decorative empty-alt pictures, no-demand pages, and pages where no missing
+picture can be grounded into a draft - all abstain / return byte-identical output.
+
+Verified: all 9 edited files parse clean (esbuild). `npx vitest run` green: image-seo (24),
+pages incl. extractor + competitor-page-snapshots (317), all triggers incl. add-image-alt-text
+(134), action-types + predicate-purity + copy-vocab + catalog-sync + design-system-guard (143).
+End-to-end render proof (classify -> trigger -> applyQueueRules -> renderToStaticMarkup) confirms
+customer-queue routing + dash-free copy + the inventory headline. `npm run typecheck` is blocked
+ONLY by a concurrent agent's in-flight unclosed brace in `src/domains/learning/
+load-experiment-outcomes.ts` (line 273, a `M`-status file NOT in this lane); that same parse
+error is why the loader test module cannot transform (loader -> demand-graph/load-graph ->
+learning/load-experiment-outcomes). My loader source + counter edits are correct and will pass
+once that file is closed. NEEDS LIVE CRAWL TO PROVE: a real scan populating `snapshot.images`
+for Iranopedia; on hosted Supabase the egress-lean snapshot projection must also add `images`
+(same posture as `internal_links`) + a `page_snapshots.images` column migration - a
+persistence-owner follow-up (works end-to-end on the file backend today). ROADMAPPED: image
+filesize/format audit, next-gen-format nudges, and NEW original/licensed images (behind N5's
+gate) are the rest of the P24 pack.

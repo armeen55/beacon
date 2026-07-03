@@ -16,6 +16,7 @@
 
 import "server-only";
 
+import { cache } from "react";
 import { readStore, writeStore } from "@/lib/persistence/json-store";
 import type { Changepoint } from "./changepoint";
 
@@ -67,8 +68,20 @@ export async function readAlgorithmWeatherSummary(
 }
 
 /** $0 read for surfaces: this tenant's detected changepoints (clicks +
- *  impressions merged), or [] when no fresh pass exists. */
-export async function loadDetectedChangepoints(tenantId: string, now: Date = new Date()): Promise<Changepoint[]> {
+ *  impressions merged), or [] when no fresh pass exists.
+ *
+ *  R23 P17 (2026-07-03, read-path perf): request-cached. A single cockpit render
+ *  reads this from two components (the cumulative-outcome strip + the scoreboard
+ *  section) AND three times inside the demand-graph build's learning gates. Every
+ *  call is a `readStore("algorithm-weather-shocks")` (a Supabase-mirrored blob
+ *  read on hosted prod). `react.cache` collapses same-request reads with the SAME
+ *  args to ONE, byte-identical output; outside a request scope (crons/tests) it is
+ *  a plain passthrough. READ-ONLY store: the only writer
+ *  (`writeAlgorithmWeatherSummary`) runs in the nightly cron (no request scope),
+ *  so there is no read-after-write-within-a-request hazard. */
+export const loadDetectedChangepoints = cache(loadDetectedChangepointsUncached);
+
+async function loadDetectedChangepointsUncached(tenantId: string, now: Date = new Date()): Promise<Changepoint[]> {
   const row = await readAlgorithmWeatherSummary(tenantId, now);
   if (!row) return [];
   const seen = new Set<string>();

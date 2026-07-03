@@ -153,3 +153,82 @@ describe("extractPageSnapshot - body_paragraph_sample (N19)", () => {
     expect(sample[2]).toContain("Third sentence");
   });
 });
+
+// ── P24 image-SEO lane (2026-07-03): image inventory extractor ──────────────
+describe("extractPageSnapshot - images (P24 image-SEO lane)", () => {
+  it("captures each <img> with src, alt, width, height", () => {
+    const html = wrapHtml(`
+      <main>
+        <img src="/img/persian-koobideh-kabob.jpg" alt="Plate of kabob" width="800" height="600" />
+      </main>
+    `);
+    const snap = extractPageSnapshot(html, URL, "img-1", TENANT);
+    expect(snap.images).toBeDefined();
+    expect(snap.images).toHaveLength(1);
+    expect(snap.images![0]).toEqual({
+      src: "https://example.com/img/persian-koobideh-kabob.jpg",
+      alt: "Plate of kabob",
+      width: 800,
+      height: 600,
+    });
+  });
+
+  it("distinguishes a MISSING alt (null) from an EMPTY alt (\"\")", () => {
+    const html = wrapHtml(`
+      <main>
+        <img src="/a.jpg" />
+        <img src="/spacer.gif" alt="" />
+        <img src="/c.jpg" alt="A cat" />
+      </main>
+    `);
+    const snap = extractPageSnapshot(html, URL, "img-2", TENANT);
+    const imgs = snap.images ?? [];
+    expect(imgs).toHaveLength(3);
+    expect(imgs[0]!.alt).toBeNull(); // no alt attribute at all
+    expect(imgs[1]!.alt).toBe(""); // decorative empty alt
+    expect(imgs[2]!.alt).toBe("A cat");
+  });
+
+  it("resolves relative and protocol-relative srcs against the page URL", () => {
+    const html = wrapHtml(`
+      <main>
+        <img src="pics/x.jpg" alt="rel" />
+        <img src="//cdn.example.net/y.jpg" alt="proto" />
+        <img src="https://other.com/z.jpg" alt="abs" />
+      </main>
+    `);
+    const snap = extractPageSnapshot(html, URL, "img-3", TENANT);
+    const srcs = (snap.images ?? []).map((i) => i.src);
+    expect(srcs).toContain("https://example.com/pics/x.jpg");
+    expect(srcs).toContain("https://cdn.example.net/y.jpg");
+    expect(srcs).toContain("https://other.com/z.jpg");
+  });
+
+  it("skips images with no src and inline data:/blob: placeholders", () => {
+    const html = wrapHtml(`
+      <main>
+        <img alt="no src" />
+        <img src="" alt="empty src" />
+        <img src="data:image/gif;base64,R0lGOD" alt="inline data" />
+        <img src="/real.jpg" alt="real" />
+      </main>
+    `);
+    const snap = extractPageSnapshot(html, URL, "img-4", TENANT);
+    const imgs = snap.images ?? [];
+    expect(imgs).toHaveLength(1);
+    expect(imgs[0]!.src).toBe("https://example.com/real.jpg");
+  });
+
+  it("returns undefined (not []) when a page has no images (byte-identical to pre-field snapshots)", () => {
+    const html = wrapHtml(`<main><p>Just words, no pictures at all here on this page.</p></main>`);
+    const snap = extractPageSnapshot(html, URL, "img-5", TENANT);
+    expect(snap.images).toBeUndefined();
+  });
+
+  it("treats non-numeric or zero width/height as null", () => {
+    const html = wrapHtml(`<main><img src="/a.jpg" alt="x" width="auto" height="0" /></main>`);
+    const snap = extractPageSnapshot(html, URL, "img-6", TENANT);
+    expect(snap.images![0]!.width).toBeNull();
+    expect(snap.images![0]!.height).toBeNull();
+  });
+});
