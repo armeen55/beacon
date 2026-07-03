@@ -1,12 +1,16 @@
 "use client";
 
 /**
- * ChangesListClient (2026-07-01; Move 3 hardening) - the canonical Changes list. ONE compact,
+ * ChangesListClient (2026-07-02; UX3 dense inbox) - the canonical Changes list. ONE compact,
  * action-first row per change; strategy control + status views + goal filter + search, pure client
- * filtering over the server-built CanonicalChange[]. Advanced detail reuses the existing MoveCard
- * behind progressive disclosure. Move 3: responsive control cluster (no clip/overflow on mobile),
- * keyboard + screen-reader semantics (aria-pressed/expanded, focus rings, role=status), state shown
- * by text + border (not color alone), and cause-specific empty states.
+ * filtering over the server-built CanonicalChange[]. Advanced detail opens in a split side panel
+ * (desktop) so clicking a row never loses the list's scroll position; the existing MoveCard renders
+ * unchanged inside that panel. Tonight's applied batch (every change selected for today that has
+ * moved to verify/measuring/result) collapses to one summary row, expandable to the individual
+ * receipts. Multi-select adds a checkbox per row + a floating bulk bar reusing the same per-row
+ * done/skip actions in a bounded, sequential loop. Move 3: responsive control cluster (no clip/
+ * overflow on mobile), keyboard + screen-reader semantics (aria-pressed/expanded, focus rings,
+ * role=status), state shown by text + border (not color alone), and cause-specific empty states.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
@@ -23,10 +27,12 @@ import { dossierHref } from "@/lib/page-dossier-link";
 import { respondToRecommendation } from "./recommendation-actions";
 import { useWorklistSession, WorklistSessionBanner } from "./worklist-session-strip";
 
+// UX3 - buyer language for the strategy picker (display-only; the underlying Strategy union
+// and its ranking math in strategy.ts are untouched, this only renames what the operator reads).
 const STRATEGIES: { id: Strategy; label: string; hint: string }[] = [
-  { id: "balanced", label: "Balanced", hint: "Best mix of upside, effort, risk, and evidence (recommended)." },
-  { id: "growth", label: "Growth first", hint: "Prioritize impact, even when the proof will be less exact." },
-  { id: "clean", label: "Clean tests", hint: "Only changes Beacon can measure most confidently." },
+  { id: "balanced", label: "Best opportunities", hint: "Best mix of upside, effort, risk, and evidence (recommended)." },
+  { id: "growth", label: "Fastest growth", hint: "Prioritize impact, even when the proof will be less exact." },
+  { id: "clean", label: "Safest bets", hint: "Only changes Beacon can measure most confidently." },
 ];
 const TABS: { id: StatusView; label: string }[] = [
   { id: "todo", label: "To do" }, { id: "ready", label: "Ready" }, { id: "measuring", label: "Measuring" }, { id: "results", label: "Results" },
@@ -109,6 +115,32 @@ function displayPageLabel(c: CanonicalChange, move: ChangesView["movesById"][str
   return { title, secondary: c.pageLabel !== title ? c.pageLabel : null };
 }
 
+/** UX3 - the row's full detail content (paste text, roundtable, evidence, forecasts, buttons),
+ *  factored out so it can render either inline (mobile, when a side panel would fight the
+ *  layout) or inside the split detail panel (desktop) without duplicating a single line of it. */
+function RowDetailContent({
+  c,
+  move,
+  rank,
+  onAction,
+}: {
+  c: CanonicalChange;
+  move: ChangesView["movesById"][string] | undefined;
+  rank: number;
+  onAction?: (kind: "done" | "skip") => void;
+}) {
+  return move ? (
+    <MoveCard m={move} rank={rank} onAction={(kind) => onAction?.(kind === "shipped" ? "done" : "skip")} />
+  ) : (
+    <div className="px-3 py-2 text-sm">
+      {c.before != null && <div className="break-words text-xs"><span className="text-gray-500 dark:text-neutral-400">Current: </span>{c.before || "(none)"}</div>}
+      {c.after != null && <div className="break-words text-xs"><span className="text-gray-500 dark:text-neutral-400">Proposed: </span><strong>{c.after}</strong></div>}
+      {c.exactInstructions && <pre className="mt-2 whitespace-pre-wrap break-words rounded-md bg-gray-50 p-2 text-[11px] font-mono text-gray-700 dark:bg-neutral-800/60 dark:text-neutral-300">{c.exactInstructions}</pre>}
+      <div className="mt-2 text-[11px] text-gray-400 dark:text-neutral-500">{c.measurementMethod}{c.selectedForToday ? " · selected for today - apply it in the “Today’s changes” panel above" : ""}</div>
+    </div>
+  );
+}
+
 function Row({
   c,
   move,
@@ -117,6 +149,10 @@ function Row({
   keyboardActive,
   onAction,
   registerRef,
+  selected,
+  onToggleSelect,
+  detailOpen,
+  onToggleDetail,
 }: {
   c: CanonicalChange;
   move: ChangesView["movesById"][string] | undefined;
@@ -135,8 +171,17 @@ function Row({
   /** D6 - hands the row's DOM node up so keyboard nav (enter) and auto-scroll (next-best) can
    *  target it without a brittle document.querySelector by id. */
   registerRef?: (id: string, el: HTMLDivElement | null) => void;
+  /** UX3 - multi-select checkbox state, owned by the list (so the floating bulk bar can act on
+   *  every checked row at once). Undefined selection handler = no checkbox rendered at all. */
+  selected?: boolean;
+  onToggleSelect?: (id: string) => void;
+  /** UX3 - whether THIS row is the one the split detail panel is showing. On small screens
+   *  (no room for a side panel) the same content renders inline below the row instead. */
+  detailOpen?: boolean;
+  onToggleDetail?: (id: string) => void;
 }) {
-  const [open, setOpen] = useState(false);
+  const open = detailOpen ?? false;
+  const setOpen = onToggleDetail ? () => onToggleDetail(c.id) : () => {};
   const chip = STATUS_CHIP[c.status] ?? STATUS_CHIP.suggested;
   const statusDetail = STATUS_DETAIL[c.status];
   const isMeasure = c.status === "measuring" || c.status === "result";
@@ -164,6 +209,17 @@ function Row({
       className={`rounded-lg border border-gray-100 bg-white transition-shadow dark:border-neutral-800 dark:bg-neutral-900 ${c.status === "blocked" ? "opacity-70" : ""} ${ringCls}`}
     >
       <div className="flex items-center gap-3 px-3 py-2.5">
+        {/* UX3 - multi-select checkbox. Absent (no reflow) on rows the list doesn't offer
+            selection for (Not-now/blocked rows keep their own trailing control instead). */}
+        {onToggleSelect ? (
+          <input
+            type="checkbox"
+            checked={selected ?? false}
+            onChange={() => onToggleSelect(c.id)}
+            aria-label={`Select ${label.title}`}
+            className={`h-3.5 w-3.5 shrink-0 rounded border-gray-300 text-sky-600 ${FOCUS}`}
+          />
+        ) : null}
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
             {(() => {
@@ -225,7 +281,7 @@ function Row({
             <span className="text-[11px] text-gray-400 dark:text-neutral-500" title={c.blockedReason ?? "Not actionable right now"}>Not now</span>
           ) : (
             <>
-              <button type="button" onClick={() => setOpen((o) => !o)} aria-expanded={open} aria-controls={panelId} className={`inline-flex min-h-[34px] items-center rounded-md border border-gray-200 px-2.5 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800 ${FOCUS}`}>{open ? "Hide" : cta}</button>
+              <button type="button" onClick={() => setOpen()} aria-expanded={open} aria-controls={panelId} className={`inline-flex min-h-[34px] items-center rounded-md border border-gray-200 px-2.5 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800 ${FOCUS}`}>{open ? "Hide" : cta}</button>
               {/* D6 - a bare skip button for rows the operator wants to pass on WITHOUT opening
                   the full card (e.g. no draft to review yet). Feeds the same dismissal-learning
                   path ("deferred") the MoveCard's own "Not now" already uses, and, like every
@@ -252,18 +308,13 @@ function Row({
           )}
         </div>
       </div>
+      {/* UX3 - on screens with room for the split detail panel (lg+), the full content renders
+          there instead, so opening a row never reflows or loses the list's scroll position. On
+          narrow screens (no room for a side panel without fighting the layout) it renders right
+          here, same as before. */}
       {open && (
-        <div id={panelId} className="border-t border-gray-100 px-1 py-1 dark:border-neutral-800">
-          {move ? (
-            <MoveCard m={move} rank={rank} onAction={(kind) => onAction?.(kind === "shipped" ? "done" : "skip")} />
-          ) : (
-            <div className="px-3 py-2 text-sm">
-              {c.before != null && <div className="break-words text-xs"><span className="text-gray-500 dark:text-neutral-400">Current: </span>{c.before || "(none)"}</div>}
-              {c.after != null && <div className="break-words text-xs"><span className="text-gray-500 dark:text-neutral-400">Proposed: </span><strong>{c.after}</strong></div>}
-              {c.exactInstructions && <pre className="mt-2 whitespace-pre-wrap break-words rounded-md bg-gray-50 p-2 text-[11px] font-mono text-gray-700 dark:bg-neutral-800/60 dark:text-neutral-300">{c.exactInstructions}</pre>}
-              <div className="mt-2 text-[11px] text-gray-400 dark:text-neutral-500">{c.measurementMethod}{c.selectedForToday ? " · selected for today - apply it in the “Today’s changes” panel above" : ""}</div>
-            </div>
-          )}
+        <div id={panelId} className="border-t border-gray-100 px-1 py-1 lg:hidden dark:border-neutral-800">
+          <RowDetailContent c={c} move={move} rank={rank} onAction={onAction} />
         </div>
       )}
     </div>
@@ -330,6 +381,54 @@ export function ChangesListClient({ view }: { view: ChangesView }) {
     [session],
   );
 
+  // UX3 - the split detail panel: which row's full content is open. On lg+ screens that
+  // content renders in the side panel (list never reflows, scroll position never moves); on
+  // narrow screens the SAME `open` flag drives the existing inline expansion under the row.
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const toggleDetail = useCallback((id: string) => setSelectedId((cur) => (cur === id ? null : id)), []);
+  const selectedChange = selectedId ? (visible.find((c) => c.id === selectedId) ?? null) : null;
+  const selectedMove = selectedChange?.sourceIds[0] ? view.movesById[selectedChange.sourceIds[0]] : undefined;
+
+  // UX3 - multi-select: a checkbox per row + a floating bar for "Mark done" / "Skip" in a
+  // bounded, sequential loop over exactly the checked ids, reusing the same rowAction (and its
+  // underlying respondToRecommendation calls) a single row's buttons already use.
+  const [checkedIds, setCheckedIds] = useState<ReadonlySet<string>>(new Set());
+  const toggleChecked = useCallback((id: string) => {
+    setCheckedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+  const [bulkPending, setBulkPending] = useState(false);
+  const [bulkProgress, setBulkProgress] = useState<string | null>(null);
+  const runBulk = useCallback(
+    async (kind: "done" | "skip") => {
+      const ids = [...checkedIds].filter((id) => visible.some((c) => c.id === id));
+      if (ids.length === 0) return;
+      setBulkPending(true);
+      for (let i = 0; i < ids.length; i++) {
+        const id = ids[i]!;
+        setBulkProgress(`${kind === "done" ? "Marking done" : "Skipping"} ${i + 1} of ${ids.length}...`);
+        const c = visible.find((v) => v.id === id);
+        const move = c?.sourceIds[0] ? view.movesById[c.sourceIds[0]] : undefined;
+        if (move) {
+          if (kind === "done") {
+            await respondToRecommendation(move.id, "accepted", { targetPageUrl: move.targetUrl, actionType: move.action, query: move.query });
+          } else {
+            await respondToRecommendation(move.id, "deferred", { targetPageUrl: move.targetUrl });
+          }
+        }
+        rowAction(id, kind);
+      }
+      setBulkProgress(`${kind === "done" ? "Marked" : "Skipped"} ${ids.length} change${ids.length === 1 ? "" : "s"}.`);
+      setCheckedIds(new Set());
+      setBulkPending(false);
+    },
+    [checkedIds, visible, view.movesById, rowAction],
+  );
+
   // Keyboard: j/k move a lightweight "keyboard focus" between visible rows, enter opens the
   // focused row's detail, d marks it done (only when it has a real MoveCard to reuse - ship()
   // there is the actual mark-edited affordance; a row with no matching move has nothing to
@@ -381,6 +480,22 @@ export function ChangesListClient({ view }: { view: ChangesView }) {
     el?.scrollIntoView({ behavior: "smooth", block: "center" });
   }, [session.nextBest]);
 
+  // UX3 - "tonight's batch" collapse: every change selected for today that has moved past
+  // suggested/ready into verify/measuring/result is one applied receipt. Collapsing them to a
+  // single summary row keeps the list dense once the plan has been worked; the individual
+  // receipts stay one click away, never deleted or hidden for good. Only collapses in the flat
+  // (non-grouped, non-tonight) status views, so "By goal" and "Tonight's 30 minutes" keep
+  // showing every row exactly as they do today.
+  const [batchExpanded, setBatchExpanded] = useState(false);
+  const canCollapseBatch = !grouped && !tonight;
+  const batchRows = useMemo(
+    () => (canCollapseBatch ? visible.filter((c) => c.selectedForToday && (c.status === "verify" || c.status === "measuring" || c.status === "result")) : []),
+    [canCollapseBatch, visible],
+  );
+  const batchVerifiedCount = batchRows.filter((c) => c.status === "measuring" || c.status === "result").length;
+  const rowsWithoutBatch = canCollapseBatch && batchRows.length >= 2 ? visible.filter((c) => !batchRows.some((b) => b.id === c.id)) : visible;
+  const showBatchSummary = canCollapseBatch && batchRows.length >= 2 && !batchExpanded;
+
   const s = view.summary;
   const isFiltered = q.trim().length > 0 || goal !== "recommended";
   // Distinguish WHY a view is empty: clean-strategy eligibility vs filtered vs genuinely-empty
@@ -408,7 +523,8 @@ export function ChangesListClient({ view }: { view: ChangesView }) {
   const em = emptyMessage();
 
   return (
-    <div className="space-y-3">
+    <div className="flex items-start gap-4">
+    <div className="min-w-0 flex-1 space-y-3">
       {/* Strategy */}
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5">
         <span id="strategy-label" className="text-xs font-medium text-gray-500 dark:text-neutral-400">How should Beacon prioritize?</span>
@@ -523,6 +639,10 @@ export function ChangesListClient({ view }: { view: ChangesView }) {
                       keyboardActive={visible[kbIndex]?.id === c.id}
                       onAction={(kind) => rowAction(c.id, kind)}
                       registerRef={registerRowRef}
+                      selected={checkedIds.has(c.id)}
+                      onToggleSelect={toggleChecked}
+                      detailOpen={selectedId === c.id}
+                      onToggleDetail={toggleDetail}
                     />
                   ))}
                 </div>
@@ -546,6 +666,10 @@ export function ChangesListClient({ view }: { view: ChangesView }) {
                       keyboardActive={visible[kbIndex]?.id === c.id}
                       onAction={(kind) => rowAction(c.id, kind)}
                       registerRef={registerRowRef}
+                      selected={checkedIds.has(c.id)}
+                      onToggleSelect={toggleChecked}
+                      detailOpen={selectedId === c.id}
+                      onToggleDetail={toggleDetail}
                     />
                   ))}
                 </div>
@@ -560,7 +684,29 @@ export function ChangesListClient({ view }: { view: ChangesView }) {
               Tonight&apos;s set: {visible.length} change{visible.length === 1 ? "" : "s"}, about {visible.reduce((t, c) => t + (Number.isFinite(c.estimatedEffortMinutes) ? c.estimatedEffortMinutes : 5), 0)} minutes.
             </p>
           ) : null}
-          {visible.map((c, i) => (
+          {/* UX3 - the applied-batch summary row: "Tonight's batch: N applied, all verified"
+              (or "M of N verified" while some are still confirming), expandable to the
+              individual receipts. Only appears once 2+ of tonight's picks have moved past
+              suggested/ready, so a fresh or barely-started plan still shows every row plainly. */}
+          {showBatchSummary ? (
+            <button
+              type="button"
+              onClick={() => setBatchExpanded(true)}
+              aria-expanded={false}
+              className={`flex w-full items-center justify-between gap-3 rounded-lg border border-emerald-200 bg-emerald-50/70 px-3 py-2.5 text-left text-xs font-medium text-emerald-800 hover:bg-emerald-50 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-200 ${FOCUS}`}
+            >
+              <span>
+                Tonight&apos;s batch: {batchRows.length} applied{batchVerifiedCount === batchRows.length ? ", all verified" : `, ${batchVerifiedCount} of ${batchRows.length} verified`}.
+              </span>
+              <span className="shrink-0 text-[11px] font-semibold underline underline-offset-2">Show receipts</span>
+            </button>
+          ) : canCollapseBatch && batchRows.length >= 2 ? (
+            <div className="flex items-center justify-between gap-3 rounded-lg border border-emerald-100 bg-emerald-50/40 px-3 py-1.5 text-[11px] font-medium text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/20 dark:text-emerald-300">
+              <span>Tonight&apos;s batch, {batchRows.length} receipts</span>
+              <button type="button" onClick={() => setBatchExpanded(false)} className={`shrink-0 underline underline-offset-2 ${FOCUS}`}>Collapse</button>
+            </div>
+          ) : null}
+          {(canCollapseBatch ? rowsWithoutBatch : visible).map((c, i) => (
             <Row
               key={c.id}
               c={c}
@@ -570,10 +716,84 @@ export function ChangesListClient({ view }: { view: ChangesView }) {
               keyboardActive={visible[kbIndex]?.id === c.id}
               onAction={(kind) => rowAction(c.id, kind)}
               registerRef={registerRowRef}
+              selected={checkedIds.has(c.id)}
+              onToggleSelect={toggleChecked}
+              detailOpen={selectedId === c.id}
+              onToggleDetail={toggleDetail}
             />
           ))}
+          {batchExpanded && canCollapseBatch && batchRows.length >= 2 ? (
+            <div className="space-y-1.5 border-t border-dashed border-gray-200 pt-1.5 dark:border-neutral-700">
+              {batchRows.map((c, i) => (
+                <Row
+                  key={c.id}
+                  c={c}
+                  move={c.sourceIds[0] ? view.movesById[c.sourceIds[0]] : undefined}
+                  rank={i + 1}
+                  highlighted={session.nextBest?.id === c.id}
+                  keyboardActive={visible[kbIndex]?.id === c.id}
+                  onAction={(kind) => rowAction(c.id, kind)}
+                  registerRef={registerRowRef}
+                  selected={checkedIds.has(c.id)}
+                  onToggleSelect={toggleChecked}
+                  detailOpen={selectedId === c.id}
+                  onToggleDetail={toggleDetail}
+                />
+              ))}
+            </div>
+          ) : null}
         </div>
       )}
+    </div>
+    {/* UX3 - the split detail panel: full existing card content (paste text, roundtable,
+        evidence, forecasts, buttons) for whichever row is selected, without the list itself
+        reflowing or losing scroll position. Hidden below lg (the row's own inline expansion
+        covers narrow screens instead - see Row's `lg:hidden` inline panel). */}
+    {selectedChange ? (
+      <div className="sticky top-4 hidden max-h-[calc(100vh-2rem)] w-[380px] shrink-0 overflow-y-auto rounded-lg border border-gray-200 bg-white shadow-sm lg:block dark:border-neutral-800 dark:bg-neutral-900">
+        <div className="flex items-center justify-between gap-2 border-b border-gray-100 px-3 py-2 dark:border-neutral-800">
+          <span className="text-xs font-semibold text-gray-500 dark:text-neutral-400">Change detail</span>
+          <button type="button" onClick={() => setSelectedId(null)} className={`rounded-sm text-xs font-medium text-gray-400 hover:text-gray-700 dark:text-neutral-500 dark:hover:text-neutral-300 ${FOCUS}`}>
+            Close
+          </button>
+        </div>
+        <div className="px-1 py-1">
+          <RowDetailContent
+            c={selectedChange}
+            move={selectedMove}
+            rank={visible.findIndex((c) => c.id === selectedChange.id) + 1}
+            onAction={(kind) => rowAction(selectedChange.id, kind)}
+          />
+        </div>
+      </div>
+    ) : null}
+    {/* UX3 - the floating bulk bar: appears once at least one row is checked, acts on exactly
+        the checked set via the SAME per-row done/skip actions, sequentially and with honest
+        progress text (never a silent bulk mutation). */}
+    {checkedIds.size > 0 ? (
+      <div className="fixed inset-x-0 bottom-4 z-20 flex justify-center px-4">
+        <div className="flex items-center gap-3 rounded-full border border-gray-200 bg-white px-4 py-2 shadow-lg dark:border-neutral-700 dark:bg-neutral-900">
+          <span className="text-xs font-semibold text-gray-700 tabular-nums dark:text-neutral-200">
+            {checkedIds.size} selected
+          </span>
+          {bulkProgress ? (
+            <span role="status" aria-live="polite" className="text-[11px] text-gray-500 dark:text-neutral-400">{bulkProgress}</span>
+          ) : (
+            <>
+              <button type="button" disabled={bulkPending} onClick={() => runBulk("done")} className={`rounded-full bg-gray-900 px-3 py-1 text-xs font-semibold text-white hover:bg-gray-700 disabled:opacity-60 dark:bg-neutral-100 dark:text-neutral-900 ${FOCUS}`}>
+                Mark done
+              </button>
+              <button type="button" disabled={bulkPending} onClick={() => runBulk("skip")} className={`rounded-full border border-gray-200 px-3 py-1 text-xs font-medium text-gray-600 hover:bg-gray-50 disabled:opacity-60 dark:border-neutral-700 dark:text-neutral-300 ${FOCUS}`}>
+                Skip
+              </button>
+              <button type="button" disabled={bulkPending} onClick={() => setCheckedIds(new Set())} className={`text-[11px] text-gray-400 hover:text-gray-700 disabled:opacity-60 dark:text-neutral-500 ${FOCUS}`}>
+                Clear
+              </button>
+            </>
+          )}
+        </div>
+      </div>
+    ) : null}
     </div>
   );
 }

@@ -19,6 +19,8 @@ import { loadDailyTotalsForTenant, type DailyTotals } from "@/domains/recommenda
 import { detectChangepoints, type DailyPoint } from "@/domains/proof-gsc/changepoint";
 import { loadProofLedgerCached } from "@/domains/proof-gsc/load-ledger";
 import { proofMaturityLabel } from "@/domains/proof-gsc/measure-lifecycle";
+import { deriveMeasurementMaturity, basisDayOf } from "@/domains/proof-gsc/measurement-maturity";
+import { gradeVerdictReliability } from "@/domains/proof-gsc/verdict-reliability";
 import { getAnswerIntelligenceIndex } from "@/domains/answer-intelligence/store";
 import { getAcceptedPlan, getLatestPreviewPlan } from "@/domains/experiments/daily-experiment-plan-store";
 import { loadNativeIntel } from "@/domains/ai-visibility/native-intel-loader";
@@ -328,6 +330,37 @@ async function assembleMeasurementFacts(tenantId: string): Promise<AskFact[]> {
         `Only ${r.permutationRead.nGreater} of ${r.permutationRead.nTotal} untouched pages moved this much on their own, so this reads like a real effect.`,
       );
     }
+    // One verdict-reliability grade (master plan N10): the cheap, ledger-only
+    // read (no recrawl/contamination/weather/seasonal joins here, unlike the
+    // /proof card - those need tenant-wide attach reads this fast $0 path
+    // does not do) so Ask still names how much to trust the number instead
+    // of only saying win/loss. A caller with the full presentation (the
+    // /proof card) gets the richer grade via gradeFromPresentation instead.
+    const basisDay = basisDayOf(r.windows ?? []);
+    const controlsUsed = r.windows?.find((w) => w.day === basisDay)?.controlsUsed ?? r.controlPages.length;
+    const baselineImpressions = r.baseline?.impressions ?? 0;
+    const grade = gradeVerdictReliability({
+      maturity: deriveMeasurementMaturity({
+        shippedAt: r.shippedAt,
+        now: new Date(),
+        latestGscDate: null,
+        windows: r.windows ?? [],
+        verdict: r.verdict,
+        controlsUsed,
+        baselineImpressions,
+      }),
+      basisDay,
+      recrawlPending: false,
+      controlContaminationFlagged: false,
+      weakComparisonFlagged: r.controlMatchWeak === true,
+      weatherQuarantined: false,
+      seasonalInflectionFlagged: false,
+      attributionShared: false,
+      controlsUsed,
+      baselineImpressions,
+      permutationRead: r.permutationRead && r.permutationRead.nTotal > 0 ? r.permutationRead : null,
+    });
+    parts.push(`I would grade this read as ${grade.grade}.`);
     facts.push(fact(`${parts.join(" ")}.`, "proof", "/proof"));
   }
 

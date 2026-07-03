@@ -3,7 +3,7 @@ export const dynamic = "force-dynamic";
 import { Suspense } from "react";
 import { PageHeader } from "@/components/data/page-header";
 import { TodayNewPagesSection } from "../today-newpages-section";
-import { PrepareTopMovesButton, RegenerateFromTeardownButton, EnrichResearchButton } from "../today-moves-prepare";
+import { PrepareTonightButton, PrepareOverflowMenu } from "../today-moves-prepare";
 import { loadDailyExperimentsView } from "../daily-experiments-data";
 import { DailyExperimentsSection } from "../daily-experiments-section";
 import { loadChangesView } from "../changes-data";
@@ -41,11 +41,10 @@ async function ChangesSection() {
     <div className="space-y-4">
       {/* B6 (worklist fix batch) - the page header already says what this list is; a second,
           near-identical subtitle here was redundant. Keep just the action row. */}
-      <div className="flex items-center justify-end gap-3">
+      <div className="flex items-center justify-end gap-2">
         <div className="flex flex-col items-end gap-2 sm:flex-row sm:items-start">
-          <RegenerateFromTeardownButton />
-          <EnrichResearchButton />
-          <PrepareTopMovesButton readyCount={view.summary.ready} total={view.changes.length} />
+          <PrepareOverflowMenu readyCount={view.summary.ready} total={view.changes.length} />
+          <PrepareTonightButton readyCount={view.summary.ready} total={view.changes.length} />
         </div>
       </div>
       <ChangesListClient view={view} />

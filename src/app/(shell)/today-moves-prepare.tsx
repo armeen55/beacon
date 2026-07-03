@@ -2,7 +2,93 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { prepareTopMovesAction, regenerateTopDraftsFromTeardownAction, enrichTopResearchPacksAction } from "./today-moves-actions";
+import {
+  prepareTopMovesAction,
+  regenerateTopDraftsFromTeardownAction,
+  enrichTopResearchPacksAction,
+  prepareTonightsPlanAction,
+} from "./today-moves-actions";
+
+/**
+ * PrepareTonightButton (UX3, 2026-07-02), the ONE command replacing the Improve-top-3 /
+ * Enrich-research / Prepare-top-10 button cluster on /worklist. Runs the same three
+ * pipelines under the hood (research enrichment, then prepare, then competitor-fact
+ * improvement) via `prepareTonightsPlanAction`, and reports one honest combined summary.
+ * The granular buttons still exist, now tucked into a native <details> overflow menu for
+ * the operator who wants a single step, no new UI dependency.
+ */
+export function PrepareTonightButton({ readyCount, total }: { readyCount: number; total: number }) {
+  const router = useRouter();
+  const [pending, start] = useTransition();
+  const [msg, setMsg] = useState<string | null>(null);
+
+  function run() {
+    setMsg(null);
+    start(async () => {
+      try {
+        const r = await prepareTonightsPlanAction();
+        if (!r.ok) {
+          setMsg(r.reason);
+          return;
+        }
+        const parts = [`Prepared ${r.prepared}`, `${r.readyToReview} ready to review`];
+        if (r.improved > 0) parts.push(`${r.improved} improved with competitor facts`);
+        if (r.enrichedPatterns > 0) parts.push(`${r.enrichedPatterns} fresh SERP pattern${r.enrichedPatterns === 1 ? "" : "s"}`);
+        parts.push(`$${r.llmCostUsd.toFixed(3)}`);
+        if (r.failed > 0) parts.push(`${r.failed} need a look`);
+        setMsg(parts.join(" · "));
+        router.refresh();
+      } catch {
+        setMsg("Prepare failed, try again.");
+      }
+    });
+  }
+
+  return (
+    <div className="flex flex-col items-end gap-1">
+      <button
+        type="button"
+        onClick={run}
+        disabled={pending}
+        title="Runs the full pipeline: fresh competitor and keyword research, then prepares your top 10 moves end to end, then improves the top 3 with what the research found. Capped and cached, so re-runs are cheap."
+        className="inline-flex items-center gap-1.5 rounded-lg border border-indigo-300 bg-white px-3.5 py-1.5 text-xs font-semibold text-indigo-700 transition-colors hover:border-indigo-400 hover:bg-indigo-50 disabled:opacity-60"
+      >
+        {pending ? (
+          <>
+            <span className="h-3 w-3 animate-spin rounded-full border-2 border-indigo-300 border-t-indigo-600" />
+            Preparing tonight&apos;s plan…
+          </>
+        ) : (
+          <>✦ Prepare tonight&apos;s plan (takes a minute){readyCount > 0 ? ` (${readyCount}/${total} ready)` : ""}</>
+        )}
+      </button>
+      {msg ? <span className="max-w-xs text-right text-[11px] text-gray-500">{msg}</span> : null}
+    </div>
+  );
+}
+
+/**
+ * PrepareOverflowMenu (UX3, 2026-07-02), the granular Prepare/Enrich/Improve buttons,
+ * available to the operator who wants a single step instead of the combined "Prepare
+ * tonight's plan" command. Native <details>/<summary> disclosure, no new dependency.
+ */
+export function PrepareOverflowMenu({ readyCount, total }: { readyCount: number; total: number }) {
+  return (
+    <details className="group relative">
+      <summary
+        className="inline-flex min-h-[34px] cursor-pointer list-none items-center justify-center rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs font-medium text-gray-500 transition-colors hover:bg-gray-50 dark:border-neutral-700 dark:text-neutral-400 dark:hover:bg-neutral-800"
+        title="One step at a time, instead of the combined plan"
+      >
+        More options
+      </summary>
+      <div className="absolute right-0 z-10 mt-1 flex w-64 flex-col items-stretch gap-2 rounded-lg border border-gray-200 bg-white p-2 shadow-lg dark:border-neutral-700 dark:bg-neutral-900">
+        <PrepareTopMovesButton readyCount={readyCount} total={total} />
+        <EnrichResearchButton />
+        <RegenerateFromTeardownButton />
+      </div>
+    </details>
+  );
+}
 
 /**
  * PrepareTopMovesButton (2026-06-25, P5) — "prepared, not chores" for Today Moves.

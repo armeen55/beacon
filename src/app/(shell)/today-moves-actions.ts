@@ -157,6 +157,62 @@ export async function regenerateTopDraftsFromTeardownAction(
   }
 }
 
+export type PrepareTonightsPlanResult =
+  | { ok: false; reason: string }
+  | {
+      ok: true;
+      prepared: number;
+      readyToReview: number;
+      improved: number;
+      enrichedPatterns: number;
+      llmCostUsd: number;
+      failed: number;
+    };
+
+/**
+ * prepareTonightsPlanAction (UX3, 2026-07-02) — the ONE command that replaces the
+ * Improve-top-3 / Enrich-research / Prepare-top-10 button cluster on /worklist. Runs the
+ * exact same three pipelines, in the order that makes each one sharper for the next
+ * (competitor teardown research first, so the drafts written after it can use those facts):
+ * enrich research packs (DataForSEO, dry-run unless already configured live) → prepare the
+ * top 10 Moves end to end → improve the top 3 teardown-backed drafts with competitor facts.
+ * Each step is independently capped/cached exactly as it is today; a failure in one step
+ * never blocks the others (fail-soft per step, honest partial summary). The granular
+ * buttons remain available in the overflow menu for an operator who wants just one step.
+ */
+export async function prepareTonightsPlanAction(): Promise<PrepareTonightsPlanResult> {
+  if (!(await isOperatorModeServer())) return { ok: false, reason: "Operator mode only." };
+  let enrichedPatterns = 0;
+  try {
+    const enrich = await enrichTopResearchPacksAction({ topN: 5 });
+    if (enrich.status === "ok" && enrich.result.mode === "live") enrichedPatterns = enrich.result.patternsWritten;
+  } catch {
+    // fail-soft: research enrichment is a nice-to-have ahead of drafting, never a blocker
+  }
+  const prepare = await prepareTopMovesAction({ maxN: 10 });
+  if (!prepare.ok) return { ok: false, reason: prepare.reason };
+  let improved = 0;
+  let regenCostUsd = 0;
+  try {
+    const regen = await regenerateTopDraftsFromTeardownAction({ limit: 3, maxUsd: 0.1 });
+    if (regen.ok) {
+      improved = regen.summary.regenerated ?? 0;
+      regenCostUsd = regen.summary.llmCostUsd ?? 0;
+    }
+  } catch {
+    // fail-soft: the base prepare pass already produced a reviewable plan without this
+  }
+  return {
+    ok: true,
+    prepared: prepare.summary.prepared,
+    readyToReview: prepare.summary.readyToReview,
+    improved,
+    enrichedPatterns,
+    llmCostUsd: prepare.summary.llmCostUsd + regenCostUsd,
+    failed: prepare.summary.failed,
+  };
+}
+
 export type MarkAppliedResult =
   | { ok: false; reason: string }
   | { ok: true; recorded: boolean; reason: string };

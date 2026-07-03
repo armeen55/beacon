@@ -17,6 +17,7 @@ import {
   isMatureOutcome,
   type MeasurementPresentation,
 } from "@/domains/proof-gsc/measurement-maturity";
+import { gradeFromPresentation, type VerdictReliabilityResult } from "@/domains/proof-gsc/verdict-reliability";
 import { scheduleAutoMeasure } from "@/domains/proof-gsc/auto-measure-on-use";
 import { loadDailyClicksByPathsForTenant } from "@/domains/proof-gsc/daily-series";
 import { buildShockWindows, type ShockWindow } from "@/domains/proof-gsc/algorithm-weather";
@@ -93,6 +94,17 @@ const TONE_STYLE: Record<MeasurementPresentation["tone"], string> = {
   neutral: "border-border bg-muted/40 text-muted-foreground",
   progress: "border-blue-300 bg-blue-50 text-blue-700",
   waiting: "border-amber-300 bg-amber-50 text-amber-700",
+};
+
+/** One verdict-reliability grade (master plan N10): a neutral gray scale, never
+ *  red/green, so it never competes with the badge's own maturity color above -
+ *  this chip answers "how much should I trust this specific read", not "did it
+ *  win", and those two questions should never fight for the same color. */
+const GRADE_STYLE: Record<VerdictReliabilityResult["grade"], string> = {
+  solid: "border-emerald-200 bg-emerald-50/60 text-emerald-700/90",
+  decent: "border-border bg-muted/30 text-muted-foreground",
+  shaky: "border-amber-200 bg-amber-50/60 text-amber-700/90",
+  "too early": "border-border bg-muted/20 text-muted-foreground/80",
 };
 
 function toPath(url: string): string {
@@ -237,6 +249,31 @@ export default async function ProofPage({
             contaminationById.get(l.id)?.notes.at(-1) ?? null,
         }),
       ] as const;
+    }),
+  );
+
+  // One verdict-reliability grade (master plan N10): combines recrawl, window
+  // completeness, contamination, weak comparisons, shock/seasonal overlap, and
+  // sample strength into one label - COMPUTED-ONLY from the SAME presentation
+  // + sufficiency numbers already built above, so it never disagrees with the
+  // card's own caveats. Never mutates the stored ledger row.
+  const gradeById = new Map<string, VerdictReliabilityResult>(
+    ledger.map((l) => {
+      const pres = presById.get(l.id);
+      const basisWin = (l.windows ?? []).filter((w) => w.ran).sort((a, b) => b.day - a.day)[0];
+      const grade = pres
+        ? gradeFromPresentation(
+            pres,
+            {
+              controlsUsed: basisWin?.controlsUsed ?? 0,
+              baselineImpressions: l.baseline?.impressions ?? 0,
+            },
+            l.permutationRead && l.permutationRead.nTotal > 0
+              ? { nGreater: l.permutationRead.nGreater, nTotal: l.permutationRead.nTotal }
+              : null,
+          )
+        : { grade: "too early" as const, reasons: [], sentence: "I would call this too early to read: no measurement presentation is available yet." };
+      return [l.id, grade] as const;
     }),
   );
 
@@ -460,7 +497,7 @@ export default async function ProofPage({
               <p className="mt-0.5 text-[11px] text-muted-foreground">
                 These changes beat their comparison pages over the full window. Real lifts, measured.
               </p>
-              <LedgerRowGroup rows={winRows} band="win" linkByRowId={linkByRowId} presById={presById} sparkByPath={sparkByPath} revertById={revertById} restoredIds={restoredIds} calibrationByProofId={calibrationByProofId} />
+              <LedgerRowGroup rows={winRows} band="win" linkByRowId={linkByRowId} presById={presById} gradeById={gradeById} sparkByPath={sparkByPath} revertById={revertById} restoredIds={restoredIds} calibrationByProofId={calibrationByProofId} />
             </div>
           ) : null}
 
@@ -473,7 +510,7 @@ export default async function ProofPage({
               <p className="mt-0.5 text-[11px] text-muted-foreground">
                 These changes did not move the number, and that teaches us which lever to try next on pages like these.
               </p>
-              <LedgerRowGroup rows={learningRows} band="learning" linkByRowId={linkByRowId} presById={presById} sparkByPath={sparkByPath} revertById={revertById} restoredIds={restoredIds} calibrationByProofId={calibrationByProofId} />
+              <LedgerRowGroup rows={learningRows} band="learning" linkByRowId={linkByRowId} presById={presById} gradeById={gradeById} sparkByPath={sparkByPath} revertById={revertById} restoredIds={restoredIds} calibrationByProofId={calibrationByProofId} />
             </div>
           ) : null}
 
@@ -486,7 +523,7 @@ export default async function ProofPage({
               <p className="mt-0.5 text-[11px] text-muted-foreground">
                 Still collecting data. Each one gets its verdict when its full window closes.
               </p>
-              <LedgerRowGroup rows={inFlightRows} band="inflight" linkByRowId={linkByRowId} presById={presById} sparkByPath={sparkByPath} revertById={revertById} restoredIds={restoredIds} />
+              <LedgerRowGroup rows={inFlightRows} band="inflight" linkByRowId={linkByRowId} presById={presById} gradeById={gradeById} sparkByPath={sparkByPath} revertById={revertById} restoredIds={restoredIds} />
             </div>
           ) : null}
         </div>
@@ -641,6 +678,7 @@ function LedgerRowGroup({
   band,
   linkByRowId,
   presById,
+  gradeById,
   sparkByPath,
   revertById,
   restoredIds,
@@ -650,6 +688,7 @@ function LedgerRowGroup({
   band: LedgerBand;
   linkByRowId: Map<string, ProofLink>;
   presById: Map<string, MeasurementPresentation>;
+  gradeById?: Map<string, VerdictReliabilityResult>;
   sparkByPath: Map<string, SparkPoint[]>;
   revertById: Map<string, RevertDecision>;
   restoredIds: Set<string>;
@@ -665,6 +704,7 @@ function LedgerRowGroup({
       band={band}
       link={linkByRowId.get(rec.id) ?? null}
       pres={presById.get(rec.id) ?? null}
+      grade={gradeById?.get(rec.id) ?? null}
       spark={sparkByPath.get(rec.path)}
       revert={revertById.get(rec.id) ?? null}
       restored={restoredIds.has(rec.id)}
@@ -698,7 +738,7 @@ function LedgerRowGroup({
   );
 }
 
-function LedgerCard({ rec, link, pres, spark, band, revert, restored, calibration }: { rec: ShippedChangeRecord; link?: ProofLink | null; pres?: MeasurementPresentation | null; spark?: SparkPoint[]; band?: LedgerBand; revert?: RevertDecision | null; restored?: boolean; calibration?: CalibrationRecord | null }) {
+function LedgerCard({ rec, link, pres, grade, spark, band, revert, restored, calibration }: { rec: ShippedChangeRecord; link?: ProofLink | null; pres?: MeasurementPresentation | null; grade?: VerdictReliabilityResult | null; spark?: SparkPoint[]; band?: LedgerBand; revert?: RevertDecision | null; restored?: boolean; calibration?: CalibrationRecord | null }) {
   // Judge a meta/title test on CTR, a content test on position, else clicks, so
   // every line on this card reads in the unit that actually moved.
   const metric = pickProofMetric(rec.actionType);
@@ -762,6 +802,21 @@ function LedgerCard({ rec, link, pres, spark, band, revert, restored, calibratio
         </span>
         {pres && badgeMaturesOn ? (
           <span className="text-[10px] text-muted-foreground">{badgeMaturesOn}</span>
+        ) : null}
+        {/* One verdict-reliability grade (master plan N10): a single word next to
+            the badge for how much to trust this specific read, combining recrawl,
+            window completeness, contamination, comparison quality, shock/seasonal
+            overlap, and sample strength. The full reasons render inside "See the
+            math" below - this chip is just the scan-it-in-one-glance summary. */}
+        {grade ? (
+          <span
+            className={
+              "rounded-full border px-1.5 py-0.5 text-[10px] font-medium " + GRADE_STYLE[grade.grade]
+            }
+            title={grade.sentence}
+          >
+            {grade.grade}
+          </span>
         ) : null}
         {/* Item 6 - in-flight countdown: when the next reading lands, from this row's
             own windows (smallest unread window vs today). "any day now" covers the
@@ -889,12 +944,16 @@ function LedgerCard({ rec, link, pres, spark, band, revert, restored, calibratio
           and untouched-page counts, one click away from the plain primary lines
           above. Nothing here is new data - it is the same sentence/counts the
           product already computed, just moved out of the headline position. */}
-      {sentence !== plainHeadline || (rec.permutationRead && rec.permutationRead.nTotal > 0) || pres?.seasonalInflectionCaveat || pres?.controlContaminationCaveat ? (
+      {sentence !== plainHeadline || (rec.permutationRead && rec.permutationRead.nTotal > 0) || pres?.seasonalInflectionCaveat || pres?.controlContaminationCaveat || grade ? (
         <details className="mt-1">
           <summary className="cursor-pointer text-[11px] text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-1">
             See the math
           </summary>
           <div className="mt-1 space-y-1 rounded-md border border-border/40 bg-surface-inset/30 p-2 text-[11px] text-foreground/70">
+            {/* One verdict-reliability grade (master plan N10): the one-sentence
+                summary of how much to trust this read, first in the list since
+                it frames everything else in this panel. */}
+            {grade ? <p className="font-medium text-foreground/80">{grade.sentence}</p> : null}
             <p>{sentence}</p>
             {rec.permutationRead && rec.permutationRead.nTotal > 0 ? (
               <p>{permutationSentenceFromCounts(rec.permutationRead.nGreater, rec.permutationRead.nTotal)}</p>
