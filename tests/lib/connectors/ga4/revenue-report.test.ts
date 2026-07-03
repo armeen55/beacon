@@ -41,8 +41,11 @@ function makeToken(over: Partial<GoogleConnectorToken> = {}): GoogleConnectorTok
     provider: "google_ga4",
     access_token: "access-abc",
     refresh_token: "refresh-xyz",
-    expires_at: NOW_MS + 30 * 60 * 1000,
-    connected_at: new Date(NOW_MS - 86_400_000).toISOString(),
+    // Relative to REAL wall-clock time: the implementation evaluates expiry against
+    // new Date(), so a fixed-date fixture becomes a time bomb (this one detonated
+    // 2026-07-03, exactly 7 days after its hardcoded mint date).
+    expires_at: Date.now() + 30 * 60 * 1000,
+    connected_at: new Date(Date.now() - 86_400_000).toISOString(),
     scopes: ["https://www.googleapis.com/auth/analytics.readonly"],
     ga4_property_id: "123456789",
     ...over,

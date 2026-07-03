@@ -15,6 +15,7 @@ import { listPlans } from "@/domains/experiments/daily-experiment-plan-store";
 import { listKnownJobs, listRecentCronRuns, type CronRunRow } from "@/domains/ops/cron-runs-store";
 import { listAppErrorsForTenant, type AppErrorRow } from "@/lib/obs/error-ledger";
 import { getConnectorInfo, type ConnectorProvider } from "@/lib/connector-store";
+import { readRecentSpendRows, type SpendActivityRow } from "@/lib/cost/budget-ledger-supabase";
 import {
   composeActivityStream,
   type ActivityEvent,
@@ -66,10 +67,13 @@ async function loadConnectionEvents(tenantId: string): Promise<ConnectionInput[]
   return infos;
 }
 
+/** R14b - how far back the spend join reads (the same 30-day frame /settings/spend uses). */
+const SPEND_SINCE_DAYS = 30;
+
 /** The composed stream, newest first. Fail-soft per source; never throws. */
 export async function loadActivityEvents(now: Date = new Date()): Promise<ActivityEvent[]> {
   const tenantId = await currentTenantId();
-  const [shipped, receipts, plans, cronRuns, errorRows, connections] = await Promise.all([
+  const [shipped, receipts, plans, cronRuns, errorRows, connections, spendRows] = await Promise.all([
     valueWithDeadline(loadShippedChanges().catch(() => []), [], SOURCE_DEADLINE_MS),
     valueWithDeadline(
       getAutopilotState()
@@ -86,6 +90,11 @@ export async function loadActivityEvents(now: Date = new Date()): Promise<Activi
       SOURCE_DEADLINE_MS,
     ),
     valueWithDeadline(loadConnectionEvents(tenantId).catch(() => []), [], SOURCE_DEADLINE_MS),
+    valueWithDeadline(
+      readRecentSpendRows(tenantId, SPEND_SINCE_DAYS).catch(() => [] as SpendActivityRow[]),
+      [] as SpendActivityRow[],
+      SOURCE_DEADLINE_MS,
+    ),
   ]);
 
   const inputs: ActivityInputs = {
@@ -118,6 +127,16 @@ export async function loadActivityEvents(now: Date = new Date()): Promise<Activi
     })),
     errorRows,
     connections,
+    // R14b spend-to-outcome: the llm_budget_ledger day rows join the stream as
+    // plain "I spent $X doing Y" receipts. Read-only, same 30-day frame as
+    // /settings/spend, fail-soft like every other source above.
+    spend: spendRows.map((s) => ({
+      dateUtc: s.dateUtc,
+      platform: s.platform,
+      spentUsd: s.spentUsd,
+      promptCount: s.promptCount,
+      updatedAt: s.updatedAt,
+    })),
   };
   return composeActivityStream(inputs, now);
 }

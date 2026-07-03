@@ -66,10 +66,12 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  // First-time signup → onboarding wizard.
+  // First-time signup → the URL-first entry (2026-07-03 R12/T0e): one site
+  // address is enough to reach a first honest scorecard; the guided wizard
+  // stays one link away on that page.
   // Repeat sign-in (membership already existed) → caller's `next` or `/`.
   if (provision.created) {
-    return NextResponse.redirect(`${origin}/onboard/business`);
+    return NextResponse.redirect(`${origin}/onboard`);
   }
   return NextResponse.redirect(`${origin}${next}`);
 }

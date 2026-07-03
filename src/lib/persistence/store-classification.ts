@@ -299,6 +299,12 @@ export const GLOBAL_STORES = new Set<string>([
   // TTFB row per tenant per night; the deadman verdict on Today reads the
   // latest two to say "your site did not answer" when down twice in a row.
   "site-uptime-probes",
+  // Cold-start crawl frontier (2026-07-03, BEACON_500 R12 / T0e). One state
+  // row per tenant (queue + cursor + per-page audit facts) carrying
+  // tenant_id, because the nightly sync continues batches with no ambient
+  // request context (same cron fan-out rationale as site-uptime-probes).
+  // Supabase-mirrored in json-store.ts so the cursor survives Vercel lambdas.
+  "crawl-frontier",
   // Nightly precompute warm pass (2026-07-02, master plan item 13). Same cron
   // fan-out rationale: rows carry tenant_id. Per-day run marker (double-fire
   // idempotency) + the "last warmed" receipts /diagnostics shows.

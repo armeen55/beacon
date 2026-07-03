@@ -800,6 +800,12 @@ export function DailyExperimentsSection({ view }: { view: DailyExperimentsView }
     // id: the item-56 "Pages fading" row in the Demand band deep-links here ("See tonight's picks").
     <section id="daily-experiments" className="my-4 rounded-2xl border border-border bg-card p-4">
       <SectionHeader title="Today’s changes" className="mb-2" />
+      {/* R14b (receipts everywhere) - when the active plan was put together and from
+          what source. Server-built string (daily-experiments-data.ts), self-hides
+          when no plan exists. */}
+      {view.planReceiptLine ? (
+        <p data-receipt-line="true" className="mb-2 text-meta text-muted-foreground">{view.planReceiptLine}</p>
+      ) : null}
 
       {b && (
         <div className="mb-3 text-body leading-relaxed text-foreground-secondary tabular-nums">

@@ -89,21 +89,42 @@ QUEUE (strict order; [G] = operator-gated, surface it and continue):
       src/domains/serp/snippet-capture.ts (rank 2-10 + competitor-owned answer box -> format-matched
       add_answer_block candidates through the existing trigger pipeline, capped 5, deduped against
       steal-lane cards by query, strong owners honestly low-confidence long shots).
-- [ ] R12. T0e new-site golden path hardened (URL-first signup, wizard GSC connect + backfill,
-      cold-start crawl past the 18-page cap, day-0 baselines, guided first win; absorbs tasks
-      74/182). Effort L.
+- [x] R12 (2026-07-03, worktree). T0e new-site golden path hardened (URL-first signup, wizard GSC
+      connect + backfill, cold-start crawl past the 18-page cap, day-0 baselines, guided first win;
+      absorbs tasks 74/182). Effort L. Shipped: /onboard URL-first entry (one address -> derived
+      name/domain -> config -> bounded first look) with auth-callback landing there; the resumable
+      Vercel-safe crawl-frontier store (GLOBAL + Supabase-mirrored, 15 pages / 45s per batch, 150-page
+      cap, same page ids as in-process-scan so upserts stay idempotent) continued by cron phase 1d-2b
+      + the on-demand Keep scanning action; day-0 baselines (question library seeded from crawled
+      question-shaped lines via the new loadCrawl seed source + top-5 derived terms through the
+      EXISTING capped DataForSEO gauntlet, dry-run default); /onboard/done first-audit scorecard
+      (progress line, gap counts, deterministic first win ladder, skippable GSC connect reusing
+      getGoogleAuthUrl + pickGscPropertyForDomain auto-detect, R3 FinishSetupCard) with honest
+      unreachable + retry; /diagnostics stalled-signups rescue (24h, exact resume actions).
+      backfill note: the wizard GSC offer links the EXISTING deep-backfill self-serve
+      (gsc_backfill_start) via the finish-setup card rather than duplicating it in the wizard.
 - [~] R13. N3 provenance graph SHIPPED 2026-07-03 (see the N3 entry below); N25 stale-fact
       detection + N26 fact propagation + N27 volatility deadlines ride the shipped substrate
       in the follow-up slice (volatilityClass + lastConfirmedAt + affectedPages + the conflict
       trigger are the designed seams). Effort M remaining.
-- [~] R14. P1 trust receipts pack (receipts everywhere, see-the-math, /activity log, we-got-this-
-      wrong recap). Effort L, split. R14a SHIPPED 2026-07-03 (slice 1 of 2): /activity unified
+- [x] R14. P1 trust receipts pack DONE. R14a SHIPPED 2026-07-03 (slice 1 of 2): /activity unified
       audit stream (nav-reachable, composed from existing stores only, paged 50), append-only
       verdict_revisions at the measureRecord seam (+ jsonb column applied to beacon-main) rendered
       in the /results card expand, the "We got this wrong" recap below the /results bands, and
       the "Why not the others?" expander on the daily card (plan records now freeze the planner's
-      own exclusions, capped 8). R14b takes the remaining P1 items (receipts everywhere +
-      see-the-math sweep over items 91/173-177/204/214/334-339/390/405/463-464/523-525).
+      own exclusions, capped 8). R14b SHIPPED 2026-07-03 (slice 2 of 2, closing the pack): the
+      shared one-line receipt convention (components/data/receipt-line.tsx) on the 10 most
+      trust-critical assertion sites (Today scoreboard x2 / cumulative strip / counts tiles /
+      plan panel, /changes list, /results band, /keywords hero, /activity header, data-sources
+      collapse); see-the-math completion (the strip's dollar figure opens into per-win rows +
+      THE ONE DOLLAR RULE sentence via buildWonDollarBreakdown; sized change rows open their
+      opportunity-math inputs); named comparison pages as dashed series on the /results card
+      charts with the chosen-before-shipping legend; spend-to-outcome joins (llm_budget_ledger
+      day rows as plain "I spent $X doing Y" /activity rows + per-move prep spend on the card
+      expand); /settings/how-i-decide listing every live threshold from ONE registry that
+      imports the enforcing constants (pin test); and "Download as spreadsheet" on /results +
+      /activity (GET routes over the same loaders, shared RFC-4180 encoder in lib/csv.ts).
+      Covers items 91/173-177/204/214/334-339/390/405/463-464/523-525.
 - [ ] R15. N4 behavior-verdict lane (GA4+Clarity on every ship) + N17 task-completion. Effort M.
 - [ ] R16. P6 LLM engine pack (one gateway, schema registry, prompt versioning + regression
       harness, call cache; absorbs task 95). Effort L.
@@ -676,14 +697,14 @@ and UX0 are the same fight.
 - [x] T0b (2026-07-03, R3). **One-click recovery for every known failure**: each health card names the exact fix and deep-links it (extends shipped connector health + canary; absorbs v1 187+227+350 verification-recovery merge, 527 auto-heal unmapped urls, 530 push retry, 354 schema-cache heal, 226 retry ladder).
 - [x] T0c (2026-07-03, R2). **Operational deadman** (v1 194+355+362 merged): stalled-cron banner, env + cron-registration preflight, site uptime/DNS/SSL/domain-expiry probes. Rides the shipped cron_runs ledger.
 - [ ] T0d. **Backups proven by restore drill** (v1 105) + credential encryption and rotation runbook (v1 247) + hack/cloaking sentinel (v1 106) + crawler citizenship (v1 480) + SSRF hardening (v1 249).
-- [ ] T0e. **New-site golden path hardened** (v1 154, 155, 156, 157, 158, 212, 296, 298, 383, 505, 508, 509, 577 consolidated): URL-first signup, GSC connect in wizard with backfill, background cold-start crawl past the 18-page cap, day-0 SERP + AI baselines, first-audit scorecard, guided first win, re-read-my-site action, honest unreachable-site failures, rescue stalled signups. This is "grow any website I want" made real.
+- [x] T0e (2026-07-03, R12). **New-site golden path hardened** (v1 154, 155, 156, 157, 158, 212, 296, 298, 383, 505, 508, 509, 577 consolidated): URL-first signup, GSC connect in wizard with backfill, background cold-start crawl past the 18-page cap, day-0 SERP + AI baselines, first-audit scorecard, guided first win, re-read-my-site action, honest unreachable-site failures, rescue stalled signups. This is "grow any website I want" made real.
 - [ ] T0f. **Weekly editorial QA sample vs autonomy** (v1 481) + operator-override audits (v1 274): the human spot-check lane that keeps trust honest.
 
 ---
 
 ## CONSOLIDATED PACKS (after the head; each pack is one slice-sized initiative, dedup applied)
 
-- [ ] P1. **Trust receipts pack** (v1 91, 173, 174, 176, 177, 204, 214, 334, 336, 338, 339, 390, 405, 463, 464, 523, 524, 525): one-line receipts everywhere, verdict revision history, why-not-in-plan inspector, named controls on charts, see-the-math, spend-to-outcome joins, /activity audit log, CSV export, we-got-this-wrong recap section, threshold registry in plain words.
+- [x] P1 (2026-07-03, R14a+R14b). **Trust receipts pack** (v1 91, 173, 174, 176, 177, 204, 214, 334, 336, 338, 339, 390, 405, 463, 464, 523, 524, 525): one-line receipts everywhere, verdict revision history, why-not-in-plan inspector, named controls on charts, see-the-math, spend-to-outcome joins, /activity audit log, CSV export, we-got-this-wrong recap section, threshold registry in plain words.
 - [ ] P2. **GSC depth pack** (v1 136, 137, 138, 195, 264, 265, 266, 267, 268, 428, 492, 491+493 merged): searchAppearance, budgeted indexation sweep, brand split, ingestion-gap classification, fresh-data lane, device grain, striking-distance portfolio headline, back-of-results register, country grain, footprint registry, anonymized-query gap, Discover probe.
 - [x] P3 (2026-07-03, R9; four rival curves consolidated to one tenant-fittable module + bounded title-scorer retrain). **Tenant CTR curve** (v1 131+140+369+384+273 merged into ONE implementation): fit from own GSC data, retrain the title scorer from settled tests, pin the survivor with tests.
 - [ ] P4. **Measurement rigor pack** (v1 150, 151, 152, 285, 286, 288, 289, 291, 378): fixed query panel, distinct-query growth, day-of-week baselines, adaptive windows, alpha-spending, equivalence testing, FDR control, clean-window salvage, novelty-decay flags. All feed N10's grade.

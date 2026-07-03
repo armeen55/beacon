@@ -20,6 +20,9 @@ import { getWixUrlMap } from "@/lib/connectors/wix/url-map";
 import { getWixConnectorToken } from "@/lib/connector-store";
 import { buildWixEditorLink } from "@/domains/push/wix-deep-link";
 import { canonicalizeCitationUrl } from "@/domains/citation-lifecycle/canonicalize-url";
+// R14b (receipts everywhere) - the plan panel's one-line receipt, built HERE
+// (server) so the client section renders a hydration-stable string.
+import { buildReceiptLine } from "@/components/data/receipt-line";
 
 export type QualitySummary = { total: number; passed: number; cautioned: number; flagged: number; paused: number };
 
@@ -38,6 +41,9 @@ export type DailyExperimentsView = {
   /** Item 45 - "Open in Wix" deep link per plan-item URL (canonical url -> dashboard
    *  URL, or absent when the page is not resolvable to a live Wix item yet). */
   wixEditorUrlByUrl: Record<string, string>;
+  /** R14b (receipts everywhere) - when the active plan was put together and from
+   *  what source. Null when no plan exists. */
+  planReceiptLine: string | null;
 };
 
 /** Re-run the quality gate over the active plan's items so the panel can honestly say
@@ -123,5 +129,16 @@ export async function loadDailyExperimentsView(): Promise<DailyExperimentsView> 
     if (link) wixEditorUrlByUrl[exp.url] = link.toString();
   }
 
-  return { dashboard, protectedWarning: protectedControlWarning(dashboard), checklist, qualitySummary, sparklineByUrl, staging, wixEditorUrlByUrl };
+  // R14b (receipts everywhere) - the plan's own assembly stamp, in the shared
+  // one-line receipt convention. Null (line self-hides) when no plan exists.
+  const planReceiptLine = activePlan?.createdAt
+    ? buildReceiptLine({
+        source: "your latest Search Console read",
+        checkedAt: activePlan.createdAt,
+        verb: "put together",
+        nowMs: now.getTime(),
+      })
+    : null;
+
+  return { dashboard, protectedWarning: protectedControlWarning(dashboard), checklist, qualitySummary, sparklineByUrl, staging, wixEditorUrlByUrl, planReceiptLine };
 }

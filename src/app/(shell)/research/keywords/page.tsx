@@ -5,6 +5,9 @@ import { loadKeywordLibrary, summarizeKeywordLibrary } from "@/domains/research/
 import { KeywordsTableClient } from "./keywords-table-client";
 import { loadWithDeadline } from "@/lib/load-with-deadline";
 import { HonestDelay } from "@/components/honest-delay";
+// R14b (receipts everywhere) - the hero numbers' one-line receipt, from the
+// newest lastChecked stamp the loaded rows ALREADY carry. No new reads.
+import { buildReceiptLine, ReceiptLine } from "@/components/data/receipt-line";
 
 /**
  * /research/keywords: the Keywords library (MASTER PLAN v2 UX2 first slice,
@@ -61,6 +64,21 @@ export default async function KeywordsPage() {
       />
       {heroLine && <p className="text-base font-semibold text-gray-900 dark:text-neutral-100">{heroLine}</p>}
       <p className="text-sm text-gray-600 dark:text-neutral-400">{coverageLine}</p>
+      {/* R14b (receipts everywhere) - when this library was last checked, from the
+          rows' own newest stamp. Self-hides when no row carries one yet. */}
+      <ReceiptLine
+        line={buildReceiptLine({
+          source: "your Search Console data and my market volume checks",
+          checkedAt: library.rows.reduce<string | null>(
+            (latest, r) =>
+              r.lastChecked && Number.isFinite(Date.parse(r.lastChecked)) && (latest == null || r.lastChecked > latest)
+                ? r.lastChecked
+                : latest,
+            null,
+          ),
+          nowMs: Date.now(),
+        })}
+      />
       <KeywordsTableClient rows={library.rows} worklistBaseHref="/changes" />
     </div>
   );

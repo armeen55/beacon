@@ -92,6 +92,11 @@ import { HonestDelay } from "@/components/honest-delay";
 // card expand, and the "We got this wrong" recap below the bands (misses owned plainly).
 import { buildVerdictRevisionLines } from "@/domains/proof-gsc/verdict-revisions";
 import { buildRecapItems, WeGotThisWrongSection } from "./results-recap";
+// R14b (P1 trust receipts): named comparison pages on the card chart (dashed series +
+// legend), the prep-spend join on the card expand, the section-level one-line receipt,
+// and the spreadsheet download of the same ledger the page renders.
+import { controlsLegendLine, prepSpendLine } from "./trust-receipts";
+import { buildReceiptLine, ReceiptLine } from "@/components/data/receipt-line";
 
 /**
  * Proof / Learning - operator-OS rebuild, surface (6). Every REVIEWED change
@@ -214,6 +219,23 @@ export default async function ProofPage({
       tenantId,
       ledger.slice(0, 16).map((l) => l.path),
     ).catch(() => new Map<string, SparkPoint[]>()),
+    new Map<string, SparkPoint[]>(),
+    SIDE_READ_DEADLINE_MS,
+  );
+  // R14b (named controls) - the comparison pages' own daily-clicks series, drawn as
+  // dashed lines on the same chart so "beat its comparison pages" is visible, not
+  // asserted. Bounded exactly like the treated read above: first 8 rows, max 2
+  // comparison pages each, deduped, capped at the loader's own 16-path limit.
+  // Fail-soft: a miss just renders the chart without dashed lines.
+  const controlSparkPaths = [
+    ...new Set(ledger.slice(0, 8).flatMap((l) => (l.controlPages ?? []).slice(0, 2))),
+  ].slice(0, 16);
+  const controlSparkByPath = await valueWithDeadline(
+    controlSparkPaths.length > 0
+      ? loadDailyClicksByPathsForTenant(tenantId, controlSparkPaths).catch(
+          () => new Map<string, SparkPoint[]>(),
+        )
+      : Promise.resolve(new Map<string, SparkPoint[]>()),
     new Map<string, SparkPoint[]>(),
     SIDE_READ_DEADLINE_MS,
   );
@@ -604,9 +626,29 @@ export default async function ProofPage({
       {/* ── Measured outcomes (shipped changes being tracked vs controls) ── */}
       {ledger.length > 0 ? (
         <div className="mb-6">
-          <h2 className="mb-2 text-[13px] font-semibold uppercase tracking-wide text-muted-foreground">
-            Measured outcomes
-          </h2>
+          <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+            <h2 className="text-[13px] font-semibold uppercase tracking-wide text-muted-foreground">
+              Measured outcomes
+            </h2>
+            {/* R14b - the same rows, as a file: reads the snapshot the page reads. */}
+            <a
+              href="/results/export"
+              className="text-meta text-muted-foreground underline underline-offset-2 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
+            >
+              Download as spreadsheet
+            </a>
+          </div>
+          {/* R14b (receipts everywhere) - what these verdicts are read FROM: Search
+              Console data through its last finalized day. */}
+          <ReceiptLine
+            line={buildReceiptLine({
+              source: "your Search Console data",
+              through: latestGscDate,
+              nowMs: Date.now(),
+              note: "Google reports a few days behind.",
+            })}
+            className="mb-2"
+          />
           {/* Dollar-ROI honesty (gap #1): show what proof CAN measure. Revenue is
               only claimed if GA4 actually returns it; this property has no revenue
               events, so we say so once rather than imply dollars per card. */}
@@ -636,7 +678,7 @@ export default async function ProofPage({
               <p className="mt-0.5 text-[11px] text-muted-foreground">
                 These changes beat their comparison pages over the full window. Real lifts, measured.
               </p>
-              <LedgerRowGroup rows={winRows} band="win" linkByRowId={linkByRowId} presById={presById} gradeById={gradeById} sparkByPath={sparkByPath} revertById={revertById} restoredIds={restoredIds} calibrationByProofId={calibrationByProofId} />
+              <LedgerRowGroup rows={winRows} band="win" linkByRowId={linkByRowId} presById={presById} gradeById={gradeById} sparkByPath={sparkByPath} controlSparkByPath={controlSparkByPath} revertById={revertById} restoredIds={restoredIds} calibrationByProofId={calibrationByProofId} />
             </div>
           ) : null}
 
@@ -649,7 +691,7 @@ export default async function ProofPage({
               <p className="mt-0.5 text-[11px] text-muted-foreground">
                 These changes did not move the number, and that teaches us which lever to try next on pages like these.
               </p>
-              <LedgerRowGroup rows={learningRows} band="learning" linkByRowId={linkByRowId} presById={presById} gradeById={gradeById} sparkByPath={sparkByPath} revertById={revertById} restoredIds={restoredIds} calibrationByProofId={calibrationByProofId} />
+              <LedgerRowGroup rows={learningRows} band="learning" linkByRowId={linkByRowId} presById={presById} gradeById={gradeById} sparkByPath={sparkByPath} controlSparkByPath={controlSparkByPath} revertById={revertById} restoredIds={restoredIds} calibrationByProofId={calibrationByProofId} />
             </div>
           ) : null}
 
@@ -662,7 +704,7 @@ export default async function ProofPage({
               <p className="mt-0.5 text-[11px] text-muted-foreground">
                 Still collecting data. Each one gets its verdict when its full window closes.
               </p>
-              <LedgerRowGroup rows={inFlightRows} band="inflight" linkByRowId={linkByRowId} presById={presById} gradeById={gradeById} sparkByPath={sparkByPath} revertById={revertById} restoredIds={restoredIds} />
+              <LedgerRowGroup rows={inFlightRows} band="inflight" linkByRowId={linkByRowId} presById={presById} gradeById={gradeById} sparkByPath={sparkByPath} controlSparkByPath={controlSparkByPath} revertById={revertById} restoredIds={restoredIds} />
             </div>
           ) : null}
         </div>
@@ -830,6 +872,7 @@ function LedgerRowGroup({
   presById,
   gradeById,
   sparkByPath,
+  controlSparkByPath,
   revertById,
   restoredIds,
   calibrationByProofId,
@@ -840,6 +883,8 @@ function LedgerRowGroup({
   presById: Map<string, MeasurementPresentation>;
   gradeById?: Map<string, VerdictReliabilityResult>;
   sparkByPath: Map<string, SparkPoint[]>;
+  /** R14b (named controls) - comparison pages' own daily-clicks series. */
+  controlSparkByPath?: Map<string, SparkPoint[]>;
   revertById: Map<string, RevertDecision>;
   restoredIds: Set<string>;
   calibrationByProofId?: Map<string, CalibrationRecord>;
@@ -847,20 +892,29 @@ function LedgerRowGroup({
   const recommended = rows.filter((rec) => linkByRowId.get(rec.id)?.actionPack);
   const manual = rows.filter((rec) => !linkByRowId.get(rec.id)?.actionPack);
 
-  const card = (rec: ShippedChangeRecord) => (
-    <LedgerCard
-      key={rec.id}
-      rec={rec}
-      band={band}
-      link={linkByRowId.get(rec.id) ?? null}
-      pres={presById.get(rec.id) ?? null}
-      grade={gradeById?.get(rec.id) ?? null}
-      spark={sparkByPath.get(rec.path)}
-      revert={revertById.get(rec.id) ?? null}
-      restored={restoredIds.has(rec.id)}
-      calibration={calibrationByProofId?.get(rec.id) ?? null}
-    />
-  );
+  const card = (rec: ShippedChangeRecord) => {
+    // R14b - up to 2 named comparison series for THIS row's chart (the same cap
+    // the loader used). Only pages whose series actually loaded are named.
+    const controlSparks = (rec.controlPages ?? [])
+      .slice(0, 2)
+      .map((p) => ({ path: p, points: controlSparkByPath?.get(p) ?? [] }))
+      .filter((c) => c.points.length >= 5);
+    return (
+      <LedgerCard
+        key={rec.id}
+        rec={rec}
+        band={band}
+        link={linkByRowId.get(rec.id) ?? null}
+        pres={presById.get(rec.id) ?? null}
+        grade={gradeById?.get(rec.id) ?? null}
+        spark={sparkByPath.get(rec.path)}
+        controlSparks={controlSparks}
+        revert={revertById.get(rec.id) ?? null}
+        restored={restoredIds.has(rec.id)}
+        calibration={calibrationByProofId?.get(rec.id) ?? null}
+      />
+    );
+  };
 
   return (
     <>
@@ -888,7 +942,7 @@ function LedgerRowGroup({
   );
 }
 
-function LedgerCard({ rec, link, pres, grade, spark, band, revert, restored, calibration }: { rec: ShippedChangeRecord; link?: ProofLink | null; pres?: MeasurementPresentation | null; grade?: VerdictReliabilityResult | null; spark?: SparkPoint[]; band?: LedgerBand; revert?: RevertDecision | null; restored?: boolean; calibration?: CalibrationRecord | null }) {
+function LedgerCard({ rec, link, pres, grade, spark, controlSparks, band, revert, restored, calibration }: { rec: ShippedChangeRecord; link?: ProofLink | null; pres?: MeasurementPresentation | null; grade?: VerdictReliabilityResult | null; spark?: SparkPoint[]; controlSparks?: Array<{ path: string; points: SparkPoint[] }>; band?: LedgerBand; revert?: RevertDecision | null; restored?: boolean; calibration?: CalibrationRecord | null }) {
   // Judge a meta/title test on CTR, a content test on position, else clicks, so
   // every line on this card reads in the unit that actually moved.
   const metric = pickProofMetric(rec.actionType);
@@ -1025,14 +1079,32 @@ function LedgerCard({ rec, link, pres, grade, spark, band, revert, restored, cal
         // Item 70 - the chart is the centerpiece on a settled row (win/learning),
         // so it renders slightly larger there; numbers are supporting cast.
         const settled = band === "win" || band === "learning";
+        // R14b (named controls) - the comparison pages ride the SAME chart as
+        // dashed lines, named in the legend below, so "beat its comparison
+        // pages" is something you can see, not a phrase you must trust.
+        const namedControls = (controlSparks ?? []).slice(0, 2);
+        const legend = controlsLegendLine(namedControls.map((c) => c.path));
         return (
-          <div className="mt-1.5 flex items-center gap-2">
-            <Sparkline points={spark} markerDate={shipDay} width={settled ? 240 : 200} height={settled ? 40 : 34} />
-            <span className="text-[10px] text-muted-foreground">
-              {markerVisible
-                ? `daily clicks, ${spark.length} days · dot = when this shipped, tinted = after`
-                : `daily clicks through ${lastDataDay} · this change is newer than the latest Search data (Google reports a few days behind)`}
-            </span>
+          <div className="mt-1.5">
+            <div className="flex items-center gap-2">
+              <Sparkline
+                points={spark}
+                markerDate={shipDay}
+                width={settled ? 240 : 200}
+                height={settled ? 40 : 34}
+                comparisons={namedControls.map((c) => ({ points: c.points }))}
+              />
+              <span className="text-[10px] text-muted-foreground">
+                {markerVisible
+                  ? `daily clicks, ${spark.length} days · dot = when this shipped, tinted = after`
+                  : `daily clicks through ${lastDataDay} · this change is newer than the latest Search data (Google reports a few days behind)`}
+              </span>
+            </div>
+            {legend && namedControls.length > 0 ? (
+              <p className="mt-0.5 text-[10px] text-muted-foreground">
+                {legend} They are the dashed lines.
+              </p>
+            ) : null}
           </div>
         );
       })() : null}
@@ -1055,6 +1127,14 @@ function LedgerCard({ rec, link, pres, grade, spark, band, revert, restored, cal
           ))}
         </div>
       ) : null}
+
+      {/* R14b (spend-to-outcome) - what preparing this change cost in paid checks,
+          from the linked move's own cached live-Google verdict spend. Absent at $0:
+          a free change never grows a cost line. */}
+      {(() => {
+        const spend = prepSpendLine(link?.actionPack?.dataforseoValidation?.costUsd);
+        return spend ? <p className="mt-1 text-[11px] text-muted-foreground">{spend}</p> : null;
+      })()}
 
       {/* Item 71 - a win leads with the number: the lift, the page, the date. */}
       {band === "win" && basis ? (

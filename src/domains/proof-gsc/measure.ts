@@ -116,18 +116,20 @@ export function isSnippetCapturePlay(actionType: string): boolean {
 export const PROOF_WINDOW_DAYS: ProofWindowDay[] = [7, 14, 28];
 
 // ── Thresholds (observational, conservative). Named so they're auditable. ──
+// R14b: the registry page (/settings/how-i-decide) imports these directly, so
+// the plain-words list can never drift from the live values. Export only.
 /** A page needs at least this many baseline impressions for any verdict. */
-const MIN_BASELINE_IMPRESSIONS = 200;
+export const MIN_BASELINE_IMPRESSIONS = 200;
 /** Lift must clear the larger of this many clicks OR this fraction of baseline. */
 export const DEFAULT_MIN_LIFT_CLICKS = 3;
-const MIN_LIFT_FRACTION = 0.1;
+export const MIN_LIFT_FRACTION = 0.1;
 /** The baseline (pre-ship) window length the recorder reads, in days. The clicks
  *  diff-in-diff pro-rates this pre window to each post window (7/14/28) so a
  *  28-day click SUM is never subtracted from a 7-day one. Must match
  *  run-measurement's BASELINE_WINDOW_DAYS. */
 export const PROOF_BASELINE_WINDOW_DAYS = 28;
 /** ≥ this many usable controls ⇒ a computed (not raw) comparison. */
-const MIN_CONTROLS_FOR_COMPUTED = 2;
+export const MIN_CONTROLS_FOR_COMPUTED = 2;
 const MIN_CONTROLS_FOR_HIGH = 3;
 /** CTR lift floor (absolute, 0–1): a 0.3 percentage-point diff-in-diff clears it. */
 export const DEFAULT_MIN_LIFT_CTR = 0.003;

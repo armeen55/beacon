@@ -30,7 +30,8 @@ import { rootDomain } from "./serp-provider";
 export const SERP_COST_USD = 0.003;
 const SERP_CACHE_STORE = "dataforseo-serp-cache";
 const SERP_CACHE_TTL_MS = 14 * 24 * 60 * 60 * 1000;
-const DEFAULT_MONTHLY_CAP_USD = 50;
+// R14b: exported so /settings/how-i-decide's registry imports the live value.
+export const DEFAULT_MONTHLY_CAP_USD = 50;
 // Item 20 (2026-07-02): live/regular -> live/advanced. The regular endpoint returns
 // items ONLY for featured_snippet/organic/paid, so ai_overview never appeared in its
 // items (verified against 83 real cached Iranopedia snapshots: 0 ai_overview). The

@@ -303,6 +303,55 @@ export async function readMonthlySpendByPlatform(tenantId: string): Promise<Mont
   }
 }
 
+/**
+ * R14b (spend-to-outcome join) - the recent day-grain spend rows for the
+ * /activity stream: what was spent, on which platform, and what it bought
+ * (prompt/call counts), newest day first. Bounded (one indexed read, hard row
+ * cap), read-only, fail-soft -> []. The ledger's grain is one row per
+ * (tenant, day, platform), so each row reads as one plain "I spent $X doing Y"
+ * stream entry.
+ */
+export type SpendActivityRow = {
+  dateUtc: string;
+  platform: string;
+  spentUsd: number;
+  promptCount: number;
+  callCount: number;
+  updatedAt: string | null;
+};
+
+export async function readRecentSpendRows(
+  tenantId: string,
+  sinceDays = 30,
+  maxRows = 90,
+): Promise<SpendActivityRow[]> {
+  if (typeof tenantId !== "string" || tenantId.trim() === "") return [];
+  try {
+    const supabase = getSupabaseAdmin();
+    const since = new Date(Date.now() - Math.max(1, sinceDays) * 86_400_000)
+      .toISOString()
+      .slice(0, 10);
+    const { data, error } = await supabase
+      .from("llm_budget_ledger")
+      .select("date_utc, platform, spent_usd, prompt_count, call_count, updated_at")
+      .eq("tenant_id", tenantId)
+      .gte("date_utc", since)
+      .order("date_utc", { ascending: false })
+      .limit(Math.max(1, maxRows));
+    if (error || !Array.isArray(data)) return [];
+    return (data as Array<Record<string, unknown>>).map((r) => ({
+      dateUtc: String(r.date_utc),
+      platform: String(r.platform),
+      spentUsd: Number(r.spent_usd) || 0,
+      promptCount: Number(r.prompt_count) || 0,
+      callCount: Number(r.call_count) || 0,
+      updatedAt: typeof r.updated_at === "string" ? r.updated_at : null,
+    }));
+  } catch {
+    return [];
+  }
+}
+
 export async function readSpendSnapshotForDate(
   date: string,
 ): Promise<SpendSnapshotRow[]> {

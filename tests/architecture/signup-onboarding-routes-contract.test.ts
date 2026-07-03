@@ -88,8 +88,11 @@ describe("Gap B — /auth/callback provisioning contract", () => {
     );
   });
 
-  it("redirects first-time signups (created: true) to /onboard/business", () => {
-    expect(CALLBACK_SRC).toMatch(/provision\.created[\s\S]{0,200}\/onboard\/business/);
+  it("redirects first-time signups (created: true) to the URL-first /onboard entry (R12/T0e)", () => {
+    expect(CALLBACK_SRC).toMatch(/provision\.created[\s\S]{0,200}\/onboard`/);
+    // The guided wizard still exists one link away, but signup itself must
+    // land URL-first, never deep-link a specific wizard step anymore.
+    expect(CALLBACK_SRC).not.toMatch(/provision\.created[\s\S]{0,200}\/onboard\/business/);
   });
 
   it("repeat sign-in (created: false) redirects to caller's `next` or `/`", () => {

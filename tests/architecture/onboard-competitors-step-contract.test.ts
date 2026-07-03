@@ -302,6 +302,11 @@ describe("Gap C.3 — customer-safe-language sweep across all onboarding pages",
     join(REPO_ROOT, "src/app/(shell)/onboard/review/page.tsx"),
     // Gap C.4 added LaunchForm (client component) to /onboard/review.
     join(REPO_ROOT, "src/app/(shell)/onboard/review/launch-form.tsx"),
+    // R12/T0e (2026-07-03) added the URL-first entry + first-audit scorecard.
+    join(REPO_ROOT, "src/app/(shell)/onboard/page.tsx"),
+    join(REPO_ROOT, "src/app/(shell)/onboard/url-form.tsx"),
+    join(REPO_ROOT, "src/app/(shell)/onboard/done/page.tsx"),
+    join(REPO_ROOT, "src/app/(shell)/onboard/done/connect-gsc-card.tsx"),
     join(REPO_ROOT, "src/components/onboard/onboarding-shell.tsx"),
   ];
 
@@ -313,7 +318,9 @@ describe("Gap C.3 — customer-safe-language sweep across all onboarding pages",
       for (const entry of readdirSync(dir)) {
         const p = join(dir, entry);
         if (statSync(p).isDirectory()) walk(p);
-        else if (p.endsWith(".tsx")) found.push(p);
+        // Colocated *.test.tsx files are never rendered to a visitor; the
+        // sweep pins rendered surfaces only (R12/T0e, 2026-07-03).
+        else if (p.endsWith(".tsx") && !p.endsWith(".test.tsx")) found.push(p);
       }
     }
     walk(onboardDir);

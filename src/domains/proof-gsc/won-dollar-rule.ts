@@ -136,3 +136,35 @@ export function sumWonDollarsPerMonth(
     contributingWins,
   };
 }
+
+/** One per-win breakdown row behind the strip's dollar figure (R14b see-the-math). */
+export type WonDollarBreakdownRow = { path: string; usdPerMonth: number };
+
+/**
+ * R14b (see-the-math completion) - the per-win rows behind THE cumulative
+ * dollar figure, selected by the EXACT same rule sumWonDollarsPerMonth sums
+ * over (so the breakdown's rows always add up to the figure it explains).
+ * Path-bearing rows only; empty when nothing contributes.
+ */
+export function buildWonDollarBreakdown(
+  rows: ReadonlyArray<WonDollarRow>,
+  now: Date,
+  shockWindows: ReadonlyArray<ShockWindow>,
+): WonDollarBreakdownRow[] {
+  const out: WonDollarBreakdownRow[] = [];
+  for (const row of selectDollarRuleWins(rows, now, shockWindows)) {
+    const usd = row.dollarValue?.usdPerMonth;
+    if (usd != null && Number.isFinite(usd)) {
+      out.push({ path: row.path, usdPerMonth: Math.round(usd * 100) / 100 });
+    }
+  }
+  return out;
+}
+
+/**
+ * THE ONE DOLLAR RULE in one plain sentence, rendered wherever the cumulative
+ * dollar figure opens up. One string constant so every surface says it in the
+ * same words. Beacon voice: no lab words, no em or en dashes.
+ */
+export const WON_DOLLAR_RULE_SENTENCE =
+  "Only wins count toward this number: each one finished its full 28 day read, had clean comparison pages, and showed a real measured gain in visits. Anything less adds nothing.";

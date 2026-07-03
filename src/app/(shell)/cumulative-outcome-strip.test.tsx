@@ -7,11 +7,15 @@
  */
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
-import { CumulativeOutcomeStrip } from "./cumulative-outcome-strip";
+import { CumulativeOutcomeStrip, latestMeasuredAt } from "./cumulative-outcome-strip";
 import {
   computeCumulativeOutcome,
   type CumulativeOutcomeRow,
 } from "@/domains/proof-gsc/cumulative-outcome";
+import {
+  buildWonDollarBreakdown,
+  WON_DOLLAR_RULE_SENTENCE,
+} from "@/domains/proof-gsc/won-dollar-rule";
 
 const NOW = new Date("2026-07-02T12:00:00Z");
 
@@ -96,5 +100,67 @@ describe("CumulativeOutcomeStrip", () => {
     const outcome = computeCumulativeOutcome([WON, MEASURING], NOW);
     const html = renderToStaticMarkup(<CumulativeOutcomeStrip outcome={outcome} />);
     expect(html).not.toMatch(/[–—]/);
+  });
+
+  // ── R14b see-the-math: the dollar figure opens into per-win rows + the rule ──
+
+  it("opens the dollar line into the per-win rows and THE ONE DOLLAR RULE sentence", () => {
+    const rows = [WON, MEASURING];
+    const outcome = computeCumulativeOutcome(rows, NOW);
+    const breakdown = buildWonDollarBreakdown(rows, NOW, []);
+    expect(breakdown).toEqual([{ path: "/best-persian-restaurants", usdPerMonth: 42 }]);
+    const html = renderToStaticMarkup(
+      <CumulativeOutcomeStrip outcome={outcome} dollarBreakdown={breakdown} />,
+    );
+    expect(html).toContain("<details");
+    expect(html).toContain("See the math.");
+    expect(html).toContain("/best-persian-restaurants: about $42 a month");
+    expect(html).toContain(WON_DOLLAR_RULE_SENTENCE);
+  });
+
+  it("the breakdown rows always sum to the figure the strip shows", () => {
+    const secondWin: CumulativeOutcomeRow = {
+      ...WON,
+      id: "won-2",
+      path: "/persian-cats",
+      dollarValue: { usdPerMonth: 18.5 },
+    };
+    const rows = [WON, secondWin, MEASURING];
+    const outcome = computeCumulativeOutcome(rows, NOW);
+    const breakdown = buildWonDollarBreakdown(rows, NOW, []);
+    const sum = breakdown.reduce((s, w) => s + w.usdPerMonth, 0);
+    expect(Math.round(sum * 100) / 100).toBe(outcome!.estimatedUsdPerMonth);
+  });
+
+  it("a dollar line without a breakdown renders flat (no expander), same as before", () => {
+    const outcome = computeCumulativeOutcome([WON, MEASURING], NOW);
+    const html = renderToStaticMarkup(<CumulativeOutcomeStrip outcome={outcome} />);
+    expect(html).toContain("At your rate, that is about $42 a month.");
+    expect(html).not.toContain("<details");
+  });
+
+  // ── R14b receipts: the strip carries its one-line receipt ──
+
+  it("renders the one-line receipt when provided", () => {
+    const outcome = computeCumulativeOutcome([WON, MEASURING], NOW);
+    const html = renderToStaticMarkup(
+      <CumulativeOutcomeStrip
+        outcome={outcome}
+        receiptLine="From your Search Console data, last measured 2 hours ago."
+      />,
+    );
+    expect(html).toContain("data-receipt-line");
+    expect(html).toContain("From your Search Console data, last measured 2 hours ago.");
+  });
+
+  it("latestMeasuredAt picks the newest valid stamp and ignores garbage", () => {
+    expect(
+      latestMeasuredAt([
+        { ...WON, measuredAt: "2026-07-01T10:00:00Z" },
+        { ...MEASURING, measuredAt: "2026-07-02T09:00:00Z" },
+        { ...MEASURING, id: "m3", measuredAt: "garbage" },
+      ]),
+    ).toBe("2026-07-02T09:00:00Z");
+    expect(latestMeasuredAt([WON])).toBeNull();
   });
 });

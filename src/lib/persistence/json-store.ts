@@ -94,6 +94,11 @@ const SUPABASE_MIRRORED_STORES = new Set<string>([
   // on Today; without the mirror "down twice in a row" could never be seen
   // across lambda instances on hosted prod.
   "site-uptime-probes",
+  // 2026-07-03 R12/T0e - the resumable cold-start crawl queue (frontier +
+  // cursor + per-page audit facts). Every batch runs in its own lambda, so
+  // without the mirror the cursor resets to page zero on every invocation
+  // and the crawl could never get past one batch on hosted prod.
+  "crawl-frontier",
   // 2026-07-02 item 13 - nightly precompute warm pass. The per-day run marker
   // (double-fire idempotency) and the "last warmed" receipt /diagnostics shows
   // must survive lambda recycling; losing the marker only costs a harmless

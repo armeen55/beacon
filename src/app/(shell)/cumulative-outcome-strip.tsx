@@ -5,9 +5,15 @@ import {
   type CumulativeOutcome,
   type CumulativeOutcomeRow,
 } from "@/domains/proof-gsc/cumulative-outcome";
+import {
+  buildWonDollarBreakdown,
+  WON_DOLLAR_RULE_SENTENCE,
+  type WonDollarBreakdownRow,
+} from "@/domains/proof-gsc/won-dollar-rule";
 import { buildShockWindows, type ShockWindow } from "@/domains/proof-gsc/algorithm-weather";
 import { loadDetectedChangepoints } from "@/domains/proof-gsc/algorithm-weather-store";
 import { Card } from "@/components/ui/card";
+import { buildReceiptLine, ReceiptLine } from "@/components/data/receipt-line";
 import { ResultsHeaderStrip } from "./results/results-header-strip";
 
 /**
@@ -25,9 +31,25 @@ import { ResultsHeaderStrip } from "./results/results-header-strip";
  *   - a dollar line ONLY when GA4-backed per-change dollar rates already exist,
  *     clearly labeled as an estimate with its basis. No rate -> no money, ever.
  *
+ * R14b (P1 trust receipts): the dollar line is now a disclosure - clicking it opens
+ * the per-win rows it sums (buildWonDollarBreakdown, the SAME selection rule as the
+ * sum) plus THE ONE DOLLAR RULE in one plain sentence. The strip also carries the
+ * one-line receipt (when these numbers were last measured, from what source).
+ *
  * Primitives + tokens only (design-system-guard). Read-only aggregation.
  */
-export function CumulativeOutcomeStrip({ outcome }: { outcome: CumulativeOutcome | null }) {
+export function CumulativeOutcomeStrip({
+  outcome,
+  dollarBreakdown,
+  receiptLine,
+}: {
+  outcome: CumulativeOutcome | null;
+  /** R14b - the per-win rows behind outcome.dollarLine. Empty/absent -> the dollar
+   *  line renders flat (no expander), exactly the pre-R14b presentation. */
+  dollarBreakdown?: ReadonlyArray<WonDollarBreakdownRow>;
+  /** R14b - the one-line receipt ("From your Search Console data, checked N ago."). */
+  receiptLine?: string | null;
+}) {
   if (!outcome || outcome.shipped === 0) return null;
   return (
     <Card variant="quiet" padding="sm" data-cumulative-outcome-strip="true">
@@ -52,10 +74,45 @@ export function CumulativeOutcomeStrip({ outcome }: { outcome: CumulativeOutcome
         <p className="mt-1 text-body text-muted-foreground tabular-nums">{outcome.waitingLine}</p>
       ) : null}
       {outcome.dollarLine ? (
-        <p className="mt-1 text-meta text-muted-foreground tabular-nums">{outcome.dollarLine}</p>
+        dollarBreakdown && dollarBreakdown.length > 0 ? (
+          // R14b see-the-math: the dollar figure opens into the per-win rows it
+          // sums plus the one rule sentence. Same numbers, one click deeper.
+          <details className="mt-1">
+            <summary className="cursor-pointer text-meta text-muted-foreground tabular-nums hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1">
+              {outcome.dollarLine} See the math.
+            </summary>
+            <div className="mt-1 space-y-1 rounded-md border border-border/40 bg-surface-inset/30 p-2 text-meta text-foreground/70">
+              <ul className="space-y-0.5 tabular-nums">
+                {dollarBreakdown.map((w) => (
+                  <li key={w.path}>
+                    {w.path}: about ${Math.round(w.usdPerMonth).toLocaleString("en-US")} a month
+                  </li>
+                ))}
+              </ul>
+              <p>{WON_DOLLAR_RULE_SENTENCE}</p>
+            </div>
+          </details>
+        ) : (
+          <p className="mt-1 text-meta text-muted-foreground tabular-nums">{outcome.dollarLine}</p>
+        )
       ) : null}
+      <ReceiptLine line={receiptLine ?? null} className="mt-1" />
     </Card>
   );
+}
+
+/** R14b - the newest measuredAt stamp across the loaded rows: the honest "when
+ *  these numbers were last measured" for the strip's receipt. Null when no row
+ *  carries one (legacy rows). PURE. */
+export function latestMeasuredAt(rows: ReadonlyArray<CumulativeOutcomeRow>): string | null {
+  let latest: string | null = null;
+  for (const r of rows) {
+    const at = r.measuredAt;
+    if (typeof at === "string" && Number.isFinite(Date.parse(at)) && (latest == null || at > latest)) {
+      latest = at;
+    }
+  }
+  return latest;
 }
 
 /**
@@ -75,6 +132,8 @@ export async function CumulativeOutcomeSection({
   shockWindows?: ReadonlyArray<ShockWindow>;
 } = {}) {
   let outcome: CumulativeOutcome | null = null;
+  let dollarBreakdown: WonDollarBreakdownRow[] = [];
+  let receiptLine: string | null = null;
   try {
     const tenantId = await currentTenantId();
     const ledger =
@@ -84,10 +143,28 @@ export async function CumulativeOutcomeSection({
       (await loadDetectedChangepoints(tenantId)
         .then((changepoints) => buildShockWindows({ dailySeries: [], priorChangepoints: changepoints }))
         .catch(() => [] as ShockWindow[]));
+    const now = new Date();
     outcome =
-      ledger.length === 0 ? null : computeCumulativeOutcome(ledger, new Date(), shockWindows);
+      ledger.length === 0 ? null : computeCumulativeOutcome(ledger, now, shockWindows);
+    // R14b - the SAME selection rule as the dollar sum, so the expander's rows
+    // always add up to the figure it explains. Cheap pure pass over loaded rows.
+    dollarBreakdown = outcome?.dollarLine
+      ? buildWonDollarBreakdown(ledger, now, shockWindows)
+      : [];
+    receiptLine = buildReceiptLine({
+      source: "your Search Console data, measured against similar pages we did not change",
+      checkedAt: latestMeasuredAt(ledger),
+      verb: "last measured",
+      nowMs: now.getTime(),
+    });
   } catch {
     return null;
   }
-  return <CumulativeOutcomeStrip outcome={outcome} />;
+  return (
+    <CumulativeOutcomeStrip
+      outcome={outcome}
+      dollarBreakdown={dollarBreakdown}
+      receiptLine={receiptLine}
+    />
+  );
 }

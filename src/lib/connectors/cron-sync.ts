@@ -24,6 +24,7 @@ import { loadMonthlyArchiveRows } from "@/domains/seasonal/load-monthly-archive"
 import { detectSeasonalQueries } from "@/domains/seasonal/seasonality";
 import { writeSeasonalSummary } from "@/domains/seasonal/seasonal-store";
 import { continueDeepBackfillIfStarted } from "@/lib/connectors/gsc/deep-backfill";
+import { continueColdStartCrawlIfStarted } from "@/domains/scanning/crawl-frontier";
 import { computePeakCalendar } from "@/domains/seasonal/seasonality";
 import { writePeakCalendar } from "@/domains/seasonal/peak-calendar-store";
 import { loadSeasonalQueries } from "@/domains/seasonal/seasonal-store";
@@ -471,6 +472,52 @@ export async function syncAllConnectedForActiveTenants(): Promise<CronSyncResult
       });
       await reportPhaseError("gsc-deep-backfill", t.id, e);
     }
+  }
+
+  // PHASE 1d-2b - cold-start crawl continuation (BEACON_500 R12 / T0e): the
+  // URL-first signup starts a RESUMABLE crawl queue (crawl-frontier store);
+  // this continues exactly one more bounded batch per night (max 15 pages /
+  // 45s) for any tenant whose queue is still in_progress, until frontier
+  // exhaustion or the 150-page cap. A no-op for every tenant without a live
+  // queue. FREE (polite crawl of the tenant's own site, no LLM, no paid API).
+  // Includes pending_onboarding tenants on purpose: a signup that stalled
+  // before launch still gets its site read overnight (the /diagnostics
+  // stalled-signup rescue reads the same state). Isolated fail-soft phase,
+  // same resumable-continuation contract as PHASE 1d-2 above.
+  try {
+    const crawlTenants = (await listTenants()).filter(
+      (t) => t.status === "active" || t.status === "pending_onboarding",
+    );
+    for (const t of crawlTenants) {
+      if (pastDeadline()) {
+        log.info("[cron-sync] enrichment deadline reached, skipping remaining cold-start crawl batches");
+        break;
+      }
+      try {
+        const batch = await continueColdStartCrawlIfStarted(t.id);
+        if (batch.ran) {
+          log.info("[cron-sync] cold-start crawl batch", {
+            tenantId: t.id,
+            crawled: batch.crawled,
+            failed: batch.failed,
+            totalCrawled: batch.totalCrawled,
+            remaining: batch.remaining,
+            complete: batch.complete,
+          });
+        }
+      } catch (e) {
+        log.warn("[cron-sync] cold-start crawl continuation failed", {
+          tenantId: t.id,
+          error: e instanceof Error ? e.message.slice(0, 200) : String(e),
+        });
+        await reportPhaseError("cold-start-crawl", t.id, e);
+      }
+    }
+  } catch (e) {
+    log.warn("[cron-sync] cold-start crawl tenant listing failed (phase skipped)", {
+      error: e instanceof Error ? e.message.slice(0, 200) : String(e),
+    });
+    await reportPhaseError("cold-start-crawl", null, e);
   }
 
   // PHASE 1d-3 - proven peak calendar (master plan item 63): cross-check the top

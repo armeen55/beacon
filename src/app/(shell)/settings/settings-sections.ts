@@ -48,6 +48,11 @@ export const SETTINGS_SECTIONS = [
     label: "How Beacon measures",
     description: "What each number means, and where it comes from.",
   },
+  {
+    href: "/settings/how-i-decide",
+    label: "How I decide",
+    description: "Every live threshold Beacon uses to call wins, pace work, and cap spending.",
+  },
 ] as const;
 
 export type SettingsSection = (typeof SETTINGS_SECTIONS)[number];

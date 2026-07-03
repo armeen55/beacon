@@ -78,6 +78,16 @@ export type CanonicalChange = {
    *  forecast, so the caller (changes-data.ts) can log it via hypothesis-log.ts. Present whenever
    *  a forecast (even a "not enough history" one) was computed for this change. */
   hypothesisId?: string | null;
+  /** R14b (see-the-math) - the raw inputs the sized forecast above was computed from, so the
+   *  row can open a small disclosure showing its own math basis (times shown, current position,
+   *  which click-rate curve sized it). Present exactly when `expectedOutcomeLow` is (a SIZED
+   *  forecast); absent for honest-fallback rows, which already explain themselves in prose. */
+  forecastInputs?: {
+    impressions90d: number | null;
+    currentPosition: number | null;
+    /** Plain curve-basis phrase ("your own click rates at each Google position"). */
+    curveBasis: string;
+  } | null;
   riskLevel: "low" | "medium" | "high";
   evidenceStrength: EvidenceStrength;
   measurementMethod: string;
@@ -119,6 +129,27 @@ export type CanonicalChange = {
    *  weeks ago"). Absent otherwise. */
   agingChip?: string | null;
 };
+
+/**
+ * R14b (see-the-math) - the plain lines inside a row's forecast disclosure:
+ * the exact opportunity-math inputs, one short line each, never a lab word.
+ * PURE; pinned by tests/domains/changes/forecast-input-lines.test.ts.
+ */
+export function buildForecastInputLines(
+  fi: NonNullable<CanonicalChange["forecastInputs"]>,
+): string[] {
+  const lines: string[] = [];
+  if (fi.impressions90d != null && Number.isFinite(fi.impressions90d) && fi.impressions90d > 0) {
+    lines.push(
+      `Shown on Google ${Math.round(fi.impressions90d).toLocaleString("en-US")} times in the last 90 days for its top search.`,
+    );
+  }
+  if (fi.currentPosition != null && Number.isFinite(fi.currentPosition)) {
+    lines.push(`Ranked about number ${Math.round(fi.currentPosition)} on Google today.`);
+  }
+  lines.push(`Sized from ${fi.curveBasis}.`);
+  return lines;
+}
 
 const NEW_PAGE_FAMILIES = new Set(["new_page", "hub"]);
 

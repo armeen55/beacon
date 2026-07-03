@@ -18,7 +18,8 @@ import Link from "next/link";
 import { Hourglass, TriangleAlert } from "lucide-react";
 import type { ChangesView } from "./changes-data";
 import type { CanonicalChange, Strategy, Goal, StatusView } from "@/domains/changes/canonical-change";
-import { EVIDENCE_LABEL, statusView } from "@/domains/changes/canonical-change";
+import { buildForecastInputLines, EVIDENCE_LABEL, statusView } from "@/domains/changes/canonical-change";
+import { ReceiptLine } from "@/components/data/receipt-line";
 import { rankChanges, goalMatches, inStatusView } from "@/domains/changes/strategy";
 import { MoveCard } from "./today-moves-card";
 import { Sparkline } from "@/components/data/sparkline";
@@ -302,6 +303,21 @@ function Row({
                 path by default (folded into the expander above). */}
             {c.freshness === "aging" && c.agingChip ? <span className="text-muted-foreground">{c.agingChip}</span> : null}
           </div>
+          {/* R14b (see-the-math) - the sized forecast opens into its own inputs: times
+              shown, current position, and which click-rate curve sized it. Same label
+              convention as the Results cards. Absent for honest-fallback rows. */}
+          {c.expectedOutcome && c.forecastInputs && (c.status === "ready" || c.status === "suggested") ? (
+            <details className="mt-0.5">
+              <summary className={`cursor-pointer text-meta text-muted-foreground hover:text-foreground ${FOCUS}`}>
+                See the math
+              </summary>
+              <ul className="mt-0.5 space-y-0.5 pl-4 text-meta text-muted-foreground">
+                {buildForecastInputLines(c.forecastInputs).map((line) => (
+                  <li key={line} className="list-disc">{line}</li>
+                ))}
+              </ul>
+            </details>
+          ) : null}
         </div>
         <div className="flex shrink-0 items-center gap-2">
           {isMeasure ? (
@@ -686,6 +702,9 @@ export function ChangesListClient({ view }: { view: ChangesView }) {
       {view.suppressedRowsNote ? (
         <p className="text-meta text-muted-foreground">{view.suppressedRowsNote}</p>
       ) : null}
+      {/* R14b (receipts everywhere) - when this ranked list was computed and from what
+          source, built server-side in changes-data.ts so it never drifts on hydration. */}
+      <ReceiptLine line={view.receiptLine} />
       {/* List */}
       {visible.length === 0 ? (
         <div role="status">

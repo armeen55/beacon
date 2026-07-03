@@ -466,10 +466,17 @@ function TodayCounts({
   ].filter((t) => t.show);
   if (tiles.length === 0) return null;
   return (
-    <div className="flex flex-wrap gap-x-5 gap-y-1 text-xs text-gray-500">
-      {tiles.map((t) => (
-        <span key={t.label}><span className={`font-semibold ${t.cls}`}>{t.value}</span> {t.label}</span>
-      ))}
+    <div>
+      <div className="flex flex-wrap gap-x-5 gap-y-1 text-xs text-gray-500">
+        {tiles.map((t) => (
+          <span key={t.label}><span className={`font-semibold ${t.cls}`}>{t.value}</span> {t.label}</span>
+        ))}
+      </div>
+      {/* R14b (receipts everywhere) - where these counts come from: the SAME live
+          change ledger Results reads (THE ONE-COUNT RULE), counted this visit. */}
+      <p data-receipt-line="true" className="mt-0.5 text-meta text-muted-foreground">
+        From the same live change ledger Results reads, counted just now.
+      </p>
     </div>
   );
 }

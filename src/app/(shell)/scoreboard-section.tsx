@@ -34,6 +34,9 @@ import { loadShadowPortfolioMeasurement } from "@/domains/experiments/shadow-por
 import { ScoreboardChartTabs, type ChartTabDef } from "./scoreboard-chart-tabs";
 import { loadWithDeadline, valueWithDeadline } from "@/lib/load-with-deadline";
 import { HonestDelay } from "@/components/honest-delay";
+// R14b (receipts everywhere) - the one-line receipt under the hero numbers: what
+// data this chart reads and how far it runs, from the series ALREADY loaded.
+import { buildReceiptLine, ReceiptLine } from "@/components/data/receipt-line";
 
 const W = 720;
 const H = 170;
@@ -317,6 +320,17 @@ export async function ScoreboardSection({
         </div>
         <ScoreboardChartTabs googleChart={<Chart s={s} />} otherTabs={chartTabs} />
         <p className="mt-1 text-[13px] text-gray-600 dark:text-neutral-300">{s.verdictLine}</p>
+        {/* R14b (receipts everywhere) - where these clicks come from and how far the
+            data runs, from the same series the chart just drew. No new reads. */}
+        <ReceiptLine
+          className="mt-0.5"
+          line={buildReceiptLine({
+            source: "your Search Console data",
+            through: s.days[s.days.length - 1]?.date ?? null,
+            nowMs: Date.now(),
+            note: "Google reports a few days behind.",
+          })}
+        />
         {moneyLine ? (
           <p className="mt-1 text-[13px] font-medium text-emerald-700 dark:text-emerald-300">{moneyLine}</p>
         ) : null}
@@ -338,6 +352,15 @@ export async function ScoreboardSection({
             <span className="font-semibold text-pink-700 dark:text-pink-300">AI recommended you {citations.total.toLocaleString()} time{citations.total === 1 ? "" : "s"} in the last 30 days.</span>
             {citations.daily.length >= 5 ? <Sparkline points={citations.daily} width={96} height={18} className="inline-block opacity-80" /> : null}
             <span className="text-[11px] text-gray-400 dark:text-neutral-500">citations of your pages in AI answers, per day</span>
+            {/* R14b (receipts everywhere) - the AI count's own receipt, from the same
+                citation series just rendered. No new reads. */}
+            <ReceiptLine
+              line={buildReceiptLine({
+                source: "your AI answer tracking",
+                through: citations.daily[citations.daily.length - 1]?.date ?? null,
+                nowMs: Date.now(),
+              })}
+            />
             {/* A1 - honest badge when last night's sync hit a data-pipe problem: this count
                 may not include last night, so say so instead of reading as fully current. */}
             {stale ? (

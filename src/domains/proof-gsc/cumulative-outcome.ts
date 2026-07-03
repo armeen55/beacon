@@ -42,6 +42,9 @@ export type CumulativeOutcomeRow = {
   path: string;
   shippedAt: string;
   verdict: string;
+  /** When this row's numbers were last measured (shipped-change-store's own stamp).
+   *  Optional; only read by the strip's one-line receipt (R14b), never by the math. */
+  measuredAt?: string | null;
   windows: ReadonlyArray<{
     day: number;
     ran: boolean;

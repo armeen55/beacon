@@ -42,3 +42,49 @@ describe("Sparkline (items 4+5)", () => {
     expect(html).toContain("<circle");
   });
 });
+
+// ── R14b named controls: dashed comparison series on the same chart ──
+
+const days = (clicks: number[]): SparkPoint[] =>
+  clicks.map((c, i) => ({ date: `2026-06-${String(i + 1).padStart(2, "0")}`, clicks: c }));
+
+describe("Sparkline comparisons (R14b)", () => {
+  it("renders one dashed path per comparison series and names them in the aria-label", () => {
+    const html = renderToStaticMarkup(
+      <Sparkline
+        points={days([1, 2, 3, 4, 5, 6])}
+        comparisons={[{ points: days([2, 2, 2, 2, 2, 2]) }, { points: days([1, 1, 1, 1, 1, 1]) }]}
+      />,
+    );
+    expect(html.match(/data-comparison-series="true"/g)).toHaveLength(2);
+    expect(html).toContain('stroke-dasharray="3 3"');
+    expect(html).toContain("with 2 comparison pages dashed");
+  });
+
+  it("keeps the plain aria-label and no dashed paths without comparisons", () => {
+    const html = renderToStaticMarkup(<Sparkline points={days([1, 2, 3, 4, 5, 6])} />);
+    expect(html).not.toContain("data-comparison-series");
+    expect(html).toContain("Clicks per day, last 6 days");
+  });
+
+  it("drops too-short comparison series instead of drawing misleading stubs", () => {
+    const html = renderToStaticMarkup(
+      <Sparkline points={days([1, 2, 3, 4, 5, 6])} comparisons={[{ points: days([9, 9]) }]} />,
+    );
+    expect(html).not.toContain("data-comparison-series");
+  });
+
+  it("shares one y scale: a taller comparison series rescales the main line", () => {
+    const alone = renderToStaticMarkup(<Sparkline points={days([1, 1, 1, 1, 1, 10])} />);
+    const withTallComparison = renderToStaticMarkup(
+      <Sparkline
+        points={days([1, 1, 1, 1, 1, 10])}
+        comparisons={[{ points: days([20, 20, 20, 20, 20, 20]) }]}
+      />,
+    );
+    // same data, different shared max -> the MAIN path (always rendered last,
+    // after the dashed comparisons) must change its d attribute
+    const mainDOf = (html: string) => [...html.matchAll(/d="(M[^"]+)"/g)].at(-1)?.[1];
+    expect(mainDOf(withTallComparison)).not.toBe(mainDOf(alone));
+  });
+});

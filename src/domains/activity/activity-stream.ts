@@ -18,7 +18,7 @@ import { findScheduleForJob } from "@/domains/ops/cron-schedule-map";
 import { buildErrorSpikeLine } from "@/domains/ops/error-spike";
 import type { AppErrorRow } from "@/lib/obs/error-ledger";
 
-export type ActivityKind = "shipped" | "plan" | "cron" | "errors" | "connection";
+export type ActivityKind = "shipped" | "plan" | "cron" | "errors" | "connection" | "spend";
 
 export type ActivityEvent = {
   /** ISO timestamp (sort key, newest first). */
@@ -74,6 +74,18 @@ export type ConnectionInput = {
   authFailedAt?: string | null;
 };
 
+/** R14b - one llm_budget_ledger day row (tenant, day, platform grain). */
+export type SpendInput = {
+  /** YYYY-MM-DD ledger day. */
+  dateUtc: string;
+  /** Raw platform key ("dataforseo-serp"); mapped to plain words here, never rendered raw. */
+  platform: string;
+  spentUsd: number;
+  promptCount: number;
+  /** Row's own update stamp when present (better sort position than the bare day). */
+  updatedAt?: string | null;
+};
+
 export type ActivityInputs = {
   shipped: ShippedInput[];
   autopilotReceipts: AutopilotReceiptInput[];
@@ -81,6 +93,8 @@ export type ActivityInputs = {
   cronRuns: CronRunInput[];
   errorRows: AppErrorRow[];
   connections: ConnectionInput[];
+  /** R14b - optional so existing fixtures keep compiling; absent = no spend rows. */
+  spend?: SpendInput[];
 };
 
 /** Mirrors /results' PLAIN_ACTION so the same change never wears two names. */
@@ -111,6 +125,40 @@ function validAt(at: string | null | undefined): at is string {
 function humanizeJob(job: string): string {
   const words = job.replace(/[-_]+/g, " ").trim();
   return words.charAt(0).toUpperCase() + words.slice(1);
+}
+
+// ── R14b spend rows: plain purpose words per ledger platform, never a raw key ──
+
+const SPEND_PURPOSE: Record<string, { title: string; doing: string; unit: string }> = {
+  "dataforseo-serp": {
+    title: "Live Google results check",
+    doing: "checking live Google results",
+    unit: "keyword",
+  },
+  openai: { title: "AI drafting", doing: "drafting and checking copy with AI", unit: "draft" },
+  "adjudicator-openai": {
+    title: "Draft quality check",
+    doing: "double-checking draft quality",
+    unit: "check",
+  },
+  perplexity: { title: "AI answer check", doing: "checking AI answers", unit: "question" },
+};
+const SPEND_FALLBACK = { title: "Outside data check", doing: "on outside data checks", unit: "check" };
+
+/** "$0.03", or "under a cent" below a displayable cent - never a lying $0.00. */
+export function spendAmountLabel(usd: number): string {
+  return usd < 0.005 ? "under a cent" : `$${usd.toFixed(2)}`;
+}
+
+/** The one plain spend sentence: what it cost and what it bought. Exported for tests. */
+export function spendSentence(row: SpendInput): string {
+  const purpose = SPEND_PURPOSE[row.platform] ?? SPEND_FALLBACK;
+  const amount = spendAmountLabel(row.spentUsd);
+  const bought =
+    row.promptCount > 0 && purpose !== SPEND_FALLBACK
+      ? ` for ${row.promptCount} ${purpose.unit}${row.promptCount === 1 ? "" : "s"}`
+      : "";
+  return `I spent ${amount} ${purpose.doing}${bought}. Every paid call is logged before it runs.`;
 }
 
 /** PURE: compose + sort the unified stream, newest first. */
@@ -202,6 +250,28 @@ export function composeActivityStream(inputs: ActivityInputs, now: Date): Activi
         linkLabel: "See details",
       });
     }
+  }
+
+  // R14b spend-to-outcome: each ledger day-row joins the stream as one plain
+  // "I spent $X doing Y" receipt next to what it bought. Zero-dollar rows never
+  // render (a $0.00 row is bookkeeping, not an action worth a stream entry).
+  for (const s of inputs.spend ?? []) {
+    if (!(s.spentUsd > 0)) continue;
+    const at = validAt(s.updatedAt)
+      ? s.updatedAt
+      : /^\d{4}-\d{2}-\d{2}$/.test(s.dateUtc)
+        ? `${s.dateUtc}T12:00:00.000Z`
+        : null;
+    if (!at) continue;
+    const purpose = SPEND_PURPOSE[s.platform] ?? SPEND_FALLBACK;
+    events.push({
+      at,
+      kind: "spend",
+      title: purpose.title,
+      sentence: spendSentence(s),
+      href: "/settings/spend",
+      linkLabel: "See all spend",
+    });
   }
 
   for (const conn of inputs.connections) {

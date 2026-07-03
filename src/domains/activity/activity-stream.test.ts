@@ -132,6 +132,51 @@ describe("composeActivityStream (R14a)", () => {
     expect(events[2]!.href).toBe("/settings/connectors");
   });
 
+  // ── R14b spend-to-outcome join ──
+
+  it("spend rows join as plain 'I spent $X doing Y' receipts with the spend deep link", () => {
+    const events = composeActivityStream(
+      {
+        ...EMPTY,
+        spend: [
+          { dateUtc: "2026-07-02", platform: "dataforseo-serp", spentUsd: 0.03, promptCount: 12, updatedAt: "2026-07-02T04:10:00.000Z" },
+          { dateUtc: "2026-07-01", platform: "openai", spentUsd: 0.11, promptCount: 0 },
+        ],
+      },
+      NOW,
+    );
+    expect(events).toHaveLength(2);
+    expect(events[0]!.kind).toBe("spend");
+    expect(events[0]!.title).toBe("Live Google results check");
+    expect(events[0]!.sentence).toBe(
+      "I spent $0.03 checking live Google results for 12 keywords. Every paid call is logged before it runs.",
+    );
+    expect(events[0]!.at).toBe("2026-07-02T04:10:00.000Z");
+    expect(events[0]!.href).toBe("/settings/spend");
+    expect(events[1]!.sentence).toBe(
+      "I spent $0.11 drafting and checking copy with AI. Every paid call is logged before it runs.",
+    );
+    // never a raw platform key on the surface
+    expect(JSON.stringify(events)).not.toContain("dataforseo-serp");
+  });
+
+  it("zero-dollar and sub-cent spend rows are handled honestly", () => {
+    const events = composeActivityStream(
+      {
+        ...EMPTY,
+        spend: [
+          { dateUtc: "2026-07-02", platform: "dataforseo-serp", spentUsd: 0, promptCount: 3 },
+          { dateUtc: "2026-07-01", platform: "perplexity", spentUsd: 0.002, promptCount: 1 },
+        ],
+      },
+      NOW,
+    );
+    // the $0 row never renders; the sub-cent row says "under a cent", never $0.00
+    expect(events).toHaveLength(1);
+    expect(events[0]!.sentence).toContain("I spent under a cent checking AI answers for 1 question.");
+    expect(JSON.stringify(events)).not.toContain("$0.00");
+  });
+
   it("drops rows with unparseable timestamps instead of corrupting the sort", () => {
     const events = composeActivityStream(
       {

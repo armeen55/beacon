@@ -270,6 +270,16 @@ export function DataSourcesStripView({
   const summary = summarizeDataSourceHealth(statuses);
 
   if (allConnected) {
+    // R14b (receipts everywhere) - the collapsed all-healthy line asserts health
+    // without a when; name the freshest sync from the statuses already read.
+    const freshestSync = statuses.reduce<string | null>(
+      (latest, s) =>
+        s.lastSyncedAtIso && Number.isFinite(Date.parse(s.lastSyncedAtIso)) && (latest == null || s.lastSyncedAtIso > latest)
+          ? s.lastSyncedAtIso
+          : latest,
+      null,
+    );
+    const freshestLabel = freshestSync ? formatLastSynced(freshestSync, Date.now()) : null;
     return (
       <section
         aria-label="Your data sources"
@@ -278,7 +288,8 @@ export function DataSourcesStripView({
         <div className="flex flex-wrap items-center justify-between gap-2">
           <p className="text-[12px] text-muted-foreground">
             <Check aria-hidden="true" className="mr-1 inline-block h-3.5 w-3.5" />
-            {dataSourceHealthLine(summary)}{" "}
+            {dataSourceHealthLine(summary)}
+            {freshestLabel ? ` Freshest source ${freshestLabel}.` : ""}{" "}
             <Link
               href={CONNECTORS_PATH}
               className="rounded-sm text-accent-primary underline underline-offset-2 hover:text-accent-primary/85 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary/40"

@@ -39,6 +39,9 @@ import { loadNewPagesData } from "./today-newpages-data";
 import { topicIdentityKey } from "@/domains/demand-graph/dedupe-new-page-cards";
 import { valueWithDeadline } from "@/lib/load-with-deadline";
 import { cache } from "react";
+// R14b (receipts everywhere) - the shared one-line receipt builder; the line is
+// composed HERE (server) so the client list renders a stable string.
+import { buildReceiptLine, checkedAgoLabel } from "@/components/data/receipt-line";
 // D4/N1 (unified allocator, 2026-07-02) - fuse D2's AEO gap verdicts + D3's SERP steal briefs +
 // undercovered keyword-library demand onto this SAME ranked list, so /changes becomes the
 // operator's "one ranked decision" across every opportunity source, not just the ActionPack
@@ -78,6 +81,10 @@ export type ChangesView = {
    *  the SAME "N more lower-priority ideas" expander (see changes-list-client.tsx) - never a
    *  second expander, never a bare status word. Null when nothing expired. */
   expiredSubline: string | null;
+  /** R14b (receipts everywhere) - the one-line receipt above the list: when this ranking was
+   *  computed and from what source, plus when tonight's picks were assembled when a plan
+   *  exists. Built server-side so the rendered string is hydration-stable. */
+  receiptLine: string | null;
 };
 
 /** FP2 (2026-07-02, killer finding 1) - normalized identity for the dedupe pass below: the
@@ -413,6 +420,19 @@ export const loadChangesView = cache(async (): Promise<ChangesView> => {
     }
   }
 
+  // R14b (receipts everywhere) - the list is ranked at request time from the demand
+  // data above; when tonight's plan contributed rows, its own assembly stamp joins
+  // the line so "why does this say Tuesday" never needs a support ticket.
+  const nowMs = Date.now();
+  const planAgo = plan?.createdAt ? checkedAgoLabel(plan.createdAt, nowMs) : null;
+  const receiptLine = buildReceiptLine({
+    source: "your Search Console demand data",
+    checkedAt: new Date(nowMs).toISOString(),
+    verb: "ranked",
+    nowMs,
+    note: planAgo ? `Tonight's picks were put together ${planAgo}.` : null,
+  });
+
   return {
     changes,
     movesById,
@@ -424,5 +444,6 @@ export const loadChangesView = cache(async (): Promise<ChangesView> => {
     decidedCountCanonical,
     suppressedRowsNote,
     expiredSubline: expirySummary.expiredSubline,
+    receiptLine,
   };
 });

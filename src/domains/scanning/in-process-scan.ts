@@ -51,8 +51,10 @@ const MAX_CHILD_SITEMAPS = 5;
 /** www-insensitive host. A bare-apex domain whose sitemap 301s to the www host
  *  (or vice-versa) is the common small-business case; comparing/keying on the
  *  raw host would drop the ENTIRE sitemap (audit-6 #1). Mirrors the repo's other
- *  same-host comparisons (extractor stripWww, fetch-site-profile normalizeSiteUrl). */
-function stripWww(host: string): string {
+ *  same-host comparisons (extractor stripWww, fetch-site-profile normalizeSiteUrl).
+ *  Exported (2026-07-03 T0e) so the resumable crawl-frontier shares the SAME
+ *  host/key/id math and re-runs upsert the same rows. */
+export function stripWww(host: string): string {
   return host.replace(/^www\./i, "");
 }
 
@@ -81,8 +83,9 @@ export interface InProcessColdStartScanDeps {
   syncPageSnapshotsImpl?: typeof syncPageSnapshots;
 }
 
-/** Strip scheme+host into an https origin, or null if the input is unusable. */
-function originFromDomain(domain: string): { origin: string; host: string } | null {
+/** Strip scheme+host into an https origin, or null if the input is unusable.
+ *  Exported (2026-07-03 T0e) for the crawl-frontier module. */
+export function originFromDomain(domain: string): { origin: string; host: string } | null {
   const raw = (domain ?? "").trim();
   if (!raw) return null;
   let candidate = raw;
@@ -99,24 +102,27 @@ function originFromDomain(domain: string): { origin: string; host: string } | nu
   }
 }
 
-/** Path with trailing slashes stripped (root stays "/"). */
-function normPath(u: URL): string {
+/** Path with trailing slashes stripped (root stays "/"). Exported for the
+ *  crawl-frontier module (2026-07-03 T0e). */
+export function normPath(u: URL): string {
   return u.pathname.replace(/\/+$/, "") || "/";
 }
 
 /** Stable join/dedup key: www-stripped lowercase host + normalized path (no
  *  query/hash). www-stripping keeps the id stable whether the sitemap lists the
- *  apex or the www host. */
-function urlKey(u: URL): string {
+ *  apex or the www host. Exported for the crawl-frontier module. */
+export function urlKey(u: URL): string {
   return `${stripWww(u.hostname.toLowerCase())}${normPath(u)}`;
 }
 
-/** Deterministic page id from the url key — stable across re-runs. */
-function pageIdFor(key: string): string {
+/** Deterministic page id from the url key — stable across re-runs. Exported
+ *  for the crawl-frontier module so both crawlers upsert the SAME rows. */
+export function pageIdFor(key: string): string {
   return `page-${createHash("sha256").update(key).digest("hex").slice(0, 16)}`;
 }
 
-function inferPageType(path: string): PageType {
+/** Exported for the crawl-frontier module (2026-07-03 T0e). */
+export function inferPageType(path: string): PageType {
   return path === "/" ? "homepage" : "other";
 }
 
@@ -138,8 +144,10 @@ async function fetchText(
   }
 }
 
-/** Discover candidate page URLs from sitemap.xml (incl. index), else seed homepage. */
-async function discoverUrls(
+/** Discover candidate page URLs from sitemap.xml (incl. index), else seed homepage.
+ *  Exported (2026-07-03 T0e) so the crawl-frontier's init step reuses the exact
+ *  same bounded discovery instead of duplicating it. */
+export async function discoverUrls(
   origin: string,
   fetchImpl: typeof fetch,
   perRequestMs: number,

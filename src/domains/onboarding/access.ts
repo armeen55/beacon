@@ -53,12 +53,16 @@ export type OnboardingTenantContext = {
  *   - The user is authenticated.
  *   - They have a tenant_members row.
  *   - The tenant exists.
- *   - The tenant.status is 'pending_onboarding'.
+ *   - The tenant.status is 'pending_onboarding' (or 'active' when the
+ *     caller passes `allowActive` - the /onboard/done scorecard stays
+ *     readable right after launch; 2026-07-03 R12/T0e).
  *
  * Otherwise calls Next.js's `redirect()` (which throws); the page
  * never sees control flow continue past the redirect.
  */
-export async function requireOnboardingTenant(): Promise<OnboardingTenantContext> {
+export async function requireOnboardingTenant(opts?: {
+  allowActive?: boolean;
+}): Promise<OnboardingTenantContext> {
   const supabase = await getSupabaseServerClient();
   const {
     data: { user },
@@ -96,7 +100,7 @@ export async function requireOnboardingTenant(): Promise<OnboardingTenantContext
     redirect("/login?error=tenant_missing");
   }
 
-  if (tenant.status === "active") {
+  if (tenant.status === "active" && !opts?.allowActive) {
     // Already launched — onboarding is over for this customer. Send a notice
     // so the dashboard can explain the redirect instead of bouncing silently
     // (#143). Target stays "/" — only the explanatory param is added.

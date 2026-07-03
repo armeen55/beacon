@@ -241,6 +241,19 @@ function fromMove(tenantId: string, m: CanonicalMoveInput, controlPaths: Set<str
     expectedOutcomeHigh: opportunity.highPerMonth,
     expectedOutcomeDays: opportunity.days,
     hypothesisId: opportunity.hypothesisId,
+    // R14b (see-the-math) - the raw inputs behind a SIZED forecast, so the row can
+    // open its own small math disclosure. Honest-fallback rows carry none (their
+    // basis sentence already explains itself in prose). This path always sizes
+    // with the default curve today, so the basis phrase matches opportunity-math's
+    // own default-lead sentence, never a tenant-curve claim it did not make.
+    forecastInputs:
+      opportunity.lowPerMonth != null
+        ? {
+            impressions90d: m.topQueryImpressions90d ?? null,
+            currentPosition: m.topQueryPosition ?? null,
+            curveBasis: "your own click rates at each Google position",
+          }
+        : null,
     riskLevel: family === "new_page" ? "medium" : "low",
     // Move 2 / B1 fix - evidence strength follows real comparison data, never the lever
     // TYPE alone. Only a mature, settled result is "strong"; an early/interim/overlapping

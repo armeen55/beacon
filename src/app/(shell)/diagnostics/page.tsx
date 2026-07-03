@@ -102,6 +102,7 @@ import { generateVisibilityReport, serializeReport } from "@/domains/product/rep
 import { computeOutcomeSummary } from "@/domains/product/outcome-store";
 import { readLastWarmReceipt } from "@/domains/ops/warm-receipt-store";
 import { CronPreflightSection } from "./cron-preflight-section";
+import { StalledSignupsSection } from "./stalled-signups-section";
 import { MiniBarChart } from "@/components/viz/mini-bar-chart";
 import { DonutRing } from "@/components/viz/donut-ring";
 import { ScoreRail } from "@/components/viz/score-rail";
@@ -379,6 +380,11 @@ export default async function DiagnosticsPage() {
           drift (vercel.json vs the schedule map) + required env presence
           (names only). One green line when wired; a red list when not. */}
       <CronPreflightSection />
+
+      {/* R12/T0e (2026-07-03) — signups that went quiet: pending tenants
+          older than 24h with no first read (or a wedged one). Self-hides
+          when none; each row carries the exact resume action. */}
+      <StalledSignupsSection />
 
       {warmReceipt && (
         <p className="-mt-4 text-xs text-muted-foreground" data-diagnostic="nightly-warm">
