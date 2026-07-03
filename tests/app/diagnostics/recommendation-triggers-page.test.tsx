@@ -446,14 +446,15 @@ describe("/diagnostics/recommendation-triggers", () => {
     expect(html).toContain('data-row-action-type="edit_title"');
   });
 
-  it("predicates_run counter reads 18 (dynamic trigger roster)", async () => {
+  it("predicates_run counter reads 21 (dynamic trigger roster)", async () => {
     _snapshotsToReturn = [makeSnapshot({ url: "https://example.com/a" })];
     const html = await renderPage();
     expect(html).toContain('data-counter="predicates_run"');
-    // The font-mono span renders the active predicate count; ratchets with
-    // each new trigger (sov_drop_alert added BEACON 500 item 79, 2026-07-02).
+    // The font-mono span renders the active predicate count from the loader meta
+    // (PREDICATE_COUNT). Ratchets with each new trigger; the value tracks the
+    // loader's own hand-maintained PREDICATE_COUNT (21 as of the R18 link family).
     expect(html).toMatch(
-      /data-counter="predicates_run"[^>]*>[^<]*<span[^>]*>18<\/span>/,
+      /data-counter="predicates_run"[^>]*>[^<]*<span[^>]*>21<\/span>/,
     );
   });
 
@@ -507,11 +508,11 @@ describe("/diagnostics/recommendation-triggers", () => {
     _snapshotsToReturn = [makeSnapshot({ url: "https://example.com/a" })];
     const html = await renderPage();
     // The description carries a `data-description-predicates-run`
-    // attribute set to the current count from the loader meta.
-    // Post-sov_drop_alert (BEACON 500 item 79, 2026-07-02): 15.
-    expect(html).toContain('data-description-predicates-run="18"');
+    // attribute set to the current count from the loader meta
+    // (PREDICATE_COUNT, 21 as of the R18 link family).
+    expect(html).toContain('data-description-predicates-run="21"');
     // And the prose body contains the same integer.
-    expect(html).toContain("18</span> active");
+    expect(html).toContain("21</span> active");
   });
 
   // ── α₂.2 page-classifier integration ────────────────────────────────

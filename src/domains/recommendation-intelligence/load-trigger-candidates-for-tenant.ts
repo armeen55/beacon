@@ -162,6 +162,18 @@ import {
   buildEntityInterlinkCandidates,
   buildTermCoverageItems,
 } from "@/domains/linkgraph/load-linkgraph-triggers";
+// R19 / N24 + N22 + N21 (2026-07-03) - content-lifecycle engine (prune / merge /
+// retire), JS-shell dual-fetch heuristic, and demand-first technical crawl
+// signals. All three read ALREADY-LOADED signals ($0), are pure over
+// pre-assembled inputs, and dedupe against existing merge / technical triggers by
+// cooldown_key. Empty inputs -> byte-identical to before this family existed.
+import { classifyContentLifecycle } from "@/domains/lifecycle/content-lifecycle";
+import { classifyJsShell } from "@/domains/lifecycle/js-shell";
+import { classifyTechnicalDemand } from "@/domains/lifecycle/technical-demand";
+import { assembleLifecycleInputs } from "@/domains/lifecycle/load-lifecycle-inputs";
+import { contentLifecycle } from "./triggers/content-lifecycle";
+import { jsShellContent } from "./triggers/js-shell-content";
+import { technicalDemand } from "./triggers/technical-demand";
 import { uncitedContent } from "./triggers/uncited-content";
 import { robotsBlocksAiBots } from "./triggers/robots-blocks-ai-bots";
 import { robotsBlocksGooglebot } from "./triggers/robots-blocks-googlebot";
@@ -579,6 +591,11 @@ export async function loadTriggerCandidatesForTenant(options: {
   // Internal-link brain (2026-06-12): contextual topic-cluster link
   // opportunities from the same snapshot link graph.
   all.push(...internalLinkOpportunity({ tenantId, snapshots }));
+  // Internal-authority snapshot, built ONCE and shared by both the R18 link
+  // family below and the R19 content-lifecycle family further down (so the
+  // link-graph read happens exactly once per run). Fail-soft to null.
+  const sharedAuthoritySnapshot = await buildInternalPageRankForTenant(tenantId).catch(() => null);
+
   // ── R18 / N23 + P7 (2026-07-03): internal-authority + entity-interlink +
   //    term-coverage. All three read ALREADY-STORED data ($0), are pure
   //    predicates over pre-assembled inputs, and dedupe against the existing
@@ -597,7 +614,7 @@ export async function loadTriggerCandidatesForTenant(options: {
 
     // (1) Buried page (N23): internal PageRank + click-depth over the link graph
     // in `snapshots` (already merged above). Demand comes from gscSignals.
-    const authority = await buildInternalPageRankForTenant(tenantId);
+    const authority = sharedAuthoritySnapshot ?? { pages: [] };
     if (authority.pages.length > 0) {
       const impressionsByUrl = new Map<string, number>();
       for (const p of authority.pages) {
@@ -1047,6 +1064,92 @@ export async function loadTriggerCandidatesForTenant(options: {
         );
       }
     }
+  }
+
+  // ── R19 / N24 + N22 + N21 (2026-07-03): content-lifecycle engine ──
+  // Runs LAST among the deterministic triggers so its cross-source cooldown
+  // dedupe sees every merge / technical card the earlier triggers already
+  // claimed. Three engines, one fail-soft block:
+  //   • N24 content-lifecycle (prune / merge-and-redirect / retire) - one card
+  //     per page, merge_pages action (generatorActive:false + no eligibility +
+  //     confidence low = triple-locked to diagnostic_only, never auto-executed).
+  //   • N22 JS-shell dual-fetch heuristic - a demand page whose source HTML is
+  //     nearly empty behind a client app (content is JS-injected).
+  //   • N21 demand-first technical crawl - noindex / broken status / canonical
+  //     elsewhere on a page Google actually sends searches to.
+  // All pure over ALREADY-LOADED signals ($0). Empty inputs -> byte-identical.
+  try {
+    const nowIso = new Date().toISOString();
+    // Reuse the SAME authority snapshot the internal-authority family already
+    // built this run (no second link-graph read) + the per-request-cached
+    // ownership registry the N2 choke points already loaded.
+    const lifecycleRegistry = await loadOwnershipRegistryForTenant(tenantId, {
+      gscSignals,
+      ownDomain: businessConfig.domain ?? null,
+    }).catch(() => null);
+
+    const assembled = assembleLifecycleInputs({
+      snapshots,
+      gscSignals,
+      gscDecaySignals,
+      authorities: sharedAuthoritySnapshot?.pages ?? [],
+      lastmodByUrl,
+      registry: lifecycleRegistry,
+    });
+
+    // The (tenant, action, url) triples the existing merge + technical triggers
+    // already claimed this run - the cross-source dedup base. A lifecycle merge
+    // card reuses merge_pages (same key as thin_content_overlap /
+    // intent_cluster_conflict); the demand-first technical cards reuse
+    // fix_status_code / fix_noindex / fix_canonical (same key as the page-type
+    // triggers). Anything already claimed defers; this engine adds only the
+    // pages those triggers skipped.
+    const claimedCooldowns = new Set(all.map((r) => r.cooldown_key));
+
+    // N24: content-lifecycle verdicts -> capped, demand-ranked cards.
+    const lifecycleResult = classifyContentLifecycle({
+      pages: assembled.lifecyclePages,
+      mergeConflicts: assembled.mergeConflicts,
+      now: new Date(),
+    });
+    const lifecycleRows = contentLifecycle({
+      tenantId,
+      verdicts: lifecycleResult.verdicts,
+      impressionsByUrl: assembled.impressionsByUrl,
+      signalAt: nowIso,
+    }).filter((r) => !claimedCooldowns.has(r.cooldown_key));
+    for (const r of lifecycleRows) claimedCooldowns.add(r.cooldown_key);
+    all.push(...lifecycleRows);
+
+    // N22: JS-shell findings -> capped, demand-ranked cards.
+    const jsShellFindings = assembled.jsShellPages
+      .map((p) => classifyJsShell(p))
+      .filter((f): f is NonNullable<typeof f> => f != null);
+    const jsShellRows = jsShellContent({
+      tenantId,
+      findings: jsShellFindings,
+      impressionsByUrl: assembled.impressionsByUrl,
+      signalAt: nowIso,
+    }).filter((r) => !claimedCooldowns.has(r.cooldown_key));
+    for (const r of jsShellRows) claimedCooldowns.add(r.cooldown_key);
+    all.push(...jsShellRows);
+
+    // N21: demand-first technical findings -> capped, demand-ranked cards.
+    const technicalFindings = assembled.technicalPages.flatMap((p) =>
+      classifyTechnicalDemand(p),
+    );
+    const technicalRows = technicalDemand({
+      tenantId,
+      findings: technicalFindings,
+      impressionsByUrl: assembled.impressionsByUrl,
+      signalAt: nowIso,
+    }).filter((r) => !claimedCooldowns.has(r.cooldown_key));
+    for (const r of technicalRows) claimedCooldowns.add(r.cooldown_key);
+    all.push(...technicalRows);
+  } catch (err) {
+    console.error(
+      `[trigger-loader] content-lifecycle family failed for ${tenantId} (lifecycle / js_shell / technical_demand skip): ${err instanceof Error ? err.message : String(err)}`,
+    );
   }
 
   // ── demand-graph engine source (2026-06-24, BEACON_DEMAND_GRAPH_RECS) ──

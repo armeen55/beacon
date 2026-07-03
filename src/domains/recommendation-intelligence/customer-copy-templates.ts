@@ -633,3 +633,157 @@ export function deviceCtrGapCopy(
     "costing clicks, so open your top pages in a phone-sized search result and check what gets cut off."
   );
 }
+
+// ── Content-lifecycle engine (BEACON_500 R19 / N24, 2026-07-03) ──────────────
+// Three page-lifecycle cards: remove-or-fold (prune), merge-and-redirect
+// (merge), and point-to-current-year (retire). Never says "prune", "retire",
+// "orphaned", or "PageRank" (lab words); says plainly what the page is doing
+// wrong and what to do. Every one is a PROPOSAL the operator approves; nothing
+// here is ever executed automatically. NO em or en dashes (hard rule).
+
+/**
+ * Prune candidate: a page with almost no Google demand, very thin, that nothing
+ * links to. Args: the page path and its 90-day impressions. The ask offers both
+ * options (remove OR fold in) so the operator keeps the call.
+ */
+export function lifecyclePruneCopy(pagePath: string, impressions: number): string {
+  const times = impressions === 1 ? "time" : "times";
+  return (
+    "Your " +
+    pagePath +
+    " page gets almost no Google traffic (" +
+    impressions.toLocaleString("en-US") +
+    " " +
+    times +
+    " shown in 90 days), is very thin, and nothing links to it. " +
+    "Consider removing it or folding it into a stronger page so it stops diluting your site."
+  );
+}
+
+/**
+ * Merge candidate: two owned pages target the same topic and one clearly
+ * dominates. Args: the dominant page path, the weaker page path, and the
+ * dominant page's traffic share as a whole-number percent. The ask names the
+ * redirect so the authority points one way.
+ */
+export function lifecycleMergeCopy(
+  ownerPath: string,
+  foldPath: string,
+  ownerPercent: number,
+): string {
+  return (
+    "Your " +
+    ownerPath +
+    " and " +
+    foldPath +
+    " pages both target the same topic, and " +
+    ownerPath +
+    " gets " +
+    ownerPercent +
+    " percent of the traffic. Fold " +
+    foldPath +
+    " into " +
+    ownerPath +
+    " and redirect it so all the authority points one way."
+  );
+}
+
+/**
+ * Retire candidate: a page about a passed, dated event whose demand has
+ * collapsed. Args: the page path and its 90-day impressions. The ask offers
+ * retiring or redirecting to a current-year page so its links keep their value.
+ */
+export function lifecycleRetireCopy(pagePath: string, impressions: number): string {
+  const times = impressions === 1 ? "time" : "times";
+  return (
+    "Your " +
+    pagePath +
+    " page is about something that already happened and barely gets searched now (" +
+    impressions.toLocaleString("en-US") +
+    " " +
+    times +
+    " shown in 90 days). " +
+    "Consider retiring it or pointing it to a page about the current year so its links keep their value."
+  );
+}
+
+/**
+ * JS-shell content warning (BEACON_500 R19 / N22, 2026-07-03). A page whose
+ * source HTML is nearly empty because the content is injected by JavaScript.
+ * Honest about the heuristic: it detects the smell, it does not run a headless
+ * render. Arg: the page path. NO em or en dashes (hard rule).
+ */
+export function jsShellContentCopy(pagePath: string): string {
+  return (
+    "Your " +
+    pagePath +
+    " page's main content only appears after JavaScript runs, so the page Google and AI crawlers first receive looks nearly empty. " +
+    "Some AI crawlers and older bots do not run JavaScript and may see an empty page. " +
+    "Open this URL with JavaScript turned off, or view its page source, and confirm the real content is in the HTML the server sends."
+  );
+}
+
+/**
+ * Noindex on a page with real demand (BEACON_500 R19 / N21, 2026-07-03). Google
+ * shows the page for real searches, but the page tells search engines not to
+ * index it. Names the likely mistake plainly. Args: the page path and its
+ * 90-day impressions. NO em or en dashes (hard rule).
+ */
+export function noindexOnDemandPageCopy(pagePath: string, impressions: number): string {
+  const times = impressions === 1 ? "time" : "times";
+  return (
+    "Google shows your " +
+    pagePath +
+    " page for real searches (" +
+    impressions.toLocaleString("en-US") +
+    " " +
+    times +
+    " in the last 90 days), but the page tells search engines not to index it. " +
+    "That is likely a mistake. Remove the noindex tag if this page should be found."
+  );
+}
+
+/**
+ * Broken status on a page with real demand (BEACON_500 R19 / N21, 2026-07-03).
+ * Google still sends searches to a URL that now returns an error or redirect.
+ * Args: the page path, the HTTP status number, and its 90-day impressions. NO em
+ * or en dashes (hard rule).
+ */
+export function statusOnDemandPageCopy(
+  pagePath: string,
+  httpStatus: number,
+  impressions: number,
+): string {
+  const times = impressions === 1 ? "time" : "times";
+  return (
+    "Google still shows your " +
+    pagePath +
+    " page for real searches (" +
+    impressions.toLocaleString("en-US") +
+    " " +
+    times +
+    " in the last 90 days), but the page now returns a " +
+    httpStatus +
+    " instead of loading. Restore a working page here, or send this address to the page that replaced it, so those searches do not hit a dead end."
+  );
+}
+
+/**
+ * Canonical points elsewhere on a page with real demand (BEACON_500 R19 / N21,
+ * 2026-07-03). Google sends searches to a page whose canonical tag names a
+ * different page as the real one. Args: the page path and its 90-day
+ * impressions. NO em or en dashes (hard rule).
+ */
+export function canonicalOnDemandPageCopy(pagePath: string, impressions: number): string {
+  const times = impressions === 1 ? "time" : "times";
+  return (
+    "Google shows your " +
+    pagePath +
+    " page for real searches (" +
+    impressions.toLocaleString("en-US") +
+    " " +
+    times +
+    " in the last 90 days), but the page's canonical tag points at a different page as the real one. " +
+    "If this page is the one you want found, update the canonical tag to point at itself."
+  );
+}

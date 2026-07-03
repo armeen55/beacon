@@ -244,6 +244,44 @@ const PROBE_SETS: Record<string, ReadonlyArray<Probe>> = {
     ["iran visa", 9, ["visa fees", "processing time"]],
     ["iran visa", 12, ["visa fees", "processing time", "required documents"]],
   ],
+  // R19 / N24 (2026-07-03) - content-lifecycle. Prune: (pagePath, impressions).
+  // Probe a normal page, a singular-count edge, and a large count.
+  lifecyclePruneCopy: [
+    ["/old-thin-page", 3],
+    ["/one-view", 1],
+    ["/dead-weight", 250000],
+  ],
+  // R19 / N24 (2026-07-03) - merge and redirect. Args: (ownerPath, foldPath,
+  // ownerPercent). Probe a clear winner + an edge share.
+  lifecycleMergeCopy: [
+    ["/persian-cats", "/persian-cat", 90],
+    ["/a", "/b", 83],
+  ],
+  // R19 / N24 (2026-07-03) - retire dated page. Args: (pagePath, impressions).
+  lifecycleRetireCopy: [
+    ["/nowruz-2021", 4],
+    ["/event-2019", 1],
+  ],
+  // R19 / N22 (2026-07-03) - JS-shell content warning. Arg: (pagePath).
+  jsShellContentCopy: [["/persian-cities"], ["/x"]],
+  // R19 / N21 (2026-07-03) - noindex on a page with demand. Args: (pagePath,
+  // impressions).
+  noindexOnDemandPageCopy: [
+    ["/iran-visa", 340],
+    ["/x", 1],
+  ],
+  // R19 / N21 (2026-07-03) - broken status on a page with demand. Args:
+  // (pagePath, httpStatus, impressions).
+  statusOnDemandPageCopy: [
+    ["/iran-visa", 404, 340],
+    ["/redirected", 301, 1],
+  ],
+  // R19 / N21 (2026-07-03) - canonical elsewhere on a page with demand. Args:
+  // (pagePath, impressions).
+  canonicalOnDemandPageCopy: [
+    ["/iran-visa", 340],
+    ["/x", 1],
+  ],
 };
 
 function scanForViolations(output: string): string[] {
