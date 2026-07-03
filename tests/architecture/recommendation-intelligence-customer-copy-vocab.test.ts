@@ -219,6 +219,31 @@ const PROBE_SETS: Record<string, ReadonlyArray<Probe>> = {
     ["1.4", "3.8"],
     ["0.6", "2.0"],
   ],
+  // R18 / N23 (2026-07-03) - buried page, nothing links to it. Args:
+  // (pagePath, impressions). Probe a normal page + a large-count edge.
+  buriedNoLinksCopy: [
+    ["/iran-visa", 340],
+    ["/persian-names", 250000],
+  ],
+  // R18 / N23 (2026-07-03) - buried page, too many clicks from home. Args:
+  // (pagePath, hopsFromHome, impressions).
+  buriedTooDeepCopy: [
+    ["/iran-visa", 5, 340],
+    ["/persian-names", 4, 250000],
+  ],
+  // R18 / P7 (2026-07-03) - entity auto-interlink. Args: (topicLabel,
+  // destinationPath). Probe a normal topic + a short one.
+  entityInterlinkCopy: [
+    ["Nowruz traditions", "/nowruz"],
+    ["x", "/y"],
+  ],
+  // R18 / P7 (2026-07-03) - term-coverage gap. Args: (query, position,
+  // missingLabels[]). Probe 1, 2, and 3 named gaps.
+  termCoverageGapCopy: [
+    ["iran visa", 8, ["visa fees"]],
+    ["iran visa", 9, ["visa fees", "processing time"]],
+    ["iran visa", 12, ["visa fees", "processing time", "required documents"]],
+  ],
 };
 
 function scanForViolations(output: string): string[] {

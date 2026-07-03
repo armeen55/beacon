@@ -233,7 +233,7 @@ describe("loadTriggerCandidatesForTenant", () => {
     expect(result.candidates).toEqual([]);
     expect(result.diagnostic_only).toEqual([]);
     expect(result.meta.snapshot_count).toBe(0);
-    expect(result.meta.predicates_run).toBe(18);
+    expect(result.meta.predicates_run).toBe(21);
   });
 
   it("filters snapshots by tenant_id", async () => {
@@ -484,7 +484,7 @@ describe("loadTriggerCandidatesForTenant", () => {
     expect(result.meta.snapshot_count).toBe(1);
   });
 
-  it("reports predicates_run=18 in meta on the ok path (+sov_drop_alert, +displacement_check, +citation_loss, +connector_failure_streak)", async () => {
+  it("reports predicates_run=21 in meta on the ok path (+sov_drop_alert, +displacement_check, +citation_loss, +connector_failure_streak, +buried_page, +entity_interlink, +term_coverage_gap)", async () => {
     _getPageSnapshotsMock.mockResolvedValue([
       makeSnapshot({ tenant_id: "tenant-a" }),
     ]);
@@ -494,7 +494,7 @@ describe("loadTriggerCandidatesForTenant", () => {
     const result = await loadTriggerCandidatesForTenant({
       tenantId: "tenant-a",
     });
-    expect(result.meta.predicates_run).toBe(18);
+    expect(result.meta.predicates_run).toBe(21);
   });
 
   // ── α₂ extensions ────────────────────────────────────────────────────
@@ -655,9 +655,11 @@ describe("loadTriggerCandidatesForTenant", () => {
     // Night-shift #44 (2026-06-11): a second forTenant call loads the
     // sitemap reconciliation (stale-content lastmod map). BEACON 500 item 79
     // (2026-07-02): a third forTenant call loads the sov-weekly native-poll
-    // observations inside loadSovWeeklyForTenant. All calls must carry the
-    // explicit tenantId.
-    expect(_forTenantSpy).toHaveBeenCalledTimes(3);
+    // observations inside loadSovWeeklyForTenant. R18 / N23 (2026-07-03): a
+    // fourth forTenant call loads the internal-authority link graph
+    // (getPageSnapshotLinkGraphs) inside buildInternalPageRankForTenant. All
+    // calls must carry the explicit tenantId.
+    expect(_forTenantSpy).toHaveBeenCalledTimes(4);
     expect(_forTenantSpy).toHaveBeenCalledWith("tenant-a");
   });
 

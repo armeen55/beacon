@@ -110,6 +110,13 @@ export const TENANT_SCOPED_STORES = new Set<string>([
   // tenant. The ~6s graph build is shared across requests (New Pages, Today, Recs, Drafts,
   // page-factory, enrichment) instead of each surface rebuilding it. Versioned + bounded.
   "demand-graph-snapshot",
+  // 2026-07-03 R18 / N23 - internal authority + click-depth snapshot per tenant.
+  // The computed InternalPageRankResult (per-page PageRank + BFS click-depth +
+  // orphan status) over the tenant's own internal_links adjacency. One snapshot
+  // row per tenant, written by the nightly cron fan-out (no ambient request
+  // context) and served stale-while-revalidate, same discipline as
+  // demand-graph-snapshot (src/domains/linkgraph/internal-pagerank-loader.ts).
+  "internal-pagerank",
   // 2026-06-09 §competitor-intel — structural changes detected when a
   // fresh competitor-page fetch differs from the stored snapshot
   // (FAQ added, new sections, retitle, meta added). Written by

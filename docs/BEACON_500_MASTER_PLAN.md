@@ -139,7 +139,7 @@ QUEUE (strict order; [G] = operator-gated, surface it and continue):
             demand-band line from ONE loader, sized via the tenant CTR curve + forecastRange),
             anonymized-query gap (v1 492: page-totals vs visible query-grain share, dossier
             note over 30 percent). Remaining for R17b/c: v1 136-138, 195, 264, 268, 428, 491, 493.
-- [ ] R18. N23 internal PageRank + P7 linking/content-depth levers. Effort L.
+- [x] R18 (2026-07-03). N23 internal PageRank + P7 linking/content-depth levers. Effort L.
 - [ ] R19. N24 evidence-based pruning/merging + N21/N22 rendered-crawl checks. Effort M.
 - [ ] R20. D6 dynamic auto-mode (auto-prepare + publish counter; autopilot rails exist). Effort M.
 - [ ] R21. N32 external-event ledger + N31 solar-calendar rollover + N44 topic objectives + N45
@@ -296,7 +296,7 @@ migration. WAVE 3: FP4, FP8, FP10, voice rider. N-track and packs resume after F
 - [x] N20 (2026-07-03, R11). **Study top 3 SERP winners consensus, not one outlier** (v1 99) - consensusOf() in teardown-commonality.ts: 3-of-5 rule, single-winner outliers named and pinned never to reach a brief; carried on CommonalityBrief.consensusSpec into both GapVerdict brief shapes.
 - [ ] N21. **Real JavaScript-rendered technical crawl** (v1 110 On-Page API; capped, gauntleted)
 - [ ] N22. **Verify important content in source AND rendered HTML** (v1 111 dual-fetch)
-- [ ] N23. **Internal PageRank + click-depth intelligence** (v1 97+121 merged into one internal-authority engine; anchors from real queries v1 495)
+- [x] N23 (2026-07-03, R18). **Internal PageRank + click-depth intelligence** (v1 97+121 merged into one internal-authority engine; anchors from real queries v1 495)
 - [ ] N24. **Evidence-based pruning, merging, retiring** (v1 113+241+100+215 merged: one content-lifecycle engine with the merge-and-redirect executor on the Wix Redirects API)
 - [x] N25 (2026-07-03, R13b). **Sitewide stale-fact detection** (v1 102; law 1)
 - [x] N26 (2026-07-03, R13b; plans surface on diagnostics, operator-approved per page, never auto-push by construction). **Fact propagation engine**: correct one fact once, update every page and schema reference. (NEW; rides N3+N25)

@@ -523,6 +523,96 @@ export function staleFactCopy(
 }
 
 /**
+ * Buried page - nothing links to it (BEACON_500 R18 / N23). A page with real
+ * Google demand that no other page on the site links to. Never says "orphaned"
+ * or "PageRank" (lab words); says plainly that nothing links to it and Google
+ * treats it as an afterthought. Args: the page path and its 90-day impressions.
+ * NO em or en dashes (hard rule).
+ */
+export function buriedNoLinksCopy(pagePath: string, impressions: number): string {
+  return (
+    "Your " +
+    pagePath +
+    " page gets real Google demand (" +
+    impressions.toLocaleString("en-US") +
+    " times shown in the last 90 days) but nothing else on your site links to it, so Google sees it as an afterthought. Add links to it from 2 or 3 related pages."
+  );
+}
+
+/**
+ * Buried page - too many clicks from home (BEACON_500 R18 / N23). An important,
+ * high-demand page that sits many link hops from the homepage. Never says
+ * "click-depth" (lab phrasing) in the number; says plainly it is buried deep and
+ * important pages should be near the front door. Args: the page path, its hop
+ * count from home, and its 90-day impressions. NO em or en dashes (hard rule).
+ */
+export function buriedTooDeepCopy(
+  pagePath: string,
+  hopsFromHome: number,
+  impressions: number,
+): string {
+  return (
+    "Your " +
+    pagePath +
+    " page is " +
+    hopsFromHome +
+    " clicks from your homepage and gets real Google demand (" +
+    impressions.toLocaleString("en-US") +
+    " times shown in the last 90 days). Important pages should be 2 or 3 clicks from home, so add a link to it from a page closer to the front."
+  );
+}
+
+/**
+ * Entity auto-interlink (BEACON_500 R18 / P7, v1 95/112). This page talks about a
+ * topic another page of yours owns, but never links to it. Args: the topic label
+ * (the anchor to add) and the destination page path. Never says "entity" or
+ * "owner page" (lab framing); says plainly you already have a page for it. NO em
+ * or en dashes (hard rule).
+ */
+export function entityInterlinkCopy(topicLabel: string, destinationPath: string): string {
+  return (
+    "This page talks about " +
+    topicLabel +
+    ", and you already have a page for it (" +
+    destinationPath +
+    ") that this page never links to. Add a link on the words “" +
+    topicLabel +
+    "” so readers and Google can find it."
+  );
+}
+
+/**
+ * Term-coverage gap (BEACON_500 R18 / P7, v1 411). A page ranking just off the
+ * top whose demand-backed subtopics it does not cover. Names the biggest missing
+ * subtopics so the fix is concrete. Args: the query, the ranking position, and
+ * the 1 to 3 missing subtopic labels. Never says "coverage score" or "SERP"
+ * (lab words); says plainly that the pages beating you all cover these. NO em or
+ * en dashes (hard rule).
+ */
+export function termCoverageGapCopy(
+  query: string,
+  position: number,
+  missingLabels: readonly string[],
+): string {
+  const list = missingLabels.slice(0, 3);
+  const listText =
+    list.length === 1
+      ? list[0]!
+      : list.length === 2
+        ? `${list[0]} and ${list[1]}`
+        : `${list[0]}, ${list[1]}, and ${list[2]}`;
+  return (
+    "You rank around #" +
+    Math.round(position) +
+    " for “" +
+    query +
+    "”, and the pages beating you all cover " +
+    listText +
+    " while yours does not. Add a section on each to close the gap."
+  );
+}
+
+/**
  * Device click gap (BEACON_500 R17b, v1 item 268). Phones carry most of the
  * site's Google demand but click far below desktop at comparable rankings.
  * Args are clicks-per-100-appearances strings for phones and computers

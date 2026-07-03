@@ -151,6 +151,17 @@ import { loadEarlyBodyTextForUrls } from "./early-body-text";
 import { noindexOnIndexablePage } from "./triggers/noindex-on-indexable-page";
 import { orphanPage } from "./triggers/orphan-page";
 import { internalLinkOpportunity } from "./triggers/internal-link-opportunity";
+// R18 / N23 + P7 (2026-07-03) — internal-authority + entity-interlink +
+// term-coverage triggers (the internal PageRank / click-depth engine, the
+// entity auto-interlink cards, and the expand-coverage directive).
+import { buriedPage } from "./triggers/buried-page";
+import { entityInterlink } from "./triggers/entity-interlink";
+import { termCoverageGap } from "./triggers/term-coverage-gap";
+import { buildInternalPageRankForTenant } from "@/domains/linkgraph/internal-pagerank-loader";
+import {
+  buildEntityInterlinkCandidates,
+  buildTermCoverageItems,
+} from "@/domains/linkgraph/load-linkgraph-triggers";
 import { uncitedContent } from "./triggers/uncited-content";
 import { robotsBlocksAiBots } from "./triggers/robots-blocks-ai-bots";
 import { robotsBlocksGooglebot } from "./triggers/robots-blocks-googlebot";
@@ -186,7 +197,7 @@ export type TriggerCandidatesLoadResult = {
   };
 };
 
-const PREDICATE_COUNT = 18;
+const PREDICATE_COUNT = 21;
 
 function emptyResult(
   status: TriggerCandidatesLoadStatus,
@@ -568,6 +579,91 @@ export async function loadTriggerCandidatesForTenant(options: {
   // Internal-link brain (2026-06-12): contextual topic-cluster link
   // opportunities from the same snapshot link graph.
   all.push(...internalLinkOpportunity({ tenantId, snapshots }));
+  // ── R18 / N23 + P7 (2026-07-03): internal-authority + entity-interlink +
+  //    term-coverage. All three read ALREADY-STORED data ($0), are pure
+  //    predicates over pre-assembled inputs, and dedupe against the existing
+  //    link triggers by cooldown_key so no page ever emits two link cards.
+  //    Fail-soft as one isolated block: any failure skips this family, never the
+  //    loader. Empty inputs -> byte-identical to before this family existed.
+  try {
+    const nowIso = new Date().toISOString();
+    // The set of (tenant, action, url) triples the existing link triggers
+    // already claimed this run - the cross-source dedup base.
+    const claimedLinkCooldowns = new Set(
+      all
+        .filter((r) => r.trigger_signal === "orphan_page" || r.trigger_signal === "internal_link_opportunity")
+        .map((r) => r.cooldown_key),
+    );
+
+    // (1) Buried page (N23): internal PageRank + click-depth over the link graph
+    // in `snapshots` (already merged above). Demand comes from gscSignals.
+    const authority = await buildInternalPageRankForTenant(tenantId);
+    if (authority.pages.length > 0) {
+      const impressionsByUrl = new Map<string, number>();
+      for (const p of authority.pages) {
+        const sig = gscSignals.get(canonicalizeCitationUrl(p.url) ?? p.url);
+        if (sig) impressionsByUrl.set(p.url, sig.impressions90d);
+      }
+      const buried = buriedPage({
+        tenantId,
+        authorities: authority.pages,
+        impressionsByUrl,
+        signalAt: nowIso,
+      }).filter((r) => !claimedLinkCooldowns.has(r.cooldown_key));
+      for (const r of buried) claimedLinkCooldowns.add(r.cooldown_key);
+      all.push(...buried);
+    }
+
+    // (2) Entity auto-interlink (P7): body-grounded, ownership-aware contextual
+    // links to the OWNER page. Reuses the per-request-cached ownership registry
+    // + the link graph carried on `snapshots`.
+    try {
+      const registry = await loadOwnershipRegistryForTenant(tenantId, {
+        gscSignals,
+        ownDomain: businessConfig.domain ?? null,
+      });
+      if (registry.byQuery.size > 0) {
+        const graphs = snapshots
+          .filter((s) => Array.isArray(s.internal_links) && s.internal_links.length > 0)
+          .map((s) => ({
+            page_id: s.page_id,
+            url: s.url,
+            fetched_at: s.fetched_at,
+            tenant_id: tenantId,
+            internal_links: s.internal_links!,
+          }));
+        const interlinkCandidates = await buildEntityInterlinkCandidates(tenantId, registry, graphs);
+        const interlink = entityInterlink({
+          tenantId,
+          candidates: interlinkCandidates,
+          signalAt: nowIso,
+        }).filter((r) => !claimedLinkCooldowns.has(r.cooldown_key));
+        for (const r of interlink) claimedLinkCooldowns.add(r.cooldown_key);
+        all.push(...interlink);
+      }
+    } catch (err) {
+      console.error(
+        `[trigger-loader] entity-interlink failed for ${tenantId} (entity_interlink skips): ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+
+    // (3) Term-coverage gap (P7): expand-coverage directive for pages ranking
+    // just off the top that miss the winners' consensus subtopics + demand
+    // questions. Its own action type (add_h2_section) never collides with the
+    // link cards above.
+    try {
+      const coverageItems = await buildTermCoverageItems(tenantId, gscSignals);
+      all.push(...termCoverageGap({ tenantId, items: coverageItems, signalAt: nowIso }));
+    } catch (err) {
+      console.error(
+        `[trigger-loader] term-coverage-gap failed for ${tenantId} (term_coverage_gap skips): ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  } catch (err) {
+    console.error(
+      `[trigger-loader] internal-authority family failed for ${tenantId} (buried_page / entity_interlink / term_coverage_gap skip): ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
   // (SEMrush cannibalization + keyword-gap triggers removed Phase F.1 — SEMrush
   // deleted caller-first. GSC-native cannibalization detection serves /opportunities;
   // wiring it as a queue trigger is tracked as a follow-up.)

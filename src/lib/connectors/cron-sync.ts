@@ -10,6 +10,7 @@ import { syncProfoundNightlyForTenant } from "@/lib/connectors/profound/sync-nig
 import { precomputeMoveDraftsForTenant } from "@/domains/demand-graph/precompute-drafts";
 import { auditTopCompetitorsForTenant } from "@/domains/demand-graph/competitor-page-audit";
 import { rebuildQuestionUniverseForTenant } from "@/domains/research/question-universe-loader";
+import { rebuildInternalPageRankForTenant } from "@/domains/linkgraph/internal-pagerank-loader";
 import { rebuildClaimGraphForTenant } from "@/domains/provenance/claim-graph-loader";
 import { runRevenueFactsPass } from "@/domains/revenue/compute-unit-economics";
 import { checkPipelineInvariants } from "@/domains/ops/pipeline-invariants";
@@ -863,6 +864,38 @@ export async function syncAllConnectedForActiveTenants(): Promise<CronSyncResult
         error: e instanceof Error ? e.message.slice(0, 200) : String(e),
       });
       await reportPhaseError("claim-graph", t.id, e);
+    }
+  }
+
+  // PHASE 2a-s (BEACON_500 R18 / N23) - internal-authority snapshot. Computes
+  // per-page internal PageRank + click-depth + orphan status over the tenant's
+  // ALREADY-STORED page_snapshots link graph, and persists one snapshot per
+  // tenant to the "internal-pagerank" store. $0 (link-graph read + pure math).
+  // Feeds the buried_page + entity_interlink triggers (a page with real demand
+  // that nothing links to, or that sits buried deep). Isolated fail-soft:
+  // rebuildInternalPageRankForTenant never throws, and a failure here never
+  // touches the sync result.
+  for (const t of tenants) {
+    if (pastDeadline()) {
+      log.info("[cron-sync] enrichment deadline reached, skipping remaining internal-authority builds");
+      break;
+    }
+    try {
+      const pr = await rebuildInternalPageRankForTenant(t.id);
+      if (pr.pages > 0) {
+        log.info("[cron-sync] internal authority", {
+          tenantId: t.id,
+          pages: pr.pages,
+          orphaned: pr.orphaned,
+          edges: pr.edges,
+        });
+      }
+    } catch (e) {
+      log.warn("[cron-sync] internal authority failed", {
+        tenantId: t.id,
+        error: e instanceof Error ? e.message.slice(0, 200) : String(e),
+      });
+      await reportPhaseError("internal-pagerank", t.id, e);
     }
   }
 
