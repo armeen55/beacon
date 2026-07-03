@@ -68,8 +68,11 @@ const SUPABASE_MIRRORED_STORES = new Set<string>([
   "dataforseo-llm-mentions",
   // 2026-07-01 items 93/94 - the SWR surface snapshots. Without the mirror, Vercel lambdas
   // only keep them in-process (warm-lambda-only); the blob makes warm true across instances.
+  // 2026-07-03 R4 adds results-surface (the re-measured proof ledger snapshot) to the
+  // same set: without the mirror every hosted /results open pays the full re-measure.
   "worklist-surface",
   "today-surface",
+  "results-surface",
   // 2026-07-01 item 1 - trust-budget autopilot state (armed config + daily-run marker +
   // receipts). Must be durable on hosted prod: a file-only write would silently lose the
   // operator's arming and the weekly-budget count on lambda recycle. Fail direction is
@@ -86,6 +89,11 @@ const SUPABASE_MIRRORED_STORES = new Set<string>([
   // cron (Vercel lambda: no disk), read by the Today Ops card; without the mirror
   // the watchdog's own output would be silent-empty on hosted prod.
   "pipeline-violations",
+  // 2026-07-03 T0c - nightly site uptime probes (status + TTFB per tenant).
+  // Written by the cron (Vercel lambda: no disk), read by the deadman banner
+  // on Today; without the mirror "down twice in a row" could never be seen
+  // across lambda instances on hosted prod.
+  "site-uptime-probes",
   // 2026-07-02 item 13 - nightly precompute warm pass. The per-day run marker
   // (double-fire idempotency) and the "last warmed" receipt /diagnostics shows
   // must survive lambda recycling; losing the marker only costs a harmless

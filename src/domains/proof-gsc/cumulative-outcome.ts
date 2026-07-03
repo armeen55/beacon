@@ -12,10 +12,13 @@
  *     monthly rate with the same toMonthlyRate change-dollar-value.ts uses. Never
  *     invented, never projected off a measuring row - a won row without a measured
  *     clicks delta contributes 0.
- *   - Dollars appear ONLY when at least one won row already carries a computed
- *     dollarValue.usdPerMonth (GA4 traffic outcome x the operator's own rate) and the
- *     sum is positive. The sentence names the basis and says "estimate", never
- *     "measured revenue". No rate configured -> no money line, ever.
+ *   - Dollars follow THE ONE DOLLAR RULE (won-dollar-rule.ts, R4 2026-07-03): the
+ *     SAME strict eligibility Today's lifetime earnings odometer uses (won + mature,
+ *     no shock-window overlap, no weak comparison match, a real positive GA4 traffic
+ *     rate, a computed dollarValue.usdPerMonth), so the strip and the odometer can
+ *     never show two different totals on the same screen. The dollar line renders
+ *     only when the shared sum is positive; the sentence names the basis and says
+ *     "estimate", never "measured revenue". No rate configured -> no money line, ever.
  *   - Zero final reads -> the honest still-measuring frame with the REAL date the
  *     earliest still-measuring change's 28-day window closes (soonest future close
  *     first; when every close date has already passed, say we are waiting on Google's
@@ -28,6 +31,8 @@
 import { splitLedgerLifecycle } from "@/domains/changes/lifecycle-counts";
 import { toMonthlyRate } from "./change-dollar-value";
 import { addDays } from "./measure";
+import { sumWonDollarsPerMonth } from "./won-dollar-rule";
+import type { ShockWindow } from "./algorithm-weather";
 
 /** The minimal ledger-row shape this module needs - structurally satisfied by
  *  ShippedChangeRecord (shipped-change-store.ts), including the re-measured
@@ -49,6 +54,17 @@ export type CumulativeOutcomeRow = {
   /** Computed-only attachment from the re-measured ledger (change-dollar-value.ts).
    *  Null/absent when no GA4 traffic outcome or no revenue model exists. */
   dollarValue?: { usdPerMonth: number | null } | null;
+  /** Parallel-trends veto flag (weak comparison match) - THE ONE DOLLAR RULE
+   *  excludes flagged rows from the dollar sum. */
+  controlMatchWeak?: boolean | null;
+  /** GA4 traffic outcome computed at measure time - THE ONE DOLLAR RULE requires
+   *  a ran outcome with a positive control-adjusted rate before dollars count. */
+  trafficOutcome?: {
+    ran: boolean;
+    windowDays: number;
+    treated: { sessionsPre: number };
+    adjustedSessionsPct: number | null;
+  } | null;
 };
 
 export type CumulativeOutcome = {
@@ -105,6 +121,10 @@ const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
 export function computeCumulativeOutcome(
   rows: ReadonlyArray<CumulativeOutcomeRow>,
   now: Date = new Date(),
+  /** Known Google shock windows (algorithm weather) - THE ONE DOLLAR RULE excludes
+   *  wins whose measurement window overlapped one. Callers without a loaded set
+   *  pass [] (dollars then still require the weak-comparison + traffic gates). */
+  shockWindows: ReadonlyArray<ShockWindow> = [],
 ): CumulativeOutcome | null {
   if (rows.length === 0) return null;
 
@@ -116,21 +136,16 @@ export function computeCumulativeOutcome(
 
   // Sum each won change's OWN measured basis-window clicks delta as a monthly rate.
   let clicksPerMonth = 0;
-  let usdTotal = 0;
-  let usdCount = 0;
   for (const r of split.won) {
     const basis = [...r.windows].filter((w) => w.ran).sort((a, b) => b.day - a.day)[0];
     if (basis && Number.isFinite(basis.adjustedLift)) {
       clicksPerMonth += toMonthlyRate(basis.adjustedLift as number, basis.day);
     }
-    const usd = r.dollarValue?.usdPerMonth;
-    if (usd != null && Number.isFinite(usd)) {
-      usdTotal += usd;
-      usdCount += 1;
-    }
   }
   const winClicksPerMonth = Math.round(clicksPerMonth);
-  const estimatedUsdPerMonth = usdCount > 0 ? Math.round(usdTotal * 100) / 100 : null;
+  // THE ONE DOLLAR RULE (won-dollar-rule.ts): the same strict sum Today's lifetime
+  // earnings odometer renders, so the two figures can never disagree.
+  const estimatedUsdPerMonth = sumWonDollarsPerMonth(rows, now, shockWindows).usdPerMonth;
 
   // The real first-verdict date: earliest FUTURE 28-day close among still-measuring
   // ships; when every close date already passed, keep the earliest past one so the

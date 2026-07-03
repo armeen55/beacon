@@ -61,6 +61,23 @@ export function scheduleAutoMeasure(tenantId: string): void {
             changed: res.changed,
           });
         }
+        // R4 (2026-07-03): the pass's upserts invalidated the /results SWR snapshot
+        // (shipped-change-store choke point). Rebuild it here, still in the same
+        // after() window, so "Refresh in a moment to see the verdict" lands on a
+        // page that is both instant AND current instead of a slow cold re-measure.
+        if (res.measured > 0) {
+          try {
+            const { rebuildResultsSurface } = await import(
+              "@/app/(shell)/results/results-ledger-data"
+            );
+            await rebuildResultsSurface(tenantId);
+          } catch (e) {
+            log.warn("[auto-measure-on-use] results-surface rebuild failed (non-blocking)", {
+              tenantId,
+              error: e instanceof Error ? e.message : String(e),
+            });
+          }
+        }
         if (res.settled > 0) {
           try {
             await harvestWinners(tenantId);

@@ -353,6 +353,25 @@ export async function loadShippedChanges(): Promise<ShippedChangeRecord[]> {
   return sortNewest((data as LedgerRow[]).map(rowToRecord));
 }
 
+/**
+ * R4 (2026-07-03): every ledger mutation invalidates the /results SWR snapshot
+ * (results-surface-store) at THIS choke point, so no writer - operator action,
+ * passive auto-measure, revert executor, armed publish auto-record - can leave
+ * /results serving a stale snapshot past its own mutation. Best-effort and
+ * fail-soft: an invalidation failure never fails the durable write it follows.
+ * (`import type` from the store keeps the reverse edge erased - no runtime cycle.)
+ */
+async function invalidateResultsSurfaceSafe(): Promise<void> {
+  try {
+    const { invalidateResultsSurface } = await import(
+      "@/app/(shell)/results/results-surface-store"
+    );
+    await invalidateResultsSurface();
+  } catch {
+    /* best-effort; the snapshot TTL still bounds staleness */
+  }
+}
+
 /** Upsert one record (by id) for the ambient tenant. Durable + file mirror. */
 export async function upsertShippedChange(record: ShippedChangeRecord): Promise<void> {
   let admin;
@@ -360,6 +379,7 @@ export async function upsertShippedChange(record: ShippedChangeRecord): Promise<
     admin = getSupabaseAdmin();
   } catch {
     await upsertFile(record); // no env → file only
+    await invalidateResultsSurfaceSafe();
     return;
   }
   const tid = await currentTenantId();
@@ -380,6 +400,7 @@ export async function upsertShippedChange(record: ShippedChangeRecord): Promise<
         } ${(up.error as { message?: string }).message ?? String(up.error)}`,
       );
       await upsertFile(record);
+      await invalidateResultsSurfaceSafe();
       return;
     }
     throw new Error(
@@ -387,6 +408,7 @@ export async function upsertShippedChange(record: ShippedChangeRecord): Promise<
     );
   }
   await mirrorFile(record);
+  await invalidateResultsSurfaceSafe();
 }
 
 async function upsertFile(record: ShippedChangeRecord): Promise<void> {
@@ -409,6 +431,7 @@ export async function markRecrawlRequestedById(tenantId: string, id: string, atI
     const rows = await readFile();
     const rec = rows.find((r) => r.id === id);
     if (rec) await upsertFile({ ...rec, recrawlRequestedAt: atIso, updatedAt: new Date().toISOString() });
+    await invalidateResultsSurfaceSafe();
     return;
   }
   const { error } = await admin
@@ -419,6 +442,7 @@ export async function markRecrawlRequestedById(tenantId: string, id: string, atI
   if (error != null && !isUndefinedTableError(error)) {
     throw new Error(`shipped-change-store: markRecrawlRequestedById failed for ${id}: ${error.message ?? String(error)}`);
   }
+  await invalidateResultsSurfaceSafe();
 }
 
 /**

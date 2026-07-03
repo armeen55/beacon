@@ -19,12 +19,27 @@ export async function CronHealthPanel() {
   const hasAnyRun = jobs.some((j) => j.lastRun != null);
 
   if (!hasAnyRun) {
+    // T0c - the collapsed line stays honest: once a first scheduled moment
+    // has passed with no receipt at all, say so (same deadman words as the
+    // Today banner) instead of promising "starts tonight" forever.
+    const overdue =
+      jobs.find((j) => j.pace === "stalled" && j.paceSentence) ??
+      jobs.find((j) => j.pace === "late" && j.paceSentence);
     return (
       <section className="rounded-lg border border-border/60 bg-surface p-5" data-cron-health-panel="true" data-cron-health-collapsed="true">
         <h3 className="text-[15px] font-semibold text-foreground">How reliably I show up</h3>
-        <p className="mt-1 text-[13px] leading-relaxed text-muted-foreground">
-          Nightly work starts tonight around 2 AM. I will show receipts for every run here.
-        </p>
+        {overdue ? (
+          <p
+            className={`mt-1 text-[13px] font-medium leading-relaxed ${overdue.pace === "stalled" ? "text-status-danger" : "text-status-warning"}`}
+            data-cron-health-pace={overdue.pace}
+          >
+            {overdue.paceSentence}
+          </p>
+        ) : (
+          <p className="mt-1 text-[13px] leading-relaxed text-muted-foreground">
+            Nightly work starts tonight around 2 AM. I will show receipts for every run here.
+          </p>
+        )}
       </section>
     );
   }
@@ -73,6 +88,15 @@ export async function CronHealthPanel() {
                   </li>
                 ))}
               </ul>
+            )}
+
+            {(j.pace === "late" || j.pace === "stalled") && j.paceSentence && (
+              <p
+                className={`mt-2 text-[12px] font-medium ${j.pace === "stalled" ? "text-status-danger" : "text-status-warning"}`}
+                data-cron-health-pace={j.pace}
+              >
+                {j.paceSentence}
+              </p>
             )}
 
             {j.failureStreaks.length > 0 && (

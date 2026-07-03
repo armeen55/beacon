@@ -10,6 +10,7 @@ import "server-only";
 import { listRecentCronRuns, type CronRunRow } from "./cron-runs-store";
 import { CRON_SCHEDULE_MAP, nextScheduledRun } from "./cron-schedule-map";
 import { deriveProviderStreaks, streaksAtOrAboveThreshold } from "./cron-streak";
+import { classifyJobPace, type CronPace } from "./deadman";
 
 const RUNS_PER_JOB = 14; // ~2 weeks of nightly history is plenty for "every night this week"
 
@@ -30,6 +31,12 @@ export type JobHealthView = {
   job: string;
   label: string;
   nextScheduledAtIso: string | null;
+  /** T0c deadman pace vs the schedule: waiting (first run not due yet),
+   *  healthy, late, or stalled. Same classifier + same words as the Today
+   *  banner (deadman.ts), so both surfaces always agree. */
+  pace: CronPace;
+  /** The plain late/stalled sentence (null when healthy/waiting). */
+  paceSentence: string | null;
   lastRun: {
     startedAt: string;
     ok: boolean;
@@ -89,9 +96,34 @@ function buildHeadline(job: string, runs: ReadonlyArray<CronRunRow>): string {
 export async function loadCronHealthView(): Promise<JobHealthView[]> {
   const now = new Date();
   const out: JobHealthView[] = [];
+
+  // First pass: load every job's runs (fail-soft per job) so the deadman's
+  // never-ran grace can anchor at the OLDEST receipt across the whole ledger.
+  // A read failure is kept distinct from "no runs" so the honest error
+  // headline below still renders.
+  const runsByJob = new Map<string, CronRunRow[] | "read_error">();
+  let ledgerBeganAt: string | null = null;
   for (const entry of CRON_SCHEDULE_MAP) {
+    const runs = await listRecentCronRuns(entry.job, RUNS_PER_JOB).catch(
+      () => "read_error" as const,
+    );
+    runsByJob.set(entry.job, runs);
+    if (runs === "read_error") continue;
+    const oldest = runs[runs.length - 1]?.started_at;
+    if (oldest && (ledgerBeganAt == null || oldest < ledgerBeganAt)) ledgerBeganAt = oldest;
+  }
+
+  for (const entry of CRON_SCHEDULE_MAP) {
+    const loaded = runsByJob.get(entry.job) ?? [];
+    // A failed READ never raises a stalled alarm - "I could not read my run
+    // history" is the honest state, not "the job never ran".
+    const pace =
+      loaded === "read_error"
+        ? { pace: "waiting" as const, sentence: null }
+        : classifyJobPace(entry, loaded[0]?.started_at ?? null, ledgerBeganAt, now);
     try {
-      const runs = await listRecentCronRuns(entry.job, RUNS_PER_JOB);
+      if (loaded === "read_error") throw new Error("cron_runs read failed");
+      const runs = loaded;
       const nights = countRecentNights(runs);
       const recent = runs.slice(0, nights);
 
@@ -112,6 +144,8 @@ export async function loadCronHealthView(): Promise<JobHealthView[]> {
         job: entry.job,
         label: entry.label,
         nextScheduledAtIso: nextScheduledRun(entry.schedule, now)?.toISOString() ?? null,
+        pace: pace.pace,
+        paceSentence: pace.sentence,
         lastRun: runs[0]
           ? { startedAt: runs[0].started_at, ok: runs[0].ok, durationMs: runs[0].duration_ms }
           : null,
@@ -135,6 +169,8 @@ export async function loadCronHealthView(): Promise<JobHealthView[]> {
         job: entry.job,
         label: entry.label,
         nextScheduledAtIso: nextScheduledRun(entry.schedule, now)?.toISOString() ?? null,
+        pace: pace.pace,
+        paceSentence: pace.sentence,
         lastRun: null,
         headline: "I could not read my run history right now.",
         perSourceThisWeek: [],

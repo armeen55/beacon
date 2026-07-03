@@ -40,6 +40,7 @@ import { computePooledVerdicts } from "@/domains/proof-gsc/pooled-verdict-runner
 import { runInvestigationForTenant } from "@/domains/investigation/run-investigation";
 import { recordCronRun, type CronRunSourceResult as LedgerSourceResult } from "@/domains/ops/cron-runs-store";
 import { checkTokenExpiryForTenants } from "@/domains/ops/token-expiry-notify";
+import { homepageUrlForDomain, probeHomepage, recordSiteProbe } from "@/domains/ops/site-uptime-store";
 
 /** The READ sources a nightly refresh pulls. Wix is publish-only and excluded
  *  (it has no inbound data to sync). Mirrors REFRESH_ALL_SOURCES in the
@@ -775,6 +776,46 @@ export async function syncAllConnectedForActiveTenants(): Promise<CronSyncResult
       }
     } catch (e) {
       log.warn("[cron-sync] forensic investigation failed", {
+        tenantId: t.id,
+        error: e instanceof Error ? e.message.slice(0, 200) : String(e),
+      });
+    }
+  }
+
+  // PHASE 4b - site uptime probe (BEACON_500 T0c, 2026-07-03). ONE polite
+  // HEAD/GET on each tenant's homepage, recording status + time-to-first-byte
+  // into site-uptime-probes so the deadman verdict on Today can say "your site
+  // did not answer" when it is down two nights in a row. Isolated fail-soft
+  // phase by contract: its own try/catch per tenant, a 15s hard timeout per
+  // probe, no LLM, no paid API, and it runs even past the enrichment deadline
+  // (like PHASE 3/4) because a down site is exactly what must not be skipped.
+  // Honest limit: fetch() exposes no TLS internals, so certificate EXPIRY
+  // DATES are not forecast here; an already-broken cert still fails the probe
+  // and raises the same banner (see site-uptime-store.ts).
+  for (const t of tenants) {
+    try {
+      const url = homepageUrlForDomain(t.domain);
+      if (url == null) continue; // no real domain configured - nothing to probe
+      const outcome = await probeHomepage(url);
+      await recordSiteProbe({
+        tenant_id: t.id,
+        url,
+        checked_at: new Date().toISOString(),
+        ok: outcome.ok,
+        status: outcome.status,
+        ttfb_ms: outcome.ttfbMs,
+        error: outcome.error,
+      });
+      if (!outcome.ok) {
+        log.warn("[cron-sync] site uptime probe failed", {
+          tenantId: t.id,
+          url,
+          status: outcome.status,
+          error: outcome.error,
+        });
+      }
+    } catch (e) {
+      log.warn("[cron-sync] site uptime probe threw (fail-soft)", {
         tenantId: t.id,
         error: e instanceof Error ? e.message.slice(0, 200) : String(e),
       });

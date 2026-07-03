@@ -20,8 +20,17 @@ describe("OpsPipelineSection contract", () => {
     expect(SRC).not.toContain("checkPipelineInvariants");
   });
 
-  it("self-hides when the last check was clean or absent", () => {
-    expect(SRC).toContain("if (!health || health.violations.length === 0) return null");
+  it("self-hides when the pipe is clean AND the deadman is quiet (one shared home)", () => {
+    expect(SRC).toContain("if (!pipelineFires && !deadmanFires) return null");
+  });
+
+  it("T0c: the deadman verdict joins this block (never a second widget) and is deadline-bound", () => {
+    expect(SRC).toContain('from "@/domains/ops/deadman-view"');
+    expect(SRC).toContain("loadDeadmanVerdict(tenantId)");
+    expect(SRC).toContain("valueWithDeadline");
+    expect(SRC).toContain('data-deadman-line="true"');
+    // Only one <section> in this file - the deadman renders rows inside it.
+    expect(SRC.match(/<section/g) ?? []).toHaveLength(1);
   });
 
   it("caps at 2 items and admits the rest in one line", () => {

@@ -1,5 +1,7 @@
 import { currentTenantId } from "@/lib/tenant-context";
-import { loadProofLedgerCached } from "@/domains/proof-gsc/load-ledger";
+import type { ShippedChangeRecord } from "@/domains/proof-gsc/shipped-change-store";
+import type { ShockWindow } from "@/domains/proof-gsc/algorithm-weather";
+import { sumWonDollarsPerMonth } from "@/domains/proof-gsc/won-dollar-rule";
 import { readLastFinalizedDate } from "@/domains/proof-gsc/gsc-window";
 import {
   buildMeasurementPresentation,
@@ -107,14 +109,23 @@ export function buildAaHonestySentence(row: AaCalibrationRow | null): string | n
   } in 100, and we tune it to stay under ${targetPer100}.`;
 }
 
-export async function ProofSummarySection() {
-  let records;
+export async function ProofSummarySection({
+  ledger,
+  shockWindows = [],
+}: {
+  /** R4 (2026-07-03) - the snapshot-served measured ledger from the /results page
+   *  (results-ledger-data.ts), passed down so this section never re-triggers the
+   *  full re-measure path on its own. */
+  ledger: ShippedChangeRecord[];
+  /** The page's already-loaded shock windows, for THE ONE DOLLAR RULE below. */
+  shockWindows?: ReadonlyArray<ShockWindow>;
+}) {
+  const records = ledger;
   let latestGsc: string | null = null;
   let aaCalibration: AaCalibrationRow | null = null;
   let forecastHitRateLine: string | null = null;
   try {
     const tenantId = await currentTenantId();
-    records = await loadProofLedgerCached(tenantId);
     latestGsc = await readLastFinalizedDate(tenantId).catch(() => null);
     aaCalibration = await readAaCalibration(tenantId).catch(() => null);
     // Item 42 - the running forecast hit-rate line, sibling to the honesty sentence below.
@@ -152,11 +163,6 @@ export async function ProofSummarySection() {
 
   const counts = { measuring: 0, helped: 0, noLift: 0, didNotHelp: 0, attributionLimited: 0 };
   const wins: { path: string; actionType: string; confidence: string }[] = [];
-  // Item 22: sum the dollar value of every mature win that has one (positive
-  // lift + the operator has a revenue model set), so the honesty sentence can
-  // append one plain money line without ever projecting off a measuring row.
-  let winsDollarUsdPerMonth = 0;
-  let winsWithDollarCount = 0;
   for (const r of records) {
     const p = presOf(r);
     if (p.attributionQuality === "limited") counts.attributionLimited += 1;
@@ -167,15 +173,15 @@ export async function ProofSummarySection() {
     if (p.verdict === "helped") {
       counts.helped += 1;
       wins.push({ path: r.path, actionType: r.actionType, confidence: p.confidence });
-      const usd = r.dollarValue?.usdPerMonth;
-      if (usd != null && usd > 0) {
-        winsDollarUsdPerMonth += usd;
-        winsWithDollarCount += 1;
-      }
     } else if (p.verdict === "did_not_help") counts.didNotHelp += 1;
     else counts.noLift += 1;
   }
   const matureTotal = counts.helped + counts.noLift + counts.didNotHelp;
+  // Item 22 + THE ONE DOLLAR RULE (R4, 2026-07-03): the money clause appended to
+  // the honesty sentence is the SAME shared strict sum the cumulative outcome
+  // strip above it renders (won-dollar-rule.ts), so /results can never show two
+  // different cumulative dollar figures on one screen.
+  const winsDollar = sumWonDollarsPerMonth(records, now, shockWindows);
 
   // Items 73 + 75 - the upcoming read dates: every un-ran 7/14/28 window projects a calendar
   // date (shippedAt + day). The strip shows the next 14 days; the sentence names the soonest.
@@ -211,11 +217,12 @@ export async function ProofSummarySection() {
     };
   });
   // Item 75 - one honest sentence instead of four stat tiles. Item 22 extends
-  // it with the dollar sum, ONLY when at least one mature win has one.
+  // it with the dollar sum, ONLY when at least one eligible win has one (the
+  // shared strict rule computed above).
   const honestySentence = buildProofHonestySentence({
     counts,
-    winsDollarUsdPerMonth,
-    winsWithDollarCount,
+    winsDollarUsdPerMonth: winsDollar.usdPerMonth ?? 0,
+    winsWithDollarCount: winsDollar.contributingWins,
     soonestLabel,
   });
   // Item C1 - when nothing has a final verdict yet, lead with that plainly

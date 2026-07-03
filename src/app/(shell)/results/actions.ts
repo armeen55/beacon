@@ -31,7 +31,9 @@ import {
 import {
   loadShippedChanges,
   upsertShippedChange,
+  type ShippedChangeRecord,
 } from "@/domains/proof-gsc/shipped-change-store";
+import { writeResultsSurface } from "./results-surface-store";
 
 export type ProofLedgerActionResponse = { success: boolean; error?: string };
 
@@ -233,9 +235,18 @@ export async function recomputeProofLedgerAction(): Promise<ProofLedgerActionRes
   try {
     const tenantId = await currentTenantId();
     const records = await loadShippedChanges();
+    const measuredAll: ShippedChangeRecord[] = [];
     for (const r of records) {
       const measured = await measureRecord(tenantId, r);
       await upsertShippedChange(measured);
+      measuredAll.push(measured);
+    }
+    // R4 (2026-07-03): each upsert above invalidated the /results SWR snapshot
+    // (shipped-change-store choke point). We JUST measured every record, so persist
+    // the fresh snapshot now instead of making the very next render re-measure the
+    // whole ledger a second time. Measurement history itself lives in the upserts.
+    if (measuredAll.length > 0) {
+      await writeResultsSurface(measuredAll, new Date().toISOString());
     }
     revalidatePath("/results");
     revalidatePath("/changes");

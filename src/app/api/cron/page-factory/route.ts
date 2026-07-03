@@ -3,6 +3,7 @@ import { listTenants } from "@/domains/tenants/store";
 import { runProductionLineForTenant, mondayOfWeek, type ProductionLineSummary } from "@/domains/page-factory/production-line";
 import { hasFactoryBatchForWeek } from "@/domains/page-factory/batch-store";
 import { log } from "@/lib/logger";
+import { recordCronRun } from "@/domains/ops/cron-runs-store";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
@@ -41,9 +42,22 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
   }
 
+  // T0c deadman receipt: one cron_runs row per invocation (fail-soft) so the
+  // stall alarm + health panel can watch this job like every other. The
+  // non-Monday no-op still records - the cron fired, which is what the
+  // deadman needs proof of.
+  const startedAt = new Date().toISOString();
   const now = new Date();
   const force = request.nextUrl.searchParams.get("force") === "1";
   if (!isMonday(now) && !force) {
+    await recordCronRun({
+      job: "page-factory",
+      startedAt,
+      finishedAt: new Date().toISOString(),
+      ok: true,
+      perSource: [],
+      notes: { skipped: true, reason: "not_monday" },
+    }).catch(() => {});
     return NextResponse.json({ ok: true, skipped: true, reason: "not_monday" });
   }
 
@@ -71,10 +85,26 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         log.warn("[page-factory-cron] tenant failed", { tenantId: t.id, error });
       }
     }
+    await recordCronRun({
+      job: "page-factory",
+      startedAt,
+      finishedAt: new Date().toISOString(),
+      ok: true,
+      perSource: [],
+      notes: { weekOf, tenants: results.length },
+    }).catch(() => {});
     return NextResponse.json({ ok: true, weekOf, results });
   } catch (e) {
     const err = e instanceof Error ? e.message : String(e);
     log.error("[page-factory-cron] route failed", { error: err.slice(0, 300) });
+    await recordCronRun({
+      job: "page-factory",
+      startedAt,
+      finishedAt: new Date().toISOString(),
+      ok: false,
+      perSource: [],
+      notes: { weekOf, routeError: err.slice(0, 300) },
+    }).catch(() => {});
     return NextResponse.json({ ok: false, error: err.slice(0, 300), weekOf, results }, { status: 500 });
   }
 }

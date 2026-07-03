@@ -7,7 +7,13 @@ import { dossierHref } from "@/lib/page-dossier-link";
 import { isOperatorModeServer } from "@/lib/operator-mode";
 import { ResultsTimeline } from "../changes/results-timeline";
 import { currentTenantId } from "@/lib/tenant-context";
-import { loadProofLedgerCached } from "@/domains/proof-gsc/load-ledger";
+// R4 (2026-07-03, FP1's named follow-up) - the measured ledger now comes from the
+// stale-while-revalidate snapshot (results-ledger-data.ts): the last persisted
+// re-measure serves instantly with an honest "I last re-checked N ago" line, a
+// stale snapshot refreshes in the background via after(), and only a true cold
+// start (first visit, or right after a mutation invalidated it) pays the full
+// synchronous re-measure. Measurement history itself is untouched.
+import { ledgerCheckedAgoLine, loadResultsLedgerSurface } from "./results-ledger-data";
 import { loadConnectionHealth } from "@/domains/insight/connection-health";
 import { readLastFinalizedDate } from "@/domains/proof-gsc/gsc-window";
 import { gscLagStatus, isDueForMeasure } from "@/domains/proof-gsc/measure-lifecycle";
@@ -160,7 +166,13 @@ export default async function ProofPage({
   const initialPage = typeof params.page === "string" ? params.page : "";
   const tenantId = await currentTenantId();
   const [ledgerRaced, connHealth, worklist, latestGscDate, calibrationRecords] = await Promise.all([
-    loadWithDeadline(loadProofLedgerCached(tenantId).catch(() => [] as ShippedChangeRecord[]), LEDGER_DEADLINE_MS),
+    loadWithDeadline(
+      loadResultsLedgerSurface().catch(() => ({
+        ledger: [] as ShippedChangeRecord[],
+        computedAt: new Date().toISOString(),
+      })),
+      LEDGER_DEADLINE_MS,
+    ),
     valueWithDeadline(loadConnectionHealth(tenantId).catch(() => []), [], SIDE_READ_DEADLINE_MS),
     valueWithDeadline(loadActionPackWorklistForTenant(tenantId).catch(() => null), null, SIDE_READ_DEADLINE_MS),
     valueWithDeadline(readLastFinalizedDate(tenantId).catch(() => null), null, SIDE_READ_DEADLINE_MS),
@@ -182,7 +194,9 @@ export default async function ProofPage({
       </div>
     );
   }
-  const ledger = ledgerRaced.data;
+  const ledger = ledgerRaced.data.ledger;
+  // R4 - the honest snapshot-age line under the header ("updated N ago", Beacon voice).
+  const checkedAgoLine = ledgerCheckedAgoLine(ledgerRaced.data.computedAt, new Date().getTime());
   const recordedPaths = new Set(ledger.map((l) => l.path));
   // Item 42 - per-row forecast receipts: a settled calibration record (item 28's day-28 writer)
   // is keyed by proofId, which IS the shipped-change ledger row's own id (see
@@ -484,14 +498,21 @@ export default async function ProofPage({
             Every change you have made and whether it helped. We compare each page
             to how it did before, and to similar pages you did not change.
           </p>
+          {/* R4 - honest staleness: these numbers come from the last persisted
+              re-measure (served instantly), so say exactly how old they are and
+              that they refresh in the background. */}
+          {ledger.length > 0 && checkedAgoLine ? (
+            <p className="mt-1 text-[11px] text-muted-foreground/80 tabular-nums">{checkedAgoLine}</p>
+          ) : null}
           {/* FP3 + FP8 - the cumulative outcome strip: the same count numbers as the
-              bands below (same shared classifier over the same request-cached ledger),
-              extended with the measured value the wins are adding, so the header never
+              bands below (same shared classifier over the same snapshot-served ledger,
+              passed down so the strip never re-triggers the measure path), extended
+              with the measured value the wins are adding, so the header never
               promises a count the page does not show and the total value won is
-              asserted, not buried. */}
+              asserted, not buried. Shock windows ride along for THE ONE DOLLAR RULE. */}
           <div className="mt-3">
             <Suspense fallback={null}>
-              <CumulativeOutcomeSection />
+              <CumulativeOutcomeSection ledger={ledger} shockWindows={shockWindows} />
             </Suspense>
           </div>
         </div>
@@ -528,9 +549,10 @@ export default async function ProofPage({
 
       {/* Premium "Proof at a glance" scoreboard (2026-06-25) - the Results act of
           the Move → Ship → Prove loop. Own Suspense / self-hides when nothing is
-          shipped; reads the request-cached re-measured ledger. */}
+          shipped; R4 - reads the SAME snapshot-served ledger as the bands above
+          (passed down), so it never re-triggers the heavy measure path. */}
       <Suspense fallback={null}>
-        <BoundedSection render={() => ProofSummarySection()} />
+        <BoundedSection render={() => ProofSummarySection({ ledger, shockWindows })} />
       </Suspense>
 
       {/* Item 27 - the promise ledger: forecast vs delivered, reconciled monthly. Sibling to the

@@ -25,6 +25,14 @@ function wonRow(overrides: Partial<CumulativeOutcomeRow> & { id: string; path: s
       { day: 28, ran: true, controlsUsed: 3, adjustedLift: 84 },
     ],
     baseline: { impressions: 1200 },
+    // THE ONE DOLLAR RULE (won-dollar-rule.ts): dollars require a ran GA4 traffic
+    // outcome with a positive control-adjusted rate, so the fixture carries one.
+    trafficOutcome: {
+      ran: true,
+      windowDays: 28,
+      treated: { sessionsPre: 200 },
+      adjustedSessionsPct: 0.2,
+    },
     ...overrides,
   };
 }
@@ -161,6 +169,39 @@ describe("computeCumulativeOutcome - money is never faked", () => {
       [wonRow({ id: "a", path: "/a", dollarValue: { usdPerMonth: -5 } })],
       NOW,
     )!;
+    expect(out.dollarLine).toBeNull();
+  });
+
+  // THE ONE DOLLAR RULE (R4, 2026-07-03): the strip applies the SAME strict
+  // exclusions as Today's lifetime earnings odometer, so the two figures can
+  // never disagree. Full parity is pinned in won-dollar-rule.test.ts.
+  it("excludes a weak-comparison win's dollars (still counts it as a win)", () => {
+    const out = computeCumulativeOutcome(
+      [wonRow({ id: "a", path: "/a", controlMatchWeak: true, dollarValue: { usdPerMonth: 30 } })],
+      NOW,
+    )!;
+    expect(out.won).toBe(1);
+    expect(out.estimatedUsdPerMonth).toBeNull();
+    expect(out.dollarLine).toBeNull();
+  });
+
+  it("excludes dollars from a win with no ran traffic outcome (nothing to price)", () => {
+    const out = computeCumulativeOutcome(
+      [wonRow({ id: "a", path: "/a", trafficOutcome: null, dollarValue: { usdPerMonth: 30 } })],
+      NOW,
+    )!;
+    expect(out.estimatedUsdPerMonth).toBeNull();
+  });
+
+  it("excludes dollars from a win whose window overlapped a known Google shock", () => {
+    const out = computeCumulativeOutcome(
+      [wonRow({ id: "a", path: "/a", dollarValue: { usdPerMonth: 30 } })],
+      NOW,
+      // wonRow ships 2026-05-20 (window closes 2026-06-17); this shock overlaps it.
+      [{ id: "s1", start: "2026-06-01", end: "2026-06-03", kind: "confirmed", label: "a confirmed Google update" }],
+    )!;
+    expect(out.won).toBe(1);
+    expect(out.estimatedUsdPerMonth).toBeNull();
     expect(out.dollarLine).toBeNull();
   });
 });

@@ -3,7 +3,10 @@ import { loadProofLedgerCached } from "@/domains/proof-gsc/load-ledger";
 import {
   computeCumulativeOutcome,
   type CumulativeOutcome,
+  type CumulativeOutcomeRow,
 } from "@/domains/proof-gsc/cumulative-outcome";
+import { buildShockWindows, type ShockWindow } from "@/domains/proof-gsc/algorithm-weather";
+import { loadDetectedChangepoints } from "@/domains/proof-gsc/algorithm-weather-store";
 import { Card } from "@/components/ui/card";
 import { ResultsHeaderStrip } from "./results/results-header-strip";
 
@@ -56,16 +59,33 @@ export function CumulativeOutcomeStrip({ outcome }: { outcome: CumulativeOutcome
 }
 
 /**
- * Async loader wrapper: reads the SAME request-cached re-measured ledger Today and
- * Results already load this request (react.cache), so rendering this on either page
- * costs no extra read. Fail-soft: any error or an empty ledger renders nothing.
+ * Async loader wrapper. On Today it reads the SAME request-cached re-measured
+ * ledger the scoreboard already loads (react.cache), so rendering costs no extra
+ * read; /results passes its snapshot-served ledger (and its already-loaded shock
+ * windows) down instead, so the strip never re-triggers the heavy measure path
+ * there. Shock windows feed THE ONE DOLLAR RULE (won-dollar-rule.ts) - loaded
+ * fail-soft when the caller has none. Fail-soft: any error or an empty ledger
+ * renders nothing.
  */
-export async function CumulativeOutcomeSection() {
+export async function CumulativeOutcomeSection({
+  ledger: preloadedLedger,
+  shockWindows: preloadedShockWindows,
+}: {
+  ledger?: ReadonlyArray<CumulativeOutcomeRow>;
+  shockWindows?: ReadonlyArray<ShockWindow>;
+} = {}) {
   let outcome: CumulativeOutcome | null = null;
   try {
     const tenantId = await currentTenantId();
-    const ledger = await loadProofLedgerCached(tenantId).catch(() => []);
-    outcome = ledger.length === 0 ? null : computeCumulativeOutcome(ledger, new Date());
+    const ledger =
+      preloadedLedger ?? (await loadProofLedgerCached(tenantId).catch(() => []));
+    const shockWindows =
+      preloadedShockWindows ??
+      (await loadDetectedChangepoints(tenantId)
+        .then((changepoints) => buildShockWindows({ dailySeries: [], priorChangepoints: changepoints }))
+        .catch(() => [] as ShockWindow[]));
+    outcome =
+      ledger.length === 0 ? null : computeCumulativeOutcome(ledger, new Date(), shockWindows);
   } catch {
     return null;
   }

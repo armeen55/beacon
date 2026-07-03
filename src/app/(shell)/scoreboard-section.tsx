@@ -13,16 +13,13 @@ import { loadOwnCitationsByDay } from "@/domains/recommendation-intelligence/cit
 import { currentTenantSlug } from "@/lib/tenant-context";
 import { Sparkline } from "@/components/data/sparkline";
 import { loadProofLedgerCached } from "@/domains/proof-gsc/load-ledger";
-import {
-  deriveMeasurementMaturity,
-  detectMeasurementOverlaps,
-  measurementWindowOf,
-  isMatureOutcome,
-  type OverlapContext,
-} from "@/domains/proof-gsc/measurement-maturity";
-import { buildShockWindows, overlappingShock, type ShockWindow } from "@/domains/proof-gsc/algorithm-weather";
+import { buildShockWindows, type ShockWindow } from "@/domains/proof-gsc/algorithm-weather";
 import { loadDetectedChangepoints } from "@/domains/proof-gsc/algorithm-weather-store";
-import { extraSessionsFromTrafficOutcome } from "@/domains/proof-gsc/change-dollar-value";
+import {
+  monthlyExtraSessionsRate,
+  selectDollarRuleWins,
+  selectMatureCleanResults,
+} from "@/domains/proof-gsc/won-dollar-rule";
 import { PROOF_BASELINE_WINDOW_DAYS, type ProofWindowResult } from "@/domains/proof-gsc/measure";
 import {
   computeLifetimeEarnings,
@@ -126,15 +123,12 @@ function Chart({ s }: { s: Scoreboard }) {
 
 /**
  * Items 40 + 41 (2026-07-02) - the shared eligibility gate for both the
- * lifetime-earnings odometer and the portfolio counterfactual. Mirrors
- * src/domains/learning/load-experiment-outcomes.ts's maturityGatedVerdict
- * EXACTLY (mature_result only, weather-quarantine and weak-comparison-
- * fallback excluded) - duplicated rather than imported because that
- * function is internal to load-experiment-outcomes.ts, the same posture
- * compute-scoreboard.ts already takes on this identical gate. Returns the
- * basis window (the longest-run window, matching summarizeVerdict) only for
- * records that clear every gate; everything else is filtered out entirely
- * rather than degraded, since both odometers need a real mature result.
+ * lifetime-earnings odometer and the portfolio counterfactual. R4 (2026-07-03):
+ * the gate itself moved into domains/proof-gsc/won-dollar-rule.ts (THE ONE
+ * DOLLAR RULE) so the cumulative outcome strip and this odometer select the
+ * exact same rows - two cumulative dollar figures can never disagree on the
+ * same screen again. This file only loads the shock windows and maps the
+ * selected rows into each aggregator's input shape.
  */
 async function loadShockWindowsForGate(tenantId: string): Promise<ShockWindow[]> {
   try {
@@ -150,33 +144,6 @@ function basisWindowOf(record: ShippedChangeRecord): ProofWindowResult | null {
   return ran[0] ?? null;
 }
 
-function isMatureAndClean(
-  record: ShippedChangeRecord,
-  overlap: OverlapContext | null,
-  now: Date,
-  shockWindows: ReadonlyArray<ShockWindow>,
-): boolean {
-  const basis = basisWindowOf(record);
-  const maturity = deriveMeasurementMaturity({
-    shippedAt: record.shippedAt,
-    now,
-    latestGscDate: null,
-    windows: (record.windows ?? []).map((w) => ({ day: w.day, ran: w.ran })),
-    verdict: record.verdict,
-    controlsUsed: basis?.controlsUsed ?? 0,
-    baselineImpressions: record.baseline?.impressions ?? 0,
-    overlap,
-    live: true,
-  });
-  if (!isMatureOutcome(maturity)) return false;
-  const window = measurementWindowOf(record.shippedAt, record.windows ?? []);
-  if (window && shockWindows.length > 0 && overlappingShock(window.start, window.end, shockWindows)) {
-    return false;
-  }
-  if (record.controlMatchWeak === true) return false;
-  return true;
-}
-
 /** Days between ship and now, floored at 0 (a backdated/clock-skewed ship
  *  never contributes a negative lifetime span). */
 function daysLiveOf(shippedAt: string, now: Date): number {
@@ -187,28 +154,21 @@ function daysLiveOf(shippedAt: string, now: Date): number {
 
 /**
  * Item 40 - build the odometer's input rows from the measured ledger: every
- * MATURE, CLEAN, WON record contributes its current monthly rate (the SAME
- * control-adjusted extra-sessions number change-dollar-value.ts already put
- * on the row as dollarValue/trafficOutcome at measure time - never
- * re-derived here) plus its days-live for the honest proration.
+ * record THE ONE DOLLAR RULE selects (won + mature + clean attribution + a
+ * positive measured traffic rate) contributes its current monthly rate (the
+ * SAME control-adjusted extra-sessions number change-dollar-value.ts already
+ * put on the row as dollarValue/trafficOutcome at measure time - never
+ * re-derived here) plus its days-live for the honest proration. The selection
+ * is the shared won-dollar-rule gate, so this odometer's dollar total is
+ * byte-identical to the cumulative outcome strip's.
  */
 export function buildLifetimeEarningsRows(ledger: ShippedChangeRecord[], now: Date, shockWindows: ShockWindow[]): LifetimeEarningsRow[] {
-  const overlaps = detectMeasurementOverlaps(ledger.map((r) => ({ id: r.id, path: r.path, shippedAt: r.shippedAt })));
-  const rows: LifetimeEarningsRow[] = [];
-  for (const r of ledger) {
-    if (r.verdict !== "won") continue;
-    if (!isMatureAndClean(r, overlaps.get(r.id) ?? null, now, shockWindows)) continue;
-    if (!r.trafficOutcome?.ran) continue;
-    const extraSessionsPerMonth = extraSessionsFromTrafficOutcome(r.trafficOutcome) / (r.trafficOutcome.windowDays || 1) * 30;
-    if (!Number.isFinite(extraSessionsPerMonth) || extraSessionsPerMonth <= 0) continue;
-    rows.push({
-      id: r.id,
-      extraSessionsPerMonth,
-      usdPerMonth: r.dollarValue?.usdPerMonth ?? null,
-      daysLive: daysLiveOf(r.shippedAt, now),
-    });
-  }
-  return rows;
+  return selectDollarRuleWins(ledger, now, shockWindows).map((r) => ({
+    id: r.id,
+    extraSessionsPerMonth: monthlyExtraSessionsRate(r),
+    usdPerMonth: r.dollarValue?.usdPerMonth ?? null,
+    daysLive: daysLiveOf(r.shippedAt, now),
+  }));
 }
 
 /**
@@ -224,10 +184,8 @@ export function buildLifetimeEarningsRows(ledger: ShippedChangeRecord[], now: Da
  * the average with a null result.
  */
 export function buildCounterfactualRows(ledger: ShippedChangeRecord[], now: Date, shockWindows: ShockWindow[]): CounterfactualRow[] {
-  const overlaps = detectMeasurementOverlaps(ledger.map((r) => ({ id: r.id, path: r.path, shippedAt: r.shippedAt })));
   const rows: CounterfactualRow[] = [];
-  for (const r of ledger) {
-    if (!isMatureAndClean(r, overlaps.get(r.id) ?? null, now, shockWindows)) continue;
+  for (const r of selectMatureCleanResults(ledger, now, shockWindows)) {
     const basis = basisWindowOf(r);
     if (!basis) continue;
     const baselineClicks = r.baseline?.clicks ?? 0;

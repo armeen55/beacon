@@ -3,6 +3,7 @@ import { listTenants } from "@/domains/tenants/store";
 import { warmTenantCaches, pacificDay } from "@/domains/ops/warm-caches";
 import { hasWarmRunForDay, recordWarmRun, type WarmRunReceipt } from "@/domains/ops/warm-receipt-store";
 import { log } from "@/lib/logger";
+import { recordCronRun } from "@/domains/ops/cron-runs-store";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -31,6 +32,9 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
   }
 
+  // T0c deadman receipt: one cron_runs row per invocation (fail-soft) so the
+  // stall alarm + health panel can watch this job like every other.
+  const startedAt = new Date().toISOString();
   const results: WarmRunReceipt[] = [];
   try {
     const day = pacificDay(new Date());
@@ -81,10 +85,26 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         log.warn("[precompute] tenant failed", { tenantId: t.id, error: e instanceof Error ? e.message : "?" });
       }
     }
+    await recordCronRun({
+      job: "precompute",
+      startedAt,
+      finishedAt: new Date().toISOString(),
+      ok: results.every((r) => r.ok),
+      perSource: [],
+      notes: { tenants: results.length },
+    }).catch(() => {});
     return NextResponse.json({ ok: true, results });
   } catch (e) {
     const err = e instanceof Error ? e.message : String(e);
     log.error("[precompute] route failed", { error: err.slice(0, 300) });
+    await recordCronRun({
+      job: "precompute",
+      startedAt,
+      finishedAt: new Date().toISOString(),
+      ok: false,
+      perSource: [],
+      notes: { routeError: err.slice(0, 300) },
+    }).catch(() => {});
     return NextResponse.json({ ok: false, error: err.slice(0, 300), results }, { status: 500 });
   }
 }

@@ -1,5 +1,8 @@
 import Link from "next/link";
-import { loadProofLedger } from "@/domains/proof-gsc/load-ledger";
+// R4 (2026-07-03) - this timeline renders only on /results, so its ledger COUNT
+// reads the same request-memoized SWR snapshot the page already serves instead of
+// re-triggering a full re-measure (loadProofLedger) for one number.
+import { loadResultsLedgerSurface } from "../results/results-ledger-data";
 import { isOperatorModeServer } from "@/lib/operator-mode";
 import { getOpportunities, getResults } from "@/lib/seed-data.server";
 import type { ChangelogEntry } from "@/domains/changelog/types";
@@ -240,7 +243,7 @@ export async function ResultsTimeline() {
     let proofLedgerCount = 0;
     if (isOperatorModeServer()) {
       try {
-        proofLedgerCount = (await loadProofLedger(await currentTenantId())).length;
+        proofLedgerCount = (await loadResultsLedgerSurface()).ledger.length;
       } catch {
         proofLedgerCount = 0;
       }

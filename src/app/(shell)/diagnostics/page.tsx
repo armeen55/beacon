@@ -101,6 +101,7 @@ import { computePulse } from "@/domains/product/pulse";
 import { generateVisibilityReport, serializeReport } from "@/domains/product/report-generator";
 import { computeOutcomeSummary } from "@/domains/product/outcome-store";
 import { readLastWarmReceipt } from "@/domains/ops/warm-receipt-store";
+import { CronPreflightSection } from "./cron-preflight-section";
 import { MiniBarChart } from "@/components/viz/mini-bar-chart";
 import { DonutRing } from "@/components/viz/donut-ring";
 import { ScoreRail } from "@/components/viz/score-rail";
@@ -373,6 +374,11 @@ export default async function DiagnosticsPage() {
       <div className="-mt-2 mb-6">
         <LocalOperatorPanel surface={localDiagSurface} variant="health" />
       </div>
+
+      {/* T0c (2026-07-03) - nightly machinery preflight: cron registration
+          drift (vercel.json vs the schedule map) + required env presence
+          (names only). One green line when wired; a red list when not. */}
+      <CronPreflightSection />
 
       {warmReceipt && (
         <p className="-mt-4 text-xs text-muted-foreground" data-diagnostic="nightly-warm">

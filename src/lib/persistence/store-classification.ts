@@ -102,6 +102,10 @@ export const TENANT_SCOPED_STORES = new Set<string>([
   // 2026-07-01 item 93 - Today stale-while-revalidate surface (the composed TodayComposite
   // snapshot per tenant), same discipline as worklist-surface.
   "today-surface",
+  // 2026-07-03 R4 - /results stale-while-revalidate surface (the RE-MEASURED proof
+  // ledger snapshot per tenant), same discipline as worklist-surface. Presentation
+  // cache only: measurement history stays in shipped_changes, never here.
+  "results-surface",
   // 2026-06-29 cross-request Demand Graph SWR snapshot — the computed LoadGraphResult per
   // tenant. The ~6s graph build is shared across requests (New Pages, Today, Recs, Drafts,
   // page-factory, enrichment) instead of each surface rebuilding it. Versioned + bounded.
@@ -289,6 +293,12 @@ export const GLOBAL_STORES = new Set<string>([
   // nightly check never double-sends inside the same 7-day cycle. Global: the
   // cron has no ambient tenant context when it fans out.
   "token-expiry-warnings",
+  // Site uptime probes (2026-07-03, BEACON_500 T0c). Rows carry tenant_id;
+  // written by the nightly sync's uptime phase (no ambient request context,
+  // same cron fan-out rationale as the peers above). One HEAD/GET status +
+  // TTFB row per tenant per night; the deadman verdict on Today reads the
+  // latest two to say "your site did not answer" when down twice in a row.
+  "site-uptime-probes",
   // Nightly precompute warm pass (2026-07-02, master plan item 13). Same cron
   // fan-out rationale: rows carry tenant_id. Per-day run marker (double-fire
   // idempotency) + the "last warmed" receipts /diagnostics shows.

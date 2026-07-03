@@ -27,6 +27,14 @@ const WON: CumulativeOutcomeRow = {
   ],
   baseline: { impressions: 1200 },
   dollarValue: { usdPerMonth: 42 },
+  // THE ONE DOLLAR RULE (won-dollar-rule.ts): a dollar figure only counts when the
+  // win has a ran GA4 traffic outcome with a positive control-adjusted rate.
+  trafficOutcome: {
+    ran: true,
+    windowDays: 28,
+    treated: { sessionsPre: 200 },
+    adjustedSessionsPct: 0.2,
+  },
 };
 
 const MEASURING: CumulativeOutcomeRow = {

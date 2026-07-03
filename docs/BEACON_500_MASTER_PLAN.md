@@ -34,10 +34,10 @@ QUEUE (strict order; [G] = operator-gated, surface it and continue):
 - [ ] R1. Post-nightly receipts verification (first unattended run ~2 AM PT: cron_runs rows, the
       one-line cron panel flips to the full table, teardown lanes, ga4_ai_referral_daily,
       empty-snapshot self-heal on /changes, first multi-lane agree boost). Effort S, gates R5.
-- [ ] R2. T0c operational deadman: stalled-cron banner when receipts stop, env + cron-registration
+- [x] R2 (2026-07-03). T0c operational deadman: stalled-cron banner when receipts stop, env + cron-registration
       preflight, uptime/DNS/SSL probes on the tenant site. Rides cron_runs. Effort M.
-- [ ] R3. T0b one-click recovery: every health card names the exact fix and deep-links it. Effort M.
-- [ ] R4. /results snapshot layer: apply the proven SWR surface-store pattern to the measurement
+- [>] R3 (in flight). T0b one-click recovery: every health card names the exact fix and deep-links it. Effort M.
+- [x] R4 (2026-07-03). /results snapshot layer: apply the proven SWR surface-store pattern to the measurement
       ledger read (FP1's named follow-up) + reconcile the FP8 strip dollar sum with the scoreboard
       odometer (one rule, one comment). Effort M.
 - [ ] R5. N15+N16 learning depth: effect-size learning (beta-posterior shrinkage, recency half-life)
@@ -567,9 +567,9 @@ and UX0 are the same fight.
 
 ## TIER 0 INTERLEAVE: FLY-AWAY SURVIVAL (may jump the queue; the operator must be able to run alone)
 
-- [ ] T0a. **Owner's manual** (docs/OWNERS_MANUAL.md): the daily 20-minute ritual, weekly and monthly rituals, a screen guide, and the one-time setup checklist (map Wix collections, publish the Google OAuth app out of Testing mode, IndexNow key file, set BEACON_DIGEST_TO + RESEND_API_KEY, load full Search Console history, set the revenue model). Live findings to encode: the Wix token works but the page map is empty; google_gsc is already past its 7-day token window.
+- [x] T0a (docs/OWNERS_MANUAL.md exists). **Owner's manual** (docs/OWNERS_MANUAL.md): the daily 20-minute ritual, weekly and monthly rituals, a screen guide, and the one-time setup checklist (map Wix collections, publish the Google OAuth app out of Testing mode, IndexNow key file, set BEACON_DIGEST_TO + RESEND_API_KEY, load full Search Console history, set the revenue model). Live findings to encode: the Wix token works but the page map is empty; google_gsc is already past its 7-day token window.
 - [ ] T0b. **One-click recovery for every known failure**: each health card names the exact fix and deep-links it (extends shipped connector health + canary; absorbs v1 187+227+350 verification-recovery merge, 527 auto-heal unmapped urls, 530 push retry, 354 schema-cache heal, 226 retry ladder).
-- [ ] T0c. **Operational deadman** (v1 194+355+362 merged): stalled-cron banner, env + cron-registration preflight, site uptime/DNS/SSL/domain-expiry probes. Rides the shipped cron_runs ledger.
+- [x] T0c (2026-07-03, R2). **Operational deadman** (v1 194+355+362 merged): stalled-cron banner, env + cron-registration preflight, site uptime/DNS/SSL/domain-expiry probes. Rides the shipped cron_runs ledger.
 - [ ] T0d. **Backups proven by restore drill** (v1 105) + credential encryption and rotation runbook (v1 247) + hack/cloaking sentinel (v1 106) + crawler citizenship (v1 480) + SSRF hardening (v1 249).
 - [ ] T0e. **New-site golden path hardened** (v1 154, 155, 156, 157, 158, 212, 296, 298, 383, 505, 508, 509, 577 consolidated): URL-first signup, GSC connect in wizard with backfill, background cold-start crawl past the 18-page cap, day-0 SERP + AI baselines, first-audit scorecard, guided first win, re-read-my-site action, honest unreachable-site failures, rescue stalled signups. This is "grow any website I want" made real.
 - [ ] T0f. **Weekly editorial QA sample vs autonomy** (v1 481) + operator-override audits (v1 274): the human spot-check lane that keeps trust honest.
