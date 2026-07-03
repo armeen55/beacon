@@ -121,7 +121,9 @@ describe("ChangesListClient - UX3 multi-select bulk bar", () => {
 
 describe("ChangesListClient - UX3 does not regress the D6 session loop", () => {
   it("still mounts useWorklistSession over the same ranked+filtered visible list", () => {
-    expect(SRC).toMatch(/useWorklistSession\(visible\)/);
+    // R20 added a second arg (the FP3 lifecycle counts) - still the SAME `visible` list, never a
+    // re-ranked or re-filtered copy. Match the current (post-R20) call shape.
+    expect(SRC).toMatch(/useWorklistSession\(\s*visible\s*,/);
   });
 
   it("still auto-scrolls to the next-best row", () => {

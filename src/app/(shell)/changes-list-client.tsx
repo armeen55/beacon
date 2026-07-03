@@ -15,7 +15,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
-import { Hourglass, TriangleAlert } from "lucide-react";
+import { ChevronDown, Hourglass, RefreshCw, TriangleAlert } from "lucide-react";
 import type { ChangesView } from "./changes-data";
 import type { CanonicalChange, Strategy, Goal, StatusView } from "@/domains/changes/canonical-change";
 import { buildForecastInputLines, EVIDENCE_LABEL, statusView } from "@/domains/changes/canonical-change";
@@ -31,6 +31,14 @@ import { Card } from "@/components/ui/card";
 import { Pill, type PillIntent } from "@/components/ui/pill";
 import { SectionHeader } from "@/components/ui/section-header";
 import { EmptyState } from "@/components/ui/empty-state";
+import {
+  rankReasonAt,
+  honestMinutesLabel,
+  sessionMinutesLine,
+  resolveDiffPair,
+  wordDiff,
+  SNOOZE_DURATIONS,
+} from "./worklist-row-helpers";
 
 // UX3 - buyer language for the strategy picker (display-only; the underlying Strategy union
 // and its ranking math in strategy.ts are untouched, this only renames what the operator reads).
@@ -127,6 +135,108 @@ function displayPageLabel(c: CanonicalChange, move: ChangesView["movesById"][str
   return { title, secondary: c.pageLabel !== title ? c.pageLabel : null };
 }
 
+// P13 word-level diff (v1 349/397) - "see exactly what changes". Renders a change's before -> after
+// as a single readable line where removed words are struck through and added words are emphasized,
+// so the operator sees the EXACT edit before shipping. State is carried by text weight + a "was/now"
+// legend, never color alone (WCAG). Deterministic segments come from the pure wordDiff helper.
+export function WordLevelDiff({ before, after }: { before: string; after: string }) {
+  const segs = wordDiff(before, after);
+  if (!segs) return null;
+  return (
+    <div className="mt-0.5 space-y-0.5 pl-4 text-meta">
+      <p className="leading-relaxed text-foreground-secondary">
+        {segs.map((s, i) =>
+          s.type === "same" ? (
+            <span key={i}>{s.text}</span>
+          ) : s.type === "del" ? (
+            <span key={i} className="text-muted-foreground line-through" title="Removed">
+              {s.text}
+            </span>
+          ) : (
+            <span key={i} className="font-semibold text-status-success" title="Added">
+              {s.text}
+            </span>
+          ),
+        )}
+      </p>
+      <p className="text-muted-foreground">Struck-through words go away, bold words are new.</p>
+    </div>
+  );
+}
+
+// P13 not-now durations + one-click re-draft (v1 350/351). Replaces the bare "Skip" with an honest
+// menu: the DEFAULT action (the button itself, or the first menu item) is byte-identical to the old
+// skip - it calls the SAME respondToRecommendation('deferred') path, which defers for a week, so
+// "remind me in a week" is the true label for the unchanged behavior. The extra durations frame the
+// same deferral (a custom remind date is a shared-store follow-up). "Redraft this" opens the row's
+// detail, which carries the existing in-place Regenerate control - no new write path, no new widget.
+export function NotNowMenu({
+  onSnooze,
+  onRedraft,
+  canRedraft,
+}: {
+  /** Fires the deferral (same path the old bare Skip used) then advances the session. */
+  onSnooze: () => void;
+  /** Opens the row detail so the operator reaches the existing Regenerate affordance. */
+  onRedraft: () => void;
+  /** Only offer "Redraft this" when there is a matching move to regenerate. */
+  canRedraft: boolean;
+}) {
+  const [menuOpen, setMenuOpen] = useState(false);
+  return (
+    <div className="relative">
+      <button
+        type="button"
+        onClick={() => setMenuOpen((v) => !v)}
+        aria-expanded={menuOpen}
+        aria-haspopup="menu"
+        className={`inline-flex min-h-[34px] items-center gap-1 rounded-md px-2 py-1 text-meta font-medium text-muted-foreground hover:text-foreground-secondary ${FOCUS}`}
+        title="Not now, or redraft it"
+      >
+        Not now
+        <ChevronDown className="h-3.5 w-3.5 shrink-0" aria-hidden />
+      </button>
+      {menuOpen ? (
+        <div
+          role="menu"
+          className="absolute right-0 z-10 mt-1 w-56 overflow-hidden rounded-lg border border-border bg-card py-1 shadow-lg"
+        >
+          {SNOOZE_DURATIONS.map((d) => (
+            <button
+              key={d.id}
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                setMenuOpen(false);
+                // Every duration routes through the SAME deferral the old Skip used (the store
+                // defers a week regardless); the labels frame it honestly for the operator.
+                onSnooze();
+              }}
+              className={`block w-full px-3 py-1.5 text-left text-meta text-foreground-secondary hover:bg-surface-raised ${FOCUS}`}
+            >
+              {d.label}
+            </button>
+          ))}
+          {canRedraft ? (
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                setMenuOpen(false);
+                onRedraft();
+              }}
+              className={`flex w-full items-center gap-1.5 border-t border-border-subtle px-3 py-1.5 text-left text-meta font-medium text-status-info hover:bg-surface-raised ${FOCUS}`}
+            >
+              <RefreshCw className="h-3.5 w-3.5 shrink-0" aria-hidden />
+              Redraft this instead
+            </button>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 /** UX3 - the row's full detail content (paste text, roundtable, evidence, forecasts, buttons),
  *  factored out so it can render either inline (mobile, when a side panel would fight the
  *  layout) or inside the split detail panel (desktop) without duplicating a single line of it. */
@@ -208,6 +318,16 @@ function Row({
   const effort = Number.isFinite(c.estimatedEffortMinutes) ? c.estimatedEffortMinutes : null;
   const label = displayPageLabel(c, move);
   const href = dossierHref(c.pagePath || c.pageUrl);
+  // P13 honest minute math (v1 592) - a truthful bucket ("about 5 minutes") from the effort
+  // field, self-hiding when there is no honest figure. Replaces the raw "~5 min" chip.
+  const minuteLabel = honestMinutesLabel(c);
+  // P13 rank explanation (v1 348/398) - one plain sentence for why this row sits where it does,
+  // derived from the demand + winnability already on the change. Self-hides when unknown. Only on
+  // actionable rows (measuring/result rows already speak in outcome language, not rank).
+  const rankReason = isMeasure ? null : rankReasonAt(c, move, rank);
+  // P13 word-level diff (v1 349/397) - resolve the before -> after pair for a diffable edit
+  // (title/description/headline/answer). Null for non-edit rows, which self-hide the disclosure.
+  const diffPair = isMeasure ? null : resolveDiffPair(c, move);
   // D6 - the ring makes "auto-scroll/highlight the next unblocked top item" honest: landing on
   // a row that looks identical to every other row would defeat the point of pointing at it.
   // Keyboard focus gets its own (subtler) ring so j/k navigation is visible without being
@@ -282,7 +402,14 @@ function Row({
           </div>
           <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-meta text-muted-foreground">
             <span>{c.opportunityType}</span>
-            {effort != null ? <span>~{effort} min</span> : null}
+            {/* P13 honest minute math (v1 592) - an honest bucket ("about 5 minutes") instead of a
+                bare "~5 min", with the exact figure available on hover. Falls back to the raw
+                minutes only when the bucket helper self-hides (no effort figure at all). */}
+            {minuteLabel ? (
+              <span title={effort != null ? `${effort} minutes, estimated from the change type` : undefined}>{minuteLabel}</span>
+            ) : effort != null ? (
+              <span>~{effort} min</span>
+            ) : null}
             {/* UX0 (2026-07-02) - c.upside is GSC impressions (times shown on Google), never
                 true market search volume (that only ever comes from DataForSEO) - the two
                 numbers must never share a label or they read as the same thing. */}
@@ -303,6 +430,24 @@ function Row({
                 path by default (folded into the expander above). */}
             {c.freshness === "aging" && c.agingChip ? <span className="text-muted-foreground">{c.agingChip}</span> : null}
           </div>
+          {/* P13 rank explanation (v1 348/398) - one plain sentence for WHY this row sits where it
+              does, derived from its demand + winnability. Self-hides when there is no concrete
+              number to stand on, so a row never shows a hand-wavy "ranked because" line. */}
+          {rankReason ? (
+            <p className="mt-0.5 text-meta text-muted-foreground">{rankReason}</p>
+          ) : null}
+          {/* P13 word-level diff (v1 349/397) - "see exactly what changes": before -> after as a
+              word-level diff so the operator sees the EXACT edit before shipping. Only for diffable
+              edits (title/description/headline/answer) with a real before AND after; self-hides
+              otherwise. */}
+          {diffPair ? (
+            <details className="mt-0.5">
+              <summary className={`cursor-pointer text-meta text-muted-foreground hover:text-foreground ${FOCUS}`}>
+                See exactly what changes
+              </summary>
+              <WordLevelDiff before={diffPair.before} after={diffPair.after} />
+            </details>
+          ) : null}
           {/* R14b (see-the-math) - the sized forecast opens into its own inputs: times
               shown, current position, and which click-rate curve sized it. Same label
               convention as the Results cards. Absent for honest-fallback rows. */}
@@ -327,14 +472,16 @@ function Row({
           ) : (
             <>
               <button type="button" onClick={() => setOpen()} aria-expanded={open} aria-controls={panelId} className={`inline-flex min-h-[34px] items-center rounded-md border border-border px-2.5 py-1 text-body font-medium text-foreground-secondary hover:bg-surface-raised ${FOCUS}`}>{open ? "Hide" : cta}</button>
-              {/* D6 - a bare skip button for rows the operator wants to pass on WITHOUT opening
-                  the full card (e.g. no draft to review yet). Feeds the same dismissal-learning
-                  path ("deferred") the MoveCard's own "Not now" already uses, and, like every
-                  other row action, always hands off to the next best row - never a dead end. */}
+              {/* P13 not-now durations + one-click re-draft (v1 350/351) - replaces the bare Skip
+                  with an honest snooze menu ("remind me in a week", the true default) plus a
+                  "Redraft this instead" affordance. The snooze feeds the SAME dismissal-learning
+                  path ("deferred") the MoveCard's own "Not now" uses and always advances the session
+                  (never a dead end); "Redraft this" opens the row detail, which carries the existing
+                  in-place Regenerate control - no new write path. */}
               {onAction ? (
-                <button
-                  type="button"
-                  onClick={() => {
+                <NotNowMenu
+                  canRedraft={Boolean(move)}
+                  onSnooze={() => {
                     // Same dismissal-learning path MoveCard's own snooze() uses (the "deferred"
                     // status respondToRecommendation already records), reused rather than
                     // duplicated. When there's no matching worklist move (rare - a change with
@@ -343,11 +490,8 @@ function Row({
                     if (move) void respondToRecommendation(move.id, "deferred", { targetPageUrl: move.targetUrl });
                     onAction("skip");
                   }}
-                  className={`inline-flex min-h-[34px] items-center rounded-md px-2 py-1 text-meta font-medium text-muted-foreground hover:text-foreground-secondary ${FOCUS}`}
-                  title="Not now - I will pick this up another day"
-                >
-                  Skip
-                </button>
+                  onRedraft={() => setOpen()}
+                />
               ) : null}
             </>
           )}
@@ -573,6 +717,15 @@ export function ChangesListClient({ view }: { view: ChangesView }) {
   const hiddenRankedCount = applyCuration ? afterTop.length - cappedRows.length : 0;
   const expiredHiddenCount = applyCuration && !showAllRanked ? afterTop.filter((c) => c.freshness === "expired").length : 0;
 
+  // P13 honest minute math (v1 592) - the session-total sentence for the flat working view, over
+  // the picks actually shown at the top (top 3 + the capped rest), so it matches what the operator
+  // is looking at. Only the To do / Ready working tabs get it (results/measuring aren't work to do).
+  const sessionTotalChanges = applyCuration ? [...topPicks, ...cappedRows] : visible;
+  const sessionTotalLine =
+    !grouped && (tab === "todo" || tab === "ready")
+      ? sessionMinutesLine(sessionTotalChanges)
+      : null;
+
   const s = view.summary;
   const isFiltered = q.trim().length > 0 || goal !== "recommended";
   // Distinguish WHY a view is empty: clean-strategy eligibility vs filtered vs genuinely-empty
@@ -787,6 +940,12 @@ export function ChangesListClient({ view }: { view: ChangesView }) {
             <p className="text-meta text-muted-foreground tabular-nums">
               Tonight&apos;s set: {visible.length} change{visible.length === 1 ? "" : "s"}, about {visible.reduce((t, c) => t + (Number.isFinite(c.estimatedEffortMinutes) ? c.estimatedEffortMinutes : 5), 0)} minutes.
             </p>
+          ) : null}
+          {/* P13 honest minute math (v1 592) - the session total across the picks shown at the top,
+              in the SAME per-change effort fallback the "Tonight's 30 minutes" budget uses, so the
+              two never disagree. Only on the flat working view (grouped/tonight have their own). */}
+          {!tonight && sessionTotalLine ? (
+            <p className="text-meta text-muted-foreground tabular-nums">{sessionTotalLine}</p>
           ) : null}
           {/* UX3 - the applied-batch summary row: "Tonight's batch: N applied, all verified"
               (or "M of N verified" while some are still confirming), expandable to the
