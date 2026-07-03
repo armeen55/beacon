@@ -68,6 +68,14 @@ import { computeDimPriors, resolvePrior, canonicalMoveType, pageTypeFromUrl, que
 import { computeEffectSizeTable, resolveEffectPrior } from "@/domains/learning/effect-size-prior";
 import { attachControlContaminationForLedger, computeLastCleanDonorHolds } from "@/domains/proof-gsc/attach-control-contamination";
 import { computeQueryOverlapHoldsForLedger, type InterferenceLedgerShip } from "@/domains/proof-gsc/interference-graph";
+// N45 (R21b, 2026-07-03) - the PURE prerequisite gate. Derives dependency edges between the
+// candidates queued together (a content edit on a technically-blocked page waits for the fix; an
+// internal link waits for its destination page to be built; a schema-dependent edit waits for the
+// schema) and returns a path -> plain-reason hold lookup the planner already accepts as
+// prerequisiteHolds. Byte-identical when the batch has no dependency (the common case for the
+// daily content/link/answer levers): empty holds, same plan.
+import { planDependencies, dependencyHoldLookup, type DependencyCandidate } from "./dependency-planner";
+import type { ActionType } from "@/domains/recommendations/action-types";
 import { outcomeStateOf } from "@/domains/proof-gsc/measure-lifecycle";
 import { measurementWindowOf } from "@/domains/proof-gsc/measurement-maturity";
 import { classifyOpportunityFreshness } from "@/domains/changes/opportunity-expiry";
@@ -79,6 +87,37 @@ import { claimEvidenceForDraft } from "@/domains/provenance/claim-graph";
 const ANIMAL = /\/iran-animals(\/|$)/;
 const pathOf = (u: string) => (u.replace(/^https?:\/\/[^/]+/, "") || "/").replace(/[?#].*$/, "").replace(/\/$/, "") || "/";
 const labelOf = (u: string) => (pathOf(u).split("/").filter(Boolean).at(-1) ?? "").replace(/[-_]+/g, " ");
+
+/** N45 (R21b): the SAME host-stripped path convention daily-experiment-planner.ts uses for its
+ *  interference/prerequisite lookups (normPathForInterference), reproduced here so the re-keyed
+ *  prerequisiteHolds map lines up byte-for-byte with the planner's own lookup. NOT lowercased and
+ *  NOT trailing-slash-stripped, deliberately - it must match the planner, not pathOf above. */
+const normPathForInterference = (u: string) =>
+  (u.replace(/^https?:\/\/[^/]+/, "").replace(/[?#].*$/, "") || "/");
+
+/** N45 (R21b): map a daily lever field to the canonical ActionType dependency-planner.ts reasons
+ *  over. The daily pipeline produces only these content/link/answer levers; a seasonal_prep is not
+ *  a content optimization and never a dependent, so it maps to full_rewrite's sibling by being
+ *  excluded from the planner's CONTENT_OPTIMIZATION set via a non-optimization action - here we use
+ *  reorder_sections which the planner does treat as content-optimization, so seasonal_prep is kept
+ *  honest as an edit; refresh is a full_rewrite. */
+export function leverFieldToActionType(leverField: BuiltCandidate["leverField"]): ActionType {
+  switch (leverField) {
+    case "title":
+      return "edit_title";
+    case "meta":
+      return "edit_meta";
+    case "h1":
+      return "change_h1";
+    case "internal_link":
+      return "add_internal_link";
+    case "answer_block":
+      return "add_answer_block";
+    case "refresh":
+    case "seasonal_prep":
+      return "full_rewrite";
+  }
+}
 
 /** Item 51 (weekly strategy review) - read the latest signed mix (if any, if fresh) and
  *  compose its per-family weight multiplicatively onto teamScoreMultiplier, the SAME
@@ -626,7 +665,41 @@ export async function buildTodayExperimentPreview(tenantId: string, now: Date = 
     c.evidenceFreshness = classifyOpportunityFreshness([{ kind: "serp_verdict", date: serpDate }], now).verdict;
   }
 
-  const plan = planDailyExperiments({ tenantId, date: now.toISOString().slice(0, 10), candidates: teamReviewed, proofLedger: ledger, config: { ...PLANNER_CONFIG, now }, lastCleanDonorHolds, queryOverlapHolds });
+  // N45 (R21b, 2026-07-03) - PREREQUISITE HOLDS: derive dependency edges across tonight's own
+  // batch (dependency-planner.ts) and hold any candidate whose prerequisite is still pending.
+  // Reuses the SAME candidates/link-destinations this pipeline already built - no new store, no
+  // new read. The daily levers are content/link/answer edits, so the only dependency this batch
+  // can carry today is an internal link pointing at a create_page candidate (build_hub_page);
+  // create_page / add_schema / technical fixes are not daily levers, so in practice this yields
+  // an EMPTY hold lookup and a byte-identical plan (the pin). It is wired now so the moment a
+  // prerequisite-bearing candidate does appear, the dependent is held with the honest
+  // prerequisite_pending sentence in the "Why not the others?" inspector (R14a). Fail-soft ->
+  // no holds. The planner keys prerequisiteHolds by host-stripped path; dependency-planner keys
+  // its own held list by candidate id, so we re-key here (id -> path).
+  let prerequisiteHolds: ReadonlyMap<string, string> = new Map<string, string>();
+  try {
+    const depCandidates: DependencyCandidate[] = teamReviewed.map((c) => ({
+      id: c.url,
+      url: c.url,
+      actionType: leverFieldToActionType(c.leverField),
+      linkDestinationUrl: c.linkDetail?.destinationUrl ?? c.linkDetail?.destinationPath ?? null,
+    }));
+    const plan = planDependencies(depCandidates);
+    const holdById = dependencyHoldLookup(plan);
+    if (holdById.size > 0) {
+      // Re-key id -> host-stripped path so the planner's normPathForInterference lookup applies.
+      const byPath = new Map<string, string>();
+      for (const c of depCandidates) {
+        const reason = holdById.get(c.id);
+        if (reason) byPath.set(normPathForInterference(c.url), reason);
+      }
+      prerequisiteHolds = byPath;
+    }
+  } catch {
+    /* additive - a failed dependency derivation must never block or alter a nightly plan */
+  }
+
+  const plan = planDailyExperiments({ tenantId, date: now.toISOString().slice(0, 10), candidates: teamReviewed, proofLedger: ledger, config: { ...PLANNER_CONFIG, now }, lastCleanDonorHolds, queryOverlapHolds, prerequisiteHolds });
 
   const byUrl = new Map(built.map((b) => [b.url, b]));
   const selected = plan.selected.map((s) => byUrl.get(s.url)).filter(Boolean) as BuiltCandidate[];

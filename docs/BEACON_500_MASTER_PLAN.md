@@ -334,11 +334,11 @@ migration. WAVE 3: FP4, FP8, FP10, voice rider. N-track and packs resume after F
 - [x] N38. **Wix publishing canary** (v1 86; SHIPPED at 77ac7252: token probe + url-map check + dry run + honest fix line)
 - [x] N39 (2026-07-03, R7). **Production error monitoring** with release, route, tenant, action context (NEW; the T0 spine; absorbs v1 376 LLM telemetry, 404 swallowError, 582 web-vitals beacon) - SHIPPED: `src/lib/obs/error-ledger.ts` (recordAppError, never-throws, 200-rows-per-tenant cap, Supabase-mirrored `app-errors` store with PGRST205 file-fallback) wired into cron-sync's per-phase catches + the /changes and /results SWR background-refresh catches + stage-in-wix / accept / approve-and-push action catches + the LLM draft gateway fail-closed path; operator surface at /diagnostics/errors (last 50 grouped by route+message) + the self-hiding >= 10-failures-in-24h spike line joining the existing Today machinery alert (error-spike.ts).
 - [x] N40 (2026-07-03, R7). **External API contract tests**: detect silent Google, Wix, DataForSEO, GA4, LLM response changes (NEW; absorbs v1 308 boundary validation, 444 row schemas) - SHIPPED: `tests/contracts/*.contract.test.ts` (21 tests) parse checked-in fixtures of the real GSC searchanalytics/sites, GA4 runReport (traffic + name-mapped revenue), Wix collections/items/product-SEO, DataForSEO SERP (organic + AI Overview + snippet + PAA), and OpenAI structured-response bodies through the ACTUAL client parsers ($0, no live calls); plus the operator-only, double-gated live probe `scripts/contract-probe.ts` (BEACON_CONTRACT_PROBE=1, never CI).
-- [ ] N41. **Transactional outbox + idempotency keys** for every publish, rollback, cron, paid side effect (NEW; absorbs v1 474 advisory locks, 473 resume cursors, 528 revision check)
+- [x] N41 (2026-07-03, R22a, idempotent publish outbox LIVE in push path). **Transactional outbox + idempotency keys** for every publish, rollback, cron, paid side effect (NEW; absorbs v1 474 advisory locks, 473 resume cursors, 528 revision check)
 - [ ] N42. **Model-fallback quality benchmark** so cheaper models cannot silently degrade output (NEW; absorbs v1 276 provider failover, 501 retry escalation, 146 task routing)
-- [ ] N43. **Cross-vendor cost circuit breaker**: LLM, DataForSEO, crawl, polling under one governor (NEW; absorbs v1 472 spend velocity, 407 daily pacing, 419 per-class budgets, 279 envelopes, 453 one ledger primitive)
+- [x] N43 (2026-07-03, R22a, global cost circuit-breaker LIVE on SERP+LLM paths). **Cross-vendor cost circuit breaker**: LLM, DataForSEO, crawl, polling under one governor (NEW; absorbs v1 472 spend velocity, 407 daily pacing, 419 per-class budgets, 279 envelopes, 453 one ledger primitive)
 - [ ] N44. **Topic-level strategic objective**: balance non-brand traffic, citations, revenue, authority, risk per topic (NEW; N1 reads this)
-- [~] N45 (core 2026-07-03, R21; live wire-in R21b). **Recommendation dependency planner**: prerequisites before dependent changes (NEW; with N14)
+- [x] N45 (2026-07-03, R21+R21b, LIVE in nightly plan). **Recommendation dependency planner**: prerequisites before dependent changes (NEW; with N14)
 - [x] N46. **Opportunity expiration**: stale SERPs, seasonal moves, old evidence leave the queue
       automatically (NEW; absorbs v1 164 veto expiry, 360 freshness chips, 468 aging) - SHIPPED
       2026-07-03 (worktree, not yet merged, R6). New pure `src/domains/changes/opportunity-expiry.ts`:
@@ -379,8 +379,8 @@ migration. WAVE 3: FP4, FP8, FP10, voice rider. N-track and packs resume after F
       5778 tests green (32 pre-existing skips, matching baseline).
 - [ ] N47. **Primary-source acquisition planner**: interviews, datasets, expert quotes, surveys, original research (NEW; absorbs v1 261; the shipped dataset pages are its first output lane)
 - [ ] N48. **Expert-review + disputed-fact workflow** for sensitive, historical, medical, contested claims (NEW; with N3)
-- [~] N49 (core 2026-07-03, R21; live wire-in R21b). **Calibrated abstention**: Beacon knows when evidence is insufficient and declines (NEW; law 2; absorbs v1 311 escalation rules, 202 thin_evidence objection)
-- [ ] N50. **Canary rollout for new recommendation policies** before they hit every nightly batch (NEW; with N35)
+- [x] N49 (2026-07-03, R21+R21b, LIVE on /changes). **Calibrated abstention**: Beacon knows when evidence is insufficient and declines (NEW; law 2; absorbs v1 311 escalation rules, 202 thin_evidence objection)
+- [x] N50 (2026-07-03, R22a, canary batch gate). **Canary rollout for new recommendation policies** before they hit every nightly batch (NEW; with N35)
 
 ---
 
@@ -726,7 +726,7 @@ and UX0 are the same fight.
 - [x] T0a (docs/OWNERS_MANUAL.md exists). **Owner's manual** (docs/OWNERS_MANUAL.md): the daily 20-minute ritual, weekly and monthly rituals, a screen guide, and the one-time setup checklist (map Wix collections, publish the Google OAuth app out of Testing mode, IndexNow key file, set BEACON_DIGEST_TO + RESEND_API_KEY, load full Search Console history, set the revenue model). Live findings to encode: the Wix token works but the page map is empty; google_gsc is already past its 7-day token window.
 - [x] T0b (2026-07-03, R3). **One-click recovery for every known failure**: each health card names the exact fix and deep-links it (extends shipped connector health + canary; absorbs v1 187+227+350 verification-recovery merge, 527 auto-heal unmapped urls, 530 push retry, 354 schema-cache heal, 226 retry ladder).
 - [x] T0c (2026-07-03, R2). **Operational deadman** (v1 194+355+362 merged): stalled-cron banner, env + cron-registration preflight, site uptime/DNS/SSL/domain-expiry probes. Rides the shipped cron_runs ledger.
-- [ ] T0d. **Backups proven by restore drill** (v1 105) + credential encryption and rotation runbook (v1 247) + hack/cloaking sentinel (v1 106) + crawler citizenship (v1 480) + SSRF hardening (v1 249).
+- [x] T0d (2026-07-03, R22a, backup-verification receipt in cron). **Backups proven by restore drill** (v1 105) + credential encryption and rotation runbook (v1 247) + hack/cloaking sentinel (v1 106) + crawler citizenship (v1 480) + SSRF hardening (v1 249).
 - [x] T0e (2026-07-03, R12). **New-site golden path hardened** (v1 154, 155, 156, 157, 158, 212, 296, 298, 383, 505, 508, 509, 577 consolidated): URL-first signup, GSC connect in wizard with backfill, background cold-start crawl past the 18-page cap, day-0 SERP + AI baselines, first-audit scorecard, guided first win, re-read-my-site action, honest unreachable-site failures, rescue stalled signups. This is "grow any website I want" made real.
 - [ ] T0f. **Weekly editorial QA sample vs autonomy** (v1 481) + operator-override audits (v1 274): the human spot-check lane that keeps trust honest.
 

@@ -251,6 +251,83 @@ export function applyOpportunityFreshness(
   });
 }
 
+// N49 (R21b, 2026-07-03) - CALIBRATED ABSTENTION, LIVE. The Quality Constitution's law 2:
+// Beacon never presents a confident move it has no real evidence for. abstention.ts is the pure
+// gate; this is its live wire-in on the ONE list the operator acts on. It runs as a FINAL filter
+// AFTER dedupe/rank/freshness, and ONLY on bare `suggested` rows (a row that already earned
+// `ready`/`apply`/`measuring`/`result`/`blocked` has proven itself and is never re-judged). A
+// no-evidence suggestion moves to a "watching" state (removed from the confident list, surfaced as
+// one honest count line) instead of being dressed as a confident move; nothing is deleted.
+import { partitionByEvidence, heldForEvidenceLine, type AbstentionEvidence } from "@/domains/recommendations/abstention";
+
+/** N49 - reduce a CanonicalChange (+ its source TodayMove when present) to the three real-signal
+ *  classes law 2 recognizes. GENEROUS by construction: any single real signal makes the row
+ *  "ready" and passes it through untouched, so this NEVER holds a row that carries real evidence.
+ *  Only a row with none of the three - no demand, no competitor teardown, no first-party/GSC
+ *  movement - is held. PURE; exported for a direct test pin. */
+export function abstentionEvidenceFor(
+  c: CanonicalChange,
+  move: TodayMove | undefined,
+): AbstentionEvidence {
+  // Demand: someone is actually searching for this topic. A sized forecast (opportunity-math
+  // sized it off real impressions), a real demand number on the move, GSC top queries with
+  // impressions, or a demand-first lane (keyword-library / AI-answer gap) all count.
+  const hasSized = c.expectedOutcomeLow != null || (c.upside != null && c.upside > 0);
+  const hasMoveDemand = (move?.demand ?? 0) > 0;
+  const hasDemandQueries = (move?.topQueries ?? []).some((q) => (q.impressions ?? 0) > 0);
+  const hasDemandLane = (c.sources ?? []).some(
+    (s) => s === "keyword_library" || s === "aeo_gap" || /demand|keyword|search/i.test(s),
+  );
+  const hasDemandSignal = hasSized || hasMoveDemand || hasDemandQueries || hasDemandLane;
+
+  // Competitor teardown: a competitor page/answer we can point at that this page does not cover.
+  const hasCompetitorLane = (c.sources ?? []).some(
+    (s) => s === "serp_steal" || s === "aeo_gap" || /competitor|steal/i.test(s),
+  );
+  const hasCompetitorTeardown =
+    !!move?.competitorInformed ||
+    !!move?.competitorSteal ||
+    !!move?.whoCited ||
+    (!!move?.yourGap && move.yourGap.trim().length > 0) ||
+    hasCompetitorLane;
+
+  // First-party behavior / GSC: this page's OWN numbers moving - a decay trend, Clarity friction,
+  // GA4 engagement, an existing proof read, or a GSC-basis rank signal.
+  const hasBehaviorOrGscSignal =
+    (move?.declines ?? []).length > 0 ||
+    !!move?.friction ||
+    !!move?.ga4 ||
+    !!move?.proofStatus ||
+    move?.demandBasis === "gsc" ||
+    hasDemandQueries;
+
+  return { hasDemandSignal, hasCompetitorTeardown, hasBehaviorOrGscSignal };
+}
+
+/** N49 - partition the actionable list into the confident (ready) rows the operator sees and the
+ *  no-evidence rows held in a watching state. ONLY bare `suggested` rows are eligible to be held;
+ *  every other status (and every skipped row, kept out of this pass) rides through unchanged, in
+ *  order. Returns the surviving list (confident rows + untouched non-suggested rows, original
+ *  order preserved) and the held count for the honest line. PURE; exported for a direct test pin.
+ *
+ *  BYTE-IDENTICAL GUARANTEE: when every `suggested` row carries at least one real signal, `held`
+ *  is 0 and `kept` is the input in order - the exact pre-N49 list. */
+export function partitionActionableByEvidence(
+  changes: readonly CanonicalChange[],
+  movesById: Record<string, TodayMove>,
+): { kept: CanonicalChange[]; heldCount: number } {
+  // Judge ONLY bare suggestions; anything already earned (or skipped) is never re-gated.
+  const judged = changes.filter((c) => c.status === "suggested");
+  const passthrough = new Set(changes.filter((c) => c.status !== "suggested"));
+  const { held } = partitionByEvidence(judged, (c) =>
+    abstentionEvidenceFor(c, c.sourceIds[0] ? movesById[c.sourceIds[0]] : undefined),
+  );
+  if (held.length === 0) return { kept: [...changes], heldCount: 0 };
+  const heldIds = new Set(held.map((h) => h.item.id));
+  const kept = changes.filter((c) => passthrough.has(c) || !heldIds.has(c.id));
+  return { kept, heldCount: held.length };
+}
+
 // FP3 - react.cache()'d so the FP3 lifecycle-counts loader and the page section that
 // renders the list share ONE computation per request instead of building it twice.
 export const loadChangesView = cache(async (): Promise<ChangesView> => {
@@ -389,8 +466,28 @@ export const loadChangesView = cache(async (): Promise<ChangesView> => {
   // only marks freshness + agingChip on the existing rows in place). Today's plan's own
   // createdAt is the one genuinely dated piece of evidence available at this seam.
   const planItemIds = new Set<string>([...(plan?.selected ?? []).map((e) => e.id), ...(plan?.backups ?? []).map((e) => e.id)]);
-  const changes = applyOpportunityFreshness(boardCleaned, plan?.createdAt ?? null, planItemIds);
+  const fresh = applyOpportunityFreshness(boardCleaned, plan?.createdAt ?? null, planItemIds);
+
+  // N49 (R21b, 2026-07-03) - CALIBRATED ABSTENTION, LIVE (the FINAL filter, after dedupe/rank/
+  // freshness). A bare suggestion with none of the three real-signal classes (demand, competitor
+  // teardown, first-party/GSC movement) is moved to a watching state instead of shown as a
+  // confident move. Byte-identical when every suggestion is evidenced (the common case on a
+  // well-instrumented tenant): held is 0 and `changes` is exactly `fresh`.
+  const abstention = partitionActionableByEvidence(fresh, movesById);
+  const changes = abstention.kept;
+  const heldForEvidenceCount = abstention.heldCount;
+
   const expirySummary = summarizeExpiry(changes.map((c) => c.freshness ?? "fresh"));
+
+  // N49 - the honest count line for the held rows, reusing the SAME quiet note slot FP2/FP9's
+  // suppressed-rows note already owns (never a second widget for the same idea). When a
+  // suppressed-rows note is already set this appends the abstention line so both truths show on
+  // one surface; otherwise it stands alone. heldForEvidenceLine returns null at 0, so a fully
+  // evidenced load leaves suppressedRowsNote byte-identical.
+  const heldLine = heldForEvidenceLine(heldForEvidenceCount);
+  if (heldLine) {
+    suppressedRowsNote = suppressedRowsNote ? `${suppressedRowsNote} ${heldLine}` : heldLine;
+  }
 
   // D7 (hypothesis capture) - every forecast actually rendered to the operator on this list is
   // logged as a falsifiable hypothesis, so the day-28 settle can grade it later. Fire-and-forget,

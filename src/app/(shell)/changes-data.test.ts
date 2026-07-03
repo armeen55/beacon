@@ -9,7 +9,8 @@
  * and build-canonical-changes.test.ts already use for CanonicalChange fixtures).
  */
 import { describe, expect, it } from "vitest";
-import { dedupeIdentity, strongerChange, dedupeChanges, demoteUnsized, reconcileCannibalizationRationale, dropBoardDuplicateNewPageRows, applyOpportunityFreshness } from "./changes-data";
+import { dedupeIdentity, strongerChange, dedupeChanges, demoteUnsized, reconcileCannibalizationRationale, dropBoardDuplicateNewPageRows, applyOpportunityFreshness, abstentionEvidenceFor, partitionActionableByEvidence } from "./changes-data";
+import { WATCHING_SENTENCE, heldForEvidenceLine } from "@/domains/recommendations/abstention";
 import { topicIdentityKey } from "@/domains/demand-graph/dedupe-new-page-cards";
 import type { CanonicalChange, CanonicalStatus } from "@/domains/changes/canonical-change";
 import { rankChanges } from "@/domains/changes/strategy";
@@ -408,5 +409,82 @@ describe("demoteUnsized + rankChanges (integration) - the demotion actually surv
         expect(ranked[0]!.id).toBe("sized-directional");
       }
     }
+  });
+});
+
+describe("N49 abstention live-path (partitionActionableByEvidence / abstentionEvidenceFor)", () => {
+  it("holds a bare suggestion with NONE of the three real signals (no-evidence hunch)", () => {
+    // A suggested row with no source move and no sizing/lane evidence carries no signal.
+    const noEvidence = cc("no-evidence", "suggested", {
+      upside: null,
+      expectedOutcomeLow: null,
+      sources: undefined,
+    });
+    const { kept, heldCount } = partitionActionableByEvidence([noEvidence], {});
+    expect(heldCount).toBe(1);
+    expect(kept.find((c) => c.id === "no-evidence")).toBeUndefined();
+    // The exact R21 held-count copy renders from the held count.
+    expect(heldForEvidenceLine(heldCount)).toBe(
+      "1 possible move is waiting for more evidence before I recommend it.",
+    );
+  });
+
+  it("passes an EVIDENCED suggestion through UNCHANGED (a sized forecast is real demand)", () => {
+    const evidenced = cc("evidenced", "suggested", { expectedOutcomeLow: 10, expectedOutcomeHigh: 30 });
+    const { kept, heldCount } = partitionActionableByEvidence([evidenced], {});
+    expect(heldCount).toBe(0);
+    expect(kept).toHaveLength(1);
+    expect(kept[0]).toBe(evidenced); // same reference, byte-identical passthrough
+  });
+
+  it("BYTE-IDENTICAL when every suggestion is evidenced: kept === input, held 0", () => {
+    const a = cc("a", "suggested", { upside: 40 });
+    const b = cc("b", "suggested", { expectedOutcomeLow: 5, expectedOutcomeHigh: 12 });
+    const c = cc("c", "suggested", { sources: ["keyword_library"] });
+    const input = [a, b, c];
+    const { kept, heldCount } = partitionActionableByEvidence(input, {});
+    expect(heldCount).toBe(0);
+    expect(kept).toEqual(input);
+  });
+
+  it("NEVER re-gates a row that already earned ready/apply/measuring/result/blocked", () => {
+    // These carry no evidence in the fixture, but a non-suggested status has already proven
+    // itself and must never be held (that would drop a live/settled change).
+    const earned = (["ready", "apply", "measuring", "result", "blocked"] as const).map((s) =>
+      cc(`earned-${s}`, s),
+    );
+    const { kept, heldCount } = partitionActionableByEvidence(earned, {});
+    expect(heldCount).toBe(0);
+    expect(kept).toEqual(earned);
+  });
+
+  it("does NOT drop a no-evidence-looking suggestion that has a real source-move signal", () => {
+    // The change itself carries no sizing, but its source TodayMove has real GSC demand +
+    // a competitor teardown - abstentionEvidenceFor must read the move and pass it through.
+    const c = cc("has-move", "suggested", { sourceIds: ["m1"], upside: null, expectedOutcomeLow: null });
+    const m = {
+      id: "m1",
+      query: "q",
+      demand: 4200,
+      demandBasis: "gsc",
+      competitorInformed: { domain: "rival.com" },
+      topQueries: [{ query: "q", impressions: 900, clicks: 3, position: 8, ctr: 0.003 }],
+    } as unknown as TodayMove;
+    const ev = abstentionEvidenceFor(c, m);
+    expect(ev.hasDemandSignal).toBe(true);
+    expect(ev.hasCompetitorTeardown).toBe(true);
+    expect(ev.hasBehaviorOrGscSignal).toBe(true);
+    const { kept, heldCount } = partitionActionableByEvidence([c], { m1: m });
+    expect(heldCount).toBe(0);
+    expect(kept[0]).toBe(c);
+  });
+
+  it("the held sentence + count line carry no banned dashes", () => {
+    expect(hasBannedDash(WATCHING_SENTENCE)).toBe(false);
+    expect(hasBannedDash(heldForEvidenceLine(6) ?? "")).toBe(false);
+    // The R21 canonical copy the wire-in surfaces for 6 held.
+    expect(heldForEvidenceLine(6)).toBe(
+      "6 possible moves are waiting for more evidence before I recommend them.",
+    );
   });
 });

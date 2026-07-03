@@ -21,6 +21,7 @@ import {
   buildMeasurementPresentation,
   detectMeasurementOverlaps,
   isMatureOutcome,
+  measurementWindowOf,
   type MeasurementPresentation,
 } from "@/domains/proof-gsc/measurement-maturity";
 import { gradeFromPresentation, type VerdictReliabilityResult } from "@/domains/proof-gsc/verdict-reliability";
@@ -28,6 +29,12 @@ import { scheduleAutoMeasure } from "@/domains/proof-gsc/auto-measure-on-use";
 import { loadDailyClicksByPathsForTenant } from "@/domains/proof-gsc/daily-series";
 import { buildShockWindows, type ShockWindow } from "@/domains/proof-gsc/algorithm-weather";
 import { loadDetectedChangepoints } from "@/domains/proof-gsc/algorithm-weather-store";
+// N32 (R21b, 2026-07-03) - the external-event ledger read side: a measurement window overlapping a
+// recorded connector outage or own-site change cluster gets the honest caveat, DEDUPED against the
+// weather caveat this page already renders (eventCaveatForWindow reuses weatherCaveatSentence
+// verbatim, so if both fire, only one sentence shows). Self-hides when the ledger is empty.
+import { eventCaveatForWindow, eventReliabilityFlagsForWindow } from "@/domains/events/external-event-ledger";
+import { loadExternalEvents } from "@/domains/events/external-event-store";
 import { attachSeasonalInflectionForLedger } from "@/domains/seasonal/attach-seasonal-inflection";
 import { attachRecrawlClockForLedger } from "@/domains/proof-gsc/attach-recrawl-clock";
 import { attachControlContaminationForLedger } from "@/domains/proof-gsc/attach-control-contamination";
@@ -128,6 +135,19 @@ function verdictPillIntent(verdict: GscProofVerdict, basisDay: number | null): P
   if (verdict === "lost") return basisDay === 28 ? "attention" : "measuring";
   if (verdict === "measuring" || verdict === "insufficient_data") return "waiting";
   return "neutral";
+}
+
+/** N32 (R21b) - the render dedupe rule for the external-event caveat: show it ONLY when the
+ *  ledger produced a caveat AND that caveat is not the SAME sentence the weather guard already
+ *  renders on this row. eventCaveatForWindow reuses weatherCaveatSentence verbatim for a shock, so
+ *  when a window overlaps a shock this returns false (the weather line already said it) and a
+ *  connector-outage / own-site-cluster caveat (a distinct sentence) returns true. Null self-hides.
+ *  PURE; exported for a direct test pin. */
+export function shouldRenderEventCaveat(
+  eventCaveat: string | null | undefined,
+  weatherCaveat: string | null | undefined,
+): boolean {
+  return !!eventCaveat && eventCaveat !== (weatherCaveat ?? null);
 }
 
 /** One verdict-reliability grade (master plan N10): a neutral gray scale, never
@@ -265,6 +285,20 @@ export default async function ProofPage({
   );
   const shockWindows: ShockWindow[] = buildShockWindows({ dailySeries: [], priorChangepoints: detectedChangepoints });
 
+  // N32 (R21b, 2026-07-03) - the EXTERNAL-EVENT LEDGER read side: last night's nightly pass
+  // recorded the honest-context events (Google updates + traffic shocks + connector outages +
+  // own-site change clusters). A measurement window that overlapped a NON-shock event (a connector
+  // outage or a many-edits-in-one-day cluster) gets an honest caveat below and, like the weather
+  // guard, additively demotes the N10 verdict-reliability grade - the shock kinds are already
+  // covered by the weather caveat, so the ledger adapter (eventCaveatForWindow) DEDUPES against it
+  // and never renders a second sentence for the same shock. Fail-soft + deadline-bound -> [] (an
+  // empty or missing ledger self-hides: no events means no caveats, byte-identical to before).
+  const externalEvents = await valueWithDeadline(
+    loadExternalEvents(tenantId).catch(() => []),
+    [],
+    SIDE_READ_DEADLINE_MS,
+  );
+
   // Seasonality guard (master plan item 69): does this row's measurement window span a
   // detected demand inflection for its page family? Computed-only (never persisted),
   // same read-time posture as the weather guard above - a page shipped 3 weeks before a
@@ -369,6 +403,40 @@ export default async function ProofPage({
     }),
   );
 
+  // N32 (R21b) - per-row external-event caveat + reliability flag, DEDUPED against the weather
+  // caveat. For each row we take its measurement window and ask the ledger adapter for the honest
+  // caveat, passing this row's OWN weatherCaveat as `weatherSentence` so that when the window
+  // overlaps a shock the adapter returns that EXACT weather sentence (dedupe): the render step
+  // below only shows the event line when it differs from the weather line already on the card, so
+  // a shock never renders twice. `machineryOrCompoundFlagged` is the non-shock reliability bit
+  // (connector outage / own-site cluster) fed into N10 below. Empty ledger -> both maps carry
+  // null/false for every row = byte-identical.
+  const eventCaveatById = new Map<string, string | null>();
+  const eventMachineryFlagById = new Map<string, boolean>();
+  for (const l of ledger) {
+    const win = measurementWindowOf(l.shippedAt, l.windows ?? []);
+    if (!win || externalEvents.length === 0) {
+      eventCaveatById.set(l.id, null);
+      eventMachineryFlagById.set(l.id, false);
+      continue;
+    }
+    eventCaveatById.set(
+      l.id,
+      eventCaveatForWindow({
+        windowStart: win.start,
+        windowEnd: win.end,
+        events: externalEvents,
+        shockWindows,
+        weatherSentence: presById.get(l.id)?.weatherCaveat ?? null,
+      }),
+    );
+    eventMachineryFlagById.set(
+      l.id,
+      eventReliabilityFlagsForWindow({ windowStart: win.start, windowEnd: win.end, events: externalEvents })
+        .machineryOrCompoundFlagged,
+    );
+  }
+
   // One verdict-reliability grade (master plan N10): combines recrawl, window
   // completeness, contamination, weak comparisons, shock/seasonal overlap, and
   // sample strength into one label - COMPUTED-ONLY from the SAME presentation
@@ -388,7 +456,14 @@ export default async function ProofPage({
             l.permutationRead && l.permutationRead.nTotal > 0
               ? { nGreater: l.permutationRead.nGreater, nTotal: l.permutationRead.nTotal }
               : null,
-            undefined,
+            // N32 (R21b) - the non-shock external-event reliability bit (a connector outage or an
+            // own-site change cluster overlapping this window) OR'd into the interference slot: it
+            // is the same class of integrity problem, demoting the grade the same way. The shock
+            // kinds are NOT passed here - N10 already takes the shock via pres.weatherQuarantined,
+            // and eventReliabilityFlagsForWindow deliberately returns machineryOrCompoundFlagged
+            // false for shocks so this never double-counts one. False (empty ledger) is identical
+            // to the prior `undefined`.
+            eventMachineryFlagById.get(l.id) === true,
             // P4 R10a + R10b measurement-rigor extras, straight off the
             // record's own computed attachments: a target-panel/page direction
             // disagreement (v1 150) or a faded first-week jump (v1 378)
@@ -687,7 +762,7 @@ export default async function ProofPage({
               <p className="mt-0.5 text-[11px] text-muted-foreground">
                 These changes beat their comparison pages over the full window. Real lifts, measured.
               </p>
-              <LedgerRowGroup rows={winRows} band="win" linkByRowId={linkByRowId} presById={presById} gradeById={gradeById} sparkByPath={sparkByPath} controlSparkByPath={controlSparkByPath} revertById={revertById} restoredIds={restoredIds} calibrationByProofId={calibrationByProofId} />
+              <LedgerRowGroup rows={winRows} band="win" linkByRowId={linkByRowId} presById={presById} gradeById={gradeById} eventCaveatById={eventCaveatById} sparkByPath={sparkByPath} controlSparkByPath={controlSparkByPath} revertById={revertById} restoredIds={restoredIds} calibrationByProofId={calibrationByProofId} />
             </div>
           ) : null}
 
@@ -700,7 +775,7 @@ export default async function ProofPage({
               <p className="mt-0.5 text-[11px] text-muted-foreground">
                 These changes did not move the number, and that teaches us which lever to try next on pages like these.
               </p>
-              <LedgerRowGroup rows={learningRows} band="learning" linkByRowId={linkByRowId} presById={presById} gradeById={gradeById} sparkByPath={sparkByPath} controlSparkByPath={controlSparkByPath} revertById={revertById} restoredIds={restoredIds} calibrationByProofId={calibrationByProofId} />
+              <LedgerRowGroup rows={learningRows} band="learning" linkByRowId={linkByRowId} presById={presById} gradeById={gradeById} eventCaveatById={eventCaveatById} sparkByPath={sparkByPath} controlSparkByPath={controlSparkByPath} revertById={revertById} restoredIds={restoredIds} calibrationByProofId={calibrationByProofId} />
             </div>
           ) : null}
 
@@ -713,7 +788,7 @@ export default async function ProofPage({
               <p className="mt-0.5 text-[11px] text-muted-foreground">
                 Still collecting data. Each one gets its verdict when its full window closes.
               </p>
-              <LedgerRowGroup rows={inFlightRows} band="inflight" linkByRowId={linkByRowId} presById={presById} gradeById={gradeById} sparkByPath={sparkByPath} controlSparkByPath={controlSparkByPath} revertById={revertById} restoredIds={restoredIds} />
+              <LedgerRowGroup rows={inFlightRows} band="inflight" linkByRowId={linkByRowId} presById={presById} gradeById={gradeById} eventCaveatById={eventCaveatById} sparkByPath={sparkByPath} controlSparkByPath={controlSparkByPath} revertById={revertById} restoredIds={restoredIds} />
             </div>
           ) : null}
         </div>
@@ -880,6 +955,7 @@ function LedgerRowGroup({
   linkByRowId,
   presById,
   gradeById,
+  eventCaveatById,
   sparkByPath,
   controlSparkByPath,
   revertById,
@@ -891,6 +967,8 @@ function LedgerRowGroup({
   linkByRowId: Map<string, ProofLink>;
   presById: Map<string, MeasurementPresentation>;
   gradeById?: Map<string, VerdictReliabilityResult>;
+  /** N32 (R21b) - per-row external-event caveat (already deduped against the weather caveat). */
+  eventCaveatById?: Map<string, string | null>;
   sparkByPath: Map<string, SparkPoint[]>;
   /** R14b (named controls) - comparison pages' own daily-clicks series. */
   controlSparkByPath?: Map<string, SparkPoint[]>;
@@ -916,6 +994,7 @@ function LedgerRowGroup({
         link={linkByRowId.get(rec.id) ?? null}
         pres={presById.get(rec.id) ?? null}
         grade={gradeById?.get(rec.id) ?? null}
+        eventCaveat={eventCaveatById?.get(rec.id) ?? null}
         spark={sparkByPath.get(rec.path)}
         controlSparks={controlSparks}
         revert={revertById.get(rec.id) ?? null}
@@ -951,7 +1030,7 @@ function LedgerRowGroup({
   );
 }
 
-function LedgerCard({ rec, link, pres, grade, spark, controlSparks, band, revert, restored, calibration }: { rec: ShippedChangeRecord; link?: ProofLink | null; pres?: MeasurementPresentation | null; grade?: VerdictReliabilityResult | null; spark?: SparkPoint[]; controlSparks?: Array<{ path: string; points: SparkPoint[] }>; band?: LedgerBand; revert?: RevertDecision | null; restored?: boolean; calibration?: CalibrationRecord | null }) {
+function LedgerCard({ rec, link, pres, grade, eventCaveat, spark, controlSparks, band, revert, restored, calibration }: { rec: ShippedChangeRecord; link?: ProofLink | null; pres?: MeasurementPresentation | null; grade?: VerdictReliabilityResult | null; eventCaveat?: string | null; spark?: SparkPoint[]; controlSparks?: Array<{ path: string; points: SparkPoint[] }>; band?: LedgerBand; revert?: RevertDecision | null; restored?: boolean; calibration?: CalibrationRecord | null }) {
   // Judge a meta/title test on CTR, a content test on position, else clicks, so
   // every line on this card reads in the unit that actually moved.
   const metric = pickProofMetric(rec.actionType);
@@ -1336,6 +1415,15 @@ function LedgerCard({ rec, link, pres, grade, spark, controlSparks, band, revert
           flagging the read as cautious instead of quietly treating it as clean evidence. */}
       {pres?.weatherCaveat ? (
         <p className="mt-1 text-[12px] text-amber-700">{pres.weatherCaveat}</p>
+      ) : null}
+
+      {/* N32 (R21b, external-event ledger): this row's measurement window overlapped a recorded
+          connector outage or a many-edits-in-one-day cluster, so the read carries an honest caveat.
+          DEDUPE: eventCaveatForWindow returns the SAME weather sentence when the window overlaps a
+          shock, so we render this line ONLY when it differs from the weather caveat already shown
+          above - a shock never prints twice. Self-hides when the ledger is empty (eventCaveat null). */}
+      {shouldRenderEventCaveat(eventCaveat, pres?.weatherCaveat) ? (
+        <p className="mt-1 text-[12px] text-amber-700">{eventCaveat}</p>
       ) : null}
 
       {/* Clean-window salvage (P4 R10b, v1 152): the caveat above stays named,

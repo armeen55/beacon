@@ -85,9 +85,9 @@ describe("N16 - the planner receives the last-clean-donor holds", () => {
   it("build-today-preview computes holds from the contamination attach and passes them in", () => {
     expect(PREVIEW).toContain("attachControlContaminationForLedger(tenantId, ledger)");
     expect(PREVIEW).toContain("computeLastCleanDonorHolds(ledger, contaminationById)");
-    // R6 (N12) appended queryOverlapHolds to this same call - lastCleanDonorHolds is still
-    // passed, just no longer the last argument in the object literal.
-    expect(PREVIEW).toContain("lastCleanDonorHolds, queryOverlapHolds });");
+    // R6 (N12) appended queryOverlapHolds to this same call, then N45 (R21b) appended
+    // prerequisiteHolds - lastCleanDonorHolds is still passed, just no longer the last argument.
+    expect(PREVIEW).toContain("lastCleanDonorHolds, queryOverlapHolds, prerequisiteHolds });");
     const holdIdx = PREVIEW.indexOf("N16 (R5) - THE LAST-CLEAN-DONOR HOLD");
     expect(holdIdx).toBeGreaterThan(-1);
     expect(PREVIEW.slice(holdIdx, holdIdx + 1400)).toContain("catch {");
