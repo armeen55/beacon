@@ -32743,3 +32743,15 @@ suites (160), page-signal consumers + demand-graph (503), war-room surface pins 
 strings extended additively), design-system ratchet + dash guards + jargon guards (87, ratchet
 unchanged at 1342). Full suite deliberately not run per slice (CI-minutes rule); typecheck +
 targeted only.
+
+## 2026-07-03 FIX: HonestDelay-everywhere on Iranopedia (per-tenant warm)
+Operator saw every section on the live app show "This section is taking longer than it should."
+Root cause: the precompute/warm cron's cross-tenant cache guard (warm-caches.ts) skipped every
+tenant whose ambient context != BEACON_TENANT_ID (=ritz), so Iranopedia's SWR snapshots never
+warmed and every section fell to the deadline fallback. Compounded by the Supabase platform
+incident (Jun30-Jul3) wedging the instance (restarted via mgmt API) and the earlier
+CRON_SECRET-unset bug. FIX (commit 7fb45d8f): precompute re-invokes itself once per tenant with
+x-beacon-tenant set; middleware forwards that header ONLY for requests carrying CRON_SECRET
+(trusted). VERIFIED: triggered post-deploy, Iranopedia warmed in 71s all-ok, worklist-surface
+538 bytes -> 168,433 bytes, today-surface -> 55,495, results-surface 135,338. The empty-snapshot
+guard correctly allowed the non-empty rebuild to overwrite the poisoned empty one.
