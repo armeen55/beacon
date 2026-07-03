@@ -7,6 +7,119 @@
 
 ---
 
+## 2026-07-03 - R23 P12: Push-depth pack (safer + more capable publish path)
+
+**Goal:** make the EXISTING publish path safer + more capable, all ADDITIVE + SAFE. NO new env,
+NO real external write, ALL Wix calls in tests MOCKED, NO live publish. The Ritz hard-block +
+dry-run-default + daily/monthly caps + non-destructive assertion are PRESERVED and PINNED.
+
+**What changed (4 NEW modules under `src/domains/push/`, all additive, no shipped-path callers yet):**
+1. **Atomic multi-field bundle (v1 179)** - `push-bundle.ts`: `executePushBundle` stages MULTIPLE
+   SEO fields (title + meta + schema) as ONE all-or-nothing unit with ONE receipt. Three phases:
+   VALIDATE every field with `executePush({dryRun:true})` (side-effect-free) -> if any refuses,
+   ABORT before a single write; COMMIT each for real; on a mid-way commit failure, ROLL BACK the
+   already-landed fields via the existing `buildRevertEdit` -> `executePush` restore. COMPOSITION
+   only: executePush stays the sole write authority; no rail is bypassed. BYTE-IDENTICAL PIN: a
+   single-field bundle makes EXACTLY one executePush call and returns it verbatim (no dry-run
+   pre-pass, no rollback machinery).
+2. **Read-back verification tier (v1 393)** - `read-back.ts`: after a (mocked) push, re-read the
+   field (`wixGetDataItem` / `wixGetStoreProduct`, READ-ONLY) and compare to what we sent. Pure
+   `compareReadBack` returns verified / unverified / inconclusive; a mismatch is UNVERIFIED, never
+   "live"; a read error is inconclusive, never verified. Fail-safe direction is always toward NOT
+   claiming live.
+3. **Per-URL cooldown (v1 465)** - `push-cooldown.ts`: refuses a second push to the SAME URL inside
+   a window (default 6h), reusing the outbox's `pushed` rows (no new store), with an honest "I
+   already published a change to /X today ... I can push again in about N hours". Pure
+   `cooldownDecision`. BYTE-IDENTICAL PIN: outside the window (or no prior push) returns
+   `{blocked:false}` and the caller proceeds unchanged; tenant-scoped; failed pushes never start a
+   cooldown.
+4. **Whole-day rollback readiness (v1 340/342)** - `rollback-plan.ts`: pure `planWholeDayRollback`
+   turns a day's push ledger + snapshots into the EXACT reverse-ops to undo that day. It PLANS,
+   never executes (operator-gated, like the per-edit revert). Restores the START-OF-DAY value when
+   a field was pushed twice (collapses to one op); SKIPS empty-previous (would blank the field) and
+   no-snapshot pushes (e.g. a create) with honest reasons. RITZ EXCLUDED (returns an empty excluded
+   plan).
+
+**PINS held (verified by tests):** `push-service-pins.test.ts` exercises the REAL executePush with a
+MOCKED Wix client and proves (1) Ritz `tenant-ritz-founder` returns dev_note with NO write / NO
+snapshot / NO reservation (even on a dry-run); (2) a dry-run returns before any adapter write,
+snapshot, or reservation (uses the read-only cap CHECK); a real push DOES write; (3) an over-cap
+reservation refuses before any write. Byte-identical pins covered in `push-bundle.test.ts`
+(single-field) + `push-cooldown.test.ts` (outside window).
+
+**Nothing was published.** No live publish ran; no dev server; every Wix call in every test is a
+vitest mock; no new env; no cap/budget change.
+
+**VERIFIED:** `npm run typecheck` clean. New suites green: push-cooldown (12), read-back (17),
+rollback-plan (9), push-bundle (9), push-service-pins (6) = 53 new tests. Affected suites green:
+all `src/domains/push/` (10 files, 105 tests incl. publish-outbox + stage-change); executePush-
+adjacent (execution-actions, page-rewrite-actions, proof-revert-proposal, action-types,
+production-line, change-pack-body-push = 81); provenance-surface-pins (23). No dashes in any
+authored source or operator copy (dash-detection assertions aside).
+
+**ROADMAPPED (rest of P12, untouched):** ground-truth field mapping (181), Wix Blog drafts (182),
+Ricos serializer (343), reference fields (392), factory-page render audit (394), element-scoped
+probes (466), publish windows (526), two-phase page creation (529), scope probes at connect (531),
+external-edit flags (532), pre-bundle export (590), bulk endpoint (591). Wiring the 4 new helpers
+into the shipped push receipt / worklist surface is a separate opt-in step (on their own they change
+no behavior).
+
+---
+
+## 2026-07-03 - R23 P19: DataForSEO-depth pack (FREE, deterministic parts only)
+
+**Goal:** build the $0 parts of P19 that compute over ALREADY-PERSISTED data with ZERO new paid
+DataForSEO calls and NO cap/budget change. The paid items (108/114/124/252/364/365/418) stay
+roadmapped.
+
+**What changed (4 NEW pure modules under `src/domains/serp/`, all additive/empty-safe/deterministic):**
+1. **difficulty-from-proof (v1 366)** - `difficulty-from-proof.ts` estimates how hard a page is to
+   win from Beacon's OWN settled proof-ledger outcomes, bucketed by the Google position band the
+   change STARTED in (top3 / striking 4-10 / deep 11+ / unranked). difficulty = (1 - winRate) x 100.
+   NO paid difficulty read (the $0 companion to `winnability.ts`, which needs 3 paid reads). Below
+   `MIN_BAND_OUTCOMES` (3) settled results in a band -> null + honest "not enough history yet" line.
+   Rendered copy: "Of our own moves that started in striking distance (positions 4 to 10), 8 of 10
+   won (80%), so this is a realistic win for us." Empty: "I do not have enough of our own results
+   for pages in striking distance (positions 4 to 10) to say how hard this is to win yet. I need 3
+   settled results in this range; I have 0 so far."
+2. **rank-to-visits (v1 367)** - `rank-to-visits.ts` converts a rank move to expected monthly visits
+   by REUSING the one canonical CTR curve (`forecast/tenant-ctr-curve.ts`), default or tenant-fitted.
+   Rendered copy: "Moving from #8 to #3 is worth about 75 more visits a month, based on the typical
+   click rate at each Google position." Empty: "I do not have a rank and monthly impressions for this
+   yet, so I cannot put a visits number on it. Once Search Console shows both, I will."
+3. **cost-reconciliation (v1 417)** - `cost-reconciliation.ts` reconciles ESTIMATED (call_count x
+   SERP_PER_CALL_USD, pinned byte-identical to dataforseo-serp `SERP_COST_USD`) vs ACTUAL
+   (`llm_budget_ledger` spent_usd) research spend, read-only over the ledger. Rendered copy: "I
+   estimated $0.048 and actually spent $0.05 on live research this month." Empty: "I have not spent
+   anything on live research yet this month, so there is nothing to reconcile."
+4. **rank-distribution (v1 489)** - `rank-distribution.ts` buckets persisted GSC query positions into
+   top 3 / striking distance / page two and beyond. Rendered copy: "Of 214 searches you show up for,
+   38 are in the top 3, 71 are in striking distance, and 105 are on page two or beyond." Empty: "I do
+   not have ranked searches for you yet, so there is no rank spread to show."
+
+**Zero new spend confirmed:** no producer touched (dataforseo-serp gauntlet execution untouched);
+NO cap/budget config edited; dry-run defaults unchanged; all four modules are read-side/pure over
+persisted data. Ratchet unmoved (design-system-guard green; the renderToStaticMarkup proof used
+tokens only, `text-meta text-muted-foreground`, no raw palette classes; no `(shell)` file changed).
+
+**Verified:**
+- `npm run typecheck` -> clean.
+- New tests: `npx vitest run` on the 4 new `.test.ts` -> 30 passed (difficulty from a proof-history
+  fixture + empty + band-scoping; rank-to-visits math vs known default CTR points 0.11@#3 / 0.034@#8
+  + empty + no-real-move; cost reconciliation from a ledger fixture + empty + drift pin vs
+  SERP_COST_USD; rank-distribution buckets + empty + band boundaries).
+- Affected suites: `npx vitest run src/domains/serp src/domains/forecast/tenant-ctr-curve.test.ts
+  src/domains/forecast/opportunity-math.test.ts src/lib/cost/verify-budget-ledger.ts` -> 458 passed
+  (32 files); `tests/architecture/design-system-guard.test.ts` + proof-gsc store -> 25 passed.
+- Rendered the four sentences (populated + empty-safe) via `renderToStaticMarkup`, token-only, all
+  dash-free (verified programmatically). NO paid call, NO dev server.
+
+**Roadmapped (paid, NOT built):** v1 108 AI search-volume column, 114 capped backlink radar, 124
+task-queue routing, 252 depth-30 sweeps, 364 Trends wiring, 365 one gauntlet runner, 418 unlinked
+mentions - all gated on a cap raise / new paid calls.
+
+---
+
 ## 2026-07-03 - R23 P23: reports pack (export-a-win card + internal monthly report, INTERNAL-only)
 
 **Goal:** build the two operator-facing "proof it worked" artifacts (v1 233 export-a-win card;
