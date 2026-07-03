@@ -53,6 +53,7 @@ import {
   type AutopilotState,
 } from "./autopilot-store";
 import { evaluateCircuitBreaker, type BreakerProofInput, type BreakerReceiptInput } from "./circuit-breaker";
+import type { CanaryMove, CanaryVerdict } from "@/domains/safety/canary";
 import type { AutopilotConfig } from "./autopilot-policy";
 import type { RevertPassSummary } from "./run-revert";
 
@@ -76,6 +77,12 @@ export type AutopilotPassResult = {
    *  portfolio circuit breaker is tripped (either already tripped, or it
    *  tripped fresh this run, right before shipping). */
   breakerTripped?: boolean;
+  /** R22b (optional, additive): true when the pre-flight canary held the whole
+   *  batch right before shipping (a bad draft, an off-tenant URL, or the global
+   *  spend ceiling). Nothing shipped this run when set. */
+  canaryHeld?: boolean;
+  /** R22b: the plain operator reason the batch was held (Beacon voice). */
+  canaryHoldReason?: string;
 };
 
 export type AutopilotRunDeps = {
@@ -112,6 +119,18 @@ export type AutopilotRunDeps = {
   loadBreakerReceipts: (tenantId: string, state: AutopilotState) => Promise<BreakerReceiptInput[]>;
   /** Item 80: persist a fresh trip (never called when already tripped). */
   tripBreaker: typeof tripCircuitBreaker;
+  /** R22b: the tenant's own domain, for the off-tenant-URL canary. Null when
+   *  unknown - the canary then cannot confirm ownership and holds an off-tenant
+   *  URL rather than shipping it (fail-safe). */
+  getTenantDomain: (tenantId: string) => Promise<string | null>;
+  /** R22b: the pre-flight canary gate over the batch. Defaults to the composed
+   *  arm/stage final gate (push/stage-change), which reads the live N43 breaker
+   *  and dash-strips the hold copy. Injected so the pass stays testable. */
+  canaryHoldForBatch: (args: {
+    moves: readonly CanaryMove[];
+    tenantDomain: string | null;
+    spentProjectionUsd?: number;
+  }) => Promise<CanaryVerdict>;
 };
 
 async function defaultAmbientTenantId(): Promise<string> {
@@ -131,6 +150,28 @@ async function defaultGetPublishTarget(tenantId: string): Promise<string | null>
   } catch {
     return null;
   }
+}
+
+async function defaultGetTenantDomain(tenantId: string): Promise<string | null> {
+  try {
+    const { getTenant } = await import("@/domains/tenants/store");
+    const d = (await getTenant(tenantId))?.domain;
+    return d && d.trim() ? d : null;
+  } catch {
+    return null;
+  }
+}
+
+async function defaultCanaryHoldForBatch(args: {
+  moves: readonly CanaryMove[];
+  tenantDomain: string | null;
+  spentProjectionUsd?: number;
+}): Promise<CanaryVerdict> {
+  // The composed arm/stage final gate from R22a (reads the live N43 breaker,
+  // dash-strips the hold copy). Lazy-imported so the autopilot module does not
+  // statically pull the whole push service graph.
+  const { canaryHoldForBatch } = await import("@/domains/push/stage-change");
+  return canaryHoldForBatch(args);
 }
 
 async function defaultLoadLeverHistory(): Promise<LeverVerdictInput[]> {
@@ -366,6 +407,8 @@ const defaultDeps: AutopilotRunDeps = {
   loadBreakerProofRecords: defaultLoadBreakerProofRecords,
   loadBreakerReceipts: defaultLoadBreakerReceipts,
   tripBreaker: tripCircuitBreaker,
+  getTenantDomain: defaultGetTenantDomain,
+  canaryHoldForBatch: defaultCanaryHoldForBatch,
 };
 
 export async function runAutopilotPass(
@@ -492,6 +535,57 @@ export async function runAutopilotPass(
     considered: candidates.length,
     picked: decision.picks.length,
   };
+
+  // R22b: the FINAL pre-flight canary gate. The picks are already QA-approved
+  // and CMS-pushable, but this is the last, most conservative check before any
+  // of them ship: a batch with a banned dash in a title, an off-tenant URL, or
+  // one that would cross the global monthly spend ceiling is HELD WHOLE (nothing
+  // ships tonight) with one plain reason, rather than half-publishing quietly.
+  // BYTE-IDENTICAL on a clean batch: canaryHoldForBatch returns held:false and
+  // the ship loop runs exactly as before. Fail-safe: if the gate itself errors
+  // it never blocks a healthy batch (the same posture as the circuit-breaker
+  // check above). Every pick came through the approved path, so it carries
+  // evidence by construction (evidenceCount 1); the gate here guards the batch's
+  // structural invariants and the spend ceiling.
+  if (decision.picks.length > 0) {
+    try {
+      const tenantDomain = await deps.getTenantDomain(tenantId);
+      const canaryMoves: CanaryMove[] = decision.picks.map((p) => ({
+        id: p.candidate.editId,
+        targetUrl: p.candidate.url,
+        proposedText: p.candidate.title,
+        evidenceCount: 1,
+      }));
+      // Deterministic batch (no LLM spend on this ship path), so the projected
+      // spend is 0; the gate still reads the live ledger and holds if it is
+      // already at the global ceiling.
+      const verdict = await deps.canaryHoldForBatch({
+        moves: canaryMoves,
+        tenantDomain,
+        spentProjectionUsd: 0,
+      });
+      if (verdict.held) {
+        log.warn("[autopilot] canary held the batch before shipping", {
+          tenantId,
+          checked: verdict.checked,
+          failures: verdict.failures.map((f) => f.canary),
+        });
+        return {
+          ...result,
+          shipped: 0,
+          reason: verdict.holdReason,
+          canaryHeld: true,
+          canaryHoldReason: verdict.holdReason,
+        };
+      }
+    } catch (e) {
+      // Fail-safe: a broken canary gate must never itself block a healthy batch.
+      log.warn("[autopilot] canary gate check failed (fail-safe: not held)", {
+        tenantId,
+        error: e instanceof Error ? e.message : String(e),
+      });
+    }
+  }
 
   for (const pick of decision.picks) {
     let outcome: { ok: boolean; detail: string };

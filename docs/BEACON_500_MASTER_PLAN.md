@@ -164,14 +164,28 @@ QUEUE (strict order; [G] = operator-gated, surface it and continue):
       140 new tests (57 N32 + 34 N49 + 34 N45 + 4 planner wiring + 1 copy) all green; affected suites
       green (proof-gsc + experiments + recommendation-intelligence + recommendations + events +
       persistence = 2834 pass, 2 skipped). typecheck clean. Tests only, no dev server.
-- [ ] R22. Safety/eval train: N33 benchmark, N34 ablation, N35 replay, N36 gold library, N37
-      synthetic journey, N41 outbox/idempotency, N42 model-fallback benchmark, N43 cost breaker,
-      N50 canary policies, T0d backups/rotation drill, T0f weekly QA sample. Effort L, sliced.
+- [~] R22. Safety/eval train: DONE R22a (N41 outbox/idempotency, N43 cost breaker, N50 canary gate,
+      T0d backups) + R22b (N33 benchmark, N34 ablation, N35 replay, N36 gold library, N37 synthetic
+      journey, N42 model-fallback benchmark, + the R22a canary-wire follow-up into run-autopilot).
+      REMAINING: T0f weekly QA sample. Effort L, sliced.
 - [ ] R23. Remaining packs in plan order: P5, P8, P9, P10, P11, P12, P13, P14, P15, P16, P17,
       P19, P20, P21, P22, P23, P24 (P18 code health rides inside every slice, never standalone).
-- [ ] R24. Campaign tail: /prompts detail SSR subject title, today-v2-working deep link, N13
-      recrawl demotion in the shared band classifier, N47/N48 primary-source + expert-review
-      lanes, forensic-repairs triage (task 209). Effort S/M batch.
+- [x] R24. Campaign tail: /prompts detail SSR subject title, today-v2-working deep link, N13
+      recrawl demotion, N47/N48 primary-source + expert-review lanes. SHIPPED 2026-07-03
+      (worktree, not yet merged): (1) `generateMetadata` on `src/app/(shell)/prompts/[id]/page.tsx`
+      names the actual question in the SSR <title> (cheap getTrackedPrompts read, no drilldown);
+      (2) Today "View pending" repointed from the inert `?tab=pending_implementation` to the
+      canonical `/changes?status=ready`; (3) N13 pure `recrawl-demotion.ts` retires a rec the
+      latest crawl proves already fixed ("You already fixed this. I retired it. ...") wired
+      read-time in load-queue + a nightly runner mirroring queue-sweeper, byte-identical when
+      nothing is resolved, no new status/migration; (4) N47 optional `sourceUrl` on EvidenceLine +
+      a clickable "See this search on Google" primary-source on the GSC bullet (reuses EvidenceLine,
+      byte-identical when absent); (5) N48 pure lower-only `reviewExpertQuality` extends the
+      expert-verdict gate to hold filler recs with an honest reason (byte-identical on a clean rec).
+      131 R24-suite tests green; affected recommendations/intelligence 3102 pass; typecheck clean
+      (outside the reserved run-autopilot/eval/canary files); ratchet at baseline 1342. NOTE: the
+      forensic-repairs triage (task 209) sub-item was NOT in scope here (needs live ledger data);
+      it is the one remaining R24 fragment, deferred.
 - [G] Operator-gated (surfaced on /settings, never blocks the queue): Wix page mapping on
       /diagnostics/wix, BEACON_DIGEST_TO + RESEND_API_KEY, IndexNow key, GSC full backfill,
       revenue model config, DataForSEO cap raise.
@@ -326,16 +340,16 @@ migration. WAVE 3: FP4, FP8, FP10, voice rider. N-track and packs resume after F
 - [x] N30 (2026-07-03, R11). **Demand-ranked question universe** from GSC, PAA, AI fanouts, SERPs (v1 127+370 merged; feeds drafting and coverage) - research/question-universe.ts + nightly-persisted store; seeds the FAQ/answer-block drafters, the /prompts unanswered-questions section, and New Pages brief questions.
 - [ ] N31. **Solar-calendar year-rollover engine** (v1 104; tenant-configured calendar awareness, english-first output)
 - [x] N32 (2026-07-03, R21). **External-event ledger**: Google updates, outages, PR, social spikes, major site changes recorded automatically (NEW; absorbs v1 170 annotations; generalizes the shipped algorithm-weather)
-- [ ] N33. **Blind Beacon-vs-human-expert benchmark** (NEW; scored recommendation face-off on real pages)
-- [ ] N34. **Teammate ablation testing**: prove which specialists actually improve decisions (NEW; absorbs v1 161 veto paper trades)
-- [ ] N35. **Historical policy replay before new planner logic ships** (NEW; absorbs v1 454 debate replay in CI, 315 shadow challenger)
-- [ ] N36. **Gold-standard library**: real pages, evidence, correct decisions, unacceptable recommendations (NEW; absorbs v1 436 fixture corpus, 449 hermetic suite)
-- [ ] N37. **Nightly synthetic journey**: plan through publish, verification, measurement on a fixture tenant (NEW)
+- [x] N33 (2026-07-03, R22b). **Blind Beacon-vs-human-expert benchmark** (NEW; scored recommendation face-off on real pages) - `src/domains/eval/benchmark.ts`: runs the REAL pure pipeline (buildDemandGraph + assessAbstention + planDependencies) over the N36 gold library, scores agreement on 4 axes (action/disposition/rank-band/dependency), returns `{passed,total,casesPassed,casesTotal,misses[]}`; score 8/8 cases, 32/32 axes; a regression is a score drop. Operator line "I checked myself against 8 known-good cases and got 8 right."
+- [x] N34 (2026-07-03, R22b). **Teammate ablation testing**: prove which specialists actually improve decisions (NEW; absorbs v1 161 veto paper trades) - `src/domains/eval/ablation.ts`: zeroes one signal at a time over the gold library, reports marginal contribution (GSC demand drops 4, AI/competitor 1, Clarity friction 1, search volume 0 = honestly redundant here).
+- [x] N35 (2026-07-03, R22b). **Historical policy replay before new planner logic ships** (NEW; absorbs v1 454 debate replay in CI, 315 shadow challenger) - `src/domains/eval/replay.ts`: `replayDecisions(captured)` re-runs current logic over a captured decision set and flags any DIVERGENCE (deterministic diff, no network); gold-derived baseline has zero divergences.
+- [x] N36 (2026-07-03, R22b). **Gold-standard library**: real pages, evidence, correct decisions, unacceptable recommendations (NEW; absorbs v1 436 fixture corpus, 449 hermetic suite) - `src/domains/eval/gold-library.ts`: 8 frozen tenant-agnostic synthetic fixtures (one per gap bucket + abstention hold + dependency hold), each a runnable scorer input + the expert-correct decision; thresholds mirror build-graph DEFAULTS.
+- [x] N37 (2026-07-03, R22b). **Nightly synthetic journey**: plan through publish, verification, measurement on a fixture tenant (NEW) - `src/domains/eval/synthetic-journey.test.ts`: ONE e2e integration test walking find -> abstention-hold -> prepare -> ship (canary) -> measure -> learn through the real pure modules, asserting no stage silently drops the item.
 - [x] N38. **Wix publishing canary** (v1 86; SHIPPED at 77ac7252: token probe + url-map check + dry run + honest fix line)
 - [x] N39 (2026-07-03, R7). **Production error monitoring** with release, route, tenant, action context (NEW; the T0 spine; absorbs v1 376 LLM telemetry, 404 swallowError, 582 web-vitals beacon) - SHIPPED: `src/lib/obs/error-ledger.ts` (recordAppError, never-throws, 200-rows-per-tenant cap, Supabase-mirrored `app-errors` store with PGRST205 file-fallback) wired into cron-sync's per-phase catches + the /changes and /results SWR background-refresh catches + stage-in-wix / accept / approve-and-push action catches + the LLM draft gateway fail-closed path; operator surface at /diagnostics/errors (last 50 grouped by route+message) + the self-hiding >= 10-failures-in-24h spike line joining the existing Today machinery alert (error-spike.ts).
 - [x] N40 (2026-07-03, R7). **External API contract tests**: detect silent Google, Wix, DataForSEO, GA4, LLM response changes (NEW; absorbs v1 308 boundary validation, 444 row schemas) - SHIPPED: `tests/contracts/*.contract.test.ts` (21 tests) parse checked-in fixtures of the real GSC searchanalytics/sites, GA4 runReport (traffic + name-mapped revenue), Wix collections/items/product-SEO, DataForSEO SERP (organic + AI Overview + snippet + PAA), and OpenAI structured-response bodies through the ACTUAL client parsers ($0, no live calls); plus the operator-only, double-gated live probe `scripts/contract-probe.ts` (BEACON_CONTRACT_PROBE=1, never CI).
 - [x] N41 (2026-07-03, R22a, idempotent publish outbox LIVE in push path). **Transactional outbox + idempotency keys** for every publish, rollback, cron, paid side effect (NEW; absorbs v1 474 advisory locks, 473 resume cursors, 528 revision check)
-- [ ] N42. **Model-fallback quality benchmark** so cheaper models cannot silently degrade output (NEW; absorbs v1 276 provider failover, 501 retry escalation, 146 task routing)
+- [x] N42 (2026-07-03, R22b). **Model-fallback quality benchmark** so cheaper models cannot silently degrade output (NEW; absorbs v1 276 provider failover, 501 retry escalation, 146 task routing) - `src/domains/eval/model-fallback.ts`: declares the canonical fallback chain over the gateway's real models (gpt-5-mini -> gpt-5.4-mini, each at/above REASONING_TIMEOUT_FLOOR_MS with reasoning_effort low per the gpt5mini-timeout lesson); `validateFallbackChain` asserts well-formedness; `decideFallback` is the deterministic, LOUD (never silent) fallback decision on synthetic responses. No live call.
 - [x] N43 (2026-07-03, R22a, global cost circuit-breaker LIVE on SERP+LLM paths). **Cross-vendor cost circuit breaker**: LLM, DataForSEO, crawl, polling under one governor (NEW; absorbs v1 472 spend velocity, 407 daily pacing, 419 per-class budgets, 279 envelopes, 453 one ledger primitive)
 - [ ] N44. **Topic-level strategic objective**: balance non-brand traffic, citations, revenue, authority, risk per topic (NEW; N1 reads this)
 - [x] N45 (2026-07-03, R21+R21b, LIVE in nightly plan). **Recommendation dependency planner**: prerequisites before dependent changes (NEW; with N14)

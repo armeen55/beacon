@@ -20,6 +20,7 @@ import {
 } from "@/domains/autopilot/run-autopilot";
 import { DEFAULT_AUTOPILOT_CONFIG } from "@/domains/autopilot/autopilot-policy";
 import type { AutopilotState, AutopilotReceipt } from "@/domains/autopilot/autopilot-store";
+import { runCanaries } from "@/domains/safety/canary";
 
 const TENANT = "tenant-iranopedia";
 const NOW = new Date("2026-07-01T09:00:00Z");
@@ -94,6 +95,14 @@ function makeDeps(overrides: Partial<AutopilotRunDeps> = {}): {
     loadBreakerProofRecords: async () => [],
     loadBreakerReceipts: async () => [],
     tripBreaker: vi.fn(async () => enabledState()),
+    // R22b: the default candidate ships to example.com, so the tenant domain is
+    // example.com. The canary gate default here runs the PURE canary core with a
+    // clean spend verdict (no live breaker read in the test), so a clean batch
+    // passes and the ship loop runs byte-identically. Canary tests override the
+    // candidate / tenant domain to exercise a hold.
+    getTenantDomain: async () => "example.com",
+    canaryHoldForBatch: async (args) =>
+      runCanaries(args.moves, { tenantDomain: args.tenantDomain, spendTripped: false }),
     ...overrides,
   };
   return { deps, receipts, markedDays, spies: { loadCandidates, shipPick, runRevertPass } };
@@ -513,6 +522,83 @@ describe("runAutopilotPass", () => {
       expect(res.breakerTripped).toBe(true);
       expect(res.reason).toContain("2");
       expect(spies.shipPick).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("R22b: the pre-flight canary gate (final gate before shipping)", () => {
+    it("a clean batch ships byte-identically (canary not held)", async () => {
+      const { deps, spies } = makeDeps();
+      const res = await runAutopilotPass(TENANT, NOW, deps);
+      expect(res.canaryHeld).toBeFalsy();
+      expect(spies.shipPick).toHaveBeenCalledTimes(1);
+      expect(res.shipped).toBe(1);
+    });
+
+    it("holds the WHOLE batch and ships NOTHING when a pick points off-tenant", async () => {
+      const { deps, spies } = makeDeps({
+        // The tenant's real domain is example.com, but the pick points elsewhere.
+        loadCandidates: vi.fn(async () => [
+          {
+            editId: "edit-off",
+            recId: "rec-off",
+            url: "https://competitor.com/stolen",
+            actionType: "edit_title",
+            title: "Update the title",
+          },
+        ]),
+        getTenantDomain: async () => "example.com",
+      });
+      const res = await runAutopilotPass(TENANT, NOW, deps);
+      expect(res.canaryHeld).toBe(true);
+      expect(res.shipped).toBe(0);
+      expect(res.canaryHoldReason).toContain("not on your site");
+      expect(res.reason).toContain("Nothing was published.");
+      expect(spies.shipPick).not.toHaveBeenCalled();
+    });
+
+    it("holds the batch when the global spend ceiling is tripped", async () => {
+      const { deps, spies } = makeDeps({
+        canaryHoldForBatch: async (args) =>
+          runCanaries(args.moves, {
+            tenantDomain: args.tenantDomain,
+            spendTripped: true,
+            spendReason: "at my monthly ceiling.",
+          }),
+      });
+      const res = await runAutopilotPass(TENANT, NOW, deps);
+      expect(res.canaryHeld).toBe(true);
+      expect(res.shipped).toBe(0);
+      expect(res.canaryHoldReason).toContain("at my monthly ceiling.");
+      expect(spies.shipPick).not.toHaveBeenCalled();
+    });
+
+    it("holds the batch on a banned dash in a proposed title", async () => {
+      const { deps, spies } = makeDeps({
+        loadCandidates: vi.fn(async () => [
+          {
+            editId: "edit-dash",
+            recId: "rec-dash",
+            url: "https://example.com/a",
+            actionType: "edit_title",
+            title: "Tehran — the capital",
+          },
+        ]),
+      });
+      const res = await runAutopilotPass(TENANT, NOW, deps);
+      expect(res.canaryHeld).toBe(true);
+      expect(spies.shipPick).not.toHaveBeenCalled();
+    });
+
+    it("fail-safe: a broken canary gate never blocks a healthy batch", async () => {
+      const { deps, spies } = makeDeps({
+        getTenantDomain: async () => {
+          throw new Error("tenant lookup exploded");
+        },
+      });
+      const res = await runAutopilotPass(TENANT, NOW, deps);
+      // The gate threw, so it must NOT hold; the batch ships as normal.
+      expect(res.canaryHeld).toBeFalsy();
+      expect(spies.shipPick).toHaveBeenCalledTimes(1);
     });
   });
 });
