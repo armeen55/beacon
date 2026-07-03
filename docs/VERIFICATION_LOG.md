@@ -32695,3 +32695,16 @@ strip's win rows cite behavior corroboration in the see-the-math expander (one l
 present, never a selection input). New files: behavior-outcome.ts (pure), clarity-window.ts,
 behavior-window.ts + behavior-outcome.test.ts. Verified: typecheck clean; 960 proof-gsc tests
 (53 files), 240 results/strip/changes tests, 77 ask tests green; dash-clean scans.
+
+## 2026-07-03 R15 + R16 shipped (behavior lane + the ONE LLM gateway)
+R15 (previous commit): behavior-verdict lane + task completion. R16: every OpenAI call site
+consolidated onto src/domains/llm/gateway.ts (allowlist 10 files to 2; page-surgeon judge,
+serp-hypothesis, cluster-factory, page-intent adjudicator previously had NO cap or NO timeout,
+now capped fail-closed with 90s reasoning floors + error-ledger reporting); 21-entry schema
+registry with validate-retry-once-fail-closed; 26-entry prompt registry + regression harness on
+recorded fixtures (version bump without fixture fails a named test); content-hash call cache
+(300 LRU, $0 hits, bypass on explicit regenerate); de-templating guard (3-gram containment vs
+last 20 same-family outputs, flags "reads like a repeat", demotes pack quality); tokenized
+numeric firewall with formatting tolerance; injection sanitizer on all evidence-fed prompts (13
+adversarial fixtures). Also removed a pre-existing invisible control character in the drafter.
+CLOSEOUT GATE: typecheck clean + FULL suite in a clean shell 1,272 test files ALL GREEN.

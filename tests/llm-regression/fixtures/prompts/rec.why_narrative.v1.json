@@ -1,0 +1,20 @@
+{
+  "runner": "why-narrative",
+  "response": {
+    "choices": [
+      {
+        "index": 0,
+        "message": {
+          "role": "assistant",
+          "content": "This page already earns attention for the date question but never answers it directly. Adding a direct answer at the top gives searchers and AI assistants a quotable line. That is the fastest path to more visits.",
+          "refusal": null
+        },
+        "finish_reason": "stop"
+      }
+    ],
+    "usage": {
+      "prompt_tokens": 400,
+      "completion_tokens": 200
+    }
+  }
+}

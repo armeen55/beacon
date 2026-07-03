@@ -11,6 +11,7 @@
 import "server-only";
 
 import { log } from "@/lib/logger";
+import { estimateCost, openAIChatCompletion, recordGatewaySpend } from "@/domains/llm/gateway";
 import type { EvidencePacket } from "./contract";
 import type { BrandConfig } from "./title-candidates";
 import {
@@ -22,7 +23,6 @@ import {
   type WordingResearch,
 } from "./page-decision";
 
-const OPENAI_CHAT_API = "https://api.openai.com/v1/chat/completions";
 const DEFAULT_MODEL = "gpt-5-mini";
 
 const CHANGE_ACTIONS = [
@@ -261,7 +261,6 @@ export async function judgePageAtomicChange(args: JudgePageArgs): Promise<PageAt
   }
 
   const model = args.model ?? DEFAULT_MODEL;
-  const fetchImpl = args.fetchImpl ?? fetch;
   // gpt-5-mini is a REASONING model. Measured latency on a real multi-change
   // packet (2026-06-18): reasoning_effort medium (its default) ~44s — over the
   // old 40s timeout, so EVERY call aborted to fallback; low ~32s; minimal ~19s.
@@ -269,7 +268,7 @@ export async function judgePageAtomicChange(args: JudgePageArgs): Promise<PageAt
   // gives headroom for larger packets (e.g. SEMrush keyword enrichment).
   const timeoutMs = args.timeoutMs ?? 90_000;
 
-  const body = JSON.stringify({
+  const body = {
     model,
     reasoning_effort: "low",
     messages: [
@@ -278,24 +277,51 @@ export async function judgePageAtomicChange(args: JudgePageArgs): Promise<PageAt
     ],
     response_format: { type: "json_object" },
     max_completion_tokens: 8_000,
-  });
+  };
 
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const res = await fetchImpl(OPENAI_CHAT_API, {
-      method: "POST",
-      headers: { Authorization: `Bearer ${apiKey ?? "test"}`, "Content-Type": "application/json" },
+    // R16: transport via the ONE gateway. The judge previously had NO monthly
+    // cap - gateway_check closes that hole (budget blocked / ledger unreadable
+    // -> loud deterministic fallback, never an uncapped paid call), and spend
+    // is recorded from real usage tokens below.
+    const outcome = await openAIChatCompletion({
+      promptId: "page_surgeon.judge",
+      promptVersion: 1,
+      action: "page-surgeon-judge",
+      apiKey: apiKey ?? "test",
       body,
-      signal: controller.signal,
+      timeoutMs,
+      budget: { mode: "gateway_check", projectedCostUsd: 0.02 },
+      fetchImpl: args.fetchImpl,
+      tenantId: packet.current.tenantId,
     });
+    if (outcome.kind === "blocked_budget") {
+      log.warn("[page-surgeon-judge] budget blocked; deterministic fallback", {
+        reason: outcome.reason,
+        page: packet.current.pageUrl,
+      });
+      return fallback();
+    }
+    if (outcome.kind === "error") {
+      log.warn("[page-surgeon-judge] threw; deterministic fallback", {
+        page: packet.current.pageUrl,
+        error: outcome.reason,
+      });
+      return fallback();
+    }
+    const res = outcome.response;
     if (!res.ok) {
       log.warn("[page-surgeon-judge] non-2xx; deterministic fallback", { status: res.status, page: packet.current.pageUrl });
       return fallback();
     }
     const json = (await res.json()) as {
       choices?: Array<{ message?: { content?: string }; finish_reason?: string }>;
+      usage?: { prompt_tokens?: number; completion_tokens?: number };
     };
+    // The call happened - record the real spend against the monthly cap.
+    await recordGatewaySpend(
+      estimateCost(model, json.usage?.prompt_tokens ?? 0, json.usage?.completion_tokens ?? 0),
+    );
     const choice = json.choices?.[0];
     const content = choice?.message?.content;
     // gpt-5-mini is a reasoning model: if reasoning eats the whole token budget
@@ -335,7 +361,5 @@ export async function judgePageAtomicChange(args: JudgePageArgs): Promise<PageAt
       error: e instanceof Error ? e.message : String(e),
     });
     return fallback();
-  } finally {
-    clearTimeout(timer);
   }
 }

@@ -1,0 +1,6 @@
+{
+  "runner": "structured-draft",
+  "kind": "aeo_prompt_brief",
+  "grounded": "taarof persian ritual politeness",
+  "valueFixture": "schemas/aeo_prompt_brief.json"
+}

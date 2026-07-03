@@ -1,0 +1,13 @@
+{
+  "picks": [
+    {
+      "pickId": "pick-1",
+      "verdict": "looks_right"
+    },
+    {
+      "pickId": "pick-2",
+      "verdict": "concern",
+      "concern": "The search asks for a date but the text explains the custom instead."
+    }
+  ]
+}

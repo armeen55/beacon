@@ -23,6 +23,7 @@ import "server-only";
  */
 
 import { log } from "@/lib/logger";
+import { openAIChatCompletion } from "@/domains/llm/gateway";
 import type { ResolvedRecommendationCandidate } from "./resolved-types";
 import type { AdjudicatorOutput } from "./adjudicator-schema";
 import { buildAdjudicatorJsonSchema } from "./adjudicator-schema";
@@ -58,8 +59,6 @@ const COST_PER_MILLION = {
   "gpt-5-nano": { input: 0.05, output: 0.4 },
   "gpt-5.4-mini": { input: 0.75, output: 4.5 },
 } as const;
-
-const OPENAI_CHAT_API = "https://api.openai.com/v1/chat/completions";
 
 const SYSTEM_PROMPT = `
 You are Beacon's recommendation adjudicator.
@@ -243,38 +242,42 @@ export async function adjudicateRecommendation(
     };
   }
 
-  const fetchImpl = args.fetchImpl ?? fetch;
-  let rawResponse: Response;
-  try {
-    rawResponse = await fetchImpl(OPENAI_CHAT_API, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model,
-        messages: [
-          { role: "system", content: SYSTEM_PROMPT },
-          {
-            role: "user",
-            content: `Evidence packet:\n${JSON.stringify(packet, null, 2)}`,
-          },
-        ],
-        response_format: {
-          type: "json_schema",
-          json_schema: {
-            name: "adjudicator_output",
-            strict: true,
-            schema,
-          },
+  // R16: transport via the ONE gateway. Budget/cache/history stay HERE (checked
+  // above, recorded below); the gateway adds the reasoning timeout floor (this
+  // call previously had NO timeout at all) + reasoning_effort low + loud
+  // fallback + error-ledger reporting.
+  const outcome = await openAIChatCompletion({
+    promptId: "rec.page_intent_adjudicator",
+    promptVersion: 1,
+    action: "page-intent-adjudicator",
+    apiKey,
+    body: {
+      model,
+      messages: [
+        { role: "system", content: SYSTEM_PROMPT },
+        {
+          role: "user",
+          content: `Evidence packet:\n${JSON.stringify(packet, null, 2)}`,
         },
-      }),
-    });
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
+      ],
+      response_format: {
+        type: "json_schema",
+        json_schema: {
+          name: "adjudicator_output",
+          strict: true,
+          schema,
+        },
+      },
+    },
+    timeoutMs: 120_000,
+    budget: { mode: "caller", note: "checkBudget above + recordSpend below" },
+    fetchImpl: args.fetchImpl,
+  });
+  if (outcome.kind !== "response") {
+    const msg = outcome.kind === "blocked_budget" ? outcome.reason : outcome.reason;
     return await recordError(msg, args.candidate.stableKey, model, evidenceHash, now, packet);
   }
+  const rawResponse = outcome.response;
 
   if (!rawResponse.ok) {
     const body = await rawResponse.text().catch(() => "");

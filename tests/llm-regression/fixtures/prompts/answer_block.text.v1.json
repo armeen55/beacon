@@ -1,0 +1,20 @@
+{
+  "runner": "answer-block-text",
+  "response": {
+    "choices": [
+      {
+        "index": 0,
+        "message": {
+          "role": "assistant",
+          "content": "Persian weddings center on the sofreh aghd, a ceremonial spread of symbolic items. The couple sits before it while relatives hold a canopy overhead, then exchange the aghd vows and join the jashn reception with family, music, and sweets shared late into the night.",
+          "refusal": null
+        },
+        "finish_reason": "stop"
+      }
+    ],
+    "usage": {
+      "prompt_tokens": 400,
+      "completion_tokens": 200
+    }
+  }
+}

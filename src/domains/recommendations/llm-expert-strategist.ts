@@ -39,6 +39,7 @@ import {
   estimateCost,
   isReasoningModel,
 } from "./providers/openai";
+import { openAIChatCompletion } from "@/domains/llm/gateway";
 import { log } from "@/lib/logger";
 import { checkBudget, recordSpend } from "./adjudicator-budget";
 import {
@@ -68,7 +69,6 @@ export {
   type CriticReview,
 };
 
-const OPENAI_CHAT_API = "https://api.openai.com/v1/chat/completions";
 // audit-3 #4 (2026-06-22): 12s → 90s. gpt-5-mini is a reasoning model; the
 // default reasoning effort routinely needs 40-90s before output, so the old
 // ceiling timed out on EVERY strategist/critic call and the LLM expert pass
@@ -328,7 +328,7 @@ export async function composeExpertStrategy(
       : null,
   };
 
-  const body = JSON.stringify({
+  const body = {
     model,
     messages: [
       { role: "system", content: SYSTEM_PROMPT },
@@ -342,27 +342,30 @@ export async function composeExpertStrategy(
     max_completion_tokens: MAX_COMPLETION_TOKENS,
     // audit-3 #4: keep the reasoning model fast enough to land in-window.
     ...(isReasoningModel(model) ? { reasoning_effort: "low" } : {}),
-  });
+  };
 
-  let response: Response;
-  try {
-    response = await fetchImpl(OPENAI_CHAT_API, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body,
-      signal: AbortSignal.timeout(timeoutMs),
-    });
-  } catch (err) {
+  // R16: transport via the ONE gateway (loud fallback + error ledger + the 90s
+  // reasoning floor). Budget stays caller-managed (checkBudget above,
+  // recordSpend below) - the strategist's pinned fail-closed posture.
+  const outcome = await openAIChatCompletion({
+    promptId: "rec.strategist",
+    promptVersion: 1,
+    action: "expert-strategist",
+    apiKey,
+    body,
+    timeoutMs,
+    budget: { mode: "caller", note: "checkBudget above + recordSpend below" },
+    fetchImpl,
+  });
+  if (outcome.kind !== "response") {
     log.warn("llm-strategist fallback: network/timeout", {
       model,
       timeoutMs,
-      error: err instanceof Error ? err.message : String(err),
+      error: outcome.reason,
     });
     return null;
   }
+  const response = outcome.response;
   if (!response.ok) {
     log.warn("llm-strategist fallback: non-ok response", {
       model,
@@ -596,7 +599,7 @@ async function runCriticReview(
     return null;
   }
 
-  const body = JSON.stringify({
+  const body = {
     model: opts.model,
     messages: [
       { role: "system", content: CRITIC_SYSTEM_PROMPT },
@@ -612,27 +615,28 @@ async function runCriticReview(
     max_completion_tokens: MAX_COMPLETION_TOKENS,
     // audit-3 #4: same reasoning-model latency fix as the main strategist call.
     ...(isReasoningModel(opts.model) ? { reasoning_effort: "low" } : {}),
-  });
+  };
 
-  let response: Response;
-  try {
-    response = await opts.fetchImpl(OPENAI_CHAT_API, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${opts.apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body,
-      signal: AbortSignal.timeout(opts.timeoutMs),
-    });
-  } catch (err) {
+  // R16: same gateway transport as the strategist pass above.
+  const outcome = await openAIChatCompletion({
+    promptId: "rec.critic",
+    promptVersion: 1,
+    action: "expert-critic",
+    apiKey: opts.apiKey,
+    body,
+    timeoutMs: opts.timeoutMs,
+    budget: { mode: "caller", note: "checkBudget above + recordSpend below" },
+    fetchImpl: opts.fetchImpl,
+  });
+  if (outcome.kind !== "response") {
     log.warn("llm-critic fallback: network/timeout", {
       model: opts.model,
       timeoutMs: opts.timeoutMs,
-      error: err instanceof Error ? err.message : String(err),
+      error: outcome.reason,
     });
     return null;
   }
+  const response = outcome.response;
   if (!response.ok) {
     log.warn("llm-critic fallback: non-ok response", {
       model: opts.model,

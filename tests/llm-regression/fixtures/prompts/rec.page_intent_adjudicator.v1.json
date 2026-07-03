@@ -1,0 +1,20 @@
+{
+  "runner": "page-intent-adjudicator",
+  "response": {
+    "choices": [
+      {
+        "index": 0,
+        "message": {
+          "role": "assistant",
+          "content": "{\"finalAction\": \"strengthen_existing_page\", \"primaryMotive\": \"capture_absent_cluster\", \"targetUrl\": \"needs_new_page\", \"confidence\": \"medium\", \"confidenceReason\": \"Packet shows strong URL match\", \"needsHumanReview\": false, \"operatorTitle\": \"Strengthen Los Altos page\", \"why\": \"AI already favors this page area\", \"specificRecommendation\": \"Add Los Altos specific content\", \"suggestedEdits\": [{\"type\": \"section\", \"scope\": \"body\", \"title\": \"Why Los Altos\", \"body\": \"Grounded section copy.\", \"why\": \"prompts ask about Los Altos specifically\"}], \"pageBrief\": null, \"proposedSlug\": null, \"evidenceRefs\": [{\"type\": \"prompt\", \"id\": \"p1\"}], \"risks\": [], \"mergeWithUrls\": null, \"noActionReason\": null}",
+          "refusal": null
+        },
+        "finish_reason": "stop"
+      }
+    ],
+    "usage": {
+      "prompt_tokens": 2000,
+      "completion_tokens": 500
+    }
+  }
+}

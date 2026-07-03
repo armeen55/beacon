@@ -163,7 +163,7 @@ function evidenceHintsFor(packet: EvidencePacket): string[] {
 async function draftForPacket(
   packet: EvidencePacket,
   tenantId: string,
-  opts: { complete?: CompleteFn },
+  opts: { complete?: CompleteFn; bypassCache?: boolean },
 ): Promise<StructuredDraftResult<{ evidenceRefs: unknown[]; operatorSteps: string[]; risks: string[] }>> {
   const evidenceHints = evidenceHintsFor(packet);
   // Intent-aware drafting (C): classify the dominant intent from the topic + its fan-out sub-questions
@@ -210,10 +210,13 @@ async function draftForPacket(
   }
   if (packet.move.gapType === "fix_experience") {
     const frictionGap = packet.gaps.find((g) => g.kind === "ux_friction");
-    return draftCROFixStructured({
-      pageLabel: packet.yourPage.url ?? packet.move.label,
-      frictionDetail: frictionGap?.detail ?? `Clarity friction score ${packet.yourPage.friction} on this page`,
-    }) as Promise<StructuredDraftResult<{ evidenceRefs: unknown[]; operatorSteps: string[]; risks: string[] }>>;
+    return draftCROFixStructured(
+      {
+        pageLabel: packet.yourPage.url ?? packet.move.label,
+        frictionDetail: frictionGap?.detail ?? `Clarity friction score ${packet.yourPage.friction} on this page`,
+      },
+      opts,
+    ) as Promise<StructuredDraftResult<{ evidenceRefs: unknown[]; operatorSteps: string[]; risks: string[] }>>;
   }
   return { status: "off" };
 }
@@ -250,6 +253,7 @@ function packQualityStatus(pack: PreparedMovePack | null): string | null {
     structuredDraft: pack.structuredDraft as { kind?: string; value?: unknown },
     preparedStatus: pack.preparedStatus,
     moveType: pack.moveType,
+    repeatFlagged: pack.draftRepeatFlag != null,
   }).status;
 }
 
@@ -342,6 +346,7 @@ export async function prepareTodayMovesForTenant(
           structuredDraft: existing.structuredDraft as { kind?: string; value?: unknown },
           preparedStatus: existing.preparedStatus,
           moveType: existing.moveType,
+          repeatFlagged: existing.draftRepeatFlag != null,
         });
         if (q.copyAllowed) {
           summary.cached += 1;
@@ -366,7 +371,13 @@ export async function prepareTodayMovesForTenant(
       const previousQuality = packQualityStatus(existing);
       const previousExcerpt = draftExcerpt(existing);
 
-      const draftRes = await draftForPacket(packet, tenantId, { complete: opts.complete });
+      // R16: an in-place regeneration (explicit teardown regenerate, or a
+      // quality-rejected cached draft falling through above) must not be served
+      // the identical cached output - bypass the call cache for a fresh take.
+      const regenerateInPlace =
+        opts.forceRegenerate === true ||
+        (existing?.structuredDraft != null && !isPackStale(existing, packet.evidenceHash, nowIso));
+      const draftRes = await draftForPacket(packet, tenantId, { complete: opts.complete, bypassCache: regenerateInPlace });
       let structuredDraft: StructuredDraft = null;
       let experiment: ExperimentPlan | null = null;
       let checklist: ImplementationStep[] = [];
@@ -378,6 +389,7 @@ export async function prepareTodayMovesForTenant(
         checklist = (draftRes.value.operatorSteps ?? []).slice(0, 12).map((step) => ({ step, pushMethod: "manual" as const, done: false }));
         experiment = buildExperimentPlan(packet, decision, draftRes.value);
         note = draftRes.retried ? "drafted (retried)" : "drafted";
+        if (draftRes.repeatFlag) note += " (reads like a repeat)";
       } else {
         llmCost = draftRes.status === "validation_failed" ? draftRes.costUsd : 0;
         note = draftRes.status === "off" ? "draft skipped (LLM off / no drafter)" : draftRes.status === "blocked_budget" ? "draft skipped (budget cap)" : `draft failed: ${(draftRes as { reason?: string }).reason ?? "invalid"}`;
@@ -413,6 +425,9 @@ export async function prepareTodayMovesForTenant(
         implementationChecklist: checklist,
         costSpent: { llmUsd: llmCost, serpUsd: 0 },
         regenMeta,
+        // R16: persist the de-templating flag so the quality gate demotes this
+        // draft to needs-review on every later read.
+        draftRepeatFlag: draftRes.status === "drafted" ? draftRes.repeatFlag : undefined,
       });
       if (regenMeta) regenMeta.newQuality = packQualityStatus(pack);
 

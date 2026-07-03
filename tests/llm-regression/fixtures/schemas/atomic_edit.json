@@ -1,0 +1,31 @@
+{
+  "field": "title",
+  "before": "Persian Singers",
+  "after": "Iranian Singers: Classic Voices and Modern Stars",
+  "rationale": "Matches how people actually search and names both eras the page covers.",
+  "proofPlan": {
+    "metrics": [
+      "clicks",
+      "AI citations"
+    ],
+    "windowsDays": [
+      7,
+      14,
+      28
+    ],
+    "controls": "comparable unchanged pages"
+  },
+  "evidenceRefs": [
+    {
+      "source": "gsc",
+      "detail": "the page earns impressions for this exact search"
+    }
+  ],
+  "confidence": "medium",
+  "risks": [
+    "Keep claims neutral and verifiable"
+  ],
+  "operatorSteps": [
+    "Update the title tag in the page settings"
+  ]
+}

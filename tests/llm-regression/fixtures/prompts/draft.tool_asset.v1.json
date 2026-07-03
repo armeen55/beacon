@@ -1,0 +1,6 @@
+{
+  "runner": "structured-draft",
+  "kind": "tool_asset",
+  "grounded": "nowruz countdown spring equinox",
+  "valueFixture": "schemas/tool_asset.json"
+}

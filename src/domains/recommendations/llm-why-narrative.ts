@@ -39,12 +39,11 @@ import {
   estimateCost,
   isReasoningModel,
 } from "./providers/openai";
+import { openAIChatCompletion } from "@/domains/llm/gateway";
 import { checkBudget, recordSpend } from "./adjudicator-budget";
 import { log } from "@/lib/logger";
 import type { WhyThisMattersInput } from "./why-this-matters-narrative";
 import type { EvidenceLine } from "@/domains/recommendation-intelligence/evidence-summary";
-
-const OPENAI_CHAT_API = "https://api.openai.com/v1/chat/completions";
 
 /** Hard ceiling for the post-mount enhancement call (server action, NOT the
  *  blocking render path — the operator already sees the deterministic baseline).
@@ -335,7 +334,7 @@ export async function composeLlmWhyThisMatters(
 
   // ── 5. Build prompt. ─────────────────────────────────────────────────
   const { payload, serialized } = serializeWhyInput(input);
-  const body = JSON.stringify({
+  const body = {
     model,
     messages: [
       { role: "system", content: SYSTEM_PROMPT },
@@ -350,30 +349,31 @@ export async function composeLlmWhyThisMatters(
     // audit-3 #4: reasoning models burn time before output; "low" keeps the
     // post-mount enhancement fast enough to actually land within the window.
     ...(isReasoningModel(model) ? { reasoning_effort: "low" } : {}),
-  });
+  };
 
-  // ── 6. Network call (hard timeout → null). LOUD fallback (audit-3 #4) so a
-  //       silent disappearance of the LLM "why" is never a mystery. ─────────
-  let response: Response;
-  try {
-    response = await fetchImpl(OPENAI_CHAT_API, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body,
-      signal: AbortSignal.timeout(timeoutMs),
-    });
-  } catch (err) {
-    // Network error or timeout — keep the deterministic baseline.
+  // ── 6. Network call via the ONE gateway (R16): hard timeout → null, LOUD
+  //       fallback (audit-3 #4) + error ledger, so a silent disappearance of
+  //       the LLM "why" is never a mystery. Budget stays caller-managed here
+  //       (steps 3 + 7 above/below). ─────────────────────────────────────────
+  const outcome = await openAIChatCompletion({
+    promptId: "rec.why_narrative",
+    promptVersion: 1,
+    action: "why-this-matters-llm",
+    apiKey,
+    body,
+    timeoutMs,
+    budget: { mode: "caller", note: "checkBudget step 3 + recordSpend step 7" },
+    fetchImpl,
+  });
+  if (outcome.kind !== "response") {
     log.warn("llm-why fallback: network/timeout", {
       model,
       timeoutMs,
-      error: err instanceof Error ? err.message : String(err),
+      error: outcome.reason,
     });
     return null;
   }
+  const response = outcome.response;
 
   if (!response.ok) {
     log.warn("llm-why fallback: non-ok response", {

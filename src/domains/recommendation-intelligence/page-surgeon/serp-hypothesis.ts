@@ -22,8 +22,8 @@ import "server-only";
  */
 
 import { log } from "@/lib/logger";
+import { estimateCost, openAIChatCompletion, recordGatewaySpend } from "@/domains/llm/gateway";
 
-const OPENAI_CHAT_API = "https://api.openai.com/v1/chat/completions";
 const DEFAULT_MODEL = "gpt-5-mini";
 
 export const SERP_FEATURES = [
@@ -195,7 +195,6 @@ export async function generateSerpHypothesis(
   }
 
   const model = deps?.model ?? DEFAULT_MODEL;
-  const fetchImpl = deps?.fetchImpl ?? fetch;
   const timeoutMs = deps?.timeoutMs ?? 60_000;
 
   const userPayload = {
@@ -213,7 +212,7 @@ export async function generateSerpHypothesis(
     })),
   };
 
-  const body = JSON.stringify({
+  const body = {
     model,
     reasoning_effort: "low",
     messages: [
@@ -222,24 +221,41 @@ export async function generateSerpHypothesis(
     ],
     response_format: { type: "json_object" },
     max_completion_tokens: 4_000,
-  });
+  };
 
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const res = await fetchImpl(OPENAI_CHAT_API, {
-      method: "POST",
-      headers: { Authorization: `Bearer ${apiKey ?? "test"}`, "Content-Type": "application/json" },
+    // R16: transport via the ONE gateway. This operator-triggered check
+    // previously had NO monthly cap - gateway_check closes that hole, and the
+    // real spend is recorded from usage tokens below. Fail-soft stays null.
+    const outcome = await openAIChatCompletion({
+      promptId: "page_surgeon.serp_hypothesis",
+      promptVersion: 1,
+      action: "serp-hypothesis",
+      apiKey: apiKey ?? "test",
       body,
-      signal: controller.signal,
+      timeoutMs,
+      budget: { mode: "gateway_check", projectedCostUsd: 0.01 },
+      fetchImpl: deps?.fetchImpl,
     });
+    if (outcome.kind !== "response") {
+      log.warn("[serp-hypothesis] gateway fallback", {
+        page: input.pagePath,
+        reason: outcome.kind === "blocked_budget" ? `budget: ${outcome.reason}` : outcome.reason,
+      });
+      return null;
+    }
+    const res = outcome.response;
     if (!res.ok) {
       log.warn("[serp-hypothesis] non-2xx", { status: res.status, page: input.pagePath });
       return null;
     }
     const json = (await res.json()) as {
       choices?: Array<{ message?: { content?: string }; finish_reason?: string }>;
+      usage?: { prompt_tokens?: number; completion_tokens?: number };
     };
+    await recordGatewaySpend(
+      estimateCost(model, json.usage?.prompt_tokens ?? 0, json.usage?.completion_tokens ?? 0),
+    );
     const choice = json.choices?.[0];
     if (choice?.finish_reason === "length" || !choice?.message?.content) {
       log.warn("[serp-hypothesis] truncated/empty", { page: input.pagePath, finish: choice?.finish_reason });
@@ -257,7 +273,5 @@ export async function generateSerpHypothesis(
   } catch (e) {
     log.warn("[serp-hypothesis] threw", { page: input.pagePath, error: e instanceof Error ? e.message : String(e) });
     return null;
-  } finally {
-    clearTimeout(timer);
   }
 }

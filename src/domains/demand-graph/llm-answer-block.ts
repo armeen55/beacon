@@ -1,5 +1,8 @@
 import "server-only";
 import { checkBudget, recordSpend } from "@/domains/recommendations/adjudicator-budget";
+import { openAIChatCompletion } from "@/domains/llm/gateway";
+import { buildGroundedNumbers, findUngroundedNumbers } from "@/domains/llm/numeric-fidelity";
+import { sanitizeEvidenceTexts, sanitizeNullableEvidence } from "@/domains/llm/injection-sanitizer";
 import { log } from "@/lib/logger";
 
 /**
@@ -19,7 +22,6 @@ import { log } from "@/lib/logger";
  * any non-"ok" status. NEVER throws.
  */
 
-const OPENAI_CHAT_API = "https://api.openai.com/v1/chat/completions";
 const MODEL = "gpt-5-mini";
 
 export type AnswerBlockDraftInput = {
@@ -52,10 +54,17 @@ const SUPERLATIVES = /\b(best|leading|#1|number one|top-rated|guaranteed|world-c
 
 export async function draftAnswerBlockWithLLM(
   input: AnswerBlockDraftInput,
+  deps: { fetchImpl?: typeof fetch } = {},
 ): Promise<AnswerBlockDraftResult> {
   if (!isOn()) return { status: "off" };
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) return { status: "off" };
+
+  // R16 injection firewall: brief/outline/FAQ text is crawled or PAA-derived -
+  // strip instruction-shaped lines before it enters the prompt or the ledger.
+  const brief = sanitizeNullableEvidence(input.brief);
+  const outline = sanitizeEvidenceTexts(input.outline);
+  const faqs = sanitizeEvidenceTexts(input.faqs);
 
   const projectedCostUsd = 0.01;
   // B82: fail CLOSED on an unknown budget (was fail-OPEN — risked uncapped LLM spend
@@ -73,9 +82,9 @@ export async function draftAnswerBlockWithLLM(
   const user = [
     `Search/topic: "${input.query}"`,
     `Page: ${input.pageLabel}`,
-    input.brief ? `Brief: ${input.brief}` : "",
-    input.outline.length ? `Grounded sections: ${input.outline.join("; ")}` : "",
-    input.faqs.length ? `Related questions: ${input.faqs.slice(0, 4).join("; ")}` : "",
+    brief ? `Brief: ${brief}` : "",
+    outline.length ? `Grounded sections: ${outline.join("; ")}` : "",
+    faqs.length ? `Related questions: ${faqs.slice(0, 4).join("; ")}` : "",
     "",
     "Write the 40-60 word answer block now.",
   ]
@@ -84,21 +93,31 @@ export async function draftAnswerBlockWithLLM(
 
   let text = "";
   let costUsd = 0;
+  // R16: transport via the ONE gateway (loud fallback + error ledger + the 90s
+  // reasoning floor; the old 45s ceiling was under the gpt-5-mini floor).
+  const outcome = await openAIChatCompletion({
+    promptId: "answer_block.text",
+    promptVersion: 1,
+    action: "demand-graph-answer-block",
+    apiKey,
+    body: {
+      model: MODEL,
+      messages: [
+        { role: "system", content: system },
+        { role: "user", content: user },
+      ],
+      max_completion_tokens: 1200,
+      reasoning_effort: "low",
+    },
+    timeoutMs: 45_000,
+    budget: { mode: "caller", note: "checkBudget above + recordSpend below" },
+    fetchImpl: deps.fetchImpl,
+  });
+  if (outcome.kind !== "response") {
+    return { status: "error", reason: outcome.kind === "blocked_budget" ? "blocked_budget" : outcome.reason };
+  }
   try {
-    const res = await fetch(OPENAI_CHAT_API, {
-      method: "POST",
-      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model: MODEL,
-        messages: [
-          { role: "system", content: system },
-          { role: "user", content: user },
-        ],
-        max_completion_tokens: 1200,
-        reasoning_effort: "low",
-      }),
-      signal: AbortSignal.timeout(45_000),
-    });
+    const res = outcome.response;
     if (!res.ok) return { status: "error", reason: `openai_${res.status}` };
     const json = (await res.json()) as { choices?: { message?: { content?: string } }[] };
     text = (json.choices?.[0]?.message?.content ?? "").trim();
@@ -117,10 +136,11 @@ export async function draftAnswerBlockWithLLM(
   }
   if (text.includes("—")) return { status: "rejected", reason: "em_dash" };
   if (SUPERLATIVES.test(text)) return { status: "rejected", reason: "superlative" };
-  // numeric-fidelity: multi-digit numbers in the output must be grounded in the input.
-  const grounded = `${input.query} ${input.brief ?? ""} ${input.outline.join(" ")} ${input.faqs.join(" ")}`;
-  const groundedNums = new Set(grounded.match(/\d+/g) ?? []);
-  const invented = (text.match(/\d+/g) ?? []).filter((n) => n.length >= 2 && !groundedNums.has(n));
+  // numeric-fidelity: multi-digit numbers in the output must be grounded in the
+  // input. R16: tokenized extraction with formatting tolerance (5,400 == 5400;
+  // percentages match rounded) - strictly more permissive than the digit-run check.
+  const grounded = `${input.query} ${brief ?? ""} ${outline.join(" ")} ${faqs.join(" ")}`;
+  const invented = findUngroundedNumbers(text, buildGroundedNumbers(grounded));
   if (invented.length > 0) {
     log.warn("[llm-answer-block] rejected invented numbers", { query: input.query, invented: invented.slice(0, 5) });
     return { status: "rejected", reason: `invented_numbers:${invented.slice(0, 3).join(",")}` };
@@ -143,11 +163,15 @@ export type FaqDraftResult =
   | { status: "error"; reason: string }
   | { status: "ok"; jsonLd: string; pairs: { q: string; a: string }[]; costUsd: number };
 
-export async function draftFaqSchemaWithLLM(input: FaqDraftInput): Promise<FaqDraftResult> {
+export async function draftFaqSchemaWithLLM(
+  input: FaqDraftInput,
+  deps: { fetchImpl?: typeof fetch } = {},
+): Promise<FaqDraftResult> {
   if (!isOn()) return { status: "off" };
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) return { status: "off" };
-  const questions = input.faqs.filter(Boolean).slice(0, 6);
+  // R16 injection firewall: PAA/fan-out questions are untrusted external text.
+  const questions = sanitizeEvidenceTexts(input.faqs.filter(Boolean)).slice(0, 6);
   if (questions.length === 0) return { status: "rejected", reason: "no_questions" };
 
   // B82: fail CLOSED on an unknown budget (was fail-OPEN). FAQ-schema drafting can
@@ -165,25 +189,32 @@ export async function draftFaqSchemaWithLLM(input: FaqDraftInput): Promise<FaqDr
 
   let pairs: { q: string; a: string }[] = [];
   let costUsd = 0;
+  // R16: transport via the ONE gateway (loud fallback + error ledger + the 90s
+  // reasoning floor). Body unchanged: no response_format (it interacts badly
+  // with reasoning here); ample token headroom (audit-wave2 #16).
+  const outcome = await openAIChatCompletion({
+    promptId: "answer_block.faq_schema",
+    promptVersion: 1,
+    action: "demand-graph-faq-schema",
+    apiKey,
+    body: {
+      model: MODEL,
+      messages: [
+        { role: "system", content: system },
+        { role: "user", content: user },
+      ],
+      max_completion_tokens: 4000,
+      reasoning_effort: "low",
+    },
+    timeoutMs: 60_000,
+    budget: { mode: "caller", note: "checkBudget above + recordSpend below" },
+    fetchImpl: deps.fetchImpl,
+  });
+  if (outcome.kind !== "response") {
+    return { status: "error", reason: outcome.kind === "blocked_budget" ? "blocked_budget" : outcome.reason };
+  }
   try {
-    const res = await fetch(OPENAI_CHAT_API, {
-      method: "POST",
-      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model: MODEL,
-        messages: [
-          { role: "system", content: system },
-          { role: "user", content: user },
-        ],
-        // gpt-5-mini spends reasoning tokens against this budget — give ample
-        // headroom or the content comes back empty (audit-wave2 #16). No
-        // response_format: json_object — it interacts badly with reasoning here;
-        // we parse the JSON out of the text robustly instead.
-        max_completion_tokens: 4000,
-        reasoning_effort: "low",
-      }),
-      signal: AbortSignal.timeout(60_000),
-    });
+    const res = outcome.response;
     if (!res.ok) return { status: "error", reason: `openai_${res.status}` };
     const json = (await res.json()) as { choices?: { message?: { content?: string } }[] };
     const raw = (json.choices?.[0]?.message?.content ?? "").trim();
@@ -221,11 +252,11 @@ export async function draftFaqSchemaWithLLM(input: FaqDraftInput): Promise<FaqDr
   }
   if (pairs.length === 0) return { status: "error", reason: "empty" };
 
-  // numeric-fidelity firewall across all answers.
+  // numeric-fidelity firewall across all answers (R16: tokenized + tolerant).
   const grounded = `${input.query} ${questions.join(" ")}`;
-  const groundedNums = new Set(grounded.match(/\d+/g) ?? []);
+  const groundedLedger = buildGroundedNumbers(grounded);
   for (const p of pairs) {
-    const invented = (p.a.match(/\d+/g) ?? []).filter((n) => n.length >= 2 && !groundedNums.has(n));
+    const invented = findUngroundedNumbers(p.a, groundedLedger);
     if (invented.length > 0) {
       log.warn("[llm-faq] rejected invented numbers", { query: input.query, invented: invented.slice(0, 5) });
       return { status: "rejected", reason: `invented_numbers:${invented.slice(0, 3).join(",")}` };

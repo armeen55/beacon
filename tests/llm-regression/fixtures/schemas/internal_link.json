@@ -1,0 +1,33 @@
+{
+  "sourcePage": "/persian-new-year",
+  "targetPage": "/chaharshanbe-suri",
+  "anchorText": "the fire jumping festival",
+  "linkSentence": "The celebrations begin days earlier with the fire jumping festival held on the eve of the last Wednesday of the year.",
+  "reason": "Readers planning Nowruz consistently ask about the fire festival next.",
+  "riskNotes": [],
+  "proofPlan": {
+    "metrics": [
+      "clicks",
+      "AI citations"
+    ],
+    "windowsDays": [
+      7,
+      14,
+      28
+    ],
+    "controls": "comparable unchanged pages"
+  },
+  "evidenceRefs": [
+    {
+      "source": "gsc",
+      "detail": "the page earns impressions for this exact search"
+    }
+  ],
+  "confidence": "medium",
+  "risks": [
+    "Keep claims neutral and verifiable"
+  ],
+  "operatorSteps": [
+    "Paste the new text into the page editor and publish"
+  ]
+}

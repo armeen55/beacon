@@ -1,0 +1,20 @@
+{
+  "runner": "critic",
+  "response": {
+    "choices": [
+      {
+        "index": 0,
+        "message": {
+          "role": "assistant",
+          "content": "{\"critic_verdict\": \"lower_confidence\", \"confidence_ceiling\": \"medium\", \"unsupported_claims\": [], \"evidence_gaps\": [\"No engagement data was provided for this page\"], \"query_page_mismatch_risks\": [], \"copy_risks\": [], \"publishing_risks\": [], \"factual_risks\": [], \"what_would_make_this_high_confidence\": [\"Engagement data confirming visitors stay after the change\"], \"human_review_note\": \"Reviewed against the supplied signals.\"}",
+          "refusal": null
+        },
+        "finish_reason": "stop"
+      }
+    ],
+    "usage": {
+      "prompt_tokens": 400,
+      "completion_tokens": 200
+    }
+  }
+}

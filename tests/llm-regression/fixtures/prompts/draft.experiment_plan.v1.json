@@ -1,0 +1,6 @@
+{
+  "runner": "structured-draft",
+  "kind": "experiment_plan",
+  "grounded": "direct answer clicks searches",
+  "valueFixture": "schemas/experiment_plan.json"
+}

@@ -33,6 +33,7 @@
 import "server-only";
 
 import { log } from "@/lib/logger";
+import { openAIChatCompletion } from "@/domains/llm/gateway";
 import { loadTenantQuestionLibrary } from "@/domains/ai-visibility/tenant-question-library";
 import { getTenant } from "@/domains/tenants/store";
 import type { BeaconTenant } from "@/domains/tenants/types";
@@ -117,12 +118,27 @@ export function buildOpenAiEngineClient(
         messages: [{ role: "user", content: question }],
       };
       if (model.includes("search")) body.web_search_options = {};
-      const res = await fetchImpl("https://api.openai.com/v1/chat/completions", {
-        method: "POST",
-        headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-        signal: AbortSignal.timeout(NATIVE_TIMEOUT_MS),
+      // R16: transport via the ONE gateway. Budget stays caller-managed: this
+      // observation lane is capped by NIGHTLY_PROMPT_CAP + the per-night
+      // already-ran guard, not the drafting ledger. Non-reasoning model, so the
+      // 45s ceiling is unchanged.
+      const outcome = await openAIChatCompletion({
+        promptId: "ai_visibility.engine_poll_openai",
+        promptVersion: 1,
+        action: "engine-poll-openai",
+        apiKey,
+        body,
+        timeoutMs: NATIVE_TIMEOUT_MS,
+        budget: { mode: "caller", note: "NIGHTLY_PROMPT_CAP + per-night run guard" },
+        fetchImpl,
       });
+      if (outcome.kind !== "response") {
+        log.warn("[engine-poll] openai call failed (non-fatal)", {
+          error: outcome.reason,
+        });
+        return null;
+      }
+      const res = outcome.response;
       if (!res.ok) {
         log.warn("[engine-poll] openai non-2xx", { status: res.status });
         return null;

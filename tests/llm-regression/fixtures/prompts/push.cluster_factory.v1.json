@@ -1,0 +1,20 @@
+{
+  "runner": "cluster-factory",
+  "response": {
+    "choices": [
+      {
+        "index": 0,
+        "message": {
+          "role": "assistant",
+          "content": "{\"title\": \"Ghormeh Sabzi\", \"description\": \"A slow cooked Persian herb stew with kidney beans and dried lime.\"}",
+          "refusal": null
+        },
+        "finish_reason": "stop"
+      }
+    ],
+    "usage": {
+      "prompt_tokens": 500,
+      "completion_tokens": 200
+    }
+  }
+}

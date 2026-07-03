@@ -118,70 +118,22 @@ describe("Sprint 6A.2d — page render must NOT import LLM dispatch surfaces", (
 describe("Sprint 6A.2d — only documented files reach api.openai.com", () => {
   /** Files allowed to fetch OpenAI. Anything else is a surprise
    *  integration point and should fail loud.
-   *  - `adjudicate.ts`: page-intent adjudicator (Phase v7)
-   *  - `providers/openai.ts`: SpecificEditProvider (Sprint 6A.2b)
    *
-   *  PIVOT (2026-06-15): `lib/querying/openai-client.ts` (the native ChatGPT
-   *  polling client via the Responses API) was deleted with the in-house AEO
-   *  polling engine — Profound is now the sole AEO source. The surviving
-   *  OpenAI egress is the recommendation-DRAFT path only. */
+   *  R16 (2026-07-03, P6 LLM engine pack): the nine scattered chat-completions
+   *  call sites (adjudicate, providers/openai, cluster-factory, why-narrative,
+   *  expert-strategist, page-surgeon judge, SERP hypothesis, demand-graph
+   *  drafters, structured drafter, engine poll) were CONSOLIDATED onto the one
+   *  gateway (`src/domains/llm/gateway.ts`): every call routes through
+   *  `openAIChatCompletion`, which enforces the fail-closed monthly cap
+   *  posture, the 90s reasoning-model timeout floor, reasoning_effort "low",
+   *  loud fallback logs, and error-ledger reporting, and carries a registered
+   *  promptId + version (prompt-registry.ts, fixture-pinned by
+   *  tests/llm-regression). Those modules keep their own budget orchestration,
+   *  parsing, and fallbacks - only the transport moved. */
   const ALLOWED_OPENAI_CALLERS = new Set<string>([
-    "src/domains/recommendations/adjudicate.ts",
-    "src/domains/recommendations/providers/openai.ts",
-  // §push page-factory (2026-06-10): the cluster generator is the second
-  // documented OpenAI egress — gated by the same BEACON_LLM_PROVIDER
-  // config, capped at MAX_ITEMS_PER_RUN per run, cost stamped per card.
-  "src/domains/push/cluster-factory.ts",
-  // why-narrative (2026-06-16): the LLM-synthesized rec "Why this matters"
-  // (Act 2). READ-ONLY display text, never published; gated behind
-  // BEACON_LLM_WHY (default off) + checkBudget + an 8s timeout; output is
-  // white-label + no-invented-numbers sanitized, with the deterministic
-  // synthesis as the always-present fallback.
-  "src/domains/recommendations/llm-why-narrative.ts",
-  // expert-strategist (2026-06-16, PHASE F): the LLM expert reasoning pass
-  // (opportunity / why-now / best-action / alternatives / risks). READ-ONLY
-  // analysis, never published; gated behind BEACON_LLM_STRATEGIST (default
-  // off) + checkBudget + a hard timeout; output is white-label +
-  // no-invented-numbers + AI-claims-need-AI-evidence sanitized; and the
-  // DETERMINISTIC gate (enforceExpertConfidence) — not the LLM — sets the
-  // final confidence/approve verdict and can reject.
-  "src/domains/recommendations/llm-expert-strategist.ts",
-  // page-surgeon judge (2026-06-18): the per-page atomic-change judge over the
-  // evidence packet. The deterministic trust gate (applyDeterministicGate) — not
-  // the LLM — is the sole authority on confidence/publishability; the judge only
-  // proposes. Gated by OPENAI_API_KEY presence + a 90s timeout + json_object
-  // response_format; any failure falls back to the deterministic page decision.
-  "src/domains/recommendation-intelligence/page-surgeon/llm-judge.ts",
-  // page-surgeon SERP hypothesis (2026-06-22, TASK 2): resolves "SERP unknown"
-  // inside the Workbench with a clearly-labeled SYNTHETIC hypothesis of which
-  // SERP features likely sit above the organic results. Workbench-only +
-  // operator-triggered (never the broad scan); NO paid/live SERP fetch (model
-  // general knowledge only); source is ALWAYS "synthetic" and serpStatus is
-  // "suspected"/"unknown", never "observed"; confidence capped at "medium";
-  // fail-soft to null (caller stays "unknown") on any error / missing key.
-  "src/domains/recommendation-intelligence/page-surgeon/serp-hypothesis.ts",
-  // demand-graph cockpit drafters (2026-06-24/25): on-demand answer-block +
-  // FAQ-schema generators for a Today's Moves card. OFF unless
-  // BEACON_LLM_PROVIDER=openai, operator-gated, checkBudget/recordSpend
-  // (fail-closed monthly cap), numeric-fidelity firewall on every output,
-  // gpt-5-mini reasoning_effort:"low", bounded timeout. Fire only on an explicit
-  // click; deterministic brief is the fallback on any non-"ok" status.
-  "src/domains/demand-graph/llm-answer-block.ts",
-  // structured drafter (2026-06-25, Sprint 2A/P4): the schema-validated draft
-  // engine + the first prod caller of the gated LLM pattern. OFF unless
-  // BEACON_LLM_PROVIDER=openai, checkBudget/recordSpend (fail-closed monthly cap),
-  // Zod-validate → retry-once → fail-closed, content firewalls (numeric-fidelity,
-  // placeholder, superlative) on every output, gpt-5-mini reasoning_effort:"low",
-  // bounded timeout. Never returns loose/unvalidated text as a product artifact.
-  "src/domains/llm/structured-drafter.ts",
-  // engine poll (2026-07-02, BEACON 500 item 4): the nightly 4-engine AI-answer
-  // poll's NATIVE ChatGPT lane (web-search chat completions with url_citation
-  // annotations). Read-only observation writes, never published content; capped
-  // at NIGHTLY_PROMPT_CAP questions per night with a per-night already-ran
-  // guard; skips silently when OPENAI_API_KEY is absent; per-engine 4xx
-  // degrades to an honest error status. Gemini/Claude lanes go through the
-  // budget-capped DataForSEO gauntlet instead, never this egress.
-  "src/domains/ai-visibility/run-engine-poll.ts",
+  // THE OpenAI chat-completions egress (R16). Every production prompt flows
+  // through openAIChatCompletion; no other file may open a chat connection.
+  "src/domains/llm/gateway.ts",
   // retrieval twin embeddings (2026-07-02, BEACON 500 item 50): the ONLY caller of OpenAI's
   // embeddings endpoint (text-embedding-3-small, ~$0.02/1M tokens). Read-only feature
   // extraction, never published content. Gated by OPENAI_API_KEY presence; every batch

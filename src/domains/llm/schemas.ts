@@ -358,6 +358,150 @@ export const SCHEMA_BY_KIND = {
   ask_answer: AskAnswerSchema,
 } as const satisfies Record<StructuredDraftKind, z.ZodTypeAny>;
 
+// ── R16 (P6 LLM engine pack): the FULL output-shape registry ─────────────────
+// Every structured LLM output shape used ANYWHERE in the product, as a named
+// entry - including the shapes whose production parsers are hand-rolled and
+// pinned (judge, strategist, critic, SERP hypothesis) and the deterministic
+// title-lab variants. The gateway (callStructuredLLM) dispatches on
+// SCHEMA_BY_KIND above (validate -> retry once -> fail closed); the extra
+// entries below are the canonical contract each hand-rolled parser must keep
+// producing, pinned by tests/llm-regression/schema-registry.test.ts (every
+// entry must parse its recorded fixture).
+//
+// NOT here by design: the specific-edit bundle (providers/openai.ts) - its
+// schema is PACKET-DERIVED (actionType/targetUrl enums are built per request),
+// so a static entry cannot represent it; it is pinned instead by
+// tests/contracts/openai-structured-response.contract.test.ts.
+
+/** FAQ Q/A pairs (llm-answer-block's FAQPage JSON-LD generator). */
+export const FaqPairsSchema = z.object({
+  pairs: z.array(z.object({ q: z.string().min(3).max(300), a: z.string().min(3).max(1200) })).min(1).max(8),
+});
+export type FaqPairs = z.infer<typeof FaqPairsSchema>;
+
+/** CTR Title Lab variants (demand-graph/ctr-title-scorer.ts - deterministic today,
+ *  registered so any future LLM-generated variant list validates the same shape). */
+export const TitleVariantsSchema = z.object({
+  variants: z
+    .array(
+      z.object({
+        title: z.string().min(3).max(200),
+        score: z.number(),
+        signals: z.array(z.string().min(1).max(120)).max(12).default([]),
+        strategy: z.string().min(1).max(60).optional(),
+        reason: z.string().min(1).max(300).optional(),
+      }),
+    )
+    .min(1)
+    .max(12),
+});
+export type TitleVariants = z.infer<typeof TitleVariantsSchema>;
+
+/** Page Surgeon judge verdict (llm-judge.ts raw JSON contract; the hand-rolled
+ *  sanitize() + the deterministic gate remain the runtime authority). */
+const JudgeChangeSchema = z.object({
+  action: z.string().min(1).max(40),
+  exact_change: z.string().max(4000).default(""),
+  evidence: z.string().max(2000).default(""),
+  hypothesis: z.string().max(1000).default(""),
+  risk: z.string().max(1000).default(""),
+  before_after: z
+    .object({ before: z.string().nullable().default(null), after: z.string().nullable().default(null) })
+    .default({ before: null, after: null }),
+  measurement: z.string().max(1000).default(""),
+  rollback: z.string().max(1000).default(""),
+  dependency_order: z.number().int().default(1),
+  artifact_text: z.string().max(6000).nullable().default(null),
+  faq_items: z
+    .array(z.object({ question: z.string().min(1), answer: z.string().min(1) }))
+    .nullable()
+    .default(null),
+});
+export const JudgeVerdictSchema = z.object({
+  diagnosis: z.object({
+    bottleneck: z.string().min(1).max(1000),
+    evidence: z.string().max(2000).default(""),
+    ruled_out: z.string().max(2000).default(""),
+  }),
+  recommended_atomic_action: z.string().min(1).max(40),
+  primary_atomic_change: JudgeChangeSchema.nullable(),
+  supporting_atomic_changes: z.array(JudgeChangeSchema).max(12).default([]),
+  rejected_changes: z.array(z.object({ action: z.string(), reason: z.string() })).max(20).default([]),
+  wording_research: z
+    .array(z.object({ variant: z.string(), evidence: z.string().default(""), best_placement: z.string().default("") }))
+    .max(20)
+    .default([]),
+  confidence: z.enum(["high", "medium", "low", "needs_more_evidence"]),
+  operator_insight: z.string().max(2000).default(""),
+  what_normal_seo_misses: z.string().max(2000).default(""),
+  why_not_just_title: z.string().max(2000).default(""),
+});
+export type JudgeVerdict = z.infer<typeof JudgeVerdictSchema>;
+
+/** Expert strategist take (llm-expert-strategist.ts raw JSON contract). */
+export const StrategistTakeSchema = z.object({
+  opportunity_summary: z.string().min(1).max(1000),
+  why_this_now: z.string().min(1).max(1000),
+  best_action: z.string().min(1).max(1000),
+  alternatives_considered: z.array(z.string().min(1).max(500)).max(8).default([]),
+  why_not_alternatives: z.array(z.string().min(1).max(500)).max(8).default([]),
+  expected_outcome: z.string().min(1).max(1000),
+  risk_level: z.enum(["low", "medium", "high"]),
+  risks: z.array(z.string().min(1).max(500)).max(8).default([]),
+});
+export type StrategistTake = z.infer<typeof StrategistTakeSchema>;
+
+/** Adversarial critic review (llm-expert-strategist.ts critic pass contract). */
+export const CriticReviewSchema = z.object({
+  critic_verdict: z.enum(["approve", "lower_confidence", "needs_more_evidence", "reject"]),
+  confidence_ceiling: z.enum(["high", "medium", "low", "needs_more_evidence", "rejected"]),
+  unsupported_claims: z.array(z.string()).max(10).default([]),
+  evidence_gaps: z.array(z.string()).max(10).default([]),
+  query_page_mismatch_risks: z.array(z.string()).max(10).default([]),
+  copy_risks: z.array(z.string()).max(10).default([]),
+  publishing_risks: z.array(z.string()).max(10).default([]),
+  factual_risks: z.array(z.string()).max(10).default([]),
+  what_would_make_this_high_confidence: z.array(z.string()).max(10).default([]),
+  human_review_note: z.string().max(1000).default(""),
+});
+export type CriticReviewShape = z.infer<typeof CriticReviewSchema>;
+
+/** Synthetic SERP hypothesis (page-surgeon/serp-hypothesis.ts raw JSON contract). */
+export const SerpHypothesisSchema = z.object({
+  queries: z
+    .array(
+      z.object({
+        query: z.string().min(1).max(300),
+        likely_features: z.array(z.string().min(1).max(40)).max(10).default([]),
+        feature_likely_owns_answer: z.boolean(),
+        click_loss_cause: z.string().max(500).default(""),
+        confidence: z.enum(["low", "medium"]),
+        rationale: z.string().max(500).default(""),
+        recommended_check: z.string().max(500).default(""),
+      }),
+    )
+    .min(1)
+    .max(10),
+  overall: z.object({
+    feature_likely_owns_answer: z.boolean(),
+    summary: z.string().max(1000).default(""),
+  }),
+});
+export type SerpHypothesisShape = z.infer<typeof SerpHypothesisSchema>;
+
+/** The complete named registry: every structured LLM output shape in the product.
+ *  tests/llm-regression/schema-registry.test.ts requires a parsed fixture per entry. */
+export const LLM_OUTPUT_SCHEMAS = {
+  ...SCHEMA_BY_KIND,
+  faq_pairs: FaqPairsSchema,
+  title_variants: TitleVariantsSchema,
+  judge_verdict: JudgeVerdictSchema,
+  strategist_take: StrategistTakeSchema,
+  critic_review: CriticReviewSchema,
+  serp_hypothesis: SerpHypothesisSchema,
+} as const;
+export type LlmOutputSchemaName = keyof typeof LLM_OUTPUT_SCHEMAS;
+
 /** Every string field in a parsed draft, flattened — fed to the content firewalls
  *  (numeric-fidelity / placeholder / em-dash / superlative) in the drafter. */
 export function draftStringValues(value: unknown): string[] {

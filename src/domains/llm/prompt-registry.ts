@@ -1,0 +1,68 @@
+/**
+ * llm/prompt-registry (2026-07-03, BEACON 500 R16 / P6) - every production
+ * prompt has a NAME and a VERSION, and every gateway call carries them.
+ *
+ * Why: prompts are load-bearing product logic, but until now editing one was
+ * invisible to CI - a reworded system prompt could silently break the parsing/
+ * validation path that consumes the model's output. This registry + the
+ * regression harness (tests/llm-regression/) close that hole:
+ *
+ *   - Each entry maps a stable promptId to its CURRENT version.
+ *   - tests/llm-regression/prompt-regression.test.ts requires a recorded
+ *     fixture at fixtures/prompts/<promptId>.v<version>.json for EVERY entry
+ *     and runs it through the REAL parsing/validation path (no live calls).
+ *   - Bumping a version here without adding the new fixture fails a named
+ *     test. Editing prompt WORDING that changes the output contract must bump
+ *     the version (reviewers can hold that line because the version sits in
+ *     the same diff as the prompt text's call site).
+ *
+ * PURE - constants only, no I/O, importable from anywhere (including tests).
+ */
+
+export const PROMPT_REGISTRY = {
+  // ── structured-drafter kinds (all parse through callStructuredLLM) ────────
+  "draft.answer_block": 1,
+  "draft.atomic_edit": 1,
+  "draft.create_page_brief": 1,
+  "draft.cro_fix": 1,
+  "draft.internal_link": 1,
+  "draft.aeo_prompt_brief": 1,
+  "draft.team_verdict": 1,
+  "draft.batch_adjudication": 1,
+  "draft.strategy_review": 1,
+  "draft.section_draft": 1,
+  "draft.outreach_pitch": 1,
+  "draft.ask_answer": 1,
+  // Registered schema kinds with no bespoke production prompt yet (P8 targets);
+  // callStructuredLLM derives draft.<kind>, so they must resolve to a version.
+  "draft.tool_asset": 1,
+  "draft.commerce_asset": 1,
+  "draft.experiment_plan": 1,
+  // ── legacy demand-graph drafters (llm-answer-block.ts) ────────────────────
+  "answer_block.text": 1,
+  "answer_block.faq_schema": 1,
+  // ── recommendation reasoning passes ───────────────────────────────────────
+  "rec.why_narrative": 1,
+  "rec.strategist": 1,
+  "rec.critic": 1,
+  "rec.specific_edit_bundle": 1,
+  "rec.page_intent_adjudicator": 1,
+  // ── page surgeon ──────────────────────────────────────────────────────────
+  "page_surgeon.judge": 1,
+  "page_surgeon.serp_hypothesis": 1,
+  // ── other production egress ───────────────────────────────────────────────
+  "push.cluster_factory": 1,
+  "ai_visibility.engine_poll_openai": 1,
+} as const;
+
+export type PromptId = keyof typeof PROMPT_REGISTRY;
+
+/** The current version for a registered prompt. */
+export function promptVersion(id: PromptId): number {
+  return PROMPT_REGISTRY[id];
+}
+
+/** Fixture basename the regression harness expects for a registry entry. */
+export function promptFixtureName(id: PromptId): string {
+  return `${id}.v${PROMPT_REGISTRY[id]}.json`;
+}

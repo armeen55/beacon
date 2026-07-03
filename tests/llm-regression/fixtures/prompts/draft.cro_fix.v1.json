@@ -1,0 +1,6 @@
+{
+  "runner": "structured-draft",
+  "kind": "cro_fix",
+  "grounded": "festival date card dead clicks",
+  "valueFixture": "schemas/cro_fix.json"
+}

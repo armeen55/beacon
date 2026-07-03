@@ -24,11 +24,10 @@ import "server-only";
  */
 
 import { resolveLLMProvider } from "@/lib/llm/config";
-import { isReasoningModel } from "@/domains/recommendations/providers/openai";
+import { isReasoningModel, openAIChatCompletion, recordGatewaySpend } from "@/domains/llm/gateway";
 import type { RecommendedEditRow } from "@/domains/recommendations/recommended-edits-persistence";
 
 export const MAX_ITEMS_PER_RUN = 10;
-const OPENAI_CHAT_API = "https://api.openai.com/v1/chat/completions";
 const TIMEOUT_MS = 120_000;
 
 export type ClusterFieldSpec = {
@@ -201,7 +200,6 @@ export async function generateClusterCards(
   if (apiKey === "") {
     return { ok: false, reason: "llm_disabled", detail: "OPENAI_API_KEY missing" };
   }
-  const fetchImpl = deps.fetchImpl ?? fetch;
 
   const enforce = deps.enforceContentRules ?? true; // self-serve-safe default
   const drafts: ClusterCardDraft[] = [];
@@ -230,13 +228,15 @@ export async function generateClusterCards(
     let fields: Record<string, string> = {};
     let costUsd = 0;
     try {
-      const res = await fetchImpl(OPENAI_CHAT_API, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
+      // R16: transport via the ONE gateway. The per-item loop previously had NO
+      // monthly-cap check (only a per-run item cap) - gateway_check closes that
+      // hole; the real spend is recorded from usage tokens below.
+      const outcome = await openAIChatCompletion({
+        promptId: "push.cluster_factory",
+        promptVersion: 1,
+        action: "cluster-factory-draft",
+        apiKey,
+        body: {
           model,
           messages: [
             { role: "system", content: sys },
@@ -249,9 +249,18 @@ export async function generateClusterCards(
           // so a non-reasoning model override doesn't 400.
           max_completion_tokens: 6_000,
           ...(isReasoningModel(model) ? { reasoning_effort: "low" } : {}),
-        }),
-        signal: AbortSignal.timeout(TIMEOUT_MS),
+        },
+        timeoutMs: TIMEOUT_MS,
+        budget: { mode: "gateway_check", projectedCostUsd: 0.01 },
+        fetchImpl: deps.fetchImpl,
       });
+      if (outcome.kind === "blocked_budget") {
+        return { ok: false, reason: "api_error", detail: `budget_blocked: ${outcome.reason.slice(0, 180)}` };
+      }
+      if (outcome.kind === "error") {
+        return { ok: false, reason: "api_error", detail: outcome.reason };
+      }
+      const res = outcome.response;
       if (!res.ok) {
         const text = await res.text().catch(() => "");
         return { ok: false, reason: "api_error", detail: `http_${res.status}: ${text.slice(0, 200)}` };
@@ -272,6 +281,8 @@ export async function generateClusterCards(
       const outTok = body.usage?.completion_tokens ?? 0;
       costUsd = (inTok * 0.25 + outTok * 2) / 1_000_000;
       totalCost += costUsd;
+      // R16: the call happened - record real spend against the monthly cap.
+      await recordGatewaySpend(costUsd);
     } catch (err) {
       return {
         ok: false,

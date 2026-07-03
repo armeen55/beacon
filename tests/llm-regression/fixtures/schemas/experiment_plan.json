@@ -1,0 +1,24 @@
+{
+  "hypothesis": "Opening the page with a direct answer will lift clicks from searches that currently end without one.",
+  "primaryMetric": "clicks",
+  "expectedDirection": "up",
+  "windowsDays": [
+    7,
+    14,
+    28
+  ],
+  "controlDescription": "comparable unchanged pages in the same family",
+  "evidenceRefs": [
+    {
+      "source": "gsc",
+      "detail": "the page earns impressions for this exact search"
+    }
+  ],
+  "confidence": "medium",
+  "risks": [
+    "Keep claims neutral and verifiable"
+  ],
+  "operatorSteps": [
+    "Paste the new text into the page editor and publish"
+  ]
+}

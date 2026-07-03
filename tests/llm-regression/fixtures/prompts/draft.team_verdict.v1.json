@@ -1,0 +1,6 @@
+{
+  "runner": "structured-draft",
+  "kind": "team_verdict",
+  "grounded": "page attention search direct answer",
+  "valueFixture": "schemas/team_verdict.json"
+}

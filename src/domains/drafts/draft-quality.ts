@@ -584,12 +584,33 @@ export type EvaluatePackInput = {
   pageBodyText?: string | null;
   evidenceText?: string | null;
   authoritativeFacts?: readonly AuthoritativeFact[];
+  /** R16 (P6 LLM engine pack): the drafter's de-templating guard flagged this
+   *  draft as a near-copy of recent same-family drafts ("reads like a repeat").
+   *  A ready verdict is DEMOTED to useful_but_needs_review - copy stays allowed
+   *  (repetition is a review concern, not a trust breach), and regeneration is
+   *  offered. Omitting the field leaves every verdict byte-identical. */
+  repeatFlagged?: boolean;
 };
 
 /** Evaluate a PreparedMovePack by dispatching on its structuredDraft kind. A pack
  *  with no draft (null structuredDraft, or a pre-draft lifecycle status) is too_thin
  *  — NEVER let it fall through as ready (the adversarial pass's #1 finding). */
 export function evaluatePreparedPackQuality(input: EvaluatePackInput): DraftQualityResult {
+  const base = evaluatePreparedPackQualityBase(input);
+  // R16 de-templating demotion: "ready" + repeat-flagged -> needs review.
+  if (input.repeatFlagged === true && base.status === "ready") {
+    return {
+      ...base,
+      status: "useful_but_needs_review",
+      reasons: ["Reads like a repeat of recent drafts. Give it a quick look before shipping.", ...base.reasons],
+      canRegenerate: true,
+      confidence: base.confidence === "high" ? "medium" : base.confidence,
+    };
+  }
+  return base;
+}
+
+function evaluatePreparedPackQualityBase(input: EvaluatePackInput): DraftQualityResult {
   const sd = input.structuredDraft;
   if (!sd || !sd.kind || sd.value == null) {
     return { status: "too_thin", reasons: ["No draft generated yet — prepare this move to produce one."], copyAllowed: false, canRegenerate: true, confidence: "high" };

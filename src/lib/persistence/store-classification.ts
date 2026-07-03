@@ -258,6 +258,11 @@ export const GLOBAL_STORES = new Set<string>([
   // Phase 7.8a.1 (2026-04-25) — globals added from the live dry-run.
   // Each is operator-shared / cross-tenant by design.
   "adjudicator-cache", // LLM dedup cache, no tenant_id; operator-shared
+  // 2026-07-03 R16 (P6 LLM engine pack) - the structured-drafter call cache:
+  // content-hash (promptId + version + kind + prompts) -> validated output, so
+  // an identical regeneration request costs $0. Keyed by content hash, never by
+  // tenant path (same posture as adjudicator-cache); capped at 300 entries.
+  "llm-call-cache",
   // DataForSEO market-data caches (2026-06-25): public keyword volume / SERP
   // results keyed by location+lang+query — no tenant secrets, identical across
   // tenants, so operator-shared/global maximizes reuse + minimizes spend. WITHOUT

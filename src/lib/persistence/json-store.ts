@@ -99,6 +99,11 @@ const SUPABASE_MIRRORED_STORES = new Set<string>([
   // without the mirror the cursor resets to page zero on every invocation
   // and the crawl could never get past one batch on hosted prod.
   "crawl-frontier",
+  // 2026-07-03 R16 (P6 LLM engine pack) - the structured-drafter call cache
+  // (content hash -> validated output). Without the mirror every hosted lambda
+  // starts cold and an identical regeneration request pays the LLM again; the
+  // mirror is what makes the $0-repeat guarantee true on Vercel.
+  "llm-call-cache",
   // 2026-07-02 item 13 - nightly precompute warm pass. The per-day run marker
   // (double-fire idempotency) and the "last warmed" receipt /diagnostics shows
   // must survive lambda recycling; losing the marker only costs a harmless

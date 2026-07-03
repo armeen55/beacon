@@ -5,6 +5,18 @@ import { saveMoveDraft } from "@/domains/demand-graph/move-draft-store";
 import { log } from "@/lib/logger";
 import { buildWinnerFewShots, buildWinnerFewShotsWithPattern } from "./winner-memory";
 import type { DraftPatternId } from "./draft-pattern";
+import { openAIChatCompletion } from "./gateway";
+import { PROMPT_REGISTRY, type PromptId } from "./prompt-registry";
+import { llmCallCacheKey, resolveCacheImpl, type CacheImpl } from "./call-cache";
+import { looksTemplated, REPEAT_FLAG, REPEAT_HISTORY_SIZE, VARIATION_INSTRUCTION } from "./de-templating";
+import {
+  allowNumbers,
+  buildGroundedNumbers,
+  findUngroundedNumbers,
+  groundedNumberList,
+  type GroundedNumbers,
+} from "./numeric-fidelity";
+import { sanitizeEvidenceTexts, sanitizeNullableEvidence, sanitizeEvidenceText } from "./injection-sanitizer";
 import {
   SCHEMA_BY_KIND,
   draftStringValues,
@@ -20,9 +32,10 @@ import {
  * the FIRST production caller of the gated/budgeted LLM pattern. It turns a
  * grounded request into a SCHEMA-VALIDATED structured draft, or nothing:
  *
- *   gate (BEACON_LLM_PROVIDER=openai + key) → budget (fail-closed cap) → call
- *   → robust JSON extract → Zod validate → content firewalls (numeric-fidelity,
- *   placeholder, em-dash, superlative) → RETRY ONCE on failure → FAIL CLOSED.
+ *   gate (BEACON_LLM_PROVIDER=openai + key) → cache ($0 on an identical repeat)
+ *   → budget (fail-closed cap) → call → robust JSON extract → Zod validate →
+ *   content firewalls (numeric-fidelity, placeholder, em-dash, superlative) →
+ *   de-templating guard → RETRY ONCE on failure → FAIL CLOSED.
  *
  * It NEVER returns loose/unvalidated text as a product artifact. Spend is
  * recorded the moment a call returns (even if the draft is later rejected). The
@@ -30,10 +43,22 @@ import {
  * calls. Mirrors the lessons in llm-answer-block.ts (gpt-5-mini reasoning models
  * return empty under response_format, so we parse JSON out of the text robustly).
  *
- * Tenant-agnostic. Pinned by structured-drafter.test.ts.
+ * R16 (2026-07-03, P6): the raw fetch moved into the ONE gateway
+ * (llm/gateway.ts - loud fallbacks, error ledger, reasoning timeout floor);
+ * every call carries a registered promptId + version (prompt-registry.ts,
+ * fixture-pinned by tests/llm-regression); identical requests are served from
+ * the content-hash call cache at $0 (call-cache.ts, `bypassCache` for the
+ * explicit Regenerate); the numeric firewall gained formatting tolerance +
+ * a repair retry that injects the correct grounded numbers (numeric-fidelity
+ * .ts); near-copies of recent same-family drafts retry once with a variation
+ * instruction and otherwise ship FLAGGED "reads like a repeat"
+ * (de-templating.ts); and evidence text is stripped of instruction-shaped
+ * lines before it enters any prompt (injection-sanitizer.ts).
+ *
+ * Tenant-agnostic. Pinned by structured-drafter.test.ts +
+ * structured-drafter-engine-pack.test.ts.
  */
 
-const OPENAI_CHAT_API = "https://api.openai.com/v1/chat/completions";
 const MODEL = "gpt-5-mini";
 const MAX_DRAFT_CHARS = 11_500; // stay under the move_drafts 12k content cap
 
@@ -54,7 +79,20 @@ export type StructuredDraftResult<T> =
   | { status: "off" }
   | { status: "blocked_budget"; reason: string }
   | { status: "validation_failed"; reason: string; errors: string[]; costUsd: number; retried: boolean }
-  | { status: "drafted"; kind: StructuredDraftKind; value: T; costUsd: number; retried: boolean; fewShot?: FewShotProvenance };
+  | {
+      status: "drafted";
+      kind: StructuredDraftKind;
+      value: T;
+      costUsd: number;
+      retried: boolean;
+      fewShot?: FewShotProvenance;
+      /** R16: present when this exact request was served from the call cache ($0). */
+      cached?: true;
+      /** R16: present when the draft still reads like a repeat of recent same-family
+       *  drafts after the variation retry ("reads like a repeat") - the draft-quality
+       *  gate demotes flagged output instead of calling it ready. */
+      repeatFlag?: string;
+    };
 
 /** Injectable completion fn (default = real OpenAI). Returns text or an error. */
 export type CompleteFn = (args: {
@@ -122,51 +160,88 @@ function robustJsonExtract(raw: string): unknown {
   }
 }
 
+/** The full grounded-number ledger for one request: evidence numbers with R16
+ *  formatting tolerance (numeric-fidelity.ts) plus the structural allowances -
+ *  adjacent years and the 7/14/28-day proof-window constants (methodology
+ *  language, not factual claims). */
+function buildRequestLedger(grounded: string, nowYear: number): GroundedNumbers {
+  return allowNumbers(buildGroundedNumbers(grounded), [
+    String(nowYear - 1),
+    String(nowYear),
+    String(nowYear + 1),
+    "7",
+    "14",
+    "28",
+  ]);
+}
+
+/** The primary CUSTOMER-FACING text of a validated draft (what the de-templating
+ *  guard compares + what the call cache keeps as same-family history). Null for
+ *  kinds whose output is analysis/verdict shaped rather than publishable copy. */
+function primaryCustomerText(kind: StructuredDraftKind, value: unknown): string | null {
+  const v = value as Record<string, unknown>;
+  const pick = (k: string): string | null => (typeof v?.[k] === "string" ? (v[k] as string) : null);
+  switch (kind) {
+    case "answer_block": return pick("answer");
+    case "atomic_edit": return pick("after");
+    case "create_page_brief": return pick("openingAnswer");
+    case "aeo_prompt_brief": return pick("direct_answer_40_80_words");
+    case "section_draft": return pick("body");
+    case "outreach_pitch": return pick("body");
+    case "internal_link": return pick("linkSentence");
+    default: return null;
+  }
+}
+
 /** Content firewalls over every string field of a parsed draft. Same trust rails
  *  as the deterministic drafter: no placeholders, no em-dashes, no superlatives,
- *  and no invented multi-digit numbers (must be grounded — years allowed). */
+ *  and no invented multi-digit numbers (must be grounded - years allowed). R16
+ *  upgraded the numeric check to TOKENIZED extraction with formatting tolerance
+ *  (5,400 == 5400; percentages match rounded) - strictly MORE permissive, so a
+ *  grounded number formatted differently is never a false reject while genuinely
+ *  invented stats still fail closed. */
 function runContentFirewalls(
   strings: string[],
-  grounded: string,
-  nowYear: number,
+  ledger: GroundedNumbers,
 ): { ok: true } | { ok: false; reason: string } {
-  const blob = strings.join("  ");
+  const blob = strings.join("  ");
   if (/\[[^\]]*\]|\{\{|TODO|TBD|lorem ipsum/i.test(blob)) return { ok: false, reason: "placeholder" };
   if (blob.includes("—")) return { ok: false, reason: "em_dash" };
   if (SUPERLATIVES.test(blob)) return { ok: false, reason: "superlative" };
-  // Normalize thousands separators so "16,444" matches a grounded "16444" — a
-  // comma-formatted grounded number is the SAME number, not an invented stat.
-  const stripThousands = (s: string) => s.replace(/(?<=\d),(?=\d)/g, "");
-  const groundedNums = new Set(stripThousands(grounded).match(/\d+/g) ?? []);
-  for (const y of [nowYear - 1, nowYear, nowYear + 1]) groundedNums.add(String(y));
-  // Proof-window methodology constants (7/14/28-day measurement) are structural
-  // language, not factual claims — allow them like years.
-  for (const w of [7, 14, 28]) groundedNums.add(String(w));
-  const invented = (stripThousands(blob).match(/\d+/g) ?? []).filter((n) => n.length >= 2 && !groundedNums.has(n));
+  const invented = findUngroundedNumbers(blob, ledger);
   if (invented.length > 0) return { ok: false, reason: `invented_numbers:${invented.slice(0, 3).join(",")}` };
   return { ok: true };
 }
 
-function defaultComplete(apiKey: string): CompleteFn {
+function defaultComplete(apiKey: string, promptId: PromptId): CompleteFn {
   return async ({ system, user, maxTokens, timeoutMs }) => {
+    // R16: the ONE gateway owns the transport (loud fallback logs, error ledger,
+    // reasoning timeout floor). Budget stays HERE in caller mode: callStructuredLLM
+    // checks the fail-closed cap before calling and records spend per attempt.
+    const outcome = await openAIChatCompletion({
+      promptId,
+      promptVersion: PROMPT_REGISTRY[promptId],
+      action: `structured-draft:${promptId}`,
+      apiKey,
+      body: {
+        model: MODEL,
+        messages: [
+          { role: "system", content: system },
+          { role: "user", content: user },
+        ],
+        // gpt-5-mini reasoning tokens count against this budget — give headroom.
+        // No response_format: it returns empty under reasoning; we parse robustly.
+        max_completion_tokens: maxTokens,
+        reasoning_effort: "low",
+      },
+      timeoutMs,
+      budget: { mode: "caller", note: "checkBudget + recordSpend live in callStructuredLLM" },
+    });
+    if (outcome.kind === "blocked_budget") return { error: "blocked_budget" };
+    if (outcome.kind === "error") return { error: outcome.reason || "fetch_failed" };
+    const res = outcome.response;
+    if (!res.ok) return { error: `openai_${res.status}` };
     try {
-      const res = await fetch(OPENAI_CHAT_API, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-        body: JSON.stringify({
-          model: MODEL,
-          messages: [
-            { role: "system", content: system },
-            { role: "user", content: user },
-          ],
-          // gpt-5-mini reasoning tokens count against this budget — give headroom.
-          // No response_format: it returns empty under reasoning; we parse robustly.
-          max_completion_tokens: maxTokens,
-          reasoning_effort: "low",
-        }),
-        signal: AbortSignal.timeout(timeoutMs),
-      });
-      if (!res.ok) return { error: `openai_${res.status}` };
       const json = (await res.json()) as { choices?: { message?: { content?: string } }[] };
       const text = (json.choices?.[0]?.message?.content ?? "").trim();
       return text ? { text } : { error: "empty_response" };
@@ -196,19 +271,59 @@ export type StructuredDraftRequest<K extends StructuredDraftKind> = {
    *  from winner-memory's pattern aggregate, so the prompt-building and the result
    *  metadata always agree on whether a confident cell was actually used. */
   fewShotProvenance?: FewShotProvenance;
+  /** R16: skip the $0 cache-serve and force a fresh paid draft (the explicit
+   *  Regenerate action). The fresh result still REPLACES the cached entry. */
+  bypassCache?: boolean;
+  /** R16 test seam: inject cache behavior. Default: the store-backed call cache
+   *  in production, NO cache under vitest (pinned suites stay hermetic). */
+  cacheImpl?: CacheImpl;
+  /** R16 test seam / caller-supplied history for the de-templating guard. When
+   *  absent the guard reads the last cached outputs for this kind. */
+  recentOutputs?: string[];
 };
 
 /**
- * The engine: validate → retry-once → fail-closed. Returns a typed, schema-valid
- * draft or a non-"drafted" status. Never throws.
+ * The engine: cache ($0 repeats) → validate → retry-once → fail-closed. Returns
+ * a typed, schema-valid draft or a non-"drafted" status. Never throws.
  */
 export async function callStructuredLLM<K extends StructuredDraftKind>(
   req: StructuredDraftRequest<K>,
 ): Promise<StructuredDraftResult<z.infer<(typeof SCHEMA_BY_KIND)[K]>>> {
   if (!isOn()) return { status: "off" };
   const apiKey = process.env.OPENAI_API_KEY;
-  const complete = req.complete ?? (apiKey ? defaultComplete(apiKey) : null);
+  // R16: every structured call carries a registered prompt identity (all kinds
+  // are registered as draft.<kind>; the registry test enforces coverage).
+  const promptId = `draft.${req.kind}` as PromptId;
+  const promptVersion = PROMPT_REGISTRY[promptId];
+  const complete = req.complete ?? (apiKey ? defaultComplete(apiKey, promptId) : null);
   if (!complete) return { status: "off" }; // configured "on" but no key → off
+
+  const schemaForCache = SCHEMA_BY_KIND[req.kind] as z.ZodTypeAny;
+  const cache = resolveCacheImpl(req.cacheImpl);
+  const cacheKey = cache
+    ? llmCallCacheKey({ promptId, promptVersion, kind: req.kind, system: req.system, user: req.user })
+    : null;
+
+  // R16 call cache: an identical request (same prompt version + prompts) returns
+  // the prior VALIDATED output at $0 - before the budget gate, because a hit
+  // spends nothing. `bypassCache` (the explicit Regenerate) forces a paid take.
+  if (cache && cacheKey && req.bypassCache !== true) {
+    const hit = await cache.read(cacheKey).catch(() => null);
+    if (hit) {
+      const revalidated = schemaForCache.safeParse(hit.value);
+      if (revalidated.success) {
+        return {
+          status: "drafted",
+          kind: req.kind,
+          value: revalidated.data as z.infer<(typeof SCHEMA_BY_KIND)[K]>,
+          costUsd: 0,
+          retried: false,
+          cached: true,
+          ...(req.fewShotProvenance ? { fewShot: req.fewShotProvenance } : {}),
+        };
+      }
+    }
+  }
 
   const projectedCostUsd = req.projectedCostUsd ?? 0.02;
   // B82: fail CLOSED on an unknown budget (Supabase down / tenant-ctx error) — a
@@ -223,20 +338,43 @@ export async function callStructuredLLM<K extends StructuredDraftKind>(
   const nowYear = (req.now ?? new Date()).getFullYear();
   const maxTokens = req.maxTokens ?? 6000;
   const timeoutMs = req.timeoutMs ?? 60_000;
+  const ledger = buildRequestLedger(req.grounded, nowYear);
+  // R16 de-templating history: the last cached same-family outputs (or the
+  // injected list). Empty history keeps the guard dormant.
+  const recentTexts =
+    req.recentOutputs ?? (cache ? await cache.recentTexts(req.kind, REPEAT_HISTORY_SIZE).catch(() => []) : []);
 
   let totalCost = 0;
   const errors: string[] = [];
+  let lastFailureWasTemplated = false;
 
   for (let attempt = 0; attempt < 2; attempt += 1) {
     const retried = attempt > 0;
-    const system =
-      attempt === 0
-        ? req.system
-        : `${req.system}\n\nYour previous output was invalid: ${errors.slice(-3).join(" | ")}. Return ONLY valid JSON matching the described shape, with non-empty evidenceRefs.`;
+    let system = req.system;
+    if (retried) {
+      if (lastFailureWasTemplated) {
+        // R16 de-templating: the first draft read like a repeat - retry with a
+        // variation instruction rather than an "invalid output" correction.
+        system = `${req.system}\n\n${VARIATION_INSTRUCTION}`;
+      } else {
+        system = `${req.system}\n\nYour previous output was invalid: ${errors.slice(-3).join(" | ")}. Return ONLY valid JSON matching the described shape, with non-empty evidenceRefs.`;
+        // R16 numeric repair: when the failure was an ungrounded number, inject
+        // the CORRECT grounded numbers so the retry can fix the figure instead
+        // of guessing again. One repair retry, then fail closed.
+        if (errors.some((e) => e.startsWith("firewall:invented_numbers"))) {
+          const nums = groundedNumberList(ledger);
+          system +=
+            nums.length > 0
+              ? ` The evidence contains ONLY these numbers: ${nums.join(", ")}. Cite numbers exactly from this list, or write without numbers.`
+              : " The evidence contains no citable numbers. Write without numbers.";
+        }
+      }
+    }
 
     const out = await complete({ system, user: req.user, maxTokens, timeoutMs });
     if ("error" in out) {
       errors.push(`llm_${out.error}`);
+      lastFailureWasTemplated = false;
       continue;
     }
     totalCost += estimateCostUsd(system.length + req.user.length, out.text.length);
@@ -245,26 +383,59 @@ export async function callStructuredLLM<K extends StructuredDraftKind>(
     const parsedJson = robustJsonExtract(out.text);
     if (parsedJson === undefined) {
       errors.push("non_json");
+      lastFailureWasTemplated = false;
       continue;
     }
     const result = schema.safeParse(sanitizeDashesDeep(parsedJson));
     if (!result.success) {
       errors.push(...result.error.issues.slice(0, 4).map((i) => `${i.path.join(".") || "(root)"}: ${i.message}`));
+      lastFailureWasTemplated = false;
       continue;
     }
-    const fw = runContentFirewalls(draftStringValues(result.data), req.grounded, nowYear);
+    const fw = runContentFirewalls(draftStringValues(result.data), ledger);
     if (!fw.ok) {
       errors.push(`firewall:${fw.reason}`);
+      lastFailureWasTemplated = false;
       continue;
     }
-    return {
-      status: "drafted",
+
+    // R16 de-templating guard: a validated draft whose customer-facing text is a
+    // near-copy (>70 percent 3-gram overlap) of a recent same-family output gets
+    // ONE variation retry; a second near-copy ships FLAGGED ("reads like a
+    // repeat") for the draft-quality gate to demote - style never fails closed.
+    const primary = primaryCustomerText(req.kind, result.data);
+    const templated = primary != null && looksTemplated(primary, recentTexts);
+    if (templated && !retried) {
+      errors.push("templated");
+      lastFailureWasTemplated = true;
+      continue;
+    }
+
+    const drafted = {
+      status: "drafted" as const,
       kind: req.kind,
       value: result.data as z.infer<(typeof SCHEMA_BY_KIND)[K]>,
       costUsd: totalCost,
       retried,
       ...(req.fewShotProvenance ? { fewShot: req.fewShotProvenance } : {}),
+      ...(templated ? { repeatFlag: REPEAT_FLAG } : {}),
     };
+    if (cache && cacheKey) {
+      const nowIso = (req.now ?? new Date()).toISOString();
+      await cache
+        .write({
+          key: cacheKey,
+          kind: req.kind,
+          promptId,
+          promptVersion,
+          value: result.data,
+          primaryText: primary,
+          createdAt: nowIso,
+          lastUsedAt: nowIso,
+        })
+        .catch(() => {});
+    }
+    return drafted;
   }
 
   log.warn("[structured-drafter] fail-closed", { kind: req.kind, errors: errors.slice(0, 6) });
@@ -326,24 +497,31 @@ const ANSWER_BLOCK_SYSTEM =
 /** Draft a schema-valid AnswerBlockDraft for one Move. Capped + budgeted. */
 export async function draftAnswerBlockStructured(
   input: AnswerBlockStructuredInput,
-  opts: { complete?: CompleteFn; now?: Date } = {},
+  opts: { complete?: CompleteFn; now?: Date; bypassCache?: boolean } = {},
 ): Promise<StructuredDraftResult<AnswerBlockDraft>> {
+  // R16 injection firewall: crawled briefs/outlines, PAA questions, and evidence
+  // hints are untrusted text - strip instruction-shaped lines before they enter
+  // the prompt or the grounding ledger. Benign input passes through unchanged.
+  const brief = sanitizeNullableEvidence(input.brief);
+  const outline = sanitizeEvidenceTexts(input.outline);
+  const faqs = sanitizeEvidenceTexts(input.faqs);
+  const evidenceHints = sanitizeEvidenceTexts(input.evidenceHints ?? []);
   const grounded = [
     input.query,
-    input.brief ?? "",
-    input.outline.join(" "),
-    input.faqs.join(" "),
-    (input.evidenceHints ?? []).join(" "),
+    brief ?? "",
+    outline.join(" "),
+    faqs.join(" "),
+    evidenceHints.join(" "),
   ].join(" ");
   const dir = intentDirective(input.intent);
   const user = [
     `Search/topic: "${input.query}"`,
     dir ? `What the searcher wants: ${dir}` : "",
     `Page: ${input.pageLabel}`,
-    input.brief ? `Brief: ${input.brief}` : "",
-    input.outline.length ? `Grounded sections: ${input.outline.join("; ")}` : "",
-    input.faqs.length ? `Related questions: ${input.faqs.slice(0, 6).join("; ")}` : "",
-    (input.evidenceHints ?? []).length ? `Evidence the team established: ${input.evidenceHints!.join("; ")}` : "",
+    brief ? `Brief: ${brief}` : "",
+    outline.length ? `Grounded sections: ${outline.join("; ")}` : "",
+    faqs.length ? `Related questions: ${faqs.slice(0, 6).join("; ")}` : "",
+    evidenceHints.length ? `Evidence the team established: ${evidenceHints.join("; ")}` : "",
     "",
     "Return the JSON now.",
   ]
@@ -374,6 +552,7 @@ export async function draftAnswerBlockStructured(
     projectedCostUsd: 0.02,
     complete: opts.complete,
     now: opts.now,
+    bypassCache: opts.bypassCache,
     fewShotProvenance,
   });
 }
@@ -410,13 +589,17 @@ const ATOMIC_EDIT_SYSTEM =
 /** Draft a schema-valid AtomicEditDraft (title/meta) for one existing-page Move. */
 export async function draftAtomicEditStructured(
   input: AtomicEditStructuredInput,
-  opts: { complete?: CompleteFn; now?: Date } = {},
+  opts: { complete?: CompleteFn; now?: Date; bypassCache?: boolean } = {},
 ): Promise<StructuredDraftResult<AtomicEditDraft>> {
+  // R16 injection firewall (see draftAnswerBlockStructured).
+  const currentValue = sanitizeNullableEvidence(input.currentValue);
+  const outline = sanitizeEvidenceTexts(input.outline);
+  const evidenceHints = sanitizeEvidenceTexts(input.evidenceHints ?? []);
   const grounded = [
     input.query,
-    input.currentValue ?? "",
-    input.outline.join(" "),
-    (input.evidenceHints ?? []).join(" "),
+    currentValue ?? "",
+    outline.join(" "),
+    evidenceHints.join(" "),
   ].join(" ");
   const dir = intentDirective(input.intent);
   const user = [
@@ -424,9 +607,9 @@ export async function draftAtomicEditStructured(
     dir ? `What the searcher wants: ${dir}` : "",
     `Page: ${input.pageLabel}`,
     `Field to edit: ${input.field}`,
-    input.currentValue ? `Current ${input.field}: ${input.currentValue}` : `Current ${input.field}: (none/empty)`,
-    input.outline.length ? `Page covers: ${input.outline.slice(0, 8).join("; ")}` : "",
-    (input.evidenceHints ?? []).length ? `Evidence the team established: ${input.evidenceHints!.join("; ")}` : "",
+    currentValue ? `Current ${input.field}: ${currentValue}` : `Current ${input.field}: (none/empty)`,
+    outline.length ? `Page covers: ${outline.slice(0, 8).join("; ")}` : "",
+    evidenceHints.length ? `Evidence the team established: ${evidenceHints.join("; ")}` : "",
     "",
     "Return the JSON now.",
   ]
@@ -456,6 +639,7 @@ export async function draftAtomicEditStructured(
     projectedCostUsd: 0.02,
     complete: opts.complete,
     now: opts.now,
+    bypassCache: opts.bypassCache,
     fewShotProvenance,
   });
 
@@ -507,20 +691,24 @@ const CREATE_PAGE_SYSTEM =
 /** Draft a schema-valid CreatePageBrief for one create_page / hub Move. */
 export async function draftCreatePageStructured(
   input: CreatePageStructuredInput,
-  opts: { complete?: CompleteFn; now?: Date } = {},
+  opts: { complete?: CompleteFn; now?: Date; bypassCache?: boolean } = {},
 ): Promise<StructuredDraftResult<CreatePageBrief>> {
+  // R16 injection firewall: competitor pages + fan-out questions are untrusted.
+  const competitorPages = sanitizeEvidenceTexts(input.competitorPages);
+  const fanoutQueries = sanitizeEvidenceTexts(input.fanoutQueries);
+  const evidenceHints = sanitizeEvidenceTexts(input.evidenceHints ?? []);
   const grounded = [
     input.query,
-    input.competitorPages.join(" "),
-    input.fanoutQueries.join(" "),
-    (input.evidenceHints ?? []).join(" "),
+    competitorPages.join(" "),
+    fanoutQueries.join(" "),
+    evidenceHints.join(" "),
   ].join(" ");
   const user = [
     `New-page topic: "${input.query}"`,
     `Working label/slug: ${input.pageLabel}`,
-    input.fanoutQueries.length ? `Sub-questions AI is asked: ${input.fanoutQueries.slice(0, 10).join("; ")}` : "",
-    input.competitorPages.length ? `Competitor pages cited now (study + beat): ${input.competitorPages.slice(0, 6).join("; ")}` : "",
-    (input.evidenceHints ?? []).length ? `Evidence the team established: ${input.evidenceHints!.join("; ")}` : "",
+    fanoutQueries.length ? `Sub-questions AI is asked: ${fanoutQueries.slice(0, 10).join("; ")}` : "",
+    competitorPages.length ? `Competitor pages cited now (study + beat): ${competitorPages.slice(0, 6).join("; ")}` : "",
+    evidenceHints.length ? `Evidence the team established: ${evidenceHints.join("; ")}` : "",
     "",
     "Return the JSON now.",
   ]
@@ -535,6 +723,7 @@ export async function draftCreatePageStructured(
     projectedCostUsd: 0.03,
     complete: opts.complete,
     now: opts.now,
+    bypassCache: opts.bypassCache,
   });
 }
 
@@ -561,13 +750,16 @@ const CRO_FIX_SYSTEM =
 /** Draft a schema-valid CROFixSpec for one fix_experience Move from Clarity friction. */
 export async function draftCROFixStructured(
   input: CROFixStructuredInput,
-  opts: { complete?: CompleteFn; now?: Date } = {},
+  opts: { complete?: CompleteFn; now?: Date; bypassCache?: boolean } = {},
 ): Promise<StructuredDraftResult<import("./schemas").CROFixSpec>> {
-  const grounded = [input.pageLabel, input.frictionDetail, input.frictionHint ?? ""].join(" ");
+  // R16 injection firewall: friction detail can carry crawled page text.
+  const frictionDetail = sanitizeEvidenceText(input.frictionDetail);
+  const frictionHint = sanitizeNullableEvidence(input.frictionHint ?? null);
+  const grounded = [input.pageLabel, frictionDetail, frictionHint ?? ""].join(" ");
   const user = [
     `Page: ${input.pageLabel}`,
-    `Friction the team measured: ${input.frictionDetail}`,
-    input.frictionHint ? `Dominant signal: ${input.frictionHint}` : "",
+    `Friction the team measured: ${frictionDetail}`,
+    frictionHint ? `Dominant signal: ${frictionHint}` : "",
     "",
     "Return the JSON now.",
   ]
@@ -581,6 +773,7 @@ export async function draftCROFixStructured(
     projectedCostUsd: 0.02,
     complete: opts.complete,
     now: opts.now,
+    bypassCache: opts.bypassCache,
   });
 }
 
@@ -609,14 +802,17 @@ const INTERNAL_LINK_SYSTEM =
 /** Draft a schema-valid InternalLinkDraft for one source→target pair. */
 export async function draftInternalLinkStructured(
   input: InternalLinkStructuredInput,
-  opts: { complete?: CompleteFn; now?: Date } = {},
+  opts: { complete?: CompleteFn; now?: Date; bypassCache?: boolean } = {},
 ): Promise<StructuredDraftResult<import("./schemas").InternalLinkDraft>> {
-  const grounded = [input.sourcePage, input.targetPage, input.targetTopic, input.relationDetail].join(" ");
+  // R16 injection firewall: the topic/relation lines can carry crawled text.
+  const targetTopic = sanitizeEvidenceText(input.targetTopic);
+  const relationDetail = sanitizeEvidenceText(input.relationDetail);
+  const grounded = [input.sourcePage, input.targetPage, targetTopic, relationDetail].join(" ");
   const user = [
     `Source page (link is added here): ${input.sourcePage}`,
     `Target page (link points here): ${input.targetPage}`,
-    `Target page is about: ${input.targetTopic}`,
-    `Why they relate: ${input.relationDetail}`,
+    `Target page is about: ${targetTopic}`,
+    `Why they relate: ${relationDetail}`,
     "",
     "Return the JSON now.",
   ].join("\n");
@@ -628,6 +824,7 @@ export async function draftInternalLinkStructured(
     projectedCostUsd: 0.015,
     complete: opts.complete,
     now: opts.now,
+    bypassCache: opts.bypassCache,
   });
 }
 
@@ -667,22 +864,28 @@ const AEO_PROMPT_BRIEF_SYSTEM =
  *  Capped + budgeted + firewalled; spends only when invoked. */
 export async function draftAeoPromptBrief(
   input: AeoPromptBriefInput,
-  opts: { complete?: CompleteFn; now?: Date } = {},
+  opts: { complete?: CompleteFn; now?: Date; bypassCache?: boolean } = {},
 ): Promise<StructuredDraftResult<AeoPromptBrief>> {
+  // R16 injection firewall: the verbatim AI prompt, fan-outs, and competitor
+  // pages are untrusted external text.
+  const prompt = sanitizeEvidenceText(input.prompt);
+  const fanoutQueries = sanitizeEvidenceTexts(input.fanoutQueries);
+  const competitorPages = sanitizeEvidenceTexts(input.competitorPages);
+  const tags = sanitizeEvidenceTexts(input.tags ?? []);
   const grounded = [
-    input.prompt,
-    input.fanoutQueries.join(" "),
-    input.competitorPages.join(" "),
+    prompt,
+    fanoutQueries.join(" "),
+    competitorPages.join(" "),
     input.ownCitedUrls.join(" "),
-    (input.tags ?? []).join(" "),
+    tags.join(" "),
   ].join(" ");
   const user = [
-    `AI prompt to win: "${input.prompt}"`,
+    `AI prompt to win: "${prompt}"`,
     `Recommended move: ${input.recommendedMove}`,
-    input.fanoutQueries.length ? `Fan-out queries this prompt expands into: ${input.fanoutQueries.slice(0, 12).join("; ")}` : "",
-    input.competitorPages.length ? `Pages AI cites now (study + beat): ${input.competitorPages.slice(0, 10).join("; ")}` : "",
+    fanoutQueries.length ? `Fan-out queries this prompt expands into: ${fanoutQueries.slice(0, 12).join("; ")}` : "",
+    competitorPages.length ? `Pages AI cites now (study + beat): ${competitorPages.slice(0, 10).join("; ")}` : "",
     input.ownCitedUrls.length ? `Your pages already cited: ${input.ownCitedUrls.join("; ")}` : "Your site is NOT currently cited for this prompt.",
-    (input.tags ?? []).length ? `Topic tags: ${input.tags!.join("; ")}` : "",
+    tags.length ? `Topic tags: ${tags.join("; ")}` : "",
     "",
     "Return the JSON now.",
   ]
@@ -697,6 +900,7 @@ export async function draftAeoPromptBrief(
     projectedCostUsd: 0.03,
     complete: opts.complete,
     now: opts.now,
+    bypassCache: opts.bypassCache,
   });
 }
 

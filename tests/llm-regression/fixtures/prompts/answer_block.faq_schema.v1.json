@@ -1,0 +1,20 @@
+{
+  "runner": "faq-schema",
+  "response": {
+    "choices": [
+      {
+        "index": 0,
+        "message": {
+          "role": "assistant",
+          "content": "[{\"q\": \"What do people say when jumping over the fire?\", \"a\": \"They recite a short verse offering their paleness to the fire and asking for its warmth and energy in return.\"}]",
+          "refusal": null
+        },
+        "finish_reason": "stop"
+      }
+    ],
+    "usage": {
+      "prompt_tokens": 400,
+      "completion_tokens": 200
+    }
+  }
+}

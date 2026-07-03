@@ -34,6 +34,7 @@
  * packet → bundle transform.
  */
 
+import { estimateCost, isReasoningModel, openAIChatCompletion } from "@/domains/llm/gateway";
 import type {
   SpecificEdit,
   SpecificEditBundle,
@@ -64,19 +65,12 @@ export const DEFAULT_OPENAI_MODEL = "gpt-5-mini";
  * non-reasoning chat models 400 on it. Callers gate the param on this so the
  * short-latency LLM paths (why-narrative, strategist, critic) can pin
  * reasoning_effort:"low" without breaking a non-reasoning model override.
+ *
+ * R16: the implementations (and the per-million rate table behind
+ * `estimateCost`) moved into the ONE gateway (@/domains/llm/gateway) - this
+ * module re-exports them so every existing import keeps working.
  */
-export function isReasoningModel(model: string): boolean {
-  return /^(gpt-5|o\d)/i.test(model);
-}
-
-/** Per-million-token rates (USD). Verified against OpenAI pricing 2026-04-23. */
-const COST_PER_MILLION = {
-  "gpt-5-mini": { input: 0.25, output: 2.0 },
-  "gpt-5-nano": { input: 0.05, output: 0.4 },
-  "gpt-5.4-mini": { input: 0.75, output: 4.5 },
-} as const;
-
-const OPENAI_CHAT_API = "https://api.openai.com/v1/chat/completions";
+export { estimateCost, isReasoningModel };
 
 /**
  * Default request timeout (ms).
@@ -803,11 +797,10 @@ export async function generateOpenAIBundle(
   const model = options.model ?? DEFAULT_OPENAI_MODEL;
   const now = options.now ?? new Date();
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
-  const fetchImpl = options.fetchImpl ?? fetch;
 
   // ── 2. Build request body with packet-derived strict schema ─────────
   const schema = buildOpenAISpecificEditSchema(packet);
-  const body = JSON.stringify({
+  const body = {
     model,
     messages: [
       { role: "system", content: SYSTEM_PROMPT.trim() },
@@ -843,7 +836,7 @@ export async function generateOpenAIBundle(
     // (gated so a non-reasoning model override doesn't 400). Matches the why /
     // strategist provider config.
     ...(isReasoningModel(model) ? { reasoning_effort: "low" } : {}),
-  });
+  };
 
   // Sprint 6A.2f pre-flight (2026-04-26) — diagnostic logging on empty-
   // bundle returns so silent bails don't strand the operator. Each
@@ -852,25 +845,28 @@ export async function generateOpenAIBundle(
   // either way. NO behavior change to callers.
   const logPath = `recId=${packet.recId} tenant=${packet.tenantId}`;
 
-  // ── 3. Network call ────────────────────────────────────────────────
-  let response: Response;
-  try {
-    response = await fetchImpl(OPENAI_CHAT_API, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body,
-      signal: AbortSignal.timeout(timeoutMs),
-    });
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
+  // ── 3. Network call via the ONE gateway (R16). Budget stays with the
+  //      production callers (llm-draft-gateway + runProviderAndPersist both
+  //      checkBudget before generate and recordSpend from totalCostUsd).
+  const outcome = await openAIChatCompletion({
+    promptId: "rec.specific_edit_bundle",
+    promptVersion: 1,
+    action: "specific-edit-provider",
+    apiKey,
+    body: body as unknown as Record<string, unknown>,
+    timeoutMs,
+    budget: { mode: "caller", note: "llm-draft-gateway / runProviderAndPersist check + record" },
+    fetchImpl: options.fetchImpl,
+    tenantId: packet.tenantId,
+  });
+  if (outcome.kind !== "response") {
+    const msg = outcome.kind === "blocked_budget" ? outcome.reason : outcome.reason;
     console.warn(
       `[openai-provider] empty-bundle: network/timeout ${logPath} error=${JSON.stringify(msg)}`,
     );
     return emptyBundleFor(packet, "openai", now);
   }
+  const response = outcome.response;
 
   if (!response.ok) {
     let bodyExcerpt = "";
@@ -1135,20 +1131,8 @@ function stringEnum<T extends string>(values: readonly T[]): JsonSchemaValue {
 // Cost helpers — exported for tests
 // ---------------------------------------------------------------------------
 
-export function estimateCost(
-  model: string,
-  inputTokens: number,
-  outputTokens: number,
-): number {
-  const rates =
-    (COST_PER_MILLION as Record<string, { input: number; output: number }>)[
-      model
-    ] ?? COST_PER_MILLION["gpt-5-mini"];
-  const cost =
-    (inputTokens / 1_000_000) * rates.input +
-    (outputTokens / 1_000_000) * rates.output;
-  return round6(cost);
-}
+// R16: estimateCost moved to @/domains/llm/gateway (re-exported at the top of
+// this module so existing imports keep working).
 
 function round6(n: number): number {
   return Math.round(n * 1_000_000) / 1_000_000;

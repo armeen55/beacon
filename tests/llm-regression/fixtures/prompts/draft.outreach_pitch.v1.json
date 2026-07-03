@@ -1,0 +1,6 @@
+{
+  "runner": "structured-draft",
+  "kind": "outreach_pitch",
+  "grounded": "nowruz guide outdated source",
+  "valueFixture": "schemas/outreach_pitch.json"
+}

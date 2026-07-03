@@ -1,0 +1,27 @@
+{
+  "toolName": "Nowruz Countdown",
+  "summary": "Shows the time remaining until the exact moment of the spring equinox for the visitor's city.",
+  "inputs": [
+    {
+      "label": "Your city",
+      "type": "select"
+    }
+  ],
+  "outputs": [
+    "Days and hours remaining until Nowruz"
+  ],
+  "buildPath": "static_widget",
+  "evidenceRefs": [
+    {
+      "source": "gsc",
+      "detail": "the page earns impressions for this exact search"
+    }
+  ],
+  "confidence": "medium",
+  "risks": [
+    "Keep claims neutral and verifiable"
+  ],
+  "operatorSteps": [
+    "Paste the new text into the page editor and publish"
+  ]
+}

@@ -1,0 +1,36 @@
+{
+  "direct_answer_40_80_words": "Taarof is the Persian custom of ritual politeness in which offers, refusals, and repeated invitations signal respect rather than literal intent. A first offer is often declined out of courtesy, so hosts repeat it sincerely, and guests accept only once the insistence makes the offer's sincerity clear.",
+  "fanout_sections": [
+    {
+      "question": "How do you politely refuse taarof?",
+      "answer_goal": "Explain the expected decline and re-offer exchange."
+    }
+  ],
+  "facts_to_verify": [
+    "Regional differences in taarof etiquette"
+  ],
+  "entities_to_include": [
+    "Persian hospitality"
+  ],
+  "sources_to_reference": [
+    "cultural etiquette references"
+  ],
+  "competitor_pages_to_beat": [
+    "tappersia.com/taarof"
+  ],
+  "schema_recommendation": "FAQPage",
+  "internal_links": [],
+  "evidenceRefs": [
+    {
+      "source": "gsc",
+      "detail": "the page earns impressions for this exact search"
+    }
+  ],
+  "confidence": "medium",
+  "risks": [
+    "Keep claims neutral and verifiable"
+  ],
+  "operatorSteps": [
+    "Paste the new text into the page editor and publish"
+  ]
+}

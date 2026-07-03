@@ -82,6 +82,10 @@ export type PreparedMovePack = {
   /** Set when this draft was regenerated USING competitor teardown facts (the trust
    *  signal + recoverability of the prior draft). Absent on normal prepares. */
   regenMeta?: RegenMeta;
+  /** R16: the drafter's de-templating guard flagged this draft as a near-copy of
+   *  recent same-family drafts ("reads like a repeat"). The draft-quality gate
+   *  demotes a ready verdict to needs-review when set. Absent on clean drafts. */
+  draftRepeatFlag?: string;
 };
 
 /** Provenance for a teardown-informed regeneration - surfaces the "Competitor-informed"
@@ -148,6 +152,8 @@ export type BuildPreparedMovePackInput = {
   costSpent?: { llmUsd: number; serpUsd: number };
   ttlMs?: number;
   regenMeta?: RegenMeta;
+  /** R16: thread the drafter's "reads like a repeat" flag onto the pack. */
+  draftRepeatFlag?: string;
 };
 
 /** Assemble a PreparedMovePack from a Move's packet + the team's opinions + the
@@ -190,6 +196,7 @@ export function buildPreparedMovePack(input: BuildPreparedMovePackInput): Prepar
     staleAt: new Date(baseMs + (input.ttlMs ?? DEFAULT_TTL_MS)).toISOString(),
     preparedStatus,
     ...(input.regenMeta ? { regenMeta: input.regenMeta } : {}),
+    ...(input.draftRepeatFlag ? { draftRepeatFlag: input.draftRepeatFlag } : {}),
   };
 }
 

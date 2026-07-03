@@ -1,0 +1,6 @@
+{
+  "runner": "structured-draft",
+  "kind": "strategy_review",
+  "grounded": "weekly lever mix answers titles",
+  "valueFixture": "schemas/strategy_review.json"
+}

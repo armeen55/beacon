@@ -1,0 +1,6 @@
+{
+  "runner": "structured-draft",
+  "kind": "internal_link",
+  "grounded": "persian new year fire jumping festival",
+  "valueFixture": "schemas/internal_link.json"
+}

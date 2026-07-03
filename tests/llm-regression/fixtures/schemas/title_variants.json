@@ -1,0 +1,14 @@
+{
+  "variants": [
+    {
+      "title": "Iranian Singers: Classic Voices and Modern Stars",
+      "score": 72,
+      "signals": [
+        "names the search intent",
+        "covers both eras"
+      ],
+      "strategy": "differentiated",
+      "reason": "Names what the page covers in the searcher's own words."
+    }
+  ]
+}
