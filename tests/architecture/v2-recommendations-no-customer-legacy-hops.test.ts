@@ -33,14 +33,14 @@ function stripComments(src: string): string {
 }
 
 // Move 5 (2026-07-01): recommendations-v2-client.tsx was removed when
-// /recommendations became a redirect to /worklist. The surviving v2 card,
-// working rail, and detail surfaces still carry the "no legacy hops" invariant
-// below; the deleted client's four pins are dropped as an obsolete contract.
+// /recommendations became a redirect to /worklist. The surviving v2 card
+// and detail surfaces still carry the "no legacy hops" invariant below;
+// the deleted client's four pins are dropped as an obsolete contract.
+// (recommendations-v2-working-rail.tsx deleted 2026-07-02, UX5 legacy
+// sweep — its host, the /recommendations?v2=1 layout, never shipped a
+// live caller; its two pins below are dropped alongside it.)
 const V2_CARD_SRC = stripComments(
   read("src/components/recommendations/v2/recommendation-v2-card.tsx"),
-);
-const V2_WORKING_RAIL_SRC = stripComments(
-  read("src/components/recommendations/v2/recommendations-v2-working-rail.tsx"),
 );
 const V2_DETAIL_ACTIONS_SRC = stripComments(
   read("src/app/(shell)/recommendations/[id]/recommendation-detail-actions.tsx"),
@@ -58,12 +58,6 @@ describe("v2 /recommendations — no customer-facing legacy hops", () => {
     expect(V2_CARD_SRC).not.toMatch(/['"`][^'"`]*\?legacy=1[^'"`]*['"`]/);
   });
 
-  it("the v2 working rail default href does NOT use ?legacy=1", () => {
-    expect(V2_WORKING_RAIL_SRC).not.toMatch(
-      /['"`][^'"`]*\?legacy=1[^'"`]*['"`]/,
-    );
-  });
-
   it("the v2 detail-actions surface does NOT contain any ?legacy=1 string literal", () => {
     // 2026-05-13 — the "Open legacy review →" CTA was removed.
     // detail-actions.tsx is the LAST place where a customer-facing
@@ -77,19 +71,4 @@ describe("v2 /recommendations — no customer-facing legacy hops", () => {
   it("the v2 detail-client surface contains no ?legacy=1 string literal", () => {
     expect(V2_DETAIL_CLIENT_SRC).not.toMatch(/\?legacy=1/);
   });
-
-  it("the v2 working rail default href is the v2 detail page", () => {
-    // 2026-05-13 P0 follow-up — both the card and the working rail
-    // now route through the centralized `buildRecommendationDetailHref`
-    // helper (single canonical href builder for /recommendations/[id]),
-    // which wraps `encodeRecommendationRouteId(row.id)` and the path
-    // prefix. The invariant pins the import + the call shape.
-    expect(V2_WORKING_RAIL_SRC).toMatch(
-      /import\s+\{\s*buildRecommendationDetailHref\s*\}\s+from\s+['"]\.\/recommendation-route-id['"]/,
-    );
-    expect(V2_WORKING_RAIL_SRC).toMatch(
-      /buildRecommendationDetailHref\(\s*row\s*\)/,
-    );
-  });
-
 });

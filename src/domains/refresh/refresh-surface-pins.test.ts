@@ -33,11 +33,15 @@ describe("Demand band fading row (war-room-sections)", () => {
     expect(WAR_ROOM).toContain("queue[0] ?? null");
   });
 
-  it("places the fading row below the language-gap row in the Demand band", () => {
-    const langIdx = WAR_ROOM.indexOf("languageGapRow ?");
+  it("groups the fading row with the demand-movement rows, ahead of the language-gap block (UX4 order)", () => {
+    // UX4 (2026-07-02) grouped the time-sensitive movement rows (spikes, seasonal, fading)
+    // into one list and moved the language-gap block after them.
+    const seasonalIdx = WAR_ROOM.indexOf("seasonalRow ?");
     const fadeIdx = WAR_ROOM.indexOf("fadingRow ?");
-    expect(langIdx).toBeGreaterThan(-1);
-    expect(fadeIdx).toBeGreaterThan(langIdx);
+    const langIdx = WAR_ROOM.indexOf("languageGapRow ?");
+    expect(seasonalIdx).toBeGreaterThan(-1);
+    expect(fadeIdx).toBeGreaterThan(seasonalIdx);
+    expect(langIdx).toBeGreaterThan(fadeIdx);
   });
 
   it("stays silent when research never ran and nothing is spiking, seasonal, language-gapped, OR fading", () => {

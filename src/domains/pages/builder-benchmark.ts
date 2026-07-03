@@ -23,7 +23,6 @@ export type MarketBenchmark = {
   strongestAreas: { topic: string; rate: number; label: string }[];
   weakestAreas: { topic: string; rate: number; label: string }[];
   biggestLosses: { topic: string; competitorRate: number; ownedRate: number; gap: number; label: string }[];
-  topNextMoves: { label: string; href: string }[];
 };
 
 export type BenchmarkOpts = {
@@ -150,22 +149,6 @@ export function computeMarketBenchmark(
       label: `Competitors hold ${t.compRate}% of mentions for ${t.topic.toLowerCase()} — you hold ${t.ownRate}%`,
     }));
 
-  // Next moves from issues
-  const openIssues = issues.filter((i) => i.status === "new" || i.status === "handed_off");
-  const nextMoves: MarketBenchmark["topNextMoves"] = [];
-  if (openIssues.length > 0) {
-    nextMoves.push({ label: `Fix ${openIssues.length} page${openIssues.length !== 1 ? "s" : ""} that need attention`, href: "/pages" });
-  }
-  if (weakest.length > 0) {
-    nextMoves.push({ label: `Add stronger content for ${weakest[0].topic.toLowerCase()} searches`, href: "/competitors#opportunities" });
-  }
-  if (losses.length > 1) {
-    nextMoves.push({ label: `Create or improve your ${losses[1].topic.toLowerCase()} page`, href: "/competitors#opportunities" });
-  }
-  if (nextMoves.length === 0) {
-    nextMoves.push({ label: "Review your website pages", href: "/pages" });
-  }
-
   return {
     benchmarkId: `bench-${Date.now()}`,
     createdAt: now,
@@ -176,7 +159,6 @@ export function computeMarketBenchmark(
     strongestAreas: strongest,
     weakestAreas: weakest,
     biggestLosses: losses,
-    topNextMoves: nextMoves,
   };
 }
 

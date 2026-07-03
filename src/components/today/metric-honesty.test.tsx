@@ -1,30 +1,25 @@
 /**
  * Metric-honesty contract tests (2026-06-14) for the /today dashboard.
  *
- * Pins two customer-trust fixes surfaced by the dashboard-honesty audit so
- * a future "make it pop" copy/style change can't quietly reintroduce them:
+ * Pins a customer-trust fix surfaced by the dashboard-honesty audit so
+ * a future "make it pop" copy/style change can't quietly reintroduce it:
  *
  *   #356 — the share-capture banner is a COINCIDENCE test (its own
  *          provenance builder hardcodes trustLevel "unreliable"). It must
  *          NOT ship with confident green/success styling, and must carry a
  *          "directional, not proven" caveat.
  *
- *   #322 — the morning-brief freshness line must report the ACTUAL age of
- *          the latest reading. It must not claim "today" for data that is a
- *          day (or more) old, and must not present an OBSERVATION date as a
- *          "last updated" refresh event.
+ * (The #322 morning-brief freshness pin was removed 2026-07-02, UX5 legacy
+ * sweep — `src/components/today/morning-brief.tsx` had zero remaining
+ * importers; the current /today freshness line ships from war-room-sections
+ * and today-v2-data instead.)
  */
 
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 
 import { VisibilityLeaderboard } from "./visibility-leaderboard";
-import { MorningBrief } from "./morning-brief";
 import type { EntityVisibility } from "@/domains/product/visibility-score";
-import type {
-  MorningBriefData,
-  MorningBriefItem,
-} from "@/domains/product/morning-brief";
 
 function entity(over: Partial<EntityVisibility> = {}): EntityVisibility {
   return {
@@ -81,60 +76,3 @@ describe("#356 — share-capture banner is not styled as a proven win", () => {
   });
 });
 
-function briefItem(): MorningBriefItem {
-  return {
-    id: "item-1",
-    priority: "need",
-    headline: "Do this thing",
-    rationale: "Because reasons",
-    contextLines: [],
-    steps: ["step one"],
-    pageUrl: null,
-    pagePath: null,
-    citationCount: 0,
-    confidenceLabel: "high",
-    aiContext: null,
-    keyReason: null,
-    monitorLine: null,
-    recType: "strengthen",
-  };
-}
-
-function briefData(over: Partial<MorningBriefData> = {}): MorningBriefData {
-  return {
-    // The freshness line only renders when there's at least one brief item
-    // (the empty-state short-circuits before it), so seed one.
-    items: [briefItem()],
-    memoryInsights: [],
-    competitorAlerts: [],
-    competitorSummaries: [],
-    trendPct: null,
-    totalOwnedCitations: 0,
-    latestDataDate: null,
-    ...over,
-  };
-}
-
-describe("#322 — morning-brief freshness reports the real reading age", () => {
-  it("only says 'today' when the latest reading is genuinely from today", () => {
-    const today = new Date().toISOString().slice(0, 10);
-    const html = renderToStaticMarkup(
-      <MorningBrief data={briefData({ latestDataDate: today })} />,
-    );
-    expect(html).toContain("Latest reading is from today");
-    // The old hardcoded-success phrasing must be gone.
-    expect(html).not.toContain("Data is current — last updated today");
-  });
-
-  it("does NOT claim 'today' for yesterday's reading", () => {
-    const yesterday = new Date(Date.now() - 86_400_000)
-      .toISOString()
-      .slice(0, 10);
-    const html = renderToStaticMarkup(
-      <MorningBrief data={briefData({ latestDataDate: yesterday })} />,
-    );
-    expect(html).toContain("Latest reading is from yesterday");
-    expect(html).not.toContain("Latest reading is from today");
-    expect(html).not.toContain("last updated today");
-  });
-});

@@ -151,14 +151,10 @@ describe("Emergency P0 v2: list→detail prefetch storm prevention", () => {
     expect(src).toMatch(/<Link[\s\S]*?\bprefetch=\{false\}/);
   });
 
-  it("v2 working rail uses prefetch={false} on its detail Links", () => {
-    const src = read(
-      "src/components/recommendations/v2/recommendations-v2-working-rail.tsx",
-    );
-    // The Working rail renders up to 5 in-flight rec links — same
-    // prefetch-storm exposure as the card stack.
-    expect(src).toMatch(/<Link[\s\S]*?prefetch=\{false\}/);
-  });
+  // "v2 working rail uses prefetch={false}..." pin removed 2026-07-02
+  // (UX5 legacy sweep): recommendations-v2-working-rail.tsx was orphaned
+  // (its host, the /recommendations?v2=1 layout, never shipped a live
+  // caller — recommendations-v2-client.tsx was already gone) and deleted.
 
   it("v2 changes card uses prefetch={false} on its detail Link", () => {
     const src = read("src/components/changes/v2/changes-v2-card.tsx");
@@ -177,10 +173,9 @@ describe("Emergency P0 v2: list→detail prefetch storm prevention", () => {
     expect(src).toMatch(/<Link[\s\S]*?prefetch=\{false\}/);
   });
 
-  it("today primary action uses prefetch={false} on its /changes/[id] Link", () => {
-    const src = read("src/components/today/today-primary-action.tsx");
-    expect(src).toMatch(/<Link[\s\S]*?prefetch=\{false\}/);
-  });
+  // "today primary action uses prefetch={false}..." pin removed 2026-07-02
+  // (UX5 legacy sweep): today-primary-action.tsx had zero importers
+  // anywhere and was deleted outright.
 
   it("today action card uses prefetch={false} on its /changes/[id] Link", () => {
     const src = read("src/components/today/action-card.tsx");

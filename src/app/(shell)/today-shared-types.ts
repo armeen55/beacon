@@ -31,7 +31,6 @@ import type {
 import type { PromptsTeaserSummary } from "@/components/today/prompts-teaser";
 import type { TopPickSummary } from "@/components/today/top-pick-card";
 import type { MorningBriefData } from "@/domains/product/morning-brief";
-import type { CommandCenterData } from "@/domains/today/command-center-data";
 import type {
   VisibilityMetric,
   VisibilityPoint,
@@ -246,7 +245,5 @@ export type TodayClientProps = {
   firstReading?: import(
     "@/domains/onboarding/first-reading-state"
   ).FirstReadingDetection;
-  commandCenter?: CommandCenterData;
-  commandCenterIsOperator?: boolean;
   dataSourcesStrip?: import("react").ReactNode;
 };

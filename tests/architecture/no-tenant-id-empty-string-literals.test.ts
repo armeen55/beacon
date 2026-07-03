@@ -157,7 +157,8 @@ describe("Architecture — no tenant_id empty-string literals in production sour
       "src/domains/results/actions.ts",
       "src/domains/opportunity-candidates/actions.ts",
       "src/app/(shell)/recommendations/actions.ts",
-      "src/app/(shell)/pages/verify-action.ts",
+      // (src/app/(shell)/pages/verify-action.ts deleted 2026-07-02, UX5
+      // legacy sweep — the unreachable /pages route it served is gone.)
       // D2 — D-b factory parameter-required
       "src/lib/import/engine.ts",
       "src/domains/pages/extractor.ts",

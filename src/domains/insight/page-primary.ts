@@ -1,39 +1,13 @@
 /**
- * Insight layer — single page-primary adapter (operator-OS rebuild, Phase 1).
+ * Insight layer — page-primary action labels (operator-OS rebuild, Phase 1).
  *
- * The ONE resolver every surface (Today, Opportunity Map, Recommendations,
- * State of the Union) uses to decide a page's primary action + CTA, so they
- * stop contradicting each other. Precedence:
- *   1. Page Surgeon Change Pack exists  → its primary action ("Review Change Pack")
- *   2. else an opportunity diagnosis     → the diagnosis move ("Run Deep Audit")
- *   3. else legacy rec (Basic/quarantine only) → the legacy headline
- *
- * PURE. Callers pass what they already loaded (summary / opportunity / legacy).
+ * `resolvePagePrimary` (the Opportunity Map / State of the Union / Workbench
+ * CTA resolver) and its `REVIEW_HREF` fallback were deleted 2026-07-02 (UX5
+ * legacy sweep) alongside the whole `/workbench` route and the dead
+ * State of the Union chain — none of those surfaces ever shipped a live
+ * caller. `actionLabel`/`PRIMARY_ACTION_LABEL` remain: `today-v2-data.ts`
+ * still uses `actionLabel` to render Page Surgeon action headlines.
  */
-
-import type { PageSurgeonSummary } from "@/domains/recommendation-intelligence/page-surgeon/change-pack";
-import type { OpportunityItem } from "./opportunity";
-import { workbenchHref } from "./workbench-route";
-
-export type PagePrimarySource = "change_pack" | "diagnosis" | "legacy" | "none";
-
-export type PagePrimary = {
-  source: PagePrimarySource;
-  /** Operator-facing primary action headline. */
-  headline: string;
-  /** CTA label + href. NEVER "Open in Workbench" until /workbench exists. */
-  cta: { label: string; href: string };
-  hasPack: boolean;
-};
-
-/**
- * Fallback review surface when a page PATH isn't available to build a per-page
- * Workbench link. The Workbench (`/workbench/[page]`) now SHIPS (Phase 2) and is
- * the canonical deep-review destination — every live CTA (Opportunity Map, State
- * of the Union, PS-ready recs) routes there via `workbenchHref(path)`. This
- * constant is only the path-less degraded fallback for the generic rec list.
- */
-export const REVIEW_HREF = "/recommendations";
 
 /** Page Surgeon `recommended_atomic_action` → imperative operator headline.
  *  Keys mirror `AtomicChangeType` (+ the three non-change verdicts). */
@@ -60,77 +34,4 @@ export const PRIMARY_ACTION_LABEL: Record<string, string> = {
 export function actionLabel(action: string | null | undefined): string {
   if (!action) return "Review the page";
   return PRIMARY_ACTION_LABEL[action] ?? "Review the page";
-}
-
-/**
- * Resolve the single primary action + CTA for a page. Pure.
- * `summary` = Page Surgeon pack summary (or null); `opportunity` = the broad-scan
- * diagnosis (or null); `legacy` = a last-resort legacy headline for Basic/quarantine;
- * `path` = the page path — when present, pack/diagnosis CTAs deep-link into the
- * per-page Workbench (`workbenchHref`), matching every other live surface. Without
- * a path the CTA degrades to the generic rec list (`REVIEW_HREF`).
- */
-export function resolvePagePrimary(args: {
-  summary?: PageSurgeonSummary | null;
-  opportunity?: Pick<OpportunityItem, "expectedLever" | "why"> | null;
-  legacy?: { headline: string } | null;
-  path?: string | null;
-}): PagePrimary {
-  const { summary, opportunity, legacy, path } = args;
-  // Deep-review destination: the per-page Workbench when we know the path, else
-  // the generic rec list. Keeps every surface pointing at the same place.
-  const reviewHref = path ? workbenchHref(path) : REVIEW_HREF;
-
-  if (summary?.hasPack) {
-    return {
-      source: "change_pack",
-      headline: actionLabel(summary.headlineAction),
-      cta: { label: "Review Change Pack", href: reviewHref },
-      hasPack: true,
-    };
-  }
-  if (opportunity) {
-    return {
-      source: "diagnosis",
-      headline: opportunity.expectedLever || opportunity.why || "Review the page",
-      cta: { label: "Run Deep Audit", href: reviewHref },
-      hasPack: false,
-    };
-  }
-  if (legacy) {
-    return {
-      source: "legacy",
-      headline: legacy.headline,
-      cta: { label: "Open", href: reviewHref },
-      hasPack: false,
-    };
-  }
-  return {
-    source: "none",
-    headline: "Run a deep audit to draft a Change Pack",
-    cta: { label: "Run Deep Audit", href: reviewHref },
-    hasPack: false,
-  };
-}
-
-/** Confidence in the clicks-at-stake ESTIMATE (data-volume driven, not SERP). */
-export function estimateConfidence(impressions: number): "high" | "medium" | "low" {
-  if (impressions >= 3000) return "high";
-  if (impressions >= 800) return "medium";
-  return "low";
-}
-
-/**
- * Canonical clicks-at-stake label. Always carries window + confidence + SERP
- * status so a number never reads as a promise. Returns null when there's
- * nothing meaningful to show (caller hides the estimate).
- */
-export function estClicksLabel(args: {
-  estClicksAtStake: number;
-  window: "28d" | "90d";
-  confidence: "high" | "medium" | "low";
-  serpStatusChip: string;
-}): string | null {
-  if (!args.estClicksAtStake || args.estClicksAtStake <= 0) return null;
-  return `~${args.estClicksAtStake.toLocaleString()} est. clicks at stake over ${args.window} · ${args.confidence} confidence · ${args.serpStatusChip}`;
 }

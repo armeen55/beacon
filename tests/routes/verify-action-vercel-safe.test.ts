@@ -4,35 +4,29 @@ import { resolve } from "node:path";
 import type { GuardrailAlert } from "@/domains/pages/guardrails";
 
 // ---------------------------------------------------------------------------
-// Sprint 4 / Phase 4.5 regression tests — verify-action.ts hosted safety.
+// Sprint 4 / Phase 4.5 regression tests — hosted-safety invariants.
 //
 // Before this fix, clicking Verify on /pages threw ENOENT on Vercel because
-// verify-action.ts + appendObservationRunSync both called writeFileSync
-// against `/vercel/path0/.data/*.json.tmp` (read-only FS). Operator saw an
-// error banner AND Supabase never received the observation_runs row
-// (dual-write was AFTER the FS write in persist-run.ts, so the throw aborted
-// the whole flow).
+// the (now-deleted, UX5 2026-07-02) verify-action.ts + appendObservationRunSync
+// both called writeFileSync against `/vercel/path0/.data/*.json.tmp` (read-only
+// FS). Operator saw an error banner AND Supabase never received the
+// observation_runs row (dual-write was AFTER the FS write in persist-run.ts,
+// so the throw aborted the whole flow).
 //
 // Phase 4.5 fix:
 //   (a) `appendObservationRunSync` gates its FS write on `VERCEL !== "1"`;
 //       Supabase dual-write runs in both environments.
-//   (b) `verify-action.ts` gates its two `writeFileSync` call sites
-//       identically, and always calls `syncPageSnapshots([newSnapshot])` +
-//       `syncGuardrailAlertsForUrl(url, newAlerts)`.
-//   (c) New `syncGuardrailAlertsForUrl` helper does a URL-scoped
-//       delete-replace — it does NOT wipe every URL's alerts (unlike the
-//       existing global `syncGuardrailAlerts` used by orchestrate-scan).
-//
-// Structural invariants asserted below. Full end-to-end rendering of
-// verifyPageFix requires mocking HTML fetch + extractor; covered by
-// targeted unit tests on the helpers instead.
+//   (b) the deleted `verify-action.ts` gated its two `writeFileSync` call
+//       sites identically, and always called `syncPageSnapshots([newSnapshot])`
+//       + `syncGuardrailAlertsForUrl(url, newAlerts)`. Its own structural
+//       source-invariant tests were removed alongside the file (UX5 legacy
+//       sweep — the /pages route had zero inbound links from anywhere live).
+//   (c) `syncGuardrailAlertsForUrl` helper does a URL-scoped delete-replace —
+//       it does NOT wipe every URL's alerts (unlike the existing global
+//       `syncGuardrailAlerts` used by orchestrate-scan). Both helpers remain
+//       live (orchestrate-scan still uses the global one) and are still
+//       exercised behaviorally below.
 // ---------------------------------------------------------------------------
-
-const VERIFY_ACTION_PATH = resolve(
-  __dirname,
-  "../../src/app/(shell)/pages/verify-action.ts",
-);
-const VERIFY_ACTION_SOURCE = readFileSync(VERIFY_ACTION_PATH, "utf8");
 
 const PERSIST_RUN_PATH = resolve(
   __dirname,
@@ -40,52 +34,8 @@ const PERSIST_RUN_PATH = resolve(
 );
 const PERSIST_RUN_SOURCE = readFileSync(PERSIST_RUN_PATH, "utf8");
 
-describe("Sprint 4 / Phase 4.5 — verify-action hosted safety", () => {
+describe("Sprint 4 / Phase 4.5 — hosted safety", () => {
   describe("structural invariants (source)", () => {
-    it("verify-action.ts gates both writeFileSync/renameSync blocks on !IS_VERCEL", () => {
-      // Both FS write blocks must be wrapped in `if (!IS_VERCEL)` so they
-      // don't crash on hosted. The specific guard expression check is
-      // brittle-but-intentional: future regression would require new
-      // review.
-      const fsWriteBlocks = VERIFY_ACTION_SOURCE.match(
-        /if\s*\(!IS_VERCEL[\s\S]*?writeFileSync/g,
-      );
-      expect(fsWriteBlocks).not.toBeNull();
-      expect(fsWriteBlocks!.length).toBeGreaterThanOrEqual(2);
-    });
-
-    it("verify-action.ts ALWAYS calls syncPageSnapshots([newSnapshot], tenantId)", () => {
-      // Phase 7.7b Commit 3 (2026-04-25): syncPageSnapshots now requires tenantId.
-      expect(VERIFY_ACTION_SOURCE).toMatch(
-        /syncPageSnapshots\(\s*\[\s*newSnapshot\s*\]\s*,\s*tenantId\s*\)/,
-      );
-    });
-
-    it("verify-action.ts ALWAYS calls syncGuardrailAlertsForUrl(url, newAlerts, tenantId)", () => {
-      // Phase 7.7b Commit 3 (2026-04-25): syncGuardrailAlertsForUrl now requires tenantId.
-      expect(VERIFY_ACTION_SOURCE).toMatch(
-        /syncGuardrailAlertsForUrl\(\s*url\s*,\s*newAlerts\s*,\s*tenantId\s*\)/,
-      );
-    });
-
-    it("verify-action.ts does NOT call the GLOBAL syncGuardrailAlerts helper (would wipe other URLs)", () => {
-      // The destructive global helper must never be INVOKED from verify.
-      // Matches call sites `syncGuardrailAlerts(` (and nothing else —
-      // `syncGuardrailAlertsForUrl(` has `F` between the name and the
-      // open-paren so this pattern correctly skips it).
-      expect(VERIFY_ACTION_SOURCE).not.toMatch(/syncGuardrailAlerts\(/);
-    });
-
-    it("verify-action.ts reads prev state from the repository when IS_VERCEL", () => {
-      // Sprint 7 Phase 7.5b Commit 5 (2026-04-25) — tenant-bound reads.
-      expect(VERIFY_ACTION_SOURCE).toMatch(
-        /getRepository\([\s\S]*?\)[\s\S]*?\.forTenant\([^)]+\)[\s\S]*?\.getGuardrailAlerts\(/,
-      );
-      expect(VERIFY_ACTION_SOURCE).toMatch(
-        /getRepository\([\s\S]*?\)[\s\S]*?\.forTenant\([^)]+\)[\s\S]*?\.getPageSnapshots\(/,
-      );
-    });
-
     it("persist-run.ts gates its FS write on !isVercel AND keeps dual-write unconditional", () => {
       // The whole FS block (readFileSync + writeFileSync + renameSync) must
       // be inside `if (!isVercel)`. The dual-write block must NOT be inside

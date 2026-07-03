@@ -13,9 +13,11 @@ import { join, resolve } from "node:path";
 //       - upserts to "page_element_inventory" with onConflict
 //         "source_snapshot_id,element_key" when on
 //
-//  2. Source-scan wiring invariants — verify-action.ts, scan-owned-pages.ts,
-//     and orchestrate-scan.ts call the right helpers in the right order, so
-//     the inventory pipeline can't silently regress.
+//  2. Source-scan wiring invariants — scan-owned-pages.ts and
+//     orchestrate-scan.ts call the right helpers in the right order, so
+//     the inventory pipeline can't silently regress. (verify-action.ts's
+//     wiring pin was removed 2026-07-02, UX5 sweep, when the unreachable
+//     /pages route it lived in was deleted.)
 //
 //  3. No-route-render-extraction invariant — extractAllElements (the
 //     dispatcher) MUST NOT be imported from any route render path. The
@@ -23,12 +25,6 @@ import { join, resolve } from "node:path";
 //     server component would re-introduce the cross-lambda staleness +
 //     compute-on-render anti-pattern Sprints 1 + 4 fixed.
 // ---------------------------------------------------------------------------
-
-const VERIFY_ACTION_PATH = resolve(
-  __dirname,
-  "../src/app/(shell)/pages/verify-action.ts",
-);
-const VERIFY_ACTION_SOURCE = readFileSync(VERIFY_ACTION_PATH, "utf8");
 
 const SCAN_CLI_PATH = resolve(__dirname, "../scripts/scan-owned-pages.ts");
 const SCAN_CLI_SOURCE = readFileSync(SCAN_CLI_PATH, "utf8");
@@ -164,39 +160,12 @@ describe("Phase 6A.1.6 — syncPageElementInventory helper", () => {
   });
 });
 
-// ── 2. Wiring invariants — verify-action.ts ────────────────────────────────
-
-describe("Phase 6A.1.6 — verify-action.ts wiring", () => {
-  it("imports persistPageElements", () => {
-    expect(VERIFY_ACTION_SOURCE).toMatch(
-      /from ["']@\/domains\/pages\/extractors\/persist["']/,
-    );
-    expect(VERIFY_ACTION_SOURCE).toMatch(/persistPageElements/);
-  });
-
-  it("imports getBusinessConfig + currentTenantId for dictionary + tenant threading", () => {
-    expect(VERIFY_ACTION_SOURCE).toMatch(/getBusinessConfig/);
-    expect(VERIFY_ACTION_SOURCE).toMatch(/currentTenantId/);
-  });
-
-  it("calls persistPageElements AFTER syncPageSnapshots so snapshot is durable first", () => {
-    // Phase 7.7b Commit 3 (2026-04-25): syncPageSnapshots gained a tenantId 2nd arg.
-    const syncIdx = VERIFY_ACTION_SOURCE.indexOf(
-      "syncPageSnapshots([newSnapshot], tenantId)",
-    );
-    const persistIdx = VERIFY_ACTION_SOURCE.indexOf("persistPageElements({");
-    expect(syncIdx).toBeGreaterThan(0);
-    expect(persistIdx).toBeGreaterThan(0);
-    expect(persistIdx).toBeGreaterThan(syncIdx);
-  });
-
-  it("wraps persistPageElements in try/catch so extractor failure cannot regress verify success", () => {
-    // Match the literal pattern: try { ... persistPageElements ... } catch
-    expect(VERIFY_ACTION_SOURCE).toMatch(
-      /try\s*\{[\s\S]*?persistPageElements\([\s\S]*?\}\s*catch/,
-    );
-  });
-});
+// verify-action.ts (the /pages route's manual re-verify action) was deleted
+// 2026-07-02 (UX5 legacy sweep) along with the rest of the unreachable /pages
+// route — the "verify-action.ts wiring" describe block that lived here is
+// gone with it. `persistPageElements` (src/domains/pages/extractors/persist.ts)
+// has no remaining production caller today; kept as-is (small, side-effect-only,
+// still directly unit-tested) rather than deleted in this pass.
 
 // ── 2. Wiring invariants — scan-owned-pages.ts ─────────────────────────────
 

@@ -19,24 +19,6 @@ export function isEventTruthPreviewEnabled(): boolean {
 }
 
 /**
- * Phase 1 — when enabled, the scan orchestrator will AUTO-create a
- * structured ChangelogEntry for every schema-only snapshot diff it sees
- * (no operator click required).
- *
- * OFF by default. Manual-confirm path through `confirmFindingAsChange()`
- * remains the only route to create structured schema-experiment entries
- * until this flag is flipped. This guards against stray template/CMS
- * edits polluting the pattern brain with unintended samples during the
- * first week of dogfeed.
- *
- * Wire-up in the scan orchestrator is deferred — this helper exists so
- * the policy decision is a one-line env toggle when we're ready.
- */
-export function isSchemaAutoPromoteEnabled(): boolean {
-  return process.env.BEACON_AUTO_PROMOTE_SCHEMA === "1";
-}
-
-/**
  * Controls whether the scanner auto-links pending findings to recent
  * changelog entries (see `generateFindings()` auto-reconcile loop).
  *

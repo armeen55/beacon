@@ -29,18 +29,15 @@
  *   7. **Wired contract B**: `load-lifecycle.ts` passes a
  *      `threshold_decision` field into every `renderLifecycleCopy`
  *      call site within this module.
- *   8. **Tile boundary**: `src/components/today/edit-lifecycle-tile.tsx`
- *      does NOT import `T2C_THRESHOLDS` from
- *      `@/domains/citation-lifecycle/thresholds` and does NOT import
- *      `BORROWED_BENCHMARK_TOOLTIP` from
- *      `@/domains/citation-lifecycle/render-copy`. The tile reads
- *      these via props (`stageLabels` / `tooltipBody` /
- *      `emptyStateBody`) only.
+ *
+ * Pin 8 (Tile boundary: `edit-lifecycle-tile.tsx` reads thresholds via
+ * props only) was removed 2026-07-02 (UX5 legacy sweep) — the tile was
+ * orphaned since the 2026-06-28 deletion of its only host,
+ * today-v2-sections.tsx, and was deleted outright.
  *
  * Retirement: this invariant retires when Phase A.3 (indexability)
- * replaces the lifecycle-stage threshold scaffold OR when a future
- * phase replaces the tile component with a unified read model. Until
- * then, drift on any pin trips the build.
+ * replaces the lifecycle-stage threshold scaffold. Until then, drift
+ * on any pin trips the build.
  *
  * Implementation note: pins operate on comment-stripped source so a
  * docstring mention of the forbidden import does not trip the test.
@@ -60,16 +57,8 @@ const LOADER_PATH = resolve(
   "citation-lifecycle",
   "load-lifecycle.ts",
 );
-const TILE_PATH = resolve(
-  REPO_ROOT,
-  "src",
-  "components",
-  "today",
-  "edit-lifecycle-tile.tsx",
-);
 
 const LOADER_SRC = readFileSync(LOADER_PATH, "utf-8");
-const TILE_SRC = readFileSync(TILE_PATH, "utf-8");
 
 // Strip block + line comments before scanning executable shapes.
 function stripComments(src: string): string {
@@ -79,7 +68,6 @@ function stripComments(src: string): string {
 }
 
 const LOADER_STRIPPED = stripComments(LOADER_SRC);
-const TILE_STRIPPED = stripComments(TILE_SRC);
 
 describe("Architecture — threshold-decision loader wiring (Phase A.2 §3.7)", () => {
   // ─────────────────────────────────────────────────────────────────
@@ -247,25 +235,10 @@ describe("Architecture — threshold-decision loader wiring (Phase A.2 §3.7)", 
     }
   });
 
-  // ─────────────────────────────────────────────────────────────────
-  // Pin 8: tile component does NOT import T2C_THRESHOLDS or
-  // BORROWED_BENCHMARK_TOOLTIP — strings flow in via props only.
-  // ─────────────────────────────────────────────────────────────────
-
-  it("edit-lifecycle-tile.tsx does NOT import T2C_THRESHOLDS from citation-lifecycle/thresholds", () => {
-    // Match any import statement that pulls T2C_THRESHOLDS from the
-    // thresholds module. Comment-stripped so a doc reference to the
-    // historical Phase A.1 import does not trip the test.
-    expect(TILE_STRIPPED).not.toMatch(/\bT2C_THRESHOLDS\b/);
-    expect(TILE_STRIPPED).not.toMatch(
-      /from\s+["']@\/domains\/citation-lifecycle\/thresholds["']/,
-    );
-  });
-
-  it("edit-lifecycle-tile.tsx does NOT import BORROWED_BENCHMARK_TOOLTIP from citation-lifecycle/render-copy", () => {
-    expect(TILE_STRIPPED).not.toMatch(/\bBORROWED_BENCHMARK_TOOLTIP\b/);
-    // The tile may still import a TYPE (e.g., LifecycleStage) from
-    // citation-lifecycle but MUST NOT name the constant. Type-only
-    // imports are allowed.
-  });
+  // Pin 8 (tile component boundary: edit-lifecycle-tile.tsx does NOT
+  // import T2C_THRESHOLDS / BORROWED_BENCHMARK_TOOLTIP directly) was
+  // removed 2026-07-02 (UX5 legacy sweep): the tile was orphaned since
+  // the 2026-06-28 deletion of today-v2-sections.tsx, its only host,
+  // and was deleted outright. Pins 1-7 above (load-lifecycle.ts's own
+  // wiring) remain live and unaffected.
 });

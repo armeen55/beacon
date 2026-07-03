@@ -2,8 +2,9 @@
  * 2026-06-09 — Competitor-intel loader tests. All stores mocked. Pins:
  * end-to-end move assembly (history + observations → tiered move),
  * What-If evidence attachment (only when it can speak), the gated
- * peer-forecast seam (null today), why-them report assembly, and
- * soft-fail-to-[] on any store throw.
+ * peer-forecast seam (null today), and soft-fail-to-[] on any store throw.
+ * (load-why-them.ts / loadWhyThemReports deleted 2026-07-02, UX5 legacy
+ * sweep — zero production importers remained.)
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
@@ -45,37 +46,7 @@ vi.mock("@/domains/product/outcome-store", () => ({
   getOutcomeRecords: async () => _outcomes,
 }));
 
-let _evidenceIndex: unknown = null;
-vi.mock("@/domains/pages/citation-evidence-store", () => ({
-  getCitationEvidenceIndex: async () => _evidenceIndex,
-}));
-
-const _competitorSnapshots = new Map<string, unknown>();
-vi.mock("@/domains/pages/competitor-page-snapshots", () => ({
-  getCompetitorPageSnapshotsByUrl: async () => _competitorSnapshots,
-}));
-
-let _ourSnapshots: unknown[] = [];
-vi.mock("@/domains/pages/snapshot-store", () => ({
-  getPageSnapshots: async () => _ourSnapshots,
-}));
-// loadWhyThemReports now reads OUR page snapshots from the tenant REPOSITORY
-// (commit 468c0d7 / ingest-audit #6 — the disk snapshot-store is empty on
-// Vercel/Supabase). Route that path to the same fixture so the test exercises
-// the prod read shape; otherwise equivalentPageUrl resolves to null.
-vi.mock("@/lib/persistence/repositories", () => ({
-  getRepository: () => ({
-    forTenant: () => ({ getPageSnapshots: async () => _ourSnapshots }),
-  }),
-}));
-
-let _prompts: Array<{ id: string; prompt_text: string }> = [];
-vi.mock("@/domains/prompts/prompt-library", () => ({
-  getPromptLibrary: async () => _prompts,
-}));
-
 import { loadCompetitorMoves } from "@/domains/competitor-intel/load-moves";
-import { loadWhyThemReports } from "@/domains/competitor-intel/load-why-them";
 
 const NOW = new Date("2026-06-20T12:00:00Z");
 
@@ -134,10 +105,6 @@ beforeEach(() => {
   _sitemapHistory = [];
   _structuralChanges = [];
   _outcomes = [];
-  _evidenceIndex = null;
-  _competitorSnapshots.clear();
-  _ourSnapshots = [];
-  _prompts = [];
 });
 
 describe("loadCompetitorMoves", () => {
@@ -181,115 +148,5 @@ describe("loadCompetitorMoves", () => {
     _sitemapHistory = [sitemapAdd()];
     _observationsThrow = true;
     expect(await loadCompetitorMoves({ now: NOW })).toEqual([]);
-  });
-});
-
-function evidenceIndexFixture() {
-  return {
-    built_at: "2026-06-09T00:00:00Z",
-    total_citations_processed: 10,
-    by_page_and_topic: [
-      {
-        page_id: "pg1",
-        page_url: "https://supplehomesinc.com/adu-cost-guide",
-        domain: "supplehomesinc.com",
-        topic: "adu",
-        is_owned: false,
-        total_citations: 5,
-        distinct_answers: 4,
-        distinct_prompts: 3,
-        by_platform: {},
-        first_observed_at: "2026-05-01T00:00:00Z",
-        last_observed_at: "2026-06-08T00:00:00Z",
-      },
-      {
-        page_id: "pg2",
-        page_url: "https://ritzbuilders.com/adu",
-        domain: "ritzbuilders.com",
-        topic: "adu",
-        is_owned: true,
-        total_citations: 9,
-        distinct_answers: 9,
-        distinct_prompts: 9,
-        by_platform: {},
-        first_observed_at: "2026-05-01T00:00:00Z",
-        last_observed_at: "2026-06-08T00:00:00Z",
-      },
-    ],
-    by_topic: [],
-    page_to_topics: {},
-  };
-}
-
-describe("loadWhyThemReports", () => {
-  it("assembles a report for the top-cited rival (gaps + prompts + descriptors)", async () => {
-    _evidenceIndex = evidenceIndexFixture();
-    _competitorSnapshots.set("https://supplehomesinc.com/adu-cost-guide", {
-      id: "comp-snap-t-x",
-      tenant_id: "t",
-      url: "https://supplehomesinc.com/adu-cost-guide",
-      canonical_url: null,
-      fetched_at: "2026-06-08T00:00:00Z",
-      http_status: 200,
-      title: "ADU Cost Guide",
-      meta_description: "Real costs.",
-      h1: "ADU Cost Guide",
-      h2_list: ["ADU Cost Breakdown"],
-      faq_questions: ["How much does an ADU cost?"],
-      extraction_certainty: "confirmed",
-    });
-    _ourSnapshots = [
-      {
-        id: "s1",
-        page_id: "pg",
-        url: "https://ritzbuilders.com/adu-construction",
-        canonical_url: null,
-        fetched_at: "2026-06-01T00:00:00Z",
-        http_status: 200,
-        title: "ADU Construction",
-        meta_description: "We build ADUs.",
-        h1: "ADU Builders",
-        h2_list: ["Our ADU Process"],
-        h3_count: 0,
-        faqs: [],
-        schema_types: [],
-        location_terms: [],
-        service_terms: ["adu"],
-        internal_link_count: 0,
-        external_link_count: 0,
-        word_count: 500,
-        robots_meta: null,
-        has_canonical_mismatch: false,
-        content_hash: "h",
-        headings_hash: "h",
-        faq_hash: "h",
-        schema_hash: "h",
-      },
-    ];
-    _observations = [
-      citedObs({ citation_rank: null, competitor_descriptor_windows: { "Supple Homes": ["luxury"] } }),
-    ];
-    _prompts = [{ id: "p1", prompt_text: "Who builds the best ADUs in Palo Alto?" }];
-
-    const reports = await loadWhyThemReports();
-    expect(reports).toHaveLength(1);
-    const r = reports[0]!;
-    expect(r.displayName).toBe("Supple Homes");
-    expect(r.theirUrl).toBe("https://supplehomesinc.com/adu-cost-guide");
-    expect(r.equivalentPageUrl).toBe("https://ritzbuilders.com/adu-construction");
-    expect(r.gaps.map((g) => g.dimension)).toContain("faq");
-    expect(r.prompts[0]!.promptText).toBe("Who builds the best ADUs in Palo Alto?");
-    expect(r.prompts[0]!.ourRank).toBeNull(); // the loss, surfaced
-    expect(r.descriptors.theirs).toContain("luxury");
-  });
-
-  it("returns [] when index missing, and suppresses below the citation floor", async () => {
-    expect(await loadWhyThemReports()).toEqual([]);
-    const thin = evidenceIndexFixture();
-    (thin.by_page_and_topic[0] as { total_citations: number }).total_citations = 1;
-    _evidenceIndex = thin;
-    _observations = [citedObs()];
-    _prompts = [{ id: "p1", prompt_text: "Q?" }];
-    expect(await loadWhyThemReports()).toEqual([]);
   });
 });

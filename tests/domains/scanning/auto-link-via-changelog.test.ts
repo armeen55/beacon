@@ -35,7 +35,6 @@ import type { ChangelogEntry } from "@/domains/changelog/types";
 // Stub the flag ON so the gate allows the auto-link pass to execute.
 vi.mock("@/lib/flags", () => ({
   isFindingAutoLinkEnabled: () => true,
-  isSchemaAutoPromoteEnabled: () => false,
   isEventTruthPreviewEnabled: () => false,
 }));
 

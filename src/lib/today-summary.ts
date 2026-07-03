@@ -1,8 +1,14 @@
 import type { ObservationRun } from "@/domains/observations/types";
 import type { VisibilityObservationRun } from "@/domains/observations/visibility-types";
-import { listWebsiteCrawlRuns } from "@/domains/observations/read";
-import { citationRollupVisibilityRun } from "@/domains/observations/visibility-read";
-import { visibilitySampleStaleVsCrawl } from "@/domains/observations/staleness";
+
+/**
+ * `buildTodaySummary` (the function that used to populate these types) was
+ * deleted 2026-07-02 (UX5 legacy sweep) — it had zero callers anywhere and
+ * its only reachable output, a "No urgent queue item" fallback, linked to
+ * the (also now-deleted) `/pages` stub. The types below remain: they are
+ * still the shape `today-shared-types.ts`'s `TodayClientProps.summary`
+ * field is declared against.
+ */
 
 export type TodayVerifiedFix = {
   issueId: string;
@@ -53,72 +59,3 @@ export type TodaySummary = {
   verifiedFixes: TodayVerifiedFix[];
   nextMove: TodayNextMove;
 };
-
-/**
- * Build Today with explicit crawl vs visibility observation scopes.
- */
-export async function buildTodaySummary(opts: {
-  verifiedFixes: TodayVerifiedFix[];
-  nextMoveCandidates: (TodayNextMove | null)[];
-  competitorLine?: string | null;
-  /** Row-majority visibility run from Sample history (same identity as Data / `/settings/history` header). */
-  primaryVisibilityRun: VisibilityObservationRun | null;
-}): Promise<TodaySummary> {
-  const crawls = await listWebsiteCrawlRuns();
-  const lastCrawl = crawls[0] ?? null;
-  const priorCrawl = crawls[1] ?? null;
-
-  const deltaVsPrior =
-    lastCrawl && priorCrawl
-      ? {
-          pagesChanged: lastCrawl.pages_changed - priorCrawl.pages_changed,
-          pagesWithErrors:
-            lastCrawl.pages_with_errors - priorCrawl.pages_with_errors,
-          guardrailAlerts:
-            lastCrawl.guardrail_alerts - priorCrawl.guardrail_alerts,
-        }
-      : null;
-
-  const nextMove: TodayNextMove =
-    opts.nextMoveCandidates.find((m) => m != null) ?? {
-      title: "No urgent queue item",
-      href: "/pages",
-      evidence:
-        "Nothing in the fix/verify/review queues matched opening criteria — continue in Pages or Opportunities.",
-      observationRunId: lastCrawl?.run_id ?? null,
-      evidenceScope: "crawl",
-    };
-
-  const vis = opts.primaryVisibilityRun;
-  const rollup = await citationRollupVisibilityRun();
-  const { stale, note } = visibilitySampleStaleVsCrawl(
-    rollup,
-    lastCrawl?.completed_at ?? null
-  );
-
-  return {
-    crawl: {
-      activeObservationRun: lastCrawl,
-      activeObservationHref: lastCrawl
-        ? `/observations/${encodeURIComponent(lastCrawl.run_id)}`
-        : null,
-      hasObservationFile: crawls.length > 0,
-      priorCompletedAt: priorCrawl?.completed_at ?? null,
-      deltaVsPrior,
-    },
-    visibility: {
-      activeObservationRun: vis,
-      activeObservationHref: vis
-        ? `/observations/${encodeURIComponent(vis.run_id)}`
-        : null,
-      hasObservationFile: vis != null,
-      staleVsCrawl: stale,
-      staleNote: note,
-    },
-    reviewHeuristicLine:
-      "Attribution matches visibility shifts to your changes by timing and topic overlap. It shows correlation, not proven cause.",
-    competitorLine: opts.competitorLine ?? null,
-    verifiedFixes: opts.verifiedFixes.slice(0, 5),
-    nextMove,
-  };
-}

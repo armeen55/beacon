@@ -47,7 +47,7 @@ slugs, internal keys, jargon, or unexplained zeros. Judge performance on prod, n
 ## TOP 50 (operator verdict, his order; source mapping + status annotated)
 
 - [x] N1 (2026-07-02). **Unified opportunity allocator**: one ranked decision across optimize, create, link, prune, fix, promote by expected value, confidence, risk, effort - SHIPPED as DREAM SITE V1 item D4 (worktree, not yet merged). See the D4 entry below for the full build note. (absorbs v1 400 value-per-minute)
-- [ ] N2. **Query-to-page ownership registry**: enforced; future cannibalization mistakes become impossible. (NEW; absorbs v1 143 draft grounding, 242 mixed-intent split, 270/271 wrong-landing-page + canonical gates)
+- [x] N2. **Query-to-page ownership registry**: enforced; future cannibalization mistakes become impossible. (NEW; absorbs v1 143 draft grounding, 242 mixed-intent split, 270/271 wrong-landing-page + canonical gates) - SHIPPED 2026-07-03 (worktree, not yet merged): `src/domains/ownership/registry.ts` (pure) + `registry-loader.ts` reduce gsc-cannibalization.ts (gsc_ranks) and intent-clusters.ts (serp_cluster) into one `resolveOwner()`; enforced additively at 3 choke points (create_page ownership gate superset in load-graph.ts, prepare-create-page-verdicts.ts spend skip, serp-steal-lane.ts disagreement flag), conflict surface folded into the existing intent_cluster_conflict trigger (no duplicate cards), one ask/fact-assembly.ts cite line. 66 new tests. Real Iranopedia data: 104/1122 queries resolved (9%), 36 named contender conflicts, a live reclassification confirmed absent from /worklist's New Pages board. Honest gap found live and spun off as a follow-up: a 4th create-candidate source (allocator/unified-list.ts's keyword-library lane) still needs wiring. See docs/VERIFICATION_LOG.md's 2026-07-03 N2 entry.
 - [ ] N3. **Claim-level provenance graph**: every factual claim linked to source, date, reliability, affected pages. (NEW; absorbs v1 89/90 clickable sources + source-age, 275 facts_to_verify, 310 multi-source claims)
 - [ ] N4. **GA4 + Clarity behavior-verdict lane**: engagement, scroll, frustration, conversion, traffic measured together on every ship. (NEW; absorbs v1 503 GA4 floors, 385 protect-revenue objection)
 - [ ] N5. **Information-gain gate**: every new page or section must contribute something competitors do not. (NEW; precondition for any factory)
@@ -391,8 +391,46 @@ a malformed recommendation prettier.
   curl against the real dev server confirmed every quoted string live on Iranopedia; one broken
   pin (`ops-pipeline-section.test.ts`'s literal `<PageHeader ... />` source match) was fixed for
   the new non-self-closing tag. 734 targeted tests pass, 1 pre-existing skip, typecheck clean.
-- [ ] UX5. **Legacy deletion sweep:** anything dead, orphaned, or superseded is deleted outright,
-  not hidden (operator hard rule; extends P18).
+- [x] UX5. **Legacy deletion sweep:** anything dead, orphaned, or superseded is deleted outright,
+  not hidden (operator hard rule; extends P18). DONE 2026-07-02 (worktree, not committed): deleted
+  the `/pages`, `/topics` (index), and `/workbench` routes outright (zero inbound links from
+  anywhere reachable, confirmed by two independent audits) plus every route-exclusive component,
+  action, loader, and test; kept `/topics/opportunity/[id]` (live via Settings -> Imported history)
+  and the whole `src/domains/pages/` + `src/domains/recommendations/` domain layers (both massively
+  shared, never route-exclusive). Found and deleted a second, larger wave of orphans the route audit
+  surfaced: 4 whole Today components dead since the 2026-06-16 legacy-TodayClient deletion
+  (`change-review.tsx`, `today-findings.tsx`, `today-do-next-card.tsx`, `today-visibility-snapshot.tsx`)
+  and 12 more dead since the 2026-06-28 `today-v2-sections.tsx` deletion (`command-center.tsx` +
+  its resolver `command-center-data.ts`'s dead half, `off-site-authority-tile.tsx`,
+  `edit-lifecycle-tile.tsx`, `enrichment-v2.tsx` + `enrichment-badges.tsx` + `competitor-select.tsx`
+  + `sparkline.tsx`, `implementation-queue.tsx`, `lifecycle-strip.tsx`, `morning-brief.tsx`,
+  `poll-health-calm-banner.tsx`, `collapsible-section.tsx`, `stat-sparkline.tsx`,
+  `today-metrics-disclosure.tsx`, `today-primary-action.tsx`, `top-pick-builder.ts`,
+  `site-findings-labels.ts`) — each host deletion had left its dependents and their architecture
+  contract tests stale for days to weeks; trimmed 9 architecture tests to their still-live pins and
+  deleted 9 fully-dead ones outright, syncing `docs/ARCHITECTURE_INVARIANTS_CATALOG.md` per its own
+  option-(a) precedent (row deleted, not marked retired, when the file is deleted outright). Also
+  deleted: `recommendations-v2-working-rail.tsx` (dead `/recommendations?v2=1` layout that never
+  shipped a caller), the fully-dead `domains/insight` State-of-the-Union chain (4 files) alongside
+  the workbench-exclusive domain files, `gap-ledger.ts` + `today-competitor-line.ts` +
+  `today-one-decision.ts` + `today-next-line.ts` (zero importers anywhere), `load-why-them.ts`
+  (competitor-intel), the dead `BEACON_AUTO_PROMOTE_SCHEMA` flag (built, documented as "no scan-side
+  wire-up shipped," never wired), and 67 orphaned one-off scratch scripts under `scripts/` (58 found
+  by an independent `git grep`-verified pass + 9 more: a dead `.cjs` duplicate, 3 scripts a live doc
+  already flagged for deletion, 2 debug throwaways a prior audit flagged, and a superseded
+  `mock-next-cache-cli.cjs`/`_next-cache-shim.cjs` pair). Trimmed (not deleted) `builder-benchmark.ts`
+  (dropped its dead `topNextMoves` field pointing at the deleted `/pages`) and `page-primary.ts` /
+  `today-summary.ts` / `command-center-data.ts` (each kept a live type/export, dropped the dead
+  function around it — same pattern as the legacy /today substrate: types can outlive the component
+  that once used them because a v2 loader still narrows them for field shapes). Repointed the one
+  live dead-end link (`today-newpages-card.tsx`'s "Plan this page" CTA) from `/pages` to
+  `/worklist#new-pages`, matching the sibling pattern already used one line away. Net: 161 files
+  deleted, 48 edited, roughly 28,300 net lines removed. `npm run typecheck` clean; full `npm run
+  test` 18988 passed / 62 pre-existing skips / 1 pre-existing unrelated failure (inside the
+  concurrent N14 agent's in-flight `war-room-sections.tsx` rewrite, confirmed zero diff from this
+  sweep). Dev server curl: `/`, `/worklist`, `/proof` all 200; `/pages`, `/topics`, `/workbench` now
+  correctly 404; `/recommendations` still 200 (redirects to `/worklist?status=ready`);
+  `/topics/opportunity/test-id` still 200 (kept, live).
 
 Sequencing: UX0 first (correctness), then UX1 (backbone), UX2 (Keywords), UX3, UX4, UX5
 opportunistically. The Constitution head (N-items) continues interleaved; N2's ownership registry

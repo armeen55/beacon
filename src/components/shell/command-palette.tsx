@@ -383,19 +383,6 @@ export function CommandPalette({ items }: { items: PaletteItem[] }) {
                 <HelpRow keys="G K" label="Connectors" />
                 <HelpRow keys="G S" label="Settings" />
               </HelpGroup>
-
-              {/* #420 (2026-06-14): the recommendations queue has real row
-                  hotkeys (resolveQueueKeyAction in recommendations-v2-client.tsx)
-                  that were previously undiscoverable. Document ONLY the keys
-                  that actually fire there: j/k move focus, a accepts the focused
-                  row, x selects/deselects it. Keep this in lockstep with
-                  resolveQueueKeyAction. */}
-              <HelpGroup title="On the Recommendations queue">
-                <HelpRow keys="J" label="Next recommendation" />
-                <HelpRow keys="K" label="Previous recommendation" />
-                <HelpRow keys="A" label="Accept the focused one" />
-                <HelpRow keys="X" label="Select / deselect for bulk accept" />
-              </HelpGroup>
             </div>
           </div>
         </div>

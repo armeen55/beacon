@@ -11,8 +11,11 @@
  *
  * Default surfaces (this file's scope):
  *   - src/components/today/health-strip.tsx
- *   - src/components/today/today-findings.tsx
- *   - src/components/today/today-visibility-snapshot.tsx
+ *
+ * (today-findings.tsx and today-visibility-snapshot.tsx were deleted
+ * 2026-07-02, UX5 legacy sweep — both fully orphaned since the
+ * pre-v2 Today architecture they belonged to was superseded; zero
+ * remaining importers anywhere.)
  *
  * Caveats remain in proof drawers (why-this-number, why-this-verdict,
  * truth pages, math drawer, methodology) — those are explicitly NOT
@@ -32,8 +35,6 @@ const REPO_ROOT = resolve(__dirname, "../..");
 
 const DEFAULT_SURFACES = [
   "src/components/today/health-strip.tsx",
-  "src/components/today/today-findings.tsx",
-  "src/components/today/today-visibility-snapshot.tsx",
 ];
 
 function stripComments(src: string): string {

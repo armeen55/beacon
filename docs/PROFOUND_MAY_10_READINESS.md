@@ -153,7 +153,7 @@ If all checks pass, **the Profound expiry is officially a non-event.** Proceed t
 | 7 | Update `tests/architecture/profound-runtime-isolation.test.ts` to remove the Item-5 "/settings/import is the only caller" assertion (no caller = invariant trivially passes; delete or relax to "no caller exists") | inline edit | Fast |
 | 8 | Update `tests/scripts/customer-one-backfill.test.ts` to skip Profound-CSV fixtures OR mark the test as historical-only (W4 backfill is one-shot; future re-runs unlikely) | 1 file | Fast |
 | 9 | Move `.data/profound_*.csv` (4 files) to `.data/_legacy/_pre-cli-migration-2026-04-28/profound-finals/` | 4 files | Fast |
-| 10 | Move 4 one-off backfill scripts to `.data/_legacy/_scripts/` (or delete): `run-import.ts`, `test-import.ts`, `customer-one-backfill.ts`, `classify-historical-changes.ts`. Update any docs that reference them | 4 scripts | Fast |
+| 10 | ~~Move 4 one-off backfill scripts to `.data/_legacy/_scripts/` (or delete): `run-import.ts`, `test-import.ts`, `customer-one-backfill.ts`, `classify-historical-changes.ts`.~~ DONE 2026-07-02 (UX5 legacy sweep): `run-import.ts`, `test-import.ts`, `classify-historical-changes.ts` deleted outright (zero code/test references). `customer-one-backfill.ts` kept — `tests/scripts/customer-one-backfill.test.ts` still imports its functions directly. | 4 scripts | Fast |
 | 11 | Update `docs/NEXT_PHASE_EXECUTION_PLAN.md` to mark the Profound deletion bundle complete | inline edit | Fast |
 | 12 | Update `docs/architecture.md` to remove the Profound-adapter section (or move to "Historical context") | inline edit | Balanced |
 | 13 | Add a `2026-05-11` entry to `docs/VERIFICATION_LOG.md` recording the post-cleanup state and invariant counts | inline edit | Fast |

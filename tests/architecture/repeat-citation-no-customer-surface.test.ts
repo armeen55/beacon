@@ -16,14 +16,12 @@
  *   • src/app/(shell)/changes/[id]/change-detail-v2-client.tsx
  *     (the v2 client that consumes the rendered component)
  *
- * Section 5.B Slice 2 (Today edit-lifecycle tile band counter)
- * adds two further allowlisted files (2026-05-21):
- *
- *   • src/components/today/edit-lifecycle-tile.tsx
- *     (extended tile component — renders the band counter section)
- *   • src/app/(shell)/today-v2-sections.tsx
- *     (server section that threads `repeat_citation_30d` from the
- *     summary loader to the tile)
+ * Section 5.B Slice 2 (Today edit-lifecycle tile band counter, added
+ * 2026-05-21) is HISTORICAL — both of its allowlisted files
+ * (`src/components/today/edit-lifecycle-tile.tsx` and
+ * `src/app/(shell)/today-v2-sections.tsx`) are deleted: the host was
+ * removed in the 2026-06-28 homepage-fold cleanup, and the orphaned
+ * tile itself was deleted 2026-07-02 (UX5 legacy sweep).
  *
  * Every OTHER customer-surface file in the scan tree is still
  * forbidden from referencing the repeat-citation symbols
@@ -143,8 +141,10 @@ const ALLOWED_FILES: ReadonlySet<string> = new Set([
   "src/components/changes/repeat-citation-act3.tsx",
   "src/app/(shell)/changes/[id]/page.tsx",
   "src/app/(shell)/changes/[id]/change-detail-v2-client.tsx",
-  // 5.B Slice 2 — Today edit-lifecycle tile band counter
-  "src/components/today/edit-lifecycle-tile.tsx",
+  // 5.B Slice 2 (Today edit-lifecycle tile band counter) removed 2026-07-02
+  // (UX5 legacy sweep): edit-lifecycle-tile.tsx + its host
+  // today-v2-sections.tsx were both already deleted (2026-06-28 homepage
+  // fold cleanup) — this allowlist entry had gone stale for days.
 ]);
 
 describe("Architecture — no customer-surface references to repeat-citation symbols (with Section 5.B allowlist)", () => {

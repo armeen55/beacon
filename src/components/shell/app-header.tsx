@@ -23,9 +23,6 @@ function useBreadcrumb(pathname: string) {
   if (segments[0] === "connections") {
     return { title: "Connections", parent: null };
   }
-  if (segments[0] === "workbench") {
-    return { title: "Workbench", parent: { label: "What to fix first", href: "/opportunities" } };
-  }
   if (segments[0] === "proof") {
     return { title: "Results", parent: null };
   }

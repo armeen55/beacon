@@ -17,13 +17,16 @@
  *   4. The page allows `NODE_ENV === "test"` to bypass the gate
  *      for render-test coverage (mirrors the brain-diagnostics
  *      pattern).
- *   5. The Command Center operator-link to the page is gated by
- *      the `isOperator` prop AND carries the
- *      `data-command-center-operator-link` data-attr (matches
- *      existing brain-diagnostics-link convention).
- *   6. NO customer-facing nav/layout file references the page
- *      directly — the only path to it is the operator-link in
- *      Command Center (which itself is operator-gated).
+ *   5. NO customer-facing nav/layout file references the page
+ *      directly — it is reachable only by direct URL (the operator
+ *      types it), same as `/diagnostics` itself.
+ *
+ * Pin 5's original form (a Command Center operator-link gated by
+ * `isOperator`) was removed 2026-07-02 (UX5 legacy sweep):
+ * command-center.tsx was orphaned since the 2026-06-28 deletion of its
+ * only host, today-v2-sections.tsx, and was deleted outright — its
+ * removal makes the page's isolation even stronger (URL-only, no link
+ * anywhere), not weaker.
  *
  * Retirement: permanent. Operator-only diagnostic surfaces stay
  * operator-only — this invariant has no exit path.
@@ -42,13 +45,6 @@ const PAGE_PATH = resolve(
   "diagnostics",
   "indexability",
   "page.tsx",
-);
-const COMMAND_CENTER_PATH = resolve(
-  REPO_ROOT,
-  "src",
-  "components",
-  "today",
-  "command-center.tsx",
 );
 
 // Comment-stripped source so a docstring discussion of the forbidden
@@ -102,46 +98,18 @@ describe("Architecture — /diagnostics/indexability operator-only gate (Phase A
     expect(stripped).toMatch(/process\.env\.NODE_ENV\s*===\s*["']test["']/);
   });
 
-  // ─────────────────────────────────────────────────────────────────
-  // Pin 5: Command Center link is operator-gated
-  // ─────────────────────────────────────────────────────────────────
-
-  it("Command Center operator-link to /diagnostics/indexability carries the operator-link data-attr", () => {
-    const src = readFileSync(COMMAND_CENTER_PATH, "utf-8");
-    expect(src).toContain('href="/diagnostics/indexability"');
-    expect(src).toContain('data-command-center-operator-link="true"');
-    // The link target marker for the indexability variant.
-    expect(src).toContain(
-      'data-command-center-operator-link-target="indexability"',
-    );
-  });
-
-  it("Command Center operator-link block is gated by isOperator (matches existing brain-link pattern)", () => {
-    const stripped = stripComments(readFileSync(COMMAND_CENTER_PATH, "utf-8"));
-    // The locked Command Center pattern wraps every operator-only
-    // link in a single `{isOperator ? (...) : null}` block. Pin
-    // both that the page reference and the gate appear together.
-    expect(stripped).toMatch(/isOperator\s*\?/);
-    // The indexability href must NOT appear outside the
-    // `isOperator ?` block. Cheap structural check: the file
-    // should NOT contain the href before the first `isOperator ?`
-    // ternary marker.
-    const hrefIdx = stripped.indexOf('href="/diagnostics/indexability"');
-    const gateIdx = stripped.indexOf("isOperator");
-    expect(hrefIdx).toBeGreaterThan(gateIdx);
-  });
+  // Pin 5 (Command Center operator-link gating) was removed 2026-07-02
+  // (UX5 legacy sweep) — command-center.tsx was deleted (see file header).
 
   // ─────────────────────────────────────────────────────────────────
-  // Pin 6: no customer-facing nav/layout references the page
+  // Pin 5: no customer-facing nav/layout references the page
   // ─────────────────────────────────────────────────────────────────
 
-  it("no customer-facing nav/layout references /diagnostics/indexability outside operator-gated surfaces", () => {
+  it("no customer-facing nav/layout references /diagnostics/indexability anywhere", () => {
     // Walk src/app/(shell)/layout*.tsx and src/components/nav* (if
-    // present) and assert none of them mention the page href. The
-    // ONLY allowed reference is in command-center.tsx (which we
-    // already pinned as operator-gated above).
+    // present) and assert none of them mention the page href — the
+    // page is reachable only by direct URL, no link anywhere.
     const allowedReferents = new Set<string>([
-      COMMAND_CENTER_PATH,
       PAGE_PATH, // self-reference inside the page (filter chips)
     ]);
     const matches: string[] = [];

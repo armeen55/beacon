@@ -15,7 +15,6 @@ vi.mock("@/lib/flags", () => ({
   isLifecycleEnabled: flagMocks.isLifecycleEnabled,
   // Other flags consumed indirectly — provide stubs
   isEventTruthPreviewEnabled: () => false,
-  isSchemaAutoPromoteEnabled: () => false,
   isFindingAutoLinkEnabled: () => false,
 }));
 
