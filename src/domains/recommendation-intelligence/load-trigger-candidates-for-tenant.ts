@@ -145,7 +145,9 @@ import {
   MIN_IMPRESSIONS_FOR_PROMISE_AUDIT,
 } from "@/domains/recommendations/snippet-promise";
 import { findSnippetCaptures, snippetCaptureCandidates } from "@/domains/serp/snippet-capture";
-import { featureStealHistoryRows } from "@/domains/serp/serp-history";
+import { featureStealHistoryRows, loadBrokenCompetitorFindings, loadSerpFeatureChanges } from "@/domains/serp/serp-history";
+import { brokenCompetitorAlert } from "./triggers/broken-competitor-alert";
+import { serpFeatureChangeAlert } from "./triggers/serp-feature-change-alert";
 import { loadStealBriefsForTenant } from "@/domains/serp/serp-steal-lane";
 import { loadEarlyBodyTextForUrls } from "./early-body-text";
 import { noindexOnIndexablePage } from "./triggers/noindex-on-indexable-page";
@@ -174,6 +176,27 @@ import { assembleLifecycleInputs } from "@/domains/lifecycle/load-lifecycle-inpu
 import { contentLifecycle } from "./triggers/content-lifecycle";
 import { jsShellContent } from "./triggers/js-shell-content";
 import { technicalDemand } from "./triggers/technical-demand";
+// P11 (2026-07-03) - technical-SEO pack: dead-URL-with-demand recovery,
+// broken-link fixer + link liveness, redirect-chain + soft-404 hygiene. All read
+// ALREADY-LOADED signals (snapshots + GSC + the URL-inspection cache) at $0; the
+// optional live-liveness pass is polite + capped + fail-soft. Pure over
+// pre-assembled inputs, deduped against the status/link triggers by cooldown_key.
+// Empty inputs -> byte-identical to before this family existed.
+import { classifyDeadUrl } from "@/domains/technical-seo/dead-url-recovery";
+import {
+  classifyBrokenLinks,
+  type TargetLiveness,
+} from "@/domains/technical-seo/broken-links";
+import { classifyRedirectHygiene } from "@/domains/technical-seo/redirect-hygiene";
+import {
+  assembleTechnicalInputs,
+  statusToLiveness,
+} from "@/domains/technical-seo/load-technical-inputs";
+import { loadInspectionsForTenant } from "@/domains/technical-seo/load-inspections";
+import { probeLivenessBatch } from "@/domains/technical-seo/link-liveness";
+import { deadUrlRecovery } from "./triggers/dead-url-recovery";
+import { brokenLinks } from "./triggers/broken-links";
+import { redirectHygiene } from "./triggers/redirect-hygiene";
 import { uncitedContent } from "./triggers/uncited-content";
 import { robotsBlocksAiBots } from "./triggers/robots-blocks-ai-bots";
 import { robotsBlocksGooglebot } from "./triggers/robots-blocks-googlebot";
@@ -209,7 +232,7 @@ export type TriggerCandidatesLoadResult = {
   };
 };
 
-const PREDICATE_COUNT = 21;
+const PREDICATE_COUNT = 26;
 
 function emptyResult(
   status: TriggerCandidatesLoadStatus,
@@ -485,6 +508,32 @@ export async function loadTriggerCandidatesForTenant(options: {
     );
   }
 
+  // Competitor watch pack (BEACON_500 P9, 2026-07-03): two deterministic $0
+  // reads over the ALREADY-PERSISTED dataforseo_serp_history rows (both diff
+  // captures the paid SERP writer already stored; NEITHER spends a live call):
+  //   • broken_competitor - a rival that held a Google top spot for a tracked
+  //     query earlier and is gone from the latest capture (an opening).
+  //   • serp_feature_change - a winnable Google feature (answer box / People
+  //     Also Ask / image row) that just appeared for a tracked query.
+  // Both fail soft to empty (no history / no diff-able captures / read error)
+  // so the predicates then never fire. Byte-identical to before when empty.
+  let brokenCompetitorFindings: Awaited<ReturnType<typeof loadBrokenCompetitorFindings>> = [];
+  try {
+    brokenCompetitorFindings = await loadBrokenCompetitorFindings(tenantId);
+  } catch (err) {
+    console.error(
+      `[trigger-loader] broken-competitor load failed for ${tenantId} (broken_competitor skips): ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+  let serpFeatureChanges: Awaited<ReturnType<typeof loadSerpFeatureChanges>> = [];
+  try {
+    serpFeatureChanges = await loadSerpFeatureChanges(tenantId);
+  } catch (err) {
+    console.error(
+      `[trigger-loader] serp-feature-change load failed for ${tenantId} (serp_feature_change skips): ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+
   // Device click gap (BEACON_500 R17b, v1 item 268): pre-load the newest
   // weekly device snapshot's pure signal (the weekly GSC dimensions pass
   // writes it; this reads the store at $0, never the GSC API). Soft-null when
@@ -746,6 +795,30 @@ export async function loadTriggerCandidatesForTenant(options: {
       ...deviceCtrGap({
         tenantId,
         signal: deviceGapSignal,
+        siteRootUrl: rootDomain ? "https://" + rootDomain + "/" : null,
+        signalAt: new Date().toISOString(),
+      }),
+    );
+    // Broken-competitor opportunity (BEACON_500 P9 v1 250+259): same site-root
+    // anchoring - a vacated Google spot is a query/topic-level opening, not a
+    // page-level edit. Pure predicate over the pre-loaded, already-diffed
+    // findings; no paid SERP call happens here or in the loader above.
+    all.push(
+      ...brokenCompetitorAlert({
+        tenantId,
+        findings: brokenCompetitorFindings,
+        siteRootUrl: rootDomain ? "https://" + rootDomain + "/" : null,
+        signalAt: new Date().toISOString(),
+      }),
+    );
+    // Google-results feature-change (BEACON_500 P9 v1 251): same site-root
+    // anchoring - a feature appearing is a query/topic-level opening. Only the
+    // "appeared" changes become Moves (the predicate filters internally). Pure
+    // predicate over the pre-loaded, already-diffed changes; no paid call here.
+    all.push(
+      ...serpFeatureChangeAlert({
+        tenantId,
+        changes: serpFeatureChanges,
         siteRootUrl: rootDomain ? "https://" + rootDomain + "/" : null,
         signalAt: new Date().toISOString(),
       }),
@@ -1149,6 +1222,115 @@ export async function loadTriggerCandidatesForTenant(options: {
   } catch (err) {
     console.error(
       `[trigger-loader] content-lifecycle family failed for ${tenantId} (lifecycle / js_shell / technical_demand skip): ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+
+  // ── P11 (2026-07-03): technical-SEO pack ──────────────────────────────────
+  // Runs after the R19 family so its cross-source cooldown dedupe sees every
+  // status / link card the earlier triggers already claimed. Three engines, one
+  // fail-soft block:
+  //   1. Dead-URL-with-demand recovery - a page Google still sends searches to
+  //      that now 404/410s or that Google's index has dropped. fix_status_code,
+  //      confidence medium (customer-queue eligible). Names the recovery play.
+  //   2. Broken internal links - a page linking at targets that are dead. Owned
+  //      targets' own snapshot statuses give liveness at $0; an optional polite +
+  //      capped + fail-soft live pass resolves a few external / unsnapshotted
+  //      targets. add_internal_link, one card per source page.
+  //   3. Redirect-chain + soft-404 hygiene - multi-hop chains (from the live
+  //      pass) + soft-404s (from Google's own coverage verdict). fix_status_code.
+  // Cross-source cooldown dedupe: dead-URL runs FIRST so it wins the recovery
+  // framing over the R19 bad_status card; redirect-hygiene defers to whatever a
+  // status trigger already claimed. Empty inputs -> byte-identical.
+  try {
+    const nowIso = new Date().toISOString();
+    // Read the ALREADY-SYNCED URL-inspection coverage verdicts ($0, never the
+    // URL Inspection API). Fail-soft to empty -> the coverage-verdict legs
+    // abstain (dead-URL still fires off snapshot 404s).
+    const inspectionByUrl = await loadInspectionsForTenant(tenantId).catch(
+      () => new Map(),
+    );
+
+    const tech = assembleTechnicalInputs({
+      snapshots,
+      gscSignals,
+      inspectionByUrl,
+    });
+
+    // Cross-source dedup base: the (tenant, action, url) triples earlier triggers
+    // already claimed this run.
+    const claimedTech = new Set(all.map((r) => r.cooldown_key));
+
+    // (1) Dead-URL-with-demand recovery.
+    const deadFindings = tech.deadUrlPages
+      .map((p) => classifyDeadUrl(p))
+      .filter((f): f is NonNullable<typeof f> => f != null);
+    const deadRows = deadUrlRecovery({
+      tenantId,
+      findings: deadFindings,
+      signalAt: nowIso,
+    }).filter((r) => !claimedTech.has(r.cooldown_key));
+    for (const r of deadRows) claimedTech.add(r.cooldown_key);
+    all.push(...deadRows);
+
+    // Optional live-liveness pass (broken links + redirect chains). Probe (a) the
+    // external / not-yet-snapshotted link targets we have NO owned status for and
+    // (b) the demand-carrying owned pages whose snapshot is a redirect (to resolve
+    // the chain length). Capped + polite + fail-soft. On Vercel a network fetch is
+    // fine here (generation path, not the customer render). A failure leaves those
+    // targets "unknown" (never guessed dead) and redirect chains unresolved.
+    const probeTargets = [
+      ...new Set([...tech.unknownLinkTargets, ...tech.redirectingOwnedUrls]),
+    ];
+    const liveResults =
+      probeTargets.length > 0
+        ? await probeLivenessBatch(probeTargets).catch(
+            () => new Map<string, import("@/domains/technical-seo/link-liveness").LivenessResult>(),
+          )
+        : new Map<string, import("@/domains/technical-seo/link-liveness").LivenessResult>();
+
+    // (2) Broken internal links. livenessOf prefers an owned snapshot's own
+    // status (statusByUrl), then the live probe, then "unknown".
+    const livenessOf = (target: string): TargetLiveness => {
+      const owned = tech.statusByUrl.get(target);
+      if (owned != null && owned !== 0) return statusToLiveness(owned);
+      return liveResults.get(target)?.liveness ?? "unknown";
+    };
+    const brokenFindings = tech.brokenLinkPages
+      .map((p) => classifyBrokenLinks(p, livenessOf))
+      .filter((f): f is NonNullable<typeof f> => f != null);
+    const brokenRows = brokenLinks({
+      tenantId,
+      findings: brokenFindings,
+      hasLinkData: tech.brokenLinkPages.length > 0,
+      signalAt: nowIso,
+    }).filter((r) => !claimedTech.has(r.cooldown_key));
+    for (const r of brokenRows) claimedTech.add(r.cooldown_key);
+    all.push(...brokenRows);
+
+    // (3) Redirect-chain + soft-404 hygiene. The redirect chain for an owned page
+    // comes from probing the page's OWN URL (a redirect-status snapshot means the
+    // page itself redirects); soft-404 comes from Google's coverage verdict with
+    // no fetch at all. Attach any probed chain for the page's own URL.
+    const redirectPagesWithChains = tech.redirectPages.map((p) => {
+      const probed = liveResults.get(p.url);
+      return probed && probed.redirectChain.length > 0
+        ? { ...p, redirectChain: probed.redirectChain }
+        : p;
+    });
+    const redirectFindings = redirectPagesWithChains.flatMap((p) =>
+      classifyRedirectHygiene(p),
+    );
+    const redirectRows = redirectHygiene({
+      tenantId,
+      findings: redirectFindings,
+      impressionsByUrl: tech.impressionsByUrl,
+      signalAt: nowIso,
+    }).filter((r) => !claimedTech.has(r.cooldown_key));
+    for (const r of redirectRows) claimedTech.add(r.cooldown_key);
+    all.push(...redirectRows);
+  } catch (err) {
+    console.error(
+      `[trigger-loader] technical-seo pack failed for ${tenantId} (dead_url_recovery / broken_internal_links / redirect_hygiene skip): ${err instanceof Error ? err.message : String(err)}`,
     );
   }
 

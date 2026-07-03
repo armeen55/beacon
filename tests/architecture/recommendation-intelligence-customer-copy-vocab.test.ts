@@ -282,6 +282,51 @@ const PROBE_SETS: Record<string, ReadonlyArray<Probe>> = {
     ["/iran-visa", 340],
     ["/x", 1],
   ],
+  // P11 (2026-07-03) - dead-URL recovery. Args: (pagePath, reason, impressions,
+  // clicks). Probe each reason token + a zero-clicks edge.
+  deadUrlRecoveryCopy: [
+    ["/iran-visa", "http_not_found", 340, 12],
+    ["/persian-names", "http_gone", 250000, 0],
+    ["/nowruz-2021", "index_dropped", 1, 0],
+  ],
+  // P11 (2026-07-03) - broken internal links. Args: (sourcePath, deadCount).
+  // Probe singular + plural + a large count.
+  brokenLinksCopy: [
+    ["/persian-food", 1],
+    ["/nowruz", 3],
+    ["/big-hub", 250000],
+  ],
+  // P11 (2026-07-03) - redirect chain. Args: (pagePath, hopCount).
+  redirectChainCopy: [
+    ["/guides/old", 2],
+    ["/x", 5],
+  ],
+  // P11 (2026-07-03) - soft-404. Args: (pagePath, impressions). Probe singular +
+  // plural + a large count.
+  soft404Copy: [
+    ["/guides/old", 1],
+    ["/persian-cities", 340],
+    ["/x", 250000],
+  ],
+  // P9 (2026-07-03) - broken-competitor opportunity. Args: (query,
+  // competitorDomain, bestRank). Probe a normal case + a #1 vacancy.
+  brokenCompetitorCopy: [
+    ["persian wedding", "example.com", 3],
+    ["nowruz gifts", "smallblog.com", 1],
+  ],
+  // P9 (2026-07-03) - Google-results feature appeared. Args: (featureLabel,
+  // query, grabInstruction). Probe an answer box, a PAA block, an image row.
+  serpFeatureAppearedCopy: [
+    ["an answer box", "farsi numbers", "Add a clear answer block near the top"],
+    ["a People Also Ask block", "iran visa", "Answer the exact questions people ask on this page"],
+    ["an image row", "persian rugs", "Add clear, named images to this page"],
+  ],
+  // P9 (2026-07-03) - Google-results feature disappeared. Args: (featureLabel,
+  // query). Probe an answer box + an image row.
+  serpFeatureDisappearedCopy: [
+    ["the answer box", "farsi numbers"],
+    ["the image row", "persian rugs"],
+  ],
 };
 
 function scanForViolations(output: string): string[] {

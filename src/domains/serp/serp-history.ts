@@ -20,6 +20,8 @@ import { currentTenant } from "@/lib/tenant-context";
 import type { AiOverviewCitedDomain, ParsedFeaturedSnippet, ParsedPaaQuestion, SerpOrganicItem } from "./dataforseo-serp";
 import { computeAiOverviewGaps, aiOverviewGapHeadline, type AiOverviewHistoryRow } from "./ai-overview-gaps";
 import { computeFeatureSteals, type FeatureStealCandidate, type FeatureStealHistoryRow } from "./feature-steal";
+import { computeBrokenCompetitors, type BrokenCompetitorFinding, type BrokenCompetitorHistoryRow } from "./broken-competitor";
+import { computeSerpFeatureChanges, type SerpFeatureChange, type SerpFeatureHistoryRow } from "./serp-feature-change";
 
 /** One observed point: when we looked, and where the tenant's own domain sat. */
 export type SerpRankPoint = {
@@ -295,3 +297,131 @@ export const loadLatestSerpReadingsByQuery = cache(async (tenantId: string, now:
     return out;
   }
 });
+
+// ─── Broken-competitor + Google-results feature-change reads (P9) ────────────
+//
+// Both diff the SAME already-persisted dataforseo_serp_history rows at $0 (no
+// new paid pull) and both fail soft to empty. Kept here (the SERP-history I/O
+// boundary) so the pure detectors (broken-competitor.ts / serp-feature-change.ts)
+// stay dependency-free and unit-testable with zero mocking.
+
+/** Bound how far back the tenant-wide broken-competitor / feature-change scan
+ *  looks and how many rows it can return - a diagnostic read, not an unbounded
+ *  table scan. Mirrors the AI-Overview / feature-steal reader bounds above; the
+ *  row limit comfortably covers many queries with several captures each. */
+const COMPETITOR_WATCH_LOOKBACK_DAYS = 45;
+const COMPETITOR_WATCH_ROW_LIMIT = 3_000;
+
+/**
+ * Every history row for this tenant across all tracked queries, in the fields
+ * broken-competitor.ts AND serp-feature-change.ts need (both diff the same
+ * columns). ONE bounded read shared by both P9 loaders below. Empty when
+ * history has nothing yet, the table is missing, or Supabase is unreachable -
+ * never throws.
+ */
+const competitorWatchHistoryRows = cache(
+  async (
+    tenantId: string,
+    now: Date = new Date(),
+  ): Promise<
+    Array<{
+      query: string;
+      capturedAt: string;
+      ownRank: number | null;
+      topDomains: SerpOrganicItem[];
+      serpFeatures: string[];
+      aiOverviewPresent: boolean;
+      snippetOwner: ParsedFeaturedSnippet | null;
+      paaQuestions: ParsedPaaQuestion[];
+    }>
+  > => {
+    if (!tenantId || !isSupabaseConfigured()) return [];
+    try {
+      const cutoffIso = new Date(now.getTime() - COMPETITOR_WATCH_LOOKBACK_DAYS * 24 * 60 * 60 * 1000).toISOString();
+      const { data, error } = await getSupabaseAdmin()
+        .from("dataforseo_serp_history")
+        .select("query, captured_at, own_rank, top_domains, serp_features, ai_overview_present, snippet_owner, paa_questions")
+        .eq("tenant_id", tenantId)
+        .gte("captured_at", cutoffIso)
+        .order("captured_at", { ascending: true })
+        .limit(COMPETITOR_WATCH_ROW_LIMIT);
+      if (error || !Array.isArray(data)) return [];
+      return (
+        data as Array<{
+          query: string;
+          captured_at: string;
+          own_rank: number | null;
+          top_domains: SerpOrganicItem[] | null;
+          serp_features: string[] | null;
+          ai_overview_present: boolean | null;
+          snippet_owner: ParsedFeaturedSnippet | null;
+          paa_questions: ParsedPaaQuestion[] | null;
+        }>
+      ).map((r) => ({
+        query: (r.query ?? "").trim(),
+        capturedAt: r.captured_at,
+        ownRank: typeof r.own_rank === "number" ? r.own_rank : null,
+        topDomains: Array.isArray(r.top_domains) ? r.top_domains : [],
+        serpFeatures: Array.isArray(r.serp_features) ? r.serp_features : [],
+        aiOverviewPresent: r.ai_overview_present === true,
+        snippetOwner: r.snippet_owner ?? null,
+        paaQuestions: Array.isArray(r.paa_questions) ? r.paa_questions : [],
+      }));
+    } catch {
+      return [];
+    }
+  },
+);
+
+/**
+ * $0 read: every real broken-competitor opening for this tenant across its
+ * tracked queries (a rival that held a top spot in an earlier capture and is
+ * gone from the latest). [] when there is no diff-able history yet, the tenant
+ * domain is unknown, or nothing dropped. Fails soft on any error - never throws.
+ */
+export const loadBrokenCompetitorFindings = cache(
+  async (tenantId: string, now: Date = new Date()): Promise<BrokenCompetitorFinding[]> => {
+    try {
+      const rows = await competitorWatchHistoryRows(tenantId, now);
+      if (rows.length === 0) return [];
+      const domain = await currentTenant()
+        .then((t) => t.domain ?? null)
+        .catch(() => null);
+      const detectorRows: BrokenCompetitorHistoryRow[] = rows.map((r) => ({
+        query: r.query,
+        capturedAt: r.capturedAt,
+        ownRank: r.ownRank,
+        topDomains: r.topDomains,
+      }));
+      return computeBrokenCompetitors(detectorRows, domain, { now });
+    } catch {
+      return [];
+    }
+  },
+);
+
+/**
+ * $0 read: every real Google-results feature appear/disappear change for this
+ * tenant across its tracked queries. [] when there is no diff-able history yet
+ * or nothing changed. Fails soft on any error - never throws.
+ */
+export const loadSerpFeatureChanges = cache(
+  async (tenantId: string, now: Date = new Date()): Promise<SerpFeatureChange[]> => {
+    try {
+      const rows = await competitorWatchHistoryRows(tenantId, now);
+      if (rows.length === 0) return [];
+      const detectorRows: SerpFeatureHistoryRow[] = rows.map((r) => ({
+        query: r.query,
+        capturedAt: r.capturedAt,
+        ownRank: r.ownRank,
+        serpFeatures: r.serpFeatures,
+        aiOverviewPresent: r.aiOverviewPresent,
+        snippetOwner: r.snippetOwner,
+        paaQuestions: r.paaQuestions,
+      }));
+      return computeSerpFeatureChanges(detectorRows, { now });
+    } catch {
+      return [];
+    }
+  },
+);

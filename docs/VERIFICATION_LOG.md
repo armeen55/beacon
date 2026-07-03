@@ -7,6 +7,22 @@
 
 ---
 
+## 2026-07-03 - R23 P11: Technical-SEO pack (dead-URL-with-demand recovery, broken-link fixer + link liveness, redirect-chain + soft-404 hygiene)
+
+**What changed (3 deterministic, empty-safe detectors surfacing real new fix-Moves from data Beacon already has - GSC + page_snapshots + the URL-inspection cache; new `src/domains/technical-seo/**` domain + one new trigger per item, wired LAST in the trigger loader with cross-source cooldown dedupe):**
+
+1. **Dead-URL-with-demand recovery** (`technical-seo/dead-url-recovery.ts` + trigger `triggers/dead-url-recovery.ts`, `fix_status_code`, confidence medium): crosses GSC demand against snapshot 404/410 AND Google's URL-inspection coverage verdict (the `index_dropped` leg catches a 200 page Google's index treats as gone). Rendered copy: "Google still sends people to your /old-nowruz-guide page (200 times in the last 90 days, 8 of them clicked through), but the page now returns Not Found. Restore the page, or point this address at the page that replaced it, to stop the bleed."
+2. **Broken internal links + link liveness** (`technical-seo/broken-links.ts` + `technical-seo/link-liveness.ts` + trigger `triggers/broken-links.ts`, `add_internal_link`, one card per source page): owned pages' own snapshot statuses give liveness at $0; an optional polite + capped (25) + fail-soft + mockable HEAD pass resolves external/unsnapshotted targets. Unknown targets are never counted broken. Rendered copy: "2 links on your /persian-food page point at pages that no longer exist. Fixing them keeps readers and Google moving through your site."
+3. **Redirect-chain + soft-404 hygiene** (`technical-seo/redirect-hygiene.ts` + trigger `triggers/redirect-hygiene.ts`, `fix_status_code`): multi-hop chains (>=2 hops from the liveness pass) + soft-404s (authoritative Google `coverage_state === "Soft 404"`, sidestepping the JS-shell trap). Rendered copy: "Your /guides/old address points through 2 redirects before it lands. Point it straight at the final page so Google keeps the ranking and readers load faster." / "Your /persian-cities page loads with a normal response, but Google's index reads it as empty and treats it as a missing page. It still shows for 420 searches in the last 90 days. Put real content on the page, or send this address to the right page, so Google stops dropping it."
+
+Supporting: pure assembly boundary `technical-seo/load-technical-inputs.ts` (snapshots + GSC + inspection map -> engine inputs, resolves/dedupes/self-links internal links, flags unknown targets + demand-carrying owned redirecting pages for probing); I/O boundary `technical-seo/load-inspections.ts` (reads ALREADY-SYNCED gsc_url_inspections rows only, never the URL Inspection API). 4 new customer-copy templates + vocab probe sets.
+
+Wiring: 3 new predicates registered in `load-trigger-candidates-for-tenant.ts` (PREDICATE_COUNT 23 -> 26), one fail-soft block after the R19 content-lifecycle family; dead-URL runs first so it wins the recovery framing over R19's bad_status card; all three cross-source cooldown-deduped against the existing status/link triggers (a page an earlier trigger claimed never double-cards).
+
+Empty-safe pins: every detector returns [] / null on empty input, below the 100-impression demand floor, all-live links, no chain / single-hop, healthy coverage, and unknown-liveness targets; broken-links suppresses everything when NO page has link data (data-unavailable, not "clean"); each trigger abstains on no findings. Ratchet holds (no `src/components/today/**`, `src/app/(shell)` files touched; no new UI surface).
+
+Verified: `npm run typecheck` clean project-wide. `npx vitest run` technical-seo + triggers + loader + diagnostics-page + copy-vocab + trigger-predicate-purity + page-classifier + registry-active-set + gsc + pages/snapshots + catalog-sync + proof-gsc = 684 + 924 green (incl. 52 new detector/liveness/trigger tests: each detector fires on a fixture + is EMPTY on a clean fixture + no false positives, liveness mocked via injectable fetch; both stale predicates_run counters corrected 21 -> 26). renderToStaticMarkup quoted above. NEEDS LIVE DATA TO PROVE: a tenant with real GSC demand on a now-404/redirecting/soft-404 URL (dead-URL + soft-404 light up once the URL-inspection cache holds a gone/soft-404 verdict; broken-links + redirect-chain light up once the nightly liveness pass runs) - today they self-hide until such data exists. Rest of P11 (CrUX/PSI lane, lang/dir audit, URL-variant splits, freshness propagation, robots/sitemap drift alarm, X-Robots-Tag capture, schema-validator breadth, TTFB capture, pagination index policy, OG/Twitter capture, source-link rot) is roadmapped.
+
 ## 2026-07-03 - R23 P14: Today dashboard pack (lead headline, smoke alarm with page blame, goal pace / start-my-day, still-arriving shading)
 
 **What changed (four additive, self-hiding Today blocks; all live in my owned `src/components/today/**` as pure selectors + token-only cards, wired into `src/app/(shell)/page.tsx` with data it already loaded, so no new raw-palette class lands under (shell)):**
@@ -32942,3 +32958,49 @@ session pins updated. Targeted suites green: push+ops+autopilot+settings+changes
 1827 passed, 1 skipped; the only 2 failures are the documented Google-OAuth-callback env-
 contamination class (pass in a clean shell: `env -u OAUTH_STATE_SECRET ...` -> 11/11), unrelated
 to this change. Full suite deliberately not run per slice (CI-minutes rule).
+
+## 2026-07-03 P9 competitor-watch pack (3 deterministic $0 detectors)
+
+Built the 3 highest-impact, cost-free sub-items of P9, each over ALREADY-PERSISTED
+`dataforseo_serp_history` rows (no new paid SERP call anywhere), additive and self-hiding
+when empty.
+
+1. **Broken-competitor opportunity** (v1 250+259) - `src/domains/serp/broken-competitor.ts`
+   (pure diff: a rival that held a Google top-8 spot in an earlier in-window capture and is
+   gone from the latest) + trigger `broken-competitor-alert.ts` (`create_page`, site-root
+   anchor, medium confidence). Reader `loadBrokenCompetitorFindings` in `serp-history.ts`.
+   Rendered copy (renderToStaticMarkup): "theknot.com used to show up at #1 on Google for
+   'persian wedding' and just dropped off. The search still has demand, so this is your
+   opening to take that spot with a strong page."
+2. **True-competitor discovery** (v1 420) - `src/domains/demand-graph/competitor-discovery.ts`
+   (pure overlap: domains that keep appearing in the top-10 across the tenant's tracked
+   queries, ranked by how many searches they beat you on) + read-side loader
+   `competitor-discovery-loader.ts`. Rendered honest list: "These 2 sites keep beating you
+   on the searches you care about." then per-row "supplehomes.com beats you on 3 of 3
+   searches (best spot #1)."
+3. **Google-results feature appear/disappear alert** (v1 251) -
+   `src/domains/serp/serp-feature-change.ts` (pure diff over serp_features /
+   ai_overview_present / snippet_owner / paa_questions between earliest and latest capture;
+   winnable features only = answer box / People Also Ask / image row) + trigger
+   `serp-feature-change-alert.ts` (`add_answer_block`, only "appeared" becomes a Move).
+   Reader `loadSerpFeatureChanges` in `serp-history.ts`. Rendered copy: "Google just added
+   an answer box for 'farsi numbers'. Add a clear answer block near the top to grab it
+   before a competitor does."
+
+Wiring: 2 new predicates registered in `load-trigger-candidates-for-tenant.ts` (PREDICATE_COUNT
+21 -> 23), site-root anchor block, cross-source cooldown dedupe already covers them. 3 new
+customer-copy templates + probe sets in the vocab invariant. No cron-sync change needed (all
+read/generation-time over data the SERP writer already persists).
+
+Empty-safe pins: every detector returns [] / null-headline on empty input, single-capture
+history, out-of-window captures, own/noise domains, and no-change; both predicates abstain on
+no findings and no site root. Ratchet holds (no `src/app/(shell)` files touched).
+
+Verified: `npm run typecheck` clean. `npx vitest run` serp + demand-graph +
+recommendation-intelligence + catalog-sync + trigger-predicate-purity + page-classifier +
+no-queue-write + design-system-guard = 931 + 19 green (incl. 39 new detector/predicate tests +
+copy-vocab 61 green). renderToStaticMarkup quoted above. NEEDS LIVE DATA TO PROVE: a tenant
+with 2+ SERP-history captures per tracked query (Iranopedia once nightly SERP captures
+accumulate) will light these up; today they self-hide until the history diff exists. Rest of
+P9 (counter-refresh on competitor updates, volatility pre-build check, backlink watch,
+teardown-by-traffic prioritization, seed-demand-from-competitor-URL) is roadmapped.

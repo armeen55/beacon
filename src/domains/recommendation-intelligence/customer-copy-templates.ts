@@ -787,3 +787,155 @@ export function canonicalOnDemandPageCopy(pagePath: string, impressions: number)
     "If this page is the one you want found, update the canonical tag to point at itself."
   );
 }
+
+// ── P11 technical-SEO pack (2026-07-03): dead-URL recovery, broken links,
+//    redirect chains, soft-404s. Plain English, first person, always a concrete
+//    number, always a next step, NO em or en dashes, no lab words ("Google's
+//    index", never "crawler").
+
+/**
+ * Dead URL with real demand (BEACON_500 P11 v1 320/321). Google is still sending
+ * real searches to a URL that is now gone, so the traffic hits a dead end. Names
+ * the number and the recovery play (restore or redirect). Args: the page path,
+ * the reason token, its 90-day impressions, and its 90-day clicks.
+ */
+export function deadUrlRecoveryCopy(
+  pagePath: string,
+  reason: "http_not_found" | "http_gone" | "index_dropped",
+  impressions: number,
+  clicks: number,
+): string {
+  const times = impressions === 1 ? "time" : "times";
+  const demand =
+    "Google still sends people to your " +
+    pagePath +
+    " page (" +
+    impressions.toLocaleString("en-US") +
+    " " +
+    times +
+    " in the last 90 days" +
+    (clicks > 0
+      ? ", " + clicks.toLocaleString("en-US") + " of them clicked through"
+      : "") +
+    "), ";
+  const problem =
+    reason === "http_gone"
+      ? "but the page has been taken down and now returns Gone. "
+      : reason === "http_not_found"
+        ? "but the page now returns Not Found. "
+        : "but Google's index has dropped the page, so it no longer shows in search. ";
+  return (
+    demand +
+    problem +
+    "Restore the page, or point this address at the page that replaced it, to stop the bleed."
+  );
+}
+
+/**
+ * Broken internal links on a page (BEACON_500 P11 v1 319/475). Some links on this
+ * page point at pages that no longer exist, so readers and Google hit dead ends
+ * moving through the site. Args: the source page path and how many links are dead.
+ */
+export function brokenLinksCopy(sourcePath: string, deadCount: number): string {
+  const links = deadCount === 1 ? "link" : "links";
+  const point = deadCount === 1 ? "points" : "point";
+  return (
+    deadCount.toLocaleString("en-US") +
+    " " +
+    links +
+    " on your " +
+    sourcePath +
+    " page " +
+    point +
+    " at pages that no longer exist. Fixing them keeps readers and Google moving through your site."
+  );
+}
+
+/**
+ * Redirect chain (BEACON_500 P11 v1 320/517). A URL bounces through several
+ * redirects before it lands, and every extra hop leaks a little ranking. Args: the
+ * page path and how many hops it takes.
+ */
+export function redirectChainCopy(pagePath: string, hopCount: number): string {
+  return (
+    "Your " +
+    pagePath +
+    " address points through " +
+    hopCount.toLocaleString("en-US") +
+    " redirects before it lands. Point it straight at the final page so Google keeps the ranking and readers load faster."
+  );
+}
+
+/**
+ * Soft-404 (BEACON_500 P11 v1 320/517). The page returns a normal 200 but Google
+ * looked at it and found it empty, so it treats it as a missing page. Args: the
+ * page path and its 90-day impressions.
+ */
+export function soft404Copy(pagePath: string, impressions: number): string {
+  const searches = impressions === 1 ? "search" : "searches";
+  return (
+    "Your " +
+    pagePath +
+    " page loads with a normal response, but Google's index reads it as empty and treats it as a missing page. " +
+    "It still shows for " +
+    impressions.toLocaleString("en-US") +
+    " " +
+    searches +
+    " in the last 90 days. Put real content on the page, or send this address to the right page, so Google stops dropping it."
+  );
+}
+
+/**
+ * Broken-competitor opportunity (BEACON_500 P9 v1 250+259, 2026-07-03). A rival
+ * page that used to rank in Google's top results for a tracked search just
+ * dropped off. The demand is still there, so the vacated spot is an opening.
+ * Args: the search text, the rival domain, and the best rank it held while
+ * present. Always "Google results", never a lab word. NO em or en dashes (hard
+ * rule).
+ */
+export function brokenCompetitorCopy(query: string, competitorDomain: string, bestRank: number): string {
+  return (
+    competitorDomain +
+    ' used to show up at #' +
+    bestRank +
+    ' on Google for "' +
+    query +
+    '" and just dropped off. The search still has demand, so this is your opening to take that spot with a strong page.'
+  );
+}
+
+/**
+ * Google-results feature appeared (BEACON_500 P9 v1 251, 2026-07-03). Google
+ * just added a result feature the tenant could win (an answer box, a People
+ * Also Ask block, or an image row) for a tracked search. Args: the plain
+ * feature label ("an answer box"), the search text, and the plain instruction
+ * to grab it ("Add a clear answer block near the top"). Always "Google
+ * results", never "SERP". NO em or en dashes (hard rule).
+ */
+export function serpFeatureAppearedCopy(featureLabel: string, query: string, grabInstruction: string): string {
+  return (
+    "Google just added " +
+    featureLabel +
+    ' for "' +
+    query +
+    '". ' +
+    grabInstruction +
+    " to grab it before a competitor does."
+  );
+}
+
+/**
+ * Google-results feature disappeared (BEACON_500 P9 v1 251, 2026-07-03). A
+ * result feature that used to show for a tracked search is gone now, which
+ * changes how the page should compete. Args: the plain feature label and the
+ * search text. Always "Google results", never "SERP". NO em or en dashes.
+ */
+export function serpFeatureDisappearedCopy(featureLabel: string, query: string): string {
+  return (
+    "Google dropped " +
+    featureLabel +
+    ' for "' +
+    query +
+    '", so the classic top link matters more here again. Keep this page sharp on the basics to hold the top spot.'
+  );
+}
