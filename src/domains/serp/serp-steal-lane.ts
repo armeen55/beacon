@@ -13,6 +13,8 @@ import {
 } from "@/domains/demand-graph/competitor-page-audit";
 import { canonicalizeCitationUrl } from "@/domains/citation-lifecycle/canonicalize-url";
 import { topicTokens } from "@/domains/evidence/relevance-gate";
+import { loadOwnershipRegistryForTenant } from "@/domains/ownership/registry-loader";
+import { resolveOwner } from "@/domains/ownership/registry";
 import { runSerpQuery, type SerpOrganicItem } from "./dataforseo-serp";
 import { rootDomain } from "./serp-provider";
 
@@ -303,6 +305,16 @@ export type StealBrief = {
   editPointer: { label: string; reason: string } | null;
   /** First-person, dash-clean operator sentence. */
   summary: string;
+  /**
+   * N2 (2026-07-02) - the ownership registry's verdict for this keyword, when
+   * it disagrees with `ourPage` (the GSC highest-clicks attribution this brief
+   * otherwise uses). Never null just because the registry agrees - only set
+   * when the registry names a DIFFERENT owned page, so a caller can flag the
+   * disagreement honestly instead of the edit brief silently strengthening
+   * the wrong page. Absent (undefined) when the registry has no opinion or
+   * agrees with `ourPage`.
+   */
+  registryDisagreement?: { registryOwner: string; basis: string };
 };
 
 const MAX_STRUCTURE_GAPS = 6;
@@ -344,8 +356,16 @@ export function buildStealBrief(input: {
   competitorUrl: string | null;
   audit: { fetchStatus: CompetitorPageAudit["fetchStatus"]; facts: CompetitorPageAudit["facts"] } | null;
   ourPageTopicTokens: readonly string[];
+  /**
+   * N2 (2026-07-02) - the ownership registry's resolved owner for this
+   * keyword, when the caller has one loaded. Optional so this stays a pure,
+   * fully backward-compatible function for every existing caller/test that
+   * does not pass a registry - omitted or agreeing with `keyword.page`
+   * produces byte-identical output to before N2.
+   */
+  registryOwner?: { url: string; basis: string } | null;
 }): StealBrief {
-  const { keyword, serp, competitorUrl, audit, ourPageTopicTokens } = input;
+  const { keyword, serp, competitorUrl, audit, ourPageTopicTokens, registryOwner } = input;
 
   const teardownStatus: StealBriefTeardownStatus =
     !competitorUrl || !audit
@@ -397,11 +417,24 @@ export function buildStealBrief(input: {
         ? ` We already cover this topic, the edit is structure, not new content.`
         : "";
 
-  const summary = `${positionPart}${serpPart}${structurePart}${gapPart}`;
+  // N2 (2026-07-02) - the ownership registry's verdict may disagree with the
+  // GSC-highest-clicks page this brief otherwise strengthens. Never silently
+  // switch the edit target - name the disagreement plainly so the operator
+  // decides, and say so in the brief's own summary sentence.
+  const ourPageUrl = keyword.page || null;
+  const registryDisagreement =
+    registryOwner && ourPageUrl && registryOwner.url !== ourPageUrl
+      ? { registryOwner: registryOwner.url, basis: registryOwner.basis }
+      : undefined;
+  const disagreementPart = registryDisagreement
+    ? ` My ownership registry actually names ${registryDisagreement.registryOwner} as the page that should own this query, not ${ourPageUrl} - I am flagging this instead of guessing which one to strengthen.`
+    : "";
+
+  const summary = `${positionPart}${serpPart}${structurePart}${gapPart}${disagreementPart}`;
 
   return {
     keyword: keyword.query,
-    ourPage: keyword.page || null,
+    ourPage: ourPageUrl,
     ourPosition: keyword.position,
     impressions: keyword.impressions,
     serpSource: serp.source,
@@ -412,6 +445,7 @@ export function buildStealBrief(input: {
     structureGaps,
     editPointer,
     summary,
+    ...(registryDisagreement ? { registryDisagreement } : {}),
   };
 }
 
@@ -489,6 +523,11 @@ export async function runStealLaneForTenant(
   const nowMs = nowFn().getTime();
 
   const existingDrafts = await getLatestMoveDrafts(tenantId).catch(() => new Map());
+  // N2 (2026-07-02) - load the ownership registry ONCE for the whole run so every
+  // brief can check whether it agrees with `keyword.page` (the GSC-highest-clicks
+  // attribution this lane otherwise trusts alone). Fail-soft -> no registry, every
+  // brief just omits registryDisagreement (byte-identical pre-N2 behavior).
+  const registry = await loadOwnershipRegistryForTenant(tenantId).catch(() => null);
 
   let teardownsTorndown = 0;
   const briefs: StealBrief[] = [];
@@ -516,8 +555,10 @@ export async function runStealLaneForTenant(
     // teardown-library.ts's job when it composes this for the UI - here we
     // stay $0/no-extra-I/O and let the gap check be conservative).
     const ourPageTopicTokens = topicTokens(keyword.query);
+    const registryEntry = registry ? resolveOwner(registry, keyword.query) : null;
+    const registryOwner = registryEntry?.owner ? { url: registryEntry.owner, basis: registryEntry.basis } : null;
 
-    const brief = buildStealBrief({ keyword, serp, competitorUrl: candidateUrl, audit, ourPageTopicTokens });
+    const brief = buildStealBrief({ keyword, serp, competitorUrl: candidateUrl, audit, ourPageTopicTokens, registryOwner });
     briefs.push(brief);
 
     if (brief.teardownStatus === "torn_down" || brief.teardownStatus === "blocked") {

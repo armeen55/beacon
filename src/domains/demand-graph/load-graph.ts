@@ -50,7 +50,8 @@ import {
 import { attachProfoundEvidenceToMoves } from "./profound-evidence-fusion";
 import { collapseCreatePageSiblings } from "./collapse-create-page-siblings";
 import { checkTopicCoherence } from "./topic-coherence-gate";
-import { gateCreatePageOwnership } from "./create-page-ownership-gate";
+import { gateCreatePageOwnershipWithRegistry } from "./create-page-ownership-gate";
+import { loadOwnershipRegistryForTenant } from "@/domains/ownership/registry-loader";
 import { isUnparseableLabel } from "./clean-topic-label";
 import { readAllCachedKeywordDemand, type KeywordDemand } from "@/domains/serp/dataforseo-keywords";
 import { getLatestMoveDrafts } from "./move-draft-store";
@@ -595,9 +596,21 @@ export async function loadDemandGraphForTenant(
   // (ground-truth: "Persian Literature" pitched as missing while iranopedia.com's own
   // URL was in the cited pages). Runs right after the AEO attach (needs aeoEvidence)
   // and BEFORE canonicalization (a reclassified move must not merge as a sibling).
-  let ownershipReclassified: ReturnType<typeof gateCreatePageOwnership>["changes"] = [];
+  //
+  // N2 (2026-07-02), extended to a SUPERSET check: the ownership registry
+  // (src/domains/ownership/registry.ts) also knows when Google's own GSC
+  // impressions or a SERP-overlap intent cluster already send this topic to
+  // one of the tenant's own pages, even when AI never cited it. Reuses the
+  // GSC signal map already loaded above (no second GSC read); the registry's
+  // own two reads (GSC cannibalization RPC + intent clusters) are the only
+  // new I/O, and both are already-computed, already-stored, $0 sources other
+  // engines read too. Fail-soft: a registry load failure just means this run
+  // falls back to the citation-only gate (`gateCreatePageOwnershipWithRegistry`
+  // treats a missing/empty registry as a no-op superset).
+  let ownershipReclassified: ReturnType<typeof gateCreatePageOwnershipWithRegistry>["changes"] = [];
   try {
-    const gated = gateCreatePageOwnership(moves);
+    const registry = await loadOwnershipRegistryForTenant(tenantId, { gscSignals: gsc, ownDomain: ownedDomain }).catch(() => null);
+    const gated = gateCreatePageOwnershipWithRegistry(moves, registry);
     moves = gated.moves;
     ownershipReclassified = gated.changes;
     if (ownershipReclassified.length > 0) {

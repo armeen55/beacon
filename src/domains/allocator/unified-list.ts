@@ -37,6 +37,7 @@ import type { PersistedGapVerdict } from "@/domains/demand-graph/teardown-common
 import type { StealBrief } from "@/domains/serp/serp-steal-lane";
 import type { KeywordLibraryRow } from "@/domains/research/keyword-library";
 import { normalizePath } from "@/domains/experiments/daily-plan-types";
+import { resolveOwner, type OwnershipRegistry } from "@/domains/ownership/registry";
 
 // ── The unified shape every lane normalizes into ────────────────────────────
 
@@ -318,6 +319,55 @@ export function normalizeKeywordLibraryEntry(tenantId: string, r: KeywordLibrary
     forecastBasis: `${demandClause}${r.competitorOwners.length > 0 ? `, ${r.competitorOwners[0]} already ranks for it` : ""}`,
     hold: { held: false, reason: null },
     sourceChange: null,
+  };
+}
+
+/**
+ * N2 EXTENSION (2026-07-02): `normalizeKeywordLibraryEntry` above only ever knew about
+ * this lane's OWN narrower owner lookup (`KeywordLibraryRow.ownerPage`, sourced from
+ * `loadTopTenantQueriesWithOwner`'s per-query best-owner heuristic). That lookup missed
+ * cases the ownership registry (src/domains/ownership/registry.ts) already resolves from
+ * a superset of signal (GSC cannibalization ranks or a SERP-overlap intent cluster), so a
+ * keyword-library row could present as a missing/new-page opportunity ("name iran") when
+ * a tenant page already owns that topic.
+ *
+ * `normalizeKeywordLibraryEntryWithRegistry` is the registry-aware superset of
+ * `normalizeKeywordLibraryEntry`: it normalizes exactly as before, then, ONLY for a row
+ * that came out as a `notOwned` create candidate, checks the row's keyword against the
+ * registry. When the registry already names an owner, the entry is reclassified to an
+ * `edit` entry pointed at that owner, honest reason string included, mirroring
+ * `gateCreatePageOwnershipWithRegistry`'s reclassify-not-drop convention exactly. A row
+ * the lane already resolved to an owner (`ownerPage` present) is untouched, and any row
+ * the registry does not resolve is untouched, so a caller with no registry (or an empty
+ * one) gets byte-identical output to `normalizeKeywordLibraryEntry` alone.
+ */
+export function normalizeKeywordLibraryEntryWithRegistry(
+  tenantId: string,
+  r: KeywordLibraryRow,
+  registry: OwnershipRegistry | null | undefined,
+): UnifiedEntry {
+  const base = normalizeKeywordLibraryEntry(tenantId, r);
+  if (base.kind !== "create" || !registry || registry.byQuery.size === 0) return base;
+
+  const entry = resolveOwner(registry, r.keyword);
+  if (!entry || !entry.owner) return base;
+
+  const page = normalizePath(entry.owner);
+  const basisClause = entry.basis === "gsc_ranks" ? "Google sends it the most impressions" : "a SERP-overlap intent cluster ranks it best";
+  const demandClause = r.searchesPerMo != null
+    ? `about ${r.searchesPerMo.toLocaleString("en-US")} searches a month`
+    : r.timesShownPerMo != null
+      ? `about ${r.timesShownPerMo.toLocaleString("en-US")} times shown on Google a month`
+      : "real demand with no volume number yet";
+
+  return {
+    ...base,
+    kind: "edit",
+    page,
+    topic: null,
+    pageLabel: page,
+    exactWhat: `Improve ${page} for "${r.keyword}" - the ownership registry already names it the owner of this topic (${basisClause}), and it gets ${demandClause}.`,
+    forecastBasis: `Ownership registry (${entry.basis}) already names an owner for this topic, reclassified create -> edit (${page}).`,
   };
 }
 

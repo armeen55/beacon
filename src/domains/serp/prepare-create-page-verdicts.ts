@@ -15,6 +15,8 @@ import { evaluateCreatePageBriefQuality } from "@/domains/drafts/draft-quality";
 import { runBulkKeywordDifficulty, runBulkDomainRanks, runBacklinksSummary } from "./dataforseo-labs";
 import type { Winnability } from "./winnability";
 import { checkTopicCoherence } from "@/domains/demand-graph/topic-coherence-gate";
+import { loadOwnershipRegistryForTenant } from "@/domains/ownership/registry-loader";
+import { resolveOwner } from "@/domains/ownership/registry";
 
 /**
  * prepare-create-page-verdicts (2026-06-25, Phase 4-auto) - the "prepared, not a
@@ -74,6 +76,12 @@ export type PrepareSummary = {
    *  BEFORE spending a SERP call on them. Honest, never silent: "skipped 3 that
    *  failed my quality check". Empty on a clean run. */
   skippedQualityGate: { label: string; reason: string }[];
+  /** N2 (2026-07-02) - candidates the ownership registry already resolves to an
+   *  owned page (Google ranks, or a SERP-overlap intent cluster) and were skipped
+   *  BEFORE spending a SERP call or an LLM brief on them - the registry's
+   *  enforcement at the "spend money treating this as new" choke point. Empty
+   *  when the registry has no opinion on any candidate this run. */
+  skippedOwnedByRegistry: { label: string; owner: string; basis: string }[];
 };
 
 /** Item 18: bound the backlinks read to a small, cheap set of URLs per run (not per candidate). */
@@ -120,7 +128,18 @@ export async function prepareCreatePageVerdicts(
 ): Promise<PrepareSummary> {
   const max = opts.maxValidations ?? 25;
   const now = opts.now ?? (() => new Date());
-  const summary: PrepareSummary = { validated: 0, cached: 0, skipped: 0, briefs: 0, costUsd: 0, briefCostUsd: 0, capped: false, winnabilityCostUsd: 0, skippedQualityGate: [] };
+  const summary: PrepareSummary = {
+    validated: 0,
+    cached: 0,
+    skipped: 0,
+    briefs: 0,
+    costUsd: 0,
+    briefCostUsd: 0,
+    capped: false,
+    winnabilityCostUsd: 0,
+    skippedQualityGate: [],
+    skippedOwnedByRegistry: [],
+  };
 
   let graph;
   try {
@@ -157,6 +176,34 @@ export async function prepareCreatePageVerdicts(
       tenantId,
       skipped: summary.skippedQualityGate.map((s) => s.label),
     });
+  }
+
+  // N2 (2026-07-02) - ownership registry enforcement: never spend a live SERP call or
+  // an LLM brief pitching a candidate as "new" when the registry already resolves its
+  // topic to an owned page (Google ranks, or a SERP-overlap intent cluster). The
+  // upstream demand-graph gate (`gateCreatePageOwnershipWithRegistry` in load-graph.ts)
+  // already reclassifies most of these away from `create_page` before this function
+  // ever sees them; this is the SAME rule applied a second, independent time at the
+  // money-spending choke point itself, so a stale/failed upstream registry read can
+  // never let a registry-owned topic slip through and get a paid SERP call + LLM brief.
+  const registry = await loadOwnershipRegistryForTenant(tenantId).catch(() => null);
+  if (registry && registry.byQuery.size > 0) {
+    const stillCreate: typeof createMoves = [];
+    for (const m of createMoves) {
+      const entry = resolveOwner(registry, m.label);
+      if (entry && entry.owner) {
+        summary.skippedOwnedByRegistry.push({ label: m.label, owner: entry.owner, basis: entry.basis });
+      } else {
+        stillCreate.push(m);
+      }
+    }
+    createMoves = stillCreate;
+    if (summary.skippedOwnedByRegistry.length > 0) {
+      log.info("[prepare-verdicts] skipped candidates the ownership registry already resolves to an owned page", {
+        tenantId,
+        skipped: summary.skippedOwnedByRegistry.map((s) => `${s.label} -> ${s.owner} (${s.basis})`),
+      });
+    }
   }
 
   // Optional: skip candidates that already have a fresh serp_verdict (re-validate only

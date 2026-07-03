@@ -110,6 +110,8 @@ import { connectorFailureStreak } from "./triggers/connector-failure-streak";
 import { intentClusterConflict } from "./triggers/intent-cluster-conflict";
 import { loadIntentClustersForTenant } from "@/domains/serp/intent-clusters-loader";
 import type { IntentCluster } from "@/domains/serp/intent-clusters";
+import { loadOwnershipRegistryForTenant } from "@/domains/ownership/registry-loader";
+import { registryGscConflictsAsClusters } from "@/domains/ownership/registry";
 import {
   buildOwnAliasSet,
   loadProfoundTopicSignalsForTenant,
@@ -463,6 +465,24 @@ export async function loadTriggerCandidatesForTenant(options: {
   } catch (err) {
     console.error(
       `[trigger-loader] intent-cluster load failed for ${tenantId} (intent_cluster_conflict skips): ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+  // N2 (2026-07-02) - the ownership registry's OWN conflict surface (item 3): a
+  // gsc_ranks-basis conflict (2+ owned pages splitting one query's Google
+  // impressions - gsc-cannibalization.ts, a signal intent-clusters.ts never
+  // reads) converted into the SAME IntentCluster shape and folded into the
+  // list `intentClusterConflict` below already consumes. ONE emission code
+  // path -> one merge_pages card per real conflict, never a duplicate from a
+  // second trigger. Reuses the SAME registry loader other N2 choke points call
+  // (per-request cached), so this adds no new I/O beyond what N2 already pays
+  // for elsewhere this render. Fail-soft -> intentClusters alone.
+  try {
+    const registry = await loadOwnershipRegistryForTenant(tenantId, { gscSignals, ownDomain: businessConfig.domain ?? null });
+    const gscConflictClusters = registryGscConflictsAsClusters(registry);
+    if (gscConflictClusters.length > 0) intentClusters = [...intentClusters, ...gscConflictClusters];
+  } catch (err) {
+    console.error(
+      `[trigger-loader] ownership-registry conflict load failed for ${tenantId} (registry gsc_ranks conflicts skip): ${err instanceof Error ? err.message : String(err)}`,
     );
   }
 

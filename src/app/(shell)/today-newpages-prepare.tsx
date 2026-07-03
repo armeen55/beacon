@@ -31,7 +31,13 @@ export function NewPagesPrepareButton({ alreadyPrepared, total }: { alreadyPrepa
         const qualityNote = s.skippedQualityGate.length > 0
           ? ` · skipped ${s.skippedQualityGate.length} that failed my quality check`
           : "";
-        setMsg(`Prepared ${s.validated + s.cached} (${s.cached} cached) · $${s.costUsd.toFixed(3)}${s.capped ? " · cap hit" : ""}${qualityNote}`);
+        // N2 (2026-07-02) - the ownership registry already resolved these to an
+        // owned page (Google ranks or a SERP-overlap cluster), so I did not spend
+        // a SERP check pitching them as new.
+        const ownedNote = s.skippedOwnedByRegistry.length > 0
+          ? ` · skipped ${s.skippedOwnedByRegistry.length} I already own`
+          : "";
+        setMsg(`Prepared ${s.validated + s.cached} (${s.cached} cached) · $${s.costUsd.toFixed(3)}${s.capped ? " · cap hit" : ""}${qualityNote}${ownedNote}`);
         router.refresh();
       } catch {
         setMsg("Prepare failed, try again.");

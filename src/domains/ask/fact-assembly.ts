@@ -28,6 +28,8 @@ import { loadKeywordLibrary } from "@/domains/research/keyword-library";
 import { loadCronHealthView } from "@/domains/ops/cron-health-view";
 import { readPipelineHealth } from "@/domains/ops/pipeline-health-store";
 import { readPublishHealth } from "@/domains/push/publish-canary-store";
+import { loadOwnershipRegistryForTenant } from "@/domains/ownership/registry-loader";
+import { resolveOwner } from "@/domains/ownership/registry";
 import type { RoutedQuestion } from "./router";
 import type { AskDossier, AskFact } from "./types";
 
@@ -88,6 +90,23 @@ async function assemblePageFacts(tenantId: string, pagePath: string): Promise<As
         href,
       ),
     );
+    // N2 (2026-07-02) - one-line ownership-registry cite: name the registry's
+    // owner for this page's top query, and say so plainly when a DIFFERENT
+    // page actually owns it (the honest "you may be fighting yourself" answer).
+    try {
+      const registry = await loadOwnershipRegistryForTenant(tenantId);
+      const topQuery = top[0]?.query;
+      const entry = topQuery ? resolveOwner(registry, topQuery) : null;
+      if (entry?.owner) {
+        facts.push(
+          entry.owner === pagePath || entry.owner.endsWith(pagePath)
+            ? fact(`My ownership registry confirms ${pagePath} owns "${entry.key}" (${entry.basis === "gsc_ranks" ? "Google sends it the most impressions" : "a SERP-overlap cluster ranks it best"}).`, "gsc", href)
+            : fact(`My ownership registry says ${entry.owner} owns "${entry.key}", not ${pagePath} - that is worth checking before editing this page for that query.`, "gsc", href),
+        );
+      }
+    } catch {
+      /* additive fact only - never affect the rest of the dossier */
+    }
   }
 
   if (dossier.teamReads.funnel) {

@@ -4,6 +4,7 @@ import {
   normalizeGapVerdictEntry,
   normalizeStealBriefEntry,
   normalizeKeywordLibraryEntry,
+  normalizeKeywordLibraryEntryWithRegistry,
   selectKeywordLibraryGaps,
   fuseByPage,
   rankUnifiedEntries,
@@ -21,6 +22,8 @@ import type { CanonicalChange } from "@/domains/changes/canonical-change";
 import type { PersistedGapVerdict } from "@/domains/demand-graph/teardown-commonality-verdict";
 import type { StealBrief } from "@/domains/serp/serp-steal-lane";
 import type { KeywordLibraryRow } from "@/domains/research/keyword-library";
+import { buildOwnershipRegistry, type OwnershipRegistry } from "@/domains/ownership/registry";
+import type { GscCannibalizationCase } from "@/domains/recommendation-intelligence/gsc-cannibalization";
 
 const TENANT = "tenant-test";
 
@@ -256,6 +259,89 @@ describe("selectKeywordLibraryGaps + normalizeKeywordLibraryEntry (lane d)", () 
   it("normalizes an owned close-to-page-1 row to an edit entry", () => {
     const e = normalizeKeywordLibraryEntry(TENANT, kwRow({ ownerPage: "https://x.com/close", yourPosition: 14 }));
     expect(e.kind).toBe("edit");
+    expect(e.page).toBe("/close");
+  });
+});
+
+function cannibalCase(over: Partial<GscCannibalizationCase> & { query: string }): GscCannibalizationCase {
+  return {
+    competingUrls: [],
+    urlCount: 0,
+    totalClicks: 0,
+    totalImpressions: 0,
+    leadUrl: "",
+    bestPosition: 0,
+    weightedPosition: 0,
+    ...over,
+  };
+}
+
+describe("normalizeKeywordLibraryEntryWithRegistry (N2 extension, lane d)", () => {
+  it("is byte-identical to normalizeKeywordLibraryEntry when no registry is passed", () => {
+    const row = kwRow({ keyword: "name iran" });
+    const without = normalizeKeywordLibraryEntry(TENANT, row);
+    expect(normalizeKeywordLibraryEntryWithRegistry(TENANT, row, null)).toEqual(without);
+    expect(normalizeKeywordLibraryEntryWithRegistry(TENANT, row, undefined)).toEqual(without);
+  });
+
+  it("is byte-identical when the registry is empty (fresh tenant, no data)", () => {
+    const row = kwRow({ keyword: "name iran" });
+    const emptyRegistry: OwnershipRegistry = { byQuery: new Map(), conflicts: [], coverage: { totalQueries: 0, gscBasisCount: 0, serpClusterBasisCount: 0, unresolvedCount: 0 } };
+    expect(normalizeKeywordLibraryEntryWithRegistry(TENANT, row, emptyRegistry)).toEqual(normalizeKeywordLibraryEntry(TENANT, row));
+  });
+
+  it("reclassifies a not-owned row the registry already resolves to an owner (gsc_ranks) into an edit entry", () => {
+    const row = kwRow({ keyword: "name iran", searchesPerMo: 800 });
+    const registry = buildOwnershipRegistry({
+      cannibalization: [
+        cannibalCase({
+          query: "name iran",
+          totalImpressions: 500,
+          competingUrls: [{ url: "https://iranopedia.com/iranian-names", clicks: 20, impressions: 500, position: 2 }],
+        }),
+      ],
+      clusters: [],
+    });
+    const e = normalizeKeywordLibraryEntryWithRegistry(TENANT, row, registry);
+    expect(e.kind).toBe("edit");
+    expect(e.topic).toBeNull();
+    expect(e.page).toBe("/iranian-names");
+    expect(e.exactWhat).toContain("ownership registry");
+    expect(e.exactWhat).not.toMatch(/[–—]/); // no en/em dash
+    expect(e.forecastBasis).toContain("gsc_ranks");
+  });
+
+  it("leaves a genuine gap untouched when the registry has no opinion on this keyword", () => {
+    const row = kwRow({ keyword: "totally uncovered topic" });
+    const registry = buildOwnershipRegistry({
+      cannibalization: [
+        cannibalCase({
+          query: "unrelated query",
+          totalImpressions: 500,
+          competingUrls: [{ url: "https://iranopedia.com/other", clicks: 20, impressions: 500, position: 2 }],
+        }),
+      ],
+      clusters: [],
+    });
+    const e = normalizeKeywordLibraryEntryWithRegistry(TENANT, row, registry);
+    expect(e.kind).toBe("create");
+    expect(e).toEqual(normalizeKeywordLibraryEntry(TENANT, row));
+  });
+
+  it("never touches a row the lane's own ownerPage lookup already resolved to an edit", () => {
+    const row = kwRow({ keyword: "close", ownerPage: "https://x.com/close", yourPosition: 14 });
+    const registry = buildOwnershipRegistry({
+      cannibalization: [
+        cannibalCase({
+          query: "close",
+          totalImpressions: 500,
+          competingUrls: [{ url: "https://iranopedia.com/some-other-page", clicks: 20, impressions: 500, position: 2 }],
+        }),
+      ],
+      clusters: [],
+    });
+    const e = normalizeKeywordLibraryEntryWithRegistry(TENANT, row, registry);
+    expect(e).toEqual(normalizeKeywordLibraryEntry(TENANT, row));
     expect(e.page).toBe("/close");
   });
 });

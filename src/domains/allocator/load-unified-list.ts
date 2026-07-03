@@ -20,16 +20,28 @@ import "server-only";
  *       loadKeywordLibrary, filtered by selectKeywordLibraryGaps.
  *
  * Every lane is fail-soft so one source outage narrows the fused set, it never blanks the list.
+ *
+ * N2 EXTENSION (2026-07-02): lane (d) used only its own narrower per-query owner lookup
+ * (`KeywordLibraryRow.ownerPage`), which missed cases the ownership registry (src/domains/
+ * ownership/registry.ts) already resolves from GSC-rank or SERP-cluster evidence, so a
+ * keyword-library row could pitch an already-owned topic as missing (e.g. "name iran").
+ * This reads the SAME cached registry loader `load-graph.ts`/`prepare-create-page-verdicts.ts`
+ * already use (`loadOwnershipRegistryForTenantCached`, React `cache()`-deduped - no new I/O
+ * when another engine already loaded it this render) and hands it to
+ * `normalizeKeywordLibraryEntryWithRegistry`, which reclassifies a registry-owned row to an
+ * edit entry instead of dropping it. Fail-soft: a registry load failure falls back to `null`,
+ * which the normalizer treats as a no-op superset (byte-identical to the un-extended lane).
  */
 import type { CanonicalChange } from "@/domains/changes/canonical-change";
 import { loadGapVerdictsForTenant } from "@/domains/demand-graph/native-teardown-runner";
 import { loadStealBriefsForTenant } from "@/domains/serp/serp-steal-lane";
 import { loadKeywordLibrary } from "@/domains/research/keyword-library";
+import { loadOwnershipRegistryForTenantCached } from "@/domains/ownership/registry-loader";
 import {
   normalizeWorklistEntry,
   normalizeGapVerdictEntry,
   normalizeStealBriefEntry,
-  normalizeKeywordLibraryEntry,
+  normalizeKeywordLibraryEntryWithRegistry,
   selectKeywordLibraryGaps,
   buildUnifiedList,
   unifiedEntryToCanonicalChange,
@@ -50,10 +62,11 @@ export type UnifiedListResult = {
  * tail so the caller's total count stays honest.
  */
 export async function fuseUnifiedList(tenantId: string, worklistChanges: readonly CanonicalChange[]): Promise<UnifiedListResult> {
-  const [gapVerdicts, stealBriefs, keywordLibrary] = await Promise.all([
+  const [gapVerdicts, stealBriefs, keywordLibrary, ownershipRegistry] = await Promise.all([
     loadGapVerdictsForTenant(tenantId).catch(() => []),
     loadStealBriefsForTenant(tenantId).catch(() => []),
     loadKeywordLibrary().catch(() => ({ rows: [], volumeCoverage: 0, total: 0, bySource: {} as never })),
+    loadOwnershipRegistryForTenantCached(tenantId).catch(() => null),
   ]);
 
   const worklistEntries = worklistChanges.filter((c) => c.status !== "skipped").map(normalizeWorklistEntry);
@@ -66,7 +79,9 @@ export async function fuseUnifiedList(tenantId: string, worklistChanges: readonl
   const alreadyCoveredPaths = new Set<string>(
     [...worklistEntries, ...gapEntries, ...stealEntries].map((e) => e.page).filter((p): p is string => !!p),
   );
-  const keywordEntries = selectKeywordLibraryGaps(keywordLibrary.rows, alreadyCoveredPaths).map((r) => normalizeKeywordLibraryEntry(tenantId, r));
+  const keywordEntries = selectKeywordLibraryGaps(keywordLibrary.rows, alreadyCoveredPaths).map((r) =>
+    normalizeKeywordLibraryEntryWithRegistry(tenantId, r, ownershipRegistry),
+  );
 
   const unifiedEntries = buildUnifiedList([...worklistEntries, ...gapEntries, ...stealEntries, ...keywordEntries]);
   const skippedChanges = worklistChanges.filter((c) => c.status === "skipped");

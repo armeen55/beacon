@@ -297,6 +297,58 @@ describe("buildStealBrief", () => {
   });
 });
 
+describe("buildStealBrief / N2 registry disagreement", () => {
+  const keyword: BeatenKeyword = {
+    query: "persian rug cleaning",
+    page: "https://iranopedia.com/rugs/cleaning",
+    clicks: 12,
+    impressions: 1400,
+    position: 7.4,
+  };
+  const serp: SerpTop5Result = {
+    query: "persian rug cleaning",
+    source: "stored_history",
+    items: [{ rank: 1, domain: "rivalrugs.com", url: "https://rivalrugs.com/cleaning-guide" }],
+    capturedAt: "2026-06-25T00:00:00.000Z",
+  };
+  const base = { keyword, serp, competitorUrl: null, audit: null, ourPageTopicTokens: [] };
+
+  it("omits registryDisagreement (byte-identical to pre-N2) when no registryOwner is passed", () => {
+    const withField = buildStealBrief(base);
+    const withUndefined = buildStealBrief({ ...base, registryOwner: undefined });
+    const withNull = buildStealBrief({ ...base, registryOwner: null });
+    expect(withField).toEqual(withUndefined);
+    expect(withField).toEqual(withNull);
+    expect(withField.registryDisagreement).toBeUndefined();
+  });
+
+  it("omits registryDisagreement when the registry AGREES with keyword.page", () => {
+    const brief = buildStealBrief({ ...base, registryOwner: { url: keyword.page, basis: "gsc_ranks" } });
+    expect(brief.registryDisagreement).toBeUndefined();
+  });
+
+  it("flags (never silently switches) when the registry names a DIFFERENT owner", () => {
+    const brief = buildStealBrief({
+      ...base,
+      registryOwner: { url: "https://iranopedia.com/rugs/main", basis: "gsc_ranks" },
+    });
+    expect(brief.registryDisagreement).toEqual({ registryOwner: "https://iranopedia.com/rugs/main", basis: "gsc_ranks" });
+    // ourPage is UNCHANGED, never silently switched to the registry's pick.
+    expect(brief.ourPage).toBe(keyword.page);
+    expect(brief.summary).toContain("https://iranopedia.com/rugs/main");
+    expect(brief.summary).not.toMatch(/[–—]/);
+  });
+
+  it("never flags a disagreement when keyword.page is unknown (nothing to disagree with)", () => {
+    const brief = buildStealBrief({
+      ...base,
+      keyword: { ...keyword, page: "" },
+      registryOwner: { url: "https://iranopedia.com/rugs/main", basis: "serp_cluster" },
+    });
+    expect(brief.registryDisagreement).toBeUndefined();
+  });
+});
+
 describe("stealBriefDraftKey / parseStealBrief", () => {
   it("produces a stable, lowercased, trimmed key", () => {
     expect(stealBriefDraftKey("  Persian Rugs  ")).toBe("steal:persian rugs");

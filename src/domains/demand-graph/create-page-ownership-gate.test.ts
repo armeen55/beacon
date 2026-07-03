@@ -1,5 +1,7 @@
 import { describe, it, expect } from "vitest";
-import { gateCreatePageOwnership } from "./create-page-ownership-gate";
+import { gateCreatePageOwnership, gateCreatePageOwnershipWithRegistry } from "./create-page-ownership-gate";
+import { buildOwnershipRegistry, type OwnershipRegistry } from "@/domains/ownership/registry";
+import type { GscCannibalizationCase } from "@/domains/recommendation-intelligence/gsc-cannibalization";
 import type { MoveCandidate } from "./build-graph";
 import type { AeoEvidence } from "./profound-evidence-fusion";
 
@@ -93,6 +95,101 @@ describe("gateCreatePageOwnership", () => {
     });
     const result = gateCreatePageOwnership([move]);
     expect(result.moves[0].gap).toBe("edit_page");
+    expect(result.changes.length).toBe(0);
+  });
+});
+
+function cannibalCase(over: Partial<GscCannibalizationCase> & { query: string }): GscCannibalizationCase {
+  return {
+    competingUrls: [],
+    urlCount: 0,
+    totalClicks: 0,
+    totalImpressions: 0,
+    leadUrl: "",
+    bestPosition: 0,
+    weightedPosition: 0,
+    ...over,
+  };
+}
+
+describe("gateCreatePageOwnershipWithRegistry (N2)", () => {
+  it("is byte-identical to gateCreatePageOwnership when no registry is passed", () => {
+    const move = mv({ demandKey: "gap:travel", label: "Travel Iran Beautiful Natural Wonders", gap: "create_page", aeoEvidence: evidence({ ownCitationCount: 0 }) });
+    const withoutRegistry = gateCreatePageOwnership([move]);
+    expect(gateCreatePageOwnershipWithRegistry([move], null)).toEqual(withoutRegistry);
+    expect(gateCreatePageOwnershipWithRegistry([move], undefined)).toEqual(withoutRegistry);
+  });
+
+  it("is byte-identical when the registry is empty (no queries resolved)", () => {
+    const move = mv({ demandKey: "gap:travel", label: "Travel Iran Beautiful Natural Wonders", gap: "create_page", aeoEvidence: evidence({ ownCitationCount: 0 }) });
+    const emptyRegistry: OwnershipRegistry = { byQuery: new Map(), conflicts: [], coverage: { totalQueries: 0, gscBasisCount: 0, serpClusterBasisCount: 0, unresolvedCount: 0 } };
+    expect(gateCreatePageOwnershipWithRegistry([move], emptyRegistry)).toEqual(gateCreatePageOwnership([move]));
+  });
+
+  it("reclassifies a create_page candidate the registry already resolves to an owned page (gsc_ranks), even with zero AI citations", () => {
+    const move = mv({ demandKey: "gap:names", label: "Persian Male Names", gap: "create_page", aeoEvidence: evidence({ ownCitationCount: 0 }) });
+    const registry = buildOwnershipRegistry({
+      cannibalization: [
+        cannibalCase({
+          query: "persian male names",
+          totalImpressions: 500,
+          competingUrls: [{ url: "https://iranopedia.com/persian-male-names", clicks: 20, impressions: 500, position: 2 }],
+        }),
+      ],
+      clusters: [],
+    });
+    const result = gateCreatePageOwnershipWithRegistry([move], registry);
+    expect(result.moves.length).toBe(1);
+    expect(result.moves[0].gap).toBe("edit_page");
+    expect(result.moves[0].ownedUrl).toBe("https://iranopedia.com/persian-male-names");
+    expect(result.changes[0].action).toBe("reclassified");
+    expect(result.changes[0].reason).toContain("gsc_ranks");
+  });
+
+  it("the citation gate still runs FIRST, a Move it already reclassifies is never re-processed by the registry", () => {
+    const move = mv({
+      demandKey: "gap:literature-persian",
+      label: "Persian Literature",
+      gap: "create_page",
+      aeoEvidence: evidence({
+        ownCitationCount: 2,
+        topCitedPages: [{ url: "https://iranopedia.com/persian-literature", hostname: "iranopedia.com", isOwned: true, answers: 2 }],
+      }),
+    });
+    // A registry that would (if it ran on the ORIGINAL move) name a DIFFERENT owner,
+    // proving the citation gate's result, not the original label, is what the registry checks.
+    const registry = buildOwnershipRegistry({
+      cannibalization: [
+        cannibalCase({
+          query: "persian literature",
+          totalImpressions: 500,
+          competingUrls: [{ url: "https://iranopedia.com/some-other-page", clicks: 20, impressions: 500, position: 2 }],
+        }),
+      ],
+      clusters: [],
+    });
+    const result = gateCreatePageOwnershipWithRegistry([move], registry);
+    expect(result.moves[0].gap).toBe("edit_page");
+    // Citation gate's own owned URL wins, the registry never re-touches a non-create_page move.
+    expect(result.moves[0].ownedUrl).toBe("https://iranopedia.com/persian-literature");
+    expect(result.changes.length).toBe(1);
+    expect(result.changes[0].reason).not.toContain("registry");
+  });
+
+  it("leaves a genuine create_page candidate untouched when the registry has no opinion", () => {
+    const move = mv({ demandKey: "gap:travel", label: "Travel Iran Beautiful Natural Wonders", gap: "create_page", aeoEvidence: evidence({ ownCitationCount: 0 }) });
+    const registry = buildOwnershipRegistry({
+      cannibalization: [
+        cannibalCase({
+          query: "totally unrelated query",
+          totalImpressions: 500,
+          competingUrls: [{ url: "https://iranopedia.com/other", clicks: 20, impressions: 500, position: 2 }],
+        }),
+      ],
+      clusters: [],
+    });
+    const result = gateCreatePageOwnershipWithRegistry([move], registry);
+    expect(result.moves[0].gap).toBe("create_page");
     expect(result.changes.length).toBe(0);
   });
 });

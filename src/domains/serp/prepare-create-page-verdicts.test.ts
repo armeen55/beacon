@@ -14,12 +14,16 @@ vi.mock("./dataforseo-labs", () => ({
   runBulkDomainRanks: vi.fn(),
   runBacklinksSummary: vi.fn(),
 }));
+vi.mock("@/domains/ownership/registry-loader", () => ({ loadOwnershipRegistryForTenant: vi.fn(async () => null) }));
 
 import { prepareCreatePageVerdicts, parsePreparedVerdict } from "./prepare-create-page-verdicts";
 import { loadDemandGraphForTenant } from "@/domains/demand-graph/load-graph";
 import { saveMoveDraft } from "@/domains/demand-graph/move-draft-store";
 import { runSerpQuery } from "./dataforseo-serp";
 import { runBulkKeywordDifficulty, runBulkDomainRanks, runBacklinksSummary } from "./dataforseo-labs";
+import { loadOwnershipRegistryForTenant } from "@/domains/ownership/registry-loader";
+import { buildOwnershipRegistry } from "@/domains/ownership/registry";
+import type { GscCannibalizationCase } from "@/domains/recommendation-intelligence/gsc-cannibalization";
 
 type Move = {
   demandKey: string;
@@ -65,7 +69,21 @@ beforeEach(() => {
   vi.mocked(runBulkKeywordDifficulty).mockResolvedValue({ status: "dry_run", plan: {} as never, rows: [], costUsd: 0, detail: "dry" } as never);
   vi.mocked(runBulkDomainRanks).mockResolvedValue({ status: "dry_run", plan: {} as never, rows: [], costUsd: 0, detail: "dry" } as never);
   vi.mocked(runBacklinksSummary).mockResolvedValue({ status: "dry_run", plan: {} as never, rows: [], costUsd: 0, detail: "dry" } as never);
+  vi.mocked(loadOwnershipRegistryForTenant).mockResolvedValue(null as never);
 });
+
+function cannibalCase(over: Partial<GscCannibalizationCase> & { query: string }): GscCannibalizationCase {
+  return {
+    competingUrls: [],
+    urlCount: 0,
+    totalClicks: 0,
+    totalImpressions: 0,
+    leadUrl: "",
+    bestPosition: 0,
+    weightedPosition: 0,
+    ...over,
+  };
+}
 
 describe("prepareCreatePageVerdicts + winnability integration (item 18)", () => {
   it("BATCHES difficulty/domain-rank/backlinks reads ONCE per run, not per candidate", async () => {
@@ -207,5 +225,50 @@ describe("prepareCreatePageVerdicts — UX0 quality gate (Prepare-all safety)", 
   it("a clean run reports an empty skippedQualityGate list", async () => {
     const summary = await prepareCreatePageVerdicts("tenant-iranopedia", { skipBriefs: true });
     expect(summary.skippedQualityGate).toEqual([]);
+  });
+});
+
+describe("prepareCreatePageVerdicts, N2 ownership registry enforcement", () => {
+  it("is byte-identical to pre-N2 behavior when the registry is null (no registry data)", async () => {
+    vi.mocked(loadOwnershipRegistryForTenant).mockResolvedValue(null as never);
+    const summary = await prepareCreatePageVerdicts("tenant-iranopedia", { skipBriefs: true });
+    expect(summary.skippedOwnedByRegistry).toEqual([]);
+    expect(vi.mocked(runSerpQuery)).toHaveBeenCalledTimes(1);
+  });
+
+  it("skips a candidate the registry already resolves to an owned page, never spends a SERP call on it", async () => {
+    const registry = buildOwnershipRegistry({
+      cannibalization: [
+        cannibalCase({
+          query: "persian wedding sofreh",
+          totalImpressions: 500,
+          competingUrls: [{ url: "https://iranopedia.com/wedding-sofreh", clicks: 20, impressions: 500, position: 2 }],
+        }),
+      ],
+      clusters: [],
+    });
+    vi.mocked(loadOwnershipRegistryForTenant).mockResolvedValue(registry as never);
+    const summary = await prepareCreatePageVerdicts("tenant-iranopedia", { skipBriefs: true });
+    expect(summary.skippedOwnedByRegistry).toEqual([
+      { label: "persian wedding sofreh", owner: "https://iranopedia.com/wedding-sofreh", basis: "gsc_ranks" },
+    ]);
+    expect(vi.mocked(runSerpQuery)).not.toHaveBeenCalled();
+  });
+
+  it("leaves a candidate untouched when the registry has no opinion on it", async () => {
+    const registry = buildOwnershipRegistry({
+      cannibalization: [
+        cannibalCase({
+          query: "totally unrelated topic",
+          totalImpressions: 500,
+          competingUrls: [{ url: "https://iranopedia.com/other", clicks: 20, impressions: 500, position: 2 }],
+        }),
+      ],
+      clusters: [],
+    });
+    vi.mocked(loadOwnershipRegistryForTenant).mockResolvedValue(registry as never);
+    const summary = await prepareCreatePageVerdicts("tenant-iranopedia", { skipBriefs: true });
+    expect(summary.skippedOwnedByRegistry).toEqual([]);
+    expect(vi.mocked(runSerpQuery)).toHaveBeenCalledTimes(1);
   });
 });

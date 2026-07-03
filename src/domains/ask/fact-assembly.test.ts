@@ -62,8 +62,16 @@ vi.mock("@/domains/ops/pipeline-health-store", () => ({
 vi.mock("@/domains/push/publish-canary-store", () => ({
   readPublishHealth: vi.fn(async () => null),
 }));
+vi.mock("@/domains/ownership/registry-loader", () => ({
+  loadOwnershipRegistryForTenant: vi.fn(async () => ({
+    byQuery: new Map(),
+    conflicts: [],
+    coverage: { totalQueries: 0, gscBasisCount: 0, serpClusterBasisCount: 0, unresolvedCount: 0 },
+  })),
+}));
 
 import { assembleAskDossier } from "./fact-assembly";
+import { loadOwnershipRegistryForTenant } from "@/domains/ownership/registry-loader";
 import { loadPageDossier } from "@/app/(shell)/page/[...path]/page-dossier-data";
 import { loadDailyTotalsForTenant } from "@/domains/recommendation-intelligence/gsc-page-queries";
 import { loadProofLedgerCached } from "@/domains/proof-gsc/load-ledger";
@@ -121,6 +129,69 @@ describe("ask/fact-assembly - page_specific", () => {
     expect(demandFact).toBeDefined();
     expect(demandFact!.source).toBe("gsc");
     expect(demandFact!.href).toBe("/page/cheetah");
+  });
+
+  it("N2: cites the ownership registry's owner when it agrees with this page", async () => {
+    vi.mocked(loadPageDossier).mockResolvedValueOnce({
+      path: "/cheetah",
+      pageLabel: "Cheetah",
+      hasAnyData: true,
+      chart: { daily: [], shipMarkers: [] },
+      queries: { topQueries: [{ query: "iranian cheetah facts", clicks: 40 }] },
+      teamReads: { demand: null, friction: null, funnel: null, languageGaps: [] },
+      history: [],
+      currentMove: null,
+      currentPlanPick: null,
+    } as never);
+    vi.mocked(loadOwnershipRegistryForTenant).mockResolvedValueOnce({
+      byQuery: new Map([["iranian cheetah facts", { key: "iranian cheetah facts", owner: "/cheetah", basis: "gsc_ranks", contenders: [], confidence: "high", reason: "" }]]),
+      conflicts: [],
+      coverage: { totalQueries: 1, gscBasisCount: 1, serpClusterBasisCount: 0, unresolvedCount: 0 },
+    } as never);
+    const dossier = await assembleAskDossier(routed());
+    const registryFact = dossier.facts.find((f) => f.value.includes("ownership registry"));
+    expect(registryFact?.value).toContain("confirms /cheetah owns");
+  });
+
+  it("N2: flags (never hides) when a DIFFERENT page owns this page's top query", async () => {
+    vi.mocked(loadPageDossier).mockResolvedValueOnce({
+      path: "/cheetah",
+      pageLabel: "Cheetah",
+      hasAnyData: true,
+      chart: { daily: [], shipMarkers: [] },
+      queries: { topQueries: [{ query: "iranian cheetah facts", clicks: 40 }] },
+      teamReads: { demand: null, friction: null, funnel: null, languageGaps: [] },
+      history: [],
+      currentMove: null,
+      currentPlanPick: null,
+    } as never);
+    vi.mocked(loadOwnershipRegistryForTenant).mockResolvedValueOnce({
+      byQuery: new Map([["iranian cheetah facts", { key: "iranian cheetah facts", owner: "/wildlife", basis: "serp_cluster", contenders: [], confidence: "medium", reason: "" }]]),
+      conflicts: [],
+      coverage: { totalQueries: 1, gscBasisCount: 0, serpClusterBasisCount: 1, unresolvedCount: 0 },
+    } as never);
+    const dossier = await assembleAskDossier(routed());
+    const registryFact = dossier.facts.find((f) => f.value.includes("ownership registry"));
+    expect(registryFact?.value).toContain("/wildlife owns");
+    expect(registryFact?.value).toContain("not /cheetah");
+  });
+
+  it("N2: an ownership-registry read failure never blanks the rest of the dossier", async () => {
+    vi.mocked(loadPageDossier).mockResolvedValueOnce({
+      path: "/cheetah",
+      pageLabel: "Cheetah",
+      hasAnyData: true,
+      chart: { daily: [], shipMarkers: [] },
+      queries: { topQueries: [{ query: "iranian cheetah facts", clicks: 40 }] },
+      teamReads: { demand: null, friction: null, funnel: null, languageGaps: [] },
+      history: [],
+      currentMove: null,
+      currentPlanPick: null,
+    } as never);
+    vi.mocked(loadOwnershipRegistryForTenant).mockRejectedValueOnce(new Error("boom"));
+    const dossier = await assembleAskDossier(routed());
+    expect(dossier.facts.some((f) => f.value.includes("Top searches"))).toBe(true);
+    expect(dossier.facts.some((f) => f.value.includes("ownership registry"))).toBe(false);
   });
 
   it("returns an empty dossier (never throws) when loadPageDossier rejects", async () => {
