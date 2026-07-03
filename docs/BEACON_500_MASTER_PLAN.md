@@ -31,10 +31,15 @@ order, and the locked priority function (any stopping point leaves a solo operat
 to stand alone), preferring highest-impact medium-effort work.
 
 QUEUE (strict order; [G] = operator-gated, surface it and continue):
-- [~] R1 (blocked on an external outage, retry each ship cycle). Post-nightly receipts verification: Vercel crons DID fire on schedule (UTC 9:00-12:03 = 2-5 AM PT, confirmed via vercel crons ls + deploy history), but the Supabase data plane has been unreachable for hours from both the local network and Supabase's own management API (project reports ACTIVE_HEALTHY; connections time out at the pooler). Receipts unreadable until it recovers; the just-shipped deadman + error ledger will surface any failed syncs on the app itself. Post-nightly receipts verification (first unattended run ~2 AM PT: cron_runs rows, the
-      one-line cron panel flips to the full table, teardown lanes, ga4_ai_referral_daily,
-      empty-snapshot self-heal on /changes, first multi-lane agree boost). Effort S, gates R5.
-- [x] R2 (2026-07-03). T0c operational deadman: stalled-cron banner when receipts stop, env + cron-registration
+- [x] R1 (2026-07-03, COMPLETE with two root causes). Post-nightly receipts verification found and
+      fixed the real story: (1) the Supabase instance was WEDGED for ~8h (every query died on
+      statement timeout, even Supabase's own health checks took 14s); restarted via the management
+      API, recovered. (2) THE CRONS COULD NEVER RUN: the cron route requires CRON_SECRET which was
+      never set in Vercel, so all 8 scheduled jobs were refused by their own auth check since the
+      check shipped. Secret generated + set in Production + redeployed; the sync then ran end to
+      end (Iranopedia 4/4 sources synced; Ritz honestly failed on its 2 known token issues) and
+      wrote the FIRST REAL RECEIPT to cron_runs (sync-connectors, 114s, ok:false marked honestly
+      partial). Tomorrow's 2 AM run is the first scheduled unattended pass with working auth.
       preflight, uptime/DNS/SSL probes on the tenant site. Rides cron_runs. Effort M.
 - [x] R3 (2026-07-03). T0b one-click recovery: every health card names the exact fix and deep-links it. Effort M.
 - [x] R4 (2026-07-03). /results snapshot layer: apply the proven SWR surface-store pattern to the measurement

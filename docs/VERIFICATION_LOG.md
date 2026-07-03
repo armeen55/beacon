@@ -32584,3 +32584,15 @@ matched steal directives, honest long-shot framing vs strong owners). 44 new tes
 1,261 + 665 + 4,600 + 1,409. Combined gate: typecheck clean, 1,266 targeted green. Ground truth
 on real rows still owed: the Supabase data plane remained unreachable all session (522s), the
 universe store fills on the first healthy nightly.
+
+## 2026-07-03 R1 COMPLETE: two production root causes found and fixed
+(1) Supabase instance wedged ~8h: every statement timed out; postgres logs showed even internal
+health queries at 10-14s. Fixed with a management-API restart; database answered on poll attempt 6.
+(2) CRON_SECRET was never set in Vercel: the cron route fails closed without it, so ALL 8 scheduled
+jobs have been refused since the auth check shipped. This, not code, is why cron_runs was empty,
+why the AI answer feed wrote 0 rows, and why ga4_ai_referral_daily never filled. Fixed: secret
+generated, added to Production env (also in local .env.local), redeployed, then the sync was
+triggered through the real cron path: 200 in 115s, Iranopedia synced GSC + GA4 + Clarity +
+Profound, Ritz honestly failed google_gsc (transient) + google_ga4 (token expired, the recovery
+map's exact case). First real receipt persisted to cron_runs and the deadman/receipts panel now
+runs on real data. Empty worklist snapshot self-heals on the next healthy rebuild.
