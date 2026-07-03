@@ -15,9 +15,77 @@ guidance says AI visibility rides on crawlability, indexing, internal links, tex
 experience, and people-first quality, with no special AI markup required, so correctness and
 content quality outrank AEO accessories.
 
-**Execution rule:** work the Top 50 in order; any T0 item may jump the queue because it protects
-everything else. Tick items here, commit naming them, push branch + main, smoke prod. Full suite
-every 10-12 items. Ground-truth every item on real tenant data.
+**Execution rule:** work the FINAL RANKED EXECUTION LIST below in order. Tick items here, commit
+naming them, push branch + main, smoke prod. Full suite every 10-12 items. Ground-truth every
+item on real tenant data.
+
+---
+
+## FINAL RANKED EXECUTION LIST (2026-07-03, operator directive: merge, dedupe, rank, execute all)
+
+Merged from: every unfinished Top-50/T0/D/UX/pack item below, the pending session-task stragglers,
+and the finished-product campaign follow-ups. Deduplicated (stragglers absorbed: task 73/183
+superseded by FP1 snapshot-first + deadlines; 74/182 live inside T0e; 95 inside P6; 181 closed by
+FP2/FP7 honesty fixes; 162 is operator-gated). Ranked by impact x confidence / effort, dependency
+order, and the locked priority function (any stopping point leaves a solo operator maximally able
+to stand alone), preferring highest-impact medium-effort work.
+
+QUEUE (strict order; [G] = operator-gated, surface it and continue):
+- [ ] R1. Post-nightly receipts verification (first unattended run ~2 AM PT: cron_runs rows, the
+      one-line cron panel flips to the full table, teardown lanes, ga4_ai_referral_daily,
+      empty-snapshot self-heal on /changes, first multi-lane agree boost). Effort S, gates R5.
+- [ ] R2. T0c operational deadman: stalled-cron banner when receipts stop, env + cron-registration
+      preflight, uptime/DNS/SSL probes on the tenant site. Rides cron_runs. Effort M.
+- [ ] R3. T0b one-click recovery: every health card names the exact fix and deep-links it. Effort M.
+- [ ] R4. /results snapshot layer: apply the proven SWR surface-store pattern to the measurement
+      ledger read (FP1's named follow-up) + reconcile the FP8 strip dollar sum with the scoreboard
+      odometer (one rule, one comment). Effort M.
+- [ ] R5. N15+N16 learning depth: effect-size learning (beta-posterior shrinkage, recency half-life)
+      + sustainable control pool (donor repair, median band). First real outcome data arrives
+      tonight; this makes tomorrow smarter than today. Effort M each.
+- [ ] R6. N12 same-query experiment blocking (wire the N2 ownership registry + N14 interference
+      graph into the planner as a hold; floors per N14 notes) + N46 opportunity expiration (stale
+      SERPs, old evidence, seasonal windows leave the queue). Effort M.
+- [ ] R7. N39 production error monitoring with route/tenant/action context (T0 spine) + N40
+      external API contract tests. Effort M.
+- [ ] R8. N5 information-gain gate + N28 scaled-content governor (the two laws that unfreeze the
+      page factories) + N18 snippet-promise audit. Effort M/M/S.
+- [ ] R9. P3 tenant CTR curve (ONE implementation: fit from own GSC, retrain title scorer, pin the
+      survivor) - feeds every forecast and title move. Effort M.
+- [ ] R10. P4 measurement rigor pack (fixed query panel, day-of-week baselines, adaptive windows,
+      equivalence testing, FDR) - all feed N10's grade. Effort L, split into 2 slices.
+- [ ] R11. N30 demand-ranked question universe + N20 SERP-consensus study + N29 snippet-capture
+      extension (all extend shipped engines). Effort M.
+- [ ] R12. T0e new-site golden path hardened (URL-first signup, wizard GSC connect + backfill,
+      cold-start crawl past the 18-page cap, day-0 baselines, guided first win; absorbs tasks
+      74/182). Effort L.
+- [ ] R13. N3 provenance graph, then N25 stale-fact detection + N26 fact propagation + N27
+      volatility classes riding it. Effort L then M.
+- [ ] R14. P1 trust receipts pack (receipts everywhere, see-the-math, /activity log, we-got-this-
+      wrong recap). Effort L, split.
+- [ ] R15. N4 behavior-verdict lane (GA4+Clarity on every ship) + N17 task-completion. Effort M.
+- [ ] R16. P6 LLM engine pack (one gateway, schema registry, prompt versioning + regression
+      harness, call cache; absorbs task 95). Effort L.
+- [ ] R17. P2 GSC depth pack (split into 3 slices). Effort L.
+- [ ] R18. N23 internal PageRank + P7 linking/content-depth levers. Effort L.
+- [ ] R19. N24 evidence-based pruning/merging + N21/N22 rendered-crawl checks. Effort M.
+- [ ] R20. D6 dynamic auto-mode (auto-prepare + publish counter; autopilot rails exist). Effort M.
+- [ ] R21. N32 external-event ledger + N31 solar-calendar rollover + N44 topic objectives + N45
+      dependency planner + N49 calibrated abstention. Effort M batch.
+- [ ] R22. Safety/eval train: N33 benchmark, N34 ablation, N35 replay, N36 gold library, N37
+      synthetic journey, N41 outbox/idempotency, N42 model-fallback benchmark, N43 cost breaker,
+      N50 canary policies, T0d backups/rotation drill, T0f weekly QA sample. Effort L, sliced.
+- [ ] R23. Remaining packs in plan order: P5, P8, P9, P10, P11, P12, P13, P14, P15, P16, P17,
+      P19, P20, P21, P22, P23, P24 (P18 code health rides inside every slice, never standalone).
+- [ ] R24. Campaign tail: /prompts detail SSR subject title, today-v2-working deep link, N13
+      recrawl demotion in the shared band classifier, N47/N48 primary-source + expert-review
+      lanes, forensic-repairs triage (task 209). Effort S/M batch.
+- [G] Operator-gated (surfaced on /settings, never blocks the queue): Wix page mapping on
+      /diagnostics/wix, BEACON_DIGEST_TO + RESEND_API_KEY, IndexNow key, GSC full backfill,
+      revenue model config, DataForSEO cap raise.
+
+T0a is DONE (docs/OWNERS_MANUAL.md exists). D5 is covered by shipped atomic change packs + the
+factory gates arriving in R8. UX track complete. FP campaign complete.
 
 **Operator-journey rule (CLAUDE.md, mandatory):** no item is complete until its rendered surface
 was walked as a real operator journey and the completion report quotes the actual rendered copy.
