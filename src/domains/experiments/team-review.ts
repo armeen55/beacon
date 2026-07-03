@@ -16,7 +16,8 @@
 import type { EvidencePacket } from "@/domains/demand-graph/evidence-packet";
 import { attachOpinions, type SpecialistExtras } from "@/domains/demand-graph/specialist-opinions";
 import { routeMove, type SpecialistWeightLookup } from "@/domains/demand-graph/move-router";
-import { summarizeSpecialistDebate } from "@/domains/demand-graph/debate-summary";
+import { summarizeSpecialistDebate, computeAgreement, devilsAdvocateLine } from "@/domains/demand-graph/debate-summary";
+import { stripBannedDashes } from "@/lib/copy/strip-dashes";
 
 /** Self-contained render-ready debate (persisted on the plan record, so no type imports leak). */
 export type TeamReview = {
@@ -33,6 +34,22 @@ export type TeamReview = {
   /** Item 37 - when fewer than 3 voices spoke, say WHY the silent teammates abstained
    *  (they abstain rather than guess - that is a feature, and it should read like one). */
   silent?: string;
+  /** P5 item 387 - one honest line on how much of the team agreed on the winning action
+   *  ("4 of 5 teammates agreed on this. The odd one out worried about competition."). Absent
+   *  when only one teammate could weigh in (one voice is not a team agreeing on anything). */
+  agreement?: string;
+  /** P5 item 231/314 - the strongest case AGAINST this move, stated plainly so every card shows
+   *  the counter-argument and not just agreement ("The skeptic's take: ..."). Absent when no
+   *  teammate argued against it. */
+  devilsAdvocate?: string;
+  /** P5 item 312 - what would prove this move wrong, in the team's own first-person auto-retract
+   *  voice, from the proof plan's own window + metric ("If clicks do not rise within 4 weeks,
+   *  this was the wrong call and I will retract it."). Absent when there is no proof plan. */
+  falsifier?: string;
+  /** P5 item 163 - the quorum flag: TRUE when exactly one teammate could pick an action and no
+   *  other teammate corroborated it, so the card frames this as "worth a look" rather than a
+   *  confident, team-backed pick. Absent/false for a corroborated Move (the normal case). */
+  worthALook?: boolean;
 };
 
 export type TeamReviewResult = {
@@ -77,6 +94,46 @@ const SILENT_REASON: Record<string, string> = {
   wix: "Publishing has no field mapping for this page",
 };
 
+/** P5 item 312 - the plain, first-person metric name for the falsifier line, from the proof plan's
+ *  own primary metric, tagged with its grammatical number so the verb agrees ("clicks do not rise"
+ *  vs "the click rate does not rise"). Falls back to plural "clicks" so the sentence always reads
+ *  cleanly. */
+const FALSIFIER_METRIC_PLAIN: Array<[RegExp, { name: string; plural: boolean }]> = [
+  [/citation/i, { name: "AI citations", plural: true }],
+  [/ctr/i, { name: "the click rate", plural: false }],
+  [/click/i, { name: "clicks", plural: true }],
+  [/position|rank/i, { name: "the ranking", plural: false }],
+  [/conversion/i, { name: "conversions", plural: true }],
+  [/session|engage/i, { name: "engagement", plural: false }],
+];
+
+function falsifierMetricPlain(metrics: string[] | undefined): { name: string; plural: boolean } {
+  const primary = metrics?.[0] ?? "";
+  for (const [re, plain] of FALSIFIER_METRIC_PLAIN) if (re.test(primary)) return plain;
+  return { name: "clicks", plural: true };
+}
+
+/** P5 item 312 - the falsifier: what would prove this move wrong, in the team's own voice, tied
+ *  to the proof plan's longest window (usually 28 days = 4 weeks) and primary metric. This is the
+ *  honest auto-retract commitment the debate closes on. Returns null (self-hides) when there is
+ *  no proof plan to falsify against. The verb is direction-aware: an experience fix should cut
+ *  friction, so "do not fall"; every other lever should raise its metric, so "do not rise". PURE. */
+export function falsifierLine(
+  proofPlan: { metrics?: string[]; windowsDays?: number[] } | null | undefined,
+  action: string,
+): string | null {
+  if (!proofPlan) return null;
+  const windows = (proofPlan.windowsDays ?? []).filter((n) => Number.isFinite(n) && n > 0);
+  const days = windows.length ? Math.max(...windows) : 28;
+  const weeks = Math.max(1, Math.round(days / 7));
+  const metric = falsifierMetricPlain(proofPlan.metrics);
+  const verb = metric.plural ? "do not" : "does not";
+  // A friction fix wins by LOWERING dead/rage clicks; content/AEO moves win by RAISING their metric.
+  const fallsNotRises = action === "fix_ux" && /friction|dead|rage/i.test(proofPlan.metrics?.[0] ?? "");
+  const direction = fallsNotRises ? `${metric.name} ${verb} fall` : `${metric.name} ${verb} rise`;
+  return `What would prove this wrong: if ${direction} within ${weeks} week${weeks === 1 ? "" : "s"}, this was the wrong call and I will retract it.`;
+}
+
 /** One quiet sentence naming the silent teammates and why (null when 3+ voices spoke). */
 export function silentTeammatesLine(spoke: ReadonlySet<string>): string | null {
   if (spoke.size >= 3) return null;
@@ -118,10 +175,31 @@ export function reviewCandidateWithTeam(
 
   const silent = silentTeammatesLine(new Set(summary.voices.map((v) => v.specialist))) ?? undefined;
 
+  // P5 item 387 - how much of the team agreed on the action the router actually chose (self-hides
+  // to undefined when only one teammate could weigh in). Item 231/314 - the strongest case against.
+  // Item 312 - the falsifiable auto-retract commitment from the proof plan. Item 163 - the quorum
+  // flag when a lone teammate picked with no corroboration. All PURE, derived from the same
+  // opinions + decision the debate already produced (no new I/O, no new score logic).
+  const agreementSummary = computeAgreement(opinions, decision.action);
+  const agreement = agreementSummary.line ? stripBannedDashes(agreementSummary.line) : undefined;
+  const devils = devilsAdvocateLine(opinions);
+  const devilsAdvocate = devils ? stripBannedDashes(devils) : undefined;
+  const falsifier = falsifierLine(packet.proofPlan, decision.action) ?? undefined;
+  // Quorum (item 163): exactly ONE teammate weighed in at all and nobody else corroborated the
+  // signal, so this is a lead to check, not a confident team-backed pick. A second opinion of any
+  // kind (even a demand-signal GSC voice behind an AI-citations pick) counts as corroboration and
+  // keeps the Move a normal, confident pick. A vetoed decision is a strong team signal, never a
+  // lone-voice guess, so it is never demoted here.
+  const worthALook = !vetoFiredEarly && opinions.length === 1 ? true : undefined;
+
   const review: TeamReview = {
     verdict,
     whyNot,
     silent,
+    agreement,
+    devilsAdvocate,
+    falsifier,
+    worthALook,
     headline: summary.headline,
     consensusPct: summary.consensusPct,
     voices: summary.voices.map((v) => ({

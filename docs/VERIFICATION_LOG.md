@@ -7,6 +7,52 @@
 
 ---
 
+## 2026-07-03 - R23 P5: team-deliberation pack (visible debate quality on the roundtable)
+
+**Goal:** deepen the VISIBLE debate on the daily card so it reads like a real team argued the
+decision, not "good keyword, do it." Built four deliberation lines onto the EXISTING roundtable
+(`TeamRoundtable` in `daily-experiments-section.tsx`), each additive and self-hiding, derived
+only from the SpecialistOpinions the team already emits (no new I/O, no LLM, no new score logic).
+
+**What changed:**
+1. **Agreement score (v1 387)** - `computeAgreement(opinions, winningAction)` in
+   `src/domains/demand-graph/debate-summary.ts`. One honest line stating how much the team agreed,
+   with the odd one out's worry named. Self-hides (line null) when <= 1 teammate could pick an
+   action. Rendered copy (real review): "1 of 3 teammates agreed on this. The odd one out
+   (Visitor behavior) worried about the page experience." / unanimous: "All 2 teammates who could
+   weigh in agreed on this."
+2. **Devil's advocate (v1 231/314)** - `devilsAdvocateLine(opinions)` in debate-summary.ts. States
+   the single strongest case AGAINST (veto over downgrade), so every card shows the counter-argument.
+   Rendered: "The skeptic's take: High on-page friction, fixing the experience first protects any
+   traffic a content move would win." Self-hides when nobody argued against it.
+3. **Falsifier (v1 312)** - `falsifierLine(proofPlan, action)` in
+   `src/domains/experiments/team-review.ts`, from the proof plan's longest window + primary metric,
+   verb agreeing with the metric's number, direction-aware (a friction fix should FALL). Rendered:
+   "What would prove this wrong: if the click rate does not rise within 4 weeks, this was the wrong
+   call and I will retract it." Self-hides with no proof plan.
+4. **Quorum gate (v1 163)** - `worthALook` flag on `TeamReview` when exactly ONE teammate weighed in
+   and nobody corroborated (never demotes a vetoed decision or a 2+-opinion Move). The card shows a
+   "Worth a look" Pill + "Only one teammate had the data to weigh in here, so treat this as a lead
+   to check, not a sure thing." instead of the confident agreement line.
+
+All four persist on `TeamReview` (flows through build-daily-plan-record + build-today-preview
+automatically; additive/optional so pre-P5 plans parse unchanged). Card touched with TOKENS ONLY
+(raw-palette count in `daily-experiments-section.tsx` stays 0; design ratchet unchanged at 1298).
+
+**Verified:** `npm run typecheck` clean for all touched files (only pre-existing
+`src/domains/entity/eeat-*` errors remain, an off-limits slice, not introduced here).
+Tests: debate-summary 22 pass (agreement math + self-hide on 0/1 voter, devil's advocate picks
+strongest + empty when none, veto-over-downgrade), team-review 24 pass (falsifier copy + window/
+metric/number/direction, quorum demotes lone-weak + leaves corroborated, no-dash across new
+strings), roundtable render 11 pass (renderToStaticMarkup pins the agreement/devil's-advocate/
+falsifier copy + Worth-a-look chip + byte-identical self-hide on absent/single-opinion review).
+Affected suites green: move-router, specialist-opinions, daily-experiments-section,
+build-daily-candidates, daily-plan, build-today-preview, team-scoreboard store + loader,
+catalog-sync, design-system-guard, no-banned-dash-display-surfaces. Full architecture guard sweep:
+219 files / 4731 pass.
+
+---
+
 ## 2026-07-03 - R23 P17: read-path perf pack (request-cache the two hottest ledger reads)
 
 **Goal:** make the /changes + cockpit render never-cold by cutting redundant DB

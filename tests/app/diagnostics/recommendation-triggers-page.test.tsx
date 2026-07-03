@@ -446,17 +446,17 @@ describe("/diagnostics/recommendation-triggers", () => {
     expect(html).toContain('data-row-action-type="edit_title"');
   });
 
-  it("predicates_run counter reads 30 (dynamic trigger roster)", async () => {
+  it("predicates_run counter reads 33 (dynamic trigger roster)", async () => {
     _snapshotsToReturn = [makeSnapshot({ url: "https://example.com/a" })];
     const html = await renderPage();
     expect(html).toContain('data-counter="predicates_run"');
     // The font-mono span renders the active predicate count from the loader meta
     // (PREDICATE_COUNT). Ratchets with each new trigger; the value tracks the
-    // loader's own hand-maintained PREDICATE_COUNT (30 as of the P24 image-SEO
-    // pack: add_image_alt_text, on top of the P8 AEO-defense pack's
-    // aeo_zero_source_opening + aeo_defend_cited_query + aeo_brand_description_check).
+    // loader's own hand-maintained PREDICATE_COUNT (33 as of the P10 entity +
+    // author pack: entity_link_gap + author_byline_gap + brand_presence_gap, on
+    // top of the P24 image-SEO pack's add_image_alt_text).
     expect(html).toMatch(
-      /data-counter="predicates_run"[^>]*>[^<]*<span[^>]*>30<\/span>/,
+      /data-counter="predicates_run"[^>]*>[^<]*<span[^>]*>33<\/span>/,
     );
   });
 
@@ -511,10 +511,10 @@ describe("/diagnostics/recommendation-triggers", () => {
     const html = await renderPage();
     // The description carries a `data-description-predicates-run`
     // attribute set to the current count from the loader meta
-    // (PREDICATE_COUNT, 30 as of the P24 image-SEO pack).
-    expect(html).toContain('data-description-predicates-run="30"');
+    // (PREDICATE_COUNT, 33 as of the P10 entity + author pack).
+    expect(html).toContain('data-description-predicates-run="33"');
     // And the prose body contains the same integer.
-    expect(html).toContain("30</span> active");
+    expect(html).toContain("33</span> active");
   });
 
   // ── α₂.2 page-classifier integration ────────────────────────────────

@@ -137,6 +137,105 @@ describe("reviewCandidateWithTeam extras (item 39 re-review wiring)", () => {
   });
 });
 
+describe("falsifierLine (P5 item 312 - what would prove this wrong)", () => {
+  it("is null (self-hides) with no proof plan", async () => {
+    const { falsifierLine } = await import("./team-review");
+    expect(falsifierLine(null, "change_title_meta")).toBeNull();
+    expect(falsifierLine(undefined, "change_title_meta")).toBeNull();
+  });
+
+  it("uses the longest proof window in weeks and the primary metric, in first-person retract voice", async () => {
+    const { falsifierLine } = await import("./team-review");
+    const line = falsifierLine({ metrics: ["clicks"], windowsDays: [7, 14, 28] }, "change_title_meta");
+    expect(line).toBe("What would prove this wrong: if clicks do not rise within 4 weeks, this was the wrong call and I will retract it.");
+  });
+
+  it("maps a citation-metric plan to plain AI citations", async () => {
+    const { falsifierLine } = await import("./team-review");
+    const line = falsifierLine({ metrics: ["Profound citations", "position"], windowsDays: [14, 28] }, "add_answer_block");
+    expect(line).toContain("AI citations do not rise within 4 weeks");
+  });
+
+  it("agrees the verb with a SINGULAR metric (the click rate does not rise)", async () => {
+    const { falsifierLine } = await import("./team-review");
+    const line = falsifierLine({ metrics: ["CTR", "clicks"], windowsDays: [7, 14, 28] }, "change_title_meta");
+    expect(line).toBe("What would prove this wrong: if the click rate does not rise within 4 weeks, this was the wrong call and I will retract it.");
+  });
+
+  it("a friction fix should FALL, not rise (direction-aware)", async () => {
+    const { falsifierLine } = await import("./team-review");
+    const line = falsifierLine({ metrics: ["Clarity dead/rage clicks"], windowsDays: [7, 14, 28] }, "fix_ux");
+    expect(line).toContain("do not fall within 4 weeks");
+  });
+
+  it("defaults to a 4-week window and clicks metric when the plan omits them", async () => {
+    const { falsifierLine } = await import("./team-review");
+    const line = falsifierLine({}, "change_title_meta");
+    expect(line).toBe("What would prove this wrong: if clicks do not rise within 4 weeks, this was the wrong call and I will retract it.");
+  });
+
+  it("emits no em or en dash", async () => {
+    const { falsifierLine } = await import("./team-review");
+    const line = falsifierLine({ metrics: ["clicks"], windowsDays: [28] }, "change_title_meta");
+    expect(/[–—]/.test(line!)).toBe(false);
+  });
+});
+
+describe("reviewCandidateWithTeam deliberation fields (P5)", () => {
+  it("attaches an agreement line, a devil's advocate, and a falsifier on a real review", () => {
+    const r = reviewCandidateWithTeam(
+      packet({ yourPage: { gsc: { clicks: 10, impressions: 4000, ctr: 0.009, position: 8 }, dollarValue: 500 } }),
+      NOW,
+    );
+    expect(r.review).not.toBeNull();
+    // A striking-distance page yields GSC (edit/title) + GA4 amplifier -> the falsifier always rides
+    // the proof plan; agreement/devils-advocate ride the opinion set (present when there is a debate).
+    expect(r.review!.falsifier).toContain("What would prove this wrong");
+    expect(r.review!.falsifier).toContain("retract it");
+  });
+
+  it("QUORUM (item 163): a lone teammate with no corroboration is flagged worth-a-look", () => {
+    // create_page candidate with only demand-signal GSC voting for create_page and nobody else
+    // suggesting an action (no competitor citations, no serp verdict, no friction). One voter.
+    const r = reviewCandidateWithTeam(
+      packet({ move: { gapType: "create_page", signals: ["GSC"] }, yourPage: { gsc: null } }),
+      NOW,
+    );
+    expect(r.review).not.toBeNull();
+    // Exactly one teammate could pick an action here.
+    expect(r.review!.worthALook).toBe(true);
+    // A lone weak voice does not claim a team agreed - the agreement line self-hides.
+    expect(r.review!.agreement).toBeUndefined();
+  });
+
+  it("QUORUM (item 163): a corroborated Move is NOT demoted (worthALook undefined)", () => {
+    // Two voters back create_page: demand-signal GSC + AI-citations Profound (competitor cited).
+    const r = reviewCandidateWithTeam(
+      packet({
+        move: { gapType: "create_page", signals: ["GSC"] },
+        yourPage: { gsc: null },
+        competitor: { topUrl: "https://rival.com/persian-wedding-traditions", domain: "rival.com", relevance: 0.9 },
+      }),
+      NOW,
+    );
+    expect(r.review).not.toBeNull();
+    expect(r.review!.worthALook).toBeUndefined();
+  });
+
+  it("no em or en dash across any of the new deliberation strings", () => {
+    const r = reviewCandidateWithTeam(
+      packet({
+        move: { gapType: "create_page", signals: ["GSC"] },
+        yourPage: { gsc: null },
+        competitor: { topUrl: "https://rival.com/persian-wedding-traditions", domain: "rival.com", relevance: 0.9 },
+      }),
+      NOW,
+    );
+    const all = JSON.stringify([r.review?.agreement, r.review?.devilsAdvocate, r.review?.falsifier]);
+    expect(/[–—]/.test(all)).toBe(false);
+  });
+});
+
 describe("silentTeammatesLine (item 37)", () => {
   it("names the silent teammates when fewer than 3 voices spoke", async () => {
     const { silentTeammatesLine } = await import("./team-review");

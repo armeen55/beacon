@@ -212,6 +212,18 @@ import { uncitedContent } from "./triggers/uncited-content";
 // deduped against any prior card by cooldown_key. Empty inputs -> byte-identical.
 import { classifyAltTextGap } from "@/domains/image-seo/classify";
 import { addImageAltText } from "./triggers/add-image-alt-text";
+// P10 (2026-07-03) - entity + author (E-E-A-T) pack: sitewide entity + sameAs,
+// author/reviewer Person byline, and a connector-free brand Knowledge-Graph
+// presence check. All read ALREADY-LOADED signals (snapshots + the SHIPPED
+// Wikidata QID cache) at $0; NEVER call Wikidata or an LLM. Pure over pre-
+// assembled inputs, deduped against any prior schema card by cooldown_key.
+// Empty inputs -> byte-identical to before this family existed.
+import { loadEeatSignalsForTenant } from "@/domains/entity/load-eeat-signals";
+import {
+  entityLinkGap,
+  authorBylineGap,
+  brandPresenceGap,
+} from "./triggers/entity-eeat";
 import { robotsBlocksAiBots } from "./triggers/robots-blocks-ai-bots";
 import { robotsBlocksGooglebot } from "./triggers/robots-blocks-googlebot";
 import { sitemapMissing } from "./triggers/sitemap-missing";
@@ -246,7 +258,9 @@ export type TriggerCandidatesLoadResult = {
   };
 };
 
-const PREDICATE_COUNT = 30;
+// 30 predicates + P10 entity + author pack's 3 (entity_link_gap,
+// author_byline_gap, brand_presence_gap) = 33.
+const PREDICATE_COUNT = 33;
 
 function emptyResult(
   status: TriggerCandidatesLoadStatus,
@@ -1436,6 +1450,61 @@ export async function loadTriggerCandidatesForTenant(options: {
   } catch (err) {
     console.error(
       `[trigger-loader] image-seo alt-text lane failed for ${tenantId} (add_image_alt_text skips): ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+
+  // ── P10 (2026-07-03): entity + author (E-E-A-T) pack ──────────────────────
+  // Runs after the image-SEO lane so its cross-source cooldown dedupe sees every
+  // schema card already claimed this run. Three engines, one fail-soft block,
+  // all pure over ALREADY-LOADED signals ($0):
+  //   1. entity_link_gap - a content page names a Knowledge-Graph entity Beacon
+  //      already resolved to a Wikidata QID (the SHIPPED biography-QID cache) but
+  //      does not link it. add_schema, one card per page, ready-to-paste sameAs.
+  //   2. author_byline_gap - a guide-shaped content page with no named author.
+  //      add_answer_block DIRECTIVE (Beacon never invents a person's name).
+  //   3. brand_presence_gap - a connector-free, cold-start-safe check that the
+  //      site root establishes the brand as an entity (Organization + sameAs).
+  //      At most one add_schema card for the whole tenant, site-root anchored.
+  // The entity/brand cards reuse add_schema (same cooldown key as missing_schema
+  // / invalid_schema); anything a schema trigger already claimed for a URL this
+  // run defers, so no page emits two schema cards. Empty inputs -> byte-identical.
+  try {
+    const nowIso = new Date().toISOString();
+    const eeat = await loadEeatSignalsForTenant({
+      tenantId,
+      snapshots,
+      businessConfig,
+    });
+    const claimedEeat = new Set(all.map((r) => r.cooldown_key));
+
+    const entityRows = entityLinkGap({
+      tenantId,
+      gaps: eeat.entityLinkGaps,
+      signalAt: nowIso,
+    }).filter((r) => !claimedEeat.has(r.cooldown_key));
+    for (const r of entityRows) claimedEeat.add(r.cooldown_key);
+    all.push(...entityRows);
+
+    // Author byline uses add_answer_block (a distinct cooldown key from the
+    // schema cards), so it never collides with the entity/brand cards; still
+    // dedupe defensively against anything already claimed for the URL+action.
+    const authorRows = authorBylineGap({
+      tenantId,
+      gaps: eeat.authorGaps,
+      signalAt: nowIso,
+    }).filter((r) => !claimedEeat.has(r.cooldown_key));
+    for (const r of authorRows) claimedEeat.add(r.cooldown_key);
+    all.push(...authorRows);
+
+    const brandRows = brandPresenceGap({
+      tenantId,
+      gap: eeat.brandPresenceGap,
+      signalAt: nowIso,
+    }).filter((r) => !claimedEeat.has(r.cooldown_key));
+    all.push(...brandRows);
+  } catch (err) {
+    console.error(
+      `[trigger-loader] entity + author pack failed for ${tenantId} (entity_link_gap / author_byline_gap / brand_presence_gap skip): ${err instanceof Error ? err.message : String(err)}`,
     );
   }
 

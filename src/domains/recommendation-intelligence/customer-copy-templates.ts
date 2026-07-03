@@ -1022,3 +1022,62 @@ export function aeoBrandDescriptionCheckCopy(aiDescriptor: string, ownFact: stri
     ". Add one clear line stating what you actually are, high on your homepage, so AI has the correct fact to learn from."
   );
 }
+
+/**
+ * Sitewide entity + sameAs (BEACON 500 P10 v1 118/218, 2026-07-03). A content
+ * page is about a thing Google already knows in its Knowledge Graph, but the
+ * page never links to it, so Google cannot connect the page to the topic. Args:
+ * the first named thing, and how many such things the page names. Names the real
+ * thing, gives a next step. Says "a thing Google already knows", never the lab
+ * word "entity". NO em or en dashes (hard rule).
+ */
+export function entityLinkGapCopy(firstEntityName: string, count: number): string {
+  const rest = count - 1;
+  const others =
+    rest === 1
+      ? " and 1 other thing your page names"
+      : rest > 1
+        ? " and " + rest.toLocaleString("en-US") + " other things your page names"
+        : "";
+  return (
+    "This page is about " +
+    firstEntityName +
+    others +
+    ", which Google already knows in its Knowledge Graph. I built the structured data that links your page to it. Paste it into the page so Google and AI connect your page to the topic."
+  );
+}
+
+/**
+ * Author / reviewer byline (BEACON 500 P10 v1 243/263, 2026-07-03). A guide
+ * page names no author, which Google and AI lean on to decide who to trust.
+ * No-arg (Beacon never fabricates a person's name). Names the gap, gives a next
+ * step. Says "who wrote this", never a lab word. NO em or en dashes (hard rule).
+ */
+export function authorBylineGapCopy(): string {
+  return "This guide page does not say who wrote it. Add a real author byline and Person structured data so Google and AI can trust who wrote this. A named, credible author is one of the strongest trust signals a content page can carry.";
+}
+
+/**
+ * Knowledge-Graph / brand presence (BEACON 500 P10 v1 372/507, 2026-07-03). The
+ * site does not clearly establish the brand as a thing Google can recognize.
+ * Args: the brand name, and which gap ("no_org_schema" = no brand schema at all,
+ * "no_sameas" = brand schema present but no cross-links). Names the brand, owns
+ * it plainly, gives a next step. No lab words. NO em or en dashes (hard rule).
+ */
+export function brandPresenceGapCopy(
+  brandName: string,
+  gap: "no_org_schema" | "no_sameas",
+): string {
+  if (gap === "no_sameas") {
+    return (
+      "Google can see " +
+      brandName +
+      " by name, but nothing on your site links out to the profiles that prove who you are. I built the brand structured data. Paste it in and add your real profile links as sameAs so Google can confirm you are one clear brand."
+    );
+  }
+  return (
+    "Google does not yet clearly know " +
+    brandName +
+    " as a brand. I built the Organization structured data that names who you are and links to your site. Paste it into your homepage, then add your real profile links, so Google can lock in who you are."
+  );
+}

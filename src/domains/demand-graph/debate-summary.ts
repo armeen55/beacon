@@ -158,3 +158,102 @@ export function summarizeSpecialistDebate(opinions: SpecialistOpinion[]): Debate
 
   return { headline, voices, objections, hasVeto, consensusPct };
 }
+
+// ── P5 (2026-07-03) - the DELIBERATION lines: make the visible debate read like a real
+//    team argued the decision, derived only from the SpecialistOpinions the team already
+//    emitted (no new I/O, no LLM, no new score logic). Each self-hides when its input is
+//    absent, so a one-opinion / no-dissent card is byte-identical to before. ──
+
+/** P5 item 387 - one honest line stating how much of the team agreed on the winning action,
+ *  plus the raw counts a card can use. Derived only from the opinions and the routed winner:
+ *  a teammate "agreed" when its suggestedMoveTypes included the winner; the "odd one out" is the
+ *  strongest dissenter (a real objection first, else a voice that pushed a different action).
+ *  `line` is null (self-hides) when only one teammate could weigh in, since one voice is not a
+ *  team agreeing on anything. */
+export type AgreementSummary = {
+  /** null = self-hide (0 or 1 opinion): a single voice is not agreement. */
+  line: string | null;
+  /** teammates whose suggestedMoveTypes backed the winning action. */
+  agreed: number;
+  /** teammates who could vote on an action (had at least one suggestedMoveType). */
+  total: number;
+};
+
+/** The plain worry behind the strongest dissent, for the "the odd one out worried about X" tail. */
+const DISSENT_WORRY: Record<ObjectionKind, string> = {
+  fix_ux_first: "the page experience",
+  cant_outrank_serp: "how hard this search is to win",
+  already_ranks: "doubling up on a page you already rank for",
+  not_pushable: "how hard this is to publish",
+  off_topic_competitor: "whether the competitor match is real",
+  no_measured_demand: "unproven demand",
+  thin_evidence: "how thin the evidence is",
+  seasonal_demand_cliff: "the timing",
+  wrong_lever_for_intent: "whether this answers the real question",
+};
+
+/** Compute the agreement line from the opinions and the action the router chose. PURE. */
+export function computeAgreement(
+  opinions: SpecialistOpinion[],
+  winningAction: string,
+): AgreementSummary {
+  const valid = (opinions ?? []).filter((o) => o && o.claim);
+  // Voters = teammates who actually suggested an action (amplifiers like Revenue/Publishing,
+  // which never pick a Move, are not "agreeing or disagreeing" on the action - they just weight).
+  const voters = valid.filter((o) => (o.suggestedMoveTypes?.length ?? 0) > 0);
+  const total = voters.length;
+  if (total <= 1) return { line: null, agreed: total, total };
+
+  const agreed = voters.filter((o) => o.suggestedMoveTypes.includes(winningAction as never)).length;
+
+  // The odd one out: prefer a teammate who actually raised an objection (that is the real
+  // worry), otherwise a teammate who pushed a different action. Named in operator language.
+  const dissenters = voters.filter((o) => !o.suggestedMoveTypes.includes(winningAction as never));
+  const objector = valid
+    .filter((o) => (o.objections?.length ?? 0) > 0)
+    .sort((a, b) => {
+      const av = a.objections.some((x) => x.severity === "veto") ? 1 : 0;
+      const bv = b.objections.some((x) => x.severity === "veto") ? 1 : 0;
+      return bv - av;
+    })[0];
+
+  const worry =
+    objector
+      ? DISSENT_WORRY[objector.objections.find((x) => x.severity === "veto")?.kind ?? objector.objections[0]!.kind] ??
+        "the risks"
+      : null;
+  const oddOne = dissenters[0] ?? objector ?? null;
+
+  if (agreed >= total) {
+    // Unanimous among the voters.
+    return {
+      line: `All ${total} teammates who could weigh in agreed on this.`,
+      agreed,
+      total,
+    };
+  }
+
+  const oddLabel = oddOne ? SPECIALIST_LABELS[oddOne.specialist] ?? "One teammate" : "One teammate";
+  const worryTail = worry
+    ? ` The odd one out (${oddLabel}) worried about ${worry}.`
+    : ` The odd one out was ${oddLabel}.`;
+  return {
+    line: `${agreed} of ${total} teammates agreed on this.${worryTail}`,
+    agreed,
+    total,
+  };
+}
+
+/** P5 item 231/314 - the devil's advocate: the single strongest case AGAINST the move, stated
+ *  plainly, so every card shows the counter-argument and not just the agreement. Reuses the
+ *  objections the specialists already raised (veto over downgrade; within a tier, the first the
+ *  summary sorted to the front). Returns null (self-hides) when nobody argued against it. PURE. */
+export function devilsAdvocateLine(opinions: SpecialistOpinion[]): string | null {
+  const summary = summarizeSpecialistDebate(opinions);
+  const strongest = summary.objections[0];
+  if (!strongest) return null;
+  // The objection's own detail is the concrete case; fall back to its plain reason when the
+  // detail is empty. Already humanized by summarizeSpecialistDebate.
+  const body = strongest.detail?.trim() || strongest.reason;
+  return `The skeptic's take: ${body}`;
+}

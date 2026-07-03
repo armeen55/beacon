@@ -1,5 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { humanizeDebateLine, summarizeSpecialistDebate } from "./debate-summary";
+import {
+  humanizeDebateLine,
+  summarizeSpecialistDebate,
+  computeAgreement,
+  devilsAdvocateLine,
+} from "./debate-summary";
 import type { SpecialistOpinion } from "./specialist-opinions";
 
 const op = (over: Partial<SpecialistOpinion>): SpecialistOpinion => ({
@@ -60,6 +65,118 @@ describe("operator-friendly fallback labels (B82++ reliability)", () => {
     expect(s.voices[0].label).toBe("Another specialist");
     expect(s.voices[0].label).not.toContain("_");
     expect(s.objections[0].reason).toBe("Flagged a concern");
+  });
+});
+
+describe("computeAgreement (P5 item 387 - the agreement score)", () => {
+  it("self-hides (line null) when only one teammate could pick an action", () => {
+    const a = computeAgreement([op({ specialist: "gsc", suggestedMoveTypes: ["edit_existing_page"] })], "edit_existing_page");
+    expect(a.line).toBeNull();
+    expect(a.total).toBe(1);
+    expect(a.agreed).toBe(1);
+  });
+
+  it("self-hides with zero voters (amplifier-only opinions never 'agree' on an action)", () => {
+    // Revenue + Publishing suggest no action - they weight, they never pick.
+    const a = computeAgreement(
+      [op({ specialist: "ga4", suggestedMoveTypes: [] }), op({ specialist: "wix", suggestedMoveTypes: [] })],
+      "edit_existing_page",
+    );
+    expect(a.line).toBeNull();
+    expect(a.total).toBe(0);
+  });
+
+  it("states unanimous agreement among the voters", () => {
+    const a = computeAgreement(
+      [
+        op({ specialist: "gsc", suggestedMoveTypes: ["change_title_meta"] }),
+        op({ specialist: "profound", suggestedMoveTypes: ["change_title_meta"] }),
+      ],
+      "change_title_meta",
+    );
+    expect(a.agreed).toBe(2);
+    expect(a.total).toBe(2);
+    expect(a.line).toBe("All 2 teammates who could weigh in agreed on this.");
+  });
+
+  it("counts the majority and names the odd one out's worry from a real objection", () => {
+    const a = computeAgreement(
+      [
+        op({ specialist: "gsc", suggestedMoveTypes: ["create_page"] }),
+        op({ specialist: "profound", suggestedMoveTypes: ["create_page"] }),
+        op({ specialist: "dataforseo", suggestedMoveTypes: ["edit_existing_page"],
+          objections: [{ kind: "cant_outrank_serp", against: ["create_page"], severity: "veto", detail: "hard SERP", evidenceRefs: [] }] }),
+      ],
+      "create_page",
+    );
+    expect(a.agreed).toBe(2);
+    expect(a.total).toBe(3);
+    expect(a.line).toBe("2 of 3 teammates agreed on this. The odd one out (Live Google results) worried about how hard this search is to win.");
+  });
+
+  it("prefers the VETO worry over a downgrade worry when naming the odd one out", () => {
+    const a = computeAgreement(
+      [
+        op({ specialist: "gsc", suggestedMoveTypes: ["create_page"] }),
+        op({ specialist: "profound", suggestedMoveTypes: ["create_page"] }),
+        op({ specialist: "dataforseo", suggestedMoveTypes: ["edit_existing_page"],
+          objections: [
+            { kind: "already_ranks", against: ["create_page"], severity: "veto", detail: "ranks", evidenceRefs: [] },
+          ] }),
+      ],
+      "create_page",
+    );
+    expect(a.line).toContain("worried about doubling up on a page you already rank for");
+  });
+
+  it("emits no em or en dash in the agreement line", () => {
+    const a = computeAgreement(
+      [
+        op({ specialist: "gsc", suggestedMoveTypes: ["create_page"] }),
+        op({ specialist: "clarity", suggestedMoveTypes: ["fix_ux"],
+          objections: [{ kind: "fix_ux_first", against: ["create_page"], severity: "downgrade", detail: "friction", evidenceRefs: [] }] }),
+      ],
+      "create_page",
+    );
+    expect(a.line).not.toBeNull();
+    expect(/[–—]/.test(a.line!)).toBe(false);
+  });
+});
+
+describe("devilsAdvocateLine (P5 item 231/314 - the strongest case against)", () => {
+  it("is null (self-hides) when nobody argued against the move", () => {
+    expect(devilsAdvocateLine([op({ suggestedMoveTypes: ["change_title_meta"] })])).toBeNull();
+    expect(devilsAdvocateLine([])).toBeNull();
+  });
+
+  it("states the strongest objection's own detail as the skeptic's take", () => {
+    const line = devilsAdvocateLine([
+      op({ specialist: "gsc", suggestedMoveTypes: ["create_page"] }),
+      op({ specialist: "dataforseo",
+        objections: [{ kind: "already_ranks", against: ["create_page"], severity: "veto", detail: "You already rank in the top 10 - this is an EDIT, not a new page.", evidenceRefs: [] }] }),
+    ]);
+    // humanizeDebateLine de-shouts EDIT but leaves the plain hyphen (only stripBannedDashes,
+    // applied in team-review, would swap a hyphen-with-spaces for a comma).
+    expect(line).toBe("The skeptic's take: You already rank in the top 10 - this is an edit, not a new page.");
+  });
+
+  it("picks the VETO objection over a downgrade when both are present", () => {
+    const line = devilsAdvocateLine([
+      op({ specialist: "wix",
+        objections: [{ kind: "not_pushable", against: [], severity: "downgrade", detail: "paste only", evidenceRefs: [] }] }),
+      op({ specialist: "dataforseo",
+        objections: [{ kind: "cant_outrank_serp", against: ["create_page"], severity: "veto", detail: "marketplace SERP dominates", evidenceRefs: [] }] }),
+    ]);
+    expect(line).toContain("The skeptic's take:");
+    expect(line).toContain("marketplace search results dominates");
+  });
+
+  it("falls back to the plain reason when the objection detail is empty", () => {
+    const line = devilsAdvocateLine([
+      op({ specialist: "gsc", suggestedMoveTypes: ["create_page"],
+        objections: [{ kind: "no_measured_demand", against: ["create_page"], severity: "downgrade", detail: "", evidenceRefs: [] }] }),
+    ]);
+    expect(line).toBe("The skeptic's take: No proven search demand yet");
   });
 });
 

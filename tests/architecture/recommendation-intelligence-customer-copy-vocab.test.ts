@@ -352,6 +352,25 @@ const PROBE_SETS: Record<string, ReadonlyArray<Probe>> = {
     ["a hotel", "a Persian culture guide"],
     ["a law firm", "a restaurant guide"],
   ],
+  // P10 (2026-07-03) - sitewide entity + sameAs. Args: (firstEntityName, count).
+  // Probe a single entity, a two-entity page, and a many-entity page (plural
+  // wording), plus a short name.
+  entityLinkGapCopy: [
+    ["Nowruz", 1],
+    ["Persepolis", 2],
+    ["Cyrus the Great", 5],
+    ["X", 1],
+  ],
+  // P10 (2026-07-03) - author / reviewer byline. No-arg (Beacon never invents a
+  // person's name).
+  authorBylineGapCopy: [[]],
+  // P10 (2026-07-03) - brand Knowledge-Graph presence. Args: (brandName, gap).
+  // Probe both gap kinds + a short brand.
+  brandPresenceGapCopy: [
+    ["Iranopedia", "no_org_schema"],
+    ["Iranopedia", "no_sameas"],
+    ["X", "no_org_schema"],
+  ],
 };
 
 function scanForViolations(output: string): string[] {

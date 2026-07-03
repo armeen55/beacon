@@ -233,7 +233,7 @@ describe("loadTriggerCandidatesForTenant", () => {
     expect(result.candidates).toEqual([]);
     expect(result.diagnostic_only).toEqual([]);
     expect(result.meta.snapshot_count).toBe(0);
-    expect(result.meta.predicates_run).toBe(30);
+    expect(result.meta.predicates_run).toBe(33);
   });
 
   it("filters snapshots by tenant_id", async () => {
@@ -484,7 +484,7 @@ describe("loadTriggerCandidatesForTenant", () => {
     expect(result.meta.snapshot_count).toBe(1);
   });
 
-  it("reports predicates_run=30 in meta on the ok path (P24 image-SEO lane: +add_image_alt_text)", async () => {
+  it("reports predicates_run=33 in meta on the ok path (P10 entity + author pack: +entity_link_gap, +author_byline_gap, +brand_presence_gap)", async () => {
     _getPageSnapshotsMock.mockResolvedValue([
       makeSnapshot({ tenant_id: "tenant-a" }),
     ]);
@@ -494,7 +494,7 @@ describe("loadTriggerCandidatesForTenant", () => {
     const result = await loadTriggerCandidatesForTenant({
       tenantId: "tenant-a",
     });
-    expect(result.meta.predicates_run).toBe(30);
+    expect(result.meta.predicates_run).toBe(33);
   });
 
   // ── α₂ extensions ────────────────────────────────────────────────────
@@ -1365,6 +1365,105 @@ describe("loadTriggerCandidatesForTenant", () => {
       ),
     ];
     expect(allMissingSchema).toEqual([]);
+  });
+
+  // ── P10 — entity + author (E-E-A-T) pack wiring ───────────────────────
+
+  it("(P10) emits a brand_presence_gap add_schema candidate for a homepage with no Organization schema", async () => {
+    _getBusinessConfigMock.mockReturnValue(
+      makeConfig({ name: "Acme", domain: "example.com" }),
+    );
+    _getPageSnapshotsMock.mockResolvedValue([
+      makeSnapshot({
+        tenant_id: "tenant-a",
+        url: "https://example.com/",
+        schema_types: [],
+      }),
+    ]);
+    const { loadTriggerCandidatesForTenant } = await import(
+      "@/domains/recommendation-intelligence/load-trigger-candidates-for-tenant"
+    );
+    const result = await loadTriggerCandidatesForTenant({ tenantId: "tenant-a" });
+    const brand = result.candidates.filter(
+      (r) => r.trigger_signal === "brand_presence_gap",
+    );
+    expect(brand).toHaveLength(1);
+    expect(brand[0]!.action_type).toBe("add_schema");
+    expect(brand[0]!.target_url).toBe("https://example.com/");
+    expect(brand[0]!.confidence).toBe("medium");
+  });
+
+  it("(P10) brand_presence_gap SELF-HIDES when the homepage carries Organization schema with a linked profile", async () => {
+    _getBusinessConfigMock.mockReturnValue(
+      makeConfig({ name: "Acme", domain: "example.com" }),
+    );
+    _getPageSnapshotsMock.mockResolvedValue([
+      makeSnapshot({
+        tenant_id: "tenant-a",
+        url: "https://example.com/",
+        schema_types: ["Organization"],
+        schema_entity_names: ["Acme", "https://twitter.com/acme"],
+      }),
+    ]);
+    const { loadTriggerCandidatesForTenant } = await import(
+      "@/domains/recommendation-intelligence/load-trigger-candidates-for-tenant"
+    );
+    const result = await loadTriggerCandidatesForTenant({ tenantId: "tenant-a" });
+    expect(
+      result.candidates.filter((r) => r.trigger_signal === "brand_presence_gap"),
+    ).toEqual([]);
+  });
+
+  it("(P10) emits an author_byline_gap directive for a guide-shaped content page with no author", async () => {
+    _getBusinessConfigMock.mockReturnValue(
+      makeConfig({ name: "Acme", domain: "example.com", contentSiteMode: true }),
+    );
+    _getPageSnapshotsMock.mockResolvedValue([
+      makeSnapshot({
+        tenant_id: "tenant-a",
+        url: "https://example.com/how-nowruz-is-celebrated",
+        title: "How Nowruz Is Celebrated",
+        h1: "How Nowruz Is Celebrated",
+        body_paragraph_sample: [
+          "Nowruz is the Persian new year celebrated across many countries for centuries.",
+        ],
+        schema_types: [],
+      }),
+    ]);
+    const { loadTriggerCandidatesForTenant } = await import(
+      "@/domains/recommendation-intelligence/load-trigger-candidates-for-tenant"
+    );
+    const result = await loadTriggerCandidatesForTenant({ tenantId: "tenant-a" });
+    const author = result.candidates.filter(
+      (r) => r.trigger_signal === "author_byline_gap",
+    );
+    expect(author).toHaveLength(1);
+    expect(author[0]!.action_type).toBe("add_answer_block");
+    expect(author[0]!.target_url).toBe(
+      "https://example.com/how-nowruz-is-celebrated",
+    );
+  });
+
+  it("(P10) author_byline_gap does NOT fire when the page already carries Person schema", async () => {
+    _getBusinessConfigMock.mockReturnValue(
+      makeConfig({ name: "Acme", domain: "example.com", contentSiteMode: true }),
+    );
+    _getPageSnapshotsMock.mockResolvedValue([
+      makeSnapshot({
+        tenant_id: "tenant-a",
+        url: "https://example.com/how-nowruz-is-celebrated",
+        title: "How Nowruz Is Celebrated",
+        h1: "How Nowruz Is Celebrated",
+        schema_types: ["Article", "Person"],
+      }),
+    ]);
+    const { loadTriggerCandidatesForTenant } = await import(
+      "@/domains/recommendation-intelligence/load-trigger-candidates-for-tenant"
+    );
+    const result = await loadTriggerCandidatesForTenant({ tenantId: "tenant-a" });
+    expect(
+      result.candidates.filter((r) => r.trigger_signal === "author_byline_gap"),
+    ).toEqual([]);
   });
 
   it("(4.5.C.α₃b) missing_schema does NOT fire when all required types are present", async () => {

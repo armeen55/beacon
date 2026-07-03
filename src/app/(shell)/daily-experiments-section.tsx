@@ -149,7 +149,7 @@ function KeywordResearch({ e }: { e: PlannedExperimentRecord }) {
  *  planning time - the same specialists (search demand, revenue, visitor behavior, live Google
  *  results, AI citations) whose evidence chose tonight's batch. Persisted records may carry
  *  older template strings, so every dynamic line runs through humanizeDebateLine too. */
-function TeamRoundtable({ e }: { e: PlannedExperimentRecord }) {
+export function TeamRoundtable({ e }: { e: PlannedExperimentRecord }) {
   const t = e.teamReview;
   if (!t || t.voices.length === 0) return null;
   const clean = (s: string) => stripBannedDashes(humanizeDebateLine(s));
@@ -158,6 +158,11 @@ function TeamRoundtable({ e }: { e: PlannedExperimentRecord }) {
     <div className="mt-3 rounded-xl border border-border-subtle bg-surface-raised/60 px-3 py-2.5">
       <div className="mb-1.5 flex items-center gap-2">
         <span className={LABEL_CLS}>Your team on this move</span>
+        {/* P5 item 163 - the quorum flag: a lone teammate with no corroboration reads as "worth
+            a look", never a confident, team-backed pick. Self-hides for a corroborated Move. */}
+        {t.worthALook ? (
+          <Pill intent="neutral" aria-label="Worth a look">Worth a look</Pill>
+        ) : null}
         {t.consensusPct > 0 ? (
           <span className="inline-flex items-center gap-1.5" aria-label={`Team conviction ${t.consensusPct} percent`}>
             <span className="inline-block h-1 w-14 overflow-hidden rounded-full bg-status-neutral-bg">
@@ -169,6 +174,15 @@ function TeamRoundtable({ e }: { e: PlannedExperimentRecord }) {
           </span>
         ) : null}
       </div>
+      {/* P5 item 387 - one honest line on how much of the team agreed, with the odd one out's
+          worry named. Self-hides when only one teammate could weigh in. */}
+      {t.worthALook ? (
+        <div className="mb-1.5 text-meta text-muted-foreground">
+          Only one teammate had the data to weigh in here, so treat this as a lead to check, not a sure thing.
+        </div>
+      ) : t.agreement ? (
+        <div className="mb-1.5 text-meta text-muted-foreground">{clean(t.agreement)}</div>
+      ) : null}
       <div className="grid gap-1.5">
         {t.voices.map((v, i) => {
           const id = teammateOf(v.specialist);
@@ -213,10 +227,25 @@ function TeamRoundtable({ e }: { e: PlannedExperimentRecord }) {
           </div>
         ) : null}
       </div>
+      {/* P5 item 231/314 - the devil's advocate: the single strongest case AGAINST this move, so
+          every card shows the counter-argument, not just agreement. Self-hides when nobody argued
+          against it (the objections block above already carries the raised concerns; this names the
+          strongest one as the deliberate skeptic voice). */}
+      {t.devilsAdvocate ? (
+        <div className="mt-2 rounded-lg border border-border-subtle bg-surface-raised px-2.5 py-1.5 text-sub leading-relaxed text-foreground-secondary">
+          {clean(t.devilsAdvocate)}
+        </div>
+      ) : null}
       {t.verdict ? (
         <div className="mt-2 border-t border-border pt-1.5 text-sub leading-relaxed text-foreground-secondary">
           <span className="font-semibold" style={{ color: strategist.text }}>Verdict:</span> {clean(t.verdict)}
         </div>
+      ) : null}
+      {/* P5 item 312 - the falsifier: the team's own first-person auto-retract commitment, so the
+          debate closes on what would prove it wrong. Sourced from the proof plan's window + metric.
+          Self-hides when there is no proof plan to falsify against. */}
+      {t.falsifier ? (
+        <div className="mt-1.5 text-meta leading-relaxed text-muted-foreground">{clean(t.falsifier)}</div>
       ) : null}
       {t.whyNot ? (
         <div className="mt-1 text-meta text-muted-foreground">
