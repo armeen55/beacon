@@ -67,6 +67,12 @@ export type PlannedExperimentRecord = {
    *  bucket cleared the >=3-sample bar - a fresh tenant with no history never shows a tag. Type
    *  lives in @/domains/learning/experiment-prior (type-only import - no runtime cycle). */
   learnedPrior?: import("@/domains/learning/experiment-prior").LearnedPrior;
+  /** R5 / N15: the learned EFFECT-SIZE prior for this pick's (lever family, page-type band),
+   *  frozen at planning time. Learns how MUCH changes like this moved clicks when they
+   *  settled (the magnitude twin of learnedPrior's win rate). Absent/neutral (multiplier 1,
+   *  tag null) when no bucket cleared the >=3-settled-samples bar - self-hiding on a fresh
+   *  tenant. Type lives in @/domains/learning/effect-size-prior (type-only import). */
+  effectPrior?: import("@/domains/learning/effect-size-prior").EffectPrior;
 
   currentText: string;
   proposedText: string;

@@ -55,7 +55,7 @@ function render(el: ReactElement): string {
   return renderToStaticMarkup(el);
 }
 
-function clientWith(wix: ConnectorInfo): string {
+function clientWith(wix: ConnectorInfo, wixUrlMapCount = 0): string {
   return render(
     <ConnectorsClient
       google={disconnectedInfo()}
@@ -68,6 +68,7 @@ function clientWith(wix: ConnectorInfo): string {
       configYelpBusinessId=""
       gscStaleCopy={null}
       ga4StaleCopy={null}
+      wixUrlMapCount={wixUrlMapCount}
     />,
   );
 }
@@ -116,5 +117,36 @@ describe("Wix connector card", () => {
       expect(html).toContain("disconnecting");
       expect(html).not.toContain("Approve &amp; Push");
     }
+  });
+
+  it("T0b: connected + zero mapped pages shows the exact recovery fix, deep-linked to /diagnostics/wix", () => {
+    const html = clientWith(
+      {
+        status: "connected",
+        connected_at: "2026-06-11T20:00:00.000Z",
+        expires_at: null,
+        last_synced_at: null,
+      },
+      0,
+    );
+    expect(html).toContain('data-recovery-fix="wix_url_map_empty"');
+    expect(html).toContain("Fix this:");
+    expect(html).toContain('href="/diagnostics/wix"');
+    expect(html).toContain("Open Wix page mapping");
+    expect(html).toContain("Discover collections");
+    expect(html).not.toMatch(/[‒–—―]/);
+  });
+
+  it("T0b: connected + mapped pages hides the fix line", () => {
+    const html = clientWith(
+      {
+        status: "connected",
+        connected_at: "2026-06-11T20:00:00.000Z",
+        expires_at: null,
+        last_synced_at: null,
+      },
+      12,
+    );
+    expect(html).not.toContain('data-recovery-fix="wix_url_map_empty"');
   });
 });

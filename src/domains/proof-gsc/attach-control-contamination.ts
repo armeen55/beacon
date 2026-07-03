@@ -34,10 +34,16 @@ import {
   summarizeContamination,
   promoteFromFrozenPool,
   buildContaminationNotes,
+  computePoolHealth,
+  lastCleanDonorHoldSentence,
+  medianBandRead,
+  templateFamilyOf,
   type LedgerShipRecord,
   type SnapshotPoint,
   type ContaminationVerdict,
   type FrozenDonor,
+  type MedianBandRead,
+  type PoolHealth,
 } from "./control-contamination";
 import type { ShippedChangeRecord } from "./shipped-change-store";
 
@@ -150,6 +156,21 @@ export type ContaminationAttachment = {
   /** Plain-language receipt lines for the "See the math" detail + the N10-bound
    *  flag caveat. Empty when the ship's controls are clean. */
   notes: string[];
+  /** N16 (R5): pool health for this ship's comparison pool - clean vs known-
+   *  dirty controls, the spare bench from the FROZEN pool, and whether one
+   *  single page is the last clean comparison basis (planner hold input). */
+  poolHealth: PoolHealth;
+  /** N16 (R5): the one-line pool-health read for the Results card expand
+   *  ("2 of 4 comparison pages are still clean."). Non-null ONLY while this
+   *  ship's measurement is still open (verdict "measuring") - a settled row
+   *  has nothing left to protect. */
+  poolHealthLine: string | null;
+  /** N16 (R5): the weaker median-band comparison, computed ONLY when the
+   *  frozen pool is exhausted (a contaminated control had no clean substitute)
+   *  and enough untouched same-family pages exist. Null otherwise. Filled by
+   *  the batch attach step (it needs a bounded GSC read); the pure
+   *  computeContaminationForShip always leaves it null. */
+  medianBand: MedianBandRead | null;
 };
 
 /**
@@ -162,7 +183,8 @@ export function computeContaminationForShip(args: {
   record: Pick<
     ShippedChangeRecord,
     "id" | "page" | "path" | "shippedAt" | "windows" | "controlPages" | "controlDonorPool"
-  >;
+  > &
+    Partial<Pick<ShippedChangeRecord, "verdict">>;
   /** Every OTHER ship in the ledger (paths + ship dates only). */
   otherShips: ReadonlyArray<LedgerShipRecord>;
   /** Pre-loaded snapshot history for this ship's control paths, keyed by
@@ -182,12 +204,28 @@ export function computeContaminationForShip(args: {
     snapshotsByPath,
   });
   const verdict = summarizeContamination(results);
+  // N16 (R5) - pool health rides EVERY attachment (clean ships included: an
+  // open measurement with 3 of 3 clean pages and 2 spares is a health read
+  // too). The card LINE only surfaces for an open measurement.
+  const buildPoolHealth = (effectivePaths: ReadonlyArray<string>) =>
+    computePoolHealth({
+      results,
+      frozenPool: record.controlDonorPool?.map((d) => ({ url: d.url, verdict: d.verdict })) ?? null,
+      controlPaths: effectivePaths.map(pathOf),
+      treatedPath: pathOf(record.page),
+      ledger: otherShips,
+      window,
+    });
   if (!verdict.hasContamination) {
+    const poolHealth = buildPoolHealth(record.controlPages);
     return {
       verdict,
       substitutesByOriginal: new Map(),
       effectiveControlPages: [...record.controlPages],
       notes: [],
+      poolHealth,
+      poolHealthLine: record.verdict === "measuring" ? poolHealth.sentence : null,
+      medianBand: null,
     };
   }
 
@@ -237,7 +275,16 @@ export function computeContaminationForShip(args: {
     [...substitutesByOriginal.entries()].map(([originalPath, substitutePath]) => ({ originalPath, substitutePath })),
   );
 
-  return { verdict, substitutesByOriginal, effectiveControlPages, notes };
+  const poolHealth = buildPoolHealth(effectiveControlPages);
+  return {
+    verdict,
+    substitutesByOriginal,
+    effectiveControlPages,
+    notes,
+    poolHealth,
+    poolHealthLine: record.verdict === "measuring" ? poolHealth.sentence : null,
+    medianBand: null,
+  };
 }
 
 /**
@@ -297,5 +344,91 @@ export async function attachControlContaminationForLedger(
     if (attachment) out.set(r.id, attachment);
   }
 
+  // N16 (R5) - MEDIAN-BAND FALLBACK: for a ship whose frozen pool is EXHAUSTED
+  // (a contaminated control had no clean substitute to promote), replace the
+  // bare caution with an honest weaker comparison: the treated page's own
+  // basis-window clicks delta vs the MEDIAN delta of untouched pages in the
+  // same template family, over the identical window (permutation-null.ts's
+  // shared-weather read, reused rather than re-derived). Bounded to
+  // MAX_MEDIAN_BAND_SHIPS per pass so a messy ledger can never fan out
+  // unbounded GSC reads; fail-soft per ship (the caution line stays). The
+  // verdict math on the stored controls is NEVER re-run here, and nothing is
+  // persisted - presentation only, feeding N10's grade as "shaky" through the
+  // same contamination flag the caution already sets.
+  let medianBandBudget = MAX_MEDIAN_BAND_SHIPS;
+  for (const r of records) {
+    if (medianBandBudget <= 0) break;
+    const attachment = out.get(r.id);
+    if (!attachment || !attachment.verdict.hasContamination) continue;
+    const exhausted = [...attachment.substitutesByOriginal.values()].some((s) => s == null);
+    if (!exhausted) continue;
+    const basis = (r.windows ?? []).filter((w) => w.ran).sort((a, b) => b.day - a.day)[0];
+    if (!basis) continue; // nothing measured yet -> nothing to band against
+    medianBandBudget -= 1;
+    try {
+      // Lazy import (same posture as shipped-change-store's surface invalidation):
+      // the permutation-null module pulls the page-surgeon context chain, which
+      // only this rare exhausted-pool branch needs - keep it off the module graph
+      // for every ordinary attach pass, and inside the fail-soft catch here.
+      const { buildPermutationNull } = await import("./permutation-null");
+      const excludePaths = new Set<string>([
+        pathOf(r.page),
+        ...r.controlPages.map(pathOf),
+        ...(r.controlDonorPool ?? []).map((d) => pathOf(d.url)),
+      ]);
+      const nullDist = await buildPermutationNull({
+        tenantId,
+        shipDate: (r.shippedAt || "").slice(0, 10),
+        windowDays: basis.day,
+        excludePaths,
+      });
+      const family = templateFamilyOf(r.path);
+      const familyDeltas = nullDist.pages
+        .filter((p) => templateFamilyOf(p.page) === family)
+        .map((p) => p.delta);
+      const band = medianBandRead({ treatedDelta: basis.treatedDelta, familyDeltas });
+      if (band) {
+        out.set(r.id, { ...attachment, medianBand: band, notes: [...attachment.notes, band.sentence] });
+      }
+    } catch (e) {
+      log.warn("[control-contamination] median-band read failed (fail-soft)", {
+        tenantId,
+        shipId: r.id,
+        error: e instanceof Error ? e.message : String(e),
+      });
+    }
+  }
+
   return out;
+}
+
+/** Hard ceiling on median-band GSC reads per attach pass (each is two bounded
+ *  RPC reads via buildPermutationNull). Pool exhaustion should be rare; if
+ *  more ships than this are exhausted in one pass, the rest keep the plain
+ *  caution line until a later pass reaches them. */
+const MAX_MEDIAN_BAND_SHIPS = 3;
+
+/**
+ * N16 (R5) - the planner's LAST-CLEAN-DONOR holds: for every OPEN measurement
+ * (verdict "measuring"), when its clean comparison pool (still-clean serving
+ * controls plus the untreated bench of its FROZEN donor pool) is down to
+ * exactly ONE page, hold that page tonight - treating it would leave the
+ * measurement with no clean comparison at all. PURE over already-computed
+ * attachments (no I/O). Keyed by host-stripped path, valued with the plain
+ * hold sentence, matching the planner's LastCleanDonorHoldLookup contract.
+ */
+export function computeLastCleanDonorHolds(
+  records: ReadonlyArray<Pick<ShippedChangeRecord, "id" | "path" | "verdict">>,
+  attachments: ReadonlyMap<string, ContaminationAttachment>,
+): Map<string, string> {
+  const holds = new Map<string, string>();
+  for (const r of records) {
+    if (r.verdict !== "measuring") continue; // only an open measurement needs protecting
+    const poolHealth = attachments.get(r.id)?.poolHealth;
+    if (!poolHealth) continue;
+    for (const p of poolHealth.lastCleanDonorPaths) {
+      if (!holds.has(p)) holds.set(p, lastCleanDonorHoldSentence(r.path));
+    }
+  }
+  return holds;
 }

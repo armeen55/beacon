@@ -212,6 +212,12 @@ export type MoveCandidate = {
    *  by applyExperimentPriorToMoves(). Inline shape so build-graph stays
    *  dependency-free of the learning layer. Absent until the loop has evidence. */
   learnedPrior?: { multiplier: number; decidedSample: number; basis: string | null; tag: string | null };
+  /** Learned effect-size prior (R5 / N15), a second bounded multiplier [0.8, 1.3]
+   *  from the MAGNITUDES of settled outcomes (how much changes like this moved
+   *  clicks), attached OUTSIDE the pure scorer (in load-graph) by
+   *  applyEffectSizePriorToMoves(). Complements learnedPrior (how often they won).
+   *  Inline shape so build-graph stays dependency-free of the learning layer. */
+  effectPrior?: { multiplier: number; sample: number; basis: string | null; tag: string | null };
   /** Profound AEO EVIDENCE (the AI prompts this Move answers + cited competitors
    *  + fan-outs), attached OUTSIDE the pure scorer (in load-graph) by
    *  attachProfoundEvidenceToMoves(). Evidence/context only — never a score or

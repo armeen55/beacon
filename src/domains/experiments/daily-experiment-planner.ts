@@ -21,6 +21,7 @@ import {
 } from "./experiment-eligibility";
 import { EXTREME_SHORTFALL_RATIO, type PowerAssessment } from "./power-analysis";
 import { MIN_MULTIPLIER, MAX_MULTIPLIER, type LearnedPrior } from "@/domains/learning/experiment-prior";
+import { EFFECT_MIN_MULTIPLIER, EFFECT_MAX_MULTIPLIER, type EffectPrior } from "@/domains/learning/effect-size-prior";
 import {
   computeLeverRetirementDecisions, RetirementIndex, type LeverRetirementDecision, type SettledLeverRow,
 } from "./lever-retirement";
@@ -69,6 +70,14 @@ export type DailyCandidate = {
    *  already applies (load-graph.ts). Absent/neutral (multiplier 1, tag null) on a fresh tenant
    *  with no settled outcomes -> byte-identical plans. */
   learnedPrior?: LearnedPrior;
+  /** R5 / N15 (2026-07-03): the learned EFFECT-SIZE prior for this exact (lever family,
+   *  page-type band) from src/domains/learning/effect-size-prior.ts, resolved by the caller
+   *  (build-today-preview.ts) from the SAME gated ledger read as learnedPrior. Bounded
+   *  [0.8, 1.3], decided-only, >= 3 settled magnitudes per bucket with backoff to the lever
+   *  then the site mean. Absent/neutral (multiplier 1, tag null) on a fresh tenant ->
+   *  byte-identical plans. Complements learnedPrior: that one learns how OFTEN a kind of
+   *  change wins, this one learns how MUCH it moved clicks when it settled. */
+  effectPrior?: EffectPrior;
 };
 
 /** Item 81 (2026-07-02): a candidate admitted through a (pageFamily, lever) cell's ONE scheduled
@@ -108,18 +117,19 @@ export type PlannedExperiment = DailyCandidate & {
    *  previously-retired (pageFamily, lever) cell. Absent on every ordinary pick. */
   retest?: RetestFlag;
 };
-export type ExcludedReason = EligibilityReason | "page_family_cap" | "action_family_cap" | "high_traffic_cap" | "budget_full" | "over_max" | "influenced_conflict" | "underpowered" | "lever_retired" | "interference_hold";
+export type ExcludedReason = EligibilityReason | "page_family_cap" | "action_family_cap" | "high_traffic_cap" | "budget_full" | "over_max" | "influenced_conflict" | "underpowered" | "lever_retired" | "interference_hold" | "last_clean_donor";
 export type ExcludedExperiment = {
   url: string;
   actionFamily: ExperimentFamily;
   reason: ExcludedReason;
   availableAt?: string;
   relatedProofIds?: string[];
-  /** Item N14: present only for reason "interference_hold" - the plain
-   *  first-person sentence from interference-graph.ts's
-   *  interferenceSummarySentence naming WHY (e.g. "I am holding this
-   *  because the page shares its template family with 3 changes still
-   *  measuring."). Absent for every other exclusion reason. */
+  /** Item N14 / N16: present only for reasons "interference_hold" and
+   *  "last_clean_donor" - the plain first-person sentence naming WHY (e.g.
+   *  "I am holding this because the page shares its template family with 3
+   *  changes still measuring." or "I am holding this page because it is the
+   *  last clean comparison page for a change I am still measuring on
+   *  /iran-flags."). Absent for every other exclusion reason. */
   plainReason?: string;
 };
 
@@ -132,6 +142,17 @@ export type ExcludedExperiment = {
  *  type) so this module stays free of a hard dependency on proof-gsc's
  *  interference-graph.ts; the caller does the one-line adaptation. */
 export type InterferenceHoldLookup = ReadonlyMap<string, { hold: boolean; reason: string }>;
+
+/** N16 (R5, 2026-07-03): pages that are the LAST clean comparison page for an
+ *  open measurement, keyed by the SAME host-stripped path convention as
+ *  InterferenceHoldLookup, valued with the plain first-person hold sentence
+ *  (control-contamination.ts's lastCleanDonorHoldSentence). Treating such a
+ *  page tonight would leave that measurement with no clean comparison at all,
+ *  forcing the weaker median-band read. Optional - a caller that never wires
+ *  this (the default, undefined) sees byte-identical plans. NOTE: this is a
+ *  planner-side AVOIDANCE input only; frozen-pool ordering (N13) is inviolable
+ *  and nothing here re-selects or re-ranks any donor. */
+export type LastCleanDonorHoldLookup = ReadonlyMap<string, string>;
 
 export type ControlAvailabilitySummary = {
   /** Pages with NO active treatment/control — the clean pool a new batch can draw controls from. */
@@ -194,6 +215,15 @@ function learnedPriorScoreFactor(prior: LearnedPrior | undefined): number {
   return Math.max(MIN_MULTIPLIER, Math.min(MAX_MULTIPLIER, prior.multiplier));
 }
 
+/** R5 / N15 (2026-07-03) - the effect-size score factor: same posture as
+ *  learnedPriorScoreFactor above, defensively re-clamped to [0.8, 1.3] so a caller
+ *  mistake can never push the nightly score outside the effect prior's own band.
+ *  Absent/neutral (multiplier 1) is the exact pre-N15 score. */
+function effectPriorScoreFactor(prior: EffectPrior | undefined): number {
+  if (!prior) return 1;
+  return Math.max(EFFECT_MIN_MULTIPLIER, Math.min(EFFECT_MAX_MULTIPLIER, prior.multiplier));
+}
+
 /** Deterministic "tonight value" — rewards page-1 rank, weak CTR, clear ownership, medium
  *  traffic; the CTR opportunity (extra clicks) is the spine. PURE. */
 export function scoreCandidate(c: DailyCandidate): number {
@@ -211,7 +241,11 @@ export function scoreCandidate(c: DailyCandidate): number {
   // queryCluster) tilts ties, never dominates (bounded to +/-15%, same discipline as the
   // worklist's demand-graph ranking).
   const priorFactor = learnedPriorScoreFactor(c.learnedPrior);
-  return c.ctrOpportunityClicks * positionFactor * mediumFactor * (weakCtr / 1.5) * ownershipFactor * teamFactor * powerFactor * priorFactor;
+  // R5 / N15 - how MUCH changes like this moved clicks when they settled (the magnitude
+  // twin of the win-rate prior above). Bounded to [0.8, 1.3]; neutral when no bucket has
+  // 3+ settled magnitudes, so a fresh tenant scores byte-identically.
+  const effectFactor = effectPriorScoreFactor(c.effectPrior);
+  return c.ctrOpportunityClicks * positionFactor * mediumFactor * (weakCtr / 1.5) * ownershipFactor * teamFactor * powerFactor * priorFactor * effectFactor;
 }
 
 /** Plan today's safe, diversified, effort-bounded batch. PURE. */
@@ -225,6 +259,9 @@ export function planDailyExperiments(input: {
    *  keyed by host-stripped path. Optional - omitted (the default) yields
    *  byte-identical plans to before N14 existed. */
   interference?: InterferenceHoldLookup;
+  /** N16: last-clean-donor holds (see LastCleanDonorHoldLookup). Optional -
+   *  omitted (the default) yields byte-identical plans to before N16 existed. */
+  lastCleanDonorHolds?: LastCleanDonorHoldLookup;
 }): DailyExperimentPlan {
   const cfg = { ...DEFAULTS, ...(input.config ?? {}) };
   const now = input.config?.now ?? new Date();
@@ -264,6 +301,19 @@ export function planDailyExperiments(input: {
     const holdEntry = input.interference?.get(normPathForInterference(c.url));
     if (holdEntry?.hold) {
       excluded.push({ url: c.url, actionFamily: c.actionFamily, reason: "interference_hold", plainReason: holdEntry.reason });
+      continue;
+    }
+    // N16 (R5) - SUSTAINABLE CONTROL POOL: a page that is the LAST clean
+    // comparison page for an open measurement is held tonight, same pattern
+    // as the interference hold above. Treating it would exhaust that
+    // measurement's frozen donor pool entirely (no clean donor left to
+    // promote), forcing the weaker median-band read. The plain sentence rides
+    // plainReason so the operator sees WHY, never a bare status code. Only
+    // fires when the caller wired the lookup; an unwired caller sees
+    // byte-identical behavior to every planner version before N16.
+    const donorHold = input.lastCleanDonorHolds?.get(normPathForInterference(c.url));
+    if (donorHold) {
+      excluded.push({ url: c.url, actionFamily: c.actionFamily, reason: "last_clean_donor", plainReason: donorHold });
       continue;
     }
     eligible.push({ ...c, pageFamily: c.pageFamily ?? pageFamilyOf(c.url), score: scoreCandidate(c) });

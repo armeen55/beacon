@@ -155,6 +155,39 @@ describe("GA4 card — CONNECTED + WITH PROPERTY state", () => {
   });
 });
 
+describe("GA4 card — T0b recovery fix line", () => {
+  it("a proven auth failure (auth_failed_at set) shows the shared reconnect fix", () => {
+    const html = renderClient({
+      ga4: {
+        status: "connected",
+        connected_at: "2026-05-18T10:00:00.000Z",
+        expires_at: Date.now() + 3600 * 1000,
+        last_synced_at: "2026-06-01T00:00:00.000Z",
+        ga4_property_id: "1001",
+        ga4_property_display_name: "Ritz Builders Production",
+        auth_failed_at: "2026-07-01T00:00:00.000Z",
+      },
+    });
+    expect(html).toContain('data-recovery-fix="token_expired"');
+    expect(html).toContain("Fix this:");
+    expect(html).toContain("Connect Google Analytics on the Connections page to reconnect");
+  });
+
+  it("healthy + recently synced shows no fix line", () => {
+    const html = renderClient({
+      ga4: {
+        status: "connected",
+        connected_at: "2026-05-18T10:00:00.000Z",
+        expires_at: Date.now() + 3600 * 1000,
+        last_synced_at: new Date().toISOString(),
+        ga4_property_id: "1001",
+        ga4_property_display_name: "Ritz Builders Production",
+      },
+    });
+    expect(html).not.toContain("data-recovery-fix");
+  });
+});
+
 describe("GA4 card — SOFT-DISCONNECTED state", () => {
   it("shows the cached-data tooltip + Reconnect button", () => {
     const html = renderClient({

@@ -32393,3 +32393,98 @@ mutation invalidates through one choke point; /results opens instantly with "I l
 these numbers against your Google data N minutes ago"), and won-dollar-rule.ts makes the stricter
 exclusion set THE dollar rule on Today strip, scoreboard odometer, and proof summary, pinned by a
 dollar-parity test. Combined gate: typecheck clean, 423 targeted tests green, ratchet 1342.
+
+## 2026-07-03 FINAL LIST R3 (T0b one-click recovery)
+New src/domains/ops/recovery-actions.ts (pure, no I/O): the ONE map from a failure state to
+{plainProblem, exactFix, href, selfServe?} for every connector failure (token expired/revoked,
+never connected, sync stale, zero rows written, Wix url-map empty, GSC property-mismatch/www-host
+trap), every cron pace (late/stalled, honest own-schedule wording when no button exists, never
+"investigate this"), the site-down probe, and the 5 [G] operator-gated setup items. Never invents a
+write action, only names existing ones (Google reconnect, per-source Sync now, the Wix mapper, GSC
+deep-backfill start). Wired into three surfaces off the same map: connectors-client.tsx (new
+ConnectorFixLine on GA4/Profound/Clarity + a Wix-specific wix_url_map_empty line, new
+wixUrlMapCount prop from page.tsx via getWixUrlMap().length), cron-health-panel.tsx (a "Fix this:"
+line under every late/stalled job row and the collapsed no-history line), and ops-pipeline-section.tsx
+(Today's data-pipe alert matches each deadman sentence back to its job via DeadmanVerdict.jobs and
+appends a "Start with:" line from the same map; deadman.ts's own pinned sentence copy is untouched,
+this line is additive). New src/domains/ops/finish-setup.ts reads real state (Wix url-map row
+count, BEACON_DIGEST_TO+RESEND_API_KEY presence by name only, IndexNow config presence, GSC
+backfill-progress status, revenueModel presence) into a new self-hiding "Finish setting up" card at
+the top of /settings (finish-setup-card.tsx). Corrected two setup-item facts while building: GSC
+full backfill deep-links to /diagnostics/connectors's real "Load my full Search Console history"
+button (was pointed at a page with no such button); the digest email item honestly names Vercel env
+vars since no in-app form sets BEACON_DIGEST_TO/RESEND_API_KEY. Rendered examples: GA4 auth failure
+"Fix this: Click Connect Google Analytics on the Connections page to reconnect. It takes under a
+minute and nothing else changes."; stalled sync-connectors cron "Fix this: Pull each connected
+source's data yourself right now with the Sync now button on its card, on the Connections page.
+Open the Connections page."; Wix connected + 0 mapped pages "Fix this: Open Wix page mapping and
+click Discover collections, then Save mapping for each page type. I cannot publish anything to your
+site until this is done." Verified: npm run typecheck clean project-wide; 106 new tests (33
+recovery-actions unit, 14 finish-setup loader, 4 finish-setup-card render, plus new/updated render
+pins in ops-pipeline-deadman/connectors-wix-card/connectors-ga4-card); targeted sweep across
+src/domains/ops, src/app/(shell)/settings, ops-pipeline-deadman.test.tsx, src/app/(shell)/diagnostics,
+tests/app/diagnostics, tests/app/settings, and the FULL tests/architecture suite all green: 5054
+tests total, 0 failures, 32 pre-existing skips (including no-banned-dash-display-surfaces and
+gsc-no-hardcoded-site-url). No dev server (verified via tests); no migration, no new env var, no new
+write action. Caveat (flagged, not fixed): connector-store.ts's pre-existing getConnectorHealth()
+healthReason strings carry 2 em dashes, a pre-existing violation spawned as a separate background
+task rather than touched in this pass.
+
+## 2026-07-03 FINAL LIST R5 (N15 effect-size learning + N16 sustainable control pool)
+
+N15: new pure src/domains/learning/effect-size-prior.ts learns from the MAGNITUDES of settled
+outcomes (not just won/lost): per (lever family x page-type band) bucket, a recency-weighted
+(~90 day half-life) mean relative-clicks lift shrunk toward the site mean by 3 pseudo-observations,
+minimum 3 decided samples per level with a backoff ladder bucket -> lever -> site -> neutral, output
+clamped [0.8, 1.3] plus a plain tag ("Changes like this earned about +12 percent clicks on average
+across 4 finished tests"; the site-level backoff is deliberately tagless so cards never repeat a
+generic line). Decided rows come through the IDENTICAL maturity/weather/parallel-trends gate the
+win-rate prior uses (new gateRecordsToEffectObservations/loadEffectObservations in
+load-experiment-outcomes.ts); read-only over the ledger. Wired at the same post-score seams:
+load-graph.ts applies applyEffectSizePriorToMoves right after the win-rate prior (MoveCandidate
+gains effectPrior; the worklist card's learned slot prefers the magnitude tag when a real bucket
+fired), and the nightly planner folds effectPriorScoreFactor into scoreCandidate with the prior
+resolved in build-today-preview.ts from the already-loaded ledger and frozen onto the plan record
+(daily-plan-types/build-daily-plan-record; new EffectSizeTag on both pick cards). Byte-identical
+ranking when no level has 3+ usable settled magnitudes, pinned.
+
+N16: control-contamination.ts gains computePoolHealth (still-clean count over the effective
+serving set + the untreated frozen-pool bench; unverified scan coverage counts as still clean so
+sparse scans never fake damage), lastCleanDonorHoldSentence, and medianBandRead (>=3 same-family
+untouched pages). attach-control-contamination.ts: every attachment now carries poolHealth +
+poolHealthLine ("2 of 4 comparison pages are still clean.", open measurements only, rendered in
+the Results "See the math" expander via a new controlPoolHealthLine passthrough on
+buildMeasurementPresentation); when the frozen pool is EXHAUSTED it falls back to a median-band
+read (reuses buildPermutationNull's shared-window deltas, lazily imported, max 3 ships per pass,
+sentence: "Every comparison page for this change was disturbed, so I checked it against the typical
+untouched page in its section instead... That is a weaker comparison, so I am reading this result
+cautiously.") appended as the card's visible caveat, still feeding N10's grade as shaky through the
+existing contamination flag; and computeLastCleanDonorHolds feeds a new planner input
+(lastCleanDonorHolds -> ExcludedReason "last_clean_donor" with the plain hold sentence, same
+pattern as interference_hold), wired in build-today-preview before planDailyExperiments. Frozen-pool
+ordering from N13 untouched: no re-ranking, no outcome-aware selection, nothing persisted.
+
+Verified: npm run typecheck clean project-wide. New/extended tests: effect-size-prior.test.ts (22:
+relative-lift extraction incl. pro-rating + clamps, half-life weights, shrinkage math on fixtures,
+backoff ladder, [0.8, 1.3] clamp, tag wording dash-free, byte-identical-when-thin pin, seam apply),
+load-experiment-outcomes.test.ts (+7 decided-magnitude gating), control-contamination.test.ts (+11
+pool health, median band, hold sentence), attach-control-contamination.test.ts (+8 pool-health
+line, holds, median-band batch incl. not-exhausted negative), daily-experiment-planner.test.ts (+7
+effect fold + last_clean_donor hold + identity-when-empty pins), effect-prior-surface-pins.test.ts
+(11 wiring pins). Targeted sweeps all green: learning+experiments+proof-gsc (68 files / 1180
+tests), demand-graph+demand+results (37/414), src/app (58/627+1 skip),
+strategy-review+global-patterns+team-scoreboard (14/229). No dev server (tests only per the R5
+brief); no migration, no new env var, nothing persisted to the ledger.
+
+## 2026-07-03 FINAL LIST R3 + R5 (T0b recovery map + N15/N16 learning depth)
+R3/T0b: recovery-actions.ts maps every detectable failure to plainProblem + exactFix + deep link +
+existing self-serve action (reconnect, sync-now, Wix mapper); wired into Connections cards, the
+cron panel, and the Today alert block (one fix story everywhere); "Finish setting up" checklist on
+/settings for the five operator-gated items, self-hiding when done. 106 new tests, 5,056 sweep.
+Also fixed three pre-existing em-dash operator strings in connector-store healthReason. R5: N15
+effect-size prior (control-adjusted magnitude, 90d recency half-life, shrinkage toward the site
+mean, 3-sample backoff ladder, clamp 0.8-1.3, byte-identical-when-thin pinned) applied at the
+proven post-score seams (load-graph + nightly planner) with a plain magnitude tag on cards; N16
+pool health ("2 of 4 comparison pages are still clean"), median-band fallback when the frozen pool
+exhausts (graded shaky, honest caveat), and a last-clean-donor planner hold. 66 new tests; suites
+1,180 + 414 + 627 + 229 green. Combined gate: typecheck clean, 1,515 targeted tests green.

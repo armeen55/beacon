@@ -6,6 +6,11 @@ import type { ConnectorInfo } from "@/lib/connector-store";
 import type { Ga4Property } from "@/lib/connectors/ga4/types";
 import { Pill } from "@/components/ui/pill";
 import {
+  deriveConnectorFailureState,
+  recoveryForConnectorFailure,
+  type ConnectorKind as RecoveryConnectorKind,
+} from "@/domains/ops/recovery-actions";
+import {
   getGoogleAuthUrl,
   getGoogleGscConnectorStatus,
   getGoogleGa4ConnectorStatus,
@@ -103,6 +108,11 @@ type Props = {
    *  read from the same sync-connectors cron job the health panel renders. */
   lastSyncState?: LastSyncState;
   lastSyncHeadline?: string;
+  /** T0b (2026-07-03), how many pages Wix's url map currently covers.
+   *  Computed server-side in page.tsx from getWixUrlMap().length. A
+   *  connected-but-zero-mapped Wix can't publish anything, this drives the
+   *  shared recovery-actions fix line pointing at /diagnostics/wix. */
+  wixUrlMapCount?: number;
 };
 
 /** FP10a (2026-07-02) - one line per source: what it actually feeds, in
@@ -176,6 +186,51 @@ function formatDate(iso: string | null): string {
   }
 }
 
+/**
+ * T0b (BEACON_500, 2026-07-03) - the ONE fix line every unhealthy connector
+ * card shows, sourced from the shared recovery map (recovery-actions.ts) so
+ * this card, the cron health panel, and Today's data-pipe alert can never
+ * disagree on the fix for the same broken connector. Self-hides when the
+ * connector is healthy (derive returns null). GSC keeps its own richer
+ * readiness block (gscReadiness) below this - this line still renders for
+ * GSC so a proven auth failure or long-stale sync gets the same words as
+ * every other card, even though GSC also shows the deeper property detail.
+ */
+function ConnectorFixLine({
+  connector,
+  status,
+  authFailedAt,
+  lastSyncedAt,
+  missingRequiredSelection,
+}: {
+  connector: RecoveryConnectorKind;
+  status: "connected" | "disconnected";
+  authFailedAt?: string | null;
+  lastSyncedAt?: string | null;
+  missingRequiredSelection?: boolean;
+}) {
+  // Never-connected is each card's own "Connect" button state (already
+  // rendered); this line only speaks up for a CONNECTED card that has gone
+  // unhealthy, so it never duplicates the bare not-connected copy.
+  if (status !== "connected") return null;
+  const state = deriveConnectorFailureState(
+    { status, authFailedAt, lastSyncedAt, missingRequiredSelection },
+    new Date(),
+  );
+  if (state == null || state === "never_connected") return null;
+  const action = recoveryForConnectorFailure(connector, state);
+  if (action == null) return null;
+  return (
+    <p
+      className="text-[12px] text-status-warning"
+      role="status"
+      data-recovery-fix={state}
+    >
+      <span className="font-semibold">Fix this:</span> {action.exactFix}
+    </p>
+  );
+}
+
 export function ConnectorsClient({
   google: initialGoogle,
   googleSelectedLocation: initialSelectedLocation,
@@ -192,6 +247,7 @@ export function ConnectorsClient({
   totalCount = 5,
   lastSyncState = "none",
   lastSyncHeadline = "I have not run yet.",
+  wixUrlMapCount = 0,
 }: Props) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -1027,6 +1083,14 @@ export function ConnectorsClient({
                 Connected, select a property to finish setup.
               </p>
             )}
+            {ga4.ga4_property_id ? (
+              <ConnectorFixLine
+                connector="google_ga4"
+                status={ga4.status}
+                authFailedAt={ga4.auth_failed_at}
+                lastSyncedAt={ga4.last_synced_at}
+              />
+            ) : null}
             {ga4SyncResult ? (
               <p
                 className={`text-[12px] ${ga4SyncResult.ok ? "text-status-success" : "text-status-warning"}`}
@@ -1198,6 +1262,15 @@ export function ConnectorsClient({
             <p className="text-[12px] text-muted-foreground">
               Authorized {formatDate(wix.connected_at)}
             </p>
+            {wixUrlMapCount === 0 ? (
+              <p className="text-[12px] text-status-warning" role="status" data-recovery-fix="wix_url_map_empty">
+                <span className="font-semibold">Fix this:</span>{" "}
+                <a href="/diagnostics/wix" className="underline underline-offset-2 hover:text-foreground">
+                  Open Wix page mapping
+                </a>{" "}
+                and click Discover collections, then Save mapping for each page type. I cannot publish anything to your site until this is done.
+              </p>
+            ) : null}
             <button
               type="button"
               onClick={handleDisconnectWix}
@@ -1306,6 +1379,11 @@ export function ConnectorsClient({
             <p className="text-[12px] text-muted-foreground">
               Authorized {formatDate(profound.connected_at)}
             </p>
+            <ConnectorFixLine
+              connector="profound"
+              status={profound.status}
+              lastSyncedAt={profound.last_synced_at}
+            />
             {profoundSyncResult ? (
               <p
                 className={`text-[12px] ${profoundSyncResult.ok ? "text-status-success" : "text-status-warning"}`}
@@ -1421,6 +1499,11 @@ export function ConnectorsClient({
             <p className="text-[12px] text-muted-foreground">
               Authorized {formatDate(clarity.connected_at)}
             </p>
+            <ConnectorFixLine
+              connector="clarity"
+              status={clarity.status}
+              lastSyncedAt={clarity.last_synced_at}
+            />
             {claritySyncResult ? (
               <p
                 className={`text-[12px] ${claritySyncResult.ok ? "text-status-success" : "text-status-warning"}`}

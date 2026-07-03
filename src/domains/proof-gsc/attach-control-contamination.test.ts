@@ -44,9 +44,18 @@ vi.mock("@/lib/persistence/supabase", () => ({
   getSupabaseAdmin: () => ({ from: () => chainFor() }),
 }));
 
+// N16: the median-band fallback lazily imports permutation-null (a heavy
+// page-surgeon chain in production). Mocked here to a controllable
+// distribution so the batch tests stay hermetic and deterministic.
+let nullDistPages: Array<{ page: string; delta: number; pseudoLift: number }> = [];
+vi.mock("./permutation-null", () => ({
+  buildPermutationNull: vi.fn(async () => ({ pages: nullDistPages, shipDate: "2026-06-01", windowDays: 7 })),
+}));
+
 import {
   computeContaminationForShip,
   attachControlContaminationForLedger,
+  computeLastCleanDonorHolds,
 } from "./attach-control-contamination";
 import type { ShippedChangeRecord } from "./shipped-change-store";
 import type { RankedControl } from "./control-matching";
@@ -89,6 +98,7 @@ beforeEach(() => {
   snapshotRows = [];
   snapshotThrow = null;
   rangeCalls.length = 0;
+  nullDistPages = [];
 });
 
 describe("computeContaminationForShip - clean path", () => {
@@ -290,5 +300,128 @@ describe("attachControlContaminationForLedger - batch read", () => {
   it("returns an empty map for an empty ledger", async () => {
     const out = await attachControlContaminationForLedger("t1", []);
     expect(out.size).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// N16 (R5, 2026-07-03) - pool health line, median-band fallback, planner holds
+// ---------------------------------------------------------------------------
+
+describe("computeContaminationForShip - N16 pool health", () => {
+  const cleanSnapshots = new Map([
+    ["/a", [{ fetchedAt: "2026-06-02", contentHash: "x" }, { fetchedAt: "2026-06-06", contentHash: "x" }]],
+    ["/b", [{ fetchedAt: "2026-06-02", contentHash: "y" }, { fetchedAt: "2026-06-06", contentHash: "y" }]],
+  ]);
+
+  it("carries the plain pool-health line for an OPEN measurement, spares included", () => {
+    const record = ship({ verdict: "measuring", controlDonorPool: [donor("https://site.com/c")] });
+    const out = computeContaminationForShip({ record, otherShips: [], snapshotsByPath: cleanSnapshots });
+    expect(out!.poolHealth.cleanControls).toBe(2);
+    expect(out!.poolHealth.spareDonors).toBe(1);
+    expect(out!.poolHealthLine).toBe(
+      "2 of 2 comparison pages are still clean. 1 spare comparison page is ready from the list I chose before shipping.",
+    );
+    expect(out!.poolHealthLine).not.toMatch(/[–—]/);
+  });
+
+  it("hides the line once the measurement settles (verdict not measuring)", () => {
+    const record = ship({ verdict: "won" });
+    const out = computeContaminationForShip({ record, otherShips: [], snapshotsByPath: cleanSnapshots });
+    expect(out!.poolHealthLine).toBeNull();
+    expect(out!.poolHealth.totalControls).toBe(2); // health numbers still computed
+  });
+
+  it("counts a contaminated serving control against the line when no substitute existed", () => {
+    const record = ship({ verdict: "measuring", controlDonorPool: null });
+    const out = computeContaminationForShip({
+      record,
+      otherShips: [{ path: "/a", shippedAt: "2026-06-05T00:00:00Z" }],
+      snapshotsByPath: cleanSnapshots,
+    });
+    expect(out!.poolHealthLine).toBe("1 of 2 comparison pages are still clean.");
+    expect(out!.poolHealth.lastCleanDonorPaths).toEqual(["/b"]);
+  });
+});
+
+describe("computeLastCleanDonorHolds - the planner avoidance input", () => {
+  it("holds the single remaining clean comparison page of an open measurement", async () => {
+    const treatedShip = ship({ verdict: "measuring", controlDonorPool: null });
+    const contaminator = ship({
+      id: "s2",
+      page: "https://site.com/a",
+      path: "/a",
+      shippedAt: "2026-06-05T00:00:00Z",
+      controlPages: [], // no attachment of its own; exists to contaminate s1's /a
+    });
+    const attachments = await attachControlContaminationForLedger("t1", [treatedShip, contaminator]);
+    const holds = computeLastCleanDonorHolds([treatedShip, contaminator], attachments);
+    expect(holds.get("/b")).toBe(
+      "I am holding this page because it is the last clean comparison page for a change I am still measuring on /treated.",
+    );
+    expect(holds.size).toBe(1);
+  });
+
+  it("holds nothing for a settled measurement or a healthy pool", async () => {
+    const settled = ship({ verdict: "won" });
+    const attachments = await attachControlContaminationForLedger("t1", [settled]);
+    expect(computeLastCleanDonorHolds([settled], attachments).size).toBe(0);
+
+    const healthy = ship({ verdict: "measuring", controlDonorPool: [donor("https://site.com/c")] });
+    const attachments2 = await attachControlContaminationForLedger("t1", [healthy]);
+    expect(computeLastCleanDonorHolds([healthy], attachments2).size).toBe(0);
+  });
+});
+
+describe("attachControlContaminationForLedger - N16 median-band fallback", () => {
+  it("attaches the weaker median-band read when the pool is exhausted, as the LAST note", async () => {
+    // /a contaminated (treated by s2), NO donor pool -> exhausted -> median band.
+    const treatedShip = ship({
+      verdict: "measuring",
+      controlDonorPool: null,
+      windows: [{ day: 7, checkOn: "2026-06-08", ran: true, treatedDelta: 6, controlDelta: 0, adjustedLift: 6, treatedCtrDelta: 0, controlCtrDelta: 0, adjustedCtrLift: 0, treatedPosDelta: 0, controlPosDelta: 0, adjustedPosLift: 0, controlsUsed: 2 }],
+    });
+    const contaminator = ship({ id: "s2", page: "https://site.com/a", path: "/a", shippedAt: "2026-06-05T00:00:00Z", controlPages: [] });
+    // Same template family as /treated (first segment "treated").
+    nullDistPages = [
+      { page: "https://site.com/treated/x", delta: 1, pseudoLift: 0 },
+      { page: "https://site.com/treated/y", delta: 2, pseudoLift: 0 },
+      { page: "https://site.com/treated/z", delta: 9, pseudoLift: 0 },
+      { page: "https://site.com/other/q", delta: 100, pseudoLift: 0 }, // different family - ignored
+    ];
+    const out = await attachControlContaminationForLedger("t1", [treatedShip, contaminator]);
+    const attach = out.get("s1")!;
+    expect(attach.medianBand).not.toBeNull();
+    expect(attach.medianBand!.medianDelta).toBe(2);
+    expect(attach.medianBand!.pagesUsed).toBe(3);
+    expect(attach.notes.at(-1)).toContain("That is a weaker comparison");
+    expect(attach.notes.at(-1)).toContain("this page gained 6 clicks while the typical one of 3 gained 2 clicks");
+  });
+
+  it("stays on the plain caution when too few same-family pages exist (honest silence)", async () => {
+    const treatedShip = ship({ verdict: "measuring", controlDonorPool: null });
+    const contaminator = ship({ id: "s2", page: "https://site.com/a", path: "/a", shippedAt: "2026-06-05T00:00:00Z", controlPages: [] });
+    nullDistPages = [{ page: "https://site.com/treated/x", delta: 1, pseudoLift: 0 }];
+    const out = await attachControlContaminationForLedger("t1", [treatedShip, contaminator]);
+    const attach = out.get("s1")!;
+    expect(attach.medianBand).toBeNull();
+    expect(attach.notes.at(-1)).toBe("A comparison page changed during measurement, so I am reading this result with caution.");
+  });
+
+  it("never fires the median band when every contaminated control found a substitute (pool NOT exhausted)", async () => {
+    // Both /a (treated by s2) and /b (unverified scans) classify contaminated in
+    // this fixture (no snapshot rows), so give the bench TWO donors - every
+    // contaminated control promotes, nothing is exhausted, no median band.
+    const treatedShip = ship({
+      verdict: "measuring",
+      controlDonorPool: [donor("https://site.com/c"), donor("https://site.com/d")],
+    });
+    const contaminator = ship({ id: "s2", page: "https://site.com/a", path: "/a", shippedAt: "2026-06-05T00:00:00Z", controlPages: [] });
+    nullDistPages = [
+      { page: "https://site.com/treated/x", delta: 1, pseudoLift: 0 },
+      { page: "https://site.com/treated/y", delta: 2, pseudoLift: 0 },
+      { page: "https://site.com/treated/z", delta: 9, pseudoLift: 0 },
+    ];
+    const out = await attachControlContaminationForLedger("t1", [treatedShip, contaminator]);
+    expect(out.get("s1")!.medianBand).toBeNull();
   });
 });

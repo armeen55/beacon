@@ -63,8 +63,10 @@ import { teammateOf } from "@/domains/team/identity";
 import { loadLatestStrategyMix } from "@/domains/strategy-review/strategy-mix-store";
 import { clampStrategyMix } from "@/domains/strategy-review/apply-mix";
 import { KNOWN_ACTION_FAMILIES } from "@/domains/strategy-review/run-strategy-review";
-import { loadExperimentOutcomes } from "@/domains/learning/load-experiment-outcomes";
+import { loadExperimentOutcomes, gateRecordsToEffectObservations } from "@/domains/learning/load-experiment-outcomes";
 import { computeDimPriors, resolvePrior, canonicalMoveType, pageTypeFromUrl, queryClusterKey } from "@/domains/learning/experiment-prior";
+import { computeEffectSizeTable, resolveEffectPrior } from "@/domains/learning/effect-size-prior";
+import { attachControlContaminationForLedger, computeLastCleanDonorHolds } from "@/domains/proof-gsc/attach-control-contamination";
 import { buildShadowCandidates } from "./shadow-portfolio-capture";
 import { writeShadowPortfolioBatch } from "./shadow-portfolio-store";
 
@@ -497,6 +499,29 @@ export async function buildTodayExperimentPreview(tenantId: string, now: Date = 
     /* additive - never let the learning layer block or alter a nightly plan */
   }
 
+  // R5 / N15 - THE EFFECT-SIZE PRIOR: the item-47 win-rate prior above learns how OFTEN
+  // moves like this won; this second bounded factor learns how MUCH they moved clicks when
+  // they settled. Same gated ledger (decided-only, maturity + weather + parallel-trends via
+  // gateRecordsToEffectObservations over the ALREADY-LOADED ledger - no second store read),
+  // shrunken toward the site mean, ~90 day recency half-life, >= 3 settled magnitudes per
+  // (lever x page-type) bucket with backoff to the lever then the site level. scoreCandidate
+  // folds it in as its own clamped [0.8, 1.3] factor (effectPriorScoreFactor). Fail-soft ->
+  // every candidate stays neutral; a fresh tenant produces a BYTE-IDENTICAL plan (pinned).
+  try {
+    const effectObservations = await gateRecordsToEffectObservations(tenantId, ledger);
+    if (effectObservations.length > 0) {
+      const effectTable = computeEffectSizeTable(effectObservations, now);
+      for (const c of teamReviewed) {
+        c.effectPrior = resolveEffectPrior(
+          { leverFamily: canonicalMoveType(c.actionFamily), pageType: pageTypeFromUrl(c.url) },
+          effectTable,
+        );
+      }
+    }
+  } catch {
+    /* additive - never let the magnitude layer block or alter a nightly plan */
+  }
+
   // Item 35 - THE POWER GATE: before the planner scores/selects, ask whether each candidate's own
   // page has enough traffic to actually SEE its forecast effect within the 28-day read. Bounded to
   // the top POWER_CHECK_CAP candidates by raw opportunity (ctrOpportunityClicks) so a busy night
@@ -528,7 +553,22 @@ export async function buildTodayExperimentPreview(tenantId: string, now: Date = 
     }
   }
 
-  const plan = planDailyExperiments({ tenantId, date: now.toISOString().slice(0, 10), candidates: teamReviewed, proofLedger: ledger, config: { ...PLANNER_CONFIG, now } });
+  // N16 (R5) - THE LAST-CLEAN-DONOR HOLD: before the planner selects, learn which pages
+  // are the LAST clean comparison page for a change still measuring (still-clean serving
+  // controls plus the untreated bench of each ship's FROZEN donor pool, per the same
+  // contamination classifier /results reads). Treating such a page tonight would leave
+  // that measurement with no clean comparison at all, forcing the weaker median-band read.
+  // One bounded snapshot-history read for the whole ledger; fail-soft -> no holds
+  // (byte-identical plans, exactly the pre-N16 behavior).
+  let lastCleanDonorHolds: ReadonlyMap<string, string> = new Map<string, string>();
+  try {
+    const contaminationById = await attachControlContaminationForLedger(tenantId, ledger);
+    lastCleanDonorHolds = computeLastCleanDonorHolds(ledger, contaminationById);
+  } catch {
+    /* additive - a failed pool-health read must never block or alter a nightly plan */
+  }
+
+  const plan = planDailyExperiments({ tenantId, date: now.toISOString().slice(0, 10), candidates: teamReviewed, proofLedger: ledger, config: { ...PLANNER_CONFIG, now }, lastCleanDonorHolds });
 
   const byUrl = new Map(built.map((b) => [b.url, b]));
   const selected = plan.selected.map((s) => byUrl.get(s.url)).filter(Boolean) as BuiltCandidate[];

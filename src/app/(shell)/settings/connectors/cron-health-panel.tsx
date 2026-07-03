@@ -1,4 +1,5 @@
 import { loadCronHealthView } from "@/domains/ops/cron-health-view";
+import { recoveryForCronFailure } from "@/domains/ops/recovery-actions";
 
 /**
  * Cron health panel (BEACON_500 item 85, 2026-07-03) - "I showed up every
@@ -29,12 +30,18 @@ export async function CronHealthPanel() {
       <section className="rounded-lg border border-border/60 bg-surface p-5" data-cron-health-panel="true" data-cron-health-collapsed="true">
         <h3 className="text-[15px] font-semibold text-foreground">How reliably I show up</h3>
         {overdue ? (
-          <p
-            className={`mt-1 text-[13px] font-medium leading-relaxed ${overdue.pace === "stalled" ? "text-status-danger" : "text-status-warning"}`}
-            data-cron-health-pace={overdue.pace}
-          >
-            {overdue.paceSentence}
-          </p>
+          <>
+            <p
+              className={`mt-1 text-[13px] font-medium leading-relaxed ${overdue.pace === "stalled" ? "text-status-danger" : "text-status-warning"}`}
+              data-cron-health-pace={overdue.pace}
+            >
+              {overdue.paceSentence}
+            </p>
+            <p className="mt-1 text-[12px] text-muted-foreground" data-cron-health-fix={overdue.pace}>
+              <span className="font-semibold text-foreground">Fix this:</span>{" "}
+              {recoveryForCronFailure(overdue.job, overdue.label, overdue.pace as "late" | "stalled").exactFix}
+            </p>
+          </>
         ) : (
           <p className="mt-1 text-[13px] leading-relaxed text-muted-foreground">
             Nightly work starts tonight around 2 AM. I will show receipts for every run here.
@@ -91,12 +98,22 @@ export async function CronHealthPanel() {
             )}
 
             {(j.pace === "late" || j.pace === "stalled") && j.paceSentence && (
-              <p
-                className={`mt-2 text-[12px] font-medium ${j.pace === "stalled" ? "text-status-danger" : "text-status-warning"}`}
-                data-cron-health-pace={j.pace}
-              >
-                {j.paceSentence}
-              </p>
+              <>
+                <p
+                  className={`mt-2 text-[12px] font-medium ${j.pace === "stalled" ? "text-status-danger" : "text-status-warning"}`}
+                  data-cron-health-pace={j.pace}
+                >
+                  {j.paceSentence}
+                </p>
+                {/* T0b (2026-07-03) - the exact recovery for this job, from the
+                    SAME shared map Today's alert and the Connections cards
+                    read, so a stalled job never gets a "tell me and I will
+                    investigate" dead end here. */}
+                <p className="mt-1 text-[12px] text-muted-foreground" data-cron-health-fix={j.pace}>
+                  <span className="font-semibold text-foreground">Fix this:</span>{" "}
+                  {recoveryForCronFailure(j.job, j.label, j.pace).exactFix}
+                </p>
+              </>
             )}
 
             {j.failureStreaks.length > 0 && (

@@ -109,6 +109,7 @@ function toExperimentRecord(
     }),
     power: c.power,
     learnedPrior: c.learnedPrior,
+    effectPrior: c.effectPrior,
     controls,
     influencedUrls: (c.influencedUrls ?? []).map(normalizePath),
     evidenceHash,

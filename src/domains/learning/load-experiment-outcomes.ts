@@ -14,6 +14,7 @@ import {
   queryClusterKey,
   type SettledOutcome,
 } from "./experiment-prior";
+import { relativeClicksLift, type EffectObservation } from "./effect-size-prior";
 import {
   deriveMeasurementMaturity,
   detectMeasurementOverlaps,
@@ -123,6 +124,50 @@ export async function gateRecordsToOutcomes(
       queryCluster: queryClusterKey(r.targetQueries?.[0]),
     },
   }));
+}
+
+/**
+ * R5 / N15 (2026-07-03) - map explicit ledger rows into MAGNITUDE observations
+ * for the effect-size prior (effect-size-prior.ts), through the IDENTICAL
+ * maturity/weather/parallel-trends gate the win-rate prior uses above (never a
+ * second copy of the eligibility logic). Only DECIDED rows (gated verdict won
+ * or lost, not operator-excluded) with an honest relative-clicks magnitude
+ * survive; a thin baseline or an unclosed window is skipped, never fabricated.
+ * Read-only over the ledger - nothing here mutates measurement history.
+ */
+export async function gateRecordsToEffectObservations(
+  tenantId: string,
+  records: ShippedChangeRecord[],
+): Promise<EffectObservation[]> {
+  const now = new Date();
+  const overlaps = detectMeasurementOverlaps(records.map((r) => ({ id: r.id, path: r.path, shippedAt: r.shippedAt })));
+  const shockWindows = await loadShockWindowsForGate(tenantId);
+  const out: EffectObservation[] = [];
+  for (const r of records) {
+    if (r.operatorVerdictOverride === "inconclusive") continue; // operator pinned out of learning
+    const verdict = maturityGatedVerdict(r, overlaps.get(r.id) ?? null, now, shockWindows);
+    if (verdict !== "won" && verdict !== "lost") continue; // DECIDED rows only
+    const relativeLift = relativeClicksLift(r);
+    if (relativeLift == null) continue; // baseline too thin for an honest percent
+    out.push({
+      leverFamily: canonicalMoveType(r.actionType),
+      pageType: pageTypeFromUrl(r.page),
+      relativeLift,
+      settledAt: r.measuredAt ?? r.shippedAt,
+    });
+  }
+  return out;
+}
+
+/** Map the tenant's proof ledger into effect-size observations. Fail-soft → []. */
+export async function loadEffectObservations(tenantId: string): Promise<EffectObservation[]> {
+  let records: ShippedChangeRecord[];
+  try {
+    records = await loadShippedChanges();
+  } catch {
+    return [];
+  }
+  return gateRecordsToEffectObservations(tenantId, records);
 }
 
 /** Map the tenant's proof ledger into dimension-keyed outcomes. Fail-soft → []. */

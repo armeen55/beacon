@@ -280,6 +280,22 @@ function LearnedPriorTag({ e }: { e: PlannedExperimentRecord }) {
   );
 }
 
+/** R5 / N15: how BIG changes like this have been, from settled magnitudes ("changes like
+ *  this earned about +12 percent clicks on average across 4 finished tests"). Self-hiding:
+ *  the tag is null until a real (lever x page-type) bucket has 3+ settled tests, and the
+ *  site-level backoff never tags a specific card. Sits beside the win-rate line above -
+ *  one says how often, this says how much. */
+function EffectSizeTag({ e }: { e: PlannedExperimentRecord }) {
+  const p = e.effectPrior;
+  if (!p || !p.tag) return null;
+  const positive = p.multiplier > 1;
+  return (
+    <div className={`mt-1 text-meta font-medium ${positive ? "text-status-success" : "text-status-warning"}`}>
+      {stripBannedDashes(p.tag)}
+    </div>
+  );
+}
+
 /** The live Google reaction: what shape of page wins for this search + who holds the top spots. */
 function SerpReaction({ e }: { e: PlannedExperimentRecord }) {
   const serp = e.evidenceBrief?.serp;
@@ -395,6 +411,7 @@ function PreviewCard({ e, spark }: { e: PlannedExperimentRecord; spark?: SparkPo
         </>
       ) : null}
       <LearnedPriorTag e={e} />
+      <EffectSizeTag e={e} />
       <TeamRoundtable e={e} />
       <ExpectationLines e={e} />
       <FinalReviewCaution e={e} />
@@ -502,6 +519,7 @@ function ExecutionCard({ planId, item, spark, staging, wixEditorUrl }: { planId:
         </>
       ) : null}
       <LearnedPriorTag e={e} />
+      <EffectSizeTag e={e} />
       <TeamRoundtable e={e} />
       <ExpectationLines e={e} />
       <FinalReviewCaution e={e} />

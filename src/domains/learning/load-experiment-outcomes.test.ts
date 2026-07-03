@@ -25,7 +25,7 @@ vi.mock("@/domains/proof-gsc/shipped-change-store", () => ({
   loadShippedChanges: async () => ledger,
 }));
 
-import { loadExperimentOutcomes, loadProofOutcomeRows } from "./load-experiment-outcomes";
+import { loadExperimentOutcomes, loadEffectObservations, loadProofOutcomeRows } from "./load-experiment-outcomes";
 import type { ShippedChangeRecord } from "@/domains/proof-gsc/shipped-change-store";
 import type { Changepoint } from "@/domains/proof-gsc/changepoint";
 
@@ -197,5 +197,56 @@ describe("loadProofOutcomeRows - parallel-trends veto on the page-caution read p
     const out = await loadProofOutcomeRows("iranopedia");
     expect(out[0]!.verdict).toBe("won");
     expect(out[0]!.confidence).toBe("high");
+  });
+});
+
+/**
+ * R5 / N15 (2026-07-03) - the effect-size loader shares the IDENTICAL
+ * maturity/weather/parallel-trends gate as the win-rate loader above, then
+ * additionally requires a decided verdict AND an honest relative magnitude.
+ */
+describe("loadEffectObservations - decided magnitudes only, same gate as the win-rate prior", () => {
+  it("maps a mature decided win into a clamped relative-clicks observation with the shared dims", async () => {
+    // baseline 10 clicks / 28d, day-28 adjustedLift 35 -> raw +350%, clamped to +100%.
+    ledger = [record()];
+    const out = await loadEffectObservations("iranopedia");
+    expect(out).toHaveLength(1);
+    expect(out[0]!.relativeLift).toBe(1);
+    expect(out[0]!.leverFamily).toBe("edit_page"); // canonicalMoveType("edit_title")
+    expect(out[0]!.pageType).toBe("singers");
+    expect(out[0]!.settledAt).toBe("2026-05-19T00:00:00.000Z");
+  });
+
+  it("skips a non-decided (measuring) row - a 7-day read can never train a magnitude", async () => {
+    ledger = [record({ verdict: "measuring", windows: [win28({ ran: false })] })];
+    expect(await loadEffectObservations("iranopedia")).toHaveLength(0);
+  });
+
+  it("skips an operator-excluded row (pinned inconclusive)", async () => {
+    ledger = [record({ operatorVerdictOverride: "inconclusive" })];
+    expect(await loadEffectObservations("iranopedia")).toHaveLength(0);
+  });
+
+  it("skips a decided row whose baseline clicks are too thin for an honest percent", async () => {
+    ledger = [record({ baseline: { clicks: 1, impressions: 5000, ctr: 0.001, position: 8, windowDays: 28 } })];
+    expect(await loadEffectObservations("iranopedia")).toHaveLength(0);
+  });
+
+  it("applies the SAME weather quarantine as the win-rate loader (shock -> no magnitude)", async () => {
+    ledger = [record()];
+    jsonStoreRows["algorithm-weather-shocks"] = [shockRow("iranopedia", [{ date: "2026-05-01", direction: "up", magnitude: 0.6 }])];
+    expect(await loadEffectObservations("iranopedia")).toHaveLength(0);
+  });
+
+  it("applies the SAME parallel-trends veto (controlMatchWeak -> no magnitude)", async () => {
+    ledger = [record({ controlMatchWeak: true })];
+    expect(await loadEffectObservations("iranopedia")).toHaveLength(0);
+  });
+
+  it("a decided LOSS trains a negative magnitude (misses owned plainly)", async () => {
+    ledger = [record({ verdict: "lost", windows: [win28({ adjustedLift: -5, treatedDelta: -3 })] })];
+    const out = await loadEffectObservations("iranopedia");
+    expect(out).toHaveLength(1);
+    expect(out[0]!.relativeLift).toBeCloseTo(-0.5, 10); // -5 over a 10-click scaled baseline
   });
 });

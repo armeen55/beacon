@@ -570,7 +570,7 @@ export async function getConnectorHealth(
       ...info,
       health: "needs_attention",
       healthReason:
-        "Reconnect Google to refresh — Google access needs renewing (reconnect now).",
+        "Reconnect Google to refresh. Google access needs renewing, reconnect now.",
     };
   }
 
@@ -583,7 +583,7 @@ export async function getConnectorHealth(
       ...info,
       health: "needs_attention",
       healthReason:
-        "Connected — pick your Analytics property to start pulling data.",
+        "Connected. Pick your Analytics property to start pulling data.",
     };
   }
 
@@ -612,7 +612,7 @@ export async function getConnectorHealth(
         return {
           ...info,
           health: "needs_attention",
-          healthReason: `Last pulled ${days} days ago — Refresh to update.`,
+          healthReason: `Last pulled ${days} days ago. Refresh to update.`,
         };
       }
     }

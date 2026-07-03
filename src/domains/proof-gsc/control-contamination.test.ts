@@ -7,8 +7,14 @@ import {
   buildContaminationNotes,
   swapSentence,
   cautionSentence,
+  computePoolHealth,
+  lastCleanDonorHoldSentence,
+  medianBandRead,
+  templateFamilyOf,
   MIN_SCANS_FOR_CONTENT_JUDGMENT,
+  MIN_MEDIAN_BAND_PAGES,
   type ContaminationWindow,
+  type ControlContaminationResult,
   type LedgerShipRecord,
   type SnapshotPoint,
 } from "./control-contamination";
@@ -386,5 +392,157 @@ describe("buildContaminationNotes", () => {
     for (const n of notes) {
       expect(n).not.toMatch(/[–—]/);
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// N16 (R5, 2026-07-03) - sustainable control pool
+// ---------------------------------------------------------------------------
+
+const cleanResult = (path: string): ControlContaminationResult => ({ path, status: "clean", reason: "" });
+const dirtyResult = (path: string): ControlContaminationResult => ({
+  path,
+  status: "treated_by_us",
+  reason: `I shipped a change to this comparison page myself on 2026-06-10, inside this measurement window.`,
+  treatedAt: "2026-06-10",
+});
+const unknownResult = (path: string): ControlContaminationResult => ({
+  path,
+  status: "unknown",
+  reason: "I only have 1 scan of this comparison page inside the measurement window, not enough to know if it changed.",
+});
+
+describe("templateFamilyOf", () => {
+  it("uses the first path segment, host-stripped, lowercased", () => {
+    expect(templateFamilyOf("https://site.com/Iran-Flags/one")).toBe("iran-flags");
+    expect(templateFamilyOf("/cities")).toBe("cities");
+    expect(templateFamilyOf("/")).toBe("root");
+  });
+});
+
+describe("computePoolHealth", () => {
+  it("counts still-clean serving controls and reads the plain one-liner", () => {
+    const ph = computePoolHealth({
+      results: [cleanResult("/a"), dirtyResult("/b"), cleanResult("/c"), dirtyResult("/d")],
+      frozenPool: null,
+      controlPaths: ["/a", "/b", "/c", "/d"],
+      treatedPath: "/treated",
+      ledger: [],
+      window: WINDOW,
+    });
+    expect(ph.cleanControls).toBe(2);
+    expect(ph.knownDirtyControls).toBe(2);
+    expect(ph.totalControls).toBe(4);
+    expect(ph.sentence).toBe("2 of 4 comparison pages are still clean.");
+    expect(ph.sentence).not.toMatch(/[–—]/);
+  });
+
+  it("counts an UNVERIFIED (sparse-scan) control as still clean (a missing scan is not damage)", () => {
+    const ph = computePoolHealth({
+      results: [unknownResult("/a"), cleanResult("/b")],
+      frozenPool: null,
+      controlPaths: ["/a", "/b"],
+      treatedPath: "/treated",
+      ledger: [],
+      window: WINDOW,
+    });
+    expect(ph.cleanControls).toBe(2);
+    expect(ph.lastCleanDonorPaths).toEqual([]);
+  });
+
+  it("counts the untreated frozen-pool bench as spares and says so in the line", () => {
+    const ph = computePoolHealth({
+      results: [cleanResult("/a"), cleanResult("/b")],
+      frozenPool: [
+        { url: "https://site.com/a", verdict: "kept" }, // already serving - not a spare
+        { url: "https://site.com/c", verdict: "kept" }, // spare
+        { url: "https://site.com/x", verdict: "excluded" }, // matcher-excluded - never a spare
+        { url: "https://site.com/y", verdict: "kept" }, // treated in window - spent
+      ],
+      controlPaths: ["/a", "/b"],
+      treatedPath: "/treated",
+      ledger: [{ path: "/y", shippedAt: "2026-06-10T00:00:00Z" }],
+      window: WINDOW,
+    });
+    expect(ph.spareDonors).toBe(1);
+    expect(ph.sentence).toBe(
+      "2 of 2 comparison pages are still clean. 1 spare comparison page is ready from the list I chose before shipping.",
+    );
+  });
+
+  it("names the LAST clean donor when the whole clean pool is one page", () => {
+    const ph = computePoolHealth({
+      results: [dirtyResult("/a"), dirtyResult("/b"), cleanResult("/c")],
+      frozenPool: [],
+      controlPaths: ["/a", "/b", "/c"],
+      treatedPath: "/treated",
+      ledger: [],
+      window: WINDOW,
+    });
+    expect(ph.lastCleanDonorPaths).toEqual(["/c"]);
+  });
+
+  it("does NOT flag a last clean donor while a spare is still on the bench", () => {
+    const ph = computePoolHealth({
+      results: [dirtyResult("/a"), cleanResult("/b")],
+      frozenPool: [{ url: "https://site.com/c", verdict: "kept" }],
+      controlPaths: ["/a", "/b"],
+      treatedPath: "/treated",
+      ledger: [],
+      window: WINDOW,
+    });
+    expect(ph.lastCleanDonorPaths).toEqual([]); // /b serving + /c on the bench = 2 clean donors
+  });
+
+  it("a dirty original that a bench donor REPLACED no longer counts against the line", () => {
+    // /a was contaminated and replaced by /c: the effective serving set is /c + /b.
+    const ph = computePoolHealth({
+      results: [dirtyResult("/a"), cleanResult("/b")],
+      frozenPool: [{ url: "https://site.com/c", verdict: "kept" }],
+      controlPaths: ["/c", "/b"], // post-promotion effective paths
+      treatedPath: "/treated",
+      ledger: [],
+      window: WINDOW,
+    });
+    expect(ph.cleanControls).toBe(2);
+    expect(ph.knownDirtyControls).toBe(0);
+    expect(ph.spareDonors).toBe(0); // /c moved from the bench into service
+  });
+});
+
+describe("lastCleanDonorHoldSentence", () => {
+  it("is plain, first person, names the measured page, and carries no dashes", () => {
+    const s = lastCleanDonorHoldSentence("/iran-flags/one");
+    expect(s).toBe(
+      "I am holding this page because it is the last clean comparison page for a change I am still measuring on /iran-flags/one.",
+    );
+    expect(s).not.toMatch(/[–—]/);
+  });
+});
+
+describe("medianBandRead - the weaker fallback comparison", () => {
+  it(`stays silent below ${MIN_MEDIAN_BAND_PAGES} same-family pages`, () => {
+    expect(medianBandRead({ treatedDelta: 5, familyDeltas: [1, 2] })).toBeNull();
+  });
+
+  it("takes the median (odd and even counts) and reads the plain sentence", () => {
+    const odd = medianBandRead({ treatedDelta: 6, familyDeltas: [1, 9, 2] });
+    expect(odd?.medianDelta).toBe(2);
+    expect(odd?.pagesUsed).toBe(3);
+    expect(odd?.sentence).toBe(
+      "Every comparison page for this change was disturbed, so I checked it against the typical untouched page in its section instead: this page gained 6 clicks while the typical one of 3 gained 2 clicks over the same window. That is a weaker comparison, so I am reading this result cautiously.",
+    );
+
+    const even = medianBandRead({ treatedDelta: -4, familyDeltas: [1, 3, 5, 7] });
+    expect(even?.medianDelta).toBe(4);
+    expect(even?.sentence).toContain("this page lost 4 clicks while the typical one of 4 gained 4 clicks");
+  });
+
+  it("labels itself a weaker comparison and never uses a dash or lab word", () => {
+    const band = medianBandRead({ treatedDelta: 0, familyDeltas: [0, 0, 0] });
+    expect(band?.sentence).toContain("That is a weaker comparison");
+    expect(band?.sentence).toContain("this page held steady while the typical one of 3 held steady");
+    expect(band?.sentence).not.toMatch(/[–—]/);
+    expect(band?.sentence.toLowerCase()).not.toMatch(/median|control|percentile|null/);
   });
 });

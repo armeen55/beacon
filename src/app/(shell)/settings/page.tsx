@@ -1,21 +1,27 @@
 import Link from "next/link";
 import { PageHeader } from "@/components/data/page-header";
 import { SETTINGS_SECTIONS } from "./settings-sections";
+import { FinishSetupCard } from "./finish-setup-card";
 
 /**
- * `/settings` index (FP4, 2026-07-03) - renders the ONE settings table of
- * contents (settings-sections.ts), the same list the tab strip above shows,
- * with a one-line description per section. The audit found this page and the
- * tab strip disagreeing on both items and labels; deriving both from the same
- * registry ends that permanently.
+ * `/settings` index (FP4, 2026-07-03; T0b checklist added 2026-07-03) - renders
+ * the ONE settings table of contents (settings-sections.ts), the same list the
+ * tab strip above shows, with a one-line description per section. The audit
+ * found this page and the tab strip disagreeing on both items and labels;
+ * deriving both from the same registry ends that permanently.
+ *
+ * The "Finish setting up" card above the list surfaces the [G] operator-gated
+ * setup items (master plan) that are not yet done, and self-hides completely
+ * once every one of them is done.
  */
-export default function SettingsPage() {
+export default async function SettingsPage() {
   return (
     <div className="max-w-2xl">
       <PageHeader
         title="Settings"
         description="Your business info, connections, and how Beacon measures things."
       />
+      <FinishSetupCard />
       <ul className="space-y-2">
         {SETTINGS_SECTIONS.map((item) => (
           <li key={item.href}>

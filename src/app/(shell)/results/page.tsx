@@ -330,6 +330,10 @@ export default async function ProofPage({
           controlContaminated: contaminationById.get(l.id)?.verdict.hasContamination === true,
           controlContaminationCaveat:
             contaminationById.get(l.id)?.notes.at(-1) ?? null,
+          // Sustainable control pool (master plan N16): one plain pool-health
+          // line for an open measurement ("2 of 4 comparison pages are still
+          // clean."), rendered in "See the math". Null for settled rows.
+          controlPoolHealthLine: contaminationById.get(l.id)?.poolHealthLine ?? null,
         }),
       ] as const;
     }),
@@ -1079,7 +1083,7 @@ function LedgerCard({ rec, link, pres, grade, spark, band, revert, restored, cal
           and untouched-page counts, one click away from the plain primary lines
           above. Nothing here is new data - it is the same sentence/counts the
           product already computed, just moved out of the headline position. */}
-      {sentence !== plainHeadline || (rec.permutationRead && rec.permutationRead.nTotal > 0) || pres?.seasonalInflectionCaveat || pres?.controlContaminationCaveat || grade ? (
+      {sentence !== plainHeadline || (rec.permutationRead && rec.permutationRead.nTotal > 0) || pres?.seasonalInflectionCaveat || pres?.controlContaminationCaveat || pres?.controlPoolHealthLine || grade ? (
         <details className="mt-1">
           <summary className="cursor-pointer text-[11px] text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1">
             See the math
@@ -1099,6 +1103,10 @@ function LedgerCard({ rec, link, pres, grade, spark, band, revert, restored, cal
                 substitute was swapped in. The short caution line already shows
                 on the card itself below; this is the detailed "why". */}
             {pres?.controlContaminationCaveat ? <p>{pres.controlContaminationCaveat}</p> : null}
+            {/* Sustainable control pool (master plan N16): how healthy this open
+                measurement's comparison pool still is, including the spare bench
+                from the pre-ship list. Self-hiding once the measurement settles. */}
+            {pres?.controlPoolHealthLine ? <p>{pres.controlPoolHealthLine}</p> : null}
           </div>
         </details>
       ) : null}

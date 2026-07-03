@@ -135,6 +135,13 @@ export type MaturityInput = {
    *  re-derive the sentence itself - either the swap receipt ("I swapped it
    *  for a clean one") or the caution line when no substitute existed. */
   controlContaminationCaveat?: string | null;
+  /** N16 (R5, 2026-07-03): one plain pool-health line for an OPEN measurement
+   *  ("2 of 4 comparison pages are still clean."), computed by attach-control-
+   *  contamination.ts's computePoolHealth and passed straight through like
+   *  seasonalInflectionCaveat above. Additive - a caller that never passes
+   *  this (the default) sees byte-identical output. Presentation only; it
+   *  never gates maturity, verdict, or learning eligibility. */
+  controlPoolHealthLine?: string | null;
 };
 
 /** Minimum sufficiency for a MATURE verdict (mirrors measure.ts thresholds). */
@@ -332,6 +339,11 @@ export type MeasurementPresentation = {
    *  swap receipt when a clean substitute was found and used, or the caution
    *  line when none was available. Null when no control was contaminated. */
   controlContaminationCaveat: string | null;
+  /** N16 (R5): the one-line pool-health read for an open measurement ("2 of 4
+   *  comparison pages are still clean."), or null. Pure passthrough of the
+   *  MaturityInput field - rendered in the Results card's "See the math"
+   *  expander; never gates anything. */
+  controlPoolHealthLine: string | null;
 };
 
 /** Plain first-person caveat sentence for a Results row whose comparison pages
@@ -597,6 +609,7 @@ export function buildMeasurementPresentation(input: MaturityInput): MeasurementP
     recrawlPendingCaveat,
     controlContaminationFlagged,
     controlContaminationCaveat,
+    controlPoolHealthLine: input.controlPoolHealthLine ?? null,
   };
 }
 

@@ -40,6 +40,7 @@ function pres(overrides: Partial<MeasurementPresentation>): MeasurementPresentat
     recrawlPendingCaveat: null,
     controlContaminationFlagged: false,
     controlContaminationCaveat: null,
+    controlPoolHealthLine: null,
     ...overrides,
   };
 }

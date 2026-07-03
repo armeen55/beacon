@@ -36,8 +36,9 @@ import { log } from "@/lib/logger";
 
 import { loadCompetitorCitedPagesForTenant, type CompetitorCitationsResult } from "./competitor-citations-loader";
 import { loadFanoutSeedsForTenant, fanoutSeedsForNode, type FanoutSeed } from "./load-fanout-seeds";
-import { loadExperimentOutcomes, loadProofOutcomeRows } from "@/domains/learning/load-experiment-outcomes";
+import { loadExperimentOutcomes, loadEffectObservations, loadProofOutcomeRows } from "@/domains/learning/load-experiment-outcomes";
 import { applyExperimentPriorToMoves, canonicalMoveType, pageTypeFromUrl, queryClusterKey } from "@/domains/learning/experiment-prior";
+import { applyEffectSizePriorToMoves } from "@/domains/learning/effect-size-prior";
 import { applyProofOutcomeCautionToMoves } from "@/domains/demand-graph/proof-outcome-caution";
 import {
   buildDemandGraph,
@@ -558,6 +559,24 @@ export async function loadDemandGraphForTenant(
     }
   } catch {
     moves = graph.moves; // never let the learning layer break the graph
+  }
+  // R5 / N15 - EFFECT-SIZE REWEIGHT (outside the pure scorer): the win-rate prior
+  // above learns how OFTEN moves like this won; this second, independent multiplier
+  // learns how MUCH they moved clicks when they settled. Bounded [0.8, 1.3],
+  // decided-only, >= 3 samples per (lever x page-type) bucket with backoff to the
+  // lever then the site mean, ~90 day recency half-life, shrunken toward the site
+  // mean so a thin bucket tilts gently. Byte-identical ranking when no level has
+  // 3+ usable settled magnitudes (pinned). Fail-soft -> current moves.
+  try {
+    const effectObservations = await loadEffectObservations(tenantId);
+    if (effectObservations.length > 0) {
+      moves = applyEffectSizePriorToMoves(moves, effectObservations, (m) => ({
+        leverFamily: canonicalMoveType(m.gap),
+        pageType: pageTypeFromUrl(m.ownedUrl ?? ""),
+      }));
+    }
+  } catch {
+    /* additive - never let the magnitude layer break the graph */
   }
   // PAGE-SPECIFIC outcome caution (2026-06-28) — complements the pattern-level prior
   // above with THIS page's own shipped changes: hold a Move while its page is mid-

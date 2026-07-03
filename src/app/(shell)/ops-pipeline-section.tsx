@@ -21,6 +21,8 @@ import { readPipelineHealth } from "@/domains/ops/pipeline-health-store";
 import { loadDeadmanVerdict } from "@/domains/ops/deadman-view";
 import type { PipelineViolation } from "@/domains/ops/pipeline-invariants";
 import { valueWithDeadline } from "@/lib/load-with-deadline";
+import { recoveryForCronFailure, recoveryForSiteDown } from "@/domains/ops/recovery-actions";
+import type { JobPace } from "@/domains/ops/deadman";
 
 const MAX_SHOWN = 2;
 
@@ -43,8 +45,13 @@ function ViolationRow({ violation }: { violation: PipelineViolation }) {
 }
 
 /** T0c - token-only styling (design-system ratchet: no new raw palette
- *  classes); the status-danger tokens carry their own dark-mode values. */
-function DeadmanRow({ sentence }: { sentence: string }) {
+ *  classes); the status-danger tokens carry their own dark-mode values.
+ *
+ * T0b (2026-07-03): `fix` is the exact-recovery sentence from the SAME
+ * shared map (recovery-actions.ts) the Connections page cards and the cron
+ * health panel read, so this "Start with..." line can never disagree with
+ * what those surfaces say about the same broken thing. */
+function DeadmanRow({ sentence, fix }: { sentence: string; fix?: string }) {
   return (
     <div
       className="rounded-lg border border-status-danger/40 bg-status-danger-bg px-3 py-2"
@@ -53,8 +60,20 @@ function DeadmanRow({ sentence }: { sentence: string }) {
       <p className="min-w-0 break-words text-[13px] leading-relaxed text-status-danger tabular-nums">
         {sentence}
       </p>
+      {fix ? (
+        <p className="mt-1 min-w-0 break-words text-[12px] leading-relaxed text-status-danger/80" data-deadman-fix="true">
+          <span className="font-semibold">Start with:</span> {fix}
+        </p>
+      ) : null}
     </div>
   );
+}
+
+/** Match a deadman sentence back to the job that produced it (deadman.ts
+ *  composes `sentences` by flattening `jobs`), so the recovery map can be
+ *  looked up by job + pace instead of re-parsing plain-English text. */
+function jobForSentence(jobs: readonly JobPace[], sentence: string): JobPace | null {
+  return jobs.find((j) => j.sentence === sentence) ?? null;
 }
 
 export async function OpsPipelineSection({ tenantId }: { tenantId: string }) {
@@ -109,7 +128,21 @@ export async function OpsPipelineSection({ tenantId }: { tenantId: string }) {
           </p>
         ) : null}
         {deadmanFires
-          ? deadman.sentences.map((s) => <DeadmanRow key={s} sentence={s} />)
+          ? deadman.sentences.map((s) => {
+              // Site-down sentence is exactly deadman.siteSentence; every other
+              // sentence traces back to one job in deadman.jobs (or is the
+              // trailing "N other jobs are stalled too" summary line, which
+              // names no single job and gets no fix line of its own).
+              const fix =
+                s === deadman.siteSentence
+                  ? recoveryForSiteDown().exactFix
+                  : (() => {
+                      const job = jobForSentence(deadman.jobs, s);
+                      if (job == null || job.pace === "healthy" || job.pace === "waiting") return undefined;
+                      return recoveryForCronFailure(job.job, job.label, job.pace).exactFix;
+                    })();
+              return <DeadmanRow key={s} sentence={s} fix={fix} />;
+            })
           : null}
         <p className="text-[11px] text-gray-500 dark:text-neutral-400">
           I recheck this after every nightly sync. Connections live in{" "}

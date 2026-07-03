@@ -1,4 +1,5 @@
 import { getConnectorInfo, getGoogleConnectorToken } from "@/lib/connector-store";
+import { getWixUrlMap } from "@/lib/connectors/wix/url-map";
 import { getBusinessConfigForCurrentTenant } from "@/lib/business-config";
 import { formatLastRefreshedCopy } from "@/lib/connectors/gsc/expiry-handler";
 import {
@@ -49,6 +50,14 @@ async function loadConnectorsPageData() {
   // Selected GBP location lives on the (deferred) google_gbp token. Read
   // it so a returning GBP card can immediately show the saved selection.
   const gbpTok = await getGoogleConnectorToken("gbp");
+
+  // T0b (2026-07-03) - how many pages Wix's url map covers right now. A
+  // connected-but-zero-mapped Wix can't publish a single change; the fix
+  // line on the Wix card (recovery-actions.ts) reads this to decide whether
+  // to show the "map your pages first" recovery sentence.
+  const wixUrlMapCount = wix.status === "connected"
+    ? await getWixUrlMap().then((m) => m.length).catch(() => 0)
+    : 0;
 
   // J5 (2026-05-18) — when the GSC connector is in soft-disconnected
   // state (status="disconnected" but expires_at is populated from the
@@ -162,6 +171,7 @@ async function loadConnectorsPageData() {
     totalCount,
     lastSyncState,
     lastSyncHeadline,
+    wixUrlMapCount,
   };
 }
 
@@ -199,6 +209,7 @@ export default async function ConnectorsPage() {
     totalCount,
     lastSyncState,
     lastSyncHeadline,
+    wixUrlMapCount,
   } = raced.data;
 
   return (
@@ -224,6 +235,7 @@ export default async function ConnectorsPage() {
         totalCount={totalCount}
         lastSyncState={lastSyncState}
         lastSyncHeadline={lastSyncHeadline}
+        wixUrlMapCount={wixUrlMapCount}
       />
       {/* Armed publishing (2026-06-16) — opt in to one-click live publishing
           for safe, mapped, high-confidence edits. Default stays two-click. */}

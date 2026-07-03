@@ -531,3 +531,77 @@ describe("planDailyExperiments — item N14 interference hold", () => {
     expect(plan.excluded[0].reason).toBe("same_family_measuring");
   });
 });
+
+describe("scoreCandidate — R5 / N15 effect-size fold", () => {
+
+  it("multiplies the score by the effect multiplier, clamped to [0.8, 1.3]", () => {
+    const base = cand({ url: "/a", ctrOpportunityClicks: 200 });
+    const s0 = scoreCandidate(base);
+    const boosted = scoreCandidate({ ...base, effectPrior: { multiplier: 1.3, sample: 4, basis: "answer_block::iran-flags", tag: "t" } });
+    const demoted = scoreCandidate({ ...base, effectPrior: { multiplier: 0.8, sample: 3, basis: "edit_page", tag: "t" } });
+    expect(boosted).toBeCloseTo(s0 * 1.3, 6);
+    expect(demoted).toBeCloseTo(s0 * 0.8, 6);
+  });
+
+  it("defensively re-clamps an out-of-range multiplier", () => {
+    const base = cand({ url: "/a", ctrOpportunityClicks: 200 });
+    const s0 = scoreCandidate(base);
+    const wild = scoreCandidate({ ...base, effectPrior: { multiplier: 9, sample: 3, basis: "x", tag: null } });
+    const crushed = scoreCandidate({ ...base, effectPrior: { multiplier: 0.01, sample: 3, basis: "x", tag: null } });
+    expect(wild).toBeCloseTo(s0 * 1.3, 6);
+    expect(crushed).toBeCloseTo(s0 * 0.8, 6);
+  });
+
+  it("absent or neutral effectPrior is byte-identical to the pre-N15 score", () => {
+    const base = cand({ url: "/a", ctrOpportunityClicks: 200 });
+    expect(scoreCandidate({ ...base, effectPrior: { multiplier: 1, sample: 0, basis: null, tag: null } })).toBe(scoreCandidate(base));
+  });
+
+  it("composes with the win-rate prior multiplicatively (two independent learnings)", () => {
+    const base = cand({ url: "/a", ctrOpportunityClicks: 200 });
+    const s0 = scoreCandidate(base);
+    const both = scoreCandidate({
+      ...base,
+      learnedPrior: { multiplier: 1.1, decidedSample: 4, basis: "actionType:title", tag: "t" } as LearnedPrior,
+      effectPrior: { multiplier: 1.2, sample: 3, basis: "title", tag: "t" },
+    });
+    expect(both).toBeCloseTo(s0 * 1.1 * 1.2, 6);
+  });
+});
+
+describe("planDailyExperiments — N16 last-clean-donor hold", () => {
+  const HOLD_SENTENCE = "I am holding this page because it is the last clean comparison page for a change I am still measuring on /iran-flags/one.";
+
+  it("excludes a held page with reason last_clean_donor and the plain sentence", () => {
+    const candidates = [
+      cand({ url: "https://iranopedia.com/cities/tehran" }),
+      cand({ url: "https://iranopedia.com/cities/shiraz", actionFamily: "meta" }),
+    ];
+    const holds = new Map([["/cities/tehran", HOLD_SENTENCE]]);
+    const plan = planDailyExperiments({ tenantId: "t", date: "d", candidates, proofLedger: [], config: { now: NOW }, lastCleanDonorHolds: holds });
+    const held = plan.excluded.find((e) => e.url.includes("tehran"));
+    expect(held?.reason).toBe("last_clean_donor");
+    expect(held?.plainReason).toBe(HOLD_SENTENCE);
+    expect(held?.plainReason).not.toMatch(/[–—]/);
+    expect(plan.selected.map((s) => s.url)).toEqual(["https://iranopedia.com/cities/shiraz"]);
+  });
+
+  it("no holds wired (the default) is byte-identical to the pre-N16 plan", () => {
+    const candidates = [
+      cand({ url: "https://iranopedia.com/cities/tehran" }),
+      cand({ url: "https://iranopedia.com/cities/shiraz", actionFamily: "meta" }),
+    ];
+    const before = planDailyExperiments({ tenantId: "t", date: "d", candidates, proofLedger: [], config: { now: NOW } });
+    const withEmpty = planDailyExperiments({ tenantId: "t", date: "d", candidates, proofLedger: [], config: { now: NOW }, lastCleanDonorHolds: new Map() });
+    expect(withEmpty.selected).toEqual(before.selected);
+    expect(withEmpty.excluded).toEqual(before.excluded);
+  });
+
+  it("keys by host-stripped path (a full-URL candidate still matches)", () => {
+    const candidates = [cand({ url: "https://iranopedia.com/cities/tehran" })];
+    const holds = new Map([["/cities/tehran", HOLD_SENTENCE]]);
+    const plan = planDailyExperiments({ tenantId: "t", date: "d", candidates, proofLedger: [], config: { now: NOW }, lastCleanDonorHolds: holds });
+    expect(plan.selected).toEqual([]);
+    expect(plan.excluded[0]?.reason).toBe("last_clean_donor");
+  });
+});

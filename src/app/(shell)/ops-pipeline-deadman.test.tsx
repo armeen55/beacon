@@ -46,6 +46,32 @@ function stalledVerdict(): DeadmanVerdict {
   };
 }
 
+/** T0b (2026-07-03) - the same stalled sentence, but with the job entry that
+ *  produced it populated, so OpsPipelineSection can look up its exact
+ *  recovery from the shared map (recovery-actions.ts). */
+function stalledVerdictWithJob(): DeadmanVerdict {
+  const sentence =
+    "The nightly results check has not run since Jul 3, 2:30 AM. It was due again this morning. Check the Connections page.";
+  return {
+    overall: "stalled",
+    jobs: [
+      {
+        job: "measure-due",
+        label: "Nightly results check",
+        pace: "stalled",
+        lastRunAt: "2026-07-03T09:30:00.000Z",
+        lastDueAt: "2026-07-06T09:00:00.000Z",
+        periodMs: 86_400_000,
+        sentence,
+      },
+    ],
+    siteDown: false,
+    siteSentence: null,
+    alarm: true,
+    sentences: [sentence],
+  };
+}
+
 function brokenPipe(): PipelineHealthRow {
   return {
     tenant_id: "tenant-iranopedia",
@@ -132,5 +158,34 @@ describe("OpsPipelineSection + deadman (T0c)", () => {
     const html = renderToStaticMarkup(await OpsPipelineSection({ tenantId: "tenant-iranopedia" }));
     expect(html).toContain("Your site did not answer the last two times I checked.");
     expect(html.match(/data-deadman-line="true"/g)).toHaveLength(2);
+  });
+
+  it("T0b: a stalled job's sentence gets a 'Start with' fix from the SAME shared recovery map the Connections page uses", async () => {
+    health = null;
+    verdict = stalledVerdictWithJob();
+    const html = renderToStaticMarkup(await OpsPipelineSection({ tenantId: "tenant-iranopedia" }));
+    expect(html).toContain('data-deadman-fix="true"');
+    expect(html).toContain("Start with:");
+    // The exact fix sentence recovery-actions.ts returns for a stalled
+    // measure-due job (no per-source Sync now covers it -> Beacon's own
+    // next-run wording, never a "tell me and I will investigate" dead end).
+    expect(html).toContain("I will pick this back up on its own overnight.");
+    expect(html).not.toMatch(/[‒–—―]/);
+  });
+
+  it("T0b: the site-down fix line names checking the site directly, from the same recoveryForSiteDown() the map exposes", async () => {
+    health = null;
+    verdict = {
+      ...stalledVerdict(),
+      siteDown: true,
+      siteSentence:
+        "Your site did not answer the last two times I checked. I last tried Jul 6, 2:10 AM. Check that your site is up before anything else.",
+      sentences: [
+        "Your site did not answer the last two times I checked. I last tried Jul 6, 2:10 AM. Check that your site is up before anything else.",
+      ],
+    };
+    const html = renderToStaticMarkup(await OpsPipelineSection({ tenantId: "tenant-iranopedia" }));
+    expect(html).toContain("Start with:");
+    expect(html).toContain("your host or Wix");
   });
 });

@@ -160,7 +160,11 @@ export type TodayMove = {
    *  and honest readiness (generic/thin/off-topic drafts lose "Ready" + copy). */
   preparedQuality: DraftQualityResult | null;
   /** Sprint 3 - "ranked higher because similar moves won before" (learned prior
-   *  tag from past outcomes). Null when there's no settled evidence yet. */
+   *  tag from past outcomes). Null when there's no settled evidence yet.
+   *  R5 / N15: when the effect-size prior has a real bucket for this move, its
+   *  magnitude line ("earned about +12 percent clicks on average across 4
+   *  finished tests") takes this slot instead - one learned line per card,
+   *  and money-sized beats win-counted. */
   learnedTag: string | null;
   /** Page-specific outcome caution (2026-06-28) - this page's OWN shipped change
    *  held-while-measuring / no-lift / lifted, with a small "Learning:" chip + a
@@ -450,6 +454,9 @@ export async function buildTodayMovesData(
 
     // Learned-prior tag per demand key (from the outcome re-weight on the graph).
     const learnedByKey = new Map(graphMoves.map((m) => [m.demandKey, m.learnedPrior ?? null]));
+    // R5 / N15: the effect-size prior's magnitude tag per demand key. When a real
+    // bucket fired, it takes the learned slot below (one learned line per card).
+    const effectByKey = new Map(graphMoves.map((m) => [m.demandKey, m.effectPrior ?? null]));
     const cautionByKey = new Map(graphMoves.map((m) => [m.demandKey, m.outcomeCaution ?? null]));
     // Outcome lifecycle state per page (from the proof ledger) - for the hero's
     // learning summary + the "Beacon learned" headline. Honest: derived from
@@ -761,7 +768,10 @@ export async function buildTodayMovesData(
         preparedQuality,
         preparedExperiment: persistedFresh ? persistedPack!.experiment?.hypothesis ?? null : null,
         preparedStale,
-        learnedTag: (packet ? learnedByKey.get(packet.move.key)?.tag : null) ?? null,
+        learnedTag:
+          (packet
+            ? (effectByKey.get(packet.move.key)?.tag ?? learnedByKey.get(packet.move.key)?.tag)
+            : null) ?? null,
         outcomeCaution: (() => {
           const c = packet ? cautionByKey.get(packet.move.key) : null;
           return c && c.kind !== "neutral" && c.label
