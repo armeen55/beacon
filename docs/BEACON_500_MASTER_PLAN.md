@@ -157,11 +157,23 @@ data and talk. THIS IS VERSION 1 DREAM SITE."
   summarize-fanouts 3), typecheck clean project-wide. Found + flagged as a separate follow-up
   task (not fixed here, out of D1's file scope): observation_runs writes silently fail on a
   tenant_id not-null constraint in the dual-write path.
-- [ ] D2. **Per-prompt top-5 cited-source scrape:** politely read the top cited pages per prompt,
-  extract what they have in common (consensus outline/patterns), feed the gap verdict: new page
-  for an unowned gap, atomic edit for an owned one, fanouts seeding the content. (Teardown engine
-  BUILT for Profound citations; wire it to native citations + add commonality extraction.)
-- [ ] D3. **SEO mirror:** for GSC keywords/phrases where competitors beat us, read the SERP top 5
+- [x] D2 (2026-07-02). **Per-prompt top-5 cited-source scrape, SHIPPED:** the teardown target
+  planner now consumes the native poll's cited pages too (`competitor-page-audit.ts`'s
+  `planNativeCitedTargets`/`auditNativeCitedTargets`: up to 5 cited pages per prompt, deduped by
+  domain, noise/aggregator domains skipped, 14d cache reused; additive, Profound-cited planning
+  untouched). New `teardown-commonality.ts` (pure) extracts what winners share: consensus
+  headings, answer shape, word-count band, schema types, opening pattern, and (when we own a
+  matching page) `whatTheyAllHaveThatWeDont`. New `teardown-commonality-verdict.ts` (pure) routes
+  each prompt to an atomic-edit brief (owned) or new-page commonality fields (unowned); briefs
+  describe structure + facts to cover, never competitor prose, so the drafter still writes 100%
+  original content. Wired as an isolated fail-soft `native-teardown` step in `warm-caches.ts`
+  (`native-teardown-runner.ts`, capped at 10 prompts/night, $0 spend, same posture as
+  displacement-check/serp-steal-lane). Ground-truthed live on the real 24-row native poll
+  (8 prompts, 31 real competitor pages torn down, 6 new_page + 1 atomic_edit + 1 no_verdict
+  verdicts); found + fixed 2 real bugs during ground-truth (UTM-decorated owned edit target,
+  atomic-edit additions always empty because owned-page facts were never loaded) before calling
+  it done. 68 new/updated tests, typecheck clean.
+- [x] D3. **SEO mirror:** for GSC keywords/phrases where competitors beat us, read the SERP top 5
   and steal the best (SERP history + feature-steal + clone briefs BUILT; unify with D2 so both
   scrape lanes share one teardown library).
 - [ ] D4. **ONE combined best list:** AEO gaps + SEO gaps + keyword research + fanouts + GA4 money

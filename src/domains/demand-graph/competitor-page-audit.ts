@@ -25,7 +25,8 @@ import { getLatestMoveDrafts } from "./move-draft-store";
 import { parsePreparedVerdict } from "@/domains/serp/prepare-create-page-verdicts";
 import { extractWinnerSignals, type WinnerSignals } from "@/domains/competitor-intel/winner-patterns";
 import { selectTeardownTarget, rootDomainOf } from "@/domains/serp/serp-teardown-fusion";
-import { competitorRelevance } from "@/domains/evidence/relevance-gate";
+import { competitorRelevance, isNoiseDomain } from "@/domains/evidence/relevance-gate";
+import type { NativeObservationInput } from "@/domains/ai-visibility/native-intel";
 
 const STORE = "competitor-page-audit";
 const DEFAULT_TOP_N = 20;
@@ -495,6 +496,127 @@ export async function planTeardownTargetsForTenant(
     targets.push({ demandKey: m.demandKey, label: m.label, url: sel.url, overlap: sel.overlap });
   }
   return { targets, cache };
+}
+
+// ── native-cited teardown targets (2026-07-02, master plan item D2) ────────
+//
+// The polite teardown engine above targets ONE competitor URL per Move
+// (Profound-cited). D2's "commonality" step needs the TOP 5 cited pages PER
+// PROMPT so it can find what multiple winners share; a single target isn't
+// enough to compute a consensus. This section is additive: Profound-cited
+// single-target planning (above) keeps working unchanged; this reads the
+// native poll's own observation rows (native-intel.ts's raw input shape) and
+// plans up to 5 dedup-by-domain, relevance-gated targets PER PROMPT.
+
+export type NativePromptTeardownTarget = {
+  promptId: string;
+  promptText: string;
+  /** Up to 5 cited URLs for this prompt, deduped by domain, noise/aggregator
+   *  domains filtered, most-cited-first. */
+  urls: string[];
+};
+
+const MAX_TARGETS_PER_PROMPT = 5;
+
+/**
+ * PURE: group native observation rows by prompt and pick up to 5 cited pages
+ * per prompt (deduped by domain, ranked by citation count within the prompt,
+ * noise/aggregator domains skipped via the existing relevance-gate list).
+ * Never touches Profound data; additive to it.
+ */
+export function planNativeCitedTargets(
+  rows: readonly NativeObservationInput[],
+  opts: { ownedRoot?: string } = {},
+): NativePromptTeardownTarget[] {
+  const ownedRoot = (opts.ownedRoot ?? "").trim().toLowerCase().replace(/^www\./, "");
+  const byPrompt = new Map<
+    string,
+    { promptText: string; byUrl: Map<string, number>; lastSeen: string }
+  >();
+
+  for (const row of rows) {
+    if (!row.promptId) continue;
+    let entry = byPrompt.get(row.promptId);
+    if (!entry) {
+      entry = { promptText: row.promptText || row.promptId, byUrl: new Map(), lastSeen: row.observedAt };
+      byPrompt.set(row.promptId, entry);
+    }
+    if (row.observedAt > entry.lastSeen) entry.lastSeen = row.observedAt;
+    for (const rawUrl of row.citationUrls ?? []) {
+      if (!rawUrl) continue;
+      const dom = hostOf(rawUrl);
+      if (!dom || !dom.includes(".")) continue;
+      if (ownedRoot && (dom === ownedRoot || dom.endsWith(`.${ownedRoot}`))) continue;
+      if (isNoiseDomain(rawUrl)) continue;
+      entry.byUrl.set(rawUrl, (entry.byUrl.get(rawUrl) ?? 0) + 1);
+    }
+  }
+
+  const out: NativePromptTeardownTarget[] = [];
+  for (const [promptId, entry] of byPrompt) {
+    if (entry.byUrl.size === 0) continue;
+    const ranked = [...entry.byUrl.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+    const urls: string[] = [];
+    const seenDomains = new Set<string>();
+    for (const [url] of ranked) {
+      const dom = hostOf(url);
+      if (seenDomains.has(dom)) continue; // dedup by domain
+      seenDomains.add(dom);
+      urls.push(url);
+      if (urls.length >= MAX_TARGETS_PER_PROMPT) break;
+    }
+    out.push({ promptId, promptText: entry.promptText, urls });
+  }
+  // Most-recently-observed prompts first (freshest poll data leads the nightly cap).
+  out.sort((a, b) => (byPrompt.get(b.promptId)!.lastSeen).localeCompare(byPrompt.get(a.promptId)!.lastSeen));
+  return out;
+}
+
+/**
+ * Audit every native-cited target page across up to `maxPrompts` prompts
+ * (BUDGET: master plan item D2.4, bounded 10 prompts/night, free polite
+ * fetch, 14-day cache reused so a re-run skips unchanged pages). Fail-soft
+ * per URL; one bad fetch never blocks the others. Additive to
+ * `auditTopCompetitorsForTenant` (Profound-cited planning is untouched).
+ */
+export async function auditNativeCitedTargets(
+  args: { targets: readonly NativePromptTeardownTarget[]; maxPrompts?: number },
+  deps: CompetitorAuditDeps = {},
+): Promise<{ byPrompt: Map<string, CompetitorPageAudit[]>; audited: CompetitorPageAudit[]; fromCache: number }> {
+  const maxPrompts = args.maxPrompts ?? 10;
+  const chosen = args.targets.slice(0, maxPrompts);
+
+  const cache = await getCompetitorAuditsForTenant();
+  const cacheKey = (u: string) => canonicalizeCitationUrl(u) || u;
+  const nowMs = (() => {
+    const t = Date.parse((deps.now ?? (() => new Date().toISOString()))());
+    return Number.isFinite(t) ? t : Date.now();
+  })();
+
+  const byPrompt = new Map<string, CompetitorPageAudit[]>();
+  const audited: CompetitorPageAudit[] = [];
+  const toSave: CompetitorPageAudit[] = [];
+  let fromCache = 0;
+
+  for (const t of chosen) {
+    const pageAudits: CompetitorPageAudit[] = [];
+    for (const url of t.urls) {
+      const key = cacheKey(url);
+      const prior = cache.get(key);
+      if (prior && prior.fetchStatus === "ok" && isTeardownFresh(prior.auditedAt, nowMs)) {
+        fromCache += 1;
+        pageAudits.push(prior);
+        continue;
+      }
+      const fresh = await auditCompetitorPage(url, deps);
+      pageAudits.push(fresh);
+      toSave.push(fresh);
+      audited.push(fresh);
+    }
+    byPrompt.set(t.promptId, pageAudits);
+  }
+  if (toSave.length > 0) await saveAudits(toSave);
+  return { byPrompt, audited, fromCache };
 }
 
 export async function auditTopCompetitorsForTenant(

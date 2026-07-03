@@ -25,6 +25,30 @@ import "server-only";
  *                            (untouched here). Isolated step: a failure or a
  *                            capped/dry-run outcome never affects the 5 warm
  *                            steps above it. See displacement-check.ts.
+ *   7. serp-steal-lane     - DREAM SITE V1 item D3 (2026-07-02): the GAIN
+ *                            mirror of displacement-check. Finds GSC keywords
+ *                            where we rank 4-20 with real impressions,
+ *                            resolves each one's Google top-5 (a stored
+ *                            dataforseo_serp_history row first, then AT MOST
+ *                            5 capped live runSerpQuery calls per tenant per
+ *                            night), tears the best result down through the
+ *                            existing competitor-page-audit cache, and
+ *                            persists a steal brief per keyword. Isolated
+ *                            step, same posture as displacement-check - a
+ *                            failure here never affects any step above it.
+ *                            See serp-steal-lane.ts.
+ *   8. native-teardown     - DREAM SITE V1 item D2 (2026-07-02): reads the
+ *                            top-cited pages per NATIVE poll prompt (up to 10
+ *                            prompts/night), politely tears them down (FREE,
+ *                            14d cached, same cache as the other teardown
+ *                            lanes), extracts what the winners share
+ *                            (teardown-commonality.ts), and routes each
+ *                            prompt to an atomic-edit or new-page verdict
+ *                            (teardown-commonality-verdict.ts). $0 spend
+ *                            (polite fetch only, no paid API). Isolated +
+ *                            fail-soft, same posture as displacement-check
+ *                            and serp-steal-lane. See
+ *                            native-teardown-runner.ts.
  *
  * Money posture (verified in the callees, none edited here):
  *   - graph/worklist/today loaders are cached/durable reads only ($0).
@@ -54,6 +78,8 @@ import "server-only";
 import type { DailyExperimentPlanRecord } from "@/domains/experiments/daily-plan-types";
 import type { TodayPreviewResult } from "@/domains/experiments/build-today-preview";
 import type { DisplacementCheckSummary } from "@/domains/serp/displacement-check";
+import type { StealLaneRunSummary } from "@/domains/serp/serp-steal-lane";
+import type { NativeTeardownRunSummary } from "@/domains/demand-graph/native-teardown-runner";
 import type { WarmRunReceipt, WarmStepReceipt } from "./warm-receipt-store";
 
 export type WarmCachesDeps = {
@@ -81,6 +107,15 @@ export type WarmCachesDeps = {
    *  (find real position drops -> at most 3 live Google checks -> persist
    *  verdicts). Returns a short summary for the step's receipt note. */
   runDisplacementChecks: (tenantId: string, now: Date) => Promise<DisplacementCheckSummary>;
+  /** DREAM SITE V1 item D3: the capped nightly SERP-steal lane (find beaten
+   *  keywords -> resolve top-5 -> tear down -> persist steal briefs).
+   *  Returns a short summary for the step's receipt note. */
+  runStealLane: (tenantId: string, now: Date) => Promise<StealLaneRunSummary>;
+  /** DREAM SITE V1 item D2: the capped nightly native-cited teardown +
+   *  commonality + gap-verdict lane (top-5 cited pages per native prompt ->
+   *  tear down -> what winners share -> atomic-edit or new-page verdict).
+   *  Returns a short summary for the step's receipt note. */
+  runNativeTeardown: (tenantId: string, now: Date) => Promise<NativeTeardownRunSummary>;
 };
 
 /** YYYY-MM-DD in America/Los_Angeles (same helper family as run-autopilot). */
@@ -148,6 +183,29 @@ async function defaultRunDisplacementChecks(tenantId: string, now: Date): Promis
   return await runDisplacementCheckForTenant(tenantId, { maxChecks: MAX_DISPLACEMENT_CHECKS_PER_NIGHT, now: () => now });
 }
 
+/** DREAM SITE V1 item D3: at most 10 beaten keywords considered, at most 5
+ *  of those spend a capped live SERP pull per tenant per night. */
+const MAX_STEAL_KEYWORDS_PER_NIGHT = 10;
+const MAX_STEAL_LIVE_SERP_PULLS_PER_NIGHT = 5;
+
+async function defaultRunStealLane(tenantId: string, now: Date): Promise<StealLaneRunSummary> {
+  const { runStealLaneForTenant } = await import("@/domains/serp/serp-steal-lane");
+  return await runStealLaneForTenant(tenantId, {
+    maxKeywords: MAX_STEAL_KEYWORDS_PER_NIGHT,
+    maxLiveSerpPulls: MAX_STEAL_LIVE_SERP_PULLS_PER_NIGHT,
+    now: () => now,
+  });
+}
+
+/** DREAM SITE V1 item D2: at most 10 native-poll prompts analyzed per night
+ *  (free polite fetch, 14d cache, no paid API in this lane). */
+const MAX_NATIVE_TEARDOWN_PROMPTS_PER_NIGHT = 10;
+
+async function defaultRunNativeTeardown(tenantId: string, _now: Date): Promise<NativeTeardownRunSummary> {
+  const { runNativeTeardownForTenant } = await import("@/domains/demand-graph/native-teardown-runner");
+  return await runNativeTeardownForTenant(tenantId, { maxPrompts: MAX_NATIVE_TEARDOWN_PROMPTS_PER_NIGHT });
+}
+
 const defaultDeps: WarmCachesDeps = {
   ambientTenantId: defaultAmbientTenantId,
   refreshDemandGraph: defaultRefreshDemandGraph,
@@ -160,6 +218,8 @@ const defaultDeps: WarmCachesDeps = {
   persistPreview: defaultPersistPreview,
   today: pacificDay,
   runDisplacementChecks: defaultRunDisplacementChecks,
+  runStealLane: defaultRunStealLane,
+  runNativeTeardown: defaultRunNativeTeardown,
 };
 
 /** Hard per-step ceiling - a hung step is recorded as failed and the pass moves on. */
@@ -300,6 +360,32 @@ export async function warmTenantCaches(
         summary.verdicts.length > 0
           ? `checked ${summary.checked + summary.cached} money query drop(s), found ${summary.verdicts.length} still displaced, skipped ${summary.skippedNoBudget} past the nightly cap`
           : `no qualifying money query drops to check tonight (skipped ${summary.skippedRecent} already checked recently, ${summary.skippedNoBudget} past the nightly cap)`;
+      return { note };
+    }),
+  );
+  // DREAM SITE V1 item D3: the GAIN mirror of displacement-check - isolated
+  // the same way (a failure here never affects any step above it).
+  steps.push(
+    await runStep("serp-steal-lane", async () => {
+      const summary = await deps.runStealLane(tenantId, now);
+      if (summary.beatenKeywordsFound === 0) {
+        return { skipped: true, note: "no beaten keywords (rank 4-20 with real impressions) found tonight" };
+      }
+      const note = `found ${summary.beatenKeywordsFound} beaten keyword(s), read ${summary.teardownsTorndown} competitor page(s) (${summary.storedSerpHits} from stored SERPs, ${summary.livePullsUsed} live), built ${summary.briefsBuilt} steal brief(s)`;
+      return { note };
+    }),
+  );
+  // DREAM SITE V1 item D2: native-cited teardown + commonality + gap verdict -
+  // isolated the same way (a failure here never affects any step above it).
+  // $0 spend (polite fetch only), so unlike the two SERP steps above it has no
+  // live-pull budget line to report, just prompts analyzed / pages torn down.
+  steps.push(
+    await runStep("native-teardown", async () => {
+      const summary = await deps.runNativeTeardown(tenantId, now);
+      if (summary.promptsAnalyzed === 0) {
+        return { skipped: true, note: "no native-poll prompts with cited pages to tear down tonight" };
+      }
+      const note = `analyzed ${summary.promptsAnalyzed} native prompt(s), read ${summary.torndownPages} competitor page(s) (${summary.fromCache} from cache), verdicts: ${summary.verdicts.filter((v) => v.outcome === "atomic_edit").length} atomic edit, ${summary.verdicts.filter((v) => v.outcome === "new_page").length} new page, ${summary.verdicts.filter((v) => v.outcome === "no_verdict").length} not enough winners yet`;
       return { note };
     }),
   );

@@ -7,6 +7,71 @@
 
 ---
 
+## 2026-07-02 - DREAM SITE V1 item D2: native-cited teardown + commonality + gap verdict
+
+**What changed:** the polite teardown engine's target planner now ALSO consumes the native poll's
+cited pages, not just Profound's. New exports on `src/domains/demand-graph/competitor-page-audit.ts`
+(the file this slice owns): `planNativeCitedTargets` (pure - groups native observation rows by
+prompt, picks up to 5 cited pages per prompt, deduped by domain, ranked by in-prompt citation
+count, noise/aggregator domains skipped via the existing relevance-gate list) and
+`auditNativeCitedTargets` (I/O - politely fetches each target, 14d cache-aware, fail-soft per URL).
+Profound-cited single-target planning is untouched and additive.
+
+New `src/domains/demand-graph/teardown-commonality.ts` (pure) - "the best ideologies": given 2-5
+competitor teardown facts for the same prompt, extracts a consensus outline (headings a MAJORITY
+share), the dominant answer shape (definition-first/table/FAQ/steps/narrative), a word-count band
+around the median, majority schema types, the dominant opening pattern, and (when we own a
+matching page) `whatTheyAllHaveThatWeDont`. Fewer than 2 usable facts returns `null` - never
+fabricates a consensus from one page. `commonalitySentence` renders the plain-language,
+dash-free, operator-facing line.
+
+New `src/domains/demand-graph/teardown-commonality-verdict.ts` (pure) - routes each prompt to
+exactly one outcome: OWNED -> an atomic-edit brief (the owned URL, the specific missing shared
+elements as additions, fanout questions to weave in); UNOWNED -> additive commonality fields for
+a create-page candidate brief. Ownership reuses the same signal `create-page-ownership-gate.ts`
+established (a resolved owned URL), never re-litigated. Contract enforced throughout: briefs
+describe structure + facts to cover, never competitor prose - the drafter (a later step) writes
+100% original content.
+
+New `src/domains/demand-graph/native-teardown-runner.ts` (I/O composition) wires the above into
+one nightly per-tenant run, including a real owned-page-facts lookup (`getRepository().forTenant
+().getPageSnapshots()`, same pattern `gap-compiler.ts` uses) so the atomic-edit `additions` list
+is a REAL comparison, not always empty. Wired as an isolated fail-soft `native-teardown` step in
+`src/domains/ops/warm-caches.ts` (last of 8 steps, after `serp-steal-lane`; capped at 10
+prompts/night, $0 spend - polite fetch only, same posture as displacement-check/serp-steal-lane).
+
+**Ground-truthed live** on the real 24-row native poll (tenant-iranopedia, D1's 8-prompt run):
+8 prompts analyzed, 31 real competitor pages fetched and parsed (0 blocked, all "ok" on first
+run), 7 of 8 prompts produced a real CommonalityBrief (1 had only 1 fetchable page -> honest
+`no_verdict`), verdicts: 6 new_page, 1 atomic_edit, 1 no_verdict. Second run against the same data
+proved the 14d cache (0 fresh fetches, 31 served from cache).
+
+**Bugs found and fixed during ground-truth (before calling this done):**
+1. The atomic-edit `ownedUrl` carried the AI engine's `?utm_source=openai` tracking param -
+   fixed by running the resolved owned URL through the existing `canonicalizeCitationUrl`.
+2. The atomic-edit `additions` list was ALWAYS empty because owned-page facts were never loaded
+   (`buildCommonalityBrief` was called with no `ownedFacts`) - fixed by adding the owned-snapshot
+   lookup described above; re-verified live, e.g. "Persian Female First Names" now correctly lists
+   10 real missing shared elements (a shared heading, an interactive tool, 7 schema types, a
+   direct-answer opening) versus the 5 real competitor pages.
+
+**Tests:** 68 new/updated (`teardown-commonality.test.ts` 18, `teardown-commonality-verdict.test.ts`
+9, `competitor-page-audit.test.ts` +7 for `planNativeCitedTargets`, `warm-caches.test.ts` +5 for
+the new step, existing pinned-order tests updated for the 8-step sequence). `npm run typecheck`
+clean project-wide. Adjacent-domain regression check: 680 tests passing across
+`src/domains/demand-graph`, `tests/domains/demand-graph`, `tests/domains/ops`,
+`src/domains/ai-visibility` (no full-suite run, per the standing GitHub Actions minutes rule -
+targeted + adjacent-domain coverage only).
+
+**Caveats:** word-count bands can be wide when a real competitor's static HTML fetch returns thin
+content (one girl-names competitor returned 14 words - likely JS-hydrated content a polite static
+fetch cannot see); this is an honest reflection of real fetched data, not a computation bug. The
+`native-teardown` step in `warm-caches.ts` has not yet run through an actual nightly cron
+invocation (only the direct `runNativeTeardownForTenant` ground-truth script) - the composition
+is deps-injectable and unit-tested the same way `displacement-check`/`serp-steal-lane` are.
+
+---
+
 ## 2026-07-02 - DREAM SITE V1 item D7: honest opportunity math (math layer + data fields)
 
 **What changed:** new `src/domains/forecast/opportunity-math.ts` (pure) - the ONE canonical

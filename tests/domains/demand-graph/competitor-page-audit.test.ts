@@ -4,8 +4,10 @@ import {
   auditCompetitorPage,
   whatWins,
   isTeardownFresh,
+  planNativeCitedTargets,
   type CompetitorFetchResult,
 } from "@/domains/demand-graph/competitor-page-audit";
+import type { NativeObservationInput } from "@/domains/ai-visibility/native-intel";
 
 const RICH_HTML = `<!doctype html><html><head>
   <title>Persian Wedding Traditions: The Complete Guide</title>
@@ -155,5 +157,84 @@ describe("auditCompetitorPage (fail-soft fetch)", () => {
       fetchHtml: async () => ({ ok: true, html: "<html></html>", status: 200 }),
     });
     expect(a.fetchStatus).toBe("empty");
+  });
+});
+
+describe("planNativeCitedTargets (master plan item D2: native poll cited pages as teardown targets)", () => {
+  function row(over: Partial<NativeObservationInput> = {}): NativeObservationInput {
+    return {
+      promptId: "p1",
+      promptText: "What is a Persian wedding?",
+      engine: "chatgpt",
+      topic: null,
+      observedAt: "2026-07-01T00:00:00Z",
+      answerText: "",
+      citationDomains: [],
+      citationUrls: [],
+      trackedBrandMentioned: null,
+      trackedBrandCited: null,
+      ...over,
+    };
+  }
+
+  it("groups by prompt and dedupes by domain, most-cited-first", () => {
+    const rows: NativeObservationInput[] = [
+      row({ promptId: "p1", engine: "chatgpt", citationUrls: ["https://theknot.com/a", "https://theknot.com/b"] }),
+      row({ promptId: "p1", engine: "gemini", citationUrls: ["https://theknot.com/a", "https://brides.com/x"] }),
+    ];
+    const targets = planNativeCitedTargets(rows);
+    expect(targets).toHaveLength(1);
+    const t = targets[0]!;
+    expect(t.promptId).toBe("p1");
+    // theknot.com/a cited twice -> ranked first; theknot.com/b same domain as /a -> deduped out.
+    expect(t.urls[0]).toBe("https://theknot.com/a");
+    expect(t.urls).not.toContain("https://theknot.com/b");
+    expect(t.urls).toContain("https://brides.com/x");
+  });
+
+  it("caps at 5 URLs per prompt", () => {
+    const domains = ["a.com", "b.com", "c.com", "d.com", "e.com", "f.com", "g.com"];
+    const rows: NativeObservationInput[] = domains.map((d) => row({ citationUrls: [`https://${d}/page`] }));
+    const targets = planNativeCitedTargets(rows);
+    expect(targets[0]!.urls.length).toBe(5);
+  });
+
+  it("excludes the tenant's own domain (never tears down our own page)", () => {
+    const rows: NativeObservationInput[] = [
+      row({ citationUrls: ["https://iranopedia.com/persian-wedding", "https://theknot.com/x"] }),
+    ];
+    const targets = planNativeCitedTargets(rows, { ownedRoot: "iranopedia.com" });
+    expect(targets[0]!.urls).toEqual(["https://theknot.com/x"]);
+  });
+
+  it("excludes noise/aggregator domains via the existing relevance-gate list", () => {
+    const rows: NativeObservationInput[] = [
+      row({ citationUrls: ["https://reddit.com/r/x", "https://theknot.com/x"] }),
+    ];
+    const targets = planNativeCitedTargets(rows);
+    expect(targets[0]!.urls).toEqual(["https://theknot.com/x"]);
+  });
+
+  it("skips prompts with zero usable cited URLs (no fabricated target)", () => {
+    const rows: NativeObservationInput[] = [row({ citationUrls: [] })];
+    expect(planNativeCitedTargets(rows)).toEqual([]);
+  });
+
+  it("orders prompts by most-recently-observed first", () => {
+    const rows: NativeObservationInput[] = [
+      row({ promptId: "old", observedAt: "2026-06-01T00:00:00Z", citationUrls: ["https://a.com/x"] }),
+      row({ promptId: "new", observedAt: "2026-07-01T00:00:00Z", citationUrls: ["https://b.com/x"] }),
+    ];
+    const targets = planNativeCitedTargets(rows);
+    expect(targets.map((t) => t.promptId)).toEqual(["new", "old"]);
+  });
+
+  it("handles multiple distinct prompts independently", () => {
+    const rows: NativeObservationInput[] = [
+      row({ promptId: "p1", citationUrls: ["https://a.com/x"] }),
+      row({ promptId: "p2", citationUrls: ["https://b.com/x"] }),
+    ];
+    const targets = planNativeCitedTargets(rows);
+    expect(targets).toHaveLength(2);
   });
 });

@@ -1,14 +1,17 @@
 /**
  * Nightly precompute warm pass (2026-07-02, BEACON 500 item 13; displacement
- * step added by BEACON 500 item 82).
+ * step added by BEACON 500 item 82; serp-steal-lane step added by DREAM SITE
+ * V1 item D3; native-teardown step added by DREAM SITE V1 item D2).
  *
  * Pins the composition contract with injected deps (no Supabase, no graph
  * build, no filesystem):
  *   - step ORDER: demand-graph -> worklist-surface -> plan-preview ->
- *     today-surface -> coverage-map -> displacement-check (Today is warmed
- *     AFTER the plan so the morning open shows tonight's picks; the
- *     displacement check runs LAST since it is the one step that can spend
- *     real money and must never block the free cache warms above it),
+ *     today-surface -> coverage-map -> displacement-check -> serp-steal-lane
+ *     -> native-teardown (Today is warmed AFTER the plan so the morning open
+ *     shows tonight's picks; the two money-spending steps run before the
+ *     free native-teardown lane, since they must never block the free cache
+ *     warms above them; native-teardown itself is also $0 but runs last so a
+ *     hung/slow native lane never delays anything else),
  *   - fail-soft isolation: one failed step never stops the next,
  *   - skip-when-fresh: an existing preview for the Pacific day (or an open
  *     accepted batch) means the builder is NEVER invoked (no double spend),
@@ -63,13 +66,29 @@ function makeDeps(overrides: Partial<WarmCachesDeps> = {}) {
       calls.push("displacement-check");
       return { checked: 0, cached: 0, skippedRecent: 0, skippedNoBudget: 0, costUsd: 0, verdicts: [] };
     }),
+    runStealLane: vi.fn(async () => {
+      calls.push("serp-steal-lane");
+      return {
+        beatenKeywordsFound: 0,
+        storedSerpHits: 0,
+        livePullsUsed: 0,
+        liveCostUsd: 0,
+        briefsBuilt: 0,
+        teardownsTorndown: 0,
+        briefs: [],
+      };
+    }),
+    runNativeTeardown: vi.fn(async () => {
+      calls.push("native-teardown");
+      return { promptsAnalyzed: 0, torndownPages: 0, fromCache: 0, verdicts: [], results: [] };
+    }),
     ...overrides,
   };
   return { deps, calls };
 }
 
 describe("warmTenantCaches", () => {
-  it("runs the steps in the pinned order (plan BEFORE today-surface, displacement-check LAST)", async () => {
+  it("runs the steps in the pinned order (plan BEFORE today-surface, the money steps then native-teardown LAST)", async () => {
     const { deps, calls } = makeDeps();
     const receipt = await warmTenantCaches(TENANT, NOW, deps);
     expect(calls).toEqual([
@@ -78,6 +97,8 @@ describe("warmTenantCaches", () => {
       "plan-preview",
       "today-surface",
       "displacement-check",
+      "serp-steal-lane",
+      "native-teardown",
     ]);
     expect(receipt.steps.map((s) => s.name)).toEqual([
       "demand-graph",
@@ -86,6 +107,8 @@ describe("warmTenantCaches", () => {
       "today-surface",
       "coverage-map",
       "displacement-check",
+      "serp-steal-lane",
+      "native-teardown",
     ]);
     expect(receipt.ok).toBe(true);
     expect(receipt.date).toBe(TODAY);
@@ -100,9 +123,16 @@ describe("warmTenantCaches", () => {
     expect(graph?.ok).toBe(false);
     expect(graph?.note).toContain("graph build blew up");
     // Every later step still ran.
-    expect(calls).toEqual(["worklist-surface", "plan-preview", "today-surface", "displacement-check"]);
+    expect(calls).toEqual([
+      "worklist-surface",
+      "plan-preview",
+      "today-surface",
+      "displacement-check",
+      "serp-steal-lane",
+      "native-teardown",
+    ]);
     expect(receipt.ok).toBe(false);
-    expect(receipt.steps.filter((s) => s.ok)).toHaveLength(5);
+    expect(receipt.steps.filter((s) => s.ok)).toHaveLength(7);
   });
 
   it("displacement-check failure is isolated and never affects the warm steps above it", async () => {
@@ -110,14 +140,125 @@ describe("warmTenantCaches", () => {
       runDisplacementChecks: vi.fn(async () => { throw new Error("dataforseo blew up"); }),
     });
     const receipt = await warmTenantCaches(TENANT, NOW, deps);
-    // The 4 free warm steps + coverage-map all ran and succeeded.
-    expect(calls).toEqual(["demand-graph", "worklist-surface", "plan-preview", "today-surface"]);
+    // The 4 free warm steps + coverage-map all ran and succeeded, and the
+    // steps AFTER the failing one still ran too.
+    expect(calls).toEqual([
+      "demand-graph",
+      "worklist-surface",
+      "plan-preview",
+      "today-surface",
+      "serp-steal-lane",
+      "native-teardown",
+    ]);
     const warmSteps = receipt.steps.filter((s) => s.name !== "displacement-check");
     expect(warmSteps.every((s) => s.ok)).toBe(true);
     const displacement = receipt.steps.find((s) => s.name === "displacement-check");
     expect(displacement?.ok).toBe(false);
     expect(displacement?.note).toContain("dataforseo blew up");
     expect(receipt.ok).toBe(false);
+  });
+
+  it("serp-steal-lane failure is isolated and never affects the steps above or after it", async () => {
+    const { deps, calls } = makeDeps({
+      runStealLane: vi.fn(async () => { throw new Error("serp steal lane blew up"); }),
+    });
+    const receipt = await warmTenantCaches(TENANT, NOW, deps);
+    expect(calls).toEqual([
+      "demand-graph",
+      "worklist-surface",
+      "plan-preview",
+      "today-surface",
+      "displacement-check",
+      "native-teardown",
+    ]);
+    const otherSteps = receipt.steps.filter((s) => s.name !== "serp-steal-lane");
+    expect(otherSteps.every((s) => s.ok)).toBe(true);
+    const steal = receipt.steps.find((s) => s.name === "serp-steal-lane");
+    expect(steal?.ok).toBe(false);
+    expect(steal?.note).toContain("serp steal lane blew up");
+    expect(receipt.ok).toBe(false);
+  });
+
+  it("native-teardown failure is isolated and never affects the steps above it", async () => {
+    const { deps, calls } = makeDeps({
+      runNativeTeardown: vi.fn(async () => { throw new Error("native teardown blew up"); }),
+    });
+    const receipt = await warmTenantCaches(TENANT, NOW, deps);
+    expect(calls).toEqual([
+      "demand-graph",
+      "worklist-surface",
+      "plan-preview",
+      "today-surface",
+      "displacement-check",
+      "serp-steal-lane",
+    ]);
+    const otherSteps = receipt.steps.filter((s) => s.name !== "native-teardown");
+    expect(otherSteps.every((s) => s.ok)).toBe(true);
+    const native = receipt.steps.find((s) => s.name === "native-teardown");
+    expect(native?.ok).toBe(false);
+    expect(native?.note).toContain("native teardown blew up");
+    expect(receipt.ok).toBe(false);
+  });
+
+  it("native-teardown reports an honest note summarizing prompts/pages/verdicts", async () => {
+    const { deps } = makeDeps({
+      runNativeTeardown: vi.fn(async () => ({
+        promptsAnalyzed: 3,
+        torndownPages: 6,
+        fromCache: 2,
+        verdicts: [
+          { promptId: "p1", outcome: "atomic_edit" as const },
+          { promptId: "p2", outcome: "new_page" as const },
+          { promptId: "p3", outcome: "no_verdict" as const },
+        ],
+        results: [],
+      })),
+    });
+    const receipt = await warmTenantCaches(TENANT, NOW, deps);
+    const step = receipt.steps.find((s) => s.name === "native-teardown");
+    expect(step?.ok).toBe(true);
+    expect(step?.note).toContain("analyzed 3 native prompt");
+    expect(step?.note).toContain("read 6 competitor page");
+    expect(step?.note).toContain("1 atomic edit");
+    expect(step?.note).toContain("1 new page");
+  });
+
+  it("native-teardown with nothing to do reports an honest skip", async () => {
+    const { deps } = makeDeps();
+    const receipt = await warmTenantCaches(TENANT, NOW, deps);
+    const step = receipt.steps.find((s) => s.name === "native-teardown");
+    expect(step?.ok).toBe(true);
+    expect(step?.skipped).toBe(true);
+    expect(step?.note).toContain("no native-poll prompts");
+  });
+
+  it("serp-steal-lane reports an honest note summarizing what it found and read", async () => {
+    const { deps } = makeDeps({
+      runStealLane: vi.fn(async () => ({
+        beatenKeywordsFound: 3,
+        storedSerpHits: 2,
+        livePullsUsed: 1,
+        liveCostUsd: 0.003,
+        briefsBuilt: 3,
+        teardownsTorndown: 3,
+        briefs: [],
+      })),
+    });
+    const receipt = await warmTenantCaches(TENANT, NOW, deps);
+    const step = receipt.steps.find((s) => s.name === "serp-steal-lane");
+    expect(step?.ok).toBe(true);
+    expect(step?.note).toContain("found 3 beaten keyword");
+    expect(step?.note).toContain("read 3 competitor page");
+    expect(step?.note).toContain("built 3 steal brief");
+  });
+
+  it("serp-steal-lane with nothing to do reports an honest skip", async () => {
+    const { deps } = makeDeps();
+    const receipt = await warmTenantCaches(TENANT, NOW, deps);
+    const step = receipt.steps.find((s) => s.name === "serp-steal-lane");
+    expect(step?.ok).toBe(true);
+    expect(step?.skipped).toBe(true);
+    expect(step?.note).toContain("no beaten keywords");
   });
 
   it("displacement-check reports an honest note summarizing checks/skips", async () => {

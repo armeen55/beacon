@@ -1,0 +1,169 @@
+/**
+ * teardown-commonality-verdict (2026-07-02, master plan item D2; "take the
+ * best ideologies to either make our new page for new gap, or edit our current
+ * page in the gap").
+ *
+ * PURE / no I/O / no LLM. Given a prompt's CommonalityBrief (what the winning
+ * pages share; teardown-commonality.ts) plus whether the tenant already OWNS
+ * a matching page for that prompt's topic, routes to exactly one of two
+ * outcomes:
+ *
+ *   - OWNED  -> an ATOMIC EDIT BRIEF: the specific missing shared elements as
+ *     additions to the existing page, fanout questions woven in as extra
+ *     coverage. Reuses the same ownership signal
+ *     `create-page-ownership-gate.ts` already established (an AeoEvidence /
+ *     native citation confirming the tenant's own URL); never re-litigates
+ *     "do we own this," only reuses it.
+ *   - UNOWNED -> the CommonalityBrief becomes additive fields on a create-page
+ *     candidate brief (never a replacement of the existing candidate shape;
+ *     this module does not construct MoveCandidate/PreparedMovePack itself,
+ *     it hands back a small additive object a caller merges in, so it stays
+ *     compatible with whatever coherence/ownership gates run downstream).
+ *
+ * Contract (repeated from teardown-commonality.ts, load-bearing here too):
+ * briefs describe STRUCTURE + FACTS TO COVER, never prose to copy. Neither
+ * outcome here ever contains a sentence lifted from a competitor page; the
+ * drafter (a separate, later step) writes 100% original content from the
+ * brief fields.
+ */
+
+import type { CommonalityBrief } from "./teardown-commonality";
+import { commonalitySentence } from "./teardown-commonality";
+
+export type GapVerdictOutcome = "atomic_edit" | "new_page" | "no_verdict";
+
+export type AtomicEditBrief = {
+  kind: "atomic_edit";
+  /** The owned URL this edit targets. */
+  ownedUrl: string;
+  /** Specific additions, one per missing shared element (never prose; a
+   *  to-do list of what to add, e.g. "Add a section covering X"). */
+  additions: string[];
+  /** Fanout/follow-up questions to weave into the edit (from the native poll
+   *  or Profound query fanouts; caller supplies, this module just carries
+   *  them through so the edit brief is self-contained). */
+  fanoutQuestionsToWeave: string[];
+  /** One-line summary of the consensus that justifies the edit. */
+  rationale: string;
+};
+
+export type NewPageCommonalityFields = {
+  kind: "new_page_commonality";
+  /** Additive fields a create-page candidate brief should merge in; never a
+   *  replacement of the candidate's own shape. */
+  sharedHeadingsToInclude: string[];
+  answerShape: CommonalityBrief["answerShape"];
+  wordBand: CommonalityBrief["wordBand"];
+  schemaTypesToInclude: string[];
+  openingPattern: CommonalityBrief["openingPattern"];
+  hasFaqConsensus: boolean;
+  hasToolConsensus: boolean;
+  fanoutQuestionsToWeave: string[];
+  /** One-line summary of the consensus that justifies the new page. */
+  rationale: string;
+};
+
+export type GapVerdict = {
+  promptId: string;
+  outcome: GapVerdictOutcome;
+  atomicEdit: AtomicEditBrief | null;
+  newPage: NewPageCommonalityFields | null;
+  /** The plain-language sentence for the card/detail render (operator-journey
+   *  quotable line; same one on both outcomes' underlying brief). */
+  renderedSentence: string | null;
+  /** Why no_verdict, when applicable (e.g. brief was null; fewer than 2
+   *  usable teardown facts for this prompt). */
+  reason: string | null;
+};
+
+export type OwnershipSignal = {
+  /** The tenant's own URL AI/the poll already cites for this prompt's topic,
+   *  if any. Reuses the exact signal create-page-ownership-gate.ts uses
+   *  (aeoEvidence.topCitedPages[].isOwned / ownCitationCount > 0); this
+   *  module takes the resolved URL, it does not recompute ownership. */
+  ownedUrl: string | null;
+};
+
+/**
+ * Route one prompt's CommonalityBrief to an atomic-edit or new-page verdict.
+ * `brief === null` (fewer than 2 usable teardown facts) returns "no_verdict";
+ * never fabricates a consensus from a single page.
+ */
+export function routeGapVerdict(input: {
+  promptId: string;
+  brief: CommonalityBrief | null;
+  ownership: OwnershipSignal;
+  fanoutQuestions?: readonly string[];
+}): GapVerdict {
+  const { promptId, brief, ownership } = input;
+  const fanoutQuestionsToWeave = [...new Set(input.fanoutQuestions ?? [])].slice(0, 8);
+
+  if (!brief) {
+    return {
+      promptId,
+      outcome: "no_verdict",
+      atomicEdit: null,
+      newPage: null,
+      renderedSentence: null,
+      reason: "Fewer than 2 usable competitor teardowns for this prompt; not enough winners to find a consensus yet.",
+    };
+  }
+
+  const renderedSentence = commonalitySentence(brief);
+
+  if (ownership.ownedUrl) {
+    const additions: string[] = [...brief.whatTheyAllHaveThatWeDont];
+    if (additions.length === 0) {
+      // Owned + already matches the consensus; still atomic_edit (we own the
+      // page), but the additions list is honestly empty rather than padded.
+      return {
+        promptId,
+        outcome: "atomic_edit",
+        atomicEdit: {
+          kind: "atomic_edit",
+          ownedUrl: ownership.ownedUrl,
+          additions: [],
+          fanoutQuestionsToWeave,
+          rationale: `${renderedSentence} Your page already covers what the winners share.`,
+        },
+        newPage: null,
+        renderedSentence,
+        reason: null,
+      };
+    }
+    return {
+      promptId,
+      outcome: "atomic_edit",
+      atomicEdit: {
+        kind: "atomic_edit",
+        ownedUrl: ownership.ownedUrl,
+        additions,
+        fanoutQuestionsToWeave,
+        rationale: `${renderedSentence} Your page is missing: ${additions.join("; ")}.`,
+      },
+      newPage: null,
+      renderedSentence,
+      reason: null,
+    };
+  }
+
+  return {
+    promptId,
+    outcome: "new_page",
+    atomicEdit: null,
+    newPage: {
+      kind: "new_page_commonality",
+      sharedHeadingsToInclude: brief.sharedHeadings.map((h) => h.label),
+      answerShape: brief.answerShape,
+      wordBand: brief.wordBand,
+      schemaTypesToInclude: brief.schemaTypes,
+      openingPattern: brief.openingPattern,
+      hasFaqConsensus: brief.hasFaqConsensus,
+      hasToolConsensus: brief.hasToolConsensus,
+      fanoutQuestionsToWeave,
+      rationale: `${renderedSentence} No owned page yet; build one to this shape.`,
+    },
+    renderedSentence,
+    reason: null,
+  };
+}
