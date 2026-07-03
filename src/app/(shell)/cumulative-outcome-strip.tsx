@@ -86,6 +86,10 @@ export function CumulativeOutcomeStrip({
                 {dollarBreakdown.map((w) => (
                   <li key={w.path}>
                     {w.path}: about ${Math.round(w.usdPerMonth).toLocaleString("en-US")} a month
+                    {/* N4 behavior corroboration - one line, only when present. */}
+                    {w.behaviorNote ? (
+                      <span className="text-muted-foreground"> {w.behaviorNote}</span>
+                    ) : null}
                   </li>
                 ))}
               </ul>

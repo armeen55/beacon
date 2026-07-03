@@ -68,6 +68,12 @@ export type CumulativeOutcomeRow = {
     treated: { sessionsPre: number };
     adjustedSessionsPct: number | null;
   } | null;
+  /** Behavior lane (N4, behavior-outcome.ts), computed at measure time. Read
+   *  ONLY by the dollar breakdown's corroboration note (won-dollar-rule.ts) -
+   *  never by any count, click, or dollar math here. */
+  behaviorOutcome?: {
+    compositeVerdict: "better" | "worse" | "mixed" | "same" | "none";
+  } | null;
 };
 
 export type CumulativeOutcome = {

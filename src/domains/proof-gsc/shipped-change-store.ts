@@ -26,6 +26,7 @@ import type {
   ProofWindowResult,
 } from "./measure";
 import type { TrafficOutcome } from "./traffic-outcome";
+import type { BehaviorOutcome } from "./behavior-outcome";
 import type { CitationOutcome } from "./citation-outcome";
 import type { RankRecheckResult } from "./rank-recheck";
 import type { ChangeDollarValue } from "./change-dollar-value";
@@ -71,6 +72,16 @@ export type ShippedChangeRecord = {
    *  time and recomputed on every load — NOT persisted (no column; recordToRow
    *  omits it), so it stays in lockstep with live GA4 like the GSC verdict. */
   trafficOutcome?: TrafficOutcome | null;
+  /** Behavior lane (BEACON_500 N4 + N17, 2026-07-03): how visitors behaved
+   *  since the change (GA4 engaged share + conversions, Clarity frustration +
+   *  quick-backs) plus the did-they-find-their-answer read, computed on the
+   *  live_at clock (the ship date - NEVER gated on Google recrawl or GSC
+   *  finalization). Same computed-only posture as trafficOutcome: NOT
+   *  persisted (recordToRow omits it), recomputed on every measure. Feeds N10
+   *  as a CORROBORATION-only input (a win with worse behavior demotes solid
+   *  to decent); behavior alone never upgrades a verdict. Null when neither
+   *  source has a post-ship day yet. */
+  behaviorOutcome?: BehaviorOutcome | null;
   /** AI-citation outcome (master plan item 5): did AI answers start or stop
    *  citing this page after the ship, adjusted by the comparison pages? Same
    *  computed-only posture as trafficOutcome: NOT persisted (recordToRow

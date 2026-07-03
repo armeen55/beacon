@@ -118,6 +118,27 @@ describe("CumulativeOutcomeStrip", () => {
     expect(html).toContain(WON_DOLLAR_RULE_SENTENCE);
   });
 
+  it("a win row cites behavior corroboration in the expander, one line, only when present (N4)", () => {
+    const corroborated = {
+      ...WON,
+      behaviorOutcome: { compositeVerdict: "better" },
+    } as CumulativeOutcomeRow;
+    const rows = [corroborated, MEASURING];
+    const outcome = computeCumulativeOutcome(rows, NOW);
+    const breakdown = buildWonDollarBreakdown(rows, NOW, []);
+    const html = renderToStaticMarkup(
+      <CumulativeOutcomeStrip outcome={outcome} dollarBreakdown={breakdown} />,
+    );
+    expect(html).toContain("Visitors also behaved better on this page after the change.");
+
+    // Without corroboration the line is absent - never a filler sentence.
+    const plain = buildWonDollarBreakdown([WON, MEASURING], NOW, []);
+    const plainHtml = renderToStaticMarkup(
+      <CumulativeOutcomeStrip outcome={computeCumulativeOutcome([WON, MEASURING], NOW)} dollarBreakdown={plain} />,
+    );
+    expect(plainHtml).not.toContain("Visitors also behaved better");
+  });
+
   it("the breakdown rows always sum to the figure the strip shows", () => {
     const secondWin: CumulativeOutcomeRow = {
       ...WON,

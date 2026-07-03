@@ -443,6 +443,108 @@ describe("P4 R10b: provenNeutral (v1 289) and fdrCaution (v1 291) in the grade l
   });
 });
 
+describe("N4 behavior corroboration - demotes wins, never upgrades anything", () => {
+  it("demotes a would-be solid win to decent with the behavior reason named", () => {
+    const clean = gradeVerdictReliability(base());
+    expect(clean.grade).toBe("solid");
+    const r = gradeVerdictReliability(base({ behaviorContradictsWin: true }));
+    expect(r.grade).toBe("decent");
+    expect(r.reasons.join(" ")).toMatch(/visitors behaved worse on the page after the change/);
+    expect(r.sentence).toMatch(/look like a win over 28 days/);
+    expect(r.sentence).toMatch(/holding it at decent until behavior agrees/);
+  });
+
+  it("also demotes a permutation-confirmed would-be solid win", () => {
+    const r = gradeVerdictReliability(
+      base({ behaviorContradictsWin: true, permutationRead: { nGreater: 1, nTotal: 60 } }),
+    );
+    expect(r.grade).toBe("decent");
+  });
+
+  it("never rescues or worsens a shaky read (the disqualifiers already returned)", () => {
+    const withoutBehavior = gradeVerdictReliability(base({ controlContaminationFlagged: true }));
+    const withBehavior = gradeVerdictReliability(
+      base({ controlContaminationFlagged: true, behaviorContradictsWin: true }),
+    );
+    expect(withBehavior.grade).toBe("shaky");
+    expect(withBehavior).toEqual(withoutBehavior);
+  });
+
+  it("never upgrades: there is no behavior-better input, and false/omitted is byte-identical", () => {
+    const before = gradeVerdictReliability(base());
+    const after = gradeVerdictReliability(base({ behaviorContradictsWin: false }));
+    expect(after).toEqual(before);
+    // An immature decent read stays decent regardless of the flag - behavior
+    // can never push a read past the 28-day clock.
+    const early = gradeVerdictReliability(
+      base({ maturity: "early_checkpoint", basisDay: 7, behaviorContradictsWin: false }),
+    );
+    expect(early.grade).toBe("decent");
+  });
+
+  it("does not touch the thin-sample decent path (already decent, thin reason wins the sentence)", () => {
+    const r = gradeVerdictReliability(
+      base({ controlsUsed: 2, baselineImpressions: 800, behaviorContradictsWin: true }),
+    );
+    expect(r.grade).toBe("decent");
+    expect(r.sentence).toMatch(/not deep enough/);
+  });
+
+  it("does not touch the proven-neutral solid (a proven did-nothing is not a win)", () => {
+    const r = gradeVerdictReliability(base({ provenNeutral: true, behaviorContradictsWin: false }));
+    expect(r.grade).toBe("solid");
+    expect(r.sentence).toMatch(/genuinely did nothing/);
+  });
+
+  it("a behavior-demoted win still allows learning (decent trains priors)", () => {
+    const r = gradeVerdictReliability(base({ behaviorContradictsWin: true }));
+    expect(gradeAllowsLearning(r.grade)).toBe(true);
+  });
+
+  it("gradeFromPresentation passes the extra through; omitting it is byte-identical", () => {
+    const pres = buildMeasurementPresentation({
+      shippedAt: "2026-06-01",
+      now: new Date("2026-07-02T12:00:00Z"),
+      latestGscDate: "2026-06-30",
+      windows: [
+        { day: 7, ran: true },
+        { day: 14, ran: true },
+        { day: 28, ran: true },
+      ],
+      verdict: "won",
+      controlsUsed: 3,
+      baselineImpressions: 3000,
+      overlap: null,
+      live: true,
+    });
+    const clean = gradeFromPresentation(pres, { controlsUsed: 3, baselineImpressions: 3000 }, null);
+    expect(clean.grade).toBe("solid");
+    const withEmptyExtras = gradeFromPresentation(
+      pres,
+      { controlsUsed: 3, baselineImpressions: 3000 },
+      null,
+      undefined,
+      {},
+    );
+    expect(withEmptyExtras).toEqual(clean);
+    const demoted = gradeFromPresentation(
+      pres,
+      { controlsUsed: 3, baselineImpressions: 3000 },
+      null,
+      undefined,
+      { behaviorContradictsWin: true },
+    );
+    expect(demoted.grade).toBe("decent");
+    expect(demoted.sentence).toMatch(/visitors behaved worse/);
+  });
+
+  it("the behavior demotion sentence is dash-clean", () => {
+    const r = gradeVerdictReliability(base({ behaviorContradictsWin: true }));
+    expect(r.sentence).not.toMatch(/[–—]/);
+    for (const reason of r.reasons) expect(reason).not.toMatch(/[–—]/);
+  });
+});
+
 describe("copy guard - dash-clean, no em or en dashes in source", () => {
   it("verdict-reliability.ts contains no em or en dashes", () => {
     const src = readFileSync(join(__dirname, "verdict-reliability.ts"), "utf8");

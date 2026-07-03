@@ -15,9 +15,11 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  buildWonDollarBreakdown,
   monthlyExtraSessionsRate,
   selectDollarRuleWins,
   sumWonDollarsPerMonth,
+  BEHAVIOR_CORROBORATION_NOTE,
 } from "@/domains/proof-gsc/won-dollar-rule";
 import { computeCumulativeOutcome } from "@/domains/proof-gsc/cumulative-outcome";
 import { computeLifetimeEarnings } from "@/domains/proof-gsc/lifetime-earnings";
@@ -151,6 +153,45 @@ describe("sumWonDollarsPerMonth - the one figure", () => {
 
   it("returns null (never a fabricated $0) when nothing qualifies", () => {
     expect(sumWonDollarsPerMonth([lostRow, measuringRow], NOW, SHOCKS).usdPerMonth).toBeNull();
+  });
+});
+
+describe("buildWonDollarBreakdown - N4 behavior corroboration on win rows", () => {
+  it("cites behavior corroboration ONLY when visitors behaved better", () => {
+    const corroborated = {
+      ...cleanWin,
+      behaviorOutcome: { compositeVerdict: "better" },
+    } as ShippedChangeRecord;
+    const breakdown = buildWonDollarBreakdown([corroborated], NOW, SHOCKS);
+    expect(breakdown).toHaveLength(1);
+    expect(breakdown[0]!.behaviorNote).toBe(BEHAVIOR_CORROBORATION_NOTE);
+    expect(BEHAVIOR_CORROBORATION_NOTE).not.toMatch(/[–—]/);
+  });
+
+  it("stays silent for worse/mixed/none/absent behavior (corroboration only, never a caveat here)", () => {
+    for (const verdict of ["worse", "mixed", "same", "none"] as const) {
+      const row = {
+        ...cleanWin,
+        behaviorOutcome: { compositeVerdict: verdict },
+      } as ShippedChangeRecord;
+      expect(buildWonDollarBreakdown([row], NOW, SHOCKS)[0]!.behaviorNote).toBeUndefined();
+    }
+    expect(buildWonDollarBreakdown([cleanWin], NOW, SHOCKS)[0]!.behaviorNote).toBeUndefined();
+  });
+
+  it("behavior never changes selection or the summed figure", () => {
+    const corroborated = {
+      ...cleanWin,
+      behaviorOutcome: { compositeVerdict: "better" },
+    } as ShippedChangeRecord;
+    const worse = {
+      ...cleanWin,
+      behaviorOutcome: { compositeVerdict: "worse" },
+    } as ShippedChangeRecord;
+    expect(sumWonDollarsPerMonth([corroborated], NOW, SHOCKS)).toEqual(
+      sumWonDollarsPerMonth([worse], NOW, SHOCKS),
+    );
+    expect(selectDollarRuleWins([worse], NOW, SHOCKS)).toHaveLength(1);
   });
 });
 

@@ -32678,3 +32678,20 @@ charts, spend-to-outcome rows on /activity, /settings/how-i-decide rendering 12 
 to their enforcing constants, CSV export on /results + /activity. 60 new tests. Also defused the
 GA4 revenue test time bomb (fixture token expired by real calendar on Jul 3; now relative).
 Combined gate: typecheck clean, 714 targeted green, architecture 4,526, ratchet 1342.
+
+## 2026-07-03 R15 (N4 + N17) behavior-verdict lane + task completion
+N4 behaviorOutcome: computed-only attachment per shipped change on the live_at clock (never the
+GSC/recrawl clock) reading GA4 engaged share + conversions (ga4_url_traffic) and Clarity
+frustration per 100 visits + quick-back share (clarity_daily_url_metrics) for the treated URL,
+with hard sample floors (50 GA4 sessions / 100 Clarity visits per window, honest null per metric
+below them) and one plain composite sentence (better/worse/mixed/same variants + visit receipt).
+N17 taskCompletionShare = engaged share adjusted down by quick-back share, same floors; "About 7
+in 10 visitors who land here appear to find what they came for." card line + before/after answer
+delta line on answer-block/FAQ ships. N10 corroboration-only pin: a won verdict with worse
+behavior demotes solid to decent with the reason named; behavior alone never upgrades (no
+behavior-better input exists). Wired into the /results card expand as one self-hiding "How
+visitors behaved" block after the traffic outcome (with a ReceiptLine), and the cumulative
+strip's win rows cite behavior corroboration in the see-the-math expander (one line, only when
+present, never a selection input). New files: behavior-outcome.ts (pure), clarity-window.ts,
+behavior-window.ts + behavior-outcome.test.ts. Verified: typecheck clean; 960 proof-gsc tests
+(53 files), 240 results/strip/changes tests, 77 ask tests green; dash-clean scans.

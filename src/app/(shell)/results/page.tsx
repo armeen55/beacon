@@ -97,6 +97,10 @@ import { buildRecapItems, WeGotThisWrongSection } from "./results-recap";
 // and the spreadsheet download of the same ledger the page renders.
 import { controlsLegendLine, prepSpendLine } from "./trust-receipts";
 import { buildReceiptLine, ReceiptLine } from "@/components/data/receipt-line";
+// N4 + N17 (2026-07-03) - the "How visitors behaved" block on the card expand:
+// engagement, frustration, and the did-they-find-their-answer read, on the
+// live_at clock, self-hiding below its sample floors.
+import { behaviorHasContent } from "@/domains/proof-gsc/behavior-outcome";
 
 /**
  * Proof / Learning - operator-OS rebuild, surface (6). Every REVIEWED change
@@ -401,6 +405,11 @@ export default async function ProofPage({
               provenNeutral: l.equivalence?.provenNeutral === true,
               fdrCaution: l.fdrRead?.fdrCaution === true,
               fdrPoolSize: l.fdrRead?.poolSize,
+              // N4 behavior corroboration: a Search win whose visitors behaved
+              // worse on the page holds at decent (never solid) with the
+              // reason named. Corroboration only - behavior never upgrades.
+              behaviorContradictsWin:
+                l.verdict === "won" && l.behaviorOutcome?.compositeVerdict === "worse",
             },
           )
         : { grade: "too early" as const, reasons: [], sentence: "I would call this too early to read: no measurement presentation is available yet." };
@@ -1388,6 +1397,38 @@ function LedgerCard({ rec, link, pres, grade, spark, controlSparks, band, revert
                 percent change is not reliable yet.
               </p>
             ) : null}
+          </div>
+        );
+      })() : null}
+
+      {/* Behavior lane (N4 + N17, 2026-07-03) - how visitors behaved since the
+          change, grouped right after the traffic line it extends: engagement,
+          frustrated clicks, bounce-backs, and whether people appear to find
+          what they came for. Runs on the live_at clock like the traffic line
+          above (never gated on Google recrawl). Self-hiding when every metric
+          sits below its sample floor - no verdict from 12 sessions, ever.
+          Corroboration only: the Search verdict above is never moved by this
+          block (N10 may hold a win at decent when behavior worsened; the
+          grade sentence in "See the math" names that reason). */}
+      {behaviorHasContent(rec.behaviorOutcome) ? (() => {
+        const b = rec.behaviorOutcome!;
+        return (
+          <div className="mt-1.5 space-y-0.5 rounded-md border border-border/40 bg-surface-inset/30 p-2">
+            <p className="text-[11px] font-medium text-foreground/60">How visitors behaved</p>
+            {b.sentence ? <p className="text-[12px] text-foreground/80">{b.sentence}</p> : null}
+            {b.taskCompletionLine ? (
+              <p className="text-[12px] text-foreground/80">{b.taskCompletionLine}</p>
+            ) : null}
+            {b.answerDeltaLine ? (
+              <p className="text-[12px] text-foreground/80">{b.answerDeltaLine}</p>
+            ) : null}
+            <ReceiptLine
+              line={buildReceiptLine({
+                source: "your site analytics and Clarity behavior data",
+                through: b.dataThrough,
+                nowMs: Date.now(),
+              })}
+            />
           </div>
         );
       })() : null}

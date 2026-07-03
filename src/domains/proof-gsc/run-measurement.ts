@@ -22,6 +22,8 @@ import { readWindowForPages, readLastFinalizedDate } from "./gsc-window";
 import { readGa4WindowForPages, readLatestGa4Date } from "./ga4-window";
 import { computeTrafficOutcome, type TrafficOutcome } from "./traffic-outcome";
 import { computeCitationOutcomeForRecord } from "./citation-window";
+import { computeBehaviorOutcomeForRecord } from "./behavior-window";
+import type { BehaviorOutcome } from "./behavior-outcome";
 import { isCitationRelevantAction, type CitationOutcome } from "./citation-outcome";
 import { rankSeriesFor } from "@/domains/serp/serp-history";
 import { runRankRecheck, nextRecheckableWindow, resolveTargetQuery, type RankRecheckResult } from "./rank-recheck";
@@ -545,6 +547,23 @@ export async function measureRecord(
     }
   }
 
+  // Behavior lane (BEACON_500 N4 + N17): how visitors behaved since the change
+  // (GA4 engaged share + conversions, Clarity frustration + quick-backs) and
+  // whether they appear to find what they came for. Runs on the SAME live_at
+  // clock as trafficOutcome above (ship date; never gated on GSC finalization
+  // or the N11 recrawl clock - the split-clocks rule). Computed-only +
+  // fail-soft like every attachment here; feeds N10 as a corroboration-only
+  // demotion input and NEVER touches windows/verdict/confidence.
+  let behaviorOutcome: BehaviorOutcome | null = null;
+  try {
+    behaviorOutcome = await computeBehaviorOutcomeForRecord({
+      tenantId,
+      record: { page: record.page, actionType: record.actionType, shippedAt: record.shippedAt },
+    });
+  } catch {
+    behaviorOutcome = null;
+  }
+
   // AI-citation lane (master plan item 5): did AI answers start citing this
   // page after the ship? Same computed-only, fail-soft posture as
   // trafficOutcome (never persisted; recordToRow omits it). Only for action
@@ -792,6 +811,7 @@ export async function measureRecord(
     confidence,
     verdictRevisions,
     trafficOutcome,
+    behaviorOutcome,
     citationOutcome,
     rankOutcome,
     dollarValue,

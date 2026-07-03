@@ -133,6 +133,16 @@ export type VerdictReliabilityInput = {
   /** How many mature wins were adjusted together, for the honest sentence
    *  ("with 12 changes measured at once"). Only read when fdrCaution. */
   fdrPoolSize?: number;
+  /** Behavior corroboration (BEACON_500 N4): true when this record's stored
+   *  verdict is a WIN but visitors behaved WORSE on the page after the change
+   *  (behavior-outcome.ts compositeVerdict "worse" on a "won" row). Demotes a
+   *  would-be solid win to decent with the reason named. CORROBORATION ONLY,
+   *  by construction: there is deliberately NO behavior-better input at all -
+   *  better behavior can corroborate a win in copy, but behavior alone can
+   *  never raise trust in the Search read, and this flag never rescues or
+   *  worsens a shaky/too-early grade (those disqualifiers already returned).
+   *  Additive: callers that never wire this see byte-identical grades. */
+  behaviorContradictsWin?: boolean;
 };
 
 export type VerdictReliabilityResult = {
@@ -314,6 +324,22 @@ export function gradeVerdictReliability(input: VerdictReliabilityInput): Verdict
     };
   }
 
+  // Behavior corroboration (BEACON_500 N4): the search numbers cleared every
+  // bar above, but visitors behaved worse on the page after the change - two
+  // lenses disagreeing about whether this actually helped people. Hold a
+  // would-be solid win at decent with the reason named. Never reached by a
+  // shaky/too-early read (those returned above), and there is no opposite
+  // input: behavior alone never upgrades a grade.
+  if (input.behaviorContradictsWin === true) {
+    return {
+      grade: "decent",
+      reasons: [
+        "the search numbers improved but visitors behaved worse on the page after the change",
+      ],
+      sentence: `I would treat this read as decent: the search numbers look like a win over ${daysLabel}, but visitors behaved worse on the page after the change, so I am holding it at decent until behavior agrees.`,
+    };
+  }
+
   if (permutationVerdict === null) {
     // No permutation-null read wired for this record - can't confirm against
     // untouched pages, but everything else is clean and sample is strong.
@@ -374,6 +400,10 @@ export function gradeFromPresentation(
     provenNeutral?: boolean;
     fdrCaution?: boolean;
     fdrPoolSize?: number;
+    /** N4 behavior corroboration: pass true ONLY when the stored verdict is a
+     *  win AND behaviorOutcome.compositeVerdict is "worse" - demotes a
+     *  would-be solid win to decent. Corroboration only; never upgrades. */
+    behaviorContradictsWin?: boolean;
   },
 ): VerdictReliabilityResult {
   return gradeVerdictReliability({
@@ -395,6 +425,7 @@ export function gradeFromPresentation(
     provenNeutral: extras?.provenNeutral ?? false,
     fdrCaution: extras?.fdrCaution ?? false,
     fdrPoolSize: extras?.fdrPoolSize,
+    behaviorContradictsWin: extras?.behaviorContradictsWin ?? false,
   });
 }
 

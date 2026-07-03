@@ -56,6 +56,10 @@ export type WonDollarRow = LedgerLifecycleRow & {
   } | null;
   /** The operator's-rate dollar attachment (change-dollar-value.ts). */
   dollarValue?: { usdPerMonth: number | null } | null;
+  /** Behavior lane (N4, behavior-outcome.ts): computed at measure time. Read
+   *  here ONLY to cite corroboration on a win's breakdown row - it never
+   *  changes which rows contribute dollars or how much. */
+  behaviorOutcome?: { compositeVerdict: "better" | "worse" | "mixed" | "same" | "none" } | null;
 };
 
 /**
@@ -137,8 +141,14 @@ export function sumWonDollarsPerMonth(
   };
 }
 
-/** One per-win breakdown row behind the strip's dollar figure (R14b see-the-math). */
-export type WonDollarBreakdownRow = { path: string; usdPerMonth: number };
+/** One per-win breakdown row behind the strip's dollar figure (R14b see-the-math).
+ *  `behaviorNote` (N4) is present ONLY when visitors also behaved better on the
+ *  page after the change - one corroboration line, never a selection input. */
+export type WonDollarBreakdownRow = { path: string; usdPerMonth: number; behaviorNote?: string };
+
+/** N4 - the one corroboration sentence a win's breakdown row may carry. */
+export const BEHAVIOR_CORROBORATION_NOTE =
+  "Visitors also behaved better on this page after the change.";
 
 /**
  * R14b (see-the-math completion) - the per-win rows behind THE cumulative
@@ -155,7 +165,16 @@ export function buildWonDollarBreakdown(
   for (const row of selectDollarRuleWins(rows, now, shockWindows)) {
     const usd = row.dollarValue?.usdPerMonth;
     if (usd != null && Number.isFinite(usd)) {
-      out.push({ path: row.path, usdPerMonth: Math.round(usd * 100) / 100 });
+      const breakdownRow: WonDollarBreakdownRow = {
+        path: row.path,
+        usdPerMonth: Math.round(usd * 100) / 100,
+      };
+      // N4 corroboration - one line, only when behavior actually improved.
+      // Never a selection input: the row is already in the dollar set.
+      if (row.behaviorOutcome?.compositeVerdict === "better") {
+        breakdownRow.behaviorNote = BEHAVIOR_CORROBORATION_NOTE;
+      }
+      out.push(breakdownRow);
     }
   }
   return out;
