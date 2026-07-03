@@ -92,8 +92,8 @@ describe("Streaming bundle: /page.tsx is Suspense-shelled", () => {
 
 // Move 5 (2026-07-01) consolidation: /recommendations + /experiments were
 // duplicate lists of the same prepared/ready moves the canonical Changes list
-// (/worklist) already shows, so /recommendations/page.tsx is now a thin
-// redirect to /worklist?status=ready. A redirect has no loader + no skeleton to
+// (/changes) already shows, so /recommendations/page.tsx is now a thin
+// redirect to /changes?status=ready. A redirect has no loader + no skeleton to
 // stream, so the old streaming/skeleton pins for it are obsolete. The canonical
 // worklist surface owns the streamed queue now; we pin the redirect instead.
 describe("Streaming bundle: /recommendations/page.tsx is a redirect (consolidated)", () => {
@@ -103,7 +103,7 @@ describe("Streaming bundle: /recommendations/page.tsx is a redirect (consolidate
   it("redirects to the canonical Changes surface", () => {
     expect(stripped).toMatch(/import\s+\{[\s\S]*?\bredirect\b[\s\S]*?\}\s+from\s+["']next\/navigation["']/);
     expect(stripped).toMatch(/\bredirect\(/);
-    expect(stripped).toMatch(/\/worklist\?status=ready/);
+    expect(stripped).toMatch(/\/changes\?status=ready/);
   });
 
   it("does not await a recommendations queue loader (nothing to stream)", () => {

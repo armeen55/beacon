@@ -47,9 +47,23 @@ The 10 moves, strictly ranked (kill list quotes live in the diagnosis run wf_b48
 - [x] FP2 (2026-07-02, wave 1). Worklist quality: kill the 90x stamped fallback sentence at the root, dedupe rows,
       fix the double-render + stray glyph, fix the contradicting cannibalization line. (WAVE 1)
 - [x] FP3 (2026-07-02, wave 3). One lifecycle-count loader (domains/changes/lifecycle-counts.ts, one DECIDED/MEASURING/TONIGHT rule) consumed by Today, Changes, Results; the 16-vs-25 class of contradiction dead at the link source.
-- [ ] FP4. Vocabulary + route collapse: /worklist becomes /changes, /proof becomes /results, nav
-      registry drives every page title, ~60 legacy routes deleted or redirected, Settings menus
-      merged. Rider: Ask citation chips stop rendering raw slugs and internal keys.
+- [x] FP4 (2026-07-03, wave 4). Vocabulary + route collapse SHIPPED: /worklist is now a permanent
+      308 redirect to /changes (the real ranked list lives there; the old /changes-to-Results stub
+      died) and /proof 308-redirects to /results, both preserving query strings; every internal
+      link, revalidatePath, palette entry, and shortcut retargeted (G C = Changes, G E = Results).
+      Titles + breadcrumbs derive from the ONE route registry in src/lib/navigation.ts
+      (routeCrumbFor, longest-prefix; no raw slug, no bare "Detail"; the "research / Detail" and
+      "Settings / Detail" classes are dead), with detail pages pushing their real subject via
+      <HeaderTitle/> (prompts/[id] shows the question, changes/[id] shows the change title,
+      /page/... shows the path). Legacy sweep: /expansion deleted (zero inbound) + dead
+      moves-worklist-client.tsx; bookmark shims (/moves /opportunities /experiments
+      /recommendations index) retargeted to /changes views; /review /briefs /local /observations
+      /settings/history /topics/opportunity /competitors/[id] verified live-linked and kept.
+      Settings merged onto ONE registry (settings-sections.ts) feeding both the tab strip and the
+      /settings index (labels agree with the sidebar: Connections); the sidebar group heading
+      "Settings" above the "Settings" item removed. Rider: Ask citation chips dedupe by
+      destination and render human names via surfaceNameFor (one "Results" chip, never seven
+      "/proof"), and plainChangeKind() kills edit_meta/add_answer_block leaks in Ask answers.
 - [x] FP5 (2026-07-02, wave 3). One home per job: tonight's cards on Today only (worklist shows one chip), New Pages board once on the worklist (Today shows one line), measuring lives on Results, /proof double-stack merged behind 'See the raw change log'; singular/plural topic twins deduped via the ownership-registry tokens.
 - [~] FP6 (6a wave 1; 6b waves 2-3: today-moves-card 597 to 69, changes-list-client 340 to 34, daily-experiments-section 280 to 0, today-newpages-card 144 to 22 incl. the dark-broken board fix; ratchet 2884 to 1342 across waves 2-4; war-room-sections done 187 to 19, only per-teammate identity colors remain by design). Design system: Card, Pill (5 status intents), SectionHeader, EmptyState, PageShell on
       the existing tokens + raw-palette-count ratchet guard (6a, WAVE 1); then migrate the five

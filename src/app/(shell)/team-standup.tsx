@@ -262,8 +262,8 @@ async function buildLines(
         ga4.size > 0
           ? "These are the pages worth protecting and growing first."
           : "I do not have analytics data to work from yet.",
-      href: "/worklist",
-      linkLabel: "See the worklist",
+      href: "/changes",
+      linkLabel: "Open Changes",
     },
   });
 

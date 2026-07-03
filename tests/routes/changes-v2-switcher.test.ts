@@ -1,7 +1,7 @@
 /**
  * Results timeline render contract (IA consolidation 2026-06-23).
  *
- * The /changes index merged INTO Results (/proof): the v2 proof timeline is now
+ * The /changes index merged INTO Results (/results): the v2 proof timeline is now
  * rendered by <ResultsTimeline/> (embedded in the Results page). This pins that
  * the extracted component renders the v2 client (header suppressed). The
  * /changes index redirect itself is covered by changes-smoke.test.ts.
@@ -24,7 +24,7 @@ vi.mock("next/navigation", () => ({
     prefetch: () => {},
   }),
   useSearchParams: () => new URLSearchParams(),
-  usePathname: () => "/proof",
+  usePathname: () => "/results",
 }));
 
 vi.mock("@/lib/seed-data.server", async (importOriginal) => {

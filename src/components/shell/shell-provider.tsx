@@ -32,6 +32,10 @@ type ShellContextValue = {
   latePaletteItems: LatePaletteItem[];
   /** FP1 (2026-07-02): badges/demo/palette-extras stream in AFTER the shell paints. */
   hydrateShellData: (data: ShellHydration) => void;
+  /** FP4 (2026-07-03): detail pages set their real subject as the header title
+   *  via <HeaderTitle/>; null means "use the route-registry title". */
+  headerTitle: string | null;
+  setHeaderTitle: (title: string | null) => void;
 };
 
 const ShellContext = createContext<ShellContextValue | null>(null);
@@ -52,6 +56,7 @@ export function ShellProvider({
   const [badges, setBadges] = useState<NavBadges>(initialBadges);
   const [isDemoMode, setIsDemoMode] = useState(initialIsDemoMode);
   const [latePaletteItems, setLatePaletteItems] = useState<LatePaletteItem[]>([]);
+  const [headerTitle, setHeaderTitle] = useState<string | null>(null);
   const hydrateShellData = useCallback((data: ShellHydration) => {
     setBadges(data.badges);
     setIsDemoMode(data.isDemoMode);
@@ -60,7 +65,7 @@ export function ShellProvider({
 
   return (
     <ShellContext.Provider
-      value={{ sidebarOpen, toggleSidebar, setSidebarOpen, badges, isDemoMode, latePaletteItems, hydrateShellData }}
+      value={{ sidebarOpen, toggleSidebar, setSidebarOpen, badges, isDemoMode, latePaletteItems, hydrateShellData, headerTitle, setHeaderTitle }}
     >
       {children}
     </ShellContext.Provider>
@@ -81,5 +86,23 @@ export function ShellDataHydrator({ badges, isDemoMode, latePaletteItems }: Shel
   useEffect(() => {
     hydrateShellData({ badges, isDemoMode, latePaletteItems });
   }, [hydrateShellData, badges, isDemoMode, latePaletteItems]);
+  return null;
+}
+
+/**
+ * FP4 (2026-07-03) - a detail page renders this (anywhere in its tree) to put
+ * its REAL subject in the shell header instead of the route registry's generic
+ * fallback, e.g. the prompt text on /prompts/[id]. Clears itself on unmount so
+ * the subject never leaks onto the next page. Fail-soft: rendered outside the
+ * shell (isolated test renders, embeds) it is a no-op, never a crash.
+ */
+export function HeaderTitle({ title }: { title: string }) {
+  const ctx = useContext(ShellContext);
+  const setHeaderTitle = ctx?.setHeaderTitle;
+  useEffect(() => {
+    if (!setHeaderTitle) return undefined;
+    setHeaderTitle(title);
+    return () => setHeaderTitle(null);
+  }, [title, setHeaderTitle]);
   return null;
 }

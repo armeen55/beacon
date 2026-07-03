@@ -40,7 +40,7 @@ import { topicIdentityKey } from "@/domains/demand-graph/dedupe-new-page-cards";
 import { valueWithDeadline } from "@/lib/load-with-deadline";
 import { cache } from "react";
 // D4/N1 (unified allocator, 2026-07-02) - fuse D2's AEO gap verdicts + D3's SERP steal briefs +
-// undercovered keyword-library demand onto this SAME ranked list, so /worklist becomes the
+// undercovered keyword-library demand onto this SAME ranked list, so /changes becomes the
 // operator's "one ranked decision" across every opportunity source, not just the ActionPack
 // worklist. Read-only additive lanes; a lane outage narrows the fused set, never blocks the page.
 import { fuseUnifiedList } from "@/domains/allocator/load-unified-list";

@@ -1,7 +1,7 @@
 /**
  * today-view (2026-07-01, Move 5) — the PURE Today read model. Today is NOT a second
  * backlog; it's a focused operational slice DERIVED from the same CanonicalChange[] that
- * powers /worklist (Changes). One identity, one lifecycle, one measurement state, one
+ * powers /changes (Changes). One identity, one lifecycle, one measurement state, one
  * quality decision, one action path — no parallel recommendation engine, no new
  * persistence. Changes is the complete backlog; Today answers only: what needs attention,
  * what am I planning, what's measuring, what's next if today is empty.
@@ -116,19 +116,19 @@ export function buildTodayView(input: {
   // relevant) one canonical identity. "Collecting normally" is NOT an alert.
   const attention: TodayAttentionItem[] = [];
   if (plan?.wasRefreshed) {
-    attention.push({ id: "refresh", kind: "refresh_plan", priority: 1, href: "/worklist",
+    attention.push({ id: "refresh", kind: "refresh_plan", priority: 1, href: "/changes",
       title: "Today’s plan was refreshed", message: "It had timed out — review the updated list before accepting." });
   }
   if (planStatus === "accepted" && plan && plan.leftToApply > 0) {
-    attention.push({ id: "apply", kind: "apply_pending", priority: 2, href: "/worklist",
+    attention.push({ id: "apply", kind: "apply_pending", priority: 2, href: "/changes",
       title: `${plan.leftToApply} change${plan.leftToApply === 1 ? "" : "s"} ready to apply`, message: "Apply each in Wix, then Beacon verifies it live." });
   }
   if (planStatus === "preview" && plan && plan.selectedCount > 0) {
-    attention.push({ id: "review", kind: "review_plan", priority: 3, href: "/worklist",
+    attention.push({ id: "review", kind: "review_plan", priority: 3, href: "/changes",
       title: `${plan.selectedCount} quality-checked change${plan.selectedCount === 1 ? "" : "s"} ready for review`, message: "Review and accept today’s batch." });
   }
   if (resultsAvailable > 0) {
-    attention.push({ id: "results", kind: "results_ready", priority: 4, href: "/proof",
+    attention.push({ id: "results", kind: "results_ready", priority: 4, href: "/results",
       title: `${resultsAvailable} mature result${resultsAvailable === 1 ? "" : "s"} ready`, message: "See what your shipped changes drove." });
   }
   attention.sort((a, b) => a.priority - b.priority);

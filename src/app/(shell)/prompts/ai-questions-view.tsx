@@ -68,7 +68,7 @@ export function AiQuestionsView({ data }: { data: AiQuestionsData }) {
         {questions.map((q) => (
           <li key={q.id}>
             <Link
-              href="/worklist"
+              href="/changes"
               prefetch={false}
               className="block rounded-xl border border-gray-200 bg-white px-4 py-3 shadow-sm transition-colors hover:border-accent-primary/40 hover:bg-surface-raised/30"
             >

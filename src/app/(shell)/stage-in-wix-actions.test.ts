@@ -70,14 +70,14 @@ describe("stage-in-wix actions - delegation + receipts", () => {
     expect(r.staged).toBe(true);
     expect(_stageCalls[0]).toEqual({ kind: "daily_pick", planId: "p1", experimentId: "e1", editedText: "tweak" });
     expect(JSON.stringify(_stageCalls[0])).not.toContain("tenant");
-    expect(_revalidated).toContain("/worklist");
+    expect(_revalidated).toContain("/changes");
   });
 
   it("move: delegates the move id and revalidates the queue surfaces on success", async () => {
     const r = await stageMoveInWixAction({ moveId: "rec-9" });
     expect(r.staged).toBe(true);
     expect(_stageCalls[0]).toEqual({ kind: "move", moveId: "rec-9" });
-    expect(_revalidated).toEqual(expect.arrayContaining(["/worklist", "/recommendations"]));
+    expect(_revalidated).toEqual(expect.arrayContaining(["/changes", "/recommendations"]));
   });
 
   it("a not-staged receipt passes through untouched and revalidates NOTHING", async () => {

@@ -12,7 +12,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 
 vi.mock("next/navigation", () => ({
   useSearchParams: () => new URLSearchParams(),
-  usePathname: () => "/worklist",
+  usePathname: () => "/changes",
 }));
 
 import { ChangesListClient } from "@/app/(shell)/changes-list-client";

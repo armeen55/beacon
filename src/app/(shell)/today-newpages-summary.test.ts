@@ -1,6 +1,6 @@
 /**
  * TodayNewPagesSummaryLine copy (FP5b, 2026-07-02) - pins the one sentence Today shows
- * about new pages now that the board itself renders ONLY on /worklist. First person,
+ * about new pages now that the board itself renders ONLY on /changes. First person,
  * concrete number, one next step, no dashes.
  */
 import { describe, expect, it } from "vitest";

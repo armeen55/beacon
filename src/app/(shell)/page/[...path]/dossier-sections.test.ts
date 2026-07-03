@@ -94,8 +94,8 @@ describe("dossier sections", () => {
   });
 
   it("history rows link to Results and current moves link to Changes", () => {
-    expect(SECTIONS).toContain('href="/proof"');
-    expect(SECTIONS).toContain('href="/worklist"');
+    expect(SECTIONS).toContain('href="/results"');
+    expect(SECTIONS).toContain('href="/changes"');
   });
 });
 
@@ -103,9 +103,9 @@ describe("cross-app dossier links (every reachable page-name surface)", () => {
   const surfaces = [
     "../../today-moves-card.tsx", // worklist MoveCard
     "../../daily-experiments-section.tsx", // daily card
-    "../../proof/page.tsx", // proof ledger rows
+    "../../results/page.tsx", // proof ledger rows
     "../../war-room-sections.tsx", // war-room funnel band
-    "../../changes-list-client.tsx", // Changes (/worklist) row titles
+    "../../changes-list-client.tsx", // Changes (/changes) row titles
     "../../diagnostics/page-surgeon/page-surgeon-client.tsx", // Page Surgeon brief cards
     "../../diagnostics/page-surgeon/proof/page.tsx", // Page Surgeon proof plan rows
     "../../diagnostics/page-surgeon/review/review-client.tsx", // Page Surgeon review cards

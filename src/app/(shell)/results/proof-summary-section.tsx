@@ -13,7 +13,7 @@ import { loadCalibrationRecords } from "@/domains/experiments/forecast-calibrati
 import { buildForecastHitRateLine } from "@/domains/experiments/forecast-receipts";
 
 /**
- * proof-summary-section (2026-06-25; Move 2) — "Proof at a glance" for /proof. Counts
+ * proof-summary-section (2026-06-25; Move 2) — "Proof at a glance" for /results. Counts
  * are MATURITY-STRATIFIED: only changes that reached the 28-day window with sufficient
  * data count as final outcomes (Helped / No clear lift / Did not help). Everything
  * earlier stays in "Measuring" — a 7-day signal is never tallied as a win or loss, so
@@ -118,7 +118,7 @@ export async function ProofSummarySection() {
     latestGsc = await readLastFinalizedDate(tenantId).catch(() => null);
     aaCalibration = await readAaCalibration(tenantId).catch(() => null);
     // Item 42 - the running forecast hit-rate line, sibling to the honesty sentence below.
-    // Same store + same MIN_SETTLED_FOR_CALIBRATION threshold as the /proof aggregate card
+    // Same store + same MIN_SETTLED_FOR_CALIBRATION threshold as the /results aggregate card
     // (forecast-calibration-section.tsx), so the two surfaces self-hide and reappear together.
     const calibrationRecords = await loadCalibrationRecords(tenantId).catch(() => []);
     forecastHitRateLine = buildForecastHitRateLine(calibrationRecords);
@@ -256,7 +256,7 @@ export async function ProofSummarySection() {
 
       {/* Item 42 - the running forecast hit-rate line, next to the honesty sentence above.
           Self-hides below MIN_SETTLED_FOR_CALIBRATION settled calibration records, the same
-          threshold the /proof aggregate card uses, so the two never contradict each other. */}
+          threshold the /results aggregate card uses, so the two never contradict each other. */}
       {forecastHitRateLine ? (
         <p className="mt-2 text-[12px] font-medium text-gray-600 tabular-nums dark:text-neutral-300">
           {forecastHitRateLine}

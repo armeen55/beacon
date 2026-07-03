@@ -88,7 +88,7 @@ export type ChangesV2ClientProps = {
    *  empty state acknowledges the tracked experiments instead. */
   proofLedgerCount?: number;
   /** IA consolidation (2026-06-23): when this timeline is embedded inside the
-   *  Results (/proof) page, the page already shows the "Results" header, so the
+   *  Results (/results) page, the page already shows the "Results" header, so the
    *  component's own header is suppressed to avoid a second (legacy "Changes")
    *  title. Default true keeps the standalone behavior. */
   showHeader?: boolean;

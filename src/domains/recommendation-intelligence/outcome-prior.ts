@@ -56,7 +56,7 @@ export function computeOutcomePriors(
   return out;
 }
 
-/** Per-action_type breakdown for the /proof learning diagnostic: how many
+/** Per-action_type breakdown for the /results learning diagnostic: how many
  *  settled wins/losses (and operator-excluded results) feed each type's prior,
  *  so the operator can SEE which action types are steering ranking and spot a
  *  skew. `prior` is null below MIN_OUTCOME_SAMPLES (not yet trusted). */

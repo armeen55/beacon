@@ -42,7 +42,7 @@ describe("findWikiGapsAction - gating + receipt", () => {
       expect(/[–—]/.test(r.message)).toBe(false); // dash guard
     }
     expect(produceWikiGaps).toHaveBeenCalledWith("tenant-iranopedia");
-    expect(revalidatePath).toHaveBeenCalledWith("/worklist");
+    expect(revalidatePath).toHaveBeenCalledWith("/changes");
   });
 
   it("does NOT revalidate surfaces when there were no citations to check", async () => {

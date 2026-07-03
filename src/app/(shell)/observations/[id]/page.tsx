@@ -238,7 +238,7 @@ export default async function ObservationRunPage({
         )}
         <p>
           Open{" "}
-          <Link href="/worklist" className="text-accent-primary hover:underline">
+          <Link href="/changes" className="text-accent-primary hover:underline">
             Changes
           </Link>{" "}
           for per-URL drill-down.

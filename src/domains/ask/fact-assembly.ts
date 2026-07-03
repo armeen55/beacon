@@ -30,6 +30,7 @@ import { readPipelineHealth } from "@/domains/ops/pipeline-health-store";
 import { readPublishHealth } from "@/domains/push/publish-canary-store";
 import { loadOwnershipRegistryForTenant } from "@/domains/ownership/registry-loader";
 import { resolveOwner } from "@/domains/ownership/registry";
+import { plainChangeKind } from "@/lib/plain-language";
 import type { RoutedQuestion } from "./router";
 import type { AskDossier, AskFact } from "./types";
 
@@ -133,25 +134,27 @@ async function assemblePageFacts(tenantId: string, pagePath: string): Promise<As
 
   if (dossier.history.length > 0) {
     const recent = dossier.history.slice(0, 3);
+    // FP4 (2026-07-03) - plainChangeKind: never leak raw action-type keys
+    // ("edit_meta", "add_answer_block") into a rendered answer.
     facts.push(
       fact(
-        `Changes shipped on ${pagePath}: ${recent.map((r) => `${r.actionType} on ${r.shippedAt.slice(0, 10)} (${proofMaturityLabel(r.verdict, null)})`).join("; ")}.`,
+        `Changes shipped on ${pagePath}: ${recent.map((r) => `a ${plainChangeKind(r.actionType)} on ${r.shippedAt.slice(0, 10)} (${proofMaturityLabel(r.verdict, null)})`).join("; ")}.`,
         "proof",
-        `/proof`,
+        `/results`,
       ),
     );
   }
 
   if (dossier.currentMove) {
-    facts.push(fact(`Current recommendation for ${pagePath}: ${dossier.currentMove.recommendation} (status: ${dossier.currentMove.status}).`, "llm", "/worklist"));
+    facts.push(fact(`Current recommendation for ${pagePath}: ${dossier.currentMove.recommendation} (status: ${dossier.currentMove.status}).`, "llm", "/changes"));
   }
 
   if (dossier.currentPlanPick) {
     facts.push(
       fact(
-        `${dossier.currentPlanPick.isAccepted ? "Accepted" : "Planned"} for ${pagePath}: a ${dossier.currentPlanPick.lever} change targeting "${dossier.currentPlanPick.targetQuery}".`,
+        `${dossier.currentPlanPick.isAccepted ? "Accepted" : "Planned"} for ${pagePath}: a ${plainChangeKind(dossier.currentPlanPick.lever)} targeting "${dossier.currentPlanPick.targetQuery}".`,
         "llm",
-        "/worklist",
+        "/changes",
       ),
     );
   } else if (!dossier.currentMove) {
@@ -163,7 +166,7 @@ async function assemblePageFacts(tenantId: string, pagePath: string): Promise<As
       fact(
         `${pagePath} has no open recommendation and no plan pick right now. Either it has no fixable gap I have found yet, or it was already shipped and is waiting to be measured.`,
         "llm",
-        "/worklist",
+        "/changes",
       ),
     );
   }
@@ -197,7 +200,7 @@ async function assembleSiteTrendFacts(tenantId: string): Promise<AskFact[]> {
     const points: DailyPoint[] = daily.map((d) => ({ date: d.date, value: d.clicks }));
     const changes = detectChangepoints(points);
     for (const c of changes.slice(-2)) {
-      facts.push(fact(`Sitewide clicks had a sustained ${c.direction === "down" ? "drop" : "rise"} of about ${Math.round(c.magnitude * 100)}% starting ${c.date}, which lines up with a possible Google algorithm shift.`, "gsc", "/proof"));
+      facts.push(fact(`Sitewide clicks had a sustained ${c.direction === "down" ? "drop" : "rise"} of about ${Math.round(c.magnitude * 100)}% starting ${c.date}, which lines up with a possible Google algorithm shift.`, "gsc", "/results"));
     }
   }
 
@@ -325,9 +328,9 @@ async function assembleMeasurementFacts(tenantId: string): Promise<AskFact[]> {
   if (recentShips.length > 0) {
     facts.push(
       fact(
-        `In the last 7 days I shipped ${recentShips.length} change${recentShips.length === 1 ? "" : "s"}: ${recentShips.slice(0, 5).map((r) => `${r.actionType} on ${r.path}`).join(", ")}.`,
+        `In the last 7 days I shipped ${recentShips.length} change${recentShips.length === 1 ? "" : "s"}: ${recentShips.slice(0, 5).map((r) => `a ${plainChangeKind(r.actionType)} on ${r.path}`).join(", ")}.`,
         "proof",
-        "/proof",
+        "/results",
       ),
     );
   }
@@ -335,14 +338,14 @@ async function assembleMeasurementFacts(tenantId: string): Promise<AskFact[]> {
   const decided = sorted.filter((r) => r.verdict === "won" || r.verdict === "lost");
   const won = decided.filter((r) => r.verdict === "won").length;
   if (decided.length > 0) {
-    facts.push(fact(`Of ${decided.length} decided changes, ${won} won and ${decided.length - won} did not help (${Math.round((won / decided.length) * 100)}% win rate).`, "proof", "/proof"));
+    facts.push(fact(`Of ${decided.length} decided changes, ${won} won and ${decided.length - won} did not help (${Math.round((won / decided.length) * 100)}% win rate).`, "proof", "/results"));
   }
 
   // Reliability depth (D8): every measured record already carries how confident I am and
   // (when a revenue model is set) a dollar estimate - name both so "what did my last
   // batch do" answers with real weight, not just a win/loss label.
   for (const r of sorted.slice(0, 5)) {
-    const parts = [`${r.path}: ${r.actionType} shipped ${r.shippedAt.slice(0, 10)}, ${proofMaturityLabel(r.verdict, null)} (confidence: ${r.confidence})`];
+    const parts = [`${r.path}: a ${plainChangeKind(r.actionType)} shipped ${r.shippedAt.slice(0, 10)}, ${proofMaturityLabel(r.verdict, null)} (confidence: ${r.confidence})`];
     if (r.dollarValue) parts.push(r.dollarValue.basisSentence);
     if (r.permutationRead && r.permutationRead.nTotal > 0) {
       parts.push(
@@ -351,10 +354,10 @@ async function assembleMeasurementFacts(tenantId: string): Promise<AskFact[]> {
     }
     // One verdict-reliability grade (master plan N10): the cheap, ledger-only
     // read (no recrawl/contamination/weather/seasonal joins here, unlike the
-    // /proof card - those need tenant-wide attach reads this fast $0 path
+    // /results card - those need tenant-wide attach reads this fast $0 path
     // does not do) so Ask still names how much to trust the number instead
     // of only saying win/loss. A caller with the full presentation (the
-    // /proof card) gets the richer grade via gradeFromPresentation instead.
+    // /results card) gets the richer grade via gradeFromPresentation instead.
     const basisDay = basisDayOf(r.windows ?? []);
     const controlsUsed = r.windows?.find((w) => w.day === basisDay)?.controlsUsed ?? r.controlPages.length;
     const baselineImpressions = r.baseline?.impressions ?? 0;
@@ -380,7 +383,7 @@ async function assembleMeasurementFacts(tenantId: string): Promise<AskFact[]> {
       permutationRead: r.permutationRead && r.permutationRead.nTotal > 0 ? r.permutationRead : null,
     });
     parts.push(`I would grade this read as ${grade.grade}.`);
-    facts.push(fact(`${parts.join(" ")}.`, "proof", "/proof"));
+    facts.push(fact(`${parts.join(" ")}.`, "proof", "/results"));
   }
 
   return facts;
@@ -399,9 +402,9 @@ async function assemblePlanFacts(tenantId: string): Promise<AskFact[]> {
 
   const facts: AskFact[] = [];
   const status = plan.status === "accepted" ? "Accepted" : "Planned (not yet accepted)";
-  facts.push(fact(`${status} for ${plan.date}: ${plan.selected.length} change${plan.selected.length === 1 ? "" : "s"}.`, "llm", "/worklist"));
+  facts.push(fact(`${status} for ${plan.date}: ${plan.selected.length} change${plan.selected.length === 1 ? "" : "s"}.`, "llm", "/changes"));
   for (const p of plan.selected.slice(0, 5)) {
-    facts.push(fact(`${p.pageLabel}: a ${p.lever} change targeting "${p.targetQuery}". Why now: ${p.whyNow}`, "llm", "/worklist"));
+    facts.push(fact(`${p.pageLabel}: a ${plainChangeKind(p.lever)} targeting "${p.targetQuery}". Why now: ${p.whyNow}`, "llm", "/changes"));
   }
 
   return facts;
@@ -436,7 +439,7 @@ async function assembleKeywordNextFacts(): Promise<AskFact[]> {
       fact(
         `I have ${library.total} keywords in my library with real search-volume data for ${library.volumeCoverage} of them, and every high-volume one already has an owning page ranking well.`,
         "dataforseo",
-        "/keywords",
+        "/research/keywords",
       ),
     );
     return facts;
@@ -448,7 +451,7 @@ async function assembleKeywordNextFacts(): Promise<AskFact[]> {
       fact(
         `"${r.keyword}": about ${r.searchesPerMo} searches a month, ${owned}.`,
         "dataforseo",
-        r.ownerPageHref ?? "/keywords",
+        r.ownerPageHref ?? "/research/keywords",
       ),
     );
   }

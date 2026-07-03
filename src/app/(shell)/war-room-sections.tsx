@@ -443,7 +443,7 @@ export async function AiCrawlerSection({ tenantId }: { tenantId: string }) {
 
 /** Item 14 - this week's query spikes ($0 store read from last night's radar pass),
  *  each deep-linked to its matching worklist change when one exists. The match runs
- *  against the cached WORKLIST SURFACE rows (the exact rows /worklist renders, $0
+ *  against the cached WORKLIST SURFACE rows (the exact rows /changes renders, $0
  *  read, no compute on miss) and only rows in the default To do / Ready views, so
  *  the "See the matching change" link can never land on an empty filter. Fail-soft
  *  to sentence-only rows; silence when nothing is spiking. */
@@ -561,7 +561,7 @@ export async function DemandOpportunitiesSection({ tenantId }: { tenantId: strin
                     <span>Worth a same-week answer.</span>
                     {searchTerm ? (
                       <Link
-                        href={`/worklist?search=${encodeURIComponent(searchTerm)}`}
+                        href={`/changes?search=${encodeURIComponent(searchTerm)}`}
                         className={`rounded-sm font-medium text-amber-700 underline underline-offset-2 hover:text-amber-900 ${FOCUS}`}
                       >
                         See the matching change

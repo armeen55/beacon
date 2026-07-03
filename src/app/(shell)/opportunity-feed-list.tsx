@@ -176,7 +176,7 @@ export function OpportunityFeedList({
               <button
                 type="button"
                 onClick={() => dismiss(r)}
-                title="Dismiss — hide this from your worklist"
+                title="Dismiss. Hide this from your Changes list"
                 aria-label="Dismiss opportunity"
                 className="text-gray-300 transition-colors hover:text-rose-500 sm:opacity-0 sm:group-hover:opacity-100"
               >

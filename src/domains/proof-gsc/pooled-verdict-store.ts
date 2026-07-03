@@ -1,6 +1,6 @@
 /**
  * pooled-verdict-store (2026-07-02, master plan item 34) - persistence for the pooled batch
- * verdicts computed by pooled-verdict-runner.ts, so /proof (and, later, the learning/prior
+ * verdicts computed by pooled-verdict-runner.ts, so /results (and, later, the learning/prior
  * readers - not wired this cycle, see the runner's doc comment) can read the latest pool for a
  * tenant without recomputing it on every page load.
  *
@@ -23,7 +23,7 @@ import type { PooledVerdict } from "./pooled-verdict";
 
 const STORE = "pooled-verdicts";
 
-/** A detection older than this is not shown as "current" on /proof - the runner recomputes
+/** A detection older than this is not shown as "current" on /results - the runner recomputes
  *  every measure pass anyway, so a stale row only lingers if the runner stops firing, and a
  *  months-old batch line would confuse rather than help. */
 export const POOLED_VERDICT_MAX_AGE_MS = 45 * 24 * 60 * 60 * 1000;
@@ -77,7 +77,7 @@ export async function loadPooledVerdicts(
 }
 
 /** The single freshest pooled verdict for a tenant (for a compact single-line surface like
- *  /proof's batch line), or null when none exist / all are stale. Fail-soft -> null. */
+ *  /results's batch line), or null when none exist / all are stale. Fail-soft -> null. */
 export async function loadLatestPooledVerdict(
   tenantId: string,
   now: Date = new Date(),

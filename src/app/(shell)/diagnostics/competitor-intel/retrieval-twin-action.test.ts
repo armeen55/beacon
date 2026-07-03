@@ -63,7 +63,7 @@ describe("checkAnswerRaceAction - gating + receipt", () => {
       expect(r.exampleSentence && /[–—]/.test(r.exampleSentence)).toBe(false);
     }
     expect(buildRetrievalIndexMock).toHaveBeenCalledWith("tenant-iranopedia");
-    expect(revalidatePath).toHaveBeenCalledWith("/worklist");
+    expect(revalidatePath).toHaveBeenCalledWith("/changes");
   });
 
   it("does NOT revalidate surfaces when there was no content to index", async () => {

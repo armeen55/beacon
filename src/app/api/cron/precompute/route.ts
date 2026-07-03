@@ -9,7 +9,7 @@ export const maxDuration = 300;
 
 /**
  * /api/cron/precompute (2026-07-02, BEACON 500 item 13) - the ~5am Pacific
- * (12:00 UTC) warm pass. Rebuilds the demand-graph snapshot, the /worklist
+ * (12:00 UTC) warm pass. Rebuilds the demand-graph snapshot, the /changes
  * and Today SWR surfaces, and tonight's daily plan preview BEFORE the
  * operator wakes, so the morning open is instant and full. Warm cache only:
  * no behavior change, no publishes, no new spend paths (see warm-caches.ts).

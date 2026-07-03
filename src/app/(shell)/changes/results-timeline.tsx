@@ -48,8 +48,8 @@ import {
  *
  * IA consolidation (2026-06-23): this is the former `/changes` index body,
  * extracted verbatim (no attribution/proof math changes) so it can be embedded
- * inside the single Results (/proof) page. The /changes index is now a thin
- * redirect to /proof; this component renders the v2 proof timeline with its
+ * inside the single Results (/results) page. The /changes index is now a thin
+ * redirect to /results; this component renders the v2 proof timeline with its
  * own header SUPPRESSED (Results shows the page header) and without the
  * duplicate proof-ledger strip (Results already renders the measured-outcomes
  * ledger above it).
@@ -60,7 +60,7 @@ import {
 export async function ResultsTimeline() {
   const trace = createPerfTrace("loader:results-timeline", {
     traceId: await readPerfTraceIdFromHeaders(),
-    route: "/proof",
+    route: "/results",
   });
   try {
     const repository = getRepository().forTenant(await currentTenantId());

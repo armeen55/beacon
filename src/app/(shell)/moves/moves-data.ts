@@ -252,7 +252,7 @@ async function loadUncached(tenantId: string): Promise<TodayMovesHeroData> {
 
 /**
  * Stale-while-revalidate surface cache. The cold compute (`loadUncached`) rebuilds the
- * demand graph from Supabase (~32s) and floors /worklist at ~50s — only `react.cache`
+ * demand graph from Supabase (~32s) and floors /changes at ~50s — only `react.cache`
  * (per-request), no cross-request persistence. So: serve the last persisted snapshot
  * INSTANTLY (with its `computedAt` for an honest "updated N ago"), and when it's stale
  * refresh in the background via `after()` (best-effort; if the lambda freezes mid-refresh

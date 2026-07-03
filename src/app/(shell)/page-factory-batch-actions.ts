@@ -30,7 +30,7 @@ export async function approveFactoryBatchItemAction(args: { weekOf: string; slug
   const tenantId = await currentTenantId();
   const ok = await updateFactoryBatchItemStatus({ tenantId, weekOf: args.weekOf, slug: args.slug, status: "approved" });
   if (!ok) return { ok: false, reason: "Could not find that page in this week's batch." };
-  revalidatePath("/worklist");
+  revalidatePath("/changes");
   return { ok: true };
 }
 
@@ -39,7 +39,7 @@ export async function skipFactoryBatchItemAction(args: { weekOf: string; slug: s
   const tenantId = await currentTenantId();
   const ok = await updateFactoryBatchItemStatus({ tenantId, weekOf: args.weekOf, slug: args.slug, status: "skipped" });
   if (!ok) return { ok: false, reason: "Could not find that page in this week's batch." };
-  revalidatePath("/worklist");
+  revalidatePath("/changes");
   return { ok: true };
 }
 
@@ -91,6 +91,6 @@ export async function confirmFactoryPagePublishedAction(args: {
 
   await invalidateDemandGraph("page factory page published → new owned page enters the graph").catch(() => {});
   revalidatePath("/");
-  revalidatePath("/worklist");
+  revalidatePath("/changes");
   return { ok: true, recorded, reason };
 }

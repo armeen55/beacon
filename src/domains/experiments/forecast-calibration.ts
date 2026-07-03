@@ -68,7 +68,7 @@ export function findForecastedPickForProofId(
   return null;
 }
 
-/** Below this many settled records, the sample is too thin to trust an aggregate - the /proof
+/** Below this many settled records, the sample is too thin to trust an aggregate - the /results
  *  card self-hides and the correction factor stays 1.0 (no correction). */
 export const MIN_SETTLED_FOR_CALIBRATION = 3;
 
@@ -89,7 +89,7 @@ export type ForecastCalibrationSummary = {
    *  percent. hotColdPct > 0 means actuals came in BELOW the promised midpoint (forecasts too
    *  optimistic); < 0 means actuals beat the promise (forecasts too conservative). */
   hotColdPct: number;
-  /** Plain-English one-liner for the /proof card and the weekly recap. Null when too thin
+  /** Plain-English one-liner for the /results card and the weekly recap. Null when too thin
    *  (fewer than MIN_SETTLED_FOR_CALIBRATION settled records) - the surface self-hides. */
   sentence: string | null;
   /** The bias-correction factor to feed back into pick-expectations.ts, clamped to

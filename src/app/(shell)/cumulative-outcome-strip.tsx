@@ -5,7 +5,7 @@ import {
   type CumulativeOutcome,
 } from "@/domains/proof-gsc/cumulative-outcome";
 import { Card } from "@/components/ui/card";
-import { ResultsHeaderStrip } from "./proof/results-header-strip";
+import { ResultsHeaderStrip } from "./results/results-header-strip";
 
 /**
  * CumulativeOutcomeStrip (2026-07-02, FP8 - the "$250 answer") - THE one cumulative

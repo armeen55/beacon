@@ -11,7 +11,7 @@ import {
 
 /**
  * PrepareTonightButton (UX3, 2026-07-02), the ONE command replacing the Improve-top-3 /
- * Enrich-research / Prepare-top-10 button cluster on /worklist. Runs the same three
+ * Enrich-research / Prepare-top-10 button cluster on /changes. Runs the same three
  * pipelines under the hood (research enrichment, then prepare, then competitor-fact
  * improvement) via `prepareTonightsPlanAction`, and reports one honest combined summary.
  * The granular buttons still exist, now tucked into a native <details> overflow menu for

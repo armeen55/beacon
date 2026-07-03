@@ -29,7 +29,7 @@ import {
  * wrote a recommendation_responses row + revalidated — it created NO measurable
  * proof record, so nothing was ever measured, held, or learned from. This closes
  * that: when a Move with a target URL is accepted from ANY surface, we also create
- * the same shipped_changes ledger record the manual /proof form creates (GSC
+ * the same shipped_changes ledger record the manual /results form creates (GSC
  * baseline + diff-in-diff controls), so measurement starts automatically.
  *
  * Contract: FAIL-SOFT (never throws — a ship must succeed even if measurement

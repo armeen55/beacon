@@ -44,7 +44,7 @@ export async function respondToRecommendation(
   // measurable shipped_changes ledger record (GSC baseline + diff-in-diff
   // controls), so measurement/hold/learning start automatically instead of the
   // ship being a measure-nothing status flip. Fail-soft + idempotent — never
-  // blocks the response. Only on accept; the manual /proof form still works.
+  // blocks the response. Only on accept; the manual /results form still works.
   if (status === "accepted" && context?.targetPageUrl) {
     const res = await autoRecordShippedChangeForRec({
       tenantId,
@@ -52,7 +52,7 @@ export async function respondToRecommendation(
       actionType: context.actionType ?? null,
       targetQuery: context.query ?? null,
     });
-    if (res.recorded) revalidatePath("/proof");
+    if (res.recorded) revalidatePath("/results");
     log.info("Ship->proof bridge", { action, recId, recorded: res.recorded, reason: res.reason });
   }
 

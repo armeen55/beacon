@@ -2,7 +2,7 @@ import "server-only";
 
 /**
  * attach-control-contamination (BEACON_500 N13, 2026-07-03) - the one read-path
- * call site the /proof loader needs: given the tenant's full shipped-change
+ * call site the /results loader needs: given the tenant's full shipped-change
  * ledger, load each row's comparison-page (control) history ONCE and compute
  * whether any control changed mid-window, per control-contamination.ts's pure
  * classifier. Mirrors attach-seasonal-inflection.ts's shape exactly - a small
@@ -44,7 +44,7 @@ import type { ShippedChangeRecord } from "./shipped-change-store";
 /** PostgREST response cap per page; mirrors auto-record-on-ship.ts's PAGE_SIZE. */
 const PAGE_SIZE = 1000;
 /** Hard ceiling on total snapshot rows read per attach pass, so a huge site's
- *  scan history can never turn one /proof load into an unbounded scan. */
+ *  scan history can never turn one /results load into an unbounded scan. */
 const MAX_SNAPSHOT_ROWS = 10_000;
 
 function pathOf(urlOrPath: string): string {
@@ -241,7 +241,7 @@ export function computeContaminationForShip(args: {
 }
 
 /**
- * Batch entry point for the /proof loader: one snapshot-history read for the
+ * Batch entry point for the /results loader: one snapshot-history read for the
  * WHOLE ledger's control pages (not one read per row), then per-ship
  * classification + frozen-pool promotion (pure, no further I/O). Fail-soft ->
  * empty map on any upstream failure (the Results page renders with no

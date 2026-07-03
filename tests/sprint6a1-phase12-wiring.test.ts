@@ -94,8 +94,8 @@ describe("Phase 6A.1.12 — repository getRecommendedEdits", () => {
 describe("Phase 6A.1.12 — /recommendations page wiring", () => {
   it("index redirects to Changes; the RecommendedEditRow type lives in the loader", () => {
     // Move 5 (2026-07-01): the /recommendations index is now a redirect to
-    // /worklist?status=ready. The RecommendedEditRow-typed queue rows moved to
-    // the load-queue loader, which still powers /recommendations/[id] + /worklist.
+    // /changes?status=ready. The RecommendedEditRow-typed queue rows moved to
+    // the load-queue loader, which still powers /recommendations/[id] + /changes.
     expect(PAGE_SOURCE).toMatch(/\bredirect\(/);
     expect(LOAD_QUEUE_SOURCE).toMatch(/RecommendedEditRow/);
   });

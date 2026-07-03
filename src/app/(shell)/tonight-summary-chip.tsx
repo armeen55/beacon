@@ -1,9 +1,9 @@
 import Link from "next/link";
 
 /**
- * TonightSummaryChip (2026-07-02, FP5a) - the ONE line /worklist shows about tonight's
+ * TonightSummaryChip (2026-07-02, FP5a) - the ONE line /changes shows about tonight's
  * picked changes. The full "Today's changes" panel (DailyExperimentsSection) renders
- * ONLY on Today now - it used to render verbatim on BOTH / and /worklist, the exact
+ * ONLY on Today now - it used to render verbatim on BOTH / and /changes, the exact
  * duplicate-home the FINISHED PRODUCT diagnosis flagged. The numbers come from the
  * FP3 lifecycle loader (the same picked/applied formula Today's progress bar uses),
  * so this chip and Today can never disagree. Self-hides when nothing is picked.

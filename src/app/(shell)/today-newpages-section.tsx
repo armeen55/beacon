@@ -21,9 +21,9 @@ import { topicIdentityKey } from "@/domains/demand-graph/dedupe-new-page-cards";
  * kept, since it read only against a white background and had no token-based
  * equivalent worth preserving.
  *
- * FP5b (2026-07-02) - ONE home per job: this board renders ONCE, on /worklist.
+ * FP5b (2026-07-02) - ONE home per job: this board renders ONCE, on /changes.
  * Today renders TodayNewPagesSummaryLine (one sentence + a link) instead of a
- * second copy of the board, and `excludeTopics` lets /worklist drop any card
+ * second copy of the board, and `excludeTopics` lets /changes drop any card
  * whose topic is already in this week's page-factory batch (that card is
  * further along: it has a drafted page and an Approve button), so a new-page
  * idea never appears in two formats on the same page.
@@ -69,7 +69,7 @@ export async function TodayNewPagesSection({
             {limit && opportunities.length > limit ? (
               // UX4 item 5 legacy - a capped render names exactly where the rest live.
               <Link
-                href="/worklist#new-pages"
+                href="/changes#new-pages"
                 className="rounded-lg border border-border bg-card px-3.5 py-1.5 text-body font-semibold text-foreground-secondary transition-colors hover:bg-surface-raised"
               >
                 See all {opportunities.length} in Changes →
@@ -106,7 +106,7 @@ export function newPagesSummarySentence(count: number): string {
 /**
  * TodayNewPagesSummaryLine (2026-07-02, FP5b) - Today's ONE line about new pages.
  * The board itself (cards, drafts, prepare buttons) has exactly one home now:
- * /worklist#new-pages. Reads the same request-cached loader the board uses, so the
+ * /changes#new-pages. Reads the same request-cached loader the board uses, so the
  * count here always equals the number of cards the board shows. Self-hides at zero;
  * deadline-bounded so it can never strand Today's stream.
  */
@@ -127,7 +127,7 @@ export async function TodayNewPagesSummaryLine() {
     >
       <span>{newPagesSummarySentence(count)}</span>
       <Link
-        href="/worklist#new-pages"
+        href="/changes#new-pages"
         className="shrink-0 text-body font-medium text-foreground-secondary underline underline-offset-2 hover:text-foreground"
       >
         Open the board →

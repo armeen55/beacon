@@ -108,11 +108,11 @@ describe("Emergency P0 v5: /recommendations index is now a redirect (fastest col
 
   it("redirects to the canonical Changes surface (no loader on the index)", () => {
     // Move 5 (2026-07-01): the /recommendations index was a duplicate of the
-    // canonical Changes list, so it now redirects to /worklist?status=ready —
+    // canonical Changes list, so it now redirects to /changes?status=ready —
     // the fastest possible cold render. The persisted fast loader still powers
     // the /recommendations/[id] detail brief (pinned below).
     expect(stripped).toMatch(/\bredirect\(/);
-    expect(stripped).toMatch(/\/worklist\?status=ready/);
+    expect(stripped).toMatch(/\/changes\?status=ready/);
   });
 
   it("runs no recommendation queue loader on the index (nothing to load)", () => {

@@ -53,7 +53,7 @@ export function CircuitBreakerCard({ view }: { view: CircuitBreakerCardView }) {
           </p>
           <p className="text-[12px] leading-relaxed text-amber-800/80 dark:text-amber-300/70">
             What is paused: shipping new changes on my own and putting old versions back on my own.
-            What still works: everything you do by hand, results tracking, and every card in your worklist.
+            What still works: everything you do by hand, results tracking, and every card in your Changes list.
           </p>
         </div>
       </div>

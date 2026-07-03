@@ -3,7 +3,7 @@ import { loadLatestPooledVerdict } from "@/domains/proof-gsc/pooled-verdict-stor
 
 /**
  * pooled-verdict-section (2026-07-02, master plan item 34) - the compact "as a group" batch line
- * for /proof. A daily batch ships one lever across many sibling pages at once; each page's own
+ * for /results. A daily batch ships one lever across many sibling pages at once; each page's own
  * read is individually noisy, but pooled together the batch can read a confident helped / did not
  * help / no clear lift. Self-hides when no batch has reached the pooling floor (>= 3 measured
  * pages under the same plan + lever) - see pooled-verdict-runner.ts for how the row is computed

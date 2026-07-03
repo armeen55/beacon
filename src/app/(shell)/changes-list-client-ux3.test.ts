@@ -4,7 +4,7 @@
  *
  * Same source-pinning convention as changes-list-client-session.test.ts (no jsdom/@testing-
  * library/react configured in this repo) - these pins confirm the UX3 behaviors are actually
- * wired into the real /worklist list, not just present as unused helpers, and that they never
+ * wired into the real /changes list, not just present as unused helpers, and that they never
  * regress the D6 session loop this file also owns.
  */
 import { describe, expect, it } from "vitest";

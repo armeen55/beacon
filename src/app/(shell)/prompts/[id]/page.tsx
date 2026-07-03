@@ -21,6 +21,15 @@ import { PromptDetailV2Client } from "./prompt-detail-v2-client";
 import { PromptDetailV2NotFound } from "./prompt-detail-v2-not-found";
 import { computePromptPrimaryShare } from "@/domains/daily-metric-snapshots/prompt-primary-share";
 import { structureLabel } from "@/lib/structure-labels";
+import { HeaderTitle } from "@/components/shell/shell-provider";
+
+/** FP4 (2026-07-03) - the question itself is this page's name. Bounded so a
+ *  long prompt cannot blow up the header row. */
+function headerSubjectFromPrompt(promptText: string): string {
+  const text = promptText.trim();
+  if (text.length === 0) return "AI question";
+  return text.length > 64 ? `${text.slice(0, 63).trimEnd()}...` : text;
+}
 
 // 2026-05-15 — Section 6 C5 prerender safety. Mirrors
 // `/diagnostics/page.tsx`'s post-fix pattern. The v2 branch reads
@@ -258,12 +267,19 @@ export default async function PromptDrilldownPage({
     });
 
     return (
-      <PromptDetailV2Client {...briefProps} promptPrimary={promptPrimary} />
+      <>
+        <HeaderTitle title={headerSubjectFromPrompt(drilldown.promptText)} />
+        <PromptDetailV2Client {...briefProps} promptPrimary={promptPrimary} />
+      </>
     );
   }
 
   return (
     <div className="max-w-3xl">
+      {/* FP4 (2026-07-03) - the header breadcrumb shows THIS question as the
+          page title ("AI questions / <the question>") instead of a generic
+          detail label. */}
+      <HeaderTitle title={headerSubjectFromPrompt(drilldown.promptText)} />
       <BackLink />
 
       {/* 1. Header: "so what" */}

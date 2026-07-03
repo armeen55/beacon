@@ -243,7 +243,7 @@ export function gradeVerdictReliability(input: VerdictReliabilityInput): Verdict
 
 /** Convenience adapter: build the grade straight from a MeasurementPresentation
  *  plus the two sufficiency numbers and an optional permutation read, so a
- *  read site that already built the presentation (the /proof card, fact-
+ *  read site that already built the presentation (the /results card, fact-
  *  assembly.ts) never has to restate the six feeder flags by hand. PURE. */
 export function gradeFromPresentation(
   pres: Pick<

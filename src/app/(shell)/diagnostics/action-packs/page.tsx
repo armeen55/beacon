@@ -90,7 +90,7 @@ export default async function ActionPacksPage({ searchParams }: { searchParams?:
     <div className="space-y-5 p-1">
       <PageHeader
         title="Unified action packs (one brain)"
-        description="Every recommendation source — Rank-&-Revenue Moves + Profound coverage — normalized into one ranked worklist, deduped. The surface that replaces the competing legacy paths."
+        description="Every recommendation source — Rank-&-Revenue Moves + Profound coverage — normalized into one ranked changes list, deduped. The surface that replaces the competing legacy paths."
       />
 
       <div className="flex items-center gap-2 text-xs text-gray-500">

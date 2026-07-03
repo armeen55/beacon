@@ -7,51 +7,20 @@ import { usePathname } from "next/navigation";
 import { Menu } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useShell } from "./shell-provider";
-import { allNavItems } from "@/lib/navigation";
-
-function useBreadcrumb(pathname: string) {
-  if (pathname === "/") return { title: "Today", parent: null };
-  const segments = pathname.split("/").filter(Boolean);
-  // Onboarding lives under the shell; give it a real title instead of the
-  // generic "onboard / Detail" breadcrumb fallback.
-  if (segments[0] === "onboard") {
-    return { title: "Set up your business", parent: null };
-  }
-  if (segments[0] === "opportunities") {
-    return { title: "What to fix first", parent: null };
-  }
-  if (segments[0] === "connections") {
-    return { title: "Connections", parent: null };
-  }
-  if (segments[0] === "proof") {
-    return { title: "Results", parent: null };
-  }
-  if (
-    segments[0] === "topics" &&
-    segments[1] === "opportunity" &&
-    segments.length >= 3
-  ) {
-    // FP10b (2026-07-02): /competitors retired as a destination (it now
-    // redirects to /prompts); point the breadcrumb at the real destination
-    // instead of a page that immediately bounces the visitor elsewhere.
-    return {
-      title: "Opportunity detail",
-      parent: { label: "AI questions", href: "/prompts" },
-    };
-  }
-  const base = "/" + segments[0];
-  const item = allNavItems.find((n) => n.href === base);
-  const parentLabel = item?.label ?? segments[0];
-  if (segments.length > 1) {
-    return { title: null, parent: { label: parentLabel, href: base } };
-  }
-  return { title: parentLabel, parent: null };
-}
+import { routeCrumbFor } from "@/lib/navigation";
 
 export function AppHeader({ rightSlot }: { rightSlot?: React.ReactNode }) {
   const pathname = usePathname();
-  const { toggleSidebar, sidebarOpen } = useShell();
-  const { title, parent } = useBreadcrumb(pathname);
+  // FP4 (2026-07-03) - titles come from the ONE route registry in
+  // navigation.ts (longest-prefix match), so no page can render its raw URL
+  // slug or a bare "Detail" as its name (the audit's "research / Detail"
+  // breadcrumb). Detail pages push their real subject (the prompt text, the
+  // change's page) into `headerTitle` via <HeaderTitle/>; the registry's
+  // plain fallback covers everything else.
+  const { toggleSidebar, sidebarOpen, headerTitle } = useShell();
+  const crumb = routeCrumbFor(pathname);
+  const title = headerTitle ?? crumb.title;
+  const parent = crumb.parent;
 
   return (
     <header className="flex h-12 items-center gap-3 border-b border-border/50 bg-background px-6">
@@ -75,7 +44,7 @@ export function AppHeader({ rightSlot }: { rightSlot?: React.ReactNode }) {
             {parent.label}
           </Link>
           <span className="text-muted-foreground/40">/</span>
-          <span className="font-semibold text-foreground">{title ?? "Detail"}</span>
+          <span className="max-w-[48ch] truncate font-semibold text-foreground">{title}</span>
         </div>
       ) : (
         <h1 className="text-[15px] md:text-[13px] font-semibold">{title}</h1>

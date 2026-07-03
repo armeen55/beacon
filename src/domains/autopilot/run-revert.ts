@@ -57,7 +57,7 @@ const SNAPSHOT_SHIP_TOLERANCE_MS = 3 * 24 * 60 * 60 * 1000;
 /**
  * The additive note stamped on the ORIGINAL proof row after a restore. Also
  * the idempotency marker: a row whose notes contain this is never reverted
- * again (and the /proof surface hides the restore button).
+ * again (and the /results surface hides the restore button).
  */
 export const REVERTED_NOTE_MARKER = "I put the old version back on";
 /** Revert records carry the original lever behind this prefix (revert_edit_title). */
@@ -454,7 +454,7 @@ export async function runRevertForProofRecord(
 }
 
 // ---------------------------------------------------------------------------
-// Shared decision assembly (the /proof action and the nightly pass use this)
+// Shared decision assembly (the /results action and the nightly pass use this)
 // ---------------------------------------------------------------------------
 
 function presentationFor(
@@ -501,7 +501,7 @@ export type EvaluatedRevert = {
 
 /**
  * Load everything needed and decide propose / auto_revert / none for one proof
- * row. Used by the /proof server action so eligibility is always re-derived
+ * row. Used by the /results server action so eligibility is always re-derived
  * server side (the client is never trusted).
  */
 export async function evaluateRevertDecisionForRecord(

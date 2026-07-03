@@ -4,7 +4,7 @@
  * Closes the operator loop on the home screen: the Plan says what to do, and
  * this says what you already shipped and that Beacon is measuring it against
  * untreated pages. The section feeds it the RE-MEASURED proof ledger
- * (loadProofLedger, same as /proof and /changes), so Today never disagrees with
+ * (loadProofLedger, same as /results and /changes), so Today never disagrees with
  * Proof. SELF-HIDES when nothing is being measured, so the home screen stays
  * quiet until there is real shipped work to track.
  *
@@ -40,7 +40,7 @@ export function TodayV2ExperimentsMeasuring({
           Measuring
         </span>
         <Link
-          href="/proof"
+          href="/results"
           prefetch={false}
           className="text-[12px] font-medium text-foreground underline-offset-2 hover:underline"
         >

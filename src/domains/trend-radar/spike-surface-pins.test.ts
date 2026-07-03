@@ -23,7 +23,7 @@ describe("Demand band spike rows (war-room-sections)", () => {
 
   it("deep-links a spike to its matching worklist change when one exists", () => {
     expect(WAR_ROOM).toContain("matchSpikeToMove");
-    expect(WAR_ROOM).toContain("/worklist?search=${encodeURIComponent(searchTerm)}");
+    expect(WAR_ROOM).toContain("/changes?search=${encodeURIComponent(searchTerm)}");
     expect(WAR_ROOM).toContain("See the matching change");
   });
 

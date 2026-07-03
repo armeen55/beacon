@@ -61,7 +61,7 @@ export type WorklistSessionState = {
 };
 
 /**
- * Owns the D6 session loop for one /worklist render. `orderedChanges` is the SAME ranked +
+ * Owns the D6 session loop for one /changes render. `orderedChanges` is the SAME ranked +
  * filtered list the list component already computes (rankChanges + goal/status predicates) -
  * this hook never re-ranks, just walks it.
  */

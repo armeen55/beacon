@@ -41,7 +41,7 @@ import { moveHeadline } from "./daily-experiments-copy";
  * Today `/` - the focused daily slice of the ONE canonical model (2026-07-01, Move 5).
  *
  * Today is no longer a second "what should I do?" surface: it derives from the same
- * CanonicalChange[] that powers /worklist (Changes). Four operational sections - what
+ * CanonicalChange[] that powers /changes (Changes). Four operational sections - what
  * needs attention, today's changes (the daily plan), what's measuring, what's next if
  * today is empty. No research-heavy MoveCards, no giant New Pages board, no duplicate
  * recommendation engine. Changes is the complete backlog; Today is the operational slice.
@@ -147,7 +147,7 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
     return (
       <div role="alert" className="rounded-lg border border-border/60 bg-surface-inset/30 p-6 text-center">
         <p className="text-sm font-medium text-foreground">Couldn’t load Today just now.</p>
-        <p className="mt-1 text-xs text-muted-foreground">Your data is safe. Refresh in a moment, or open <Link href="/worklist" className="underline">Changes</Link>.</p>
+        <p className="mt-1 text-xs text-muted-foreground">Your data is safe. Refresh in a moment, or open <Link href="/changes" className="underline">Changes</Link>.</p>
       </div>
     );
   }
@@ -347,7 +347,7 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
       {attentionItems.length > 0 ? <AttentionSection items={attentionItems} /> : null}
 
       {/* Tonight: the team's picks (the daily plan panel). FP5a - this panel's ONE home;
-          /worklist shows a one-line chip with the same FP3 counts instead. */}
+          /changes shows a one-line chip with the same FP3 counts instead. */}
       {daily ? <DailyExperimentsSection view={daily} /> : null}
 
       {/* FP3 - render on the canonical count, not the snapshot's capped list, so the
@@ -365,7 +365,7 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
         <Suspense fallback={<WarRoomCardSkeleton />}><FrictionFixesSection tenantId={tenantId} /></Suspense>
         <Suspense fallback={<WarRoomCardSkeleton />}><AiCrawlerSection tenantId={tenantId} /></Suspense>
         <Suspense fallback={<WarRoomCardSkeleton />}><DemandOpportunitiesSection tenantId={tenantId} /></Suspense>
-        {/* FP5b - the New Pages board's ONE home is /worklist; Today gets one honest
+        {/* FP5b - the New Pages board's ONE home is /changes; Today gets one honest
             sentence with the same count the board shows, plus the link there. */}
         <Suspense fallback={null}><TodayNewPagesSummaryLine /></Suspense>
         {/* Item 49 - when every band above stays silent, the war room says so in one quiet
@@ -432,7 +432,7 @@ function LeadStoryCard({ story }: { story: LeadStory }) {
 
 /** D6 (daily ritual loop) - "Today you shipped N changes. The app is double-checking M of them."
  *  Server truth: both numbers come from the shipped-change ledger (the same rows the header
- *  streak reads), not the per-session client counter on /worklist. Self-hides on a day with
+ *  streak reads), not the per-session client counter on /changes. Self-hides on a day with
  *  nothing shipped yet - a bare "0 shipped" strip every morning would just be noise. */
 function DailyCounterStrip({ shipped, doubleChecking }: { shipped: number; doubleChecking: number }) {
   if (shipped === 0) return null;
@@ -515,7 +515,7 @@ function MeasuringSection({ today, measuringCount }: { today: TodayView; measuri
         <span className="text-sm text-gray-700">
           <span className="font-semibold text-gray-900">{measuringCount}</span> change{measuringCount === 1 ? "" : "s"} measuring.{nextVerdictLine}
         </span>
-        <Link href="/proof" className="shrink-0 text-xs font-medium text-gray-500 underline underline-offset-2 hover:text-gray-700">View all in Results →</Link>
+        <Link href="/results" className="shrink-0 text-xs font-medium text-gray-500 underline underline-offset-2 hover:text-gray-700">View all in Results →</Link>
       </div>
     </section>
   );
@@ -526,11 +526,11 @@ function OpportunitiesSection({ today }: { today: TodayView }) {
     <section className="space-y-1.5" aria-label="Next opportunities">
       <div className="flex items-center justify-between gap-2">
         <h2 className="text-sm font-semibold text-gray-900">What to do next</h2>
-        <Link href="/worklist" className="text-xs font-medium text-gray-500 underline underline-offset-2 hover:text-gray-700">View all in Changes →</Link>
+        <Link href="/changes" className="text-xs font-medium text-gray-500 underline underline-offset-2 hover:text-gray-700">View all in Changes →</Link>
       </div>
       <div className="space-y-1.5">
         {today.nextOpportunities.map((o) => (
-          <Link key={o.changeId} href="/worklist" className="block rounded-lg border border-gray-100 bg-white px-3 py-2 hover:bg-gray-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500">
+          <Link key={o.changeId} href="/changes" className="block rounded-lg border border-gray-100 bg-white px-3 py-2 hover:bg-gray-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500">
             <span className="block break-words text-sm font-semibold text-gray-900">{o.pageLabel}</span>
             <span className="block break-words text-xs text-gray-500">{o.recommendation}</span>
             <span className="mt-0.5 flex flex-wrap items-center gap-x-3 text-[11px] text-gray-400">

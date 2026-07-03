@@ -287,14 +287,21 @@ describe("Demo-path Phase C fix 6 (2026-05-06) — /settings/import customer lea
     // 2026-06-15 goal pivot: Connections is the primary customer setup
     // surface. D7 (2026-07-02): a bare redirect left /settings/config,
     // /settings/history, /settings/spend, and /settings/methodology
-    // reachable only by typing the URL. /settings is now a real index page
-    // linking to all of them, Connections included — this pin now asserts
-    // the link exists and the page never defaults straight to Import.
+    // reachable only by typing the URL. FP4 (2026-07-03): the index page now
+    // derives its links from the ONE settings registry
+    // (settings-sections.ts), so this pin checks the registry (Connections
+    // lives there) and that the page renders that registry without
+    // defaulting to Import.
     const settingsPage = readFileSync(
       resolve(REPO_ROOT, "src/app/(shell)/settings/page.tsx"),
       "utf8",
     );
-    expect(settingsPage).toMatch(/\/settings\/connectors/);
+    const sections = readFileSync(
+      resolve(REPO_ROOT, "src/app/(shell)/settings/settings-sections.ts"),
+      "utf8",
+    );
+    expect(settingsPage).toContain('from "./settings-sections"');
+    expect(sections).toMatch(/\/settings\/connectors/);
     expect(settingsPage).not.toMatch(/redirect\("\/settings\/import"\)/);
   });
 });

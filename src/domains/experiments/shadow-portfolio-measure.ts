@@ -11,7 +11,7 @@
  *     the shadow batch's pages into a single pair of cumulative reads per matched window length.
  *
  * Fail-soft throughout: any read error yields fewer usable rows (never a throw), so a bad night
- * degrades to "the comparison stayed silent" rather than crashing the /proof render.
+ * degrades to "the comparison stayed silent" rather than crashing the /results render.
  */
 import "server-only";
 
@@ -180,7 +180,7 @@ export type ShadowPortfolioMeasurement = {
   forecastFeed: ShadowForecastDriftRow[];
 };
 
-/** Fail-soft top-level loader: everything a caller (the /proof or Today surface) needs to render
+/** Fail-soft top-level loader: everything a caller (the /results or Today surface) needs to render
  *  the picked-vs-skipped line and the drift calibration feed, in one bounded call. Any partial
  *  failure degrades to fewer rows, never a throw - the surface's own honest-minimum gate decides
  *  whether to speak. */

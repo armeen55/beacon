@@ -5,7 +5,7 @@ import type { TodayComposite } from "./today-view-data";
 
 /**
  * today-surface-store (FINAL PREMIUM PLAN item 93) - a tenant-scoped stale-while-revalidate
- * cache of the composed Today slice (TodayComposite), the same pattern as the /worklist
+ * cache of the composed Today slice (TodayComposite), the same pattern as the /changes
  * surface. Serve the last snapshot INSTANTLY (the UI can show "updated N ago" from
  * computedAt), refresh in the background once it is older than the TTL, and invalidate on
  * mutations that change what Today shows (plan accept/apply/skip, prepare, curation).

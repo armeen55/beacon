@@ -5,7 +5,7 @@
  * jsdom/@testing-library/react configured - see today-v2-visibility-group-client.test.tsx).
  * The pure advance-to-next-best logic and no-dead-end invariant are exhaustively covered at
  * the function level by session-flow.test.ts; these pins confirm changes-list-client.tsx
- * actually wires that logic into the real /worklist list rather than reimplementing it, and
+ * actually wires that logic into the real /changes list rather than reimplementing it, and
  * that it reuses the EXISTING mark-shipped/snooze server actions instead of inventing new
  * persistence for the D6 loop.
  */

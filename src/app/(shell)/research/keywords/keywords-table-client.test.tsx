@@ -136,7 +136,7 @@ describe("KeywordsTableClient, static render smoke", () => {
           row({ keyword: "persian new year", searchesPerMo: 2400, timesShownPerMo: 900 }),
           row({ keyword: "nowruz gifts", searchesPerMo: null, timesShownPerMo: 300, ownerPage: null, ownerPageHref: null }),
         ]}
-        worklistBaseHref="/worklist"
+        worklistBaseHref="/changes"
       />,
     );
     expect(html).toContain("persian new year");
@@ -152,7 +152,7 @@ describe("KeywordsTableClient, static render smoke", () => {
   });
 
   it("renders the honest empty state when no rows match (0 total)", () => {
-    const html = renderToStaticMarkup(<KeywordsTableClient rows={[]} worklistBaseHref="/worklist" />);
+    const html = renderToStaticMarkup(<KeywordsTableClient rows={[]} worklistBaseHref="/changes" />);
     expect(html).toContain("No keywords match that filter");
   });
 
@@ -160,7 +160,7 @@ describe("KeywordsTableClient, static render smoke", () => {
     const html = renderToStaticMarkup(
       <KeywordsTableClient
         rows={[row({ keyword: "owned kw", ownerPage: "/nowruz", ownerPageHref: "/page/nowruz" }), row({ keyword: "unowned kw", ownerPage: null, ownerPageHref: null })]}
-        worklistBaseHref="/worklist"
+        worklistBaseHref="/changes"
       />,
     );
     expect(html).toContain('href="/page/nowruz"');
@@ -179,7 +179,7 @@ describe("KeywordsTableClient, static render smoke", () => {
       trend: null,
     });
     const html = renderToStaticMarkup(
-      <KeywordsTableClient rows={[row({ keyword: "persian new year" }), zeroSignal]} worklistBaseHref="/worklist" />,
+      <KeywordsTableClient rows={[row({ keyword: "persian new year" }), zeroSignal]} worklistBaseHref="/changes" />,
     );
     expect(html).not.toContain("unmeasured kw");
     expect(html).toContain("1 keyword I am still gathering numbers for.");
@@ -194,7 +194,7 @@ describe("KeywordsTableClient, static render smoke", () => {
     const html = renderToStaticMarkup(
       <KeywordsTableClient
         rows={[row({ keyword: "persian new year", competitorOwners: ["wikipedia.org"], relatedQuestions: [] })]}
-        worklistBaseHref="/worklist"
+        worklistBaseHref="/changes"
       />,
     );
     expect(html).not.toContain("No questions found for this keyword yet.");

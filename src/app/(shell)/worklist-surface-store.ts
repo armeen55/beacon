@@ -5,7 +5,7 @@ import type { TodayMovesHeroData } from "./today-moves-data";
 
 /**
  * worklist-surface-store (2026-06-29) — a tenant-scoped stale-while-revalidate cache of
- * the fully-computed `/worklist` surface. The cold render rebuilds the demand graph from
+ * the fully-computed `/changes` surface. The cold render rebuilds the demand graph from
  * Supabase (~32s) on EVERY visit — only `react.cache` (per-request), no cross-request
  * persistence — flooring the page at ~50s. This caches the final `TodayMovesHeroData` so
  * a cold render serves the last snapshot INSTANTLY and refreshes in the background.
@@ -47,7 +47,7 @@ export async function writeWorklistSurface(data: TodayMovesHeroData, computedAtI
   await writeStore<WorklistSurfaceRow>(STORE, [{ computedAt: computedAtIso, data }]).catch(() => {});
 }
 
-/** Invalidate the cache so the next /worklist load recomputes (call after a mutation). */
+/** Invalidate the cache so the next /changes load recomputes (call after a mutation). */
 export async function invalidateWorklistSurface(): Promise<void> {
   await writeStore<WorklistSurfaceRow>(STORE, []).catch(() => {});
 }

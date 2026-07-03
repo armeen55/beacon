@@ -50,7 +50,7 @@ export async function stageDailyPickInWixAction(input: {
       editedText: input.editedText,
     });
     if (receipt.staged) {
-      revalidatePath("/worklist");
+      revalidatePath("/changes");
       revalidatePath("/");
     }
     return receipt;
@@ -67,7 +67,7 @@ export async function stageMoveInWixAction(input: {
   try {
     const receipt = await stageChangeForRecord({ kind: "move", moveId: input.moveId });
     if (receipt.staged) {
-      revalidatePath("/worklist");
+      revalidatePath("/changes");
       revalidatePath("/");
       revalidatePath("/recommendations");
       revalidatePath("/changes");

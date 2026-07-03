@@ -860,7 +860,7 @@ export async function buildTodayExperimentPreview(tenantId: string, now: Date = 
   // best of `teamReviewed` that did NOT make it into `selected`, ranked the same way the planner
   // itself ranks a pick) as a free counterfactual cohort. Additive, fail-soft, computed-only here -
   // the write never blocks or alters the plan record itself, and a store error just means tonight
-  // has no shadow batch (the /proof line and the drift calibration feed both self-hide on absence).
+  // has no shadow batch (the /results line and the drift calibration feed both self-hide on absence).
   await writeShadowPortfolioBatch({
     tenant_id: tenantId,
     plan_id: record.id,

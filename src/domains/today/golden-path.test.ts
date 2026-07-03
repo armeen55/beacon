@@ -305,7 +305,7 @@ describe("learn step", () => {
     const state = await loadGoldenPathState(TENANT, NOW);
     const learn = state.steps.find((s) => s.key === "learn")!;
     expect(learn.status).toBe("upcoming");
-    expect(learn.detail).toMatch(/proof appears/i);
+    expect(learn.detail).toMatch(/results appear/i);
   });
 });
 

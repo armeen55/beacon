@@ -21,16 +21,16 @@ import type { ChangelogEntry } from "@/domains/changelog/types";
 // ---------------------------------------------------------------------------
 
 // IA consolidation (2026-06-23): the fresh-read timeline body moved from
-// changes/page.tsx into changes/results-timeline.tsx (embedded in Results /proof).
+// changes/page.tsx into changes/results-timeline.tsx (embedded in Results /results).
 // The /changes index is now a thin redirect. The fresh-read invariants below
-// therefore target results-timeline.tsx; force-dynamic lives on the /proof page.
+// therefore target results-timeline.tsx; force-dynamic lives on the /results page.
 const PAGE_PATH = resolve(
   __dirname,
   "../../src/app/(shell)/changes/results-timeline.tsx",
 );
 const PAGE_SOURCE = readFileSync(PAGE_PATH, "utf8");
 const PROOF_PAGE_SOURCE = readFileSync(
-  resolve(__dirname, "../../src/app/(shell)/proof/page.tsx"),
+  resolve(__dirname, "../../src/app/(shell)/results/page.tsx"),
   "utf8",
 );
 
@@ -56,7 +56,7 @@ describe("Sprint 1 / Phase 1.3 — /changes fresh-read invariants", () => {
       expect(PAGE_SOURCE).toMatch(/const\s+repository\s*=\s*getRepository\(\)/);
     });
 
-    it("the /proof Results page (which embeds the timeline) declares force-dynamic", () => {
+    it("the /results Results page (which embeds the timeline) declares force-dynamic", () => {
       expect(PROOF_PAGE_SOURCE).toMatch(
         /export\s+const\s+dynamic\s*=\s*["']force-dynamic["']/,
       );

@@ -5,7 +5,7 @@
  * distinguishing-token rule) instead of inventing a new matcher.
  *
  * The Today Demand band matches against the WORKLIST SURFACE rows (the exact
- * rows the /worklist changes list is built from), not the raw graph, so a
+ * rows the /changes changes list is built from), not the raw graph, so a
  * "See the matching change" deep link can never land on an empty filter. The
  * search term is the page PATH (always part of the worklist search haystack).
  */
@@ -25,7 +25,7 @@ export type MatchableMove = {
 };
 
 export type SpikeMoveMatch = {
-  /** The needle to put in /worklist?search=... (the page path when known). */
+  /** The needle to put in /changes?search=... (the page path when known). */
   searchTerm: string;
 };
 

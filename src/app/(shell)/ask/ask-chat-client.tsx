@@ -13,6 +13,7 @@ import { useState, useTransition } from "react";
 import Link from "next/link";
 import { Send, Loader2 } from "lucide-react";
 import { teammateOf } from "@/domains/team/identity";
+import { surfaceNameFor } from "@/lib/navigation";
 import { askQuestionAction } from "./ask-actions";
 import type { AskAnswer, AskHistoryEntry } from "@/domains/ask/types";
 
@@ -22,8 +23,26 @@ function turnFromHistory(h: AskHistoryEntry): Turn {
   return { id: h.id, question: h.question, answer: h.answer, askedAt: h.askedAt };
 }
 
+/**
+ * FP4 (2026-07-03) - citation chips. The audit found seven identical "/proof"
+ * chips under one answer: raw hrefs as labels, one chip per fact. Chips now
+ * (1) collapse to ONE chip per destination and (2) render the surface's human
+ * name from the nav registry ("Results", "Changes", "AI questions"), never a
+ * URL path. The tooltip keeps the underlying facts so nothing is lost.
+ */
+function citationChips(citedFacts: readonly { href: string; fact: string }[]) {
+  const byHref = new Map<string, { href: string; label: string; facts: string[] }>();
+  for (const c of citedFacts) {
+    const existing = byHref.get(c.href);
+    if (existing) existing.facts.push(c.fact);
+    else byHref.set(c.href, { href: c.href, label: surfaceNameFor(c.href), facts: [c.fact] });
+  }
+  return [...byHref.values()];
+}
+
 function AnswerBubble({ turn }: { turn: Turn }) {
   const t = teammateOf(turn.answer.speaker);
+  const chips = citationChips(turn.answer.citedFacts);
   return (
     <div className="space-y-2">
       <p className="text-[13px] font-medium text-foreground">{turn.question}</p>
@@ -40,17 +59,20 @@ function AnswerBubble({ turn }: { turn: Turn }) {
         <p className="text-[13.5px] leading-relaxed" style={{ color: t.text }}>
           {turn.answer.answer}
         </p>
-        {turn.answer.citedFacts.length > 0 && (
-          <div className="mt-3 flex flex-wrap gap-2 border-t pt-2" style={{ borderColor: `${t.color}22` }}>
-            {turn.answer.citedFacts.map((c, i) => (
+        {chips.length > 0 && (
+          <div className="mt-3 flex flex-wrap items-center gap-2 border-t pt-2" style={{ borderColor: `${t.color}22` }}>
+            <span className="text-[11px]" style={{ color: t.text, opacity: 0.75 }}>
+              From:
+            </span>
+            {chips.map((chip) => (
               <Link
-                key={i}
-                href={c.href}
+                key={chip.href}
+                href={chip.href}
                 className="rounded-full border px-2 py-1 text-[11px] font-medium underline-offset-2 hover:underline"
                 style={{ borderColor: `${t.color}44`, color: t.text }}
-                title={c.fact}
+                title={chip.facts.join("\n")}
               >
-                {c.href}
+                {chip.label}
               </Link>
             ))}
           </div>

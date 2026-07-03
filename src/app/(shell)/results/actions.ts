@@ -217,7 +217,7 @@ export async function recordShippedChangeAction(args: {
     });
     await upsertShippedChange(record);
 
-    revalidatePath("/proof");
+    revalidatePath("/results");
     revalidatePath("/changes");
     return { success: true };
   } catch (err) {
@@ -237,7 +237,7 @@ export async function recomputeProofLedgerAction(): Promise<ProofLedgerActionRes
       const measured = await measureRecord(tenantId, r);
       await upsertShippedChange(measured);
     }
-    revalidatePath("/proof");
+    revalidatePath("/results");
     revalidatePath("/changes");
     return { success: true };
   } catch (err) {
@@ -270,7 +270,7 @@ export async function markRecrawlRequestedAction(args: {
       recrawlRequestedAt: args.requested ? now : null,
       updatedAt: now,
     });
-    revalidatePath("/proof");
+    revalidatePath("/results");
     revalidatePath("/changes");
     return { success: true };
   } catch (err) {
@@ -314,7 +314,7 @@ export async function restoreOldVersionAction(args: {
       source: "operator",
     });
     if (!res.ok) return { success: false, error: res.detail };
-    revalidatePath("/proof");
+    revalidatePath("/results");
     revalidatePath("/changes");
     return { success: true };
   } catch (err) {
@@ -355,7 +355,7 @@ export async function markVerdictInconclusiveAction(args: {
       updatedAt: now,
     });
     await upsertShippedChange(measured);
-    revalidatePath("/proof");
+    revalidatePath("/results");
     revalidatePath("/changes");
     return { success: true };
   } catch (err) {

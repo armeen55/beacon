@@ -46,7 +46,7 @@ export async function planTodayExperimentsAction(): Promise<PlanPreviewResult> {
     const { record } = await buildTodayExperimentPreview(tenantId, now);
     if (record.selected.length === 0) return { ok: false, reason: "No eligible experiments today (nothing materially better that's scientifically clean)." };
     await createPreviewPlan(record); // fail-closed (throws if Supabase can't persist)
-    revalidatePath("/worklist");
+    revalidatePath("/changes");
     revalidatePath("/");
     await invalidateTodaySurface().catch(() => {});
     return {
@@ -115,7 +115,7 @@ export async function acceptDailyExperimentPlanAction(input: { planId: string; i
           const { record } = await buildTodayExperimentPreview(tenantId, now);
           if (record.selected.length === 0) return { ok: false, reason: "plan_refreshed_empty" };
           await createPreviewPlan(record);
-          revalidatePath("/worklist");
+          revalidatePath("/changes");
           revalidatePath("/");
     await invalidateTodaySurface().catch(() => {});
           return { ok: false, reason: "plan_refreshed", refreshedPlanId: record.id, refreshedCount: record.selected.length };
@@ -132,7 +132,7 @@ export async function acceptDailyExperimentPlanAction(input: { planId: string; i
       reservations: projectReservations(plan, reservedUntil),
     });
     if (!res.ok) return { ok: false, reason: res.reason };
-    revalidatePath("/worklist");
+    revalidatePath("/changes");
     revalidatePath("/");
     await invalidateTodaySurface().catch(() => {});
     return { ok: true, idempotent: res.idempotent, planId: res.planId, reservationCount: res.reservationIds.length };
@@ -152,7 +152,7 @@ export async function abandonPreviewPlanAction(input: { planId: string }): Promi
     if (!plan) return { ok: false, reason: "plan_not_found" };
     if (plan.status !== "preview") return { ok: false, reason: `cannot abandon a ${plan.status} plan here (accepted-plan release needs the release RPC - deferred)` };
     await abandonPreviewPlan(tenantId, input.planId, new Date());
-    revalidatePath("/worklist");
+    revalidatePath("/changes");
     return { ok: true };
   } catch (e) {
     return { ok: false, reason: e instanceof Error ? e.message.slice(0, 160) : "abandon failed" };
@@ -277,10 +277,10 @@ export async function markDailyExperimentAppliedAction(input: { planId: string; 
       await markFailed(tenantId, input.planId, input.experimentId, verification, res.reason);
       return { ok: false, reason: res.reason, verification };
     }
-    revalidatePath("/worklist");
+    revalidatePath("/changes");
     revalidatePath("/");
     await invalidateTodaySurface().catch(() => {});
-    revalidatePath("/proof");
+    revalidatePath("/results");
     return { ok: true, idempotent: res.idempotent, status: "active", proofId: res.proofId, reservationCount: res.reservationIds.length, verification };
   } catch (e) {
     return { ok: false, reason: e instanceof Error ? e.message.slice(0, 200) : "apply failed" };
@@ -352,8 +352,8 @@ export async function confirmGscSubmissionAction(input: { planId: string; experi
       };
     });
     await maybeCompletePlan(tenantId, input.planId);
-    revalidatePath("/worklist");
-    revalidatePath("/proof");
+    revalidatePath("/changes");
+    revalidatePath("/results");
     revalidatePath("/");
     await invalidateTodaySurface().catch(() => {});
     return { ok: true };
@@ -375,8 +375,8 @@ export async function skipDailyExperimentItemAction(input: { planId: string; exp
     const res = await skipItemViaRpc({ tenantId, planId: input.planId, experimentId: input.experimentId, reason: input.reason ?? "operator_skip", idempotencyKey: input.idempotencyKey });
     if (!res.ok) return { ok: false, reason: res.reason };
     await maybeCompletePlan(tenantId, input.planId);
-    revalidatePath("/worklist");
-    revalidatePath("/proof");
+    revalidatePath("/changes");
+    revalidatePath("/results");
     revalidatePath("/");
     await invalidateTodaySurface().catch(() => {});
     return { ok: true, releasedCount: res.releasedIds.length };
@@ -393,7 +393,7 @@ export async function completeDailyPlanAction(input: { planId: string }): Promis
   try {
     const tenantId = await currentTenantId();
     const done = await completePlan(tenantId, input.planId, new Date());
-    revalidatePath("/worklist");
+    revalidatePath("/changes");
     revalidatePath("/");
     await invalidateTodaySurface().catch(() => {});
     return done ? { ok: true } : { ok: false, reason: "not_accepted_or_not_found" };

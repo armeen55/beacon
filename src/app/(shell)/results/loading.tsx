@@ -1,5 +1,5 @@
 /**
- * /proof route loading skeleton (Move 3, re-sized in item 22) - stable dimensions matching
+ * /results route loading skeleton (Move 3, re-sized in item 22) - stable dimensions matching
  * the Results layout (header with action button, "Proof at a glance" tiles, then the three
  * outcome bands: wins, what we learned, in flight) so the heavy re-measure read never
  * flashes a blank page or shifts layout on cold navigation.

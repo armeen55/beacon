@@ -95,7 +95,7 @@ export const TENANT_SCOPED_STORES = new Set<string>([
   // 2026-07-01 R4 - per-tenant cache of "which domains do LLM answers cite for a
   // topic" (domains/serp/dataforseo-llm-mentions.ts), the owned AI-visibility feed.
   "dataforseo-llm-mentions",
-  // 2026-06-29 /worklist stale-while-revalidate surface cache — the fully-computed
+  // 2026-06-29 /changes stale-while-revalidate surface cache — the fully-computed
   // TodayMovesHeroData snapshot per tenant. Cold render serves this instantly + refreshes
   // in the background, so the ~32s demand-graph rebuild no longer floors every visit.
   "worklist-surface",
@@ -343,7 +343,7 @@ export const GLOBAL_STORES = new Set<string>([
   // Forecast calibration ledger (2026-07-02, master plan items 27/28). Rows carry
   // tenant_id; written from the day-28 measure pass (no ambient request context,
   // same fan-out rationale as the stores above). Append-only per-pick forecast vs
-  // actual records the /proof "how honest are my forecasts" card and the
+  // actual records the /results "how honest are my forecasts" card and the
   // bias-correction factor in pick-expectations.ts both read at $0.
   "forecast-calibration",
   // Winner memory (2026-07-02, master plan item 30). Rows carry tenant_id;
@@ -356,7 +356,7 @@ export const GLOBAL_STORES = new Set<string>([
   // tenant_id; written from the nightly placebo pass (no ambient request
   // context, same fan-out rationale as the stores above). Latest per-tenant
   // measured false-positive rate + per-traffic-tier derived floors, read by
-  // measure.ts's readFloorsFor and the /proof explainer's honesty sentence.
+  // measure.ts's readFloorsFor and the /results explainer's honesty sentence.
   "aa-calibration",
   // Algorithm-weather guard (2026-07-02, master plan item 32). Rows carry
   // tenant_id; written from the nightly CUSUM changepoint pass over sitewide
@@ -367,7 +367,7 @@ export const GLOBAL_STORES = new Set<string>([
   // Pooled batch verdicts (2026-07-02, master plan item 34). Rows carry
   // tenant_id; written from the measure-pass tail (no ambient request context,
   // same fan-out rationale as the stores above). One row per (plan, action
-  // family) batch that reached the pooling floor, read by /proof's compact
+  // family) batch that reached the pooling floor, read by /results's compact
   // batch line at $0. Computed-only - never mutates a per-page ledger row.
   "pooled-verdicts",
   // Team scoreboard (2026-07-02, master plan item 38). Rows carry tenant_id;

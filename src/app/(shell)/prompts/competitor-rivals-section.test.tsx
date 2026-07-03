@@ -94,7 +94,7 @@ describe("CompetitorRivalsSection", () => {
     expect(html).toContain("Who builds custom homes in Atherton?");
     // Steal-this link only appears for the domain with a related move.
     expect(html).toContain("Steal this: Create page: Atherton Custom Homes");
-    expect(html).toContain('href="/worklist"');
+    expect(html).toContain('href="/changes"');
   });
 
   it("does not render a steal-this link for a domain with no related move", async () => {

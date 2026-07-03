@@ -305,7 +305,11 @@ describe("ask/fact-assembly - measurement", () => {
     const dossier = await assembleAskDossier(routed({ questionClass: "measurement", pagePath: null }));
     expect(dossier.hasData).toBe(true);
     expect(dossier.facts.some((f) => f.source === "proof")).toBe(true);
-    expect(dossier.facts.every((f) => f.href === "/proof")).toBe(true);
+    expect(dossier.facts.every((f) => f.href === "/results")).toBe(true);
+    // FP4: internal action-type keys never leak into rendered answers; the
+    // plain name ("title rewrite") replaces "edit_title".
+    expect(dossier.facts.some((f) => f.value.includes("title rewrite"))).toBe(true);
+    expect(dossier.facts.every((f) => !f.value.includes("edit_title"))).toBe(true);
   });
 
   // D8: reliability depth - confidence, dollar value, and permutation-null read should
@@ -347,8 +351,10 @@ describe("ask/fact-assembly - plan", () => {
     } as never);
     const dossier = await assembleAskDossier(routed({ questionClass: "plan", pagePath: null }));
     expect(dossier.hasData).toBe(true);
-    expect(dossier.facts.every((f) => f.href === "/worklist")).toBe(true);
+    expect(dossier.facts.every((f) => f.href === "/changes")).toBe(true);
     expect(dossier.facts.some((f) => f.value.includes("cheetah facts"))).toBe(true);
+    // FP4: the plan lever ("meta") reads as a plain name, not a raw key.
+    expect(dossier.facts.some((f) => f.value.includes("meta description change"))).toBe(true);
   });
 
   it("returns no facts when there is no plan", async () => {

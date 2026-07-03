@@ -29,9 +29,9 @@
  *      No "Market" group surfacing /competitors. No /pages, /local,
  *      /topics group.
  *
- *   4. SETTINGS TABS — `settings-tabs-client.tsx` exposes the
- *      customer-surface tabs led by Connectors (Connectors, Import,
- *      Config, Prompts, Data). No Health / Sign-offs / Methodology.
+ *   4. SETTINGS TABS — one registry (`settings-sections.ts`) feeds
+ *      BOTH the tab strip and the /settings index (FP4 2026-07-03),
+ *      led by Connections. No Health / Sign-offs tabs.
  *
  *   5. EXIT-GATES SETTINGS HINT — the server wrapper checks
  *      `BEACON_OPERATOR_MODE` before rendering. Customers don't see
@@ -68,7 +68,7 @@ describe("customer nav exposure — Invariant 1: SIDEBAR is the unified workflow
   // now "exactly this unified set" — adding a route still requires updating
   // this test so the decision is visible in review.
   // 2026-07-01 one-workflow consolidation: the sidebar is now Today (/) +
-  // Changes (/worklist) + Results (/proof) + Research (/prompts, /competitors) +
+  // Changes (/changes) + Results (/results) + Research (/prompts, /competitors) +
   // Settings (/connections, /settings/connectors, /settings). "Drafts"
   // (/recommendations), "Ready to ship" (/experiments), /opportunities and
   // /moves are STAGES of a change reachable from the Changes list + direct URL
@@ -83,10 +83,14 @@ describe("customer nav exposure — Invariant 1: SIDEBAR is the unified workflow
   // promised content ("who AI cites instead of you") already lives, with real
   // intelligence, inside /prompts (AI questions) - /competitors now redirects
   // there so old links keep working, but the nav no longer duplicates it.
+  // 2026-07-03 (FP4): route-name unification. The Changes list moved from
+  // /worklist to /changes and the results page from /proof to /results so the
+  // URL, the nav label, and the page h1 agree; the old URLs are permanent
+  // redirects.
   const EXPECTED_HREFS = new Set([
     "/",
-    "/worklist",
-    "/proof",
+    "/changes",
+    "/results",
     "/ask",
     "/prompts",
     "/research/keywords",
@@ -105,7 +109,7 @@ describe("customer nav exposure — Invariant 1: SIDEBAR is the unified workflow
     const allHrefs = new Set(
       navigationGroups.flatMap((g) => g.items.map((i) => i.href)),
     );
-    // /connections + /opportunities + /experiments + /proof are now
+    // /connections + /opportunities + /experiments + /results are now
     // intentionally exposed (IA consolidation). These remain dead/debug.
     // /competitors rejoined this list 2026-07-02 (FP10b): it now redirects to
     // /prompts instead of being a nav destination.
@@ -162,18 +166,22 @@ describe("customer nav exposure — Invariant 2: CMD+K shortcuts target only cus
     }
   });
 
-  it("the customer-route shortcuts (g+t/r/p/c/k/s) are wired 1:1 with the nav", () => {
+  it("the customer-route shortcuts (g+t/c/e/a/p/k/s) are wired 1:1 with the nav", () => {
     // 2026-06-14 — the g+<key> map was widened to cover the customer routes
     // so the help dialog + palette labels stop advertising shortcuts the
-    // handler never fired. IA consolidation (2026-06-23): g+c now points at
-    // Results (/proof) since Changes merged into it.
+    // handler never fired. FP4 (2026-07-03): URLs now match nav labels, so
+    // the letters follow the names: g+c = Changes (/changes), g+e = Results
+    // (/results), g+a = Ask. g+r was dropped with Drafts leaving the nav
+    // (/recommendations is a redirect into /changes).
     const src = readSrc("src/components/shell/command-palette.tsx");
     expect(src).toMatch(/t:\s*"\/"/);
-    expect(src).toMatch(/r:\s*"\/recommendations"/);
+    expect(src).toMatch(/c:\s*"\/changes"/);
+    expect(src).toMatch(/e:\s*"\/results"/);
+    expect(src).toMatch(/a:\s*"\/ask"/);
     expect(src).toMatch(/p:\s*"\/prompts"/);
-    expect(src).toMatch(/c:\s*"\/proof"/);
     expect(src).toMatch(/k:\s*"\/settings\/connectors"/);
     expect(src).toMatch(/s:\s*"\/settings"/);
+    expect(src).not.toMatch(/r:\s*"\/recommendations"/);
   });
 });
 
@@ -206,19 +214,36 @@ describe("customer nav exposure — Invariant 3: CMD+K palette items have no Mar
 // ─── Invariant 4 — SETTINGS TABS ──────────────────────────────────────────
 
 describe("customer nav exposure — Invariant 4: settings tabs", () => {
-  it("settings-tabs-client.tsx exposes the customer tabs incl. Connectors", () => {
-    const src = readSrc("src/app/(shell)/settings/settings-tabs-client.tsx");
-    // Expected hrefs (2026-06-15 pivot: Connectors is now the primary
-    // customer self-serve surface and leads the tab bar):
+  // FP4 (2026-07-03) settings merge: the tab strip and the /settings index
+  // page both render the ONE registry in settings-sections.ts, so the two
+  // menus can never disagree again. "How Beacon measures" + Spend joined the
+  // shared list (they were reachable only from the index before, which is
+  // exactly how the two menus drifted apart); exit-gates + health stay
+  // operator/internal.
+  it("settings-sections.ts is the ONE settings table of contents (Connections leads)", () => {
+    const src = readSrc("src/app/(shell)/settings/settings-sections.ts");
     expect(src).toContain('"/settings/connectors"');
-    expect(src).toContain('"/settings/import"');
     expect(src).toContain('"/settings/config"');
+    expect(src).toContain('"/settings/import"');
     expect(src).toContain('"/settings/prompts"');
     expect(src).toContain('"/settings/history"');
-    // Forbidden tabs (routes still alive but operator/internal-only):
-    expect(src).not.toMatch(/href:\s*"\/settings\/health"/);
-    expect(src).not.toMatch(/href:\s*"\/settings\/exit-gates"/);
-    expect(src).not.toMatch(/href:\s*"\/settings\/methodology"/);
+    expect(src).toContain('"/settings/spend"');
+    expect(src).toContain('"/settings/methodology"');
+    // The sidebar calls this page "Connections"; the tab must use the same word.
+    expect(src).toContain('label: "Connections"');
+    // Forbidden sections (routes still alive but operator/internal-only):
+    expect(src).not.toContain('"/settings/health"');
+    expect(src).not.toContain('"/settings/exit-gates"');
+  });
+
+  it("the tab strip and the /settings index both derive from settings-sections.ts", () => {
+    const tabs = readSrc("src/app/(shell)/settings/settings-tabs-client.tsx");
+    const index = readSrc("src/app/(shell)/settings/page.tsx");
+    expect(tabs).toContain('from "./settings-sections"');
+    expect(index).toContain('from "./settings-sections"');
+    // Neither surface may carry its own parallel href list anymore.
+    expect(tabs).not.toMatch(/href:\s*"\/settings\//);
+    expect(index).not.toMatch(/href:\s*"\/settings\//);
   });
 });
 

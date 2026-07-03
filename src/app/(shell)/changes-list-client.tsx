@@ -301,7 +301,7 @@ function Row({
         </div>
         <div className="flex shrink-0 items-center gap-2">
           {isMeasure ? (
-            <Link href={`/proof?page=${encodeURIComponent(c.pageUrl)}`} className={`inline-flex min-h-[34px] items-center rounded-md border border-border px-2.5 py-1 text-body font-medium text-foreground-secondary hover:bg-surface-raised ${FOCUS}`}>{cta} →</Link>
+            <Link href={`/results?page=${encodeURIComponent(c.pageUrl)}`} className={`inline-flex min-h-[34px] items-center rounded-md border border-border px-2.5 py-1 text-body font-medium text-foreground-secondary hover:bg-surface-raised ${FOCUS}`}>{cta} →</Link>
           ) : c.status === "blocked" ? (
             <span className="text-meta text-muted-foreground" title={c.blockedReason ?? "Not actionable right now"}>Not now</span>
           ) : (
@@ -555,7 +555,7 @@ export function ChangesListClient({ view }: { view: ChangesView }) {
       // FP3 - never say "no results" when the canonical count says otherwise; this
       // list is a subset (a decided change may have no matching worklist move).
       if (view.decidedCountCanonical > 0) {
-        return { title: `${view.decidedCountCanonical} change${view.decidedCountCanonical === 1 ? " has" : "s have"} a final read.`, hint: "None of them have a matching item in this worklist. They all live on the Results page.", action: null };
+        return { title: `${view.decidedCountCanonical} change${view.decidedCountCanonical === 1 ? " has" : "s have"} a final read.`, hint: "None of them have a matching item in this list. They all live on the Results page.", action: null };
       }
       return { title: "No mature results yet.", hint: "Your active changes are still collecting data. Early checkpoints stay in Measuring.", action: null };
     }
@@ -566,7 +566,7 @@ export function ChangesListClient({ view }: { view: ChangesView }) {
       if (view.measuringCountCanonical > 0) {
         // FP5d - the measuring list's single home is Results; this tab only ever
         // holds the subset with a matching worklist item.
-        return { title: `${view.measuringCountCanonical} change${view.measuringCountCanonical === 1 ? " is" : "s are"} measuring right now.`, hint: "None of them have a matching item in this worklist. The full measuring list lives on the Results page.", action: null };
+        return { title: `${view.measuringCountCanonical} change${view.measuringCountCanonical === 1 ? " is" : "s are"} measuring right now.`, hint: "None of them have a matching item in this list. The full measuring list lives on the Results page.", action: null };
       }
       return { title: "No changes are measuring yet.", hint: "Applied and verified changes will appear here.", action: null };
     }

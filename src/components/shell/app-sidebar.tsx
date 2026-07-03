@@ -19,21 +19,22 @@ import { useShell } from "./shell-provider";
 // navigationGroups, not this map) but the map shape was the audit's
 // source for "competitor in customer surface" smell. Keep this in
 // lockstep with the navigation registry.
+// FP4 (2026-07-03): keys follow the ROUTE NAMES now that URLs match nav labels.
+// G C = Changes (/changes), G E = Results (/results). Keep in lockstep with the
+// g-chord handler in command-palette.tsx + NAV_SHORTCUTS in (shell)/layout.tsx.
 const NAV_SHORTCUTS: Record<string, string> = {
   "/": "G T",
-  "/recommendations": "G R",
+  "/changes": "G C",
+  "/results": "G E",
+  "/ask": "G A",
   "/prompts": "G P",
-  // audit-wave #9 (2026-06-23): the Changes→Results merge (B26) renamed the route
-  // to /proof, but these maps still keyed on the removed /changes — so the Results
-  // nav item showed no "G C" shortcut + no attention badge. Re-key to /proof to
-  // match navigation.ts + layout.tsx.
-  "/proof": "G C",
+  "/settings/connectors": "G K",
   "/settings": "G S",
 };
 
 const BADGE_STYLES: Record<string, string> = {
   "/": "bg-status-danger/15 text-status-danger",
-  "/proof": "bg-status-warning/15 text-status-warning",
+  "/results": "bg-status-warning/15 text-status-warning",
 };
 
 function SidebarContent({ isOperator = false }: { isOperator?: boolean }) {

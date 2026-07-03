@@ -3,39 +3,37 @@
 import { usePathname } from "next/navigation";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
+import { SETTINGS_SECTIONS } from "./settings-sections";
 
-// Connectors restored to the tab bar 2026-06-15 (goal pivot): it is now the
-// PRIMARY customer self-serve surface — connect GSC/GA4/SEMrush/Profound/Clarity/
-// Wix and Sync each on demand. It must be reachable by clicking, not URL-typing.
-// Still hidden: Sign-offs (/settings/exit-gates) + Methodology — internal.
-const TABS = [
-  { href: "/settings/connectors", label: "Connectors" },
-  { href: "/settings/import", label: "Import" },
-  { href: "/settings/config", label: "Config" },
-  { href: "/settings/prompts", label: "Prompts" },
-  { href: "/settings/history", label: "Data" },
-] as const;
-
+/**
+ * FP4 (2026-07-03) - the tab strip renders the ONE settings table of contents
+ * (settings-sections.ts), the same list the /settings index page shows as
+ * cards, so the two can never disagree again. A deeper page (e.g.
+ * /settings/history/<id>) keeps its parent tab lit.
+ */
 export function SettingsTabsClient({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
 
   return (
     <>
       <div className="flex items-center gap-1 mb-6 border-b border-border/40 pb-2 overflow-x-auto">
-        {TABS.map((tab) => (
-          <Link
-            key={tab.href}
-            href={tab.href}
-            className={cn(
-              "px-3 py-1.5 rounded-md text-[13px] font-medium transition-colors whitespace-nowrap",
-              pathname === tab.href
-                ? "bg-foreground text-background"
-                : "text-muted-foreground hover:text-foreground hover:bg-surface-inset/50",
-            )}
-          >
-            {tab.label}
-          </Link>
-        ))}
+        {SETTINGS_SECTIONS.map((tab) => {
+          const isActive = pathname === tab.href || pathname.startsWith(`${tab.href}/`);
+          return (
+            <Link
+              key={tab.href}
+              href={tab.href}
+              className={cn(
+                "px-3 py-1.5 rounded-md text-[13px] font-medium transition-colors whitespace-nowrap",
+                isActive
+                  ? "bg-foreground text-background"
+                  : "text-muted-foreground hover:text-foreground hover:bg-surface-inset/50",
+              )}
+            >
+              {tab.label}
+            </Link>
+          );
+        })}
       </div>
       {children}
     </>

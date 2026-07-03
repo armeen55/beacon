@@ -99,7 +99,7 @@ const TYPE_SCALE_PINNED = new Set([
 // id anchors), every severity/verdict chip rides a Pill intent, and every dark: variant was
 // dropped to match the fully-migrated siblings (today-moves-card.tsx and today-newpages-card.tsx
 // carry zero dark: classes). Measured live total under src/app/(shell) after this migration: 1481.
-// FP8 (2026-07-02) collapsed the /proof ledger cards onto Card/Pill for the summary line
+// FP8 (2026-07-02) collapsed the /results ledger cards onto Card/Pill for the summary line
 // (deleting the TONE_STYLE/OUTCOME_STYLE palette maps; the maturity-tone rule now rides Pill
 // intents) and shipped the token-only cumulative outcome strip shared by Today and Results.
 // Measured live total under src/app/(shell) after FP8: 1342.

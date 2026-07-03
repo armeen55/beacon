@@ -33,7 +33,7 @@ function stripComments(src: string): string {
 }
 
 // Move 5 (2026-07-01): recommendations-v2-client.tsx was removed when
-// /recommendations became a redirect to /worklist. The surviving v2 card
+// /recommendations became a redirect to /changes. The surviving v2 card
 // and detail surfaces still carry the "no legacy hops" invariant below;
 // the deleted client's four pins are dropped as an obsolete contract.
 // (recommendations-v2-working-rail.tsx deleted 2026-07-02, UX5 legacy

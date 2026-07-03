@@ -1,7 +1,7 @@
 /**
- * TonightSummaryChip (FP5a, 2026-07-02) - render pins for the ONE line /worklist
+ * TonightSummaryChip (FP5a, 2026-07-02) - render pins for the ONE line /changes
  * shows about tonight's batch, replacing the full DailyExperimentsSection that used
- * to render verbatim on BOTH / and /worklist (the duplicate-home killer finding).
+ * to render verbatim on BOTH / and /changes (the duplicate-home killer finding).
  */
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";

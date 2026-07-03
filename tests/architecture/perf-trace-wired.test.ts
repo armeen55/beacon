@@ -28,7 +28,7 @@ const TRACED_FILES = [
   { rel: "src/app/(shell)/layout.tsx", phase: "shell-layout" },
   { rel: "src/app/(shell)/page.tsx", phase: "loader:/" },
   // Move 5 (2026-07-01): /recommendations index is now a thin redirect to
-  // /worklist?status=ready (a duplicate list of the same moves the canonical
+  // /changes?status=ready (a duplicate list of the same moves the canonical
   // Changes list already shows). A redirect has no loader latency to trace, so
   // it drops off this list. The deep per-rec brief still traces below.
   {
@@ -36,7 +36,7 @@ const TRACED_FILES = [
     phase: "loader:/recommendations/[id]",
   },
   // IA consolidation (2026-06-23): /changes index is now a thin redirect to
-  // /proof; its heavy traced loader moved into the embedded ResultsTimeline.
+  // /results; its heavy traced loader moved into the embedded ResultsTimeline.
   {
     rel: "src/app/(shell)/changes/results-timeline.tsx",
     phase: "loader:results-timeline",

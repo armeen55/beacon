@@ -12,7 +12,7 @@ import { resolve } from "node:path";
 
 const ACTIONS_SRC = readFileSync(resolve(__dirname, "today-moves-actions.ts"), "utf8");
 const BUTTON_SRC = readFileSync(resolve(__dirname, "today-moves-prepare.tsx"), "utf8");
-const PAGE_SRC = readFileSync(resolve(__dirname, "worklist/page.tsx"), "utf8");
+const PAGE_SRC = readFileSync(resolve(__dirname, "changes/page.tsx"), "utf8");
 
 describe("prepareTonightsPlanAction - composes the existing pipelines, does not reimplement them", () => {
   it("calls the same three server actions the granular buttons already call", () => {
@@ -85,7 +85,7 @@ describe("PrepareOverflowMenu - the granular buttons stay available, just demote
   });
 });
 
-describe("/worklist page - wires the one-command button + overflow, not the old cluster", () => {
+describe("/changes page - wires the one-command button + overflow, not the old cluster", () => {
   it("imports PrepareTonightButton and PrepareOverflowMenu, not the three individual buttons directly", () => {
     expect(PAGE_SRC).toContain('import { PrepareTonightButton, PrepareOverflowMenu } from "../today-moves-prepare";');
   });

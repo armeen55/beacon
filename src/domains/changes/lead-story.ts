@@ -77,7 +77,7 @@ function pickLandedVerdict(ledger: LeadStoryLedgerRow[]): LeadStory | null {
       kind: "landed_verdict",
       label: "Result",
       sentence: `The change on ${page} won${when ? ` (shipped ${when})` : ""}.`,
-      href: "/proof",
+      href: "/results",
       actionLabel: "See the result",
       tone: "good",
     };
@@ -86,7 +86,7 @@ function pickLandedVerdict(ledger: LeadStoryLedgerRow[]): LeadStory | null {
     kind: "landed_verdict",
     label: "Result",
     sentence: `The change on ${page} did not work${when ? ` (shipped ${when})` : ""}. Here is what I learned.`,
-    href: "/proof",
+    href: "/results",
     actionLabel: "See what I learned",
     tone: "bad",
   };

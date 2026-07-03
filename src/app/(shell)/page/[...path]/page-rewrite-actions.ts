@@ -272,7 +272,7 @@ export async function stageAcceptedRewriteSectionsAction(args: {
       notes: `Auto-recorded from an agentic full-page rewrite (${staged} section${staged === 1 ? "" : "s"} published).`,
     }).catch(() => null);
     revalidatePath(`/page/${path.replace(/^\/+/, "")}`);
-    revalidatePath("/proof");
+    revalidatePath("/results");
   }
 
   const receiptLine =

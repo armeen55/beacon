@@ -48,7 +48,7 @@ describe("findCompetitorKeywordGapsAction - gating + receipt", () => {
       expect(/[–—]/.test(r.message)).toBe(false); // dash guard
     }
     expect(produceKeywordGaps).toHaveBeenCalledWith("tenant-iranopedia");
-    expect(revalidatePath).toHaveBeenCalledWith("/worklist");
+    expect(revalidatePath).toHaveBeenCalledWith("/changes");
   });
 
   it("does NOT revalidate surfaces on a dry-run plan (no new data landed)", async () => {

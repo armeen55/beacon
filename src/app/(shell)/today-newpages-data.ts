@@ -176,7 +176,7 @@ export async function buildNewPagesData(tenantId: string): Promise<NewPagesData>
       // Persisted AI openings (degrade-safe: empty map if the table isn't migrated).
       withTimeout(getLatestMoveDrafts(tenantId), 4000, new Map<string, MoveDraftRow>()),
       // Connectedness (2026-06-28) — real DataForSEO search volume from the cached
-      // keyword-demand store (the same cache that powers /worklist). Replaces the
+      // keyword-demand store (the same cache that powers /changes). Replaces the
       // permanently-null searchVolume left after SEMrush was removed. Degrade-safe.
       withTimeout(readAllCachedKeywordDemand(), 4000, [] as Awaited<ReturnType<typeof readAllCachedKeywordDemand>>),
       // Competitor keyword gap engine (2026-07-02, item 16) — the persisted gap

@@ -20,7 +20,7 @@ import type { ShippedChangeRecord } from "@/domains/proof-gsc/shipped-change-sto
  * Operator-only GSC Proof ledger surface for /changes (Phase 5, Path B). Read-only.
  * Surfaces the newest still-measuring change as a full "active experiment" card
  * (what changed, when it ships a verdict, the baseline it's measured against), plus
- * a compact roll-up of every tracked change. Links to the full ledger on /proof.
+ * a compact roll-up of every tracked change. Links to the full ledger on /results.
  * Renders null for customers / empty ledger so the customer timeline is untouched.
  * Mounted in a Suspense boundary.
  */
@@ -62,7 +62,7 @@ export async function ProofLedgerStrip() {
       ) : null}
 
       <Link
-        href="/proof"
+        href="/results"
         prefetch={false}
         className="flex flex-wrap items-center gap-3 rounded-lg border border-border/60 bg-surface-inset/30 px-4 py-2.5 text-[12px] hover:border-border"
       >
@@ -181,7 +181,7 @@ function ActiveExperimentCard({ rec }: { rec: ShippedChangeRecord }) {
       </p>
 
       <Link
-        href="/proof"
+        href="/results"
         prefetch={false}
         className="mt-2.5 inline-block text-[11px] font-medium text-accent-primary hover:underline"
       >

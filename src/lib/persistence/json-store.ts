@@ -129,7 +129,7 @@ const SUPABASE_MIRRORED_STORES = new Set<string>([
   // 2026-07-02 items 27/28 - the forecast calibration ledger (per-pick forecast
   // range vs the realized 28-day monthly click lift, plus outcome inside/above/
   // below). Written by the day-28 measure pass (Vercel lambda, no disk); read by
-  // the /proof "how honest are my forecasts" card and by pick-expectations.ts's
+  // the /results "how honest are my forecasts" card and by pick-expectations.ts's
   // bias-correction factor. Without the mirror both would be silent-empty on
   // hosted prod after every lambda recycle.
   "forecast-calibration",
@@ -142,7 +142,7 @@ const SUPABASE_MIRRORED_STORES = new Set<string>([
   // 2026-07-02 item 31 - A/A calibration harness (nightly placebo pass measuring
   // Beacon's own false-positive rate + deriving per-traffic-tier verdict floors).
   // Written by a Vercel lambda (no disk); read by measure.ts's readFloorsFor on
-  // every real verdict and by the /proof explainer's honesty sentence. Without
+  // every real verdict and by the /results explainer's honesty sentence. Without
   // the mirror both would silently fall back to the shipped defaults forever.
   "aa-calibration",
   // 2026-07-02 item 32 - algorithm-weather guard (nightly CUSUM changepoint
@@ -154,7 +154,7 @@ const SUPABASE_MIRRORED_STORES = new Set<string>([
   "algorithm-weather-shocks",
   // 2026-07-02 item 34 - pooled batch verdicts (same-plan same-lever multi-page
   // batches stacked into one powered estimate). Written by a Vercel lambda (no
-  // disk) from the measure-pass tail; read by /proof's batch line. Without the
+  // disk) from the measure-pass tail; read by /results's batch line. Without the
   // mirror every pooled verdict would be silent-empty on hosted prod after every
   // lambda recycle, hiding a real cross-page pattern the operator paid to learn.
   "pooled-verdicts",
@@ -211,7 +211,7 @@ const SUPABASE_MIRRORED_STORES = new Set<string>([
   "ask-history",
   // 2026-07-02 item 65 - the shadow portfolio (top rejected-but-eligible candidates
   // captured at plan time). Written inside build-today-preview.ts (Vercel lambda, no
-  // disk); read by the /proof "picks vs skipped" line and the drift-vs-forecast
+  // disk); read by the /results "picks vs skipped" line and the drift-vs-forecast
   // calibration feed. Without the mirror each night's captured batch would vanish on
   // the next lambda recycle, and the comparison would never accumulate a real sample.
   "shadow-portfolio-candidates",

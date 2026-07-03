@@ -9,7 +9,7 @@
  *
  * The worklist Move card (today-moves-card.tsx, a client component) calls
  * `getCompetitorAnswerAlignmentForClient` to lazily fetch "the words that beat
- * you" once per card render. Server components (the /proof ledger card) already
+ * you" once per card render. Server components (the /results ledger card) already
  * hold a server-resolved tenantId and can import answer-alignment-store.ts
  * directly instead of going through this file.
  */

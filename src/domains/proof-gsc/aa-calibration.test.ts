@@ -12,7 +12,7 @@ import {
   MIN_SAMPLES_TO_DERIVE,
   type PlaceboCandidate,
 } from "./aa-calibration";
-import { buildAaHonestySentence } from "@/app/(shell)/proof/proof-summary-section";
+import { buildAaHonestySentence } from "@/app/(shell)/results/proof-summary-section";
 import type { AaCalibrationRow } from "./aa-calibration-store";
 import { DEFAULT_MIN_LIFT_CLICKS, DEFAULT_MIN_LIFT_CTR } from "./measure";
 

@@ -1,6 +1,6 @@
 /**
  * session-flow (BEACON 500 D6, the daily ritual loop, static mode) - PURE logic for the
- * /worklist "no dead ends" session: after the operator acts on a row (marks it done, skips it,
+ * /changes "no dead ends" session: after the operator acts on a row (marks it done, skips it,
  * or says not-now), always point at the next actionable row. No I/O, no ranking of its own, it
  * walks the SAME ordered list the caller already ranked/filtered (strategy.ts's `rankChanges` +
  * the goal/status predicates), so "next best" always agrees with what the list itself shows.

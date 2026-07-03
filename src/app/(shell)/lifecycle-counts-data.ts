@@ -15,7 +15,7 @@ import { cache } from "react";
  *
  * Fail-soft: any single store outage zeroes only its own counts, never throws into a
  * page render. The backlog read is deadline-bounded (it is the heaviest source; on
- * /worklist it is free because the list itself already computed it this request).
+ * /changes it is free because the list itself already computed it this request).
  */
 import { currentTenantId } from "@/lib/tenant-context";
 import { loadProofLedgerCached } from "@/domains/proof-gsc/load-ledger";
@@ -27,7 +27,7 @@ import { valueWithDeadline } from "@/lib/load-with-deadline";
 /** The backlog count is a nice-to-have on pages that don't render it (Today, Results);
  *  never let it hold the ledger/tonight counts hostage on a cold cache. Kept well
  *  under every caller's own outer deadline so a slow worklist build degrades ONLY
- *  toDo (to 0), never the measuring/decided/tonight numbers. On /worklist the read
+ *  toDo (to 0), never the measuring/decided/tonight numbers. On /changes the read
  *  is react.cache-shared with the list section itself, so it is usually instant,
  *  and a deadline here never cancels that shared computation. */
 const BACKLOG_DEADLINE_MS = 3_500;

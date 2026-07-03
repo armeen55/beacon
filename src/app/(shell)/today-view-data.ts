@@ -2,7 +2,7 @@ import "server-only";
 
 /**
  * today-view-data (2026-07-01, Move 5) — server loader for the canonical Today slice.
- * Composes the SAME sources /worklist already uses (loadChangesView + the daily-plan
+ * Composes the SAME sources /changes already uses (loadChangesView + the daily-plan
  * view) and runs the pure buildTodayView adapter. NO parallel graph build, NO new
  * persistence, NO second recommendation engine — Today derives from CanonicalChange.
  * Fail-soft: a missing daily plan or changes read degrades to a partial Today.
@@ -37,7 +37,7 @@ async function loadTodayViewUncached(): Promise<TodayComposite> {
 }
 
 /**
- * Item 93 - SWR surface for Today (same pattern as /worklist): serve the last snapshot
+ * Item 93 - SWR surface for Today (same pattern as /changes): serve the last snapshot
  * instantly, background-refresh via after() once stale, invalidate on plan mutations.
  * Only the first-ever load (or the one right after an invalidation) pays the compute.
  */

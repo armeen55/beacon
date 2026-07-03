@@ -4,7 +4,7 @@ import { resolve } from "node:path";
 
 /**
  * proof-jargon-guard (FINAL PREMIUM PLAN item 69) - the Results page must read in
- * plain business language. This test scans the SOURCE of the /proof surface files
+ * plain business language. This test scans the SOURCE of the /results surface files
  * and asserts that no operator-visible string (JSX text or string literal) leaks a
  * lab word (baseline, treatment, reservation, experiment, control) or an em/en dash.
  *
@@ -25,7 +25,7 @@ const FILES = [
   "../../../domains/experiments/forecast-receipts.ts",
   // Item C6 - the Results page embeds ResultsTimeline -> ChangesV2Client, so its
   // empty-state copy ("Those are the changes you shipped...") is operator-visible
-  // on /proof too. Guarded here so a future "experiment" word regression on this
+  // on /results too. Guarded here so a future "experiment" word regression on this
   // file fails loudly instead of quietly reappearing on a page it wasn't written for.
   "../changes/changes-v2-client.tsx",
 ] as const;

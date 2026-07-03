@@ -27,7 +27,7 @@ export async function dismissOpportunityAction(
   if (ok) {
     await invalidateWorklistSurface().catch(() => {}); // curation changes which moves show → recompute worklist
     revalidatePath("/");
-    revalidatePath("/worklist");
+    revalidatePath("/changes");
   }
   return { ok };
 }
@@ -38,7 +38,7 @@ export async function undismissOpportunityAction(oppKey: string): Promise<{ ok: 
   if (ok) {
     await invalidateWorklistSurface().catch(() => {}); // curation changes which moves show → recompute worklist
     revalidatePath("/");
-    revalidatePath("/worklist");
+    revalidatePath("/changes");
   }
   return { ok };
 }
@@ -49,7 +49,7 @@ export async function pinOpportunityAction(oppKey: string): Promise<{ ok: boolea
   if (ok) {
     await invalidateWorklistSurface().catch(() => {}); // curation changes which moves show → recompute worklist
     revalidatePath("/");
-    revalidatePath("/worklist");
+    revalidatePath("/changes");
   }
   return { ok };
 }
@@ -60,7 +60,7 @@ export async function unpinOpportunityAction(oppKey: string): Promise<{ ok: bool
   if (ok) {
     await invalidateWorklistSurface().catch(() => {}); // curation changes which moves show → recompute worklist
     revalidatePath("/");
-    revalidatePath("/worklist");
+    revalidatePath("/changes");
   }
   return { ok };
 }

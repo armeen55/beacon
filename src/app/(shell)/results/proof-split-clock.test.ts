@@ -15,7 +15,7 @@ import { buildMeasurementPresentation, type MaturityInput } from "@/domains/proo
  *   "matures" countdown, and never trains learning.
  *
  *   TRAFFIC/BEHAVIOR lane (GA4 trafficOutcome, Clarity, conversions): NOT
- *   gated. Their clock is live_at; the /proof card renders the traffic read
+ *   gated. Their clock is live_at; the /results card renders the traffic read
  *   unconditionally on rec.trafficOutcome - never behind any recrawl check.
  *
  * Also pins that the C2 badge vocabulary (six words) and the C4 See-the-math
@@ -66,7 +66,7 @@ describe("split clock - SEARCH lane is recrawl-gated", () => {
   });
 });
 
-describe("split clock - TRAFFIC lane is NOT recrawl-gated (source pin on the /proof card)", () => {
+describe("split clock - TRAFFIC lane is NOT recrawl-gated (source pin on the /results card)", () => {
   const source = readFileSync(resolve(__dirname, "page.tsx"), "utf8");
 
   it("the GA4 traffic block renders unconditionally on rec.trafficOutcome", () => {

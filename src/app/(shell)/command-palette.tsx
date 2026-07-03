@@ -37,20 +37,22 @@ export function CommandPalette({ targets }: { targets: PaletteTarget[] }) {
         hint: "Section",
         go: scrollTo(t.id),
       }));
+    // FP4 (2026-07-03) - entries name the surfaces the way the nav does
+    // (Changes, Results) now that the URLs match the labels.
     const routeEntries: Entry[] = [
-      { label: "Proof — what your changes did", hint: "Page", go: () => router.push("/proof") },
+      { label: "Changes, the ranked list of everything to do", hint: "Page", go: () => router.push("/changes") },
+      { label: "Results, what your changes did", hint: "Page", go: () => router.push("/results") },
       // FP10b (2026-07-02): /competitors retired; "who AI recommends instead
       // of you" now lives on AI questions (/prompts).
-      { label: "AI questions - who AI recommends instead of you", hint: "Page", go: () => router.push("/prompts") },
-      { label: "Changes — your shipped log", hint: "Page", go: () => router.push("/changes") },
-      { label: "Settings — connectors & data", hint: "Page", go: () => router.push("/settings/connectors") },
+      { label: "AI questions, who AI recommends instead of you", hint: "Page", go: () => router.push("/prompts") },
+      { label: "Connections, your data sources", hint: "Page", go: () => router.push("/settings/connectors") },
       {
-        label: "Customize sections — hide lenses you don't use",
+        label: "Customize sections, hide lenses you don't use",
         hint: "Action",
         go: () => window.dispatchEvent(new CustomEvent("beacon:open-customize")),
       },
       {
-        label: "Save as PDF report — share with your team",
+        label: "Save as PDF report to share with your team",
         hint: "Action",
         go: () => window.print(),
       },

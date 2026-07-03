@@ -21,7 +21,7 @@ import { loadWithDeadline } from "@/lib/load-with-deadline";
  *
  * Each row: the domain, how many times AI pointed to it instead of us (real
  * citationCount), and - when a related worklist move exists - the one
- * strongest "steal this" link into /worklist.
+ * strongest "steal this" link into /changes.
  */
 
 const MAX_DOMAINS_SHOWN = 6;
@@ -79,7 +79,7 @@ export async function CompetitorRivalsSection() {
               ) : null}
               {move ? (
                 <Link
-                  href="/worklist"
+                  href="/changes"
                   prefetch={false}
                   className="mt-2 inline-flex text-[12px] font-semibold text-accent-primary underline underline-offset-2 hover:text-accent-primary/85"
                 >

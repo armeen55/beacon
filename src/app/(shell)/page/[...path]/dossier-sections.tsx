@@ -242,7 +242,7 @@ export async function DossierHistorySection({ path }: { path: string }) {
                     {r.after ? <div><span className="font-medium text-foreground">After:</span> {r.after}</div> : null}
                   </div>
                 ) : null}
-                <Link href="/proof" className="mt-1.5 inline-block text-[11px] font-medium text-accent-primary underline underline-offset-2 hover:text-accent-primary/85">
+                <Link href="/results" className="mt-1.5 inline-block text-[11px] font-medium text-accent-primary underline underline-offset-2 hover:text-accent-primary/85">
                   See the receipts in Results
                 </Link>
               </div>
@@ -280,7 +280,7 @@ export async function DossierCurrentMoveSection({ path }: { path: string }) {
               ~{formatMetricCompact(currentMove.estimatedEffortMinutes)} min
               {currentMove.measurementHeadline ? ` - ${currentMove.measurementHeadline}` : ""}
             </p>
-            <Link href="/worklist" className="mt-1 inline-block text-[11px] font-medium text-accent-primary underline underline-offset-2 hover:text-accent-primary/85">
+            <Link href="/changes" className="mt-1 inline-block text-[11px] font-medium text-accent-primary underline underline-offset-2 hover:text-accent-primary/85">
               Open in Changes
             </Link>
           </div>
@@ -291,7 +291,7 @@ export async function DossierCurrentMoveSection({ path }: { path: string }) {
               {currentPlanPick.isAccepted ? "Picked for tonight" : "Planned pick (not yet accepted)"}
             </div>
             <p className="mt-0.5 text-[13px] leading-relaxed text-muted-foreground">{currentPlanPick.whyNow}</p>
-            <Link href="/worklist" className="mt-1 inline-block text-[11px] font-medium text-accent-primary underline underline-offset-2 hover:text-accent-primary/85">
+            <Link href="/changes" className="mt-1 inline-block text-[11px] font-medium text-accent-primary underline underline-offset-2 hover:text-accent-primary/85">
               Open in Changes
             </Link>
           </div>

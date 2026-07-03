@@ -11,7 +11,7 @@ import "server-only";
  *   executePush (Ritz hard-refuse, daily cap, pre-push snapshot, field-merge,
  *   non-destructive guard) -> markRecommendedEditPushResult -> the same
  *   shipped-change proof record every manual ship creates, with the receipt
- *   line in its notes (visible on /proof).
+ *   line in its notes (visible on /results).
  *
  * Safety posture:
  *   - Disabled config = instant no-op (default OFF, armed per tenant).
@@ -315,7 +315,7 @@ async function defaultShipPick(
   }
 
   // The receipt: the same proof-ledger record every ship creates, with the
-  // receipt line in notes so the operator can read it on /proof.
+  // receipt line in notes so the operator can read it on /results.
   try {
     const { autoRecordShippedChangeForRec } = await import(
       "@/domains/proof-gsc/auto-record-on-ship"

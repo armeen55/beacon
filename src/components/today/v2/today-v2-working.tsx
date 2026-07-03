@@ -152,12 +152,16 @@ export function TodayV2Working({
       )}
 
       <div className="mt-auto pt-4 flex items-center gap-3 text-[12px] font-semibold">
+        {/* FP4 (2026-07-03): this card lists changes being measured, and the
+            measuring list's one home is Results (/results). Before the route
+            rename this href bounced through the old /changes redirect to the
+            same place; now it says where it goes. */}
         <Link
-          href="/changes"
+          href="/results"
           className="text-accent-primary hover:underline"
           data-today-v2-cta="primary"
         >
-          Open changes →
+          See them in Results →
         </Link>
         {pendingImplementationCount > 0 && visibleChanges.length > 0 && (
           <Link

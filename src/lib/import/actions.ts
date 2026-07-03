@@ -660,7 +660,7 @@ export async function postImportSetup(): Promise<{
 
     revalidatePath("/", "layout");
     if (scanRes && scanRoutesShouldRevalidate(scanRes)) {
-      revalidatePath("/worklist", "layout");
+      revalidatePath("/changes", "layout");
     }
 
     log.info("Action completed", { action, durationMs: Date.now() - t0 });

@@ -746,7 +746,7 @@ export function RecommendationDetailClient({
               </>
             )}
             <Link
-              href="/proof"
+              href="/results"
               className="text-accent-primary hover:underline"
             >
               Results

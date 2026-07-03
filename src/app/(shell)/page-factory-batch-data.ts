@@ -40,7 +40,7 @@ export type FactoryBatchCardData = {
   items: FactoryBatchCardItem[];
 };
 
-// FP5b (2026-07-02) - react.cache()'d: /worklist now reads this twice per request (the
+// FP5b (2026-07-02) - react.cache()'d: /changes now reads this twice per request (the
 // batch card itself + the New Pages board's exclude-topics dedupe), so the store read
 // happens once and both consumers see the same rows.
 export const loadFactoryBatchCardData = cache(async (): Promise<FactoryBatchCardData | null> => {

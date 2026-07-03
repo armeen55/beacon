@@ -43,9 +43,9 @@ export async function prepareTopMovesAction(opts: { maxN?: number } = {}): Promi
   if (!(await isOperatorModeServer())) return { ok: false, reason: "Operator mode only." };
   try {
     const summary = await prepareTodayMovesForTenant(await currentTenantId(), { maxN: opts.maxN ?? 10 });
-    await invalidateWorklistSurface().catch(() => {}); // prepared state changed → recompute next /worklist load
+    await invalidateWorklistSurface().catch(() => {}); // prepared state changed → recompute next /changes load
     revalidatePath("/");
-    revalidatePath("/worklist");
+    revalidatePath("/changes");
     return { ok: true, summary };
   } catch (e) {
     return { ok: false, reason: e instanceof Error ? e.message.slice(0, 120) : "prepare failed" };
@@ -84,7 +84,7 @@ export async function enrichTopResearchPacksAction(opts: { topN?: number } = {})
     const result = await enrichResearchPacks(packs);
     if (result.mode === "live" && result.patternsWritten > 0) {
       await invalidateWorklistSurface().catch(() => {}); // new SERP patterns → cards change → recompute
-      revalidatePath("/worklist");
+      revalidatePath("/changes");
     }
     return { status: "ok", result };
   } catch (e) {
@@ -117,7 +117,7 @@ export async function sharpenMovesWithTeardownAction(
   await invalidateWorklistSurface().catch(() => {}); // fresh teardown → "what wins" changes → recompute
   revalidatePath("/");
   revalidatePath("/prompts");
-  revalidatePath("/worklist");
+  revalidatePath("/changes");
   return { status: "ok", audited: audited.length, targets, cached };
 }
 
@@ -149,7 +149,7 @@ export async function regenerateTopDraftsFromTeardownAction(
     });
     await invalidateWorklistSurface().catch(() => {}); // regenerated drafts → readiness changes → recompute
     revalidatePath("/");
-    revalidatePath("/worklist");
+    revalidatePath("/changes");
     revalidatePath("/drafts");
     return { ok: true, summary };
   } catch (e) {
@@ -171,7 +171,7 @@ export type PrepareTonightsPlanResult =
 
 /**
  * prepareTonightsPlanAction (UX3, 2026-07-02) — the ONE command that replaces the
- * Improve-top-3 / Enrich-research / Prepare-top-10 button cluster on /worklist. Runs the
+ * Improve-top-3 / Enrich-research / Prepare-top-10 button cluster on /changes. Runs the
  * exact same three pipelines, in the order that makes each one sharper for the next
  * (competitor teardown research first, so the drafts written after it can use those facts):
  * enrich research packs (DataForSEO, dry-run unless already configured live) → prepare the
@@ -246,7 +246,7 @@ export async function markMoveAppliedAction(args: {
     // the derived worklist surface too).
     await invalidateDemandGraph("change shipped → page enters measurement").catch(() => {});
     revalidatePath("/");
-    revalidatePath("/worklist");
+    revalidatePath("/changes");
     return { ok: true, recorded: res.recorded, reason: res.reason };
   } catch (e) {
     return { ok: false, reason: e instanceof Error ? e.message.slice(0, 120) : "mark-applied failed" };
@@ -261,7 +261,7 @@ export type MeasureNowResult =
  * measureAppliedMovesAction (2026-06-25, Sprint 3) — operator-triggered re-measure
  * of all applied Moves due for a fresh reading (GSC/GA4 already-synced data only;
  * NO paid calls). Cache-first, bounded, fail-soft per record. Revalidates "/" +
- * "/proof" so settled outcomes + the learned re-ranking show. Operator-gated.
+ * "/results" so settled outcomes + the learned re-ranking show. Operator-gated.
  */
 export async function measureAppliedMovesAction(opts: { maxRecords?: number } = {}): Promise<MeasureNowResult> {
   if (!(await isOperatorModeServer())) return { ok: false, reason: "Operator mode only." };
@@ -282,8 +282,8 @@ export async function measureAppliedMovesAction(opts: { maxRecords?: number } = 
       await buildTeamScoreboardSummary(tenantId).catch(() => {});
     }
     revalidatePath("/");
-    revalidatePath("/worklist");
-    revalidatePath("/proof");
+    revalidatePath("/changes");
+    revalidatePath("/results");
     return { ok: true, result };
   } catch (e) {
     return { ok: false, reason: e instanceof Error ? e.message.slice(0, 120) : "measure failed" };

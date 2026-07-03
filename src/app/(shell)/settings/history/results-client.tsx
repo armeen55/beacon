@@ -241,8 +241,10 @@ export function ResultsClient({
       />
 
       <div className="flex items-center gap-1 mb-4 text-[11px]">
-        <Link href="/changes" className="px-3 py-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-surface-inset/50 font-medium transition-colors">
-          ← Outcomes
+        {/* FP4 (2026-07-03): outcomes live on Results; the old href bounced
+            through the /changes redirect to the same place. */}
+        <Link href="/results" className="px-3 py-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-surface-inset/50 font-medium transition-colors">
+          ← Results
         </Link>
         <span className="px-3 py-1.5 rounded-md bg-foreground text-background font-semibold">Measurement detail</span>
       </div>

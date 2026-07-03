@@ -95,7 +95,7 @@ export async function computePooledVerdicts(tenantId: string, now: Date = new Da
     if (groups.length === 0) return empty;
 
     // One bounded daily-clicks read across every measured page in every qualifying group (dedup
-    // paths first) - mirrors /proof's own sparkline read (loadDailyClicksByPathsForTenant is
+    // paths first) - mirrors /results's own sparkline read (loadDailyClicksByPathsForTenant is
     // capped at 16 paths per call internally), batched here to stay within that cap per call.
     const allPaths = [...new Set(groups.flatMap((g) => g.measuredRows.map((r) => r.record.path)))];
     const dailySeries = new Map<string, { date: string; clicks: number }[]>();

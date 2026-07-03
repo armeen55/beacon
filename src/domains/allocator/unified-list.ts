@@ -502,7 +502,7 @@ const KIND_TO_OPPORTUNITY_LABEL: Record<UnifiedKind, string> = {
 
 /**
  * Render a NON-worklist-lane UnifiedEntry (aeo_gap / serp_steal / keyword_library) as a
- * first-class CanonicalChange, so it appears on /worklist through the SAME rendering seam every
+ * first-class CanonicalChange, so it appears on /changes through the SAME rendering seam every
  * other row already uses (ChangesListClient reads CanonicalChange[] generically - no new UI
  * needed). A worklist-lane entry already IS a CanonicalChange (see `sourceChange`) and should be
  * merged with `mergeSourcesOntoChange` instead of re-synthesized.

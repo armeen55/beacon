@@ -47,6 +47,7 @@ import type { ModeAResult } from "@/domains/outcome-attribution/mode-a-cited-her
 import { ChangesV2ResultPill } from "@/components/changes/v2/changes-v2-result-pill";
 import { RepeatCitationAct3 } from "@/components/changes/repeat-citation-act3";
 import { OutcomeAttributionAct3 } from "@/components/changes/outcome-attribution-act3";
+import { HeaderTitle } from "@/components/shell/shell-provider";
 
 export type ChangeDetailV2Props = {
   /** Short, customer-friendly title for the header. Already
@@ -186,10 +187,13 @@ export function ChangeDetailV2Client(props: ChangeDetailV2Props) {
       className="max-w-3xl space-y-6"
       data-change-detail-layout="v2-proof-brief"
     >
+      {/* FP4 (2026-07-03) - the shell breadcrumb names THIS change ("Changes /
+          <short title>") instead of a generic detail label. */}
+      <HeaderTitle title={title} />
       {/* Header */}
       <header data-change-detail-header="true">
         <Link
-          href="/proof"
+          href="/results"
           className="inline-flex items-center text-[12px] font-medium text-muted-foreground hover:text-foreground"
           data-change-detail-back="true"
         >

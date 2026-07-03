@@ -335,7 +335,7 @@ export function MoveCard({
           ) : null}
           <div className="text-meta text-status-success">
             Once it&apos;s live on the page,{" "}
-            <Link href={`/proof?page=${encodeURIComponent(m.targetUrl)}`} className={`rounded-sm font-semibold underline hover:opacity-80 ${FOCUS}`}>
+            <Link href={`/results?page=${encodeURIComponent(m.targetUrl)}`} className={`rounded-sm font-semibold underline hover:opacity-80 ${FOCUS}`}>
               confirm it&apos;s live →
             </Link>{" "}
             so Beacon can measure the lift.
@@ -399,7 +399,7 @@ export function MoveCard({
         ) : null}
         {m.proofStatus === "measuring" && m.targetUrl && m.targetUrl !== "needs_new_page" ? (
           <Link
-            href={`/proof?page=${encodeURIComponent(m.targetUrl)}`}
+            href={`/results?page=${encodeURIComponent(m.targetUrl)}`}
             className={`rounded-sm text-meta font-medium text-status-info underline underline-offset-2 hover:opacity-80 ${FOCUS}`}
           >
             View in Results →
@@ -464,7 +464,7 @@ export function MoveCard({
           </span>
           {m.outcomeCaution.evidence.length && m.targetUrl && m.targetUrl !== "needs_new_page" ? (
             <Link
-              href={`/proof?page=${encodeURIComponent(m.targetUrl)}`}
+              href={`/results?page=${encodeURIComponent(m.targetUrl)}`}
               className={`rounded-sm text-meta font-medium text-status-info underline underline-offset-2 hover:opacity-80 ${FOCUS}`}
             >
               View in Results →

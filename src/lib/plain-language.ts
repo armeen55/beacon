@@ -238,6 +238,42 @@ export function plainPageParts(parts: readonly string[]): string {
     .join(", ");
 }
 
+/** FP4 (2026-07-03) - internal change identifiers (action types like
+ *  "edit_meta", plan levers like "answer_block") leaked verbatim into Ask's
+ *  answers. One plain name per known kind; the heuristic fallback covers new
+ *  kinds so a raw snake_case key never reaches a rendered sentence. */
+const CHANGE_KIND_PLAIN: Record<string, string> = {
+  edit_title: "title rewrite",
+  edit_meta: "meta description rewrite",
+  edit_h1: "main heading edit",
+  add_answer_block: "short answer added at the top",
+  answer_block: "short answer change",
+  add_faq: "FAQ section added",
+  add_faq_schema: "FAQ section added",
+  add_schema: "Google-readable page info added",
+  add_internal_links: "links added between your pages",
+  create_page: "new page",
+  rewrite_content: "page rewrite",
+  title: "title change",
+  meta: "meta description change",
+  h1: "main heading change",
+  faq: "FAQ change",
+};
+
+export function plainChangeKind(kind: string): string {
+  const known = CHANGE_KIND_PLAIN[kind];
+  if (known) return known;
+  const k = kind.toLowerCase();
+  if (k.includes("meta")) return "meta description change";
+  if (k.includes("title")) return "title change";
+  if (k.includes("h1") || k.includes("heading")) return "heading change";
+  if (k.includes("answer") || k.includes("faq")) return "short answer change";
+  if (k.includes("schema")) return "Google-readable page info change";
+  if (k.includes("link")) return "internal link change";
+  if (k.includes("page")) return "page change";
+  return k.replace(/[_-]+/g, " ").trim() + " change";
+}
+
 // ---------------------------------------------------------------------------
 // 3. Brand + headline copy used across the shell (audit: wordmark, nav).
 // ---------------------------------------------------------------------------

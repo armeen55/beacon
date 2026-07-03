@@ -27,11 +27,11 @@ export async function findWikiGapsAction(): Promise<WikiGapActionResponse> {
   const tenantId = await currentTenantId();
   const r = await produceWikiGaps(tenantId);
   if (r.status === "ok") {
-    // New gaps feed the New Pages board (Today + /worklist), the AI questions
+    // New gaps feed the New Pages board (Today + /changes), the AI questions
     // page's competitor section, and this diagnostic.
     revalidatePath("/diagnostics/competitor-intel");
     revalidatePath("/prompts");
-    revalidatePath("/worklist");
+    revalidatePath("/changes");
     revalidatePath("/");
   }
   return {

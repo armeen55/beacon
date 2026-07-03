@@ -52,7 +52,7 @@ const FIELD_INPUT =
  */
 export function RecordAnyPageForm({ initialPage = "" }: { initialPage?: string }) {
   const router = useRouter();
-  // initialPage prefills from a /proof?page=... hand-off (e.g. the Workbench
+  // initialPage prefills from a /results?page=... hand-off (e.g. the Workbench
   // "Record this change" link), so recording a shipped experiment doesn't mean
   // re-typing the path. The Change Pack auto-fills action/before/after/queries.
   const [pageUrl, setPageUrl] = useState(initialPage);

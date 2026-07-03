@@ -445,7 +445,7 @@ export function NewPageCard({ o, ownDomain, enableAeoBrief = false }: { o: NewPa
 
       <div className="mt-3 flex flex-wrap items-center gap-2">
         <Link
-          href="/worklist#new-pages"
+          href="/changes#new-pages"
           className="inline-flex items-center gap-1 rounded-lg border border-border bg-card px-3 py-1.5 text-body font-semibold text-foreground-secondary transition-colors hover:border-status-success/40 hover:bg-status-success-bg hover:text-status-success"
         >
           Plan this page →

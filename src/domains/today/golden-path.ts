@@ -287,7 +287,7 @@ export async function loadGoldenPathState(
     status: hasProof ? "done" : "upcoming",
     detail: hasProof
       ? "See what your changes drove."
-      : "Proof appears after your changes go live.",
+      : "Results appear after your changes go live.",
   };
 
   const steps: GoldenPathStep[] = [refresh, review, approve, verify, learn];

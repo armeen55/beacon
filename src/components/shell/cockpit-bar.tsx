@@ -57,11 +57,14 @@ export async function CockpitBar() {
           <span className="text-muted-foreground">clicks/7d</span>
           {deltaPct != null ? <span className={`font-semibold ${deltaTone}`}>{formatDeltaPct(deltaPct)}</span> : null}
         </span>
+        {/* FP4 (2026-07-03): one name for one page. This button used to say
+            "Tonight's changes" while the sidebar said "Changes" and the URL
+            said /worklist; the diagnosis counted four names for the same list. */}
         <Link
-          href="/worklist"
+          href="/changes"
           className="rounded-md bg-gray-900 px-2.5 py-1 text-[11px] font-semibold text-white transition-colors hover:bg-gray-700 dark:bg-neutral-100 dark:text-neutral-900 dark:hover:bg-neutral-300"
         >
-          Tonight&apos;s changes
+          Changes
         </Link>
       </div>
     );

@@ -13,7 +13,7 @@ describe("selectLeadStory", () => {
         { path: "/older", shippedAt: "2026-06-01T00:00:00Z", verdict: "won", pageLabel: "Older page" },
         { path: "/newer", shippedAt: "2026-06-20T00:00:00Z", verdict: "won", pageLabel: "Newer page" },
       ],
-      attention: [{ title: "Alert", message: "Something broke", href: "/worklist" }],
+      attention: [{ title: "Alert", message: "Something broke", href: "/changes" }],
       tonightTopPick: { pageLabel: "Some page", whyNow: "why", headline: "headline" },
       moverDays: [{ date: "2026-06-29", clicks: 10 }, { date: "2026-06-30", clicks: 100 }],
     });
@@ -22,7 +22,7 @@ describe("selectLeadStory", () => {
     expect(result!.tone).toBe("good");
     expect(result!.sentence).toContain("Newer page");
     expect(result!.sentence).toContain("won");
-    expect(result!.href).toBe("/proof");
+    expect(result!.href).toBe("/results");
   });
 
   it("owns a lost verdict plainly, not hedged", () => {

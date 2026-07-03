@@ -45,16 +45,16 @@ describe("orchestrate-scan render safety", () => {
     expect(src).not.toMatch(/\brevalidatePath\b/);
   });
 
-  it("postImportSetup uses scanRoutesShouldRevalidate before revalidatePath(/worklist)", () => {
+  it("postImportSetup uses scanRoutesShouldRevalidate before revalidatePath(/changes)", () => {
     // Was /pages, deleted 2026-07-02 (UX5 legacy sweep, zero inbound links);
-    // /worklist (Changes) is the live surface where scanned page changes
+    // /changes (Changes) is the live surface where scanned page changes
     // now actually reach the operator.
     const src = readFileSync(
       join(process.cwd(), "src/lib/import/actions.ts"),
       "utf8",
     );
     expect(src).toMatch(/scanRoutesShouldRevalidate/);
-    expect(src).toMatch(/revalidatePath\("\/worklist"/);
+    expect(src).toMatch(/revalidatePath\("\/changes"/);
   });
 
   it("scanRoutesShouldRevalidate is false for failed or dry-run payloads", () => {

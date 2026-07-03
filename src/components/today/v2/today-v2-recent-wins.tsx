@@ -132,12 +132,14 @@ export function TodayV2RecentWins(props: RecentWinsProps) {
       </ul>
 
       <div className="mt-auto pt-4 text-[12px] font-semibold">
+        {/* FP4 (2026-07-03): measured wins live on Results; the old href
+            bounced through the /changes redirect to the same place. */}
         <Link
-          href="/changes"
+          href="/results"
           className="text-accent-primary hover:underline"
           data-today-v2-cta="primary"
         >
-          See all changes →
+          See all results →
         </Link>
       </div>
     </article>

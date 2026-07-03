@@ -4,7 +4,7 @@ import { summarizeForecastCalibration, MIN_SETTLED_FOR_CALIBRATION } from "@/dom
 
 /**
  * forecast-calibration-section (2026-07-02, master plan item 27) - the "How honest are my
- * forecasts" card for /proof. Compact, self-hiding: renders nothing until at least
+ * forecasts" card for /results. Compact, self-hiding: renders nothing until at least
  * MIN_SETTLED_FOR_CALIBRATION picks have settled at their 28-day window (see
  * forecast-calibration-store.ts's calibration writer). Read-only, $0 (reads the already-written
  * calibration ledger; no measurement here).

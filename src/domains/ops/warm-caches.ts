@@ -5,7 +5,7 @@ import "server-only";
  *
  * At ~5am Pacific the cron warms everything the operator opens first thing in
  * the morning, so the first visit is instant AND full: the demand-graph
- * snapshot, the /worklist SWR surface, tonight's daily plan preview, and the
+ * snapshot, the /changes SWR surface, tonight's daily plan preview, and the
  * Today SWR surface. This is a WARM CACHE pass, not a behavior change - the
  * on-demand posture stays for refresh, and every step calls the EXISTING
  * loader/builder (zero business logic lives here; composition only).
@@ -51,7 +51,7 @@ import "server-only";
  *                            native-teardown-runner.ts.
  *
  * Money posture (verified in the callees, none edited here):
- *   - graph/worklist/today loaders are cached/durable reads only ($0).
+ *   - graph/changes/today loaders are cached/durable reads only ($0).
  *   - build-today-preview's paid paths are all gated: the LLM passes run only
  *     when BEACON_LLM_PROVIDER=openai AND the fail-closed budget cap allows
  *     (structured-drafter checkBudget), and the live-SERP enrichment is
@@ -87,7 +87,7 @@ export type WarmCachesDeps = {
   ambientTenantId: () => Promise<string>;
   /** Rebuild + persist the demand-graph SWR snapshot (build-then-write). */
   refreshDemandGraph: (tenantId: string) => Promise<void>;
-  /** Rebuild + persist the /worklist SWR surface. */
+  /** Rebuild + persist the /changes SWR surface. */
   refreshWorklist: (tenantId: string) => Promise<void>;
   /** Rebuild + persist the Today SWR surface (ambient tenant). */
   refreshToday: () => Promise<void>;

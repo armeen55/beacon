@@ -61,7 +61,7 @@ export default async function KeywordsPage() {
       />
       {heroLine && <p className="text-base font-semibold text-gray-900 dark:text-neutral-100">{heroLine}</p>}
       <p className="text-sm text-gray-600 dark:text-neutral-400">{coverageLine}</p>
-      <KeywordsTableClient rows={library.rows} worklistBaseHref="/worklist" />
+      <KeywordsTableClient rows={library.rows} worklistBaseHref="/changes" />
     </div>
   );
 }

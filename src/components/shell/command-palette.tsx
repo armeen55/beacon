@@ -131,22 +131,21 @@ export function CommandPalette({ items: staticItems }: { items: PaletteItem[] })
         // "Surface Trust"); the shortcuts were dead wiring exposing
         // hidden surfaces via CMD+K.
         //
-        // 2026-06-14 — extended to cover ALL six customer routes in
-        // `navigationGroups` (`src/lib/navigation.ts`). Previously the
-        // map only implemented t/c/s while the help dialog + palette
-        // labels advertised G P / G M / G R — shortcuts the handler
-        // never fired. The map below aligns 1:1 with the customer nav;
-        // keys are chosen to avoid colliding with ⌘K / ? . `g+k` →
-        // Connectors (mnemonic: "connectors"; `g+c` is taken by
-        // Changes). Keep this in lockstep with the help dialog's
-        // Navigation group and `NAV_SHORTCUTS` in
-        // `src/app/(shell)/layout.tsx`; the architecture test
+        // FP4 (2026-07-03) - route-name unification: URLs now match the nav
+        // labels, so the chord letters follow the names. g+c = Changes
+        // (/changes), g+e = Results (/results), g+a = Ask. g+r
+        // (/recommendations) was dropped: Drafts left the nav in the
+        // 2026-07-01 consolidation and its route is a redirect into /changes
+        // now. Keep this in lockstep with the help dialog's Navigation group
+        // and `NAV_SHORTCUTS` in `src/app/(shell)/layout.tsx` +
+        // `app-sidebar.tsx`; the architecture test
         // `customer-nav-exposure.test.ts` enforces no hidden routes.
         const routes: Record<string, string> = {
           t: "/",
-          r: "/recommendations",
+          c: "/changes",
+          e: "/results",
+          a: "/ask",
           p: "/prompts",
-          c: "/proof",
           k: "/settings/connectors",
           s: "/settings",
         };
@@ -386,10 +385,11 @@ export function CommandPalette({ items: staticItems }: { items: PaletteItem[] })
 
               <HelpGroup title="Navigation">
                 <HelpRow keys="G T" label="Today" />
-                <HelpRow keys="G R" label="Recommendations" />
-                <HelpRow keys="G P" label="Prompts" />
-                <HelpRow keys="G C" label="Results" />
-                <HelpRow keys="G K" label="Connectors" />
+                <HelpRow keys="G C" label="Changes" />
+                <HelpRow keys="G E" label="Results" />
+                <HelpRow keys="G A" label="Ask" />
+                <HelpRow keys="G P" label="AI questions" />
+                <HelpRow keys="G K" label="Connections" />
                 <HelpRow keys="G S" label="Settings" />
               </HelpGroup>
             </div>

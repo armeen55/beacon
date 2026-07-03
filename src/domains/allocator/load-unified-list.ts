@@ -11,7 +11,7 @@ import "server-only";
  * Takes the worklist's CanonicalChange[] as an INPUT (rather than rebuilding it) so there is
  * exactly one place in the codebase that assembles lane (a) - changes-data.ts's
  * loadChangesView(), the sole caller. That keeps the allocator from ever silently drifting from
- * what /worklist's ActionPack pipeline already decided.
+ * what /changes's ActionPack pipeline already decided.
  *
  * Lanes fetched here:
  *   (b) D2 native AEO gap verdicts - native-teardown-runner.ts's loadGapVerdictsForTenant.
@@ -56,7 +56,7 @@ export type UnifiedListResult = {
 
 /**
  * Fuse an already-built worklist CanonicalChange[] with the D2/D3/keyword-library lanes, and
- * return ONE ranked CanonicalChange[] through the SAME shape /worklist already renders (no new
+ * return ONE ranked CanonicalChange[] through the SAME shape /changes already renders (no new
  * UI needed - ChangesListClient reads CanonicalChange[] generically). "Skipped" rows are excluded
  * from ranking input (operator-dismissed, not a ranking signal) and appended back unranked at the
  * tail so the caller's total count stays honest.

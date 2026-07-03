@@ -47,11 +47,12 @@ import { loadWithDeadline } from "@/lib/load-with-deadline";
 // `customer-nav-exposure.test.ts` enforces no hidden routes.
 const NAV_SHORTCUTS: Record<string, string> = {
   "/": "G T",
-  "/recommendations": "G R",
+  // FP4 (2026-07-03): URLs now match nav labels, so the letters follow the
+  // names. G C = Changes (/changes), G E = Results (/results).
+  "/changes": "G C",
+  "/results": "G E",
+  "/ask": "G A",
   "/prompts": "G P",
-  // IA consolidation (2026-06-23): Changes merged into Results (/proof); the
-  // G+C shortcut + sidebar hint now point at Results.
-  "/proof": "G C",
   "/settings/connectors": "G K",
   "/settings": "G S",
 };
@@ -228,7 +229,7 @@ async function loadShellData(): Promise<{
 
   const badges: NavBadges = {};
   if (todayBadge > 0) badges["/"] = todayBadge;
-  if (changesBadge > 0) badges["/proof"] = changesBadge;
+  if (changesBadge > 0) badges["/results"] = changesBadge;
 
   // Sample / walkthrough data when no import runs exist (`import-runs` store
   // empty) - UNLESS a real source is connected. A tenant with Wix or GSC wired
@@ -255,7 +256,7 @@ async function loadShellData(): Promise<{
   trace.data("changelog_count", changelogEntries.length);
   trace.data("palette_items", latePaletteItems.length);
   trace.data("today_badge", badges["/"] ?? 0);
-  trace.data("changes_badge", badges["/proof"] ?? 0);
+  trace.data("changes_badge", badges["/results"] ?? 0);
   trace.flush();
 
   return { badges, isDemoMode, latePaletteItems };
