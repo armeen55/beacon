@@ -16,6 +16,28 @@ const POWER_WORDS = new Set([
   "complete", "ultimate", "essential", "definitive", "explained", "guide",
 ]);
 
+/** R9 (2026-07-03) - the click-signal weights, extracted from inline literals so
+ *  settled title tests in the proof ledger can retrain them (bounded, decided-only;
+ *  see learning/title-signal-retrain.ts). The defaults are EXACTLY the constants
+ *  this scorer has always used - a caller that passes nothing scores byte-identically
+ *  (pinned). Query coverage (the essential signal) and the length penalties are
+ *  deliberately NOT retrainable: coverage is what makes a title honest, not a
+ *  preference to be learned away. */
+export type TitleSignalWeights = {
+  number: number;
+  parenthetical: number;
+  powerWord: number;
+  brand: number;
+  lengthSweet: number;
+};
+export const BASE_TITLE_SIGNAL_WEIGHTS: TitleSignalWeights = {
+  number: 12,
+  parenthetical: 8,
+  powerWord: 6,
+  brand: 5,
+  lengthSweet: 6,
+};
+
 /** Generic list-intent cues in a query → a "Top N / List of" title works. */
 const LIST_CUE = /\b(best|top|list|names|ideas|examples|types|tips|ways)\b/i;
 
@@ -65,8 +87,15 @@ function tokenize(s: string): string[] {
   return s.toLowerCase().split(/[^a-z0-9]+/).filter((t) => t.length > 1);
 }
 
-/** Score one candidate title against the query. Higher = more clickable. */
-export function scoreTitle(title: string, query: string, brand: string): TitleVariant {
+/** Score one candidate title against the query. Higher = more clickable.
+ *  `weights` (R9, optional) are the retrained click-signal weights; omitted =
+ *  the base constants, byte-identical to the pre-R9 scorer. */
+export function scoreTitle(
+  title: string,
+  query: string,
+  brand: string,
+  weights: TitleSignalWeights = BASE_TITLE_SIGNAL_WEIGHTS,
+): TitleVariant {
   const signals: string[] = [];
   let score = 0;
   const lower = title.toLowerCase();
@@ -79,22 +108,22 @@ export function scoreTitle(title: string, query: string, brand: string): TitleVa
   if (coverage >= 0.99) signals.push("full-query");
 
   if (/^\d|\b\d{1,3}\b/.test(title)) {
-    score += 12;
+    score += weights.number;
     signals.push("number");
   }
   if (/\(([^)]+)\)/.test(title)) {
-    score += 8;
+    score += weights.parenthetical;
     signals.push("parenthetical");
   }
   // NOTE: no "year" bonus. Year-stuffing ("… (2026 Guide)") is boilerplate that
   // Google's title-link guidance warns against — it made one templated title win
   // on every page. Titles earn their score from query coverage + page-specific cues.
   if (tokenize(title).some((t) => POWER_WORDS.has(t))) {
-    score += 6;
+    score += weights.powerWord;
     signals.push("power-word");
   }
   if (brand && lower.includes(brand.toLowerCase())) {
-    score += 5;
+    score += weights.brand;
     signals.push("brand");
   }
   // Length: reward the sweet spot, penalize over the SERP limit.
@@ -102,7 +131,7 @@ export function scoreTitle(title: string, query: string, brand: string): TitleVa
     score -= (title.length - TITLE_MAX) * 2;
     signals.push("too-long");
   } else if (title.length >= TITLE_SWEET_LO && title.length <= TITLE_SWEET_HI) {
-    score += 6;
+    score += weights.lengthSweet;
     signals.push("length-sweet");
   } else if (title.length < TITLE_MIN) {
     score -= 4;
@@ -222,12 +251,19 @@ function genCandidates(query: string, brand: string, extras?: TitleExtras): RawC
 
 /**
  * Scored, page-specific title variants WITH a strategy + reason on each — the
- * production entry point for the CTR Title Lab. Sorted best-first.
+ * production entry point for the CTR Title Lab. Sorted best-first. `weights`
+ * (R9, optional) are the ledger-retrained click-signal weights; omitted = the
+ * base constants, byte-identical ranking to before.
  */
-export function buildTitleVariants(query: string, brand: string, extras?: TitleExtras): TitleVariant[] {
+export function buildTitleVariants(
+  query: string,
+  brand: string,
+  extras?: TitleExtras,
+  weights?: TitleSignalWeights,
+): TitleVariant[] {
   return genCandidates(query, brand, extras)
     .map((c) => {
-      const s = scoreTitle(c.title, query, brand);
+      const s = scoreTitle(c.title, query, brand, weights);
       return { ...s, score: s.score + (STRATEGY_BONUS[c.strategy] ?? 0), strategy: c.strategy, reason: c.reason };
     })
     .sort((a, b) => b.score - a.score);

@@ -51,6 +51,11 @@ export type FactoryBatchItem = {
    *  lane can later attribute AI citations to the dataset play specifically.
    *  Optional/undefined for every pre-existing candidate - additive field. */
   datasetTag?: "dataset_page";
+  /** N5 (2026-07-03): the information-gain verdict for this drafted page when
+   *  teardown evidence existed for its topic - what it adds that the winning
+   *  pages do not already say, as one plain sentence for the review card.
+   *  Absent when unchecked (no evidence; never a fabricated verdict). */
+  infoGain?: { verdict: string; sentence: string };
   status: FactoryBatchItemStatus;
   /** Target URL this page will publish to, once known (operator may set on approve). */
   targetUrl: string | null;
@@ -72,6 +77,13 @@ export type FactoryBatchRecord = {
   totalCostUsd: number;
   /** ISO timestamp this batch was generated. */
   generatedAt: string;
+  /** N28 (2026-07-03): pages the scaled-content governor or the info-gain law
+   *  refused this week, each with its plain reason - persisted so the batch
+   *  card can say exactly why a candidate was skipped. Absent on clean runs. */
+  governorRefusals?: Array<{ slug: string; plainReason: string }>;
+  /** One-sentence batch-card summary of the refusals ("I skipped three of
+   *  eight: ..."), null/absent when nothing was refused. */
+  governorSummary?: string | null;
 };
 
 async function readAll(): Promise<FactoryBatchRecord[]> {

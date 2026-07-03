@@ -15,6 +15,15 @@ import { evaluateCreatePageBriefQuality } from "@/domains/drafts/draft-quality";
 import { draftFullPageStructured, assembleDraftPage, serializeFullPageDraft, type FullPageBriefInput } from "@/domains/llm/draft-full-page";
 import { saveMoveDraft } from "@/domains/demand-graph/move-draft-store";
 import { stripBannedDashes } from "@/lib/copy/strip-dashes";
+import { governFactoryBatch, summarizeRefusals, type GovernorRefusal } from "@/domains/push/factory-governor";
+import {
+  loadGovernorContextForTenant,
+  loadTeardownTopicEntriesForTenant,
+  EMPTY_GOVERNOR_CONTEXT,
+  type GovernorContext,
+  type TeardownTopicEntry,
+} from "@/domains/push/factory-governor-context";
+import { scoreInfoGain, extractsForTopic } from "@/domains/drafts/info-gain-gate";
 
 /**
  * page-factory/production-line (BEACON 500 item 62) - the governed weekly
@@ -52,6 +61,9 @@ export type ProductionLineSummary = {
   drafted: number;
   queued: number;
   rejected: number;
+  /** N28 (2026-07-03): pages the governor or the info-gain law refused this
+   *  run (their plain reasons persist on the batch record). */
+  refused?: number;
   costUsd: number;
   batch: FactoryBatchRecord | null;
 };
@@ -62,6 +74,12 @@ export type ProductionLineDeps = {
   draftBrief?: typeof draftCreatePageStructured;
   /** Injectable for tests - defaults to the real section-by-section walker. */
   draftFullPage?: typeof draftFullPageStructured;
+  /** N28 (2026-07-03): injectable pace/growth counts for the scaled-content
+   *  governor; defaults to the real shipped-ledger + batch-history read. */
+  governorContext?: GovernorContext;
+  /** N5 (2026-07-03): injectable topic-keyed teardown extracts for the
+   *  info-gain check; defaults to the steal-brief + audit-cache join. */
+  teardownEntries?: TeardownTopicEntry[];
 };
 
 /** Monday of the week containing `now`, as an ISO date (YYYY-MM-DD), UTC. Mirrors
@@ -159,13 +177,35 @@ export async function runProductionLineForTenant(
 
     // Rank by real backing demand (cached volume, else graph demand), cap to the
     // hard weekly constant.
-    const ranked = passed
-      .sort((a, b) => {
-        const av = a.verdict.source === "cached_keyword" ? a.verdict.searchVolume : a.verdict.demand;
-        const bv = b.verdict.source === "cached_keyword" ? b.verdict.searchVolume : b.verdict.demand;
-        return bv - av;
-      })
-      .slice(0, MAX_DRAFTS_PER_WEEK);
+    const rankedAll = passed.sort((a, b) => {
+      const av = a.verdict.source === "cached_keyword" ? a.verdict.searchVolume : a.verdict.demand;
+      const bv = b.verdict.source === "cached_keyword" ? b.verdict.searchVolume : b.verdict.demand;
+      return bv - av;
+    });
+
+    // N28 scaled-content governor (2026-07-03, R8): before any LLM spend,
+    // enforce the weekly pace (shipped ledger + batch history, not just this
+    // batch), the no-two-pages-on-one-topic rule, and the monthly site-growth
+    // ratio. Refused pages are skipped WITH their plain reason persisted to
+    // the batch record below. Fail-soft context - unknown counts enforce only
+    // what they can see, never block on missing data.
+    const governorCtx =
+      deps.governorContext ??
+      (await loadGovernorContextForTenant(tenantId, now()).catch(() => EMPTY_GOVERNOR_CONTEXT));
+    const considered = rankedAll.slice(0, MAX_DRAFTS_PER_WEEK);
+    const govern = governFactoryBatch({
+      candidates: considered.map((r) => ({ slug: r.candidate.slug, title: r.candidate.title })),
+      newPagesThisWeek: governorCtx.newPagesThisWeek,
+      newPagesThisMonth: governorCtx.newPagesThisMonth,
+      indexedPageCount: governorCtx.indexedPageCount,
+    });
+    const refusals: GovernorRefusal[] = [...govern.refusals];
+    const allowedSlugs = new Set(govern.allowed.map((c) => c.slug));
+    const ranked = considered.filter((r) => allowedSlugs.has(r.candidate.slug));
+
+    // N5 comparison evidence: topic-keyed teardown extracts ($0, cache-only).
+    const teardownEntries =
+      deps.teardownEntries ?? (await loadTeardownTopicEntriesForTenant(tenantId).catch(() => []));
 
     const items: FactoryBatchItem[] = [];
     let totalCostUsd = 0;
@@ -232,6 +272,31 @@ export async function runProductionLineForTenant(
         continue; // rejected copy never enters the review batch
       }
 
+      // N5 information-gain law (2026-07-03, R8): a batch page must ADD
+      // something the winning pages for its topic do not already say. Scored
+      // only when teardown evidence exists for this topic (unchecked = pass,
+      // never block on missing data); a repeat or a thin addition is skipped
+      // WITH the honest sentence persisted to the batch record.
+      const infoGain = scoreInfoGain(
+        {
+          title: briefValue.proposedTitle,
+          outline: briefValue.outline,
+          answer: briefValue.openingAnswer,
+          faqQuestions: briefValue.faqQuestions,
+        },
+        extractsForTopic(candidate.title, teardownEntries),
+        { topicLabel: candidate.title },
+      );
+      if (infoGain.verdict === "duplicate_of_serp" || infoGain.verdict === "thin_addition") {
+        totalCostUsd += costUsd;
+        refusals.push({
+          slug: candidate.slug,
+          category: infoGain.verdict === "duplicate_of_serp" ? "repeats_winners" : "too_little_new",
+          plainReason: infoGain.sentence,
+        });
+        continue;
+      }
+
       const fullPageBrief: FullPageBriefInput = {
         proposedTitle: briefValue.proposedTitle,
         metaDescription: briefValue.metaDescription,
@@ -287,6 +352,9 @@ export async function runProductionLineForTenant(
             ? `I found real search demand for this: ${verdict.searchVolume.toLocaleString()} searches a month.`
             : `Your own site data shows real demand for "${verdict.matchedLabel}".`,
         ...(isDataset ? { datasetTag: "dataset_page" as const } : {}),
+        ...(infoGain.verdict !== "unchecked"
+          ? { infoGain: { verdict: infoGain.verdict, sentence: infoGain.sentence } }
+          : {}),
         status: "pending",
         targetUrl: null,
         costUsd,
@@ -294,6 +362,7 @@ export async function runProductionLineForTenant(
       });
     }
 
+    const governorSummary = summarizeRefusals(refusals, considered.length);
     const batch: FactoryBatchRecord = {
       tenant_id: tenantId,
       weekOf,
@@ -301,6 +370,12 @@ export async function runProductionLineForTenant(
       queuedForKeywordBatch: queued,
       totalCostUsd,
       generatedAt: now().toISOString(),
+      ...(refusals.length > 0
+        ? {
+            governorRefusals: refusals.map((r) => ({ slug: r.slug, plainReason: r.plainReason })),
+            governorSummary,
+          }
+        : {}),
     };
     const created = await createFactoryBatch(batch);
 
@@ -310,8 +385,10 @@ export async function runProductionLineForTenant(
       drafted: items.length,
       queued: queued.length,
       rejected: rejectedCount,
+      refused: refusals.length,
       costUsd: totalCostUsd,
       ceilingHit,
+      ...(governorSummary ? { governorSummary } : {}),
     });
 
     return {
@@ -322,6 +399,7 @@ export async function runProductionLineForTenant(
       drafted: items.length,
       queued: queued.length,
       rejected: rejectedCount,
+      refused: refusals.length,
       costUsd: totalCostUsd,
       batch: created ? batch : priorBatches.find((b) => b.weekOf === weekOf) ?? batch,
     };

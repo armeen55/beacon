@@ -183,6 +183,15 @@ const PROBE_SETS: Record<string, ReadonlyArray<Probe>> = {
     [1, 1],
     [7, 3],
   ],
+  // Snippet-promise audit (BEACON_500 R8 / N18, 2026-07-03). Args:
+  // (promiseLabel, missingSignal, impressions). Probe each promise kind +
+  // a large-count edge.
+  snippetPromiseCopy: [
+    ["the cost", "never give a number", 480],
+    ["a specific number of items", "never show a count", 120],
+    ["the steps", "never start the steps", 250000],
+    ["the date", "never name the date", 100],
+  ],
 };
 
 function scanForViolations(output: string): string[] {

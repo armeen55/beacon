@@ -38,6 +38,12 @@ import {
   getTenantSpentTodayUsd,
   recordSpendSupabase,
 } from "@/lib/cost/budget-ledger-supabase";
+import { governFactoryBatch } from "./factory-governor";
+import {
+  loadGovernorContextForTenant,
+  EMPTY_GOVERNOR_CONTEXT,
+  type GovernorContext,
+} from "./factory-governor-context";
 
 const GLOBAL_DEFAULT_DAILY_BUDGET_USD = 10;
 
@@ -164,6 +170,9 @@ export type FactoryRunDeps = {
   syncRows?: (rows: RecommendedEditRow[], tenantId: string) => Promise<void>;
   recordSpend?: typeof recordSpendSupabase;
   now?: Date;
+  /** N28 (2026-07-03): injectable pace/growth counts for the scaled-content
+   *  governor; defaults to the real shipped-ledger + batch-history read. */
+  governorContext?: GovernorContext;
 };
 
 /** Orchestrate one factory run for a tenant. The CALLER (server action)
@@ -199,12 +208,46 @@ export async function runClusterFactoryForTenant(
   // actually enforced — the sync getBusinessConfig reads env/file only, so the
   // ban gate was fail-OPEN for Supabase-configured terms. Fall back to sync.
   const cfg = (await hydrateBusinessConfigFromSupabase(tenantId)) ?? getBusinessConfig(tenantId);
+
+  // N28 scaled-content governor (2026-07-03, R8): before ANY generation spend,
+  // enforce the weekly pace (shipped ledger + factory batch history), the
+  // no-two-pages-on-one-topic rule, and the monthly site-growth ratio. Refused
+  // items are skipped WITH their plain reason surfaced through the same
+  // rejected/rejectedReasons counters the banned-term gate already uses (one
+  // vocabulary, not a second status word). Fail-soft context: unknown counts
+  // enforce only what they can see, never block on missing data.
+  const governorCtx =
+    deps.governorContext ??
+    (await loadGovernorContextForTenant(tenantId, now).catch(() => EMPTY_GOVERNOR_CONTEXT));
+  const govern = governFactoryBatch({
+    candidates: plan.items.map((i) => ({ slug: i.slug, title: i.title })),
+    newPagesThisWeek: governorCtx.newPagesThisWeek,
+    newPagesThisMonth: governorCtx.newPagesThisMonth,
+    indexedPageCount: governorCtx.indexedPageCount,
+  });
+  const allowedSlugs = new Set(govern.allowed.map((c) => c.slug));
+  const governorRefusalReasons = govern.refusals.map((r) => `${r.slug}: ${r.plainReason}`);
+
   const effectivePlan: ClusterPlan = {
     ...plan,
+    items: plan.items.filter((i) => allowedSlugs.has(i.slug)),
     contentRules:
       plan.contentRules.length > 0 ? plan.contentRules : (cfg.contentRules ?? []),
     flaggedTerms: [...new Set([...(cfg.flaggedTerms ?? []), ...plan.flaggedTerms])],
   };
+
+  if (effectivePlan.items.length === 0 && plan.items.length > 0) {
+    // Every page refused - report honestly with zero LLM spend.
+    return {
+      ok: true,
+      persisted: 0,
+      flagged: 0,
+      rejected: govern.refusals.length,
+      rejectedReasons: governorRefusalReasons,
+      totalCostUsd: 0,
+      syncWarning: null,
+    };
+  }
 
   const generate = deps.generate ?? generateClusterCards;
   const result = await generate(effectivePlan);
@@ -243,8 +286,8 @@ export async function runClusterFactoryForTenant(
     ok: true,
     persisted: rows.length,
     flagged: result.flagged,
-    rejected: result.rejected,
-    rejectedReasons: result.rejectedReasons,
+    rejected: result.rejected + govern.refusals.length,
+    rejectedReasons: [...governorRefusalReasons, ...result.rejectedReasons],
     totalCostUsd: result.totalCostUsd,
     syncWarning,
   };

@@ -16,6 +16,17 @@ import {
 } from "./experiment-prior";
 import { relativeClicksLift, type EffectObservation } from "./effect-size-prior";
 import {
+  computeTitleSignalTilts,
+  retrainedTitleWeights,
+  type TitleSignalObservation,
+} from "./title-signal-retrain";
+import {
+  BASE_TITLE_SIGNAL_WEIGHTS,
+  scoreTitle,
+  type TitleSignalWeights,
+} from "@/domains/demand-graph/ctr-title-scorer";
+import { getBusinessConfig } from "@/lib/business-config";
+import {
   deriveMeasurementMaturity,
   detectMeasurementOverlaps,
   measurementWindowOf,
@@ -157,6 +168,70 @@ export async function gateRecordsToEffectObservations(
     });
   }
   return out;
+}
+
+/**
+ * R9 (2026-07-03) - map the tenant's DECIDED title tests into title-signal
+ * observations for the title-weight retrain (title-signal-retrain.ts), through
+ * the IDENTICAL maturity/weather/parallel-trends gate every other learner uses.
+ * A row qualifies only when it is a title-family text change (raw actionType
+ * names "title") with the shipped `after` text still on record; its signals are
+ * read by the SAME scorer whose weights they retrain (never a second signal
+ * vocabulary). Thin/undecided rows are skipped, never fabricated.
+ */
+export async function gateRecordsToTitleSignalObservations(
+  tenantId: string,
+  records: ShippedChangeRecord[],
+): Promise<TitleSignalObservation[]> {
+  const now = new Date();
+  const overlaps = detectMeasurementOverlaps(records.map((r) => ({ id: r.id, path: r.path, shippedAt: r.shippedAt })));
+  const shockWindows = await loadShockWindowsForGate(tenantId);
+  let brand = "";
+  try {
+    brand = getBusinessConfig(tenantId).name ?? "";
+  } catch {
+    brand = "";
+  }
+  const out: TitleSignalObservation[] = [];
+  for (const r of records) {
+    if (!/title/i.test(r.actionType ?? "")) continue; // title-family text tests only
+    const after = (r.after ?? "").trim();
+    if (!after) continue; // no shipped text on record -> no signals to learn from
+    if (r.operatorVerdictOverride === "inconclusive") continue;
+    const verdict = maturityGatedVerdict(r, overlaps.get(r.id) ?? null, now, shockWindows);
+    if (verdict !== "won" && verdict !== "lost") continue; // DECIDED rows only
+    const relativeLift = relativeClicksLift(r);
+    if (relativeLift == null) continue; // baseline too thin for an honest percent
+    out.push({
+      signals: scoreTitle(after, r.targetQueries?.[0] ?? "", brand).signals,
+      relativeLift,
+      settledAt: r.measuredAt ?? r.shippedAt,
+    });
+  }
+  return out;
+}
+
+/** Map the tenant's proof ledger into title-signal observations. Fail-soft → []. */
+export async function loadTitleSignalObservations(tenantId: string): Promise<TitleSignalObservation[]> {
+  let records: ShippedChangeRecord[];
+  try {
+    records = await loadShippedChanges();
+  } catch {
+    return [];
+  }
+  return gateRecordsToTitleSignalObservations(tenantId, records);
+}
+
+/** The retrained title-scorer weights for this tenant: base weights tilted by
+ *  settled title tests, self-neutralizing (returns the base constants) on thin
+ *  data or any read error. Fail-soft, never a throw. */
+export async function loadRetrainedTitleWeights(tenantId: string): Promise<TitleSignalWeights> {
+  try {
+    const observations = await loadTitleSignalObservations(tenantId);
+    return retrainedTitleWeights(computeTitleSignalTilts(observations));
+  } catch {
+    return BASE_TITLE_SIGNAL_WEIGHTS;
+  }
 }
 
 /** Map the tenant's proof ledger into effect-size observations. Fail-soft → []. */

@@ -414,3 +414,24 @@ export function intentClusterConflictCopy(
     `Combining them into one page usually earns a better spot than splitting the same audience two ways.`
   );
 }
+
+/**
+ * Snippet-promise audit (BEACON_500 R8 / N18, 2026-07-03). Args: the plain
+ * promise label ("the cost"), the plural missing-signal phrase ("never give a
+ * number"), and the 90-day impressions count. NO em or en dashes (hard rule).
+ */
+export function snippetPromiseCopy(
+  promiseLabel: string,
+  missingSignal: string,
+  impressions: number,
+): string {
+  return (
+    "This page's search listing promises " +
+    promiseLabel +
+    ", and about " +
+    impressions.toLocaleString() +
+    " searches saw that promise in the last 90 days, but its first lines " +
+    missingSignal +
+    ". Move the promised answer into the opening so the page keeps the promise its listing makes."
+  );
+}

@@ -418,7 +418,7 @@ describe("connector-store — getConnectorHealth (honest derived state)", () => 
   });
 
   const RECONNECT_REASON =
-    "Reconnect Google to refresh — Google access needs renewing (reconnect now).";
+    "Reconnect Google to refresh. Google access needs renewing, reconnect now.";
 
   it("auth_failed_at set → needs_attention with the Reconnect reason (GSC)", async () => {
     await saveConnectorToken(
@@ -545,7 +545,7 @@ describe("connector-store — getConnectorHealth (honest derived state)", () => 
     const h = await getConnectorHealth("google_ga4", "tenant-a", NOW);
     expect(h.health).toBe("needs_attention");
     expect(h.healthReason).toBe(
-      "Connected — pick your Analytics property to start pulling data.",
+      "Connected. Pick your Analytics property to start pulling data.",
     );
   });
 
@@ -578,7 +578,7 @@ describe("connector-store — getConnectorHealth (honest derived state)", () => 
     );
     const h = await getConnectorHealth("google_gsc", "tenant-a", NOW);
     expect(h.health).toBe("needs_attention");
-    expect(h.healthReason).toBe("Last pulled 20 days ago — Refresh to update.");
+    expect(h.healthReason).toBe("Last pulled 20 days ago. Refresh to update.");
   });
 
   it("GA4 with property + recent sync → healthy connected", async () => {

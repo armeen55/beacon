@@ -134,6 +134,12 @@ import {
 import { invalidSchema } from "./triggers/invalid-schema";
 import { missingSchema } from "./triggers/missing-schema";
 import { missingTitle } from "./triggers/missing-title";
+import {
+  snippetPromiseCandidates,
+  hasSnippetPromise,
+  MIN_IMPRESSIONS_FOR_PROMISE_AUDIT,
+} from "@/domains/recommendations/snippet-promise";
+import { loadEarlyBodyTextForUrls } from "./early-body-text";
 import { noindexOnIndexablePage } from "./triggers/noindex-on-indexable-page";
 import { orphanPage } from "./triggers/orphan-page";
 import { internalLinkOpportunity } from "./triggers/internal-link-opportunity";
@@ -616,6 +622,51 @@ export async function loadTriggerCandidatesForTenant(options: {
   // over the pre-loaded, already-computed SERP-overlap clusters; no paid
   // SERP call happens here or in the loader above.
   all.push(...intentClusterConflict({ tenantId, clusters: intentClusters, signalAt: new Date().toISOString() }));
+  // Snippet-promise audit (BEACON_500 R8 / N18, 2026-07-03): does each page
+  // deliver, in its first 200 words, what its title/meta promised the search
+  // snippet? Cross-snapshot (capped at 5, highest impressions first), pure
+  // over the snapshots + GSC signals loaded above. The egress-lean snapshot
+  // projections omit body text, so a bounded, scoped merge read (same pattern
+  // as the link-graph read) fetches early body text ONLY for the pages whose
+  // title/meta actually makes a checkable promise and that clear the
+  // impressions floor. A page with no stored body text is honestly skipped,
+  // never flagged off missing data.
+  try {
+    const impressionsFor = (url: string) =>
+      gscSignals.get(canonicalizeCitationUrl(url) ?? url)?.impressions90d ?? 0;
+    const needsBodyText = snapshots
+      .filter(
+        (s) =>
+          (s.body_paragraph_sample?.length ?? 0) === 0 &&
+          s.http_status < 400 &&
+          impressionsFor(s.url) >= MIN_IMPRESSIONS_FOR_PROMISE_AUDIT &&
+          hasSnippetPromise(s.title, s.meta_description),
+      )
+      .map((s) => s.url);
+    const earlyTextByUrl = await loadEarlyBodyTextForUrls(tenantId, needsBodyText);
+    all.push(
+      ...snippetPromiseCandidates({
+        tenantId,
+        pages: snapshots.map((s) => {
+          const inline = (s.body_paragraph_sample ?? []).join(" ");
+          return {
+            url: s.url,
+            title: s.title,
+            metaDescription: s.meta_description,
+            earlyText: inline.trim() ? inline : (earlyTextByUrl.get(s.url) ?? null),
+            impressions: impressionsFor(s.url),
+            httpStatus: s.http_status,
+            fetchedAt: s.fetched_at,
+          };
+        }),
+        signalAt: new Date().toISOString(),
+      }),
+    );
+  } catch (err) {
+    console.error(
+      `[trigger-loader] snippet-promise audit failed for ${tenantId} (snippet_promise_gap skips): ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
   for (const snapshot of snapshots) {
     all.push(...missingTitle({ tenantId, snapshot }));
     all.push(...missingMeta({ tenantId, snapshot, chromeDetector }));

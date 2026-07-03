@@ -236,6 +236,14 @@ export type MoveCandidate = {
    *  (in load-graph) by collapseCreatePageSiblings(); the siblings are removed from
    *  graph.moves so every consumer sees ONE card per opportunity. */
   canonicalGroup?: import("./collapse-create-page-siblings").CanonicalGroupMeta;
+  /** N5 (2026-07-03) — the information-gain verdict for a create_page Move whose
+   *  brief + torn-down competitors could actually be compared: what this page
+   *  would ADD that the cited winners do not already say, plus the one plain
+   *  sentence for the card. Attached OUTSIDE the pure scorer (in load-graph) by
+   *  gateCreatePageInfoGain(). Absent when unchecked (no brief or no teardown
+   *  evidence yet — never a fabricated verdict). Type-only import keeps
+   *  build-graph runtime-dependency-free. */
+  infoGain?: import("@/domains/drafts/info-gain-gate").InfoGainSummary;
 };
 
 export type DemandGraph = {

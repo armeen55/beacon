@@ -25,7 +25,14 @@ vi.mock("@/domains/proof-gsc/shipped-change-store", () => ({
   loadShippedChanges: async () => ledger,
 }));
 
-import { loadExperimentOutcomes, loadEffectObservations, loadProofOutcomeRows } from "./load-experiment-outcomes";
+import {
+  loadExperimentOutcomes,
+  loadEffectObservations,
+  loadProofOutcomeRows,
+  loadTitleSignalObservations,
+  loadRetrainedTitleWeights,
+} from "./load-experiment-outcomes";
+import { BASE_TITLE_SIGNAL_WEIGHTS } from "@/domains/demand-graph/ctr-title-scorer";
 import type { ShippedChangeRecord } from "@/domains/proof-gsc/shipped-change-store";
 import type { Changepoint } from "@/domains/proof-gsc/changepoint";
 
@@ -248,5 +255,33 @@ describe("loadEffectObservations - decided magnitudes only, same gate as the win
     const out = await loadEffectObservations("iranopedia");
     expect(out).toHaveLength(1);
     expect(out[0]!.relativeLift).toBeCloseTo(-0.5, 10); // -5 over a 10-click scaled baseline
+  });
+});
+
+describe("loadTitleSignalObservations / loadRetrainedTitleWeights - R9 title retrain edge", () => {
+  it("maps a DECIDED title record with shipped text into the scorer's own signals + a clamped lift", async () => {
+    ledger = [record({ after: "10 Best Iranian Singers (Ranked)" })];
+    const out = await loadTitleSignalObservations("iranopedia");
+    expect(out).toHaveLength(1);
+    expect(out[0]!.signals).toContain("number");
+    expect(out[0]!.signals).toContain("parenthetical");
+    expect(out[0]!.relativeLift).toBe(1); // 35 lift over a 10-click scaled baseline, clamped
+    expect(out[0]!.settledAt).toBe("2026-05-19T00:00:00.000Z");
+  });
+
+  it("skips non-title rows, rows without shipped text, and undecided rows", async () => {
+    ledger = [
+      record({ id: "m1::2026-04-20", actionType: "edit_meta" }),
+      record({ id: "m2::2026-04-20", after: null }),
+      record({ id: "m3::2026-04-20", verdict: "measuring", windows: [win28({ ran: false })] }),
+      record({ id: "m4::2026-04-20", operatorVerdictOverride: "inconclusive" }),
+    ];
+    expect(await loadTitleSignalObservations("iranopedia")).toHaveLength(0);
+  });
+
+  it("loadRetrainedTitleWeights self-neutralizes to the untouched base constants on a thin ledger", async () => {
+    ledger = [record({ after: "10 Best Iranian Singers (Ranked)" })]; // 1 test < MIN_TILT_SAMPLES
+    const weights = await loadRetrainedTitleWeights("iranopedia");
+    expect(weights).toBe(BASE_TITLE_SIGNAL_WEIGHTS);
   });
 });

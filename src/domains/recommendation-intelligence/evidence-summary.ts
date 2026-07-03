@@ -32,7 +32,9 @@
 
 import type { GscPageSignal, GscQuerySignal } from "./gsc-page-signals";
 import type { ClarityPageSignal } from "./clarity-page-signals";
-import { EXPECTED_CTR_BY_POSITION } from "./triggers/gsc-low-ctr";
+// R9 (2026-07-03): read the sourced positions-1-5 benchmark from the ONE
+// canonical curve module (same object gsc-low-ctr re-exports; byte-identical).
+import { SEMRUSH_TOP5_CTR as EXPECTED_CTR_BY_POSITION } from "@/domains/forecast/tenant-ctr-curve";
 import {
   MIN_CLARITY_SESSIONS,
   RAGE_RATE,

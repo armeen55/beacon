@@ -13,6 +13,8 @@ import { recordAppError, errorFieldsFrom } from "@/lib/obs/error-ledger";
 import { loadTodayMovesHeroData, type TodayMove, type TodayMovesHeroData } from "../today-moves-data";
 import { readWorklistSurface, writeWorklistSurface, isSurfaceStale } from "../worklist-surface-store";
 import { computeOpportunity } from "@/domains/forecast/opportunity-math";
+import { defaultCtrCurve } from "@/domains/forecast/tenant-ctr-curve";
+import { loadTenantCtrCurve } from "@/domains/forecast/load-tenant-ctr-curve";
 
 /**
  * /moves data (2026-06-27) — the worklist is now driven by the CANONICAL ActionPack
@@ -206,6 +208,9 @@ async function loadUncached(tenantId: string): Promise<TodayMovesHeroData> {
   // impressions ("500k people at risk" territory). Now the sum of each move's own CTR-curve
   // forecast midpoint (opportunity-math.ts) - honest-zero for a move with no position/impression
   // history yet (e.g. a coverage-only pack with no topQueries), never an inflated impression count.
+  // R9: sized with the tenant's OWN fitted position-to-clicks curve when they have
+  // enough of their own search data; the industry default (byte-identical) otherwise.
+  const ctrCurve = await loadTenantCtrCurve(tenantId).catch(() => defaultCtrCurve());
   const demandAtStake = Math.round(
     moves.reduce((s, m) => {
       const tq = [...m.topQueries].sort((a, b) => b.impressions - a.impressions)[0];
@@ -217,6 +222,7 @@ async function loadUncached(tenantId: string): Promise<TodayMovesHeroData> {
         currentPosition: tq.position,
         impressions90d: tq.impressions,
         clicks90d: tq.clicks,
+        curve: ctrCurve,
       });
       if (forecast.lowPerMonth == null || forecast.highPerMonth == null) return s;
       return s + (forecast.lowPerMonth + forecast.highPerMonth) / 2;

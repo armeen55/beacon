@@ -20,6 +20,7 @@ import {
   type ExternalFlags,
 } from "./experiment-eligibility";
 import { EXTREME_SHORTFALL_RATIO, type PowerAssessment } from "./power-analysis";
+import { expectedCtrAt } from "./pick-expectations";
 import { MIN_MULTIPLIER, MAX_MULTIPLIER, type LearnedPrior } from "@/domains/learning/experiment-prior";
 import { EFFECT_MIN_MULTIPLIER, EFFECT_MAX_MULTIPLIER, type EffectPrior } from "@/domains/learning/effect-size-prior";
 import {
@@ -241,15 +242,10 @@ export type DailyExperimentPlan = {
   leverRetirements: LeverRetirementDecision[];
 };
 
-const CTR_CURVE: Record<number, number> = { 1: 0.28, 2: 0.15, 3: 0.11, 4: 0.08, 5: 0.065, 6: 0.05, 7: 0.04, 8: 0.034, 9: 0.029, 10: 0.025 };
-function expectedCtr(pos: number): number {
-  const p = Math.round(pos);
-  if (p <= 0) return 0.28;
-  if (p <= 10) return CTR_CURVE[p];
-  if (p <= 15) return 0.018;
-  if (p <= 20) return 0.012;
-  return 0.006;
-}
+// R9 (2026-07-03): this file used to carry its OWN copy of the CTR-by-position
+// table. It now reads the ONE canonical curve (tenant-ctr-curve.ts, via
+// pick-expectations' expectedCtrAt) - byte-identical values, one source.
+const expectedCtr = expectedCtrAt;
 
 /** Item 35 - the power-band score multiplier: a well-powered pick is unaffected, a marginal pick
  *  is downranked (still eligible - worth doing, just not tonight's FIRST choice when a

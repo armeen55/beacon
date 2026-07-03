@@ -105,6 +105,11 @@ export type NewPageOpportunity = {
    *  operator clicks "Draft the full page". Only ever set when preparedBrief
    *  exists (the full-page walk drafts THIS brief's outline). */
   fullPageDraft: import("@/domains/llm/draft-full-page").AssembledDraftPage | null;
+  /** N5 (2026-07-03) - the information-gain verdict attached by the pipeline's
+   *  gate: what this page would ADD that the cited winners do not already say,
+   *  as one plain sentence. null when unchecked (no brief or no teardown
+   *  evidence yet - never a fabricated verdict). */
+  infoGain?: { verdict: string; sentence: string } | null;
 };
 
 export type NewPagesData = {
@@ -359,6 +364,7 @@ export async function buildNewPagesData(tenantId: string): Promise<NewPagesData>
       aeoReceipt,
       alsoCovers: meta?.alsoCovers ?? [],
       briefFromRelated,
+      infoGain: m.infoGain ? { verdict: m.infoGain.verdict, sentence: m.infoGain.sentence } : null,
     };
   });
 

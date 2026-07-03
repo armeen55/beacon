@@ -104,8 +104,22 @@ describe("runProductionLineForTenant - governance", () => {
   });
 
   it("caps drafted pages at MAX_DRAFTS_PER_WEEK even with many demand-passing candidates", async () => {
-    const candidates = Array.from({ length: 10 }, (_, i) =>
-      candidate({ slug: `topic-${i}`, title: `Topic ${i} Meaning`, entity: `topic${i}` }),
+    // Distinct real topics: the N28 governor legitimately refuses two batch
+    // pages on ONE topic, so a cap test needs genuinely different subjects.
+    const topics = [
+      ["haft-seen-symbols", "Haft Seen Symbols"],
+      ["yalda-night-customs", "Yalda Night Customs"],
+      ["chaharshanbe-suri-rituals", "Chaharshanbe Suri Rituals"],
+      ["tahdig-rice-crust", "Tahdig Rice Crust"],
+      ["ghormeh-sabzi-stew", "Ghormeh Sabzi Stew"],
+      ["fesenjan-walnut-pomegranate", "Fesenjan Walnut Pomegranate"],
+      ["sizdah-bedar-picnic", "Sizdah Bedar Picnic"],
+      ["mehregan-autumn-celebration", "Mehregan Autumn Celebration"],
+      ["shab-e-cheleh-poetry", "Shab e Cheleh Poetry"],
+      ["tirgan-water-games", "Tirgan Water Games"],
+    ] as const;
+    const candidates = topics.map(([slug, title], i) =>
+      candidate({ slug, title, entity: `topic${i}` }),
     );
     loadPageCandidatesMock.mockResolvedValue(candidates);
     readAllCachedKeywordDemandMock.mockResolvedValue(
@@ -174,7 +188,14 @@ describe("runProductionLineForTenant - governance", () => {
   });
 
   it("stops drafting once the weekly LLM cost ceiling is reached, queuing the rest", async () => {
-    const candidates = Array.from({ length: 5 }, (_, i) => candidate({ slug: `topic-${i}`, title: `Topic ${i} Meaning`, entity: `topic${i}` }));
+    const topics = [
+      ["haft-seen-symbols", "Haft Seen Symbols"],
+      ["yalda-night-customs", "Yalda Night Customs"],
+      ["chaharshanbe-suri-rituals", "Chaharshanbe Suri Rituals"],
+      ["tahdig-rice-crust", "Tahdig Rice Crust"],
+      ["ghormeh-sabzi-stew", "Ghormeh Sabzi Stew"],
+    ] as const;
+    const candidates = topics.map(([slug, title], i) => candidate({ slug, title, entity: `topic${i}` }));
     loadPageCandidatesMock.mockResolvedValue(candidates);
     readAllCachedKeywordDemandMock.mockResolvedValue(
       candidates.map((c) => ({
@@ -275,12 +296,12 @@ describe("runProductionLineForTenant - fail-soft", () => {
 
   it("skips a candidate whose brief draft throws, without failing the whole batch", async () => {
     loadPageCandidatesMock.mockResolvedValue([
-      candidate({ slug: "a", title: "A Meaning", entity: "a" }),
-      candidate({ slug: "b", title: "B Meaning", entity: "b" }),
+      candidate({ slug: "ash-reshteh-soup", title: "Ash Reshteh Soup", entity: "a" }),
+      candidate({ slug: "kuku-sabzi-frittata", title: "Kuku Sabzi Frittata", entity: "b" }),
     ]);
     readAllCachedKeywordDemandMock.mockResolvedValue([
-      { keyword: "a meaning", searchVolume: 500, cpcUsd: null, competition: null, competitionLevel: null, monthlySearches: [], locationCode: 2840, languageCode: "en", source: "dataforseo" as const, fetchedAt: new Date().toISOString(), confidence: "high" as const, evidenceRef: "x" },
-      { keyword: "b meaning", searchVolume: 500, cpcUsd: null, competition: null, competitionLevel: null, monthlySearches: [], locationCode: 2840, languageCode: "en", source: "dataforseo" as const, fetchedAt: new Date().toISOString(), confidence: "high" as const, evidenceRef: "x" },
+      { keyword: "ash reshteh soup", searchVolume: 500, cpcUsd: null, competition: null, competitionLevel: null, monthlySearches: [], locationCode: 2840, languageCode: "en", source: "dataforseo" as const, fetchedAt: new Date().toISOString(), confidence: "high" as const, evidenceRef: "x" },
+      { keyword: "kuku sabzi frittata", searchVolume: 500, cpcUsd: null, competition: null, competitionLevel: null, monthlySearches: [], locationCode: 2840, languageCode: "en", source: "dataforseo" as const, fetchedAt: new Date().toISOString(), confidence: "high" as const, evidenceRef: "x" },
     ]);
     let calls = 0;
     const flakyBrief = vi.fn(async () => {

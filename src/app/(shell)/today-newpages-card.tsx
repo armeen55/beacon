@@ -383,6 +383,14 @@ export function NewPageCard({ o, ownDomain, enableAeoBrief = false }: { o: NewPa
             <div className="mt-0.5 text-body leading-snug text-foreground-secondary">{o.whatWins}</div>
           </div>
         ) : null}
+        {o.infoGain ? (
+          <div className="mt-2 rounded-lg bg-surface-raised px-2.5 py-1.5">
+            <div className="text-meta font-semibold uppercase tracking-wide text-muted-foreground">
+              {o.infoGain.verdict === "adds_something" ? "What this page adds" : "Overlap check"}
+            </div>
+            <div className="mt-0.5 text-body leading-snug text-foreground-secondary">{o.infoGain.sentence}</div>
+          </div>
+        ) : null}
         {shown ? (
           (() => {
             const vs = VERDICT_STYLE[shown.verdict] ?? VERDICT_STYLE.wait;

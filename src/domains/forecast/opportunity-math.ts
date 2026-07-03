@@ -40,6 +40,7 @@ import {
   clampCorrectionFactor,
   type CaptureFractions,
 } from "@/domains/experiments/pick-expectations";
+import type { TenantCtrCurve } from "./tenant-ctr-curve";
 
 /** FP2 (2026-07-02) - noun phrases for the honest no-history fallback ("coverage", "internal
  *  linking"), distinct from LEVER_PLAIN's "a TITLE change" clause shape so the two fallback
@@ -207,6 +208,14 @@ export type OpportunityInput = {
   /** Measured time-to-signal for this lever/page from the proof ledger, in days, when available.
    *  Omitted -> the lever-family default (see DAYS_TO_IMPACT_DEFAULT). */
   measuredDaysToImpact?: number | null;
+  /** R9 (optional): the tenant's OWN fitted position-to-CTR curve from
+   *  load-tenant-ctr-curve.ts. Omitted = the industry-default curve, byte-identical
+   *  output to before R9 existed. When a TENANT-fitted curve is passed, the gap is
+   *  computed from how their own pages convert position to clicks AND the basis
+   *  sentence says so. Only pass this on the computeOpportunity path (where the gap
+   *  is computed here); a caller handing computeOpportunityFromGap a pre-computed
+   *  gap should pass it only if that gap was computed with the same curve. */
+  curve?: TenantCtrCurve | null;
 };
 
 export type OpportunityForecast = {
@@ -268,7 +277,10 @@ export function computeOpportunity(input: OpportunityInput): OpportunityForecast
   }
 
   const ctr = impressions > 0 ? Math.max(0, clicks) / impressions : 0;
-  const gapClicks90d = ctrOpportunity90d({ position, ctr, impressions90d: impressions });
+  // R9: the gap comes from the ONE canonical curve - the tenant's own fitted
+  // curve when the caller loaded one, else the industry default (byte-identical
+  // to pre-R9 behavior).
+  const gapClicks90d = ctrOpportunity90d({ position, ctr, impressions90d: impressions }, input.curve ?? undefined);
   return computeOpportunityFromGap(input, gapClicks90d, position);
 }
 
@@ -323,7 +335,14 @@ export function computeOpportunityFromGap(
   }
 
   const settledClause = settled > 0 ? ` and ${settled} settled result${settled === 1 ? "" : "s"}` : "";
-  const basis = `Based on your own click rates at each Google position${settledClause}, ${changeClause}${targetClause} usually adds ${friendly(range.low).toLocaleString()} to ${friendly(range.high).toLocaleString()} clicks a month within ${days} days.`;
+  // R9: when the tenant's OWN fitted curve sized this range, the sentence says so
+  // (plain words, never a lab term). The default curve keeps the exact pre-R9
+  // sentence, byte-identical (pinned).
+  const lead =
+    input.curve?.source === "tenant"
+      ? `Based on how your own pages convert position to clicks, from ${input.curve.basis}`
+      : "Based on your own click rates at each Google position";
+  const basis = `${lead}${settledClause}, ${changeClause}${targetClause} usually adds ${friendly(range.low).toLocaleString()} to ${friendly(range.high).toLocaleString()} clicks a month within ${days} days.`;
 
   return {
     lowPerMonth: range.low,

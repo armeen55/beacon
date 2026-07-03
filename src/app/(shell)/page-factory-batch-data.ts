@@ -30,6 +30,9 @@ export type FactoryBatchCardItem = {
   brief: CreatePageBrief | null;
   /** The re-assembled full paste-ready page, when the section walker produced one. */
   fullPage: AssembledDraftPage | null;
+  /** N5 (2026-07-03): what this page adds beyond the winning pages, when
+   *  teardown evidence existed for its topic. null when unchecked. */
+  infoGain: { verdict: string; sentence: string } | null;
 };
 
 export type FactoryBatchCardData = {
@@ -38,6 +41,10 @@ export type FactoryBatchCardData = {
   totalCostUsd: number;
   queuedCount: number;
   items: FactoryBatchCardItem[];
+  /** N28 (2026-07-03): the batch-card refusal summary ("I skipped three of
+   *  eight: ...") plus each skipped page's plain reason. Null/empty on clean runs. */
+  governorSummary: string | null;
+  governorRefusals: Array<{ slug: string; plainReason: string }>;
 };
 
 // FP5b (2026-07-02) - react.cache()'d: /changes now reads this twice per request (the
@@ -90,6 +97,7 @@ export const loadFactoryBatchCardData = cache(async (): Promise<FactoryBatchCard
       costUsd: item.costUsd,
       brief,
       fullPage,
+      infoGain: item.infoGain ?? null,
     };
   });
 
@@ -99,5 +107,7 @@ export const loadFactoryBatchCardData = cache(async (): Promise<FactoryBatchCard
     totalCostUsd: batch.totalCostUsd,
     queuedCount: batch.queuedForKeywordBatch.length,
     items,
+    governorSummary: batch.governorSummary ?? null,
+    governorRefusals: batch.governorRefusals ?? [],
   };
 });

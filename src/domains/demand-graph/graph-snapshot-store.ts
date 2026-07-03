@@ -30,8 +30,10 @@ const STORE = "demand-graph-snapshot";
 const WORKLIST_SURFACE_STORE = "worklist-surface";
 
 /** Bump when the graph SHAPE changes (fields consumers read) or the scoring contract
- *  changes — old snapshots are then ignored, not trusted. */
-export const GRAPH_SCHEMA_VERSION = 1;
+ *  changes — old snapshots are then ignored, not trusted.
+ *  v2 (2026-07-03, R8/N5): the information-gain gate now drops/demotes/annotates
+ *  create_page Moves — pre-gate snapshots must recompute, not be trusted. */
+export const GRAPH_SCHEMA_VERSION = 2;
 
 /** Serve the cached graph instantly always; background-refresh once it's older than this. */
 export const GRAPH_FRESH_MS = 15 * 60 * 1000;

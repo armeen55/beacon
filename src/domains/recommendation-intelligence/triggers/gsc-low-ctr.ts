@@ -39,6 +39,7 @@
 
 import type { PageSnapshot } from "@/domains/pages/types";
 
+import { SEMRUSH_TOP5_CTR } from "@/domains/forecast/tenant-ctr-curve";
 import { cooldownKey } from "../emitter/cooldown-key";
 import { dedupeKey } from "../emitter/dedupe-key";
 import type { RecommendationCandidateRow } from "../emitter/candidate-row";
@@ -58,14 +59,11 @@ export type GscLowCtrInput = {
 };
 
 /** Semrush (Dec 2025) per-position organic CTR benchmarks, as
- *  fractions. Positions 1–5 only — the band the source covers. */
-export const EXPECTED_CTR_BY_POSITION: Record<number, number> = {
-  1: 0.398,
-  2: 0.187,
-  3: 0.102,
-  4: 0.072,
-  5: 0.051,
-};
+ *  fractions. Positions 1-5 only, the band the source covers.
+ *  R9 (2026-07-03): the table itself now lives in the ONE canonical curve
+ *  module (tenant-ctr-curve.ts) - re-exported here byte-identically so this
+ *  trigger and its consumers (evidence-summary.ts, tests) keep their import. */
+export const EXPECTED_CTR_BY_POSITION: Record<number, number> = SEMRUSH_TOP5_CTR;
 
 const MIN_IMPRESSIONS = 200;
 const CTR_SHORTFALL_FACTOR = 0.5;
@@ -271,8 +269,10 @@ export function gscStrikingDistance(
       // target convention) from its current striking position:
       // (ctr(3) − actual) × impressions. impressions is the 90-day
       // base, so this is a per-90-day estimate (field name `*90d`).
+      // R9: the target CTR reads from the canonical benchmark table
+      // instead of a hardcoded 0.102 literal (same value).
       upside_clicks_90d: Math.round(
-        Math.max(0, 0.102 - target.ctr) * target.impressions,
+        Math.max(0, (SEMRUSH_TOP5_CTR[3] ?? 0.102) - target.ctr) * target.impressions,
       ),
       customer_copy: gscStrikingDistanceCopy(
         target.query,

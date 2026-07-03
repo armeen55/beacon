@@ -5,7 +5,10 @@ import { getRepository } from "@/lib/persistence/repositories";
 import { loadChangePacksForTenant } from "@/domains/demand-graph/gap-compiler";
 import { canonicalizeCitationUrl } from "@/domains/citation-lifecycle/canonicalize-url";
 import { loadDailyClicksByPagesForTenant } from "@/domains/recommendation-intelligence/gsc-page-queries";
-import { buildTitleVariants } from "@/domains/demand-graph/ctr-title-scorer";
+import { BASE_TITLE_SIGNAL_WEIGHTS, buildTitleVariants } from "@/domains/demand-graph/ctr-title-scorer";
+import { defaultCtrCurve } from "@/domains/forecast/tenant-ctr-curve";
+import { loadTenantCtrCurve } from "@/domains/forecast/load-tenant-ctr-curve";
+import { loadRetrainedTitleWeights } from "@/domains/learning/load-experiment-outcomes";
 import { buildPageResearchPack, addressableVolume } from "@/domains/demand-graph/page-research-pack";
 import { buildOnPagePlan } from "@/domains/demand-graph/page-element-plan";
 import { readAllCachedKeywordDemand } from "@/domains/serp/dataforseo-keywords";
@@ -452,6 +455,15 @@ export async function buildTodayMovesData(
     ]);
     const wixEntryByUrl = new Map(wixUrlMap.map((e) => [canon(e.url), e]));
 
+    // R9 - the tenant's own position-to-clicks curve (for the honest opportunity
+    // math below) + the ledger-retrained title-signal weights (for the CTR Title
+    // Lab). Both fail-soft to the industry defaults, which score byte-identically
+    // to the pre-R9 constants.
+    const [ctrCurve, titleWeights] = await Promise.all([
+      withTimeout(loadTenantCtrCurve(tenantId), 8000, defaultCtrCurve()),
+      loadRetrainedTitleWeights(tenantId).catch(() => BASE_TITLE_SIGNAL_WEIGHTS),
+    ]);
+
     // Learned-prior tag per demand key (from the outcome re-weight on the graph).
     const learnedByKey = new Map(graphMoves.map((m) => [m.demandKey, m.learnedPrior ?? null]));
     // R5 / N15: the effect-size prior's magnitude tag per demand key. When a real
@@ -693,7 +705,7 @@ export async function buildTodayMovesData(
       let titleVariants: TodayMove["titleVariants"] = [];
       if (e.action_type === "edit_title") {
         const brand = brandFromUrl(targetUrl);
-        titleVariants = buildTitleVariants(query, brand, { currentTitle, competitorTitle }).slice(0, 3);
+        titleVariants = buildTitleVariants(query, brand, { currentTitle, competitorTitle }, titleWeights).slice(0, 3);
       }
 
       const moveId = (e as { rec_id?: string; id?: string }).rec_id ?? (e as { id?: string }).id ?? pk;
@@ -929,7 +941,7 @@ export async function buildTodayMovesData(
           position: seed.position,
           impressions: seed.impressions,
           secondaryQueries: m.topQueries.map((q) => q.query),
-        }).slice(0, 3);
+        }, titleWeights).slice(0, 3);
       }
       // Sharpest, grounded "why" for a striking-distance clicks move: name the
       // exact query, current rank, and real demand - the most compelling framing.
@@ -1089,6 +1101,7 @@ export async function buildTodayMovesData(
         currentPosition: tq.position,
         impressions90d: tq.impressions,
         clicks90d: tq.clicks,
+        curve: ctrCurve,
       });
       if (forecast.lowPerMonth == null || forecast.highPerMonth == null) return s;
       return s + (forecast.lowPerMonth + forecast.highPerMonth) / 2;

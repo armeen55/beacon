@@ -56,6 +56,12 @@ import { loadOwnershipRegistryForTenant } from "@/domains/ownership/registry-loa
 import { isUnparseableLabel } from "./clean-topic-label";
 import { readAllCachedKeywordDemand, type KeywordDemand } from "@/domains/serp/dataforseo-keywords";
 import { getLatestMoveDrafts } from "./move-draft-store";
+import { getCompetitorAuditsForTenant } from "./competitor-page-audit";
+import {
+  buildCreatePageInfoGainInputs,
+  gateCreatePageInfoGain,
+  type InfoGainChange,
+} from "@/domains/drafts/info-gain-gate";
 import { loadCachedPromptOpportunities } from "@/domains/profound-coverage/load-cached";
 import {
   readGraphSnapshot,
@@ -82,6 +88,12 @@ export type DemandGraphCoverage = {
   /** UX0 (2026-07-02) — create_page candidates the ownership gate reclassified
    *  (own page already cited -> edit_page) or dropped (cited but no specific URL). */
   ownershipReclassified: { label: string; action: "reclassified" | "dropped"; ownedUrl: string | null; reason: string }[];
+  /** N5 (2026-07-03) — the information-gain gate's honest tally: create_page
+   *  candidates dropped (they would only repeat what the cited winners already
+   *  say), reclassified to an edit, or demoted below every adds-something row.
+   *  Absent/empty when nothing had both a brief and teardown evidence to score
+   *  (the gate never blocks on missing data). */
+  infoGain?: { label: string; action: "dropped" | "reclassified" | "demoted"; verdict: string; reason: string }[];
 };
 
 export type LoadGraphResult = {
@@ -656,6 +668,42 @@ export async function loadDemandGraphForTenant(
     // Pages board would then show un-collapsed siblings with no "Also covers" line).
     log.warn("[load-graph] create_page canonicalization skipped", { tenantId, error: e instanceof Error ? e.message : String(e) });
   }
+  // N5 information-gain gate (2026-07-03, R8) — the law that unfreezes the page
+  // factories: a create_page Move whose persisted brief + torn-down competitors
+  // can actually be compared must ADD something the cited winners do not already
+  // say. duplicate_of_serp -> reclassify to edit_page at a known owned URL, else
+  // drop with the honest reason; thin_addition -> demoted below every
+  // adds_something row. A Move with no brief or no teardown evidence is
+  // UNCHECKED and untouched — never block on missing data, never fake a check
+  // (byte-identical no-op pinned in info-gain-gate tests). Runs AFTER the
+  // ownership gate + sibling collapse so it scores the canonical survivors.
+  let infoGainChanges: InfoGainChange[] = [];
+  try {
+    if (moves.some((m) => m.gap === "create_page")) {
+      const [, drafts] = await collapseInputsPromise;
+      const audits = await getCompetitorAuditsForTenant().catch(() => new Map());
+      const inputs = buildCreatePageInfoGainInputs({
+        moves,
+        auditsByUrl: audits,
+        drafts,
+        canonicalize: canonicalizeCitationUrl,
+      });
+      const gated = gateCreatePageInfoGain(moves, inputs);
+      moves = gated.moves;
+      infoGainChanges = gated.changes;
+      if (infoGainChanges.length > 0) {
+        log.info("[load-graph] create_page info-gain gate", {
+          tenantId,
+          dropped: infoGainChanges.filter((c) => c.action === "dropped").length,
+          reclassified: infoGainChanges.filter((c) => c.action === "reclassified").length,
+          demoted: infoGainChanges.filter((c) => c.action === "demoted").length,
+          labels: infoGainChanges.map((c) => c.label),
+        });
+      }
+    }
+  } catch (e) {
+    log.warn("[load-graph] create_page info-gain gate skipped", { tenantId, error: e instanceof Error ? e.message : String(e) });
+  }
   const reweightedGraph: DemandGraph = moves === graph.moves ? graph : { ...graph, moves };
 
   const emptySources: string[] = [];
@@ -680,6 +728,7 @@ export async function loadDemandGraphForTenant(
         trimmedCandidates: coherenceDropped.map((d) => ({ label: d.label, droppedCount: d.droppedUrls.length, reason: d.reason })),
       },
       ownershipReclassified: ownershipReclassified.map((c) => ({ label: c.label, action: c.action, ownedUrl: c.ownedUrl, reason: c.reason })),
+      infoGain: infoGainChanges.map((c) => ({ label: c.label, action: c.action, verdict: c.verdict, reason: c.reason })),
     },
   };
 }

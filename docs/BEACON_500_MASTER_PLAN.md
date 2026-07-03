@@ -48,9 +48,17 @@ QUEUE (strict order; [G] = operator-gated, surface it and continue):
       SERPs, old evidence, seasonal windows leave the queue). Effort M.
 - [x] R7 (2026-07-03). N39 production error monitoring with route/tenant/action context (T0 spine) + N40
       external API contract tests. Effort M.
-- [ ] R8. N5 information-gain gate + N28 scaled-content governor (the two laws that unfreeze the
-      page factories) + N18 snippet-promise audit. Effort M/M/S.
-- [ ] R9. P3 tenant CTR curve (ONE implementation: fit from own GSC, retrain title scorer, pin the
+- [x] R8 (2026-07-03). N5 information-gain gate + N28 scaled-content governor (the two laws that
+      unfreeze the page factories) + N18 snippet-promise audit. N5: `src/domains/drafts/info-gain-gate.ts`
+      hard-gates create_page Moves in load-graph (duplicate_of_serp drops/reclassifies with the honest
+      sentence, thin_addition demotes below adds_something; unchecked = pinned byte-identical no-op) +
+      post-brief check in the page-factory line. N28: `src/domains/push/factory-governor.ts` (weekly
+      pace from shipped ledger + batch history, one-topic-one-page token rule, 10 percent monthly
+      growth guard) wired into cluster-factory runs AND the weekly production line; refusals persist
+      on the batch record with plain reasons. N18: `src/domains/recommendations/snippet-promise.ts`
+      (4 checkable promise kinds vs first 200 words) fed as the `snippet_promise_gap` trigger, capped
+      at 5. 52 new tests; graph snapshot schema bumped to v2.
+- [x] R9 (2026-07-03). P3 tenant CTR curve (ONE implementation: fit from own GSC, retrain title scorer, pin the
       survivor) - feeds every forecast and title move. Effort M.
 - [ ] R10. P4 measurement rigor pack (fixed query panel, day-of-week baselines, adaptive windows,
       equivalence testing, FDR) - all feed N10's grade. Effort L, split into 2 slices.
@@ -85,7 +93,8 @@ QUEUE (strict order; [G] = operator-gated, surface it and continue):
       revenue model config, DataForSEO cap raise.
 
 T0a is DONE (docs/OWNERS_MANUAL.md exists). D5 is covered by shipped atomic change packs + the
-factory gates arriving in R8. UX track complete. FP campaign complete.
+factory gates shipped in R8 (N5 + N28 live; factories unfrozen 2026-07-03). UX track complete.
+FP campaign complete.
 
 **Operator-journey rule (CLAUDE.md, mandatory):** no item is complete until its rendered surface
 was walked as a real operator journey and the completion report quotes the actual rendered copy.
@@ -179,7 +188,7 @@ migration. WAVE 3: FP4, FP8, FP10, voice rider. N-track and packs resume after F
 - [x] N2. **Query-to-page ownership registry**: enforced; future cannibalization mistakes become impossible. (NEW; absorbs v1 143 draft grounding, 242 mixed-intent split, 270/271 wrong-landing-page + canonical gates) - SHIPPED 2026-07-03 (worktree, not yet merged): `src/domains/ownership/registry.ts` (pure) + `registry-loader.ts` reduce gsc-cannibalization.ts (gsc_ranks) and intent-clusters.ts (serp_cluster) into one `resolveOwner()`; enforced additively at 3 choke points (create_page ownership gate superset in load-graph.ts, prepare-create-page-verdicts.ts spend skip, serp-steal-lane.ts disagreement flag), conflict surface folded into the existing intent_cluster_conflict trigger (no duplicate cards), one ask/fact-assembly.ts cite line. 66 new tests. Real Iranopedia data: 104/1122 queries resolved (9%), 36 named contender conflicts, a live reclassification confirmed absent from /worklist's New Pages board. Honest gap found live and spun off as a follow-up: a 4th create-candidate source (allocator/unified-list.ts's keyword-library lane) still needs wiring. See docs/VERIFICATION_LOG.md's 2026-07-03 N2 entry.
 - [ ] N3. **Claim-level provenance graph**: every factual claim linked to source, date, reliability, affected pages. (NEW; absorbs v1 89/90 clickable sources + source-age, 275 facts_to_verify, 310 multi-source claims)
 - [ ] N4. **GA4 + Clarity behavior-verdict lane**: engagement, scroll, frustration, conversion, traffic measured together on every ship. (NEW; absorbs v1 503 GA4 floors, 385 protect-revenue objection)
-- [ ] N5. **Information-gain gate**: every new page or section must contribute something competitors do not. (NEW; precondition for any factory)
+- [x] N5. **Information-gain gate**: every new page or section must contribute something competitors do not. (NEW; precondition for any factory) - SHIPPED 2026-07-03 (R8, worktree): pure `info-gain-gate.ts` (novel sections / novel facts / original assets vs the torn-down winners) wired as a HARD gate in load-graph's create-page pipeline + the page-factory production line; unchecked (no brief or no teardown evidence) is a pinned byte-identical no-op.
 - [x] N6. **Intent classifier that vetoes the wrong lever** (v1 130; extend the shipped answer-intent classifier into a router veto) - SHIPPED 2026-07-02 (worktree, not yet merged): `src/domains/demand-graph/intent-veto.ts` wired into `move-router.ts`'s existing veto/downgrade machinery; 2 real vetoes on live Iranopedia data, 32 new tests. See `docs/VERIFICATION_LOG.md`.
 - [x] N7. **SERP-overlap clustering so one page owns one intent** (v1 120; feeds N2) - SHIPPED 2026-07-02: intent-clusters.ts (union-find over stored SERP overlap) + conflict trigger; honest 7/300 SERP coverage today, grows with every paid SERP read.
 - [x] N8. **Snapshot-grounded factual verification before publishing** (v1 147 entailment check; law 3) - SHIPPED 2026-07-02 (worktree, not yet merged): `src/domains/drafts/factual-entailment.ts` (pure numbers/entities/superlatives check) wired as an additive check into `draft-quality.ts` and as a publish-gate backstop in `stage-change.ts`'s `resolveMove`. Operator-corrected mid-build: the page is one grounding source, not the final word - a claim contradicting the page but backed by a dated `AuthoritativeFact` is an allowed CORRECTION (never blocks, may auto-publish with the source+date explanation); only an unsupported INVENTION (found nowhere) blocks. 92 new/updated tests. Ground truth on live Iranopedia data: 25 real recommended_edits checked, 6 blocked as genuine inventions, 0 corrections (no dated-facts source is wired into any caller yet - the mechanism is built and tested, not yet fed real data), 19 pass. See `docs/VERIFICATION_LOG.md`.
@@ -218,7 +227,7 @@ migration. WAVE 3: FP4, FP8, FP10, voice rider. N-track and packs resume after F
 - [x] N15 (2026-07-03, R5). **Learn from effect sizes, not binary wins** (v1 141; plus 142 beta-posterior shrinkage, 496 recency half-life)
 - [x] N16 (2026-07-03, R5). **Sustainable control-pool strategy** for when good comparison pages get treated. (NEW; absorbs v1 199 donor repair, 200 median band, 211 synthetic control, 434 holdouts)
 - [ ] N17. **User-task completion measurement**: did visitors find the answer they searched for? (NEW; rides N4)
-- [ ] N18. **Search-snippet promise audit**: does the page immediately fulfill what the title and description promised? (NEW)
+- [x] N18. **Search-snippet promise audit**: does the page immediately fulfill what the title and description promised? (NEW) - SHIPPED 2026-07-03 (R8, worktree): `snippet-promise.ts` compares 4 checkable title/meta promises (cost, count/list, how-to, date) against the first 200 stored body words; `snippet_promise_gap` -> `update_intro` deterministic trigger, capped at 5, highest impressions first; pages with no stored body text honestly abstain (bounded scoped body read added for the egress-lean projections).
 - [x] N19. **Store useful page content** so Beacon reasons about the actual body (v1 98 main-content excerpt; unblocks answer-alignment competitor side + passage coverage on synced snapshots) - DONE 2026-07-02, worktree not committed
 - [ ] N20. **Study top 3 SERP winners consensus, not one outlier** (v1 99)
 - [ ] N21. **Real JavaScript-rendered technical crawl** (v1 110 On-Page API; capped, gauntleted)
@@ -228,7 +237,7 @@ migration. WAVE 3: FP4, FP8, FP10, voice rider. N-track and packs resume after F
 - [ ] N25. **Sitewide stale-fact detection** (v1 102; law 1)
 - [ ] N26. **Fact propagation engine**: correct one fact once, update every page and schema reference. (NEW; rides N3+N25)
 - [ ] N27. **Content-volatility classes** with different freshness deadlines for dates, populations, biographies, evergreen history. (NEW)
-- [ ] N28. **Scaled-content spam governor** before any factory expands (v1 101; law 3; factories FROZEN until N5+N3+N28 exist)
+- [x] N28. **Scaled-content spam governor** before any factory expands (v1 101; law 3) - SHIPPED 2026-07-03 (R8, worktree): `factory-governor.ts` (max 5 new pages/week counting shipped ledger + batch history, N5 adds-something requirement, one-topic-one-page token subset rule, monthly growth under 10 percent of indexed pages) enforced in BOTH cluster-factory runs and the weekly page-factory cron; refused pages persist their plain reason on the batch card. Factories UNFROZEN as of this ship: N5 + N28 are live in the pipeline (N3 provenance still pending in R13 and governs the fact-sourcing side, not the factory gates).
 - [ ] N29. **Featured-snippet capture + format-matched steal moves** (v1 109; EXTENDS the shipped feature-steal columns and spike hints, not a new engine)
 - [ ] N30. **Demand-ranked question universe** from GSC, PAA, AI fanouts, SERPs (v1 127+370 merged; feeds drafting and coverage)
 - [ ] N31. **Solar-calendar year-rollover engine** (v1 104; tenant-configured calendar awareness, english-first output)
@@ -643,7 +652,7 @@ and UX0 are the same fight.
 
 - [ ] P1. **Trust receipts pack** (v1 91, 173, 174, 176, 177, 204, 214, 334, 336, 338, 339, 390, 405, 463, 464, 523, 524, 525): one-line receipts everywhere, verdict revision history, why-not-in-plan inspector, named controls on charts, see-the-math, spend-to-outcome joins, /activity audit log, CSV export, we-got-this-wrong recap section, threshold registry in plain words.
 - [ ] P2. **GSC depth pack** (v1 136, 137, 138, 195, 264, 265, 266, 267, 268, 428, 492, 491+493 merged): searchAppearance, budgeted indexation sweep, brand split, ingestion-gap classification, fresh-data lane, device grain, striking-distance portfolio headline, back-of-results register, country grain, footprint registry, anonymized-query gap, Discover probe.
-- [ ] P3. **Tenant CTR curve** (v1 131+140+369+384+273 merged into ONE implementation): fit from own GSC data, retrain the title scorer from settled tests, pin the survivor with tests.
+- [x] P3 (2026-07-03, R9; four rival curves consolidated to one tenant-fittable module + bounded title-scorer retrain). **Tenant CTR curve** (v1 131+140+369+384+273 merged into ONE implementation): fit from own GSC data, retrain the title scorer from settled tests, pin the survivor with tests.
 - [ ] P4. **Measurement rigor pack** (v1 150, 151, 152, 285, 286, 288, 289, 291, 378): fixed query panel, distinct-query growth, day-of-week baselines, adaptive windows, alpha-spending, equivalence testing, FDR control, clean-window salvage, novelty-decay flags. All feed N10's grade.
 - [ ] P5. **Team deliberation pack** (v1 163, 165, 166, 167, 203, 231+314 merged, 309, 312, 313, 386, 387, 455): quorum rules, control vetting, exploration slot, second round, persisted full decisions, devil's advocate, age-decayed confidence, falsifiers with auto-retract, second pass on big bets, debate-derived multiplier, agreement score, coverage ratchet.
 - [ ] P6. **LLM engine pack** (v1 234+284 merged, 144, 145, 148, 277, 278, 280, 281, 282, 283, 375, 377, 403, 432, 499, 500, 502): one gateway with a zod schema registry, brand-voice card, loss-aware redraft, prompt versioning + regression harness, batch API, labeling pass, self-critique grader, call cache, token-true billing, numeric repair, tool-calling drafter, calibrated self-confidence, de-templating guard, best-of-2, injection sanitization.

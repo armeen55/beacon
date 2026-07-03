@@ -81,6 +81,9 @@ function OneItem({ item, weekOf }: { item: FactoryBatchCardItem; weekOf: string 
         <div>
           <p className="text-sm font-semibold text-gray-900">{item.title}</p>
           <p className="mt-0.5 text-[11px] text-gray-500">{item.why}</p>
+          {item.infoGain ? (
+            <p className="mt-0.5 text-[11px] text-gray-500">{item.infoGain.sentence}</p>
+          ) : null}
           <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
             <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-700 ring-1 ring-emerald-200">
               {SOURCE_LABEL[item.demandSource]}
@@ -205,6 +208,20 @@ export function PageFactoryBatchCard({ data }: { data: FactoryBatchCardData }) {
           {data.queuedCount > 0 ? ` ${data.queuedCount} more are queued for the next keyword check.` : ""}
         </p>
         <p className="mt-1 text-[11px] text-gray-400">Spent ${data.totalCostUsd.toFixed(3)} drafting this batch.</p>
+        {data.governorSummary ? (
+          <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50/60 px-2.5 py-2">
+            <p className="text-xs font-medium text-amber-800">{data.governorSummary}</p>
+            {data.governorRefusals.length > 0 ? (
+              <ul className="mt-1 space-y-0.5">
+                {data.governorRefusals.map((r) => (
+                  <li key={r.slug} className="text-[11px] leading-snug text-amber-700">
+                    {r.plainReason}
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+          </div>
+        ) : null}
       </div>
       <div className="mt-4 space-y-3">
         {data.items.map((item) => (
