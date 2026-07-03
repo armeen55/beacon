@@ -7,6 +7,43 @@
 
 ---
 
+## 2026-07-03 - R23 P8: AEO defense pack (zero-source opening, defend-a-cited-query, brand-description accuracy)
+
+**What changed (3 deterministic $0 detectors over ALREADY-PERSISTED Profound rows; each additive + self-hiding when no data; no new API call):**
+
+1. **Zero-source opening** (v1 ~192): a tracked question AI actually gets asked about where AI cites no one confidently yet (>= 10 observed answers and the strongest cited domain sits at or below 25% of the topic's citations, or there are no citations at all). A first-mover opening. `src/domains/aeo/detect-defense.ts` (pure) reads `profound_citation_rows` + `profound_visibility_rows` executions via `src/domains/aeo/load-defense-signals.ts`; predicate `aeo_zero_source_opening` in `triggers/`.
+2. **Defend-a-cited-query** (v1 ~116/117): a competitor domain that was NOT cited in the prior capture NEWLY appears in the latest capture for a topic the tenant used to own or co-own (own domain cited in the prior capture). Detected from a real 2-capture citation-row history delta. Reference platforms (Wikipedia, Reddit, ...) and the tenant's own domain are excluded. Predicate `aeo_defend_cited_query`.
+3. **Brand-description accuracy** (v1 ~255): from the tenant's own persisted brand-mention answers (`profound_answer_rows`, `own_mentioned=true`, `response_excerpt`), flags a deterministic industry-family contradiction (e.g. a restaurant guide AI describes as a hotel) against the tenant's business-config industry. Predicate `aeo_brand_description_check`.
+
+**Rendered copy (renderToStaticMarkup, verified, no dashes, no lab jargon):**
+- Zero-source: `On "best time to visit Iran", AI does not confidently recommend anyone yet across about 42 answers I checked. Publish a clear, quotable answer for this on your site now and you can own it before a competitor does.`
+- Defend: `surfiran.com just started getting recommended by AI for "persian saffron", a question you used to own. Strengthen your answer block on this topic now, before they lock in the spot.`
+- Brand-desc: `AI is describing you as a hotel, but your site says you are a Persian culture guide. Add one clear line stating what you actually are, high on your homepage, so AI has the correct fact to learn from.`
+
+**Empty-safe pins:** each predicate returns `[]` with no site-root URL and no signals; the loader fail-softs to an all-empty bundle on any Supabase error or empty table (`load-defense-signals.test.ts`), and each detector returns `[]` on the absent-pattern fixture (`detect-defense.test.ts`, including a real 2-capture delta and a no-false-positive fixture).
+
+**PREDICATE_COUNT:** 26 -> 29 (loader + both counter test files aligned: `load-trigger-candidates-for-tenant.test.ts` and `recommendation-triggers-page.test.tsx`).
+
+**Verified:** `npm run typecheck` clean; 14 affected suites green in a clean CI-equivalent shell (340 tests) - new detector/loader/trigger tests (53), predicate-purity, copy-vocab (+3 probe sets), copy-sanitize-purity, catalog-sync, design-system ratchet (unchanged, no `(shell)` files touched), loader meta counter, diagnostics page counter, promotion-eligibility, safety-gates. Needs live Profound data on Iranopedia to prove real cards render.
+
+---
+
+## 2026-07-03 - R23 P15: Learning-depth pack (learn-from-dismissals + do-not-repeat, intent-dimension outcome prior pin, visible "Beacon learned" tile)
+
+**What changed (the visible "Beacon learned" loop; 3 items; all decided-only + byte-identical when undecided):**
+
+1. **Learn-from-dismissals + do-not-repeat** (`src/domains/learning/dismissal-learning.ts` PURE + `src/domains/learning/load-dismissal-signals.ts` I/O edge, wired as ONE post-pass in `demand-graph/load-graph.ts` after the existing priors): never re-suggests an exact thing already rejected (opportunity_dismissals) or already shipped/live (proof ledger) - keyed on the same coarse (moveType x page) cooldown key; and gently deprioritizes a KIND of move the operator keeps skipping (>= 3 dismissals, bounded [0.8, 1.0]). Reads only the dismissal + proof stores; raw MoveComponents never touched.
+2. **Intent-dimension outcome prior** (v1 139): FOUND ALREADY BUILT + WIRED - `learning/experiment-prior.ts` (decided-only, >= 3, moveType/pageType/queryCluster backoff, clamp [0.85,1.15], byte-identical when undecided) applied at `load-graph.ts` line 566. NOT rebuilt (contract: resurrect/reuse). Pinned with a stacked zero-risk contract test (prior composed with dismissal-learning = identity on empty).
+3. **Visible "Beacon learned" line** (`src/domains/insight/beacon-learned-summary.ts` PURE + `beacon-learned-tile.tsx`, wired self-hiding onto `/changes`): one honest sentence from the SAME decided-only outcomes the ranking learns from; reuses `computeDimPriors` win-rate math; self-hides below 3 decided.
+
+**Rendered line (renderToStaticMarkup, verified):** "I've learned your answer-block changes win most often (4 of 5 measured), so I'm putting them higher. Your title and wording tweaks have not moved the needle (0 of 3), so I'm easing off them." Receipt: "From 8 of your changes that have finished measuring." Tile self-hides (renders empty string) below 3 decided outcomes.
+
+**Byte-identical-when-undecided PIN:** a fresh tenant (no dismissals, no shipped/rejected keys, no decided outcomes) gets its moves back with the SAME array reference, same order, same scores; the tile renders nothing. Pinned in tests.
+
+**Verified:** `npm run typecheck` (0 errors in touched files; one pre-existing unrelated error in `recommendation-intelligence/triggers/aeo-zero-source-opening.ts`, out of scope). Tests: dismissal-learning (11) + beacon-learned-summary (10) + beacon-learned-tile (3) all green; affected suites green - learning+insight+primitives (129), demand-graph (258), recommendation-intelligence (252), experiments learned-prior-surface-pins (13).
+
+---
+
 ## 2026-07-03 - R23 P11: Technical-SEO pack (dead-URL-with-demand recovery, broken-link fixer + link liveness, redirect-chain + soft-404 hygiene)
 
 **What changed (3 deterministic, empty-safe detectors surfacing real new fix-Moves from data Beacon already has - GSC + page_snapshots + the URL-inspection cache; new `src/domains/technical-seo/**` domain + one new trigger per item, wired LAST in the trigger loader with cross-source cooldown dedupe):**

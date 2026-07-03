@@ -939,3 +939,53 @@ export function serpFeatureDisappearedCopy(featureLabel: string, query: string):
     '", so the classic top link matters more here again. Keep this page sharp on the basics to hold the top spot.'
   );
 }
+
+/**
+ * AEO zero-source opening (BEACON 500 P8 v1 ~192, 2026-07-03). A question AI
+ * gets asked where AI does not confidently recommend anyone yet, so it is a
+ * first-mover opening. Args: the plain topic label, the number of AI answers
+ * seen. First person, concrete number, next step. No lab words (says "AI
+ * answers", never "AEO"). NO em or en dashes (hard rule).
+ */
+export function aeoZeroSourceOpeningCopy(topicLabel: string, aiAnswers: number): string {
+  return (
+    'On "' +
+    topicLabel +
+    '", AI does not confidently recommend anyone yet across about ' +
+    aiAnswers.toLocaleString("en-US") +
+    " answers I checked. Publish a clear, quotable answer for this on your site now and you can own it before a competitor does."
+  );
+}
+
+/**
+ * AEO defend-a-cited-query (BEACON 500 P8 v1 ~116/117, 2026-07-03). A
+ * competitor just started getting recommended by AI for a question you already
+ * earned, so strengthen your answer before they lock it in. Args: the plain
+ * topic label, the competitor domain that newly appeared. First person, names
+ * the rival, next step. No lab words. NO em or en dashes (hard rule).
+ */
+export function aeoDefendCitedQueryCopy(topicLabel: string, competitorDomain: string): string {
+  return (
+    competitorDomain +
+    ' just started getting recommended by AI for "' +
+    topicLabel +
+    '", a question you used to own. Strengthen your answer block on this topic now, before they lock in the spot.'
+  );
+}
+
+/**
+ * AEO brand-description accuracy (BEACON 500 P8 v1 ~255, 2026-07-03). AI is
+ * describing the brand with a fact that contradicts the tenant's own site, so
+ * correct the record. Args: the wrong descriptor AI used, the tenant's own
+ * true fact. First person, owns the problem plainly, next step. No lab words.
+ * NO em or en dashes (hard rule).
+ */
+export function aeoBrandDescriptionCheckCopy(aiDescriptor: string, ownFact: string): string {
+  return (
+    "AI is describing you as " +
+    aiDescriptor +
+    ", but your site says you are " +
+    ownFact +
+    ". Add one clear line stating what you actually are, high on your homepage, so AI has the correct fact to learn from."
+  );
+}

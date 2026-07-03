@@ -12,6 +12,10 @@ import { loadLifecycleCounts } from "../lifecycle-counts-data";
 import { TonightSummaryChip } from "../tonight-summary-chip";
 import { loadWithDeadline } from "@/lib/load-with-deadline";
 import { HonestDelay } from "@/components/honest-delay";
+import { currentTenantId } from "@/lib/tenant-context";
+import { loadExperimentOutcomes } from "@/domains/learning/load-experiment-outcomes";
+import { buildBeaconLearnedSummary } from "@/domains/insight/beacon-learned-summary";
+import { BeaconLearnedTile } from "@/domains/insight/beacon-learned-tile";
 
 /**
  * /changes → the canonical CHANGES list (2026-07-01 consolidation). One object, a CHANGE, across
@@ -110,6 +114,26 @@ async function NewPagesBoard() {
   return raced.timedOut ? null : raced.data;
 }
 
+/**
+ * R23 P15 - the visible "Beacon learned" tile. Reads the SAME decided-only,
+ * maturity-gated outcomes the R&R ranking learns from, and states in one honest
+ * sentence which kind of change wins most and which has not moved the needle.
+ * Self-hiding: renders null until there are enough finished measurements to say
+ * something true (the tile builder returns a null sentence below the floor).
+ * Deadline-bounded + fail-soft like every side section here.
+ */
+async function BeaconLearned() {
+  try {
+    const tenantId = await currentTenantId();
+    const raced = await loadWithDeadline(loadExperimentOutcomes(tenantId), SIDE_SECTION_DEADLINE_MS);
+    if (raced.timedOut) return null;
+    const summary = buildBeaconLearnedSummary(raced.data);
+    return <BeaconLearnedTile summary={summary} />;
+  } catch {
+    return null; // fail-soft: the learning tile never blocks the page
+  }
+}
+
 async function PageFactoryBatch() {
   try {
     const raced = await loadWithDeadline(loadFactoryBatchCardData(), SIDE_SECTION_DEADLINE_MS);
@@ -145,6 +169,9 @@ export default function WorklistPage() {
       />
       <Suspense fallback={null}>
         <TonightChip />
+      </Suspense>
+      <Suspense fallback={null}>
+        <BeaconLearned />
       </Suspense>
       <Suspense fallback={<ChangesListFallback />}>
         <ChangesSection />

@@ -40,6 +40,8 @@ import { loadExperimentOutcomes, loadEffectObservations, loadProofOutcomeRows } 
 import { applyExperimentPriorToMoves, canonicalMoveType, pageTypeFromUrl, queryClusterKey } from "@/domains/learning/experiment-prior";
 import { applyEffectSizePriorToMoves } from "@/domains/learning/effect-size-prior";
 import { applyProofOutcomeCautionToMoves } from "@/domains/demand-graph/proof-outcome-caution";
+import { applyDismissalLearning } from "@/domains/learning/dismissal-learning";
+import { loadDismissalSignals } from "@/domains/learning/load-dismissal-signals";
 import {
   buildDemandGraph,
   type DemandInput,
@@ -600,6 +602,29 @@ export async function loadDemandGraphForTenant(
     if (proofRows.length > 0) moves = applyProofOutcomeCautionToMoves(moves, proofRows);
   } catch {
     /* additive — never let it break the graph */
+  }
+  // R23 P15 - LEARN FROM SKIPS (do-not-repeat + kind demotion), OUTSIDE the pure
+  // scorer. Never re-suggest an exact thing the operator already rejected or that
+  // is already shipped/live, and gently deprioritize a KIND of move they keep
+  // skipping (>= 3 dismissals, bounded [0.8, 1.0]). DECIDED-ONLY: a fresh tenant
+  // with no dismissals and no shipped changes gets its moves back UNCHANGED
+  // (byte-identical). Fail-soft; raw MoveComponents are never touched.
+  try {
+    const signals = await loadDismissalSignals(tenantId);
+    if (signals.doNotRepeat.length > 0 || signals.dismissals.length > 0) {
+      const learned = applyDismissalLearning(moves, signals);
+      moves = learned.moves;
+      if (learned.suppressed.length > 0 || learned.demotions.length > 0) {
+        log.info("[load-graph] dismissal learning", {
+          tenantId,
+          suppressed: learned.suppressed.length,
+          suppressedLabels: learned.suppressed.map((s) => s.label),
+          demotedKinds: learned.demotions.map((d) => `${d.kind}(x${d.dismissals})`),
+        });
+      }
+    }
+  } catch {
+    /* additive - never let the skip-learning layer break the graph */
   }
   // Profound AEO EVIDENCE fusion (evidence-only; no score change, no new actions).
   // Reads the DURABLE cached store (loadCachedPromptOpportunities — NO live

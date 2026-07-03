@@ -103,6 +103,13 @@ import { clarityFriction } from "./triggers/clarity-friction";
 import { loadClarityPageSignalsForTenant } from "./clarity-page-signals";
 import { gscDecay } from "./triggers/gsc-decay";
 import { profoundAeoGap } from "./triggers/profound-aeo-gap";
+// AEO defense pack (BEACON 500 P8, 2026-07-03): three deterministic $0
+// detectors over ALREADY-PERSISTED Profound rows (never a live API call).
+import { aeoZeroSourceOpening } from "./triggers/aeo-zero-source-opening";
+import { aeoDefendCitedQuery } from "./triggers/aeo-defend-cited-query";
+import { aeoBrandDescriptionCheck } from "./triggers/aeo-brand-description-check";
+import { loadAeoDefenseSignalsForTenant } from "@/domains/aeo/load-defense-signals";
+import type { AeoDefenseSignals } from "@/domains/aeo/defense-types";
 import { sovDropAlert } from "./triggers/sov-drop-alert";
 import { displacementCheckAlert } from "./triggers/displacement-check-alert";
 import { citationLossAlert } from "./triggers/citation-loss-alert";
@@ -232,7 +239,7 @@ export type TriggerCandidatesLoadResult = {
   };
 };
 
-const PREDICATE_COUNT = 26;
+const PREDICATE_COUNT = 29;
 
 function emptyResult(
   status: TriggerCandidatesLoadStatus,
@@ -422,6 +429,32 @@ export async function loadTriggerCandidatesForTenant(options: {
   } catch (err) {
     console.error(
       `[trigger-loader] profound topic-signals load failed for ${tenantId} (profound_aeo_gap skips): ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+
+  // AEO defense pack (BEACON 500 P8, 2026-07-03): pre-load the three
+  // deterministic AEO-defense signals from ALREADY-PERSISTED Profound rows
+  // (profound_citation_rows for the zero-source opening + the 2-capture
+  // defend-a-cited-query delta; profound_answer_rows for the brand-description
+  // accuracy check). This reads synced Supabase rows only, NEVER the Profound
+  // API. Soft-empty when Profound is not connected / no rows / no mismatch -
+  // the three predicates then abstain (self-hiding).
+  let aeoDefense: AeoDefenseSignals = {
+    zeroSourceOpenings: [],
+    defendCitedQueries: [],
+    brandDescriptionMismatches: [],
+  };
+  try {
+    aeoDefense = await loadAeoDefenseSignalsForTenant(tenantId, {
+      domain: businessConfig.domain,
+      industry: businessConfig.industry,
+      locations: businessConfig.locations,
+      services: businessConfig.services,
+      profound: businessConfig.profound,
+    });
+  } catch (err) {
+    console.error(
+      `[trigger-loader] aeo-defense load failed for ${tenantId} (aeo_zero_source_opening / aeo_defend_cited_query / aeo_brand_description_check skip): ${err instanceof Error ? err.message : String(err)}`,
     );
   }
 
@@ -747,6 +780,34 @@ export async function loadTriggerCandidatesForTenant(options: {
       ...profoundAeoGap({
         tenantId,
         signals: profoundTopicSignals,
+        siteRootUrl: rootDomain ? "https://" + rootDomain + "/" : null,
+        signalAt: new Date().toISOString(),
+      }),
+    );
+    // AEO defense pack (BEACON 500 P8): same site-root anchoring - each is a
+    // topic-level / brand-level AEO signal, not a page-level edit. Pure
+    // predicates over the pre-loaded, already-detected signals; no Profound
+    // API call happens here or in the loader above.
+    all.push(
+      ...aeoZeroSourceOpening({
+        tenantId,
+        openings: aeoDefense.zeroSourceOpenings,
+        siteRootUrl: rootDomain ? "https://" + rootDomain + "/" : null,
+        signalAt: new Date().toISOString(),
+      }),
+    );
+    all.push(
+      ...aeoDefendCitedQuery({
+        tenantId,
+        findings: aeoDefense.defendCitedQueries,
+        siteRootUrl: rootDomain ? "https://" + rootDomain + "/" : null,
+        signalAt: new Date().toISOString(),
+      }),
+    );
+    all.push(
+      ...aeoBrandDescriptionCheck({
+        tenantId,
+        mismatches: aeoDefense.brandDescriptionMismatches,
         siteRootUrl: rootDomain ? "https://" + rootDomain + "/" : null,
         signalAt: new Date().toISOString(),
       }),

@@ -327,6 +327,24 @@ const PROBE_SETS: Record<string, ReadonlyArray<Probe>> = {
     ["the answer box", "farsi numbers"],
     ["the image row", "persian rugs"],
   ],
+  // P8 (2026-07-03) - AEO zero-source opening. Args: (topicLabel, aiAnswers).
+  // Probe a normal topic + a large-count edge.
+  aeoZeroSourceOpeningCopy: [
+    ["best time to visit Iran", 42],
+    ["x", 250000],
+  ],
+  // P8 (2026-07-03) - AEO defend-a-cited-query. Args: (topicLabel,
+  // competitorDomain). Probe a normal case + a short one.
+  aeoDefendCitedQueryCopy: [
+    ["persian saffron", "surfiran.com"],
+    ["x", "rival.com"],
+  ],
+  // P8 (2026-07-03) - AEO brand-description accuracy. Args: (aiDescriptor,
+  // ownFact). Probe an industry-family contradiction + a short one.
+  aeoBrandDescriptionCheckCopy: [
+    ["a hotel", "a Persian culture guide"],
+    ["a law firm", "a restaurant guide"],
+  ],
 };
 
 function scanForViolations(output: string): string[] {

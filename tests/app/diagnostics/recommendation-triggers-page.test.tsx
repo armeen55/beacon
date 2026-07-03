@@ -446,16 +446,17 @@ describe("/diagnostics/recommendation-triggers", () => {
     expect(html).toContain('data-row-action-type="edit_title"');
   });
 
-  it("predicates_run counter reads 26 (dynamic trigger roster)", async () => {
+  it("predicates_run counter reads 29 (dynamic trigger roster)", async () => {
     _snapshotsToReturn = [makeSnapshot({ url: "https://example.com/a" })];
     const html = await renderPage();
     expect(html).toContain('data-counter="predicates_run"');
     // The font-mono span renders the active predicate count from the loader meta
     // (PREDICATE_COUNT). Ratchets with each new trigger; the value tracks the
-    // loader's own hand-maintained PREDICATE_COUNT (26 as of the P11 technical-SEO
-    // pack: dead_url_recovery + broken_internal_links + redirect_hygiene).
+    // loader's own hand-maintained PREDICATE_COUNT (29 as of the P8 AEO-defense
+    // pack: aeo_zero_source_opening + aeo_defend_cited_query +
+    // aeo_brand_description_check).
     expect(html).toMatch(
-      /data-counter="predicates_run"[^>]*>[^<]*<span[^>]*>26<\/span>/,
+      /data-counter="predicates_run"[^>]*>[^<]*<span[^>]*>29<\/span>/,
     );
   });
 
@@ -510,10 +511,10 @@ describe("/diagnostics/recommendation-triggers", () => {
     const html = await renderPage();
     // The description carries a `data-description-predicates-run`
     // attribute set to the current count from the loader meta
-    // (PREDICATE_COUNT, 26 as of the P11 technical-SEO pack).
-    expect(html).toContain('data-description-predicates-run="26"');
+    // (PREDICATE_COUNT, 29 as of the P8 AEO-defense pack).
+    expect(html).toContain('data-description-predicates-run="29"');
     // And the prose body contains the same integer.
-    expect(html).toContain("26</span> active");
+    expect(html).toContain("29</span> active");
   });
 
   // ── α₂.2 page-classifier integration ────────────────────────────────
