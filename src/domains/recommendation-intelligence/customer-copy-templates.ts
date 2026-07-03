@@ -521,3 +521,25 @@ export function staleFactCopy(
     " like this age; worth a fresh check."
   );
 }
+
+/**
+ * Device click gap (BEACON_500 R17b, v1 item 268). Phones carry most of the
+ * site's Google demand but click far below desktop at comparable rankings.
+ * Args are clicks-per-100-appearances strings for phones and computers
+ * ("1.4", "3.8") so the copy carries the concrete numbers, never a rate in
+ * lab words. NO em or en dashes (hard rule).
+ */
+export function deviceCtrGapCopy(
+  mobileClicksPer100: string,
+  desktopClicksPer100: string,
+): string {
+  return (
+    "Phones make up most of your Google traffic but click far less often than computers do " +
+    "on the same rankings. Last week phones earned " +
+    mobileClicksPer100 +
+    " clicks per 100 appearances versus " +
+    desktopClicksPer100 +
+    " on computers. Something about how your titles and descriptions read on a phone is " +
+    "costing clicks, so open your top pages in a phone-sized search result and check what gets cut off."
+  );
+}

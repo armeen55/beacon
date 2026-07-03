@@ -6,6 +6,7 @@ import { log } from "@/lib/logger";
 import { readStore, writeStore } from "@/lib/persistence/json-store";
 import { getSupabaseAdmin, isSupabaseConfigured } from "@/lib/persistence/supabase";
 import { loadTopTenantQueriesWithOwner } from "@/domains/recommendation-intelligence/gsc-page-queries";
+import { loadBackOfResultsRegister } from "@/domains/gsc/load-back-of-results";
 import { loadFanoutSeedsForTenant } from "@/domains/demand-graph/load-fanout-seeds";
 import { loadTenantQuestionLibrary } from "@/domains/ai-visibility/tenant-question-library";
 import { featureStealHistoryRows } from "@/domains/serp/serp-history";
@@ -106,8 +107,11 @@ async function readOwnerExtracts(tenantId: string, urls: readonly string[]): Pro
 export async function buildQuestionUniverseForTenant(tenantId: string): Promise<QuestionUniverse> {
   if (!tenantId) return { rows: [], stats: emptyStats() };
 
-  const [gscQueries, fanoutSeeds, library, serpRows, registry] = await Promise.all([
+  const [gscQueries, backOfResults, fanoutSeeds, library, serpRows, registry] = await Promise.all([
     loadTopTenantQueriesWithOwner(tenantId, { limit: GSC_QUERY_LIMIT }).catch(() => []),
+    // R17b (v1 428): the deep-rank register (position 30-100, real
+    // impressions) as one more demand source. Fail-soft null = no lane.
+    loadBackOfResultsRegister(tenantId).catch(() => null),
     loadFanoutSeedsForTenant(tenantId, FANOUT_LIMIT).catch(() => []),
     loadTenantQuestionLibrary(tenantId).catch(() => []),
     featureStealHistoryRows(tenantId).catch(() => []),
@@ -117,6 +121,19 @@ export async function buildQuestionUniverseForTenant(tenantId: string): Promise<
   const paaQuestions = serpRows.flatMap((r) => r.paaQuestions.map((q) => ({ question: q.question })));
   const resolveOwnerFor = registry ? (q: string) => resolveOwner(registry, q)?.owner ?? null : null;
 
+  // Deep-rank lane, deduped against the primary gsc lane by normalized text
+  // (both read gsc_daily_rows, so a shared query must not double-count its
+  // impressions - the pure module documents this loader-side contract).
+  const seenGscQueries = new Set(gscQueries.map((q) => q.query.trim().toLowerCase()));
+  const backOfResultsInputs = (backOfResults?.queries ?? [])
+    .filter((q) => !seenGscQueries.has(q.query.trim().toLowerCase()))
+    .map((q) => ({
+      query: q.query,
+      impressions: q.impressions,
+      clicks: q.clicks,
+      ownerPage: q.ownerPage,
+    }));
+
   const baseArgs = {
     tenantId,
     gscQueries: gscQueries.map((q) => ({
@@ -125,6 +142,7 @@ export async function buildQuestionUniverseForTenant(tenantId: string): Promise<
       clicks: q.clicks,
       ownerPage: q.ownerPage,
     })),
+    backOfResults: backOfResultsInputs,
     fanoutSeeds: fanoutSeeds.map((s) => ({ subQuery: s.subQuery, weight: s.weight })),
     nativeLibrary: library.map((l) => ({ text: l.prompt_text })),
     paaQuestions,

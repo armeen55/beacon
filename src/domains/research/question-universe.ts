@@ -271,6 +271,15 @@ export type OwnerResolverFn = (questionOrTopic: string) => string | null;
 export type BuildQuestionUniverseArgs = {
   tenantId: string;
   gscQueries?: readonly GscQuestionInput[];
+  /** R17b (v1 428): question-shaped searches from the back-of-results
+   *  register (site ranks 30-100 with real impressions). Same real-Google
+   *  evidence as the gsc lane, so they join it (impressions and all) - a
+   *  deep rank IS "real people ask this and nothing of ours competes".
+   *  CONTRACT (pinned): omitted or empty leaves the built universe
+   *  byte-identical to before this lane existed. The loader dedupes these
+   *  against gscQueries by normalized text so shared queries never
+   *  double-count impressions. */
+  backOfResults?: readonly GscQuestionInput[];
   fanoutSeeds?: readonly FanoutQuestionInput[];
   nativeLibrary?: readonly NativeLibraryQuestionInput[];
   paaQuestions?: readonly PaaQuestionInput[];
@@ -319,6 +328,16 @@ export function buildQuestionUniverse(args: BuildQuestionUniverseArgs): Question
     .filter((q) => isQuestionShaped(q.query))
     .sort((a, b) => b.impressions - a.impressions || a.query.localeCompare(b.query));
   for (const q of gsc) {
+    candidates.push({ text: q.query, source: "gsc", impressions: Math.max(0, q.impressions), clicks: Math.max(0, q.clicks), weight: 0, ownerPage: q.ownerPage });
+  }
+  // R17b (v1 428): the back-of-results lane joins as more gsc-sourced
+  // candidates, AFTER the primary lane so the canonical phrasing preference
+  // stays with the main read. Empty input adds nothing - byte-identical
+  // (pinned by question-universe.test.ts).
+  const deepRank = [...(args.backOfResults ?? [])]
+    .filter((q) => isQuestionShaped(q.query))
+    .sort((a, b) => b.impressions - a.impressions || a.query.localeCompare(b.query));
+  for (const q of deepRank) {
     candidates.push({ text: q.query, source: "gsc", impressions: Math.max(0, q.impressions), clicks: Math.max(0, q.clicks), weight: 0, ownerPage: q.ownerPage });
   }
   const paaSeen = new Set<string>();

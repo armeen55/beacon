@@ -283,6 +283,17 @@ const SUPABASE_MIRRORED_STORES = new Set<string>([
   // /diagnostics/provenance would vanish on the next lambda recycle and the
   // operator could never see which prepared one-line fixes are still open.
   "fact-propagation-plans",
+  // 2026-07-03 BEACON_500 R17b (v1 136+268) - weekly GSC dimension snapshots
+  // (searchAppearance + device aggregates). Written by the nightly cron on
+  // Vercel lambdas (no disk); the weekly cadence check reads the newest
+  // snapshot, so without the mirror every lambda recycle would look like
+  // "never pulled" and the pass would re-spend its API calls nightly.
+  "gsc-weekly-dimensions",
+  // 2026-07-03 BEACON_500 R17b (v1 264) - the fresh-tail volatile cache
+  // (Google's EARLY per-day counts for the settling window). Presentation
+  // cache only, 3h TTL; the mirror makes the TTL hold across lambda
+  // instances so a busy Today page fires at most one fresh read per window.
+  "gsc-fresh-tail",
 ]);
 
 const BLOBS_TABLE = "json_store_blobs";

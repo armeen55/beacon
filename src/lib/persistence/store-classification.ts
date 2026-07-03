@@ -489,6 +489,18 @@ export const GLOBAL_STORES = new Set<string>([
   // claim-graph above). Capped at 100 plans per tenant
   // (src/domains/provenance/claim-graph-loader.ts).
   "fact-propagation-plans",
+  // Weekly GSC dimension snapshots (2026-07-03, BEACON_500 R17b, v1 136+268).
+  // Rows carry tenant_id; written by the nightly cron fan-out with no ambient
+  // request context (same rationale as question-universe above). One
+  // searchAppearance + one device aggregate per tenant per week, capped at 26
+  // snapshots per tenant (src/lib/connectors/gsc/weekly-dimensions-sync.ts).
+  "gsc-weekly-dimensions",
+  // Fresh-tail volatile presentation cache (2026-07-03, BEACON_500 R17b,
+  // v1 264). Rows carry tenant_id; one row per tenant, 3h TTL. Holds Google's
+  // EARLY (dataState all) per-day counts for the final-lag window ONLY -
+  // never written to the final daily tables (the is_final discipline is
+  // inviolable; src/domains/gsc/load-fresh-tail.ts).
+  "gsc-fresh-tail",
 ]);
 
 /**

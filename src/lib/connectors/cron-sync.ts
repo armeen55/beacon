@@ -2,6 +2,7 @@ import { log } from "@/lib/logger";
 import { listTenants } from "@/domains/tenants/store";
 import { getConnectorInfo, updateConnectorToken } from "@/lib/connector-store";
 import { syncGscSearchAnalyticsForTenant } from "@/lib/connectors/gsc/sync-search-analytics";
+import { syncGscWeeklyDimensionsForTenant } from "@/lib/connectors/gsc/weekly-dimensions-sync";
 import { syncGa4UrlTrafficForTenant } from "@/lib/connectors/ga4/sync-url-traffic";
 import { pullGa4AiReferralsForTenant } from "@/lib/connectors/ga4/sync-ai-referrals";
 import { syncClarityDailyMetricsForTenant } from "@/lib/connectors/clarity/sync-daily-metrics";
@@ -308,6 +309,31 @@ export async function syncAllConnectedForActiveTenants(): Promise<CronSyncResult
       const err = e instanceof Error ? e.message : String(e);
       log.error("[cron-sync] tenant failed", { tenantId: t.id, error: err.slice(0, 200) });
       await reportPhaseError("tenant-sync", t.id, e);
+    }
+  }
+
+  // PHASE 1a-gsc-weekly - weekly GSC dimensions pass (BEACON_500 R17b, v1
+  // items 136 + 268): ONE searchAppearance + ONE device aggregate per tenant
+  // per WEEK (the engine's own cadence check makes ~6 of 7 nightly runs a
+  // free no-op). Isolated step by contract: its own try/catch, dormant until
+  // GSC is connected (no_usable_gsc_token is a cheap skip), FREE (Google
+  // API), never touches the daily final tables.
+  for (const t of tenants) {
+    try {
+      const r = await syncGscWeeklyDimensionsForTenant({ tenantId: t.id });
+      if (r.ran) {
+        log.info("[cron-sync] gsc weekly dimensions", {
+          tenantId: t.id,
+          property: r.property,
+          weeksPulled: r.weeksPulled,
+        });
+      }
+    } catch (e) {
+      log.warn("[cron-sync] gsc weekly dimensions failed", {
+        tenantId: t.id,
+        error: e instanceof Error ? e.message.slice(0, 200) : String(e),
+      });
+      await reportPhaseError("gsc-weekly-dimensions", t.id, e);
     }
   }
 

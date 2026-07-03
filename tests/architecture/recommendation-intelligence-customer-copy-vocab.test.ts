@@ -213,6 +213,12 @@ const PROBE_SETS: Record<string, ReadonlyArray<Probe>> = {
     ["/iran-population", "a 2023 population figure", "8 months ago", "Numbers"],
     ["/persepolis", "a persepolis date", "7 months ago", "Dates"],
   ],
+  // R17b (2026-07-03) - device click gap: clicks-per-100-appearances strings
+  // for phones and computers. Probe a typical pair + a sub-1 mobile rate.
+  deviceCtrGapCopy: [
+    ["1.4", "3.8"],
+    ["0.6", "2.0"],
+  ],
 };
 
 function scanForViolations(output: string): string[] {

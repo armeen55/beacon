@@ -41,6 +41,15 @@ import { buildReceiptLine, ReceiptLine } from "@/components/data/receipt-line";
 // that do not mention the business name, windowed on the SAME reported days the
 // headline uses. Fail-soft null -> the sub-line self-hides.
 import { loadScoreboardBrandLens } from "@/domains/gsc/load-brand-split";
+// R17b (v1 136 + 268) - the weekly "how you show up" lens: rich-result styling
+// share + phones vs computers, from the weekly GSC dimensions store. Fail-soft
+// null -> the expander self-hides.
+import { loadGscWeeklyLens } from "@/domains/gsc/load-weekly-dimensions";
+// R17b (v1 264) - the dotted "still settling" tail: Google's EARLY counts for
+// the final-lag days the chart's final lane excludes. Opt-in read behind a 3h
+// volatile cache; fail-soft null -> no tail, chart byte-identical.
+import { loadGscFreshTail } from "@/domains/gsc/load-fresh-tail";
+import { FRESH_TAIL_NOTE, type FreshTailPoint } from "@/domains/gsc/fresh-tail";
 
 const W = 720;
 const H = 170;
@@ -57,13 +66,15 @@ function yAt(v: number, max: number): number {
   return PAD_T + (max <= 0 ? usable : usable - (v / max) * usable);
 }
 
-function areaPath(values: number[], max: number): string {
-  const n = values.length;
+// R17b: both path helpers take an optional totalN so the final-lane shapes can
+// be drawn in a wider x-space when the dotted settling tail extends the chart.
+function areaPath(values: number[], max: number, totalN?: number): string {
+  const n = totalN ?? values.length;
   const pts = values.map((v, i) => `${xAt(i, n).toFixed(1)},${yAt(v, max).toFixed(1)}`);
-  return `M${xAt(0, n).toFixed(1)},${yAt(0, max).toFixed(1)} L${pts.join(" L")} L${xAt(n - 1, n).toFixed(1)},${yAt(0, max).toFixed(1)} Z`;
+  return `M${xAt(0, n).toFixed(1)},${yAt(0, max).toFixed(1)} L${pts.join(" L")} L${xAt(values.length - 1, n).toFixed(1)},${yAt(0, max).toFixed(1)} Z`;
 }
-function linePath(values: Array<number | null>, max: number): string {
-  const n = values.length;
+function linePath(values: Array<number | null>, max: number, totalN?: number): string {
+  const n = totalN ?? values.length;
   let d = "";
   values.forEach((v, i) => {
     if (v == null) return;
@@ -79,12 +90,24 @@ function monthDay(date: string): string {
   return d.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
 }
 
-function Chart({ s }: { s: Scoreboard }) {
-  const n = s.days.length;
+function Chart({ s, freshTail }: { s: Scoreboard; freshTail?: FreshTailPoint[] | null }) {
+  // R17b (v1 264): the dotted settling tail extends the x-space past the last
+  // FINAL day. All final-lane shapes keep their exact geometry when the tail
+  // is absent (n === s.days.length -> identical to the pre-R17b chart).
+  const tail = freshTail ?? [];
+  const nFinal = s.days.length;
+  const n = nFinal + tail.length;
   const clicks = s.days.map((d) => d.clicks);
-  const max = Math.max(1, ...clicks);
+  const max = Math.max(1, ...clicks, ...tail.map((t) => t.clicks));
+  const dates = [...s.days.map((d) => d.date), ...tail.map((t) => t.date)];
   const idxByDate = new Map(s.days.map((d, i) => [d.date, i]));
   const tickIdx = [0, Math.floor(n / 3), Math.floor((2 * n) / 3), n - 1];
+  // The dotted line starts at the last FINAL point so the early counts read
+  // as a continuation, never a separate series.
+  const tailValues: Array<number | null> =
+    tail.length > 0
+      ? [...Array<null>(nFinal - 1).fill(null), clicks[nFinal - 1] ?? 0, ...tail.map((t) => t.clicks)]
+      : [];
   return (
     <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label="Clicks per day with your shipped changes marked" className="w-full beacon-chart-draw">
       <defs>
@@ -98,10 +121,21 @@ function Chart({ s }: { s: Scoreboard }) {
         <line key={f} x1={PAD_L} x2={W - PAD_R} y1={yAt(max * f, max)} y2={yAt(max * f, max)} stroke="currentColor" strokeOpacity="0.06" />
       ))}
       {/* daily clicks area */}
-      <path d={areaPath(clicks, max)} fill="url(#sb-fill)" />
-      <path d={linePath(clicks, max)} fill="none" stroke="#6366f1" strokeOpacity="0.35" strokeWidth="1.2" />
+      <path d={areaPath(clicks, max, n)} fill="url(#sb-fill)" />
+      <path d={linePath(clicks, max, n)} fill="none" stroke="#6366f1" strokeOpacity="0.35" strokeWidth="1.2" />
       {/* 7-day average, the honest trend */}
-      <path d={linePath(s.rolling, max)} fill="none" stroke="#4f46e5" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" />
+      <path d={linePath(s.rolling, max, n)} fill="none" stroke="#4f46e5" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" />
+      {/* R17b - the dotted settling tail: Google's early counts, not final */}
+      {tail.length > 0 ? (
+        <g>
+          <path d={linePath(tailValues, max, n)} fill="none" stroke="#6366f1" strokeOpacity="0.55" strokeWidth="1.6" strokeDasharray="3 4" strokeLinecap="round" />
+          {tail.map((t, j) => (
+            <circle key={t.date} cx={xAt(nFinal + j, n)} cy={yAt(t.clicks, max)} r={2.5} fill="var(--background)" stroke="#6366f1" strokeOpacity="0.7" strokeWidth="1.2">
+              <title>{`${monthDay(t.date)}: ${t.clicks.toLocaleString()} clicks so far (still settling)`}</title>
+            </circle>
+          ))}
+        </g>
+      ) : null}
       {/* shipped-change markers */}
       {s.markers.map((m) => {
         const i = idxByDate.get(m.date);
@@ -119,7 +153,7 @@ function Chart({ s }: { s: Scoreboard }) {
       {/* x ticks */}
       {tickIdx.map((i) => (
         <text key={i} x={xAt(i, n)} y={H - 6} fontSize="10" fill="currentColor" fillOpacity="0.45" textAnchor={i === 0 ? "start" : i === n - 1 ? "end" : "middle"}>
-          {monthDay(s.days[i]!.date)}
+          {monthDay(dates[i]!)}
         </text>
       ))}
       {/* max label */}
@@ -276,6 +310,18 @@ export async function ScoreboardSection({
       null,
     );
 
+    // R17b (v1 136 + 268) - the weekly "how you show up" lens (rich styling +
+    // devices, $0 store read) and (v1 264) the dotted settling tail (one
+    // bounded fresh read behind a 3h cache). Both deadline-bounded +
+    // fail-soft: a miss just means no expander / no tail.
+    const [weeklyLens, freshTail] = await Promise.all([
+      valueWithDeadline(loadGscWeeklyLens(tenantId).catch(() => null), null),
+      valueWithDeadline(
+        loadGscFreshTail(tenantId, s.days[s.days.length - 1]?.date ?? null).catch(() => null),
+        null,
+      ),
+    ]);
+
     // UX4 item 2 - the chart's Google/AI visibility/Value tabs, built from series ALREADY loaded
     // above for this same section (citations.daily, revenueDays) - no new reads. A GA4 sessions
     // day-series loader does not exist yet, so Visitors passes an empty series and the tab
@@ -334,7 +380,18 @@ export async function ScoreboardSection({
             <span className="inline-flex items-center gap-1"><span className="inline-block h-2 w-2 rounded-full bg-slate-400" /> measuring</span>
           </div>
         </div>
-        <ScoreboardChartTabs googleChart={<Chart s={s} />} otherTabs={chartTabs} />
+        <ScoreboardChartTabs
+          googleChart={
+            <>
+              <Chart s={s} freshTail={freshTail} />
+              {/* R17b - the tail's honest label, only when a tail rendered. */}
+              {freshTail && freshTail.length > 0 ? (
+                <p className="text-meta text-muted-foreground">{FRESH_TAIL_NOTE}</p>
+              ) : null}
+            </>
+          }
+          otherTabs={chartTabs}
+        />
         <p className="mt-1 text-[13px] text-gray-600 dark:text-neutral-300">{s.verdictLine}</p>
         {/* R17a (brand split) - the growth lens: clicks from searches that do
             not mention your name, the number an SEO change can actually move.
@@ -353,6 +410,36 @@ export async function ScoreboardSection({
             note: "Google reports a few days behind.",
           })}
         />
+        {/* R17b (v1 136 + 268) - the weekly "how you show up" expander: rich
+            styling share + phones vs computers, receipt-styled lines from the
+            weekly store. Self-hides when no weekly snapshot exists yet. */}
+        {weeklyLens ? (
+          <details className="mt-1">
+            <summary className="cursor-pointer text-meta text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1">
+              How you show up on Google
+            </summary>
+            <div className="mt-1 space-y-0.5">
+              {weeklyLens.deviceLine ? (
+                <p className="text-meta text-muted-foreground tabular-nums">{weeklyLens.deviceLine}</p>
+              ) : null}
+              {weeklyLens.appearanceLine ? (
+                <p className="text-meta text-muted-foreground tabular-nums">{weeklyLens.appearanceLine}</p>
+              ) : null}
+              {weeklyLens.appearanceDropLine ? (
+                <p className="text-meta text-muted-foreground tabular-nums">{weeklyLens.appearanceDropLine}</p>
+              ) : null}
+              <ReceiptLine
+                line={buildReceiptLine({
+                  source: "your Search Console data",
+                  through: weeklyLens.weekEnd,
+                  checkedAt: weeklyLens.pulledAt,
+                  nowMs: Date.now(),
+                  note: "I check this once a week.",
+                })}
+              />
+            </div>
+          </details>
+        ) : null}
         {moneyLine ? (
           <p className="mt-1 text-[13px] font-medium text-emerald-700 dark:text-emerald-300">{moneyLine}</p>
         ) : null}

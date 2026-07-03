@@ -9,6 +9,12 @@ import { HonestDelay } from "@/components/honest-delay";
 // searches sit just below the top and what a push is worth, from the SAME
 // loader the Today demand band reads (one number, two surfaces).
 import { loadStrikingPortfolio } from "@/domains/gsc/load-striking-portfolio";
+// R17b (back-of-results register, v1 428) - searches where the site ranks 30th
+// to 100th with real demand: invisible everywhere else, each one a page idea.
+// Self-hiding section; the same loader feeds the question universe.
+import { loadBackOfResultsRegister } from "@/domains/gsc/load-back-of-results";
+import { Card } from "@/components/ui/card";
+import { SectionHeader } from "@/components/ui/section-header";
 import { currentTenantId } from "@/lib/tenant-context";
 // R14b (receipts everywhere) - the hero numbers' one-line receipt, from the
 // newest lastChecked stamp the loaded rows ALREADY carry. No new reads.
@@ -69,6 +75,15 @@ export default async function KeywordsPage() {
       .catch(() => null),
     null,
   );
+
+  // R17b (v1 428) - the deep-rank register. Deadline-bounded + fail-soft:
+  // nothing in the 30-100 band just means the section never renders.
+  const backOfResults = await valueWithDeadline(
+    currentTenantId()
+      .then((tid) => loadBackOfResultsRegister(tid))
+      .catch(() => null),
+    null,
+  );
   const portfolioLine = portfolio
     ? `${portfolio.headline}${portfolio.sizingLine ? ` ${portfolio.sizingLine}` : ""}`
     : null;
@@ -100,6 +115,27 @@ export default async function KeywordsPage() {
         })}
       />
       <KeywordsTableClient rows={library.rows} worklistBaseHref="/changes" />
+      {/* R17b (v1 428) - the back-of-results register: proven demand where the
+          site ranks too deep to ever earn a click. Self-hides without rows. */}
+      {backOfResults ? (
+        <section aria-label="Searches where you rank deep but still get seen" className="space-y-2">
+          <SectionHeader
+            title="Deep in the results but people still see you"
+            count={backOfResults.queries.length}
+            sub={backOfResults.subLine}
+          />
+          <Card padding="md">
+            <ul className="space-y-3">
+              {backOfResults.queries.map((q) => (
+                <li key={q.query}>
+                  <p className="text-body font-medium text-foreground">{q.query}</p>
+                  <p className="text-meta text-muted-foreground tabular-nums">{q.line}</p>
+                </li>
+              ))}
+            </ul>
+          </Card>
+        </section>
+      ) : null}
     </div>
   );
 }

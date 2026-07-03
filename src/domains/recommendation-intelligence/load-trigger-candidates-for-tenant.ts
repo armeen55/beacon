@@ -107,6 +107,9 @@ import { sovDropAlert } from "./triggers/sov-drop-alert";
 import { displacementCheckAlert } from "./triggers/displacement-check-alert";
 import { citationLossAlert } from "./triggers/citation-loss-alert";
 import { connectorFailureStreak } from "./triggers/connector-failure-streak";
+import { deviceCtrGap } from "./triggers/device-ctr-gap";
+import { loadGscDeviceCtrGapSignal } from "@/domains/gsc/load-weekly-dimensions";
+import type { DeviceCtrGapSignal } from "@/domains/gsc/weekly-dimensions";
 import { intentClusterConflict } from "./triggers/intent-cluster-conflict";
 import { claimTriggerSlot } from "@/domains/provenance/stale-fact-trigger";
 import { loadClaimGraphForTenant } from "@/domains/provenance/claim-graph-loader";
@@ -459,6 +462,19 @@ export async function loadTriggerCandidatesForTenant(options: {
     );
   }
 
+  // Device click gap (BEACON_500 R17b, v1 item 268): pre-load the newest
+  // weekly device snapshot's pure signal (the weekly GSC dimensions pass
+  // writes it; this reads the store at $0, never the GSC API). Soft-null when
+  // the weekly pass has not run yet - the predicate then abstains.
+  let deviceGapSignal: DeviceCtrGapSignal | null = null;
+  try {
+    deviceGapSignal = await loadGscDeviceCtrGapSignal(tenantId);
+  } catch (err) {
+    console.error(
+      `[trigger-loader] weekly device signal load failed for ${tenantId} (gsc_device_ctr_gap skips): ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+
   // Intent cluster conflict (BEACON_500 item N7, 2026-07-02): pre-load SERP
   // overlap clusters from ALREADY-STORED dataforseo_serp_history rows, $0,
   // no new paid SERP pulls. Reuses the gscSignals map already loaded above
@@ -605,6 +621,18 @@ export async function loadTriggerCandidatesForTenant(options: {
       ...connectorFailureStreak({
         tenantId,
         streaks: connectorStreaks,
+        siteRootUrl: rootDomain ? "https://" + rootDomain + "/" : null,
+        signalAt: new Date().toISOString(),
+      }),
+    );
+    // Device click gap (BEACON_500 R17b, v1 item 268): same site-root
+    // anchoring - the mobile-vs-desktop click split is property-level, not
+    // page-level. Pure predicate over the pre-loaded weekly device signal;
+    // structurally capped at 1 (one weekly aggregate in, at most one card out).
+    all.push(
+      ...deviceCtrGap({
+        tenantId,
+        signal: deviceGapSignal,
         siteRootUrl: rootDomain ? "https://" + rootDomain + "/" : null,
         signalAt: new Date().toISOString(),
       }),

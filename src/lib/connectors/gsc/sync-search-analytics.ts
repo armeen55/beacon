@@ -216,7 +216,10 @@ async function clearGscAuthFailure(tenantId: string): Promise<void> {
   }
 }
 
-async function resolveProperty(
+/** R17b: exported (additive) so the weekly dimensions pass
+ *  (weekly-dimensions-sync.ts) and the fresh-tail read resolve the SAME
+ *  property this nightly sync writes rows under - one resolution rule. */
+export async function resolveProperty(
   tenantId: string,
   accessToken: string,
 ): Promise<string | null> {
