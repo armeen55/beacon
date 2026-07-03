@@ -16,6 +16,8 @@ import { currentTenantId } from "@/lib/tenant-context";
 import type { CloneBrief } from "@/domains/serp/clone-brief";
 import { loadSecondOrderCitationPlaybook } from "@/domains/ai-visibility/second-order-citations";
 import { SecondOrderCitationsSection } from "./second-order-citations-section";
+import { loadWithDeadline } from "@/lib/load-with-deadline";
+import { HonestDelay } from "@/components/honest-delay";
 
 /**
  * /competitors (2026-06-28 — ActionPack execution loop, Phase 6) — the real enemy
@@ -129,7 +131,13 @@ function CloneBriefCards({ briefs }: { briefs: CloneBrief[] }) {
 }
 
 async function CompetitorsBody() {
-  const intel = await loadCompetitorIntel().catch(() => null);
+  // FP1 (2026-07-02) - the intel build walks the whole ActionPack worklist plus the
+  // teardown planner; on a cold lambda that can run long past what anyone will wait.
+  // Bound it: past the deadline the page says so honestly instead of stranding the
+  // gray pulse fallback forever (the loader keeps running and warms react.cache).
+  const raced = await loadWithDeadline(loadCompetitorIntel().catch(() => null));
+  if (raced.timedOut) return <HonestDelay />;
+  const intel = raced.data;
   if (!intel || intel.domains.length === 0) {
     return (
       <p className="rounded-2xl border border-dashed border-gray-200 bg-white p-8 text-center text-sm text-gray-500">
@@ -306,26 +314,38 @@ async function CompetitorsBody() {
 }
 
 async function OutreachBody() {
-  const rows = await loadOutreachPipelineAction().catch(() => []);
-  return <OutreachSection initialRows={rows} />;
+  // FP1 - deadline-bounded so this section's pulse fallback can never strand.
+  const raced = await loadWithDeadline(loadOutreachPipelineAction().catch(() => []));
+  if (raced.timedOut) return <HonestDelay />;
+  return <OutreachSection initialRows={raced.data} />;
 }
 
 /** Item 72: the second-order citation playbook - "the sources AI already
  *  trusts." Computed on render (react cache(), no store, no migration).
  *  Self-hiding inside SecondOrderCitationsSection when there is no data. */
 async function SecondOrderCitationsBody() {
-  const result = await loadSecondOrderCitationPlaybook().catch(
-    (): Awaited<ReturnType<typeof loadSecondOrderCitationPlaybook>> => ({ domains: [], rowsScanned: 0 }),
+  // FP1 - deadline-bounded; this section self-hides when empty (Suspense fallback
+  // is null), so a timeout renders nothing rather than a misleading delay notice.
+  const raced = await loadWithDeadline(
+    loadSecondOrderCitationPlaybook().catch(
+      (): Awaited<ReturnType<typeof loadSecondOrderCitationPlaybook>> => ({ domains: [], rowsScanned: 0 }),
+    ),
   );
-  return <SecondOrderCitationsSection result={result} />;
+  if (raced.timedOut) return null;
+  return <SecondOrderCitationsSection result={raced.data} />;
 }
 
 /** Item 60: reads the persisted clone-and-beat briefs for the current tenant.
  *  $0 on render — no live Labs call or competitor fetch ever fires here. */
 async function CloneBriefsBody() {
-  const tenantId = await currentTenantId();
-  const stored = await readCloneBriefResults(tenantId).catch(() => null);
-  return <CloneBriefCards briefs={stored?.briefs ?? []} />;
+  // FP1 - deadline-bounded; self-hiding section (null fallback), so timeout = null.
+  const raced = await loadWithDeadline(
+    currentTenantId()
+      .then((tenantId) => readCloneBriefResults(tenantId))
+      .catch(() => null),
+  );
+  if (raced.timedOut) return null;
+  return <CloneBriefCards briefs={raced.data?.briefs ?? []} />;
 }
 
 export default async function CompetitorsPage() {

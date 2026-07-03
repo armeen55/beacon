@@ -153,6 +153,7 @@ function Row({
   onToggleSelect,
   detailOpen,
   onToggleDetail,
+  topPick,
 }: {
   c: CanonicalChange;
   move: ChangesView["movesById"][string] | undefined;
@@ -179,6 +180,10 @@ function Row({
    *  (no room for a side panel) the same content renders inline below the row instead. */
   detailOpen?: boolean;
   onToggleDetail?: (id: string) => void;
+  /** FP9 (2026-07-02, killer finding 4) - true for the top 3 rows of the default flat view.
+   *  Same card, same actions, same everything - just visually dominant (a "Start here" label +
+   *  a stronger border/padding) so "pick the top few" reads as true instead of ~136 equal rows. */
+  topPick?: boolean;
 }) {
   const open = detailOpen ?? false;
   const setOpen = onToggleDetail ? () => onToggleDetail(c.id) : () => {};
@@ -206,9 +211,18 @@ function Row({
       id={`change-row-${c.id}`}
       data-change-row={c.id}
       tabIndex={-1}
-      className={`rounded-lg border border-gray-100 bg-white transition-shadow dark:border-neutral-800 dark:bg-neutral-900 ${c.status === "blocked" ? "opacity-70" : ""} ${ringCls}`}
+      className={`rounded-lg bg-white transition-shadow dark:bg-neutral-900 ${
+        topPick
+          ? "border-2 border-sky-200 shadow-sm dark:border-sky-900"
+          : "border border-gray-100 dark:border-neutral-800"
+      } ${c.status === "blocked" ? "opacity-70" : ""} ${ringCls}`}
     >
-      <div className="flex items-center gap-3 px-3 py-2.5">
+      {topPick ? (
+        <div className="flex items-center gap-1.5 rounded-t-md bg-sky-50 px-3 py-1 text-[10px] font-bold uppercase tracking-wide text-sky-700 dark:bg-sky-950/40 dark:text-sky-300">
+          Start here
+        </div>
+      ) : null}
+      <div className={`flex items-center gap-3 px-3 ${topPick ? "py-3.5" : "py-2.5"}`}>
         {/* UX3 - multi-select checkbox. Absent (no reflow) on rows the list doesn't offer
             selection for (Not-now/blocked rows keep their own trailing control instead). */}
         {onToggleSelect ? (
@@ -229,13 +243,13 @@ function Row({
             {href ? (
               <Link
                 href={href}
-                className="min-w-0 break-words text-sm font-semibold capitalize text-gray-900 underline-offset-2 hover:underline dark:text-neutral-100"
+                className={`min-w-0 break-words font-semibold capitalize text-gray-900 underline-offset-2 hover:underline dark:text-neutral-100 ${topPick ? "text-base" : "text-sm"}`}
                 title={label.secondary ?? undefined}
               >
                 {label.title}
               </Link>
             ) : (
-              <span className="min-w-0 break-words text-sm font-semibold capitalize text-gray-900 dark:text-neutral-100" title={label.secondary ?? undefined}>{label.title}</span>
+              <span className={`min-w-0 break-words font-semibold capitalize text-gray-900 dark:text-neutral-100 ${topPick ? "text-base" : "text-sm"}`} title={label.secondary ?? undefined}>{label.title}</span>
             )}
             {label.secondary ? <span className="shrink-0 text-[10px] text-gray-400 dark:text-neutral-500">{label.secondary}</span> : null}
             {move?.sparkline && move.sparkline.length >= 5 ? <Sparkline points={move.sparkline} width={56} height={14} className="inline-block opacity-70" /> : null}
@@ -496,6 +510,20 @@ export function ChangesListClient({ view }: { view: ChangesView }) {
   const rowsWithoutBatch = canCollapseBatch && batchRows.length >= 2 ? visible.filter((c) => !batchRows.some((b) => b.id === c.id)) : visible;
   const showBatchSummary = canCollapseBatch && batchRows.length >= 2 && !batchExpanded;
 
+  // FP9 (2026-07-02, killer finding 4) - "pick the top few" must be true, not just said: the flat
+  // status view opens with the top 3 picks visually dominant ("Start here"), then the rest of the
+  // ranked list capped at ~20 with an honest expander ("I keep them ranked so nothing is lost").
+  // Only applies to the flat, non-tonight view - "By goal" already curates by category, and
+  // "Tonight's 30 minutes" is already a small, deliberately-bounded set.
+  const CURATION_CAP = 20;
+  const [showAllRanked, setShowAllRanked] = useState(false);
+  const curationRows = canCollapseBatch ? rowsWithoutBatch : visible;
+  const applyCuration = canCollapseBatch && !showBatchSummary;
+  const topPicks = applyCuration ? curationRows.slice(0, 3) : [];
+  const afterTop = applyCuration ? curationRows.slice(3) : curationRows;
+  const cappedRows = applyCuration && !showAllRanked ? afterTop.slice(0, CURATION_CAP) : afterTop;
+  const hiddenRankedCount = applyCuration ? afterTop.length - cappedRows.length : 0;
+
   const s = view.summary;
   const isFiltered = q.trim().length > 0 || goal !== "recommended";
   // Distinguish WHY a view is empty: clean-strategy eligibility vs filtered vs genuinely-empty
@@ -594,11 +622,13 @@ export function ChangesListClient({ view }: { view: ChangesView }) {
           {s.protectedPages} page{s.protectedPages === 1 ? " is" : "s are"} protected right now (mid-measurement or serving as comparisons). I will not suggest changes there until their results settle.
         </p>
       ) : null}
-      {/* B7 (worklist fix batch) - "Ready 0" with no reason reads as broken; say why. */}
+      {/* B7 / FP2 (killer finding 6) - "Ready 0" with no reason reads as broken. This is the
+          answer to "why is this zero", not a footnote - it renders as a real, readable sentence
+          (text-xs, not an 11px caption easy to miss) with its own visual weight. */}
       {view.readyZeroHint ? (
-        <p className="text-[11px] text-gray-400 dark:text-neutral-500">
+        <p className="rounded-md border border-gray-100 bg-gray-50 px-2.5 py-1.5 text-xs text-gray-600 dark:border-neutral-800 dark:bg-neutral-900/60 dark:text-neutral-300">
           {view.readyZeroHint}
-          {view.readyZeroHint.includes("Wix pages are mapped") ? (
+          {view.readyZeroHint.includes("Wix pages aren't mapped") ? (
             <>
               {" "}
               <Link href="/settings/connectors" className={`rounded-sm font-medium text-sky-600 underline underline-offset-2 hover:text-sky-800 dark:text-sky-400 ${FOCUS}`}>
@@ -607,6 +637,11 @@ export function ChangesListClient({ view }: { view: ChangesView }) {
             </>
           ) : null}
         </p>
+      ) : null}
+      {/* FP2 (killer finding 5) - "Fix the experience rows silently vanish": one quiet
+          acknowledgment line instead of silence when a row type got filtered upstream. */}
+      {view.suppressedRowsNote ? (
+        <p className="text-[11px] text-gray-400 dark:text-neutral-500">{view.suppressedRowsNote}</p>
       ) : null}
       {/* List */}
       {visible.length === 0 ? (
@@ -706,7 +741,8 @@ export function ChangesListClient({ view }: { view: ChangesView }) {
               <button type="button" onClick={() => setBatchExpanded(false)} className={`shrink-0 underline underline-offset-2 ${FOCUS}`}>Collapse</button>
             </div>
           ) : null}
-          {(canCollapseBatch ? rowsWithoutBatch : visible).map((c, i) => (
+          {/* FP9 - the top 3 picks, visually dominant ("Start here"), before the ranked rest. */}
+          {topPicks.map((c, i) => (
             <Row
               key={c.id}
               c={c}
@@ -720,8 +756,43 @@ export function ChangesListClient({ view }: { view: ChangesView }) {
               onToggleSelect={toggleChecked}
               detailOpen={selectedId === c.id}
               onToggleDetail={toggleDetail}
+              topPick
             />
           ))}
+          {cappedRows.map((c, i) => (
+            <Row
+              key={c.id}
+              c={c}
+              move={c.sourceIds[0] ? view.movesById[c.sourceIds[0]] : undefined}
+              rank={topPicks.length + i + 1}
+              highlighted={session.nextBest?.id === c.id}
+              keyboardActive={visible[kbIndex]?.id === c.id}
+              onAction={(kind) => rowAction(c.id, kind)}
+              registerRef={registerRowRef}
+              selected={checkedIds.has(c.id)}
+              onToggleSelect={toggleChecked}
+              detailOpen={selectedId === c.id}
+              onToggleDetail={toggleDetail}
+            />
+          ))}
+          {/* FP9 - the honest expander: lower-priority ideas are capped from view, never lost. */}
+          {applyCuration && hiddenRankedCount > 0 ? (
+            <button
+              type="button"
+              onClick={() => setShowAllRanked(true)}
+              className={`flex w-full items-center justify-center rounded-lg border border-dashed border-gray-200 px-3 py-2 text-xs font-medium text-gray-500 hover:bg-gray-50 dark:border-neutral-700 dark:text-neutral-400 dark:hover:bg-neutral-800 ${FOCUS}`}
+            >
+              {hiddenRankedCount} more lower-priority idea{hiddenRankedCount === 1 ? "" : "s"}. I keep them ranked so nothing is lost.
+            </button>
+          ) : applyCuration && showAllRanked && afterTop.length > CURATION_CAP ? (
+            <button
+              type="button"
+              onClick={() => setShowAllRanked(false)}
+              className={`flex w-full items-center justify-center rounded-lg border border-dashed border-gray-200 px-3 py-2 text-xs font-medium text-gray-500 hover:bg-gray-50 dark:border-neutral-700 dark:text-neutral-400 dark:hover:bg-neutral-800 ${FOCUS}`}
+            >
+              Show fewer
+            </button>
+          ) : null}
           {batchExpanded && canCollapseBatch && batchRows.length >= 2 ? (
             <div className="space-y-1.5 border-t border-dashed border-gray-200 pt-1.5 dark:border-neutral-700">
               {batchRows.map((c, i) => (

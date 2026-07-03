@@ -35,6 +35,8 @@ import {
 import { compareShadowPortfolio } from "@/domains/proof-gsc/shadow-portfolio-drift";
 import { loadShadowPortfolioMeasurement } from "@/domains/experiments/shadow-portfolio-measure";
 import { ScoreboardChartTabs, type ChartTabDef } from "./scoreboard-chart-tabs";
+import { loadWithDeadline, valueWithDeadline } from "@/lib/load-with-deadline";
+import { HonestDelay } from "@/components/honest-delay";
 
 const W = 720;
 const H = 170;
@@ -265,21 +267,33 @@ export async function ScoreboardSection({
   staleCheckedAt?: string | null;
 }) {
   try {
-    const [daily, ledger, measuredLedger, slug, revenueDays] = await Promise.all([
-      loadDailyTotalsForTenant(tenantId, 84),
-      loadShippedChanges().catch(() => []),
-      // Items 40 + 41 need dollarValue/trafficOutcome, which only exist on the
-      // RE-MEASURED ledger (loadShippedChanges alone never populates them).
-      // react.cache-shared with the /today page's own loadProofLedgerCached
-      // call in the same request, so this is not a second heavy re-measure.
-      loadProofLedgerCached(tenantId).catch(() => [] as ShippedChangeRecord[]),
-      currentTenantSlug().catch(() => ""),
-      // Item 3 - honest dollars from revenue_facts; fail-soft -> the line self-hides.
-      loadRevenueByDayForTenant(tenantId).catch(() => []),
-    ]);
+    // FP1 (2026-07-02) - deadline-bounded so the hero chart's pulse skeleton can
+    // never strand; past the deadline the section says so in one honest line.
+    const raced = await loadWithDeadline(
+      Promise.all([
+        loadDailyTotalsForTenant(tenantId, 84),
+        loadShippedChanges().catch(() => []),
+        // Items 40 + 41 need dollarValue/trafficOutcome, which only exist on the
+        // RE-MEASURED ledger (loadShippedChanges alone never populates them).
+        // react.cache-shared with the /today page's own loadProofLedgerCached
+        // call in the same request, so this is not a second heavy re-measure.
+        loadProofLedgerCached(tenantId).catch(() => [] as ShippedChangeRecord[]),
+        currentTenantSlug().catch(() => ""),
+        // Item 3 - honest dollars from revenue_facts; fail-soft -> the line self-hides.
+        loadRevenueByDayForTenant(tenantId).catch(() => []),
+      ] as const),
+    );
+    if (raced.timedOut) return <HonestDelay />;
+    const [daily, ledger, measuredLedger, slug, revenueDays] = raced.data;
     // Item 9 - the AI-visibility mini-scoreboard: your own domain's citations over time,
-    // next to the Google chart. Fail-soft -> band self-hides.
-    const citations = slug ? await loadOwnCitationsByDay(tenantId, slug).catch(() => ({ daily: [], total: 0 })) : { daily: [] as Array<{ date: string; clicks: number }>, total: 0 };
+    // next to the Google chart. Fail-soft -> band self-hides. Deadline-bounded like the
+    // reads above so one slow follow-up read cannot re-strand the section.
+    const citations = slug
+      ? await valueWithDeadline(
+          loadOwnCitationsByDay(tenantId, slug).catch(() => ({ daily: [] as Array<{ date: string; clicks: number }>, total: 0 })),
+          { daily: [] as Array<{ date: string; clicks: number }>, total: 0 },
+        )
+      : { daily: [] as Array<{ date: string; clicks: number }>, total: 0 };
     const s = buildScoreboard(
       daily,
       ledger.map((r) => ({ path: r.path, shippedAt: r.shippedAt, actionType: r.actionType, verdict: r.verdict })),
@@ -303,7 +317,7 @@ export async function ScoreboardSection({
     // counterfactual, both computed from the SAME re-measured ledger, both
     // independently self-hiding (null when the honest minimum isn't met).
     const now = new Date();
-    const shockWindows = await loadShockWindowsForGate(tenantId);
+    const shockWindows = await valueWithDeadline(loadShockWindowsForGate(tenantId), []);
     const lifetimeEarnings = computeLifetimeEarnings(
       buildLifetimeEarningsRows(measuredLedger, now, shockWindows),
     );
@@ -316,7 +330,10 @@ export async function ScoreboardSection({
     // (that line is about a SHIPPED change's own diff-in-diff comparison pages; this one is about
     // the PICKING process itself). Fail-soft and independently self-hiding - a read error or a
     // thin sample just means this line stays silent beside the others.
-    const shadowMeasurement = await loadShadowPortfolioMeasurement(tenantId, now).catch(() => null);
+    const shadowMeasurement = await valueWithDeadline(
+      loadShadowPortfolioMeasurement(tenantId, now).catch(() => null),
+      null,
+    );
     const shadowPortfolio = shadowMeasurement
       ? compareShadowPortfolio(shadowMeasurement.selected, shadowMeasurement.shadow)
       : null;

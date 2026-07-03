@@ -1,6 +1,6 @@
 export const dynamic = "force-dynamic"; // shell layout reads tenant context (Supabase) - force the whole shell subtree dynamic so NO page prerenders at build (avoids build-time "Invalid API key")
 
-import { ShellProvider, type NavBadges } from "@/components/shell/shell-provider";
+import { ShellProvider, ShellDataHydrator, type NavBadges, type LatePaletteItem } from "@/components/shell/shell-provider";
 import { AppSidebar, MobileSidebar } from "@/components/shell/app-sidebar";
 import { isOperatorModeServer } from "@/lib/operator-mode";
 import { Suspense } from "react";
@@ -29,11 +29,12 @@ import {
 } from "@/lib/perf-trace";
 import { currentTenantId } from "@/lib/tenant-context";
 import { scheduleConnectorAutoRefresh } from "@/lib/connectors/auto-refresh-on-use";
+import { loadWithDeadline } from "@/lib/load-with-deadline";
 
 // T-CustomerNav (2026-05-08) - keys aligned with `navigationGroups`
 // in `src/lib/navigation.ts`. Pre-T-CustomerNav this map carried
 // dead entries for routes hidden from the sidebar 2026-04-17 /
-// 2026-04-22 (/pages, /competitors, /local).
+// 2026-04-22 (/pages, /local, and the competitor map).
 //
 // 2026-06-14 - these palette labels MUST match the actual g+<key>
 // handler in `command-palette.tsx`. Previously this map advertised
@@ -57,11 +58,96 @@ const NAV_SHORTCUTS: Record<string, string> = {
 
 const CHANGELOG_PALETTE_CAP = 50;
 
+/** FP1 (2026-07-02) - the six Supabase reads behind badges/demo/palette get this
+ *  long, TOTAL, before the shell gives up on them for this navigation. The shell
+ *  itself has already painted by then; a wedged read only costs the badges. */
+const SHELL_DATA_DEADLINE_MS = 8000;
+
+/**
+ * FP1 (2026-07-02) - the shell paints INSTANTLY. Every Supabase read this layout
+ * used to await before returning (badge counts, demo-mode detection, changelog
+ * palette entries: the audit counted 6 blocking awaits taxing EVERY signed-in
+ * click) now lives in <DeferredShellData/>, streamed behind Suspense AFTER the
+ * nav/header/page shell is on the wire. Badges and the demo banner hydrate
+ * client-side when the data lands; if it never lands, the app still works.
+ */
 export default async function ShellLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
+  const isOperator = isOperatorModeServer();
+
+  // Static palette entries only (nav routes, zero I/O). The changelog "Results"
+  // group streams in with the deferred shell data below.
+  const paletteItems: PaletteItem[] = allNavItems.map((n) => ({
+    id: `nav-${n.href}`,
+    label: n.label,
+    group: "Navigate",
+    href: n.href,
+    shortcut: NAV_SHORTCUTS[n.href],
+  }));
+
+  return (
+    <ShellProvider>
+      <a
+        href="#main-content"
+        className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-[60] focus:rounded-md focus:bg-foreground focus:px-4 focus:py-2 focus:text-[13px] focus:font-semibold focus:text-background"
+      >
+        Skip to content
+      </a>
+      <div className="flex h-screen overflow-hidden">
+        <AppSidebar isOperator={isOperator} />
+        <MobileSidebar />
+        <div className="flex flex-1 flex-col overflow-hidden">
+          <AppHeader rightSlot={<Suspense fallback={null}><CockpitBar /></Suspense>} />
+          <main
+            id="main-content"
+            aria-label="Main content"
+            // #524 - tabIndex={-1} so the "Skip to content" link can move
+            // focus into <main> (which isn't natively focusable) reliably
+            // across browsers.
+            tabIndex={-1}
+            className="flex-1 overflow-y-auto"
+          >
+            <DemoBannerGate />
+            {/* #515 - step the mobile padding down (p-3) so dense tables
+                don't lose ~13% horizontal room on a ~360px phone; restore
+                the roomy padding from sm upward. */}
+            <div className="mx-auto max-w-[1120px] p-3 sm:p-6 lg:p-8">{children}</div>
+          </main>
+        </div>
+      </div>
+      <CommandPalette items={paletteItems} />
+      {/* FP1 - badges/demo/palette-extras stream in AFTER first paint; a slow or
+          wedged read renders nothing rather than delaying or stranding the shell. */}
+      <Suspense fallback={null}>
+        <DeferredShellData />
+      </Suspense>
+    </ShellProvider>
+  );
+}
+
+/** FP1 (2026-07-02) - the old render-blocking body of the layout, now streamed.
+ *  Bounded by SHELL_DATA_DEADLINE_MS and fail-soft: timeout or error just means
+ *  no badges this navigation, never a hung stream. */
+async function DeferredShellData() {
+  const result = await loadWithDeadline(
+    loadShellData().catch(() => null),
+    SHELL_DATA_DEADLINE_MS,
+  );
+  if (result.timedOut || !result.data) return null;
+  const { badges, isDemoMode, latePaletteItems } = result.data;
+  return (
+    <ShellDataHydrator badges={badges} isDemoMode={isDemoMode} latePaletteItems={latePaletteItems} />
+  );
+}
+
+async function loadShellData(): Promise<{
+  badges: NavBadges;
+  isDemoMode: boolean;
+  latePaletteItems: LatePaletteItem[];
+}> {
   // Perf bundle 7 (2026-05-12) - production-safe perf tracing.
   // NOOP when BEACON_PERF_TRACE != "true". When enabled, correlates
   // with middleware via the `x-beacon-perf-trace-id` header.
@@ -76,28 +162,12 @@ export default async function ShellLayout({
   // on every signed-in click can't hammer egress or paid API quota. Fail-soft.
   scheduleConnectorAutoRefresh(await currentTenantId());
 
-  // Perf bundle 6 (2026-05-12) - parallelize the 4 independent shell
-  // reads that fire on EVERY signed-in click.
-  //
-  // Pre-fix: five sequential awaits ran one-after-another, each paying
-  // its full latency before the next started:
-  //   await ensureUrlChangeOutcomesSeeded();   // line 47
-  //   const pendingFindings = await getPendingFindings();        // ~78
-  //   const watching = await getWatchingUrlOutcomes();           // ~88
-  //   const isDemoMode = !(await hasActiveExperiment());         // ~98
-  //   const changelogEntries = await getChangelogEntries();      // ~108
-  // Production audit estimated 100-500 ms warm tax + worse on cold
-  // lambda. That tax applies to every route under (shell), independent
-  // of the page-specific loader.
-  //
-  // Post-fix: four independent operations run in parallel; the one
-  // ordered dependency (getWatchingUrlOutcomes uses the seed cache)
-  // runs after. `ensureUrlChangeOutcomesSeeded` is kept in the
-  // `Promise.all` because its single observable effect is populating
-  // the React.cache-wrapped `ensureLoaded` promise - running it in
-  // parallel with the others is safe (Promise.all simply parallelizes
-  // start times; the seed still completes before `getWatchingUrlOutcomes`
-  // is awaited below).
+  // Perf bundle 6 (2026-05-12) - parallelize the independent shell reads
+  // that fire on EVERY signed-in click. Pre-fix: five sequential awaits, a
+  // 100-500 ms warm tax on every route under (shell). Post-fix: the
+  // independent operations run in parallel; the one ordered dependency
+  // (getWatchingUrlOutcomes uses the seed cache populated by
+  // ensureUrlChangeOutcomesSeeded) runs after the Promise.all.
   //
   // Phase 3.5C (2026-04-22): the seed is required so the Changes-badge
   // count reflects real verdict state on Vercel.
@@ -167,73 +237,26 @@ export default async function ShellLayout({
     wixInfo.status === "connected" || gscInfo.status === "connected";
   const isDemoMode = !isDemoModeRaw && !hasRealConnector;
 
-  // ── Palette items ──
-  // T-CustomerNav (2026-05-08) - palette items only surface
-  // customer-facing routes. The pre-T-CustomerNav layout also built
-  // a "Market" group from `uniqueTopics → /competitors#opportunities`
-  // - dead wiring after 2026-04-22 when /competitors was hidden from
-  // the sidebar; CMD+K was still exposing it. Removed.
-  // Direct URL access to /competitors still works for operator use;
-  // that's intentional.
-  const paletteItems: PaletteItem[] = [
-    ...allNavItems.map((n) => ({
-      id: `nav-${n.href}`,
-      label: n.label,
-      group: "Navigate",
-      href: n.href,
-      shortcut: NAV_SHORTCUTS[n.href],
-    })),
-    ...(changelogEntries.length > CHANGELOG_PALETTE_CAP
+  // ── Late palette items ──
+  // T-CustomerNav (2026-05-08) - palette items only surface customer-facing
+  // routes; the pre-T-CustomerNav "Market" group over hidden routes stays dead.
+  const latePaletteItems: LatePaletteItem[] = (
+    changelogEntries.length > CHANGELOG_PALETTE_CAP
       ? changelogEntries.slice(-CHANGELOG_PALETTE_CAP)
       : changelogEntries
-    ).map((c) => ({
-      id: c.id,
-      label: c.asset_name,
-      group: "Results",
-      href: `/changes/${c.id}`,
-      meta: c.topic_targeted || undefined,
-    })),
-  ];
+  ).map((c) => ({
+    id: c.id,
+    label: c.asset_name,
+    group: "Results",
+    href: `/changes/${c.id}`,
+    meta: c.topic_targeted || undefined,
+  }));
 
   trace.data("changelog_count", changelogEntries.length);
-  trace.data("palette_items", paletteItems.length);
+  trace.data("palette_items", latePaletteItems.length);
   trace.data("today_badge", badges["/"] ?? 0);
   trace.data("changes_badge", badges["/proof"] ?? 0);
   trace.flush();
 
-  const isOperator = isOperatorModeServer();
-
-  return (
-    <ShellProvider badges={badges} isDemoMode={isDemoMode}>
-      <a
-        href="#main-content"
-        className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-[60] focus:rounded-md focus:bg-foreground focus:px-4 focus:py-2 focus:text-[13px] focus:font-semibold focus:text-background"
-      >
-        Skip to content
-      </a>
-      <div className="flex h-screen overflow-hidden">
-        <AppSidebar isOperator={isOperator} />
-        <MobileSidebar />
-        <div className="flex flex-1 flex-col overflow-hidden">
-          <AppHeader rightSlot={<Suspense fallback={null}><CockpitBar /></Suspense>} />
-          <main
-            id="main-content"
-            aria-label="Main content"
-            // #524 - tabIndex={-1} so the "Skip to content" link can move
-            // focus into <main> (which isn't natively focusable) reliably
-            // across browsers.
-            tabIndex={-1}
-            className="flex-1 overflow-y-auto"
-          >
-            <DemoBannerGate />
-            {/* #515 - step the mobile padding down (p-3) so dense tables
-                don't lose ~13% horizontal room on a ~360px phone; restore
-                the roomy padding from sm upward. */}
-            <div className="mx-auto max-w-[1120px] p-3 sm:p-6 lg:p-8">{children}</div>
-          </main>
-        </div>
-      </div>
-      <CommandPalette items={paletteItems} />
-    </ShellProvider>
-  );
+  return { badges, isDemoMode, latePaletteItems };
 }

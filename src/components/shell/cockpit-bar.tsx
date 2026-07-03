@@ -12,16 +12,26 @@ import { currentTenantId } from "@/lib/tenant-context";
 import { getTenant } from "@/domains/tenants/store";
 import { loadDailyTotalsForTenant } from "@/domains/recommendation-intelligence/gsc-page-queries";
 import { formatMetric, formatMetricCompact, formatDeltaPct } from "@/lib/format-metric";
+import { loadWithDeadline } from "@/lib/load-with-deadline";
 
 const DAY_MS = 86_400_000;
 
 export async function CockpitBar() {
   try {
-    const tenantId = await currentTenantId();
-    const [tenant, daily] = await Promise.all([
-      getTenant(tenantId).catch(() => null),
-      loadDailyTotalsForTenant(tenantId, 21).catch(() => []),
-    ]);
+    // FP1 (2026-07-02) - deadline-bounded: this streams in the header on EVERY
+    // signed-in page, and an unbounded read here held the whole HTTP stream open
+    // (the ground-truth curl saw this exact boundary pending at 60s). Past the
+    // deadline the bar just stays empty this navigation; the header never waits.
+    const raced = await loadWithDeadline(
+      currentTenantId().then((tenantId) =>
+        Promise.all([
+          getTenant(tenantId).catch(() => null),
+          loadDailyTotalsForTenant(tenantId, 21).catch(() => []),
+        ] as const),
+      ),
+    );
+    if (raced.timedOut) return null;
+    const [tenant, daily] = raced.data;
     const rows = [...daily].sort((a, b) => a.date.localeCompare(b.date));
     if (rows.length < 8) return null;
     const last7 = rows.slice(-7).reduce((s, r) => s + (r.clicks || 0), 0);

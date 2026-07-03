@@ -19,7 +19,11 @@ import { normalizeUrl } from "@/lib/url/normalize";
 
 const FOCUS = "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-1";
 
-export type SortKey = "volume" | "shown" | "clicks" | "position" | "difficulty" | "keyword";
+// Difficulty column removed (FP7, 2026-07-02): 0 of 298 rows had a real
+// DataForSEO difficulty score, so every cell rendered "?". Bring the column
+// back once the keyword universe producer actually writes difficulty
+// (readAllCachedKeywordDifficulty returns non-null values), not before.
+export type SortKey = "volume" | "shown" | "clicks" | "position" | "keyword";
 export type FilterTab = "all" | "ranking" | "close" | "not_owned" | "trending" | "seasonal";
 
 const TABS: { id: FilterTab; label: string }[] = [
@@ -82,6 +86,31 @@ export function matchesFilter(row: KeywordLibraryRow, needle: string): boolean {
   return hay.includes(needle);
 }
 
+/** PURE: whether ANY row in the library has at least one related question.
+ *  The drawer's "Related questions" section only earns its place once this is
+ *  true (FP7, 2026-07-02): it used to render "No questions found for this
+ *  keyword yet." on every single row for a feature that has never fired.
+ *  Hide the whole section library-wide, not per-row. Exported for testing. */
+export function hasAnyRelatedQuestions(rows: KeywordLibraryRow[]): boolean {
+  return rows.some((r) => r.relatedQuestions.length > 0);
+}
+
+/** PURE: a "zero-signal" row has nothing to show across every numeric column
+ *  plus no owner and no trend tag, i.e. a row of five near-empty cells (FP7,
+ *  2026-07-02: 60 of 298 rows looked like this). These get collapsed behind
+ *  a footer expander instead of padding out the main table. Exported for
+ *  testing. */
+export function isZeroSignalRow(row: KeywordLibraryRow): boolean {
+  return (
+    row.searchesPerMo == null &&
+    row.timesShownPerMo == null &&
+    row.clicks == null &&
+    row.yourPosition == null &&
+    row.ownerPage == null &&
+    row.trend == null
+  );
+}
+
 /** PURE: sort comparator. Every column flips with `dir` as expected, EXCEPT
  *  that a row with no real value for the active column (unranked position,
  *  unknown volume/difficulty) always sorts to the bottom regardless of
@@ -98,8 +127,6 @@ export function sortRows(rows: KeywordLibraryRow[], key: SortKey, dir: 1 | -1): 
         return r.clicks;
       case "position":
         return r.yourPosition;
-      case "difficulty":
-        return r.difficulty;
       case "keyword":
         return r.keyword.toLowerCase();
       default:
@@ -152,7 +179,13 @@ export function KeywordsTableClient({ rows, worklistBaseHref }: { rows: KeywordL
   const [sortDir, setSortDir] = useState<1 | -1>(-1);
   const [visibleCount, setVisibleCount] = useState(ROWS_PER_PAGE);
   const [expanded, setExpanded] = useState<string | null>(null);
+  // Zero-signal rows (no volume, no impressions, no clicks, no position, no
+  // owner, no trend) default collapsed behind a footer expander instead of
+  // padding the main table with near-empty rows (FP7, 2026-07-02).
+  const [showZeroSignal, setShowZeroSignal] = useState(false);
   const filterRef = useRef<HTMLInputElement>(null);
+
+  const showRelatedQuestions = useMemo(() => hasAnyRelatedQuestions(rows), [rows]);
 
   // Keyboard: "/" focuses the filter input (unless already typing somewhere).
   useEffect(() => {
@@ -181,7 +214,17 @@ export function KeywordsTableClient({ rows, worklistBaseHref }: { rows: KeywordL
     return rows.filter((r) => inTab(r, tab) && matchesFilter(r, needle));
   }, [rows, tab, q]);
 
-  const sorted = useMemo(() => sortRows(filtered, sortKey, sortDir), [filtered, sortKey, sortDir]);
+  // Split zero-signal rows out of the main table. A search or tab filter
+  // still surfaces them (the user asked for something specific); it is only
+  // the unfiltered "all" browse view that hides them by default.
+  const zeroSignalHidden = q.trim() === "" && tab === "all" && !showZeroSignal;
+  const mainFiltered = useMemo(
+    () => (zeroSignalHidden ? filtered.filter((r) => !isZeroSignalRow(r)) : filtered),
+    [filtered, zeroSignalHidden],
+  );
+  const zeroSignalCount = useMemo(() => filtered.filter((r) => isZeroSignalRow(r)).length, [filtered]);
+
+  const sorted = useMemo(() => sortRows(mainFiltered, sortKey, sortDir), [mainFiltered, sortKey, sortDir]);
   const visible = sorted.slice(0, visibleCount);
 
   function handleSort(key: SortKey) {
@@ -264,9 +307,6 @@ export function KeywordsTableClient({ rows, worklistBaseHref }: { rows: KeywordL
                 <th className="px-2 py-2 text-right">
                   <SortHeader label="Your position" sortKey="position" active={sortKey === "position"} dir={sortDir} onClick={handleSort} />
                 </th>
-                <th className="px-2 py-2 text-right">
-                  <SortHeader label="Difficulty" sortKey="difficulty" active={sortKey === "difficulty"} dir={sortDir} onClick={handleSort} />
-                </th>
                 <th className="px-2 py-2 text-left text-[11px] font-semibold uppercase tracking-wide text-gray-500 dark:text-neutral-400">Owner page</th>
                 <th className="px-2 py-2 text-left text-[11px] font-semibold uppercase tracking-wide text-gray-500 dark:text-neutral-400">Trend</th>
               </tr>
@@ -300,7 +340,6 @@ export function KeywordsTableClient({ rows, worklistBaseHref }: { rows: KeywordL
                       <td className="px-2 py-2 text-right align-top tabular-nums text-gray-700 dark:text-neutral-300">{fmtNum(row.timesShownPerMo)}</td>
                       <td className="px-2 py-2 text-right align-top tabular-nums text-gray-700 dark:text-neutral-300">{fmtNum(row.clicks)}</td>
                       <td className="px-2 py-2 text-right align-top tabular-nums text-gray-700 dark:text-neutral-300">{fmtPosition(row.yourPosition)}</td>
-                      <td className="px-2 py-2 text-right align-top tabular-nums text-gray-700 dark:text-neutral-300">{row.difficulty != null ? row.difficulty : "?"}</td>
                       <td className="px-2 py-2 align-top max-w-[240px] truncate">
                         {row.ownerPageHref ? (
                           <Link href={row.ownerPageHref} prefetch={false} title={row.ownerPage ?? undefined} className="text-sky-700 hover:underline dark:text-sky-400">
@@ -326,20 +365,22 @@ export function KeywordsTableClient({ rows, worklistBaseHref }: { rows: KeywordL
                     {isOpen && (
                       <tr key={`${key}-detail`} className="border-b border-gray-100 bg-gray-50/60 dark:border-neutral-800 dark:bg-neutral-900/40">
                         <td className="px-2 py-3" />
-                        <td colSpan={7} className="px-2 py-3">
-                          <div className="grid gap-3 sm:grid-cols-3">
-                            <div>
-                              <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500 dark:text-neutral-400">Related questions</p>
-                              {row.relatedQuestions.length > 0 ? (
-                                <ul className="mt-1 space-y-0.5 text-xs text-gray-700 dark:text-neutral-300">
-                                  {row.relatedQuestions.slice(0, 6).map((q2) => (
-                                    <li key={q2}>{q2}</li>
-                                  ))}
-                                </ul>
-                              ) : (
-                                <p className="mt-1 text-xs text-gray-400 dark:text-neutral-500">No questions found for this keyword yet.</p>
-                              )}
-                            </div>
+                        <td colSpan={6} className="px-2 py-3">
+                          <div className={`grid gap-3 ${showRelatedQuestions ? "sm:grid-cols-3" : "sm:grid-cols-2"}`}>
+                            {showRelatedQuestions && (
+                              <div>
+                                <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500 dark:text-neutral-400">Related questions</p>
+                                {row.relatedQuestions.length > 0 ? (
+                                  <ul className="mt-1 space-y-0.5 text-xs text-gray-700 dark:text-neutral-300">
+                                    {row.relatedQuestions.slice(0, 6).map((q2) => (
+                                      <li key={q2}>{q2}</li>
+                                    ))}
+                                  </ul>
+                                ) : (
+                                  <p className="mt-1 text-xs text-gray-400 dark:text-neutral-500">No questions found for this keyword yet.</p>
+                                )}
+                              </div>
+                            )}
                             <div>
                               <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500 dark:text-neutral-400">Who else shows up</p>
                               {row.competitorOwners.length > 0 ? (
@@ -387,6 +428,25 @@ export function KeywordsTableClient({ rows, worklistBaseHref }: { rows: KeywordL
           className={`inline-flex min-h-[34px] items-center rounded-md border border-gray-200 px-3 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800 ${FOCUS}`}
         >
           Show {Math.min(ROWS_PER_PAGE, sorted.length - visibleCount).toLocaleString()} more
+        </button>
+      )}
+
+      {zeroSignalHidden && zeroSignalCount > 0 && (
+        <button
+          type="button"
+          onClick={() => setShowZeroSignal(true)}
+          className={`block text-xs text-gray-500 hover:text-gray-800 hover:underline dark:text-neutral-400 dark:hover:text-neutral-100 ${FOCUS}`}
+        >
+          {zeroSignalCount.toLocaleString()} keyword{zeroSignalCount === 1 ? "" : "s"} I am still gathering numbers for.
+        </button>
+      )}
+      {!zeroSignalHidden && showZeroSignal && (
+        <button
+          type="button"
+          onClick={() => setShowZeroSignal(false)}
+          className={`block text-xs text-gray-500 hover:text-gray-800 hover:underline dark:text-neutral-400 dark:hover:text-neutral-100 ${FOCUS}`}
+        >
+          Hide keywords I am still gathering numbers for.
         </button>
       )}
     </div>

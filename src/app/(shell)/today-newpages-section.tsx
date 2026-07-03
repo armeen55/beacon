@@ -3,6 +3,8 @@ import { loadNewPagesData } from "./today-newpages-data";
 import { NewPageCard } from "./today-newpages-card";
 import { NewPagesPrepareButton } from "./today-newpages-prepare";
 import { isOperatorModeServer } from "@/lib/operator-mode";
+import { loadWithDeadline } from "@/lib/load-with-deadline";
+import { HonestDelay } from "@/components/honest-delay";
 
 /**
  * today-newpages-section (2026-06-24) — the "New Pages to Build" board: the
@@ -15,7 +17,12 @@ import { isOperatorModeServer } from "@/lib/operator-mode";
 export async function TodayNewPagesSection({ enableAeoBrief = false, limit }: { enableAeoBrief?: boolean; limit?: number } = {}) {
   let data;
   try {
-    data = await loadNewPagesData();
+    // FP1 (2026-07-02) - this board can rebuild the demand graph on a cold cache,
+    // the slowest read on Today. Deadline-bounded so its pulse skeleton can never
+    // strand; the abandoned build keeps running and warms the cache.
+    const raced = await loadWithDeadline(loadNewPagesData());
+    if (raced.timedOut) return <HonestDelay />;
+    data = raced.data;
   } catch {
     return null;
   }

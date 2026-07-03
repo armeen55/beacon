@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { mergeKeywordLibrary, type KeywordLibraryRow } from "./keyword-library";
+import { countWinnableGaps, mergeKeywordLibrary, summarizeKeywordLibrary, type KeywordLibraryRow } from "./keyword-library";
 import type { KeywordDemand } from "@/domains/serp/dataforseo-keywords";
 
 function demandRow(overrides: Partial<KeywordDemand> = {}): KeywordDemand {
@@ -219,5 +219,59 @@ describe("mergeKeywordLibrary, coverage stats + sort order", () => {
     });
     expect(lib.bySource.gsc).toBe(1);
     expect(lib.bySource.dataforseo_demand).toBe(2);
+  });
+});
+
+function libraryRow(overrides: Partial<KeywordLibraryRow> = {}): KeywordLibraryRow {
+  return {
+    keyword: "persian new year",
+    searchesPerMo: null,
+    timesShownPerMo: null,
+    clicks: null,
+    yourPosition: null,
+    difficulty: null,
+    trend: null,
+    ownerPage: null,
+    ownerPageHref: null,
+    competitorOwners: [],
+    relatedQuestions: [],
+    sources: [],
+    lastChecked: null,
+    ...overrides,
+  };
+}
+
+describe("countWinnableGaps", () => {
+  it("counts unowned rows with real demand, either GSC impressions or checked market volume", () => {
+    const rows = [
+      libraryRow({ keyword: "a", ownerPage: null, timesShownPerMo: 50 }),
+      libraryRow({ keyword: "b", ownerPage: null, searchesPerMo: 200 }),
+      libraryRow({ keyword: "c", ownerPage: "/owned", timesShownPerMo: 900 }),
+      libraryRow({ keyword: "d", ownerPage: null, timesShownPerMo: null, searchesPerMo: null }),
+    ];
+    expect(countWinnableGaps(rows)).toBe(2);
+  });
+});
+
+describe("summarizeKeywordLibrary, FP7 hero synthesis line", () => {
+  it("leads with winnable gaps when any exist", () => {
+    const rows = [libraryRow({ keyword: "a", ownerPage: null, timesShownPerMo: 50 }), libraryRow({ keyword: "b", ownerPage: "/owned" })];
+    expect(summarizeKeywordLibrary({ rows, total: rows.length })).toBe("2 keywords tracked. 1 is a winnable gap worth a look first.");
+  });
+
+  it("falls back to owned-page coverage when there are no winnable gaps", () => {
+    const rows = [libraryRow({ keyword: "a", ownerPage: "/owned" }), libraryRow({ keyword: "b", ownerPage: null })];
+    expect(summarizeKeywordLibrary({ rows, total: rows.length })).toBe("2 keywords tracked. I have a page up for 1 of them.");
+  });
+
+  it("falls back to total monthly search volume when nothing is owned and there are no gaps", () => {
+    const rows = [libraryRow({ keyword: "a", ownerPage: null, searchesPerMo: null, timesShownPerMo: null })];
+    // No owner, no demand signal at all -> countWinnableGaps is 0 and owned is 0,
+    // so this falls through to the plain total-tracked sentence.
+    expect(summarizeKeywordLibrary({ rows, total: rows.length })).toBe("1 keyword tracked so far.");
+  });
+
+  it("returns null when the library is empty", () => {
+    expect(summarizeKeywordLibrary({ rows: [], total: 0 })).toBeNull();
   });
 });

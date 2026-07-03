@@ -30,6 +30,8 @@ import { dossierHref } from "@/lib/page-dossier-link";
 import { deriveStatus, statusView } from "@/domains/changes/canonical-change";
 import Link from "next/link";
 import { WarRoomCopyButton } from "./war-room-copy-button";
+import { loadWithDeadline } from "@/lib/load-with-deadline";
+import { HonestDelay } from "@/components/honest-delay";
 
 const CARD = "rounded-2xl border border-gray-200 bg-white p-4 beacon-rise-in dark:border-neutral-800 dark:bg-neutral-900";
 const HEAD = "text-[11px] font-semibold uppercase tracking-wide text-gray-400 dark:text-neutral-500";
@@ -153,7 +155,10 @@ const CLARITY_MOVE_LABEL: Record<ClarityMoveType, string> = {
  *  pages and none crossed the thresholds, that is good news worth one quiet card (item 21). */
 export async function FrictionFixesSection({ tenantId }: { tenantId: string }) {
   try {
-    const signals = await loadClarityPageSignalsForTenant(tenantId);
+    // FP1 (2026-07-02) - deadline-bounded so this band's pulse skeleton can never strand.
+    const raced = await loadWithDeadline(loadClarityPageSignalsForTenant(tenantId));
+    if (raced.timedOut) return <HonestDelay />;
+    const signals = raced.data;
     if (signals.size === 0) return null;
     const allRouted = [...signals.values()]
       .map((s) => ({ s, d: routeClarityFriction(s) }))
@@ -239,19 +244,29 @@ export async function FrictionFixesSection({ tenantId }: { tenantId: string }) {
  *  Self-hides when neither feed has data. */
 export async function AiCrawlerSection({ tenantId }: { tenantId: string }) {
   try {
-    const slug = await currentTenantSlug().catch(() => "");
-    const [sig, llmMentions, engineGapLine, referralSummary, funnel, aiOverviewGapLine] = await Promise.all([
-      loadBotReferralSignals(tenantId),
-      readAllCachedLlmMentions().catch(() => []),
-      // Item 4: one honest line from last night's 4-engine question check ($0 store read).
-      loadEngineGapTodayLine(tenantId).catch(() => null),
-      // Item 6: real GA4 sessions that arrived FROM an AI assistant ($0 table read).
-      loadAiReferralSummary(tenantId).catch(() => null),
-      // Item 7: the per-page crawl to citation to visitors funnel ($0 joins of synced rows).
-      slug ? loadCrawlCitationFunnel(tenantId, slug).catch(() => null) : Promise.resolve(null),
-      // Item 20: Google AI Overview citation gap vs organic rank ($0 history read).
-      loadAiOverviewGapTodayLine(tenantId).catch(() => null),
-    ]);
+    // FP1 (2026-07-02) - the whole feed bundle is deadline-bounded so this band's
+    // pulse skeleton can never strand while one wedged feed holds the stream open.
+    const raced = await loadWithDeadline(
+      (async () => {
+        const tenantSlug = await currentTenantSlug().catch(() => "");
+        const feeds = await Promise.all([
+          loadBotReferralSignals(tenantId),
+          readAllCachedLlmMentions().catch(() => []),
+          // Item 4: one honest line from last night's 4-engine question check ($0 store read).
+          loadEngineGapTodayLine(tenantId).catch(() => null),
+          // Item 6: real GA4 sessions that arrived FROM an AI assistant ($0 table read).
+          loadAiReferralSummary(tenantId).catch(() => null),
+          // Item 7: the per-page crawl to citation to visitors funnel ($0 joins of synced rows).
+          tenantSlug ? loadCrawlCitationFunnel(tenantId, tenantSlug).catch(() => null) : Promise.resolve(null),
+          // Item 20: Google AI Overview citation gap vs organic rank ($0 history read).
+          loadAiOverviewGapTodayLine(tenantId).catch(() => null),
+        ] as const);
+        return { tenantSlug, feeds };
+      })(),
+    );
+    if (raced.timedOut) return <HonestDelay />;
+    const { tenantSlug: slug, feeds } = raced.data;
+    const [sig, llmMentions, engineGapLine, referralSummary, funnel, aiOverviewGapLine] = feeds;
     const referralLine = referralSummary ? aiReferralTodayLine(referralSummary) : null;
     const funnelLine = funnel && funnel.hasData ? funnelSummaryLine(funnel) : null;
     const funnelRows = funnel && funnel.hasData ? funnel.stalled.slice(0, 3) : [];
@@ -463,13 +478,18 @@ async function loadTopFadingRow(tenantId: string): Promise<RefreshBrief | null> 
  *  found no gap, that is a finding worth one quiet card (item 21), never a blank space. */
 export async function DemandOpportunitiesSection({ tenantId }: { tenantId: string }) {
   try {
-    const [res, spikeRows, seasonalRow, languageGapRow, fadingRow] = await Promise.all([
-      loadDemandOpportunities(tenantId, { limit: 5 }),
-      loadSpikeRows(tenantId),
-      loadTopSeasonalRow(tenantId),
-      loadTopLanguageGapRow(tenantId),
-      loadTopFadingRow(tenantId),
-    ]);
+    // FP1 (2026-07-02) - deadline-bounded so this band's pulse skeleton can never strand.
+    const raced = await loadWithDeadline(
+      Promise.all([
+        loadDemandOpportunities(tenantId, { limit: 5 }),
+        loadSpikeRows(tenantId),
+        loadTopSeasonalRow(tenantId),
+        loadTopLanguageGapRow(tenantId),
+        loadTopFadingRow(tenantId),
+      ] as const),
+    );
+    if (raced.timedOut) return <HonestDelay />;
+    const [res, spikeRows, seasonalRow, languageGapRow, fadingRow] = raced.data;
     // Research never ran and nothing is spiking, seasonal, a language gap, or fading:
     // nothing honest to say yet, stay silent.
     if (res.keywordsConsidered === 0 && spikeRows.length === 0 && !seasonalRow && !languageGapRow && !fadingRow) return null;
@@ -637,7 +657,21 @@ export async function DemandOpportunitiesSection({ tenantId }: { tenantId: strin
  *  (no paid API call ever happens on render, and the demand graph read inside is react.cache
  *  memoized too). Each check fails soft to "quiet", matching how the sections fail soft to null. */
 export async function WarRoomQuietLine({ tenantId }: { tenantId: string }) {
-  const [clarityQuiet, aiQuiet, demandQuiet] = await Promise.all([
+  // FP1 (2026-07-02) - deadline-bounded (Suspense fallback is null, so a timeout
+  // renders nothing; the "all clear" line simply stays silent this visit).
+  const raced = await loadWithDeadline(loadQuietChecks(tenantId));
+  if (raced.timedOut) return null;
+  const [clarityQuiet, aiQuiet, demandQuiet] = raced.data;
+  if (!clarityQuiet || !aiQuiet || !demandQuiet) return null;
+  return (
+    <p className="rounded-xl border border-gray-100 bg-gray-50/60 px-4 py-2.5 text-[13px] text-gray-500 dark:border-neutral-800 dark:bg-neutral-900/60 dark:text-neutral-400">
+      The team found nothing urgent beyond tonight&apos;s picks. Clean day.
+    </p>
+  );
+}
+
+function loadQuietChecks(tenantId: string): Promise<[boolean, boolean, boolean]> {
+  return Promise.all([
     // Friction band renders something whenever Clarity has page signals (rows or the
     // item-21 empty state), so quiet = no signals at all.
     loadClarityPageSignalsForTenant(tenantId)
@@ -691,10 +725,4 @@ export async function WarRoomQuietLine({ tenantId }: { tenantId: string }) {
       )
       .catch(() => true),
   ]);
-  if (!clarityQuiet || !aiQuiet || !demandQuiet) return null;
-  return (
-    <p className="rounded-xl border border-gray-100 bg-gray-50/60 px-4 py-2.5 text-[13px] text-gray-500 dark:border-neutral-800 dark:bg-neutral-900/60 dark:text-neutral-400">
-      The team found nothing urgent beyond tonight&apos;s picks. Clean day.
-    </p>
-  );
 }

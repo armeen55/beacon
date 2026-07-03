@@ -1,9 +1,10 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import { Search } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useShell } from "./shell-provider";
 
 export type PaletteItem = {
   id: string;
@@ -54,7 +55,15 @@ function fuzzyScore(text: string, query: string): number | null {
   return score;
 }
 
-export function CommandPalette({ items }: { items: PaletteItem[] }) {
+export function CommandPalette({ items: staticItems }: { items: PaletteItem[] }) {
+  // FP1 (2026-07-02) - the layout passes only the static nav items so the shell
+  // paints without waiting on Supabase; the changelog "Results" entries stream in
+  // later through the shell context (see ShellDataHydrator in shell-provider.tsx).
+  const { latePaletteItems } = useShell();
+  const items = useMemo<PaletteItem[]>(
+    () => [...staticItems, ...latePaletteItems],
+    [staticItems, latePaletteItems],
+  );
   const [mode, setMode] = useState<Mode>(null);
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState(0);

@@ -1,7 +1,7 @@
 export const dynamic = "force-dynamic";
 
 import { PageHeader } from "@/components/data/page-header";
-import { loadKeywordLibrary } from "@/domains/research/keyword-library";
+import { loadKeywordLibrary, summarizeKeywordLibrary } from "@/domains/research/keyword-library";
 import { KeywordsTableClient } from "./keywords-table-client";
 
 /**
@@ -30,12 +30,18 @@ export default async function KeywordsPage() {
       ? "I do not have any researched keywords yet. Connect Google Search Console or run a keyword check to start building this list."
       : `I have real search-volume numbers for ${library.volumeCoverage.toLocaleString()} of ${library.total.toLocaleString()} keywords. The rest show Google's own numbers (times shown, clicks, position) until I check their market volume.`;
 
+  // FP7 hero synthesis line (2026-07-02): one sentence answering "so what"
+  // before the table, using whichever real stat is strongest for this
+  // tenant right now (winnable gaps, then owned coverage, then total volume).
+  const heroLine = summarizeKeywordLibrary(library);
+
   return (
     <div className="max-w-6xl space-y-6">
       <PageHeader
         title="Keywords"
         description="Every keyword I have researched for you, from Google Search Console, market-volume checks, competitor gaps, and live Google readings, in one sortable list."
       />
+      {heroLine && <p className="text-base font-semibold text-gray-900 dark:text-neutral-100">{heroLine}</p>}
       <p className="text-sm text-gray-600 dark:text-neutral-400">{coverageLine}</p>
       <KeywordsTableClient rows={library.rows} worklistBaseHref="/worklist" />
     </div>

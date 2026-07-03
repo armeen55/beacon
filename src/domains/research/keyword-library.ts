@@ -87,6 +87,39 @@ export type KeywordLibrary = {
   bySource: Record<KeywordLibrarySource, number>;
 };
 
+/** PURE: a "winnable gap" is a keyword nobody on this site owns yet that Beacon
+ *  has already seen real demand for, either GSC impressions or a checked
+ *  market-volume number (never a guess). Used for the one-line hero synthesis
+ *  above the Keywords table (FP7, 2026-07-02): "298 keywords tracked. 41 are
+ *  winnable gaps worth a look first." Exported for testing. */
+export function countWinnableGaps(rows: KeywordLibraryRow[]): number {
+  return rows.filter((r) => r.ownerPage == null && ((r.searchesPerMo ?? 0) > 0 || (r.timesShownPerMo ?? 0) > 0)).length;
+}
+
+/**
+ * PURE: the single "so what" sentence for the top of the Keywords page. Picks
+ * the strongest honest stat available, in order: winnable gaps (there is
+ * something worth a look), else owned-vs-unowned split, else the total
+ * searched-per-month volume this library already has. Exported for testing.
+ */
+export function summarizeKeywordLibrary(library: Pick<KeywordLibrary, "rows" | "total">): string | null {
+  if (library.total === 0) return null;
+  const plural = library.total === 1 ? "keyword" : "keywords";
+  const winnableGaps = countWinnableGaps(library.rows);
+  if (winnableGaps > 0) {
+    return `${library.total.toLocaleString()} ${plural} tracked. ${winnableGaps.toLocaleString()} ${winnableGaps === 1 ? "is a winnable gap" : "are winnable gaps"} worth a look first.`;
+  }
+  const owned = library.rows.filter((r) => r.ownerPage != null).length;
+  if (owned > 0) {
+    return `${library.total.toLocaleString()} ${plural} tracked. I have a page up for ${owned.toLocaleString()} of them.`;
+  }
+  const totalVolume = library.rows.reduce((sum, r) => sum + (r.searchesPerMo ?? 0), 0);
+  if (totalVolume > 0) {
+    return `${library.total.toLocaleString()} ${plural} tracked. Together they get searched about ${totalVolume.toLocaleString()} times a month.`;
+  }
+  return `${library.total.toLocaleString()} ${plural} tracked so far.`;
+}
+
 type MergeInputs = {
   gscQueries: { query: string; clicks: number; impressions: number; position: number | null; ownerPage: string | null }[];
   demand: KeywordDemand[];

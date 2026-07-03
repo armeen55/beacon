@@ -41,6 +41,66 @@ import {
   type CaptureFractions,
 } from "@/domains/experiments/pick-expectations";
 
+/** FP2 (2026-07-02) - noun phrases for the honest no-history fallback ("coverage", "internal
+ *  linking"), distinct from LEVER_PLAIN's "a TITLE change" clause shape so the two fallback
+ *  sentences below never read as copies of each other stamped with a different noun. Falls back
+ *  to LEVER_PLAIN's own noun, then to the generic "this" when a lever has neither. */
+const LEVER_NOUN: Record<string, string> = {
+  meta: "the meta description",
+  edit_meta: "the meta description",
+  title: "the title",
+  edit_title: "the title",
+  h1: "the headline",
+  internal_link: "internal linking",
+  internal_links: "internal linking",
+  add_internal_link: "internal linking",
+  add_internal_links: "internal linking",
+  answer_block: "the answer block",
+  add_answer_block: "the answer block",
+  refresh: "the refresh",
+  edit_page: "the edit",
+  edit_existing_page: "the edit",
+  create_page: "the new page",
+  create_new_page: "the new page",
+  create_hub: "the new hub page",
+  fix_experience: "the experience fix",
+  fix_page_experience: "the experience fix",
+  fix_conversion_friction: "the experience fix",
+  fix_title_meta_ctr: "the title and meta",
+  consolidate_pages: "consolidating these pages",
+  add_schema: "the schema",
+};
+
+/** FP2 - the honest "no history at all" fallback (no GSC impressions/position for this page
+ *  yet), varied by lever so it never reads as the same templated line stamped across every
+ *  row on the list. Still never invents a number - it names what evidence WOULD size this and
+ *  what to watch instead. */
+function noHistoryBasis(lever: string): string {
+  const noun = LEVER_NOUN[lever];
+  if (lever === "create_page" || lever === "create_new_page" || lever === "create_hub") {
+    return "This page does not exist yet, so there is no click history to size a range from. Once it is live and Search Console shows impressions, I will give you a real range.";
+  }
+  if (noun) {
+    return `I do not have Search Console impressions or a rank for this page yet, so I cannot size ${noun} honestly. Once that data shows up, I will give you a real range.`;
+  }
+  return "I do not have enough history to size this yet. Once Search Console shows real impressions and a rank for this page, I will give you a real range.";
+}
+
+/** FP2 - the honest "gap too small" fallback (real position/impressions exist, but the CTR-curve
+ *  gap rounds under the floor). Varied by lever + whatever context IS known about the row
+ *  (settled history, a real position) so the same sentence does not stamp 90+ rows verbatim -
+ *  still never invents a number. */
+function tooSmallBasis(lever: string, hasPosition: boolean, targetClause: string, settled: number): string {
+  const noun = LEVER_NOUN[lever] ?? "this";
+  if (hasPosition) {
+    return `This page${targetClause} already earns close to what its position typically gets, so I can't put an honest number on ${noun} right now. Worth doing for coverage - I'll watch the next Search Console read for a real gap.`;
+  }
+  if (settled > 0) {
+    return `Your own click rates don't show a clear gap here yet, even against ${settled} settled result${settled === 1 ? "" : "s"}. Worth doing for coverage - I cannot put a number on it yet.`;
+  }
+  return `Your own click rates don't show a clear gap here yet. Worth doing for coverage - I cannot put a number on it yet.`;
+}
+
 /** Plain lever-family names used in the basis sentence ("a title change", "an answer block
  *  change"). Covers both pick-expectations.ts's ExperimentLever vocabulary (meta/title/h1/
  *  internal_link/answer_block/refresh) AND the action-pack/canonical-change ActionType vocabulary
@@ -160,6 +220,14 @@ export type OpportunityForecast = {
   /** Plain sentence. Always present, always honest - names the real evidence when a range exists,
    *  or says plainly there isn't enough history yet when it does not. Never a made-up number. */
   basis: string;
+  /** True exactly when `lowPerMonth`/`highPerMonth` are null - i.e. `basis` is one of the honest
+   *  fallback sentences rather than a sized range. FP2 (2026-07-02): callers that rank or curate a
+   *  list of these forecasts (e.g. changes-data.ts) use this to demote a row below every row with
+   *  a real sized forecast, instead of comparing on a number that does not exist. Optional so an
+   *  existing literal built elsewhere in the codebase (a test fixture, a hand-built forecast)
+   *  keeps compiling; every value this module itself returns always sets it - a caller can also
+   *  derive the same fact from `lowPerMonth == null` when this is absent. */
+  unsized?: boolean;
   /** Deterministic id for hypothesis-log.ts to record this exact rendered claim, so a later
    *  settled outcome (forecast-calibration-store.ts) can grade it. Stable across re-renders of the
    *  SAME (tenant, page, lever) opportunity on the SAME UTC day - repeated page loads log one
@@ -193,7 +261,8 @@ export function computeOpportunity(input: OpportunityInput): OpportunityForecast
       lowPerMonth: null,
       highPerMonth: null,
       days: daysToImpactFor(input.lever, input.measuredDaysToImpact),
-      basis: "I do not have enough history to size this yet. Once Search Console shows real impressions and a rank for this page, I will give you a real range.",
+      basis: noHistoryBasis(input.lever),
+      unsized: true,
       hypothesisId: hypothesisIdFor(input),
     };
   }
@@ -247,7 +316,8 @@ export function computeOpportunityFromGap(
       lowPerMonth: null,
       highPerMonth: null,
       days,
-      basis: `Based on your own click rates at each Google position, the gap here is too small to size honestly right now${hasPosition ? ` (this page${targetClause} is already close to what its position typically earns)` : ""}.`,
+      basis: tooSmallBasis(input.lever, hasPosition, targetClause, settled),
+      unsized: true,
       hypothesisId,
     };
   }
@@ -260,6 +330,7 @@ export function computeOpportunityFromGap(
     highPerMonth: range.high,
     days,
     basis,
+    unsized: false,
     hypothesisId,
   };
 }

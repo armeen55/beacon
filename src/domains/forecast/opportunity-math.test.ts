@@ -13,13 +13,26 @@ describe("computeOpportunity — honest-gap path (D7)", () => {
     const f = computeOpportunity({ ...base, impressions90d: 5000, clicks90d: 10 });
     expect(f.lowPerMonth).toBeNull();
     expect(f.highPerMonth).toBeNull();
-    expect(f.basis).toContain("I do not have enough history to size this yet");
+    expect(f.unsized).toBe(true);
+    // FP2 - a mapped lever (meta) names the concrete noun instead of the fully generic line.
+    expect(f.basis).toContain("I do not have Search Console impressions or a rank for this page yet");
   });
 
   it("returns a null range + honest basis when impressions are missing/zero", () => {
     const f = computeOpportunity({ ...base, currentPosition: 8, impressions90d: 0 });
     expect(f.lowPerMonth).toBeNull();
+    expect(f.unsized).toBe(true);
+    expect(f.basis).toContain("I do not have Search Console impressions or a rank for this page yet");
+  });
+
+  it("falls back to the fully generic line for an unmapped lever", () => {
+    const f = computeOpportunity({ ...base, lever: "totally_unknown_lever", impressions90d: 5000, clicks90d: 10 });
     expect(f.basis).toContain("I do not have enough history to size this yet");
+  });
+
+  it("names a not-yet-created page distinctly from an existing page with no data", () => {
+    const f = computeOpportunity({ ...base, lever: "create_page" });
+    expect(f.basis).toContain("This page does not exist yet");
   });
 
   it("never fabricates a range for NaN/negative impressions", () => {
@@ -52,7 +65,9 @@ describe("computeOpportunity — the range matches the SAME CTR-curve math as pi
     // Position 1 with a high CTR already exceeds the curve's own expectation -> no positive gap.
     const f = computeOpportunity({ ...base, currentPosition: 1, impressions90d: 1000, clicks90d: 500 });
     expect(f.lowPerMonth).toBeNull();
-    expect(f.basis).toContain("too small to size honestly");
+    expect(f.unsized).toBe(true);
+    // FP2 - a real position is known, so the sentence names it instead of the generic gap line.
+    expect(f.basis).toContain("already earns close to what its position typically gets");
   });
 });
 
@@ -184,7 +199,9 @@ describe("computeOpportunityFromGap — legacy pre-computed-gap entry point matc
   it("honest null when the gap is too small, same floor as forecastRange", () => {
     const f = computeOpportunityFromGap(base, 2);
     expect(f.lowPerMonth).toBeNull();
-    expect(f.basis).toContain("too small to size honestly");
+    expect(f.unsized).toBe(true);
+    // FP2 - no position was supplied, so this reads the no-position variant of the honest line.
+    expect(f.basis).toContain("Worth doing for coverage");
   });
 
   it("honest null for a zero/absent gap (never a fabricated range)", () => {
@@ -202,5 +219,52 @@ describe("computeOpportunityFromGap — legacy pre-computed-gap entry point matc
   it("includes the position clause when a position is supplied", () => {
     const f = computeOpportunityFromGap(base, 240, 6);
     expect(f.basis).toContain("at position 6");
+  });
+});
+
+describe("computeOpportunity — FP2 (2026-07-02) varied honest fallback, never one stamped sentence", () => {
+  it("unsized is true for every null-range case and false for every sized case", () => {
+    expect(computeOpportunity(base).unsized).toBe(true);
+    expect(computeOpportunity({ ...base, currentPosition: 1, impressions90d: 1000, clicks90d: 500 }).unsized).toBe(true);
+    expect(computeOpportunity({ ...base, currentPosition: 8, impressions90d: 5000, clicks90d: 100 }).unsized).toBe(false);
+  });
+
+  it("the no-history fallback varies by lever instead of stamping the same sentence", () => {
+    const meta = computeOpportunity({ ...base, lever: "meta" });
+    const link = computeOpportunity({ ...base, lever: "internal_link" });
+    const createPage = computeOpportunity({ ...base, lever: "create_page" });
+    expect(meta.basis).not.toBe(link.basis);
+    expect(meta.basis).not.toBe(createPage.basis);
+    expect(meta.basis).toContain("the meta description");
+    expect(link.basis).toContain("internal linking");
+  });
+
+  it("the too-small-gap fallback varies by whether a position is known, never one templated line", () => {
+    const noPosition = computeOpportunityFromGap({ ...base, lever: "meta" }, 2);
+    const withPosition = computeOpportunityFromGap({ ...base, lever: "meta" }, 2, 4);
+    expect(noPosition.basis).not.toBe(withPosition.basis);
+    expect(withPosition.basis).toContain("position");
+    expect(noPosition.basis).not.toContain("position");
+  });
+
+  it("the too-small-gap fallback names settled history when present, without inventing a number", () => {
+    const f = computeOpportunityFromGap({ ...base, lever: "meta", settledResultsCount: 5 }, 2);
+    expect(f.basis).toContain("5 settled results");
+    expect(f.lowPerMonth).toBeNull();
+  });
+
+  it("every honest fallback still reads as one short sentence set, never an em/en dash", () => {
+    const cases = [
+      computeOpportunity({ ...base, lever: "meta" }),
+      computeOpportunity({ ...base, lever: "internal_link" }),
+      computeOpportunity({ ...base, lever: "create_page" }),
+      computeOpportunity({ ...base, lever: "totally_unknown" }),
+      computeOpportunityFromGap({ ...base, lever: "meta" }, 2),
+      computeOpportunityFromGap({ ...base, lever: "meta" }, 2, 4),
+    ];
+    for (const f of cases) {
+      expect(f.basis).not.toMatch(/[–—]/);
+      expect(f.unsized).toBe(true);
+    }
   });
 });

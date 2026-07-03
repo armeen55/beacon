@@ -7,9 +7,27 @@ import { loadCronHealthView } from "@/domains/ops/cron-health-view";
  * Self-quiets to nothing interesting rather than erroring - a job with no
  * history yet (pre-migration, or brand new) shows "I have not run yet."
  * instead of a scary blank state.
+ *
+ * FP7 finding (2026-07-02): a section titled "How reliably I show up" that
+ * renders "I have not run yet." on every single job proves the opposite of
+ * its own name. Until at least one job has a real run receipt, collapse the
+ * whole panel to one honest line instead of a wall of empty statuses. Once
+ * any job has run, it renders the full per-job breakdown as before.
  */
 export async function CronHealthPanel() {
   const jobs = await loadCronHealthView();
+  const hasAnyRun = jobs.some((j) => j.lastRun != null);
+
+  if (!hasAnyRun) {
+    return (
+      <section className="rounded-lg border border-border/60 bg-surface p-5" data-cron-health-panel="true" data-cron-health-collapsed="true">
+        <h3 className="text-[15px] font-semibold text-foreground">How reliably I show up</h3>
+        <p className="mt-1 text-[13px] leading-relaxed text-muted-foreground">
+          Nightly work starts tonight around 2 AM. I will show receipts for every run here.
+        </p>
+      </section>
+    );
+  }
 
   return (
     <section className="rounded-lg border border-border/60 bg-surface p-5" data-cron-health-panel="true">

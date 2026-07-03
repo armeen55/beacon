@@ -29,6 +29,8 @@ import { readPipelineHealth } from "@/domains/ops/pipeline-health-store";
 import { InvestigationSection } from "./investigation-section";
 import type { TodayView } from "@/domains/changes/today-view";
 import { createPerfTrace, readPerfTraceIdFromHeaders } from "@/lib/perf-trace";
+import { loadWithDeadline, valueWithDeadline } from "@/lib/load-with-deadline";
+import { HonestDelay } from "@/components/honest-delay";
 import { selectLeadStory, type LeadStory } from "@/domains/changes/lead-story";
 import { loadDailyTotalsForTenant } from "@/domains/recommendation-intelligence/gsc-page-queries";
 import { moveHeadline } from "./daily-experiments-copy";
@@ -100,8 +102,20 @@ async function Cockpit() {
   }
 }
 
+/** FP1 - the two hero loaders get a little more room than a section band (a
+ *  timeout here replaces the whole page with the honest one-liner, so it should
+ *  only fire when things are genuinely wedged, not on a cold lambda). */
+const TODAY_HERO_DEADLINE_MS = 8000;
+
 async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
-  const gate = await trace.time("loadTodayV2GateData", () => loadTodayV2GateData());
+  // FP1 (2026-07-02) - the gate read is deadline-bounded so the CockpitSkeleton
+  // pulse can never strand. Past the deadline, say so honestly; the abandoned
+  // loader keeps running and warms the cache for the next visit.
+  const gateRaced = await trace.time("loadTodayV2GateData", () =>
+    loadWithDeadline(loadTodayV2GateData(), TODAY_HERO_DEADLINE_MS),
+  );
+  if (gateRaced.timedOut) return <HonestDelay />;
+  const gate = gateRaced.data;
 
   if (gate.isDemoMode) {
     return (
@@ -119,7 +133,14 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
 
   let composite: Awaited<ReturnType<typeof loadTodayView>>;
   try {
-    composite = await trace.time("loadTodayView", () => loadTodayView());
+    // FP1 - loadTodayView serves the SWR snapshot instantly when one exists; the
+    // deadline only bites on the cold no-snapshot compute, which keeps running in
+    // the background and persists its snapshot, so the next visit is instant.
+    const viewRaced = await trace.time("loadTodayView", () =>
+      loadWithDeadline(loadTodayView(), TODAY_HERO_DEADLINE_MS),
+    );
+    if (viewRaced.timedOut) return <HonestDelay />;
+    composite = viewRaced.data;
   } catch {
     return (
       <div role="alert" className="rounded-lg border border-border/60 bg-surface-inset/30 p-6 text-center">
@@ -134,18 +155,27 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
   // UX4 item 6 - the one-click "Update data" control now lives in the page header, not the
   // bottom of the page. Reads the same count the data-sources strip below computes for itself,
   // so the header button and the strip's own affordances never disagree.
-  const connectedSourceCount = await countConnectedDataSources(tenantId).catch(() => 0);
+  const connectedSourceCount = await valueWithDeadline(
+    countConnectedDataSources(tenantId).catch(() => 0),
+    0,
+  );
 
   // A1 (operator-experience fix batch, 2026-07-02) - read the pipeline health check once here
   // so both the top-of-page alert AND the hero stat can react to a broken/stale data pipe. $0
   // persisted read, fails soft to null (treated as healthy - never blocks the page).
-  const pipelineHealth = await readPipelineHealth(tenantId).catch(() => null);
+  const pipelineHealth = await valueWithDeadline(
+    readPipelineHealth(tenantId).catch(() => null),
+    null,
+  );
   const pipelineDegraded = Boolean(pipelineHealth && pipelineHealth.violations.length > 0);
   const pipelineCheckedAt = pipelineHealth?.checked_at ?? null;
 
   // Items 7 + 8 - the ledger speaks in the header: the 14-day shipping streak, and on Mondays
   // a one-line recap of last week's outcomes. One cached ledger read; fail-soft to silence.
-  const ledgerRows = await loadProofLedgerCached(tenantId).catch(() => []);
+  const ledgerRows = await valueWithDeadline(
+    loadProofLedgerCached(tenantId).catch(() => [] as Awaited<ReturnType<typeof loadProofLedgerCached>>),
+    [],
+  );
   const streak = shippedInLastDays(ledgerRows, Date.now());
   // A2 (operator-experience fix batch, 2026-07-02) - THE canonical "measuring" count: the proof
   // ledger's own verdict field. The team standup chip, the counts tile, and the measuring list
@@ -183,19 +213,25 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
   // MIN_SETTLED_FOR_CALIBRATION picks have settled at their 28-day window. Fail-soft: any error
   // here just omits the sentence, never breaks the page.
   const calibrationSentence = isMonday
-    ? await loadCalibrationRecords(tenantId)
-        .then((rows) => {
-          const s = summarizeForecastCalibration(rows);
-          return s.settledCount >= MIN_SETTLED_FOR_CALIBRATION ? s.sentence : null;
-        })
-        .catch(() => null)
+    ? await valueWithDeadline(
+        loadCalibrationRecords(tenantId)
+          .then((rows) => {
+            const s = summarizeForecastCalibration(rows);
+            return s.settledCount >= MIN_SETTLED_FOR_CALIBRATION ? s.sentence : null;
+          })
+          .catch(() => null),
+        null,
+      )
     : null;
   // Item 51 - the weekly strategy review's signed memo, Mondays only, self-hides when no
   // fresh (this-or-next-week) mix exists. Fail-soft: any error just omits the line.
   const strategySentence = isMonday
-    ? await loadLatestStrategyMix(tenantId)
-        .then((record) => strategyMemoLine(record, new Date()))
-        .catch(() => null)
+    ? await valueWithDeadline(
+        loadLatestStrategyMix(tenantId)
+          .then((record) => strategyMemoLine(record, new Date()))
+          .catch(() => null),
+        null,
+      )
     : null;
 
   // UX4 item 1 - the lead story: "what matters most right now" in ONE deterministic card, built
@@ -205,7 +241,10 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
   // biggest mover. Any rule with nothing real to say is skipped; the whole card self-hides if
   // every rule comes up empty.
   const tonightFirstPick = activePlan?.selected[0] ?? null;
-  const leadStoryDays = await loadDailyTotalsForTenant(tenantId, 84).catch(() => []);
+  const leadStoryDays = await valueWithDeadline(
+    loadDailyTotalsForTenant(tenantId, 84).catch(() => [] as Awaited<ReturnType<typeof loadDailyTotalsForTenant>>),
+    [],
+  );
   const leadStory: LeadStory | null = selectLeadStory({
     ledger: ledgerRows.map((r) => ({ path: r.path, shippedAt: r.shippedAt, verdict: r.verdict, pageLabel: null })),
     attention: today.attention.map((a) => ({ title: a.title, message: a.message, href: a.href })),

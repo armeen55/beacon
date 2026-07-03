@@ -26,6 +26,56 @@ slugs, internal keys, jargon, or unexplained zeros. Judge performance on prod, n
 
 ---
 
+## FINISHED PRODUCT CAMPAIGN (2026-07-02 operator verdict; GOVERNS UNTIL DONE, jumps the line)
+
+Operator, verbatim: "remember at all times biggest impact moves as possible... everything about
+this app completely screams unfinished.. if i saw this current state as a consumer i would pay 0
+dollars for this even this looks disgusting truly ... i see the vision though but we are far away
+and idk if its more features or what its missing but there is a lot of things deeply missing kep
+figuring it out."
+
+12-agent diagnosis (9 surface roasts + design system + product shape + IA, 2026-07-02) answered
+his question: **it is finish, not features.** Three root causes: (1) the app often does not paint
+(blocking shell awaits, stranded Suspense pulse boxes, no timeouts); (2) it contradicts and
+repeats itself (three different counts for one lifecycle stage, one fallback sentence stamped on
+90+ of 136 worklist rows, duplicate rows and sections); (3) it is five products stapled together
+(77 routes for 9 nav items, two color systems, 294 card class combos, three narrator voices).
+
+The 10 moves, strictly ranked (kill list quotes live in the diagnosis run wf_b48c0a1f-301):
+- [x] FP1 (2026-07-02, wave 1). Always-paint floor: no blocking awaits in the shell, 5s deadline + honest sentence on
+      every section loader, snapshot-first reads reusing the existing SWR pattern. (WAVE 1)
+- [x] FP2 (2026-07-02, wave 1). Worklist quality: kill the 90x stamped fallback sentence at the root, dedupe rows,
+      fix the double-render + stray glyph, fix the contradicting cannibalization line. (WAVE 1)
+- [ ] FP3. One lifecycle-count loader consumed by Today, Changes, Results; one story everywhere.
+- [ ] FP4. Vocabulary + route collapse: /worklist becomes /changes, /proof becomes /results, nav
+      registry drives every page title, ~60 legacy routes deleted or redirected, Settings menus
+      merged. Rider: Ask citation chips stop rendering raw slugs and internal keys.
+- [ ] FP5. One home per job: tonight's cards live on Today only, New Pages board renders once,
+      measuring lives on Results only, the /proof double-stack merges.
+- [~] FP6 (6a SHIPPED 2026-07-02 wave 1; 6b migration open). Design system: Card, Pill (5 status intents), SectionHeader, EmptyState, PageShell on
+      the existing tokens + raw-palette-count ratchet guard (6a, WAVE 1); then migrate the five
+      worst files (today-moves-card 482 raw classes, changes-list-client 225,
+      daily-experiments-section, today-newpages-card, war-room-sections) (6b). Rider: one
+      narrator voice, first person, via plain-language conventions.
+- [x] FP7 (2026-07-02, wave 1). Hide dead-data UI: Difficulty column (0/298), empty related-questions chrome, cron
+      panel collapses to one line until it has a real receipt, zero-signal keyword rows behind an
+      expander, keywords hero synthesis line. (WAVE 1)
+- [ ] FP8. Cumulative outcome ledger on Today + Results: shipped, won, click lift, value since
+      signup, honest still-measuring framing; collapse the 12-chip proof cards to summary+expand.
+- [x] FP9 (2026-07-02, wave 1, with FP2). Curate the queue: top 3 visually dominant, list capped ~20 behind an expander,
+      Ready 0 explained in a real sentence. (WAVE 1, with FP2)
+- [ ] FP10. Fold /competitors into AI questions; Connections page collapses to one summary strip
+      + one-line rows for healthy connectors.
+
+NOT NOW (real but parked): MoveCard density refactor, connector brand icons, autopilot hydration
+flash, first-session choreography + morning-brief email (single-user today), per-keyword bulk
+actions, hand-fixing dark-mode classes (FP6 makes them free), blue Leaning-bad pill semantics.
+
+WAVE 1 SHIPPED 2026-07-02: FP1 (shell paints instantly, / and /competitors close in 8s through a live Supabase 522 storm; the honest-delay sentence replaces stranded pulse boxes), FP2+FP9 (fallback stamp killed at the root, dedupe, top 3 + capped list), FP7, FP6a (primitives + 2884 raw-palette ratchet). WAVE 2 adds: bound the remaining page bodies (worklist, keywords, connectors, ask hang on unbounded Supabase reads; the local 522 storm amplifies them into never-closing streams). WAVE 2: FP3+FP5 (one agent, shared files), FP6b
+migration. WAVE 3: FP4, FP8, FP10, voice rider. N-track and packs resume after FP10.
+
+---
+
 ## THE QUALITY CONSTITUTION (governs everything; each law is an enforceable gate)
 
 1. **Believe:** Beacon may only assert a fact that has a source, a date, and a reliability grade.

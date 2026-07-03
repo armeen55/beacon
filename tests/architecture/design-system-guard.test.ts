@@ -1,0 +1,161 @@
+/**
+ * design-system-guard (FP6a) - keeps the single token-based design system
+ * from re-fragmenting.
+ *
+ * The 2026-07 design audit found TWO complete color systems running at once:
+ * the token system in globals.css (bg-card, text-muted-foreground,
+ * status-*) used by the shell, and thousands of raw tailwind palette
+ * classes (bg-red-50, text-emerald-600, border-gray-200) on flagship
+ * surfaces. It also found 294 distinct card-container class combos and 24
+ * font sizes.
+ *
+ * This test enforces two things:
+ *   (a) the ui primitives (card, pill, section-header, empty-state,
+ *       page-shell, button) use token classes and the five-size type scale
+ *       ONLY, and contain no em/en dashes; and
+ *   (b) the total number of raw palette classes under src/app/(shell) can
+ *       only go DOWN. When a migration wave lowers the count, lower the
+ *       baseline constant to match so it ratchets.
+ */
+import { describe, expect, it } from "vitest";
+import { readFileSync, readdirSync, statSync } from "node:fs";
+import { join, resolve } from "node:path";
+
+const ROOT = resolve(__dirname, "../..");
+const UI_DIR = join(ROOT, "src/components/ui");
+const SHELL_DIR = join(ROOT, "src/app/(shell)");
+
+/**
+ * Raw tailwind palette classes: a utility prefix + a named palette color +
+ * a numeric shade. Token classes (bg-card, text-status-danger,
+ * border-border-subtle) never match because tokens carry no numeric shade.
+ */
+const RAW_PALETTE =
+  /(?:bg|text|border|ring|fill|stroke|divide|outline|decoration|from|via|to|shadow)-(?:red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose|slate|gray|zinc|neutral|stone)-[0-9]{2,3}/g;
+
+/** Same charset as no-banned-dash-display-surfaces: figure, en, em, horizontal bar. */
+const BANNED_DASH = /[‒–—―]/;
+
+/** Arbitrary font sizes (text-[11px], text-[0.8rem]) are off-scale by definition. */
+const ARBITRARY_TEXT_SIZE = /text-\[[0-9.]+(?:px|rem|em)\]/;
+
+/**
+ * Tailwind's stock size ladder is banned inside primitives; the five-size
+ * scale (text-meta / text-body / text-sub / text-section / text-page,
+ * defined in globals.css) is the only one allowed.
+ */
+const STOCK_TEXT_SIZE = /\btext-(?:xs|sm|base|lg|xl|[2-9]xl)\b/;
+
+/**
+ * FP6a primitives plus the pre-existing Button they build on. sheet.tsx /
+ * table.tsx / scroll-area.tsx are vendored shadcn-style helpers and are
+ * intentionally not pinned to the five-size scale yet.
+ */
+const PRIMITIVES = [
+  "card.tsx",
+  "pill.tsx",
+  "section-header.tsx",
+  "empty-state.tsx",
+  "page-shell.tsx",
+  "button.tsx",
+];
+
+/** Only the new FP6a primitives are pinned to the five-size type scale. */
+const TYPE_SCALE_PINNED = new Set([
+  "card.tsx",
+  "pill.tsx",
+  "section-header.tsx",
+  "empty-state.tsx",
+  "page-shell.tsx",
+]);
+
+/**
+ * BASELINE (2026-07-02, FP6a): 2860 raw palette class occurrences across the
+ * 254 non-test .ts/.tsx files under src/app/(shell), counted with RAW_PALETTE
+ * above. This number may ONLY go down as pages migrate to the primitives.
+ * When your migration lowers the live count, lower this constant to the new
+ * count in the same commit so the ratchet holds.
+ */
+// 2026-07-02: 2860 was counted mid-wave while FP1/FP2 were concurrently adding UI
+// (top-3 picks card, Ready-0 explanation, honest-delay states); wave 1 closed at 2884.
+// This number may ONLY go down from here; the FP6b migration of the five worst files
+// (today-moves-card, changes-list-client, daily-experiments-section, war-room-sections,
+// today-newpages-card) is expected to cut it by several hundred.
+const RAW_PALETTE_BASELINE = 2884;
+
+function walkSourceFiles(dir: string, out: string[] = []): string[] {
+  for (const name of readdirSync(dir)) {
+    const p = join(dir, name);
+    if (statSync(p).isDirectory()) {
+      walkSourceFiles(p, out);
+    } else if (/\.tsx?$/.test(name) && !/\.test\.tsx?$/.test(name)) {
+      out.push(p);
+    }
+  }
+  return out;
+}
+
+describe("design-system-guard: primitives are token-only", () => {
+  for (const file of PRIMITIVES) {
+    const path = join(UI_DIR, file);
+    const src = readFileSync(path, "utf8");
+
+    it(`${file} contains no raw tailwind palette classes`, () => {
+      const hits = src.match(RAW_PALETTE) ?? [];
+      expect(hits, `raw palette classes in ${file}: ${hits.join(", ")}`).toEqual([]);
+    });
+
+    it(`${file} contains no em/en dashes`, () => {
+      expect(BANNED_DASH.test(src)).toBe(false);
+    });
+
+    if (TYPE_SCALE_PINNED.has(file)) {
+      it(`${file} uses only the five-size type scale (no arbitrary or stock text sizes)`, () => {
+        expect(
+          ARBITRARY_TEXT_SIZE.test(src),
+          `arbitrary text size in ${file}`
+        ).toBe(false);
+        expect(
+          STOCK_TEXT_SIZE.test(src),
+          `stock tailwind text size in ${file}; use text-meta/text-body/text-sub/text-section/text-page`
+        ).toBe(false);
+      });
+    }
+  }
+
+  it("globals.css defines all five type-scale tokens", () => {
+    const css = readFileSync(join(ROOT, "src/app/globals.css"), "utf8");
+    for (const token of [
+      "--text-meta:",
+      "--text-body:",
+      "--text-sub:",
+      "--text-section:",
+      "--text-page:",
+    ]) {
+      expect(css, `missing ${token} in globals.css`).toContain(token);
+    }
+  });
+});
+
+describe("design-system-guard: raw palette ratchet under src/app/(shell)", () => {
+  it(`raw palette class count is <= ${RAW_PALETTE_BASELINE} and only ever goes down`, () => {
+    const files = walkSourceFiles(SHELL_DIR);
+    let total = 0;
+    const perFile: Array<{ file: string; count: number }> = [];
+    for (const f of files) {
+      const count = (readFileSync(f, "utf8").match(RAW_PALETTE) ?? []).length;
+      if (count > 0) perFile.push({ file: f, count });
+      total += count;
+    }
+    const worst = perFile
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 5)
+      .map((e) => `${e.file.slice(ROOT.length + 1)} (${e.count})`)
+      .join(", ");
+    expect(
+      total,
+      `raw palette classes under src/app/(shell) grew past the baseline. ` +
+        `Use the tokens + primitives in src/components/ui instead. Worst files: ${worst}`
+    ).toBeLessThanOrEqual(RAW_PALETTE_BASELINE);
+  });
+});

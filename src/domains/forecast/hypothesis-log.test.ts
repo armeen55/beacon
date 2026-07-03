@@ -133,7 +133,10 @@ describe("computeAndCaptureOpportunity - compute-and-log in one call", () => {
     const spy = vi.spyOn(mod, "writeStore").mockRejectedValueOnce(new Error("disk gone"));
     const input = { tenantId: "t", page: "https://s.com/p", lever: "meta" };
     const result = await computeAndCaptureOpportunity(input, computeOpportunity);
-    expect(result.basis).toContain("I do not have enough history to size this yet");
+    // FP2 (2026-07-02, opportunity-math.ts) - a mapped lever (meta) now names the concrete
+    // noun instead of the fully generic line; still the same honest "not enough history" fact.
+    expect(result.lowPerMonth).toBeNull();
+    expect(result.basis).toContain("I do not have Search Console impressions or a rank for this page yet");
     spy.mockRestore();
   });
 });

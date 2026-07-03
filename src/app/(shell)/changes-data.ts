@@ -51,7 +51,121 @@ export type ChangesView = {
    *  with Today's number. Equal to `summary.measuring` whenever every measuring proof
    *  record also has a matching worklist move (the common case). */
   measuringCountCanonical: number;
+  /** FP2 (2026-07-02) - "Fix the experience rows silently vanish" finding. Set exactly when
+   *  a row TYPE got filtered upstream (the worklist render cap in moves/moves-data.ts truncates
+   *  to its strongest N and keeps the true count in stats.movesReady) so the list can say so in
+   *  one quiet line instead of just showing fewer rows with no acknowledgment. Null when nothing
+   *  was suppressed this load. */
+  suppressedRowsNote: string | null;
 };
+
+/** FP2 (2026-07-02, killer finding 1) - normalized identity for the dedupe pass below: the
+ *  SAME real-world opportunity (same target page or same not-yet-created topic, same query/
+ *  label, same lever family) must render as exactly ONE row, never two. `pagePath` already
+ *  carries a normalized path when a real page exists (build-canonical-changes.ts's
+ *  normalizePath); for a page-less "create" candidate (topic with no URL yet - see the
+ *  allocator's fuseByPage, which only merges entries that share a non-null `page`) this falls
+ *  back to the normalized topic/label text so two lanes pitching the SAME unbuilt topic
+ *  ("best iranian restaurants near me" from both the SERP-steal lane and the keyword-library
+ *  lane) still collapse to one row. */
+export function dedupeIdentity(c: CanonicalChange, query: string | null): string {
+  const pageKey = c.pagePath && c.pagePath.trim() ? c.pagePath.trim().toLowerCase() : null;
+  const topicKey = (query ?? c.pageLabel ?? "").trim().toLowerCase().replace(/\s+/g, " ");
+  return `${c.tenantId}::${pageKey ?? `topic:${topicKey}`}::${c.changeFamily}`;
+}
+
+const STATUS_STRENGTH: Record<CanonicalChange["status"], number> = {
+  result: 7, measuring: 6, verify: 5, apply: 4, ready: 3, blocked: 2, suggested: 1, skipped: 0,
+};
+
+/** Pick the stronger of two rows claiming the same identity: most-advanced lifecycle status
+ *  wins first (never demote a row that already shipped/measured back to a bare suggestion),
+ *  then the row with a real sized forecast over an honest-fallback one, then higher impact
+ *  score. Never mutates either input. */
+export function strongerChange(a: CanonicalChange, b: CanonicalChange): CanonicalChange {
+  const sa = STATUS_STRENGTH[a.status] ?? 0;
+  const sb = STATUS_STRENGTH[b.status] ?? 0;
+  if (sa !== sb) return sa > sb ? a : b;
+  const aSized = a.expectedOutcomeLow != null;
+  const bSized = b.expectedOutcomeLow != null;
+  if (aSized !== bSized) return aSized ? a : b;
+  return (b.impactScore ?? 0) > (a.impactScore ?? 0) ? b : a;
+}
+
+/** FP2 - dedupe the fused list by real-world identity, unioning sourceIds/alternateOpportunities/
+ *  sources from the dropped duplicate onto the surviving row so no provenance is lost, only the
+ *  redundant second row. Order-preserving on the survivors (keeps rankChanges's own sort the only
+ *  thing that reorders the list). */
+export function dedupeChanges(changes: readonly CanonicalChange[], movesById: Record<string, TodayMove>): CanonicalChange[] {
+  const byIdentity = new Map<string, CanonicalChange>();
+  const order: string[] = [];
+  for (const c of changes) {
+    const query = c.sourceIds[0] ? (movesById[c.sourceIds[0]]?.query ?? null) : null;
+    const key = dedupeIdentity(c, query);
+    const prev = byIdentity.get(key);
+    if (!prev) {
+      byIdentity.set(key, c);
+      order.push(key);
+      continue;
+    }
+    const winner = strongerChange(prev, c);
+    const loser = winner === prev ? c : prev;
+    byIdentity.set(key, {
+      ...winner,
+      sourceIds: [...new Set([...winner.sourceIds, ...loser.sourceIds])],
+      alternateOpportunities: [...new Set([...winner.alternateOpportunities, ...loser.alternateOpportunities])],
+      sources: winner.sources || loser.sources ? [...new Set([...(winner.sources ?? []), ...(loser.sources ?? [])])] : undefined,
+    });
+  }
+  return order.map((k) => byIdentity.get(k)!);
+}
+
+/** FP2 (killer finding 1b) - a row whose ONLY sizing is opportunity-math's honest fallback
+ *  (`expectedOutcomeLow == null`, i.e. `unsized`) must sort below every row that has a real
+ *  forecast, so the templated "not enough history" sentence never crowds out sized rows at
+ *  the top of the list. `strategy.ts`'s ranking (strategy.ts's `strategyScore`, not owned by this
+ *  change) adds at most a +300 evidence bonus and a +200 ready bonus on top of `impactScore` for
+ *  ANY strategy - so subtracting a fixed offset well past that combined ceiling (10,000) from the
+ *  row's own impactScore guarantees an unsized row can never outscore a sized one, in any status
+ *  or strategy, while SUBTRACTING (not clamping to a shared constant) preserves the unsized rows'
+ *  own relative order among each other - a stronger unsized opportunity still ranks above a
+ *  weaker one, just always below every sized row. Never hidden, only demoted. */
+const UNSIZED_DEMOTION_OFFSET = 10_000;
+export function demoteUnsized(changes: readonly CanonicalChange[]): CanonicalChange[] {
+  return changes.map((c) => {
+    if (c.expectedOutcomeLow != null) return c;
+    return { ...c, impactScore: c.impactScore - UNSIZED_DEMOTION_OFFSET };
+  });
+}
+
+/** FP2 (killer finding 3) - "the secondary explanatory line contradicts the primary
+ *  recommendation" on a cannibalization row. Root cause: `today-moves-data.ts` sets `m.why`
+ *  (the CanonicalChange's primary `recommendation`) to the cannibalization fix ("fold this page
+ *  into X" / "point this page at X"), but can OVERWRITE it afterwards with a different framing
+ *  (a striking-distance title pitch, a losing-query recovery pitch) while the card's own "Do
+ *  first" lever box (built from `researchPack.onPagePlan`, which never sees the cannibalization
+ *  signal at all) keeps recommending standalone work on the SAME page - e.g. "fold this into
+ *  your best-ranking page" right next to "sharpen this page's title". That card-internal
+ *  contradiction lives in files this change does not own (today-moves-card.tsx/today-moves-
+ *  data.ts); what IS in scope is this list's own `rationale` line, which must never repeat or
+ *  imply the standalone-work framing once a real cannibalization case exists for the row. When
+ *  it does, `rationale` is rewritten to state the consolidation directive plainly and name that
+ *  it supersedes any per-page lever work below, so the row's own two lines never disagree. */
+export function reconcileCannibalizationRationale(
+  changes: readonly CanonicalChange[],
+  movesById: Record<string, TodayMove>,
+): CanonicalChange[] {
+  return changes.map((c) => {
+    const move = c.sourceIds[0] ? movesById[c.sourceIds[0]] : undefined;
+    const fix = move?.cannibalization?.[0]?.fix;
+    if (!fix) return c;
+    if (c.rationale === fix) return c; // already agrees, nothing to reconcile
+    return {
+      ...c,
+      rationale: `${fix} That comes first - any other edit below on this page should wait until this is resolved.`,
+    };
+  });
+}
 
 export async function loadChangesView(): Promise<ChangesView> {
   const tenantId = await currentTenantId();
@@ -69,6 +183,22 @@ export async function loadChangesView(): Promise<ChangesView> {
   const measuringCountCanonical = ledgerRows.filter((r) => r.verdict === "measuring").length;
   const plan = accepted ?? preview;
   const moves = (wl.moves ?? []) as TodayMove[];
+
+  // FP2 (killer finding 5) - "Fix the experience rows silently vanish". moves/moves-data.ts caps
+  // its render to the strongest MOVES_CAP moves and keeps the true count in stats.movesReady; this
+  // is the one place that count is visible before the page renders, so this is the one place that
+  // can turn a silent shrink into an honest sentence. `heldWhileMeasuring` (moves already computed
+  // but withheld because their page is mid-measurement) is the other real, named suppression this
+  // stats object already tracks - both get folded into one quiet acknowledgment line.
+  const trueMovesTotal = wl.stats?.movesReady ?? moves.length;
+  const heldWhileMeasuring = wl.stats?.heldWhileMeasuring ?? 0;
+  const cappedCount = Math.max(0, trueMovesTotal - moves.length);
+  let suppressedRowsNote: string | null = null;
+  if (cappedCount > 0) {
+    suppressedRowsNote = `I'm holding back ${cappedCount} lower-priority idea${cappedCount === 1 ? "" : "s"} out of ${trueMovesTotal} total so this list stays focused on the strongest ones. Nothing is lost, they're just not rendered here.`;
+  } else if (heldWhileMeasuring > 0) {
+    suppressedRowsNote = `${heldWhileMeasuring} more idea${heldWhileMeasuring === 1 ? "" : "s"} exist${heldWhileMeasuring === 1 ? "s" : ""} for pages that are mid-measurement right now. I'll surface them once those results settle.`;
+  }
 
   // D7 - the tenant's own bias-correction factor + per-actionFamily empirical capture band, the
   // SAME machinery build-today-preview.ts already resolves for the nightly plan (forecast-
@@ -119,7 +249,26 @@ export async function loadChangesView(): Promise<ChangesView> {
   // verdicts, D3's SERP steal briefs, and undercovered keyword-library demand, into ONE ranked
   // CanonicalChange[]. Fail-soft as a whole (fuseUnifiedList never throws); on any unexpected
   // failure fall back to the worklist-only list rather than blanking the page.
-  const { changes } = await fuseUnifiedList(tenantId, worklistChanges).catch(() => ({ changes: worklistChanges }));
+  const { changes: fusedChanges } = await fuseUnifiedList(tenantId, worklistChanges).catch(() => ({ changes: worklistChanges }));
+
+  const movesById: Record<string, TodayMove> = {};
+  for (const m of moves) movesById[m.id] = m;
+
+  // FP2 (killer finding 2) - the allocator's own fuseByPage only merges lanes that share a real,
+  // non-null page; two lanes independently pitching the SAME not-yet-built topic ("best iranian
+  // restaurants near me" from both the SERP-steal lane and the keyword-library lane, or a plain
+  // worklist/allocator overlap) survive as two rows. Collapse those here, by real-world identity
+  // (page-or-topic + query + lever family), before anything ranks or renders the list.
+  const deduped = dedupeChanges(fusedChanges, movesById);
+  // FP2 (killer finding 3) - when this row's page has a real cannibalization case, its secondary
+  // line must agree with (not contradict) the consolidation directive. See the function doc for
+  // the exact contradiction this closes.
+  const reconciled = reconcileCannibalizationRationale(deduped, movesById);
+  // FP2 (killer finding 1) - a row whose only sizing is opportunity-math's honest "not enough
+  // history"/"gap too small" fallback must never outrank a row with a real forecast. strategy.ts's
+  // ranking is untouched; this only adjusts the ranking INPUT so unsized rows sort to the bottom
+  // of their status bucket instead of mixing in among sized ones.
+  const changes = demoteUnsized(reconciled);
 
   // D7 (hypothesis capture) - every forecast actually rendered to the operator on this list is
   // logged as a falsifiable hypothesis, so the day-28 settle can grade it later. Fire-and-forget,
@@ -127,6 +276,7 @@ export async function loadChangesView(): Promise<ChangesView> {
   // the Changes list render. Bounded to rows the operator can actually act on right now (todo/
   // ready) - a blocked/measuring/result row's forecast was already logged when it first became
   // actionable, so re-logging it here would just be a duplicate keyed by the same hypothesisId.
+  // Runs on the DEDUPED set so a collapsed duplicate never double-logs the same hypothesisId.
   const actionableWithForecast = changes.filter(
     (c) => (c.status === "suggested" || c.status === "ready" || c.status === "apply") && c.hypothesisId,
   );
@@ -142,9 +292,6 @@ export async function loadChangesView(): Promise<ChangesView> {
     ),
   );
 
-  const movesById: Record<string, TodayMove> = {};
-  for (const m of moves) movesById[m.id] = m;
-
   const summary = { todo: 0, ready: 0, measuring: 0, results: 0, selectedForToday: 0, protectedPages: 0 };
   for (const c of changes) {
     if (c.status === "skipped") continue;
@@ -153,16 +300,24 @@ export async function loadChangesView(): Promise<ChangesView> {
     if (c.protectedControl) summary.protectedPages += 1;
   }
 
-  // B7 - "Ready 0" with no reason reads as broken. Only compute this when it's actually 0
-  // (no cost otherwise); fail-soft so a canary-store outage never blocks the list.
+  // B7 / FP2 (killer finding 6) - "Ready 0" with no reason reads as broken. A bare "0 ready
+  // right now" is still a caption, not an answer - the sentence must say WHY it's zero, WHAT
+  // would make it non-zero, and WHEN to expect that, so a fresh operator never has to guess.
+  // Only computed when it's actually 0 (no cost otherwise); fail-soft so a canary-store outage
+  // never blocks the list.
   let readyZeroHint: string | null = null;
   if (summary.ready === 0) {
     const health = await readPublishHealth(tenantId).catch(() => null);
-    readyZeroHint =
-      health && health.urlMapOk === false
-        ? "0 ready to publish until your Wix pages are mapped."
-        : "0 ready right now.";
+    if (health && health.urlMapOk === false) {
+      readyZeroHint = "0 ready to publish because your Wix pages aren't mapped yet. Once you connect them, prepared changes will show up here ready to ship.";
+    } else if (summary.todo > 0) {
+      readyZeroHint = `0 are ready to publish yet because none of your ${summary.todo} open idea${summary.todo === 1 ? "" : "s"} has been prepared into an exact edit. Open one from To do and prepare it, and it will show up here.`;
+    } else if (summary.measuring > 0) {
+      readyZeroHint = `0 ready right now because everything is already live and measuring (${summary.measuring} in progress). I'll show new ideas here once fresh demand data comes in or a measurement settles.`;
+    } else {
+      readyZeroHint = "0 ready right now because I don't have a prepared idea for you yet. Once your Google and AI demand data syncs, I'll rank real ideas here and you can prepare the strongest ones.";
+    }
   }
 
-  return { changes, movesById, summary, hasPlan: !!plan, planAccepted: !!accepted, readyZeroHint, measuringCountCanonical };
+  return { changes, movesById, summary, hasPlan: !!plan, planAccepted: !!accepted, readyZeroHint, measuringCountCanonical, suppressedRowsNote };
 }
