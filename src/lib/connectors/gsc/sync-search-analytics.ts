@@ -53,8 +53,15 @@ import {
   pickGscPropertyForDomain,
 } from "./search-analytics";
 import { refreshGoogleAccessToken } from "@/lib/connectors/google-auth";
+// R17a (ingestion gaps, v1 266): after the normal incremental window, the
+// nightly run also re-pulls days that are MISSING inside the covered range
+// (sync holes the trailing REPULL window can never reach back to), capped per
+// night. Classification is the shared pure module the connections card reads.
+import { loadGscIngestionGapReport } from "@/domains/gsc/load-ingestion-gaps";
+import { selectGapRepullDates } from "@/domains/gsc/ingestion-gaps";
 
-const FINAL_LAG_DAYS = 3;
+/** Exported so ingestion-gaps.GSC_FINAL_LAG_DAYS can be pinned in lockstep. */
+export const FINAL_LAG_DAYS = 3;
 const REPULL_DAYS = 4;
 const BACKFILL_DAYS = 90;
 /** Hard bound on days per run — keeps a cold backfill bounded. */
@@ -68,6 +75,8 @@ export type GscSyncResult =
       property: string;
       days: number;
       rows_upserted: number;
+      /** R17a: gap days healed by tonight's re-pull (absent when none ran). */
+      gap_days_repulled?: number;
     };
 
 /** YYYY-MM-DD for `d` in America/Los_Angeles (Search Console dates
@@ -352,9 +361,10 @@ export async function syncGscSearchAnalyticsForTenant(args: {
     const maxStart = addDays(lastFinalDay, -(MAX_DAYS_PER_RUN - 1));
     if (startDay < maxStart) startDay = maxStart;
   }
-  if (startDay > lastFinalDay) {
-    return { synced: true, property, days: 0, rows_upserted: 0 };
-  }
+  // R17a: the "nothing new past the watermark" case no longer returns early;
+  // the main loop below simply doesn't execute (day window is empty), so the
+  // gap re-pull still gets its turn on a fully-caught-up tenant (old holes
+  // behind the watermark are exactly what the incremental window never heals).
 
   const sb = getSupabaseAdmin();
   let days = 0;
@@ -362,13 +372,28 @@ export async function syncGscSearchAnalyticsForTenant(args: {
   // audit-wave2 #9: track a failed day-pull so a quota/network failure on the
   // FIRST day (days===0) doesn't return synced:true and stamp freshness fresh.
   let pullFailed = false;
-  // wave-11 follow-on (2026-06-14): set by pullDayRows -> the query on a GSC
-  // AUTH failure (401/403). Pre-fix the run stopped and reported synced:true
-  // (GREEN) on a dead/expired grant, hiding stale GSC demand (the pivot's core
-  // signal) from the operator. Now we surface synced:false so the caller logs
-  // a visible skip and the operator knows to reconnect GSC.
-  let authFailureStatus: number | null = null;
-  for (let day = startDay; day <= lastFinalDay; day = addDays(day, 1)) {
+
+  // R17a: the per-day pull+upsert body, extracted so the main window and the
+  // gap re-pull run EXACTLY the same code (same grains, same idempotent
+  // UPSERTs, same failure classification). Accumulates rowsUpserted via
+  // closure, exactly as the inline body did.
+  type DayOutcome =
+    | { ok: true }
+    // wave-11 follow-on (2026-06-14): set by pullDayRows -> the query on a GSC
+    // AUTH failure (401/403). Pre-fix the run stopped and reported synced:true
+    // (GREEN) on a dead/expired grant, hiding stale GSC demand (the pivot's
+    // core signal) from the operator. Surfaced so the caller can return
+    // synced:false and the operator knows to reconnect GSC.
+    | { ok: false; kind: "auth"; status: number }
+    | { ok: false; kind: "pull" }
+    | { ok: false; kind: "rows_upsert" }
+    | { ok: false; kind: "page_totals_upsert" };
+
+  const syncOneDay = async (
+    day: string,
+    opts: { writeZeroTotalsWhenEmpty?: boolean } = {},
+  ): Promise<DayOutcome> => {
+    let authFailureStatus: number | null = null;
     const rows = await pullDayRows({
       accessToken,
       siteUrl: property,
@@ -383,37 +408,12 @@ export async function syncGscSearchAnalyticsForTenant(args: {
       refreshAccessToken: () => forceRefreshGscAccessToken(tenantId),
     });
     if (authFailureStatus !== null) {
-      log.error(
-        "[gsc-sa-sync] GSC auth failure — token expired or lost scope; reconnect GSC",
-        { tenantId, property, status: authFailureStatus },
-      );
-      // Reconnect signal (2026-06-15, hardened 2026-06-22): a mid-sync 401/403
-      // is only a REAL reconnect case if the grant is genuinely dead. Probe with
-      // a live refresh — if it's alive (a transient API blip / token-refresh
-      // race), emit a soft transient reason so the UI never screams "revoked" on
-      // a healthy grant. Only invalid_grant stamps + returns the auth-failed
-      // reason. Fail-soft (never throws).
-      const verdict = await stampGscAuthFailure(tenantId, now);
-      return {
-        synced: false,
-        reason:
-          verdict === "dead"
-            ? `gsc_auth_failed_${authFailureStatus}`
-            : verdict === "misconfig"
-              ? "gsc_client_misconfig"
-              : "gsc_auth_transient",
-      };
+      return { ok: false, kind: "auth", status: authFailureStatus };
     }
     if (rows == null) {
       // Quota/network — stop here; UPSERTs so far are kept and
       // the next run's re-pull window resumes cleanly.
-      log.warn("[gsc-sa-sync] day pull failed; stopping run", {
-        tenantId,
-        property,
-        day,
-      });
-      pullFailed = true;
-      break;
+      return { ok: false, kind: "pull" };
     }
     const mapped = rows
       .filter((r) => Array.isArray(r.keys) && r.keys.length === 2)
@@ -444,7 +444,7 @@ export async function syncGscSearchAnalyticsForTenant(args: {
         // B82 (completes audit-4): report NOT synced on a DB write failure so
         // cron-sync (which gates positively on synced===true) doesn't stamp the
         // success watermark over a failed write — the day re-pulls next run.
-        return { synced: false, reason: "gsc_daily_rows_upsert_failed" };
+        return { ok: false, kind: "rows_upsert" };
       }
       rowsUpserted += chunk.length;
     }
@@ -485,6 +485,35 @@ export async function syncGscSearchAnalyticsForTenant(args: {
           tenantId,
           day,
           error: totalsErr.message,
+        });
+      }
+    } else if (opts.writeZeroTotalsWhenEmpty) {
+      // R17a (gap re-pull only): Google returned NO totals row for this day;
+      // the pull HAPPENED and reported nothing (a genuinely zero-traffic day).
+      // Persist the zero row as the pulled truth so the day stops classifying
+      // as a hole and re-pulling forever. This is a real pull result recorded
+      // verbatim, never interpolation.
+      const { error: zeroErr } = await sb.from("gsc_daily_totals").upsert(
+        [
+          {
+            tenant_id: tenantId,
+            property,
+            date: day,
+            clicks: 0,
+            impressions: 0,
+            ctr: 0,
+            position: 0,
+            is_final: true,
+            pulled_at: now.toISOString(),
+          },
+        ],
+        { onConflict: "tenant_id,property,date" },
+      );
+      if (zeroErr) {
+        log.warn("[gsc-sa-sync] zero-totals marker upsert failed", {
+          tenantId,
+          day,
+          error: zeroErr.message,
         });
       }
     }
@@ -534,11 +563,96 @@ export async function syncGscSearchAnalyticsForTenant(args: {
           // write failure silently stamped the success watermark (cron-sync gates
           // positively on synced===true). Returning synced:false leaves the day
           // un-stamped → it re-pulls next run instead of masking the gap as success.
-          return { synced: false, reason: "gsc_page_totals_upsert_failed" };
+          return { ok: false, kind: "page_totals_upsert" };
         }
       }
     }
+    return { ok: true };
+  };
+
+  for (let day = startDay; day <= lastFinalDay; day = addDays(day, 1)) {
+    const outcome = await syncOneDay(day);
+    if (!outcome.ok) {
+      if (outcome.kind === "auth") {
+        log.error(
+          "[gsc-sa-sync] GSC auth failure — token expired or lost scope; reconnect GSC",
+          { tenantId, property, status: outcome.status },
+        );
+        // Reconnect signal (2026-06-15, hardened 2026-06-22): a mid-sync 401/403
+        // is only a REAL reconnect case if the grant is genuinely dead. Probe with
+        // a live refresh — if it's alive (a transient API blip / token-refresh
+        // race), emit a soft transient reason so the UI never screams "revoked" on
+        // a healthy grant. Only invalid_grant stamps + returns the auth-failed
+        // reason. Fail-soft (never throws).
+        const verdict = await stampGscAuthFailure(tenantId, now);
+        return {
+          synced: false,
+          reason:
+            verdict === "dead"
+              ? `gsc_auth_failed_${outcome.status}`
+              : verdict === "misconfig"
+                ? "gsc_client_misconfig"
+                : "gsc_auth_transient",
+        };
+      }
+      if (outcome.kind === "pull") {
+        log.warn("[gsc-sa-sync] day pull failed; stopping run", {
+          tenantId,
+          property,
+          day,
+        });
+        pullFailed = true;
+        break;
+      }
+      if (outcome.kind === "rows_upsert") {
+        return { synced: false, reason: "gsc_daily_rows_upsert_failed" };
+      }
+      return { synced: false, reason: "gsc_page_totals_upsert_failed" };
+    }
     days += 1;
+  }
+
+  // R17a (ingestion gaps, v1 266): heal old holes the incremental window can
+  // never reach: re-pull up to GAP_REPULL_CAP_PER_NIGHT missing days inside the
+  // covered range, newest first, through the SAME syncOneDay body. Runs only on
+  // the normal nightly path (an operator/deep backfill bounds its own window)
+  // and only when the main window completed cleanly (no point hammering a
+  // struggling quota). STRICTLY fail-soft: a gap-day failure logs and stops the
+  // gap loop; it never flips the main sync's result.
+  let gapDaysRepulled = 0;
+  if (args.startDate == null && args.endDate == null && !pullFailed) {
+    try {
+      const report = await loadGscIngestionGapReport(tenantId, { property, now });
+      const gapDates = (report?.gapDates ?? []).filter(
+        // Days inside the window just pulled are already handled above.
+        (d) => d < startDay || d > lastFinalDay,
+      );
+      for (const day of selectGapRepullDates(gapDates)) {
+        const outcome = await syncOneDay(day, { writeZeroTotalsWhenEmpty: true });
+        if (!outcome.ok) {
+          log.warn("[gsc-sa-sync] gap re-pull stopped early; remaining gaps retry tomorrow", {
+            tenantId,
+            property,
+            day,
+            kind: outcome.kind,
+          });
+          break;
+        }
+        gapDaysRepulled += 1;
+      }
+      if (gapDaysRepulled > 0) {
+        log.info("[gsc-sa-sync] gap re-pull healed missing days", {
+          tenantId,
+          property,
+          gapDaysRepulled,
+        });
+      }
+    } catch (e) {
+      log.warn("[gsc-sa-sync] gap re-pull failed", {
+        tenantId,
+        error: e instanceof Error ? e.message : String(e),
+      });
+    }
   }
 
   // audit-wave2 #9: a first-day pull failure (quota/network) wrote nothing —
@@ -546,5 +660,11 @@ export async function syncGscSearchAnalyticsForTenant(args: {
   if (days === 0 && pullFailed) {
     return { synced: false, reason: "gsc_day_pull_failed" };
   }
-  return { synced: true, property, days, rows_upserted: rowsUpserted };
+  return {
+    synced: true,
+    property,
+    days,
+    rows_upserted: rowsUpserted,
+    ...(gapDaysRepulled > 0 ? { gap_days_repulled: gapDaysRepulled } : {}),
+  };
 }

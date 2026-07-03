@@ -129,6 +129,16 @@ QUEUE (strict order; [G] = operator-gated, surface it and continue):
 - [x] R16 (2026-07-03). P6 LLM engine pack (one gateway, schema registry, prompt versioning + regression
       harness, call cache; absorbs task 95). Effort L.
 - [ ] R17. P2 GSC depth pack (split into 3 slices). Effort L.
+      - [x] R17a (2026-07-03, slice 1 of 3). Brand split (v1 265: ONE brand classifier in
+            domains/gsc/brand-split.ts, R9's tokens moved there; non-brand lens on the Today
+            scoreboard + lens naming on the headline/weekly sentence/cumulative-strip receipt),
+            ingestion-gap classification (v1 266: final_lag/gap/pre_history pure read, one
+            missing-days line on the connections GSC card, nightly gap re-pull capped 10/night
+            through the same syncOneDay body + zero-totals marker for genuinely quiet days),
+            striking-distance portfolio headline (v1 267: keywords hero second line + Today
+            demand-band line from ONE loader, sized via the tenant CTR curve + forecastRange),
+            anonymized-query gap (v1 492: page-totals vs visible query-grain share, dossier
+            note over 30 percent). Remaining for R17b/c: v1 136-138, 195, 264, 268, 428, 491, 493.
 - [ ] R18. N23 internal PageRank + P7 linking/content-depth levers. Effort L.
 - [ ] R19. N24 evidence-based pruning/merging + N21/N22 rendered-crawl checks. Effort M.
 - [ ] R20. D6 dynamic auto-mode (auto-prepare + publish counter; autopilot rails exist). Effort M.

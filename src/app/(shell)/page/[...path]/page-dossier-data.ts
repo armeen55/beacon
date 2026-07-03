@@ -6,6 +6,7 @@ import { currentTenantId, currentTenantSlug } from "@/lib/tenant-context";
 import { normalizeUrl } from "@/lib/url/normalize";
 import { loadDailyClicksByPathsForTenant } from "@/domains/proof-gsc/daily-series";
 import { loadGscPageSignalsForTenant, type GscQuerySignal } from "@/domains/recommendation-intelligence/gsc-page-signals";
+import { anonymizedQueryShare, anonymizedShareNote } from "@/domains/gsc/anonymized-share";
 import type { DailyClicks } from "@/domains/recommendation-intelligence/gsc-page-queries";
 import { loadClarityPageSignalsForTenant, type ClarityPageSignal } from "@/domains/recommendation-intelligence/clarity-page-signals";
 import { loadPageContentSnapshot, type PageContentSnapshot } from "@/domains/recommendation-intelligence/page-freshness";
@@ -73,6 +74,11 @@ export type PageDossier = {
 
   queries: {
     topQueries: GscQuerySignal[];
+    /** R17a (v1 492) - non-null when a big slice of this page's Google traffic
+     *  comes from queries Google hides ("About a third of this page's Google
+     *  traffic comes from searches Google keeps private. ..."). Honest
+     *  accounting for the table below it; self-hides under the threshold. */
+    anonymizedNote: string | null;
   };
 
   content: PageContentSnapshot | null;
@@ -139,7 +145,7 @@ async function loadDossierUncached(tenantId: string, path: string): Promise<Page
 
   // GSC page signals are keyed by canonicalized full URL - find the one whose
   // normalized path matches ours.
-  let gscEntry: { page: string; clicks90d: number; impressions90d: number; ctr90d: number; position90d: number; topQueries: GscQuerySignal[] } | null = null;
+  let gscEntry: { page: string; clicks90d: number; impressions90d: number; ctr90d: number; position90d: number; topQueries: GscQuerySignal[]; queryVisibleImpressions90d?: number } | null = null;
   for (const sig of gscSignals.values()) {
     if (matchesPath(sig.page, path)) {
       gscEntry = sig;
@@ -224,13 +230,22 @@ async function loadDossierUncached(tenantId: string, path: string): Promise<Page
     !!currentPlanPick ||
     !!content;
 
+  // R17a (v1 492) - the anonymized-query note: page-total impressions include
+  // the queries Google hides; the visible query-grain sum does not. Both
+  // numbers already live on the loaded signal - a pure ratio, no new read.
+  const anonymizedNote = gscEntry
+    ? anonymizedShareNote(
+        anonymizedQueryShare(gscEntry.impressions90d, gscEntry.queryVisibleImpressions90d ?? null),
+      )
+    : null;
+
   return {
     path,
     pageLabel,
     hasAnyData,
     liveUrl,
     chart: { daily, shipMarkers },
-    queries: { topQueries: gscEntry?.topQueries ?? [] },
+    queries: { topQueries: gscEntry?.topQueries ?? [], anonymizedNote },
     content,
     teamReads: {
       demand: gscEntry

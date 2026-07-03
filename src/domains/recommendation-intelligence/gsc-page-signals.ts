@@ -46,6 +46,13 @@ export type GscPageSignal = {
   position90d: number;
   /** Top queries by impressions (capped). */
   topQueries: GscQuerySignal[];
+  /** R17a (v1 492): the page's impressions summed over the VISIBLE page+query
+   *  grain only (gsc_daily_rows), BEFORE the page-totals override below. The
+   *  true page totals (impressions90d, from gsc_daily_page_totals) include the
+   *  anonymized queries GSC hides; total minus this visible sum is the
+   *  anonymized share (see domains/gsc/anonymized-share.ts). Optional so
+   *  existing fixtures/mocks keep compiling; 0 for a page seen only in totals. */
+  queryVisibleImpressions90d?: number;
 };
 
 /** 90-day rolling window (operator pref 2026-06-13: don't clip to 28 days —
@@ -154,6 +161,10 @@ export async function loadGscPageSignalsForTenant(
       ctr90d: impressions > 0 ? clicks / impressions : 0,
       position90d: impressions > 0 ? positionWeighted / impressions : 0,
       topQueries: querySignals.slice(0, TOP_QUERIES_CAP),
+      // R17a (v1 492): remember the visible query-grain sum before the totals
+      // override replaces impressions90d with the true (anonymized-inclusive)
+      // page number, so the anonymized share stays computable downstream.
+      queryVisibleImpressions90d: impressions,
     });
   }
 
@@ -216,7 +227,9 @@ export async function loadGscPageSignalsForTenant(
         page,
         existing
           ? { ...existing, ...totals }
-          : { page, ...totals, topQueries: [] },
+          : // Seen only in page totals: zero VISIBLE query impressions (all of
+            // this page's queries are below GSC's anonymity threshold).
+            { page, ...totals, topQueries: [], queryVisibleImpressions90d: 0 },
       );
     }
   } catch {

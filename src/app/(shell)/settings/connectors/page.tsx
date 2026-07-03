@@ -8,6 +8,11 @@ import {
   type GscReadinessVerdict,
   type GscReadinessTone,
 } from "@/lib/connectors/gsc/readiness";
+// R17a (ingestion gaps, v1 266) - one honest line when days are missing INSIDE
+// the covered Google range (a sync hole, not Google's normal lag). The nightly
+// sync re-pulls the same dates this line names.
+import { loadGscIngestionGapReport } from "@/domains/gsc/load-ingestion-gaps";
+import { ingestionGapLine } from "@/domains/gsc/ingestion-gaps";
 import { currentTenantId } from "@/lib/tenant-context";
 import { PageHeader } from "@/components/data/page-header";
 import { ConnectorsClient, type LastSyncState } from "./connectors-client";
@@ -91,6 +96,10 @@ async function loadConnectorsPageData() {
     tone: GscReadinessTone;
     property: string | null;
   };
+  // R17a (v1 266) - the missing-days line for the GSC card. Null (self-hides)
+  // when nothing is missing inside the covered range, when GSC never synced,
+  // or on any read error. Never blocks the page.
+  let gscGapLine: string | null = null;
   try {
     const tid = await currentTenantId();
     const readiness = await loadGscReadiness(tid);
@@ -102,6 +111,10 @@ async function loadConnectorsPageData() {
       tone: described.tone,
       property: readiness.property,
     };
+    if (readiness.verdict === "ready") {
+      const gapReport = await loadGscIngestionGapReport(tid).catch(() => null);
+      gscGapLine = gapReport ? ingestionGapLine(gapReport) : null;
+    }
   } catch {
     gscReadiness = {
       verdict: "not_connected",
@@ -166,6 +179,7 @@ async function loadConnectorsPageData() {
     gbpTok,
     gscStaleCopy,
     gscReadiness,
+    gscGapLine,
     ga4StaleCopy,
     connectedCount,
     totalCount,
@@ -204,6 +218,7 @@ export default async function ConnectorsPage() {
     gbpTok,
     gscStaleCopy,
     gscReadiness,
+    gscGapLine,
     ga4StaleCopy,
     connectedCount,
     totalCount,
@@ -230,6 +245,7 @@ export default async function ConnectorsPage() {
         configYelpBusinessId={cfg.yelpBusinessId ?? ""}
         gscStaleCopy={gscStaleCopy}
         gscReadiness={gscReadiness}
+        gscGapLine={gscGapLine}
         ga4StaleCopy={ga4StaleCopy}
         connectedCount={connectedCount}
         totalCount={totalCount}

@@ -29,11 +29,13 @@ export type PageQuery = {
   strikingDistance: boolean;
 };
 
-/** Striking-distance test: ranking on page 1's lower half / page 2 top, with
- *  enough impressions that climbing a few spots is worth real clicks. */
-export function isStrikingDistance(position: number, impressions: number): boolean {
-  return position >= 4 && position <= 15 && impressions >= 100;
-}
+// R17a (P2 GSC depth pack): the striking-distance test moved to its canonical
+// pure home (domains/gsc/striking-portfolio.ts) so the per-row badge here and
+// the portfolio headline can never disagree. Re-exported for existing callers -
+// byte-identical behavior.
+import { isStrikingDistance } from "@/domains/gsc/striking-portfolio";
+
+export { isStrikingDistance };
 
 /** Aggregated per-query window stats (clicks, impressions, impression-weighted position sum). */
 export type QueryAgg = { clicks: number; impressions: number; posW: number };

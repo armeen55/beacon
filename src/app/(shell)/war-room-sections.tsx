@@ -38,6 +38,10 @@ import { loadLanguageGaps } from "@/domains/language-gap/language-gap-store";
 import type { LanguageGap } from "@/domains/language-gap/language-gaps";
 import { loadRefreshQueue } from "@/domains/refresh/refresh-store";
 import { briefSentences, type RefreshBrief } from "@/domains/refresh/refresh-brief";
+// R17a (striking-distance portfolio, v1 267) - the demand band's "close to the
+// top" line, from the SAME loader the keywords hero reads (one number, two
+// surfaces). Self-hides under the query-count floor.
+import { loadStrikingPortfolio } from "@/domains/gsc/load-striking-portfolio";
 import { readWorklistSurface } from "./worklist-surface-store";
 import { dossierHref } from "@/lib/page-dossier-link";
 import { deriveStatus, statusView } from "@/domains/changes/canonical-change";
@@ -490,6 +494,11 @@ async function loadTopFadingRow(tenantId: string): Promise<RefreshBrief | null> 
   return queue[0] ?? null;
 }
 
+/** R17a (v1 267) - the demand band shows the striking-distance portfolio line
+ *  only when MORE than this many searches qualify (a real portfolio, not a
+ *  couple of rows the worklist already covers one by one). */
+const STRIKING_BAND_MIN_QUERIES = 10;
+
 /** Market demand (DataForSEO teammate): real search demand you don't own yet, from the cached
  *  keyword universe, PLUS this week's query spikes from your own Google data (item 14).
  *  Self-hides until keyword research has run AND nothing is spiking; once research HAS run and
@@ -504,14 +513,19 @@ export async function DemandOpportunitiesSection({ tenantId }: { tenantId: strin
         loadTopSeasonalRow(tenantId),
         loadTopLanguageGapRow(tenantId),
         loadTopFadingRow(tenantId),
+        // R17a (v1 267) - the striking-distance portfolio line, gated below to
+        // a real portfolio (more than STRIKING_BAND_MIN_QUERIES searches).
+        loadStrikingPortfolio(tenantId).catch(() => null),
       ] as const),
     );
     if (raced.timedOut) return <HonestDelay />;
-    const [res, spikeRows, seasonalRow, languageGapRow, fadingRow] = raced.data;
-    // Research never ran and nothing is spiking, seasonal, a language gap, or fading:
-    // nothing honest to say yet, stay silent.
-    if (res.keywordsConsidered === 0 && spikeRows.length === 0 && !seasonalRow && !languageGapRow && !fadingRow) return null;
-    if (res.opportunities.length === 0 && res.trends.length === 0 && spikeRows.length === 0 && !seasonalRow && !languageGapRow && !fadingRow) {
+    const [res, spikeRows, seasonalRow, languageGapRow, fadingRow, portfolioRaw] = raced.data;
+    const strikingPortfolio =
+      portfolioRaw && portfolioRaw.queryCount > STRIKING_BAND_MIN_QUERIES ? portfolioRaw : null;
+    // Research never ran and nothing is spiking, seasonal, a language gap, fading,
+    // or close to the top: nothing honest to say yet, stay silent.
+    if (res.keywordsConsidered === 0 && spikeRows.length === 0 && !seasonalRow && !languageGapRow && !fadingRow && !strikingPortfolio) return null;
+    if (res.opportunities.length === 0 && res.trends.length === 0 && spikeRows.length === 0 && !seasonalRow && !languageGapRow && !fadingRow && !strikingPortfolio) {
       // Item 21 - designed empty state: keyword research DID run and found no new gap.
       return (
         <section aria-label="Demand opportunities" className={CARD}>
@@ -548,6 +562,21 @@ export async function DemandOpportunitiesSection({ tenantId }: { tenantId: strin
             gray/emerald/violet) instead of a Pill verdict - same precedent as today-moves-card.tsx's
             TONE map: these mark WHICH teammate found the row, not a live/waiting/won verdict. */}
         <div className="mt-2 space-y-3">
+          {/* R17a (v1 267) - the striking-distance portfolio: searches already
+              ranking just below the top, added up. Same number the keywords
+              hero shows (one loader). Token-only row (no identity hue - this is
+              your own Google data, not a teammate's external find). */}
+          {strikingPortfolio ? (
+            <div className="space-y-1.5">
+              <p className="px-0.5 text-meta font-semibold text-muted-foreground">Close to the top already</p>
+              <div className="rounded-xl bg-surface-raised px-3 py-2">
+                <p className="text-body font-medium text-foreground-secondary tabular-nums">{strikingPortfolio.headline}</p>
+                {strikingPortfolio.sizingLine ? (
+                  <p className="mt-0.5 text-meta text-muted-foreground tabular-nums">{strikingPortfolio.sizingLine}</p>
+                ) : null}
+              </div>
+            </div>
+          ) : null}
           {(spikeRows.length > 0 || seasonalRow || fadingRow) ? (
             <div className="space-y-1.5">
               <p className="px-0.5 text-meta font-semibold text-muted-foreground">Searches moving this week</p>
@@ -741,16 +770,20 @@ function loadQuietChecks(tenantId: string): Promise<[boolean, boolean, boolean]>
       loadTopSeasonalRow(tenantId).catch(() => null),
       loadTopLanguageGapRow(tenantId).catch(() => null),
       loadTopFadingRow(tenantId).catch(() => null),
+      // R17a (v1 267): react cache shares this read with the demand band above,
+      // so it is free here. Same gate as the band (> STRIKING_BAND_MIN_QUERIES).
+      loadStrikingPortfolio(tenantId).catch(() => null),
     ])
       .then(
-        ([res, spikes, seasonalRow, languageGapRow, fadingRow]) =>
+        ([res, spikes, seasonalRow, languageGapRow, fadingRow, portfolio]) =>
           res.keywordsConsidered === 0 &&
           res.opportunities.length === 0 &&
           res.trends.length === 0 &&
           spikes.length === 0 &&
           !seasonalRow &&
           !languageGapRow &&
-          !fadingRow,
+          !fadingRow &&
+          !(portfolio && portfolio.queryCount > STRIKING_BAND_MIN_QUERIES),
       )
       .catch(() => true),
   ]);

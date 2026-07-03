@@ -37,6 +37,10 @@ import { HonestDelay } from "@/components/honest-delay";
 // R14b (receipts everywhere) - the one-line receipt under the hero numbers: what
 // data this chart reads and how far it runs, from the series ALREADY loaded.
 import { buildReceiptLine, ReceiptLine } from "@/components/data/receipt-line";
+// R17a (brand split, v1 265) - the non-brand growth lens: clicks from searches
+// that do not mention the business name, windowed on the SAME reported days the
+// headline uses. Fail-soft null -> the sub-line self-hides.
+import { loadScoreboardBrandLens } from "@/domains/gsc/load-brand-split";
 
 const W = 720;
 const H = 170;
@@ -264,6 +268,14 @@ export async function ScoreboardSection({
     // this section renders exactly as before for tenants without dollars.
     const moneyLine = buildMoneyLine(revenueDays);
 
+    // R17a (brand split, v1 265) - the non-brand lens over the SAME reported
+    // days the headline just summed. Deadline-bounded + fail-soft: no brand
+    // config, no query rows, or a slow read just means no sub-line.
+    const brandLens = await valueWithDeadline(
+      loadScoreboardBrandLens(tenantId, s.days.map((d) => d.date)).catch(() => null),
+      null,
+    );
+
     // UX4 item 2 - the chart's Google/AI visibility/Value tabs, built from series ALREADY loaded
     // above for this same section (citations.daily, revenueDays) - no new reads. A GA4 sessions
     // day-series loader does not exist yet, so Visitors passes an empty series and the tab
@@ -305,7 +317,11 @@ export async function ScoreboardSection({
         <div className="flex flex-wrap items-baseline justify-between gap-2">
           <div className="flex items-baseline gap-3">
             <span className="text-2xl font-semibold tabular-nums tracking-tight">{s.last7Clicks.toLocaleString()}</span>
-            <span className="text-xs text-gray-500 dark:text-neutral-400">clicks, last 7 reported days</span>
+            {/* R17a - the headline names its lens (every search) whenever the
+                non-brand sub-line below gives the other lens a voice. */}
+            <span className="text-xs text-gray-500 dark:text-neutral-400">
+              {brandLens ? "clicks, last 7 reported days, every search counted" : "clicks, last 7 reported days"}
+            </span>
             {s.deltaPct != null ? (
               <span className={`text-sm font-semibold tabular-nums ${deltaTone}`}>
                 {s.deltaPct > 0 ? "+" : ""}{s.deltaPct}%
@@ -320,6 +336,12 @@ export async function ScoreboardSection({
         </div>
         <ScoreboardChartTabs googleChart={<Chart s={s} />} otherTabs={chartTabs} />
         <p className="mt-1 text-[13px] text-gray-600 dark:text-neutral-300">{s.verdictLine}</p>
+        {/* R17a (brand split) - the growth lens: clicks from searches that do
+            not mention your name, the number an SEO change can actually move.
+            Self-hides without brand config or visible query rows. */}
+        {brandLens ? (
+          <p className="mt-0.5 text-[13px] text-muted-foreground tabular-nums">{brandLens.subLine}</p>
+        ) : null}
         {/* R14b (receipts everywhere) - where these clicks come from and how far the
             data runs, from the same series the chart just drew. No new reads. */}
         <ReceiptLine

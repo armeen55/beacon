@@ -33,9 +33,10 @@ describe("Demand band language-gap row (war-room-sections)", () => {
   });
 
   it("stays silent when research never ran, nothing is spiking, seasonal, or a language gap", () => {
-    // Master plan item 56 additively extended this guard with a fading-page check
-    // (composes beside the language-gap gate, does not remove it).
-    expect(WAR_ROOM).toContain("!seasonalRow && !languageGapRow && !fadingRow) return null");
+    // Master plan item 56 additively extended this guard with a fading-page check,
+    // and R17a (v1 267) with a striking-portfolio check (compose beside the
+    // language-gap gate, do not remove it).
+    expect(WAR_ROOM).toContain("!seasonalRow && !languageGapRow && !fadingRow && !strikingPortfolio) return null");
   });
 
   it("the quiet line only claims a clean day when the language-gap row is also quiet", () => {

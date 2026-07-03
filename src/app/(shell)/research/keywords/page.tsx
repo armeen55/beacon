@@ -3,8 +3,13 @@ export const dynamic = "force-dynamic";
 import { PageHeader } from "@/components/data/page-header";
 import { loadKeywordLibrary, summarizeKeywordLibrary } from "@/domains/research/keyword-library";
 import { KeywordsTableClient } from "./keywords-table-client";
-import { loadWithDeadline } from "@/lib/load-with-deadline";
+import { loadWithDeadline, valueWithDeadline } from "@/lib/load-with-deadline";
 import { HonestDelay } from "@/components/honest-delay";
+// R17a (striking-distance portfolio, v1 267) - the hero's second line: how many
+// searches sit just below the top and what a push is worth, from the SAME
+// loader the Today demand band reads (one number, two surfaces).
+import { loadStrikingPortfolio } from "@/domains/gsc/load-striking-portfolio";
+import { currentTenantId } from "@/lib/tenant-context";
 // R14b (receipts everywhere) - the hero numbers' one-line receipt, from the
 // newest lastChecked stamp the loaded rows ALREADY carry. No new reads.
 import { buildReceiptLine, ReceiptLine } from "@/components/data/receipt-line";
@@ -56,6 +61,18 @@ export default async function KeywordsPage() {
   // tenant right now (winnable gaps, then owned coverage, then total volume).
   const heroLine = summarizeKeywordLibrary(library);
 
+  // R17a (v1 267) - the portfolio second line. Deadline-bounded + fail-soft:
+  // no Search Console data or a slow read just means the line stays silent.
+  const portfolio = await valueWithDeadline(
+    currentTenantId()
+      .then((tid) => loadStrikingPortfolio(tid))
+      .catch(() => null),
+    null,
+  );
+  const portfolioLine = portfolio
+    ? `${portfolio.headline}${portfolio.sizingLine ? ` ${portfolio.sizingLine}` : ""}`
+    : null;
+
   return (
     <div className="max-w-6xl space-y-6">
       <PageHeader
@@ -63,6 +80,9 @@ export default async function KeywordsPage() {
         description="Every keyword I have researched for you, from Google Search Console, market-volume checks, competitor gaps, and live Google readings, in one sortable list."
       />
       {heroLine && <p className="text-base font-semibold text-gray-900 dark:text-neutral-100">{heroLine}</p>}
+      {/* R17a (v1 267) - the striking-distance portfolio: the one number the
+          individual rows below never add up to. Self-hides without GSC data. */}
+      {portfolioLine && <p className="text-sm text-muted-foreground tabular-nums">{portfolioLine}</p>}
       <p className="text-sm text-gray-600 dark:text-neutral-400">{coverageLine}</p>
       {/* R14b (receipts everywhere) - when this library was last checked, from the
           rows' own newest stamp. Self-hides when no row carries one yet. */}

@@ -76,6 +76,11 @@ describe("buildScoreboard", () => {
     expect(/[–—]/.test(s.verdictLine)).toBe(false);
     for (const m of s.markers) expect(/[–—]/.test(m.label)).toBe(false);
   });
+
+  it("R17a (brand split): the weekly trend sentence names its lens (every search)", () => {
+    const s = buildScoreboard(days(28, () => 10), [], NOW)!;
+    expect(s.verdictLine).toContain("clicks from every search");
+  });
 });
 
 describe("buildMoneyLine (item 3, the honest dollar sentence)", () => {

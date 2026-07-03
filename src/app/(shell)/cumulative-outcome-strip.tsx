@@ -160,6 +160,10 @@ export async function CumulativeOutcomeSection({
       checkedAt: latestMeasuredAt(ledger),
       verb: "last measured",
       nowMs: now.getTime(),
+      // R17a (brand split, v1 265) - this strip's counts say which lens they
+      // use: every search, brand name searches included (the scoreboard's
+      // non-brand sub-line is the growth lens).
+      note: "Counts clicks from every search, including ones that mention your name.",
     });
   } catch {
     return null;

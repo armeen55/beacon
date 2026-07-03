@@ -29,6 +29,15 @@
  * PURE, no I/O. The loader edge is load-tenant-ctr-curve.ts.
  */
 
+// R17a (P2 GSC depth pack): the brand-token logic R9 built here is now owned by
+// the ONE canonical brand module (domains/gsc/brand-split.ts) so the CTR-curve
+// fit and the brand/non-brand click split can never disagree on what counts as
+// a brand query. Imported for the fit below and re-exported for existing
+// consumers of this module - byte-identical behavior.
+import { brandTokensFor, isBrandQuery } from "@/domains/gsc/brand-split";
+
+export { brandTokensFor, isBrandQuery };
+
 /** The single industry-default organic CTR by integer position (1-10). These are
  *  EXACTLY the values pick-expectations.ts's CTR_CURVE has always used - the
  *  default path everywhere must stay byte-identical (pinned by tests). */
@@ -123,25 +132,6 @@ function bucketIndexFor(position: number): number {
   if (p <= 15) return 10;
   if (p <= 20) return 11;
   return 12;
-}
-
-/** Brand tokens from the tenant's name ("Ritz Builders" -> ["ritz builders",
- *  "ritz"]) - the same shape answer-intelligence uses. Empty name -> no tokens. */
-export function brandTokensFor(brandName: string | null | undefined): string[] {
-  const full = (brandName ?? "").toLowerCase().trim();
-  if (!full) return [];
-  const tokens = [full];
-  const words = full.split(/\s+/);
-  if (words.length > 1 && words[0]!.length >= 3) tokens.push(words[0]!);
-  return tokens;
-}
-
-/** A brand query clicks like a brand query (position 1, huge CTR) regardless of
- *  how well the page converts its rank - it must not teach the curve. */
-export function isBrandQuery(query: string, tokens: readonly string[]): boolean {
-  if (tokens.length === 0) return false;
-  const q = query.toLowerCase();
-  return tokens.some((t) => q.includes(t));
 }
 
 function median(values: number[]): number {

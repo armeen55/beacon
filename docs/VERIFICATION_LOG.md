@@ -32708,3 +32708,38 @@ last 20 same-family outputs, flags "reads like a repeat", demotes pack quality);
 numeric firewall with formatting tolerance; injection sanitizer on all evidence-fed prompts (13
 adversarial fixtures). Also removed a pre-existing invisible control character in the drafter.
 CLOSEOUT GATE: typecheck clean + FULL suite in a clean shell 1,272 test files ALL GREEN.
+
+## 2026-07-03 R17a (P2 GSC depth pack, slice 1 of 3): brand split + gap classification + striking portfolio + anonymized share
+Four modules under the new src/domains/gsc: (1) brand-split.ts is now the ONE brand classifier
+(R9's brandTokensFor/isBrandQuery moved from tenant-ctr-curve.ts, which re-exports; plus
+brandTokensForConfig adding the domain label). The Today scoreboard gains the non-brand growth
+sub-line ("Non-brand clicks: N (the growth that finds NEW people), up X% vs the week before.
+Counted from searches where Google shows me the words."), windowed on the scoreboard's OWN
+last-7/prior-7 reported days via a clicks-greater-than-zero bounded read that DROPS the lens on a
+truncated read instead of under-counting. The three biggest mixed-total growth claims now name
+their lens: headline ("clicks, last 7 reported days, every search counted"), weekly sentence
+("N clicks from every search"), cumulative-strip receipt ("Counts clicks from every search,
+including ones that mention your name."). (2) ingestion-gaps.ts classifies every missing GSC day
+as final_lag/gap/pre_history from gsc_daily_totals dates (one row per day, egress lean); the
+connections GSC card says "I am missing N days of Google data between X and Y. I will re-pull
+them tonight." and the nightly sync re-pulls up to 10 gap days a night (newest first) through the
+SAME extracted syncOneDay body, writing an explicit zero-totals marker when Google reports
+nothing so a genuinely quiet day stops re-flagging (pulled truth, never interpolation). Source
+pins keep FINAL_LAG_DAYS and the wiring in lockstep. (3) striking-portfolio.ts owns
+isStrikingDistance (moved from gsc-page-queries.ts, re-exported) and aggregates the portfolio
+("N searches rank just below the top results... shown X times in the last 90 days" + "Reaching
+the top 3 is usually worth L to H extra clicks a month" sized via the tenant CTR curve +
+forecastRange's capture band); ONE loader feeds both the keywords hero second line and the Today
+demand band (gated over 10 searches, wired into the band's silence checks + quiet line).
+(4) anonymized-share.ts computes the hidden-query share per page (page totals vs visible
+query-grain sum, both already on gsc_page_signals via the new queryVisibleImpressions90d field)
+and the dossier Top queries band notes "About a third of this page's Google traffic comes from
+searches Google keeps private. The numbers below cover what Google shows me." over 30 percent.
+Verified: npm run typecheck clean; 68 new unit tests across 4 modules (brand fixtures incl.
+multi-word brands, gap boundary classification, portfolio aggregation + CTR sizing, share math);
+targeted suites green: scoreboard/forecast/keywords (117), dossier + deep-backfill +
+scoreboard-section + cumulative strip (104), connections cards + smoke (29), sync-dependent
+suites (160), page-signal consumers + demand-graph (503), war-room surface pins (61, four pin
+strings extended additively), design-system ratchet + dash guards + jargon guards (87, ratchet
+unchanged at 1342). Full suite deliberately not run per slice (CI-minutes rule); typecheck +
+targeted only.

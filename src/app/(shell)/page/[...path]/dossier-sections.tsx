@@ -51,6 +51,12 @@ export async function DossierQueriesSection({ path }: { path: string }) {
   return (
     <div className={CARD}>
       <div className={LABEL}>Top queries</div>
+      {/* R17a (v1 492) - honest accounting when a big slice of this page's
+          Google traffic comes from queries Google keeps private: the table
+          below covers only what Google shows. Self-hides under the threshold. */}
+      {dossier.queries.anonymizedNote ? (
+        <p className="mt-2 text-[13px] text-muted-foreground">{dossier.queries.anonymizedNote}</p>
+      ) : null}
       {queries.length === 0 ? (
         <p className="mt-2 text-[13px] text-muted-foreground">
           I have not matched any Google search queries to this page yet. That usually means it is new or gets very

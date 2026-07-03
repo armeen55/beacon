@@ -171,7 +171,10 @@ export function buildScoreboard(
     measuringRows.length > 0
       ? ` ${measuringRows.length} change${measuringRows.length === 1 ? "" : "s"} measuring${friendlyNext ? `, next reads around ${friendlyNext}` : ""}.`
       : "";
-  const verdictLine = `Last 7 reported days: ${last7Clicks.toLocaleString()} clicks${direction}.${measuringPart}`;
+  // R17a (brand split, v1 265): this sentence counts EVERY search - brand and
+  // not - so it says which lens it uses. The non-brand growth lens renders as
+  // its own sub-line on the scoreboard (see brand-split.ts).
+  const verdictLine = `Last 7 reported days: ${last7Clicks.toLocaleString()} clicks from every search${direction}.${measuringPart}`;
 
   return {
     days,

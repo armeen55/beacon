@@ -45,8 +45,9 @@ describe("Demand band fading row (war-room-sections)", () => {
   });
 
   it("stays silent when research never ran and nothing is spiking, seasonal, language-gapped, OR fading", () => {
+    // R17a (v1 267) additively extended this guard with a striking-portfolio check.
     expect(WAR_ROOM).toContain(
-      "res.keywordsConsidered === 0 && spikeRows.length === 0 && !seasonalRow && !languageGapRow && !fadingRow) return null",
+      "res.keywordsConsidered === 0 && spikeRows.length === 0 && !seasonalRow && !languageGapRow && !fadingRow && !strikingPortfolio) return null",
     );
   });
 
