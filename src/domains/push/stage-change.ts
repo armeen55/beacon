@@ -78,6 +78,8 @@ import { scheduleIndexNowPing } from "@/lib/connectors/indexnow/ping-on-verify";
 import { checkFactualEntailment, type AuthoritativeFact } from "@/domains/drafts/factual-entailment";
 import { readPageBodyTextForEntailment } from "@/domains/drafts/factual-entailment-store";
 import { registerShippedDraftClaims } from "@/domains/provenance/claim-graph-loader";
+import { runCanaries, type CanaryMove, type CanaryVerdict } from "@/domains/safety/canary";
+import { assertPaidCallAllowed } from "@/domains/safety/cost-breaker";
 
 export type { StagingAvailability } from "./stage-route";
 
@@ -479,4 +481,62 @@ async function resolveMove(
   }
 
   return { ok: true, edit, ...(corrections ? { corrections } : {}) };
+}
+
+/**
+ * N50 canary gate for a BATCH about to be armed / staged / pushed (BEACON_500
+ * R22a). Composes the pure canary checks (canary.ts) with the LIVE N43 global
+ * cost breaker and the tenant's own domain, and returns a whole-batch HOLD
+ * verdict when any invariant fails. This is the arm/stage FINAL gate: a batch
+ * caller (the nightly autopilot pass, an armed multi-move accept) runs this
+ * BEFORE shipping and, on `held: true`, publishes NOTHING and surfaces
+ * `holdReason` to the operator.
+ *
+ * By contract this can only be MORE conservative than the per-move rails in
+ * stageChangeForRecord / executePush - it never loosens them. A clean batch
+ * (`held: false`) is byte-identical to today: the caller proceeds to its
+ * existing per-move ship loop untouched.
+ *
+ * `spentProjectionUsd` is the batch's projected spend (0 for a deterministic,
+ * no-LLM batch - the common case). The breaker is read live here; the pure
+ * canary core stays deterministic because it receives the breaker verdict.
+ * Never throws - a breaker read failure fails CLOSED (spend canary trips), the
+ * same fail-closed posture as every paid-path guard.
+ */
+export async function canaryHoldForBatch(args: {
+  moves: readonly CanaryMove[];
+  tenantDomain: string | null;
+  spentProjectionUsd?: number;
+}): Promise<CanaryVerdict> {
+  let spendTripped = false;
+  let spendReason: string | undefined;
+  try {
+    const breaker = await assertPaidCallAllowed({ projectedCostUsd: args.spentProjectionUsd ?? 0 });
+    // A deterministic batch (projection 0) only trips when the ledger is ALREADY
+    // at/over the ceiling; a read failure fails closed (breaker.tripped=true).
+    if (breaker.tripped) {
+      spendTripped = true;
+      spendReason = breaker.reason;
+    }
+  } catch {
+    spendTripped = true;
+    spendReason = "I could not confirm my spending was under its ceiling, so I held the batch.";
+  }
+  const verdict = runCanaries(args.moves, {
+    tenantDomain: args.tenantDomain,
+    spendTripped,
+    spendReason,
+  });
+  return stripHoldDashes(verdict);
+}
+
+/** Dash-strip the operator-facing hold copy at this chokepoint (same discipline
+ *  the staged receipt gets), keeping the machine tags + counts intact. */
+function stripHoldDashes(v: CanaryVerdict): CanaryVerdict {
+  if (!v.held) return v;
+  return {
+    ...v,
+    holdReason: stripBannedDashes(v.holdReason),
+    failures: v.failures.map((f) => ({ ...f, reason: stripBannedDashes(f.reason) })),
+  };
 }

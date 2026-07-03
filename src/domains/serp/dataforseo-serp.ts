@@ -7,6 +7,7 @@ import {
   recordSpendSupabase,
   getTenantSpentThisMonthUsd,
 } from "@/lib/cost/budget-ledger-supabase";
+import { assertPaidCallAllowed } from "@/domains/safety/cost-breaker";
 import type { SerpSnapshot, SerpResult, SerpFeature } from "./serp-provider";
 import { rootDomain } from "./serp-provider";
 
@@ -474,7 +475,16 @@ export type SerpRunDeps = {
   tenantDomain: () => Promise<string | null>;
   /** Item 17: append ONE durable history row (append-only; failures are fail-soft). */
   appendHistory: (row: SerpHistoryRow) => Promise<void>;
+  /** N43 GLOBAL cost breaker (OUTER guard over the per-platform cap). Returns
+   *  tripped=true to hold the paid call. Hermetic no-op under vitest by default
+   *  (never reads the operator's real ledger from a test); the real breaker in
+   *  production. Injected by tests that pin the outer ceiling. */
+  globalBreaker: (env: NodeJS.ProcessEnv, now: Date, projectedCostUsd: number) => Promise<{ tripped: boolean; reason?: string }>;
 };
+
+function underVitest(): boolean {
+  return process.env.VITEST === "true";
+}
 
 const defaultDeps: SerpRunDeps = {
   env: process.env,
@@ -487,6 +497,11 @@ const defaultDeps: SerpRunDeps = {
   fetchImpl: fetch,
   tenantDomain: currentTenantDomain,
   appendHistory: appendSerpHistorySupabase,
+  globalBreaker: async (env, now, projectedCostUsd) => {
+    // Hermetic under vitest: never read the real cross-lane ledger from a test.
+    if (underVitest()) return { tripped: false };
+    return assertPaidCallAllowed({ projectedCostUsd }, { env, now: () => now });
+  },
 };
 
 /**
@@ -541,6 +556,20 @@ export async function runSerpQuery(
   if (isDryRun(deps.env)) {
     log.info("[dataforseo-serp] DRY-RUN (no spend)", { query: q, estCostUsd: plan.estCostUsd, endpoint: plan.endpoint });
     return { status: "dry_run", plan, snapshot: null, costUsd: 0, detail: `dry-run — would spend ~$${plan.estCostUsd}` };
+  }
+
+  // (3.5) GLOBAL cost breaker (N43) - the OUTER guard OVER the per-platform cap
+  // below. Reached ONLY on the paid path (cache hits + dry-runs already returned
+  // above), so it can never block free work. Belt-and-suspenders: it never
+  // loosens the per-platform monthly cap in (4); it only ever adds a refusal
+  // when the combined cross-lane spend has crossed the global ceiling.
+  const breaker = await deps.globalBreaker(deps.env, now, plan.estCostUsd).catch(() => ({
+    tripped: true,
+    reason: "global spend breaker unavailable, failing closed",
+  }));
+  if (breaker.tripped) {
+    log.warn("[dataforseo-serp] global cost breaker tripped — no call", { detail: breaker.reason });
+    return { status: "capped", plan, snapshot: null, costUsd: 0, detail: breaker.reason ?? "global monthly ceiling reached" };
   }
 
   // (4) hard monthly cap — FAIL-CLOSED (over cap or unknown spend = no call).

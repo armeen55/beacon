@@ -317,6 +317,20 @@ export const GLOBAL_STORES = new Set<string>([
   // request context (same cron fan-out rationale as site-uptime-probes).
   // Supabase-mirrored in json-store.ts so the cursor survives Vercel lambdas.
   "crawl-frontier",
+  // Idempotent publish outbox (2026-07-03, BEACON_500 R22a / N41). Rows carry
+  // tenant_id; written on the push path (a lambda, no ambient request context
+  // guarantee for a cron-retry write), so it belongs in the GLOBAL + mirrored
+  // set alongside site-uptime-probes rather than the file-routed TENANT_SCOPED
+  // set. Supabase-mirrored in json-store.ts so the terminal per-key row
+  // survives Vercel lambdas and a retry can never double-publish.
+  "publish-outbox",
+  // Backup-verification receipts (2026-07-03, BEACON_500 R22a / T0d). Fleet-level
+  // rows (no tenant) written by the nightly cron's final backup-verify phase (a
+  // Vercel lambda, no disk); read by diagnostics. Mirrored so the receipt trail
+  // ("Backup check: 14 of 14 stores mirrored") survives lambda recycling. Note:
+  // this is the module's OWN receipt row, a DIFFERENT scope_key from the mirrored
+  // stores it verifies - the verify pass only READS those, never writes them.
+  "backup-verify-receipts",
   // Nightly precompute warm pass (2026-07-02, master plan item 13). Same cron
   // fan-out rationale: rows carry tenant_id. Per-day run marker (double-fire
   // idempotency) + the "last warmed" receipts /diagnostics shows.

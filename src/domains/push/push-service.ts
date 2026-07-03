@@ -75,6 +75,12 @@ import {
 import { formatDevNote } from "./dev-note";
 import { appendPushSnapshot, isSnapshotRevertEdit } from "./push-snapshots";
 import {
+  changeHashFor,
+  outboxKeyFor,
+  checkOutbox,
+  recordOutbox,
+} from "./publish-outbox";
+import {
   bodyMergeModeForAction,
   mergeBodyContent,
   type BodyMergeMode,
@@ -276,6 +282,49 @@ export async function executePush(
     );
     if (derived != null) elementKey = derived;
   }
+
+  // ── Invariant 4 (N41): idempotent publish outbox ────────────────────
+  // BEFORE any Wix write, after the Ritz hard-block + cap reservation + element
+  // key resolution: if this EXACT change (tenant + url + action/field/text hash +
+  // today) already PUSHED, return the prior receipt instead of writing again — a
+  // retry, a double-click, or a cron re-run can never double-publish. First-seen
+  // is byte-identical to today (proceeds). A dry-run has NO outbox side effect
+  // (audit #35 contract), so the key is computed but neither consulted nor
+  // recorded for a dry-run. Fail-soft: a read error yields seen:false, so a
+  // glitch never blocks a legitimate push.
+  const changeHash = changeHashFor({
+    actionType: edit.action_type,
+    elementKey,
+    proposedText: edit.proposed_text,
+  });
+  const outbox = outboxKeyFor({ tenantId, targetUrl: edit.target_url, changeHash, now });
+  if (!dryRun) {
+    const prior = await checkOutbox(outbox.key);
+    if (prior.seen) {
+      // The reservation we claimed for this no-op push is released as
+      // push_failed (it did not count as a NEW push), but the operator sees an
+      // honest "pushed" outcome because the change really is live from the first
+      // push. Same posture as the body-section idempotent re-push no-op.
+      await recordLedger(tenantId, edit, "push_failed", "outbox_idempotent_replay", now, reservationId);
+      return {
+        kind: "pushed",
+        adapter: "wix_cms",
+        detail:
+          `I already published this exact change to ${edit.target_url} today, so I did not send it again. ${prior.receipt}`.trim(),
+      };
+    }
+  }
+
+  // Build the outbox finalize descriptor once; passed to recordLedger on a
+  // terminal `pushed` so the exact-same change is short-circuited next time.
+  const outboxFinalize = (receipt: string): OutboxFinalize => ({
+    key: outbox.key,
+    targetUrl: edit.target_url,
+    changeHash,
+    shipDate: outbox.shipDate,
+    receipt,
+  });
+
   if (elementKey.startsWith("create:")) {
     const collectionId = elementKey.slice("create:".length);
     if (collectionId === "") {
@@ -313,12 +362,11 @@ export async function executePush(
       await recordLedger(tenantId, edit, "push_failed", `create: ${insert.reason}`, now, reservationId);
       return { kind: "refused", reason: `wix create failed: ${insert.reason}${insert.detail ? ` (${insert.detail})` : ""}` };
     }
-    await recordLedger(tenantId, edit, "pushed", `created item ${insert.value.id} in ${collectionId}`, now, reservationId);
-    return {
-      kind: "pushed",
-      adapter: "wix_cms",
-      detail: `created new item ${insert.value.id} in ${collectionId} (${edit.target_url})`,
-    };
+    {
+      const detail = `created new item ${insert.value.id} in ${collectionId} (${edit.target_url})`;
+      await recordLedger(tenantId, edit, "pushed", `created item ${insert.value.id} in ${collectionId}`, now, reservationId, outboxFinalize(detail));
+      return { kind: "pushed", adapter: "wix_cms", detail };
+    }
   }
 
   // ── wix_cms SEO route (Wix SEO push slice, 2026-06-12) ──────────────
@@ -475,19 +523,19 @@ export async function executePush(
         reason: `wix seoData write failed: ${write.reason}${write.detail ? ` (${write.detail})` : ""}`,
       };
     }
-    await recordLedger(
-      tenantId,
-      edit,
-      "pushed",
-      `seoData: ${blocks.length} JSON-LD block(s) on product ${match.id}`,
-      now,
-      reservationId,
-    );
-    return {
-      kind: "pushed",
-      adapter: "wix_cms",
-      detail: `applied ${blocks.length} JSON-LD block(s) to product seoData (${edit.target_url})`,
-    };
+    {
+      const detail = `applied ${blocks.length} JSON-LD block(s) to product seoData (${edit.target_url})`;
+      await recordLedger(
+        tenantId,
+        edit,
+        "pushed",
+        `seoData: ${blocks.length} JSON-LD block(s) on product ${match.id}`,
+        now,
+        reservationId,
+        outboxFinalize(detail),
+      );
+      return { kind: "pushed", adapter: "wix_cms", detail };
+    }
   }
 
   // ── wix_cms BODY-SECTION route (BEACON_500 item 2, 2026-07-01) ──────
@@ -523,6 +571,7 @@ export async function executePush(
         resolvedBody,
         mode: bodyMode,
         sectionHeading: sectionHeadingFromKey,
+        outboxFinalize,
       });
     }
     if (sectionHeadingFromKey != null) {
@@ -699,12 +748,11 @@ export async function executePush(
     return { kind: "refused", reason: `wix write failed: ${write.reason}${write.detail ? ` (${write.detail})` : ""}` };
   }
 
-  await recordLedger(tenantId, edit, "pushed", `field ${field} on item ${mapEntry.dataItemId}`, now, reservationId);
-  return {
-    kind: "pushed",
-    adapter: "wix_cms",
-    detail: `updated "${field}" on ${mapEntry.dataCollectionId}/${mapEntry.dataItemId} (${edit.target_url})`,
-  };
+  {
+    const detail = `updated "${field}" on ${mapEntry.dataCollectionId}/${mapEntry.dataItemId} (${edit.target_url})`;
+    await recordLedger(tenantId, edit, "pushed", `field ${field} on item ${mapEntry.dataItemId}`, now, reservationId, outboxFinalize(detail));
+    return { kind: "pushed", adapter: "wix_cms", detail };
+  }
 }
 
 /**
@@ -725,6 +773,8 @@ async function executeBodySectionPush(args: {
   mode: BodyMergeMode;
   /** Heading from a "section:<heading>" element key (replace mode only). */
   sectionHeading: string | null;
+  /** N41: build the outbox finalize descriptor for a terminal `pushed`. */
+  outboxFinalize: (receipt: string) => OutboxFinalize;
 }): Promise<PushResult> {
   const { tenantId, edit, dryRun, now, reservationId, deps } = args;
   const { entry, bodyField } = args.resolvedBody;
@@ -882,6 +932,12 @@ async function executeBodySectionPush(args: {
     verified = false;
   }
 
+  const detail =
+    `I ${merge.summary} in the "${bodyField.key}" field on ${edit.target_url}. ` +
+    `I saved the previous version first, so you can restore it in one click. ` +
+    (verified
+      ? "I re-read the page content and the new section is in place."
+      : "I could not confirm the change on a re-read yet, so give it a minute and check the page.");
   await recordLedger(
     tenantId,
     edit,
@@ -889,18 +945,22 @@ async function executeBodySectionPush(args: {
     `body_${args.mode} on ${bodyField.key} (item ${entry.dataItemId})${verified ? " verified" : " unverified"}`,
     now,
     reservationId,
+    args.outboxFinalize(detail),
   );
-  return {
-    kind: "pushed",
-    adapter: "wix_cms",
-    detail:
-      `I ${merge.summary} in the "${bodyField.key}" field on ${edit.target_url}. ` +
-      `I saved the previous version first, so you can restore it in one click. ` +
-      (verified
-        ? "I re-read the page content and the new section is in place."
-        : "I could not confirm the change on a re-read yet, so give it a minute and check the page."),
-  };
+  return { kind: "pushed", adapter: "wix_cms", detail };
 }
+
+/** N41: the outbox descriptor threaded to recordLedger so every terminal
+ *  outcome records its idempotency row. Absent (undefined) for callers that do
+ *  not participate (the idempotent-replay path passes it as undefined to avoid
+ *  re-recording a row that already exists). */
+type OutboxFinalize = {
+  key: string;
+  targetUrl: string;
+  changeHash: string;
+  shipDate: string;
+  receipt: string;
+};
 
 async function recordLedger(
   tenantId: string,
@@ -909,7 +969,24 @@ async function recordLedger(
   detail: string,
   now: Date,
   reservationId: string | null,
+  outbox?: OutboxFinalize,
 ): Promise<void> {
+  // N41: record the idempotency row for this terminal outcome (fail-soft; never
+  // throws, never blocks the ledger below). A `pushed` row short-circuits a
+  // later duplicate; a `push_failed` row is recorded for the trail but does not
+  // block a retry (checkOutbox only short-circuits on `pushed`).
+  if (outbox) {
+    await recordOutbox({
+      tenantId,
+      key: outbox.key,
+      targetUrl: outbox.targetUrl,
+      changeHash: outbox.changeHash,
+      shipDate: outbox.shipDate,
+      state: result,
+      receipt: outbox.receipt,
+      now,
+    });
+  }
   try {
     if (reservationId != null) {
       // Reserve-before-write path (#5): finalize the slot we already claimed,

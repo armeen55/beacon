@@ -353,11 +353,39 @@ describe("push happy path + failure ledger", () => {
     expect(_insertCalls).toHaveLength(1);
     expect((_insertCalls[0]!.data as Record<string, unknown>).slug).toBe("ghormeh-sabzi");
 
-    // mapped URL → creation never overwrites
+    // mapped URL → creation never overwrites. Use a DIFFERENT card (different
+    // slug/text = a different change hash = a different outbox key) so this
+    // exercises the overwrite guard, not the N41 idempotent-replay short-circuit
+    // that an identical retry would (correctly) hit first.
     _urlMapEntry = { url: "https://www.iranopedia.com/persian-food/ghormeh-sabzi", dataCollectionId: "Foods", dataItemId: "i1", slugField: "slug", label: null, syncedAt: "x" };
-    const r2 = await executePush({ tenantId: "tenant-iranopedia", edit: createCard });
+    const overwriteCard = edit({
+      target_element_key: "create:Foods",
+      target_url: "https://www.iranopedia.com/persian-food/ghormeh-sabzi",
+      current_text: null,
+      proposed_text: JSON.stringify({ slug: "ghormeh-sabzi", title: "Ghormeh Sabzi v2", description: "Updated herb stew." }),
+    });
+    const r2 = await executePush({ tenantId: "tenant-iranopedia", edit: overwriteCard });
     expect(r2.kind).toBe("refused");
     if (r2.kind === "refused") expect(r2.reason).toMatch(/never overwrites/);
+  });
+
+  it("N41 outbox: an IDENTICAL retry of a landed push is an idempotent replay, never a second write", async () => {
+    _urlMapEntry = null;
+    const createCard = edit({
+      target_element_key: "create:Foods",
+      target_url: "https://www.iranopedia.com/persian-food/fesenjan",
+      current_text: null,
+      proposed_text: JSON.stringify({ slug: "fesenjan", title: "Fesenjan", description: "Walnut stew." }),
+    });
+    const r = await executePush({ tenantId: "tenant-iranopedia", edit: createCard });
+    expect(r.kind).toBe("pushed");
+    expect(_insertCalls).toHaveLength(1);
+    // Same tenant + url + change hash + day = same outbox key -> short-circuit.
+    const r2 = await executePush({ tenantId: "tenant-iranopedia", edit: createCard });
+    expect(r2.kind).toBe("pushed");
+    if (r2.kind === "pushed") expect(r2.detail).toMatch(/already published this exact change/);
+    // No SECOND live insert happened.
+    expect(_insertCalls).toHaveLength(1);
   });
 
   it("formatDevNote carries the exact paste-ready copy", () => {

@@ -51,6 +51,7 @@ import { runInvestigationForTenant } from "@/domains/investigation/run-investiga
 import { recordCronRun, type CronRunSourceResult as LedgerSourceResult } from "@/domains/ops/cron-runs-store";
 import { checkTokenExpiryForTenants } from "@/domains/ops/token-expiry-notify";
 import { homepageUrlForDomain, probeHomepage, recordSiteProbe } from "@/domains/ops/site-uptime-store";
+import { runBackupVerification } from "@/domains/ops/backup-verify";
 import { recordAppError, errorFieldsFrom } from "@/lib/obs/error-ledger";
 
 /** N39 error spine: record one phase failure to the durable app-errors ledger
@@ -1122,6 +1123,31 @@ export async function syncAllConnectedForActiveTenants(): Promise<CronSyncResult
       error: e instanceof Error ? e.message.slice(0, 200) : String(e),
     });
     await reportPhaseError("token-expiry", null, e);
+  }
+
+  // PHASE 6 - backup verification (BEACON_500 R22a / T0d, 2026-07-03). The FINAL
+  // phase: after every store this night could have written, verify the
+  // json-store -> Supabase mirror actually persisted them. READ-ONLY against the
+  // mirror (its only write is its own one-line receipt row), fleet-level, $0
+  // (one bounded read + one small write). This is the watchdog on the mirror
+  // that all the durable stores above depend on - a silent mirror failure would
+  // quietly revert them all to file-only (empty forever on Vercel). Isolated
+  // fail-soft by contract: runBackupVerification never throws, so it can never
+  // affect the sync result computed below.
+  try {
+    const backup = await runBackupVerification();
+    log.info("[cron-sync] backup verification", {
+      mirrored: backup.mirrored,
+      expected: backup.expected,
+      missing: backup.missing.length,
+      stale: backup.stale.length,
+      unreadable: backup.unreadable,
+    });
+  } catch (e) {
+    log.warn("[cron-sync] backup verification threw (fail-soft)", {
+      error: e instanceof Error ? e.message.slice(0, 200) : String(e),
+    });
+    await reportPhaseError("backup-verify", null, e);
   }
 
   const ok = results.filter((r) => r.ok).length;

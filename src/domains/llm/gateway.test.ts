@@ -177,6 +177,69 @@ describe("gateway - monthly cap (fail-closed)", () => {
   });
 });
 
+describe("gateway - N43 global cost breaker (outer guard)", () => {
+  it("a tripped breaker blocks the call BEFORE any per-platform budget check or egress", async () => {
+    const budgetCheck = vi.fn(async () => ({ allowed: true }));
+    const fetchImpl = vi.fn() as unknown as typeof fetch;
+    const outcome = await openAIChatCompletion({
+      ...BASE,
+      body: { model: "gpt-5-mini", messages: [] },
+      budget: { mode: "gateway_check", projectedCostUsd: 0.02 },
+      budgetImpl: { check: budgetCheck as unknown as BudgetImpl["check"], record: async () => {} },
+      costBreakerImpl: { check: async () => ({ tripped: true, reason: "global ceiling reached" }) },
+      fetchImpl,
+    });
+    expect(outcome).toEqual({ kind: "blocked_budget", reason: "global ceiling reached" });
+    expect(fetchImpl).not.toHaveBeenCalled();
+    // The outer guard runs first, so the per-platform budget is never even consulted.
+    expect(budgetCheck).not.toHaveBeenCalled();
+  });
+
+  it("an untripped breaker lets the per-platform budget check + call proceed", async () => {
+    const fetchImpl = vi.fn(async () => okResponse()) as unknown as typeof fetch;
+    const outcome = await openAIChatCompletion({
+      ...BASE,
+      body: { model: "gpt-5-mini", messages: [] },
+      budget: { mode: "gateway_check", projectedCostUsd: 0.02 },
+      budgetImpl: allowAll,
+      costBreakerImpl: { check: async () => ({ tripped: false }) },
+      fetchImpl,
+    });
+    expect(outcome.kind).toBe("response");
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it("the breaker applies to CALLER mode too (belt-and-suspenders over the per-platform caps)", async () => {
+    const fetchImpl = vi.fn() as unknown as typeof fetch;
+    const outcome = await openAIChatCompletion({
+      ...BASE,
+      body: { model: "gpt-5-mini", messages: [] },
+      budget: { mode: "caller", note: "caller gates its own per-platform spend" },
+      costBreakerImpl: { check: async () => ({ tripped: true, reason: "global ceiling reached" }) },
+      fetchImpl,
+    });
+    expect(outcome.kind).toBe("blocked_budget");
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("a breaker that THROWS fails closed (no call)", async () => {
+    const fetchImpl = vi.fn() as unknown as typeof fetch;
+    const outcome = await openAIChatCompletion({
+      ...BASE,
+      body: { model: "gpt-5-mini", messages: [] },
+      budget: { mode: "gateway_check", projectedCostUsd: 0.02 },
+      costBreakerImpl: {
+        check: async () => {
+          throw new Error("breaker read down");
+        },
+      },
+      fetchImpl,
+    });
+    expect(outcome.kind).toBe("blocked_budget");
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+});
+
 describe("gateway - cost estimation (moved from providers/openai)", () => {
   it("prices gpt-5-mini usage and falls back to gpt-5-mini rates for unknown models", () => {
     expect(estimateCost("gpt-5-mini", 1_000_000, 0)).toBe(0.25);

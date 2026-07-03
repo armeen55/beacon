@@ -46,6 +46,7 @@ import "server-only";
 import { log } from "@/lib/logger";
 import { recordAppError } from "@/lib/obs/error-ledger";
 import { checkBudget, recordSpend } from "@/domains/recommendations/adjudicator-budget";
+import { assertPaidCallAllowed } from "@/domains/safety/cost-breaker";
 import type { PromptId } from "./prompt-registry";
 
 export const OPENAI_CHAT_API = "https://api.openai.com/v1/chat/completions";
@@ -99,6 +100,16 @@ export type BudgetImpl = {
   record: (costUsd: number, now?: Date) => Promise<void>;
 };
 
+/**
+ * N43 outer guard seam: the GLOBAL cost breaker consulted BEFORE the
+ * per-platform budget check. Returns tripped=true to block the call. Tests
+ * inject this; production defaults to the real cross-lane breaker (hermetically
+ * no-op under vitest unless injected, same posture as the budget check).
+ */
+export type CostBreakerImpl = {
+  check: (projectedCostUsd: number) => Promise<{ tripped: boolean; reason?: string }>;
+};
+
 export type OpenAIChatArgs = {
   /** Registered prompt identity (prompt-registry.ts) - versioned + fixture-pinned. */
   promptId: PromptId;
@@ -115,6 +126,8 @@ export type OpenAIChatArgs = {
   tenantId?: string | null;
   /** Test seam for the cap; see VITEST hermetics in the module doc. */
   budgetImpl?: BudgetImpl;
+  /** Test seam for the N43 global cost breaker; hermetic under vitest otherwise. */
+  costBreakerImpl?: CostBreakerImpl;
 };
 
 export type OpenAIChatOutcome =
@@ -130,6 +143,34 @@ function underVitest(): boolean {
  *  lesson - sub-90s ceilings made every call silently fall back). Pure. */
 export function effectiveTimeoutMs(model: string, requestedMs: number): number {
   return isReasoningModel(model) ? Math.max(requestedMs, REASONING_TIMEOUT_FLOOR_MS) : requestedMs;
+}
+
+/**
+ * N43 GLOBAL cost breaker (OUTER guard). Consulted BEFORE the per-platform
+ * budget check on every chat call regardless of posture, because real money is
+ * spent in both cases and this is belt-and-suspenders over the inner caps. It
+ * never LOOSENS the per-platform cap; a trip here refuses the call outright.
+ * Hermetic under vitest (never reads the operator's real ledger) unless a
+ * costBreakerImpl is injected, same posture as checkGatewayBudget.
+ */
+async function checkGatewayCostBreaker(
+  posture: LlmBudgetPosture,
+  impl: CostBreakerImpl | undefined,
+): Promise<{ allowed: true } | { allowed: false; reason: string }> {
+  const projected = posture.mode === "gateway_check" ? posture.projectedCostUsd : 0;
+  if (impl) {
+    const r = await impl
+      .check(projected)
+      .catch(() => ({ tripped: true as const, reason: "global spend breaker unavailable, failing closed" }));
+    return r.tripped ? { allowed: false, reason: r.reason ?? "global monthly ceiling reached" } : { allowed: true };
+  }
+  if (underVitest()) return { allowed: true };
+  try {
+    const v = await assertPaidCallAllowed({ projectedCostUsd: projected });
+    return v.tripped ? { allowed: false, reason: v.reason } : { allowed: true };
+  } catch {
+    return { allowed: false, reason: "global spend breaker unavailable, failing closed" };
+  }
 }
 
 async function checkGatewayBudget(
@@ -201,6 +242,14 @@ async function reportGatewayFailure(
 export async function openAIChatCompletion(args: OpenAIChatArgs): Promise<OpenAIChatOutcome> {
   const model = typeof args.body.model === "string" ? args.body.model : "";
   const reasoning = isReasoningModel(model);
+
+  // N43 OUTER guard first: the global cross-lane ceiling refuses before the
+  // per-platform cap is even read (belt-and-suspenders, never a loosening).
+  const breaker = await checkGatewayCostBreaker(args.budget, args.costBreakerImpl);
+  if (!breaker.allowed) {
+    await reportGatewayFailure(args, "blocked_budget", breaker.reason);
+    return { kind: "blocked_budget", reason: breaker.reason };
+  }
 
   const budget = await checkGatewayBudget(args.budget, args.budgetImpl);
   if (!budget.allowed) {

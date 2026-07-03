@@ -353,12 +353,15 @@ describe("body-section push - idempotent re-push (no duplicate on re-click)", ()
     expect(snapsAfterFirst).toHaveLength(1);
 
     // Re-push the identical card (e.g. a double click, or the operator
-    // approves it again from a stale queue view).
+    // approves it again from a stale queue view). N41: a SAME-DAY identical
+    // re-push is caught by the idempotent publish outbox FIRST (an earlier,
+    // cheaper guard than the body-merge already-applied check), so the second
+    // push returns the outbox replay receipt. The deeper merge-level
+    // already-applied no-op remains the backstop for cross-day duplicates.
     const second = await executePush({ tenantId: "tenant-iranopedia", edit: original });
     expect(second.kind).toBe("pushed");
     if (second.kind === "pushed") {
-      expect(second.detail).toContain("already there");
-      expect(second.detail).toContain("no change");
+      expect(second.detail).toContain("already published this exact change");
       expect(hasBannedDash(second.detail)).toBe(false);
     }
 
@@ -371,12 +374,12 @@ describe("body-section push - idempotent re-push (no duplicate on re-click)", ()
     const occurrences = String(_itemData.content).split(ANSWER_DRAFT).length - 1;
     expect(occurrences).toBe(1);
 
-    // The no-op does not count as a "pushed" ledger row (does not eat a
+    // The replay does not count as a "pushed" ledger row (does not eat a
     // daily-cap slot for a push that changed nothing).
     const ledger = (_stores.get("push-ledger") ?? []) as Array<{ result: string; detail: string | null }>;
-    const noopRow = ledger.find((e) => (e.detail ?? "").includes("body_noop_already_applied"));
-    expect(noopRow).toBeDefined();
-    expect(noopRow!.result).toBe("push_failed");
+    const replayRow = ledger.find((e) => (e.detail ?? "").includes("outbox_idempotent_replay"));
+    expect(replayRow).toBeDefined();
+    expect(replayRow!.result).toBe("push_failed");
   });
 
   it("a dry-run re-push of an already-applied section reports the no-op with zero side effects", async () => {

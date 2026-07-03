@@ -60,7 +60,7 @@ import { resolveDataPath } from "./resolve-data-path";
  * Fail-soft everywhere: any Supabase error degrades to exactly the old file behavior.
  * Migration: migrations/2026-07-01_json_store_blobs.sql (additive).
  */
-const SUPABASE_MIRRORED_STORES = new Set<string>([
+export const SUPABASE_MIRRORED_STORES = new Set<string>([
   "dataforseo-keywords-cache",
   "dataforseo-serp-cache",
   "research-serp-patterns",
@@ -300,6 +300,20 @@ const SUPABASE_MIRRORED_STORES = new Set<string>([
   // cache only, 3h TTL; the mirror makes the TTL hold across lambda
   // instances so a busy Today page fires at most one fresh read per window.
   "gsc-fresh-tail",
+  // 2026-07-03 BEACON_500 R22a / N41 - idempotent publish outbox. Rows carry
+  // tenant_id; written on the push path (a Vercel lambda, no disk). Without the
+  // mirror the terminal per-key row would vanish on the next lambda recycle and a
+  // cron retry or a delayed re-click could double-publish the SAME change to the
+  // live site, which is the exact hole this outbox exists to close.
+  "publish-outbox",
+  // 2026-07-03 BEACON_500 R22a / T0d - backup-verification receipts. Fleet-level
+  // rows written by the nightly cron's final backup-verify phase (a Vercel
+  // lambda, no disk); without the mirror the receipt trail would vanish on the
+  // next lambda recycle, so the operator could never see "my backups are healthy"
+  // on hosted prod, which defeats the point of a verification receipt. This is
+  // the verify module's OWN receipt (a distinct scope_key), never one of the
+  // stores it verifies.
+  "backup-verify-receipts",
 ]);
 
 const BLOBS_TABLE = "json_store_blobs";
