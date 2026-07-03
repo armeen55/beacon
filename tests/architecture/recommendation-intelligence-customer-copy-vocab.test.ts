@@ -192,6 +192,13 @@ const PROBE_SETS: Record<string, ReadonlyArray<Probe>> = {
     ["the steps", "never start the steps", 250000],
     ["the date", "never name the date", 100],
   ],
+  // N29 (2026-07-03) - featured-snippet capture: query, owner domain, plain
+  // format phrase, own rank, format-matched instruction.
+  snippetCaptureCopy: [
+    ["iran flag history", "britannica.com", "a numbered list", 4, "Match the list format with a tight numbered list high on the page"],
+    ["persian new year date", "smallblog.com", "a short paragraph answer", 2, "Lead with a two sentence direct answer high on the page"],
+    ["farsi numbers chart", "example.org", "a table", 10, "Match the table format with a compact table high on the page"],
+  ],
 };
 
 function scanForViolations(output: string): string[] {

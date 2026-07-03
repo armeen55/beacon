@@ -60,10 +60,22 @@ QUEUE (strict order; [G] = operator-gated, surface it and continue):
       at 5. 52 new tests; graph snapshot schema bumped to v2.
 - [x] R9 (2026-07-03). P3 tenant CTR curve (ONE implementation: fit from own GSC, retrain title scorer, pin the
       survivor) - feeds every forecast and title move. Effort M.
-- [ ] R10. P4 measurement rigor pack (fixed query panel, day-of-week baselines, adaptive windows,
+- [~] R10 (10a SHIPPED 2026-07-03: query panel, weekday baselines, early-decisive/futile, novelty decay, all computed-only feeding N10; 10b remaining: alpha-spending, equivalence, FDR, clean-window salvage, distinct-query growth). P4 measurement rigor pack (fixed query panel, day-of-week baselines, adaptive windows,
       equivalence testing, FDR) - all feed N10's grade. Effort L, split into 2 slices.
-- [ ] R11. N30 demand-ranked question universe + N20 SERP-consensus study + N29 snippet-capture
-      extension (all extend shipped engines). Effort M.
+- [x] R11 (2026-07-03, worktree). N30 demand-ranked question universe + N20 SERP-consensus study + N29
+      snippet-capture extension (all extend shipped engines). Effort M. N30:
+      src/domains/research/question-universe.ts (pure merge of GSC question-shaped queries + AI fanouts +
+      tracked_prompts library + captured PAA into one ranked universe: demand x not-covered, N2 registry
+      ownership, coverage checked against the owner page's stored extracts) + loader persisting the
+      "question-universe" store (GLOBAL, Supabase-mirrored), rebuilt as an isolated fail-soft cron phase 2a-q;
+      consumers: drafter seeding in precompute-drafts (byte-identical when empty, pinned), the self-hiding
+      /prompts "Questions people ask that no one answers well" section, and top-3 universe questions on New
+      Pages cards + their opening drafter. N20: consensusOf() in teardown-commonality.ts (3-of-5 rule,
+      single-winner outliers named and never copied into briefs; brief majority floors hardened to 2 winners
+      minimum) carried through CommonalityBrief.consensusSpec into both GapVerdict brief shapes. N29:
+      src/domains/serp/snippet-capture.ts (rank 2-10 + competitor-owned answer box -> format-matched
+      add_answer_block candidates through the existing trigger pipeline, capped 5, deduped against
+      steal-lane cards by query, strong owners honestly low-confidence long shots).
 - [ ] R12. T0e new-site golden path hardened (URL-first signup, wizard GSC connect + backfill,
       cold-start crawl past the 18-page cap, day-0 baselines, guided first win; absorbs tasks
       74/182). Effort L.
@@ -229,7 +241,7 @@ migration. WAVE 3: FP4, FP8, FP10, voice rider. N-track and packs resume after F
 - [ ] N17. **User-task completion measurement**: did visitors find the answer they searched for? (NEW; rides N4)
 - [x] N18. **Search-snippet promise audit**: does the page immediately fulfill what the title and description promised? (NEW) - SHIPPED 2026-07-03 (R8, worktree): `snippet-promise.ts` compares 4 checkable title/meta promises (cost, count/list, how-to, date) against the first 200 stored body words; `snippet_promise_gap` -> `update_intro` deterministic trigger, capped at 5, highest impressions first; pages with no stored body text honestly abstain (bounded scoped body read added for the egress-lean projections).
 - [x] N19. **Store useful page content** so Beacon reasons about the actual body (v1 98 main-content excerpt; unblocks answer-alignment competitor side + passage coverage on synced snapshots) - DONE 2026-07-02, worktree not committed
-- [ ] N20. **Study top 3 SERP winners consensus, not one outlier** (v1 99)
+- [x] N20 (2026-07-03, R11). **Study top 3 SERP winners consensus, not one outlier** (v1 99) - consensusOf() in teardown-commonality.ts: 3-of-5 rule, single-winner outliers named and pinned never to reach a brief; carried on CommonalityBrief.consensusSpec into both GapVerdict brief shapes.
 - [ ] N21. **Real JavaScript-rendered technical crawl** (v1 110 On-Page API; capped, gauntleted)
 - [ ] N22. **Verify important content in source AND rendered HTML** (v1 111 dual-fetch)
 - [ ] N23. **Internal PageRank + click-depth intelligence** (v1 97+121 merged into one internal-authority engine; anchors from real queries v1 495)
@@ -238,8 +250,8 @@ migration. WAVE 3: FP4, FP8, FP10, voice rider. N-track and packs resume after F
 - [ ] N26. **Fact propagation engine**: correct one fact once, update every page and schema reference. (NEW; rides N3+N25)
 - [ ] N27. **Content-volatility classes** with different freshness deadlines for dates, populations, biographies, evergreen history. (NEW)
 - [x] N28. **Scaled-content spam governor** before any factory expands (v1 101; law 3) - SHIPPED 2026-07-03 (R8, worktree): `factory-governor.ts` (max 5 new pages/week counting shipped ledger + batch history, N5 adds-something requirement, one-topic-one-page token subset rule, monthly growth under 10 percent of indexed pages) enforced in BOTH cluster-factory runs and the weekly page-factory cron; refused pages persist their plain reason on the batch card. Factories UNFROZEN as of this ship: N5 + N28 are live in the pipeline (N3 provenance still pending in R13 and governs the fact-sourcing side, not the factory gates).
-- [ ] N29. **Featured-snippet capture + format-matched steal moves** (v1 109; EXTENDS the shipped feature-steal columns and spike hints, not a new engine)
-- [ ] N30. **Demand-ranked question universe** from GSC, PAA, AI fanouts, SERPs (v1 127+370 merged; feeds drafting and coverage)
+- [x] N29 (2026-07-03, R11). **Featured-snippet capture + format-matched steal moves** (v1 109; EXTENDS the shipped feature-steal columns and spike hints, not a new engine) - snippet-capture.ts: rank 2-10 + competitor-owned answer box emits a format-matched add_answer_block candidate through the existing trigger pipeline, capped 5, deduped against steal-lane cards by query.
+- [x] N30 (2026-07-03, R11). **Demand-ranked question universe** from GSC, PAA, AI fanouts, SERPs (v1 127+370 merged; feeds drafting and coverage) - research/question-universe.ts + nightly-persisted store; seeds the FAQ/answer-block drafters, the /prompts unanswered-questions section, and New Pages brief questions.
 - [ ] N31. **Solar-calendar year-rollover engine** (v1 104; tenant-configured calendar awareness, english-first output)
 - [ ] N32. **External-event ledger**: Google updates, outages, PR, social spikes, major site changes recorded automatically (NEW; absorbs v1 170 annotations; generalizes the shipped algorithm-weather)
 - [ ] N33. **Blind Beacon-vs-human-expert benchmark** (NEW; scored recommendation face-off on real pages)

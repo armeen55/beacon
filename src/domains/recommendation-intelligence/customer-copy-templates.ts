@@ -435,3 +435,32 @@ export function snippetPromiseCopy(
     ". Move the promised answer into the opening so the page keeps the promise its listing makes."
   );
 }
+
+/**
+ * Featured-snippet capture (BEACON_500 R11 / N29, 2026-07-03). Args: the
+ * query, the answer-box owner's domain, the plain format phrase ("a numbered
+ * list"), our rank, and the format-matched instruction ("Match the list
+ * format with a tight numbered list high on the page"). Always "answer box",
+ * never a lab word. NO em or en dashes (hard rule).
+ */
+export function snippetCaptureCopy(
+  query: string,
+  ownerDomain: string,
+  formatPhrase: string,
+  ownRank: number,
+  matchInstruction: string,
+): string {
+  return (
+    'Google answers "' +
+    query +
+    '" with ' +
+    formatPhrase +
+    " from " +
+    ownerDomain +
+    " in the answer box above your #" +
+    ownRank +
+    " spot. " +
+    matchInstruction +
+    " to compete for that box."
+  );
+}

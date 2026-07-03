@@ -460,6 +460,12 @@ export const GLOBAL_STORES = new Set<string>([
   // showed, so forecast-calibration-store.ts's day-28 settle can be joined back to
   // the exact hypothesis that was on screen when the operator acted (or didn't).
   "opportunity-hypotheses",
+  // Demand-ranked question universe (2026-07-03, BEACON_500 R11 / N30). Rows
+  // carry tenant_id; rebuilt + written by the nightly cron fan-out (no ambient
+  // request context - same rationale as app-errors / publish-health above).
+  // Capped at 300 rows per tenant on every rebuild
+  // (src/domains/research/question-universe-loader.ts).
+  "question-universe",
 ]);
 
 /**

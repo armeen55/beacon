@@ -97,6 +97,25 @@ export type VerdictReliabilityInput = {
    *  is never double-penalized for restating it here - pass this only for
    *  interference NOT already covered by the other flags. */
   interferenceFlagged?: boolean;
+  /** Fixed query panel (P4 R10a, v1 item 150): true when the frozen
+   *  target-query panel moved meaningfully OPPOSITE to the page-level read
+   *  (QueryPanelOutcome.disagreesWithPage). Two lenses on the same window
+   *  pointing different ways means something else on the page is moving the
+   *  page total - demotes to shaky. Additive: a caller that never wires this
+   *  (the default) sees byte-identical grades. */
+  panelDisagrees?: boolean;
+  /** Novelty-decay flag (P4 R10a, v1 item 378): true when the lift peaked in
+   *  week 1 and faded back toward baseline by week 4 (NoveltyDecayRead
+   *  .noveltyDecay). A first-week jump that did not last should never read as
+   *  a trustworthy win - demotes to shaky. Additive, same posture as above. */
+  noveltyDecay?: boolean;
+  /** Adaptive-window flag (P4 R10a, v1 item 288): true when every recent
+   *  post-ship day is far outside the page's normal range in one direction
+   *  (EarlySignalRead.earlyDecisive). NEVER upgrades a read past "decent" -
+   *  the 28-day clock is inviolable and "solid" stays mature-only; this only
+   *  strengthens the decent sentence so an unmistakable early read is not
+   *  presented with the same hedging as a marginal one. Additive. */
+  earlyDecisive?: boolean;
 };
 
 export type VerdictReliabilityResult = {
@@ -187,6 +206,12 @@ export function gradeVerdictReliability(input: VerdictReliabilityInput): Verdict
   if (input.interferenceFlagged) {
     reasons.push("a linked or same-family page still measuring could bleed into this result");
   }
+  if (input.panelDisagrees) {
+    reasons.push("the searches this change targeted moved the opposite way from the page total, so something else on the page is muddying this read");
+  }
+  if (input.noveltyDecay) {
+    reasons.push("the first week jump faded back toward normal, so this looks like novelty, not a lasting win");
+  }
   if (!sampleIsAdequate(input.controlsUsed, input.baselineImpressions)) {
     reasons.push("traffic is too thin to be confident yet");
   }
@@ -206,6 +231,16 @@ export function gradeVerdictReliability(input: VerdictReliabilityInput): Verdict
   // ── decent vs solid: both clean of the above; split on maturity + sample depth ──
   const daysLabel = `${input.basisDay} days`;
   if (input.maturity !== "mature_result") {
+    // Adaptive-window read (v1 288): an unmistakable early direction earns a
+    // stronger DECENT sentence, never a higher grade - the 28-day clock rules
+    // are inviolable, so "solid" stays reserved for a mature result.
+    if (input.earlyDecisive === true) {
+      return {
+        grade: "decent",
+        reasons: [`only ${daysLabel} in, but every recent day is far outside this page's normal range`],
+        sentence: `I would treat this read as decent: only ${daysLabel} in, but this is moving so clearly I do not need the full 28 days to tell you which way it is going. The final call still waits for the full window.`,
+      };
+    }
     const softReasons = [`only ${daysLabel} in, directional not final`];
     return {
       grade: "decent",
@@ -265,6 +300,18 @@ export function gradeFromPresentation(
    *  parameter existed. Pass `hasSignificantInterference` from
    *  computeInterferenceGraph, or false when the graph found nothing. */
   interferenceFlagged?: boolean,
+  /** P4 R10a measurement-rigor extras, all optional and additive (omitting
+   *  this argument yields byte-identical grades): the fixed-query-panel
+   *  disagreement (v1 150, demotes to shaky), the novelty-decay flag (v1
+   *  378, demotes to shaky), and the early-decisive flag (v1 288,
+   *  strengthens the decent sentence, never upgrades the grade). Read them
+   *  straight off the record's computed attachments (panelOutcome /
+   *  noveltyDecay / earlySignal). */
+  extras?: {
+    panelDisagrees?: boolean;
+    noveltyDecay?: boolean;
+    earlyDecisive?: boolean;
+  },
 ): VerdictReliabilityResult {
   return gradeVerdictReliability({
     maturity: pres.maturity,
@@ -279,6 +326,9 @@ export function gradeFromPresentation(
     baselineImpressions: sufficiency.baselineImpressions,
     permutationRead: permutationRead ?? null,
     interferenceFlagged: interferenceFlagged ?? false,
+    panelDisagrees: extras?.panelDisagrees ?? false,
+    noveltyDecay: extras?.noveltyDecay ?? false,
+    earlyDecisive: extras?.earlyDecisive ?? false,
   });
 }
 

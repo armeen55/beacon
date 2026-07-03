@@ -41,12 +41,16 @@ vi.mock("@/domains/recommendation-intelligence/page-surgeon/bridge", () => ({
   loadPageSurgeonForUrl: vi.fn(async () => ({ status: "none" })),
 }));
 
-const { rankRecheckMock, readFloorsForMock } = vi.hoisted(() => ({
+const { rankRecheckMock, readFloorsForMock, dailyClicksMock } = vi.hoisted(() => ({
   rankRecheckMock: vi.fn(),
   // Item 31: defaults to the fail-soft "no calibration yet" shape so every
   // existing test in this file (written before item 31) keeps its exact
   // pre-calibration behavior unless a test overrides the mock.
   readFloorsForMock: vi.fn(async () => ({})),
+  // P4 R10a: the daily-clicks series behind the weekday-aligned, early-signal,
+  // and novelty-decay attachments. Defaults to the fail-soft empty map so every
+  // pre-existing test keeps its exact behavior (all three attachments null).
+  dailyClicksMock: vi.fn(async () => new Map<string, Array<{ date: string; clicks: number }>>()),
 }));
 
 vi.mock("@/domains/serp/serp-history", () => ({
@@ -61,6 +65,9 @@ vi.mock("./rank-recheck", async () => {
 });
 vi.mock("./aa-calibration-store", () => ({
   readFloorsFor: readFloorsForMock,
+}));
+vi.mock("./daily-series", () => ({
+  loadDailyClicksByPathsForTenant: dailyClicksMock,
 }));
 
 import { measureRecord } from "./run-measurement";
@@ -269,6 +276,108 @@ describe("measureRecord - item 67 Bayesian read integration", () => {
     const now = new Date("2026-05-09T00:00:00Z");
     const result = await measureRecord("tenant-iranopedia", record(), now, "2026-07-01");
     expect(result.verdict).toBeDefined();
+  });
+});
+
+describe("measureRecord - P4 R10a query-panel + daily-shape attachments", () => {
+  beforeEach(() => {
+    rankRecheckMock.mockReset();
+    rankRecheckMock.mockResolvedValue(null);
+    readFloorsForMock.mockReset();
+    readFloorsForMock.mockResolvedValue({});
+    dailyClicksMock.mockReset();
+    dailyClicksMock.mockResolvedValue(new Map());
+  });
+
+  /** Daily series builder: 28 baseline days at `baseline` clicks starting at
+   *  ship minus 28, then `post` per-day clicks from the ship date. */
+  function dailySeries(shipDate: string, baseline: number, post: number[]): Array<{ date: string; clicks: number }> {
+    const addDays = (d: string, n: number): string => {
+      const dt = new Date(`${d}T00:00:00Z`);
+      dt.setUTCDate(dt.getUTCDate() + n);
+      return dt.toISOString().slice(0, 10);
+    };
+    const out: Array<{ date: string; clicks: number }> = [];
+    for (let i = -28; i < 0; i++) out.push({ date: addDays(shipDate, i), clicks: baseline });
+    post.forEach((clicks, i) => out.push({ date: addDays(shipDate, i), clicks }));
+    return out;
+  }
+
+  it("all four attachments are honestly null with no daily series and no query grain (fail-soft), verdict untouched", async () => {
+    const now = new Date("2026-05-09T00:00:00Z");
+    const result = await measureRecord("tenant-iranopedia", record(), now, "2026-07-01");
+    // Query panel: gsc_daily_rows is unreachable in this file (no Supabase
+    // env) - honest null, never a fabricated panel.
+    expect(result.panelOutcome).toBeNull();
+    expect(result.weekdayAdjustedLift).toBeNull();
+    expect(result.earlySignal).toBeNull();
+    expect(result.noveltyDecay).toBeNull();
+    expect(result.verdict).toBeDefined();
+    expect(result.windows.length).toBe(3);
+  });
+
+  it("computes noveltyDecay + weekdayAdjustedLift off a full 28-day post series WITHOUT touching verdict/windows", async () => {
+    const now = new Date("2026-07-01T00:00:00Z");
+    // Decay shape: week 1 at 20 clicks a day, weeks 2-4 back at the 10-a-day baseline.
+    const post = [...Array(7).fill(20), ...Array(21).fill(10)] as number[];
+    dailyClicksMock.mockResolvedValue(new Map([["/singers", dailySeries("2026-05-01", 10, post)]]));
+
+    const withSeries = await measureRecord("tenant-iranopedia", record(), now, "2026-07-01");
+    dailyClicksMock.mockResolvedValue(new Map());
+    const withoutSeries = await measureRecord("tenant-iranopedia", record(), now, "2026-07-01");
+
+    expect(withSeries.noveltyDecay).not.toBeNull();
+    expect(withSeries.noveltyDecay?.noveltyDecay).toBe(true);
+    expect(withSeries.noveltyDecay?.sentence).toContain("novelty, not a lasting win");
+    expect(withSeries.weekdayAdjustedLift).not.toBeNull();
+    // Flat baseline, full-week window: raw and aligned agree - no preference.
+    expect(withSeries.weekdayAdjustedLift?.preferAdjusted).toBe(false);
+    // The 28-day window has closed - early signals no longer apply.
+    expect(withSeries.earlySignal).toBeNull();
+    // The attachments never alter the Search math.
+    expect(withSeries.verdict).toBe(withoutSeries.verdict);
+    expect(withSeries.confidence).toBe(withoutSeries.confidence);
+    expect(withSeries.windows).toEqual(withoutSeries.windows);
+    expect(dailyClicksMock).toHaveBeenCalledWith("tenant-iranopedia", ["/singers"], expect.any(Number));
+  });
+
+  it("computes earlyDecisive while the 28-day window is still open (presentation only, clock untouched)", async () => {
+    const now = new Date("2026-05-12T00:00:00Z");
+    // 10 finalized post days, every one far above the flat 10-a-day baseline.
+    dailyClicksMock.mockResolvedValue(
+      new Map([["/singers", dailySeries("2026-05-01", 10, Array(10).fill(25))]]),
+    );
+    // Watermark at 2026-05-10: the 7-day window has closed, 14/28 have not.
+    const result = await measureRecord("tenant-iranopedia", record(), now, "2026-05-10");
+
+    expect(result.windows.find((w) => w.day === 7)?.ran).toBe(true);
+    expect(result.windows.find((w) => w.day === 28)?.ran).toBe(false);
+    expect(result.earlySignal).not.toBeNull();
+    expect(result.earlySignal?.earlyDecisive).toBe(true);
+    expect(result.earlySignal?.direction).toBe("up");
+    expect(result.earlySignal?.sentence).toContain("I do not need the full 28 days");
+    // Novelty decay needs the full four post weeks - honestly null here.
+    expect(result.noveltyDecay).toBeNull();
+  });
+
+  it("a thrown daily-series read never blocks or alters the GSC verdict (fail-soft)", async () => {
+    const now = new Date("2026-05-09T00:00:00Z");
+    dailyClicksMock.mockRejectedValue(new Error("supabase down"));
+    const result = await measureRecord("tenant-iranopedia", record(), now, "2026-07-01");
+    expect(result.weekdayAdjustedLift).toBeNull();
+    expect(result.earlySignal).toBeNull();
+    expect(result.noveltyDecay).toBeNull();
+    expect(result.verdict).toBeDefined();
+    expect(result.windows.length).toBe(3);
+  });
+
+  it("skips the daily-shape read entirely before any finalized post-ship day exists", async () => {
+    const now = new Date("2026-05-09T00:00:00Z");
+    const result = await measureRecord("tenant-iranopedia", record(), now, "2026-04-30");
+    expect(dailyClicksMock).not.toHaveBeenCalled();
+    expect(result.weekdayAdjustedLift).toBeNull();
+    expect(result.earlySignal).toBeNull();
+    expect(result.noveltyDecay).toBeNull();
   });
 });
 

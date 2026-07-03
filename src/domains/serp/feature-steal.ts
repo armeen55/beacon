@@ -26,6 +26,9 @@ export type FeatureStealHistoryRow = {
   query: string;
   capturedAt: string;
   ownRank: number | null;
+  /** The tenant's ranked URL in that snapshot (null when not in top results).
+   *  N29 needs it to name the page the format-matched steal targets. */
+  ownUrl: string | null;
   snippetOwner: ParsedFeaturedSnippet | null;
   paaQuestions: ParsedPaaQuestion[];
 };

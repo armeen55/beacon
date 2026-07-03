@@ -33,6 +33,10 @@ import type { PermutationRead } from "./permutation-null";
 import type { BayesianRead } from "./bayesian-read";
 import type { TargetQueryRead } from "./target-query-read";
 import type { RankedControl } from "./control-matching";
+import type { QueryPanelOutcome } from "./query-panel";
+import type { WeekdayAdjustedRead } from "./weekday-baseline";
+import type { EarlySignalRead } from "./early-signal";
+import type { NoveltyDecayRead } from "./novelty-decay";
 
 const TABLE = "shipped_change_proof";
 const STORE = "proof-gsc-ledger";
@@ -108,6 +112,30 @@ export type ShippedChangeRecord = {
    *  (< 50 impressions either window) - honest silence, never a fabricated
    *  read off a sliver of data. */
   targetQueryRead?: TargetQueryRead[];
+  /** Fixed query panel (P4 R10a, v1 item 150): the record's OWN frozen
+   *  targetQueries measured as ONE aggregate panel before/after, alongside
+   *  the page-level outcome, with a plain disagreement sentence when the two
+   *  point opposite ways. Same computed-only posture as the attachments
+   *  above: NOT persisted (recordToRow omits it), recomputed on every
+   *  measure. Null when the panel had no honest pre-ship presence. */
+  panelOutcome?: QueryPanelOutcome | null;
+  /** Day-of-week baselines (P4 R10a, v1 item 285): the basis window's
+   *  treated-page lift re-read against same-weekday baseline MEDIANS,
+   *  alongside the raw day-sum number. Presentation prefers the adjusted
+   *  figure only when the two differ by more than 20 percent. Computed-only,
+   *  never persisted; null without full baseline coverage or a closed window. */
+  weekdayAdjustedLift?: WeekdayAdjustedRead | null;
+  /** Adaptive windows (P4 R10a, v1 item 288): earlyDecisive / earlyFutile
+   *  presentation flags when the post-ship days are already unambiguous.
+   *  NEVER closes or shortens a window (the N11 clock is inviolable) - this
+   *  is presentation language plus an N10 confidence input only. Computed
+   *  only while the 28-day window is still open; never persisted. */
+  earlySignal?: EarlySignalRead | null;
+  /** Novelty-decay flag (P4 R10a, v1 item 378): lift peaked in week 1 and
+   *  faded back toward baseline by week 4 - looks like novelty, not a
+   *  lasting win. Feeds N10 as a demotion input. Computed-only, never
+   *  persisted; null before 28 finalized post-ship days exist. */
+  noveltyDecay?: NoveltyDecayRead | null;
   /** Operator free-text on the shipped change. */
   notes: string | null;
   /** Operator confirmed it's live on the site (manual ship). */

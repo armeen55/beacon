@@ -255,6 +255,12 @@ const SUPABASE_MIRRORED_STORES = new Set<string>([
   // loads (Vercel lambda: no disk) - without the mirror the log would vanish on
   // the next lambda recycle and forecasts could never be graded for real.
   "opportunity-hypotheses",
+  // 2026-07-03 BEACON_500 R11 / N30 - the demand-ranked question universe.
+  // Rebuilt + written by the nightly cron on Vercel lambdas (no disk); without
+  // the mirror every consumer (drafter seeding, /prompts unanswered-questions
+  // section, New Pages brief questions) would read empty on hosted prod the
+  // moment the lambda recycled, silently muting the whole N30 feature.
+  "question-universe",
 ]);
 
 const BLOBS_TABLE = "json_store_blobs";

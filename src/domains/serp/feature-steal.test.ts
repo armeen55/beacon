@@ -16,6 +16,7 @@ function row(overrides: Partial<FeatureStealHistoryRow> = {}): FeatureStealHisto
     query: "iran flag",
     capturedAt: "2026-07-02T00:00:00.000Z",
     ownRank: 4,
+    ownUrl: "https://iranopedia.com/iran-flag",
     snippetOwner: null,
     paaQuestions: [],
     ...overrides,

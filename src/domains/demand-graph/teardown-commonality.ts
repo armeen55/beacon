@@ -81,7 +81,103 @@ export type CommonalityBrief = {
    * Empty array when we own nothing comparable, or already match everything.
    */
   whatTheyAllHaveThatWeDont: string[];
+  /**
+   * N20 (2026-07-03): the 3-of-5 structural consensus over the same facts,
+   * with single-winner outliers named so no brief ever copies them. Null when
+   * fewer than 3 usable teardowns fed this brief (a 3+ agreement cannot be
+   * observed on 2 pages; the majority fields above still work at 2).
+   */
+  consensusSpec: ConsensusSpec | null;
 };
+
+// ── N20 (2026-07-03, BEACON_500 R11): SERP-consensus study ──────────────────
+// "Study what the top winners AGREE on, never what one outlier does." An
+// element counts as consensus only when 3+ of the (up to 5) analyzed winners
+// have it; an element exactly ONE winner has is an outlier and is named so a
+// brief consumer can prove it never copied it.
+
+export type ConsensusElementKey =
+  | "answer_block"
+  | "faq"
+  | "table"
+  | "tool_calculator"
+  | "images"
+  | "word_band";
+
+export type ConsensusSpec = {
+  /** How many teardowns fed this spec (3-5 by contract). */
+  sourceCount: number;
+  consensus: {
+    answerBlock: boolean;
+    faq: boolean;
+    /** Detected from Table structured data only - the teardown does not
+     *  extract raw <table> presence today, so this stays honestly rare
+     *  rather than guessed from headings. */
+    table: boolean;
+    toolCalculator: boolean;
+    /** Image-count range across the winners that ship images, when 3+ do. */
+    imageBand: { low: number; high: number } | null;
+    /** Word-count band (wordBandOf rounding), when 3+ winners have counts. */
+    wordBand: { low: number; high: number; median: number } | null;
+  };
+  /** Elements exactly ONE winner has - outliers, NEVER copied into briefs. */
+  outliers: ConsensusElementKey[];
+  /** Winner votes per element, for the honest "3 of 5" line. */
+  votes: Record<ConsensusElementKey, number>;
+};
+
+/** An element must appear on at least this many winners to be consensus. */
+export const CONSENSUS_MIN_WINNERS = 3;
+
+const ELEMENT_PRESENT: Record<ConsensusElementKey, (p: CompetitorPageFacts) => boolean> = {
+  answer_block: (p) => p.hasAnswerBlock,
+  faq: (p) => p.hasFaq,
+  table: (p) => (p.schemaTypes ?? []).includes("Table"),
+  tool_calculator: (p) => p.hasToolOrCalculator,
+  images: (p) => p.imageCount >= 1,
+  word_band: (p) => p.wordCount > 0,
+};
+
+const CONSENSUS_ELEMENT_KEYS = Object.keys(ELEMENT_PRESENT) as ConsensusElementKey[];
+
+/**
+ * The 3-of-5 consensus read over 3-5 teardowns of the SAME topic's winners.
+ * Returns null with fewer than 3 usable facts - three pages agreeing is the
+ * minimum observable consensus; never inferred from 2. Pure.
+ */
+export function consensusOf(
+  facts: readonly (CompetitorPageFacts | null | undefined)[],
+): ConsensusSpec | null {
+  const usable = facts.filter((f): f is CompetitorPageFacts => !!f).slice(0, MAX_SOURCES);
+  if (usable.length < CONSENSUS_MIN_WINNERS) return null;
+
+  const votes = {} as Record<ConsensusElementKey, number>;
+  for (const key of CONSENSUS_ELEMENT_KEYS) {
+    votes[key] = usable.filter((p) => ELEMENT_PRESENT[key](p)).length;
+  }
+
+  const imageCounts = usable.filter((p) => p.imageCount >= 1).map((p) => p.imageCount);
+  const imageBand =
+    votes.images >= CONSENSUS_MIN_WINNERS
+      ? { low: Math.min(...imageCounts), high: Math.max(...imageCounts) }
+      : null;
+  const wordBand =
+    votes.word_band >= CONSENSUS_MIN_WINNERS ? wordBandOf(usable.map((p) => p.wordCount)) : null;
+
+  return {
+    sourceCount: usable.length,
+    consensus: {
+      answerBlock: votes.answer_block >= CONSENSUS_MIN_WINNERS,
+      faq: votes.faq >= CONSENSUS_MIN_WINNERS,
+      table: votes.table >= CONSENSUS_MIN_WINNERS,
+      toolCalculator: votes.tool_calculator >= CONSENSUS_MIN_WINNERS,
+      imageBand,
+      wordBand,
+    },
+    outliers: CONSENSUS_ELEMENT_KEYS.filter((key) => votes[key] === 1),
+    votes,
+  };
+}
 
 const MIN_SOURCES = 2;
 const MAX_SOURCES = 5;
@@ -202,8 +298,15 @@ function wordBandOf(counts: readonly number[]): { low: number; high: number; med
   return { low: round100(Math.min(lo, med * 0.8)), high: round100(Math.max(hi, med * 1.2)), median: round100(med) };
 }
 
+/** N20 outlier rule: an element present on only ONE winner is never copied
+ *  into a brief, so every "majority" gate floors at 2 winners (at 2 sources
+ *  a bare majority would otherwise be 1 - a single page's quirk). */
+function briefMajority(sourceCount: number): number {
+  return Math.max(2, Math.ceil(sourceCount / 2));
+}
+
 function schemaConsensus(pages: readonly CompetitorPageFacts[]): string[] {
-  const majority = Math.ceil(pages.length / 2);
+  const majority = briefMajority(pages.length);
   const counts = new Map<string, number>();
   for (const p of pages) for (const t of p.schemaTypes ?? []) counts.set(t, (counts.get(t) ?? 0) + 1);
   return [...counts.entries()]
@@ -233,7 +336,7 @@ export function buildCommonalityBrief(
   const wordBand = wordBandOf(usable.map((p) => p.wordCount));
   const schemaTypes = schemaConsensus(usable);
   const openingPattern = voteOpeningPattern(usable);
-  const majority = Math.ceil(usable.length / 2);
+  const majority = briefMajority(usable.length);
   const hasFaqConsensus = usable.filter((p) => p.hasFaq).length >= majority;
   const hasToolConsensus = usable.filter((p) => p.hasToolOrCalculator).length >= majority;
 
@@ -270,6 +373,9 @@ export function buildCommonalityBrief(
     hasFaqConsensus,
     hasToolConsensus,
     whatTheyAllHaveThatWeDont,
+    // N20: the 3-of-5 structural consensus + named single-winner outliers.
+    // Null at 2 sources (the majority fields above still work there).
+    consensusSpec: consensusOf(usable),
   };
 }
 

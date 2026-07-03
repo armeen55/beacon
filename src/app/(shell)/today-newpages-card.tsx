@@ -383,6 +383,18 @@ export function NewPageCard({ o, ownDomain, enableAeoBrief = false }: { o: NewPa
             <div className="mt-0.5 text-body leading-snug text-foreground-secondary">{o.whatWins}</div>
           </div>
         ) : null}
+        {o.universeQuestions && o.universeQuestions.length > 0 ? (
+          <div className="mt-2 rounded-lg bg-surface-raised px-2.5 py-1.5">
+            <div className="text-meta font-semibold uppercase tracking-wide text-muted-foreground">Questions this page should answer</div>
+            <ul className="mt-0.5 space-y-0.5">
+              {o.universeQuestions.map((q) => (
+                <li key={q} className="text-body leading-snug text-foreground-secondary">
+                  {q}
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
         {o.infoGain ? (
           <div className="mt-2 rounded-lg bg-surface-raised px-2.5 py-1.5">
             <div className="text-meta font-semibold uppercase tracking-wide text-muted-foreground">

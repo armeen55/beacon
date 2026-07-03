@@ -139,6 +139,9 @@ import {
   hasSnippetPromise,
   MIN_IMPRESSIONS_FOR_PROMISE_AUDIT,
 } from "@/domains/recommendations/snippet-promise";
+import { findSnippetCaptures, snippetCaptureCandidates } from "@/domains/serp/snippet-capture";
+import { featureStealHistoryRows } from "@/domains/serp/serp-history";
+import { loadStealBriefsForTenant } from "@/domains/serp/serp-steal-lane";
 import { loadEarlyBodyTextForUrls } from "./early-body-text";
 import { noindexOnIndexablePage } from "./triggers/noindex-on-indexable-page";
 import { orphanPage } from "./triggers/orphan-page";
@@ -665,6 +668,62 @@ export async function loadTriggerCandidatesForTenant(options: {
   } catch (err) {
     console.error(
       `[trigger-loader] snippet-promise audit failed for ${tenantId} (snippet_promise_gap skips): ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+  // Featured-snippet capture (BEACON_500 R11 / N29, 2026-07-03): where a
+  // captured Google reading shows the answer box owned by someone else and we
+  // rank 2-10, emit a FORMAT-MATCHED steal candidate ("Google shows a numbered
+  // list; your page answers in prose. Match the list format."). Reads the same
+  // already-paid-for dataforseo_serp_history rows the feature-steal columns
+  // use ($0, no live call), dedupes against the existing steal-lane cards by
+  // query, and pulls stored early body text ONLY for the few capture targets
+  // (bounded, same scoped-read pattern as the snippet-promise audit above).
+  // Tenants with no captured readings contribute nothing - byte-identical.
+  try {
+    const [captureRows, stealBriefs] = await Promise.all([
+      featureStealHistoryRows(tenantId).catch(() => []),
+      loadStealBriefsForTenant(tenantId).catch(() => []),
+    ]);
+    if (captureRows.length > 0) {
+      const tenantDomain =
+        businessConfig.domain
+          ?.trim()
+          .replace(/^https?:\/\//, "")
+          .replace(/\/$/, "") ?? null;
+      const stealLaneQueries = new Set(stealBriefs.map((b) => b.keyword.trim().toLowerCase()).filter(Boolean));
+      // Pass 1 (no own-page text): find the qualifying targets.
+      const prelim = findSnippetCaptures(captureRows, tenantDomain, { stealLaneQueries });
+      if (prelim.length > 0) {
+        // Bounded, scoped early-text read for JUST the capture targets, so the
+        // directive can honestly say how the page currently answers. Inline
+        // snapshot body first; the merge read only for the rest.
+        const canonOf = (u: string) => (canonicalizeCitationUrl(u) ?? u).toLowerCase();
+        const inlineByCanon = new Map<string, string>();
+        for (const s of snapshots) {
+          const inline = (s.body_paragraph_sample ?? []).join(" ").trim();
+          if (inline) inlineByCanon.set(canonOf(s.url), inline);
+        }
+        const missing = prelim.filter((o) => !inlineByCanon.has(canonOf(o.ownUrl))).map((o) => o.ownUrl);
+        const fetched = missing.length > 0 ? await loadEarlyBodyTextForUrls(tenantId, missing) : new Map<string, string>();
+        const earlyTextByUrl = new Map<string, string | null>();
+        for (const o of prelim) {
+          const inline = inlineByCanon.get(canonOf(o.ownUrl));
+          earlyTextByUrl.set(o.ownUrl.toLowerCase(), inline ?? fetched.get(o.ownUrl) ?? null);
+        }
+        // Pass 2: format-matched opportunities -> candidate rows (capped at 5).
+        const opportunities = findSnippetCaptures(captureRows, tenantDomain, { stealLaneQueries, earlyTextByUrl });
+        all.push(
+          ...snippetCaptureCandidates({
+            tenantId,
+            opportunities,
+            signalAt: new Date().toISOString(),
+          }),
+        );
+      }
+    }
+  } catch (err) {
+    console.error(
+      `[trigger-loader] featured-snippet capture failed for ${tenantId} (featured_snippet_capture skips): ${err instanceof Error ? err.message : String(err)}`,
     );
   }
   for (const snapshot of snapshots) {

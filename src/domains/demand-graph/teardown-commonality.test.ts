@@ -3,6 +3,8 @@ import {
   buildCommonalityBrief,
   extractSharedHeadings,
   commonalitySentence,
+  consensusOf,
+  CONSENSUS_MIN_WINNERS,
 } from "./teardown-commonality";
 import type { CompetitorPageFacts } from "./competitor-page-audit";
 
@@ -187,6 +189,88 @@ describe("buildCommonalityBrief", () => {
     for (const h of brief!.sharedHeadings) {
       expect(h.label.length).toBeLessThan(200); // heading, not a scraped paragraph
     }
+  });
+});
+
+describe("consensusOf (N20: 3-of-5 consensus, single-winner outliers)", () => {
+  it("an element on 3+ of the top 5 winners becomes consensus", () => {
+    const pages = [
+      facts({ hasAnswerBlock: true, hasFaq: false }),
+      facts({ hasAnswerBlock: true, hasFaq: false }),
+      facts({ hasAnswerBlock: true, hasFaq: false }),
+      facts({ hasAnswerBlock: false, hasFaq: false }),
+      facts({ hasAnswerBlock: false, hasFaq: false }),
+    ];
+    const spec = consensusOf(pages)!;
+    expect(spec.sourceCount).toBe(5);
+    expect(spec.consensus.answerBlock).toBe(true);
+    expect(spec.votes.answer_block).toBe(3);
+  });
+
+  it("PIN: an element present on only ONE winner is an outlier, never consensus", () => {
+    const pages = [
+      facts({ hasFaq: true, faqQuestionCount: 4 }), // the single FAQ outlier
+      facts({ hasFaq: false }),
+      facts({ hasFaq: false }),
+      facts({ hasFaq: false }),
+      facts({ hasFaq: false }),
+    ];
+    const spec = consensusOf(pages)!;
+    expect(spec.consensus.faq).toBe(false);
+    expect(spec.outliers).toContain("faq");
+    expect(spec.votes.faq).toBe(1);
+  });
+
+  it("an element on 2 of 5 is neither consensus nor an outlier", () => {
+    const pages = [
+      facts({ hasToolOrCalculator: true }),
+      facts({ hasToolOrCalculator: true }),
+      facts({ hasToolOrCalculator: false }),
+      facts({ hasToolOrCalculator: false }),
+      facts({ hasToolOrCalculator: false }),
+    ];
+    const spec = consensusOf(pages)!;
+    expect(spec.consensus.toolCalculator).toBe(false);
+    expect(spec.outliers).not.toContain("tool_calculator");
+  });
+
+  it("returns null below CONSENSUS_MIN_WINNERS usable teardowns (a 3+ agreement needs 3 pages)", () => {
+    expect(CONSENSUS_MIN_WINNERS).toBe(3);
+    expect(consensusOf([facts(), facts()])).toBeNull();
+    expect(consensusOf([facts(), null, undefined])).toBeNull();
+  });
+
+  it("bands images and words over the agreeing winners", () => {
+    const pages = [
+      facts({ imageCount: 2, wordCount: 900 }),
+      facts({ imageCount: 6, wordCount: 1200 }),
+      facts({ imageCount: 4, wordCount: 1500 }),
+      facts({ imageCount: 0, wordCount: 0 }),
+      facts({ imageCount: 0, wordCount: 0 }),
+    ];
+    const spec = consensusOf(pages)!;
+    expect(spec.consensus.imageBand).toEqual({ low: 2, high: 6 });
+    expect(spec.consensus.wordBand).not.toBeNull();
+    expect(spec.consensus.wordBand!.low).toBeGreaterThan(0);
+  });
+
+  it("buildCommonalityBrief carries the spec at 3+ sources and stays honestly null at 2", () => {
+    const five = buildCommonalityBrief([facts(), facts(), facts(), facts(), facts()]);
+    expect(five!.consensusSpec).not.toBeNull();
+    expect(five!.consensusSpec!.sourceCount).toBe(5);
+    const two = buildCommonalityBrief([facts(), facts()]);
+    expect(two).not.toBeNull();
+    expect(two!.consensusSpec).toBeNull();
+  });
+
+  it("PIN (outlier rule at 2 sources): a 1-of-2 element never becomes brief consensus either", () => {
+    const pages = [
+      facts({ hasFaq: true, faqQuestionCount: 4, schemaTypes: ["FAQPage"] }),
+      facts({ hasFaq: false, faqQuestionCount: 0, schemaTypes: [] }),
+    ];
+    const brief = buildCommonalityBrief(pages)!;
+    expect(brief.hasFaqConsensus).toBe(false);
+    expect(brief.schemaTypes).toEqual([]);
   });
 });
 

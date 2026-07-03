@@ -198,7 +198,7 @@ export const featureStealHistoryRows = cache(async (tenantId: string, now: Date 
     const cutoffIso = new Date(now.getTime() - FEATURE_STEAL_LOOKBACK_DAYS * 24 * 60 * 60 * 1000).toISOString();
     const { data, error } = await getSupabaseAdmin()
       .from("dataforseo_serp_history")
-      .select("query, captured_at, own_rank, snippet_owner, paa_questions")
+      .select("query, captured_at, own_rank, own_url, snippet_owner, paa_questions")
       .eq("tenant_id", tenantId)
       .gte("captured_at", cutoffIso)
       .order("captured_at", { ascending: true })
@@ -209,6 +209,7 @@ export const featureStealHistoryRows = cache(async (tenantId: string, now: Date 
         query: string;
         captured_at: string;
         own_rank: number | null;
+        own_url: string | null;
         snippet_owner: ParsedFeaturedSnippet | null;
         paa_questions: ParsedPaaQuestion[] | null;
       }>
@@ -216,6 +217,7 @@ export const featureStealHistoryRows = cache(async (tenantId: string, now: Date 
       query: r.query,
       capturedAt: r.captured_at,
       ownRank: typeof r.own_rank === "number" ? r.own_rank : null,
+      ownUrl: r.own_url ?? null,
       snippetOwner: r.snippet_owner ?? null,
       paaQuestions: Array.isArray(r.paa_questions) ? r.paa_questions : [],
     }));

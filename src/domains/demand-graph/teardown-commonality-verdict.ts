@@ -27,7 +27,7 @@
  * brief fields.
  */
 
-import type { CommonalityBrief } from "./teardown-commonality";
+import type { CommonalityBrief, ConsensusSpec } from "./teardown-commonality";
 import { commonalitySentence } from "./teardown-commonality";
 
 export type GapVerdictOutcome = "atomic_edit" | "new_page" | "no_verdict";
@@ -45,6 +45,10 @@ export type AtomicEditBrief = {
   fanoutQuestionsToWeave: string[];
   /** One-line summary of the consensus that justifies the edit. */
   rationale: string;
+  /** N20 (2026-07-03): the 3-of-5 structural consensus + named outliers.
+   *  Optional so verdicts persisted before N20 still parse; null when fewer
+   *  than 3 usable teardowns fed the brief. */
+  consensusSpec?: ConsensusSpec | null;
 };
 
 export type NewPageCommonalityFields = {
@@ -61,6 +65,11 @@ export type NewPageCommonalityFields = {
   fanoutQuestionsToWeave: string[];
   /** One-line summary of the consensus that justifies the new page. */
   rationale: string;
+  /** N20 (2026-07-03): the 3-of-5 structural consensus + named outliers a
+   *  drafter may build to. An element in `consensusSpec.outliers` (present on
+   *  only ONE winner) is NEVER copied into this brief - pinned in tests.
+   *  Optional so verdicts persisted before N20 still parse. */
+  consensusSpec?: ConsensusSpec | null;
 };
 
 export type GapVerdict = {
@@ -160,6 +169,7 @@ export function routeGapVerdict(input: {
           additions: [],
           fanoutQuestionsToWeave,
           rationale: `${renderedSentence} Your page already covers what the winners share.`,
+          consensusSpec: brief.consensusSpec ?? null,
         },
         newPage: null,
         renderedSentence,
@@ -175,6 +185,7 @@ export function routeGapVerdict(input: {
         additions,
         fanoutQuestionsToWeave,
         rationale: `${renderedSentence} Your page is missing: ${additions.join("; ")}.`,
+        consensusSpec: brief.consensusSpec ?? null,
       },
       newPage: null,
       renderedSentence,
@@ -197,6 +208,7 @@ export function routeGapVerdict(input: {
       hasToolConsensus: brief.hasToolConsensus,
       fanoutQuestionsToWeave,
       rationale: `${renderedSentence} No owned page yet; build one to this shape.`,
+      consensusSpec: brief.consensusSpec ?? null,
     },
     renderedSentence,
     reason: null,

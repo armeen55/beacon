@@ -4,6 +4,8 @@ import { buildTodayMovesData } from "@/app/(shell)/today-moves-data";
 import { buildNewPagesData } from "@/app/(shell)/today-newpages-data";
 import { draftAnswerBlockWithLLM, draftFaqSchemaWithLLM } from "@/domains/demand-graph/llm-answer-block";
 import { saveMoveDraft } from "@/domains/demand-graph/move-draft-store";
+import { seedQuestionsForTopic, type UniverseQuestionRow } from "@/domains/research/question-universe";
+import { loadQuestionUniverseForTenant } from "@/domains/research/question-universe-loader";
 import { log } from "@/lib/logger";
 
 /**
@@ -77,6 +79,17 @@ export async function precomputeMoveDraftsForTenant(
 
   const result: PrecomputeResult = { ...base, skipped: false, consideredCitationMoves: targets.length };
 
+  // N30 (2026-07-03): the demand-ranked question universe, read once per run.
+  // Empty (not built yet / store missing) leaves every drafter call below
+  // byte-identical to before this feature existed (seedQuestionsForTopic
+  // returns [] and the merge is skipped) - pinned in question-universe.test.ts.
+  let universeRows: UniverseQuestionRow[] = [];
+  try {
+    universeRows = await loadQuestionUniverseForTenant(tenantId);
+  } catch {
+    universeRows = [];
+  }
+
   for (const m of targets) {
     // Answer block. For a declining page, seed the brief with the LOST queries so
     // the refreshed answer directly targets what the page is shedding clicks on.
@@ -85,7 +98,14 @@ export async function precomputeMoveDraftsForTenant(
       decliningQs.length > 0
         ? `This page is losing Google clicks on: ${decliningQs.join(", ")}. ${m.answerBrief ?? ""} Write an updated, comprehensive answer that directly and strongly covers these so the page can recover.`.trim()
         : m.answerBrief;
-    const faqs = decliningQs.length > 0 ? [...new Set([...m.faqs, ...decliningQs])] : m.faqs;
+    const faqsBase = decliningQs.length > 0 ? [...new Set([...m.faqs, ...decliningQs])] : m.faqs;
+    // N30 seed: top uncovered universe questions for this Move's topic, additive
+    // and deduped against what the Move already carries.
+    const universeSeeds = seedQuestionsForTopic(universeRows, `${m.query} ${m.pageLabel}`, {
+      existing: faqsBase,
+      limit: 4,
+    });
+    const faqs = universeSeeds.length > 0 ? [...faqsBase, ...universeSeeds] : faqsBase;
     try {
       const r = await draftAnswerBlockWithLLM({
         query: m.query,
@@ -110,9 +130,12 @@ export async function precomputeMoveDraftsForTenant(
     }
 
     // FAQ schema (only when the Move carries fanout questions + none saved yet).
-    if (m.faqs.length > 0 && !m.savedFaqJsonLd) {
+    // N30: universe seeds ride along additively; with an empty universe this is
+    // the exact same m.faqs reference and gate as before (pinned byte-identical).
+    const faqSchemaList = universeSeeds.length > 0 ? [...new Set([...m.faqs, ...universeSeeds])] : m.faqs;
+    if (faqSchemaList.length > 0 && !m.savedFaqJsonLd) {
       try {
-        const r = await draftFaqSchemaWithLLM({ query: m.query, pageLabel: m.pageLabel, faqs: m.faqs });
+        const r = await draftFaqSchemaWithLLM({ query: m.query, pageLabel: m.pageLabel, faqs: faqSchemaList });
         if (r.status === "ok") {
           result.spendUsd += r.costUsd;
           if (await saveMoveDraft(tenantId, m.id, "faq", r.jsonLd)) result.faqSchemasSaved += 1;
@@ -142,7 +165,10 @@ export async function precomputeMoveDraftsForTenant(
           pageLabel: o.topic,
           brief: `Write the opening paragraph for a NEW encyclopedia/content page about "${o.topic}". Define the topic directly and factually so a reader (and an AI assistant) gets the answer up top.`,
           outline: o.whatWins ? [`Match the depth of cited pages: ${o.whatWins}`] : [],
-          faqs: [],
+          // N30: the board already attached the top uncovered universe questions
+          // for this topic (universeQuestions); absent (universe empty) this is
+          // the exact [] the drafter always received - pinned byte-identical.
+          faqs: o.universeQuestions ?? [],
         });
         if (r.status === "ok") {
           result.spendUsd += r.costUsd;

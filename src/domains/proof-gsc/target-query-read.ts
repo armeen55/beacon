@@ -91,15 +91,18 @@ function withWwwVariant(url: string): string[] {
 }
 
 type RawRow = { page: string; query: string; clicks: number | string | null; impressions: number | string | null; position: number | string | null };
-type Agg = { clicks: number; impressions: number; posWeighted: number };
+export type TargetQueryAgg = { clicks: number; impressions: number; posWeighted: number };
+type Agg = TargetQueryAgg;
 
 /**
  * One bounded, paged `page IN (...) AND query IN (...)` read over [start, end),
  * aggregated to (canonical page, query). Rows are folded back onto the
  * CANONICAL page key the caller asked for (see withWwwVariant) regardless of
  * which raw host form the row itself carries. Fail-soft -> empty map.
+ * Exported (P4 R10a) so query-panel.ts can aggregate the SAME frozen query
+ * set as one panel instead of duplicating the www-variant read.
  */
-async function readTargetQueryWindow(
+export async function readTargetQueryWindow(
   tenantId: string,
   pages: ReadonlyArray<string>,
   queries: ReadonlyArray<string>,

@@ -120,6 +120,33 @@ describe("shaky", () => {
     expect(r.grade).toBe("shaky");
     expect(r.reasons.length).toBe(2);
   });
+
+  it("fixed query panel disagreement (P4 R10a, v1 150) demotes an otherwise-clean mature result", () => {
+    const r = gradeVerdictReliability(base({ panelDisagrees: true }));
+    expect(r.grade).toBe("shaky");
+    expect(r.reasons.join(" ")).toMatch(/targeted moved the opposite way from the page total/);
+  });
+
+  it("novelty decay (P4 R10a, v1 378) demotes an otherwise-clean mature result", () => {
+    const r = gradeVerdictReliability(base({ noveltyDecay: true }));
+    expect(r.grade).toBe("shaky");
+    expect(r.reasons.join(" ")).toMatch(/novelty, not a lasting win/);
+  });
+
+  it("panel disagreement and novelty decay stack with other shaky reasons", () => {
+    const r = gradeVerdictReliability(
+      base({ panelDisagrees: true, noveltyDecay: true, controlContaminationFlagged: true }),
+    );
+    expect(r.grade).toBe("shaky");
+    expect(r.reasons.length).toBe(3);
+  });
+
+  it("earlyDecisive never rescues a shaky read (a disqualifier always wins)", () => {
+    const r = gradeVerdictReliability(
+      base({ maturity: "early_checkpoint", basisDay: 7, controlContaminationFlagged: true, earlyDecisive: true }),
+    );
+    expect(r.grade).toBe("shaky");
+  });
 });
 
 describe("decent", () => {
@@ -154,6 +181,28 @@ describe("decent", () => {
   it("boundary: one short of the floor on either axis reads decent", () => {
     expect(gradeVerdictReliability(base({ controlsUsed: 2, baselineImpressions: 3000 })).grade).toBe("decent");
     expect(gradeVerdictReliability(base({ controlsUsed: 3, baselineImpressions: 2999 })).grade).toBe("decent");
+  });
+
+  it("earlyDecisive (P4 R10a, v1 288) strengthens the decent sentence at an early checkpoint", () => {
+    const r = gradeVerdictReliability(base({ maturity: "early_checkpoint", basisDay: 7, earlyDecisive: true }));
+    expect(r.grade).toBe("decent");
+    expect(r.sentence).toMatch(/do not need the full 28 days/);
+    expect(r.sentence).toMatch(/final call still waits for the full window/);
+  });
+
+  it("earlyDecisive NEVER upgrades a read past decent before maturity (the clock is inviolable)", () => {
+    for (const [maturity, basisDay] of [["early_checkpoint", 7], ["interim_checkpoint", 14]] as const) {
+      const r = gradeVerdictReliability(base({ maturity, basisDay, earlyDecisive: true }));
+      expect(r.grade).toBe("decent");
+      expect(r.grade).not.toBe("solid");
+    }
+  });
+
+  it("earlyDecisive is ignored at a mature result (the 28-day read speaks for itself)", () => {
+    const withFlag = gradeVerdictReliability(base({ earlyDecisive: true }));
+    const withoutFlag = gradeVerdictReliability(base());
+    expect(withFlag).toEqual(withoutFlag);
+    expect(withFlag.grade).toBe("solid");
   });
 });
 
@@ -281,6 +330,34 @@ describe("gradeAllowsLearning alignment with MeasurementPresentation.learningEli
     const withDefault = gradeFromPresentation(pres, { controlsUsed: 3, baselineImpressions: 3000 }, null);
     expect(withDefault.grade).toBe("solid");
   });
+
+  it("P4 R10a extras: panelDisagrees and noveltyDecay demote via gradeFromPresentation; omitting extras is byte-identical", () => {
+    const pres = buildMeasurementPresentation(maturityInput({}));
+    const clean = gradeFromPresentation(pres, { controlsUsed: 3, baselineImpressions: 3000 }, null);
+    const withEmptyExtras = gradeFromPresentation(pres, { controlsUsed: 3, baselineImpressions: 3000 }, null, undefined, {});
+    expect(clean.grade).toBe("solid");
+    expect(withEmptyExtras).toEqual(clean);
+    const withPanel = gradeFromPresentation(pres, { controlsUsed: 3, baselineImpressions: 3000 }, null, undefined, { panelDisagrees: true });
+    expect(withPanel.grade).toBe("shaky");
+    const withDecay = gradeFromPresentation(pres, { controlsUsed: 3, baselineImpressions: 3000 }, null, undefined, { noveltyDecay: true });
+    expect(withDecay.grade).toBe("shaky");
+    expect(gradeAllowsLearning(withDecay.grade)).toBe(false);
+  });
+
+  it("P4 R10a extras: earlyDecisive reaches the decent branch through gradeFromPresentation", () => {
+    const pres = buildMeasurementPresentation(
+      maturityInput({
+        windows: [
+          { day: 7, ran: true },
+          { day: 14, ran: false },
+          { day: 28, ran: false },
+        ],
+      }),
+    );
+    const grade = gradeFromPresentation(pres, { controlsUsed: 3, baselineImpressions: 3000 }, null, undefined, { earlyDecisive: true });
+    expect(grade.grade).toBe("decent");
+    expect(grade.sentence).toMatch(/do not need the full 28 days/);
+  });
 });
 
 describe("copy guard - dash-clean, no em or en dashes in source", () => {
@@ -307,6 +384,9 @@ describe("copy guard - dash-clean, no em or en dashes in source", () => {
       base({ controlsUsed: 2, baselineImpressions: 3000 }),
       base(),
       base({ permutationRead: { nGreater: 1, nTotal: 60 } }),
+      base({ panelDisagrees: true }),
+      base({ noveltyDecay: true }),
+      base({ maturity: "early_checkpoint", basisDay: 7, earlyDecisive: true }),
     ];
     for (const c of cases) {
       const r = gradeVerdictReliability(c);

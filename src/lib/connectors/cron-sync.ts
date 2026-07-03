@@ -8,6 +8,7 @@ import { syncClarityDailyMetricsForTenant } from "@/lib/connectors/clarity/sync-
 import { syncProfoundNightlyForTenant } from "@/lib/connectors/profound/sync-nightly";
 import { precomputeMoveDraftsForTenant } from "@/domains/demand-graph/precompute-drafts";
 import { auditTopCompetitorsForTenant } from "@/domains/demand-graph/competitor-page-audit";
+import { rebuildQuestionUniverseForTenant } from "@/domains/research/question-universe-loader";
 import { runRevenueFactsPass } from "@/domains/revenue/compute-unit-economics";
 import { checkPipelineInvariants } from "@/domains/ops/pipeline-invariants";
 import { gatherPipelineReadings } from "@/domains/ops/pipeline-readings";
@@ -724,6 +725,37 @@ export async function syncAllConnectedForActiveTenants(): Promise<CronSyncResult
         error: e instanceof Error ? e.message.slice(0, 200) : String(e),
       });
       await reportPhaseError("competitor-teardown", t.id, e);
+    }
+  }
+
+  // PHASE 2a-q (BEACON_500 R11 / N30) - demand-ranked question universe. Merges
+  // every question-shaped signal already synced above (GSC queries, AI fanouts,
+  // the tenant question library, captured People-also-ask rows) into ONE ranked,
+  // ownership-and-coverage-checked list per tenant, persisted to the
+  // "question-universe" store. $0 (cache/DB reads only). Runs BEFORE the
+  // precompute so the FAQ/answer-block drafters seed from tonight's universe.
+  // Isolated fail-soft: a failure here never touches the sync result.
+  for (const t of tenants) {
+    if (pastDeadline()) {
+      log.info("[cron-sync] enrichment deadline reached, skipping remaining question-universe builds");
+      break;
+    }
+    try {
+      const qu = await rebuildQuestionUniverseForTenant(t.id);
+      if (qu.rows > 0) {
+        log.info("[cron-sync] question universe", {
+          tenantId: t.id,
+          rows: qu.rows,
+          uncovered: qu.uncovered,
+          bySource: qu.stats.bySource,
+        });
+      }
+    } catch (e) {
+      log.warn("[cron-sync] question universe failed", {
+        tenantId: t.id,
+        error: e instanceof Error ? e.message.slice(0, 200) : String(e),
+      });
+      await reportPhaseError("question-universe", t.id, e);
     }
   }
 

@@ -122,4 +122,38 @@ describe("routeGapVerdict", () => {
     // Additive fields only carry heading TOPICS + counts, never a full sentence lift.
     expect(v.newPage?.sharedHeadingsToInclude.every((h) => h.length < 200)).toBe(true);
   });
+
+  it("N20 PIN: a single-winner outlier element is NEVER copied into the brief", () => {
+    // 5 winners; exactly ONE has an FAQ and a one-off heading. The consensus
+    // spec must name faq as an outlier, and neither brief outcome may carry it.
+    const pages = [
+      facts({ hasFaq: true, faqQuestionCount: 5, schemaTypes: ["FAQPage"], outline: ["Sofreh Aghd explained", "A one-off quiz section"] }),
+      facts({ hasFaq: false, faqQuestionCount: 0, schemaTypes: [], outline: ["Sofreh Aghd meaning"] }),
+      facts({ hasFaq: false, faqQuestionCount: 0, schemaTypes: [], outline: ["Sofreh Aghd history"] }),
+      facts({ hasFaq: false, faqQuestionCount: 0, schemaTypes: [], outline: ["Sofreh Aghd items"] }),
+      facts({ hasFaq: false, faqQuestionCount: 0, schemaTypes: [], outline: ["Sofreh Aghd table setup"] }),
+    ];
+    const brief = buildCommonalityBrief(pages);
+
+    const unowned = routeGapVerdict({ promptId: "p7", brief, ownership: { ownedUrl: null } });
+    expect(unowned.newPage?.consensusSpec?.outliers).toContain("faq");
+    expect(unowned.newPage?.hasFaqConsensus).toBe(false);
+    expect(unowned.newPage?.schemaTypesToInclude).toEqual([]);
+    expect(unowned.newPage?.sharedHeadingsToInclude.some((h) => /quiz/i.test(h))).toBe(false);
+
+    const owned = routeGapVerdict({
+      promptId: "p8",
+      brief: buildCommonalityBrief(pages, { ownedFacts: facts({ hasFaq: false, faqQuestionCount: 0, schemaTypes: [], outline: ["Intro"] }) }),
+      ownership: { ownedUrl: "https://iranopedia.com/sofreh-aghd" },
+    });
+    expect(owned.atomicEdit?.additions.some((a) => /FAQ/i.test(a))).toBe(false);
+    expect(owned.atomicEdit?.consensusSpec?.outliers).toContain("faq");
+  });
+
+  it("N20: the new_page brief carries the consensus spec when 3+ winners fed it", () => {
+    const pages = [facts(), facts(), facts(), facts()];
+    const v = routeGapVerdict({ promptId: "p9", brief: buildCommonalityBrief(pages), ownership: { ownedUrl: null } });
+    expect(v.newPage?.consensusSpec).not.toBeNull();
+    expect(v.newPage?.consensusSpec?.sourceCount).toBe(4);
+  });
 });

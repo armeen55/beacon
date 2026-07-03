@@ -16,6 +16,8 @@ import { matchKeywordDemand } from "@/domains/demand/keyword-match";
 import { cleanTopicLabel, isJunkTopic } from "@/domains/demand-graph/clean-topic-label";
 import { deserializeFullPageDraft, reassembleFromPersisted, type AssembledDraftPage } from "@/domains/llm/draft-full-page";
 import { dedupeNewPageCards } from "@/domains/demand-graph/dedupe-new-page-cards";
+import { seedQuestionsForTopic, type UniverseQuestionRow } from "@/domains/research/question-universe";
+import { loadQuestionUniverseForTenant } from "@/domains/research/question-universe-loader";
 import { log } from "@/lib/logger";
 
 /**
@@ -110,6 +112,11 @@ export type NewPageOpportunity = {
    *  as one plain sentence. null when unchecked (no brief or no teardown
    *  evidence yet - never a fabricated verdict). */
   infoGain?: { verdict: string; sentence: string } | null;
+  /** N30 (2026-07-03) - the top demand-ranked universe questions for this
+   *  topic that nothing of ours answers yet (max 3). Absent when the universe
+   *  is empty or has no relevant uncovered question - the brief and the
+   *  opening drafter both consume these. */
+  universeQuestions?: string[];
 };
 
 export type NewPagesData = {
@@ -402,8 +409,26 @@ export async function buildNewPagesData(tenantId: string): Promise<NewPagesData>
   const keptIds = new Set(kept.map((k) => k.id));
   const deduped = combined.filter((o) => keptIds.has(o.id));
 
+  // N30 (2026-07-03) - attach the top 3 uncovered universe questions per topic
+  // to the brief. Degrade-safe read; an empty universe (not built yet) attaches
+  // NOTHING, so the board payload stays byte-identical to before this feature
+  // (seedQuestionsForTopic returns [] and the field stays absent - pinned).
+  let universeRows: UniverseQuestionRow[] = [];
+  try {
+    universeRows = await withTimeout(loadQuestionUniverseForTenant(tenantId), 4000, [] as UniverseQuestionRow[]);
+  } catch {
+    universeRows = [];
+  }
+  const withQuestions =
+    universeRows.length === 0
+      ? deduped
+      : deduped.map((o) => {
+          const seeds = seedQuestionsForTopic(universeRows, o.topic, { limit: 3 });
+          return seeds.length > 0 ? { ...o, universeQuestions: seeds } : o;
+        });
+
   return {
-    opportunities: deduped,
+    opportunities: withQuestions,
     totalCandidates: createMoves.length,
     ownDomain,
   };

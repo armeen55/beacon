@@ -358,6 +358,17 @@ export default async function ProofPage({
             l.permutationRead && l.permutationRead.nTotal > 0
               ? { nGreater: l.permutationRead.nGreater, nTotal: l.permutationRead.nTotal }
               : null,
+            undefined,
+            // P4 R10a measurement-rigor extras, straight off the record's own
+            // computed attachments: a target-panel/page direction disagreement
+            // (v1 150) or a faded first-week jump (v1 378) demotes to shaky; an
+            // unmistakable early direction (v1 288) strengthens the decent
+            // sentence without ever upgrading the grade past the 28-day clock.
+            {
+              panelDisagrees: l.panelOutcome?.disagreesWithPage === true,
+              noveltyDecay: l.noveltyDecay?.noveltyDecay === true,
+              earlyDecisive: l.earlySignal?.earlyDecisive === true,
+            },
           )
         : { grade: "too early" as const, reasons: [], sentence: "I would call this too early to read: no measurement presentation is available yet." };
       return [l.id, grade] as const;
@@ -1056,6 +1067,37 @@ function LedgerCard({ rec, link, pres, grade, spark, band, revert, restored, cal
         <p className="mt-1 text-[12px] text-amber-700">{reconciliationSentence()}</p>
       ) : null}
 
+      {/* Fixed query panel (P4 R10a, v1 150): the exact searches this change
+          aimed at, measured as one panel, disagree in direction with the
+          page-level read above - say so plainly instead of leaving the two
+          numbers to quietly contradict each other. The always-available panel
+          totals live in "See the math" below. */}
+      {rec.panelOutcome?.sentence ? (
+        <p className="mt-1 text-[12px] text-amber-700">{rec.panelOutcome.sentence}</p>
+      ) : null}
+
+      {/* Adaptive-window read (P4 R10a, v1 288): the movement is already
+          unmistakable (or already clearly meaningless) before the full window.
+          Presentation only - the 7/14/28 clock and the final verdict are
+          untouched, and the sentence itself says the clock keeps running. */}
+      {rec.earlySignal?.sentence ? (
+        <p className="mt-1 text-[12px] text-foreground/80">{rec.earlySignal.sentence}</p>
+      ) : null}
+
+      {/* Novelty-decay flag (P4 R10a, v1 378): the first-week jump faded back
+          toward baseline by week 4 - an honest caution so a novelty spike is
+          never quietly read as a lasting win. */}
+      {rec.noveltyDecay?.sentence ? (
+        <p className="mt-1 text-[12px] text-amber-700">{rec.noveltyDecay.sentence}</p>
+      ) : null}
+
+      {/* Day-of-week baselines (P4 R10a, v1 285): when the weekday-aligned
+          number and the raw day-sum number differ by more than 20 percent,
+          lead with the aligned one and name why in one sentence. */}
+      {rec.weekdayAdjustedLift?.sentence ? (
+        <p className="mt-1 text-[12px] text-foreground/80">{rec.weekdayAdjustedLift.sentence}</p>
+      ) : null}
+
       {/* Forecast receipt (master plan item 42): grade the numeric forecast this pick carried
           against what actually happened, straight from the persisted calibration record (item
           28's day-28 writer) - never recomputed here. Only a MATURE (settled) row can carry a
@@ -1083,7 +1125,7 @@ function LedgerCard({ rec, link, pres, grade, spark, band, revert, restored, cal
           and untouched-page counts, one click away from the plain primary lines
           above. Nothing here is new data - it is the same sentence/counts the
           product already computed, just moved out of the headline position. */}
-      {sentence !== plainHeadline || (rec.permutationRead && rec.permutationRead.nTotal > 0) || pres?.seasonalInflectionCaveat || pres?.controlContaminationCaveat || pres?.controlPoolHealthLine || grade ? (
+      {sentence !== plainHeadline || (rec.permutationRead && rec.permutationRead.nTotal > 0) || pres?.seasonalInflectionCaveat || pres?.controlContaminationCaveat || pres?.controlPoolHealthLine || rec.panelOutcome || grade ? (
         <details className="mt-1">
           <summary className="cursor-pointer text-[11px] text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1">
             See the math
@@ -1097,6 +1139,10 @@ function LedgerCard({ rec, link, pres, grade, spark, band, revert, restored, cal
             {rec.permutationRead && rec.permutationRead.nTotal > 0 ? (
               <p>{permutationSentenceFromCounts(rec.permutationRead.nGreater, rec.permutationRead.nTotal)}</p>
             ) : null}
+            {/* Fixed query panel (P4 R10a, v1 150): the frozen target-query
+                panel's own before/after totals, always available here even
+                when it agrees with the page-level read. */}
+            {rec.panelOutcome ? <p>{rec.panelOutcome.panelLine}</p> : null}
             {pres?.seasonalInflectionCaveat ? <p>{pres.seasonalInflectionCaveat}</p> : null}
             {/* Control-contamination guard (master plan N13): the full receipt -
                 which comparison page changed, when, and whether a clean

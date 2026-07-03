@@ -23,6 +23,7 @@ import { SovWeeklySection } from "./sov-weekly-section";
 import { loadNativeIntel } from "@/domains/ai-visibility/native-intel-loader";
 import { NativeIntelView } from "./native-intel-view";
 import { CompetitorRivalsSection } from "./competitor-rivals-section";
+import { UnansweredQuestionsSection } from "./unanswered-questions-section";
 import {
   createPerfTrace,
   readPerfTraceIdFromHeaders,
@@ -129,12 +130,16 @@ export default async function PromptsPage({
   // are no cited rival domains yet, and deadline-guarded so it can never
   // stall the page (see competitor-rivals-section.tsx).
   const competitorRivalsSection = await CompetitorRivalsSection();
+  // N30 (2026-07-03): the demand-ranked question universe's "no one answers
+  // this well" view - self-hiding until the nightly build has real rows.
+  const unansweredQuestionsSection = await UnansweredQuestionsSection().catch(() => null);
   if (aiQuestions && aiQuestions.questions.length > 0) {
     trace.data("ai_questions_count", aiQuestions.questions.length);
     return (
       <div className="max-w-4xl space-y-6">
         {sovSection}
         {nativeIntelSection}
+        {unansweredQuestionsSection}
         <AiQuestionsView data={aiQuestions} />
         {competitorRivalsSection}
       </div>
@@ -206,6 +211,7 @@ export default async function PromptsPage({
 
       {sovSection}
       {nativeIntelSection}
+      {unansweredQuestionsSection ? <div className="mb-6">{unansweredQuestionsSection}</div> : null}
 
       {totalPrompts === 0 ? (
         <EmptyState

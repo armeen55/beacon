@@ -61,6 +61,11 @@ import { readFloorsFor } from "./aa-calibration-store";
 import { buildPermutationNull, percentileOf, hasEnoughNullPages, type PermutationRead } from "./permutation-null";
 import { buildBayesianRead, type BayesianRead } from "./bayesian-read";
 import { buildTargetQueryReads, type TargetQueryRead } from "./target-query-read";
+import { buildQueryPanelOutcome, type QueryPanelOutcome } from "./query-panel";
+import { loadDailyClicksByPathsForTenant } from "./daily-series";
+import { computeWeekdayAdjustedLift, type WeekdayAdjustedRead } from "./weekday-baseline";
+import { computeEarlySignal, type EarlySignalRead } from "./early-signal";
+import { computeNoveltyDecay, type NoveltyDecayRead } from "./novelty-decay";
 import type { ShippedChangeRecord } from "./shipped-change-store";
 import type { GscProofVerdict } from "./measure";
 
@@ -569,6 +574,96 @@ export async function measureRecord(
     }
   }
 
+  // Fixed query panel (P4 R10a, v1 item 150): the SAME frozen targetQueries
+  // measured before/after as ONE aggregate panel, alongside the page-level
+  // outcome above. Item 68's per-query read keeps its own per-query floor;
+  // the panel aggregates the whole set so thin individual queries still add
+  // up to one honest read, and the disagreement sentence fires when the
+  // panel and the page-level clicks point opposite ways. Computed-only +
+  // fail-soft -> null, same posture as every attachment on this record.
+  let panelOutcome: QueryPanelOutcome | null = null;
+  if (basisForPermutation && record.targetQueries.length > 0) {
+    try {
+      const treatedPostM = treatedPostByDay.get(basisForPermutation.day);
+      panelOutcome = await buildQueryPanelOutcome({
+        tenantId,
+        page: record.page,
+        targetQueries: record.targetQueries,
+        preStart,
+        preEnd: shipDate,
+        postStart: shipDate,
+        postEnd: addDays(shipDate, basisForPermutation.day),
+        windowDays: basisForPermutation.day,
+        preWindowDays: BASELINE_WINDOW_DAYS,
+        pagePreClicks: treatedPre?.clicks ?? 0,
+        pagePostClicks: treatedPostM?.clicks ?? 0,
+      });
+    } catch {
+      panelOutcome = null;
+    }
+  }
+
+  // Daily-shape reads (P4 R10a): one bounded daily-clicks read powers the
+  // weekday-aligned comparison (v1 285), the early-decisive/early-futile
+  // presentation flags (v1 288), and the novelty-decay check (v1 378). All
+  // three are computed-only attachments (never persisted, recomputed every
+  // measure) and NONE of them may touch windows/verdict/confidence - the
+  // clock rules are inviolable; these inform presentation + N10 only. The
+  // pure modules carry their own honest-absence guards (a day the read did
+  // not cover, or GSC has not finalized, is unknown - never a fake zero).
+  let weekdayAdjustedLift: WeekdayAdjustedRead | null = null;
+  let earlySignal: EarlySignalRead | null = null;
+  let noveltyDecay: NoveltyDecayRead | null = null;
+  if (lastFinal != null && lastFinal >= shipDate) {
+    try {
+      const today = dateOnly(now.toISOString());
+      const baselineStart = addDays(shipDate, -BASELINE_WINDOW_DAYS);
+      const daysSinceBaselineStart = Math.round(
+        (Date.parse(today) - Date.parse(baselineStart)) / 86_400_000,
+      );
+      // Cap the read (an old ship past the cap loses baseline coverage and
+      // the pure modules honestly return null instead of fabricating zeros).
+      const daysBack = Math.min(120, Math.max(30, daysSinceBaselineStart + 2));
+      const knownFrom = addDays(today, -daysBack);
+      const byPath = await loadDailyClicksByPathsForTenant(tenantId, [record.path], daysBack);
+      const series = byPath.get(record.path) ?? [];
+      if (series.length > 0) {
+        if (basisForPermutation) {
+          weekdayAdjustedLift = computeWeekdayAdjustedLift({
+            series,
+            shipDate,
+            windowDays: basisForPermutation.day,
+            preWindowDays: BASELINE_WINDOW_DAYS,
+            knownFrom,
+            lastFinalizedDate: lastFinal,
+          });
+        }
+        // Early signals only matter while the full window is still open; once
+        // the 28-day read exists the final verdict speaks for itself.
+        if (!day28?.ran) {
+          earlySignal = computeEarlySignal({
+            series,
+            shipDate,
+            knownFrom,
+            lastFinalizedDate: lastFinal,
+            preWindowDays: BASELINE_WINDOW_DAYS,
+          });
+        }
+        noveltyDecay = computeNoveltyDecay({
+          series,
+          shipDate,
+          knownFrom,
+          lastFinalizedDate: lastFinal,
+          preWindowDays: BASELINE_WINDOW_DAYS,
+        });
+      }
+    } catch {
+      weekdayAdjustedLift = null;
+      earlySignal = null;
+      noveltyDecay = null;
+    }
+  }
+
   // Live-SERP rank re-check (BEACON_500 item 19): a bounded, idempotent,
   // cache-busted "was rank X, is now rank Y" read for whichever proof window
   // just came due. Fully fail-soft and computed-only, mirroring trafficOutcome
@@ -602,6 +697,10 @@ export async function measureRecord(
     permutationRead,
     bayesianRead,
     targetQueryRead,
+    panelOutcome,
+    weekdayAdjustedLift,
+    earlySignal,
+    noveltyDecay,
     measuredAt: now.toISOString(),
     updatedAt: now.toISOString(),
   };
