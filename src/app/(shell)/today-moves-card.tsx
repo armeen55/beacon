@@ -28,6 +28,7 @@ import { teammateOf } from "@/domains/team/identity";
 import { Sparkline } from "@/components/data/sparkline";
 import { formatMetric, formatMetricCompact } from "@/lib/format-metric";
 import { stripBannedDashes } from "@/lib/copy/strip-dashes";
+import { rankToVisits } from "@/domains/serp/rank-to-visits";
 import { dossierHref } from "@/lib/page-dossier-link";
 import { Card } from "@/components/ui/card";
 import { Pill, type PillIntent } from "@/components/ui/pill";
@@ -744,6 +745,29 @@ export function MoveCard({
           ))}
         </div>
       ) : null}
+
+      {/* P19 rank-to-visits clarity line (2026-07-03) - turns the top
+          striking-distance query's rank + monthly impressions the card already
+          shows into a concrete "worth about N more visits a month" for climbing
+          to #3. Display-only, reuses the pure rankToVisits scorer; renders
+          nothing (byte-identical) when no query has a real rank + impressions to
+          size a genuine move up from. */}
+      {(() => {
+        const seed = m.topQueries.find((q) => q.strikingDistance);
+        if (!seed) return null;
+        const r = rankToVisits({
+          currentPosition: seed.position,
+          targetPosition: 3,
+          monthlyImpressions: seed.impressions,
+        });
+        if (r.monthlyGain == null || r.monthlyGain <= 0) return null;
+        return (
+          <p className="mt-1.5 text-meta text-muted-foreground">
+            <span className="font-semibold text-foreground-secondary">Worth it:</span>{" "}
+            {r.sentence}
+          </p>
+        );
+      })()}
 
       {m.declines.length > 0 ? (
         <div className="mt-3 flex flex-wrap items-center gap-1.5">

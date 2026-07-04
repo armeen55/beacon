@@ -52,6 +52,9 @@ import type {
   IndexabilityVerdict,
   OwnedUrlIndexability,
 } from "@/domains/indexability/types";
+import { SiteHealthPanel } from "@/components/site-health/site-health-panel";
+import { detectAiCrawlerBlock } from "@/domains/site-health/ai-crawler-block";
+import { detectCms } from "@/domains/site-health/cms-detect";
 
 export const dynamic = "force-dynamic";
 
@@ -447,11 +450,65 @@ export default async function OperatorIndexabilityDiagnosticsPage({
   };
   for (const r of rows) verdictDistribution[r.verdict]++;
 
+  // P16 site-health READ layer (2026-07-03) - the self-hiding plain-English
+  // panel that names exactly which AI assistants / Google's crawler are blocked
+  // and what platform Beacon detected, from signals this page already loaded
+  // ($0, no new fetch). Empty-safe: when nothing is blocked and no platform is
+  // recognized, the panel renders nothing (byte-identical to before).
+  //   - AI-crawler-block: robots.txt is site-wide, so any owned URL's parsed
+  //     robots signals answer it; pick the first row whose robots signals are
+  //     resolved (not all-null) so we read a real robots.txt, not "no scan yet".
+  //   - CMS: from a representative snapshot's schema types, URL, and captured
+  //     asset-host / class-token body markers (internal-link hrefs + card text).
+  //   - JS-shell is intentionally omitted here: its honest heuristic needs a
+  //     page's 90-day Google impressions, which this indexability surface does
+  //     not load. The panel hides that fact independently, so passing [] is
+  //     byte-identical, not a broken promise.
+  const robotsBearingRow =
+    rows.find((r) => {
+      const rt = r.indexability.signals.robots_txt;
+      return (
+        rt.googlebot_allowed !== null ||
+        rt.gptbot_allowed !== null ||
+        rt.perplexitybot_allowed !== null ||
+        rt.claudebot_allowed !== null ||
+        rt.google_extended_allowed !== null
+      );
+    }) ?? null;
+  const aiCrawlerBlockFact = robotsBearingRow
+    ? detectAiCrawlerBlock(robotsBearingRow.indexability)
+    : null;
+
+  const cmsSnapshot = snapshots[0] ?? null;
+  const cmsFact = cmsSnapshot
+    ? detectCms({
+        schemaTypes: cmsSnapshot.schema_types ?? [],
+        url: cmsSnapshot.url,
+        bodyMarkers: [
+          ...(cmsSnapshot.internal_links ?? []).map((l) => l.href),
+          ...(cmsSnapshot.card_texts ?? []),
+        ],
+      })
+    : null;
+
+  const siteHealthCheckedAt =
+    robotsState?.lastFetchedAt ?? cmsSnapshot?.fetched_at ?? null;
+
   return (
     <main
       className="container mx-auto max-w-7xl px-4 py-6 space-y-6"
       data-diagnostics-page="indexability"
     >
+      {/* P16 - self-hiding site-health read: names the blocked AI/Google
+          crawlers + detected platform in plain English. Renders nothing when
+          nothing is blocked and no platform is recognized. */}
+      <SiteHealthPanel
+        aiCrawlerBlock={aiCrawlerBlockFact}
+        jsShell={[]}
+        cms={cmsFact}
+        checkedAt={siteHealthCheckedAt}
+        nowMs={nowMs}
+      />
       <header className="space-y-1">
         <h1 className="text-[18px] font-semibold tracking-tight">
           Indexability diagnostics
