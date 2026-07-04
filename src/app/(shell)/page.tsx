@@ -1,6 +1,7 @@
 export const dynamic = "force-dynamic";
 
 import { Suspense } from "react";
+import { after } from "next/server";
 import Link from "next/link";
 
 import { PageHeader } from "@/components/data/page-header";
@@ -45,6 +46,9 @@ import { buildTodayGoalPace } from "@/components/today/today-goal-pace";
 import { TodayLeadHeadlineCard, TodaySmokeAlarmCard, TodayGoalPaceCard } from "@/components/today/today-briefing";
 import { loadGscDecaySignalsForTenant } from "@/domains/recommendation-intelligence/gsc-page-signals";
 import { buildReceiptLine } from "@/components/data/receipt-line";
+import { buildWhileAwaySummary } from "@/components/today/today-while-away";
+import { TodayWhileAwayCard } from "@/components/today/today-while-away-card";
+import { readTodayLastSeen, writeTodayLastSeen } from "./today-last-seen-store";
 
 /**
  * Today `/` - the focused daily slice of the ONE canonical model (2026-07-01, Move 5).
@@ -341,6 +345,64 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
     nowMs,
   });
 
+  // P21 item 1 (v1 238) - "while you were away": ONE honest block summarizing what changed
+  // since the operator's previous Today visit. It reads the per-tenant last-seen mark
+  // (today-last-seen-store), diffs it against the SAME canonical lifecycle counts every
+  // other surface on this page uses (so "2 changes finished measuring" lands on exactly the
+  // same decided total Results shows), and self-hides on a first visit / a quick refresh /
+  // a quiet return. The won-clicks-a-month figure is the summed measured monthly lift of
+  // ONLY the changes that won since the last visit, computed with the SAME per-record window
+  // math the lead headline uses (adaptProofRecordForLead), so it never shows a hard number
+  // off an open window. Fail-soft: any store outage just hides the block, never breaks Today.
+  const lastSeen = await valueWithDeadline(
+    readTodayLastSeen().catch(() => null),
+    null,
+    TODAY_HERO_DEADLINE_MS,
+  );
+  const newWonMonthlyClickLift = lastSeen
+    ? (() => {
+        const seenMs = Date.parse(lastSeen.seenAt);
+        if (!Number.isFinite(seenMs)) return null;
+        let sum = 0;
+        for (const r of ledgerRows) {
+          if (r.verdict !== "won") continue;
+          const settledMs = Date.parse(r.measuredAt ?? "");
+          if (!Number.isFinite(settledMs) || settledMs <= seenMs) continue;
+          const lift = adaptProofRecordForLead({
+            path: r.path,
+            pageLabel: null,
+            shippedAt: r.shippedAt,
+            verdict: r.verdict,
+            windows: r.windows,
+          }).monthlyClickLift;
+          if (typeof lift === "number" && lift > 0) sum += lift;
+        }
+        return sum > 0 ? sum : null;
+      })()
+    : null;
+  const whileAway = buildWhileAwaySummary({
+    then: lastSeen?.counts ?? null,
+    seenAt: lastSeen?.seenAt ?? null,
+    now: { decided: lifecycle.decided, won: lifecycle.won, toDo: lifecycle.toDo },
+    newWonMonthlyClickLift,
+    nowMs,
+  });
+  const whileAwayReceipt = buildReceiptLine({
+    source: "your results and open changes",
+    checkedAt: new Date(nowMs).toISOString(),
+    verb: "counted",
+    nowMs,
+  });
+  // Stamp this visit as the new last-seen mark, in the background, so the same news never
+  // shows twice and the next return diffs against these numbers. Fire-and-forget: it must
+  // never delay or fail the render (writeTodayLastSeen is itself fail-soft).
+  after(async () => {
+    await writeTodayLastSeen(
+      { decided: lifecycle.decided, won: lifecycle.won, toDo: lifecycle.toDo },
+      new Date(nowMs).toISOString(),
+    );
+  });
+
   return (
     <div className="space-y-6">
       {/* A1 (operator-experience fix batch, 2026-07-02) - the data-pipe alert moves to the very
@@ -356,6 +418,11 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
           move, in one plain line, right after the alarms and before the greeting, so "what
           matters most" is the very first content block on a healthy day. */}
       {leadHeadline ? <TodayLeadHeadlineCard headline={leadHeadline} /> : null}
+      {/* P21 item 1 (v1 238) - "while you were away": the one honest catch-up line for a
+          returning operator, right under the lead headline. Self-hides on a first visit, a
+          quick refresh, or a quiet return. Numbers are the SAME canonical counts as the
+          tiles and Results, so this can never contradict them. */}
+      {whileAway ? <TodayWhileAwayCard summary={whileAway} checkedLine={whileAwayReceipt} /> : null}
       {/* FP8 - THE cumulative outcome strip (same component Results renders): all-time
           shipped/wins, the measured monthly click lift the wins are adding, the honest
           first-verdict date when nothing has settled, and the clearly-labeled dollar

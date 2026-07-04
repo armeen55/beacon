@@ -106,6 +106,10 @@ export const TENANT_SCOPED_STORES = new Set<string>([
   // ledger snapshot per tenant), same discipline as worklist-surface. Presentation
   // cache only: measurement history stays in shipped_changes, never here.
   "results-surface",
+  // 2026-07-03 P21 - the operator's last Today visit (timestamp + a snapshot of the
+  // canonical decided/won/toDo counts at that visit) per tenant. Read by the
+  // while-you-were-away block to report only the delta since the previous visit.
+  "today-last-seen",
   // 2026-06-29 cross-request Demand Graph SWR snapshot — the computed LoadGraphResult per
   // tenant. The ~6s graph build is shared across requests (New Pages, Today, Recs, Drafts,
   // page-factory, enrichment) instead of each surface rebuilding it. Versioned + bounded.

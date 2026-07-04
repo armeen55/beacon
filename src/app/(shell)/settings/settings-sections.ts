@@ -53,6 +53,11 @@ export const SETTINGS_SECTIONS = [
     label: "How I decide",
     description: "Every live threshold Beacon uses to call wins, pace work, and cap spending.",
   },
+  {
+    href: "/settings/limits",
+    label: "What I cannot do yet",
+    description: "The honest list of what Beacon cannot do yet, and what it does instead.",
+  },
 ] as const;
 
 export type SettingsSection = (typeof SETTINGS_SECTIONS)[number];

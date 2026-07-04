@@ -7,6 +7,47 @@
 
 ---
 
+## 2026-07-03 - R23 P21: Digest + memory pack (while-you-were-away + product-limits copy)
+
+**Goal:** build the 2 buildable, non-email-gated operator-facing P21 pieces (v1 238 + v1 356).
+All ADDITIVE, self-hiding, tokens/primitives only, no new env, design ratchet unchanged.
+
+**What changed:**
+1. **While-you-were-away block (v1 238)** - one honest catch-up line on Today for a returning
+   operator. NEW `src/components/today/today-while-away.ts` (pure selector) + `today-while-away-card.tsx`
+   (token-only card) + `src/app/(shell)/today-last-seen-store.ts` (tiny per-tenant last-seen
+   store, server truth, fail-soft, registered in store-classification.ts as `today-last-seen`).
+   Wired into `src/app/(shell)/page.tsx` under the lead headline: reads the last-seen mark, diffs
+   the SAME canonical FP3 lifecycle counts (decided/won/toDo) the tiles + Results use, and stamps a
+   fresh mark via `after()`. Self-hides on first visit / a refresh under 6h / a quiet return / an
+   unknown last-seen. Won-clicks-a-month uses the SAME per-record window math as the lead headline
+   (adaptProofRecordForLead), summed over changes that won since the last visit.
+   Rendered copy: "While you were away: 2 changes finished measuring (1 won, up about 38 clicks a
+   month), and 3 new opportunities appeared." A settled-but-none-won return: "1 change finished
+   measuring (none won this time)." Opportunities-only: "2 new opportunities appeared."
+2. **Product-limits copy (v1 356)** - honest "What I cannot do yet" surface. NEW
+   `src/domains/settings/product-limits.ts` (registry) + `src/app/(shell)/settings/limits/page.tsx`
+   (token/primitive page) + a row added to `settings-sections.ts` so it shows in the index + tab
+   strip. Rendered copy includes: "I can push SEO fields like your title and meta description
+   straight to Wix, but for full page content I draft it for you to paste."; "I do not send email
+   digests yet."; "I measure results with your Search Console data, so calling a change a win or a
+   miss takes a few weeks."
+
+**Skipped/roadmapped (per P21 line):** v1 92 operator-taste memory (overlaps shipped P15 learning);
+v1 230 weekly email digest + v1 358 trust-explainer page (email is RESEND-gated, methodology
+deprioritized); v1 240 strategist history (roadmapped).
+
+**Verified:** `npm run typecheck` clean. New tests: today-while-away.test.ts (12) +
+today-while-away-card.test.tsx (3) + product-limits.test.ts (6) = 21 passing (render tests quote
+the copy above). Affected suites green: today components (16 files / 134), design-system-guard
+(ratchet held at 1298, my 3 new files add 0 raw palette), catalog-sync, customer-nav-exposure,
+results-ledger-data, store-classification + routing (41). Count agreement confirmed: the block reads
+`lifecycle.decided/won/toDo` from the single `loadLifecycleCounts()` call that also drives the
+Results tile (line 469), the results-ready alert (line 225), and the measuring strip (line 468), so
+"N changes finished measuring" equals the Results decided delta, never a contradicting count.
+
+---
+
 ## 2026-07-03 - R23 P12: Push-depth pack (safer + more capable publish path)
 
 **Goal:** make the EXISTING publish path safer + more capable, all ADDITIVE + SAFE. NO new env,
@@ -33447,3 +33488,43 @@ more than any single spelling shows on its own (the biggest one is only 620). On
 'saffron' that also names the other spellings can own all of that demand at once." ROADMAPPED (v1 374):
 optional native-script term surfaced INSIDE the drafted answer/page body; a tenant-config editor UI
 for declaring spelling groups (no UI shipped this slice, config is a data field).
+
+---
+
+2026-07-03 - P16 onboarding-intelligence pack (v1 380 CMS detection, 381 robots AI-block,
+382 JS-shell rendering). Built a NEW GENERIC `src/domains/site-health/**` domain: three pure,
+deterministic, empty-safe READ-SIDE detectors useful for ANY tenant (not just signups).
+(1) `detectAiCrawlerBlock(indexability)` reads the ALREADY-PARSED robots.txt allow/deny signals
+(gptbot/claudebot/perplexitybot/google-extended/googlebot) and names exactly which AI assistants
+and/or Google's crawler are blocked, plainly (e.g. "ChatGPT (GPTBot) and Claude (ClaudeBot)").
+Returns null when all allowed/unknown (allowed !== false). (2) `detectJsShellFact(page)` reuses the
+existing pure `@/domains/lifecycle/js-shell` `looksLikeJsShell` heuristic (one definition, no drift)
+to flag a page whose source HTML is near-empty behind a client app; null when it renders real HTML.
+(3) `detectCms(signals)` recognizes the platform (Wix/Squarespace/Shopify/WordPress/Webflow/Ghost/
+Duda/HubSpot/Drupal/Joomla) from generator meta > schema @type > URL host > body/asset marker, as a
+capability fact (Wix reads push_and_draft since a push lane exists; every other platform reads
+draft_only, honest about reach). NO tenant hardcoding; null when undetectable. Plus a self-hiding
+token-only READ surface `src/components/site-health/site-health-panel.tsx` (Card/Pill/SectionHeader/
+ReceiptLine, no raw palette, no dashes; renders nothing when every fact is empty).
+RECONCILIATION: the Move-emitting halves of the robots-AI-block and JS-shell checks were ALREADY
+shipped by prior slices (R19 / N22 `js_shell_content` + Slice 4.5.C.alpha2 `robots_blocks_ai_bots`,
+both wired in the shared trigger loader). Per the "do NOT rebuild" rule this slice did NOT duplicate
+those Moves and therefore did NOT add a loader predicate: PREDICATE_COUNT stays 34 and all counter
+pins remain 34 (loader const + 2 loader-test assertions + it()-title + 2 triggers-page assertions).
+The site-health domain is the plain-English READ layer that names the specifics the generic Move copy
+leaves out (which exact bots, which platform). CMS (v1 380) is genuinely net-new (no prior CMS code).
+VERIFIED: `npm run typecheck` clean; new suites green (ai-crawler-block 9, js-shell-fact 6, cms-detect
+10, site-health-panel render 5 via renderToStaticMarkup = 30 tests total in the pack, counting the
+barrel-covered exports); registry-adjacent suites all green unchanged (recommendation-triggers-page,
+load-trigger-candidates loader, customer-copy-vocab, predicate-purity, catalog-sync,
+design-system-guard = 236 tests across the affected set). Rendered copy (quoted, verbatim):
+robots "Your site tells AI assistants not to read it (ChatGPT (GPTBot) and Claude (ClaudeBot) are
+blocked in robots.txt). They literally cannot see you, so they can never recommend you. Unblock them.";
+JS-shell "Your /pricing page loads almost empty until JavaScript runs, so the HTML Google and AI
+assistants first receive looks blank. Some AI crawlers and older bots do not run JavaScript and may
+see a blank page. Add server-rendered text so they can read it."; CMS "You are on Wix. I can push SEO
+fields here, and draft the rest for you to paste." ROADMAPPED (stay unbuilt): v1 292/293/294/295/437/
+506 signup-funnel / day-0 demand pack / derived-services chips / launch teardown / schema starter
+pack / signup-to-first-win instrumentation; and a crawler pass that captures generator meta + asset
+hosts onto PageSnapshot so `detectCms` fires on production custom-domain sites (today it fires when
+those signals are present, correctly empty until captured).
