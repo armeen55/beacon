@@ -7,6 +7,119 @@
 
 ---
 
+## 2026-07-03 - R17 (P2 GSC depth pack): close R17b test gap + build R17c
+
+**Goal:** finish R17 by (1) closing the R17b test gap and (2) building the genuinely-missing R17c
+items, each EXTENDING the shipped GSC depth stack (weekly-dimensions store + fresh-tail + per-page
+signals), never touching the daily `is_final` tables.
+
+**STEP 0 audit finding:** the R17b v1 items were already built and wired end-to-end:
+searchAppearance + device grain (136/268, `weekly-dimensions.ts` + sync + scoreboard expander),
+fresh-tail settling lane (264, `fresh-tail.ts` + loader + scoreboard chart), back-of-results
+register (428, `back-of-results.ts` + loader, on the keywords page + question universe), brand
+split (265), ingestion-gap re-pull (266), striking portfolio (267), anonymized-query share (492).
+The GAP was co-located tests: `fresh-tail.ts`, `back-of-results.ts`, and the weekly-dimensions
+SYNC engine had none. R17c items 138 / 428 / 491+493 were genuinely unbuilt.
+
+**R17b tests added (34):** `fresh-tail.test.ts` (13 - window math, empty-safe, and a source-scan
+pin that the loader never references `gsc_daily_rows`/`gsc_daily_totals`/`is_final` and only writes
+the volatile cache), `back-of-results.test.ts` (13 - band/floor boundaries, page collapse, brand
+exclusion, cap, empty-safe), `weekly-dimensions-sync.test.ts` (8, via the DI seams - first-run
+prior-week backfill, cadence no-op, fail-soft skips, partial-week-never-persists, tenant isolation).
+
+**R17c built:**
+- **428 country grain** - added a third bounded weekly request (`country` dimension, same egress
+  discipline as device/searchAppearance) to `weekly-dimensions-sync.ts`; `GscWeeklyCountryRow` +
+  `plainCountryLabel` (alpha-3 -> plain names, unknown codes self-hide, never a raw code) +
+  `buildCountryLine` + `countryLine` on the lens; rendered in the scoreboard "How you show up on
+  Google" expander. Copy: *"Most of your Google traffic is from the United States (82 percent);
+  Iran is your second market (11 percent)."*
+- **138 budgeted indexation sweep** - `indexation-sweep.ts` (pure select + copy) + loader that
+  reuses `GSC_INSPECT_PER_RENDER_LIMIT` and the bounded `loadGscSignal` adapter (24h-cached URL
+  Inspection, batch capped BEFORE any inspection - no raw loop, never past the cap). Only Google's
+  explicit "no" counts; inconclusive -> checked but never "not indexed". Rendered on the keywords
+  page. Copy: *"2 of your top 5 pages are not indexed by Google yet, so they earn no Google traffic
+  no matter how good the content is. I will flag getting them indexed as the first move."*
+- **491 footprint registry** - `buildGscFootprint` rolls up pages x distinct searches x total
+  appearances from the per-page signal already synced ($0). Copy: *"Google shows 2 of your pages
+  across 4 different searches, 5,000 times in the last 90 days. That is your whole Google footprint
+  right now."*
+- **493 Discover probe** - added an additive `searchType?: "web"|"discover"|"news"` param to
+  `gscSearchAnalyticsQuery` (defaults "web", contract test stays green); `loadDiscoverPresence`
+  does ONE Discover-typed read behind a new 12h volatile cache (`gsc-discover-probe`, registered in
+  json-store mirror + GLOBAL_STORES). Self-hides honestly - a null/empty feed is cached and NEVER
+  fabricated. Copy: *"Google Discover showed your pages 4,200 times in the last 90 days, bringing
+  in 130 visitors. Discover is Google's phone home feed, a separate source from search."*
+
+**Empty-safe pins:** every builder returns null / self-hides on no data (no country grain, older
+snapshot, under a click/impressions floor, no batch, everything indexed, no Discover data). Never a
+raw alpha-3 code, never a bare zero, never a fabricated Discover presence.
+
+**Verified:** `npm run typecheck` clean. New + affected suites green:
+`src/domains/gsc/**` + `src/lib/connectors/gsc/**` + contract + design-system-guard + catalog-sync
++ store-classification + no-banned-dash surfaces = **228 passed (16 files)**; research +
+recommendation-intelligence consumers = **950 passed**. Both new surfaces rendered via
+`renderToStaticMarkup` and copy quoted above. Design-system ratchet held (used `text-status-warning`
+token, not raw `amber`, so raw-palette count did not rise). No dev server (per instruction).
+
+---
+
+## 2026-07-03 - P4 (measurement-rigor pack): audit + verification, no rebuild
+
+**Goal:** complete P4 (the statistical-honesty items that make a proof verdict trustworthy) by
+building ONLY the genuinely-missing items, each EXTENDING the shipped proof stack.
+
+**STEP 0 audit finding:** all five P4 items were ALREADY built earlier today (R10a/R10b) and are
+wired + rendered end-to-end. Each has a complete pure module, honest-absence guards, Beacon-voice
+copy, a substantive test file, is computed in `run-measurement.ts` (or `load-ledger.ts` for the
+ledger-wide FDR pass), fed to N10 via `gradeFromPresentation`'s `extras`, and rendered on
+`/results/page.tsx`. Nothing was genuinely missing, so nothing was rebuilt (per the "extend, never
+rebuild" instruction). Confirmed:
+- **151 distinct-query growth** - `query-breadth.ts` (14 tests), win rows, `queryBreadth.sentence`
+  rendered at page.tsx:1238, `breadthLine` in "See the math".
+- **288 equivalence testing** - `equivalence.ts` (13 tests); computed in run-measurement (closed
+  28d window, non-won, has Bayesian read); feeds N10 `provenNeutral`; rendered at page.tsx:1261.
+- **289/291 FDR control** - `fdr-adjust.ts` (19 tests, Benjamini-Hochberg, name in comment only);
+  applied at ledger load in `load-ledger.ts` (`attachFdrToLedger`); feeds N10 `fdrCaution`/
+  `fdrPoolSize`; rendered at page.tsx:1245.
+- **291 clean-window salvage** - `clean-window-salvage.ts` (15 tests); reuses the algorithm-weather
+  shock ledger; rendered UNDER the weather caveat at page.tsx:1433.
+- **378 novelty-decay flags** - `novelty-decay.ts` (9 tests); feeds N10 `noveltyDecay` (demotes to
+  shaky); rendered at page.tsx:1315.
+
+**Verified:**
+- `npm run typecheck` - PASS (exit 0).
+- Targeted P4 + N10 suites (query-breadth, equivalence, fdr-adjust, novelty-decay,
+  clean-window-salvage, verdict-reliability, run-measurement): 160 passed.
+- Full `src/domains/proof-gsc/` + `src/app/(shell)/results/`: 61 files, 961 passed.
+- `tests/architecture/design-system-guard.test.ts` + `catalog-sync.test.ts`: 27 passed (design
+  ratchet did NOT go up - P4 sentences render through the existing `<p className>` pattern).
+- **Byte-identical-verdict pin:** verdict-reliability.test.ts explicitly pins that omitting the
+  R10a/R10b `extras` yields grades identical to before the params existed (tests at lines
+  328/334/439/473/504). A fresh/undecided tenant with no P4 extras wired gets byte-identical grades.
+- **History never mutated:** `recordToRow` (shipped-change-store.ts:326) emits NONE of
+  `queryBreadth`/`equivalence`/`noveltyDecay`/`cleanWindowLift`/`fdrRead`/`panelOutcome`/
+  `earlySignal` - all computed-only, recomputed per measure, exactly the shipped `trafficOutcome`
+  pattern. No em/en dashes in any P4 file.
+- **Rendered copy quoted** (via renderToStaticMarkup, the exact page.tsx JSX shape):
+  - 151: "This page now shows up for 13 more searches than before; the win is reach, not just rank."
+  - 289: "This change genuinely did nothing, and I can prove that now; that is different from not
+    knowing. The plausible effect sits between 3 fewer and 4 extra clicks a month, too small to
+    matter either way."
+  - 291: "With 5 changes measured at once, one or two will look like winners by chance; this one is
+    close enough to that line that I am holding the champagne."
+  - 152: "A Google update muddied 9 of these 28 days; on the 19 clean days this change is still up
+    20 percent."
+  - 378: "The first week jump faded. This looks like novelty, not a lasting win. Week 1 ran about 7
+    extra clicks a day and week 4 is back to its old level."
+  - N10 (proven-neutral -> solid): "I would treat this read as solid: this change genuinely did
+    nothing, and I can prove that now; that is different from not knowing. The lesson still counts."
+
+**Result:** P4 is complete and verified. No code changes were required (already shipped); this entry
+records the audit + full re-verification of the shipped state.
+
+---
+
 ## 2026-07-03 - R23 P21: Digest + memory pack (while-you-were-away + product-limits copy)
 
 **Goal:** build the 2 buildable, non-email-gated operator-facing P21 pieces (v1 238 + v1 356).

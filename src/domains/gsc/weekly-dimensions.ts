@@ -40,6 +40,17 @@ export type GscWeeklyDeviceRow = {
   position: number;
 };
 
+/** One country's weekly aggregate (country grain: ISO-3166-1 alpha-3 code,
+ *  e.g. "usa", "irn"). R17c item 428 - one extra low-volatility request in the
+ *  same weekly pass; NEVER rendered as a raw code (plainCountryLabel). */
+export type GscWeeklyCountryRow = {
+  /** Google's raw alpha-3 country code (lowercased). Stored for math and
+   *  diagnostics; NEVER rendered raw (plainCountryLabel does the narrowing). */
+  code: string;
+  clicks: number;
+  impressions: number;
+};
+
 /** One stored weekly snapshot: both dimension pulls over one 7-day final
  *  window. Rows carry tenant_id because the store is written by the nightly
  *  cron fan-out with no request context (same rationale as question-universe). */
@@ -52,6 +63,9 @@ export type GscWeeklyDimensionsSnapshot = {
   pulledAt: string;
   appearance: GscWeeklyAppearanceRow[];
   devices: GscWeeklyDeviceRow[];
+  /** R17c item 428 - country grain. Optional so snapshots written before this
+   *  slice stay valid (an older snapshot simply has no country line). */
+  countries?: GscWeeklyCountryRow[];
 };
 
 /** Keep this many weekly snapshots per tenant (about six months). */
@@ -129,6 +143,77 @@ const APPEARANCE_DROP_MIN_PRIOR_SHARE = 0.05;
 /** Device visitors line floor: under this many weekly clicks, stay silent. */
 export const DEVICE_MIN_WEEKLY_CLICKS = 30;
 
+/** Country line floor: under this many weekly clicks, a market split is noise. */
+export const COUNTRY_MIN_WEEKLY_CLICKS = 30;
+/** A second market only earns a mention at or above this share of clicks. */
+export const COUNTRY_SECOND_MARKET_MIN_SHARE = 0.05;
+
+// ---------------------------------------------------------------------------
+// Plain country names for Google's alpha-3 codes. Unknown codes self-hide
+// (the country line only names markets we can render in plain words), so a new
+// or obscure code can never leak "irn" / "usa" onto a surface.
+// ---------------------------------------------------------------------------
+
+const COUNTRY_PLAIN_NAME: Record<string, string> = {
+  usa: "the United States",
+  can: "Canada",
+  gbr: "the United Kingdom",
+  aus: "Australia",
+  irn: "Iran",
+  deu: "Germany",
+  fra: "France",
+  ind: "India",
+  pak: "Pakistan",
+  are: "the United Arab Emirates",
+  tur: "Turkey",
+  nld: "the Netherlands",
+  swe: "Sweden",
+  esp: "Spain",
+  ita: "Italy",
+  bra: "Brazil",
+  mex: "Mexico",
+  jpn: "Japan",
+  chn: "China",
+  kor: "South Korea",
+  rus: "Russia",
+  sau: "Saudi Arabia",
+  isr: "Israel",
+  che: "Switzerland",
+  bel: "Belgium",
+  aut: "Austria",
+  nzl: "New Zealand",
+  irl: "Ireland",
+  nor: "Norway",
+  dnk: "Denmark",
+  fin: "Finland",
+  pol: "Poland",
+  prt: "Portugal",
+  grc: "Greece",
+  zaf: "South Africa",
+  egy: "Egypt",
+  arg: "Argentina",
+  sgp: "Singapore",
+  mys: "Malaysia",
+  idn: "Indonesia",
+  phl: "the Philippines",
+  tha: "Thailand",
+  vnm: "Vietnam",
+  hkg: "Hong Kong",
+  twn: "Taiwan",
+  qat: "Qatar",
+  kwt: "Kuwait",
+  irq: "Iraq",
+  afg: "Afghanistan",
+  ukr: "Ukraine",
+};
+
+/** Plain-words name for one alpha-3 country code, or null when we do not have a
+ *  plain name for it (the country line skips codes it cannot render, so no raw
+ *  code ever reaches a surface). */
+export function plainCountryLabel(code: string): string | null {
+  return COUNTRY_PLAIN_NAME[(code ?? "").toLowerCase()] ?? null;
+}
+
 /** The pure trigger input for the mobile-vs-desktop click gap predicate. */
 export type DeviceCtrGapSignal = {
   weekStart: string;
@@ -149,6 +234,10 @@ export type GscWeeklyLens = {
   pulledAt: string;
   /** "7 in 10 of your Google visitors are on phones." Null under the floor. */
   deviceLine: string | null;
+  /** "Most of your Google traffic is from the United States (78 percent);
+   *  Iran is your second market (11 percent)." Null under the floor / when we
+   *  cannot render the top market in plain words. */
+  countryLine: string | null;
   /** "About 1 in 5 of your Google appearances show with extra styling ..."
    *  Null when the share is not meaningful. */
   appearanceLine: string | null;
@@ -258,6 +347,36 @@ export function buildDeviceLine(snapshot: GscWeeklyDimensionsSnapshot): string |
   return `${tenths} in 10 of your Google visitors are on phones.`;
 }
 
+/**
+ * "Most of your Google traffic is from the United States (78 percent); Iran is
+ * your second market (11 percent)." Built from the week's country clicks.
+ * Null when country grain is absent (older snapshot), under the weekly click
+ * floor, or when the top market has no plain-words name (never a raw code).
+ * A single-market property gets the honest one-clause version.
+ */
+export function buildCountryLine(snapshot: GscWeeklyDimensionsSnapshot): string | null {
+  const rows = (snapshot.countries ?? []).filter((c) => (Number(c.clicks) || 0) > 0);
+  if (rows.length === 0) return null;
+  const total = rows.reduce((s, c) => s + (Number(c.clicks) || 0), 0);
+  if (total < COUNTRY_MIN_WEEKLY_CLICKS) return null;
+  const sorted = [...rows].sort((a, b) => b.clicks - a.clicks);
+  const top = sorted[0]!;
+  const topName = plainCountryLabel(top.code);
+  if (topName == null) return null; // never render a raw code
+  const topShare = Math.round((top.clicks / total) * 100);
+  const lead = `Most of your Google traffic is from ${topName} (${topShare} percent)`;
+
+  const second = sorted[1];
+  if (second) {
+    const secondShare = second.clicks / total;
+    const secondName = plainCountryLabel(second.code);
+    if (secondName != null && secondShare >= COUNTRY_SECOND_MARKET_MIN_SHARE) {
+      return `${lead}; ${secondName} is your second market (${Math.round(secondShare * 100)} percent).`;
+    }
+  }
+  return `${lead}.`;
+}
+
 /** Extract the trigger input; null when either device row is absent. */
 export function deviceCtrGapSignalOf(
   snapshot: GscWeeklyDimensionsSnapshot,
@@ -294,14 +413,16 @@ export function buildWeeklyLens(
 ): GscWeeklyLens | null {
   if (!current) return null;
   const deviceLine = buildDeviceLine(current);
+  const countryLine = buildCountryLine(current);
   const appearanceLine = buildAppearanceLine(current);
   const appearanceDropLine = buildAppearanceDropLine(current, prior);
-  if (!deviceLine && !appearanceLine && !appearanceDropLine) return null;
+  if (!deviceLine && !countryLine && !appearanceLine && !appearanceDropLine) return null;
   return {
     weekStart: current.weekStart,
     weekEnd: current.weekEnd,
     pulledAt: current.pulledAt,
     deviceLine,
+    countryLine,
     appearanceLine,
     appearanceDropLine,
     deviceGap: deviceCtrGapSignalOf(current),

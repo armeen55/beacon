@@ -13,6 +13,15 @@ import { loadStrikingPortfolio } from "@/domains/gsc/load-striking-portfolio";
 // to 100th with real demand: invisible everywhere else, each one a page idea.
 // Self-hiding section; the same loader feeds the question universe.
 import { loadBackOfResultsRegister } from "@/domains/gsc/load-back-of-results";
+// R17c (v1 138) - a budgeted check of whether Google has actually indexed the
+// tenant's highest-demand owned pages (a page can rank yet still be missing
+// from Google's index). Bounded to GSC_INSPECT_PER_RENDER_LIMIT, self-hiding.
+import { loadIndexationSweep } from "@/domains/gsc/load-indexation-sweep";
+// R17c (v1 491 + 493) - the total Google footprint roll-up (pages x searches x
+// appearances, $0 from synced data) and the Google Discover probe (a separate
+// feed that self-hides when the property has no Discover data).
+import { loadGscFootprint } from "@/domains/gsc/load-footprint";
+import { loadDiscoverPresence } from "@/domains/gsc/load-footprint";
 import { Card } from "@/components/ui/card";
 import { SectionHeader } from "@/components/ui/section-header";
 import { currentTenantId } from "@/lib/tenant-context";
@@ -84,6 +93,30 @@ export default async function KeywordsPage() {
       .catch(() => null),
     null,
   );
+
+  // R17c (v1 138) - the budgeted indexation sweep. Deadline-bounded + fail-soft:
+  // no GSC data, no property, or every top page already indexed just means the
+  // line stays silent (never a bare "0 not indexed").
+  const indexationSweep = await valueWithDeadline(
+    currentTenantId()
+      .then((tid) => loadIndexationSweep(tid))
+      .catch(() => null),
+    null,
+  );
+
+  // R17c (v1 491 + 493) - the total footprint roll-up ($0) and the Discover
+  // probe (one bounded read behind a 12h cache). Both deadline-bounded +
+  // fail-soft: no data just means the line stays silent.
+  const [footprint, discover] = await Promise.all([
+    valueWithDeadline(
+      currentTenantId().then((tid) => loadGscFootprint(tid)).catch(() => null),
+      null,
+    ),
+    valueWithDeadline(
+      currentTenantId().then((tid) => loadDiscoverPresence(tid)).catch(() => null),
+      null,
+    ),
+  ]);
   const portfolioLine = portfolio
     ? `${portfolio.headline}${portfolio.sizingLine ? ` ${portfolio.sizingLine}` : ""}`
     : null;
@@ -95,9 +128,22 @@ export default async function KeywordsPage() {
         description="Every keyword I have researched for you, from Google Search Console, market-volume checks, competitor gaps, and live Google readings, in one sortable list."
       />
       {heroLine && <p className="text-base font-semibold text-gray-900 dark:text-neutral-100">{heroLine}</p>}
+      {/* R17c (v1 491) - the total Google footprint: how much of Google the
+          site occupies right now (pages x searches x appearances). The one
+          presence number no individual row adds up to. Self-hides without GSC. */}
+      {footprint?.line && <p className="text-sm text-muted-foreground tabular-nums">{footprint.line}</p>}
+      {/* R17c (v1 493) - the Google Discover presence, when the property has
+          Discover data. Self-hides honestly when Discover returns nothing. */}
+      {discover?.line && <p className="text-sm text-muted-foreground tabular-nums">{discover.line}</p>}
       {/* R17a (v1 267) - the striking-distance portfolio: the one number the
           individual rows below never add up to. Self-hides without GSC data. */}
       {portfolioLine && <p className="text-sm text-muted-foreground tabular-nums">{portfolioLine}</p>}
+      {/* R17c (v1 138) - the budgeted indexation sweep: top pages Google has
+          not indexed yet (they earn no traffic no matter how good). Self-hides
+          when every checked page is indexed. */}
+      {indexationSweep?.line && (
+        <p className="text-sm font-medium text-status-warning tabular-nums">{indexationSweep.line}</p>
+      )}
       <p className="text-sm text-gray-600 dark:text-neutral-400">{coverageLine}</p>
       {/* R14b (receipts everywhere) - when this library was last checked, from the
           rows' own newest stamp. Self-hides when no row carries one yet. */}

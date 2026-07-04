@@ -149,6 +149,13 @@ export async function gscSearchAnalyticsQuery(
     dataState?: "final" | "all";
     rowLimit?: number;
     startRow?: number;
+    /**
+     * Search Console `type`. Defaults to "web" (organic Search) so every
+     * existing caller is byte-identical. R17c item 493 passes "discover" to
+     * probe the Google Discover surface (a separate feed with its own,
+     * often-empty, data). "news" is documented too; unused for now.
+     */
+    searchType?: "web" | "discover" | "news";
   },
   deps: {
     fetchImpl?: typeof fetch;
@@ -201,7 +208,7 @@ export async function gscSearchAnalyticsQuery(
           startDate: args.startDate,
           endDate: args.endDate,
           dimensions: args.dimensions,
-          type: "web",
+          type: args.searchType ?? "web",
           rowLimit: args.rowLimit ?? GSC_SA_ROW_LIMIT,
           startRow: args.startRow ?? 0,
           dataState: args.dataState ?? "final",

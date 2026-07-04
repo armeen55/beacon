@@ -300,6 +300,11 @@ export const SUPABASE_MIRRORED_STORES = new Set<string>([
   // cache only, 3h TTL; the mirror makes the TTL hold across lambda
   // instances so a busy Today page fires at most one fresh read per window.
   "gsc-fresh-tail",
+  // 2026-07-03 BEACON_500 R17c (v1 493) - the Discover-probe volatile cache
+  // (aggregate Google Discover totals, a separate feed most properties never
+  // receive). Presentation cache only, 12h TTL; the mirror makes the TTL hold
+  // across lambda instances so a quiet feed is probed at most once per window.
+  "gsc-discover-probe",
   // 2026-07-03 BEACON_500 R22a / N41 - idempotent publish outbox. Rows carry
   // tenant_id; written on the push path (a Vercel lambda, no disk). Without the
   // mirror the terminal per-key row would vanish on the next lambda recycle and a

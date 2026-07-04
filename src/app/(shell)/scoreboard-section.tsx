@@ -422,6 +422,11 @@ export async function ScoreboardSection({
               {weeklyLens.deviceLine ? (
                 <p className="text-meta text-muted-foreground tabular-nums">{weeklyLens.deviceLine}</p>
               ) : null}
+              {/* R17c item 428 - which markets your Google traffic comes from,
+                  from the weekly country pull. Self-hides without country grain. */}
+              {weeklyLens.countryLine ? (
+                <p className="text-meta text-muted-foreground tabular-nums">{weeklyLens.countryLine}</p>
+              ) : null}
               {weeklyLens.appearanceLine ? (
                 <p className="text-meta text-muted-foreground tabular-nums">{weeklyLens.appearanceLine}</p>
               ) : null}

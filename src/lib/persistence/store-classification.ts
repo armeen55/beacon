@@ -532,6 +532,13 @@ export const GLOBAL_STORES = new Set<string>([
   // never written to the final daily tables (the is_final discipline is
   // inviolable; src/domains/gsc/load-fresh-tail.ts).
   "gsc-fresh-tail",
+  // Discover-probe volatile presentation cache (2026-07-03, BEACON_500 R17c,
+  // v1 493). Rows carry tenant_id; one row per tenant, 12h TTL. Holds only the
+  // aggregate Google Discover totals (a separate feed most properties never
+  // receive); a null totals is cached so an unavailable feed does not re-probe.
+  // Read-only, never written to the final daily tables
+  // (src/domains/gsc/load-footprint.ts).
+  "gsc-discover-probe",
 ]);
 
 /**

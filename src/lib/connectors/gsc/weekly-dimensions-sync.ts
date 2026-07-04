@@ -10,6 +10,8 @@
  *                       (FAQ snippets, review stars, recipe cards, ...)
  *   - device            desktop / mobile / tablet clicks + impressions +
  *                       position
+ *   - country           which markets your Google traffic comes from
+ *                       (R17c item 428, alpha-3 codes, clicks + impressions)
  *
  * Each pull covers ONE 7-day final window ending at the sync engine's own
  * lastFinalDay (today Pacific minus FINAL_LAG_DAYS), dataState "final" only.
@@ -94,6 +96,10 @@ async function pullWeek(args: {
   // ONE device request (DESKTOP / MOBILE / TABLET - at most 3 rows).
   const deviceRows = await args.queryImpl({ ...base, dimensions: ["device"] });
   if (deviceRows == null) return null;
+  // R17c item 428: ONE country request (alpha-3 codes). Same egress discipline
+  // as device / searchAppearance - a low-volatility aggregate, once a week.
+  const countryRows = await args.queryImpl({ ...base, dimensions: ["country"] });
+  if (countryRows == null) return null;
 
   const mapKeyed = (rows: GscSearchAnalyticsRow[]) =>
     rows.filter((r) => Array.isArray(r.keys) && typeof r.keys[0] === "string");
@@ -114,6 +120,11 @@ async function pullWeek(args: {
       clicks: r.clicks ?? 0,
       impressions: r.impressions ?? 0,
       position: r.position ?? 0,
+    })),
+    countries: mapKeyed(countryRows).map((r) => ({
+      code: r.keys[0]!.toLowerCase(),
+      clicks: r.clicks ?? 0,
+      impressions: r.impressions ?? 0,
     })),
   };
 }

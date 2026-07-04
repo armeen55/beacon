@@ -3,13 +3,16 @@ import { describe, it, expect } from "vitest";
 import {
   APPEARANCE_MEANINGFUL_SHARE,
   APPEARANCE_MIN_TOTAL_IMPRESSIONS,
+  COUNTRY_MIN_WEEKLY_CLICKS,
   appearanceShareOf,
   buildAppearanceDropLine,
   buildAppearanceLine,
+  buildCountryLine,
   buildDeviceLine,
   buildWeeklyLens,
   deviceCtrGapSignalOf,
   plainAppearanceLabel,
+  plainCountryLabel,
   shouldPullWeeklyDimensions,
   type GscWeeklyDimensionsSnapshot,
 } from "./weekly-dimensions";
@@ -30,6 +33,11 @@ const snap = (over: Partial<GscWeeklyDimensionsSnapshot> = {}): GscWeeklyDimensi
     { device: "MOBILE", clicks: 140, impressions: 7000, position: 8.2 },
     { device: "DESKTOP", clicks: 100, impressions: 2500, position: 7.9 },
     { device: "TABLET", clicks: 10, impressions: 500, position: 8.5 },
+  ],
+  countries: [
+    { code: "usa", clicks: 195, impressions: 7800 },
+    { code: "irn", clicks: 27, impressions: 1400 },
+    { code: "can", clicks: 15, impressions: 600 },
   ],
   ...over,
 });
@@ -170,6 +178,65 @@ describe("buildDeviceLine", () => {
   });
 });
 
+describe("plainCountryLabel (never a raw alpha-3 code on a surface)", () => {
+  it("maps known codes to plain words", () => {
+    expect(plainCountryLabel("usa")).toBe("the United States");
+    expect(plainCountryLabel("IRN")).toBe("Iran");
+    expect(plainCountryLabel("can")).toBe("Canada");
+  });
+
+  it("returns null for a code we cannot render (so the line skips it, never a raw code)", () => {
+    expect(plainCountryLabel("xyz")).toBeNull();
+    expect(plainCountryLabel("")).toBeNull();
+  });
+});
+
+describe("buildCountryLine (R17c item 428, which markets your traffic comes from)", () => {
+  it("names the top market and a meaningful second market in plain words", () => {
+    // usa 195 of 237 clicks -> 82 percent; irn 27 -> 11 percent.
+    const line = buildCountryLine(snap())!;
+    expect(line).toBe(
+      "Most of your Google traffic is from the United States (82 percent); Iran is your second market (11 percent).",
+    );
+    expect(line).not.toMatch(/\b(usa|irn|can)\b/);
+    expect(BANNED_DASH.test(line)).toBe(false);
+  });
+
+  it("gives the one-clause version when there is no meaningful second market", () => {
+    const s = snap({
+      countries: [
+        { code: "usa", clicks: 200, impressions: 8000 },
+        { code: "can", clicks: 3, impressions: 100 }, // ~1.5 percent, under the floor
+      ],
+    });
+    expect(buildCountryLine(s)).toBe("Most of your Google traffic is from the United States (99 percent).");
+  });
+
+  it("skips a second market with no plain name but still names the top", () => {
+    const s = snap({
+      countries: [
+        { code: "usa", clicks: 150, impressions: 6000 },
+        { code: "xyz", clicks: 50, impressions: 2000 }, // unknown code
+      ],
+    });
+    expect(buildCountryLine(s)).toBe("Most of your Google traffic is from the United States (75 percent).");
+  });
+
+  it("self-hides when the top market has no plain name (never a raw code)", () => {
+    const s = snap({ countries: [{ code: "xyz", clicks: 100, impressions: 4000 }] });
+    expect(buildCountryLine(s)).toBeNull();
+  });
+
+  it("is empty-safe: absent country grain (older snapshot) and thin weeks stay silent", () => {
+    expect(buildCountryLine(snap({ countries: undefined }))).toBeNull();
+    expect(buildCountryLine(snap({ countries: [] }))).toBeNull();
+    const thin = snap({
+      countries: [{ code: "usa", clicks: COUNTRY_MIN_WEEKLY_CLICKS - 1, impressions: 400 }],
+    });
+    expect(buildCountryLine(thin)).toBeNull();
+  });
+});
+
 describe("deviceCtrGapSignalOf", () => {
   it("extracts both device rows with computed click rates", () => {
     const sig = deviceCtrGapSignalOf(snap())!;
@@ -189,6 +256,7 @@ describe("buildWeeklyLens", () => {
   it("assembles all lines from the newest snapshot and self-hides on nothing", () => {
     const lens = buildWeeklyLens(snap(), null)!;
     expect(lens.deviceLine).toContain("phones");
+    expect(lens.countryLine).toContain("the United States");
     expect(lens.appearanceLine).toContain("extra styling");
     expect(lens.appearanceDropLine).toBeNull();
     expect(lens.deviceGap).not.toBeNull();
@@ -197,7 +265,7 @@ describe("buildWeeklyLens", () => {
 
   it("every rendered line is dash-clean and free of lab words", () => {
     const lens = buildWeeklyLens(snap(), snap({ weekEnd: "2026-06-23" }))!;
-    for (const line of [lens.deviceLine, lens.appearanceLine, lens.appearanceDropLine]) {
+    for (const line of [lens.deviceLine, lens.countryLine, lens.appearanceLine, lens.appearanceDropLine]) {
       if (!line) continue;
       expect(BANNED_DASH.test(line)).toBe(false);
       expect(line).not.toMatch(/searchAppearance|impressions|CTR|dimension/i);
