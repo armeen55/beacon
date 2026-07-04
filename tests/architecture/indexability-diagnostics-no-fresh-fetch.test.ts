@@ -122,6 +122,14 @@ const ALLOWED_IMPORT_PATHS: ReadonlySet<string> = new Set([
   // route through the bounded adapter (`load-gsc-signal`), never
   // via direct HTTP. The page itself does NOT call gscUrlInspect.
   "@/domains/indexability/load-gsc-signal",
+  // R23 P16 wiring (2026-07-03) — the site-health panel is a
+  // display-only, self-hiding read layer over the robots signals +
+  // snapshot the page ALREADY loaded. Both detectors are pure
+  // (no fetch, no I/O); the panel is a token-only component. They
+  // add zero fresh-fetch surface — the no-fresh-fetch boundary holds.
+  "@/components/site-health/site-health-panel",
+  "@/domains/site-health/ai-crawler-block",
+  "@/domains/site-health/cms-detect",
 ]);
 
 function extractImportPaths(src: string): string[] {
