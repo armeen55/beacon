@@ -17,6 +17,16 @@ const INDUSTRY_OPTIONS = [
   { value: "other", label: "Other" },
 ] as const;
 
+/** Business-type choices the operator can confirm or override. Ordered so the
+ *  most common self-serve types read first; "I'm not sure" maps to "other". */
+const BUSINESS_TYPE_OPTIONS = [
+  { value: "local_service", label: "A local business (I serve customers in specific places)" },
+  { value: "ecommerce", label: "An online store (I sell products)" },
+  { value: "saas", label: "A software product or app" },
+  { value: "content_publisher", label: "A publication (articles, guides, an encyclopedia)" },
+  { value: "other", label: "I'm not sure yet" },
+] as const;
+
 export type ConfigFormInitial = {
   name: string;
   domain: string;
@@ -24,6 +34,8 @@ export type ConfigFormInitial = {
   phone: string;
   address: string;
   yelpBusinessId: string;
+  /** Auto-derived business type ("" when Beacon has not decided yet). */
+  businessType: string;
   locationsLine: string;
   servicesLine: string;
   competitorsLine: string;
@@ -48,6 +60,7 @@ export function ConfigForm({ initial }: { initial: ConfigFormInitial }) {
   const [industry, setIndustry] = useState(initial.industry);
   const [phone, setPhone] = useState(initial.phone);
   const [address, setAddress] = useState(initial.address);
+  const [businessType, setBusinessType] = useState(initial.businessType);
   const [locationsLine, setLocationsLine] = useState(initial.locationsLine);
   const [servicesLine, setServicesLine] = useState(initial.servicesLine);
   const [competitorsLine, setCompetitorsLine] = useState(initial.competitorsLine);
@@ -62,6 +75,7 @@ export function ConfigForm({ initial }: { initial: ConfigFormInitial }) {
     setIndustry(initial.industry);
     setPhone(initial.phone);
     setAddress(initial.address);
+    setBusinessType(initial.businessType);
     setLocationsLine(initial.locationsLine);
     setServicesLine(initial.servicesLine);
     setCompetitorsLine(initial.competitorsLine);
@@ -74,6 +88,7 @@ export function ConfigForm({ initial }: { initial: ConfigFormInitial }) {
     initial.industry,
     initial.phone,
     initial.address,
+    initial.businessType,
     initial.yelpBusinessId,
     initial.locationsLine,
     initial.servicesLine,
@@ -93,6 +108,7 @@ export function ConfigForm({ initial }: { initial: ConfigFormInitial }) {
         name,
         domain: normalizedDomain,
         industry,
+        businessType,
         phone: phone.trim(),
         address: address.trim(),
         locations: splitList(locationsLine),
@@ -170,6 +186,28 @@ export function ConfigForm({ initial }: { initial: ConfigFormInitial }) {
           placeholder="e.g. your-business-name"
           className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-accent-primary/30"
         />
+      </div>
+      <div>
+        <label htmlFor="config-business-type" className="mb-1.5 block text-[12px] font-medium text-foreground">
+          What kind of business you are
+        </label>
+        <p className="mb-2 text-[11px] text-muted-foreground">
+          {initial.businessType && initial.businessType !== "other"
+            ? "I worked this out from your website. If I got it wrong, pick the right one and I'll tailor everything to it."
+            : "Pick the one that fits best so I can tailor everything to your business."}
+        </p>
+        <select
+          id="config-business-type"
+          value={businessType || "other"}
+          onChange={(e) => setBusinessType(e.target.value)}
+          className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent-primary/30"
+        >
+          {BUSINESS_TYPE_OPTIONS.map((o) => (
+            <option key={o.value} value={o.value}>
+              {o.label}
+            </option>
+          ))}
+        </select>
       </div>
       <div>
         <label htmlFor="config-industry" className="mb-1.5 block text-[12px] font-medium text-foreground">Industry</label>

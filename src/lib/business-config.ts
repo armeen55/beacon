@@ -28,6 +28,22 @@ export interface BusinessConfig {
    */
   contentSiteMode?: boolean;
   /**
+   * Works-for-ANY-business profile engine (2026-07-06) — the auto-derived
+   * business TYPE, so the local-SEO engine + segment toggles light up per
+   * business type with no manual config:
+   *   • local_service     — serves customers in physical places; the local
+   *     engine fires and `locations` are its service areas.
+   *   • content_publisher — encyclopedia/blog/news/docs; no service areas.
+   *   • ecommerce         — sells products online; no service areas.
+   *   • saas              — software product/app; no service areas.
+   *   • other             — ambiguous; local engines stay off until confirmed.
+   * Derived from the tenant's own data (schema types, nav/service vocabulary,
+   * GSC query intent, physical presence). Operator-editable on the config
+   * screen; a manual value is PINNED and never clobbered by re-derivation.
+   * Absent = never derived yet (older tenants stay byte-identical).
+   */
+  businessType?: "local_service" | "content_publisher" | "ecommerce" | "saas" | "other";
+  /**
    * Night-shift #35/#67 (2026-06-11) — per-tenant CONTENT RULES.
    * Plain-English rules every LLM generation for this tenant must
    * follow (e.g. "Call the language Persian, never Farsi."). The page

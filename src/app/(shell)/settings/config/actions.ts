@@ -13,10 +13,21 @@ import {
 import { currentTenantId } from "@/lib/tenant-context";
 import { revalidatePath } from "next/cache";
 
+/** The business types the config screen offers. Mirrors BusinessConfig.businessType. */
+const BUSINESS_TYPES = new Set([
+  "local_service",
+  "content_publisher",
+  "ecommerce",
+  "saas",
+  "other",
+]);
+
 export async function saveSetup(data: {
   name: string;
   domain: string;
   industry: string;
+  /** Operator-confirmed business type. Ignored if not a known value. */
+  businessType?: string;
   phone?: string;
   address?: string;
   yelpBusinessId?: string;
@@ -42,7 +53,13 @@ export async function saveSetup(data: {
   try {
     // MT-3A (2026-05-22) — tenant-aware save (operator settings action).
     const tenantId = await currentTenantId();
-    saveBusinessConfig(tenantId, {
+    // Works-for-ANY-business profile engine (2026-07-06): a valid operator-
+    // picked business type is PERSISTED and thereby PINNED — the nightly
+    // self-heal only fills EMPTY holes, so this value survives re-derivation.
+    // When the operator flags a content publisher we also set contentSiteMode
+    // so their pages classify as content (mirrors the derived path); we never
+    // turn contentSiteMode OFF here (that stays an explicit operator decision).
+    const patch: Partial<BusinessConfig> = {
       name: data.name,
       domain: data.domain,
       industry: data.industry,
@@ -54,7 +71,13 @@ export async function saveSetup(data: {
       primaryCompetitors: data.primaryCompetitors,
       contentRules: data.contentRules ?? [],
       flaggedTerms: data.flaggedTerms ?? [],
-    });
+    };
+    const bt = (data.businessType ?? "").trim();
+    if (bt && BUSINESS_TYPES.has(bt)) {
+      patch.businessType = bt as BusinessConfig["businessType"];
+      if (bt === "content_publisher") patch.contentSiteMode = true;
+    }
+    saveBusinessConfig(tenantId, patch);
     const yelpBid = (data.yelpBusinessId ?? "").trim();
     const yelp = await getYelpConnectorToken();
     if (yelp) {

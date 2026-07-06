@@ -14,6 +14,7 @@ export default async function SettingsConfigPage() {
     name: cfg.name,
     domain: cfg.domain,
     industry: cfg.industry,
+    businessType: cfg.businessType ?? "",
     phone: cfg.phone ?? "",
     address: cfg.address ?? "",
     locationsLine: cfg.locations.join(", "),

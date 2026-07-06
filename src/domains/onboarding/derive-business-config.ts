@@ -23,6 +23,7 @@
 
 import type { BusinessConfig } from "@/lib/business-config";
 import type { DerivedBusinessProfile } from "./derive-business-profile";
+import { classifyBusinessType } from "./business-type";
 
 /** "fredericksburg" → "Fredericksburg"; 2-letter region codes → "TX". */
 export function displayCaseLocation(raw: string): string {
@@ -112,6 +113,20 @@ export function deriveBusinessConfig(
   }
   if (competitors.length > 0) config.primaryCompetitors = competitors;
   if (profile?.contentSiteSignal) config.contentSiteMode = true;
+
+  // Works-for-ANY-business profile engine (2026-07-06): stamp the derived
+  // business TYPE at launch from the site's own signals (schema types +
+  // nav/service vocabulary + physical presence). No GSC exists yet at launch,
+  // so the classifier runs on the profile alone; the nightly self-heal refines
+  // it with query intent later. A confident verdict is recorded; an ambiguous
+  // one ("other") is left unset so the config screen prompts the operator
+  // rather than mislabeling them. NEVER hardcodes a vertical.
+  if (profile) {
+    const verdict = classifyBusinessType({ profile });
+    if (verdict.businessType !== "other") {
+      config.businessType = verdict.businessType;
+    }
+  }
 
   if (profile) {
     const houzz = profileUrlFor(profile.socialProfiles, "houzz.com");
