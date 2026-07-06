@@ -3,6 +3,12 @@ import "server-only";
 import { cache } from "react";
 
 import { currentTenantId } from "@/lib/tenant-context";
+import {
+  getBusinessConfig,
+  hydrateBusinessConfigFromSupabase,
+} from "@/lib/business-config";
+import { isUsableRevenueModel } from "@/domains/revenue/compute-unit-economics";
+import type { ChangeRevenueModel } from "@/domains/proof-gsc/change-dollar-value";
 import { loadResultsLedgerSurface } from "../results/results-ledger-data";
 import { buildReportModel, type ReportModel } from "./report-model";
 
@@ -24,11 +30,35 @@ import { buildReportModel, type ReportModel } from "./report-model";
  *  /results snapshot. Every /reports surface reads THIS so one request serves
  *  one snapshot and the numbers never drift within a page. */
 export const loadReportModel = cache(async (): Promise<ReportModel> => {
-  await currentTenantId(); // ambient-tenant read keeps this in lockstep with /results routing
+  const tenantId = await currentTenantId(); // ambient-tenant read keeps this in lockstep with /results routing
   const surface = await loadResultsLedgerSurface().catch(() => null);
+  const revenueModel = await resolveTenantRevenueModel(tenantId);
   return buildReportModel({
     ledger: surface?.ledger ?? [],
     computedAt: surface?.computedAt ?? new Date().toISOString(),
     now: new Date(),
+    revenueModel,
   });
 });
+
+/**
+ * RANK-2: resolve the operator's own unit-economics rate (business-config item 3)
+ * into the ChangeRevenueModel the money model names the dollar basis with. Same
+ * lookup as the nightly revenue pass + run-measurement's resolver (freshest
+ * Supabase-hydrated config, in-memory fallback). Returns null - so the win cards
+ * show the honest connect-prompt - whenever no usable positive rate is set.
+ * Fail-soft: any config read error degrades to null (no dollars), never throws.
+ */
+async function resolveTenantRevenueModel(
+  tenantId: string,
+): Promise<ChangeRevenueModel | null> {
+  try {
+    const cfg = (await hydrateBusinessConfigFromSupabase(tenantId)) ?? getBusinessConfig(tenantId);
+    const model = cfg.revenueModel;
+    if (!isUsableRevenueModel(model)) return null;
+    if (model.kind === "rpm") return { kind: "rpm", rpmUsd: model.rpmUsd! };
+    return { kind: "per_lead", dollarsPerLead: model.dollarsPerLead! };
+  } catch {
+    return null;
+  }
+}

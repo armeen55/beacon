@@ -141,13 +141,10 @@ describe("report-model: win cards", () => {
 
   it("builds a screenshot-ready headline with a concrete number and no dashes", () => {
     const line = winHeadline({
-      id: "x",
-      path: "/persian-comedians",
       pageName: "persian comedians page",
       changeKind: "title rewrite",
       clicksPerMonth: 38,
       windowDays: 28,
-      shippedOn: "2026-05-20",
     });
     expect(line).toContain("+38 clicks a month");
     expect(line).toContain("measured over 28 days");

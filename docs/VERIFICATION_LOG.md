@@ -7,6 +7,52 @@
 
 ---
 
+## 2026-07-06 - RANK-2: real dollar / revenue ROI on the export-a-win card
+
+**Goal:** make "this change earned about $X a month" real wherever a value exists, and honestly say
+"connect revenue to see dollars" where it does not. VERIFY-FIRST, extend not rebuild.
+
+**STEP 0 audit finding:** the dollar system was already mature. GA4 revenue metric is pulled
+(`runGa4RevenueReport`, `GA4_REVENUE_METRICS`, `revenue_unavailable` fail-soft). A per-tenant value
+model exists (`business-config.revenueModel` = rpm | per_lead, edited in /settings/config). The honest
+money math exists (`change-dollar-value.ts` returns `{usdPerMonth: null-when-no-basis, basisSentence}`;
+`won-dollar-rule.ts` is THE ONE DOLLAR RULE for cumulative dollars). The cumulative-outcome strip
+already renders `estimatedUsdPerMonth`. The genuine gap: the **export-a-win card** (`win-card.tsx` /
+`report-model.ts` WinCard) showed only clicks a month, never the dollar figure a win already carries in
+`dollarValue.usdPerMonth`, and never the honest connect-prompt.
+
+**Built (additive, empty-safe, no invented numbers):**
+- `src/domains/money/resolve-monthly-dollars.ts` - THE one pure money model: `resolveMonthlyDollars`
+  returns `{usd, basis}` where usd is non-null ONLY with a real basis (`value_per_conversion` /
+  `value_per_visit`; `ga4_revenue` reserved for a future measured-payout path). `groundedDollarLine`
+  builds the celebratory line (always "estimate, not measured revenue"); `CONNECT_REVENUE_PROMPT` is
+  the one honest ungrounded string.
+- Wired into `report-model.ts` WinCard (`dollarLine` / `dollarPrompt`, exactly one non-null) and
+  `win-card.tsx` (renders the grounded line or the prompt, tokens + ReceiptLine only).
+- `reports-data.ts` resolves the tenant revenue model (same lookup as run-measurement / nightly pass)
+  and threads it in; fail-soft to null (prompt) on any config error.
+
+**PINS:** no value config + no per-change priced figure => no dollar figure anywhere, honest prompt
+instead; a configured rate but a null-priced win => prompt, never a fake $0; negative/zero => prompt.
+
+**Verified (no dev server; renderToStaticMarkup):**
+- `npm run typecheck` green.
+- New: `tests/domains/money/resolve-monthly-dollars.test.ts` (16), reports-render RANK-2 cases (3).
+- Suites green: money+revenue+reports+results+proof-gsc dollar rules (254), tests/architecture (4810,
+  design-system-guard + no-em-dash + jargon guards all pass), ga4 + recommendation-intelligence +
+  jargon guards (1141).
+- Grounded quote: "This change earned about $420 a month, based on your Search Console clicks and the
+  value you set per lead. This is an estimate at your own rate, not measured revenue."
+- Ungrounded quote: "Connect revenue or tell me what a lead is worth, and I will show these wins in
+  dollars." (NO dollar figure anywhere on the ungrounded card).
+
+**Needs operator input to light up live:** set a value per lead (per_lead) or per 1,000 visits (rpm)
+in /settings/config, OR connect a real revenue source. Until then the win cards honestly show the
+prompt. The config-driven path is proven fully offline; a truly-measured per-change GA4 purchase-
+revenue basis (`ga4_revenue`) has no code path yet (that revenue lives page-level in `revenue_facts`).
+
+---
+
 ## 2026-07-03 - R17 (P2 GSC depth pack): close R17b test gap + build R17c
 
 **Goal:** finish R17 by (1) closing the R17b test gap and (2) building the genuinely-missing R17c

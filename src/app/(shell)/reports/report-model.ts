@@ -31,7 +31,12 @@ import {
   computeCumulativeOutcome,
   type CumulativeOutcome,
 } from "@/domains/proof-gsc/cumulative-outcome";
-import { toMonthlyRate } from "@/domains/proof-gsc/change-dollar-value";
+import { toMonthlyRate, type ChangeRevenueModel } from "@/domains/proof-gsc/change-dollar-value";
+import {
+  resolveMonthlyDollars,
+  groundedDollarLine,
+  CONNECT_REVENUE_PROMPT,
+} from "@/domains/money/resolve-monthly-dollars";
 import { buildRecapItems, type RecapItem } from "../results/results-recap";
 import { plainChangeKind } from "@/lib/plain-language";
 
@@ -55,6 +60,15 @@ export type WinCard = {
   shippedOn: string;
   /** The one screenshot-ready sentence. */
   headline: string;
+  /** RANK-2 (real dollar ROI): the grounded "this change earned about $X a
+   *  month" line when the win carries a positive dollar figure at the operator's
+   *  configured rate. Null when there is no usable basis - the card then shows
+   *  `dollarPrompt` instead. NEVER an invented number. */
+  dollarLine: string | null;
+  /** The honest connect-prompt shown IN PLACE OF a dollar figure when no basis
+   *  exists. Non-null exactly when `dollarLine` is null, so the card always
+   *  says something true about money and never a fake $0. */
+  dollarPrompt: string | null;
 };
 
 export type ReportModel = {
@@ -110,7 +124,9 @@ export function winClicksPerMonthOf(rec: ShippedChangeRecord): {
  *  rewrite, measured over 28 days."
  * Plain, first person, a concrete number, no lab words, no dashes.
  */
-export function winHeadline(card: Omit<WinCard, "headline">): string {
+export function winHeadline(
+  card: Pick<WinCard, "pageName" | "clicksPerMonth" | "changeKind" | "windowDays">,
+): string {
   const clicks = card.clicksPerMonth.toLocaleString("en-US");
   const window =
     card.windowDays > 0 ? `, measured over ${card.windowDays} days` : "";
@@ -126,12 +142,21 @@ export function winHeadline(card: Omit<WinCard, "headline">): string {
 export function buildWinCards(
   ledger: ReadonlyArray<ShippedChangeRecord>,
   now: Date,
+  /** RANK-2: the operator's configured revenue model, used ONLY to name the
+   *  dollar basis (the number itself already lives in each record's dollarValue).
+   *  Null/undefined = no usable rate, so every card shows the honest prompt. */
+  revenueModel?: ChangeRevenueModel | null,
 ): WinCard[] {
   const split = splitLedgerLifecycle(ledger, now);
   const cards: WinCard[] = [];
   for (const rec of split.won) {
     const { clicksPerMonth, windowDays } = winClicksPerMonthOf(rec);
     if (clicksPerMonth <= 0) continue;
+    // RANK-2 dollar line: resolve the win's own already-priced dollarValue
+    // through THE money model. A grounded positive figure -> the celebratory
+    // dollar line; anything else -> the honest connect-prompt (never a fake $0).
+    const money = resolveMonthlyDollars({ dollarValue: rec.dollarValue, revenueModel });
+    const dollarLine = groundedDollarLine(money);
     const base = {
       id: rec.id,
       path: rec.path,
@@ -140,6 +165,8 @@ export function buildWinCards(
       clicksPerMonth,
       windowDays,
       shippedOn: (rec.shippedAt ?? "").slice(0, 10),
+      dollarLine,
+      dollarPrompt: dollarLine == null ? CONNECT_REVENUE_PROMPT : null,
     };
     cards.push({ ...base, headline: winHeadline(base) });
   }
@@ -163,11 +190,15 @@ export function buildReportModel(input: {
   ledger: ReadonlyArray<ShippedChangeRecord>;
   computedAt: string;
   now?: Date;
+  /** RANK-2: the operator's configured revenue model, threaded to buildWinCards
+   *  so each win's dollar line names the right basis. Null/undefined = no rate,
+   *  so the win cards show the honest connect-prompt instead of a dollar figure. */
+  revenueModel?: ChangeRevenueModel | null;
 }): ReportModel {
   const now = input.now ?? new Date();
   const ledger = input.ledger;
   const outcome = computeCumulativeOutcome(ledger, now);
-  const wins = buildWinCards(ledger, now);
+  const wins = buildWinCards(ledger, now, input.revenueModel);
   const misses = buildRecapItems(ledger, plainChangeKind);
   const shippedThisMonth = ledger.filter((r) =>
     shippedWithinWindow(r.shippedAt ?? "", now, REPORT_WINDOW_DAYS),

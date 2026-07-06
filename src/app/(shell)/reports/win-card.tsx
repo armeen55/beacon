@@ -74,6 +74,15 @@ export function WinCardView({
         </p>
       </div>
 
+      {/* RANK-2 (real dollar ROI): the grounded "earned about $X a month" line
+          when the win carries a positive dollar figure at the operator's rate;
+          otherwise the honest connect-prompt in its place. Never a fake $0. */}
+      {win.dollarLine ? (
+        <p className="text-sub font-medium text-foreground">{win.dollarLine}</p>
+      ) : win.dollarPrompt ? (
+        <p className="text-body text-foreground-secondary">{win.dollarPrompt}</p>
+      ) : null}
+
       <ReceiptLine line={receipt} />
     </Card>
   );
