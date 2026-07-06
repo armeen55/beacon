@@ -38,8 +38,10 @@ const MENTIONS_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const DEFAULT_ENDPOINT = "https://api.dataforseo.com/v3/ai_optimization/chat_gpt/llm_responses/live";
 const DEFAULT_MODEL = "gpt-4o-mini"; // cheapest model with web_search support
 const MAX_OUTPUT_TOKENS = 600;
-/** Hard ceiling on topics per run - bounds worst-case spend to 5 x $0.03. */
-const MAX_TOPICS_PER_RUN = 5;
+/** Hard ceiling on topics per run - bounds worst-case spend to 5 x $0.03.
+ *  Exported (RANK-8) so the nightly topic-mentions scheduler caps its pick to
+ *  the same ceiling instead of duplicating the number. */
+export const MAX_TOPICS_PER_RUN = 5;
 
 // ---------------------------------------------------------------------------
 // Engine support (2026-07-01, master plan item 4). DataForSEO exposes the

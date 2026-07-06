@@ -7,6 +7,117 @@
 
 ---
 
+## 2026-07-06 - RANK-7: BACKLINKS link-gap engine (the "#1 ranking" half) + outreach feed
+
+**Goal:** turn the already-built backlink reads + winnability arithmetic into a real link-authority
+Move, and feed the fully-built-but-starved outreach pipeline its first backlink-gap signals.
+VERIFY-FIRST, extend not rebuild.
+
+**STEP 0 findings (the audit confirmed exactly):**
+- `dataforseo-labs.ts` ALREADY reads referring domains (`runBacklinksSummary`, `parseBacklinksSummary`)
+  through the shared money gauntlet (30d cache, dry-run default, fail-closed shared cap). Not a gap.
+- `winnability.ts` ALREADY does the backlink-gap arithmetic (`theirAvg / ownCount`, `>50x` reject
+  UNLESS difficulty `< 30`). Not a gap.
+- `outreach/pipeline.ts` (mine-leads / draft-pitch / send-pitch) is FULLY built but was fed ZERO
+  backlink-gap signals - `mineOutreachLeads` had exactly 3 sources (wiki_gap, keyword_gap_competitor,
+  profound_citation).
+- CONFIRMED: reads + arithmetic + outreach exist, but there was NO link-gap DETECTION trigger and the
+  outreach pipeline got no backlink signals.
+
+**What I built (deterministic over the existing $0 reads, no new paid pattern):**
+1. `src/domains/link-authority/link-gap.ts` (PURE) - `computeLinkGaps` reuses `computeWinnability`'s
+   backlink arithmetic: emits when a competitor RANKS (rank <= 20), you rank poorly (> 10 or absent),
+   BOTH referring-domain reads are present, the multiple exceeds 50x, AND Google difficulty is not low.
+2. `src/domains/link-authority/load-link-gaps.ts` (loader I/O, $0) - joins the cached keyword-gap store
+   with `readAllCachedBacklinks` (NEW $0 cache-only helper in `dataforseo-labs.ts`, mirror of
+   `readAllCachedKeywordDifficulty`) + cached difficulty. No fresh paid call, no cron phase (RANK-8
+   owns nightly - noted as a follow-up if a durable snapshot is ever wanted).
+3. `src/domains/link-authority/to-outreach-signals.ts` (PURE) - turns link gaps into the digital-PR
+   outreach targets `mine-leads.ts` merges (new 4th `link_gap` lead source).
+4. `triggers/link-gap.ts` (PURE) - emits `pursue_local_pr` (existing off-site authority action, so the
+   registry stays at 40 and applyQueueRules routes it to diagnostic_only, promotion stays blocked -
+   correct for a "build authority first" manual play). trigger_signal `link_gap`.
+5. Wired the outreach feed: `OutreachLeadSource += "link_gap"` (text column, no migration),
+   `computeOutreachLeads` gains an optional `linkGapTargets` (byte-identical when omitted),
+   `mineOutreachLeads` loads + merges them, `sourcesChecked.linkGap`, pipeline.ts messaging.
+
+**Quoted rendered copy (customer_copy, via renderToStaticMarkup in the trigger + diagnostics tests):**
+> supplehomes.com ranks for "persian rugs" and their page has about 70x the links from other sites
+> that yours does (210 referring domains to your 3). You likely cannot outrank them by editing the
+> page alone here, so build authority first: earn a few strong links to this topic before you keep
+> polishing the page.
+
+**Empty-safe pin:** no warmed backlink cache OR gap within threshold => `loadLinkGapsForTenant` returns
+`[]` => loader adds nothing => byte-identical to before RANK-7 (a content tenant is a complete no-op).
+No outreach `link_gap` lead either. Pinned by tests in link-gap / load-link-gaps / trigger / compute-leads.
+
+**Counter pins fixed (36 -> 37):** `PREDICATE_COUNT` in load-trigger-candidates-for-tenant.ts; the two
+loader-test assertions + it()-title (predicates_run=37); the it()-title + two assertions in
+recommendation-triggers-page.test.tsx (predicates_run counter reads 37, data-description-predicates-run="37").
+New copy template `linkGapCopy` registered in the customer-copy-vocab PROBE_SETS.
+
+**Verified:** `npm run typecheck` clean. Targeted suites all green: link-authority (3 files), triggers
+(incl. link-gap), serp/dataforseo-labs (+readAllCachedBacklinks), outreach (all), copy-vocab,
+predicate-purity, catalog-sync, registry-active-set, offsite-contract, design-system-guard, loader +
+counters. Broad sweep `tests/architecture/` + `src/domains/recommendation-intelligence/triggers/` +
+`tests/domains/recommendation-intelligence/` = 300 files, 5922 passed / 32 skipped. No live paid call in
+tests, no dev server. Ratchet (design-system-guard) did NOT go up.
+
+**Needs live DataForSEO backlink data to prove end-to-end:** the gap only fires once a real verdict run
+has warmed the `bulk_referring_domains` cache for the competitor's AND the tenant's pages (the reads are
+$0-cache-only by design). Also: the outreach lead currently names the competitor domain as the digital-PR
+starting point; listing the ACTUAL high-authority referring domains linking to a competitor needs a
+backlinks referring-domains-LIST read (the current cached read is counts-only) - a bounded follow-up.
+
+## 2026-07-06 - RANK-8: nightly auto-scheduling of the built-but-orphaned DataForSEO AI-visibility poll
+
+**Goal:** make the competitor-AI-visibility intelligence track itself nightly instead of only on an
+operator click. VERIFY-FIRST, extend not rebuild.
+
+**STEP 0 findings (the premise corrected by the code):**
+- The per-prompt AI-engine poll (`runLlmPromptResponses` via `run-engine-poll.ts`) was ALREADY
+  scheduled: `/api/cron/ai-engines` is registered in `vercel.json` (Mon/Wed/Fri 10:17), idempotent
+  per UTC night, full gauntlet. Not a gap.
+- `runHistoricalVolume` (seasonality) was ALREADY nightly: cron-sync PHASE 1d-3 (peak calendar) calls
+  it every night for the top seasonal cluster heads, riding the 30d cache + dry-run + fail-closed cap.
+  Not "ad-hoc-only". Left untouched.
+- The REAL gap: `runLlmMentions` (the topic-level "which domains does AI cite for this TOPIC" producer
+  in `dataforseo-llm-mentions.ts`) had ZERO callers anywhere in `src/` - no cron, no route, no action.
+  Its 7d cache (`dataforseo-llm-mentions` store) is READ at $0 by FIVE surfaces (war-room AI band,
+  team standup, coverage map, sov-weekly, second-order-citations) via `readAllCachedLlmMentions`, but
+  NOTHING ever filled it, so those surfaces rendered permanently empty.
+
+**Built (additive, respects every cost rail):**
+- `src/domains/ai-visibility/run-topic-mentions.ts` - `runTopicMentionsForTenant`: picks the tenant's
+  top demand-graph node labels (by fused `demandWeight`) as topics, passes real node queries as the
+  question when present, and calls `runLlmMentions` through its full existing gauntlet. Adds the N43
+  global breaker as the OUTER guard on the paid path (projected at worst-case = every topic a miss),
+  fail-closed, hermetic under vitest. $0-when-inactive PIN: with DataForSEO unconfigured OR dry-run on
+  (both defaults) it returns a typed no-op BEFORE reading the graph and BEFORE any paid path - never
+  spends, never side-effects. Caps at `MAX_TOPICS_PER_RUN` (5; now exported); never throws.
+- Wired into `cron-sync.ts` as isolated fail-soft PHASE 2a-m (after the teardown, before precompute),
+  deadline-bounded like the other enrichment phases. Honest receipt added to the `cron_runs` notes:
+  `{ topicMentions: { tenants, polled, skipped, costUsd } }`.
+
+**Cadence + caps:** nightly, but the 7d per-(model,topic) cache means ~6 of 7 nights are $0 cache
+hits; only an aged-out topic spends. Worst case 5 topics x $0.03 = ~$0.15/tenant on a refresh night.
+Every rail respected, none loosened.
+
+**Verified:** `npm run typecheck` clean. `npx vitest run` (clean shell) green:
+- new `run-topic-mentions.test.ts` 14/14 (polls when configured+stale+affordable; $0 NO-OP +
+  runMentions never called when unconfigured/dry-run; cache_hit/capped $0; breaker trip + breaker
+  throw both fail-closed and hold the call; worst-case projection; topic cap; noise/dedupe;
+  fail-soft on graph-throw and producer-throw; status mapping). All DataForSEO/ledger/breaker MOCKED,
+  no live paid call, no dev server.
+- affected suites: dataforseo-llm-mentions + cost-breaker + dataforseo-labs 86/86; budget-ledger +
+  verify-budget-ledger + ops-pipeline-section + investigation-section + trend/seasonal surface-pins
+  85/85; full ai-visibility folder 293/293.
+
+**Needs a live DataForSEO account + cap headroom to prove:** with `DATAFORSEO_DRY_RUN=false` + a
+configured key + a non-empty demand graph, one nightly run should populate the mention cache and light
+up the five reader surfaces (expected first-night spend <= ~$0.15/tenant; subsequent nights $0 on cache
+hits). Cannot be proven from this env (Google/Supabase/OpenAI keys only, DataForSEO in dry-run).
+
 ## 2026-07-06 - RANK-2: real dollar / revenue ROI on the export-a-win card
 
 **Goal:** make "this change earned about $X a month" real wherever a value exists, and honestly say

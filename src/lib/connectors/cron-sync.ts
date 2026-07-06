@@ -31,6 +31,7 @@ import { computePeakCalendar } from "@/domains/seasonal/seasonality";
 import { writePeakCalendar } from "@/domains/seasonal/peak-calendar-store";
 import { loadSeasonalQueries } from "@/domains/seasonal/seasonal-store";
 import { runHistoricalVolume, HISTORICAL_VOLUME_KEYWORDS_LIMIT } from "@/domains/serp/dataforseo-labs";
+import { runTopicMentionsForTenant, type TopicMentionsRunResult } from "@/domains/ai-visibility/run-topic-mentions";
 import { runLanguageGapPass } from "@/domains/language-gap/run-language-gap-pass";
 import { writeLanguageGapSummary } from "@/domains/language-gap/language-gap-store";
 import { loadQuarterlyDecayForTenant } from "@/domains/refresh/load-quarterly-decay";
@@ -306,6 +307,10 @@ export async function syncAllConnectedForActiveTenants(): Promise<CronSyncResult
   const pastDeadline = () => Date.now() - startMs > ENRICH_DEADLINE_MS;
   const tenants = (await listTenants()).filter((t) => t.status === "active");
   const results: CronSyncSourceResult[] = [];
+  // RANK-8 topic-mentions receipt accumulator (filled in PHASE 2a-m below), read
+  // into the cron_runs notes at the end so the run honestly logs what the paid
+  // AI-visibility poll polled, skipped, and spent.
+  const topicMentions: TopicMentionsRunResult[] = [];
   // PHASE 1 — sync every tenant's data first (the critical path). LLM precompute
   // is deferred to phase 2 so a slow draft can never starve a later tenant's sync
   // if the 300s cron cap is approached.
@@ -858,6 +863,46 @@ export async function syncAllConnectedForActiveTenants(): Promise<CronSyncResult
     }
   }
 
+  // PHASE 2a-m (RANK-8, 2026-07-06) - nightly competitor-AI-visibility topic
+  // poll. runTopicMentionsForTenant picks the tenant's top demand-graph topics
+  // and asks a real LLM (through DataForSEO's ai_optimization API) which DOMAINS
+  // it cites for each, refreshing the mention cache that the war-room AI band,
+  // team standup, coverage map, sov-weekly, and second-order-citations all READ
+  // at $0 but which no job ever FILLED. Runs AFTER the teardown (so the freshest
+  // graph feeds topic selection) and BEFORE the precompute. Full money gauntlet
+  // lives inside the runner: with DataForSEO UNCONFIGURED or DRY-RUN on (both the
+  // defaults) this is a byte-identical $0 no-op that never even reads the graph;
+  // otherwise it is 7d-cached per topic (so ~6 of 7 nights are $0 cache hits),
+  // gated by the N43 global breaker on the paid path, capped at 5 topics/tenant
+  // (worst case ~$0.15 on a refresh night), and re-checks the shared fail-closed
+  // monthly cap before every call. Isolated try/catch per tenant, deadline-bounded
+  // like the other enrichment phases; a failure never touches the sync result.
+  for (const t of tenants) {
+    if (pastDeadline()) {
+      log.info("[cron-sync] enrichment deadline reached, skipping remaining topic-mentions polls");
+      break;
+    }
+    try {
+      const tm = await runTopicMentionsForTenant(t.id);
+      topicMentions.push(tm);
+      if (tm.status === "ok" || tm.costUsd > 0) {
+        log.info("[cron-sync] topic mentions polled", {
+          tenantId: t.id,
+          status: tm.status,
+          topics: tm.topics.length,
+          records: tm.records,
+          costUsd: Number(tm.costUsd.toFixed(4)),
+        });
+      }
+    } catch (e) {
+      log.warn("[cron-sync] topic-mentions poll failed", {
+        tenantId: t.id,
+        error: e instanceof Error ? e.message.slice(0, 200) : String(e),
+      });
+      await reportPhaseError("topic-mentions", t.id, e);
+    }
+  }
+
   // PHASE 2a-q (BEACON_500 R11 / N30) - demand-ranked question universe. Merges
   // every question-shaped signal already synced above (GSC queries, AI fanouts,
   // the tenant question library, captured People-also-ask rows) into ONE ranked,
@@ -1183,6 +1228,23 @@ export async function syncAllConnectedForActiveTenants(): Promise<CronSyncResult
         tenants: tenants.length,
         tokenExpiryChecked,
         tokenExpiryWarningsSent,
+        // RANK-8 honest topic-mentions receipt: how many tenants polled, how many
+        // were a $0 no-op (disabled / dry-run / cache-fresh / capped / breaker),
+        // and the total spent tonight on the competitor-AI-visibility poll.
+        topicMentions: {
+          tenants: topicMentions.length,
+          polled: topicMentions.filter((r) => r.status === "ok").length,
+          skipped: topicMentions.filter(
+            (r) =>
+              r.status === "disabled" ||
+              r.status === "dry_run" ||
+              r.status === "cache_hit" ||
+              r.status === "capped" ||
+              r.status === "breaker_tripped" ||
+              r.status === "no_topics",
+          ).length,
+          costUsd: Math.round(topicMentions.reduce((s, r) => s + r.costUsd, 0) * 10000) / 10000,
+        },
       },
     });
   } catch (e) {
