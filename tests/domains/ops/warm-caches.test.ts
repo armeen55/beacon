@@ -98,6 +98,8 @@ function makeDeps(overrides: Partial<WarmCachesDeps> = {}) {
         regenerated: 0,
         stoppedForBudget: false,
         llmCostUsd: 0,
+        winnabilityHeld: 0,
+        serpCostUsd: 0,
         outcomes: [],
       };
     }),
@@ -286,6 +288,8 @@ describe("warmTenantCaches", () => {
           regenerated: 0,
           stoppedForBudget: false,
           llmCostUsd: 0.042,
+          winnabilityHeld: 0,
+          serpCostUsd: 0,
           outcomes: [],
         };
       }),

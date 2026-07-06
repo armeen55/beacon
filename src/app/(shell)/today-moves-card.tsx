@@ -572,6 +572,28 @@ export function MoveCard({
         </div>
       ) : null}
 
+      {/* RANK-3: the honest live Google-results winnability line. Held moves get the
+          warning treatment (I am holding this), winnable moves the success
+          treatment (worth doing). Tokens only (status-warning / status-success),
+          no raw palette - design-system-guard enforces it. Only renders when a
+          live Google-results check produced a verdict. */}
+      {m.winnabilityLine ? (
+        <div
+          className={
+            m.winnabilityHeld
+              ? "mt-2 flex items-start gap-1.5 rounded-lg border border-status-warning/25 bg-status-warning-bg px-3 py-2 text-body text-status-warning"
+              : "mt-2 flex items-start gap-1.5 rounded-lg border border-status-success/25 bg-status-success-bg px-3 py-2 text-body text-status-success"
+          }
+        >
+          {m.winnabilityHeld ? (
+            <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
+          ) : (
+            <Zap className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
+          )}
+          <span>{stripBannedDashes(m.winnabilityLine)}</span>
+        </div>
+      ) : null}
+
       {m.preparedChecklist ? (
         <div className="mt-3 rounded-xl border border-indigo-100 bg-indigo-50/50 px-3 py-2.5">
           <div className="flex flex-wrap items-center gap-1.5">

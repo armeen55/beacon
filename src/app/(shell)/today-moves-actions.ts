@@ -39,7 +39,12 @@ export type PrepareTopMovesResult =
  * Moves and persists each pack, so the cockpit arrives "ready to review" instead
  * of chore-ready. Operator-gated, fires only on explicit click (never on render),
  * cache-first + capped (one budgeted LLM draft per Move; re-runs are cheap). NO
- * publish, NO SERP, NO migration. Revalidates "/" so the hero re-renders prepared.
+ * publish, NO migration. RANK-3: it now also runs a LIVE Google-results
+ * winnability check per existing-page Move (cache-first, behind runSerpQuery's
+ * full money gauntlet, so it makes NO paid call when SERP is unconfigured or
+ * dry-run); an effectively-unwinnable Move is held at "serp_checked" with an
+ * honest line instead of a confident "ready" draft. Revalidates "/" so the hero
+ * re-renders prepared.
  */
 export async function prepareTopMovesAction(opts: { maxN?: number } = {}): Promise<PrepareTopMovesResult> {
   if (!(await isOperatorModeServer())) return { ok: false, reason: "Operator mode only." };

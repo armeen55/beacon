@@ -27,6 +27,11 @@ import { ExperimentPlanSchema, type ExperimentPlan, type ImplementationStep } fr
 import type { EvidencePacket } from "./evidence-packet";
 import { classifyQueryIntent } from "@/domains/experiments/answer-intent";
 import { loadFamilyDemandProfiles } from "@/domains/seasonal/family-demand-profile-store";
+import { runSerpQuery } from "@/domains/serp/dataforseo-serp";
+import { validateCreatePage } from "@/domains/serp/serp-validation";
+import { rootDomain } from "@/domains/serp/serp-provider";
+import { parsePreparedVerdict, type PreparedSerpVerdict } from "@/domains/serp/prepare-create-page-verdicts";
+import { decideExistingPageHold, type ExistingMoveType } from "@/domains/serp/existing-page-winnability";
 import { log } from "@/lib/logger";
 
 /** First path segment groups a family - mirrors pageFamilyOf in
@@ -82,6 +87,15 @@ export type PrepareMovesSummary = {
   /** True if the per-run $ cap stopped the batch before all targets were processed. */
   stoppedForBudget: boolean;
   llmCostUsd: number;
+  /** RANK-3: moves the live Google-results check judged effectively unwinnable
+   *  (marketplace/structural top results, or the winnability numbers reject
+   *  them) and therefore CAPPED at serp_checked instead of drafting a confident
+   *  "ready" move that cannot rank. 0 on a run where no move was held. */
+  winnabilityHeld: number;
+  /** RANK-3: SERP spend from the live existing-page winnability checks this run
+   *  (separate from llmCostUsd). 0 when every check was a cache hit / dry-run /
+   *  unconfigured (no live call). */
+  serpCostUsd: number;
   outcomes: PrepareMoveOutcome[];
 };
 
@@ -265,6 +279,82 @@ function draftExcerpt(pack: PreparedMovePack | null): string | null {
   return typeof text === "string" && text.trim() ? text.trim().slice(0, 200) : null;
 }
 
+/** The existing-page move types the RANK-3 live Google-results check applies to
+ *  (create_page candidates are checked separately by prepare-create-page-verdicts). */
+const EXISTING_MOVE_TYPES = new Set<string>(["answer_block", "edit_page", "fix_experience"]);
+const SERP_VERDICT_FRESH_MS = 14 * 24 * 60 * 60 * 1000; // align to the 14d SERP cache
+
+/**
+ * RANK-3: the LIVE Google-results winnability check for ONE existing-page move.
+ * Cache-first (a fresh persisted serp_verdict is reused at $0), then a single
+ * runSerpQuery call whose OWN money gauntlet (configured -> cache -> DRY-RUN
+ * default -> global breaker -> per-platform monthly cap, fail-CLOSED -> ledger)
+ * decides whether a cent is ever spent. A verdict is derived + persisted ONLY
+ * on a real read (ok / cache_hit), exactly like prepare-create-page-verdicts;
+ * on dry-run / disabled / capped / error it returns { verdict: null } so the
+ * caller's readiness is byte-identical to pre-RANK-3 (no hold, no line, no spend).
+ *
+ * Pass a `runSerp` override in tests so no live paid call is ever made.
+ */
+async function checkExistingPageWinnability(
+  tenantId: string,
+  packet: EvidencePacket,
+  ownDomain: string,
+  nowIso: string,
+  saved: Map<string, { content?: string }>,
+  runSerp: typeof runSerpQuery,
+): Promise<{ verdict: PreparedSerpVerdict | null; costUsd: number }> {
+  const demandKey = packet.move.key;
+  const query = packet.move.label?.trim();
+  if (!query) return { verdict: null, costUsd: 0 };
+
+  // Cache-first (pack-level): reuse a fresh persisted serp_verdict at $0.
+  const cached = parsePreparedVerdict(saved.get(`${demandKey}::serp_verdict`)?.content);
+  if (cached?.generatedAt && Date.parse(nowIso) - Date.parse(cached.generatedAt) < SERP_VERDICT_FRESH_MS) {
+    return { verdict: cached, costUsd: 0 };
+  }
+
+  // Live read behind the full runSerpQuery money gauntlet. Only ok/cache_hit is
+  // a real snapshot; everything else means "no verdict" (no spend, no hold).
+  let r;
+  try {
+    r = await runSerp(query, { depth: 10 });
+  } catch {
+    return { verdict: null, costUsd: 0 };
+  }
+  if (r.status !== "ok" && r.status !== "cache_hit") {
+    return { verdict: null, costUsd: 0 };
+  }
+
+  const profoundDomains = [...new Set(packet.competitor.otherUrls.concat(packet.competitor.topUrl ?? "").map((u) => rootDomain(u)).filter(Boolean))];
+  const v = validateCreatePage({ snapshot: r.snapshot, ownDomain, profoundDomains, searchVolume: null });
+  const compact: PreparedSerpVerdict = {
+    verdict: v.verdict,
+    confidence: v.confidence,
+    intent: v.intent,
+    contentDomainCount: v.contentDomainCount,
+    marketplaceUgcCount: v.marketplaceUgcCount,
+    profoundOverlapCount: v.profoundOverlapCount,
+    ownAlreadyRanks: v.ownAlreadyRanks,
+    topDomains: v.topDomains.slice(0, 5),
+    reason: v.reasons[0] ?? "",
+    generatedAt: nowIso,
+    costUsd: r.costUsd,
+  };
+  await saveMoveDraft(tenantId, demandKey, "serp_verdict", JSON.stringify(compact)).catch(() => false);
+  return { verdict: compact, costUsd: r.status === "ok" ? r.costUsd : 0 };
+}
+
+/** Derive the tenant's own root domain from the graph's page URLs (most common). */
+function deriveOwnDomainFromPackets(packets: ReadonlyArray<EvidencePacket>): string {
+  const counts = new Map<string, number>();
+  for (const p of packets) {
+    const d = rootDomain(p.yourPage.url ?? "");
+    if (d) counts.set(d, (counts.get(d) ?? 0) + 1);
+  }
+  return [...counts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? "";
+}
+
 export async function prepareTodayMovesForTenant(
   tenantId: string,
   opts: {
@@ -277,11 +367,21 @@ export async function prepareTodayMovesForTenant(
     forceRegenerate?: boolean;
     /** Only prepare Moves that carry an on-topic competitor teardown. */
     requireTeardown?: boolean;
+    /** RANK-3: run a live Google-results winnability check per existing-page move
+     *  before drafting (default ON). The check is cache-first + rides
+     *  runSerpQuery's full money gauntlet, so with SERP unconfigured / dry-run /
+     *  cache-empty it makes NO live call and leaves readiness byte-identical.
+     *  Set false to skip the check entirely. */
+    checkWinnability?: boolean;
+    /** RANK-3 (tests): inject the SERP runner so no live paid call is ever made. */
+    runSerp?: typeof runSerpQuery;
   } = {},
 ): Promise<PrepareMovesSummary> {
   const max = opts.maxN ?? 10;
   const maxUsd = opts.maxUsd ?? Infinity;
   const nowIso = (opts.now ?? (() => new Date()))().toISOString();
+  const checkWinnability = opts.checkWinnability !== false;
+  const runSerp = opts.runSerp ?? runSerpQuery;
   const summary: PrepareMovesSummary = {
     considered: 0,
     prepared: 0,
@@ -292,6 +392,8 @@ export async function prepareTodayMovesForTenant(
     regenerated: 0,
     stoppedForBudget: false,
     llmCostUsd: 0,
+    winnabilityHeld: 0,
+    serpCostUsd: 0,
     outcomes: [],
   };
 
@@ -310,6 +412,10 @@ export async function prepareTodayMovesForTenant(
   summary.considered = targets.length;
 
   const saved = await getLatestMoveDrafts(tenantId).catch(() => new Map());
+
+  // RANK-3: the tenant's own root domain (for "do you already rank" detection in
+  // the live Google-results check). Derived once from the loaded packets' page URLs.
+  const ownDomain = deriveOwnDomainFromPackets(packets);
 
   // Seasonality voice (BEACON_500 item 69): loaded ONCE per run (a cheap $0
   // json-store read), then looked up per Move by page family, so the team's
@@ -334,6 +440,62 @@ export async function prepareTodayMovesForTenant(
         : null;
       const opinions = attachOpinions(packet, { nowIso, seasonalProfile });
       const decision = routeMove({ packet, opinions, specialistWeight });
+
+      // RANK-3: LIVE Google-results winnability check for existing-page moves
+      // (answer_block / edit_page / fix_experience). Cache-first + rides
+      // runSerpQuery's full money gauntlet, so it makes NO live call (and changes
+      // NOTHING) when SERP is unconfigured / dry-run / cache-empty. When it does
+      // land a verdict, an effectively-unwinnable move (marketplace/structural
+      // top results, or the winnability numbers reject it) is HELD: we cap
+      // readiness at serp_checked and skip the LLM draft entirely, rather than
+      // spend on a confident "ready" move that cannot rank.
+      let winnabilityLine: string | undefined;
+      let winnabilityHold = false;
+      let hasSerpVerdict = false;
+      if (checkWinnability && EXISTING_MOVE_TYPES.has(packet.move.gapType)) {
+        const { verdict, costUsd } = await checkExistingPageWinnability(
+          tenantId,
+          packet,
+          ownDomain,
+          nowIso,
+          saved,
+          runSerp,
+        );
+        summary.serpCostUsd += costUsd;
+        if (verdict) {
+          hasSerpVerdict = true;
+          const hold = decideExistingPageHold({ verdict, moveType: packet.move.gapType as ExistingMoveType });
+          winnabilityHold = hold.hold;
+          winnabilityLine = hold.line ?? undefined;
+        }
+      }
+
+      // RANK-3: an effectively-unwinnable move is held BEFORE any LLM draft spend.
+      // Persist a draft-less pack capped at serp_checked with the honest hold
+      // line, so the card explains why instead of showing a "ready" move that
+      // cannot rank. Never clobbers an existing good draft (latest-wins store).
+      if (winnabilityHold) {
+        const held = buildPreparedMovePack({
+          tenantId,
+          packet,
+          opinions,
+          decision,
+          nowIso,
+          structuredDraft: null,
+          hasSerpVerdict: true,
+          costSpent: { llmUsd: 0, serpUsd: 0 },
+          winnabilityLine,
+          winnabilityHold: true,
+        });
+        const existingForHold = parsePreparedPack(saved.get(`${moveId}::prepared_pack`)?.content);
+        const serializedHeld = toPersistedPack(held);
+        if (!existingForHold?.structuredDraft && serializedHeld.length <= MAX_PERSIST_CHARS) {
+          await saveMoveDraft(tenantId, moveId, "prepared_pack", serializedHeld).catch(() => false);
+        }
+        summary.winnabilityHeld += 1;
+        summary.outcomes.push(outcomeOf(held, packet, opinions, "held: Google results not winnable with a content change"));
+        continue;
+      }
 
       // Cache-first: serve a non-stale persisted pack that already has a draft —
       // UNLESS that cached draft fails the quality gate (generic / too-thin / off-topic
@@ -428,6 +590,10 @@ export async function prepareTodayMovesForTenant(
         // R16: persist the de-templating flag so the quality gate demotes this
         // draft to needs-review on every later read.
         draftRepeatFlag: draftRes.status === "drafted" ? draftRes.repeatFlag : undefined,
+        // RANK-3: the winnable move carries its honest "worth doing" Google-results
+        // line + records that a live SERP verdict was checked (not held).
+        hasSerpVerdict,
+        winnabilityLine,
       });
       if (regenMeta) regenMeta.newQuality = packQualityStatus(pack);
 

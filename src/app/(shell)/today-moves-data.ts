@@ -196,6 +196,17 @@ export type TodayMove = {
    *  competitor page that currently wins. Drives the "Competitor-informed" trust chip +
    *  the "Improved using {domain}" line. Null on normal prepares. */
   competitorInformed?: { domain: string } | null;
+  /** RANK-3 (2026-07-06) - the honest one-line live Google-results winnability
+   *  verdict from the prepare path, for BOTH the winnable case ("The top Google
+   *  results here are real content you can beat, so this is worth doing.") and the
+   *  held case ("The top results are marketplaces and directories I cannot
+   *  outrank, so I am holding this until there is a better angle."). Null when no
+   *  live check ran (dry-run / cache-empty / unconfigured). */
+  winnabilityLine?: string | null;
+  /** RANK-3 - true when the live Google-results check held this move as
+   *  effectively unwinnable, so readiness was capped at serp_checked (no
+   *  confident "ready" draft). */
+  winnabilityHeld?: boolean;
   proofLabel?: string | null;
   /** True when the SAME page+action family is already mid-measurement (avoid
    *  encouraging a duplicate ship that would contaminate the open window). */
@@ -794,6 +805,10 @@ export async function buildTodayMovesData(
           persistedFresh && persistedPack!.regenMeta?.regeneratedFromTeardown && persistedPack!.regenMeta.competitorDomain
             ? { domain: persistedPack!.regenMeta.competitorDomain }
             : null,
+        // RANK-3: the live Google-results winnability line + held flag (only from a
+        // fresh persisted pack that actually ran the check; null otherwise).
+        winnabilityLine: persistedFresh ? persistedPack!.winnabilityLine ?? null : null,
+        winnabilityHeld: persistedFresh ? persistedPack!.winnabilityHold === true : false,
       });
     }
 

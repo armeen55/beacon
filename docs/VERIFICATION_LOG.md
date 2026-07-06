@@ -33687,3 +33687,95 @@ fields here, and draft the rest for you to paste." ROADMAPPED (stay unbuilt): v1
 pack / signup-to-first-win instrumentation; and a crawler pass that captures generator meta + asset
 hosts onto PageSnapshot so `detectCms` fires on production custom-domain sites (today it fires when
 those signals are present, correctly empty until captured).
+
+## 2026-07-06 — RANK-4: wake up Profound's AI-crawler feed (ai_crawler_skip Move)
+
+STEP 0 (verify-first): the two tables were NOT unread. `profound_referral_rows`
+already has readers via `src/domains/profound-deep/` (loader + pure aggregators,
+shipped 2026-06-25/28) and its signal renders customer-facing on the war-room
+("AI answers sent N visitors"), team-standup, and the profound-coverage
+diagnostic. The genuine gap was the AI-crawler feed (`profound_bot_rows`): it fed
+DISPLAY panels only; the pure `findCrawlabilityGaps` / `buildFunnelLinkHints`
+functions existed but were NEVER wired to emit a Move. Built that Move.
+
+- NEW `src/domains/aeo-traffic/load-crawler-skip-gaps.ts` — $0 I/O loader +
+  pure `assembleCrawlerSkipGaps` (reuses the shared react.cache bot loader + GSC
+  demand + the pure crawlability math). Fail-closed: only produces a gap when the
+  crawler feed is reporting; empty feed / no demand / all-crawled -> [].
+- NEW trigger `triggers/ai-crawler-skip.ts` (`ai_crawler_skip`, action
+  `add_internal_link`) + `aiCrawlerSkipCopy` in customer-copy-templates. Deduped
+  against buried_page / orphan_page / internal_link_opportunity by cooldown_key.
+- PREDICATE_COUNT 34 -> 35; all three counter pins fixed (loader const + 2 loader
+  test assertions + diagnostics page test it()-title and its 2 assertions), plus
+  the copy-vocab probe set registered.
+- Ground truth: both `profound_bot_rows` and `profound_referral_rows` are EMPTY
+  (0 rows, all tenants) — the borrowed Profound workspace is topic-scoped, not
+  site-scoped Agent Analytics. The trigger is dormant + empty-safe; it lights up
+  with zero further code the moment a site-scoped workspace syncs.
+- Verified: `npm run typecheck` clean; 248 tests green across 12 affected suites
+  (new loader + trigger, profound-deep bot/referral, trigger-loader + diagnostics
+  counter pins, copy-vocab, predicate-purity, catalog-sync, registry-active-set,
+  crawl-citation-funnel). renderToStaticMarkup quoted the card copy. NOTE: the
+  design-system raw-palette ratchet failure (1304 vs 1298) is from a CONCURRENT
+  task's `today-moves-card.tsx` edits in this shared worktree, NOT this change —
+  my files add 0 raw-palette classes.
+
+## 2026-07-06 — RANK-3: live Google-results winnability on the existing-page prepare path
+
+STEP 0 (verify-first): confirmed the gap. `prepare-create-page-verdicts.ts`
+already runs a live SERP verdict (BUILD/WAIT/SKIP) for NEW-PAGE candidates
+(capped 25/run, 14d-cached, persisted as move_drafts kind=serp_verdict, verdict
+via validateCreatePage + winnability.ts). `prepareTodayMovesForTenant` did NOT
+run any live SERP winnability check for EXISTING-PAGE moves — a move could reach
+"ready_to_review" purely because a draft existed, even when the top Google
+results are marketplaces/directories a content change cannot outrank.
+`derivePreparedStatus` already carried a `hasSerpVerdict` param but the prepare
+loop never passed it (defaulted false); the ladder had no "hold" state.
+
+Built (reused the create-page pattern; capped/cached/fail-soft/dry-run-respecting):
+- NEW pure `src/domains/serp/existing-page-winnability.ts` —
+  `decideExistingPageHold(verdict, moveType)` returns { hold, line }. Holds on a
+  marketplace/UGC wall (>=6 or intent=marketplace_ugc) or a winnability-arithmetic
+  reject band; never holds on "you already rank" for an edit_page/fix_experience
+  move (the ranking page IS what we improve); answer_block + already-ranking is a
+  surfaced-but-not-held lower-upside note.
+- `prepare-today-moves.ts`: added an OPTIONAL live check per existing-page move
+  (answer_block / edit_page / fix_experience) gated EXACTLY like create-page —
+  cache-first (fresh persisted serp_verdict reused at $0) then ONE runSerpQuery
+  whose own gauntlet (configured -> cache -> DRY-RUN default -> global breaker ->
+  per-platform monthly cap fail-CLOSED -> ledger) decides any spend. Verdict is
+  derived via validateCreatePage + persisted as serp_verdict (no migration).
+  A held move caps readiness at serp_checked and SKIPS the LLM draft entirely
+  (saves LLM spend, no confident "ready" for an unrankable target). New summary
+  fields: winnabilityHeld, serpCostUsd. New opts: checkWinnability (default ON),
+  runSerp (test injection).
+- `prepared-move-pack.ts`: `derivePreparedStatus` + `buildPreparedMovePack` take
+  an optional `winnabilityHold` (caps at serp_checked) + `winnabilityLine`; both
+  additive/omit-default so cold behavior is byte-identical.
+- Surface: `today-moves-data.ts` threads winnabilityLine/winnabilityHeld off the
+  fresh persisted pack; `today-moves-card.tsx` renders one honest line
+  (status-success tokens + Zap when winnable, status-warning tokens + TriangleAlert
+  when held) — tokens only, ratchet held at 1298 (did NOT rise).
+
+Quoted rendered copy (renderToStaticMarkup):
+- Winnable: "The top Google results here are 5 of 10 real content pages you can
+  beat, so this is worth doing."
+- Held: "The top Google results here are marketplaces and directories I cannot
+  outrank with a content change, so I am holding this until there is a better
+  angle."
+
+PIN (additive + zero-spend when inactive): when SERP is unconfigured / dry-run /
+cache-empty, runSerpQuery returns disabled/dry_run/capped with NO snapshot -> no
+verdict -> no hold, no line, no spend, drafting proceeds exactly as before
+(pinned by tests).
+
+Verified: `npm run typecheck` clean. 170 tests green across 11 affected suites
+(NEW existing-page-winnability 8, NEW prepare-today-moves integration 7 with
+MOCKED DataForSEO — winnable->draft_ready+, marketplace->held@serp_checked+no
+LLM call, byte-identical/$0 when dry-run, cap/breaker fail-soft, cache-first $0,
+dash guard; prepared-move-pack, draft-quality x2, winnability, serp-validation,
+prepare-create-page-verdicts, catalog-sync, design-system-guard, warm-caches).
+NO live paid call in tests, no dev server. NEEDS a live DataForSEO run
+(DATAFORSEO_DRY_RUN=false, provider+auth set) to prove the real hold on a live
+marketplace SERP; the shared $50/mo dataforseo-serp cap governs it and each
+existing-page check is ~$0.003 (10 top-moves ≈ $0.03/run, cache-first after).

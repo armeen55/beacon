@@ -86,6 +86,18 @@ export type PreparedMovePack = {
    *  recent same-family drafts ("reads like a repeat"). The draft-quality gate
    *  demotes a ready verdict to needs-review when set. Absent on clean drafts. */
   draftRepeatFlag?: string;
+  /** RANK-3: the honest one-line Google-results winnability verdict for this
+   *  move, from a live SERP check on the prepare path. Present for BOTH the
+   *  winnable case ("The top Google results here are real content you can beat,
+   *  so this is worth doing.") and the held case ("The top results are
+   *  marketplaces and directories I cannot outrank, so I am holding this..."),
+   *  so the card always says why. Absent when no live check ran (dry-run /
+   *  cache-empty / unconfigured) - existing behavior, byte-identical. */
+  winnabilityLine?: string;
+  /** RANK-3: true when the live Google-results check held this move as
+   *  effectively unwinnable, so readiness was capped at serp_checked. Absent on
+   *  winnable / unchecked moves. */
+  winnabilityHold?: boolean;
 };
 
 /** Provenance for a teardown-informed regeneration - surfaces the "Competitor-informed"
@@ -123,11 +135,23 @@ export function derivePreparedStatus(args: {
   hasSerpVerdict: boolean;
   hasAiCheck: boolean;
   structuredDraft: StructuredDraft;
+  /** RANK-3: a live Google-results check judged this move effectively
+   *  unwinnable (marketplace/structural top results, or the winnability numbers
+   *  reject it). When true, readiness is CAPPED at `serp_checked` no matter what
+   *  else is attached - we never present a confident "ready" draft for a move
+   *  that cannot rank. Default false (unset = existing behavior, byte-identical). */
+  winnabilityHold?: boolean;
 }): PreparedStatus {
   const { packet, hasSerpVerdict, hasAiCheck, structuredDraft } = args;
   const hasDraft = structuredDraft != null;
   const hasProofPlan = (packet.proofPlan?.metrics?.length ?? 0) > 0;
   const competitorsRead = packet.competitor.facts != null;
+
+  // RANK-3 winnability cap: an unwinnable move can climb no higher than
+  // serp_checked (it DID get a live Google-results check - that check is exactly
+  // what told us to hold). This overrides draft/proof presence so a "ready"
+  // draft never masks an unrankable target.
+  if (args.winnabilityHold) return "serp_checked";
 
   // Walk the chain top-down; return the highest stage whose prerequisites hold.
   if (hasDraft && hasProofPlan) return "ready_to_review"; // P5+: draft + proof + everything
@@ -154,6 +178,10 @@ export type BuildPreparedMovePackInput = {
   regenMeta?: RegenMeta;
   /** R16: thread the drafter's "reads like a repeat" flag onto the pack. */
   draftRepeatFlag?: string;
+  /** RANK-3: the live Google-results winnability line (winnable or held). */
+  winnabilityLine?: string;
+  /** RANK-3: cap readiness at serp_checked (unwinnable target). */
+  winnabilityHold?: boolean;
 };
 
 /** Assemble a PreparedMovePack from a Move's packet + the team's opinions + the
@@ -169,6 +197,7 @@ export function buildPreparedMovePack(input: BuildPreparedMovePackInput): Prepar
     hasSerpVerdict: input.hasSerpVerdict ?? false,
     hasAiCheck: input.hasAiCheck ?? false,
     structuredDraft,
+    winnabilityHold: input.winnabilityHold ?? false,
   });
 
   const isCreate = packet.move.gapType === "create_page";
@@ -197,6 +226,8 @@ export function buildPreparedMovePack(input: BuildPreparedMovePackInput): Prepar
     preparedStatus,
     ...(input.regenMeta ? { regenMeta: input.regenMeta } : {}),
     ...(input.draftRepeatFlag ? { draftRepeatFlag: input.draftRepeatFlag } : {}),
+    ...(input.winnabilityLine ? { winnabilityLine: input.winnabilityLine } : {}),
+    ...(input.winnabilityHold ? { winnabilityHold: true } : {}),
   };
 }
 
