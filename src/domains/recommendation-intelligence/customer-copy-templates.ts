@@ -1115,3 +1115,28 @@ export function spellingDemandConsolidationCopy(
     "” that also names the other spellings can own all of that demand at once."
   );
 }
+
+/**
+ * AI crawler skip (RANK-4, 2026-07-06). AI assistants send crawlers to read your
+ * site so they know what to recommend. This page gets real Google demand but the
+ * crawlers fetched the rest of the site and skipped it, so AI has never read it
+ * and can never recommend it. Names the page path, its 90-day search demand, and
+ * how many other pages the crawlers DID reach, then asks for links to it from
+ * those crawled pages. Says "AI assistants" plainly, never "crawler" / "bot" /
+ * "crawlability" (lab words). NO em or en dashes (hard rule).
+ */
+export function aiCrawlerSkipCopy(
+  pagePath: string,
+  impressions: number,
+  crawledPageCount: number,
+): string {
+  return (
+    "AI assistants read " +
+    crawledPageCount.toLocaleString("en-US") +
+    " of your pages but skipped " +
+    pagePath +
+    ", even though people see it " +
+    impressions.toLocaleString("en-US") +
+    " times in Google search over the last 90 days. Until AI reads this page it can never recommend it, so add links to it from the pages AI already reads."
+  );
+}

@@ -379,6 +379,13 @@ const PROBE_SETS: Record<string, ReadonlyArray<Probe>> = {
     ["nowruz", 210, 2, 140],
     ["kebab", 250000, 6, 90000],
   ],
+  // RANK-4 (2026-07-06) - AI crawler skip. Args: (pagePath, impressions,
+  // crawledPageCount). Probe a normal page + a large-count edge (comma
+  // formatting on both numbers).
+  aiCrawlerSkipCopy: [
+    ["/iran-visa", 340, 58],
+    ["/persian-names", 250000, 4200],
+  ],
 };
 
 function scanForViolations(output: string): string[] {

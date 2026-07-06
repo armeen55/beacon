@@ -237,6 +237,15 @@ import { weakH2 } from "./triggers/weak-h2";
 // configured groups the loader adds nothing -> byte-identical to before P20.
 import { spellingDemandMove } from "./triggers/spelling-demand-move";
 import { loadSpellingDemandMoveItems } from "@/domains/spelling-demand/load-spelling-demand";
+// RANK-4 (2026-07-06) - AI-crawler-skip Move: turn Profound's previously
+// read-only AI-crawler feed (profound_bot_rows) into an actionable Move. A
+// high-value owned page (real GSC demand) that AI crawlers SKIP while crawling
+// the rest of the site earns an add_internal_link card ("AI can't recommend a
+// page it never read"). Reads ALREADY-SYNCED bot rows + GSC demand ($0), pure
+// over the pre-assembled gaps, deduped against the other link cards by
+// cooldown_key. Empty crawler feed -> no gaps -> byte-identical to before.
+import { aiCrawlerSkip } from "./triggers/ai-crawler-skip";
+import { loadCrawlerSkipGapsForTenant } from "@/domains/aeo-traffic/load-crawler-skip-gaps";
 
 export type TriggerCandidatesLoadStatus =
   | "ok"
@@ -266,8 +275,9 @@ export type TriggerCandidatesLoadResult = {
 };
 
 // 30 predicates + P10 entity + author pack's 3 (entity_link_gap,
-// author_byline_gap, brand_presence_gap) = 33, + P20 spelling_demand_move = 34.
-const PREDICATE_COUNT = 34;
+// author_byline_gap, brand_presence_gap) = 33, + P20 spelling_demand_move = 34,
+// + RANK-4 ai_crawler_skip = 35.
+const PREDICATE_COUNT = 35;
 
 function emptyResult(
   status: TriggerCandidatesLoadStatus,
@@ -1566,6 +1576,35 @@ export async function loadTriggerCandidatesForTenant(options: {
   } catch (err) {
     console.error(
       `[trigger-loader] entity + author pack failed for ${tenantId} (entity_link_gap / author_byline_gap / brand_presence_gap skip): ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+
+  // ── RANK-4 (2026-07-06): AI-crawler-skip Move ─────────────────────────────
+  // Runs after the link families so its cross-source cooldown dedupe sees every
+  // add_internal_link card the earlier triggers (buried_page, orphan_page,
+  // internal_link_opportunity, broken_links) already claimed this run. The
+  // loader pre-reads the ALREADY-SYNCED Profound AI-crawler feed
+  // (profound_bot_rows, via the shared react.cache bot loader - no new read) +
+  // the GSC demand already loaded, and returns the high-demand pages AI crawlers
+  // SKIP while crawling the rest of the site. A gap is only ever produced when
+  // the crawler feed is REPORTING (fail closed - "AI skips this" is provable
+  // only once we can see AI crawling at all), so a tenant with no Agent
+  // Analytics data emits nothing. Pure predicate over the pre-assembled gaps;
+  // NEVER a live Profound / GSC call here. Empty inputs -> byte-identical.
+  try {
+    const skipGaps = await loadCrawlerSkipGapsForTenant(tenantId);
+    if (skipGaps.length > 0) {
+      const claimedLinkKeys = new Set(all.map((r) => r.cooldown_key));
+      const crawlerRows = aiCrawlerSkip({
+        tenantId,
+        gaps: skipGaps,
+        signalAt: new Date().toISOString(),
+      }).filter((r) => !claimedLinkKeys.has(r.cooldown_key));
+      all.push(...crawlerRows);
+    }
+  } catch (err) {
+    console.error(
+      `[trigger-loader] ai-crawler-skip failed for ${tenantId} (ai_crawler_skip skips): ${err instanceof Error ? err.message : String(err)}`,
     );
   }
 
