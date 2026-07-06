@@ -241,9 +241,32 @@ export async function promoteEligibleCandidates(
   // suffixes assert the tenant's actual Organization, not a guessed
   // title-tail. Empty/placeholder name → fail-soft to inference (the
   // enricher's resolveBrand handles the precedence + fallback).
+  // RANK-5 (2026-07-06) - LOCAL SEO. Thread the tenant's configured local
+  // business facts so an add_schema card on a city/service/homepage page drafts
+  // LocalBusiness (+ Service) JSON-LD from the tenant's own name/address/phone/
+  // service-area cities. Only wired when the tenant HAS a local identity (a
+  // name plus at least one of address / phone / a served area) - a content
+  // tenant with none stays null -> composeSchema is byte-identical to before.
+  const configuredCities = (businessConfig.locations ?? []).filter((c) =>
+    c.trim(),
+  );
+  const hasLocalIdentity =
+    Boolean(businessConfig.name?.trim()) &&
+    (Boolean(businessConfig.address?.trim()) ||
+      Boolean(businessConfig.phone?.trim()) ||
+      configuredCities.length > 0);
   const enrichmentCtx: DraftEnrichmentContext = {
     snapshotByUrl,
     businessName: businessConfig.name,
+    localBusiness: hasLocalIdentity
+      ? {
+          name: businessConfig.name,
+          address: businessConfig.address,
+          phone: businessConfig.phone,
+          domain: businessConfig.domain,
+          areaServed: configuredCities,
+        }
+      : null,
   };
 
   // Fusion slice (2026-06-12): GA4 page-value weights, keyed by the
@@ -321,6 +344,11 @@ export async function promoteEligibleCandidates(
     if (pageTypeByUrl.has(c.target_url)) continue;
     pageTypeByUrl.set(c.target_url, classifyPageType(c.target_url, businessConfig));
   }
+  // RANK-5 (2026-07-06): expose the page-type map to the enricher so
+  // composeSchema knows a city/service/homepage add_schema card should draft
+  // LocalBusiness/Service JSON-LD. Attached here (after the map is built) rather
+  // than at ctx creation because the map is derived from the trigger candidates.
+  enrichmentCtx.pageTypeByUrl = pageTypeByUrl;
 
   // Stage 2: recompute the promotion engine. Do NOT trust any
   // preview cache.

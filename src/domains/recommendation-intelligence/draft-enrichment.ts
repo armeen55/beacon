@@ -33,6 +33,10 @@ import type { RecommendationCandidateRow } from "@/domains/recommendation-intell
 import type { DeterministicPromotionEditRow } from "@/domains/recommendation-intelligence/promotion-result-to-edit-row";
 import { actionableSchemaWarnings } from "@/domains/recommendation-intelligence/triggers/invalid-schema";
 import { detectBiographyPage } from "@/domains/pages/biography-detector";
+import type { PageType } from "@/domains/recommendation-intelligence/page-classifier";
+// RANK-5 (2026-07-06) - pure LocalBusiness/Service JSON-LD composer. PURE (no
+// I/O); draft-enrichment stays pure by importing only the pure composer.
+import { composeLocalSchema } from "@/domains/local-seo/local-schema";
 
 export type DraftEnrichmentContext = {
   /** Latest snapshot per canonical URL (caller dedupes by fetched_at). */
@@ -66,6 +70,30 @@ export type DraftEnrichmentContext = {
       wikipediaUrl: string | null;
     }
   >;
+  /**
+   * RANK-5 (2026-07-06) - LOCAL SEO. The tenant's configured local-business
+   * facts (name / address / phone / domain / service-area cities). When present
+   * AND the schema candidate's target page classifies as a city/service/homepage
+   * page, composeSchema emits LocalBusiness (+ Service on service pages) JSON-LD
+   * from these facts instead of the generic WebPage skeleton. Absent (a content
+   * tenant with no local identity) -> composeSchema is byte-identical to before
+   * RANK-5. Never invents an address, phone, or city; only the tenant's own
+   * asserted facts are used.
+   */
+  localBusiness?: {
+    name: string;
+    address: string;
+    phone: string;
+    domain: string;
+    areaServed: string[];
+  } | null;
+  /**
+   * RANK-5 (2026-07-06). Page type per target URL (from classifyPageType), so
+   * composeSchema knows whether an add_schema candidate lands on a city/service/
+   * homepage page (LocalBusiness/Service applies) vs any other page (generic
+   * WebPage). Absent -> composeSchema falls back to its prior generic behavior.
+   */
+  pageTypeByUrl?: ReadonlyMap<string, PageType>;
 };
 
 /**
@@ -1187,6 +1215,16 @@ function composeSchema(
     wikidataUrl: string | null;
     wikipediaUrl: string | null;
   },
+  local?: {
+    facts: {
+      name: string;
+      address: string;
+      phone: string;
+      domain: string;
+      areaServed: string[];
+    } | null;
+    pageType: PageType | undefined;
+  },
 ): DraftFill | null {
   if (!snap) return null;
 
@@ -1202,6 +1240,43 @@ function composeSchema(
   // Breadcrumb-only block (duplication-safe + pushable).
   if (candidate.trigger_signal === "missing_schema_store") {
     return composeStoreBreadcrumbSchema(candidate, snap, brand);
+  }
+
+  // RANK-5 (2026-07-06) - LOCAL SEO. A local-service tenant's city / service /
+  // homepage page gets LocalBusiness (+ Service on service pages) JSON-LD built
+  // from the tenant's OWN configured facts (name / address / phone / areaServed)
+  // instead of the generic WebPage skeleton below. This is exactly the schema
+  // the expected-schema map already flags as REQUIRED on city_page /
+  // service_page. Empty-safe: no local facts, or a non-local page type ->
+  // composeLocalSchema returns null and we fall through to the generic skeleton,
+  // byte-identical to before RANK-5.
+  const localApplies =
+    local?.facts != null &&
+    (local.pageType === "city" ||
+      local.pageType === "service" ||
+      local.pageType === "homepage");
+  if (localApplies && local?.facts != null) {
+    const isServicePage = local.pageType === "service";
+    const localJsonLd = composeLocalSchema({
+      pageUrl: candidate.target_url ?? snap.url,
+      facts: local.facts,
+      service: isServicePage
+        ? snap.h1?.trim() || snap.title?.trim() || null
+        : null,
+    });
+    if (localJsonLd != null) {
+      return {
+        display_label:
+          "Add local business structured data so engines know who you are and where you serve",
+        current_text: null,
+        proposed_text:
+          "Add this JSON-LD block to the page <head> so AI search platforms can read your business name, address, phone, and the areas you serve:\n" +
+          jsonLdScript(localJsonLd),
+        expected_impact:
+          "Structured data is the page explaining itself in the engines' own language, and a LocalBusiness block tells them exactly who you are and where you work.",
+        measurement_plan: FIX_VERIFY_PLAN,
+      };
+    }
   }
 
   const name = snap.title?.trim() || snap.h1?.trim() || "";
@@ -1532,7 +1607,18 @@ export function enrichPromotionRow(
         candidate.target_url != null
           ? ctx.wikidataMatchByUrl?.get(candidate.target_url)
           : undefined;
-      fill = composeSchema(candidate, snap, brand, wikidataMatch);
+      // RANK-5 (2026-07-06): thread the tenant's local-business facts + this
+      // page's type so a city/service/homepage page gets LocalBusiness/Service
+      // JSON-LD. Both are optional on the context; absent -> composeSchema is
+      // byte-identical to before RANK-5 (generic WebPage skeleton).
+      const local = {
+        facts: ctx.localBusiness ?? null,
+        pageType:
+          candidate.target_url != null
+            ? ctx.pageTypeByUrl?.get(candidate.target_url)
+            : undefined,
+      };
+      fill = composeSchema(candidate, snap, brand, wikidataMatch, local);
       break;
     }
     case "fix_schema":

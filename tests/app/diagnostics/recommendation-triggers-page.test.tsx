@@ -115,6 +115,17 @@ vi.mock("@/domains/indexability/batch-load-indexability", () => ({
   },
 }));
 
+// RANK-5 (2026-07-06): the service-area page trigger is CONFIG-driven (locations
+// x services), so with the local mock config above it would fire on every case
+// in this snapshot-focused suite. These tests validate the snapshot-driven
+// predicates + the page shell, not the local-SEO gap engine (which has its own
+// dedicated tests), so default this loader helper to [] and let a focused case
+// opt in via `_serviceAreaGaps`.
+let _serviceAreaGaps: import("@/domains/local-seo/service-area-gaps").ServiceAreaGap[] = [];
+vi.mock("@/domains/local-seo/load-service-area-gaps", () => ({
+  loadServiceAreaGapsForTenant: async () => _serviceAreaGaps,
+}));
+
 function makeIndexability(
   url: string,
   verdict: IndexabilityVerdict,
@@ -249,6 +260,9 @@ beforeEach(() => {
   // explicitly.
   _indexabilityMap = new Map<string, OwnedUrlIndexability>();
   _indexabilityThrows = false;
+  // RANK-5 — default the config-driven service-area gap list to empty; a focused
+  // case sets it to prove the service_area_page card renders.
+  _serviceAreaGaps = [];
   // Slice 4.5.D.α₀b — reset Promotion Preview data sources.
   _recommendedEditsToReturn = [];
   _recommendationResponsesToReturn = [];
@@ -446,19 +460,44 @@ describe("/diagnostics/recommendation-triggers", () => {
     expect(html).toContain('data-row-action-type="edit_title"');
   });
 
-  it("predicates_run counter reads 35 (dynamic trigger roster)", async () => {
+  it("predicates_run counter reads 36 (dynamic trigger roster)", async () => {
     _snapshotsToReturn = [makeSnapshot({ url: "https://example.com/a" })];
     const html = await renderPage();
     expect(html).toContain('data-counter="predicates_run"');
     // The font-mono span renders the active predicate count from the loader meta
     // (PREDICATE_COUNT). Ratchets with each new trigger; the value tracks the
-    // loader's own hand-maintained PREDICATE_COUNT (35 as of the RANK-4
-    // ai_crawler_skip Move on top of the P20 spelling-demand Move, the P10 entity
-    // + author pack: entity_link_gap + author_byline_gap + brand_presence_gap,
-    // and the P24 image-SEO pack's add_image_alt_text).
+    // loader's own hand-maintained PREDICATE_COUNT (36 as of the RANK-5
+    // service_area_page Move on top of the RANK-4 ai_crawler_skip Move, the P20
+    // spelling-demand Move, the P10 entity + author pack: entity_link_gap +
+    // author_byline_gap + brand_presence_gap, and the P24 image-SEO pack's
+    // add_image_alt_text).
     expect(html).toMatch(
-      /data-counter="predicates_run"[^>]*>[^<]*<span[^>]*>35<\/span>/,
+      /data-counter="predicates_run"[^>]*>[^<]*<span[^>]*>36<\/span>/,
     );
+  });
+
+  // ── RANK-5: service-area page (local SEO) ─────────────────────────────
+
+  it("renders the service_area_page create_page card when a config-driven gap exists", async () => {
+    _snapshotsToReturn = [makeSnapshot({ url: "https://example.com/a" })];
+    _serviceAreaGaps = [
+      {
+        slug: "custom-home-oakland",
+        title: "custom home in Oakland",
+        city: "Oakland",
+        service: "custom home",
+        competitorPages: 6,
+        coverageStatus: "absent",
+        relevance: 1,
+        needsDemandValidation: true,
+      },
+    ];
+    const html = await renderPage();
+    expect(html).toContain('data-row-trigger-signal="service_area_page"');
+    expect(html).toContain('data-row-action-type="create_page"');
+    // Customer-copy column carries the exact service + city + a next step.
+    expect(html).toContain("You have no page for custom home in Oakland");
+    expect(html).toContain("a market where you should compete");
   });
 
   // ── α₂ extensions ────────────────────────────────────────────────────
@@ -512,10 +551,10 @@ describe("/diagnostics/recommendation-triggers", () => {
     const html = await renderPage();
     // The description carries a `data-description-predicates-run`
     // attribute set to the current count from the loader meta
-    // (PREDICATE_COUNT, 35 as of the RANK-4 ai_crawler_skip Move).
-    expect(html).toContain('data-description-predicates-run="35"');
+    // (PREDICATE_COUNT, 36 as of the RANK-5 service_area_page Move).
+    expect(html).toContain('data-description-predicates-run="36"');
     // And the prose body contains the same integer.
-    expect(html).toContain("35</span> active");
+    expect(html).toContain("36</span> active");
   });
 
   // ── α₂.2 page-classifier integration ────────────────────────────────

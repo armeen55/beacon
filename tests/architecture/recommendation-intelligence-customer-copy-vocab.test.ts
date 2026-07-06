@@ -386,6 +386,16 @@ const PROBE_SETS: Record<string, ReadonlyArray<Probe>> = {
     ["/iran-visa", 340, 58],
     ["/persian-names", 250000, 4200],
   ],
+  // RANK-5 (2026-07-06) - service-area page gap. Args: (service, city,
+  // competitorPages). Probe a with-competitors case, a singular-competitor edge,
+  // a no-coverage case (0 competitors), and a large-count edge (comma
+  // formatting). No city or trade is baked into the probe values.
+  serviceAreaPageCopy: [
+    ["kitchen remodeling", "Oakland", 8],
+    ["roof repair", "Fremont", 1],
+    ["window cleaning", "Berkeley", 0],
+    ["hvac repair", "San Jose", 12000],
+  ],
 };
 
 function scanForViolations(output: string): string[] {

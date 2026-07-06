@@ -33779,3 +33779,119 @@ NO live paid call in tests, no dev server. NEEDS a live DataForSEO run
 (DATAFORSEO_DRY_RUN=false, provider+auth set) to prove the real hold on a live
 marketplace SERP; the shared $50/mo dataforseo-serp cap governs it and each
 existing-page check is ~$0.003 (10 top-moves ≈ $0.03/run, cache-first after).
+
+## 2026-07-06 — RANK-6 (Wix publish depth) VERIFY-FIRST: both audit premises stale, no rebuild
+
+Task premise (RANK-6): (1) fix a url-map pagination bug that silently truncates
+Wix collections at 1000 items, and (2) upgrade edit_title / edit_meta drafts from
+deterministic template to LLM-quality. VERIFY-FIRST audit found BOTH already built,
+wired into production, and tested. No code change made — rebuilding would violate
+the extend-not-rebuild contract and duplicate live capability.
+
+Finding 1 (pagination) — ALREADY FIXED. url-map.ts:223 calls
+`wixQueryAllDataItems` (client.ts:205-239), which pages the Wix
+`/wix-data/v2/items/query` `paging.offset` until a short page, capped at
+`WIX_QUERY_MAX_PAGES=50` × `WIX_QUERY_PAGE_SIZE=1000` = 50k items/collection
+with a LOUD `log.warn` on ceiling (never a silent truncation). First-page error
+surfaces verbatim; later-page error returns partial (partial beats zero). Rate-
+limit/backoff (429/502/503 + Retry-After) preserved. Proof: existing
+tests/lib/connectors/wix/query-all-pagination.test.ts (6 cases) — 42 short→1
+fetch, 2500→3 pages offsets [0,1000,2000], exact 2000→trailing empty page,
+MAX_PAGES ceiling stops at 50k, first-page error surfaces, later-page partial.
+
+Finding 2 (LLM title/meta) — ALREADY BUILT. `openaiProvider` (providers/openai.ts)
+generates edit_title/edit_meta via the ONE gateway `openAIChatCompletion`
+(promptId "rec.specific_edit_bundle", action "specific-edit-provider"), CTR-minded
++ grounded via strict json_schema + SYSTEM_PROMPT, reasoning_effort low. Monthly
+cap respected: budget stays with callers (llm-draft-gateway.ts checkBudget before /
+recordSpend after; recommended-edits-persistence runProviderAndPersist same). On
+budget-block / network / empty bundle it returns an empty bundle and the
+deterministic generators (providers/generators/edit-title.ts, add-h2-section.ts,
+add-faq.ts) are the fail-soft fallback. push-service.ts writes the resulting
+`proposed_text` and enforces the SERP-length gate (PUSH_TITLE_MAX_CHARS ~60 /
+PUSH_META_MAX_CHARS ~155).
+
+DEFERRED (unchanged, correct to defer): Wix Blog draft-post + Media import
+(wixCreateDraftPost/wixPublishDraftPost/wixImportMedia) were removed 2026-07-01
+(FINAL PREMIUM item 102) as built-but-never-wired dead code; client.ts:419-424
+documents the rebuild path (POST /blog/v3/draft-posts, .../publish, POST
+/site-media/v1/files/import). That is a larger new-capability effort, not the
+high-value core, and RANK-6 explicitly allowed deferring it.
+
+Verified (no code changed, so pins/ratchet/rails byte-identical by construction):
+`npm run typecheck` clean. 82 tests green — query-all-pagination (6),
+client-backoff, url-map-probe, gateway (29 across those 4 files); openai provider
++ push-service-pins (53 across 2). No live publish, no dev server, no paid call;
+all Wix + LLM calls mocked. Push rails confirmed intact (unchanged): Ritz hard-
+block, dry-run default, caps, non-destructive full-item PUT preservation, no
+URL/slug changes (isProtectedUrlField).
+
+---
+
+## 2026-07-06 — RANK-5: LOCAL SEO engine (service-area page factory + trigger + LocalBusiness/Service schema)
+
+STEP 0 (verify-first): local was more built than expected. CONFIRMED working:
+`src/lib/local-presence.ts` (NAP audit + 0-100 listing-health composite + Today/
+Market strips), `src/lib/connectors/google-reviews-sync.ts` (GBP OAuth reviews
+pull), `src/domains/geo/coverage.ts` (city-level coverage matrix + gap detection,
+type only — no live caller computes it yet), `business-config.ts` (locations /
+services / urlPatterns config), and the SHIPPED `src/domains/page-factory/
+city-service-factory.ts` (generateCityServiceCandidates) + load-page-candidates
+loaders. GAP: the city x service factory + coverage matrix were built but NEVER
+wired into the recommendation trigger loader (no service-area create_page Move),
+and no LocalBusiness/Service JSON-LD was composed (generic WebPage skeleton only).
+
+BUILT (additive, config-driven, empty-safe):
+1. `src/domains/local-seo/service-area-gaps.ts` — PURE detectServiceAreaGaps:
+   reuses generateCityServiceCandidates, ranks by geo-coverage (absent/weak +
+   rival pages first), attaches competitor-page proof (canonical-city match via
+   normalizeCity). No cities OR no services -> [] (content-tenant no-op).
+2. `src/domains/local-seo/load-service-area-gaps.ts` — loader-side I/O wrapper
+   (config locations x services + demand-graph owned URLs for dedup); fail-soft.
+3. `src/domains/local-seo/local-schema.ts` — PURE composeLocalSchema: LocalBusiness
+   (+ Service on service pages) JSON-LD from configured name/address/phone/
+   areaServed; null for a tenant with no local identity.
+4. `triggers/service-area-page.ts` — PURE predicate (@no-classifier-required),
+   emits create_page anchored on site root, deduped vs existing create_page Moves.
+5. customer-copy-templates.ts — serviceAreaPageCopy (+ probe in the vocab test).
+6. draft-enrichment composeSchema EXTENDED (not forked): a city/service/homepage
+   add_schema card gets LocalBusiness/Service via ctx.localBusiness + pageTypeByUrl;
+   promotion-writer threads both from businessConfig (only when a local identity
+   exists). No config -> byte-identical generic WebPage skeleton.
+7. Loader wired + PREDICATE_COUNT 35 -> 36; all 3 counter pin sites fixed
+   (PREDICATE_COUNT, 2 loader-test assertions, triggers-page it()-title + 2
+   assertions incl. data-description-predicates-run + "36</span> active").
+
+QUOTED RENDERED COPY (create_page card, /diagnostics/recommendation-triggers):
+"You have no page for kitchen remodeling in Oakland, a market where you should
+compete. I can already see 8 competitor pages there, so the demand is real. Build
+one page for kitchen remodeling in Oakland so you can show up when people search
+for it there." (0-rival variant drops the competitor clause honestly.)
+LocalBusiness JSON-LD (service page) round-trips to a valid schema.org @graph with
+LocalBusiness (@id, name, url, PostalAddress, telephone, areaServed City[]) +
+Service (name, provider @id back-ref, areaServed).
+
+NO-OP-WHEN-NO-CONFIG PIN: a tenant with NO locations/services config produces no
+gaps (detectServiceAreaGaps -> [], loader skips the push) AND no local schema
+(composeLocalSchema -> null -> generic skeleton). Byte-identical to before RANK-5.
+Iranopedia (content tenant, no service areas) is a complete no-op.
+
+VERIFIED: `npm run typecheck` clean. Targeted suites GREEN:
+- new: service-area-gaps (11), local-schema (10), service-area-page trigger (10)
+- loader + counters (load-trigger-candidates ok), triggers-page render (incl. new
+  service_area_page card render test), copy-vocab, predicate-purity,
+  classifier-applied, diagnostic-source-and-copy (9 files / 237 tests)
+- geo, city-service-factory, expected-schema, schema-validator, draft-enrichment,
+  promotion-writer(+draft-safety), catalog-sync, design-system-guard (ratchet not
+  raised), no-queue-write, promotion-writer source/eligibility/live-write pins,
+  forbidden-vocab, copy-sanitize-purity, promotion-preview-no-writes (18 files).
+No dev server, no paid call, no live publish.
+
+NEEDS A LIVE LOCAL TENANT (Ritz) TO PROVE END-TO-END: a real GBP connection +
+business-config with locations/services (Ritz has neither wired in this env). The
+engine self-hides until a tenant has locations x services config; proving the
+create_page Moves + LocalBusiness schema on a rendered customer surface needs
+Ritz's GBP + service-area config populated. Geo coverage ranking is also
+opportunistic — no live producer calls computeGeoCoverage yet, so gaps currently
+rank on config relevance until a coverage feed is wired (config-only gaps are
+fully valid and empty-safe).

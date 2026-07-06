@@ -1140,3 +1140,42 @@ export function aiCrawlerSkipCopy(
     " times in Google search over the last 90 days. Until AI reads this page it can never recommend it, so add links to it from the pages AI already reads."
   );
 }
+
+/**
+ * Service-area page gap (RANK-5, 2026-07-06). A local-service tenant serves a
+ * city but has no page for a service it offers there, so it cannot show up when
+ * someone searches for that service in that city. Names the exact service + city
+ * and, when the coverage matrix has seen rivals competing there, how many
+ * competitor pages already exist as proof the market is real. Asks to build one
+ * page for that service in that city. Plain English, no lab words, no dashes.
+ */
+export function serviceAreaPageCopy(
+  service: string,
+  city: string,
+  competitorPages: number,
+): string {
+  const base =
+    "You have no page for " +
+    service +
+    " in " +
+    city +
+    ", a market where you should compete.";
+  const proof =
+    competitorPages > 0
+      ? " I can already see " +
+        competitorPages.toLocaleString("en-US") +
+        (competitorPages === 1
+          ? " competitor page there"
+          : " competitor pages there") +
+        ", so the demand is real."
+      : "";
+  return (
+    base +
+    proof +
+    " Build one page for " +
+    service +
+    " in " +
+    city +
+    " so you can show up when people search for it there."
+  );
+}

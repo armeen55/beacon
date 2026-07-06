@@ -233,7 +233,7 @@ describe("loadTriggerCandidatesForTenant", () => {
     expect(result.candidates).toEqual([]);
     expect(result.diagnostic_only).toEqual([]);
     expect(result.meta.snapshot_count).toBe(0);
-    expect(result.meta.predicates_run).toBe(35);
+    expect(result.meta.predicates_run).toBe(36);
   });
 
   it("filters snapshots by tenant_id", async () => {
@@ -484,7 +484,7 @@ describe("loadTriggerCandidatesForTenant", () => {
     expect(result.meta.snapshot_count).toBe(1);
   });
 
-  it("reports predicates_run=35 in meta on the ok path (P10 entity + author pack: +entity_link_gap, +author_byline_gap, +brand_presence_gap; P20: +spelling_demand_move; RANK-4: +ai_crawler_skip)", async () => {
+  it("reports predicates_run=36 in meta on the ok path (P10 entity + author pack: +entity_link_gap, +author_byline_gap, +brand_presence_gap; P20: +spelling_demand_move; RANK-4: +ai_crawler_skip; RANK-5: +service_area_page)", async () => {
     _getPageSnapshotsMock.mockResolvedValue([
       makeSnapshot({ tenant_id: "tenant-a" }),
     ]);
@@ -494,7 +494,7 @@ describe("loadTriggerCandidatesForTenant", () => {
     const result = await loadTriggerCandidatesForTenant({
       tenantId: "tenant-a",
     });
-    expect(result.meta.predicates_run).toBe(35);
+    expect(result.meta.predicates_run).toBe(36);
   });
 
   // ── α₂ extensions ────────────────────────────────────────────────────

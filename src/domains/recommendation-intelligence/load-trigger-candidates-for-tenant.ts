@@ -246,6 +246,15 @@ import { loadSpellingDemandMoveItems } from "@/domains/spelling-demand/load-spel
 // cooldown_key. Empty crawler feed -> no gaps -> byte-identical to before.
 import { aiCrawlerSkip } from "./triggers/ai-crawler-skip";
 import { loadCrawlerSkipGapsForTenant } from "@/domains/aeo-traffic/load-crawler-skip-gaps";
+// RANK-5 (2026-07-06) - LOCAL SEO engine: the service-area page factory. For a
+// local-service tenant (locations x services config), the loader pre-assembles
+// the missing city x service pages (config-driven, geo-coverage-ranked, owned-URL
+// deduped) and this trigger emits create_page Moves to own them. Reads the tenant
+// config + demand-graph owned URLs ($0, read-only), pure over the pre-assembled
+// gaps, deduped against the other create_page Moves by cooldown_key. A tenant with
+// NO locations/services config produces no gaps -> byte-identical to before.
+import { serviceAreaPage } from "./triggers/service-area-page";
+import { loadServiceAreaGapsForTenant } from "@/domains/local-seo/load-service-area-gaps";
 
 export type TriggerCandidatesLoadStatus =
   | "ok"
@@ -276,8 +285,8 @@ export type TriggerCandidatesLoadResult = {
 
 // 30 predicates + P10 entity + author pack's 3 (entity_link_gap,
 // author_byline_gap, brand_presence_gap) = 33, + P20 spelling_demand_move = 34,
-// + RANK-4 ai_crawler_skip = 35.
-const PREDICATE_COUNT = 35;
+// + RANK-4 ai_crawler_skip = 35, + RANK-5 service_area_page = 36.
+const PREDICATE_COUNT = 36;
 
 function emptyResult(
   status: TriggerCandidatesLoadStatus,
@@ -828,6 +837,41 @@ export async function loadTriggerCandidatesForTenant(options: {
   } catch (err) {
     console.error(
       `[trigger-loader] spelling-demand-move failed for ${tenantId} (spelling_demand_move skips): ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+  // ── RANK-5 (2026-07-06): LOCAL SEO service-area page factory. Config-driven +
+  //    empty-safe. The loader pre-assembles the missing city x service pages from
+  //    the tenant's OWN locations x services config + demand-graph owned URLs
+  //    (read-only, $0); this trigger shapes them into create_page Moves anchored
+  //    on the site root (the page does not exist yet). With NO locations/services
+  //    config loadServiceAreaGapsForTenant returns [] immediately -> the loader
+  //    adds nothing -> byte-identical to before RANK-5 (a content tenant like an
+  //    encyclopedia is a complete no-op). Deduped against the other create_page
+  //    Moves (spelling_demand_move + demand-graph) by cooldown_key so one pairing
+  //    never emits two cards. Fail-soft as its own block.
+  try {
+    const serviceAreaGaps = await loadServiceAreaGapsForTenant(tenantId);
+    if (serviceAreaGaps.length > 0) {
+      const rootDomain = businessConfig.domain
+        ?.trim()
+        .replace(/^https?:\/\//, "")
+        .replace(/\/$/, "");
+      const claimedCreatePageKeys = new Set(
+        all
+          .filter((r) => r.action_type === "create_page")
+          .map((r) => r.cooldown_key),
+      );
+      const serviceAreaRows = serviceAreaPage({
+        tenantId,
+        gaps: serviceAreaGaps,
+        siteRootUrl: rootDomain ? "https://" + rootDomain + "/" : null,
+        signalAt: new Date().toISOString(),
+      }).filter((r) => !claimedCreatePageKeys.has(r.cooldown_key));
+      all.push(...serviceAreaRows);
+    }
+  } catch (err) {
+    console.error(
+      `[trigger-loader] service-area-page failed for ${tenantId} (service_area_page skips): ${err instanceof Error ? err.message : String(err)}`,
     );
   }
   // (SEMrush cannibalization + keyword-gap triggers removed Phase F.1 — SEMrush
