@@ -4,8 +4,16 @@
  * Groups change outcomes by signal_type × asset_type to detect
  * which types of changes reliably produce improvements.
  *
- * Passive — stored only, not consumed by UI or recommendations.
  * Runs after import pipeline (after change_outcomes are materialized).
+ *
+ * RANK-1 (2026-07-06): this module's richer per-(signal x asset) success-rate
+ * signal is no longer dormant. `changePatternsToOutcomes` reduces qualifying
+ * patterns (>= MIN_DECIDED settled samples) into the SAME dimension-keyed
+ * SettledOutcome[] the win-rate prior already consumes, so change-patterns
+ * becomes an INPUT to the ONE bounded, decided-only outcome prior
+ * (experiment-prior.ts) - never a second, parallel prior. A pattern below the
+ * sample floor contributes nothing (neutral by absence), so a fresh/undecided
+ * tenant with no qualifying patterns gets byte-identical ranking.
  */
 
 import type { ChangeOutcome } from "@/domains/attribution/change-outcome";
@@ -15,6 +23,11 @@ import { syncChangePatterns } from "@/lib/persistence/dual-write";
 import type { UrlChangeOutcome } from "@/domains/attribution/url-change-outcome";
 import type { EditToken } from "@/domains/changelog/dedupe";
 import type { AssetType } from "@/lib/constants";
+import {
+  canonicalMoveType,
+  MIN_DECIDED,
+  type SettledOutcome,
+} from "./experiment-prior";
 
 // ---------------------------------------------------------------------------
 // Type
@@ -213,6 +226,72 @@ export function computeChangePatterns(
   patterns.sort((a, b) => b.success_rate - a.success_rate);
 
   return patterns;
+}
+
+// ---------------------------------------------------------------------------
+// RANK-1 bridge: change-patterns -> the ONE outcome prior
+//
+// Reduce the richer per-(signal x asset) success-rate patterns into the SAME
+// dimension-keyed SettledOutcome[] the win-rate prior (experiment-prior.ts)
+// already consumes, so this signal FEEDS that one bounded multiplier instead of
+// being a second, drifting prior. Each qualifying pattern is expanded back into
+// its success_count "won" + (sample_count - success_count) "lost" synthetic
+// decided outcomes on the SAME actionType dimension (canonicalMoveType over the
+// pattern's signal_type), so computeDimPriors applies the identical
+// >= MIN_DECIDED gate, win-rate math, and [0.85, 1.15] clamp.
+// ---------------------------------------------------------------------------
+
+/**
+ * Map a change-pattern `signal_type` (the faq/content/page/... changelog
+ * vocabulary) into the SAME canonical move-kind space the proof ledger's
+ * actionType uses (answer_block / edit_page / create_page / ...), so a
+ * change-pattern REINFORCES the ledger's own bucket instead of splitting into a
+ * separate one. Kept as an explicit, narrow table (not folded into the shared
+ * canonicalMoveType, whose substring rules are tuned for rec-action / graph-gap
+ * strings): faq is question-shaped content -> answer_block, generic on-page copy
+ * -> edit_page, a page launch -> create_page. Anything not listed falls through
+ * to the shared canonicalizer, then to the raw slug.
+ */
+const SIGNAL_TYPE_TO_MOVE_KIND: Record<string, string> = {
+  faq: "answer_block",
+  content: "edit_page",
+  page: "create_page",
+  service_page: "edit_page",
+  technical: "fix_experience",
+};
+
+function signalTypeToMoveKind(signalType: string): string {
+  const s = (signalType ?? "").toLowerCase().trim();
+  return SIGNAL_TYPE_TO_MOVE_KIND[s] ?? canonicalMoveType(s);
+}
+
+/**
+ * Convert change patterns into dimension-keyed SettledOutcome[] for the outcome
+ * prior. PURE. Only patterns with >= MIN_DECIDED settled samples contribute
+ * (below that they stay neutral by absence, matching the prior's own floor), and
+ * only when their signal_type maps to a real move kind. A pattern with
+ * `sample_count` s and `success_count` w becomes w "won" + (s - w) "lost"
+ * synthetic outcomes keyed on `actionType`, so it flows through the identical
+ * win-rate math AND merges into the ledger's own bucket for that kind. Empty /
+ * all-thin input -> [] (the prior stays byte-identical). Never mutates the
+ * patterns; nothing here touches measurement history.
+ */
+export function changePatternsToOutcomes(
+  patterns: readonly ChangePattern[],
+): SettledOutcome[] {
+  const out: SettledOutcome[] = [];
+  for (const p of patterns) {
+    // Guard against malformed rows: successes can never exceed samples.
+    const sample = Math.max(0, Math.floor(p.sample_count));
+    const won = Math.max(0, Math.min(sample, Math.floor(p.success_count)));
+    const lost = sample - won;
+    if (sample < MIN_DECIDED) continue; // below the prior's own decided floor
+    const actionType = signalTypeToMoveKind(p.signal_type);
+    if (!actionType || actionType === "other") continue; // unmappable signal -> nothing
+    for (let i = 0; i < won; i += 1) out.push({ verdict: "won", dims: { actionType } });
+    for (let i = 0; i < lost; i += 1) out.push({ verdict: "lost", dims: { actionType } });
+  }
+  return out;
 }
 
 // ---------------------------------------------------------------------------

@@ -266,8 +266,8 @@ describe("planDailyExperiments — item 35 power gate", () => {
 
 // ── Item 47: learned priors folded into the nightly planner score ──────────
 
-const won: LearnedPrior = { multiplier: 1.15, decidedSample: 5, basis: "actionType:answer_block", tag: 'Similar moves like this won 4 of 5, ranked higher' };
-const lost: LearnedPrior = { multiplier: 0.85, decidedSample: 4, basis: "actionType:edit_title", tag: "Similar moves like this underperformed (1/4), ranked lower" };
+const won: LearnedPrior = { multiplier: 1.15, decidedSample: 5, basis: "actionType:answer_block", tag: "I moved this up because your answer-block changes keep winning (4 of the last 5 won)." };
+const lost: LearnedPrior = { multiplier: 0.85, decidedSample: 4, basis: "actionType:edit_title", tag: "I moved this down because your title and wording tweaks have not been landing (1 of 4 won)." };
 const neutral: LearnedPrior = { multiplier: 1, decidedSample: 0, basis: null, tag: null };
 
 describe("scoreCandidate — item 47 learned-prior fold", () => {

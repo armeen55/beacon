@@ -36,7 +36,7 @@ import { log } from "@/lib/logger";
 
 import { loadCompetitorCitedPagesForTenant, type CompetitorCitationsResult } from "./competitor-citations-loader";
 import { loadFanoutSeedsForTenant, fanoutSeedsForNode, type FanoutSeed } from "./load-fanout-seeds";
-import { loadExperimentOutcomes, loadEffectObservations, loadProofOutcomeRows } from "@/domains/learning/load-experiment-outcomes";
+import { loadExperimentOutcomes, loadChangePatternOutcomes, loadEffectObservations, loadProofOutcomeRows } from "@/domains/learning/load-experiment-outcomes";
 import { applyExperimentPriorToMoves, canonicalMoveType, pageTypeFromUrl, queryClusterKey } from "@/domains/learning/experiment-prior";
 import { applyEffectSizePriorToMoves } from "@/domains/learning/effect-size-prior";
 import { applyProofOutcomeCautionToMoves } from "@/domains/demand-graph/proof-outcome-caution";
@@ -563,7 +563,19 @@ export async function loadDemandGraphForTenant(
   // graph. Raw MoveComponents are never touched (the lie detector stays honest).
   let moves = graph.moves;
   try {
-    const outcomes = await loadExperimentOutcomes(tenantId);
+    // RANK-1: the SAME bounded, decided-only prior is now fed by TWO sources that
+    // share one dimension space and one win-rate math - the proof ledger's own
+    // settled verdicts AND the change-pattern brain's per-(signal x asset)
+    // success rates (each pattern reduced to synthetic decided outcomes on the
+    // actionType dimension, only where it cleared its own >= 3 sample floor). Both
+    // are concatenated and handed to the ONE computeDimPriors, so change-patterns
+    // strengthens the same multiplier instead of being a second, drifting prior.
+    // A fresh tenant has neither source -> empty list -> byte-identical ranking.
+    const [ledgerOutcomes, patternOutcomes] = await Promise.all([
+      loadExperimentOutcomes(tenantId),
+      loadChangePatternOutcomes(),
+    ]);
+    const outcomes = [...ledgerOutcomes, ...patternOutcomes];
     if (outcomes.length > 0) {
       moves = applyExperimentPriorToMoves(graph.moves, outcomes, (m) => ({
         actionType: canonicalMoveType(m.gap),

@@ -28,6 +28,7 @@ import { teammateOf } from "@/domains/team/identity";
 import { Sparkline } from "@/components/data/sparkline";
 import { formatMetric, formatMetricCompact } from "@/lib/format-metric";
 import { stripBannedDashes } from "@/lib/copy/strip-dashes";
+import { LearnedMoveLine } from "./learned-move-line";
 import { rankToVisits } from "@/domains/serp/rank-to-visits";
 import { dossierHref } from "@/lib/page-dossier-link";
 import { Card } from "@/components/ui/card";
@@ -441,11 +442,7 @@ export function MoveCard({
       </p>
       <p className="mt-2 text-body leading-relaxed text-foreground-secondary">{m.why}</p>
 
-      {m.learnedTag ? (
-        <p className="mt-1.5 inline-flex items-center gap-1 rounded-md bg-accent-primary-light px-2 py-0.5 text-meta font-medium text-accent-primary ring-1 ring-accent-primary-muted">
-          <Brain className="h-3.5 w-3.5 shrink-0" aria-hidden /> {m.learnedTag}
-        </p>
-      ) : null}
+      <LearnedMoveLine tag={m.learnedTag} />
 
       {/* Page-specific learning caution (2026-06-28) - this page's own shipped change
           held-while-measuring / no-lift / lifted. Links to Results when evidence-backed. */}

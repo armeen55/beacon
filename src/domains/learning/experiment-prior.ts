@@ -164,13 +164,59 @@ export function computeDimPriors(outcomes: readonly SettledOutcome[]): Map<strin
   return out;
 }
 
-function tagFor(p: DimPrior): string {
-  const label = p.value.replace(/[_-]+/g, " ");
-  const dimLabel =
-    p.dimension === "actionType" ? "moves like this" : p.dimension === "pageType" ? `${label} pages` : `"${label}"`;
-  if (p.winRate >= 0.6) return `Similar ${dimLabel} won ${p.won} of ${p.decided} — ranked higher`;
-  if (p.winRate <= 0.4) return `Similar ${dimLabel} underperformed (${p.won}/${p.decided}) — ranked lower`;
-  return `Mixed results on ${dimLabel} (${p.won}/${p.decided})`;
+/** Plain, customer-safe name for a canonical move kind, so the actionType line
+ *  reads "your last 3 answer-block changes" not "your last 3 add_answer_block".
+ *  Mirrors beacon-learned-summary's KIND_PHRASE spirit; kept local so this pure
+ *  module has no surface-copy dependency. Unknown kinds fall back to a readable
+ *  slug. No lab words. */
+const KIND_SUBJECT: Record<string, string> = {
+  answer_block: "answer-block changes",
+  edit_page: "title and wording tweaks",
+  create_page: "new pages",
+  add_schema: "page-info (schema) additions",
+  internal_links: "internal-link additions",
+  fix_experience: "page-experience fixes",
+};
+
+function kindSubject(kind: string): string {
+  return KIND_SUBJECT[kind] ?? `${kind.replace(/[_-]+/g, " ")} changes`;
+}
+
+/**
+ * The one honest, first-person line the card shows about WHY this move moved in
+ * the ranking - the visible half of the learning loop. Beacon voice: first
+ * person, a concrete number in every clause, a plain next-nothing (the change
+ * IS the outcome), no lab words (never "prior"/"multiplier"), no em or en dashes.
+ * Self-hides upstream: this only runs for a bucket that already cleared
+ * MIN_DECIDED decided outcomes, so a fresh/undecided tenant never reaches it.
+ *
+ * The actionType dimension carries the strongest story ("your last 3 answer-block
+ * changes all won"); pageType and queryCluster fall back to a page/topic phrasing.
+ */
+function tagFor(p: DimPrior): string | null {
+  const clean = p.value.replace(/[_-]+/g, " ").trim();
+  const won = p.winRate >= 0.6;
+  const lost = p.winRate <= 0.4;
+  // A coin-flip bucket (0.4 < winRate < 0.6) does not move this move in the
+  // ranking, so it earns NO line - never a hollow "I left this where it is" claim
+  // dressed as an insight. The tag surfaces ONLY when the loop actually re-ranked.
+  if (!won && !lost) return null;
+
+  if (p.dimension === "actionType") {
+    const subject = kindSubject(p.value);
+    if (won) {
+      // "all won" only when the whole decided sample won; else "won N of M".
+      const streak = p.won === p.decided
+        ? `all ${p.decided} won`
+        : `${p.won} of the last ${p.decided} won`;
+      return `I moved this up because your ${subject} keep winning (${streak}).`;
+    }
+    return `I moved this down because your ${subject} have not been landing (${p.won} of ${p.decided} won).`;
+  }
+
+  const place = p.dimension === "pageType" ? `${clean} pages` : `"${clean}"`;
+  if (won) return `I moved this up because changes on ${place} keep winning (${p.won} of ${p.decided} won).`;
+  return `I moved this down because changes on ${place} have not been landing (${p.won} of ${p.decided} won).`;
 }
 
 // ---------------------------------------------------------------------------

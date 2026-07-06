@@ -256,6 +256,30 @@ export async function loadExperimentOutcomes(tenantId: string): Promise<SettledO
   return gateRecordsToOutcomes(tenantId, records);
 }
 
+/**
+ * RANK-1 (2026-07-06) - fold the change-pattern brain's per-(signal x asset)
+ * success-rate signal INTO the SAME outcome list the win-rate prior consumes, so
+ * it feeds the ONE bounded multiplier (never a parallel prior). Reads the stored
+ * change-patterns aggregate and reduces every pattern that cleared its own
+ * >= MIN_DECIDED sample floor into synthetic decided outcomes on the actionType
+ * dimension (changePatternsToOutcomes). Fail-soft -> [] : a fresh tenant with no
+ * materialized patterns adds nothing, so the ranking stays byte-identical.
+ * Read-only over an already-computed store; nothing here recomputes or mutates
+ * measurement history.
+ */
+export async function loadChangePatternOutcomes(): Promise<SettledOutcome[]> {
+  try {
+    const { readStore } = await import("@/lib/persistence/json-store");
+    const { changePatternsToOutcomes } = await import("./change-patterns");
+    const patterns = await readStore<
+      import("./change-patterns").ChangePattern
+    >("change-patterns");
+    return changePatternsToOutcomes(patterns);
+  } catch {
+    return [];
+  }
+}
+
 /** Map the tenant's proof ledger into PAGE-keyed rows for the page-specific outcome
  *  caution (held-while-measuring / no-lift / lifted on THIS exact page). Keeps the
  *  page URL + verdict + baseline so the caution can match by page+family. Fail-soft → [].

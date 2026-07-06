@@ -94,7 +94,7 @@ describe("resolvePrior — backoff ladder", () => {
     const table = computeDimPriors(Array.from({ length: 3 }, () => won({ actionType: "add_answer_block" })));
     const p = resolvePrior({ queryCluster: "novel topic", actionType: "add_answer_block" }, table);
     expect(p.basis).toBe("actionType:add_answer_block");
-    expect(p.tag).toContain("ranked higher");
+    expect(p.tag).toContain("I moved this up");
   });
   it("NO EVIDENCE → neutral (no fake learning)", () => {
     const p = resolvePrior({ actionType: "anything" }, new Map());
@@ -139,6 +139,80 @@ describe("applyExperimentPriorToMoves", () => {
     const out = applyExperimentPriorToMoves([move({ gap: "answer_block", score: 1000 })], outcomes, (m) => ({ actionType: m.gap }));
     expect(out[0]!.score).toBeLessThanOrEqual(Math.round(1000 * MAX_MULTIPLIER));
     expect(out[0]!.score).toBeGreaterThanOrEqual(Math.round(1000 * MIN_MULTIPLIER));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// RANK-1: the visible "I moved this up/down because ..." line (tagFor via resolvePrior)
+// ---------------------------------------------------------------------------
+
+describe("learned tag — the honest 'moved up/down because' line (RANK-1)", () => {
+  it("a clean win streak reads 'I moved this up ... all N won' in plain first person", () => {
+    const table = computeDimPriors(Array.from({ length: 3 }, () => won({ actionType: "answer_block" })));
+    const p = resolvePrior({ actionType: "answer_block" }, table);
+    expect(p.tag).toBe("I moved this up because your answer-block changes keep winning (all 3 won).");
+    expect(p.multiplier).toBeGreaterThan(1);
+  });
+
+  it("a partial win reads 'N of the last M won' (never overclaims 'all')", () => {
+    // 3 won + 1 lost = winRate 0.75 (>= 0.6) → boosted, but not a clean sweep.
+    const table = computeDimPriors([
+      ...Array.from({ length: 3 }, () => won({ actionType: "answer_block" })),
+      lost({ actionType: "answer_block" }),
+    ]);
+    const p = resolvePrior({ actionType: "answer_block" }, table);
+    expect(p.tag).toBe("I moved this up because your answer-block changes keep winning (3 of the last 4 won).");
+  });
+
+  it("a losing kind owns the miss plainly ('moved this down ... have not been landing')", () => {
+    const table = computeDimPriors(Array.from({ length: 4 }, () => lost({ actionType: "edit_page" })));
+    const p = resolvePrior({ actionType: "edit_page" }, table);
+    expect(p.tag).toBe("I moved this down because your title and wording tweaks have not been landing (0 of 4 won).");
+    expect(p.multiplier).toBeLessThan(1);
+  });
+
+  it("a coin-flip bucket SELF-HIDES its line (no hollow insight) while staying neutral in rank", () => {
+    // 2 won + 2 lost = winRate 0.5 → multiplier 1.0 → no reorder → no line.
+    const table = computeDimPriors([
+      ...Array.from({ length: 2 }, () => won({ actionType: "answer_block" })),
+      ...Array.from({ length: 2 }, () => lost({ actionType: "answer_block" })),
+    ]);
+    const p = resolvePrior({ actionType: "answer_block" }, table);
+    expect(p.multiplier).toBe(1);
+    expect(p.tag).toBeNull();
+  });
+
+  it("a pageType win reads about the pages (not a lab word)", () => {
+    const table = computeDimPriors(Array.from({ length: 3 }, () => won({ pageType: "iran-flags" })));
+    const p = resolvePrior({ pageType: "iran-flags" }, table);
+    expect(p.tag).toBe("I moved this up because changes on iran flags pages keep winning (3 of 3 won).");
+  });
+
+  it("no learned line ever contains a lab word (prior / multiplier / posterior / bucket)", () => {
+    const tables = [
+      computeDimPriors(Array.from({ length: 3 }, () => won({ actionType: "answer_block" }))),
+      computeDimPriors(Array.from({ length: 4 }, () => lost({ actionType: "edit_page" }))),
+      computeDimPriors(Array.from({ length: 3 }, () => won({ pageType: "flags" }))),
+    ];
+    const dims: Partial<Record<PriorDimension, string>>[] = [
+      { actionType: "answer_block" },
+      { actionType: "edit_page" },
+      { pageType: "flags" },
+    ];
+    for (let i = 0; i < tables.length; i += 1) {
+      const tag = resolvePrior(dims[i]!, tables[i]!).tag ?? "";
+      expect(tag).not.toMatch(/\b(prior|multiplier|posterior|bucket|control|baseline|treatment)\b/i);
+    }
+  });
+
+  it("no em or en dashes in any generated tenant learned tag (hard rule)", () => {
+    const tags: (string | null)[] = [
+      resolvePrior({ actionType: "answer_block" }, computeDimPriors(Array.from({ length: 3 }, () => won({ actionType: "answer_block" })))).tag,
+      resolvePrior({ actionType: "edit_page" }, computeDimPriors(Array.from({ length: 4 }, () => lost({ actionType: "edit_page" })))).tag,
+      resolvePrior({ pageType: "iran-flags" }, computeDimPriors(Array.from({ length: 3 }, () => won({ pageType: "iran-flags" })))).tag,
+      resolvePrior({ queryCluster: "iran flag" }, computeDimPriors(Array.from({ length: 3 }, () => won({ queryCluster: "iran flag" })))).tag,
+    ];
+    for (const tag of tags) expect(tag ?? "").not.toMatch(/[‒–—―]/);
   });
 });
 
