@@ -561,6 +561,36 @@ export async function readAllCachedKeywordDifficulty(
 }
 
 /**
+ * Read ALL fresh cached page-level backlink summaries (no call, NO spend),
+ * flattened + deduped by URL (newest cache entry wins), stale entries (>30d)
+ * dropped. RANK-7's link-gap detection reads these at generation time: a
+ * link-authority Move only fires when a PAST verdict run already fetched the
+ * referring-domain counts for the competitor's and the tenant's pages - never a
+ * fresh Labs call just to label a gap. Fail-soft -> empty map. The value is the
+ * distinct referring-domain count (or null when the API had none for that URL).
+ */
+export async function readAllCachedBacklinks(
+  deps: { now?: () => Date; readCache?: () => Promise<CacheRow[]> } = {},
+): Promise<Map<string, number | null>> {
+  const nowMs = (deps.now ?? (() => new Date()))().getTime();
+  const out = new Map<string, number | null>();
+  let rows: CacheRow[];
+  try {
+    rows = await (deps.readCache ?? defaultDeps.readCache)();
+  } catch {
+    return out;
+  }
+  for (const r of rows) {
+    if (!r.key.startsWith("bulk_referring_domains|")) continue;
+    if (nowMs - Date.parse(r.fetchedAt) >= LABS_CACHE_TTL_MS) continue; // stale row
+    for (const row of r.rows as BacklinksSummaryRow[]) {
+      if (row && typeof row.url === "string") out.set(row.url.trim(), row.referringDomains);
+    }
+  }
+  return out;
+}
+
+/**
  * Domain-strength rank scores (0-100) for EVERY winning domain in ONE batched
  * call (up to BULK_TARGETS_LIMIT). A rank-80 SERP is honestly a reject even when
  * the shape (content vs marketplace) looks friendly.

@@ -77,6 +77,57 @@ describe("computeOutreachLeads - profound citation domains", () => {
   });
 });
 
+describe("computeOutreachLeads - link-gap targets (RANK-7)", () => {
+  it("turns a link-gap competitor into a lead with a build-authority evidence line", () => {
+    const leads = computeOutreachLeads({
+      ownDomain: "iranopedia.com",
+      wikiCitingContexts: [],
+      keywordGapCompetitors: [],
+      profoundCitationDomains: [],
+      linkGapTargets: [
+        { competitorDomain: "supplehomes.com", keyword: "persian rugs", referringDomainMultiple: 70, volume: 1900 },
+      ],
+    });
+    expect(leads).toHaveLength(1);
+    expect(leads[0]!.leadSource).toBe("link_gap");
+    expect(leads[0]!.targetDomain).toBe("supplehomes.com");
+    expect(leads[0]!.evidence).toContain("70x");
+    expect(leads[0]!.evidence).toContain("persian rugs");
+    expect(leads[0]!.evidence).toContain("Study who links to their page");
+  });
+
+  it("is byte-identical to before when linkGapTargets is omitted (optional field)", () => {
+    const withField = computeOutreachLeads({
+      ownDomain: "iranopedia.com",
+      wikiCitingContexts: [],
+      keywordGapCompetitors: [{ competitorDomain: "example.com", sampleKeyword: "k", volume: 100 }],
+      profoundCitationDomains: [],
+      linkGapTargets: [],
+    });
+    const withoutField = computeOutreachLeads({
+      ownDomain: "iranopedia.com",
+      wikiCitingContexts: [],
+      keywordGapCompetitors: [{ competitorDomain: "example.com", sampleKeyword: "k", volume: 100 }],
+      profoundCitationDomains: [],
+    });
+    expect(withField).toEqual(withoutField);
+  });
+
+  it("drops the tenant's own domain and noise from link-gap targets too", () => {
+    const leads = computeOutreachLeads({
+      ownDomain: "iranopedia.com",
+      wikiCitingContexts: [],
+      keywordGapCompetitors: [],
+      profoundCitationDomains: [],
+      linkGapTargets: [
+        { competitorDomain: "iranopedia.com", keyword: "x", referringDomainMultiple: 60, volume: null },
+        { competitorDomain: "facebook.com", keyword: "y", referringDomainMultiple: 60, volume: null },
+      ],
+    });
+    expect(leads).toEqual([]);
+  });
+});
+
 describe("computeOutreachLeads - filters + dedupe", () => {
   it("drops the tenant's own domain", () => {
     const leads = computeOutreachLeads({

@@ -126,6 +126,16 @@ vi.mock("@/domains/local-seo/load-service-area-gaps", () => ({
   loadServiceAreaGapsForTenant: async () => _serviceAreaGaps,
 }));
 
+// RANK-7 (2026-07-06): the link-gap trigger reads the $0 keyword-gap store +
+// cached backlink counts. This suite validates the snapshot-driven predicates +
+// the page shell, not the backlink engine (which has its own dedicated tests),
+// so default this loader helper to [] and let a focused case opt in via
+// `_linkGaps`.
+let _linkGaps: import("@/domains/link-authority/link-gap").LinkGap[] = [];
+vi.mock("@/domains/link-authority/load-link-gaps", () => ({
+  loadLinkGapsForTenant: async () => _linkGaps,
+}));
+
 function makeIndexability(
   url: string,
   verdict: IndexabilityVerdict,
@@ -263,6 +273,9 @@ beforeEach(() => {
   // RANK-5 — default the config-driven service-area gap list to empty; a focused
   // case sets it to prove the service_area_page card renders.
   _serviceAreaGaps = [];
+  // RANK-7 — default the link-gap list to empty; a focused case sets it to prove
+  // the link_gap card renders.
+  _linkGaps = [];
   // Slice 4.5.D.α₀b — reset Promotion Preview data sources.
   _recommendedEditsToReturn = [];
   _recommendationResponsesToReturn = [];
@@ -460,19 +473,19 @@ describe("/diagnostics/recommendation-triggers", () => {
     expect(html).toContain('data-row-action-type="edit_title"');
   });
 
-  it("predicates_run counter reads 36 (dynamic trigger roster)", async () => {
+  it("predicates_run counter reads 37 (dynamic trigger roster)", async () => {
     _snapshotsToReturn = [makeSnapshot({ url: "https://example.com/a" })];
     const html = await renderPage();
     expect(html).toContain('data-counter="predicates_run"');
     // The font-mono span renders the active predicate count from the loader meta
     // (PREDICATE_COUNT). Ratchets with each new trigger; the value tracks the
-    // loader's own hand-maintained PREDICATE_COUNT (36 as of the RANK-5
-    // service_area_page Move on top of the RANK-4 ai_crawler_skip Move, the P20
-    // spelling-demand Move, the P10 entity + author pack: entity_link_gap +
-    // author_byline_gap + brand_presence_gap, and the P24 image-SEO pack's
-    // add_image_alt_text).
+    // loader's own hand-maintained PREDICATE_COUNT (37 as of the RANK-7 link_gap
+    // Move on top of the RANK-5 service_area_page Move, the RANK-4 ai_crawler_skip
+    // Move, the P20 spelling-demand Move, the P10 entity + author pack:
+    // entity_link_gap + author_byline_gap + brand_presence_gap, and the P24
+    // image-SEO pack's add_image_alt_text).
     expect(html).toMatch(
-      /data-counter="predicates_run"[^>]*>[^<]*<span[^>]*>36<\/span>/,
+      /data-counter="predicates_run"[^>]*>[^<]*<span[^>]*>37<\/span>/,
     );
   });
 
@@ -498,6 +511,37 @@ describe("/diagnostics/recommendation-triggers", () => {
     // Customer-copy column carries the exact service + city + a next step.
     expect(html).toContain("You have no page for custom home in Oakland");
     expect(html).toContain("a market where you should compete");
+  });
+
+  // ── RANK-7: link-authority gap (the "#1 ranking" half) ────────────────
+
+  it("renders the link_gap authority directive when a backlink gap exists", async () => {
+    _snapshotsToReturn = [makeSnapshot({ url: "https://example.com/a" })];
+    _linkGaps = [
+      {
+        keyword: "persian rugs",
+        volume: 1900,
+        competitorDomain: "supplehomes.com",
+        competitorRank: 3,
+        competitorUrl: "https://supplehomes.com/persian-rugs",
+        ownRank: 24,
+        competitorReferringDomains: 210,
+        ownReferringDomains: 3,
+        referringDomainMultiple: 70,
+        score: 7600,
+      },
+    ];
+    const html = await renderPage();
+    // Off-site authority directive -> routes to diagnostic_only (never the
+    // customer queue), but still carries the queryable row attributes + copy.
+    expect(html).toContain('data-row-trigger-signal="link_gap"');
+    expect(html).toContain('data-row-action-type="pursue_local_pr"');
+    // Customer-copy column carries the exact query, competitor, multiple, the
+    // concrete referring-domain counts, and the build-authority next step.
+    expect(html).toContain(
+      "supplehomes.com ranks for &quot;persian rugs&quot; and their page has about 70x the links from other sites that yours does (210 referring domains to your 3).",
+    );
+    expect(html).toContain("build authority first");
   });
 
   // ── α₂ extensions ────────────────────────────────────────────────────
@@ -551,10 +595,10 @@ describe("/diagnostics/recommendation-triggers", () => {
     const html = await renderPage();
     // The description carries a `data-description-predicates-run`
     // attribute set to the current count from the loader meta
-    // (PREDICATE_COUNT, 36 as of the RANK-5 service_area_page Move).
-    expect(html).toContain('data-description-predicates-run="36"');
+    // (PREDICATE_COUNT, 37 as of the RANK-7 link_gap Move).
+    expect(html).toContain('data-description-predicates-run="37"');
     // And the prose body contains the same integer.
-    expect(html).toContain("36</span> active");
+    expect(html).toContain("37</span> active");
   });
 
   // ── α₂.2 page-classifier integration ────────────────────────────────

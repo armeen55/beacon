@@ -3,6 +3,8 @@ import "server-only";
 import { log } from "@/lib/logger";
 import { readWikiGapResults } from "@/domains/wiki-gap/wiki-gap-store";
 import { readKeywordGapResults } from "@/domains/serp/keyword-gap-store";
+import { loadLinkGapsForTenant } from "@/domains/link-authority/load-link-gaps";
+import { linkGapsToOutreachTargets, type LinkGapOutreachTarget } from "@/domains/link-authority/to-outreach-signals";
 import {
   computeOutreachLeads,
   type WikiCitingContextInput,
@@ -35,7 +37,7 @@ const MAX_LEADS = 60;
 
 export type MineLeadsResult = {
   leads: OutreachLead[];
-  sourcesChecked: { wikiGap: boolean; keywordGap: boolean; profound: boolean };
+  sourcesChecked: { wikiGap: boolean; keywordGap: boolean; profound: boolean; linkGap: boolean };
 };
 
 async function loadWikiCitingContexts(tenantId: string): Promise<WikiCitingContextInput[]> {
@@ -123,16 +125,32 @@ async function loadProfoundCitationDomains(tenantId: string): Promise<ProfoundCi
   }
 }
 
+/** RANK-7 (2026-07-06): link-gap outreach targets - competitors that out-link
+ *  the tenant so badly it cannot win the query on content. Reads the $0
+ *  keyword-gap store + ALREADY-cached backlink counts (never a fresh paid call).
+ *  Empty-safe -> [] when no gap run or no cached backlink reads exist yet. */
+async function loadLinkGapOutreachTargets(tenantId: string, ownDomain: string): Promise<LinkGapOutreachTarget[]> {
+  try {
+    const gaps = await loadLinkGapsForTenant(tenantId, { ownDomain });
+    return linkGapsToOutreachTargets(gaps);
+  } catch (e) {
+    log.warn("[outreach] link-gap target load failed", { tenantId, error: e instanceof Error ? e.message : String(e) });
+    return [];
+  }
+}
+
 /**
- * Mine + merge candidate outreach leads for one tenant from the three existing
+ * Mine + merge candidate outreach leads for one tenant from the four existing
  * evidence sources. Never throws. Honest empty when all sources are thin (no
- * prior wiki-gap/keyword-gap run, no non-Wikipedia profound citations).
+ * prior wiki-gap/keyword-gap run, no non-Wikipedia profound citations, no
+ * cached link-gap backlink reads).
  */
 export async function mineOutreachLeads(tenantId: string, ownDomain: string): Promise<MineLeadsResult> {
-  const [wikiCitingContexts, keywordGapCompetitors, profoundCitationDomains] = await Promise.all([
+  const [wikiCitingContexts, keywordGapCompetitors, profoundCitationDomains, linkGapTargets] = await Promise.all([
     loadWikiCitingContexts(tenantId),
     loadKeywordGapCompetitors(tenantId),
     loadProfoundCitationDomains(tenantId),
+    loadLinkGapOutreachTargets(tenantId, ownDomain),
   ]);
 
   const leads = computeOutreachLeads({
@@ -140,6 +158,7 @@ export async function mineOutreachLeads(tenantId: string, ownDomain: string): Pr
     wikiCitingContexts,
     keywordGapCompetitors,
     profoundCitationDomains,
+    linkGapTargets,
   }).slice(0, MAX_LEADS);
 
   return {
@@ -148,6 +167,7 @@ export async function mineOutreachLeads(tenantId: string, ownDomain: string): Pr
       wikiGap: wikiCitingContexts.length > 0,
       keywordGap: keywordGapCompetitors.length > 0,
       profound: profoundCitationDomains.length > 0,
+      linkGap: linkGapTargets.length > 0,
     },
   };
 }

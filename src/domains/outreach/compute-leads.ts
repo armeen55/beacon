@@ -23,6 +23,10 @@
  */
 
 import { isNoiseDomain, domainOf } from "@/domains/evidence/relevance-gate";
+import {
+  linkGapLeadEvidence,
+  type LinkGapOutreachTarget,
+} from "@/domains/link-authority/to-outreach-signals";
 import type { OutreachLead, OutreachLeadSource } from "./types";
 
 /** Reference/mega-domains that are never real outreach targets - nobody at
@@ -74,6 +78,10 @@ export type LeadMiningInput = {
   wikiCitingContexts: WikiCitingContextInput[];
   keywordGapCompetitors: KeywordGapCompetitorInput[];
   profoundCitationDomains: ProfoundCitationDomainInput[];
+  /** RANK-7 (2026-07-06): competitors that out-link the tenant for a query so
+   *  badly it cannot win on content - the digital-PR outreach targets. Optional
+   *  so every existing caller stays byte-identical (absent -> no link_gap leads). */
+  linkGapTargets?: LinkGapOutreachTarget[];
 };
 
 const fmt = (n: number): string => n.toLocaleString("en-US");
@@ -140,6 +148,21 @@ export function computeOutreachLeads(input: LeadMiningInput): OutreachLead[] {
       targetUrl: p.url,
       leadSource: "profound_citation",
       evidence: `AI cited this page${topic} in your space. It is a candidate to also cite or link to you.`,
+    });
+  }
+
+  // Source 4 (RANK-7): link-gap competitors - a competitor that out-links the
+  // tenant so badly it cannot win the query on content. The digital-PR play is
+  // to earn the same links; the competitor domain is the starting point.
+  for (const t of input.linkGapTargets ?? []) {
+    const domain = (t.competitorDomain || "").toLowerCase().replace(/^www\./, "");
+    if (!domain) continue;
+    consider({
+      id: "",
+      targetDomain: domain,
+      targetUrl: `https://${domain}`,
+      leadSource: "link_gap",
+      evidence: linkGapLeadEvidence(t),
     });
   }
 

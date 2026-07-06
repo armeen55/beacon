@@ -1179,3 +1179,34 @@ export function serviceAreaPageCopy(
     " so you can show up when people search for it there."
   );
 }
+
+/**
+ * Link-authority gap (RANK-7, 2026-07-06). A competitor ranks for a query and
+ * their page has far more links from other sites (referring domains) than yours,
+ * so you likely cannot outrank them by editing the page alone. Names the query,
+ * the competitor, and the referring-domain multiple, then gives the honest next
+ * step: build authority first (earn strong links) before more page edits. Says
+ * "links from other sites" / "referring domains" (both concrete, allowed), never
+ * a lab word. NO em or en dashes (hard rule). Args: query, competitorDomain,
+ * multiple, competitor referring-domain count, own referring-domain count.
+ */
+export function linkGapCopy(
+  query: string,
+  competitorDomain: string,
+  multiple: number,
+  competitorReferringDomains: number,
+  ownReferringDomains: number,
+): string {
+  return (
+    competitorDomain +
+    ' ranks for "' +
+    query +
+    '" and their page has about ' +
+    multiple.toLocaleString("en-US") +
+    "x the links from other sites that yours does (" +
+    competitorReferringDomains.toLocaleString("en-US") +
+    " referring domains to your " +
+    ownReferringDomains.toLocaleString("en-US") +
+    "). You likely cannot outrank them by editing the page alone here, so build authority first: earn a few strong links to this topic before you keep polishing the page."
+  );
+}

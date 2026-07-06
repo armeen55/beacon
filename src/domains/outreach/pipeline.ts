@@ -39,13 +39,14 @@ export async function mineLeadsForTenant(tenantId: string, ownDomain: string): P
   const alreadyInPipeline = leads.filter((l) => existingIds.has(l.id)).length;
 
   if (leads.length === 0) {
-    const ranAny = sourcesChecked.wikiGap || sourcesChecked.keywordGap || sourcesChecked.profound;
+    const ranAny =
+      sourcesChecked.wikiGap || sourcesChecked.keywordGap || sourcesChecked.profound || sourcesChecked.linkGap;
     return {
       leads: [],
       alreadyInPipeline: 0,
       message: ranAny
-        ? "I checked your existing wiki-gap, keyword-gap, and AI citation data but did not find a pitchable domain yet. Run those checks again once you have more data."
-        : "I do not have wiki-gap, keyword-gap, or AI citation data to mine yet. Run those checks on this page first, then come back here.",
+        ? "I checked your existing wiki-gap, keyword-gap, link-gap, and AI citation data but did not find a pitchable domain yet. Run those checks again once you have more data."
+        : "I do not have wiki-gap, keyword-gap, link-gap, or AI citation data to mine yet. Run those checks on this page first, then come back here.",
     };
   }
 

@@ -6,7 +6,14 @@
  * PURE - types only, no I/O. Tenant-agnostic.
  */
 
-export type OutreachLeadSource = "wiki_gap" | "keyword_gap_competitor" | "profound_citation";
+export type OutreachLeadSource =
+  | "wiki_gap"
+  | "keyword_gap_competitor"
+  | "profound_citation"
+  // RANK-7 (2026-07-06): a competitor that out-links you for a query so badly you
+  // cannot win on content - the digital-PR starting point. Stored as plain text
+  // (outreach_pipeline.lead_source has no CHECK constraint), so no migration.
+  | "link_gap";
 
 export type OutreachStatus = "draft" | "ready" | "sent" | "replied" | "won" | "dead";
 

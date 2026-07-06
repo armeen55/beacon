@@ -255,6 +255,16 @@ import { loadCrawlerSkipGapsForTenant } from "@/domains/aeo-traffic/load-crawler
 // NO locations/services config produces no gaps -> byte-identical to before.
 import { serviceAreaPage } from "./triggers/service-area-page";
 import { loadServiceAreaGapsForTenant } from "@/domains/local-seo/load-service-area-gaps";
+// RANK-7 (2026-07-06) - BACKLINKS link-gap engine (the "#1 ranking" half). For a
+// query where a competitor RANKS and their page has far more links from other
+// sites (referring domains) than yours, you likely cannot outrank them on
+// content alone - the honest Move is to build authority first. The loader reads
+// the $0 keyword-gap store + ALREADY-cached backlink counts (no fresh paid call,
+// no new cron phase - RANK-8 owns nightly) and this trigger shapes them into an
+// off-site authority directive. Empty-safe: no warmed backlink cache -> no gaps
+// -> byte-identical to before. Also feeds the outreach pipeline (mine-leads.ts).
+import { linkGap } from "./triggers/link-gap";
+import { loadLinkGapsForTenant } from "@/domains/link-authority/load-link-gaps";
 
 export type TriggerCandidatesLoadStatus =
   | "ok"
@@ -285,8 +295,9 @@ export type TriggerCandidatesLoadResult = {
 
 // 30 predicates + P10 entity + author pack's 3 (entity_link_gap,
 // author_byline_gap, brand_presence_gap) = 33, + P20 spelling_demand_move = 34,
-// + RANK-4 ai_crawler_skip = 35, + RANK-5 service_area_page = 36.
-const PREDICATE_COUNT = 36;
+// + RANK-4 ai_crawler_skip = 35, + RANK-5 service_area_page = 36,
+// + RANK-7 link_gap = 37.
+const PREDICATE_COUNT = 37;
 
 function emptyResult(
   status: TriggerCandidatesLoadStatus,
@@ -872,6 +883,37 @@ export async function loadTriggerCandidatesForTenant(options: {
   } catch (err) {
     console.error(
       `[trigger-loader] service-area-page failed for ${tenantId} (service_area_page skips): ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+  // ── RANK-7 (2026-07-06): BACKLINKS link-gap engine. The loader reads the $0
+  //    keyword-gap store + ALREADY-cached backlink counts (readAllCachedBacklinks,
+  //    NO fresh paid call, NO new cron phase) and this trigger shapes the queries
+  //    a competitor's link authority caps into off-site authority directives
+  //    ("build authority first"). Site-root anchored (the gap is query-level, not
+  //    page-level), routed to diagnostic_only by applyQueueRules (off_page_seo).
+  //    With no warmed backlink cache loadLinkGapsForTenant returns [] -> the
+  //    loader adds nothing -> byte-identical to before RANK-7. Fail-soft block.
+  try {
+    const linkGaps = await loadLinkGapsForTenant(tenantId, {
+      ownDomain: businessConfig.domain ?? null,
+    });
+    if (linkGaps.length > 0) {
+      const rootDomain = businessConfig.domain
+        ?.trim()
+        .replace(/^https?:\/\//, "")
+        .replace(/\/$/, "");
+      all.push(
+        ...linkGap({
+          tenantId,
+          gaps: linkGaps,
+          siteRootUrl: rootDomain ? "https://" + rootDomain + "/" : null,
+          signalAt: new Date().toISOString(),
+        }),
+      );
+    }
+  } catch (err) {
+    console.error(
+      `[trigger-loader] link-gap failed for ${tenantId} (link_gap skips): ${err instanceof Error ? err.message : String(err)}`,
     );
   }
   // (SEMrush cannibalization + keyword-gap triggers removed Phase F.1 — SEMrush

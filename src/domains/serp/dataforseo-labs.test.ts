@@ -14,6 +14,7 @@ import {
   parseBulkDomainRanks,
   parseBacklinksSummary,
   readAllCachedKeywordDifficulty,
+  readAllCachedBacklinks,
   LABS_BULK_DIFFICULTY_COST_USD,
   BACKLINKS_BULK_RANKS_COST_USD,
   BACKLINKS_REFERRING_DOMAINS_COST_USD,
@@ -433,6 +434,33 @@ describe("readAllCachedKeywordDifficulty - $0 read for the daily-evidence-brief 
 
   it("is fail-soft on a cache read error (empty map, never throws)", async () => {
     const map = await readAllCachedKeywordDifficulty({ readCache: async () => { throw new Error("boom"); } });
+    expect(map.size).toBe(0);
+  });
+});
+
+describe("readAllCachedBacklinks - $0 read for the RANK-7 link-gap engine", () => {
+  it("flattens fresh bulk_referring_domains cache rows into a url -> referring-domains map", async () => {
+    const cached = [
+      { key: "bulk_referring_domains|https://iranopedia.com/home,https://theknot.com/x", rows: parseBacklinksSummary(BACKLINKS_BODY), fetchedAt: "2026-06-20T00:00:00Z" },
+      { key: "bulk_keyword_difficulty|2840|en|unrelated", rows: parseBulkKeywordDifficulty(DIFFICULTY_BODY), fetchedAt: "2026-06-20T00:00:00Z" },
+    ];
+    const map = await readAllCachedBacklinks({ now: () => new Date("2026-07-02T00:00:00Z"), readCache: async () => cached });
+    expect(map.get("https://theknot.com/x")).toBe(210);
+    expect(map.get("https://iranopedia.com/home")).toBe(3);
+    // non-backlinks cache rows are ignored
+    expect(map.has("persian wedding sofreh")).toBe(false);
+  });
+
+  it("drops a stale (>30d) backlinks cache row", async () => {
+    const cached = [
+      { key: "bulk_referring_domains|https://theknot.com/x", rows: parseBacklinksSummary(BACKLINKS_BODY), fetchedAt: "2026-05-01T00:00:00Z" },
+    ];
+    const map = await readAllCachedBacklinks({ now: () => new Date("2026-07-02T00:00:00Z"), readCache: async () => cached });
+    expect(map.size).toBe(0);
+  });
+
+  it("is fail-soft on a cache read error (empty map, never throws)", async () => {
+    const map = await readAllCachedBacklinks({ readCache: async () => { throw new Error("boom"); } });
     expect(map.size).toBe(0);
   });
 });

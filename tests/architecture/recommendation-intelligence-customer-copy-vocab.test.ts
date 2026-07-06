@@ -396,6 +396,15 @@ const PROBE_SETS: Record<string, ReadonlyArray<Probe>> = {
     ["window cleaning", "Berkeley", 0],
     ["hvac repair", "San Jose", 12000],
   ],
+  // RANK-7 (2026-07-06) - link-authority gap. Args: (query, competitorDomain,
+  // multiple, competitorReferringDomains, ownReferringDomains). Probe a typical
+  // gap, a you-have-zero-links edge, and a large-count edge (comma formatting on
+  // the referring-domain counts). No tenant/vertical baked into the probes.
+  linkGapCopy: [
+    ["persian rugs", "supplehomes.com", 70, 210, 3],
+    ["nowruz gifts", "rival.com", 55, 55, 0],
+    ["best laptops", "bigsite.com", 120, 250000, 2000],
+  ],
 };
 
 function scanForViolations(output: string): string[] {
