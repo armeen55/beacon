@@ -135,13 +135,29 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         log.warn("[precompute] tenant failed", { tenantId: t.id, error: e instanceof Error ? e.message : "?" });
       }
     }
+    // Per-tenant independence (2026-07-06): one tenant's warm failing must not
+    // hide that the CORE tenant succeeded. Iranopedia is warmed first (the
+    // ordered list above) and is the tenant the whole loop is proven on, so it
+    // is the core. The run is `ok` when at least the core tenant warmed; a
+    // non-core tenant failing is flagged as degraded in the notes, not a red
+    // run. Before this, `results.every(ok)` let a single non-core tenant's warm
+    // failure mask that the core was fully warm. When there is no core tenant
+    // (empty fleet), fall back to "all warmed".
+    const coreReceipt = results[0] ?? null; // Iranopedia sorts first
+    const coreOk = coreReceipt == null ? true : coreReceipt.ok;
+    const degradedTenants = results.filter((r) => !r.ok);
     await recordCronRun({
       job: "precompute",
       startedAt,
       finishedAt: new Date().toISOString(),
-      ok: results.every((r) => r.ok),
+      ok: coreOk,
       perSource: [],
-      notes: { tenants: results.length },
+      notes: {
+        tenants: results.length,
+        coreTenantId: coreReceipt?.tenant_id ?? null,
+        coreOk,
+        degradedTenants: degradedTenants.length,
+      },
     }).catch(() => {});
     return NextResponse.json({ ok: true, results });
   } catch (e) {

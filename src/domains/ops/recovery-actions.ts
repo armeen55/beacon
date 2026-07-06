@@ -70,6 +70,18 @@ const CONNECTOR_LABEL: Record<ConnectorKind, string> = {
   clarity: "Microsoft Clarity",
 };
 
+/** What each connector's data actually powers, in the operator's own money/
+ *  customer language - named on a dead-login line so the reconnect cost is
+ *  concrete ("bring your traffic and revenue numbers back"), never abstract.
+ *  No jargon (no "OAuth"/"token"/"invalid_grant"), Beacon voice. */
+const CONNECTOR_VALUE: Record<ConnectorKind, string> = {
+  google_gsc: "bring your search numbers back",
+  google_ga4: "bring your traffic and revenue numbers back",
+  wix: "start publishing your approved changes again",
+  profound: "see where AI assistants mention you again",
+  clarity: "see where visitors get stuck again",
+};
+
 const CONNECTORS_HREF = "/settings/connectors";
 const WIX_DIAGNOSTICS_HREF = "/diagnostics/wix";
 
@@ -109,10 +121,15 @@ export function recoveryForConnectorFailure(
     case "token_expired":
     case "token_revoked": {
       if (!isGoogle) return null;
-      const verb = state === "token_revoked" ? "revoked access" : "expired";
+      // Dead-login line (2026-07-06): first person, no jargon (never
+      // "OAuth"/"token"/"invalid_grant"), and it NAMES what reconnecting brings
+      // back so the cost is concrete. "login expired" is the plain word for a
+      // dead refresh grant; "was revoked" for an explicit revoke.
+      const expiredCopy = state === "token_revoked" ? "was revoked" : "expired";
+      const value = CONNECTOR_VALUE[connector];
       return {
-        plainProblem: `Your ${label} connection ${verb === "expired" ? "expired" : "was revoked"}.`,
-        exactFix: `Click Connect ${label} on the Connections page to reconnect. It takes under a minute and nothing else changes.`,
+        plainProblem: `Your ${label} login ${expiredCopy}.`,
+        exactFix: `Click Connect ${label} on the Connections page to ${value}. It takes under a minute and nothing else changes.`,
         href: CONNECTORS_HREF,
         selfServe: {
           kind: "reconnect_google",

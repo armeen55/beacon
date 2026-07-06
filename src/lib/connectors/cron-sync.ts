@@ -1,5 +1,6 @@
 import { log } from "@/lib/logger";
-import { listTenants } from "@/domains/tenants/store";
+import { listTenants, updateTenant } from "@/domains/tenants/store";
+import { refreshTenantProfile } from "@/domains/onboarding/refresh-tenant-profile";
 import { getConnectorInfo, updateConnectorToken } from "@/lib/connector-store";
 import { syncGscSearchAnalyticsForTenant } from "@/lib/connectors/gsc/sync-search-analytics";
 import { syncGscWeeklyDimensionsForTenant } from "@/lib/connectors/gsc/weekly-dimensions-sync";
@@ -50,6 +51,7 @@ import { loadDeadmanVerdict } from "@/domains/ops/deadman-view";
 import { computePooledVerdicts } from "@/domains/proof-gsc/pooled-verdict-runner";
 import { runInvestigationForTenant } from "@/domains/investigation/run-investigation";
 import { recordCronRun, type CronRunSourceResult as LedgerSourceResult } from "@/domains/ops/cron-runs-store";
+import { summarizeRunHealth } from "@/lib/connectors/connector-failure-class";
 import { checkTokenExpiryForTenants } from "@/domains/ops/token-expiry-notify";
 import { homepageUrlForDomain, probeHomepage, recordSiteProbe } from "@/domains/ops/site-uptime-store";
 import { runBackupVerification } from "@/domains/ops/backup-verify";
@@ -834,6 +836,50 @@ export async function syncAllConnectedForActiveTenants(): Promise<CronSyncResult
     }
   }
 
+  // PHASE 1j - profile self-heal (works-for-ANY-business profile engine,
+  // 2026-07-06): re-derive each tenant's business TYPE + services + service
+  // areas from its NOW-current substrates (persisted page snapshots + synced
+  // GSC + config) and fill any EMPTY config holes, so a business that added
+  // pages or opened new markets updates its own profile without a human opening
+  // the config screen. OPERATOR OVERRIDES ARE PINNED (persistTenantProfile only
+  // fills genuinely-missing fields + unions new service-area markets onto the
+  // existing list). Deterministic, FREE ($0 - reads already-persisted snapshots
+  // + already-synced GSC, no live crawl, no LLM, no paid API). A content site
+  // yields businessType=content_publisher + no service areas so the local engine
+  // stays silent - byte-identical to a world without this phase. Isolated
+  // try/catch per tenant; the segment self-heal rides updateTenant (never
+  // demotes a self-declared builder). Does not touch PHASE 1c-1i above.
+  for (const t of tenants) {
+    if (pastDeadline()) {
+      log.info("[cron-sync] enrichment deadline reached, skipping remaining profile self-heal");
+      break;
+    }
+    try {
+      const r = await refreshTenantProfile({ tenantId: t.id, currentSegment: t.segment });
+      if (r.changedFields.length > 0) {
+        log.info("[cron-sync] profile self-heal filled config", {
+          tenantId: t.id,
+          businessType: r.businessType,
+          changed: r.changedFields.join(", "),
+        });
+      }
+      if (r.segmentChanged && r.segment) {
+        await updateTenant(t.id, { segment: r.segment });
+        log.info("[cron-sync] profile self-heal updated segment", {
+          tenantId: t.id,
+          from: t.segment,
+          to: r.segment,
+        });
+      }
+    } catch (e) {
+      log.warn("[cron-sync] profile self-heal failed", {
+        tenantId: t.id,
+        error: e instanceof Error ? e.message.slice(0, 200) : String(e),
+      });
+      await reportPhaseError("profile-self-heal", t.id, e);
+    }
+  }
+
   // PHASE 2a — Step 3 competitor teardown (deterministic, FREE: polite HTTP only,
   // no LLM/paid API). Populates `competitor_page_audit` so the cockpit + New Pages
   // board show "what wins" everywhere, not just where the operator visited the
@@ -1197,12 +1243,30 @@ export async function syncAllConnectedForActiveTenants(): Promise<CronSyncResult
 
   const ok = results.filter((r) => r.ok).length;
   const failed = results.length - ok;
+  // Degraded-vs-broken run health (2026-07-06): a run is red ONLY when a
+  // connector failed with an UNEXPECTED (broken) error - a DB write failure,
+  // an infra outage, an unrecognized shape. A KNOWN-degraded failure (a dead
+  // login the operator must reconnect, a not-yet-wired source, a transient blip
+  // retried tonight) no longer flips the whole run red. Before this, ONE dead
+  // GA4 login made ok=false every night and masked whether a real regression
+  // happened. The full per-connector detail still lands in per_source below.
+  const health = summarizeRunHealth(results);
   log.info("[cron-sync] complete", {
     tenants: tenants.length,
     connectedSources: results.length,
     ok,
     failed,
+    runOk: health.ok,
+    degraded: health.degraded.length,
+    broken: health.broken.length,
   });
+  if (health.broken.length > 0) {
+    // A real regression: name the broken connectors loudly so it is visible in
+    // the nightly log (and not buried behind the known-degraded noise).
+    log.error("[cron-sync] run BROKEN - unexpected connector failures", {
+      broken: health.broken.map((b) => `${b.provider}@${b.tenantId ?? "?"}:${b.detail}`),
+    });
+  }
 
   // Cron health ledger (BEACON_500 item 85, 2026-07-03): record this run so the
   // /settings/connectors health panel and item 84's failure-streak trigger have
@@ -1215,7 +1279,11 @@ export async function syncAllConnectedForActiveTenants(): Promise<CronSyncResult
       job: "sync-connectors",
       startedAt: ranAt,
       finishedAt: new Date().toISOString(),
-      ok: failed === 0,
+      // Run health, NOT failed===0 (2026-07-06): green when the core succeeded
+      // and the only failures are known-degraded connectors; red only on an
+      // unexpected (broken) failure. This is what the health panel + summary
+      // strip read, so a dead login stops making the automation look broken.
+      ok: health.ok,
       perSource: results.map(
         (r): LedgerSourceResult => ({
           tenantId: r.tenantId,
@@ -1226,6 +1294,10 @@ export async function syncAllConnectedForActiveTenants(): Promise<CronSyncResult
       ),
       notes: {
         tenants: tenants.length,
+        // Degraded-vs-broken roll-up (2026-07-06): how many failures were
+        // known-degraded (reconnect / not-wired / transient) vs a real break.
+        degraded: health.degraded.length,
+        broken: health.broken.length,
         tokenExpiryChecked,
         tokenExpiryWarningsSent,
         // RANK-8 honest topic-mentions receipt: how many tenants polled, how many

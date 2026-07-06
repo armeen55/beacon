@@ -156,7 +156,7 @@ describe("GA4 card — CONNECTED + WITH PROPERTY state", () => {
 });
 
 describe("GA4 card — T0b recovery fix line", () => {
-  it("a proven auth failure (auth_failed_at set) shows the shared reconnect fix", () => {
+  it("a proven dead login (auth_failed_at set) shows the first-person problem + value-naming reconnect fix", () => {
     const html = renderClient({
       ga4: {
         status: "connected",
@@ -169,8 +169,14 @@ describe("GA4 card — T0b recovery fix line", () => {
       },
     });
     expect(html).toContain('data-recovery-fix="token_expired"');
+    // 2026-07-06: a dead login leads with the honest first-person problem so
+    // the operator SEES which connector broke, then the value-naming fix.
+    expect(html).toContain('data-recovery-problem="token_expired"');
+    expect(html).toContain("Your Google Analytics login expired.");
     expect(html).toContain("Fix this:");
-    expect(html).toContain("Connect Google Analytics on the Connections page to reconnect");
+    expect(html).toContain(
+      "Click Connect Google Analytics on the Connections page to bring your traffic and revenue numbers back.",
+    );
   });
 
   it("healthy + recently synced shows no fix line", () => {

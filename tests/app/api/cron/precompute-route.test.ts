@@ -19,8 +19,13 @@ const state = vi.hoisted(() => ({
   ],
   warmed: [] as string[],
   recorded: [] as Array<{ tenant_id: string; ok: boolean }>,
+  /** Every recordCronRun call for the precompute job (the run-level ledger row
+   *  whose `ok` the health panel + summary strip read). */
+  cronRuns: [] as Array<{ ok: boolean; notes: Record<string, unknown> }>,
   hasRun: false,
-  warmFails: false,
+  /** "all" = every tenant's warm throws; "core-only" = only Iranopedia throws;
+   *  "noncore-only" = only Ritz (non-core) throws; false = all succeed. */
+  warmFails: false as false | "all" | "core-only" | "noncore-only",
 }));
 
 vi.mock("@/domains/tenants/store", () => ({
@@ -31,7 +36,12 @@ vi.mock("@/domains/ops/warm-caches", () => ({
   pacificDay: (now: Date) => now.toLocaleDateString("en-CA", { timeZone: "America/Los_Angeles" }),
   warmTenantCaches: vi.fn(async (tenantId: string) => {
     state.warmed.push(tenantId);
-    if (state.warmFails && tenantId === "tenant-iranopedia") throw new Error("warm blew up");
+    const isCore = tenantId === "tenant-iranopedia";
+    const shouldFail =
+      state.warmFails === "all" ||
+      (state.warmFails === "core-only" && isCore) ||
+      (state.warmFails === "noncore-only" && !isCore);
+    if (shouldFail) throw new Error("warm blew up");
     return {
       tenant_id: tenantId,
       date: "2026-07-02",
@@ -54,6 +64,12 @@ vi.mock("@/lib/logger", () => ({
   log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
 
+vi.mock("@/domains/ops/cron-runs-store", () => ({
+  recordCronRun: vi.fn(async (input: { ok: boolean; notes?: Record<string, unknown> }) => {
+    state.cronRuns.push({ ok: input.ok, notes: input.notes ?? {} });
+  }),
+}));
+
 import { GET } from "@/app/api/cron/precompute/route";
 
 function req(auth?: string): NextRequest {
@@ -66,6 +82,7 @@ beforeEach(() => {
   process.env.CRON_SECRET = "s3cret";
   state.warmed = [];
   state.recorded = [];
+  state.cronRuns = [];
   state.hasRun = false;
   state.warmFails = false;
 });
@@ -110,7 +127,7 @@ describe("GET /api/cron/precompute", () => {
   });
 
   it("fail-soft per tenant: one tenant blowing up never stops the next", async () => {
-    state.warmFails = true;
+    state.warmFails = "core-only";
     const res = await GET(req("Bearer s3cret"));
     expect(res.status).toBe(200);
     const body = await res.json();
@@ -119,6 +136,39 @@ describe("GET /api/cron/precompute", () => {
     expect(iran.ok).toBe(false);
     const ritz = body.results.find((r: { tenant_id: string }) => r.tenant_id === "tenant-ritz-founder");
     expect(ritz.ok).toBe(true);
+  });
+
+  // Per-tenant independence (2026-07-06): the run-level ledger `ok` (what the
+  // health panel + summary strip read) must NOT go red just because a non-core
+  // tenant's warm failed - as long as the core tenant (Iranopedia, warmed
+  // first) succeeded. Before this, `results.every(ok)` let one non-core failure
+  // mask that the core was fully warm.
+  it("run stays ok when only a NON-core tenant's warm fails (core succeeded)", async () => {
+    state.warmFails = "noncore-only"; // Ritz fails, Iranopedia (core) succeeds
+    await GET(req("Bearer s3cret"));
+    expect(state.cronRuns).toHaveLength(1);
+    const run = state.cronRuns[0]!;
+    expect(run.ok).toBe(true); // NOT red - the core warmed
+    expect(run.notes.coreOk).toBe(true);
+    expect(run.notes.degradedTenants).toBe(1); // Ritz flagged as degraded, not a red run
+  });
+
+  it("run goes red only when the CORE tenant's warm fails", async () => {
+    state.warmFails = "core-only"; // Iranopedia (core) fails
+    await GET(req("Bearer s3cret"));
+    expect(state.cronRuns).toHaveLength(1);
+    const run = state.cronRuns[0]!;
+    expect(run.ok).toBe(false); // red - the core did not warm
+    expect(run.notes.coreOk).toBe(false);
+  });
+
+  it("all-healthy run records ok=true (byte-identical to the healthy baseline)", async () => {
+    await GET(req("Bearer s3cret"));
+    expect(state.cronRuns).toHaveLength(1);
+    const run = state.cronRuns[0]!;
+    expect(run.ok).toBe(true);
+    expect(run.notes.coreOk).toBe(true);
+    expect(run.notes.degradedTenants).toBe(0);
   });
 
   it("dash guard: route responses carry no em/en dashes", async () => {

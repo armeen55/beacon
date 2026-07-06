@@ -226,14 +226,22 @@ function ConnectorFixLine({
   if (state == null || state === "never_connected") return null;
   const action = recoveryForConnectorFailure(connector, state);
   if (action == null) return null;
+  // A proven dead login is more urgent than a stale sync: lead with the honest
+  // first-person problem ("Your GA4 login expired.") so the operator SEES which
+  // connector broke and why, then the exact reconnect fix. A merely-stale sync
+  // stays a single soft "Fix this" line (no alarming problem sentence).
+  const isDeadLogin = state === "token_expired" || state === "token_revoked";
   return (
-    <p
-      className="text-[12px] text-status-warning"
-      role="status"
-      data-recovery-fix={state}
-    >
-      <span className="font-semibold">Fix this:</span> {action.exactFix}
-    </p>
+    <div role="status" data-recovery-fix={state} className="space-y-0.5">
+      {isDeadLogin ? (
+        <p className="text-[12px] font-medium text-status-danger" data-recovery-problem={state}>
+          {action.plainProblem}
+        </p>
+      ) : null}
+      <p className="text-[12px] text-status-warning">
+        <span className="font-semibold">Fix this:</span> {action.exactFix}
+      </p>
+    </div>
   );
 }
 
