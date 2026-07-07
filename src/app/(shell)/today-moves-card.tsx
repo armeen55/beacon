@@ -115,7 +115,7 @@ const SOURCE_LABEL: Record<string, string> = {
   ga4: "Analytics",
   clarity: "Clarity UX",
   profound: "AI citations",
-  dataforseo: "Live SERP",
+  dataforseo: "Live Google check",
   competitor_teardown: "Competitor teardown",
   rank_revenue: "Demand graph",
 };
@@ -493,6 +493,18 @@ export function MoveCard({
           wait: "wait for measurement",
         };
         const lab = (l: string) => LL[l] ?? l;
+        // Map the raw SERP-format slug to plain words - never render the bare
+        // slug ("table"/"ugc") to a paying customer.
+        const FORMAT_PLAIN: Record<string, string> = {
+          table: "a comparison table",
+          list: "a scannable list",
+          ugc: "real user answers",
+          faq: "an FAQ",
+          guide: "a step-by-step guide",
+          product: "a product or shop page",
+          mixed: "a clear answer plus structured sections",
+        };
+        const fmtPlain = (f: string) => FORMAT_PLAIN[f] ?? f;
         const rp = m.researchPack;
         return (
           <div className="mt-3 rounded-xl border border-violet-100 bg-violet-50/40 px-3 py-2">
@@ -500,12 +512,12 @@ export function MoveCard({
             {typeof rp.addressableVolume === "number" && rp.addressableVolume > 0 ? (
               <p className="mt-1 text-body text-violet-900">
                 <span className="font-semibold">Addressable demand:</span>{" "}
-                <span title={`${formatMetric(rp.addressableVolume)} searches a month across this page's queries`}>~{formatMetricCompact(rp.addressableVolume)} searches/mo</span> <span className="text-violet-500">(DataForSEO)</span>
+                <span title={`${formatMetric(rp.addressableVolume)} searches a month across this page's queries`}>~{formatMetricCompact(rp.addressableVolume)} searches/mo</span>
               </p>
             ) : null}
             {rp.serpPattern ? (
               <p className="mt-1 text-meta text-violet-800">
-                <span className="font-semibold">SERP rewards:</span> {rp.serpPattern.format}: {stripBannedDashes(rp.serpPattern.elementImplication)}
+                <span className="font-semibold">What Google is rewarding:</span> {fmtPlain(rp.serpPattern.format)}: {stripBannedDashes(rp.serpPattern.elementImplication)}
                 {rp.serpPattern.winningDomains.length ? <span className="text-violet-500"> · winners: {rp.serpPattern.winningDomains.join(", ")}</span> : null}
               </p>
             ) : null}
@@ -576,8 +588,12 @@ export function MoveCard({
           warning treatment (I am holding this), winnable moves the success
           treatment (worth doing). Tokens only (status-warning / status-success),
           no raw palette - design-system-guard enforces it. Only renders when a
-          live Google-results check produced a verdict. */}
-      {m.winnabilityLine ? (
+          live Google-results check produced a verdict.
+          #17 contradiction fix: while this page is mid-measurement the card already
+          shows the amber "wait, do not ship" banner above, so a green "worth doing"
+          line here would contradict it. Suppress the non-held (success) line while
+          measuring; keep the amber held line, which agrees with "wait". */}
+      {m.winnabilityLine && (m.winnabilityHeld || !(m.alreadyMeasuring || m.pageMeasuring)) ? (
         <div
           className={
             m.winnabilityHeld

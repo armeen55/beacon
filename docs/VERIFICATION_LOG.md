@@ -7,6 +7,213 @@
 
 ---
 
+## 2026-07-07 - Bug #14: a revert was counted as a second shipped change (Wins + totals doubled)
+
+**Goal:** an auto-revert records "I put the old version back" as its OWN proof-ledger row
+(`actionType = revert_<original>`, run-revert.ts). The ONE-COUNT choke point counted that
+bookkeeping row as a distinct shipped change, so a ship + its revert read as TWO changes,
+doubling the running total and inflating Wins across the Results header strip, the three bands,
+Today's tiles, and the cumulative strip. Fix it once, at the single band/count choke point.
+
+**VERIFY-FIRST (confirmed before editing):**
+- Confirmed the revert marker is pure and unambiguous: `run-revert.ts:62-64` sets
+  `REVERT_ACTION_PREFIX = "revert_"` and records the revert as its own shipped change with
+  `actionType: revert_<originalActionType>` (`run-revert.ts:414`); `isRevertRecord` (line 82)
+  keys on that prefix. The ORIGINAL row only gets an ADDITIVE note (`appendShippedChangeNote`,
+  shipped-change-store.ts:579) - its windows/verdict are never mutated.
+- Confirmed `splitLedgerLifecycle` (domains/changes/lifecycle-counts.ts) is the SINGLE band
+  membership rule every count routes through: Results 3 bands + header strip (results/page.tsx:504
+  and cumulative-outcome-strip.tsx via computeCumulativeOutcome), Today tiles
+  (lifecycle-counts-data.ts -> computeLifecycleCounts -> countLedgerLifecycle), the cumulative
+  strip (cumulative-outcome.ts:140), won-dollar-rule.ts (97/113), and report-model.ts (150).
+- Confirmed the revert row does TWO harms, not one: it double-counts AND, because
+  `detectMeasurementOverlaps` runs over all rows, its same-page ship flags the ORIGINAL win as
+  attribution-limited (dragging a genuine win down to measuring). Reproduced on a fixture:
+  BEFORE `countLedgerLifecycle([won edit_title, revert_edit_title on same page])` = `{measuring:2,
+  decided:0, won:0}` (2 changes, the real win lost). AFTER = `{measuring:0, decided:1, won:1}`
+  (ONE change, the win preserved).
+- Confirmed `cumulative-outcome.ts:144` computed `shipped = rows.length` directly (a SECOND leak
+  the split did not cover) and `changes-data.ts:368` computed `shippedThisWeekCount` off raw
+  `ledgerRows.length` (session strip) - both counted reverts.
+
+**Fix (choke point + the two raw-length leaks):**
+- `domains/changes/lifecycle-counts.ts`: added `actionType?` to `LedgerLifecycleRow`, a pure
+  `isRevertLedgerRow` + `excludeRevertBookkeeping` (returns the SAME array reference when there is
+  no revert -> byte-identical no-revert ledger), and filter reverts at the TOP of
+  `splitLedgerLifecycle` BEFORE overlap detection. Every downstream count is fixed by this one edit.
+- `domains/proof-gsc/cumulative-outcome.ts`: `shipped` now = `decided + measuring` (the filtered
+  split totals), never `rows.length`; added `actionType?` to `CumulativeOutcomeRow`.
+- `src/app/(shell)/changes-data.ts`: `shippedThisWeekCount` now filters via
+  `excludeRevertBookkeeping` so the session strip agrees with the fixed lifecycle counts.
+
+**Verified:** `npm run typecheck` = clean for all touched files (the only two tsc errors are
+pre-existing and unrelated: `today-lead-headline.ts` / `today-briefing.test.tsx`
+`celebratesWinWithFigure`, files not touched here). Tests: lifecycle-counts (19 -> 23, +4 bug-#14
+pins including the byte-identical same-reference pin and a legacy-no-actionType pin),
+cumulative-outcome (+1 shipped-excludes-reverts pin), won-dollar-rule, report-model,
+results-ledger-data, results-surface-store, results-header-strip, proof-revert-proposal,
+run-revert, session-flow, today-view, changes-data, live-changes-data - all green
+(137 + 65 across the two runs). No dev server (pure read-model change).
+
+---
+
+## 2026-07-07 - Cold-tenant fix batch (#5, #4, #12, #13): four honest cold states before Ritz sees them
+
+**Goal:** four surfaces mislead a brand-new tenant with no data (Ritz, who the operator opens
+tomorrow): a scary 0-out-of-max local scorecard, a generic error on the only cold-Today CTA, a
+false "clean day" reassurance on too little traffic, and a "(DataForSEO)" vendor leak. Fix all
+four so the cold state reads honestly. Scope: `src/app/(shell)/local/page.tsx`,
+`src/app/(shell)/war-room-sections.tsx`, `src/app/(shell)/daily-experiments-actions.ts`, and the
+operator-failure copy map `src/domains/diagnostics/operator-failure.ts`. Additive.
+
+**VERIFY-FIRST (each cited line confirmed before editing):**
+- #5 `local/page.tsx:70` - confirmed the day-zero guard was `if (!snapshot.hasListing && !snapshot.hasReviews)`.
+  Confirmed in `src/lib/local-presence.ts:360` that `hasListing = Boolean(config.domain?.trim())`,
+  so ANY tenant that saved a domain in Config flips it true - it is not a real signal of local data.
+- #4 `daily-experiments-actions.ts:47` - confirmed the cold-Today CTA returned the prose sentence
+  `"No eligible experiments today (nothing materially better that's scientifically clean)."`.
+  Confirmed the section consumer `daily-experiments-section.tsx:804` renders it via
+  `reasonCopy(r.reason)` = `failureForReason(reason).message`; an unknown code falls through to the
+  FALLBACK `"Something didn't go through."` (operator-failure.ts:59). Confirmed the cold CTA is the
+  `"Show me today's changes"` button (daily-experiments-section.tsx:866).
+- #12 `war-room-sections.tsx:194-208` - confirmed the "No friction found this week. Clean pages."
+  empty state fired on `rows.length === 0`. Confirmed `routeClarityFriction` returns null below its
+  `minSessions: 20` floor (clarity-move-router.ts:43,62), so a below-floor page is indistinguishable
+  from a clean above-floor page in `allRouted` alone - the false-win root cause.
+- #13 `war-room-sections.tsx:554` - confirmed the rendered subtitle read
+  `"Real monthly searches (DataForSEO) where no page of yours is the answer today."`, one line below
+  a sibling (553) that already used the plain "keyword research" phrasing.
+
+**What changed:**
+1. #5 - guard now fires on ABSENCE of meaningful local data: `!snapshot.hasReviews && !hasLocalSource`
+   where `hasLocalSource = Boolean(snapshot.lastSync.google || .yelp || .manual)`. New empty state:
+   `"No local health to show yet"` + `"Connect your Google Business Profile to see your local health.
+   Once a reviews source is connected or imported, I show your listing health, NAP consistency, and
+   review sentiment here. I never estimate any of these from other signals."` with a
+   `"Connect Google Business Profile"` primary link. The 0/max scorecard no longer renders.
+2. #4 - action returns the stable code `{ ok:false, reason:"no_eligible_today" }`; added a
+   `no_eligible_today` row to REASON_COPY (kind `waiting_for_source`, NOT `unexpected_error`):
+   title `"Nothing is queued for today yet."`, message `"I don't have a clean change to suggest yet.
+   I'm still gathering data. Connect Google Search Console so I can see which pages to work on."`,
+   nextAction `"Connect Search Console"`.
+3. #12 - added `FRICTION_EVALUABLE_SESSION_FLOOR = 20` (mirrors the router's own floor, display-only)
+   and count `evaluablePages`. When `evaluablePages === 0` the band renders the honest low-traffic
+   line `"Not enough visits yet to judge page experience."` +
+   `"I watched sessions on N pages from the last 28 days, but none has enough traffic to call yet.
+   I will flag any friction as soon as one does."` The genuine "clean day" line now only fires when
+   at least one page cleared the floor (and appends `"N with enough traffic to judge"`). Demand card
+   untouched.
+4. #13 - subtitle now reads `"Real monthly searches from keyword research where no page of yours is
+   the answer today."` No rendered "DataForSEO". (One JSDoc comment at line 530 still says it - a
+   code note, never rendered.)
+
+**VERIFIED:**
+- `npm run typecheck`: my 4 files are clean. One PRE-EXISTING unrelated error remains in
+  `today-newpages-card-serp-copy.test.tsx` (PreparedSerpVerdict missing intent/generatedAt/costUsd) -
+  a file I was scoped out of and did not touch.
+- New render pins (renderToStaticMarkup, real HTML): `local/local-cold-tenant.test.tsx` (3),
+  `war-room-cold-tenant.test.tsx` (4), + a `no_eligible_today` case in `operator-failure.test.ts`.
+  All green.
+- Affected suites green: operator-failure (10), design-system-guard (raw-palette ratchet holds at
+  1297 <= 1298 baseline; no em/en dashes in primitives), clarity-move-router, local-presence-attention.
+- PRE-EXISTING (not mine): `tests/lib/local-presence.test.ts` has 2 failures in
+  `getLocalPresenceSnapshot`'s connector `last_synced_at` merge (a `src/lib/local-presence.ts`
+  loader I did not edit); the /local page component reads that snapshot but does not compute it.
+
+---
+
+## 2026-07-07 - Issues #17, #8, #7: fix the winnability contradiction + kill "SERP"/"DataForSEO" jargon on the Today MoveCard
+
+**Goal:** three trust fixes, all on the interactive §7 MoveCard. Scope:
+`src/app/(shell)/today-moves-card.tsx` (+ new `today-moves-card.test.tsx`) and the twin
+`SOURCE_LABEL` chip map in `src/app/(shell)/results/page.tsx`. Additive only.
+
+**VERIFY-FIRST (each cited line confirmed before editing):**
+- #17 (~line 580): the winnability block guarded only on `m.winnabilityLine` and branched on
+  `m.winnabilityHeld`. The non-held (green "worth doing") line rendered even while the page was
+  mid-measurement, contradicting the amber "This page is mid-measurement ... Wait for the read"
+  banner above (line ~419). No measuring-state guard existed.
+- #8 (line 118): `SOURCE_LABEL` mapped `dataforseo: "Live SERP"` (banned vendor acronym, rendered
+  as a chip). Confirmed a twin map at `results/page.tsx:919` renders the same chip on Results.
+- #7 (lines 503, 508): the research line rendered `(DataForSEO)`, the label `SERP rewards:`, and
+  the raw `{rp.serpPattern.format}` slug (e.g. bare "table").
+
+**What changed:**
+- #17: gated the winnability line so the non-held branch is suppressed while measuring:
+  `m.winnabilityLine && (m.winnabilityHeld || !(m.alreadyMeasuring || m.pageMeasuring))`.
+  The amber held line (which agrees with "wait") still renders.
+- #8: relabeled `dataforseo` to `"Live Google check"` in BOTH `SOURCE_LABEL` maps
+  (today-moves-card.tsx + results/page.tsx).
+- #7: dropped the `(DataForSEO)` parenthetical; relabeled `SERP rewards:` to
+  `What Google is rewarding:`; added a `FORMAT_PLAIN` slug map (table -> "a comparison table",
+  list -> "a scannable list", ugc -> "real user answers", faq -> "an FAQ", guide ->
+  "a step-by-step guide", product -> "a product or shop page", mixed -> "a clear answer plus
+  structured sections") applied to `rp.serpPattern.format`.
+
+**Rendered proof (renderToStaticMarkup, text-only):**
+- Chip: `Live Google check` (was `Live SERP`).
+- Research line: `What Google is rewarding: a comparison table: add a comparison table near the
+  top · winners: yelp.com` (was `SERP rewards: table: ...`); no `(DataForSEO)`.
+- Mid-measurement + held: amber banner `This page is mid-measurement - shipping another change now
+  muddies the proof. Wait for the read, or use "Ship anyway" below.` AND held line `so I am
+  holding this.` (both agree with "wait").
+- Mid-measurement + non-held: the green "worth doing" line is ABSENT (`includes("worth doing") ===
+  false`).
+
+**Tests:** new `today-moves-card.test.tsx` (18 assertions) pins the contradiction suppression, the
+plain chip label, the plain reward wording, every format-slug mapping, and no "SERP"/"DataForSEO"/
+banned-dash in the rendered card. Ran `npm run typecheck` (clean) + the card test with the four
+guards (`no-banned-dash-display-surfaces`, `no-operator-jargon`,
+`forbidden-customer-vocabulary-contract`, `design-system-guard`): 105/105 pass. Residual
+"SERP"/"DataForSEO" in the card file (lines 496, 555) are comments only, never rendered.
+
+## 2026-07-07 - Issue #6: kill the lab word "SERP" from the New Pages card (operator-facing)
+
+**Goal:** the vendor/lab word "SERP" was reaching a paying customer as BUTTON text, a button
+tooltip, a verdict-block label, and helper copy on the New Pages card. Replace every
+operator-visible "SERP" with the plain "Google" framing the file already used elsewhere
+(the "✓ Google checked" pill). Scope: `src/app/(shell)/today-newpages-card.tsx` ONLY, additive.
+
+**VERIFY-FIRST:** grepped the file for `serp` (case-insensitive) before editing. The cited lines
+were confirmed: line 425 rendered `SERP: {topDomains}`, line 479 the button label
+`Checking SERP… / ↻ Re-check SERP / Validate with live SERP`, line 476 the `title=` tooltip, and
+line 434 the helper strings `SERP budget cap reached. / No SERP result.`. The remaining `serp`
+hits (lines 6, 11, 49-71, 416, 430-432, 475) are internal code identifiers (`serp`/`setSerp`
+state, `serpPending`, `SerpValidationResponse`, `validateCreatePageWithSerpAction`,
+`plainSerpReason`, the `serp-actions` import, one comment) - never rendered, so out of scope.
+
+**What changed (4 operator-facing replacements, all in today-newpages-card.tsx):**
+1. Verdict domain line: `SERP: …` -> `Top Google results: …`
+2. Button labels: `Checking SERP…` -> `Checking Google…`; `↻ Re-check SERP` -> `↻ Re-check Google`;
+   `Validate with live SERP` -> `Check live Google results`
+3. Button tooltip: `Run a live Google SERP check (DataForSEO) and verdict this page…` ->
+   `Run a live Google check and verdict this page…`
+4. Helper copy: `SERP budget cap reached.` -> `Google check budget cap reached.`;
+   `No SERP result.` -> `No Google result.`
+   (The `DATAFORSEO_DRY_RUN` / `DataForSEO not connected.` strings on that line are a separate
+   token, out of scope for issue #6, left untouched.)
+
+**Pin test (additive):** `src/app/(shell)/today-newpages-card-serp-copy.test.tsx` renders the real
+`NewPageCard` with `renderToStaticMarkup` (prepared-verdict fixture + no-verdict fixture) and asserts
+`/serp/i.test(html) === false`, that the Google labels/tooltip render, and that no banned dash leaks.
+
+**Rendered proof (renderToStaticMarkup):**
+- BEFORE: `<button …>Validate with live SERP</button>` / `↻ Re-check SERP` / `SERP: site-one.com, …`
+- AFTER: `<button title="Run a live Google check and verdict this page: build, wait, or skip">↻ Re-check Google</button>`,
+  `Check live Google results` (no-verdict state), `Top Google results: site-one.com, site-two.com, site-three.com`,
+  and the existing `✓ Google checked` pill. Zero "SERP" in the markup.
+
+**Verified:**
+- `npm run typecheck` -> EXIT 0 (clean).
+- Targeted vitest (8 files, 119 tests, all pass): today-newpages-card-serp-copy (new, 5 tests),
+  today-newpages-full-page-draft, today-newpages-summary, today-newpages-wiki-gap,
+  no-banned-dash-display-surfaces, no-operator-jargon, forbidden-customer-vocabulary-contract,
+  design-system-guard.
+- design-system ratchet holds: raw palette classes in today-newpages-card.tsx still 22 (text-only
+  edits touch no classes); baseline 1298 unchanged.
+
+---
+
 ## 2026-07-06 - RANK-7: BACKLINKS link-gap engine (the "#1 ranking" half) + outreach feed
 
 **Goal:** turn the already-built backlink reads + winnability arithmetic into a real link-authority
@@ -34006,3 +34213,62 @@ Ritz's GBP + service-area config populated. Geo coverage ranking is also
 opportunistic — no live producer calls computeGeoCoverage yet, so gaps currently
 rank on config relevance until a coverage feed is wired (config-only gaps are
 fully valid and empty-safe).
+
+============================================================================
+2026-07-07 - TWO FABRICATED-CLICKS TRUST BUGS IN THE NIGHTLY RANKING (fixed)
+============================================================================
+Both bugs put a WRONG clicks number on a daily-experiment card that ALSO hijacked
+the nightly score. Verify-first: opened each cited line and confirmed the bug
+before touching it.
+
+BUG 1 - SEASONAL PREP SHOWED IMPRESSIONS LABELED AS CLICKS.
+  build-daily-candidates.ts (seasonal block) set
+    ctrOpportunityClicks: seed.expectedImpressions
+  but seed.expectedImpressions is a raw IMPRESSIONS count for the peak window
+  (seasonality.ts windowImpr -> PeakCalendarEntry.expectedImpressions ->
+  seasonal-candidates.ts). Every OTHER lever fills ctrOpportunityClicks with a
+  real CTR-gap CLICKS number. Downstream, pick-expectations divides that field by
+  3 for the monthly forecast AND scoreCandidate / the build-today-preview power
+  sort use it as the clicks spine. So a seasonal card read a ~1/CTR-inflated
+  "roughly 330 to 1,000 extra clicks a month" off a 4,000-impression window, and
+  seasonal picks dominated the batch ~1/CTR over a real title fix.
+  FIX: convert impressions -> honest clicks at assignment, at a conservative
+  target rank, using the shared CTR curve:
+    ctrOpportunityClicks: Math.round(seed.expectedImpressions * expectedCtrAt(SEASONAL_TARGET_POSITION))
+  (new exported const SEASONAL_TARGET_POSITION = 8; expectedCtrAt(8)=0.034).
+  The raw impressions still ride ONLY the whyNow reach line, where they are
+  already labeled "impressions in that window".
+  BEFORE (fixture, 4,000-impression window): forecast "roughly 330 to 1,000
+  extra clicks a month" (a lie); ctrOpportunityClicks 4,000.
+  AFTER: ctrOpportunityClicks 136 (round(4000*0.034)); forecast "roughly 10 to
+  35 extra clicks a month"; a real #6 title fix on the same 4,000 impressions now
+  outscores the seasonal pick (its clicks spine is larger, as it should be).
+
+BUG 2 - REFRESH FORECAST DIVIDED BY 3 TWICE (3x undercount).
+  decay-queue.ts computes clicksLostPerMonth = clicksLostQuarter/3 (already
+  MONTHLY); refresh-candidates.ts passes it through; build-daily-candidates.ts
+  (refresh block) set ctrOpportunityClicks: seed.clicksLostPerMonth. But
+  pick-expectations.ts divides ctrOpportunityClicks by 3 again -> a 3x undercount
+  that CONTRADICTS the same card's own "down about N clicks a month" line built
+  in decay-queue's buildRefreshSentence.
+  FIX: honor the ctrOpportunityClicks contract (a 90-day figure) so the
+  downstream /3 restores the true monthly:
+    ctrOpportunityClicks: seed.clicksLostPerMonth * 3
+  decay-queue's own copy is untouched.
+  BEFORE (fixture, 60 clicks/month fade): forecast "roughly 5 to 15 extra clicks
+  a month" while the card said "down about 60 clicks a month" (3x contradiction).
+  AFTER: forecast "roughly 15 to 45 extra clicks a month", centered on the same
+  60/month fade the card claims.
+
+FILES: src/domains/experiments/build-daily-candidates.ts (both fixes + new
+SEASONAL_TARGET_POSITION const); tests src/domains/seasonal/seasonal-wire.test.ts
+(+3 pins) and src/domains/refresh/refresh-wire.test.ts (+1 pin, existing 60->180
+pin corrected to encode the contract not the bug).
+
+VERIFIED: `npm run typecheck` clean for ALL owned files
+(experiments/**, refresh/*, seasonal/*); the only tsc errors are pre-existing in
+src/components/today/* (another agent's in-flight headline work, outside this
+change and modified concurrently). Suites GREEN: seasonal-wire (11), refresh-wire
+(6), pick-expectations, build-daily-candidates, build-today-preview,
+daily-experiment-planner, plus all of seasonal/ and refresh/ -> 23 files /
+314 tests passed. No dev server, no paid call.

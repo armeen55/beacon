@@ -135,4 +135,29 @@ describe("buildWhileAwaySummary", () => {
     });
     expect(s!.sentence).not.toMatch(/[‒–—―]/);
   });
+
+  it("shows the win clicks-a-month figure by default", () => {
+    const s = buildWhileAwaySummary({
+      then: { decided: 4, won: 2, toDo: 10 },
+      seenAt: AWAY,
+      now: { decided: 6, won: 3, toDo: 13 },
+      newWonMonthlyClickLift: 38,
+      nowMs: NOW,
+    });
+    expect(s!.sentence).toContain("up about 38 clicks a month");
+  });
+
+  it("drops the win figure (keeps 'N won') when the lead headline already owns it", () => {
+    const s = buildWhileAwaySummary({
+      then: { decided: 4, won: 2, toDo: 10 },
+      seenAt: AWAY,
+      now: { decided: 6, won: 3, toDo: 13 },
+      newWonMonthlyClickLift: 38,
+      suppressWinFigure: true,
+      nowMs: NOW,
+    });
+    // No second win number for the same wins; still honestly reports "1 won".
+    expect(s!.sentence).not.toContain("clicks a month");
+    expect(s!.sentence).toContain("1 won");
+  });
 });

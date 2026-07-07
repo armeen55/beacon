@@ -21,6 +21,7 @@ describe("TodayLeadHeadlineCard render", () => {
       <TodayLeadHeadlineCard
         headline={{
           winClause: "Your biggest win this week: /farsi-numbers is up about 40 clicks a month.",
+          celebratesWinWithFigure: true,
           nextClause: "Your next move: Tighten the title on /cities.",
           href: "#daily-experiments",
           actionLabel: "See tonight's plan",

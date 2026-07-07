@@ -916,7 +916,7 @@ const LINK_LABEL: Record<string, string> = {
 };
 const SOURCE_LABEL: Record<string, string> = {
   gsc: "Google Search", ga4: "Analytics", clarity: "Clarity UX",
-  profound: "AI citations", dataforseo: "Live SERP",
+  profound: "AI citations", dataforseo: "Live Google check",
   competitor_teardown: "Competitor teardown", rank_revenue: "Demand graph",
 };
 

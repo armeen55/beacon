@@ -58,6 +58,13 @@ export type LeadHeadlineMoverDay = {
 export type TodayLeadHeadline = {
   /** The win / loss clause ("Your biggest win this week: ..."), or null when nothing measured. */
   winClause: string | null;
+  /** True when the win clause is a celebrated win (tone "good") that carries a concrete figure
+   *  ("up about N clicks a month", "on track for about N", "clicks jumped by N"). page.tsx reads
+   *  this to enforce "at most one green win-with-a-number card per load": when the lead already
+   *  celebrates a win with a figure, a second green win card (e.g. while-you-were-away's summed
+   *  won-clicks-a-month) is suppressed so two green cards never show two different numbers for the
+   *  same wins. False for a loss, a next-move-only headline, or a win named without a number. */
+  celebratesWinWithFigure: boolean;
   /** The next-move clause ("Your next move: ..."), or null when nothing is queued. */
   nextClause: string | null;
   /** Where the single action link goes (tonight's plan, or the alert's target). */
@@ -118,14 +125,16 @@ function prettyPath(u: string): string {
  *   3. The biggest positive daily click mover in the window (a real number, "up N clicks").
  *   4. If the ONLY settled result this week was a loss, own it plainly (no false win).
  *
- * Returns { text, tone }. tone is "good" for a win/positive mover, "bad" for an owned loss,
- * null-clause (text null) when there is genuinely nothing measured to lead with.
+ * Returns { text, tone, figure }. tone is "good" for a win/positive mover, "bad" for an owned
+ * loss, null-clause (text null) when there is genuinely nothing measured to lead with. `figure`
+ * is true only when the clause is a celebrated win carrying a concrete number, so page.tsx can
+ * enforce one green win-with-a-number card per load.
  */
 function buildWinClause(
   ledger: LeadHeadlineLedgerRow[],
   moverDays: LeadHeadlineMoverDay[],
   nowMs: number,
-): { text: string | null; tone: "good" | "bad" | "neutral" } {
+): { text: string | null; tone: "good" | "bad" | "neutral"; figure: boolean } {
   const weekStart = nowMs - 7 * DAY_MS;
   const thisWeek = ledger.filter((r) => {
     const t = Date.parse(r.shippedAt);
@@ -147,9 +156,9 @@ function buildWinClause(
       const text = finalLift
         ? `Your biggest win this week: ${page} is up about ${lift.toLocaleString()} click${lift === 1 ? "" : "s"} a month.`
         : `Your biggest win this week: ${page} is on track for about ${lift.toLocaleString()} click${lift === 1 ? "" : "s"} a month, still arriving.`;
-      return { text, tone: "good" };
+      return { text, tone: "good", figure: true };
     }
-    return { text: `Your biggest win this week: the change on ${page} won.`, tone: "good" };
+    return { text: `Your biggest win this week: the change on ${page} won.`, tone: "good", figure: false };
   }
 
   // 3: the biggest positive daily click mover this week (a real, page-agnostic number).
@@ -170,6 +179,7 @@ function buildWinClause(
     return {
       text: `Your biggest win this week: clicks jumped by ${bestDelta.toLocaleString()} on ${monthDay(bestDate)}.`,
       tone: "good",
+      figure: true,
     };
   }
 
@@ -183,10 +193,11 @@ function buildWinClause(
     return {
       text: `This week: the change on ${page} did not work. Here is what I learned.`,
       tone: "bad",
+      figure: false,
     };
   }
 
-  return { text: null, tone: "neutral" };
+  return { text: null, tone: "neutral", figure: false };
 }
 
 /** "Jul 2" from a YYYY-MM-DD date, in Pacific to match the rest of Today's date labels. */
@@ -244,6 +255,9 @@ export function buildTodayLeadHeadline(input: {
   const actionLabel = next.text ? next.actionLabel : "See the result";
   return {
     winClause: win.text,
+    // Only a real win clause carrying a concrete number counts as "celebrating a win with a
+    // figure" - page.tsx uses this to keep at most one green win-with-a-number card per load.
+    celebratesWinWithFigure: win.text ? win.figure : false,
     nextClause: next.text,
     href,
     actionLabel,

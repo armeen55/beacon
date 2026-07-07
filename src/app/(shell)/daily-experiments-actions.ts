@@ -44,7 +44,11 @@ export async function planTodayExperimentsAction(): Promise<PlanPreviewResult> {
     const now = new Date();
     await expirePlans(tenantId, now).catch(() => 0); // best-effort hygiene
     const { record } = await buildTodayExperimentPreview(tenantId, now);
-    if (record.selected.length === 0) return { ok: false, reason: "No eligible experiments today (nothing materially better that's scientifically clean)." };
+    // Cold-Today fix (2026-07-07): a stable reason CODE, not a prose sentence. A raw
+    // sentence is unknown to operator-failure's copy map, so it fell through to the
+    // scary "Something didn't go through" error even though nothing broke. The code
+    // maps to a calm, honest "nothing queued yet" message.
+    if (record.selected.length === 0) return { ok: false, reason: "no_eligible_today" };
     await createPreviewPlan(record); // fail-closed (throws if Supabase can't persist)
     revalidatePath("/changes");
     revalidatePath("/");

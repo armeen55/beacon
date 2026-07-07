@@ -64,10 +64,18 @@ export default async function LocalPresencePage() {
           : null
       : null;
 
-  // Day-zero guard (#145): a brand-new tenant with no listing identity AND no
-  // stored reviews would otherwise see a full 0-100 scorecard of "Never synced"
-  // rows that reads as broken. Show a single honest empty state instead.
-  if (!snapshot.hasListing && !snapshot.hasReviews) {
+  // Day-zero guard (#145, cold-tenant fix 2026-07-07): a brand-new tenant would
+  // otherwise see a full 0-100 listing-health scorecard that reads as "you scored
+  // 0" instead of "there is nothing here yet". `hasListing` is true for ANY tenant
+  // that saved a domain in Config, so it is NOT a real signal of local data - a
+  // cold tenant with a domain but no reviews and no synced/imported source still
+  // has nothing honest to score. Fire this honest empty state on the ABSENCE of
+  // meaningful local data: no stored reviews AND no local source ever synced or
+  // imported (Google Business Profile, Yelp, or a manual reviews import).
+  const hasLocalSource = Boolean(
+    snapshot.lastSync.google || snapshot.lastSync.yelp || snapshot.lastSync.manual,
+  );
+  if (!snapshot.hasReviews && !hasLocalSource) {
     return (
       <div className="max-w-3xl space-y-8">
         <PageHeader
@@ -75,20 +83,21 @@ export default async function LocalPresencePage() {
           description="Listing identity, health, completeness, and stored reviews from Config, import, and optional on-demand sync — read-only; not live directory truth."
         />
         <section className="rounded-lg border border-border/60 bg-surface-raised/30 px-5 py-8 text-center space-y-3">
-          <p className="text-[14px] font-semibold text-foreground">No local presence data yet</p>
+          <p className="text-[14px] font-semibold text-foreground">No local health to show yet</p>
           <p className="mx-auto max-w-md text-[12px] text-muted-foreground leading-relaxed">
-            Add your business details in Config and connect or import a reviews source — then
-            Beacon shows your listing health, NAP consistency, and review sentiment here.
+            Connect your Google Business Profile to see your local health. Once a reviews source
+            is connected or imported, I show your listing health, NAP consistency, and review
+            sentiment here. I never estimate any of these from other signals.
           </p>
           <div className="flex flex-wrap items-center justify-center gap-4 pt-1 text-[12px] font-medium">
-            <Link href="/settings/config" className="text-accent-primary hover:underline">
-              Add business details →
-            </Link>
-            <Link href="/settings/connectors" className="text-muted-foreground hover:text-foreground">
-              Connect a reviews source
+            <Link href="/settings/connectors" className="text-accent-primary hover:underline">
+              Connect Google Business Profile →
             </Link>
             <Link href="/settings/import" className="text-muted-foreground hover:text-foreground">
               Import reviews
+            </Link>
+            <Link href="/settings/config" className="text-muted-foreground hover:text-foreground">
+              Add business details
             </Link>
           </div>
         </section>

@@ -218,7 +218,7 @@ export function NewPageCard({ o, ownDomain, enableAeoBrief = false }: { o: NewPa
           )}
         </p>
         {o.keywordMatch && o.searchVolume && o.searchVolume > 0 ? (
-          <p className="mt-1.5" title={`DataForSEO cached search volume, matched ${o.keywordMatch.confidence}`}>
+          <p className="mt-1.5" title={`Cached search volume from keyword research, matched ${o.keywordMatch.confidence}`}>
             <Pill intent={o.keywordMatch.confidence === "weak" ? "neutral" : "measuring"}>
               {o.searchVolume.toLocaleString()}/mo {o.keywordMatch.confidence === "weak" ? "≈ via" : "via"} “{o.keywordMatch.keyword}”
             </Pill>
@@ -422,7 +422,7 @@ export function NewPageCard({ o, ownDomain, enableAeoBrief = false }: { o: NewPa
                   {shown.ownAlreadyRanks ? <span className="font-semibold text-status-warning">you already rank</span> : null}
                 </div>
                 {shown.topDomains.length > 0 ? (
-                  <p className="mt-1 truncate text-meta text-muted-foreground">SERP: {shown.topDomains.slice(0, 5).join(", ")}</p>
+                  <p className="mt-1 truncate text-meta text-muted-foreground">Top Google results: {shown.topDomains.slice(0, 5).join(", ")}</p>
                 ) : null}
               </div>
             );
@@ -431,7 +431,7 @@ export function NewPageCard({ o, ownDomain, enableAeoBrief = false }: { o: NewPa
           <p className="mt-2 text-meta text-muted-foreground">{serp.reason}</p>
         ) : serp && serp.ok ? (
           <p className="mt-2 text-meta text-muted-foreground">
-            {serp.status === "dry_run" ? "Dry run, set DATAFORSEO_DRY_RUN=false to validate live." : serp.status === "capped" ? "SERP budget cap reached." : serp.status === "disabled" ? "DataForSEO not connected." : "No SERP result."}
+            {serp.status === "dry_run" ? "Live Google check is off in this environment." : serp.status === "capped" ? "Google check budget cap reached." : serp.status === "disabled" ? "Live Google check is not set up yet." : "No Google result."}
           </p>
         ) : null}
         {/* Prefer the full create_page_brief over a standalone saved opening: when a
@@ -473,10 +473,10 @@ export function NewPageCard({ o, ownDomain, enableAeoBrief = false }: { o: NewPa
         <button
           onClick={validate}
           disabled={serpPending}
-          title="Run a live Google SERP check (DataForSEO) and verdict this page: build, wait, or skip"
+          title="Run a live Google check and verdict this page: build, wait, or skip"
           className="inline-flex items-center gap-1 rounded-lg border border-status-info/20 bg-status-info-bg px-2.5 py-1.5 text-body font-semibold text-status-info transition-colors hover:opacity-80 disabled:opacity-60"
         >
-          {serpPending ? "Checking SERP…" : shown ? "↻ Re-check SERP" : "Validate with live SERP"}
+          {serpPending ? "Checking Google…" : shown ? "↻ Re-check Google" : "Check live Google results"}
         </button>
         {aiStatus !== "ok" ? (
           <button

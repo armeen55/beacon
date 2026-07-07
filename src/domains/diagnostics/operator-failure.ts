@@ -35,6 +35,10 @@ type Copy = Pick<OperatorFailure, "kind" | "title" | "message" | "nextAction" | 
 /** Known action reason codes → operator copy. The single source of failure language. */
 const REASON_COPY: Record<string, Copy> = {
   // ── plan lifecycle ──
+  // Cold-Today (2026-07-07): a brand-new tenant clicks "Show me today's changes"
+  // before enough data has arrived to plan a clean batch. This is the expected cold
+  // state, NOT an error, so it reads as calm "still gathering data", never alarming.
+  no_eligible_today: { kind: "waiting_for_source", title: "Nothing is queued for today yet.", message: "I don't have a clean change to suggest yet. I'm still gathering data. Connect Google Search Console so I can see which pages to work on.", nextAction: "Connect Search Console", retryable: true },
   plan_expired: { kind: "action_needs_review", title: "This plan needed fresh comparison pages.", message: "Beacon refreshed today’s batch. Review what changed before accepting.", nextAction: "Review refreshed plan", retryable: false },
   plan_refreshed: { kind: "action_needs_review", title: "Beacon refreshed today’s plan.", message: "It had timed out, so Beacon rebuilt it with fresh comparison pages. Review the list and accept again.", nextAction: "Review refreshed plan", retryable: false },
   plan_refreshed_empty: { kind: "waiting_for_source", title: "No clean experiments right now.", message: "There aren’t enough untouched comparison pages to plan a batch yet. Try again later.", nextAction: "Try again later", retryable: true },

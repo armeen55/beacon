@@ -385,6 +385,9 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
     seenAt: lastSeen?.seenAt ?? null,
     now: { decided: lifecycle.decided, won: lifecycle.won, toDo: lifecycle.toDo },
     newWonMonthlyClickLift,
+    // At most one green win-with-a-number card per load: if the lead headline already shows the
+    // win's clicks-a-month figure, the while-away card says "N won" without a second number.
+    suppressWinFigure: Boolean(leadHeadline?.celebratesWinWithFigure),
     nowMs,
   });
   const whileAwayReceipt = buildReceiptLine({

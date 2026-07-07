@@ -36,6 +36,10 @@ export type WhileAwayInput = {
   /** Summed measured monthly click lift of the changes that WON since the last visit,
    *  or null when none of the newly-won changes carries a final measured lift. */
   newWonMonthlyClickLift?: number | null;
+  /** When true, the win clause omits its clicks-a-month FIGURE (keeps "N won") so this card
+   *  never shows a second win number next to the lead headline's win figure for the same wins.
+   *  page.tsx sets this when the lead headline already celebrates a win with a figure. */
+  suppressWinFigure?: boolean;
   /** Clock. */
   nowMs: number;
 };
@@ -63,6 +67,7 @@ function measuredClause(
   finished: number,
   won: number,
   wonLift: number | null | undefined,
+  suppressWinFigure: boolean,
 ): string | null {
   if (finished <= 0) return null;
   const head = `${finished} ${plural(finished, "change", "changes")} finished measuring`;
@@ -71,7 +76,9 @@ function measuredClause(
     return `${head} (none won this time)`;
   }
   const wonPhrase = `${won} won`;
-  if (typeof wonLift === "number" && wonLift > 0) {
+  // When the lead headline already shows the win's clicks-a-month figure, we say "N won"
+  // without a second (differently-scoped) number, so Today never shows two win figures.
+  if (!suppressWinFigure && typeof wonLift === "number" && wonLift > 0) {
     return `${head} (${wonPhrase}, up about ${wonLift.toLocaleString()} ${plural(wonLift, "click", "clicks")} a month)`;
   }
   return `${head} (${wonPhrase})`;
@@ -94,7 +101,12 @@ export function buildWhileAwaySummary(input: WhileAwayInput): WhileAwaySummary |
 
   if (finishedMeasuring === 0 && newOpportunities === 0) return null;
 
-  const measured = measuredClause(finishedMeasuring, wonCount, input.newWonMonthlyClickLift);
+  const measured = measuredClause(
+    finishedMeasuring,
+    wonCount,
+    input.newWonMonthlyClickLift,
+    Boolean(input.suppressWinFigure),
+  );
   const oppClause =
     newOpportunities > 0
       ? `${newOpportunities} new ${plural(newOpportunities, "opportunity", "opportunities")} appeared`

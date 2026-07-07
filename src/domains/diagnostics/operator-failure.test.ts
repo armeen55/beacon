@@ -18,6 +18,16 @@ describe("failureForReason — known codes map to operator copy", () => {
   it("plan_refreshed routes to a review action, not an error", () => {
     expect(failureForReason("plan_refreshed").kind).toBe("action_needs_review");
   });
+  it("no_eligible_today is a calm cold-state, NOT the scary unexpected_error fallback", () => {
+    const f = failureForReason("no_eligible_today");
+    // A brand-new tenant's only Today CTA must NOT surface the generic error.
+    expect(f.kind).toBe("waiting_for_source");
+    expect(f.kind).not.toBe("unexpected_error");
+    expect(f.message).not.toMatch(/didn.t go through/i);
+    expect(f.message).toMatch(/gathering data|queued|Search Console/i);
+    expect(f.technicalCode).toBe("no_eligible_today");
+    expect(isKnownReason("no_eligible_today")).toBe(true);
+  });
 });
 
 describe("raw-code suppression — unknown/raw codes never leak", () => {

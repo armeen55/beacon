@@ -19,6 +19,8 @@
  * person ("I have a fix ready"), a concrete number, a next step; no lab jargon; no em/en dashes.
  */
 
+import { dossierHref } from "@/lib/page-dossier-link";
+
 export type SmokeAlarmDecayRow = {
   page: string;
   /** Trailing 28-day clicks. */
@@ -55,6 +57,18 @@ function prettyPath(u: string): string {
 }
 
 /**
+ * The full normalized page key used for the `pagesWithFixReady` lookup. This mirrors
+ * EXACTLY the host-strip + de-slash normalization page.tsx builds `pagesWithFixReady` with
+ * (host prefix removed, one trailing slash removed, "/" fallback) and carries NO length cap,
+ * so a long-URL page is compared key-for-key against the plan paths. prettyPath (which DOES
+ * cap length) is for the visible label only; using it for the `.has()` check silently dropped
+ * the "I have a fix ready" affordance on any page whose path ran past the 44-char cap.
+ */
+function normalizedFixKey(u: string): string {
+  return (u.replace(/^https?:\/\/[^/]+/i, "").replace(/\/$/, "")) || "/";
+}
+
+/**
  * Build the smoke alarm from the loaded decay signals. Picks the single page with the largest
  * real click loss that clears the floor. `hasFixReady` decides the closing sentence: when a
  * change is already queued for a bleeding page we can honestly say "I have a fix ready"; when
@@ -76,17 +90,27 @@ export function buildTodaySmokeAlarm(input: {
   }
   if (!worst) return null;
 
-  const page = prettyPath(worst.page);
+  // The visible label is truncated for tidiness; the fix-ready lookup and the deep link both
+  // use the FULL page path so a long-URL page is never mismatched or mis-pointed.
+  const label = prettyPath(worst.page);
+  const fixKey = normalizedFixKey(worst.page);
   const lost = Math.round(worst.lost);
-  const fixReady = input.pagesWithFixReady.has(page);
+  const fixReady = input.pagesWithFixReady.has(fixKey);
   const closing = fixReady ? "I have a fix ready." : "Worth a look before it slides further.";
-  const sentence = `Heads up: ${page} lost ${lost.toLocaleString()} click${lost === 1 ? "" : "s"} in the last 4 weeks. ${closing}`;
+  const sentence = `Heads up: ${label} lost ${lost.toLocaleString()} click${lost === 1 ? "" : "s"} in the last 4 weeks. ${closing}`;
+
+  // The CTA points at the exact bleeding page's dossier (its own change queue), not a /changes
+  // deep link the Changes list ignores. dossierHref normalizes the RAW page (host-strip, one
+  // trailing slash, lowercase) so the operator lands on the same page the alarm blames. The
+  // fallback (only the site root / a sentinel has no dossier) is the live Changes backlog, never
+  // a dead /page/ link.
+  const href = dossierHref(worst.page) ?? "/changes";
 
   return {
-    page,
+    page: label,
     clicksLost: lost,
     sentence,
-    href: `/changes?page=${encodeURIComponent(page)}`,
+    href,
     actionLabel: fixReady ? "See the fix" : "Review the page",
   };
 }

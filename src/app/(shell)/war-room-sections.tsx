@@ -71,6 +71,14 @@ function prettyPath(u: string): string {
  *  to a fix (routeClarityFriction's own thresholds are untouched). */
 const SMALL_SAMPLE_SESSION_FLOOR = 30;
 
+/** Cold-tenant fix (2026-07-07): the friction band's "clean day" reassurance must
+ *  only fire when at least one page had ENOUGH traffic to judge. This mirrors
+ *  clarity-move-router's own minSessions floor (a page below it routes to null, so
+ *  it is invisible to the router either way) - below it we cannot honestly say a
+ *  page is clean, only that we have not seen enough visits yet. Display-only; it
+ *  does not change routing, which the router still gates itself. */
+const FRICTION_EVALUABLE_SESSION_FLOOR = 20;
+
 function smallSampleCount(d: ClarityMoveDecision, sessions: number): string | null {
   if (sessions >= SMALL_SAMPLE_SESSION_FLOOR || sessions <= 0) return null;
   const numeratorFor: Record<ClarityMoveType, keyof ClarityPageSignal | null> = {
@@ -192,8 +200,28 @@ export async function FrictionFixesSection({ tenantId }: { tenantId: string }) {
     const totalFriction = allRouted.length;
     const rows = allRouted.slice(0, 4);
     if (rows.length === 0) {
-      // Item 21 - designed empty state: Clarity watched real visitor sessions this week
-      // and no page cleared the friction thresholds. Say so instead of leaving a gap.
+      // Cold-tenant fix (2026-07-07): a page below the session floor routes to null
+      // the same as a page above it with no friction pattern, so an empty router
+      // result alone cannot tell "clean" from "too few visits to judge". Only assert
+      // a clean day when at least one page had enough traffic to actually evaluate.
+      const evaluablePages = [...signals.values()].filter(
+        (s) => (s.sessions ?? 0) >= FRICTION_EVALUABLE_SESSION_FLOOR,
+      ).length;
+      if (evaluablePages === 0) {
+        // Honest low-traffic state: I watched, but no page has enough visits yet to
+        // call its experience good or bad. Do not claim a win we cannot see.
+        return (
+          <section id="friction-fixes" aria-label="Visitor friction fixes" className={CARD}>
+            <div className="min-w-0">
+              <div className={HEAD}>Visitor behavior</div>
+              <p className="mt-0.5 text-body text-foreground-secondary">Not enough visits yet to judge page experience.</p>
+              <p className="mt-0.5 text-meta tabular-nums text-muted-foreground">I watched sessions on {signals.size.toLocaleString()} page{signals.size === 1 ? "" : "s"} from the last 28 days, but none has enough traffic to call yet. I will flag any friction as soon as one does.</p>
+            </div>
+          </section>
+        );
+      }
+      // Item 21 - designed empty state: real pages cleared the traffic floor and none
+      // crossed the friction thresholds. That is a genuine clean day worth saying.
       return (
         <section id="friction-fixes" aria-label="Visitor friction fixes" className={CARD}>
           <div className="flex items-center gap-3">
@@ -201,7 +229,7 @@ export async function FrictionFixesSection({ tenantId }: { tenantId: string }) {
             <div className="min-w-0">
               <div className={HEAD}>Visitor behavior</div>
               <p className="mt-0.5 text-body text-foreground-secondary">No friction found this week. Clean pages.</p>
-              <p className="mt-0.5 text-meta tabular-nums text-muted-foreground">I watched sessions on {signals.size.toLocaleString()} page{signals.size === 1 ? "" : "s"} from the last 28 days.</p>
+              <p className="mt-0.5 text-meta tabular-nums text-muted-foreground">I watched sessions on {signals.size.toLocaleString()} page{signals.size === 1 ? "" : "s"} from the last 28 days, {evaluablePages.toLocaleString()} with enough traffic to judge.</p>
             </div>
           </div>
         </section>
@@ -551,7 +579,7 @@ export async function DemandOpportunitiesSection({ tenantId }: { tenantId: strin
         <p className="mt-1 text-meta text-muted-foreground">
           {spikeRows.length > 0
             ? "Searches moving this week in your own Google data, then gaps from keyword research."
-            : "Real monthly searches (DataForSEO) where no page of yours is the answer today."}
+            : "Real monthly searches from keyword research where no page of yours is the answer today."}
         </p>
         {/* UX4 item 4 - the stream splits into its distinct tools under mini-headers instead of
             one long unlabeled list, so each teammate's kind of finding reads as its own idea:
