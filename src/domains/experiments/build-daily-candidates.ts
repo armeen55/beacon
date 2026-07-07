@@ -224,6 +224,14 @@ function scoreControl(treated: GscPageInput, control: GscPageInput): SuggestedCo
 
 export const MIN_CONTROLS = 3;
 
+/** The conservative Google rank a seasonal prep is forecast to reach once the page is ready
+ *  ahead of the wave. A seasonal prep is speculative (the page has no current rank on the
+ *  seasonal query yet), so we assume a modest position-8 finish rather than a top-3 win, then
+ *  read that position's CTR off the shared curve to turn the window's IMPRESSIONS into an honest
+ *  CLICKS estimate for ctrOpportunityClicks. Deliberately conservative so a seasonal card never
+ *  outweighs a real, currently-ranking title fix in the nightly score. */
+export const SEASONAL_TARGET_POSITION = 8;
+
 /**
  * Item 29: which shipped records count as a real, MATURE, positive win the family-propagation
  * finder may reuse - the same honest maturity gate load-experiment-outcomes.ts uses for
@@ -422,8 +430,12 @@ export function buildDailyCandidates(input: {
         position: treated.topQueryPosition,
         ctr: treated.topQueryCtr,
         ownership: treated.ownership,
-        // The refresh forecast IS the fade: winning back what the page already earned.
-        ctrOpportunityClicks: seed.clicksLostPerMonth,
+        // The refresh forecast IS the fade: winning back what the page already earned. seed.clicksLostPerMonth
+        // is already a MONTHLY figure (decay-queue divides the quarter loss by 3). But the ctrOpportunityClicks
+        // contract every other lever honors is a 90-DAY clicks number, which pick-expectations divides by 3 to
+        // get monthly. So feed the QUARTERLY figure here (monthly x 3) and the downstream /3 restores the true
+        // monthly - matching this same card's own "down about N clicks a month" line instead of undercounting it 3x.
+        ctrOpportunityClicks: seed.clicksLostPerMonth * 3,
         effortMinutes: 15,
         external,
         leverField: "refresh",
@@ -497,8 +509,15 @@ export function buildDailyCandidates(input: {
         position: treated.topQueryPosition,
         ctr: treated.topQueryCtr,
         ownership: treated.ownership,
-        // The seasonal forecast is the wave itself: what the page earned last time it hit.
-        ctrOpportunityClicks: seed.expectedImpressions,
+        // The seasonal forecast is the wave itself, stated in CLICKS not impressions. seed.expectedImpressions
+        // is a raw IMPRESSIONS count for the peak window; every other lever fills ctrOpportunityClicks with a
+        // real CLICKS number, and pick-expectations divides it by 3 to get monthly clicks. So convert the
+        // window's impressions to an honest clicks estimate at a conservative target rank (SEASONAL_TARGET_POSITION)
+        // using the same CTR-by-position curve the rest of the batch uses. This keeps the forecast a truthful
+        // clicks range (not a ~1/CTR-inflated impressions count) AND keeps the score/power-check spine bounded so
+        // a seasonal prep never dominates a real title fix. The raw impressions still ride the whyNow reach line,
+        // where they are already labeled "impressions in that window".
+        ctrOpportunityClicks: Math.round(seed.expectedImpressions * expectedCtrAt(SEASONAL_TARGET_POSITION)),
         effortMinutes: 15,
         external,
         leverField: "seasonal_prep",

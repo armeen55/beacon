@@ -9,6 +9,8 @@ import { describe, expect, it } from "vitest";
 import {
   computeLifecycleCounts,
   countLedgerLifecycle,
+  excludeRevertBookkeeping,
+  isRevertLedgerRow,
   ledgerLifecycleStage,
   splitLedgerLifecycle,
   tonightCounts,
@@ -107,6 +109,54 @@ describe("splitLedgerLifecycle - the exact band membership Results renders", () 
     expect(split.won.map((r) => r.id)).toEqual(["w"]);
     expect(split.learned.map((r) => r.id)).toEqual(["l"]);
     expect(split.measuring.map((r) => r.id).sort()).toEqual(["i", "m"]);
+  });
+});
+
+describe("bug #14 - a revert is bookkeeping, not a second shipped change", () => {
+  it("isRevertLedgerRow: only a revert_* actionType row is a revert (legacy/undefined is real)", () => {
+    expect(isRevertLedgerRow({ actionType: "revert_edit_title" })).toBe(true);
+    expect(isRevertLedgerRow({ actionType: "edit_title" })).toBe(false);
+    expect(isRevertLedgerRow({ actionType: null })).toBe(false);
+    expect(isRevertLedgerRow({ actionType: undefined })).toBe(false);
+  });
+
+  it("an original ship + its revert count as ONE change, and the revert never adds to Wins", () => {
+    // A won title edit, then the revert executor recorded its own revert_edit_title row on
+    // the same page (run-revert.ts). Without the fix BOTH rows count, and the revert's
+    // same-page ship also drags the original win into measuring (attribution overlap).
+    const original = row("orig", "won", MATURE_WINDOWS, { path: "/pageA", actionType: "edit_title" });
+    const revert = row("rev", "won", MATURE_WINDOWS, {
+      path: "/pageA",
+      shippedAt: "2026-05-15T00:00:00.000Z",
+      actionType: "revert_edit_title",
+    });
+    const counts = countLedgerLifecycle([original, revert], NOW);
+    // ONE distinct change, and it is still the genuine win - the revert is gone entirely.
+    expect(counts.won).toBe(1);
+    expect(counts.decided).toBe(1);
+    expect(counts.measuring).toBe(0);
+    // The original row survives the split; the revert_* row is the one dropped.
+    const split = splitLedgerLifecycle([original, revert], NOW);
+    expect(split.won.map((r) => r.id)).toEqual(["orig"]);
+    expect([...split.won, ...split.learned, ...split.measuring].map((r) => r.id)).toEqual(["orig"]);
+  });
+
+  it("PIN: a no-revert ledger is byte-identical - excludeRevertBookkeeping returns the SAME array reference", () => {
+    const rows = [
+      row("w", "won", MATURE_WINDOWS, { actionType: "edit_title" }),
+      row("l", "lost", MATURE_WINDOWS, { actionType: "edit_meta" }),
+    ];
+    // Same reference (no re-filter, no re-sort) when nothing is a revert.
+    expect(excludeRevertBookkeeping(rows)).toBe(rows);
+    // And the split is unchanged from a plain no-actionType ledger.
+    const withRevert = [...rows, row("rev", "lost", MATURE_WINDOWS, { actionType: "revert_edit_title" })];
+    expect(excludeRevertBookkeeping(withRevert)).not.toBe(withRevert);
+    expect(excludeRevertBookkeeping(withRevert).map((r) => r.id)).toEqual(["w", "l"]);
+  });
+
+  it("a legacy ledger row with NO actionType is treated as a real change (never a false drop)", () => {
+    const legacy = row("legacy", "won", MATURE_WINDOWS); // no actionType field at all
+    expect(countLedgerLifecycle([legacy], NOW)).toEqual({ measuring: 0, decided: 1, won: 1 });
   });
 });
 

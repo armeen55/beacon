@@ -8,6 +8,7 @@
 import { describe, expect, it } from "vitest";
 
 import { buildDailyCandidates, type GscPageInput, type PageFacts } from "@/domains/experiments/build-daily-candidates";
+import { buildPickExpectations } from "@/domains/experiments/pick-expectations";
 import type { ShippedChangeRecord } from "@/domains/proof-gsc/shipped-change-store";
 import type { RefreshBrief } from "./refresh-brief";
 
@@ -68,11 +69,34 @@ describe("buildDailyCandidates - item 56 refresh source (wire behavior)", () => 
     expect(c.whyNow).toContain("fading");
     expect(c.whyNow).toContain("rival.com");
     expect(c.refreshDetail?.briefSentences.length).toBe(3);
-    expect(c.ctrOpportunityClicks).toBeCloseTo(60, 1); // the fade IS the forecast
+    // ctrOpportunityClicks carries the QUARTERLY fade (180 = 60/mo x 3) so pick-expectations' downstream
+    // /3 restores the true monthly (60), instead of the 3x undercount (20/mo) the old monthly value gave.
+    expect(c.ctrOpportunityClicks).toBeCloseTo(180, 1);
     // Controls come from the SAME clean pool machinery as every other lever.
     expect(c.suggestedControls.length).toBeGreaterThanOrEqual(3);
     expect(c.enoughControls).toBe(true);
     expect(c.eligibility.eligible).toBe(true);
+  });
+
+  it("the rendered monthly forecast matches the card's own 'N clicks a month' fade (no 3x undercount)", () => {
+    const { pages, facts } = siblingPool();
+    // decay-queue reports a 60 clicks-a-month fade (180 lost across the quarter / 3).
+    const out = buildDailyCandidates({
+      tenantId: "t", pages, facts, proofLedger: [], now: NOW,
+      refreshQueue: [fadingBrief("/iran-cats/persian-cats", 180)],
+    });
+    const c = out.find((x) => x.leverField === "refresh")!;
+    // The card's own sentence says "down about 60 clicks a month".
+    expect(c.whyNow).toContain("60 clicks a month");
+    // The forecast range must be CENTERED on that same monthly fade, not a third of it. With the fix,
+    // ctrOpportunityClicks=180 -> pick-expectations monthly = 180/3 = 60 -> 25%..75% band = 15..45.
+    // The old bug fed the monthly 60 straight in -> monthly = 20 -> band 5..15, a 3x undercount whose
+    // high end (15) was a QUARTER of the fade the same card claimed (60).
+    const exp = buildPickExpectations({ lever: "refresh", ctrOpportunityClicks: c.ctrOpportunityClicks, effortMinutes: 15 });
+    expect(exp.forecastLow).toBe(15);
+    expect(exp.forecastHigh).toBe(45);
+    // Sanity: the honest high end is well above the buggy 15 that contradicted the card's copy.
+    expect(exp.forecastHigh!).toBeGreaterThan(15);
   });
 
   it("bounds at 2 per night, decayed-winners-first (queue order)", () => {

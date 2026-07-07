@@ -42,6 +42,12 @@ export type CumulativeOutcomeRow = {
   path: string;
   shippedAt: string;
   verdict: string;
+  /** Bug #14 (2026-07-06): a revert's own ledger row (actionType `revert_*`) is
+   *  bookkeeping, not a distinct shipped change. splitLedgerLifecycle drops it, and
+   *  `shipped` below is derived from that filtered split (not rows.length) so the
+   *  cumulative strip's shipped total agrees with the Results bands. Optional; a legacy
+   *  row without actionType counts as a real change. */
+  actionType?: string | null;
   /** When this row's numbers were last measured (shipped-change-store's own stamp).
    *  Optional; only read by the strip's one-line receipt (R14b), never by the math. */
   measuredAt?: string | null;
@@ -141,7 +147,10 @@ export function computeCumulativeOutcome(
   const won = split.won.length;
   const decided = won + split.learned.length;
   const measuring = split.measuring.length;
-  const shipped = rows.length;
+  // Bug #14 - the shipped total is the DISTINCT operator changes (every band member),
+  // NOT rows.length: a revert's own `revert_*` bookkeeping row was already dropped by
+  // splitLedgerLifecycle, so counting the split keeps this in lockstep with the bands.
+  const shipped = decided + measuring;
 
   // Sum each won change's OWN measured basis-window clicks delta as a monthly rate.
   let clicksPerMonth = 0;

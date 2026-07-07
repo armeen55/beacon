@@ -19,6 +19,14 @@
  * "In flight", so a link that promises "16 measuring" lands on a list showing 16,
  * never 25 (the FP3 killer finding).
  *
+ * REVERTS ARE NOT CHANGES (bug #14, 2026-07-06): when a losing change is reverted,
+ * the executor records "I put the old version back" as its OWN ledger row with
+ * actionType `revert_<original>` (run-revert.ts). That row is bookkeeping, not a
+ * distinct operator change, so splitLedgerLifecycle drops every `revert_*` row BEFORE
+ * counting or overlap detection (excludeRevertBookkeeping). A ship + its revert reads
+ * as ONE change everywhere, and the revert never inflates Wins. The genuine measurement
+ * history survives: the ORIGINAL row (carrying its restored-version note) is kept.
+ *
  * TONIGHT: picked = the active plan's selected changes (accepted plan first, else
  * the preview). applied = picked minus the items still waiting on the operator's
  * edit (ready_to_apply / verification_pending / verification_failed) - byte-for-byte
@@ -67,7 +75,40 @@ export type LedgerLifecycleRow = {
   verdict: string;
   windows: ReadonlyArray<{ day: number; ran: boolean; controlsUsed?: number | null }>;
   baseline?: { impressions?: number | null } | null;
+  /** Bug #14 (2026-07-06): a revert executor records "I put the old version back" as
+   *  its OWN ledger row with actionType `revert_<original>` (run-revert.ts). That row is
+   *  bookkeeping, NOT a distinct operator change - excludeRevertBookkeeping below drops
+   *  it from every count so a ship + its revert reads as ONE change, never two. Optional:
+   *  a legacy row without actionType is treated as a real change (never a false drop). */
+  actionType?: string | null;
 };
+
+/** The prefix run-revert.ts stamps on a revert's own ledger row's actionType
+ *  (REVERT_ACTION_PREFIX). Kept here as a pure constant so the count choke point never
+ *  reaches into the server-only revert executor. */
+const REVERT_LEDGER_ACTION_PREFIX = "revert_";
+
+/** True for the ledger row OF a revert itself (revert_edit_title, revert_edit_meta, ...).
+ *  Pure; mirrors run-revert.ts's isRevertRecord without importing that server-only module. */
+export function isRevertLedgerRow(row: Pick<LedgerLifecycleRow, "actionType">): boolean {
+  return (row.actionType ?? "").startsWith(REVERT_LEDGER_ACTION_PREFIX);
+}
+
+/**
+ * Bug #14 - drop revert bookkeeping rows before ANY count or overlap detection.
+ * A revert both double-counts (a second shipped-change row for one underlying change)
+ * AND poisons overlap detection (its same-path ship flags the original as attribution
+ * limited), so it must be removed at the single choke point every surface reads from.
+ * The genuine measurement history is untouched: the ORIGINAL row (with its restored-
+ * version note) stays; only the revert's own `revert_*` row is filtered. Returns the
+ * SAME array reference when there is nothing to drop, so a no-revert ledger is byte
+ * identical (no re-sort, no new object).
+ */
+export function excludeRevertBookkeeping<T extends Pick<LedgerLifecycleRow, "actionType">>(
+  rows: ReadonlyArray<T>,
+): ReadonlyArray<T> {
+  return rows.some(isRevertLedgerRow) ? rows.filter((r) => !isRevertLedgerRow(r)) : rows;
+}
 
 export type LedgerLifecycleStage = "won" | "learned" | "measuring";
 
@@ -111,11 +152,15 @@ export function splitLedgerLifecycle<T extends LedgerLifecycleRow>(
   rows: ReadonlyArray<T>,
   now: Date = new Date(),
 ): LedgerLifecycleSplit<T> {
+  // Bug #14 - filter revert bookkeeping FIRST so it neither double-counts nor poisons
+  // the same-page overlap detection below (a revert's ship must not flag the original it
+  // restored as attribution limited). No-revert ledgers pass through untouched.
+  const real = excludeRevertBookkeeping(rows);
   const overlapById = detectMeasurementOverlaps(
-    rows.map((r) => ({ id: r.id, path: r.path, shippedAt: r.shippedAt })),
+    real.map((r) => ({ id: r.id, path: r.path, shippedAt: r.shippedAt })),
   );
   const out: LedgerLifecycleSplit<T> = { won: [], learned: [], measuring: [] };
-  for (const row of rows) {
+  for (const row of real) {
     out[ledgerLifecycleStage(row, overlapById.get(row.id) ?? null, now)].push(row);
   }
   return out;

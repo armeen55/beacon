@@ -8,7 +8,8 @@
  */
 import { describe, expect, it } from "vitest";
 
-import { buildDailyCandidates, type GscPageInput, type PageFacts } from "@/domains/experiments/build-daily-candidates";
+import { buildDailyCandidates, SEASONAL_TARGET_POSITION, type GscPageInput, type PageFacts } from "@/domains/experiments/build-daily-candidates";
+import { buildPickExpectations, expectedCtrAt } from "@/domains/experiments/pick-expectations";
 import type { ShippedChangeRecord } from "@/domains/proof-gsc/shipped-change-store";
 import type { RefreshBrief } from "../refresh/refresh-brief";
 import type { PeakCalendarEntry } from "./seasonality";
@@ -71,6 +72,63 @@ describe("buildDailyCandidates - item 63 seasonal source (wire behavior)", () =>
     expect(c.suggestedControls.length).toBeGreaterThanOrEqual(3);
     expect(c.enoughControls).toBe(true);
     expect(c.eligibility.eligible).toBe(true);
+  });
+
+  it("carries an honest CLICKS estimate in ctrOpportunityClicks, not the raw impressions count", () => {
+    const { pages, facts } = siblingPool();
+    const out = buildDailyCandidates({
+      tenantId: "t", pages, facts, proofLedger: [], now: NOW,
+      peakCalendar: [calendarEntry("/iran-cats/nowruz")], // 4000 impressions in the window
+    });
+    const c = out.find((x) => x.leverField === "seasonal_prep")!;
+    // ctrOpportunityClicks is impressions converted to clicks at the conservative target rank, NOT 4000.
+    const expected = Math.round(4000 * expectedCtrAt(SEASONAL_TARGET_POSITION));
+    expect(c.ctrOpportunityClicks).toBe(expected);
+    expect(c.ctrOpportunityClicks).toBeLessThan(4000); // never the raw impressions count
+    expect(c.ctrOpportunityClicks).toBeGreaterThan(0);
+    // The raw impressions still appear ONLY where they are honestly labeled.
+    expect(c.whyNow).toContain("4,000 impressions");
+  });
+
+  it("the rendered seasonal forecast reads as a sane clicks range, not a ~1/CTR-inflated impressions lie", () => {
+    const { pages, facts } = siblingPool();
+    const out = buildDailyCandidates({
+      tenantId: "t", pages, facts, proofLedger: [], now: NOW,
+      peakCalendar: [calendarEntry("/iran-cats/nowruz")],
+    });
+    const c = out.find((x) => x.leverField === "seasonal_prep")!;
+    const exp = buildPickExpectations({ lever: "refresh", ctrOpportunityClicks: c.ctrOpportunityClicks, effortMinutes: 15 });
+    // With the fix: ctrOpportunityClicks = round(4000 * 0.034) = 136 -> monthly 45 -> 25%..75% band = 10..35.
+    // The old bug fed 4000 straight in -> monthly 1333 -> "roughly 330 to 1,000 extra clicks a month",
+    // a fabricated forecast ~1/CTR bigger than any clicks the page could earn.
+    expect(exp.forecastLow).toBe(10);
+    expect(exp.forecastHigh).toBe(35);
+    expect(exp.forecastHigh!).toBeLessThan(100); // never the inflated hundreds-to-thousands range
+  });
+
+  it("a seasonal prep does not dominate the nightly score over a real title fix on the same demand", () => {
+    // Same window impressions (4000) modeled two ways: a seasonal prep (no current rank) vs a page that
+    // ALREADY ranks #6 and is leaking clicks (a real title fix). The old bug scored the seasonal pick on
+    // 4000 raw impressions as its clicks spine, so it beat the title fix ~1/CTR over. With the fix the
+    // seasonal spine is a bounded clicks estimate, so the currently-ranking title fix is NOT buried.
+    const { pages, facts } = siblingPool();
+    // A real title-fix candidate: ranks #6 for its top query, weak CTR, meaningful impressions.
+    pages.push(gsc({
+      url: "/iran-cats/title-fix", topQuery: "persian cat price", topQueryImpressions: 4000,
+      topQueryPosition: 6, topQueryCtr: 0.01, position: 6, impressions: 4000, ctr: 0.01,
+    }));
+    facts.set("/iran-cats/title-fix", { title: "Meet the Persian Cat Price | Iran Cats Guide", meta: "A bespoke real meta for this page.", h1: "Persian Cat Price" });
+    const out = buildDailyCandidates({
+      tenantId: "t", pages, facts, proofLedger: [], now: NOW,
+      peakCalendar: [calendarEntry("/iran-cats/nowruz")],
+    });
+    const seasonal = out.find((x) => x.leverField === "seasonal_prep");
+    const titleFix = out.find((x) => x.leverField === "title");
+    expect(seasonal).toBeTruthy();
+    expect(titleFix).toBeTruthy();
+    // The title fix's real CTR-gap clicks spine outweighs the bounded seasonal spine (it would NOT have
+    // under the old raw-impressions value, which was ~1/CTR = ~30x larger for the same 4000 impressions).
+    expect(titleFix!.ctrOpportunityClicks).toBeGreaterThan(seasonal!.ctrOpportunityClicks);
   });
 
   it("bounds at 2 per night, calendar order preserved (soonest window first)", () => {

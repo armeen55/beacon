@@ -31,7 +31,7 @@ import { loadProofLedgerCached } from "@/domains/proof-gsc/load-ledger";
 // FP3 (2026-07-02) - THE ONE-COUNT RULE: measuring/decided are computed by the shared
 // lifecycle classifier (the same split Results renders as its bands), never by this
 // file's own verdict-field filter. See domains/changes/lifecycle-counts.ts.
-import { countLedgerLifecycle, tonightCounts } from "@/domains/changes/lifecycle-counts";
+import { countLedgerLifecycle, excludeRevertBookkeeping, tonightCounts } from "@/domains/changes/lifecycle-counts";
 // FP5b (2026-07-02) - the New Pages board is the ONE home for not-yet-built topics; a
 // page-less create row whose topic already has a board card is a duplicate, not a
 // second opportunity. Same normalizer the board's own dedupe pass uses.
@@ -365,7 +365,10 @@ export const loadChangesView = cache(async (): Promise<ChangesView> => {
   const tonight = tonightCounts(accepted, preview);
   const readyCount = Math.max(0, tonight.picked - tonight.applied);
   const weekCutoffMs = Date.now() - 7 * 24 * 60 * 60 * 1000;
-  const shippedThisWeekCount = ledgerRows.filter((r) => {
+  // Bug #14 - count DISTINCT operator changes, not the revert bookkeeping rows (a
+  // revert_* row is not a change the operator shipped), so this session-strip counter
+  // agrees with the FP3 lifecycle counts above and the Results bands.
+  const shippedThisWeekCount = excludeRevertBookkeeping(ledgerRows).filter((r) => {
     const t = Date.parse(r.shippedAt);
     return Number.isFinite(t) && t >= weekCutoffMs;
   }).length;

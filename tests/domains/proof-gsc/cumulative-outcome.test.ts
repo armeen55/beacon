@@ -248,4 +248,25 @@ describe("computeCumulativeOutcome - posture", () => {
       }
     }
   });
+
+  it("bug #14 - a revert's bookkeeping row never inflates shipped/decided/won", () => {
+    // A won title edit + its revert (recorded as revert_edit_title on the same page).
+    // shipped must be the ONE distinct change, not 2, and the revert never adds a win.
+    const out = computeCumulativeOutcome(
+      [
+        wonRow({ id: "orig", path: "/pageA", actionType: "edit_title" }),
+        wonRow({
+          id: "rev",
+          path: "/pageA",
+          shippedAt: "2026-06-01T00:00:00Z",
+          actionType: "revert_edit_title",
+        }),
+      ],
+      NOW,
+    )!;
+    expect(out.shipped).toBe(1);
+    expect(out.won).toBe(1);
+    expect(out.decided).toBe(1);
+    expect(out.measuring).toBe(0);
+  });
 });
