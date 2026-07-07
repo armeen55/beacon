@@ -94,6 +94,18 @@ describe("Local presence route smoke", () => {
   });
 
   it("LocalPresencePage renders read-only framing and disclosure", async () => {
+    // A connected local source (Google Business Profile) makes the listing-health
+    // scorecard render. A fully-cold tenant with no source shows the honest empty
+    // state instead (covered by "fully-cold tenant shows the honest empty state").
+    await saveConnectorToken({
+      provider: "google_gbp",
+      access_token: "a",
+      refresh_token: "r",
+      expires_at: Date.now() + 3_600_000,
+      connected_at: "2026-04-13T08:00:00.000Z",
+      scopes: [],
+      last_synced_at: "2026-04-13T18:00:00.000Z",
+    });
     const { default: LocalPresencePage } = await import("@/app/(shell)/local/page");
     const tree = await LocalPresencePage();
     const html = renderToStaticMarkup(tree as ReactElement);
@@ -111,19 +123,44 @@ describe("Local presence route smoke", () => {
     expect(html).toContain("/settings/methodology");
   });
 
-  it("Data freshness shows all three sources with empty-state copy", async () => {
+  it("Data freshness shows each source, with empty-state copy for unsynced sources", async () => {
+    // One connected source (Google) renders the scorecard; Yelp + manual stay
+    // empty so their per-source empty-state copy is still asserted.
+    await saveConnectorToken({
+      provider: "google_gbp",
+      access_token: "a",
+      refresh_token: "r",
+      expires_at: Date.now() + 3_600_000,
+      connected_at: "2026-04-13T08:00:00.000Z",
+      scopes: [],
+      last_synced_at: "2026-04-13T18:00:00.000Z",
+    });
     const { default: LocalPresencePage } = await import("@/app/(shell)/local/page");
     const tree = await LocalPresencePage();
     const html = renderToStaticMarkup(tree as ReactElement);
 
     expect(html).toContain("Data freshness");
     expect(html).toContain('data-testid="local-data-freshness"');
-    expect(html).toContain("Never synced");
-    expect(html).toContain("No imports yet");
+    expect(html).toContain("Never synced"); // Yelp: no token
+    expect(html).toContain("No imports yet"); // manual: no qualifying import
     expect(html).toContain("Each source updates independently");
     expect(html).toContain("Based only on imported or synced data");
     expect(html).toContain("No automatic syncing unless you trigger it");
     expect(html).toContain("#review-source-timestamps");
+  });
+
+  it("fully-cold tenant shows the honest empty state (no 0/100 scorecard)", async () => {
+    // No reviews, no connected source, no qualifying import -> nothing honest to
+    // score. The page must show the connect-a-source empty state, NOT a listing-
+    // health scorecard reading "0 / 100" (a bare zero that reads as "you scored 0").
+    const { default: LocalPresencePage } = await import("@/app/(shell)/local/page");
+    const tree = await LocalPresencePage();
+    const html = renderToStaticMarkup(tree as ReactElement);
+
+    expect(html).toContain("Local presence");
+    expect(html).toContain("No local health to show yet");
+    expect(html).toContain("Connect Google Business Profile");
+    expect(html).not.toContain("/ 100");
   });
 
   it("Data freshness shows manual import when only manual ImportRun exists", async () => {

@@ -1,4 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { existsSync, unlinkSync } from "node:fs";
+import { join } from "node:path";
 import { writeStore } from "@/lib/persistence/json-store";
 import type { ImportRun } from "@/lib/import/types";
 import type { ConnectorToken, YelpConnectorToken } from "@/lib/connector-store";
@@ -43,8 +45,34 @@ import {
 } from "@/lib/local-presence";
 import { saveConnectorToken } from "@/lib/connector-store";
 
+// json-store has an anti-race guard (src/lib/persistence/json-store.ts) that
+// REFUSES to overwrite a non-empty `import-runs.json` with `[]` so a startup
+// race never flushes an empty array. That guard makes `writeStore("import-runs",
+// [])` a no-op whenever a prior run (this file's own test 227, or a sibling
+// suite) left a non-empty routed file on disk - the connector-fallback tests
+// below need import-runs genuinely EMPTY, so they cannot use the non-empty
+// sentinel workaround the other suites use. Force-unlink the routed file first
+// so the guard's `existsSync` short-circuits and the empty write clears it.
+// (Mirrors forceClearImportRunsFile in google-/yelp-reviews-sync.test.ts.)
+function forceClearImportRunsFile(): void {
+  const candidates = [
+    join(process.cwd(), ".data", "import-runs.json"),
+    join(process.cwd(), ".data", "tenants", "ritz-builders", "import-runs.json"),
+  ];
+  for (const path of candidates) {
+    if (existsSync(path)) {
+      try {
+        unlinkSync(path);
+      } catch {
+        // Best-effort; the writeStore below will still attempt a clean overwrite.
+      }
+    }
+  }
+}
+
 describe("getLocalPresenceSnapshot", () => {
   beforeEach(async () => {
+    forceClearImportRunsFile();
     await writeStore("local-reviews", []);
     await writeStore("import-runs", []);
     // The in-memory connector-token mock accumulates across tests in
@@ -114,14 +142,16 @@ describe("getLocalPresenceSnapshot", () => {
 
 describe("getLocalPresenceSnapshot + connector last_synced_at", () => {
   beforeEach(async () => {
+    forceClearImportRunsFile();
     await writeStore("local-reviews", []);
     await writeStore("import-runs", []);
-      });
+  });
 
   afterEach(async () => {
+    forceClearImportRunsFile();
     await writeStore("local-reviews", []);
     await writeStore("import-runs", []);
-          });
+  });
 
   it("uses Google connector last_synced_at for lastReviewImportAt when no import runs", async () => {
     await writeStore("local-reviews", [

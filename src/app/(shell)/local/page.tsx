@@ -58,9 +58,9 @@ export default async function LocalPresencePage() {
   const stalenessNote =
     snapshot.lastReviewImportAt && snapshot.reviewImportAgeDays != null
       ? snapshot.reviewImportAgeDays > 90
-        ? "Review data is significantly outdated — re-import recommended."
+        ? "Review data is significantly outdated. Re-import recommended."
         : snapshot.reviewImportAgeDays > 30
-          ? "Review data may not reflect your current review profile — consider re-importing."
+          ? "Review data may not reflect your current review profile. Consider re-importing."
           : null
       : null;
 
@@ -80,7 +80,7 @@ export default async function LocalPresencePage() {
       <div className="max-w-3xl space-y-8">
         <PageHeader
           title="Local presence"
-          description="Listing identity, health, completeness, and stored reviews from Config, import, and optional on-demand sync — read-only; not live directory truth."
+          description="Listing identity, health, completeness, and stored reviews from Config, import, and optional on-demand sync. Read-only; not live directory truth."
         />
         <section className="rounded-lg border border-border/60 bg-surface-raised/30 px-5 py-8 text-center space-y-3">
           <p className="text-[14px] font-semibold text-foreground">No local health to show yet</p>
@@ -109,7 +109,7 @@ export default async function LocalPresencePage() {
     <div className="max-w-3xl space-y-8">
       <PageHeader
         title="Local presence"
-        description="Listing identity, health, completeness, and stored reviews from Config, import, and optional on-demand sync — read-only; not live directory truth."
+        description="Listing identity, health, completeness, and stored reviews from Config, import, and optional on-demand sync. Read-only; not live directory truth."
       />
 
       <section className="rounded-lg border border-border/60 bg-surface-raised/30 px-5 py-4 space-y-2">
@@ -177,7 +177,7 @@ export default async function LocalPresencePage() {
         </p>
         <p className="text-[10px] text-muted-foreground/85">
           Checked in v1: business name, address, phone, website (domain), category (industry).
-          Opening hours are not stored — not evaluated here.
+          Opening hours are not stored. Not evaluated here.
         </p>
         <p className="text-[11px]">
           <Link
@@ -227,7 +227,7 @@ export default async function LocalPresencePage() {
         {snapshot.nap.missing.length > 0 && (
           <p className="text-[11px] text-status-warning font-medium leading-relaxed">
             Missing: {snapshot.nap.missing.map(napFieldLabel).join(", ")}
-            {" — "}
+            {" · "}
             add in{" "}
             <Link href="/settings/config" className="text-accent-primary hover:underline">
               Settings → Config
@@ -237,8 +237,8 @@ export default async function LocalPresencePage() {
         )}
 
         <p className="text-[11px] text-muted-foreground leading-relaxed">
-          Completeness heuristic based on configured identity + imported reviews —
-          not a competitive audit or ranking claim.{" "}
+          Completeness heuristic based on configured identity + imported reviews.
+          Not a competitive audit or ranking claim.{" "}
           <Link
             href="/settings/methodology#listing-health"
             className="text-accent-primary hover:underline"
@@ -261,17 +261,17 @@ export default async function LocalPresencePage() {
         <ul className="space-y-2 text-[12px] text-foreground/90 leading-relaxed">
           <li>
             <span className="font-medium text-foreground">Google</span>
-            {" — "}
+            {" · "}
             <span className="text-muted-foreground">{connectorSyncLine(snapshot.lastSync.google)}</span>
           </li>
           <li>
             <span className="font-medium text-foreground">Yelp</span>
-            {" — "}
+            {" · "}
             <span className="text-muted-foreground">{connectorSyncLine(snapshot.lastSync.yelp)}</span>
           </li>
           <li>
             <span className="font-medium text-foreground">Manual import</span>
-            {" — "}
+            {" · "}
             <span className="text-muted-foreground">{manualImportLine(snapshot.lastSync.manual)}</span>
           </li>
         </ul>
@@ -317,13 +317,13 @@ export default async function LocalPresencePage() {
               {snapshot.avgRating != null && (
                 <>
                   {" "}
-                  · {snapshot.avgRating.toFixed(1)} average (1–5)
+                  · {snapshot.avgRating.toFixed(1)} average (1-5)
                 </>
               )}
             </p>
             {snapshot.sentimentBand && snapshot.avgRating != null && (
               <p className="text-[12px] text-muted-foreground leading-relaxed">
-                Recent review signal: {sentimentLabel(snapshot.sentimentBand).toLowerCase()} — based only
+                Recent review signal: {sentimentLabel(snapshot.sentimentBand).toLowerCase()}. Based only
                 on average rating across stored review rows (not text analysis).
               </p>
             )}
@@ -344,7 +344,7 @@ export default async function LocalPresencePage() {
             )}
             <p className="text-[11px] text-muted-foreground leading-relaxed pt-1">
               Counts reflect rows stored in Beacon (manual import and/or connector sync) and may not be
-              complete. Sync is on demand only — see Data freshness above.
+              complete. Sync is on demand only. See Data freshness above.
             </p>
           </>
         )}
@@ -357,11 +357,11 @@ export default async function LocalPresencePage() {
         <ul className="mt-2 ml-4 list-disc space-y-1.5 pl-0.5">
           <li>
             This page is read-only. Beacon does not post replies or edit listings on Google or Yelp.
-            Optional connectors pull read-only review snapshots when you run Sync now — there is no
+            Optional connectors pull read-only review snapshots when you run Sync now. There is no
             automatic syncing.
           </li>
           <li>
-            Listing presence is inferred only from your saved business domain in Settings → Config — not
+            Listing presence is inferred only from your saved business domain in Settings → Config, not
             from live maps scraping.
           </li>
           <li>
@@ -370,17 +370,17 @@ export default async function LocalPresencePage() {
               : "Review data is not ingested until you import under Settings → Import or run Sync now on a connector."}
           </li>
           <li>
-            Average rating and the simple signal line are derived from imported star ratings only — no NLP
+            Average rating and the simple signal line are derived from imported star ratings only. No NLP
             or sentiment model.
           </li>
           <li>
-            Listing health is a weighted completeness score (0–100) from configured NAP fields +
-            stored review rows. The tier label (Weak / OK / Strong) is derived from that score — this
+            Listing health is a weighted completeness score (0-100) from configured NAP fields +
+            stored review rows. The tier label (Weak / OK / Strong) is derived from that score. This
             is not a competitive audit, not a ranking claim, and not a verified consistency check.
           </li>
           <li>
             NAP consistency (Complete / Incomplete / Inconsistent / Unknown) reflects configured
-            identity and listing names on imported or synced review rows — Beacon does not verify live
+            identity and listing names on imported or synced review rows. Beacon does not verify live
             directories beyond what those rows show.
           </li>
         </ul>
