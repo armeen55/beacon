@@ -7,6 +7,38 @@
 
 ---
 
+## 2026-07-07 - Final-touches closeout: /local honest cold-state + gate green (8d731d8a)
+
+**Goal:** make the final-touches audit's top-10 fixes trustworthy on the gate. The prior two
+commits (fd1b2065 trust/number-correctness + 943fb3bd ux/rough-edges) had shipped, but the full
+suite showed 4 failures introduced by the batch. Root-caused all four:
+
+- **2x `tests/routes/local-smoke.test.ts`** - caused by the Slice D `/local` cold-state guard
+  (finding #5), which is CORRECT product behavior: a fully-cold tenant (no reviews, no synced/
+  imported source) now renders "No local health to show yet · Connect Google Business Profile"
+  instead of a bare "0 / 100" scorecard. The two tests asserted the old scorecard, so they now
+  seed a real local source (Google Business Profile token) to exercise the populated page they
+  verify; a NEW test locks in the honest empty state (asserts NOT "/ 100").
+- **2x `tests/lib/local-presence.test.ts`** - a LOCAL-only test-isolation artifact (green on a
+  clean CI checkout; only reproduces after repeated local runs). The json-store import-runs
+  anti-race guard (`src/lib/persistence/json-store.ts`) refuses to overwrite a non-empty
+  `import-runs.json` with `[]`, so the connector-fallback describe's `writeStore("import-runs",[])`
+  was a no-op vs a stale `.data/tenants/ritz-builders/import-runs.json` (a leaked 2026-04-20 stamp
+  from the file's own test 227). Fixed by adding the same `forceClearImportRunsFile()` helper the
+  `google-`/`yelp-reviews-sync` tests already use (their comments literally name this file as the
+  polluter). Guard behavior itself unchanged (its invariant test still passes).
+- **Em-dash sweep** of the rendered `/local` surface: removed every em/en dash (header, staleness
+  notes, freshness `{" · "}` separators, "How this works" list) per the hard rule.
+
+**Verified:** `npm run typecheck` clean; both fixed files green (28 tests incl. the new one);
+`google-`/`yelp-reviews-sync` + `json-store-routing` + `json-store-routing-invariants` green (65);
+**full clean-shell suite `env -i` = 1403 files / 21772 passed / 62 skipped / 0 failed** (was
+`4 failed | 21767 passed`). Pushed `943fb3bd..8d731d8a` to `claude/daily-experiments-native` +
+`main`. Prod smoke: `/login` 200, `/local` 307 (auth redirect, expected). No migration, no new
+env var, no paid call.
+
+---
+
 ## 2026-07-07 - Bug #14: a revert was counted as a second shipped change (Wins + totals doubled)
 
 **Goal:** an auto-revert records "I put the old version back" as its OWN proof-ledger row
