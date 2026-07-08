@@ -1,4 +1,11 @@
 export const dynamic = "force-dynamic";
+// The "Update data" refresh (refreshAllConnectedDataNow) is a Server Action
+// hosted by this route: it pulls every connected source AND warms the shared
+// surfaces so the repaint is instant. That is deliberately long-running work the
+// operator explicitly waits on, so give the action headroom above the ~15s
+// default (well under the plan's 300s ceiling). Normal fast renders are
+// unaffected - this only raises the ceiling.
+export const maxDuration = 60;
 
 import { Suspense } from "react";
 import { after } from "next/server";

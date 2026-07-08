@@ -73,6 +73,15 @@ export const SUPABASE_MIRRORED_STORES = new Set<string>([
   "worklist-surface",
   "today-surface",
   "results-surface",
+  // 2026-07-08 - the SOURCE demand-graph SWR snapshot (graph-snapshot-store.ts). This was
+  // the missed one: worklist-surface + today-surface (both DERIVED from it) were mirrored
+  // on 2026-07-01, but the ~6s graph build they read was not, so on Vercel it lived only in
+  // one warm lambda's memory and evaporated between instances - meaning nearly EVERY /today,
+  // /worklist, and /new-pages load paid the full cold rebuild (prod had zero snapshot rows
+  // while the two derived surfaces persisted fine). Mirroring it makes the cross-request
+  // stale-while-revalidate cache actually work on hosted prod: first build persists, every
+  // later request on any instance serves it instantly and refreshes in the background.
+  "demand-graph-snapshot",
   // 2026-07-01 item 1 - trust-budget autopilot state (armed config + daily-run marker +
   // receipts). Must be durable on hosted prod: a file-only write would silently lose the
   // operator's arming and the weekly-budget count on lambda recycle. Fail direction is

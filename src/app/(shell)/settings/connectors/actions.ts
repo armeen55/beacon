@@ -2,6 +2,7 @@
 
 import { log } from "@/lib/logger";
 import { invalidateDemandGraph } from "@/domains/demand-graph/graph-snapshot-store";
+import { warmFreeSurfaces } from "@/domains/ops/warm-caches";
 import {
   getConnectorInfo,
   deleteConnectorToken,
@@ -529,7 +530,7 @@ export async function disconnectGoogleGa4(): Promise<{
 // this server, the nightly syncs activate the moment it lands
 // (dormant-honest until then). Disconnect = soft (cached data kept).
 
-// (saveSemrushConnection / disconnectSemrush removed Phase F.1 — SEMrush deleted.)
+// (saveSemrushConnection / disconnectSemrush removed Phase F.1; SEMrush deleted.)
 
 export async function saveProfoundConnection(input: {
   apiKey: string;
@@ -949,7 +950,7 @@ export async function syncClarityNow(): Promise<ConnectorSyncNowResult> {
   );
 }
 
-// (syncSemrushNow removed Phase F.1 — SEMrush deleted caller-first.)
+// (syncSemrushNow removed Phase F.1; SEMrush deleted caller-first.)
 
 // ─────────────────────────────────────────────────────────────────────
 // ONE-CLICK "Refresh my data" (2026-06-15), Today command-center surface.
@@ -1100,6 +1101,20 @@ export async function refreshAllConnectedDataNow(): Promise<RefreshAllConnectedR
         };
       }),
     );
+
+    // Warm the shared surfaces BEFORE the repaint so the render after this
+    // refresh is instant, not a cold ~6s demand-graph rebuild right when the
+    // operator is watching (the pulls above just changed the underlying data;
+    // build-then-write rebuilds the snapshot from it). Free steps only, fail-
+    // soft: a warm failure never turns a successful refresh into an error.
+    // Bounded by a safety-valve deadline (well under this route's maxDuration)
+    // so a pathological hang can never wedge the action; if the cap wins, the
+    // build keeps warming in the background for the next visit.
+    const WARM_AFTER_REFRESH_DEADLINE_MS = 45_000;
+    await Promise.race([
+      warmFreeSurfaces(tenantId).catch(() => {}),
+      new Promise<void>((resolve) => setTimeout(resolve, WARM_AFTER_REFRESH_DEADLINE_MS)),
+    ]);
 
     revalidatePath("/");
     revalidatePath("/settings/connectors");

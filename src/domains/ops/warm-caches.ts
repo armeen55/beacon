@@ -172,6 +172,27 @@ async function defaultRefreshToday(): Promise<void> {
   await refreshTodaySurface();
 }
 
+/**
+ * The FREE cache-warm subset only: rebuild the shared demand-graph snapshot,
+ * then the /changes worklist surface, then the Today surface, in dependency
+ * order, each fail-soft. This is steps 1-2-4 of the nightly pass with NONE of
+ * the paid/nightly-only steps (no displacement check, SERP-steal, teardown, or
+ * prepare-ahead), so it is safe to call synchronously from a request-context
+ * server action.
+ *
+ * Why it exists (2026-07-08): the manual "Update data" refresh pulls fresh data
+ * and then repaints via `revalidatePath("/")`. Without this, that repaint pays
+ * the full ~6s cold demand-graph build right when the operator is watching, and
+ * the deadline-raced Today sections fall back to "here on your next visit".
+ * Warming here (build-then-write always rebuilds from the just-pulled data) makes
+ * the post-refresh repaint instant and complete. Composition only; zero logic.
+ */
+export async function warmFreeSurfaces(tenantId: string): Promise<void> {
+  await defaultRefreshDemandGraph(tenantId).catch(() => {});
+  await defaultRefreshWorklist(tenantId).catch(() => {});
+  await defaultRefreshToday().catch(() => {});
+}
+
 async function defaultGetLatestPreviewPlan(tenantId: string): Promise<DailyExperimentPlanRecord | null> {
   const { getLatestPreviewPlan } = await import("@/domains/experiments/daily-experiment-plan-store");
   return await getLatestPreviewPlan(tenantId);
