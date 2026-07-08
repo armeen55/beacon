@@ -15,6 +15,7 @@ import type { TeammateKey } from "@/domains/team/identity";
 
 export type AskQuestionClass =
   | "page_specific"
+  | "page_ranking"
   | "site_trend"
   | "ai_visibility"
   | "measurement"
@@ -23,12 +24,19 @@ export type AskQuestionClass =
   | "keyword_next"
   | "system_health";
 
+/** For page_ranking: which per-page metric to rank by. "money" = GA4 conversions/value
+ *  (falls back to engaged visitors, honestly, when no conversions/revenue exist);
+ *  "traffic" = GSC clicks. */
+export type RankingMetric = "money" | "traffic";
+
 export type RoutedQuestion = {
   questionClass: AskQuestionClass;
   /** Normalized page path extracted from the question, e.g. "/cheetah", or null when
    *  no page is named. Only set for page_specific (or when a path is named alongside
    *  another class, e.g. "did the cheetah page's AI citations change"). */
   pagePath: string | null;
+  /** Set only for page_ranking: the metric the operator is ranking pages by. */
+  rankingMetric?: RankingMetric;
   /** The teammate (see team/identity.ts) whose first-person voice answers this class. */
   speaker: TeammateKey;
 };
@@ -38,6 +46,7 @@ export type RoutedQuestion = {
  *  Google results/competitors, proof owns measurement, llm/strategist owns plan+synthesis). */
 const SPEAKER_BY_CLASS: Record<AskQuestionClass, TeammateKey> = {
   page_specific: "gsc",
+  page_ranking: "gsc",
   site_trend: "gsc",
   ai_visibility: "profound",
   measurement: "proof",
@@ -98,6 +107,13 @@ const KEYWORD_PATTERNS = /\b(which |what )?keyword\w* (should|to|next|worth|chas
 const SYSTEM_HEALTH_PATTERNS = /\b(anything broken|is everything (ok|okay|working|fine|running)|system (health|status|ok)|is (the )?(site|pipeline|connector\w*) (broken|down|working)|are (my )?(crons?|connectors?) (running|working|healthy)|pipeline (health|status))\b/i;
 const PLAN_PATTERNS = /\b(what should|what are we doing|todo|to.?do|coming up|next (move|step|change)|why (is|isn'?t) .*(plan|planned|selected|included))\b/i;
 const SITE_TREND_PATTERNS = /\b(site.?wide|overall|across the site|this month|this week|total clicks|traffic (drop|dip|spike|jump)|algorithm|core update|google update)\b/i;
+// "which/what page makes the most money", "my best page for traffic", "which page is
+// bleeding clicks" - a RANKING across pages by a metric (distinct from a single named
+// page). Requires a page word AND a superlative/ranking cue, so "what page should I build"
+// (a plan question) does not match. The money-metric cue picks GA4 value; otherwise GSC clicks.
+const PAGE_WORD_RE = /\bpages?\b/i;
+const RANKING_CUE_RE = /\b(most|best|worst|top|biggest|highest|lowest|least|bleeding|losing|winning|leading|makes? (me )?(the )?most|driv\w*)\b/i;
+const MONEY_METRIC_RE = /\b(money|revenue|sales|profit|leads?|conversions?|convert\w*|value|worth|earn\w*|\$)\b/i;
 
 /**
  * Classify a raw operator question. Deterministic, pure, instant. Order matters: a
@@ -119,8 +135,13 @@ export function routeQuestion(rawQuestion: string): RoutedQuestion {
   const pagePath = extractPagePath(question);
 
   let questionClass: AskQuestionClass;
+  let rankingMetric: RankingMetric | undefined;
+  const isPageRanking = !pagePath && PAGE_WORD_RE.test(question) && RANKING_CUE_RE.test(question);
   if (pagePath) {
     questionClass = "page_specific";
+  } else if (isPageRanking) {
+    questionClass = "page_ranking";
+    rankingMetric = MONEY_METRIC_RE.test(question) ? "money" : "traffic";
   } else if (PLAN_INTENT_PATTERNS.test(question)) {
     questionClass = "plan";
   } else if (AI_VISIBILITY_PATTERNS.test(question)) {
@@ -143,5 +164,5 @@ export function routeQuestion(rawQuestion: string): RoutedQuestion {
     questionClass = "site_trend";
   }
 
-  return { questionClass, pagePath, speaker: SPEAKER_BY_CLASS[questionClass] };
+  return { questionClass, pagePath, rankingMetric, speaker: SPEAKER_BY_CLASS[questionClass] };
 }

@@ -139,4 +139,27 @@ describe("ask/router - routeQuestion", () => {
     expect(r.questionClass).toBe("page_specific");
     expect(r.pagePath).toBe("/cheetah");
   });
+
+  it("routes 'what page makes me the most money' to page_ranking with the money metric", () => {
+    const r = routeQuestion("what page makes me the most money");
+    expect(r.questionClass).toBe("page_ranking");
+    expect(r.rankingMetric).toBe("money");
+  });
+
+  it("routes 'which page gets the most traffic' to page_ranking with the traffic metric", () => {
+    const r = routeQuestion("which page gets the most traffic");
+    expect(r.questionClass).toBe("page_ranking");
+    expect(r.rankingMetric).toBe("traffic");
+  });
+
+  it("routes 'which page is bleeding the most clicks' to page_ranking (traffic)", () => {
+    const r = routeQuestion("which page is bleeding the most clicks");
+    expect(r.questionClass).toBe("page_ranking");
+    expect(r.rankingMetric).toBe("traffic");
+  });
+
+  it("does NOT treat 'what page should I build next' as page_ranking (it is a plan question)", () => {
+    const r = routeQuestion("what page should I build next");
+    expect(r.questionClass).not.toBe("page_ranking");
+  });
 });

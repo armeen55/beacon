@@ -18,6 +18,7 @@ import type { AskAnswer, AskCitedFact } from "./types";
 
 const CLASS_LABEL: Record<AskDossier["questionClass"], string> = {
   page_specific: "this page",
+  page_ranking: "which pages rank highest by that metric",
   site_trend: "the site's traffic",
   ai_visibility: "how AI answers mention us",
   measurement: "what we shipped and measured",

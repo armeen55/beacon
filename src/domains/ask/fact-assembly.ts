@@ -16,6 +16,8 @@ import "server-only";
 import { currentTenantId } from "@/lib/tenant-context";
 import { loadPageDossier, type PageDossier } from "@/app/(shell)/page/[...path]/page-dossier-data";
 import { loadDailyTotalsForTenant, type DailyTotals } from "@/domains/recommendation-intelligence/gsc-page-queries";
+import { loadGa4PageValuesForTenant } from "@/domains/recommendation-intelligence/ga4-page-values";
+import { loadGscPageSignalsForTenant } from "@/domains/recommendation-intelligence/gsc-page-signals";
 import { detectChangepoints, type DailyPoint } from "@/domains/proof-gsc/changepoint";
 import { loadProofLedgerCached } from "@/domains/proof-gsc/load-ledger";
 import { proofMaturityLabel } from "@/domains/proof-gsc/measure-lifecycle";
@@ -31,7 +33,7 @@ import { readPublishHealth } from "@/domains/push/publish-canary-store";
 import { loadOwnershipRegistryForTenant } from "@/domains/ownership/registry-loader";
 import { resolveOwner } from "@/domains/ownership/registry";
 import { plainChangeKind } from "@/lib/plain-language";
-import type { RoutedQuestion } from "./router";
+import type { RoutedQuestion, RankingMetric } from "./router";
 import type { AskDossier, AskFact } from "./types";
 
 const MAX_FACTS = 10;
@@ -204,6 +206,113 @@ async function assembleSiteTrendFacts(tenantId: string): Promise<AskFact[]> {
     }
   }
 
+  return facts;
+}
+
+// ── page_ranking: rank pages by a metric (money / traffic) with real per-page numbers ──
+
+/** Short, human page label from a stored URL or path. */
+function shortPageLabel(url: string): string {
+  try {
+    const path = url.startsWith("http") ? new URL(url).pathname : url;
+    return path === "/" || path === "" ? "the home page" : path;
+  } catch {
+    return url;
+  }
+}
+
+/** Internal deep link to a page's dossier (same convention as assemblePageFacts: /page<path>). */
+function pageDossierHref(url: string): string {
+  try {
+    const path = url.startsWith("http") ? new URL(url).pathname : url;
+    return path && path !== "/" ? `/page${path.startsWith("/") ? path : `/${path}`}` : "/results";
+  } catch {
+    return "/results";
+  }
+}
+
+/**
+ * "Which page makes the most money / drives the most traffic / is bleeding the most" - a
+ * RANKING across the tenant's pages using the real per-page tables (GA4 value, GSC clicks).
+ * Honest about revenue: with no conversions/revenue set up, it says so and ranks by the
+ * closest proxy (engaged visitors) rather than inventing a dollar figure. Fail-soft to a
+ * plain "connect X" fact so Ask never dead-ends.
+ */
+async function assemblePageRankingFacts(tenantId: string, metric: RankingMetric): Promise<AskFact[]> {
+  const facts: AskFact[] = [];
+  const TOP_N = 5;
+
+  if (metric === "money") {
+    let values: Awaited<ReturnType<typeof loadGa4PageValuesForTenant>> | null = null;
+    try {
+      values = await loadGa4PageValuesForTenant(tenantId);
+    } catch {
+      values = null;
+    }
+    const rows = values ? [...values.values()] : [];
+    if (rows.length === 0) {
+      facts.push(fact(
+        "I do not have per-page analytics yet, so I cannot rank pages by value. Once Google Analytics is syncing I rank by conversions (and by revenue if you set up ecommerce or key-event values).",
+        "ga4",
+        "/settings/connectors",
+      ));
+      return facts;
+    }
+    const anyConversions = rows.some((r) => r.conversions28d > 0);
+    if (anyConversions) {
+      facts.push(fact(
+        "You have not set up revenue values in Google Analytics, so I rank by conversions (key events) over the last 28 days, not actual dollars.",
+        "ga4",
+        "/results",
+      ));
+      for (const r of [...rows].sort((a, b) => b.conversions28d - a.conversions28d).filter((r) => r.conversions28d > 0).slice(0, TOP_N)) {
+        facts.push(fact(
+          `${shortPageLabel(r.page)}: ${r.conversions28d} conversion${r.conversions28d === 1 ? "" : "s"} from ${r.sessions28d} sessions (28 days).`,
+          "ga4",
+          pageDossierHref(r.page),
+        ));
+      }
+    } else {
+      facts.push(fact(
+        "No conversions or revenue are set up in Google Analytics, so I honestly cannot tell you which page makes the most money yet. The closest I have is engaged visitors over the last 28 days, so here are your pages by that:",
+        "ga4",
+        "/results",
+      ));
+      for (const r of [...rows].sort((a, b) => b.engaged28d - a.engaged28d).filter((r) => r.engaged28d > 0).slice(0, TOP_N)) {
+        facts.push(fact(
+          `${shortPageLabel(r.page)}: ${r.engaged28d} engaged of ${r.sessions28d} sessions (28 days).`,
+          "ga4",
+          pageDossierHref(r.page),
+        ));
+      }
+    }
+    return facts;
+  }
+
+  // traffic: rank by GSC clicks
+  let signals: Awaited<ReturnType<typeof loadGscPageSignalsForTenant>> | null = null;
+  try {
+    signals = await loadGscPageSignalsForTenant(tenantId);
+  } catch {
+    signals = null;
+  }
+  const rows = signals ? [...signals.values()] : [];
+  if (rows.length === 0) {
+    facts.push(fact(
+      "I do not have per-page Search Console data yet, so I cannot rank pages by clicks. Once Search Console is syncing I can.",
+      "gsc",
+      "/settings/connectors",
+    ));
+    return facts;
+  }
+  facts.push(fact("Your pages by Google clicks over the last 90 days, most first:", "gsc", "/results"));
+  for (const r of [...rows].sort((a, b) => b.clicks90d - a.clicks90d).filter((r) => r.clicks90d > 0).slice(0, TOP_N)) {
+    facts.push(fact(
+      `${shortPageLabel(r.page)}: ${r.clicks90d} clicks from ${r.impressions90d} impressions (90 days).`,
+      "gsc",
+      pageDossierHref(r.page),
+    ));
+  }
   return facts;
 }
 
@@ -553,6 +662,9 @@ export async function assembleAskDossier(routed: RoutedQuestion): Promise<AskDos
     switch (routed.questionClass) {
       case "page_specific":
         facts = routed.pagePath ? await assemblePageFacts(tenantId, routed.pagePath) : [];
+        break;
+      case "page_ranking":
+        facts = await assemblePageRankingFacts(tenantId, routed.rankingMetric ?? "traffic");
         break;
       case "site_trend":
         facts = await assembleSiteTrendFacts(tenantId);
