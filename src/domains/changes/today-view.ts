@@ -1,8 +1,8 @@
 /**
- * today-view (2026-07-01, Move 5) — the PURE Today read model. Today is NOT a second
+ * today-view (2026-07-01, Move 5), the PURE Today read model. Today is NOT a second
  * backlog; it's a focused operational slice DERIVED from the same CanonicalChange[] that
  * powers /changes (Changes). One identity, one lifecycle, one measurement state, one
- * quality decision, one action path — no parallel recommendation engine, no new
+ * quality decision, one action path, no parallel recommendation engine, no new
  * persistence. Changes is the complete backlog; Today answers only: what needs attention,
  * what am I planning, what's measuring, what's next if today is empty.
  */
@@ -58,7 +58,7 @@ export type TodayView = {
   counts: TodayCounts;
 };
 
-/** A tiny projection of the daily plan the builder needs — decouples Today from the
+/** A tiny projection of the daily plan the builder needs, decouples Today from the
  *  experiments types. */
 export type TodayPlanSummary = {
   status: TodayPlanStatus;
@@ -80,7 +80,7 @@ export function buildTodayView(input: {
   const plan = input.plan;
   const planStatus: TodayPlanStatus = plan?.status ?? "none";
 
-  // Measuring — compact, cap 5. Deduped by identity (CanonicalChange already dedupes).
+  // Measuring, compact, cap 5. Deduped by identity (CanonicalChange already dedupes).
   const measuringAll = changes.filter((c) => statusView(c.status) === "measuring");
   const measuring: TodayMeasuringItem[] = measuringAll.slice(0, MAX_MEASURING).map((c) => ({
     changeId: c.id,
@@ -93,7 +93,7 @@ export function buildTodayView(input: {
 
   const resultsAvailable = changes.filter((c) => c.status === "result").length;
 
-  // Next opportunities — the ranked "what to do next" list. Show it whenever there is no
+  // Next opportunities, the ranked "what to do next" list. Show it whenever there is no
   // PENDING plan work: a preview waiting to be reviewed ("preview") or an accepted batch
   // still being applied ("accepted", leftToApply > 0) is the focus, so we hold the extra
   // list back then. But once tonight's batch is applied and only measuring ("in_progress"),
@@ -118,12 +118,12 @@ export function buildTodayView(input: {
         }))
     : [];
 
-  // Attention — deterministic priority; each item is one reason + one action + (where
+  // Attention, deterministic priority; each item is one reason + one action + (where
   // relevant) one canonical identity. "Collecting normally" is NOT an alert.
   const attention: TodayAttentionItem[] = [];
   if (plan?.wasRefreshed) {
     attention.push({ id: "refresh", kind: "refresh_plan", priority: 1, href: "/changes",
-      title: "Today’s plan was refreshed", message: "It had timed out — review the updated list before accepting." });
+      title: "Today’s plan was refreshed", message: "It had timed out, review the updated list before accepting." });
   }
   if (planStatus === "accepted" && plan && plan.leftToApply > 0) {
     attention.push({ id: "apply", kind: "apply_pending", priority: 2, href: "/changes",
@@ -154,7 +154,7 @@ function headerSentenceFor(status: TodayPlanStatus, plan: TodayPlanSummary | nul
   if (status === "accepted" && plan) {
     return plan.leftToApply > 0
       ? `${plan.leftToApply} of ${plan.selectedCount} change${plan.selectedCount === 1 ? "" : "s"} still to apply.`
-      : `All ${plan.selectedCount} change${plan.selectedCount === 1 ? "" : "s"} applied — measuring now.`;
+      : `All ${plan.selectedCount} change${plan.selectedCount === 1 ? "" : "s"} applied, measuring now.`;
   }
   if (status === "in_progress") return "Your changes are live and measuring.";
   if (counts.measuring > 0 && counts.readyToday === 0) return "Your recent changes are collecting data. No action is required right now.";
