@@ -30,12 +30,23 @@ function HubRow({ row }: { row: HubCoverageRow }) {
       <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-gray-100 dark:bg-neutral-800" role="img" aria-label={`${row.coveragePercent} percent of questions answered`}>
         <div className={`h-full rounded-full ${barTone(row.coveragePercent)}`} style={{ width: `${Math.max(2, row.coveragePercent)}%` }} />
       </div>
+      {/* Coverage (how many questions your pages answer) lives above in "answers X of Y" +
+          the bar. This line is the SEPARATE, demand-side story: when AI was asked these
+          questions, did it actually cite you? Keeping them apart stops the "100 percent
+          covered" + "AI picks you 0 of 4" contradiction - covering a topic and getting
+          cited for it are two different things, and "covered but not cited" is the real
+          opportunity, not a win. (2026-07-08) */}
       <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-gray-500 dark:text-neutral-400 tabular-nums">
-        <span className="font-medium text-gray-700 dark:text-neutral-300">{row.coveragePercent} percent covered</span>
         {row.aiCheckedCount > 0 ? (
-          <span className="text-pink-700 dark:text-pink-300">AI picks you on {row.aiCitedCount} of {row.aiCheckedCount} checked</span>
+          row.aiCitedCount > 0 ? (
+            <span className="text-emerald-700 dark:text-emerald-300">AI recommends you for {row.aiCitedCount} of {row.aiCheckedCount} question{row.aiCheckedCount === 1 ? "" : "s"} it checked here</span>
+          ) : (
+            <span className="text-amber-700 dark:text-amber-300">
+              You {row.answeredCount >= row.totalQuestions && row.totalQuestions > 0 ? "answer all of these" : "cover this"}, but AI picked you on 0 of {row.aiCheckedCount} it checked. Sharpen the answer to get cited.
+            </span>
+          )
         ) : (
-          <span>no AI checks on this topic yet</span>
+          <span>no AI check on this topic yet</span>
         )}
       </div>
       {bestMissing ? (

@@ -29,11 +29,17 @@ describe("CoverageMapSection contract", () => {
     expect(SRC).toContain("tabular-nums");
   });
 
-  it("shows the coverage join copy (answers X of Y, AI picks you)", () => {
+  it("separates content coverage (answers X of Y) from AI citation, and frames covered-but-not-cited as the opportunity", () => {
+    // Coverage (supply) stays at top; the citation line (demand) is separate so
+    // "100% covered" + "AI picks you 0 of 4" no longer reads as a contradiction.
     expect(SRC).toContain("answers {row.answeredCount} of {row.totalQuestions}");
-    expect(SRC).toContain("AI picks you on {row.aiCitedCount} of {row.aiCheckedCount} checked");
-    expect(SRC).toContain("no AI checks on this topic yet");
+    // Positive citation framing when cited; actionable gap when covered-but-uncited.
+    expect(SRC).toContain("AI recommends you for {row.aiCitedCount} of {row.aiCheckedCount}");
+    expect(SRC).toContain("Sharpen the answer to get cited.");
+    expect(SRC).toContain("no AI check on this topic yet");
     expect(SRC).toContain("Best next page:");
+    // The misleading standalone "percent covered" label is gone.
+    expect(SRC).not.toContain("percent covered");
   });
 
   it("contains no em or en dashes anywhere", () => {

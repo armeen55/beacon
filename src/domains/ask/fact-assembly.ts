@@ -495,7 +495,13 @@ async function assembleSystemHealthFacts(tenantId: string): Promise<AskFact[]> {
   }
 
   if (pipeline && pipeline.violations.length > 0) {
-    for (const v of pipeline.violations.slice(0, 5)) {
+    // Only ALARM-level violations are "something is broken". Info-level ones (a connected
+    // source that synced fine but is simply quiet, e.g. a dormant AI feed) must NOT make
+    // Ask answer "yes, the pipe is broken" - that was the false alarm on a dead Profound
+    // account. Their honest sentence still exists in the data; we just don't feed it here
+    // as a problem fact. (2026-07-08)
+    const alarms = pipeline.violations.filter((v) => v.severity !== "info");
+    for (const v of alarms.slice(0, 5)) {
       facts.push(fact(v.sentence, "llm", "/diagnostics"));
     }
   }

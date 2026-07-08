@@ -81,6 +81,11 @@ export type PipelineViolation = {
   actual: string;
   /** First-person operator sentence naming the broken stage + the next step. */
   sentence: string;
+  /** "alarm" (default) = a genuinely broken/stale pipe worthy of the "needs attention"
+   *  banner. "info" = a working-but-quiet observation (e.g. a connected source that synced
+   *  fine but returned 0 rows) - honest to surface, but NOT a red alarm, so it never drives
+   *  the "Your data pipe needs attention" header for a dormant/dead source. */
+  severity?: "alarm" | "info";
 };
 
 /** Which table proves each connected source actually landed rows. */
@@ -101,6 +106,18 @@ const SOURCE_STAGE_NAME: Record<PipelineSourceKey, string> = {
   gsc: "Search Console",
   ga4: "Google Analytics",
   profound: "AI answer feed",
+};
+
+/** Is a working-but-empty sync (fresh sync, 0 rows) an ALARM or just INFO for this source?
+ *  Only the demand SPINE (Search Console) is volume-critical: 0 fresh rows there means the
+ *  whole product has no data, a real broken pipe. Optional sources (analytics, the AI answer
+ *  feed) legitimately go quiet - a dead/borrowed feed writing 0 rows is expected, not broken -
+ *  so those are info-level and never drive the "needs attention" banner. Role-based, not
+ *  tenant-based: no source is hardcoded to a specific customer. (2026-07-08) */
+const SOURCE_VOLUME_CRITICAL: Record<PipelineSourceKey, boolean> = {
+  gsc: true,
+  ga4: false,
+  profound: false,
 };
 
 const CONNECTIONS_NEXT_STEP = "Start with a reconnect check on the Connections page.";
@@ -169,16 +186,37 @@ function checkSource(
     };
   }
 
-  // Volume: sync is nominally fresh, yet the recent window wrote 0 rows.
-  // recentRows === null means OUR read failed - skip, never false-alarm.
+  // Volume: the sync RAN recently (we passed the freshness gate above, so lastGood is
+  // fresh) yet the recent window wrote 0 rows. recentRows === null means OUR read failed -
+  // skip, never false-alarm.
   if (table.recentRows === 0) {
+    if (SOURCE_VOLUME_CRITICAL[key]) {
+      // The demand SPINE wrote 0 rows on a working sync: the whole product has no data -
+      // a genuine broken-pipe alarm.
+      return {
+        stage: `${key}_sync` as PipelineStage,
+        expected: `more than 0 rows written in the last ${readings.recentWindowHours} hours`,
+        actual: "0 rows",
+        sentence:
+          `${cap(label)} is connected but last night's sync wrote 0 rows. ` +
+          `The data pipe is broken at the ${SOURCE_STAGE_NAME[key]} stage; downstream numbers are stale, not zero. ` +
+          CONNECTIONS_NEXT_STEP,
+      };
+    }
+    // An OPTIONAL source that synced fine but returned 0 rows is simply quiet/dormant (a
+    // dead or borrowed AI feed, an analytics property with no fresh hits) - NOT a broken
+    // pipe. Honest + info-level so it never lights up the "needs attention" banner. This is
+    // the false-alarm the operator hit on Profound. (2026-07-08)
     return {
       stage: `${key}_sync` as PipelineStage,
-      expected: `more than 0 rows written in the last ${readings.recentWindowHours} hours`,
-      actual: "0 rows",
+      severity: "info",
+      expected: `fresh rows if ${label} has new data`,
+      actual: "synced fine, 0 new rows",
       sentence:
-        `${cap(label)} is connected but last night's sync wrote 0 rows. ` +
-        `The data pipe is broken at the ${SOURCE_STAGE_NAME[key]} stage; downstream numbers are stale, not zero. ` +
+        `${cap(label)} is connected and synced recently, but returned no new data in the last ` +
+        `${readings.recentWindowHours} hours. That usually just means this source is quiet right now, ` +
+        `not that anything is broken. If you expect data here, run a reconnect check; otherwise nothing ` +
+        `is wrong and downstream numbers simply do not lean on it. ` +
         CONNECTIONS_NEXT_STEP,
     };
   }

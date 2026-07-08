@@ -95,7 +95,11 @@ export async function OpsPipelineSection({ tenantId }: { tenantId: string }) {
         DEADMAN_DEADLINE_MS,
       ),
     ]);
-    const violations = health?.violations ?? [];
+    // Only ALARM-level violations (a broken/stale pipe) drive the red "needs attention"
+    // banner. "info" violations (a connected source that synced fine but is simply quiet,
+    // e.g. a dormant/dead AI feed) are intentionally NOT surfaced here - they are honest
+    // observations, not attention, so a dead source never lights up Today. (2026-07-08)
+    const violations = (health?.violations ?? []).filter((v) => v.severity !== "info");
     const pipelineFires = violations.length > 0;
     const deadmanFires = deadman != null && deadman.alarm && deadman.sentences.length > 0;
     const spikeFires = errorSpike != null;

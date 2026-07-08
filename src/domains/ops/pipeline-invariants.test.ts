@@ -82,22 +82,28 @@ describe("volume invariants (connected source wrote 0 rows)", () => {
     expect(violations[0]!.sentence).toContain("stale, not zero");
   });
 
-  it("fires ga4_sync when GA4 is connected but ga4_url_traffic got 0 rows", () => {
+  it("GA4 0-rows-on-a-fresh-sync is INFO (quiet source), not a broken-pipe alarm", () => {
+    // 2026-07-08: an OPTIONAL source that synced fine but returned 0 rows is quiet, not
+    // broken. It's info-level so it never drives the "needs attention" banner.
     const readings = healthyReadings();
     readings.tables.ga4_url_traffic = { recentRows: 0, latestRowAt: "2026-07-01T02:00:00.000Z" };
     const violations = checkPipelineInvariants(readings);
     expect(violations.map((v) => v.stage)).toEqual(["ga4_sync"]);
+    expect(violations[0]!.severity).toBe("info");
     expect(violations[0]!.sentence).toContain("Google Analytics");
+    expect(violations[0]!.sentence).toContain("not that anything is broken");
+    expect(violations[0]!.sentence).not.toContain("broken at the");
   });
 
-  it("fires profound_sync when the AI answer feed wrote 0 rows", () => {
+  it("the AI answer feed (Profound) 0-rows is INFO (dead/quiet source), never 'broken'", () => {
+    // The exact false alarm the operator hit: a dead borrowed Profound account writes 0
+    // rows every night. Connected + synced + 0 rows = quiet, not broken.
     const readings = healthyReadings();
     readings.tables.profound_citation_rows = { recentRows: 0, latestRowAt: "2026-07-01T02:00:00.000Z" };
     const violations = checkPipelineInvariants(readings);
     expect(violations.map((v) => v.stage)).toEqual(["profound_sync"]);
-    // Ground-truthed on real Iranopedia 2026-07-02: the label starts with "the",
-    // so the stage phrase must use the short name (no "the the").
-    expect(violations[0]!.sentence).toContain("broken at the AI answer feed stage");
+    expect(violations[0]!.severity).toBe("info");
+    expect(violations[0]!.sentence).not.toContain("broken at the AI answer feed stage");
     expect(violations[0]!.sentence).not.toContain("the the");
   });
 
