@@ -493,8 +493,15 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
 
       {attentionItems.length > 0 ? <AttentionSection items={attentionItems} /> : null}
 
-      {/* Tonight: the team's picks (the daily plan panel). FP5a - this panel's ONE home;
-          /changes shows a one-line chip with the same FP3 counts instead. */}
+      {/* 2026-07-08 (operator #1 ask): "Today should show what to DO next, ranked, not what I
+          did." The ranked next-moves list is promoted ABOVE tonight's applied recap so the very
+          next action is always in view - especially once tonight's batch is applied and only
+          measuring (it used to vanish then; see today-view.ts showOpportunities). */}
+      {today.nextOpportunities.length > 0 ? <OpportunitiesSection today={today} /> : null}
+
+      {/* Tonight: the team's picks (the daily plan panel), shown AFTER the next-moves list -
+          it's a recap of what was applied, not the next thing to do. FP5a - this panel's ONE
+          home; /changes shows a one-line chip with the same FP3 counts instead. */}
       {daily ? <DailyExperimentsSection view={daily} /> : null}
 
       {/* FP3 - render on the canonical count, not the snapshot's capped list, so the
@@ -525,8 +532,6 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
       {/* Item 9 - the topical coverage map: per-topic question coverage joined to AI
           citations. $0 cached reads, self-hides under 3 topics, fails soft to null. */}
       <Suspense fallback={null}><CoverageMapSection tenantId={tenantId} /></Suspense>
-
-      {today.nextOpportunities.length > 0 ? <OpportunitiesSection today={today} /> : null}
 
       <Suspense fallback={null}><DataSourcesStrip /></Suspense>
     </div>

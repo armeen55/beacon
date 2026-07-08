@@ -28,12 +28,25 @@ describe("buildTodayView — Today is a focused slice, deduped from the canonica
     expect(v.nextOpportunities.map((o) => o.changeId)).toContain("b");
   });
 
-  it("with an active plan, Next Opportunities is hidden (no second backlog)", () => {
+  it("with PENDING plan work (preview to review, or accepted still applying), Next Opportunities is hidden", () => {
     const changes = [ch({ id: "b", status: "suggested" }), ch({ id: "c", status: "ready" })];
-    const plan: TodayPlanSummary = { status: "preview", selectedCount: 6, leftToApply: 0 };
-    const v = buildTodayView({ changes, strategy: "balanced", plan });
-    expect(v.nextOpportunities).toEqual([]);
-    expect(v.planStatus).toBe("preview");
+    // preview → review the batch first
+    const preview = buildTodayView({ changes, strategy: "balanced", plan: { status: "preview", selectedCount: 6, leftToApply: 0 } });
+    expect(preview.nextOpportunities).toEqual([]);
+    expect(preview.planStatus).toBe("preview");
+    // accepted with items still to apply → finish applying first
+    const accepted = buildTodayView({ changes, strategy: "balanced", plan: { status: "accepted", selectedCount: 6, leftToApply: 3 } });
+    expect(accepted.nextOpportunities).toEqual([]);
+  });
+
+  it("once tonight's batch is applied (in_progress) or completed, Next Opportunities RETURNS", () => {
+    // 2026-07-08 regression guard: in_progress (all applied, only measuring) used to force
+    // the ranked to-do list to [] - "I don't see my new moves to do". It must show now.
+    const changes = [ch({ id: "b", status: "suggested" }), ch({ id: "c", status: "ready" })];
+    const inProgress = buildTodayView({ changes, strategy: "balanced", plan: { status: "in_progress", selectedCount: 6, leftToApply: 0 } });
+    expect(inProgress.nextOpportunities.map((o) => o.changeId).sort()).toEqual(["b", "c"]);
+    const completed = buildTodayView({ changes, strategy: "balanced", plan: { status: "completed", selectedCount: 6, leftToApply: 0 } });
+    expect(completed.nextOpportunities.length).toBeGreaterThan(0);
   });
 
   it("blocked / protected / result / selected items never appear as next opportunities", () => {
