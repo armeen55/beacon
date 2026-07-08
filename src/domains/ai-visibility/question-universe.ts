@@ -120,6 +120,13 @@ export type JunkReason = "too_short" | "brand_sentiment_template" | "off_topic_a
  *  borrowed-account sentiment seeds. Narrow on purpose. */
 const BRAND_SENTIMENT_RE = /^\s*(evaluate|rate|assess|review)\b[^.?!]*\bcompany\b/i;
 
+/** Tenant-agnostic: is this the "Evaluate the Frontier Models company X" borrowed-account
+ *  junk that a Profound import leaks into a tenant's tracked prompts? Exported so the
+ *  prompt RUN path and the reseed SEED path both drop it, not just the question universe. */
+export function isBorrowedAccountSentinelPrompt(text: string): boolean {
+  return BRAND_SENTIMENT_RE.test(text);
+}
+
 /** AI-company markers for the off-topic gate. Bare "claude" and "gemini" are
  *  intentionally excluded (person names, zodiac); the phrase forms cover the
  *  AI products. */

@@ -139,6 +139,20 @@ describe("buildSeedCandidateSet - merge, dedupe, cap", () => {
     const out = buildSeedCandidateSet(many, [], 5);
     expect(out).toHaveLength(5);
   });
+
+  it("never re-seeds the borrowed-account 'Evaluate the Frontier Models company X' junk", () => {
+    // 2026-07-08: these leak in from a Profound import and must never re-enter a tenant's
+    // tracked prompts. A real question that merely mentions an AI product still survives.
+    const profound: SeedCandidate[] = [
+      { text: "Evaluate the Frontier Models company ChatGPT on Iranopedia", topic: "iran", source: "profound" },
+      { text: "Evaluate the Frontier Models company Grok on Iranopedia", topic: "iran", source: "profound" },
+      { text: "what are the best persian dishes to try", topic: "iran", source: "profound" },
+    ];
+    const out = buildSeedCandidateSet([], profound, 10);
+    const texts = out.map((c) => c.text.toLowerCase());
+    expect(texts.some((t) => t.includes("frontier models company"))).toBe(false);
+    expect(texts).toContain("what are the best persian dishes to try");
+  });
 });
 
 describe("seedTenantQuestionLibraryIfEmpty - idempotent, tenant-scoped", () => {

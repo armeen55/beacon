@@ -22,7 +22,7 @@ import "server-only";
 
 import { getSupabaseAdmin } from "@/lib/persistence/supabase";
 import { log } from "@/lib/logger";
-import type { LibraryQuestionInput } from "./question-universe";
+import { isBorrowedAccountSentinelPrompt, type LibraryQuestionInput } from "./question-universe";
 
 const ACTIVE_QUESTION_CAP = 500;
 
@@ -58,6 +58,9 @@ export async function loadTenantQuestionLibrary(tenantId: string): Promise<Libra
     const rows = (data ?? []) as Array<{ id: string; text: string | null; topic_id: string | null; is_active: boolean }>;
     const questions = rows
       .filter((r) => Boolean(r.id) && Boolean(r.text?.trim()))
+      // Never RUN the borrowed-account "Evaluate the Frontier Models company X" junk even if
+      // it is still marked active in the DB (defense-in-depth alongside deactivating the rows).
+      .filter((r) => !isBorrowedAccountSentinelPrompt(r.text!.trim()))
       .map((r) => ({ id: r.id, prompt_text: r.text!.trim(), topic: r.topic_id }));
     if (questions.length === 0) {
       log.warn(
@@ -173,6 +176,9 @@ export function buildSeedCandidateSet(
   // tenant's topic; GSC question-shaped queries fill the remainder, then
   // the site's own crawled question headings.
   for (const c of [...profoundSeeds, ...gscSeeds, ...crawlSeeds]) {
+    // Never SEED the borrowed-account "Evaluate the Frontier Models company X" junk that a
+    // Profound import carries in - it must never re-enter a tenant's tracked prompts.
+    if (isBorrowedAccountSentinelPrompt(c.text)) continue;
     const key = normalizeForDedupe(c.text);
     if (!key || key.length < 8 || seen.has(key)) continue;
     seen.add(key);
