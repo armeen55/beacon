@@ -37,7 +37,7 @@ export function NewPagesPrepareButton({ alreadyPrepared, total }: { alreadyPrepa
         const ownedNote = s.skippedOwnedByRegistry.length > 0
           ? ` · skipped ${s.skippedOwnedByRegistry.length} I already own`
           : "";
-        setMsg(`Prepared ${s.validated + s.cached} (${s.cached} cached) · $${s.costUsd.toFixed(3)}${s.capped ? " · cap hit" : ""}${qualityNote}${ownedNote}`);
+        setMsg(`Prepared ${s.validated + s.cached} (${s.cached} cached)${qualityNote}${ownedNote}`);
         router.refresh();
       } catch {
         setMsg("Prepare failed, try again.");

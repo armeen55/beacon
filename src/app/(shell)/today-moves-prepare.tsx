@@ -33,8 +33,7 @@ export function PrepareTonightButton({ readyCount, total }: { readyCount: number
         }
         const parts = [`Prepared ${r.prepared}`, `${r.readyToReview} ready to review`];
         if (r.improved > 0) parts.push(`${r.improved} improved with competitor facts`);
-        if (r.enrichedPatterns > 0) parts.push(`${r.enrichedPatterns} fresh SERP pattern${r.enrichedPatterns === 1 ? "" : "s"}`);
-        parts.push(`$${r.llmCostUsd.toFixed(3)}`);
+        if (r.enrichedPatterns > 0) parts.push(`${r.enrichedPatterns} fresh live-Google pattern${r.enrichedPatterns === 1 ? "" : "s"}`);
         if (r.failed > 0) parts.push(`${r.failed} need a look`);
         setMsg(parts.join(" · "));
         router.refresh();
@@ -113,7 +112,7 @@ export function PrepareTopMovesButton({ readyCount, total }: { readyCount: numbe
         }
         const s = r.summary;
         setMsg(
-          `Prepared ${s.prepared} (${s.cached} cached) · ${s.readyToReview} ready to review · $${s.llmCostUsd.toFixed(3)}${s.failed ? ` · ${s.failed} need a look` : ""}`,
+          `Prepared ${s.prepared} (${s.cached} cached) · ${s.readyToReview} ready to review${s.failed ? ` · ${s.failed} need a look` : ""}`,
         );
         router.refresh();
       } catch {
@@ -174,10 +173,10 @@ export function EnrichResearchButton() {
         const p = result.plan;
         if (result.mode === "dry_run") {
           setMsg(
-            `Dry-run: ~$${p.estUsd.toFixed(3)} to enrich — ${p.volumeMissing.length} keyword(s) → ${p.volumeCalls} volume call, ${p.serpMissing.length} SERP. ${p.volumeCached.length} kw + ${p.serpCached.length} SERP already cached.${result.configured ? " Set DATAFORSEO_DRY_RUN=false to fetch." : " (DataForSEO not configured.)"}`,
+            `Preview: would enrich ${p.volumeMissing.length} keyword(s) and ${p.serpMissing.length} live Google check(s). ${p.volumeCached.length} keyword(s) + ${p.serpCached.length} check(s) already cached.${result.configured ? "" : " (Live check not set up in this environment.)"}`,
           );
         } else {
-          setMsg(`Enriched: ${result.patternsWritten} SERP pattern(s) · volume ${result.volumeStatus ?? "—"} · spent $${result.spentUsd.toFixed(3)}.`);
+          setMsg(`Enriched: ${result.patternsWritten} live-Google pattern(s) · volume ${result.volumeStatus ?? "—"}.`);
           router.refresh();
         }
       } catch {
@@ -192,7 +191,7 @@ export function EnrichResearchButton() {
         type="button"
         onClick={run}
         disabled={pending}
-        title="Fetch the missing DataForSEO keyword volume + SERP winner-title/format patterns for the top 5 research packs. DRY-RUN by default (shows the spend estimate, makes no call); live only when DATAFORSEO_DRY_RUN=false. Cached + capped; never runs on page load."
+        title="Fetch the missing keyword volume + live-Google winner-title/format patterns for the top 5 research packs. Preview by default (shows what it would fetch, makes no call). Cached and capped; never runs on page load."
         className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-300 bg-white px-3.5 py-1.5 text-xs font-semibold text-emerald-700 transition-colors hover:border-emerald-400 hover:bg-emerald-50 disabled:opacity-60"
       >
         {pending ? (
@@ -232,7 +231,7 @@ export function RegenerateFromTeardownButton() {
         }
         const s = r.summary;
         setMsg(
-          `Improved ${s.regenerated} of ${s.considered} with competitor facts · $${s.llmCostUsd.toFixed(3)}${s.failed ? ` · ${s.failed} kept for review` : ""}${s.stoppedForBudget ? " · stopped at $0.10" : ""}`,
+          `Improved ${s.regenerated} of ${s.considered} with competitor facts${s.failed ? ` · ${s.failed} kept for review` : ""}${s.stoppedForBudget ? " · paused the rest for later" : ""}`,
         );
         router.refresh();
       } catch {
@@ -247,7 +246,7 @@ export function RegenerateFromTeardownButton() {
         type="button"
         onClick={run}
         disabled={pending}
-        title="Rewrite the top 3 teardown-backed drafts using the competitor pages that currently win (their structure/FAQ/schema as 'beat it, don't copy it'). Capped at $0.10; every draft must pass the quality gate."
+        title="Rewrite the top 3 teardown-backed drafts using the competitor pages that currently win (their structure/FAQ/schema as 'beat it, don't copy it'). Capped for safety; every draft must pass the quality gate."
         className="inline-flex items-center gap-1.5 rounded-lg border border-violet-300 bg-white px-3.5 py-1.5 text-xs font-semibold text-violet-700 transition-colors hover:border-violet-400 hover:bg-violet-50 disabled:opacity-60"
       >
         {pending ? (

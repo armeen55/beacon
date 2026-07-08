@@ -341,8 +341,7 @@ export function NewPageCard({ o, ownDomain, enableAeoBrief = false }: { o: NewPa
             </div>
             {fullPageReceipt ? (
               <p className="mt-1 text-meta text-muted-foreground">
-                Spent ${fullPageReceipt.costUsd.toFixed(3)}
-                {fullPageReceipt.persisted ? " · saved" : " · not saved (too large)"}
+                {fullPageReceipt.persisted ? "Saved" : "Not saved (too large)"}
                 {fullPage.stats.sectionsFallback > 0 ? ` · ${fullPage.stats.sectionsFallback} section${fullPage.stats.sectionsFallback === 1 ? "" : "s"} needs a rewrite` : ""}
               </p>
             ) : fullPage.stats.sectionsFallback > 0 ? (
@@ -498,10 +497,10 @@ export function NewPageCard({ o, ownDomain, enableAeoBrief = false }: { o: NewPa
           <button
             onClick={draftFullPage}
             disabled={fullPagePending || fullPageStatus === "pending"}
-            title="Walk the brief section by section into a paste-ready page with sources (up to 8 sections, about $0.02 to $0.05, one page per click)"
+            title="Walk the brief section by section into a paste-ready page with sources (up to 8 sections, one page per click)"
             className="inline-flex items-center gap-1 rounded-lg border border-indigo-200 bg-indigo-50 px-2.5 py-1.5 text-body font-semibold text-indigo-700 transition-colors hover:bg-indigo-100 disabled:opacity-60"
           >
-            {fullPageStatus === "pending" ? "Drafting page…" : fullPage ? "↻ Redraft full page" : "Draft the full page (~$0.02-0.05)"}
+            {fullPageStatus === "pending" ? "Drafting page…" : fullPage ? "↻ Redraft full page" : "Draft the full page"}
           </button>
         ) : null}
         {fullPageStatus === "off" ? (

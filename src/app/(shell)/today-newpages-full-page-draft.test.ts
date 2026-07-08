@@ -18,8 +18,10 @@ const WALKER_SRC = readFileSync(
 );
 
 describe("NewPageCard — Draft the full page button", () => {
-  it("renders the button with a spend estimate in the label", () => {
-    expect(CARD_SRC).toContain("Draft the full page (~$0.02-0.05)");
+  it("renders the button with a cost-free label (Beacon absorbs the cost, no $ shown to the operator)", () => {
+    expect(CARD_SRC).toContain('"Draft the full page"');
+    // Hard rule: never surface a dollar cost to the operator on this button.
+    expect(CARD_SRC).not.toContain("Draft the full page (~$");
   });
 
   it("only offers the button when a copyable prepared brief exists (never on a rejected brief)", () => {
@@ -35,9 +37,10 @@ describe("NewPageCard — Draft the full page button", () => {
     expect(CARD_SRC).toMatch(/evidenceFacts: \[o\.gapEvidence, o\.wikiGapEvidence\]/);
   });
 
-  it("shows a real-spend receipt after drafting (cost + saved state)", () => {
-    expect(CARD_SRC).toMatch(/Spent \$\{fullPageReceipt\.costUsd\.toFixed\(3\)\}/);
-    expect(CARD_SRC).toContain('" · saved"');
+  it("shows a saved-state receipt after drafting, with NO dollar cost (Beacon absorbs it)", () => {
+    // Saved vs not-saved is useful; the dollar cost is not shown to the operator.
+    expect(CARD_SRC).toContain('"Not saved (too large)"');
+    expect(CARD_SRC).not.toMatch(/Spent \$\{fullPageReceipt/);
   });
 
   it("renders a collapsible full-draft view with a copy button", () => {

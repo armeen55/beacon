@@ -207,7 +207,6 @@ export function PageFactoryBatchCard({ data }: { data: FactoryBatchCardData }) {
           {pendingCount > 0 ? ` ${pendingCount} waiting on you.` : " All reviewed."}
           {data.queuedCount > 0 ? ` ${data.queuedCount} more are queued for the next keyword check.` : ""}
         </p>
-        <p className="mt-1 text-[11px] text-gray-400">Spent ${data.totalCostUsd.toFixed(3)} drafting this batch.</p>
         {data.governorSummary ? (
           <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50/60 px-2.5 py-2">
             <p className="text-xs font-medium text-amber-800">{data.governorSummary}</p>
