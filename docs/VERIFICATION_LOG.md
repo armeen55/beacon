@@ -7,6 +7,52 @@
 
 ---
 
+## 2026-07-08 - Operator-walkthrough goal: 8 issues fixed at root + shipped (45f4697d)
+
+**Goal:** the operator walked the live app on day 1 and flagged a batch of issues;
+the /goal directive was "fix every one plus anything found, quadruple-checked, no new
+hardcoding/fixtures, smart long-term." All done and shipped to main.
+
+**Root causes + fixes (each tenant-agnostic, no hardcoded tenant/fixture):**
+- **Perf ("everything slow, always")** [48831cdc]: `demand-graph-snapshot` was written via
+  a json-store name absent from `SUPABASE_MIRRORED_STORES`, so on Vercel it lived only in
+  one warm lambda and evaporated between instances - every /today,/changes,/new-pages load
+  rebuilt the ~6s graph. Prod had ZERO snapshot rows while the two DERIVED surfaces
+  (worklist/today-surface) persisted fine. Mirrored it; added `warmFreeSurfaces` after a
+  manual refresh; `maxDuration=60` on /today for the refresh action.
+- **Today hid the to-do list** [9eaff39c]: `buildTodayView` only showed nextOpportunities
+  for planStatus none/completed; once tonight's batch is applied + measuring it's
+  "in_progress", which forced the ranked list to [] ("I don't see my new moves"). Now
+  shows it whenever there's no pending plan work; promoted `OpportunitiesSection` above the
+  applied recap; cap 5->6.
+- **Quiet source read as "broken"** [32e1da40]: role-based `PipelineViolation.severity` -
+  only the GSC spine 0-rows alarms; optional sources (dead Profound) are info-level and
+  never drive the "needs attention" banner or Ask's is-anything-broken answer.
+- **Coverage vs citation** [32e1da40]: coverage-map splits content-coverage (top) from AI
+  citation (bottom); "covered but not cited" framed as the opportunity, not a green 100%.
+- **Junk AI prompts** [6fb6c8ff]: 3 "Evaluate the Frontier Models company X" deactivated
+  (reversible is_active=false) + `isBorrowedAccountSentinelPrompt` filter at run + seed
+  paths so they never return for any tenant.
+- **Ask page-level** [0991dbd5]: new `page_ranking` class answers "what page makes most
+  money / most traffic / is bleeding" from real per-page GA4 value + GSC clicks; honest
+  revenue-vs-conversions (never an invented dollar).
+- **Money hidden from UI** [56530446, prior]: every $ stripped from the New Pages board +
+  prepare buttons.
+- **GA4 "Sync didn't finish"**: verified HEALTHY (55.6k rows through 2026-07-08); transient
+  reconnect blip, no code fix.
+
+**Quadruple-check (found + swept):** GA4 ai-referral date-bomb (fixed-date token vs real
+`new Date()` >7d guard) clock-pinned [37c69291]; proved NO other date-bombs (all connector
+expiry tests inject `now` or fake the clock) and NO other non-mirrored SWR caches; removed
+an em-dash I introduced + swept the touched file [45f4697d]; audited all changed prod files
+for hardcoded tenant IDs (none in logic).
+
+**Verified:** `npm run typecheck` clean; per-slice targeted suites green; **FULL clean-shell
+suite 1404 files / 21781 passed / 62 skipped / 0 failed** (real npm exit 0, no pipe mask);
+pushed both branches; prod smoke /login 200, /today+/changes+/ask 307 (auth redirect).
+
+---
+
 ## 2026-07-07 - Final-touches closeout: /local honest cold-state + gate green (8d731d8a)
 
 **Goal:** make the final-touches audit's top-10 fixes trustworthy on the gate. The prior two
