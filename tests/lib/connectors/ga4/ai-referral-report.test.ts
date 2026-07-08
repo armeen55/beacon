@@ -12,7 +12,7 @@
  *     401 refresh-once then success, non-2xx -> api_error (never throws)
  */
 
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import type { GoogleConnectorToken } from "@/lib/connector-store";
 
 let _ga4Token: GoogleConnectorToken | null = null;
@@ -74,6 +74,17 @@ const PAGE_BODY = {
 beforeEach(() => {
   _ga4Token = null;
   vi.restoreAllMocks();
+  // Pin the clock to the fixture's NOW so the SUT's real-time expiry guard
+  // (data-api.ts: ">7d past expiry" via `new Date()`) stays deterministic. Without
+  // this the fixed-date token (expires 2026-07-01) reads as >7 days stale once the
+  // real calendar passes 2026-07-08, flipping happy-path results to token_expired.
+  // Fake ONLY Date (leave setTimeout real so any backoff still runs).
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(NOW_MS);
+});
+
+afterEach(() => {
+  vi.useRealTimers();
 });
 
 describe("buildAiReferralReportBody", () => {
