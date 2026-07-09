@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { buildTodayView, type TodayPlanSummary } from "./today-view";
-import type { CanonicalChange } from "./canonical-change";
+import { buildTodayView, dynamicOpportunityCount, type TodayPlanSummary } from "./today-view";
+import type { CanonicalChange, EvidenceStrength } from "./canonical-change";
 
 function ch(over: Partial<CanonicalChange> & { id: string; status: CanonicalChange["status"] }): CanonicalChange {
   return {
@@ -99,5 +99,39 @@ describe("buildTodayView — Today is a focused slice, deduped from the canonica
     expect(v.counts.measuring).toBe(2);
     expect(v.counts.resultsAvailable).toBe(1);
     expect(v.counts.readyToday).toBe(6);
+  });
+});
+
+describe("dynamicOpportunityCount, B-8 (operator spec 2026-07-09): move count is dynamic by quality, never a fixed 6", () => {
+  function items(...strengths: EvidenceStrength[]): { evidenceStrength: EvidenceStrength }[] {
+    return strengths.map((evidenceStrength) => ({ evidenceStrength }));
+  }
+
+  it("(a) 20 strong items caps at 10, the ceiling", () => {
+    expect(dynamicOpportunityCount(items(...Array(20).fill("strong")))).toBe(10);
+  });
+
+  it("(b) fewer than 3 available shows all of them (2 items -> 2)", () => {
+    expect(dynamicOpportunityCount(items("strong", "strong"))).toBe(2);
+  });
+
+  it("(c) 3 strong then 7 tracking -> 3 (stops at the first tracking item after position 3, none of the tracking items are shown)", () => {
+    expect(dynamicOpportunityCount(items("strong", "strong", "strong", "tracking", "tracking", "tracking", "tracking", "tracking", "tracking", "tracking"))).toBe(3);
+  });
+
+  it("(d) 6 strong, then 1 tracking, then 3 more strong -> 6 (extends past the guaranteed 3 while evidence stays strong, stops the moment it hits the tracking item, never resumes for the strong items after it)", () => {
+    expect(dynamicOpportunityCount(items("strong", "strong", "strong", "strong", "strong", "strong", "tracking", "strong", "strong", "strong"))).toBe(6);
+  });
+
+  it("directional evidence extends the list just like strong does", () => {
+    expect(dynamicOpportunityCount(items("strong", "strong", "strong", "directional", "directional"))).toBe(5);
+  });
+
+  it("an empty list returns 0", () => {
+    expect(dynamicOpportunityCount([])).toBe(0);
+  });
+
+  it("never exceeds the available items even between the min and max bounds", () => {
+    expect(dynamicOpportunityCount(items("strong", "strong", "strong", "strong"))).toBe(4);
   });
 });

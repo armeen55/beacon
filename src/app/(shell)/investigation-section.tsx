@@ -1,10 +1,18 @@
 /**
- * InvestigationSection (2026-07-02, master plan item 53) - the red attention
- * card for overnight forensic investigations. When last night's pass found a
- * high-severity page-family collapse (or the sitewide changepoint detector
- * flagged a high-magnitude drop), this renders the diagnosis headline plus
- * the top 2 ranked causes and the one action they imply, so a drop is
- * investigated overnight instead of just shown on a chart.
+ * InvestigationSection (2026-07-02, master plan item 53; revised 2026-07-09
+ * for operator spec B-10) - the red attention card for overnight forensic
+ * investigations. When last night's pass found a high-severity page-family
+ * collapse (or the sitewide changepoint detector flagged a high-magnitude
+ * drop), this renders the drop headline plus the top ranked page-specific
+ * causes and the one action they imply, so a drop is investigated overnight
+ * instead of just shown on a chart.
+ *
+ * B-10 fix: each item states the drop once and stops - it used to also repeat
+ * the same "most likely cause" sentence a second time as a sub-line, and
+ * treated an unconfirmed sitewide weather shock as an invented, named cause
+ * ("a Google shift I detected"). Now a weather shock is never a per-item
+ * claim; it surfaces as ONE shared, honest hedge below every card in the
+ * section, never duplicated per family.
  *
  * Sibling pattern (OpsPipelineSection): server component, $0 persisted read
  * (never recomputes on render), self-hides when there is nothing fresh to
@@ -17,15 +25,10 @@ import type { InvestigationDiagnosis, RankedCause } from "@/domains/investigatio
 const MAX_CARDS = 2;
 const MAX_CAUSES_SHOWN = 2;
 
-/** A9 (operator-experience fix batch, 2026-07-02) - "algorithm_weather" is the one cause
- *  whose own sentence already hedges ("this may not be specific to this page") because it
- *  is a site-wide shift, not a page-level finding. A "Medium confidence." badge next to
- *  that hedge reads as the app contradicting itself, so this kind never gets the badge. */
 function CauseRow({ cause }: { cause: RankedCause }) {
-  const showConfidence = cause.kind !== "algorithm_weather";
   return (
     <li className="text-[12px] leading-relaxed text-red-900/90 dark:text-red-200/90">
-      {showConfidence ? <span className="font-medium capitalize">{cause.confidence} confidence.</span> : null} {cause.sentence}
+      <span className="font-medium capitalize">{cause.confidence} confidence.</span> {cause.sentence}
     </li>
   );
 }
@@ -56,6 +59,10 @@ export async function InvestigationSection({ tenantId }: { tenantId: string }) {
   try {
     const rows = await loadLatestInvestigations(tenantId, MAX_CARDS);
     if (rows.length === 0) return null;
+    // B-10: a sitewide shock is shared context, not a per-family claim - show
+    // its sentence ONCE for the whole section, from the first row that has
+    // one, instead of letting every card repeat it.
+    const sharedWeatherSentence = rows.find((r) => r.diagnosis.weatherContext)?.diagnosis.weatherContext?.sentence ?? null;
     return (
       <section aria-label="Overnight investigation" className="space-y-1.5">
         <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5">
@@ -64,6 +71,11 @@ export async function InvestigationSection({ tenantId }: { tenantId: string }) {
         {rows.map((r) => (
           <DiagnosisCard key={r.key} diagnosis={r.diagnosis} />
         ))}
+        {sharedWeatherSentence ? (
+          <p className="min-w-0 break-words text-[12px] leading-relaxed text-red-900/80 dark:text-red-200/80">
+            {sharedWeatherSentence}
+          </p>
+        ) : null}
       </section>
     );
   } catch {

@@ -68,7 +68,35 @@ export type TodayPlanSummary = {
 };
 
 const MAX_MEASURING = 5;
-const MAX_OPPORTUNITIES = 6;
+const MIN_OPPORTUNITIES = 3;
+const MAX_OPPORTUNITIES = 10;
+
+/**
+ * B-8 (operator spec 2026-07-09): the next-best-moves count is DYNAMIC by
+ * opportunity quality, never a fixed number. Rules, applied to an already
+ * ranked list (best opportunity first):
+ *   - always show at least MIN_OPPORTUNITIES (or all of them, when fewer exist)
+ *   - never show more than MAX_OPPORTUNITIES
+ *   - beyond the guaranteed first 3, keep extending the list only while the
+ *     next item still has strong or directional evidence; the first item with
+ *     merely "tracking" evidence stops the extension there (that item, and
+ *     everything ranked after it, is left off - a quality cliff, not a count).
+ * PURE, total, no I/O.
+ */
+export function dynamicOpportunityCount(items: ReadonlyArray<Pick<CanonicalChange, "evidenceStrength">>): number {
+  const total = Math.min(items.length, MAX_OPPORTUNITIES);
+  if (total <= MIN_OPPORTUNITIES) return total;
+  let count = MIN_OPPORTUNITIES;
+  for (let i = MIN_OPPORTUNITIES; i < total; i++) {
+    const strength = items[i]!.evidenceStrength;
+    if (strength === "strong" || strength === "directional") {
+      count = i + 1;
+    } else {
+      break;
+    }
+  }
+  return count;
+}
 
 /** Build the Today slice from the canonical backlog + the daily-plan summary. PURE. */
 export function buildTodayView(input: {
@@ -100,9 +128,10 @@ export function buildTodayView(input: {
   // stale/stuck/empty "tonight's plan" must never hide the real backlog again. Items already
   // in tonight's plan carry selectedForToday and are shown there, so we exclude them here to
   // avoid duplication; measuring / result / blocked items are never an actionable next step.
-  const nextOpportunities: TodayOpportunity[] = rankChanges(changes, strategy)
-    .filter((c) => (c.status === "suggested" || c.status === "ready") && !c.selectedForToday)
-    .slice(0, MAX_OPPORTUNITIES)
+  const eligibleOpportunities = rankChanges(changes, strategy)
+    .filter((c) => (c.status === "suggested" || c.status === "ready") && !c.selectedForToday);
+  const nextOpportunities: TodayOpportunity[] = eligibleOpportunities
+    .slice(0, dynamicOpportunityCount(eligibleOpportunities))
     .map((c) => ({
       changeId: c.id,
       pageLabel: c.pageLabel,
