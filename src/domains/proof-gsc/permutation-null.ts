@@ -226,15 +226,18 @@ export function hasEnoughNullPages(nullDist: PermutationNull): boolean {
  *  so the Results row can never disagree with what was computed. */
 export function permutationSentenceFromCounts(nGreater: number, nTotal: number): string | null {
   if (nTotal <= 0) return null;
+  // operator spec 2026-07-09 E-34: never claims causal certainty ("that is strong evidence the
+  // change caused it") - names the untouched-page comparison as what makes this a strong ESTIMATE
+  // of the change's effect, not proof.
   if (nGreater === 0) {
-    return `Out of ${nTotal} untouched pages, none moved as much as this one did. That is strong evidence the change caused it.`;
+    return `Out of ${nTotal} untouched pages, none moved as much as this one did. That is a strong estimate the change did it, not proof.`;
   }
   if (nGreater === 1) {
-    return `Out of ${nTotal} untouched pages, only 1 moved as much as this one did. That is strong evidence the change caused it.`;
+    return `Out of ${nTotal} untouched pages, only 1 moved as much as this one did. That is a strong estimate the change did it, not proof.`;
   }
   const strong = nGreater / nTotal <= 0.05;
   if (strong) {
-    return `Out of ${nTotal} untouched pages, only ${nGreater} moved as much as this one did. That is strong evidence the change caused it.`;
+    return `Out of ${nTotal} untouched pages, only ${nGreater} moved as much as this one did. That is a strong estimate the change did it, not proof.`;
   }
   return `Out of ${nTotal} untouched pages, ${nGreater} moved as much as this one did. Untouched pages swing this much on their own, so I would not call this strong evidence yet.`;
 }

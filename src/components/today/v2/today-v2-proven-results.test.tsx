@@ -27,7 +27,10 @@ const win: ProvenWin = {
 describe("TodayV2ProvenResults", () => {
   it("renders the proof headline + a /changes link when wins exist", () => {
     const html = renderToStaticMarkup(<TodayV2ProvenResults wins={[win]} />);
-    expect(html).toContain("Proven by Beacon");
+    // operator spec 2026-07-09 E-34: "Proven by Beacon" claimed causal certainty; the badge now
+    // names this as a strong estimate, not proof.
+    expect(html).toContain("Strongest estimate, not proof");
+    expect(html).not.toContain("Proven by Beacon");
     expect(html).toContain("more AI citations a day");
     expect(html).toContain("/changes/rec-1");
     expect(html).toContain("strong evidence");

@@ -1,6 +1,32 @@
 import { describe, expect, it } from "vitest";
-import { computeOpportunity, computeOpportunityFromGap, type OpportunityInput } from "./opportunity-math";
+import {
+  computeOpportunity,
+  computeOpportunityFromGap,
+  conservativePlanningEstimate,
+  type OpportunityInput,
+} from "./opportunity-math";
 import { forecastRange, ctrOpportunity90d } from "@/domains/experiments/pick-expectations";
+
+/**
+ * operator spec 2026-07-09 E-40: conservativePlanningEstimate is the low-weighted
+ * midpoint (35% of the way from low to high) a plan can actually be built around,
+ * distinct from the true midpoint (50%).
+ */
+describe("conservativePlanningEstimate (E-40)", () => {
+  it("weights 35% of the way from low to high, not the true midpoint", () => {
+    expect(conservativePlanningEstimate(20, 60)).toBe(34); // 20 + 40*0.35 = 34
+    expect(conservativePlanningEstimate(0, 100)).toBe(35);
+  });
+
+  it("returns the shared value when low equals high", () => {
+    expect(conservativePlanningEstimate(10, 10)).toBe(10);
+  });
+
+  it("rounds to the nearest whole number", () => {
+    expect(conservativePlanningEstimate(1, 2)).toBe(1); // 1 + 1*0.35 = 1.35 -> 1
+    expect(conservativePlanningEstimate(1, 8)).toBe(3); // 1 + 7*0.35 = 3.45 -> 3
+  });
+});
 
 const base: OpportunityInput = {
   tenantId: "t",
@@ -129,6 +155,12 @@ describe("computeOpportunity — the basis sentence names real evidence", () => 
   it("omits the settled-results clause when zero/omitted", () => {
     const f = computeOpportunity({ ...base, currentPosition: 8, impressions90d: 5000, clicks90d: 100 });
     expect(f.basis).not.toContain("settled result");
+  });
+
+  it("names the conservative planning estimate alongside the range (E-40)", () => {
+    const f = computeOpportunity({ ...base, currentPosition: 8, impressions90d: 5000, clicks90d: 100 });
+    expect(f.basis).toContain("I plan around");
+    expect(f.basis).toContain(`I plan around ${conservativePlanningEstimate(f.lowPerMonth!, f.highPerMonth!)}.`);
   });
 
   it("never emits an em or en dash anywhere in the basis sentence (dash guard)", () => {

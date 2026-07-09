@@ -1526,8 +1526,11 @@ function LedgerCard({ rec, link, pres, grade, eventCaveat, spark, controlSparks,
           measuring row never shows a projected dollar figure, and a rate-less
           tenant never sees a number it can't back with real settings. The
           sentence itself always names the basis (your rate x the extra visitors
-          this change earned), never "measured". */}
-      {shouldShowChangeDollarLine({ band, dollarValue: rec.dollarValue }) ? (
+          this change earned), never "measured".
+          operator spec 2026-07-09 E-38: also gated on real GA4 revenue being
+          connected (trafficOutcome.hasRevenue) - until that is wired for this
+          tenant, a rate-based dollar figure reads like proof it isn't yet. */}
+      {shouldShowChangeDollarLine({ band, dollarValue: rec.dollarValue, hasRevenue: rec.trafficOutcome?.hasRevenue }) ? (
         <p className="mt-1 text-[13px] font-semibold text-emerald-700">{rec.dollarValue!.basisSentence}</p>
       ) : null}
 

@@ -39,8 +39,15 @@ export function buildProofHonestySentence(args: {
   winsDollarUsdPerMonth: number;
   winsWithDollarCount: number;
   soonestLabel: string | null;
+  /** operator spec 2026-07-09 E-38: until real revenue data is connected for
+   *  this tenant (trafficOutcome.hasRevenue, from GA4 revenue events), no
+   *  dollar clause may append here, even when winsDollarUsdPerMonth is
+   *  positive - that figure is still the operator's own rate estimate, not
+   *  revenue Beacon actually observed. Caller passes
+   *  records.some(r => r.trafficOutcome?.hasRevenue). */
+  hasRealRevenue: boolean;
 }): string | null {
-  const { counts, winsDollarUsdPerMonth, winsWithDollarCount, soonestLabel } = args;
+  const { counts, winsDollarUsdPerMonth, winsWithDollarCount, soonestLabel, hasRealRevenue } = args;
   const sentenceParts: string[] = [];
   if (counts.measuring > 0) sentenceParts.push(`${counts.measuring} measuring`);
   if (counts.helped > 0) sentenceParts.push(`${counts.helped} win${counts.helped === 1 ? "" : "s"}`);
@@ -49,9 +56,10 @@ export function buildProofHonestySentence(args: {
   if (sentenceParts.length === 0) return null;
   // A negative sum should never append here: this clause only ever reads as
   // encouragement ("worth about $X a month"), so it appears only when the
-  // real total across dollar-bearing wins is actually positive.
+  // real total across dollar-bearing wins is actually positive AND real
+  // revenue data is connected for this tenant (E-38).
   const dollarClause =
-    winsWithDollarCount > 0 && winsDollarUsdPerMonth > 0
+    hasRealRevenue && winsWithDollarCount > 0 && winsDollarUsdPerMonth > 0
       ? `, worth about $${Math.round(winsDollarUsdPerMonth).toLocaleString("en-US")} a month at your rates`
       : "";
   return `${sentenceParts.join(", ")}${dollarClause}${soonestLabel ? `, next verdicts ${soonestLabel}` : ""}.`;
@@ -182,6 +190,12 @@ export async function ProofSummarySection({
   // strip above it renders (won-dollar-rule.ts), so /results can never show two
   // different cumulative dollar figures on one screen.
   const winsDollar = sumWonDollarsPerMonth(records, now, shockWindows);
+  // operator spec 2026-07-09 E-38: real revenue data (GA4 revenue events), not
+  // just an operator-set rate, gates the dollar clause below. Boolean(...) rather
+  // than a literal-true comparison: trafficOutcome.hasRevenue is typed `false`
+  // today (GA4 revenue wiring does not exist yet), so this reads as false
+  // everywhere until that type/wiring goes real.
+  const hasRealRevenue = records.some((r) => Boolean(r.trafficOutcome?.hasRevenue));
 
   // Items 73 + 75 - the upcoming read dates: every un-ran 7/14/28 window projects a calendar
   // date (shippedAt + day). The strip shows the next 14 days; the sentence names the soonest.
@@ -224,6 +238,7 @@ export async function ProofSummarySection({
     winsDollarUsdPerMonth: winsDollar.usdPerMonth ?? 0,
     winsWithDollarCount: winsDollar.contributingWins,
     soonestLabel,
+    hasRealRevenue,
   });
   // Item C1 - when nothing has a final verdict yet, lead with that plainly
   // instead of letting the page read like a quiet scoreboard. Real counts,

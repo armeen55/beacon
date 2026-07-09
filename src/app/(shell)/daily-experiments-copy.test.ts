@@ -21,9 +21,15 @@ const allStrings = [
   ...Object.values(LEVER_LABEL),
   ...Object.values(STATUS_LABEL),
   ...(["meta", "answer_block", "internal_link", "title", "h1"] as const).map((lever) => moveHeadline({ lever, pageLabel: "Chaharshanbe Suri" })),
-  trackingLine(0),
-  trackingLine(5),
 ];
+
+// operator spec 2026-07-09 E-34: trackingLine now deliberately says "not proof" (the honest
+// estimate-not-proof framing the spec requires, replacing the old causal-certainty "so we know it
+// was the change, not luck"). Checked separately from `allStrings`'s blanket LAB_JARGON sweep below
+// - "proof" here is intentional honesty language naming what the comparison-page count does NOT
+// give you, not a lab-console leak - same carve-out precedent as LAB_JARGON_POWER above. Still held
+// to the dash guard and its own plain-English assertions in the trackingLine test below.
+const trackingLineStrings = [trackingLine(0), trackingLine(5)];
 
 describe("daily-experiments-copy — assistant-first, no lab jargon, no dashes", () => {
   it("no primary label leaks lab-console jargon", () => {
@@ -33,7 +39,7 @@ describe("daily-experiments-copy — assistant-first, no lab jargon, no dashes",
   });
 
   it("no em or en dashes anywhere in the card copy", () => {
-    for (const s of allStrings) {
+    for (const s of [...allStrings, ...trackingLineStrings]) {
       expect(s, `"${s}" contains a banned dash`).not.toMatch(DASHES);
     }
   });
@@ -50,6 +56,16 @@ describe("daily-experiments-copy — assistant-first, no lab jargon, no dashes",
     expect(trackingLine(1)).toContain("1 similar page");
     expect(trackingLine(1)).not.toContain("1 similar pages"); // pluralization
     expect(trackingLine(0)).toContain("First results in about a week");
+  });
+
+  // operator spec 2026-07-09 E-34: estimate, not proof - never claims causal certainty
+  // ("so we know it was the change, not luck").
+  it("trackingLine names this as an estimate, never a causal-certainty claim", () => {
+    expect(trackingLine(5)).toBe(
+      "I compare this page to 5 similar pages I did not touch, so this is a fair estimate of the change's effect, not proof. First results in about a week.",
+    );
+    expect(trackingLine(5)).not.toContain("so we know it was the change");
+    expect(trackingLine(5)).not.toContain("not luck");
   });
 
   it("status labels are plain (no 'measuring', 'verified', 'controls')", () => {

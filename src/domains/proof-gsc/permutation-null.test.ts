@@ -263,8 +263,9 @@ describe("permutationSentence - plain English, no jargon, honest thin-sample ski
 
   it("names the exact counts for a strong (low-percentile) read", () => {
     const s = permutationSentence(10, nullOf(61, 2));
+    // operator spec 2026-07-09 E-34: estimate, not proof - never claims causal certainty.
     expect(s).toBe(
-      "Out of 61 untouched pages, only 2 moved as much as this one did. That is strong evidence the change caused it.",
+      "Out of 61 untouched pages, only 2 moved as much as this one did. That is a strong estimate the change did it, not proof.",
     );
   });
 
@@ -312,10 +313,18 @@ describe("permutationSentenceFromCounts - the presentation-layer function (Resul
 
   it("is what run-measurement attaches as permutationRead: {nGreater, nTotal} round-trips", () => {
     // The exact fixture named in the task: "Out of 61 untouched pages, only 2 moved..."
+    // operator spec 2026-07-09 E-34: estimate, not proof - never claims causal certainty.
     const s = permutationSentenceFromCounts(2, 61);
     expect(s).toBe(
-      "Out of 61 untouched pages, only 2 moved as much as this one did. That is strong evidence the change caused it.",
+      "Out of 61 untouched pages, only 2 moved as much as this one did. That is a strong estimate the change did it, not proof.",
     );
+  });
+
+  // operator spec 2026-07-09 E-34: the strong-read sentence never overclaims causal certainty.
+  it("never says 'strong evidence the change caused it' (causal-certainty overclaim)", () => {
+    const s = permutationSentenceFromCounts(2, 61);
+    expect(s).not.toContain("strong evidence the change caused it");
+    expect(s).toContain("not proof");
   });
 });
 

@@ -286,43 +286,55 @@ describe("computeChangeDollarValue - no em/en dashes anywhere (hard rule)", () =
 });
 
 describe("shouldShowChangeDollarLine - won-only, measuring-never presentation gate", () => {
-  it("shows on a mature win with a positive dollar value", () => {
+  it("shows on a mature win with a positive dollar value and real revenue connected", () => {
     expect(
-      shouldShowChangeDollarLine({ band: "win", dollarValue: { usdPerMonth: 340 } }),
+      shouldShowChangeDollarLine({ band: "win", dollarValue: { usdPerMonth: 340 }, hasRevenue: true }),
     ).toBe(true);
   });
 
   it("never shows on an in-flight (measuring) row, even with a positive dollar value", () => {
     expect(
-      shouldShowChangeDollarLine({ band: "inflight", dollarValue: { usdPerMonth: 340 } }),
+      shouldShowChangeDollarLine({ band: "inflight", dollarValue: { usdPerMonth: 340 }, hasRevenue: true }),
     ).toBe(false);
   });
 
   it("never shows on a learning (mature non-win) row", () => {
     expect(
-      shouldShowChangeDollarLine({ band: "learning", dollarValue: { usdPerMonth: 340 } }),
+      shouldShowChangeDollarLine({ band: "learning", dollarValue: { usdPerMonth: 340 }, hasRevenue: true }),
     ).toBe(false);
   });
 
   it("never shows on a win with no dollar value (no revenue model configured)", () => {
-    expect(shouldShowChangeDollarLine({ band: "win", dollarValue: null })).toBe(false);
+    expect(shouldShowChangeDollarLine({ band: "win", dollarValue: null, hasRevenue: true })).toBe(false);
     expect(
-      shouldShowChangeDollarLine({ band: "win", dollarValue: { usdPerMonth: null } }),
+      shouldShowChangeDollarLine({ band: "win", dollarValue: { usdPerMonth: null }, hasRevenue: true }),
     ).toBe(false);
   });
 
   it("never shows on a win with a negative or zero dollar value", () => {
     expect(
-      shouldShowChangeDollarLine({ band: "win", dollarValue: { usdPerMonth: -40 } }),
+      shouldShowChangeDollarLine({ band: "win", dollarValue: { usdPerMonth: -40 }, hasRevenue: true }),
     ).toBe(false);
     expect(
-      shouldShowChangeDollarLine({ band: "win", dollarValue: { usdPerMonth: 0 } }),
+      shouldShowChangeDollarLine({ band: "win", dollarValue: { usdPerMonth: 0 }, hasRevenue: true }),
     ).toBe(false);
   });
 
   it("never shows when band is undefined", () => {
     expect(
-      shouldShowChangeDollarLine({ band: undefined, dollarValue: { usdPerMonth: 340 } }),
+      shouldShowChangeDollarLine({ band: undefined, dollarValue: { usdPerMonth: 340 }, hasRevenue: true }),
+    ).toBe(false);
+  });
+
+  // operator spec 2026-07-09 E-38: hide dollar estimates until real revenue data
+  // is connected, even when every other condition (mature win, positive rate-
+  // based dollarValue) would otherwise show the line.
+  it("never shows on an otherwise-qualifying win when real revenue is not connected yet", () => {
+    expect(
+      shouldShowChangeDollarLine({ band: "win", dollarValue: { usdPerMonth: 340 }, hasRevenue: false }),
+    ).toBe(false);
+    expect(
+      shouldShowChangeDollarLine({ band: "win", dollarValue: { usdPerMonth: 340 }, hasRevenue: undefined }),
     ).toBe(false);
   });
 });

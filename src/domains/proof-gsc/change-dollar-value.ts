@@ -236,9 +236,16 @@ function eventsConfidence(eventsPerMonth: number): ChangeDollarConfidence {
 export function shouldShowChangeDollarLine(args: {
   band: "win" | "learning" | "inflight" | undefined;
   dollarValue: Pick<ChangeDollarValue, "usdPerMonth"> | null | undefined;
+  /** operator spec 2026-07-09 E-38: until real revenue data is connected for this
+   *  tenant (trafficOutcome.hasRevenue, from GA4 revenue events), no dollar line
+   *  may render anywhere, even on a mature win with a positive rate-based
+   *  dollarValue - that figure is still the operator's own rate estimate, not
+   *  revenue Beacon actually observed. Caller passes rec.trafficOutcome?.hasRevenue. */
+  hasRevenue: boolean | undefined;
 }): boolean {
   return (
     args.band === "win" &&
+    args.hasRevenue === true &&
     args.dollarValue != null &&
     args.dollarValue.usdPerMonth != null &&
     args.dollarValue.usdPerMonth > 0

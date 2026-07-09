@@ -42,12 +42,15 @@ export function TodayV2ProvenResults({
       className="rounded-lg border border-status-success/30 bg-status-success/[0.04] px-5 py-5"
       data-today-v2-card="proven-results"
     >
+      {/* operator spec 2026-07-09 E-34: "Proven by Beacon" claimed causal certainty this file's
+          own doc comment above explicitly disclaims ("never proven causation"). A strong estimate
+          against comparison pages is not proof. */}
       <div className="flex flex-wrap items-center gap-2">
         <span className="text-[10px] font-bold uppercase tracking-wider text-status-success">
-          Proven by Beacon
+          Strongest estimate, not proof
         </span>
         <span className="text-[10px] text-muted-foreground">
-          strong signal vs. comparable pages
+          vs. comparable pages I did not touch
         </span>
       </div>
       <ul className="mt-3 space-y-3">

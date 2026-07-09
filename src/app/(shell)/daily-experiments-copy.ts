@@ -45,10 +45,12 @@ export function moveHeadline(e: Pick<PlannedExperimentRecord, "lever" | "pageLab
   }
 }
 
-/** Plain-English "how we track it" line (the 7/14/28 cadence detail lives in "How we know"). */
+/** Plain-English "how we track it" line (the 7/14/28 cadence detail lives in "How we know").
+ *  operator spec 2026-07-09 E-34: never claims causal certainty ("so we know it was the change,
+ *  not luck") - names the comparison-page count as what makes this a fair ESTIMATE, not proof. */
 export function trackingLine(controlCount: number): string {
   return controlCount > 0
-    ? `I'll compare this page to ${controlCount} similar page${controlCount === 1 ? "" : "s"} so we know it was the change, not luck. First results in about a week.`
+    ? `I compare this page to ${controlCount} similar page${controlCount === 1 ? "" : "s"} I did not touch, so this is a fair estimate of the change's effect, not proof. First results in about a week.`
     : `I'll track this page's clicks after the change. First results in about a week.`;
 }
 

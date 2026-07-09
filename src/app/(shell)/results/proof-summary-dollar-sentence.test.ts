@@ -12,12 +12,13 @@ import { buildProofHonestySentence } from "./proof-summary-section";
  */
 
 describe("buildProofHonestySentence - dollar clause (item 22)", () => {
-  it("appends the dollar clause when at least one win has a positive dollar value", () => {
+  it("appends the dollar clause when at least one win has a positive dollar value and real revenue is connected", () => {
     const s = buildProofHonestySentence({
       counts: { measuring: 1, helped: 2, noLift: 0, didNotHelp: 0 },
       winsDollarUsdPerMonth: 340,
       winsWithDollarCount: 1,
       soonestLabel: null,
+      hasRealRevenue: true,
     });
     expect(s).toBe("1 measuring, 2 wins, worth about $340 a month at your rates.");
   });
@@ -28,6 +29,22 @@ describe("buildProofHonestySentence - dollar clause (item 22)", () => {
       winsDollarUsdPerMonth: 0,
       winsWithDollarCount: 0,
       soonestLabel: null,
+      hasRealRevenue: false,
+    });
+    expect(s).toBe("1 measuring, 2 wins.");
+    expect(s).not.toMatch(/\$/);
+  });
+
+  // operator spec 2026-07-09 E-38: hide dollar estimates until real revenue
+  // data is connected, even when the underlying sum is mathematically positive
+  // (it is still built from an operator-set rate, not tracked revenue).
+  it("never appends the dollar clause when real revenue is not connected yet, even with a positive dollar sum", () => {
+    const s = buildProofHonestySentence({
+      counts: { measuring: 1, helped: 2, noLift: 0, didNotHelp: 0 },
+      winsDollarUsdPerMonth: 340,
+      winsWithDollarCount: 1,
+      soonestLabel: null,
+      hasRealRevenue: false,
     });
     expect(s).toBe("1 measuring, 2 wins.");
     expect(s).not.toMatch(/\$/);
@@ -39,6 +56,7 @@ describe("buildProofHonestySentence - dollar clause (item 22)", () => {
       winsDollarUsdPerMonth: 50,
       winsWithDollarCount: 0,
       soonestLabel: null,
+      hasRealRevenue: true,
     });
     expect(s).not.toMatch(/\$/);
   });
@@ -49,6 +67,7 @@ describe("buildProofHonestySentence - dollar clause (item 22)", () => {
       winsDollarUsdPerMonth: -20,
       winsWithDollarCount: 1,
       soonestLabel: null,
+      hasRealRevenue: true,
     });
     expect(s).not.toMatch(/\$/);
   });
@@ -59,6 +78,7 @@ describe("buildProofHonestySentence - dollar clause (item 22)", () => {
       winsDollarUsdPerMonth: 120,
       winsWithDollarCount: 1,
       soonestLabel: "Tuesday",
+      hasRealRevenue: true,
     });
     expect(s).toBe("2 measuring, 1 win, worth about $120 a month at your rates, next verdicts Tuesday.");
   });
@@ -69,6 +89,7 @@ describe("buildProofHonestySentence - dollar clause (item 22)", () => {
       winsDollarUsdPerMonth: 0,
       winsWithDollarCount: 0,
       soonestLabel: null,
+      hasRealRevenue: false,
     });
     expect(s).toBeNull();
   });
@@ -79,6 +100,7 @@ describe("buildProofHonestySentence - dollar clause (item 22)", () => {
       winsDollarUsdPerMonth: 1234,
       winsWithDollarCount: 2,
       soonestLabel: "any day now",
+      hasRealRevenue: true,
     });
     expect(s).not.toMatch(/[–—]/);
   });

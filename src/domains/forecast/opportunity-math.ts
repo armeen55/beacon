@@ -253,6 +253,17 @@ function friendly(n: number): number {
 }
 
 /**
+ * operator spec 2026-07-09 E-40 - the conservative number inside a low/high forecast range that
+ * a plan can actually be built around. Weighted toward the low end (35% of the way from low to
+ * high, not the true midpoint at 50%) so planning around it errs on the side of under-promising
+ * rather than betting on the high end landing. Pure, exported so this exact math is reusable and
+ * unit-testable outside computeOpportunityFromGap's basis-sentence composition.
+ */
+export function conservativePlanningEstimate(low: number, high: number): number {
+  return Math.round(low + (high - low) * 0.35);
+}
+
+/**
  * The canonical opportunity-forecast entry point. Composes ctrOpportunity90d + forecastRange
  * (pick-expectations.ts) into one call, adds a plain-English basis sentence and a stable
  * hypothesisId. PURE - a caller resolves correctionFactor/captureBand/settledResultsCount from
@@ -354,7 +365,13 @@ export function computeOpportunityFromGap(
     input.curve?.source === "tenant"
       ? `Based on how your own pages convert position to clicks, from ${input.curve.basis}`
       : "Based on your own click rates at each Google position";
-  const basis = `${lead}${settledClause}, ${changeClause}${targetClause} usually adds ${friendly(low).toLocaleString()} to ${friendly(high).toLocaleString()} clicks a month within ${days} days.`;
+  const lowFriendly = friendly(low);
+  const highFriendly = friendly(high);
+  // operator spec 2026-07-09 E-40: append the conservative planning number inside the
+  // range (low-weighted midpoint) so the sentence names not just the honest range but
+  // the one number a plan can actually be built around.
+  const planningEstimate = conservativePlanningEstimate(lowFriendly, highFriendly);
+  const basis = `${lead}${settledClause}, ${changeClause}${targetClause} usually adds ${lowFriendly.toLocaleString()} to ${highFriendly.toLocaleString()} clicks a month within ${days} days; I plan around ${planningEstimate.toLocaleString()}.`;
 
   return {
     lowPerMonth: low,
