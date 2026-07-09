@@ -106,6 +106,9 @@ export type WarmCachesDeps = {
   getLatestPreviewPlan: (tenantId: string) => Promise<DailyExperimentPlanRecord | null>;
   /** Latest still-open accepted plan, if any. */
   getAcceptedPlan: (tenantId: string) => Promise<DailyExperimentPlanRecord | null>;
+  /** Close a stale (prior-day) accepted plan so it stops blocking today's plan; its proof
+   *  rows keep measuring independently. Returns whether a row was completed. */
+  completeAcceptedPlan: (tenantId: string, planId: string, now: Date) => Promise<boolean>;
   /** Best-effort plan hygiene (same call the operator action makes first). */
   expirePlans: (tenantId: string, now: Date) => Promise<number>;
   /** The EXISTING preview builder entry point (never reimplemented here). */
@@ -203,6 +206,11 @@ async function defaultGetAcceptedPlan(tenantId: string): Promise<DailyExperiment
   return await getAcceptedPlan(tenantId);
 }
 
+async function defaultCompleteAcceptedPlan(tenantId: string, planId: string, now: Date): Promise<boolean> {
+  const { completePlan } = await import("@/domains/experiments/daily-experiment-plan-store");
+  return await completePlan(tenantId, planId, now);
+}
+
 async function defaultExpirePlans(tenantId: string, now: Date): Promise<number> {
   const { expirePlans } = await import("@/domains/experiments/daily-experiment-plan-store");
   return await expirePlans(tenantId, now);
@@ -280,6 +288,7 @@ const defaultDeps: WarmCachesDeps = {
   refreshDemandGraph: defaultRefreshDemandGraph,
   refreshWorklist: defaultRefreshWorklist,
   refreshToday: defaultRefreshToday,
+  completeAcceptedPlan: defaultCompleteAcceptedPlan,
   getLatestPreviewPlan: defaultGetLatestPreviewPlan,
   getAcceptedPlan: defaultGetAcceptedPlan,
   expirePlans: defaultExpirePlans,
@@ -349,8 +358,18 @@ async function ensurePlanPreview(
     deps.getAcceptedPlan(tenantId).catch(() => null),
     deps.getLatestPreviewPlan(tenantId).catch(() => null),
   ]);
-  if (accepted) {
-    return { skipped: true, note: "an accepted batch is still open, so we left the plan alone" };
+  if (accepted && accepted.date >= date) {
+    // TODAY's accepted batch is still being worked - don't fight it with a fresh plan.
+    return { skipped: true, note: "today's accepted batch is still open, so we left the plan alone" };
+  }
+  if (accepted && accepted.date < date) {
+    // A PRIOR-day accepted batch must NOT block today. Its moves are already applied and
+    // measuring in the background (proof rows measure independently of the plan's status),
+    // so complete it to free the daily loop, then build today's fresh plan. Without this an
+    // accepted batch the operator never clicked "Finish for today" on blocked new plans for
+    // days - the "same 6 changes every day" bug (2026-07-08). Any of its moves that were
+    // never applied stay in the backlog and get re-picked, so nothing is lost.
+    await deps.completeAcceptedPlan(tenantId, accepted.id, now).catch(() => {});
   }
   if (preview && preview.date >= date) {
     return { skipped: true, note: `tonight's plan already exists with ${preview.selected.length} picks` };

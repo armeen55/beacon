@@ -53,6 +53,7 @@ function makeDeps(overrides: Partial<WarmCachesDeps> = {}) {
     refreshToday: vi.fn(async () => { calls.push("today-surface"); }),
     getLatestPreviewPlan: vi.fn(async () => { calls.push("plan-preview"); return null; }),
     getAcceptedPlan: vi.fn(async () => null),
+    completeAcceptedPlan: vi.fn(async () => { calls.push("complete-accepted"); return true; }),
     expirePlans: vi.fn(async () => 0),
     buildPreview: vi.fn(async () => ({
       record: { ...plan({}), selected: [{ id: "e1" }] } as unknown as DailyExperimentPlanRecord,
@@ -405,15 +406,31 @@ describe("warmTenantCaches", () => {
     expect(deps.expirePlans).not.toHaveBeenCalled();
   });
 
-  it("skip-when-open: an accepted batch still open means NO build call", async () => {
+  it("skip-when-open: TODAY's accepted batch still open means NO build call", async () => {
     const { deps } = makeDeps({
-      getAcceptedPlan: vi.fn(async () => plan({ status: "accepted" })),
+      getAcceptedPlan: vi.fn(async () => plan({ status: "accepted", date: TODAY })),
     });
     const receipt = await warmTenantCaches(TENANT, NOW, deps);
     const step = receipt.steps.find((s) => s.name === "plan-preview");
     expect(step?.ok).toBe(true);
     expect(step?.skipped).toBe(true);
     expect(deps.buildPreview).not.toHaveBeenCalled();
+    expect(deps.completeAcceptedPlan).not.toHaveBeenCalled();
+  });
+
+  // 2026-07-08 regression: a PRIOR-day accepted batch the operator never clicked "Finish for
+  // today" on used to block new plans indefinitely ("same 6 changes every day for 9 days").
+  // It must now auto-complete (its proof rows measure on independently) and TODAY's plan builds.
+  it("prior-day accepted batch is completed (not left blocking) and today's plan is built", async () => {
+    const { deps } = makeDeps({
+      getAcceptedPlan: vi.fn(async () => plan({ status: "accepted", date: "2026-06-30", id: "stale-plan" })),
+    });
+    const receipt = await warmTenantCaches(TENANT, NOW, deps);
+    const step = receipt.steps.find((s) => s.name === "plan-preview");
+    expect(step?.skipped).toBeUndefined(); // did NOT skip - the stale batch no longer blocks
+    expect(deps.completeAcceptedPlan).toHaveBeenCalledWith(TENANT, "stale-plan", expect.any(Date));
+    expect(deps.buildPreview).toHaveBeenCalled();
+    expect(deps.persistPreview).toHaveBeenCalled();
   });
 
   it("stale preview (yesterday) -> expire + build + persist tonight's plan", async () => {
