@@ -106,6 +106,24 @@ export type LiveRecQueueItem = PrioritizedRecommendation & {
 };
 
 /**
+ * Law 2 abstention predicate (audit #1/#6, 2026-07-09): is this decorated rec a PURE GUESS
+ * that must be held in the watchlist rather than shipped as a confident recommendation?
+ * True only when the confidence engine already flagged it "single_prompt_no_evidence"
+ * (one prompt, no AI-search signal, no competitor teardown, no evidence refs) AND the target
+ * page carries no first-party GSC demand. The gscSignal guard makes this STRICTER than the
+ * confidence engine alone, so no rec with AI/competitor/evidence-ref/multi-prompt/GSC signal
+ * can ever be held. PURE - exported so a test can pin it without the full pipeline.
+ */
+export function isBaselessGuessRec(
+  rec: Pick<LiveRecQueueItem, "engineConfidence" | "gscSignal">,
+): boolean {
+  return (
+    rec.engineConfidence.reasons.includes("single_prompt_no_evidence") &&
+    rec.gscSignal == null
+  );
+}
+
+/**
  * Output of `loadLiveRecommendationQueue`. Shape mirrors what the
  * `/recommendations` page render needs, plus the intermediate inputs
  * the CLI uses to build SpecificEditEvidencePackets.
@@ -599,8 +617,24 @@ export async function loadLiveRecommendationQueue(
     return { ...rec, engineConfidence, gscSignal, claritySignal };
   });
   trace.mark("decoration_loop_end");
-  trace.data("queue_count", decoratedQueue.length);
-  trace.data("watchlist_count", prioritized.watchlist.length);
+
+  // Law 2 abstention wire-in (audit #1/#6, 2026-07-09). The abstention gate
+  // (abstention.ts) was written but never applied, so a rec the confidence engine
+  // already deems baseless - a SINGLE prompt with no AI-search signal, no competitor
+  // teardown, and no evidence refs (reason "single_prompt_no_evidence") - still shipped
+  // as a "low confidence" queue item ("Lower confidence, optional" on a pure guess).
+  // Hold those in the watchlist (the honest "watching" state) instead of recommending
+  // them. The extra `gscSignal == null` guard is STRICTER than the confidence engine
+  // alone: a page with real first-party Google demand is never held. This provably
+  // cannot hold any rec that carries an AI signal, a competitor teardown, an evidence
+  // ref, multi-prompt validation, OR GSC demand - so demand/new-page/competitor-backed
+  // recs are untouched; only pure hunches move.
+  const readyQueue = decoratedQueue.filter((rec) => !isBaselessGuessRec(rec));
+  const heldForEvidence = decoratedQueue.filter(isBaselessGuessRec);
+
+  trace.data("queue_count", readyQueue.length);
+  trace.data("held_for_evidence_count", heldForEvidence.length);
+  trace.data("watchlist_count", prioritized.watchlist.length + heldForEvidence.length);
 
   // T-CompPageBlueprints (2026-05-08) — load competitor page
   // structural snapshots (manual scanner output) and assemble the
@@ -633,8 +667,8 @@ export async function loadLiveRecommendationQueue(
   trace.data("errors_count", errors.length);
   trace.flush();
   return {
-    queue: decoratedQueue,
-    watchlist: prioritized.watchlist,
+    queue: readyQueue,
+    watchlist: [...prioritized.watchlist, ...heldForEvidence],
     matrix,
     trackedPrompts,
     trackedEntities,

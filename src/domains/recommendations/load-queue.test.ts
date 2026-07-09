@@ -9,6 +9,7 @@ import type { TrackedEntity } from "@/domains/tracked-entities/types";
 import type { PageInventoryEntry } from "./page-inventory";
 import {
   buildPacketForRec,
+  isBaselessGuessRec,
   type LiveRecommendationQueue,
   type LiveRecQueueItem,
 } from "./load-queue";
@@ -564,5 +565,29 @@ describe("Phase 6A.1.14 — no route-render generation", () => {
   it("load-queue.ts has 'server-only' so it cannot leak into the client bundle", () => {
     const src = readFileSync(LOAD_QUEUE_PATH, "utf8");
     expect(src).toMatch(/import\s+["']server-only["']/);
+  });
+});
+
+describe("isBaselessGuessRec — Law 2 abstention partition (audit #1/#6)", () => {
+  const gsc = { clicks: 5, impressions: 200 } as unknown as NonNullable<LiveRecQueueItem["gscSignal"]>;
+  it("HOLDS a single-prompt no-evidence rec with no GSC demand (pure guess)", () => {
+    expect(
+      isBaselessGuessRec({ engineConfidence: { confidence: "low", reasons: ["single_prompt_no_evidence"] }, gscSignal: null }),
+    ).toBe(true);
+  });
+  it("KEEPS the same rec when the page HAS first-party GSC demand (never hide demand)", () => {
+    expect(
+      isBaselessGuessRec({ engineConfidence: { confidence: "low", reasons: ["single_prompt_no_evidence"] }, gscSignal: gsc }),
+    ).toBe(false);
+  });
+  it("KEEPS recs flagged low for OTHER reasons (only the no-evidence hunch is held)", () => {
+    for (const reason of ["no_edits", "needs_human_review", "edit_low_confidence"] as const) {
+      expect(isBaselessGuessRec({ engineConfidence: { confidence: "low", reasons: [reason] }, gscSignal: null })).toBe(false);
+    }
+  });
+  it("KEEPS an evidenced rec (multi_prompt/high) regardless of GSC", () => {
+    expect(
+      isBaselessGuessRec({ engineConfidence: { confidence: "high", reasons: ["multi_prompt_signal"] }, gscSignal: null }),
+    ).toBe(false);
   });
 });
