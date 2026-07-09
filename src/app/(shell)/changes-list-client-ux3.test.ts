@@ -13,15 +13,19 @@ import { resolve } from "node:path";
 
 const SRC = readFileSync(resolve(__dirname, "changes-list-client.tsx"), "utf8");
 
-describe("ChangesListClient - UX3 strategy names in buyer language", () => {
-  it("renames Balanced/Growth first/Clean tests to buyer language, display-only", () => {
-    expect(SRC).toContain('{ id: "balanced", label: "Best opportunities"');
-    expect(SRC).toContain('{ id: "growth", label: "Fastest growth"');
-    expect(SRC).toContain('{ id: "clean", label: "Safest bets"');
+describe("ChangesListClient - C-23 the strategy picker is killed", () => {
+  it("no longer renders the Best opportunities / Fastest growth / Safest bets picker", () => {
+    // operator spec 2026-07-09 C-23 - the mode toggle is gone; the list always ranks balanced.
+    expect(SRC).not.toContain("How should Beacon prioritize?");
+    expect(SRC).not.toContain('label: "Best opportunities"');
+    expect(SRC).not.toContain('label: "Fastest growth"');
+    expect(SRC).not.toContain('label: "Safest bets"');
   });
 
-  it("keeps the underlying Strategy union untouched (ids still balanced/growth/clean)", () => {
-    expect(SRC).toMatch(/STRATEGIES:\s*\{\s*id:\s*Strategy;/);
+  it("always asks rankChanges for the default balanced strategy (Strategy API left intact)", () => {
+    // operator spec 2026-07-09 C-23 - the client passes the literal "balanced"; strategy.ts (the
+    // Strategy union + rankChanges' ranking math) is NOT edited, only this caller.
+    expect(SRC).toContain('rankChanges(view.changes, "balanced")');
   });
 });
 
@@ -62,8 +66,9 @@ describe("ChangesListClient - UX3 applied-batch collapse", () => {
     expect(SRC).toContain("batchRows.length >= 2");
   });
 
-  it("only collapses in the flat status views, never inside 'By goal' or 'Tonight's 30 minutes'", () => {
-    expect(SRC).toContain("const canCollapseBatch = !grouped && !tonight;");
+  it("only collapses in the flat status views, never inside 'Tonight's 30 minutes'", () => {
+    // operator spec 2026-07-09 C-16 - "By goal" grouping is gone; only the Tonight budget view opts out.
+    expect(SRC).toContain("const canCollapseBatch = !tonight;");
   });
 
   it("the summary row names the exact count and verified state in one honest sentence", () => {
@@ -113,7 +118,9 @@ describe("ChangesListClient - UX3 multi-select bulk bar", () => {
     const rowUsages = SRC.match(/<Row\s/g) ?? [];
     const selectWiring = SRC.match(/onToggleSelect=\{toggleChecked\}/g) ?? [];
     const detailWiring = SRC.match(/onToggleDetail=\{toggleDetail\}/g) ?? [];
-    expect(rowUsages.length).toBeGreaterThanOrEqual(4);
+    // operator spec 2026-07-09 C-16 - the flat list dropped the two goal-bucket Row sites, so there
+    // are now 3 (top picks, capped rest, expanded batch); every one still wires the same props.
+    expect(rowUsages.length).toBeGreaterThanOrEqual(3);
     expect(selectWiring.length).toBe(rowUsages.length);
     expect(detailWiring.length).toBe(rowUsages.length);
   });

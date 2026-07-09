@@ -2,8 +2,10 @@
 
 /**
  * ChangesListClient (2026-07-02; UX3 dense inbox) - the canonical Changes list. ONE compact,
- * action-first row per change; strategy control + status views + goal filter + search, pure client
- * filtering over the server-built CanonicalChange[]. Advanced detail opens in a split side panel
+ * action-first row per change; status views (incl. the Watching evidence-hold tab) + goal filter +
+ * search, pure client filtering over the server-built CanonicalChange[]. The list is ONE flat,
+ * opportunity-ranked list (operator spec 2026-07-09 C-16/C-23: no strategy picker, no goal-bucket
+ * section headers). Advanced detail opens in a split side panel
  * (desktop) so clicking a row never loses the list's scroll position; the existing MoveCard renders
  * unchanged inside that panel. Tonight's applied batch (every change selected for today that has
  * moved to verify/measuring/result) collapses to one summary row, expandable to the individual
@@ -17,8 +19,10 @@ import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { ChevronDown, Hourglass, RefreshCw, TriangleAlert } from "lucide-react";
 import type { ChangesView } from "./changes-data";
-import type { CanonicalChange, Strategy, Goal, StatusView } from "@/domains/changes/canonical-change";
-import { buildForecastInputLines, EVIDENCE_LABEL, statusView } from "@/domains/changes/canonical-change";
+import type { CanonicalChange, Goal, StatusView } from "@/domains/changes/canonical-change";
+import { buildForecastInputLines, statusView } from "@/domains/changes/canonical-change";
+import { difficultyLabel } from "@/domains/changes/difficulty";
+import { WATCHING_SENTENCE } from "@/domains/recommendations/abstention";
 import { ReceiptLine } from "@/components/data/receipt-line";
 import { rankChanges, goalMatches, inStatusView } from "@/domains/changes/strategy";
 import { MoveCard } from "./today-moves-card";
@@ -29,7 +33,6 @@ import { respondToRecommendation } from "./recommendation-actions";
 import { useWorklistSession, WorklistSessionBanner } from "./worklist-session-strip";
 import { Card } from "@/components/ui/card";
 import { Pill, type PillIntent } from "@/components/ui/pill";
-import { SectionHeader } from "@/components/ui/section-header";
 import { EmptyState } from "@/components/ui/empty-state";
 import {
   rankReasonAt,
@@ -40,15 +43,18 @@ import {
   SNOOZE_DURATIONS,
 } from "./worklist-row-helpers";
 
-// UX3 - buyer language for the strategy picker (display-only; the underlying Strategy union
-// and its ranking math in strategy.ts are untouched, this only renames what the operator reads).
-const STRATEGIES: { id: Strategy; label: string; hint: string }[] = [
-  { id: "balanced", label: "Best opportunities", hint: "Best mix of upside, effort, risk, and evidence (recommended)." },
-  { id: "growth", label: "Fastest growth", hint: "Prioritize impact, even when the proof will be less exact." },
-  { id: "clean", label: "Safest bets", hint: "Only changes Beacon can measure most confidently." },
-];
-const TABS: { id: StatusView; label: string }[] = [
+// operator spec 2026-07-09 C-23 - the priority/strategy mode picker is KILLED. The list always
+// ranks by the default "balanced" strategy. The Strategy union and rankChanges' ranking math in
+// strategy.ts are untouched (other callers still use them); this client just no longer offers a
+// mode toggle.
+
+// operator spec 2026-07-09 C-17 - the status tabs, plus a last, lower-priority "Watching" tab for
+// changes Beacon is holding for insufficient evidence. "watching" is a view id, not a lifecycle
+// status (it never maps to a CanonicalStatus), so it rides alongside StatusView as a TabId.
+type TabId = StatusView | "watching";
+const TABS: { id: TabId; label: string }[] = [
   { id: "todo", label: "To do" }, { id: "ready", label: "Ready" }, { id: "measuring", label: "Measuring" }, { id: "results", label: "Results" },
+  { id: "watching", label: "Watching" },
 ];
 const GOALS: { id: Goal; label: string }[] = [
   { id: "recommended", label: "Recommended" }, { id: "quick_wins", label: "Quick wins" }, { id: "biggest_upside", label: "Biggest upside" },
@@ -83,8 +89,6 @@ const STATUS_DETAIL: Partial<Record<CanonicalChange["status"], string>> = {
   apply: "awaiting your Wix edit",
   verify: "confirming it's live",
 };
-const EVIDENCE_CLS: Record<string, string> = { strong: "text-status-success", directional: "text-status-warning", tracking: "text-muted-foreground" };
-
 // Item 55 - one identity chip per lever family so rows scan by shape, not by reading. These
 // are content-type identities, not verdicts, so each family keeps its own distinguishable
 // hue (kept deliberately) rather than collapsing onto the six Pill intents.
@@ -101,13 +105,10 @@ const FAMILY_CHIP: Record<string, { label: string; cls: string }> = {
   other: { label: "Page edit", cls: "bg-status-neutral-bg text-muted-foreground ring-border" },
 };
 
-// Item 57 - the goal groups the default view reads in (business language first).
-const GOAL_GROUPS: { id: string; title: string; match: (c: CanonicalChange) => boolean }[] = [
-  { id: "clicks", title: "Win more clicks", match: (c) => c.opportunityType === "Capture clicks" },
-  { id: "ai", title: "Get cited by AI", match: (c) => c.opportunityType === "Win AI citations" },
-  { id: "experience", title: "Fix the experience", match: (c) => c.opportunityType === "Fix experience" },
-  { id: "pages", title: "Build new pages", match: (c) => c.opportunityType === "New page" },
-];
+// operator spec 2026-07-09 C-16 - the goal-bucket section headers are KILLED. The list renders as
+// ONE flat, opportunity-ranked list (rankChanges' balanced order, unchanged); each card carries
+// its own small type tag (FAMILY_CHIP) instead of a section header, so a title edit reads as
+// "Title" inline rather than being sorted under a bucket.
 
 const FOCUS = "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1";
 
@@ -115,6 +116,20 @@ const FOCUS = "focus-visible:outline-none focus-visible:ring-2 focus-visible:rin
 function fmt(n: number | null | undefined): string {
   if (n == null || !Number.isFinite(n) || n <= 0) return "";
   return formatMetricCompact(n);
+}
+
+// operator spec 2026-07-09 C-20 - the single most specific evidence sentence for a card, replacing
+// the old "Directional signal" strength chip + the "X + Y agree" chip. Prefer the sized-forecast /
+// basis sentence (expectedOutcome), fall back to the rank-reason line, and when only one of the
+// two carries a number pick the one that does, so a card always shows a digit when the data has
+// one. Returns null when neither sentence exists (the line self-hides). PURE.
+function pickEvidenceSentence(expectedOutcome: string | null | undefined, rankReason: string | null): string | null {
+  const eo = expectedOutcome?.trim() || null;
+  const rr = rankReason?.trim() || null;
+  const hasDigit = (s: string) => /\d/.test(s);
+  if (eo && hasDigit(eo)) return eo;
+  if (rr && hasDigit(rr)) return rr;
+  return eo ?? rr ?? null;
 }
 
 // B9 (worklist fix batch) - a raw slug ("/persian-male-names") is not a page title. Whatever
@@ -313,7 +328,9 @@ function Row({
   const statusDetail = STATUS_DETAIL[c.status];
   const isMeasure = c.status === "measuring" || c.status === "result";
   // B2 - "Apply in Wix" is the precise action, spoken as the BUTTON label (not a status pill).
-  const cta = isMeasure ? (c.status === "result" ? "View result" : "View measurement") : c.status === "apply" ? "Apply in Wix" : c.status === "verify" ? "Apply" : "Review";
+  // operator spec 2026-07-09 C-21 - the bare suggested/ready card action reads "See draft" (was
+  // "Review"); "Approve & Push" never appears on a card, only in the detail view.
+  const cta = isMeasure ? (c.status === "result" ? "View result" : "View measurement") : c.status === "apply" ? "Apply in Wix" : c.status === "verify" ? "Apply" : "See draft";
   const panelId = `change-detail-${c.id}`;
   const effort = Number.isFinite(c.estimatedEffortMinutes) ? c.estimatedEffortMinutes : null;
   const label = displayPageLabel(c, move);
@@ -325,6 +342,13 @@ function Row({
   // derived from the demand + winnability already on the change. Self-hides when unknown. Only on
   // actionable rows (measuring/result rows already speak in outcome language, not rank).
   const rankReason = isMeasure ? null : rankReasonAt(c, move, rank);
+  // operator spec 2026-07-09 C-19 - difficulty FIRST, then time ("easy, about 2 minutes"), both
+  // from the SAME effort estimate, on actionable rows only (measuring/result rows speak in outcome
+  // language, not effort). Self-hides when there is no honest effort figure.
+  const difficulty = isMeasure ? null : difficultyLabel(effort);
+  // operator spec 2026-07-09 C-20 - the ONE evidence sentence this card shows, chosen so it always
+  // carries a number when the data has one. Replaces the strength + "agree" chips below.
+  const evidenceSentence = isMeasure ? null : pickEvidenceSentence(c.expectedOutcome, rankReason);
   // P13 word-level diff (v1 349/397) - resolve the before -> after pair for a diffable edit
   // (title/description/headline/answer). Null for non-edit rows, which self-hide the disclosure.
   const diffPair = isMeasure ? null : resolveDiffPair(c, move);
@@ -402,10 +426,12 @@ function Row({
           </div>
           <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-meta text-muted-foreground">
             <span>{c.opportunityType}</span>
-            {/* P13 honest minute math (v1 592) - an honest bucket ("about 5 minutes") instead of a
-                bare "~5 min", with the exact figure available on hover. Falls back to the raw
-                minutes only when the bucket helper self-hides (no effort figure at all). */}
-            {minuteLabel ? (
+            {/* operator spec 2026-07-09 C-19 - difficulty FIRST, then time ("easy, about 2
+                minutes"), both from the same effort estimate; exact minutes on hover. Falls back to
+                time alone when there is no difficulty bucket, then to the raw minutes. */}
+            {difficulty && minuteLabel ? (
+              <span title={effort != null ? `${effort} minutes, estimated from the change type` : undefined}>{difficulty}, {minuteLabel}</span>
+            ) : minuteLabel ? (
               <span title={effort != null ? `${effort} minutes, estimated from the change type` : undefined}>{minuteLabel}</span>
             ) : effort != null ? (
               <span>~{effort} min</span>
@@ -415,15 +441,9 @@ function Row({
                 mislabeled "shown on Google/mo" which read as impressions and contradicted the
                 adjacent "usually adds X clicks a month" basis. Label it as forecast clicks. */}
             {fmt(c.upside) ? <span className="text-status-info" title={`about ${formatMetric(c.upside)} extra clicks a month if this wins`}>~{fmt(c.upside)} clicks/mo upside</span> : null}
-            {c.expectedOutcome && (c.status === "ready" || c.status === "suggested") ? <span className="text-status-success">{c.expectedOutcome}</span> : null}
-            <span className={EVIDENCE_CLS[c.evidenceStrength] ?? "text-muted-foreground"}>{EVIDENCE_LABEL[c.evidenceStrength] ?? "Tracking only"}</span>
-            {/* D4/N1 (unified allocator, 2026-07-02) - when 2+ opportunity lanes independently
-                found the SAME page, say so in plain words. This is the operator's "everything
-                working together" signal - a page confirmed by both AI answers and Google results
-                is a higher-confidence move than either alone. */}
-            {c.sources && c.sources.length > 1 ? (
-              <span className="text-indigo-600" title="Multiple opportunity sources agree on this page">{c.sources.join(" + ")} agree</span>
-            ) : null}
+            {/* operator spec 2026-07-09 C-20 - the "Directional signal" strength chip, the separate
+                expectedOutcome chip, and the "X + Y agree" chip are all GONE. They are replaced by
+                the SINGLE evidence sentence rendered on its own line below this meta row. */}
             {c.blockedReason ? <span className="inline-flex items-center gap-1 text-muted-foreground" title={c.blockedReason}><Hourglass className="h-3.5 w-3.5 shrink-0" aria-hidden />wait</span> : null}
             {c.qualityDecision === "flagged" ? <span className="inline-flex items-center gap-1 text-status-warning" title={c.qualityNote ?? "Review before shipping"}><TriangleAlert className="h-3.5 w-3.5 shrink-0" aria-hidden />Flagged</span> : c.qualityDecision === "caution" ? <span className="text-status-warning" title={c.qualityNote ?? "Quality caution"}>quality caution</span> : null}
             {/* N46 (R6, 2026-07-03) - a quiet chip naming how old this row's evidence is, never a
@@ -431,11 +451,12 @@ function Row({
                 path by default (folded into the expander above). */}
             {c.freshness === "aging" && c.agingChip ? <span className="text-muted-foreground">{c.agingChip}</span> : null}
           </div>
-          {/* P13 rank explanation (v1 348/398) - one plain sentence for WHY this row sits where it
-              does, derived from its demand + winnability. Self-hides when there is no concrete
-              number to stand on, so a row never shows a hand-wavy "ranked because" line. */}
-          {rankReason ? (
-            <p className="mt-0.5 text-meta text-muted-foreground">{rankReason}</p>
+          {/* operator spec 2026-07-09 C-20 - the ONE evidence sentence per card: the sized-forecast
+              basis when it carries a number, else the rank-reason line ("This is first because it
+              has real demand (1,200 times shown on Google a month)..."). Self-hides when there is
+              no concrete sentence to stand on, so a card never shows a hand-wavy claim. */}
+          {evidenceSentence ? (
+            <p className="mt-0.5 text-meta text-foreground-secondary">{evidenceSentence}</p>
           ) : null}
           {/* P13 word-level diff (v1 349/397) - "see exactly what changes": before -> after as a
               word-level diff so the operator sees the EXACT edit before shipping. Only for diffable
@@ -511,30 +532,29 @@ function Row({
   );
 }
 
-const STRATEGY_IDS = new Set<string>(STRATEGIES.map((s) => s.id));
 const TAB_IDS = new Set<string>(TABS.map((t) => t.id));
 const GOAL_IDS = new Set<string>(GOALS.map((g) => g.id));
 
 export function ChangesListClient({ view }: { view: ChangesView }) {
   // Move 5 backfill - deep-link support: legacy routes (/recommendations, /experiments)
-  // and Today links land here with ?status=/?strategy=/?goal=/?search=, so the list opens
-  // on the right slice. Falls back to sensible defaults when a param is absent/invalid.
+  // and Today links land here with ?status=/?goal=/?search=, so the list opens on the right
+  // slice. Falls back to sensible defaults when a param is absent/invalid.
+  // operator spec 2026-07-09 C-23 - the ?strategy= deep-link param is gone with the picker; the
+  // list always ranks by "balanced".
   const params = useSearchParams();
-  const pStrategy = params.get("strategy");
   const pStatus = params.get("status");
   const pGoal = params.get("goal");
-  const [strategy, setStrategy] = useState<Strategy>(pStrategy && STRATEGY_IDS.has(pStrategy) ? (pStrategy as Strategy) : "balanced");
-  const initialTab: StatusView = pStatus && TAB_IDS.has(pStatus) ? (pStatus as StatusView) : view.summary.ready > 0 ? "ready" : "todo";
-  const [tab, setTab] = useState<StatusView>(initialTab);
+  const initialTab: TabId = pStatus && TAB_IDS.has(pStatus) ? (pStatus as TabId) : view.summary.ready > 0 ? "ready" : "todo";
+  const [tab, setTab] = useState<TabId>(initialTab);
   const [goal, setGoal] = useState<Goal>(pGoal && GOAL_IDS.has(pGoal) ? (pGoal as Goal) : "recommended");
   const [q, setQ] = useState(params.get("search") ?? "");
-  // Item 57 - group by GOAL is the default read ("Win more clicks" before "Ready"); picking a
-  // status tab switches to the flat status view. A deep-linked ?status= starts flat.
-  const [grouped, setGrouped] = useState<boolean>(!(pStatus && TAB_IDS.has(pStatus)));
   // Item 56 - "Tonight's 30 minutes": the accepted plan + top ready items that fit a 30-minute budget.
   const [tonight, setTonight] = useState(false);
 
-  const ranked = useMemo(() => rankChanges(view.changes, strategy), [view.changes, strategy]);
+  // operator spec 2026-07-09 C-16/C-23 - ONE flat, opportunity-ranked list under the default
+  // "balanced" strategy (no picker, no goal buckets). The Strategy union + rankChanges are
+  // untouched; this caller just always asks for "balanced".
+  const ranked = useMemo(() => rankChanges(view.changes, "balanced"), [view.changes]);
   const visible = useMemo(() => {
     const needle = q.trim().toLowerCase();
     // Item 59 - search that actually finds: page, query, why, teammate claims, verdicts, outcomes.
@@ -546,8 +566,9 @@ export function ChangesListClient({ view }: { view: ChangesView }) {
         m?.query ?? "", m?.why ?? "", m?.rankWhy ?? "",
       ].join(" ").toLowerCase();
     };
-    // Grouped (by goal) reads the actionable slice (to do + ready + apply); flat view uses the tab.
-    const statusOk = (c: CanonicalChange) => (grouped ? inStatusView(c, "todo") || inStatusView(c, "ready") : inStatusView(c, tab));
+    // The flat list shows the current status tab. The "Watching" tab (C-17) renders its own held
+    // items separately (view.watching), never the ranked action list, so it filters to empty here.
+    const statusOk = (c: CanonicalChange) => (tab === "watching" ? false : inStatusView(c, tab));
     let rows = ranked.filter((c) => statusOk(c) && goalMatches(c, goal) && (!needle || hay(c).includes(needle)));
     if (tonight) {
       const actionable = rows.filter((c) => c.selectedForToday || c.status === "ready" || c.status === "apply");
@@ -560,7 +581,7 @@ export function ChangesListClient({ view }: { view: ChangesView }) {
       rows = picked;
     }
     return rows;
-  }, [ranked, tab, goal, q, tonight, grouped, view.movesById]);
+  }, [ranked, tab, goal, q, tonight, view.movesById]);
 
   // D6 (daily ritual loop) - the session loop: after ANY row action (done/skip/not-now), always
   // point at the next best row + count it. Walks the SAME `visible` (already ranked + filtered)
@@ -681,10 +702,11 @@ export function ChangesListClient({ view }: { view: ChangesView }) {
   // suggested/ready into verify/measuring/result is one applied receipt. Collapsing them to a
   // single summary row keeps the list dense once the plan has been worked; the individual
   // receipts stay one click away, never deleted or hidden for good. Only collapses in the flat
-  // (non-grouped, non-tonight) status views, so "By goal" and "Tonight's 30 minutes" keep
-  // showing every row exactly as they do today.
+  // status views (never inside "Tonight's 30 minutes", which is already a bounded set).
   const [batchExpanded, setBatchExpanded] = useState(false);
-  const canCollapseBatch = !grouped && !tonight;
+  // operator spec 2026-07-09 C-16 - the goal-bucket grouping is gone; the batch collapse now only
+  // steps aside for the Tonight budget view.
+  const canCollapseBatch = !tonight;
   const batchRows = useMemo(
     () => (canCollapseBatch ? visible.filter((c) => c.selectedForToday && (c.status === "verify" || c.status === "measuring" || c.status === "result")) : []),
     [canCollapseBatch, visible],
@@ -696,8 +718,8 @@ export function ChangesListClient({ view }: { view: ChangesView }) {
   // FP9 (2026-07-02, killer finding 4) - "pick the top few" must be true, not just said: the flat
   // status view opens with the top 3 picks visually dominant ("Start here"), then the rest of the
   // ranked list capped at ~20 with an honest expander ("I keep them ranked so nothing is lost").
-  // Only applies to the flat, non-tonight view - "By goal" already curates by category, and
-  // "Tonight's 30 minutes" is already a small, deliberately-bounded set.
+  // Only applies to the flat, non-tonight view - "Tonight's 30 minutes" is already a small,
+  // deliberately-bounded set.
   const CURATION_CAP = 20;
   const [showAllRanked, setShowAllRanked] = useState(false);
   // N46 (R6) - opportunity expiration: an EXPIRED row sinks to the tail of the curated pool
@@ -723,18 +745,16 @@ export function ChangesListClient({ view }: { view: ChangesView }) {
   // is looking at. Only the To do / Ready working tabs get it (results/measuring aren't work to do).
   const sessionTotalChanges = applyCuration ? [...topPicks, ...cappedRows] : visible;
   const sessionTotalLine =
-    !grouped && (tab === "todo" || tab === "ready")
+    tab === "todo" || tab === "ready"
       ? sessionMinutesLine(sessionTotalChanges)
       : null;
 
   const s = view.summary;
   const isFiltered = q.trim().length > 0 || goal !== "recommended";
-  // Distinguish WHY a view is empty: clean-strategy eligibility vs filtered vs genuinely-empty
-  // status vs (for results/measuring) cause-specific copy.
+  // Distinguish WHY a view is empty: filtered vs genuinely-empty status vs (for results/measuring)
+  // cause-specific copy. (operator spec 2026-07-09 C-23 - the clean-strategy empty case is gone
+  // with the picker; the list is always the balanced ranking.)
   const emptyMessage = (): { title: string; hint: string | null; action: { label: string; onClick: () => void } | null } => {
-    if (strategy === "clean" && view.changes.length > 0) {
-      return { title: "No clean tests are available right now.", hint: "Switch to Balanced to include changes Beacon can track directionally.", action: { label: "Switch to Balanced", onClick: () => setStrategy("balanced") } };
-    }
     if (goal === "new_pages") {
       // FP5b - new-page ideas' single home is the New Pages board on this same page;
       // a bare "no matches" here would read as "Beacon has no page ideas", a lie.
@@ -770,43 +790,33 @@ export function ChangesListClient({ view }: { view: ChangesView }) {
   return (
     <div className="flex items-start gap-4">
     <div className="min-w-0 flex-1 space-y-3">
-      {/* Strategy */}
-      <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5">
-        <span id="strategy-label" className="text-body font-medium text-muted-foreground">How should Beacon prioritize?</span>
-        <div role="group" aria-labelledby="strategy-label" className="flex flex-wrap rounded-lg border border-border p-0.5">
-          {STRATEGIES.map((st) => {
-            const active = strategy === st.id;
-            return (
-              <button key={st.id} type="button" onClick={() => setStrategy(st.id)} title={st.hint} aria-pressed={active}
-                className={`min-h-[32px] rounded-md px-2.5 py-1 text-body font-medium ${FOCUS} ${active ? "bg-foreground text-background hover:opacity-90" : "text-foreground-secondary hover:bg-surface-raised"}`}>{st.label}</button>
-            );
-          })}
-        </div>
-      </div>
+      {/* operator spec 2026-07-09 C-23 - the priority/strategy mode picker is GONE. The list is
+          always the balanced ranking. Status tabs + goal filter + search remain. */}
       {/* Status tabs (scrollable on mobile) + goal + search */}
       <div className="flex flex-wrap items-center gap-2">
         <div role="group" aria-label="Filter by status" className="-mx-1 max-w-full overflow-x-auto px-1">
+          {/* operator spec 2026-07-09 C-16/C-17 - no goal-bucket grouping toggle (ONE flat list);
+              the last tab, "Watching", is the lower-priority evidence-hold view. */}
           <div className="inline-flex rounded-lg border border-border p-0.5">
-            <button type="button" onClick={() => setGrouped(true)} aria-pressed={grouped}
-              className={`min-h-[32px] shrink-0 whitespace-nowrap rounded-md px-2.5 py-1 text-body font-medium ${FOCUS} ${grouped ? "bg-foreground text-background hover:opacity-90" : "text-foreground-secondary hover:bg-surface-raised"}`}>
-              By goal
-            </button>
             {TABS.map((t) => {
-              const active = !grouped && tab === t.id;
+              const active = tab === t.id;
+              const isWatching = t.id === "watching";
               // UX0/FP3 (2026-07-02) - the Measuring and Results tabs show the SAME
               // canonical counts Today and the Results page show (the ONE-COUNT RULE in
               // domains/changes/lifecycle-counts.ts), never a separately-derived number
               // that can silently disagree (ground-truth: Today said 16, this tab said
               // 10). When this worklist only has a subset of the tenant's measuring or
-              // decided changes, the badge is honest about it ("10 of 16").
+              // decided changes, the badge is honest about it ("10 of 16"). The Watching
+              // tab counts the held items (C-17), which summary does not track.
+              const summaryCount = isWatching ? (view.watching?.length ?? 0) : s[t.id as StatusView];
               const canonical =
                 t.id === "measuring" ? view.measuringCountCanonical : t.id === "results" ? view.decidedCountCanonical : null;
-              const displayCount = canonical ?? s[t.id];
-              const badgeLabel = canonical != null && canonical > s[t.id]
-                ? `${s[t.id]} of ${canonical}`
+              const displayCount = canonical ?? summaryCount;
+              const badgeLabel = canonical != null && canonical > summaryCount
+                ? `${summaryCount} of ${canonical}`
                 : String(displayCount);
               return (
-                <button key={t.id} type="button" onClick={() => { setTab(t.id); setGrouped(false); }} aria-pressed={active} aria-label={`${t.label}, ${displayCount} ${displayCount === 1 ? "change" : "changes"}`}
+                <button key={t.id} type="button" onClick={() => setTab(t.id)} aria-pressed={active} aria-label={`${t.label}, ${displayCount} ${displayCount === 1 ? "change" : "changes"}`}
                   className={`min-h-[32px] shrink-0 whitespace-nowrap rounded-md px-2.5 py-1 text-body font-medium ${FOCUS} ${active ? "bg-status-info text-background hover:opacity-90" : "text-foreground-secondary hover:bg-surface-raised"}`}>
                   {t.label} <span aria-hidden className={active ? "text-background/80" : "text-muted-foreground"}>{badgeLabel}</span>
                 </button>
@@ -870,70 +880,37 @@ export function ChangesListClient({ view }: { view: ChangesView }) {
           source, built server-side in changes-data.ts so it never drifts on hydration. */}
       <ReceiptLine line={view.receiptLine} />
       {/* List */}
-      {visible.length === 0 ? (
+      {tab === "watching" ? (
+        // operator spec 2026-07-09 C-17 - the Watching tab: changes Beacon is holding because it
+        // does not yet have enough evidence (the N49 abstention hold). Each shows its page label,
+        // its type tag, and the honest WATCHING_SENTENCE. Never a confident move, never deleted.
+        // The empty state is honest, never a bare zero.
+        <div role="status" className="space-y-1.5">
+          {(view.watching ?? []).length === 0 ? (
+            <EmptyState headline="Nothing is waiting for more evidence right now." />
+          ) : (
+            (view.watching ?? []).map((c) => {
+              const move = c.sourceIds[0] ? view.movesById[c.sourceIds[0]] : undefined;
+              const wLabel = displayPageLabel(c, move);
+              const fam = FAMILY_CHIP[c.changeFamily] ?? FAMILY_CHIP.other!;
+              return (
+                <div key={c.id} className="rounded-lg border border-border-subtle bg-card px-3 py-2.5">
+                  <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                    <span className={`shrink-0 rounded px-1.5 py-0.5 text-meta font-semibold ring-1 ${fam.cls}`}>{fam.label}</span>
+                    <span className="min-w-0 break-words text-body font-semibold capitalize text-foreground" title={wLabel.secondary ?? undefined}>{wLabel.title}</span>
+                  </div>
+                  <p className="mt-0.5 text-meta text-muted-foreground">{WATCHING_SENTENCE}</p>
+                </div>
+              );
+            })
+          )}
+        </div>
+      ) : visible.length === 0 ? (
         <div role="status">
           <EmptyState headline={em.title} nextStep={em.hint ?? undefined} />
           {em.action ? (
             <button type="button" onClick={em.action.onClick} className={`mt-3 inline-flex min-h-[34px] items-center rounded-md border border-border px-3 py-1 text-body font-medium text-foreground-secondary hover:bg-surface-raised ${FOCUS}`}>{em.action.label}</button>
           ) : null}
-        </div>
-      ) : grouped && !tonight ? (
-        // Item 57 - the default read: goals first, business language, status still on each row.
-        <div className="space-y-4">
-          {GOAL_GROUPS.map((g) => {
-            const rows = visible.filter(g.match);
-            if (rows.length === 0) return null;
-            return (
-              <section key={g.id} aria-label={g.title}>
-                <SectionHeader title={g.title} count={rows.length} level="h3" className="mb-1.5" />
-                <div className="space-y-1.5">
-                  {rows.map((c, i) => (
-                    <Row
-                      key={c.id}
-                      c={c}
-                      move={c.sourceIds[0] ? view.movesById[c.sourceIds[0]] : undefined}
-                      rank={i + 1}
-                      highlighted={session.nextBest?.id === c.id}
-                      keyboardActive={visible[kbIndex]?.id === c.id}
-                      onAction={(kind) => rowAction(c.id, kind)}
-                      registerRef={registerRowRef}
-                      selected={checkedIds.has(c.id)}
-                      onToggleSelect={toggleChecked}
-                      detailOpen={selectedId === c.id}
-                      onToggleDetail={toggleDetail}
-                    />
-                  ))}
-                </div>
-              </section>
-            );
-          })}
-          {(() => {
-            const other = visible.filter((c) => !GOAL_GROUPS.some((g) => g.match(c)));
-            if (other.length === 0) return null;
-            return (
-              <section aria-label="Other improvements">
-                <SectionHeader title="Other improvements" count={other.length} level="h3" className="mb-1.5" />
-                <div className="space-y-1.5">
-                  {other.map((c, i) => (
-                    <Row
-                      key={c.id}
-                      c={c}
-                      move={c.sourceIds[0] ? view.movesById[c.sourceIds[0]] : undefined}
-                      rank={i + 1}
-                      highlighted={session.nextBest?.id === c.id}
-                      keyboardActive={visible[kbIndex]?.id === c.id}
-                      onAction={(kind) => rowAction(c.id, kind)}
-                      registerRef={registerRowRef}
-                      selected={checkedIds.has(c.id)}
-                      onToggleSelect={toggleChecked}
-                      detailOpen={selectedId === c.id}
-                      onToggleDetail={toggleDetail}
-                    />
-                  ))}
-                </div>
-              </section>
-            );
-          })()}
         </div>
       ) : (
         <div className="space-y-1.5">
@@ -944,7 +921,7 @@ export function ChangesListClient({ view }: { view: ChangesView }) {
           ) : null}
           {/* P13 honest minute math (v1 592) - the session total across the picks shown at the top,
               in the SAME per-change effort fallback the "Tonight's 30 minutes" budget uses, so the
-              two never disagree. Only on the flat working view (grouped/tonight have their own). */}
+              two never disagree. Only on the flat working view (the Tonight view has its own). */}
           {!tonight && sessionTotalLine ? (
             <p className="text-meta text-muted-foreground tabular-nums">{sessionTotalLine}</p>
           ) : null}

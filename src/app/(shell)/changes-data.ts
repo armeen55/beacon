@@ -93,6 +93,13 @@ export type ChangesView = {
    *  re-derived). */
   readyCount: number;
   shippedThisWeekCount: number;
+  /** operator spec 2026-07-09 C-17 - the "Watching" tab's items: bare suggestions the calibrated
+   *  abstention gate (N49) is holding because none of the three real-signal classes are present
+   *  yet (no demand, no competitor teardown, no first-party/GSC movement). Never a confident move,
+   *  never deleted - shown honestly on its own lower-priority tab so the operator sees what is on
+   *  Beacon's radar. Populated from the SAME partition that keeps them out of the ranked list, so
+   *  a held row appears in exactly one place. Empty (or absent) when nothing is being watched. */
+  watching?: CanonicalChange[];
 };
 
 /** FP2 (2026-07-02, killer finding 1) - normalized identity for the dedupe pass below: the
@@ -258,7 +265,7 @@ export function applyOpportunityFreshness(
 // `ready`/`apply`/`measuring`/`result`/`blocked` has proven itself and is never re-judged). A
 // no-evidence suggestion moves to a "watching" state (removed from the confident list, surfaced as
 // one honest count line) instead of being dressed as a confident move; nothing is deleted.
-import { partitionByEvidence, heldForEvidenceLine, type AbstentionEvidence } from "@/domains/recommendations/abstention";
+import { partitionByEvidence, type AbstentionEvidence } from "@/domains/recommendations/abstention";
 
 /** N49 - reduce a CanonicalChange (+ its source TodayMove when present) to the three real-signal
  *  classes law 2 recognizes. GENEROUS by construction: any single real signal makes the row
@@ -315,17 +322,20 @@ export function abstentionEvidenceFor(
 export function partitionActionableByEvidence(
   changes: readonly CanonicalChange[],
   movesById: Record<string, TodayMove>,
-): { kept: CanonicalChange[]; heldCount: number } {
+): { kept: CanonicalChange[]; held: CanonicalChange[]; heldCount: number } {
   // Judge ONLY bare suggestions; anything already earned (or skipped) is never re-gated.
   const judged = changes.filter((c) => c.status === "suggested");
   const passthrough = new Set(changes.filter((c) => c.status !== "suggested"));
   const { held } = partitionByEvidence(judged, (c) =>
     abstentionEvidenceFor(c, c.sourceIds[0] ? movesById[c.sourceIds[0]] : undefined),
   );
-  if (held.length === 0) return { kept: [...changes], heldCount: 0 };
-  const heldIds = new Set(held.map((h) => h.item.id));
+  if (held.length === 0) return { kept: [...changes], held: [], heldCount: 0 };
+  const heldItems = held.map((h) => h.item);
+  const heldIds = new Set(heldItems.map((h) => h.id));
   const kept = changes.filter((c) => passthrough.has(c) || !heldIds.has(c.id));
-  return { kept, heldCount: held.length };
+  // operator spec 2026-07-09 C-17 - the held rows are surfaced (not just counted) on the Watching
+  // tab, so return the actual items alongside the count the older callers still read.
+  return { kept, held: heldItems, heldCount: heldItems.length };
 }
 
 // FP3 - react.cache()'d so the FP3 lifecycle-counts loader and the page section that
@@ -374,19 +384,14 @@ export const loadChangesView = cache(async (): Promise<ChangesView> => {
   }).length;
   const moves = (wl.moves ?? []) as TodayMove[];
 
-  // FP2 (killer finding 5) - "Fix the experience rows silently vanish". moves/moves-data.ts caps
-  // its render to the strongest MOVES_CAP moves and keeps the true count in stats.movesReady; this
-  // is the one place that count is visible before the page renders, so this is the one place that
-  // can turn a silent shrink into an honest sentence. `heldWhileMeasuring` (moves already computed
-  // but withheld because their page is mid-measurement) is the other real, named suppression this
-  // stats object already tracks - both get folded into one quiet acknowledgment line.
-  const trueMovesTotal = wl.stats?.movesReady ?? moves.length;
+  // operator spec 2026-07-09 C-18 - the "I'm holding back N lower-priority ideas out of M total"
+  // note is KILLED (the operator called it noise; the ranked list already caps + keeps everything
+  // one click away via the "N more lower-priority ideas" expander). The only remaining named
+  // suppression worth a quiet line is `heldWhileMeasuring` (moves computed but withheld because
+  // their page is mid-measurement - a real, actionable reason, not list-length housekeeping).
   const heldWhileMeasuring = wl.stats?.heldWhileMeasuring ?? 0;
-  const cappedCount = Math.max(0, trueMovesTotal - moves.length);
   let suppressedRowsNote: string | null = null;
-  if (cappedCount > 0) {
-    suppressedRowsNote = `I'm holding back ${cappedCount} lower-priority idea${cappedCount === 1 ? "" : "s"} out of ${trueMovesTotal} total so this list stays focused on the strongest ones. Nothing is lost, they're just not rendered here.`;
-  } else if (heldWhileMeasuring > 0) {
+  if (heldWhileMeasuring > 0) {
     suppressedRowsNote = `${heldWhileMeasuring} more idea${heldWhileMeasuring === 1 ? "" : "s"} exist${heldWhileMeasuring === 1 ? "s" : ""} for pages that are mid-measurement right now. I'll surface them once those results settle.`;
   }
 
@@ -478,19 +483,13 @@ export const loadChangesView = cache(async (): Promise<ChangesView> => {
   // well-instrumented tenant): held is 0 and `changes` is exactly `fresh`.
   const abstention = partitionActionableByEvidence(fresh, movesById);
   const changes = abstention.kept;
-  const heldForEvidenceCount = abstention.heldCount;
+  // operator spec 2026-07-09 C-17/C-18 - the held rows are no longer collapsed into a "N possible
+  // moves are waiting for more evidence" one-liner in the list body (killed as noise). They are
+  // surfaced in full on their own lower-priority "Watching" tab instead, each with the honest
+  // WATCHING_SENTENCE. Nothing deleted; a held row lives in exactly one place.
+  const watching = abstention.held;
 
   const expirySummary = summarizeExpiry(changes.map((c) => c.freshness ?? "fresh"));
-
-  // N49 - the honest count line for the held rows, reusing the SAME quiet note slot FP2/FP9's
-  // suppressed-rows note already owns (never a second widget for the same idea). When a
-  // suppressed-rows note is already set this appends the abstention line so both truths show on
-  // one surface; otherwise it stands alone. heldForEvidenceLine returns null at 0, so a fully
-  // evidenced load leaves suppressedRowsNote byte-identical.
-  const heldLine = heldForEvidenceLine(heldForEvidenceCount);
-  if (heldLine) {
-    suppressedRowsNote = suppressedRowsNote ? `${suppressedRowsNote} ${heldLine}` : heldLine;
-  }
 
   // D7 (hypothesis capture) - every forecast actually rendered to the operator on this list is
   // logged as a falsifiable hypothesis, so the day-28 settle can grade it later. Fire-and-forget,
@@ -568,5 +567,6 @@ export const loadChangesView = cache(async (): Promise<ChangesView> => {
     receiptLine,
     readyCount,
     shippedThisWeekCount,
+    watching,
   };
 });
