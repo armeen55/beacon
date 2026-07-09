@@ -449,11 +449,14 @@ function topFrictionPages(
 }
 
 /**
- * AEO card: times AI recommended you (citations), how often AI mentions
+ * AEO card: times AI CITED your pages (citations), how often AI mentions
  * you (mentions), and platforms observed. Self-hides when the KPIs are
  * null (raw observations may exist but the derived rollup isn't written
  * when crons are off — the card stays hidden and AEO is represented by
  * the demoted section below). NO vendor name ("Profound" never appears).
+ * audit #12 (2026-07-09): "recommended" was an overclaim - a citation is AI
+ * linking/quoting your page, NOT a recommendation, referral, or conversion.
+ * Label each event honestly by what it actually is.
  */
 function buildAeoCard(aeo: TodayDerivedKpis | null): SourceStatCard | null {
   if (aeo == null) return null;
@@ -462,8 +465,8 @@ function buildAeoCard(aeo: TodayDerivedKpis | null): SourceStatCard | null {
   if (aeo.totalCitations <= 0 && aeo.totalMentions <= 0) return null;
 
   const stats: SourceStat[] = [
-    { label: "AI recommended you", value: fmtInt(aeo.totalCitations) },
-    { label: "AI mentioned you", value: fmtInt(aeo.totalMentions) },
+    { label: "Times AI cited your pages", value: fmtInt(aeo.totalCitations) },
+    { label: "Times AI mentioned you", value: fmtInt(aeo.totalMentions) },
   ];
   if (aeo.platformRowCount > 0) {
     stats.push({

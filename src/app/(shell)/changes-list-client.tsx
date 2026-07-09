@@ -410,10 +410,11 @@ function Row({
             ) : effort != null ? (
               <span>~{effort} min</span>
             ) : null}
-            {/* UX0 (2026-07-02) - c.upside is GSC impressions (times shown on Google), never
-                true market search volume (that only ever comes from DataForSEO) - the two
-                numbers must never share a label or they read as the same thing. */}
-            {fmt(c.upside) ? <span className="text-status-info" title={`${formatMetric(c.upside)} times shown on Google a month, at stake`}>{fmt(c.upside)} shown on Google/mo at stake</span> : null}
+            {/* audit #5 (2026-07-09) - c.upside is the MIDPOINT of the forecast CLICK range
+                (opportunity-math lowPerMonth/highPerMonth), not impressions/volume. It was
+                mislabeled "shown on Google/mo" which read as impressions and contradicted the
+                adjacent "usually adds X clicks a month" basis. Label it as forecast clicks. */}
+            {fmt(c.upside) ? <span className="text-status-info" title={`about ${formatMetric(c.upside)} extra clicks a month if this wins`}>~{fmt(c.upside)} clicks/mo upside</span> : null}
             {c.expectedOutcome && (c.status === "ready" || c.status === "suggested") ? <span className="text-status-success">{c.expectedOutcome}</span> : null}
             <span className={EVIDENCE_CLS[c.evidenceStrength] ?? "text-muted-foreground"}>{EVIDENCE_LABEL[c.evidenceStrength] ?? "Tracking only"}</span>
             {/* D4/N1 (unified allocator, 2026-07-02) - when 2+ opportunity lanes independently

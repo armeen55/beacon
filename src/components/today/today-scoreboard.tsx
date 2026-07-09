@@ -192,7 +192,7 @@ export function TodayScoreboard({
       {/* KPI cards */}
       <div className="grid grid-cols-1 gap-3">
         <KpiCard
-          label="Times AI recommended you"
+          label="Times AI cited your pages"
           // D3 follow-up (wave-6, 2026-06-14): on genuine first-run-no-data,
           // show the "—" awaiting-reading placeholder (the ai-visibility-hero
           // pattern) instead of a bold literal 0, which a non-technical buyer

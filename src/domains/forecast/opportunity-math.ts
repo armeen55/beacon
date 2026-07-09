@@ -334,6 +334,18 @@ export function computeOpportunityFromGap(
     };
   }
 
+  // audit #4 (2026-07-09): cap the forecast at the query's PHYSICAL ceiling. A query can
+  // deliver at most its monthly impressions in clicks (100% CTR). A large CTR gap times the
+  // correction factor can otherwise push the range above that, producing impossible copy
+  // like "14 impressions -> 7 to 20 clicks a month". Cap both ends at monthly impressions so
+  // the number can never exceed its own basis. Only when we actually know impressions.
+  const monthlyImpressions =
+    input.impressions90d != null && Number.isFinite(input.impressions90d) && input.impressions90d > 0
+      ? input.impressions90d / 3
+      : null;
+  const low = monthlyImpressions != null ? Math.min(range.low, monthlyImpressions) : range.low;
+  const high = monthlyImpressions != null ? Math.min(range.high, monthlyImpressions) : range.high;
+
   const settledClause = settled > 0 ? ` and ${settled} settled result${settled === 1 ? "" : "s"}` : "";
   // R9: when the tenant's OWN fitted curve sized this range, the sentence says so
   // (plain words, never a lab term). The default curve keeps the exact pre-R9
@@ -342,11 +354,11 @@ export function computeOpportunityFromGap(
     input.curve?.source === "tenant"
       ? `Based on how your own pages convert position to clicks, from ${input.curve.basis}`
       : "Based on your own click rates at each Google position";
-  const basis = `${lead}${settledClause}, ${changeClause}${targetClause} usually adds ${friendly(range.low).toLocaleString()} to ${friendly(range.high).toLocaleString()} clicks a month within ${days} days.`;
+  const basis = `${lead}${settledClause}, ${changeClause}${targetClause} usually adds ${friendly(low).toLocaleString()} to ${friendly(high).toLocaleString()} clicks a month within ${days} days.`;
 
   return {
-    lowPerMonth: range.low,
-    highPerMonth: range.high,
+    lowPerMonth: low,
+    highPerMonth: high,
     days,
     basis,
     unsized: false,

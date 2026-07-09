@@ -432,7 +432,9 @@ describe("buildSourceStatCards — AEO present", () => {
     const text = JSON.stringify(card);
     expect(text).not.toMatch(/profound/i);
     const labels = Object.fromEntries(card!.stats.map((s) => [s.label, s.value]));
-    expect(labels["AI recommended you"]).toBe("19");
+    // audit #12: citations are labeled honestly as citations, NOT "recommended" (overclaim).
+    expect(labels["Times AI cited your pages"]).toBe("19");
+    expect(text).not.toMatch(/recommended you/i);
   });
 });
 
