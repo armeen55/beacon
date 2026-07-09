@@ -35,7 +35,6 @@ import "server-only";
 import { log } from "@/lib/logger";
 import { getGoogleConnectorToken, updateConnectorToken } from "@/lib/connector-store";
 import { refreshGoogleAccessToken } from "@/lib/connectors/google-auth";
-import { isServiceAccountConfigured } from "@/lib/connectors/google-service-account";
 import { getRepository } from "@/lib/persistence/repositories";
 
 import {
@@ -142,12 +141,6 @@ export async function syncGa4UrlTrafficForTenant(args: {
  * sacred).
  */
 async function stampGa4AuthFailure(tenantId: string, now: Date): Promise<void> {
-  // SERVICE-ACCOUNT ONLY-OAUTH-STAMP guard (OAUTH_ROOT_CAUSE_2026-07-09): GA4
-  // reads run on the service-account token when one is configured, so a read
-  // failure is NOT proof the user OAuth grant is dead. A service-account failure
-  // must never stamp that grant dead (and fabricate a false "Reconnect Google"
-  // prompt). No-op when no service account is configured (byte-identical).
-  if (isServiceAccountConfigured()) return;
   try {
     const token = await getGoogleConnectorToken("ga4", tenantId);
     if (token == null) return; // never connected → never fabricate a prompt

@@ -59,10 +59,6 @@ import {
   persistRefreshedGoogleToken,
 } from "@/lib/connector-store";
 import { refreshGoogleAccessToken } from "@/lib/connectors/google-auth";
-import {
-  isServiceAccountConfigured,
-  getServiceAccountAccessToken,
-} from "@/lib/connectors/google-service-account";
 import { evaluateExpiry } from "@/lib/connectors/gsc/expiry-handler";
 import { log } from "@/lib/logger";
 
@@ -261,56 +257,41 @@ export async function runGa4UrlTrafficReport(
     return { ok: false, reason: "api_error", message: "missing date range" };
   }
 
-  // SERVICE-ACCOUNT FIRST (OAUTH_ROOT_CAUSE_2026-07-09): when a Google service
-  // account is configured, mint a token for the GA4 scope and use it directly,
-  // skipping the OAuth token + expiry ladder so GA4 reads never depend on the
-  // user OAuth refresh token. Fail-soft: a null SA token falls through to the
-  // OAuth path below, byte-identical when the env is absent.
-  const saAccessToken = isServiceAccountConfigured()
-    ? await getServiceAccountAccessToken(REQUIRED_SCOPE)
-    : null;
+  const token = await getGoogleConnectorToken("ga4", tenantId);
+  if (token == null) {
+    return { ok: false, reason: "no_token" };
+  }
+  if (!Array.isArray(token.scopes) || !token.scopes.includes(REQUIRED_SCOPE)) {
+    return { ok: false, reason: "no_token", message: "missing scope" };
+  }
+  if (token.disconnected_at != null && token.disconnected_at !== "") {
+    return { ok: false, reason: "disconnected" };
+  }
 
-  let accessToken: string;
-  let token: Awaited<ReturnType<typeof getGoogleConnectorToken>> = null;
-  if (saAccessToken != null) {
-    accessToken = saAccessToken;
-  } else {
-    token = await getGoogleConnectorToken("ga4", tenantId);
-    if (token == null) {
-      return { ok: false, reason: "no_token" };
-    }
-    if (!Array.isArray(token.scopes) || !token.scopes.includes(REQUIRED_SCOPE)) {
-      return { ok: false, reason: "no_token", message: "missing scope" };
-    }
-    if (token.disconnected_at != null && token.disconnected_at !== "") {
-      return { ok: false, reason: "disconnected" };
-    }
+  const now = new Date();
+  const expiryStatus = evaluateExpiry({ token, now });
+  if (expiryStatus === "stale_over_7d") {
+    return { ok: false, reason: "token_expired", message: ">7d past expiry" };
+  }
 
-    const now = new Date();
-    const expiryStatus = evaluateExpiry({ token, now });
-    if (expiryStatus === "stale_over_7d") {
-      return { ok: false, reason: "token_expired", message: ">7d past expiry" };
-    }
-
-    accessToken = token.access_token;
-    if (expiryStatus === "stale_under_7d") {
-      try {
-        const refreshed = await refreshGoogleAccessToken(token.refresh_token, {
-          provider: "google_ga4",
-          tenantId,
-          connectedAt: token.connected_at,
-        });
-        accessToken = refreshed.access_token;
-        // FIX 3 (OAUTH_ROOT_CAUSE_2026-07-09): persist a rotated refresh token
-        // best-effort so GA4 self-heals across rotation.
-        await persistRefreshedGoogleToken("google_ga4", refreshed, tenantId);
-      } catch (e) {
-        log.warn("[ga4-data-api] token refresh failed; surfacing token_expired", {
-          tenantId,
-          error: e instanceof Error ? e.message : String(e),
-        });
-        return { ok: false, reason: "token_expired" };
-      }
+  let accessToken = token.access_token;
+  if (expiryStatus === "stale_under_7d") {
+    try {
+      const refreshed = await refreshGoogleAccessToken(token.refresh_token, {
+        provider: "google_ga4",
+        tenantId,
+        connectedAt: token.connected_at,
+      });
+      accessToken = refreshed.access_token;
+      // FIX 3 (OAUTH_ROOT_CAUSE_2026-07-09): persist a rotated refresh token
+      // best-effort so GA4 self-heals across rotation.
+      await persistRefreshedGoogleToken("google_ga4", refreshed, tenantId);
+    } catch (e) {
+      log.warn("[ga4-data-api] token refresh failed; surfacing token_expired", {
+        tenantId,
+        error: e instanceof Error ? e.message : String(e),
+      });
+      return { ok: false, reason: "token_expired" };
     }
   }
 
@@ -376,12 +357,6 @@ export async function runGa4UrlTrafficReport(
     return { ok: false, reason: "api_error", message: "fetch threw" };
   }
   if (!page0.ok && page0.kind === "non_2xx" && page0.status === 401) {
-    // SA path (token == null): no OAuth refresh token to fall back on. A 401 on
-    // a freshly minted service-account token means the SA lacks access to the
-    // property, or the token expired mid-pull; surface token_expired.
-    if (token == null) {
-      return { ok: false, reason: "token_expired", status: 401, message: "service-account 401" };
-    }
     try {
       const refreshed = await refreshGoogleAccessToken(token.refresh_token, {
         provider: "google_ga4",
@@ -605,45 +580,32 @@ export async function runGa4RevenueReport(
   if (!propertyId) return { ok: false, reason: "api_error", message: "missing propertyId" };
   if (!startDate || !endDate) return { ok: false, reason: "api_error", message: "missing date range" };
 
-  // SERVICE-ACCOUNT FIRST (OAUTH_ROOT_CAUSE_2026-07-09): service-account token
-  // for the GA4 scope when configured; else the existing OAuth ladder. Byte-
-  // identical when the env is absent.
-  const saAccessToken = isServiceAccountConfigured()
-    ? await getServiceAccountAccessToken(REQUIRED_SCOPE)
-    : null;
+  const token = await getGoogleConnectorToken("ga4", tenantId);
+  if (token == null) return { ok: false, reason: "no_token" };
+  if (!Array.isArray(token.scopes) || !token.scopes.includes(REQUIRED_SCOPE)) {
+    return { ok: false, reason: "no_token", message: "missing scope" };
+  }
+  if (token.disconnected_at != null && token.disconnected_at !== "") {
+    return { ok: false, reason: "disconnected" };
+  }
 
-  let accessToken: string;
-  let token: Awaited<ReturnType<typeof getGoogleConnectorToken>> = null;
-  if (saAccessToken != null) {
-    accessToken = saAccessToken;
-  } else {
-    token = await getGoogleConnectorToken("ga4", tenantId);
-    if (token == null) return { ok: false, reason: "no_token" };
-    if (!Array.isArray(token.scopes) || !token.scopes.includes(REQUIRED_SCOPE)) {
-      return { ok: false, reason: "no_token", message: "missing scope" };
-    }
-    if (token.disconnected_at != null && token.disconnected_at !== "") {
-      return { ok: false, reason: "disconnected" };
-    }
-
-    const expiryStatus = evaluateExpiry({ token, now: new Date() });
-    if (expiryStatus === "stale_over_7d") {
-      return { ok: false, reason: "token_expired", message: ">7d past expiry" };
-    }
-    accessToken = token.access_token;
-    if (expiryStatus === "stale_under_7d") {
-      try {
-        const refreshed = await refreshGoogleAccessToken(token.refresh_token, {
-          provider: "google_ga4",
-          tenantId,
-          connectedAt: token.connected_at,
-        });
-        accessToken = refreshed.access_token;
-        // FIX 3 (OAUTH_ROOT_CAUSE_2026-07-09): persist a rotated refresh token.
-        await persistRefreshedGoogleToken("google_ga4", refreshed, tenantId);
-      } catch {
-        return { ok: false, reason: "token_expired" };
-      }
+  const expiryStatus = evaluateExpiry({ token, now: new Date() });
+  if (expiryStatus === "stale_over_7d") {
+    return { ok: false, reason: "token_expired", message: ">7d past expiry" };
+  }
+  let accessToken = token.access_token;
+  if (expiryStatus === "stale_under_7d") {
+    try {
+      const refreshed = await refreshGoogleAccessToken(token.refresh_token, {
+        provider: "google_ga4",
+        tenantId,
+        connectedAt: token.connected_at,
+      });
+      accessToken = refreshed.access_token;
+      // FIX 3 (OAUTH_ROOT_CAUSE_2026-07-09): persist a rotated refresh token.
+      await persistRefreshedGoogleToken("google_ga4", refreshed, tenantId);
+    } catch {
+      return { ok: false, reason: "token_expired" };
     }
   }
 
@@ -689,10 +651,6 @@ export async function runGa4RevenueReport(
     return { ok: false, reason: "api_error", message: "fetch threw" };
   }
   if (!page0.ok && page0.kind === "non_2xx" && page0.status === 401) {
-    // SA path (token == null): no OAuth refresh token to fall back on.
-    if (token == null) {
-      return { ok: false, reason: "token_expired", status: 401, message: "service-account 401" };
-    }
     try {
       const refreshed = await refreshGoogleAccessToken(token.refresh_token, {
         provider: "google_ga4",
@@ -875,45 +833,32 @@ export async function runGa4AiReferralReport(
   if (!propertyId) return { ok: false, reason: "api_error", message: "missing propertyId" };
   if (!startDate || !endDate) return { ok: false, reason: "api_error", message: "missing date range" };
 
-  // SERVICE-ACCOUNT FIRST (OAUTH_ROOT_CAUSE_2026-07-09): service-account token
-  // for the GA4 scope when configured; else the existing OAuth ladder. Byte-
-  // identical when the env is absent.
-  const saAccessToken = isServiceAccountConfigured()
-    ? await getServiceAccountAccessToken(REQUIRED_SCOPE)
-    : null;
+  const token = await getGoogleConnectorToken("ga4", tenantId);
+  if (token == null) return { ok: false, reason: "no_token" };
+  if (!Array.isArray(token.scopes) || !token.scopes.includes(REQUIRED_SCOPE)) {
+    return { ok: false, reason: "no_token", message: "missing scope" };
+  }
+  if (token.disconnected_at != null && token.disconnected_at !== "") {
+    return { ok: false, reason: "disconnected" };
+  }
 
-  let accessToken: string;
-  let token: Awaited<ReturnType<typeof getGoogleConnectorToken>> = null;
-  if (saAccessToken != null) {
-    accessToken = saAccessToken;
-  } else {
-    token = await getGoogleConnectorToken("ga4", tenantId);
-    if (token == null) return { ok: false, reason: "no_token" };
-    if (!Array.isArray(token.scopes) || !token.scopes.includes(REQUIRED_SCOPE)) {
-      return { ok: false, reason: "no_token", message: "missing scope" };
-    }
-    if (token.disconnected_at != null && token.disconnected_at !== "") {
-      return { ok: false, reason: "disconnected" };
-    }
-
-    const expiryStatus = evaluateExpiry({ token, now: new Date() });
-    if (expiryStatus === "stale_over_7d") {
-      return { ok: false, reason: "token_expired", message: ">7d past expiry" };
-    }
-    accessToken = token.access_token;
-    if (expiryStatus === "stale_under_7d") {
-      try {
-        const refreshed = await refreshGoogleAccessToken(token.refresh_token, {
-          provider: "google_ga4",
-          tenantId,
-          connectedAt: token.connected_at,
-        });
-        accessToken = refreshed.access_token;
-        // FIX 3 (OAUTH_ROOT_CAUSE_2026-07-09): persist a rotated refresh token.
-        await persistRefreshedGoogleToken("google_ga4", refreshed, tenantId);
-      } catch {
-        return { ok: false, reason: "token_expired" };
-      }
+  const expiryStatus = evaluateExpiry({ token, now: new Date() });
+  if (expiryStatus === "stale_over_7d") {
+    return { ok: false, reason: "token_expired", message: ">7d past expiry" };
+  }
+  let accessToken = token.access_token;
+  if (expiryStatus === "stale_under_7d") {
+    try {
+      const refreshed = await refreshGoogleAccessToken(token.refresh_token, {
+        provider: "google_ga4",
+        tenantId,
+        connectedAt: token.connected_at,
+      });
+      accessToken = refreshed.access_token;
+      // FIX 3 (OAUTH_ROOT_CAUSE_2026-07-09): persist a rotated refresh token.
+      await persistRefreshedGoogleToken("google_ga4", refreshed, tenantId);
+    } catch {
+      return { ok: false, reason: "token_expired" };
     }
   }
 
@@ -959,10 +904,6 @@ export async function runGa4AiReferralReport(
     return { ok: false, reason: "api_error", message: "fetch threw" };
   }
   if (!page0.ok && page0.kind === "non_2xx" && page0.status === 401) {
-    // SA path (token == null): no OAuth refresh token to fall back on.
-    if (token == null) {
-      return { ok: false, reason: "token_expired", status: 401, message: "service-account 401" };
-    }
     try {
       const refreshed = await refreshGoogleAccessToken(token.refresh_token, {
         provider: "google_ga4",

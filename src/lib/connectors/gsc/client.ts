@@ -51,10 +51,6 @@ import {
   persistRefreshedGoogleToken,
 } from "@/lib/connector-store";
 import { refreshGoogleAccessToken } from "@/lib/connectors/google-auth";
-import {
-  isServiceAccountConfigured,
-  getServiceAccountAccessToken,
-} from "@/lib/connectors/google-service-account";
 import { log } from "@/lib/logger";
 
 import { evaluateExpiry } from "./expiry-handler";
@@ -256,82 +252,67 @@ export async function gscUrlInspect(
     }
   }
 
-  // SERVICE-ACCOUNT FIRST (OAUTH_ROOT_CAUSE_2026-07-09): when a Google service
-  // account is configured, mint a token for the GSC scope and use it directly,
-  // skipping the OAuth token + expiry ladder so URL inspection never depends on
-  // the user OAuth refresh token. Fail-soft: a null SA token falls through to
-  // the OAuth path below, byte-identical to the pre-service-account behavior
-  // when the env is absent.
-  const saAccessToken = isServiceAccountConfigured()
-    ? await getServiceAccountAccessToken(REQUIRED_SCOPE)
-    : null;
+  // 2. Token check — fail-soft if missing or wrong-scoped.
+  // Read the GSC-scoped grant explicitly. Post-scope-split (2026-05-16)
+  // GSC and GBP live under separate provider keys (google_gsc /
+  // google_gbp); a GBP-only token never satisfies the GSC client.
+  const token = await getGoogleConnectorToken("gsc", tenantId);
+  if (token == null) return null;
+  if (!Array.isArray(token.scopes) || !token.scopes.includes(REQUIRED_SCOPE)) {
+    return null;
+  }
 
-  let accessToken: string;
-  if (saAccessToken != null) {
-    accessToken = saAccessToken;
-  } else {
-    // 2. Token check — fail-soft if missing or wrong-scoped.
-    // Read the GSC-scoped grant explicitly. Post-scope-split (2026-05-16)
-    // GSC and GBP live under separate provider keys (google_gsc /
-    // google_gbp); a GBP-only token never satisfies the GSC client.
-    const token = await getGoogleConnectorToken("gsc", tenantId);
-    if (token == null) return null;
-    if (!Array.isArray(token.scopes) || !token.scopes.includes(REQUIRED_SCOPE)) {
-      return null;
-    }
+  // J5 (2026-05-18) — soft disconnect. When the operator clicked
+  // "Disconnect GSC" the token row stays in `connector_tokens` with
+  // `disconnected_at` set. Treat as if no token: do NOT refresh,
+  // do NOT call the API, return the cached entry (regardless of
+  // TTL) if any. The UI shows "Last refreshed at X days ago" copy
+  // from the existing cache.
+  if (token.disconnected_at != null && token.disconnected_at !== "") {
+    return existing ?? null;
+  }
 
-    // J5 (2026-05-18) — soft disconnect. When the operator clicked
-    // "Disconnect GSC" the token row stays in `connector_tokens` with
-    // `disconnected_at` set. Treat as if no token: do NOT refresh,
-    // do NOT call the API, return the cached entry (regardless of
-    // TTL) if any. The UI shows "Last refreshed at X days ago" copy
-    // from the existing cache.
-    if (token.disconnected_at != null && token.disconnected_at !== "") {
-      return existing ?? null;
-    }
+  // J2 (2026-05-18) — expiry classifier. Three-state status drives
+  // the refresh decision:
+  //   • fresh           → use access_token directly
+  //   • stale_under_7d  → attempt OAuth refresh (existing path)
+  //   • stale_over_7d   → DO NOT refresh; surface cached entry +
+  //                       prompt operator to reconnect on the
+  //                       /settings/connectors surface
+  const expiryStatus = evaluateExpiry({ token, now: nowDate });
+  if (expiryStatus === "stale_over_7d") {
+    log.info("[gsc-client] token stale >7d; surfacing cached entry", {
+      tenantId,
+      inspectionUrl,
+    });
+    return existing ?? null;
+  }
 
-    // J2 (2026-05-18) — expiry classifier. Three-state status drives
-    // the refresh decision:
-    //   • fresh           → use access_token directly
-    //   • stale_under_7d  → attempt OAuth refresh (existing path)
-    //   • stale_over_7d   → DO NOT refresh; surface cached entry +
-    //                       prompt operator to reconnect on the
-    //                       /settings/connectors surface
-    const expiryStatus = evaluateExpiry({ token, now: nowDate });
-    if (expiryStatus === "stale_over_7d") {
-      log.info("[gsc-client] token stale >7d; surfacing cached entry", {
+  // 3. Resolve access token. Refresh if expired (or about to expire
+  // within 60s); the existing google-auth helper handles the OAuth
+  // refresh wire-up.
+  let accessToken = token.access_token;
+  if (expiryStatus === "stale_under_7d") {
+    try {
+      const refreshed = await refreshGoogleAccessToken(token.refresh_token, {
+        provider: "google_gsc",
         tenantId,
-        inspectionUrl,
+        connectedAt: token.connected_at,
+      });
+      accessToken = refreshed.access_token;
+      // FIX 3 (OAUTH_ROOT_CAUSE_2026-07-09): this client used to persist
+      // nothing (read-only surface). That was safe for the ACCESS token, but
+      // if Google ROTATES the refresh token on this refresh, dropping it means
+      // the next refresh uses an OLD token Google may have invalidated →
+      // invalid_grant → a dead grant. Persist best-effort (fail-soft, changed
+      // fields only) so rotation self-heals without bricking GSC.
+      await persistRefreshedGoogleToken("google_gsc", refreshed, tenantId);
+    } catch (e) {
+      log.warn("[gsc-client] token refresh failed; skipping inspection", {
+        tenantId,
+        error: e instanceof Error ? e.message : String(e),
       });
       return existing ?? null;
-    }
-
-    // 3. Resolve access token. Refresh if expired (or about to expire
-    // within 60s); the existing google-auth helper handles the OAuth
-    // refresh wire-up.
-    accessToken = token.access_token;
-    if (expiryStatus === "stale_under_7d") {
-      try {
-        const refreshed = await refreshGoogleAccessToken(token.refresh_token, {
-          provider: "google_gsc",
-          tenantId,
-          connectedAt: token.connected_at,
-        });
-        accessToken = refreshed.access_token;
-        // FIX 3 (OAUTH_ROOT_CAUSE_2026-07-09): this client used to persist
-        // nothing (read-only surface). That was safe for the ACCESS token, but
-        // if Google ROTATES the refresh token on this refresh, dropping it means
-        // the next refresh uses an OLD token Google may have invalidated →
-        // invalid_grant → a dead grant. Persist best-effort (fail-soft, changed
-        // fields only) so rotation self-heals without bricking GSC.
-        await persistRefreshedGoogleToken("google_gsc", refreshed, tenantId);
-      } catch (e) {
-        log.warn("[gsc-client] token refresh failed; skipping inspection", {
-          tenantId,
-          error: e instanceof Error ? e.message : String(e),
-        });
-        return existing ?? null;
-      }
     }
   }
 

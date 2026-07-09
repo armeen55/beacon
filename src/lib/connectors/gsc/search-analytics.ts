@@ -26,10 +26,6 @@ import "server-only";
 
 import { getGoogleConnectorToken, updateConnectorToken } from "@/lib/connector-store";
 import { refreshGoogleAccessToken } from "@/lib/connectors/google-auth";
-import {
-  isServiceAccountConfigured,
-  getServiceAccountAccessToken,
-} from "@/lib/connectors/google-service-account";
 import { log } from "@/lib/logger";
 
 import { evaluateExpiry } from "./expiry-handler";
@@ -55,16 +51,6 @@ export async function resolveGscAccessToken(
   tenantId: string,
   now: Date = new Date(),
 ): Promise<string | null> {
-  // SERVICE-ACCOUNT FIRST (OAUTH_ROOT_CAUSE_2026-07-09): when a Google service
-  // account is configured, mint a token for the GSC scope so reads never depend
-  // on the user OAuth refresh token (which dies weekly on an unverified
-  // sensitive-scope app). Fail-soft: a null SA token falls through to the OAuth
-  // path below, byte-identical to the pre-service-account behavior when the env
-  // is absent.
-  if (isServiceAccountConfigured()) {
-    const saToken = await getServiceAccountAccessToken(REQUIRED_SCOPE);
-    if (saToken != null) return saToken;
-  }
   const token = await getGoogleConnectorToken("gsc", tenantId);
   if (token == null) return null;
   if (!Array.isArray(token.scopes) || !token.scopes.includes(REQUIRED_SCOPE)) {
@@ -152,13 +138,6 @@ async function refreshAndPersistGscToken(
 export async function forceRefreshGscAccessToken(
   tenantId: string,
 ): Promise<string | null> {
-  // SERVICE-ACCOUNT FIRST (OAUTH_ROOT_CAUSE_2026-07-09): a mid-sync 401 refresh
-  // should re-mint a service-account token when one is configured, so the retry
-  // stays entirely OAuth-independent. Fail-soft to the OAuth refresh below.
-  if (isServiceAccountConfigured()) {
-    const saToken = await getServiceAccountAccessToken(REQUIRED_SCOPE);
-    if (saToken != null) return saToken;
-  }
   const token = await getGoogleConnectorToken("gsc", tenantId);
   if (token == null || !token.refresh_token) return null;
   if (token.disconnected_at != null && token.disconnected_at !== "") {
