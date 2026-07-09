@@ -28,25 +28,22 @@ describe("buildTodayView — Today is a focused slice, deduped from the canonica
     expect(v.nextOpportunities.map((o) => o.changeId)).toContain("b");
   });
 
-  it("with PENDING plan work (preview to review, or accepted still applying), Next Opportunities is hidden", () => {
+  it("ALWAYS surfaces the ranked undone backlog regardless of plan status (no cron/plan gating)", () => {
+    // 2026-07-08 operator directive: "it should just be the next best moves I haven't done yet,
+    // refresh or not - it doesn't even need a cron." A stale/stuck/empty tonight's-plan must
+    // NEVER hide the real backlog again (that was the "same 6 for 9 days" trap).
     const changes = [ch({ id: "b", status: "suggested" }), ch({ id: "c", status: "ready" })];
-    // preview → review the batch first
-    const preview = buildTodayView({ changes, strategy: "balanced", plan: { status: "preview", selectedCount: 6, leftToApply: 0 } });
-    expect(preview.nextOpportunities).toEqual([]);
-    expect(preview.planStatus).toBe("preview");
-    // accepted with items still to apply → finish applying first
-    const accepted = buildTodayView({ changes, strategy: "balanced", plan: { status: "accepted", selectedCount: 6, leftToApply: 3 } });
-    expect(accepted.nextOpportunities).toEqual([]);
+    for (const status of ["none", "preview", "accepted", "in_progress", "completed"] as const) {
+      const plan = status === "none" ? null : { status, selectedCount: 6, leftToApply: status === "accepted" ? 3 : 0 };
+      const v = buildTodayView({ changes, strategy: "balanced", plan });
+      expect(v.nextOpportunities.map((o) => o.changeId).sort()).toEqual(["b", "c"]);
+    }
   });
 
-  it("once tonight's batch is applied (in_progress) or completed, Next Opportunities RETURNS", () => {
-    // 2026-07-08 regression guard: in_progress (all applied, only measuring) used to force
-    // the ranked to-do list to [] - "I don't see my new moves to do". It must show now.
-    const changes = [ch({ id: "b", status: "suggested" }), ch({ id: "c", status: "ready" })];
-    const inProgress = buildTodayView({ changes, strategy: "balanced", plan: { status: "in_progress", selectedCount: 6, leftToApply: 0 } });
-    expect(inProgress.nextOpportunities.map((o) => o.changeId).sort()).toEqual(["b", "c"]);
-    const completed = buildTodayView({ changes, strategy: "balanced", plan: { status: "completed", selectedCount: 6, leftToApply: 0 } });
-    expect(completed.nextOpportunities.length).toBeGreaterThan(0);
+  it("still excludes items already selected in tonight's plan (no duplication with the plan panel)", () => {
+    const changes = [ch({ id: "sel", status: "ready", selectedForToday: true }), ch({ id: "free", status: "suggested" })];
+    const v = buildTodayView({ changes, strategy: "balanced", plan: { status: "accepted", selectedCount: 1, leftToApply: 1 } });
+    expect(v.nextOpportunities.map((o) => o.changeId)).toEqual(["free"]);
   });
 
   it("blocked / protected / result / selected items never appear as next opportunities", () => {

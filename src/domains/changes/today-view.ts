@@ -93,30 +93,25 @@ export function buildTodayView(input: {
 
   const resultsAvailable = changes.filter((c) => c.status === "result").length;
 
-  // Next opportunities, the ranked "what to do next" list. Show it whenever there is no
-  // PENDING plan work: a preview waiting to be reviewed ("preview") or an accepted batch
-  // still being applied ("accepted", leftToApply > 0) is the focus, so we hold the extra
-  // list back then. But once tonight's batch is applied and only measuring ("in_progress"),
-  // completed, or there's no plan at all, the operator is free to do more - so surface the
-  // ranked backlog instead of dead-ending them on "peek at what's measuring". (2026-07-08:
-  // this was the "I don't see my new moves to do" bug - in_progress hid the whole list.)
-  // Never surface a blocked / measuring / result item as an actionable next step; the plan
-  // items themselves are excluded because they carry selectedForToday (shown in the plan).
-  const showOpportunities = planStatus !== "preview" && planStatus !== "accepted";
-  const nextOpportunities: TodayOpportunity[] = showOpportunities
-    ? rankChanges(changes, strategy)
-        .filter((c) => (c.status === "suggested" || c.status === "ready") && !c.selectedForToday)
-        .slice(0, MAX_OPPORTUNITIES)
-        .map((c) => ({
-          changeId: c.id,
-          pageLabel: c.pageLabel,
-          recommendation: c.recommendation,
-          opportunityType: c.opportunityType,
-          estimatedEffortMinutes: c.estimatedEffortMinutes,
-          upside: c.upside,
-          evidenceStrength: c.evidenceStrength,
-        }))
-    : [];
+  // Next opportunities, the ranked "what to do next" list - the operator's primary daily
+  // surface. ALWAYS the best undone moves by opportunity, independent of any plan/cron
+  // (2026-07-08, operator: "it should just be the next best moves I haven't done yet,
+  // refresh or not - it doesn't even need a cron"). We never gate this on plan status: a
+  // stale/stuck/empty "tonight's plan" must never hide the real backlog again. Items already
+  // in tonight's plan carry selectedForToday and are shown there, so we exclude them here to
+  // avoid duplication; measuring / result / blocked items are never an actionable next step.
+  const nextOpportunities: TodayOpportunity[] = rankChanges(changes, strategy)
+    .filter((c) => (c.status === "suggested" || c.status === "ready") && !c.selectedForToday)
+    .slice(0, MAX_OPPORTUNITIES)
+    .map((c) => ({
+      changeId: c.id,
+      pageLabel: c.pageLabel,
+      recommendation: c.recommendation,
+      opportunityType: c.opportunityType,
+      estimatedEffortMinutes: c.estimatedEffortMinutes,
+      upside: c.upside,
+      evidenceStrength: c.evidenceStrength,
+    }));
 
   // Attention, deterministic priority; each item is one reason + one action + (where
   // relevant) one canonical identity. "Collecting normally" is NOT an alert.
