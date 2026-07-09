@@ -14,6 +14,28 @@ function requireEnv(name: string): string {
 }
 
 /**
+ * Hard per-call ceiling for the middleware's Supabase round-trips (2026-07-08).
+ *
+ * The middleware runs on EVERY request and makes two blocking Supabase calls
+ * (auth.getUser + tenant_members). Without a ceiling, a single slow/cold Supabase
+ * moment makes the middleware exceed Vercel's invocation budget and the WHOLE app
+ * returns 504 MIDDLEWARE_INVOCATION_TIMEOUT - not one slow page, every page. This
+ * races each call against a deadline and resolves to a graceful fallback on timeout,
+ * so a Supabase hiccup degrades (a login redirect / env-tenant fallback that self-heals
+ * on the next warm request) instead of white-screening the app. 5s each keeps the total
+ * well under Vercel's middleware limit even in the pathological both-slow case.
+ */
+const MW_SUPABASE_TIMEOUT_MS = 5000;
+function withMwTimeout<T>(p: PromiseLike<T>, onTimeout: T): Promise<T> {
+  return Promise.race([
+    Promise.resolve(p),
+    new Promise<T>((resolve) => {
+      setTimeout(() => resolve(onTimeout), MW_SUPABASE_TIMEOUT_MS);
+    }),
+  ]);
+}
+
+/**
  * Phase 2 auth gate. Single-user dogfood: any authenticated Supabase user
  * may access the shell; unauthenticated users are redirected to /login.
  * Public paths: /login, /signup, /auth/*, and static assets.
@@ -112,10 +134,19 @@ export async function updateSession(request: NextRequest): Promise<NextResponse>
     },
   );
 
-  // Refreshes the session cookie if near-expiry.
+  // Refreshes the session cookie if near-expiry. Timeout-guarded: a slow Supabase Auth
+  // resolves to "no user", which flows into the existing redirect-to-login path for
+  // protected routes (fast + safe, self-heals on the next warm request) instead of
+  // hanging the whole middleware to a 504.
+  type GetUserResult = Awaited<ReturnType<typeof supabase.auth.getUser>>;
   const {
     data: { user },
-  } = await trace.time("auth.getUser", () => supabase.auth.getUser());
+  } = await trace.time("auth.getUser", () =>
+    withMwTimeout<GetUserResult>(supabase.auth.getUser(), {
+      data: { user: null },
+      error: null,
+    } as unknown as GetUserResult),
+  );
 
   const path = request.nextUrl.pathname;
   const isPublic =
@@ -147,12 +178,20 @@ export async function updateSession(request: NextRequest): Promise<NextResponse>
   // endpoints). Errors fall through to the resolver's env fallback.
   if (user) {
     try {
+      // Timeout-guarded: a slow tenant lookup resolves to an error, which flows into
+      // the existing error path below (fall through to the resolver's env-tenant
+      // fallback) rather than hanging the middleware to a 504.
+      type TenantRows = { tenant_id: string; created_at: string }[];
+      type TenantLookupResult = { data: TenantRows | null; error: { message: string } | null };
       const { data, error } = await trace.time("tenant_lookup", () =>
-        supabase
-          .from("tenant_members")
-          .select("tenant_id, created_at")
-          .eq("user_id", user.id)
-          .order("created_at", { ascending: true }),
+        withMwTimeout<TenantLookupResult>(
+          supabase
+            .from("tenant_members")
+            .select("tenant_id, created_at")
+            .eq("user_id", user.id)
+            .order("created_at", { ascending: true }) as unknown as PromiseLike<TenantLookupResult>,
+          { data: null, error: { message: "middleware tenant lookup timed out" } },
+        ),
       );
 
       if (error) {

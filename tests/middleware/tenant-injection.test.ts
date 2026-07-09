@@ -31,12 +31,21 @@ const supabaseState = vi.hoisted(() => ({
   tenantMembersRows: [] as Array<{ tenant_id: string; created_at?: string }>,
   tenantMembersError: null as { message: string } | null,
   tenantQueryThrows: false,
+  // 2026-07-08: simulate a slow/cold Supabase that never resolves within the
+  // middleware's per-call deadline (the MIDDLEWARE_INVOCATION_TIMEOUT class).
+  authHangs: false,
+  tenantHangs: false,
 }));
+
+const NEVER = new Promise<never>(() => {}); // resolves never - drives the timeout path
 
 vi.mock("@supabase/ssr", () => ({
   createServerClient: () => ({
     auth: {
-      getUser: async () => ({ data: { user: supabaseState.user }, error: null }),
+      getUser: () =>
+        supabaseState.authHangs
+          ? NEVER
+          : Promise.resolve({ data: { user: supabaseState.user }, error: null }),
     },
     from: (_table: string) => ({
       select: (_cols: string) => {
@@ -53,8 +62,9 @@ vi.mock("@supabase/ssr", () => ({
         // 2026-06-10 multi-membership default-resolution adds .order()).
         const eq = (_col: string, _val: string) => {
           const thenable = {
-            order: async () => result(),
-            then: (onF: (v: unknown) => unknown) => Promise.resolve(result()).then(onF),
+            order: () => (supabaseState.tenantHangs ? NEVER : Promise.resolve(result())),
+            then: (onF: (v: unknown) => unknown) =>
+              (supabaseState.tenantHangs ? NEVER : Promise.resolve(result())).then(onF),
           };
           return thenable;
         };
@@ -86,6 +96,8 @@ describe("Sprint 7 Phase 7.4 — middleware tenant injection", () => {
     supabaseState.tenantMembersRows = [];
     supabaseState.tenantMembersError = null;
     supabaseState.tenantQueryThrows = false;
+    supabaseState.authHangs = false;
+    supabaseState.tenantHangs = false;
     process.env.NEXT_PUBLIC_SUPABASE_URL = REQUIRED_ENV.NEXT_PUBLIC_SUPABASE_URL;
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = REQUIRED_ENV.NEXT_PUBLIC_SUPABASE_ANON_KEY;
     delete process.env.BEACON_AUTH_DISABLED;
@@ -225,5 +237,41 @@ describe("Sprint 7 Phase 7.4 — middleware tenant injection", () => {
     const res = await updateSession(req);
     expect(res.status).toBe(200);
     expect(res.headers.get("x-middleware-request-x-beacon-tenant")).toBeNull();
+  });
+
+  // 2026-07-08: the MIDDLEWARE_INVOCATION_TIMEOUT class. A slow/cold Supabase must
+  // NEVER hang the whole middleware to a 504 - each call is deadline-guarded and
+  // degrades gracefully. Fake timers advance past the 5s per-call ceiling.
+  it("a hung auth.getUser degrades to the login redirect (never a 504) on a protected path", async () => {
+    vi.useFakeTimers();
+    try {
+      supabaseState.authHangs = true;
+      const p = updateSession(makeRequest("/today"));
+      await vi.advanceTimersByTimeAsync(5001);
+      const res = await p;
+      // Timed out -> treated as no user -> the existing protected-path redirect fires,
+      // fast, instead of the middleware hanging to a gateway timeout.
+      expect(res.status).toBe(307);
+      expect(res.headers.get("location") ?? "").toContain("/login");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("a hung tenant lookup degrades to the env-fallback (no redirect, no 504)", async () => {
+    vi.useFakeTimers();
+    try {
+      supabaseState.user = { id: "user-1" };
+      supabaseState.tenantHangs = true;
+      const p = updateSession(makeRequest("/today"));
+      await vi.advanceTimersByTimeAsync(5001);
+      const res = await p;
+      // Timed out -> error fallback -> falls through to the resolver's env tenant,
+      // request proceeds (200), no header injected. The app stays up.
+      expect(res.status).toBe(200);
+      expect(res.headers.get("x-middleware-request-x-beacon-tenant")).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
