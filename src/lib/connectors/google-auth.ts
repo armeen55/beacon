@@ -41,7 +41,7 @@
 
 import "server-only";
 
-import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
+import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 
 import { log } from "@/lib/logger";
 
@@ -229,7 +229,11 @@ export function decodeOAuthState(raw: string | null | undefined): OAuthStateDeco
  *   • kind="gbp" → provider "google_gbp"
  *   • kind="ga4" → provider "google_ga4"
  */
-export function buildGoogleAuthUrl(kind: GoogleConnectorKind, state: string): string {
+export function buildGoogleAuthUrl(
+  kind: GoogleConnectorKind,
+  state: string,
+  forceConsent: boolean = true,
+): string {
   if (state == null || state === "") {
     throw new Error("buildGoogleAuthUrl: state parameter is required");
   }
@@ -239,7 +243,21 @@ export function buildGoogleAuthUrl(kind: GoogleConnectorKind, state: string): st
     response_type: "code",
     scope: SCOPES[kind],
     access_type: "offline",
-    prompt: "consent",
+    // FIX 2 (OAUTH_ROOT_CAUSE_2026-07-09): only FORCE a new refresh token
+    // when the caller has no live one to keep (first connect, or a reconnect
+    // after death). Re-authing a HEALTHY grant with prompt=consent mints a
+    // brand-new refresh token every single time, churning Google's ~50
+    // refresh-tokens-per-account cap; the 51st silently revokes the OLDEST
+    // live token, often for a DIFFERENT provider — which reads as a random
+    // connector dying every few days. When a live refresh token already
+    // exists, prompt=select_account re-auths WITHOUT minting another.
+    // access_type=offline is kept so a genuine first consent still yields a
+    // refresh token. The forceConsent decision is made at the call site,
+    // which (unlike this sync builder) can read the token store.
+    prompt: forceConsent ? "consent" : "select_account",
+    // Carry forward scopes the account already granted this client so a
+    // per-kind re-auth never silently narrows an existing grant.
+    include_granted_scopes: "true",
     state,
   });
   return `${GOOGLE_AUTH_ENDPOINT}?${params.toString()}`;
@@ -290,9 +308,40 @@ export async function exchangeGoogleCode(
   return (await res.json()) as GoogleTokenResponse;
 }
 
+/**
+ * FIX 4 (OAUTH_ROOT_CAUSE_2026-07-09): a NON-REVERSIBLE fingerprint of a
+ * refresh token — the first 8 hex of its sha256. Lets logs prove WHICH
+ * refresh token was used and spot a silently-changed one (rotation, or a new
+ * consent replacing the row) WITHOUT ever printing the secret itself.
+ */
+function refreshTokenFingerprint(refreshToken: string): string {
+  return createHash("sha256").update(refreshToken).digest("hex").slice(0, 8);
+}
+
+/** Age in days (one decimal) since `connectedAt`, or null when unknown. */
+function connectedAgeDays(connectedAt?: string): number | null {
+  if (connectedAt == null || connectedAt === "") return null;
+  const t = Date.parse(connectedAt);
+  if (Number.isNaN(t)) return null;
+  return Math.round(((Date.now() - t) / 86_400_000) * 10) / 10;
+}
+
+/**
+ * Optional diagnostic context threaded into a refresh so a token death is
+ * attributable in ONE log line (FIX 4). Never carries the token itself.
+ */
+export type RefreshTokenContext = {
+  provider?: "google_gsc" | "google_gbp" | "google_ga4";
+  tenantId?: string;
+  /** ISO 8601 `connected_at`, for token-age-at-death. */
+  connectedAt?: string;
+};
+
 export async function refreshGoogleAccessToken(
   refreshToken: string,
-): Promise<{ access_token: string; expires_in: number }> {
+  context?: RefreshTokenContext,
+): Promise<{ access_token: string; expires_in: number; refresh_token?: string }> {
+  const refreshFp = refreshTokenFingerprint(refreshToken);
   const body = new URLSearchParams({
     refresh_token: refreshToken,
     client_id: getClientId(),
@@ -313,23 +362,73 @@ export async function refreshGoogleAccessToken(
     // Anything else (5xx, 429, network) is TRANSIENT and must NOT be treated as
     // a dead grant — callers key the "Reconnect Google" prompt on this string.
     let googleError = "";
+    let googleErrorDescription = "";
     try {
-      googleError = (JSON.parse(text) as { error?: string }).error ?? "";
+      const parsed = JSON.parse(text) as {
+        error?: string;
+        error_description?: string;
+      };
+      googleError = parsed.error ?? "";
+      googleErrorDescription = parsed.error_description ?? "";
     } catch {
       /* non-JSON error body */
     }
-    log.error("Google token refresh failed", {
-      status: res.status,
-      googleError,
-      body: text.slice(0, 500),
-    });
+    // FIX 4: a dead grant (invalid_grant / "expired or revoked") gets ONE
+    // structured, greppable line — provider, tenant, the refresh-token
+    // fingerprint, its age in days, and Google's verbatim error_description —
+    // so the NEXT death is attributable in one look (ages clustering near 7d ⇒
+    // unverified sensitive scopes; deaths correlating with reconnects ⇒
+    // refresh-token cap churn). Never logs the token.
+    const isDeadGrant =
+      googleError === "invalid_grant" ||
+      /expired|revoked/i.test(googleErrorDescription);
+    if (isDeadGrant) {
+      log.error("Google refresh token dead", {
+        provider: context?.provider ?? "unknown",
+        tenantId: context?.tenantId ?? "unknown",
+        refreshFp,
+        tokenAgeDays: connectedAgeDays(context?.connectedAt),
+        googleError,
+        googleErrorDescription,
+        status: res.status,
+      });
+    } else {
+      log.error("Google token refresh failed", {
+        status: res.status,
+        provider: context?.provider ?? "unknown",
+        tenantId: context?.tenantId ?? "unknown",
+        refreshFp,
+        googleError,
+        body: text.slice(0, 500),
+      });
+    }
     throw new Error(
       `Google token refresh failed (${res.status})${googleError ? `: ${googleError}` : ""}`,
     );
   }
 
   const data = (await res.json()) as GoogleTokenResponse;
-  return { access_token: data.access_token, expires_in: data.expires_in };
+  // FIX 4: fingerprint EVERY successful refresh at debug level. A CHANGED
+  // fingerprint on the next refresh is how rotation (or a replaced consent)
+  // becomes visible without ever logging the secret.
+  log.debug("Google token refreshed", {
+    provider: context?.provider ?? "unknown",
+    tenantId: context?.tenantId ?? "unknown",
+    refreshFp,
+    rotated: data.refresh_token != null && data.refresh_token !== "",
+  });
+  // FIX 3: return any rotated refresh_token so call sites can persist it.
+  // Dropping it means the app keeps using an OLD refresh token that Google may
+  // have just invalidated by the rotation, bricking the grant on the next
+  // refresh (invalid_grant). Only include the field when Google actually sent
+  // one — otherwise a persist must NOT overwrite the stored token with empty.
+  return data.refresh_token
+    ? {
+        access_token: data.access_token,
+        expires_in: data.expires_in,
+        refresh_token: data.refresh_token,
+      }
+    : { access_token: data.access_token, expires_in: data.expires_in };
 }
 
 /** Random nonce helper for OAuth state. */

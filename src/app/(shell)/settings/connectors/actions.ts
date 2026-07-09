@@ -5,6 +5,7 @@ import { invalidateDemandGraph } from "@/domains/demand-graph/graph-snapshot-sto
 import { warmFreeSurfaces } from "@/domains/ops/warm-caches";
 import {
   getConnectorInfo,
+  getGoogleConnectorToken,
   deleteConnectorToken,
   saveConnectorToken,
   updateConnectorToken,
@@ -182,14 +183,38 @@ export async function getGoogleAuthUrl(
   const action = "getGoogleAuthUrl";
   try {
     const tenantId = await currentTenantId();
+    // FIX 2 (OAUTH_ROOT_CAUSE_2026-07-09): this is the store-readable call
+    // site, so it decides whether to FORCE a new refresh token. Force consent
+    // only when there is no LIVE refresh token to keep — a first connect, a
+    // dead grant (auth_failed_at), or a soft-disconnected row (all genuine
+    // "reconnect after death" paths). Re-authing a HEALTHY grant with
+    // prompt=consent mints another refresh token toward Google's ~50-per-
+    // account cap and silently revokes the oldest live token (often a
+    // DIFFERENT provider); a healthy grant re-auths with select_account and
+    // mints nothing.
+    let forceConsent = true;
+    try {
+      const existing = await getGoogleConnectorToken(kind, tenantId);
+      const hasLiveRefreshToken =
+        existing != null &&
+        typeof existing.refresh_token === "string" &&
+        existing.refresh_token !== "" &&
+        (existing.auth_failed_at == null || existing.auth_failed_at === "") &&
+        (existing.disconnected_at == null || existing.disconnected_at === "");
+      forceConsent = !hasLiveRefreshToken;
+    } catch {
+      // Store unreadable → fail safe to the previous always-consent posture so
+      // a genuine first-time connect still yields a refresh token.
+      forceConsent = true;
+    }
     const state = encodeOAuthState({
       k: kind,
       t: tenantId,
       n: generateOAuthNonce(),
       i: Date.now(),
     });
-    const url = buildGoogleAuthUrl(kind, state);
-    log.info("Google auth URL generated", { action, kind });
+    const url = buildGoogleAuthUrl(kind, state, forceConsent);
+    log.info("Google auth URL generated", { action, kind, forceConsent });
     return { url };
   } catch (e) {
     const err = e instanceof Error ? e.message : String(e);

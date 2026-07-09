@@ -93,4 +93,43 @@ describe("resolveGscAccessToken — persists the refreshed token (wave-9)", () =
     const result = await resolveGscAccessToken("tenant-x");
     expect(result).toBe("new-access");
   });
+
+  // FIX 3 (OAUTH_ROOT_CAUSE_2026-07-09): a rotated refresh token must be
+  // persisted, or the app keeps using an OLD token Google may have invalidated.
+  it("(b) persists a ROTATED refresh_token when Google returns one", async () => {
+    getGoogleConnectorToken.mockResolvedValue(staleToken());
+    refreshGoogleAccessToken.mockResolvedValue({
+      access_token: "new-access",
+      expires_in: 3600,
+      refresh_token: "rotated-refresh-xyz",
+    });
+
+    const result = await resolveGscAccessToken("tenant-x");
+
+    expect(result).toBe("new-access");
+    expect(updateConnectorToken).toHaveBeenCalledTimes(1);
+    const patch = updateConnectorToken.mock.calls[0]![1] as {
+      access_token: string;
+      expires_at: number;
+      refresh_token?: string;
+    };
+    expect(patch.access_token).toBe("new-access");
+    expect(patch.refresh_token).toBe("rotated-refresh-xyz");
+  });
+
+  it("does NOT write refresh_token when Google rotates none (never blanks the stored token)", async () => {
+    getGoogleConnectorToken.mockResolvedValue(staleToken());
+    refreshGoogleAccessToken.mockResolvedValue({
+      access_token: "new-access",
+      expires_in: 3600,
+    });
+
+    await resolveGscAccessToken("tenant-x");
+
+    const patch = updateConnectorToken.mock.calls[0]![1] as Record<
+      string,
+      unknown
+    >;
+    expect("refresh_token" in patch).toBe(false);
+  });
 });

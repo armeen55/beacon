@@ -20,6 +20,8 @@ vi.mock("@/lib/connector-store", () => ({
   getGoogleConnectorToken: vi.fn(async (kind: "gsc" | "gbp" | "ga4") =>
     kind === "ga4" ? _ga4Token : null,
   ),
+  // FIX 3 (OAUTH_ROOT_CAUSE_2026-07-09): rotated-refresh-token persist. No-op.
+  persistRefreshedGoogleToken: vi.fn(async () => {}),
 }));
 vi.mock("@/lib/connectors/google-auth", () => ({
   refreshGoogleAccessToken: vi.fn(async () => ({ access_token: "refreshed", expires_in: 3600 })),

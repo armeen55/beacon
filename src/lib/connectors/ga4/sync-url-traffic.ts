@@ -150,8 +150,23 @@ async function stampGa4AuthFailure(tenantId: string, now: Date): Promise<void> {
     // invalid_grant → dead → STAMP; any other error → transient → leave as-is.
     if (token.refresh_token) {
       try {
-        await refreshGoogleAccessToken(token.refresh_token);
-        await updateConnectorToken("google_ga4", { auth_failed_at: null }, tenantId);
+        const refreshed = await refreshGoogleAccessToken(token.refresh_token, {
+          provider: "google_ga4",
+          tenantId,
+          connectedAt: token.connected_at,
+        });
+        await updateConnectorToken(
+          "google_ga4",
+          {
+            auth_failed_at: null,
+            // FIX 3 (OAUTH_ROOT_CAUSE_2026-07-09): capture a rotated refresh
+            // token on the nightly grant probe (only when Google returned one).
+            ...(refreshed.refresh_token
+              ? { refresh_token: refreshed.refresh_token }
+              : {}),
+          },
+          tenantId,
+        );
         return;
       } catch (e) {
         if (!(e instanceof Error && /invalid_grant/i.test(e.message))) {

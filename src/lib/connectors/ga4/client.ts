@@ -35,7 +35,10 @@
 
 import "server-only";
 
-import { getGoogleConnectorToken } from "@/lib/connector-store";
+import {
+  getGoogleConnectorToken,
+  persistRefreshedGoogleToken,
+} from "@/lib/connector-store";
 import { refreshGoogleAccessToken } from "@/lib/connectors/google-auth";
 import { evaluateExpiry } from "@/lib/connectors/gsc/expiry-handler";
 import { log } from "@/lib/logger";
@@ -97,8 +100,16 @@ export async function ga4ApiFetch<T = unknown>(
   let accessToken = token.access_token;
   if (expiryStatus === "stale_under_7d") {
     try {
-      const refreshed = await refreshGoogleAccessToken(token.refresh_token);
+      const refreshed = await refreshGoogleAccessToken(token.refresh_token, {
+        provider: "google_ga4",
+        tenantId,
+        connectedAt: token.connected_at,
+      });
       accessToken = refreshed.access_token;
+      // FIX 3 (OAUTH_ROOT_CAUSE_2026-07-09): persist a rotated refresh token
+      // best-effort so GA4 self-heals across rotation (fail-soft, changed
+      // fields only).
+      await persistRefreshedGoogleToken("google_ga4", refreshed, tenantId);
     } catch (e) {
       log.warn("[ga4-client] token refresh failed; surfacing token_expired", {
         tenantId,
@@ -130,7 +141,14 @@ export async function ga4ApiFetch<T = unknown>(
       // Single retry path mirrors the GSC client: attempt one fresh
       // refresh before giving up. Reuses the same refresh helper.
       try {
-        const refreshed = await refreshGoogleAccessToken(token.refresh_token);
+        const refreshed = await refreshGoogleAccessToken(token.refresh_token, {
+          provider: "google_ga4",
+          tenantId,
+          connectedAt: token.connected_at,
+        });
+        // FIX 3 (OAUTH_ROOT_CAUSE_2026-07-09): a mid-request 401 refresh can
+        // also carry a rotated refresh token — persist it best-effort.
+        await persistRefreshedGoogleToken("google_ga4", refreshed, tenantId);
         const retry = await fetch(url, {
           ...init,
           headers: {

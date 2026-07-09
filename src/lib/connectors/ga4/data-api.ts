@@ -54,7 +54,10 @@
 
 import "server-only";
 
-import { getGoogleConnectorToken } from "@/lib/connector-store";
+import {
+  getGoogleConnectorToken,
+  persistRefreshedGoogleToken,
+} from "@/lib/connector-store";
 import { refreshGoogleAccessToken } from "@/lib/connectors/google-auth";
 import { evaluateExpiry } from "@/lib/connectors/gsc/expiry-handler";
 import { log } from "@/lib/logger";
@@ -274,8 +277,15 @@ export async function runGa4UrlTrafficReport(
   let accessToken = token.access_token;
   if (expiryStatus === "stale_under_7d") {
     try {
-      const refreshed = await refreshGoogleAccessToken(token.refresh_token);
+      const refreshed = await refreshGoogleAccessToken(token.refresh_token, {
+        provider: "google_ga4",
+        tenantId,
+        connectedAt: token.connected_at,
+      });
       accessToken = refreshed.access_token;
+      // FIX 3 (OAUTH_ROOT_CAUSE_2026-07-09): persist a rotated refresh token
+      // best-effort so GA4 self-heals across rotation.
+      await persistRefreshedGoogleToken("google_ga4", refreshed, tenantId);
     } catch (e) {
       log.warn("[ga4-data-api] token refresh failed; surfacing token_expired", {
         tenantId,
@@ -348,8 +358,15 @@ export async function runGa4UrlTrafficReport(
   }
   if (!page0.ok && page0.kind === "non_2xx" && page0.status === 401) {
     try {
-      const refreshed = await refreshGoogleAccessToken(token.refresh_token);
+      const refreshed = await refreshGoogleAccessToken(token.refresh_token, {
+        provider: "google_ga4",
+        tenantId,
+        connectedAt: token.connected_at,
+      });
       accessToken = refreshed.access_token;
+      // FIX 3 (OAUTH_ROOT_CAUSE_2026-07-09): a mid-pull 401 refresh can rotate
+      // the refresh token — persist it best-effort.
+      await persistRefreshedGoogleToken("google_ga4", refreshed, tenantId);
       const retry = await fetchPage(accessToken, 0);
       if (retry.ok) {
         page0 = retry;
@@ -579,7 +596,14 @@ export async function runGa4RevenueReport(
   let accessToken = token.access_token;
   if (expiryStatus === "stale_under_7d") {
     try {
-      accessToken = (await refreshGoogleAccessToken(token.refresh_token)).access_token;
+      const refreshed = await refreshGoogleAccessToken(token.refresh_token, {
+        provider: "google_ga4",
+        tenantId,
+        connectedAt: token.connected_at,
+      });
+      accessToken = refreshed.access_token;
+      // FIX 3 (OAUTH_ROOT_CAUSE_2026-07-09): persist a rotated refresh token.
+      await persistRefreshedGoogleToken("google_ga4", refreshed, tenantId);
     } catch {
       return { ok: false, reason: "token_expired" };
     }
@@ -628,7 +652,13 @@ export async function runGa4RevenueReport(
   }
   if (!page0.ok && page0.kind === "non_2xx" && page0.status === 401) {
     try {
-      accessToken = (await refreshGoogleAccessToken(token.refresh_token)).access_token;
+      const refreshed = await refreshGoogleAccessToken(token.refresh_token, {
+        provider: "google_ga4",
+        tenantId,
+        connectedAt: token.connected_at,
+      });
+      accessToken = refreshed.access_token;
+      await persistRefreshedGoogleToken("google_ga4", refreshed, tenantId);
       const retry = await fetchRevenuePage(accessToken, 0);
       if (retry.ok) page0 = retry;
       // A 401 after refresh means the token is definitively dead → token_expired.
@@ -819,7 +849,14 @@ export async function runGa4AiReferralReport(
   let accessToken = token.access_token;
   if (expiryStatus === "stale_under_7d") {
     try {
-      accessToken = (await refreshGoogleAccessToken(token.refresh_token)).access_token;
+      const refreshed = await refreshGoogleAccessToken(token.refresh_token, {
+        provider: "google_ga4",
+        tenantId,
+        connectedAt: token.connected_at,
+      });
+      accessToken = refreshed.access_token;
+      // FIX 3 (OAUTH_ROOT_CAUSE_2026-07-09): persist a rotated refresh token.
+      await persistRefreshedGoogleToken("google_ga4", refreshed, tenantId);
     } catch {
       return { ok: false, reason: "token_expired" };
     }
@@ -868,7 +905,13 @@ export async function runGa4AiReferralReport(
   }
   if (!page0.ok && page0.kind === "non_2xx" && page0.status === 401) {
     try {
-      accessToken = (await refreshGoogleAccessToken(token.refresh_token)).access_token;
+      const refreshed = await refreshGoogleAccessToken(token.refresh_token, {
+        provider: "google_ga4",
+        tenantId,
+        connectedAt: token.connected_at,
+      });
+      accessToken = refreshed.access_token;
+      await persistRefreshedGoogleToken("google_ga4", refreshed, tenantId);
       const retry = await fetchReferralPage(accessToken, 0);
       if (retry.ok) page0 = retry;
       else if (retry.kind === "non_2xx" && retry.status === 401)

@@ -87,6 +87,8 @@ vi.mock("@/lib/connector-store", () => ({
   getGoogleConnectorToken: vi.fn(
     async (_kind?: "gsc" | "gbp", _tenantId?: string) => _googleToken,
   ),
+  // FIX 3 (OAUTH_ROOT_CAUSE_2026-07-09): rotated-refresh-token persist. No-op.
+  persistRefreshedGoogleToken: vi.fn(async () => {}),
 }));
 
 vi.mock("@/lib/connectors/google-auth", () => ({

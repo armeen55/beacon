@@ -77,11 +77,18 @@ async function refreshAccessOrReconnect(): Promise<
     return { reconnect: true };
   }
   try {
-    const r = await refreshGoogleAccessToken(token.refresh_token);
+    const r = await refreshGoogleAccessToken(token.refresh_token, {
+      provider: "google_gbp",
+      connectedAt: token.connected_at,
+    });
     const expires_at = Date.now() + r.expires_in * 1000;
     await updateConnectorToken("google_gbp", {
       access_token: r.access_token,
       expires_at,
+      // FIX 3 (OAUTH_ROOT_CAUSE_2026-07-09): persist a rotated refresh token
+      // (only when Google returned one) so the GBP grant self-heals across
+      // rotations instead of bricking on the next refresh.
+      ...(r.refresh_token ? { refresh_token: r.refresh_token } : {}),
     });
     return { access: r.access_token };
   } catch {

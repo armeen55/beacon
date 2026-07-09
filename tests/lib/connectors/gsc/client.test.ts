@@ -101,6 +101,9 @@ vi.mock("@/lib/connector-store", () => ({
   getGoogleConnectorToken: vi.fn(
     async (_kind?: "gsc" | "gbp", _tenantId?: string) => _googleToken,
   ),
+  // FIX 3 (OAUTH_ROOT_CAUSE_2026-07-09): the client now persists rotated
+  // refresh tokens best-effort. No-op in tests.
+  persistRefreshedGoogleToken: vi.fn(async () => {}),
 }));
 
 const _refreshSpy = vi.fn(async (_refreshToken: string) => ({

@@ -83,13 +83,24 @@ async function refreshAndPersistGscToken(
   refreshToken: string,
 ): Promise<string | null> {
   try {
-    const refreshed = await refreshGoogleAccessToken(refreshToken);
+    const refreshed = await refreshGoogleAccessToken(refreshToken, {
+      provider: "google_gsc",
+      tenantId,
+    });
     try {
       await updateConnectorToken(
         "google_gsc",
         {
           access_token: refreshed.access_token,
           expires_at: Date.now() + refreshed.expires_in * 1000,
+          // FIX 3 (OAUTH_ROOT_CAUSE_2026-07-09): persist a rotated refresh
+          // token so we never keep using an old one Google may have just
+          // invalidated (→ invalid_grant on the next refresh). Included ONLY
+          // when Google actually returned one, so we never blank the stored
+          // token.
+          ...(refreshed.refresh_token
+            ? { refresh_token: refreshed.refresh_token }
+            : {}),
         },
         tenantId,
       );

@@ -32,6 +32,8 @@ vi.mock("@/lib/connector-store", () => ({
     if (kind !== "ga4") return null;
     return _ga4Token;
   }),
+  // FIX 3 (OAUTH_ROOT_CAUSE_2026-07-09): rotated-refresh-token persist. No-op.
+  persistRefreshedGoogleToken: vi.fn(async () => {}),
 }));
 
 let _refreshShouldThrow = false;

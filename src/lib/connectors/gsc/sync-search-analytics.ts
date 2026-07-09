@@ -171,10 +171,26 @@ async function stampGscAuthFailure(tenantId: string, now: Date): Promise<GscAuth
     //   • any other error  → TRANSIENT → leave state unchanged (no alarm).
     if (token.refresh_token) {
       try {
-        await refreshGoogleAccessToken(token.refresh_token);
+        const refreshed = await refreshGoogleAccessToken(token.refresh_token, {
+          provider: "google_gsc",
+          tenantId,
+          connectedAt: token.connected_at,
+        });
         // alive → clear (the write is fail-soft; its failure never flips the verdict)
         try {
-          await updateConnectorToken("google_gsc", { auth_failed_at: null }, tenantId);
+          await updateConnectorToken(
+            "google_gsc",
+            {
+              auth_failed_at: null,
+              // FIX 3 (OAUTH_ROOT_CAUSE_2026-07-09): the nightly grant probe is
+              // also our chance to capture a rotated refresh token — persist it
+              // (only when Google returned one) so rotation never bricks GSC.
+              ...(refreshed.refresh_token
+                ? { refresh_token: refreshed.refresh_token }
+                : {}),
+            },
+            tenantId,
+          );
         } catch {
           /* fail-soft */
         }

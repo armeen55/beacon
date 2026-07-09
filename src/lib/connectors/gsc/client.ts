@@ -46,7 +46,10 @@
 import "server-only";
 
 import { getSupabaseAdmin } from "@/lib/persistence/supabase";
-import { getGoogleConnectorToken } from "@/lib/connector-store";
+import {
+  getGoogleConnectorToken,
+  persistRefreshedGoogleToken,
+} from "@/lib/connector-store";
 import { refreshGoogleAccessToken } from "@/lib/connectors/google-auth";
 import { log } from "@/lib/logger";
 
@@ -291,13 +294,19 @@ export async function gscUrlInspect(
   let accessToken = token.access_token;
   if (expiryStatus === "stale_under_7d") {
     try {
-      const refreshed = await refreshGoogleAccessToken(token.refresh_token);
+      const refreshed = await refreshGoogleAccessToken(token.refresh_token, {
+        provider: "google_gsc",
+        tenantId,
+        connectedAt: token.connected_at,
+      });
       accessToken = refreshed.access_token;
-      // Best-effort persistence is the connector-store's job; this
-      // client doesn't mutate the token store directly to keep its
-      // surface read-only. The next caller's token lookup will hit
-      // the still-valid (un-rotated) token, retry refresh, and get a
-      // fresh access_token. Acceptable cold-path cost.
+      // FIX 3 (OAUTH_ROOT_CAUSE_2026-07-09): this client used to persist
+      // nothing (read-only surface). That was safe for the ACCESS token, but
+      // if Google ROTATES the refresh token on this refresh, dropping it means
+      // the next refresh uses an OLD token Google may have invalidated →
+      // invalid_grant → a dead grant. Persist best-effort (fail-soft, changed
+      // fields only) so rotation self-heals without bricking GSC.
+      await persistRefreshedGoogleToken("google_gsc", refreshed, tenantId);
     } catch (e) {
       log.warn("[gsc-client] token refresh failed; skipping inspection", {
         tenantId,

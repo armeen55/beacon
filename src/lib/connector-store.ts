@@ -690,6 +690,10 @@ type GoogleConnectorPatch = Partial<
   Pick<
     GoogleConnectorToken,
     | "access_token"
+    // FIX 3 (OAUTH_ROOT_CAUSE_2026-07-09): allow persisting a rotated refresh
+    // token WITHOUT clobbering the rest of the payload. The refresh paths only
+    // include this field when Google actually returned a new refresh token.
+    | "refresh_token"
     | "expires_at"
     | "last_synced_at"
     | "selected_location_id"
@@ -789,6 +793,44 @@ export async function updateConnectorToken(
   if (existing.provider !== provider) return;
   const merged = { ...existing, ...patch } as ConnectorToken;
   await saveConnectorToken(merged, tid);
+}
+
+/**
+ * FIX 3 (OAUTH_ROOT_CAUSE_2026-07-09): persist a refreshed Google token
+ * best-effort. Writes ONLY the changed fields via `updateConnectorToken`
+ * (merge, not full-row upsert) so a rotated refresh_token — when Google
+ * returned one — is never lost, and the rest of the payload (scopes,
+ * connected_at, disconnected_at, ga4_property_id, ...) is never clobbered.
+ * The refresh_token field is included ONLY when Google actually rotated it,
+ * so this never overwrites the stored token with an empty value.
+ *
+ * Fail-soft: a persist error is logged and swallowed — the in-memory token
+ * still serves the current run (mirrors the existing per-caller persist
+ * posture). Callers that already write `access_token`/`expires_at` themselves
+ * (with additional fields like `last_synced_at`) keep doing so; this helper
+ * is for the refresh sites that either persisted nothing or want a one-call
+ * rotation-safe write.
+ */
+export async function persistRefreshedGoogleToken(
+  provider: "google_gsc" | "google_gbp" | "google_ga4",
+  refreshed: { access_token: string; expires_in: number; refresh_token?: string },
+  tenantId?: string,
+): Promise<void> {
+  try {
+    const patch: GoogleConnectorPatch = {
+      access_token: refreshed.access_token,
+      expires_at: Date.now() + refreshed.expires_in * 1000,
+    };
+    if (refreshed.refresh_token) {
+      patch.refresh_token = refreshed.refresh_token;
+    }
+    await updateConnectorToken(provider, patch, tenantId);
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.warn(
+      `[connector-store] persistRefreshedGoogleToken failed for provider=${provider} — continuing with in-memory token: ${(err instanceof Error ? err.message : String(err)).slice(0, 200)}`,
+    );
+  }
 }
 
 export async function deleteConnectorToken(
