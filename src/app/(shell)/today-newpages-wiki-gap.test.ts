@@ -66,10 +66,12 @@ describe("buildWikiGapOpportunities - feed bounding", () => {
     expect(out[0].wikiGapEvidence).toBe(gap().evidenceSentence);
   });
 
-  it("marks 'high' band as a hot tier card and 'medium' as warm", () => {
+  it("labels wiki-gap cards Stable (no 12-month trend to read) - operator spec 2026-07-09 D-33", () => {
+    // Hot/Warm/Emerging is gone; the beatability band still drives ranking via `score`,
+    // but the visible label is the honest trend signal (Stable, since there is no trend).
     const out = buildWikiGapOpportunities(stored([gap({ articleTitle: "A", displayTitle: "A", band: "high" }), gap({ articleTitle: "B", displayTitle: "B", band: "medium" })]), []);
-    expect(out.find((o) => o.topic.toLowerCase() === "a")?.tier).toBe("hot");
-    expect(out.find((o) => o.topic.toLowerCase() === "b")?.tier).toBe("warm");
+    expect(out.find((o) => o.topic.toLowerCase() === "a")?.signal.kind).toBe("stable");
+    expect(out.find((o) => o.topic.toLowerCase() === "b")?.signal.kind).toBe("stable");
   });
 
   it("names wikipedia.org as the competitor domain (honest attribution)", () => {

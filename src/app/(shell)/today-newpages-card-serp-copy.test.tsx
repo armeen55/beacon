@@ -27,7 +27,8 @@ const OPPORTUNITY: NewPageOpportunity = {
   whatWins: null,
   searchVolume: null,
   keywordMatch: null,
-  tier: "hot",
+  // operator spec 2026-07-09 D-33: Rising/Seasonal/Stable replaced Hot/Warm/Emerging.
+  signal: { kind: "stable", label: "Stable", evidence: null },
   score: 42,
   savedOpening: null,
   competitorDomains: ["a.com", "b.com"],

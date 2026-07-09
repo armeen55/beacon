@@ -64,6 +64,9 @@ vi.mock("@/lib/connector-store", () => ({
     expires_at: null,
     last_synced_at: null,
   })),
+  // FIX 2 (OAUTH_ROOT_CAUSE_2026-07-09): getGoogleAuthUrl now reads the stored
+  // token to decide prompt=consent vs select_account. No token → force consent.
+  getGoogleConnectorToken: vi.fn(async () => null),
   deleteConnectorToken: vi.fn(
     async (provider: ConnectorProvider, tenantId?: string) => {
       _deleteCalls.push({ provider, tenantId });
