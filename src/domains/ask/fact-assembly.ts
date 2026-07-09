@@ -20,6 +20,7 @@ import { loadGa4PageValuesForTenant } from "@/domains/recommendation-intelligenc
 import { loadGscPageSignalsForTenant } from "@/domains/recommendation-intelligence/gsc-page-signals";
 import { detectChangepoints, type DailyPoint } from "@/domains/proof-gsc/changepoint";
 import { loadProofLedgerCached } from "@/domains/proof-gsc/load-ledger";
+import { countLedgerLifecycle, excludeRevertBookkeeping } from "@/domains/changes/lifecycle-counts";
 import { proofMaturityLabel } from "@/domains/proof-gsc/measure-lifecycle";
 import { deriveMeasurementMaturity, basisDayOf } from "@/domains/proof-gsc/measurement-maturity";
 import { gradeVerdictReliability } from "@/domains/proof-gsc/verdict-reliability";
@@ -430,8 +431,13 @@ async function assembleMeasurementFacts(tenantId: string): Promise<AskFact[]> {
   }
   if (ledger.length === 0) return [];
 
+  // audit #10 (2026-07-09): drop revert bookkeeping rows before Ask counts ANYTHING, exactly
+  // like every other surface (Bug #14). A revert's own revert_* row is not a distinct change.
+  const realLedger = excludeRevertBookkeeping(ledger);
+  if (realLedger.length === 0) return [];
+
   const facts: AskFact[] = [];
-  const sorted = [...ledger].sort((a, b) => b.shippedAt.localeCompare(a.shippedAt));
+  const sorted = [...realLedger].sort((a, b) => b.shippedAt.localeCompare(a.shippedAt));
   const sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
   const recentShips = sorted.filter((r) => Date.parse(r.shippedAt) >= sevenDaysAgo);
   if (recentShips.length > 0) {
@@ -444,10 +450,14 @@ async function assembleMeasurementFacts(tenantId: string): Promise<AskFact[]> {
     );
   }
 
-  const decided = sorted.filter((r) => r.verdict === "won" || r.verdict === "lost");
-  const won = decided.filter((r) => r.verdict === "won").length;
-  if (decided.length > 0) {
-    facts.push(fact(`Of ${decided.length} decided changes, ${won} won and ${decided.length - won} did not help (${Math.round((won / decided.length) * 100)}% win rate).`, "proof", "/results"));
+  // audit #9/#11 (2026-07-09): "decided" must mean a MATURE (28-day) final verdict and obey the
+  // ONE-COUNT RULE, not a raw verdict-field filter that also counts early 7/14-day checkpoints.
+  // Route through the SAME canonical counter Results and Today use so Ask can never disagree
+  // with them (it applies measurement maturity, overlap capping, and revert exclusion).
+  const lifecycle = countLedgerLifecycle(realLedger);
+  if (lifecycle.decided > 0) {
+    const notWon = lifecycle.decided - lifecycle.won;
+    facts.push(fact(`Of ${lifecycle.decided} decided changes, ${lifecycle.won} won and ${notWon} did not help (${Math.round((lifecycle.won / lifecycle.decided) * 100)}% win rate).`, "proof", "/results"));
   }
 
   // Reliability depth (D8): every measured record already carries how confident I am and
