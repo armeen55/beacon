@@ -141,11 +141,9 @@ export async function updateSession(request: NextRequest): Promise<NextResponse>
   type GetUserResult = Awaited<ReturnType<typeof supabase.auth.getUser>>;
   const {
     data: { user },
-  } = await trace.time("auth.getUser", () =>
-    withMwTimeout<GetUserResult>(supabase.auth.getUser(), {
-      data: { user: null },
-      error: null,
-    } as unknown as GetUserResult),
+  } = await withMwTimeout<GetUserResult>(
+    trace.time("auth.getUser", () => supabase.auth.getUser()),
+    { data: { user: null }, error: null } as unknown as GetUserResult,
   );
 
   const path = request.nextUrl.pathname;
