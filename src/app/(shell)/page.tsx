@@ -29,6 +29,8 @@ import { summarizeForecastCalibration, MIN_SETTLED_FOR_CALIBRATION } from "@/dom
 import { loadLatestStrategyMix } from "@/domains/strategy-review/strategy-mix-store";
 import { strategyMemoLine } from "@/domains/strategy-review/surface";
 import { CircuitBreakerSection } from "./circuit-breaker-section";
+import { MonthlyNorthStar } from "./monthly-north-star";
+import { getBusinessConfigForCurrentTenant } from "@/lib/business-config";
 import { TodayNewPagesSummaryLine } from "./today-newpages-section";
 import { loadLifecycleCounts } from "./lifecycle-counts-data";
 import { OpsPipelineSection } from "./ops-pipeline-section";
@@ -440,6 +442,10 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
         <RefreshMyDataButton connectedCount={connectedSourceCount} />
       </PageHeader>
       <DailyCounterStrip shipped={shippedTodayCount} doubleChecking={doubleCheckingTodayCount} />
+      {/* Operator spec 2026-07-09 A-3/B-6 - the monthly north star: last full month's visits +
+          clicks, progress against the tenant's configured monthly-visit goal, current month
+          clearly labeled "so far". Monthly framing on purpose ("weekly won't cut it"). */}
+      <Suspense fallback={null}><MonthlyNorthStarSection tenantId={tenantId} /></Suspense>
       {/* P14 item 3 (v1 329/331) - goal pace + start-my-day: the honest weekly pace read plus the
           20-minute ritual step, right under the day's greeting/counter so "start my day" is the
           first thing after the brief. Self-hides on a fresh empty tenant. */}
@@ -629,6 +635,19 @@ function MeasuringSection({ today, measuringCount }: { today: TodayView; measuri
       </div>
     </section>
   );
+}
+
+/** A-3/B-6 - loads the tenant's configured monthly-visit goal (per-tenant DATA) and renders
+ *  the north-star strip. Fail-soft: a config read error just means no goal line. */
+async function MonthlyNorthStarSection({ tenantId }: { tenantId: string }) {
+  let goal: number | null = null;
+  try {
+    const business = await getBusinessConfigForCurrentTenant();
+    goal = business.monthlyVisitGoal ?? null;
+  } catch {
+    goal = null;
+  }
+  return <MonthlyNorthStar tenantId={tenantId} monthlyVisitGoal={goal} />;
 }
 
 function OpportunitiesSection({ today }: { today: TodayView }) {

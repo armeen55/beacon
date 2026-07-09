@@ -18,6 +18,12 @@ export interface BusinessConfig {
   domain: string;
   industry: string;
   /**
+   * Operator spec 2026-07-09 A-3: the tenant's monthly-visit revival goal (the north
+   * star Today renders progress against). Optional and per-tenant DATA, never code -
+   * no goal configured means no goal line renders, never a made-up target.
+   */
+  monthlyVisitGoal?: number | null;
+  /**
    * P0 wall 3 (2026-06-10) — content-site classification mode. When
    * true (encyclopedias, blogs, docs sites — content_publisher-segment
    * tenants), HTML pages that aren't homepage/hub/utility/asset
