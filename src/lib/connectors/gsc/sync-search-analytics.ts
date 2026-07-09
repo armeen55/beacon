@@ -42,6 +42,7 @@ import "server-only";
 import { getSupabaseAdmin } from "@/lib/persistence/supabase";
 import { getBusinessConfig } from "@/lib/business-config";
 import { getGoogleConnectorToken, updateConnectorToken } from "@/lib/connector-store";
+import { isServiceAccountConfigured } from "@/lib/connectors/google-service-account";
 import { getTenant } from "@/domains/tenants/store";
 import { log } from "@/lib/logger";
 
@@ -153,6 +154,14 @@ type GscAuthVerdict =
   | "ok";
 
 async function stampGscAuthFailure(tenantId: string, now: Date): Promise<GscAuthVerdict> {
+  // SERVICE-ACCOUNT ONLY-OAUTH-STAMP guard (OAUTH_ROOT_CAUSE_2026-07-09): reads
+  // run on the service-account token when one is configured, so a read/auth
+  // failure is NOT proof the user OAuth grant is dead. A service-account failure
+  // must never stamp that grant dead (and fabricate a false "Reconnect Google"
+  // prompt). Report "ok" so the caller emits a benign transient reason instead.
+  // When no service account is configured this is a no-op and stamping behaves
+  // byte-identically to before.
+  if (isServiceAccountConfigured()) return "ok";
   let dead = false;
   try {
     const token = await getGoogleConnectorToken("gsc", tenantId);
