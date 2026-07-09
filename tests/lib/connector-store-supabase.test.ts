@@ -112,6 +112,19 @@ function buildQueryBuilder(table: string) {
 
 const mockAdmin = {
   from: (table: string) => buildQueryBuilder(table),
+  // The guarded RPC (save_connector_token_guarded_v1) is not modeled by this
+  // fake — it isn't a database and can't run SQL. Report it as missing
+  // (PGRST202) so saveConnectorToken/persistRefreshedGoogleToken exercise the
+  // app-side guarded fallback path this suite's expectations target, exactly
+  // as they do against a real Supabase project before the migration lands.
+  rpc: (_fn: string, _args: unknown) =>
+    Promise.resolve({
+      data: null,
+      error: {
+        code: "PGRST202",
+        message: "Could not find the function public.save_connector_token_guarded_v1",
+      },
+    }),
 };
 
 vi.mock("@/lib/persistence/supabase", () => ({

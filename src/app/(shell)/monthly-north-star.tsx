@@ -26,11 +26,11 @@ export async function MonthlyNorthStar({
   return (
     <section
       aria-label="Monthly progress"
-      className="rounded-2xl border border-gray-200 bg-white p-4 dark:border-neutral-800 dark:bg-neutral-900"
+      className="rounded-2xl border border-border bg-card p-4"
     >
-      <p className="text-sm font-semibold text-gray-900 dark:text-neutral-100">{pulse.headline}</p>
+      <p className="text-sm font-semibold text-foreground">{pulse.headline}</p>
       {subLine ? (
-        <p className="mt-1 text-[12px] leading-relaxed text-gray-500 dark:text-neutral-400">{subLine}</p>
+        <p className="mt-1 text-[12px] leading-relaxed text-muted-foreground">{subLine}</p>
       ) : null}
       {chipMonths.length > 0 ? (
         <div className="mt-3 flex flex-wrap gap-2">
@@ -40,16 +40,16 @@ export async function MonthlyNorthStar({
             return (
               <span
                 key={m.month}
-                className="rounded-lg border border-gray-100 px-2 py-1 text-[11px] tabular-nums text-gray-600 dark:border-neutral-800 dark:text-neutral-300"
+                className="rounded-lg border border-border px-2 py-1 text-[11px] tabular-nums text-muted-foreground"
               >
                 {m.label.slice(0, 3)} {value.toLocaleString("en-US")}
-                {isLast ? <span className="text-gray-400"> so far</span> : null}
+                {isLast ? <span> so far</span> : null}
               </span>
             );
           })}
         </div>
       ) : null}
-      <p className="mt-2 text-[11px] text-gray-400 dark:text-neutral-500">
+      <p className="mt-2 text-[11px] text-muted-foreground">
         Visits are from your Google Analytics and clicks from Search Console. Updated with every data refresh.
       </p>
     </section>
