@@ -7,6 +7,98 @@
 
 ---
 
+## 2026-07-09 - Operator-spec delegated wave (W1c/W4/W6) + per-tenant OAuth reliability wave
+
+**Operator-spec waves (docs/OPERATOR_PRODUCT_SPEC_2026-07-09.md):**
+- W1c (76aaf9eb): dynamic move count on Today (B-8, quality cliff at the first tracking-strength
+  item past position 3, min 3 / max 10) + the drop card states the drop and stops inventing causes
+  (B-10, sitewide-move context line, algorithm_weather removed as a claimed cause).
+- W4 (e62aeffe): New Pages semantic clustering (singularized token-set + head-noun subset,
+  cluster volume = max + 30 percent of the rest), honest ranking floor, Rising/Seasonal/Stable
+  signal labels replacing Hot/Warm/Emerging, sources mini-list on the card, draft disabled
+  without sources. Straggler test fixtures caught up in 97b5b916.
+- W6 (53fc4077): I-59 on-visit freshness (12h staleness check fires the existing one-click
+  refresh in the background via next/after, 6h throttle marker tenant-scoped + Supabase-mirrored;
+  the after() scheduling was an architect fix, a plain floating promise dies with the lambda),
+  I-60 amber "warn" staleness box separate from red alarms, I-61 reliability report renders only
+  failing/stalled jobs. Verified: typecheck clean, 264-test VERIFY sweep + 77-test re-run green,
+  both routes 200 on the Iranopedia dev server with the background refresh observed firing.
+
+**Service-account path REJECTED and parked (90cebafb):** operator decision, per-tenant OAuth is
+canonical; the full SA build stays recoverable at 31af9539, never pushed or deployed.
+
+**OAuth root-cause audit (11 agents: code trace + live Google docs + adversarial skeptics):**
+the old "unverified sensitive scope keeps 7-day expiry on In-production apps" theory was REFUTED
+(Google ties 7-day expiry to Testing status only; undeclared sensitive scope costs the
+unverified-app screen + 100-new-user lifetime cap, matching the Audience 2/100 gauge). Confirmed
+code killers: unconditional prompt=consent churning the documented 100-refresh-tokens-per-
+account cap, and refresh results never persisted (rotations silently dropped). NEW verified
+hole: the callback preserve-merge no-ops on a soft-failed store read, then full-row-upserts
+refresh_token:"" over a healthy token. Two UNGATED BEACON_GSC_SITE_URL reads leaked the founder
+GSC property onto other tenants (gsc-signal loader + auto-measure recrawl). Corrected report +
+operator checklist (declare analytics.readonly, no SA keys) appended to
+docs/OAUTH_ROOT_CAUSE_2026-07-09.md.
+
+**Per-tenant OAuth reliability wave (2b789757), ready for verification, NOT claimed permanent:**
+- DB-side never-erase + cross-instance CAS: save_connector_token_guarded_v1 RPC
+  (migrations/2026-07-09_connector_token_guarded_upsert.sql) APPLIED to prod Supabase and proven
+  with 5 rolled-back SQL assertions (retain-on-empty, both-empty refusal writes nothing, staler
+  refresh no-ops, fresher refresh persists without touching the refresh token, refresh never
+  inserts); EXECUTE revoked from anon/authenticated, service_role only; app falls back to an
+  equally-refusing app-side path only on PGRST202/205/42883, loudly.
+- Callback: discriminated store read; refresh-token-less responses retain the stored token only
+  on a proven same account (id_token sub); soft-failed read / empty store / unproven identity
+  aborts with NO write (?error=refresh_token_missing / account_mismatch, honest first-person copy).
+- Connect / Replace / Reconnect intents in the signed state; all deliberate flows show the
+  account chooser + consent; ordinary syncs never run OAuth; replace with a different account can
+  never silently keep the old account's refresh token.
+- openid+email identity scopes alongside the single per-kind data scope (least-privilege pins
+  updated); google_account_sub/email persisted; "Connected as <email>" renders on new grants.
+- In-process single-flight refresh dedupe on top of the DB CAS; rotated tokens persist everywhere.
+- Tenant isolation: both BEACON_GSC_SITE_URL consumers now gate on BEACON_TENANT_ID === tenantId.
+
+Verified: typecheck exit 0 (checked without piping tsc); 166 tests green across the OAuth
+surface including the operator's 7-test regression suite (tenant-A-cannot-alter-B, replace-A-
+leaves-B-byte-identical, refresh-token-less-cannot-erase incl. the soft-fail hole, replacement
+mismatch rejected, GA4 property tenant-scoped, scopes least-privilege and separate, staler
+concurrent refresh no-ops), all hermetic (no live Supabase/Google, no .env fallback);
+/settings/connectors renders 200 on the Iranopedia dev server, healthy GSC card shows
+"Pull my Search Console data" + "Replace Google account" + "Using property
+https://www.iranopedia.com/". Pending by design: the two-real-account hosted acceptance test
+(Ritz + Iranopedia) before any "permanent fix" claim.
+
+## 2026-07-08 - Incident: app-wide 504 + "same 6 changes for 9 days" (15477039, 86fde79b)
+
+Operator hit `504 MIDDLEWARE_INVOCATION_TIMEOUT` across the app and, separately, Today
+kept showing the same 6 already-applied changes for 9 days. Two root causes, both fixed.
+
+**1. Middleware 504 (15477039).** `src/lib/auth/supabase-middleware.ts` runs on EVERY
+request and makes two blocking Supabase calls (auth.getUser + tenant_members) with no
+ceiling; a slow/cold Supabase blew Vercel's middleware budget -> 504 on every route. Added
+`withMwTimeout` (5s per call) reusing the existing graceful degrades (getUser timeout ->
+login redirect; tenant timeout -> env-tenant fallback). 2 fake-timer tests prove each hang
+degrades, never 504s. Prod was measured fast (0.46s) so the 504 was a transient Supabase
+moment; this makes it impossible for that class to white-screen the app again.
+
+**2. Same-6-for-9-days (86fde79b).** Ground truth: last daily plan created 2026-06-30;
+none since. `ensurePlanPreview` (warm-caches precompute step 3) skipped generation whenever
+`getAcceptedPlan` returned ANY still-"accepted" plan. A daily plan only leaves "accepted"
+on a manual "Finish for today" click; applying the moves leaves them "measuring". So the
+06-30 accepted batch blocked every new plan for 9 days. Fix: only TODAY's accepted batch
+blocks; a PRIOR-day accepted batch auto-completes (completePlan; proof rows measure on
+independently) and today's plan builds. Never-applied moves stay in the backlog and get
+re-picked. Manually triggered precompute post-fix: plan-preview ran but returned "nothing
+eligible tonight" - the strict experiment batch is control-starved this month (~51 pages
+locked as measurement controls). NOT loosening the rigor gates; the operator works the full
+82-move `/changes` backlog (verified: 82 recommended_edits) + Today's "What to do next"
+(which draws from the same backlog, not the strict batch). Experiment-batch starvation logged
+as a known limitation that self-clears as experiments unlock.
+
+Verified: typecheck clean; middleware tests 12/12; warm-caches 26/26; full clean-shell suite
+running as the gate. Both branches pushed. Prod smoke fast (/login 200).
+
+---
+
 ## 2026-07-08 - Operator-walkthrough goal: 8 issues fixed at root + shipped (45f4697d)
 
 **Goal:** the operator walked the live app on day 1 and flagged a batch of issues;
