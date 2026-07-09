@@ -46,9 +46,11 @@ describe("CoverageMapSection contract", () => {
     expect(SRC).not.toMatch(/[\u2013\u2014]/);
   });
 
-  it("is mounted on the Today page after the war room", () => {
+  it("is NOT mounted on the Today page (operator spec 2026-07-09 B-9: killed, rebuild later)", () => {
+    // The operator ordered the coverage map OFF Today until it is rebuilt from scratch.
+    // The component stays in the tree for that rebuild, but Today must not render it.
+    // This pin flips if someone re-mounts it casually.
     const page = readFileSync(resolve(__dirname, "page.tsx"), "utf8");
-    expect(page).toContain('import { CoverageMapSection } from "./coverage-map-section"');
-    expect(page).toContain("<CoverageMapSection tenantId={tenantId} />");
+    expect(page).not.toContain("CoverageMapSection");
   });
 });
