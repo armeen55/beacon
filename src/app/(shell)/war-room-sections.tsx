@@ -745,13 +745,16 @@ export async function DemandOpportunitiesSection({ tenantId }: { tenantId: strin
 export async function WarRoomQuietLine({ tenantId }: { tenantId: string }) {
   // FP1 (2026-07-02) - deadline-bounded (Suspense fallback is null, so a timeout
   // renders nothing; the "all clear" line simply stays silent this visit).
+  // Operator spec 2026-07-09 B-9: the AI-crawlers band is off Today, so the quiet
+  // check only considers the two bands that still render (friction + demand), and
+  // the copy is first person - no "team", no "tonight's picks".
   const raced = await loadWithDeadline(loadQuietChecks(tenantId));
   if (raced.timedOut) return null;
-  const [clarityQuiet, aiQuiet, demandQuiet] = raced.data;
-  if (!clarityQuiet || !aiQuiet || !demandQuiet) return null;
+  const [clarityQuiet, , demandQuiet] = raced.data;
+  if (!clarityQuiet || !demandQuiet) return null;
   return (
     <p className="rounded-xl border border-border-subtle bg-surface-raised/60 px-4 py-2.5 text-body text-muted-foreground">
-      The team found nothing urgent beyond tonight&apos;s picks. Clean day.
+      I found nothing else that needs you today. Clean day.
     </p>
   );
 }

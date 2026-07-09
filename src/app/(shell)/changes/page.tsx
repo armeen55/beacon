@@ -10,6 +10,8 @@ import { loadFactoryBatchCardData } from "../page-factory-batch-data";
 import { PageFactoryBatchCard } from "../page-factory-batch-card";
 import { loadLifecycleCounts } from "../lifecycle-counts-data";
 import { TonightSummaryChip } from "../tonight-summary-chip";
+import { DailyExperimentsSection } from "../daily-experiments-section";
+import { loadDailyExperimentsView } from "../daily-experiments-data";
 import { loadWithDeadline } from "@/lib/load-with-deadline";
 import { HonestDelay } from "@/components/honest-delay";
 import { currentTenantId } from "@/lib/tenant-context";
@@ -73,16 +75,29 @@ async function ChangesSection() {
 }
 
 /**
- * FP5a - the ONE line this page shows about tonight's batch. The full panel (cards,
- * paste boxes, apply buttons) lives only on Today; its counts come from the shared FP3
- * lifecycle loader, so this line and Today's own progress bar always agree. Self-hides
- * when nothing is picked; fail-soft + deadline-bounded like every side section here.
+ * FP5a, re-homed per the operator spec 2026-07-09 B-7: the batch panel (cards, paste
+ * boxes, apply buttons) now lives HERE, next to the backlog it was picked from - Today
+ * no longer renders it. The chip stays as the one-line summary above the panel; both
+ * read the shared FP3 lifecycle loader so they always agree. Self-hides when nothing is
+ * picked; fail-soft + deadline-bounded like every side section here.
  */
 async function TonightChip() {
   try {
     const raced = await loadWithDeadline(loadLifecycleCounts(), SIDE_SECTION_DEADLINE_MS);
     if (raced.timedOut) return null;
     return <TonightSummaryChip picked={raced.data.tonightPicked} applied={raced.data.tonightApplied} />;
+  } catch {
+    return null;
+  }
+}
+
+/** The batch apply/rollback panel, moved from Today (operator spec B-7). Self-hides when
+ *  there is no active plan; deadline-bounded + fail-soft like every section on this page. */
+async function TonightPanel() {
+  try {
+    const raced = await loadWithDeadline(loadDailyExperimentsView(), SIDE_SECTION_DEADLINE_MS);
+    if (raced.timedOut || !raced.data) return null;
+    return <DailyExperimentsSection view={raced.data} />;
   } catch {
     return null;
   }
@@ -169,6 +184,9 @@ export default function WorklistPage() {
       />
       <Suspense fallback={null}>
         <TonightChip />
+      </Suspense>
+      <Suspense fallback={null}>
+        <TonightPanel />
       </Suspense>
       <Suspense fallback={null}>
         <BeaconLearned />

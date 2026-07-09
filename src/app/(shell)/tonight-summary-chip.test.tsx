@@ -8,11 +8,13 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { TonightSummaryChip } from "./tonight-summary-chip";
 
 describe("TonightSummaryChip", () => {
-  it("renders the one-line summary with both FP3 counts and the link home", () => {
+  it("renders the one-line summary with both FP3 counts (panel lives below on /changes now)", () => {
+    // Operator spec 2026-07-09 B-7: the batch panel moved to /changes, directly under
+    // this chip - so the old "See them on Today" link is gone (it would be a dead end).
     const html = renderToStaticMarkup(<TonightSummaryChip picked={6} applied={6} />);
     expect(html).toContain("Tonight: 6 picked, 6 applied.");
-    expect(html).toContain("See them on Today");
-    expect(html).toContain('href="/"');
+    expect(html).not.toContain("See them on Today");
+    expect(html).not.toContain('href="/"');
   });
 
   it("shows a partially applied batch honestly", () => {

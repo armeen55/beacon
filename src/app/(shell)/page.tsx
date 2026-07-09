@@ -17,10 +17,9 @@ import { DataSourcesStrip, countConnectedDataSources } from "@/components/today/
 import { RefreshMyDataButton } from "@/components/today/refresh-my-data-button";
 import { loadTodayV2GateData } from "./today-v2-data";
 import { loadTodayView } from "./today-view-data";
-import { DailyExperimentsSection } from "./daily-experiments-section";
 import { EVIDENCE_LABEL } from "@/domains/changes/canonical-change";
 import { currentTenantId } from "@/lib/tenant-context";
-import { FrictionFixesSection, AiCrawlerSection, DemandOpportunitiesSection, WarRoomQuietLine } from "./war-room-sections";
+import { FrictionFixesSection, DemandOpportunitiesSection, WarRoomQuietLine } from "./war-room-sections";
 import { ScoreboardSection } from "./scoreboard-section";
 import { CumulativeOutcomeSection } from "./cumulative-outcome-strip";
 import { loadProofLedgerCached } from "@/domains/proof-gsc/load-ledger";
@@ -29,11 +28,9 @@ import { loadCalibrationRecords } from "@/domains/experiments/forecast-calibrati
 import { summarizeForecastCalibration, MIN_SETTLED_FOR_CALIBRATION } from "@/domains/experiments/forecast-calibration";
 import { loadLatestStrategyMix } from "@/domains/strategy-review/strategy-mix-store";
 import { strategyMemoLine } from "@/domains/strategy-review/surface";
-import { TeamStandup } from "./team-standup";
 import { CircuitBreakerSection } from "./circuit-breaker-section";
 import { TodayNewPagesSummaryLine } from "./today-newpages-section";
 import { loadLifecycleCounts } from "./lifecycle-counts-data";
-import { CoverageMapSection } from "./coverage-map-section";
 import { OpsPipelineSection } from "./ops-pipeline-section";
 import { readPipelineHealth } from "@/domains/ops/pipeline-health-store";
 import { InvestigationSection } from "./investigation-section";
@@ -245,9 +242,10 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
   const picks = activePlan?.selected.length ?? 0;
   const minutes = activePlan?.estimatedMinutes ?? 0;
   const streakLine = streak > 0 ? ` ${streak} change${streak === 1 ? "" : "s"} shipped in the last 14 days${streak >= 10 ? ", you are on a roll" : ""}.` : "";
+  // Operator spec 2026-07-09 B-14: no "team" framing - purely functional.
   const brief =
     (picks > 0
-      ? `${dayLine}. The team picked ${picks} change${picks === 1 ? "" : "s"} worth about ${Math.max(minutes, picks)} minutes tonight.`
+      ? `${dayLine}. ${picks} change${picks === 1 ? "" : "s"} ready, about ${Math.max(minutes, picks)} minutes.`
       : `${dayLine}. ${today.headerSentence}`) + streakLine;
   // Item 7 - Monday recap band: last week's outcomes in one sentence, from the ledger.
   const isMonday = nowPacific.toLocaleDateString("en-US", { weekday: "long", timeZone: "America/Los_Angeles" }) === "Monday";
@@ -466,12 +464,10 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
       ) : null}
       {/* Item 80 - the portfolio circuit breaker: self-hides unless autopilot paused
           itself after consecutive losing batches or too many rollbacks. Mounted high
-          (before the team standup) so a paused autopilot is the first thing seen. */}
+          so a paused autopilot is the first thing seen. */}
       <Suspense fallback={null}><CircuitBreakerSection /></Suspense>
-      {/* Item 43: the team, at a glance - each teammate's one-line daily report.
-          FP3 - measuringCount comes from the shared lifecycle loader so the Strategist
-          chip, the tiles, the measuring strip, and Results all say the same number. */}
-      <Suspense fallback={null}><TeamStandup tenantId={tenantId} picksTonight={picks} measuringCount={measuringCount} /></Suspense>
+      {/* Operator spec 2026-07-09 B-9: the team-standup line is KILLED ("corny") until it
+          can be rebuilt as the specific evidence chain (B-14). No fake-teammate framing. */}
       <TodayCounts
         readyToday={today.counts.readyToday}
         needsAttention={attentionItems.length}
@@ -499,39 +495,32 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
           measuring (it used to vanish then; see today-view.ts showOpportunities). */}
       {today.nextOpportunities.length > 0 ? <OpportunitiesSection today={today} /> : null}
 
-      {/* Tonight: the team's picks (the daily plan panel), shown AFTER the next-moves list -
-          it's a recap of what was applied, not the next thing to do. FP5a - this panel's ONE
-          home; /changes shows a one-line chip with the same FP3 counts instead. */}
-      {daily ? <DailyExperimentsSection view={daily} /> : null}
+      {/* Operator spec 2026-07-09 B-7: the "Tonight's plan" batch panel is OFF Today. The
+          batch keeps running quietly for measurement; its apply/rollback panel now lives on
+          /changes (its one home, next to the backlog). */}
 
       {/* FP3 - render on the canonical count, not the snapshot's capped list, so the
           strip can never hide while the tiles say changes are measuring. */}
       {measuringCount > 0 ? <MeasuringSection today={today} measuringCount={measuringCount} /> : null}
 
-      {/* THE WAR ROOM (R3, 2026-07-01) - what the team found today, beyond tonight's picks.
-          Each band is a live teammate's intelligence: visitor behavior (Clarity), AI crawlers +
-          referrals (Profound), market demand you don't own (DataForSEO), and the new-pages board
-          (competitor teardowns). All stream in under Suspense, self-hide when empty, fail soft. */}
-      <section aria-label="What the team found" className="space-y-3">
-        <h2 className="text-sm font-semibold text-gray-700">What the team found today</h2>
+      {/* Operator spec 2026-07-09 B-9/B-14: no fake-teammate framing; first person. The AI
+          crawlers band is KILLED ("don't do shit") and the coverage map is KILLED (rebuild
+          from scratch later). Friction + demand stay because they carry real signals. */}
+      <section aria-label="What I found today" className="space-y-3">
+        <h2 className="text-sm font-semibold text-gray-700">What I found today</h2>
         {/* Item 22 - each band streams in behind a skeleton sized like a real war-room
-            card, so the section never flashes blank while a teammate is still loading. */}
+            card, so the section never flashes blank while a band is still loading. */}
         <Suspense fallback={<WarRoomCardSkeleton />}><FrictionFixesSection tenantId={tenantId} /></Suspense>
-        <Suspense fallback={<WarRoomCardSkeleton />}><AiCrawlerSection tenantId={tenantId} /></Suspense>
         <Suspense fallback={<WarRoomCardSkeleton />}><DemandOpportunitiesSection tenantId={tenantId} /></Suspense>
         {/* FP5b - the New Pages board's ONE home is /changes; Today gets one honest
             sentence with the same count the board shows, plus the link there. */}
         <Suspense fallback={null}><TodayNewPagesSummaryLine /></Suspense>
-        {/* Item 49 - when every band above stays silent, the war room says so in one quiet
+        {/* Item 49 - when every band above stays silent, the section says so in one quiet
             line instead of leaving a heading over nothing. The presence checks re-call the
             same loaders the sections use; those are react.cache request-memoized (or $0
             cache-only reads), so this re-check costs nothing extra in the same request. */}
         <Suspense fallback={null}><WarRoomQuietLine tenantId={tenantId} /></Suspense>
       </section>
-
-      {/* Item 9 - the topical coverage map: per-topic question coverage joined to AI
-          citations. $0 cached reads, self-hides under 3 topics, fails soft to null. */}
-      <Suspense fallback={null}><CoverageMapSection tenantId={tenantId} /></Suspense>
 
       <Suspense fallback={null}><DataSourcesStrip /></Suspense>
     </div>
