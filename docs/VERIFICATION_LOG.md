@@ -67,6 +67,23 @@ concurrent refresh no-ops), all hermetic (no live Supabase/Google, no .env fallb
 https://www.iranopedia.com/". Pending by design: the two-real-account hosted acceptance test
 (Ritz + Iranopedia) before any "permanent fix" claim.
 
+**RELEASE (pushed to main, acceptance operator-gated):**
+- Gate remediation commit 6dda391a: north-star semantic tokens (design-ratchet) + rpc-aware
+  store harness.
+- Hermetic full gate receipts (fullgate2.log): typecheck_exit=0; test_exit=0 with 1413 files /
+  21901 passed / 0 failed / 62 skipped; build_exit=0.
+- Adversarial review verdict: no P0. P1-1 cross-instance patch-path race + P2 notes recorded;
+  fix queued as the oauth-patch-mode package.
+- Prod RPC verified read-only: definition matches the migration, EXECUTE granted to
+  service_role only.
+- PUSHED: fast-forward 1f588042..6dda391a; origin/main is now 6dda391a.
+- Vercel: build confirmation unavailable to the agent (no token in the environment); production
+  reachable, HTTP 307 (/), 200 (/login), 307 (/settings/connectors), fresh x-vercel-id present
+  on every poll.
+- Authenticated both-tenant smoke: OPERATOR-BLOCKED (no smoke credentials available to the
+  agent).
+- Still pending: operator acceptance (two-account OAuth test) + one-week durability proof.
+
 ## 2026-07-08 - Incident: app-wide 504 + "same 6 changes for 9 days" (15477039, 86fde79b)
 
 Operator hit `504 MIDDLEWARE_INVOCATION_TIMEOUT` across the app and, separately, Today

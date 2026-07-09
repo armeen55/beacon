@@ -1,19 +1,28 @@
-> ⚡ **(2026-07-09) - OPERATOR SPEC EXECUTION + PER-TENANT OAUTH WAVE.** The 85-question interview
-> contract (docs/OPERATOR_PRODUCT_SPEC_2026-07-09.md) is executing top-down: W1 Today rebuild,
-> W2 Changes flat list, W3a measurement honesty, W4 New Pages clustering/Rising-Seasonal-Stable,
-> W6 on-visit freshness + amber staleness + reliability de-noise are ALL COMMITTED on this branch.
-> Service accounts were REJECTED (parked at 31af9539, reverted by 90cebafb); per-tenant OAuth is
-> canonical. An 11-agent adversarial audit corrected the token-death root cause (Testing-only
-> 7-day rule; real killers were consent churn vs the 100-token cap + unpersisted rotations + a
-> callback empty-overwrite hole), and the reliability wave landed (2b789757): DB-side never-erase
-> RPC applied+proven on prod, Connect/Replace intents, account identity (sub/email), single-flight
-> + DB CAS refresh, tenant-gated BEACON_GSC_SITE_URL, 7-test operator regression suite. Status is
-> "ready for verification": the permanent-fix claim waits on the two-real-account hosted test.
-> **Next 3 actions: (1) push HEAD:main after the hermetic full gate, verify Vercel deploy + smoke
-> both tenants; (2) operator: connect Ritz Google + replace Iranopedia GA4 with its intended
-> account, then watch a week of independent refreshes (docs/OAUTH_ROOT_CAUSE_2026-07-09.md
-> checklist: declare analytics.readonly, submit verification, NO service-account keys);
-> (3) W5 draft safety (sources required, 80-150 word answer blocks) + W9 Ask full-data brain.**
+> ⚡ **(2026-07-09) - OPERATOR SPEC EXECUTION + PER-TENANT OAUTH WAVE: PUSHED TO MAIN, ACCEPTANCE
+> OPERATOR-GATED.** The 85-question interview contract (docs/OPERATOR_PRODUCT_SPEC_2026-07-09.md)
+> is executing top-down: W1 Today rebuild, W2 Changes flat list, W3a measurement honesty, W4 New
+> Pages clustering/Rising-Seasonal-Stable, W6 on-visit freshness + amber staleness + reliability
+> de-noise, and the per-tenant OAuth reliability wave (2b789757: DB-side never-erase RPC,
+> Connect/Replace intents, account identity, single-flight + DB CAS refresh, tenant-gated
+> BEACON_GSC_SITE_URL, 7-test operator regression suite) are all on main. Service accounts were
+> REJECTED (parked at 31af9539, reverted by 90cebafb); per-tenant OAuth is canonical.
+> **Release ladder, stated exactly:** committed YES through 6dda391a (gate remediation:
+> north-star semantic tokens + rpc-aware store harness); pushed YES (fast-forward
+> 1f588042..6dda391a, origin/main now 6dda391a); deployed = Vercel build confirmation unavailable
+> to agents (no token), production reachable and serving fresh (HTTP 307/200/307, fresh
+> x-vercel-id); hosted-smoked = operator-blocked (no smoke credentials); operator-accepted +
+> durability-proven = pending. Gate receipts (fullgate2.log): typecheck_exit=0, test_exit=0
+> (1413 files / 21901 passed / 0 failed / 62 skipped), build_exit=0; adversarial review found no
+> P0 (P1-1 cross-instance patch-path race queued as oauth-patch-mode); prod RPC verified
+> (definition matches the migration, EXECUTE service_role only).
+> **Next 3 actions: (1) operator: confirm the Vercel production build for 6dda391a in the
+> dashboard, then run the 5-step two-account OAuth acceptance (checklist in
+> docs/OAUTH_ROOT_CAUSE_2026-07-09.md) + the Google Cloud items (declare analytics.readonly,
+> submit verification, no service-account keys); (2) oauth-patch-mode package: add a "patch" RPC
+> mode that jsonb-merges fields but never touches refresh_token, route updateConnectorToken
+> Google patches + the two direct refresh sites through it, and gate the one display-only
+> BEACON_GSC_SITE_URL read in diagnostics/indexability; (3) W5 draft safety implementation
+> (architecture lane already running).**
 >
 > ⚡ **(2026-07-08 later) - INCIDENT FIXED: app-wide 504 + "same 6 changes for 9 days" (15477039, 86fde79b).** (1) `MIDDLEWARE_INVOCATION_TIMEOUT`: the auth middleware made two unbounded Supabase calls per request; a slow Supabase 504'd every route. Added `withMwTimeout` (5s/call) reusing the existing degrades (getUser->login redirect, tenant->env fallback); 2 fake-timer tests. (2) Daily plan frozen since 2026-06-30: `ensurePlanPreview` skipped generation while ANY plan sat "accepted", and a batch only leaves "accepted" on a manual "Finish for today" click (applying moves leaves them "measuring"), so the 06-30 batch blocked new plans for 9 days. Fix: only TODAY's accepted batch blocks; a prior-day one auto-completes (proof rows measure on independently) and today's plan builds. **Known limitation surfaced:** a manual precompute post-fix returned "nothing eligible tonight" - the strict experiment batch is control-starved this month (~51 pages locked as measurement controls). Deliberately NOT loosening the rigor gates; the operator works the full 82-move `/changes` backlog (verified 82 recommended_edits) + Today's "What to do next" (draws from the same backlog, not the strict batch). **Operator's live answer: use `/changes` "To do" list - 82 real ranked moves - it is always current; the "tonight's plan" box was the stuck strict subset.** **Next 3 actions: (1) make Today's "What to do next" the primary daily surface (de-emphasize the strict "tonight's plan" box when it is empty/starved); (2) revisit experiment-control-isolation so the auto-batch is not starved to 0 when many pages are measuring (without weakening proof rigor); (3) reconnect Ritz GSC+GA4.**
 >
