@@ -34,6 +34,7 @@ import { getBusinessConfigForCurrentTenant } from "@/lib/business-config";
 import { TodayNewPagesSummaryLine } from "./today-newpages-section";
 import { loadLifecycleCounts } from "./lifecycle-counts-data";
 import { OpsPipelineSection } from "./ops-pipeline-section";
+import { maybeRefreshStaleDataOnVisit } from "@/domains/ops/on-visit-refresh";
 import { readPipelineHealth } from "@/domains/ops/pipeline-health-store";
 import { InvestigationSection } from "./investigation-section";
 import type { TodayView } from "@/domains/changes/today-view";
@@ -172,6 +173,9 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
   }
   const { today, daily } = composite;
   const tenantId = await currentTenantId();
+  // I-59: freshness is guaranteed on visit, never dependent on a cron. Schedules
+  // the staleness check + refresh via after() (post-response, serverless-safe).
+  maybeRefreshStaleDataOnVisit(tenantId);
 
   // UX4 item 6 - the one-click "Update data" control now lives in the page header, not the
   // bottom of the page. Reads the same count the data-sources strip below computes for itself,

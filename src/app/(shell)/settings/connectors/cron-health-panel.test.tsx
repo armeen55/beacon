@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
+import type { ReactElement } from "react";
 
 import type { JobHealthView } from "@/domains/ops/cron-health-view";
 
@@ -30,81 +31,110 @@ beforeEach(() => {
 });
 
 /**
- * FP7 finding (2026-07-02): "How reliably I show up" rendering "I have not
- * run yet." on every single job proved the opposite of its own name. Until
- * at least one job has a real run receipt, the panel collapses to one
- * honest line instead of a wall of empty statuses.
+ * I-61 (operator spec 2026-07-09): the reliability report is noise unless
+ * something needs action. The panel renders ONLY failing/stalled jobs - never
+ * the full green roster ("I showed up 5 of 5 nights") - and hides entirely when
+ * everything ran on schedule.
  */
 describe("CronHealthPanel", () => {
-  it("collapses to one honest line when no job has ever run", async () => {
-    jobs = [job(), job({ job: "nightly-batch", label: "Nightly batch" })];
-    const html = renderToStaticMarkup(await CronHealthPanel());
-    expect(html).toContain('data-cron-health-collapsed="true"');
-    expect(html).toContain("How reliably I show up");
-    expect(html).toContain("Nightly work starts tonight around 2 AM. I will show receipts for every run here.");
-    expect(html).not.toContain("I have not run yet.");
-    expect(html).not.toContain("No history yet");
-  });
-
-  it("renders the full per-job breakdown once at least one job has a real run", async () => {
+  it("renders nothing when every job ran on schedule", async () => {
     jobs = [
       job({
         lastRun: { startedAt: "2026-07-02T09:00:00.000Z", ok: true, durationMs: 4200 },
-        headline: "I showed up 1 of 1 nights this week.",
+        headline: "I showed up 7 of 7 nights this week.",
         pace: "healthy",
       }),
-      job({ job: "nightly-batch", label: "Nightly batch" }),
+      job({ job: "nightly-batch", label: "Nightly batch", pace: "healthy", lastRun: { startedAt: "2026-07-02T10:00:00.000Z", ok: true, durationMs: 900 } }),
     ];
-    const html = renderToStaticMarkup(await CronHealthPanel());
-    expect(html).not.toContain('data-cron-health-collapsed="true"');
-    expect(html).toContain("Last run OK");
-    expect(html).toContain("No history yet");
-    expect(html).toContain("I showed up 1 of 1 nights this week.");
-    expect(html).not.toContain("data-cron-health-pace");
+    expect(await CronHealthPanel()).toBeNull();
   });
 
-  it("T0c: a stalled job shows the deadman sentence with the SAME words as Today", async () => {
+  it("renders nothing when no job has run yet and nothing is overdue", async () => {
+    jobs = [job(), job({ job: "nightly-batch", label: "Nightly batch" })];
+    expect(await CronHealthPanel()).toBeNull();
+  });
+
+  it("shows ONLY the failing/stalled jobs, never the green roster", async () => {
     jobs = [
+      // Healthy - must NOT appear.
       job({
-        lastRun: { startedAt: "2026-07-03T09:30:00.000Z", ok: true, durationMs: 4200 },
-        headline: "I showed up 3 of 3 nights this week.",
+        job: "sync-connectors",
+        label: "Nightly data sync",
+        lastRun: { startedAt: "2026-07-02T09:00:00.000Z", ok: true, durationMs: 4200 },
+        headline: "I showed up 7 of 7 nights this week.",
+        pace: "healthy",
+      }),
+      // Stalled - must appear.
+      job({
+        job: "measure",
+        label: "Nightly results check",
         pace: "stalled",
         paceSentence:
           "The nightly results check has not run since Jul 3, 2:30 AM. It was due again this morning. Check the Connections page.",
       }),
+    ];
+    const html = renderToStaticMarkup((await CronHealthPanel()) as ReactElement);
+    expect(html).toContain('data-cron-health-panel="true"');
+    expect(html).toContain("Scheduled work that needs attention");
+    // The failing job shows with its red pace line + next run.
+    expect(html).toContain('data-cron-health-job="measure"');
+    expect(html).toContain('data-cron-health-pace="stalled"');
+    expect(html).toContain("Next scheduled run:");
+    // The green roster noise is gone: no healthy job, no "I showed up ..." line.
+    expect(html).not.toContain('data-cron-health-job="sync-connectors"');
+    expect(html).not.toContain("I showed up");
+    expect(html).not.toContain("Last run OK");
+    expect(html).not.toContain("nights synced");
+  });
+
+  it("T0c: a stalled job shows the deadman sentence with the SAME words as Today + a fix", async () => {
+    jobs = [
       job({
-        job: "autopilot",
-        label: "Autopilot auto-ship",
-        lastRun: { startedAt: "2026-07-04T10:10:00.000Z", ok: true, durationMs: 900 },
-        headline: "I showed up 4 of 4 nights this week.",
-        pace: "late",
-        paceSentence: "The autopilot shipping pass is running behind. It last ran Jul 4, 3:10 AM.",
+        job: "measure",
+        label: "Nightly results check",
+        pace: "stalled",
+        paceSentence:
+          "The nightly results check has not run since Jul 3, 2:30 AM. It was due again this morning. Check the Connections page.",
       }),
     ];
-    const html = renderToStaticMarkup(await CronHealthPanel());
+    const html = renderToStaticMarkup((await CronHealthPanel()) as ReactElement);
     expect(html).toContain('data-cron-health-pace="stalled"');
     expect(html).toContain(
       "The nightly results check has not run since Jul 3, 2:30 AM. It was due again this morning. Check the Connections page.",
     );
-    expect(html).toContain('data-cron-health-pace="late"');
-    expect(html).toContain("The autopilot shipping pass is running behind. It last ran Jul 4, 3:10 AM.");
+    expect(html).toContain('data-cron-health-fix="stalled"');
     expect(html).not.toMatch(/[‒–—―]/);
   });
 
-  it("T0c: the collapsed no-history line turns honest once a first run is overdue", async () => {
+  it("an overdue never-run job renders (nothing to reassure about, only to fix)", async () => {
     jobs = [
       job({
         pace: "stalled",
         paceSentence:
           "The nightly data sync has never run. Its first run was due yesterday. Check the Connections page.",
       }),
-      job({ job: "nightly-batch", label: "Nightly batch" }),
+      // A healthy peer stays hidden.
+      job({ job: "nightly-batch", label: "Nightly batch", pace: "healthy", lastRun: { startedAt: "2026-07-02T10:00:00.000Z", ok: true, durationMs: 900 } }),
     ];
-    const html = renderToStaticMarkup(await CronHealthPanel());
-    expect(html).toContain('data-cron-health-collapsed="true"');
+    const html = renderToStaticMarkup((await CronHealthPanel()) as ReactElement);
     expect(html).toContain(
       "The nightly data sync has never run. Its first run was due yesterday. Check the Connections page.",
     );
-    expect(html).not.toContain("Nightly work starts tonight around 2 AM.");
+    expect(html).not.toContain('data-cron-health-job="nightly-batch"');
+  });
+
+  it("a job whose last run had issues renders even when the schedule pace is fine", async () => {
+    jobs = [
+      job({
+        job: "measure",
+        label: "Nightly results check",
+        pace: "healthy",
+        lastRun: { startedAt: "2026-07-08T09:00:00.000Z", ok: false, durationMs: 1200 },
+        headline: "I showed up 6 of 7 nights this week.",
+      }),
+    ];
+    const html = renderToStaticMarkup((await CronHealthPanel()) as ReactElement);
+    expect(html).toContain('data-cron-health-lastrun="issues"');
+    expect(html).toContain("The last run had issues.");
   });
 });

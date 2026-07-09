@@ -81,11 +81,16 @@ export type PipelineViolation = {
   actual: string;
   /** First-person operator sentence naming the broken stage + the next step. */
   sentence: string;
-  /** "alarm" (default) = a genuinely broken/stale pipe worthy of the "needs attention"
-   *  banner. "info" = a working-but-quiet observation (e.g. a connected source that synced
-   *  fine but returned 0 rows) - honest to surface, but NOT a red alarm, so it never drives
-   *  the "Your data pipe needs attention" header for a dormant/dead source. */
-  severity?: "alarm" | "info";
+  /** Alert taxonomy (operator spec 2026-07-09, I-60):
+   *  - "alarm" (default) = a genuinely BROKEN pipe worthy of the red "needs attention"
+   *    banner (GSC auth/never-synced, a demand-spine sync writing 0 rows, no plan
+   *    candidates, no moves).
+   *  - "warn" = STALENESS: a connected source whose last good sync is too old, or an
+   *    optional source that has never synced. Real, but not red - it renders in a
+   *    SEPARATE amber "Some data is getting stale" box, never the red banner.
+   *  - "info" = a working-but-quiet observation (e.g. a connected source that synced
+   *    fine but returned 0 rows) - honest, but never rendered on Today. */
+  severity?: "alarm" | "warn" | "info";
 };
 
 /** Which table proves each connected source actually landed rows. */
@@ -163,8 +168,13 @@ function checkSource(
     // table at all (recentRows null AND latestRowAt null could mean read failure),
     // only alarm when the stamp is also absent - which is this branch. This is a
     // confirmed never-synced source, not a read error on our side.
+    //
+    // I-60 taxonomy: a never-synced demand SPINE (Search Console) is an auth/setup
+    // failure worth the red banner (it stays "alarm"). A never-synced OPTIONAL
+    // source is not red - it drops to "warn" (the amber staleness tier).
     return {
       stage: `${key}_freshness` as PipelineStage,
+      severity: SOURCE_VOLUME_CRITICAL[key] ? "alarm" : "warn",
       expected: "at least one completed sync",
       actual: "no completed sync ever",
       sentence:
@@ -175,8 +185,12 @@ function checkSource(
   }
   const ageHours = hoursBetween(lastGood, readings.checkedAt);
   if (ageHours !== null && ageHours > FRESHNESS_LIMIT_HOURS) {
+    // I-60 taxonomy: STALENESS (last good sync too old) is AMBER, never red - for
+    // EVERY source, the demand spine included. A stale pipe is honest to surface but
+    // it is not a "needs attention" break, so it renders in the amber staleness box.
     return {
       stage: `${key}_freshness` as PipelineStage,
+      severity: "warn",
       expected: `a good sync within ${FRESHNESS_LIMIT_HOURS} hours`,
       actual: `last good sync ${describeAgeHours(ageHours)} ago`,
       sentence:

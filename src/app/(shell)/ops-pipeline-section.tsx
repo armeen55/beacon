@@ -45,6 +45,27 @@ function ViolationRow({ violation }: { violation: PipelineViolation }) {
   );
 }
 
+/** I-60 (operator spec 2026-07-09) - the AMBER staleness row. Token-only styling
+ *  (design-system ratchet: no new raw palette classes); the status-warning tokens
+ *  carry their own dark-mode values. Staleness is honest but NOT a red break, so it
+ *  lives in a separate amber box away from the "needs attention" banner. */
+function WarnRow({ violation }: { violation: PipelineViolation }) {
+  return (
+    <div
+      className="rounded-lg border border-status-warning/40 bg-status-warning-bg px-3 py-2"
+      data-staleness-warn-row="true"
+    >
+      <p className="min-w-0 break-words text-[13px] leading-relaxed text-status-warning tabular-nums">
+        {violation.sentence}
+      </p>
+      <p className="mt-0.5 flex flex-wrap gap-x-3 text-[11px] text-status-warning/80 tabular-nums">
+        <span>expected {violation.expected}</span>
+        <span>got {violation.actual}</span>
+      </p>
+    </div>
+  );
+}
+
 /** T0c - token-only styling (design-system ratchet: no new raw palette
  *  classes); the status-danger tokens carry their own dark-mode values.
  *
@@ -95,18 +116,32 @@ export async function OpsPipelineSection({ tenantId }: { tenantId: string }) {
         DEADMAN_DEADLINE_MS,
       ),
     ]);
-    // Only ALARM-level violations (a broken/stale pipe) drive the red "needs attention"
-    // banner. "info" violations (a connected source that synced fine but is simply quiet,
-    // e.g. a dormant/dead AI feed) are intentionally NOT surfaced here - they are honest
-    // observations, not attention, so a dead source never lights up Today. (2026-07-08)
-    const violations = (health?.violations ?? []).filter((v) => v.severity !== "info");
-    const pipelineFires = violations.length > 0;
+    // I-60 alert taxonomy (operator spec 2026-07-09). Three tiers:
+    //  - ALARM (default) drives the red "needs attention" banner: a genuinely broken
+    //    pipe (GSC auth/never-synced, demand-spine 0 rows, no plan candidates, no moves).
+    //  - WARN is STALENESS: rendered in a SEPARATE amber box ("Some data is getting
+    //    stale"), never red. A stale or never-synced optional source is honest, not urgent.
+    //  - INFO (a connected source that synced fine but is simply quiet, e.g. a dormant/
+    //    dead AI feed) is never surfaced on Today.
+    const allViolations = health?.violations ?? [];
+    const alarmViolations = allViolations.filter(
+      (v) => v.severity !== "info" && v.severity !== "warn",
+    );
+    const warnViolations = allViolations.filter((v) => v.severity === "warn");
+    const pipelineFires = alarmViolations.length > 0;
+    const warnFires = warnViolations.length > 0;
     const deadmanFires = deadman != null && deadman.alarm && deadman.sentences.length > 0;
     const spikeFires = errorSpike != null;
-    if (!pipelineFires && !deadmanFires && !spikeFires) return null;
+    if (!pipelineFires && !warnFires && !deadmanFires && !spikeFires) return null;
 
-    const shown = pipelineFires ? violations.slice(0, MAX_SHOWN) : [];
-    const hidden = violations.length - shown.length;
+    // The red banner shows for any RED-tier signal (a broken pipe, a stalled scheduler,
+    // or a run of failures). Amber staleness can render on its own with no red at all.
+    const redFires = pipelineFires || deadmanFires || spikeFires;
+
+    const shown = pipelineFires ? alarmViolations.slice(0, MAX_SHOWN) : [];
+    const hidden = alarmViolations.length - shown.length;
+    const shownWarn = warnViolations.slice(0, MAX_SHOWN);
+    const hiddenWarn = warnViolations.length - shownWarn.length;
     const checkedDate = health ? new Date(health.checked_at) : null;
     const checkedLabel =
       checkedDate && Number.isFinite(checkedDate.getTime())
@@ -129,52 +164,71 @@ export async function OpsPipelineSection({ tenantId }: { tenantId: string }) {
         : "Some of my background work kept failing";
 
     return (
-      <section aria-label="Data pipe check" className="space-y-1.5" data-machinery-alert="true">
-        <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5">
-          <h2 className="text-sm font-semibold text-red-900 dark:text-red-200">{heading}</h2>
-          {pipelineFires && checkedLabel ? (
-            <span className="shrink-0 text-[11px] tabular-nums text-gray-400 dark:text-neutral-500">I checked {checkedLabel}</span>
-          ) : null}
-        </div>
-        {shown.map((v) => (
-          <ViolationRow key={v.stage} violation={v} />
-        ))}
-        {hidden > 0 ? (
-          <p className="text-[11px] text-red-700/80 dark:text-red-300/70">
-            {hidden} more stage{hidden === 1 ? " is" : "s are"} broken too. Fixing the ones above usually clears the rest.
-          </p>
-        ) : null}
-        {deadmanFires
-          ? deadman.sentences.map((s) => {
-              // Site-down sentence is exactly deadman.siteSentence; every other
-              // sentence traces back to one job in deadman.jobs (or is the
-              // trailing "N other jobs are stalled too" summary line, which
-              // names no single job and gets no fix line of its own).
-              const fix =
-                s === deadman.siteSentence
-                  ? recoveryForSiteDown().exactFix
-                  : (() => {
-                      const job = jobForSentence(deadman.jobs, s);
-                      if (job == null || job.pace === "healthy" || job.pace === "waiting") return undefined;
-                      return recoveryForCronFailure(job.job, job.label, job.pace).exactFix;
-                    })();
-              return <DeadmanRow key={s} sentence={s} fix={fix} />;
-            })
-          : null}
-        {errorSpike ? (
-          <div
-            className="rounded-lg border border-status-warning/40 bg-status-warning-bg px-3 py-2"
-            data-error-spike="true"
-          >
-            <p className="min-w-0 break-words text-[13px] leading-relaxed text-status-warning tabular-nums">
-              {errorSpike}{" "}
-              <Link
-                href="/diagnostics/errors"
-                className="underline underline-offset-2 hover:opacity-80"
+      <section aria-label="Data pipe check" className="space-y-3" data-machinery-alert="true">
+        {redFires ? (
+          <div className="space-y-1.5">
+            <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5">
+              <h2 className="text-sm font-semibold text-red-900 dark:text-red-200">{heading}</h2>
+              {pipelineFires && checkedLabel ? (
+                <span className="shrink-0 text-[11px] tabular-nums text-gray-400 dark:text-neutral-500">I checked {checkedLabel}</span>
+              ) : null}
+            </div>
+            {shown.map((v) => (
+              <ViolationRow key={v.stage} violation={v} />
+            ))}
+            {hidden > 0 ? (
+              <p className="text-[11px] text-red-700/80 dark:text-red-300/70">
+                {hidden} more stage{hidden === 1 ? " is" : "s are"} broken too. Fixing the ones above usually clears the rest.
+              </p>
+            ) : null}
+            {deadmanFires
+              ? deadman.sentences.map((s) => {
+                  // Site-down sentence is exactly deadman.siteSentence; every other
+                  // sentence traces back to one job in deadman.jobs (or is the
+                  // trailing "N other jobs are stalled too" summary line, which
+                  // names no single job and gets no fix line of its own).
+                  const fix =
+                    s === deadman.siteSentence
+                      ? recoveryForSiteDown().exactFix
+                      : (() => {
+                          const job = jobForSentence(deadman.jobs, s);
+                          if (job == null || job.pace === "healthy" || job.pace === "waiting") return undefined;
+                          return recoveryForCronFailure(job.job, job.label, job.pace).exactFix;
+                        })();
+                  return <DeadmanRow key={s} sentence={s} fix={fix} />;
+                })
+              : null}
+            {errorSpike ? (
+              <div
+                className="rounded-lg border border-status-warning/40 bg-status-warning-bg px-3 py-2"
+                data-error-spike="true"
               >
-                See what failed
-              </Link>
-            </p>
+                <p className="min-w-0 break-words text-[13px] leading-relaxed text-status-warning tabular-nums">
+                  {errorSpike}{" "}
+                  <Link
+                    href="/diagnostics/errors"
+                    className="underline underline-offset-2 hover:opacity-80"
+                  >
+                    See what failed
+                  </Link>
+                </p>
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+        {/* I-60: STALENESS is amber, in its own box, separate from the red banner
+            above. Renders on its own even when nothing red is firing. */}
+        {warnFires ? (
+          <div className="space-y-1.5" data-staleness-warn="true">
+            <h2 className="text-sm font-semibold text-status-warning">Some data is getting stale</h2>
+            {shownWarn.map((v) => (
+              <WarnRow key={v.stage} violation={v} />
+            ))}
+            {hiddenWarn > 0 ? (
+              <p className="text-[11px] text-status-warning/80">
+                {hiddenWarn} more source{hiddenWarn === 1 ? " is" : "s are"} getting stale too.
+              </p>
+            ) : null}
           </div>
         ) : null}
         <p className="text-[11px] text-gray-500 dark:text-neutral-400">

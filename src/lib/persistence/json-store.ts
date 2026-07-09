@@ -87,6 +87,11 @@ export const SUPABASE_MIRRORED_STORES = new Set<string>([
   // operator's arming and the weekly-budget count on lambda recycle. Fail direction is
   // safe: a missing blob reads as the default DISABLED config.
   "autopilot-state",
+  // 2026-07-09 I-59 - on-visit refresh throttle marker. Written from the Today render
+  // (Vercel lambda: no disk) and read on the next visit to throttle the background
+  // auto-refresh; without the mirror the marker dies between lambdas and every visit
+  // would re-fire a refresh (a refresh storm) instead of respecting the throttle window.
+  "on-visit-refresh-marker",
   // 2026-07-01 item 4 - nightly AI-engines poll. The answer cache is a COST guarantee
   // (a same-night retry must not re-spend), the run guard is the idempotency guarantee,
   // and the gap summary is what Today + the candidate builder read; on Vercel none of

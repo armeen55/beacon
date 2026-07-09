@@ -20,8 +20,23 @@ describe("OpsPipelineSection contract", () => {
     expect(SRC).not.toContain("checkPipelineInvariants");
   });
 
-  it("self-hides when the pipe is clean, the deadman is quiet, AND no error spike (one shared home)", () => {
-    expect(SRC).toContain("if (!pipelineFires && !deadmanFires && !spikeFires) return null");
+  it("self-hides when nothing is broken, stale, stalled, or spiking (one shared home)", () => {
+    expect(SRC).toContain("if (!pipelineFires && !warnFires && !deadmanFires && !spikeFires) return null");
+  });
+
+  it("I-60: staleness is a SEPARATE amber tier, never the red banner", () => {
+    // warn violations split out from the red-tier alarm set...
+    expect(SRC).toContain('v.severity !== "info" && v.severity !== "warn"');
+    expect(SRC).toContain('allViolations.filter((v) => v.severity === "warn")');
+    // ...render in their own amber box with the amber heading, on their own if needed.
+    expect(SRC).toContain('data-staleness-warn="true"');
+    expect(SRC).toContain("Some data is getting stale");
+    expect(SRC).toContain("<WarnRow");
+    // amber staleness uses the status-warning token (no new raw palette classes),
+    // never the red banner's palette.
+    expect(SRC).toContain("border-status-warning/40");
+    // the red banner only renders when a RED-tier signal fires (not on staleness alone).
+    expect(SRC).toContain("const redFires = pipelineFires || deadmanFires || spikeFires");
   });
 
   it("N39: the error-spike line joins this block (never a second widget) and is deadline-bound", () => {
@@ -42,7 +57,7 @@ describe("OpsPipelineSection contract", () => {
 
   it("caps at 2 items and admits the rest in one line", () => {
     expect(SRC).toContain("MAX_SHOWN = 2");
-    expect(SRC).toContain("violations.slice(0, MAX_SHOWN)");
+    expect(SRC).toContain("alarmViolations.slice(0, MAX_SHOWN)");
     expect(SRC).toContain("more stage");
   });
 

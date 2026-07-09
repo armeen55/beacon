@@ -123,14 +123,25 @@ describe("volume invariants (connected source wrote 0 rows)", () => {
 });
 
 describe("freshness invariants (48h limit for a connected source)", () => {
-  it("fires gsc_freshness when the last good sync is older than 48h", () => {
+  it("fires gsc_freshness as WARN (I-60: staleness is amber, never red) when older than 48h", () => {
     const readings = healthyReadings();
     readings.connectors.gsc = { connected: true, lastSyncedAt: STALE };
     readings.tables.gsc_daily_rows = { recentRows: 0, latestRowAt: STALE };
     const violations = checkPipelineInvariants(readings);
     expect(violations.map((v) => v.stage)).toEqual(["gsc_freshness"]);
+    // I-60: staleness is AMBER even for the demand spine - never the red banner.
+    expect(violations[0]!.severity).toBe("warn");
     expect(violations[0]!.sentence).toContain(`past my ${FRESHNESS_LIMIT_HOURS} hour limit`);
     expect(violations[0]!.actual).toContain("day");
+  });
+
+  it("an optional source's staleness is also WARN (amber)", () => {
+    const readings = healthyReadings();
+    readings.connectors.ga4 = { connected: true, lastSyncedAt: STALE };
+    readings.tables.ga4_url_traffic = { recentRows: 0, latestRowAt: STALE };
+    const violations = checkPipelineInvariants(readings);
+    expect(violations.map((v) => v.stage)).toEqual(["ga4_freshness"]);
+    expect(violations[0]!.severity).toBe("warn");
   });
 
   it("freshness subsumes volume: only ONE violation per source", () => {
@@ -148,14 +159,27 @@ describe("freshness invariants (48h limit for a connected source)", () => {
     expect(checkPipelineInvariants(readings)).toEqual([]);
   });
 
-  it("fires the never-synced freshness case (connected, no stamp, no rows ever)", () => {
+  it("a never-synced OPTIONAL source is WARN (amber), not a red alarm", () => {
     const readings = healthyReadings();
     readings.connectors.profound = { connected: true, lastSyncedAt: null };
     readings.tables.profound_citation_rows = { recentRows: 0, latestRowAt: null };
     const violations = checkPipelineInvariants(readings);
     expect(violations.map((v) => v.stage)).toEqual(["profound_freshness"]);
+    expect(violations[0]!.severity).toBe("warn");
     expect(violations[0]!.actual).toBe("no completed sync ever");
     expect(violations[0]!.sentence).toContain("never seen a completed sync");
+  });
+
+  it("a never-synced GSC (the demand spine) STAYS a red alarm (I-60: auth/never-synced GSC)", () => {
+    const readings = healthyReadings();
+    readings.connectors.gsc = { connected: true, lastSyncedAt: null };
+    readings.tables.gsc_daily_rows = { recentRows: 0, latestRowAt: null };
+    const violations = checkPipelineInvariants(readings);
+    expect(violations.map((v) => v.stage)).toEqual(["gsc_freshness"]);
+    // A connected demand spine that has never landed a row is an auth/setup break,
+    // worthy of the red banner - not the amber staleness tier.
+    expect(violations[0]!.severity).toBe("alarm");
+    expect(violations[0]!.actual).toBe("no completed sync ever");
   });
 });
 
