@@ -23,7 +23,8 @@ function opp(over: Partial<NewPageOpportunity>): NewPageOpportunity {
     topCompetitor: "garsononline.com",
     whatWins: null,
     searchVolume: null,
-    tier: "warm",
+    // operator spec 2026-07-09 D-33: Rising/Seasonal/Stable replaced Hot/Warm/Emerging.
+    signal: { kind: "stable", label: "Stable", evidence: null },
     score: 40,
     savedOpening: null,
     competitorDomains: ["garsononline.com"],

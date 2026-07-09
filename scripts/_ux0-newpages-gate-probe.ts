@@ -46,7 +46,7 @@ async function main() {
   console.log(`totalCandidates (pre-board-filter): ${board.totalCandidates}`);
   console.log(`rendered opportunities: ${board.opportunities.length}`);
   for (const o of board.opportunities) {
-    console.log(`  "${o.topic}" tier=${o.tier} score=${o.score} searchVolume=${o.searchVolume ?? "null"} keywordMatch=${o.keywordMatch ? `${o.keywordMatch.keyword} (${o.keywordMatch.confidence})` : "none"} alsoCovers=[${(o.alsoCovers ?? []).join(", ")}]`);
+    console.log(`  "${o.topic}" signal=${o.signal.label} score=${o.score} searchVolume=${o.searchVolume ?? "null"} clusterVolume=${o.clusterVolume ?? "null"} keywordMatch=${o.keywordMatch ? `${o.keywordMatch.keyword} (${o.keywordMatch.confidence})` : "none"} alsoCovers=[${(o.alsoCovers ?? []).join(", ")}]`);
   }
 
   // Sanity flags: none of the operator-found corrupted labels should survive verbatim.

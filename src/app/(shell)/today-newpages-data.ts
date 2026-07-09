@@ -15,7 +15,17 @@ import { readWikiGapResults, type StoredWikiGaps } from "@/domains/wiki-gap/wiki
 import { matchKeywordDemand } from "@/domains/demand/keyword-match";
 import { cleanTopicLabel, isJunkTopic } from "@/domains/demand-graph/clean-topic-label";
 import { deserializeFullPageDraft, reassembleFromPersisted, type AssembledDraftPage } from "@/domains/llm/draft-full-page";
-import { dedupeNewPageCards } from "@/domains/demand-graph/dedupe-new-page-cards";
+import {
+  clusterNewPageCandidates,
+  applyNewPageFloor,
+  rankNewPageClusters,
+  deriveWinnability,
+  deriveNewPageSignal,
+  detectTrendSpike,
+  detectSeasonalWindow,
+  type NewPageSignal,
+  type NewPageClusterCandidate,
+} from "@/domains/demand-graph/intent-clustering";
 import { seedQuestionsForTopic, type UniverseQuestionRow } from "@/domains/research/question-universe";
 import { loadQuestionUniverseForTenant } from "@/domains/research/question-universe-loader";
 import { log } from "@/lib/logger";
@@ -51,7 +61,17 @@ export type NewPageOpportunity = {
   /** True when the displayed brief was inherited from a high-confidence sibling topic
    *  (the canonical had no passing brief of its own). */
   briefFromRelated?: boolean;
-  tier: "hot" | "warm" | "emerging";
+  /** D-33 (operator spec 2026-07-09) - Rising / Seasonal / Stable, derived from real
+   *  trend evidence, each carrying its own evidence line. Replaced the meaningless
+   *  Hot / Warm / Emerging tier. */
+  signal: NewPageSignal;
+  /** D-27 (operator spec 2026-07-09) - DEDUPLICATED demand for a merged cluster (MAX
+   *  variant volume + 30% of the rest), shown on the "Also covers" line. null when this
+   *  card absorbed no variants (nothing to deduplicate). */
+  clusterVolume?: number | null;
+  /** D-28 (operator spec 2026-07-09) - set only when the cluster is under the 50/mo
+   *  floor but kept on a strategic signal; the plain reason to show on the card. */
+  keptUnderFloorReason?: string | null;
   score: number;
   /** Previously-generated + persisted AI opening (move_drafts), so it survives reload. */
   savedOpening: string | null;
@@ -164,9 +184,28 @@ function withTimeout<T>(p: Promise<T>, ms: number, fallback: T): Promise<T> {
   ]);
 }
 
+/** D-33 (operator spec 2026-07-09) - derive Rising / Seasonal / Stable for a card from
+ *  the matched keyword's real 12-month DataForSEO trend. No match (or no trend rows) =
+ *  Stable, honestly. `nowMonth` is 1-12 (injected so the seasonal window is honest and
+ *  the function stays deterministic per call). */
+function signalForKeyword(
+  matchedKeyword: string | null,
+  kwDemandRows: readonly KeywordDemand[],
+  nowMonth: number,
+): NewPageSignal {
+  if (!matchedKeyword) return { kind: "stable", label: "Stable", evidence: null };
+  const row = kwDemandRows.find((r) => r.keyword === matchedKeyword);
+  const monthly = row?.monthlySearches ?? null;
+  return deriveNewPageSignal({
+    trend: detectTrendSpike(monthly),
+    seasonal: detectSeasonalWindow(monthly, nowMonth),
+  });
+}
+
 /** Tenant-explicit builder — shared by the request-cached loader AND the nightly
  *  precompute (which has no request context to derive the tenant from). */
 export async function buildNewPagesData(tenantId: string): Promise<NewPagesData> {
+  const nowMonth = new Date().getMonth() + 1;
   let moves;
   let audits: Awaited<ReturnType<typeof getCompetitorAuditsForTenant>> = new Map();
   let savedDrafts = new Map<string, MoveDraftRow>();
@@ -251,7 +290,7 @@ export async function buildNewPagesData(tenantId: string): Promise<NewPagesData>
   // the underlying number is a proxy, so we bucket rather than print it).
   const opportunities: NewPageOpportunity[] = enriched
     .slice(0, 9)
-    .map(({ m, kwMatch, verdict }, i) => {
+    .map(({ m, kwMatch, verdict }) => {
       const meta = m.canonicalGroup;
       const briefSourceKey = meta?.inheritBriefFrom ?? m.demandKey;
     const topUrl = m.competitorUrls[0] ?? null;
@@ -359,7 +398,7 @@ export async function buildNewPagesData(tenantId: string): Promise<NewPagesData>
         kwMatch.confidence === "none" || !kwMatch.keyword
           ? null
           : { keyword: kwMatch.keyword, volume: kwMatch.searchVolume, confidence: kwMatch.confidence },
-      tier: i < 3 ? "hot" : i < 6 ? "warm" : "emerging",
+      signal: signalForKeyword(kwMatch.confidence === "none" ? null : kwMatch.keyword, kwDemandRows, nowMonth),
       score: Math.round(m.score),
       savedOpening,
       competitorDomains: [...new Set(m.competitorUrls.map((u) => domainOf(u)).filter((d): d is string => !!d))].slice(0, 6),
@@ -394,20 +433,50 @@ export async function buildNewPagesData(tenantId: string): Promise<NewPagesData>
     ...gapCards.map((c) => c.topic),
   ]);
 
-  // UX0 dedup pass (2026-07-02) — the per-source skip-lists above only catch a plain
-  // substring match; a reordered duplicate ("restaurants in tehran" vs "tehran
-  // restaurants") can still slip through as TWO cards with two different demand
-  // numbers (ground-truth finding). Collapse the final combined list by normalized
-  // topic, keeping the card with a real search-volume number over a proxy score.
+  // D-27..D-29 (operator spec 2026-07-09) - the board's SEMANTIC clustering, floor, and
+  // opportunity ranking. This replaces the older topic-string dedup: it not only
+  // collapses near-duplicate phrasings ("kashan rug" ≡ "kashan rugs", "iranian director"
+  // ≡ "iranian directors") into ONE canonical card, it reports DEDUPLICATED demand
+  // (never a blind sum), drops sub-50/mo ideas that carry no strategic signal (D-28),
+  // and orders by clusterVolume x winnability x intent fit (D-29), never alphabetical.
   const combined = [...opportunities, ...gapCards, ...wikiGapCards];
-  const { kept, dropped } = dedupeNewPageCards(
-    combined.map((o) => ({ id: o.id, topic: o.topic, searchVolume: o.searchVolume, score: o.score })),
-  );
+  const byId = new Map(combined.map((o) => [o.id, o]));
+  const clusterInput: NewPageClusterCandidate[] = combined.map((o) => ({
+    id: o.id,
+    label: o.topic,
+    volume: o.searchVolume,
+    aiValidated: !!o.aeoReceipt,
+    competitorCited: o.competitorCount > 0 || o.competitorDomains.length > 0,
+    winnability: deriveWinnability(o.preparedVerdict),
+    intentFit: 1,
+  }));
+  const clusters = clusterNewPageCandidates(clusterInput);
+  const { kept: keptClusters, dropped } = applyNewPageFloor(clusters);
   if (dropped.length > 0) {
-    log.info("[new-pages] deduped near-duplicate topic cards", { tenantId, dropped: dropped.map((d) => d.reason) });
+    log.info("[new-pages] clustered + floored New Pages board", {
+      tenantId,
+      dropped: dropped.map((d) => `${d.label} (${d.reason})`),
+    });
   }
-  const keptIds = new Set(kept.map((k) => k.id));
-  const deduped = combined.filter((o) => keptIds.has(o.id));
+  const ranked = rankNewPageClusters(keptClusters);
+  // Map each surviving cluster back to its canonical card, folding in the absorbed
+  // variants ("Also covers …" + deduplicated demand) and any strategic keep-reason.
+  const deduped: NewPageOpportunity[] = ranked
+    .map((c): NewPageOpportunity | null => {
+      const canonical = byId.get(c.canonicalId);
+      if (!canonical) return null;
+      const boardVariants = c.variants.filter((v) => v.id !== c.canonicalId).map((v) => v.label);
+      // Merge the board-level variants with any siblings the upstream graph collapse
+      // already absorbed (canonicalGroup.alsoCovers), de-duplicated for display.
+      const alsoCovers = [...new Set([...(canonical.alsoCovers ?? []), ...boardVariants])];
+      return {
+        ...canonical,
+        alsoCovers,
+        clusterVolume: boardVariants.length > 0 && c.clusterVolume > 0 ? c.clusterVolume : null,
+        keptUnderFloorReason: c.keptUnderFloorReason,
+      };
+    })
+    .filter((o): o is NewPageOpportunity => o !== null);
 
   // N30 (2026-07-03) - attach the top 3 uncovered universe questions per topic
   // to the brief. Degrade-safe read; an empty universe (not built yet) attaches
@@ -459,7 +528,8 @@ function buildGapOpportunities(
       whatWins: null,
       searchVolume: g.volume,
       keywordMatch: g.volume != null ? { keyword: kw, volume: g.volume, confidence: "exact" } : null,
-      tier: "emerging",
+      // Gap cards have no 12-month trend to read - Stable, honestly.
+      signal: { kind: "stable", label: "Stable", evidence: null },
       score: g.score,
       savedOpening: null,
       competitorDomains: [g.competitorDomain, ...g.alsoWonBy].slice(0, 6),
@@ -502,7 +572,9 @@ export function buildWikiGapOpportunities(stored: StoredWikiGaps | null, existin
       whatWins: null,
       searchVolume: g.demand,
       keywordMatch: g.demand != null ? { keyword: topic, volume: g.demand, confidence: "exact" } : null,
-      tier: g.band === "high" ? "hot" : "warm",
+      // Wiki-gap cards have no 12-month trend to read - Stable, honestly. The beatability
+      // band (high/medium) still drives ranking via `score`, not a visible trend label.
+      signal: { kind: "stable", label: "Stable", evidence: null },
       score: g.score,
       savedOpening: null,
       competitorDomains: ["wikipedia.org"],

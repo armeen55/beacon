@@ -25,10 +25,13 @@ import { Pill, type PillIntent } from "@/components/ui/pill";
  * do not correspond to any of the six Pill verdict intents.
  */
 
-const TIER: Record<NewPageOpportunity["tier"], { label: string; intent: PillIntent }> = {
-  hot: { label: "Hot", intent: "attention" },
-  warm: { label: "Warm", intent: "waiting" },
-  emerging: { label: "Emerging", intent: "neutral" },
+// D-33 (operator spec 2026-07-09) - Rising / Seasonal / Stable replaced the meaningless
+// Hot / Warm / Emerging. Rising is the act-now story (attention), Seasonal is the
+// prep-window story (waiting), Stable is a plain steady-demand label (neutral).
+const SIGNAL_INTENT: Record<NewPageOpportunity["signal"]["kind"], PillIntent> = {
+  rising: "attention",
+  seasonal: "waiting",
+  stable: "neutral",
 };
 
 const VERDICT_STYLE: Record<string, { label: string; intent: PillIntent }> = {
@@ -38,7 +41,17 @@ const VERDICT_STYLE: Record<string, { label: string; intent: PillIntent }> = {
 };
 
 export function NewPageCard({ o, ownDomain, enableAeoBrief = false }: { o: NewPageOpportunity; ownDomain: string; enableAeoBrief?: boolean }) {
-  const tier = TIER[o.tier];
+  const signalIntent = SIGNAL_INTENT[o.signal.kind];
+  // D-26 (operator spec 2026-07-09) - the "source pack": the competitor pages AI cites +
+  // the top Google results + any gap/wiki evidence. A brief with none of these is not
+  // paste-ready (J-69 enforces harder later), so the full-page draft button is disabled.
+  const sourceDomains = [
+    ...(o.aeoReceipt?.competitorPages ?? []),
+    ...(o.preparedVerdict?.topDomains ?? []),
+    ...o.competitorDomains,
+  ];
+  const uniqueSources = [...new Set(sourceDomains.filter(Boolean))].slice(0, 6);
+  const hasSources = uniqueSources.length > 0 || !!o.gapEvidence || !!o.wikiGapEvidence;
   const [aiStatus, setAiStatus] = useState<
     "idle" | "pending" | "ok" | "off" | "blocked" | "rejected" | "error"
   >(o.savedOpening ? "ok" : "idle"); // hydrate a previously-generated+saved opening
@@ -195,13 +208,28 @@ export function NewPageCard({ o, ownDomain, enableAeoBrief = false }: { o: NewPa
       <div>
         <div className="flex items-center justify-between gap-2">
           <Pill intent="live">New page</Pill>
-          <Pill intent={tier.intent}>{tier.label}</Pill>
+          <Pill intent={signalIntent} title={o.signal.evidence ? `${o.signal.label}: ${o.signal.evidence}` : o.signal.label}>
+            {o.signal.label}
+          </Pill>
         </div>
+        {/* D-33 - the label always renders WITH its evidence when there is any. */}
+        {o.signal.evidence ? (
+          <p className="mt-1 text-meta text-muted-foreground">
+            {o.signal.label}: {o.signal.evidence}
+          </p>
+        ) : null}
         <h3 className="mt-2.5 text-sub font-semibold leading-snug tracking-tight text-foreground">{o.topic}</h3>
         {o.alsoCovers && o.alsoCovers.length > 0 ? (
           <p className="mt-1 text-meta text-muted-foreground">
             Also covers: {o.alsoCovers.slice(0, 3).join(", ")}
             {o.alsoCovers.length > 3 ? ` +${o.alsoCovers.length - 3}` : ""}
+            {/* D-27 - deduplicated demand for the merged cluster, never a blind sum. */}
+            {o.clusterVolume && o.clusterVolume > 0 ? ` (deduplicated demand ${o.clusterVolume.toLocaleString()}/mo)` : ""}
+          </p>
+        ) : null}
+        {o.keptUnderFloorReason ? (
+          <p className="mt-1 text-meta text-muted-foreground" title="Below the 50/mo floor, kept for a strategic reason">
+            {o.keptUnderFloorReason}
           </p>
         ) : null}
         <p className="mt-1.5 text-body leading-relaxed text-foreground-secondary">
@@ -324,6 +352,24 @@ export function NewPageCard({ o, ownDomain, enableAeoBrief = false }: { o: NewPa
           </div>
             );
           })()
+        ) : null}
+        {/* D-26 (operator spec 2026-07-09) - the SOURCE PACK: the evidence links grouped
+            under one "Sources" mini-list (competitor pages AI cites + top Google results).
+            A proposal with sources is paste-ready groundwork; one without is not. */}
+        {hasSources ? (
+          <div className="mt-2 rounded-lg bg-surface-raised px-2.5 py-1.5">
+            <div className="text-meta font-semibold uppercase tracking-wide text-muted-foreground">Sources</div>
+            {o.competitorDomains.length > 0 ? (
+              <p className="mt-0.5 truncate text-meta text-foreground-secondary" title={o.competitorDomains.join(", ")}>
+                Competitor pages AI cites: {o.competitorDomains.slice(0, 5).join(", ")}
+              </p>
+            ) : null}
+            {o.preparedVerdict && o.preparedVerdict.topDomains.length > 0 ? (
+              <p className="mt-0.5 truncate text-meta text-foreground-secondary" title={o.preparedVerdict.topDomains.join(", ")}>
+                Top Google results: {o.preparedVerdict.topDomains.slice(0, 5).join(", ")}
+              </p>
+            ) : null}
+          </div>
         ) : null}
         {fullPage ? (
           <div className="mt-2 rounded-lg border border-indigo-200 bg-indigo-50/60 px-2.5 py-2">
@@ -496,8 +542,12 @@ export function NewPageCard({ o, ownDomain, enableAeoBrief = false }: { o: NewPa
         {o.preparedBrief && (o.briefQuality?.status === "ready" || o.briefQuality?.status === "useful_but_needs_review" || !o.briefQuality) ? (
           <button
             onClick={draftFullPage}
-            disabled={fullPagePending || fullPageStatus === "pending"}
-            title="Walk the brief section by section into a paste-ready page with sources (up to 8 sections, one page per click)"
+            disabled={fullPagePending || fullPageStatus === "pending" || !hasSources}
+            title={
+              hasSources
+                ? "Walk the brief section by section into a paste-ready page with sources (up to 8 sections, one page per click)"
+                : "Add 1-2 sources first"
+            }
             className="inline-flex items-center gap-1 rounded-lg border border-indigo-200 bg-indigo-50 px-2.5 py-1.5 text-body font-semibold text-indigo-700 transition-colors hover:bg-indigo-100 disabled:opacity-60"
           >
             {fullPageStatus === "pending" ? "Drafting page…" : fullPage ? "↻ Redraft full page" : "Draft the full page"}
