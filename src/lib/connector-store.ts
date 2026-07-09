@@ -122,6 +122,17 @@ export type GoogleConnectorToken = {
    *  changes the sync's own outcome). Absent on legacy rows. google_gsc
    *  + google_ga4 only. */
   auth_failed_at?: string | null;
+  /** Per-tenant OAuth (2026-07-09), the stable Google account id (`sub`
+   *  from the id_token) this grant belongs to. Used by the OAuth callback
+   *  to prove a re-consent is the SAME account before retaining a stored
+   *  refresh token (never-erase guard). Absent on grants authorized before
+   *  identity scopes were requested; those simply skip the same-account check
+   *  until the next connect/replace. Never a secret. */
+  google_account_sub?: string;
+  /** Per-tenant OAuth (2026-07-09), the Google account email for this grant
+   *  (from the id_token's `email` claim). Display-only ("Connected as
+   *  <email>"), never used for API calls. Absent on older grants. */
+  google_account_email?: string;
 };
 
 /** Yelp Fusion — API key (never sent to the client). */
@@ -257,6 +268,11 @@ export type ConnectorInfo = {
    *  refresh token); null/absent when the connection is healthy. Read by
    *  `getConnectorHealth` to surface a "Reconnect" state. */
   auth_failed_at?: string | null;
+  /** Per-tenant OAuth (2026-07-09), the Google account email for the connected
+   *  grant (Google connectors only), surfaced as "Connected as <email>" on the
+   *  connector card. null on older grants (authorized before identity scopes)
+   *  and on non-Google providers. Never a secret. */
+  google_account_email?: string | null;
 };
 
 // ─────────────────────────────────────────────────────────────────────
@@ -281,21 +297,39 @@ async function resolveTenantId(tenantId?: string): Promise<string> {
 // Read API (soft-fail to null on missing row / missing table)
 // ─────────────────────────────────────────────────────────────────────
 
-export async function getConnectorToken(
+/**
+ * Discriminated token read (per-tenant OAuth never-erase guard, 2026-07-09).
+ *
+ * `getConnectorToken` soft-fails to null on TRANSIENT read errors, which is
+ * right for status renders but catastrophic for the OAuth callback: a
+ * soft-failed read there made "no stored refresh token" indistinguishable
+ * from "could not check", and the callback's full-row upsert then OVERWROTE a
+ * healthy stored refresh token with an empty string. This read distinguishes
+ * the three states so write-path callers can ABORT (no write) on a failed
+ * read instead of destroying state:
+ *   • { ok: true, token }       : the row exists and parsed.
+ *   • { ok: true, token: null } : provably NO row (including 42P01
+ *     table-missing, which genuinely means nothing is stored).
+ *   • { ok: false }             : the read itself failed; the truth is
+ *     UNKNOWN. Never treat this as "no token".
+ */
+export type ConnectorTokenReadResult =
+  | { ok: true; token: ConnectorToken | null }
+  | { ok: false; reason: "store_unavailable" | "read_error" };
+
+export async function readConnectorToken(
   provider: ConnectorProvider,
   tenantId?: string,
-): Promise<ConnectorToken | null> {
+): Promise<ConnectorTokenReadResult> {
   const tid = await resolveTenantId(tenantId);
   let admin;
   try {
     admin = getSupabaseAdmin();
   } catch {
-    // Supabase env vars are not configured in this environment.
-    // Read-side soft-fail: treat as "no token connected" so callers
-    // like getConnectorInfo / local-presence render disconnected
-    // state instead of crashing. Writes still throw because the OAuth
-    // callback must surface persistence failures.
-    return null;
+    // Supabase env vars are not configured in this environment. The truth is
+    // unknowable here, so report the read as failed; render-path callers
+    // (getConnectorToken) degrade this to "disconnected" as before.
+    return { ok: false, reason: "store_unavailable" };
   }
   const { data, error } = await admin
     .from(TABLE)
@@ -305,25 +339,38 @@ export async function getConnectorToken(
     .maybeSingle();
 
   if (error != null) {
-    if (isUndefinedTableError(error)) return null;
+    if (isUndefinedTableError(error)) return { ok: true, token: null };
     // Resilience (2026-06-17): a connector STATUS/token READ must never crash
     // the app. getConnectorInfo runs in the shell layout on EVERY render, so a
     // transient Supabase error (egress restriction / outage / timeout)
     // previously threw → 500'd the WHOLE app (white screen) instead of
-    // degrading to "connect your tools". Soft-fail the read to null
-    // (disconnected) + log loudly. Writes still throw (saveConnectorToken
-    // surfaces persistence failures on the OAuth callback) — only the read
-    // degrades.
+    // degrading to "connect your tools". Log loudly and report the failure;
+    // getConnectorToken degrades it to null (disconnected), while write-path
+    // callers (the OAuth callback, saveConnectorToken's blank-refresh guard)
+    // treat it as "unknown" and refuse to write.
     // eslint-disable-next-line no-console
     console.warn(
-      `[connector-store] read failed for provider=${provider} — treating as disconnected (app stays up): ${(error.message ?? String(error)).slice(0, 200)}`,
+      `[connector-store] read failed for provider=${provider}, treating as disconnected (app stays up): ${(error.message ?? String(error)).slice(0, 200)}`,
     );
-    return null;
+    return { ok: false, reason: "read_error" };
   }
-  if (data == null) return null;
+  if (data == null) return { ok: true, token: null };
   const payload = (data as { payload: unknown }).payload;
-  if (payload == null || typeof payload !== "object") return null;
-  return payload as ConnectorToken;
+  if (payload == null || typeof payload !== "object") {
+    return { ok: true, token: null };
+  }
+  return { ok: true, token: payload as ConnectorToken };
+}
+
+export async function getConnectorToken(
+  provider: ConnectorProvider,
+  tenantId?: string,
+): Promise<ConnectorToken | null> {
+  const r = await readConnectorToken(provider, tenantId);
+  // Read-side soft-fail preserved: render callers treat an unreadable store
+  // as "no token connected" so the app stays up. Write paths must use
+  // readConnectorToken directly and abort on ok:false.
+  return r.ok ? r.token : null;
 }
 
 export async function getGoogleConnectorToken(
@@ -414,6 +461,9 @@ export async function getConnectorInfo(
       // getConnectorHealth can surface a "Reconnect Google" state without a
       // second token read. Null on healthy connections + non-Google providers.
       auth_failed_at: token.auth_failed_at ?? null,
+      // Per-tenant OAuth (2026-07-09), the connected Google account email,
+      // surfaced as "Connected as <email>" on the card. Null on older grants.
+      google_account_email: token.google_account_email ?? null,
     } as const;
     if (token.disconnected_at != null && token.disconnected_at !== "") {
       return {
@@ -670,6 +720,67 @@ export async function saveConnectorToken(
 ): Promise<void> {
   const tid = await resolveTenantId(tenantId);
   const admin = getSupabaseAdmin();
+  const isGoogle =
+    token.provider === "google_gsc" ||
+    token.provider === "google_gbp" ||
+    token.provider === "google_ga4";
+  if (isGoogle) {
+    // DB-SIDE never-erase guard (operator guardrail, 2026-07-09): Google token
+    // saves go through ONE atomic SQL statement (save_connector_token_guarded_v1,
+    // mode 'connect') that preserves a stored non-empty refresh_token inside
+    // the upsert itself and refuses (raises, statement rolls back) when neither
+    // side has one. An app-side read-then-merge can be raced by two concurrent
+    // callbacks or two Vercel instances; the database cannot.
+    const { error: rpcError } = await admin.rpc("save_connector_token_guarded_v1", {
+      p_tenant: tid,
+      p_provider: token.provider,
+      p_payload: token,
+      p_mode: "connect",
+    });
+    if (rpcError == null) return;
+    if (!isMissingRpcError(rpcError)) {
+      throw new Error(
+        `connector-store: guarded save failed for provider=${token.provider}: ${rpcError.message ?? String(rpcError)}`,
+      );
+    }
+    // The guarded RPC is not installed on this database (fresh install, or the
+    // migration is not applied yet). Fall back to the app-side guarded path
+    // below, LOUDLY, so a missing migration can never brick a connect.
+    // eslint-disable-next-line no-console
+    console.warn(
+      `[connector-store] save_connector_token_guarded_v1 missing (apply migrations/2026-07-09_connector_token_guarded_upsert.sql); falling back to the app-side guarded save for provider=${token.provider}`,
+    );
+    // NEVER-ERASE assertion (app-side fallback; also defense in depth behind
+    // the OAuth callback's own guard): an EMPTY refresh_token must never
+    // replace a stored non-empty one, under ANY code path. Google refresh
+    // tokens are only minted at consent; overwriting one with "" bricks the
+    // grant silently (the access token dies in about an hour with no
+    // self-heal). If the stored row cannot be READ, the truth is unknown, so
+    // the write is refused too.
+    if (token.refresh_token === "") {
+      const existing = await readConnectorToken(token.provider, tid);
+      if (!existing.ok) {
+        throw new Error(
+          `connector-store: refused to save provider=${token.provider} with an empty refresh_token because the stored token could not be read (${existing.reason}); an empty value must never overwrite an unknown stored state`,
+        );
+      }
+      if (
+        existing.token != null &&
+        "refresh_token" in existing.token &&
+        existing.token.refresh_token
+      ) {
+        throw new Error(
+          `connector-store: refused to overwrite the stored non-empty refresh_token for provider=${token.provider} with an empty one`,
+        );
+      }
+      // Parity with the RPC's fail-closed rule: a Google row must never be
+      // WRITTEN with an empty refresh_token at all (it would die in about an
+      // hour with no self-heal). Nothing usable is stored either, so refuse.
+      throw new Error(
+        `connector-store: refused to save provider=${token.provider} with no usable refresh token (incoming empty, nothing stored); connect again so Google mints one`,
+      );
+    }
+  }
   const { error } = await admin.from(TABLE).upsert(
     {
       tenant_id: tid,
@@ -684,6 +795,16 @@ export async function saveConnectorToken(
       `connector-store: save failed for provider=${token.provider}: ${error.message ?? String(error)}`,
     );
   }
+}
+
+/** PostgREST "function not found" (PGRST202, a stale schema cache PGRST205, or
+ *  raw Postgres 42883) - the ONLY errors allowed to route a guarded write to
+ *  the app-side fallback. Every other error must surface to the caller. */
+function isMissingRpcError(error: { code?: string; message?: string }): boolean {
+  const code = error.code ?? "";
+  if (code === "PGRST202" || code === "PGRST205" || code === "42883") return true;
+  const msg = (error.message ?? "").toLowerCase();
+  return msg.includes("could not find the function");
 }
 
 type GoogleConnectorPatch = Partial<
@@ -817,18 +938,54 @@ export async function persistRefreshedGoogleToken(
   tenantId?: string,
 ): Promise<void> {
   try {
+    const tid = await resolveTenantId(tenantId);
+    const newExpiresAt = Date.now() + refreshed.expires_in * 1000;
+    // DB-SIDE compare-and-swap (operator guardrail, 2026-07-09): the RPC's
+    // 'refresh' mode UPDATEs only where the incoming expires_at is strictly
+    // newer than the stored one. That conditional is the CROSS-INSTANCE race
+    // resolution: the in-process single-flight in google-auth.ts only dedupes
+    // within one lambda, so two Vercel instances refreshing concurrently must
+    // resolve at the database, and the staler write silently no-ops. It also
+    // never inserts and only touches refresh_token when Google rotated it.
+    const admin = getSupabaseAdmin();
+    const rpcPayload: Record<string, unknown> = {
+      access_token: refreshed.access_token,
+      expires_at: newExpiresAt,
+    };
+    if (refreshed.refresh_token) rpcPayload.refresh_token = refreshed.refresh_token;
+    const { error: rpcError } = await admin.rpc("save_connector_token_guarded_v1", {
+      p_tenant: tid,
+      p_provider: provider,
+      p_payload: rpcPayload,
+      p_mode: "refresh",
+    });
+    if (rpcError == null) return;
+    if (!isMissingRpcError(rpcError)) {
+      throw new Error(rpcError.message ?? String(rpcError));
+    }
+    // RPC not installed: app-side fallback mirrors the same rules (loudly).
+    // Monotonic guard first, so even the fallback cannot clobber a FRESHER
+    // stored token with this staler one; rotation (a new refresh_token) always
+    // persists because its expiry is by construction the newest.
+    // eslint-disable-next-line no-console
+    console.warn(
+      `[connector-store] save_connector_token_guarded_v1 missing (apply migrations/2026-07-09_connector_token_guarded_upsert.sql); falling back to the app-side refresh persist for provider=${provider}`,
+    );
+    const existing = await getConnectorToken(provider, tid);
+    if (existing == null || existing.provider !== provider) return;
+    if (existing.expires_at >= newExpiresAt) return; // staler write: no-op (CAS mirror)
     const patch: GoogleConnectorPatch = {
       access_token: refreshed.access_token,
-      expires_at: Date.now() + refreshed.expires_in * 1000,
+      expires_at: newExpiresAt,
     };
     if (refreshed.refresh_token) {
       patch.refresh_token = refreshed.refresh_token;
     }
-    await updateConnectorToken(provider, patch, tenantId);
+    await updateConnectorToken(provider, patch, tid);
   } catch (err) {
     // eslint-disable-next-line no-console
     console.warn(
-      `[connector-store] persistRefreshedGoogleToken failed for provider=${provider} — continuing with in-memory token: ${(err instanceof Error ? err.message : String(err)).slice(0, 200)}`,
+      `[connector-store] persistRefreshedGoogleToken failed for provider=${provider}, continuing with in-memory token: ${(err instanceof Error ? err.message : String(err)).slice(0, 200)}`,
     );
   }
 }

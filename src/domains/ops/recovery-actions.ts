@@ -46,9 +46,12 @@ export type RecoveryAction = {
 // Per-connector failure states
 // ─────────────────────────────────────────────────────────────────────
 
+// "token_revoked" was removed 2026-07-09: Google's invalid_grant cannot
+// reliably distinguish an expired grant from an explicitly revoked one, and
+// deriveConnectorFailureState only ever emitted "token_expired", so the
+// revoked copy was unreachable dead copy. One honest state remains.
 export type ConnectorFailureState =
   | "token_expired"
-  | "token_revoked"
   | "never_connected"
   | "sync_stale"
   | "zero_rows_written"
@@ -118,17 +121,17 @@ export function recoveryForConnectorFailure(
   const isGoogle = connector === "google_gsc" || connector === "google_ga4";
 
   switch (state) {
-    case "token_expired":
-    case "token_revoked": {
+    case "token_expired": {
       if (!isGoogle) return null;
       // Dead-login line (2026-07-06): first person, no jargon (never
       // "OAuth"/"token"/"invalid_grant"), and it NAMES what reconnecting brings
       // back so the cost is concrete. "login expired" is the plain word for a
-      // dead refresh grant; "was revoked" for an explicit revoke.
-      const expiredCopy = state === "token_revoked" ? "was revoked" : "expired";
+      // dead refresh grant. Google's invalid_grant cannot reliably tell an
+      // expiry from an explicit revoke, so this one honest state covers both
+      // (the reconnect fix is identical either way).
       const value = CONNECTOR_VALUE[connector];
       return {
-        plainProblem: `Your ${label} login ${expiredCopy}.`,
+        plainProblem: `Your ${label} login expired.`,
         exactFix: `Click Connect ${label} on the Connections page to ${value}. It takes under a minute and nothing else changes.`,
         href: CONNECTORS_HREF,
         selfServe: {

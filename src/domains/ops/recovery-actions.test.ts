@@ -23,15 +23,17 @@ describe("recoveryForConnectorFailure", () => {
     expect(action!.exactFix).not.toMatch(NO_DASH);
   });
 
-  it("token_revoked on GA4 says 'revoked' and points at the GA4 reconnect", () => {
-    const action = recoveryForConnectorFailure("google_ga4", "token_revoked");
-    expect(action!.plainProblem).toContain("revoked");
+  it("token_expired on GA4 points at the GA4 reconnect", () => {
+    // 2026-07-09: "token_revoked" was removed as unreachable dead copy
+    // (invalid_grant cannot distinguish expired from revoked; the derive
+    // path only ever produced token_expired). One honest state remains.
+    const action = recoveryForConnectorFailure("google_ga4", "token_expired");
+    expect(action!.plainProblem).toContain("expired");
     expect(action!.selfServe).toEqual({ kind: "reconnect_google", connectorKind: "ga4" });
   });
 
-  it("token_expired/token_revoked do not apply to Wix (no OAuth token)", () => {
+  it("token_expired does not apply to Wix (no OAuth token)", () => {
     expect(recoveryForConnectorFailure("wix", "token_expired")).toBeNull();
-    expect(recoveryForConnectorFailure("wix", "token_revoked")).toBeNull();
   });
 
   it("never_connected on Wix mentions pasting the key and that nothing publishes yet", () => {
@@ -99,7 +101,6 @@ describe("recoveryForConnectorFailure", () => {
     const connectors: ConnectorKind[] = ["google_gsc", "google_ga4", "wix", "profound", "clarity"];
     const states: ConnectorFailureState[] = [
       "token_expired",
-      "token_revoked",
       "never_connected",
       "sync_stale",
       "zero_rows_written",

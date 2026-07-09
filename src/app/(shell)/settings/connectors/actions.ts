@@ -22,6 +22,7 @@ import {
   encodeOAuthState,
   generateOAuthNonce,
   type GoogleConnectorKind,
+  type OAuthIntent,
 } from "@/lib/connectors/google-auth";
 import {
   runGoogleReviewsSync,
@@ -166,55 +167,82 @@ export async function saveYelpApiKey(
 
 /**
  * Build the Google OAuth URL for the given connector kind (default
- * "gsc"). Each kind requests exactly ONE scope set:
+ * "gsc"). Each kind requests exactly ONE data scope, plus the basic
+ * openid + email identity scopes (per-tenant OAuth, 2026-07-09):
  *   • gsc → webmasters.readonly
  *   • gbp → business.manage
  *   • ga4 → analytics.readonly      (Slice 9.A1α scaffold; Slice
  *                                    9.A1β surfaces the Connect
  *                                    button)
  *
+ * INTENT (per-tenant OAuth, 2026-07-09): the caller says WHY it wants a
+ * flow ("connect" for a first grant, "replace" to swap the Google account
+ * behind a live grant, "reauth" to reconnect a dead one), and this action,
+ * the ONE store-readable call site, verifies that intent against the
+ * stored token before threading it into the auth URL and the signed state:
+ *   • "replace" is only honored when a LIVE grant actually exists;
+ *     otherwise it degrades to the derived intent (a forged/stale client
+ *     call can never widen semantics).
+ *   • Omitted intent derives from the store: no usable grant → "connect";
+ *     dead or soft-disconnected → "reauth"; live → "replace".
+ * Every intent shows Google's account chooser AND forces consent (a fresh
+ * refresh token for the chosen account). Ordinary syncs/refreshes never
+ * run OAuth, so this cannot churn Google's cap of 100 refresh tokens per
+ * Google account per OAuth client (only deliberate operator clicks reach
+ * here; when the cap IS exceeded, Google revokes the oldest token).
+ *
  * State is HMAC-signed with BEACON_OAUTH_STATE_SECRET and carries the
- * connector kind + tenantId + nonce + issued-at. The callback verifies
- * the signature before persisting the token.
+ * connector kind + tenantId + nonce + issued-at + intent. The callback
+ * verifies the signature before persisting the token.
  */
 export async function getGoogleAuthUrl(
   kind: GoogleConnectorKind = "gsc",
+  requestedIntent?: OAuthIntent,
 ): Promise<{ url: string | null; error?: string }> {
   const action = "getGoogleAuthUrl";
   try {
     const tenantId = await currentTenantId();
-    // FIX 2 (OAUTH_ROOT_CAUSE_2026-07-09): this is the store-readable call
-    // site, so it decides whether to FORCE a new refresh token. Force consent
-    // only when there is no LIVE refresh token to keep — a first connect, a
-    // dead grant (auth_failed_at), or a soft-disconnected row (all genuine
-    // "reconnect after death" paths). Re-authing a HEALTHY grant with
-    // prompt=consent mints another refresh token toward Google's ~50-per-
-    // account cap and silently revokes the oldest live token (often a
-    // DIFFERENT provider); a healthy grant re-auths with select_account and
-    // mints nothing.
-    let forceConsent = true;
+    // Derive the honest intent from the stored token, then reconcile with
+    // what the client asked for. Store unreadable → treat as no grant
+    // ("connect"), which is always the safest posture.
+    let derived: OAuthIntent = "connect";
     try {
       const existing = await getGoogleConnectorToken(kind, tenantId);
-      const hasLiveRefreshToken =
+      const hasStoredRefreshToken =
         existing != null &&
         typeof existing.refresh_token === "string" &&
-        existing.refresh_token !== "" &&
-        (existing.auth_failed_at == null || existing.auth_failed_at === "") &&
-        (existing.disconnected_at == null || existing.disconnected_at === "");
-      forceConsent = !hasLiveRefreshToken;
+        existing.refresh_token !== "";
+      const isDeadOrDisconnected =
+        existing != null &&
+        ((existing.auth_failed_at != null && existing.auth_failed_at !== "") ||
+          (existing.disconnected_at != null && existing.disconnected_at !== ""));
+      derived = !hasStoredRefreshToken
+        ? "connect"
+        : isDeadOrDisconnected
+          ? "reauth"
+          : "replace";
     } catch {
-      // Store unreadable → fail safe to the previous always-consent posture so
-      // a genuine first-time connect still yields a refresh token.
-      forceConsent = true;
+      derived = "connect";
     }
+    // The client's requested intent is honored only when it makes sense for
+    // the stored state; "replace" without a live grant falls back to derived.
+    const intent: OAuthIntent =
+      requestedIntent === "replace"
+        ? derived === "replace"
+          ? "replace"
+          : derived
+        : requestedIntent === "connect" || requestedIntent === "reauth"
+          ? requestedIntent
+          : derived;
     const state = encodeOAuthState({
       k: kind,
       t: tenantId,
       n: generateOAuthNonce(),
       i: Date.now(),
+      x: intent,
     });
-    const url = buildGoogleAuthUrl(kind, state, forceConsent);
-    log.info("Google auth URL generated", { action, kind, forceConsent });
+    const url = buildGoogleAuthUrl(kind, state, intent);
+    log.info("Google auth URL generated", { action, kind, intent });
     return { url };
   } catch (e) {
     const err = e instanceof Error ? e.message : String(e);

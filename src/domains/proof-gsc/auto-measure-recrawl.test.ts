@@ -60,15 +60,22 @@ function rec(id: string, shippedAt: string, page = `https://x.com/${id}`): Shipp
 }
 
 const ORIGINAL_ENV = process.env.BEACON_GSC_SITE_URL;
+const ORIGINAL_TENANT_ENV = process.env.BEACON_TENANT_ID;
 
 describe("prioritizeRecrawlInspections", () => {
   beforeEach(() => {
     attachRecrawlClockForLedgerMock.mockReset();
     gscUrlInspectMock.mockReset();
+    // Tenant-isolation gate (2026-07-09): the env property only applies to
+    // the tenant BEACON_TENANT_ID names, mirroring sync-search-analytics'
+    // resolveProperty. Tests run as that tenant unless they say otherwise.
+    process.env.BEACON_TENANT_ID = "tenant-1";
   });
   afterEach(() => {
     if (ORIGINAL_ENV == null) delete process.env.BEACON_GSC_SITE_URL;
     else process.env.BEACON_GSC_SITE_URL = ORIGINAL_ENV;
+    if (ORIGINAL_TENANT_ENV == null) delete process.env.BEACON_TENANT_ID;
+    else process.env.BEACON_TENANT_ID = ORIGINAL_TENANT_ENV;
   });
 
   it("BEACON_GSC_SITE_URL unset ⇒ 0 spent, never calls attach or inspect", async () => {
@@ -76,6 +83,23 @@ describe("prioritizeRecrawlInspections", () => {
     const spent = await __testing.prioritizeRecrawlInspections("tenant-1", [rec("a", "2026-06-20")], NOW);
     expect(spent).toBe(0);
     expect(attachRecrawlClockForLedgerMock).not.toHaveBeenCalled();
+    expect(gscUrlInspectMock).not.toHaveBeenCalled();
+  });
+
+  it("BEACON_GSC_SITE_URL set for a DIFFERENT tenant ⇒ 0 spent (tenant-isolation gate)", async () => {
+    process.env.BEACON_GSC_SITE_URL = ["sc-domain", "example.com"].join(":");
+    process.env.BEACON_TENANT_ID = "tenant-other";
+    const spent = await __testing.prioritizeRecrawlInspections("tenant-1", [rec("a", "2026-06-20")], NOW);
+    expect(spent).toBe(0);
+    expect(attachRecrawlClockForLedgerMock).not.toHaveBeenCalled();
+    expect(gscUrlInspectMock).not.toHaveBeenCalled();
+  });
+
+  it("BEACON_TENANT_ID unset ⇒ 0 spent even when the site URL is set (fail closed)", async () => {
+    process.env.BEACON_GSC_SITE_URL = ["sc-domain", "example.com"].join(":");
+    delete process.env.BEACON_TENANT_ID;
+    const spent = await __testing.prioritizeRecrawlInspections("tenant-1", [rec("a", "2026-06-20")], NOW);
+    expect(spent).toBe(0);
     expect(gscUrlInspectMock).not.toHaveBeenCalled();
   });
 

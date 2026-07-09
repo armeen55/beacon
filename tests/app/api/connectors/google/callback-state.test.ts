@@ -30,6 +30,11 @@ vi.mock("@/lib/connector-store", () => ({
       tenantId,
     });
   }),
+  // Per-tenant OAuth (2026-07-09): the callback reads the stored token once via
+  // the discriminated read. These state-validation tests exchange WITH a
+  // refresh token, so "nothing stored" keeps their behavior unchanged; the
+  // never-erase branches get their own suite (callback-oauth-hardening.test.ts).
+  readConnectorToken: vi.fn(async () => ({ ok: true, token: null })),
 }));
 
 vi.mock("@/lib/logger", () => ({

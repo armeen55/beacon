@@ -59,15 +59,26 @@ export const GSC_INSPECT_PER_RENDER_LIMIT = 5;
 const CACHE_TABLE = "gsc_url_inspections";
 
 /**
- * Read the operator-configured GSC property identifier. Returns null
- * when unset OR empty; adapter fail-softs to `null` signal. Never
- * hardcoded in source.
+ * Read the operator-configured GSC property identifier for ONE tenant.
+ * Returns null when unset OR empty; adapter fail-softs to `null` signal.
+ * Never hardcoded in source.
  */
-function getGscSiteUrl(): string | null {
+function getGscSiteUrl(tenantId: string): string | null {
+  // audit-wave5 #1 (CRITICAL tenant-isolation): BEACON_GSC_SITE_URL is a single
+  // process-global env (set during a backfill to ONE tenant's property). This
+  // adapter is called with EVERY tenant's id; an UNGATED env read would feed
+  // that one property into gscUrlInspect for ANY tenant, spending inspection
+  // quota against tenant A's property while caching the verdicts under tenant
+  // B's rows. Gate it to the tenant it was set for (mirrors the
+  // BEACON_TENANT_ID===tenantId pattern in sync-search-analytics'
+  // resolveProperty): every other tenant gets null and the adapter fail-softs
+  // to a null signal instead of reading a foreign property.
   const v = process.env.BEACON_GSC_SITE_URL;
+  const envTenant = process.env.BEACON_TENANT_ID;
   if (v == null) return null;
   const trimmed = v.trim();
   if (trimmed === "") return null;
+  if (envTenant == null || envTenant !== tenantId) return null;
   return trimmed;
 }
 
@@ -185,7 +196,7 @@ export async function loadGscSignal(
   if (tenantId == null || tenantId === "") return null;
   if (inspectionUrl == null || inspectionUrl === "") return null;
 
-  const siteUrl = getGscSiteUrl();
+  const siteUrl = getGscSiteUrl(tenantId);
   if (siteUrl == null) return null;
 
   // 1. Cache-read path — always attempted. Returns the cached entry

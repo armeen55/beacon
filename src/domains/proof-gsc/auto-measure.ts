@@ -37,8 +37,9 @@ export type AutoMeasureResult = {
   errors: number;
   /** Master plan N11: how many URL-Inspection calls this pass spent trying to
    *  confirm recrawl on rows still awaiting one. 0 when BEACON_GSC_SITE_URL is
-   *  unset (operator-substrate posture, same gate load-gsc-signal.ts uses) or
-   *  every due row already had a confirmed recrawl / a fresh cache entry. */
+   *  unset OR set for a DIFFERENT tenant (BEACON_TENANT_ID gate, the same
+   *  operator-substrate posture load-gsc-signal.ts uses) or every due row
+   *  already had a confirmed recrawl / a fresh cache entry. */
   recrawlInspections: number;
 };
 
@@ -58,8 +59,16 @@ async function prioritizeRecrawlInspections(
   due: ShippedChangeRecord[],
   now: Date,
 ): Promise<number> {
+  // audit-wave5 #1 (CRITICAL tenant-isolation): BEACON_GSC_SITE_URL is a single
+  // process-global env (set during a backfill to ONE tenant's property). The
+  // measure pass fans out over ALL active tenants; an UNGATED env read would
+  // spend URL-Inspection quota against that one property for EVERY tenant and
+  // cache foreign-property verdicts under each tenant's rows. Gate it to the
+  // tenant it was set for (mirrors the BEACON_TENANT_ID===tenantId pattern in
+  // sync-search-analytics' resolveProperty): every other tenant spends 0.
   const siteUrl = process.env.BEACON_GSC_SITE_URL?.trim();
-  if (!siteUrl) return 0;
+  const envTenant = process.env.BEACON_TENANT_ID;
+  if (!siteUrl || envTenant == null || envTenant !== tenantId) return 0;
 
   const rows = due.map((r) => ({
     id: r.id,

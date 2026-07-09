@@ -148,6 +148,17 @@ const ERROR_MESSAGES: Record<string, string> = {
   // Pre-fix this fell through to the raw "Connection error: not_authorized".
   not_authorized:
     "You declined the Google permission. Try connecting again and approve access.",
+  // Per-tenant OAuth never-erase guard (2026-07-09): Google gave no ongoing
+  // access and I could not safely keep the previous connection, so I changed
+  // nothing. The fix that always works: revoke Beacon's access on the Google
+  // side, then connect again so Google issues fresh ongoing access.
+  refresh_token_missing:
+    "Google did not give me ongoing access, so I kept everything unchanged. Click Connect to try again. If this happens twice, open myaccount.google.com/permissions, remove Beacon's access for this Google account, then click Connect again.",
+  // Per-tenant OAuth replace semantics (2026-07-09): a replacement picked a
+  // DIFFERENT Google account but Google gave no ongoing access for it, so the
+  // existing connection stays exactly as it was.
+  account_mismatch:
+    "That is a different Google account, and Google did not give me ongoing access for it, so I kept your current connection unchanged. To switch accounts, open myaccount.google.com/permissions signed in as the new account, remove Beacon's access, then click Replace Google account again.",
 };
 
 // #213, friendly catch-all for any error code we don't have explicit copy
@@ -171,11 +182,9 @@ const EXCHANGE_DETAIL_HINTS: Record<string, string> = {
     " Google rejected the request, usually a redirect-URI or client-config mismatch.",
 };
 
-/** #90 (2026-06-14), honest copy when Google returns no refresh token: the
- *  connection works for now but will stop on its own. Plain-English (no
- *  "refresh token" jargon) so a non-technical owner knows to reconnect. */
-const MISSING_REFRESH_TOKEN_WARNING =
-  "Google connected, but didn't grant ongoing access. This connection will stop working soon. Please click Connect again and allow access when Google asks.";
+// (The old #90 ?warning=missing_refresh_token degraded-success path was
+// removed 2026-07-09: the callback now never stores a grant without a usable
+// refresh token, so it redirects with ?error=refresh_token_missing instead.)
 
 function formatDate(iso: string | null): string {
   if (!iso) return "Never";
@@ -230,7 +239,8 @@ function ConnectorFixLine({
   // first-person problem ("Your GA4 login expired.") so the operator SEES which
   // connector broke and why, then the exact reconnect fix. A merely-stale sync
   // stays a single soft "Fix this" line (no alarming problem sentence).
-  const isDeadLogin = state === "token_expired" || state === "token_revoked";
+  // ("token_revoked" was removed 2026-07-09; expired covers both cases.)
+  const isDeadLogin = state === "token_expired";
   return (
     <div role="status" data-recovery-fix={state} className="space-y-0.5">
       {isDeadLogin ? (
@@ -316,11 +326,6 @@ export function ConnectorsClient({
   useEffect(() => {
     const err = searchParams.get("error");
     const connected = searchParams.get("connected");
-    // #90 (2026-06-14), Google returned no refresh token. The connection
-    // works now but will quietly die and can't self-heal; show an honest
-    // reconnect warning instead of a clean "connected successfully".
-    const warning = searchParams.get("warning");
-    const missingRefresh = warning === "missing_refresh_token";
     if (err) {
       const detail = searchParams.get("detail");
       const hint = detail ? (EXCHANGE_DETAIL_HINTS[detail] ?? ` (${detail})`) : "";
@@ -328,11 +333,7 @@ export function ConnectorsClient({
       window.history.replaceState(null, "", "/settings/connectors");
     }
     if (connected === "google_gsc") {
-      if (missingRefresh) {
-        setError(MISSING_REFRESH_TOKEN_WARNING);
-      } else {
-        setSuccess("Google Search Console connected successfully.");
-      }
+      setSuccess("Google Search Console connected successfully.");
       startTransition(async () => {
         const status = await getGoogleGscConnectorStatus();
         setGoogle(status);
@@ -340,13 +341,9 @@ export function ConnectorsClient({
       window.history.replaceState(null, "", "/settings/connectors");
     }
     if (connected === "google_ga4") {
-      if (missingRefresh) {
-        setError(MISSING_REFRESH_TOKEN_WARNING);
-      } else {
-        setSuccess(
-          "Google Analytics connected. Choose a property to finish setup.",
-        );
-      }
+      setSuccess(
+        "Google Analytics connected. Choose a property to finish setup.",
+      );
       startTransition(async () => {
         const status = await getGoogleGa4ConnectorStatus();
         setGa4(status);
@@ -399,6 +396,25 @@ export function ConnectorsClient({
         setError(
           ERROR_MESSAGES.env_missing,
         );
+      }
+    });
+  }
+
+  // Per-tenant OAuth (2026-07-09): deliberately swap the Google account
+  // behind a LIVE grant. The server action verifies a live grant exists and
+  // threads intent="replace" into the auth URL + signed state; Google shows
+  // the account chooser and mints a fresh refresh token for the chosen
+  // account. The callback fully overwrites the row only when that fresh
+  // refresh token actually arrives; otherwise nothing changes.
+  function handleReplaceGoogle(kind: "gsc" | "ga4") {
+    setError(null);
+    setSuccess(null);
+    startTransition(async () => {
+      const result = await getGoogleAuthUrl(kind, "replace");
+      if (result.url) {
+        window.location.href = result.url;
+      } else {
+        setError(ERROR_MESSAGES.env_missing);
       }
     });
   }
@@ -860,6 +876,18 @@ export function ConnectorsClient({
             <p className="text-[12px] text-muted-foreground">
               Authorized {formatDate(google.connected_at)}
             </p>
+            {/* Per-tenant OAuth (2026-07-09): which Google account this grant
+                belongs to. Older grants (before identity scopes) have no
+                email stored, so the line simply does not render until the
+                next connect or replace. */}
+            {google.google_account_email ? (
+              <p
+                className="text-[12px] text-muted-foreground"
+                data-google-account-email="gsc"
+              >
+                Connected as {google.google_account_email}
+              </p>
+            ) : null}
             {GBP_AFFORDANCES_ENABLED ? (
               <>
                 {selectedLocation ? (
@@ -908,6 +936,19 @@ export function ConnectorsClient({
               className="rounded-md bg-foreground px-3 py-1.5 text-[12px] font-medium text-background transition-colors hover:opacity-90 disabled:opacity-50"
             >
               {gscSyncPending ? "Syncing…" : "Pull my Search Console data"}
+            </button>
+            {/* Per-tenant OAuth (2026-07-09): swap the Google account behind
+                this live connection. Google shows the account chooser and
+                asks for fresh consent; the current connection stays untouched
+                until the new account actually grants ongoing access. */}
+            <button
+              type="button"
+              onClick={() => handleReplaceGoogle("gsc")}
+              disabled={isPending || anySync}
+              className="rounded-md border border-border/60 px-3 py-1.5 text-[12px] font-medium text-muted-foreground transition-colors hover:text-foreground hover:border-foreground/30 disabled:opacity-50"
+              title="Pick a different Google account for Search Console. I keep the current connection until the new account grants access."
+            >
+              Replace Google account
             </button>
             <button
               type="button"
@@ -1092,6 +1133,16 @@ export function ConnectorsClient({
             <p className="text-[12px] text-muted-foreground">
               Authorized {formatDate(ga4.connected_at)}
             </p>
+            {/* Per-tenant OAuth (2026-07-09): which Google account this grant
+                belongs to. Absent on older grants until the next connect. */}
+            {ga4.google_account_email ? (
+              <p
+                className="text-[12px] text-muted-foreground"
+                data-google-account-email="ga4"
+              >
+                Connected as {ga4.google_account_email}
+              </p>
+            ) : null}
             {ga4.ga4_property_id ? (
               <p className="text-[12px] text-muted-foreground">
                 Selected: {ga4.ga4_property_display_name ?? "Property"}
@@ -1136,6 +1187,18 @@ export function ConnectorsClient({
                 {ga4SyncPending ? "Syncing…" : "Pull my data now"}
               </button>
             ) : null}
+            {/* Per-tenant OAuth (2026-07-09): swap the Google account behind
+                this live connection; nothing changes until the new account
+                actually grants ongoing access. */}
+            <button
+              type="button"
+              onClick={() => handleReplaceGoogle("ga4")}
+              disabled={isPending || anySync}
+              className="rounded-md border border-border/60 px-3 py-1.5 text-[12px] font-medium text-muted-foreground transition-colors hover:text-foreground hover:border-foreground/30 disabled:opacity-50"
+              title="Pick a different Google account for Analytics. I keep the current connection until the new account grants access."
+            >
+              Replace Google account
+            </button>
             <button
               type="button"
               onClick={handleDisconnectGa4}

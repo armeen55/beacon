@@ -93,12 +93,14 @@ describe("google-auth", () => {
 
 // ─────────────────────────────────────────────────────────────────────
 // FIX 2 (OAUTH_ROOT_CAUSE_2026-07-09) — consent forced ONLY when the caller
-// has no live refresh token to keep. buildGoogleAuthUrl is the enforceable
-// unit: `forceConsent` drives `prompt`. The store-read decision (only force
-// consent when there is no live refresh token for the tenant+provider) lives
-// in getGoogleAuthUrl and passes the flag here.
+// has no live refresh token to keep. Superseded by the per-tenant OAuth
+// intent model (2026-07-09): every OAuth flow reachable through the product is
+// a DELIBERATE (re)authorization (connect / replace / reauth), ordinary syncs
+// never run OAuth, so every intent shows the account chooser AND forces a
+// fresh consent (the chosen account mints its own refresh token). The intent
+// decision (verified against the stored token) lives in getGoogleAuthUrl.
 // ─────────────────────────────────────────────────────────────────────
-describe("buildGoogleAuthUrl — FIX 2 conditional consent", () => {
+describe("buildGoogleAuthUrl — per-tenant OAuth intent model", () => {
   beforeEach(() => {
     vi.stubEnv("GOOGLE_CLIENT_ID", "cid.apps.googleusercontent.com");
     vi.stubEnv("NEXT_PUBLIC_APP_URL", "http://localhost:3000");
@@ -107,25 +109,38 @@ describe("buildGoogleAuthUrl — FIX 2 conditional consent", () => {
     vi.unstubAllEnvs();
   });
 
-  it("defaults to prompt=consent (first connect / reconnect-after-death path)", () => {
+  it("defaults to intent=connect: account chooser + consent, offline access, granted scopes carried", () => {
     const url = new URL(buildGoogleAuthUrl("gsc", "s"));
-    expect(url.searchParams.get("prompt")).toBe("consent");
-    // Offline access preserved so a genuine first consent still mints a
-    // refresh token; granted scopes carried forward so re-auth never narrows.
+    expect(url.searchParams.get("prompt")).toBe("consent select_account");
+    // Offline access preserved so a consent mints a refresh token; granted
+    // scopes carried forward so a per-kind re-auth never narrows the grant.
     expect(url.searchParams.get("access_type")).toBe("offline");
     expect(url.searchParams.get("include_granted_scopes")).toBe("true");
   });
 
-  it("forceConsent=true → prompt=consent", () => {
-    const url = new URL(buildGoogleAuthUrl("gsc", "s", true));
-    expect(url.searchParams.get("prompt")).toBe("consent");
+  it("every deliberate intent (connect / replace / reauth) shows the chooser AND forces consent", () => {
+    for (const intent of ["connect", "replace", "reauth"] as const) {
+      const url = new URL(buildGoogleAuthUrl("gsc", "s", intent));
+      expect(url.searchParams.get("prompt")).toBe("consent select_account");
+      expect(url.searchParams.get("access_type")).toBe("offline");
+    }
   });
 
-  it("forceConsent=false → prompt=select_account, never consent (mints NO new refresh token)", () => {
-    const url = new URL(buildGoogleAuthUrl("gsc", "s", false));
-    expect(url.searchParams.get("prompt")).toBe("select_account");
-    expect(url.searchParams.get("prompt")).not.toBe("consent");
-    expect(url.searchParams.get("access_type")).toBe("offline");
+  it("LEAST-PRIVILEGE SCOPES stay separate per kind; only identity scopes ride along", () => {
+    // Operator regression (f): the GSC flow must never request the GA4 scope
+    // and vice versa; openid + email are the only shared (identity) scopes.
+    const gsc = new URL(buildGoogleAuthUrl("gsc", "s")).searchParams.get("scope") ?? "";
+    const ga4 = new URL(buildGoogleAuthUrl("ga4", "s")).searchParams.get("scope") ?? "";
+    expect(gsc).toContain("https://www.googleapis.com/auth/webmasters.readonly");
+    expect(gsc).toContain("openid");
+    expect(gsc).toContain("email");
+    expect(gsc).not.toContain("analytics.readonly");
+    expect(gsc).not.toContain("business.manage");
+    expect(ga4).toContain("https://www.googleapis.com/auth/analytics.readonly");
+    expect(ga4).toContain("openid");
+    expect(ga4).toContain("email");
+    expect(ga4).not.toContain("webmasters.readonly");
+    expect(ga4).not.toContain("business.manage");
   });
 });
 

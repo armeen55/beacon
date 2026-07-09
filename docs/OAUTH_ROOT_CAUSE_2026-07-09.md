@@ -61,15 +61,15 @@ provider, `payload` jsonb holding `access_token` / `refresh_token` / `expires_at
   if Google ever returns a new refresh token the app keeps using the OLD one. If the old one was
   invalidated by the rotation, the next refresh is `invalid_grant`. Google usually does not
   rotate on the web-server offline flow, so this is a real but lower-probability primary cause.
-- (d) Same account connected for multiple providers/tenants, 50-refresh-token cap: PRESENT and
+- (d) Same account connected for multiple providers/tenants, 100-refresh-token cap: PRESENT and
   material. All three providers use ONE `GOOGLE_CLIENT_ID` and one Google account, each with its
-  own separate consent and separate refresh token. Google enforces ~50 refresh tokens per
-  (client, account); the 51st silently revokes the OLDEST, which can be an ACTIVE token for a
+  own separate consent and separate refresh token. Google documents a limit of 100 refresh tokens per
+  (client, account); exceeding it silently revokes the OLDEST, which can be an ACTIVE token for a
   DIFFERENT provider. That reads as a random provider dying "every few days."
 - (e) `prompt=consent` + `access_type=offline` on EVERY login mints a NEW refresh token per
   login: PRESENT (google-auth.ts:241-242). Combined with (d) and the app's own aggressive
   "Reconnect Google" prompting, this is a vicious cycle: a token dies, the operator reconnects,
-  `prompt=consent` mints yet another token toward the 50 cap, and the oldest live token gets
+  `prompt=consent` mints yet another token toward the 100 cap, and the oldest live token gets
   revoked, killing another provider.
 - (f) Providers sharing one payload row/key: NOT PRESENT. Composite PK is `tenant_id,provider`
   and each provider stores a separate row with its own refresh token (connector-store.ts:673-681,
@@ -83,7 +83,7 @@ provider, `payload` jsonb holding `access_token` / `refresh_token` / `expires_at
    7-day refresh-token expiry on production-but-unverified apps that use sensitive scopes. The
    "every few days" interval is the tell (it is ~7 days). Not a code bug; a Console verification
    step. Code CANNOT fix it but MUST log lifetime so it is provable in one look.
-2. MEDIUM confidence: refresh-token churn against the 50-per-account cap, caused by hardcoded
+2. MEDIUM confidence: refresh-token churn against the 100-per-account cap, caused by hardcoded
    `prompt=consent` (google-auth.ts:241) plus three providers on one client/account plus the
    reconnect vicious cycle. This kills a provider the operator did NOT just touch, looking random.
 3. MEDIUM-LOW confidence: rotated refresh tokens silently discarded (google-auth.ts:331-332). A
@@ -110,7 +110,7 @@ provider, `payload` jsonb holding `access_token` / `refresh_token` / `expires_at
 - Optional hardening for cause #2 exhaustion: at the callback (route.ts, after a successful save),
   or in a small maintenance pass, call Google's token-revocation endpoint on the PRIOR refresh
   token before minting a replacement, so a reconnect frees a slot instead of consuming one toward
-  the 50 cap.
+  the 100 cap.
 - Optional for cause #4: dedupe concurrent refreshes for a (tenant, provider) with an in-process
   single-flight guard so cron + on-render + stamp-probe share one refresh result.
 
@@ -131,7 +131,74 @@ printing the token itself:
 - `provider`, `trigger` (cron vs shell-render vs stamp-probe vs on-demand), and a per-request id,
   so the concurrency (cause #4) and cross-provider kills (cause #2) are visible in one grep.
 - A mint ledger: on every successful callback save, log `provider` + `refresh_fp` + `connected_at`.
-  Watching `refresh_fp` values accumulate for the one account is how you SEE the 50-cap approach
+  Watching `refresh_fp` values accumulate for the one account is how you SEE the 100-cap approach
   and prove cause #2, and it also shows exactly when an old provider token was displaced.
 - Persist `refresh_fp` and `issued_at` onto the payload at callback time so a later death can be
   compared to the mint record without reconstructing history.
+
+---
+
+## VERIFIED CORRECTION (2026-07-09, adversarial audit; supersedes the ranked list above)
+
+An 11-agent proof audit (code trace + live Google documentation + independent skeptics per
+claim) re-tested every claim in this doc. Corrections, each with the deciding evidence:
+
+1. **Cause #1 above is REFUTED.** Google ties the 7-day refresh-token expiry ONLY to consent
+   screens with publishing status "Testing" (developers.google.com/identity/protocols/oauth2:
+   "a publishing status of 'Testing' is issued a refresh token expiring in 7 days"). No Google
+   doc applies a 7-day lifetime to In-production apps with unverified sensitive scopes; the
+   documented consequence of requesting an undeclared/unverified sensitive scope is the
+   unverified-app warning screen plus a 100-new-user LIFETIME cap
+   (support.google.com/cloud/answer/7454865), which is exactly the operator's Audience gauge
+   (2/100). The app IS "In production" (operator console screenshots, 2026-07-09), so the
+   Testing rule does not apply. Two independent skeptics refuted the old claim; one confirmed
+   the Testing-only reading.
+2. **The real, confirmed killers were causes #2 and #3** (both fixed in b3f4a59b, this branch):
+   unconditional `prompt=consent` minting a fresh refresh token on every connect against the
+   100-tokens-per-account documented limit (oldest silently revoked, reads as a random provider dying), and
+   refresh results never persisted (stale `expires_at` forced constant re-refreshing, and any
+   Google-side rotation was silently discarded, bricking the grant). Why GA4 died faster than
+   GSC is not documented by Google; the best-supported code-level explanation is GA4's heavier
+   unpersisted refresh traffic (7+ refresh sites) plus cap-eviction ordering. We say "best
+   supported", not proven.
+3. **NEW verified hole (bug-class (a) was wrongly ruled out above):** the callback preserve-merge
+   no-ops when the stored-token read soft-fails (connector-store.ts getConnectorToken returns
+   null on transient errors), after which the full-row upsert writes `refresh_token: ""` over a
+   healthy token. Rare on main (consent almost always returns a refresh token) but MATERIAL once
+   `select_account` is the default, because refresh-token-less responses become normal. Fixed in
+   the per-tenant OAuth wave (never-erase guard, fail-closed).
+4. **Tenant isolation:** token grants are strictly tenant-scoped end to end (composite PK, signed
+   state carries the tenant, callback verifies membership, middleware strips inbound tenant
+   headers). Two violations found and fixed: `BEACON_GSC_SITE_URL` was read UNGATED in the
+   gsc-signal loader and the auto-measure recrawl path (the nightly sync already gated it with
+   `envTenant === tenantId`), letting the founder property leak onto other tenants for
+   URL-inspection reads.
+
+## Architecture decision (operator, 2026-07-09)
+
+Per-tenant OAuth is Beacon's canonical Google architecture: each tenant owns its GSC grant, GA4
+grant, and GA4 property; account choice via Google's chooser (`select_account`); consent only on
+first authorization, explicit replacement, or a proven dead grant; a non-empty stored refresh
+token is never overwritten by an empty response; no global Google credential fallback. The
+service-account path was rejected and parked (commit 31af9539, reverted by 90cebafb, never
+deployed). Do not ask for GOOGLE_SERVICE_ACCOUNT_* env vars.
+
+## Operator checklist, Google Cloud Console (NO new service-account keys)
+
+1. Publishing status: already "In production" per your screenshots. Nothing to do.
+2. Declare the GA4 scope: Google Auth Platform > Data Access > Add or remove scopes > add
+   `https://www.googleapis.com/auth/analytics.readonly`, save.
+3. Submit verification for that scope (Verification Center will start asking once a sensitive
+   scope is declared): you will need the app's privacy-policy URL on your own domain, proof of
+   domain ownership in Search Console, a short screen recording of the OAuth grant flow, and a
+   one-paragraph justification ("Beacon reads the site owner's own GA4 traffic data to report
+   their website performance back to them"). Google states up to 10 days
+   (developers.google.com/identity/protocols/oauth2/production-readiness/sensitive-scope-verification).
+   Until verified, GA4 connects show the unverified-app warning and count against the 100-user
+   lifetime cap; with 1-2 operators that cap is not an immediate risk.
+4. Keep the existing OAuth client ID, client secret, and BEACON_OAUTH_STATE_SECRET exactly as
+   they are. No other Console changes.
+
+Claiming "permanently fixed" is gated on manual verification: Ritz connected with its intended
+Google account, Iranopedia with its own, both refreshing independently past a week, and a Ritz
+replace demonstrably not touching Iranopedia.

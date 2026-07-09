@@ -44,11 +44,13 @@ describe("google-auth scope split — GSC", () => {
     expect(scope).not.toContain("business.manage");
   });
 
-  it("GSC auth URL requests EXACTLY ONE scope", () => {
+  it("GSC auth URL requests EXACTLY ONE data scope (plus the openid+email identity scopes)", () => {
+    // Per-tenant OAuth (2026-07-09): the least-privilege DATA scope stays
+    // single per kind; openid + email ride along for account identity only.
     const url = new URL(buildGoogleAuthUrl("gsc", "signed-state-token"));
-    const scope = url.searchParams.get("scope") ?? "";
-    // Space-separated count: one scope = no separators.
-    expect(scope.split(/\s+/).filter(Boolean)).toHaveLength(1);
+    const parts = (url.searchParams.get("scope") ?? "").split(/\s+/).filter(Boolean);
+    expect(parts.filter((s) => s.includes("googleapis.com/auth/"))).toHaveLength(1);
+    expect(parts.sort()).toEqual([GSC_SCOPE, "email", "openid"].sort());
   });
 });
 
@@ -66,10 +68,11 @@ describe("google-auth scope split — GBP", () => {
     expect(scope).not.toContain("webmasters");
   });
 
-  it("GBP auth URL requests EXACTLY ONE scope", () => {
+  it("GBP auth URL requests EXACTLY ONE data scope (plus the openid+email identity scopes)", () => {
     const url = new URL(buildGoogleAuthUrl("gbp", "signed-state-token"));
-    const scope = url.searchParams.get("scope") ?? "";
-    expect(scope.split(/\s+/).filter(Boolean)).toHaveLength(1);
+    const parts = (url.searchParams.get("scope") ?? "").split(/\s+/).filter(Boolean);
+    expect(parts.filter((s) => s.includes("googleapis.com/auth/"))).toHaveLength(1);
+    expect(parts.sort()).toEqual([GBP_SCOPE, "email", "openid"].sort());
   });
 });
 

@@ -67,14 +67,40 @@ const GBP_SCOPE = "https://www.googleapis.com/auth/business.manage";
  */
 const GA4_SCOPE = "https://www.googleapis.com/auth/analytics.readonly";
 
-/** Per-kind single scope. Each OAuth flow requests exactly one. */
+/** Per-kind single DATA scope. Each OAuth flow requests exactly one of these. */
 const SCOPES: Record<GoogleConnectorKind, string> = {
   gsc: GSC_SCOPE,
   gbp: GBP_SCOPE,
   ga4: GA4_SCOPE,
 };
 
+/**
+ * Basic identity scopes requested ALONGSIDE the single data scope per kind
+ * (per-tenant OAuth, 2026-07-09). These are Google's standard sign-in scopes:
+ * they carry no sensitive-data access and no OAuth-verification impact, and
+ * they let the token response include an id_token from which we read the
+ * signed-in account's stable id (sub) + email. That identity is what lets the
+ * callback prove a re-consent is the SAME Google account before retaining a
+ * stored refresh token, and lets the connector card show "Connected as <email>".
+ * The least-privilege DATA scopes stay separate per kind and are NEVER bundled
+ * with each other; only these two universal identity scopes ride along.
+ */
+const IDENTITY_SCOPES: readonly string[] = ["openid", "email"];
+
 export type GoogleConnectorKind = "gsc" | "gbp" | "ga4";
+
+/**
+ * Why the operator initiated this OAuth flow (per-tenant OAuth, 2026-07-09):
+ *   • "connect" - first authorization for this tenant+kind (no grant yet).
+ *   • "replace" - the operator deliberately swaps the Google account behind a
+ *     LIVE grant (mints a fresh refresh token for the newly chosen account).
+ *   • "reauth"  - reconnect a dead / soft-disconnected grant.
+ * Every one of these is a deliberate (re)authorization, so all three show the
+ * account chooser AND force consent. Ordinary syncs/refreshes NEVER run OAuth.
+ * The intent is carried in the signed state so the callback can log it and
+ * apply replacement semantics.
+ */
+export type OAuthIntent = "connect" | "replace" | "reauth";
 
 export const GOOGLE_CALLBACK_PATH = "/api/connectors/google/callback";
 
@@ -84,6 +110,9 @@ type GoogleTokenResponse = {
   expires_in: number;
   token_type: string;
   scope: string;
+  /** OpenID Connect id_token (present because we request the openid + email
+   *  identity scopes). Decoded server-side to read the account sub + email. */
+  id_token?: string;
 };
 
 function getClientId(): string {
@@ -122,6 +151,10 @@ export type OAuthStatePayload = {
   n: string;
   /** Issued-at unix-ms. */
   i: number;
+  /** Intent that started this flow (per-tenant OAuth, 2026-07-09). Optional so
+   *  older in-flight states (< 10 min TTL) still decode; absent is treated as
+   *  "connect". Carried so the callback can log it + apply replace semantics. */
+  x?: OAuthIntent;
 };
 
 function b64urlEncode(buf: Buffer): string {
@@ -211,7 +244,12 @@ export function decodeOAuthState(raw: string | null | undefined): OAuthStateDeco
   if (Date.now() - p.i > STATE_MAX_AGE_MS) {
     return { ok: false, reason: "expired" };
   }
-  return { ok: true, payload: { k: p.k, t: p.t, n: p.n, i: p.i } };
+  // Intent is optional; an unrecognized/absent value defaults to "connect" so a
+  // tampered or legacy state can never widen semantics (worst case: a chooser +
+  // consent, which is always safe).
+  const intent: OAuthIntent =
+    p.x === "replace" || p.x === "reauth" ? p.x : "connect";
+  return { ok: true, payload: { k: p.k, t: p.t, n: p.n, i: p.i, x: intent } };
 }
 
 // ─────────────────────────────────────────────────────────────────────
@@ -232,7 +270,7 @@ export function decodeOAuthState(raw: string | null | undefined): OAuthStateDeco
 export function buildGoogleAuthUrl(
   kind: GoogleConnectorKind,
   state: string,
-  forceConsent: boolean = true,
+  intent: OAuthIntent = "connect",
 ): string {
   if (state == null || state === "") {
     throw new Error("buildGoogleAuthUrl: state parameter is required");
@@ -241,26 +279,38 @@ export function buildGoogleAuthUrl(
     client_id: getClientId(),
     redirect_uri: getRedirectUri(),
     response_type: "code",
-    scope: SCOPES[kind],
+    // The single least-privilege DATA scope for this kind PLUS the universal
+    // identity scopes (openid + email). Space-separated; URLSearchParams
+    // URL-encodes the spaces. The data scopes are never bundled ACROSS kinds -
+    // a GSC flow still never asks for analytics.readonly, and vice versa.
+    scope: [SCOPES[kind], ...IDENTITY_SCOPES].join(" "),
     access_type: "offline",
-    // FIX 2 (OAUTH_ROOT_CAUSE_2026-07-09): only FORCE a new refresh token
-    // when the caller has no live one to keep (first connect, or a reconnect
-    // after death). Re-authing a HEALTHY grant with prompt=consent mints a
-    // brand-new refresh token every single time, churning Google's ~50
-    // refresh-tokens-per-account cap; the 51st silently revokes the OLDEST
-    // live token, often for a DIFFERENT provider — which reads as a random
-    // connector dying every few days. When a live refresh token already
-    // exists, prompt=select_account re-auths WITHOUT minting another.
-    // access_type=offline is kept so a genuine first consent still yields a
-    // refresh token. The forceConsent decision is made at the call site,
-    // which (unlike this sync builder) can read the token store.
-    prompt: forceConsent ? "consent" : "select_account",
+    // Per-tenant OAuth (2026-07-09): every OAuth flow reachable here is a
+    // deliberate (re)authorization - a first connect, an explicit "Replace
+    // Google account", or a reconnect after death. Ordinary syncs/refreshes
+    // NEVER run OAuth, so there is no accidental re-consent of a HEALTHY grant
+    // to protect against (the old refresh-token-cap-churn failure mode). All
+    // three intents therefore show the account chooser (select_account) AND
+    // force a fresh consent so the chosen account mints its own refresh token.
+    // Google accepts space-separated prompt values; the space is URL-encoded.
+    prompt: promptForIntent(intent),
     // Carry forward scopes the account already granted this client so a
     // per-kind re-auth never silently narrows an existing grant.
     include_granted_scopes: "true",
     state,
   });
   return `${GOOGLE_AUTH_ENDPOINT}?${params.toString()}`;
+}
+
+/** Map an OAuth intent to Google's `prompt` value. All operator-initiated
+ *  flows show the chooser and force consent (see buildGoogleAuthUrl). */
+function promptForIntent(intent: OAuthIntent): string {
+  switch (intent) {
+    case "connect":
+    case "replace":
+    case "reauth":
+      return "consent select_account";
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────
@@ -308,6 +358,68 @@ export async function exchangeGoogleCode(
   return (await res.json()) as GoogleTokenResponse;
 }
 
+/** The Google account behind a grant, read from the id_token. */
+export type GoogleAccountIdentity = {
+  /** Stable, opaque Google account id (`sub`). Never changes for an account,
+   *  never the email (which can change). This is the identity we compare on. */
+  sub: string;
+  /** The account's email, when the `email` scope was granted. Display-only. */
+  email?: string;
+};
+
+/**
+ * Decode the account identity (sub + email) from Google's id_token
+ * (per-tenant OAuth, 2026-07-09).
+ *
+ * WHY signature verification is NOT needed here: this id_token arrives ONLY as
+ * the body of a direct, server-to-server HTTPS POST that WE made to Google's
+ * token endpoint (oauth2.googleapis.com) using our client secret, over TLS.
+ * There is no untrusted party in that channel who could forge or swap the
+ * token, so fetching Google's JWKS to verify the JWT signature would add a
+ * network dependency and failure mode for zero security gain. We still
+ * sanity-check `iss` (must be Google) and `aud` (must be OUR client id) so a
+ * malformed or misrouted token is rejected rather than trusted. (If this token
+ * ever came from an UNtrusted channel - e.g. a browser redirect - full
+ * signature verification WOULD be required.)
+ *
+ * Fail-soft: returns null on any missing/malformed/unexpected token so callers
+ * simply treat the account as "unknown" (older grants render without the email
+ * line and skip the same-account check).
+ */
+export function decodeGoogleIdToken(
+  idToken: string | null | undefined,
+): GoogleAccountIdentity | null {
+  if (idToken == null || idToken === "") return null;
+  const parts = idToken.split(".");
+  // A JWT is header.payload.signature; we only read the middle payload segment.
+  if (parts.length < 2 || !parts[1]) return null;
+  let payload: unknown;
+  try {
+    payload = JSON.parse(b64urlDecode(parts[1]).toString("utf-8"));
+  } catch {
+    return null;
+  }
+  if (payload == null || typeof payload !== "object") return null;
+  const p = payload as {
+    sub?: unknown;
+    email?: unknown;
+    iss?: unknown;
+    aud?: unknown;
+  };
+  // iss must be Google's issuer (both forms Google uses are accepted).
+  if (p.iss !== "accounts.google.com" && p.iss !== "https://accounts.google.com") {
+    return null;
+  }
+  // aud must be OUR OAuth client id. Skip the check only if the client id is
+  // somehow unreadable (never in the callback, where the exchange already used it).
+  const clientId = process.env.GOOGLE_CLIENT_ID;
+  if (clientId != null && clientId !== "" && p.aud !== clientId) return null;
+  if (typeof p.sub !== "string" || p.sub === "") return null;
+  const email =
+    typeof p.email === "string" && p.email !== "" ? p.email : undefined;
+  return { sub: p.sub, email };
+}
+
 /**
  * FIX 4 (OAUTH_ROOT_CAUSE_2026-07-09): a NON-REVERSIBLE fingerprint of a
  * refresh token — the first 8 hex of its sha256. Lets logs prove WHICH
@@ -337,10 +449,50 @@ export type RefreshTokenContext = {
   connectedAt?: string;
 };
 
+type RefreshedGoogleToken = {
+  access_token: string;
+  expires_in: number;
+  refresh_token?: string;
+};
+
+/**
+ * Single-flight dedupe of concurrent refreshes (per-tenant OAuth, 2026-07-09).
+ * The cron fan-out, an on-render sync, and the freshness probe can all try to
+ * refresh the SAME (tenant, provider) grant near-simultaneously. Racing those
+ * calls burns quota and, when Google rotates the refresh token, can persist a
+ * stale rotation out of order. Concurrent callers with the same key now share
+ * ONE in-flight refresh promise (the module-level in-flight-map pattern used
+ * elsewhere, e.g. the auto-measure throttle). Keyed by tenant:provider; a
+ * caller without that context (no key) falls through to a direct refresh.
+ * In-process only, which matches where the races actually happen (one lambda
+ * or one dev server fanning out over tenants in a single process).
+ */
+const inFlightRefreshes = new Map<string, Promise<RefreshedGoogleToken>>();
+
 export async function refreshGoogleAccessToken(
   refreshToken: string,
   context?: RefreshTokenContext,
-): Promise<{ access_token: string; expires_in: number; refresh_token?: string }> {
+): Promise<RefreshedGoogleToken> {
+  const key =
+    context?.tenantId && context?.provider
+      ? `${context.tenantId}:${context.provider}`
+      : null;
+  if (key == null) return doRefreshGoogleAccessToken(refreshToken, context);
+  const existing = inFlightRefreshes.get(key);
+  if (existing != null) return existing;
+  const flight = doRefreshGoogleAccessToken(refreshToken, context).finally(
+    () => {
+      inFlightRefreshes.delete(key);
+    },
+  );
+  inFlightRefreshes.set(key, flight);
+  return flight;
+}
+
+async function doRefreshGoogleAccessToken(
+  refreshToken: string,
+  context?: RefreshTokenContext,
+): Promise<RefreshedGoogleToken> {
   const refreshFp = refreshTokenFingerprint(refreshToken);
   const body = new URLSearchParams({
     refresh_token: refreshToken,

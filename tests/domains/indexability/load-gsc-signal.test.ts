@@ -121,6 +121,11 @@ beforeEach(() => {
   _adminThrows = false;
   _gscUrlInspectSpy.mockReset();
   vi.stubEnv("BEACON_GSC_SITE_URL", "sc-domain:example.com");
+  // audit-wave5 #1 (tenant isolation): the env property only applies to the
+  // tenant BEACON_TENANT_ID names. These suites exercise the signal path for
+  // TENANT_ID, so the gate env must name the same tenant (the leak test below
+  // pins the cross-tenant null).
+  vi.stubEnv("BEACON_TENANT_ID", TENANT_ID);
 });
 
 afterEach(() => {
@@ -400,13 +405,27 @@ describe("loadGscSignal — locked constants", () => {
     expect(__testing.CACHE_TABLE).toBe("gsc_url_inspections");
   });
 
-  it("getGscSiteUrl returns trimmed env value", () => {
+  it("getGscSiteUrl returns trimmed env value for the tenant the env was set for", () => {
     vi.stubEnv("BEACON_GSC_SITE_URL", "  sc-domain:trimmed.example.com  ");
-    expect(__testing.getGscSiteUrl()).toBe("sc-domain:trimmed.example.com");
+    vi.stubEnv("BEACON_TENANT_ID", "tenant-env-owner");
+    expect(__testing.getGscSiteUrl("tenant-env-owner")).toBe("sc-domain:trimmed.example.com");
   });
 
   it("getGscSiteUrl returns null on empty / whitespace env", () => {
     vi.stubEnv("BEACON_GSC_SITE_URL", "   ");
-    expect(__testing.getGscSiteUrl()).toBeNull();
+    vi.stubEnv("BEACON_TENANT_ID", "tenant-env-owner");
+    expect(__testing.getGscSiteUrl("tenant-env-owner")).toBeNull();
+  });
+
+  it("TENANT ISOLATION (audit-wave5 #1): the env property NEVER leaks onto another tenant", () => {
+    // BEACON_GSC_SITE_URL names ONE tenant's Search Console property. Any other
+    // tenant asking must get null (fail-soft to no signal), never a foreign
+    // property identity. Mirrors sync-search-analytics' resolveProperty gate.
+    vi.stubEnv("BEACON_GSC_SITE_URL", "sc-domain:founder.example.com");
+    vi.stubEnv("BEACON_TENANT_ID", "tenant-env-owner");
+    expect(__testing.getGscSiteUrl("tenant-somebody-else")).toBeNull();
+    // And when the gate env is absent entirely, nobody gets the property.
+    vi.stubEnv("BEACON_TENANT_ID", "");
+    expect(__testing.getGscSiteUrl("tenant-env-owner")).toBeNull();
   });
 });

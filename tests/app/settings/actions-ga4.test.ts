@@ -149,12 +149,15 @@ beforeEach(() => {
 // ─────────────────────────────────────────────────────────────────────
 
 describe("getGoogleAuthUrl('ga4')", () => {
-  it("returns a URL whose scope query param is analytics.readonly", async () => {
+  it("returns a URL whose DATA scope is analytics.readonly (plus the openid+email identity scopes)", async () => {
+    // Per-tenant OAuth (2026-07-09): the single least-privilege data scope per
+    // kind is unchanged; the basic identity scopes ride along so the callback
+    // can read the account's sub + email ("Connected as <email>").
     const r = await getGoogleAuthUrl("ga4");
     expect(r.url).not.toBeNull();
     const u = new URL(r.url!);
     expect(u.searchParams.get("scope")).toBe(
-      "https://www.googleapis.com/auth/analytics.readonly",
+      "https://www.googleapis.com/auth/analytics.readonly openid email",
     );
   });
 
