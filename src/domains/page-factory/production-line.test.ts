@@ -69,6 +69,13 @@ const GOOD_BRIEF: CreatePageBrief = {
   schemaTypes: ["Article"],
   // W5 P1-4 (2026-07-09): the factual openingAnswer carries a generation-time
   // verified source so it clears the brief source gate.
+  // Task #230 (2026-07-10): the source gate now requires the source's OWN
+  // supportingExcerpt to actually COVER every protected sentence in the
+  // opening (the same per-sentence check verifyStampedSources populates at
+  // generation time via findSupportingSpan against the fetched page) - a
+  // bare `claim` string is no longer enough. This excerpt names the same
+  // entities (Persian New Year, Hijri calendar, Iran, Persian diaspora) the
+  // opening states, exactly as Britannica's own Nowruz entry does.
   sources: [
     {
       url: "https://www.britannica.com/topic/Nowruz",
@@ -78,6 +85,8 @@ const GOOD_BRIEF: CreatePageBrief = {
       claim: "Nowruz is the Persian New Year marking the first day of spring",
       authority: "authoritative",
       verified: true,
+      supportingExcerpt:
+        "Nowruz, the Persian New Year, marks the first day of spring and the beginning of the solar Hijri calendar. It is celebrated across Iran and by communities of the Persian diaspora with rituals of renewal.",
     },
   ],
   evidenceRefs: [{ source: "gsc", detail: "test" }],

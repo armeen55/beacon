@@ -593,7 +593,20 @@ describe("W5 (2026-07-09, J-69/J-70): authoritativeSourceDomains + firstMention 
     // authoritative source, so the fixture carries verified:true; the test's
     // point is that A's allowlist raises authority (-> ready) while B's does not
     // (-> missing_source), independent of verification.
-    const source = { domain: "sample-museum.org", claim: "the collection catalog lists over 3000 artifacts", verified: true };
+    // Task #230 (2026-07-10): the source gate now requires the source's own
+    // supportingExcerpt to COVER every protected sentence of FACTUAL_DRAFT
+    // (the number + "The Sample Museum's", "Curators", and "Visiting"
+    // sentences), the same per-sentence check verifyStampedSources populates
+    // at generation time - a bare `claim` string no longer suffices. This
+    // excerpt is what the museum's own published records/catalog/visitor
+    // policy would state to confirm each of those sentences.
+    const source = {
+      domain: "sample-museum.org",
+      claim: "the collection catalog lists over 3000 artifacts",
+      verified: true,
+      supportingExcerpt:
+        "The Sample Museum's collection catalog lists over 3000 artifacts spanning several centuries of regional history, confirmed in the museum's own published catalog. Curators rotate roughly a fifth of the collection into public view each year, pairing objects with short written histories drawn from acquisition records and donor correspondence, according to the museum's own published records. Visiting researchers may request access to unpublished archival material by written appointment, as described in the museum's own published visitor policy.",
+    };
     expect(classifySourceAuthority(source, a.authoritativeSourceDomains)).toBe("authoritative");
     expect(classifySourceAuthority(source, b.authoritativeSourceDomains)).toBe("weak");
 
