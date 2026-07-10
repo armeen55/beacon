@@ -193,11 +193,25 @@ describe("/diagnostics/indexability — GSC opt-in (A.3.b1.beta)", () => {
 });
 
 describe("/diagnostics/indexability — GSC summary tile", () => {
-  it("renders BEACON_GSC_SITE_URL value", async () => {
+  it("renders BEACON_GSC_SITE_URL value for the tenant it was set for (P2-1 gate)", async () => {
+    // P2-1: the page only prints the env property string when
+    // BEACON_TENANT_ID matches the rendering tenant (the mocked "tenant-a").
+    vi.stubEnv("BEACON_TENANT_ID", TENANT);
     const tree = await OperatorIndexabilityDiagnosticsPage({});
     const html = renderToStaticMarkup(tree);
     expect(html).toContain("GSC site URL");
     expect(html).toContain("sc-domain:example.com");
+  });
+
+  it("P2-1 isolation: a DIFFERENT tenant never sees another tenant's property string", async () => {
+    // Same BEACON_GSC_SITE_URL, but the env was set for some other tenant:
+    // this tenant's diagnostics must render the honest "(unset)", never leak
+    // the foreign property string.
+    vi.stubEnv("BEACON_TENANT_ID", "tenant-someone-else");
+    const tree = await OperatorIndexabilityDiagnosticsPage({});
+    const html = renderToStaticMarkup(tree);
+    expect(html).toContain("(unset)");
+    expect(html).not.toContain("sc-domain:example.com");
   });
 
   it("renders '(unset)' when BEACON_GSC_SITE_URL is empty", async () => {
