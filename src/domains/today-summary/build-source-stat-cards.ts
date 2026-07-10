@@ -15,7 +15,10 @@
  *   GA4) yields an EMPTY Map → no card. A source with real raw data
  *   must never be hidden by a connect check. Concretely:
  *     - GSC:     emit iff site-totals is non-null AND impressions90d > 0
- *     - GA4:     emit iff Σ sessions28d > 0   (connected-but-empty → no card)
+ *     - GA4:     NEVER emits (Wave 1 P1, 2026-07-10) - the sessions sum
+ *                across per-page rows is a false sitewide total; see
+ *                buildGa4Card below. Withheld until Wave 2's true
+ *                property-grain rollup exists.
  *     - SEMrush: emit iff the Map is non-empty
  *     - Clarity: emit iff Σ sessions > 0
  *     - AEO:     emit iff the KPIs object is non-null
@@ -327,36 +330,31 @@ function buildGscCard(
 }
 
 /**
- * GA4 card: sessions + engaged-session rate + conversions over 28d.
- * Gate on Σ sessions > 0 — a connected-but-empty GA4 (Iranopedia: 0
- * rows) returns an empty Map and MUST NOT render a "0 sessions" card.
+ * GA4 card - REMOVED (Wave 1 adversarial review P1, 2026-07-10).
+ *
+ * This used to sum `v.sessions28d` across every per-URL `ga4_url_traffic`
+ * row and render the total as a "Visits (28 days)" stat under a "Website
+ * visits" card. GA4 sessions are NOT additive across page paths - a single
+ * visit that touches several pages appears in several per-page rows, so
+ * the sum materially inflates the real sitewide visit count. This is the
+ * SAME false-total class the north star's P0-A fix removed (see
+ * `src/domains/north-star/monthly-pulse.ts`); it was dormant here only
+ * because Iranopedia has zero GA4 rows - any GA4-connected tenant would
+ * have rendered an inflated number.
+ *
+ * We do not invent a replacement inferred number (e.g. rescaling the
+ * engaged-rate or conversions stats, which are derived from the same
+ * non-additive per-page sum) to stand in for it. Unlike the north star's
+ * single hero metric, this card has no other honest number worth a slot
+ * in the Today stat-card grid on its own, so it simply self-hides - same
+ * "gate on data presence, not connector status" contract as every other
+ * card here, just with the presence check now always failing until the
+ * true property-grain GA4 rollup exists (Wave 2's job; do not resurrect
+ * the summing shape). Per-page `Ga4PageValue` consumers elsewhere are
+ * untouched.
  */
-function buildGa4Card(ga4: Map<string, Ga4PageValue>): SourceStatCard | null {
-  let sessions = 0;
-  let engaged = 0;
-  let conversions = 0;
-  for (const v of ga4.values()) {
-    sessions += v.sessions28d;
-    engaged += v.engaged28d;
-    conversions += v.conversions28d;
-  }
-  if (sessions <= 0) return null;
-
-  const engagedRate = engaged / sessions;
-  const stats: SourceStat[] = [
-    { label: "Visits (28 days)", value: fmtCompact(sessions) },
-    { label: "Engaged visits", value: fmtPct(engagedRate) },
-  ];
-  // Conversions only earns a stat slot when there are any — never "0".
-  if (conversions > 0) {
-    stats.push({ label: "Sign-ups or sales", value: fmtInt(conversions) });
-  }
-  return {
-    key: "ga4",
-    source: "Website visits",
-    stats,
-    subline: null,
-  };
+function buildGa4Card(_ga4: Map<string, Ga4PageValue>): SourceStatCard | null {
+  return null;
 }
 
 /**

@@ -28,8 +28,10 @@ import {
 export type ResultsLedgerSurface = {
   ledger: ShippedChangeRecord[];
   /** ISO timestamp the served ledger was measured at (snapshot time, or now on a
-   *  cold synchronous compute). */
-  computedAt: string;
+   *  cold synchronous compute). Null when the persisted ledger has never actually
+   *  been measured (Wave 1 P2 fix, 2026-07-10) - the freshness line must never
+   *  claim a check that did not happen. */
+  computedAt: string | null;
 };
 
 /** Exported for tests; render paths use loadResultsLedgerSurface below. */
@@ -79,16 +81,19 @@ export async function loadLedgerWithSwr(tenantId: string): Promise<ResultsLedger
 }
 
 /** The freshest `measuredAt` across the stored ledger, so the cold GET can serve
- *  an honest "last re-checked N ago" line off the persisted verdicts. Falls back
- *  to now when nothing has ever been measured (an empty/first-run ledger renders
- *  nothing anyway). PURE. */
-function latestMeasuredAt(ledger: ReadonlyArray<ShippedChangeRecord>): string {
+ *  an honest "last re-checked N ago" line off the persisted verdicts. Returns
+ *  null when NO record has ever been measured (Wave 1 P2 fix, 2026-07-10) - this
+ *  used to fall back to `now()`, which would render "I re-checked these numbers
+ *  just now" over rows that were never actually checked. An empty/first-run
+ *  ledger also lands here and renders nothing anyway (the caller only shows the
+ *  checked-line when `ledger.length > 0`). PURE. */
+function latestMeasuredAt(ledger: ReadonlyArray<ShippedChangeRecord>): string | null {
   let best = 0;
   for (const r of ledger) {
     const t = r.measuredAt ? Date.parse(r.measuredAt) : NaN;
     if (Number.isFinite(t) && t > best) best = t;
   }
-  return best > 0 ? new Date(best).toISOString() : new Date().toISOString();
+  return best > 0 ? new Date(best).toISOString() : null;
 }
 
 /** Request-memoized /results measured ledger, SWR-cached cross-request. Every
@@ -111,11 +116,17 @@ export async function rebuildResultsSurface(tenantId: string): Promise<void> {
 }
 
 /**
- * The honest staleness line under the /results header. PURE. Null only on an
- * unparseable timestamp; a snapshot younger than a minute reads "just now".
+ * The honest staleness line under the /results header. PURE. Null on a missing
+ * or unparseable timestamp (Wave 1 P2: `computedAt` is null when the ledger has
+ * never actually been measured, so we say nothing rather than claim a check
+ * that did not happen); a snapshot younger than a minute reads "just now".
  * Beacon voice: first person, no lab words, no em or en dashes.
  */
-export function ledgerCheckedAgoLine(computedAtIso: string, nowMs: number): string | null {
+export function ledgerCheckedAgoLine(
+  computedAtIso: string | null,
+  nowMs: number,
+): string | null {
+  if (computedAtIso == null) return null;
   const t = Date.parse(computedAtIso);
   if (!Number.isFinite(t)) return null;
   const minutes = Math.floor(Math.max(0, nowMs - t) / 60_000);

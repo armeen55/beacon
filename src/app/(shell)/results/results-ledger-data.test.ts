@@ -94,6 +94,10 @@ describe("loadLedgerWithSwr", () => {
     // GET-safe: the last persisted verdicts serve instantly...
     expect(loadProofLedgerPersistedMock).toHaveBeenCalledWith("tenant-test");
     expect(out.ledger.map((r) => r.id)).toEqual(["persisted-1", "persisted-2"]);
+    // P2 (Wave 1 review, 2026-07-10): the default fixture's persisted rows carry
+    // NO measuredAt, so the served computedAt must be null, never now() - the
+    // freshness line must never claim a check that did not happen.
+    expect(out.computedAt).toBeNull();
     // ...and the heavy full-ledger re-measure NEVER runs synchronously on the GET.
     expect(loadProofLedgerMock).not.toHaveBeenCalled();
     expect(writeStoreMock).not.toHaveBeenCalled();
@@ -116,6 +120,13 @@ describe("loadLedgerWithSwr", () => {
     loadProofLedgerPersistedMock.mockResolvedValue([rec("p1", "2026-07-01T00:00:00.000Z"), rec("p2", measuredAt)]);
     const out = await loadLedgerWithSwr("tenant-test");
     expect(out.computedAt).toBe(measuredAt);
+  });
+
+  it("cold start, ledger non-empty but NO record ever measured: computedAt is null, never now() (P2, Wave 1 review, 2026-07-10)", async () => {
+    loadProofLedgerPersistedMock.mockResolvedValue([rec("p1"), rec("p2")]);
+    const out = await loadLedgerWithSwr("tenant-test");
+    expect(out.computedAt).toBeNull();
+    expect(ledgerCheckedAgoLine(out.computedAt, Date.now())).toBeNull();
   });
 
   it("a background refresh failure is swallowed (the next visit retries)", async () => {
@@ -164,5 +175,9 @@ describe("ledgerCheckedAgoLine", () => {
     for (const ms of [20_000, 5 * 60_000, 3 * 3_600_000, 3 * 86_400_000]) {
       expect(ledgerCheckedAgoLine(new Date(NOW - ms).toISOString(), NOW)).not.toMatch(/[–—]/);
     }
+  });
+
+  it("returns null on a null computedAt (never measured) instead of claiming a check happened (P2, Wave 1 review)", () => {
+    expect(ledgerCheckedAgoLine(null, NOW)).toBeNull();
   });
 });

@@ -376,10 +376,17 @@ describe("buildSourceStatCards — GSC sparkline (daily-clicks momentum)", () =>
 
   it("never sets a sparkline on non-GSC cards", () => {
     const inputs = emptyInputs();
-    inputs.ga4 = new Map([["a", ga4Value({ sessions28d: 100, engaged28d: 60 })]]);
-    const card = buildSourceStatCards(inputs).find((c) => c.key === "ga4");
-    expect(card).toBeDefined();
-    expect(card!.sparkline).toBeUndefined();
+    // Wave 1 P1 (2026-07-10): GA4 no longer renders a card at all (its cross-page
+    // session sum was a false sitewide total), so the non-GSC cards to check are
+    // Clarity and AEO. Feed both real data and assert neither carries a sparkline.
+    inputs.clarity = new Map([["a", claritySignal({ sessions: 100, rageClicks: 2, deadClicks: 5 })]]);
+    inputs.aeo = { date: "2026-06-14", isFallback: false, totalCitations: 5, totalMentions: 2, platformRowCount: 2 };
+    const cards = buildSourceStatCards(inputs);
+    const nonGsc = cards.filter((c) => c.key !== "gsc");
+    expect(nonGsc.length).toBeGreaterThan(0);
+    for (const card of nonGsc) {
+      expect(card.sparkline).toBeUndefined();
+    }
   });
 });
 
@@ -439,7 +446,7 @@ describe("buildSourceStatCards — AEO present", () => {
 });
 
 describe("buildSourceStatCards — ordering (search-first, AEO one-among-equals)", () => {
-  it("orders cards GSC → GA4 → Clarity → AEO", () => {
+  it("orders cards GSC → Clarity → AEO; GA4 never renders even with per-page session data (Wave 1 P1)", () => {
     const inputs = emptyInputs();
     inputs.gscSiteTotals = gscTotals({
       clicks90d: 1,
@@ -447,11 +454,22 @@ describe("buildSourceStatCards — ordering (search-first, AEO one-among-equals)
       avgPosition90d: 5,
       ctr90d: 0.01,
     });
+    // Real per-page GA4 rows: the OLD contract summed these into a "Visits
+    // (28 days)" stat, but GA4 sessions are not additive across pages (a visit
+    // touching several pages appears in several rows), so that total was false.
+    // The new contract renders NO GA4 card until a true property-grain rollup
+    // exists (Wave 2).
     inputs.ga4 = new Map([["a", ga4Value({ sessions28d: 100, engaged28d: 60 })]]);
     inputs.clarity = new Map([["a", claritySignal({ sessions: 100, rageClicks: 1, deadClicks: 1 })]]);
     inputs.aeo = { date: "2026-06-14", isFallback: false, totalCitations: 5, totalMentions: 2, platformRowCount: 2 };
-    const keys = buildSourceStatCards(inputs).map((c) => c.key);
-    expect(keys).toEqual(["gsc", "ga4", "clarity", "aeo"]);
+    const cards = buildSourceStatCards(inputs);
+    expect(cards.map((c) => c.key)).toEqual(["gsc", "clarity", "aeo"]);
+    // Pin the false-total class directly: no card carries the withdrawn
+    // cross-page GA4 sum, its label, or its source name.
+    expect(cards.some((c) => c.source === "Website visits")).toBe(false);
+    for (const card of cards) {
+      expect(card.stats.some((s) => s.label === "Visits (28 days)")).toBe(false);
+    }
   });
 });
 
