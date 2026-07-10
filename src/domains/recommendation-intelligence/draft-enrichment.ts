@@ -1326,14 +1326,15 @@ function composeSourcesDirective(
 /**
  * AEO answer-block readiness slice (2026-06-12) — directive draft for
  * `missing_answer_block`. Names the question + the sourced answer
- * pattern (≈40-60 words, first block under H1, entity-named,
- * pronoun-free, visible body text NOT FAQ schema) but NEVER writes the
- * answer — factual correctness + voice are the owner's, and
- * fabricating cultural/historical facts is a hard rail.
+ * pattern (≈80-150 words per W5 J-71, "40-60 is too thin"; first block
+ * under H1, entity-named, pronoun-free, visible body text NOT FAQ
+ * schema) but NEVER writes the answer — factual correctness + voice are
+ * the owner's, and fabricating cultural/historical facts is a hard rail.
  *
  * Sourced (full digest in the slice commit): GEO study (Aggarwal et
- * al., KDD 2024) on quotable self-contained statements; Google
- * featured-snippet ~40-60 word convention; answer-first placement
+ * al., KDD 2024) on quotable self-contained statements; the 80-150 word
+ * answer-block length standard (W5 J-71, superseding the older ~40-60
+ * word featured-snippet convention); answer-first placement
  * (AirOps/Frase 2025-26); Anthropic contextual-retrieval pronoun
  * penalty (via Lumar); Google FAQ rich results fully retired May 2026
  * (so: inline answer, not FAQ schema).

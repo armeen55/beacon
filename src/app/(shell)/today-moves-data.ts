@@ -16,6 +16,7 @@ import { readCachedSerpPatterns } from "@/domains/serp/research-enrichment-produ
 import { whatToSteal } from "@/domains/experiments/daily-evidence-brief";
 import { getLatestMoveDrafts, type MoveDraftRow } from "@/domains/demand-graph/move-draft-store";
 import { evaluatePreparedPackQuality, type DraftQualityResult } from "@/domains/drafts/draft-quality";
+import { getBusinessConfig } from "@/lib/business-config";
 import { competitorRelevance, internalLinkRelevance } from "@/domains/evidence/relevance-gate";
 import { loadGscCannibalizationForTenant, type GscCannibalizationCase } from "@/domains/recommendation-intelligence/gsc-cannibalization";
 import { loadGa4PageValuesForTenant, type Ga4PageValue } from "@/domains/recommendation-intelligence/ga4-page-values";
@@ -423,6 +424,13 @@ export async function buildTodayMovesData(
   opts: { limit?: number } = {},
 ): Promise<TodayMovesHeroData> {
     const repo = getRepository().forTenant(tenantId);
+    // W5 P1-3 (2026-07-09): this tenant's source-authority allowlist +
+    // first-mention rule, resolved ONCE per build and threaded into the quality
+    // gate so a stale cached "authoritative" label can never render under
+    // another tenant's allowlist. Unset fields leave the gate byte-identical.
+    const bizConfig = getBusinessConfig(tenantId);
+    const authoritativeSourceDomains = bizConfig.authoritativeSourceDomains;
+    const firstMentionConfig = bizConfig.firstMention ?? null;
 
     const [edits, packets, responses, savedDrafts, ledger, graphMoves] = await Promise.all([
       repo.getRecommendedEdits().catch(() => []),
@@ -639,6 +647,8 @@ export async function buildTodayMovesData(
               structuredDraft: persistedPack!.structuredDraft as { kind?: string; value?: unknown },
               preparedStatus: persistedPack!.preparedStatus,
               moveType: persistedPack!.moveType,
+              authoritativeSourceDomains,
+              firstMentionConfig,
             })
           : null;
       // Evidence relevance gate (hoisted): a competitor teardown only counts as

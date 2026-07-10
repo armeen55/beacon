@@ -28,6 +28,13 @@
  * output. Tenant-agnostic: callers thread in the tenant's own allowlist.
  */
 
+import { createHash } from "node:crypto";
+import {
+  draftNumbers,
+  extractCapitalizedSpans,
+  entityGrounded,
+} from "./factual-entailment";
+
 export type SourceAuthority = "authoritative" | "weak" | "unverified";
 
 /** The minimal shape this module needs from a SourceRef, accepts the real
@@ -36,6 +43,14 @@ export type ClassifiableSource = {
   url?: string | null;
   domain?: string | null;
   claim?: string | null;
+  /** W5 P0-1 (2026-07-09), set at GENERATION time by structured-drafter.ts
+   *  after actually fetching the URL and confirming the fetched text carries
+   *  this claim's tokens. The gate below requires this true, so a hallucinated
+   *  .gov/.edu URL (which the domain classifier alone would call
+   *  "authoritative") is held until a real fetch confirms it. Absent/false on
+   *  every pre-P0-1 persisted draft, which then honestly reads "Needs a
+   *  source" until regenerated. */
+  verified?: boolean;
 };
 
 /** Universal .gov/.edu-equivalent TLDs treated as authoritative for every
@@ -148,14 +163,110 @@ export function claimTokens(text: string): string[] {
   return [...new Set(matches)].filter((t) => !CLAIM_STOPWORDS.has(t));
 }
 
+/** Minimum share of a claim's central content tokens that must appear WITHIN
+ *  one candidate span for that span to count as actually backing the claim. */
+export const CLAIM_SPAN_MIN_COVERAGE = 0.6;
+/** Max characters of a supporting excerpt persisted alongside a verified source. */
+const EXCERPT_MAX_CHARS = 400;
+
+export type SupportingSpan = {
+  /** True when a single sentence / adjacent-sentence pair carries the claim. */
+  supported: boolean;
+  /** The trimmed excerpt (<= 400 chars) that backs the claim, or null. */
+  excerpt: string | null;
+  /** sha256(excerpt) first 16 hex chars - a stable content fingerprint, or null. */
+  contentHash: string | null;
+};
+
+/**
+ * W5 stop-ship F2 (2026-07-09), the SPAN-LEVEL claim verifier. Replaces the
+ * old whole-page token-share check (`claimSupportedByText`), which passed when
+ * a claim's words were merely SCATTERED across an unrelated page. Instead this
+ * requires the claim to be entailed by ONE localized span - a single sentence
+ * or an adjacent-sentence pair - so a genuine supporting passage is found and
+ * a page that only happens to contain the same words in different places is
+ * NOT accepted.
+ *
+ * A span qualifies iff, WITHIN that span:
+ *   - every protected number in the claim (draftNumbers, thousands-normalized)
+ *     is present, AND
+ *   - every capitalized entity span in the claim (extractCapitalizedSpans) is
+ *     grounded (entityGrounded), AND
+ *   - at least CLAIM_SPAN_MIN_COVERAGE of the claim's central content tokens
+ *     (claimTokens) appear.
+ * The highest-coverage qualifying span wins (shortest on a tie); its trimmed
+ * <=400-char excerpt and a sha256-16 content hash are returned so the caller
+ * can persist exactly what backed the claim. PURE, no I/O, never throws.
+ */
+export function findSupportingSpan(
+  claim: string,
+  pageText: string,
+  nowYear: number = new Date().getFullYear(),
+): SupportingSpan {
+  // `nowYear` keeps the number semantics aligned with groundedNumberSet / the
+  // factual-entailment gate (year-adjacent + proof-window numbers), even though
+  // the per-span number check below compares against the span's own literals.
+  void nowYear;
+  const claimText = (claim ?? "").trim();
+  const text = (pageText ?? "").trim();
+  if (!claimText || !text) return { supported: false, excerpt: null, contentHash: null };
+
+  const protectedNumbers = draftNumbers(claimText);
+  const entities = extractCapitalizedSpans(claimText);
+  const central = claimTokens(claimText);
+  // Nothing concrete to verify against -> cannot confirm support.
+  if (protectedNumbers.length === 0 && entities.length === 0 && central.length === 0) {
+    return { supported: false, excerpt: null, contentHash: null };
+  }
+
+  const sentences = text
+    .split(/(?<=[.!?])\s+/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+  const candidates: string[] = [];
+  for (let i = 0; i < sentences.length; i += 1) {
+    candidates.push(sentences[i]!);
+    if (i + 1 < sentences.length) candidates.push(`${sentences[i]} ${sentences[i + 1]}`);
+  }
+
+  let best: { span: string; coverage: number } | null = null;
+  for (const span of candidates) {
+    const spanNums = new Set(draftNumbers(span));
+    if (!protectedNumbers.every((n) => spanNums.has(n))) continue;
+    const spanLower = span.toLowerCase();
+    if (!entities.every((e) => entityGrounded(e, spanLower))) continue;
+    const spanTokens = new Set(claimTokens(span));
+    const hits = central.filter((t) => spanTokens.has(t)).length;
+    const coverage = central.length === 0 ? 1 : hits / central.length;
+    if (coverage < CLAIM_SPAN_MIN_COVERAGE) continue;
+    if (
+      best == null ||
+      coverage > best.coverage ||
+      (coverage === best.coverage && span.length < best.span.length)
+    ) {
+      best = { span, coverage };
+    }
+  }
+
+  if (best == null) return { supported: false, excerpt: null, contentHash: null };
+  const excerpt = best.span.trim().slice(0, EXCERPT_MAX_CHARS);
+  const contentHash = createHash("sha256").update(excerpt).digest("hex").slice(0, 16);
+  return { supported: true, excerpt, contentHash };
+}
+
 /**
  * True when at least one source in `sources` is (a) classified
- * "authoritative" by THIS module (never trusting a pre-stamped value) and
- * (b) its `claim` shares a real content token with `draftText`, an
- * authoritative source cited for an unrelated fact does not count. Zero
- * sources, or sources with no claim overlap, return false, the caller
- * (`draft-quality.ts`) turns that into a "missing_source" verdict for
- * factual drafts.
+ * "authoritative" by THIS module (never trusting a pre-stamped value), (b)
+ * GENERATION-TIME VERIFIED (`verified === true`, W5 P0-1, set only after
+ * structured-drafter.ts fetched the URL and confirmed the page text carries
+ * the claim - so a hallucinated .gov/.edu URL never passes on domain class
+ * alone), and (c) its `claim` shares a real content token with `draftText`,
+ * an authoritative source cited for an unrelated fact does not count. Zero
+ * sources, unverified sources, or sources with no claim overlap all return
+ * false, the caller (`draft-quality.ts`) turns that into a "missing_source"
+ * verdict for factual drafts (and a persisted pre-P0-1 draft, whose sources
+ * default to verified=false, honestly reads "Needs a source" until
+ * regenerated).
  */
 export function hasQualifyingAuthoritativeSource(
   draftText: string,
@@ -167,6 +278,7 @@ export function hasQualifyingAuthoritativeSource(
   if (draftTokens.length === 0) return false;
   return sources.some((s) => {
     if (classifySourceAuthority(s, tenantAllowlist) !== "authoritative") return false;
+    if (s.verified !== true) return false; // W5 P0-1: must be generation-time verified
     const sTokens = claimTokens(s.claim ?? "");
     return sTokens.some((t) => draftTokens.includes(t));
   });

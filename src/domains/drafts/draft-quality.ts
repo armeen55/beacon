@@ -163,11 +163,19 @@ const COUNT_CLAIM = /\b\d{2,}\s*\+|\btop\s+\d+\b/i;
  *  own, as the narrow "did this rewrite introduce a NEW specific fact"
  *  trigger for atomic title/meta edits (see evaluateTitleMetaQuality), a
  *  rewrite that only rephrases the SAME fact is never source-gated. */
+// W5 P2 (2026-07-09): the count clause counts Persian (U+06F0-U+06F9) and
+// Arabic-Indic (U+0660-U+0669) digits too, so a claim written in a non-Latin
+// numeral system ("۳۰۰۰ years") is still recognized as a specific fact and
+// source-gated the same as "3000 years" (the leading \b is dropped only on
+// that clause because a word boundary is ill-defined next to a non-ASCII
+// digit; the year and phrase clauses keep theirs).
 const SPECIFIC_FACT =
-  /\b(?:18|19|20)\d{2}\b|\b\d+\s*(?:times|years|km|km2|species|provinces|dynasties)\b|\bofficial\b|\bnational (?:animal|flag|symbol|language|bird)\b/i;
+  /\b(?:18|19|20)\d{2}\b|[\d٠-٩۰-۹]+\s*(?:times|years|km|km2|species|provinces|dynasties)\b|\bofficial\b|\bnational (?:animal|flag|symbol|language|bird)\b/i;
 
-/** Any digit run, the plainest "this asserts a number" signal. */
-const GENERIC_NUMBER = /\b\d[\d,.]*\b/;
+/** Any digit run, the plainest "this asserts a number" signal. W5 P2: includes
+ *  Persian + Arabic-Indic digits so a number in a non-Latin numeral system
+ *  still counts (no \b, which is ill-defined next to a non-ASCII digit). */
+const GENERIC_NUMBER = /[\d٠-٩۰-۹][\d٠-٩۰-۹,.]*/;
 
 /** A run of 2+ consecutive capitalized words, a proper-noun-shaped span
  *  ("Nowruz Activities", "the Lion and Sun", "Sizdah Bedar"). Deliberately
@@ -540,6 +548,13 @@ export type EvaluateBriefInput = {
   /** True when a DataForSEO verdict has been computed for this topic. */
   hasSerpVerdict?: boolean;
   contextTokens?: string[];
+  /** W5 P1-4 (2026-07-09): the brief's own cited sources. Same contract as
+   *  EvaluateDraftInput.sources - a FACTUAL openingAnswer with no qualifying
+   *  authoritative source is held as missing_source, exactly like an answer
+   *  block. Omitted/empty = no sources (the honest default). */
+  sources?: readonly ClassifiableSource[];
+  /** W5 P1-4: this tenant's own curated authoritative-domain allowlist. */
+  authoritativeSourceDomains?: readonly string[];
 };
 
 const ALLOWED_SCHEMA = new Set(["article", "faqpage", "webpage", "blogposting", "howto", "itemlist"]);
@@ -571,6 +586,21 @@ export function evaluateCreatePageBriefQuality(input: EvaluateBriefInput): Draft
   }
   if (outline.length < 3) {
     return { status: "too_thin", reasons: [`Outline has only ${outline.length} sections.`], copyAllowed: false, canRegenerate: true, confidence: "high" };
+  }
+
+  // W5 P1-4 (J-69, no exceptions): a FACTUAL openingAnswer with no qualifying
+  // authoritative source is HELD, exactly like an answer block. The opening is
+  // the extractable claim the new page leads with, so it earns the same
+  // source floor. canRegenerate is false - redrafting cannot invent authority;
+  // the honest fix is "add a source."
+  if (isFactualClaim(opening) && !hasQualifyingAuthoritativeSource(opening, input.sources, input.authoritativeSourceDomains)) {
+    return {
+      status: "missing_source",
+      reasons: ["States a claim with no cited authoritative source yet. Add 1-2 before this is paste-ready."],
+      copyAllowed: false,
+      canRegenerate: false,
+      confidence: "medium",
+    };
   }
 
   // Soft flags → useful_but_needs_review (copyable, but worth a look).
@@ -606,8 +636,8 @@ const SECTION_PLAN_LANGUAGE =
 
 /** Evaluate one drafted page section (heading + body) from the item-55 walker.
  *  Shares the same trust rails as evaluateDraftQuality (generic opening / punt /
- *  relevance / superlative / thin), sized for a section body rather than a
- *  40-60 word answer block. */
+ *  relevance / superlative / thin), sized for a section body rather than an
+ *  80-150 word answer block. */
 export function evaluateSectionDraftQuality(input: EvaluateSectionInput): DraftQualityResult {
   const heading = (input.heading ?? "").trim();
   const body = (input.body ?? "").trim();
@@ -802,6 +832,9 @@ function evaluatePreparedPackQualityBase(input: EvaluatePackInput): DraftQuality
       faqQuestions: Array.isArray(v.faqQuestions) ? (v.faqQuestions as string[]) : null,
       schemaTypes: Array.isArray(v.schemaTypes) ? (v.schemaTypes as string[]) : null,
       contextTokens: input.contextTokens,
+      // W5 P1-4: the brief's OWN sources[] drive its openingAnswer source gate.
+      sources: Array.isArray(v.sources) ? (v.sources as ClassifiableSource[]) : undefined,
+      authoritativeSourceDomains: input.authoritativeSourceDomains,
     });
   }
   if (sd.kind === "cro_fix") {

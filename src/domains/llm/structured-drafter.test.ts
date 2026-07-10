@@ -52,7 +52,7 @@ const GROUNDED = "persian wedding traditions sofreh aghd aghd jashn reception ce
 
 const validAnswer = {
   answer:
-    "Persian weddings center on the sofreh aghd, a ceremonial spread of symbolic items the couple sits before while honored guests hold a canopy above them, followed by the aghd vows and a celebratory jashn reception with family and friends.",
+    "Persian weddings center on the sofreh aghd, a ceremonial spread of symbolic items the couple sits before while honored guests hold a canopy above them, followed by the aghd vows and a celebratory jashn reception with family and friends. The spread gathers a mirror, twin candelabras, flatbread, fresh herbs, and sweets, each chosen to wish the couple light, health, and a sweet life together. Elders witness the reading of the marriage contract, the newlyweds share a taste of honey, and the music, dancing, and feasting of the reception then carry the celebration late into the night for every guest.",
   citationHook: "the sofreh aghd is the heart of a Persian wedding",
   evidenceRefs: [{ source: "competitor_teardown", detail: "the cited page leads with a sofreh aghd explainer" }],
   confidence: "high",
@@ -498,5 +498,290 @@ describe("draftAeoPromptBrief — Profound Question Intelligence brief", () => {
       { complete: fakeComplete([{ text: "not json" }]) },
     );
     expect(res.status).toBe("validation_failed");
+  });
+});
+
+// ── W5 P0-1: generation-time source verification ─────────────────────────────
+describe("W5 P0-1 — generation-time source verification", () => {
+  const withSource = (claim: string): string =>
+    JSON.stringify({
+      ...validAnswer,
+      sources: [
+        {
+          url: "https://www.britannica.com/topic/persian-wedding",
+          title: "Persian wedding",
+          domain: "britannica.com",
+          retrievedAt: "2026",
+          claim,
+          authority: "unverified",
+        },
+      ],
+    });
+
+  it("marks a source verified when the fetched page carries the claim's tokens", async () => {
+    const sourceFetch = vi.fn(async () => ({
+      ok: true,
+      text: "A Persian wedding centers on the sofreh aghd ceremonial spread laid before the couple with a mirror and fresh herbs.",
+    }));
+    const r = await callStructuredLLM({
+      kind: "answer_block",
+      system: "s",
+      user: "u",
+      grounded: GROUNDED,
+      complete: fakeComplete([{ text: withSource("a Persian wedding centers on the sofreh aghd ceremonial spread") }]),
+      sourceFetch,
+      now: new Date("2026-07-09T12:00:00.000Z"),
+    });
+    expect(r.status).toBe("drafted");
+    if (r.status === "drafted") {
+      const s = (r.value as { sources: Array<{ verified?: boolean; verifiedAt?: string; authority: string }> }).sources[0]!;
+      expect(s.verified).toBe(true);
+      expect(s.verifiedAt).toBe("2026-07-09T12:00:00.000Z");
+      expect(s.authority).toBe("authoritative");
+    }
+    expect(sourceFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("downgrades to weak + verified:false when the URL is unreachable (hallucinated / 404)", async () => {
+    const sourceFetch = vi.fn(async () => ({ ok: false, text: "" }));
+    const r = await callStructuredLLM({
+      kind: "answer_block",
+      system: "s",
+      user: "u",
+      grounded: GROUNDED,
+      complete: fakeComplete([{ text: withSource("a Persian wedding centers on the sofreh aghd ceremonial spread") }]),
+      sourceFetch,
+    });
+    expect(r.status).toBe("drafted");
+    if (r.status === "drafted") {
+      const s = (r.value as { sources: Array<{ verified?: boolean; authority: string }> }).sources[0]!;
+      expect(s.verified).toBe(false);
+      expect(s.authority).toBe("weak");
+    }
+  });
+
+  it("downgrades to weak + verified:false when the fetched page does NOT carry the claim (content mismatch)", async () => {
+    const sourceFetch = vi.fn(async () => ({
+      ok: true,
+      text: "This page is about unrelated kitchen appliance reviews and shipping policies only.",
+    }));
+    const r = await callStructuredLLM({
+      kind: "answer_block",
+      system: "s",
+      user: "u",
+      grounded: GROUNDED,
+      complete: fakeComplete([{ text: withSource("a Persian wedding centers on the sofreh aghd ceremonial spread") }]),
+      sourceFetch,
+    });
+    expect(r.status).toBe("drafted");
+    if (r.status === "drafted") {
+      const s = (r.value as { sources: Array<{ verified?: boolean; authority: string }> }).sources[0]!;
+      expect(s.verified).toBe(false);
+      expect(s.authority).toBe("weak");
+    }
+  });
+
+  it("never fetches when a draft carries no sources (no network on the common path)", async () => {
+    const sourceFetch = vi.fn(async () => ({ ok: true, text: "unused" }));
+    const r = await callStructuredLLM({
+      kind: "answer_block",
+      system: "s",
+      user: "u",
+      grounded: GROUNDED,
+      complete: fakeComplete([{ text: JSON.stringify(validAnswer) }]),
+      sourceFetch,
+    });
+    expect(r.status).toBe("drafted");
+    expect(sourceFetch).not.toHaveBeenCalled();
+  });
+
+  it("is hermetic under vitest: no sourceFetch injected means no network and verified stays false", async () => {
+    // No sourceFetch injected -> resolveSourceFetch returns null under vitest,
+    // so the step is skipped and the schema default (verified=false) stands.
+    const r = await callStructuredLLM({
+      kind: "answer_block",
+      system: "s",
+      user: "u",
+      grounded: GROUNDED,
+      complete: fakeComplete([{ text: withSource("a Persian wedding centers on the sofreh aghd ceremonial spread") }]),
+    });
+    expect(r.status).toBe("drafted");
+    if (r.status === "drafted") {
+      const s = (r.value as { sources: Array<{ verified?: boolean }> }).sources[0]!;
+      expect(s.verified).toBe(false);
+    }
+  });
+
+  // ── W5 stop-ship F2: span-level support + final-host authority ──────────────
+  it("persists the supporting excerpt + content hash on a verified source", async () => {
+    const sourceFetch = vi.fn(async () => ({
+      ok: true,
+      text: "A Persian wedding centers on the sofreh aghd ceremonial spread laid before the couple with a mirror and fresh herbs.",
+    }));
+    const r = await callStructuredLLM({
+      kind: "answer_block",
+      system: "s",
+      user: "u",
+      grounded: GROUNDED,
+      complete: fakeComplete([{ text: withSource("a Persian wedding centers on the sofreh aghd ceremonial spread") }]),
+      sourceFetch,
+      now: new Date("2026-07-09T12:00:00.000Z"),
+    });
+    expect(r.status).toBe("drafted");
+    if (r.status === "drafted") {
+      const s = (r.value as {
+        sources: Array<{ verified?: boolean; supportingExcerpt?: string; contentHash?: string }>;
+      }).sources[0]!;
+      expect(s.verified).toBe(true);
+      expect(s.supportingExcerpt).toContain("sofreh aghd");
+      expect(s.contentHash).toMatch(/^[0-9a-f]{16}$/);
+    }
+  });
+
+  it("resets an LLM-supplied verified:true BEFORE fetching (an unreachable source stays unverified)", async () => {
+    // The model lies: it claims the source is already verified. The fetch fails.
+    // (No verifiedAt on the proposal - a stray out-of-grounding date would trip
+    // the numeric firewall; the security-relevant reset is the boolean itself.)
+    const lyingDraft = JSON.stringify({
+      ...validAnswer,
+      sources: [
+        {
+          url: "https://www.britannica.com/topic/persian-wedding",
+          title: "Persian wedding",
+          domain: "britannica.com",
+          retrievedAt: "2026",
+          claim: "a Persian wedding centers on the sofreh aghd ceremonial spread",
+          authority: "authoritative",
+          verified: true,
+        },
+      ],
+    });
+    const sourceFetch = vi.fn(async () => ({ ok: false, text: "" }));
+    const r = await callStructuredLLM({
+      kind: "answer_block",
+      system: "s",
+      user: "u",
+      grounded: GROUNDED,
+      complete: fakeComplete([{ text: lyingDraft }]),
+      sourceFetch,
+    });
+    expect(r.status).toBe("drafted");
+    if (r.status === "drafted") {
+      const s = (r.value as {
+        sources: Array<{ verified?: boolean; verifiedAt?: string; authority: string }>;
+      }).sources[0]!;
+      expect(s.verified).toBe(false); // the model's true was wiped before the fetch
+      expect(s.verifiedAt).toBeUndefined();
+      expect(s.authority).toBe("weak");
+    }
+  });
+
+  it("recomputes authority from the FINAL host: a redirect to an untrusted host is weak + unverified even if the text matches", async () => {
+    const sourceFetch = vi.fn(async () => ({
+      ok: true,
+      finalUrl: "https://random-blog.example/reposted",
+      text: "A Persian wedding centers on the sofreh aghd ceremonial spread laid before the couple.",
+    }));
+    const r = await callStructuredLLM({
+      kind: "answer_block",
+      system: "s",
+      user: "u",
+      grounded: GROUNDED,
+      complete: fakeComplete([{ text: withSource("a Persian wedding centers on the sofreh aghd ceremonial spread") }]),
+      sourceFetch,
+    });
+    expect(r.status).toBe("drafted");
+    if (r.status === "drafted") {
+      const s = (r.value as { sources: Array<{ verified?: boolean; authority: string }> }).sources[0]!;
+      expect(s.verified).toBe(false);
+      expect(s.authority).toBe("weak");
+    }
+  });
+
+  it("recomputes authority from the FINAL host: a redirect to an authoritative host verifies + rewrites url/domain", async () => {
+    // The model proposed a weak blog URL; the fetch redirected to britannica.
+    const proposed = JSON.stringify({
+      ...validAnswer,
+      sources: [
+        {
+          url: "https://random-blog.example/x",
+          title: "x",
+          domain: "random-blog.example",
+          retrievedAt: "2026",
+          claim: "a Persian wedding centers on the sofreh aghd ceremonial spread",
+          authority: "unverified",
+        },
+      ],
+    });
+    const sourceFetch = vi.fn(async () => ({
+      ok: true,
+      finalUrl: "https://www.britannica.com/topic/persian-wedding",
+      text: "A Persian wedding centers on the sofreh aghd ceremonial spread laid before the couple.",
+    }));
+    const r = await callStructuredLLM({
+      kind: "answer_block",
+      system: "s",
+      user: "u",
+      grounded: GROUNDED,
+      complete: fakeComplete([{ text: proposed }]),
+      sourceFetch,
+      now: new Date("2026-07-09T12:00:00.000Z"),
+    });
+    expect(r.status).toBe("drafted");
+    if (r.status === "drafted") {
+      const s = (r.value as {
+        sources: Array<{ verified?: boolean; authority: string; finalUrl?: string; domain: string; url: string }>;
+      }).sources[0]!;
+      expect(s.verified).toBe(true);
+      expect(s.authority).toBe("authoritative");
+      expect(s.finalUrl).toBe("https://www.britannica.com/topic/persian-wedding");
+      expect(s.domain).toBe("britannica.com");
+      expect(s.url).toBe("https://www.britannica.com/topic/persian-wedding");
+    }
+  });
+});
+
+// ── W5 P2: answer-block word-count retry ─────────────────────────────────────
+describe("W5 P2 — answer-block word-count retry (never caches a too-thin answer)", () => {
+  const THIN =
+    "Persian hospitality traditionally revolves around continuously offering guests freshly brewed tea throughout their entire visit, alongside assorted confectioneries, fragrant pastries, and seasonal fruit arranged beautifully across decorative serving platters. Conversation, storytelling, and unhurried companionship characterize these gatherings, reflecting deeply rooted cultural expectations surrounding generosity, warmth, respect, and reciprocal kindness shown between welcoming hosts and their appreciative visitors.";
+
+  it("retries once with a length instruction when the first answer is under 80 words, then ships the full answer", async () => {
+    const systems: string[] = [];
+    let i = 0;
+    const complete: CompleteFn = async ({ system }) => {
+      systems.push(system);
+      return { text: [JSON.stringify({ ...validAnswer, answer: THIN }), JSON.stringify(validAnswer)][i++]! };
+    };
+    const r = await callStructuredLLM({
+      kind: "answer_block",
+      system: "s",
+      user: "u",
+      grounded: GROUNDED,
+      complete,
+      recentOutputs: [],
+    });
+    expect(r.status).toBe("drafted");
+    if (r.status === "drafted") {
+      expect(r.retried).toBe(true);
+      expect((r.value as { answer: string }).answer).toBe(validAnswer.answer);
+    }
+    expect(systems[1]).toContain("80 to 150 words");
+  });
+
+  it("ships the thin answer as-is when the retry is still short (never fails closed; the gate holds it)", async () => {
+    const r = await callStructuredLLM({
+      kind: "answer_block",
+      system: "s",
+      user: "u",
+      grounded: GROUNDED,
+      complete: fakeComplete([{ text: JSON.stringify({ ...validAnswer, answer: THIN }) }]),
+      recentOutputs: [],
+    });
+    expect(r.status).toBe("drafted");
+    if (r.status === "drafted") {
+      expect(r.retried).toBe(true);
+      expect((r.value as { answer: string }).answer).toBe(THIN);
+    }
   });
 });

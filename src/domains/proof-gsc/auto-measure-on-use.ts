@@ -4,6 +4,14 @@ import { after } from "next/server";
 
 import { log } from "@/lib/logger";
 import { autoMeasureDuePass } from "./auto-measure-pass";
+import {
+  loadShippedChangesForTenant,
+  canonicalOutcome,
+  retryEligibility,
+  verifyLastAttemptAt,
+  type ShippedChangeRecord,
+} from "./shipped-change-store";
+import { verifyShippedChange } from "./verify-shipped-change";
 import { harvestWinners } from "@/domains/llm/winner-memory";
 import { buildTeamScoreboardSummary } from "@/domains/team-scoreboard/compute-scoreboard";
 
@@ -39,6 +47,42 @@ import { buildTeamScoreboardSummary } from "@/domains/team-scoreboard/compute-sc
 const lastRunAt = new Map<string, number>();
 const MIN_GAP_MS = 10 * 60_000;
 const PER_RUN_CAP = 15;
+/** P1-2b: at most this many un-confirmed rows get a fresh crawl-verify per
+ *  passive pass (bounds the crawl work; the rest wait for the next open). */
+const MAX_REVERIFY_PER_PASS = 5;
+
+/**
+ * W5 stop-ship F6 (2026-07-09): PURE selection of the rows a passive pass
+ * should re-verify. A row qualifies when it has a real page + proposal AND is
+ * NOT a latched canonical success (verified_live / verified_live_modified) AND
+ * is not exhausted AND is past its retry backoff (never scheduled, or
+ * nextRetryAt <= now). This is the retry-fairness fix: a never-verified row, a
+ * prior crawl_failed / not_found (a transient blip / a page that had not
+ * propagated), AND an unresolved needs_review all get a fair, backed-off,
+ * bounded re-crawl - never an unbounded hammer, never a downgrade of a proven
+ * live verification. The queue is sorted OLDEST attempt first (a never-attempted
+ * row, lastAttempt "", sorts first) so no row starves. Capped at `max`.
+ */
+export function selectRowsToReverify(
+  rows: ReadonlyArray<ShippedChangeRecord>,
+  max: number = MAX_REVERIFY_PER_PASS,
+  nowIso: string = new Date().toISOString(),
+): ShippedChangeRecord[] {
+  return rows
+    .filter((r) => {
+      if (!r.page || (r.after ?? "").trim() === "") return false;
+      const canon = canonicalOutcome(r.verifyState);
+      if (canon === "verified_live" || canon === "verified_live_modified") return false;
+      return retryEligibility(r.verifyState, nowIso);
+    })
+    .slice() // copy before sort (input is readonly)
+    .sort((a, b) => {
+      const aa = verifyLastAttemptAt(a.verifyState);
+      const bb = verifyLastAttemptAt(b.verifyState);
+      return aa < bb ? -1 : aa > bb ? 1 : 0;
+    })
+    .slice(0, max);
+}
 
 /** Fire-and-forget a due-row measurement pass after the response. No-op if throttled or
  *  called outside a request scope. NEVER throws (fail-soft for the render path). */
@@ -77,6 +121,36 @@ export function scheduleAutoMeasure(tenantId: string): void {
               error: e instanceof Error ? e.message : String(e),
             });
           }
+        }
+        // P1-2b (2026-07-09): re-verify up to MAX_REVERIFY_PER_PASS rows still
+        // un-confirmed live (never verified, or a prior crawl_failed /
+        // not_found - a transient network blip or a page that had not
+        // propagated at ship time) so they get a fresh crawl-verify on this
+        // /results open. Isolated + fail-soft; never downgrades a confirmed
+        // verified_live (markVerifyResultById is a monotonic latch). Rides the
+        // same throttle as the measure pass above.
+        try {
+          // F3: tenant-EXPLICIT read - this after() callback runs outside the
+          // render's tenant scope, so an ambient read could resolve the wrong
+          // (or an empty) tenant and re-verify another tenant's rows.
+          const rows = await loadShippedChangesForTenant(tenantId);
+          const toReverify = selectRowsToReverify(rows, MAX_REVERIFY_PER_PASS);
+          for (const record of toReverify) {
+            try {
+              await verifyShippedChange({ tenantId, record });
+            } catch (e) {
+              log.warn("[auto-measure-on-use] re-verify failed (non-blocking)", {
+                tenantId,
+                id: record.id,
+                error: e instanceof Error ? e.message : String(e),
+              });
+            }
+          }
+        } catch (e) {
+          log.warn("[auto-measure-on-use] re-verify pass failed (non-blocking)", {
+            tenantId,
+            error: e instanceof Error ? e.message : String(e),
+          });
         }
         if (res.settled > 0) {
           try {

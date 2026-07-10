@@ -32,6 +32,8 @@ import { validateCreatePage } from "@/domains/serp/serp-validation";
 import { rootDomain } from "@/domains/serp/serp-provider";
 import { parsePreparedVerdict, type PreparedSerpVerdict } from "@/domains/serp/prepare-create-page-verdicts";
 import { decideExistingPageHold, type ExistingMoveType } from "@/domains/serp/existing-page-winnability";
+import { getBusinessConfig } from "@/lib/business-config";
+import type { FirstMentionConfig } from "@/domains/drafts/first-mention-check";
 import { log } from "@/lib/logger";
 
 /** First path segment groups a family - mirrors pageFamilyOf in
@@ -177,7 +179,7 @@ function evidenceHintsFor(packet: EvidencePacket): string[] {
 async function draftForPacket(
   packet: EvidencePacket,
   tenantId: string,
-  opts: { complete?: CompleteFn; bypassCache?: boolean },
+  opts: { complete?: CompleteFn; bypassCache?: boolean; authoritativeSourceDomains?: readonly string[] },
 ): Promise<StructuredDraftResult<{ evidenceRefs: unknown[]; operatorSteps: string[]; risks: string[] }>> {
   const evidenceHints = evidenceHintsFor(packet);
   // Intent-aware drafting (C): classify the dominant intent from the topic + its fan-out sub-questions
@@ -261,13 +263,18 @@ export function canAffordDraft(spentUsd: number, projectedUsd: number, maxUsd: n
 }
 
 /** Quality status of a pack's current draft (the gate's verdict), or null. */
-function packQualityStatus(pack: PreparedMovePack | null): string | null {
+function packQualityStatus(
+  pack: PreparedMovePack | null,
+  gateConfig?: { authoritativeSourceDomains?: readonly string[]; firstMentionConfig?: FirstMentionConfig | null },
+): string | null {
   if (!pack?.structuredDraft) return null;
   return evaluatePreparedPackQuality({
     structuredDraft: pack.structuredDraft as { kind?: string; value?: unknown },
     preparedStatus: pack.preparedStatus,
     moveType: pack.moveType,
     repeatFlagged: pack.draftRepeatFlag != null,
+    authoritativeSourceDomains: gateConfig?.authoritativeSourceDomains,
+    firstMentionConfig: gateConfig?.firstMentionConfig,
   }).status;
 }
 
@@ -382,6 +389,13 @@ export async function prepareTodayMovesForTenant(
   const nowIso = (opts.now ?? (() => new Date()))().toISOString();
   const checkWinnability = opts.checkWinnability !== false;
   const runSerp = opts.runSerp ?? runSerpQuery;
+  // W5 P1-3 (2026-07-09): the tenant's own source-authority allowlist +
+  // first-mention rule, resolved ONCE, so generation-time source stamping and
+  // the quality gate both see this tenant's config (and never another
+  // tenant's). Unset fields leave every gate byte-identical to today.
+  const bizConfig = getBusinessConfig(tenantId);
+  const authoritativeSourceDomains = bizConfig.authoritativeSourceDomains;
+  const firstMentionConfig: FirstMentionConfig | null = bizConfig.firstMention ?? null;
   const summary: PrepareMovesSummary = {
     considered: 0,
     prepared: 0,
@@ -509,6 +523,8 @@ export async function prepareTodayMovesForTenant(
           preparedStatus: existing.preparedStatus,
           moveType: existing.moveType,
           repeatFlagged: existing.draftRepeatFlag != null,
+          authoritativeSourceDomains,
+          firstMentionConfig,
         });
         if (q.copyAllowed) {
           summary.cached += 1;
@@ -530,7 +546,7 @@ export async function prepareTodayMovesForTenant(
       }
 
       // Capture the prior draft's quality + excerpt for regeneration provenance.
-      const previousQuality = packQualityStatus(existing);
+      const previousQuality = packQualityStatus(existing, { authoritativeSourceDomains, firstMentionConfig });
       const previousExcerpt = draftExcerpt(existing);
 
       // R16: an in-place regeneration (explicit teardown regenerate, or a
@@ -539,7 +555,11 @@ export async function prepareTodayMovesForTenant(
       const regenerateInPlace =
         opts.forceRegenerate === true ||
         (existing?.structuredDraft != null && !isPackStale(existing, packet.evidenceHash, nowIso));
-      const draftRes = await draftForPacket(packet, tenantId, { complete: opts.complete, bypassCache: regenerateInPlace });
+      const draftRes = await draftForPacket(packet, tenantId, {
+        complete: opts.complete,
+        bypassCache: regenerateInPlace,
+        authoritativeSourceDomains,
+      });
       let structuredDraft: StructuredDraft = null;
       let experiment: ExperimentPlan | null = null;
       let checklist: ImplementationStep[] = [];
@@ -595,7 +615,7 @@ export async function prepareTodayMovesForTenant(
         hasSerpVerdict,
         winnabilityLine,
       });
-      if (regenMeta) regenMeta.newQuality = packQualityStatus(pack);
+      if (regenMeta) regenMeta.newQuality = packQualityStatus(pack, { authoritativeSourceDomains, firstMentionConfig });
 
       // NEVER clobber a good draft: if this (re)draft failed but a prior pack already
       // carries a structured draft, keep the prior one (move_drafts is latest-wins, so

@@ -126,7 +126,12 @@ export type FactualEntailmentResult = {
 
 const stripThousands = (s: string) => s.replace(/(?<=\d),(?=\d)/g, "");
 
-function groundedNumberSet(grounded: string, nowYear: number): Set<string> {
+/** W5 stop-ship F2 (2026-07-09): exported additively so source-authority.ts's
+ *  `findSupportingSpan` shares the EXACT same grounded-number semantics this
+ *  gate uses (thousands normalized, year-adjacent + 7/14/28 proof windows
+ *  allowed) - the span verifier and this entailment gate must never disagree
+ *  about what counts as grounded. Behavior unchanged for every existing caller. */
+export function groundedNumberSet(grounded: string, nowYear: number): Set<string> {
   const set = new Set(stripThousands(grounded).match(/\d+/g) ?? []);
   for (const y of [nowYear - 1, nowYear, nowYear + 1]) set.add(String(y));
   // Proof-window methodology constants (7/14/28-day measurement) are structural
@@ -135,7 +140,9 @@ function groundedNumberSet(grounded: string, nowYear: number): Set<string> {
   return set;
 }
 
-function draftNumbers(text: string): string[] {
+/** W5 stop-ship F2: exported additively (see groundedNumberSet). Multi-digit
+ *  numbers in a text, thousands-separators normalized. */
+export function draftNumbers(text: string): string[] {
   return (stripThousands(text).match(/\d+/g) ?? []).filter((n) => n.length >= 2);
 }
 
@@ -204,7 +211,7 @@ function isTitleCase(text: string): boolean {
  *  dropped entirely - see isTitleCase for why. Returns unique spans,
  *  longest-first so a multi-word entity is checked as a whole before its
  *  component words. */
-function extractCapitalizedSpans(text: string): string[] {
+export function extractCapitalizedSpans(text: string): string[] {
   const titleCased = isTitleCase(text);
   const scanned = titleCased ? stripTrailingBrandSuffix(text) : text;
   const spans = scanned.match(/\b[A-Z][a-zA-Z'-]*(?:\s+[A-Z][a-zA-Z'-]*){0,3}\b/g) ?? [];
@@ -254,7 +261,7 @@ function haystackHasWord(word: string, haystackLower: string): boolean {
  *  dropped from standalone spans, so "Persian New Year" grounds on
  *  "Persian"+"Year" without requiring the page to also contain the word
  *  "new". Singular/plural folded on both the whole span and each word. */
-function entityGrounded(entity: string, haystackLower: string): boolean {
+export function entityGrounded(entity: string, haystackLower: string): boolean {
   const lower = entity.toLowerCase();
   if (haystackHasWord(lower, haystackLower)) return true;
   const words = lower

@@ -27,6 +27,9 @@ import {
 const NOWRUZ_SOURCE = {
   domain: "britannica.com",
   claim: "Nowruz marks the Persian new year and is celebrated with community gatherings and Haft-Seen displays",
+  // W5 P0-1 (2026-07-09): a qualifying source is generation-time verified. The
+  // gate now requires this, so a "ready" fixture models a freshly-verified draft.
+  verified: true as const,
 };
 
 describe("evaluateDraftQuality — answer blocks", () => {
@@ -58,6 +61,7 @@ describe("evaluateDraftQuality — answer blocks", () => {
         {
           domain: "britannica.com",
           claim: "a Persian wedding centers on the sofreh aghd spread and the reading of marriage vows",
+          verified: true,
         },
       ],
     });
@@ -101,7 +105,7 @@ describe("evaluateDraftQuality — answer blocks", () => {
       answer:
         "Iran's national animal is the Asiatic cheetah, a critically endangered subspecies native to the country's central plateau and its arid steppe grasslands. Conservation programs coordinated by the Department of Environment work to protect the small remaining population across a network of protected reserves and national parks, including Miandasht and Touran. Camera-trap surveys and radio-collar tracking studies help researchers estimate population trends and identify the roads and fences that fragment the cheetah's remaining range. International partners have supported captive-breeding research as a hedge against further decline, though wild recovery remains the primary conservation goal for the coming decade.",
       evidenceRefs: 0,
-      sources: [{ domain: "britannica.com", claim: "the Asiatic cheetah is Iran's national animal and is critically endangered" }],
+      sources: [{ domain: "britannica.com", claim: "the Asiatic cheetah is Iran's national animal and is critically endangered", verified: true }],
     });
     expect(r.status).toBe("ready");
     expect(r.copyAllowed).toBe(true);
@@ -193,7 +197,7 @@ describe("evaluateDraftQuality - quotability (BEACON 500 item 78, additive; W5 d
     const r = evaluateDraftQuality({
       answer:
         "A Persian wedding is the traditional marriage ceremony of Persian-speaking cultures, primarily Iran, blending pre-Islamic and Islamic customs into one shared occasion. The centerpiece is the sofreh aghd, a ceremonial spread laid before the couple that carries symbolic items such as a mirror, candelabras, sugar cones, and fresh herbs. Family members hold a decorated canopy above the couple while an officiant reads the marriage vows and guests shower them with sugared almonds for good fortune. The formal ceremony is followed by the jashn reception, an evening of music, dancing, and a shared meal with extended family and friends.",
-      sources: [{ domain: "britannica.com", claim: "a Persian wedding centers on the sofreh aghd spread and the reading of marriage vows" }],
+      sources: [{ domain: "britannica.com", claim: "a Persian wedding centers on the sofreh aghd spread and the reading of marriage vows", verified: true }],
     });
     expect(r.status).toBe("ready");
   });
@@ -313,7 +317,7 @@ describe("evaluateDraftQuality - factual entailment (N8, additive/opt-in)", () =
       evidenceRefs: 1,
       pageBodyText:
         "Nowruz is a 3000 year old Persian tradition celebrated in Iran, marking the arrival of spring every March with family gatherings, music, and poetry readings. The holiday runs for nearly two weeks and closes with a picnic on the thirteenth day.",
-      sources: [{ domain: "britannica.com", claim: "Nowruz has been celebrated in Iran for more than 3000 years" }],
+      sources: [{ domain: "britannica.com", claim: "Nowruz has been celebrated in Iran for more than 3000 years", verified: true }],
     });
     expect(r.status).toBe("ready");
   });
@@ -335,7 +339,7 @@ describe("evaluateDraftQuality - factual entailment (N8, additive/opt-in)", () =
       after: "Persian New Year: 3000 Years of Nowruz Traditions in Iran",
       field: "title",
       pageBodyText: "Nowruz is a 3000 year old Persian tradition celebrated across Iran every spring.",
-      sources: [{ domain: "britannica.com", claim: "Nowruz has been celebrated in Iran for 3000 years" }],
+      sources: [{ domain: "britannica.com", claim: "Nowruz has been celebrated in Iran for 3000 years", verified: true }],
     });
     expect(r.status).toBe("ready");
   });
@@ -352,7 +356,7 @@ describe("evaluateDraftQuality / evaluateTitleMetaQuality - operator correction 
       authoritativeFacts: [
         { source: "your site's recipe count (Wix connector)", date: "2026-07-01", detail: "4500 recipes are currently published" },
       ],
-      sources: [{ domain: "britannica.com", claim: "Iranopedia's collection spans regional Persian dishes and holiday specialties" }],
+      sources: [{ domain: "britannica.com", claim: "Iranopedia's collection spans regional Persian dishes and holiday specialties", verified: true }],
     });
     expect(r.status).toBe("ready");
     expect(r.copyAllowed).toBe(true);
@@ -501,10 +505,21 @@ describe("evaluateCreatePageBriefQuality", () => {
     faqQuestions: ["What is a sofreh aghd?", "What items go on the spread?", "How long is a Persian wedding?"],
     schemaTypes: ["Article", "FAQPage"],
     hasSerpVerdict: true,
+    // W5 P1-4 (2026-07-09): the factual openingAnswer needs a verified source.
+    sources: [{ domain: "britannica.com", claim: "a Persian wedding centers on the sofreh aghd ceremonial spread", verified: true as const }],
   };
 
   it("PASSES the 3 real briefs (Persian wedding)", () => {
     expect(evaluateCreatePageBriefQuality(goodBrief).status).toBe("ready");
+  });
+
+  // W5 P1-4: the same brief with NO source is held as missing_source.
+  it("HOLDS a factual opening with no source as missing_source (P1-4)", () => {
+    const { sources: _s, ...noSource } = goodBrief;
+    const r = evaluateCreatePageBriefQuality(noSource);
+    expect(r.status).toBe("missing_source");
+    expect(r.copyAllowed).toBe(false);
+    expect(r.canRegenerate).toBe(false);
   });
 
   it("flags missing SERP verdict as needs-review", () => {

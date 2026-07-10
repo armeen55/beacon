@@ -9,6 +9,8 @@ import { parsePreparedVerdict, type PreparedSerpVerdict } from "@/domains/serp/p
 import { parsePreparedPack } from "@/domains/demand-graph/prepared-move-pack";
 import type { CreatePageBrief } from "@/domains/llm/schemas";
 import { evaluateCreatePageBriefQuality, evaluateDraftQuality, type DraftQualityResult } from "@/domains/drafts/draft-quality";
+import { getBusinessConfig } from "@/lib/business-config";
+import type { SourceRef } from "@/domains/llm/schemas";
 import { readAllCachedKeywordDemand, type KeywordDemand } from "@/domains/serp/dataforseo-keywords";
 import { readKeywordGapResults, type StoredKeywordGaps } from "@/domains/serp/keyword-gap-store";
 import { readWikiGapResults, type StoredWikiGaps } from "@/domains/wiki-gap/wiki-gap-store";
@@ -210,6 +212,12 @@ function signalForKeyword(
  *  precompute (which has no request context to derive the tenant from). */
 export async function buildNewPagesData(tenantId: string): Promise<NewPagesData> {
   const nowMonth = new Date().getMonth() + 1;
+  // W5 P1-3/P1-4 (2026-07-09): this tenant's source-authority allowlist +
+  // first-mention rule, resolved ONCE, so the brief + opening quality gates see
+  // this tenant's config (never another tenant's). Unset = byte-identical gate.
+  const bizConfig = getBusinessConfig(tenantId);
+  const authoritativeSourceDomains = bizConfig.authoritativeSourceDomains;
+  const firstMentionConfig = bizConfig.firstMention ?? null;
   let moves;
   let audits: Awaited<ReturnType<typeof getCompetitorAuditsForTenant>> = new Map();
   let savedDrafts = new Map<string, MoveDraftRow>();
@@ -358,6 +366,9 @@ export async function buildNewPagesData(tenantId: string): Promise<NewPagesData>
           faqQuestions: briefVal.faqQuestions,
           schemaTypes: briefVal.schemaTypes,
           hasSerpVerdict: !!savedDrafts.get(`${briefSourceKey}::serp_verdict`),
+          // W5 P1-4: the brief's OWN cited sources drive its openingAnswer gate.
+          sources: Array.isArray(briefVal.sources) ? briefVal.sources : undefined,
+          authoritativeSourceDomains,
         })
       : null;
     // BEACON 500 item 55 - a previously-drafted full page, re-assembled from its
@@ -384,13 +395,25 @@ export async function buildNewPagesData(tenantId: string): Promise<NewPagesData>
     let openingQuality: DraftQualityResult | null = null;
     if (savedOpening) {
       let answerText = savedOpening;
+      // W5 P1-5 (2026-07-09): parse the saved draft's OWN cited sources instead
+      // of dropping them (the old evidenceRefs:0-only call made every sourced
+      // answer read as "Needs a source"). A raw-text draft has none, an
+      // honest empty list.
+      let answerSources: SourceRef[] | undefined;
       try {
-        const p = JSON.parse(savedOpening) as { answer?: unknown };
+        const p = JSON.parse(savedOpening) as { answer?: unknown; sources?: unknown };
         if (p && typeof p.answer === "string") answerText = p.answer;
+        if (p && Array.isArray(p.sources)) answerSources = p.sources as SourceRef[];
       } catch {
         /* raw text — use as-is */
       }
-      openingQuality = evaluateDraftQuality({ answer: answerText, evidenceRefs: 0 });
+      openingQuality = evaluateDraftQuality({
+        answer: answerText,
+        evidenceRefs: 0,
+        sources: answerSources,
+        authoritativeSourceDomains,
+        firstMentionConfig,
+      });
     }
     return {
       id: m.demandKey,

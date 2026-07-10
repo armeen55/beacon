@@ -28,7 +28,7 @@ const GROUNDED = "persian wedding traditions sofreh aghd aghd jashn reception ce
 
 const validAnswer = {
   answer:
-    "Persian weddings center on the sofreh aghd, a ceremonial spread of symbolic items the couple sits before while honored guests hold a canopy above them, followed by the aghd vows and a celebratory jashn reception with family and friends.",
+    "Persian weddings center on the sofreh aghd, a ceremonial spread of symbolic items the couple sits before while honored guests hold a canopy above them, followed by the aghd vows and a celebratory jashn reception with family and friends. The spread gathers a mirror, twin candelabras, flatbread, fresh herbs, and sweets, each chosen to wish the couple light, health, and a sweet life together. Elders witness the reading of the marriage contract, the newlyweds share a taste of honey, and the music, dancing, and feasting of the reception then carry the celebration late into the night for every guest.",
   citationHook: "the sofreh aghd is the heart of a Persian wedding",
   evidenceRefs: [{ source: "competitor_teardown", detail: "the cited page leads with a sofreh aghd explainer" }],
   confidence: "high",
@@ -162,7 +162,7 @@ describe("R16 de-templating guard - near-copies retry once, then ship flagged", 
     const different = JSON.stringify({
       ...validAnswer,
       answer:
-        "At the heart of the ceremony sits the sofreh aghd; relatives hold a canopy over the couple during the aghd vows before everyone moves on to the jashn, a reception filled with music, dancing, and food shared with family and friends.",
+        "At the heart of the ceremony sits the sofreh aghd; relatives hold a canopy over the couple during the aghd vows before everyone moves on to the jashn, a reception filled with music, dancing, and food shared with family and friends. Symbolic objects line the cloth, among them a mirror, bright candles, wild herbs, and honey meant to bless the pair with clarity, warmth, and sweetness in the years ahead. An officiant reads the contract aloud, the two exchange their promises, and the gathering then flows into a long evening of songs, toasts, and shared plates that lasts well past midnight.",
     });
     const systems: string[] = [];
     let i = 0;

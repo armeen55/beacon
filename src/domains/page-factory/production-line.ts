@@ -266,6 +266,10 @@ export async function runProductionLineForTenant(
         faqQuestions: briefValue.faqQuestions,
         schemaTypes: briefValue.schemaTypes,
         hasSerpVerdict: false,
+        // W5 P1-4 (2026-07-09): pass the brief's OWN (generation-time verified)
+        // sources so its factual openingAnswer clears the new source gate; an
+        // unsourced factual brief is honestly held out of the batch.
+        sources: briefValue.sources,
       });
       if (!quality.copyAllowed) {
         totalCostUsd += costUsd;

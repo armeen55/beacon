@@ -589,7 +589,11 @@ describe("W5 (2026-07-09, J-69/J-70): authoritativeSourceDomains + firstMention 
     const a = getBusinessConfig("tenant-a-w5");
     const b = getBusinessConfig("tenant-b-w5");
 
-    const source = { domain: "sample-museum.org", claim: "the collection catalog lists over 3000 artifacts" };
+    // W5 P0-1: a factual draft is only "ready" with a generation-time VERIFIED
+    // authoritative source, so the fixture carries verified:true; the test's
+    // point is that A's allowlist raises authority (-> ready) while B's does not
+    // (-> missing_source), independent of verification.
+    const source = { domain: "sample-museum.org", claim: "the collection catalog lists over 3000 artifacts", verified: true };
     expect(classifySourceAuthority(source, a.authoritativeSourceDomains)).toBe("authoritative");
     expect(classifySourceAuthority(source, b.authoritativeSourceDomains)).toBe("weak");
 

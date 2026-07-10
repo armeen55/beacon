@@ -244,13 +244,16 @@ export type ShippedChangeRecord = {
    *  when the crawl failed (nothing to diff), or on a row that predates
    *  J-73/C-25. */
   editDiff?: EditDiffRecord | null;
-  /** J-73/C-25 (2026-07-09): the crawl-verify pass's six-state verdict (see
-   *  `VerifyState`). This REPLACES the honor-system `verifiedLive` flag as the
-   *  source of truth for "did the operator's edit actually ship" - only the
-   *  outcome "verified_live" ever flips `verifiedLive` true (set atomically by
-   *  `markVerifyResultById`). Null before the first verify pass runs, or on a
-   *  row that predates J-73/C-25. */
-  verifyState?: VerifyState | null;
+  /** J-73/C-25 (2026-07-09): the crawl-verify pass's verdict, stored as a
+   *  `VerifyEnvelope` (W5 stop-ship F5) that separates the LATCHED canonical
+   *  success from mutable retry bookkeeping. This REPLACES the honor-system
+   *  `verifiedLive` flag as the source of truth for "did the operator's edit
+   *  actually ship" - only a verified_live outcome ever flips `verifiedLive`
+   *  true (set atomically by `markVerifyResultById`). Read via `canonicalOutcome`
+   *  / `retryEligibility`. Legacy flat rows are normalized to an envelope on
+   *  read. Null before the first verify pass runs, or on a row that predates
+   *  J-73/C-25. */
+  verifyState?: VerifyEnvelope | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -295,6 +298,66 @@ export type VerifyState = {
   /** Meaningful only when `outcome === "verified_live"`; null otherwise. */
   kind: VerifyKind;
 };
+
+/**
+ * W5 stop-ship F5 (2026-07-09) - the persisted `verify_state` shape. The flat
+ * `VerifyState` above is what `classify` PRODUCES for one pass; the envelope is
+ * what the LEDGER STORES, so a transient failure can never clobber a proven
+ * live verification and retries are fair (backoff + a permanent exhausted
+ * state). Separation of concerns:
+ *   - `canonical` is the LATCHED verdict. ONLY a verified_live /
+ *     verified_live_modified success ever lands here, and no failure ever
+ *     overwrites it (enforced by a CAS guard + a read-side no-op).
+ *   - the rest is mutable retry bookkeeping driven by transient failures
+ *     (crawl_failed / not_found / needs_review): attempt count, the last
+ *     attempt, the next-eligible-retry time, and a permanent exhausted flag.
+ * Legacy flat rows are normalized to this on read (normalizeVerifyEnvelope).
+ */
+export type VerifyAttempt = {
+  /** The non-success verdict of this attempt (never a canonical success). */
+  state: "crawl_failed" | "not_found" | "needs_review";
+  /** ISO timestamp the attempt ran ("" for a normalized legacy row). */
+  at: string;
+  /** Optional short failure detail (host + reason only, never a body). */
+  error?: string;
+  /** Optional best-candidate similarity from the attempt's editDiff. */
+  similarity?: number;
+};
+
+export type VerifyEnvelope = {
+  /** The latched success verdict, or null while unproven. ONLY ever a
+   *  verified_live / verified_live_modified VerifyState. */
+  canonical: VerifyState | null;
+  /** ISO timestamp the canonical success was latched, or null. */
+  canonicalAt: string | null;
+  /** The most recent non-success attempt, or null. */
+  lastAttempt: VerifyAttempt | null;
+  /** Consecutive non-success attempts since the last reset / success. */
+  attempts: number;
+  /** ISO timestamp the next retry becomes eligible, or null (now / exhausted). */
+  nextRetryAt: string | null;
+  /** True once attempts hit MAX_VERIFY_ATTEMPTS - permanently off the retry list. */
+  exhausted: boolean;
+};
+
+/** Attempts before a row is permanently excluded from auto-retry (F6). */
+export const MAX_VERIFY_ATTEMPTS = 5;
+const VERIFY_BACKOFF_BASE_MS = 6 * 60 * 60 * 1000; // 6h
+const VERIFY_BACKOFF_CAP_MS = 7 * 24 * 60 * 60 * 1000; // 7d
+
+/** Exponential retry backoff: 6h * 2^(n-1), capped at 7 days. */
+export function verifyBackoffMs(attempt: number): number {
+  if (attempt <= 1) return VERIFY_BACKOFF_BASE_MS;
+  return Math.min(VERIFY_BACKOFF_BASE_MS * 2 ** (attempt - 1), VERIFY_BACKOFF_CAP_MS);
+}
+
+function addMsIso(iso: string, ms: number): string {
+  return new Date(Date.parse(iso) + ms).toISOString();
+}
+
+function isCanonicalSuccessOutcome(o: string | null | undefined): boolean {
+  return o === "verified_live" || o === "verified_live_modified";
+}
 
 /** J-73 (2026-07-09) - one field's proposal-vs-live comparison, captured by
  *  the crawl-verify pass. `proposedAfter` is a COPY of `after` at the moment
@@ -363,8 +426,10 @@ type LedgerRow = {
    *  column trips PGRST204 -> full-record file fallback, which round-trips
    *  this field with no schema at all. */
   edit_diff?: EditDiffRecord | null;
-  /** J-73/C-25 additive column, same posture as edit_diff. */
-  verify_state?: VerifyState | null;
+  /** J-73/C-25 additive column, same posture as edit_diff. Stores a
+   *  `VerifyEnvelope` (W5 stop-ship F5); legacy rows may still hold a flat
+   *  `VerifyState`, normalized on read. */
+  verify_state?: VerifyEnvelope | VerifyState | null;
   created_at: string;
   updated_at: string;
 };
@@ -414,14 +479,104 @@ const VALID_VERIFY_OUTCOMES: ReadonlySet<string> = new Set([
   "crawl_failed",
 ]);
 
-/** Guards a read row's `verify_state` JSON against a malformed/legacy value
- *  before it's trusted as a `VerifyState` - same defensive posture as
- *  VALID_VERDICTS/VALID_CONFIDENCES above. */
-function isValidVerifyState(v: unknown): v is VerifyState {
+/** True for a well-formed persisted `VerifyEnvelope` (W5 stop-ship F5). The
+ *  discriminating keys (`canonical` + numeric `attempts` + boolean `exhausted`)
+ *  separate it from a legacy flat `{outcome,kind}` value. */
+export function isValidVerifyEnvelope(v: unknown): v is VerifyEnvelope {
   if (v == null || typeof v !== "object") return false;
-  const o = v as { outcome?: unknown; kind?: unknown };
+  const o = v as Record<string, unknown>;
+  if (!("canonical" in o) || typeof o.attempts !== "number" || typeof o.exhausted !== "boolean") return false;
+  if (o.canonical !== null) {
+    if (o.canonical == null || typeof o.canonical !== "object") return false;
+    const c = o.canonical as { outcome?: unknown; kind?: unknown };
+    if (typeof c.outcome !== "string" || !isCanonicalSuccessOutcome(c.outcome)) return false;
+    if (!(c.kind === "exact" || c.kind === "modified" || c.kind === null || c.kind === undefined)) return false;
+  }
+  return true;
+}
+
+/** True for a legacy flat `{outcome,kind}` value (pre-F5), distinguished from an
+ *  envelope by having `outcome` and NONE of the envelope-only keys. */
+function isLegacyFlatVerifyState(v: unknown): v is VerifyState {
+  if (v == null || typeof v !== "object") return false;
+  const o = v as Record<string, unknown>;
+  if ("canonical" in o || "attempts" in o || "exhausted" in o) return false;
   if (typeof o.outcome !== "string" || !VALID_VERIFY_OUTCOMES.has(o.outcome)) return false;
   return o.kind === "exact" || o.kind === "modified" || o.kind === null || o.kind === undefined;
+}
+
+/**
+ * W5 stop-ship F5: coerce a persisted `verify_state` value (an envelope, a
+ * legacy flat VerifyState, or garbage) into a clean `VerifyEnvelope`, or null.
+ * Legacy normalization: a flat SUCCESS becomes a latched canonical; a flat
+ * non-success becomes one recorded attempt (attempts:1). Never throws.
+ */
+export function normalizeVerifyEnvelope(v: unknown): VerifyEnvelope | null {
+  if (isValidVerifyEnvelope(v)) {
+    const o = v as VerifyEnvelope;
+    return {
+      canonical: o.canonical ?? null,
+      canonicalAt: typeof o.canonicalAt === "string" ? o.canonicalAt : null,
+      lastAttempt:
+        o.lastAttempt && typeof o.lastAttempt === "object" ? (o.lastAttempt as VerifyAttempt) : null,
+      attempts: Number.isFinite(o.attempts) ? o.attempts : 0,
+      nextRetryAt: typeof o.nextRetryAt === "string" ? o.nextRetryAt : null,
+      exhausted: o.exhausted === true,
+    };
+  }
+  if (isLegacyFlatVerifyState(v)) {
+    const flat = v as VerifyState;
+    if (isCanonicalSuccessOutcome(flat.outcome)) {
+      return {
+        canonical: { outcome: flat.outcome, kind: flat.kind ?? null },
+        canonicalAt: null,
+        lastAttempt: null,
+        attempts: 0,
+        nextRetryAt: null,
+        exhausted: false,
+      };
+    }
+    return {
+      canonical: null,
+      canonicalAt: null,
+      lastAttempt: { state: flat.outcome as VerifyAttempt["state"], at: "" },
+      attempts: 1,
+      nextRetryAt: null,
+      exhausted: false,
+    };
+  }
+  return null;
+}
+
+/** The latched canonical success outcome, or null. Accepts an envelope, a
+ *  legacy flat value, or null (normalized internally). This is the ONLY read
+ *  the two consumers (auto-measure-on-use, auto-record-on-ship) use to ask
+ *  "is this change proven live?". */
+export function canonicalOutcome(
+  v: VerifyEnvelope | VerifyState | null | undefined,
+): VerifyOutcome | null {
+  if (v == null) return null;
+  return normalizeVerifyEnvelope(v)?.canonical?.outcome ?? null;
+}
+
+/** True when a row is eligible for an auto re-verify at `nowIso`: not a latched
+ *  canonical success, not exhausted, and past its backoff (or never scheduled). */
+export function retryEligibility(
+  v: VerifyEnvelope | VerifyState | null | undefined,
+  nowIso: string,
+): boolean {
+  const env = normalizeVerifyEnvelope(v);
+  if (env == null) return true; // never verified -> eligible
+  if (isCanonicalSuccessOutcome(env.canonical?.outcome)) return false;
+  if (env.exhausted) return false;
+  if (env.nextRetryAt == null) return true;
+  return env.nextRetryAt <= nowIso;
+}
+
+/** The last-attempt timestamp used to sort the retry queue oldest-first; a
+ *  never-attempted row sorts first (""). */
+export function verifyLastAttemptAt(v: VerifyEnvelope | VerifyState | null | undefined): string {
+  return normalizeVerifyEnvelope(v)?.lastAttempt?.at ?? "";
 }
 
 /** Guards a read row's `edit_diff` JSON against a malformed/legacy value
@@ -527,7 +682,9 @@ export function rowToRecord(row: LedgerRow): ShippedChangeRecord {
       ? row.verdict_revisions
       : null,
     editDiff: isValidEditDiff(row.edit_diff) ? row.edit_diff : null,
-    verifyState: isValidVerifyState(row.verify_state) ? row.verify_state : null,
+    // W5 stop-ship F5: normalize an envelope OR a legacy flat value on read; a
+    // malformed blob normalizes to null (never crashes a render).
+    verifyState: normalizeVerifyEnvelope(row.verify_state),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -588,6 +745,33 @@ async function loadShippedChangesUncached(): Promise<ShippedChangeRecord[]> {
   } catch {
     return [];
   }
+  return queryTenantLedger(admin, tid);
+}
+
+/**
+ * W5 stop-ship F3 (2026-07-09): tenant-EXPLICIT ledger read - the SAME query
+ * loadShippedChanges runs, but for a caller-supplied tenant instead of the
+ * ambient `currentTenantId()`. Used by the passive re-verify loop, which fires
+ * in next/after() OUTSIDE the render's tenant scope: reading via the ambient
+ * tenant there could resolve the wrong (or an empty) tenant and re-verify /
+ * write the wrong ledger. Deliberately NOT react.cache'd (after() runs outside
+ * a request scope, where cache() is a no-op anyway). Fail-soft -> [].
+ */
+export async function loadShippedChangesForTenant(tenantId: string): Promise<ShippedChangeRecord[]> {
+  if (!tenantId) return [];
+  let admin;
+  try {
+    admin = getSupabaseAdmin();
+  } catch {
+    return sortNewest(await readFile()); // no env → file
+  }
+  return queryTenantLedger(admin, tenantId);
+}
+
+async function queryTenantLedger(
+  admin: ReturnType<typeof getSupabaseAdmin>,
+  tid: string,
+): Promise<ShippedChangeRecord[]> {
   const { data, error } = await admin.from(TABLE).select("*").eq("tenant_id", tid);
   if (error != null) {
     if (isUndefinedTableError(error)) return sortNewest(await readFile());
@@ -692,52 +876,224 @@ export async function markRecrawlRequestedById(tenantId: string, id: string, atI
 }
 
 /**
- * J-73/C-25 (2026-07-09): stamp the crawl-verify pass's outcome on ONE proof
- * row via a targeted, tenant-EXPLICIT update (same shape as
- * markRecrawlRequestedById above - no load-all/upsert-all, no ambient-tenant
- * double-source, so a caller that resolved a foreign tenantId can never write
- * into another tenant's ledger row). Sets `verifyState` + `editDiff` and,
- * ONLY when the outcome is "verified_live", flips `verifiedLive` true - a
- * crawl failure, not_found, or needs_review NEVER marks shipped (this is the
- * single choke point that retires the honor-system flag). Fail-soft on a
- * missing table/column (pre-migration); throws on a real DB error.
+ * J-73/C-25 + W5 stop-ship F5 (2026-07-09): stamp the crawl-verify pass's
+ * outcome on ONE proof row via a targeted, tenant-EXPLICIT write (no
+ * load-all/upsert-all, no ambient-tenant double-source, so a caller that
+ * resolved a foreign tenantId can never write another tenant's row). The
+ * persisted `verify_state` is a VerifyEnvelope, written under a strict trust
+ * boundary:
+ *
+ *   SUCCESS (verified_live / verified_live_modified) - a BLIND atomic single
+ *   UPDATE that LATCHES the canonical verdict (canonical + canonicalAt,
+ *   attempts reset to 0, lastAttempt/nextRetryAt cleared, exhausted false),
+ *   writes edit_diff when present, and flips verified_live=true ONLY for a
+ *   verified_live outcome (verified_live_modified latches the envelope but
+ *   never the customer-receipt boolean).
+ *
+ *   FAILURE (crawl_failed / not_found / needs_review) - a COMPARE-AND-SET:
+ *   read the current envelope; if a canonical success already latched, no-op;
+ *   otherwise bump attempts (exhausted at MAX_VERIFY_ATTEMPTS, else schedule
+ *   the next retry via exponential backoff) and write ONLY the retry fields,
+ *   guarded by `verify_state->>canonical is null` so a concurrent success can
+ *   never be clobbered (0 rows matched = success won = a legitimate no-op).
+ *   `->>` (not `->`) is used so a JSON-null / absent canonical satisfies
+ *   is.null while a latched success object never does. The failure path never
+ *   touches edit_diff, verified_live, or the canonical verdict.
+ *
+ * Fail-soft on a missing table/column (pre-migration -> file mirror); throws
+ * on a real DB error.
  */
 export async function markVerifyResultById(
   tenantId: string,
   id: string,
   args: { verifyState: VerifyState; editDiff: EditDiffRecord | null },
 ): Promise<void> {
-  const verifiedLive = args.verifyState.outcome === "verified_live";
+  const outcome = args.verifyState.outcome;
+  const isSuccess = isCanonicalSuccessOutcome(outcome);
+  const nowIso = new Date().toISOString();
+
+  let admin;
+  try {
+    admin = getSupabaseAdmin();
+  } catch {
+    await markVerifyResultFile(id, args, isSuccess, outcome, nowIso);
+    await invalidateResultsSurfaceSafe();
+    return;
+  }
+
+  if (isSuccess) {
+    const envelope: VerifyEnvelope = {
+      canonical: { outcome, kind: args.verifyState.kind ?? null },
+      canonicalAt: nowIso,
+      lastAttempt: null,
+      attempts: 0,
+      nextRetryAt: null,
+      exhausted: false,
+    };
+    const update: Record<string, unknown> = { verify_state: envelope, updated_at: nowIso };
+    if (args.editDiff != null) update.edit_diff = args.editDiff;
+    if (outcome === "verified_live") update.verified_live = true;
+    const { error } = await admin.from(TABLE).update(update).eq("tenant_id", tenantId).eq("id", id);
+    if (error != null && !isUndefinedTableError(error)) {
+      throw new Error(
+        `shipped-change-store: markVerifyResultById failed for ${id}: ${error.message ?? String(error)}`,
+      );
+    }
+    await invalidateResultsSurfaceSafe();
+    return;
+  }
+
+  // FAILURE: read the current envelope (fail to the file mirror pre-migration).
+  let currentEnv: VerifyEnvelope | null = null;
+  const read = await admin
+    .from(TABLE)
+    .select("verify_state")
+    .eq("tenant_id", tenantId)
+    .eq("id", id)
+    .maybeSingle();
+  if (read.error != null) {
+    if (isUndefinedTableError(read.error)) {
+      await markVerifyResultFile(id, args, isSuccess, outcome, nowIso);
+      await invalidateResultsSurfaceSafe();
+      return;
+    }
+    throw new Error(
+      `shipped-change-store: markVerifyResultById read failed for ${id}: ${read.error.message ?? String(read.error)}`,
+    );
+  }
+  currentEnv = normalizeVerifyEnvelope((read.data as { verify_state?: unknown } | null)?.verify_state);
+  if (currentEnv && isCanonicalSuccessOutcome(currentEnv.canonical?.outcome)) {
+    await invalidateResultsSurfaceSafe();
+    return; // already latched live -> nothing to do
+  }
+
+  const envelope = nextFailureEnvelope(currentEnv, outcome, args.editDiff, nowIso);
+  const { error } = await admin
+    .from(TABLE)
+    .update({ verify_state: envelope, updated_at: nowIso })
+    .eq("tenant_id", tenantId)
+    .eq("id", id)
+    // CAS guard: only rows whose canonical is still JSON-null/absent match, so a
+    // success that latched between our read and write is never clobbered.
+    .filter("verify_state->>canonical", "is", null)
+    .select("id");
+  if (error != null && !isUndefinedTableError(error)) {
+    throw new Error(
+      `shipped-change-store: markVerifyResultById failed for ${id}: ${error.message ?? String(error)}`,
+    );
+  }
+  // 0 rows returned (a concurrent success won the CAS) is a legitimate no-op.
+  await invalidateResultsSurfaceSafe();
+}
+
+/** Build the next envelope for a FAILURE attempt, preserving any (null-here)
+ *  canonical and advancing the retry bookkeeping. */
+function nextFailureEnvelope(
+  currentEnv: VerifyEnvelope | null,
+  outcome: VerifyOutcome,
+  editDiff: EditDiffRecord | null,
+  nowIso: string,
+): VerifyEnvelope {
+  const attempts = (currentEnv?.attempts ?? 0) + 1;
+  const exhausted = attempts >= MAX_VERIFY_ATTEMPTS;
+  const nextRetryAt = exhausted ? null : addMsIso(nowIso, verifyBackoffMs(attempts));
+  const lastAttempt: VerifyAttempt = { state: outcome as VerifyAttempt["state"], at: nowIso };
+  if (editDiff?.similarity != null) lastAttempt.similarity = editDiff.similarity;
+  return {
+    canonical: currentEnv?.canonical ?? null,
+    canonicalAt: currentEnv?.canonicalAt ?? null,
+    lastAttempt,
+    attempts,
+    nextRetryAt,
+    exhausted,
+  };
+}
+
+/** File-fallback mirror of markVerifyResultById's envelope merge (single
+ *  process): SUCCESS resets + latches; FAILURE no-ops on a canonical success,
+ *  else bumps attempt fields while preserving canonical / editDiff / verifiedLive. */
+async function markVerifyResultFile(
+  id: string,
+  args: { verifyState: VerifyState; editDiff: EditDiffRecord | null },
+  isSuccess: boolean,
+  outcome: VerifyOutcome,
+  nowIso: string,
+): Promise<void> {
+  const rows = await readFile();
+  const rec = rows.find((r) => r.id === id);
+  if (!rec) return;
+  const currentEnv = normalizeVerifyEnvelope(rec.verifyState);
+
+  if (isSuccess) {
+    const envelope: VerifyEnvelope = {
+      canonical: { outcome, kind: args.verifyState.kind ?? null },
+      canonicalAt: nowIso,
+      lastAttempt: null,
+      attempts: 0,
+      nextRetryAt: null,
+      exhausted: false,
+    };
+    await upsertFile({
+      ...rec,
+      verifyState: envelope,
+      editDiff: args.editDiff != null ? args.editDiff : (rec.editDiff ?? null),
+      verifiedLive: outcome === "verified_live" ? true : rec.verifiedLive,
+      updatedAt: nowIso,
+    });
+    return;
+  }
+
+  // FAILURE: preserve everything when a canonical success already latched.
+  if (currentEnv && isCanonicalSuccessOutcome(currentEnv.canonical?.outcome)) return;
+  const envelope = nextFailureEnvelope(currentEnv, outcome, args.editDiff, nowIso);
+  await upsertFile({
+    ...rec,
+    verifyState: envelope,
+    // FAILURE never touches editDiff or verifiedLive.
+    updatedAt: nowIso,
+  });
+}
+
+/**
+ * W5 stop-ship F6 (2026-07-09): RESET a row's retry bookkeeping (attempts /
+ * exhausted / nextRetryAt / lastAttempt) so an EXPLICIT operator re-accept
+ * re-arms auto-verification even for an exhausted row. A latched canonical
+ * success is left completely alone (never re-verified). Tenant-explicit,
+ * single-row; fail-soft on a missing table/column; throws on a real DB error.
+ */
+export async function resetVerifyRetryById(tenantId: string, id: string): Promise<void> {
+  const nowIso = new Date().toISOString();
+  const freshEnvelope: VerifyEnvelope = {
+    canonical: null,
+    canonicalAt: null,
+    lastAttempt: null,
+    attempts: 0,
+    nextRetryAt: null,
+    exhausted: false,
+  };
   let admin;
   try {
     admin = getSupabaseAdmin();
   } catch {
     const rows = await readFile();
     const rec = rows.find((r) => r.id === id);
-    if (rec) {
-      await upsertFile({
-        ...rec,
-        verifyState: args.verifyState,
-        editDiff: args.editDiff,
-        verifiedLive,
-        updatedAt: new Date().toISOString(),
-      });
+    if (rec && !isCanonicalSuccessOutcome(canonicalOutcome(rec.verifyState))) {
+      await upsertFile({ ...rec, verifyState: freshEnvelope, updatedAt: nowIso });
     }
     await invalidateResultsSurfaceSafe();
     return;
   }
   const { error } = await admin
     .from(TABLE)
-    .update({
-      verify_state: args.verifyState,
-      edit_diff: args.editDiff,
-      verified_live: verifiedLive,
-      updated_at: new Date().toISOString(),
-    })
+    .update({ verify_state: freshEnvelope, updated_at: nowIso })
     .eq("tenant_id", tenantId)
-    .eq("id", id);
+    .eq("id", id)
+    // Never reset a latched success (guard identical to the failure CAS).
+    .filter("verify_state->>canonical", "is", null);
   if (error != null && !isUndefinedTableError(error)) {
-    throw new Error(`shipped-change-store: markVerifyResultById failed for ${id}: ${error.message ?? String(error)}`);
+    throw new Error(
+      `shipped-change-store: resetVerifyRetryById failed for ${id}: ${error.message ?? String(error)}`,
+    );
   }
   await invalidateResultsSurfaceSafe();
 }

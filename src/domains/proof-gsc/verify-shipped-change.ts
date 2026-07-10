@@ -26,12 +26,17 @@ import "server-only";
  * Six reachable states (see `VerifyState` in shipped-change-store.ts for the
  * full contract) - `classify` below is the ONLY place that produces one:
  *   1. exact match                                  -> verified_live/exact
- *   2. similarity >= "modified" AND claims preserved -> verified_live/modified
+ *   2. similarity >= "modified" AND claims preserved AND the live text is
+ *      strictly closer to the proposal than to the pre-ship value (C-25
+ *      real-move check, P1-1)                        -> verified_live/modified
  *   3. similarity >= "modified" BUT claims drifted    -> verified_live_modified
- *   4. medium <= similarity < "modified"              -> needs_review
+ *   4. medium <= similarity < "modified", OR a modified-tier match whose live
+ *      text still matches the OLD value (the change was not really made)
+ *                                                    -> needs_review
  *   5. top-2 candidates BOTH clear "modified"         -> needs_review (ambiguous)
- *   6. similarity < medium, OR the crawl/fetch failed,
- *      OR the URL is not this tenant's own domain     -> not_found / crawl_failed
+ *   6. similarity < medium, the crawl/fetch failed, the URL is not this
+ *      tenant's own domain, OR a redirect landed on a foreign host
+ *                                                    -> not_found / crawl_failed
  *
  * TENANT SAFETY: `tenantId` is explicit end-to-end. This module never calls
  * the ambient `currentTenantId()` - the caller (auto-record-on-ship.ts /
@@ -171,11 +176,35 @@ function proposalTextFor(actionType: string, after: string): string {
 
 type Classified = { state: VerifyState; best: (VerifyCandidate & { sim: number }) | null };
 
+/**
+ * C-25 REAL-MOVE CHECK (P1-1, 2026-07-09): a would-be "shipped" verdict must
+ * show the live text is STRICTLY closer to the proposal (`after`) than to the
+ * pre-ship value (`before`). If the live page still matches the old text, the
+ * operator did not actually make the change - a small-delta proposal (after =
+ * a light edit of before) would otherwise clear the "modified" bar against the
+ * UNCHANGED page and be falsely marked live. Only checked when `before` is
+ * non-empty AND differs from the proposal (otherwise there is nothing to
+ * distinguish, and the check is a vacuous pass).
+ */
+function liveIsRealMove(
+  beforeFolded: string | undefined,
+  proposalFolded: string,
+  liveText: string,
+): boolean {
+  const before = (beforeFolded ?? "").trim();
+  if (!before || before === proposalFolded) return true; // nothing to distinguish
+  const liveFolded = normalizeTextBoth(liveText).folded;
+  const simToAfter = similarity(proposalFolded, liveFolded);
+  const simToBefore = similarity(before, liveFolded);
+  return simToAfter > simToBefore; // strictly closer to the proposal than the old text
+}
+
 /** The one place all six verify states are produced. Pure - no I/O. */
 export function classify(
   proposalFolded: string,
   candidates: ReadonlyArray<VerifyCandidate>,
   thresholds: ActionThresholds,
+  beforeFolded?: string,
 ): Classified {
   if (candidates.length === 0) {
     return { state: { outcome: "not_found", kind: null }, best: null };
@@ -187,6 +216,9 @@ export function classify(
   const top = scored[0]!;
   const second = scored[1];
 
+  // An exact normalized match is never ambiguous, and (when `before` differs
+  // from the proposal) is always a real move - live text identical to the
+  // proposal cannot also match the old text more closely.
   if (top.sim >= 1) {
     return { state: { outcome: "verified_live", kind: "exact" }, best: top };
   }
@@ -198,6 +230,14 @@ export function classify(
   }
 
   if (top.sim >= thresholds.modified) {
+    // C-25 real-move check (P1-1): a modified-tier match must be STRICTLY
+    // closer to the proposal than to the pre-ship value. A small-delta
+    // proposal (after = a light edit of before) would otherwise clear the
+    // "modified" bar against the UNCHANGED page and be falsely marked live;
+    // hold for review instead when the page still matches the old text.
+    if (!liveIsRealMove(beforeFolded, proposalFolded, top.text)) {
+      return { state: { outcome: "needs_review", kind: null }, best: top };
+    }
     const preserved = claimTokensPreserved(proposalFolded, normalizeTextBoth(top.text).folded);
     return {
       state: preserved
@@ -293,6 +333,30 @@ export async function verifyShippedChange(
     return persistAndReturn({ outcome: "crawl_failed", kind: null }, null);
   }
 
+  // P2 (2026-07-09): a redirect can land the crawl on a DIFFERENT host than the
+  // tenant's own domain (the pre-fetch host check only guards the requested
+  // URL). When polite-fetch surfaces the final URL, re-check its host; a
+  // cross-host redirect is a crawl_failed, never a silent verify against a
+  // foreign page. When finalUrl is absent (a fetch layer that doesn't expose
+  // it, e.g. a test stub), skip - the pre-fetch check already gated the
+  // requested URL.
+  if (fetched.finalUrl) {
+    let finalHost: string | null = null;
+    try {
+      finalHost = stripWww(new URL(fetched.finalUrl).hostname.toLowerCase());
+    } catch {
+      finalHost = null;
+    }
+    if (finalHost && finalHost !== ownHost) {
+      log.warn("[verify-shipped-change] crawl redirected off the tenant domain (fail-soft)", {
+        tenantId,
+        page: record.page,
+        finalUrl: fetched.finalUrl,
+      });
+      return persistAndReturn({ outcome: "crawl_failed", kind: null }, null);
+    }
+  }
+
   let snapshot: PageSnapshot;
   try {
     snapshot = extractPageSnapshot(fetched.html, record.page, record.id, tenantId, fetched.status);
@@ -309,8 +373,13 @@ export async function verifyShippedChange(
   const candidates = candidatesForActionType(snapshot, record.actionType);
   const proposalText = proposalTextFor(record.actionType, proposal);
   const proposalFolded = normalizeTextBoth(proposalText).folded;
+  // C-25 real-move check input (P1-1): the pre-ship value, normalized the SAME
+  // way as the proposal + candidates, so classify can require the live page to
+  // be closer to the proposal than to this old text before marking it live.
+  const beforeRaw = (record.before ?? "").trim();
+  const beforeFolded = beforeRaw ? normalizeTextBoth(proposalTextFor(record.actionType, beforeRaw)).folded : "";
 
-  const { state, best } = classify(proposalFolded, candidates, thresholds);
+  const { state, best } = classify(proposalFolded, candidates, thresholds, beforeFolded);
 
   const editDiff: EditDiffRecord | null =
     best == null

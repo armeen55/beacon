@@ -254,7 +254,7 @@ export function MoveCard({
     const lines: string[] = [`# ${titleCase(m.query)}  (${m.pageLabel})`];
     if (m.draftTitle) lines.push(`\nTitle: ${m.draftTitle}`);
     if (m.draftMeta) lines.push(`Meta: ${m.draftMeta}`);
-    if (m.answerBrief) lines.push(`\nAnswer block (write a 40-60 word direct answer):\n${m.answerBrief}`);
+    if (m.answerBrief) lines.push(`\nAnswer block (write an 80-150 word direct answer citing 1-2 sources):\n${m.answerBrief}`);
     if (m.outline.length) lines.push(`\nSections to cover:\n${m.outline.map((o) => `- ${o}`).join("\n")}`);
     if (m.faqs.length) lines.push(`\nFAQ to answer:\n${m.faqs.map((q) => `- ${q}`).join("\n")}`);
     if (m.schema.length) lines.push(`\nSchema to add: ${m.schema.join(", ")}`);

@@ -17,7 +17,14 @@ import {
   type GroundedNumbers,
 } from "./numeric-fidelity";
 import { sanitizeEvidenceTexts, sanitizeNullableEvidence, sanitizeEvidenceText } from "./injection-sanitizer";
-import { stampSourceAuthority, type ClassifiableSource } from "@/domains/drafts/source-authority";
+import {
+  stampSourceAuthority,
+  findSupportingSpan,
+  classifySourceAuthority,
+  extractDomain,
+  type ClassifiableSource,
+} from "@/domains/drafts/source-authority";
+import { safeFetchSourceText } from "@/lib/net/safe-source-fetch";
 import {
   SCHEMA_BY_KIND,
   draftStringValues,
@@ -208,6 +215,178 @@ function stampAnySources(value: unknown, tenantAllowlist?: readonly string[]): u
   return { ...v, sources: stampSourceAuthority(v.sources as ClassifiableSource[], tenantAllowlist) };
 }
 
+/** W5 (J-71): an answer block runs 80-150 words; the drafter gives ONE
+ *  word-count retry so a too-thin answer is never cached for the gate to
+ *  reject. Matches evaluateDraftQuality's own floor + word count. */
+const ANSWER_MIN_WORDS = 80;
+function countWords(text: string): number {
+  const t = (text ?? "").trim();
+  return t ? t.split(/\s+/).length : 0;
+}
+
+/** How many cited sources per draft the generation-time verifier will fetch
+ *  (cost cap - real drafts carry 1-2; anything past this stays unverified). */
+const MAX_SOURCES_TO_VERIFY = 3;
+
+/**
+ * W5 P0-1 (2026-07-09): fetch a cited source URL and return its visible text.
+ * Injected in tests (hermetic); the default routes through the SSRF-safe
+ * source fetcher (lib/net/safe-source-fetch.ts) - NOT the competitor crawler's
+ * follow-redirect fetch, because a source URL is untrusted model-generated
+ * text. Fail-soft: any failure resolves to `{ ok: false, text: "" }` so
+ * verification downgrades the source rather than throwing. `finalUrl` (W5
+ * stop-ship F2) is the post-redirect URL the fetch actually landed on, so the
+ * verifier can recompute authority from the REAL final host.
+ */
+export type SourceTextFetcher = (
+  url: string,
+) => Promise<{ ok: boolean; text: string; finalUrl?: string }>;
+
+/** Strip HTML to visible text (scripts/styles/tags removed, whitespace
+ *  collapsed) so claim tokens can be matched against the page's real words. */
+function htmlToVisibleText(html: string): string {
+  return html
+    .replace(/<script[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&[a-z]+;/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 200_000);
+}
+
+function defaultSourceFetcher(timeoutMs: number): SourceTextFetcher {
+  return async (url: string) => {
+    try {
+      const res = await safeFetchSourceText(url, {}, { timeoutMs });
+      if (!res.ok) return { ok: false, text: "" };
+      return { ok: true, text: htmlToVisibleText(res.text), finalUrl: res.finalUrl };
+    } catch {
+      return { ok: false, text: "" };
+    }
+  };
+}
+
+/** The verifier to use: the injected one in tests, the polite-fetch default in
+ *  production, and NOTHING under vitest without injection (keeps every pinned
+ *  suite hermetic - no draft with sources ever hits the network in a test that
+ *  didn't opt in), exactly the resolveCacheImpl posture. */
+function resolveSourceFetch(injected: SourceTextFetcher | undefined, timeoutMs: number): SourceTextFetcher | null {
+  if (injected) return injected;
+  if (process.env.VITEST === "true") return null;
+  return defaultSourceFetcher(timeoutMs);
+}
+
+/** Fields the source-verify trust boundary owns end to end. Cleared before any
+ *  fetch so an LLM-supplied `verified: true` (or a stale value) can never
+ *  survive into a returned draft; re-set ONLY when a real fetch confirms the
+ *  claim on an authoritative final host. */
+function resetSourceVerification(s: Record<string, unknown>): void {
+  s.verified = false;
+  delete s.verifiedAt;
+  delete s.supportingExcerpt;
+  delete s.finalUrl;
+  delete s.contentHash;
+}
+
+/**
+ * W5 stop-ship F2 (2026-07-09): pure strip of every source-verification field
+ * when NO verifier is configured (vitest without injection, or a runtime with
+ * source-fetch disabled). Without this, an LLM that emitted `verified: true`
+ * would have that value survive unchallenged. Forces verified=false and drops
+ * verifiedAt/supportingExcerpt/finalUrl/contentHash on every source. A draft
+ * with no sources array is returned unchanged.
+ */
+function stripSourceVerificationFields(value: unknown): unknown {
+  if (!value || typeof value !== "object") return value;
+  const v = value as Record<string, unknown>;
+  if (!Array.isArray(v.sources) || v.sources.length === 0) return value;
+  const sources = v.sources.map((raw) => {
+    const s = { ...(raw as Record<string, unknown>) };
+    resetSourceVerification(s);
+    return s;
+  });
+  return { ...v, sources };
+}
+
+/**
+ * W5 stop-ship F2 (2026-07-09): the GENERATION-TIME source-verification trust
+ * boundary. For each of the first MAX_SOURCES_TO_VERIFY sources:
+ *   1. RESET every verification field FIRST (never trust the LLM's own
+ *      `verified`/excerpt/hash) - see resetSourceVerification.
+ *   2. fetch the URL through the SSRF-safe fetcher (injected here).
+ *   3. on a reachable page, run findSupportingSpan(claim, text) and recompute
+ *      authority from the FINAL (post-redirect) host. `verified: true` is set
+ *      ONLY when a qualifying span is found AND the final host is authoritative;
+ *      the fetched final URL, the supporting excerpt, and its content hash are
+ *      persisted so the receipt shows exactly what backed the claim.
+ * An unreachable URL, a redirect to an untrusted (non-authoritative) final
+ * host, a weak-match, or a source with no URL/claim all downgrade `authority`
+ * to "weak" and leave `verified: false` - so a hallucinated .gov/.edu URL can
+ * never pass the authority gate on domain class alone. NEVER throws; a draft
+ * with no sources array is returned unchanged. Runs at generation time only
+ * (behind the resolveSourceFetch gate), never on a render/eval path.
+ */
+async function verifyStampedSources(
+  value: unknown,
+  fetcher: SourceTextFetcher,
+  cache: Map<string, { ok: boolean; text: string; finalUrl?: string }>,
+  nowIso: string,
+  nowYear: number,
+  tenantAllowlist: readonly string[] | undefined,
+): Promise<unknown> {
+  if (!value || typeof value !== "object") return value;
+  const v = value as Record<string, unknown>;
+  if (!Array.isArray(v.sources) || v.sources.length === 0) return value;
+  const verified: unknown[] = [];
+  for (let i = 0; i < v.sources.length; i += 1) {
+    const s = { ...(v.sources[i] as Record<string, unknown>) };
+    // (1) never trust an LLM-supplied verification: wipe it before any fetch.
+    resetSourceVerification(s);
+    const url = String(s.url ?? "").trim();
+    const claim = String(s.claim ?? "").trim();
+    if (i >= MAX_SOURCES_TO_VERIFY || !url || !claim) {
+      s.authority = "weak";
+      verified.push(s);
+      continue;
+    }
+    // (2) fetch through the injected SSRF-safe fetcher (per-request URL cache).
+    let fetched = cache.get(url);
+    if (!fetched) {
+      fetched = await fetcher(url).catch(() => ({ ok: false, text: "" }));
+      cache.set(url, fetched);
+    }
+    if (!fetched.ok) {
+      s.authority = "weak";
+      verified.push(s);
+      continue;
+    }
+    // (3) span-level entailment + FINAL-host authority.
+    const finalUrl = (fetched.finalUrl && fetched.finalUrl.trim()) || url;
+    const finalHost = extractDomain({ url: finalUrl });
+    const finalAuthority = classifySourceAuthority(
+      { url: finalUrl, domain: finalHost, claim },
+      tenantAllowlist,
+    );
+    const sup = findSupportingSpan(claim, fetched.text, nowYear);
+    if (sup.supported && finalAuthority === "authoritative") {
+      s.url = finalUrl;
+      s.domain = finalHost;
+      s.finalUrl = finalUrl;
+      s.authority = "authoritative";
+      s.verified = true;
+      s.verifiedAt = nowIso;
+      if (sup.excerpt != null) s.supportingExcerpt = sup.excerpt;
+      if (sup.contentHash != null) s.contentHash = sup.contentHash;
+    } else {
+      // unreachable-quality match, weak final host, or no supporting span.
+      s.authority = "weak";
+    }
+    verified.push(s);
+  }
+  return { ...v, sources: verified };
+}
+
 /** Content firewalls over every string field of a parsed draft. Same trust rails
  *  as the deterministic drafter: no placeholders, no em-dashes, no superlatives,
  *  and no invented multi-digit numbers (must be grounded - years allowed). R16
@@ -300,6 +479,12 @@ export type StructuredDraftRequest<K extends StructuredDraftKind> = {
    *  `sources` field on the validated draft. Omitted = only the universal
    *  .gov/.edu + named encyclopedic/press set applies. */
   authoritativeSourceDomains?: readonly string[];
+  /** W5 P0-1 (2026-07-09): injectable source-text fetcher for the
+   *  generation-time verification step. Tests inject a hermetic stub; the
+   *  default is the polite competitor-intel fetch, and NOTHING under vitest
+   *  without injection (no draft with sources ever hits the network in a test
+   *  that didn't opt in). */
+  sourceFetch?: SourceTextFetcher;
 };
 
 /**
@@ -332,10 +517,16 @@ export async function callStructuredLLM<K extends StructuredDraftKind>(
     if (hit) {
       const revalidated = schemaForCache.safeParse(hit.value);
       if (revalidated.success) {
+        // W5 P2 (2026-07-09): re-stamp authority against THIS request's tenant
+        // allowlist on every cache read. The cache key does not include the
+        // allowlist, so a cached entry can be served to a different tenant; a
+        // stale "authoritative" label must never render under the wrong
+        // tenant's allowlist. `verified` and every other field survive
+        // (stampSourceAuthority only overwrites `authority`).
         return {
           status: "drafted",
           kind: req.kind,
-          value: revalidated.data as z.infer<(typeof SCHEMA_BY_KIND)[K]>,
+          value: stampAnySources(revalidated.data, req.authoritativeSourceDomains) as z.infer<(typeof SCHEMA_BY_KIND)[K]>,
           costUsd: 0,
           retried: false,
           cached: true,
@@ -364,9 +555,17 @@ export async function callStructuredLLM<K extends StructuredDraftKind>(
   const recentTexts =
     req.recentOutputs ?? (cache ? await cache.recentTexts(req.kind, REPEAT_HISTORY_SIZE).catch(() => []) : []);
 
+  // W5 P0-1: the generation-time source verifier (null under vitest unless a
+  // hermetic fetcher is injected) + a per-request URL cache so the same source
+  // cited on both attempts is fetched once.
+  const sourceFetch = resolveSourceFetch(req.sourceFetch, timeoutMs);
+  const sourceTextCache = new Map<string, { ok: boolean; text: string; finalUrl?: string }>();
+  const verifyNowIso = (req.now ?? new Date()).toISOString();
+
   let totalCost = 0;
   const errors: string[] = [];
   let lastFailureWasTemplated = false;
+  let lastFailureWasThin = false;
 
   for (let attempt = 0; attempt < 2; attempt += 1) {
     const retried = attempt > 0;
@@ -376,6 +575,10 @@ export async function callStructuredLLM<K extends StructuredDraftKind>(
         // R16 de-templating: the first draft read like a repeat - retry with a
         // variation instruction rather than an "invalid output" correction.
         system = `${req.system}\n\n${VARIATION_INSTRUCTION}`;
+      } else if (lastFailureWasThin) {
+        // W5 (J-71): the first answer was under the 80-word floor - retry asking
+        // for the full band rather than an "invalid output" correction.
+        system = `${req.system}\n\nYour previous answer was too short. Write a complete answer of 80 to 150 words, grounded ONLY in the evidence provided.`;
       } else {
         system = `${req.system}\n\nYour previous output was invalid: ${errors.slice(-3).join(" | ")}. Return ONLY valid JSON matching the described shape, with non-empty evidenceRefs.`;
         // R16 numeric repair: when the failure was an ungrounded number, inject
@@ -395,6 +598,7 @@ export async function callStructuredLLM<K extends StructuredDraftKind>(
     if ("error" in out) {
       errors.push(`llm_${out.error}`);
       lastFailureWasTemplated = false;
+      lastFailureWasThin = false;
       continue;
     }
     totalCost += estimateCostUsd(system.length + req.user.length, out.text.length);
@@ -404,12 +608,14 @@ export async function callStructuredLLM<K extends StructuredDraftKind>(
     if (parsedJson === undefined) {
       errors.push("non_json");
       lastFailureWasTemplated = false;
+      lastFailureWasThin = false;
       continue;
     }
     const parsed = schema.safeParse(sanitizeDashesDeep(parsedJson));
     if (!parsed.success) {
       errors.push(...parsed.error.issues.slice(0, 4).map((i) => `${i.path.join(".") || "(root)"}: ${i.message}`));
       lastFailureWasTemplated = false;
+      lastFailureWasThin = false;
       continue;
     }
     // W5 (J-69): the LLM may PROPOSE sources, but only source-authority.ts
@@ -419,6 +625,7 @@ export async function callStructuredLLM<K extends StructuredDraftKind>(
     if (!fw.ok) {
       errors.push(`firewall:${fw.reason}`);
       lastFailureWasTemplated = false;
+      lastFailureWasThin = false;
       continue;
     }
 
@@ -431,13 +638,42 @@ export async function callStructuredLLM<K extends StructuredDraftKind>(
     if (templated && !retried) {
       errors.push("templated");
       lastFailureWasTemplated = true;
+      lastFailureWasThin = false;
       continue;
     }
+
+    // W5 P2 (J-71): an answer block under the 80-word floor gets ONE word-count
+    // retry so the drafter never caches a too-thin answer the quality gate
+    // would only reject later. A style-class retry, never a fail-closed: if the
+    // second attempt is still short it ships as-is for the gate to hold as
+    // too_thin (redrafting endlessly would just burn budget).
+    if (req.kind === "answer_block" && !retried && primary != null && countWords(primary) < ANSWER_MIN_WORDS) {
+      errors.push("too_thin_answer");
+      lastFailureWasTemplated = false;
+      lastFailureWasThin = true;
+      continue;
+    }
+
+    // W5 stop-ship F2: verify each cited source AT GENERATION TIME (SSRF-safe
+    // fetch + span-level entailment + final-host authority) AFTER the firewalls,
+    // so the added verification metadata never enters the numeric firewall. When
+    // no verifier is configured (vitest without injection), STRIP every
+    // verification field so an LLM-supplied `verified: true` can never survive.
+    const verifiedData = sourceFetch
+      ? ((await verifyStampedSources(
+          result.data,
+          sourceFetch,
+          sourceTextCache,
+          verifyNowIso,
+          nowYear,
+          req.authoritativeSourceDomains,
+        )) as z.infer<(typeof SCHEMA_BY_KIND)[K]>)
+      : (stripSourceVerificationFields(result.data) as z.infer<(typeof SCHEMA_BY_KIND)[K]>);
 
     const drafted = {
       status: "drafted" as const,
       kind: req.kind,
-      value: result.data as z.infer<(typeof SCHEMA_BY_KIND)[K]>,
+      value: verifiedData,
       costUsd: totalCost,
       retried,
       ...(req.fewShotProvenance ? { fewShot: req.fewShotProvenance } : {}),
@@ -451,7 +687,7 @@ export async function callStructuredLLM<K extends StructuredDraftKind>(
           kind: req.kind,
           promptId,
           promptVersion,
-          value: result.data,
+          value: verifiedData,
           primaryText: primary,
           createdAt: nowIso,
           lastUsedAt: nowIso,
@@ -525,7 +761,13 @@ const ANSWER_BLOCK_SYSTEM =
 /** Draft a schema-valid AnswerBlockDraft for one Move. Capped + budgeted. */
 export async function draftAnswerBlockStructured(
   input: AnswerBlockStructuredInput,
-  opts: { complete?: CompleteFn; now?: Date; bypassCache?: boolean; authoritativeSourceDomains?: readonly string[] } = {},
+  opts: {
+    complete?: CompleteFn;
+    now?: Date;
+    bypassCache?: boolean;
+    authoritativeSourceDomains?: readonly string[];
+    sourceFetch?: SourceTextFetcher;
+  } = {},
 ): Promise<StructuredDraftResult<AnswerBlockDraft>> {
   // R16 injection firewall: crawled briefs/outlines, PAA questions, and evidence
   // hints are untrusted text - strip instruction-shaped lines before they enter
@@ -583,6 +825,7 @@ export async function draftAnswerBlockStructured(
     bypassCache: opts.bypassCache,
     fewShotProvenance,
     authoritativeSourceDomains: opts.authoritativeSourceDomains,
+    sourceFetch: opts.sourceFetch,
   });
 }
 
@@ -618,7 +861,13 @@ const ATOMIC_EDIT_SYSTEM =
 /** Draft a schema-valid AtomicEditDraft (title/meta) for one existing-page Move. */
 export async function draftAtomicEditStructured(
   input: AtomicEditStructuredInput,
-  opts: { complete?: CompleteFn; now?: Date; bypassCache?: boolean } = {},
+  opts: {
+    complete?: CompleteFn;
+    now?: Date;
+    bypassCache?: boolean;
+    authoritativeSourceDomains?: readonly string[];
+    sourceFetch?: SourceTextFetcher;
+  } = {},
 ): Promise<StructuredDraftResult<AtomicEditDraft>> {
   // R16 injection firewall (see draftAnswerBlockStructured).
   const currentValue = sanitizeNullableEvidence(input.currentValue);
@@ -670,6 +919,8 @@ export async function draftAtomicEditStructured(
     now: opts.now,
     bypassCache: opts.bypassCache,
     fewShotProvenance,
+    authoritativeSourceDomains: opts.authoritativeSourceDomains,
+    sourceFetch: opts.sourceFetch,
   });
 
   // BEACON_500 item 74: the atomic-edit rationale is the ONE free-text channel that
@@ -720,7 +971,13 @@ const CREATE_PAGE_SYSTEM =
 /** Draft a schema-valid CreatePageBrief for one create_page / hub Move. */
 export async function draftCreatePageStructured(
   input: CreatePageStructuredInput,
-  opts: { complete?: CompleteFn; now?: Date; bypassCache?: boolean } = {},
+  opts: {
+    complete?: CompleteFn;
+    now?: Date;
+    bypassCache?: boolean;
+    authoritativeSourceDomains?: readonly string[];
+    sourceFetch?: SourceTextFetcher;
+  } = {},
 ): Promise<StructuredDraftResult<CreatePageBrief>> {
   // R16 injection firewall: competitor pages + fan-out questions are untrusted.
   const competitorPages = sanitizeEvidenceTexts(input.competitorPages);
@@ -753,6 +1010,8 @@ export async function draftCreatePageStructured(
     complete: opts.complete,
     now: opts.now,
     bypassCache: opts.bypassCache,
+    authoritativeSourceDomains: opts.authoritativeSourceDomains,
+    sourceFetch: opts.sourceFetch,
   });
 }
 
@@ -947,6 +1206,7 @@ export function serializeStructuredDraft(kind: StructuredDraftKind, value: unkno
  *  can never be served as a trusted draft. */
 export function deserializeStructuredDraft(
   content: string | null | undefined,
+  tenantAllowlist?: readonly string[],
 ): { kind: StructuredDraftKind; value: unknown } | null {
   if (!content) return null;
   try {
@@ -955,7 +1215,13 @@ export function deserializeStructuredDraft(
     const schema = SCHEMA_BY_KIND[obj.kind] as z.ZodTypeAny;
     const res = schema.safeParse(obj.value);
     if (!res.success) return null;
-    return { kind: obj.kind, value: res.data };
+    // W5 P2 (2026-07-09): re-derive authority on every read against the reading
+    // tenant's own allowlist so a persisted "authoritative" label can never be
+    // trusted under a DIFFERENT tenant's allowlist. `verified` and every other
+    // field survive (stampSourceAuthority only overwrites `authority`); with no
+    // allowlist supplied this conservatively keeps only the universal
+    // .gov/.edu + named set as authoritative.
+    return { kind: obj.kind, value: stampAnySources(res.data, tenantAllowlist) };
   } catch {
     return null;
   }

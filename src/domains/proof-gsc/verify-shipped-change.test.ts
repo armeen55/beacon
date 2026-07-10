@@ -416,3 +416,77 @@ describe("candidatesForActionType", () => {
     expect(candidates.map((c) => c.field)).toEqual(["passage[0]", "passage[1]"]);
   });
 });
+
+// ── P1-1 real-move check + P2 redirect host check (W5, 2026-07-09) ───────────
+describe("classify - C-25 real-move check (P1-1)", () => {
+  const titleThresholds = ACTION_THRESHOLDS.edit_title!;
+
+  it("a small-delta proposal against the UNCHANGED old live text is HELD (needs_review), never verified", () => {
+    const before = "Best Persian Restaurants in Tehran";
+    const after = "Best Persian Restaurants in Tehran Today"; // a light edit of `before`
+    // The page still shows the OLD text - the operator did not make the change.
+    const { state } = classify(fold(after), [{ field: "title", text: before }], titleThresholds, fold(before));
+    expect(state).toEqual({ outcome: "needs_review", kind: null });
+  });
+
+  it("the SAME small-delta proposal DOES verify once the live text actually matches it", () => {
+    const before = "Best Persian Restaurants in Tehran";
+    const after = "Best Persian Restaurants in Tehran Today";
+    const { state } = classify(fold(after), [{ field: "title", text: after }], titleThresholds, fold(before));
+    expect(state).toEqual({ outcome: "verified_live", kind: "exact" });
+  });
+
+  it("with no `before` supplied the check is a vacuous pass (behavior unchanged)", () => {
+    const after = "Best Persian Restaurants in Tehran Today";
+    const { state } = classify(
+      fold(after),
+      [{ field: "title", text: "The Best Persian Restaurants in Tehran Today" }],
+      titleThresholds,
+    );
+    expect(state.outcome).not.toBe("needs_review"); // clears modified, nothing to distinguish against
+  });
+});
+
+describe("verifyShippedChange - P1-1 real-move + P2 redirect host", () => {
+  it("P1-1 end to end: crawl finds the OLD title still live for a small-delta edit -> needs_review, never verified", async () => {
+    const before = "Best Persian Restaurants in Tehran";
+    const after = "Best Persian Restaurants in Tehran Today";
+    const fetchImpl = makeFetchImpl(() => okHtml(htmlWithTitle(before)));
+    const deps = baseDeps({ fetchImpl });
+    const record = baseShipRecord({ before, after });
+    const result = await verifyShippedChange({ tenantId: "tenant-a", record }, deps);
+    expect(result.verifyState).toEqual({ outcome: "needs_review", kind: null });
+  });
+
+  it("P2: a redirect that lands on a FOREIGN host -> crawl_failed (never verified against another site)", async () => {
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith("/robots.txt")) return { ok: false } as Response;
+      return {
+        ok: true,
+        status: 200,
+        url: "https://evil-other-site.com/landing",
+        text: async () => htmlWithTitle("Best Persian Restaurants in Tehran"),
+      } as unknown as Response;
+    }) as unknown as typeof fetch;
+    const deps = baseDeps({ fetchImpl });
+    const result = await verifyShippedChange({ tenantId: "tenant-a", record: baseShipRecord() }, deps);
+    expect(result.verifyState).toEqual({ outcome: "crawl_failed", kind: null });
+  });
+
+  it("P2: a SAME-host redirect (finalUrl on the tenant's own domain) still verifies", async () => {
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith("/robots.txt")) return { ok: false } as Response;
+      return {
+        ok: true,
+        status: 200,
+        url: "https://site.com/persian-food/",
+        text: async () => htmlWithTitle("Best Persian Restaurants in Tehran"),
+      } as unknown as Response;
+    }) as unknown as typeof fetch;
+    const deps = baseDeps({ fetchImpl });
+    const result = await verifyShippedChange({ tenantId: "tenant-a", record: baseShipRecord() }, deps);
+    expect(result.verifyState).toEqual({ outcome: "verified_live", kind: "exact" });
+  });
+});

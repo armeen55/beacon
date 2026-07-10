@@ -12,7 +12,12 @@ import {
   captureChangeMeta,
   defaultPacificShipDate,
 } from "./run-measurement";
-import { loadShippedChanges, upsertShippedChange } from "./shipped-change-store";
+import {
+  loadShippedChanges,
+  upsertShippedChange,
+  resetVerifyRetryById,
+  canonicalOutcome,
+} from "./shipped-change-store";
 import type { ShippedChangeRecord } from "./shipped-change-store";
 import {
   rankControlCandidates,
@@ -364,6 +369,11 @@ export type AutoRecordDeps = {
    *  Fail-soft by construction (a crawl failure records crawl_failed, never a
    *  silent verified_live). */
   verifyShippedChange: typeof verifyShippedChange;
+  /** W5 stop-ship F6 (2026-07-09): resets a row's retry bookkeeping so an
+   *  EXPLICIT operator re-accept re-arms auto-verification even for an
+   *  exhausted row (a latched canonical success is left alone). Injectable so
+   *  tests never touch the store; defaults to the real reset. */
+  resetVerifyRetry: typeof resetVerifyRetryById;
 };
 
 const defaultDeps: AutoRecordDeps = {
@@ -375,6 +385,7 @@ const defaultDeps: AutoRecordDeps = {
   matchControls: matchControlsForShip,
   shipDate: () => dateOnly(defaultPacificShipDate()),
   verifyShippedChange,
+  resetVerifyRetry: resetVerifyRetryById,
 };
 
 export type AutoRecordResult = {
@@ -420,8 +431,31 @@ export async function autoRecordShippedChangeForRec(
     const existing = await deps.loadShippedChanges();
 
     // Idempotent: the ledger PK is (page-path, ship-date). If this page already has
-    // a record for today, do nothing (the manual form or a prior accept got here).
-    if (existing.some((r) => r.path === meta.path && dateOnly(r.shippedAt) === shipDate)) {
+    // a record for today, do nothing new (the manual form or a prior accept got here).
+    const existingRow = existing.find((r) => r.path === meta.path && dateOnly(r.shippedAt) === shipDate);
+    if (existingRow) {
+      // W5 stop-ship F6 (2026-07-09): an EXPLICIT operator re-accept RESETS the
+      // retry bookkeeping (attempts / exhausted / nextRetryAt) and re-verifies
+      // any row that is NOT already a latched canonical success - a never-verified
+      // row, a prior crawl_failed / not_found (a transient blip / a page that had
+      // not propagated), OR an unresolved needs_review the operator is deciding
+      // to re-attest. A proven verified_live / verified_live_modified is left
+      // completely alone. Fail-soft, and the reset+re-verify never downgrades a
+      // latched success (the store's CAS guard + monotonic latch).
+      const canon = canonicalOutcome(existingRow.verifyState);
+      const isLatchedSuccess = canon === "verified_live" || canon === "verified_live_modified";
+      if (!isLatchedSuccess) {
+        try {
+          await deps.resetVerifyRetry(args.tenantId, existingRow.id);
+          await deps.verifyShippedChange({ tenantId: args.tenantId, record: existingRow });
+        } catch (e) {
+          log.warn("[ship->proof] re-verify of already-recorded row failed (non-blocking)", {
+            tenantId: args.tenantId,
+            path: meta.path,
+            error: e instanceof Error ? e.message : String(e),
+          });
+        }
+      }
       return { recorded: false, reason: "already-recorded" };
     }
 

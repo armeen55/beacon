@@ -25,7 +25,7 @@ import {
   type MeasurementPresentation,
 } from "@/domains/proof-gsc/measurement-maturity";
 import { gradeFromPresentation, type VerdictReliabilityResult } from "@/domains/proof-gsc/verdict-reliability";
-import { scheduleAutoMeasure } from "@/domains/proof-gsc/auto-measure-on-use";
+import { scheduleAutoMeasure, selectRowsToReverify } from "@/domains/proof-gsc/auto-measure-on-use";
 import { loadDailyClicksByPathsForTenant } from "@/domains/proof-gsc/daily-series";
 import { buildShockWindows, type ShockWindow } from "@/domains/proof-gsc/algorithm-weather";
 import { loadDetectedChangepoints } from "@/domains/proof-gsc/algorithm-weather-store";
@@ -102,7 +102,7 @@ import { buildRecapItems, WeGotThisWrongSection } from "./results-recap";
 // R14b (P1 trust receipts): named comparison pages on the card chart (dashed series +
 // legend), the prep-spend join on the card expand, the section-level one-line receipt,
 // and the spreadsheet download of the same ledger the page renders.
-import { controlsLegendLine, prepSpendLine } from "./trust-receipts";
+import { controlsLegendLine, prepSpendLine, verifyGaveUpLine } from "./trust-receipts";
 import { buildReceiptLine, ReceiptLine } from "@/components/data/receipt-line";
 // N4 + N17 (2026-07-03) - the "How visitors behaved" block on the card expand:
 // engagement, frustration, and the did-they-find-their-answer read, on the
@@ -519,7 +519,14 @@ export default async function ProofPage({
   // a customer/anon view never mutates proof data. The settled rows show on the next visit.
   const dueNow = ledger.filter((l) => isDueForMeasure(l, latestGscDate, new Date()));
   const isOperator = await isOperatorModeServer();
-  if (isOperator && dueNow.length > 0) scheduleAutoMeasure(tenantId);
+  // W5 stop-ship F4 (2026-07-09): also schedule when nothing is due-for-measure
+  // but rows are eligible for a re-verify (never-verified / transient-failed /
+  // unresolved needs_review, past backoff). The after() re-verify loop already
+  // runs unconditionally inside scheduleAutoMeasure; this just stops that loop
+  // from being gated behind a measurement being due. No extra I/O -
+  // selectRowsToReverify runs over the ledger already in memory.
+  const eligibleReverify = selectRowsToReverify(ledger).length > 0;
+  if (isOperator && (dueNow.length > 0 || eligibleReverify)) scheduleAutoMeasure(tenantId);
 
   // Item 11 - one-click restore offers for rows that are measuring negative
   // (7/14/28 day reads). The shared revert policy decides propose vs auto;
@@ -1086,6 +1093,8 @@ function LedgerCard({ rec, link, pres, grade, eventCaveat, spark, controlSparks,
     }
     return badgeMaturesOn;
   })();
+  // W5 stop-ship F6: honest terminal copy when the crawl-verify pass gave up.
+  const verifyGaveUp = verifyGaveUpLine(rec.verifyState, rec.verifiedLive);
   return (
     // R14a - the stable per-record anchor so the /activity stream and the
     // "We got this wrong" recap can deep-link straight to this card.
@@ -1154,6 +1163,12 @@ function LedgerCard({ rec, link, pres, grade, eventCaveat, spark, controlSparks,
             <Check className="h-3.5 w-3.5 shrink-0" aria-hidden />
             verified live
           </span>
+        ) : verifyGaveUp ? (
+          // W5 stop-ship F6: the DS-token Pill (waiting = soft amber), never raw
+          // palette classes, so the honest "gave up" state stays on-system.
+          <Pill intent="waiting" title={verifyGaveUp}>
+            not verified
+          </Pill>
         ) : null}
       </div>
 

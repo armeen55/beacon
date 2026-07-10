@@ -98,7 +98,16 @@ export async function robotsVerdictFor(
 }
 
 export type PoliteHtmlResult =
-  | { ok: true; html: string; status: number }
+  | {
+      ok: true;
+      html: string;
+      status: number;
+      /** W5 P2 (2026-07-09), additive: the FINAL URL after any redirects
+       *  (`Response.url`), so a caller can confirm the fetch didn't land on a
+       *  different host. Optional so every existing caller/mock is unaffected;
+       *  absent when the fetch layer doesn't surface it (e.g. a test stub). */
+      finalUrl?: string;
+    }
   | { ok: false; reason: "robots_blocked" | "fetch_failed"; detail?: string };
 
 /** Fetch one page's HTML with the identified UA + timeout. */
@@ -122,7 +131,12 @@ export async function fetchPageHtml(
     if (!res.ok) {
       return { ok: false, reason: "fetch_failed", detail: `http_${res.status}` };
     }
-    return { ok: true, html: await res.text(), status: res.status };
+    return {
+      ok: true,
+      html: await res.text(),
+      status: res.status,
+      finalUrl: typeof res.url === "string" && res.url ? res.url : undefined,
+    };
   } catch (err) {
     return {
       ok: false,

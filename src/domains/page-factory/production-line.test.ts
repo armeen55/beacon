@@ -67,7 +67,19 @@ const GOOD_BRIEF: CreatePageBrief = {
   outline: ["Origins of Nowruz", "How Nowruz is celebrated", "Nowruz across the Persian diaspora"],
   faqQuestions: ["When is Nowruz celebrated?"],
   schemaTypes: ["Article"],
-  sources: [],
+  // W5 P1-4 (2026-07-09): the factual openingAnswer carries a generation-time
+  // verified source so it clears the brief source gate.
+  sources: [
+    {
+      url: "https://www.britannica.com/topic/Nowruz",
+      title: "Nowruz",
+      domain: "britannica.com",
+      retrievedAt: "2026-07-01",
+      claim: "Nowruz is the Persian New Year marking the first day of spring",
+      authority: "authoritative",
+      verified: true,
+    },
+  ],
   evidenceRefs: [{ source: "gsc", detail: "test" }],
   confidence: "high",
   risks: [],

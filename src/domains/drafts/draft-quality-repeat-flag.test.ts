@@ -24,6 +24,8 @@ const READY_ANSWER_PACK = {
         {
           domain: "britannica.com",
           claim: "Chaharshanbe Suri falls on the eve of the last Wednesday before Nowruz and involves jumping over bonfires",
+          // W5 P0-1: a qualifying source is generation-time verified.
+          verified: true,
         },
       ],
     },

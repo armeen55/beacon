@@ -5,6 +5,7 @@ import {
   hasQualifyingAuthoritativeSource,
   extractDomain,
   claimTokens,
+  findSupportingSpan,
 } from "./source-authority";
 
 describe("classifySourceAuthority (W5, J-69)", () => {
@@ -137,18 +138,95 @@ describe("hasQualifyingAuthoritativeSource", () => {
   });
 
   it("true when an authoritative source's claim overlaps the draft's own claim tokens", () => {
-    const sources = [{ domain: "britannica.com", claim: "the museum's collection includes thousands of artifacts" }];
+    const sources = [{ domain: "britannica.com", claim: "the museum's collection includes thousands of artifacts", verified: true }];
     expect(hasQualifyingAuthoritativeSource(draft, sources)).toBe(true);
   });
 
   it("true via a tenant allowlist domain, only when that allowlist is supplied", () => {
-    const sources = [{ domain: "sample-museum.org", claim: "the collection catalog lists over 3000 artifacts" }];
+    const sources = [{ domain: "sample-museum.org", claim: "the collection catalog lists over 3000 artifacts", verified: true }];
     expect(hasQualifyingAuthoritativeSource(draft, sources)).toBe(false);
     expect(hasQualifyingAuthoritativeSource(draft, sources, ["sample-museum.org"])).toBe(true);
   });
 
   it("false when the source has a real domain but no claim (a bare URL is not a source)", () => {
-    const sources = [{ domain: "britannica.com" }];
+    const sources = [{ domain: "britannica.com", verified: true }];
     expect(hasQualifyingAuthoritativeSource(draft, sources)).toBe(false);
+  });
+
+  // W5 P0-1 (2026-07-09): the headline fix - an authoritative + on-topic source
+  // that was NEVER generation-time verified does NOT qualify (a hallucinated
+  // .gov/.edu URL cannot earn authoritative on domain class alone).
+  it("false when an authoritative, on-topic source is not verified", () => {
+    const sources = [{ domain: "britannica.com", claim: "the museum's collection includes thousands of artifacts" }];
+    expect(hasQualifyingAuthoritativeSource(draft, sources)).toBe(false); // verified defaults undefined
+    expect(hasQualifyingAuthoritativeSource(draft, [{ ...sources[0]!, verified: false }])).toBe(false);
+    expect(hasQualifyingAuthoritativeSource(draft, [{ ...sources[0]!, verified: true }])).toBe(true);
+  });
+
+  it("false for a hallucinated .gov URL that was not verified (domain class alone never passes)", () => {
+    const sources = [{ url: "https://www.example.gov/made-up-page", claim: "the museum's collection includes thousands of artifacts" }];
+    expect(hasQualifyingAuthoritativeSource(draft, sources)).toBe(false);
+    // Only a generation-time verified fetch flips it.
+    expect(hasQualifyingAuthoritativeSource(draft, [{ ...sources[0]!, verified: true }])).toBe(true);
+  });
+});
+
+// W5 stop-ship F2 (2026-07-09): the SPAN-LEVEL claim verifier that replaced the
+// old whole-page token-share check. A claim must be entailed by ONE localized
+// span (a sentence or an adjacent pair), not merely scattered across the page.
+describe("findSupportingSpan (W5 stop-ship F2) - the span quartet", () => {
+  const claim = "The Sample Museum holds 3000 artifacts.";
+
+  it("1. finds a supporting sentence and returns its excerpt + a content hash", () => {
+    const page =
+      "The Sample Museum in the old district holds 3000 artifacts spanning several centuries. It opens daily to visitors.";
+    const r = findSupportingSpan(claim, page);
+    expect(r.supported).toBe(true);
+    expect(r.excerpt).toContain("Sample Museum");
+    expect(r.excerpt).toContain("3000");
+    expect(r.contentHash).toMatch(/^[0-9a-f]{16}$/);
+    // The excerpt is a real slice of the page, never the claim itself.
+    expect(page).toContain(r.excerpt!);
+  });
+
+  it("2. is UNSUPPORTED when the claim's tokens are scattered across the page but never colocated", () => {
+    const page =
+      "The Sample Museum is a lovely place. Many old buildings hold local history. Somewhere in town there are 3000 items counted. Artifacts fill the halls.";
+    const r = findSupportingSpan(claim, page);
+    expect(r.supported).toBe(false);
+    expect(r.excerpt).toBeNull();
+    expect(r.contentHash).toBeNull();
+  });
+
+  it("3. is UNSUPPORTED when a protected number is missing from the matching span", () => {
+    const page = "The Sample Museum holds 5000 artifacts spanning several centuries.";
+    // The claim's 3000 never appears; the page's 5000 does not satisfy it.
+    const r = findSupportingSpan(claim, page);
+    expect(r.supported).toBe(false);
+  });
+
+  it("4. is UNSUPPORTED when a protected entity is missing from the matching span", () => {
+    const page = "The Tehran Museum holds 3000 artifacts spanning several centuries.";
+    // "Sample Museum" never appears, so the number+coverage alone must not pass.
+    const r = findSupportingSpan("The Sample Museum holds 3000 artifacts.", page);
+    expect(r.supported).toBe(false);
+  });
+
+  it("supports a claim across an adjacent-sentence pair, not just a single sentence", () => {
+    const page =
+      "The Sample Museum opened in the old district. It holds 3000 artifacts spanning several centuries of regional history.";
+    const r = findSupportingSpan(claim, page);
+    expect(r.supported).toBe(true);
+    expect(r.excerpt).toContain("Sample Museum");
+    expect(r.excerpt).toContain("3000");
+  });
+
+  it("returns unsupported for an empty page or empty claim", () => {
+    expect(findSupportingSpan(claim, "")).toEqual({ supported: false, excerpt: null, contentHash: null });
+    expect(findSupportingSpan("", "some page text with words")).toEqual({
+      supported: false,
+      excerpt: null,
+      contentHash: null,
+    });
   });
 });

@@ -15,7 +15,7 @@ import {
 
 const validAnswer = {
   answer:
-    "Persian weddings center on the sofreh aghd, a ceremonial spread of symbolic items the couple sits before while honored guests hold a canopy above them, followed by the aghd vows and a celebratory jashn reception with family and friends.",
+    "Persian weddings center on the sofreh aghd, a ceremonial spread of symbolic items the couple sits before while honored guests hold a canopy above them, followed by the aghd vows and a celebratory jashn reception with family and friends. The spread gathers a mirror, twin candelabras, flatbread, fresh herbs, and sweets, each chosen to wish the couple light, health, and a sweet life together. Elders witness the reading of the marriage contract, the newlyweds share a taste of honey, and the music, dancing, and feasting of the reception then carry the celebration late into the night for every guest.",
   citationHook: "the sofreh aghd is the heart of a Persian wedding",
   evidenceRefs: [{ source: "competitor_teardown", detail: "the cited page leads with a sofreh aghd explainer" }],
   confidence: "high",
@@ -113,6 +113,46 @@ describe("SourceRefSchema (W5, J-69)", () => {
   it("accepts every declared authority level", () => {
     for (const authority of ["authoritative", "weak", "unverified"]) {
       expect(SourceRefSchema.safeParse({ ...validSource, authority }).success).toBe(true);
+    }
+  });
+
+  // W5 P0-1 (2026-07-09): verified/verifiedAt
+  it("defaults verified to false when omitted (pre-P0-1 drafts stay honest)", () => {
+    const r = SourceRefSchema.safeParse(validSource);
+    expect(r.success).toBe(true);
+    if (r.success) expect(r.data.verified).toBe(false);
+  });
+
+  it("accepts an explicit verified:true with a verifiedAt timestamp", () => {
+    const r = SourceRefSchema.safeParse({ ...validSource, verified: true, verifiedAt: "2026-07-09T12:00:00.000Z" });
+    expect(r.success).toBe(true);
+    if (r.success) {
+      expect(r.data.verified).toBe(true);
+      expect(r.data.verifiedAt).toBe("2026-07-09T12:00:00.000Z");
+    }
+  });
+
+  // W5 stop-ship F2 (2026-07-09): additive span-support fields
+  it("accepts the additive supportingExcerpt / finalUrl / contentHash fields, all optional", () => {
+    const bare = SourceRefSchema.safeParse(validSource);
+    expect(bare.success).toBe(true);
+    if (bare.success) {
+      expect(bare.data.supportingExcerpt).toBeUndefined();
+      expect(bare.data.finalUrl).toBeUndefined();
+      expect(bare.data.contentHash).toBeUndefined();
+    }
+    const r = SourceRefSchema.safeParse({
+      ...validSource,
+      verified: true,
+      supportingExcerpt: "Nowruz marks the Persian new year, celebrated on the spring equinox.",
+      finalUrl: "https://www.britannica.com/topic/Nowruz",
+      contentHash: "0123456789abcdef",
+    });
+    expect(r.success).toBe(true);
+    if (r.success) {
+      expect(r.data.supportingExcerpt).toContain("Nowruz");
+      expect(r.data.finalUrl).toBe("https://www.britannica.com/topic/Nowruz");
+      expect(r.data.contentHash).toBe("0123456789abcdef");
     }
   });
 });

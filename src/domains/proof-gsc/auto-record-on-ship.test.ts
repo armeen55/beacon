@@ -64,7 +64,30 @@ import {
   autoRecordShippedChangeForRec,
   type AutoRecordDeps,
 } from "./auto-record-on-ship";
-import type { ShippedChangeRecord } from "./shipped-change-store";
+import type { ShippedChangeRecord, VerifyEnvelope } from "./shipped-change-store";
+
+/** A latched canonical-success envelope (proven live). */
+const canonicalEnv = (
+  outcome: "verified_live" | "verified_live_modified",
+  kind: "exact" | "modified" | null = null,
+): VerifyEnvelope => ({
+  canonical: { outcome, kind },
+  canonicalAt: "2026-07-01T00:00:00.000Z",
+  lastAttempt: null,
+  attempts: 0,
+  nextRetryAt: null,
+  exhausted: false,
+});
+
+/** A non-latched failure/holding envelope. */
+const failedEnv = (state: "crawl_failed" | "not_found" | "needs_review"): VerifyEnvelope => ({
+  canonical: null,
+  canonicalAt: null,
+  lastAttempt: { state, at: "2026-07-01T00:00:00.000Z" },
+  attempts: 1,
+  nextRetryAt: null,
+  exhausted: false,
+});
 
 beforeEach(() => {
   dailyTotalsPages.length = 0;
@@ -283,6 +306,7 @@ function makeDeps(over: Partial<AutoRecordDeps> = {}): AutoRecordDeps {
       ],
       usedFallback: false,
     })),
+    resetVerifyRetry: vi.fn(async () => {}),
     shipDate: () => "2026-06-01",
     ...over,
   };
@@ -422,5 +446,75 @@ describe("autoRecordShippedChangeForRec - pre-existing behavior untouched", () =
     const result = await autoRecordShippedChangeForRec({ tenantId: "tenant-x", pageUrl: "https://site.com/treated" }, deps);
     expect(result).toEqual({ recorded: false, reason: "already-recorded" });
     expect(deps.matchControls).not.toHaveBeenCalled();
+  });
+});
+
+// ── F6: explicit re-accept resets retry + re-verifies any non-latched row ─────
+describe("autoRecordShippedChangeForRec - F6 re-verify of already-recorded rows", () => {
+  it("resets retry + re-verifies an already-recorded row whose verifyState is null (never verified)", async () => {
+    const deps = makeDeps({
+      loadShippedChanges: vi.fn(async () => [baseRecord({ path: "/treated", shippedAt: "2026-06-01" })]),
+    });
+    const result = await autoRecordShippedChangeForRec({ tenantId: "tenant-x", pageUrl: "https://site.com/treated" }, deps);
+    expect(result).toEqual({ recorded: false, reason: "already-recorded" });
+    expect(deps.resetVerifyRetry).toHaveBeenCalledWith("tenant-x", "id-1");
+    expect(deps.verifyShippedChange).toHaveBeenCalledTimes(1);
+  });
+
+  it("re-verifies an already-recorded row whose prior verify was crawl_failed", async () => {
+    const deps = makeDeps({
+      loadShippedChanges: vi.fn(async () => [
+        baseRecord({ path: "/treated", shippedAt: "2026-06-01", verifyState: failedEnv("crawl_failed") }),
+      ]),
+    });
+    await autoRecordShippedChangeForRec({ tenantId: "tenant-x", pageUrl: "https://site.com/treated" }, deps);
+    expect(deps.resetVerifyRetry).toHaveBeenCalledTimes(1);
+    expect(deps.verifyShippedChange).toHaveBeenCalledTimes(1);
+  });
+
+  it("re-verifies an already-recorded row whose prior verify was not_found", async () => {
+    const deps = makeDeps({
+      loadShippedChanges: vi.fn(async () => [
+        baseRecord({ path: "/treated", shippedAt: "2026-06-01", verifyState: failedEnv("not_found") }),
+      ]),
+    });
+    await autoRecordShippedChangeForRec({ tenantId: "tenant-x", pageUrl: "https://site.com/treated" }, deps);
+    expect(deps.verifyShippedChange).toHaveBeenCalledTimes(1);
+  });
+
+  it("re-verifies a needs_review row on an EXPLICIT re-accept (the operator is re-attesting)", async () => {
+    // F6 change: an explicit re-accept resets + re-verifies everything that is
+    // NOT a latched canonical success - needs_review included (the old passive
+    // pass left it alone; the deliberate re-accept re-checks it).
+    const deps = makeDeps({
+      loadShippedChanges: vi.fn(async () => [
+        baseRecord({ path: "/treated", shippedAt: "2026-06-01", verifyState: failedEnv("needs_review") }),
+      ]),
+    });
+    await autoRecordShippedChangeForRec({ tenantId: "tenant-x", pageUrl: "https://site.com/treated" }, deps);
+    expect(deps.resetVerifyRetry).toHaveBeenCalledTimes(1);
+    expect(deps.verifyShippedChange).toHaveBeenCalledTimes(1);
+  });
+
+  it("does NOT re-verify (or reset) a latched verified_live row", async () => {
+    const deps = makeDeps({
+      loadShippedChanges: vi.fn(async () => [
+        baseRecord({ path: "/treated", shippedAt: "2026-06-01", verifyState: canonicalEnv("verified_live", "exact"), verifiedLive: true }),
+      ]),
+    });
+    await autoRecordShippedChangeForRec({ tenantId: "tenant-x", pageUrl: "https://site.com/treated" }, deps);
+    expect(deps.resetVerifyRetry).not.toHaveBeenCalled();
+    expect(deps.verifyShippedChange).not.toHaveBeenCalled();
+  });
+
+  it("does NOT re-verify (or reset) a latched verified_live_modified row", async () => {
+    const deps = makeDeps({
+      loadShippedChanges: vi.fn(async () => [
+        baseRecord({ path: "/treated", shippedAt: "2026-06-01", verifyState: canonicalEnv("verified_live_modified") }),
+      ]),
+    });
+    await autoRecordShippedChangeForRec({ tenantId: "tenant-x", pageUrl: "https://site.com/treated" }, deps);
+    expect(deps.resetVerifyRetry).not.toHaveBeenCalled();
+    expect(deps.verifyShippedChange).not.toHaveBeenCalled();
   });
 });

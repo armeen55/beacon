@@ -55,6 +55,30 @@ export const SourceRefSchema = z.object({
   /** The specific fact/claim this source backs, never a bare citation. */
   claim: z.string().min(1).max(400),
   authority: z.enum(["authoritative", "weak", "unverified"]),
+  /** W5 P0-1 (2026-07-09), set at GENERATION time ONLY (structured-drafter.ts
+   *  fetches the URL and checks the fetched text actually carries this claim's
+   *  tokens - never on a render/eval path). `true` means the cited page was
+   *  reachable AND its text matches the claim; the source-authority gate
+   *  (`hasQualifyingAuthoritativeSource`) requires this true so a hallucinated
+   *  .gov/.edu URL can never earn "authoritative" on domain class alone.
+   *  Defaults to false so every persisted pre-P0-1 draft deserializes clean and
+   *  honestly surfaces "Needs a source" until regenerated. */
+  verified: z.boolean().default(false),
+  /** W5 P0-1, ISO timestamp the generation-time verification confirmed the
+   *  source. Present only alongside verified === true. */
+  verifiedAt: z.string().min(1).max(40).optional(),
+  /** W5 stop-ship F2 (2026-07-09): the exact excerpt (a sentence or adjacent
+   *  pair) on the fetched page that entails this claim - persisted so the
+   *  operator can see WHAT backed it, not just that something did. Set only
+   *  alongside verified === true. */
+  supportingExcerpt: z.string().max(600).optional(),
+  /** W5 stop-ship F2: the FINAL URL the source-verify fetch actually landed on
+   *  after redirects (authority is recomputed from this host, not the proposed
+   *  one). Set only alongside verified === true. */
+  finalUrl: z.string().max(500).optional(),
+  /** W5 stop-ship F2: sha256(supportingExcerpt) first 16 hex chars - a stable
+   *  fingerprint of the backing passage. Set only alongside verified === true. */
+  contentHash: z.string().max(64).optional(),
 });
 export type SourceRef = z.infer<typeof SourceRefSchema>;
 
@@ -93,9 +117,13 @@ const base = {
  *  is widened to 1200 chars (150 words needs ~1050), the 80-150 word BAND
  *  itself is enforced by draft-quality.ts's evaluateDraftQuality, not here;
  *  this schema only bounds the shape. `sources` is additive with a `[]`
- *  default so every persisted pre-W5 draft still deserializes clean. */
+ *  default so every persisted pre-W5 draft still deserializes clean.
+ *  W5 P2 (2026-07-09): the min is raised to 450 chars (a coarse floor for the
+ *  80-word contract) so the drafter cannot cache an obviously-too-thin answer
+ *  the quality gate would reject; the precise 80-word check is the gate plus
+ *  the drafter's own word-count retry (structured-drafter.ts). */
 export const AnswerBlockDraftSchema = z.object({
-  answer: z.string().min(120).max(1200),
+  answer: z.string().min(450).max(1200),
   citationHook: z.string().max(200).nullable().default(null),
   /** W5 (J-69): the 1-2 authoritative sources backing this answer's claims.
    *  Defaults to [], an empty list is exactly what "no source yet" means; the
