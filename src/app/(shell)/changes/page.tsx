@@ -4,7 +4,7 @@ import { Suspense } from "react";
 import { PageHeader } from "@/components/data/page-header";
 import { TodayNewPagesSection } from "../today-newpages-section";
 import { PrepareTonightButton, PrepareOverflowMenu } from "../today-moves-prepare";
-import { loadChangesView } from "../changes-data";
+import { loadChangesView, toClientView } from "../changes-data";
 import { ChangesListClient } from "../changes-list-client";
 import { loadFactoryBatchCardData } from "../page-factory-batch-data";
 import { PageFactoryBatchCard } from "../page-factory-batch-card";
@@ -59,13 +59,13 @@ async function ChangesSection() {
     // the rebuild is still running.
     if (view.surfaceBuilding) {
       return (
-        <div className="space-y-2 rounded-2xl border border-gray-100 bg-white p-6">
-          <p className="text-sm text-gray-600">
+        <div className="space-y-2 rounded-2xl border border-border bg-surface-raised p-6">
+          <p className="text-body text-foreground-secondary">
             I&apos;m putting your ranked changes together for the first time. This takes a few
             seconds. Refresh in a moment and they&apos;ll be here.
           </p>
-          <div className="h-9 animate-pulse rounded-lg bg-gray-50" />
-          <div className="h-9 animate-pulse rounded-lg bg-gray-50" />
+          <div className="h-9 animate-pulse rounded-lg bg-surface-inset/50" />
+          <div className="h-9 animate-pulse rounded-lg bg-surface-inset/50" />
         </div>
       );
     }
@@ -89,11 +89,14 @@ async function ChangesSection() {
         </div>
       </div>
       {rankedAgo ? (
-        <p className="text-[11px] text-gray-400 tabular-nums">
+        <p className="text-meta text-muted-foreground tabular-nums">
           I ranked these {rankedAgo}. I refresh them in the background.
         </p>
       ) : null}
-      <ChangesListClient view={view} />
+      {/* W2-B PAYLOAD - the client board gets SLIM move summaries only (the full
+          dossiers stay server-side in the SWR snapshot; a row's detail loads its
+          full TodayMove on demand via loadMoveDetailAction). */}
+      <ChangesListClient view={toClientView(view)} />
     </div>
   );
 }

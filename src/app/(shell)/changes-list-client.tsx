@@ -18,7 +18,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { ChevronDown, Hourglass, RefreshCw, TriangleAlert } from "lucide-react";
-import type { ChangesView } from "./changes-data";
+// W2-B (2026-07-10) PAYLOAD - this board receives the SLIM client view: each row's
+// move carries only the collapsed-list fields (see SlimTodayMove in changes-data.ts);
+// the FULL TodayMove dossier loads on demand (loadMoveDetailAction) when detail opens.
+import type { ChangesClientView } from "./changes-data";
+import type { TodayMove } from "./today-moves-data";
+import { loadMoveDetailAction } from "./changes/actions";
 import type { CanonicalChange, Goal, StatusView } from "@/domains/changes/canonical-change";
 import { buildForecastInputLines, statusView } from "@/domains/changes/canonical-change";
 import { difficultyLabel } from "@/domains/changes/difficulty";
@@ -143,7 +148,7 @@ function looksLikeSlug(s: string): boolean {
 function humanizeSlug(s: string): string {
   return s.replace(/^\/+/, "").replace(/[-_]+/g, " ").trim();
 }
-function displayPageLabel(c: CanonicalChange, move: ChangesView["movesById"][string] | undefined): { title: string; secondary: string | null } {
+function displayPageLabel(c: CanonicalChange, move: ChangesClientView["movesById"][string] | undefined): { title: string; secondary: string | null } {
   if (!looksLikeSlug(c.pageLabel)) return { title: c.pageLabel, secondary: null };
   const humanQuery = move?.query && !looksLikeSlug(move.query) ? move.query : null;
   const title = humanQuery ?? humanizeSlug(c.pageLabel);
@@ -254,7 +259,11 @@ export function NotNowMenu({
 
 /** UX3 - the row's full detail content (paste text, roundtable, evidence, forecasts, buttons),
  *  factored out so it can render either inline (mobile, when a side panel would fight the
- *  layout) or inside the split detail panel (desktop) without duplicating a single line of it. */
+ *  layout) or inside the split detail panel (desktop) without duplicating a single line of it.
+ *  W2-B (2026-07-10) PAYLOAD - the board only ships slim move summaries, so this component
+ *  (which mounts ONLY when a row's detail opens) fetches the row's FULL TodayMove on demand
+ *  via loadMoveDetailAction, with an honest one-line loading state and a graceful fallback to
+ *  the canonical-change detail if the full dossier is unavailable (e.g. surface still building). */
 function RowDetailContent({
   c,
   move,
@@ -262,13 +271,43 @@ function RowDetailContent({
   onAction,
 }: {
   c: CanonicalChange;
-  move: ChangesView["movesById"][string] | undefined;
+  move: ChangesClientView["movesById"][string] | undefined;
   rank: number;
   onAction?: (kind: "done" | "skip") => void;
 }) {
-  return move ? (
-    <MoveCard m={move} rank={rank} onAction={(kind) => onAction?.(kind === "shipped" ? "done" : "skip")} />
-  ) : (
+  const [fullMove, setFullMove] = useState<TodayMove | null>(null);
+  const [detailFailed, setDetailFailed] = useState(false);
+  const moveId = move?.id ?? null;
+  useEffect(() => {
+    if (!moveId) return;
+    let alive = true;
+    setFullMove(null);
+    setDetailFailed(false);
+    loadMoveDetailAction(moveId)
+      .then((m) => {
+        if (!alive) return;
+        if (m) setFullMove(m);
+        else setDetailFailed(true);
+      })
+      .catch(() => {
+        if (alive) setDetailFailed(true);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [moveId]);
+
+  if (move && fullMove) {
+    return <MoveCard m={fullMove} rank={rank} onAction={(kind) => onAction?.(kind === "shipped" ? "done" : "skip")} />;
+  }
+  if (move && !detailFailed) {
+    return (
+      <p className="px-3 py-2 text-meta text-muted-foreground" role="status">
+        Opening the full detail for this change...
+      </p>
+    );
+  }
+  return (
     <div className="px-3 py-2 text-body">
       {c.before != null && <div className="break-words text-meta"><span className="text-muted-foreground">Current: </span>{c.before || "(none)"}</div>}
       {c.after != null && <div className="break-words text-meta"><span className="text-muted-foreground">Proposed: </span><strong>{c.after}</strong></div>}
@@ -293,7 +332,7 @@ function Row({
   topPick,
 }: {
   c: CanonicalChange;
-  move: ChangesView["movesById"][string] | undefined;
+  move: ChangesClientView["movesById"][string] | undefined;
   rank: number;
   /** D6 - true when this is the "next best" row the session banner is pointing at; gets a
    *  visible ring so "auto-scroll/highlight the next unblocked top item" is honest, not just a
@@ -535,7 +574,7 @@ function Row({
 const TAB_IDS = new Set<string>(TABS.map((t) => t.id));
 const GOAL_IDS = new Set<string>(GOALS.map((g) => g.id));
 
-export function ChangesListClient({ view }: { view: ChangesView }) {
+export function ChangesListClient({ view }: { view: ChangesClientView }) {
   // Move 5 backfill - deep-link support: legacy routes (/recommendations, /experiments)
   // and Today links land here with ?status=/?goal=/?search=, so the list opens on the right
   // slice. Falls back to sensible defaults when a param is absent/invalid.

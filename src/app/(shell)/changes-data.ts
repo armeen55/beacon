@@ -119,6 +119,47 @@ export type ChangesView = {
   surfaceBuilding?: boolean;
 };
 
+/**
+ * W2-B (2026-07-10) - PAYLOAD: the collapsed /changes board must not ship every row's
+ * FULL TodayMove dossier (research pack, roundtable debate, prepared drafts, teardown
+ * text - multiple KB per row) to the client by default. SlimTodayMove is exactly the
+ * field set the COLLAPSED list actually renders or acts on:
+ *   - id / action / query / targetUrl: the row actions (mark done / skip / keyboard "d")
+ *     and the human page label;
+ *   - why / rankWhy: the client-side search haystack;
+ *   - sparkline: the tiny inline clicks chart on the row.
+ * The FULL TodayMove is loaded ON DEMAND (loadMoveDetailAction in changes/actions.ts)
+ * when a row's detail opens. Transport/hydration only - ranking, copy, and the server
+ * view are untouched (Wave 3 owns the decision-surface redesign).
+ */
+export const SLIM_MOVE_KEYS = ["id", "action", "query", "targetUrl", "why", "rankWhy", "sparkline"] as const;
+export type SlimTodayMove = Pick<TodayMove, (typeof SLIM_MOVE_KEYS)[number]>;
+
+/** The ChangesView shape actually serialized to the /changes client board. */
+export type ChangesClientView = Omit<ChangesView, "movesById"> & {
+  movesById: Record<string, SlimTodayMove>;
+};
+
+/** PURE: project one full TodayMove to its collapsed-row summary. */
+export function slimMoveForList(m: TodayMove): SlimTodayMove {
+  return {
+    id: m.id,
+    action: m.action,
+    query: m.query,
+    targetUrl: m.targetUrl,
+    why: m.why,
+    rankWhy: m.rankWhy,
+    sparkline: m.sparkline,
+  };
+}
+
+/** PURE: the client-payload projection of a ChangesView (slim movesById, all else as is). */
+export function toClientView(view: ChangesView): ChangesClientView {
+  const movesById: Record<string, SlimTodayMove> = {};
+  for (const [id, m] of Object.entries(view.movesById)) movesById[id] = slimMoveForList(m);
+  return { ...view, movesById };
+}
+
 /** FP2 (2026-07-02, killer finding 1) - normalized identity for the dedupe pass below: the
  *  SAME real-world opportunity (same target page or same not-yet-created topic, same query/
  *  label, same lever family) must render as exactly ONE row, never two. `pagePath` already

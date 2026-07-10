@@ -9,6 +9,28 @@ import {
   editLifecycleStatus,
   markRecommendedEditsAsShipped,
 } from "@/domains/recommendations/recommended-edits-persistence";
+import { loadChangesView } from "../changes-data";
+import type { TodayMove } from "../today-moves-data";
+
+/**
+ * W2-B (2026-07-10) - PAYLOAD: the on-demand detail fetch behind the collapsed
+ * /changes board. The default board ships only SlimTodayMove summaries (see
+ * changes-data.ts); when a row's detail opens, the client calls this to get the
+ * FULL TodayMove dossier for that one row. $0 and read-only: it reads the SAME
+ * request-cached SWR snapshot the page render served (full dossiers are persisted
+ * in the surface; only the client payload is slimmed). Null when the move is not
+ * in the snapshot (e.g. a cold surface still building) - the client falls back to
+ * the row's own canonical-change detail, honestly degraded.
+ */
+export async function loadMoveDetailAction(sourceId: string): Promise<TodayMove | null> {
+  if (!sourceId) return null;
+  try {
+    const view = await loadChangesView();
+    return view.movesById[sourceId] ?? null;
+  } catch {
+    return null; // fail-soft: detail loading must never crash the board
+  }
+}
 
 /**
  * W2 Step 2.4 (2026-05-01) — per-row "Mark shipped" affordance on /changes.

@@ -242,22 +242,11 @@ export default async function ProofPage({
   // run-measurement.ts's writeCalibrationIfDue). One record per pick, so a plain map is exact.
   const calibrationByProofId = new Map(calibrationRecords.map((r) => [r.proofId, r] as const));
 
-  // R14b (named controls) - the comparison pages' own daily-clicks series, drawn as
-  // dashed lines on the same chart so "beat its comparison pages" is visible, not
-  // asserted. Bounded exactly like the treated read below: first 8 rows, max 2
-  // comparison pages each, deduped, capped at the loader's own 16-path limit.
-  // Fail-soft: a miss just renders the chart without dashed lines. (Path list is a
-  // pure derivation off the already-loaded ledger, so it is computed before the
-  // parallel read batch.)
-  const controlSparkPaths = [
-    ...new Set(ledger.slice(0, 8).flatMap((l) => (l.controlPages ?? []).slice(0, 2))),
-  ].slice(0, 16);
-
   // W2-B (2026-07-10) - the "AI quoted this line" owned-alignment requests, derived
   // once off the ledger with the SAME gate AiQuotedReceipt used to apply per card (a
-  // real post-ship citation gain). Fed to ONE batched reader below instead of three
-  // Supabase reads + a saveMoveDraft PER card during the render (the GET-mutation +
-  // N+1 this fixes). The cache warm-up write is scheduled in after(), off the GET.
+  // real post-ship citation gain). Fed to ONE batched reader in the side-read batch
+  // instead of three Supabase reads + a saveMoveDraft PER card during the render (the
+  // GET-mutation + N+1 this fixes). The cache warm-up write is scheduled in after().
   const ownedAlignmentRequests: OwnedAlignmentRequest[] = ledger
     .filter((l) => {
       const o = l.citationOutcome;
@@ -266,19 +255,294 @@ export default async function ProofPage({
     })
     .map((l) => ({ recId: l.id, ownedUrl: l.page, citingPrompts: l.citationOutcome!.promptsNowCiting ?? [] }));
 
-  // W2-B (2026-07-10) - THE SIDE-READ WATERFALL FIX. These seven page-level reads
-  // are mutually independent (each keyed off the already-loaded ledger, none feeds
-  // another), yet they used to run one-await-after-another, so a slow Supabase read
-  // serialized every read behind it (up to 7 x 15s worst case). Collapse them into
-  // ONE Promise.all: each keeps its OWN fail-soft `.catch` and its OWN 15s deadline,
-  // so one wedged read times out to its fallback WITHOUT holding back the other six.
-  //   1) sparkByPath - Item 5 before/after daily clicks per measured row (first 16).
-  //   2) controlSparkByPath - R14b comparison-page daily-clicks series.
-  //   3) detectedChangepoints - master plan item 32 algorithm-weather shocks.
-  //   4) externalEvents - N32 (R21b) external-event ledger read side.
-  //   5) seasonalInflectionById - master plan item 69 seasonal-inflection flag.
-  //   6) recrawlClockById - master plan N11 recrawl-gated SEARCH clock.
-  //   7) contaminationById - master plan N13 control-contamination guard.
+  // W2-B (2026-07-10) - THE SIDE-READ WATERFALL + STREAMING FIX. The seven heavy
+  // page-level reads (spark, control spark, changepoints, external events, seasonal
+  // inflection, recrawl clock, control contamination) plus the batched alignment are
+  // mutually independent AND none of them is needed to paint the header. They are
+  // STARTED here as one parallel batch (each with its own fail-soft catch + 15s
+  // deadline; see loadResultsSideReads below) but NOT awaited: the header, honest
+  // banners, and record form paint first, and the sections that need these reads
+  // (the cumulative strip, the proof summary, and the measured-outcomes board with
+  // its revert offers / alignment / contamination caveats) each await the SAME
+  // promise inside their own Suspense boundary.
+  const sideReads = loadResultsSideReads(tenantId, ledger, ownedAlignmentRequests);
+
+  // W2-B (2026-07-10) - warm the alignment cache OFF the GET: schedule the same
+  // batch with persist:true in after() so any freshly-computed alignment is
+  // written back for the next visit. Fire-and-forget + fail-soft; a GET never
+  // mutates on its own render path.
+  if (ownedAlignmentRequests.length > 0) {
+    after(async () => {
+      await getOwnedAnswerAlignmentsBatch(tenantId, ownedAlignmentRequests, { persist: true }).catch(() => {});
+    });
+  }
+
+  // GSC-LAG CLARITY: Google Search Console data lags wall-clock, so a 7-day window
+  // whose calendar date has passed often can't be judged yet. Count the rows that are
+  // calendar-open but GSC-waiting, and surface the honest reason (not just "waiting").
+  // Pure derivation off the already-loaded ledger + latestGscDate; no I/O.
+  const lagByRow = new Map(
+    ledger.map((l) => [l.id, gscLagStatus(l, latestGscDate)] as const),
+  );
+  const waitingOnGsc = [...lagByRow.values()].filter(
+    (s) => s.calendarWindowClosed && !s.gscWindowAvailable && s.nextWindowDay != null,
+  );
+
+  // Passive auto-measure (2026-06-29): when the operator opens Results, fire-and-forget a
+  // due-row measurement pass AFTER the response (next/after → zero render latency) so
+  // settled verdicts + the learned re-ranking activate WITHOUT a manual "Measure now"
+  // click. Operator-only (it writes proof outcomes) + only when rows are actually due, so
+  // a customer/anon view never mutates proof data. The settled rows show on the next visit.
+  const dueNow = ledger.filter((l) => isDueForMeasure(l, latestGscDate, new Date()));
+  const isOperator = await isOperatorModeServer();
+  // W5 stop-ship F4 (2026-07-09): also schedule when nothing is due-for-measure
+  // but rows are eligible for a re-verify (never-verified / transient-failed /
+  // unresolved needs_review, past backoff). The after() re-verify loop already
+  // runs unconditionally inside scheduleAutoMeasure; this just stops that loop
+  // from being gated behind a measurement being due. No extra I/O -
+  // selectRowsToReverify runs over the ledger already in memory.
+  const eligibleReverify = selectRowsToReverify(ledger).length > 0;
+  if (isOperator && (dueNow.length > 0 || eligibleReverify)) scheduleAutoMeasure(tenantId);
+
+  // Proof compares each page to its Google Search Console history - so a stale or
+  // disconnected GSC makes the verdicts unreliable. Surface that honestly (operator
+  // brutal-audit: "if GSC/GA4 stale, say so") instead of showing confident-looking
+  // results over old data.
+  const gsc = connHealth.find((c) => c.key === "google_gsc") ?? null;
+  const gscFreshnessNote =
+    gsc == null || gsc.severity === "healthy"
+      ? null
+      : gsc.severity === "disconnected"
+        ? "Google Search Console isn't connected. Proof verdicts can't update until it is."
+        : gsc.severity === "needs_setup"
+          ? "Google Search Console is connected but hasn't synced yet. Verdicts will fill in after the first sync."
+          : `Search Console data is ${gsc.daysStale ?? "several"} days old. Recent changes may not show a verdict yet. Refresh to update.`;
+
+  // Recompute only does something once a measurement window has closed AND GSC has the
+  // data for it. Gate the button + give the honest reason (calendar vs GSC-lag).
+  const anyWindowReady = ledger.some((l) => l.windows.some((w) => w.ran));
+  // Prefer the soonest-actionable reason: a row whose calendar window is closed but is
+  // waiting on GSC explains the "date passed yet still waiting" confusion best.
+  const lagReason =
+    waitingOnGsc[0]?.reasonCopy ??
+    [...lagByRow.values()].find((s) => s.nextWindowDay != null && !s.gscWindowAvailable)?.reasonCopy ??
+    undefined;
+
+  // Operator-only: which action types past results are nudging Beacon toward /
+  // away from (the prior that steers ranking). Lets the operator SEE a skew and
+  // use "Exclude from learning" on a mis-measured result. Only types with a
+  // trusted prior or an excluded result are worth showing.
+  // W2-A drive-by fix: this used to call isOperatorModeServer() without awaiting it -
+  // a Promise is always truthy, so the operator-only section leaked to everyone. Use
+  // the already-awaited isOperator from above.
+  const learningDiag = isOperator
+    ? computeOutcomePriorDiagnostics(ledger).filter(
+        (d) => d.prior !== null || d.excluded > 0,
+      )
+    : [];
+
+  return (
+    <div className="mx-auto max-w-4xl px-6 py-8">
+      <div className="mb-5 flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight">Results</h1>
+          <p className="mt-1 text-[14px] text-muted-foreground">
+            Every change you have made and whether it helped. We compare each page
+            to how it did before, and to similar pages you did not change.
+          </p>
+          {/* R4 - honest staleness: these numbers come from the last persisted
+              re-measure (served instantly), so say exactly how old they are and
+              that they refresh in the background. */}
+          {ledger.length > 0 && checkedAgoLine ? (
+            <p className="mt-1 text-[11px] text-muted-foreground/80 tabular-nums">{checkedAgoLine}</p>
+          ) : null}
+          {/* FP3 + FP8 - the cumulative outcome strip: the same count numbers as the
+              bands below (same shared classifier over the same snapshot-served ledger,
+              passed down so the strip never re-triggers the measure path), extended
+              with the measured value the wins are adding. Shock windows ride along for
+              THE ONE DOLLAR RULE - W2-B: awaited off the shared side-read batch inside
+              this boundary, so the header text above paints without waiting for it. */}
+          <div className="mt-3">
+            <Suspense fallback={null}>
+              <CumulativeOutcomeStream ledger={ledger} sideReads={sideReads} />
+            </Suspense>
+          </div>
+        </div>
+        {ledger.length > 0 ? (
+          <RecomputeLedgerButton
+            disabled={!anyWindowReady}
+            disabledReason={anyWindowReady ? undefined : lagReason}
+          />
+        ) : null}
+      </div>
+
+      {gscFreshnessNote ? (
+        <div className="mb-5 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+          {gscFreshnessNote}
+        </div>
+      ) : null}
+
+      {/* GSC-lag clarity: when changes are calendar-due but Search Console hasn't caught
+          up, say so plainly instead of an unexplained "waiting". */}
+      {!gscFreshnessNote && waitingOnGsc.length > 0 ? (
+        <div className="mb-5 rounded-md border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-800">
+          {waitingOnGsc.length} change{waitingOnGsc.length === 1 ? " is" : "s are"} waiting on Search Console
+          data, not stalled. {waitingOnGsc[0]?.reasonCopy ?? ""} Google Search data typically lags 2-3 days.
+        </div>
+      ) : null}
+
+      {/* Passive auto-measure (2026-06-29): due rows are being re-measured in the
+          background (next/after) the moment Results opens - say so honestly. */}
+      {isOperator && dueNow.length > 0 ? (
+        <div className="mb-5 rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-800">
+          Measuring {dueNow.length} due result{dueNow.length === 1 ? "" : "s"} now. Refresh in a moment to see the verdict.
+        </div>
+      ) : null}
+
+      {/* Premium "Proof at a glance" scoreboard (2026-06-25) - the Results act of
+          the Move → Ship → Prove loop. Own Suspense / self-hides when nothing is
+          shipped; W2-B: awaits the shared side-read batch for shockWindows inside
+          its own boundary, keeping the header paint independent of it. */}
+      <Suspense fallback={null}>
+        <ProofSummaryStream ledger={ledger} sideReads={sideReads} />
+      </Suspense>
+
+      {/* Item 27 - the promise ledger: forecast vs delivered, reconciled monthly. Sibling to the
+          summary above; self-hides until at least 3 picks have settled at their 28-day window. */}
+      <Suspense fallback={null}>
+        <BoundedSection render={() => ForecastCalibrationSection()} />
+      </Suspense>
+
+      {/* Item 34 - pooled batch verdict: when a same-plan same-lever batch of 3+ pages has
+          measured reads, one confident "as a group" line above the per-page rows below.
+          Self-hides otherwise. */}
+      <Suspense fallback={null}>
+        <BoundedSection render={() => PooledVerdictSection()} />
+      </Suspense>
+
+      {/* Record a shipped change for ANY page (manual-ship companion). Prefills
+          the page from a ?page= hand-off (e.g. the Workbench "Record this
+          change" link) so recording doesn't mean re-typing the path. */}
+      <div className="mb-6">
+        <RecordAnyPageForm initialPage={initialPage} />
+      </div>
+
+      {/* ── Measured outcomes (shipped changes being tracked vs controls) ──
+          W2-B: the cards board (with its revert offers, alignment receipts, and
+          contamination caveats) streams inside its own Suspense boundary so the
+          header + summary above paint first. The fallback is row-shaped honest
+          loading copy, so the settle does not shift the layout. */}
+      {ledger.length > 0 ? (
+        <Suspense fallback={<MeasuredOutcomesFallback rowCount={Math.min(ledger.length, 3)} />}>
+          <MeasuredOutcomesBoard
+            sideReads={sideReads}
+            ledger={ledger}
+            latestGscDate={latestGscDate}
+            tenantId={tenantId}
+            isOperator={isOperator}
+            worklist={worklist}
+            calibrationByProofId={calibrationByProofId}
+          />
+        </Suspense>
+      ) : null}
+
+      {/* ── R14a "We got this wrong" (P1 trust receipts): revised-downward verdicts +
+          proven-did-nothing changes, owned plainly, max 5, each linking to its own
+          card above. Self-hiding when there is nothing to own - most days it is
+          absent, which is exactly the point. */}
+      <WeGotThisWrongSection items={buildRecapItems(ledger, plainAction)} />
+
+      {/* ── What Beacon has learned (operator-only): per-action_type prior that
+          steers ranking, so a skew is visible and excludable. ── */}
+      {learningDiag.length > 0 ? (
+        <div className="mb-6">
+          <h2 className="mb-2 text-[13px] font-semibold uppercase tracking-wide text-muted-foreground">
+            What Beacon has learned
+          </h2>
+          <p className="mb-2 text-[11px] text-muted-foreground">
+            How your past results nudge which fixes Beacon suggests first. If a result
+            looks mis-measured, use &ldquo;Exclude from learning&rdquo; on it below.
+          </p>
+          <ul className="space-y-1">
+            {learningDiag.map((d) => (
+              <li key={d.actionType} className="text-[12px] text-foreground/80">
+                <span className="font-medium">{d.actionType.replace(/_/g, " ")}</span>:{" "}
+                {d.won} worked, {d.lost} did not
+                {d.excluded > 0 ? `, ${d.excluded} excluded` : ""}
+                {d.prior !== null ? (
+                  <span className="text-muted-foreground">
+                    {" "}
+                    &rarr; Beacon now{" "}
+                    {d.prior > 0
+                      ? `favors this (+${Math.round(d.prior * 100)}%)`
+                      : d.prior < 0
+                        ? `is cautious here (${Math.round(d.prior * 100)}%)`
+                        : "is neutral"}
+                  </span>
+                ) : (
+                  <span className="text-muted-foreground">
+                    {" "}
+                    &rarr; not enough results yet to change ranking
+                  </span>
+                )}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+
+      {/* ── FP5c (2026-07-02, killer finding "why is there a second list of changes
+          under the first list of changes") ── The former "Your changes" timeline used
+          to render as a second full stack directly under the measured-outcomes list,
+          repeating the same changes in a second format. The measured list above IS the
+          one list now; the raw change log (which also holds detected site edits from
+          before measurement started) stays reachable behind one collapsed line instead
+          of duplicating the page. The W2-A BoundedSection wrapper is kept intact. */}
+      <details className="mb-6">
+        <summary className="cursor-pointer text-[12px] font-medium text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1">
+          See the raw change log
+        </summary>
+        <p className="mb-2 mt-1 text-[11px] text-muted-foreground">
+          The same changes as the list above, in raw log form, plus site edits I detected
+          from before measurement started. Nothing here is a second to-do list.
+        </p>
+        <Suspense fallback={null}>
+          <BoundedSection render={() => ResultsTimeline()} />
+        </Suspense>
+      </details>
+
+    </div>
+  );
+}
+
+/**
+ * W2-B (2026-07-10) - the parallel side-read batch, extracted so the page can START
+ * it without awaiting (streaming) and every consumer awaits the SAME promise. Each
+ * read keeps its OWN fail-soft `.catch` and its OWN 15s deadline, so one wedged read
+ * times out to its fallback WITHOUT holding back the other seven:
+ *   1) sparkByPath - Item 5 before/after daily clicks per measured row (first 16).
+ *   2) controlSparkByPath - R14b comparison-page daily-clicks series (first 8 rows,
+ *      max 2 comparison pages each, deduped, capped at the loader's 16-path limit).
+ *   3) detectedChangepoints -> shockWindows - item 32 algorithm-weather shocks
+ *      (no fresh CUSUM run here; that is the nightly cron's job).
+ *   4) externalEvents - N32 (R21b) external-event ledger read side.
+ *   5) seasonalInflectionById - item 69 seasonal-inflection flag (computed-only).
+ *   6) recrawlClockById - N11 recrawl-gated SEARCH clock (computed-only, never a
+ *      live-page fetch, gates only the Search verdict lane).
+ *   7) contaminationById - N13 control-contamination guard (computed-only).
+ *   8) ownedAlignmentByRecId - the batched, READ-ONLY "AI quoted this line"
+ *      alignments (persist:false -> a GET never writes; the after() warm-up in the
+ *      page body is the only writer).
+ */
+async function loadResultsSideReads(
+  tenantId: string,
+  ledger: ShippedChangeRecord[],
+  ownedAlignmentRequests: OwnedAlignmentRequest[],
+) {
+  const controlSparkPaths = [
+    ...new Set(ledger.slice(0, 8).flatMap((l) => (l.controlPages ?? []).slice(0, 2))),
+  ].slice(0, 16);
+  const tSide = perfMark();
   const [
     sparkByPath,
     controlSparkByPath,
@@ -306,25 +570,8 @@ export default async function ProofPage({
       new Map<string, SparkPoint[]>(),
       SIDE_READ_DEADLINE_MS,
     ),
-    // Algorithm-weather guard (master plan item 32): confirmed Google update ranges +
-    // last night's detected sitewide changepoints, so a verdict whose window overlapped
-    // one gets a visible caveat below. Fail-soft -> [] (no known shocks = no caveats,
-    // never a crash). No fresh CUSUM run here (that is the nightly cron's job).
     valueWithDeadline(loadDetectedChangepoints(tenantId).catch(() => []), [], SIDE_READ_DEADLINE_MS),
-    // N32 (R21b, 2026-07-03) - the EXTERNAL-EVENT LEDGER read side: last night's nightly pass
-    // recorded the honest-context events (Google updates + traffic shocks + connector outages +
-    // own-site change clusters). A measurement window that overlapped a NON-shock event (a connector
-    // outage or a many-edits-in-one-day cluster) gets an honest caveat below and, like the weather
-    // guard, additively demotes the N10 verdict-reliability grade - the shock kinds are already
-    // covered by the weather caveat, so the ledger adapter (eventCaveatForWindow) DEDUPES against it
-    // and never renders a second sentence for the same shock. Fail-soft + deadline-bound -> [] (an
-    // empty or missing ledger self-hides: no events means no caveats, byte-identical to before).
     valueWithDeadline(loadExternalEvents(tenantId).catch(() => []), [], SIDE_READ_DEADLINE_MS),
-    // Seasonality guard (master plan item 69): does this row's measurement window span a
-    // detected demand inflection for its page family? Computed-only (never persisted),
-    // same read-time posture as the weather guard above - a page shipped 3 weeks before a
-    // seasonal peak (or a family that IS the seasonal topic) reads its verdict cautiously
-    // instead of as a clean win/loss.
     valueWithDeadline(
       attachSeasonalInflectionForLedger(
         tenantId,
@@ -333,13 +580,6 @@ export default async function ProofPage({
       new Map(),
       SIDE_READ_DEADLINE_MS,
     ),
-    // Recrawl-gated SEARCH clock (master plan N11): does Google's index hold this
-    // page's new content yet? Computed-only from gsc_url_inspections (an INDEXED-
-    // version crawl timestamp, never a live-page fetch; never persisted, never
-    // mutates windows/verdict). Gates ONLY the Search verdict lane - a row with no
-    // confirmed index crawl reads its SEARCH badge as "Waiting" below regardless
-    // of which calendar window has closed, while the GA4 traffic line and every
-    // other live_at-clocked attachment on the card keeps rendering.
     valueWithDeadline(
       attachRecrawlClockForLedger(
         tenantId,
@@ -348,21 +588,11 @@ export default async function ProofPage({
       new Map(),
       SIDE_READ_DEADLINE_MS,
     ),
-    // Control-contamination guard (master plan N13): did any of THIS row's
-    // comparison pages change mid-measurement (we treated it ourselves, or its
-    // own content edited between scans)? Computed-only from the full ledger +
-    // page_snapshots history - when a clean substitute exists it is swapped in
-    // and the swap is named on the card; when none exists the read still runs,
-    // capped with an honest caution caveat. Never mutates the stored ship row.
     valueWithDeadline(
       attachControlContaminationForLedger(tenantId, ledger).catch(() => new Map()),
       new Map(),
       SIDE_READ_DEADLINE_MS,
     ),
-    // W2-B (2026-07-10) - the batched, READ-ONLY "AI quoted this line" alignments
-    // (persist:false -> a GET never writes). One Profound-excerpt read + one
-    // move-draft-cache read across every cited card, plus one page-body read per
-    // distinct URL, replacing 3 reads + a write PER card. Fail-soft -> empty map.
     valueWithDeadline(
       getOwnedAnswerAlignmentsBatch(tenantId, ownedAlignmentRequests).catch(
         () => new Map<string, PersistedAnswerAlignment | null>(),
@@ -371,28 +601,106 @@ export default async function ProofPage({
       SIDE_READ_DEADLINE_MS,
     ),
   ]);
+  perfStage("results-side-reads", tSide, { rows: ledger.length });
   const shockWindows: ShockWindow[] = buildShockWindows({ dailySeries: [], priorChangepoints: detectedChangepoints });
+  return {
+    sparkByPath,
+    controlSparkByPath,
+    shockWindows,
+    externalEvents,
+    seasonalInflectionById,
+    recrawlClockById,
+    contaminationById,
+    ownedAlignmentByRecId,
+  };
+}
 
-  // W2-B (2026-07-10) - warm the alignment cache OFF the GET: schedule the same
-  // batch with persist:true in after() so any freshly-computed alignment is
-  // written back for the next visit. Fire-and-forget + fail-soft; a GET never
-  // mutates on its own render path.
-  if (ownedAlignmentRequests.length > 0) {
-    after(async () => {
-      await getOwnedAnswerAlignmentsBatch(tenantId, ownedAlignmentRequests, { persist: true }).catch(() => {});
-    });
-  }
+type ResultsSideReads = Awaited<ReturnType<typeof loadResultsSideReads>>;
 
-  // GSC-LAG CLARITY: Google Search Console data lags wall-clock, so a 7-day window
-  // whose calendar date has passed often can't be judged yet. Count the rows that are
-  // calendar-open but GSC-waiting, and surface the honest reason (not just "waiting").
-  // Pure derivation off the already-loaded ledger + latestGscDate; no I/O.
-  const lagByRow = new Map(
-    ledger.map((l) => [l.id, gscLagStatus(l, latestGscDate)] as const),
+/** W2-B - the cumulative outcome strip, streamed: awaits the shared side-read batch
+ *  for shockWindows inside its own Suspense boundary so the header paints first. */
+async function CumulativeOutcomeStream({
+  ledger,
+  sideReads,
+}: {
+  ledger: ShippedChangeRecord[];
+  sideReads: Promise<ResultsSideReads>;
+}) {
+  const { shockWindows } = await sideReads;
+  return <CumulativeOutcomeSection ledger={ledger} shockWindows={shockWindows} />;
+}
+
+/** W2-B - the "Proof at a glance" summary, streamed the same way; keeps its W2-A
+ *  BoundedSection floor for the section's own render work. */
+async function ProofSummaryStream({
+  ledger,
+  sideReads,
+}: {
+  ledger: ShippedChangeRecord[];
+  sideReads: Promise<ResultsSideReads>;
+}) {
+  const { shockWindows } = await sideReads;
+  return <BoundedSection render={() => ProofSummarySection({ ledger, shockWindows })} />;
+}
+
+/** W2-B - honest, row-shaped fallback for the streamed measured-outcomes board:
+ *  the section header + copy render immediately (no layout jump on settle), the
+ *  card slots pulse until the comparison data lands. Beacon voice, no lab words. */
+function MeasuredOutcomesFallback({ rowCount }: { rowCount: number }) {
+  return (
+    <div className="mb-6">
+      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+        <h2 className="text-[13px] font-semibold uppercase tracking-wide text-muted-foreground">
+          Measured outcomes
+        </h2>
+      </div>
+      <p className="mb-2 text-[11px] text-muted-foreground">
+        I am pulling each change&apos;s daily clicks and comparison checks together. This
+        usually takes a few seconds.
+      </p>
+      <div className="space-y-2.5">
+        {Array.from({ length: Math.max(1, rowCount) }, (_, i) => (
+          <div key={i} className="h-14 animate-pulse rounded-lg bg-surface-inset/50" />
+        ))}
+      </div>
+    </div>
   );
-  const waitingOnGsc = [...lagByRow.values()].filter(
-    (s) => s.calendarWindowClosed && !s.gscWindowAvailable && s.nextWindowDay != null,
-  );
+}
+
+/**
+ * W2-B (2026-07-10) - the streamed measured-outcomes board: awaits the shared
+ * side-read batch, then builds the per-row presentation (maturity, caveats,
+ * grades), the operator revert offers, and the three lifecycle bands - everything
+ * that used to block the whole page before the header could paint. Content and
+ * behavior are unchanged; only WHERE the awaiting happens moved.
+ */
+async function MeasuredOutcomesBoard({
+  sideReads,
+  ledger,
+  latestGscDate,
+  tenantId,
+  isOperator,
+  worklist,
+  calibrationByProofId,
+}: {
+  sideReads: Promise<ResultsSideReads>;
+  ledger: ShippedChangeRecord[];
+  latestGscDate: string | null;
+  tenantId: string;
+  isOperator: boolean;
+  worklist: Awaited<ReturnType<typeof loadActionPackWorklistForTenant>> | null;
+  calibrationByProofId: Map<string, CalibrationRecord>;
+}) {
+  const {
+    sparkByPath,
+    controlSparkByPath,
+    shockWindows,
+    externalEvents,
+    seasonalInflectionById,
+    recrawlClockById,
+    contaminationById,
+    ownedAlignmentByRecId,
+  } = await sideReads;
 
   // Move 2 - the shared maturity presentation per row, so every card reads the same
   // honest measurement language (an early read is never a final verdict, never red/green).
@@ -565,22 +873,6 @@ export default async function ProofPage({
   // below only gets a small "seasonal swing overlaps" chip.
   const seasonalCount = ledger.filter((l) => presById.get(l.id)?.seasonalInflectionFlagged).length;
 
-  // Passive auto-measure (2026-06-29): when the operator opens Results, fire-and-forget a
-  // due-row measurement pass AFTER the response (next/after → zero render latency) so
-  // settled verdicts + the learned re-ranking activate WITHOUT a manual "Measure now"
-  // click. Operator-only (it writes proof outcomes) + only when rows are actually due, so
-  // a customer/anon view never mutates proof data. The settled rows show on the next visit.
-  const dueNow = ledger.filter((l) => isDueForMeasure(l, latestGscDate, new Date()));
-  const isOperator = await isOperatorModeServer();
-  // W5 stop-ship F4 (2026-07-09): also schedule when nothing is due-for-measure
-  // but rows are eligible for a re-verify (never-verified / transient-failed /
-  // unresolved needs_review, past backoff). The after() re-verify loop already
-  // runs unconditionally inside scheduleAutoMeasure; this just stops that loop
-  // from being gated behind a measurement being due. No extra I/O -
-  // selectRowsToReverify runs over the ledger already in memory.
-  const eligibleReverify = selectRowsToReverify(ledger).length > 0;
-  if (isOperator && (dueNow.length > 0 || eligibleReverify)) scheduleAutoMeasure(tenantId);
-
   // Item 11 - one-click restore offers for rows that are measuring negative
   // (7/14/28 day reads). The shared revert policy only ever proposes (E-36:
   // never auto-revert, ask first); the snapshot lookup is bounded to the
@@ -619,6 +911,7 @@ export default async function ProofPage({
           const out: Array<readonly [string, RevertDecision]> = [];
           negativeRows.forEach((rec, i) => {
             const p = presById.get(rec.id)!;
+            const source = sources[i];
             const decision = decideRevert({
               tenantId,
               direction: p.direction,
@@ -626,7 +919,7 @@ export default async function ProofPage({
               attributionQuality: p.attributionQuality,
               lever: rec.actionType,
               config: autopilotConfig,
-              snapshotAvailable: sources[i] != null,
+              snapshotAvailable: source != null,
               alreadyReverted: false,
               now: new Date(),
               liftLabel: liftLabelFor(rec),
@@ -651,281 +944,89 @@ export default async function ProofPage({
   });
   const linkByRowId = new Map(proofLinks.map((lk) => [lk.proofRow.id, lk as ProofLink]));
 
-  // Proof compares each page to its Google Search Console history - so a stale or
-  // disconnected GSC makes the verdicts unreliable. Surface that honestly (operator
-  // brutal-audit: "if GSC/GA4 stale, say so") instead of showing confident-looking
-  // results over old data.
-  const gsc = connHealth.find((c) => c.key === "google_gsc") ?? null;
-  const gscFreshnessNote =
-    gsc == null || gsc.severity === "healthy"
-      ? null
-      : gsc.severity === "disconnected"
-        ? "Google Search Console isn't connected. Proof verdicts can't update until it is."
-        : gsc.severity === "needs_setup"
-          ? "Google Search Console is connected but hasn't synced yet. Verdicts will fill in after the first sync."
-          : `Search Console data is ${gsc.daysStale ?? "several"} days old. Recent changes may not show a verdict yet. Refresh to update.`;
-
-  // Recompute only does something once a measurement window has closed AND GSC has the
-  // data for it. Gate the button + give the honest reason (calendar vs GSC-lag).
-  const anyWindowReady = ledger.some((l) => l.windows.some((w) => w.ran));
-  // Prefer the soonest-actionable reason: a row whose calendar window is closed but is
-  // waiting on GSC explains the "date passed yet still waiting" confusion best.
-  const lagReason =
-    waitingOnGsc[0]?.reasonCopy ??
-    [...lagByRow.values()].find((s) => s.nextWindowDay != null && !s.gscWindowAvailable)?.reasonCopy ??
-    undefined;
-
-  // Operator-only: which action types past results are nudging Beacon toward /
-  // away from (the prior that steers ranking). Lets the operator SEE a skew and
-  // use "Exclude from learning" on a mis-measured result. Only types with a
-  // trusted prior or an excluded result are worth showing.
-  // W2-A drive-by fix: this used to call isOperatorModeServer() without awaiting it -
-  // a Promise is always truthy, so the operator-only section leaked to everyone. Use
-  // the already-awaited isOperator from above.
-  const learningDiag = isOperator
-    ? computeOutcomePriorDiagnostics(ledger).filter(
-        (d) => d.prior !== null || d.excluded > 0,
-      )
-    : [];
-
   return (
-    <div className="mx-auto max-w-4xl px-6 py-8">
-      <div className="mb-5 flex items-start justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Results</h1>
-          <p className="mt-1 text-[14px] text-muted-foreground">
-            Every change you have made and whether it helped. We compare each page
-            to how it did before, and to similar pages you did not change.
-          </p>
-          {/* R4 - honest staleness: these numbers come from the last persisted
-              re-measure (served instantly), so say exactly how old they are and
-              that they refresh in the background. */}
-          {ledger.length > 0 && checkedAgoLine ? (
-            <p className="mt-1 text-[11px] text-muted-foreground/80 tabular-nums">{checkedAgoLine}</p>
-          ) : null}
-          {/* FP3 + FP8 - the cumulative outcome strip: the same count numbers as the
-              bands below (same shared classifier over the same snapshot-served ledger,
-              passed down so the strip never re-triggers the measure path), extended
-              with the measured value the wins are adding, so the header never
-              promises a count the page does not show and the total value won is
-              asserted, not buried. Shock windows ride along for THE ONE DOLLAR RULE. */}
-          <div className="mt-3">
-            <Suspense fallback={null}>
-              <CumulativeOutcomeSection ledger={ledger} shockWindows={shockWindows} />
-            </Suspense>
-          </div>
-        </div>
-        {ledger.length > 0 ? (
-          <RecomputeLedgerButton
-            disabled={!anyWindowReady}
-            disabledReason={anyWindowReady ? undefined : lagReason}
-          />
-        ) : null}
+    <div className="mb-6">
+      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+        <h2 className="text-[13px] font-semibold uppercase tracking-wide text-muted-foreground">
+          Measured outcomes
+        </h2>
+        {/* R14b - the same rows, as a file: reads the snapshot the page reads. */}
+        <a
+          href="/results/export"
+          className="text-meta text-muted-foreground underline underline-offset-2 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
+        >
+          Download as spreadsheet
+        </a>
       </div>
-
-      {gscFreshnessNote ? (
-        <div className="mb-5 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
-          {gscFreshnessNote}
-        </div>
-      ) : null}
-
-      {/* GSC-lag clarity: when changes are calendar-due but Search Console hasn't caught
-          up, say so plainly instead of an unexplained "waiting". */}
-      {!gscFreshnessNote && waitingOnGsc.length > 0 ? (
-        <div className="mb-5 rounded-md border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-800">
-          {waitingOnGsc.length} change{waitingOnGsc.length === 1 ? " is" : "s are"} waiting on Search Console
-          data, not stalled. {waitingOnGsc[0]?.reasonCopy ?? ""} Google Search data typically lags 2-3 days.
-        </div>
-      ) : null}
-
-      {/* Passive auto-measure (2026-06-29): due rows are being re-measured in the
-          background (next/after) the moment Results opens - say so honestly. */}
-      {isOperator && dueNow.length > 0 ? (
-        <div className="mb-5 rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-800">
-          Measuring {dueNow.length} due result{dueNow.length === 1 ? "" : "s"} now. Refresh in a moment to see the verdict.
-        </div>
-      ) : null}
-
-      {/* Premium "Proof at a glance" scoreboard (2026-06-25) - the Results act of
-          the Move → Ship → Prove loop. Own Suspense / self-hides when nothing is
-          shipped; R4 - reads the SAME snapshot-served ledger as the bands above
-          (passed down), so it never re-triggers the heavy measure path. */}
-      <Suspense fallback={null}>
-        <BoundedSection render={() => ProofSummarySection({ ledger, shockWindows })} />
-      </Suspense>
-
-      {/* Item 27 - the promise ledger: forecast vs delivered, reconciled monthly. Sibling to the
-          summary above; self-hides until at least 3 picks have settled at their 28-day window. */}
-      <Suspense fallback={null}>
-        <BoundedSection render={() => ForecastCalibrationSection()} />
-      </Suspense>
-
-      {/* Item 34 - pooled batch verdict: when a same-plan same-lever batch of 3+ pages has
-          measured reads, one confident "as a group" line above the per-page rows below.
-          Self-hides otherwise. */}
-      <Suspense fallback={null}>
-        <BoundedSection render={() => PooledVerdictSection()} />
-      </Suspense>
-
-      {/* Record a shipped change for ANY page (manual-ship companion). Prefills
-          the page from a ?page= hand-off (e.g. the Workbench "Record this
-          change" link) so recording doesn't mean re-typing the path. */}
-      <div className="mb-6">
-        <RecordAnyPageForm initialPage={initialPage} />
-      </div>
-
-      {/* ── Measured outcomes (shipped changes being tracked vs controls) ── */}
-      {ledger.length > 0 ? (
-        <div className="mb-6">
-          <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-            <h2 className="text-[13px] font-semibold uppercase tracking-wide text-muted-foreground">
-              Measured outcomes
-            </h2>
-            {/* R14b - the same rows, as a file: reads the snapshot the page reads. */}
-            <a
-              href="/results/export"
-              className="text-meta text-muted-foreground underline underline-offset-2 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
-            >
-              Download as spreadsheet
-            </a>
-          </div>
-          {/* R14b (receipts everywhere) - what these verdicts are read FROM: Search
-              Console data through its last finalized day. */}
-          <ReceiptLine
-            line={buildReceiptLine({
-              source: "your Search Console data",
-              through: latestGscDate,
-              nowMs: Date.now(),
-              note: "Google reports a few days behind.",
-            })}
-            className="mb-2"
-          />
-          {/* Dollar-ROI honesty (gap #1): show what proof CAN measure. Revenue is
-              only claimed if GA4 actually returns it; this property has no revenue
-              events, so we say so once rather than imply dollars per card. */}
-          {!ledger.some((l) => l.trafficOutcome?.hasRevenue) ? (
-            <p className="mb-2 text-[11px] text-muted-foreground">
-              Each change is measured on Search (clicks, rank, click rate) and GA4 traffic
-              (sessions, conversions). No revenue events are configured in GA4, so
-              proof shows traffic and conversions, not dollars.
-            </p>
-          ) : null}
-          {/* Item C7 - the seasonal-overlap caveat used to repeat its full paragraph
-              verbatim on every affected card. Say it once, here, for the whole page;
-              each card below only shows a small chip. */}
-          {seasonalCount > 0 ? (
-            <p className="mb-2 text-[11px] text-amber-700">
-              {seasonalCount} of these overlap the May-June demand swing for their topics, so I read {seasonalCount === 1 ? "it" : "them"} cautiously.
-            </p>
-          ) : null}
-          <WhatHappensNext />
-
-          {/* Item 68 band 1: mature wins, celebrated in one sentence, still factual. */}
-          {winRows.length > 0 ? (
-            <div className="mt-4">
-              <h3 className="text-[12px] font-semibold uppercase tracking-wide text-emerald-700">
-                Wins ({winRows.length})
-              </h3>
-              <p className="mt-0.5 text-[11px] text-muted-foreground">
-                These changes beat their comparison pages over the full window. Real lifts, measured.
-              </p>
-              <LedgerRowGroup rows={winRows} band="win" linkByRowId={linkByRowId} presById={presById} gradeById={gradeById} eventCaveatById={eventCaveatById} sparkByPath={sparkByPath} controlSparkByPath={controlSparkByPath} revertById={revertById} restoredIds={restoredIds} calibrationByProofId={calibrationByProofId} ownedAlignmentByRecId={ownedAlignmentByRecId} />
-            </div>
-          ) : null}
-
-          {/* Item 68 band 2: mature non-wins, framed as knowledge gained, never failure. */}
-          {learningRows.length > 0 ? (
-            <div className="mt-4">
-              <h3 className="text-[12px] font-semibold uppercase tracking-wide text-foreground/70">
-                What we learned ({learningRows.length})
-              </h3>
-              <p className="mt-0.5 text-[11px] text-muted-foreground">
-                These changes did not move the number, and that teaches us which lever to try next on pages like these.
-              </p>
-              <LedgerRowGroup rows={learningRows} band="learning" linkByRowId={linkByRowId} presById={presById} gradeById={gradeById} eventCaveatById={eventCaveatById} sparkByPath={sparkByPath} controlSparkByPath={controlSparkByPath} revertById={revertById} restoredIds={restoredIds} calibrationByProofId={calibrationByProofId} ownedAlignmentByRecId={ownedAlignmentByRecId} />
-            </div>
-          ) : null}
-
-          {/* Item 68 band 3: everything still measuring or waiting on data. */}
-          {inFlightRows.length > 0 ? (
-            <div className="mt-4">
-              <h3 className="text-[12px] font-semibold uppercase tracking-wide text-muted-foreground">
-                In flight ({inFlightRows.length})
-              </h3>
-              <p className="mt-0.5 text-[11px] text-muted-foreground">
-                Still collecting data. Each one gets its verdict when its full window closes.
-              </p>
-              <LedgerRowGroup rows={inFlightRows} band="inflight" linkByRowId={linkByRowId} presById={presById} gradeById={gradeById} eventCaveatById={eventCaveatById} sparkByPath={sparkByPath} controlSparkByPath={controlSparkByPath} revertById={revertById} restoredIds={restoredIds} ownedAlignmentByRecId={ownedAlignmentByRecId} />
-            </div>
-          ) : null}
-        </div>
-      ) : null}
-
-      {/* ── R14a "We got this wrong" (P1 trust receipts): revised-downward verdicts +
-          proven-did-nothing changes, owned plainly, max 5, each linking to its own
-          card above. Self-hiding when there is nothing to own - most days it is
-          absent, which is exactly the point. */}
-      <WeGotThisWrongSection items={buildRecapItems(ledger, plainAction)} />
-
-      {/* ── What Beacon has learned (operator-only): per-action_type prior that
-          steers ranking, so a skew is visible and excludable. ── */}
-      {learningDiag.length > 0 ? (
-        <div className="mb-6">
-          <h2 className="mb-2 text-[13px] font-semibold uppercase tracking-wide text-muted-foreground">
-            What Beacon has learned
-          </h2>
-          <p className="mb-2 text-[11px] text-muted-foreground">
-            How your past results nudge which fixes Beacon suggests first. If a result
-            looks mis-measured, use &ldquo;Exclude from learning&rdquo; on it below.
-          </p>
-          <ul className="space-y-1">
-            {learningDiag.map((d) => (
-              <li key={d.actionType} className="text-[12px] text-foreground/80">
-                <span className="font-medium">{d.actionType.replace(/_/g, " ")}</span>:{" "}
-                {d.won} worked, {d.lost} did not
-                {d.excluded > 0 ? `, ${d.excluded} excluded` : ""}
-                {d.prior !== null ? (
-                  <span className="text-muted-foreground">
-                    {" "}
-                    &rarr; Beacon now{" "}
-                    {d.prior > 0
-                      ? `favors this (+${Math.round(d.prior * 100)}%)`
-                      : d.prior < 0
-                        ? `is cautious here (${Math.round(d.prior * 100)}%)`
-                        : "is neutral"}
-                  </span>
-                ) : (
-                  <span className="text-muted-foreground">
-                    {" "}
-                    &rarr; not enough results yet to change ranking
-                  </span>
-                )}
-              </li>
-            ))}
-          </ul>
-        </div>
-      ) : null}
-
-      {/* ── FP5c (2026-07-02, killer finding "why is there a second list of changes
-          under the first list of changes") ── The former "Your changes" timeline used
-          to render as a second full stack directly under the measured-outcomes list,
-          repeating the same changes in a second format. The measured list above IS the
-          one list now; the raw change log (which also holds detected site edits from
-          before measurement started) stays reachable behind one collapsed line instead
-          of duplicating the page. The W2-A BoundedSection wrapper is kept intact. */}
-      <details className="mb-6">
-        <summary className="cursor-pointer text-[12px] font-medium text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1">
-          See the raw change log
-        </summary>
-        <p className="mb-2 mt-1 text-[11px] text-muted-foreground">
-          The same changes as the list above, in raw log form, plus site edits I detected
-          from before measurement started. Nothing here is a second to-do list.
+      {/* R14b (receipts everywhere) - what these verdicts are read FROM: Search
+          Console data through its last finalized day. */}
+      <ReceiptLine
+        line={buildReceiptLine({
+          source: "your Search Console data",
+          through: latestGscDate,
+          nowMs: Date.now(),
+          note: "Google reports a few days behind.",
+        })}
+        className="mb-2"
+      />
+      {/* Dollar-ROI honesty (gap #1): show what proof CAN measure. Revenue is
+          only claimed if GA4 actually returns it; this property has no revenue
+          events, so we say so once rather than imply dollars per card. */}
+      {!ledger.some((l) => l.trafficOutcome?.hasRevenue) ? (
+        <p className="mb-2 text-[11px] text-muted-foreground">
+          Each change is measured on Search (clicks, rank, click rate) and GA4 traffic
+          (sessions, conversions). No revenue events are configured in GA4, so
+          proof shows traffic and conversions, not dollars.
         </p>
-        <Suspense fallback={null}>
-          <BoundedSection render={() => ResultsTimeline()} />
-        </Suspense>
-      </details>
+      ) : null}
+      {/* Item C7 - the seasonal-overlap caveat used to repeat its full paragraph
+          verbatim on every affected card. Say it once, here, for the whole page;
+          each card below only shows a small chip. */}
+      {seasonalCount > 0 ? (
+        <p className="mb-2 text-[11px] text-amber-700">
+          {seasonalCount} of these overlap the May-June demand swing for their topics, so I read {seasonalCount === 1 ? "it" : "them"} cautiously.
+        </p>
+      ) : null}
+      <WhatHappensNext />
 
+      {/* Item 68 band 1: mature wins, celebrated in one sentence, still factual. */}
+      {winRows.length > 0 ? (
+        <div className="mt-4">
+          <h3 className="text-[12px] font-semibold uppercase tracking-wide text-emerald-700">
+            Wins ({winRows.length})
+          </h3>
+          <p className="mt-0.5 text-[11px] text-muted-foreground">
+            These changes beat their comparison pages over the full window. Real lifts, measured.
+          </p>
+          <LedgerRowGroup rows={winRows} band="win" linkByRowId={linkByRowId} presById={presById} gradeById={gradeById} eventCaveatById={eventCaveatById} sparkByPath={sparkByPath} controlSparkByPath={controlSparkByPath} revertById={revertById} restoredIds={restoredIds} calibrationByProofId={calibrationByProofId} ownedAlignmentByRecId={ownedAlignmentByRecId} />
+        </div>
+      ) : null}
+
+      {/* Item 68 band 2: mature non-wins, framed as knowledge gained, never failure. */}
+      {learningRows.length > 0 ? (
+        <div className="mt-4">
+          <h3 className="text-[12px] font-semibold uppercase tracking-wide text-foreground/70">
+            What we learned ({learningRows.length})
+          </h3>
+          <p className="mt-0.5 text-[11px] text-muted-foreground">
+            These changes did not move the number, and that teaches us which lever to try next on pages like these.
+          </p>
+          <LedgerRowGroup rows={learningRows} band="learning" linkByRowId={linkByRowId} presById={presById} gradeById={gradeById} eventCaveatById={eventCaveatById} sparkByPath={sparkByPath} controlSparkByPath={controlSparkByPath} revertById={revertById} restoredIds={restoredIds} calibrationByProofId={calibrationByProofId} ownedAlignmentByRecId={ownedAlignmentByRecId} />
+        </div>
+      ) : null}
+
+      {/* Item 68 band 3: everything still measuring or waiting on data. */}
+      {inFlightRows.length > 0 ? (
+        <div className="mt-4">
+          <h3 className="text-[12px] font-semibold uppercase tracking-wide text-muted-foreground">
+            In flight ({inFlightRows.length})
+          </h3>
+          <p className="mt-0.5 text-[11px] text-muted-foreground">
+            Still collecting data. Each one gets its verdict when its full window closes.
+          </p>
+          <LedgerRowGroup rows={inFlightRows} band="inflight" linkByRowId={linkByRowId} presById={presById} gradeById={gradeById} eventCaveatById={eventCaveatById} sparkByPath={sparkByPath} controlSparkByPath={controlSparkByPath} revertById={revertById} restoredIds={restoredIds} ownedAlignmentByRecId={ownedAlignmentByRecId} />
+        </div>
+      ) : null}
     </div>
   );
 }
