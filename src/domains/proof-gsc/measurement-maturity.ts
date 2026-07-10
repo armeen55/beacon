@@ -5,7 +5,12 @@
  *   MATURITY  — how far the measurement has progressed (collecting → early → interim
  *               → mature), independent of which way it moved.
  *   DIRECTION — which way the basis window moved (positive / negative / neutral).
- *   VERDICT   — the FINAL operator-facing call. Exists ONLY at mature_result.
+ *   VERDICT   — the 28-day operator-facing call, my strongest read available today.
+ *               Exists ONLY at mature_result. E-39 D6: this is a 28-day PROVISIONAL
+ *               verdict, NOT a "final" or "highest-confidence" call - the spec's
+ *               56 to 84 day confirmation tier is not built yet (see
+ *               docs/NEXT_PHASE_EXECUTION_PLAN.md), so no copy here may claim
+ *               finality or top confidence over a window that does not exist yet.
  *
  * Why this module exists: the stored `verdict`/`confidence` on a ShippedChangeRecord
  * are computed from "the longest window that has run", so a record whose ONLY closed
@@ -28,7 +33,7 @@ export type MeasurementMaturity =
   | "collecting" // live; first checkpoint not open OR required GSC data not in yet
   | "early_checkpoint" // 7-day window closed — directional only, never final
   | "interim_checkpoint" // 14-day window closed — stronger, still not final
-  | "mature_result" // 28-day window closed + sufficient data — final verdict eligible
+  | "mature_result" // 28-day window closed + sufficient data: provisional 28-day verdict eligible (strongest tier built today; E-39 D6)
   | "inconclusive" // mature window closed but evidence insufficient/within noise
   | "blocked_data" // checkpoint date passed but the GSC/GA4 data it needs isn't in
   | "attribution_limited"; // a measurement exists but an overlapping edit weakens it
@@ -261,7 +266,8 @@ export function deriveMeasurementMaturity(input: MaturityInput): MeasurementMatu
 export type MeasurementPresentation = {
   maturity: MeasurementMaturity;
   direction: MeasurementDirection;
-  /** The FINAL verdict — non-null ONLY at mature_result. */
+  /** The 28-day verdict (my strongest read available today, NOT a "final" call;
+   *  E-39 D6) - non-null ONLY at mature_result. */
   verdict: "helped" | "no_lift" | "did_not_help" | null;
   confidence: PresentationConfidence;
   /** Short operator-facing headline (the only line a compact row needs). */
@@ -553,19 +559,22 @@ export function buildMeasurementPresentation(input: MaturityInput): MeasurementP
       break;
     case "early_checkpoint":
       headline = direction === "positive" ? "Early positive signal" : direction === "negative" ? "Early negative signal" : "Too early to call";
-      explanation = `7-day signal, directional only.${finalCheckpoint ? ` Final checkpoint opens ${finalCheckpoint}.` : ""}`;
+      explanation = `7-day signal, directional only.${finalCheckpoint ? ` The 28-day checkpoint opens ${finalCheckpoint}.` : ""}`;
       tone = direction === "positive" ? "progress" : direction === "negative" ? "progress" : "neutral";
       break;
     case "interim_checkpoint":
       headline = direction === "positive" ? "Interim positive signal" : direction === "negative" ? "Interim negative signal" : "Still inconclusive";
-      explanation = `Evidence strengthening at 14 days.${finalCheckpoint ? ` Final checkpoint opens ${finalCheckpoint}.` : ""}`;
+      explanation = `Evidence strengthening at 14 days.${finalCheckpoint ? ` The 28-day checkpoint opens ${finalCheckpoint}.` : ""}`;
       tone = "progress";
       break;
     case "mature_result":
       if (verdict === "helped") { headline = confidence === "high" ? "Helped" : "Likely helped"; tone = "positive"; }
       else if (verdict === "did_not_help") { headline = confidence === "high" ? "Did not help" : "Likely hurt"; tone = "negative"; }
       else { headline = "No clear lift"; tone = "neutral"; }
-      explanation = "Measured over the full 28-day window versus comparison pages.";
+      // E-39 D6: name this the 28-day read, my strongest confirmation window
+      // built today - never "final" or "highest confidence" while the 56 to 84
+      // day tier is still on the plan (docs/NEXT_PHASE_EXECUTION_PLAN.md).
+      explanation = "This is my 28-day read against comparison pages, the strongest confirmation window I measure today.";
       break;
     case "inconclusive":
       headline = "No clear result";

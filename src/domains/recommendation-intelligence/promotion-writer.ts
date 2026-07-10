@@ -184,6 +184,24 @@ function holdUnsafeDraft(
   };
 }
 
+/**
+ * E-39 D5 (promotion writer ANNOTATES, never deletes). Attach an admit-with-caution
+ * note to any promoted row whose page is mid-measurement or serving as a live
+ * comparison page, WITHOUT removing the row. PURE. The row (the operator's option)
+ * always survives; only a `risks` line is added so the operator sees WHY it is
+ * flagged. Idempotent (never appends the same note twice). This replaces the
+ * 2026-07-01 gate that silently FILTERED such candidates out of the queue.
+ */
+export function annotateCautionRows(
+  rows: ReadonlyArray<DeterministicPromotionEditRow>,
+  cautionCopyByUrl: ReadonlyMap<string, string>,
+): DeterministicPromotionEditRow[] {
+  return rows.map((row) => {
+    const caution = cautionCopyByUrl.get(row.target_url);
+    return caution && !row.risks.includes(caution) ? { ...row, risks: [...row.risks, caution] } : row;
+  });
+}
+
 export async function promoteEligibleCandidates(
   input: PromoteEligibleCandidatesInput,
 ): Promise<PromoteEligibleCandidatesResult> {
@@ -306,31 +324,35 @@ export async function promoteEligibleCandidates(
     ...triggerResult.diagnostic_only,
   ];
 
-  // Shared experiment gate (2026-07-01): never PROMOTE a candidate for a page that is
-  // mid-measurement (active treatment) or serving as an active control - the same pure
-  // gate the daily planner uses. Before this, the legacy generation was the only rec
-  // system with ZERO proof-ledger awareness, so a measuring page could quietly re-enter
-  // the queue as a fresh recommendation. Fail-soft: a gate error never blocks promotion.
+  // E-39 D5 (2026-07-10): the promotion writer ANNOTATES, it never DELETES. A page
+  // that is mid-measurement (its own change) or serving as a comparison page for a
+  // live measurement stays VISIBLE in the queue - we no longer silently remove the
+  // operator's options. This block used to FILTER those candidates out (the
+  // 2026-07-01 gate); now it computes an admit-with-caution note per page and the
+  // note is attached to the mapped row below. The page is safe to edit; the caution
+  // only records that a measurement it participates in reads with less certainty.
+  // Fail-soft: a gate error never blocks promotion.
+  const cautionCopyByUrl = new Map<string, string>();
   try {
-    const { deriveExperimentStates } = await import("@/domains/experiments/experiment-eligibility");
+    const { deriveExperimentStates, assessEligibility, cautionOf, actionFamilyOf } = await import(
+      "@/domains/experiments/experiment-eligibility"
+    );
     const states = deriveExperimentStates(proofLedgerForGate, input.now ?? new Date());
-    const activePaths = new Set<string>();
-    for (const [path, st] of states) {
-      if (st.activeTreatments.length > 0 || st.activeControlAssignments.length > 0) activePaths.add(path);
+    for (const c of triggerCandidates) {
+      if (!c.target_url || cautionCopyByUrl.has(c.target_url)) continue;
+      const elig = assessEligibility({
+        url: c.target_url,
+        family: actionFamilyOf(c.action_type ?? ""),
+        states,
+      });
+      const caution = cautionOf(elig);
+      if (caution) cautionCopyByUrl.set(c.target_url, caution.copy);
     }
-    if (activePaths.size > 0) {
-      const pathOf = (u: string): string =>
-        ((u.replace(/^https?:\/\/[^/]+/i, "") || "/").replace(/[?#].*$/, "").replace(/\/+$/, "") || "/").toLowerCase();
-      const before = triggerCandidates.length;
-      triggerCandidates = triggerCandidates.filter(
-        (c) => !c.target_url || !activePaths.has(pathOf(c.target_url)),
-      );
-      if (before - triggerCandidates.length > 0) {
-        log.warn("[promoteEligibleCandidates] experiment gate skipped mid-measurement pages", {
-          tenantId: input.tenantId,
-          skipped: before - triggerCandidates.length,
-        });
-      }
+    if (cautionCopyByUrl.size > 0) {
+      log.info("[promoteEligibleCandidates] E-39 admit-with-caution: flagged mid-measurement pages, none removed", {
+        tenantId: input.tenantId,
+        flagged: cautionCopyByUrl.size,
+      });
     }
   } catch {
     // gate unavailable -> promote as before (the guard must never fail the pipeline)
@@ -404,12 +426,16 @@ export async function promoteEligibleCandidates(
   // refresh. eligibleResults is priority-DESC, so first = the strongest
   // signal (first-party gsc_low_ctr over the weaker striking/third-party one).
   const seenRowIds = new Set<string>();
-  const mapped_rows: DeterministicPromotionEditRow[] = [];
+  const dedupedRows: DeterministicPromotionEditRow[] = [];
   for (const row of collectedRows) {
     if (seenRowIds.has(row.id)) continue;
     seenRowIds.add(row.id);
-    mapped_rows.push(row);
+    dedupedRows.push(row);
   }
+  // E-39 D5: ANNOTATE (never remove) rows whose page is mid-measurement or a live
+  // comparison page. The caution rides `risks` so the operator sees WHY the option
+  // is flagged, instead of the option silently disappearing from the queue.
+  const mapped_rows = annotateCautionRows(dedupedRows, cautionCopyByUrl);
 
   const candidate_count = triggerCandidates.length;
   const eligible_count = eligibleResults.length;

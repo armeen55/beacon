@@ -12,6 +12,11 @@ import type { ShippedChangeRecord } from "./shipped-change-store";
 const MAX_MEASURE_WINDOW_DAYS = Math.max(...PROOF_WINDOW_DAYS);
 /** Grace after the last window before a still-"measuring" record is "stale". */
 export const STALE_GRACE_DAYS = 7;
+/** E-39 D4: how long past the 28-day + grace horizon Beacon keeps FAIRLY retrying
+ *  a recompute of a still-unsettled measurement whose GSC data has not yet
+ *  arrived. Bounded so a page is never re-scanned forever, but long enough that a
+ *  genuine GSC finalization delay still gets its verdict once the data lands. */
+export const MAX_VERDICT_LAG_RETRY_DAYS = 28;
 
 /** The operator-facing lifecycle state of an applied Move (deliverable 1). */
 export type OutcomeState = "measuring" | "win" | "loss" | "inconclusive" | "stale";
@@ -26,11 +31,72 @@ export function outcomeStateOf(record: ShippedChangeRecord, now: Date = new Date
   if (record.verdict === "lost") return "loss";
   if (record.verdict === "inconclusive") return "inconclusive";
   // "measuring" / "insufficient_data": in flight unless it aged out past the last
-  // window + grace with nothing settled → stale (no usable data).
+  // window + grace with NOTHING ever read → stale (no usable data). A record with a
+  // real window reading is never "stale" here even when old (that reading exists);
+  // E-39 D4's honest release of a STUCK measurement is handled by resolveVerdictLag
+  // (recompute when data arrives; mark blocked_data + release when it does not) plus
+  // the admit-with-caution model, which never manufactures a verdict from age.
   const anyWindowRan = (record.windows ?? []).some((w) => w.ran);
   if (ageDaysOf(record, now) > MAX_MEASURE_WINDOW_DAYS + STALE_GRACE_DAYS && !anyWindowRan) return "stale";
   if (record.verdict === "insufficient_data") return "inconclusive";
   return "measuring";
+}
+
+/**
+ * E-39 D4 — verdict-lag repair, fail-closed and HONEST. For a record that has
+ * reached the 28-day + grace horizon without a settled mature verdict, decide
+ * what the measurement engine should do. PURE.
+ *
+ *   - "in_window"          still inside 28d + grace; ordinary measurement applies.
+ *   - "settled"            already has a mature won/lost/inconclusive verdict.
+ *   - "recompute"          horizon reached AND the 28-day GSC data is available
+ *                          now -> recompute + persist the provisional verdict,
+ *                          then settle + release the page/comparison reservations.
+ *   - "release_unresolved" horizon reached but the required GSC data is NOT in ->
+ *                          RELEASE the page for editing (outcomeStateOf already
+ *                          reads "stale"), PRESERVE the unfinished measurement,
+ *                          mark it honestly (blocked_data), NEVER fabricate a
+ *                          verdict, and retry later while `retryEligible` (a
+ *                          bounded, fair window).
+ *
+ * Wall-clock age never manufactures a verdict; missing data never permanently
+ * locks the operator out.
+ */
+export type VerdictLagAction =
+  | { kind: "in_window" }
+  | { kind: "settled" }
+  | { kind: "recompute" }
+  | { kind: "release_unresolved"; markState: "blocked_data"; retryEligible: boolean };
+
+export function resolveVerdictLag(
+  record: ShippedChangeRecord,
+  lastFinalizedDate: string | null,
+  now: Date = new Date(),
+): VerdictLagAction {
+  if (record.verdict === "won" || record.verdict === "lost" || record.verdict === "inconclusive") {
+    return { kind: "settled" };
+  }
+  const age = ageDaysOf(record, now);
+  const horizon = MAX_MEASURE_WINDOW_DAYS + STALE_GRACE_DAYS;
+  if (age <= horizon) return { kind: "in_window" };
+
+  // Past the horizon without a settled verdict. Bound the fair retry window FIRST:
+  // past it, stop retrying entirely - never re-scan forever, never fabricate a
+  // verdict; the record stays released for editing and honestly unresolved.
+  if (age > horizon + MAX_VERDICT_LAG_RETRY_DAYS) {
+    return { kind: "release_unresolved", markState: "blocked_data", retryEligible: false };
+  }
+
+  // Inside the bounded retry window: can the 28-day window run NOW (its required
+  // GSC data has finally arrived)? If so, recompute + persist + settle + release.
+  const checks = proofCheckDates(record.shippedAt);
+  const required28 = addDays(checks[MAX_MEASURE_WINDOW_DAYS as ProofWindowDay], -1);
+  const dataAvailable = lastFinalizedDate != null && lastFinalizedDate >= required28;
+  if (dataAvailable) return { kind: "recompute" };
+
+  // Data still unavailable: never invent a verdict from age. Release + preserve +
+  // mark honestly (blocked_data), and stay eligible to retry as data arrives.
+  return { kind: "release_unresolved", markState: "blocked_data", retryEligible: true };
 }
 
 /** Why a calendar-open proof window still shows no Search verdict: Google Search
@@ -137,7 +203,12 @@ export function isDueForMeasure(
   now: Date = new Date(),
 ): boolean {
   if (lastFinalizedDate == null) return false; // no finalized GSC data → can't measure
-  if (ageDaysOf(record, now) > MAX_MEASURE_WINDOW_DAYS + STALE_GRACE_DAYS) return false; // aged out
+  if (ageDaysOf(record, now) > MAX_MEASURE_WINDOW_DAYS + STALE_GRACE_DAYS) {
+    // E-39 D4: past the ordinary horizon, still due ONLY when the verdict-lag
+    // repair says a recompute can now settle a still-unresolved measurement whose
+    // GSC data has finally arrived (bounded fair retry inside resolveVerdictLag).
+    return resolveVerdictLag(record, lastFinalizedDate, now).kind === "recompute";
+  }
 
   const checks = proofCheckDates(record.shippedAt);
   const ranByDay = new Map<number, boolean>((record.windows ?? []).map((w) => [w.day, w.ran]));

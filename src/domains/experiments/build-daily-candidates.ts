@@ -222,7 +222,23 @@ function scoreControl(treated: GscPageInput, control: GscPageInput): SuggestedCo
   };
 }
 
-export const MIN_CONTROLS = 3;
+/**
+ * E-39 D3 (adaptive control pools, operator-approved 2026-07-10): 2 is the
+ * MINIMUM DEFENSIBLE fallback (a real diff-in-diff needs at least two comparison
+ * pages - one comparator is "treated minus one arbitrary page", not a control
+ * group; this mirrors measure.ts's MIN_CONTROLS_FOR_COMPUTED and
+ * natural-controls.ts's minControlsForComputed). 3 comparison pages are what a
+ * HIGH-confidence read requires (measure.ts MIN_CONTROLS_FOR_HIGH /
+ * natural-controls.ts minControlsForHighConfidence), so the suggestion pool is
+ * capped at 3 below - we STOP recording 5-control ships. Fewer than 2 defensible
+ * comparison pages does NOT freeze the operator out: assessEligibility admits it
+ * with an `insufficient_controls` caution and the measurement reads at a lower
+ * confidence tier (weak_estimate), never a fabricated clean result.
+ */
+export const MIN_CONTROLS = 2;
+/** E-39 D3: cap the comparison-page pool at 3 (the count a HIGH-confidence read
+ *  needs). More than 3 adds no confidence and over-reserves scarce clean pages. */
+export const MAX_CONTROLS = 3;
 
 /** The conservative Google rank a seasonal prep is forecast to reach once the page is ready
  *  ahead of the wave. A seasonal prep is speculative (the page has no current rank on the
@@ -364,7 +380,7 @@ export function buildDailyCandidates(input: {
       .map((c) => scoreControl(p, c))
       .filter((c) => c.pageFamilyMatch || c.score >= 0.5)
       .sort((a, b) => (b.pageFamilyMatch ? 1 : 0) - (a.pageFamilyMatch ? 1 : 0) || b.score - a.score)
-      .slice(0, 5);
+      .slice(0, MAX_CONTROLS);
     // A measurable experiment NEEDS a control anchor - re-assess so <MIN_CONTROLS excludes from
     // selection (insufficient_controls) rather than silently shipping an unmeasurable change.
     const external = { ...baseExternal, insufficientControls: controls.length < MIN_CONTROLS };
@@ -417,7 +433,7 @@ export function buildDailyCandidates(input: {
         .map((c) => scoreControl(treated, c))
         .filter((c) => c.pageFamilyMatch || c.score >= 0.5)
         .sort((a, b) => (b.pageFamilyMatch ? 1 : 0) - (a.pageFamilyMatch ? 1 : 0) || b.score - a.score)
-        .slice(0, 5);
+        .slice(0, MAX_CONTROLS);
       const external = { highRisk: false, insufficientControls: controls.length < MIN_CONTROLS };
       const elig = assessEligibility({ url: seed.page, family: refreshFamily, states, external });
       out.push({
@@ -496,7 +512,7 @@ export function buildDailyCandidates(input: {
         .map((c) => scoreControl(treated, c))
         .filter((c) => c.pageFamilyMatch || c.score >= 0.5)
         .sort((a, b) => (b.pageFamilyMatch ? 1 : 0) - (a.pageFamilyMatch ? 1 : 0) || b.score - a.score)
-        .slice(0, 5);
+        .slice(0, MAX_CONTROLS);
       const external = { highRisk: false, insufficientControls: controls.length < MIN_CONTROLS };
       const elig = assessEligibility({ url: seed.page, family: seasonalFamily, states, external });
       out.push({

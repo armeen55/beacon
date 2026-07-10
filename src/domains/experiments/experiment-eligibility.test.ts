@@ -7,6 +7,7 @@ import {
   activeTreatmentPaths,
   cleanControlPaths,
   assessEligibility,
+  cautionOf,
   type ExperimentFamily,
 } from "./experiment-eligibility";
 import type { ShippedChangeRecord } from "@/domains/proof-gsc/shipped-change-store";
@@ -67,49 +68,114 @@ describe("actionFamilyOf / familiesCollide", () => {
   });
 });
 
-describe("the live batch — Phase-0/1 protection", () => {
+describe("E-39 admit-with-caution — the live batch is no longer frozen out", () => {
   const states = deriveExperimentStates(liveLedger, NOW);
 
-  it("all 10 treated pages are ineligible for a NEW title test (same_family_measuring)", () => {
+  it("all 10 treated pages are ADMITTED WITH CAUTION for a NEW title test (same_family_measuring), never frozen", () => {
     for (const p of TREATED) {
       const e = assessEligibility({ url: p, family: "title", states });
-      expect(e.eligible).toBe(false);
-      if (!e.eligible) expect(e.reason).toBe("same_family_measuring");
+      expect(e.eligible).toBe(true);
+      expect(e.reason).toBe("same_family_measuring");
+      const c = cautionOf(e);
+      expect(c?.reason).toBe("same_family_measuring");
+      expect(c?.lowersConfidenceOneTier).toBe(true);
+      expect((c?.copy.length ?? 0)).toBeGreaterThan(0);
+      expect(c?.copy).not.toMatch(/[—–]/); // no dashes on operator copy
     }
   });
 
-  it("all 17 control pages are ineligible (active_control) — protecting the diff-in-diff", () => {
+  it("all 17 comparison pages are ADMITTED WITH CAUTION (active_control), never frozen out", () => {
     for (const p of CONTROLS) {
       const e = assessEligibility({ url: p, family: "title", states });
-      expect(e.eligible).toBe(false);
-      if (!e.eligible) {
-        expect(e.reason).toBe("active_control");
-        expect(e.relatedProofIds && e.relatedProofIds.length).toBeGreaterThan(0);
-      }
+      expect(e.eligible).toBe(true);
+      expect(e.reason).toBe("active_control");
+      const c = cautionOf(e);
+      expect(c?.reason).toBe("active_control");
+      expect((c?.relatedProofIds.length ?? 0)).toBeGreaterThan(0);
     }
   });
 
-  it("TOMORROW's meta-on-control collision is caught: meta on a control animal is blocked by default", () => {
+  it("a META edit on a comparison page is admitted with caution (active_control), not blocked", () => {
     const e = assessEligibility({ url: "/iran-animals/asiatic-cheetah", family: "meta", states });
-    expect(e.eligible).toBe(false);
-    if (!e.eligible) expect(e.reason).toBe("active_control"); // needs explicit release/reassign
+    expect(e.eligible).toBe(true);
+    expect(e.reason).toBe("active_control");
   });
 
-  it("a treated page getting a META edit = compound_edit (different family, blocked by default)", () => {
+  it("a treated page getting a META edit is admitted with caution (compound_edit)", () => {
     const e = assessEligibility({ url: "/iran-animals/persian-wolf", family: "meta", states });
-    expect(e.eligible).toBe(false);
-    if (!e.eligible) expect(e.reason).toBe("compound_edit");
+    expect(e.eligible).toBe(true);
+    expect(e.reason).toBe("compound_edit");
+    expect(cautionOf(e)?.reason).toBe("compound_edit");
   });
 
-  it("an UNRELATED page (a flag) stays eligible (clean)", () => {
-    expect(assessEligibility({ url: "/iran-flags/parthian-empire-flag", family: "title", states }).eligible).toBe(true);
+  it("an UNRELATED page (a flag) stays fully clean (no caution)", () => {
+    const e = assessEligibility({ url: "/iran-flags/parthian-empire-flag", family: "title", states });
+    expect(e.eligible).toBe(true);
+    expect(e.reason).toBe("clean");
+    expect(cautionOf(e)).toBeNull();
   });
 
-  it("a control can be treated ONLY with an explicit override (no silent control→treatment)", () => {
-    const blocked = assessEligibility({ url: "/iran-animals/caracal", family: "meta", states });
-    expect(blocked.eligible).toBe(false);
+  it("an explicit release CLEARS the comparison-page caution (fully clean)", () => {
+    const flagged = assessEligibility({ url: "/iran-animals/caracal", family: "meta", states });
+    expect(flagged.eligible).toBe(true);
+    expect(flagged.reason).toBe("active_control");
     const released = assessEligibility({ url: "/iran-animals/caracal", family: "meta", states, allowControlOverride: true });
     expect(released.eligible).toBe(true);
+    expect(released.reason).toBe("clean");
+  });
+});
+
+describe("E-39 hard blocks stay hard (genuine hazards, not inconvenience)", () => {
+  it("a proven loss on the same family stays a HARD block (recent_no_lift), never admit-with-caution", () => {
+    const lost = [rec({ path: "/y", actionType: "edit_title", verdict: "lost", measuredAt: NOW.toISOString() })];
+    const states = deriveExperimentStates(lost, NOW);
+    const e = assessEligibility({ url: "/y", family: "title", states });
+    expect(e.eligible).toBe(false);
+    if (!e.eligible) expect(e.reason).toBe("recent_no_lift");
+    expect(cautionOf(e)).toBeNull();
+  });
+
+  it("high-risk / ownership-uncertain / stale-research stay HARD blocks", () => {
+    const states = deriveExperimentStates([], NOW);
+    expect(assessEligibility({ url: "/z", family: "title", states, external: { highRisk: true } })).toMatchObject({ eligible: false, reason: "high_risk_page" });
+    expect(assessEligibility({ url: "/z", family: "title", states, external: { ownershipUncertain: true } })).toMatchObject({ eligible: false, reason: "ownership_uncertain" });
+    expect(assessEligibility({ url: "/z", family: "title", states, external: { staleResearch: true } })).toMatchObject({ eligible: false, reason: "stale_research" });
+  });
+
+  it("last_clean_donor is a HARD block ONLY when releasing would leave zero comparables", () => {
+    const states = deriveExperimentStates(liveLedger, NOW);
+    // Without the flag, a comparison page is admit-with-caution (editable).
+    const caution = assessEligibility({ url: "/iran-animals/caracal", family: "meta", states });
+    expect(caution.eligible).toBe(true);
+    // With the flag (the caller found this is the last clean comparable), HARD block.
+    const blocked = assessEligibility({ url: "/iran-animals/caracal", family: "meta", states, external: { lastCleanDonor: true } });
+    expect(blocked.eligible).toBe(false);
+    if (!blocked.eligible) expect(blocked.reason).toBe("last_clean_donor");
+  });
+
+  it("fewer than 2 defensible controls routes to a LOWER-confidence caution, never a freeze (D3)", () => {
+    const states = deriveExperimentStates([], NOW);
+    const thin = assessEligibility({ url: "/z", family: "title", states, external: { insufficientControls: true } });
+    expect(thin.eligible).toBe(true); // NOT frozen
+    expect(thin.reason).toBe("insufficient_controls");
+    expect(cautionOf(thin)?.lowersConfidenceOneTier).toBe(true);
+  });
+});
+
+describe("E-39 own-tenant only — assessEligibility is pure over ONE tenant's states", () => {
+  it("a page that only exists in tenant B's ledger reads CLEAN against tenant A's states (no cross-tenant leak)", () => {
+    // Tenant A's ledger locks its own animals; tenant B ships on a DIFFERENT page.
+    const tenantAStates = deriveExperimentStates(liveLedger, NOW);
+    const tenantBOnlyPage = "/tenant-b-only/some-page";
+    const e = assessEligibility({ url: tenantBOnlyPage, family: "title", states: tenantAStates });
+    expect(e.eligible).toBe(true);
+    expect(e.reason).toBe("clean"); // tenant A's measurements never touch tenant B's page
+    // And tenant B's own states never see tenant A's locked animals.
+    const tenantBStates = deriveExperimentStates(
+      [rec({ path: tenantBOnlyPage, actionType: "edit_title", controlPages: [] })],
+      NOW,
+    );
+    expect(tenantBStates.has("/iran-animals/persian-wolf")).toBe(false);
   });
 });
 
@@ -145,9 +211,8 @@ describe("contamination guard helpers", () => {
     expect(cleaned.length).toBe(CONTROLS.length - 1);
   });
 
-  it("external candidate flags layer on top (high-risk / ownership / stale / controls)", () => {
+  it("external hard-block flags layer on top (high-risk stays a freeze)", () => {
     const states = deriveExperimentStates([], NOW);
-    expect(assessEligibility({ url: "/z", family: "title", states, external: { highRisk: true } })).toMatchObject({ reason: "high_risk_page" });
-    expect(assessEligibility({ url: "/z", family: "title", states, external: { insufficientControls: true } })).toMatchObject({ reason: "insufficient_controls" });
+    expect(assessEligibility({ url: "/z", family: "title", states, external: { highRisk: true } })).toMatchObject({ eligible: false, reason: "high_risk_page" });
   });
 });

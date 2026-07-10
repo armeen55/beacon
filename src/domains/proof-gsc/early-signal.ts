@@ -136,9 +136,9 @@ export function computeEarlySignal(args: {
 
   let sentence: string | null = null;
   if (earlyDecisive && direction === "up") {
-    sentence = `This is working so clearly I do not need the full 28 days to tell you. Every one of the last ${run} days is far above this page's normal range. The final call still waits for the full window.`;
+    sentence = `This is working so clearly I do not need the full 28 days to tell you. Every one of the last ${run} days is far above this page's normal range. The full 28-day read still waits for the window to close.`;
   } else if (earlyDecisive && direction === "down") {
-    sentence = `This is hurting so clearly I do not need the full 28 days to tell you. Every one of the last ${run} days is far below this page's normal range. The final call still waits for the full window.`;
+    sentence = `This is hurting so clearly I do not need the full 28 days to tell you. Every one of the last ${run} days is far below this page's normal range. The full 28-day read still waits for the window to close.`;
   } else if (earlyFutile) {
     sentence = `After ${n} days this change is very unlikely to move this page in any meaningful way. I will still let the full window finish before calling it.`;
   }

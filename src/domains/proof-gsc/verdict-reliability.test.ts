@@ -187,7 +187,7 @@ describe("decent", () => {
     const r = gradeVerdictReliability(base({ maturity: "early_checkpoint", basisDay: 7, earlyDecisive: true }));
     expect(r.grade).toBe("decent");
     expect(r.sentence).toMatch(/do not need the full 28 days/);
-    expect(r.sentence).toMatch(/final call still waits for the full window/);
+    expect(r.sentence).toMatch(/full 28-day read still waits for the window to close/);
   });
 
   it("earlyDecisive NEVER upgrades a read past decent before maturity (the clock is inviolable)", () => {

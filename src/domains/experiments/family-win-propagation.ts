@@ -144,7 +144,10 @@ export function findFamilyPropagationCandidates(input: FindFamilyPropagationInpu
       if (already) continue; // one propagation candidate per sibling page
 
       const elig = input.eligibility.get(sibPath);
-      if (!elig || !elig.eligible) continue; // mid-measurement / control / no-lift / risk - excluded
+      // E-39: auto-propagation stays CONSERVATIVE - only pushes a proven win onto a
+      // fully CLEAN sibling, never a mid-measurement / comparison page (admit-with-
+      // caution). Not a lockout: that page still surfaces its own daily candidate.
+      if (!elig || !elig.eligible || elig.reason !== "clean") continue;
 
       const shippedHere = recentShips.get(sibPath);
       if (shippedHere && [...shippedHere].some((a) => actionFamilyOf(a) === lever)) continue; // already has this lever

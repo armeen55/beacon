@@ -14,10 +14,12 @@ import type { ShippedChangeRecord } from "@/domains/proof-gsc/shipped-change-sto
 import {
   deriveExperimentStates,
   assessEligibility,
+  cautionOf,
   actionFamilyOf,
   type ExperimentFamily,
   type EligibilityReason,
   type ExternalFlags,
+  type AttributionCaution,
 } from "./experiment-eligibility";
 import { EXTREME_SHORTFALL_RATIO, type PowerAssessment } from "./power-analysis";
 import { expectedCtrAt } from "./pick-expectations";
@@ -137,6 +139,12 @@ export type PlannedExperiment = DailyCandidate & {
   /** Item 81: present exactly when this pick is tonight's ONE scheduled retest of a
    *  previously-retired (pageFamily, lever) cell. Absent on every ordinary pick. */
   retest?: RetestFlag;
+  /** E-39 D1: present when this pick is admitted WITH CAUTION (it is a comparison
+   *  page for a live measurement, or mid-measurement itself, or has a thin
+   *  comparison pool). The page is safe to ship; the caution is carried so the
+   *  card can say so plainly and the measurement reads one confidence tier lower.
+   *  Absent on a fully clean pick. */
+  attributionCaution?: AttributionCaution;
 };
 export type ExcludedReason = EligibilityReason | "page_family_cap" | "action_family_cap" | "high_traffic_cap" | "budget_full" | "over_max" | "influenced_conflict" | "underpowered" | "lever_retired" | "interference_hold" | "last_clean_donor" | "query_overlap_hold" | "evidence_expired" | "prerequisite_pending";
 export type ExcludedExperiment = {
@@ -438,7 +446,11 @@ export function planDailyExperiments(input: {
       excluded.push({ url: c.url, actionFamily: c.actionFamily, reason: "prerequisite_pending", plainReason: prereqHold });
       continue;
     }
-    eligible.push({ ...c, pageFamily: c.pageFamily ?? pageFamilyOf(c.url), score: scoreCandidate(c) });
+    // E-39 D1: a caution-eligible pick (active comparison page / mid-measurement /
+    // thin comparison pool) is SELECTABLE, not frozen out - carry its caution so
+    // the card explains it and the measurement reads one tier lower.
+    const attributionCaution = cautionOf(elig) ?? undefined;
+    eligible.push({ ...c, pageFamily: c.pageFamily ?? pageFamilyOf(c.url), score: scoreCandidate(c), attributionCaution });
   }
   eligible.sort((a, b) => b.score - a.score);
 

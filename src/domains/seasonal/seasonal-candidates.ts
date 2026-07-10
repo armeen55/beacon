@@ -106,7 +106,10 @@ export function findSeasonalCandidates(input: FindSeasonalCandidatesInput): Seas
     const path = pathOf(entry.topPage);
     if (already.has(path)) continue; // one card per page per night
     const elig = input.eligibility.get(path);
-    if (!elig || !elig.eligible) continue; // mid-measurement / control / no-lift - excluded
+    // E-39: refresh auto-suggestions stay CONSERVATIVE - only a fully CLEAN page,
+    // never a mid-measurement / comparison page (admit-with-caution). Not a
+    // lockout: the page still surfaces its own daily candidate with the caution.
+    if (!elig || !elig.eligible || elig.reason !== "clean") continue;
 
     const daysOut = daysUntil(entry.peakStartDate, now);
     const weeksOut = daysOut / WEEK_DAYS;

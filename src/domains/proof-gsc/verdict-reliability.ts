@@ -287,7 +287,7 @@ export function gradeVerdictReliability(input: VerdictReliabilityInput): Verdict
       return {
         grade: "decent",
         reasons: [`only ${daysLabel} in, but every recent day is far outside this page's normal range`],
-        sentence: `I would treat this read as decent: only ${daysLabel} in, but this is moving so clearly I do not need the full 28 days to tell you which way it is going. The final call still waits for the full window.`,
+        sentence: `I would treat this read as decent: only ${daysLabel} in, but this is moving so clearly I do not need the full 28 days to tell you which way it is going. The full 28-day read still waits for the window to close.`,
       };
     }
     const softReasons = [`only ${daysLabel} in, directional not final`];

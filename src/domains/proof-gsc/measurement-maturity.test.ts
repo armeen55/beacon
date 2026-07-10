@@ -460,3 +460,33 @@ describe("recrawl-CONFIRMED shift (N11) — search checkpoints count from recraw
     expect(effectiveSearchBasisDay({ windows: win(false, false, false), recrawlConfirmedAt: null, now: NOW })).toBe(null);
   });
 });
+
+describe("E-39 D6 — 7/28/56-84 language is honest (a 28-day result is never called final or highest-confidence)", () => {
+  // A fully mature, clean, high-confidence 28-day win: the strongest read the
+  // system builds today. It must still not claim finality or top confidence over
+  // a 56 to 84 day window that does not exist yet.
+  const mature = buildMeasurementPresentation(
+    input({ windows: win(true, true, true), verdict: "won", controlsUsed: 4, baselineImpressions: 5000, latestGscDate: "2026-07-30" }),
+  );
+
+  it("reaches mature_result with a helped verdict", () => {
+    expect(mature.maturity).toBe("mature_result");
+    expect(mature.verdict).toBe("helped");
+  });
+
+  it("the mature explanation names the 28-day read, never 'final' or 'highest confidence'", () => {
+    expect(mature.explanation).toMatch(/28-day/);
+    expect(mature.explanation.toLowerCase()).not.toContain("final");
+    expect(mature.explanation.toLowerCase()).not.toContain("highest confidence");
+    expect(mature.explanation).not.toMatch(/[—–]/); // no dashes on operator copy
+  });
+
+  it("an early (7-day) read stays directional, never a final call", () => {
+    const early = buildMeasurementPresentation(
+      input({ windows: win(true, false, false), verdict: "won", latestGscDate: "2026-06-27" }),
+    );
+    expect(early.maturity).toBe("early_checkpoint");
+    expect(early.verdict).toBeNull(); // no verdict before the 28-day read
+    expect(early.explanation.toLowerCase()).not.toContain("final");
+  });
+});

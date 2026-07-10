@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import type { ShippedChangeRecord } from "./shipped-change-store";
 import type { ProofWindowResult } from "./measure";
-import { isDueForMeasure, outcomeStateOf, gscLagStatus, proofMaturityLabel } from "./measure-lifecycle";
+import { isDueForMeasure, outcomeStateOf, gscLagStatus, proofMaturityLabel, resolveVerdictLag } from "./measure-lifecycle";
 
 const NOW = new Date("2026-06-25T12:00:00Z");
 
@@ -57,9 +57,47 @@ describe("isDueForMeasure", () => {
     expect(isDueForMeasure(r, "2026-06-24", NOW)).toBe(true);
   });
 
-  it("is NOT due once fully aged out (> 28d + grace)", () => {
-    const r = record({ shippedAt: "2026-05-10" }); // ~46 days before NOW
+  it("E-39 D4: past the horizon, a still-unsettled record IS due when its 28-day data finally arrived (recompute-to-settle)", () => {
+    const r = record({ shippedAt: "2026-05-10" }); // ~46 days before NOW, still 'measuring'
+    // required 28-day GSC date = 2026-06-06; watermark 2026-06-24 has it -> recompute.
+    expect(isDueForMeasure(r, "2026-06-24", NOW)).toBe(true);
+  });
+
+  it("E-39 D4: past the horizon with NO new data is NOT due (released + retryable, never a fabricated verdict)", () => {
+    const r = record({ shippedAt: "2026-05-10" });
+    // watermark 2026-06-05 is BEFORE the required 2026-06-06 -> no recompute.
+    expect(isDueForMeasure(r, "2026-06-05", NOW)).toBe(false);
+  });
+
+  it("E-39 D4: past the bounded fair retry window is NOT due even with data (never re-scan forever)", () => {
+    const r = record({ shippedAt: "2026-01-01" }); // ~175 days before NOW, well past horizon + retry
     expect(isDueForMeasure(r, "2026-06-24", NOW)).toBe(false);
+  });
+});
+
+describe("resolveVerdictLag — E-39 D4 verdict-lag repair (fail-closed, honest)", () => {
+  it("in_window while inside 28d + grace", () => {
+    expect(resolveVerdictLag(record({ shippedAt: "2026-06-17" }), "2026-06-24", NOW).kind).toBe("in_window");
+  });
+  it("settled when a mature verdict already exists (never re-opened)", () => {
+    expect(resolveVerdictLag(record({ shippedAt: "2026-05-10", verdict: "won" }), "2026-06-24", NOW).kind).toBe("settled");
+    expect(resolveVerdictLag(record({ shippedAt: "2026-05-10", verdict: "lost" }), "2026-06-24", NOW).kind).toBe("settled");
+  });
+  it("recompute past the horizon ONLY when the 28-day data is available (settle + release)", () => {
+    expect(resolveVerdictLag(record({ shippedAt: "2026-05-10" }), "2026-06-24", NOW).kind).toBe("recompute");
+  });
+  it("release_unresolved with NO fabricated verdict when data is unavailable, and stays retryable", () => {
+    const r = resolveVerdictLag(record({ shippedAt: "2026-05-10" }), "2026-06-05", NOW);
+    expect(r.kind).toBe("release_unresolved");
+    if (r.kind === "release_unresolved") {
+      expect(r.markState).toBe("blocked_data"); // honest, never won/lost/inconclusive
+      expect(r.retryEligible).toBe(true);
+    }
+  });
+  it("stops retrying past the bounded fair window (retryEligible false), still never fabricates a verdict", () => {
+    const r = resolveVerdictLag(record({ shippedAt: "2026-01-01" }), "2026-06-24", NOW);
+    expect(r.kind).toBe("release_unresolved");
+    if (r.kind === "release_unresolved") expect(r.retryEligible).toBe(false);
   });
 });
 

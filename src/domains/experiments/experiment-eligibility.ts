@@ -168,54 +168,137 @@ export type EligibilityReason =
   | "high_risk_page"
   | "stale_research"
   | "compound_edit"
+  | "insufficient_controls"
+  // E-39 (adaptive control pools, operator-approved 2026-07-10): the one case a
+  // page serving as a comparison page stays a HARD block - it is the last clean
+  // comparison page for an OPEN measurement that has zero other comparables, so
+  // releasing it would leave a live measurement with nothing honest to compare
+  // against. Every OTHER control page is now admit-with-caution (see below).
+  | "last_clean_donor";
+
+/**
+ * E-39 admit-with-caution (operator-approved 2026-07-10). The reasons that used
+ * to LOCK the operator out but are only MEASUREMENT INCONVENIENCE, never a real
+ * hazard to the page. A page carrying one of these stays EDITABLE / ELIGIBLE; the
+ * edit is admitted WITH CAUTION, and any measurement the page participates in
+ * reads one confidence tier lower and can never be reported as a clean causal
+ * result. Principle: "measurement inconvenience alone never locks the operator
+ * out."
+ *
+ *   - active_control        this page is a comparison page for a live measurement
+ *   - same_family_measuring a same-family change on this page is still measuring
+ *   - compound_edit         a different-family change on this page is measuring
+ *   - insufficient_controls fewer than the diff-in-diff minimum (2) comparison
+ *                           pages exist -> reduced confidence, NOT a freeze (D3)
+ */
+export type CautionReason =
+  | "active_control"
+  | "same_family_measuring"
+  | "compound_edit"
   | "insufficient_controls";
+
+/**
+ * E-39: reasons that STAY hard blocks because acting is genuinely unsafe or
+ * dishonest, not merely inconvenient: a proven loss (recent_no_lift), a
+ * high-earning page we will not gamble (high_risk_page), a page we may not own
+ * (ownership_uncertain), stale research (stale_research), and the LAST clean
+ * comparison page for an open measurement with zero other comparables
+ * (last_clean_donor).
+ */
+export type HardBlockReason =
+  | "recent_no_lift"
+  | "ownership_uncertain"
+  | "high_risk_page"
+  | "stale_research"
+  | "last_clean_donor";
+
+/**
+ * E-39: the attribution caution carried by an eligible-with-caution page. The
+ * page is safe to edit; this only records that a measurement made while the
+ * caution holds reads one tier lower and never as a clean causal result. PURE
+ * (computed from the ledger; nothing persisted - Decision 7 compute-only).
+ */
+export type AttributionCaution = {
+  reason: CautionReason;
+  /** Proof ids of the measurements this edit would touch / collide with. */
+  relatedProofIds: string[];
+  /** When the colliding measurement(s) settle and the caution clears, if known. */
+  availableAt?: string;
+  /** Plain first-person explanation (Beacon voice, no dashes). */
+  copy: string;
+  /** Decision 2: a measurement made while this caution holds reads one tier lower. */
+  lowersConfidenceOneTier: true;
+};
 
 export type ExperimentEligibility =
   | { eligible: true; reason: "clean" }
-  | { eligible: false; reason: EligibilityReason; availableAt?: string; relatedProofIds?: string[] };
+  | { eligible: true; reason: CautionReason; caution: AttributionCaution }
+  | { eligible: false; reason: HardBlockReason; availableAt?: string; relatedProofIds?: string[] };
 
 export type ExternalFlags = {
   ownershipUncertain?: boolean;
   highRisk?: boolean;
   staleResearch?: boolean;
+  /** E-39 D3: fewer than the diff-in-diff minimum (2) defensible comparison
+   *  pages. No longer a freeze - the edit is admitted with caution and the
+   *  measurement reads at a lower confidence tier (weak_estimate). */
   insufficientControls?: boolean;
+  /** E-39 D1: this page is the LAST clean comparison page for an open
+   *  measurement that has ZERO other comparables. Only THEN is a control a hard
+   *  block; every other control is admit-with-caution. The caller (planner)
+   *  computes this from control-contamination.ts's lastCleanDonorPaths. */
+  lastCleanDonor?: boolean;
 };
 
+/** E-39: the plain first-person caution line for each caution reason. Beacon
+ *  voice, first person, no dashes. Deterministic (Decision 7 compute-only). */
+export function cautionCopyFor(reason: CautionReason): string {
+  switch (reason) {
+    case "active_control":
+      return "This page is a comparison page for a change I am still measuring. You can edit it, but that makes the comparison less certain, so I will read the affected result with caution.";
+    case "same_family_measuring":
+      return "I am already measuring a similar change on this page. You can ship another, but I will not be able to tell the two apart cleanly, so I will read the result with caution.";
+    case "compound_edit":
+      return "This page already has a different change I am measuring. A second edit now overlaps that measurement, so I will read the affected result with caution.";
+    case "insufficient_controls":
+      return "I could not find at least two closely matched comparison pages, so I will measure this against what I have and read the result with lower confidence.";
+  }
+}
+
 /**
- * Is it scientifically safe to run a `family` experiment on `url` right now? PURE.
- * Ledger-derived blocks (measuring / control / no-lift / compound) take precedence; the
- * caller layers candidate-data flags (ownership/risk/research/controls) on top.
+ * Is it safe to run a `family` experiment on `url` right now, and if so does it
+ * carry an attribution caution? PURE. E-39 admit-with-caution model:
+ *
+ *   HARD BLOCKS (eligible:false) come first - a proven loss, a risky page, an
+ *   unowned page, stale research, or the last clean comparison page for an open
+ *   measurement. These are genuine hazards, not inconvenience.
+ *
+ *   ADMIT-WITH-CAUTION (eligible:true + caution) - a page that is mid-measurement
+ *   (its own change, or as someone else's comparison page) or that has a thin
+ *   comparison pool stays editable, flagged so the measurement reads honestly.
+ *
+ *   CLEAN (eligible:true) - nothing to flag.
+ *
+ * The caller layers candidate-data flags (ownership/risk/research/controls/
+ * last-clean-donor) on top of the ledger-derived state.
  */
 export function assessEligibility(input: {
   url: string;
   family: ExperimentFamily;
   states: Map<string, PageExperimentState>;
   external?: ExternalFlags;
-  /** Allow treating a current control if the caller has explicitly released/reassigned it. */
+  /** @deprecated E-39: a control is now admit-with-caution, never a lock, so an
+   *  override is unnecessary. Kept so legacy callers compile; when true, the
+   *  active_control caution is cleared to fully clean. */
   allowControlOverride?: boolean;
 }): ExperimentEligibility {
   const path = pathOf(input.url);
   const s = input.states.get(path);
+  const ext = input.external ?? {};
 
-  if (s && s.activeTreatments.length > 0) {
-    const sameFamily = s.activeTreatments.some((t) => familiesCollide(t.family, input.family));
-    return {
-      eligible: false,
-      reason: sameFamily ? "same_family_measuring" : "compound_edit",
-      availableAt: s.nextAvailableAt,
-      relatedProofIds: s.activeTreatments.map((t) => t.proofId),
-    };
-  }
-
-  if (s && s.activeControlAssignments.length > 0 && !input.allowControlOverride) {
-    return {
-      eligible: false,
-      reason: "active_control",
-      availableAt: s.nextAvailableAt,
-      relatedProofIds: [...new Set(s.activeControlAssignments.map((c) => c.proofId))],
-    };
-  }
-
+  // ── HARD BLOCKS FIRST (genuine hazards, not inconvenience) ──
+  // A proven loss / no-lift on the same family: re-testing wastes the operator's
+  // time on something we already learned does not work on this page.
   if (s) {
     const noLiftSameFamily = s.settledTreatments.some(
       (t) => (t.verdict === "loss" || t.verdict === "inconclusive") && familiesCollide(t.family, input.family),
@@ -224,12 +307,48 @@ export function assessEligibility(input: {
       return { eligible: false, reason: "recent_no_lift", relatedProofIds: s.settledTreatments.map((t) => t.proofId) };
     }
   }
-
-  const ext = input.external ?? {};
   if (ext.highRisk) return { eligible: false, reason: "high_risk_page" };
   if (ext.ownershipUncertain) return { eligible: false, reason: "ownership_uncertain" };
   if (ext.staleResearch) return { eligible: false, reason: "stale_research" };
-  if (ext.insufficientControls) return { eligible: false, reason: "insufficient_controls" };
+  // E-39 D1: the ONLY case a control stays a hard block - releasing THIS exact
+  // page would leave an open measurement with zero honest comparables.
+  if (ext.lastCleanDonor) {
+    return {
+      eligible: false,
+      reason: "last_clean_donor",
+      availableAt: s?.nextAvailableAt,
+      relatedProofIds: s ? [...new Set(s.activeControlAssignments.map((c) => c.proofId))] : undefined,
+    };
+  }
+
+  // ── ADMIT-WITH-CAUTION (E-39 D1). Precedence: the treated page's own active
+  // treatment (same-family re-test vs cross-family compound edit) dominates being
+  // someone else's comparison page, which dominates a thin comparison pool. ──
+  const caution = (reason: CautionReason, relatedProofIds: string[], availableAt?: string): ExperimentEligibility => ({
+    eligible: true,
+    reason,
+    caution: { reason, relatedProofIds, availableAt, copy: cautionCopyFor(reason), lowersConfidenceOneTier: true },
+  });
+
+  if (s && s.activeTreatments.length > 0) {
+    const sameFamily = s.activeTreatments.some((t) => familiesCollide(t.family, input.family));
+    return caution(
+      sameFamily ? "same_family_measuring" : "compound_edit",
+      s.activeTreatments.map((t) => t.proofId),
+      s.nextAvailableAt,
+    );
+  }
+  if (s && s.activeControlAssignments.length > 0 && !input.allowControlOverride) {
+    return caution("active_control", [...new Set(s.activeControlAssignments.map((c) => c.proofId))], s.nextAvailableAt);
+  }
+  if (ext.insufficientControls) {
+    return caution("insufficient_controls", []);
+  }
 
   return { eligible: true, reason: "clean" };
+}
+
+/** E-39: extract the attribution caution from an eligibility result, or null. PURE. */
+export function cautionOf(e: ExperimentEligibility): AttributionCaution | null {
+  return e.eligible && e.reason !== "clean" ? e.caution : null;
 }

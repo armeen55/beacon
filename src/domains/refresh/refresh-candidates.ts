@@ -84,7 +84,10 @@ export function findRefreshCandidates(input: FindRefreshCandidatesInput): Refres
     const path = pathOf(brief.page);
     if (already.has(path)) continue; // one card per page per night
     const elig = input.eligibility.get(path);
-    if (!elig || !elig.eligible) continue; // mid-measurement / control / no-lift - excluded
+    // E-39: refresh auto-suggestions stay CONSERVATIVE - only a fully CLEAN page,
+    // never a mid-measurement / comparison page (admit-with-caution). Not a
+    // lockout: the page still surfaces its own daily candidate with the caution.
+    if (!elig || !elig.eligible || elig.reason !== "clean") continue;
 
     // Concrete section target: the winner's missing section beats a raw query gap (it
     // carries competitor proof), and a query gap beats nothing.

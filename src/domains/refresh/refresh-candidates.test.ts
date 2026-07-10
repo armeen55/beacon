@@ -4,7 +4,7 @@ import type { RefreshBrief } from "./refresh-brief";
 import type { ExperimentEligibility } from "@/domains/experiments/experiment-eligibility";
 
 const CLEAN: ExperimentEligibility = { eligible: true, reason: "clean" };
-const BLOCKED: ExperimentEligibility = { eligible: false, reason: "same_family_measuring" };
+const BLOCKED: ExperimentEligibility = { eligible: false, reason: "recent_no_lift" };
 
 function brief(page: string, opts: {
   clicksLostQuarter?: number;

@@ -546,3 +546,42 @@ describe("medianBandRead - the weaker fallback comparison", () => {
     expect(band?.sentence.toLowerCase()).not.toMatch(/median|control|percentile|null/);
   });
 });
+
+describe("E-39 D2/D7 — contamination is tagged at the correct timestamp and NEVER rewrites history", () => {
+  it("contamination begins at the OVERLAPPING edit's ship date (never a wall-clock guess)", () => {
+    const window: ContaminationWindow = { start: "2026-06-01", end: "2026-06-29" };
+    const overlappingEditShipDate = "2026-06-12T09:30:00.000Z";
+    const ledger: LedgerShipRecord[] = [{ path: "/c", shippedAt: overlappingEditShipDate }];
+    const r = classifyControl({ controlPath: "/c", window, ledger, snapshots: [] });
+    expect(r.status).toBe("treated_by_us");
+    expect(r.treatedAt).toBe("2026-06-12"); // exactly the overlapping edit's ship date
+  });
+
+  it("classifyControl treats its inputs as READ-ONLY - the ledger + snapshot history are never mutated", () => {
+    const window: ContaminationWindow = { start: "2026-06-01", end: "2026-06-29" };
+    const ledger: LedgerShipRecord[] = [{ path: "/c", shippedAt: "2026-06-12" }];
+    const snapshots: SnapshotPoint[] = [
+      { fetchedAt: "2026-06-03", contentHash: "h1" },
+      { fetchedAt: "2026-06-20", contentHash: "h2" },
+    ];
+    const ledgerBefore = JSON.stringify(ledger);
+    const snapsBefore = JSON.stringify(snapshots);
+    classifyControl({ controlPath: "/c", window, ledger, snapshots });
+    expect(JSON.stringify(ledger)).toBe(ledgerBefore); // prior assignment / history intact
+    expect(JSON.stringify(snapshots)).toBe(snapsBefore);
+  });
+
+  it("promoting a clean bench donor NEVER removes the contaminated original from the record's history", () => {
+    // The original control stays in allControlPaths (its historical assignment is
+    // preserved); promotion only ADDS a substitute, it never deletes evidence.
+    const out = promoteFromFrozenPool({
+      contaminated: [{ path: "/c1" }],
+      allControlPaths: ["/c1", "/c2"],
+      treatedPath: "/t",
+      frozenPool: [{ url: "/bench1", verdict: "kept" }],
+    });
+    expect(out).toEqual([{ originalPath: "/c1", substitutePath: "/bench1" }]);
+    // The contaminated original is referenced by originalPath, never dropped/rewritten.
+    expect(out[0].originalPath).toBe("/c1");
+  });
+});

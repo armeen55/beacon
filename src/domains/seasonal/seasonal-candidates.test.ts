@@ -18,7 +18,7 @@ import type { PeakCalendarEntry } from "./seasonality";
 import type { ExperimentEligibility } from "@/domains/experiments/experiment-eligibility";
 
 const CLEAN: ExperimentEligibility = { eligible: true, reason: "clean" };
-const BLOCKED: ExperimentEligibility = { eligible: false, reason: "same_family_measuring" };
+const BLOCKED: ExperimentEligibility = { eligible: false, reason: "recent_no_lift" };
 const NOW = new Date("2026-07-02T00:00:00Z");
 
 function isoWeeksOut(weeks: number): string {

@@ -37,16 +37,22 @@ describe("pageFamilyOf / scoreCandidate", () => {
 });
 
 describe("planDailyExperiments — eligibility + diversification", () => {
-  it("excludes active treatments and active controls; keeps unrelated families", () => {
+  it("E-39: ADMITS active treatments and active controls WITH CAUTION (never frozen out); clean pages carry no caution", () => {
     const candidates = [
-      cand({ url: "https://iranopedia.com/iran-animals/persian-wolf" }), // active treatment
+      cand({ url: "https://iranopedia.com/iran-animals/persian-wolf" }), // active treatment (same family)
       cand({ url: "https://iranopedia.com/iran-animals/asiatic-cheetah", actionFamily: "meta" }), // active control
       cand({ url: "https://iranopedia.com/iran-flags/umayyad-caliphate-flag" }), // clean
     ];
     const plan = planDailyExperiments({ tenantId: "t", date: "2026-07-01", candidates, proofLedger: ledger, config: { now: NOW } });
-    expect(plan.selected.map((s) => s.url)).toEqual(["https://iranopedia.com/iran-flags/umayyad-caliphate-flag"]);
-    expect(plan.excluded.find((e) => e.url.includes("persian-wolf"))?.reason).toBe("same_family_measuring");
-    expect(plan.excluded.find((e) => e.url.includes("asiatic-cheetah"))?.reason).toBe("active_control");
+    // All three are selectable now - measurement inconvenience never locks the operator out.
+    expect(plan.selected.map((s) => s.url).sort()).toEqual(candidates.map((c) => c.url).sort());
+    const byUrl = new Map(plan.selected.map((s) => [s.url, s]));
+    expect(byUrl.get("https://iranopedia.com/iran-animals/persian-wolf")?.attributionCaution?.reason).toBe("same_family_measuring");
+    expect(byUrl.get("https://iranopedia.com/iran-animals/asiatic-cheetah")?.attributionCaution?.reason).toBe("active_control");
+    expect(byUrl.get("https://iranopedia.com/iran-flags/umayyad-caliphate-flag")?.attributionCaution).toBeUndefined();
+    // None was silently removed.
+    expect(plan.excluded.find((e) => e.url.includes("persian-wolf"))).toBeUndefined();
+    expect(plan.excluded.find((e) => e.url.includes("asiatic-cheetah"))).toBeUndefined();
   });
 
   it("caps per page family (e.g. ≤4 flags), overflow → backups then excluded", () => {
@@ -524,11 +530,11 @@ describe("planDailyExperiments — item N14 interference hold", () => {
     expect(plan.selected.map((s) => s.url)).toEqual(["https://iranopedia.com/cities/yazd"]);
   });
 
-  it("interference hold is checked AFTER ledger eligibility, so an active-treatment exclusion still wins its own reason", () => {
-    const candidates = [cand({ url: "https://iranopedia.com/iran-animals/persian-wolf" })]; // active treatment per `ledger`
+  it("E-39: an admit-with-caution page (active treatment) is no longer hard-blocked, so a real interference hold now wins the exclusion", () => {
+    const candidates = [cand({ url: "https://iranopedia.com/iran-animals/persian-wolf" })]; // active treatment per `ledger` -> caution, not a block
     const interference = new Map([["/iran-animals/persian-wolf", { hold: true, reason: "would also be held" }]]);
     const plan = planDailyExperiments({ tenantId: "t", date: "d", candidates, proofLedger: ledger, config: { now: NOW }, interference });
-    expect(plan.excluded[0].reason).toBe("same_family_measuring");
+    expect(plan.excluded[0].reason).toBe("interference_hold");
   });
 });
 
@@ -702,11 +708,11 @@ describe("planDailyExperiments — R6 / N12 same-query experiment blocking", () 
     expect(plan.selected.map((s) => s.url)).toEqual(["https://iranopedia.com/cities/yazd"]);
   });
 
-  it("query-overlap hold is checked AFTER ledger eligibility, so an active-treatment exclusion still wins its own reason", () => {
-    const candidates = [cand({ url: "https://iranopedia.com/iran-animals/persian-wolf" })]; // active treatment per `ledger`
+  it("E-39: an admit-with-caution page (active treatment) is no longer hard-blocked, so a real query-overlap hold now wins the exclusion", () => {
+    const candidates = [cand({ url: "https://iranopedia.com/iran-animals/persian-wolf" })]; // active treatment per `ledger` -> caution, not a block
     const queryOverlapHolds = new Map([["/iran-animals/persian-wolf", { hold: true, reason: "would also be held" }]]);
     const plan = planDailyExperiments({ tenantId: "t", date: "d", candidates, proofLedger: ledger, config: { now: NOW }, queryOverlapHolds });
-    expect(plan.excluded[0].reason).toBe("same_family_measuring");
+    expect(plan.excluded[0].reason).toBe("query_overlap_hold");
   });
 });
 
@@ -741,10 +747,10 @@ describe("planDailyExperiments — N46 opportunity expiration (planner skip)", (
     expect(before.excluded).toEqual([]);
   });
 
-  it("evidence_expired is checked AFTER ledger eligibility, so an active-treatment exclusion still wins its own reason", () => {
-    const candidates = [cand({ url: "https://iranopedia.com/iran-animals/persian-wolf", evidenceFreshness: "expired" })]; // active treatment per `ledger`
+  it("E-39: an admit-with-caution page (active treatment) is no longer hard-blocked, so expired evidence now wins the exclusion", () => {
+    const candidates = [cand({ url: "https://iranopedia.com/iran-animals/persian-wolf", evidenceFreshness: "expired" })]; // active treatment per `ledger` -> caution, not a block
     const plan = planDailyExperiments({ tenantId: "t", date: "d", candidates, proofLedger: ledger, config: { now: NOW } });
-    expect(plan.excluded[0].reason).toBe("same_family_measuring");
+    expect(plan.excluded[0].reason).toBe("evidence_expired");
   });
 
   it("an explicit fresh verdict behaves exactly like the absent default", () => {

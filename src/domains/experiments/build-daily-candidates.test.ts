@@ -76,8 +76,10 @@ describe("buildDailyCandidates — deterministic proposers (no generic templates
     expect(buildDailyCandidates({ tenantId: "t", pages: [gsc({ url: "/y", topQuery: "persian food" })], facts: b, proofLedger: [], now: NOW })).toHaveLength(0);
   });
 
-  it("REGRESSION: a candidate with too few controls is ineligible (insufficient_controls), never selected", () => {
-    // One lonely page with no same-family siblings → 0 controls → cannot be measured → excluded.
+  it("E-39 D3: a candidate with too few controls is ADMITTED WITH CAUTION (insufficient_controls), not frozen out", () => {
+    // One lonely page with no same-family siblings → 0 controls → cannot be measured with
+    // a real diff-in-diff, but the operator is NOT locked out: it is admitted with a
+    // lower-confidence caution rather than frozen.
     const pages = [gsc({ url: "/iran-flags/lonely-flag", topQuery: "lonely flag", impressions: 2000 })];
     const f = facts({ "/iran-flags/lonely-flag": {
       title: "Lonely Flag", meta: "Learn all about the Lonely Flag here on our site.", h1: "Lonely Flag",
@@ -85,11 +87,13 @@ describe("buildDailyCandidates — deterministic proposers (no generic templates
     } });
     const [c] = buildDailyCandidates({ tenantId: "t", pages, facts: f, proofLedger: [], now: NOW });
     expect(c.enoughControls).toBe(false);
-    expect(c.eligibility.eligible).toBe(false);
-    if (!c.eligibility.eligible) expect(c.eligibility.reason).toBe("insufficient_controls");
+    expect(c.eligibility.eligible).toBe(true);
+    expect(c.eligibility.reason).toBe("insufficient_controls");
     const plan = planDailyExperiments({ tenantId: "t", date: "2026-07-01", candidates: [c], proofLedger: [], config: { now: NOW } });
-    expect(plan.selected).toHaveLength(0);
-    expect(plan.excluded.some((e) => e.reason === "insufficient_controls")).toBe(true);
+    expect(plan.selected.map((s) => s.url)).toContain("/iran-flags/lonely-flag");
+    const sel = plan.selected.find((s) => s.url.includes("lonely-flag"));
+    expect(sel?.attributionCaution?.reason).toBe("insufficient_controls");
+    expect(plan.excluded.some((e) => e.reason === "insufficient_controls")).toBe(false);
   });
 
   it("fires the ANSWER-BLOCK lever (good meta + good title, but a buried direct answer)", () => {
@@ -109,7 +113,7 @@ describe("buildDailyCandidates — deterministic proposers (no generic templates
     expect(c.actionFamily).toBe("answer");
   });
 
-  it("attaches eligibility — an active control page comes back ineligible (active_control)", () => {
+  it("E-39: attaches eligibility — an active control page comes back ADMIT-WITH-CAUTION (active_control)", () => {
     const ctrl = "https://iranopedia.com/iran-animals/persian-cat";
     const ledger: ShippedChangeRecord[] = [{
       id: "/iran-animals/persian-wolf::2026-06-30", page: "https://iranopedia.com/iran-animals/persian-wolf", path: "/iran-animals/persian-wolf",
@@ -122,8 +126,8 @@ describe("buildDailyCandidates — deterministic proposers (no generic templates
     const pages = [gsc({ url: ctrl, topQuery: "persian cat" })];
     const f = facts({ [ctrl]: { title: "Meet the Persian Cat | Iran Animals & Wildlife", meta: "x", h1: "Persian Cat" } });
     const [c] = buildDailyCandidates({ tenantId: "t", pages, facts: f, proofLedger: ledger, now: NOW });
-    expect(c.eligibility.eligible).toBe(false);
-    if (!c.eligibility.eligible) expect(c.eligibility.reason).toBe("active_control");
+    expect(c.eligibility.eligible).toBe(true);
+    expect(c.eligibility.reason).toBe("active_control");
   });
 
   it("selects same-family controls + flags enoughControls", () => {
@@ -268,10 +272,12 @@ describe("buildDailyCandidates — item 29 family win propagation (wiring pin)",
     const f = facts({ "/iran-animals/persian-leopard": missingMetaFacts("persian leopard") });
     const out = buildDailyCandidates({ tenantId: "t", pages, facts: f, proofLedger: [win, measuring], now: NOW });
 
-    // The page still gets its OWN meta candidate (that part of the pipeline is untouched), but it
-    // must NOT carry a family-win tag while mid-measurement on the colliding family.
+    // The page still gets its OWN meta candidate, now ADMITTED WITH CAUTION (E-39) rather
+    // than frozen out, but it must NOT carry an auto-propagated family-win tag while
+    // mid-measurement on the colliding family (auto-propagation stays conservative).
     expect(out).toHaveLength(1);
-    expect(out[0].eligibility.eligible).toBe(false);
+    expect(out[0].eligibility.eligible).toBe(true);
+    expect(out[0].eligibility.reason).toBe("same_family_measuring");
     expect(out[0].familyWin).toBeUndefined();
   });
 

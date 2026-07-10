@@ -48,7 +48,7 @@ describe("computeEarlySignal - decisive", () => {
       "This is working so clearly I do not need the full 28 days to tell you.",
     );
     expect(read!.sentence).toContain("far above this page's normal range");
-    expect(read!.sentence).toContain("The final call still waits for the full window.");
+    expect(read!.sentence).toContain("The full 28-day read still waits for the window to close.");
   });
 
   it("6 consecutive days is NOT decisive (the boundary)", () => {

@@ -686,3 +686,27 @@ describe("trafficTierOf — item 31 traffic-tier bucketing (pure)", () => {
     expect(trafficTierOf(50000)).toBe("high");
   });
 });
+
+describe("E-39 D3 — adaptive control pool maps count to confidence (2 = reduced, 3 = stronger, <2 = not computed)", () => {
+  it("fewer than 2 defensible controls does NOT compute a verdict - it routes to insufficient_data/low (never a freeze error)", () => {
+    const r = summarizeVerdict({ windows: [win({ adjustedLift: 99, controlsUsed: 1 })], baselineImpressions: 5000, baselineClicks: 200 });
+    expect(r.verdict).toBe("insufficient_data");
+    expect(r.confidence).toBe("low");
+  });
+  it("exactly 2 controls yields a computed verdict at REDUCED (medium) confidence, even on a high-traffic page", () => {
+    const r = summarizeVerdict({ windows: [win({ adjustedLift: 60, controlsUsed: 2 })], baselineImpressions: 5000, baselineClicks: 200 });
+    expect(r.verdict).toBe("won");
+    expect(r.confidence).toBe("medium"); // two comparison pages never auto-yield HIGH
+  });
+  it("3 controls on a high-traffic page yields the STRONGER (high) confidence tier", () => {
+    const r = summarizeVerdict({ windows: [win({ adjustedLift: 60, controlsUsed: 3 })], baselineImpressions: 5000, baselineClicks: 200 });
+    expect(r.verdict).toBe("won");
+    expect(r.confidence).toBe("high");
+  });
+  it("2 controls on a thin-traffic page reads LOW confidence (thin evidence honestly reduced)", () => {
+    const r = summarizeVerdict({ windows: [win({ adjustedLift: 60, controlsUsed: 2 })], baselineImpressions: 400, baselineClicks: 40 });
+    // baseline 400 >= MIN_BASELINE_IMPRESSIONS(200) so a verdict computes, but < 800 so confidence stays low.
+    expect(r.verdict).toBe("won");
+    expect(r.confidence).toBe("low");
+  });
+});

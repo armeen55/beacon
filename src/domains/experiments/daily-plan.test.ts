@@ -155,8 +155,10 @@ describe("validatePlanAcceptance — all-or-none, explicit reasons", () => {
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.failures.some((f) => f.reason === "current_text_changed")).toBe(true);
   });
-  it("rejects insufficient controls", () => {
-    const thin = buildDailyPlanRecord({ tenantId: "tenant-iranopedia", date: "2026-07-01", now: NOW, selected: [cand({ url: "https://iranopedia.com/iran-flags/u2", suggestedControls: [control("c1"), control("c2")] })], backups: [], activeSnapshot: SNAP });
+  it("rejects insufficient controls (fewer than the diff-in-diff minimum of 2)", () => {
+    // E-39 D3: 2 is the minimum defensible fallback, so a formal plan with only ONE
+    // comparison page is still rejected at acceptance.
+    const thin = buildDailyPlanRecord({ tenantId: "tenant-iranopedia", date: "2026-07-01", now: NOW, selected: [cand({ url: "https://iranopedia.com/iran-flags/u2", suggestedControls: [control("c1")] })], backups: [], activeSnapshot: SNAP });
     const r = validatePlanAcceptance(thin, baseCtx());
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.failures.some((f) => f.reason === "insufficient_controls")).toBe(true);
