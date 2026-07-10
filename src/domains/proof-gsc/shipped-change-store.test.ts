@@ -21,10 +21,43 @@
  *   - two tenants with the same row id never cross-write.
  *   - resetVerifyRetryById re-arms retry but never a latched success.
  */
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterAll } from "vitest";
+import { mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { join } from "node:path";
+
+// Codex P2 (2026-07-09): a real temp `.data` root so the tenant-EXPLICIT file
+// fallback (readShippedChangesFileForTenant) can be exercised through real
+// readFileSync/existsSync - the founder-leak this fix closes is a FILE-path
+// routing bug, so it must be tested against real files, not the readStore mock.
+const fsFix = vi.hoisted(() => {
+  const os = require("node:os") as typeof import("node:os");
+  const fsMod = require("node:fs") as typeof import("node:fs");
+  const pathMod = require("node:path") as typeof import("node:path");
+  const root = fsMod.mkdtempSync(pathMod.join(os.tmpdir(), "shipped-store-tenant-"));
+  return { root };
+});
 
 vi.mock("@/lib/logger", () => ({
   log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
+}));
+
+// getDataDir routes an EXPLICIT slug to the temp tenants dir; a null slug (the
+// ambient/founder flat path) routes to the temp root, which we NEVER seed - so a
+// founder-fallback read would surface as [] (leak-free) in these tests.
+vi.mock("@/lib/tenant", () => ({
+  getDataDir: (slug?: string | null) => {
+    const pathMod = require("node:path") as typeof import("node:path");
+    return slug ? pathMod.join(fsFix.root, "tenants", String(slug)) : fsFix.root;
+  },
+}));
+
+// Registry: tenant-a -> site-a, tenant-b -> site-b; anything else is unresolved
+// (null), so the explicit file read must fail closed to [].
+vi.mock("@/domains/tenants/store", () => ({
+  getTenant: async (id: string) => {
+    const map: Record<string, string> = { "tenant-a": "site-a", "tenant-b": "site-b" };
+    return map[id] ? { id, slug: map[id] } : null;
+  },
 }));
 
 vi.mock("@/app/(shell)/results/results-surface-store", () => ({
@@ -163,6 +196,13 @@ function updateChains() {
   return chains.filter((c) => c.op === "update");
 }
 
+/** Write a real per-tenant ledger file at the temp root's `.data/tenants/{slug}/`. */
+function seedTenantLedgerFile(slug: string, records: ShippedChangeRecord[]): void {
+  const dir = join(fsFix.root, "tenants", slug);
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, "proof-gsc-ledger.json"), JSON.stringify(records));
+}
+
 beforeEach(() => {
   chains = [];
   supabaseThrows = false;
@@ -171,6 +211,11 @@ beforeEach(() => {
   mutError = null;
   updateReturnData = [];
   fileRows = [];
+  rmSync(join(fsFix.root, "tenants"), { recursive: true, force: true });
+});
+
+afterAll(() => {
+  rmSync(fsFix.root, { recursive: true, force: true });
 });
 
 describe("recordToRow / rowToRecord - editDiff + verify_state envelope round trip", () => {
@@ -519,6 +564,51 @@ describe("loadShippedChangesForTenant (F3 - tenant-explicit read)", () => {
     const out = await loadShippedChangesForTenant("");
     expect(out).toEqual([]);
     expect(chains).toHaveLength(0);
+  });
+});
+
+describe("loadShippedChangesForTenant - tenant-EXPLICIT file fallback (Codex P2, fail closed)", () => {
+  it("no-env branch: reads tenant A's OWN file, never the ambient (founder) readStore rows", async () => {
+    supabaseThrows = true; // getSupabaseAdmin throws -> file fallback
+    // Ambient readStore mock holds tenant B's data - the founder-leak this test guards.
+    fileRows = [baseRecord({ id: "ambient-b", path: "/tenant-b-secret" }) as unknown as Record<string, unknown>];
+    // Tenant A's OWN durable file on disk:
+    seedTenantLedgerFile("site-a", [baseRecord({ id: "a-1", path: "/tenant-a-page" })]);
+
+    const out = await loadShippedChangesForTenant("tenant-a");
+    expect(out.map((r) => r.id)).toEqual(["a-1"]);
+    // The ambient tenant-B row is NEVER returned for an explicit tenant-a read.
+    expect(out.some((r) => r.id === "ambient-b")).toBe(false);
+  });
+
+  it("undefined-table branch: falls back to tenant A's OWN file, never the ambient readStore rows", async () => {
+    supabaseThrows = false;
+    mutError = { code: "PGRST205", message: "Could not find the table in the schema cache" };
+    fileRows = [baseRecord({ id: "ambient-b", path: "/tenant-b-secret" }) as unknown as Record<string, unknown>];
+    seedTenantLedgerFile("site-a", [baseRecord({ id: "a-2", path: "/tenant-a-page" })]);
+
+    const out = await loadShippedChangesForTenant("tenant-a");
+    expect(out.map((r) => r.id)).toEqual(["a-2"]);
+    expect(out.some((r) => r.id === "ambient-b")).toBe(false);
+  });
+
+  it("cross-tenant isolation: tenant B's explicit read returns tenant B's file, never tenant A's", async () => {
+    supabaseThrows = true;
+    seedTenantLedgerFile("site-a", [baseRecord({ id: "a-1", path: "/a" })]);
+    seedTenantLedgerFile("site-b", [baseRecord({ id: "b-1", path: "/b" })]);
+
+    const outA = await loadShippedChangesForTenant("tenant-a");
+    const outB = await loadShippedChangesForTenant("tenant-b");
+    expect(outA.map((r) => r.id)).toEqual(["a-1"]);
+    expect(outB.map((r) => r.id)).toEqual(["b-1"]);
+  });
+
+  it("fails CLOSED to [] on an unresolved tenant (not in registry, no env match) - never the flat founder file", async () => {
+    supabaseThrows = true;
+    // Ambient readStore still holds rows; an unresolved tenant must NOT get them.
+    fileRows = [baseRecord({ id: "ambient-b" }) as unknown as Record<string, unknown>];
+    const out = await loadShippedChangesForTenant("tenant-unknown");
+    expect(out).toEqual([]);
   });
 });
 

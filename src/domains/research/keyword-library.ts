@@ -12,7 +12,8 @@ import { featureStealHistoryRows } from "@/domains/serp/serp-history";
 import { loadQuerySpikes } from "@/domains/trend-radar/spike-store";
 import { loadSeasonalQueries } from "@/domains/seasonal/seasonal-store";
 import { loadTopTenantQueriesWithOwner } from "@/domains/recommendation-intelligence/gsc-page-queries";
-import { currentTenant, currentTenantId } from "@/lib/tenant-context";
+import { currentTenantId } from "@/lib/tenant-context";
+import { getTenant } from "@/domains/tenants/store";
 
 /**
  * keyword-library (2026-07-02, MASTER PLAN v2 UX2 first slice, the operator's
@@ -290,8 +291,38 @@ const GSC_QUERY_LIMIT = 2000;
  */
 export const loadKeywordLibrary = cache(async (): Promise<KeywordLibrary> => {
   const tenantId = await currentTenantId().catch(() => "");
-  const ownDomain = await currentTenant()
-    .then((t) => t.domain ?? null)
+  return loadKeywordLibraryForTenant(tenantId);
+});
+
+/** The empty library shape (all sources zero) returned when the tenant is
+ *  unresolved - fail CLOSED, never a founder-fallback read. */
+const EMPTY_KEYWORD_LIBRARY: KeywordLibrary = {
+  rows: [],
+  volumeCoverage: 0,
+  total: 0,
+  bySource: {
+    gsc: 0,
+    dataforseo_demand: 0,
+    dataforseo_difficulty: 0,
+    keyword_gap: 0,
+    serp_history: 0,
+    trend_radar: 0,
+  },
+};
+
+/**
+ * Codex P2 (2026-07-09): tenant-EXPLICIT build of the merged Keywords library -
+ * the exact body `loadKeywordLibrary` used to run, but for a caller-supplied
+ * tenant instead of the ambient `currentTenantId()` / `currentTenant()`. Every
+ * sub-loader already takes tenantId; the owned-domain read now resolves through
+ * `getTenant(tenantId)` too, so nothing here consults ambient request context.
+ * Fails CLOSED on an unresolved tenant (empty tenantId -> the empty library),
+ * never the founder/ambient fallback. Same $0 posture as the ambient loader.
+ */
+export async function loadKeywordLibraryForTenant(tenantId: string): Promise<KeywordLibrary> {
+  if (!tenantId) return EMPTY_KEYWORD_LIBRARY;
+  const ownDomain = await getTenant(tenantId)
+    .then((t) => t?.domain ?? null)
     .catch(() => null);
 
   const [gscQueries, demand, difficulty, gapResult, serpReadings, featureStealRows, spikes, seasonal] = await Promise.all([
@@ -327,4 +358,4 @@ export const loadKeywordLibrary = cache(async (): Promise<KeywordLibrary> => {
     seasonalQueries: new Set(seasonal.map((s) => s.query)),
     ownDomain,
   });
-});
+}

@@ -1,6 +1,37 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi, beforeEach } from "vitest";
 
-import { countWinnableGaps, mergeKeywordLibrary, summarizeKeywordLibrary, type KeywordLibraryRow } from "./keyword-library";
+// Codex P2 (2026-07-09): mock every sub-loader so the tenant-EXPLICIT loader
+// (loadKeywordLibraryForTenant) can be exercised deterministically - proving it
+// threads the explicit tenantId through and fails CLOSED on an unresolved tenant,
+// never an ambient/founder read.
+vi.mock("@/domains/tenants/store", () => ({
+  getTenant: vi.fn(async (id: string) => (id ? { id, slug: id, domain: `${id}.com` } : null)),
+}));
+vi.mock("@/lib/tenant-context", () => ({
+  currentTenantId: vi.fn(async () => ""),
+}));
+vi.mock("@/domains/recommendation-intelligence/gsc-page-queries", () => ({
+  loadTopTenantQueriesWithOwner: vi.fn(async () => []),
+}));
+vi.mock("@/domains/serp/dataforseo-keywords", () => ({ readAllCachedKeywordDemand: vi.fn(async () => []) }));
+vi.mock("@/domains/serp/dataforseo-labs", () => ({ readAllCachedKeywordDifficulty: vi.fn(async () => new Map()) }));
+vi.mock("@/domains/serp/keyword-gap-store", () => ({ readKeywordGapResults: vi.fn(async () => null) }));
+vi.mock("@/domains/serp/serp-history", () => ({
+  loadLatestSerpReadingsByQuery: vi.fn(async () => new Map()),
+  featureStealHistoryRows: vi.fn(async () => []),
+}));
+vi.mock("@/domains/trend-radar/spike-store", () => ({ loadQuerySpikes: vi.fn(async () => []) }));
+vi.mock("@/domains/seasonal/seasonal-store", () => ({ loadSeasonalQueries: vi.fn(async () => []) }));
+
+import {
+  countWinnableGaps,
+  mergeKeywordLibrary,
+  summarizeKeywordLibrary,
+  loadKeywordLibraryForTenant,
+  type KeywordLibraryRow,
+} from "./keyword-library";
+import { getTenant } from "@/domains/tenants/store";
+import { loadTopTenantQueriesWithOwner } from "@/domains/recommendation-intelligence/gsc-page-queries";
 import type { KeywordDemand } from "@/domains/serp/dataforseo-keywords";
 
 function demandRow(overrides: Partial<KeywordDemand> = {}): KeywordDemand {
@@ -273,5 +304,30 @@ describe("summarizeKeywordLibrary, FP7 hero synthesis line", () => {
 
   it("returns null when the library is empty", () => {
     expect(summarizeKeywordLibrary({ rows: [], total: 0 })).toBeNull();
+  });
+});
+
+describe("loadKeywordLibraryForTenant (Codex P2, explicit tenant, fail closed)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("threads the EXPLICIT tenantId to every sub-loader (never an ambient read)", async () => {
+    await loadKeywordLibraryForTenant("tenant-x");
+    expect(loadTopTenantQueriesWithOwner).toHaveBeenCalledWith("tenant-x", { limit: 2000 });
+    // Domain resolves through getTenant(tenantId), not ambient currentTenant().
+    expect(getTenant).toHaveBeenCalledWith("tenant-x");
+  });
+
+  it("fails CLOSED on an empty tenantId: returns the empty library and touches NO loader", async () => {
+    const lib = await loadKeywordLibraryForTenant("");
+    expect(lib).toEqual({
+      rows: [],
+      volumeCoverage: 0,
+      total: 0,
+      bySource: { gsc: 0, dataforseo_demand: 0, dataforseo_difficulty: 0, keyword_gap: 0, serp_history: 0, trend_radar: 0 },
+    });
+    expect(loadTopTenantQueriesWithOwner).not.toHaveBeenCalled();
+    expect(getTenant).not.toHaveBeenCalled();
   });
 });

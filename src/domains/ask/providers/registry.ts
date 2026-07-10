@@ -81,23 +81,17 @@ export const pageRankingProvider: AskFactProvider = {
 export const aiVisibilityProvider: AskFactProvider = {
   id: "answer-intelligence-index",
   classes: ["ai_visibility"],
-  // getAnswerIntelligenceIndex routes through getRepository().forTenant(tenantId).
+  // getAnswerIntelligenceIndexForTenant routes through getRepository().forTenant(tenantId).
   prodLive: true,
-  // NOTE: assembleAiVisibilityFacts takes no tenantId - it resolves the tenant itself
-  // from ambient request context (answer-intelligence/store.ts's currentTenantId()
-  // read), same as every other caller of that store today. Flagged as a known gap for
-  // explicit tenantId threading (see registry.test.ts); fixing it means changing that
-  // store's own contract, out of scope for this slice (do not rewrite existing
-  // assemblers).
-  gather: () => assembleAiVisibilityFacts(),
+  gather: (tenantId) => assembleAiVisibilityFacts(tenantId),
 };
 
 export const competitorProvider: AskFactProvider = {
   id: "competitor-intel",
   classes: ["competitor"],
-  // Same answer-intelligence index as above, plus loadNativeIntel (direct Supabase read).
+  // Same answer-intelligence index as above, plus loadNativeIntelForTenant (direct Supabase read).
   prodLive: true,
-  gather: () => assembleCompetitorFacts(),
+  gather: (tenantId) => assembleCompetitorFacts(tenantId),
 };
 
 export const measurementProvider: AskFactProvider = {
@@ -124,8 +118,7 @@ export const keywordNextProvider: AskFactProvider = {
   // SUPABASE_MIRRORED_STORES (dataforseo-keywords-cache, dataforseo-labs-cache,
   // keyword-gap-results, trend-query-spikes, seasonal-windows).
   prodLive: true,
-  // Same ambient-tenant caveat as aiVisibilityProvider above.
-  gather: () => assembleKeywordNextFacts(),
+  gather: (tenantId) => assembleKeywordNextFacts(tenantId),
 };
 
 export const systemHealthProvider: AskFactProvider = {

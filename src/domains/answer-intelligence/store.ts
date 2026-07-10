@@ -29,12 +29,27 @@ async function loadForTenant(tenantId: string): Promise<AnswerIntelligenceIndex 
 export const getAnswerIntelligenceIndex = cache(
   async (): Promise<AnswerIntelligenceIndex | null> => {
     const tenantId = await currentTenantId();
-    if (_byTenant.has(tenantId)) return _byTenant.get(tenantId) ?? null;
-    const loaded = await loadForTenant(tenantId);
-    _byTenant.set(tenantId, loaded);
-    return loaded;
+    return getAnswerIntelligenceIndexForTenant(tenantId);
   },
 );
+
+/**
+ * Codex P2 (2026-07-09): tenant-EXPLICIT read of the answer-intelligence index.
+ * Reuses the same `_byTenant` cache + `loadForTenant` as the ambient
+ * `getAnswerIntelligenceIndex` above, but NEVER calls `currentTenantId()` - the
+ * caller supplies the tenant, so an /ask fact provider running outside a stable
+ * request tenant scope can never resolve (and leak) the wrong tenant's index.
+ * Fails CLOSED on an unresolved tenant: an empty tenantId returns null.
+ */
+export async function getAnswerIntelligenceIndexForTenant(
+  tenantId: string,
+): Promise<AnswerIntelligenceIndex | null> {
+  if (!tenantId) return null;
+  if (_byTenant.has(tenantId)) return _byTenant.get(tenantId) ?? null;
+  const loaded = await loadForTenant(tenantId);
+  _byTenant.set(tenantId, loaded);
+  return loaded;
+}
 
 /** Call after rebuilding the index (e.g. post-import) to refresh the
  *  CURRENT tenant's in-memory reference. */
