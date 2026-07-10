@@ -7,6 +7,43 @@
 
 ---
 
+## 2026-07-10 - E-39 adaptive control pools (admit-with-caution) - worktree e39-impl
+
+**What changed (operator-approved binding spec, 7 decisions):**
+- D1 admit-with-caution: `assessEligibility` (src/domains/experiments/experiment-eligibility.ts)
+  now returns eligible-with-caution for active_control / same_family_measuring / compound_edit /
+  insufficient_controls instead of `eligible:false`. Hard blocks kept ONLY for genuine hazards
+  (recent_no_lift, high_risk_page, ownership_uncertain, stale_research, and a new
+  `last_clean_donor` when releasing would leave a measurement with zero comparables).
+- D2 overlap contaminates never prohibits: existing control-contamination machinery
+  (promoteFromFrozenPool / medianBandRead / contamination-timestamp = the overlapping edit's ship
+  date) + one-tier confidence drop; new tests pin timestamp-correctness + inputs-never-mutated.
+- D3 adaptive 2-3 pool: build-daily-candidates MIN_CONTROLS 3 to 2 (minimum defensible fallback),
+  suggestion pool capped at 3 (MAX_CONTROLS), <2 routes to a lower-confidence caution not a freeze;
+  measure.ts ladder (2 to medium, 3 to high, <2 to insufficient/low) pinned by new tests.
+- D4 verdict-lag repair (measure-lifecycle.ts `resolveVerdictLag`): at 28d+grace recompute+settle
+  when GSC data is available; else release + preserve + mark blocked_data + bounded fair retry;
+  wall-clock age never manufactures a verdict.
+- D5 promotion writer annotates never deletes (promotion-writer.ts `annotateCautionRows`).
+- D6 preserve 7/28/56-84: softened all "final"/"highest-confidence" copy over the unbuilt 56-84d
+  tier (measurement-maturity mature explanation + "The 28-day checkpoint opens..."; results
+  summary "my strongest read so far"; early-signal/verdict-reliability "the full 28-day read");
+  ledgered the 56-84d tier as a concrete future slice in NEXT_PHASE_EXECUTION_PLAN.md + a task.
+- D7 compute-only: no migration; caution copy derived deterministically; contamination timestamps
+  read from existing shipped_change_proof ship dates.
+
+**Read-only ground-truth (live tenant-iranopedia, SELECT-only; project `vlxwevsdvwxvopkjsewo` via
+the davinci worktree env - the main-repo .env.local points at a dead project ref that NXDOMAINs):**
+25 ledger rows, 6 measuring, 65 universe pages. Eligible BEFORE 35 to AFTER 59 (+24). The +24 are
+exactly the 6 compound_edit (treated) + 18 active_control (comparison) pages the spec named as
+"24 locked". ALL 24 carry a lower-confidence caution; 0 unsafe pages admitted; the 6 recent_no_lift
+(proven-loss) pages stay HARD blocked. The eligibility gain comes only from measurement
+inconvenience, never from accepting weak/unsafe evidence.
+
+**Verified:** full hermetic gate at tip (env -i clean shell) GREEN - typecheck_exit=0,
+test_exit=0 (1428 files / 22256 passed / 62 skipped), build_exit=0 (fullgate12.log). Probe script
+removed; worktree clean. NOT pushed (per instruction).
+
 ## 2026-07-09 - Task #230 trust-correction wave: 3-lane integration (Codex audit closure)
 
 **UPDATED 2026-07-10 (see the follow-on entry immediately below this one):** the gate-red state

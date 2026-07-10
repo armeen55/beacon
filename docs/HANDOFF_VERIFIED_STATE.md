@@ -1,3 +1,20 @@
+> 🟢 **(2026-07-10) - E-39 ADAPTIVE CONTROL POOLS BUILT in worktree e39-impl (branch e39-impl,
+> committed, NOT pushed).** Admit-with-caution replaces the active-control hard lock: a comparison
+> page / mid-measurement page / thin-pool page stays EDITABLE and carries an attribution caution
+> instead of `eligible:false`. Hard blocks remain only for genuine hazards (recent_no_lift,
+> high_risk_page, ownership_uncertain, stale_research, last_clean_donor-when-zero-comparables).
+> Verdict-lag repair (`resolveVerdictLag`) settles+releases at 28d+grace when GSC data is available,
+> else releases+preserves+marks blocked_data+retries within a bounded window, never fabricating a
+> verdict from wall-clock age. Promotion writer annotates (never deletes). Adaptive pool: 2 = min
+> defensible (reduced confidence), 3 = high, <2 = low-confidence caution not a freeze; recording
+> capped at 3. D6: no 28-day result is called "final"/"highest-confidence" while the 56-84d tier is
+> unbuilt (copy softened; tier ledgered in NEXT_PHASE + a task). No migration (D7 compute-only).
+> Read-only ground-truth on live tenant-iranopedia: eligible 35 to 59 (+24 = the 6 treated + 18
+> comparison pages), all 24 carry a lower-confidence caution, 0 unsafe admitted, 6 proven-loss
+> pages stay hard-blocked. Full hermetic gate GREEN (typecheck/test/build all exit 0; 1428 files /
+> 22256 tests; fullgate12.log). NEXT: architect review vs spec, adversarial review (attribution
+> honesty + concurrency + tenant isolation + operator-unlock), then operator decision to push.
+>
 > 🟢 **(2026-07-10 latest) - TASK #230 TRUST-CORRECTION WAVE: INTEGRATED, GATE GREEN, SAFE TO
 > FAST-FORWARD.** A Codex adversarial audit of the W5/W9/spec-debt release reopened 3 P1 and 3 P2
 > findings:

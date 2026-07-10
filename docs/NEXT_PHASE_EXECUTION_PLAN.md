@@ -1,5 +1,42 @@
 # Beacon Execution Plan
 
+## E-39 adaptive control pools (LANDED in worktree e39-impl, operator-approved 2026-07-10)
+
+Admit-with-caution replaces the active-control hard lock: a page serving as a comparison
+page (or mid-measurement, or with a thin comparison pool) stays EDITABLE and carries an
+attribution caution instead of `eligible:false`. Hard blocks stay ONLY for genuine hazards
+(recent_no_lift, high_risk_page, ownership_uncertain, stale_research, and last_clean_donor
+when releasing would leave a measurement with zero comparables). Verdict-lag repair
+(resolveVerdictLag) settles at 28d + grace when GSC data is available and otherwise releases
+the page + preserves the measurement + marks it blocked_data + retries within a bounded fair
+window, never manufacturing a verdict from wall-clock age. Promotion writer annotates rather
+than deletes. Adaptive pool: 2 comparison pages is the minimum defensible fallback (reduced
+confidence), 3 is required for high confidence, fewer than 2 routes to a low-confidence
+caution rather than a freeze; recording is capped at 3.
+
+### FUTURE SLICE (E-39 D6 ledger) - the 56 to 84 day CONFIRMATION window
+
+The proof contract is 7-day early signal / 28-day PROVISIONAL verdict / 56 to 84 day
+confidence tier. The 56 to 84 day tier is NOT built (the maturity ladder tops at 28d). E-39
+did NOT lower the requirement: it audited measurement-maturity.ts and the surface copy so
+NOTHING calls a 28-day result "final" or "highest-confidence" while the long tier is missing
+(the mature explanation now reads "my 28-day read... the strongest confirmation window I
+measure today"; the early/interim checkpoints say "The 28-day checkpoint opens..." not "Final
+checkpoint"; the results summary says "my strongest read so far"). Building the full 56 to 84
+day window is OUT of scope for this wave.
+
+Acceptance criteria for the future slice:
+- A fourth maturity tier (`confirmed_result` or equivalent) that only opens once a 56 to 84
+  day window has closed with sufficient data, sitting ABOVE mature_result (28d) in the ladder.
+- Only at that tier may operator copy use "final" / "highest confidence" language; the 28-day
+  read stays "provisional / strongest so far" until then.
+- PROOF_WINDOW_DAYS (measure.ts) extended to include the long window, with its own check-date
+  math, learning-eligibility gate, and confidence mapping (a 28-day high can be revised by the
+  56 to 84 day read; a revision is surfaced honestly, never silently overwritten).
+- Tests: a 28-day result never renders "final"; a 56 to 84 day result may; a 28-day verdict
+  that flips at the long window is reported as a revision with both reads visible.
+
+
 > 🟢 **2026-07-10 latest - CURRENT HEAD STATE: TASK #230 TRUST-CORRECTION WAVE INTEGRATED, GATE
 > GREEN, SAFE TO FAST-FORWARD.** A Codex adversarial audit of the W5/W9/spec-debt release reopened
 > 3 P1 (source-to-draft single-token coverage too weak, SSRF protection incomplete - a
