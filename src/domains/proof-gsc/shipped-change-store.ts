@@ -847,6 +847,15 @@ async function invalidateResultsSurfaceSafe(): Promise<void> {
   } catch {
     /* best-effort; the snapshot TTL still bounds staleness */
   }
+  // W2-B (2026-07-10): a ledger mutation also changes the /changes measuring/decided
+  // counts (both read the same lifecycle split), so refresh that SWR snapshot too.
+  // Same best-effort dynamic-import posture; the TTL bounds staleness on any failure.
+  try {
+    const { invalidateChangesSurface } = await import("@/app/(shell)/changes-surface-store");
+    await invalidateChangesSurface();
+  } catch {
+    /* best-effort */
+  }
 }
 
 /** Upsert one record (by id) for the ambient tenant. Durable + file mirror. */

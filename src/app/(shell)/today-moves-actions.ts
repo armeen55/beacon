@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { after } from "next/server";
 import { log } from "@/lib/logger";
 import { invalidateWorklistSurface } from "./worklist-surface-store";
+import { invalidateChangesSurface } from "./changes-surface-store";
 import { invalidateDemandGraph } from "@/domains/demand-graph/graph-snapshot-store";
 import { isOperatorModeServer } from "@/lib/operator-mode";
 import { currentTenantId } from "@/lib/tenant-context";
@@ -51,6 +52,7 @@ export async function prepareTopMovesAction(opts: { maxN?: number } = {}): Promi
   try {
     const summary = await prepareTodayMovesForTenant(await currentTenantId(), { maxN: opts.maxN ?? 10 });
     await invalidateWorklistSurface().catch(() => {}); // prepared state changed → recompute next /changes load
+    await invalidateChangesSurface().catch(() => {}); // ...and the ranked /changes snapshot
     revalidatePath("/");
     revalidatePath("/changes");
     return { ok: true, summary };
@@ -97,6 +99,7 @@ export async function autoAdvancePrepareAction(): Promise<AutoAdvancePrepareResu
         // we skip the invalidate/revalidate to keep this genuinely $0 and side-effect-free.
         if (summary.prepared > 0) {
           await invalidateWorklistSurface().catch(() => {});
+          await invalidateChangesSurface().catch(() => {});
           revalidatePath("/changes");
         }
         log.info("[auto-advance-prepare] ran after ship", {
@@ -152,6 +155,7 @@ export async function enrichTopResearchPacksAction(opts: { topN?: number } = {})
     const result = await enrichResearchPacks(packs);
     if (result.mode === "live" && result.patternsWritten > 0) {
       await invalidateWorklistSurface().catch(() => {}); // new SERP patterns → cards change → recompute
+      await invalidateChangesSurface().catch(() => {});
       revalidatePath("/changes");
     }
     return { status: "ok", result };
@@ -183,6 +187,7 @@ export async function sharpenMovesWithTeardownAction(
     limit: opts.limit ?? 12,
   });
   await invalidateWorklistSurface().catch(() => {}); // fresh teardown → "what wins" changes → recompute
+  await invalidateChangesSurface().catch(() => {});
   revalidatePath("/");
   revalidatePath("/prompts");
   revalidatePath("/changes");
@@ -216,6 +221,7 @@ export async function regenerateTopDraftsFromTeardownAction(
       requireTeardown: true,
     });
     await invalidateWorklistSurface().catch(() => {}); // regenerated drafts → readiness changes → recompute
+    await invalidateChangesSurface().catch(() => {});
     revalidatePath("/");
     revalidatePath("/changes");
     revalidatePath("/drafts");
@@ -313,6 +319,7 @@ export async function markMoveAppliedAction(args: {
     // applyProofOutcomeCautionToMoves holds/demotes it) → invalidate the graph (clears
     // the derived worklist surface too).
     await invalidateDemandGraph("change shipped → page enters measurement").catch(() => {});
+    await invalidateChangesSurface().catch(() => {}); // measuring count on /changes changed
     revalidatePath("/");
     revalidatePath("/changes");
     return { ok: true, recorded: res.recorded, reason: res.reason };
@@ -349,6 +356,7 @@ export async function measureAppliedMovesAction(opts: { maxRecords?: number } = 
       // fresh won/lost verdict updates each teammate's Brier score on the next Today render.
       await buildTeamScoreboardSummary(tenantId).catch(() => {});
     }
+    await invalidateChangesSurface().catch(() => {}); // settled verdicts → decided/measuring counts changed
     revalidatePath("/");
     revalidatePath("/changes");
     revalidatePath("/results");

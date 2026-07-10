@@ -49,6 +49,14 @@ import { buildReceiptLine, checkedAgoLabel } from "@/components/data/receipt-lin
 import { fuseUnifiedList } from "@/domains/allocator/load-unified-list";
 import { classifyOpportunityFreshness, summarizeExpiry } from "@/domains/changes/opportunity-expiry";
 import { perfMark, perfStage } from "@/lib/obs/perf-log";
+import { after } from "next/server";
+import { runSingleFlight } from "@/lib/single-flight";
+import { recordAppError, errorFieldsFrom } from "@/lib/obs/error-ledger";
+import {
+  readChangesSurface,
+  writeChangesSurface,
+  isChangesSurfaceStale,
+} from "./changes-surface-store";
 
 export type ChangesView = {
   changes: CanonicalChange[];
@@ -101,6 +109,14 @@ export type ChangesView = {
    *  Beacon's radar. Populated from the SAME partition that keeps them out of the ranked list, so
    *  a held row appears in exactly one place. Empty (or absent) when nothing is being watched. */
   watching?: CanonicalChange[];
+  /** W2-B (2026-07-10) - the SWR snapshot's `computedAt` (when this ranked list was
+   *  actually built), so the page can show an honest "I ranked these N ago" line
+   *  instead of a frozen "just now". Null on a cold first-ever render. */
+  surfaceComputedAt?: string | null;
+  /** W2-B - true ONLY on a cold first-ever render (no snapshot yet): the list is
+   *  empty because the rebuild was just scheduled in the background, NOT because
+   *  there is genuinely nothing to do. The page renders an honest building state. */
+  surfaceBuilding?: boolean;
 };
 
 /** FP2 (2026-07-02, killer finding 1) - normalized identity for the dedupe pass below: the
@@ -339,12 +355,96 @@ export function partitionActionableByEvidence(
   return { kept, held: heldItems, heldCount: heldItems.length };
 }
 
-// FP3 - react.cache()'d so the FP3 lifecycle-counts loader and the page section that
-// renders the list share ONE computation per request instead of building it twice.
-export const loadChangesView = cache(async (): Promise<ChangesView> => {
-  const tResolve = perfMark();
-  const tenantId = await currentTenantId();
-  perfStage("tenant-resolve", tResolve);
+/** W2-B (2026-07-10) - the honest cold/first-ever ChangesView: an empty, non-broken
+ *  shape flagged `surfaceBuilding` so the page shows "I'm putting your ranked changes
+ *  together" (not the "No changes yet" lie) while the background rebuild runs. */
+const EMPTY_CHANGES_VIEW: ChangesView = {
+  changes: [],
+  movesById: {},
+  summary: { todo: 0, ready: 0, measuring: 0, results: 0, selectedForToday: 0, protectedPages: 0 },
+  hasPlan: false,
+  planAccepted: false,
+  readyZeroHint: null,
+  measuringCountCanonical: 0,
+  decidedCountCanonical: 0,
+  suppressedRowsNote: null,
+  expiredSubline: null,
+  receiptLine: null,
+  readyCount: 0,
+  shippedThisWeekCount: 0,
+  watching: [],
+  surfaceComputedAt: null,
+  surfaceBuilding: true,
+};
+
+/**
+ * W2-B (2026-07-10) - THE render entry (request-cached). Serves the ranked ChangesView
+ * from the tenant-scoped SWR snapshot: a present snapshot serves INSTANTLY (with its
+ * computedAt for the honest staleness line) and, when stale, schedules ONE
+ * single-flighted background rebuild via after(). A COLD first-ever load NEVER blocks
+ * on the ~14s fuse: it serves the honest "building" empty state and schedules the
+ * rebuild, so the next visit is instant. Every surface that reads the view (Today,
+ * lifecycle counts, page dossier) shares this one snapshot per request via react.cache.
+ */
+export const loadChangesView = cache(
+  async (): Promise<ChangesView> => loadChangesViewWithSwr(await currentTenantId()),
+);
+
+/** Injectable builder so tests can drive the SWR flow without running the heavy fuse. */
+type ChangesViewBuilder = (tenantId: string) => Promise<ChangesView>;
+
+/**
+ * Exported for tests; render paths go through loadChangesView above. The optional
+ * `build` dep lets a test observe the cold/stale/fresh/single-flight/tenant-threading
+ * behavior with a cheap fake builder instead of the real ~14s fuse.
+ */
+export async function loadChangesViewWithSwr(
+  tenantId: string,
+  deps: { build?: ChangesViewBuilder } = {},
+): Promise<ChangesView> {
+  const build = deps.build ?? buildChangesViewUncached;
+  const scheduleRebuild = (action: string) =>
+    after(async () => {
+      try {
+        // Single-flight: concurrent stale/cold readers in this lambda collapse to ONE
+        // rebuild instead of racing duplicate fuses.
+        await runSingleFlight(`changes-surface:${tenantId}`, () => rebuildChangesSurfaceWith(tenantId, build));
+      } catch (e) {
+        await recordAppError({ route: "/changes", tenantId, action, ...errorFieldsFrom(e) });
+      }
+    });
+
+  const cached = await readChangesSurface().catch(() => null);
+  if (cached) {
+    if (isChangesSurfaceStale(cached.computedAt, Date.now())) scheduleRebuild("background-refresh");
+    return { ...cached.view, surfaceComputedAt: cached.computedAt, surfaceBuilding: false };
+  }
+  // Cold first-ever / invalidated: NEVER block on the fuse (it can exceed the page's
+  // 25s always-paint floor). Schedule the rebuild and serve the honest building state.
+  scheduleRebuild("cold-rebuild");
+  return EMPTY_CHANGES_VIEW;
+}
+
+/**
+ * W2-B - rebuild the ranked ChangesView NOW and persist the snapshot (the background
+ * refresh body; also the nightly-warm entry). Build-then-write: a failed build throws
+ * and the previous snapshot stays in place.
+ */
+export async function rebuildChangesSurface(tenantId: string): Promise<void> {
+  return rebuildChangesSurfaceWith(tenantId, buildChangesViewUncached);
+}
+
+async function rebuildChangesSurfaceWith(tenantId: string, build: ChangesViewBuilder): Promise<void> {
+  const computedAt = new Date().toISOString();
+  const view = await build(tenantId);
+  await writeChangesSurface(view, computedAt);
+}
+
+// FP3 - the heavy compute. Formerly `loadChangesView` (react.cache'd inline); now the
+// SWR snapshot's build body, called from rebuildChangesSurface in after() (off the
+// render critical path). Tenant is passed EXPLICITLY so the after() rebuild is
+// tenant-correct even outside the render's ambient scope.
+async function buildChangesViewUncached(tenantId: string): Promise<ChangesView> {
   // Move 3 — every source is fail-soft so one failing store can never blank the whole
   // Changes list. A plan-store outage drops the "today" slice but keeps the ranked moves;
   // a worklist outage keeps any selected plan items. The page renders with what loaded.
@@ -577,4 +677,4 @@ export const loadChangesView = cache(async (): Promise<ChangesView> => {
     shippedThisWeekCount,
     watching,
   };
-});
+}
