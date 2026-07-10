@@ -186,6 +186,15 @@ describe("safeFetchSourceText - the SSRF seven", () => {
     expect(r).toEqual({ ok: false, reason: "wrong_content_type" });
   });
 
+  it("6b. refuses a response with NO content-type header (fail closed, never presumed text)", async () => {
+    const fetchImpl = vi.fn(async () => resp({ status: 200, body: "<html>unlabeled</html>" }));
+    const r = await safeFetchSourceText("https://ok.example/no-ct", {
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+      resolve: resolverFrom({ "ok.example": ["93.184.216.34"] }),
+    });
+    expect(r).toEqual({ ok: false, reason: "wrong_content_type" });
+  });
+
   it("7. returns text + finalUrl + status for a valid public https 2xx", async () => {
     const fetchImpl = vi.fn(async () =>
       resp({ status: 200, contentType: "text/html; charset=utf-8", body: "<html>hello</html>" }),

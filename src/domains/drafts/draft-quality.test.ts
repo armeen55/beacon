@@ -32,7 +32,7 @@ const NOWRUZ_SOURCE = {
   verified: true as const,
 };
 
-describe("evaluateDraftQuality — answer blocks", () => {
+describe("evaluateDraftQuality - answer blocks", () => {
   it("REJECTS a generic dictionary opening with no context (ab-1: gifts)", () => {
     const r = evaluateDraftQuality({
       answer:

@@ -229,4 +229,22 @@ describe("findSupportingSpan (W5 stop-ship F2) - the span quartet", () => {
       contentHash: null,
     });
   });
+
+  it("coverage boundary: exactly 0.6 (3 of 5 central tokens) passes; the step below (2 of 5) fails", () => {
+    // The claim carries exactly 5 central tokens (museum, collection, displays,
+    // ancient, artifacts): all lowercase (no protected entities), no numbers -
+    // so ONLY the coverage rule decides. Single-sentence pages keep exactly one
+    // candidate span (no adjacent pair can inflate coverage).
+    const boundaryClaim = "museum collection displays ancient artifacts";
+
+    // 3 of 5 tokens colocated -> coverage 0.6, exactly AT the inclusive bar.
+    const atBar = findSupportingSpan(boundaryClaim, "the museum collection holds artifacts year round.");
+    expect(atBar.supported).toBe(true);
+    expect(atBar.excerpt).toContain("museum collection");
+
+    // 2 of 5 tokens -> coverage 0.4, the nearest possible step below the bar.
+    const belowBar = findSupportingSpan(boundaryClaim, "the museum collection stays open late.");
+    expect(belowBar.supported).toBe(false);
+    expect(belowBar.excerpt).toBeNull();
+  });
 });

@@ -405,7 +405,7 @@ export async function buildNewPagesData(tenantId: string): Promise<NewPagesData>
         if (p && typeof p.answer === "string") answerText = p.answer;
         if (p && Array.isArray(p.sources)) answerSources = p.sources as SourceRef[];
       } catch {
-        /* raw text — use as-is */
+        /* raw text - use as-is */
       }
       openingQuality = evaluateDraftQuality({
         answer: answerText,

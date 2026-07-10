@@ -502,7 +502,7 @@ describe("draftAeoPromptBrief — Profound Question Intelligence brief", () => {
 });
 
 // ── W5 P0-1: generation-time source verification ─────────────────────────────
-describe("W5 P0-1 — generation-time source verification", () => {
+describe("W5 P0-1 - generation-time source verification", () => {
   const withSource = (claim: string): string =>
     JSON.stringify({
       ...validAnswer,
@@ -742,7 +742,7 @@ describe("W5 P0-1 — generation-time source verification", () => {
 });
 
 // ── W5 P2: answer-block word-count retry ─────────────────────────────────────
-describe("W5 P2 — answer-block word-count retry (never caches a too-thin answer)", () => {
+describe("W5 P2 - answer-block word-count retry (never caches a too-thin answer)", () => {
   const THIN =
     "Persian hospitality traditionally revolves around continuously offering guests freshly brewed tea throughout their entire visit, alongside assorted confectioneries, fragrant pastries, and seasonal fruit arranged beautifully across decorative serving platters. Conversation, storytelling, and unhurried companionship characterize these gatherings, reflecting deeply rooted cultural expectations surrounding generosity, warmth, respect, and reciprocal kindness shown between welcoming hosts and their appreciative visitors.";
 

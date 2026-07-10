@@ -364,10 +364,12 @@ export async function safeFetchSourceText(
       return { ok: false, reason: "fetch_failed" };
     }
 
-    // Step 5: content-type allowlist, then stream-read up to maxBytes.
+    // Step 5: content-type allowlist, then stream-read up to maxBytes. A
+    // MISSING content-type fails closed too - an unlabeled body from an
+    // untrusted host cannot be presumed text.
     const ctHeader = (res.headers.get("content-type") ?? "").toLowerCase();
     const ctType = ctHeader.split(";")[0]!.trim();
-    if (ctType && !allowed.includes(ctType)) {
+    if (!ctType || !allowed.includes(ctType)) {
       try {
         await (res.body as ReadableStream | null | undefined)?.cancel?.();
       } catch {
