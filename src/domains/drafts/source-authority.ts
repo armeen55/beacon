@@ -188,6 +188,48 @@ export type SupportingSpan = {
 };
 
 /**
+ * Re-audit P2 fix (2026-07-10): normalizes Arabic-Indic (٠-٩, U+0660-0669) and
+ * Extended Arabic-Indic / Persian (۰-۹, U+06F0-06F9) digits to their ASCII
+ * value - the SAME numeral ranges draft-quality.ts's GENERIC_NUMBER regex
+ * already treats as "this is a number". Everything else passes through
+ * unchanged (including ASCII digits, which map to themselves).
+ */
+function normalizeUnicodeDigits(text: string): string {
+  return (text ?? "").replace(/[٠-٩۰-۹]/g, (ch) => {
+    const code = ch.codePointAt(0)!;
+    if (code >= 0x0660 && code <= 0x0669) return String(code - 0x0660);
+    if (code >= 0x06f0 && code <= 0x06f9) return String(code - 0x06f0);
+    return ch;
+  });
+}
+
+/**
+ * Re-audit P2 fix (2026-07-10): LOCAL widening of "what counts as a number"
+ * for THIS module's protected-sentence + per-span coverage checks only.
+ * `draftNumbers` (factual-entailment.ts) stays exactly as-is - ASCII \d-only
+ * - for its existing callers (checkFactualEntailment's invented-number
+ * firewall keeps its current behavior byte-for-byte, no test there changes).
+ * A factual claim written with Persian/Arabic-Indic numerals (e.g. "ایران
+ * ۳۰۰۰ گونه دارد") was previously invisible to `sentenceIsProtected` (its
+ * only number check was `draftNumbers`'s ASCII \d+), so the sentence carried
+ * zero protected tokens and fell into the weaker zero-protected branch below
+ * that never checks a number against any source excerpt - a real trust hole
+ * for Persian-content tenants. This helper normalizes the digits first, then
+ * delegates to `draftNumbers` unchanged (same thousands-stripping, same
+ * length>=2 filter), so a Persian-numeral claim is recognized as carrying a
+ * checkable number exactly like an ASCII-digit claim: it becomes PROTECTED
+ * and its number is actually matched, span-by-span, against a qualifying
+ * source's excerpt - not waved through. Because normalization happens before
+ * comparison, a Persian-numeral YEAR still lands in the ASCII `structural`
+ * set (groundedNumberSet) exactly like an ASCII-digit year would, so the
+ * structural-number exclusion (year +/-1, the 7/14/28 proof window) is
+ * unchanged in behavior, only in what digits it can now see.
+ */
+function sentenceNumbers(text: string): string[] {
+  return draftNumbers(normalizeUnicodeDigits(text));
+}
+
+/**
  * W5 stop-ship F2 (2026-07-09), the SPAN-LEVEL claim verifier. Replaces the
  * old whole-page token-share check (`claimSupportedByText`), which passed when
  * a claim's words were merely SCATTERED across an unrelated page. Instead this
@@ -197,8 +239,9 @@ export type SupportingSpan = {
  * NOT accepted.
  *
  * A span qualifies iff, WITHIN that span:
- *   - every protected number in the claim (draftNumbers, thousands-normalized)
- *     is present, AND
+ *   - every protected number in the claim (sentenceNumbers - draftNumbers,
+ *     thousands-normalized, plus Persian/Arabic-Indic digit recognition, see
+ *     `sentenceNumbers` above) is present, AND
  *   - every capitalized entity span in the claim (extractCapitalizedSpans) is
  *     grounded (entityGrounded), AND
  *   - at least CLAIM_SPAN_MIN_COVERAGE of the claim's central content tokens
@@ -220,7 +263,7 @@ export function findSupportingSpan(
   const text = (pageText ?? "").trim();
   if (!claimText || !text) return { supported: false, excerpt: null, contentHash: null };
 
-  const protectedNumbers = draftNumbers(claimText);
+  const protectedNumbers = sentenceNumbers(claimText);
   const entities = extractCapitalizedSpans(claimText);
   const central = claimTokens(claimText);
   // Nothing concrete to verify against -> cannot confirm support.
@@ -240,7 +283,7 @@ export function findSupportingSpan(
 
   let best: { span: string; coverage: number } | null = null;
   for (const span of candidates) {
-    const spanNums = new Set(draftNumbers(span));
+    const spanNums = new Set(sentenceNumbers(span));
     if (!protectedNumbers.every((n) => spanNums.has(n))) continue;
     const spanLower = span.toLowerCase();
     if (!entities.every((e) => entityGrounded(e, spanLower))) continue;
@@ -285,10 +328,12 @@ function negationParity(text: string): number {
  * it carries a non-structural number, a named entity, or a superlative. A
  * framing sentence with none of those asserts nothing verifiable and needs no
  * source. `structural` is groundedNumberSet("", nowYear) - the year window and
- * the 7/14/28 proof-window constants, which are methodology, not claims.
+ * the 7/14/28 proof-window constants, which are methodology, not claims. The
+ * number check uses `sentenceNumbers` (re-audit P2 fix), so a Persian/Arabic-
+ * Indic numeral protects a sentence exactly like an ASCII digit does.
  */
 function sentenceIsProtected(sentence: string, structural: Set<string>): boolean {
-  if (draftNumbers(sentence).some((n) => !structural.has(n))) return true;
+  if (sentenceNumbers(sentence).some((n) => !structural.has(n))) return true;
   if (extractCapitalizedSpans(sentence).length > 0) return true;
   if (findSuperlatives(sentence).length > 0) return true;
   return false;

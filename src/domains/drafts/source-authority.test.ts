@@ -482,3 +482,53 @@ describe("draftFactsCoveredBySources - what does and does not contribute", () =>
     expect(hasQualifyingAuthoritativeSource(draft, offTopic)).toBe(draftFactsCoveredBySources(draft, offTopic).covered);
   });
 });
+
+// Re-audit P2 (2026-07-10): a factual claim written with Persian/Arabic-Indic
+// numerals was invisible to the ASCII-only protected-sentence number check, so
+// it fell into the weaker zero-protected branch that never checks a number
+// against any source excerpt - any qualifying source (even one describing a
+// different number) satisfied it. Generic/tenant-neutral subject on purpose.
+describe("draftFactsCoveredBySources - non-ASCII numeral coverage (re-audit P2)", () => {
+  const claimWithPersianNumeral = "The reserve holds ۳۰۰۰ species of rare plants.";
+
+  it("a Persian/Arabic-Indic numeral claim is NOT covered by a source that does not back that number", () => {
+    const r = draftFactsCoveredBySources(claimWithPersianNumeral, [
+      {
+        domain: "britannica.com",
+        claim: "The reserve holds 500 species of rare plants.",
+        verified: true,
+        supportingExcerpt: "The reserve holds 500 species of rare plants.",
+      },
+    ]);
+    expect(r.covered).toBe(false);
+    expect(r.uncovered).toEqual([claimWithPersianNumeral]);
+  });
+
+  it("the SAME Persian/Arabic-Indic numeral claim IS covered once a qualifying source's excerpt carries that numeral", () => {
+    const r = draftFactsCoveredBySources(claimWithPersianNumeral, [
+      {
+        domain: "britannica.com",
+        claim: "The reserve holds ۳۰۰۰ species of rare plants in its annual survey.",
+        verified: true,
+        supportingExcerpt:
+          "The reserve holds ۳۰۰۰ species of rare plants in its annual survey.",
+      },
+    ]);
+    expect(r.covered).toBe(true);
+    expect(r.receipts).toHaveLength(1);
+  });
+
+  it("boolean wrapper parity holds for the Persian-numeral claim too", () => {
+    const noBacker = [
+      {
+        domain: "britannica.com",
+        claim: "The reserve holds 500 species of rare plants.",
+        verified: true,
+        supportingExcerpt: "The reserve holds 500 species of rare plants.",
+      },
+    ];
+    expect(hasQualifyingAuthoritativeSource(claimWithPersianNumeral, noBacker)).toBe(
+      draftFactsCoveredBySources(claimWithPersianNumeral, noBacker).covered,
+    );
+  });
+});
