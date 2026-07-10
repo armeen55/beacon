@@ -70,7 +70,11 @@
 
 import { checkPassageRules } from "@/domains/pages/passage-answerability";
 import { checkFactualEntailment, type AuthoritativeFact } from "@/domains/drafts/factual-entailment";
-import { hasQualifyingAuthoritativeSource, type ClassifiableSource } from "@/domains/drafts/source-authority";
+import {
+  hasQualifyingAuthoritativeSource,
+  draftFactsCoveredBySources,
+  type ClassifiableSource,
+} from "@/domains/drafts/source-authority";
 import { checkFirstMention, type FirstMentionConfig } from "@/domains/drafts/first-mention-check";
 
 export type DraftQualityStatus =
@@ -132,6 +136,13 @@ function firstSentence(text: string): string {
 export function wordCount(text: string): number {
   const t = (text ?? "").trim();
   return t ? t.split(/\s+/).length : 0;
+}
+
+/** Trim one uncovered claim sentence to a readable length for an operator-facing
+ *  reason (so the "needs a source" line names WHICH claim, not just "a claim"). */
+function shortClaim(text: string, max = 120): string {
+  const t = (text ?? "").trim().replace(/\s+/g, " ");
+  return t.length <= max ? t : `${t.slice(0, max - 1).trimEnd()}…`;
 }
 
 /** "A/An/The <noun> is/are …" or "<X> refers to …" — a context-free dictionary frame. */
@@ -382,14 +393,22 @@ export function evaluateDraftQuality(input: EvaluateDraftInput): DraftQualityRes
   //    (a generic evidence-count was always a weaker proxy for a real,
   //    checkable citation). canRegenerate is false, redrafting cannot
   //    invent authority; the honest fix is "add a source."
-  if (isFactualClaim(answer) && !hasQualifyingAuthoritativeSource(answer, input.sources, input.authoritativeSourceDomains)) {
-    return {
-      status: "missing_source",
-      reasons: ["States a claim with no cited authoritative source yet. Add 1-2 before this is paste-ready."],
-      copyAllowed: false,
-      canRegenerate: false,
-      confidence: "medium",
-    };
+  if (isFactualClaim(answer)) {
+    const coverage = draftFactsCoveredBySources(answer, input.sources, input.authoritativeSourceDomains);
+    if (!coverage.covered) {
+      const claim = coverage.uncovered[0];
+      return {
+        status: "missing_source",
+        reasons: [
+          claim
+            ? `This claim still needs a cited authoritative source: "${shortClaim(claim)}". Add 1-2 before this is paste-ready.`
+            : "States a claim with no cited authoritative source yet. Add 1-2 before this is paste-ready.",
+        ],
+        copyAllowed: false,
+        canRegenerate: false,
+        confidence: "medium",
+      };
+    }
   }
 
   // 10. J-70 (soft): the tenant's first-mention rule (native script +
@@ -593,14 +612,22 @@ export function evaluateCreatePageBriefQuality(input: EvaluateBriefInput): Draft
   // the extractable claim the new page leads with, so it earns the same
   // source floor. canRegenerate is false - redrafting cannot invent authority;
   // the honest fix is "add a source."
-  if (isFactualClaim(opening) && !hasQualifyingAuthoritativeSource(opening, input.sources, input.authoritativeSourceDomains)) {
-    return {
-      status: "missing_source",
-      reasons: ["States a claim with no cited authoritative source yet. Add 1-2 before this is paste-ready."],
-      copyAllowed: false,
-      canRegenerate: false,
-      confidence: "medium",
-    };
+  if (isFactualClaim(opening)) {
+    const coverage = draftFactsCoveredBySources(opening, input.sources, input.authoritativeSourceDomains);
+    if (!coverage.covered) {
+      const claim = coverage.uncovered[0];
+      return {
+        status: "missing_source",
+        reasons: [
+          claim
+            ? `This claim still needs a cited authoritative source: "${shortClaim(claim)}". Add 1-2 before this is paste-ready.`
+            : "States a claim with no cited authoritative source yet. Add 1-2 before this is paste-ready.",
+        ],
+        copyAllowed: false,
+        canRegenerate: false,
+        confidence: "medium",
+      };
+    }
   }
 
   // Soft flags → useful_but_needs_review (copyable, but worth a look).

@@ -33,6 +33,8 @@ import {
   draftNumbers,
   extractCapitalizedSpans,
   entityGrounded,
+  groundedNumberSet,
+  findSuperlatives,
 } from "./factual-entailment";
 
 export type SourceAuthority = "authoritative" | "weak" | "unverified";
@@ -51,6 +53,13 @@ export type ClassifiableSource = {
    *  every pre-P0-1 persisted draft, which then honestly reads "Needs a
    *  source" until regenerated. */
   verified?: boolean;
+  /** W5 stop-ship F2 (2026-07-09), the exact excerpt (a sentence or adjacent
+   *  pair) on the fetched page that entailed this claim - already carried on
+   *  the real SourceRef (schemas.ts), so no migration. trust-230 (Codex P1)
+   *  uses it as the PREFERRED evidence text for per-claim coverage: what the
+   *  fetch actually confirmed, falling back to `claim` only when no excerpt was
+   *  persisted (a pre-F2 draft). */
+  supportingExcerpt?: string | null;
 };
 
 /** Universal .gov/.edu-equivalent TLDs treated as authoritative for every
@@ -254,32 +263,142 @@ export function findSupportingSpan(
   return { supported: true, excerpt, contentHash };
 }
 
+/** Negation cues counted symmetrically in a claim sentence and in the span a
+ *  source offers to back it. Same list the coverage guard below uses. */
+const NEGATION_CUE =
+  /\b(?:not|no|never|none|without|cannot|can't|isn't|aren't|wasn't|weren't|doesn't|don't|didn't|won't|nor|neither)\b/gi;
+
 /**
- * True when at least one source in `sources` is (a) classified
- * "authoritative" by THIS module (never trusting a pre-stamped value), (b)
- * GENERATION-TIME VERIFIED (`verified === true`, W5 P0-1, set only after
- * structured-drafter.ts fetched the URL and confirmed the page text carries
- * the claim - so a hallucinated .gov/.edu URL never passes on domain class
- * alone), and (c) its `claim` shares a real content token with `draftText`,
- * an authoritative source cited for an unrelated fact does not count. Zero
- * sources, unverified sources, or sources with no claim overlap all return
- * false, the caller (`draft-quality.ts`) turns that into a "missing_source"
- * verdict for factual drafts (and a persisted pre-P0-1 draft, whose sources
- * default to verified=false, honestly reads "Needs a source" until
- * regenerated).
+ * NEGATION-PARITY (trust-230, Codex P1). Parity (0 = affirmative, 1 = negated)
+ * of the negation cues in a fragment. A protected claim and the span that
+ * supposedly backs it must AGREE here: an affirmative source can never cover a
+ * negated claim (and vice versa), even when every entity, number, and content
+ * token lines up. Even counts fold back to affirmative (a double negative), so
+ * "it is not uncommon" reads affirmative, matching how the words scan.
+ */
+function negationParity(text: string): number {
+  return ((text ?? "").match(NEGATION_CUE) ?? []).length % 2;
+}
+
+/**
+ * A sentence is PROTECTED (it makes a checkable claim that needs a source) when
+ * it carries a non-structural number, a named entity, or a superlative. A
+ * framing sentence with none of those asserts nothing verifiable and needs no
+ * source. `structural` is groundedNumberSet("", nowYear) - the year window and
+ * the 7/14/28 proof-window constants, which are methodology, not claims.
+ */
+function sentenceIsProtected(sentence: string, structural: Set<string>): boolean {
+  if (draftNumbers(sentence).some((n) => !structural.has(n))) return true;
+  if (extractCapitalizedSpans(sentence).length > 0) return true;
+  if (findSuperlatives(sentence).length > 0) return true;
+  return false;
+}
+
+/** The verdict of the per-claim coverage check: whether every checkable claim
+ *  in a draft is backed by a verified authoritative source, which claims are
+ *  still unproven, and the receipts (claim + source + backing excerpt) for the
+ *  ones that ARE proven. */
+export type FactCoverageResult = {
+  covered: boolean;
+  /** Up to 5 protected sentences no qualifying source could back. */
+  uncovered: string[];
+  /** One row per PROVEN protected claim: the claim, the source it was proven
+   *  against, and the exact excerpt on that source that entailed it. */
+  receipts: { claim: string; sourceUrl: string; excerpt: string }[];
+};
+
+/**
+ * trust-230 (Codex P1), the fix for the vacuous single-token bug. The old
+ * check passed a factual draft the moment ANY authoritative + verified source
+ * shared ONE content token with the draft, so a generic topic word ("Iran")
+ * satisfied it while the draft's actual claims went unbacked. This replaces
+ * that with real, per-claim coverage, reusing `findSupportingSpan` SYMMETRICALLY
+ * (draft sentence as the claim, the source's evidence as the page text):
+ *
+ *   (a) QUALIFYING SOURCES are authoritative (re-derived here, never the LLM's
+ *       guess) AND generation-time verified. Each contributes its
+ *       `supportingExcerpt` (what the fetch actually confirmed) or, absent one,
+ *       its `claim`. Zero qualifying sources => nothing can be backed.
+ *   (b) The draft is split into sentences; only PROTECTED sentences (a
+ *       non-structural number, a named entity, or a superlative) need a source.
+ *   (c) A protected sentence is COVERED when some qualifying source's evidence
+ *       yields findSupportingSpan(sentence, evidence).supported AND the two
+ *       agree in negation parity (an affirmative source cannot back a negated
+ *       claim). The first match wins and is recorded as a receipt.
+ *   (d) covered = EVERY protected sentence covered.
+ *
+ * PURE, no I/O, no LLM. Tenant-agnostic: no vertical vocabulary, callers thread
+ * in the tenant's own allowlist.
+ */
+export function draftFactsCoveredBySources(
+  draftText: string,
+  sources: readonly ClassifiableSource[] | undefined,
+  tenantAllowlist?: readonly string[],
+  nowYear: number = new Date().getFullYear(),
+): FactCoverageResult {
+  const text = (draftText ?? "").trim();
+  const structural = groundedNumberSet("", nowYear); // year window + 7/14/28
+  const protectedSentences = text
+    ? text
+        .split(/(?<=[.!?])\s+/)
+        .map((s) => s.trim())
+        .filter(Boolean)
+        .filter((s) => sentenceIsProtected(s, structural))
+    : [];
+
+  // No checkable claim at all -> nothing to source, vacuously covered.
+  if (protectedSentences.length === 0) {
+    return { covered: true, uncovered: [], receipts: [] };
+  }
+
+  const qualifying = (sources ?? []).filter(
+    (s) => classifySourceAuthority(s, tenantAllowlist) === "authoritative" && s.verified === true,
+  );
+  // No qualifying source -> every protected claim is unproven.
+  if (qualifying.length === 0) {
+    return { covered: false, uncovered: protectedSentences.slice(0, 5), receipts: [] };
+  }
+
+  const receipts: FactCoverageResult["receipts"] = [];
+  const uncovered: string[] = [];
+  for (const sentence of protectedSentences) {
+    let matched = false;
+    for (const s of qualifying) {
+      const evidence = (s.supportingExcerpt ?? s.claim ?? "").trim();
+      if (!evidence) continue; // an authoritative + verified source with no text backs nothing
+      const span = findSupportingSpan(sentence, evidence, nowYear);
+      if (!span.supported || span.excerpt == null) continue;
+      // An affirmative source can never cover a negated claim (and vice versa).
+      if (negationParity(sentence) !== negationParity(span.excerpt)) continue;
+      receipts.push({
+        claim: sentence,
+        sourceUrl: (s.url ?? s.domain ?? "").trim(),
+        excerpt: span.excerpt,
+      });
+      matched = true;
+      break;
+    }
+    if (!matched) uncovered.push(sentence);
+  }
+
+  return { covered: uncovered.length === 0, uncovered: uncovered.slice(0, 5), receipts };
+}
+
+/**
+ * Boolean wrapper over `draftFactsCoveredBySources` (kept as the name the
+ * draft-quality gate already calls). True only when EVERY protected claim in
+ * `draftText` is backed by an authoritative + generation-time-verified source
+ * whose excerpt actually entails it. Zero sources, unverified/weak sources, or
+ * a source that backs only some claims all return false, the caller
+ * (`draft-quality.ts`) turns that into a "missing_source" verdict for factual
+ * drafts (and a persisted pre-P0-1 draft, whose sources default to
+ * verified=false, honestly reads "Needs a source" until regenerated).
  */
 export function hasQualifyingAuthoritativeSource(
   draftText: string,
   sources: readonly ClassifiableSource[] | undefined,
   tenantAllowlist?: readonly string[],
+  nowYear?: number,
 ): boolean {
-  if (!sources || sources.length === 0) return false;
-  const draftTokens = claimTokens(draftText);
-  if (draftTokens.length === 0) return false;
-  return sources.some((s) => {
-    if (classifySourceAuthority(s, tenantAllowlist) !== "authoritative") return false;
-    if (s.verified !== true) return false; // W5 P0-1: must be generation-time verified
-    const sTokens = claimTokens(s.claim ?? "");
-    return sTokens.some((t) => draftTokens.includes(t));
-  });
+  return draftFactsCoveredBySources(draftText, sources, tenantAllowlist, nowYear).covered;
 }

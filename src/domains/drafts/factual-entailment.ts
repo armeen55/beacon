@@ -278,7 +278,12 @@ export function entityGrounded(entity: string, haystackLower: string): boolean {
 const SUPERLATIVE_CLAIM =
   /\bthe\s+(?:best|only|first|largest|biggest|oldest|newest|tallest|smallest|highest|lowest|longest|shortest|most\s+\w+|world'?s\s+(?:best|largest|oldest|first|leading|tallest))\b/gi;
 
-function findSuperlatives(text: string): string[] {
+/** W5 trust-230 (2026-07-09): exported additively so source-authority.ts's
+ *  per-claim coverage check treats a superlative sentence as PROTECTED (it
+ *  needs a source) using the exact same net this gate uses - the two must
+ *  never disagree about what counts as a superlative. Behavior unchanged for
+ *  every existing caller. */
+export function findSuperlatives(text: string): string[] {
   const out = new Set<string>();
   for (const m of text.matchAll(SUPERLATIVE_CLAIM)) out.add(m[0].toLowerCase());
   return [...out];

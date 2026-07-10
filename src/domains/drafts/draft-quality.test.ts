@@ -30,6 +30,12 @@ const NOWRUZ_SOURCE = {
   // W5 P0-1 (2026-07-09): a qualifying source is generation-time verified. The
   // gate now requires this, so a "ready" fixture models a freshly-verified draft.
   verified: true as const,
+  // trust-230 (Codex P1): the coverage check needs the source's fetched passage
+  // to actually entail every protected claim in the Nowruz answer block below,
+  // not merely share a topic word. This excerpt is the passage the answer was
+  // written from, so each of its claims is backed.
+  supportingExcerpt:
+    "Nowruz Activities USA refers to community and cultural events held across the United States to observe Nowruz, the Persian New Year, each spring. Local Iranian-American associations in cities such as Los Angeles, Washington, and Houston organize Haft-Seen table displays, traditional Persian music performances, and folk dance shows during the two-week celebration window that follows the spring equinox. Families gather for shared meals, poetry readings, and craft workshops for children, while community centers coordinate a public calendar of events. Many gatherings also host a small Nowruz market selling sweets, herbs, and handmade goods from Persian vendors.",
 };
 
 describe("evaluateDraftQuality - answer blocks", () => {
@@ -62,6 +68,8 @@ describe("evaluateDraftQuality - answer blocks", () => {
           domain: "britannica.com",
           claim: "a Persian wedding centers on the sofreh aghd spread and the reading of marriage vows",
           verified: true,
+          supportingExcerpt:
+            "A Persian wedding is the traditional marriage ceremony of Persian-speaking cultures, primarily Iran, blending pre-Islamic and Islamic customs into one shared occasion. Family members hold a decorated canopy above the couple while an officiant reads the marriage vows and guests shower them with sugared almonds for good fortune.",
         },
       ],
     });
@@ -105,7 +113,15 @@ describe("evaluateDraftQuality - answer blocks", () => {
       answer:
         "Iran's national animal is the Asiatic cheetah, a critically endangered subspecies native to the country's central plateau and its arid steppe grasslands. Conservation programs coordinated by the Department of Environment work to protect the small remaining population across a network of protected reserves and national parks, including Miandasht and Touran. Camera-trap surveys and radio-collar tracking studies help researchers estimate population trends and identify the roads and fences that fragment the cheetah's remaining range. International partners have supported captive-breeding research as a hedge against further decline, though wild recovery remains the primary conservation goal for the coming decade.",
       evidenceRefs: 0,
-      sources: [{ domain: "britannica.com", claim: "the Asiatic cheetah is Iran's national animal and is critically endangered", verified: true }],
+      sources: [
+        {
+          domain: "britannica.com",
+          claim: "the Asiatic cheetah is Iran's national animal and is critically endangered",
+          verified: true,
+          supportingExcerpt:
+            "Iran's national animal is the Asiatic cheetah, a critically endangered subspecies native to the country's central plateau and its arid steppe grasslands. Conservation programs coordinated by the Department of Environment work to protect the small remaining population across a network of protected reserves and national parks, including Miandasht and Touran. Camera-trap surveys and radio-collar tracking studies help researchers estimate population trends and identify the roads and fences that fragment the cheetah's remaining range. International partners have supported captive-breeding research as a hedge against further decline, though wild recovery remains the primary conservation goal for the coming decade.",
+        },
+      ],
     });
     expect(r.status).toBe("ready");
     expect(r.copyAllowed).toBe(true);
@@ -197,7 +213,15 @@ describe("evaluateDraftQuality - quotability (BEACON 500 item 78, additive; W5 d
     const r = evaluateDraftQuality({
       answer:
         "A Persian wedding is the traditional marriage ceremony of Persian-speaking cultures, primarily Iran, blending pre-Islamic and Islamic customs into one shared occasion. The centerpiece is the sofreh aghd, a ceremonial spread laid before the couple that carries symbolic items such as a mirror, candelabras, sugar cones, and fresh herbs. Family members hold a decorated canopy above the couple while an officiant reads the marriage vows and guests shower them with sugared almonds for good fortune. The formal ceremony is followed by the jashn reception, an evening of music, dancing, and a shared meal with extended family and friends.",
-      sources: [{ domain: "britannica.com", claim: "a Persian wedding centers on the sofreh aghd spread and the reading of marriage vows", verified: true }],
+      sources: [
+        {
+          domain: "britannica.com",
+          claim: "a Persian wedding centers on the sofreh aghd spread and the reading of marriage vows",
+          verified: true,
+          supportingExcerpt:
+            "A Persian wedding is the traditional marriage ceremony of Persian-speaking cultures, primarily Iran, blending pre-Islamic and Islamic customs into one shared occasion. Family members hold a decorated canopy above the couple while an officiant reads the marriage vows and guests shower them with sugared almonds for good fortune.",
+        },
+      ],
     });
     expect(r.status).toBe("ready");
   });
@@ -317,7 +341,15 @@ describe("evaluateDraftQuality - factual entailment (N8, additive/opt-in)", () =
       evidenceRefs: 1,
       pageBodyText:
         "Nowruz is a 3000 year old Persian tradition celebrated in Iran, marking the arrival of spring every March with family gatherings, music, and poetry readings. The holiday runs for nearly two weeks and closes with a picnic on the thirteenth day.",
-      sources: [{ domain: "britannica.com", claim: "Nowruz has been celebrated in Iran for more than 3000 years", verified: true }],
+      sources: [
+        {
+          domain: "britannica.com",
+          claim: "Nowruz has been celebrated in Iran for more than 3000 years",
+          verified: true,
+          supportingExcerpt:
+            "Nowruz has been celebrated in Iran for more than 3000 years, marking the arrival of spring with family gatherings, music, poetry readings, and shared meals across the region every March.",
+        },
+      ],
     });
     expect(r.status).toBe("ready");
   });
@@ -339,7 +371,14 @@ describe("evaluateDraftQuality - factual entailment (N8, additive/opt-in)", () =
       after: "Persian New Year: 3000 Years of Nowruz Traditions in Iran",
       field: "title",
       pageBodyText: "Nowruz is a 3000 year old Persian tradition celebrated across Iran every spring.",
-      sources: [{ domain: "britannica.com", claim: "Nowruz has been celebrated in Iran for 3000 years", verified: true }],
+      sources: [
+        {
+          domain: "britannica.com",
+          claim: "Nowruz has been celebrated in Iran for 3000 years",
+          verified: true,
+          supportingExcerpt: "Persian New Year traditions, known as Nowruz, have been celebrated in Iran for 3000 years.",
+        },
+      ],
     });
     expect(r.status).toBe("ready");
   });
@@ -356,7 +395,15 @@ describe("evaluateDraftQuality / evaluateTitleMetaQuality - operator correction 
       authoritativeFacts: [
         { source: "your site's recipe count (Wix connector)", date: "2026-07-01", detail: "4500 recipes are currently published" },
       ],
-      sources: [{ domain: "britannica.com", claim: "Iranopedia's collection spans regional Persian dishes and holiday specialties", verified: true }],
+      sources: [
+        {
+          domain: "britannica.com",
+          claim: "Iranopedia's collection spans regional Persian dishes and holiday specialties",
+          verified: true,
+          supportingExcerpt:
+            "Iranopedia now lists 4500 Persian recipes in its growing collection, spanning regional dishes, holiday specialties, and everyday family meals from every corner of Iran and its many worldwide diaspora communities. Readers can filter the collection by region, occasion, or main ingredient to find dishes suited to a specific holiday table or an everyday weeknight meal.",
+        },
+      ],
     });
     expect(r.status).toBe("ready");
     expect(r.copyAllowed).toBe(true);
@@ -493,6 +540,21 @@ describe("evaluateTitleMetaQuality — atomic edits", () => {
     expect(r.status).toBe("ready");
     expect(r.copyAllowed).toBe(true);
   });
+
+  // trust-230 (Codex P1) operator test 9: a formatting-only edit that introduces
+  // no NEW specific fact never reaches the source-coverage gate at all, so it is
+  // ready with zero sources (the exemption comes from the SPECIFIC_FACT trigger,
+  // not from the coverage check).
+  it("9. a formatting-only edit is exempt: never missing_source, even with zero sources", () => {
+    const r = evaluateTitleMetaQuality({
+      before: "Persian Holidays: Explore the Traditions",
+      after: "Persian Holidays and Traditions Explained",
+      field: "title",
+    });
+    expect(r.status).not.toBe("missing_source");
+    expect(r.status).toBe("ready");
+    expect(r.copyAllowed).toBe(true);
+  });
 });
 
 describe("evaluateCreatePageBriefQuality", () => {
@@ -506,7 +568,15 @@ describe("evaluateCreatePageBriefQuality", () => {
     schemaTypes: ["Article", "FAQPage"],
     hasSerpVerdict: true,
     // W5 P1-4 (2026-07-09): the factual openingAnswer needs a verified source.
-    sources: [{ domain: "britannica.com", claim: "a Persian wedding centers on the sofreh aghd ceremonial spread", verified: true as const }],
+    sources: [
+      {
+        domain: "britannica.com",
+        claim: "a Persian wedding centers on the sofreh aghd ceremonial spread",
+        verified: true as const,
+        supportingExcerpt:
+          "A Persian wedding blends pre-Islamic and Islamic customs centered on the Sofreh Aghd, a ceremonial spread with symbolic items such as a mirror, candelabras, sugar cones, and sweets.",
+      },
+    ],
   };
 
   it("PASSES the 3 real briefs (Persian wedding)", () => {

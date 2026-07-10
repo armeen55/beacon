@@ -3,6 +3,7 @@ import {
   classifySourceAuthority,
   stampSourceAuthority,
   hasQualifyingAuthoritativeSource,
+  draftFactsCoveredBySources,
   extractDomain,
   claimTokens,
   findSupportingSpan,
@@ -127,8 +128,10 @@ describe("hasQualifyingAuthoritativeSource", () => {
     expect(hasQualifyingAuthoritativeSource(draft, [])).toBe(false);
   });
 
-  it("false when the only source is authoritative but shares no claim tokens with the draft", () => {
-    const sources = [{ domain: "britannica.com", claim: "the ancient trade routes crossed a mountain pass" }];
+  it("false when the only source is authoritative + verified but its excerpt does not entail the draft's claim", () => {
+    const sources = [
+      { domain: "britannica.com", claim: "the ancient trade routes crossed a mountain pass", verified: true },
+    ];
     expect(hasQualifyingAuthoritativeSource(draft, sources)).toBe(false);
   });
 
@@ -137,13 +140,29 @@ describe("hasQualifyingAuthoritativeSource", () => {
     expect(hasQualifyingAuthoritativeSource(draft, sources)).toBe(false);
   });
 
-  it("true when an authoritative source's claim overlaps the draft's own claim tokens", () => {
-    const sources = [{ domain: "britannica.com", claim: "the museum's collection includes thousands of artifacts", verified: true }];
+  it("true when an authoritative, verified source's excerpt actually entails the draft's claim", () => {
+    const sources = [
+      {
+        domain: "britannica.com",
+        claim: "the Sample Museum's collection catalog lists over 3000 artifacts",
+        verified: true,
+        supportingExcerpt:
+          "The Sample Museum's collection catalog lists over 3000 artifacts spanning several centuries of regional history.",
+      },
+    ];
     expect(hasQualifyingAuthoritativeSource(draft, sources)).toBe(true);
   });
 
   it("true via a tenant allowlist domain, only when that allowlist is supplied", () => {
-    const sources = [{ domain: "sample-museum.org", claim: "the collection catalog lists over 3000 artifacts", verified: true }];
+    const sources = [
+      {
+        domain: "sample-museum.org",
+        claim: "the collection catalog lists over 3000 artifacts",
+        verified: true,
+        supportingExcerpt:
+          "The Sample Museum's collection catalog lists over 3000 artifacts spanning several centuries of regional history.",
+      },
+    ];
     expect(hasQualifyingAuthoritativeSource(draft, sources)).toBe(false);
     expect(hasQualifyingAuthoritativeSource(draft, sources, ["sample-museum.org"])).toBe(true);
   });
@@ -157,14 +176,28 @@ describe("hasQualifyingAuthoritativeSource", () => {
   // that was NEVER generation-time verified does NOT qualify (a hallucinated
   // .gov/.edu URL cannot earn authoritative on domain class alone).
   it("false when an authoritative, on-topic source is not verified", () => {
-    const sources = [{ domain: "britannica.com", claim: "the museum's collection includes thousands of artifacts" }];
+    const sources = [
+      {
+        domain: "britannica.com",
+        claim: "the Sample Museum's collection catalog lists over 3000 artifacts",
+        supportingExcerpt:
+          "The Sample Museum's collection catalog lists over 3000 artifacts spanning several centuries of regional history.",
+      },
+    ];
     expect(hasQualifyingAuthoritativeSource(draft, sources)).toBe(false); // verified defaults undefined
     expect(hasQualifyingAuthoritativeSource(draft, [{ ...sources[0]!, verified: false }])).toBe(false);
     expect(hasQualifyingAuthoritativeSource(draft, [{ ...sources[0]!, verified: true }])).toBe(true);
   });
 
   it("false for a hallucinated .gov URL that was not verified (domain class alone never passes)", () => {
-    const sources = [{ url: "https://www.example.gov/made-up-page", claim: "the museum's collection includes thousands of artifacts" }];
+    const sources = [
+      {
+        url: "https://www.example.gov/made-up-page",
+        claim: "the Sample Museum's collection catalog lists over 3000 artifacts",
+        supportingExcerpt:
+          "The Sample Museum's collection catalog lists over 3000 artifacts spanning several centuries of regional history.",
+      },
+    ];
     expect(hasQualifyingAuthoritativeSource(draft, sources)).toBe(false);
     // Only a generation-time verified fetch flips it.
     expect(hasQualifyingAuthoritativeSource(draft, [{ ...sources[0]!, verified: true }])).toBe(true);
@@ -246,5 +279,187 @@ describe("findSupportingSpan (W5 stop-ship F2) - the span quartet", () => {
     const belowBar = findSupportingSpan(boundaryClaim, "the museum collection stays open late.");
     expect(belowBar.supported).toBe(false);
     expect(belowBar.excerpt).toBeNull();
+  });
+});
+
+// trust-230 (Codex P1): the fix for the vacuous single-token bug. Every
+// PROTECTED claim in a draft (a non-structural number, a named entity, or a
+// superlative) must be entailed by a verified authoritative source's excerpt,
+// not merely share one topic word with it. The operator's coverage suite.
+describe("draftFactsCoveredBySources (trust-230, Codex P1) - the operator's coverage suite", () => {
+  /** A verified, authoritative (britannica.com) source whose fetched passage is
+   *  `excerpt`. This is the shape the real gate consumes. */
+  const src = (excerpt: string, extra: Record<string, unknown> = {}) => ({
+    domain: "britannica.com",
+    claim: excerpt,
+    verified: true as const,
+    supportingExcerpt: excerpt,
+    ...extra,
+  });
+
+  // 1. one true source + two unsupported claims -> covered:false
+  it("1. one true source covering one of three protected claims -> covered:false, the other two uncovered", () => {
+    const draft =
+      "The Northgate Museum holds 3000 artifacts. The Riverside Gallery opened in 1998. The Old Mill closed for repairs.";
+    const r = draftFactsCoveredBySources(draft, [
+      src("The Northgate Museum holds 3000 artifacts in its permanent collection."),
+    ]);
+    expect(r.covered).toBe(false);
+    expect(r.uncovered).toContain("The Riverside Gallery opened in 1998.");
+    expect(r.uncovered).toContain("The Old Mill closed for repairs.");
+    expect(r.uncovered).not.toContain("The Northgate Museum holds 3000 artifacts.");
+    expect(r.receipts).toHaveLength(1);
+    expect(r.receipts[0]!.claim).toBe("The Northgate Museum holds 3000 artifacts.");
+    expect(r.receipts[0]!.sourceUrl).toBe("britannica.com");
+    expect(r.receipts[0]!.excerpt).toContain("3000");
+  });
+
+  // 2. single-token overlap ("Iran") -> false (the headline defect)
+  it("2. a source that only shares one generic topic word never vacuously qualifies", () => {
+    const draft = "The Northgate Museum displays 4200 artifacts from the region.";
+    // Shares the token "northgate" but backs nothing about the 4200 artifacts.
+    const r = draftFactsCoveredBySources(draft, [src("The Northgate district is a lively neighborhood.")]);
+    expect(r.covered).toBe(false);
+    expect(r.uncovered).toEqual([draft]);
+  });
+
+  // 3. same entity, different number -> false
+  it("3. same entity but a different number -> covered:false", () => {
+    const draft = "The Northgate Museum holds 3000 artifacts.";
+    const r = draftFactsCoveredBySources(draft, [src("The Northgate Museum holds 5000 artifacts.")]);
+    expect(r.covered).toBe(false);
+  });
+
+  // 4. same number, different entity -> false
+  it("4. same number but a different entity -> covered:false", () => {
+    const draft = "The Northgate Museum holds 3000 artifacts.";
+    const r = draftFactsCoveredBySources(draft, [src("The Southgate Museum holds 3000 artifacts.")]);
+    expect(r.covered).toBe(false);
+  });
+
+  // 5. negated claim vs affirmative source -> false (negation-parity guard)
+  it("5. a negated claim is NOT covered by an affirmative source (negation parity)", () => {
+    const negated = "The Northgate Museum does not hold 3000 artifacts.";
+    const affirmativeSource = [src("The Northgate Museum does hold 3000 artifacts.")];
+    expect(draftFactsCoveredBySources(negated, affirmativeSource).covered).toBe(false);
+    // The identical claim WITHOUT the negation is covered by the same source,
+    // proving it is the polarity mismatch (not a token/number miss) that blocks.
+    const affirmed = "The Northgate Museum does hold 3000 artifacts.";
+    expect(draftFactsCoveredBySources(affirmed, affirmativeSource).covered).toBe(true);
+  });
+
+  // 6. two sources cover two claims -> true
+  it("6. two sources, one per claim -> covered:true with two receipts", () => {
+    const draft = "The Northgate Museum holds 3000 artifacts. The Riverside Gallery opened in 1998.";
+    const r = draftFactsCoveredBySources(draft, [
+      src("The Northgate Museum holds 3000 artifacts in its permanent collection."),
+      src("The Riverside Gallery opened in 1998 downtown."),
+    ]);
+    expect(r.covered).toBe(true);
+    expect(r.uncovered).toEqual([]);
+    expect(r.receipts).toHaveLength(2);
+  });
+
+  // 7. one source, multiple claims -> true only if EACH is supported
+  it("7. one source covers multiple claims only when its excerpt entails each one", () => {
+    const draft = "The Northgate Museum holds 3000 artifacts. The Riverside Gallery opened in 1998.";
+    const bothCovered = draftFactsCoveredBySources(draft, [
+      src("The Northgate Museum holds 3000 artifacts. The Riverside Gallery opened in 1998."),
+    ]);
+    expect(bothCovered.covered).toBe(true);
+    const missesOne = draftFactsCoveredBySources(draft, [src("The Northgate Museum holds 3000 artifacts.")]);
+    expect(missesOne.covered).toBe(false);
+    expect(missesOne.uncovered).toEqual(["The Riverside Gallery opened in 1998."]);
+  });
+
+  // 8. appending an unsourced sentence turns the whole draft false
+  it("8. appending one unsourced protected sentence flips the whole draft to covered:false", () => {
+    const source = [src("The Northgate Museum holds 3000 artifacts in its permanent collection.")];
+    const before = "The Northgate Museum holds 3000 artifacts.";
+    expect(draftFactsCoveredBySources(before, source).covered).toBe(true);
+    const after = "The Northgate Museum holds 3000 artifacts. The Old Mill closed in 1975.";
+    const r = draftFactsCoveredBySources(after, source);
+    expect(r.covered).toBe(false);
+    expect(r.uncovered).toEqual(["The Old Mill closed in 1975."]);
+  });
+
+  // 10. tenant-neutral: two structurally-identical fixtures with different
+  //     vocabulary behave BYTE-identically (no hardcoded tenant vocabulary).
+  it("10. an Iranopedia-flavored and a Ritz-flavored fixture behave identically", () => {
+    // Same shape: one protected sentence (entity + 5000), source excerpt entails it.
+    const iranopedia = draftFactsCoveredBySources("The Nowruz festival drew 5000 visitors in Shiraz.", [
+      src("The Nowruz festival drew 5000 visitors in Shiraz."),
+    ]);
+    const ritz = draftFactsCoveredBySources("The Lakeside project added 5000 square feet in Fremont.", [
+      src("The Lakeside project added 5000 square feet in Fremont."),
+    ]);
+    expect(iranopedia.covered).toBe(true);
+    expect(ritz.covered).toBe(iranopedia.covered);
+    expect(ritz.receipts.length).toBe(iranopedia.receipts.length);
+    expect(ritz.uncovered.length).toBe(iranopedia.uncovered.length);
+
+    // And the negative parallel: an off-topic source fails identically for both.
+    const iranopediaMiss = draftFactsCoveredBySources("The Nowruz festival drew 5000 visitors in Shiraz.", [
+      src("An unrelated statement about mountain trade routes."),
+    ]);
+    const ritzMiss = draftFactsCoveredBySources("The Lakeside project added 5000 square feet in Fremont.", [
+      src("An unrelated statement about mountain trade routes."),
+    ]);
+    expect(iranopediaMiss.covered).toBe(false);
+    expect(ritzMiss.covered).toBe(iranopediaMiss.covered);
+    expect(ritzMiss.uncovered.length).toBe(iranopediaMiss.uncovered.length);
+  });
+});
+
+describe("draftFactsCoveredBySources - what does and does not contribute", () => {
+  const draft = "The Northgate Museum holds 3000 artifacts.";
+  const covering = "The Northgate Museum holds 3000 artifacts in its permanent collection.";
+
+  it("a WEAK source (ordinary domain) never contributes, even verified with a covering excerpt", () => {
+    const r = draftFactsCoveredBySources(draft, [
+      { domain: "some-blog.example", claim: covering, verified: true, supportingExcerpt: covering },
+    ]);
+    expect(r.covered).toBe(false);
+  });
+
+  it("an UNVERIFIED authoritative source never contributes, even with a covering excerpt", () => {
+    const r = draftFactsCoveredBySources(draft, [
+      { domain: "britannica.com", claim: covering, verified: false, supportingExcerpt: covering },
+    ]);
+    expect(r.covered).toBe(false);
+  });
+
+  it("with NO excerpt, the source falls back to its `claim` as the evidence text", () => {
+    const r = draftFactsCoveredBySources(draft, [
+      { domain: "britannica.com", claim: covering, verified: true },
+    ]);
+    expect(r.covered).toBe(true);
+  });
+
+  it("an authoritative + verified source with neither excerpt nor claim contributes nothing", () => {
+    const r = draftFactsCoveredBySources(draft, [
+      { url: "https://www.example.gov/x", verified: true },
+    ]);
+    expect(r.covered).toBe(false);
+  });
+
+  it("a claim-free framing draft has no protected sentence, so it is covered with zero sources", () => {
+    const framing = "We plan ahead and leave early to avoid the rush before the gates open.";
+    const r = draftFactsCoveredBySources(framing, []);
+    expect(r.covered).toBe(true);
+    expect(r.uncovered).toEqual([]);
+  });
+
+  it("a superlative alone makes a sentence protected (it needs a source too)", () => {
+    const superlative = "it remains the best value around.";
+    expect(draftFactsCoveredBySources(superlative, []).covered).toBe(false);
+  });
+
+  it("boolean wrapper parity: hasQualifyingAuthoritativeSource === draftFactsCoveredBySources(...).covered", () => {
+    const sources = [{ domain: "britannica.com", claim: covering, verified: true, supportingExcerpt: covering }];
+    expect(hasQualifyingAuthoritativeSource(draft, sources)).toBe(draftFactsCoveredBySources(draft, sources).covered);
+    expect(hasQualifyingAuthoritativeSource(draft, [])).toBe(draftFactsCoveredBySources(draft, []).covered);
+    const offTopic = [{ domain: "britannica.com", claim: "unrelated", verified: true, supportingExcerpt: "unrelated" }];
+    expect(hasQualifyingAuthoritativeSource(draft, offTopic)).toBe(draftFactsCoveredBySources(draft, offTopic).covered);
   });
 });
