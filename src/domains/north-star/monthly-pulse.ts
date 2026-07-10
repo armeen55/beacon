@@ -30,6 +30,23 @@ export type MonthlyPulseInput = {
   /** The tenant's configured monthly-visit goal (operator's revival target). Optional -
    *  no goal configured means no goal line, never a made-up target. */
   monthlyVisitGoal?: number | null;
+  /**
+   * Wave 2A (2026-07-10) - the reconciliation gate for GA4 sitewide VISITS. The card
+   * may show a visits number ONLY when this carries a PASSING reconciliation (the
+   * caller already checked the marker is fresh). Absent/null keeps the EXACT shipped
+   * hold-back behavior - clicks lead, visits stay withheld. "mismatch" swaps the
+   * hold-back line for an honest alert but still shows no number. "pass" is the ONLY
+   * state that produces a visits figure, always graded from reconciled visits (never
+   * clicks). visitsByMonth is GA4 sessions per calendar month, ascending, partial flag
+   * on the current month.
+   */
+  reconciliation?:
+    | {
+        status: "pass";
+        visitsByMonth: ReadonlyArray<{ month: string; visits: number; partial: boolean }>;
+      }
+    | { status: "mismatch" }
+    | null;
   /** Clock (testable). */
   nowMs: number;
 };
@@ -47,17 +64,33 @@ export type MonthlyPulse = {
   /** Last full month's clicks headline (the proven number). Null self-hides the card. */
   headline: string | null;
   /** P0-A honest state that stands in for the withdrawn sitewide-visits number. Always
-   *  set; only surfaces when the card renders (i.e. when there is a clicks headline). */
+   *  set; only surfaces when the card renders (i.e. when there is a clicks headline).
+   *  Wave 2A: becomes the reconciled line on a pass, or the mismatch alert on a mismatch. */
   reconciliationLine: string;
   goalLine: string | null;
   monthToDateLine: string | null;
   deltaLine: string | null;
+  /** Wave 2A - populated ONLY behind a PASSING reconciliation; null in every other
+   *  state (held-back and mismatch both keep these null, so no unverified visits
+   *  number can ever render). */
+  reconciledVisitsHeadline: string | null;
+  reconciledGoalLine: string | null;
+  reconciledMonthToDateLine: string | null;
 };
 
 /** P0-A honest replacement for the withdrawn sitewide-visits totals. Beacon voice,
  *  owns the miss plainly, points at the number that IS accurate. No dashes. */
 export const MONTHLY_VISITS_RECONCILIATION_LINE =
   "Monthly visits need reconciliation, so I am holding that number back until I can rebuild it without double-counting. Your Search Console clicks below are accurate.";
+
+/** Wave 2A - shown when a reconciliation PASSES: the visits number is trustworthy. */
+export const MONTHLY_VISITS_RECONCILED_LINE =
+  "These visits are reconciled against Analytics, so this is a number I trust.";
+
+/** Wave 2A - shown when the daily rollup does NOT match GA4's direct monthly total:
+ *  own the miss, show no number, point at the number that IS accurate. No dashes. */
+export const MONTHLY_VISITS_MISMATCH_LINE =
+  "The visits number does not add up yet, so I am not showing it until it does. Your Search Console clicks below are accurate.";
 
 function monthKey(d: Date): string {
   return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-01`;
@@ -134,12 +167,57 @@ export function buildMonthlyPulse(input: MonthlyPulseInput): MonthlyPulse {
     else deltaLine = `${lastFull.label} clicks held even with ${priorFull.label}.`;
   }
 
+  // Wave 2A - the reconciliation gate. Default (no reconciliation) is byte-identical
+  // to the shipped hold-back. Only a PASS produces a visits figure; MISMATCH swaps the
+  // hold-back line for an honest alert but still shows no number.
+  const reconciliation = input.reconciliation ?? null;
+  let reconciliationLine = MONTHLY_VISITS_RECONCILIATION_LINE;
+  let reconciledVisitsHeadline: string | null = null;
+  let reconciledGoalLine: string | null = null;
+  let reconciledMonthToDateLine: string | null = null;
+
+  if (reconciliation != null && reconciliation.status === "mismatch") {
+    reconciliationLine = MONTHLY_VISITS_MISMATCH_LINE;
+  } else if (reconciliation != null && reconciliation.status === "pass") {
+    reconciliationLine = MONTHLY_VISITS_RECONCILED_LINE;
+    const asc = [...reconciliation.visitsByMonth].sort((a, b) => a.month.localeCompare(b.month));
+    const lastFullVisits = [...asc].reverse().find((m) => !m.partial && m.visits > 0) ?? null;
+    const partialVisits = asc.find((m) => m.partial && m.visits > 0) ?? null;
+
+    if (lastFullVisits != null) {
+      reconciledVisitsHeadline = `${monthLabel(lastFullVisits.month)}: ${fmt(
+        lastFullVisits.visits,
+      )} visits, reconciled against Analytics.`;
+    }
+    if (partialVisits != null) {
+      reconciledMonthToDateLine = `${monthLabel(partialVisits.month)} so far: ${fmt(
+        partialVisits.visits,
+      )} visits.`;
+    }
+    // Grade the goal from RECONCILED VISITS only (never clicks). When we have a pass,
+    // the ungradeable clicks-context goal line is dropped in favor of this one.
+    if (goal != null && goal > 0 && lastFullVisits != null) {
+      reconciledGoalLine =
+        lastFullVisits.visits >= goal
+          ? `${monthLabel(lastFullVisits.month)} cleared your ${fmt(goal)}-visits-a-month goal with ${fmt(
+              lastFullVisits.visits,
+            )} visits.`
+          : `${monthLabel(lastFullVisits.month)} reached ${fmt(lastFullVisits.visits)} of your ${fmt(
+              goal,
+            )}-visits-a-month goal.`;
+      goalLine = null;
+    }
+  }
+
   return {
     months,
     headline,
-    reconciliationLine: MONTHLY_VISITS_RECONCILIATION_LINE,
+    reconciliationLine,
     goalLine,
     monthToDateLine,
     deltaLine,
+    reconciledVisitsHeadline,
+    reconciledGoalLine,
+    reconciledMonthToDateLine,
   };
 }

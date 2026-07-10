@@ -39,6 +39,10 @@ export async function saveSetup(data: {
    *  HARD-REJECTED by the factory validator. */
   contentRules?: string[];
   flaggedTerms?: string[];
+  /** Wave 2A (2026-07-10): the tenant's monthly-visits revival goal. A positive
+   *  integer sets it, null clears it, undefined leaves it untouched. Graded ONLY
+   *  from reconciled analytics, never from clicks. */
+  monthlyVisitGoal?: number | null;
 }): Promise<{ success: boolean; error?: string }> {
   const action = "saveSetup";
   const t0 = Date.now();
@@ -76,6 +80,20 @@ export async function saveSetup(data: {
     if (bt && BUSINESS_TYPES.has(bt)) {
       patch.businessType = bt as BusinessConfig["businessType"];
       if (bt === "content_publisher") patch.contentSiteMode = true;
+    }
+    // Wave 2A - monthly-visits goal. undefined = leave untouched; null = clear;
+    // a value must be a positive integer (validated defensively even though the form
+    // validates too). Graded only from reconciled analytics, never from clicks.
+    if (data.monthlyVisitGoal !== undefined) {
+      if (data.monthlyVisitGoal === null) {
+        patch.monthlyVisitGoal = null;
+      } else {
+        const goal = Number(data.monthlyVisitGoal);
+        if (!Number.isInteger(goal) || goal <= 0) {
+          return { success: false, error: "Enter a whole number of visits above zero, or leave it blank." };
+        }
+        patch.monthlyVisitGoal = goal;
+      }
     }
     saveBusinessConfig(tenantId, patch);
     const yelpBid = (data.yelpBusinessId ?? "").trim();

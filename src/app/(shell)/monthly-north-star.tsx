@@ -3,10 +3,15 @@
  * north star strip on Today.
  *
  * P0-A: the sitewide monthly VISITS number was withdrawn because it summed non-additive
- * GA4 page-level sessions (see monthly-pulse.ts). This strip now headlines the last full
- * month's Search Console clicks (the number we can prove), states plainly that monthly
- * visits need reconciliation, and shows honest goal/delta/month-to-date lines. A visits
- * goal is never graded from clicks. Deadline-bounded + self-hiding; never a bare zero.
+ * GA4 page-level sessions (see monthly-pulse.ts). This strip headlines the last full
+ * month's Search Console clicks (the number we can prove) and states plainly that monthly
+ * visits need reconciliation.
+ *
+ * Wave 2A (2026-07-10): visits come back, but ONLY behind a passing, fresh reconciliation
+ * (the loader gates that). On a pass the strip adds a reconciled visits line and grades
+ * the goal from visits (never clicks). On a mismatch it shows an honest alert and still
+ * no number. With GA4 disconnected today, neither fires and the shipped hold-back stands.
+ * A visits goal is never graded from clicks. Deadline-bounded + self-hiding; never a bare zero.
  */
 import { loadWithDeadline } from "@/lib/load-with-deadline";
 import { loadMonthlyPulseForTenant } from "@/domains/north-star/load-monthly-pulse";
@@ -22,7 +27,11 @@ export async function MonthlyNorthStar({
   if (raced.timedOut || !raced.data || !raced.data.headline) return null;
   const pulse = raced.data;
 
-  const subLine = [pulse.goalLine, pulse.deltaLine, pulse.monthToDateLine].filter(Boolean).join(" ");
+  // Wave 2A: reconciled goal/month-to-date copy wins when a pass produced it; otherwise
+  // the shipped clicks-context lines stand.
+  const goalLine = pulse.reconciledGoalLine ?? pulse.goalLine;
+  const monthToDateLine = pulse.reconciledMonthToDateLine ?? pulse.monthToDateLine;
+  const subLine = [goalLine, pulse.deltaLine, monthToDateLine].filter(Boolean).join(" ");
 
   const chipMonths = pulse.months.filter((m) => m.clicks != null);
 
@@ -32,6 +41,9 @@ export async function MonthlyNorthStar({
       className="rounded-2xl border border-border bg-card p-4"
     >
       <p className="text-sm font-semibold text-foreground">{pulse.headline}</p>
+      {pulse.reconciledVisitsHeadline ? (
+        <p className="mt-1 text-sm font-semibold text-foreground">{pulse.reconciledVisitsHeadline}</p>
+      ) : null}
       <p className="mt-1 text-[12px] leading-relaxed text-muted-foreground">{pulse.reconciliationLine}</p>
       {subLine ? (
         <p className="mt-1 text-[12px] leading-relaxed text-muted-foreground">{subLine}</p>

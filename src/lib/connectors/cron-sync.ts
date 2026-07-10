@@ -6,6 +6,8 @@ import { syncGscSearchAnalyticsForTenant } from "@/lib/connectors/gsc/sync-searc
 import { syncGscWeeklyDimensionsForTenant } from "@/lib/connectors/gsc/weekly-dimensions-sync";
 import { syncGa4UrlTrafficForTenant } from "@/lib/connectors/ga4/sync-url-traffic";
 import { pullGa4AiReferralsForTenant } from "@/lib/connectors/ga4/sync-ai-referrals";
+import { syncGa4SitewideSessionsForTenant } from "@/lib/connectors/ga4/sync-sitewide-sessions";
+import { reconcileGa4MonthlySeries } from "@/domains/north-star/reconcile-ga4-monthly-series";
 import { syncClarityDailyMetricsForTenant } from "@/lib/connectors/clarity/sync-daily-metrics";
 import { syncProfoundNightlyForTenant } from "@/lib/connectors/profound/sync-nightly";
 import { precomputeMoveDraftsForTenant } from "@/domains/demand-graph/precompute-drafts";
@@ -374,6 +376,55 @@ export async function syncAllConnectedForActiveTenants(): Promise<CronSyncResult
         error: e instanceof Error ? e.message.slice(0, 200) : String(e),
       });
       await reportPhaseError("ai-referrals", t.id, e);
+    }
+  }
+
+  // PHASE 1a-sitewide - the TRUE sitewide GA4 series (Wave 2A): a SEPARATE date-only
+  // report so GA4's own per-day sitewide session count lands in ga4_daily_totals at the
+  // correct grain (summing across DISTINCT days is additive-safe, unlike summing the
+  // per-page table). Isolated step by contract: its own try/catch, its own report
+  // request, dormant until a GA4 key + property exist, idempotent upsert - so it can
+  // never slow or break the per-page traffic sync above (or vice versa).
+  for (const t of tenants) {
+    try {
+      const r = await syncGa4SitewideSessionsForTenant({ tenantId: t.id });
+      if (r.synced && r.rows_upserted > 0) {
+        log.info("[cron-sync] ga4 sitewide sessions", {
+          tenantId: t.id,
+          rowsUpserted: r.rows_upserted,
+          truncated: r.truncated ?? false,
+        });
+      }
+    } catch (e) {
+      log.warn("[cron-sync] ga4 sitewide sessions failed", {
+        tenantId: t.id,
+        error: e instanceof Error ? e.message.slice(0, 200) : String(e),
+      });
+      await reportPhaseError("ga4-sitewide-sessions", t.id, e);
+    }
+  }
+
+  // PHASE 1a-recon - reconcile the sitewide daily rollup against GA4's DIRECT monthly
+  // totals (Wave 2A) and persist the verdict. Only a PASS lets the north-star card show a
+  // visits number; a mismatch drives an honest alert; a dead grant records not_connected.
+  // Isolated try/catch, dormant until a GA4 key + property exist (returns not_connected
+  // cheaply), so it never affects any sync above.
+  for (const t of tenants) {
+    try {
+      const r = await reconcileGa4MonthlySeries(t.id);
+      if (r.status === "pass" || r.status === "mismatch") {
+        log.info("[cron-sync] ga4 monthly reconciliation", {
+          tenantId: t.id,
+          status: r.status,
+          months: r.perMonth.length,
+        });
+      }
+    } catch (e) {
+      log.warn("[cron-sync] ga4 monthly reconciliation failed", {
+        tenantId: t.id,
+        error: e instanceof Error ? e.message.slice(0, 200) : String(e),
+      });
+      await reportPhaseError("ga4-monthly-reconciliation", t.id, e);
     }
   }
 

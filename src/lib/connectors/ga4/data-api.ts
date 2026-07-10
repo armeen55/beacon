@@ -70,6 +70,10 @@ import type {
   Ga4RevenueRow,
   Ga4RunReportArgs,
   Ga4RunReportResponseBody,
+  Ga4SitewideDailyRow,
+  Ga4SitewideMonthlyReportResult,
+  Ga4SitewideMonthlyRow,
+  Ga4SitewideReportResult,
   Ga4UrlTrafficReportResult,
   Ga4UrlTrafficRow,
 } from "./types";
@@ -964,6 +968,403 @@ export async function runGa4AiReferralReport(
   const result: Ga4AiReferralReportResult = { ok: true, rows };
   if (reportedRowCount != null) result.rowCount = reportedRowCount;
   if (truncated) result.truncated = true;
+  return result;
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// GA4 sitewide sessions report (2026-07-10, Wave 2A) - the TRUE sitewide series.
+//
+// SEPARATE from the (date, pagePath) traffic report on purpose: this report has
+// ONLY a `date` dimension, so GA4 returns its OWN sitewide session count per day,
+// already aggregated across every page. That is the number Wave 1 could not get
+// by summing ga4_url_traffic (GA4 sessions are not additive across page paths).
+//
+// "visits" == GA4 sessions. We request `sessions` (+ `engagedSessions` for
+// context) and store the daily rows at (tenant, property, date) grain, where
+// summing across DISTINCT days IS additive-safe. Same auth/refresh/pagination
+// posture as the sibling reports so a sitewide failure is isolated and fail-soft.
+// ─────────────────────────────────────────────────────────────────────
+
+/** Sitewide daily metrics requested from GA4 (date dimension only). */
+export const GA4_SITEWIDE_METRICS = ["sessions", "engagedSessions"] as const;
+
+/**
+ * Build the sitewide `runReport` body: ONE `date` dimension (NO pagePath) so GA4
+ * aggregates sessions across the whole property per day. Total deterministic
+ * order for exact offset pagination. Pure; exported for tests.
+ */
+export function buildSitewideSessionsReportBody(args: {
+  startDate: string;
+  endDate: string;
+  offset?: number;
+  limit?: number;
+}): Record<string, unknown> {
+  return {
+    dateRanges: [{ startDate: args.startDate, endDate: args.endDate }],
+    dimensions: [{ name: "date" }],
+    metrics: GA4_SITEWIDE_METRICS.map((name) => ({ name })),
+    orderBys: [{ dimension: { dimensionName: "date" } }],
+    limit: args.limit ?? GA4_PAGE_SIZE,
+    offset: args.offset ?? 0,
+  };
+}
+
+/**
+ * Narrow a sitewide daily `runReport` body into `Ga4SitewideDailyRow[]`. Metric
+ * values map BY HEADER NAME (never index) so a reordered metric set can't
+ * misassign. GA4 date "YYYYMMDD" normalizes to "YYYY-MM-DD". Drops malformed
+ * rows. Pure; exported for tests.
+ */
+export function narrowSitewideDailyRows(
+  body: Ga4RunReportResponseBody | null | undefined,
+): Ga4SitewideDailyRow[] {
+  if (body == null || typeof body !== "object") return [];
+  const rows = Array.isArray(body.rows) ? body.rows : [];
+  const headers = Array.isArray(body.metricHeaders) ? body.metricHeaders : [];
+  const idxOf = (name: string): number => headers.findIndex((h) => h?.name === name);
+  const iSessions = idxOf("sessions");
+  const iEngaged = idxOf("engagedSessions");
+  const out: Ga4SitewideDailyRow[] = [];
+  for (const row of rows) {
+    if (row == null || typeof row !== "object") continue;
+    const dims = Array.isArray(row.dimensionValues) ? row.dimensionValues : [];
+    const mets = Array.isArray(row.metricValues) ? row.metricValues : [];
+    const dateRaw = typeof dims[0]?.value === "string" ? dims[0]!.value : null;
+    if (dateRaw == null || !/^\d{8}$/.test(dateRaw)) continue;
+    const date = `${dateRaw.slice(0, 4)}-${dateRaw.slice(4, 6)}-${dateRaw.slice(6, 8)}`;
+    out.push({
+      date,
+      // Header-name mapping; fall back to positional 0/1 only when headers absent.
+      sessions: parseMetricInt((iSessions >= 0 ? mets[iSessions] : mets[0])?.value),
+      engaged_sessions: parseMetricInt((iEngaged >= 0 ? mets[iEngaged] : mets[1])?.value),
+    });
+  }
+  return out;
+}
+
+/** Read GA4's response-metadata timeZone (the property's reporting timezone GA4
+ *  bucketed the dates in). GA4 buckets `date`/`yearMonth` in this timezone BY
+ *  DEFAULT. Returns null when absent. Pure. */
+function parsePropertyTimezone(body: Ga4RunReportResponseBody | null | undefined): string | null {
+  const tz = body?.metadata?.timeZone;
+  return typeof tz === "string" && tz !== "" ? tz : null;
+}
+
+/**
+ * Run the GA4 sitewide sessions `runReport` (date dimension only). Fail-soft
+ * discriminated union; NEVER throws. Auth/refresh/401-retry/non-2xx-logging/
+ * bounded-pagination posture mirrors `runGa4UrlTrafficReport` exactly. On
+ * success returns the daily rows plus the property's reporting timezone from
+ * response metadata.
+ */
+export async function runGa4SitewideSessionsReport(
+  args: Ga4RunReportArgs,
+): Promise<Ga4SitewideReportResult> {
+  const { tenantId, propertyId, startDate, endDate } = args;
+  if (!tenantId) return { ok: false, reason: "no_token", message: "missing tenantId" };
+  if (!propertyId) return { ok: false, reason: "api_error", message: "missing propertyId" };
+  if (!startDate || !endDate) return { ok: false, reason: "api_error", message: "missing date range" };
+
+  const token = await getGoogleConnectorToken("ga4", tenantId);
+  if (token == null) return { ok: false, reason: "no_token" };
+  if (!Array.isArray(token.scopes) || !token.scopes.includes(REQUIRED_SCOPE)) {
+    return { ok: false, reason: "no_token", message: "missing scope" };
+  }
+  if (token.disconnected_at != null && token.disconnected_at !== "") {
+    return { ok: false, reason: "disconnected" };
+  }
+
+  const expiryStatus = evaluateExpiry({ token, now: new Date() });
+  if (expiryStatus === "stale_over_7d") {
+    return { ok: false, reason: "token_expired", message: ">7d past expiry" };
+  }
+  let accessToken = token.access_token;
+  if (expiryStatus === "stale_under_7d") {
+    try {
+      const refreshed = await refreshGoogleAccessToken(token.refresh_token, {
+        provider: "google_ga4",
+        tenantId,
+        connectedAt: token.connected_at,
+      });
+      accessToken = refreshed.access_token;
+      await persistRefreshedGoogleToken("google_ga4", refreshed, tenantId);
+    } catch {
+      return { ok: false, reason: "token_expired" };
+    }
+  }
+
+  const url = buildRunReportUrl(propertyId);
+
+  async function fetchSitewidePage(
+    pageToken: string,
+    offset: number,
+  ): Promise<
+    | { ok: true; body: Ga4RunReportResponseBody }
+    | { ok: false; status?: number; kind: "fetch_threw" | "non_2xx" | "json_parse" | "empty"; errorBody?: string }
+  > {
+    let response: Response;
+    try {
+      response = await fetch(url, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${pageToken}`, "Content-Type": "application/json" },
+        body: JSON.stringify(buildSitewideSessionsReportBody({ startDate, endDate, offset })),
+      });
+    } catch {
+      return { ok: false, kind: "fetch_threw" };
+    }
+    if (!response.ok) {
+      let errorBody = "";
+      try {
+        errorBody = (await response.text()).slice(0, 500);
+      } catch {
+        errorBody = "(body unavailable)";
+      }
+      return { ok: false, kind: "non_2xx", status: response.status, errorBody };
+    }
+    try {
+      const data = (await response.json()) as Ga4RunReportResponseBody | null;
+      return data == null ? { ok: false, kind: "empty" } : { ok: true, body: data };
+    } catch {
+      return { ok: false, kind: "json_parse" };
+    }
+  }
+
+  let page0 = await fetchSitewidePage(accessToken, 0);
+  if (!page0.ok && page0.kind === "fetch_threw") {
+    log.warn("[ga4-sitewide] fetch threw; api_error", { tenantId });
+    return { ok: false, reason: "api_error", message: "fetch threw" };
+  }
+  if (!page0.ok && page0.kind === "non_2xx" && page0.status === 401) {
+    try {
+      const refreshed = await refreshGoogleAccessToken(token.refresh_token, {
+        provider: "google_ga4",
+        tenantId,
+        connectedAt: token.connected_at,
+      });
+      accessToken = refreshed.access_token;
+      await persistRefreshedGoogleToken("google_ga4", refreshed, tenantId);
+      const retry = await fetchSitewidePage(accessToken, 0);
+      if (retry.ok) page0 = retry;
+      else if (retry.kind === "non_2xx" && retry.status === 401)
+        return { ok: false, reason: "token_expired", status: retry.status, message: "401 after refresh" };
+      else if (retry.kind === "non_2xx")
+        return { ok: false, reason: "api_error", status: retry.status, message: "non-2xx after refresh" };
+      else return { ok: false, reason: "api_error", message: retry.kind };
+    } catch {
+      return { ok: false, reason: "token_expired" };
+    }
+  } else if (!page0.ok && page0.kind === "non_2xx") {
+    log.warn("[ga4-sitewide] non-2xx from GA4 Data API", {
+      tenantId,
+      status: page0.status,
+      body: page0.errorBody ?? "",
+    });
+    return { ok: false, reason: "api_error", status: page0.status, message: "non-2xx response" };
+  } else if (!page0.ok) {
+    return { ok: false, reason: "api_error", message: page0.kind };
+  }
+
+  const propertyTimezone = parsePropertyTimezone(page0.body);
+  const rows: Ga4SitewideDailyRow[] = narrowSitewideDailyRows(page0.body);
+  const reportedRowCount = parseRowCount(page0.body.rowCount);
+  const haveTotal = reportedRowCount != null;
+  const totalRowCount = reportedRowCount ?? rows.length;
+  const rawPageRowCount = (b: Ga4RunReportResponseBody | null | undefined): number =>
+    Array.isArray(b?.rows) ? b!.rows.length : 0;
+  let lastRawPageFull = rawPageRowCount(page0.body) >= GA4_PAGE_SIZE;
+
+  let truncated = false;
+  let pagesFetched = 1;
+  for (let offset = GA4_PAGE_SIZE; ; offset += GA4_PAGE_SIZE) {
+    const moreExpected = haveTotal ? offset < totalRowCount : lastRawPageFull;
+    if (!moreExpected) break;
+    if (pagesFetched >= GA4_MAX_PAGES) {
+      truncated = true;
+      break;
+    }
+    const page = await fetchSitewidePage(accessToken, offset);
+    pagesFetched += 1;
+    if (!page.ok) {
+      truncated = true;
+      log.warn("[ga4-sitewide] subsequent page failed; returning partial", { tenantId, offset });
+      break;
+    }
+    for (const r of narrowSitewideDailyRows(page.body)) rows.push(r);
+    lastRawPageFull = rawPageRowCount(page.body) >= GA4_PAGE_SIZE;
+  }
+
+  const result: Ga4SitewideReportResult = { ok: true, rows, propertyTimezone };
+  if (reportedRowCount != null) result.rowCount = reportedRowCount;
+  if (truncated) result.truncated = true;
+  return result;
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// GA4 sitewide MONTHLY report (2026-07-10, Wave 2A) - the reconciliation truth.
+//
+// A DIRECT month-grain report using GA4's `yearMonth` dimension: GA4 returns its
+// OWN sitewide session total per calendar month. reconcileGa4MonthlySeries checks
+// this against the daily rollup month by month; the daily sum must match this
+// direct total within tolerance before the north-star card is allowed to show a
+// visits number. Same fail-soft posture; ~14 rows so no real pagination needed.
+// ─────────────────────────────────────────────────────────────────────
+
+/** Build the monthly `runReport` body: ONE `yearMonth` dimension + `sessions`.
+ *  Pure; exported for tests. */
+export function buildSitewideMonthlyReportBody(args: {
+  startDate: string;
+  endDate: string;
+  offset?: number;
+  limit?: number;
+}): Record<string, unknown> {
+  return {
+    dateRanges: [{ startDate: args.startDate, endDate: args.endDate }],
+    dimensions: [{ name: "yearMonth" }],
+    metrics: [{ name: "sessions" }],
+    orderBys: [{ dimension: { dimensionName: "yearMonth" } }],
+    limit: args.limit ?? GA4_PAGE_SIZE,
+    offset: args.offset ?? 0,
+  };
+}
+
+/** Narrow a monthly `runReport` body into `Ga4SitewideMonthlyRow[]`. GA4's
+ *  `yearMonth` value is "YYYYMM"; normalizes to "YYYY-MM-01". Drops malformed
+ *  rows. Pure; exported for tests. */
+export function narrowSitewideMonthlyRows(
+  body: Ga4RunReportResponseBody | null | undefined,
+): Ga4SitewideMonthlyRow[] {
+  if (body == null || typeof body !== "object") return [];
+  const rows = Array.isArray(body.rows) ? body.rows : [];
+  const out: Ga4SitewideMonthlyRow[] = [];
+  for (const row of rows) {
+    if (row == null || typeof row !== "object") continue;
+    const dims = Array.isArray(row.dimensionValues) ? row.dimensionValues : [];
+    const mets = Array.isArray(row.metricValues) ? row.metricValues : [];
+    const ym = typeof dims[0]?.value === "string" ? dims[0]!.value : null;
+    if (ym == null || !/^\d{6}$/.test(ym)) continue;
+    const month = `${ym.slice(0, 4)}-${ym.slice(4, 6)}-01`;
+    out.push({ month, sessions: parseMetricInt(mets[0]?.value) });
+  }
+  return out;
+}
+
+/**
+ * Run the GA4 sitewide monthly `runReport` (yearMonth dimension). Fail-soft
+ * discriminated union; NEVER throws. Mirrors the daily report's auth ladder.
+ * A single page suffices for month-grain data; the same MAX_PAGES bound guards
+ * against a pathological response.
+ */
+export async function runGa4SitewideMonthlyReport(
+  args: Ga4RunReportArgs,
+): Promise<Ga4SitewideMonthlyReportResult> {
+  const { tenantId, propertyId, startDate, endDate } = args;
+  if (!tenantId) return { ok: false, reason: "no_token", message: "missing tenantId" };
+  if (!propertyId) return { ok: false, reason: "api_error", message: "missing propertyId" };
+  if (!startDate || !endDate) return { ok: false, reason: "api_error", message: "missing date range" };
+
+  const token = await getGoogleConnectorToken("ga4", tenantId);
+  if (token == null) return { ok: false, reason: "no_token" };
+  if (!Array.isArray(token.scopes) || !token.scopes.includes(REQUIRED_SCOPE)) {
+    return { ok: false, reason: "no_token", message: "missing scope" };
+  }
+  if (token.disconnected_at != null && token.disconnected_at !== "") {
+    return { ok: false, reason: "disconnected" };
+  }
+
+  const expiryStatus = evaluateExpiry({ token, now: new Date() });
+  if (expiryStatus === "stale_over_7d") {
+    return { ok: false, reason: "token_expired", message: ">7d past expiry" };
+  }
+  let accessToken = token.access_token;
+  if (expiryStatus === "stale_under_7d") {
+    try {
+      const refreshed = await refreshGoogleAccessToken(token.refresh_token, {
+        provider: "google_ga4",
+        tenantId,
+        connectedAt: token.connected_at,
+      });
+      accessToken = refreshed.access_token;
+      await persistRefreshedGoogleToken("google_ga4", refreshed, tenantId);
+    } catch {
+      return { ok: false, reason: "token_expired" };
+    }
+  }
+
+  const url = buildRunReportUrl(propertyId);
+
+  async function fetchMonthlyPage(
+    pageToken: string,
+  ): Promise<
+    | { ok: true; body: Ga4RunReportResponseBody }
+    | { ok: false; status?: number; kind: "fetch_threw" | "non_2xx" | "json_parse" | "empty"; errorBody?: string }
+  > {
+    let response: Response;
+    try {
+      response = await fetch(url, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${pageToken}`, "Content-Type": "application/json" },
+        body: JSON.stringify(buildSitewideMonthlyReportBody({ startDate, endDate })),
+      });
+    } catch {
+      return { ok: false, kind: "fetch_threw" };
+    }
+    if (!response.ok) {
+      let errorBody = "";
+      try {
+        errorBody = (await response.text()).slice(0, 500);
+      } catch {
+        errorBody = "(body unavailable)";
+      }
+      return { ok: false, kind: "non_2xx", status: response.status, errorBody };
+    }
+    try {
+      const data = (await response.json()) as Ga4RunReportResponseBody | null;
+      return data == null ? { ok: false, kind: "empty" } : { ok: true, body: data };
+    } catch {
+      return { ok: false, kind: "json_parse" };
+    }
+  }
+
+  let page0 = await fetchMonthlyPage(accessToken);
+  if (!page0.ok && page0.kind === "fetch_threw") {
+    log.warn("[ga4-sitewide-monthly] fetch threw; api_error", { tenantId });
+    return { ok: false, reason: "api_error", message: "fetch threw" };
+  }
+  if (!page0.ok && page0.kind === "non_2xx" && page0.status === 401) {
+    try {
+      const refreshed = await refreshGoogleAccessToken(token.refresh_token, {
+        provider: "google_ga4",
+        tenantId,
+        connectedAt: token.connected_at,
+      });
+      accessToken = refreshed.access_token;
+      await persistRefreshedGoogleToken("google_ga4", refreshed, tenantId);
+      const retry = await fetchMonthlyPage(accessToken);
+      if (retry.ok) page0 = retry;
+      else if (retry.kind === "non_2xx" && retry.status === 401)
+        return { ok: false, reason: "token_expired", status: retry.status, message: "401 after refresh" };
+      else if (retry.kind === "non_2xx")
+        return { ok: false, reason: "api_error", status: retry.status, message: "non-2xx after refresh" };
+      else return { ok: false, reason: "api_error", message: retry.kind };
+    } catch {
+      return { ok: false, reason: "token_expired" };
+    }
+  } else if (!page0.ok && page0.kind === "non_2xx") {
+    log.warn("[ga4-sitewide-monthly] non-2xx from GA4 Data API", {
+      tenantId,
+      status: page0.status,
+      body: page0.errorBody ?? "",
+    });
+    return { ok: false, reason: "api_error", status: page0.status, message: "non-2xx response" };
+  } else if (!page0.ok) {
+    return { ok: false, reason: "api_error", message: page0.kind };
+  }
+
+  const propertyTimezone = parsePropertyTimezone(page0.body);
+  const rows: Ga4SitewideMonthlyRow[] = narrowSitewideMonthlyRows(page0.body);
+  const reportedRowCount = parseRowCount(page0.body.rowCount);
+  const result: Ga4SitewideMonthlyReportResult = { ok: true, rows, propertyTimezone };
+  if (reportedRowCount != null) result.rowCount = reportedRowCount;
   return result;
 }
 
