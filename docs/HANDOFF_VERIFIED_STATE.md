@@ -1,40 +1,54 @@
-> 🟡 **(2026-07-09 latest) - TASK #230 TRUST-CORRECTION WAVE: INTEGRATED, GATE RED (3 this-wave
-> test failures, not yet fixed), PENDING PUSH.** A Codex adversarial audit of the W5/W9/spec-debt
-> release reopened 3 P1 and 3 P2 findings:
+> 🟢 **(2026-07-10 latest) - TASK #230 TRUST-CORRECTION WAVE: INTEGRATED, GATE GREEN, SAFE TO
+> FAST-FORWARD.** A Codex adversarial audit of the W5/W9/spec-debt release reopened 3 P1 and 3 P2
+> findings:
 > P1 source-to-draft coverage checked only a single-token overlap and missed multi-word claims;
 > P1 the SSRF fetcher's protection was incomplete (a DNS-check-then-connect gap, not an actual
 > pin); P1 stale release-ledger doc entries claiming pushes that had not happened; P2 an ambient-
 > tenant file fallback plus three Ask providers that could read without an explicit tenant; P2 a
-> per-request timeout that did not bound a multi-hop redirect chain. Three lanes built in parallel
-> worktrees and merged conflict-free (octopus merge, disjoint file sets): Lane 1 source-coverage
-> (480c70c0, 1742dee0) makes source-authority's draftFactsCoveredBySources check per-sentence
-> factual coverage with a negation guard, so a sentence that flips a source's polarity no longer
-> passes as covered. Lane 2 SSRF-pinning (6b139e98) replaces the DNS-check-then-connect gap with
-> a socket-pinned fetch (a per-hop undici Agent binds the connection to the exact IP the policy
+> per-request timeout that did not bound a multi-hop redirect chain; P2 a non-ASCII numeral
+> coverage gap in the same per-sentence check (below). Three lanes built in parallel worktrees and
+> merged conflict-free (octopus merge, disjoint file sets): Lane 1 source-coverage (480c70c0,
+> 1742dee0) makes source-authority's draftFactsCoveredBySources check per-sentence factual
+> coverage with a negation guard, so a sentence that flips a source's polarity no longer passes as
+> covered. Lane 2 SSRF-pinning (6b139e98) replaces the DNS-check-then-connect gap with a
+> socket-pinned fetch (a per-hop undici Agent binds the connection to the exact IP the policy
 > already approved, closing the DNS-rebinding TOCTOU window the earlier release had only
 > documented and accepted) plus a full parsed-CIDR private-range policy and a whole-draft
 > (not per-hop) verify deadline. Lane 3 tenant-isolation (36dbea5c) makes the file-store fallback
 > and the three remaining Ask providers fail closed on an unresolved tenant instead of reading an
-> ambient/shared file. Integrated tip: aa8dac5e (merge commit on trust-correction-230). Full
-> hermetic gate receipts in fullgate7.log: typecheck_exit=0; test_exit=1 (2 files / 3 tests
-> failed, 1423 files / 22185 tests passed, 62 skipped); build_exit=0. The 3 failures are
-> THIS-WAVE, caused by Lane 1 alone (confirmed by bisection: green at base ee89c14b, red at the
-> Lane 1 tip 1742dee0 before Lane 2/3 were even merged in) - Lane 1's new per-sentence factual
-> coverage rule is stricter than before, and two OTHER pre-existing suites that call
-> evaluateDraftQuality with multi-sentence fixtures were not updated to match: a tenant-isolation
-> pin in src/lib/business-config.test.ts (expects "ready", gets "missing_source") and two
-> src/domains/page-factory/production-line.test.ts governance/fail-soft cases (expect drafted
-> counts of 5 and 1, get 0 - the stricter rule is rejecting every synthetic multi-sentence draft
-> in those fixtures for missing per-sentence sources). Lane 1's own test suite
-> (draft-quality.test.ts, source-authority.test.ts) was updated for the new rule; these two
-> caller suites were not. NOT fixed in this pass - flagged for the architect rather than patched
-> blind. **Release ladder:** implemented YES; committed YES (one merge commit on
-> trust-correction-230); pushed NO (architect review gates the push, and the gate is red);
-> deployed NO. **Next 3 actions: (1) architect: decide whether to update the two stale test
-> fixtures to the new stricter coverage rule (Lane 1's intended behavior) or relax the rule, then
-> push; (2) W9 Ask Slice 2 - the multi-provider planner routing the other 8 wrapped providers
-> live (unblocked once this lands); (3) operator: OAuth acceptance checklist from the W5 entry
-> below, unaffected by this wave.**
+> ambient/shared file. Integrated tip: aa8dac5e (merge commit on trust-correction-230).
+> **Fixture fix (eb056890):** the first hermetic gate at aa8dac5e was red (fullgate7.log: 2 files /
+> 3 tests failed) because Lane 1's new per-sentence factual-coverage rule is stricter than before,
+> and two OTHER pre-existing suites that call evaluateDraftQuality with multi-sentence fixtures had
+> not been updated to match: a tenant-isolation pin in src/lib/business-config.test.ts and two
+> src/domains/page-factory/production-line.test.ts governance/fail-soft cases. eb056890 supplied
+> matching per-sentence sources to both fixtures (Lane 1's rule itself was correct and is
+> unchanged); full hermetic gate GREEN at eb056890: typecheck_exit=0, test_exit=0 (1425 files /
+> 22188 tests passed, 62 skipped), build_exit=0 (fullgate8.log).
+> **Adversarial re-audit (2026-07-10):** cleared all 3 P1 + 3 P2 above with no P0. It surfaced one
+> more P2, closed in this same pass: the per-sentence protected-number check
+> (source-authority.ts's sentenceIsProtected / findSupportingSpan) recognized ASCII digits only, so
+> a factual claim written with Persian/Arabic-Indic numerals (Iranopedia is Persian content) had
+> zero protected tokens and fell into the weaker zero-protected branch, which never checks a number
+> against any source excerpt - any qualifying source satisfied it regardless of whether its excerpt
+> backed the actual number. Fixed by a local Arabic-Indic (٠-٩) / Extended Arabic-Indic-Persian
+> (۰-۹) digit-normalization helper in source-authority.ts (`sentenceNumbers`), matching the digit
+> ranges draft-quality.ts's GENERIC_NUMBER already recognized; `draftNumbers`
+> (factual-entailment.ts) itself is untouched, so its existing callers/tests keep their exact prior
+> behavior. New pinning tests in source-authority.test.ts. Full hermetic gate GREEN again on top of
+> the numeral fix (fullgate9.log). **Still-open, honestly tracked, non-blocking follow-ups:**
+> (i) an excerpt-realism operator-journey check - a real per-claim excerpt may hold a multi-fact
+> draft as missing_source more often than a synthetic fixture suggests; needs a seeded-data walk,
+> not a code change; (ii) the zero-protected-branch's topical-match is looser than the per-sentence
+> branch (low risk, tracked); (iii) the whole-draft verify deadline bounds availability (a slow
+> fetch cannot outlast it) but is not itself an SSRF control (Lane 2's socket-pinning owns that).
+> **Release ladder:** implemented YES; committed YES (aa8dac5e merge, eb056890 fixture fix, this
+> numeral fix); pushed NO (this task was explicitly instructed not to push; the tip is safe to
+> fast-forward whenever the operator/architect chooses); deployed NO. **Next 3 actions:
+> (1) architect/operator: fast-forward origin/main to this tip (ee89c14b -> ... -> the numeral-fix
+> commit); no further code changes are gating it; (2) W9 Ask Slice 2 - the multi-provider planner
+> routing the other 8 wrapped providers live (unblocked once this lands); (3) operator: OAuth
+> acceptance checklist from the W5 entry below, unaffected by this wave.**
 >
 > ⚡ **(2026-07-09) - W5 DRAFT SAFETY RELEASE: COMMITTED AND PUSHED TO MAIN AT 1de8ea67 (origin/main
 > has since advanced past this point; see the Task #230 entry above for the current SHA).** W5

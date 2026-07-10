@@ -7,7 +7,13 @@
 
 ---
 
-## 2026-07-09 - Task #230 trust-correction wave: 3-lane integration, gate red (Codex audit closure)
+## 2026-07-09 - Task #230 trust-correction wave: 3-lane integration (Codex audit closure)
+
+**UPDATED 2026-07-10 (see the follow-on entry immediately below this one):** the gate-red state
+this entry describes was the state at the integration tip aa8dac5e, before the fixture fix. It was
+fixed in eb056890 and the gate has been green since; the "NOT fixed" / "flagged for the architect"
+wording below is preserved here as an honest record of what was true at aa8dac5e, not of the
+current state.
 
 **Trigger:** a Codex adversarial audit of the W5/W9/spec-debt release (recorded further below in
 this same file) reopened 3 P1 and 3 P2 findings against work this log had already called done:
@@ -95,9 +101,87 @@ lanes and not caused by the merge itself.
   flagged for the architect to decide: update the two stale fixtures to Lane 1's new stricter
   rule (if the rule is the intended fix), or adjust the rule if it is over-tightened.
 
-**Push status:** NOT pushed. This is an integration branch for architect review; the task that
-produced this entry was explicitly instructed not to push. The gate being red is an independent
-reason to hold the push regardless.
+**Push status (at aa8dac5e, superseded below):** NOT pushed pending the fixture fix. See the
+2026-07-10 entry immediately below for the fix and the current push status.
+
+## 2026-07-10 - Task #230 fixture fix + adversarial re-audit closure + non-ASCII numeral coverage fix
+
+**Trigger:** two follow-ons to the entry above. First, the two stale fixtures the aa8dac5e gate
+run flagged (src/lib/business-config.test.ts's tenant-isolation pin; two governance/fail-soft
+cases in src/domains/page-factory/production-line.test.ts) needed to be brought up to Lane 1's new
+per-sentence coverage rule. Second, a fresh adversarial re-audit of the whole trust-correction wave
+was run to confirm the 3 P1 + 3 P2 findings were genuinely closed, not just declared closed.
+
+**Fixture fix (eb056890, `test(trust): align stale brief + business-config fixtures to the
+per-sentence source-coverage rule`):** both fixtures were updated to supply a per-sentence source
+matching every protected sentence in their synthetic drafts, rather than relaxing Lane 1's rule -
+the rule itself (draftFactsCoveredBySources' per-sentence coverage with a negation guard) was
+confirmed to be the intended, correct behavior. Full hermetic gate GREEN at eb056890
+(fullgate8.log, hermetic env -i): typecheck_exit=0; test_exit=0 (1425 files / 22188 tests passed,
+62 skipped, 0 failed); build_exit=0.
+
+**Adversarial re-audit (2026-07-10):** re-checked all 3 P1 + 3 P2 from the 2026-07-09 entry above
+against the eb056890 tip. Verdict: all 3 P1 and all 3 P2 confirmed closed, no P0 found. The audit
+additionally surfaced one NEW P2, closed in this same pass:
+
+- **P2 (non-ASCII numeral coverage gap):** `draft-quality.ts`'s GENERIC_NUMBER classifier already
+  recognized Arabic-Indic (٠-٩, U+0660-0669) and Extended Arabic-Indic / Persian (۰-۹, U+06F0-06F9)
+  digits, so a factual claim written with those numerals (e.g. a Persian-numeral count - Iranopedia
+  is Persian content, so this is a live risk, not a hypothetical) was correctly classified as
+  factual and source-gated at the whole-draft level. But `source-authority.ts`'s
+  per-sentence protected-number check (`sentenceIsProtected`, and the number match inside
+  `findSupportingSpan`) used `draftNumbers` (factual-entailment.ts), which is ASCII `\d+`-only. A
+  sentence carrying only a non-ASCII numeral therefore had ZERO protected tokens and fell into the
+  weaker zero-protected branch, which only requires that at least one qualifying authoritative +
+  verified source exist - it never checks the specific number against any excerpt. Net effect: a
+  qualifying source describing a DIFFERENT number than the one the draft actually claimed still
+  satisfied the gate. Fixed by adding a local `sentenceNumbers` helper in `source-authority.ts`
+  that normalizes those same two Unicode digit ranges to their ASCII value before delegating to the
+  existing `draftNumbers`, used in place of `draftNumbers` at both call sites
+  (`sentenceIsProtected`, `findSupportingSpan`). `draftNumbers` itself (factual-entailment.ts) is
+  byte-unchanged, so `checkFactualEntailment`'s existing callers and tests keep their exact prior
+  behavior; this is a LOCAL widening, not a shared-semantics change. The structural-number
+  exclusion (year +/-1, the 7/14/28 proof window) is unchanged conceptually - a Persian-numeral year
+  now correctly normalizes to the same ASCII string the exclusion set already contains, so it is
+  excluded exactly like an ASCII-digit year would be.
+- **New tests (source-authority.test.ts):** (a) a claim with a Persian/Arabic-Indic numeral and a
+  qualifying source whose excerpt names a different number -> `covered:false` (this was the hole -
+  previously `covered:true` regardless of the mismatch); (b) the same claim with a qualifying
+  source whose excerpt carries the SAME numeral -> `covered:true`; (c) boolean-wrapper parity holds
+  for the Persian-numeral claim too. All pre-existing zero-protected-branch tests (the
+  no-isolable-claim / superlative-only fixtures) still pass unchanged - this fix only widens what
+  counts as a protected number, it does not touch the zero-protected branch's own logic.
+- **Verified:** `npx vitest run src/domains/drafts/` green (6 files / 179 tests passed, including
+  the 3 new pins). Full hermetic gate GREEN again on top of the numeral fix (fullgate9.log,
+  hermetic env -i): typecheck_exit=0; test_exit=0 (1425 files / 22191 tests passed, 62 skipped, 0
+  failed - the 3-test delta from fullgate8.log's 22188 is exactly the 3 new pinning tests above);
+  build_exit=0.
+
+**Still-open, honestly tracked, non-blocking follow-ups from the re-audit (none are P0/P1):**
+1. **Excerpt-realism operator-journey check.** Every fixture and unit test in this suite hand-builds
+   a `supportingExcerpt` that exactly backs the claim under test. A REAL per-claim excerpt (fetched
+   from a real page, W5 F2) may be shorter, differently worded, or cover only part of a multi-fact
+   draft sentence - the per-sentence rule could hold a real multi-fact draft as `missing_source`
+   more often than these synthetic fixtures suggest. This needs a seeded-data operator-journey walk
+   against real Iranopedia drafts, not another unit test, to know whether the rule is too strict in
+   practice. Not started.
+2. **Zero-protected-branch topical match.** The branch that fires when a factual draft has no
+   individually-isolable protected sentence still only requires >= 1 qualifying authoritative +
+   verified source to exist, with no per-sentence excerpt check (there is no sentence to isolate).
+   This is a narrower, lower-risk version of the same shape of gap the numeral fix closed above,
+   for definitional/lowercase assertions rather than numeral-bearing ones. Low risk, tracked, not
+   fixed in this pass.
+3. **Whole-draft verify deadline is availability-only, not an SSRF control.** Lane 2's whole-draft
+   (not per-hop) verify deadline (2026-07-09 entry above) bounds how long a slow multi-hop redirect
+   chain can run before the whole verification gives up - it protects availability. It is not
+   itself a defense against SSRF; that is Lane 2's socket-pinned fetch (the per-hop undici Agent
+   binding the connection to the exact policy-approved IP). No change needed; noted so the deadline
+   is never mistaken for a security control it never claimed to be.
+
+**Push status:** NOT pushed. Same integration branch, same architect-review gate as the entry
+above; this task was explicitly instructed not to push. The gate is GREEN and, as of this entry,
+there is no known reason left to hold a fast-forward - the hold is procedural (explicit push
+instruction pending), not a red gate or an open finding.
 
 ## 2026-07-09 - Operator-spec delegated wave (W1c/W4/W6) + per-tenant OAuth reliability wave
 

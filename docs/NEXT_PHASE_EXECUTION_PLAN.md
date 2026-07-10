@@ -1,28 +1,32 @@
 # Beacon Execution Plan
 
-> 🟡 **2026-07-09 latest - CURRENT HEAD STATE: TASK #230 TRUST-CORRECTION WAVE INTEGRATED, GATE
-> RED (3 this-wave test failures, not yet fixed), PENDING PUSH.** A Codex adversarial audit of
-> the W5/W9/spec-debt release reopened 3 P1 (source-to-draft single-token coverage too weak, SSRF
-> protection incomplete - a DNS-check-then-connect gap rather than an actual pin, and stale
-> release-ledger doc entries claiming pushes that had not happened) plus 3 P2 (an ambient-tenant
-> file fallback and three Ask providers that could read without an explicit tenant; a per-request
-> deadline that did not bound a multi-hop redirect chain). Three lanes, built in parallel
-> worktrees, merged conflict-free: Lane 1 source-coverage (480c70c0, 1742dee0) - per-sentence
-> factual coverage with a negation guard. Lane 2 SSRF-pinning (6b139e98) - a socket-pinned fetch
-> (a per-hop undici Agent binding the connection to the exact approved IP) with a full
-> parsed-CIDR policy and a whole-draft verify deadline. Lane 3 tenant-isolation (36dbea5c) -
-> explicit-tenant fail-closed reads for the file fallback and the three remaining Ask providers.
-> Full hermetic gate receipts in fullgate7.log: typecheck_exit=0; test_exit=1 (2 files / 3 tests
-> failed, 1423 files / 22185 tests passed, 62 skipped); build_exit=0. The 3 failures bisect to
-> Lane 1 alone (green at base ee89c14b, red at Lane 1's own tip 1742dee0 before Lane 2/3 merged
-> in): Lane 1's new per-sentence factual coverage rule is stricter, and two pre-existing caller
-> suites (src/lib/business-config.test.ts tenant-isolation pin; two governance/fail-soft cases in
-> src/domains/page-factory/production-line.test.ts) were not updated to match, so they now get
-> "missing_source" / drafted=0 where they expect "ready" / drafted=5,1. Not fixed in this pass -
-> flagged for the architect. **Current order: (1) architect: decide whether to update the two
-> stale test fixtures to Lane 1's new stricter rule or relax the rule, then push; (2) W9 Ask
-> Slice 2 - the multi-provider planner routing the other 8 wrapped providers live (unblocked once
-> this lands); (3) operator: run the OAuth acceptance checklist
+> 🟢 **2026-07-10 latest - CURRENT HEAD STATE: TASK #230 TRUST-CORRECTION WAVE INTEGRATED, GATE
+> GREEN, SAFE TO FAST-FORWARD.** A Codex adversarial audit of the W5/W9/spec-debt release reopened
+> 3 P1 (source-to-draft single-token coverage too weak, SSRF protection incomplete - a
+> DNS-check-then-connect gap rather than an actual pin, and stale release-ledger doc entries
+> claiming pushes that had not happened) plus 3 P2 (an ambient-tenant file fallback and three Ask
+> providers that could read without an explicit tenant; a per-request deadline that did not bound
+> a multi-hop redirect chain; a non-ASCII numeral coverage gap in the per-sentence check, closed
+> below). Three lanes, built in parallel worktrees, merged conflict-free: Lane 1 source-coverage
+> (480c70c0, 1742dee0) - per-sentence factual coverage with a negation guard. Lane 2 SSRF-pinning
+> (6b139e98) - a socket-pinned fetch (a per-hop undici Agent binding the connection to the exact
+> approved IP) with a full parsed-CIDR policy and a whole-draft verify deadline. Lane 3
+> tenant-isolation (36dbea5c) - explicit-tenant fail-closed reads for the file fallback and the
+> three remaining Ask providers. Integrated tip aa8dac5e; first hermetic gate there was red
+> (fullgate7.log: 2 files / 3 tests failed) because Lane 1's new per-sentence factual coverage rule
+> is stricter, and two pre-existing caller suites (src/lib/business-config.test.ts tenant-isolation
+> pin; two governance/fail-soft cases in src/domains/page-factory/production-line.test.ts) had not
+> been updated to match. **eb056890 fixed both fixtures** (Lane 1's rule itself was correct and is
+> unchanged); full hermetic gate GREEN at eb056890: typecheck_exit=0, test_exit=0 (1425 files /
+> 22188 tests passed, 62 skipped), build_exit=0 (fullgate8.log). An adversarial re-audit then
+> cleared all 3 P1 + 3 P2 above with no P0, and surfaced + closed one more P2 in this same pass: a
+> Persian/Arabic-Indic numeral claim was invisible to the per-sentence protected-number check
+> (ASCII-only), so it fell into the weaker zero-protected branch instead of being matched against a
+> source's excerpt - fixed locally in source-authority.ts, gate GREEN again (fullgate9.log). See
+> HANDOFF_VERIFIED_STATE.md and VERIFICATION_LOG.md for full detail. **Current order:
+> (1) architect/operator: fast-forward origin/main to this tip - no code changes are gating it;
+> (2) W9 Ask Slice 2 - the multi-provider planner routing the other 8 wrapped providers live
+> (unblocked once this lands); (3) operator: run the OAuth acceptance checklist
 > (docs/OAUTH_ROOT_CAUSE_2026-07-09.md) and confirm the Vercel production build for ee89c14b in
 > the dashboard; (4) W10/W11/W12 explicitly not started per operator instruction.**
 >
