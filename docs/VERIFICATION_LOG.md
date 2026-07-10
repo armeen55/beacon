@@ -84,6 +84,34 @@ https://www.iranopedia.com/". Pending by design: the two-real-account hosted acc
   agent).
 - Still pending: operator acceptance (two-account OAuth test) + one-week durability proof.
 
+**W5 DRAFT SAFETY RELEASE (implemented, committed, pushed to main; hosted smoke operator-blocked):**
+- Operator stop-ship audit on the first W5 fix attempt found two P0s and four P1s: P0 SSRF in the
+  source fetcher (an unvalidated outbound URL could reach internal hosts), P0 a weak 50 percent
+  token-overlap threshold that let unrelated claims pass as supported; the four P1s were an
+  ambient tenant read inside after() (no explicit tenant on the deferred call), re-verify gated on
+  due measurements only (a manual re-check could not run early), a verifyState downgrade that lost
+  a passing verdict on a partial re-run, and retry starvation (a stuck job never freed its slot for
+  a later attempt). Ship was stopped before any of these findings went live.
+- Redesign, implemented in the isolated worktree: commit a01a5fc3 (hardening - an SSRF-safe source
+  fetcher with DNS-pinned resolution and private-range blocking, span-level claim support
+  replacing the weak overlap check, an atomic verify envelope, tenant-explicit re-verify, and retry
+  fairness with honest exhausted-attempts copy), 81d2c500 (adversarial review fixups), 1de8ea67
+  (test re-pin); built on base e1a43fb8, all atop bf3f2cbc + e1a43fb8 (the W5 packages) and
+  a24ab1ae (oauth-patch-mode).
+- Adversarial review verdict: no P0. One residual documented and accepted: a DNS-rebinding TOCTOU
+  window between the pinning check and the fetch itself, accepted per the operator's own spec
+  (blind SSRF defense is authority-gated and the pinning remediation is named directly in code for
+  the next pass).
+- Gate receipts (fullgate4.log): typecheck_exit=0; test_exit=0 (1418 files, 22087 passed, 62
+  skipped, 0 failed); build_exit=0.
+- Both W5 migrations (shipped_change_verify_columns, connector_token_patch_mode) were previously
+  applied to prod Supabase and verified; no new migration in this release.
+- PUSHED: fast-forward d43ff7e3..1de8ea67; origin/main is now 1de8ea67.
+- Deployed = Vercel build confirmation unavailable to the agent (no token in the environment);
+  reachability-checked = production reachable, HTTP 307 (/), 200 (/login), 307
+  (/settings/connectors), fresh x-vercel-id present on every poll.
+- Authenticated both-tenant smoke: operator-blocked (no smoke credentials available to the agent).
+
 ## 2026-07-08 - Incident: app-wide 504 + "same 6 changes for 9 days" (15477039, 86fde79b)
 
 Operator hit `504 MIDDLEWARE_INVOCATION_TIMEOUT` across the app and, separately, Today
