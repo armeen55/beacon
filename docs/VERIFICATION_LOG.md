@@ -34849,3 +34849,75 @@ change and modified concurrently). Suites GREEN: seasonal-wire (11), refresh-wir
 daily-experiment-planner, plus all of seasonal/ and refresh/ -> 23 files /
 314 tests passed. No dev server, no paid call.
 
+
+============================================================================
+2026-07-10 - WAVE 1 PRODUCT-TRUTH RELEASE (P0-A + P0-B + review fix) on
+branch wave1-integration (base origin/main d73aa6af), PENDING PUSH
+============================================================================
+
+2026-07-10 - P0-A Wave 1 (trust-core): removed the FALSE sitewide monthly-visits
+total. ga4_monthly_sessions_v1 summed non-additive GA4 sessions across
+ga4_url_traffic (url,date) rows, inflating June 12,862 visits and the
+10,000-goal celebration. North star now leads with proven Search Console clicks
+(property-grain gsc_daily_totals), honest reconciliation line, goal never graded
+from clicks. Summing RPC marked INVALID-FOR-SITEWIDE for Wave 2. monthlyVisitGoal
+has no settings-UI editor; Wave 2 owes the true GA4 rollup + editor.
+(Commit 7a2adb7b.)
+
+2026-07-10 - P0-B Wave 1: page GETs (/, /changes, /results) never fire paid
+DataForSEO/live-SERP or LLM calls and never run unbounded synchronous
+full-ledger re-measure; they serve persisted state with honest staleness and
+rebuild paid-free in after(). Found and closed: /changes fired paid SERP + two
+full re-measures per render; /results had a >2min sequential waterfall. Measured
+after: SERP=0 LLM=0 on all three routes for both tenants. Stage timing behind
+BEACON_PERF_LOG=1. Wave-2 packet delivered (waterfall parallelization,
+Changes-consumes-snapshot, N+1 batching, budgets: warm <=2s cold <=4s).
+(Commit bcfb4aa4.)
+
+2026-07-10 - WAVE 1 ADVERSARIAL REVIEW VERDICT: no P0. One P1 and one P2 fixed
+in this branch's review-fix commit (dd85908e); the remaining P2s are ledgered in
+NEXT_PHASE_EXECUTION_PLAN's "Wave 2 (product-truth addendum)".
+
+P1 (trust-core, same false-total class as P0-A, dormant only because Iranopedia
+has 0 GA4 rows): the Today stat row's GA4 card
+(src/domains/today-summary/build-source-stat-cards.ts buildGa4Card) summed
+v.sessions28d across every per-URL ga4_url_traffic row into one
+"Visits (28 days)" stat under a "Website visits" card. GA4 sessions are not
+additive across pages, so any GA4-connected tenant would have rendered an
+inflated number. CHOICE: card REMOVED (buildGa4Card returns null), not replaced
+with an honest-state card. Reasoning: unlike the north star, this card has no
+other trustworthy number to carry (its engaged-rate and conversions stats derive
+from the same non-additive per-page sum), and the Today stat grid's contract is
+"a card shows real numbers or does not show at all"; a permanently apologetic
+card would be a bolted-on state the grid never had. The card returns in Wave 2
+only on the true property-grain rollup, never on the per-URL sum. Per-page GA4
+uses elsewhere are untouched. Pin tests (new
+src/domains/today-summary/build-source-stat-cards.test.ts): no card ever renders
+a cross-page-summed GA4 sessions total, no card carries the "Website visits"
+source or "Visits (28 days)" label, empty-map case stays hidden, and GSC/AEO
+cards still render around the gate; the legacy suite
+(tests/domains/today-summary/build-source-stat-cards.test.ts) was aligned to the
+new contract, with the ordering test now pinning GSC -> Clarity -> AEO plus the
+same no-false-total assertions, instead of asserting the old GA4 card back into
+existence.
+
+P2 #3 (staleness honesty): /results
+(src/app/(shell)/results/results-ledger-data.ts latestMeasuredAt) returned now()
+when the persisted ledger was non-empty but NO record had a measuredAt, which
+would render "I re-checked these numbers just now" over never-measured rows.
+Fixed: latestMeasuredAt returns null in that window, ResultsLedgerSurface's
+computedAt is string | null, and ledgerCheckedAgoLine(null) renders no
+checked-line at all, so the freshness line never claims a check that did not
+happen. Pinned in results-ledger-data.test.ts (cold start with unmeasured rows
+serves computedAt null; ledgerCheckedAgoLine(null) is null).
+
+VERIFIED (fullgateW1.log in the session scratchpad): full hermetic gate at
+91dde46a (the review-fix commit before two content-identical amends):
+typecheck_exit=0, build_exit=0, test_exit=1 with exactly 2 failures, both in the
+LEGACY tests/domains/today-summary suite asserting the OLD false-number contract
+(GA4 card expected to exist). Tests fixed to the new contract (never the code
+reverted), plus a comment-only dash sweep; final hermetic TEST-PHASE rerun at
+the amended tip dd85908e: test_exit=0 (1432 files / 22284 tests passed, 62
+skipped), local tsc --noEmit exit 0 at the same tip. typecheck_exit=0 and build_exit=0 carry from
+91dde46a since the deltas are test files and comments only, which cannot change
+the build; noted honestly rather than re-paying a full build.

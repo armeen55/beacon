@@ -1,5 +1,33 @@
 # Beacon Execution Plan
 
+## Wave 2 (product-truth addendum) - queued 2026-07-10 after the Wave-1 adversarial review
+
+Wave 1 (P0-A north-star truth, P0-B paid-free bounded GETs, review P1 GA4 stat-card fix) is
+integrated on branch wave1-integration pending push. Wave 2 owes the replacements and the
+ledgered P2s:
+
+1. **True sitewide GA4 series at the correct grain + reconcile Feb to Jul + goal editor.** The
+   ga4_monthly_sessions_v1 summing RPC is INVALID-FOR-SITEWIDE (sessions are not additive across
+   per-URL rows); build a property-grain GA4 rollup (one row per property per period), reconcile
+   the February through July history against it, then light the monthly-visits headline and goal
+   grading back up. monthlyVisitGoal still has no settings-UI editor; ship one with it. The
+   Today stat row's GA4 card (removed in the Wave-1 review fix) returns only on this rollup,
+   never on the per-URL sum.
+2. **Results/Changes waterfall + snapshot rearchitecture.** The Wave-2 packet from P0-B exists:
+   waterfall parallelization, Changes-consumes-snapshot, N+1 batching, budgets warm <=2s cold
+   <=4s.
+3. **Route the after() results rebuild through loadShippedChangesForTenant(tenantId).** The
+   background rebuild still reaches persisted state through ambient-tenant reads in places;
+   threading the explicit tenantId closes a latent multi-tenant ambient seam.
+4. **perfCountExternal per-request reset + crawl/dataforseo wiring.** Reset the perf counters
+   per request and wire the crawler and DataForSEO clients into them so the SERP=0/LLM=0
+   invariant is observable everywhere, not only where instrumented today.
+5. **Single-flight lock on the ledger rebuild.** Concurrent after() rebuilds of the results
+   surface can run the full re-measure more than once; add a single-flight guard.
+6. **Scoreboard fresh-tail GSC live read to after().** Move the scoreboard's freshest-tail GSC
+   live read off the GET path behind the same persisted-plus-after() posture as the rest of
+   Wave 1.
+
 ## E-39 adaptive control pools (LANDED in worktree e39-impl, operator-approved 2026-07-10)
 
 Admit-with-caution replaces the active-control hard lock: a page serving as a comparison

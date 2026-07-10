@@ -1,5 +1,25 @@
-> 🟢 **(2026-07-10) - E-39 ADAPTIVE CONTROL POOLS BUILT in worktree e39-impl (branch e39-impl,
-> committed, NOT pushed).** Admit-with-caution replaces the active-control hard lock: a comparison
+> 🟢 **(2026-07-10 HEAD STATE) - ORIGIN/MAIN IS d73aa6af (E-39 SHIPPED, its review P1s fixed);
+> WAVE 1 (P0-A + P0-B + the Wave-1 review fix) INTEGRATED ON BRANCH wave1-integration, GATE GREEN,
+> PENDING PUSH.** E-39 adaptive control pools plus its adversarial-review P1 fixes are on
+> origin/main at d73aa6af (the E-39 entry below describes work that has since shipped). On top of
+> it, branch wave1-integration carries the product-truth Wave 1: P0-A removed the FALSE sitewide
+> monthly-visits total from the north star (non-additive GA4 session sum; the card now leads with
+> proven Search Console clicks, an honest reconciliation line, and a goal never graded from
+> clicks); P0-B made the page GETs (/, /changes, /results) paid-free and bounded (persisted state
+> with honest staleness, rebuilds in after(); measured SERP=0 LLM=0 on all three routes for both
+> tenants); and the Wave-1 adversarial review closed with NO P0. Its one P1 (the Today stat row's
+> GA4 card summed per-URL sessions28d into a "Visits (28 days)" total, the same false-total class
+> as P0-A, dormant only because Iranopedia has 0 GA4 rows) and one P2 (the /results freshness line
+> claimed "just now" over never-measured rows) are fixed in this branch's review-fix commit;
+> the remaining P2s are ledgered in NEXT_PHASE's "Wave 2 (product-truth addendum)". Full hermetic
+> gate GREEN at the branch tip (see VERIFICATION_LOG 2026-07-10 Wave 1 entries; fullgateW1.log).
+> NEXT: (1) operator/architect decision to push wave1-integration to origin/main; (2) Wave 2
+> product-truth addendum, starting with the true property-grain GA4 rollup + goal editor;
+> (3) the Results/Changes waterfall + snapshot rearchitecture (packet exists).
+>
+> 🟢 **(2026-07-10) - E-39 ADAPTIVE CONTROL POOLS (since SHIPPED to origin/main at d73aa6af with
+> its review P1 fixes; originally built in worktree e39-impl).** Admit-with-caution replaces the
+> active-control hard lock: a comparison
 > page / mid-measurement page / thin-pool page stays EDITABLE and carries an attribution caution
 > instead of `eligible:false`. Hard blocks remain only for genuine hazards (recent_no_lift,
 > high_risk_page, ownership_uncertain, stale_research, last_clean_donor-when-zero-comparables).
