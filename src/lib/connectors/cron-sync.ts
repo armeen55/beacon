@@ -8,6 +8,7 @@ import { syncGa4UrlTrafficForTenant } from "@/lib/connectors/ga4/sync-url-traffi
 import { pullGa4AiReferralsForTenant } from "@/lib/connectors/ga4/sync-ai-referrals";
 import { syncGa4SitewideSessionsForTenant } from "@/lib/connectors/ga4/sync-sitewide-sessions";
 import { reconcileGa4MonthlySeries } from "@/domains/north-star/reconcile-ga4-monthly-series";
+import { refreshGa4SitewideAndReconcile } from "@/lib/connectors/ga4/refresh-ga4-sitewide";
 import { syncClarityDailyMetricsForTenant } from "@/lib/connectors/clarity/sync-daily-metrics";
 import { syncProfoundNightlyForTenant } from "@/lib/connectors/profound/sync-nightly";
 import { precomputeMoveDraftsForTenant } from "@/domains/demand-graph/precompute-drafts";
@@ -265,7 +266,7 @@ export async function autoRefreshStaleConnectorsForTenant(
   if (stale.length === 0) return [];
 
   const settled = await Promise.allSettled(stale.map(({ source }) => source.run(tenantId)));
-  return Promise.all(
+  const results = await Promise.all(
     stale.map(async ({ source }, i): Promise<CronSyncSourceResult> => {
       const outcome = settled[i]!;
       if (outcome.status === "rejected") {
@@ -286,6 +287,15 @@ export async function autoRefreshStaleConnectorsForTenant(
       return { tenantId, provider: source.provider, ok: true, detail: "synced" };
     }),
   );
+
+  // Wave 2A: the READ_SOURCES GA4 entry pulls only the per-PAGE traffic table. When
+  // GA4 refreshed here, also pull the TRUE sitewide series + reconcile it so the
+  // north-star visits card can light up on this on-use refresh, not only after the
+  // nightly cron's dedicated sitewide phases. Fail-soft, dormant-until-key.
+  if (stale.some(({ source }) => source.provider === "google_ga4")) {
+    await refreshGa4SitewideAndReconcile(tenantId);
+  }
+  return results;
 }
 
 /**

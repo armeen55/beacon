@@ -40,7 +40,9 @@ import { BeaconLearnedTile } from "@/domains/insight/beacon-learned-tile";
 const MAIN_LIST_DEADLINE_MS = 25_000;
 const SIDE_SECTION_DEADLINE_MS = 15_000;
 
-async function ChangesSection() {
+// Exported for the render pin in changes-empty-vs-building.test.tsx (both empty-state
+// copies must stay distinct); the router only consumes the default export below.
+export async function ChangesSection() {
   let view;
   try {
     const raced = await loadWithDeadline(loadChangesView(), MAIN_LIST_DEADLINE_MS);

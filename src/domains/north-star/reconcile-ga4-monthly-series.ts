@@ -137,7 +137,9 @@ export async function reconcileGa4MonthlySeries(
   const perMonth: Ga4ReconciliationMonth[] = fullMonths.map((m) => {
     const directSessions = directByMonth.get(m.month);
     if (directSessions == null) {
-      // No direct counterpart to confirm this stored month - cannot vouch for it.
+      // A stored full month with NO direct counterpart (a month present in the
+      // rollup but MISSING from the direct report) cannot be vouched for - a
+      // mismatch, never silently skipped.
       return {
         month: m.month,
         storedSessions: m.sessions,
@@ -155,6 +157,55 @@ export async function reconcileGa4MonthlySeries(
     const withinTolerance = m.sessions === directSessions || deltaPct <= RECONCILE_TOLERANCE_PCT;
     return { month: m.month, storedSessions: m.sessions, directSessions, deltaPct, withinTolerance };
   });
+
+  // Vice versa: a COMPLETED month GA4 reports directly (with real traffic) that is
+  // MISSING from the stored rollup, within the range the rollup already covers, is a
+  // silent gap in the daily totals. Flag each such month as a mismatch so the rollup
+  // cannot pass while it is missing a month GA4 knows about. A LEADING month the
+  // tenant simply has not synced yet falls outside [firstStored, lastStored] and is
+  // correctly NOT flagged (that is honest coverage, not a gap).
+  const storedMonths = new Set(fullMonths.map((m) => m.month));
+  const currentMonthKey = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}-01`;
+  const firstStored = fullMonths[0]!.month;
+  const lastStored = fullMonths[fullMonths.length - 1]!.month;
+  for (const r of direct.rows) {
+    if (
+      r.sessions > 0 &&
+      r.month < currentMonthKey && // a completed month, not the current partial one
+      r.month >= firstStored &&
+      r.month <= lastStored &&
+      !storedMonths.has(r.month)
+    ) {
+      perMonth.push({
+        month: r.month,
+        storedSessions: 0,
+        directSessions: r.sessions,
+        deltaPct: 100,
+        withinTolerance: false,
+      });
+    }
+  }
+  perMonth.sort((a, b) => a.month.localeCompare(b.month));
+
+  // Vacuous-pass guard: an all-zero comparison (the direct report returned no rows,
+  // or every reconciled month is 0-vs-0) proves nothing. That is an honest non-pass
+  // ("I have no visits to reconcile yet"), NEVER a pass over no data. A month with
+  // real stored data but a zero direct total is NOT vacuous - it is a mismatch,
+  // caught below.
+  const hasSignal = perMonth.some((p) => p.storedSessions > 0 || p.directSessions > 0);
+  if (!hasSignal) {
+    await writeGa4Reconciliation({
+      tenantId,
+      propertyId,
+      checkedAt: now.toISOString(),
+      status: "error",
+      tolerancePct: RECONCILE_TOLERANCE_PCT,
+      latestSyncAt: rollup?.latestSyncAt ?? null,
+      reconciledThrough: null,
+      perMonth,
+    });
+    return { status: "error", reason: "no_data", message: "no GA4 visits to reconcile yet" };
+  }
 
   const allWithin = perMonth.every((p) => p.withinTolerance);
   const checkedAt = now.toISOString();

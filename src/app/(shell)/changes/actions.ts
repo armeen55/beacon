@@ -10,6 +10,7 @@ import {
   markRecommendedEditsAsShipped,
 } from "@/domains/recommendations/recommended-edits-persistence";
 import { loadChangesView } from "../changes-data";
+import { invalidateChangesSurface } from "../changes-surface-store";
 import type { TodayMove } from "../today-moves-data";
 
 /**
@@ -168,6 +169,11 @@ export async function markChangelogEditShipped(args: {
         skipped: result.skipped,
       },
     });
+    // W2 truth-up: shipping a change must invalidate the tenant-scoped /changes SWR
+    // snapshot too, not only Next's route cache - otherwise the ranked list serves
+    // the pre-ship state for up to the 15-min TTL. Matches the changes-surface-store
+    // contract ("ship a change invalidates it") and every other ship path.
+    if (result.flipped > 0) await invalidateChangesSurface().catch(() => {});
     revalidatePath("/changes");
     revalidatePath("/recommendations");
     revalidatePath("/", "layout");

@@ -24,6 +24,7 @@ import "server-only";
  */
 
 import { getSupabaseAdmin } from "@/lib/persistence/supabase";
+import { getGoogleConnectorToken } from "@/lib/connector-store";
 import { log } from "@/lib/logger";
 
 const DAILY_TABLE = "ga4_daily_totals";
@@ -311,13 +312,24 @@ export async function loadReconciledVisitsForTenant(
   now: Date = new Date(),
 ): Promise<ReconciledVisitsGate> {
   if (!tenantId) return { status: "none" };
-  const recon = await readGa4Reconciliation(tenantId);
+
+  // The property the tenant reports on TODAY. A reconciliation earned by a
+  // DIFFERENT (old) property must NEVER restore the card, so we scope the marker
+  // read to the current property AND re-check its property_id below. No configured
+  // property -> nothing to vouch for -> the card holds back.
+  const currentPropertyId = await currentGa4PropertyId(tenantId);
+  if (currentPropertyId == null) return { status: "none" };
+
+  const recon = await readGa4Reconciliation(tenantId, currentPropertyId);
   if (recon == null) return { status: "none" };
+  // Belt-and-suspenders: an old property's marker can never restore the card even
+  // if a read ever returned one.
+  if (recon.propertyId !== currentPropertyId) return { status: "none" };
   if (recon.status === "mismatch") return { status: "mismatch" };
   if (recon.status !== "pass") return { status: "none" };
 
   const rollup = await loadGa4MonthlyRollupForTenant(tenantId, {
-    propertyId: recon.propertyId,
+    propertyId: currentPropertyId,
     now,
   });
   if (rollup == null || rollup.months.length === 0) return { status: "none" };
@@ -336,6 +348,19 @@ export async function loadReconciledVisitsForTenant(
     months: rollup.months.map((m) => ({ month: m.month, visits: m.sessions, partial: m.partial })),
     reconciledThrough: recon.reconciledThrough,
   };
+}
+
+/** The tenant's CURRENTLY configured GA4 property id, or null when none is set.
+ *  Fail-soft: any connector-store trouble yields null so the card holds back
+ *  (never a wrong number from a stale/other property). */
+async function currentGa4PropertyId(tenantId: string): Promise<string | null> {
+  try {
+    const token = await getGoogleConnectorToken("ga4", tenantId);
+    const pid = token?.ga4_property_id ?? null;
+    return pid != null && pid !== "" ? pid : null;
+  } catch {
+    return null;
+  }
 }
 
 /** Test-only export of internals. */
