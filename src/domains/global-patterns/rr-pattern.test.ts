@@ -187,7 +187,13 @@ describe("aggregateRrPatternCells", () => {
 
   it("is deterministic (same input -> same output, order included)", () => {
     const input = [obs({ tenantId: "t1" }), obs({ tenantId: "t2", key: { ...obs().key, positionBand: "1-3" } })];
-    expect(aggregateRrPatternCells(input)).toEqual(aggregateRrPatternCells(input));
+    // Hold the clock constant so this asserts the aggregation's OWN determinism
+    // (grouping, math, and output ordering) rather than wall-clock skew between
+    // two default `new Date()` calls; under load those two calls can straddle a
+    // millisecond boundary and give different `updatedAt`, which is not the
+    // property this test is meant to guard.
+    const now = new Date("2026-07-10T00:00:00.000Z");
+    expect(aggregateRrPatternCells(input, now)).toEqual(aggregateRrPatternCells(input, now));
   });
 
   it("does not mutate the input array", () => {

@@ -135,4 +135,88 @@ describe("reconcileGa4MonthlySeries - pass / mismatch", () => {
     const r = await reconcileGa4MonthlySeries("tenant-a", NOW);
     expect(r.status).toBe("error");
   });
+
+  it("VACUOUS zero-vs-zero comparison is NOT a pass (empty data -> error, card holds back)", async () => {
+    // The direct report and the stored rollup both report a completed month of ZERO
+    // sessions. An empty-vs-empty comparison proves nothing - it must never write pass.
+    _monthlyMock.mockResolvedValue({ ok: true, propertyTimezone: null, rows: [{ month: "2026-06-01", sessions: 0 }] });
+    _rollupMock.mockResolvedValue({
+      months: [{ month: "2026-06-01", sessions: 0, engagedSessions: 0, partial: false }],
+      latestSyncAt: "2026-07-10T02:00:00Z",
+      propertyTimezone: null,
+      propertyId: "p1",
+    });
+    const r = await reconcileGa4MonthlySeries("tenant-a", NOW);
+    expect(r.status).toBe("error");
+    if (r.status === "error") expect(r.reason).toBe("no_data");
+    const written = _writeMock.mock.calls[0]![0] as { status: string };
+    expect(written.status).not.toBe("pass");
+  });
+
+  it("a stored full month MISSING from the direct report -> mismatch (never skipped, not vacuous)", async () => {
+    // Real stored traffic for June, but the direct report has no June row at all.
+    // We cannot vouch for it -> mismatch, and because the stored month carries real
+    // data this is NOT the vacuous no_data path.
+    _monthlyMock.mockResolvedValue({ ok: true, propertyTimezone: null, rows: [] });
+    _rollupMock.mockResolvedValue({
+      months: [{ month: "2026-06-01", sessions: 5000, engagedSessions: 3000, partial: false }],
+      latestSyncAt: "2026-07-10T02:00:00Z",
+      propertyTimezone: null,
+      propertyId: "p1",
+    });
+    const r = await reconcileGa4MonthlySeries("tenant-a", NOW);
+    expect(r.status).toBe("mismatch");
+  });
+
+  it("a completed month GA4 reports but the rollup is MISSING (interior gap) -> mismatch", async () => {
+    // GA4 directly reports April, May, June. The rollup has April + June but a GAP at
+    // May. A month GA4 knows about is missing from the rollup within its covered range,
+    // so the rollup cannot pass silently.
+    _monthlyMock.mockResolvedValue({
+      ok: true,
+      propertyTimezone: null,
+      rows: [
+        { month: "2026-04-01", sessions: 100 },
+        { month: "2026-05-01", sessions: 5000 },
+        { month: "2026-06-01", sessions: 200 },
+      ],
+    });
+    _rollupMock.mockResolvedValue({
+      months: [
+        { month: "2026-04-01", sessions: 100, engagedSessions: 60, partial: false },
+        { month: "2026-06-01", sessions: 200, engagedSessions: 120, partial: false },
+      ],
+      latestSyncAt: "2026-07-10T02:00:00Z",
+      propertyTimezone: null,
+      propertyId: "p1",
+    });
+    const r = await reconcileGa4MonthlySeries("tenant-a", NOW);
+    expect(r.status).toBe("mismatch");
+    const written = _writeMock.mock.calls[0]![0] as { status: string; perMonth: Array<{ month: string; withinTolerance: boolean }> };
+    expect(written.status).toBe("mismatch");
+    const may = written.perMonth.find((p) => p.month === "2026-05-01");
+    expect(may?.withinTolerance).toBe(false);
+  });
+
+  it("a LEADING month GA4 reports that the rollup has not synced yet is honest coverage, not a gap -> pass", async () => {
+    // GA4 reports May + June, the rollup only has June (the tenant connected recently).
+    // May is BEFORE the rollup's covered range, so it is legitimately not synced yet and
+    // must NOT be treated as a gap - June reconciles cleanly and the card may pass.
+    _monthlyMock.mockResolvedValue({
+      ok: true,
+      propertyTimezone: null,
+      rows: [
+        { month: "2026-05-01", sessions: 9000 },
+        { month: "2026-06-01", sessions: 200 },
+      ],
+    });
+    _rollupMock.mockResolvedValue({
+      months: [{ month: "2026-06-01", sessions: 200, engagedSessions: 120, partial: false }],
+      latestSyncAt: "2026-07-10T02:00:00Z",
+      propertyTimezone: null,
+      propertyId: "p1",
+    });
+    const r = await reconcileGa4MonthlySeries("tenant-a", NOW);
+    expect(r.status).toBe("pass");
+  });
 });

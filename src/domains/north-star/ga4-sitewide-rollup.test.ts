@@ -43,6 +43,15 @@ vi.mock("@/lib/persistence/supabase", () => ({
   },
 }));
 
+// The card gate resolves the tenant's CURRENTLY configured GA4 property so an old
+// property's marker can never restore the card (item 5). Default: property "p1".
+let _currentGa4Property: string | null = "p1";
+vi.mock("@/lib/connector-store", () => ({
+  getGoogleConnectorToken: vi.fn(async () =>
+    _currentGa4Property == null ? null : { ga4_property_id: _currentGa4Property },
+  ),
+}));
+
 vi.mock("@/lib/logger", () => ({
   log: { warn: vi.fn(), info: vi.fn(), error: vi.fn(), debug: vi.fn() },
 }));
@@ -57,6 +66,7 @@ beforeEach(() => {
   for (const k of Object.keys(_tables)) delete _tables[k];
   _eqCalls.length = 0;
   _adminThrows = false;
+  _currentGa4Property = "p1";
 });
 
 const NOW = new Date("2026-07-10T12:00:00Z");
@@ -179,6 +189,24 @@ describe("loadReconciledVisitsForTenant - the card gate", () => {
 
   it("not_connected marker -> none (dead grant never shows a number)", async () => {
     _tables.ga4_monthly_reconciliation = reconRow({ status: "not_connected" });
+    const gate = await loadReconciledVisitsForTenant("tenant-a", NOW);
+    expect(gate.status).toBe("none");
+  });
+
+  it("a DIFFERENT configured property cannot inherit an old passing reconciliation -> none", async () => {
+    // A fresh PASS marker exists for property p1, but the tenant now reports on p2.
+    // The old property's pass must NOT restore the card for the new property.
+    _tables.ga4_monthly_reconciliation = reconRow(); // property_id "p1", pass, fresh
+    _tables.ga4_daily_totals = dailyFresh;
+    _currentGa4Property = "p2";
+    const gate = await loadReconciledVisitsForTenant("tenant-a", NOW);
+    expect(gate.status).toBe("none");
+  });
+
+  it("no configured GA4 property -> none (nothing to match the marker against)", async () => {
+    _tables.ga4_monthly_reconciliation = reconRow(); // a passing marker still on file
+    _tables.ga4_daily_totals = dailyFresh;
+    _currentGa4Property = null;
     const gate = await loadReconciledVisitsForTenant("tenant-a", NOW);
     expect(gate.status).toBe("none");
   });

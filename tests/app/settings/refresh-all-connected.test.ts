@@ -70,6 +70,12 @@ vi.mock("@/lib/connectors/gsc/sync-search-analytics", () => ({
 vi.mock("@/lib/connectors/ga4/sync-url-traffic", () => ({
   syncGa4UrlTrafficForTenant: () => syncGa4(),
 }));
+// Wave 2A: the manual refresh must ALSO pull the true sitewide series + reconcile
+// it when GA4 is connected, so the north-star card can light up without the cron.
+const refreshGa4Sitewide = vi.fn(async (_tenantId?: string) => {});
+vi.mock("@/lib/connectors/ga4/refresh-ga4-sitewide", () => ({
+  refreshGa4SitewideAndReconcile: (tenantId: string) => refreshGa4Sitewide(tenantId),
+}));
 vi.mock("@/lib/connectors/clarity/sync-daily-metrics", () => ({
   syncClarityDailyMetricsForTenant: () => syncClarity(),
 }));
@@ -111,6 +117,7 @@ beforeEach(() => {
   syncClarity.mockClear();
   syncProfound.mockClear();
   updateConnectorToken.mockClear();
+  refreshGa4Sitewide.mockClear();
 });
 
 describe("refreshAllConnectedDataNow — only connected sources run", () => {
@@ -186,6 +193,20 @@ describe("refreshAllConnectedDataNow — labels", () => {
     // White-label invariant: the vendor name must never appear anywhere.
     const serialized = JSON.stringify(r);
     expect(serialized).not.toContain("Profound");
+  });
+});
+
+describe("refreshAllConnectedDataNow - Wave 2A sitewide visits", () => {
+  it("pulls the true sitewide series + reconciliation when GA4 is connected", async () => {
+    await refreshAllConnectedDataNow();
+    expect(refreshGa4Sitewide).toHaveBeenCalledTimes(1);
+    expect(refreshGa4Sitewide).toHaveBeenCalledWith("tenant-test");
+  });
+
+  it("does NOT pull the sitewide series when GA4 is not connected", async () => {
+    _connected = { google_gsc: true, google_ga4: false, clarity: true, profound: true };
+    await refreshAllConnectedDataNow();
+    expect(refreshGa4Sitewide).not.toHaveBeenCalled();
   });
 });
 
