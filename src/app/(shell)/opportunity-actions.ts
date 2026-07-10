@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 
 import { currentTenantId } from "@/lib/tenant-context";
 import { invalidateWorklistSurface } from "./worklist-surface-store";
+import { invalidateChangesSurface } from "./changes-surface-store";
 import {
   dismissOpportunity,
   undismissOpportunity,
@@ -26,6 +27,7 @@ export async function dismissOpportunityAction(
   const ok = await dismissOpportunity(tenantId, oppKey, status);
   if (ok) {
     await invalidateWorklistSurface().catch(() => {}); // curation changes which moves show → recompute worklist
+    await invalidateChangesSurface().catch(() => {}); // ...and the ranked /changes snapshot
     revalidatePath("/");
     revalidatePath("/changes");
   }
@@ -37,6 +39,7 @@ export async function undismissOpportunityAction(oppKey: string): Promise<{ ok: 
   const ok = await undismissOpportunity(tenantId, oppKey);
   if (ok) {
     await invalidateWorklistSurface().catch(() => {}); // curation changes which moves show → recompute worklist
+    await invalidateChangesSurface().catch(() => {}); // ...and the ranked /changes snapshot
     revalidatePath("/");
     revalidatePath("/changes");
   }
@@ -48,6 +51,7 @@ export async function pinOpportunityAction(oppKey: string): Promise<{ ok: boolea
   const ok = await pinOpportunity(tenantId, oppKey);
   if (ok) {
     await invalidateWorklistSurface().catch(() => {}); // curation changes which moves show → recompute worklist
+    await invalidateChangesSurface().catch(() => {}); // ...and the ranked /changes snapshot
     revalidatePath("/");
     revalidatePath("/changes");
   }
@@ -59,6 +63,7 @@ export async function unpinOpportunityAction(oppKey: string): Promise<{ ok: bool
   const ok = await unpinOpportunity(tenantId, oppKey);
   if (ok) {
     await invalidateWorklistSurface().catch(() => {}); // curation changes which moves show → recompute worklist
+    await invalidateChangesSurface().catch(() => {}); // ...and the ranked /changes snapshot
     revalidatePath("/");
     revalidatePath("/changes");
   }

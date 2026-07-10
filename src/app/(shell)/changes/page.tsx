@@ -4,7 +4,7 @@ import { Suspense } from "react";
 import { PageHeader } from "@/components/data/page-header";
 import { TodayNewPagesSection } from "../today-newpages-section";
 import { PrepareTonightButton, PrepareOverflowMenu } from "../today-moves-prepare";
-import { loadChangesView } from "../changes-data";
+import { loadChangesView, toClientView } from "../changes-data";
 import { ChangesListClient } from "../changes-list-client";
 import { loadFactoryBatchCardData } from "../page-factory-batch-data";
 import { PageFactoryBatchCard } from "../page-factory-batch-card";
@@ -13,6 +13,7 @@ import { TonightSummaryChip } from "../tonight-summary-chip";
 import { DailyExperimentsSection } from "../daily-experiments-section";
 import { loadDailyExperimentsView } from "../daily-experiments-data";
 import { loadWithDeadline } from "@/lib/load-with-deadline";
+import { checkedAgoLabel } from "@/components/data/receipt-line";
 import { HonestDelay } from "@/components/honest-delay";
 import { currentTenantId } from "@/lib/tenant-context";
 import { loadExperimentOutcomes } from "@/domains/learning/load-experiment-outcomes";
@@ -53,12 +54,30 @@ async function ChangesSection() {
     );
   }
   if (view.changes.length === 0) {
+    // W2-B - distinguish a COLD first-ever render (the SWR snapshot is building in
+    // the background) from a genuinely empty list. Never claim "no changes" while
+    // the rebuild is still running.
+    if (view.surfaceBuilding) {
+      return (
+        <div className="space-y-2 rounded-2xl border border-border bg-surface-raised p-6">
+          <p className="text-body text-foreground-secondary">
+            I&apos;m putting your ranked changes together for the first time. This takes a few
+            seconds. Refresh in a moment and they&apos;ll be here.
+          </p>
+          <div className="h-9 animate-pulse rounded-lg bg-surface-inset/50" />
+          <div className="h-9 animate-pulse rounded-lg bg-surface-inset/50" />
+        </div>
+      );
+    }
     return (
       <p className="rounded-2xl border border-dashed border-gray-200 bg-white p-8 text-center text-sm text-gray-500">
         No changes yet. Once your Google + AI demand data syncs, Beacon&apos;s ranked changes appear here.
       </p>
     );
   }
+  // W2-B - honest staleness from the SWR snapshot's real build time (not a frozen
+  // "just now" baked into the snapshot). Self-hides on a synchronous/unknown build.
+  const rankedAgo = view.surfaceComputedAt ? checkedAgoLabel(view.surfaceComputedAt, Date.now()) : null;
   return (
     <div className="space-y-4">
       {/* B6 (worklist fix batch) - the page header already says what this list is; a second,
@@ -69,7 +88,15 @@ async function ChangesSection() {
           <PrepareTonightButton readyCount={view.summary.ready} total={view.changes.length} />
         </div>
       </div>
-      <ChangesListClient view={view} />
+      {rankedAgo ? (
+        <p className="text-meta text-muted-foreground tabular-nums">
+          I ranked these {rankedAgo}. I refresh them in the background.
+        </p>
+      ) : null}
+      {/* W2-B PAYLOAD - the client board gets SLIM move summaries only (the full
+          dossiers stay server-side in the SWR snapshot; a row's detail loads its
+          full TodayMove on demand via loadMoveDetailAction). */}
+      <ChangesListClient view={toClientView(view)} />
     </div>
   );
 }

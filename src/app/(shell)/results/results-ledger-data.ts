@@ -5,6 +5,7 @@ import { after } from "next/server";
 
 import { currentTenantId } from "@/lib/tenant-context";
 import { recordAppError, errorFieldsFrom } from "@/lib/obs/error-ledger";
+import { runSingleFlight } from "@/lib/single-flight";
 import { loadProofLedger, loadProofLedgerPersisted } from "@/domains/proof-gsc/load-ledger";
 import type { ShippedChangeRecord } from "@/domains/proof-gsc/shipped-change-store";
 import {
@@ -41,7 +42,9 @@ export async function loadLedgerWithSwr(tenantId: string): Promise<ResultsLedger
     if (isResultsSurfaceStale(cached.computedAt, Date.now())) {
       after(async () => {
         try {
-          await rebuildResultsSurface(tenantId);
+          // W2-B - single-flight: concurrent stale readers in this lambda collapse
+          // to ONE background re-measure instead of racing duplicate rebuilds.
+          await runSingleFlight(`results-surface:${tenantId}`, () => rebuildResultsSurface(tenantId));
         } catch (e) {
           // Best-effort background refresh; the next visit retries. N39: record
           // it durably so a silently-always-stale results page is visible on
@@ -67,7 +70,9 @@ export async function loadLedgerWithSwr(tenantId: string): Promise<ResultsLedger
   const persisted = await loadProofLedgerPersisted(tenantId).catch(() => [] as ShippedChangeRecord[]);
   after(async () => {
     try {
-      await rebuildResultsSurface(tenantId);
+      // W2-B - single-flight (same key as the stale path): the cold GET and any
+      // concurrent readers schedule ONE background rebuild, never a stampede.
+      await runSingleFlight(`results-surface:${tenantId}`, () => rebuildResultsSurface(tenantId));
     } catch (e) {
       await recordAppError({
         route: "/results",

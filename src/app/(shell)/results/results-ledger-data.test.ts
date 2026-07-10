@@ -139,6 +139,34 @@ describe("loadLedgerWithSwr", () => {
     await expect(refresh()).resolves.toBeUndefined();
     expect(writeStoreMock).not.toHaveBeenCalled(); // build-then-write: no write on failure
   });
+
+  it("SINGLE-FLIGHT (W2-B): two concurrent stale readers trigger exactly ONE background re-measure", async () => {
+    const computedAt = new Date(Date.now() - RESULTS_SURFACE_FRESH_MS - 60_000).toISOString();
+    readStoreMock.mockResolvedValue([{ computedAt, ledger: [rec("snap-old")] }]);
+    let resolveBuild!: (v: unknown[]) => void;
+    loadProofLedgerMock.mockImplementation(
+      () =>
+        new Promise<unknown[]>((res) => {
+          resolveBuild = res;
+        }),
+    );
+
+    // Two concurrent GETs both observe the stale snapshot and schedule a rebuild.
+    await loadLedgerWithSwr("tenant-test");
+    await loadLedgerWithSwr("tenant-test");
+    expect(afterMock).toHaveBeenCalledTimes(2);
+    const cb1 = afterMock.mock.calls[0][0] as () => Promise<void>;
+    const cb2 = afterMock.mock.calls[1][0] as () => Promise<void>;
+
+    // Fire both scheduled rebuilds CONCURRENTLY: the single-flight lock collapses
+    // them to one loadProofLedger run and one persisted write.
+    const both = Promise.all([cb1(), cb2()]);
+    expect(loadProofLedgerMock).toHaveBeenCalledTimes(1);
+    resolveBuild([rec("fresh-1")]);
+    await both;
+    expect(loadProofLedgerMock).toHaveBeenCalledTimes(1);
+    expect(writeStoreMock).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("ledgerCheckedAgoLine", () => {

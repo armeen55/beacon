@@ -20,7 +20,7 @@ import { cache } from "react";
  *     background. See loadProofLedgerPersisted / the delegation below.
  */
 
-import { loadShippedChanges, type ShippedChangeRecord } from "./shipped-change-store";
+import { loadShippedChangesForTenant, type ShippedChangeRecord } from "./shipped-change-store";
 import { measureRecord } from "./run-measurement";
 import { readLastFinalizedDate } from "./gsc-window";
 import { buildShockWindows } from "./algorithm-weather";
@@ -33,7 +33,12 @@ export async function loadProofLedger(
   tenantId: string,
   now: Date = new Date(),
 ): Promise<ShippedChangeRecord[]> {
-  const records = await loadShippedChanges().catch(() => [] as ShippedChangeRecord[]);
+  // W2-B (2026-07-10) - tenant-EXPLICIT read. This function is the body of the
+  // after() background rebuild (rebuildResultsSurface), which runs OUTSIDE the
+  // render's tenant scope; reading the AMBIENT ledger there could resolve the
+  // wrong (or an empty founder) tenant. loadShippedChangesForTenant reads exactly
+  // the passed tenant (Supabase .eq or the tenant-explicit file fallback).
+  const records = await loadShippedChangesForTenant(tenantId).catch(() => [] as ShippedChangeRecord[]);
   if (records.length === 0) return [];
   // Read the finalized-data watermark ONCE for the whole ledger (it gates which
   // windows are judgeable) and pass it to every record, instead of each
@@ -80,9 +85,12 @@ export async function loadProofLedger(
  * background rebuild only.
  */
 export async function loadProofLedgerPersisted(tenantId: string): Promise<ShippedChangeRecord[]> {
-  void tenantId; // reads the same ambient-tenant store loadProofLedger reads; kept for a stable render-path signature
+  // W2-B (2026-07-10) - tenant-EXPLICIT read (fixes the latent multi-tenant seam:
+  // this used to ignore its tenantId arg and read the ambient store). Serving the
+  // stored verdicts for the EXPLICIT tenant is correct on the render path (ambient
+  // == tenantId) AND in the after() cold-rebuild path where ambient may be wrong.
   const start = perfMark();
-  const records = await loadShippedChanges().catch(() => [] as ShippedChangeRecord[]);
+  const records = await loadShippedChangesForTenant(tenantId).catch(() => [] as ShippedChangeRecord[]);
   perfStage("canonical-ledger-read", start, { rows: records.length });
   if (records.length === 0) return [];
   return attachFdrToLedger(records);

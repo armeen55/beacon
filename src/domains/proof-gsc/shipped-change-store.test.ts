@@ -64,6 +64,14 @@ vi.mock("@/app/(shell)/results/results-surface-store", () => ({
   invalidateResultsSurface: vi.fn(async () => {}),
 }));
 
+// W2-B (2026-07-10): the ledger-mutation choke point now ALSO invalidates the
+// /changes SWR snapshot (invalidateResultsSurfaceSafe calls both, best-effort).
+// Mock it like the results surface above so its real writeStore("changes-surface",
+// []) can never clobber this test's single captured fileRows array.
+vi.mock("@/app/(shell)/changes-surface-store", () => ({
+  invalidateChangesSurface: vi.fn(async () => {}),
+}));
+
 vi.mock("@/lib/tenant-context", () => ({
   currentTenantId: async () => "tenant-ambient",
 }));

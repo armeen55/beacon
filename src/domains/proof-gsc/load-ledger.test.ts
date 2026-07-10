@@ -17,6 +17,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const loadShippedChangesMock = vi.fn(async (): Promise<unknown[]> => []);
+const loadShippedChangesForTenantMock = vi.fn(async (_t: string): Promise<unknown[]> => []);
 const measureRecordMock = vi.fn(async (...args: unknown[]): Promise<unknown> => args[1]);
 const readLastFinalizedDateMock = vi.fn(async (_t: string): Promise<string | null> => "2026-07-01");
 const loadDetectedChangepointsMock = vi.fn(async (): Promise<unknown[]> => []);
@@ -29,6 +30,11 @@ const loadLedgerWithSwrMock = vi.fn(async (tenantId: string): Promise<{ ledger: 
 vi.mock("server-only", () => ({}));
 vi.mock("./shipped-change-store", () => ({
   loadShippedChanges: () => loadShippedChangesMock(),
+  // W2-B: the loaders now read tenant-EXPLICITLY (so the after() rebuild is
+  // tenant-correct). The two-tenant test below drives this mock by its arg to
+  // prove the tenantId is actually threaded through (not a forwarding mock that
+  // ignores it).
+  loadShippedChangesForTenant: (t: string) => loadShippedChangesForTenantMock(t),
 }));
 vi.mock("./run-measurement", () => ({
   measureRecord: (...args: unknown[]) => measureRecordMock(...args),
@@ -60,6 +66,8 @@ const rec = (id: string) => ({ id, path: `/${id}`, page: `https://s.com/${id}`, 
 beforeEach(() => {
   loadShippedChangesMock.mockReset();
   loadShippedChangesMock.mockResolvedValue([rec("a"), rec("b")]);
+  loadShippedChangesForTenantMock.mockReset();
+  loadShippedChangesForTenantMock.mockResolvedValue([rec("a"), rec("b")]);
   measureRecordMock.mockReset();
   measureRecordMock.mockImplementation(async (...args: unknown[]) => args[1]);
   readLastFinalizedDateMock.mockClear();
@@ -79,10 +87,16 @@ describe("loadProofLedger --- heavy engine is paid-free", () => {
   });
 
   it("returns [] without measuring when there are no shipped changes", async () => {
-    loadShippedChangesMock.mockResolvedValue([]);
+    loadShippedChangesForTenantMock.mockResolvedValue([]);
     const out = await loadProofLedger("tenant-a");
     expect(out).toEqual([]);
     expect(measureRecordMock).not.toHaveBeenCalled();
+  });
+
+  it("reads the ledger tenant-EXPLICITLY (threads its tenantId to loadShippedChangesForTenant, not the ambient read)", async () => {
+    await loadProofLedger("tenant-a");
+    expect(loadShippedChangesForTenantMock).toHaveBeenCalledWith("tenant-a");
+    expect(loadShippedChangesMock).not.toHaveBeenCalled();
   });
 });
 
@@ -95,9 +109,37 @@ describe("loadProofLedgerPersisted --- render-safe read never re-measures", () =
   });
 
   it("fails soft to [] when the store read throws", async () => {
-    loadShippedChangesMock.mockRejectedValue(new Error("supabase wedged"));
+    loadShippedChangesForTenantMock.mockRejectedValue(new Error("supabase wedged"));
     await expect(loadProofLedgerPersisted("tenant-a")).resolves.toEqual([]);
     expect(measureRecordMock).not.toHaveBeenCalled();
+  });
+
+  it("reads the ledger tenant-EXPLICITLY (fixes the seam where it ignored its tenantId arg)", async () => {
+    await loadProofLedgerPersisted("tenant-a");
+    expect(loadShippedChangesForTenantMock).toHaveBeenCalledWith("tenant-a");
+    expect(loadShippedChangesMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("two-tenant isolation through the explicit-tenant read (real threading, not a forwarding mock)", () => {
+  it("each tenant's ledger is read by ITS tenantId - tenant-a never sees tenant-b's rows", async () => {
+    // Drive the REAL read by its argument so a loader that dropped/ignored the
+    // tenantId (the seam this fixes) would fail: A gets a-rows, B gets b-rows.
+    loadShippedChangesForTenantMock.mockImplementation(async (t: string) =>
+      t === "tenant-a" ? [rec("a1"), rec("a2")] : t === "tenant-b" ? [rec("b1")] : [],
+    );
+    const a = (await loadProofLedgerPersisted("tenant-a")) as Array<{ id: string }>;
+    const b = (await loadProofLedgerPersisted("tenant-b")) as Array<{ id: string }>;
+    expect(a.map((r) => r.id)).toEqual(["a1", "a2"]);
+    expect(b.map((r) => r.id)).toEqual(["b1"]);
+    expect(loadShippedChangesForTenantMock).toHaveBeenCalledWith("tenant-a");
+    expect(loadShippedChangesForTenantMock).toHaveBeenCalledWith("tenant-b");
+
+    // And the heavy loader threads it too (this is the after() rebuild body).
+    loadShippedChangesForTenantMock.mockClear();
+    await loadProofLedger("tenant-b");
+    expect(loadShippedChangesForTenantMock).toHaveBeenCalledWith("tenant-b");
+    expect(loadShippedChangesForTenantMock).not.toHaveBeenCalledWith("tenant-a");
   });
 });
 

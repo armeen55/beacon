@@ -4,6 +4,7 @@ import { log } from "@/lib/logger";
 import { readStore, writeStore } from "@/lib/persistence/json-store";
 import { currentTenantId } from "@/lib/tenant-context";
 import { recordSpendSupabase, getTenantSpentThisMonthUsd } from "@/lib/cost/budget-ledger-supabase";
+import { perfCountExternal } from "@/lib/obs/perf-log";
 import { resolveAuthB64, isDataForSeoConfigured, isDryRun, monthlyCapUsd } from "./dataforseo-serp";
 import type { KeywordGapRow } from "./keyword-gaps";
 
@@ -311,6 +312,9 @@ export async function runLabsQuery<T = KeywordGapRow>(
 
   // (5) the paid call.
   try {
+    // W2-B - count the live DataForSEO Labs call at its transport (a real paid
+    // request past cache/dry-run/cap), so the per-GET external-call tally is honest.
+    perfCountExternal("dataforseo", path);
     const auth = resolveAuthB64(deps.env) ?? "";
     const res = await deps.fetchImpl(plan.endpoint, {
       method: "POST",

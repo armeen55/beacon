@@ -102,6 +102,10 @@ export const TENANT_SCOPED_STORES = new Set<string>([
   // 2026-07-01 item 93 - Today stale-while-revalidate surface (the composed TodayComposite
   // snapshot per tenant), same discipline as worklist-surface.
   "today-surface",
+  // 2026-07-10 W2-B - /changes stale-while-revalidate surface (the fully-fused, ranked
+  // ChangesView snapshot per tenant), same discipline as worklist-surface. Presentation
+  // cache only: the moves/plan/ledger sources stay canonical, never here.
+  "changes-surface",
   // 2026-07-03 R4 - /results stale-while-revalidate surface (the RE-MEASURED proof
   // ledger snapshot per tenant), same discipline as worklist-surface. Presentation
   // cache only: measurement history stays in shipped_changes, never here.
