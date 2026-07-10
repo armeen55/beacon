@@ -697,6 +697,7 @@ export function buildAskDossier(
     selectedClasses?: AskQuestionClass[];
     plannedProviderIds?: string[];
     maxFacts?: number;
+    bestEffortOnly?: boolean;
   } = {},
 ): AskDossier {
   return {
@@ -707,5 +708,6 @@ export function buildAskDossier(
     ...(opts.deterministic !== undefined ? { deterministic: opts.deterministic } : {}),
     ...(opts.selectedClasses ? { selectedClasses: opts.selectedClasses } : {}),
     ...(opts.plannedProviderIds ? { plannedProviderIds: opts.plannedProviderIds } : {}),
+    ...(opts.bestEffortOnly ? { bestEffortOnly: opts.bestEffortOnly } : {}),
   };
 }

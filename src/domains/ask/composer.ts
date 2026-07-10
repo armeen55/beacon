@@ -63,9 +63,10 @@ export function fallbackAnswer(question: string, dossier: AskDossier): AskAnswer
   }
 
   // W9 slice 2 (2026-07-10) - a multi-specialist deterministic answer (e.g. "list my top
-  // pages and top keywords") groups facts by source and enumerates each group, then adds a
-  // deterministic provenance footer and an honest line about any specialist that came back
-  // empty. Single-class answers KEEP the exact Slice-1 top-3 formatting untouched below.
+  // pages and top keywords") groups facts by source and enumerates each group; DERIVED
+  // provenance (which specialists were read, which came back empty) rides the structured
+  // providersUsed/providersUnavailable fields ONLY - see multiClassFallback below. Single-
+  // class answers KEEP the exact Slice-1 top-3 formatting untouched below.
   if ((dossier.selectedClasses?.length ?? 0) > 1) {
     return multiClassFallback(dossier, speaker);
   }
@@ -79,6 +80,14 @@ export function fallbackAnswer(question: string, dossier: AskDossier): AskAnswer
   // are unchanged.
   const freshnessClause = buildFreshnessClause(top);
   if (freshnessClause) answer += ` ${freshnessClause}`;
+  // W9 slice 2 review (2026-07-10, P2) - when the planner's whole-plan verdict says this
+  // question only reached the catch-all sitewide-traffic provider (no explicit trend cue,
+  // no secondary specialist), say so plainly instead of quietly answering a narrower
+  // question than was asked. Additive: unset for every Slice-1 dossier (the 2-arg
+  // buildAskDossier form), so the pinned single-class top-3 strings stay byte-identical.
+  if (dossier.bestEffortOnly) {
+    answer += " I did not spot a more specific question, so I looked at your overall traffic.";
+  }
   answer = answer.slice(0, 1200);
   const citedFacts: AskCitedFact[] = top.map((f) => ({ fact: f.value, href: f.href }));
   return { speaker, answer, citedFacts, source: "fallback" };
@@ -110,9 +119,13 @@ function multiClassFallback(dossier: AskDossier, speaker: AskAnswer["speaker"]):
 
   const used = deriveProvidersUsed(dossier.facts);
   const unavailable = deriveProvidersUnavailable(dossier, used);
+  // W9 slice 2 review (2026-07-10, P1) - provenance renders ONCE, from these structured
+  // providersUsed/providersUnavailable fields only (ask-chat-client.tsx renders them as
+  // Specialists chips + a single "found nothing there yet" line). answer.answer stays the
+  // facts/answer only - no provenance footer baked into prose - so a multi-specialist
+  // deterministic answer renders the same single way as an LLM synthesis (composer.ts's
+  // LLM branch below has never added a footer).
   let answer = `Here is what I found across your team. ${lines.join(" ")}`;
-  const footer = buildProvenanceFooter(used, unavailable);
-  if (footer) answer += ` ${footer}`;
   answer = answer.slice(0, 1200);
   return { speaker, answer, citedFacts, source: "fallback", providersUsed: used, providersUnavailable: unavailable };
 }
@@ -151,30 +164,6 @@ export function deriveProvidersUnavailable(dossier: AskDossier, used: AskProvide
     out.push({ label });
   }
   return out;
-}
-
-/** One human, dash-free join: "A", "A and B", or "A, B, and C". */
-function joinLabels(labels: string[]): string {
-  if (labels.length <= 1) return labels[0] ?? "";
-  if (labels.length === 2) return `${labels[0]} and ${labels[1]}`;
-  return `${labels.slice(0, -1).join(", ")}, and ${labels[labels.length - 1]}`;
-}
-
-/** The deterministic provenance footer: which specialists were read (with a single "data
- *  through" date when one is known) and which came back empty. No dashes. */
-function buildProvenanceFooter(used: AskProviderCredit[], unavailable: AskProviderCredit[]): string {
-  const parts: string[] = [];
-  if (used.length > 0) {
-    const labels = used.map((c) => c.label);
-    parts.push(`I pulled this together from my ${joinLabels(labels)} read${labels.length > 1 ? "s" : ""}.`);
-    const fresh = used.find((c) => c.freshnessIso);
-    if (fresh?.freshnessIso) parts.push(`Data through ${fresh.freshnessIso.slice(0, 10)}.`);
-  }
-  if (unavailable.length > 0) {
-    const labels = unavailable.map((c) => c.label);
-    parts.push(`I checked my ${joinLabels(labels)} read${labels.length > 1 ? "s" : ""} too but found nothing there yet.`);
-  }
-  return parts.join(" ");
 }
 
 /** Plain-English "data through <date>, from <specialist>" clause, built only when a

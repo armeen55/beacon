@@ -62,6 +62,7 @@ export async function askQuestionAction(question: string): Promise<AskResult> {
     selectedClasses: plan.selectedClasses,
     plannedProviderIds: plan.selections.map((s) => s.provider.id),
     maxFacts: 12,
+    bestEffortOnly: plan.bestEffortOnly,
   });
   const answer = await composeAskAnswer(trimmed, dossier);
 

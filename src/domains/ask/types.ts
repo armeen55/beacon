@@ -52,6 +52,12 @@ export type AskDossier = {
   /** W9 slice 2 - every question class the planner selected a provider for (primary +
    *  secondary cues), primary first. Length > 1 means a multi-specialist answer. Additive. */
   selectedClasses?: AskQuestionClass[];
+  /** W9 slice 2 review (2026-07-10, P2) - true when the planner's whole-plan verdict
+   *  (AskPlan.bestEffortOnly) says the ONLY thing to go on was the catch-all sitewide
+   *  traffic provider, with no explicit trend cue and no secondary specialist. Lets the
+   *  composer say plainly it only had overall traffic to go on, instead of implying a
+   *  narrower question was understood. Additive; unset for Slice-1 callers. */
+  bestEffortOnly?: boolean;
 };
 
 /** One cited fact underneath an answer bubble. */

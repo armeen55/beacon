@@ -214,6 +214,28 @@ describe("ask/composer - composeAskAnswer (LLM path)", () => {
     expect(a.answer).not.toContain("Data through");
   });
 
+  // P2 fix (2026-07-10 review) - dossier.bestEffortOnly (threaded from the planner's
+  // AskPlan.bestEffortOnly) makes router.ts's claim true: the answer really does say
+  // plainly it only had overall traffic to go on, instead of the field being computed
+  // and never consumed.
+  it("PIN: dossier.bestEffortOnly adds the honest best-effort line to a deterministic answer", async () => {
+    const bestEffort: AskDossier = {
+      questionClass: "site_trend",
+      pagePath: null,
+      hasData: true,
+      bestEffortOnly: true,
+      facts: [{ value: "Sitewide clicks over the last 7 reported days: 342.", source: "gsc", href: "/" }],
+    };
+    const a = fallbackAnswer("how are things going", bestEffort);
+    expect(a.answer).toContain("I did not spot a more specific question, so I looked at your overall traffic.");
+    expect(a.answer).not.toMatch(/[–—]/);
+  });
+
+  it("adds no best-effort line when dossier.bestEffortOnly is unset (Slice-1 dossiers stay byte-identical)", async () => {
+    const a = fallbackAnswer("how are things going", DOSSIER);
+    expect(a.answer).not.toContain("I did not spot a more specific question");
+  });
+
   it("drops a citedFacts entry whose href was not actually provided in the dossier", async () => {
     const fabricatedHref = {
       ...VALID_ANSWER,
@@ -257,27 +279,32 @@ describe("ask/composer - W9 slice 2 planner integration", () => {
     expect(complete).not.toHaveBeenCalled();
   });
 
-  it("a multi-specialist deterministic answer groups facts by source and adds a provenance footer", async () => {
+  // P1 fix (2026-07-10 review) - a multi-specialist deterministic answer groups facts by
+  // source in prose, but provenance (who was read, who came back empty) renders EXACTLY
+  // ONCE, from the structured providersUsed/providersUnavailable fields only. The old
+  // provenance-footer sentences must never reappear in answer.answer - the UI
+  // (ask-chat-client.tsx) is the single place that renders them, as Specialists chips.
+  it("a multi-specialist deterministic answer groups facts by source; provenance lives ONLY in the structured fields, never duplicated in prose", async () => {
     const complete = vi.fn(fakeComplete([{ text: JSON.stringify(VALID_ANSWER) }]));
     const a = await composeAskAnswer("list my top pages and top keywords", MULTI, { complete });
     expect(complete).not.toHaveBeenCalled();
     expect(a.source).toBe("fallback");
     expect(a.answer).toContain("From my Search demand read:");
     expect(a.answer).toContain("From my Live Google results read:");
-    expect(a.answer).toContain("I pulled this together from my Search demand and Live Google results reads.");
+    expect(a.answer).not.toContain("I pulled this together from my");
     expect(a.providersUsed?.map((p) => p.label)).toEqual(["Search demand", "Live Google results"]);
     expect(a.providersUnavailable).toEqual([]);
     expect(a.answer).not.toMatch(/[–—]/);
   });
 
-  it("a multi-specialist answer owns the gap when a selected provider returned nothing", async () => {
+  it("a multi-specialist answer owns the gap when a selected provider returned nothing, via the structured field ONLY (not duplicated in prose)", async () => {
     const withGap: AskDossier = {
       ...MULTI,
       facts: MULTI.facts.filter((f) => f.providerId === "page-ranking"),
     };
     const a = await composeAskAnswer("list my top pages and top keywords", withGap);
     expect(a.providersUnavailable?.map((p) => p.label)).toEqual(["Live Google results"]);
-    expect(a.answer).toContain("I checked my Live Google results read too but found nothing there yet.");
+    expect(a.answer).not.toContain("I checked my Live Google results read too but found nothing there yet.");
     expect(a.answer).not.toMatch(/[–—]/);
   });
 

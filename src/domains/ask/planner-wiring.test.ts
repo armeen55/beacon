@@ -71,6 +71,7 @@ async function answerFor(tenantId: string, question: string, complete?: Complete
     selectedClasses: plan.selectedClasses,
     plannedProviderIds: plan.selections.map((s) => s.provider.id),
     maxFacts: 12,
+    bestEffortOnly: plan.bestEffortOnly,
   });
   const answer = await composeAskAnswer(question, dossier, complete ? { complete } : {});
   return { plan, facts, dossier, answer };
@@ -122,7 +123,7 @@ describe("ask/planner-wiring - two-tenant isolation through the full chain (MAND
 });
 
 describe("ask/planner-wiring - deterministic multi-provider path never calls the LLM", () => {
-  it("a multi-provider list answer is composed from facts with a provenance footer, LLM untouched", async () => {
+  it("a multi-provider list answer is composed from facts with provenance in the structured fields ONLY (never duplicated in prose), LLM untouched", async () => {
     raw.loadGscPageSignalsForTenant.mockResolvedValue(new Map([["/a", { page: "/a", clicks90d: 111, impressions90d: 900 }]]));
     raw.loadKeywordLibraryForTenant.mockResolvedValue({
       rows: [{ keyword: "alpha-kw", searchesPerMo: 333, ownerPage: null, ownerPageHref: null, yourPosition: null }],
@@ -137,7 +138,9 @@ describe("ask/planner-wiring - deterministic multi-provider path never calls the
     expect(complete).not.toHaveBeenCalled();
     expect(dossier.selectedClasses).toEqual(["page_ranking", "keyword_next"]);
     expect(answer.source).toBe("fallback");
-    expect(answer.answer).toContain("I pulled this together from my Search demand and Live Google results reads.");
+    // P1 fix (2026-07-10 review) - the old footer sentence must never reappear in prose;
+    // providersUsed is the single source the UI renders (Specialists chips).
+    expect(answer.answer).not.toContain("I pulled this together from my");
     expect(answer.providersUsed?.map((p) => p.label)).toEqual(["Search demand", "Live Google results"]);
     expect(answer.answer).not.toMatch(/[–—]/);
   });
@@ -204,19 +207,21 @@ describe("ask/planner-wiring - bounded multi-provider dossier", () => {
 });
 
 describe("ask/planner-wiring - honest unavailable reporting", () => {
-  it("names a selected specialist that returned nothing, in prose and as a structured credit", async () => {
+  it("names a selected specialist that returned nothing, as a structured credit ONLY (the UI renders the sentence, not the prose)", async () => {
     raw.loadGscPageSignalsForTenant.mockResolvedValue(new Map([["/a", { page: "/a", clicks90d: 111, impressions90d: 900 }]]));
     raw.loadKeywordLibraryForTenant.mockResolvedValue({ rows: [], volumeCoverage: 0, total: 0, bySource: {} });
 
     const { answer, dossier } = await answerFor("tenant-a", LIST_Q, vi.fn<CompleteFn>());
     expect(dossier.selectedClasses).toEqual(["page_ranking", "keyword_next"]);
     expect(answer.providersUnavailable?.map((p) => p.label)).toEqual(["Live Google results"]);
-    expect(answer.answer).toContain("I checked my Live Google results read too but found nothing there yet.");
+    // P1 fix (2026-07-10 review) - ask-chat-client.tsx renders this line once from
+    // providersUnavailable; the prose must not repeat it.
+    expect(answer.answer).not.toContain("I checked my Live Google results read too but found nothing there yet.");
   });
 });
 
 describe("ask/planner-wiring - provenance + freshness with human labels only", () => {
-  it("credits the specialist by human name and states data freshness, never a slug id", async () => {
+  it("credits the specialist by human name and states data freshness ONLY in the structured field, never a slug id, never duplicated in prose", async () => {
     raw.loadDailyTotalsForTenant.mockResolvedValue(tenDaysAt(20));
     raw.loadGscPageSignalsForTenant.mockResolvedValue(new Map([["/a", { page: "/a", clicks90d: 111, impressions90d: 900 }]]));
 
@@ -224,8 +229,33 @@ describe("ask/planner-wiring - provenance + freshness with human labels only", (
     expect(plan.selectedClasses).toEqual(["site_trend", "page_ranking"]);
     expect(answer.providersUsed?.[0]?.label).toBe("Search demand");
     expect(answer.providersUsed?.[0]?.freshnessIso).toBe("2026-07-08");
-    expect(answer.answer).toContain("Data through 2026-07-08");
+    // P1 fix (2026-07-10 review) - freshness now shows ONCE, via providersUsed (the UI's
+    // Specialists chip renders "Search demand (through 2026-07-08)"); prose never repeats it.
+    expect(answer.answer).not.toContain("Data through 2026-07-08");
     expect(answer.answer).not.toContain("gsc-daily-totals");
     expect(answer.answer).not.toMatch(/[–—]/);
+  });
+});
+
+// P2 fix (2026-07-10 review) - planner.ts computed AskPlan.bestEffortOnly but nothing
+// consumed it, even though router.ts's own comment claimed the answer "can say plainly
+// it only had overall traffic to go on." This proves the full chain (planAsk ->
+// buildAskDossier -> composeAskAnswer, exactly what ask-actions.ts runs) now makes that true.
+describe("ask/planner-wiring - best-effort honesty is wired end to end", () => {
+  it("a catch-all site-trend question with no explicit trend cue says plainly it only looked at overall traffic", async () => {
+    raw.loadDailyTotalsForTenant.mockResolvedValue(tenDaysAt(20));
+
+    const { plan, answer } = await answerFor("tenant-a", "how are things going", vi.fn<CompleteFn>());
+    expect(plan.bestEffortOnly).toBe(true);
+    expect(answer.answer).toContain("I did not spot a more specific question, so I looked at your overall traffic.");
+    expect(answer.answer).not.toMatch(/[–—]/);
+  });
+
+  it("an explicit site-trend question (matches SITE_TREND_PATTERNS) is not best-effort and adds no honest line", async () => {
+    raw.loadDailyTotalsForTenant.mockResolvedValue(tenDaysAt(20));
+
+    const { plan, answer } = await answerFor("tenant-a", "did traffic drop sitewide this week", vi.fn<CompleteFn>());
+    expect(plan.bestEffortOnly).toBe(false);
+    expect(answer.answer).not.toContain("I did not spot a more specific question");
   });
 });
