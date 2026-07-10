@@ -1,6 +1,8 @@
 import "server-only";
 
 import { lookup } from "node:dns/promises";
+import net from "node:net";
+import { Agent } from "undici";
 
 /**
  * safe-source-fetch (W5 stop-ship F1, 2026-07-09) - the SSRF-safe outbound
@@ -26,32 +28,39 @@ import { lookup } from "node:dns/promises";
  *   2. resolve the host and run EVERY returned A/AAAA address (plus a
  *      host-literal IP) through isBlockedAddress; ANY private/reserved
  *      address fails the whole fetch closed (blocked_private). Metadata
- *      hostnames are rejected pre-DNS.
- *   3. fetch the ONE hop with redirect:"manual", an identified UA, and a
- *      per-hop AbortSignal timeout, tracking a running total against the
- *      overall deadline.
- *   4. a 3xx absolutizes Location and RE-RUNS steps 1-2 on the target before
- *      the next hop (bounded by maxRedirects + a visited-URL set for loops);
- *      a non-http(s) Location is refused.
+ *      hostnames are rejected pre-DNS. The FIRST validated address is kept
+ *      as the pinned address for this hop (see below).
+ *   3. fetch the ONE hop with redirect:"manual", an identified UA, a per-hop
+ *      AbortSignal timeout (tracking a running total against the overall
+ *      deadline), and a dedicated undici `Agent` whose `connect.lookup`
+ *      returns ONLY the pinned address from step 2 - the socket that
+ *      actually opens is the exact address we validated, never a fresh
+ *      re-resolution. The request URL keeps the original hostname (so TLS
+ *      SNI and the Host header are unchanged); only the DNS step is
+ *      overridden. `rejectUnauthorized` is left untouched - TLS verification
+ *      still runs against the real hostname.
+ *   4. a 3xx absolutizes Location and RE-RUNS steps 1-3 on the target before
+ *      the next hop (bounded by maxRedirects + a visited-URL set for loops),
+ *      building a FRESH pinned Agent for that hop's own validated address; a
+ *      non-http(s) Location is refused.
  *   5. a 2xx checks the content-type allowlist, then streams the body up to
  *      maxBytes and aborts on overflow.
  *
  * Never logs credentials or response bodies (callers get a host + reason
  * only). Pure exports assertSafeUrl / isBlockedAddress are unit-tested on
- * their own; the whole flow is hermetic under injected resolve + fetchImpl.
+ * their own; the whole flow is hermetic under injected resolve + fetchImpl
+ * (dispatcher is simply ignored by an injected fetchImpl in tests).
  *
- * DNS TOCTOU residual (documented, deliberately NOT closed here): step 2
- * resolves the host and validates every returned address, then hands the
- * HOSTNAME (not a pinned IP) to fetch, which re-resolves at connect time
- * (undici). A hostile authoritative server can return a public address to our
- * resolve() call and a private one microseconds later at connect (classic DNS
- * rebinding). Fully closing this requires a custom undici Agent whose own
- * `lookup` returns ONLY the address we already validated (pinning the socket
- * to the checked IP). We intentionally do not implement that here: the
- * validate-then-fetch pass, applied to the initial host AND every redirect
- * hop, already raises the bar substantially while staying dependency-light.
- * The hardening path is a pinned-lookup Agent when this fetcher graduates
- * beyond source-verification.
+ * DNS TOCTOU - CLOSED (2026-07-09, per-hop socket pinning): earlier versions
+ * of this module resolved + validated the host, then handed the plain
+ * HOSTNAME to fetch, which re-resolved at connect time (undici) - a hostile
+ * authoritative server could return a public address to our resolve() call
+ * and a private one microseconds later at connect (classic DNS rebinding).
+ * That gap is now closed: every hop pins its socket lookup to the exact
+ * address validated in step 2/4 above via a per-hop undici `Agent({ connect:
+ * { lookup } })`, so the byte that actually gets fetched can never diverge
+ * from the byte that was checked. The hostname is preserved in the request
+ * URL purely for SNI/Host - it never drives a second, unpinned DNS lookup.
  */
 
 const SOURCE_VERIFY_UA = "BeaconBot/1.0 (source-verify)";
@@ -130,59 +139,186 @@ export function assertSafeUrl(raw: string): AssertSafeUrlResult {
   return { ok: true, url: u };
 }
 
-function isBlockedIPv4(ip: string): boolean {
+/**
+ * IP/CIDR classification (2026-07-09, P1 complete-SSRF hardening). Every
+ * address is canonicalized with node:net.isIP first (rejects octet overflow,
+ * leading-zero octal ambiguity, and malformed group counts - see node's own
+ * strict parser), then expanded to a BigInt (32-bit for v4, 128-bit for v6)
+ * and matched against an explicit CIDR table with `inCidr`. No dependency;
+ * the WHATWG URL parser (assertSafeUrl's `new URL()`) already normalizes
+ * decimal/octal/hex IPv4 literals and v6 shorthand into the canonical forms
+ * net.isIP expects, so a hostile literal like http://0x7f000001/ arrives here
+ * as plain "127.0.0.1" before this function ever sees it.
+ */
+
+type Cidr = { base: bigint; prefix: number };
+
+/** Strict dotted-quad -> 32-bit unsigned BigInt. Assumes the caller already
+ *  confirmed `net.isIP(ip) === 4` (or is feeding a known-good literal base);
+ *  still validates defensively and returns null on anything malformed. */
+function ipv4StringToBigInt(ip: string): bigint | null {
   const parts = ip.split(".");
-  if (parts.length !== 4) return true; // malformed -> fail closed
-  const octets = parts.map((p) => Number(p));
-  if (octets.some((o) => !Number.isInteger(o) || o < 0 || o > 255)) return true;
-  const [a, b] = octets as [number, number, number, number];
-  if (a === 0) return true; // 0.0.0.0/8 "this host" / unspecified
-  if (a === 127) return true; // 127/8 loopback
-  if (a === 10) return true; // 10/8 private
-  if (a === 172 && b >= 16 && b <= 31) return true; // 172.16/12 private
-  if (a === 192 && b === 168) return true; // 192.168/16 private
-  if (a === 169 && b === 254) return true; // 169.254/16 link-local (incl. 169.254.169.254 metadata)
-  if (a === 100 && b >= 64 && b <= 127) return true; // 100.64/10 CGNAT
-  if (a >= 224 && a <= 239) return true; // 224/4 multicast
-  if (a >= 240) return true; // 240/4 reserved (incl. 255.255.255.255 broadcast)
-  return false;
+  if (parts.length !== 4) return null;
+  let n = BigInt(0);
+  for (const part of parts) {
+    if (!/^\d{1,3}$/.test(part)) return null;
+    const v = Number(part);
+    if (v < 0 || v > 255) return null;
+    n = (n << BigInt(8)) | BigInt(v);
+  }
+  return n;
 }
 
-function isBlockedIPv6(raw: string): boolean {
-  let addr = raw.trim().toLowerCase();
-  const zone = addr.indexOf("%"); // strip any scope-id
-  if (zone >= 0) addr = addr.slice(0, zone);
-  addr = addr.replace(/^\[/, "").replace(/\]$/, "");
-  // IPv4-mapped IPv6, dotted (::ffff:a.b.c.d) - unwrap and re-check as IPv4.
-  const mappedDotted = addr.match(/^::ffff:(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/);
-  if (mappedDotted) return isBlockedIPv4(mappedDotted[1]!);
-  // IPv4-mapped IPv6, hex form (::ffff:7f00:1) - unwrap and re-check as IPv4.
-  const mappedHex = addr.match(/^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/);
-  if (mappedHex) {
-    const hi = parseInt(mappedHex[1]!, 16);
-    const lo = parseInt(mappedHex[2]!, 16);
-    const v4 = `${(hi >> 8) & 0xff}.${hi & 0xff}.${(lo >> 8) & 0xff}.${lo & 0xff}`;
-    return isBlockedIPv4(v4);
+/** A net.isIP-validated IPv6 string (no zone id, no brackets) -> 128-bit
+ *  unsigned BigInt. Handles "::" compression and an embedded dotted-quad
+ *  IPv4 tail (e.g. ::ffff:127.0.0.1) by folding it into the low 32 bits, so
+ *  the dotted and hex-mapped spellings of the same address always produce
+ *  the same numeric value. Returns null on anything that fails to expand
+ *  (defensive; net.isIP should already have ruled this out upstream). */
+function ipv6StringToBigInt(ip: string): bigint | null {
+  let head = ip;
+  let v4Tail: bigint | null = null;
+  const dotIdx = ip.indexOf(".");
+  if (dotIdx >= 0) {
+    const lastColon = ip.lastIndexOf(":");
+    if (lastColon < 0 || lastColon > dotIdx) return null;
+    v4Tail = ipv4StringToBigInt(ip.slice(lastColon + 1));
+    if (v4Tail == null) return null;
+    head = ip.slice(0, lastColon);
+    // "::a.b.c.d" (the v4 tail sits directly against the "::" compression,
+    // e.g. the v4-compatible/NAT64 forms): slicing off everything from the
+    // separator colon onward drops ONE of the two colons that make up "::",
+    // so restore it before the "::" check below.
+    if (ip[lastColon - 1] === ":") head += ":";
   }
-  if (addr === "::1") return true; // loopback
-  if (addr === "::") return true; // unspecified
-  const first = addr.split(":")[0] ?? "";
-  if (/^f[cd]/.test(first)) return true; // fc00::/7 unique-local
-  if (/^fe[89ab]/.test(first)) return true; // fe80::/10 link-local
-  if (/^ff/.test(first)) return true; // ff00::/8 multicast
+  const groupsNeeded = v4Tail != null ? 6 : 8;
+  let groups: string[];
+  if (head.includes("::")) {
+    const sides = head.split("::");
+    if (sides.length > 2) return null; // "::" may appear at most once
+    const left = sides[0] ? sides[0].split(":") : [];
+    const right = sides[1] ? sides[1].split(":") : [];
+    const missing = groupsNeeded - left.length - right.length;
+    if (missing < 0) return null;
+    groups = [...left, ...Array(missing).fill("0"), ...right];
+  } else {
+    groups = head.split(":");
+  }
+  if (groups.length !== groupsNeeded) return null;
+  let n = BigInt(0);
+  for (const g of groups) {
+    if (!/^[0-9a-f]{1,4}$/.test(g)) return null;
+    n = (n << BigInt(16)) | BigInt(parseInt(g, 16));
+  }
+  if (v4Tail != null) n = (n << BigInt(32)) | v4Tail;
+  return n;
+}
+
+function v4Cidr(base: string, prefix: number): Cidr {
+  const b = ipv4StringToBigInt(base);
+  if (b == null) throw new Error(`invalid IPv4 CIDR base: ${base}`);
+  return { base: b, prefix };
+}
+
+function v6Cidr(base: string, prefix: number): Cidr {
+  const b = ipv6StringToBigInt(base);
+  if (b == null) throw new Error(`invalid IPv6 CIDR base: ${base}`);
+  return { base: b, prefix };
+}
+
+/** Is `ipBig` within `base/prefix` under a `totalBits`-wide address space? */
+function inCidr(ipBig: bigint, base: bigint, prefix: number, totalBits: number): boolean {
+  const shift = BigInt(totalBits - prefix);
+  return ipBig >> shift === base >> shift;
+}
+
+/** Every IPv4 range this fetcher must never reach: unspecified, loopback,
+ *  RFC1918 private, CGNAT, link-local (incl. cloud metadata), the IETF
+ *  protocol/documentation/benchmarking ranges, and multicast/reserved. */
+const BLOCKED_IPV4_CIDRS: readonly Cidr[] = [
+  v4Cidr("0.0.0.0", 8),
+  v4Cidr("10.0.0.0", 8),
+  v4Cidr("100.64.0.0", 10),
+  v4Cidr("127.0.0.0", 8),
+  v4Cidr("169.254.0.0", 16),
+  v4Cidr("172.16.0.0", 12),
+  v4Cidr("192.0.0.0", 24),
+  v4Cidr("192.0.2.0", 24),
+  v4Cidr("192.88.99.0", 24),
+  v4Cidr("192.168.0.0", 16),
+  v4Cidr("198.18.0.0", 15),
+  v4Cidr("198.51.100.0", 24),
+  v4Cidr("203.0.113.0", 24),
+  v4Cidr("224.0.0.0", 4),
+  v4Cidr("240.0.0.0", 4),
+];
+
+function isBlockedIPv4Big(ipBig: bigint): boolean {
+  return BLOCKED_IPV4_CIDRS.some((c) => inCidr(ipBig, c.base, c.prefix, 32));
+}
+
+/** IPv6 ranges blocked outright (no embedded address to unwrap): loopback,
+ *  unspecified, discard-only, IETF protocol assignments (incl. Teredo
+ *  2001::/32), documentation, unique-local, link-local, deprecated
+ *  site-local, and multicast. */
+const BLOCKED_IPV6_CIDRS: readonly Cidr[] = [
+  v6Cidr("::", 128),
+  v6Cidr("::1", 128),
+  v6Cidr("100::", 64),
+  v6Cidr("2001::", 23),
+  v6Cidr("2001:db8::", 32),
+  v6Cidr("fc00::", 7),
+  v6Cidr("fe80::", 10),
+  v6Cidr("fec0::", 10),
+  v6Cidr("ff00::", 8),
+];
+
+/** IPv6 ranges that CARRY an embedded IPv4 address rather than being blocked
+ *  outright: v4-mapped/v4-compatible/NAT64 carry it in the low 32 bits;
+ *  6to4 carries it in bits 16-47 (2002:WWXX:YYZZ::/48 encodes WW.XX.YY.ZZ).
+ *  Each is unwrapped and the embedded address is re-checked as IPv4, so e.g.
+ *  ::ffff:8.8.8.8 (a v4-mapped PUBLIC address) is correctly allowed while
+ *  ::ffff:127.0.0.1 is correctly blocked. */
+const V4_MASK = BigInt(0xffffffff);
+
+const EMBEDDED_V4_RANGES: ReadonlyArray<Cidr & { extract: (n: bigint) => bigint }> = [
+  { ...v6Cidr("::ffff:0:0", 96), extract: (n) => n & V4_MASK }, // v4-mapped
+  { ...v6Cidr("::", 96), extract: (n) => n & V4_MASK }, // v4-compatible
+  { ...v6Cidr("64:ff9b::", 96), extract: (n) => n & V4_MASK }, // NAT64
+  { ...v6Cidr("2002::", 16), extract: (n) => (n >> BigInt(80)) & V4_MASK }, // 6to4
+];
+
+function isBlockedIPv6Big(ipBig: bigint): boolean {
+  if (BLOCKED_IPV6_CIDRS.some((c) => inCidr(ipBig, c.base, c.prefix, 128))) return true;
+  for (const range of EMBEDDED_V4_RANGES) {
+    if (inCidr(ipBig, range.base, range.prefix, 128)) return isBlockedIPv4Big(range.extract(ipBig));
+  }
   return false;
 }
 
 /**
  * Pure predicate: is this resolved IP a private/reserved/loopback/link-local/
- * metadata address we must never fetch? Handles IPv4, IPv6, and IPv4-mapped
- * IPv6 (unwrapped and re-checked). Fails CLOSED on anything unparseable.
+ * metadata address we must never fetch? Canonicalizes via node:net.isIP,
+ * expands to a BigInt, and checks the explicit CIDR tables above (handles
+ * IPv4, IPv6, and every embedded-v4 IPv6 form, unwrapped and re-checked).
+ * Fails CLOSED on anything that doesn't parse as a clean IPv4/IPv6 address.
  */
 export function isBlockedAddress(ip: string): boolean {
-  const addr = (ip ?? "").trim().toLowerCase();
+  let addr = (ip ?? "").trim().toLowerCase();
   if (!addr) return true; // fail closed on an empty/unknown address
-  if (addr.includes(":")) return isBlockedIPv6(addr);
-  return isBlockedIPv4(addr);
+  const zone = addr.indexOf("%"); // strip any scope-id
+  if (zone >= 0) addr = addr.slice(0, zone);
+  addr = addr.replace(/^\[/, "").replace(/\]$/, "");
+  const family = net.isIP(addr);
+  if (family === 4) {
+    const big = ipv4StringToBigInt(addr);
+    return big == null ? true : isBlockedIPv4Big(big);
+  }
+  if (family === 6) {
+    const big = ipv6StringToBigInt(addr);
+    return big == null ? true : isBlockedIPv6Big(big);
+  }
+  return true; // unparseable -> fail closed
 }
 
 /** True when `host` is a metadata/loopback hostname refused before DNS. */
@@ -250,13 +386,22 @@ async function readCappedBody(res: Response, maxBytes: number): Promise<BodyRead
   return { ok: true, text: Buffer.concat(chunks).toString("utf8") };
 }
 
+/** The validated address family a pinned socket lookup reports back to
+ *  undici's connector (matches node's LookupFunction family argument). */
+type PinnedFamily = 4 | 6;
+
 /** Validate one host (initial or redirect target): scheme/creds/port, metadata
- *  hostname, and every resolved (or literal) IP. Returns the parsed URL or a
- *  failure reason. */
+ *  hostname, and every resolved (or literal) IP. On success ALSO returns the
+ *  pinned address+family this hop must connect to - the host-literal IP, or
+ *  the FIRST validated A/AAAA record for a resolved hostname - so the caller
+ *  can build a socket-pinned Agent and close the DNS-TOCTOU gap. */
 async function validateHop(
   raw: string,
   resolve: (host: string) => Promise<string[]>,
-): Promise<{ ok: true; url: URL } | { ok: false; reason: SafeFetchReason }> {
+): Promise<
+  | { ok: true; url: URL; pinnedIp: string; pinnedFamily: PinnedFamily }
+  | { ok: false; reason: SafeFetchReason }
+> {
   const safe = assertSafeUrl(raw);
   if (!safe.ok) return safe;
   const u = safe.url;
@@ -265,7 +410,7 @@ async function validateHop(
   const literal = hostLiteralIp(host);
   if (literal != null) {
     if (isBlockedAddress(literal)) return { ok: false, reason: "blocked_private" };
-    return { ok: true, url: u };
+    return { ok: true, url: u, pinnedIp: literal, pinnedFamily: net.isIP(literal) === 6 ? 6 : 4 };
   }
   let addrs: string[];
   try {
@@ -277,13 +422,50 @@ async function validateHop(
   for (const a of addrs) {
     if (isBlockedAddress(a)) return { ok: false, reason: "blocked_private" };
   }
-  return { ok: true, url: u };
+  const pinnedIp = addrs[0]!;
+  return { ok: true, url: u, pinnedIp, pinnedFamily: net.isIP(pinnedIp) === 6 ? 6 : 4 };
+}
+
+/**
+ * The DNS-TOCTOU fix, isolated as a pure, directly-testable unit: a
+ * node-`LookupFunction`-shaped callback that ALWAYS answers with exactly the
+ * one address already validated for this hop, no matter what hostname/options
+ * the caller (undici's connector) passes in. Exported so the pinning
+ * behavior itself has unit coverage without needing a real socket - the
+ * Agent it gets wired into is a mature third-party library, trusted to call
+ * `connect.lookup` faithfully; what THIS module owns and must prove is that
+ * the lookup it hands over never answers with anything but the checked IP.
+ */
+export function buildPinnedLookup(pinnedIp: string, pinnedFamily: PinnedFamily): net.LookupFunction {
+  return (_hostname, _options, callback) => {
+    callback(null, [{ address: pinnedIp, family: pinnedFamily }]);
+  };
+}
+
+/** A per-hop undici Agent whose ONLY dns behavior is to hand back the exact
+ *  address `validateHop` already checked - closes the DNS-TOCTOU gap (the
+ *  socket that opens can never diverge from the address that was validated).
+ *  The request URL still carries the original hostname (SNI + Host), so TLS
+ *  verification is untouched - only the DNS step is overridden. */
+function pinnedDispatcher(pinnedIp: string, pinnedFamily: PinnedFamily): Agent {
+  return new Agent({ connect: { lookup: buildPinnedLookup(pinnedIp, pinnedFamily) } });
+}
+
+/** Best-effort close of a per-hop pinned Agent; never throws (this runs on
+ *  every exit path, including ones that already failed for another reason). */
+async function closeDispatcher(dispatcher: Agent): Promise<void> {
+  try {
+    await dispatcher.close();
+  } catch {
+    /* ignore */
+  }
 }
 
 /**
  * SSRF-safe fetch of an untrusted source URL's visible bytes. See the module
- * doc for the per-hop algorithm and the documented DNS-TOCTOU residual.
- * Never throws; every failure resolves to a typed `{ ok: false, reason }`.
+ * doc for the per-hop algorithm, including the per-hop socket-pinned Agent
+ * that closes the DNS-TOCTOU gap. Never throws; every failure resolves to a
+ * typed `{ ok: false, reason }`.
  */
 export async function safeFetchSourceText(
   url: string,
@@ -315,20 +497,36 @@ export async function safeFetchSourceText(
     if (visited.has(key)) return { ok: false, reason: "redirect_loop" };
     visited.add(key);
 
+    // Socket pinning (DNS-TOCTOU fix): this hop's Agent can only connect to
+    // the exact address just validated above - the request URL below still
+    // carries the ORIGINAL hostname, so TLS SNI + the Host header are
+    // unchanged; only the DNS step is overridden. A fresh Agent per hop
+    // (never reused across redirects, closed once this hop is done).
+    const dispatcher = pinnedDispatcher(validated.pinnedIp, validated.pinnedFamily);
+
     // Step 3: fetch exactly one hop, manual redirect, per-hop timeout bounded
     // by whatever remains of the overall deadline.
     const remaining = deadlineMs - (now() - startedAt);
-    if (remaining <= 0) return { ok: false, reason: "deadline_exceeded" };
+    if (remaining <= 0) {
+      await closeDispatcher(dispatcher);
+      return { ok: false, reason: "deadline_exceeded" };
+    }
     const hopTimeout = Math.max(1, Math.min(timeoutMs, remaining));
     let res: Response;
     try {
-      res = await fetchImpl(key, {
+      // `dispatcher` is undici-specific (not in the DOM RequestInit type Node's
+      // global fetch is typed with) - an injected test fetchImpl just ignores
+      // an extra property it never reads.
+      const init: RequestInit & { dispatcher?: Agent } = {
         method: "GET",
         redirect: "manual",
         headers: { "User-Agent": SOURCE_VERIFY_UA, Accept: allowed.join(", ") },
         signal: AbortSignal.timeout(hopTimeout),
-      });
+        dispatcher,
+      };
+      res = await fetchImpl(key, init);
     } catch (e) {
+      await closeDispatcher(dispatcher);
       return { ok: false, reason: isAbortError(e) ? "timeout" : "fetch_failed" };
     }
 
@@ -342,6 +540,7 @@ export async function safeFetchSourceText(
       } catch {
         /* ignore */
       }
+      await closeDispatcher(dispatcher);
       if (!location) return { ok: false, reason: "fetch_failed" };
       let next: URL;
       try {
@@ -361,6 +560,7 @@ export async function safeFetchSourceText(
       } catch {
         /* ignore */
       }
+      await closeDispatcher(dispatcher);
       return { ok: false, reason: "fetch_failed" };
     }
 
@@ -375,10 +575,12 @@ export async function safeFetchSourceText(
       } catch {
         /* ignore */
       }
+      await closeDispatcher(dispatcher);
       return { ok: false, reason: "wrong_content_type" };
     }
 
     const bodyRead = await readCappedBody(res, maxBytes);
+    await closeDispatcher(dispatcher);
     if (!bodyRead.ok) return { ok: false, reason: bodyRead.reason };
     return { ok: true, text: bodyRead.text, finalUrl: key, status };
   }

@@ -30,6 +30,24 @@ export async function askQuestionAction(question: string): Promise<AskResult> {
   const trimmed = (question ?? "").trim().slice(0, 500);
   const tenantId = await currentTenantId().catch(() => "");
 
+  // Codex P2 (2026-07-09): FAIL CLOSED on an unresolved tenant. Every fact source
+  // is tenant-scoped; without a resolved tenant we cannot know which site is being
+  // asked about, so we answer honestly rather than proceed and risk reading (and
+  // citing) another tenant's data. Never the founder fallback.
+  if (tenantId === "") {
+    return {
+      ok: true,
+      question: trimmed,
+      answer: {
+        speaker: "llm",
+        answer:
+          "I cannot tell which site I am looking at right now, so I will not guess at an answer. Please reload the page or reconnect, then ask me again.",
+        citedFacts: [],
+        source: "fallback",
+      },
+    };
+  }
+
   const routed = routeQuestion(trimmed);
   // W9 slice 1 (2026-07-09) - site_trend is the first intent wired end to end through
   // the fact-provider registry (src/domains/ask/providers/registry.ts) instead of

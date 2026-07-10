@@ -85,16 +85,46 @@ describe("ask/providers/registry - thin-wrap behavior parity", () => {
     expect(mocks.assembleSystemHealthFacts).toHaveBeenCalledWith("tenant-a");
   });
 
-  it("aiVisibilityProvider, competitorProvider, keywordNextProvider call their (ambient-tenant) assemblers", async () => {
+  it("aiVisibilityProvider, competitorProvider, keywordNextProvider thread the EXPLICIT tenantId to their assemblers (Codex P2)", async () => {
     mocks.assembleAiVisibilityFacts.mockResolvedValueOnce([]);
     mocks.assembleCompetitorFacts.mockResolvedValueOnce([]);
     mocks.assembleKeywordNextFacts.mockResolvedValueOnce([]);
     await aiVisibilityProvider.gather("tenant-a", routed({ questionClass: "ai_visibility" }));
     await competitorProvider.gather("tenant-a", routed({ questionClass: "competitor" }));
     await keywordNextProvider.gather("tenant-a", routed({ questionClass: "keyword_next" }));
-    expect(mocks.assembleAiVisibilityFacts).toHaveBeenCalledTimes(1);
-    expect(mocks.assembleCompetitorFacts).toHaveBeenCalledTimes(1);
-    expect(mocks.assembleKeywordNextFacts).toHaveBeenCalledTimes(1);
+    // No longer ambient: each is called WITH the explicit tenantId, never zero-arg.
+    expect(mocks.assembleAiVisibilityFacts).toHaveBeenCalledWith("tenant-a");
+    expect(mocks.assembleCompetitorFacts).toHaveBeenCalledWith("tenant-a");
+    expect(mocks.assembleKeywordNextFacts).toHaveBeenCalledWith("tenant-a");
+  });
+});
+
+describe("ask/providers/registry - explicit-tenant isolation for the formerly-ambient providers (Codex P2)", () => {
+  it("tenant A's ai_visibility/competitor/keyword_next gather never returns tenant B's facts", async () => {
+    mocks.assembleAiVisibilityFacts.mockImplementation(async (tenantId: string) =>
+      tenantId === "tenant-a"
+        ? [{ value: "tenant A visibility", source: "profound", href: "/prompts" }]
+        : [{ value: "tenant B visibility", source: "profound", href: "/prompts" }],
+    );
+    mocks.assembleCompetitorFacts.mockImplementation(async (tenantId: string) =>
+      tenantId === "tenant-a"
+        ? [{ value: "tenant A competitor", source: "dataforseo", href: "/prompts" }]
+        : [{ value: "tenant B competitor", source: "dataforseo", href: "/prompts" }],
+    );
+    mocks.assembleKeywordNextFacts.mockImplementation(async (tenantId: string) =>
+      tenantId === "tenant-a"
+        ? [{ value: "tenant A keyword", source: "dataforseo", href: "/research/keywords" }]
+        : [{ value: "tenant B keyword", source: "dataforseo", href: "/research/keywords" }],
+    );
+
+    const visA = await gatherFacts("tenant-a", routed({ questionClass: "ai_visibility" }));
+    const compA = await gatherFacts("tenant-a", routed({ questionClass: "competitor" }));
+    const kwA = await gatherFacts("tenant-a", routed({ questionClass: "keyword_next" }));
+
+    expect(visA.map((f) => f.value)).toEqual(["tenant A visibility"]);
+    expect(compA.map((f) => f.value)).toEqual(["tenant A competitor"]);
+    expect(kwA.map((f) => f.value)).toEqual(["tenant A keyword"]);
+    expect([...visA, ...compA, ...kwA].some((f) => f.value.includes("tenant B"))).toBe(false);
   });
 });
 

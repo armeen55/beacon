@@ -34,14 +34,14 @@ vi.mock("@/domains/proof-gsc/load-ledger", () => ({
   loadProofLedgerCached: vi.fn(async () => []),
 }));
 vi.mock("@/domains/answer-intelligence/store", () => ({
-  getAnswerIntelligenceIndex: vi.fn(async () => null),
+  getAnswerIntelligenceIndexForTenant: vi.fn(async () => null),
 }));
 vi.mock("@/domains/experiments/daily-experiment-plan-store", () => ({
   getAcceptedPlan: vi.fn(async () => null),
   getLatestPreviewPlan: vi.fn(async () => null),
 }));
 vi.mock("@/domains/ai-visibility/native-intel-loader", () => ({
-  loadNativeIntel: vi.fn(async () => ({
+  loadNativeIntelForTenant: vi.fn(async () => ({
     recurringDomains: [],
     recurringPages: [],
     presence: { rows: [], totals: { promptsChecked: 0, present: 0, absent: 0 } },
@@ -51,7 +51,7 @@ vi.mock("@/domains/ai-visibility/native-intel-loader", () => ({
   })),
 }));
 vi.mock("@/domains/research/keyword-library", () => ({
-  loadKeywordLibrary: vi.fn(async () => ({ rows: [], volumeCoverage: 0, total: 0, bySource: {} })),
+  loadKeywordLibraryForTenant: vi.fn(async () => ({ rows: [], volumeCoverage: 0, total: 0, bySource: {} })),
 }));
 vi.mock("@/domains/ops/cron-health-view", () => ({
   loadCronHealthView: vi.fn(async () => []),
@@ -71,14 +71,15 @@ vi.mock("@/domains/ownership/registry-loader", () => ({
 }));
 
 import { assembleAskDossier } from "./fact-assembly";
+import { currentTenantId } from "@/lib/tenant-context";
 import { loadOwnershipRegistryForTenant } from "@/domains/ownership/registry-loader";
 import { loadPageDossier } from "@/app/(shell)/page/[...path]/page-dossier-data";
 import { loadDailyTotalsForTenant } from "@/domains/recommendation-intelligence/gsc-page-queries";
 import { loadProofLedgerCached } from "@/domains/proof-gsc/load-ledger";
-import { getAnswerIntelligenceIndex } from "@/domains/answer-intelligence/store";
+import { getAnswerIntelligenceIndexForTenant } from "@/domains/answer-intelligence/store";
 import { getAcceptedPlan } from "@/domains/experiments/daily-experiment-plan-store";
-import { loadNativeIntel } from "@/domains/ai-visibility/native-intel-loader";
-import { loadKeywordLibrary } from "@/domains/research/keyword-library";
+import { loadNativeIntelForTenant } from "@/domains/ai-visibility/native-intel-loader";
+import { loadKeywordLibraryForTenant } from "@/domains/research/keyword-library";
 import { loadCronHealthView } from "@/domains/ops/cron-health-view";
 import { readPipelineHealth } from "@/domains/ops/pipeline-health-store";
 import { readPublishHealth } from "@/domains/push/publish-canary-store";
@@ -86,6 +87,16 @@ import type { RoutedQuestion } from "./router";
 
 beforeEach(() => {
   vi.clearAllMocks();
+});
+
+describe("ask/fact-assembly - fail closed on an unresolved tenant (Codex P2)", () => {
+  it("returns an empty dossier without touching any tenant-scoped loader when the tenant is unresolved", async () => {
+    vi.mocked(currentTenantId).mockResolvedValueOnce("" as never);
+    const dossier = await assembleAskDossier(routed({ questionClass: "measurement", pagePath: null }));
+    expect(dossier.hasData).toBe(false);
+    expect(dossier.facts).toEqual([]);
+    expect(loadProofLedgerCached).not.toHaveBeenCalled();
+  });
 });
 
 function routed(over: Partial<RoutedQuestion> = {}): RoutedQuestion {
@@ -233,7 +244,7 @@ describe("ask/fact-assembly - site_trend", () => {
 
 describe("ask/fact-assembly - ai_visibility", () => {
   it("builds facts from the answer-intelligence index", async () => {
-    vi.mocked(getAnswerIntelligenceIndex).mockResolvedValueOnce({
+    vi.mocked(getAnswerIntelligenceIndexForTenant).mockResolvedValueOnce({
       built_at: "2026-07-01T00:00:00Z",
       brand_name: "Iranopedia",
       owned_domain: "iranopedia.com",
@@ -262,7 +273,7 @@ describe("ask/fact-assembly - ai_visibility", () => {
   // D8: "who does AI recommend instead of me" should also draw on the native 4-engine
   // poll (recurring domains + presence matrix), not just the borrowed Profound index.
   it("adds native-intel recurring domains and absence count to the competitor class", async () => {
-    vi.mocked(loadNativeIntel).mockResolvedValueOnce({
+    vi.mocked(loadNativeIntelForTenant).mockResolvedValueOnce({
       recurringDomains: [{ domain: "rival2.com", distinctPrompts: 4, citationCount: 9, engines: ["chatgpt", "perplexity"], examplePrompts: [] }],
       recurringPages: [],
       presence: { rows: [], totals: { promptsChecked: 12, present: 8, absent: 4 } },
@@ -277,8 +288,8 @@ describe("ask/fact-assembly - ai_visibility", () => {
   });
 
   it("fails soft when native-intel throws, keeping any answer-intelligence facts", async () => {
-    vi.mocked(loadNativeIntel).mockRejectedValueOnce(new Error("boom"));
-    vi.mocked(getAnswerIntelligenceIndex).mockResolvedValueOnce({
+    vi.mocked(loadNativeIntelForTenant).mockRejectedValueOnce(new Error("boom"));
+    vi.mocked(getAnswerIntelligenceIndexForTenant).mockResolvedValueOnce({
       built_at: "2026-07-01T00:00:00Z",
       brand_name: "Iranopedia",
       owned_domain: "iranopedia.com",
@@ -365,7 +376,7 @@ describe("ask/fact-assembly - plan", () => {
 
 describe("ask/fact-assembly - keyword_next (D8)", () => {
   it("surfaces the highest-volume keyword with no owner or a weak position", async () => {
-    vi.mocked(loadKeywordLibrary).mockResolvedValueOnce({
+    vi.mocked(loadKeywordLibraryForTenant).mockResolvedValueOnce({
       rows: [
         { keyword: "persian cat facts", searchesPerMo: 800, timesShownPerMo: 500, clicks: 10, yourPosition: null, difficulty: 40, trend: null, ownerPage: null, ownerPageHref: null, competitorOwners: [], relatedQuestions: [], sources: ["dataforseo_demand"], lastChecked: "2026-07-01" },
         { keyword: "iranian cheetah", searchesPerMo: 200, timesShownPerMo: 300, clicks: 50, yourPosition: 2, difficulty: 20, trend: null, ownerPage: "/cheetah", ownerPageHref: "/page/cheetah", competitorOwners: [], relatedQuestions: [], sources: ["gsc"], lastChecked: "2026-07-01" },
@@ -382,7 +393,7 @@ describe("ask/fact-assembly - keyword_next (D8)", () => {
   });
 
   it("names the library's own coverage line when every high-volume keyword is already owned and ranking", async () => {
-    vi.mocked(loadKeywordLibrary).mockResolvedValueOnce({
+    vi.mocked(loadKeywordLibraryForTenant).mockResolvedValueOnce({
       rows: [{ keyword: "iranian cheetah", searchesPerMo: 200, timesShownPerMo: 300, clicks: 50, yourPosition: 2, difficulty: 20, trend: null, ownerPage: "/cheetah", ownerPageHref: "/page/cheetah", competitorOwners: [], relatedQuestions: [], sources: ["gsc"], lastChecked: "2026-07-01" }],
       volumeCoverage: 1,
       total: 1,
@@ -399,7 +410,7 @@ describe("ask/fact-assembly - keyword_next (D8)", () => {
   });
 
   it("fails soft when the keyword library throws", async () => {
-    vi.mocked(loadKeywordLibrary).mockRejectedValueOnce(new Error("boom"));
+    vi.mocked(loadKeywordLibraryForTenant).mockRejectedValueOnce(new Error("boom"));
     const dossier = await assembleAskDossier(routed({ questionClass: "keyword_next", pagePath: null }));
     expect(dossier.hasData).toBe(false);
     expect(dossier.facts).toEqual([]);

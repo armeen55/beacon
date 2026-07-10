@@ -17,9 +17,13 @@ import "server-only";
  */
 
 import { cache } from "react";
+import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import { getSupabaseAdmin } from "@/lib/persistence/supabase";
 import { currentTenantId } from "@/lib/tenant-context";
 import { readStore, writeStore } from "@/lib/persistence/json-store";
+import { getDataDir } from "@/lib/tenant";
+import { getTenant } from "@/domains/tenants/store";
 import type {
   GscWindowMetrics,
   GscProofVerdict,
@@ -702,6 +706,46 @@ async function writeFile(records: ShippedChangeRecord[]): Promise<void> {
   await writeStore<ShippedChangeRecord>(STORE, records);
 }
 
+/**
+ * Codex P2 (2026-07-09): resolve the on-disk slug for an EXPLICIT tenantId,
+ * mirroring `resolveSlugForTenant` in tenant-repo.ts. Registry first; then the
+ * operator-bootstrap env match (BEACON_TENANT_ID + BEACON_TENANT_SLUG) ONLY when
+ * the explicit tenantId is that same bootstrap tenant. Any other unresolved
+ * tenant returns null so the caller FAILS CLOSED (empty ledger) - it NEVER falls
+ * back to the ambient/flat founder `.data/` directory.
+ */
+async function resolveSlugForTenant(tenantId: string): Promise<string | null> {
+  const tenant = await getTenant(tenantId);
+  if (tenant) return tenant.slug;
+  const envId = process.env.BEACON_TENANT_ID;
+  const envSlug = process.env.BEACON_TENANT_SLUG;
+  if (envId && envSlug && envId === tenantId) return envSlug;
+  return null;
+}
+
+/**
+ * Codex P2 (2026-07-09): tenant-EXPLICIT file fallback for the proof ledger,
+ * mirroring `readProfoundImportRunsForTenant` in tenant-repo.ts. Reads
+ * `.data/tenants/{slug}/proof-gsc-ledger.json` DIRECTLY (getDataDir(slug) +
+ * readFileSync) after resolving the slug from the explicit tenantId - it NEVER
+ * calls `readStore(STORE)`, which routes through the AMBIENT `currentTenantSlug()`
+ * and would silently ignore the explicit arg (the founder-leak this fixes: the
+ * passive re-verify loop runs in next/after() OUTSIDE the render's tenant scope,
+ * where the ambient slug resolves to the founder/empty tenant). Fail-soft -> [].
+ */
+async function readShippedChangesFileForTenant(tenantId: string): Promise<ShippedChangeRecord[]> {
+  const slug = await resolveSlugForTenant(tenantId);
+  if (slug == null) return []; // unresolved tenant -> fail closed, never the founder file
+  const filePath = join(getDataDir(slug), `${STORE}.json`);
+  if (!existsSync(filePath)) return [];
+  try {
+    const parsed = JSON.parse(readFileSync(filePath, "utf-8"));
+    return Array.isArray(parsed) ? (parsed as ShippedChangeRecord[]) : [];
+  } catch {
+    return [];
+  }
+}
+
 /** All shipped-change records for the ambient tenant, newest ship first. Fail-soft → []. */
 /**
  * R23 P17 (2026-07-03, read-path perf): request-cached ledger read.
@@ -763,18 +807,21 @@ export async function loadShippedChangesForTenant(tenantId: string): Promise<Shi
   try {
     admin = getSupabaseAdmin();
   } catch {
-    return sortNewest(await readFile()); // no env → file
+    // Codex P2: no env -> tenant-EXPLICIT file read, never the ambient founder file.
+    return sortNewest(await readShippedChangesFileForTenant(tenantId));
   }
-  return queryTenantLedger(admin, tenantId);
+  // Codex P2: on an undefined-table fallback, read the EXPLICIT tenant's file too.
+  return queryTenantLedger(admin, tenantId, () => readShippedChangesFileForTenant(tenantId));
 }
 
 async function queryTenantLedger(
   admin: ReturnType<typeof getSupabaseAdmin>,
   tid: string,
+  fallback: () => Promise<ShippedChangeRecord[]> = readFile,
 ): Promise<ShippedChangeRecord[]> {
   const { data, error } = await admin.from(TABLE).select("*").eq("tenant_id", tid);
   if (error != null) {
-    if (isUndefinedTableError(error)) return sortNewest(await readFile());
+    if (isUndefinedTableError(error)) return sortNewest(await fallback());
     console.error(
       `[shipped-change-store] read failed for ${tid}: ${error.message ?? String(error)}`,
     );

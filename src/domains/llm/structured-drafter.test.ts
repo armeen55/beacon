@@ -81,6 +81,7 @@ beforeEach(() => {
 afterEach(() => {
   process.env.BEACON_LLM_PROVIDER = ORIGINAL_PROVIDER;
   vi.clearAllMocks();
+  vi.useRealTimers(); // no-op unless a test opted into fake timers (P2 deadline tests)
 });
 
 describe("callStructuredLLM — gate + budget", () => {
@@ -738,6 +739,170 @@ describe("W5 P0-1 - generation-time source verification", () => {
       expect(s.domain).toBe("britannica.com");
       expect(s.url).toBe("https://www.britannica.com/topic/persian-wedding");
     }
+  });
+});
+
+// ── trust-230 P2: whole-draft verify deadline + bounded concurrency ──────────
+describe("P2 - whole-draft source-verification deadline + bounded concurrency", () => {
+  const CLAIM = "a Persian wedding centers on the sofreh aghd ceremonial spread";
+  const MATCHING_TEXT =
+    "A Persian wedding centers on the sofreh aghd ceremonial spread laid before the couple with a mirror and fresh herbs.";
+
+  const withSources = (entries: Array<{ url: string; claim?: string }>): string =>
+    JSON.stringify({
+      ...validAnswer,
+      sources: entries.map((e, idx) => ({
+        url: e.url,
+        title: `source ${idx}`,
+        domain: new URL(e.url).hostname,
+        retrievedAt: "2026",
+        claim: e.claim ?? CLAIM,
+        authority: "unverified",
+      })),
+    });
+
+  /** Repeatedly yields to the microtask queue until `predicate()` is true, or
+   *  throws after `maxTicks` (a real bug, never real time - no setTimeout). */
+  async function waitUntil(predicate: () => boolean, maxTicks = 10_000): Promise<void> {
+    for (let i = 0; i < maxTicks; i += 1) {
+      if (predicate()) return;
+      await Promise.resolve();
+    }
+    throw new Error("waitUntil: condition never became true");
+  }
+
+  it("stops verifying once the whole-draft deadline is spent, leaving the un-started source weak/unverified (fake clock)", async () => {
+    vi.useFakeTimers();
+    const draft = withSources([
+      { url: "https://www.britannica.com/slow-a" },
+      { url: "https://www.britannica.com/slow-b" },
+    ]);
+    const sourceFetch = vi.fn(async (url: string) => {
+      if (url.includes("slow-a")) {
+        // Synchronously blow the WHOLE 20s draft-verify budget while "fetching"
+        // - no real waiting, just advancing the fake clock (vitest fake timers
+        // also fake Date.now()).
+        vi.advanceTimersByTime(21_000);
+      }
+      return { ok: true, text: MATCHING_TEXT };
+    });
+    const r = await callStructuredLLM({
+      kind: "answer_block",
+      system: "s",
+      user: "u",
+      grounded: GROUNDED,
+      complete: fakeComplete([{ text: draft }]),
+      sourceFetch,
+    });
+    expect(r.status).toBe("drafted");
+    if (r.status === "drafted") {
+      const sources = (r.value as { sources: Array<{ verified?: boolean; authority: string }> }).sources;
+      expect(sources[0]!.verified).toBe(true); // started before the budget was spent
+      expect(sources[1]!.verified).toBe(false); // never got a turn - FAIL CLOSED
+      expect(sources[1]!.authority).toBe("weak");
+    }
+    // the second source was never even handed to the fetcher.
+    expect(sourceFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("never lets a source verify:true once the deadline has passed, across a 3-source draft", async () => {
+    vi.useFakeTimers();
+    const draft = withSources([
+      { url: "https://www.britannica.com/slow-1" },
+      { url: "https://www.britannica.com/slow-2" },
+      { url: "https://www.britannica.com/slow-3" },
+    ]);
+    const sourceFetch = vi.fn(async (url: string) => {
+      vi.advanceTimersByTime(11_000); // two of these together exceed the 20s budget
+      return { ok: true, text: MATCHING_TEXT };
+    });
+    const r = await callStructuredLLM({
+      kind: "answer_block",
+      system: "s",
+      user: "u",
+      grounded: GROUNDED,
+      complete: fakeComplete([{ text: draft }]),
+      sourceFetch,
+    });
+    expect(r.status).toBe("drafted");
+    if (r.status === "drafted") {
+      const sources = (r.value as { sources: Array<{ verified?: boolean; authority: string }> }).sources;
+      const verifiedCount = sources.filter((s) => s.verified === true).length;
+      // exactly the sources that started before the budget ran out verified;
+      // NONE of them are verified past the point the deadline was spent.
+      expect(verifiedCount).toBeLessThan(3);
+      for (const s of sources) {
+        if (s.verified !== true) expect(s.authority).toBe("weak");
+      }
+    }
+  });
+
+  it("never runs more than 2 source fetches concurrently, even with 3 eligible sources", async () => {
+    const draft = withSources([
+      { url: "https://www.britannica.com/c1" },
+      { url: "https://www.britannica.com/c2" },
+      { url: "https://www.britannica.com/c3" },
+    ]);
+    let active = 0;
+    let maxActive = 0;
+    const releasers: Array<() => void> = [];
+    const sourceFetch = vi.fn(() => {
+      active += 1;
+      maxActive = Math.max(maxActive, active);
+      return new Promise<{ ok: boolean; text: string }>((resolve) => {
+        releasers.push(() => {
+          active -= 1;
+          resolve({ ok: true, text: MATCHING_TEXT });
+        });
+      });
+    });
+    const resultPromise = callStructuredLLM({
+      kind: "answer_block",
+      system: "s",
+      user: "u",
+      grounded: GROUNDED,
+      complete: fakeComplete([{ text: draft }]),
+      sourceFetch,
+    });
+
+    await waitUntil(() => sourceFetch.mock.calls.length >= 2);
+    expect(active).toBeLessThanOrEqual(2);
+    expect(sourceFetch).toHaveBeenCalledTimes(2); // the 3rd has not started - pool is full
+
+    releasers[0]!(); // free a slot - the 3rd source should now be able to start
+    await waitUntil(() => sourceFetch.mock.calls.length >= 3);
+    expect(active).toBeLessThanOrEqual(2);
+
+    releasers[1]!();
+    releasers[2]!();
+    const r = await resultPromise;
+
+    expect(r.status).toBe("drafted");
+    expect(sourceFetch).toHaveBeenCalledTimes(3);
+    expect(maxActive).toBeLessThanOrEqual(2); // the invariant, checked across the WHOLE run
+  });
+
+  it("preserves the per-URL cache dedupe: two sources citing the identical URL fetch it only once", async () => {
+    const draft = withSources([
+      { url: "https://www.britannica.com/shared", claim: CLAIM },
+      { url: "https://www.britannica.com/shared", claim: CLAIM },
+    ]);
+    const sourceFetch = vi.fn(async () => ({ ok: true, text: MATCHING_TEXT }));
+    const r = await callStructuredLLM({
+      kind: "answer_block",
+      system: "s",
+      user: "u",
+      grounded: GROUNDED,
+      complete: fakeComplete([{ text: draft }]),
+      sourceFetch,
+    });
+    expect(r.status).toBe("drafted");
+    if (r.status === "drafted") {
+      const sources = (r.value as { sources: Array<{ verified?: boolean }> }).sources;
+      expect(sources[0]!.verified).toBe(true);
+      expect(sources[1]!.verified).toBe(true);
+    }
+    expect(sourceFetch).toHaveBeenCalledTimes(1); // deduped even though 2 pool workers raced on it
   });
 });
 

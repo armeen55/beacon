@@ -24,10 +24,10 @@ import { countLedgerLifecycle, excludeRevertBookkeeping } from "@/domains/change
 import { proofMaturityLabel } from "@/domains/proof-gsc/measure-lifecycle";
 import { deriveMeasurementMaturity, basisDayOf } from "@/domains/proof-gsc/measurement-maturity";
 import { gradeVerdictReliability } from "@/domains/proof-gsc/verdict-reliability";
-import { getAnswerIntelligenceIndex } from "@/domains/answer-intelligence/store";
+import { getAnswerIntelligenceIndexForTenant } from "@/domains/answer-intelligence/store";
 import { getAcceptedPlan, getLatestPreviewPlan } from "@/domains/experiments/daily-experiment-plan-store";
-import { loadNativeIntel } from "@/domains/ai-visibility/native-intel-loader";
-import { loadKeywordLibrary } from "@/domains/research/keyword-library";
+import { loadNativeIntelForTenant } from "@/domains/ai-visibility/native-intel-loader";
+import { loadKeywordLibraryForTenant } from "@/domains/research/keyword-library";
 import { loadCronHealthView } from "@/domains/ops/cron-health-view";
 import { readPipelineHealth } from "@/domains/ops/pipeline-health-store";
 import { readPublishHealth } from "@/domains/push/publish-canary-store";
@@ -337,10 +337,10 @@ export async function assemblePageRankingFacts(tenantId: string, metric: Ranking
 
 // ── ai_visibility: the answer-intelligence index ────────────────────────────────────
 
-export async function assembleAiVisibilityFacts(): Promise<AskFact[]> {
+export async function assembleAiVisibilityFacts(tenantId: string): Promise<AskFact[]> {
   let index;
   try {
-    index = await getAnswerIntelligenceIndex();
+    index = await getAnswerIntelligenceIndexForTenant(tenantId);
   } catch {
     index = null;
   }
@@ -381,10 +381,10 @@ export async function assembleAiVisibilityFacts(): Promise<AskFact[]> {
 
 // ── competitor: co-citation + narrative shifts (same index, competitor framing) ────
 
-export async function assembleCompetitorFacts(): Promise<AskFact[]> {
+export async function assembleCompetitorFacts(tenantId: string): Promise<AskFact[]> {
   const [index, native] = await Promise.all([
-    getAnswerIntelligenceIndex().catch(() => null),
-    loadNativeIntel().catch(() => null),
+    getAnswerIntelligenceIndexForTenant(tenantId).catch(() => null),
+    loadNativeIntelForTenant(tenantId).catch(() => null),
   ]);
 
   const facts: AskFact[] = [];
@@ -556,10 +556,10 @@ export async function assemblePlanFacts(tenantId: string): Promise<AskFact[]> {
  * concrete, real-volume gaps an operator can act on today. Falls back to naming the
  * library's own coverage line when nothing qualifies, so the answer is never silent.
  */
-export async function assembleKeywordNextFacts(): Promise<AskFact[]> {
+export async function assembleKeywordNextFacts(tenantId: string): Promise<AskFact[]> {
   let library;
   try {
-    library = await loadKeywordLibrary();
+    library = await loadKeywordLibraryForTenant(tenantId);
   } catch {
     library = null;
   }
@@ -684,6 +684,11 @@ export async function assembleSystemHealthFacts(tenantId: string): Promise<AskFa
  */
 export async function assembleAskDossier(routed: RoutedQuestion): Promise<AskDossier> {
   const tenantId = await currentTenantId().catch(() => "");
+  // Codex P2 (2026-07-09): FAIL CLOSED on an unresolved tenant. Every assembler
+  // is tenant-scoped; proceeding with an empty tenantId would let the underlying
+  // loaders resolve the wrong (or the founder) tenant. An empty dossier reads as
+  // an honest "no data" answer, never another tenant's facts.
+  if (tenantId === "") return buildAskDossier(routed, []);
   let facts: AskFact[] = [];
 
   try {
@@ -698,10 +703,10 @@ export async function assembleAskDossier(routed: RoutedQuestion): Promise<AskDos
         facts = await assembleSiteTrendFacts(tenantId);
         break;
       case "ai_visibility":
-        facts = await assembleAiVisibilityFacts();
+        facts = await assembleAiVisibilityFacts(tenantId);
         break;
       case "competitor":
-        facts = await assembleCompetitorFacts();
+        facts = await assembleCompetitorFacts(tenantId);
         break;
       case "measurement":
         facts = await assembleMeasurementFacts(tenantId);
@@ -710,7 +715,7 @@ export async function assembleAskDossier(routed: RoutedQuestion): Promise<AskDos
         facts = await assemblePlanFacts(tenantId);
         break;
       case "keyword_next":
-        facts = await assembleKeywordNextFacts();
+        facts = await assembleKeywordNextFacts(tenantId);
         break;
       case "system_health":
         facts = await assembleSystemHealthFacts(tenantId);

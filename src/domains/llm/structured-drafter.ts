@@ -228,6 +228,20 @@ function countWords(text: string): number {
  *  (cost cap - real drafts carry 1-2; anything past this stays unverified). */
 const MAX_SOURCES_TO_VERIFY = 3;
 
+/** How many of a draft's sources verify concurrently (P2, 2026-07-09): a
+ *  bounded worker pool, never a full fan-out - a draft's 1-3 sources share
+ *  this budget rather than serializing one full fetch at a time. */
+const SOURCE_VERIFY_CONCURRENCY = 2;
+
+/** P2 (2026-07-09): the WHOLE draft's source-verification wall-clock budget,
+ *  not a per-source one. Without this, N sources each capped at their own
+ *  per-fetch timeout can still add up to N times that before the draft ships
+ *  - on a slow/hostile host, generation could hang far longer than any single
+ *  fetch's timeout suggests. Once spent, every source not yet fetched stays
+ *  verified:false / authority:"weak" (FAIL CLOSED) rather than being fetched
+ *  on borrowed time. */
+const WHOLE_DRAFT_VERIFY_DEADLINE_MS = 20_000;
+
 /**
  * W5 P0-1 (2026-07-09): fetch a cited source URL and return its visible text.
  * Injected in tests (hermetic); the default routes through the SSRF-safe
@@ -236,10 +250,13 @@ const MAX_SOURCES_TO_VERIFY = 3;
  * text. Fail-soft: any failure resolves to `{ ok: false, text: "" }` so
  * verification downgrades the source rather than throwing. `finalUrl` (W5
  * stop-ship F2) is the post-redirect URL the fetch actually landed on, so the
- * verifier can recompute authority from the REAL final host.
+ * verifier can recompute authority from the REAL final host. `opts.deadlineMs`
+ * (P2) is the REMAINING whole-draft budget for this particular fetch, so a
+ * source that starts late gets a shorter leash than one that starts first.
  */
 export type SourceTextFetcher = (
   url: string,
+  opts?: { deadlineMs?: number },
 ) => Promise<{ ok: boolean; text: string; finalUrl?: string }>;
 
 /** Strip HTML to visible text (scripts/styles/tags removed, whitespace
@@ -256,9 +273,9 @@ function htmlToVisibleText(html: string): string {
 }
 
 function defaultSourceFetcher(timeoutMs: number): SourceTextFetcher {
-  return async (url: string) => {
+  return async (url: string, opts?: { deadlineMs?: number }) => {
     try {
-      const res = await safeFetchSourceText(url, {}, { timeoutMs });
+      const res = await safeFetchSourceText(url, {}, { timeoutMs, deadlineMs: opts?.deadlineMs });
       if (!res.ok) return { ok: false, text: "" };
       return { ok: true, text: htmlToVisibleText(res.text), finalUrl: res.finalUrl };
     } catch {
@@ -326,11 +343,21 @@ function stripSourceVerificationFields(value: unknown): unknown {
  * never pass the authority gate on domain class alone. NEVER throws; a draft
  * with no sources array is returned unchanged. Runs at generation time only
  * (behind the resolveSourceFetch gate), never on a render/eval path.
+ *
+ * P2 (2026-07-09): eligible sources verify through a bounded worker pool of
+ * at most SOURCE_VERIFY_CONCURRENCY fetches in flight, all sharing ONE
+ * WHOLE_DRAFT_VERIFY_DEADLINE_MS wall-clock budget (captured once, before the
+ * first fetch). Each worker checks the remaining budget immediately before
+ * its OWN next fetch; once spent, every source not yet started is left
+ * verified:false / authority:"weak" rather than fetched on borrowed time -
+ * FAIL CLOSED on the whole-draft deadline, exactly like a single fetch's own
+ * per-hop deadline in safe-source-fetch.ts. Results are reassembled in the
+ * original source order regardless of which worker finished first.
  */
 async function verifyStampedSources(
   value: unknown,
   fetcher: SourceTextFetcher,
-  cache: Map<string, { ok: boolean; text: string; finalUrl?: string }>,
+  cache: Map<string, Promise<{ ok: boolean; text: string; finalUrl?: string }>>,
   nowIso: string,
   nowYear: number,
   tenantAllowlist: readonly string[] | undefined,
@@ -338,28 +365,49 @@ async function verifyStampedSources(
   if (!value || typeof value !== "object") return value;
   const v = value as Record<string, unknown>;
   if (!Array.isArray(v.sources) || v.sources.length === 0) return value;
-  const verified: unknown[] = [];
-  for (let i = 0; i < v.sources.length; i += 1) {
-    const s = { ...(v.sources[i] as Record<string, unknown>) };
+
+  const prepared: Record<string, unknown>[] = v.sources.map((raw) => {
+    const s = { ...(raw as Record<string, unknown>) };
     // (1) never trust an LLM-supplied verification: wipe it before any fetch.
     resetSourceVerification(s);
+    return s;
+  });
+
+  // Sources eligible for a real fetch, IN ORIGINAL ORDER; anything past the
+  // MAX_SOURCES_TO_VERIFY cap or missing url/claim short-circuits to weak
+  // without ever touching the fetcher or the whole-draft deadline budget.
+  const eligible: number[] = [];
+  for (let i = 0; i < prepared.length; i += 1) {
+    const s = prepared[i]!;
     const url = String(s.url ?? "").trim();
     const claim = String(s.claim ?? "").trim();
     if (i >= MAX_SOURCES_TO_VERIFY || !url || !claim) {
       s.authority = "weak";
-      verified.push(s);
-      continue;
+    } else {
+      eligible.push(i);
     }
-    // (2) fetch through the injected SSRF-safe fetcher (per-request URL cache).
-    let fetched = cache.get(url);
-    if (!fetched) {
-      fetched = await fetcher(url).catch(() => ({ ok: false, text: "" }));
-      cache.set(url, fetched);
+  }
+  if (eligible.length === 0) return { ...v, sources: prepared };
+
+  async function verifyOne(i: number, remainingMs: number): Promise<void> {
+    const s = prepared[i]!;
+    const url = String(s.url ?? "").trim();
+    const claim = String(s.claim ?? "").trim();
+    // (2) fetch through the injected SSRF-safe fetcher (per-request URL cache,
+    // deduping the same source cited on either generation attempt OR by two
+    // different sources in the same draft). The cache stores the IN-FLIGHT
+    // PROMISE, not the resolved value - `get` + `set` happen synchronously
+    // (no await between them), so two pool workers racing on the same URL
+    // both see the SAME shared fetch rather than each starting their own.
+    let pending = cache.get(url);
+    if (!pending) {
+      pending = fetcher(url, { deadlineMs: remainingMs }).catch(() => ({ ok: false, text: "" }));
+      cache.set(url, pending);
     }
+    const fetched = await pending;
     if (!fetched.ok) {
       s.authority = "weak";
-      verified.push(s);
-      continue;
+      return;
     }
     // (3) span-level entailment + FINAL-host authority.
     const finalUrl = (fetched.finalUrl && fetched.finalUrl.trim()) || url;
@@ -382,9 +430,35 @@ async function verifyStampedSources(
       // unreachable-quality match, weak final host, or no supporting span.
       s.authority = "weak";
     }
-    verified.push(s);
   }
-  return { ...v, sources: verified };
+
+  const startedAt = Date.now();
+  let cursor = 0;
+  let deadlineHit = false;
+
+  async function worker(): Promise<void> {
+    for (;;) {
+      if (cursor >= eligible.length) return;
+      const i = eligible[cursor]!;
+      cursor += 1;
+      if (deadlineHit) {
+        prepared[i]!.authority = "weak";
+        continue;
+      }
+      const remainingMs = WHOLE_DRAFT_VERIFY_DEADLINE_MS - (Date.now() - startedAt);
+      if (remainingMs <= 0) {
+        deadlineHit = true;
+        prepared[i]!.authority = "weak";
+        continue;
+      }
+      await verifyOne(i, remainingMs);
+    }
+  }
+
+  const poolSize = Math.min(SOURCE_VERIFY_CONCURRENCY, eligible.length);
+  await Promise.all(Array.from({ length: poolSize }, () => worker()));
+
+  return { ...v, sources: prepared };
 }
 
 /** Content firewalls over every string field of a parsed draft. Same trust rails
@@ -559,7 +633,7 @@ export async function callStructuredLLM<K extends StructuredDraftKind>(
   // hermetic fetcher is injected) + a per-request URL cache so the same source
   // cited on both attempts is fetched once.
   const sourceFetch = resolveSourceFetch(req.sourceFetch, timeoutMs);
-  const sourceTextCache = new Map<string, { ok: boolean; text: string; finalUrl?: string }>();
+  const sourceTextCache = new Map<string, Promise<{ ok: boolean; text: string; finalUrl?: string }>>();
   const verifyNowIso = (req.now ?? new Date()).toISOString();
 
   let totalCost = 0;
