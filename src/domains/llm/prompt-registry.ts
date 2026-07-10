@@ -21,7 +21,11 @@
 
 export const PROMPT_REGISTRY = {
   // ── structured-drafter kinds (all parse through callStructuredLLM) ────────
-  "draft.answer_block": 1,
+  // draft.answer_block bumped to v2 (2026-07-09, W5/J-71): 80-150 word target
+  // + "sources" field + cite-sources instruction replace the old 40-60 word
+  // prompt - the content-hash call cache must never serve a stale v1 response
+  // under the new contract.
+  "draft.answer_block": 2,
   "draft.atomic_edit": 1,
   "draft.create_page_brief": 1,
   "draft.cro_fix": 1,
@@ -39,7 +43,9 @@ export const PROMPT_REGISTRY = {
   "draft.commerce_asset": 1,
   "draft.experiment_plan": 1,
   // ── legacy demand-graph drafters (llm-answer-block.ts) ────────────────────
-  "answer_block.text": 1,
+  // answer_block.text bumped to v2 (2026-07-09, W5/J-71): 80-150 word target
+  // + cite-sources instruction replace the old 40-60 word prompt.
+  "answer_block.text": 2,
   "answer_block.faq_schema": 1,
   // ── recommendation reasoning passes ───────────────────────────────────────
   "rec.why_narrative": 1,

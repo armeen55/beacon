@@ -36,6 +36,28 @@ export type EvidenceRef = z.infer<typeof EvidenceRefSchema>;
 
 export const ConfidenceSchema = z.enum(["high", "medium", "low"]);
 
+/**
+ * W5 (2026-07-09, J-69/J-71), one citation attached to a factual draft. The
+ * LLM may PROPOSE a source (url/title/domain/claim); it never gets to decide
+ * `authority`, only `src/domains/drafts/source-authority.ts`'s deterministic
+ * classifier stamps that field (a .gov/.edu domain, a small named encyclopedic/
+ * major-press set, or the tenant's own allowlist earns "authoritative"; a real
+ * URL with a claim but no authoritative domain is "weak"; a bare URL with no
+ * claim attached is "unverified", it counts as no source at all). `claim` is
+ * the specific fact this source backs, so a source can be checked for actually
+ * covering the draft's claim, not just cited in passing. */
+export const SourceRefSchema = z.object({
+  url: z.string().min(1).max(500),
+  title: z.string().min(1).max(200),
+  domain: z.string().min(1).max(120),
+  /** ISO date (or plain-English date string) the source was read/retrieved. */
+  retrievedAt: z.string().min(1).max(40),
+  /** The specific fact/claim this source backs, never a bare citation. */
+  claim: z.string().min(1).max(400),
+  authority: z.enum(["authoritative", "weak", "unverified"]),
+});
+export type SourceRef = z.infer<typeof SourceRefSchema>;
+
 /** One concrete, operator-facing step to execute the Move. */
 export const OperatorStepSchema = z.string().min(3).max(280);
 
@@ -66,10 +88,19 @@ const base = {
 
 // ── the draft schemas (the Sprint 2 minimum set) ────────────────────────────
 
-/** 1. AnswerBlockDraft — the 40–60 word extractable AEO answer block. */
+/** 1. AnswerBlockDraft, the 80-150 word extractable AEO answer block (J-71:
+ *  "80-150 words WITH source citations - 40-60 is too thin"). `answer`'s max
+ *  is widened to 1200 chars (150 words needs ~1050), the 80-150 word BAND
+ *  itself is enforced by draft-quality.ts's evaluateDraftQuality, not here;
+ *  this schema only bounds the shape. `sources` is additive with a `[]`
+ *  default so every persisted pre-W5 draft still deserializes clean. */
 export const AnswerBlockDraftSchema = z.object({
-  answer: z.string().min(120).max(700),
+  answer: z.string().min(120).max(1200),
   citationHook: z.string().max(200).nullable().default(null),
+  /** W5 (J-69): the 1-2 authoritative sources backing this answer's claims.
+   *  Defaults to [], an empty list is exactly what "no source yet" means; the
+   *  quality gate (never this schema) decides whether that blocks copy. */
+  sources: z.array(SourceRefSchema).default([]),
   proofPlan: ProofPlanSchema,
   ...base,
 });
@@ -83,6 +114,8 @@ export const CreatePageBriefSchema = z.object({
   outline: z.array(z.string().min(2).max(160)).min(3).max(16),
   faqQuestions: z.array(z.string().min(6).max(200)).max(8).default([]),
   schemaTypes: z.array(z.string().min(2).max(60)).max(8).default([]),
+  /** W5 (J-69): same additive sources list as AnswerBlockDraftSchema. */
+  sources: z.array(SourceRefSchema).default([]),
   proofPlan: ProofPlanSchema,
   ...base,
 });
@@ -94,6 +127,10 @@ export const AtomicEditDraftSchema = z.object({
   before: z.string().max(2000).nullable().default(null),
   after: z.string().min(1).max(2000),
   rationale: z.string().min(1).max(400),
+  /** W5 (J-69): same additive sources list, only meaningful when the edit
+   *  introduces a NEW factual claim the "before" value didn't already carry
+   *  (see draft-quality.ts's isFactualClaim); a pure rephrase is never gated. */
+  sources: z.array(SourceRefSchema).default([]),
   proofPlan: ProofPlanSchema,
   ...base,
 });

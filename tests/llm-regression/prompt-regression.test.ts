@@ -128,7 +128,7 @@ describe("draft.* prompts - recorded outputs pass the REAL validate + firewall p
 // ── demand-graph drafters ─────────────────────────────────────────────────────
 
 describe("answer_block.* prompts (demand-graph drafters)", () => {
-  it("answer_block.text v1 - recorded answer passes gating + firewalls", async () => {
+  it("answer_block.text v2 (W5: 80-150 words) - recorded answer passes gating + firewalls", async () => {
     const fx = loadFixture("answer_block.text");
     const r = await draftAnswerBlockWithLLM(
       { query: "persian wedding traditions", pageLabel: "Persian Wedding", brief: "sofreh aghd ceremony jashn reception canopy", outline: [], faqs: [] },

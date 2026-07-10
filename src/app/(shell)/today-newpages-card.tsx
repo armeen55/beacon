@@ -44,14 +44,19 @@ export function NewPageCard({ o, ownDomain, enableAeoBrief = false }: { o: NewPa
   const signalIntent = SIGNAL_INTENT[o.signal.kind];
   // D-26 (operator spec 2026-07-09) - the "source pack": the competitor pages AI cites +
   // the top Google results + any gap/wiki evidence. A brief with none of these is not
-  // paste-ready (J-69 enforces harder later), so the full-page draft button is disabled.
+  // paste-ready, so the full-page draft button is disabled.
   const sourceDomains = [
     ...(o.aeoReceipt?.competitorPages ?? []),
     ...(o.preparedVerdict?.topDomains ?? []),
     ...o.competitorDomains,
   ];
   const uniqueSources = [...new Set(sourceDomains.filter(Boolean))].slice(0, 6);
-  const hasSources = uniqueSources.length > 0 || !!o.gapEvidence || !!o.wikiGapEvidence;
+  // W5 (2026-07-09, J-69) - the brief's OWN cited sources (SourceRef[]), when the
+  // drafter attached any. This replaces the competitor-domain proxy as the primary
+  // "Sources" display; the proxy stays as the honest fallback when the brief has no
+  // real sources yet (a lead worth chasing, not proof this page is source-backed).
+  const realSources = o.preparedBrief?.sources ?? [];
+  const hasSources = realSources.length > 0 || uniqueSources.length > 0 || !!o.gapEvidence || !!o.wikiGapEvidence;
   const [aiStatus, setAiStatus] = useState<
     "idle" | "pending" | "ok" | "off" | "blocked" | "rejected" | "error"
   >(o.savedOpening ? "ok" : "idle"); // hydrate a previously-generated+saved opening
@@ -353,10 +358,22 @@ export function NewPageCard({ o, ownDomain, enableAeoBrief = false }: { o: NewPa
             );
           })()
         ) : null}
-        {/* D-26 (operator spec 2026-07-09) - the SOURCE PACK: the evidence links grouped
-            under one "Sources" mini-list (competitor pages AI cites + top Google results).
-            A proposal with sources is paste-ready groundwork; one without is not. */}
-        {hasSources ? (
+        {/* W5 (2026-07-09, J-69) - real cited sources when the brief carries them; the
+            competitor/Google-results proxy is the honest fallback when it doesn't. A
+            proposal with sources is paste-ready groundwork; one without is not. */}
+        {realSources.length > 0 ? (
+          <div className="mt-2 rounded-lg bg-surface-raised px-2.5 py-1.5">
+            <div className="text-meta font-semibold uppercase tracking-wide text-muted-foreground">Sources</div>
+            <ul className="mt-0.5 space-y-0.5">
+              {realSources.map((s, i) => (
+                <li key={i} className="truncate text-meta text-foreground-secondary" title={`${s.claim}, ${s.url}`}>
+                  <span className="font-medium text-foreground">{s.domain}</span>: {s.claim}
+                  {s.authority !== "authoritative" ? " (not yet a strong source)" : ""}
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : hasSources ? (
           <div className="mt-2 rounded-lg bg-surface-raised px-2.5 py-1.5">
             <div className="text-meta font-semibold uppercase tracking-wide text-muted-foreground">Sources</div>
             {o.competitorDomains.length > 0 ? (

@@ -74,10 +74,15 @@ export async function draftAnswerBlockWithLLM(
     return { status: "blocked_budget", reason: (budget as { reason?: string }).reason ?? "cap reached" };
   }
 
+  // W5 (2026-07-09, J-71): 80-150 words - "40-60 is too thin" per the operator's
+  // own spec. This legacy path returns plain text (no structured sources field -
+  // see structured-drafter.ts's draftAnswerBlockStructured for the sourced,
+  // schema-validated path), so the instruction here is textual: name where a
+  // fact comes from in plain language rather than leaving it bare.
   const system =
     "You write concise, factual AEO answer blocks for an encyclopedia / content site. " +
-    "Output ONE direct answer of 40-60 words that a search engine or AI assistant could quote verbatim. " +
-    "Ground it ONLY in the brief/outline provided. Do NOT invent statistics, dates, prices, rankings, or " +
+    "Output ONE direct answer of 80-150 words that a search engine or AI assistant could quote verbatim. " +
+    "Ground it ONLY in the brief/outline provided, and name where a fact comes from in plain language (e.g. \"according to...\") when the brief gives you a source. Do NOT invent statistics, dates, prices, rankings, or " +
     "superlatives. No marketing language. Plain, neutral, factual. Output only the answer text — no heading, no preamble.";
   const user = [
     `Search/topic: "${input.query}"`,
@@ -86,7 +91,7 @@ export async function draftAnswerBlockWithLLM(
     outline.length ? `Grounded sections: ${outline.join("; ")}` : "",
     faqs.length ? `Related questions: ${faqs.slice(0, 4).join("; ")}` : "",
     "",
-    "Write the 40-60 word answer block now.",
+    "Write the 80-150 word answer block now, citing 1-2 authoritative sources in plain language where the brief supports it.",
   ]
     .filter(Boolean)
     .join("\n");

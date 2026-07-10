@@ -37,6 +37,8 @@ import {
   type BusinessConfig,
 } from "./business-config";
 import { log } from "@/lib/logger";
+import { evaluateDraftQuality } from "@/domains/drafts/draft-quality";
+import { classifySourceAuthority } from "@/domains/drafts/source-authority";
 
 const REPO_ROOT = process.cwd();
 const TOP_LEVEL_PATH = join(REPO_ROOT, ".data", "business-config.json");
@@ -515,6 +517,88 @@ describe("MT-1 — tenant-keyed resolution + cache isolation", () => {
     const a2 = getBusinessConfig("tenant-a");
     expect(a2).not.toBe(a1);
     expect(a2.name).toBe("Alpha Co");
+  });
+});
+
+describe("W5 (2026-07-09, J-69/J-70): authoritativeSourceDomains + firstMention tenant isolation", () => {
+  let savedByTenant: string | undefined;
+
+  beforeEach(() => {
+    savedByTenant = process.env[BY_TENANT_ENV];
+    delete process.env[BY_TENANT_ENV];
+    if (existsSync(TOP_LEVEL_PATH)) unlinkSync(TOP_LEVEL_PATH);
+    __resetBusinessConfigCacheForTests();
+  });
+
+  afterEach(() => {
+    if (typeof savedByTenant === "string") {
+      process.env[BY_TENANT_ENV] = savedByTenant;
+    } else {
+      delete process.env[BY_TENANT_ENV];
+    }
+    __resetBusinessConfigCacheForTests();
+  });
+
+  const FACTUAL_DRAFT =
+    "The Sample Museum's collection catalog lists over 3000 artifacts spanning several centuries of regional history, according to the museum's own published records. Curators rotate roughly a fifth of the collection into public view each year, pairing objects with short written histories drawn from acquisition records and donor correspondence. Visiting researchers may request access to unpublished archival material by written appointment. The museum also maintains a smaller traveling exhibit that tours partner institutions on a rotating multi-year schedule, giving audiences outside the home city a chance to see a curated slice of the same collection.";
+
+  it("tenant A's allowlist + firstMention are set, tenant B carries neither", () => {
+    process.env[BY_TENANT_ENV] = JSON.stringify({
+      "tenant-a-w5": {
+        name: "Tenant A",
+        authoritativeSourceDomains: ["sample-museum.org"],
+        firstMention: { native: "؀-ۿ", transliteration: true, englishContext: true },
+      },
+      "tenant-b-w5": { name: "Tenant B" },
+    });
+    __resetBusinessConfigCacheForTests();
+
+    const a = getBusinessConfig("tenant-a-w5");
+    const b = getBusinessConfig("tenant-b-w5");
+    expect(a.authoritativeSourceDomains).toEqual(["sample-museum.org"]);
+    expect(a.firstMention).toEqual({ native: "؀-ۿ", transliteration: true, englishContext: true });
+    expect(b.authoritativeSourceDomains).toBeUndefined();
+    expect(b.firstMention).toBeUndefined();
+  });
+
+  it("tenant B's evaluation is byte-identical to a call with no tenant config at all", () => {
+    process.env[BY_TENANT_ENV] = JSON.stringify({
+      "tenant-a-w5": { name: "Tenant A", authoritativeSourceDomains: ["sample-museum.org"] },
+      "tenant-b-w5": { name: "Tenant B" },
+    });
+    __resetBusinessConfigCacheForTests();
+    const b = getBusinessConfig("tenant-b-w5");
+
+    const sources = [{ domain: "sample-museum.org", claim: "the collection catalog lists over 3000 artifacts" }];
+    const withB = evaluateDraftQuality({
+      answer: FACTUAL_DRAFT,
+      sources,
+      authoritativeSourceDomains: b.authoritativeSourceDomains,
+      firstMentionConfig: b.firstMention,
+    });
+    const withNoConfig = evaluateDraftQuality({ answer: FACTUAL_DRAFT, sources });
+    expect(withB).toEqual(withNoConfig);
+  });
+
+  it("tenant A's allowlist never raises authority for tenant B (same domain, B stays weak)", () => {
+    process.env[BY_TENANT_ENV] = JSON.stringify({
+      "tenant-a-w5": { name: "Tenant A", authoritativeSourceDomains: ["sample-museum.org"] },
+      "tenant-b-w5": { name: "Tenant B" },
+    });
+    __resetBusinessConfigCacheForTests();
+    const a = getBusinessConfig("tenant-a-w5");
+    const b = getBusinessConfig("tenant-b-w5");
+
+    const source = { domain: "sample-museum.org", claim: "the collection catalog lists over 3000 artifacts" };
+    expect(classifySourceAuthority(source, a.authoritativeSourceDomains)).toBe("authoritative");
+    expect(classifySourceAuthority(source, b.authoritativeSourceDomains)).toBe("weak");
+
+    // The SAME draft: ready under A's allowlist, held for a source under B's.
+    const contextTokens = ["sample museum"];
+    const underA = evaluateDraftQuality({ answer: FACTUAL_DRAFT, sources: [source], authoritativeSourceDomains: a.authoritativeSourceDomains, contextTokens });
+    const underB = evaluateDraftQuality({ answer: FACTUAL_DRAFT, sources: [source], authoritativeSourceDomains: b.authoritativeSourceDomains, contextTokens });
+    expect(underA.status).toBe("ready");
+    expect(underB.status).toBe("missing_source");
   });
 });
 

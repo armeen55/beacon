@@ -62,6 +62,27 @@ export interface BusinessConfig {
    *  case-sensitive). Pairs with `contentRules`. */
   flaggedTerms?: string[];
   /**
+   * W5 (2026-07-09, J-69), tenant-curated domains that count as an
+   * AUTHORITATIVE source for this tenant's own factual-source gate, on top of
+   * the universal .gov/.edu + named encyclopedic/major-press set
+   * (`src/domains/drafts/source-authority.ts`). Per-tenant DATA, never code,    * Iranopedia might add its own museum/embassy/academic domains here, but
+   * the classifier ships useful with this unset. Unset = only the universal
+   * set applies (never a made-up allowlist for a tenant that hasn't set one).
+   */
+  authoritativeSourceDomains?: string[];
+  /**
+   * W5 (2026-07-09, J-70), first-mention rule for a tenant whose content
+   * names terms in a non-English script. `native` is the Unicode character-
+   * range (e.g. Persian/Arabic `"؀-ۿ"`) checked for presence at a
+   * term's first mention; `transliteration` requires a Latin-script rendering
+   * alongside it; `englishContext` requires a short English gloss for readers
+   * who don't read the native script. Checked by
+   * `src/domains/drafts/first-mention-check.ts`, a MISS is always a soft
+   * "worth a look" reason, never a hard block. Null/absent = the rule
+   * contributes nothing (byte-identical evaluation for every other tenant).
+   */
+  firstMention?: { native: string; transliteration: boolean; englishContext: boolean } | null;
+  /**
    * Profound topic-scoping (2026-06-24). When the tenant's AEO prompts live
    * INSIDE a shared/borrowed Profound workspace category (one category that
    * mixes many subjects' topics), set this so the nightly sync scopes every

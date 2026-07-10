@@ -91,6 +91,10 @@ export type NewPageOpportunity = {
     outline: string[];
     faqQuestions: string[];
     schemaTypes: string[];
+    /** W5 (2026-07-09, J-69), the brief's own cited sources (SourceRef[]),
+     *  when the drafter attached any. [] = none yet, never a fabricated pack.
+     *  Replaces the card's old competitor-domain "source pack" proxy. */
+    sources: import("@/domains/llm/schemas").SourceRef[];
   } | null;
   /** Deterministic quality verdict for the prepared brief — drives honest readiness
    *  (copy hidden + reason shown for generic/thin/off-topic briefs). null = no brief. */
@@ -339,6 +343,8 @@ export async function buildNewPagesData(tenantId: string): Promise<NewPagesData>
             outline: Array.isArray(briefVal.outline) ? briefVal.outline.slice(0, 16) : [],
             faqQuestions: Array.isArray(briefVal.faqQuestions) ? briefVal.faqQuestions.slice(0, 8) : [],
             schemaTypes: Array.isArray(briefVal.schemaTypes) ? briefVal.schemaTypes.slice(0, 8) : [],
+            // W5 (J-69), real cited sources, when the drafter attached any.
+            sources: Array.isArray(briefVal.sources) ? briefVal.sources.slice(0, 6) : [],
           }
         : null;
     // Deterministic quality verdict (only when a brief exists). hasSerpVerdict is true

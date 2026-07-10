@@ -37,10 +37,41 @@
  *    a violation, the draft downgrades to "unverified_claim" (copy blocked)
  *    with the plain-English violation as the reason - the same shape every
  *    other rejection in this file already uses.
+ *
+ *  - W5 (2026-07-09, J-69/J-70/J-71) added THREE checks:
+ *    1. A word-count BAND for answer blocks: 80-150 words ("40-60 is too
+ *       thin" per the operator's own words). Below 80 is `too_thin`
+ *       (unchanged status, new threshold); above 150 is `not_quotable` (it no
+ *       longer reads as one liftable answer). This REPLACES the old <25-word
+ *       hard floor and drops this file's reliance on checkPassageRules'
+ *       30-70 "self-contained" band for answer-block length (that band still
+ *       serves page PASSAGES unchanged, passage-answerability.ts is
+ *       untouched); the `pronoun_opener` rule from the same quotability check
+ *       is kept as-is.
+ *    2. `missing_source` (J-69, "EVERY factual draft requires 1-2
+ *       authoritative sources before it is paste-ready. No exceptions."): a
+ *       FACTUAL draft (see `isFactualClaim`) with zero authoritative sources
+ *       whose claim overlaps the draft's own claim tokens is held, copy
+ *       blocked, AND not regeneratable (redrafting cannot invent authority;
+ *       the honest fix is "add a source", not "try again"). This SUPERSEDES
+ *       the old "specific fact + zero evidenceRefs → useful_but_needs_review"
+ *       rule above: a generic evidence-COUNT was always a weaker proxy for a
+ *       real, checkable citation, so some previously-"needs review" fixtures
+ *       now correctly surface as "needs a source" instead, that retroactive
+ *       flip is the point, not a bug. Formatting/technical kinds (a
+ *       title/meta/h1 rewrite that only rephrases, internal_link, cro_fix,
+ *       schema fixes, a claim-free answer block) are NEVER source-gated.
+ *       `isFactualClaim` returning false means there is nothing to source.
+ *    3. A soft first-mention check (J-70), see `checkFirstMention`, only
+ *       when the tenant has configured `firstMention`; a miss never blocks,
+ *       it just downgrades an otherwise-ready draft to
+ *       `useful_but_needs_review` with a plain reason.
  */
 
 import { checkPassageRules } from "@/domains/pages/passage-answerability";
 import { checkFactualEntailment, type AuthoritativeFact } from "@/domains/drafts/factual-entailment";
+import { hasQualifyingAuthoritativeSource, type ClassifiableSource } from "@/domains/drafts/source-authority";
+import { checkFirstMention, type FirstMentionConfig } from "@/domains/drafts/first-mention-check";
 
 export type DraftQualityStatus =
   | "ready"
@@ -126,6 +157,51 @@ const TITLE_BOILERPLATE =
 /** A specific count introduced in a title ("150+", "Top 50") — flag for verification. */
 const COUNT_CLAIM = /\b\d{2,}\s*\+|\btop\s+\d+\b/i;
 
+/** A concrete date/count/"official"/"national X" claim, the narrow factual
+ *  signal this file has used since the first draft audit. Reused (per the
+ *  W5 architecture) both as one leg of `isFactualClaim` below AND, on its
+ *  own, as the narrow "did this rewrite introduce a NEW specific fact"
+ *  trigger for atomic title/meta edits (see evaluateTitleMetaQuality), a
+ *  rewrite that only rephrases the SAME fact is never source-gated. */
+const SPECIFIC_FACT =
+  /\b(?:18|19|20)\d{2}\b|\b\d+\s*(?:times|years|km|km2|species|provinces|dynasties)\b|\bofficial\b|\bnational (?:animal|flag|symbol|language|bird)\b/i;
+
+/** Any digit run, the plainest "this asserts a number" signal. */
+const GENERIC_NUMBER = /\b\d[\d,.]*\b/;
+
+/** A run of 2+ consecutive capitalized words, a proper-noun-shaped span
+ *  ("Nowruz Activities", "the Lion and Sun", "Sizdah Bedar"). Deliberately
+ *  simple (no plural-fold/brand-suffix sophistication, this is a boolean
+ *  presence check for GATING, not entity extraction), see
+ *  factual-entailment.ts's `extractCapitalizedSpans` for the fuller version
+ *  used to verify a specific entity is grounded. */
+const NAMED_ENTITY_SPAN = /\b[A-Z][a-zA-Z'-]*(?:\s+[A-Z][a-zA-Z'-]*)+\b/;
+
+/** "X is/was/are/were a/an/the Y", a definitional assertion about the world,
+ *  not a hedge or a question. */
+const DEFINITIONAL_ASSERTION = /\b(?:is|was|are|were)\s+(?:a|an|the)\b/i;
+
+/**
+ * W5 (J-69/J-71) FACTUAL classifier: true when `text` asserts something
+ * checkable, a specific fact, any number, a proper-noun-shaped span, or a
+ * definitional claim. A draft with NONE of these makes no claim to verify:
+ * it is claim-free and is NEVER source-gated (a purely navigational
+ * sentence, an instruction, a question). Deliberately broad, per J-69
+ * ("no exceptions"), most real encyclopedic prose asserts SOMETHING, and
+ * that is the intended effect: a "ready" verdict now means "grounded and
+ * sourced," not merely "reads fine."
+ */
+export function isFactualClaim(text: string): boolean {
+  const t = (text ?? "").trim();
+  if (!t) return false;
+  return (
+    SPECIFIC_FACT.test(t) ||
+    GENERIC_NUMBER.test(t) ||
+    NAMED_ENTITY_SPAN.test(t) ||
+    DEFINITIONAL_ASSERTION.test(t)
+  );
+}
+
 // ── answer-block / opening quality ────────────────────────────────────────────
 
 export type EvaluateDraftInput = {
@@ -149,6 +225,19 @@ export type EvaluateDraftInput = {
    *  file. A claim that contradicts the page but is backed by one of these is
    *  an ALLOWED CORRECTION, not a violation - see factual-entailment.ts. */
   authoritativeFacts?: readonly AuthoritativeFact[];
+  /** W5 (J-69): the draft's own cited sources. Authority is ALWAYS
+   *  re-derived here via source-authority.ts, a source's own `authority`
+   *  field (if present) is never trusted. Omitted/empty = no sources, the
+   *  honest default for most drafts today. */
+  sources?: readonly ClassifiableSource[];
+  /** W5 (J-69): this tenant's own curated authoritative-domain allowlist
+   *  (BusinessConfig.authoritativeSourceDomains). Omitted = only the
+   *  universal .gov/.edu + named encyclopedic/press set applies. */
+  authoritativeSourceDomains?: readonly string[];
+  /** W5 (J-70): this tenant's first-mention rule (BusinessConfig.
+   *  firstMention). Null/omitted = the rule contributes nothing, byte-
+   *  identical evaluation to a tenant that never configured one. */
+  firstMentionConfig?: FirstMentionConfig | null;
 };
 
 /** Evaluate a prepared answer block / opening. */
@@ -171,12 +260,7 @@ export function evaluateDraftQuality(input: EvaluateDraftInput): DraftQualityRes
     return { status: "too_thin", reasons: ["Defers instead of answering (“varies / check elsewhere”)."], copyAllowed: false, canRegenerate: true, confidence: "high" };
   }
 
-  // 2. Too thin (hard floor).
-  if (words < 25) {
-    return { status: "too_thin", reasons: [`Only ${words} words — too short to be a useful answer block.`], copyAllowed: false, canRegenerate: true, confidence: "high" };
-  }
-
-  // 3. Generic dictionary opening with no content context in the FIRST sentence.
+  // 2. Generic dictionary opening with no content context in the FIRST sentence.
   if (DICTIONARY_FRAME.test(s1) && !hasContext(s1, tokens)) {
     return {
       status: "generic_rejected",
@@ -210,39 +294,44 @@ export function evaluateDraftQuality(input: EvaluateDraftInput): DraftQualityRes
     };
   }
 
-  // 6. Factual claims that warrant a human check — COPYABLE but flagged. A raw draft
-  //    (evidenceRefs===0) carrying a specific number/date/year/"official" claim is the
-  //    classic "probably right, but verify" case. Hedged claims are exempt.
-  const refs = input.evidenceRefs ?? 0;
-  const HEDGE = /\b(?:approximately|about|around|estimated|reportedly|may|might|varies|not (?:officially )?(?:announced|confirmed)|has not been (?:officially )?announced)\b/i;
-  const SPECIFIC_FACT = /\b(?:18|19|20)\d{2}\b|\b\d+\s*(?:times|years|km|km2|species|provinces|dynasties)\b|\bofficial\b|\bnational (?:animal|flag|symbol|language|bird)\b/i;
-  if (refs === 0 && SPECIFIC_FACT.test(answer) && !HEDGE.test(answer)) {
+  // 6. J-71 band: an answer block runs 80-150 words ("40-60 is too thin," per
+  //    the operator's own words). This replaces the old <25-word hard floor
+  //    AND this file's reliance on checkPassageRules' 30-70 "self-contained"
+  //    band below (that band serves page PASSAGES, not the answer-block
+  //    contract - see the module docstring). Below the floor is the same
+  //    `too_thin` status the old floor used; above the ceiling is
+  //    `not_quotable` (trimmable, not a rewrite from scratch).
+  if (words < 80) {
     return {
-      status: "useful_but_needs_review",
-      reasons: ["States a specific fact (date/number/“official”) with no cited source — verify before publishing."],
-      copyAllowed: true,
-      canRegenerate: false,
-      confidence: "medium",
+      status: "too_thin",
+      reasons: [`Only ${words} words. An answer block needs 80-150 words with sources to be quotable (40-60 is too thin).`],
+      copyAllowed: false,
+      canRegenerate: true,
+      confidence: "high",
+    };
+  }
+  if (words > 150) {
+    return {
+      status: "not_quotable",
+      reasons: [`Runs ${words} words. Trim it to 150 or fewer so it still reads as one quotable answer.`],
+      copyAllowed: false,
+      canRegenerate: true,
+      confidence: "high",
     };
   }
 
-  // 7. Quotability (item 78): a draft that reads well by every earlier check but
-  //    opens with a pronoun instead of naming the subject, or runs far outside the
-  //    self-contained 30-70 word answer-block band, cannot be lifted out of context
-  //    and quoted on its own, the whole point of an answer block. Narrow on purpose:
-  //    checked against the REAL Iranopedia draft corpus, every existing "ready" answer
-  //    already names its subject first and sits inside that band, so this never flips
-  //    a passing draft, it only catches the two objective, fixable defects the item
-  //    calls out. "No number/date" and "off-topic vs. the query" are NOT hard-rejected
-  //    here because good encyclopedic openers routinely carry neither and still read
-  //    fine (ab-2/ab-3 in the pinned corpus have no digit at all).
+  // 7. Quotability (item 78): a draft that opens with a pronoun instead of
+  //    naming the subject cannot be lifted out of context and quoted on its
+  //    own, the whole point of an answer block. (The self-contained LENGTH
+  //    half of this check is now the J-71 band above, checkPassageRules'
+  //    30-70 word band still exists for page passages, but no longer governs
+  //    answer-block length here.)
   const quotability = checkPassageRules(answer, input.query ?? input.topicLabel ?? "");
   const pronounFail = quotability.find((c) => c.code === "pronoun_opener" && !c.passed);
-  const lengthFail = quotability.find((c) => c.code === "not_self_contained" && !c.passed);
-  if (pronounFail || lengthFail) {
+  if (pronounFail) {
     return {
       status: "not_quotable",
-      reasons: [pronounFail, lengthFail].filter((c): c is NonNullable<typeof c> => Boolean(c)).map((c) => c.fix),
+      reasons: [pronounFail.fix],
       copyAllowed: false,
       canRegenerate: true,
       confidence: "high",
@@ -279,6 +368,37 @@ export function evaluateDraftQuality(input: EvaluateDraftInput): DraftQualityRes
     if (entailment.corrections.length > 0) entailmentCorrections = entailment.corrections;
   }
 
+  // 9. J-69 (no exceptions): a FACTUAL draft with zero qualifying
+  //    authoritative sources is HELD, not shipped. This supersedes the old
+  //    "specific fact + zero evidenceRefs -> useful_but_needs_review" rule
+  //    (a generic evidence-count was always a weaker proxy for a real,
+  //    checkable citation). canRegenerate is false, redrafting cannot
+  //    invent authority; the honest fix is "add a source."
+  if (isFactualClaim(answer) && !hasQualifyingAuthoritativeSource(answer, input.sources, input.authoritativeSourceDomains)) {
+    return {
+      status: "missing_source",
+      reasons: ["States a claim with no cited authoritative source yet. Add 1-2 before this is paste-ready."],
+      copyAllowed: false,
+      canRegenerate: false,
+      confidence: "medium",
+    };
+  }
+
+  // 10. J-70 (soft): the tenant's first-mention rule (native script +
+  //     optional transliteration/English gloss). Absent config = no-op. A
+  //     miss never blocks, it downgrades ready to a plain "worth a look".
+  const firstMention = checkFirstMention(answer, input.firstMentionConfig);
+  if (!firstMention.ok) {
+    return {
+      status: "useful_but_needs_review",
+      reasons: [firstMention.reason],
+      copyAllowed: true,
+      canRegenerate: false,
+      confidence: "high",
+      ...(entailmentCorrections ? { corrections: entailmentCorrections } : {}),
+    };
+  }
+
   return {
     status: "ready",
     reasons: ["Answers the topic with page-specific context; no risky claims detected."],
@@ -301,6 +421,12 @@ export type EvaluateTitleInput = {
   pageBodyText?: string | null;
   evidenceText?: string | null;
   authoritativeFacts?: readonly AuthoritativeFact[];
+  /** W5 (J-69): same contract as EvaluateDraftInput.sources, only consulted
+   *  when the rewrite introduces a NEW specific fact `before` didn't carry
+   *  (see the narrow SPECIFIC_FACT check below); a pure rephrase never
+   *  reaches this at all. */
+  sources?: readonly ClassifiableSource[];
+  authoritativeSourceDomains?: readonly string[];
 };
 
 /** Evaluate an atomic title/meta rewrite. */
@@ -372,6 +498,24 @@ export function evaluateTitleMetaQuality(input: EvaluateTitleInput): DraftQualit
       };
     }
     if (entailment.corrections.length > 0) entailmentCorrections = entailment.corrections;
+  }
+
+  // J-69 (no exceptions): a rewrite that introduces a NEW specific fact (a
+  // date/count/"official"/"national X" that `before` did NOT already carry)
+  // needs an authoritative source before it is paste-ready. A pure rephrase,
+  // the same facts as before, just reworded, asserts nothing new and is
+  // never held up on this; that mirrors the COUNT_CLAIM check above, using
+  // the same narrow SPECIFIC_FACT signal rather than the broader classifier
+  // evaluateDraftQuality uses (a title/meta field is a formatting edit, not
+  // a fresh answer-block claim, see the module docstring).
+  if (SPECIFIC_FACT.test(after) && !SPECIFIC_FACT.test(before) && !hasQualifyingAuthoritativeSource(after, input.sources, input.authoritativeSourceDomains)) {
+    return {
+      status: "missing_source",
+      reasons: ["Introduces a new fact with no cited authoritative source yet. Add one before this is paste-ready."],
+      copyAllowed: false,
+      canRegenerate: false,
+      confidence: "medium",
+    };
   }
 
   return {
@@ -584,6 +728,13 @@ export type EvaluatePackInput = {
   pageBodyText?: string | null;
   evidenceText?: string | null;
   authoritativeFacts?: readonly AuthoritativeFact[];
+  /** W5 (J-69/J-70): tenant config threaded to the answer_block/atomic_edit
+   *  dispatch below, a draft's OWN `sources` field (parsed from the
+   *  structured draft value) always wins; these are the tenant-level pieces
+   *  the draft itself doesn't carry. Omitting both leaves this function
+   *  byte-identical to its pre-W5 behavior. */
+  authoritativeSourceDomains?: readonly string[];
+  firstMentionConfig?: FirstMentionConfig | null;
   /** R16 (P6 LLM engine pack): the drafter's de-templating guard flagged this
    *  draft as a near-copy of recent same-family drafts ("reads like a repeat").
    *  A ready verdict is DEMOTED to useful_but_needs_review - copy stays allowed
@@ -624,6 +775,9 @@ function evaluatePreparedPackQualityBase(input: EvaluatePackInput): DraftQuality
       pageBodyText: input.pageBodyText,
       evidenceText: input.evidenceText,
       authoritativeFacts: input.authoritativeFacts,
+      sources: Array.isArray(v.sources) ? (v.sources as ClassifiableSource[]) : undefined,
+      authoritativeSourceDomains: input.authoritativeSourceDomains,
+      firstMentionConfig: input.firstMentionConfig,
     });
   }
   if (sd.kind === "atomic_edit") {
@@ -635,6 +789,8 @@ function evaluatePreparedPackQualityBase(input: EvaluatePackInput): DraftQuality
       pageBodyText: input.pageBodyText,
       evidenceText: input.evidenceText,
       authoritativeFacts: input.authoritativeFacts,
+      sources: Array.isArray(v.sources) ? (v.sources as ClassifiableSource[]) : undefined,
+      authoritativeSourceDomains: input.authoritativeSourceDomains,
     });
   }
   if (sd.kind === "create_page_brief") {
@@ -679,7 +835,7 @@ export function qualityLabel(status: DraftQualityStatus): string {
     case "unsupported_claim": return "Unsupported claim";
     case "too_thin": return "Too thin";
     case "malformed": return "Malformed";
-    case "missing_source": return "Needs source";
+    case "missing_source": return "Needs a source";
     case "stale_data_changed": return "Data changed";
     case "not_quotable": return "Not quotable";
     case "unverified_claim": return "Unverified claim";

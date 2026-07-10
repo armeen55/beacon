@@ -90,6 +90,12 @@ export type DraftFullPageResult =
       sectionsFallback: number;
     };
 
+// W5 (2026-07-09, note only): the section body's 60-220 word band below is a
+// DIFFERENT contract from J-71's 80-150 word answer-block band
+// (draft-quality.ts / structured-drafter.ts's ANSWER_BLOCK_SYSTEM), a page
+// SECTION is a longer prose unit in a multi-section walk, not the single
+// extractable answer block J-71 governs. Left unchanged on purpose; only
+// noting the distinction so the two bands are never conflated.
 const SECTION_SYSTEM_BASE =
   "You write ONE section of an encyclopedia / content page, given the section heading and everything already " +
   'established about the page. Return ONLY a JSON object: "heading" (the section heading, may lightly refine the ' +

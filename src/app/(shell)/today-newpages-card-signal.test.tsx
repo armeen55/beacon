@@ -49,6 +49,7 @@ const READY_BRIEF: NewPageOpportunity["preparedBrief"] = {
   outline: ["New Wave", "Award winners", "Where to watch"],
   faqQuestions: ["Who is the most famous Iranian director?"],
   schemaTypes: ["Article"],
+  sources: [],
 };
 
 describe("D-33 Rising label renders with its evidence", () => {

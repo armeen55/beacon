@@ -17,6 +17,7 @@ import {
   type GroundedNumbers,
 } from "./numeric-fidelity";
 import { sanitizeEvidenceTexts, sanitizeNullableEvidence, sanitizeEvidenceText } from "./injection-sanitizer";
+import { stampSourceAuthority, type ClassifiableSource } from "@/domains/drafts/source-authority";
 import {
   SCHEMA_BY_KIND,
   draftStringValues,
@@ -193,6 +194,20 @@ function primaryCustomerText(kind: StructuredDraftKind, value: unknown): string 
   }
 }
 
+/**
+ * W5 (2026-07-09, J-69), re-stamp any `sources` array on a validated draft
+ * with the DETERMINISTIC authority classification, discarding whatever the
+ * LLM proposed. "ONLY this module [source-authority.ts] stamps authority",  * this is the one place that rule is enforced for every LLM-drafted kind
+ * that carries a `sources` field (answer_block, create_page_brief,
+ * atomic_edit). A draft with no `sources` array is returned unchanged.
+ */
+function stampAnySources(value: unknown, tenantAllowlist?: readonly string[]): unknown {
+  if (!value || typeof value !== "object") return value;
+  const v = value as Record<string, unknown>;
+  if (!Array.isArray(v.sources)) return value;
+  return { ...v, sources: stampSourceAuthority(v.sources as ClassifiableSource[], tenantAllowlist) };
+}
+
 /** Content firewalls over every string field of a parsed draft. Same trust rails
  *  as the deterministic drafter: no placeholders, no em-dashes, no superlatives,
  *  and no invented multi-digit numbers (must be grounded - years allowed). R16
@@ -280,6 +295,11 @@ export type StructuredDraftRequest<K extends StructuredDraftKind> = {
   /** R16 test seam / caller-supplied history for the de-templating guard. When
    *  absent the guard reads the last cached outputs for this kind. */
   recentOutputs?: string[];
+  /** W5 (J-69): this tenant's curated authoritative-domain allowlist
+   *  (BusinessConfig.authoritativeSourceDomains), used ONLY to re-stamp any
+   *  `sources` field on the validated draft. Omitted = only the universal
+   *  .gov/.edu + named encyclopedic/press set applies. */
+  authoritativeSourceDomains?: readonly string[];
 };
 
 /**
@@ -386,12 +406,15 @@ export async function callStructuredLLM<K extends StructuredDraftKind>(
       lastFailureWasTemplated = false;
       continue;
     }
-    const result = schema.safeParse(sanitizeDashesDeep(parsedJson));
-    if (!result.success) {
-      errors.push(...result.error.issues.slice(0, 4).map((i) => `${i.path.join(".") || "(root)"}: ${i.message}`));
+    const parsed = schema.safeParse(sanitizeDashesDeep(parsedJson));
+    if (!parsed.success) {
+      errors.push(...parsed.error.issues.slice(0, 4).map((i) => `${i.path.join(".") || "(root)"}: ${i.message}`));
       lastFailureWasTemplated = false;
       continue;
     }
+    // W5 (J-69): the LLM may PROPOSE sources, but only source-authority.ts
+    // decides `authority`, re-stamp before any firewall/cache/return step.
+    const result = { ...parsed, data: stampAnySources(parsed.data, req.authoritativeSourceDomains) as typeof parsed.data };
     const fw = runContentFirewalls(draftStringValues(result.data), ledger);
     if (!fw.ok) {
       errors.push(`firewall:${fw.reason}`);
@@ -486,18 +509,23 @@ export type AnswerBlockStructuredInput = {
 
 const ANSWER_BLOCK_SYSTEM =
   "You write structured AEO answer blocks for an encyclopedia / content site. Return ONLY a JSON object with keys: " +
-  '"answer" (one direct factual answer of 40-60 words an AI assistant could quote verbatim), ' +
+  // W5 (2026-07-09, J-71): 80-150 words WITH sources - "40-60 is too thin" per the
+  // operator's own spec. Bumped from the old 40-60 word target (prompt-registry.ts
+  // version bumped alongside this so the content-hash call cache never serves a
+  // stale 40-60-word response for the new contract).
+  '"answer" (one direct factual answer of 80-150 words an AI assistant could quote verbatim), ' +
   '"citationHook" (a short quotable phrase, or null), ' +
+  '"sources" (array of {"url","title","domain","retrievedAt","claim","authority"}: cite 1-2 AUTHORITATIVE sources for the answer\'s claims, each with a real URL, its domain, the date you are citing it, and the specific claim it backs; leave "authority" as "unverified", the caller decides it), ' +
   '"evidenceRefs" (array of {"source","detail"}, at least one, citing ONLY the grounding provided; source one of gsc|ga4|clarity|profound|dataforseo|semrush|competitor_teardown|owned_snapshot|fanout), ' +
   '"confidence" ("high"|"medium"|"low"), "risks" (array of short strings), "operatorSteps" (array of concrete steps), ' +
   '"proofPlan" ({"metrics":[...],"windowsDays":[7,14,28],"controls":"..."}). ' +
-  "Ground everything ONLY in the brief/outline/questions provided. Do NOT invent statistics, dates, prices, rankings, or superlatives. No marketing language. No em-dashes. " +
+  "Ground everything ONLY in the brief/outline/questions provided. Do NOT invent statistics, dates, prices, rankings, or superlatives. No marketing language. No em-dashes. Cite 1-2 authoritative sources for any factual claim (a date, a count, a named fact). Never state one with no source. " +
   "The FIRST sentence must be specific to THIS exact page/topic — name the concrete subject, not a generic category. Do NOT open with a context-free dictionary definition (e.g. \"A gift is a voluntarily transferred item…\"); a reader must immediately know which specific topic this answers. Never defer or punt (\"varies\", \"check elsewhere\", \"consult other sources\") — answer directly. Do not claim something is \"official\" unless the grounding states it.";
 
 /** Draft a schema-valid AnswerBlockDraft for one Move. Capped + budgeted. */
 export async function draftAnswerBlockStructured(
   input: AnswerBlockStructuredInput,
-  opts: { complete?: CompleteFn; now?: Date; bypassCache?: boolean } = {},
+  opts: { complete?: CompleteFn; now?: Date; bypassCache?: boolean; authoritativeSourceDomains?: readonly string[] } = {},
 ): Promise<StructuredDraftResult<AnswerBlockDraft>> {
   // R16 injection firewall: crawled briefs/outlines, PAA questions, and evidence
   // hints are untrusted text - strip instruction-shaped lines before they enter
@@ -554,6 +582,7 @@ export async function draftAnswerBlockStructured(
     now: opts.now,
     bypassCache: opts.bypassCache,
     fewShotProvenance,
+    authoritativeSourceDomains: opts.authoritativeSourceDomains,
   });
 }
 

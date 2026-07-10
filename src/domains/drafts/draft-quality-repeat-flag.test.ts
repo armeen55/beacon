@@ -6,6 +6,11 @@ import { evaluatePreparedPackQuality } from "./draft-quality";
  * flag demotes a ready draft to needs-review at the quality gate. Additive -
  * every verdict without the flag stays byte-identical (pinned by the main
  * draft-quality suite).
+ *
+ * W5 (2026-07-09, J-69/J-71) re-pin: the fixture is lengthened to the 80-150
+ * word answer-block band and carries a qualifying source so the baseline
+ * stays "ready", a bare word-band/source-gate re-pin, not a weakened
+ * assertion (the repeat-flag demotion behavior under test is unchanged).
  */
 
 const READY_ANSWER_PACK = {
@@ -13,8 +18,14 @@ const READY_ANSWER_PACK = {
     kind: "answer_block",
     value: {
       answer:
-        "Chaharshanbe Suri 2026 falls on Tuesday, March 17, the eve of the last Wednesday before Nowruz. Iranian families gather after sunset to jump over small bonfires, share ajil, and recite the traditional zardi-ye man az to verse to leave the old year's troubles behind.",
+        "Chaharshanbe Suri 2026 falls on Tuesday, March 17, the eve of the last Wednesday before Nowruz. Iranian families gather after sunset to jump over small bonfires, share ajil, and recite the traditional zardi-ye man az to verse to leave the old year's troubles behind. Neighbors light several small fires in a row along streets and courtyards, and children often join in with sparklers and small firecrackers under adult supervision. Musicians sometimes play drums nearby while groups pass from one small fire to the next well into the evening. Many families finish the night with a shared meal indoors once the fires have burned down safely.",
       evidenceRefs: [{ source: "gsc", detail: "194 impressions on the 2026 date query" }],
+      sources: [
+        {
+          domain: "britannica.com",
+          claim: "Chaharshanbe Suri falls on the eve of the last Wednesday before Nowruz and involves jumping over bonfires",
+        },
+      ],
     },
   },
   preparedStatus: "ready_to_review",

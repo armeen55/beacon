@@ -67,6 +67,7 @@ const GOOD_BRIEF: CreatePageBrief = {
   outline: ["Origins of Nowruz", "How Nowruz is celebrated", "Nowruz across the Persian diaspora"],
   faqQuestions: ["When is Nowruz celebrated?"],
   schemaTypes: ["Article"],
+  sources: [],
   evidenceRefs: [{ source: "gsc", detail: "test" }],
   confidence: "high",
   risks: [],

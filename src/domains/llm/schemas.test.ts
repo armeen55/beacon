@@ -1,11 +1,13 @@
 import { describe, it, expect } from "vitest";
 import {
   AnswerBlockDraftSchema,
+  AtomicEditDraftSchema,
   CreatePageBriefSchema,
   ProofPlanSchema,
   ExperimentPlanSchema,
   StrategyReviewSchema,
   SectionDraftSchema,
+  SourceRefSchema,
   SCHEMA_BY_KIND,
   draftStringValues,
   type StructuredDraftKind,
@@ -47,6 +49,90 @@ describe("AnswerBlockDraftSchema", () => {
       expect(r.data.risks).toEqual([]);
       expect(r.data.citationHook).toBeNull();
     }
+  });
+
+  // W5 (2026-07-09, J-69/J-71)
+  it("defaults sources to [] when omitted (pre-W5 persisted drafts stay valid)", () => {
+    const r = AnswerBlockDraftSchema.safeParse(validAnswer);
+    expect(r.success).toBe(true);
+    if (r.success) expect(r.data.sources).toEqual([]);
+  });
+
+  it("accepts a valid sources array", () => {
+    const withSources = {
+      ...validAnswer,
+      sources: [
+        {
+          url: "https://www.britannica.com/topic/Nowruz",
+          title: "Nowruz",
+          domain: "britannica.com",
+          retrievedAt: "2026-07-01",
+          claim: "Nowruz marks the Persian new year",
+          authority: "unverified",
+        },
+      ],
+    };
+    expect(AnswerBlockDraftSchema.safeParse(withSources).success).toBe(true);
+  });
+
+  it("accepts an answer up to the widened 1200-char max (150 words needs ~1050)", () => {
+    const longAnswer = "Persian weddings are steeped in tradition. ".repeat(24).trim().slice(0, 1190);
+    const r = AnswerBlockDraftSchema.safeParse({ ...validAnswer, answer: longAnswer });
+    expect(r.success).toBe(true);
+  });
+
+  it("rejects an answer over the widened 1200-char max", () => {
+    const r = AnswerBlockDraftSchema.safeParse({ ...validAnswer, answer: "x".repeat(1201) });
+    expect(r.success).toBe(false);
+  });
+});
+
+describe("SourceRefSchema (W5, J-69)", () => {
+  const validSource = {
+    url: "https://www.britannica.com/topic/Nowruz",
+    title: "Nowruz",
+    domain: "britannica.com",
+    retrievedAt: "2026-07-01",
+    claim: "Nowruz marks the Persian new year",
+    authority: "authoritative",
+  };
+
+  it("accepts a valid source", () => {
+    expect(SourceRefSchema.safeParse(validSource).success).toBe(true);
+  });
+
+  it("rejects an unknown authority value", () => {
+    expect(SourceRefSchema.safeParse({ ...validSource, authority: "verified" }).success).toBe(false);
+  });
+
+  it("rejects a source with no claim (a bare URL is not a source)", () => {
+    const { claim: _c, ...rest } = validSource;
+    expect(SourceRefSchema.safeParse(rest).success).toBe(false);
+  });
+
+  it("accepts every declared authority level", () => {
+    for (const authority of ["authoritative", "weak", "unverified"]) {
+      expect(SourceRefSchema.safeParse({ ...validSource, authority }).success).toBe(true);
+    }
+  });
+});
+
+describe("AtomicEditDraftSchema sources (W5, J-69)", () => {
+  const validEdit = {
+    field: "title",
+    before: "Persian New Year Traditions",
+    after: "Persian New Year: 3000 Years of Nowruz Traditions in Iran",
+    rationale: "Adds the specific timespan readers search for.",
+    proofPlan: { metrics: ["clicks"], controls: "comparable unchanged pages" },
+    evidenceRefs: [{ source: "gsc", detail: "impressions for this exact search" }],
+    confidence: "medium",
+    operatorSteps: ["Update the title field"],
+  };
+
+  it("defaults sources to [] when omitted", () => {
+    const r = AtomicEditDraftSchema.safeParse(validEdit);
+    expect(r.success).toBe(true);
+    if (r.success) expect(r.data.sources).toEqual([]);
   });
 });
 

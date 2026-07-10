@@ -1,0 +1,20 @@
+{
+  "runner": "answer-block-text",
+  "response": {
+    "choices": [
+      {
+        "index": 0,
+        "message": {
+          "role": "assistant",
+          "content": "Persian weddings center on the sofreh aghd, a ceremonial spread of symbolic items laid before the couple, according to the cited brief. The couple sits before it while relatives hold a canopy overhead, then exchange the aghd vows read aloud by the officiant, a custom shared across most Persian-speaking communities. Family members shower the couple with sugared almonds and fresh herbs for good fortune before the formal ceremony gives way to the jashn reception, an evening of music, dancing, and a shared meal that keeps extended family and friends together well into the night.",
+          "refusal": null
+        },
+        "finish_reason": "stop"
+      }
+    ],
+    "usage": {
+      "prompt_tokens": 420,
+      "completion_tokens": 220
+    }
+  }
+}
