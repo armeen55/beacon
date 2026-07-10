@@ -529,9 +529,10 @@ export default async function ProofPage({
   if (isOperator && (dueNow.length > 0 || eligibleReverify)) scheduleAutoMeasure(tenantId);
 
   // Item 11 - one-click restore offers for rows that are measuring negative
-  // (7/14/28 day reads). The shared revert policy decides propose vs auto;
-  // the snapshot lookup is bounded to the first few negatives. Rows already
-  // restored are badged instead. Operator-only (the action re-gates anyway).
+  // (7/14/28 day reads). The shared revert policy only ever proposes (E-36:
+  // never auto-revert, ask first); the snapshot lookup is bounded to the
+  // first few negatives. Rows already restored are badged instead.
+  // Operator-only (the action re-gates anyway).
   const revertById = new Map<string, RevertDecision>();
   const restoredIds = new Set(ledger.filter((l) => hasRevertNote(l)).map((l) => l.id));
   if (isOperator) {
@@ -1676,9 +1677,11 @@ function LedgerCard({ rec, link, pres, grade, eventCaveat, spark, controlSparks,
         </div>
       ) : null}
 
-      {/* Put the old version back (item 11): a restored row says so; a row that
-          is measuring negative with a saved snapshot gets the one-click restore
-          plus the lesson sentence; everything else keeps the manual copy fallback. */}
+      {/* Put the old version back (item 11; E-36: never auto-revert, ask
+          first): a restored row says so; a row that is measuring negative
+          with a saved snapshot gets the one-click restore offer plus the
+          reason sentence, and nothing ships until the operator clicks it;
+          everything else keeps the manual copy fallback. */}
       {restored ? (
         <p className="mt-3 border-t border-border/40 pt-2.5 text-[11px] text-emerald-700">
           The old version is back on this page. I recorded the restore as its own change and I am measuring it.
@@ -1688,11 +1691,6 @@ function LedgerCard({ rec, link, pres, grade, eventCaveat, spark, controlSparks,
           <p className="text-[11px] text-foreground/75">{revert.reason}</p>
           <div className="mt-1.5 flex flex-wrap items-center gap-2">
             <RestoreOldVersionButton recordId={rec.id} />
-            {revert.action === "auto_revert" ? (
-              <span className="text-[10px] text-muted-foreground">
-                Covered by your autopilot budget: I will put the old version back tonight if you do not.
-              </span>
-            ) : null}
           </div>
         </div>
       ) : rec.before ? (

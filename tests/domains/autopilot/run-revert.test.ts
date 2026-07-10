@@ -1,18 +1,21 @@
 /**
- * Revert executor + nightly revert pass (2026-07-02, BEACON 500 item 11).
+ * Revert executor + nightly revert tally (2026-07-02, BEACON 500 item 11;
+ * revised 2026-07-09 per the operator product spec E-36: "NEVER auto-revert;
+ * ask first").
  *
  * Injected deps only (no real push, no Supabase, no filesystem). Pins:
- *   - the happy path: snapshot -> revert edit -> push -> ADDITIVE note on the
- *     original row -> the revert recorded as its own shipped change carrying
- *     the lesson -> an autopilot receipt with kind "revert",
+ *   - the happy path (operator-initiated only): snapshot -> revert edit ->
+ *     push -> ADDITIVE note on the original row -> the revert recorded as its
+ *     own shipped change carrying the lesson -> an autopilot receipt with
+ *     kind "revert",
  *   - idempotency (note marker AND existing revert record both stop a second
  *     revert before any push),
  *   - the Ritz hard-block (early refuse + the executePush dev_note backstop
  *     writes nothing),
  *   - refused pushes leave measurement history untouched,
  *   - dry-run stops before every side effect,
- *   - the nightly pass is bounded to 2 reverts and only auto-reverts what the
- *     policy pre-approved.
+ *   - the nightly pass NEVER pushes anything, no matter how eligible a
+ *     candidate looks or how autopilot is armed - it only counts.
  */
 
 import { describe, it, expect, vi } from "vitest";
@@ -406,7 +409,7 @@ describe("runNightlyRevertPass", () => {
     });
   }
 
-  it("auto-reverts settled negatives, bounded to 2 per night", async () => {
+  it("confirmation-required pin: never pushes settled negatives, no matter how many are fully eligible", async () => {
     const records = [
       negativeRecord("/a", "/a::2026-06-10"),
       negativeRecord("/b", "/b::2026-06-12"),
@@ -414,15 +417,17 @@ describe("runNightlyRevertPass", () => {
     ];
     const { deps, spies } = nightlyDeps(records);
     const summary = await runNightlyRevertPass(TENANT, ARMED, NOW, deps);
-    expect(summary.reverted).toBe(2);
-    expect(summary.receiptLines).toHaveLength(2);
-    expect(spies.push).toHaveBeenCalledTimes(2);
-    // Oldest ship first: /a then /b.
-    expect(spies.push.mock.calls[0][0].edit.id).toContain("/a::2026-06-10");
-    expect(spies.push.mock.calls[1][0].edit.id).toContain("/b::2026-06-12");
+    // All three would have qualified for auto-revert under the old (pre E-36)
+    // rules - they still get COUNTED as propose-eligible, but nothing ships.
+    expect(summary.considered).toBe(3);
+    expect(summary.autoEligible).toBe(3);
+    expect(summary.reverted).toBe(0);
+    expect(summary.failed).toBe(0);
+    expect(summary.receiptLines).toHaveLength(0);
+    expect(spies.push).not.toHaveBeenCalled();
   });
 
-  it("a 7-day-only negative is never auto-reverted (proposal territory)", async () => {
+  it("a 7-day-only negative is never pushed (proposal territory)", async () => {
     const early = makeRecord({
       id: "/early::2026-06-28",
       path: "/early",
@@ -449,7 +454,7 @@ describe("runNightlyRevertPass", () => {
     expect(spies.push).not.toHaveBeenCalled();
   });
 
-  it("a lever outside the allowlist stays a proposal (no auto push)", async () => {
+  it("a lever outside the allowlist still counts as propose-eligible, never pushed", async () => {
     const records = [negativeRecord("/a", "/a::2026-06-10")];
     const { deps, spies } = nightlyDeps(records);
     const summary = await runNightlyRevertPass(
@@ -458,12 +463,14 @@ describe("runNightlyRevertPass", () => {
       NOW,
       deps,
     );
-    expect(summary.autoEligible).toBe(0);
+    // The lever allowlist no longer changes the outcome: it is always a
+    // proposal, so it is counted as eligible, but never pushed.
+    expect(summary.autoEligible).toBe(1);
     expect(summary.reverted).toBe(0);
     expect(spies.push).not.toHaveBeenCalled();
   });
 
-  it("overlapping same-page changes weaken attribution and block auto-revert", async () => {
+  it("overlapping same-page changes are informational only; nothing pushes regardless of attribution", async () => {
     // Two records on the SAME path shipped 5 days apart: both attribution-limited.
     const a = negativeRecord("/same", "/same::2026-06-10");
     const b = negativeRecord("/same", "/same::2026-06-15");

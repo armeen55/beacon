@@ -541,9 +541,12 @@ export function ChangesListClient({ view }: { view: ChangesView }) {
   // slice. Falls back to sensible defaults when a param is absent/invalid.
   // operator spec 2026-07-09 C-23 - the ?strategy= deep-link param is gone with the picker; the
   // list always ranks by "balanced".
+  // operator spec 2026-07-09 B-15 - Today's next-move cards deep-link with ?focus=<id> (the
+  // same CanonicalChange.id Today already carries); see the effect below that opens it.
   const params = useSearchParams();
   const pStatus = params.get("status");
   const pGoal = params.get("goal");
+  const focusId = params.get("focus");
   const initialTab: TabId = pStatus && TAB_IDS.has(pStatus) ? (pStatus as TabId) : view.summary.ready > 0 ? "ready" : "todo";
   const [tab, setTab] = useState<TabId>(initialTab);
   const [goal, setGoal] = useState<Goal>(pGoal && GOAL_IDS.has(pGoal) ? (pGoal as Goal) : "recommended");
@@ -697,6 +700,22 @@ export function ChangesListClient({ view }: { view: ChangesView }) {
     const el = rowRefs.current.get(session.nextBest.id);
     el?.scrollIntoView({ behavior: "smooth", block: "center" });
   }, [session.nextBest]);
+
+  // B-15 (operator spec 2026-07-09) - a Today next-move card links here with
+  // ?focus=<id>. Once that exact row is in the visible list, open its detail
+  // (the SAME panel a click on the row opens) and scroll to it, reusing the
+  // scroll pattern above. Consumed once so closing the panel by hand later
+  // does not keep re-opening it on an unrelated re-render.
+  const consumedFocusRef = useRef(false);
+  useEffect(() => {
+    if (consumedFocusRef.current || !focusId) return;
+    const match = visible.find((c) => c.id === focusId);
+    if (!match) return;
+    consumedFocusRef.current = true;
+    setSelectedId(focusId);
+    const el = rowRefs.current.get(focusId);
+    el?.scrollIntoView({ behavior: "smooth", block: "center" });
+  }, [focusId, visible]);
 
   // UX3 - "tonight's batch" collapse: every change selected for today that has moved past
   // suggested/ready into verify/measuring/result is one applied receipt. Collapsing them to a

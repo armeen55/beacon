@@ -1,23 +1,28 @@
 import "server-only";
 
 /**
- * Revert executor + nightly revert pass (2026-07-02, BEACON 500 item 11).
+ * Revert executor + nightly revert tally (2026-07-02, BEACON 500 item 11;
+ * revised 2026-07-09 per the operator product spec E-36: "NEVER auto-revert;
+ * ask first").
  *
- * A losing change should not sit live until a human notices. This module:
+ * A losing change should not sit live until a human notices, but Beacon never
+ * puts it back without the operator saying so. This module:
  *
- *   runRevertForProofRecord - restore the old version for ONE proof row:
- *     shipped-change record -> the pushed edit -> its pre-push snapshot ->
- *     buildRevertEdit -> executePush (Ritz hard-refuse, daily cap, snapshot,
- *     ledger ALL inherited) -> additive "old version restored" note on the
- *     original row (measurement history is never mutated) -> the revert is
- *     recorded as its own shipped change with the lesson line as notes ->
- *     autopilot receipt (kind "revert").
+ *   runRevertForProofRecord - restore the old version for ONE proof row, ONLY
+ *     ever called from an explicit operator click (source: "operator", see
+ *     the /results restoreOldVersionAction): shipped-change record -> the
+ *     pushed edit -> its pre-push snapshot -> buildRevertEdit -> executePush
+ *     (Ritz hard-refuse, daily cap, snapshot, ledger ALL inherited) ->
+ *     additive "old version restored" note on the original row (measurement
+ *     history is never mutated) -> the revert is recorded as its own shipped
+ *     change with the lesson line as notes -> autopilot receipt (kind
+ *     "revert").
  *
- *   runNightlyRevertPass - the bounded cron pass (max 2 reverts per night),
- *     called by run-autopilot AFTER its ship pass, behind the same guards
- *     (armed publishing + wix target + per-day marker). Only settled-negative,
- *     clean-attribution readings whose lever is inside the armed autopilot
- *     policy auto-revert (revert-policy.ts decides; this module executes).
+ *   runNightlyRevertPass - called by run-autopilot AFTER its ship pass;
+ *     COUNTS settled-negative candidates so /results can show how many are
+ *     waiting on the operator, but never pushes anything. decideRevert
+ *     (revert-policy.ts) can only ever return "propose" or "none" - there is
+ *     no automatic path, no matter how autopilot is armed for the site.
  *
  * Idempotent: a row whose notes carry REVERTED_NOTE_MARKER, or that already
  * has a revert record in the ledger, is never reverted twice. Fail-soft on
@@ -45,8 +50,6 @@ import { AUTOPILOT_RITZ_TENANT_ID, type AutopilotConfig } from "./autopilot-poli
 import { decideRevert, plainLiftLabel, type RevertDecision } from "./revert-policy";
 import type { AutopilotReceipt } from "./autopilot-store";
 
-/** The nightly pass never applies more than this many automatic reverts. */
-export const MAX_AUTO_REVERTS_PER_NIGHT = 2;
 /** Bound on how many negative candidates get the (I/O) snapshot lookup per night. */
 const MAX_CANDIDATES_EVALUATED = 6;
 /** Bound on how many same-page edits get a snapshot lookup when resolving. */
@@ -500,9 +503,9 @@ export type EvaluatedRevert = {
 };
 
 /**
- * Load everything needed and decide propose / auto_revert / none for one proof
- * row. Used by the /results server action so eligibility is always re-derived
- * server side (the client is never trusted).
+ * Load everything needed and decide propose / none for one proof row. Used by
+ * the /results server action so eligibility is always re-derived server side
+ * (the client is never trusted).
  */
 export async function evaluateRevertDecisionForRecord(
   tenantId: string,
@@ -555,19 +558,25 @@ export async function evaluateRevertDecisionForRecord(
 export type RevertPassSummary = {
   /** Negative candidates that got a full evaluation this night. */
   considered: number;
-  /** Decisions that said auto_revert (whether or not the push then succeeded). */
+  /** Decisions eligible for the one-click propose. Never auto-executed. */
   autoEligible: number;
+  /** Always 0: Beacon never pushes a revert without an explicit operator
+   *  click (E-36, "NEVER auto-revert; ask first"). Kept so run-autopilot's
+   *  summary shape stays stable for callers/tests. */
   reverted: number;
+  /** Always 0, same reason as reverted. */
   failed: number;
-  /** Lesson lines for the reverts that landed. */
+  /** Always empty, same reason as reverted. */
   receiptLines: string[];
 };
 
 /**
- * Evaluate settled-negative proof rows and apply pre-approved reverts, bounded
- * to MAX_AUTO_REVERTS_PER_NIGHT. The caller (run-autopilot) already enforced:
- * autopilot enabled, publishing armed, wix target, per-day idempotency, and
- * the Ritz refuse. decideRevert re-checks the policy per row regardless.
+ * Tally settled-negative proof rows that are ready for the operator's
+ * one-click restore. Per E-36, this NEVER executes a revert - it only counts
+ * candidates so /results and the receipt trail can say how many are waiting.
+ * The only way a revert ships is the operator clicking "Put the old version
+ * back" (restoreOldVersionAction), which calls runRevertForProofRecord
+ * directly with source "operator".
  */
 export async function runNightlyRevertPass(
   tenantId: string,
@@ -592,8 +601,7 @@ export async function runNightlyRevertPass(
   );
 
   // Cheap prefilter before any snapshot I/O: negative at >= 14 days, not a
-  // revert itself, not already restored. Oldest ship first (longest-bleeding
-  // page gets fixed first), bounded.
+  // revert itself, not already restored. Oldest ship first, bounded.
   const candidates = records
     .map((record) => ({
       record,
@@ -611,9 +619,12 @@ export async function runNightlyRevertPass(
     .slice(0, MAX_CANDIDATES_EVALUATED);
 
   for (const { record, presentation } of candidates) {
-    if (summary.reverted >= MAX_AUTO_REVERTS_PER_NIGHT) break;
     summary.considered += 1;
 
+    // Evaluation only, NEVER execution: this tells /results how many rows are
+    // ready for the operator's one-click propose. decideRevert can only ever
+    // return "propose" or "none" (see revert-policy.ts) - there is no
+    // auto-execute branch left to gate around.
     const source = await resolveRevertSource(tenantId, record, depsOverride);
     const decision = decideRevert({
       tenantId,
@@ -627,41 +638,12 @@ export async function runNightlyRevertPass(
       now,
       liftLabel: liftLabelFor(record),
     });
-    if (decision.action !== "auto_revert") continue;
-    summary.autoEligible += 1;
+    if (decision.action === "propose") summary.autoEligible += 1;
 
-    let outcome: RunRevertResult;
-    try {
-      outcome = await runRevertForProofRecord(
-        {
-          tenantId,
-          recordId: record.id,
-          lessonLine: decision.lessonLine,
-          source: "autopilot",
-        },
-        depsOverride,
-      );
-    } catch (e) {
-      outcome = {
-        ok: false,
-        code: "no_live_write",
-        detail: e instanceof Error ? e.message : String(e),
-      };
-    }
-
-    if (outcome.ok && outcome.code === "reverted") {
-      summary.reverted += 1;
-      summary.receiptLines.push(decision.lessonLine);
-    } else {
-      summary.failed += 1;
-    }
-
-    log.info("[revert] nightly candidate processed", {
+    log.info("[revert] nightly candidate evaluated (propose only, never auto-executed)", {
       tenantId,
       recordId: record.id,
-      ok: outcome.ok,
-      code: outcome.code,
-      detail: outcome.detail.slice(0, 200),
+      action: decision.action,
     });
   }
 

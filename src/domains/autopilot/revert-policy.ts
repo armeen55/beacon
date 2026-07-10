@@ -1,39 +1,32 @@
 /**
- * Revert policy (2026-07-02, BEACON 500 item 11).
+ * Revert policy (2026-07-02, BEACON 500 item 11; revised 2026-07-09 per the
+ * operator product spec E-36: "NEVER auto-revert; ask first").
  *
  * PURE decision layer for "a shipped change is measuring negative - do we
- * offer a one-click restore, put the old version back automatically, or stay
- * quiet?". No I/O here; the executor (run-revert.ts) gathers the inputs
- * (measurement presentation, autopilot config, snapshot existence) and ships
- * any revert through the existing push path only (executePush keeps the Ritz
- * hard-refuse, the daily cap, the pre-push snapshot, and the ledger).
+ * offer a one-click restore, or stay quiet?". No I/O here; the executor
+ * (run-revert.ts) gathers the inputs (measurement presentation, snapshot
+ * existence) and ships a restore ONLY when the operator explicitly clicks
+ * (through the existing push path: executePush keeps the Ritz hard-refuse,
+ * the daily cap, the pre-push snapshot, and the ledger).
  *
  * The ladder, most-conservative-gate-wins:
- *   none        - not negative, too early, already restored, or no saved copy.
- *   propose     - a 7 or 14 or 28 day check reads negative and a saved copy of
- *                 the old version exists: offer "Put the old version back" as
- *                 one operator click.
- *   auto_revert - ONLY when the reading settled negative at day 14 or later,
- *                 the comparison pages are clean (attribution not limited),
- *                 the operator armed autopilot AND the lever is within its
- *                 policy, and a revert snapshot exists.
+ *   none    - not negative, too early, already restored, or no saved copy.
+ *   propose - a 7 or 14 or 28 day check reads negative and a saved copy of
+ *             the old version exists: offer "Put the old version back" as
+ *             one operator click. This is the ONLY way a revert ever ships;
+ *             Beacon never puts a change back on its own, no matter how
+ *             autopilot is armed for the site.
  *
  * Pinned by tests/domains/autopilot/revert-policy.test.ts.
  */
 
 import { pickProofMetric, type ProofMetric } from "@/domains/proof-gsc/measure";
-import {
-  AUTOPILOT_RITZ_TENANT_ID,
-  normalizeAutopilotConfig,
-  type AutopilotConfig,
-} from "./autopilot-policy";
+import { AUTOPILOT_RITZ_TENANT_ID, type AutopilotConfig } from "./autopilot-policy";
 
 /** A negative reading younger than this never earns even a proposal. */
 export const MIN_PROPOSE_WINDOW_DAY = 7;
-/** Auto-revert waits for at least the 14 day check (a 7 day read is directional). */
-export const MIN_AUTO_REVERT_WINDOW_DAY = 14;
 
-export type RevertAction = "propose" | "auto_revert" | "none";
+export type RevertAction = "propose" | "none";
 
 export type RevertDecisionInput = {
   /** Optional tenant id; Ritz is advise-only and never gets a revert offer. */
@@ -42,11 +35,14 @@ export type RevertDecisionInput = {
   direction: "positive" | "negative" | "neutral" | "unknown";
   /** The closed proof window the reading is based on (7 | 14 | 28), or null. */
   windowDay: number | null;
-  /** Comparison-page cleanliness from the measurement presentation. */
+  /** Comparison-page cleanliness from the measurement presentation. Kept for
+   *  callers/telemetry; no longer changes the decision (E-36: every eligible
+   *  negative gets the same one-click propose, never an automatic push). */
   attributionQuality: "clean" | "limited" | "compound";
   /** The change type (lever), e.g. edit_title. */
   lever: string;
-  /** The operator's autopilot config (item 1 store). Null = never armed. */
+  /** The operator's autopilot config (item 1 store). Kept for callers; no
+   *  longer read here (E-36: autopilot arming never auto-executes a revert). */
   config: Partial<AutopilotConfig> | null | undefined;
   /** A pre-push snapshot exists, so the exact old value can be restored. */
   snapshotAvailable: boolean;
@@ -180,10 +176,11 @@ export function buildLessonLine(args: {
 // ---------------------------------------------------------------------------
 
 /**
- * Decide whether a negative measurement earns a one-click restore offer, an
- * automatic revert, or nothing. Deterministic given its inputs; gates in
- * most-conservative order. Auto-revert requires ALL of: negative at day >= 14,
- * clean attribution, autopilot armed, lever within its policy, and a snapshot.
+ * Decide whether a negative measurement earns a one-click restore offer, or
+ * nothing. Deterministic given its inputs; gates in most-conservative order.
+ * Per E-36 (operator product spec, 2026-07-09: "NEVER auto-revert; ask
+ * first"), the only positive outcome is "propose" - Beacon never puts a
+ * change back on its own, no matter how autopilot is armed for the site.
  */
 export function decideRevert(input: RevertDecisionInput): RevertDecision {
   const none = (reason: string): RevertDecision => ({ action: "none", reason, lessonLine: "" });
@@ -216,33 +213,10 @@ export function decideRevert(input: RevertDecisionInput): RevertDecision {
     liftLabel: input.liftLabel ?? null,
   });
 
-  // Why is this not automatic? First applicable blocker wins the explanation.
-  const config = input.config == null ? null : normalizeAutopilotConfig(input.config);
-  let blocker: string | null = null;
-  if (input.windowDay < MIN_AUTO_REVERT_WINDOW_DAY) {
-    blocker = `I will not do it on my own before the ${MIN_AUTO_REVERT_WINDOW_DAY} day check.`;
-  } else if (input.attributionQuality === "limited") {
-    blocker = "Another change overlaps this window, so I leave the call to you.";
-  } else if (input.attributionQuality === "compound") {
-    blocker = "This shipped as part of a package, so I leave the call to you.";
-  } else if (config == null || !config.enabled) {
-    blocker = "Autopilot is off for this site, so this needs your click.";
-  } else if (config.leverAllowlist != null && !config.leverAllowlist.includes(input.lever)) {
-    blocker = "This change type is not on your autopilot list, so this needs your click.";
-  }
-
-  if (blocker == null) {
-    return {
-      action: "auto_revert",
-      reason: `This ${phrase} settled negative at the ${input.windowDay} day check with clean comparison pages, and your autopilot covers ${phrase}s here, so I am putting ${noun} back.`,
-      lessonLine,
-    };
-  }
-
   const behind = input.liftLabel ? `${input.liftLabel} behind` : "behind";
   return {
     action: "propose",
-    reason: `This ${phrase} is ${behind} its comparison pages at the ${input.windowDay} day check. I can put ${noun} back with one click. ${blocker}`,
+    reason: `This ${phrase} is ${behind} its comparison pages at the ${input.windowDay} day check. I never put a change back on my own. Want me to prepare the restore? One click puts ${noun} back, and nothing happens until you say so.`,
     lessonLine,
   };
 }

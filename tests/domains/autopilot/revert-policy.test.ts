@@ -1,12 +1,14 @@
 /**
- * Revert policy (2026-07-02, BEACON 500 item 11).
+ * Revert policy (2026-07-02, BEACON 500 item 11; revised 2026-07-09 per the
+ * operator product spec E-36: "NEVER auto-revert; ask first").
  *
- * Pins the ladder hard: auto_revert ONLY when the reading is negative at
- * day >= 14, attribution is clean, autopilot is armed AND the lever is within
- * its policy, and a snapshot exists. Anything negative with a snapshot at
- * day >= 7 that misses an auto condition is a PROPOSAL (one operator click).
- * Everything else is none. Plus: lesson-line copy rules (first person,
- * concrete number, no em or en dashes, no lab words).
+ * Pins the ladder hard: decideRevert can ONLY ever return "propose" (a
+ * negative reading with a snapshot at day >= 7, one operator click) or
+ * "none". There is no automatic action, no matter how fully the reading and
+ * the autopilot config would have qualified under the old rules - autopilot
+ * arming, lever allowlists, and attribution quality never change the action.
+ * Plus: lesson-line and reason copy rules (first person, concrete number, no
+ * em or en dashes, no lab words).
  */
 
 import { describe, it, expect } from "vitest";
@@ -40,65 +42,76 @@ function input(partial: Partial<RevertDecisionInput> = {}): RevertDecisionInput 
   };
 }
 
-describe("decideRevert - the auto_revert gate (every condition required)", () => {
-  it("auto-reverts a clean negative at day 14 under an armed policy with a snapshot", () => {
+describe("decideRevert - E-36: never auto, always ask first", () => {
+  it("a clean negative at day 14 under a fully armed policy is still just a PROPOSAL", () => {
     const d = decideRevert(input());
-    expect(d.action).toBe("auto_revert");
+    expect(d.action).toBe("propose");
     expect(d.reason).toContain("14 day check");
+    expect(d.reason).toContain("never put a change back on my own");
     expect(d.lessonLine).not.toBe("");
   });
 
-  it("auto-reverts at day 28 too (>= 14)", () => {
-    expect(decideRevert(input({ windowDay: 28 })).action).toBe("auto_revert");
+  it("day 28 (>= 14) is still a proposal, never automatic", () => {
+    expect(decideRevert(input({ windowDay: 28 })).action).toBe("propose");
   });
 
-  it("day 7 negative is a PROPOSAL, never automatic (directional only)", () => {
+  it("day 7 negative is a proposal too (directional only)", () => {
     const d = decideRevert(input({ windowDay: 7 }));
     expect(d.action).toBe("propose");
-    expect(d.reason).toContain("one click");
-    expect(d.reason).toContain("14 day check");
+    expect(d.reason).toContain("One click");
+    expect(d.reason).toContain("7 day check");
   });
 
-  it("limited attribution (overlapping edit) blocks auto, still proposes", () => {
+  it("limited attribution (overlapping edit) never blocks the proposal", () => {
     const d = decideRevert(input({ attributionQuality: "limited" }));
     expect(d.action).toBe("propose");
-    expect(d.reason).toContain("overlaps");
   });
 
-  it("compound attribution (shipped as a package) blocks auto, still proposes", () => {
+  it("compound attribution (shipped as a package) never blocks the proposal", () => {
     const d = decideRevert(input({ attributionQuality: "compound" }));
     expect(d.action).toBe("propose");
-    expect(d.reason).toContain("package");
   });
 
-  it("autopilot off blocks auto, still proposes", () => {
-    const d = decideRevert(input({ config: { ...ARMED, enabled: false } }));
-    expect(d.action).toBe("propose");
-    expect(d.reason).toContain("Autopilot is off");
+  it("autopilot armed or off makes no difference: still a proposal, never automatic", () => {
+    expect(decideRevert(input({ config: { ...ARMED, enabled: false } })).action).toBe("propose");
+    expect(decideRevert(input({ config: ARMED })).action).toBe("propose");
   });
 
-  it("a null config (never armed) blocks auto, still proposes", () => {
+  it("a null config (never armed) is still a proposal", () => {
     expect(decideRevert(input({ config: null })).action).toBe("propose");
   });
 
-  it("a lever outside the allowlist blocks auto, still proposes", () => {
-    const d = decideRevert(
-      input({ config: { ...ARMED, leverAllowlist: ["edit_meta"] } }),
+  it("a lever allowlist, in or out, never produces anything but a proposal", () => {
+    expect(
+      decideRevert(input({ config: { ...ARMED, leverAllowlist: ["edit_meta"] } })).action,
+    ).toBe("propose");
+    expect(
+      decideRevert(input({ config: { ...ARMED, leverAllowlist: ["edit_title", "edit_meta"] } }))
+        .action,
+    ).toBe("propose");
+    expect(decideRevert(input({ config: { ...ARMED, leverAllowlist: [] } })).action).toBe(
+      "propose",
     );
-    expect(d.action).toBe("propose");
-    expect(d.reason).toContain("not on your autopilot list");
   });
 
-  it("a lever inside the allowlist auto-reverts", () => {
-    const d = decideRevert(
-      input({ config: { ...ARMED, leverAllowlist: ["edit_title", "edit_meta"] } }),
-    );
-    expect(d.action).toBe("auto_revert");
-  });
-
-  it("an EMPTY allowlist normalizes to every lever (matches the ship policy)", () => {
-    const d = decideRevert(input({ config: { ...ARMED, leverAllowlist: [] } }));
-    expect(d.action).toBe("auto_revert");
+  it("confirmation-required pin: no input combination ever yields anything but propose or none", () => {
+    // Exhaustively vary every input that used to feed the auto_revert branch.
+    // If a future change reintroduces an automatic action, this fails loudly.
+    const windowDays = [7, 14, 21, 28, 60];
+    const attributions: Array<"clean" | "limited" | "compound"> = [
+      "clean",
+      "limited",
+      "compound",
+    ];
+    const configs = [ARMED, { ...ARMED, enabled: false }, null, { ...ARMED, leverAllowlist: [] }];
+    for (const windowDay of windowDays) {
+      for (const attributionQuality of attributions) {
+        for (const config of configs) {
+          const d = decideRevert(input({ windowDay, attributionQuality, config }));
+          expect(["propose", "none"]).toContain(d.action);
+        }
+      }
+    }
   });
 });
 

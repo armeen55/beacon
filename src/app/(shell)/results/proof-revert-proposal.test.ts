@@ -4,13 +4,14 @@ import { resolve } from "node:path";
 
 /**
  * Item 11 (2026-07-02) - source pins for the "Put the old version back"
- * proposal on the Results page. The surface wiring is plain JSX + server
- * compute, so these pins assert the load-bearing structure directly:
+ * proposal on the Results page. Revised 2026-07-09 per the operator product
+ * spec E-36: "NEVER auto-revert; ask first". The surface wiring is plain JSX
+ * + server compute, so these pins assert the load-bearing structure directly:
  *
  *   - the page derives eligibility from the SHARED revert policy (decideRevert
  *     + resolveRevertSource + the autopilot config), operator-gated,
- *   - the row renders the one-click restore button + the lesson/reason
- *     sentence, and the auto-revert forewarning,
+ *   - the row renders the one-click restore button + the reason sentence,
+ *     and never claims an automatic push is coming,
  *   - a restored row is badged instead of re-offered (idempotent surface),
  *   - the client button calls the operator-gated server action, and the
  *     action ships ONLY through the revert executor (executePush path).
@@ -36,12 +37,15 @@ describe("proof revert proposal - source pins (item 11)", () => {
     expect(src).toContain("(p.basisDay ?? 0) >= 7");
   });
 
-  it("page.tsx renders the restore button, the reason sentence, and the auto forewarning", () => {
+  it("page.tsx renders the restore button and the reason sentence, never an auto-push forewarning", () => {
     const src = read("page.tsx");
     expect(src).toContain("<RestoreOldVersionButton recordId={rec.id} />");
     expect(src).toContain("{revert.reason}");
-    expect(src).toContain('revert.action === "auto_revert"');
-    expect(src).toContain("I will put the old version back tonight if you do not.");
+    // E-36 confirmation-required pin: no branch may claim Beacon will push a
+    // revert on its own. If this text reappears, the auto-execute path is
+    // back and this test must fail.
+    expect(src).not.toContain('"auto_revert"');
+    expect(src).not.toContain("I will put the old version back tonight");
   });
 
   it("page.tsx badges an already-restored row instead of re-offering (idempotent surface)", () => {

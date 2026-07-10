@@ -654,7 +654,17 @@ async function MonthlyNorthStarSection({ tenantId }: { tenantId: string }) {
   return <MonthlyNorthStar tenantId={tenantId} monthlyVisitGoal={goal} />;
 }
 
-function OpportunitiesSection({ today }: { today: TodayView }) {
+/** B-15 (operator spec 2026-07-09) - each card deep-links to that exact change's
+ *  detail on Changes: ?focus=<id> reuses the SAME CanonicalChange.id Today already
+ *  carries and the list's own row-detail affordance (changes-list-client.tsx), so
+ *  clicking a move opens the exact card, not just the list. Exported so the render
+ *  pin (today-opportunities-focus-link.test.tsx) can assert the href without pulling
+ *  in the rest of this route. */
+export function opportunityHref(changeId: string): string {
+  return `/changes?focus=${encodeURIComponent(changeId)}`;
+}
+
+export function OpportunitiesSection({ today }: { today: TodayView }) {
   return (
     <section className="space-y-1.5" aria-label="Next opportunities">
       <div className="flex items-center justify-between gap-2">
@@ -663,7 +673,7 @@ function OpportunitiesSection({ today }: { today: TodayView }) {
       </div>
       <div className="space-y-1.5">
         {today.nextOpportunities.map((o) => (
-          <Link key={o.changeId} href="/changes" className="block rounded-lg border border-gray-100 bg-white px-3 py-2 hover:bg-gray-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500">
+          <Link key={o.changeId} href={opportunityHref(o.changeId)} className="block rounded-lg border border-gray-100 bg-white px-3 py-2 hover:bg-gray-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500">
             <span className="block break-words text-sm font-semibold text-gray-900">{o.pageLabel}</span>
             <span className="block break-words text-xs text-gray-500">{o.recommendation}</span>
             <span className="mt-0.5 flex flex-wrap items-center gap-x-3 text-[11px] text-gray-400">
