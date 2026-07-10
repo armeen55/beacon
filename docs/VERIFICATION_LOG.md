@@ -7,6 +7,98 @@
 
 ---
 
+## 2026-07-09 - Task #230 trust-correction wave: 3-lane integration, gate red (Codex audit closure)
+
+**Trigger:** a Codex adversarial audit of the W5/W9/spec-debt release (recorded further below in
+this same file) reopened 3 P1 and 3 P2 findings against work this log had already called done:
+- P1: source-to-draft factual coverage checked only a single-token overlap, so a multi-word
+  claim with no matching token in any source could still pass as covered.
+- P1: the SSRF source fetcher's protection was a DNS-check-then-connect gap, not an actual pin -
+  the check resolved and validated an IP, then the real fetch resolved again and could land on a
+  different address (the earlier release's own adversarial review had documented this as one
+  accepted residual window; the audit found the gap was not a narrow race, it was open on every
+  request).
+- P1: the release ledger (this file plus HANDOFF_VERIFIED_STATE.md and
+  NEXT_PHASE_EXECUTION_PLAN.md) had drifted from git reality - entries claimed W9 Slice 1 and
+  B-15/E-36 were "committed, not pushed" and claimed origin/main was still at 1de8ea67, when in
+  fact both commits were already ancestors of origin/main's real tip.
+- P2: an ambient-tenant file-store fallback and three of the nine Ask providers could read data
+  without an explicit tenant argument, a cross-tenant leak risk if ever called from a context
+  that failed to resolve one.
+- P2: the SSRF fetcher's timeout was applied per-hop, not to the whole draft-verification
+  operation, so a chain of several slow redirects could outlast the intended deadline.
+
+**Fix, three lanes built in parallel isolated worktrees, merged conflict-free (disjoint file
+sets, octopus merge, zero textual conflicts):**
+- Lane 1 - source-coverage (480c70c0, 1742dee0): source-authority.ts's
+  draftFactsCoveredBySources now checks factual coverage per sentence with a negation guard (a
+  sentence that flips a source's polarity - e.g. a source says a program ended and the draft says
+  it is ongoing - no longer passes as "covered" just because the words overlap). draft-quality.ts
+  wires this stricter check into evaluateDraftQuality's ready/missing_source gate. Closes the
+  single-token-overlap P1.
+- Lane 2 - SSRF-pinning (6b139e98): safe-source-fetch.ts replaces the DNS-check-then-connect gap
+  with a socket-pinned fetch - a per-hop undici Agent binds the outbound connection to the exact
+  IP the private-range policy already approved, so the address that was checked is the address
+  that is actually connected to, closing the DNS-rebinding TOCTOU window for real rather than
+  documenting it as accepted. The private-range policy itself is now a full parsed-CIDR check
+  (previously a narrower set of blocked ranges). The verify deadline is now enforced across the
+  whole draft-verification operation, not reset at each redirect hop. Closes the SSRF P1 and the
+  per-hop-deadline P2.
+- Lane 3 - tenant-isolation (36dbea5c): the file-store fallback and the three Ask providers that
+  could previously read on an unresolved tenant now fail closed - an unresolved tenant raises
+  instead of silently reading an ambient/shared file. Closes the ambient-tenant-read P2.
+- Doc reconciliation (this entry + the HANDOFF/NEXT_PHASE edits it accompanies): every
+  "committed NOT pushed" reference to W9 Slice 1 or B-15/E-36 corrected to PUSHED with its real
+  commit SHA, and every "origin/main now 1de8ea67" reference corrected to ee89c14b (origin/main's
+  actual position, which already carries W9 Slice 1 and B-15/E-36 as ancestors). Closes the
+  doc-staleness P1.
+
+**W5's original "DNS-pinned resolution" claim, corrected:** the W5 release ledger described its
+source fetcher as having "DNS-pinned resolution." That was an overstatement of what shipped - it
+had a DNS-based private-range check before the fetch, not a pin on the fetch itself. Lane 2 above
+is the first wave to actually implement socket-level pinning via a per-hop undici Agent. W5's
+entries in HANDOFF_VERIFIED_STATE.md and VERIFICATION_LOG.md (below) are corrected in place to
+say so rather than repeat the overstatement.
+
+**Integrated tip:** aa8dac5e (merge commit `merge(trust): integrate SSRF-pinning +
+tenant-isolation lanes into source-coverage (Task #230)` on branch trust-correction-230, base
+ee89c14b, lanes 480c70c0/1742dee0 + 6b139e98 + 36dbea5c).
+
+**Gate receipts (fullgate7.log, hermetic env -i, geist installed via `npm install --no-save
+geist` and confirmed no package.json/lock change):**
+- typecheck_exit=0.
+- test_exit=1 - 1423 files / 22185 tests passed, 62 skipped, 2 files / 3 tests FAILED.
+- build_exit=0.
+
+**The 3 failures, classified THIS-WAVE (not pre-existing, not environmental) by bisection:**
+green (40/40) at base ee89c14b; red (3 failed) at Lane 1's own tip 1742dee0, before Lane 2 or
+Lane 3 were even merged in - so the break is Lane 1's substance, not an interaction between
+lanes and not caused by the merge itself.
+- `src/lib/business-config.test.ts` > "tenant A's allowlist never raises authority for tenant B"
+  - expects `evaluateDraftQuality(...).status` to be `"ready"` under tenant A's allowlist; gets
+  `"missing_source"`. The fixture's FACTUAL_DRAFT has four sentences; the one supplied source's
+  `claim` text matches only the first. Lane 1's new per-sentence rule correctly holds the other
+  three uncovered sentences - the fixture was never updated to supply matching sources for all
+  four.
+- `src/domains/page-factory/production-line.test.ts` > "caps drafted pages at
+  MAX_DRAFTS_PER_WEEK even with many demand-passing candidates" - expects `res.drafted` to be 5,
+  gets 0.
+- `src/domains/page-factory/production-line.test.ts` > "skips a candidate whose brief draft
+  throws, without failing the whole batch" - expects `res.drafted` to be 1, gets 0.
+  Both production-line cases build synthetic multi-sentence drafts without per-sentence source
+  coverage; Lane 1's stricter rule now holds every one of them for a missing source, so the
+  production line drafts zero pages in fixtures that expected some to clear the gate.
+- Lane 1's OWN test suite (draft-quality.test.ts, source-authority.test.ts) was updated for the
+  new rule and is green. These two OTHER call-site suites, which exercise the same shared
+  evaluateDraftQuality function from a different domain, were not updated in the same commits.
+- NOT fixed in this pass. No test fixture or production logic was touched to make these pass -
+  flagged for the architect to decide: update the two stale fixtures to Lane 1's new stricter
+  rule (if the rule is the intended fix), or adjust the rule if it is over-tightened.
+
+**Push status:** NOT pushed. This is an integration branch for architect review; the task that
+produced this entry was explicitly instructed not to push. The gate being red is an independent
+reason to hold the push regardless.
+
 ## 2026-07-09 - Operator-spec delegated wave (W1c/W4/W6) + per-tenant OAuth reliability wave
 
 **Operator-spec waves (docs/OPERATOR_PRODUCT_SPEC_2026-07-09.md):**
@@ -92,29 +184,33 @@ https://www.iranopedia.com/". Pending by design: the two-real-account hosted acc
   due measurements only (a manual re-check could not run early), a verifyState downgrade that lost
   a passing verdict on a partial re-run, and retry starvation (a stuck job never freed its slot for
   a later attempt). Ship was stopped before any of these findings went live.
-- Redesign, implemented in the isolated worktree: commit a01a5fc3 (hardening - an SSRF-safe source
-  fetcher with DNS-pinned resolution and private-range blocking, span-level claim support
-  replacing the weak overlap check, an atomic verify envelope, tenant-explicit re-verify, and retry
-  fairness with honest exhausted-attempts copy), 81d2c500 (adversarial review fixups), 1de8ea67
-  (test re-pin); built on base e1a43fb8, all atop bf3f2cbc + e1a43fb8 (the W5 packages) and
-  a24ab1ae (oauth-patch-mode).
-- Adversarial review verdict: no P0. One residual documented and accepted: a DNS-rebinding TOCTOU
-  window between the pinning check and the fetch itself, accepted per the operator's own spec
-  (blind SSRF defense is authority-gated and the pinning remediation is named directly in code for
-  the next pass).
+- Redesign, implemented in the isolated worktree: commit a01a5fc3 (hardening - a source fetcher
+  with a DNS-check-then-connect private-range block, span-level claim support replacing the weak
+  overlap check, an atomic verify envelope, tenant-explicit re-verify, and retry fairness with
+  honest exhausted-attempts copy), 81d2c500 (adversarial review fixups), 1de8ea67 (test re-pin);
+  built on base e1a43fb8, all atop bf3f2cbc + e1a43fb8 (the W5 packages) and a24ab1ae
+  (oauth-patch-mode).
+- Adversarial review verdict at the time: no P0. One residual documented and accepted: a
+  DNS-rebinding TOCTOU window between the pinning check and the fetch itself, accepted per the
+  operator's own spec (blind SSRF defense is authority-gated and the pinning remediation is named
+  directly in code for the next pass). CORRECTION (2026-07-09, Task #230 below): a later Codex
+  audit found this check-then-connect gap was not a partial mitigation with one residual window -
+  the fetch itself was never actually pinned, so the gap was open on every request, not only
+  during a race. Closed for real by the socket-pinned fetch in the Task #230 entry below.
 - Gate receipts (fullgate4.log): typecheck_exit=0; test_exit=0 (1418 files, 22087 passed, 62
   skipped, 0 failed); build_exit=0.
 - Both W5 migrations (shipped_change_verify_columns, connector_token_patch_mode) were previously
   applied to prod Supabase and verified; no new migration in this release.
-- PUSHED: fast-forward d43ff7e3..1de8ea67; origin/main is now 1de8ea67.
+- PUSHED: fast-forward d43ff7e3..1de8ea67; origin/main is now ee89c14b, having since folded in
+  W9 Slice 1 (6c808c09), B-15/E-36 (118d5252), and the Task #230 trust-correction wave below.
 - Deployed = Vercel build confirmation unavailable to the agent (no token in the environment);
   reachability-checked = production reachable, HTTP 307 (/), 200 (/login), 307
   (/settings/connectors), fresh x-vercel-id present on every poll.
 - Authenticated both-tenant smoke: operator-blocked (no smoke credentials available to the agent).
 
 **W9 ASK SLICE 1 (fact-provider registry + denylist + deterministic zero-LLM answers + one
-wired intent; committed on an isolated worktree branch and rebased onto 88753ba0, NOT pushed -
-release attempt tonight, ships tomorrow if it misses the window):**
+wired intent; committed on an isolated worktree branch, rebased onto 88753ba0, and PUSHED -
+commit 6c808c09, now an ancestor of origin/main ee89c14b):**
 - Bounded vertical slice on the approved architecture (P1 + denylist + deterministic path).
   Nothing rewritten - every existing fact-assembly.ts assembler kept its body byte-identical;
   only additive exports, additive types, and two new call sites.
@@ -168,13 +264,13 @@ release attempt tonight, ships tomorrow if it misses the window):**
   site-trend-wiring.test.ts}; src/app/(shell)/ask/ask-actions.ts (site_trend now calls the
   registry); composer.test.ts + router.test.ts extended with the new deterministic-bypass/
   freshness pins.
-- NOT DONE / NEXT: this commit is NOT pushed (isolated worktree branch, one commit, land in
-  tonight's or tomorrow's window per the task brief). Slice 2 (multi-provider planner,
-  routing the other 8 wrapped providers live, semantic retrieval, session memory) is
-  explicitly out of scope and unbuilt.
+- DONE / NEXT: this commit is PUSHED (6c808c09, folded into origin/main ee89c14b). Slice 2
+  (multi-provider planner, routing the other 8 wrapped providers live, semantic retrieval,
+  session memory) is explicitly out of scope and unbuilt.
 
 **SPEC-DEBT B-15 + E-36 (operator spec, two smallest open items; committed on an isolated
-worktree branch rebased onto 6c808c09, NOT pushed - rides tonight's release boundary with W9):**
+worktree branch rebased onto 6c808c09, and PUSHED - commit 118d5252, now an ancestor of
+origin/main ee89c14b):**
 - E-36 ("NEVER auto-revert; ask first") was a LIVE spec violation, not a missing affordance:
   decideRevert (src/domains/autopilot/revert-policy.ts) had an auto_revert branch that fired for
   a settled negative at day 14+ with clean attribution, and runNightlyRevertPass

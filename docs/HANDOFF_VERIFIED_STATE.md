@@ -1,11 +1,52 @@
-> ⚡ **(2026-07-09) - W5 DRAFT SAFETY RELEASE: COMMITTED AND PUSHED TO MAIN AT 1de8ea67.** W5
+> 🟡 **(2026-07-09 latest) - TASK #230 TRUST-CORRECTION WAVE: INTEGRATED, GATE RED (3 this-wave
+> test failures, not yet fixed), PENDING PUSH.** A Codex adversarial audit of the W5/W9/spec-debt
+> release reopened 3 P1 and 3 P2 findings:
+> P1 source-to-draft coverage checked only a single-token overlap and missed multi-word claims;
+> P1 the SSRF fetcher's protection was incomplete (a DNS-check-then-connect gap, not an actual
+> pin); P1 stale release-ledger doc entries claiming pushes that had not happened; P2 an ambient-
+> tenant file fallback plus three Ask providers that could read without an explicit tenant; P2 a
+> per-request timeout that did not bound a multi-hop redirect chain. Three lanes built in parallel
+> worktrees and merged conflict-free (octopus merge, disjoint file sets): Lane 1 source-coverage
+> (480c70c0, 1742dee0) makes source-authority's draftFactsCoveredBySources check per-sentence
+> factual coverage with a negation guard, so a sentence that flips a source's polarity no longer
+> passes as covered. Lane 2 SSRF-pinning (6b139e98) replaces the DNS-check-then-connect gap with
+> a socket-pinned fetch (a per-hop undici Agent binds the connection to the exact IP the policy
+> already approved, closing the DNS-rebinding TOCTOU window the earlier release had only
+> documented and accepted) plus a full parsed-CIDR private-range policy and a whole-draft
+> (not per-hop) verify deadline. Lane 3 tenant-isolation (36dbea5c) makes the file-store fallback
+> and the three remaining Ask providers fail closed on an unresolved tenant instead of reading an
+> ambient/shared file. Integrated tip: aa8dac5e (merge commit on trust-correction-230). Full
+> hermetic gate receipts in fullgate7.log: typecheck_exit=0; test_exit=1 (2 files / 3 tests
+> failed, 1423 files / 22185 tests passed, 62 skipped); build_exit=0. The 3 failures are
+> THIS-WAVE, caused by Lane 1 alone (confirmed by bisection: green at base ee89c14b, red at the
+> Lane 1 tip 1742dee0 before Lane 2/3 were even merged in) - Lane 1's new per-sentence factual
+> coverage rule is stricter than before, and two OTHER pre-existing suites that call
+> evaluateDraftQuality with multi-sentence fixtures were not updated to match: a tenant-isolation
+> pin in src/lib/business-config.test.ts (expects "ready", gets "missing_source") and two
+> src/domains/page-factory/production-line.test.ts governance/fail-soft cases (expect drafted
+> counts of 5 and 1, get 0 - the stricter rule is rejecting every synthetic multi-sentence draft
+> in those fixtures for missing per-sentence sources). Lane 1's own test suite
+> (draft-quality.test.ts, source-authority.test.ts) was updated for the new rule; these two
+> caller suites were not. NOT fixed in this pass - flagged for the architect rather than patched
+> blind. **Release ladder:** implemented YES; committed YES (one merge commit on
+> trust-correction-230); pushed NO (architect review gates the push, and the gate is red);
+> deployed NO. **Next 3 actions: (1) architect: decide whether to update the two stale test
+> fixtures to the new stricter coverage rule (Lane 1's intended behavior) or relax the rule, then
+> push; (2) W9 Ask Slice 2 - the multi-provider planner routing the other 8 wrapped providers
+> live (unblocked once this lands); (3) operator: OAuth acceptance checklist from the W5 entry
+> below, unaffected by this wave.**
+>
+> ⚡ **(2026-07-09) - W5 DRAFT SAFETY RELEASE: COMMITTED AND PUSHED TO MAIN AT 1de8ea67 (origin/main
+> has since advanced past this point; see the Task #230 entry above for the current SHA).** W5
 > (J-69/70/71/73 + C-25) closes the six-finding operator stop-ship audit (F1-F6: P0 SSRF in the
 > first fix attempt's source fetcher, P0 a weak 50 percent token-overlap claim check, and four
 > P1s - an ambient tenant read inside after(), re-verify gated on due measurements only, a
 > verifyState downgrade on a partial re-run, and retry starvation) with a full redesign built in
-> the isolated worktree: an SSRF-safe source fetcher (DNS-pinned resolution, private-range
-> blocking), span-level claim support replacing the weak overlap heuristic, an atomic verify
-> envelope, tenant-explicit re-verify, and retry fairness with honest exhausted-attempts copy.
+> the isolated worktree: a source fetcher with a DNS-check-then-connect private-range block
+> (the Task #230 audit above found this check-then-connect gap left the fetch itself unpinned;
+> a real socket-pinned fetch landed in that wave), span-level claim support replacing the weak
+> overlap heuristic, an atomic verify envelope, tenant-explicit re-verify, and retry fairness
+> with honest exhausted-attempts copy.
 > Commits a01a5fc3 (hardening) + 81d2c500 (review fixups) + 1de8ea67 (test re-pin), on base
 > e1a43fb8, all atop bf3f2cbc + e1a43fb8 (the W5 packages) and a24ab1ae (oauth-patch-mode).
 > Adversarial review verdict: no P0; one DNS-rebinding TOCTOU residual documented and accepted
@@ -16,7 +57,8 @@
 > Supabase and verified; no new migration in this release.
 > **Release ladder, stated exactly:** implemented YES (redesign complete in the isolated
 > worktree); committed YES (a01a5fc3, 81d2c500, 1de8ea67); pushed YES (fast-forward
-> d43ff7e3..1de8ea67, origin/main now 1de8ea67); deployed = Vercel build confirmation unavailable
+> d43ff7e3..1de8ea67; origin/main is now ee89c14b, having since folded in W9 Slice 1, B-15/E-36,
+> and the Task #230 trust-correction wave); deployed = Vercel build confirmation unavailable
 > to agents (no token in the environment); reachability-checked YES - production reachable and
 > serving fresh, HTTP 307 (/), 200 (/login), 307 (/settings/connectors), fresh x-vercel-id on
 > every poll; hosted-smoked = operator-blocked (no smoke credentials available to the agent).
@@ -24,13 +66,12 @@
 > uncommitted files; every one of them is now superseded by the commits pushed tonight. Safe to
 > discard later with the operator present; not touched tonight.
 > **Next 3 actions: (1) operator: run the OAuth acceptance checklist
-> (docs/OAUTH_ROOT_CAUSE_2026-07-09.md) and confirm the Vercel production build for 1de8ea67 in
-> the dashboard; (2) W9 Ask Slice 1 (decisions locked, architecture mapped, ready to start);
-> (3) spec-debt small items - B-15 Today-to-Changes deep-link and E-36 revert confirmation gate.**
+> (docs/OAUTH_ROOT_CAUSE_2026-07-09.md) and confirm the Vercel production build for ee89c14b in
+> the dashboard; (2) W9 Ask Slice 1 - DONE, pushed (6c808c09, see entry below); Slice 2 is next;
+> (3) spec-debt small items - DONE, pushed (118d5252, see entry below).**
 >
-> ⚡ **(2026-07-09 later) - W9 ASK SLICE 1: BUILT ON TOP OF THE W5 RELEASE ABOVE, COMMITTED ON AN
-> ISOLATED WORKTREE BRANCH, NOT PUSHED (release attempt tonight; ships tomorrow if it misses
-> the window).** Fact-provider
+> ⚡ **(2026-07-09 later) - W9 ASK SLICE 1: BUILT ON TOP OF THE W5 RELEASE ABOVE, PUSHED TO MAIN
+> (commit 6c808c09, now an ancestor of origin/main ee89c14b).** Fact-provider
 > registry over the 9 EXISTING fact-assembly.ts loaders (src/domains/ask/providers/{provider-
 > types,registry}.ts), each wrapped as a thin behavior-identical adapter and marked prodLive:
 > true (every one already reads Supabase directly or through SUPABASE_MIRRORED_STORES - none
@@ -46,28 +87,28 @@
 > prior 7 days (60 clicks). Data through 2026-07-08, from my Search demand read." (source:
 > fallback, proven zero LLM calls). Two-tenant isolation proven at the registry level and
 > through the full route->gather->dossier->compose chain. **Release ladder:** committed YES (one
-> commit, isolated worktree branch, per the task's explicit NO-PUSH instruction); pushed NO;
-> deployed NO; operator-accepted = pending. Gate: `npm run typecheck` exit 0 (a pre-existing
-> missing-`geist`-package gap in this worktree was resolved locally, package.json/lock
-> untouched); `npx vitest run src/domains/ask/` -> 8 files / 119 tests passed (5 pre-existing
-> ask suites unchanged + 3 new files). **Next 3 actions: (1) operator/agent: land this commit on
-> main through the normal landing-strip (or cherry-pick) within the stated release window; (2)
-> Slice 2 - route the other 8 wrapped-but-unwired providers live through a real multi-provider
-> planner, once Slice 1 is observed working on hosted Iranopedia; (3) resume the OAuth
-> acceptance + spec-debt queue in the W5 entry above, unaffected by this slice.**
+> commit); pushed YES (6c808c09, folded into origin/main ee89c14b); deployed = Vercel build
+> confirmation unavailable to agents; operator-accepted = pending. Gate: `npm run typecheck`
+> exit 0 (a pre-existing missing-`geist`-package gap in this worktree was resolved locally,
+> package.json/lock untouched); `npx vitest run src/domains/ask/` -> 8 files / 119 tests passed
+> (5 pre-existing ask suites unchanged + 3 new files). **Next 3 actions: (1) DONE - this commit
+> landed on main (6c808c09, folded into ee89c14b); (2) Slice 2 - route the other 8
+> wrapped-but-unwired providers live through a real multi-provider planner, once Slice 1 is
+> observed working on hosted Iranopedia; (3) resume the OAuth acceptance checklist from the W5
+> entry above, unaffected by this slice.**
 >
-> ⚡ **(2026-07-09 later) - SPEC-DEBT B-15 + E-36 CLOSED: COMMITTED ON AN ISOLATED WORKTREE
-> BRANCH REBASED ONTO THE W9 TIP (6c808c09), NOT PUSHED - rides tonight's release boundary with
-> W9.** B-15: every Today "What to do next" card now deep-links /changes?focus=<changeId>, and
+> ⚡ **(2026-07-09 later) - SPEC-DEBT B-15 + E-36 CLOSED: PUSHED TO MAIN (commit 118d5252,
+> rebased onto the W9 tip 6c808c09, now an ancestor of origin/main ee89c14b).** B-15: every
+> Today "What to do next" card now deep-links /changes?focus=<changeId>, and
 > the Changes list opens + scrolls that exact row's own detail panel (verified on live
 > Iranopedia data). E-36: the revert policy's live auto_revert branch (nightly autopilot pass
 > executed restores gated only by the site-wide arm - a spec violation, not a missing
 > affordance) is deleted; decideRevert is propose-only, the operator-gated one-click restore is
 > the ONLY execution path, with new first-person ask-first copy and confirmation-required pin
 > tests that fail if anyone rewires execution without the confirm gate. Commit 118d5252; 262
-> targeted tests + typecheck exit 0. **Next 3 actions: (1) land tonight's release boundary
-> (W9 slice 1 + this package) on main through the normal landing-strip; (2) operator: OAuth
-> acceptance checklist from the W5 entry above; (3) W9 Slice 2 (multi-provider planner).**
+> targeted tests + typecheck exit 0. **Next 3 actions: (1) DONE - landed on main via ee89c14b;
+> (2) operator: OAuth acceptance checklist from the W5 entry above; (3) W9 Slice 2
+> (multi-provider planner).**
 >
 > ⚡ **(2026-07-08 later) - INCIDENT FIXED: app-wide 504 + "same 6 changes for 9 days" (15477039, 86fde79b).** (1) `MIDDLEWARE_INVOCATION_TIMEOUT`: the auth middleware made two unbounded Supabase calls per request; a slow Supabase 504'd every route. Added `withMwTimeout` (5s/call) reusing the existing degrades (getUser->login redirect, tenant->env fallback); 2 fake-timer tests. (2) Daily plan frozen since 2026-06-30: `ensurePlanPreview` skipped generation while ANY plan sat "accepted", and a batch only leaves "accepted" on a manual "Finish for today" click (applying moves leaves them "measuring"), so the 06-30 batch blocked new plans for 9 days. Fix: only TODAY's accepted batch blocks; a prior-day one auto-completes (proof rows measure on independently) and today's plan builds. **Known limitation surfaced:** a manual precompute post-fix returned "nothing eligible tonight" - the strict experiment batch is control-starved this month (~51 pages locked as measurement controls). Deliberately NOT loosening the rigor gates; the operator works the full 82-move `/changes` backlog (verified 82 recommended_edits) + Today's "What to do next" (draws from the same backlog, not the strict batch). **Operator's live answer: use `/changes` "To do" list - 82 real ranked moves - it is always current; the "tonight's plan" box was the stuck strict subset.** **Next 3 actions: (1) make Today's "What to do next" the primary daily surface (de-emphasize the strict "tonight's plan" box when it is empty/starved); (2) revisit experiment-control-isolation so the auto-batch is not starved to 0 when many pages are measuring (without weakening proof rigor); (3) reconnect Ritz GSC+GA4.**
 >
