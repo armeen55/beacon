@@ -443,11 +443,30 @@ describe("draftFactsCoveredBySources - what does and does not contribute", () =>
     expect(r.covered).toBe(false);
   });
 
-  it("a claim-free framing draft has no protected sentence, so it is covered with zero sources", () => {
-    const framing = "We plan ahead and leave early to avoid the rush before the gates open.";
-    const r = draftFactsCoveredBySources(framing, []);
-    expect(r.covered).toBe(true);
+  // Detector-mismatch closure (trust-230 follow-up): a FACTUAL draft with no
+  // individually-isolable protected sentence (a lowercase definitional
+  // assertion - no capitalized entity, no number, no superlative) must NOT be
+  // waved through. The function is only reached once the caller established the
+  // draft is factual, so it still requires >= 1 qualifying source.
+  it("a factual draft with no isolable protected sentence still requires a source (zero sources -> covered:false)", () => {
+    const definitional = "the gathering is a shared meal enjoyed by neighbors every season.";
+    const r = draftFactsCoveredBySources(definitional, []);
+    expect(r.covered).toBe(false);
     expect(r.uncovered).toEqual([]);
+  });
+
+  it("the SAME no-isolable-claim draft is covered once one qualifying authoritative verified source is attached", () => {
+    const definitional = "the gathering is a shared meal enjoyed by neighbors every season.";
+    const r = draftFactsCoveredBySources(definitional, [
+      {
+        domain: "britannica.com",
+        claim: "the gathering is a shared meal enjoyed by neighbors every season",
+        verified: true,
+        supportingExcerpt: "the gathering is a shared meal enjoyed by neighbors every season",
+      },
+    ]);
+    expect(r.covered).toBe(true);
+    expect(r.receipts).toHaveLength(1);
   });
 
   it("a superlative alone makes a sentence protected (it needs a source too)", () => {

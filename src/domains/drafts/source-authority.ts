@@ -325,7 +325,10 @@ export type FactCoverageResult = {
  *       yields findSupportingSpan(sentence, evidence).supported AND the two
  *       agree in negation parity (an affirmative source cannot back a negated
  *       claim). The first match wins and is recorded as a receipt.
- *   (d) covered = EVERY protected sentence covered.
+ *   (d) covered = EVERY protected sentence covered. A factual draft with NO
+ *       isolable protected sentence (e.g. a lowercase definitional assertion)
+ *       is covered only when >= 1 qualifying source exists - never vacuously,
+ *       since the caller already established the draft is factual.
  *
  * PURE, no I/O, no LLM. Tenant-agnostic: no vertical vocabulary, callers thread
  * in the tenant's own allowlist.
@@ -346,14 +349,34 @@ export function draftFactsCoveredBySources(
         .filter((s) => sentenceIsProtected(s, structural))
     : [];
 
-  // No checkable claim at all -> nothing to source, vacuously covered.
-  if (protectedSentences.length === 0) {
-    return { covered: true, uncovered: [], receipts: [] };
-  }
-
   const qualifying = (sources ?? []).filter(
     (s) => classifySourceAuthority(s, tenantAllowlist) === "authoritative" && s.verified === true,
   );
+
+  // No individually-isolable protected sentence. This function is only reached
+  // (via hasQualifyingAuthoritativeSource) once the CALLER already established
+  // the draft is factual (isFactualClaim / SPECIFIC_FACT), so a factual claim
+  // with nothing to pin per sentence (e.g. a lowercase definitional assertion)
+  // must STILL be backed by at least one qualifying authoritative source - never
+  // waved through vacuously. A TRULY claim-free draft never reaches here (its
+  // caller's isFactualClaim is false), so it stays exempt at the call site, not
+  // here.
+  if (protectedSentences.length === 0) {
+    if (qualifying.length === 0) return { covered: false, uncovered: [], receipts: [] };
+    const backer = qualifying[0]!;
+    return {
+      covered: true,
+      uncovered: [],
+      receipts: [
+        {
+          claim: text,
+          sourceUrl: (backer.url ?? backer.domain ?? "").trim(),
+          excerpt: (backer.supportingExcerpt ?? backer.claim ?? "").trim().slice(0, EXCERPT_MAX_CHARS),
+        },
+      ],
+    };
+  }
+
   // No qualifying source -> every protected claim is unproven.
   if (qualifying.length === 0) {
     return { covered: false, uncovered: protectedSentences.slice(0, 5), receipts: [] };
