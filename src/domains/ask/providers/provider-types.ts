@@ -27,6 +27,10 @@ export type AskFactProvider = {
   /** Stable id, e.g. "gsc-daily-totals". Surfaces in AskFact.providerId and in tests -
    *  part of the provenance contract, so it is never renamed casually. */
   id: string;
+  /** W9 slice 2 (2026-07-10) - the HUMAN specialist name for this provider (a team/identity
+   *  teammate name like "Search demand"), shown when the answer credits or honestly reports
+   *  this provider. NEVER the slug id: the operator never sees "gsc-daily-totals". */
+  label: string;
   /** Which question classes this provider can answer. */
   classes: AskQuestionClass[];
   /** True when the underlying loader reads real hosted (Supabase) data in production;

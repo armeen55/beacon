@@ -39,12 +39,34 @@ export type AskDossier = {
   facts: AskFact[];
   /** True when at least one real fact was found (vs. an honest "no data yet" dossier). */
   hasData: boolean;
+  /** W9 slice 2 (2026-07-10) - the planner's whole-plan verdict on whether this question
+   *  is answerable with ZERO LLM (a count/rank/list, or a plan made only of page_ranking/
+   *  site_trend classes). When set, the composer trusts it over the per-class shape check;
+   *  when absent (Slice-1 callers, buildAskDossier's 2-arg form), the composer falls back
+   *  to isDeterministicQuestionShape so old behavior is byte-identical. Additive. */
+  deterministic?: boolean;
+  /** W9 slice 2 - the ids of every provider the planner SELECTED for this question, even
+   *  ones that returned zero facts. Lets the composer name honestly which specialists it
+   *  asked but heard nothing back from (providersUnavailable). Additive, optional. */
+  plannedProviderIds?: string[];
+  /** W9 slice 2 - every question class the planner selected a provider for (primary +
+   *  secondary cues), primary first. Length > 1 means a multi-specialist answer. Additive. */
+  selectedClasses?: AskQuestionClass[];
 };
 
 /** One cited fact underneath an answer bubble. */
 export type AskCitedFact = {
   fact: string;
   href: string;
+};
+
+/** W9 slice 2 - one specialist credit under a multi-source answer. `label` is ALWAYS a
+ *  human teammate name (via team/identity.ts teammateOf), NEVER a provider slug id, so the
+ *  operator reads "Search demand" not "gsc-daily-totals". */
+export type AskProviderCredit = {
+  label: string;
+  /** ISO date of the freshest row behind this specialist's facts, when it exposes one. */
+  freshnessIso?: string;
 };
 
 export type AskAnswer = {
@@ -56,6 +78,13 @@ export type AskAnswer = {
   /** "llm" when a real structured composition ran; "fallback" when the LLM was off, over
    *  budget, or failed validation and a deterministic template answered instead. */
   source: "llm" | "fallback";
+  /** W9 slice 2 - specialists whose real facts back this answer, each with its freshest
+   *  date when known. DERIVED DETERMINISTICALLY from the facts (distinct teammateOf of each
+   *  fact's source), never model-generated. Set only for multi-specialist answers. */
+  providersUsed?: AskProviderCredit[];
+  /** W9 slice 2 - specialists the planner asked that returned zero facts, so the answer can
+   *  own the gap honestly. Set only for multi-specialist answers. */
+  providersUnavailable?: AskProviderCredit[];
 };
 
 export type AskHistoryEntry = {

@@ -77,6 +77,24 @@ function AnswerBubble({ turn }: { turn: Turn }) {
             ))}
           </div>
         )}
+        {/* W9 slice 2 - a multi-specialist answer credits each specialist by human name
+            (never a provider slug) and owns the gap when one came back empty. */}
+        {turn.answer.providersUsed && turn.answer.providersUsed.length > 0 && (
+          <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[11px]" style={{ color: t.text }}>
+            <span style={{ opacity: 0.7 }}>Specialists:</span>
+            {turn.answer.providersUsed.map((p) => (
+              <span key={p.label} className="rounded-full px-2 py-0.5" style={{ background: `${t.color}14` }}>
+                {p.label}
+                {p.freshnessIso ? ` (through ${p.freshnessIso.slice(0, 10)})` : ""}
+              </span>
+            ))}
+          </div>
+        )}
+        {turn.answer.providersUnavailable && turn.answer.providersUnavailable.length > 0 && (
+          <p className="mt-1.5 text-[11px]" style={{ color: t.text, opacity: 0.7 }}>
+            I checked {turn.answer.providersUnavailable.map((p) => p.label).join(", ")} too but found nothing there yet.
+          </p>
+        )}
       </div>
     </div>
   );

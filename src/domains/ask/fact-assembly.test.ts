@@ -70,7 +70,18 @@ vi.mock("@/domains/ownership/registry-loader", () => ({
   })),
 }));
 
-import { assembleAskDossier } from "./fact-assembly";
+import {
+  assemblePageFacts,
+  assemblePageRankingFacts,
+  assembleSiteTrendFacts,
+  assembleAiVisibilityFacts,
+  assembleCompetitorFacts,
+  assembleMeasurementFacts,
+  assemblePlanFacts,
+  assembleKeywordNextFacts,
+  assembleSystemHealthFacts,
+  buildAskDossier,
+} from "./fact-assembly";
 import { currentTenantId } from "@/lib/tenant-context";
 import { loadOwnershipRegistryForTenant } from "@/domains/ownership/registry-loader";
 import { loadPageDossier } from "@/app/(shell)/page/[...path]/page-dossier-data";
@@ -84,10 +95,58 @@ import { loadCronHealthView } from "@/domains/ops/cron-health-view";
 import { readPipelineHealth } from "@/domains/ops/pipeline-health-store";
 import { readPublishHealth } from "@/domains/push/publish-canary-store";
 import type { RoutedQuestion } from "./router";
+import type { AskDossier, AskFact } from "./types";
 
 beforeEach(() => {
   vi.clearAllMocks();
 });
+
+/**
+ * Test-local single-class dispatcher. The production switch (assembleAskDossier) was RETIRED
+ * in W9 slice 2 in favor of the multi-provider planner path (planner.ts -> gatherPlan). These
+ * composition tests still exercise each assembler through the exact single-class dispatch the
+ * retired function used to provide, including its fail-closed-on-unresolved-tenant guard, so
+ * the per-assembler composition contract stays pinned without a production switch.
+ */
+async function assembleAskDossier(routed: RoutedQuestion): Promise<AskDossier> {
+  const tenantId = await currentTenantId().catch(() => "");
+  if (tenantId === "") return buildAskDossier(routed, []);
+  let facts: AskFact[] = [];
+  try {
+    switch (routed.questionClass) {
+      case "page_specific":
+        facts = routed.pagePath ? await assemblePageFacts(tenantId, routed.pagePath) : [];
+        break;
+      case "page_ranking":
+        facts = await assemblePageRankingFacts(tenantId, routed.rankingMetric ?? "traffic");
+        break;
+      case "site_trend":
+        facts = await assembleSiteTrendFacts(tenantId);
+        break;
+      case "ai_visibility":
+        facts = await assembleAiVisibilityFacts(tenantId);
+        break;
+      case "competitor":
+        facts = await assembleCompetitorFacts(tenantId);
+        break;
+      case "measurement":
+        facts = await assembleMeasurementFacts(tenantId);
+        break;
+      case "plan":
+        facts = await assemblePlanFacts(tenantId);
+        break;
+      case "keyword_next":
+        facts = await assembleKeywordNextFacts(tenantId);
+        break;
+      case "system_health":
+        facts = await assembleSystemHealthFacts(tenantId);
+        break;
+    }
+  } catch {
+    facts = [];
+  }
+  return buildAskDossier(routed, facts);
+}
 
 describe("ask/fact-assembly - fail closed on an unresolved tenant (Codex P2)", () => {
   it("returns an empty dossier without touching any tenant-scoped loader when the tenant is unresolved", async () => {

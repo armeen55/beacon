@@ -28,6 +28,7 @@ vi.mock("../fact-assembly", () => mocks);
 
 import {
   gatherFacts,
+  gatherPlan,
   ALL_PROVIDERS,
   pageSpecificProvider,
   siteTrendProvider,
@@ -40,6 +41,7 @@ import {
   systemHealthProvider,
 } from "./registry";
 import type { RoutedQuestion } from "../router";
+import type { AskPlan } from "../planner";
 import type { AskFactProvider } from "./provider-types";
 
 function routed(over: Partial<RoutedQuestion> = {}): RoutedQuestion {
@@ -173,12 +175,14 @@ describe("ask/providers/registry - gatherFacts dispatch", () => {
   it("is fail-soft: one provider throwing never blanks another provider registered for the same class", async () => {
     const healthy: AskFactProvider = {
       id: "healthy",
+      label: "Results so far",
       classes: ["measurement"],
       prodLive: true,
       gather: async () => [{ value: "healthy fact", source: "proof", href: "/results" }],
     };
     const throwing: AskFactProvider = {
       id: "throwing",
+      label: "Results so far",
       classes: ["measurement"],
       prodLive: true,
       gather: async () => {
@@ -192,6 +196,7 @@ describe("ask/providers/registry - gatherFacts dispatch", () => {
   it("returns [] (never throws to the caller) when the only matching provider throws", async () => {
     const throwing: AskFactProvider = {
       id: "throwing",
+      label: "Results so far",
       classes: ["measurement"],
       prodLive: true,
       gather: async () => {
@@ -237,5 +242,70 @@ describe("ask/providers/registry - two-tenant isolation", () => {
     expect(trendB.map((f) => f.value)).toEqual(["tenant B clicks"]);
     expect(trendA.some((f) => f.value.includes("tenant B"))).toBe(false);
     expect(trendB.some((f) => f.value.includes("tenant A"))).toBe(false);
+  });
+});
+
+// ── W9 slice 2 (2026-07-10): gatherPlan over an already-selected multi-provider plan ─────
+
+function plan(over: Partial<AskPlan> = {}): AskPlan {
+  return {
+    routed: { questionClass: "page_ranking", pagePath: null, rankingMetric: "money", speaker: "gsc" },
+    selections: [
+      { provider: pageRankingProvider, matchedClass: "page_ranking", reason: "primary" },
+      { provider: planProvider, matchedClass: "plan", reason: "secondary_cue" },
+    ],
+    selectedClasses: ["page_ranking", "plan"],
+    deterministic: false,
+    bestEffortOnly: false,
+    ...over,
+  };
+}
+
+describe("ask/providers/registry - gatherPlan", () => {
+  it("runs EXACTLY the plan's selected providers (never an unselected class) and stamps central provenance", async () => {
+    mocks.assemblePageRankingFacts.mockResolvedValueOnce([{ value: "rank fact", source: "gsc", href: "/results" }]);
+    mocks.assemblePlanFacts.mockResolvedValueOnce([{ value: "plan fact", source: "llm", href: "/changes" }]);
+
+    const facts = await gatherPlan("tenant-a", plan());
+
+    expect(mocks.assemblePageRankingFacts).toHaveBeenCalledWith("tenant-a", "money");
+    expect(mocks.assemblePlanFacts).toHaveBeenCalledWith("tenant-a");
+    expect(mocks.assembleSiteTrendFacts).not.toHaveBeenCalled();
+    expect(mocks.assembleMeasurementFacts).not.toHaveBeenCalled();
+    // central provenance stamp: providerId + prodLive filled from the selecting provider.
+    expect(facts.find((f) => f.value === "rank fact")).toMatchObject({ providerId: "page-ranking", prodLive: true });
+    expect(facts.find((f) => f.value === "plan fact")).toMatchObject({ providerId: "daily-plan", prodLive: true });
+  });
+
+  it("is fail-soft per provider: one throwing never blanks another selected provider", async () => {
+    mocks.assemblePageRankingFacts.mockRejectedValueOnce(new Error("boom"));
+    mocks.assemblePlanFacts.mockResolvedValueOnce([{ value: "plan fact", source: "llm", href: "/changes" }]);
+    const facts = await gatherPlan("tenant-a", plan());
+    expect(facts.map((f) => f.value)).toEqual(["plan fact"]);
+  });
+
+  it("NEVER overwrites provenance a provider already set (siteTrendProvider keeps its own freshness)", async () => {
+    mocks.assembleSiteTrendFacts.mockResolvedValueOnce([{ value: "trend", source: "gsc", href: "/" }]);
+    mocks.latestGscDailyDate.mockResolvedValueOnce("2026-07-08");
+    const trendPlan = plan({
+      routed: { questionClass: "site_trend", pagePath: null, speaker: "gsc" },
+      selections: [{ provider: siteTrendProvider, matchedClass: "site_trend", reason: "primary" }],
+      selectedClasses: ["site_trend"],
+      deterministic: true,
+      bestEffortOnly: true,
+    });
+    const facts = await gatherPlan("tenant-a", trendPlan);
+    expect(facts[0]).toMatchObject({ freshnessIso: "2026-07-08", providerId: "gsc-daily-totals", prodLive: true });
+  });
+
+  it("threads the exact tenantId - tenant A's plan gather never returns tenant B's facts", async () => {
+    mocks.assemblePageRankingFacts.mockImplementation(async (tenantId: string) =>
+      tenantId === "tenant-a" ? [{ value: "A rank", source: "gsc", href: "/results" }] : [{ value: "B rank", source: "gsc", href: "/results" }],
+    );
+    mocks.assemblePlanFacts.mockResolvedValue([]);
+    const a = await gatherPlan("tenant-a", plan());
+    const b = await gatherPlan("tenant-b", plan());
+    expect(a.map((f) => f.value)).toEqual(["A rank"]);
+    expect(b.map((f) => f.value)).toEqual(["B rank"]);
   });
 });

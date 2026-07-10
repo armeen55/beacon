@@ -226,3 +226,73 @@ describe("ask/composer - composeAskAnswer (LLM path)", () => {
     expect(a.source).toBe("fallback");
   });
 });
+
+// W9 slice 2 (2026-07-10) - the planner's whole-plan determinism verdict and multi-specialist answers.
+describe("ask/composer - W9 slice 2 planner integration", () => {
+  const MULTI: AskDossier = {
+    questionClass: "page_ranking",
+    pagePath: null,
+    hasData: true,
+    deterministic: true,
+    selectedClasses: ["page_ranking", "keyword_next"],
+    plannedProviderIds: ["page-ranking", "keyword-library"],
+    facts: [
+      { value: "Your pages by Google clicks over the last 90 days, most first:", source: "gsc", href: "/results", providerId: "page-ranking" },
+      { value: "/cheetah: 412 clicks from 9,800 impressions (90 days).", source: "gsc", href: "/page/cheetah", providerId: "page-ranking" },
+      { value: '"lion facts": about 500 searches a month, no page of ours owns this yet.', source: "dataforseo", href: "/research/keywords", providerId: "keyword-library" },
+    ],
+  };
+
+  it("dossier.deterministic:true forces the fallback even for a class the shape check would send to the LLM", async () => {
+    const detMeasurement: AskDossier = {
+      questionClass: "measurement",
+      pagePath: null,
+      hasData: true,
+      deterministic: true,
+      facts: [{ value: "We shipped 3 changes this week.", source: "proof", href: "/changes" }],
+    };
+    const complete = vi.fn(fakeComplete([{ text: JSON.stringify(VALID_ANSWER) }]));
+    const a = await composeAskAnswer("what did we ship this week", detMeasurement, { complete });
+    expect(a.source).toBe("fallback");
+    expect(complete).not.toHaveBeenCalled();
+  });
+
+  it("a multi-specialist deterministic answer groups facts by source and adds a provenance footer", async () => {
+    const complete = vi.fn(fakeComplete([{ text: JSON.stringify(VALID_ANSWER) }]));
+    const a = await composeAskAnswer("list my top pages and top keywords", MULTI, { complete });
+    expect(complete).not.toHaveBeenCalled();
+    expect(a.source).toBe("fallback");
+    expect(a.answer).toContain("From my Search demand read:");
+    expect(a.answer).toContain("From my Live Google results read:");
+    expect(a.answer).toContain("I pulled this together from my Search demand and Live Google results reads.");
+    expect(a.providersUsed?.map((p) => p.label)).toEqual(["Search demand", "Live Google results"]);
+    expect(a.providersUnavailable).toEqual([]);
+    expect(a.answer).not.toMatch(/[–—]/);
+  });
+
+  it("a multi-specialist answer owns the gap when a selected provider returned nothing", async () => {
+    const withGap: AskDossier = {
+      ...MULTI,
+      facts: MULTI.facts.filter((f) => f.providerId === "page-ranking"),
+    };
+    const a = await composeAskAnswer("list my top pages and top keywords", withGap);
+    expect(a.providersUnavailable?.map((p) => p.label)).toEqual(["Live Google results"]);
+    expect(a.answer).toContain("I checked my Live Google results read too but found nothing there yet.");
+    expect(a.answer).not.toMatch(/[–—]/);
+  });
+
+  it("dossier.deterministic:false with real data still reaches the LLM once and speaks as the Strategist", async () => {
+    const synth: AskDossier = { ...MULTI, deterministic: false };
+    const cited = synth.facts[0]!;
+    const complete = vi.fn(
+      fakeComplete([
+        { text: JSON.stringify({ speaker: "gsc", answer: "Putting those together, your top page has an open keyword nearby.", citedFacts: [{ fact: cited.value, href: cited.href }] }) },
+      ]),
+    );
+    const a = await composeAskAnswer("which page wins and what keyword is open", synth, { complete });
+    expect(complete).toHaveBeenCalledTimes(1);
+    expect(a.source).toBe("llm");
+    expect(a.speaker).toBe("llm");
+    expect(a.providersUsed?.map((p) => p.label)).toEqual(["Search demand", "Live Google results"]);
+  });
+});

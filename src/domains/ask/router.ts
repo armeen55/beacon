@@ -106,7 +106,12 @@ const KEYWORD_PATTERNS = /\b(which |what )?keyword\w* (should|to|next|worth|chas
 // pipeline itself (crons, publish path), never about page traffic.
 const SYSTEM_HEALTH_PATTERNS = /\b(anything broken|is everything (ok|okay|working|fine|running)|system (health|status|ok)|is (the )?(site|pipeline|connector\w*) (broken|down|working)|are (my )?(crons?|connectors?) (running|working|healthy)|pipeline (health|status))\b/i;
 const PLAN_PATTERNS = /\b(what should|what are we doing|todo|to.?do|coming up|next (move|step|change)|why (is|isn'?t) .*(plan|planned|selected|included))\b/i;
-const SITE_TREND_PATTERNS = /\b(site.?wide|overall|across the site|this month|this week|total clicks|traffic (drop|dip|spike|jump)|algorithm|core update|google update)\b/i;
+// W9 slice 2 (2026-07-10): exported so the planner (planner.ts) can tell an EXPLICIT
+// site-trend question ("did traffic drop sitewide this week") from the catch-all default
+// ("how are things going"). The planner marks the latter bestEffortOnly, so the answer
+// can say plainly it only had overall traffic to go on. Additive export - the pattern and
+// routeQuestion's use of it are byte-identical to Slice 1.
+export const SITE_TREND_PATTERNS = /\b(site.?wide|overall|across the site|this month|this week|total clicks|traffic (drop|dip|spike|jump)|algorithm|core update|google update)\b/i;
 // "which/what page makes the most money", "my best page for traffic", "which page is
 // bleeding clicks" - a RANKING across pages by a metric (distinct from a single named
 // page). Requires a page word AND a superlative/ranking cue, so "what page should I build"

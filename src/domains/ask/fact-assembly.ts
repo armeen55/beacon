@@ -13,7 +13,6 @@ import "server-only";
  * the href so a claim is always one click from its proof.
  */
 
-import { currentTenantId } from "@/lib/tenant-context";
 import { loadPageDossier, type PageDossier } from "@/app/(shell)/page/[...path]/page-dossier-data";
 import { loadDailyTotalsForTenant, type DailyTotals } from "@/domains/recommendation-intelligence/gsc-page-queries";
 import { loadGa4PageValuesForTenant } from "@/domains/recommendation-intelligence/ga4-page-values";
@@ -34,7 +33,7 @@ import { readPublishHealth } from "@/domains/push/publish-canary-store";
 import { loadOwnershipRegistryForTenant } from "@/domains/ownership/registry-loader";
 import { resolveOwner } from "@/domains/ownership/registry";
 import { plainChangeKind } from "@/lib/plain-language";
-import type { RoutedQuestion, RankingMetric } from "./router";
+import type { RoutedQuestion, RankingMetric, AskQuestionClass } from "./router";
 import type { AskDossier, AskFact } from "./types";
 
 const MAX_FACTS = 10;
@@ -677,68 +676,36 @@ export async function assembleSystemHealthFacts(tenantId: string): Promise<AskFa
 }
 
 /**
- * Assemble the bounded fact dossier for one routed question. Dispatches on
- * `questionClass`; page_specific ALSO includes a light site-trend fact so a page
- * question that turns out to be part of a sitewide shift still surfaces that context.
- * Every branch is fail-soft - an assembly error reads as "no facts found", never a throw.
+ * W9 slice 1 - the bounding/hasData rule for a dossier, so any caller can build one from
+ * facts gathered a different way (the fact-provider registry, providers/registry.ts, and
+ * from W9 slice 2 the multi-provider planner) without duplicating the cap or the hasData
+ * contract. Pure, no I/O.
+ *
+ * W9 slice 2 (2026-07-10) - the switch dispatcher that used to live here (assembleAskDossier)
+ * is RETIRED: ask-actions now plans across providers (planner.ts -> gatherPlan) for every
+ * class, so a single-class switch is no longer a code path. The 9 assemblers above,
+ * latestGscDailyDate, and this builder stay. Additive `opts` let the planner path carry its
+ * whole-plan determinism verdict, its selected classes, and every selected provider id (even
+ * empty ones) onto the dossier; a bare two-arg call is byte-identical to Slice 1 (cap
+ * MAX_FACTS, no extra fields), which keeps the pinned single-class wiring untouched.
  */
-export async function assembleAskDossier(routed: RoutedQuestion): Promise<AskDossier> {
-  const tenantId = await currentTenantId().catch(() => "");
-  // Codex P2 (2026-07-09): FAIL CLOSED on an unresolved tenant. Every assembler
-  // is tenant-scoped; proceeding with an empty tenantId would let the underlying
-  // loaders resolve the wrong (or the founder) tenant. An empty dossier reads as
-  // an honest "no data" answer, never another tenant's facts.
-  if (tenantId === "") return buildAskDossier(routed, []);
-  let facts: AskFact[] = [];
-
-  try {
-    switch (routed.questionClass) {
-      case "page_specific":
-        facts = routed.pagePath ? await assemblePageFacts(tenantId, routed.pagePath) : [];
-        break;
-      case "page_ranking":
-        facts = await assemblePageRankingFacts(tenantId, routed.rankingMetric ?? "traffic");
-        break;
-      case "site_trend":
-        facts = await assembleSiteTrendFacts(tenantId);
-        break;
-      case "ai_visibility":
-        facts = await assembleAiVisibilityFacts(tenantId);
-        break;
-      case "competitor":
-        facts = await assembleCompetitorFacts(tenantId);
-        break;
-      case "measurement":
-        facts = await assembleMeasurementFacts(tenantId);
-        break;
-      case "plan":
-        facts = await assemblePlanFacts(tenantId);
-        break;
-      case "keyword_next":
-        facts = await assembleKeywordNextFacts(tenantId);
-        break;
-      case "system_health":
-        facts = await assembleSystemHealthFacts(tenantId);
-        break;
-    }
-  } catch {
-    facts = [];
-  }
-
-  return buildAskDossier(routed, facts);
-}
-
-/**
- * W9 slice 1 - the same bounding/hasData rule assembleAskDossier applies above,
- * exposed so a caller can build a dossier from facts gathered a different way (the
- * fact-provider registry, providers/registry.ts) without duplicating the MAX_FACTS
- * cap or the hasData contract. Pure, no I/O.
- */
-export function buildAskDossier(routed: RoutedQuestion, facts: AskFact[]): AskDossier {
+export function buildAskDossier(
+  routed: RoutedQuestion,
+  facts: AskFact[],
+  opts: {
+    deterministic?: boolean;
+    selectedClasses?: AskQuestionClass[];
+    plannedProviderIds?: string[];
+    maxFacts?: number;
+  } = {},
+): AskDossier {
   return {
     questionClass: routed.questionClass,
     pagePath: routed.pagePath,
-    facts: facts.slice(0, MAX_FACTS),
+    facts: facts.slice(0, opts.maxFacts ?? MAX_FACTS),
     hasData: facts.length > 0,
+    ...(opts.deterministic !== undefined ? { deterministic: opts.deterministic } : {}),
+    ...(opts.selectedClasses ? { selectedClasses: opts.selectedClasses } : {}),
+    ...(opts.plannedProviderIds ? { plannedProviderIds: opts.plannedProviderIds } : {}),
   };
 }

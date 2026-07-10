@@ -1,26 +1,32 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 /**
- * ask-actions.test (Codex P2, 2026-07-09). Pins the fail-CLOSED guard: when the
- * server cannot resolve which tenant is asking, askQuestionAction returns an
- * honest "I cannot tell which site" answer WITHOUT routing, gathering, composing,
- * or persisting anything - it never proceeds into a tenant-scoped read that could
- * resolve (and cite) the wrong tenant's data. The happy path still runs when a
+ * ask-actions.test (Codex P2, 2026-07-09; W9 slice 2 rewire 2026-07-10). Pins the
+ * fail-CLOSED guard: when the server cannot resolve which tenant is asking,
+ * askQuestionAction returns an honest "I cannot tell which site" answer WITHOUT planning,
+ * gathering, composing, or persisting anything - it never proceeds into a tenant-scoped
+ * read that could resolve (and cite) the wrong tenant's data. The happy path still runs
+ * through the multi-provider planner (planAsk -> gatherPlan -> composeAskAnswer) when a
  * tenant resolves.
  */
 
 vi.mock("@/lib/tenant-context", () => ({
   currentTenantId: vi.fn(async () => ""),
 }));
-vi.mock("@/domains/ask/router", () => ({
-  routeQuestion: vi.fn(() => ({ questionClass: "measurement", pagePath: null, speaker: "proof" })),
+vi.mock("@/domains/ask/planner", () => ({
+  planAsk: vi.fn(() => ({
+    routed: { questionClass: "measurement", pagePath: null, speaker: "proof" },
+    selections: [{ provider: { id: "proof-ledger" }, matchedClass: "measurement", reason: "primary" }],
+    selectedClasses: ["measurement"],
+    deterministic: false,
+    bestEffortOnly: false,
+  })),
 }));
 vi.mock("@/domains/ask/fact-assembly", () => ({
-  assembleAskDossier: vi.fn(async () => ({ questionClass: "measurement", pagePath: null, facts: [], hasData: false })),
   buildAskDossier: vi.fn(() => ({ questionClass: "measurement", pagePath: null, facts: [], hasData: false })),
 }));
 vi.mock("@/domains/ask/providers/registry", () => ({
-  gatherFacts: vi.fn(async () => []),
+  gatherPlan: vi.fn(async () => []),
 }));
 vi.mock("@/domains/ask/composer", () => ({
   composeAskAnswer: vi.fn(async () => ({ speaker: "proof", answer: "real composed answer", citedFacts: [], source: "fallback" })),
@@ -32,7 +38,8 @@ vi.mock("@/domains/ask/history-store", () => ({
 
 import { askQuestionAction } from "./ask-actions";
 import { currentTenantId } from "@/lib/tenant-context";
-import { routeQuestion } from "@/domains/ask/router";
+import { planAsk } from "@/domains/ask/planner";
+import { gatherPlan } from "@/domains/ask/providers/registry";
 import { composeAskAnswer } from "@/domains/ask/composer";
 import { appendAskHistory } from "@/domains/ask/history-store";
 
@@ -41,7 +48,7 @@ beforeEach(() => {
 });
 
 describe("askQuestionAction - fail closed on an unresolved tenant (Codex P2)", () => {
-  it("returns the cannot-tell-which-site answer and never routes, composes, or persists", async () => {
+  it("returns the cannot-tell-which-site answer and never plans, composes, or persists", async () => {
     vi.mocked(currentTenantId).mockResolvedValueOnce("");
     const result = await askQuestionAction("how did my last batch do?");
     expect(result.ok).toBe(true);
@@ -50,16 +57,18 @@ describe("askQuestionAction - fail closed on an unresolved tenant (Codex P2)", (
     expect(result.answer.answer.toLowerCase()).toContain("cannot tell which site");
     expect(result.answer.citedFacts).toEqual([]);
     // Nothing tenant-scoped ran.
-    expect(routeQuestion).not.toHaveBeenCalled();
+    expect(planAsk).not.toHaveBeenCalled();
+    expect(gatherPlan).not.toHaveBeenCalled();
     expect(composeAskAnswer).not.toHaveBeenCalled();
     expect(appendAskHistory).not.toHaveBeenCalled();
   });
 
-  it("proceeds normally when a tenant resolves", async () => {
+  it("proceeds through the planner path when a tenant resolves", async () => {
     vi.mocked(currentTenantId).mockResolvedValueOnce("tenant-a");
     const result = await askQuestionAction("how did my last batch do?");
     expect(result.ok).toBe(true);
-    expect(routeQuestion).toHaveBeenCalledTimes(1);
+    expect(planAsk).toHaveBeenCalledTimes(1);
+    expect(gatherPlan).toHaveBeenCalledTimes(1);
     expect(composeAskAnswer).toHaveBeenCalledTimes(1);
     expect(result.answer.answer).toBe("real composed answer");
   });

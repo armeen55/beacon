@@ -10,9 +10,9 @@
  */
 
 import { currentTenantId } from "@/lib/tenant-context";
-import { routeQuestion } from "@/domains/ask/router";
-import { assembleAskDossier, buildAskDossier } from "@/domains/ask/fact-assembly";
-import { gatherFacts } from "@/domains/ask/providers/registry";
+import { planAsk } from "@/domains/ask/planner";
+import { buildAskDossier } from "@/domains/ask/fact-assembly";
+import { gatherPlan } from "@/domains/ask/providers/registry";
 import { composeAskAnswer } from "@/domains/ask/composer";
 import { appendAskHistory, loadAskHistory } from "@/domains/ask/history-store";
 import type { AskAnswer, AskHistoryEntry } from "@/domains/ask/types";
@@ -48,17 +48,21 @@ export async function askQuestionAction(question: string): Promise<AskResult> {
     };
   }
 
-  const routed = routeQuestion(trimmed);
-  // W9 slice 1 (2026-07-09) - site_trend is the first intent wired end to end through
-  // the fact-provider registry (src/domains/ask/providers/registry.ts) instead of
-  // fact-assembly.ts's direct switch dispatch. Same underlying loader (GSC daily
-  // totals), but the registry's provider stamps freshness + provenance onto every
-  // fact, so the rendered answer can say exactly which data it read and how current it
-  // is. Every other class still goes through the pre-registry path unchanged.
-  const dossier =
-    routed.questionClass === "site_trend"
-      ? buildAskDossier(routed, await gatherFacts(tenantId, routed).catch(() => []))
-      : await assembleAskDossier(routed);
+  // W9 slice 2 (2026-07-10) - EVERY class now goes through the multi-provider planner:
+  // planAsk picks the routed primary provider plus any secondary providers whose broad cue
+  // words appear (up to 3), with ZERO LLM; gatherPlan runs exactly those, stamps provenance,
+  // and merges/caps their facts; the dossier carries the plan's determinism verdict, its
+  // selected classes, and its selected provider ids so the composer can bypass the LLM for a
+  // deterministic plan and credit specialists honestly for a synthesis. The Slice-1
+  // per-class switch (assembleAskDossier) is retired.
+  const plan = planAsk(trimmed);
+  const facts = await gatherPlan(tenantId, plan).catch(() => []);
+  const dossier = buildAskDossier(plan.routed, facts, {
+    deterministic: plan.deterministic,
+    selectedClasses: plan.selectedClasses,
+    plannedProviderIds: plan.selections.map((s) => s.provider.id),
+    maxFacts: 12,
+  });
   const answer = await composeAskAnswer(trimmed, dossier);
 
   const entry: AskHistoryEntry = {
@@ -66,7 +70,7 @@ export async function askQuestionAction(question: string): Promise<AskResult> {
     tenant_id: tenantId,
     question: trimmed,
     answer,
-    questionClass: routed.questionClass,
+    questionClass: plan.routed.questionClass,
     askedAt: new Date().toISOString(),
   };
   await appendAskHistory(entry).catch(() => false);
