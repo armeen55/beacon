@@ -173,6 +173,38 @@ release attempt tonight, ships tomorrow if it misses the window):**
   routing the other 8 wrapped providers live, semantic retrieval, session memory) is
   explicitly out of scope and unbuilt.
 
+**SPEC-DEBT B-15 + E-36 (operator spec, two smallest open items; committed on an isolated
+worktree branch rebased onto 6c808c09, NOT pushed - rides tonight's release boundary with W9):**
+- E-36 ("NEVER auto-revert; ask first") was a LIVE spec violation, not a missing affordance:
+  decideRevert (src/domains/autopilot/revert-policy.ts) had an auto_revert branch that fired for
+  a settled negative at day 14+ with clean attribution, and runNightlyRevertPass
+  (src/domains/autopilot/run-revert.ts) executed those decisions through
+  runRevertForProofRecord to LIVE restores, gated only by the site-wide autopilot arm - no
+  per-change operator confirmation anywhere on the path. The /results surface even advertised
+  it ("I will put the old version back tonight if you do not."). Fix: decideRevert now only
+  ever returns propose or none (RevertAction narrowed, auto branch deleted); the nightly pass
+  counts propose-eligible rows for /results but never pushes; the operator-gated one-click
+  restoreOldVersionAction is the ONLY execution path. New first-person proposal copy: "This
+  title change is 0.4 percentage points of click rate behind its comparison pages at the
+  14 day check. I never put a change back on my own. Want me to prepare the restore? One click
+  puts the old title back, and nothing happens until you say so." Confirmation-required pins:
+  an exhaustive decideRevert sweep asserting no input combination yields anything but
+  propose/none, a nightly-pass pin proving zero pushes for fully eligible candidates, and a
+  /results source pin failing if the auto-forewarning copy or an "auto_revert" branch returns.
+- B-15 (Today to Changes deep-link): each "What to do next" card on Today now links
+  /changes?focus=<changeId> (CanonicalChange.id, URL-encoded) instead of the bare /changes.
+  ChangesListClient consumes ?focus= once, opens the exact row's existing detail affordance
+  (setSelectedId) and scrolls to it via the same rowRefs/scrollIntoView pattern the session
+  loop already uses - no new route, no new detail surface. The /changes/[id] route was
+  deliberately NOT reused: it is keyed by changelog-entry id, a different identity space than
+  CanonicalChange.id. Verified against live Iranopedia data on a dev server: every Today move
+  card rendered a distinct ?focus= href and /changes?focus=<id> rendered the matching
+  change-row-<id> node; an unknown focus id degrades to the plain list.
+- Verified at the rebased tip: 262 tests passed + 1 pre-existing unrelated skip across the
+  autopilot/results/changes/today suites (including new today-opportunities-focus-link.test.tsx
+  + changes-list-client-focus-link.test.ts); npm run typecheck exit 0. Commit 118d5252
+  (feat(spec): B-15 Today-to-Changes deep-link + E-36 revert requires explicit confirmation).
+
 ## 2026-07-08 - Incident: app-wide 504 + "same 6 changes for 9 days" (15477039, 86fde79b)
 
 Operator hit `504 MIDDLEWARE_INVOCATION_TIMEOUT` across the app and, separately, Today
