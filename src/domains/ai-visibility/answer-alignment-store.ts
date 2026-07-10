@@ -361,3 +361,104 @@ export async function getOwnedAnswerAlignment(
     return null;
   }
 }
+
+/** W2-B (2026-07-10) - one owned-alignment request in the batched reader below. */
+export type OwnedAlignmentRequest = {
+  recId: string;
+  ownedUrl: string;
+  citingPrompts: ReadonlyArray<string>;
+};
+
+/**
+ * W2-B (2026-07-10) - BATCHED owned-side alignment for MANY shipped cards in ONE
+ * pass, and the fix for the /results GET-mutation + N+1.
+ *
+ * The per-card getOwnedAnswerAlignment above did THREE Supabase reads for EVERY
+ * card (readOwnedPageBodyText + readProfoundAnswerExcerpts + getLatestMoveDrafts)
+ * AND wrote saveMoveDraft DURING the render (a GET that mutates). On a ledger with
+ * N cited cards that was 3N reads and up to N writes on a plain page view.
+ *
+ * This reader instead:
+ *   - reads the two request-WIDE inputs (Profound excerpts + the move-draft cache)
+ *     EXACTLY ONCE across every card, plus one page-body read per DISTINCT url;
+ *   - resolves each card from those in-memory inputs (pure);
+ *   - by default DOES NOT persist (opts.persist !== true), so the render path is a
+ *     pure read - it serves the cached alignment when the content hash still
+ *     matches and otherwise returns the freshly-computed passages WITHOUT writing.
+ *
+ * The caller warms the cache by scheduling ONE more call with { persist: true }
+ * in next/after() (off the render path), which writes back any freshly-computed
+ * alignment so the next visit is a pure cache hit. Fail-soft per row; a total
+ * read failure returns null for every request.
+ */
+export async function getOwnedAnswerAlignmentsBatch(
+  tenantId: string,
+  requests: ReadonlyArray<OwnedAlignmentRequest>,
+  opts: { persist?: boolean } = {},
+): Promise<Map<string, PersistedAnswerAlignment | null>> {
+  const persist = opts.persist === true;
+  const out = new Map<string, PersistedAnswerAlignment | null>();
+  const valid = requests.filter((r) => r.recId && r.ownedUrl && r.citingPrompts.length > 0);
+  for (const r of requests) out.set(r.recId, null); // honest default for every asked row
+  if (!tenantId || valid.length === 0) return out;
+
+  let excerpts: ProfoundAnswerExcerpt[];
+  let existingDrafts: Awaited<ReturnType<typeof getLatestMoveDrafts>>;
+  try {
+    [excerpts, existingDrafts] = await Promise.all([
+      readProfoundAnswerExcerpts(tenantId), // ONE read across all cards
+      getLatestMoveDrafts(tenantId), // ONE read across all cards
+    ]);
+  } catch (e) {
+    log.warn("[answer-alignment] batched owned reads failed", {
+      tenantId,
+      error: e instanceof Error ? e.message : String(e),
+    });
+    return out; // every request already null
+  }
+
+  // ONE page-body read per DISTINCT url (a ledger often ships several changes to
+  // the same page), run in parallel and reused across the requests that share it.
+  const distinctUrls = [...new Set(valid.map((r) => r.ownedUrl))];
+  const bodyByUrl = new Map<string, string | null>();
+  await Promise.all(
+    distinctUrls.map(async (url) => {
+      bodyByUrl.set(url, await readOwnedPageBodyText(tenantId, url).catch(() => null));
+    }),
+  );
+
+  for (const req of valid) {
+    try {
+      const pageText = bodyByUrl.get(req.ownedUrl) ?? null;
+      if (!pageText) continue;
+      const byExactPrompt = excerpts.find((e) =>
+        req.citingPrompts.some((p) => p.trim().toLowerCase() === e.prompt.trim().toLowerCase()),
+      );
+      const answerRow = byExactPrompt ?? pickAnswerExcerptForTopic(excerpts, req.citingPrompts[0] ?? "");
+      if (!answerRow) continue;
+
+      const hash = alignmentContentHash(answerRow.responseExcerpt, pageText);
+      const draftKey = `${req.recId}::owned`;
+      const cached = parsePersistedAnswerAlignment(existingDrafts.get(`${draftKey}::${MOVE_DRAFT_KIND}`)?.content);
+      if (cached && cached.contentHash === hash) {
+        out.set(req.recId, cached);
+        continue;
+      }
+      const passages = alignAnswerToPage(answerRow.responseExcerpt, pageText);
+      if (passages.length === 0) continue;
+      const result = toPersistable(hash, answerRow.model, answerRow.prompt, passages);
+      out.set(req.recId, result);
+      // GET-safe: only the after() warm-up (persist:true) ever writes.
+      if (persist) {
+        await saveMoveDraft(tenantId, draftKey, MOVE_DRAFT_KIND, JSON.stringify(result)).catch(() => false);
+      }
+    } catch (e) {
+      log.warn("[answer-alignment] batched owned row failed", {
+        tenantId,
+        recId: req.recId,
+        error: e instanceof Error ? e.message : String(e),
+      });
+    }
+  }
+  return out;
+}

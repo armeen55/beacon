@@ -48,8 +48,9 @@ import { loadGscWeeklyLens } from "@/domains/gsc/load-weekly-dimensions";
 // R17b (v1 264) - the dotted "still settling" tail: Google's EARLY counts for
 // the final-lag days the chart's final lane excludes. Opt-in read behind a 3h
 // volatile cache; fail-soft null -> no tail, chart byte-identical.
-import { loadGscFreshTail } from "@/domains/gsc/load-fresh-tail";
+import { readGscFreshTailCached, refreshGscFreshTail } from "@/domains/gsc/load-fresh-tail";
 import { FRESH_TAIL_NOTE, type FreshTailPoint } from "@/domains/gsc/fresh-tail";
+import { after } from "next/server";
 
 const W = 720;
 const H = 170;
@@ -311,16 +312,29 @@ export async function ScoreboardSection({
     );
 
     // R17b (v1 136 + 268) - the weekly "how you show up" lens (rich styling +
-    // devices, $0 store read) and (v1 264) the dotted settling tail (one
-    // bounded fresh read behind a 3h cache). Both deadline-bounded +
-    // fail-soft: a miss just means no expander / no tail.
-    const [weeklyLens, freshTail] = await Promise.all([
+    // devices, $0 store read) and (v1 264) the dotted settling tail. W2-B: the tail
+    // is now a CACHE-ONLY read on the render path (no live GSC query on the critical
+    // path); the one bounded live searchanalytics.query is moved to an after()
+    // refresh below, so the render serves the last cached tail instantly and warms
+    // the next one in the background. Both deadline-bounded + fail-soft.
+    const lastReportedDate = s.days[s.days.length - 1]?.date ?? null;
+    const [weeklyLens, freshTailCached] = await Promise.all([
       valueWithDeadline(loadGscWeeklyLens(tenantId).catch(() => null), null),
       valueWithDeadline(
-        loadGscFreshTail(tenantId, s.days[s.days.length - 1]?.date ?? null).catch(() => null),
+        readGscFreshTailCached(tenantId, lastReportedDate).catch(() => null),
         null,
       ),
     ]);
+    const freshTail = freshTailCached?.points ?? null;
+    // Warm the settling tail OFF the render path: schedule the live refresh when
+    // there is no cached window yet, or the cached one is past its 3h TTL. The
+    // current render still serves whatever was cached (SWR); the next visit sees
+    // the refreshed tail. Fire-and-forget + fail-soft.
+    if (lastReportedDate && (!freshTailCached || freshTailCached.stale)) {
+      after(async () => {
+        await refreshGscFreshTail(tenantId, lastReportedDate).catch(() => {});
+      });
+    }
 
     // UX4 item 2 - the chart's Google/AI visibility/Value tabs, built from series ALREADY loaded
     // above for this same section (citations.daily, revenueDays) - no new reads. A GA4 sessions

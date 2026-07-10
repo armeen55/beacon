@@ -4,6 +4,7 @@ import { log } from "@/lib/logger";
 import { readStore, writeStore } from "@/lib/persistence/json-store";
 import { currentTenantId } from "@/lib/tenant-context";
 import { recordSpendSupabase, getTenantSpentThisMonthUsd } from "@/lib/cost/budget-ledger-supabase";
+import { perfCountExternal } from "@/lib/obs/perf-log";
 import { resolveAuthB64, isDataForSeoConfigured, isDryRun, monthlyCapUsd } from "./dataforseo-serp";
 
 /**
@@ -247,6 +248,8 @@ export async function runKeywordVolume(
 
   // (5) the paid call.
   try {
+    // W2-B - count the live DataForSEO keyword-volume call at its transport.
+    perfCountExternal("dataforseo", "keywords");
     const auth = resolveAuthB64(deps.env) ?? "";
     const res = await deps.fetchImpl(plan.endpoint, {
       method: "POST",

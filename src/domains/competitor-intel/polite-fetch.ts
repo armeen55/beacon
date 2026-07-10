@@ -13,6 +13,8 @@
  * script made.
  */
 
+import { perfCountExternal } from "@/lib/obs/perf-log";
+
 export const COMPETITOR_INTEL_UA = "BeaconBot/1.0 (competitor-intel)";
 const TIMEOUT_MS = 10_000;
 
@@ -120,6 +122,9 @@ export async function fetchPageHtml(
   if (verdict === "blocked") return { ok: false, reason: "robots_blocked" };
   const fetchImpl = deps.fetchImpl ?? fetch;
   try {
+    // W2-B - count the live page crawl at its transport, so the per-GET external-
+    // call tally shows any crawl a render path accidentally triggers (it must be 0).
+    perfCountExternal("crawl");
     const res = await fetchImpl(url, {
       headers: {
         "User-Agent": COMPETITOR_INTEL_UA,

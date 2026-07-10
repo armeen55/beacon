@@ -1,4 +1,5 @@
 import { Suspense, type ReactNode } from "react";
+import { after } from "next/server";
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import { Check, CornerUpLeft } from "lucide-react";
@@ -57,7 +58,7 @@ import {
 } from "@/domains/proof-gsc/measure";
 import { citationLineFor } from "@/domains/proof-gsc/citation-outcome";
 import { shouldShowChangeDollarLine } from "@/domains/proof-gsc/change-dollar-value";
-import { getOwnedAnswerAlignment } from "@/domains/ai-visibility/answer-alignment-store";
+import { getOwnedAnswerAlignmentsBatch, type OwnedAlignmentRequest, type PersistedAnswerAlignment } from "@/domains/ai-visibility/answer-alignment-store";
 import { permutationSentenceFromCounts } from "@/domains/proof-gsc/permutation-null";
 import { selectHeadlineSentence } from "@/domains/proof-gsc/bayesian-read";
 import type { ShippedChangeRecord } from "@/domains/proof-gsc/shipped-change-store";
@@ -241,109 +242,156 @@ export default async function ProofPage({
   // run-measurement.ts's writeCalibrationIfDue). One record per pick, so a plain map is exact.
   const calibrationByProofId = new Map(calibrationRecords.map((r) => [r.proofId, r] as const));
 
-  // Item 5 - a before/after daily-clicks line on every measured row (ship date marked),
-  // so "won/lost" is never a naked label. Bounded to the first 16 rows; fail-soft.
-  const sparkByPath = await valueWithDeadline(
-    loadDailyClicksByPathsForTenant(
-      tenantId,
-      ledger.slice(0, 16).map((l) => l.path),
-    ).catch(() => new Map<string, SparkPoint[]>()),
-    new Map<string, SparkPoint[]>(),
-    SIDE_READ_DEADLINE_MS,
-  );
   // R14b (named controls) - the comparison pages' own daily-clicks series, drawn as
   // dashed lines on the same chart so "beat its comparison pages" is visible, not
-  // asserted. Bounded exactly like the treated read above: first 8 rows, max 2
+  // asserted. Bounded exactly like the treated read below: first 8 rows, max 2
   // comparison pages each, deduped, capped at the loader's own 16-path limit.
-  // Fail-soft: a miss just renders the chart without dashed lines.
+  // Fail-soft: a miss just renders the chart without dashed lines. (Path list is a
+  // pure derivation off the already-loaded ledger, so it is computed before the
+  // parallel read batch.)
   const controlSparkPaths = [
     ...new Set(ledger.slice(0, 8).flatMap((l) => (l.controlPages ?? []).slice(0, 2))),
   ].slice(0, 16);
-  const controlSparkByPath = await valueWithDeadline(
-    controlSparkPaths.length > 0
-      ? loadDailyClicksByPathsForTenant(tenantId, controlSparkPaths).catch(
-          () => new Map<string, SparkPoint[]>(),
-        )
-      : Promise.resolve(new Map<string, SparkPoint[]>()),
-    new Map<string, SparkPoint[]>(),
-    SIDE_READ_DEADLINE_MS,
-  );
+
+  // W2-B (2026-07-10) - the "AI quoted this line" owned-alignment requests, derived
+  // once off the ledger with the SAME gate AiQuotedReceipt used to apply per card (a
+  // real post-ship citation gain). Fed to ONE batched reader below instead of three
+  // Supabase reads + a saveMoveDraft PER card during the render (the GET-mutation +
+  // N+1 this fixes). The cache warm-up write is scheduled in after(), off the GET.
+  const ownedAlignmentRequests: OwnedAlignmentRequest[] = ledger
+    .filter((l) => {
+      const o = l.citationOutcome;
+      const prompts = o?.promptsNowCiting ?? [];
+      return !!o && prompts.length > 0 && (o.verdict === "gained" || o.treatedPostCount > 0);
+    })
+    .map((l) => ({ recId: l.id, ownedUrl: l.page, citingPrompts: l.citationOutcome!.promptsNowCiting ?? [] }));
+
+  // W2-B (2026-07-10) - THE SIDE-READ WATERFALL FIX. These seven page-level reads
+  // are mutually independent (each keyed off the already-loaded ledger, none feeds
+  // another), yet they used to run one-await-after-another, so a slow Supabase read
+  // serialized every read behind it (up to 7 x 15s worst case). Collapse them into
+  // ONE Promise.all: each keeps its OWN fail-soft `.catch` and its OWN 15s deadline,
+  // so one wedged read times out to its fallback WITHOUT holding back the other six.
+  //   1) sparkByPath - Item 5 before/after daily clicks per measured row (first 16).
+  //   2) controlSparkByPath - R14b comparison-page daily-clicks series.
+  //   3) detectedChangepoints - master plan item 32 algorithm-weather shocks.
+  //   4) externalEvents - N32 (R21b) external-event ledger read side.
+  //   5) seasonalInflectionById - master plan item 69 seasonal-inflection flag.
+  //   6) recrawlClockById - master plan N11 recrawl-gated SEARCH clock.
+  //   7) contaminationById - master plan N13 control-contamination guard.
+  const [
+    sparkByPath,
+    controlSparkByPath,
+    detectedChangepoints,
+    externalEvents,
+    seasonalInflectionById,
+    recrawlClockById,
+    contaminationById,
+    ownedAlignmentByRecId,
+  ] = await Promise.all([
+    valueWithDeadline(
+      loadDailyClicksByPathsForTenant(
+        tenantId,
+        ledger.slice(0, 16).map((l) => l.path),
+      ).catch(() => new Map<string, SparkPoint[]>()),
+      new Map<string, SparkPoint[]>(),
+      SIDE_READ_DEADLINE_MS,
+    ),
+    valueWithDeadline(
+      controlSparkPaths.length > 0
+        ? loadDailyClicksByPathsForTenant(tenantId, controlSparkPaths).catch(
+            () => new Map<string, SparkPoint[]>(),
+          )
+        : Promise.resolve(new Map<string, SparkPoint[]>()),
+      new Map<string, SparkPoint[]>(),
+      SIDE_READ_DEADLINE_MS,
+    ),
+    // Algorithm-weather guard (master plan item 32): confirmed Google update ranges +
+    // last night's detected sitewide changepoints, so a verdict whose window overlapped
+    // one gets a visible caveat below. Fail-soft -> [] (no known shocks = no caveats,
+    // never a crash). No fresh CUSUM run here (that is the nightly cron's job).
+    valueWithDeadline(loadDetectedChangepoints(tenantId).catch(() => []), [], SIDE_READ_DEADLINE_MS),
+    // N32 (R21b, 2026-07-03) - the EXTERNAL-EVENT LEDGER read side: last night's nightly pass
+    // recorded the honest-context events (Google updates + traffic shocks + connector outages +
+    // own-site change clusters). A measurement window that overlapped a NON-shock event (a connector
+    // outage or a many-edits-in-one-day cluster) gets an honest caveat below and, like the weather
+    // guard, additively demotes the N10 verdict-reliability grade - the shock kinds are already
+    // covered by the weather caveat, so the ledger adapter (eventCaveatForWindow) DEDUPES against it
+    // and never renders a second sentence for the same shock. Fail-soft + deadline-bound -> [] (an
+    // empty or missing ledger self-hides: no events means no caveats, byte-identical to before).
+    valueWithDeadline(loadExternalEvents(tenantId).catch(() => []), [], SIDE_READ_DEADLINE_MS),
+    // Seasonality guard (master plan item 69): does this row's measurement window span a
+    // detected demand inflection for its page family? Computed-only (never persisted),
+    // same read-time posture as the weather guard above - a page shipped 3 weeks before a
+    // seasonal peak (or a family that IS the seasonal topic) reads its verdict cautiously
+    // instead of as a clean win/loss.
+    valueWithDeadline(
+      attachSeasonalInflectionForLedger(
+        tenantId,
+        ledger.map((l) => ({ id: l.id, path: l.path, shippedAt: l.shippedAt, windows: l.windows ?? [] })),
+      ).catch(() => new Map()),
+      new Map(),
+      SIDE_READ_DEADLINE_MS,
+    ),
+    // Recrawl-gated SEARCH clock (master plan N11): does Google's index hold this
+    // page's new content yet? Computed-only from gsc_url_inspections (an INDEXED-
+    // version crawl timestamp, never a live-page fetch; never persisted, never
+    // mutates windows/verdict). Gates ONLY the Search verdict lane - a row with no
+    // confirmed index crawl reads its SEARCH badge as "Waiting" below regardless
+    // of which calendar window has closed, while the GA4 traffic line and every
+    // other live_at-clocked attachment on the card keeps rendering.
+    valueWithDeadline(
+      attachRecrawlClockForLedger(
+        tenantId,
+        ledger.map((l) => ({ id: l.id, page: l.page, shippedAt: l.shippedAt, actionType: l.actionType, after: l.after })),
+      ).catch(() => new Map()),
+      new Map(),
+      SIDE_READ_DEADLINE_MS,
+    ),
+    // Control-contamination guard (master plan N13): did any of THIS row's
+    // comparison pages change mid-measurement (we treated it ourselves, or its
+    // own content edited between scans)? Computed-only from the full ledger +
+    // page_snapshots history - when a clean substitute exists it is swapped in
+    // and the swap is named on the card; when none exists the read still runs,
+    // capped with an honest caution caveat. Never mutates the stored ship row.
+    valueWithDeadline(
+      attachControlContaminationForLedger(tenantId, ledger).catch(() => new Map()),
+      new Map(),
+      SIDE_READ_DEADLINE_MS,
+    ),
+    // W2-B (2026-07-10) - the batched, READ-ONLY "AI quoted this line" alignments
+    // (persist:false -> a GET never writes). One Profound-excerpt read + one
+    // move-draft-cache read across every cited card, plus one page-body read per
+    // distinct URL, replacing 3 reads + a write PER card. Fail-soft -> empty map.
+    valueWithDeadline(
+      getOwnedAnswerAlignmentsBatch(tenantId, ownedAlignmentRequests).catch(
+        () => new Map<string, PersistedAnswerAlignment | null>(),
+      ),
+      new Map<string, PersistedAnswerAlignment | null>(),
+      SIDE_READ_DEADLINE_MS,
+    ),
+  ]);
+  const shockWindows: ShockWindow[] = buildShockWindows({ dailySeries: [], priorChangepoints: detectedChangepoints });
+
+  // W2-B (2026-07-10) - warm the alignment cache OFF the GET: schedule the same
+  // batch with persist:true in after() so any freshly-computed alignment is
+  // written back for the next visit. Fire-and-forget + fail-soft; a GET never
+  // mutates on its own render path.
+  if (ownedAlignmentRequests.length > 0) {
+    after(async () => {
+      await getOwnedAnswerAlignmentsBatch(tenantId, ownedAlignmentRequests, { persist: true }).catch(() => {});
+    });
+  }
 
   // GSC-LAG CLARITY: Google Search Console data lags wall-clock, so a 7-day window
   // whose calendar date has passed often can't be judged yet. Count the rows that are
   // calendar-open but GSC-waiting, and surface the honest reason (not just "waiting").
+  // Pure derivation off the already-loaded ledger + latestGscDate; no I/O.
   const lagByRow = new Map(
     ledger.map((l) => [l.id, gscLagStatus(l, latestGscDate)] as const),
   );
   const waitingOnGsc = [...lagByRow.values()].filter(
     (s) => s.calendarWindowClosed && !s.gscWindowAvailable && s.nextWindowDay != null,
-  );
-
-  // Algorithm-weather guard (master plan item 32): confirmed Google update ranges +
-  // last night's detected sitewide changepoints, so a verdict whose window overlapped
-  // one gets a visible caveat below. Fail-soft -> [] (no known shocks = no caveats,
-  // never a crash). No fresh CUSUM run here (that is the nightly cron's job).
-  const detectedChangepoints = await valueWithDeadline(
-    loadDetectedChangepoints(tenantId).catch(() => []),
-    [],
-    SIDE_READ_DEADLINE_MS,
-  );
-  const shockWindows: ShockWindow[] = buildShockWindows({ dailySeries: [], priorChangepoints: detectedChangepoints });
-
-  // N32 (R21b, 2026-07-03) - the EXTERNAL-EVENT LEDGER read side: last night's nightly pass
-  // recorded the honest-context events (Google updates + traffic shocks + connector outages +
-  // own-site change clusters). A measurement window that overlapped a NON-shock event (a connector
-  // outage or a many-edits-in-one-day cluster) gets an honest caveat below and, like the weather
-  // guard, additively demotes the N10 verdict-reliability grade - the shock kinds are already
-  // covered by the weather caveat, so the ledger adapter (eventCaveatForWindow) DEDUPES against it
-  // and never renders a second sentence for the same shock. Fail-soft + deadline-bound -> [] (an
-  // empty or missing ledger self-hides: no events means no caveats, byte-identical to before).
-  const externalEvents = await valueWithDeadline(
-    loadExternalEvents(tenantId).catch(() => []),
-    [],
-    SIDE_READ_DEADLINE_MS,
-  );
-
-  // Seasonality guard (master plan item 69): does this row's measurement window span a
-  // detected demand inflection for its page family? Computed-only (never persisted),
-  // same read-time posture as the weather guard above - a page shipped 3 weeks before a
-  // seasonal peak (or a family that IS the seasonal topic) reads its verdict cautiously
-  // instead of as a clean win/loss.
-  const seasonalInflectionById = await valueWithDeadline(
-    attachSeasonalInflectionForLedger(
-      tenantId,
-      ledger.map((l) => ({ id: l.id, path: l.path, shippedAt: l.shippedAt, windows: l.windows ?? [] })),
-    ).catch(() => new Map()),
-    new Map(),
-    SIDE_READ_DEADLINE_MS,
-  );
-
-  // Recrawl-gated SEARCH clock (master plan N11): does Google's index hold this
-  // page's new content yet? Computed-only from gsc_url_inspections (an INDEXED-
-  // version crawl timestamp, never a live-page fetch; never persisted, never
-  // mutates windows/verdict). Gates ONLY the Search verdict lane - a row with no
-  // confirmed index crawl reads its SEARCH badge as "Waiting" below regardless
-  // of which calendar window has closed, while the GA4 traffic line and every
-  // other live_at-clocked attachment on the card keeps rendering.
-  const recrawlClockById = await valueWithDeadline(
-    attachRecrawlClockForLedger(
-      tenantId,
-      ledger.map((l) => ({ id: l.id, page: l.page, shippedAt: l.shippedAt, actionType: l.actionType, after: l.after })),
-    ).catch(() => new Map()),
-    new Map(),
-    SIDE_READ_DEADLINE_MS,
-  );
-
-  // Control-contamination guard (master plan N13): did any of THIS row's
-  // comparison pages change mid-measurement (we treated it ourselves, or its
-  // own content edited between scans)? Computed-only from the full ledger +
-  // page_snapshots history - when a clean substitute exists it is swapped in
-  // and the swap is named on the card; when none exists the read still runs,
-  // capped with an honest caution caveat. Never mutates the stored ship row.
-  const contaminationById = await valueWithDeadline(
-    attachControlContaminationForLedger(tenantId, ledger).catch(() => new Map()),
-    new Map(),
-    SIDE_READ_DEADLINE_MS,
   );
 
   // Move 2 - the shared maturity presentation per row, so every card reads the same
@@ -560,11 +608,17 @@ export default async function ProofPage({
       // offers simply don't show this visit - the rows themselves still render.
       const offers = await valueWithDeadline(
         (async () => {
-          const autopilotConfig = await getAutopilotConfig().catch(() => null);
+          // W2-B (2026-07-10) - the autopilot config + every row's snapshot lookup
+          // are independent reads; run them as ONE parallel batch instead of the
+          // old per-row sequential await chain (up to 6 snapshot reads back to
+          // back). Each snapshot read keeps its own fail-soft `.catch(() => null)`.
+          const [autopilotConfig, sources] = await Promise.all([
+            getAutopilotConfig().catch(() => null),
+            Promise.all(negativeRows.map((rec) => resolveRevertSource(tenantId, rec).catch(() => null))),
+          ]);
           const out: Array<readonly [string, RevertDecision]> = [];
-          for (const rec of negativeRows) {
+          negativeRows.forEach((rec, i) => {
             const p = presById.get(rec.id)!;
-            const source = await resolveRevertSource(tenantId, rec).catch(() => null);
             const decision = decideRevert({
               tenantId,
               direction: p.direction,
@@ -572,13 +626,13 @@ export default async function ProofPage({
               attributionQuality: p.attributionQuality,
               lever: rec.actionType,
               config: autopilotConfig,
-              snapshotAvailable: source != null,
+              snapshotAvailable: sources[i] != null,
               alreadyReverted: false,
               now: new Date(),
               liftLabel: liftLabelFor(rec),
             });
             if (decision.action !== "none") out.push([rec.id, decision] as const);
-          }
+          });
           return out;
         })(),
         [],
@@ -775,7 +829,7 @@ export default async function ProofPage({
               <p className="mt-0.5 text-[11px] text-muted-foreground">
                 These changes beat their comparison pages over the full window. Real lifts, measured.
               </p>
-              <LedgerRowGroup rows={winRows} band="win" linkByRowId={linkByRowId} presById={presById} gradeById={gradeById} eventCaveatById={eventCaveatById} sparkByPath={sparkByPath} controlSparkByPath={controlSparkByPath} revertById={revertById} restoredIds={restoredIds} calibrationByProofId={calibrationByProofId} />
+              <LedgerRowGroup rows={winRows} band="win" linkByRowId={linkByRowId} presById={presById} gradeById={gradeById} eventCaveatById={eventCaveatById} sparkByPath={sparkByPath} controlSparkByPath={controlSparkByPath} revertById={revertById} restoredIds={restoredIds} calibrationByProofId={calibrationByProofId} ownedAlignmentByRecId={ownedAlignmentByRecId} />
             </div>
           ) : null}
 
@@ -788,7 +842,7 @@ export default async function ProofPage({
               <p className="mt-0.5 text-[11px] text-muted-foreground">
                 These changes did not move the number, and that teaches us which lever to try next on pages like these.
               </p>
-              <LedgerRowGroup rows={learningRows} band="learning" linkByRowId={linkByRowId} presById={presById} gradeById={gradeById} eventCaveatById={eventCaveatById} sparkByPath={sparkByPath} controlSparkByPath={controlSparkByPath} revertById={revertById} restoredIds={restoredIds} calibrationByProofId={calibrationByProofId} />
+              <LedgerRowGroup rows={learningRows} band="learning" linkByRowId={linkByRowId} presById={presById} gradeById={gradeById} eventCaveatById={eventCaveatById} sparkByPath={sparkByPath} controlSparkByPath={controlSparkByPath} revertById={revertById} restoredIds={restoredIds} calibrationByProofId={calibrationByProofId} ownedAlignmentByRecId={ownedAlignmentByRecId} />
             </div>
           ) : null}
 
@@ -801,7 +855,7 @@ export default async function ProofPage({
               <p className="mt-0.5 text-[11px] text-muted-foreground">
                 Still collecting data. Each one gets its verdict when its full window closes.
               </p>
-              <LedgerRowGroup rows={inFlightRows} band="inflight" linkByRowId={linkByRowId} presById={presById} gradeById={gradeById} eventCaveatById={eventCaveatById} sparkByPath={sparkByPath} controlSparkByPath={controlSparkByPath} revertById={revertById} restoredIds={restoredIds} />
+              <LedgerRowGroup rows={inFlightRows} band="inflight" linkByRowId={linkByRowId} presById={presById} gradeById={gradeById} eventCaveatById={eventCaveatById} sparkByPath={sparkByPath} controlSparkByPath={controlSparkByPath} revertById={revertById} restoredIds={restoredIds} ownedAlignmentByRecId={ownedAlignmentByRecId} />
             </div>
           ) : null}
         </div>
@@ -974,6 +1028,7 @@ function LedgerRowGroup({
   revertById,
   restoredIds,
   calibrationByProofId,
+  ownedAlignmentByRecId,
 }: {
   rows: ShippedChangeRecord[];
   band: LedgerBand;
@@ -988,6 +1043,9 @@ function LedgerRowGroup({
   revertById: Map<string, RevertDecision>;
   restoredIds: Set<string>;
   calibrationByProofId?: Map<string, CalibrationRecord>;
+  /** W2-B (2026-07-10) - batched "AI quoted this line" alignments, keyed by rec id,
+   *  resolved once on the page (READ-ONLY on the GET) instead of per-card async reads. */
+  ownedAlignmentByRecId?: Map<string, PersistedAnswerAlignment | null>;
 }) {
   const recommended = rows.filter((rec) => linkByRowId.get(rec.id)?.actionPack);
   const manual = rows.filter((rec) => !linkByRowId.get(rec.id)?.actionPack);
@@ -1013,6 +1071,7 @@ function LedgerRowGroup({
         revert={revertById.get(rec.id) ?? null}
         restored={restoredIds.has(rec.id)}
         calibration={calibrationByProofId?.get(rec.id) ?? null}
+        ownedAlignment={ownedAlignmentByRecId?.get(rec.id) ?? null}
       />
     );
   };
@@ -1043,7 +1102,7 @@ function LedgerRowGroup({
   );
 }
 
-function LedgerCard({ rec, link, pres, grade, eventCaveat, spark, controlSparks, band, revert, restored, calibration }: { rec: ShippedChangeRecord; link?: ProofLink | null; pres?: MeasurementPresentation | null; grade?: VerdictReliabilityResult | null; eventCaveat?: string | null; spark?: SparkPoint[]; controlSparks?: Array<{ path: string; points: SparkPoint[] }>; band?: LedgerBand; revert?: RevertDecision | null; restored?: boolean; calibration?: CalibrationRecord | null }) {
+function LedgerCard({ rec, link, pres, grade, eventCaveat, spark, controlSparks, band, revert, restored, calibration, ownedAlignment }: { rec: ShippedChangeRecord; link?: ProofLink | null; pres?: MeasurementPresentation | null; grade?: VerdictReliabilityResult | null; eventCaveat?: string | null; spark?: SparkPoint[]; controlSparks?: Array<{ path: string; points: SparkPoint[] }>; band?: LedgerBand; revert?: RevertDecision | null; restored?: boolean; calibration?: CalibrationRecord | null; ownedAlignment?: PersistedAnswerAlignment | null }) {
   // Judge a meta/title test on CTR, a content test on position, else clicks, so
   // every line on this card reads in the unit that actually moved.
   const metric = pickProofMetric(rec.actionType);
@@ -1568,8 +1627,10 @@ function LedgerCard({ rec, link, pres, grade, eventCaveat, spark, controlSparks,
 
       {/* BEACON 500 item 71: "AI quoted this line" - the literal words the citing
           answer shares with our own page, once we know AI actually cited it post-ship.
-          Silent when the page was never cited or there's no usable overlap. */}
-      <AiQuotedReceipt rec={rec} />
+          Silent when the page was never cited or there's no usable overlap. W2-B: the
+          alignment is resolved once on the page (batched, READ-ONLY on the GET) and
+          passed in, so this is now a pure sync component - no per-card read or write. */}
+      <AiQuotedReceipt alignment={ownedAlignment ?? null} />
 
       {/* Live-SERP rank re-check (item 19): the literal Google position at ship
           vs the freshest read, for whichever window last came due. Silence when
@@ -1712,26 +1773,15 @@ function LedgerCard({ rec, link, pres, grade, eventCaveat, spark, controlSparks,
 }
 
 /**
- * AiQuotedReceipt (BEACON 500 item 71) - "AI quoted this line." Once we know a
- * ship's page was actually cited post-ship (citationOutcome shows a real gain),
- * this aligns one of the citing prompts' cached AI answer excerpt against the
- * page's own body text and shows the literal shared wording, one compact line.
- * Deterministic, no LLM, cached by content hash in move_drafts - silent on any
- * missing input (no citation, no cached answer excerpt, no real overlap).
+ * AiQuotedReceipt (BEACON 500 item 71) - "AI quoted this line." The literal shared
+ * wording between a citing AI answer and the page's own body text, one compact line.
+ * W2-B (2026-07-10): the alignment is now resolved ONCE for the whole ledger by the
+ * batched, READ-ONLY getOwnedAnswerAlignmentsBatch on the page (persist deferred to
+ * after()), so this is a pure synchronous component that just renders what it was
+ * handed - no per-card DB read, no GET-path saveMoveDraft. Silent on a null
+ * alignment (no citation gain, no cached answer excerpt, or no real overlap).
  */
-async function AiQuotedReceipt({ rec }: { rec: ShippedChangeRecord }) {
-  const outcome = rec.citationOutcome;
-  const citingPrompts = outcome?.promptsNowCiting ?? [];
-  if (!outcome || citingPrompts.length === 0) return null;
-  if (outcome.verdict !== "gained" && outcome.treatedPostCount <= 0) return null;
-
-  let alignment;
-  try {
-    const tenantId = await currentTenantId();
-    alignment = await getOwnedAnswerAlignment(tenantId, rec.id, rec.page, citingPrompts);
-  } catch {
-    return null; // fail-soft: a lookup error here must never break the ledger card
-  }
+function AiQuotedReceipt({ alignment }: { alignment: PersistedAnswerAlignment | null }) {
   const top = alignment?.passages[0];
   if (!top) return null;
 

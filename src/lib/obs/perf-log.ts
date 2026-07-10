@@ -1,4 +1,5 @@
 import "server-only";
+import { cache } from "react";
 
 /**
  * perf-log (P0-B Wave 1, 2026-07-10) --- lightweight, opt-in stage timing + external-call
@@ -42,28 +43,60 @@ export function perfStage(stage: string, startMs: number, meta?: Record<string, 
 /** The paid/live sinks a page GET must NEVER reach after the Wave-1 guard. */
 export type ExternalCallKind = "serp" | "llm" | "dataforseo" | "crawl";
 
-// Process-level tally. Best-effort visibility, not a hard budget. Reset per measurement run.
-const externalCallCounts: Record<ExternalCallKind, number> = { serp: 0, llm: 0, dataforseo: 0, crawl: 0 };
+export type ExternalCallCounts = Record<ExternalCallKind, number>;
+
+function zeroCounts(): ExternalCallCounts {
+  return { serp: 0, llm: 0, dataforseo: 0, crawl: 0 };
+}
+
+/**
+ * W2-B (2026-07-10) - PER-REQUEST tally scoping. The old tally was a single
+ * process-level object, so on a warm lambda one GET's count leaked into the next
+ * (a paid call from request A inflated request B's "external calls per GET" read,
+ * making the guard-check dishonest). `react.cache` memoizes ONE counts object per
+ * request/render, so a fresh request automatically starts at zero with NO manual
+ * reset - the honest per-GET tally. OUTSIDE a request scope (crons, scripts,
+ * tests) `cache()` is a passthrough that returns a fresh object on every call, so
+ * we detect that (two calls return different identities) and fall back to a stable
+ * module-level object, so accumulation + explicit reset still work there.
+ */
+const perRequestCounts = cache((): ExternalCallCounts => zeroCounts());
+const fallbackCounts: ExternalCallCounts = zeroCounts();
+
+function activeCounts(): ExternalCallCounts {
+  // In a request scope both calls return the SAME memoized object (stable identity
+  // -> use it, accumulates per request, auto-resets next request). Outside one,
+  // each call builds a new object (identity differs -> use the module fallback).
+  const a = perRequestCounts();
+  const b = perRequestCounts();
+  return a === b ? a : fallbackCounts;
+}
 
 /** Record that a paid/live external call is about to fire. Always tallies (cheap); only
- *  logs when enabled. Call this at the transport entry (SERP runner, LLM gateway, crawler)
- *  so the "external calls per GET" count is honest. */
+ *  logs when enabled. Call this at the transport entry (SERP runner, LLM gateway,
+ *  DataForSEO Labs/keywords transports, crawler) so the "external calls per GET" count
+ *  is honest. */
 export function perfCountExternal(kind: ExternalCallKind, detail?: string): void {
-  externalCallCounts[kind] += 1;
+  const counts = activeCounts();
+  counts[kind] += 1;
   if (!perfLogEnabled()) return;
   const suffix = detail ? ` detail=${detail}` : "";
-  console.warn(`[perf][external] kind=${kind} total=${externalCallCounts[kind]}${suffix}`);
+  console.warn(`[perf][external] kind=${kind} total=${counts[kind]}${suffix}`);
 }
 
-/** Snapshot the running external-call tally (for a diagnostics endpoint or a test). */
-export function readExternalCallCounts(): Readonly<Record<ExternalCallKind, number>> {
-  return { ...externalCallCounts };
+/** Snapshot the running external-call tally for THIS request (or the process
+ *  fallback outside a request) - for a diagnostics endpoint or a test. */
+export function readExternalCallCounts(): Readonly<ExternalCallCounts> {
+  return { ...activeCounts() };
 }
 
-/** Zero the tally (call at the start of a measurement window). */
+/** Zero the active tally. Per-request scoping already resets between GETs; this is
+ *  for explicit reset points (a measurement-window start, or a test between cases
+ *  on the module-fallback path). */
 export function resetExternalCallCounts(): void {
-  externalCallCounts.serp = 0;
-  externalCallCounts.llm = 0;
-  externalCallCounts.dataforseo = 0;
-  externalCallCounts.crawl = 0;
+  const counts = activeCounts();
+  counts.serp = 0;
+  counts.llm = 0;
+  counts.dataforseo = 0;
+  counts.crawl = 0;
 }
