@@ -94,6 +94,7 @@ import { CumulativeOutcomeSection } from "../cumulative-outcome-strip";
 import { Card } from "@/components/ui/card";
 import { Pill, type PillIntent } from "@/components/ui/pill";
 import { loadWithDeadline, valueWithDeadline } from "@/lib/load-with-deadline";
+import { perfMark, perfStage } from "@/lib/obs/perf-log";
 import { HonestDelay } from "@/components/honest-delay";
 // R14a (2026-07-03) - trust receipts: the append-only verdict revision trail on the
 // card expand, and the "We got this wrong" recap below the bands (misses owned plainly).
@@ -197,7 +198,10 @@ export default async function ProofPage({
   const params = await (searchParams ??
     Promise.resolve<Record<string, string | string[] | undefined>>({}));
   const initialPage = typeof params.page === "string" ? params.page : "";
+  const tResolve = perfMark();
   const tenantId = await currentTenantId();
+  perfStage("tenant-resolve", tResolve);
+  const tReads = perfMark();
   const [ledgerRaced, connHealth, worklist, latestGscDate, calibrationRecords] = await Promise.all([
     loadWithDeadline(
       loadResultsLedgerSurface().catch(() => ({
@@ -211,6 +215,7 @@ export default async function ProofPage({
     valueWithDeadline(readLastFinalizedDate(tenantId).catch(() => null), null, SIDE_READ_DEADLINE_MS),
     valueWithDeadline(loadCalibrationRecords(tenantId).catch(() => [] as CalibrationRecord[]), [] as CalibrationRecord[], SIDE_READ_DEADLINE_MS),
   ]);
+  perfStage("results-initial-reads", tReads);
   // W2-A - a timed-out ledger must never render as a confident-looking empty page
   // (that would read as "no changes yet", a lie). Say so honestly and stop.
   if (ledgerRaced.timedOut) {

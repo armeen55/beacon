@@ -13,7 +13,7 @@ const verdictPlain = (v: string) => VERDICT_PLAIN[v] ?? v.replace(/_/g, " ");
 
 import { isOperatorModeServer } from "@/lib/operator-mode";
 import { currentTenantId } from "@/lib/tenant-context";
-import { loadProofLedger } from "@/domains/proof-gsc/load-ledger";
+import { loadProofLedgerCached } from "@/domains/proof-gsc/load-ledger";
 import type { ShippedChangeRecord } from "@/domains/proof-gsc/shipped-change-store";
 
 /**
@@ -29,7 +29,8 @@ export async function ProofLedgerStrip() {
   let ledger;
   try {
     const tenantId = await currentTenantId();
-    ledger = await loadProofLedger(tenantId);
+    // P0-B W1: render path serves the persisted/snapshot ledger (no re-measure on GET).
+    ledger = await loadProofLedgerCached(tenantId);
   } catch {
     return null;
   }

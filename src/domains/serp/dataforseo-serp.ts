@@ -1,6 +1,7 @@
 import "server-only";
 
 import { log } from "@/lib/logger";
+import { perfCountExternal } from "@/lib/obs/perf-log";
 import { readStore, writeStore } from "@/lib/persistence/json-store";
 import { currentTenantId, currentTenant } from "@/lib/tenant-context";
 import {
@@ -528,6 +529,11 @@ export async function runSerpQuery(
   const plan = planSerpCall(query, opts);
   const q = plan.query;
   if (!q) return { status: "error", plan, snapshot: null, costUsd: 0, detail: "empty query" };
+
+  // P0-B Wave 1 instrumentation: any reach to the SERP runner is tallied so a page
+  // GET can be verified to fire ZERO SERP calls after the guard (even under the
+  // dry-run default, this catches a reach the guard is supposed to prevent).
+  perfCountExternal("serp", opts.forceFresh ? "forceFresh" : undefined);
 
   if (!isDataForSeoConfigured(deps.env)) {
     return { status: "disabled", plan, snapshot: null, costUsd: 0, detail: "DataForSEO not configured" };

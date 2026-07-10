@@ -46,10 +46,15 @@ export type AutoMeasurePassResult = {
  */
 export async function autoMeasureDuePass(
   tenantId: string,
-  opts: { maxRecords?: number; now?: Date } = {},
+  opts: { maxRecords?: number; now?: Date; allowPaidRankRecheck?: boolean } = {},
 ): Promise<AutoMeasurePassResult> {
   const now = opts.now ?? new Date();
   const max = opts.maxRecords ?? 15;
+  // P0-B Wave 1 GET-GUARD: a pass fired from a page GET's after() (on-visit
+  // settle) must spend nothing. Only an explicit operator action may allow the
+  // bounded paid live-SERP rank re-check. Default true preserves the explicit
+  // action + existing test behavior.
+  const allowPaid = opts.allowPaidRankRecheck ?? true;
   const result: AutoMeasurePassResult = {
     considered: 0,
     due: 0,
@@ -79,7 +84,7 @@ export async function autoMeasureDuePass(
   let rankRechecksUsed = 0;
   for (const record of due) {
     try {
-      const allowRankRecheck = rankRechecksUsed < MAX_RANK_RECHECKS_PER_PASS;
+      const allowRankRecheck = allowPaid && rankRechecksUsed < MAX_RANK_RECHECKS_PER_PASS;
       const next = await measureRecord(tenantId, record, now, lastFinal, undefined, allowRankRecheck);
       if (allowRankRecheck && next.rankOutcome != null) rankRechecksUsed += 1;
       await upsertShippedChange(next);

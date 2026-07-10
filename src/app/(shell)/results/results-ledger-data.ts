@@ -5,7 +5,7 @@ import { after } from "next/server";
 
 import { currentTenantId } from "@/lib/tenant-context";
 import { recordAppError, errorFieldsFrom } from "@/lib/obs/error-ledger";
-import { loadProofLedger } from "@/domains/proof-gsc/load-ledger";
+import { loadProofLedger, loadProofLedgerPersisted } from "@/domains/proof-gsc/load-ledger";
 import type { ShippedChangeRecord } from "@/domains/proof-gsc/shipped-change-store";
 import {
   isResultsSurfaceStale,
@@ -55,11 +55,40 @@ export async function loadLedgerWithSwr(tenantId: string): Promise<ResultsLedger
     }
     return { ledger: cached.ledger, computedAt: cached.computedAt };
   }
-  // First-ever / invalidated → re-measure synchronously, then persist for next time.
-  const computedAt = new Date().toISOString();
-  const fresh = await loadProofLedger(tenantId);
-  await writeResultsSurface(fresh, computedAt);
-  return { ledger: fresh, computedAt };
+  // First-ever / invalidated → P0-B Wave 1 GET-GUARD: do NOT re-measure on the
+  // GET. That cold synchronous rebuild is the >2-minute timeout path (a full
+  // GSC/GA4 diff-in-diff across the whole ledger, plus the live-SERP re-check we
+  // just removed). Instead serve the last PERSISTED verdicts instantly and
+  // schedule the heavy rebuild in the background, so the next open is both
+  // instant AND fully measured. The honest "I last re-checked N ago" line still
+  // reflects when those stored verdicts were measured.
+  const persisted = await loadProofLedgerPersisted(tenantId).catch(() => [] as ShippedChangeRecord[]);
+  after(async () => {
+    try {
+      await rebuildResultsSurface(tenantId);
+    } catch (e) {
+      await recordAppError({
+        route: "/results",
+        tenantId,
+        action: "cold-rebuild",
+        ...errorFieldsFrom(e),
+      });
+    }
+  });
+  return { ledger: persisted, computedAt: latestMeasuredAt(persisted) };
+}
+
+/** The freshest `measuredAt` across the stored ledger, so the cold GET can serve
+ *  an honest "last re-checked N ago" line off the persisted verdicts. Falls back
+ *  to now when nothing has ever been measured (an empty/first-run ledger renders
+ *  nothing anyway). PURE. */
+function latestMeasuredAt(ledger: ReadonlyArray<ShippedChangeRecord>): string {
+  let best = 0;
+  for (const r of ledger) {
+    const t = r.measuredAt ? Date.parse(r.measuredAt) : NaN;
+    if (Number.isFinite(t) && t > best) best = t;
+  }
+  return best > 0 ? new Date(best).toISOString() : new Date().toISOString();
 }
 
 /** Request-memoized /results measured ledger, SWR-cached cross-request. Every

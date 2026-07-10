@@ -95,7 +95,9 @@ export function scheduleAutoMeasure(tenantId: string): void {
   try {
     after(async () => {
       try {
-        const res = await autoMeasureDuePass(tenantId, { maxRecords: PER_RUN_CAP });
+        // P0-B W1: this pass rides a page GET's after(); it must spend nothing.
+        // Bounded (PER_RUN_CAP) GSC-only re-measure, zero paid live-SERP calls.
+        const res = await autoMeasureDuePass(tenantId, { maxRecords: PER_RUN_CAP, allowPaidRankRecheck: false });
         if (res.measured > 0) {
           log.info("[auto-measure-on-use] passive pass ran", {
             tenantId,

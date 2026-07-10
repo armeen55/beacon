@@ -48,6 +48,7 @@ import { buildReceiptLine, checkedAgoLabel } from "@/components/data/receipt-lin
 // worklist. Read-only additive lanes; a lane outage narrows the fused set, never blocks the page.
 import { fuseUnifiedList } from "@/domains/allocator/load-unified-list";
 import { classifyOpportunityFreshness, summarizeExpiry } from "@/domains/changes/opportunity-expiry";
+import { perfMark, perfStage } from "@/lib/obs/perf-log";
 
 export type ChangesView = {
   changes: CanonicalChange[];
@@ -341,10 +342,13 @@ export function partitionActionableByEvidence(
 // FP3 - react.cache()'d so the FP3 lifecycle-counts loader and the page section that
 // renders the list share ONE computation per request instead of building it twice.
 export const loadChangesView = cache(async (): Promise<ChangesView> => {
+  const tResolve = perfMark();
   const tenantId = await currentTenantId();
+  perfStage("tenant-resolve", tResolve);
   // Move 3 — every source is fail-soft so one failing store can never blank the whole
   // Changes list. A plan-store outage drops the "today" slice but keeps the ranked moves;
   // a worklist outage keeps any selected plan items. The page renders with what loaded.
+  const tSources = perfMark();
   const [wl, accepted, preview, reservations, ledgerRows, calibrationRecords, boardTopicKeys] = await Promise.all([
     loadMovesWorklist().catch(() => ({ moves: [] as TodayMove[], stats: undefined })),
     getAcceptedPlan(tenantId).catch(() => null),
@@ -360,6 +364,7 @@ export const loadChangesView = cache(async (): Promise<ChangesView> => {
       BOARD_TOPICS_DEADLINE_MS,
     ),
   ]);
+  perfStage("changes-source-read", tSources, { moves: (wl.moves ?? []).length, ledger: ledgerRows.length });
   // FP3 - THE ONE-COUNT RULE (domains/changes/lifecycle-counts.ts): the same classifier
   // Results uses for its bands, run on the same request-cached ledger rows.
   const ledgerCounts = countLedgerLifecycle(ledgerRows);
@@ -444,7 +449,9 @@ export const loadChangesView = cache(async (): Promise<ChangesView> => {
   // verdicts, D3's SERP steal briefs, and undercovered keyword-library demand, into ONE ranked
   // CanonicalChange[]. Fail-soft as a whole (fuseUnifiedList never throws); on any unexpected
   // failure fall back to the worklist-only list rather than blanking the page.
+  const tFuse = perfMark();
   const { changes: fusedChanges } = await fuseUnifiedList(tenantId, worklistChanges).catch(() => ({ changes: worklistChanges }));
+  perfStage("changes-allocator-fuse", tFuse, { fused: fusedChanges.length });
 
   const movesById: Record<string, TodayMove> = {};
   for (const m of moves) movesById[m.id] = m;
@@ -553,6 +560,7 @@ export const loadChangesView = cache(async (): Promise<ChangesView> => {
     note: planAgo ? `Tonight's picks were put together ${planAgo}.` : null,
   });
 
+  perfStage("changes-assembly", tSources, { changes: changes.length, watching: watching.length });
   return {
     changes,
     movesById,

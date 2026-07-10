@@ -2,7 +2,7 @@ import "server-only";
 
 import { isOperatorModeServer } from "@/lib/operator-mode";
 import { currentTenantId } from "@/lib/tenant-context";
-import { loadProofLedger } from "@/domains/proof-gsc/load-ledger";
+import { loadProofLedgerCached } from "@/domains/proof-gsc/load-ledger";
 import { loadProvenWins } from "@/domains/attribution/load-proven-wins";
 import {
   TodayV2ExperimentsMeasuring,
@@ -21,7 +21,8 @@ export async function TodayV2ExperimentsMeasuringSection() {
   if (!isOperatorModeServer()) return null;
   const tenantId = await currentTenantId().catch(() => null);
   if (!tenantId) return null;
-  const records = await loadProofLedger(tenantId).catch(() => []);
+  // P0-B W1: render path serves the persisted/snapshot ledger (no re-measure on GET).
+  const records = await loadProofLedgerCached(tenantId).catch(() => []);
   const measuring = records.filter((r) => r.verdict === "measuring");
   if (measuring.length === 0) return null;
 

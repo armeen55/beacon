@@ -45,6 +45,7 @@ import "server-only";
 
 import { log } from "@/lib/logger";
 import { recordAppError } from "@/lib/obs/error-ledger";
+import { perfCountExternal } from "@/lib/obs/perf-log";
 import { checkBudget, recordSpend } from "@/domains/recommendations/adjudicator-budget";
 import { assertPaidCallAllowed } from "@/domains/safety/cost-breaker";
 import type { PromptId } from "./prompt-registry";
@@ -242,6 +243,10 @@ async function reportGatewayFailure(
 export async function openAIChatCompletion(args: OpenAIChatArgs): Promise<OpenAIChatOutcome> {
   const model = typeof args.body.model === "string" ? args.body.model : "";
   const reasoning = isReasoningModel(model);
+
+  // P0-B Wave 1 instrumentation: tally every reach to the LLM transport so a page
+  // GET can be verified to fire ZERO LLM calls after the guard.
+  perfCountExternal("llm", model || undefined);
 
   // N43 OUTER guard first: the global cross-lane ceiling refuses before the
   // per-platform cap is even read (belt-and-suspenders, never a loosening).

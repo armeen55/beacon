@@ -8,7 +8,7 @@ import "server-only";
  */
 import { currentTenantId } from "@/lib/tenant-context";
 import { loadDailyClicksByPagesForTenant } from "@/domains/recommendation-intelligence/gsc-page-queries";
-import { loadProofLedger } from "@/domains/proof-gsc/load-ledger";
+import { loadProofLedgerCached } from "@/domains/proof-gsc/load-ledger";
 import { buildDailyExperimentDashboard, protectedControlWarning, type DailyExperimentDashboard } from "@/domains/experiments/daily-experiment-dashboard";
 import { buildExecutionChecklist, type ExecutionChecklist } from "@/domains/experiments/execution-checklist";
 import { getLatestPreviewPlan, getAcceptedPlan, listActiveReservations, listReservationsForPlan } from "@/domains/experiments/daily-experiment-plan-store";
@@ -73,7 +73,7 @@ export async function loadDailyExperimentsView(): Promise<DailyExperimentsView> 
   const tenantId = await currentTenantId();
   const now = new Date();
   const [ledger, previewPlan, acceptedPlan, reservations, staging, wixUrlMap, wixToken] = await Promise.all([
-    loadProofLedger(tenantId).catch(() => []),
+    loadProofLedgerCached(tenantId).catch(() => []),
     getLatestPreviewPlan(tenantId),
     getAcceptedPlan(tenantId),
     listActiveReservations(tenantId),

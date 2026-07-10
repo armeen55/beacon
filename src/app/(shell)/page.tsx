@@ -23,6 +23,7 @@ import { FrictionFixesSection, DemandOpportunitiesSection, WarRoomQuietLine } fr
 import { ScoreboardSection } from "./scoreboard-section";
 import { CumulativeOutcomeSection } from "./cumulative-outcome-strip";
 import { loadProofLedgerCached } from "@/domains/proof-gsc/load-ledger";
+import { perfMark, perfStage } from "@/lib/obs/perf-log";
 import { buildWeeklyRecap, shippedInLastDays, shippedToday, stillDoubleCheckingCount, weeklyRecapSentence } from "@/domains/proof-gsc/weekly-recap";
 import { loadCalibrationRecords } from "@/domains/experiments/forecast-calibration-store";
 import { summarizeForecastCalibration, MIN_SETTLED_FOR_CALIBRATION } from "@/domains/experiments/forecast-calibration";
@@ -197,10 +198,12 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
 
   // Items 7 + 8 - the ledger speaks in the header: the 14-day shipping streak, and on Mondays
   // a one-line recap of last week's outcomes. One cached ledger read; fail-soft to silence.
+  const tLedger = perfMark();
   const ledgerRows = await valueWithDeadline(
     loadProofLedgerCached(tenantId).catch(() => [] as Awaited<ReturnType<typeof loadProofLedgerCached>>),
     [],
   );
+  perfStage("today-proof-ledger-read", tLedger, { rows: ledgerRows.length });
   const streak = shippedInLastDays(ledgerRows, Date.now());
   // FP3 (2026-07-02, supersedes A2's verdict-field count) - THE ONE-COUNT RULE: every
   // lifecycle count on this page (the standup chip, the tiles, the measuring strip, the
