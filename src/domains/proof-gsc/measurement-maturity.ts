@@ -5,7 +5,7 @@
  *   MATURITY  — how far the measurement has progressed (collecting → early → interim
  *               → mature), independent of which way it moved.
  *   DIRECTION — which way the basis window moved (positive / negative / neutral).
- *   VERDICT   — the 28-day operator-facing call, my strongest read available today.
+ *   VERDICT   - the 28-day operator-facing call, my strongest read available today.
  *               Exists ONLY at mature_result. E-39 D6: this is a 28-day PROVISIONAL
  *               verdict, NOT a "final" or "highest-confidence" call - the spec's
  *               56 to 84 day confirmation tier is not built yet (see

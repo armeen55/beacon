@@ -4,7 +4,7 @@ import { annotateCautionRows } from "./promotion-writer";
 import type { DeterministicPromotionEditRow } from "./promotion-result-to-edit-row";
 
 /**
- * E-39 D5 — the promotion writer ANNOTATES, it never DELETES. A page that is
+ * E-39 D5 - the promotion writer ANNOTATES, it never DELETES. A page that is
  * mid-measurement or a live comparison page stays in the operator's queue with a
  * caution note attached, instead of being silently removed (the 2026-07-01 gate
  * behavior these tests replace).
@@ -43,7 +43,7 @@ const row = (over: Partial<DeterministicPromotionEditRow> & { id: string; target
 
 const CAUTION = "This page is a comparison page for a change I am still measuring, so I am flagging it.";
 
-describe("annotateCautionRows — E-39 D5 annotate, never delete", () => {
+describe("annotateCautionRows - E-39 D5 annotate, never delete", () => {
   it("keeps EVERY row (never removes the operator's option) and appends the caution to the flagged one", () => {
     const rows = [
       row({ id: "1", target_url: "https://iranopedia.com/a" }), // mid-measurement -> flag

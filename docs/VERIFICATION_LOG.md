@@ -9,6 +9,14 @@
 
 ## 2026-07-10 - E-39 adaptive control pools (admit-with-caution) - worktree e39-impl
 
+**CORRECTED 2026-07-10 (see the follow-on entry immediately below this one):** the D6 line below
+claims "softened all final/highest-confidence copy" - that was inaccurate when written. An
+adversarial review of this wave found three RENDERED surfaces still calling a 28-day result
+"final" (cumulative-outcome.ts's waiting line, proof-summary-section.tsx's zero-mature lead
+sentence, changes-list-client.tsx's Results-tab empty state); a follow-up sweep during the fix
+found two more (decision-thresholds.ts on /settings/how-i-decide, results-header-strip.tsx on
+Today + Results). All five are fixed in the review-fix commit described below.
+
 **What changed (operator-approved binding spec, 7 decisions):**
 - D1 admit-with-caution: `assessEligibility` (src/domains/experiments/experiment-eligibility.ts)
   now returns eligible-with-caution for active_control / same_family_measuring / compound_edit /
@@ -43,6 +51,49 @@ inconvenience, never from accepting weak/unsafe evidence.
 **Verified:** full hermetic gate at tip (env -i clean shell) GREEN - typecheck_exit=0,
 test_exit=0 (1428 files / 22256 passed / 62 skipped), build_exit=0 (fullgate12.log). Probe script
 removed; worktree clean. NOT pushed (per instruction).
+
+## 2026-07-10 - E-39 adversarial review P1 fixes (28-day result never final + dash sweep) - worktree e39-impl
+
+**Trigger:** an adversarial review of the E-39 wave above found the D6 claim ("softened all
+final/highest-confidence copy") was not true: three RENDERED, operator-facing surfaces still
+called a 28-day result "final", violating the preserved 7/28/56-84 contract (the 56 to 84 day
+confirmation tier is not built yet, so no copy may claim finality over a window that does not
+exist). A dash-hygiene P1 was also raised for one new and one pre-existing em dash in this wave's
+diff.
+
+**What changed (P1-1, no 28-day result called final anywhere rendered):**
+- `src/domains/proof-gsc/cumulative-outcome.ts` waiting line: "No final verdicts yet..." ->
+  "No settled reads yet... Longer confirmation reads come later."
+- `src/app/(shell)/results/proof-summary-section.tsx` `buildZeroMatureLeadSentence`: "None of your
+  N changes has a final verdict yet." -> "None of your N changes has a 28-day read yet."
+- `src/app/(shell)/changes-list-client.tsx` Results-tab empty state: "N changes have a final
+  read." -> "N changes have their 28-day read."
+- Sweep found two more real rendered surfaces beyond the three named: `src/domains/settings/
+  decision-thresholds.ts` (rendered on /settings/how-i-decide: "the 28 day read is final" ->
+  "my strongest read available at that point... Longer confirmation reads come later") and
+  `src/app/(shell)/results/results-header-strip.tsx` (rendered on Today + Results: "a final
+  read" -> "a 28-day read"). All five fixed; all downstream pinned strings (cumulative-outcome,
+  proof-plain-vocabulary, cumulative-outcome-strip, results-header-strip, decision-thresholds
+  tests) updated to match, plus a new "never renders final for a 28-day result" pin added to
+  each so this class fails the gate next time.
+
+**What changed (P1-2, dash sweep):** removed the em dash introduced at `measure-lifecycle.ts`'s
+new D4 JSDoc paragraph and the pre-existing one on measurement-maturity.ts's VERDICT line (already
+touched by this wave); also cleaned the new E-39 `describe()`/`it()` titles across
+build-daily-candidates.test.ts, experiment-eligibility.test.ts, control-contamination.test.ts,
+measure-lifecycle.test.ts, measure.test.ts, measurement-maturity.test.ts, and
+promotion-writer-caution.test.ts that introduced fresh em dashes this wave. The two dash-detector
+regex literals the wave added (which must match the characters they forbid) were rewritten with
+unicode escapes so even they carry no literal dash. The dash grep over newly-added diff lines
+against 3ae54f98 is now EMPTY. The unscoped grep over the whole diff still surfaces pre-existing,
+untouched describe() names as diff-history artifacts (unified diff always echoes the old dashed
+line once a nearby line changes) - these predate this wave and are out of scope for this fix.
+
+**Docs:** corrected the D6 claim above (see the "CORRECTED" note on the E-39 entry). Ledgered P2
+follow-ups from the review in NEXT_PHASE_EXECUTION_PLAN.md.
+
+**Verified:** targeted vitest suites for every touched file green; full hermetic gate appended to
+fullgate12.log (typecheck/test/build all exit 0). Worktree clean. NOT pushed (per instruction).
 
 ## 2026-07-09 - Task #230 trust-correction wave: 3-lane integration (Codex audit closure)
 

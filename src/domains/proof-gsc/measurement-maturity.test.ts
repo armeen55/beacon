@@ -461,7 +461,7 @@ describe("recrawl-CONFIRMED shift (N11) — search checkpoints count from recraw
   });
 });
 
-describe("E-39 D6 — 7/28/56-84 language is honest (a 28-day result is never called final or highest-confidence)", () => {
+describe("E-39 D6 - 7/28/56-84 language is honest (a 28-day result is never called final or highest-confidence)", () => {
   // A fully mature, clean, high-confidence 28-day win: the strongest read the
   // system builds today. It must still not claim finality or top confidence over
   // a 56 to 84 day window that does not exist yet.
@@ -478,7 +478,7 @@ describe("E-39 D6 — 7/28/56-84 language is honest (a 28-day result is never ca
     expect(mature.explanation).toMatch(/28-day/);
     expect(mature.explanation.toLowerCase()).not.toContain("final");
     expect(mature.explanation.toLowerCase()).not.toContain("highest confidence");
-    expect(mature.explanation).not.toMatch(/[—–]/); // no dashes on operator copy
+    expect(mature.explanation).not.toMatch(/[\u2014\u2013]/); // no em/en dashes on operator copy
   });
 
   it("an early (7-day) read stays directional, never a final call", () => {

@@ -16,6 +16,13 @@ caution rather than a freeze; recording is capped at 3.
 
 ### FUTURE SLICE (E-39 D6 ledger) - the 56 to 84 day CONFIRMATION window
 
+**CORRECTED 2026-07-10:** the claim below ("NOTHING calls a 28-day result final") was inaccurate
+when written. An adversarial review found three rendered surfaces still doing exactly that
+(cumulative-outcome.ts, proof-summary-section.tsx, changes-list-client.tsx), and a follow-up
+sweep found two more (decision-thresholds.ts, results-header-strip.tsx). All five are fixed in
+the review-fix commit (see VERIFICATION_LOG.md's 2026-07-10 "E-39 adversarial review P1 fixes"
+entry) and pinned with tests so this class fails the gate next time.
+
 The proof contract is 7-day early signal / 28-day PROVISIONAL verdict / 56 to 84 day
 confidence tier. The 56 to 84 day tier is NOT built (the maturity ladder tops at 28d). E-39
 did NOT lower the requirement: it audited measurement-maturity.ts and the surface copy so
@@ -36,6 +43,24 @@ Acceptance criteria for the future slice:
 - Tests: a 28-day result never renders "final"; a 56 to 84 day result may; a 28-day verdict
   that flips at the long window is reported as a revision with both reads visible.
 
+### E-39 review P2 follow-ups (non-blocking, ledgered 2026-07-10)
+
+Small, honest items the adversarial review raised that do not block this wave landing:
+
+- `resolveVerdictLag`'s `markState`/`retryEligible` fields are computed but not yet wired to any
+  caller that acts on them - a future slice should either consume them (persist blocked_data,
+  drive the bounded retry) or fold them back into the function until a caller exists.
+- A record older than 35 days that never ran any window reads as "stale" -> `inconclusive` under
+  `outcomeStateOf`, which can trip the same-family `recent_no_lift` hard block on a page that was
+  never actually measured (no data, not a proven loss). Needs reconciling with the `blocked_data`
+  state in a future slice so "never measured" and "measured and lost" stay distinguishable.
+- The LWW (last-write-wins) upsert path can race an operator's manual override under concurrent
+  writes; pre-existing behavior, not introduced by E-39, but still open.
+- The retry queue's FIFO `slice(0, 15)` can starve pages that keep landing past the cutoff;
+  fairness (e.g. round-robin or oldest-first across retries) is a future consideration.
+- The stale `insufficient_controls` comment at `build-daily-candidates.ts:384-385` (said
+  "excludes from selection", but D1's admit-with-caution model downgrades confidence instead of
+  excluding) is fixed as part of the review-fix commit - one line, no behavior change.
 
 > 🟢 **2026-07-10 latest - CURRENT HEAD STATE: TASK #230 TRUST-CORRECTION WAVE INTEGRATED, GATE
 > GREEN, SAFE TO FAST-FORWARD.** A Codex adversarial audit of the W5/W9/spec-debt release reopened

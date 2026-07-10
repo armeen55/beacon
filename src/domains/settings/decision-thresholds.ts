@@ -45,7 +45,7 @@ export const DECISION_THRESHOLDS: ReadonlyArray<DecisionThreshold> = [
     id: "measurement-windows",
     label: "How long I measure every change",
     value: `${PROOF_WINDOW_DAYS.join(", ")} days`,
-    sentence: `I check every shipped change at ${PROOF_WINDOW_DAYS.join(", then ")} days. Only the ${PROOF_WINDOW_DAYS[PROOF_WINDOW_DAYS.length - 1]} day read is final; anything earlier is a signal, never a verdict.`,
+    sentence: `I check every shipped change at ${PROOF_WINDOW_DAYS.join(", then ")} days. The ${PROOF_WINDOW_DAYS[PROOF_WINDOW_DAYS.length - 1]} day read is my strongest read available at that point; anything earlier is a signal, never a verdict. Longer confirmation reads come later.`,
   },
   {
     id: "before-window",

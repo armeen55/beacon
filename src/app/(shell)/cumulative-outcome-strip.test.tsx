@@ -62,7 +62,7 @@ describe("CumulativeOutcomeStrip", () => {
     );
     const html = renderToStaticMarkup(<CumulativeOutcomeStrip outcome={outcome} />);
     expect(html).toContain(
-      "You have shipped 3 changes. 1 has a final read (1 win), and 2 are still measuring below.",
+      "You have shipped 3 changes. 1 has a 28-day read (1 win), and 2 are still measuring below.",
     );
     expect(html).toContain(
       "Your win is adding about 90 extra clicks a month, measured against similar pages we did not change.",
@@ -80,9 +80,25 @@ describe("CumulativeOutcomeStrip", () => {
     const html = renderToStaticMarkup(<CumulativeOutcomeStrip outcome={outcome} />);
     expect(html).toContain("You have shipped 2 changes, all still measuring below.");
     expect(html).toContain(
-      "No final verdicts yet. The first one lands around Jul 18 when the earliest 28-day window closes.",
+      "No settled reads yet. The first lands around Jul 18 when the earliest 28-day window closes. Longer confirmation reads come later.",
     );
     expect(html).not.toContain("$"); // no GA4 value data -> no money, ever
+  });
+
+  // E-39 review P1-1 (D6 pin): neither strip state may call a 28-day result final.
+  it("E-39 review P1-1: never calls a 28-day result final in either strip state", () => {
+    const wonOutcome = computeCumulativeOutcome(
+      [WON, MEASURING, { ...MEASURING, id: "meas-2", path: "/persian-tea" }],
+      NOW,
+    );
+    const zeroOutcome = computeCumulativeOutcome(
+      [MEASURING, { ...MEASURING, id: "meas-2", path: "/persian-tea", shippedAt: "2026-06-25T00:00:00Z" }],
+      NOW,
+    );
+    for (const outcome of [wonOutcome, zeroOutcome]) {
+      const html = renderToStaticMarkup(<CumulativeOutcomeStrip outcome={outcome} />);
+      expect(html).not.toMatch(/\bfinal\b/i);
+    }
   });
 
   it("omits the dollar line when no won change carries a dollar rate", () => {

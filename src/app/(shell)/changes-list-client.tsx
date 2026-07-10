@@ -786,7 +786,7 @@ export function ChangesListClient({ view }: { view: ChangesView }) {
       // FP3 - never say "no results" when the canonical count says otherwise; this
       // list is a subset (a decided change may have no matching worklist move).
       if (view.decidedCountCanonical > 0) {
-        return { title: `${view.decidedCountCanonical} change${view.decidedCountCanonical === 1 ? " has" : "s have"} a final read.`, hint: "None of them have a matching item in this list. They all live on the Results page.", action: null };
+        return { title: `${view.decidedCountCanonical} change${view.decidedCountCanonical === 1 ? " has" : "s have"} their 28-day read.`, hint: "None of them have a matching item in this list. They all live on the Results page.", action: null };
       }
       return { title: "No mature results yet.", hint: "Your active changes are still collecting data. Early checkpoints stay in Measuring.", action: null };
     }

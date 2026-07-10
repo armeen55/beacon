@@ -192,10 +192,10 @@ export function computeCumulativeOutcome(
   const waitingLine =
     decided === 0 && measuring > 0
       ? firstVerdictOn == null
-        ? "No final verdicts yet. The first one lands when the earliest 28-day window closes."
+        ? "No settled reads yet. The first lands when the earliest 28-day window closes. Longer confirmation reads come later."
         : firstVerdictOn >= today
-          ? `No final verdicts yet. The first one lands around ${monthDayLabel(firstVerdictOn)} when the earliest 28-day window closes.`
-          : "No final verdicts yet. The earliest 28-day window has already closed, so the first one lands as soon as Google's data catches up."
+          ? `No settled reads yet. The first lands around ${monthDayLabel(firstVerdictOn)} when the earliest 28-day window closes. Longer confirmation reads come later.`
+          : "No settled reads yet. The earliest 28-day window has already closed, so the first lands as soon as Google's data catches up. Longer confirmation reads come later."
       : null;
 
   const dollarLine =

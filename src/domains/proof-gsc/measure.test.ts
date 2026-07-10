@@ -687,7 +687,7 @@ describe("trafficTierOf — item 31 traffic-tier bucketing (pure)", () => {
   });
 });
 
-describe("E-39 D3 — adaptive control pool maps count to confidence (2 = reduced, 3 = stronger, <2 = not computed)", () => {
+describe("E-39 D3 - adaptive control pool maps count to confidence (2 = reduced, 3 = stronger, <2 = not computed)", () => {
   it("fewer than 2 defensible controls does NOT compute a verdict - it routes to insufficient_data/low (never a freeze error)", () => {
     const r = summarizeVerdict({ windows: [win({ adjustedLift: 99, controlsUsed: 1 })], baselineImpressions: 5000, baselineClicks: 200 });
     expect(r.verdict).toBe("insufficient_data");

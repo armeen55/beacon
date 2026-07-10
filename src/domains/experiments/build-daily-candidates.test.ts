@@ -113,7 +113,7 @@ describe("buildDailyCandidates — deterministic proposers (no generic templates
     expect(c.actionFamily).toBe("answer");
   });
 
-  it("E-39: attaches eligibility — an active control page comes back ADMIT-WITH-CAUTION (active_control)", () => {
+  it("E-39: attaches eligibility - an active control page comes back ADMIT-WITH-CAUTION (active_control)", () => {
     const ctrl = "https://iranopedia.com/iran-animals/persian-cat";
     const ledger: ShippedChangeRecord[] = [{
       id: "/iran-animals/persian-wolf::2026-06-30", page: "https://iranopedia.com/iran-animals/persian-wolf", path: "/iran-animals/persian-wolf",

@@ -114,7 +114,7 @@ describe("computeCumulativeOutcome - honest zero-verdict frame", () => {
     expect(out.decided).toBe(0);
     expect(out.firstVerdictOn).toBe("2026-07-18");
     expect(out.waitingLine).toBe(
-      "No final verdicts yet. The first one lands around Jul 18 when the earliest 28-day window closes.",
+      "No settled reads yet. The first lands around Jul 18 when the earliest 28-day window closes. Longer confirmation reads come later.",
     );
     expect(out.valueLine).toBeNull();
     expect(out.dollarLine).toBeNull();
@@ -127,7 +127,7 @@ describe("computeCumulativeOutcome - honest zero-verdict frame", () => {
     const out = computeCumulativeOutcome(rows, NOW)!;
     expect(out.firstVerdictOn).toBe("2026-05-29");
     expect(out.waitingLine).toBe(
-      "No final verdicts yet. The earliest 28-day window has already closed, so the first one lands as soon as Google's data catches up.",
+      "No settled reads yet. The earliest 28-day window has already closed, so the first lands as soon as Google's data catches up. Longer confirmation reads come later.",
     );
   });
 
@@ -233,7 +233,7 @@ describe("computeCumulativeOutcome - posture", () => {
     expect(out.measuring).toBe(1);
     expect(out.winClicksPerMonth).toBe(0);
     expect(out.waitingLine).toBe(
-      "No final verdicts yet. The first one lands around Jul 22 when the earliest 28-day window closes.",
+      "No settled reads yet. The first lands around Jul 22 when the earliest 28-day window closes. Longer confirmation reads come later.",
     );
   });
 
@@ -246,6 +246,21 @@ describe("computeCumulativeOutcome - posture", () => {
       for (const s of [out.valueLine, out.waitingLine, out.dollarLine]) {
         if (s != null) expect(s).not.toMatch(/[–—]/);
       }
+    }
+  });
+
+  // E-39 review P1-1 (D6 pin) - the 7/28/56-84 contract means a 28-day result is
+  // a settled read, never a "final verdict"; the 56 to 84 day confirmation tier
+  // is not built yet, so this waiting sentence may never claim finality.
+  it("E-39 review P1-1: the waiting sentence never calls a 28-day result final", () => {
+    const scenarios: CumulativeOutcomeRow[][] = [
+      [measuringRow({ id: "a", path: "/a", shippedAt: "2026-06-20T00:00:00Z" })],
+      [measuringRow({ id: "a", path: "/a", shippedAt: "2026-05-01T00:00:00Z" })],
+    ];
+    for (const rows of scenarios) {
+      const line = computeCumulativeOutcome(rows, NOW)!.waitingLine;
+      expect(line).not.toBeNull();
+      expect(line).not.toMatch(/\bfinal\b/i);
     }
   });
 

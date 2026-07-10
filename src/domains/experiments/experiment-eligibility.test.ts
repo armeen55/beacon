@@ -68,7 +68,7 @@ describe("actionFamilyOf / familiesCollide", () => {
   });
 });
 
-describe("E-39 admit-with-caution — the live batch is no longer frozen out", () => {
+describe("E-39 admit-with-caution - the live batch is no longer frozen out", () => {
   const states = deriveExperimentStates(liveLedger, NOW);
 
   it("all 10 treated pages are ADMITTED WITH CAUTION for a NEW title test (same_family_measuring), never frozen", () => {
@@ -80,7 +80,7 @@ describe("E-39 admit-with-caution — the live batch is no longer frozen out", (
       expect(c?.reason).toBe("same_family_measuring");
       expect(c?.lowersConfidenceOneTier).toBe(true);
       expect((c?.copy.length ?? 0)).toBeGreaterThan(0);
-      expect(c?.copy).not.toMatch(/[—–]/); // no dashes on operator copy
+      expect(c?.copy).not.toMatch(/[\u2014\u2013]/); // no em/en dashes on operator copy
     }
   });
 
@@ -162,7 +162,7 @@ describe("E-39 hard blocks stay hard (genuine hazards, not inconvenience)", () =
   });
 });
 
-describe("E-39 own-tenant only — assessEligibility is pure over ONE tenant's states", () => {
+describe("E-39 own-tenant only - assessEligibility is pure over ONE tenant's states", () => {
   it("a page that only exists in tenant B's ledger reads CLEAN against tenant A's states (no cross-tenant leak)", () => {
     // Tenant A's ledger locks its own animals; tenant B ships on a DIFFERENT page.
     const tenantAStates = deriveExperimentStates(liveLedger, NOW);

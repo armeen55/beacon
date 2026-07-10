@@ -83,8 +83,8 @@ export function buildZeroMatureLeadSentence(args: {
   if (totalTracked <= 0 || matureTotal > 0) return null;
   const single = totalTracked === 1;
   const countClause = single
-    ? "None of your 1 change has a final verdict yet."
-    : `None of your ${totalTracked} changes has a final verdict yet.`;
+    ? "None of your 1 change has a 28-day read yet."
+    : `None of your ${totalTracked} changes has a 28-day read yet.`;
   const dueClause = soonestLabel
     ? soonestLabel === "any day now"
       ? " The first one is due any day now."

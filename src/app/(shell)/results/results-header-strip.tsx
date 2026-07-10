@@ -26,7 +26,7 @@ export function ResultsHeaderStrip({
       className="text-body text-foreground/80 tabular-nums"
     >
       You have shipped {total} change{total === 1 ? "" : "s"}. {decided} {decided === 1 ? "has" : "have"} a
-      final read ({won} win{won === 1 ? "" : "s"}), and {measuring} {measuring === 1 ? "is" : "are"} still
+      28-day read ({won} win{won === 1 ? "" : "s"}), and {measuring} {measuring === 1 ? "is" : "are"} still
       measuring below.
     </p>
   );

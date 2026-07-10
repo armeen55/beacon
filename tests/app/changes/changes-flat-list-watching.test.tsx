@@ -134,3 +134,16 @@ describe("ChangesListClient - C-17 Watching tab", () => {
     expect(html).toContain("Nothing is waiting for more evidence right now.");
   });
 });
+
+describe("ChangesListClient - Results tab empty state (E-39 review P1-1, D6 pin)", () => {
+  // FP3 - when the canonical decided count is positive but this subset list has
+  // no matching row (the decided changes live on the Results page instead), the
+  // empty state must say so honestly, WITHOUT ever calling a 28-day result final
+  // (the 7/28/56-84 contract: the 56 to 84 day confirmation tier is not built yet).
+  it("names the 28-day read, never a final verdict, when the canonical count is positive", () => {
+    h.params = new URLSearchParams("status=results");
+    const html = renderToStaticMarkup(<ChangesListClient view={view({ decidedCountCanonical: 3 })} />);
+    expect(html).toContain("3 changes have their 28-day read.");
+    expect(html).not.toMatch(/\bfinal\b/i);
+  });
+});

@@ -138,16 +138,16 @@ describe("buildZeroMatureLeadSentence - buried honest lead (C1)", () => {
   it("states the real count and the soonest due date when nothing has settled", () => {
     const s = buildZeroMatureLeadSentence({ totalTracked: 25, matureTotal: 0, soonestLabel: "Saturday" });
     expect(s).toBe(
-      "None of your 25 changes has a final verdict yet. The first ones are due Saturday. Early signals below can still flip.",
+      "None of your 25 changes has a 28-day read yet. The first ones are due Saturday. Early signals below can still flip.",
     );
   });
   it("singular phrasing for exactly one tracked change", () => {
     const s = buildZeroMatureLeadSentence({ totalTracked: 1, matureTotal: 0, soonestLabel: "Monday" });
-    expect(s).toBe("None of your 1 change has a final verdict yet. The first one is due Monday. Early signals below can still flip.");
+    expect(s).toBe("None of your 1 change has a 28-day read yet. The first one is due Monday. Early signals below can still flip.");
   });
   it("handles an unknown soonest date honestly (no invented day)", () => {
     const s = buildZeroMatureLeadSentence({ totalTracked: 3, matureTotal: 0, soonestLabel: null });
-    expect(s).toBe("None of your 3 changes has a final verdict yet. Early signals below can still flip.");
+    expect(s).toBe("None of your 3 changes has a 28-day read yet. Early signals below can still flip.");
   });
   it("handles the any-day-now case", () => {
     const s = buildZeroMatureLeadSentence({ totalTracked: 4, matureTotal: 0, soonestLabel: "any day now" });
@@ -162,5 +162,12 @@ describe("buildZeroMatureLeadSentence - buried honest lead (C1)", () => {
   it("has no em or en dash", () => {
     const s = buildZeroMatureLeadSentence({ totalTracked: 25, matureTotal: 0, soonestLabel: "Saturday" })!;
     expect(s).not.toMatch(/[–—]/);
+  });
+  // E-39 review P1-1 (D6 pin): the 7/28/56-84 contract means a 28-day read is
+  // never a "final verdict" - the 56 to 84 day confirmation tier does not exist
+  // yet, so this lead sentence may never claim finality.
+  it("E-39 review P1-1: never calls a 28-day read final", () => {
+    const s = buildZeroMatureLeadSentence({ totalTracked: 25, matureTotal: 0, soonestLabel: "Saturday" })!;
+    expect(s).not.toMatch(/\bfinal\b/i);
   });
 });

@@ -96,4 +96,11 @@ describe("decision-thresholds voice rules", () => {
     const ids = DECISION_THRESHOLDS.map((t) => t.id);
     expect(new Set(ids).size).toBe(ids.length);
   });
+  // E-39 review P1-1 (D6 pin): the 7/28/56-84 contract means the 28-day read
+  // is my strongest read available today, never a "final" call - the 56 to
+  // 84 day confirmation tier is not built yet.
+  it("E-39 review P1-1: never calls the 28-day read final", () => {
+    const all = DECISION_THRESHOLDS.map((t) => `${t.label} ${t.value} ${t.sentence}`).join(" ");
+    expect(all).not.toMatch(/\bfinal\b/i);
+  });
 });

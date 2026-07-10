@@ -75,7 +75,7 @@ describe("isDueForMeasure", () => {
   });
 });
 
-describe("resolveVerdictLag — E-39 D4 verdict-lag repair (fail-closed, honest)", () => {
+describe("resolveVerdictLag - E-39 D4 verdict-lag repair (fail-closed, honest)", () => {
   it("in_window while inside 28d + grace", () => {
     expect(resolveVerdictLag(record({ shippedAt: "2026-06-17" }), "2026-06-24", NOW).kind).toBe("in_window");
   });

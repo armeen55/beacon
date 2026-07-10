@@ -43,7 +43,7 @@ export function outcomeStateOf(record: ShippedChangeRecord, now: Date = new Date
 }
 
 /**
- * E-39 D4 — verdict-lag repair, fail-closed and HONEST. For a record that has
+ * E-39 D4 - verdict-lag repair, fail-closed and HONEST. For a record that has
  * reached the 28-day + grace horizon without a settled mature verdict, decide
  * what the measurement engine should do. PURE.
  *

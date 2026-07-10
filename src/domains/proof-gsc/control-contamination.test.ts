@@ -547,7 +547,7 @@ describe("medianBandRead - the weaker fallback comparison", () => {
   });
 });
 
-describe("E-39 D2/D7 — contamination is tagged at the correct timestamp and NEVER rewrites history", () => {
+describe("E-39 D2/D7 - contamination is tagged at the correct timestamp and NEVER rewrites history", () => {
   it("contamination begins at the OVERLAPPING edit's ship date (never a wall-clock guess)", () => {
     const window: ContaminationWindow = { start: "2026-06-01", end: "2026-06-29" };
     const overlappingEditShipDate = "2026-06-12T09:30:00.000Z";

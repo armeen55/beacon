@@ -381,8 +381,9 @@ export function buildDailyCandidates(input: {
       .filter((c) => c.pageFamilyMatch || c.score >= 0.5)
       .sort((a, b) => (b.pageFamilyMatch ? 1 : 0) - (a.pageFamilyMatch ? 1 : 0) || b.score - a.score)
       .slice(0, MAX_CONTROLS);
-    // A measurable experiment NEEDS a control anchor - re-assess so <MIN_CONTROLS excludes from
-    // selection (insufficient_controls) rather than silently shipping an unmeasurable change.
+    // A measurable experiment NEEDS a control anchor - re-assess so <MIN_CONTROLS flags
+    // insufficient_controls (E-39 D1: admitted with a lower-confidence caution, not excluded)
+    // rather than silently shipping an unmeasurable change with no caution attached.
     const external = { ...baseExternal, insufficientControls: controls.length < MIN_CONTROLS };
     const elig = assessEligibility({ url: p.url, family: actionFamily, states, external });
     out.push(buildCandidate(p, proposal, actionFamily, elig, controls, external, engineGap, familyWin));
