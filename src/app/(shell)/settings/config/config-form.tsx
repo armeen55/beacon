@@ -43,6 +43,8 @@ export type ConfigFormInitial = {
   contentRulesLine: string;
   /** Comma-separated banned terms (hard-rejected by the factory). */
   flaggedTermsLine: string;
+  /** Wave 2A - the monthly-visits goal as a string ("" when none set). */
+  monthlyVisitGoalLine: string;
 };
 
 function splitList(line: string): string[] {
@@ -67,6 +69,7 @@ export function ConfigForm({ initial }: { initial: ConfigFormInitial }) {
   const [yelpBusinessId, setYelpBusinessId] = useState(initial.yelpBusinessId);
   const [contentRulesLine, setContentRulesLine] = useState(initial.contentRulesLine);
   const [flaggedTermsLine, setFlaggedTermsLine] = useState(initial.flaggedTermsLine);
+  const [monthlyVisitGoalLine, setMonthlyVisitGoalLine] = useState(initial.monthlyVisitGoalLine);
   const [result, setResult] = useState<{ success: boolean; error?: string } | null>(null);
 
   useEffect(() => {
@@ -82,6 +85,7 @@ export function ConfigForm({ initial }: { initial: ConfigFormInitial }) {
     setYelpBusinessId(initial.yelpBusinessId);
     setContentRulesLine(initial.contentRulesLine);
     setFlaggedTermsLine(initial.flaggedTermsLine);
+    setMonthlyVisitGoalLine(initial.monthlyVisitGoalLine);
   }, [
     initial.name,
     initial.domain,
@@ -95,10 +99,24 @@ export function ConfigForm({ initial }: { initial: ConfigFormInitial }) {
     initial.competitorsLine,
     initial.contentRulesLine,
     initial.flaggedTermsLine,
+    initial.monthlyVisitGoalLine,
   ]);
 
   const handleSave = () => {
     setResult(null);
+    // Wave 2A - parse the monthly-visits goal: blank clears it (null); otherwise it
+    // must be a whole number above zero. Validate here so the operator sees the reason
+    // before a round-trip.
+    const goalRaw = monthlyVisitGoalLine.trim();
+    let monthlyVisitGoal: number | null = null;
+    if (goalRaw !== "") {
+      const parsed = Number(goalRaw);
+      if (!Number.isInteger(parsed) || parsed <= 0) {
+        setResult({ success: false, error: "Enter a whole number of visits above zero, or leave it blank." });
+        return;
+      }
+      monthlyVisitGoal = parsed;
+    }
     startTransition(async () => {
       const normalizedDomain = domain
         .replace(/^https?:\/\//, "")
@@ -120,6 +138,7 @@ export function ConfigForm({ initial }: { initial: ConfigFormInitial }) {
           .map((s) => s.trim())
           .filter(Boolean),
         flaggedTerms: splitList(flaggedTermsLine),
+        monthlyVisitGoal,
       });
       setResult(r);
       if (r.success) router.refresh();
@@ -258,6 +277,28 @@ export function ConfigForm({ initial }: { initial: ConfigFormInitial }) {
           value={competitorsLine}
           onChange={(e) => setCompetitorsLine(e.target.value)}
           className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-accent-primary/30"
+        />
+      </div>
+
+      <div>
+        <label htmlFor="config-monthly-visit-goal" className="mb-1.5 block text-[12px] font-medium text-foreground">
+          Monthly visits goal
+        </label>
+        <p className="mb-2 text-[11px] text-muted-foreground">
+          Optional. The monthly visits you are aiming for. I grade this only from reconciled
+          analytics, never from clicks. Leave it blank to set no goal.
+        </p>
+        <input
+          id="config-monthly-visit-goal"
+          type="number"
+          min="1"
+          step="1"
+          inputMode="numeric"
+          value={monthlyVisitGoalLine}
+          onChange={(e) => setMonthlyVisitGoalLine(e.target.value)}
+          placeholder="e.g. 10000"
+          className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-accent-primary/30"
+          data-config-field="monthly-visit-goal"
         />
       </div>
 

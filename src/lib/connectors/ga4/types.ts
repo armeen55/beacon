@@ -218,6 +218,84 @@ export type Ga4AiReferralReportResult =
       message?: string;
     };
 
+// ─────────────────────────────────────────────────────────────────────
+// Sitewide sessions report shapes (2026-07-10, Wave 2A) - additive.
+//
+// The TRUE sitewide series. A SEPARATE report from the per-page traffic report:
+// this one has ONLY a `date` dimension (NO pagePath), so GA4 returns its own
+// sitewide session count per day - one row per day, already aggregated across
+// every page. "visits" == GA4 sessions throughout Beacon (defined here + in the
+// report builder). Because a session belongs to exactly one day and days are
+// disjoint, summing these daily rows across DISTINCT days is additive-safe - the
+// exact property that summing ga4_url_traffic across page paths VIOLATED (one
+// visit touching several pages appears in several rows). A companion MONTHLY
+// (yearMonth) report is the reconciliation ground truth.
+// ─────────────────────────────────────────────────────────────────────
+
+/**
+ * A single narrowed sitewide row keyed by `date` only. `sessions` is GA4's own
+ * sitewide session count for the whole property that day. Values are parsed
+ * integers (0 on parse failure, never throws).
+ */
+export type Ga4SitewideDailyRow = {
+  /** YYYY-MM-DD in the property's reporting timezone (GA4's default bucketing). */
+  date: string;
+  /** GA4's sitewide session count for the whole property that day (= "visits"). */
+  sessions: number;
+  /** GA4's sitewide engaged-session count that day. */
+  engaged_sessions: number;
+};
+
+/** A single narrowed row of the DIRECT month-grain reconciliation report, keyed
+ *  by calendar month. `sessions` is GA4's own sitewide session total for the
+ *  whole month (from the `yearMonth` dimension) - the ground truth the daily
+ *  rollup is checked against. */
+export type Ga4SitewideMonthlyRow = {
+  /** First day of the month, "YYYY-MM-01", in the property's reporting timezone. */
+  month: string;
+  /** GA4's sitewide session total for the whole month (= reconciliation truth). */
+  sessions: number;
+};
+
+/**
+ * Discriminated result for `runGa4SitewideSessionsReport` (daily) - mirrors the
+ * traffic union. `propertyTimezone` echoes GA4's response-metadata timeZone so
+ * the storage layer records which timezone bucketed these dates.
+ */
+export type Ga4SitewideReportResult =
+  | {
+      ok: true;
+      rows: Ga4SitewideDailyRow[];
+      /** GA4 response-metadata timeZone (the property's reporting tz); null if absent. */
+      propertyTimezone: string | null;
+      rowCount?: number;
+      /** true when known-incomplete (MAX_PAGES cap hit or a later page errored). */
+      truncated?: boolean;
+    }
+  | {
+      ok: false;
+      reason: Ga4FailReason;
+      status?: number;
+      message?: string;
+    };
+
+/** Discriminated result for `runGa4SitewideMonthlyReport` (the reconciliation
+ *  ground-truth report). Mirrors the daily union. */
+export type Ga4SitewideMonthlyReportResult =
+  | {
+      ok: true;
+      rows: Ga4SitewideMonthlyRow[];
+      propertyTimezone: string | null;
+      rowCount?: number;
+      truncated?: boolean;
+    }
+  | {
+      ok: false;
+      reason: Ga4FailReason;
+      status?: number;
+      message?: string;
+    };
+
 /**
  * Args for `runGa4UrlTrafficReport`. Every field is required;
  * `tenantId` threads tenant scope explicitly per the locked

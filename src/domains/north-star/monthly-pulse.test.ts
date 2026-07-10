@@ -8,7 +8,12 @@
  *   - Beacon-voice rules hold (no dashes)
  */
 import { describe, expect, it } from "vitest";
-import { buildMonthlyPulse, MONTHLY_VISITS_RECONCILIATION_LINE } from "./monthly-pulse";
+import {
+  buildMonthlyPulse,
+  MONTHLY_VISITS_RECONCILIATION_LINE,
+  MONTHLY_VISITS_RECONCILED_LINE,
+  MONTHLY_VISITS_MISMATCH_LINE,
+} from "./monthly-pulse";
 
 // Fixed clock: 2026-07-09 (so June is the last FULL month, July is part).
 const NOW = Date.parse("2026-07-09T12:00:00Z");
@@ -103,6 +108,76 @@ describe("buildMonthlyPulse (P0-A)", () => {
   it("never emits an em or en dash in any sentence", () => {
     const p = buildMonthlyPulse({ gscMonths: GSC, monthlyVisitGoal: 20000, nowMs: NOW });
     for (const s of [p.headline, p.reconciliationLine, p.goalLine, p.monthToDateLine, p.deltaLine]) {
+      if (s) expect(s).not.toMatch(/[‒-―]/);
+    }
+  });
+
+  it("HELD-BACK by default: with no reconciliation, no visits number and the shipped line stand", () => {
+    const p = buildMonthlyPulse({ gscMonths: GSC, monthlyVisitGoal: 10000, nowMs: NOW });
+    expect(p.reconciliationLine).toBe(MONTHLY_VISITS_RECONCILIATION_LINE);
+    expect(p.reconciledVisitsHeadline).toBeNull();
+    expect(p.reconciledGoalLine).toBeNull();
+    expect(p.reconciledMonthToDateLine).toBeNull();
+  });
+});
+
+describe("buildMonthlyPulse (Wave 2A - reconciliation gate)", () => {
+  const VISITS = [
+    { month: "2026-06-01", visits: 12540, partial: false },
+    { month: "2026-07-01", visits: 3120, partial: true },
+  ];
+
+  it("PASS: shows a reconciled visits headline + so-far line, and grades the goal from VISITS not clicks", () => {
+    const p = buildMonthlyPulse({
+      gscMonths: GSC,
+      monthlyVisitGoal: 10000,
+      nowMs: NOW,
+      reconciliation: { status: "pass", visitsByMonth: VISITS },
+    });
+    expect(p.reconciliationLine).toBe(MONTHLY_VISITS_RECONCILED_LINE);
+    expect(p.reconciledVisitsHeadline).toBe("June: 12,540 visits, reconciled against Analytics.");
+    expect(p.reconciledMonthToDateLine).toBe("July so far: 3,120 visits.");
+    // 12,540 visits clears the 10,000 goal - graded from reconciled VISITS (12,540),
+    // never from the 3,004 June clicks.
+    expect(p.reconciledGoalLine).toBe("June cleared your 10,000-visits-a-month goal with 12,540 visits.");
+    expect(p.reconciledGoalLine).toContain("12,540 visits");
+    // The ungradeable clicks-context goal line is dropped once we can grade from visits.
+    expect(p.goalLine).toBeNull();
+  });
+
+  it("PASS below goal: reports progress toward the goal from visits", () => {
+    const p = buildMonthlyPulse({
+      gscMonths: GSC,
+      monthlyVisitGoal: 20000,
+      nowMs: NOW,
+      reconciliation: { status: "pass", visitsByMonth: VISITS },
+    });
+    expect(p.reconciledGoalLine).toBe("June reached 12,540 of your 20,000-visits-a-month goal.");
+  });
+
+  it("MISMATCH: swaps in the honest alert, shows NO visits number, keeps the goal ungraded", () => {
+    const p = buildMonthlyPulse({
+      gscMonths: GSC,
+      monthlyVisitGoal: 10000,
+      nowMs: NOW,
+      reconciliation: { status: "mismatch" },
+    });
+    expect(p.reconciliationLine).toBe(MONTHLY_VISITS_MISMATCH_LINE);
+    expect(p.reconciliationLine).toContain("does not add up yet");
+    expect(p.reconciledVisitsHeadline).toBeNull();
+    expect(p.reconciledGoalLine).toBeNull();
+    // Goal stays ungradeable because no trustworthy visits number is shown.
+    expect(p.goalLine).toContain("I can't grade your 10,000-visits-a-month goal yet");
+  });
+
+  it("PASS lines never emit an em or en dash", () => {
+    const p = buildMonthlyPulse({
+      gscMonths: GSC,
+      monthlyVisitGoal: 10000,
+      nowMs: NOW,
+      reconciliation: { status: "pass", visitsByMonth: VISITS },
+    });
+    for (const s of [p.reconciledVisitsHeadline, p.reconciledGoalLine, p.reconciledMonthToDateLine, p.reconciliationLine]) {
       if (s) expect(s).not.toMatch(/[‒-―]/);
     }
   });

@@ -23,6 +23,8 @@ export default async function SettingsConfigPage() {
     contentRulesLine: (cfg.contentRules ?? []).join("\n"),
     flaggedTermsLine: (cfg.flaggedTerms ?? []).join(", "),
     yelpBusinessId: cfg.yelpBusinessId ?? "",
+    monthlyVisitGoalLine:
+      cfg.monthlyVisitGoal != null && cfg.monthlyVisitGoal > 0 ? String(cfg.monthlyVisitGoal) : "",
   };
 
   // Item 3 - unit economics card initial state.

@@ -8,7 +8,11 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 
 import type { MonthlyPulse } from "@/domains/north-star/monthly-pulse";
-import { MONTHLY_VISITS_RECONCILIATION_LINE } from "@/domains/north-star/monthly-pulse";
+import {
+  MONTHLY_VISITS_RECONCILIATION_LINE,
+  MONTHLY_VISITS_RECONCILED_LINE,
+  MONTHLY_VISITS_MISMATCH_LINE,
+} from "@/domains/north-star/monthly-pulse";
 
 let pulse: MonthlyPulse | null = null;
 
@@ -37,6 +41,9 @@ function fixturePulse(): MonthlyPulse {
       "I can't grade your 10,000-visits-a-month goal yet because monthly visits need reconciliation. I will score it as soon as that number is trustworthy.",
     monthToDateLine: "July so far: 730 clicks from Google search.",
     deltaLine: "June clicks were down 27% from May.",
+    reconciledVisitsHeadline: null,
+    reconciledGoalLine: null,
+    reconciledMonthToDateLine: null,
   };
 }
 
@@ -104,5 +111,33 @@ describe("MonthlyNorthStar (P0-A)", () => {
       await MonthlyNorthStar({ tenantId: "tenant-iranopedia", monthlyVisitGoal: 10000 }),
     );
     expect(html).not.toMatch(/[–—]/);
+  });
+
+  it("PASS: renders the reconciled visits headline + reconciled line + visits goal", async () => {
+    pulse = {
+      ...fixturePulse(),
+      reconciliationLine: MONTHLY_VISITS_RECONCILED_LINE,
+      reconciledVisitsHeadline: "June: 12,540 visits, reconciled against Analytics.",
+      reconciledGoalLine: "June cleared your 10,000-visits-a-month goal with 12,540 visits.",
+      reconciledMonthToDateLine: "July so far: 3,120 visits.",
+      goalLine: null,
+    };
+    const html = renderToStaticMarkup(
+      await MonthlyNorthStar({ tenantId: "tenant-iranopedia", monthlyVisitGoal: 10000 }),
+    );
+    expect(html).toContain("June: 12,540 visits, reconciled against Analytics.");
+    expect(html).toContain("These visits are reconciled against Analytics");
+    expect(html).toContain("cleared your 10,000-visits-a-month goal with 12,540 visits.");
+    expect(html).toContain("July so far: 3,120 visits.");
+    expect(html).not.toMatch(/[–—]/);
+  });
+
+  it("MISMATCH: renders the honest alert and NO visits number", async () => {
+    pulse = { ...fixturePulse(), reconciliationLine: MONTHLY_VISITS_MISMATCH_LINE };
+    const html = renderToStaticMarkup(
+      await MonthlyNorthStar({ tenantId: "tenant-iranopedia", monthlyVisitGoal: 10000 }),
+    );
+    expect(html).toContain("does not add up yet");
+    expect(html).not.toMatch(/[\d,]+ visits\b/);
   });
 });

@@ -69,3 +69,37 @@ describe("saveSetup — content guardrails passthrough", () => {
     );
   });
 });
+
+describe("saveSetup - monthly visits goal (Wave 2A)", () => {
+  it("a positive integer goal rides the per-tenant save", async () => {
+    const r = await saveSetup({ ...BASE, monthlyVisitGoal: 10000 });
+    expect(r.success).toBe(true);
+    expect(saveBusinessConfigMock).toHaveBeenCalledWith(
+      "tenant-cfg-test",
+      expect.objectContaining({ monthlyVisitGoal: 10000 }),
+    );
+  });
+
+  it("null clears the goal", async () => {
+    const r = await saveSetup({ ...BASE, monthlyVisitGoal: null });
+    expect(r.success).toBe(true);
+    expect(saveBusinessConfigMock).toHaveBeenCalledWith(
+      "tenant-cfg-test",
+      expect.objectContaining({ monthlyVisitGoal: null }),
+    );
+  });
+
+  it("a non-positive or non-integer goal is rejected (no save)", async () => {
+    const bad = await saveSetup({ ...BASE, monthlyVisitGoal: 0 });
+    expect(bad.success).toBe(false);
+    const frac = await saveSetup({ ...BASE, monthlyVisitGoal: 12.5 });
+    expect(frac.success).toBe(false);
+    expect(saveBusinessConfigMock).not.toHaveBeenCalled();
+  });
+
+  it("an omitted goal leaves the stored value untouched (not in the patch)", async () => {
+    await saveSetup({ ...BASE });
+    const patch = saveBusinessConfigMock.mock.calls[0]![1] as Record<string, unknown>;
+    expect("monthlyVisitGoal" in patch).toBe(false);
+  });
+});

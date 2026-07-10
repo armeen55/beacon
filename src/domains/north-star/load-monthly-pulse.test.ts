@@ -18,6 +18,10 @@ const daily = vi.fn();
 vi.mock("@/domains/recommendation-intelligence/gsc-page-queries", () => ({
   loadDailyTotalsForTenant: (...args: unknown[]) => daily(...args),
 }));
+const recon = vi.fn();
+vi.mock("@/domains/north-star/ga4-sitewide-rollup", () => ({
+  loadReconciledVisitsForTenant: (...args: unknown[]) => recon(...args),
+}));
 vi.mock("@/lib/logger", () => ({
   log: { warn: () => {}, info: () => {}, error: () => {}, debug: () => {} },
 }));
@@ -26,6 +30,9 @@ import { loadMonthlyPulseForTenant } from "./load-monthly-pulse";
 
 beforeEach(() => {
   daily.mockReset();
+  recon.mockReset();
+  // Default: no passing reconciliation -> the shipped hold-back stays.
+  recon.mockResolvedValue({ status: "none" });
 });
 
 describe("loadMonthlyPulseForTenant (P0-A architecture pins)", () => {
@@ -67,5 +74,43 @@ describe("loadMonthlyPulseForTenant (P0-A architecture pins)", () => {
       new Date("2026-07-09T12:00:00Z"),
     );
     expect(pulse).toBeNull();
+  });
+});
+
+describe("loadMonthlyPulseForTenant (Wave 2A - reconciliation gate)", () => {
+  const GSC = [
+    { date: "2026-06-10", clicks: 3004, impressions: 351000 },
+    { date: "2026-07-02", clicks: 730, impressions: 90000 },
+  ];
+
+  it("card stays HELD-BACK without a passing reconciliation, even when GSC data exists", async () => {
+    daily.mockResolvedValue(GSC);
+    recon.mockResolvedValue({ status: "none" });
+    const pulse = await loadMonthlyPulseForTenant("tenant-a", 10000, new Date("2026-07-09T12:00:00Z"));
+    expect(pulse).not.toBeNull();
+    expect(pulse!.reconciliationLine).toContain("Monthly visits need reconciliation");
+    expect(pulse!.reconciledVisitsHeadline).toBeNull();
+  });
+
+  it("shows visits ONLY when a passing reconciliation is returned", async () => {
+    daily.mockResolvedValue(GSC);
+    recon.mockResolvedValue({
+      status: "pass",
+      months: [
+        { month: "2026-06-01", visits: 12540, partial: false },
+        { month: "2026-07-01", visits: 3120, partial: true },
+      ],
+      reconciledThrough: "2026-06-01",
+    });
+    const pulse = await loadMonthlyPulseForTenant("tenant-a", 10000, new Date("2026-07-09T12:00:00Z"));
+    expect(pulse!.reconciledVisitsHeadline).toBe("June: 12,540 visits, reconciled against Analytics.");
+  });
+
+  it("mismatch reconciliation -> honest alert, still no visits number", async () => {
+    daily.mockResolvedValue(GSC);
+    recon.mockResolvedValue({ status: "mismatch" });
+    const pulse = await loadMonthlyPulseForTenant("tenant-a", 10000, new Date("2026-07-09T12:00:00Z"));
+    expect(pulse!.reconciliationLine).toContain("does not add up yet");
+    expect(pulse!.reconciledVisitsHeadline).toBeNull();
   });
 });
