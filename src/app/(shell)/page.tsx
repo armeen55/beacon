@@ -446,9 +446,11 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
         <RefreshMyDataButton connectedCount={connectedSourceCount} />
       </PageHeader>
       <DailyCounterStrip shipped={shippedTodayCount} doubleChecking={doubleCheckingTodayCount} />
-      {/* Operator spec 2026-07-09 A-3/B-6 - the monthly north star: last full month's visits +
-          clicks, progress against the tenant's configured monthly-visit goal, current month
-          clearly labeled "so far". Monthly framing on purpose ("weekly won't cut it"). */}
+      {/* Operator spec 2026-07-09 A-3/B-6; P0-A truth fix 2026-07-10 - the monthly north star.
+          The sitewide monthly VISITS number was withdrawn (it summed non-additive GA4 page
+          sessions); the strip now leads with last full month's Search Console clicks, states
+          plainly that monthly visits need reconciliation, and never grades the visits goal from
+          clicks. Monthly framing on purpose ("weekly won't cut it"). */}
       <Suspense fallback={null}><MonthlyNorthStarSection tenantId={tenantId} /></Suspense>
       {/* P14 item 3 (v1 329/331) - goal pace + start-my-day: the honest weekly pace read plus the
           20-minute ritual step, right under the day's greeting/counter so "start my day" is the

@@ -1,9 +1,12 @@
 /**
- * MonthlyNorthStar (2026-07-09, operator spec B-6) - the site overview / north
- * star strip on Today: last full month's visits + clicks, honest goal progress,
- * current month clearly labeled "so far". Monthly framing on purpose (the
- * operator: weekly won't cut it). Deadline-bounded + self-hiding; never a bare
- * zero.
+ * MonthlyNorthStar (2026-07-09 origin; 2026-07-10 P0-A truth fix) - the site overview /
+ * north star strip on Today.
+ *
+ * P0-A: the sitewide monthly VISITS number was withdrawn because it summed non-additive
+ * GA4 page-level sessions (see monthly-pulse.ts). This strip now headlines the last full
+ * month's Search Console clicks (the number we can prove), states plainly that monthly
+ * visits need reconciliation, and shows honest goal/delta/month-to-date lines. A visits
+ * goal is never graded from clicks. Deadline-bounded + self-hiding; never a bare zero.
  */
 import { loadWithDeadline } from "@/lib/load-with-deadline";
 import { loadMonthlyPulseForTenant } from "@/domains/north-star/load-monthly-pulse";
@@ -21,7 +24,7 @@ export async function MonthlyNorthStar({
 
   const subLine = [pulse.goalLine, pulse.deltaLine, pulse.monthToDateLine].filter(Boolean).join(" ");
 
-  const chipMonths = pulse.months.filter((m) => m.visits != null || m.clicks != null);
+  const chipMonths = pulse.months.filter((m) => m.clicks != null);
 
   return (
     <section
@@ -29,13 +32,14 @@ export async function MonthlyNorthStar({
       className="rounded-2xl border border-border bg-card p-4"
     >
       <p className="text-sm font-semibold text-foreground">{pulse.headline}</p>
+      <p className="mt-1 text-[12px] leading-relaxed text-muted-foreground">{pulse.reconciliationLine}</p>
       {subLine ? (
         <p className="mt-1 text-[12px] leading-relaxed text-muted-foreground">{subLine}</p>
       ) : null}
       {chipMonths.length > 0 ? (
         <div className="mt-3 flex flex-wrap gap-2">
           {chipMonths.map((m, i) => {
-            const value = (m.visits ?? m.clicks)!;
+            const value = m.clicks!;
             const isLast = i === chipMonths.length - 1;
             return (
               <span
@@ -50,7 +54,7 @@ export async function MonthlyNorthStar({
         </div>
       ) : null}
       <p className="mt-2 text-[11px] text-muted-foreground">
-        Visits are from your Google Analytics and clicks from Search Console. Updated with every data refresh.
+        These are your Search Console clicks. Updated with every data refresh.
       </p>
     </section>
   );
