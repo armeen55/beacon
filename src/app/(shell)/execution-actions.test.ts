@@ -57,7 +57,11 @@ describe("markPlanAppliedAction — operator confirmation is REQUIRED (fail clos
     }
     expect(autoRecordShippedChangeForRec).toHaveBeenCalledTimes(1);
     const arg = vi.mocked(autoRecordShippedChangeForRec).mock.calls[0][0];
-    expect(arg.verifiedLive).toBe(true); // operator-confirmed live
+    // J-73/C-25 (2026-07-09): "confirmed applied" no longer asserts verified —
+    // only a real crawl of arg.pageUrl (run inside autoRecordShippedChangeForRec,
+    // with this SAME explicit tenantId) may mark the record verified live.
+    expect(arg.verifiedLive).toBeUndefined();
+    expect(arg.tenantId).toBe("tenant-iranopedia");
     expect(arg.pageUrl).toBe(base.targetUrl);
     // durable audit of the applied plan
     expect(saveMoveDraft).toHaveBeenCalled();

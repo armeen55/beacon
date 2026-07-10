@@ -236,8 +236,84 @@ export type ShippedChangeRecord = {
    *  the prior. Survives re-measurement (applied in measureRecord). null = the
    *  measured verdict stands. */
   operatorVerdictOverride: "inconclusive" | null;
+  /** J-73/C-25 (2026-07-09): structured proposal-vs-live diff from the
+   *  crawl-based auto-verify pass (verify-shipped-change.ts). The ORIGINAL
+   *  proposal is NEVER overwritten by this - `after` above stays exactly what
+   *  Beacon proposed; `liveText` here is a SEPARATE field holding whatever the
+   *  crawl actually found on the page. Null before the first verify pass runs,
+   *  when the crawl failed (nothing to diff), or on a row that predates
+   *  J-73/C-25. */
+  editDiff?: EditDiffRecord | null;
+  /** J-73/C-25 (2026-07-09): the crawl-verify pass's six-state verdict (see
+   *  `VerifyState`). This REPLACES the honor-system `verifiedLive` flag as the
+   *  source of truth for "did the operator's edit actually ship" - only the
+   *  outcome "verified_live" ever flips `verifiedLive` true (set atomically by
+   *  `markVerifyResultById`). Null before the first verify pass runs, or on a
+   *  row that predates J-73/C-25. */
+  verifyState?: VerifyState | null;
   createdAt: string;
   updatedAt: string;
+};
+
+/**
+ * J-73/C-25 (2026-07-09) - the crawl-verify pass's outcome. Mirrors the
+ * existing `MatchResult` (outcome + kind) idiom in
+ * `recommendations/match-engine/types.ts` (read-only, never imported here -
+ * that file's `MatchOutcome` has no `crawl_failed` case, so this is a
+ * deliberately separate, smaller union scoped to the manual-ship crawl path).
+ *
+ * Exactly six reachable states (verify-shipped-change.ts's `classify`):
+ *   - { outcome: "verified_live", kind: "exact" }     - normalized text match.
+ *   - { outcome: "verified_live", kind: "modified" }  - similarity >= the
+ *     per-action "modified" threshold AND the claim/entity tokens (numbers,
+ *     names) are all still present - an honest paraphrase, still counts live.
+ *   - { outcome: "verified_live_modified", kind: null } - similarity >=
+ *     "modified" but a claim/entity token changed - the operator shipped
+ *     something, just not exactly the proposal.
+ *   - { outcome: "not_found", kind: null } - below the "medium" threshold on
+ *     a GOOD crawl. NEVER marks shipped.
+ *   - { outcome: "needs_review", kind: null } - either a medium-confidence
+ *     match (below "modified", at/above "medium") or top-2 candidates BOTH
+ *     clearing "modified" (ambiguous - Beacon can't tell which one is right).
+ *     Held for operator review; NEVER auto-marked live.
+ *   - { outcome: "crawl_failed", kind: null } - the fetch failed/timed out, a
+ *     tenant-domain mismatch blocked the crawl, or there was nothing to
+ *     verify against. The record is left un-verified (amber staleness on the
+ *     surface, never a silent "verified").
+ */
+export type VerifyOutcome =
+  | "verified_live"
+  | "verified_live_modified"
+  | "not_found"
+  | "needs_review"
+  | "crawl_failed";
+
+export type VerifyKind = "exact" | "modified" | null;
+
+export type VerifyState = {
+  outcome: VerifyOutcome;
+  /** Meaningful only when `outcome === "verified_live"`; null otherwise. */
+  kind: VerifyKind;
+};
+
+/** J-73 (2026-07-09) - one field's proposal-vs-live comparison, captured by
+ *  the crawl-verify pass. `proposedAfter` is a COPY of `after` at the moment
+ *  the crawl ran (never the field that gets overwritten); `liveText` is
+ *  whatever the crawl found in that same spot (empty string when the crawl
+ *  succeeded but found nothing there at all). */
+export type EditDiffRecord = {
+  /** Which page element the diff covers, e.g. "title", "h1", "passage[2]". */
+  field: string;
+  /** The operator's original proposed text, copied at capture time. */
+  proposedAfter: string;
+  /** The text the crawl actually found live at `field`. */
+  liveText: string;
+  /** [0,1] similarity between `proposedAfter` and `liveText`, normalized. */
+  similarity: number;
+  /** Human-readable outcome label - mirrors `VerifyState.outcome`. */
+  verdict: string;
+  /** ISO timestamp the crawl ran. */
+  capturedAt: string;
 };
 
 type LedgerRow = {
@@ -282,6 +358,13 @@ type LedgerRow = {
    *  missing column trips PGRST204 -> full-record file fallback, which
    *  round-trips this field with no schema at all. */
   verdict_revisions?: VerdictRevision[] | null;
+  /** J-73/C-25 additive column (migration 2026-07-09_shipped_change_verify_
+   *  columns.sql), same posture as verdict_revisions: pre-migration a missing
+   *  column trips PGRST204 -> full-record file fallback, which round-trips
+   *  this field with no schema at all. */
+  edit_diff?: EditDiffRecord | null;
+  /** J-73/C-25 additive column, same posture as edit_diff. */
+  verify_state?: VerifyState | null;
   created_at: string;
   updated_at: string;
 };
@@ -322,6 +405,39 @@ const ZERO_BASELINE: ShippedChangeRecord["baseline"] = {
   position: 0,
   windowDays: 28,
 };
+
+const VALID_VERIFY_OUTCOMES: ReadonlySet<string> = new Set([
+  "verified_live",
+  "verified_live_modified",
+  "not_found",
+  "needs_review",
+  "crawl_failed",
+]);
+
+/** Guards a read row's `verify_state` JSON against a malformed/legacy value
+ *  before it's trusted as a `VerifyState` - same defensive posture as
+ *  VALID_VERDICTS/VALID_CONFIDENCES above. */
+function isValidVerifyState(v: unknown): v is VerifyState {
+  if (v == null || typeof v !== "object") return false;
+  const o = v as { outcome?: unknown; kind?: unknown };
+  if (typeof o.outcome !== "string" || !VALID_VERIFY_OUTCOMES.has(o.outcome)) return false;
+  return o.kind === "exact" || o.kind === "modified" || o.kind === null || o.kind === undefined;
+}
+
+/** Guards a read row's `edit_diff` JSON against a malformed/legacy value
+ *  before it's trusted as an `EditDiffRecord`. */
+function isValidEditDiff(v: unknown): v is EditDiffRecord {
+  if (v == null || typeof v !== "object") return false;
+  const o = v as Record<string, unknown>;
+  return (
+    typeof o.field === "string" &&
+    typeof o.proposedAfter === "string" &&
+    typeof o.liveText === "string" &&
+    typeof o.similarity === "number" &&
+    typeof o.verdict === "string" &&
+    typeof o.capturedAt === "string"
+  );
+}
 
 export function recordToRow(tid: string, r: ShippedChangeRecord): LedgerRow {
   return {
@@ -366,6 +482,11 @@ export function recordToRow(tid: string, r: ShippedChangeRecord): LedgerRow {
     // unconditionally so a null still overwrites a stale value, same
     // round-trip safety as every other nullable column here.
     verdict_revisions: r.verdictRevisions ?? null,
+    // J-73/C-25, written by the crawl-verify pass (markVerifyResultById) -
+    // emit unconditionally, same round-trip safety as every other nullable
+    // column here.
+    edit_diff: r.editDiff ?? null,
+    verify_state: r.verifyState ?? null,
     created_at: r.createdAt,
     updated_at: r.updatedAt,
   };
@@ -405,6 +526,8 @@ export function rowToRecord(row: LedgerRow): ShippedChangeRecord {
     verdictRevisions: Array.isArray(row.verdict_revisions) && row.verdict_revisions.length > 0
       ? row.verdict_revisions
       : null,
+    editDiff: isValidEditDiff(row.edit_diff) ? row.edit_diff : null,
+    verifyState: isValidVerifyState(row.verify_state) ? row.verify_state : null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -564,6 +687,57 @@ export async function markRecrawlRequestedById(tenantId: string, id: string, atI
     .eq("id", id);
   if (error != null && !isUndefinedTableError(error)) {
     throw new Error(`shipped-change-store: markRecrawlRequestedById failed for ${id}: ${error.message ?? String(error)}`);
+  }
+  await invalidateResultsSurfaceSafe();
+}
+
+/**
+ * J-73/C-25 (2026-07-09): stamp the crawl-verify pass's outcome on ONE proof
+ * row via a targeted, tenant-EXPLICIT update (same shape as
+ * markRecrawlRequestedById above - no load-all/upsert-all, no ambient-tenant
+ * double-source, so a caller that resolved a foreign tenantId can never write
+ * into another tenant's ledger row). Sets `verifyState` + `editDiff` and,
+ * ONLY when the outcome is "verified_live", flips `verifiedLive` true - a
+ * crawl failure, not_found, or needs_review NEVER marks shipped (this is the
+ * single choke point that retires the honor-system flag). Fail-soft on a
+ * missing table/column (pre-migration); throws on a real DB error.
+ */
+export async function markVerifyResultById(
+  tenantId: string,
+  id: string,
+  args: { verifyState: VerifyState; editDiff: EditDiffRecord | null },
+): Promise<void> {
+  const verifiedLive = args.verifyState.outcome === "verified_live";
+  let admin;
+  try {
+    admin = getSupabaseAdmin();
+  } catch {
+    const rows = await readFile();
+    const rec = rows.find((r) => r.id === id);
+    if (rec) {
+      await upsertFile({
+        ...rec,
+        verifyState: args.verifyState,
+        editDiff: args.editDiff,
+        verifiedLive,
+        updatedAt: new Date().toISOString(),
+      });
+    }
+    await invalidateResultsSurfaceSafe();
+    return;
+  }
+  const { error } = await admin
+    .from(TABLE)
+    .update({
+      verify_state: args.verifyState,
+      edit_diff: args.editDiff,
+      verified_live: verifiedLive,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("tenant_id", tenantId)
+    .eq("id", id);
+  if (error != null && !isUndefinedTableError(error)) {
+    throw new Error(`shipped-change-store: markVerifyResultById failed for ${id}: ${error.message ?? String(error)}`);
   }
   await invalidateResultsSurfaceSafe();
 }

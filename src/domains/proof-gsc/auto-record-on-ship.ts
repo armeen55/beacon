@@ -21,6 +21,7 @@ import {
   type TreatedPageStats,
   type RankedControl,
 } from "./control-matching";
+import { verifyShippedChange } from "./verify-shipped-change";
 
 /**
  * auto-record-on-ship (2026-06-25) — the Ship→Proof BRIDGE.
@@ -355,6 +356,14 @@ export type AutoRecordDeps = {
    *  hit GSC; defaults to the real matcher. */
   matchControls: typeof matchControlsForShip;
   shipDate: () => string; // Pacific ship date (date-only)
+  /** J-73/C-25 (2026-07-09): crawls the just-shipped page and compares the
+   *  proposal against what is actually live - this is the ONLY thing allowed
+   *  to mark the record verified_live (replaces the honor-system flag a
+   *  caller used to pass straight through as `verifiedLive`). Injectable so
+   *  tests never hit the network; defaults to the real orchestrator.
+   *  Fail-soft by construction (a crawl failure records crawl_failed, never a
+   *  silent verified_live). */
+  verifyShippedChange: typeof verifyShippedChange;
 };
 
 const defaultDeps: AutoRecordDeps = {
@@ -365,6 +374,7 @@ const defaultDeps: AutoRecordDeps = {
   loadControlCandidates: loadControlCandidatesForTenant,
   matchControls: matchControlsForShip,
   shipDate: () => dateOnly(defaultPacificShipDate()),
+  verifyShippedChange,
 };
 
 export type AutoRecordResult = {
@@ -384,7 +394,12 @@ export async function autoRecordShippedChangeForRec(
     pageUrl: string | null | undefined;
     actionType?: string | null;
     targetQuery?: string | null;
-    /** Operator confirmed they applied it live (the "Mark as applied" path). */
+    /** @deprecated J-73/C-25 (2026-07-09): no longer used to set the ledger's
+     *  `verifiedLive` field - "operator confirmed they applied it" is not
+     *  proof it shipped (no honor system). Beacon now crawls the live page
+     *  itself right after recording (see `deps.verifyShippedChange`) and only
+     *  that crawl verdict may flip `verifiedLive` true. Kept in the type so
+     *  existing callers compile unchanged; the value is ignored. */
     verifiedLive?: boolean;
     /** Override the ledger note (default: "Auto-recorded from cockpit Ship"). */
     notes?: string;
@@ -487,7 +502,9 @@ export async function autoRecordShippedChangeForRec(
       targetQueries: args.targetQuery?.trim() ? [args.targetQuery.trim()] : meta.targetQueries,
       controlPages,
       notes: args.notes ?? "Auto-recorded from cockpit Ship",
-      verifiedLive: args.verifiedLive ?? false,
+      // J-73/C-25: never honor a self-reported "it's live" flag - the
+      // crawl-verify pass below is the ONLY thing allowed to flip this true.
+      verifiedLive: false,
     });
     // Flag the page for a fresh crawl: the snapshot/EvidencePacket must re-read the
     // changed content so the SAME Move stops being re-recommended. The persisted
@@ -513,6 +530,22 @@ export async function autoRecordShippedChangeForRec(
       controls: controlPages.length,
       excludedCandidates: controlMatchNotes.length,
     });
+
+    // J-73/C-25: crawl the live page now and compare it against the proposal
+    // - this is the ONLY thing allowed to mark the record verified_live.
+    // Fail-soft: a crawl-verify failure never unwinds or blocks the ship
+    // record itself; it just leaves the record honestly un-verified
+    // (crawl_failed), never a silent "verified".
+    try {
+      await deps.verifyShippedChange({ tenantId: args.tenantId, record: stamped });
+    } catch (e) {
+      log.warn("[ship->proof] crawl-verify failed (non-blocking)", {
+        tenantId: args.tenantId,
+        path: meta.path,
+        error: e instanceof Error ? e.message : String(e),
+      });
+    }
+
     return { recorded: true, reason: "recorded" };
   } catch (e) {
     log.warn("[ship->proof] auto-record failed (non-blocking)", {

@@ -16,6 +16,14 @@ import { saveMoveDraft } from "@/domains/demand-graph/move-draft-store";
  * starts the 7/14/28d measurement clock), and flips the card to "measuring". NO CMS
  * write, NO publish — Beacon only records that the operator says it's live.
  *
+ * J-73/C-25 (2026-07-09): "confirmed applied" used to be forwarded straight through
+ * as the ledger's `verifiedLive` flag — an honor system. It no longer is. Recording
+ * the proof entry (`autoRecordShippedChangeForRec`, called with this action's own
+ * explicit `tenantId`) now ALWAYS triggers a real crawl of the live page that
+ * compares the shipped text against what Beacon proposed; only that crawl verdict
+ * may mark the record verified. A crawl failure records `crawl_failed`, honestly,
+ * never a silent "verified".
+ *
  * 5F proof capture: a lightweight, typed manual proof note (live URL checked, visible
  * live?, rollback needed?, before/after text). Stored as a move_drafts row (free-text
  * kind — no migration). No screenshot automation.
@@ -55,13 +63,16 @@ export async function markPlanAppliedAction(args: {
       .filter(Boolean)
       .join(" · ");
 
-    // Start measurement via the Sprint-3 ship→proof bridge (verifiedLive = operator confirmed).
+    // Start measurement via the Sprint-3 ship→proof bridge. explicit tenantId so
+    // the crawl-verify pass it triggers (J-73/C-25) can never cross tenants — the
+    // operator's confirmation gates whether we record at all (confirmedApplied
+    // above), but no longer asserts the record is "verified live"; only a real
+    // crawl of args.targetUrl can do that now.
     const res = await autoRecordShippedChangeForRec({
       tenantId,
       pageUrl: args.targetUrl,
       actionType: args.actionType ?? null,
       targetQuery: args.query ?? null,
-      verifiedLive: true,
       notes: note,
     });
 

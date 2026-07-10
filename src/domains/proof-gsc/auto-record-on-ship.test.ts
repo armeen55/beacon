@@ -252,6 +252,10 @@ function baseRecord(over: Partial<ShippedChangeRecord> = {}): ShippedChangeRecor
 
 function makeDeps(over: Partial<AutoRecordDeps> = {}): AutoRecordDeps {
   return {
+    verifyShippedChange: vi.fn(async () => ({
+      verifyState: { outcome: "not_found" as const, kind: null },
+      editDiff: null,
+    })),
     captureChangeMeta: vi.fn(async () => ({
       canonPage: "https://site.com/treated",
       path: "/treated",
@@ -351,6 +355,39 @@ describe("autoRecordShippedChangeForRec - new ships use the matcher", () => {
     expect(recordArgs.controlPages).toEqual(["https://site.com/a", "https://site.com/b", "https://site.com/c"]);
     const stamped = vi.mocked(deps.upsertShippedChange).mock.calls[0][0];
     expect(stamped.controlMatchNotes?.some((n: string) => /could not run/.test(n))).toBe(true);
+  });
+});
+
+describe("autoRecordShippedChangeForRec - J-73/C-25 crawl-verify wiring", () => {
+  it("never honors a self-reported verifiedLive - the initial record is always created un-verified", async () => {
+    const deps = makeDeps();
+    await autoRecordShippedChangeForRec(
+      { tenantId: "tenant-x", pageUrl: "https://site.com/treated", verifiedLive: true },
+      deps,
+    );
+    const recordArgs = vi.mocked(deps.recordShippedChange).mock.calls[0][0];
+    expect(recordArgs.verifiedLive).toBe(false);
+  });
+
+  it("triggers the crawl-verify pass with the SAME explicit tenantId + the just-upserted record", async () => {
+    const deps = makeDeps();
+    await autoRecordShippedChangeForRec({ tenantId: "tenant-x", pageUrl: "https://site.com/treated" }, deps);
+    expect(deps.verifyShippedChange).toHaveBeenCalledTimes(1);
+    const verifyArgs = vi.mocked(deps.verifyShippedChange).mock.calls[0][0];
+    expect(verifyArgs.tenantId).toBe("tenant-x");
+    const stamped = vi.mocked(deps.upsertShippedChange).mock.calls[0][0];
+    expect(verifyArgs.record.id).toBe(stamped.id);
+    expect(verifyArgs.record.page).toBe(stamped.page);
+  });
+
+  it("is fail-soft: a throwing crawl-verify pass never turns a successful ship into a failure", async () => {
+    const deps = makeDeps({
+      verifyShippedChange: vi.fn(async () => {
+        throw new Error("crawl exploded");
+      }),
+    });
+    const result = await autoRecordShippedChangeForRec({ tenantId: "tenant-x", pageUrl: "https://site.com/treated" }, deps);
+    expect(result).toEqual({ recorded: true, reason: "recorded" });
   });
 });
 
