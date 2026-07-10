@@ -22,9 +22,11 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 // ─── Mocks (hoisted) ─────────────────────────────────────────────────
 const _getTokenMock = vi.fn();
 const _updateTokenMock = vi.fn();
+const _persistRefreshedMock = vi.fn();
 vi.mock("@/lib/connector-store", () => ({
   getGoogleConnectorToken: (...a: unknown[]) => _getTokenMock(...a),
   updateConnectorToken: (...a: unknown[]) => _updateTokenMock(...a),
+  persistRefreshedGoogleToken: (...a: unknown[]) => _persistRefreshedMock(...a),
 }));
 
 const _getRecommendedEditsMock = vi.fn();
@@ -54,10 +56,12 @@ import { computeRefreshDateRange } from "@/lib/connectors/ga4/persist-url-traffi
 beforeEach(() => {
   _getTokenMock.mockReset();
   _updateTokenMock.mockReset();
+  _persistRefreshedMock.mockReset();
   _getRecommendedEditsMock.mockReset();
   _persistMock.mockReset();
   _getRecommendedEditsMock.mockResolvedValue([]);
   _updateTokenMock.mockResolvedValue(undefined);
+  _persistRefreshedMock.mockResolvedValue(undefined);
 });
 
 describe("syncGa4UrlTrafficForTenant — dormant until key", () => {

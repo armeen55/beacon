@@ -29,6 +29,7 @@ vi.mock("server-only", () => ({}));
 const mocks = vi.hoisted(() => ({
   getGoogleConnectorToken: vi.fn(),
   updateConnectorToken: vi.fn(),
+  persistRefreshedGoogleToken: vi.fn(),
   resolveGscAccessToken: vi.fn(),
   forceRefreshGscAccessToken: vi.fn(),
   refreshGoogleAccessToken: vi.fn(),
@@ -44,6 +45,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock("@/lib/connector-store", () => ({
   getGoogleConnectorToken: mocks.getGoogleConnectorToken,
   updateConnectorToken: mocks.updateConnectorToken,
+  persistRefreshedGoogleToken: mocks.persistRefreshedGoogleToken,
 }));
 
 // The auth-failure stamp now PROBES the grant with a live refresh before

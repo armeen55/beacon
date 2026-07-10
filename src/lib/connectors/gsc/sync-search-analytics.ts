@@ -41,7 +41,11 @@ import "server-only";
 
 import { getSupabaseAdmin } from "@/lib/persistence/supabase";
 import { getBusinessConfig } from "@/lib/business-config";
-import { getGoogleConnectorToken, updateConnectorToken } from "@/lib/connector-store";
+import {
+  getGoogleConnectorToken,
+  persistRefreshedGoogleToken,
+  updateConnectorToken,
+} from "@/lib/connector-store";
 import { getTenant } from "@/domains/tenants/store";
 import { log } from "@/lib/logger";
 
@@ -176,19 +180,29 @@ async function stampGscAuthFailure(tenantId: string, now: Date): Promise<GscAuth
           tenantId,
           connectedAt: token.connected_at,
         });
-        // alive → clear (the write is fail-soft; its failure never flips the verdict)
+        // alive → clear the reconnect marker (the write is fail-soft; its
+        // failure never flips the verdict). SPLIT (2026-07-09, review P1-1):
+        // token fields and the reconnect marker now travel separate paths. A
+        // rotated refresh_token captured here (the nightly probe is also our
+        // chance to catch one, only when Google returned it) MUST go through the
+        // guarded compare-and-swap, never a patch: the patch path refuses
+        // refresh_token and a read-merge-write here is the cross-instance race
+        // the CAS resolves. persistRefreshedGoogleToken is fail-soft itself.
+        if (refreshed.refresh_token) {
+          await persistRefreshedGoogleToken(
+            "google_gsc",
+            {
+              access_token: refreshed.access_token,
+              expires_in: refreshed.expires_in,
+              refresh_token: refreshed.refresh_token,
+            },
+            tenantId,
+          );
+        }
         try {
           await updateConnectorToken(
             "google_gsc",
-            {
-              auth_failed_at: null,
-              // FIX 3 (OAUTH_ROOT_CAUSE_2026-07-09): the nightly grant probe is
-              // also our chance to capture a rotated refresh token — persist it
-              // (only when Google returned one) so rotation never bricks GSC.
-              ...(refreshed.refresh_token
-                ? { refresh_token: refreshed.refresh_token }
-                : {}),
-            },
+            { auth_failed_at: null },
             tenantId,
           );
         } catch {

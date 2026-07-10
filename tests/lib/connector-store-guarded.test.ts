@@ -47,11 +47,26 @@ vi.mock("@/lib/logger", () => ({
   log: { warn: vi.fn(), info: vi.fn(), error: vi.fn(), debug: vi.fn() },
 }));
 
+// Only needed by test (e): drive the REAL refreshAndPersistGscToken (via
+// resolveGscAccessToken) through the REAL persistRefreshedGoogleToken so we can
+// assert the direct site routes token fields through the guarded RPC (mode
+// 'refresh'). connector-store itself does not import google-auth, so this mock
+// only affects search-analytics.
+const _refreshGoogleAccessTokenMock = vi.fn();
+vi.mock("@/lib/connectors/google-auth", () => ({
+  refreshGoogleAccessToken: (...a: unknown[]) =>
+    _refreshGoogleAccessTokenMock(...a),
+}));
+
 import {
   saveConnectorToken,
+  updateConnectorToken,
   persistRefreshedGoogleToken,
   type GoogleConnectorToken,
 } from "@/lib/connector-store";
+import { resolveGscAccessToken } from "@/lib/connectors/gsc/search-analytics";
+
+const GSC_SCOPE = "https://www.googleapis.com/auth/webmasters.readonly";
 
 const MISSING_RPC = { code: "PGRST202", message: "Could not find the function public.save_connector_token_guarded_v1" };
 
@@ -72,6 +87,7 @@ beforeEach(() => {
   _upserts.length = 0;
   _rpcError = null;
   _readRow = null;
+  _refreshGoogleAccessTokenMock.mockReset();
 });
 
 describe("saveConnectorToken routes Google writes through the guarded RPC", () => {
@@ -162,5 +178,112 @@ describe("persistRefreshedGoogleToken, the cross-instance CAS", () => {
     _readRow = null;
     await persistRefreshedGoogleToken("google_gsc", { access_token: "x", expires_in: 3600 }, "t");
     expect(_upserts).toHaveLength(0);
+  });
+});
+
+describe("updateConnectorToken routes Google patches through the guarded RPC (patch mode)", () => {
+  it("(a) calls save_connector_token_guarded_v1 mode=patch with ONLY the patch fields (never refresh_token)", async () => {
+    // A stored row exists WITH a refresh_token, but the patch payload must carry
+    // only the patch fields: the SQL merges the patch onto the row and never
+    // receives refresh_token, so a patch can neither resurrect nor erase it.
+    _readRow = { payload: googleToken({ refresh_token: "stored-healthy" }) };
+    await updateConnectorToken(
+      "google_gsc",
+      { last_synced_at: "2026-07-09T00:00:00.000Z" },
+      "tenant-x",
+    );
+    expect(_rpcCalls).toHaveLength(1);
+    expect(_rpcCalls[0]!.name).toBe("save_connector_token_guarded_v1");
+    expect(_rpcCalls[0]!.params.p_mode).toBe("patch");
+    expect(_rpcCalls[0]!.params.p_tenant).toBe("tenant-x");
+    const payload = _rpcCalls[0]!.params.p_payload as Record<string, unknown>;
+    expect(payload.last_synced_at).toBe("2026-07-09T00:00:00.000Z");
+    expect("refresh_token" in payload).toBe(false);
+    expect(_upserts).toHaveLength(0);
+  });
+
+  it("(b) a Google patch carrying a refresh_token THROWS (rotations must use persistRefreshedGoogleToken)", async () => {
+    // The type excludes refresh_token; a JS/any caller that smuggles one in must
+    // still be refused at runtime so the read-merge-write race can't return.
+    const smuggled = { refresh_token: "should-not-be-here" } as unknown as {
+      last_synced_at?: string;
+    };
+    await expect(
+      updateConnectorToken("google_gsc", smuggled, "t"),
+    ).rejects.toThrow(/must not carry a refresh_token/);
+    expect(_rpcCalls).toHaveLength(0);
+    expect(_upserts).toHaveLength(0);
+  });
+
+  it("(c) missing RPC -> app-side read-merge-write fallback still patches, retaining the stored refresh_token", async () => {
+    _rpcError = MISSING_RPC;
+    _readRow = { payload: googleToken({ refresh_token: "stored-healthy" }) };
+    await updateConnectorToken(
+      "google_gsc",
+      { last_synced_at: "2026-07-09T00:00:00.000Z" },
+      "t",
+    );
+    expect(_upserts).toHaveLength(1);
+    const payload = (_upserts[0] as { payload: GoogleConnectorToken }).payload;
+    expect(payload.last_synced_at).toBe("2026-07-09T00:00:00.000Z");
+    expect(payload.refresh_token).toBe("stored-healthy");
+  });
+
+  it("(d) a legacy EMPTY-refresh row is still patchable: the patch RPC fires and never raises", async () => {
+    // RPC present. Stored row has an empty refresh_token (legacy dead grant).
+    // The patch path must NOT route through the connect never-erase raise; it
+    // just issues the patch RPC (the SQL no-raise is verified against prod).
+    _rpcError = null;
+    _readRow = { payload: googleToken({ refresh_token: "" }) };
+    await expect(
+      updateConnectorToken("google_gsc", { auth_failed_at: null }, "t"),
+    ).resolves.toBeUndefined();
+    expect(_rpcCalls).toHaveLength(1);
+    expect(_rpcCalls[0]!.params.p_mode).toBe("patch");
+  });
+
+  it("non-Google providers keep the app-side read-merge-write (no patch RPC)", async () => {
+    _readRow = {
+      payload: {
+        provider: "profound",
+        api_key: "k",
+        connected_at: "2026-07-01T00:00:00.000Z",
+      },
+    };
+    await updateConnectorToken(
+      "profound",
+      { last_synced_at: "2026-07-09T00:00:00.000Z" },
+      "t",
+    );
+    expect(_rpcCalls).toHaveLength(0);
+    expect(_upserts).toHaveLength(1);
+  });
+});
+
+describe("(e) the GSC direct site persists refreshed tokens via the guarded CAS (mode 'refresh')", () => {
+  it("resolveGscAccessToken routes a stale-token refresh through the RPC with p_mode='refresh'", async () => {
+    _refreshGoogleAccessTokenMock.mockResolvedValue({
+      access_token: "cas-new",
+      expires_in: 3600,
+    });
+    _readRow = {
+      payload: googleToken({
+        access_token: "old-access",
+        refresh_token: "ref",
+        // just expired -> evaluateExpiry = stale_under_7d -> refresh + persist
+        expires_at: Date.now() - 60_000,
+        scopes: [GSC_SCOPE],
+      }),
+    };
+
+    const access = await resolveGscAccessToken("tenant-x");
+
+    expect(access).toBe("cas-new");
+    const refreshCall = _rpcCalls.find((c) => c.params.p_mode === "refresh");
+    expect(refreshCall).toBeDefined();
+    expect(refreshCall!.name).toBe("save_connector_token_guarded_v1");
+    const payload = refreshCall!.params.p_payload as Record<string, unknown>;
+    expect(payload.access_token).toBe("cas-new");
+    expect(typeof payload.expires_at).toBe("number");
   });
 });

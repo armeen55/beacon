@@ -24,7 +24,10 @@
 
 import "server-only";
 
-import { getGoogleConnectorToken, updateConnectorToken } from "@/lib/connector-store";
+import {
+  getGoogleConnectorToken,
+  persistRefreshedGoogleToken,
+} from "@/lib/connector-store";
 import { refreshGoogleAccessToken } from "@/lib/connectors/google-auth";
 import { log } from "@/lib/logger";
 
@@ -87,17 +90,19 @@ async function refreshAndPersistGscToken(
       provider: "google_gsc",
       tenantId,
     });
+    // Persist the refreshed token through the guarded compare-and-swap (RPC
+    // mode 'refresh'), NOT updateConnectorToken. Two reasons (review P1-1):
+    // (1) the patch path now strips/refuses refresh_token, so a rotated token
+    // could never persist through it; (2) a full-row read-merge-write here is
+    // exactly the cross-instance race the CAS resolves, and the CAS also
+    // guarantees a staler concurrent write no-ops. A rotated refresh_token is
+    // passed only when Google returned one, so the stored token is never blanked.
     try {
-      await updateConnectorToken(
+      await persistRefreshedGoogleToken(
         "google_gsc",
         {
           access_token: refreshed.access_token,
-          expires_at: Date.now() + refreshed.expires_in * 1000,
-          // FIX 3 (OAUTH_ROOT_CAUSE_2026-07-09): persist a rotated refresh
-          // token so we never keep using an old one Google may have just
-          // invalidated (→ invalid_grant on the next refresh). Included ONLY
-          // when Google actually returned one, so we never blank the stored
-          // token.
+          expires_in: refreshed.expires_in,
           ...(refreshed.refresh_token
             ? { refresh_token: refreshed.refresh_token }
             : {}),

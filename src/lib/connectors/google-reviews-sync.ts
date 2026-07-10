@@ -9,6 +9,7 @@ import { log } from "@/lib/logger";
 import {
   getGoogleConnectorToken,
   isTokenExpired,
+  persistRefreshedGoogleToken,
   updateConnectorToken,
 } from "@/lib/connector-store";
 import { refreshGoogleAccessToken } from "@/lib/connectors/google-auth";
@@ -81,13 +82,16 @@ async function refreshAccessOrReconnect(): Promise<
       provider: "google_gbp",
       connectedAt: token.connected_at,
     });
-    const expires_at = Date.now() + r.expires_in * 1000;
-    await updateConnectorToken("google_gbp", {
+    // Persist the refreshed token through the guarded compare-and-swap (RPC
+    // mode 'refresh'), NOT updateConnectorToken: the patch path refuses
+    // refresh_token, and a read-merge-write here is the cross-instance race the
+    // CAS resolves (review P1-1). A rotated refresh_token (only when Google
+    // returned one) self-heals the GBP grant instead of bricking on the next
+    // refresh. Fail-soft inside the helper; the fresh access token still serves
+    // this run regardless of whether the persist landed.
+    await persistRefreshedGoogleToken("google_gbp", {
       access_token: r.access_token,
-      expires_at,
-      // FIX 3 (OAUTH_ROOT_CAUSE_2026-07-09): persist a rotated refresh token
-      // (only when Google returned one) so the GBP grant self-heals across
-      // rotations instead of bricking on the next refresh.
+      expires_in: r.expires_in,
       ...(r.refresh_token ? { refresh_token: r.refresh_token } : {}),
     });
     return { access: r.access_token };

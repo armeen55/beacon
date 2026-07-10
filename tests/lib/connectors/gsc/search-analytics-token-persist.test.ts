@@ -16,14 +16,19 @@ vi.mock("server-only", () => ({}));
 const mocks = vi.hoisted(() => ({
   getGoogleConnectorToken: vi.fn(),
   updateConnectorToken: vi.fn(),
+  persistRefreshedGoogleToken: vi.fn(),
   refreshGoogleAccessToken: vi.fn(),
 }));
-const { getGoogleConnectorToken, updateConnectorToken, refreshGoogleAccessToken } =
-  mocks;
+const {
+  getGoogleConnectorToken,
+  persistRefreshedGoogleToken,
+  refreshGoogleAccessToken,
+} = mocks;
 
 vi.mock("@/lib/connector-store", () => ({
   getGoogleConnectorToken: mocks.getGoogleConnectorToken,
   updateConnectorToken: mocks.updateConnectorToken,
+  persistRefreshedGoogleToken: mocks.persistRefreshedGoogleToken,
 }));
 vi.mock("@/lib/connectors/google-auth", () => ({
   refreshGoogleAccessToken: mocks.refreshGoogleAccessToken,
@@ -51,13 +56,13 @@ function staleToken() {
 
 beforeEach(() => {
   getGoogleConnectorToken.mockReset();
-  updateConnectorToken.mockReset();
-  updateConnectorToken.mockResolvedValue(undefined);
+  persistRefreshedGoogleToken.mockReset();
+  persistRefreshedGoogleToken.mockResolvedValue(undefined);
   refreshGoogleAccessToken.mockReset();
 });
 
-describe("resolveGscAccessToken — persists the refreshed token (wave-9)", () => {
-  it("writes the refreshed access_token + new expires_at back to the store for the tenant", async () => {
+describe("resolveGscAccessToken — persists the refreshed token via the CAS (wave-9)", () => {
+  it("routes the refreshed access_token + expiry through persistRefreshedGoogleToken for the tenant", async () => {
     getGoogleConnectorToken.mockResolvedValue(staleToken());
     refreshGoogleAccessToken.mockResolvedValue({
       access_token: "new-access",
@@ -67,19 +72,19 @@ describe("resolveGscAccessToken — persists the refreshed token (wave-9)", () =
     const result = await resolveGscAccessToken("tenant-x");
 
     expect(result).toBe("new-access");
-    expect(updateConnectorToken).toHaveBeenCalledTimes(1);
-    const [provider, patch, tenantId] = updateConnectorToken.mock
+    // Review P1-1: token fields persist through the guarded compare-and-swap
+    // (mode 'refresh'), NOT updateConnectorToken (whose patch path refuses them).
+    expect(persistRefreshedGoogleToken).toHaveBeenCalledTimes(1);
+    const [provider, refreshed, tenantId] = persistRefreshedGoogleToken.mock
       .calls[0] as unknown as [
       string,
-      { access_token: string; expires_at: number },
+      { access_token: string; expires_in: number; refresh_token?: string },
       string,
     ];
     expect(provider).toBe("google_gsc");
     expect(tenantId).toBe("tenant-x");
-    expect(patch.access_token).toBe("new-access");
-    expect(typeof patch.expires_at).toBe("number");
-    // ~ now + 3600s; must be in the future so the next sync reads it as fresh.
-    expect(patch.expires_at).toBeGreaterThan(Date.now());
+    expect(refreshed.access_token).toBe("new-access");
+    expect(refreshed.expires_in).toBe(3600);
   });
 
   it("still returns the refreshed token when persistence fails (best-effort; sync not broken)", async () => {
@@ -88,7 +93,9 @@ describe("resolveGscAccessToken — persists the refreshed token (wave-9)", () =
       access_token: "new-access",
       expires_in: 3600,
     });
-    updateConnectorToken.mockRejectedValue(new Error("supabase write failed"));
+    persistRefreshedGoogleToken.mockRejectedValue(
+      new Error("supabase write failed"),
+    );
 
     const result = await resolveGscAccessToken("tenant-x");
     expect(result).toBe("new-access");
@@ -107,14 +114,14 @@ describe("resolveGscAccessToken — persists the refreshed token (wave-9)", () =
     const result = await resolveGscAccessToken("tenant-x");
 
     expect(result).toBe("new-access");
-    expect(updateConnectorToken).toHaveBeenCalledTimes(1);
-    const patch = updateConnectorToken.mock.calls[0]![1] as {
+    expect(persistRefreshedGoogleToken).toHaveBeenCalledTimes(1);
+    const refreshed = persistRefreshedGoogleToken.mock.calls[0]![1] as {
       access_token: string;
-      expires_at: number;
+      expires_in: number;
       refresh_token?: string;
     };
-    expect(patch.access_token).toBe("new-access");
-    expect(patch.refresh_token).toBe("rotated-refresh-xyz");
+    expect(refreshed.access_token).toBe("new-access");
+    expect(refreshed.refresh_token).toBe("rotated-refresh-xyz");
   });
 
   it("does NOT write refresh_token when Google rotates none (never blanks the stored token)", async () => {
@@ -126,10 +133,10 @@ describe("resolveGscAccessToken — persists the refreshed token (wave-9)", () =
 
     await resolveGscAccessToken("tenant-x");
 
-    const patch = updateConnectorToken.mock.calls[0]![1] as Record<
+    const refreshed = persistRefreshedGoogleToken.mock.calls[0]![1] as Record<
       string,
       unknown
     >;
-    expect("refresh_token" in patch).toBe(false);
+    expect("refresh_token" in refreshed).toBe(false);
   });
 });

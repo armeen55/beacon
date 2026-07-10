@@ -40,7 +40,36 @@ vi.mock("@/lib/connector-store", async () => {
       async (provider: string, patch: Record<string, unknown>) => {
         const existing = _tokenStore.get(provider);
         if (!existing || existing.provider !== provider) return;
-        _tokenStore.set(provider, { ...existing, ...patch } as ConnectorToken);
+        // Mirror the SQL patch rule: a patch can NEVER touch refresh_token.
+        const { refresh_token: _dropped, ...safePatch } = patch;
+        void _dropped;
+        _tokenStore.set(provider, { ...existing, ...safePatch } as ConnectorToken);
+      },
+    ),
+    // Mirrors persistRefreshedGoogleToken's compare-and-swap (mode 'refresh'):
+    // token fields go through this path (review P1-1), never updateConnectorToken.
+    persistRefreshedGoogleToken: vi.fn(
+      async (
+        provider: string,
+        refreshed: {
+          access_token: string;
+          expires_in: number;
+          refresh_token?: string;
+        },
+      ) => {
+        const existing = _tokenStore.get(provider) as
+          | GoogleConnectorToken
+          | undefined;
+        if (existing == null || existing.provider !== provider) return;
+        const newExpiresAt = Date.now() + refreshed.expires_in * 1000;
+        if (existing.expires_at >= newExpiresAt) return; // staler write no-ops
+        const merged: GoogleConnectorToken = {
+          ...existing,
+          access_token: refreshed.access_token,
+          expires_at: newExpiresAt,
+        };
+        if (refreshed.refresh_token) merged.refresh_token = refreshed.refresh_token;
+        _tokenStore.set(provider, merged as ConnectorToken);
       },
     ),
     deleteConnectorToken: vi.fn(async (provider: string) => {

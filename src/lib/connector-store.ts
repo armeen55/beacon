@@ -807,14 +807,17 @@ function isMissingRpcError(error: { code?: string; message?: string }): boolean 
   return msg.includes("could not find the function");
 }
 
+// NOTE (2026-07-09, review P1-1): `refresh_token` is DELIBERATELY excluded from
+// this patch type. A rotated refresh token must be persisted through
+// `persistRefreshedGoogleToken` (guarded mode 'refresh', the cross-instance
+// compare-and-swap), never via `updateConnectorToken` — the patch path is
+// UPDATE-only, strips refresh_token in SQL, and throws at runtime if a caller
+// includes one, so no future caller can reintroduce the read-merge-write race
+// that resurrected a stale refresh token / dropped a rotation.
 type GoogleConnectorPatch = Partial<
   Pick<
     GoogleConnectorToken,
     | "access_token"
-    // FIX 3 (OAUTH_ROOT_CAUSE_2026-07-09): allow persisting a rotated refresh
-    // token WITHOUT clobbering the rest of the payload. The refresh paths only
-    // include this field when Google actually returned a new refresh token.
-    | "refresh_token"
     | "expires_at"
     | "last_synced_at"
     | "selected_location_id"
@@ -909,6 +912,62 @@ export async function updateConnectorToken(
   tenantId?: string,
 ): Promise<void> {
   const tid = await resolveTenantId(tenantId);
+  const isGoogle =
+    provider === "google_gsc" ||
+    provider === "google_gbp" ||
+    provider === "google_ga4";
+  if (isGoogle) {
+    // DB-SIDE patch (operator guardrail, 2026-07-09; review finding P1-1): a
+    // Google field patch (last_synced_at, ga4_property_id, disconnected_at,
+    // auth_failed_at, selected_location_*) goes through ONE atomic SQL statement
+    // (save_connector_token_guarded_v1, mode 'patch') that merges the patch onto
+    // the stored row WITHOUT ever touching refresh_token. The old app-side
+    // read-then-merge-then-full-upsert could be raced by two Vercel instances:
+    // one reads a row, another rotates the refresh_token, then the first writes
+    // the stale row back, resurrecting a dead refresh_token and dropping the
+    // rotation. p_payload is the PATCH ONLY (not a merged full row).
+    //
+    // REFUSE refresh_token here (no future caller reintroduces the race): a
+    // rotated refresh_token is the ONE thing a patch must never carry. The SQL
+    // strips it defensively, but a patch that thinks it can write one is a bug.
+    // Rotations go through persistRefreshedGoogleToken (mode 'refresh', the
+    // cross-instance compare-and-swap).
+    if ("refresh_token" in patch) {
+      throw new Error(
+        `connector-store: updateConnectorToken must not carry a refresh_token for provider=${provider}; persist a rotated refresh token through persistRefreshedGoogleToken (guarded mode 'refresh'), never a patch`,
+      );
+    }
+    const admin = getSupabaseAdmin();
+    const { error: rpcError } = await admin.rpc("save_connector_token_guarded_v1", {
+      p_tenant: tid,
+      p_provider: provider,
+      p_payload: patch,
+      p_mode: "patch",
+    });
+    if (rpcError == null) return;
+    if (!isMissingRpcError(rpcError)) {
+      throw new Error(
+        `connector-store: guarded patch failed for provider=${provider}: ${rpcError.message ?? String(rpcError)}`,
+      );
+    }
+    // The guarded RPC is not installed on this database (fresh install, or the
+    // patch-mode migration is not applied yet). Fall back to the app-side
+    // read-merge-write LOUDLY so a missing migration can never brick a patch.
+    // This fallback keeps the pre-guard behavior: it merges onto the stored row
+    // (which retains its refresh_token) and saves via the connect-guarded path.
+    // eslint-disable-next-line no-console
+    console.warn(
+      `[connector-store] save_connector_token_guarded_v1 missing (apply migrations/2026-07-09_connector_token_patch_mode.sql); falling back to the app-side read-merge-write patch for provider=${provider}`,
+    );
+    const existing = await getConnectorToken(provider, tid);
+    if (existing == null) return;
+    if (existing.provider !== provider) return;
+    const merged = { ...existing, ...patch } as ConnectorToken;
+    await saveConnectorToken(merged, tid);
+    return;
+  }
+  // Non-Google providers keep the app-side read-merge-write (no OAuth
+  // refresh-token race to guard against).
   const existing = await getConnectorToken(provider, tid);
   if (existing == null) return;
   if (existing.provider !== provider) return;
@@ -974,14 +1033,22 @@ export async function persistRefreshedGoogleToken(
     const existing = await getConnectorToken(provider, tid);
     if (existing == null || existing.provider !== provider) return;
     if (existing.expires_at >= newExpiresAt) return; // staler write: no-op (CAS mirror)
-    const patch: GoogleConnectorPatch = {
+    // Write directly via saveConnectorToken, NOT updateConnectorToken: this is
+    // the ONE path allowed to persist a rotated refresh_token, and
+    // updateConnectorToken now refuses that field (it routes through the
+    // patch-mode RPC, which strips refresh_token in SQL). We already hold the
+    // read + the monotonic CAS guard above, so merge and save here — the merged
+    // row keeps its stored (or freshly-rotated) refresh_token, so the
+    // connect-guarded save accepts it.
+    const merged: GoogleConnectorToken = {
+      ...(existing as GoogleConnectorToken),
       access_token: refreshed.access_token,
       expires_at: newExpiresAt,
     };
     if (refreshed.refresh_token) {
-      patch.refresh_token = refreshed.refresh_token;
+      merged.refresh_token = refreshed.refresh_token;
     }
-    await updateConnectorToken(provider, patch, tid);
+    await saveConnectorToken(merged, tid);
   } catch (err) {
     // eslint-disable-next-line no-console
     console.warn(

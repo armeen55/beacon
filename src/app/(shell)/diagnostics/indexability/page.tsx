@@ -318,6 +318,20 @@ export default async function OperatorIndexabilityDiagnosticsPage({
   const tenantId = await currentTenantId();
   const cfg = getBusinessConfig(tenantId);
   const tenantDomain = normalizeHost(cfg.domain);
+
+  // Diagnostics tenant-isolation (2026-07-09, review P2-1): BEACON_GSC_SITE_URL
+  // is a single process-global env set during a backfill to ONE tenant's
+  // property. This page renders for ANY tenant, so an ungated read would print
+  // tenant A's property string on tenant B's diagnostics. Gate it to the tenant
+  // it was set for (mirrors getGscSiteUrl's BEACON_TENANT_ID===tenantId gate in
+  // load-gsc-signal); every other tenant sees the honest "(unset)" absent state.
+  const gscSiteUrlEnv = process.env.BEACON_GSC_SITE_URL;
+  const gscSiteUrlForTenant =
+    gscSiteUrlEnv != null &&
+    gscSiteUrlEnv.trim() !== "" &&
+    process.env.BEACON_TENANT_ID === tenantId
+      ? gscSiteUrlEnv.trim()
+      : "(unset)";
   const now = new Date();
   const nowMs = now.getTime();
 
@@ -565,15 +579,7 @@ export default async function OperatorIndexabilityDiagnosticsPage({
             label="Filtered rows (showing)"
             value={String(filtered.length)}
           />
-          <SummaryRow
-            label="GSC site URL"
-            value={
-              process.env.BEACON_GSC_SITE_URL &&
-              process.env.BEACON_GSC_SITE_URL.trim() !== ""
-                ? process.env.BEACON_GSC_SITE_URL
-                : "(unset)"
-            }
-          />
+          <SummaryRow label="GSC site URL" value={gscSiteUrlForTenant} />
           <SummaryRow
             label="GSC fresh inspections this render"
             value={`${gscFreshFetchesIssued} / ${GSC_INSPECT_PER_RENDER_LIMIT} cap`}

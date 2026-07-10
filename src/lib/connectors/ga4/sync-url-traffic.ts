@@ -33,7 +33,11 @@
 import "server-only";
 
 import { log } from "@/lib/logger";
-import { getGoogleConnectorToken, updateConnectorToken } from "@/lib/connector-store";
+import {
+  getGoogleConnectorToken,
+  persistRefreshedGoogleToken,
+  updateConnectorToken,
+} from "@/lib/connector-store";
 import { refreshGoogleAccessToken } from "@/lib/connectors/google-auth";
 import { getRepository } from "@/lib/persistence/repositories";
 
@@ -155,16 +159,25 @@ async function stampGa4AuthFailure(tenantId: string, now: Date): Promise<void> {
           tenantId,
           connectedAt: token.connected_at,
         });
+        // alive → clear the reconnect marker. SPLIT (2026-07-09, review P1-1):
+        // a rotated refresh_token captured on the nightly probe (only when
+        // Google returned one) MUST go through the guarded compare-and-swap, not
+        // a patch: the patch path refuses refresh_token and a read-merge-write
+        // here is the cross-instance race the CAS resolves. Fail-soft internally.
+        if (refreshed.refresh_token) {
+          await persistRefreshedGoogleToken(
+            "google_ga4",
+            {
+              access_token: refreshed.access_token,
+              expires_in: refreshed.expires_in,
+              refresh_token: refreshed.refresh_token,
+            },
+            tenantId,
+          );
+        }
         await updateConnectorToken(
           "google_ga4",
-          {
-            auth_failed_at: null,
-            // FIX 3 (OAUTH_ROOT_CAUSE_2026-07-09): capture a rotated refresh
-            // token on the nightly grant probe (only when Google returned one).
-            ...(refreshed.refresh_token
-              ? { refresh_token: refreshed.refresh_token }
-              : {}),
-          },
+          { auth_failed_at: null },
           tenantId,
         );
         return;
