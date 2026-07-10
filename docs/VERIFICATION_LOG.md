@@ -112,6 +112,67 @@ https://www.iranopedia.com/". Pending by design: the two-real-account hosted acc
   (/settings/connectors), fresh x-vercel-id present on every poll.
 - Authenticated both-tenant smoke: operator-blocked (no smoke credentials available to the agent).
 
+**W9 ASK SLICE 1 (fact-provider registry + denylist + deterministic zero-LLM answers + one
+wired intent; committed on an isolated worktree branch and rebased onto 88753ba0, NOT pushed -
+release attempt tonight, ships tomorrow if it misses the window):**
+- Bounded vertical slice on the approved architecture (P1 + denylist + deterministic path).
+  Nothing rewritten - every existing fact-assembly.ts assembler kept its body byte-identical;
+  only additive exports, additive types, and two new call sites.
+- src/domains/ask/providers/provider-types.ts + registry.ts: AskFactProvider
+  { id, classes, prodLive, gather(tenantId, question) } wrapping all 9 fact-assembly.ts
+  assemblers as thin, behavior-identical adapters. All 9 marked prodLive: true after tracing
+  every underlying loader to a direct Supabase table (gsc_daily_totals, shipped_change_proof,
+  PLANS, cron_runs) or a store already in json-store.ts's SUPABASE_MIRRORED_STORES - none of
+  the 9 is file-only today. gatherFacts() dispatches by class and catches each provider
+  independently (one throwing provider never blanks another registered for the same class).
+- src/domains/ask/providers/denylist.test.ts: grep-based architecture pin (same pattern as
+  outreach-pipeline.test.ts): no file under src/domains/ask may import connector-store,
+  google-auth, adjudicator-budget, budget-ledger-supabase, verify-budget-ledger,
+  run-engine-poll, visibility-observation-explicit-store, or the raw Profound client. A
+  permanent forward guard, not a one-time check.
+- router.ts: new isDeterministicQuestionShape(question, questionClass) - true for
+  page_ranking (always a rank shape) and site_trend (always a count shape), plus any
+  "how many"/"list" phrasing under any class. composer.ts's composeAskAnswer calls it right
+  after the hasData check and returns fallbackAnswer() directly when true - a locked operator
+  decision (these bypass the LLM outright, not only as a budget/failure fallback). Zero new
+  LLM calls added; several call sites now make ONE FEWER LLM call than before.
+- types.ts: AskFact extended additively with freshnessIso?, providerId?, prodLive?.
+  composer.ts's fallbackAnswer appends "Data through <date>, from my <specialist> read." when
+  a fact carries freshnessIso - reusing the existing team/identity.ts specialist names.
+- ONE intent wired end to end through the registry: site_trend (sitewide GSC clicks).
+  ask-actions.ts routes site_trend through gatherFacts(tenantId, routed) + buildAskDossier
+  instead of fact-assembly.ts's direct switch case; siteTrendProvider stamps
+  freshnessIso/providerId="gsc-daily-totals"/prodLive=true onto every fact via one small
+  additive read (latestGscDailyDate, a second call to the same loadDailyTotalsForTenant
+  already used by assembleSiteTrendFacts). EXACT RENDERED SENTENCE (proven in
+  providers/site-trend-wiring.test.ts, 10 flat days of 20 clicks): "Here is what I know about
+  the site's traffic: Sitewide clicks over the last 7 reported days: 140. That is +133%
+  versus the prior 7 days (60 clicks). Data through 2026-07-08, from my Search demand read."
+  source: "fallback" (zero LLM calls, proven by a complete spy asserted never called).
+- Two-tenant isolation proven at the registry level AND through the full chain
+  (route -> gather -> dossier -> compose): tenant A's gather/answer never carries tenant B's
+  fact values or numbers (registry.test.ts + site-trend-wiring.test.ts).
+- NON-GOALS HONORED: no new UI beyond the answer sentence; no migration; no multi-provider
+  planner (8 of 9 providers exist wrapped but are not yet live-routed - Slice 2); no semantic
+  retrieval; no history/memory changes; no new LLM calls.
+- VERIFIED at the rebased tip (base 88753ba0): npx vitest run src/domains/ask/ -> 8 files /
+  119 tests passed (5 pre-existing ask suites unchanged and green + 3 new: denylist.test.ts,
+  registry.test.ts, site-trend-wiring.test.ts; composer.test.ts and router.test.ts extended
+  in place). Full hermetic gate receipts in fullgate5.log (typecheck/test/build exits +
+  vitest totals; the hermetic env needed npm install --no-save geist first, package.json/lock
+  untouched - pre-existing worktree gap, confirmed via git-stash bisection to predate this
+  change). No dev server, no paid call, fully hermetic.
+- FILES: src/domains/ask/{types.ts, router.ts, composer.ts, fact-assembly.ts} (all
+  additive/export-only changes to existing functions); NEW src/domains/ask/providers/
+  {provider-types.ts, registry.ts, registry.test.ts, denylist.test.ts,
+  site-trend-wiring.test.ts}; src/app/(shell)/ask/ask-actions.ts (site_trend now calls the
+  registry); composer.test.ts + router.test.ts extended with the new deterministic-bypass/
+  freshness pins.
+- NOT DONE / NEXT: this commit is NOT pushed (isolated worktree branch, one commit, land in
+  tonight's or tomorrow's window per the task brief). Slice 2 (multi-provider planner,
+  routing the other 8 wrapped providers live, semantic retrieval, session memory) is
+  explicitly out of scope and unbuilt.
+
 ## 2026-07-08 - Incident: app-wide 504 + "same 6 changes for 9 days" (15477039, 86fde79b)
 
 Operator hit `504 MIDDLEWARE_INVOCATION_TIMEOUT` across the app and, separately, Today
@@ -34487,3 +34548,4 @@ change and modified concurrently). Suites GREEN: seasonal-wire (11), refresh-wir
 (6), pick-expectations, build-daily-candidates, build-today-preview,
 daily-experiment-planner, plus all of seasonal/ and refresh/ -> 23 files /
 314 tests passed. No dev server, no paid call.
+

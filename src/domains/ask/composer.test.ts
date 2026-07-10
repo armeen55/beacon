@@ -132,6 +132,88 @@ describe("ask/composer - composeAskAnswer (LLM path)", () => {
     expect(a.answer).not.toMatch(/[–—]/);
   });
 
+  // W9 slice 1 (2026-07-09): count/rank/list question shapes bypass the LLM entirely,
+  // not just as a budget/failure fallback - locked operator decision.
+  it("PIN: a page_ranking dossier never calls the LLM, even with real data and budget available", async () => {
+    const ranking: AskDossier = {
+      questionClass: "page_ranking",
+      pagePath: null,
+      hasData: true,
+      facts: [
+        { value: "Your pages by Google clicks over the last 90 days, most first:", source: "gsc", href: "/results" },
+        { value: "/cheetah: 412 clicks from 9,800 impressions (90 days).", source: "gsc", href: "/page/cheetah" },
+      ],
+    };
+    const complete = vi.fn(fakeComplete([{ text: JSON.stringify(VALID_ANSWER) }]));
+    const a = await composeAskAnswer("which page gets the most traffic", ranking, { complete });
+    expect(a.source).toBe("fallback");
+    expect(complete).not.toHaveBeenCalled();
+  });
+
+  it("PIN: a site_trend dossier never calls the LLM, even with real data and budget available", async () => {
+    const trend: AskDossier = {
+      questionClass: "site_trend",
+      pagePath: null,
+      hasData: true,
+      facts: [{ value: "Sitewide clicks over the last 7 reported days: 342.", source: "gsc", href: "/" }],
+    };
+    const complete = vi.fn(fakeComplete([{ text: JSON.stringify(VALID_ANSWER) }]));
+    const a = await composeAskAnswer("how are things going", trend, { complete });
+    expect(a.source).toBe("fallback");
+    expect(complete).not.toHaveBeenCalled();
+  });
+
+  it("PIN: a 'how many' question never calls the LLM regardless of question class", async () => {
+    const complete = vi.fn(fakeComplete([{ text: JSON.stringify(VALID_ANSWER) }]));
+    const a = await composeAskAnswer("how many changes did we ship this week", DOSSIER, { complete });
+    expect(a.source).toBe("fallback");
+    expect(complete).not.toHaveBeenCalled();
+  });
+
+  it("PIN: a 'list' question never calls the LLM regardless of question class", async () => {
+    const complete = vi.fn(fakeComplete([{ text: JSON.stringify(VALID_ANSWER) }]));
+    const a = await composeAskAnswer("list my top keywords", DOSSIER, { complete });
+    expect(a.source).toBe("fallback");
+    expect(complete).not.toHaveBeenCalled();
+  });
+
+  it("a plain page_specific narrative question still uses the LLM as before (deterministic bypass is scoped, not a blanket kill switch)", async () => {
+    const a = await composeAskAnswer("why did clicks drop on cheetah", DOSSIER, {
+      complete: fakeComplete([{ text: JSON.stringify(VALID_ANSWER) }]),
+    });
+    expect(a.source).toBe("llm");
+  });
+
+  // W9 slice 1: freshness + provenance render into the deterministic answer when a fact
+  // carries them (set by the fact-provider registry's wired site_trend intent).
+  it("PIN: the deterministic answer states freshness and provenance when a fact carries them", async () => {
+    const trendWithFreshness: AskDossier = {
+      questionClass: "site_trend",
+      pagePath: null,
+      hasData: true,
+      facts: [
+        {
+          value: "Sitewide clicks over the last 7 reported days: 342.",
+          source: "gsc",
+          href: "/",
+          freshnessIso: "2026-07-08",
+          providerId: "gsc-daily-totals",
+          prodLive: true,
+        },
+      ],
+    };
+    const a = await composeAskAnswer("how are things going", trendWithFreshness);
+    expect(a.source).toBe("fallback");
+    expect(a.answer).toContain("Data through 2026-07-08");
+    expect(a.answer).toContain("Search demand");
+    expect(a.answer).not.toMatch(/[–—]/);
+  });
+
+  it("the deterministic answer adds no freshness clause when no fact carries it", async () => {
+    const a = fallbackAnswer("why did clicks drop on cheetah", DOSSIER);
+    expect(a.answer).not.toContain("Data through");
+  });
+
   it("drops a citedFacts entry whose href was not actually provided in the dossier", async () => {
     const fabricatedHref = {
       ...VALID_ANSWER,

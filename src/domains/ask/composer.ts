@@ -13,7 +13,8 @@ import "server-only";
 
 import { callStructuredLLM, type CompleteFn } from "@/domains/llm/structured-drafter";
 import { teammateOf } from "@/domains/team/identity";
-import type { AskDossier } from "./types";
+import { isDeterministicQuestionShape } from "./router";
+import type { AskDossier, AskFact } from "./types";
 import type { AskAnswer, AskCitedFact } from "./types";
 
 const CLASS_LABEL: Record<AskDossier["questionClass"], string> = {
@@ -60,9 +61,27 @@ export function fallbackAnswer(question: string, dossier: AskDossier): AskAnswer
   }
 
   const top = dossier.facts.slice(0, 3);
-  const answer = `Here is what I know about ${CLASS_LABEL[dossier.questionClass]}: ${top.map((f) => f.value).join(" ")}`.slice(0, 1200);
+  let answer = `Here is what I know about ${CLASS_LABEL[dossier.questionClass]}: ${top.map((f) => f.value).join(" ")}`;
+  // W9 slice 1 (2026-07-09) - when a fact carries freshness/provenance (set by a
+  // fact-provider registry wiring, providers/registry.ts), say plainly how current the
+  // data is and which specialist read it, so a deterministic answer never reads as an
+  // unsourced guess. Additive: most facts still carry neither field, so most answers
+  // are unchanged.
+  const freshnessClause = buildFreshnessClause(top);
+  if (freshnessClause) answer += ` ${freshnessClause}`;
+  answer = answer.slice(0, 1200);
   const citedFacts: AskCitedFact[] = top.map((f) => ({ fact: f.value, href: f.href }));
   return { speaker, answer, citedFacts, source: "fallback" };
+}
+
+/** Plain-English "data through <date>, from <specialist>" clause, built only when a
+ *  fact actually carries freshness/provenance metadata. Returns "" (never null/undefined)
+ *  when nothing to add, so callers can string-concat unconditionally. */
+function buildFreshnessClause(facts: AskFact[]): string {
+  const fresh = facts.find((f) => f.freshnessIso);
+  if (!fresh?.freshnessIso) return "";
+  const label = teammateOf(fresh.source).name;
+  return `Data through ${fresh.freshnessIso.slice(0, 10)}, from my ${label} read.`;
 }
 
 function defaultSpeakerForClass(dossier: AskDossier): AskAnswer["speaker"] {
@@ -80,6 +99,14 @@ export async function composeAskAnswer(
   opts: { complete?: CompleteFn; now?: Date } = {},
 ): Promise<AskAnswer> {
   if (!dossier.hasData) return fallbackAnswer(question, dossier);
+
+  // W9 slice 1 (2026-07-09) - locked operator decision: deterministic count/rank/list
+  // questions bypass the LLM outright, every time, not only as a budget/failure
+  // fallback. The facts already say the number/order/list in plain English; composing
+  // further through the LLM only risks the numeric-fidelity firewall for zero benefit.
+  if (isDeterministicQuestionShape(question, dossier.questionClass)) {
+    return fallbackAnswer(question, dossier);
+  }
 
   const grounded = factsToPrompt(dossier);
   const user = [`Question: "${question}"`, "", "Facts I have:", grounded, "", "Return the JSON now."].join("\n");

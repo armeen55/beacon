@@ -50,7 +50,10 @@ function pct(n: number): string {
 
 // ── page_specific: reuse the item-54 dossier loader wholesale ───────────────────────
 
-async function assemblePageFacts(tenantId: string, pagePath: string): Promise<AskFact[]> {
+// W9 slice 1 (2026-07-09) - exported so src/domains/ask/providers/registry.ts can wrap
+// each of these AS-IS (thin adapters, behavior-identical) instead of duplicating the
+// composition logic. No function body below changed for the registry - export only.
+export async function assemblePageFacts(tenantId: string, pagePath: string): Promise<AskFact[]> {
   let dossier: PageDossier;
   try {
     dossier = await loadPageDossier(pagePath);
@@ -179,7 +182,7 @@ async function assemblePageFacts(tenantId: string, pagePath: string): Promise<As
 
 // ── site_trend: sitewide daily totals + changepoints ────────────────────────────────
 
-async function assembleSiteTrendFacts(tenantId: string): Promise<AskFact[]> {
+export async function assembleSiteTrendFacts(tenantId: string): Promise<AskFact[]> {
   let daily: DailyTotals[] = [];
   try {
     daily = await loadDailyTotalsForTenant(tenantId, 90);
@@ -208,6 +211,21 @@ async function assembleSiteTrendFacts(tenantId: string): Promise<AskFact[]> {
   }
 
   return facts;
+}
+
+/**
+ * W9 slice 1 - the freshness date for GSC daily totals, reused by the registry's
+ * site-trend provider (providers/registry.ts) to state "data through <date>" in the
+ * rendered answer without re-parsing fact strings. Additive: assembleSiteTrendFacts
+ * above stays untouched; this is a second, tiny read of the same tenant-scoped table.
+ */
+export async function latestGscDailyDate(tenantId: string): Promise<string | null> {
+  try {
+    const daily = await loadDailyTotalsForTenant(tenantId, 90);
+    return daily.length > 0 ? daily[daily.length - 1]!.date : null;
+  } catch {
+    return null;
+  }
 }
 
 // ── page_ranking: rank pages by a metric (money / traffic) with real per-page numbers ──
@@ -239,7 +257,7 @@ function pageDossierHref(url: string): string {
  * closest proxy (engaged visitors) rather than inventing a dollar figure. Fail-soft to a
  * plain "connect X" fact so Ask never dead-ends.
  */
-async function assemblePageRankingFacts(tenantId: string, metric: RankingMetric): Promise<AskFact[]> {
+export async function assemblePageRankingFacts(tenantId: string, metric: RankingMetric): Promise<AskFact[]> {
   const facts: AskFact[] = [];
   const TOP_N = 5;
 
@@ -319,7 +337,7 @@ async function assemblePageRankingFacts(tenantId: string, metric: RankingMetric)
 
 // ── ai_visibility: the answer-intelligence index ────────────────────────────────────
 
-async function assembleAiVisibilityFacts(): Promise<AskFact[]> {
+export async function assembleAiVisibilityFacts(): Promise<AskFact[]> {
   let index;
   try {
     index = await getAnswerIntelligenceIndex();
@@ -363,7 +381,7 @@ async function assembleAiVisibilityFacts(): Promise<AskFact[]> {
 
 // ── competitor: co-citation + narrative shifts (same index, competitor framing) ────
 
-async function assembleCompetitorFacts(): Promise<AskFact[]> {
+export async function assembleCompetitorFacts(): Promise<AskFact[]> {
   const [index, native] = await Promise.all([
     getAnswerIntelligenceIndex().catch(() => null),
     loadNativeIntel().catch(() => null),
@@ -422,7 +440,7 @@ async function assembleCompetitorFacts(): Promise<AskFact[]> {
 
 // ── measurement: the proof ledger ───────────────────────────────────────────────────
 
-async function assembleMeasurementFacts(tenantId: string): Promise<AskFact[]> {
+export async function assembleMeasurementFacts(tenantId: string): Promise<AskFact[]> {
   let ledger: Awaited<ReturnType<typeof loadProofLedgerCached>>;
   try {
     ledger = await loadProofLedgerCached(tenantId);
@@ -510,7 +528,7 @@ async function assembleMeasurementFacts(tenantId: string): Promise<AskFact[]> {
 
 // ── plan: the accepted/preview daily plan ───────────────────────────────────────────
 
-async function assemblePlanFacts(tenantId: string): Promise<AskFact[]> {
+export async function assemblePlanFacts(tenantId: string): Promise<AskFact[]> {
   let plan;
   try {
     plan = (await getAcceptedPlan(tenantId)) ?? (await getLatestPreviewPlan(tenantId));
@@ -538,7 +556,7 @@ async function assemblePlanFacts(tenantId: string): Promise<AskFact[]> {
  * concrete, real-volume gaps an operator can act on today. Falls back to naming the
  * library's own coverage line when nothing qualifies, so the answer is never silent.
  */
-async function assembleKeywordNextFacts(): Promise<AskFact[]> {
+export async function assembleKeywordNextFacts(): Promise<AskFact[]> {
   let library;
   try {
     library = await loadKeywordLibrary();
@@ -588,7 +606,7 @@ async function assembleKeywordNextFacts(): Promise<AskFact[]> {
  * so one outage narrows the answer instead of blanking it. When all three are clean,
  * says so plainly instead of staying silent.
  */
-async function assembleSystemHealthFacts(tenantId: string): Promise<AskFact[]> {
+export async function assembleSystemHealthFacts(tenantId: string): Promise<AskFact[]> {
   const [cronJobs, pipeline, publish] = await Promise.all([
     loadCronHealthView().catch(() => []),
     readPipelineHealth(tenantId).catch(() => null),
@@ -702,6 +720,16 @@ export async function assembleAskDossier(routed: RoutedQuestion): Promise<AskDos
     facts = [];
   }
 
+  return buildAskDossier(routed, facts);
+}
+
+/**
+ * W9 slice 1 - the same bounding/hasData rule assembleAskDossier applies above,
+ * exposed so a caller can build a dossier from facts gathered a different way (the
+ * fact-provider registry, providers/registry.ts) without duplicating the MAX_FACTS
+ * cap or the hasData contract. Pure, no I/O.
+ */
+export function buildAskDossier(routed: RoutedQuestion, facts: AskFact[]): AskDossier {
   return {
     questionClass: routed.questionClass,
     pagePath: routed.pagePath,

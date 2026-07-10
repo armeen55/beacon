@@ -11,7 +11,8 @@
 
 import { currentTenantId } from "@/lib/tenant-context";
 import { routeQuestion } from "@/domains/ask/router";
-import { assembleAskDossier } from "@/domains/ask/fact-assembly";
+import { assembleAskDossier, buildAskDossier } from "@/domains/ask/fact-assembly";
+import { gatherFacts } from "@/domains/ask/providers/registry";
 import { composeAskAnswer } from "@/domains/ask/composer";
 import { appendAskHistory, loadAskHistory } from "@/domains/ask/history-store";
 import type { AskAnswer, AskHistoryEntry } from "@/domains/ask/types";
@@ -30,7 +31,16 @@ export async function askQuestionAction(question: string): Promise<AskResult> {
   const tenantId = await currentTenantId().catch(() => "");
 
   const routed = routeQuestion(trimmed);
-  const dossier = await assembleAskDossier(routed);
+  // W9 slice 1 (2026-07-09) - site_trend is the first intent wired end to end through
+  // the fact-provider registry (src/domains/ask/providers/registry.ts) instead of
+  // fact-assembly.ts's direct switch dispatch. Same underlying loader (GSC daily
+  // totals), but the registry's provider stamps freshness + provenance onto every
+  // fact, so the rendered answer can say exactly which data it read and how current it
+  // is. Every other class still goes through the pre-registry path unchanged.
+  const dossier =
+    routed.questionClass === "site_trend"
+      ? buildAskDossier(routed, await gatherFacts(tenantId, routed).catch(() => []))
+      : await assembleAskDossier(routed);
   const answer = await composeAskAnswer(trimmed, dossier);
 
   const entry: AskHistoryEntry = {

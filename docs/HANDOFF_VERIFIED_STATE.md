@@ -28,6 +28,34 @@
 > the dashboard; (2) W9 Ask Slice 1 (decisions locked, architecture mapped, ready to start);
 > (3) spec-debt small items - B-15 Today-to-Changes deep-link and E-36 revert confirmation gate.**
 >
+> ⚡ **(2026-07-09 later) - W9 ASK SLICE 1: BUILT ON TOP OF THE W5 RELEASE ABOVE, COMMITTED ON AN
+> ISOLATED WORKTREE BRANCH, NOT PUSHED (release attempt tonight; ships tomorrow if it misses
+> the window).** Fact-provider
+> registry over the 9 EXISTING fact-assembly.ts loaders (src/domains/ask/providers/{provider-
+> types,registry}.ts), each wrapped as a thin behavior-identical adapter and marked prodLive:
+> true (every one already reads Supabase directly or through SUPABASE_MIRRORED_STORES - none
+> file-only). Permanent grep-based denylist test (providers/denylist.test.ts) pins that no file
+> under src/domains/ask ever imports connector-store, google-auth, adjudicator-budget,
+> budget-ledger-supabase, verify-budget-ledger, run-engine-poll, the raw observation-payload
+> store, or the raw Profound client. router.ts's new isDeterministicQuestionShape makes
+> count/rank/list questions bypass the LLM outright (page_ranking + site_trend always; any
+> class on "how many"/"list" phrasing) - zero new LLM calls, several paths now make one fewer.
+> ONE intent wired end to end through the registry: site_trend (sitewide GSC clicks) now
+> answers with freshness + provenance in the sentence, e.g. "Here is what I know about the
+> site's traffic: Sitewide clicks over the last 7 reported days: 140. That is +133% versus the
+> prior 7 days (60 clicks). Data through 2026-07-08, from my Search demand read." (source:
+> fallback, proven zero LLM calls). Two-tenant isolation proven at the registry level and
+> through the full route->gather->dossier->compose chain. **Release ladder:** committed YES (one
+> commit, isolated worktree branch, per the task's explicit NO-PUSH instruction); pushed NO;
+> deployed NO; operator-accepted = pending. Gate: `npm run typecheck` exit 0 (a pre-existing
+> missing-`geist`-package gap in this worktree was resolved locally, package.json/lock
+> untouched); `npx vitest run src/domains/ask/` -> 8 files / 119 tests passed (5 pre-existing
+> ask suites unchanged + 3 new files). **Next 3 actions: (1) operator/agent: land this commit on
+> main through the normal landing-strip (or cherry-pick) within the stated release window; (2)
+> Slice 2 - route the other 8 wrapped-but-unwired providers live through a real multi-provider
+> planner, once Slice 1 is observed working on hosted Iranopedia; (3) resume the OAuth
+> acceptance + spec-debt queue in the W5 entry above, unaffected by this slice.**
+>
 > ⚡ **(2026-07-08 later) - INCIDENT FIXED: app-wide 504 + "same 6 changes for 9 days" (15477039, 86fde79b).** (1) `MIDDLEWARE_INVOCATION_TIMEOUT`: the auth middleware made two unbounded Supabase calls per request; a slow Supabase 504'd every route. Added `withMwTimeout` (5s/call) reusing the existing degrades (getUser->login redirect, tenant->env fallback); 2 fake-timer tests. (2) Daily plan frozen since 2026-06-30: `ensurePlanPreview` skipped generation while ANY plan sat "accepted", and a batch only leaves "accepted" on a manual "Finish for today" click (applying moves leaves them "measuring"), so the 06-30 batch blocked new plans for 9 days. Fix: only TODAY's accepted batch blocks; a prior-day one auto-completes (proof rows measure on independently) and today's plan builds. **Known limitation surfaced:** a manual precompute post-fix returned "nothing eligible tonight" - the strict experiment batch is control-starved this month (~51 pages locked as measurement controls). Deliberately NOT loosening the rigor gates; the operator works the full 82-move `/changes` backlog (verified 82 recommended_edits) + Today's "What to do next" (draws from the same backlog, not the strict batch). **Operator's live answer: use `/changes` "To do" list - 82 real ranked moves - it is always current; the "tonight's plan" box was the stuck strict subset.** **Next 3 actions: (1) make Today's "What to do next" the primary daily surface (de-emphasize the strict "tonight's plan" box when it is empty/starved); (2) revisit experiment-control-isolation so the auto-batch is not starved to 0 when many pages are measuring (without weakening proof rigor); (3) reconnect Ritz GSC+GA4.**
 >
 > ⚡ **(2026-07-08) - OPERATOR-WALKTHROUGH GOAL DONE + SHIPPED to main (45f4697d).** Every issue from the day-1 live walkthrough plus everything found along the way, fixed at root, tenant-agnostic (no hardcoding/fixtures), full clean-shell suite **1404 files / 21781 passed / 0 failed**, both branches pushed, prod smoke /login 200 + /today,/changes,/ask 307 (auth). Commits: (1) 48831cdc perf - the demand-graph SWR snapshot was NOT in SUPABASE_MIRRORED_STORES so it evaporated between Vercel lambdas and EVERY /today,/changes,/new-pages load rebuilt the ~6s graph; mirroring it fixes "everything is slow, always" + warmFreeSurfaces after a manual refresh + maxDuration=60 on /today. (2) 56530446 hide-money - stripped every $ from the New Pages board + prepare buttons (operator: Beacon absorbs cost). (3) 9eaff39c Today - showOpportunities was hidden once tonight's batch hit "in_progress"/measuring, so the ranked to-do vanished ("I don't see my new moves"); now shows top-6 promoted ABOVE the applied recap. (4) 32e1da40 honesty - a connected-but-quiet source (dead Profound) no longer reads as "broken" (role-based: only GSC spine 0-rows alarms; others = info, via new PipelineViolation.severity; Ask respects it too) + coverage-map splits content-coverage from AI-citation so "100% covered / 0 cited" is the opportunity, not a contradiction. (5) 6fb6c8ff prompts - the 3 "Evaluate the Frontier Models company X" junk prompts deactivated + isBorrowedAccountSentinelPrompt filter at run + seed paths so they never return. (6) 0991dbd5 Ask - new page_ranking class answers "what page makes most money / most traffic / is bleeding" from real per-page GA4 value + GSC clicks (honest revenue-vs-conversions). (7) 37c69291 + a full sweep - GA4 ai-referral date-bomb test (fixed-date token vs real-clock >7d guard) clock-pinned; proved NO other date-bombs (all connector expiry tests inject `now` or fake the clock) and NO other non-mirrored SWR caches. GA4 verified healthy (55.6k rows through today; "Sync didn't finish" was a transient reconnect blip). Unified ranking verified already-holistic (rankChanges sorts all buckets by one impactScore). **Next 3 actions: (1) OPERATOR still: reconnect Ritz GSC+GA4 (Iranopedia fully live); (2) ground-truth /today + /ask on live Iranopedia and quote the rendered top-6 + a page-ranking answer; (3) resume master-plan queue.**

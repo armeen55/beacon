@@ -18,6 +18,19 @@ export type AskFact = {
   source: TeammateKey;
   /** Where the operator can go to verify this fact themselves. */
   href: string;
+  /** W9 slice 1 (fact-provider registry) - ISO date for the freshest underlying row
+   *  behind this fact, e.g. "2026-07-08". Lets a rendered answer say "data through
+   *  <date>" instead of leaving freshness implicit. Additive: only facts gathered
+   *  through src/domains/ask/providers/registry.ts set it today; every other caller
+   *  of fact-assembly.ts is unaffected. */
+  freshnessIso?: string;
+  /** W9 slice 1 - which registry provider produced this fact (see providers/registry.ts),
+   *  e.g. "gsc-daily-totals". Additive, optional. */
+  providerId?: string;
+  /** W9 slice 1 - true when the provider's underlying source is real hosted (Supabase)
+   *  data in production, as opposed to a file-only local store. Additive, optional;
+   *  absent means "not yet classified by the registry", never a false claim of liveness. */
+  prodLive?: boolean;
 };
 
 export type AskDossier = {

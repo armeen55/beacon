@@ -166,3 +166,28 @@ export function routeQuestion(rawQuestion: string): RoutedQuestion {
 
   return { questionClass, pagePath, rankingMetric, speaker: SPEAKER_BY_CLASS[questionClass] };
 }
+
+// ── deterministic question shapes (W9 slice 1, 2026-07-09) ──────────────────────────
+
+// A "how many" question wants a number, not synthesis; a "list" question wants an
+// enumeration, not synthesis. Neither needs the LLM to compose anything beyond what
+// the grounded facts already say in plain English.
+const COUNT_SHAPE_PATTERNS = /\bhow many\b/i;
+const LIST_SHAPE_PATTERNS = /\blist\b/i;
+
+/**
+ * True when a question's shape is answerable directly from provider facts with ZERO
+ * LLM calls - a deterministic count, rank, or list, never a request to explain or
+ * synthesize. Locked operator decision (2026-07-09): these bypass the LLM outright,
+ * not just as a budget/failure fallback (composeAskAnswer in composer.ts is the only
+ * caller). page_ranking is ALWAYS a rank shape by construction (fact-assembly.ts's
+ * assemblePageRankingFacts already returns a sorted top-N list); site_trend answers
+ * with plain sitewide totals, itself a count. Any other class still short-circuits
+ * when the raw text itself asks for a count or a list (e.g. "how many changes did we
+ * ship" under the measurement class).
+ */
+export function isDeterministicQuestionShape(question: string, questionClass: AskQuestionClass): boolean {
+  if (questionClass === "page_ranking") return true;
+  if (questionClass === "site_trend") return true;
+  return COUNT_SHAPE_PATTERNS.test(question) || LIST_SHAPE_PATTERNS.test(question);
+}

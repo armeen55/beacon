@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { routeQuestion, extractPagePath } from "./router";
+import { routeQuestion, extractPagePath, isDeterministicQuestionShape } from "./router";
 
 describe("ask/router - extractPagePath", () => {
   it("extracts an explicit slash path", () => {
@@ -161,5 +161,30 @@ describe("ask/router - routeQuestion", () => {
   it("does NOT treat 'what page should I build next' as page_ranking (it is a plan question)", () => {
     const r = routeQuestion("what page should I build next");
     expect(r.questionClass).not.toBe("page_ranking");
+  });
+});
+
+describe("ask/router - isDeterministicQuestionShape (W9 slice 1)", () => {
+  it("page_ranking is always a deterministic rank shape", () => {
+    expect(isDeterministicQuestionShape("which page gets the most traffic", "page_ranking")).toBe(true);
+  });
+
+  it("site_trend is always a deterministic count shape", () => {
+    expect(isDeterministicQuestionShape("how are things going", "site_trend")).toBe(true);
+  });
+
+  it("a 'how many' question is deterministic under any class", () => {
+    expect(isDeterministicQuestionShape("how many changes did we ship this week", "measurement")).toBe(true);
+    expect(isDeterministicQuestionShape("how many keywords do I have no page for", "keyword_next")).toBe(true);
+  });
+
+  it("a 'list' question is deterministic under any class", () => {
+    expect(isDeterministicQuestionShape("list my top keywords", "keyword_next")).toBe(true);
+  });
+
+  it("a plain narrative question is NOT deterministic", () => {
+    expect(isDeterministicQuestionShape("why did clicks drop on cheetah", "page_specific")).toBe(false);
+    expect(isDeterministicQuestionShape("what did we ship this week", "measurement")).toBe(false);
+    expect(isDeterministicQuestionShape("who is beating me in ChatGPT's answers", "ai_visibility")).toBe(false);
   });
 });
