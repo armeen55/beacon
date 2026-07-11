@@ -7,6 +7,19 @@
 
 ---
 
+## 2026-07-11 - Pilot loop 4: entity-reference source guidance shipped (5b655cb5)
+
+2026-07-11 pilot loop 4 (5b655cb5): entity-reference source guidance shipped. Live proof across 3
+real drafter runs: all 9 citations chose per-singer Wikipedia biography pages, zero list-index
+cites (the loop-3 gap, fully closed); honor facts confirmed verbatim on the fetched bio pages.
+Evidence hints thread already-loaded citation URLs into the prompt (zero new fetches, list/index
+URLs filtered, empty hint skipped honestly). Superlative rephrase retry hardened (never introduces
+a NEW superlative; too-thin retry adds grounded facts only). Honest verdict: not yet paste-ready;
+two newly isolated blockers for loop 5: compound sentences bundling a covered honor fact with an
+uncovered song-title fact fail whole (fix = one-fact-per-sentence prompt guidance, no gate
+change), and the too-thin plus superlative retries share one budget slot (fix = merged retry
+instruction, no extra LLM spend). Gate 22749 passed 0 failed.
+
 ## 2026-07-11 - Drafter last mile 2: numeric firewall prose scope, roundup full-text coverage live (ffc39807)
 
 2026-07-11 drafter last mile 2 (ffc39807): pilot re-run gap closed. Numeric firewall now scans

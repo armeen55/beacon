@@ -1,4 +1,20 @@
-> 🟢 **(2026-07-11 latest) - HEAD STATE: ORIGIN/MAIN WILL BE THIS DOCS TIP AFTER THIS PUSH (drafter
+> 🟢 **(2026-07-11 latest) - HEAD STATE: ORIGIN/MAIN WILL BE THIS DOCS TIP AFTER THIS PUSH (pilot
+> loop 4: entity-reference source guidance shipped, live-proven across 3 real drafter runs with
+> zero list-index cites, the loop-3 gap fully closed, commit 5b655cb5).** Deployment of the pushed
+> SHA to Vercel production is unconfirmed from this environment.
+>
+> Full hermetic gate GREEN at this tip (fullgateDE.log: 22749 passed, 0 failed). See the 2026-07-11
+> "Pilot loop 4" entry in VERIFICATION_LOG.md for the entity-reference source guidance detail, the
+> evidence-hints threading (zero new fetches, list/index URLs filtered), the hardened superlative
+> retry, and the honest verdict: not yet paste-ready. Two blockers newly isolated for loop 5:
+> compound sentences bundling a covered honor fact with an uncovered song-title fact fail whole,
+> and the too-thin plus superlative retries share one budget slot. NEXT: (1) confirm the Vercel
+> production build for this tip in the dashboard (unconfirmed from this environment); (2) work
+> pilot loop 5's two queued fixes in NEXT_PHASE_EXECUTION_PLAN.md (one-fact-per-sentence prompt
+> guidance; a merged retry instruction); the proof-model floor plus 56 to 84 day tier package
+> remains AWAITING OPERATOR SIGN-OFF (decision list delivered 2026-07-10 late evening).
+>
+> 🟢 **(2026-07-11) - HEAD STATE: ORIGIN/MAIN WILL BE THIS DOCS TIP AFTER THIS PUSH (drafter
 > last mile 2: numeric firewall now scans prose only, never the sources citation array, and roundup
 > full-text entailment coverage wired into production verification, commit ffc39807).** Deployment
 > of the pushed SHA to Vercel production is unconfirmed from this environment.
