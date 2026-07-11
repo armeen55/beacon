@@ -1,4 +1,14 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import {
+  TEST_CALIBRATED_VERSION,
+  registerTestCalibratedVersion,
+  clearTestCalibratedVersions,
+} from "@/domains/proof-gsc/verdict-calibration-test-support";
+// Fail-closed calibration quarantine (2026-07-11): the ledger fixtures default to
+// CALIBRATED so the item-29 family-win-propagation wiring cases still fire off a
+// proven win exactly as before. An uncalibrated win seeds no propagation.
+beforeAll(registerTestCalibratedVersion);
+afterAll(clearTestCalibratedVersions);
 
 import { buildDailyCandidates, MIN_CONTROLS, type GscPageInput, type PageFacts } from "./build-daily-candidates";
 import { planDailyExperiments } from "./daily-experiment-planner";
@@ -120,7 +130,7 @@ describe("buildDailyCandidates — deterministic proposers (no generic templates
       actionType: "edit_title", before: null, after: null, shippedAt: "2026-06-30T00:00:00.000Z",
       baseline: { clicks: 0, impressions: 100, ctr: 0, position: 5, windowDays: 28 }, targetQueries: ["persian wolf"],
       controlPages: [ctrl], windows: [], verdict: "measuring", confidence: "low", measuredAt: null, notes: null,
-      verifiedLive: true, liveSourceUrl: null, recrawlRequestedAt: null, operatorVerdictOverride: null,
+      verifiedLive: true, liveSourceUrl: null, recrawlRequestedAt: null, operatorVerdictOverride: null, calibrationVersion: TEST_CALIBRATED_VERSION,
       createdAt: "2026-06-30T00:00:00.000Z", updatedAt: "2026-06-30T00:00:00.000Z",
     }];
     const pages = [gsc({ url: ctrl, topQuery: "persian cat" })];
@@ -204,7 +214,7 @@ describe("buildDailyCandidates — item 29 family win propagation (wiring pin)",
     verifiedLive: true,
     liveSourceUrl: null,
     recrawlRequestedAt: null,
-    operatorVerdictOverride: null,
+    operatorVerdictOverride: null, calibrationVersion: TEST_CALIBRATED_VERSION,
     createdAt: "2026-06-01T00:00:00.000Z",
     updatedAt: "2026-06-29T00:00:00.000Z",
   });
@@ -238,6 +248,27 @@ describe("buildDailyCandidates — item 29 family win propagation (wiring pin)",
       expect(c.teamScoreMultiplier).toBeGreaterThan(1);
       // Hard rule: no em/en dashes anywhere in operator-facing copy.
       expect(c.whyNow).not.toMatch(/[–—]/);
+    }
+  });
+
+  it("fail-closed quarantine (2026-07-11): an UNCALIBRATED win seeds NO family propagation", () => {
+    // Same setup as the wiring pin above, but the proven win is uncalibrated - so it is
+    // NOT a trustworthy win and must never be copied onto siblings. Each sibling still
+    // gets its OWN meta candidate; none carries a familyWin tag or a >1 boost.
+    const win: ShippedChangeRecord = { ...wonMeta("/iran-animals/persian-cheetah"), calibrationVersion: null };
+    const pages = [
+      gsc({ url: "/iran-animals/persian-leopard", topQuery: "persian leopard", impressions: 4000 }),
+      gsc({ url: "/iran-animals/caspian-seal", topQuery: "caspian seal", impressions: 1200 }),
+    ];
+    const f = facts({
+      "/iran-animals/persian-leopard": missingMetaFacts("persian leopard"),
+      "/iran-animals/caspian-seal": missingMetaFacts("caspian seal"),
+    });
+    const out = buildDailyCandidates({ tenantId: "t", pages, facts: f, proofLedger: [win], now: NOW });
+    expect(out.length).toBeGreaterThan(0);
+    for (const c of out) {
+      expect(c.familyWin).toBeUndefined();
+      expect(c.teamScoreMultiplier ?? 1).toBe(1);
     }
   });
 

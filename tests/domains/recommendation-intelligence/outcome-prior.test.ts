@@ -2,7 +2,7 @@
  * #10 learning loop (2026-06-22) — proof-ledger verdicts → per-action_type
  * priority prior, and the bounded priority-score term that consumes it.
  */
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
 
 import {
   computeOutcomePriors,
@@ -13,8 +13,20 @@ import {
   outcomePriorBonus,
   MAX_OUTCOME_PRIOR_BONUS,
 } from "@/domains/recommendation-intelligence/priority-score";
+import {
+  TEST_CALIBRATED_VERSION,
+  registerTestCalibratedVersion,
+  clearTestCalibratedVersions,
+} from "@/domains/proof-gsc/verdict-calibration-test-support";
 
-const rec = (actionType: string, verdict: string) => ({ actionType, verdict });
+// Fail-closed calibration quarantine (2026-07-11): these fixtures are CALIBRATED so
+// the win-rate prior math + diagnostics pin their pre-quarantine behavior. The
+// dedicated uncalibrated pin lives in src/domains/recommendation-intelligence/
+// outcome-prior.test.ts.
+beforeAll(registerTestCalibratedVersion);
+afterAll(clearTestCalibratedVersions);
+
+const rec = (actionType: string, verdict: string) => ({ actionType, verdict, calibrationVersion: TEST_CALIBRATED_VERSION });
 
 describe("computeOutcomePriors — win rate → [-1,+1]", () => {
   it("all won → +1, all lost → -1, 50/50 → 0", () => {
@@ -76,7 +88,7 @@ describe("computeOutcomePriorDiagnostics — per-action_type learning view", () 
     actionType: string,
     verdict: string,
     operatorVerdictOverride: string | null = null,
-  ) => ({ actionType, verdict, operatorVerdictOverride });
+  ) => ({ actionType, verdict, operatorVerdictOverride, calibrationVersion: TEST_CALIBRATED_VERSION });
 
   it("counts won/lost/excluded and reports the prior (null below MIN samples)", () => {
     const rows = computeOutcomePriorDiagnostics([

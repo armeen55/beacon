@@ -78,6 +78,7 @@ import { planDependencies, dependencyHoldLookup, type DependencyCandidate } from
 import type { ActionType } from "@/domains/recommendations/action-types";
 import { outcomeStateOf } from "@/domains/proof-gsc/measure-lifecycle";
 import { measurementWindowOf } from "@/domains/proof-gsc/measurement-maturity";
+import { learningEligibleVerdict } from "@/domains/proof-gsc/verdict-calibration";
 import { classifyOpportunityFreshness } from "@/domains/changes/opportunity-expiry";
 import { buildShadowCandidates } from "./shadow-portfolio-capture";
 import { writeShadowPortfolioBatch } from "./shadow-portfolio-store";
@@ -487,7 +488,19 @@ export async function buildTodayExperimentPreview(tenantId: string, now: Date = 
   // Item 80 - the PROOF-HISTORY voice: what the measured ledger already says about this page
   // family + lever family. The team's own past results speak in the debate ("a description
   // change on a flags page showed no lift last month"), so learning is visible, not implied.
-  const settledByKey = aggregateSettled(ledger, pageFamilyOfPath, actionFamilyOf);
+  // Fail-closed calibration quarantine (2026-07-11): the proof-history voice speaks
+  // the ledger's own won/no-lift/hurt tally into the debate, so it must count ONLY
+  // calibrated verdicts. Map an uncalibrated decided row to "measuring" (which
+  // aggregateSettled skips), so no uncalibrated win/loss is ever spoken as history.
+  const settledByKey = aggregateSettled(
+    ledger.map((r) => ({
+      path: r.path,
+      actionType: r.actionType,
+      verdict: learningEligibleVerdict(r) ?? "measuring",
+    })),
+    pageFamilyOfPath,
+    actionFamilyOf,
+  );
   const historyLine = (pageFamily: string, actionFamily: string): string | null =>
     proofHistoryLine(settledByKey, pageFamily, actionFamily);
 

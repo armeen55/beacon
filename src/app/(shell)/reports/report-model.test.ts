@@ -1,4 +1,14 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import {
+  TEST_CALIBRATED_VERSION,
+  registerTestCalibratedVersion,
+  clearTestCalibratedVersions,
+} from "@/domains/proof-gsc/verdict-calibration-test-support";
+// Fail-closed calibration quarantine (2026-07-11): report fixtures are CALIBRATED so
+// the monthly headline + win cards pin calibrated behavior. An uncalibrated win
+// would leave the Wins band empty (gated splitLedgerLifecycle).
+beforeAll(registerTestCalibratedVersion);
+afterAll(clearTestCalibratedVersions);
 
 import type { ShippedChangeRecord } from "@/domains/proof-gsc/shipped-change-store";
 import {
@@ -39,7 +49,7 @@ function wonRow(
     path,
     actionType,
     shippedAt,
-    verdict: "won",
+    verdict: "won", calibrationVersion: TEST_CALIBRATED_VERSION,
     baseline: { impressions: 5_000 },
     windows: [{ day: 28, ran: true, controlsUsed: 3, adjustedLift }],
   } as unknown as ShippedChangeRecord;
@@ -52,7 +62,7 @@ function lostRow(id: string, path: string, shippedAt = "2026-05-20"): ShippedCha
     path,
     actionType: "edit_meta",
     shippedAt,
-    verdict: "lost",
+    verdict: "lost", calibrationVersion: TEST_CALIBRATED_VERSION,
     baseline: { impressions: 5_000 },
     windows: [{ day: 28, ran: true, controlsUsed: 3, adjustedLift: -4 }],
     // proven-neutral so it also surfaces in the misses recap

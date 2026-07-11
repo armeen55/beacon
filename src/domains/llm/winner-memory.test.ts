@@ -6,7 +6,18 @@
  * runs from a measure-pass tail with no ambient request context, rows carry
  * tenant_id) and the Supabase mirror entry (Vercel durability).
  */
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, beforeAll, afterAll, describe, expect, it, vi } from "vitest";
+import {
+  TEST_CALIBRATED_VERSION,
+  registerTestCalibratedVersion,
+  clearTestCalibratedVersions,
+} from "@/domains/proof-gsc/verdict-calibration-test-support";
+// Fail-closed calibration quarantine (2026-07-11): winners default to CALIBRATED
+// so the harvest + few-shot cases pin that a calibrated mature win is still
+// retained and injected exactly as before. The uncalibrated case pins the
+// quarantine (no winners harvested, empty few-shot fragment).
+beforeAll(registerTestCalibratedVersion);
+afterAll(clearTestCalibratedVersions);
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
@@ -81,6 +92,7 @@ function record(over: Partial<ShippedChangeRecord> = {}): ShippedChangeRecord {
     liveSourceUrl: null,
     recrawlRequestedAt: null,
     operatorVerdictOverride: null,
+    calibrationVersion: TEST_CALIBRATED_VERSION,
     createdAt: "2026-05-20T00:00:00.000Z",
     updatedAt: "2026-06-18T00:00:00.000Z",
     ...over,
@@ -411,5 +423,15 @@ describe("buildWinnerFewShotsWithPattern - BEACON_500 item 74 (confident-cell in
     const { fragment, patternHint } = await buildWinnerFewShotsWithPattern("tenant-a", "title", "");
     expect(fragment).toBe(plain);
     expect(patternHint).toBeNull();
+  });
+});
+
+describe("fail-closed calibration quarantine (2026-07-11)", () => {
+  it("harvests NO winners from an UNCALIBRATED mature won, and few-shots stay empty", async () => {
+    ledger = [record({ calibrationVersion: null })]; // otherwise a clean mature win
+    const res = await harvestWinners("iranopedia", { now: NOW });
+    expect(res.harvested).toBe(0);
+    expect(await loadWinners("iranopedia")).toHaveLength(0);
+    expect(await buildWinnerFewShots("iranopedia", "title")).toBe("");
   });
 });

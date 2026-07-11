@@ -38,7 +38,7 @@ function ledgerRow(path: string, adjustedLift: number): ShippedChangeRecord {
     verifiedLive: true,
     liveSourceUrl: null,
     recrawlRequestedAt: null,
-    operatorVerdictOverride: null,
+    operatorVerdictOverride: null, calibrationVersion: null,
     createdAt: "2026-06-30T00:00:00.000Z",
     updatedAt: "2026-07-28T00:00:00.000Z",
   };

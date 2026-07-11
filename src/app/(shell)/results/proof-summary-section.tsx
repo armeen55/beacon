@@ -11,6 +11,7 @@ import {
 } from "@/domains/proof-gsc/measurement-maturity";
 import { readAaCalibration, type AaCalibrationRow } from "@/domains/proof-gsc/aa-calibration-store";
 import { TARGET_FALSE_POSITIVE_RATE } from "@/domains/proof-gsc/aa-calibration";
+import { displayProofOutcome, UNCALIBRATED_NO_CLEAR_EFFECT_SENTENCE } from "@/domains/proof-gsc/verdict-calibration";
 import { loadCalibrationRecords } from "@/domains/experiments/forecast-calibration-store";
 import { buildForecastHitRateLine } from "@/domains/experiments/forecast-receipts";
 
@@ -190,11 +191,23 @@ export async function ProofSummarySection({
 
   const counts = { measuring: 0, helped: 0, noLift: 0, didNotHelp: 0, attributionLimited: 0 };
   const wins: { path: string; actionType: string; confidence: string }[] = [];
+  // Fail-closed calibration quarantine (2026-07-11): how many closed reads were a
+  // stored won/lost measured under thresholds that failed Beacon's self-test. They
+  // count as still measuring (never a win or a "did not help"), and their presence
+  // is what makes this section show the one honest fail-closed sentence below.
+  let uncalibratedDecided = 0;
   for (const r of records) {
     const p = presOf(r);
     if (p.attributionQuality === "limited") counts.attributionLimited += 1;
     if (!isMatureOutcome(p.maturity)) {
       counts.measuring += 1;
+      continue;
+    }
+    // A mature won/lost that failed the self-test is not a trustworthy win/loss:
+    // it reads as still measuring (the same bucket the one-count rule uses).
+    if (displayProofOutcome({ verdict: r.verdict, calibrationVersion: r.calibrationVersion }).kind === "no_clear_effect_uncalibrated") {
+      counts.measuring += 1;
+      uncalibratedDecided += 1;
       continue;
     }
     if (p.verdict === "helped") {
@@ -262,11 +275,17 @@ export async function ProofSummarySection({
   // Item C1 - when nothing has a final verdict yet, lead with that plainly
   // instead of letting the page read like a quiet scoreboard. Real counts,
   // real soonest date; null once at least one change has settled.
-  const zeroMatureLeadSentence = buildZeroMatureLeadSentence({
-    totalTracked: records.length,
-    matureTotal,
-    soonestLabel,
-  });
+  // Fail-closed calibration quarantine: when closed reads exist but every one is
+  // uncalibrated, "None ... has a 28-day read yet" would be false - the reads
+  // exist, they just failed the self-test. Suppress that lead so the one honest
+  // fail-closed sentence (in the outcome block below) carries the message instead.
+  const zeroMatureLeadSentence = uncalibratedDecided > 0
+    ? null
+    : buildZeroMatureLeadSentence({
+        totalTracked: records.length,
+        matureTotal,
+        soonestLabel,
+      });
   // Item 31 - Beacon's own measured false-positive rate, silent until a real
   // nightly A/A pass has run at least once for this tenant.
   const aaSentence = buildAaHonestySentence(aaCalibration);
@@ -328,9 +347,11 @@ export async function ProofSummarySection({
         </p>
       ) : null}
 
-      {matureTotal === 0 ? null : wins.length > 0 ? (
+      {wins.length > 0 ? (
         <div className="mt-5">
-          <div className="text-[10px] font-semibold uppercase tracking-wide text-emerald-700/70">Confirmed wins (28-day)</div>
+          {/* A 28-day read is my strongest read so far, not a "confirmed" verdict -
+              reworded away from "confirmed" (approved copy fix). */}
+          <div className="text-[10px] font-semibold uppercase tracking-wide text-emerald-700/70">Wins so far (28-day read)</div>
           <ul className="mt-2 space-y-1.5">
             {wins.slice(0, 6).map((w, i) => (
               <li
@@ -346,15 +367,21 @@ export async function ProofSummarySection({
           </ul>
           {wins.length > 6 ? (
             <p className="mt-2 text-xs text-gray-500">
-              + {wins.length - 6} more confirmed {wins.length - 6 === 1 ? "win" : "wins"} (showing the top 6)
+              + {wins.length - 6} more {wins.length - 6 === 1 ? "win" : "wins"} (showing the top 6)
             </p>
           ) : null}
         </div>
-      ) : (
+      ) : uncalibratedDecided > 0 || matureTotal > 0 ? (
+        // Fail-closed calibration quarantine: when closed reads exist but none is a
+        // trustworthy win yet, show the one honest sentence, never a win list;
+        // otherwise the plain "none cleared the win bar" line. ONE element so the
+        // page's raw-palette ratchet stays flat.
         <p className="mt-4 text-sm text-gray-500">
-          {matureTotal} mature {matureTotal === 1 ? "result" : "results"} so far. None cleared the win bar.
+          {uncalibratedDecided > 0
+            ? UNCALIBRATED_NO_CLEAR_EFFECT_SENTENCE
+            : `${matureTotal} mature ${matureTotal === 1 ? "result" : "results"} so far. None cleared the win bar.`}
         </p>
-      )}
+      ) : null}
     </section>
   );
 }

@@ -258,6 +258,16 @@ export type ShippedChangeRecord = {
    *  read. Null before the first verify pass runs, or on a row that predates
    *  J-73/C-25. */
   verifyState?: VerifyEnvelope | null;
+  /** 2026-07-11 quarantine: the classifier version that produced this row's
+   *  verdict, or null when it was measured under the pre-self-test thresholds
+   *  (every existing row). null = UNCALIBRATED by definition, and
+   *  isCalibratedVerdict (verdict-calibration.ts) fails closed on it, so no
+   *  uncalibrated won/lost is shown as a trustworthy win/loss, ranks anything,
+   *  or trains a learner. run-measurement.ts NEVER stamps this (measurements
+   *  still run under the old thresholds); only the future corrected classifier
+   *  may write a registered version here. Additive, optional - a missing column
+   *  reads as null (fail-closed) via the file fallback. */
+  calibrationVersion: string | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -434,6 +444,12 @@ type LedgerRow = {
    *  `VerifyEnvelope` (W5 stop-ship F5); legacy rows may still hold a flat
    *  `VerifyState`, normalized on read. */
   verify_state?: VerifyEnvelope | VerifyState | null;
+  /** 2026-07-11 quarantine additive column (migration 2026-07-12_verdict_
+   *  calibration_version.sql), same posture as verify_state/verdict_revisions:
+   *  pre-migration a missing column trips PGRST204 -> isUndefinedTableError ->
+   *  full-record file fallback, which round-trips this field with no schema at
+   *  all. null = uncalibrated by definition (no default, no backfill). */
+  calibration_version?: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -646,6 +662,11 @@ export function recordToRow(tid: string, r: ShippedChangeRecord): LedgerRow {
     // column here.
     edit_diff: r.editDiff ?? null,
     verify_state: r.verifyState ?? null,
+    // 2026-07-11 quarantine, write-through of the (today always null) version -
+    // emit unconditionally so a null still overwrites a stale value, same
+    // round-trip safety as every other nullable column here. run-measurement.ts
+    // never sets this; only the future corrected classifier may.
+    calibration_version: r.calibrationVersion ?? null,
     created_at: r.createdAt,
     updated_at: r.updatedAt,
   };
@@ -689,6 +710,10 @@ export function rowToRecord(row: LedgerRow): ShippedChangeRecord {
     // W5 stop-ship F5: normalize an envelope OR a legacy flat value on read; a
     // malformed blob normalizes to null (never crashes a render).
     verifyState: normalizeVerifyEnvelope(row.verify_state),
+    // 2026-07-11 quarantine: a non-string (null / absent column / garbage) reads
+    // as null -> uncalibrated -> fail-closed. Never trusts a malformed value.
+    calibrationVersion:
+      typeof row.calibration_version === "string" ? row.calibration_version : null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };

@@ -12,7 +12,17 @@
  * convention as scoreboard-section-money-lines.test.ts); shock exclusions here
  * use an explicit ShockWindow fixture.
  */
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, beforeAll, afterAll } from "vitest";
+import {
+  TEST_CALIBRATED_VERSION,
+  registerTestCalibratedVersion,
+  clearTestCalibratedVersions,
+} from "@/domains/proof-gsc/verdict-calibration-test-support";
+// Fail-closed calibration quarantine (2026-07-11): the win fixtures are CALIBRATED
+// so these pin that a calibrated win still sums into the one dollar figure. The
+// uncalibrated case at the end pins that an uncalibrated win contributes nothing.
+beforeAll(registerTestCalibratedVersion);
+afterAll(clearTestCalibratedVersions);
 
 import {
   buildWonDollarBreakdown,
@@ -94,7 +104,7 @@ function record(
     verifiedLive: true,
     liveSourceUrl: null,
     recrawlRequestedAt: null,
-    operatorVerdictOverride: null,
+    operatorVerdictOverride: null, calibrationVersion: TEST_CALIBRATED_VERSION,
     createdAt: `${shipDate}T00:00:00.000Z`,
     updatedAt: "2026-05-13T00:00:00.000Z",
     ...over,
@@ -225,5 +235,14 @@ describe("DOLLAR PARITY - strip and odometer render the same figure from the sam
     for (const s of [strip.valueLine, strip.dollarLine, strip.waitingLine, odometer.sentence]) {
       if (s != null) expect(s).not.toMatch(/[–—]/);
     }
+  });
+});
+
+describe("fail-closed calibration quarantine (2026-07-11)", () => {
+  it("an UNCALIBRATED win earns NO dollar row and contributes nothing to the summed figure", () => {
+    const uncalWin = record("/clean-win", "2026-04-15", { dollarValue: usd(40), calibrationVersion: null });
+    expect(selectDollarRuleWins([uncalWin], NOW, SHOCKS)).toHaveLength(0);
+    expect(sumWonDollarsPerMonth([uncalWin], NOW, SHOCKS).usdPerMonth).toBeNull();
+    expect(buildLifetimeEarningsRows([uncalWin], NOW, SHOCKS)).toHaveLength(0);
   });
 });

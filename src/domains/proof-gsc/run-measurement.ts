@@ -886,6 +886,10 @@ export async function recordShippedChange(args: {
     liveSourceUrl: args.liveSourceUrl ?? null,
     recrawlRequestedAt: null,
     operatorVerdictOverride: null,
+    // 2026-07-11 quarantine: a new ship is UNCALIBRATED by definition. This is
+    // NOT run-measurement stamping a version (null = not stamped); only the
+    // future corrected classifier may ever write a registered version here.
+    calibrationVersion: null,
     createdAt: now.toISOString(),
     updatedAt: now.toISOString(),
   };

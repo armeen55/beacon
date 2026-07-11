@@ -35,6 +35,20 @@ import {
 import { BASE_TITLE_SIGNAL_WEIGHTS } from "@/domains/demand-graph/ctr-title-scorer";
 import type { ShippedChangeRecord } from "@/domains/proof-gsc/shipped-change-store";
 import type { Changepoint } from "@/domains/proof-gsc/changepoint";
+import {
+  TEST_CALIBRATED_VERSION,
+  registerTestCalibratedVersion,
+  clearTestCalibratedVersions,
+} from "@/domains/proof-gsc/verdict-calibration-test-support";
+
+// Fail-closed calibration quarantine (2026-07-11): the existing cases below all
+// use CALIBRATED records (via the factory default), so they pin that a calibrated
+// verdict flows through maturityGatedVerdict exactly as it always did. The
+// dedicated "uncalibrated" block at the end pins the quarantine (neutralized to
+// measuring). afterAll restores the empty production registry.
+import { beforeAll, afterAll } from "vitest";
+beforeAll(registerTestCalibratedVersion);
+afterAll(clearTestCalibratedVersions);
 
 function win28(over: Partial<ShippedChangeRecord["windows"][number]> = {}): ShippedChangeRecord["windows"][number] {
   return {
@@ -78,6 +92,7 @@ function record(over: Partial<ShippedChangeRecord> = {}): ShippedChangeRecord {
     confidence: "high",
     measuredAt: "2026-05-19T00:00:00.000Z",
     operatorVerdictOverride: null,
+    calibrationVersion: TEST_CALIBRATED_VERSION,
     ...over,
   } as ShippedChangeRecord;
 }
@@ -283,5 +298,33 @@ describe("loadTitleSignalObservations / loadRetrainedTitleWeights - R9 title ret
     ledger = [record({ after: "10 Best Iranian Singers (Ranked)" })]; // 1 test < MIN_TILT_SAMPLES
     const weights = await loadRetrainedTitleWeights("iranopedia");
     expect(weights).toBe(BASE_TITLE_SIGNAL_WEIGHTS);
+  });
+});
+
+describe("fail-closed calibration quarantine (2026-07-11)", () => {
+  it("neutralizes an UNCALIBRATED mature won to measuring - it trains no win-rate prior", async () => {
+    ledger = [record({ calibrationVersion: null })]; // otherwise a clean, mature, decided win
+    const outcomes = await loadExperimentOutcomes("iranopedia");
+    // The row still appears (so counts stay honest) but its decided verdict is stripped.
+    expect(outcomes).toHaveLength(1);
+    expect(outcomes[0]!.verdict).toBe("measuring");
+  });
+
+  it("excludes an UNCALIBRATED decided row from effect-size magnitudes (decided-only gate)", async () => {
+    ledger = [record({ calibrationVersion: null })];
+    expect(await loadEffectObservations("iranopedia")).toHaveLength(0);
+  });
+
+  it("excludes an UNCALIBRATED decided title row from title-signal retraining", async () => {
+    ledger = [record({ calibrationVersion: null, after: "10 Best Iranian Singers (Ranked)" })];
+    expect(await loadTitleSignalObservations("iranopedia")).toHaveLength(0);
+  });
+
+  it("downgrades an UNCALIBRATED mature row's page-caution confidence to low (reads as measuring)", async () => {
+    ledger = [record({ calibrationVersion: null })];
+    const rows = await loadProofOutcomeRows("iranopedia");
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.verdict).toBe("measuring");
+    expect(rows[0]!.confidence).toBe("low");
   });
 });

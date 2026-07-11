@@ -20,10 +20,15 @@
  *  is trusted enough to move priority. Below this → neutral (no prior). */
 export const MIN_OUTCOME_SAMPLES = 3;
 
+import { learningEligibleVerdict } from "@/domains/proof-gsc/verdict-calibration";
+
 /** The fields computeOutcomePriors needs from a proof-ledger record. */
 export type OutcomeVerdictRecord = {
   actionType: string;
   verdict: string;
+  /** 2026-07-11 quarantine: the classifier version behind this verdict, or null
+   *  (uncalibrated). Only a calibrated row counts toward a win-rate prior. */
+  calibrationVersion?: string | null;
 };
 
 /**
@@ -37,9 +42,15 @@ export function computeOutcomePriors(
   const lost = new Map<string, number>();
   for (const r of records) {
     if (!r.actionType) continue;
-    if (r.verdict === "won") {
+    // Fail-closed calibration quarantine (2026-07-11): only a calibrated verdict
+    // counts toward a win-rate prior. learningEligibleVerdict returns null for
+    // every uncalibrated row (all of them today), so with none the map stays
+    // empty and priorityScore's outcomePriorBonus resolves neutral (MIN_OUTCOME_
+    // SAMPLES already gates a thin sample the same way).
+    const verdict = learningEligibleVerdict(r);
+    if (verdict === "won") {
       won.set(r.actionType, (won.get(r.actionType) ?? 0) + 1);
-    } else if (r.verdict === "lost") {
+    } else if (verdict === "lost") {
       lost.set(r.actionType, (lost.get(r.actionType) ?? 0) + 1);
     }
   }
@@ -90,8 +101,13 @@ export function computeOutcomePriorDiagnostics(
       excluded.set(r.actionType, (excluded.get(r.actionType) ?? 0) + 1);
       continue; // pinned out of won/lost by measureRecord; don't double-count
     }
-    if (r.verdict === "won") won.set(r.actionType, (won.get(r.actionType) ?? 0) + 1);
-    else if (r.verdict === "lost") lost.set(r.actionType, (lost.get(r.actionType) ?? 0) + 1);
+    // Fail-closed calibration quarantine (2026-07-11): the /results diagnostic
+    // must never show a "won N" the prior does not actually trust. Count only
+    // calibrated verdicts, exactly like computeOutcomePriors above - an
+    // uncalibrated ledger yields an empty diagnostic (its honest neutral state).
+    const verdict = learningEligibleVerdict(r);
+    if (verdict === "won") won.set(r.actionType, (won.get(r.actionType) ?? 0) + 1);
+    else if (verdict === "lost") lost.set(r.actionType, (lost.get(r.actionType) ?? 0) + 1);
   }
   const priors = computeOutcomePriors(records);
   const types = new Set([...won.keys(), ...lost.keys(), ...excluded.keys()]);

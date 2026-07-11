@@ -1,5 +1,16 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, beforeAll, afterAll } from "vitest";
 import { buildWeeklyRecap, shippedInLastDays, shippedToday, stillDoubleCheckingCount, weeklyRecapSentence } from "./weekly-recap";
+import {
+  TEST_CALIBRATED_VERSION,
+  registerTestCalibratedVersion,
+  clearTestCalibratedVersions,
+} from "./verdict-calibration-test-support";
+
+// Fail-closed calibration quarantine (2026-07-11): the recap "won" rows are marked
+// CALIBRATED so the regression pins that a calibrated win still reads as a win; the
+// uncalibrated case pins that an uncalibrated win reads as still measuring.
+beforeAll(registerTestCalibratedVersion);
+afterAll(clearTestCalibratedVersions);
 
 // Noon UTC on 2026-07-02 = still 2026-07-02 in Pacific (UTC-7 in July), well clear of the
 // midnight boundary so the fixture isn't flaky against the Pacific day-key computation.
@@ -17,14 +28,24 @@ describe("weekly-recap (items 7+8)", () => {
 
   it("builds the recap from last week's rows only", () => {
     const rows = [
-      { shippedAt: daysAgo(1), verdict: "won", path: "/finglish" },
+      { shippedAt: daysAgo(1), verdict: "won", path: "/finglish", calibrationVersion: TEST_CALIBRATED_VERSION },
       { shippedAt: daysAgo(2), verdict: "measuring", path: "/a" },
       { shippedAt: daysAgo(3), verdict: "inconclusive", path: "/b" },
-      { shippedAt: daysAgo(10), verdict: "won", path: "/old" },
+      { shippedAt: daysAgo(10), verdict: "won", path: "/old", calibrationVersion: TEST_CALIBRATED_VERSION },
     ];
     const r = buildWeeklyRecap(rows, NOW);
     expect(r).toMatchObject({ shipped: 3, won: 1, noLift: 1, stillMeasuring: 1 });
     expect(r.wonPaths).toEqual(["/finglish"]);
+  });
+
+  it("fail-closed quarantine: an UNCALIBRATED won reads as still measuring, never a recap win", () => {
+    const rows = [
+      { shippedAt: daysAgo(1), verdict: "won", path: "/finglish", calibrationVersion: null },
+      { shippedAt: daysAgo(2), verdict: "lost", path: "/a", calibrationVersion: null },
+    ];
+    const r = buildWeeklyRecap(rows, NOW);
+    expect(r).toMatchObject({ shipped: 2, won: 0, stillMeasuring: 2 });
+    expect(r.wonPaths).toEqual([]);
   });
 
   it("writes one plain sentence, and stays silent when nothing shipped", () => {

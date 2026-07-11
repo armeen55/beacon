@@ -36,7 +36,7 @@ function makeRecord(over: Partial<ShippedChangeRecord> = {}): ShippedChangeRecor
     verifiedLive: true,
     liveSourceUrl: null,
     recrawlRequestedAt: null,
-    operatorVerdictOverride: null,
+    operatorVerdictOverride: null, calibrationVersion: null,
     createdAt: "2026-06-20T00:00:00.000Z",
     updatedAt: "2026-06-27T00:00:00.000Z",
     ...over,

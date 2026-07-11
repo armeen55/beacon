@@ -49,6 +49,11 @@ export type CumulativeOutcomeRow = {
    *  cumulative strip's shipped total agrees with the Results bands. Optional; a legacy
    *  row without actionType counts as a real change. */
   actionType?: string | null;
+  /** 2026-07-11 quarantine: the classifier version behind this verdict, or null
+   *  (uncalibrated). Read by splitLedgerLifecycle's calibration gate, so an
+   *  uncalibrated won/lost never lands in the Wins band or the dollar sum.
+   *  Optional; carried straight off ShippedChangeRecord. */
+  calibrationVersion?: string | null;
   /** When this row's numbers were last measured (shipped-change-store's own stamp).
    *  Optional; only read by the strip's one-line receipt (R14b), never by the math. */
   measuredAt?: string | null;

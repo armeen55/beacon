@@ -266,7 +266,7 @@ function baseRecord(over: Partial<ShippedChangeRecord> = {}): ShippedChangeRecor
     verifiedLive: false,
     liveSourceUrl: null,
     recrawlRequestedAt: null,
-    operatorVerdictOverride: null,
+    operatorVerdictOverride: null, calibrationVersion: null,
     createdAt: "2026-06-01T00:00:00Z",
     updatedAt: "2026-06-01T00:00:00Z",
     ...over,

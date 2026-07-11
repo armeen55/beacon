@@ -9,7 +9,12 @@
  * pins the offenders Lane A rewrote (scoreboard, daily-experiment dashboard) plus a static guard
  * over every file the spec named.
  */
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, afterAll } from "vitest";
+import {
+  TEST_CALIBRATED_VERSION,
+  registerTestCalibratedVersion,
+  clearTestCalibratedVersions,
+} from "@/domains/proof-gsc/verdict-calibration-test-support";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -41,8 +46,17 @@ function ledgerRow(id: string, verdict: string, windows: WFix[]): ScoreboardLedg
     actionType: "edit_title",
     windows,
     baseline: { impressions: 1000 },
+    // Fail-closed calibration quarantine (2026-07-11): CALIBRATED so the single-
+    // source count fixture still reads its mature win/loss as decided (the point
+    // of this pin is that every Lane A consumer agrees, not the quarantine itself).
+    calibrationVersion: TEST_CALIBRATED_VERSION,
   };
 }
+
+// Registered at module-eval time (not beforeAll) because CANONICAL_MEASURING below
+// is derived at import time and must see the calibrated fixtures as decided.
+registerTestCalibratedVersion();
+afterAll(clearTestCalibratedVersions);
 
 // ONE fixture, exercised by every consumer below.
 // measuring = 2 open + 1 early-win (7d only) + 1 inconclusive-mature = 4

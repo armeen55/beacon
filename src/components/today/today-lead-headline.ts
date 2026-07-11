@@ -25,10 +25,16 @@
  * page never shows two "what matters most" widgets for the same underlying numbers.
  */
 
+import { displayProofOutcome } from "@/domains/proof-gsc/verdict-calibration";
+
 export type LeadHeadlineLedgerRow = {
   path: string;
   shippedAt: string; // ISO
   verdict: "measuring" | "won" | "lost" | "inconclusive" | "insufficient_data";
+  /** 2026-07-11 quarantine: classifier version behind this verdict, or null
+   *  (uncalibrated). Only a calibrated won/lost is ever celebrated or owned as a
+   *  loss in the lead headline; an uncalibrated one reads as no clear effect. */
+  calibrationVersion?: string | null;
   pageLabel?: string | null;
   /** Measured extra clicks a month this win is adding, when known (null for a loss / unmeasured). */
   monthlyClickLift?: number | null;
@@ -90,6 +96,7 @@ export function adaptProofRecordForLead(record: {
   pageLabel?: string | null;
   shippedAt: string;
   verdict: LeadHeadlineLedgerRow["verdict"];
+  calibrationVersion?: string | null;
   windows: ReadonlyArray<{ day: number; ran: boolean; adjustedLift: number }>;
 }): LeadHeadlineLedgerRow {
   const closed = record.windows
@@ -108,6 +115,7 @@ export function adaptProofRecordForLead(record: {
     pageLabel: record.pageLabel ?? null,
     shippedAt: record.shippedAt,
     verdict: record.verdict,
+    calibrationVersion: record.calibrationVersion ?? null,
     monthlyClickLift,
     liftFinal,
   };
@@ -142,8 +150,12 @@ function buildWinClause(
   });
 
   // 1 + 2: a WON verdict this week. Prefer the one with the largest measured lift.
+  // Fail-closed calibration quarantine (2026-07-11): only a CALIBRATED win is ever
+  // celebrated - an uncalibrated "won" (every one today) reads as no clear effect,
+  // so the clause falls through to the real click mover or self-hides, never a
+  // false "biggest win" boast.
   const wonThisWeek = thisWeek
-    .filter((r) => r.verdict === "won")
+    .filter((r) => displayProofOutcome(r).kind === "won")
     .sort((a, b) => (b.monthlyClickLift ?? 0) - (a.monthlyClickLift ?? 0));
   const topWon = wonThisWeek[0];
   if (topWon) {
@@ -184,10 +196,12 @@ function buildWinClause(
   }
 
   // 4: no win at all - if the only settled result this week was a loss, own it plainly.
+  // Same quarantine: only a CALIBRATED loss is owned as a loss; an uncalibrated one
+  // is no clear effect, not a "did not work" claim.
   const lostThisWeek = thisWeek
-    .filter((r) => r.verdict === "lost")
+    .filter((r) => displayProofOutcome(r).kind === "lost")
     .sort((a, b) => (a.shippedAt < b.shippedAt ? 1 : -1));
-  const anyWonEver = ledger.some((r) => r.verdict === "won");
+  const anyWonEver = ledger.some((r) => displayProofOutcome(r).kind === "won");
   if (lostThisWeek[0] && !anyWonEver) {
     const page = lostThisWeek[0].pageLabel ?? prettyPath(lostThisWeek[0].path);
     return {

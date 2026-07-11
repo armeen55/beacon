@@ -28,6 +28,7 @@ import { EFFECT_MIN_MULTIPLIER, EFFECT_MAX_MULTIPLIER, type EffectPrior } from "
 import {
   computeLeverRetirementDecisions, RetirementIndex, type LeverRetirementDecision, type SettledLeverRow,
 } from "./lever-retirement";
+import { learningEligibleVerdict } from "@/domains/proof-gsc/verdict-calibration";
 // R6 (N12) - the SAME honest Jaccard floors interference-graph.ts's query_overlap edge already
 // enforces on ledger ships, reused verbatim for the intra-batch check below (never reimplemented,
 // never loosened). interference-graph.ts is pure (no I/O), so this import adds no new dependency
@@ -489,9 +490,17 @@ export function planDailyExperiments(input: {
   // an arbitrary one. A ledger with no cell at >= RETIRE_LOSS_THRESHOLD settled losses and zero
   // wins yields an empty decision list and every candidate passes through untouched - the exact
   // pre-item-81 eligible/excluded shape (pinned by lever-retirement-wiring.test.ts).
+  // Fail-closed calibration quarantine (2026-07-11): lever retirement/retest is a
+  // learning decision, so it settles ONLY on calibrated verdicts. learningEligible
+  // Verdict returns the real verdict for a calibrated row and null for every
+  // uncalibrated one (all today), so an uncalibrated loss can never retire a lever
+  // and an uncalibrated win can never unsuppress one - the retirement list is empty
+  // and every candidate passes through untouched (a fresh-tenant shape).
   const settledRows: SettledLeverRow[] = input.proofLedger
-    .filter((r) => r.verdict === "won" || r.verdict === "lost" || r.verdict === "inconclusive")
-    .map((r) => ({ path: r.path, actionType: r.actionType, verdict: r.verdict, settledAt: r.measuredAt ?? r.shippedAt }));
+    .map((r) => ({ r, v: learningEligibleVerdict(r) }))
+    .filter((x): x is { r: (typeof input.proofLedger)[number]; v: string } =>
+      x.v === "won" || x.v === "lost" || x.v === "inconclusive")
+    .map((x) => ({ path: x.r.path, actionType: x.r.actionType, verdict: x.v, settledAt: x.r.measuredAt ?? x.r.shippedAt }));
   const leverRetirements = computeLeverRetirementDecisions(settledRows, now, pageFamilyOf, actionFamilyOf);
   const retirementIndex = new RetirementIndex(leverRetirements);
   const afterRetirement: PlannedExperiment[] = [];

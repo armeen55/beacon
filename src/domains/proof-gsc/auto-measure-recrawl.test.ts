@@ -53,7 +53,7 @@ function rec(id: string, shippedAt: string, page = `https://x.com/${id}`): Shipp
     verifiedLive: true,
     liveSourceUrl: null,
     recrawlRequestedAt: null,
-    operatorVerdictOverride: null,
+    operatorVerdictOverride: null, calibrationVersion: null,
     createdAt: shippedAt,
     updatedAt: shippedAt,
   };

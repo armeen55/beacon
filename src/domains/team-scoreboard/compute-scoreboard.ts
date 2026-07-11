@@ -32,6 +32,7 @@ import {
 } from "@/domains/proof-gsc/measurement-maturity";
 import { buildShockWindows, overlappingShock, type ShockWindow } from "@/domains/proof-gsc/algorithm-weather";
 import { loadDetectedChangepoints } from "@/domains/proof-gsc/algorithm-weather-store";
+import { learningEligibleVerdict } from "@/domains/proof-gsc/verdict-calibration";
 import { actionFamilyOf } from "@/domains/experiments/experiment-eligibility";
 import { listPlans } from "@/domains/experiments/daily-experiment-plan-store";
 import type { DailyExperimentPlanRecord, PlannedExperimentRecord } from "@/domains/experiments/daily-plan-types";
@@ -117,7 +118,15 @@ function settledVerdictOf(
   if (window && shockWindows.length > 0 && overlappingShock(window.start, window.end, shockWindows)) {
     return "measuring";
   }
-  return r.verdict;
+  // Fail-closed calibration quarantine (2026-07-11): an uncalibrated decided
+  // verdict trains no specialist reliability weight - same choke point the
+  // learning prior uses (verdict-calibration.ts). A neutralized decided verdict
+  // reads as "measuring" here too, so it carries no vote (settledVerdictOf's
+  // callers require won/lost). With no calibrated rows the scoreboard falls back
+  // to its fresh-tenant defaults, exactly like a tenant that never settled one.
+  const eligible = learningEligibleVerdict(r);
+  if (eligible != null) return eligible as ShippedChangeRecord["verdict"];
+  return (r.verdict === "won" || r.verdict === "lost" ? "measuring" : r.verdict) as ShippedChangeRecord["verdict"];
 }
 
 /** Turn one settled record's team review into scored votes: one per supporting voice, one per

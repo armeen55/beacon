@@ -6,7 +6,18 @@
  * Mocks every I/O edge (ledger, plans, changepoints, the store) so the join logic is pinned without
  * a real Supabase/file round-trip - the store's own round-trip is pinned separately.
  */
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, beforeAll, afterAll, describe, expect, it, vi } from "vitest";
+import {
+  TEST_CALIBRATED_VERSION,
+  registerTestCalibratedVersion,
+  clearTestCalibratedVersions,
+} from "@/domains/proof-gsc/verdict-calibration-test-support";
+// Fail-closed calibration quarantine (2026-07-11): records default to CALIBRATED
+// (factory default), so the existing cases pin that a calibrated verdict still
+// scores specialist reliability exactly as before. The uncalibrated block pins
+// the quarantine (no votes, fresh-tenant defaults).
+beforeAll(registerTestCalibratedVersion);
+afterAll(clearTestCalibratedVersions);
 
 let ledger: Array<Record<string, unknown>> = [];
 vi.mock("@/domains/proof-gsc/shipped-change-store", () => ({
@@ -86,7 +97,7 @@ function record(over: Partial<ShippedChangeRecord> = {}): ShippedChangeRecord {
     verifiedLive: true,
     liveSourceUrl: null,
     recrawlRequestedAt: null,
-    operatorVerdictOverride: null,
+    operatorVerdictOverride: null, calibrationVersion: TEST_CALIBRATED_VERSION,
     createdAt: "2026-04-15T00:00:00.000Z",
     updatedAt: "2026-05-13T00:00:00.000Z",
     ...over,
@@ -258,6 +269,15 @@ describe("buildTeamScoreboardSummary - eligibility gate (mirrors load-experiment
     const gsc = summary.rows.find((r) => r.specialist === "gsc");
     expect(gsc?.overall.n).toBe(1);
     expect(gsc?.overall.won).toBe(1);
+  });
+
+  it("fail-closed quarantine (2026-07-11): an UNCALIBRATED mature won carries NO vote (fresh-tenant defaults)", async () => {
+    ledger = [record({ calibrationVersion: null })]; // otherwise a clean mature win joined to a plan
+    plans = [plan()];
+    const summary = await buildTeamScoreboardSummary("iranopedia", NOW);
+    expect(summary.totalSettled).toBe(0);
+    expect(summary.settledJoined).toBe(0);
+    expect(summary.rows).toEqual([]);
   });
 
   it("an early (7-day only) checkpoint never counts as settled, even if verdict says won", async () => {

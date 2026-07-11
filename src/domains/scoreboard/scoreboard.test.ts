@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import {
   buildMoneyLine,
   buildScoreboard,
@@ -6,6 +6,17 @@ import {
   type ScoreboardLedgerRow,
   type ScoreboardRevenueDay,
 } from "./scoreboard";
+import {
+  TEST_CALIBRATED_VERSION,
+  registerTestCalibratedVersion,
+  clearTestCalibratedVersions,
+} from "@/domains/proof-gsc/verdict-calibration-test-support";
+
+// Fail-closed calibration quarantine (2026-07-11): rows default to CALIBRATED so
+// the chart markers + measuring count pin calibrated-win behavior; an uncalibrated
+// win reads as a neutral measured marker (splitLedgerLifecycle gates it).
+beforeAll(registerTestCalibratedVersion);
+afterAll(clearTestCalibratedVersions);
 
 const NOW = new Date("2026-07-01T12:00:00.000Z");
 
@@ -23,7 +34,7 @@ let ROW_SEQ = 0;
 const row = (over: Partial<ScoreboardLedgerRow>): ScoreboardLedgerRow => ({
   id: `r${ROW_SEQ++}`,
   path: "/p", shippedAt: "2026-05-20T05:00:00.000Z", actionType: "edit_meta", verdict: "measuring",
-  windows: [], baseline: { impressions: 1000 }, ...over,
+  windows: [], baseline: { impressions: 1000 }, calibrationVersion: TEST_CALIBRATED_VERSION, ...over,
 });
 // A 28-day window closed with enough comparisons + baseline: the only shape that classifies
 // canonically as a decided win/loss (deriveMeasurementMaturity mature_result).

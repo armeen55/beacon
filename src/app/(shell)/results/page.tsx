@@ -62,7 +62,7 @@ import { getOwnedAnswerAlignmentsBatch, type OwnedAlignmentRequest, type Persist
 import { permutationSentenceFromCounts } from "@/domains/proof-gsc/permutation-null";
 import { selectHeadlineSentence } from "@/domains/proof-gsc/bayesian-read";
 import type { ShippedChangeRecord } from "@/domains/proof-gsc/shipped-change-store";
-import { proofBadgeLabel, proofBadgeLabelFromVerdict, proofBadgeMaturesOn } from "./proof-badge";
+import { proofBadgeLabel, proofBadgeLabelFromVerdict, proofBadgeMaturesOn, isUncalibratedDecidedRecord } from "./proof-badge";
 import { plainSearchHeadline } from "./proof-plain-search-line";
 import { searchAndTrafficDisagree, reconciliationSentence } from "./proof-reconciliation";
 import {
@@ -1281,8 +1281,12 @@ function LedgerCard({ rec, link, pres, grade, eventCaveat, spark, controlSparks,
             <span className="text-sub font-semibold text-foreground">{rec.path}</span>
           );
         })()}
-        <Pill intent={pres ? TONE_PILL_INTENT[pres.tone] : verdictPillIntent(rec.verdict, basis?.day ?? null)}>
-          {pres ? proofBadgeLabel(pres) : proofBadgeLabelFromVerdict(rec.verdict, basis?.day ?? null)}
+        {/* Fail-closed calibration quarantine (2026-07-11): an uncalibrated won/lost
+            renders as the neutral "No clear change" badge (never Helped/Did not
+            help) with a neutral pill tone (never red/green), matching its In-flight
+            band placement (splitLedgerLifecycle). A calibrated read is unchanged. */}
+        <Pill intent={isUncalibratedDecidedRecord(rec) ? "neutral" : pres ? TONE_PILL_INTENT[pres.tone] : verdictPillIntent(rec.verdict, basis?.day ?? null)}>
+          {isUncalibratedDecidedRecord(rec) ? "No clear change" : pres ? proofBadgeLabel(pres) : proofBadgeLabelFromVerdict(rec.verdict, basis?.day ?? null)}
         </Pill>
         {keyNumber ? (
           <span

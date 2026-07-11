@@ -5,7 +5,7 @@
  * promises 16 but lands on 25", and "'6 of 6 applied' yet the status strip says
  * Ready is 0 and Results is 0" (the tonight formula must match the checklist's).
  */
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, beforeAll, afterAll } from "vitest";
 import {
   computeLifecycleCounts,
   countLedgerLifecycle,
@@ -17,6 +17,18 @@ import {
   type LedgerLifecycleRow,
   type TonightPlanLike,
 } from "./lifecycle-counts";
+import {
+  TEST_CALIBRATED_VERSION,
+  registerTestCalibratedVersion,
+  clearTestCalibratedVersions,
+} from "@/domains/proof-gsc/verdict-calibration-test-support";
+
+// Fail-closed calibration quarantine (2026-07-11): rows default to CALIBRATED so
+// the existing bucket cases pin that a calibrated mature won/lost still lands in
+// won/learned. The dedicated uncalibrated block pins the quarantine (a mature
+// won/lost measured under the failed self-test lands in measuring, never won).
+beforeAll(registerTestCalibratedVersion);
+afterAll(clearTestCalibratedVersions);
 
 const NOW = new Date("2026-07-02T12:00:00Z");
 
@@ -35,6 +47,7 @@ function row(
     verdict,
     windows,
     baseline: { impressions: 1000 },
+    calibrationVersion: TEST_CALIBRATED_VERSION,
     ...over,
   };
 }
@@ -259,5 +272,26 @@ describe("computeLifecycleCounts - the full sextuple", () => {
       decided: 1,
       won: 1,
     });
+  });
+});
+
+describe("fail-closed calibration quarantine (2026-07-11) - the bucket rule", () => {
+  it("a mature, sufficient but UNCALIBRATED 'won' lands in measuring, never won", () => {
+    const uncal = row("a", "won", MATURE_WINDOWS, { calibrationVersion: null });
+    expect(ledgerLifecycleStage(uncal, null, NOW)).toBe("measuring");
+  });
+
+  it("a mature, sufficient but UNCALIBRATED 'lost' lands in measuring, never learned", () => {
+    const uncal = row("a", "lost", MATURE_WINDOWS, { calibrationVersion: null });
+    expect(ledgerLifecycleStage(uncal, null, NOW)).toBe("measuring");
+  });
+
+  it("counts collapse: a ledger of uncalibrated mature won/lost reads as all measuring, zero decided", () => {
+    const ledger = [
+      row("a", "won", MATURE_WINDOWS, { calibrationVersion: null }),
+      row("b", "lost", MATURE_WINDOWS, { calibrationVersion: null }),
+      row("c", "won", MATURE_WINDOWS, { calibrationVersion: null }),
+    ];
+    expect(countLedgerLifecycle(ledger, NOW)).toEqual({ measuring: 3, decided: 0, won: 0 });
   });
 });

@@ -1,4 +1,14 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import {
+  TEST_CALIBRATED_VERSION,
+  registerTestCalibratedVersion,
+  clearTestCalibratedVersions,
+} from "@/domains/proof-gsc/verdict-calibration-test-support";
+// Fail-closed calibration quarantine (2026-07-11): win fixtures are CALIBRATED so
+// the export-a-win render pins calibrated behavior (an uncalibrated win produces no
+// win card - the gated splitLedgerLifecycle leaves the Wins band empty).
+beforeAll(registerTestCalibratedVersion);
+afterAll(clearTestCalibratedVersions);
 import { renderToStaticMarkup } from "react-dom/server";
 
 import type { ShippedChangeRecord } from "@/domains/proof-gsc/shipped-change-store";
@@ -28,7 +38,7 @@ function wonRow(
     path,
     actionType,
     shippedAt: "2026-05-20",
-    verdict: "won",
+    verdict: "won", calibrationVersion: TEST_CALIBRATED_VERSION,
     baseline: { impressions: 5_000 },
     windows: [{ day: 28, ran: true, controlsUsed: 3, adjustedLift }],
     dollarValue: usdPerMonth === undefined ? undefined : { usdPerMonth },

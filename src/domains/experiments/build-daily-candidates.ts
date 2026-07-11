@@ -20,6 +20,7 @@ import {
   type ExperimentEligibility,
 } from "./experiment-eligibility";
 import { deriveMeasurementMaturity, detectMeasurementOverlaps } from "@/domains/proof-gsc/measurement-maturity";
+import { isCalibratedVerdict } from "@/domains/proof-gsc/verdict-calibration";
 import { pageFamilyOf, type DailyCandidate } from "./daily-experiment-planner";
 import { proposeSafeMeta } from "./safe-meta";
 import { proposeSafeInternalLink, type LinkDestination, type InternalLinkProposal } from "./safe-internal-link";
@@ -269,7 +270,11 @@ function matureWonRecords(records: ShippedChangeRecord[], now: Date): ShippedCha
       overlap: overlaps.get(r.id) ?? null,
       live: true,
     });
-    return maturity === "mature_result" && r.verdict === "won";
+    // Fail-closed calibration quarantine (2026-07-11): family propagation copies a
+    // PROVEN win onto sibling pages, so an uncalibrated "won" must never seed it.
+    // With no calibrated wins, findFamilyPropagationCandidates gets an empty
+    // wonRecords list and proposes nothing (a fresh-tenant shape).
+    return maturity === "mature_result" && r.verdict === "won" && isCalibratedVerdict(r);
   });
 }
 

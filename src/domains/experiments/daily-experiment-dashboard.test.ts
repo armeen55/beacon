@@ -9,7 +9,7 @@ const rec = (slug: string, controls: string[]): ShippedChangeRecord => ({
   actionType: "edit_title", before: null, after: null, shippedAt: "2026-06-30T00:00:00.000Z",
   baseline: { clicks: 0, impressions: 100, ctr: 0, position: 5, windowDays: 28 }, targetQueries: ["q"],
   controlPages: controls, windows: [], verdict: "measuring", confidence: "low", measuredAt: null,
-  notes: null, verifiedLive: true, liveSourceUrl: null, recrawlRequestedAt: null, operatorVerdictOverride: null,
+  notes: null, verifiedLive: true, liveSourceUrl: null, recrawlRequestedAt: null, operatorVerdictOverride: null, calibrationVersion: null,
   createdAt: "2026-06-30T00:00:00.000Z", updatedAt: "2026-06-30T00:00:00.000Z",
 });
 

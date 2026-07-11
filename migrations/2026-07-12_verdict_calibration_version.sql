@@ -1,0 +1,24 @@
+-- GSC Proof ledger, verdict calibration version column (2026-07-11 quarantine).
+-- Additive + idempotent. Adds ONE column the corrected classifier will one day
+-- stamp when it re-measures a change under thresholds that pass Beacon's
+-- self-test:
+--   calibration_version  - the classifier version that produced this row's
+--                          verdict. NULL = measured under the pre-self-test
+--                          thresholds, i.e. UNCALIBRATED by definition. NO
+--                          default and NO backfill: every existing row stays
+--                          NULL, which is exactly what quarantines it.
+--
+-- WHY: a placebo self-test classified 40 of 40 untouched pages as wins/losses
+-- under the deployed thresholds, so every stored won/lost verdict is untrusted
+-- until a corrected classifier ships. isCalibratedVerdict (verdict-calibration
+-- .ts) returns true ONLY for a row whose calibration_version is a registered,
+-- self-test-passing version - NULL always fails closed. run-measurement.ts does
+-- NOT stamp this column (measurements still run under the old thresholds); only
+-- the future corrected classifier may write a version here.
+--
+-- The store tolerates the column being absent (PGRST204/42P01 -> file
+-- fallback), so applying this is deploy-order-independent, same posture as every
+-- other additive column on this table (verify_state, edit_diff,
+-- verdict_revisions, control_donor_pool, operator_verdict_override).
+alter table public.shipped_change_proof
+  add column if not exists calibration_version text;

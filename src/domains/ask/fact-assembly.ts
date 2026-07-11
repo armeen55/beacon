@@ -33,6 +33,7 @@ import { readPublishHealth } from "@/domains/push/publish-canary-store";
 import { loadOwnershipRegistryForTenant } from "@/domains/ownership/registry-loader";
 import { resolveOwner } from "@/domains/ownership/registry";
 import { plainChangeKind } from "@/lib/plain-language";
+import { displayProofOutcome } from "@/domains/proof-gsc/verdict-calibration";
 import type { RoutedQuestion, RankingMetric, AskQuestionClass } from "./router";
 import type { AskDossier, AskFact } from "./types";
 
@@ -40,6 +41,18 @@ const MAX_FACTS = 10;
 
 function fact(value: string, source: AskFact["source"], href: string): AskFact {
   return { value, source, href };
+}
+
+/**
+ * Fail-closed calibration quarantine (2026-07-11): the plain per-record label Ask
+ * speaks. An uncalibrated won/lost (measured under thresholds that failed Beacon's
+ * self-test) reads as "No clear change yet", never "Helped"/"Did not help";
+ * everything else keeps the normal maturity-aware label. Today every won/lost is
+ * uncalibrated, so no Ask answer claims a win off the quarantined ledger.
+ */
+function maturityLabelForRecord(r: { verdict: string; calibrationVersion?: string | null }): string {
+  if (displayProofOutcome(r).kind === "no_clear_effect_uncalibrated") return "No clear change yet";
+  return proofMaturityLabel(r.verdict, null);
 }
 
 function pct(n: number): string {
@@ -143,7 +156,7 @@ export async function assemblePageFacts(tenantId: string, pagePath: string): Pro
     // ("edit_meta", "add_answer_block") into a rendered answer.
     facts.push(
       fact(
-        `Changes shipped on ${pagePath}: ${recent.map((r) => `a ${plainChangeKind(r.actionType)} on ${r.shippedAt.slice(0, 10)} (${proofMaturityLabel(r.verdict, null)})`).join("; ")}.`,
+        `Changes shipped on ${pagePath}: ${recent.map((r) => `a ${plainChangeKind(r.actionType)} on ${r.shippedAt.slice(0, 10)} (${maturityLabelForRecord(r)})`).join("; ")}.`,
         "proof",
         `/results`,
       ),
@@ -481,7 +494,7 @@ export async function assembleMeasurementFacts(tenantId: string): Promise<AskFac
   // (when a revenue model is set) a dollar estimate - name both so "what did my last
   // batch do" answers with real weight, not just a win/loss label.
   for (const r of sorted.slice(0, 5)) {
-    const parts = [`${r.path}: a ${plainChangeKind(r.actionType)} shipped ${r.shippedAt.slice(0, 10)}, ${proofMaturityLabel(r.verdict, null)} (confidence: ${r.confidence})`];
+    const parts = [`${r.path}: a ${plainChangeKind(r.actionType)} shipped ${r.shippedAt.slice(0, 10)}, ${maturityLabelForRecord(r)} (confidence: ${r.confidence})`];
     if (r.dollarValue) parts.push(r.dollarValue.basisSentence);
     if (r.permutationRead && r.permutationRead.nTotal > 0) {
       parts.push(

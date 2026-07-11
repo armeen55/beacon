@@ -31,7 +31,7 @@ function ledgerRow(over: Partial<ShippedChangeRecord> = {}): ShippedChangeRecord
     verifiedLive: true,
     liveSourceUrl: null,
     recrawlRequestedAt: null,
-    operatorVerdictOverride: null,
+    operatorVerdictOverride: null, calibrationVersion: null,
     createdAt: "2026-06-30T00:00:00.000Z",
     updatedAt: "2026-07-28T00:00:00.000Z",
     ...over,

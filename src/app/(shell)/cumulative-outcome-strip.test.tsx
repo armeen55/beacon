@@ -5,7 +5,7 @@
  * reads (the honest frame with the real first-verdict date, never a bare
  * "we don't know yet").
  */
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, beforeAll, afterAll } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { CumulativeOutcomeStrip, latestMeasuredAt } from "./cumulative-outcome-strip";
 import {
@@ -16,6 +16,17 @@ import {
   buildWonDollarBreakdown,
   WON_DOLLAR_RULE_SENTENCE,
 } from "@/domains/proof-gsc/won-dollar-rule";
+import {
+  TEST_CALIBRATED_VERSION,
+  registerTestCalibratedVersion,
+  clearTestCalibratedVersions,
+} from "@/domains/proof-gsc/verdict-calibration-test-support";
+
+// Fail-closed calibration quarantine (2026-07-11): the WON fixture is CALIBRATED so
+// the strip still shows its measured value + dollar line; an uncalibrated win would
+// show none (proven by won-dollar-rule.test.ts + the gated splitLedgerLifecycle).
+beforeAll(registerTestCalibratedVersion);
+afterAll(clearTestCalibratedVersions);
 
 const NOW = new Date("2026-07-02T12:00:00Z");
 
@@ -24,6 +35,7 @@ const WON: CumulativeOutcomeRow = {
   path: "/best-persian-restaurants",
   shippedAt: "2026-05-20T00:00:00Z",
   verdict: "won",
+  calibrationVersion: TEST_CALIBRATED_VERSION,
   windows: [
     { day: 7, ran: true, controlsUsed: 3, adjustedLift: 20 },
     { day: 14, ran: true, controlsUsed: 3, adjustedLift: 41 },

@@ -10,9 +10,15 @@
  * dated against), not a rolling 24h window.
  */
 
+import { displayProofOutcome } from "./verdict-calibration";
+
 export type RecapRow = {
   shippedAt: string; // ISO
   verdict: string; // won | lost | inconclusive | measuring | insufficient_data
+  /** 2026-07-11 quarantine: classifier version behind this verdict, or null
+   *  (uncalibrated). Only a calibrated won counts as a win in the recap; an
+   *  uncalibrated decided row reads as still measuring, per the one-count rule. */
+  calibrationVersion?: string | null;
   path: string;
 };
 
@@ -45,9 +51,20 @@ export function buildWeeklyRecap(rows: RecapRow[], nowMs: number): WeeklyRecap {
     const t = Date.parse(r.shippedAt);
     return Number.isFinite(t) && t >= start && t < end;
   });
-  const won = week.filter((r) => r.verdict === "won");
-  const noLift = week.filter((r) => r.verdict === "lost" || r.verdict === "inconclusive" || r.verdict === "insufficient_data");
-  const measuring = week.filter((r) => r.verdict === "measuring");
+  // Fail-closed calibration quarantine (2026-07-11): count wins/no-lift through the
+  // shared selector so an uncalibrated won/lost is never a recap "win" or a "no
+  // clear lift" claim - it reads as still measuring, matching the one-count rule
+  // everywhere else. A calibrated read is unchanged.
+  const kindOf = (r: RecapRow) => displayProofOutcome(r).kind;
+  const won = week.filter((r) => kindOf(r) === "won");
+  const noLift = week.filter((r) => {
+    const k = kindOf(r);
+    return k === "lost" || k === "inconclusive" || k === "insufficient_data";
+  });
+  const measuring = week.filter((r) => {
+    const k = kindOf(r);
+    return k === "measuring" || k === "no_clear_effect_uncalibrated";
+  });
   return {
     shipped: week.length,
     won: won.length,

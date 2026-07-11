@@ -48,6 +48,7 @@ import {
   isMatureOutcome,
   type OverlapContext,
 } from "@/domains/proof-gsc/measurement-maturity";
+import { displayProofOutcome } from "@/domains/proof-gsc/verdict-calibration";
 import type { DailyExperimentItemStatus } from "@/domains/experiments/execution-state";
 
 export type LifecycleCounts = {
@@ -81,6 +82,11 @@ export type LedgerLifecycleRow = {
    *  it from every count so a ship + its revert reads as ONE change, never two. Optional:
    *  a legacy row without actionType is treated as a real change (never a false drop). */
   actionType?: string | null;
+  /** 2026-07-11 quarantine: the classifier version behind this verdict, or null
+   *  (uncalibrated). Optional so a legacy/partial row reads as null -> fail-closed:
+   *  a mature won/lost measured under the failed self-test lands in the measuring
+   *  bucket, never "won"/"learned". Carried straight off ShippedChangeRecord. */
+  calibrationVersion?: string | null;
 };
 
 /** The prefix run-revert.ts stamps on a revert's own ledger row's actionType
@@ -138,7 +144,17 @@ export function ledgerLifecycleStage(
     live: true,
   });
   if (!isMatureOutcome(maturity)) return "measuring";
-  return row.verdict === "won" ? "won" : "learned";
+  // Fail-closed calibration quarantine (2026-07-11): a mature won/lost measured
+  // under thresholds that failed Beacon's self-test is NOT a trustworthy win or
+  // loss. displayProofOutcome is the shared selector: a calibrated win/loss keeps
+  // its band; an uncalibrated one returns "no_clear_effect_uncalibrated" and lands
+  // in the SAME in-flight bucket as inconclusive/measuring - so every count tile
+  // that reads this split collapses together at once (the one-count rule), never
+  // claiming a "won" or a loss ("learned") the ledger cannot stand behind.
+  const outcome = displayProofOutcome({ verdict: row.verdict, calibrationVersion: row.calibrationVersion });
+  if (outcome.kind === "won") return "won";
+  if (outcome.kind === "lost") return "learned";
+  return "measuring";
 }
 
 export type LedgerLifecycleSplit<T> = { won: T[]; learned: T[]; measuring: T[] };

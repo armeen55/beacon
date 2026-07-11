@@ -12,7 +12,18 @@
  * algorithm-weather.ts, so a clean fixture never accidentally weather-
  * quarantines (same convention compute-scoreboard.test.ts uses).
  */
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import {
+  TEST_CALIBRATED_VERSION,
+  registerTestCalibratedVersion,
+  clearTestCalibratedVersions,
+} from "@/domains/proof-gsc/verdict-calibration-test-support";
+// Fail-closed calibration quarantine (2026-07-11): the money-surface fixtures are
+// CALIBRATED so these pin that a calibrated win still produces its dollar/
+// counterfactual row. An uncalibrated win produces no dollar claim (proven by
+// won-dollar-rule.test.ts and the gated splitLedgerLifecycle it rides).
+beforeAll(registerTestCalibratedVersion);
+afterAll(clearTestCalibratedVersions);
 
 import { buildLifetimeEarningsRows, buildCounterfactualRows } from "./scoreboard-section";
 import { computeLifetimeEarnings } from "@/domains/proof-gsc/lifetime-earnings";
@@ -79,7 +90,7 @@ function record(over: Partial<ShippedChangeRecord> = {}, path = "/p1"): ShippedC
     verifiedLive: true,
     liveSourceUrl: null,
     recrawlRequestedAt: null,
-    operatorVerdictOverride: null,
+    operatorVerdictOverride: null, calibrationVersion: TEST_CALIBRATED_VERSION,
     createdAt: "2026-04-15T00:00:00.000Z",
     updatedAt: "2026-05-13T00:00:00.000Z",
     ...over,

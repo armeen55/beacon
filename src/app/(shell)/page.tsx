@@ -54,6 +54,7 @@ import { buildScoreboard } from "@/domains/scoreboard/scoreboard";
 // P14 (Today dashboard pack) - the supporting briefing blocks that now live behind the ONE
 // "More on today" drill-down (slot 6). Pure selectors + token-only cards in src/components/today/**.
 import { adaptProofRecordForLead } from "@/components/today/today-lead-headline";
+import { displayProofOutcome } from "@/domains/proof-gsc/verdict-calibration";
 import { buildTodaySmokeAlarm } from "@/components/today/today-smoke-alarm";
 import { buildTodayGoalPace } from "@/components/today/today-goal-pace";
 import { TodayGoalPaceCard } from "@/components/today/today-briefing";
@@ -247,7 +248,7 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
   // Item 7 - Monday recap band: last week's outcomes in one sentence, from the ledger.
   const isMonday = nowPacific.toLocaleDateString("en-US", { weekday: "long", timeZone: "America/Los_Angeles" }) === "Monday";
   const recapSentence = isMonday
-    ? weeklyRecapSentence(buildWeeklyRecap(ledgerRows.map((r) => ({ shippedAt: r.shippedAt, verdict: r.verdict, path: r.path })), Date.now()))
+    ? weeklyRecapSentence(buildWeeklyRecap(ledgerRows.map((r) => ({ shippedAt: r.shippedAt, verdict: r.verdict, calibrationVersion: r.calibrationVersion, path: r.path })), Date.now()))
     : null;
   // Item 27 - the same Monday band gets one honest sentence on forecast accuracy, once at least
   // MIN_SETTLED_FOR_CALIBRATION picks have settled at their 28-day window. Fail-soft: any error
@@ -411,7 +412,10 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
         if (!Number.isFinite(seenMs)) return null;
         let sum = 0;
         for (const r of ledgerRows) {
-          if (r.verdict !== "won") continue;
+          // Fail-closed calibration quarantine (2026-07-11): only a calibrated win
+          // contributes to the "won since you were away" click figure; an
+          // uncalibrated won reads as no clear effect (never a summed win number).
+          if (displayProofOutcome(r).kind !== "won") continue;
           const settledMs = Date.parse(r.measuredAt ?? "");
           if (!Number.isFinite(settledMs) || settledMs <= seenMs) continue;
           const lift = adaptProofRecordForLead({

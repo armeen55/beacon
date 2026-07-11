@@ -1,4 +1,5 @@
 import type { MeasurementPresentation } from "@/domains/proof-gsc/measurement-maturity";
+import { displayProofOutcome, type CalibratableRecord } from "@/domains/proof-gsc/verdict-calibration";
 
 /**
  * proof-badge (operator-experience fix batch C, item C2) - collapses the
@@ -63,4 +64,15 @@ export function proofBadgeLabelFromVerdict(verdict: string, basisDay: number | n
   if (verdict === "lost") return basisDay != null && basisDay < 28 ? "Leaning bad" : "Did not help";
   if (verdict === "inconclusive") return "No clear change";
   return "Waiting"; // measuring / insufficient_data / stale
+}
+
+/**
+ * Fail-closed calibration quarantine (2026-07-11): true when a record's stored
+ * won/lost is UNCALIBRATED (measured under thresholds that failed Beacon's
+ * self-test). The card must then render the neutral "No clear change" badge, never
+ * "Helped"/"Did not help", and a neutral pill tone, never red/green. Reads the
+ * shared selector (verdict-calibration.ts). Today this is true for every won/lost.
+ */
+export function isUncalibratedDecidedRecord(record: CalibratableRecord): boolean {
+  return displayProofOutcome(record).kind === "no_clear_effect_uncalibrated";
 }

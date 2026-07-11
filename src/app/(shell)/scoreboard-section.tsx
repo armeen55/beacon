@@ -391,7 +391,14 @@ export async function ScoreboardSection({
           </div>
           <div className="flex items-center gap-3 text-[11px] text-gray-400 dark:text-neutral-500">
             <span className="inline-flex items-center gap-1"><span className="inline-block h-1.5 w-4 rounded bg-indigo-600" /> 7 day average</span>
-            <span className="inline-flex items-center gap-1"><span className="inline-block h-2 w-2 rounded-full bg-emerald-500" /> change that won</span>
+            {/* Fail-closed calibration quarantine (2026-07-11): the green "won" key
+                shows only when a real (calibrated) win marker is on the chart.
+                Uncalibrated wins render as neutral measured markers (scoreboard.ts
+                reads the gated splitLedgerLifecycle), so the legend never promises a
+                green dot the chart cannot honestly show. */}
+            {s.markers.some((m) => m.tone === "won") ? (
+              <span className="inline-flex items-center gap-1"><span className="inline-block h-2 w-2 rounded-full bg-emerald-500" /> change that won</span>
+            ) : null}
             <span className="inline-flex items-center gap-1"><span className="inline-block h-2 w-2 rounded-full bg-slate-400" /> measuring</span>
           </div>
         </div>

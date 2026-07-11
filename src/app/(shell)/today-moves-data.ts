@@ -47,6 +47,7 @@ import {
   type MeasurementPresentation,
 } from "@/domains/proof-gsc/measurement-maturity";
 import { proofCheckDates } from "@/domains/proof-gsc/measure";
+import { displayProofOutcome, UNCALIBRATED_NO_CLEAR_EFFECT_SENTENCE } from "@/domains/proof-gsc/verdict-calibration";
 import { countLedgerLifecycle } from "@/domains/changes/lifecycle-counts";
 import { loadDemandGraphForTenantCached } from "@/domains/demand-graph/load-graph";
 import { buildMeasuringHold, isHeldForMeasurement } from "./today-measuring-hold";
@@ -552,12 +553,12 @@ export async function buildTodayMovesData(
     // Outcome-threading (2026-06-28; Move 2): the most recent shipped change per page,
     // carrying its maturity presentation so a card shows honest measurement language
     // without opening Results. Keyed by canonical page URL. Display only.
-    const proofByPage = new Map<string, { pres: MeasurementPresentation; shippedAt: string; actionType: string }>();
+    const proofByPage = new Map<string, { pres: MeasurementPresentation; shippedAt: string; actionType: string; verdict: string; calibrationVersion: string | null }>();
     for (const r of ledger) {
       const key = canon(r.page) || canon(r.path);
       const prev = proofByPage.get(key);
       if (!prev || Date.parse(r.shippedAt) > Date.parse(prev.shippedAt)) {
-        proofByPage.set(key, { pres: presentationOf(r), shippedAt: r.shippedAt, actionType: r.actionType });
+        proofByPage.set(key, { pres: presentationOf(r), shippedAt: r.shippedAt, actionType: r.actionType, verdict: r.verdict, calibrationVersion: r.calibrationVersion });
       }
     }
     // Owned-page paths currently on measurement-hold (verdict still measuring,
@@ -948,6 +949,14 @@ export async function buildTodayMovesData(
           // fallback for it too, or this would resurrect exactly the stale
           // "Next read <date long past>" line the terminal state exists to kill.
           m.proofNextCheckpoint = p.maturity === "unresolved" ? null : p.nextCheckpoint ?? proofCheckDates(pr.shippedAt)[28];
+        } else if (displayProofOutcome({ verdict: pr.verdict, calibrationVersion: pr.calibrationVersion }).kind === "no_clear_effect_uncalibrated") {
+          // Fail-closed calibration quarantine (2026-07-11): a mature won/lost
+          // measured under thresholds that failed Beacon's self-test is not a
+          // trustworthy win/loss. Read it as no clear effect (never "won"/"no
+          // lift"), the one honest sentence, matching Results' band placement.
+          m.proofStatus = "measuring";
+          m.proofLabel = UNCALIBRATED_NO_CLEAR_EFFECT_SENTENCE;
+          m.proofNextCheckpoint = null; // the window closed; there is no next read to wait on
         } else if (p.verdict === "helped") {
           m.proofStatus = "won";
           m.proofLabel = p.headline; // "Helped" / "Likely helped"

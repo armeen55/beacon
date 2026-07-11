@@ -1,4 +1,14 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, beforeAll, afterAll } from "vitest";
+import {
+  TEST_CALIBRATED_VERSION,
+  registerTestCalibratedVersion,
+  clearTestCalibratedVersions,
+} from "@/domains/proof-gsc/verdict-calibration-test-support";
+// Fail-closed calibration quarantine (2026-07-11): won fixtures are CALIBRATED so the
+// cumulative strip pins calibrated behavior; an uncalibrated win contributes no
+// monthly-click/dollar figure (gated splitLedgerLifecycle).
+beforeAll(registerTestCalibratedVersion);
+afterAll(clearTestCalibratedVersions);
 
 import {
   computeCumulativeOutcome,
@@ -18,7 +28,7 @@ const NOW = new Date("2026-07-02T12:00:00Z");
 function wonRow(overrides: Partial<CumulativeOutcomeRow> & { id: string; path: string }): CumulativeOutcomeRow {
   return {
     shippedAt: "2026-05-20T00:00:00Z",
-    verdict: "won",
+    verdict: "won", calibrationVersion: TEST_CALIBRATED_VERSION,
     windows: [
       { day: 7, ran: true, controlsUsed: 3, adjustedLift: 20 },
       { day: 14, ran: true, controlsUsed: 3, adjustedLift: 41 },

@@ -32,6 +32,7 @@ import { log } from "@/lib/logger";
 import { loadShippedChanges, type ShippedChangeRecord } from "@/domains/proof-gsc/shipped-change-store";
 import { actionFamilyOf, type ExperimentFamily } from "@/domains/experiments/experiment-eligibility";
 import { deriveMeasurementMaturity } from "@/domains/proof-gsc/measurement-maturity";
+import { isCalibratedVerdict } from "@/domains/proof-gsc/verdict-calibration";
 import { classifyDraftPattern, aggregateWinsByPattern, bestConfidentPattern, patternInsightSentence, MIN_DECIDED_FOR_CONFIDENCE, PATTERN_LABEL, type DraftPatternId, type PatternOutcomeRow, type PatternCellTally } from "./draft-pattern";
 
 const STORE = "winner-memory";
@@ -124,6 +125,11 @@ function matureCtrLift(record: ShippedChangeRecord): number | null {
 
 function isMatureWon(record: ShippedChangeRecord, now: Date): boolean {
   if (record.verdict !== "won") return false;
+  // Fail-closed calibration quarantine (2026-07-11): an uncalibrated "won" is
+  // not a trustworthy winner, so it is never harvested as house style. With no
+  // calibrated wins, buildWinnerFewShots returns "" and the drafters run without
+  // few-shots (their existing designed fallback).
+  if (!isCalibratedVerdict(record)) return false;
   const maturity = deriveMeasurementMaturity({
     shippedAt: record.shippedAt,
     now,
@@ -276,6 +282,12 @@ export async function buildWinnerFewShots(
  *  same maturity gate harvestWinners already applies to "won". */
 function isDecided(record: ShippedChangeRecord, now: Date): boolean {
   if (record.verdict === "measuring") return false;
+  // Fail-closed calibration quarantine (2026-07-11): the pattern aggregate learns
+  // "which structure wins" from decided verdicts, so an uncalibrated row must not
+  // feed it either. With no calibrated decided rows the aggregate is empty and
+  // buildWinnerFewShotsWithPattern adds no style hint (byte-identical to a fresh
+  // tenant).
+  if (!isCalibratedVerdict(record)) return false;
   const maturity = deriveMeasurementMaturity({
     shippedAt: record.shippedAt,
     now,

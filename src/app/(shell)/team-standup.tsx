@@ -15,6 +15,7 @@ import { readCachedSerpPatterns } from "@/domains/serp/research-enrichment-produ
 import { readAllCachedKeywordDemand } from "@/domains/serp/dataforseo-keywords";
 import { loadBotReferralSignals } from "@/domains/profound-deep/load-bot-referral-signals";
 import { loadShippedChanges } from "@/domains/proof-gsc/shipped-change-store";
+import { displayProofOutcome } from "@/domains/proof-gsc/verdict-calibration";
 import { readAllCachedLlmMentions } from "@/domains/serp/dataforseo-llm-mentions";
 import { loadTeamScoreboardView, loadActiveSpecialistWeights } from "@/domains/team-scoreboard/load-team-scoreboard";
 import { recordLine } from "@/domains/team-scoreboard/brier";
@@ -271,7 +272,10 @@ async function buildLines(
   // 2026-07-02) - "measuring" here is the SAME canonical proof-ledger count the counts
   // tile and the measuring list use (passed in), not a locally-recomputed number, so this
   // chip never disagrees with the rest of the page on how many changes are measuring.
-  const won = ledger.filter((r) => r.verdict === "won").length;
+  // Fail-closed calibration quarantine (2026-07-11): the standup only ever claims a
+  // win the ledger can stand behind. Count calibrated wins only; with none, the
+  // "N won" clause and the "my changes have already won" line self-hide (won === 0).
+  const won = ledger.filter((r) => displayProofOutcome(r).kind === "won").length;
   lines.push({
     key: "llm",
     line:

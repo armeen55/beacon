@@ -1,4 +1,15 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import {
+  TEST_CALIBRATED_VERSION,
+  registerTestCalibratedVersion,
+  clearTestCalibratedVersions,
+} from "@/domains/proof-gsc/verdict-calibration-test-support";
+// Fail-closed calibration quarantine (2026-07-11): the shared ledger fixtures
+// default to CALIBRATED, so the lever-retirement wiring cases pin that calibrated
+// losses/wins still retire, retest, and unsuppress exactly as before. See the
+// dedicated uncalibrated case for the quarantine (no retirement off uncalibrated).
+beforeAll(registerTestCalibratedVersion);
+afterAll(clearTestCalibratedVersions);
 
 import { planDailyExperiments, scoreCandidate, pageFamilyOf, type DailyCandidate } from "./daily-experiment-planner";
 import type { ShippedChangeRecord } from "@/domains/proof-gsc/shipped-change-store";
@@ -14,7 +25,7 @@ const titleRec = (slug: string): ShippedChangeRecord => ({
   actionType: "edit_title", before: null, after: null, shippedAt: "2026-06-30T00:00:00.000Z",
   baseline: { clicks: 0, impressions: 100, ctr: 0, position: 5, windowDays: 28 }, targetQueries: ["q"],
   controlPages: CONTROLS, windows: [], verdict: "measuring", confidence: "low", measuredAt: null,
-  notes: null, verifiedLive: true, liveSourceUrl: null, recrawlRequestedAt: null, operatorVerdictOverride: null,
+  notes: null, verifiedLive: true, liveSourceUrl: null, recrawlRequestedAt: null, operatorVerdictOverride: null, calibrationVersion: TEST_CALIBRATED_VERSION,
   createdAt: "2026-06-30T00:00:00.000Z", updatedAt: "2026-06-30T00:00:00.000Z",
 });
 const ledger = ["persian-wolf", "persian-leopard"].map(titleRec);
@@ -357,7 +368,7 @@ const lostRec = (slug: string, settledAt: string, verdict: "lost" | "won" = "los
   actionType: "edit_title", before: null, after: null, shippedAt: settledAt,
   baseline: { clicks: 0, impressions: 100, ctr: 0, position: 5, windowDays: 28 }, targetQueries: ["q"],
   controlPages: [], windows: [], verdict, confidence: "low", measuredAt: settledAt,
-  notes: null, verifiedLive: true, liveSourceUrl: null, recrawlRequestedAt: null, operatorVerdictOverride: null,
+  notes: null, verifiedLive: true, liveSourceUrl: null, recrawlRequestedAt: null, operatorVerdictOverride: null, calibrationVersion: TEST_CALIBRATED_VERSION,
   createdAt: settledAt, updatedAt: settledAt,
 });
 
@@ -377,6 +388,25 @@ describe("planDailyExperiments — item 81 lever retirement wiring", () => {
     expect(plan.selected).toHaveLength(0);
     expect(plan.excluded.filter((e) => e.reason === "lever_retired")).toHaveLength(2);
     expect(plan.leverRetirements.find((r) => r.pageFamily === "cities" && r.lever === "title")?.status).toBe("retired");
+  });
+
+  it("fail-closed quarantine (2026-07-11): 3 UNCALIBRATED losses do NOT retire a cell (candidates pass)", () => {
+    // Same 3-loss cell as the retirement pin above, but every loss is uncalibrated -
+    // it was measured under thresholds that failed the self-test, so it cannot retire a
+    // lever. Both candidates survive, exactly like a tenant with no settled history.
+    const uncalibratedLosses = [
+      { ...lostRec("tehran", "2026-01-01T00:00:00Z"), calibrationVersion: null },
+      { ...lostRec("shiraz", "2026-01-10T00:00:00Z"), calibrationVersion: null },
+      { ...lostRec("isfahan", "2026-01-20T00:00:00Z"), calibrationVersion: null },
+    ];
+    const candidates = [
+      cand({ url: "https://iranopedia.com/cities/yazd", pageFamily: "cities", actionFamily: "title" }),
+      cand({ url: "https://iranopedia.com/cities/qom", pageFamily: "cities", actionFamily: "title" }),
+    ];
+    const plan = planDailyExperiments({ tenantId: "t", date: "d", candidates, proofLedger: uncalibratedLosses, config: { now: new Date("2026-01-25T00:00:00Z") } });
+    expect(plan.selected.length).toBeGreaterThan(0);
+    expect(plan.excluded.filter((e) => e.reason === "lever_retired")).toHaveLength(0);
+    expect(plan.leverRetirements).toHaveLength(0);
   });
 
   it("does NOT suppress a different lever on the same page family (retirement is per-cell)", () => {

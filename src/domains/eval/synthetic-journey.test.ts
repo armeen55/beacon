@@ -1,4 +1,14 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import {
+  TEST_CALIBRATED_VERSION,
+  registerTestCalibratedVersion,
+  clearTestCalibratedVersions,
+} from "@/domains/proof-gsc/verdict-calibration-test-support";
+// Fail-closed calibration quarantine (2026-07-11): the closed-loop settled wins are
+// CALIBRATED so this end-to-end pin still shows learning flowing back into the
+// prior. An uncalibrated win would train nothing (proven in outcome-prior.test.ts).
+beforeAll(registerTestCalibratedVersion);
+afterAll(clearTestCalibratedVersions);
 
 /**
  * synthetic-journey (BEACON_500 N37, 2026-07-03, R22b) - ONE end-to-end
@@ -146,9 +156,9 @@ describe("synthetic journey: find -> hold -> prepare -> ship -> measure -> learn
     //    action type, closing the loop. Three settled wins earn a positive prior
     //    that would re-rank the SAME kind of move up next time. ──
     const priors = computeOutcomePriors([
-      { actionType: "add_answer_block", verdict: "won" },
-      { actionType: "add_answer_block", verdict: "won" },
-      { actionType: "add_answer_block", verdict: "won" },
+      { actionType: "add_answer_block", verdict: "won", calibrationVersion: TEST_CALIBRATED_VERSION },
+      { actionType: "add_answer_block", verdict: "won", calibrationVersion: TEST_CALIBRATED_VERSION },
+      { actionType: "add_answer_block", verdict: "won", calibrationVersion: TEST_CALIBRATED_VERSION },
     ]);
     expect(priors.get("add_answer_block")).toBe(1);
     // The loop is coherent: the item that was FOUND and SHIPPED and MEASURED as a

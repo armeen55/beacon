@@ -34,6 +34,7 @@ import {
 } from "@/domains/proof-gsc/measurement-maturity";
 import { buildShockWindows, overlappingShock, type ShockWindow } from "@/domains/proof-gsc/algorithm-weather";
 import { loadDetectedChangepoints } from "@/domains/proof-gsc/algorithm-weather-store";
+import { learningEligibleVerdict } from "@/domains/proof-gsc/verdict-calibration";
 import type { ProofOutcomeRow } from "@/domains/demand-graph/proof-outcome-caution";
 
 /**
@@ -109,7 +110,15 @@ export function maturityGatedVerdict(
   // a mature, cleanly-attributed, weather-clean result STILL doesn't train the
   // prior when its own comparison pages were a fallback match.
   if (r.controlMatchWeak === true) return "measuring";
-  return r.verdict;
+  // Fail-closed calibration quarantine (2026-07-11): even a mature, clean,
+  // weather-clean, well-matched result STILL doesn't train the prior when it was
+  // measured under thresholds that failed Beacon's self-test. learningEligibleVerdict
+  // is the shared choke point (verdict-calibration.ts): it returns the real verdict
+  // for a calibrated row and null for an uncalibrated one (every row today). A
+  // neutralized decided verdict reads as "measuring", exactly like the gates above.
+  const eligible = learningEligibleVerdict(r);
+  if (eligible != null) return eligible;
+  return r.verdict === "won" || r.verdict === "lost" ? "measuring" : r.verdict;
 }
 
 /**
