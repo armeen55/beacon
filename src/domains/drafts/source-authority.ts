@@ -491,6 +491,49 @@ export function hasQualifyingAuthoritativeSource(
 }
 
 /**
+ * Drafter last-mile G6 (2026-07-10): does ONE authoritative page's FULL TEXT
+ * entail the draft's own claims? Used at GENERATION time by the drafter's
+ * source-verification step to decide whether a fetchable authoritative page whose
+ * model-written META-claim did not span-match should STILL verify. A roundup list
+ * page ("List of Iranian singers") backs its many names through the PAGE, not
+ * through the one-line claim the model attached to the citation; requiring the
+ * meta-claim to span-match wrongly forced such a page to `weak`.
+ *
+ * The bar is the SAME per-sentence + negation-parity discipline as
+ * draftFactsCoveredBySources (never looser): a protected draft sentence counts
+ * only when the page yields findSupportingSpan(sentence, pageText).supported AND
+ * the two agree in negation parity. `entails` is true when at least one protected
+ * sentence is covered (this page genuinely backs part of the draft; the full
+ * every-sentence arbitration still happens in draftFactsCoveredBySources). Returns
+ * the first covering span so a verified roundup source still carries a persistable
+ * ~400-char receipt for the fetchedText-stripped render path. PURE, no I/O.
+ */
+export function pageEntailsDraftClaims(
+  draftText: string,
+  pageText: string,
+  nowYear: number = new Date().getFullYear(),
+): { entails: boolean; excerpt: string | null; contentHash: string | null } {
+  const text = (draftText ?? "").trim();
+  const page = (pageText ?? "").trim();
+  if (!text || !page) return { entails: false, excerpt: null, contentHash: null };
+  const structural = groundedNumberSet("", nowYear);
+  const protectedSentences = text
+    .split(/(?<=[.!?])\s+/)
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .filter((s) => sentenceIsProtected(s, structural));
+  if (protectedSentences.length === 0) return { entails: false, excerpt: null, contentHash: null };
+  let first: { excerpt: string; contentHash: string } | null = null;
+  for (const sentence of protectedSentences) {
+    const span = findSupportingSpan(sentence, page, nowYear);
+    if (!span.supported || span.excerpt == null) continue;
+    if (negationParity(sentence) !== negationParity(span.excerpt)) continue;
+    if (!first) first = { excerpt: span.excerpt, contentHash: span.contentHash ?? "" };
+  }
+  return { entails: first != null, excerpt: first?.excerpt ?? null, contentHash: first?.contentHash ?? null };
+}
+
+/**
  * Drafter last-mile G4 (2026-07-10): the MARKETING-superlative net (bare
  * promotional ranking words) the structured drafter's content firewall uses,
  * lifted here so the drafter and the coverage check agree on what counts as a

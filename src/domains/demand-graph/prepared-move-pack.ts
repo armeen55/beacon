@@ -241,9 +241,14 @@ export function isPackStale(pack: PreparedMovePack, currentEvidenceHash: string,
 
 /** Projection for durable storage. The pack is already compact (it references the
  *  packet by hash, never embeds it), so this is near-identity - it exists as the
- *  single choke point for any future size trimming, and pairs with parse below. */
+ *  single choke point for any future size trimming, and pairs with parse below.
+ *  G6 (2026-07-10): the replacer DROPS any transient `fetchedText` a source
+ *  carries. That full-page text (up to 200 KB) is set at generation time ONLY, to
+ *  let per-claim coverage back a roundup; it is never part of SourceRefSchema and
+ *  must never reach a store - stripping it here is the single, load-bearing choke
+ *  point (and keeps the pack under the persist size cap). */
 export function toPersistedPack(pack: PreparedMovePack): string {
-  return JSON.stringify(pack);
+  return JSON.stringify(pack, (key, val) => (key === "fetchedText" ? undefined : val));
 }
 
 /** Parse a persisted pack. Fail-soft → null on any malformed/legacy content. */

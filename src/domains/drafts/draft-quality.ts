@@ -276,6 +276,27 @@ function resolveSourceHold(
   };
 }
 
+/**
+ * Drafter last-mile G6 (2026-07-10): when a draft is ALREADY fully covered by a
+ * verified authoritative source but ALSO cites an authority-strong source Beacon
+ * could not read (a 403/robots block), return a one-line note naming it. The
+ * draft is paste-ready on its verified backing - the blocked citation never holds
+ * it hostage - but the operator is told plainly so they can drop or check that one
+ * citation. Returns undefined when there is no such blocked authoritative source.
+ * Authority is re-derived here, never the LLM's guess.
+ */
+function blockedAuthoritativeNote(
+  sources: readonly ClassifiableSource[] | undefined,
+  allowlist: readonly string[] | undefined,
+): string | undefined {
+  const blocked = (sources ?? []).filter(
+    (s) => s.fetchBlocked === true && s.verified !== true && classifySourceAuthority(s, allowlist) === "authoritative",
+  );
+  if (blocked.length === 0) return undefined;
+  const domain = extractDomain(blocked[0]!) || "one cited source";
+  return `I could not read ${domain} myself (it blocks robots), but this draft is fully backed by other verified sources, so it is safe to paste. Drop or check that citation if you like.`;
+}
+
 // ── answer-block / opening quality ────────────────────────────────────────────
 
 export type EvaluateDraftInput = {
@@ -448,6 +469,7 @@ export function evaluateDraftQuality(input: EvaluateDraftInput): DraftQualityRes
   //    (a generic evidence-count was always a weaker proxy for a real,
   //    checkable citation). canRegenerate is false, redrafting cannot
   //    invent authority; the honest fix is "add a source."
+  let blockedSourceNote: string | undefined;
   if (isFactualClaim(answer)) {
     const coverage = draftFactsCoveredBySources(answer, input.sources, input.authoritativeSourceDomains);
     if (!coverage.covered) {
@@ -456,6 +478,12 @@ export function evaluateDraftQuality(input: EvaluateDraftInput): DraftQualityRes
       // silently ready - copy stays blocked until the operator checks it.
       return resolveSourceHold(coverage, input.sources, input.authoritativeSourceDomains);
     }
+    // G6 (2026-07-10) multi-source combination: the draft IS fully covered by a
+    // verified authoritative source. An ADDITIONAL citation that Beacon could not
+    // read (403/robots block) must NOT hold the draft hostage - classify by the
+    // covered status - but it is noted so the operator knows one citation was
+    // unreadable while the draft still stands on its verified backing.
+    blockedSourceNote = blockedAuthoritativeNote(input.sources, input.authoritativeSourceDomains);
   }
 
   // 10. J-70 (soft): the tenant's first-mention rule (native script +
@@ -465,7 +493,7 @@ export function evaluateDraftQuality(input: EvaluateDraftInput): DraftQualityRes
   if (!firstMention.ok) {
     return {
       status: "useful_but_needs_review",
-      reasons: [firstMention.reason],
+      reasons: [firstMention.reason, ...(blockedSourceNote ? [blockedSourceNote] : [])],
       copyAllowed: true,
       canRegenerate: false,
       confidence: "high",
@@ -475,7 +503,10 @@ export function evaluateDraftQuality(input: EvaluateDraftInput): DraftQualityRes
 
   return {
     status: "ready",
-    reasons: ["Answers the topic with page-specific context; no risky claims detected."],
+    reasons: [
+      "Answers the topic with page-specific context; no risky claims detected.",
+      ...(blockedSourceNote ? [blockedSourceNote] : []),
+    ],
     copyAllowed: true,
     canRegenerate: false,
     confidence: "high",

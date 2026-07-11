@@ -4,6 +4,7 @@ import {
   stampSourceAuthority,
   hasQualifyingAuthoritativeSource,
   draftFactsCoveredBySources,
+  pageEntailsDraftClaims,
   extractDomain,
   claimTokens,
   findSupportingSpan,
@@ -625,6 +626,47 @@ describe("draftFactsCoveredBySources - G6 roundup full-text coverage", () => {
     };
     const draft = "The Northgate Museum holds 3000 artifacts.";
     expect(draftFactsCoveredBySources(draft, [excerptOnly]).covered).toBe(true);
+  });
+});
+
+// ── FIX 2 (pilot re-run): pageEntailsDraftClaims - the verify-time full-text gate ──
+describe("pageEntailsDraftClaims - G6 full-text entailment for source verification", () => {
+  const draft =
+    "The Northgate Museum holds 3000 artifacts. The Riverside Gallery opened downtown.";
+
+  it("a page whose full text carries the draft's sentences entails, with a first covering span", () => {
+    const pageText =
+      "The Northgate Museum holds 3000 artifacts in its permanent collection. " +
+      "The Riverside Gallery opened downtown near the plaza a decade ago.";
+    const r = pageEntailsDraftClaims(draft, pageText);
+    expect(r.entails).toBe(true);
+    expect(r.excerpt).not.toBeNull();
+    expect(r.excerpt!.length).toBeLessThanOrEqual(pageText.length);
+    expect(r.contentHash).toMatch(/^[0-9a-f]{16}$/);
+  });
+
+  it("an UNRELATED page does not entail (the content-mismatch weak path stays intact)", () => {
+    const r = pageEntailsDraftClaims(draft, "This page is about unrelated kitchen appliance reviews and shipping policies only.");
+    expect(r.entails).toBe(false);
+    expect(r.excerpt).toBeNull();
+  });
+
+  it("negation parity holds: an affirmative page never entails a negated claim", () => {
+    const negated = "The Northgate Museum does not hold 3000 artifacts.";
+    const affirmativePage = "The Northgate Museum holds 3000 artifacts in its permanent collection.";
+    expect(pageEntailsDraftClaims(negated, affirmativePage).entails).toBe(false);
+  });
+
+  it("entails when at least ONE protected sentence is covered (partial backing is a real source)", () => {
+    // Only the first sentence is on the page; entails is true (this page genuinely
+    // backs part of the draft). Whole-draft coverage is decided by draftFactsCoveredBySources.
+    const pageText = "The Northgate Museum holds 3000 artifacts in its permanent collection.";
+    expect(pageEntailsDraftClaims(draft, pageText).entails).toBe(true);
+  });
+
+  it("empty draft or empty page never entails", () => {
+    expect(pageEntailsDraftClaims("", "some page text about museums holding artifacts").entails).toBe(false);
+    expect(pageEntailsDraftClaims(draft, "").entails).toBe(false);
   });
 });
 

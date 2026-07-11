@@ -47,6 +47,7 @@ import {
   deserializeStructuredDraft,
   type CompleteFn,
 } from "./structured-drafter";
+import { draftFactsCoveredBySources } from "@/domains/drafts/source-authority";
 
 const GROUNDED = "persian wedding traditions sofreh aghd aghd jashn reception ceremony canopy";
 
@@ -138,6 +139,42 @@ describe("callStructuredLLM — validate / retry / fail-closed", () => {
   it("REJECTS an invented multi-digit number not present in the grounding (firewall)", async () => {
     const invented = JSON.stringify({ ...validAnswer, answer: validAnswer.answer + " The tradition dates to exactly 1847 in every region." });
     const r = await callStructuredLLM({ kind: "answer_block", system: "s", user: "u", grounded: GROUNDED, complete: fakeComplete([{ text: invented }]) });
+    expect(r.status).toBe("validation_failed");
+    if (r.status === "validation_failed") expect(r.errors.some((e) => e.includes("firewall:invented_numbers"))).toBe(true);
+  });
+
+  // ── FIX 1 (pilot re-run): the numeric firewall scans PROSE, never citation metadata ──
+  const withCitationDate = (retrievedAt: string, extraAnswer = ""): string =>
+    JSON.stringify({
+      ...validAnswer,
+      answer: validAnswer.answer + extraAnswer,
+      sources: [
+        {
+          url: "https://en.wikipedia.org/wiki/Persian_wedding",
+          title: "Persian wedding",
+          domain: "wikipedia.org",
+          retrievedAt,
+          claim: "a Persian wedding centers on the sofreh aghd ceremonial spread",
+          authority: "unverified",
+        },
+      ],
+    });
+
+  it("the exact re-run case: a source retrievedAt of 2026-07-11 no longer fails a grounded-prose draft", async () => {
+    const r = await callStructuredLLM({ kind: "answer_block", system: "s", user: "u", grounded: GROUNDED, complete: fakeComplete([{ text: withCitationDate("2026-07-11") }]) });
+    expect(r.status).toBe("drafted");
+  });
+
+  it("still REJECTS a fabricated prose year even when the citation date is clean", async () => {
+    const r = await callStructuredLLM({ kind: "answer_block", system: "s", user: "u", grounded: GROUNDED, complete: fakeComplete([{ text: withCitationDate("2026", " The oldest ceremony on record dates to 1723.") }]) });
+    expect(r.status).toBe("validation_failed");
+    if (r.status === "validation_failed") expect(r.errors.some((e) => e.includes("firewall:invented_numbers:1723"))).toBe(true);
+  });
+
+  it("no laundering: a prose number matching ONLY the citation date still fails (metadata is never added to the ledger)", async () => {
+    // "2026-07-11" in the ANSWER: 2026 is the grounded year, but 07 and 11 appear
+    // nowhere in the grounding and only as this citation's own date -> still caught.
+    const r = await callStructuredLLM({ kind: "answer_block", system: "s", user: "u", grounded: GROUNDED, complete: fakeComplete([{ text: withCitationDate("2026-07-11", " The custom was codified on 2026-07-11 nationwide.") }]) });
     expect(r.status).toBe("validation_failed");
     if (r.status === "validation_failed") expect(r.errors.some((e) => e.includes("firewall:invented_numbers"))).toBe(true);
   });
@@ -738,6 +775,96 @@ describe("W5 P0-1 - generation-time source verification", () => {
       expect(s.finalUrl).toBe("https://www.britannica.com/topic/persian-wedding");
       expect(s.domain).toBe("britannica.com");
       expect(s.url).toBe("https://www.britannica.com/topic/persian-wedding");
+    }
+  });
+});
+
+// ── FIX 2 (pilot re-run): roundup full-text coverage wired into verification ──
+describe("G6 - verifyStampedSources threads full page text into coverage", () => {
+  // A roundup answer (>=80 words, no numbers) of one-entity sentences a single
+  // list page carries, but whose model-written META-claim will NOT span-match.
+  const ROUNDUP_ANSWER =
+    "The Northgate Museum holds a permanent collection of regional artifacts. " +
+    "The Riverside Gallery opened downtown near the central plaza. " +
+    "The Old Mill served the valley farmers for generations. " +
+    "The Harbor Lighthouse guided passing ships into the bay. " +
+    "The Grand Theatre staged classical operas each winter season. " +
+    "The Central Library preserved rare manuscripts from the surrounding region. " +
+    "The Stone Bridge crossed the river beside the old market square. " +
+    "The Clock Tower marked the hours for the town below. " +
+    "The Garden Pavilion hosted concerts through the warm summer evenings.";
+  const LIST_PAGE_TEXT =
+    "The Northgate Museum holds a permanent collection of regional artifacts and paintings. " +
+    "The Riverside Gallery opened downtown near the central plaza many years ago. " +
+    "The Old Mill served the valley farmers for generations before it closed. " +
+    "The Harbor Lighthouse guided passing ships into the bay each night. " +
+    "The Grand Theatre staged classical operas each winter season for decades. " +
+    "The Central Library preserved rare manuscripts from the surrounding region carefully. " +
+    "The Stone Bridge crossed the river beside the old market square downtown. " +
+    "The Clock Tower marked the hours for the town below faithfully. " +
+    "The Garden Pavilion hosted concerts through the warm summer evenings.";
+
+  const roundupDraft = (metaClaim: string): string =>
+    JSON.stringify({
+      ...validAnswer,
+      answer: ROUNDUP_ANSWER,
+      sources: [
+        {
+          url: "https://en.wikipedia.org/wiki/List_of_old_city_landmarks",
+          title: "List of old city landmarks",
+          domain: "wikipedia.org",
+          retrievedAt: "2026-07-11",
+          claim: metaClaim,
+          authority: "unverified",
+        },
+      ],
+    });
+
+  it("verifies an allowlisted list page via FULL TEXT even when its meta-claim does not span-match, and covers the whole roundup", async () => {
+    const sourceFetch = vi.fn(async () => ({ ok: true, text: LIST_PAGE_TEXT }));
+    const r = await callStructuredLLM({
+      kind: "answer_block",
+      system: "s",
+      user: "u",
+      grounded: GROUNDED,
+      complete: fakeComplete([{ text: roundupDraft("A curated overview summarizing the cultural institutions of the old city.") }]),
+      sourceFetch,
+      authoritativeSourceDomains: ["wikipedia.org"],
+      now: new Date("2026-07-10T12:00:00.000Z"),
+    });
+    expect(r.status).toBe("drafted");
+    if (r.status === "drafted") {
+      const s = (r.value as { sources: Array<{ verified?: boolean; authority: string; fetchedText?: string; supportingExcerpt?: string }> }).sources[0]!;
+      // The meta-claim did not span-match, but the page's full text entails the draft.
+      expect(s.verified).toBe(true);
+      expect(s.authority).toBe("authoritative");
+      // The full fetched text is threaded (transient) so per-claim coverage works.
+      expect(s.fetchedText).toBe(LIST_PAGE_TEXT);
+      expect(s.supportingExcerpt).toBeTruthy();
+      // The threaded full text lets ONE page cover every roundup sentence.
+      const cov = draftFactsCoveredBySources(ROUNDUP_ANSWER, (r.value as { sources: Array<{ verified?: boolean }> }).sources, ["wikipedia.org"]);
+      expect(cov.covered).toBe(true);
+    }
+    expect(sourceFetch).toHaveBeenCalledTimes(1); // one fetch, respects the cap
+  });
+
+  it("does NOT verify when the fetched page entails nothing (content-mismatch stays weak)", async () => {
+    const sourceFetch = vi.fn(async () => ({ ok: true, text: "This page is about unrelated kitchen appliance reviews and shipping policies only." }));
+    const r = await callStructuredLLM({
+      kind: "answer_block",
+      system: "s",
+      user: "u",
+      grounded: GROUNDED,
+      complete: fakeComplete([{ text: roundupDraft("A curated overview of the old city landmarks.") }]),
+      sourceFetch,
+      authoritativeSourceDomains: ["wikipedia.org"],
+    });
+    expect(r.status).toBe("drafted");
+    if (r.status === "drafted") {
+      const s = (r.value as { sources: Array<{ verified?: boolean; authority: string; fetchedText?: string }> }).sources[0]!;
+      expect(s.verified).toBe(false);
+      expect(s.authority).toBe("weak");
+      expect(s.fetchedText).toBeUndefined();
     }
   });
 });

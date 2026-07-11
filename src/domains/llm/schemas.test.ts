@@ -9,7 +9,7 @@ import {
   SectionDraftSchema,
   SourceRefSchema,
   SCHEMA_BY_KIND,
-  draftStringValues,
+  draftProseStringValues,
   type StructuredDraftKind,
 } from "./schemas";
 
@@ -332,9 +332,24 @@ describe("StrategyReviewSchema (BEACON 500 item 51)", () => {
   });
 });
 
-describe("draftStringValues", () => {
+describe("draftProseStringValues", () => {
   it("flattens nested strings and ignores numbers", () => {
-    const vals = draftStringValues({ a: "one", b: [{ c: "two" }, "three"], n: 14, deep: { d: "four" } });
+    const vals = draftProseStringValues({ a: "one", b: [{ c: "two" }, "three"], n: 14, deep: { d: "four" } });
     expect(vals.sort()).toEqual(["four", "one", "three", "two"]);
+  });
+
+  it("SKIPS the sources citation array so its metadata never reaches the firewall", () => {
+    const vals = draftProseStringValues({
+      answer: "prose the operator pastes",
+      sources: [
+        { url: "https://en.wikipedia.org/wiki/x", retrievedAt: "2026-07-11", claim: "a source claim", domain: "wikipedia.org" },
+      ],
+      evidenceRefs: [{ source: "gsc", detail: "kept: real grounding provenance" }],
+    });
+    expect(vals).toContain("prose the operator pastes");
+    expect(vals).toContain("kept: real grounding provenance");
+    expect(vals).not.toContain("2026-07-11");
+    expect(vals).not.toContain("a source claim");
+    expect(vals.join(" ")).not.toContain("wikipedia.org");
   });
 });

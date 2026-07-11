@@ -577,14 +577,29 @@ export const LLM_OUTPUT_SCHEMAS = {
 } as const;
 export type LlmOutputSchemaName = keyof typeof LLM_OUTPUT_SCHEMAS;
 
-/** Every string field in a parsed draft, flattened — fed to the content firewalls
- *  (numeric-fidelity / placeholder / em-dash / superlative) in the drafter. */
-export function draftStringValues(value: unknown): string[] {
+/** Every CUSTOMER-FACING PROSE string in a parsed draft, flattened - fed to the
+ *  content firewalls (numeric-fidelity / placeholder / em-dash / superlative) in
+ *  the drafter. Deliberately SKIPS the `sources` citation array: those fields
+ *  (retrievedAt, url, finalUrl, contentHash, domain, and the source's own
+ *  claim/excerpt) are machine-emitted citation METADATA - re-stamped by
+ *  source-authority.ts and verified against the real fetched page by the drafter's
+ *  source-verification step - not prose an operator pastes. Scanning them made the
+ *  numeric firewall reject a whole draft for the digits of a citation's own
+ *  retrievedAt date ("2026-07-11" -> "07,11") that the product's own prompt told
+ *  the model to emit. The grounded-number ledger is unchanged, so a fabricated
+ *  number IN PROSE - including a date-shaped one present only as a citation date
+ *  and nowhere in the grounding - still fails (no laundering through metadata). */
+export function draftProseStringValues(value: unknown): string[] {
   const out: string[] = [];
   const walk = (v: unknown): void => {
     if (typeof v === "string") out.push(v);
     else if (Array.isArray(v)) v.forEach(walk);
-    else if (v && typeof v === "object") Object.values(v as Record<string, unknown>).forEach(walk);
+    else if (v && typeof v === "object") {
+      for (const [k, val] of Object.entries(v as Record<string, unknown>)) {
+        if (k === "sources") continue; // citation metadata, verified separately - never prose
+        walk(val);
+      }
+    }
   };
   walk(value);
   return out;

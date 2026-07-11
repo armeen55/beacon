@@ -109,4 +109,30 @@ describe("toPersistedPack / parsePreparedPack round-trip", () => {
     expect(parsePreparedPack("{not json")).toBeNull();
     expect(parsePreparedPack(JSON.stringify({ version: 2 }))).toBeNull();
   });
+
+  it("G6: strips a source's transient fetchedText so the full page text never reaches a store", () => {
+    const p = packet("answer_block", { competitorFacts: facts() });
+    const pack = buildPreparedMovePack({ tenantId: "t", packet: p, opinions: [], decision: routeMove({ packet: p, opinions: [] }), nowIso: NOW });
+    // Simulate a generation-time draft that threaded the fetched full page text.
+    const bigPage = "MUSEUM ".repeat(5000); // ~35 KB of "full page" text
+    (pack as unknown as { structuredDraft: unknown }).structuredDraft = {
+      kind: "answer_block",
+      value: {
+        answer: "A grounded roundup answer the operator can paste.",
+        sources: [
+          { url: "https://en.wikipedia.org/wiki/x", domain: "wikipedia.org", verified: true, supportingExcerpt: "MUSEUM MUSEUM", fetchedText: bigPage },
+        ],
+      },
+    };
+    const serialized = toPersistedPack(pack);
+    expect(serialized).not.toContain("fetchedText");
+    expect(serialized).not.toContain(bigPage);
+    // The rest of the source (the persistable receipt) survives.
+    expect(serialized).toContain("supportingExcerpt");
+    const parsed = parsePreparedPack(serialized) as unknown as {
+      structuredDraft: { value: { sources: Array<{ fetchedText?: string; supportingExcerpt?: string }> } };
+    };
+    expect(parsed.structuredDraft.value.sources[0]!.fetchedText).toBeUndefined();
+    expect(parsed.structuredDraft.value.sources[0]!.supportingExcerpt).toBe("MUSEUM MUSEUM");
+  });
 });

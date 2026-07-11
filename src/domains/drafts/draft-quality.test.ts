@@ -230,6 +230,44 @@ describe("evaluateDraftQuality - G5 needs_source_check", () => {
     expect(r.copyAllowed).toBe(true);
   });
 
+  it("G6 combination: a covered draft NOTES the blocked citation but is not held hostage by it", () => {
+    const r = evaluateDraftQuality({
+      answer: CHEETAH,
+      sources: [
+        { domain: "britannica.com", claim: "blocked one", verified: false, fetchBlocked: true },
+        {
+          domain: "iranicaonline.org",
+          claim: "the Asiatic cheetah is Iran's national animal and is critically endangered",
+          verified: true,
+          supportingExcerpt: CHEETAH,
+        },
+      ],
+      authoritativeSourceDomains: ["iranicaonline.org"],
+    });
+    expect(r.status).toBe("ready");
+    expect(r.copyAllowed).toBe(true);
+    // The primary reason is unchanged; the blocked citation is noted as a trailing line.
+    expect(r.reasons[0]).toBe("Answers the topic with page-specific context; no risky claims detected.");
+    expect(r.reasons.some((x) => x.includes("britannica.com") && x.includes("safe to paste"))).toBe(true);
+  });
+
+  it("no blocked source -> a covered draft has NO extra note (byte-identical ready reasons)", () => {
+    const r = evaluateDraftQuality({
+      answer: CHEETAH,
+      sources: [
+        {
+          domain: "iranicaonline.org",
+          claim: "the Asiatic cheetah is Iran's national animal and is critically endangered",
+          verified: true,
+          supportingExcerpt: CHEETAH,
+        },
+      ],
+      authoritativeSourceDomains: ["iranicaonline.org"],
+    });
+    expect(r.status).toBe("ready");
+    expect(r.reasons).toEqual(["Answers the topic with page-specific context; no risky claims detected."]);
+  });
+
   it("qualityLabel maps needs_source_check to a plain 'Check the source' chip", () => {
     expect(qualityLabel("needs_source_check")).toBe("Check the source");
   });

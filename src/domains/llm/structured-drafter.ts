@@ -20,6 +20,7 @@ import { sanitizeEvidenceTexts, sanitizeNullableEvidence, sanitizeEvidenceText }
 import {
   stampSourceAuthority,
   findSupportingSpan,
+  pageEntailsDraftClaims,
   classifySourceAuthority,
   extractDomain,
   ungroundedSuperlatives,
@@ -28,7 +29,7 @@ import {
 import { safeFetchSourceText } from "@/lib/net/safe-source-fetch";
 import {
   SCHEMA_BY_KIND,
-  draftStringValues,
+  draftProseStringValues,
   type StructuredDraftKind,
   type AnswerBlockDraft,
   type AtomicEditDraft,
@@ -325,6 +326,9 @@ function resetSourceVerification(s: Record<string, unknown>): void {
   // G5 (2026-07-10): an LLM-supplied `fetchBlocked` must never survive either -
   // only a real 403-class fetch below is allowed to set it.
   delete s.fetchBlocked;
+  // G6 (2026-07-10): the transient full-page text is set ONLY by a real fetch
+  // below (never the model); wipe any inbound value so it cannot be spoofed.
+  delete s.fetchedText;
 }
 
 /**
@@ -382,6 +386,11 @@ async function verifyStampedSources(
   nowIso: string,
   nowYear: number,
   tenantAllowlist: readonly string[] | undefined,
+  // G6 (2026-07-10): the draft's own customer-facing prose (answer/openingAnswer/
+  // after/...). Threaded so a fetchable authoritative page whose META-claim did
+  // not span-match can STILL verify when its full page text entails the draft's
+  // sentences - the roundup case, where one Wikipedia list page backs many names.
+  draftText: string | null,
 ): Promise<unknown> {
   if (!value || typeof value !== "object") return value;
   const v = value as Record<string, unknown>;
@@ -467,8 +476,35 @@ async function verifyStampedSources(
       s.verifiedAt = nowIso;
       if (sup.excerpt != null) s.supportingExcerpt = sup.excerpt;
       if (sup.contentHash != null) s.contentHash = sup.contentHash;
+      // G6 (2026-07-10): thread the FULL fetched page text (transient, never
+      // persisted - stripped at the store boundary) so per-claim coverage can back
+      // the OTHER roundup sentences this one page covers, not just this claim's span.
+      s.fetchedText = fetched.text;
+    } else if (finalAuthority === "authoritative") {
+      // G6 roundup path: the model's meta-claim ("Summarizes X as ...") did not
+      // span-match, but this is a REAL authoritative page we just READ. If its full
+      // text entails the draft's own sentences (a list page backing many names),
+      // verify it and thread the full text through to per-claim coverage. This
+      // reuses the SAME per-sentence + negation-parity discipline as the coverage
+      // gate (never a looser bar), so a page that entails nothing stays weak.
+      const entail = draftText ? pageEntailsDraftClaims(draftText, fetched.text, nowYear) : { entails: false, excerpt: null, contentHash: null };
+      if (entail.entails) {
+        s.url = finalUrl;
+        s.domain = finalHost;
+        s.finalUrl = finalUrl;
+        s.authority = "authoritative";
+        s.verified = true;
+        s.verifiedAt = nowIso;
+        // A representative covering span so the persisted (fetchedText-stripped)
+        // render path still shows a real ~400-char receipt for this source.
+        if (entail.excerpt != null) s.supportingExcerpt = entail.excerpt;
+        if (entail.contentHash != null && entail.contentHash !== "") s.contentHash = entail.contentHash;
+        s.fetchedText = fetched.text;
+      } else {
+        s.authority = "weak";
+      }
     } else {
-      // unreachable-quality match, weak final host, or no supporting span.
+      // weak final host, or no supporting span on a non-authoritative page.
       s.authority = "weak";
     }
   }
@@ -757,7 +793,7 @@ export async function callStructuredLLM<K extends StructuredDraftKind>(
     // W5 (J-69): the LLM may PROPOSE sources, but only source-authority.ts
     // decides `authority`, re-stamp before any firewall/cache/return step.
     const result = { ...parsed, data: stampAnySources(parsed.data, req.authoritativeSourceDomains) as typeof parsed.data };
-    const fw = runContentFirewalls(draftStringValues(result.data), ledger, {
+    const fw = runContentFirewalls(draftProseStringValues(result.data), ledger, {
       deferSuperlativeCheck: req.kind === "answer_block",
     });
     if (!fw.ok) {
@@ -805,6 +841,7 @@ export async function callStructuredLLM<K extends StructuredDraftKind>(
           verifyNowIso,
           nowYear,
           req.authoritativeSourceDomains,
+          primary,
         )) as z.infer<(typeof SCHEMA_BY_KIND)[K]>)
       : (stripSourceVerificationFields(result.data) as z.infer<(typeof SCHEMA_BY_KIND)[K]>);
 
