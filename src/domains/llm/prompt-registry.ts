@@ -30,7 +30,14 @@ export const PROMPT_REGISTRY = {
   // unprovable superlative), paired with a verification-aware superlative
   // post-check + rephrase retry - a contract change, so the cache must not
   // serve a stale v2 response.
-  "draft.answer_block": 3,
+  // Bumped to v4 (2026-07-10, pilot loop 4): the system prompt now instructs
+  // citing each named entity's OWN reference page for an entity-rich roundup
+  // (never a bare list/index page) and prefers a tenant's allowlisted domains
+  // / the "sources you may cite" hint when they genuinely cover the claim; the
+  // superlative rephrase-retry instruction now also forbids swapping in a NEW
+  // ungrounded superlative. A prompt-wording change, so the cache must not
+  // serve a stale v3 response under the new guidance.
+  "draft.answer_block": 4,
   "draft.atomic_edit": 1,
   "draft.create_page_brief": 1,
   "draft.cro_fix": 1,

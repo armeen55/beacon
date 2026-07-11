@@ -248,3 +248,31 @@ describe("prepareTodayMovesForTenant - RANK-3 live Google-results winnability", 
     expect(persisted?.winnabilityLine ?? "").not.toMatch(/[–—]/);
   });
 });
+
+describe("prepareTodayMovesForTenant - pilot loop 4 reference-candidate wiring", () => {
+  it("threads the packet's OWN AI-cited competitor URLs into the answer-block drafter as referenceCandidates (zero new fetches)", async () => {
+    const runSerp = vi.fn(async () => serpResult("ok", CONTENT_SNAPSHOT, 0.003));
+    await prepareTodayMovesForTenant("tenant-iranopedia", {
+      now: () => new Date("2026-07-06T00:00:00Z"),
+      runSerp: runSerp as never,
+    });
+    expect(draftAnswerBlockStructured).toHaveBeenCalledTimes(1);
+    const [input] = vi.mocked(draftAnswerBlockStructured).mock.calls[0]!;
+    // packet() -> move() carries competitorUrls: ["https://competitor.com/tea"] -
+    // buildEvidencePacket puts that at competitor.topUrl, no I/O performed here.
+    expect((input as { referenceCandidates?: string[] }).referenceCandidates).toEqual(["https://competitor.com/tea"]);
+  });
+
+  it("renders an empty referenceCandidates array (never undefined/an error) when the packet has no competitor URL", async () => {
+    vi.mocked(loadChangePacksForTenant).mockResolvedValue({
+      packets: [packet({ competitorUrls: [] })],
+    } as never);
+    const runSerp = vi.fn(async () => serpResult("ok", CONTENT_SNAPSHOT, 0.003));
+    await prepareTodayMovesForTenant("tenant-iranopedia", {
+      now: () => new Date("2026-07-06T00:00:00Z"),
+      runSerp: runSerp as never,
+    });
+    const [input] = vi.mocked(draftAnswerBlockStructured).mock.calls[0]!;
+    expect((input as { referenceCandidates?: string[] }).referenceCandidates).toEqual([]);
+  });
+});

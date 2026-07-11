@@ -10,6 +10,8 @@ import {
   findSupportingSpan,
   ungroundedSuperlatives,
   findAllSuperlatives,
+  isEntityRichTopic,
+  looksLikeListOrIndexUrl,
 } from "./source-authority";
 
 describe("classifySourceAuthority (W5, J-69)", () => {
@@ -729,5 +731,72 @@ describe("ungroundedSuperlatives + findAllSuperlatives - G4 superlative-parity",
         "Many artists shaped Persian pop. Googoosh is the most famous Iranian pop singer, known across generations.",
     };
     expect(ungroundedSuperlatives(draft, [src])).toEqual([]);
+  });
+});
+
+describe("isEntityRichTopic (pilot loop 4) - entity-rich roundup vs single-fact topic", () => {
+  it("a roundup naming several singers (3+ distinct entities, one per outline fragment) is entity-rich", () => {
+    const fragments = [
+      "famous iranian singers",
+      "Googoosh",
+      "Vigen",
+      "Mohammad-Reza Shajarian",
+      "Shahram Nazeri",
+      "Hayedeh",
+      "Ebi",
+      "Dariush",
+      "Mahasti",
+      "Homeyra",
+    ];
+    expect(isEntityRichTopic(fragments)).toBe(true);
+  });
+
+  it("a single-fact topic (0-2 named entities) is NOT entity-rich", () => {
+    const fragments = ["what is the national animal of Iran", "The Asiatic Cheetah is Iran's national animal"];
+    expect(isEntityRichTopic(fragments)).toBe(false);
+  });
+
+  it("empty or entity-free fragments are not entity-rich", () => {
+    expect(isEntityRichTopic([])).toBe(false);
+    expect(isEntityRichTopic(["what does this cost", "how long does it take"])).toBe(false);
+  });
+
+  it("a possessive form of the SAME entity does not double-count it", () => {
+    expect(isEntityRichTopic(["Iran", "Iran's national animal"])).toBe(false);
+  });
+
+  it("the minEntities threshold is respected (3 passes at 3, fails at 4)", () => {
+    const fragments = ["Googoosh", "Vigen", "Shajarian"];
+    expect(isEntityRichTopic(fragments, 3)).toBe(true);
+    expect(isEntityRichTopic(fragments, 4)).toBe(false);
+  });
+});
+
+describe("looksLikeListOrIndexUrl (pilot loop 4) - filters bare list/index pages from citation hints", () => {
+  it("flags a Wikipedia List_of_ index page (the exact proven gap)", () => {
+    expect(looksLikeListOrIndexUrl("https://en.wikipedia.org/wiki/List_of_Iranian_singers")).toBe(true);
+  });
+
+  it("flags a plural Lists_of_ index page too", () => {
+    expect(looksLikeListOrIndexUrl("https://en.wikipedia.org/wiki/Lists_of_composers")).toBe(true);
+  });
+
+  it("flags a bare directory index page", () => {
+    expect(looksLikeListOrIndexUrl("https://example.com/singers/index.html")).toBe(true);
+    expect(looksLikeListOrIndexUrl("https://example.com/singers/index")).toBe(true);
+  });
+
+  it("does NOT flag one entity's own reference/biography page", () => {
+    expect(looksLikeListOrIndexUrl("https://en.wikipedia.org/wiki/Googoosh")).toBe(false);
+    expect(looksLikeListOrIndexUrl("https://www.britannica.com/biography/Mohammad-Reza-Shajarian")).toBe(false);
+  });
+
+  it("does not false-positive on an entity name that merely contains the letters \"list\"", () => {
+    expect(looksLikeListOrIndexUrl("https://en.wikipedia.org/wiki/Liston")).toBe(false);
+  });
+
+  it("is false for an empty or malformed URL (nothing to flag)", () => {
+    expect(looksLikeListOrIndexUrl("")).toBe(false);
+    expect(looksLikeListOrIndexUrl("not a url at all")).toBe(false);
   });
 });

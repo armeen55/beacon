@@ -176,6 +176,19 @@ function evidenceHintsFor(packet: EvidencePacket): string[] {
   ].filter(Boolean);
 }
 
+/** Pilot loop 4 (2026-07-10): the packet's own AI-cited competitor URLs (topUrl +
+ *  otherUrls, already loaded from the tenant's citation tables by the graph builder,
+ *  ZERO new fetches here) as "sources you may cite" candidates for the answer-block
+ *  drafter. A bare list/index URL (a shared roundup page like "List_of_X") is filtered
+ *  OUT by the drafter itself (looksLikeListOrIndexUrl, structured-drafter.ts), so this
+ *  is deliberately un-filtered here - just the cheap candidate pool the drafter then
+ *  narrows down. Empty when the packet carries no competitor URL, never an error. */
+function referenceCandidatesFor(packet: EvidencePacket): string[] {
+  return [packet.competitor.topUrl, ...(packet.competitor.otherUrls ?? [])].filter(
+    (u): u is string => !!u,
+  );
+}
+
 async function draftForPacket(
   packet: EvidencePacket,
   tenantId: string,
@@ -202,7 +215,12 @@ async function draftForPacket(
   };
   if (packet.move.gapType === "answer_block") {
     return draftAnswerBlockStructured(
-      { ...common, brief: packet.draft.answerBlockBrief, faqs: packet.draft.faqQuestions.length ? packet.draft.faqQuestions : packet.demand.fanoutSeeds },
+      {
+        ...common,
+        brief: packet.draft.answerBlockBrief,
+        faqs: packet.draft.faqQuestions.length ? packet.draft.faqQuestions : packet.demand.fanoutSeeds,
+        referenceCandidates: referenceCandidatesFor(packet),
+      },
       opts,
     ) as Promise<StructuredDraftResult<{ evidenceRefs: unknown[]; operatorSteps: string[]; risks: string[] }>>;
   }

@@ -1061,6 +1061,17 @@ describe("W5 P2 - answer-block word-count retry (never caches a too-thin answer)
     expect(systems[1]).toContain("80 to 150 words");
   });
 
+  it("pilot loop 4: the too-thin retry ALSO forbids introducing a new superlative while lengthening", async () => {
+    const systems: string[] = [];
+    let i = 0;
+    const complete: CompleteFn = async ({ system }) => {
+      systems.push(system);
+      return { text: [JSON.stringify({ ...validAnswer, answer: THIN }), JSON.stringify(validAnswer)][i++]! };
+    };
+    await callStructuredLLM({ kind: "answer_block", system: "s", user: "u", grounded: GROUNDED, complete, recentOutputs: [] });
+    expect(systems[1]).toMatch(/do NOT introduce a new superlative/i);
+  });
+
   it("ships the thin answer as-is when the retry is still short (never fails closed; the gate holds it)", async () => {
     const r = await callStructuredLLM({
       kind: "answer_block",
@@ -1254,5 +1265,191 @@ describe("G4 - superlative grounding, rephrase retry, fail-closed", () => {
     });
     expect(r.status).toBe("validation_failed");
     if (r.status === "validation_failed") expect(r.errors.some((e) => e === "firewall:superlative")).toBe(true);
+  });
+});
+
+describe("pilot loop 4 - entity-reference source guidance (the roundup gap)", () => {
+  it("appends the entity-own-reference-page instruction for an entity-rich roundup (3+ named entities)", async () => {
+    let capturedSystem = "";
+    await draftAnswerBlockStructured(
+      {
+        query: "famous iranian singers",
+        pageLabel: "Famous Iranian Singers",
+        brief: null,
+        outline: ["Googoosh", "Vigen", "Mohammad-Reza Shajarian", "Shahram Nazeri"],
+        faqs: [],
+      },
+      { complete: async ({ system }) => { capturedSystem = system; return { text: JSON.stringify(validAnswer) }; } },
+    );
+    expect(capturedSystem).toContain("ENTITY'S OWN");
+    expect(capturedSystem).toContain("never a bare list or index page");
+  });
+
+  it("omits the entity-reference instruction for a single-fact topic (0-2 named entities)", async () => {
+    let capturedSystem = "";
+    await draftAnswerBlockStructured(
+      {
+        query: "national animal of Iran",
+        pageLabel: "Iran Animals",
+        brief: "The Asiatic Cheetah is Iran's national animal",
+        outline: [],
+        faqs: [],
+      },
+      { complete: async ({ system }) => { capturedSystem = system; return { text: JSON.stringify(validAnswer) }; } },
+    );
+    expect(capturedSystem).not.toContain("ENTITY'S OWN");
+    expect(capturedSystem).not.toContain("never a bare list or index page");
+  });
+});
+
+describe("pilot loop 4 - 'sources you may cite' evidence hint (cheap, deterministic, no new fetches)", () => {
+  it("renders no hint line when no reference candidates are given (back-compat)", async () => {
+    let capturedUser = "";
+    await draftAnswerBlockStructured(
+      { query: "persian wedding traditions", pageLabel: "Persian Wedding", brief: null, outline: [], faqs: [] },
+      { complete: async ({ user }) => { capturedUser = user; return { text: JSON.stringify(validAnswer) }; } },
+    );
+    expect(capturedUser).not.toContain("Sources you may cite");
+  });
+
+  it("renders the hint with the candidate URL once a genuine entity-page candidate is given", async () => {
+    let capturedUser = "";
+    await draftAnswerBlockStructured(
+      {
+        query: "famous iranian singers",
+        pageLabel: "Famous Iranian Singers",
+        brief: null,
+        outline: [],
+        faqs: [],
+        referenceCandidates: ["https://en.wikipedia.org/wiki/Googoosh"],
+      },
+      { complete: async ({ user }) => { capturedUser = user; return { text: JSON.stringify(validAnswer) }; } },
+    );
+    expect(capturedUser).toContain("Sources you may cite");
+    expect(capturedUser).toContain("https://en.wikipedia.org/wiki/Googoosh");
+  });
+
+  it("filters a bare list/index URL out of the hint (the exact proven gap: List_of_Iranian_singers)", async () => {
+    let capturedUser = "";
+    await draftAnswerBlockStructured(
+      {
+        query: "famous iranian singers",
+        pageLabel: "Famous Iranian Singers",
+        brief: null,
+        outline: [],
+        faqs: [],
+        referenceCandidates: ["https://en.wikipedia.org/wiki/List_of_Iranian_singers"],
+      },
+      { complete: async ({ user }) => { capturedUser = user; return { text: JSON.stringify(validAnswer) }; } },
+    );
+    expect(capturedUser).not.toContain("Sources you may cite");
+    expect(capturedUser).not.toContain("List_of_Iranian_singers");
+  });
+
+  it("dedupes and caps the reference candidates at 5", async () => {
+    let capturedUser = "";
+    const many = Array.from({ length: 8 }, (_, i) => `https://example.com/artist-${i}`);
+    await draftAnswerBlockStructured(
+      {
+        query: "famous iranian singers",
+        pageLabel: "Famous Iranian Singers",
+        brief: null,
+        outline: [],
+        faqs: [],
+        referenceCandidates: [...many, many[0]!], // a repeat of the first URL
+      },
+      { complete: async ({ user }) => { capturedUser = user; return { text: JSON.stringify(validAnswer) }; } },
+    );
+    const line = capturedUser.split("\n").find((l) => l.startsWith("Sources you may cite"))!;
+    expect(many.filter((u) => line.includes(u)).length).toBe(5);
+  });
+
+  it("omits the allowlist-preference line when no tenant allowlist is supplied", async () => {
+    let capturedUser = "";
+    await draftAnswerBlockStructured(
+      { query: "persian wedding traditions", pageLabel: "Persian Wedding", brief: null, outline: [], faqs: [] },
+      { complete: async ({ user }) => { capturedUser = user; return { text: JSON.stringify(validAnswer) }; } },
+    );
+    expect(capturedUser).not.toContain("allowlisted authoritative domains");
+  });
+
+  it("two-tenant: tenant A's allowlisted domains never leak into tenant B's prompt", async () => {
+    let capturedUserA = "";
+    let capturedUserB = "";
+    await draftAnswerBlockStructured(
+      { query: "famous iranian singers", pageLabel: "Singers", brief: null, outline: [], faqs: [] },
+      {
+        complete: async ({ user }) => { capturedUserA = user; return { text: JSON.stringify(validAnswer) }; },
+        authoritativeSourceDomains: ["wikipedia.org", "britannica.com"],
+      },
+    );
+    await draftAnswerBlockStructured(
+      { query: "ritz builders team", pageLabel: "Builders", brief: null, outline: [], faqs: [] },
+      {
+        complete: async ({ user }) => { capturedUserB = user; return { text: JSON.stringify(validAnswer) }; },
+        authoritativeSourceDomains: ["ritzbuilders.com"],
+      },
+    );
+    expect(capturedUserA).toContain("wikipedia.org, britannica.com");
+    expect(capturedUserB).toContain("ritzbuilders.com");
+    expect(capturedUserA).not.toContain("ritzbuilders.com");
+    expect(capturedUserB).not.toContain("wikipedia.org");
+  });
+});
+
+describe("pilot loop 4 - superlative rephrase retry never introduces a NEW superlative", () => {
+  const withSource = (answer: string): string =>
+    JSON.stringify({
+      ...validAnswer,
+      answer,
+      sources: [
+        {
+          url: "https://www.britannica.com/biography/googoosh",
+          title: "Googoosh",
+          domain: "britannica.com",
+          retrievedAt: "2026",
+          claim: "Persian weddings center on the sofreh aghd ceremonial spread",
+          authority: "unverified",
+        },
+      ],
+    });
+
+  it("the retry system prompt explicitly forbids swapping in a NEW superlative", async () => {
+    const sourceFetch = vi.fn(async () => ({
+      ok: true,
+      text: "Persian weddings center on the sofreh aghd ceremonial spread laid before the couple.",
+    }));
+    const systems: string[] = [];
+    const complete: CompleteFn = async ({ system }) => {
+      systems.push(system);
+      return { text: withSource("Googoosh is the most famous Iranian pop singer. " + validAnswer.answer) };
+    };
+    await callStructuredLLM({ kind: "answer_block", system: "s", user: "u", grounded: GROUNDED, complete, sourceFetch });
+    expect(systems).toHaveLength(2);
+    expect(systems[1]).toContain("Do NOT swap it for a");
+    expect(systems[1]).toMatch(/no new superlative/i);
+    expect(systems[1]).toMatch(/concrete grounded fact is always the better answer/i);
+  });
+
+  it("swapping to a DIFFERENT ungrounded superlative on retry still fails closed (no loophole)", async () => {
+    const sourceFetch = vi.fn(async () => ({
+      ok: true,
+      text: "Persian weddings center on the sofreh aghd ceremonial spread laid before the couple.",
+    }));
+    const r = await callStructuredLLM({
+      kind: "answer_block",
+      system: "s",
+      user: "u",
+      grounded: GROUNDED,
+      complete: fakeComplete([
+        { text: withSource("Googoosh is the most famous Iranian pop singer. " + validAnswer.answer) },
+        { text: withSource("Googoosh is the leading Iranian pop singer. " + validAnswer.answer) },
+      ]),
+      sourceFetch,
+    });
+    expect(r.status).toBe("validation_failed");
+    if (r.status === "validation_failed") {
+      expect(r.errors.some((e) => e.startsWith("superlative_ungrounded"))).toBe(true);
+    }
   });
 });

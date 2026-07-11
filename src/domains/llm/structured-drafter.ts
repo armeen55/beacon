@@ -24,6 +24,8 @@ import {
   classifySourceAuthority,
   extractDomain,
   ungroundedSuperlatives,
+  isEntityRichTopic,
+  looksLikeListOrIndexUrl,
   type ClassifiableSource,
 } from "@/domains/drafts/source-authority";
 import { safeFetchSourceText } from "@/lib/net/safe-source-fetch";
@@ -143,15 +145,26 @@ const SUPERLATIVES = /\b(best|leading|#1|number one|top-rated|guaranteed|world-c
  *  superlative no cited source proves. Instructs the model to REPHRASE to a
  *  grounded, non-superlative fact (the honest fix the operator made by hand:
  *  "most celebrated" -> "the defining voices in classical music", grounded by
- *  the honors/dates), rather than blanket-banning the superlative-intent topic. */
+ *  the honors/dates), rather than blanket-banning the superlative-intent topic.
+ *
+ *  Pilot loop 4 (2026-07-10): the pilot's second real run showed the model can
+ *  satisfy this by swapping ONE ungrounded superlative for a DIFFERENT
+ *  ungrounded one ("most famous" -> "the leading voice") - still a fail-closed
+ *  reject, just on a fresh phrase. Strengthened below to rule that out
+ *  explicitly and to state the preference plainly: a concrete grounded fact
+ *  always beats any superlative, grounded or not. */
 const SUPERLATIVE_REPHRASE_INSTRUCTION =
   'Your previous answer used a superlative or ranking claim (for example "most famous", ' +
   '"most celebrated", "leading", "best-known", "the first") that none of your cited sources ' +
-  "actually states. Do NOT simply repeat it, and do NOT drop the topic. REPHRASE it as a " +
-  "grounded, non-superlative fact using the specific honors, dates, roles, and works in the " +
-  'evidence: for example write "a defining voice in classical Persian music, awarded the UNESCO ' +
-  'Mozart Medal" instead of "the most celebrated singer". Only keep a superlative if a cited ' +
-  "source explicitly asserts that exact superlative.";
+  "actually states. Do NOT simply repeat it, and do NOT drop the topic. Do NOT swap it for a " +
+  'DIFFERENT unproven superlative either (for example replacing "most famous" with "leading" or ' +
+  '"best-known" is still ungrounded and will fail again) - introduce NO new superlative or ranking ' +
+  "claim that was not in your first answer. REPHRASE it as a grounded, non-superlative fact using " +
+  'the specific honors, dates, roles, and works in the evidence: for example write "a defining ' +
+  'voice in classical Persian music, awarded the UNESCO Mozart Medal" instead of "the most ' +
+  'celebrated singer". A concrete grounded fact is always the better answer than any superlative - ' +
+  "prefer it every time. Only keep a superlative if a cited source explicitly asserts that exact " +
+  "superlative.";
 
 /** Em/en-dashes are a STYLE issue, not a trust issue — normalize them to hyphens
  *  in every string field before validation, so a good draft isn't rejected for
@@ -743,7 +756,13 @@ export async function callStructuredLLM<K extends StructuredDraftKind>(
       } else if (lastFailureWasThin) {
         // W5 (J-71): the first answer was under the 80-word floor - retry asking
         // for the full band rather than an "invalid output" correction.
-        system = `${req.system}\n\nYour previous answer was too short. Write a complete answer of 80 to 150 words, grounded ONLY in the evidence provided.`;
+        // Pilot loop 4 (2026-07-10): a live re-run showed the model can lengthen a
+        // too-thin answer by adding a FRESH ungrounded superlative ("a leading
+        // classical vocalist") instead of more grounded facts - the same loophole
+        // SUPERLATIVE_REPHRASE_INSTRUCTION already closes for a superlative-
+        // triggered retry, but this retry reason never carried that reminder. State
+        // it here too, so lengthening never trades away groundedness.
+        system = `${req.system}\n\nYour previous answer was too short. Write a complete answer of 80 to 150 words, grounded ONLY in the evidence provided. Add the missing length with MORE grounded facts (names, dates, honors, works) - do NOT introduce a new superlative or ranking claim while lengthening it.`;
       } else {
         system = `${req.system}\n\nYour previous output was invalid: ${errors.slice(-3).join(" | ")}. Return ONLY valid JSON matching the described shape, with non-empty evidenceRefs.`;
         // R16 numeric repair: when the failure was an ungrounded number, inject
@@ -941,6 +960,16 @@ export type AnswerBlockStructuredInput = {
    *  pattern aggregate. Optional - omitting it (or having no confident cell yet) leaves
    *  the prompt byte-identical to the item-30 few-shot behavior, never an error. */
   pageFamily?: string;
+  /** Pilot loop 4 (2026-07-10): known reference URLs for the entities this
+   *  topic names (e.g. the tenant's own AI-citation table for this cluster, or
+   *  the page's own outbound links), cheap to include - NO new fetch happens
+   *  here or at prompt time. Rendered as "sources you may cite" ONLY after a
+   *  bare list/index URL is filtered out (looksLikeListOrIndexUrl) and the
+   *  list is deduped + capped; empty/all-filtered input renders nothing, the
+   *  system-prompt guidance below still applies on its own. Never trusted as
+   *  verified - the existing generation-time source-verification step (W5
+   *  P0-1) still fetches + checks whatever the model actually cites. */
+  referenceCandidates?: string[];
 };
 
 const ANSWER_BLOCK_SYSTEM =
@@ -961,7 +990,41 @@ const ANSWER_BLOCK_SYSTEM =
   // front, so the drafter usually clears the verification-aware post-check on the
   // first attempt (the rephrase retry is the safety net, not the norm).
   "If the topic is inherently superlative (a \"most famous\" or \"best\" roundup), do NOT assert a superlative you cannot cite; instead ground it in the specific honors, dates, works, and roles in the evidence (for example \"a defining voice in classical Persian music, awarded the UNESCO Mozart Medal\" rather than \"the most celebrated singer\"). Only use a superlative if a cited source explicitly states that exact superlative. " +
+  // Pilot loop 4 (2026-07-10): the model was choosing correctly-authoritative
+  // domains but the WRONG PAGE on that domain (a shared list/index page) to back
+  // a specific person's fact. When the user message below includes a "Sources
+  // you may cite" list or this tenant's allowlisted domains, use them as a
+  // starting point ONLY when the exact page actually supports the claim - never
+  // cite a page just because it is on an allowlisted domain or was suggested.
+  "When the evidence below includes a \"Sources you may cite\" list or a tenant's allowlisted domains, prefer a citation from among them, but ONLY when that exact page genuinely supports the specific claim you are citing it for; never fabricate a URL and never cite a page that does not actually discuss the claim. " +
   "The FIRST sentence must be specific to THIS exact page/topic — name the concrete subject, not a generic category. Do NOT open with a context-free dictionary definition (e.g. \"A gift is a voluntarily transferred item…\"); a reader must immediately know which specific topic this answers. Never defer or punt (\"varies\", \"check elsewhere\", \"consult other sources\") — answer directly. Do not claim something is \"official\" unless the grounding states it.";
+
+/**
+ * Pilot loop 4 (2026-07-10): appended to ANSWER_BLOCK_SYSTEM ONLY for an
+ * entity-rich topic (isEntityRichTopic - a roundup naming 3+ distinct named
+ * entities, e.g. "famous Iranian singers"). Proven gap from the pilot re-run:
+ * the model correctly cited an authoritative, on-topic page (Wikipedia's
+ * List_of_Iranian_singers) but that page is a bare INDEX - it names each
+ * singer without discussing their honors/songs, so it cannot entail any
+ * per-singer claim, while that SAME singer's own Wikipedia article covered 3
+ * of 6 sentences in a live replay. This instructs the model to reach for the
+ * entity's own page in the first place, so per-claim coverage (source-
+ * authority.ts's draftFactsCoveredBySources) has something that actually
+ * entails the sentence instead of holding the whole roundup at
+ * needs_source_check for a structural, avoidable reason. */
+const ENTITY_REFERENCE_INSTRUCTION =
+  " This topic names several different people, places, or things (a roundup). For EACH named " +
+  "entity's own factual claim (an honor, a song, a role, a date, a work), cite that ENTITY'S OWN " +
+  "reference page (their own encyclopedia article, e.g. en.wikipedia.org/wiki/<Entity_Name>) - " +
+  'never a bare list or index page (for example a page titled or path-shaped like "List of ...") ' +
+  "for that claim. A list/index page can confirm an entity EXISTS or belongs to a group, but it " +
+  "cannot back a specific fact ABOUT that entity. One citation may cover more than one claim only " +
+  "when that exact page's own text genuinely discusses those claims, not merely lists the name.";
+
+/** Pilot loop 4: how many "sources you may cite" candidates ever reach the
+ *  prompt - a hint, not a citation list; more than a handful would just bury
+ *  the model in URLs it still has to individually verify are relevant. */
+const MAX_REFERENCE_CANDIDATES = 5;
 
 /** Draft a schema-valid AnswerBlockDraft for one Move. Capped + budgeted. */
 export async function draftAnswerBlockStructured(
@@ -989,6 +1052,18 @@ export async function draftAnswerBlockStructured(
     evidenceHints.join(" "),
   ].join(" ");
   const dir = intentDirective(input.intent);
+
+  // Pilot loop 4: known reference URLs for the entities this topic names -
+  // deterministic, no new fetch. A bare list/index URL (the exact proven gap:
+  // the model citing "List_of_Iranian_singers" for one singer's facts) is
+  // filtered out here BEFORE it ever reaches the prompt, so the hint can only
+  // ever point at a page that could plausibly entail a per-entity claim.
+  // Deduped + capped; empty (or fully filtered) input renders no hint line at
+  // all - the ANSWER_BLOCK_SYSTEM guidance above still applies on its own.
+  const referenceCandidates = [
+    ...new Set(sanitizeEvidenceTexts(input.referenceCandidates ?? []).filter((u) => !looksLikeListOrIndexUrl(u))),
+  ].slice(0, MAX_REFERENCE_CANDIDATES);
+
   const user = [
     `Search/topic: "${input.query}"`,
     dir ? `What the searcher wants: ${dir}` : "",
@@ -997,6 +1072,12 @@ export async function draftAnswerBlockStructured(
     outline.length ? `Grounded sections: ${outline.join("; ")}` : "",
     faqs.length ? `Related questions: ${faqs.slice(0, 6).join("; ")}` : "",
     evidenceHints.length ? `Evidence the team established: ${evidenceHints.join("; ")}` : "",
+    referenceCandidates.length
+      ? `Sources you may cite (each entity's own reference page - verify the exact page covers the specific claim before citing it): ${referenceCandidates.join("; ")}`
+      : "",
+    opts.authoritativeSourceDomains?.length
+      ? `This tenant's allowlisted authoritative domains (prefer a citation from one of these when a relevant page exists there, but only if it actually covers the claim): ${opts.authoritativeSourceDomains.join(", ")}`
+      : "",
     "",
     "Return the JSON now.",
   ]
@@ -1019,9 +1100,17 @@ export async function draftAnswerBlockStructured(
     fewShots = await buildWinnerFewShots(input.tenantId, "answer").catch(() => "");
   }
 
+  // Pilot loop 4: the per-entity citation guidance is scoped to a genuine
+  // roundup (isEntityRichTopic - 3+ distinct named entities across the query/
+  // brief/outline/faqs/evidence hints), so a single-fact topic's prompt stays
+  // byte-identical to before this change. Each field is passed SEPARATELY
+  // (never pre-joined into `grounded`) so one entity's name can never merge
+  // with the next into a single false span - see isEntityRichTopic.
+  const entityRich = isEntityRichTopic([input.query, brief ?? "", ...outline, ...faqs, ...evidenceHints]);
+
   return callStructuredLLM({
     kind: "answer_block",
-    system: ANSWER_BLOCK_SYSTEM + fewShots,
+    system: ANSWER_BLOCK_SYSTEM + (entityRich ? ENTITY_REFERENCE_INSTRUCTION : "") + fewShots,
     user,
     grounded,
     projectedCostUsd: 0.02,
