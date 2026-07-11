@@ -37,7 +37,14 @@ export const PROMPT_REGISTRY = {
   // superlative rephrase-retry instruction now also forbids swapping in a NEW
   // ungrounded superlative. A prompt-wording change, so the cache must not
   // serve a stale v3 response under the new guidance.
-  "draft.answer_block": 4,
+  // Bumped to v5 (2026-07-11, pilot loop 5): the entity-rich system prompt now
+  // also instructs one-fact-per-sentence (never bundling two different facts
+  // about the same entity into one clause, so per-sentence coverage can verify
+  // each claim on its own); and the retry path can now emit a MERGED
+  // too-thin + superlative-rephrase instruction when attempt 1 fails both
+  // checks at once. A prompt-wording change, so the cache must not serve a
+  // stale v4 response under the new guidance.
+  "draft.answer_block": 5,
   "draft.atomic_edit": 1,
   "draft.create_page_brief": 1,
   "draft.cro_fix": 1,

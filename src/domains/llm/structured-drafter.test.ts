@@ -1302,6 +1302,41 @@ describe("pilot loop 4 - entity-reference source guidance (the roundup gap)", ()
   });
 });
 
+describe("pilot loop 5 - one-fact-per-sentence guidance (the compound-sentence coverage gap)", () => {
+  it("appends the one-fact-per-sentence instruction for an entity-rich roundup (3+ named entities)", async () => {
+    let capturedSystem = "";
+    await draftAnswerBlockStructured(
+      {
+        query: "famous iranian singers",
+        pageLabel: "Famous Iranian Singers",
+        brief: null,
+        outline: ["Googoosh", "Vigen", "Mohammad-Reza Shajarian", "Shahram Nazeri"],
+        faqs: [],
+      },
+      { complete: async ({ system }) => { capturedSystem = system; return { text: JSON.stringify(validAnswer) }; } },
+    );
+    expect(capturedSystem).toMatch(/own short sentence/i);
+    expect(capturedSystem).toMatch(/never bundle two different facts/i);
+    expect(capturedSystem).toMatch(/add MORE single-fact sentences/i);
+  });
+
+  it("omits the one-fact-per-sentence instruction for a single-fact topic (0-2 named entities)", async () => {
+    let capturedSystem = "";
+    await draftAnswerBlockStructured(
+      {
+        query: "national animal of Iran",
+        pageLabel: "Iran Animals",
+        brief: "The Asiatic Cheetah is Iran's national animal",
+        outline: [],
+        faqs: [],
+      },
+      { complete: async ({ system }) => { capturedSystem = system; return { text: JSON.stringify(validAnswer) }; } },
+    );
+    expect(capturedSystem).not.toMatch(/own short sentence/i);
+    expect(capturedSystem).not.toMatch(/never bundle two different facts/i);
+  });
+});
+
 describe("pilot loop 4 - 'sources you may cite' evidence hint (cheap, deterministic, no new fetches)", () => {
   it("renders no hint line when no reference candidates are given (back-compat)", async () => {
     let capturedUser = "";
@@ -1451,5 +1486,117 @@ describe("pilot loop 4 - superlative rephrase retry never introduces a NEW super
     if (r.status === "validation_failed") {
       expect(r.errors.some((e) => e.startsWith("superlative_ungrounded"))).toBe(true);
     }
+  });
+});
+
+describe("pilot loop 5 - merged too-thin + superlative retry instruction (one retry slot, two problems)", () => {
+  // >=450 chars (clears the schema's own min-length floor) but well under 80
+  // words (fails the word-count floor) AND carries an ungrounded superlative -
+  // both problems must fire on the SAME attempt.
+  const SHORT_SUPERLATIVE =
+    "Googoosh is widely regarded as the most extraordinarily celebrated and internationally acclaimed Iranian pop vocalist of her entire generation, continuously captivating audiences across decades with her distinctively recognizable voice, enduringly popular recorded repertoire, and unmistakably influential contributions to contemporary Persian popular music culture throughout the broader worldwide Iranian diaspora community across multiple continents.";
+  const withSource = (answer: string): string =>
+    JSON.stringify({
+      ...validAnswer,
+      answer,
+      sources: [
+        {
+          url: "https://www.britannica.com/biography/googoosh",
+          title: "Googoosh",
+          domain: "britannica.com",
+          retrievedAt: "2026",
+          claim: "Persian weddings center on the sofreh aghd ceremonial spread",
+          authority: "unverified",
+        },
+      ],
+    });
+  const nonSuperlativeSourceFetch = () =>
+    vi.fn(async () => ({
+      ok: true,
+      text: "Persian weddings center on the sofreh aghd ceremonial spread laid before the couple.",
+    }));
+
+  it("attempt 1 failing BOTH too-thin and ungrounded-superlative produces ONE combined retry naming both problems", async () => {
+    const sourceFetch = nonSuperlativeSourceFetch();
+    const systems: string[] = [];
+    const complete: CompleteFn = async ({ system }) => {
+      systems.push(system);
+      return { text: withSource(SHORT_SUPERLATIVE) };
+    };
+    await callStructuredLLM({ kind: "answer_block", system: "s", user: "u", grounded: GROUNDED, complete, sourceFetch });
+    expect(systems).toHaveLength(2);
+    expect(systems[1]).toMatch(/TWO problems/i);
+    expect(systems[1]).toMatch(/too short/i);
+    expect(systems[1]).toContain("80 to 150 words");
+    expect(systems[1]).toMatch(/superlative/i);
+    expect(systems[1]).toMatch(/single-fact sentences/i);
+    expect(systems[1]).toMatch(/introduce NO new superlative/i);
+  });
+
+  it("attempt 2 fixing both problems ships the combined-retry answer", async () => {
+    const sourceFetch = nonSuperlativeSourceFetch();
+    const r = await callStructuredLLM({
+      kind: "answer_block",
+      system: "s",
+      user: "u",
+      grounded: GROUNDED,
+      complete: fakeComplete([{ text: withSource(SHORT_SUPERLATIVE) }, { text: withSource(validAnswer.answer) }]),
+      sourceFetch,
+    });
+    expect(r.status).toBe("drafted");
+    if (r.status === "drafted") {
+      expect(r.retried).toBe(true);
+      expect((r.value as { answer: string }).answer).toBe(validAnswer.answer);
+    }
+  });
+
+  it("attempt 2 still failing (both problems persist) -> validation_failed with both errors listed", async () => {
+    const sourceFetch = nonSuperlativeSourceFetch();
+    const r = await callStructuredLLM({
+      kind: "answer_block",
+      system: "s",
+      user: "u",
+      grounded: GROUNDED,
+      complete: fakeComplete([{ text: withSource(SHORT_SUPERLATIVE) }]), // repeats: still thin + still ungrounded
+      sourceFetch,
+    });
+    expect(r.status).toBe("validation_failed");
+    if (r.status === "validation_failed") {
+      expect(r.errors.some((e) => e === "too_thin_answer")).toBe(true);
+      expect(r.errors.some((e) => e.startsWith("superlative_ungrounded"))).toBe(true);
+    }
+  });
+
+  it("single-error retry (too-thin only, no superlative) stays byte-identical to the pre-existing instruction", async () => {
+    const THIN =
+      "Persian hospitality traditionally revolves around continuously offering guests freshly brewed tea throughout their entire visit, alongside assorted confectioneries, fragrant pastries, and seasonal fruit arranged beautifully across decorative serving platters. Conversation, storytelling, and unhurried companionship characterize these gatherings, reflecting deeply rooted cultural expectations surrounding generosity, warmth, respect, and reciprocal kindness shown between welcoming hosts and their appreciative visitors.";
+    const systems: string[] = [];
+    const complete: CompleteFn = async ({ system }) => {
+      systems.push(system);
+      return { text: JSON.stringify({ ...validAnswer, answer: THIN }) };
+    };
+    await callStructuredLLM({ kind: "answer_block", system: "s", user: "u", grounded: GROUNDED, complete, recentOutputs: [] });
+    expect(systems[1]).not.toMatch(/TWO problems/i);
+    expect(systems[1]).toBe(
+      `s\n\nYour previous answer was too short. Write a complete answer of 80 to 150 words, grounded ONLY in the evidence provided. Add the missing length with MORE grounded facts (names, dates, honors, works) - do NOT introduce a new superlative or ranking claim while lengthening it.`,
+    );
+  });
+
+  it("single-error retry (superlative only, not thin) stays byte-identical to the pre-existing instruction", async () => {
+    const sourceFetch = nonSuperlativeSourceFetch();
+    const systems: string[] = [];
+    const complete: CompleteFn = async ({ system }) => {
+      systems.push(system);
+      return { text: withSource("Googoosh is the most famous Iranian pop singer. " + validAnswer.answer) };
+    };
+    await callStructuredLLM({ kind: "answer_block", system: "s", user: "u", grounded: GROUNDED, complete, sourceFetch });
+    // Matches the pre-existing G4 pin exactly (structured-drafter.test.ts "pilot loop 4 -
+    // superlative rephrase retry never introduces a NEW superlative" describe block) - this
+    // asserts the plain single-error branch is unaffected by the new combined branch.
+    expect(systems[1]).not.toMatch(/TWO problems/i);
+    expect(systems[1]).not.toMatch(/too short/i);
+    expect(systems[1]).toContain("Do NOT swap it for a");
+    expect(systems[1]).toMatch(/no new superlative/i);
+    expect(systems[1]).toMatch(/concrete grounded fact is always the better answer/i);
   });
 });

@@ -166,6 +166,28 @@ const SUPERLATIVE_REPHRASE_INSTRUCTION =
   "prefer it every time. Only keep a superlative if a cited source explicitly asserts that exact " +
   "superlative.";
 
+/** Pilot loop 5 (2026-07-11): the MERGED retry instruction for when attempt 1
+ *  fails BOTH the 80-word floor AND the verification-aware superlative check
+ *  at once. Before this, the too-thin retry and the superlative-rephrase retry
+ *  each consumed the SAME single retry slot - whichever check ran first
+ *  "claimed" the retry and the other problem was never named in the
+ *  instruction, so a draft with both problems in attempt 1 died on attempt 2
+ *  still carrying whichever issue the retry never mentioned. This addresses
+ *  both in ONE instruction, spending no extra LLM call: lengthen with MORE
+ *  grounded single-fact sentences (never padding), AND remove or replace every
+ *  unproven superlative with a grounded fact, introducing no new one. */
+const COMBINED_THIN_AND_SUPERLATIVE_RETRY_INSTRUCTION =
+  "Your previous answer had TWO problems - fix BOTH in this rewrite. First, it was too short: write " +
+  "a complete answer of 80 to 150 words, grounded ONLY in the evidence provided - add the missing " +
+  "length with MORE grounded single-fact sentences (one honor, one work, one date, one role per " +
+  "sentence), never by padding or writing longer compound sentences. Second, it used a superlative " +
+  'or ranking claim (for example "most famous", "most celebrated", "leading", "best-known") that ' +
+  "none of your cited sources actually states - remove it or REPHRASE it as a grounded, " +
+  "non-superlative fact using the specific honors, dates, roles, and works in the evidence. Do NOT " +
+  "swap it for a DIFFERENT unproven superlative and introduce NO new superlative or ranking claim " +
+  "that was not in your first answer. Only keep a superlative if a cited source explicitly asserts " +
+  "that exact superlative.";
+
 /** Em/en-dashes are a STYLE issue, not a trust issue — normalize them to hyphens
  *  in every string field before validation, so a good draft isn't rejected for
  *  punctuation (gpt-5-mini strongly favors em-dashes). Trust firewalls (invented
@@ -743,7 +765,13 @@ export async function callStructuredLLM<K extends StructuredDraftKind>(
     const retried = attempt > 0;
     let system = req.system;
     if (retried) {
-      if (lastFailureWasSuperlative) {
+      if (lastFailureWasSuperlative && lastFailureWasThin) {
+        // Pilot loop 5 (2026-07-11): attempt 1 failed BOTH the word-count floor
+        // and the superlative check at once - one combined instruction, not
+        // whichever single-issue instruction would otherwise win below (this
+        // branch must be checked BEFORE the plain superlative/thin branches).
+        system = `${req.system}\n\n${COMBINED_THIN_AND_SUPERLATIVE_RETRY_INSTRUCTION}`;
+      } else if (lastFailureWasSuperlative) {
         // G4 (2026-07-10): the first draft asserted a superlative no cited source
         // proves. Retry with an explicit REPHRASE instruction (ground it in
         // specific facts) rather than a blanket "invalid output" correction - a
@@ -835,17 +863,16 @@ export async function callStructuredLLM<K extends StructuredDraftKind>(
       continue;
     }
 
-    // W5 P2 (J-71): an answer block under the 80-word floor gets ONE word-count
-    // retry so the drafter never caches a too-thin answer the quality gate
-    // would only reject later. A style-class retry, never a fail-closed: if the
-    // second attempt is still short it ships as-is for the gate to hold as
-    // too_thin (redrafting endlessly would just burn budget).
-    if (req.kind === "answer_block" && !retried && primary != null && countWords(primary) < ANSWER_MIN_WORDS) {
-      errors.push("too_thin_answer");
-      lastFailureWasTemplated = false;
-      lastFailureWasThin = true;
-      continue;
-    }
+    // W5 P2 (J-71): an answer block under the 80-word floor is flagged here.
+    // Pilot loop 5 (2026-07-11): verification (needed for the superlative check
+    // right below) now runs BEFORE this decision is acted on, so a draft that is
+    // BOTH too thin AND carrying an ungrounded superlative gets BOTH problems
+    // diagnosed on the SAME attempt - previously this check's own `continue`
+    // skipped verification entirely, silently hiding a co-occurring superlative
+    // problem from the retry (the retry only ever named ONE of the two issues,
+    // whichever check happened to run first, and the run could die on attempt 2
+    // still carrying the other).
+    const thinAnswer = req.kind === "answer_block" && primary != null && countWords(primary) < ANSWER_MIN_WORDS;
 
     // W5 stop-ship F2: verify each cited source AT GENERATION TIME (SSRF-safe
     // fetch + span-level entailment + final-host authority) AFTER the firewalls,
@@ -868,25 +895,40 @@ export async function callStructuredLLM<K extends StructuredDraftKind>(
     // `answer_block` only; every other kind's marketing-superlative reject stays
     // in runContentFirewalls above). A superlative is allowed ONLY when a
     // QUALIFYING verified source asserts it (superlative-parity); an ungrounded
-    // one is not shipped. First attempt: ONE rephrase retry that instructs
-    // grounding the claim in specific facts. Second attempt still ungrounded:
-    // fail closed (never ship an unprovable superlative). Stays within the
-    // existing <=2 LLM attempts and adds no budget.
-    if (req.kind === "answer_block" && primary != null) {
-      const ungrounded = ungroundedSuperlatives(
-        primary,
-        (verifiedData as { sources?: ClassifiableSource[] }).sources,
-        req.authoritativeSourceDomains,
-        nowYear,
-      );
-      if (ungrounded.length > 0) {
-        errors.push(`superlative_ungrounded:${ungrounded.slice(0, 3).join(",")}`);
-        if (!retried) {
-          lastFailureWasSuperlative = true;
-          continue; // rephrase retry
-        }
-        continue; // second attempt still ungrounded -> fall through to fail-closed
+    // one is not shipped.
+    const ungroundedSuperlative =
+      req.kind === "answer_block" && primary != null
+        ? ungroundedSuperlatives(primary, (verifiedData as { sources?: ClassifiableSource[] }).sources, req.authoritativeSourceDomains, nowYear)
+        : [];
+    const hasUngroundedSuperlative = ungroundedSuperlative.length > 0;
+
+    if (thinAnswer) errors.push("too_thin_answer");
+    if (hasUngroundedSuperlative) errors.push(`superlative_ungrounded:${ungroundedSuperlative.slice(0, 3).join(",")}`);
+
+    // A superlative is the highest-risk claim, so it ALWAYS forces a continue
+    // (one rephrase retry, then fail closed) on either attempt - never shipped
+    // ungrounded, unchanged from before. Pilot loop 5: when the SAME draft is
+    // ALSO too thin, flag both reasons together so the retry-instruction
+    // builder above merges them into ONE combined instruction instead of only
+    // addressing the superlative.
+    if (hasUngroundedSuperlative) {
+      if (!retried) {
+        lastFailureWasSuperlative = true;
+        lastFailureWasThin = thinAnswer;
+        continue; // rephrase retry (combined with the length instruction when also too thin)
       }
+      continue; // second attempt still ungrounded -> fall through to fail-closed
+    }
+
+    // W5 P2 (J-71): a too-thin-only draft (no superlative problem) gets ONE
+    // word-count retry so the drafter never caches a too-thin answer the
+    // quality gate would only reject later. A style-class retry, never a
+    // fail-closed: if the second attempt is still short it ships as-is for the
+    // gate to hold as too_thin (redrafting endlessly would just burn budget) -
+    // unchanged single-error behavior.
+    if (thinAnswer && !retried) {
+      lastFailureWasThin = true;
+      continue;
     }
 
     const drafted = {
@@ -1021,6 +1063,30 @@ const ENTITY_REFERENCE_INSTRUCTION =
   "cannot back a specific fact ABOUT that entity. One citation may cover more than one claim only " +
   "when that exact page's own text genuinely discusses those claims, not merely lists the name.";
 
+/**
+ * Pilot loop 5 (2026-07-11): appended alongside ENTITY_REFERENCE_INSTRUCTION for
+ * the same entity-rich roundup topics. Proven gap from loop 4's live re-run: the
+ * model correctly cited each entity's own reference page, but still wrote
+ * COMPOUND sentences that bundle a coverable fact (an honor a fetched source
+ * confirms) with an uncoverable one (a song title that source never mentions) -
+ * e.g. "Shajarian is known for the song 'Morgh-e Sahar' and a UNESCO Mozart
+ * Medal." The per-sentence coverage gate (source-authority.ts's
+ * draftFactsCoveredBySources) correctly fails the WHOLE sentence when only HALF
+ * of it is grounded, so a single stray fact drags down an otherwise-covered
+ * claim. This instructs the model to never bundle in the first place - one
+ * fact per sentence, so every sentence stands or falls on its OWN citation
+ * rather than being held hostage by its neighbor's uncovered claim. */
+const ONE_FACT_PER_SENTENCE_INSTRUCTION =
+  " For this roundup, state each distinct factual claim about a named entity in its OWN short " +
+  "sentence - one honor, one work, one role, or one date per sentence - because each sentence must " +
+  "be verifiable against its cited source ON ITS OWN. Never bundle two different facts about the " +
+  'same entity into one clause or sentence (for example do NOT write "Shajarian is known for the ' +
+  'song \'Morgh-e Sahar\' and a UNESCO Mozart Medal" as one sentence - write two separate sentences, ' +
+  "one for the song, one for the medal). If a single sentence would need more than one source to " +
+  "prove it, split it into separate sentences instead. To reach the required 80-150 word length, " +
+  "add MORE single-fact sentences about the entities already named - never write longer compound " +
+  "sentences.";
+
 /** Pilot loop 4: how many "sources you may cite" candidates ever reach the
  *  prompt - a hint, not a citation list; more than a handful would just bury
  *  the model in URLs it still has to individually verify are relevant. */
@@ -1110,7 +1176,7 @@ export async function draftAnswerBlockStructured(
 
   return callStructuredLLM({
     kind: "answer_block",
-    system: ANSWER_BLOCK_SYSTEM + (entityRich ? ENTITY_REFERENCE_INSTRUCTION : "") + fewShots,
+    system: ANSWER_BLOCK_SYSTEM + (entityRich ? ENTITY_REFERENCE_INSTRUCTION + ONE_FACT_PER_SENTENCE_INSTRUCTION : "") + fewShots,
     user,
     grounded,
     projectedCostUsd: 0.02,
