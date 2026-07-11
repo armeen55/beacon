@@ -35194,3 +35194,13 @@ passed 0 failed.
 
 G8 moves from PARTIAL to WORKING. G9 (discarded alternatives argument) is next and is the last
 Wave 4 partial remaining.
+
+## 2026-07-11 - G9 what else I considered panel (74ba6832)
+
+2026-07-11 G9 what else I considered panel (74ba6832): the router debate's rejected
+alternatives (veto-severity objections only, downgrades never claim rejection) and dissenting
+teammate voices now render in plain words in the /changes detail view, from the already-persisted
+routerDecision (appliedObjections + dissenting). Honest absence renders nothing. Cap 3
+alternatives + 1 dissent, detail-hydration only, 14 pins. Gate 22849 passed 0 failed.
+
+ALL Wave 4 partials (G3, G8, G9) are now shipped product.

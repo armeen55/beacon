@@ -1,5 +1,22 @@
 # Beacon Execution Plan
 
+## G9 what else I considered panel (74ba6832) - DONE pending deploy confirmation (2026-07-11)
+
+The router debate's rejected alternatives (veto-severity objections only, downgrades never
+claim rejection) and dissenting teammate voices now render in plain words in the /changes
+detail view, from the already-persisted routerDecision (appliedObjections + dissenting).
+Honest absence renders nothing. Cap 3 alternatives + 1 dissent, detail-hydration only, 14 pins.
+See the 2026-07-11 "G9 what else I considered panel" entry in VERIFICATION_LOG.md for full
+detail. Full hermetic gate GREEN at 74ba6832 (fullgateG9.log: 22849 passed / 0 failed). Deploy
+confirmation to Vercel production is pending; unconfirmed from this environment.
+
+**ALL Wave 4 partials (G3, G8, G9) are now shipped product.** The autonomous queue is drained
+to E-39 P2 wiring (within the approved D4 scope) and the filed background dash chip; see the
+"Queue, ranked" section below. OPERATOR-GATED items are unchanged: the proof-model floor plus
+56-84d confidence tier slice await operator sign-off, and second-tenant proof stays blocked on
+the Ritz operator reconnect. Authenticated both-tenant smoke remains OPERATOR-BLOCKED (no smoke
+credentials available to the agent).
+
 ## G8 sibling-based impact ranges (a949ba50) - DONE pending deploy confirmation (2026-07-11)
 
 When the primary forecast abstains on a clicks-tone move with material impressions, the product
@@ -198,14 +215,19 @@ Two filed residuals carried out of this cycle:
    downstream (persisted) gate but never the generation-time check. Queued as the FIRST item of
    the next drafter batch, below.
 
-## Queue, ranked (2026-07-11, post-G3-winners-panel)
+## Queue, ranked (2026-07-11, post-G9-alternatives-panel)
 
-1. **G8: impact-math abstention on thin history. NEXT.** Named follow-up from the Wave 4
-   workflow-parity scorecard: the drafter's impact-math argument should abstain honestly when the
-   underlying history is too thin to support a number, instead of asserting one.
-2. **G9: discarded-alternatives argument.** Named follow-up from the Wave 4 workflow-parity
-   scorecard, queued after G8: the drafter should be able to argue why alternative targets were
-   discarded, not just why the chosen one was picked.
+**The autonomous queue is drained.** All three named Wave 4 follow-ups (G3, G8, G9) are shipped
+product; the only self-directed work left ahead is E-39 P2 wiring (within the approved D4
+scope, item 5 below) and the filed background dash chip (item 10 below). OPERATOR-GATED items
+are unchanged and still await the operator: the proof-model floor plus 56-84d confidence tier
+slice (items 6-7 below), and second-tenant proof, which stays blocked on the Ritz operator
+reconnect (item 8 below).
+
+1. **G8: impact-math abstention on thin history. DONE (a949ba50).** See the "G8 sibling-based
+   impact ranges" section above and the matching VERIFICATION_LOG.md entry.
+2. **G9: discarded-alternatives argument. DONE (74ba6832).** See the "G9 what else I considered
+   panel" section above and the matching VERIFICATION_LOG.md entry.
 3. **G3 winners panel: deduped Google+AI winner render on /changes detail. DONE (ecaa2836).** See
    the "G3 winners panel" section above and the matching VERIFICATION_LOG.md entry.
 4. **Drafter batch 2: generation-time firewall prose scope. DONE (a5e2705a).** The
@@ -213,20 +235,25 @@ Two filed residuals carried out of this cycle:
    proofPlan/operatorSteps/risks methodology text (draftProseStringValues' skip-list extended
    alongside sources; evidenceRefs.detail stays scanned). Proven live and by deterministic pin.
    See the "Drafter batch 2" section above and the matching VERIFICATION_LOG.md entry.
-5. **Verdict-floor tightening.** The self-test false-positive rate is genuinely 0.925 (sample
-   size 40); target under 5 percent. Proof-model floor decision list delivered to the operator
-   2026-07-10 late evening; AWAITING OPERATOR SIGN-OFF.
-6. **56-84d confidence tier slice.** Build the confirmation tier that E-39's D6 already reserved
-   space for. Part of the same 2026-07-10 late-evening decision list; AWAITING OPERATOR
-   SIGN-OFF.
-7. **Parity matrix update.** The pilot re-run itself is done as of ffc39807 (third re-run,
-   verdict above); update the parity matrix against this result.
-8. **Second-tenant workflow proof.** Prove the same workflow end to end on a second tenant, not
-   tenant-iranopedia alone.
+5. **E-39 P2 wiring (within the approved D4 scope). NEXT autonomous item.** resolveVerdictLag's
+   markState/retryEligible fields are computed but not yet wired to any caller that acts on
+   them; either consume them (persist blocked_data, drive the bounded retry) or fold them back
+   into the function until a caller exists. See "E-39 review P2 follow-ups" below.
+6. **Verdict-floor tightening. OPERATOR-GATED.** The self-test false-positive rate is genuinely
+   0.925 (sample size 40); target under 5 percent. Proof-model floor decision list delivered to
+   the operator 2026-07-10 late evening; AWAITING OPERATOR SIGN-OFF.
+7. **56-84d confidence tier slice. OPERATOR-GATED.** Build the confirmation tier that E-39's D6
+   already reserved space for. Part of the same 2026-07-10 late-evening decision list; AWAITING
+   OPERATOR SIGN-OFF.
+8. **Second-tenant workflow proof. BLOCKED on Ritz operator reconnect.** Prove the same workflow
+   end to end on a second tenant, not tenant-iranopedia alone; per Daily Loop Readiness, Ritz is
+   cold-start until the operator reconnects it, so this stays blocked until then.
 9. **Sibling SWR stores ambient-tenant check.** Extend the Task #230 tenant-isolation fix to the
    worklist and Today surface stores.
-10. **Remaining pre-existing dash sweep.** Includes the operator-visible string in
-   build-canonical-changes.ts.
+10. **Filed background dash chip.** The Hygiene batch's operator-visible dash sweep covered
+   build-canonical-changes.ts and six core copy modules; the remaining roughly 1272 candidates
+   are not rendered on any customer surface and stay filed as a background cleanup task, not
+   blocking.
 
 ## Wave 4 pilot - CLOSED 2026-07-11: /famous-iranian-singers
 

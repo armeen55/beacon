@@ -1,4 +1,25 @@
-> 🟢 **(2026-07-11 latest) - HEAD STATE: ORIGIN/MAIN WILL BE THIS DOCS TIP AFTER THIS PUSH (G8
+> 🟢 **(2026-07-11 latest) - HEAD STATE: ORIGIN/MAIN WILL BE THIS DOCS TIP AFTER THIS PUSH (G9
+> what else I considered panel: the router debate's rejected alternatives and dissenting
+> teammate voices render in plain words on the /changes detail view, commit 74ba6832 on
+> 52624ee0).** Deployment of the pushed SHA to Vercel production is unconfirmed from this
+> environment.
+>
+> Full hermetic gate GREEN at this tip (fullgateG9.log: 22849 tests passed, 0 failed). See the
+> 2026-07-11 "G9 what else I considered panel" entry in VERIFICATION_LOG.md for full detail: the
+> router debate's rejected alternatives (veto-severity objections only, downgrades never claim
+> rejection) and dissenting teammate voices now render in plain words in the /changes detail
+> view, from the already-persisted routerDecision (appliedObjections + dissenting). Honest
+> absence renders nothing. Cap 3 alternatives + 1 dissent, detail-hydration only, 14 pins.
+>
+> **ALL WAVE 4 PARTIALS (G3, G8, G9) ARE NOW SHIPPED PRODUCT.** The autonomous queue is drained
+> to E-39 P2 wiring (within the approved D4 scope) and the filed background dash chip; see
+> NEXT_PHASE_EXECUTION_PLAN.md's "Queue, ranked" section. OPERATOR-GATED items are unchanged: the
+> proof-model floor plus 56-84d confidence tier slice await sign-off; second-tenant proof stays
+> blocked on the Ritz operator reconnect. Confirm the Vercel production build for this tip in the
+> dashboard (unconfirmed from this environment); authenticated both-tenant smoke: OPERATOR-BLOCKED
+> (no smoke credentials available to the agent).
+>
+> 🟢 **(2026-07-11) - HEAD STATE: ORIGIN/MAIN WILL BE THIS DOCS TIP AFTER THIS PUSH (G8
 > sibling-based impact ranges: transparent forecast ranges from the tenant's own sibling pages
 > when the primary forecast abstains, commit a949ba50 on b33f50f0).** Deployment of the pushed
 > SHA to Vercel production is unconfirmed from this environment.
