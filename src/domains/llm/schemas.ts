@@ -79,6 +79,16 @@ export const SourceRefSchema = z.object({
   /** W5 stop-ship F2: sha256(supportingExcerpt) first 16 hex chars - a stable
    *  fingerprint of the backing passage. Set only alongside verified === true. */
   contentHash: z.string().max(64).optional(),
+  /** Drafter last-mile G5 (2026-07-10): set at GENERATION time when the cited
+   *  URL is from an authority-strong domain BUT the fetch was refused with a
+   *  robots/anti-bot status (403 class) so the claim could not be confirmed by
+   *  reading the page. `authority` stays "authoritative" (the domain is trusted)
+   *  while `verified` stays false (we never read it). The draft gate turns this
+   *  into a `needs_source_check` hold ("I could not read <domain> myself - check
+   *  this citation"), NEVER silently ready. Absent/false on every reachable or
+   *  unreachable source. Reset before any fetch, so an LLM-supplied value can
+   *  never survive. */
+  fetchBlocked: z.boolean().optional(),
 });
 export type SourceRef = z.infer<typeof SourceRefSchema>;
 

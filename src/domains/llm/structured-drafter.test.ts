@@ -950,3 +950,182 @@ describe("W5 P2 - answer-block word-count retry (never caches a too-thin answer)
     }
   });
 });
+
+// ── G5 (2026-07-10): honest unfetchable-source state (403/robots block) ──────
+describe("G5 - fetchBlocked (403/robots) vs dns/timeout distinction", () => {
+  const withBritannica = (claim: string): string =>
+    JSON.stringify({
+      ...validAnswer,
+      sources: [
+        {
+          url: "https://www.britannica.com/topic/persian-wedding",
+          title: "Persian wedding",
+          domain: "britannica.com",
+          retrievedAt: "2026",
+          claim,
+          authority: "unverified",
+        },
+      ],
+    });
+  const withBlog = (claim: string): string =>
+    JSON.stringify({
+      ...validAnswer,
+      sources: [
+        { url: "https://some-blog.example/x", title: "Blog", domain: "some-blog.example", retrievedAt: "2026", claim, authority: "unverified" },
+      ],
+    });
+
+  it("a 403 block on an authority-strong domain -> authoritative + verified:false + fetchBlocked:true", async () => {
+    const sourceFetch = vi.fn(async () => ({ ok: false, text: "", blocked: true }));
+    const r = await callStructuredLLM({
+      kind: "answer_block",
+      system: "s",
+      user: "u",
+      grounded: GROUNDED,
+      complete: fakeComplete([{ text: withBritannica("a Persian wedding centers on the sofreh aghd ceremonial spread") }]),
+      sourceFetch,
+    });
+    expect(r.status).toBe("drafted");
+    if (r.status === "drafted") {
+      const s = (r.value as { sources: Array<{ verified?: boolean; authority: string; fetchBlocked?: boolean }> }).sources[0]!;
+      expect(s.authority).toBe("authoritative");
+      expect(s.verified).toBe(false);
+      expect(s.fetchBlocked).toBe(true);
+    }
+  });
+
+  it("a dns/timeout/broken fetch (NOT blocked) stays weak with NO fetchBlocked", async () => {
+    const sourceFetch = vi.fn(async () => ({ ok: false, text: "" })); // no `blocked` flag
+    const r = await callStructuredLLM({
+      kind: "answer_block",
+      system: "s",
+      user: "u",
+      grounded: GROUNDED,
+      complete: fakeComplete([{ text: withBritannica("a Persian wedding centers on the sofreh aghd ceremonial spread") }]),
+      sourceFetch,
+    });
+    expect(r.status).toBe("drafted");
+    if (r.status === "drafted") {
+      const s = (r.value as { sources: Array<{ verified?: boolean; authority: string; fetchBlocked?: boolean }> }).sources[0]!;
+      expect(s.authority).toBe("weak");
+      expect(s.verified).toBe(false);
+      expect(s.fetchBlocked).toBeUndefined();
+    }
+  });
+
+  it("a 403 block on a NON-authoritative domain stays weak (a block is not a trust grant)", async () => {
+    const sourceFetch = vi.fn(async () => ({ ok: false, text: "", blocked: true }));
+    const r = await callStructuredLLM({
+      kind: "answer_block",
+      system: "s",
+      user: "u",
+      grounded: GROUNDED,
+      complete: fakeComplete([{ text: withBlog("a Persian wedding centers on the sofreh aghd ceremonial spread") }]),
+      sourceFetch,
+    });
+    expect(r.status).toBe("drafted");
+    if (r.status === "drafted") {
+      const s = (r.value as { sources: Array<{ authority: string; fetchBlocked?: boolean }> }).sources[0]!;
+      expect(s.authority).toBe("weak");
+      expect(s.fetchBlocked).toBeUndefined();
+    }
+  });
+});
+
+// ── G4 (2026-07-10): grounded superlatives + rephrase retry ──────────────────
+describe("G4 - superlative grounding, rephrase retry, fail-closed", () => {
+  const SUPERLATIVE_ANSWER = "Googoosh is the most famous Iranian pop singer. " + validAnswer.answer;
+  const GROUNDED_ANSWER = validAnswer.answer; // no superlative
+
+  const withSource = (answer: string, claim: string): string =>
+    JSON.stringify({
+      ...validAnswer,
+      answer,
+      sources: [
+        { url: "https://www.britannica.com/biography/googoosh", title: "Googoosh", domain: "britannica.com", retrievedAt: "2026", claim, authority: "unverified" },
+      ],
+    });
+
+  it("a superlative ASSERTED by a verified source drafts on the FIRST attempt (superlative-intent topic stays answerable)", async () => {
+    const sourceFetch = vi.fn(async () => ({
+      ok: true,
+      text: "Googoosh is widely regarded as the most famous Iranian pop singer of her generation.",
+    }));
+    const r = await callStructuredLLM({
+      kind: "answer_block",
+      system: "s",
+      user: "u",
+      grounded: GROUNDED + " googoosh most famous iranian pop singer",
+      complete: fakeComplete([{ text: withSource(SUPERLATIVE_ANSWER, "Googoosh is the most famous Iranian pop singer") }]),
+      sourceFetch,
+    });
+    expect(r.status).toBe("drafted");
+    if (r.status === "drafted") expect(r.retried).toBe(false);
+  });
+
+  it("an UNGROUNDED superlative triggers ONE rephrase retry; the rephrased (non-superlative) answer drafts", async () => {
+    // The source verifies a NON-superlative fact, so it cannot ground "most famous".
+    const sourceFetch = vi.fn(async () => ({
+      ok: true,
+      text: "Persian weddings center on the sofreh aghd ceremonial spread laid before the couple.",
+    }));
+    const r = await callStructuredLLM({
+      kind: "answer_block",
+      system: "s",
+      user: "u",
+      grounded: GROUNDED,
+      complete: fakeComplete([
+        { text: withSource(SUPERLATIVE_ANSWER, "Persian weddings center on the sofreh aghd ceremonial spread") },
+        { text: withSource(GROUNDED_ANSWER, "Persian weddings center on the sofreh aghd ceremonial spread") },
+      ]),
+      sourceFetch,
+    });
+    expect(r.status).toBe("drafted");
+    if (r.status === "drafted") {
+      expect(r.retried).toBe(true);
+      expect((r.value as { answer: string }).answer).toBe(GROUNDED_ANSWER);
+    }
+  });
+
+  it("an ungrounded superlative on BOTH attempts fails closed (never ships an unprovable superlative)", async () => {
+    const sourceFetch = vi.fn(async () => ({
+      ok: true,
+      text: "Persian weddings center on the sofreh aghd ceremonial spread laid before the couple.",
+    }));
+    const r = await callStructuredLLM({
+      kind: "answer_block",
+      system: "s",
+      user: "u",
+      grounded: GROUNDED,
+      complete: fakeComplete([{ text: withSource(SUPERLATIVE_ANSWER, "Persian weddings center on the sofreh aghd ceremonial spread") }]),
+      sourceFetch,
+    });
+    expect(r.status).toBe("validation_failed");
+    if (r.status === "validation_failed") {
+      expect(r.errors.some((e) => e.startsWith("superlative_ungrounded"))).toBe(true);
+    }
+  });
+
+  it("a marketing superlative on a NON-answer kind is still a hard firewall reject (unchanged)", async () => {
+    const atomic = {
+      field: "title",
+      before: "Persian Wedding Traditions",
+      after: "The best Persian wedding guide",
+      rationale: "clearer",
+      evidenceRefs: [{ source: "gsc", detail: "the page earns impressions" }],
+      confidence: "high",
+      risks: [],
+      operatorSteps: ["Update the title"],
+      proofPlan: { metrics: ["ctr"], windowsDays: [7, 14, 28], controls: "unchanged siblings" },
+    };
+    const r = await callStructuredLLM({
+      kind: "atomic_edit",
+      system: "s",
+      user: "u",
+      grounded: "persian wedding traditions",
+      complete: fakeComplete([{ text: JSON.stringify(atomic) }]),
+    });
+    expect(r.status).toBe("validation_failed");
+    if (r.status === "validation_failed") expect(r.errors.some((e) => e === "firewall:superlative")).toBe(true);
+  });
+});

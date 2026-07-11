@@ -73,6 +73,8 @@ import { checkFactualEntailment, type AuthoritativeFact } from "@/domains/drafts
 import {
   hasQualifyingAuthoritativeSource,
   draftFactsCoveredBySources,
+  classifySourceAuthority,
+  extractDomain,
   type ClassifiableSource,
 } from "@/domains/drafts/source-authority";
 import { checkFirstMention, type FirstMentionConfig } from "@/domains/drafts/first-mention-check";
@@ -87,6 +89,7 @@ export type DraftQualityStatus =
   | "too_thin"
   | "malformed"
   | "missing_source"
+  | "needs_source_check"
   | "stale_data_changed"
   | "not_quotable"
   | "unverified_claim";
@@ -219,6 +222,58 @@ export function isFactualClaim(text: string): boolean {
     NAMED_ENTITY_SPAN.test(t) ||
     DEFINITIONAL_ASSERTION.test(t)
   );
+}
+
+/**
+ * Drafter last-mile G5 (2026-07-10): when a FACTUAL draft's claims are not
+ * covered by a qualifying (authoritative + verified) source, decide HOW to hold
+ * it. If one of the cited sources is from an authority-strong domain that Beacon
+ * could not READ (a 403/robots block, marked `fetchBlocked` at generation time),
+ * this is NOT "no source" - it is "I could not check this citation." Hold it as
+ * `needs_source_check` (copy blocked, one-click-from-ready, NEVER silently ready)
+ * with copy that names the domain, instead of the harsher `missing_source`.
+ *
+ * The distinction is honest and never weakens the floor: paste-ready still
+ * REQUIRES verified coverage (this branch is only reached when coverage FAILED),
+ * so a blocked authoritative source can never masquerade as verified. Authority
+ * is re-derived here (never the LLM's guess), consistent with the rest of the
+ * source gate. Returns the exact operator-facing hold verdict.
+ */
+function resolveSourceHold(
+  coverage: { uncovered: string[] },
+  sources: readonly ClassifiableSource[] | undefined,
+  allowlist: readonly string[] | undefined,
+): DraftQualityResult {
+  const blockedAuthoritative = (sources ?? []).filter(
+    (s) =>
+      s.fetchBlocked === true &&
+      s.verified !== true &&
+      classifySourceAuthority(s, allowlist) === "authoritative",
+  );
+  if (blockedAuthoritative.length > 0) {
+    const domain = extractDomain(blockedAuthoritative[0]!) || "that source";
+    return {
+      status: "needs_source_check",
+      reasons: [
+        `I could not read ${domain} myself (it blocks robots). Check this citation before you paste.`,
+      ],
+      copyAllowed: false,
+      canRegenerate: false,
+      confidence: "medium",
+    };
+  }
+  const claim = coverage.uncovered[0];
+  return {
+    status: "missing_source",
+    reasons: [
+      claim
+        ? `This claim still needs a cited authoritative source: "${shortClaim(claim)}". Add 1-2 before this is paste-ready.`
+        : "States a claim with no cited authoritative source yet. Add 1-2 before this is paste-ready.",
+    ],
+    copyAllowed: false,
+    canRegenerate: false,
+    confidence: "medium",
+  };
 }
 
 // ── answer-block / opening quality ────────────────────────────────────────────
@@ -396,18 +451,10 @@ export function evaluateDraftQuality(input: EvaluateDraftInput): DraftQualityRes
   if (isFactualClaim(answer)) {
     const coverage = draftFactsCoveredBySources(answer, input.sources, input.authoritativeSourceDomains);
     if (!coverage.covered) {
-      const claim = coverage.uncovered[0];
-      return {
-        status: "missing_source",
-        reasons: [
-          claim
-            ? `This claim still needs a cited authoritative source: "${shortClaim(claim)}". Add 1-2 before this is paste-ready.`
-            : "States a claim with no cited authoritative source yet. Add 1-2 before this is paste-ready.",
-        ],
-        copyAllowed: false,
-        canRegenerate: false,
-        confidence: "medium",
-      };
+      // G5: hold as `needs_source_check` (not `missing_source`) when a cited
+      // authority-strong source could not be READ (403/robots block). Never
+      // silently ready - copy stays blocked until the operator checks it.
+      return resolveSourceHold(coverage, input.sources, input.authoritativeSourceDomains);
     }
   }
 
@@ -896,6 +943,7 @@ export function qualityLabel(status: DraftQualityStatus): string {
     case "too_thin": return "Too thin";
     case "malformed": return "Malformed";
     case "missing_source": return "Needs a source";
+    case "needs_source_check": return "Check the source";
     case "stale_data_changed": return "Data changed";
     case "not_quotable": return "Not quotable";
     case "unverified_claim": return "Unverified claim";

@@ -9,6 +9,7 @@ import {
 import { EVENT_PRIORS_V1 as EVENT_PRIORS_V1_SOURCE } from "@/lib/event-priors";
 import { log } from "@/lib/logger";
 import { currentTenantId } from "@/lib/tenant-context";
+import { getCuratedSourceDomains } from "@/domains/drafts/tenant-source-allowlist";
 
 /** Re-export for backwards compatibility with code that imports from business-config. */
 export const EVENT_PRIORS_V1 = EVENT_PRIORS_V1_SOURCE;
@@ -545,7 +546,29 @@ function warnPlaceholderOnce(tenantId: string): void {
  * `mergeWithPlaceholder`. For source d, the placeholder is returned
  * verbatim and the one-time per-tenant warning fires.
  */
+/**
+ * Drafter last-mile G7 (2026-07-10): fill `authoritativeSourceDomains` from the
+ * tenant's CURATED code-path default (src/domains/drafts/tenant-source-allowlist
+ * .ts) when the resolved config has NOT set its own. Gated strictly by canonical
+ * tenant id: a tenant with no curated entry is returned unchanged (empty-allowlist
+ * behavior byte-identical for every other tenant + the founder - no leak), and a
+ * tenant that HAS curated its own allowlist (via env/file/Supabase row) always
+ * wins. The durable channel remains the tenant's `business_config` row; this is
+ * the fallback so the field is readable through business-config with no extra
+ * wiring. Returns a NEW object only when it actually fills the field.
+ */
+function applyCuratedSourceDomains(tenantId: string, config: BusinessConfig): BusinessConfig {
+  if (config.authoritativeSourceDomains && config.authoritativeSourceDomains.length > 0) return config;
+  const curated = getCuratedSourceDomains(tenantId);
+  if (!curated || curated.length === 0) return config;
+  return { ...config, authoritativeSourceDomains: curated };
+}
+
 function resolveConfigForTenant(tenantId: string): BusinessConfig {
+  return applyCuratedSourceDomains(tenantId, resolveConfigForTenantRaw(tenantId));
+}
+
+function resolveConfigForTenantRaw(tenantId: string): BusinessConfig {
   const fromByTenant = readConfigFromByTenantEnv(tenantId);
   if (fromByTenant !== null) return mergeWithPlaceholder(fromByTenant);
 
@@ -668,7 +691,10 @@ export async function hydrateBusinessConfigFromSupabase(
       .eq("id", tenantId)
       .maybeSingle();
     if (error || !data?.data) return null;
-    const merged = mergeWithPlaceholder(data.data as Partial<BusinessConfig>);
+    // G7 (2026-07-10): apply the curated allowlist fallback here too, so a tenant
+    // whose prod row hasn't set `authoritativeSourceDomains` yet still resolves it
+    // through business-config (the row, once it sets the field, always wins).
+    const merged = applyCuratedSourceDomains(tenantId, mergeWithPlaceholder(data.data as Partial<BusinessConfig>));
     _cacheByTenant.set(tenantId, merged);
     return merged;
   } catch {

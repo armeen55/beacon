@@ -619,6 +619,60 @@ describe("W5 (2026-07-09, J-69/J-70): authoritativeSourceDomains + firstMention 
   });
 });
 
+describe("G7 (2026-07-10): curated per-tenant authoritativeSourceDomains default", () => {
+  let savedByTenant: string | undefined;
+
+  beforeEach(() => {
+    savedByTenant = process.env[BY_TENANT_ENV];
+    delete process.env[BY_TENANT_ENV];
+    if (existsSync(TOP_LEVEL_PATH)) unlinkSync(TOP_LEVEL_PATH);
+    __resetBusinessConfigCacheForTests();
+  });
+  afterEach(() => {
+    if (typeof savedByTenant === "string") process.env[BY_TENANT_ENV] = savedByTenant;
+    else delete process.env[BY_TENANT_ENV];
+    __resetBusinessConfigCacheForTests();
+  });
+
+  it("Iranopedia (no allowlist set) resolves the curated default through business-config", () => {
+    process.env[BY_TENANT_ENV] = JSON.stringify({ "tenant-iranopedia": { name: "Iranopedia" } });
+    __resetBusinessConfigCacheForTests();
+    const cfg = getBusinessConfig("tenant-iranopedia");
+    expect(cfg.authoritativeSourceDomains).toContain("wikipedia.org");
+    expect(cfg.authoritativeSourceDomains).toContain("britannica.com");
+    expect(cfg.authoritativeSourceDomains).toContain("unesco.org");
+    expect(cfg.authoritativeSourceDomains).toContain("iranicaonline.org");
+  });
+
+  it("a tenant's OWN allowlist always wins over the curated default (never clobbered)", () => {
+    process.env[BY_TENANT_ENV] = JSON.stringify({
+      "tenant-iranopedia": { name: "Iranopedia", authoritativeSourceDomains: ["only-mine.org"] },
+    });
+    __resetBusinessConfigCacheForTests();
+    expect(getBusinessConfig("tenant-iranopedia").authoritativeSourceDomains).toEqual(["only-mine.org"]);
+  });
+
+  it("per-tenant isolation: the Iranopedia curated list never leaks to another tenant", () => {
+    process.env[BY_TENANT_ENV] = JSON.stringify({ "tenant-other": { name: "Other" } });
+    __resetBusinessConfigCacheForTests();
+    // Empty-allowlist behavior is byte-identical for a non-curated tenant.
+    expect(getBusinessConfig("tenant-other").authoritativeSourceDomains).toBeUndefined();
+  });
+
+  it("the curated list makes a wikipedia.org source authoritative for Iranopedia but weak for others", () => {
+    process.env[BY_TENANT_ENV] = JSON.stringify({
+      "tenant-iranopedia": { name: "Iranopedia" },
+      "tenant-other": { name: "Other" },
+    });
+    __resetBusinessConfigCacheForTests();
+    const iran = getBusinessConfig("tenant-iranopedia");
+    const other = getBusinessConfig("tenant-other");
+    const src = { domain: "en.wikipedia.org", claim: "Shajarian received the UNESCO Mozart Medal" };
+    expect(classifySourceAuthority(src, iran.authoritativeSourceDomains)).toBe("authoritative");
+    expect(classifySourceAuthority(src, other.authoritativeSourceDomains)).toBe("weak");
+  });
+});
+
 describe("MT-1 — deprecated no-arg path (back-compat for existing consumers)", () => {
   it("no-arg getBusinessConfig() still works when BEACON_TENANT_ID is set (vitest env)", () => {
     // The outer beforeEach cleared BEACON_BUSINESS_CONFIG_JSON; with no

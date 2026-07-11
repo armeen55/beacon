@@ -491,3 +491,38 @@ describe("safeFetchSourceText - metadata + redirect-scheme guards", () => {
     expect(r).toEqual({ ok: false, reason: "too_many_redirects" });
   });
 });
+
+describe("safeFetchSourceText - G5 access_blocked (403/robots) vs fetch_failed", () => {
+  const resolve = () => resolverFrom({ "blocked.example": ["93.184.216.34"] });
+  const fetchStatus = (status: number) =>
+    vi.fn(async (_url: RequestInfo | URL, _init?: RequestInit & { dispatcher?: unknown }) =>
+      resp({ status }),
+    ) as unknown as typeof fetch;
+
+  it("a 403 maps to access_blocked (the host refused us, it is not a dead link)", async () => {
+    const r = await safeFetchSourceText("https://blocked.example/x", { fetchImpl: fetchStatus(403), resolve: resolve() });
+    expect(r).toEqual({ ok: false, reason: "access_blocked" });
+  });
+
+  it("401 / 429 / 451 also map to access_blocked", async () => {
+    for (const s of [401, 429, 451]) {
+      const r = await safeFetchSourceText("https://blocked.example/x", { fetchImpl: fetchStatus(s), resolve: resolve() });
+      expect(r).toEqual({ ok: false, reason: "access_blocked" });
+    }
+  });
+
+  it("a 404 / 500 (a genuinely broken resource) stays fetch_failed, NOT access_blocked", async () => {
+    for (const s of [404, 500]) {
+      const r = await safeFetchSourceText("https://blocked.example/x", { fetchImpl: fetchStatus(s), resolve: resolve() });
+      expect(r).toEqual({ ok: false, reason: "fetch_failed" });
+    }
+  });
+
+  it("a DNS failure is dns_error, distinct from a host block", async () => {
+    const r = await safeFetchSourceText("https://nope.example/x", {
+      fetchImpl: fetchStatus(200),
+      resolve: resolverFrom({}),
+    });
+    expect(r).toEqual({ ok: false, reason: "dns_error" });
+  });
+});
