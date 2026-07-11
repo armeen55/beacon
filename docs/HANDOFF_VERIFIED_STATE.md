@@ -1,4 +1,19 @@
-> 🟢 **(2026-07-11 latest) - HEAD STATE: ORIGIN/MAIN WILL BE THIS DOCS TIP AFTER THIS PUSH (the
+> 🟢 **(2026-07-11 latest) - HEAD STATE: ORIGIN/MAIN WILL BE THIS DOCS TIP AFTER THIS PUSH (drafter
+> last mile 2: numeric firewall now scans prose only, never the sources citation array, and roundup
+> full-text entailment coverage wired into production verification, commit ffc39807).** Deployment
+> of the pushed SHA to Vercel production is unconfirmed from this environment.
+>
+> Full hermetic gate GREEN at this tip (fullgateDL2.log: 22725 passed, 0 failed). See the
+> 2026-07-11 (drafter last mile 2) entry in VERIFICATION_LOG.md for the numeric-firewall
+> prose-scope fix, the full-text coverage detail (one fetchable page can back multiple roundup
+> sentences), the multi-source rule (a fully covered draft is not held hostage by one blocked
+> citation), and the third pilot re-run verdict. NEXT: (1) confirm the Vercel production build for
+> this tip in the dashboard (unconfirmed from this environment); (2) work the queue in
+> NEXT_PHASE_EXECUTION_PLAN.md, starting with the evidence-selection iteration (cite entity bio
+> pages for roundup claims); the proof-model floor plus 56 to 84 day tier package remains AWAITING
+> OPERATOR SIGN-OFF (decision list delivered 2026-07-10 late evening).
+>
+> 🟢 **(2026-07-11) - HEAD STATE: ORIGIN/MAIN WILL BE THIS DOCS TIP AFTER THIS PUSH (the
 > refresh-reliability wave: precompute tenant-guard fix, auth-failure escalation, and the new
 > refresh_runs ledger, commits e84f7d6d and 0998f1c2).** Deployment of the pushed SHAs to Vercel
 > production is unconfirmed from this environment.

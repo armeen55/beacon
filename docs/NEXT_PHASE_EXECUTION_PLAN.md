@@ -57,19 +57,42 @@ entry in VERIFICATION_LOG.md for full detail. Full hermetic gate GREEN at the pr
 (fullgateRR.log: 22711 passed / 0 failed). Deploy confirmation to Vercel production is pending;
 unconfirmed from this environment.
 
-## Queue, ranked (2026-07-11, post-refresh-reliability)
+## Drafter last mile 2 (ffc39807) - DONE pending deploy confirmation (2026-07-11)
 
-1. **Verdict-floor tightening.** The self-test false-positive rate is genuinely 0.925 (sample
-   size 40); target under 5 percent.
-2. **56-84d confidence tier slice.** Build the confirmation tier that E-39's D6 already reserved
-   space for.
-3. **Pilot re-run through the product plus parity matrix update.** Re-run the pilot through the
-   shipped product and update the parity matrix against the result.
-4. **Second-tenant workflow proof.** Prove the same workflow end to end on a second tenant, not
+Closed the pilot re-run gap. The numeric firewall now scans PROSE only, never the sources
+citation array, so a retrievedAt date inside a citation is never flagged as an invented number
+(the mechanical re-run killer); a prose number matching only a citation date still correctly
+fails (no laundering). Roundup full-text coverage is wired into production verification: a
+fetchable authoritative page verifies by full-text entailment when its excerpt does not
+span-match, and one page can back multiple roundup sentences (live-proven: a real Wikipedia bio
+page covered 3 of 6 sentences in one run); fetchedText stays transient, stripped at the persist
+choke point. A multi-source rule means a fully covered draft is never held hostage by an
+additional robots-blocked citation (it notes the blocked source and stays ready);
+needs_source_check still holds when coverage genuinely fails. Third pilot re-run verdict, honest:
+the mechanical blockers are gone, and the remaining hold is correct behavior (an ungrounded
+superlative refused, a bare list-index page cannot entail biographical facts). See the
+2026-07-11 "Drafter last mile 2" entry in VERIFICATION_LOG.md. Full hermetic gate GREEN at
+ffc39807 (fullgateDL2.log: 22725 passed / 0 failed). Deploy confirmation to Vercel production is
+pending; unconfirmed from this environment.
+
+## Queue, ranked (2026-07-11, post-drafter-last-mile-2)
+
+1. **Evidence-selection iteration (drafter).** Cite entity bio pages for roundup claims, so
+   full-text entailment has the right source to check against instead of any fetchable page.
+   This is the next bounded drafter iteration named in the last-mile-2 verdict above.
+2. **Verdict-floor tightening.** The self-test false-positive rate is genuinely 0.925 (sample
+   size 40); target under 5 percent. Proof-model floor decision list delivered to the operator
+   2026-07-10 late evening; AWAITING OPERATOR SIGN-OFF.
+3. **56-84d confidence tier slice.** Build the confirmation tier that E-39's D6 already reserved
+   space for. Part of the same 2026-07-10 late-evening decision list; AWAITING OPERATOR
+   SIGN-OFF.
+4. **Parity matrix update.** The pilot re-run itself is done as of ffc39807 (third re-run,
+   verdict above); update the parity matrix against this result.
+5. **Second-tenant workflow proof.** Prove the same workflow end to end on a second tenant, not
    tenant-iranopedia alone.
-5. **Sibling SWR stores ambient-tenant check.** Extend the Task #230 tenant-isolation fix to the
+6. **Sibling SWR stores ambient-tenant check.** Extend the Task #230 tenant-isolation fix to the
    worklist and Today surface stores.
-6. **Remaining pre-existing dash sweep.** Includes the operator-visible string in
+7. **Remaining pre-existing dash sweep.** Includes the operator-visible string in
    build-canonical-changes.ts.
 
 ## Wave 4 pilot - queued 2026-07-10: /famous-iranian-singers

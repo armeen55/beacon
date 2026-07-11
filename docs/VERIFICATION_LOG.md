@@ -7,6 +7,22 @@
 
 ---
 
+## 2026-07-11 - Drafter last mile 2: numeric firewall prose scope, roundup full-text coverage live (ffc39807)
+
+2026-07-11 drafter last mile 2 (ffc39807): pilot re-run gap closed. Numeric firewall now scans
+PROSE only, never the sources citation array (the re-run killer, a retrievedAt date flagged as an
+invented number, is gone; no laundering: a prose number matching only a citation date still
+fails). Roundup full-text coverage wired into production verification: a fetchable authoritative
+page verifies by full-text entailment when its excerpt does not span-match, one page can back
+multiple roundup sentences (proven live: a real Wikipedia bio page covered 3 of 6 sentences in one
+run), fetchedText stays transient (stripped at the persist choke point). Multi-source rule: a
+fully covered draft is never held hostage by an additional robots-blocked citation (it notes the
+blocked source and stays ready); needs_source_check still holds when coverage genuinely fails.
+Third pilot re-run verdict, honest: the mechanical blockers are gone; the remaining hold is
+correct behavior (an ungrounded superlative refused; a bare list-index page cannot entail
+biographical facts). Next bounded iteration = evidence selection (cite entity bio pages for
+roundup claims). Gate 22725 passed 0 failed.
+
 ## 2026-07-11 - Refresh-reliability wave: tenant-guard fix, auth escalation, refresh_runs ledger
 
 2026-07-11 refresh-reliability: precompute tenant-guard root cause = fan-out warmed non-env
