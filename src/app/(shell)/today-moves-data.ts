@@ -31,6 +31,7 @@ import {
 import type { EvidencePacket } from "@/domains/demand-graph/evidence-packet";
 import { attachOpinions } from "@/domains/demand-graph/specialist-opinions";
 import { routeMove, type MoveRouterDecision } from "@/domains/demand-graph/move-router";
+import { buildAlternativesPanel } from "@/domains/demand-graph/alternatives-panel";
 import { loadSpecialistWeightTable } from "@/domains/team-scoreboard/load-team-scoreboard";
 import { summarizeSpecialistDebate, type DebateSummary } from "@/domains/demand-graph/debate-summary";
 import {
@@ -273,6 +274,15 @@ export type TodayMove = {
    *  the /moves projection from data the engine already persisted - no new
    *  fetch, no new ranking. */
   winners?: import("@/domains/demand-graph/winners-panel").WinnerLine[] | null;
+  /** G9 (Wave 4, 2026-07-11) - "What else I considered": the router's own debate
+   *  (MoveRouterDecision.appliedObjections + .dissenting), already computed and
+   *  persisted, projected into up to 3 plain-language "rejected alternative" lines
+   *  + an optional one-line dissenting teammate take. Null/absent when the move
+   *  has no vetoed alternative and no dissenting voice (the detail view then
+   *  renders no panel at all - honest absence, not a placeholder). Computed
+   *  in-memory from the same opinions/decision this loader already builds - no
+   *  new fetch, no new ranking. */
+  whatElseIConsidered?: import("@/domains/demand-graph/alternatives-panel").AlternativesPanelData | null;
 };
 
 export type TodayMovesHeroData = {
@@ -625,6 +635,10 @@ export async function buildTodayMovesData(
       // honestly (broad SERP runs are P5/P6). Null-safe when there's no packet.
       const opinions = packet ? attachOpinions(packet, { nowIso }) : [];
       const decision: MoveRouterDecision | null = packet ? routeMove({ packet, opinions, specialistWeight }) : null;
+      // G9 (Wave 4) - "What else I considered": render-only projection of the
+      // decision's own vetoed alternatives + dissenting voice. Null-safe when
+      // there's no decision (no packet) or nothing real to show.
+      const whatElseIConsidered = decision ? buildAlternativesPanel(decision) : null;
       const inMemoryPack =
         packet && decision
           ? buildPreparedMovePack({ tenantId, packet, opinions, decision, nowIso })
@@ -813,6 +827,7 @@ export async function buildTodayMovesData(
         routerAction: decision?.action ?? null,
         routerRationale: decision?.rationale ?? null,
         routerConfidence: decision?.confidenceLevel ?? null,
+        whatElseIConsidered,
         preparedStatus: effectivePack?.preparedStatus ?? null,
         preparedChecklist,
         preparedDraftKind: draftValue?.kind ?? null,

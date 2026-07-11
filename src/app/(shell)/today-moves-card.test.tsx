@@ -338,3 +338,93 @@ describe("G3 (Wave 4) - honest absence for 'Your gap' when no comparison has run
     expect(html).not.toContain("I have not compared this page against the winners yet.");
   });
 });
+
+describe("G9 (Wave 4) - 'What else I considered': the router's own rejected-alternatives argument", () => {
+  it("renders up to 3 rejected alternatives (plain action words, no raw key) plus one dissent line, from a fixture pack", () => {
+    const html = renderToStaticMarkup(
+      <MoveCard
+        rank={1}
+        m={makeMove({
+          whatElseIConsidered: {
+            alternatives: [
+              "A new page instead: rejected. You already rank - improve the page, don't make a new one.",
+              "A title change instead: rejected. This move would answer the wrong question.",
+            ],
+            dissentLine: "The AI citations disagreed: AI cites 3 competitor pages for this topic, never you.",
+          },
+        })}
+      />,
+    );
+    expect(html).toContain("What else I considered");
+    expect(html).toContain("A new page instead: rejected. You already rank - improve the page, don&#x27;t make a new one.");
+    expect(html).toContain("A title change instead: rejected. This move would answer the wrong question.");
+    expect(html).toContain("The AI citations disagreed: AI cites 3 competitor pages for this topic, never you.");
+    // Never a raw MoveRouterAction key.
+    expect(html).not.toContain("create_page");
+    expect(html).not.toContain("change_title_meta");
+  });
+
+  it("caps at 3 rendered alternatives even if the pack somehow carried more", () => {
+    const html = renderToStaticMarkup(
+      <MoveCard
+        rank={1}
+        m={makeMove({
+          whatElseIConsidered: {
+            alternatives: ["Alt one rejected.", "Alt two rejected.", "Alt three rejected.", "Alt four rejected."],
+            dissentLine: null,
+          },
+        })}
+      />,
+    );
+    expect(html).toContain("Alt one rejected.");
+    expect(html).toContain("Alt three rejected.");
+    expect(html).not.toContain("Alt four rejected.");
+  });
+
+  it("honest absence: renders no panel at all when the move has no stored alternatives reasoning", () => {
+    const htmlUndefined = renderToStaticMarkup(<MoveCard rank={1} m={makeMove({})} />);
+    expect(htmlUndefined).not.toContain("What else I considered");
+    const htmlNull = renderToStaticMarkup(<MoveCard rank={1} m={makeMove({ whatElseIConsidered: null })} />);
+    expect(htmlNull).not.toContain("What else I considered");
+    const htmlEmpty = renderToStaticMarkup(
+      <MoveCard rank={1} m={makeMove({ whatElseIConsidered: { alternatives: [], dissentLine: null } })} />,
+    );
+    expect(htmlEmpty).not.toContain("What else I considered");
+  });
+
+  it("emits no banned dash in the panel copy", () => {
+    const html = renderToStaticMarkup(
+      <MoveCard
+        rank={1}
+        m={makeMove({
+          whatElseIConsidered: {
+            alternatives: ["A new page instead: rejected. You already rank - improve the page, don't make a new one."],
+            dissentLine: "The AI citations disagreed: AI cites 3 competitor pages for this topic, never you.",
+          },
+        })}
+      />,
+    );
+    expect(BANNED_DASH.test(html)).toBe(false);
+  });
+
+  it("stays collapsed by default (no 'open' attribute) - a supplementary aside, not the primary field", () => {
+    const html = renderToStaticMarkup(
+      <MoveCard
+        rank={1}
+        m={makeMove({
+          whatElseIConsidered: {
+            alternatives: ["A new page instead: rejected. You already rank - improve the page, don't make a new one."],
+            dissentLine: null,
+          },
+        })}
+      />,
+    );
+    const idx = html.indexOf("What else I considered");
+    expect(idx).toBeGreaterThan(-1);
+    // Walk back to the nearest <details ...> opening tag and confirm it has no `open` attribute.
+    const detailsStart = html.lastIndexOf("<details", idx);
+    const tagEnd = html.indexOf(">", detailsStart);
+    const openingTag = html.slice(detailsStart, tagEnd);
+    expect(openingTag).not.toContain("open");
+  });
+});

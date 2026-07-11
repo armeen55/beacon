@@ -822,6 +822,34 @@ export function MoveCard({
         );
       })() : null}
 
+      {/* G9 (Wave 4, 2026-07-11) - "What else I considered": the router's own
+          debate (MoveRouterDecision.appliedObjections + .dissenting) already
+          decides this Move by ruling alternatives out and hearing dissenting
+          teammates, but that argument never rendered anywhere - the operator
+          had to reconstruct WHY the chosen action beat the alternatives by hand.
+          Render-only over the already-persisted decision; collapsed by default,
+          same as the winners panel above, so it never competes with the primary
+          action for attention. Self-hides entirely when the move has no vetoed
+          alternative and no dissenting voice (honest absence, not a placeholder -
+          this is supplementary reasoning, not a primary field). */}
+      {m.whatElseIConsidered && (m.whatElseIConsidered.alternatives.length > 0 || m.whatElseIConsidered.dissentLine) ? (
+        <details className="mt-3 rounded-xl border border-border-subtle bg-surface-raised px-3 py-2.5">
+          <summary className={`cursor-pointer text-meta font-semibold uppercase tracking-wide text-muted-foreground hover:text-foreground ${FOCUS}`}>
+            What else I considered
+          </summary>
+          <ul className="mt-2 space-y-1.5">
+            {m.whatElseIConsidered.alternatives.slice(0, 3).map((line, i) => (
+              <li key={`alt-${i}`} className="text-meta text-foreground-secondary">
+                {line}
+              </li>
+            ))}
+            {m.whatElseIConsidered.dissentLine ? (
+              <li className="text-meta text-foreground-secondary">{m.whatElseIConsidered.dissentLine}</li>
+            ) : null}
+          </ul>
+        </details>
+      ) : null}
+
       {m.ga4 || m.friction ? (
         <div className="mt-3 flex flex-wrap items-center gap-1.5">
           {m.ga4 ? (

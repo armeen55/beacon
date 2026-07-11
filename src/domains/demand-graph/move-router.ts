@@ -153,7 +153,12 @@ export const VOTE_ELECTION_MARGIN = 0.25;
  *  seed - the debate is supposed to decide together, not let one teammate override by default. */
 export const VOTE_ELECTION_MIN_VOICES = 2;
 
-const ACTION_PLAIN_FOR_DEBATE: Record<MoveRouterAction, string> = {
+/** Plain-word phrasing for every routable action - the ONE map any surface should
+ *  route an action key through before showing it to the operator (never a raw
+ *  snake_case key). Exported (Wave 4, G9) so the /changes "What else I considered"
+ *  panel (alternatives-panel.ts) can name a rejected alternative in the same words
+ *  the in-card debate line already uses, instead of inventing a second phrasing. */
+export const ACTION_PLAIN_FOR_DEBATE: Record<MoveRouterAction, string> = {
   create_page: "a new page", edit_existing_page: "an edit to the existing page",
   add_answer_block: "an answer block", add_schema: "structured data",
   change_title_meta: "a title change", add_internal_links: "an internal link",

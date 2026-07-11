@@ -32,7 +32,11 @@ export const SPECIALIST_LABELS: Record<Specialist, string> = {
   seasonal: "Seasonal timing",
 };
 
-const OBJECTION_LABELS: Record<ObjectionKind, string> = {
+/** Exported (Wave 4, G9) so the /changes "What else I considered" panel
+ *  (alternatives-panel.ts) can reuse the SAME plain-language reason per objection
+ *  kind the in-card debate panel already shows, instead of inventing new wording
+ *  for a fact this module already phrases in Beacon voice. */
+export const OBJECTION_LABELS: Record<ObjectionKind, string> = {
   fix_ux_first: "Fix the page experience first",
   cant_outrank_serp: "This search looks hard to win right now",
   already_ranks: "You already rank - improve the page, don't make a new one",
