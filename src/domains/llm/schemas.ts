@@ -578,25 +578,49 @@ export const LLM_OUTPUT_SCHEMAS = {
 export type LlmOutputSchemaName = keyof typeof LLM_OUTPUT_SCHEMAS;
 
 /** Every CUSTOMER-FACING PROSE string in a parsed draft, flattened - fed to the
- *  content firewalls (numeric-fidelity / placeholder / em-dash / superlative) in
- *  the drafter. Deliberately SKIPS the `sources` citation array: those fields
- *  (retrievedAt, url, finalUrl, contentHash, domain, and the source's own
- *  claim/excerpt) are machine-emitted citation METADATA - re-stamped by
- *  source-authority.ts and verified against the real fetched page by the drafter's
- *  source-verification step - not prose an operator pastes. Scanning them made the
- *  numeric firewall reject a whole draft for the digits of a citation's own
- *  retrievedAt date ("2026-07-11" -> "07,11") that the product's own prompt told
- *  the model to emit. The grounded-number ledger is unchanged, so a fabricated
- *  number IN PROSE - including a date-shaped one present only as a citation date
- *  and nowhere in the grounding - still fails (no laundering through metadata). */
+ *  content firewalls (numeric-fidelity / placeholder / em-dash / superlative) at
+ *  the ONE call site that runs them, generation time in structured-drafter.ts's
+ *  `callStructuredLLM` (there is no second, later re-scan - this helper's scope
+ *  IS the firewall's scope, so a key skipped here is skipped everywhere). Three
+ *  kinds of field are deliberately EXCLUDED because they are not prose an
+ *  operator ever pastes onto their site:
+ *   - `sources`: machine-emitted citation METADATA (retrievedAt, url, finalUrl,
+ *     contentHash, domain, claim) - re-stamped by source-authority.ts and
+ *     verified against the real fetched page by the drafter's source-
+ *     verification step. Scanning it made the firewall reject a whole draft for
+ *     the digits of a citation's own retrievedAt date ("2026-07-11" -> "07,11")
+ *     that the product's own prompt told the model to emit.
+ *   - `proofPlan`: the MEASUREMENT METHODOLOGY the product's own prompt asks the
+ *     model to write ("measure clicks over a 7/14/28-day window, target a
+ *     stated lift") - an aspirational target/method description, not a factual
+ *     claim about the world that needs grounding. Pilot loop 6 (2026-07-11)
+ *     found BOTH live attempt-1s dying on the model's own `proofPlan.metrics`
+ *     text ("target 100%") - a false reject of a field the product itself
+ *     instructed the model to fill in, not an invented customer-facing fact.
+ *   - `operatorSteps` / `risks`: procedural implementation instructions and
+ *     internal caution notes addressed TO the operator ("Add this answer block
+ *     directly under the H1", "keep claims neutral") - never copy the operator
+ *     publishes verbatim.
+ *  `evidenceRefs.detail` stays SCANNED on purpose (unchanged): it is the
+ *  model's own description of REAL grounding data (a GSC/GA4/Clarity/Profound/
+ *  ... signal Beacon already retrieved) - an invented number there means the
+ *  model fabricated its OWN evidence, exactly the case this firewall exists to
+ *  catch, not methodology the product asked it to write.
+ *  The grounded-number ledger is unchanged, so a fabricated number IN PROSE -
+ *  including one that also happens to appear inside the now-excluded proofPlan/
+ *  operatorSteps/risks text - still fails: those fields are never added to the
+ *  ledger, so they can never launder an invented prose number as "grounded". */
 export function draftProseStringValues(value: unknown): string[] {
+  // Non-prose methodology/procedural keys, skipped at every object level (see
+  // the doc comment above for the one-line reason each is excluded).
+  const NON_PROSE_KEYS = new Set(["sources", "proofPlan", "operatorSteps", "risks"]);
   const out: string[] = [];
   const walk = (v: unknown): void => {
     if (typeof v === "string") out.push(v);
     else if (Array.isArray(v)) v.forEach(walk);
     else if (v && typeof v === "object") {
       for (const [k, val] of Object.entries(v as Record<string, unknown>)) {
-        if (k === "sources") continue; // citation metadata, verified separately - never prose
+        if (NON_PROSE_KEYS.has(k)) continue;
         walk(val);
       }
     }

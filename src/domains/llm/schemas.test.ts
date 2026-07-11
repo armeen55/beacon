@@ -352,4 +352,37 @@ describe("draftProseStringValues", () => {
     expect(vals).not.toContain("a source claim");
     expect(vals.join(" ")).not.toContain("wikipedia.org");
   });
+
+  // Drafter batch 2 (2026-07-11): the generation-time firewall (structured-drafter.ts's
+  // ONE runContentFirewalls call, fed by this same helper) must not scan the product's
+  // own methodology/procedural fields - only what an operator would actually paste.
+  it("SKIPS proofPlan/operatorSteps/risks (product-authored methodology, never operator-pasted prose)", () => {
+    const vals = draftProseStringValues({
+      answer: "prose the operator pastes",
+      risks: ["internal caution note mentioning 42 percent"],
+      operatorSteps: ["Update the price field to reflect 42"],
+      proofPlan: {
+        metrics: ["measure clicks for 28 days, target 100%"],
+        windowsDays: [7, 14, 28],
+        controls: "comparable unchanged pages",
+      },
+      evidenceRefs: [{ source: "gsc", detail: "kept: real grounding provenance" }],
+    });
+    expect(vals).toContain("prose the operator pastes");
+    expect(vals).toContain("kept: real grounding provenance"); // unchanged: real grounding, still scanned
+    expect(vals.join(" ")).not.toContain("42");
+    expect(vals.join(" ")).not.toContain("target 100%");
+    expect(vals.join(" ")).not.toContain("Update the price field");
+  });
+
+  // The exact pilot loop 6 killer: proofPlan.metrics carrying "target 100%" must
+  // never reach the invented-numbers scan while the draft's real prose is intact.
+  it("the exact loop-6 killer: proofPlan.metrics 'target 100%' never enters the scanned text", () => {
+    const vals = draftProseStringValues({
+      answer: "Persian weddings center on the sofreh aghd ceremony.",
+      proofPlan: { metrics: ["Profound citations", "target 100%"], windowsDays: [7, 14, 28], controls: "comparable unchanged pages" },
+    });
+    expect(vals.join(" ")).not.toContain("100");
+    expect(vals.join(" ")).not.toContain("target");
+  });
 });

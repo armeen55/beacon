@@ -179,6 +179,53 @@ describe("callStructuredLLM — validate / retry / fail-closed", () => {
     if (r.status === "validation_failed") expect(r.errors.some((e) => e.includes("firewall:invented_numbers"))).toBe(true);
   });
 
+  // ── Drafter batch 2 (2026-07-11): the generation-time firewall scans PROSE
+  //    only - proofPlan/operatorSteps/risks (product-authored methodology) are
+  //    excluded the same way citation metadata already was (FIX 1 above). Both
+  //    live pilot loop 6 attempt-1s died on the model's own proofPlan.metrics
+  //    text "target 100%" - this is the exact killer, reproduced. ──────────
+  it("pilot loop 6 killer: proofPlan.metrics 'target 100%' no longer fails generation-time (grounded prose)", async () => {
+    const withTargetInProofPlan = JSON.stringify({
+      ...validAnswer,
+      proofPlan: { ...validAnswer.proofPlan, metrics: [...validAnswer.proofPlan.metrics, "measure clicks for 28 days, target 100%"] },
+    });
+    const r = await callStructuredLLM({ kind: "answer_block", system: "s", user: "u", grounded: GROUNDED, complete: fakeComplete([{ text: withTargetInProofPlan }]) });
+    expect(r.status).toBe("drafted");
+    if (r.status === "drafted") expect(r.retried).toBe(false); // attempt 1 - no longer dies on its own methodology text
+  });
+
+  it("a fabricated number IN PROSE still fails at generation time even with an unrelated proofPlan target", async () => {
+    const invented = JSON.stringify({
+      ...validAnswer,
+      answer: validAnswer.answer + " Attendance figures show exactly 4821 guests on average.",
+      proofPlan: { ...validAnswer.proofPlan, metrics: [...validAnswer.proofPlan.metrics, "measure clicks for 28 days, target 100%"] },
+    });
+    const r = await callStructuredLLM({ kind: "answer_block", system: "s", user: "u", grounded: GROUNDED, complete: fakeComplete([{ text: invented }]) });
+    expect(r.status).toBe("validation_failed");
+    if (r.status === "validation_failed") expect(r.errors.some((e) => e.includes("firewall:invented_numbers:4821"))).toBe(true);
+  });
+
+  it("no laundering: a fabricated prose number is not excused by the SAME number also appearing in the excluded proofPlan text", async () => {
+    const invented = JSON.stringify({
+      ...validAnswer,
+      answer: validAnswer.answer + " Attendance figures show exactly 4821 guests on average.",
+      proofPlan: { ...validAnswer.proofPlan, metrics: [...validAnswer.proofPlan.metrics, "target 4821 in the same window"] },
+    });
+    const r = await callStructuredLLM({ kind: "answer_block", system: "s", user: "u", grounded: GROUNDED, complete: fakeComplete([{ text: invented }]) });
+    expect(r.status).toBe("validation_failed");
+    if (r.status === "validation_failed") expect(r.errors.some((e) => e.includes("firewall:invented_numbers:4821"))).toBe(true);
+  });
+
+  it("an invented number confined to operatorSteps/risks alone (grounded prose) still drafts - not a customer-facing claim", async () => {
+    const withNumbersInMethodology = JSON.stringify({
+      ...validAnswer,
+      risks: ["watch for drift past 4821 impressions"],
+      operatorSteps: ["Add this answer block directly under the H1, near the 4821 badge"],
+    });
+    const r = await callStructuredLLM({ kind: "answer_block", system: "s", user: "u", grounded: GROUNDED, complete: fakeComplete([{ text: withNumbersInMethodology }]) });
+    expect(r.status).toBe("drafted");
+  });
+
   it("SANITIZES em-dashes (style, not trust) instead of rejecting the draft", async () => {
     const withDash = JSON.stringify({ ...validAnswer, answer: validAnswer.answer.replace("them, followed", "them—followed") });
     const r = await callStructuredLLM({ kind: "answer_block", system: "s", user: "u", grounded: GROUNDED, complete: fakeComplete([{ text: withDash }]) });
