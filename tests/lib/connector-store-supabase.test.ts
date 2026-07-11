@@ -446,6 +446,38 @@ describe("connector-store — getConnectorHealth (honest derived state)", () => 
     expect(h.healthReason).toBe(RECONNECT_REASON);
   });
 
+  it("needs_attention (tracked failing streak) uses the 'Reconnecting usually fixes this' copy", async () => {
+    await saveConnectorToken(
+      gscToken({
+        needs_attention_at: "2026-06-14T00:00:00Z",
+        needs_attention_since: "2026-06-01T00:00:00Z",
+        needs_attention_kind: "streak",
+      }),
+      "tenant-a",
+    );
+    const h = await getConnectorHealth("google_gsc", "tenant-a", NOW);
+    expect(h.health).toBe("needs_attention");
+    expect(h.healthReason).toBe(
+      "I have not been able to pull your data since June 1. Reconnecting usually fixes this.",
+    );
+  });
+
+  it("needs_attention (initial silence, no ledger history) uses the honest 'start fresh from today' copy", async () => {
+    await saveConnectorToken(
+      gscToken({
+        needs_attention_at: "2026-06-14T00:00:00Z",
+        needs_attention_since: "2026-06-01T00:00:00Z",
+        needs_attention_kind: "initial_silence",
+      }),
+      "tenant-a",
+    );
+    const h = await getConnectorHealth("google_gsc", "tenant-a", NOW);
+    expect(h.health).toBe("needs_attention");
+    expect(h.healthReason).toBe(
+      "I have not been able to pull Google data for this site since June 1. Reconnect Google and I will start fresh from today.",
+    );
+  });
+
   it("auth_failed_at OUTRANKS a no-property GA4 token (most urgent wins)", async () => {
     // Both conditions hold: the GA4 grant expired AND no property is picked.
     // The reconnect signal is the most urgent + actionable → it must win.

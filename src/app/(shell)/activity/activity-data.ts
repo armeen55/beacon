@@ -44,7 +44,10 @@ async function loadCronRunsBounded(): Promise<CronRunRow[]> {
   const perJob = await Promise.all(
     jobs.map((job) => listRecentCronRuns(job, MAX_RUNS_PER_JOB).catch(() => [] as CronRunRow[])),
   );
-  return perJob.flat();
+  // Only completed runs become activity events. An unfinished "started" receipt
+  // would otherwise render as a misleading failed event (ok defaults false,
+  // duration 0) before the run has even finished.
+  return perJob.flat().filter((r) => (r.phase ?? "finished") === "finished");
 }
 
 async function loadConnectionEvents(tenantId: string): Promise<ConnectionInput[]> {

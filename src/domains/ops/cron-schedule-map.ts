@@ -25,7 +25,7 @@ export type CronScheduleEntry = {
 };
 
 // Mirror of vercel.json's `crons` array. Keep job identifiers aligned with
-// the string cron-sync.ts / measure-due's route.ts pass to recordCronRun.
+// the `job` string each cron route passes to beginCronRun / finishCronRun.
 export const CRON_SCHEDULE_MAP: readonly CronScheduleEntry[] = [
   {
     job: "publish-canary",

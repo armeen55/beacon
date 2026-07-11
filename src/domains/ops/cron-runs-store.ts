@@ -37,6 +37,22 @@ export type CronRunSourceResult = {
   detail: string;
 };
 
+/**
+ * A run's lifecycle phase (2026-07-12 invocation-receipt pattern):
+ *   - "running":  a row INSERTED the moment a cron route is invoked, before any
+ *     work runs. Proves the job was actually reached (not "Vercel never fired
+ *     it"). Never counted as a success or a failure by any reader.
+ *   - "finished": the same row UPDATED in place at completion (or a one-shot
+ *     recordCronRun row). This is the completed outcome readers score.
+ * Rows written before this column existed (all written at completion) read as
+ * "finished", which is exactly what they are - no backfill needed.
+ */
+export type CronRunPhase = "running" | "finished";
+
+function mapPhase(v: unknown): CronRunPhase {
+  return v === "running" ? "running" : "finished";
+}
+
 export type CronRunInput = {
   /** Stable job identifier, e.g. "sync-connectors", "measure-due". */
   job: string;
@@ -61,6 +77,9 @@ export type CronRunRow = {
   per_source: CronRunSourceResult[];
   notes: Record<string, unknown>;
   created_at: string;
+  /** Lifecycle phase. Absent on rows written before the column existed -> read
+   *  as "finished" (they were all written at completion). */
+  phase: CronRunPhase;
 };
 
 type FileRow = CronRunRow;
@@ -98,6 +117,7 @@ export function buildCronRunRow(input: CronRunInput, id: string, now: Date = new
     per_source: [...input.perSource],
     notes: input.notes ?? {},
     created_at: now.toISOString(),
+    phase: "finished",
   };
 }
 
@@ -187,6 +207,233 @@ export async function recordCronRun(input: CronRunInput): Promise<void> {
   }
 }
 
+export type CronRunStorage = "supabase" | "file";
+
+/**
+ * Handle returned by beginCronRun and passed to finishCronRun to update the
+ * SAME invocation row in place. Carries where the row lives so finish writes
+ * back to the store begin wrote to (a Supabase row id, or the file-mirror id).
+ */
+export type CronRunHandle = {
+  storage: CronRunStorage;
+  id: string;
+  job: string;
+  tenantId: string | null;
+  startedAt: string;
+};
+
+function newId(job: string, startedAt: string): string {
+  return typeof crypto !== "undefined" && "randomUUID" in crypto
+    ? crypto.randomUUID()
+    : `${job}-${startedAt}-${Math.random().toString(36).slice(2)}`;
+}
+
+function runningFileRow(handle: CronRunHandle, notes: Record<string, unknown>): FileRow {
+  return {
+    id: handle.id,
+    tenant_id: handle.tenantId,
+    job: handle.job,
+    started_at: handle.startedAt,
+    finished_at: handle.startedAt, // placeholder until finish overwrites it
+    duration_ms: 0,
+    ok: false,
+    per_source: [],
+    notes,
+    created_at: new Date().toISOString(),
+    phase: "running",
+  };
+}
+
+/**
+ * INSERT a "started" receipt the MOMENT a cron route is invoked, before any
+ * work runs. This is what lets a reader tell "Vercel never fired this job"
+ * (no row at all) apart from "the job was invoked but died mid-run" (a running
+ * row that never became finished). Returns a handle finishCronRun updates in
+ * place at completion. FAIL-SOFT BY CONTRACT: never throws - a receipt-write
+ * failure must never block the run it observes. A missing table OR a missing
+ * `phase` column (pre-migration) routes to the file mirror, exactly like
+ * recordCronRun, so deploy order (code before migration) can never break the
+ * crons this ledger watches.
+ */
+export async function beginCronRun(input: {
+  job: string;
+  tenantId?: string | null;
+  startedAt?: string;
+  notes?: Record<string, unknown>;
+}): Promise<CronRunHandle> {
+  const startedAt = input.startedAt ?? new Date().toISOString();
+  const tenantId = input.tenantId ?? null;
+  const notes = input.notes ?? {};
+  const fileId = newId(input.job, startedAt);
+  const fileHandle: CronRunHandle = {
+    storage: "file",
+    id: fileId,
+    job: input.job,
+    tenantId,
+    startedAt,
+  };
+
+  let admin;
+  try {
+    admin = getSupabaseAdmin();
+  } catch {
+    await writeFileRow(runningFileRow(fileHandle, notes)); // no Supabase env -> file only
+    return fileHandle;
+  }
+
+  try {
+    const { data, error } = await admin
+      .from(TABLE)
+      .insert({
+        tenant_id: tenantId,
+        job: input.job,
+        started_at: startedAt,
+        finished_at: startedAt, // placeholder; finishCronRun overwrites it
+        duration_ms: 0,
+        ok: false,
+        per_source: [],
+        notes,
+        phase: "running",
+      })
+      .select("id")
+      .single();
+    if (error != null) {
+      if (isMissingTable(error)) {
+        // Table or the phase column is not migrated in yet: record the started
+        // receipt in the file mirror so deploy order can never lose it.
+        await writeFileRow(runningFileRow(fileHandle, notes));
+        return fileHandle;
+      }
+      log.warn("[cron-runs-store] begin insert failed", {
+        job: input.job,
+        error: error.message ?? String(error),
+      });
+      await writeFileRow(runningFileRow(fileHandle, notes));
+      return fileHandle;
+    }
+    const dbId =
+      data != null && typeof data === "object" && "id" in data
+        ? String((data as { id: unknown }).id)
+        : fileId;
+    return { storage: "supabase", id: dbId, job: input.job, tenantId, startedAt };
+  } catch (e) {
+    log.warn("[cron-runs-store] begin insert threw", {
+      job: input.job,
+      error: e instanceof Error ? e.message : String(e),
+    });
+    await writeFileRow(runningFileRow(fileHandle, notes));
+    return fileHandle;
+  }
+}
+
+type FinishPatch = {
+  finished_at: string;
+  duration_ms: number;
+  ok: boolean;
+  per_source: CronRunSourceResult[];
+  notes: Record<string, unknown>;
+  phase: CronRunPhase;
+};
+
+/**
+ * UPDATE the started receipt in place at completion (ok, duration, per_source,
+ * notes, phase -> "finished"). FAIL-SOFT BY CONTRACT: never throws. On a
+ * Supabase update error the finished outcome is still mirrored to the file so
+ * the run is never lost.
+ */
+export async function finishCronRun(
+  handle: CronRunHandle,
+  result: {
+    ok: boolean;
+    perSource: ReadonlyArray<CronRunSourceResult>;
+    notes?: Record<string, unknown>;
+    finishedAt?: string;
+  },
+): Promise<void> {
+  const finishedAt = result.finishedAt ?? new Date().toISOString();
+  const patch: FinishPatch = {
+    finished_at: finishedAt,
+    duration_ms: durationMs(handle.startedAt, finishedAt),
+    ok: result.ok,
+    per_source: [...result.perSource],
+    notes: result.notes ?? {},
+    phase: "finished",
+  };
+
+  if (handle.storage === "file") {
+    await finishFileRow(handle, patch);
+    return;
+  }
+
+  let admin;
+  try {
+    admin = getSupabaseAdmin();
+  } catch {
+    await finishFileRow(handle, patch); // env vanished mid-run -> mirror
+    return;
+  }
+  try {
+    const { error } = await admin.from(TABLE).update(patch).eq("id", handle.id);
+    if (error != null) {
+      if (!isMissingTable(error)) {
+        log.warn("[cron-runs-store] finish update failed", {
+          job: handle.job,
+          error: error.message ?? String(error),
+        });
+      }
+      await finishFileRow(handle, patch); // best-effort mirror so the run isn't lost
+      return;
+    }
+  } catch (e) {
+    log.warn("[cron-runs-store] finish update threw", {
+      job: handle.job,
+      error: e instanceof Error ? e.message : String(e),
+    });
+    await finishFileRow(handle, patch);
+  }
+}
+
+/** Update the file-mirror started row in place (or append a finished row when
+ *  begin never reached the mirror). Fail-soft: never throws. */
+async function finishFileRow(handle: CronRunHandle, patch: FinishPatch): Promise<void> {
+  try {
+    const rows = await readFile();
+    const idx = rows.findIndex((r) => r.id === handle.id && r.job === handle.job);
+    if (idx >= 0) {
+      rows[idx] = { ...rows[idx]!, ...patch };
+    } else {
+      rows.push({
+        id: handle.id,
+        tenant_id: handle.tenantId,
+        job: handle.job,
+        started_at: handle.startedAt,
+        created_at: new Date().toISOString(),
+        ...patch,
+      });
+    }
+    // Same per-job bound writeFileRow applies (newest first, capped).
+    const byJob = new Map<string, FileRow[]>();
+    for (const r of rows) {
+      if (!byJob.has(r.job)) byJob.set(r.job, []);
+      byJob.get(r.job)!.push(r);
+    }
+    const out: FileRow[] = [];
+    for (const list of byJob.values()) {
+      out.push(
+        ...list
+          .sort((a, b) => b.started_at.localeCompare(a.started_at))
+          .slice(0, MAX_FILE_ROWS_PER_JOB),
+      );
+    }
+    await writeStore(STORE, out);
+  } catch (e) {
+    log.warn("[cron-runs-store] file mirror finish failed", {
+      job: handle.job,
+      error: e instanceof Error ? e.message : String(e),
+    });
+  }
+}
+
 /** Most recent runs for a job, newest first. Fail-soft -> []. Reads Supabase
  *  first (durable source of truth); falls back to the file mirror when the
  *  table isn't migrated in yet or there's no Supabase env. */
@@ -221,6 +468,7 @@ export async function listRecentCronRuns(job: string, limit = 30): Promise<CronR
       per_source: Array.isArray(r.per_source) ? (r.per_source as CronRunSourceResult[]) : [],
       notes: (r.notes as Record<string, unknown>) ?? {},
       created_at: String(r.created_at ?? r.started_at),
+      phase: mapPhase(r.phase),
     }));
   } catch (e) {
     log.warn("[cron-runs-store] list threw", { job, error: e instanceof Error ? e.message : String(e) });
@@ -232,7 +480,10 @@ function sortAndLimit(rows: FileRow[], job: string, limit: number): CronRunRow[]
   return rows
     .filter((r) => r.job === job)
     .sort((a, b) => b.started_at.localeCompare(a.started_at))
-    .slice(0, limit);
+    .slice(0, limit)
+    // Older mirror rows predate the phase field; normalize so every reader can
+    // rely on it being present (missing -> "finished", they were completed runs).
+    .map((r) => ({ ...r, phase: mapPhase(r.phase) }));
 }
 
 /** Every distinct job name the ledger has ever recorded (Supabase first,

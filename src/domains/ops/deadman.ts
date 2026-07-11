@@ -82,6 +82,67 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 const HEALTHY_MAX_PERIODS = 1.5;
 const LATE_MAX_PERIODS = 3;
 
+/**
+ * How long a "started" receipt may sit unfinished before it reads as died
+ * mid-run rather than in-flight. 15 minutes is well beyond every cron route's
+ * maxDuration (the longest is 300s) plus Vercel scheduling slop, so a running
+ * row older than this could only mean the invocation died between its begin
+ * receipt and its finish update (a crash, an OOM, a hard kill). A running row
+ * younger than this is simply the job executing right now, and counts as a
+ * fresh run for pacing (no false alarm).
+ */
+export const ABANDONED_RUN_GRACE_MS = 15 * 60 * 1000;
+
+/** The minimal receipt shape summarizeJobReceipts folds. `phase` absent -> a
+ *  legacy completed row. */
+export type ReceiptRow = { started_at: string; phase?: "running" | "finished" | null };
+
+export type JobReceiptSummary = {
+  /** started_at of the newest FINISHED run (or an in-flight run counted as
+   *  fresh); null when the job has only abandoned/no receipts. Feeds pacing. */
+  lastRunStartedAt: string | null;
+  /** started_at of an abandoned "started" receipt (the newest row is running
+   *  and older than the grace window) - the job fired but never finished.
+   *  Null otherwise. */
+  diedMidRunStartedAt: string | null;
+  /** Oldest started_at in the window, for anchoring never-ran grace. */
+  oldestStartedAt: string | null;
+};
+
+/**
+ * PURE: fold a job's receipts (newest first, as listRecentCronRuns returns
+ * them) into the three signals the pace classifier needs. A "started" receipt
+ * is NEVER scored as a success or a failure; it either means the job is running
+ * right now (recent -> counts as a fresh run) or it died mid-run (stale beyond
+ * the grace window -> flagged distinctly so the banner can say a scheduled
+ * update did not finish).
+ */
+export function summarizeJobReceipts(
+  runs: ReadonlyArray<ReceiptRow>,
+  now: Date,
+): JobReceiptSummary {
+  if (runs.length === 0) {
+    return { lastRunStartedAt: null, diedMidRunStartedAt: null, oldestStartedAt: null };
+  }
+  const newest = runs[0]!;
+  const lastFinished =
+    runs.find((r) => (r.phase ?? "finished") === "finished")?.started_at ?? null;
+  const oldestStartedAt = runs[runs.length - 1]!.started_at;
+
+  let lastRunStartedAt = lastFinished;
+  let diedMidRunStartedAt: string | null = null;
+  if ((newest.phase ?? "finished") === "running") {
+    const startedMs = Date.parse(newest.started_at);
+    const age = Number.isFinite(startedMs) ? now.getTime() - startedMs : 0;
+    if (age > ABANDONED_RUN_GRACE_MS) {
+      diedMidRunStartedAt = newest.started_at; // fired but never finished
+    } else {
+      lastRunStartedAt = newest.started_at; // executing right now: a fresh run
+    }
+  }
+  return { lastRunStartedAt, diedMidRunStartedAt, oldestStartedAt };
+}
+
 const PACIFIC = "America/Los_Angeles";
 
 /** Plain sentence subjects per job. Fallback: "the <label>". */
@@ -194,6 +255,7 @@ export function classifyJobPace(
   lastRunStartedAt: string | null,
   ledgerBeganAt: string | null,
   now: Date,
+  diedMidRunStartedAt: string | null = null,
 ): JobPace {
   const periodMs = schedulePeriodMs(entry.schedule, now);
   const lastDue = lastDueBefore(entry.schedule, now);
@@ -205,6 +267,20 @@ export function classifyJobPace(
     lastDueAt: lastDue?.toISOString() ?? null,
     periodMs,
   };
+
+  // Died mid-run: an abandoned "started" receipt older than the grace window.
+  // The job DID fire (so it is not "never ran"), it just never finished. Reuse
+  // the stalled tier and the "did not finish" vocabulary - no new status word -
+  // so it alarms on Today alongside the missed-run cases.
+  if (diedMidRunStartedAt != null && Number.isFinite(Date.parse(diedMidRunStartedAt))) {
+    return {
+      ...base,
+      pace: "stalled",
+      sentence: capitalize(
+        `${subject} started ${fmtPacific(diedMidRunStartedAt)} but did not finish. Check the Connections page.`,
+      ),
+    };
+  }
 
   if (lastRunStartedAt != null && Number.isFinite(Date.parse(lastRunStartedAt))) {
     const elapsed = now.getTime() - Date.parse(lastRunStartedAt);
@@ -269,8 +345,13 @@ const PACE_SEVERITY: Record<CronPace, number> = {
 export type DeadmanInput = {
   /** Defaults to the live CRON_SCHEDULE_MAP. */
   entries?: ReadonlyArray<CronScheduleEntry>;
-  /** Newest receipt's started_at per job (null/absent = never recorded). */
+  /** Newest FINISHED (or in-flight) receipt's started_at per job (null/absent =
+   *  never recorded). A pure "started" receipt is never counted here. */
   latestRunByJob: ReadonlyMap<string, string | null>;
+  /** started_at of an abandoned "started" receipt per job (the job fired but
+   *  never finished); absent/null when the job's newest row finished or is
+   *  still in-flight. */
+  diedMidRunByJob?: ReadonlyMap<string, string | null>;
   /** Earliest receipt across ALL jobs; null when the ledger is empty. */
   ledgerBeganAt: string | null;
   /** Site probes, newest first (only the latest two matter). */
@@ -288,6 +369,7 @@ export function assessDeadman(input: DeadmanInput): DeadmanVerdict {
       input.latestRunByJob.get(entry.job) ?? null,
       input.ledgerBeganAt,
       input.now,
+      input.diedMidRunByJob?.get(entry.job) ?? null,
     ),
   );
 

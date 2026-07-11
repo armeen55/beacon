@@ -2,7 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { listTenants } from "@/domains/tenants/store";
 import { measureDueForTenant, type AutoMeasureResult } from "@/domains/proof-gsc/auto-measure";
 import { log } from "@/lib/logger";
-import { recordCronRun } from "@/domains/ops/cron-runs-store";
+import { beginCronRun, finishCronRun, type CronRunHandle } from "@/domains/ops/cron-runs-store";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -25,7 +25,12 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
   }
 
+  // Deadman receipt: INSERT the started row the moment we are invoked (before
+  // any work) so the stall alarm can tell "Vercel never fired this" from
+  // "invoked but died mid-run". Finished in place below. Fail-soft: begin never
+  // throws.
   const startedAt = new Date().toISOString();
+  const receipt = await beginCronRun({ job: "measure-due", startedAt });
   const results: AutoMeasureResult[] = [];
   try {
     const tenants = await listTenants();
@@ -37,34 +42,32 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         log.warn("[measure-due] tenant failed", { tenantId: t.id, error: e instanceof Error ? e.message : "?" });
       }
     }
-    await writeLedgerRow(startedAt, results, null);
+    await finishLedgerRow(receipt, results, null);
     return NextResponse.json({ ok: true, results });
   } catch (e) {
     const err = e instanceof Error ? e.message : String(e);
     log.error("[measure-due] route failed", { error: err.slice(0, 300) });
-    await writeLedgerRow(startedAt, results, err.slice(0, 300));
+    await finishLedgerRow(receipt, results, err.slice(0, 300));
     return NextResponse.json({ ok: false, error: err.slice(0, 300), results }, { status: 500 });
   }
 }
 
 /**
- * Cron health ledger (BEACON_500 item 85, 2026-07-03): one row per run so the
- * /settings/connectors health panel has a durable history instead of log
- * lines that vanish. FAIL-SOFT: recordCronRun never throws on its own, but
- * this wrapper also swallows any error so a ledger-write bug can never
- * change this route's real response.
+ * Cron health ledger (BEACON_500 item 85, 2026-07-03): UPDATE the invocation
+ * receipt begun at route entry with this run's outcome, so the
+ * /settings/connectors health panel has a durable history instead of log lines
+ * that vanish. FAIL-SOFT: finishCronRun never throws on its own, but this
+ * wrapper also swallows any error so a ledger-write bug can never change this
+ * route's real response.
  */
-async function writeLedgerRow(
-  startedAt: string,
+async function finishLedgerRow(
+  receipt: CronRunHandle,
   results: ReadonlyArray<AutoMeasureResult>,
   routeError: string | null,
 ): Promise<void> {
   try {
     const errorsTotal = results.reduce((sum, r) => sum + r.errors, 0);
-    await recordCronRun({
-      job: "measure-due",
-      startedAt,
-      finishedAt: new Date().toISOString(),
+    await finishCronRun(receipt, {
       ok: routeError == null && errorsTotal === 0,
       perSource: results.map((r) => ({
         tenantId: r.tenantId,

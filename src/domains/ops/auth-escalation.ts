@@ -29,10 +29,17 @@ import "server-only";
 
 import { getConnectorInfo, updateConnectorToken } from "@/lib/connector-store";
 import { listRecentRefreshRuns, type RefreshRunRow } from "@/domains/ops/refresh-runs-store";
+import { CONNECTION_LIVENESS_STALE_DAYS } from "@/domains/ops/source-freshness";
 import { log } from "@/lib/logger";
 
 export const AUTH_ESCALATION_MIN_RUNS = 5;
 export const AUTH_ESCALATION_MIN_DAYS = 3;
+
+/** How stale the last real evidence of data must be before the initial-state
+ *  bridge escalates (2026-07-12). Reuses the connection-liveness threshold so
+ *  the "this source has gone quiet" bar can never drift from the rest of the
+ *  app. 14 days: comfortably past GSC's 3-day and Clarity's 7-day data SLAs. */
+export const INITIAL_SILENCE_STALE_DAYS = CONNECTION_LIVENESS_STALE_DAYS;
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -81,6 +88,46 @@ export function deriveAuthEscalation(
 }
 
 /**
+ * PURE: initial-state bridge for when the refresh ledger has NO (or too little)
+ * history to prove a streak yet.
+ *
+ * The refresh_runs ledger started EMPTY on 2026-07-11, so a long-broken source
+ * (e.g. a Google grant connected on a date but silent ever since) could not
+ * surface a needs-attention warning until 5 failed nights accumulated - days
+ * after deploy. This closes that gap HONESTLY from evidence that is already
+ * stored: the last successful sync stamp and the source's newest data date.
+ *
+ * Fires ONLY on POSITIVE evidence of silence: at least one real stamp
+ * (last_synced_at or the latest data date) that is OLDER than the freshness
+ * window. When there is no stamp at all we stay quiet - absence of a stamp is
+ * NOT proof of silence (GSC can hold data behind a null sync marker), so a
+ * healthy source is never falsely alarmed. `since` is the newest such stamp -
+ * the last moment we know data flowed. Never uses connected_at as a trigger.
+ */
+export function deriveInitialSilence(
+  evidence: { lastSyncedAt: string | null; latestDataDate: string | null },
+  now: Date,
+  opts: { staleDays?: number } = {},
+): { escalate: boolean; since: string | null } {
+  const staleMs = (opts.staleDays ?? INITIAL_SILENCE_STALE_DAYS) * DAY_MS;
+  const stamps: number[] = [];
+  const consider = (v: string | null) => {
+    if (v == null || v === "") return;
+    const iso = v.length === 10 ? `${v}T00:00:00Z` : v;
+    const ms = Date.parse(iso);
+    if (Number.isFinite(ms)) stamps.push(ms);
+  };
+  consider(evidence.lastSyncedAt);
+  consider(evidence.latestDataDate);
+  // No positive evidence of any past data or sync -> we cannot prove silence,
+  // so stay quiet (never alarm a healthy source off a bare null stamp).
+  if (stamps.length === 0) return { escalate: false, since: null };
+  const newest = Math.max(...stamps);
+  if (now.getTime() - newest <= staleMs) return { escalate: false, since: null }; // fresh -> healthy
+  return { escalate: true, since: new Date(newest).toISOString() };
+}
+
+/**
  * For ONE tenant, evaluate GSC + GA4 against the refresh ledger and stamp or
  * clear the needs-attention marker. Runs at the end of the nightly cron (after
  * tonight's runs are recorded). FAIL-SOFT per source: a read/write error for one
@@ -111,17 +158,46 @@ export async function evaluateAuthEscalationForTenant(
         continue;
       }
 
-      const { escalate, since } = deriveAuthEscalation(cronRows, now);
+      // Enough nightly history to prove a streak? Use the streak path. Else the
+      // ledger is empty or too short (it started empty on 2026-07-11), so bridge
+      // honestly from stored evidence so a long-silent source surfaces NOW
+      // instead of days from now once 5 nights accumulate.
+      let escalate = false;
+      let since: string | null = null;
+      let kind: "streak" | "initial_silence" = "streak";
+      if (cronRows.length >= AUTH_ESCALATION_MIN_RUNS) {
+        const r = deriveAuthEscalation(cronRows, now);
+        escalate = r.escalate;
+        since = r.since;
+      } else {
+        // The latest data date is not cheaply readable here without a heavy
+        // per-source data read, so we use the last-successful-sync stamp (the
+        // same data-recency proxy the connectors strip uses); a future loader
+        // can thread the true data-through date through latestDataDate.
+        const r = deriveInitialSilence(
+          { lastSyncedAt: info.last_synced_at, latestDataDate: null },
+          now,
+        );
+        escalate = r.escalate;
+        since = r.since;
+        kind = "initial_silence";
+      }
+
       if (escalate && !marked) {
         await updateConnectorToken(
           provider,
-          { needs_attention_at: now.toISOString(), needs_attention_since: since },
+          {
+            needs_attention_at: now.toISOString(),
+            needs_attention_since: since,
+            needs_attention_kind: kind,
+          },
           tenantId,
         );
         log.warn("[auth-escalation] marked needs-attention", {
           tenantId,
           provider,
           since,
+          kind,
           failingNights: cronRows.filter((r) => r.result === "failed").length,
         });
       }
@@ -144,7 +220,7 @@ export async function clearNeedsAttention(
   try {
     await updateConnectorToken(
       provider,
-      { needs_attention_at: null, needs_attention_since: null },
+      { needs_attention_at: null, needs_attention_since: null, needs_attention_kind: null },
       tenantId,
     );
   } catch {

@@ -53,7 +53,12 @@ import { loadProofLedger } from "@/domains/proof-gsc/load-ledger";
 import { loadDeadmanVerdict } from "@/domains/ops/deadman-view";
 import { computePooledVerdicts } from "@/domains/proof-gsc/pooled-verdict-runner";
 import { runInvestigationForTenant } from "@/domains/investigation/run-investigation";
-import { recordCronRun, type CronRunSourceResult as LedgerSourceResult } from "@/domains/ops/cron-runs-store";
+import {
+  beginCronRun,
+  finishCronRun,
+  type CronRunHandle,
+  type CronRunSourceResult as LedgerSourceResult,
+} from "@/domains/ops/cron-runs-store";
 import { recordSourceRefresh } from "@/domains/ops/record-source-refresh";
 import type { RefreshSource, RefreshTrigger } from "@/domains/ops/refresh-runs-store";
 import { evaluateAuthEscalationForTenant } from "@/domains/ops/auth-escalation";
@@ -198,14 +203,14 @@ async function stampFreshness(provider: ReadProvider, tenantId: string): Promise
         // the SAME write, so the banner heals immediately on success.
         await updateConnectorToken(
           "google_gsc",
-          { ...patch, needs_attention_at: null, needs_attention_since: null },
+          { ...patch, needs_attention_at: null, needs_attention_since: null, needs_attention_kind: null },
           tenantId,
         );
         break;
       case "google_ga4":
         await updateConnectorToken(
           "google_ga4",
-          { ...patch, needs_attention_at: null, needs_attention_since: null },
+          { ...patch, needs_attention_at: null, needs_attention_since: null, needs_attention_kind: null },
           tenantId,
         );
         break;
@@ -381,8 +386,16 @@ export async function autoRefreshStaleConnectorsForTenant(
  * The paid generation/drafting path is intentionally NOT here. Fail-soft per
  * tenant AND per source; never throws.
  */
-export async function syncAllConnectedForActiveTenants(): Promise<CronSyncResult> {
+export async function syncAllConnectedForActiveTenants(
+  receipt?: CronRunHandle | null,
+): Promise<CronSyncResult> {
   const ranAt = new Date().toISOString();
+  // Deadman receipt (2026-07-12): the sync-connectors route begins the invocation
+  // row right after auth and passes the handle here, so this run FINISHES the
+  // same started row (never a second row). When called without a handle (a
+  // direct/standalone invocation), begin one now so the run is still receipted.
+  // Fail-soft: begin/finish never throw.
+  const runReceipt = receipt ?? (await beginCronRun({ job: "sync-connectors", startedAt: ranAt }));
   // Soft deadline for the post-sync enrichment (teardown + precompute). The route's
   // maxDuration is 300s; stop enrichment with headroom so a long run is never KILLED
   // mid-write (PHASE 1 syncs always finished first; enrichment is best-effort and
@@ -1423,17 +1436,15 @@ export async function syncAllConnectedForActiveTenants(): Promise<CronSyncResult
     });
   }
 
-  // Cron health ledger (BEACON_500 item 85, 2026-07-03): record this run so the
+  // Cron health ledger (BEACON_500 item 85, 2026-07-03): FINISH the invocation
+  // receipt begun at route entry with this run's outcome, so the
   // /settings/connectors health panel and item 84's failure-streak trigger have
   // a durable, queryable history instead of log lines that vanish. FAIL-SOFT BY
-  // CONTRACT - recordCronRun never throws, but it is still called from inside
+  // CONTRACT - finishCronRun never throws, but it is still called from inside
   // this try so a synchronous bug in the mapping below can never mask the real
   // sync result computed above.
   try {
-    await recordCronRun({
-      job: "sync-connectors",
-      startedAt: ranAt,
-      finishedAt: new Date().toISOString(),
+    await finishCronRun(runReceipt, {
       // Run health, NOT failed===0 (2026-07-06): green when the core succeeded
       // and the only failures are known-degraded connectors; red only on an
       // unexpected (broken) failure. This is what the health panel + summary

@@ -2,7 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { listTenants } from "@/domains/tenants/store";
 import { runAutopilotPass, type AutopilotPassResult } from "@/domains/autopilot/run-autopilot";
 import { log } from "@/lib/logger";
-import { recordCronRun } from "@/domains/ops/cron-runs-store";
+import { beginCronRun, finishCronRun } from "@/domains/ops/cron-runs-store";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -30,9 +30,12 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
   }
 
-  // T0c deadman receipt: one cron_runs row per invocation (fail-soft) so the
-  // stall alarm + health panel can watch this job like every other.
+  // T0c deadman receipt: INSERT the started row the moment we are invoked (before
+  // any work), so the stall alarm can tell "Vercel never fired this" from
+  // "invoked but died mid-run". Finished in place below. Fail-soft: begin never
+  // throws.
   const startedAt = new Date().toISOString();
+  const receipt = await beginCronRun({ job: "autopilot", startedAt });
   const results: AutopilotPassResult[] = [];
   try {
     const tenants = await listTenants();
@@ -56,10 +59,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         });
       }
     }
-    await recordCronRun({
-      job: "autopilot",
-      startedAt,
-      finishedAt: new Date().toISOString(),
+    await finishCronRun(receipt, {
       ok: true,
       perSource: [],
       notes: {
@@ -71,10 +71,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   } catch (e) {
     const err = e instanceof Error ? e.message : String(e);
     log.error("[autopilot-cron] route failed", { error: err.slice(0, 300) });
-    await recordCronRun({
-      job: "autopilot",
-      startedAt,
-      finishedAt: new Date().toISOString(),
+    await finishCronRun(receipt, {
       ok: false,
       perSource: [],
       notes: { routeError: err.slice(0, 300) },

@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { syncAllConnectedForActiveTenants } from "@/lib/connectors/cron-sync";
 import { log } from "@/lib/logger";
 import { recordAppError, errorFieldsFrom } from "@/lib/obs/error-ledger";
+import { beginCronRun, finishCronRun } from "@/domains/ops/cron-runs-store";
 
 // Pure HTTP→Supabase fan-out across tenants; must never be statically rendered.
 export const dynamic = "force-dynamic";
@@ -34,8 +35,16 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
   }
 
+  // Deadman receipt: INSERT the started row the MOMENT this route is reached
+  // (right after auth, before ANY sync work). This is the one job whose ledger
+  // row is written deep inside cron-sync.ts, so lifting the begin receipt up to
+  // the route entry is what lets the stall alarm tell "Vercel never fired the
+  // 09:00 sync" (no row) from "it fired but died before finishing" (a running
+  // row that never finished). The handle flows into the sync so it FINISHES the
+  // same row; a route-level throw finishes it here. Fail-soft: begin never throws.
+  const receipt = await beginCronRun({ job: "sync-connectors", startedAt: new Date().toISOString() });
   try {
-    const result = await syncAllConnectedForActiveTenants();
+    const result = await syncAllConnectedForActiveTenants(receipt);
     return NextResponse.json({ ok: true, summary: result });
   } catch (e) {
     const err = e instanceof Error ? e.message : String(e);
@@ -48,6 +57,13 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       action: "route",
       ...errorFieldsFrom(e),
     });
+    // The sync threw before it could finish its own receipt: close it here so
+    // the started row never lingers and reads as a false died-mid-run.
+    await finishCronRun(receipt, {
+      ok: false,
+      perSource: [],
+      notes: { routeError: err.slice(0, 300) },
+    }).catch(() => {});
     return NextResponse.json({ ok: false, error: err.slice(0, 300) }, { status: 500 });
   }
 }

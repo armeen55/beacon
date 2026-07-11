@@ -139,6 +139,15 @@ export type GoogleConnectorToken = {
    *  "since <date>" in the needs-attention copy. Only meaningful when
    *  needs_attention_at is set. */
   needs_attention_since?: string | null;
+  /** Why the needs-attention marker was stamped (2026-07-12, honest initial
+   *  state). "streak" = the normal path (>= N failed nightly refresh_runs
+   *  spanning >= M days). "initial_silence" = the refresh ledger had no (or too
+   *  little) history yet, so the marker was derived from stored evidence
+   *  (connected_at / last_synced_at) that this source has been silent far past
+   *  the freshness window - the copy then says it will start fresh on reconnect,
+   *  rather than implying a long tracked failure streak. Only meaningful when
+   *  needs_attention_at is set; absent -> treated as "streak". */
+  needs_attention_kind?: "streak" | "initial_silence" | null;
   /** Per-tenant OAuth (2026-07-09), the stable Google account id (`sub`
    *  from the id_token) this grant belongs to. Used by the OAuth callback
    *  to prove a re-consent is the SAME account before retaining a stored
@@ -294,6 +303,10 @@ export type ConnectorInfo = {
   /** The date the failing streak began (ISO 8601); feeds the "since <date>"
    *  copy. Only meaningful when needs_attention_at is set. */
   needs_attention_since?: string | null;
+  /** Why the marker was stamped: "streak" (tracked failing nights) vs
+   *  "initial_silence" (derived from stored evidence when the refresh ledger had
+   *  no history yet). Selects the needs-attention copy. Null when healthy. */
+  needs_attention_kind?: "streak" | "initial_silence" | null;
   /** Per-tenant OAuth (2026-07-09), the Google account email for the connected
    *  grant (Google connectors only), surfaced as "Connected as <email>" on the
    *  connector card. null on older grants (authorized before identity scopes)
@@ -492,6 +505,7 @@ export async function getConnectorInfo(
       // has silently failed to pull for days without proving the grant dead.
       needs_attention_at: token.needs_attention_at ?? null,
       needs_attention_since: token.needs_attention_since ?? null,
+      needs_attention_kind: token.needs_attention_kind ?? null,
       // Per-tenant OAuth (2026-07-09), the connected Google account email,
       // surfaced as "Connected as <email>" on the card. Null on older grants.
       google_account_email: token.google_account_email ?? null,
@@ -684,6 +698,20 @@ export async function getConnectorHealth(
   // not assert the login expired because we cannot prove it did.
   if (info.needs_attention_at != null && info.needs_attention_at !== "") {
     const since = formatSinceDate(info.needs_attention_since);
+    // Honest initial state (2026-07-12): when the marker was DERIVED from stored
+    // evidence because the refresh ledger had no history yet (not a tracked
+    // failing streak), be explicit that there is no run history to show and that
+    // reconnecting starts a clean record from today - rather than implying we
+    // have been watching it fail for a while.
+    if (info.needs_attention_kind === "initial_silence") {
+      return {
+        ...info,
+        health: "needs_attention",
+        healthReason: since
+          ? `I have not been able to pull Google data for this site since ${since}. Reconnect Google and I will start fresh from today.`
+          : "I have not been able to pull Google data for this site in a while. Reconnect Google and I will start fresh from today.",
+      };
+    }
     return {
       ...info,
       health: "needs_attention",
@@ -907,6 +935,8 @@ type GoogleConnectorPatch = Partial<
     // auth-escalation check after N failing nights, cleared on sync success.
     | "needs_attention_at"
     | "needs_attention_since"
+    // 2026-07-12, which copy the marker uses (streak vs initial-silence).
+    | "needs_attention_kind"
   >
 >;
 type YelpConnectorPatch = Partial<

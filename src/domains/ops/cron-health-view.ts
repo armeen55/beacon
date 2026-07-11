@@ -10,7 +10,7 @@ import "server-only";
 import { listRecentCronRuns, type CronRunRow } from "./cron-runs-store";
 import { CRON_SCHEDULE_MAP, nextScheduledRun } from "./cron-schedule-map";
 import { deriveProviderStreaks, streaksAtOrAboveThreshold } from "./cron-streak";
-import { classifyJobPace, type CronPace } from "./deadman";
+import { classifyJobPace, summarizeJobReceipts, type CronPace } from "./deadman";
 
 const RUNS_PER_JOB = 14; // ~2 weeks of nightly history is plenty for "every night this week"
 
@@ -116,14 +116,28 @@ export async function loadCronHealthView(): Promise<JobHealthView[]> {
   for (const entry of CRON_SCHEDULE_MAP) {
     const loaded = runsByJob.get(entry.job) ?? [];
     // A failed READ never raises a stalled alarm - "I could not read my run
-    // history" is the honest state, not "the job never ran".
+    // history" is the honest state, not "the job never ran". A "started"
+    // receipt is never scored as a run: summarizeJobReceipts splits the newest
+    // row into a real last-run vs an abandoned died-mid-run receipt, so the
+    // panel's pace agrees with the Today banner even mid-run.
+    const summary =
+      loaded === "read_error" ? null : summarizeJobReceipts(loaded, now);
     const pace =
-      loaded === "read_error"
+      loaded === "read_error" || summary == null
         ? { pace: "waiting" as const, sentence: null }
-        : classifyJobPace(entry, loaded[0]?.started_at ?? null, ledgerBeganAt, now);
+        : classifyJobPace(
+            entry,
+            summary.lastRunStartedAt,
+            ledgerBeganAt,
+            now,
+            summary.diedMidRunStartedAt,
+          );
     try {
       if (loaded === "read_error") throw new Error("cron_runs read failed");
-      const runs = loaded;
+      // Score only completed runs. An unfinished "started" receipt is neither a
+      // success nor a failure, so it must never inflate the "showed up N of M
+      // nights" headline or a failure streak.
+      const runs = loaded.filter((r) => (r.phase ?? "finished") === "finished");
       const nights = countRecentNights(runs);
       const recent = runs.slice(0, nights);
 

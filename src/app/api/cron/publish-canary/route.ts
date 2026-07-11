@@ -2,7 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { listTenants } from "@/domains/tenants/store";
 import { runPublishCanary } from "@/domains/push/publish-canary";
 import { log } from "@/lib/logger";
-import { recordCronRun } from "@/domains/ops/cron-runs-store";
+import { beginCronRun, finishCronRun } from "@/domains/ops/cron-runs-store";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
@@ -33,18 +33,17 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
   }
 
-  // T0c deadman receipt: every scheduled job leaves one cron_runs row per
-  // invocation so the stall alarm + health panel can watch it. Fail-soft:
-  // recordCronRun never throws, and a wrapper .catch keeps even a mapping
-  // bug from changing this route's real response.
+  // T0c deadman receipt: INSERT the started row the moment we are invoked (before
+  // any work), so the stall alarm can tell "Vercel never fired this" from
+  // "invoked but died mid-run". Finished in place below. Fail-soft: begin never
+  // throws, and a wrapper .catch keeps even a mapping bug from changing this
+  // route's real response.
   const startedAt = new Date().toISOString();
+  const receipt = await beginCronRun({ job: "publish-canary", startedAt });
   try {
     const tenants = await listTenants();
     const results = await runPublishCanary(tenants.map((t) => t.id));
-    await recordCronRun({
-      job: "publish-canary",
-      startedAt,
-      finishedAt: new Date().toISOString(),
+    await finishCronRun(receipt, {
       ok: true,
       perSource: [],
       notes: { tenants: tenants.length },
@@ -53,10 +52,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   } catch (e) {
     const err = e instanceof Error ? e.message : String(e);
     log.error("[publish-canary] route failed", { error: err.slice(0, 300) });
-    await recordCronRun({
-      job: "publish-canary",
-      startedAt,
-      finishedAt: new Date().toISOString(),
+    await finishCronRun(receipt, {
       ok: false,
       perSource: [],
       notes: { routeError: err.slice(0, 300) },

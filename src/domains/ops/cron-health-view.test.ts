@@ -20,6 +20,24 @@ function run(startedAt: string, ok: boolean, perSource: Array<{ tenantId: string
     per_source: perSource,
     notes: {},
     created_at: startedAt,
+    phase: "finished" as const,
+  };
+}
+
+/** An unfinished "started" receipt (invocation recorded, run not yet complete). */
+function running(startedAt: string) {
+  return {
+    id: startedAt,
+    tenant_id: null,
+    job: "sync-connectors",
+    started_at: startedAt,
+    finished_at: startedAt,
+    duration_ms: 0,
+    ok: false,
+    per_source: [],
+    notes: {},
+    created_at: startedAt,
+    phase: "running" as const,
   };
 }
 
@@ -80,6 +98,21 @@ describe("loadCronHealthView", () => {
     expect(sync?.failureStreaks).toEqual([
       expect.objectContaining({ provider: "profound", consecutiveFailures: 3, lastFailureDetail: "timeout" }),
     ]);
+  });
+
+  it("an unfinished started receipt is neither a success nor a failure night", async () => {
+    runsByJob["sync-connectors"] = [
+      running("2026-07-04T09:00:00Z"), // newest row: invoked, not yet finished
+      run("2026-07-03T09:00:00Z", true, [{ tenantId: "tenant-a", provider: "google_gsc", ok: true, detail: "synced" }]),
+      run("2026-07-02T09:00:00Z", true, [{ tenantId: "tenant-a", provider: "google_gsc", ok: true, detail: "synced" }]),
+    ];
+    const view = await loadCronHealthView();
+    const sync = view.find((j) => j.job === "sync-connectors");
+    // Only the 2 FINISHED nights count; the started receipt adds no 3rd night.
+    expect(sync?.headline).toContain("I showed up 2 of 2 nights this week");
+    // lastRun reflects the newest FINISHED run, not the in-flight receipt.
+    expect(sync?.lastRun?.startedAt).toBe("2026-07-03T09:00:00Z");
+    expect(sync?.failureStreaks).toEqual([]);
   });
 
   it("includes a next-scheduled ISO timestamp for every job", async () => {

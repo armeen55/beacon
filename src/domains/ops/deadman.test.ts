@@ -7,6 +7,8 @@ import {
   fmtPacific,
   lastDueBefore,
   schedulePeriodMs,
+  summarizeJobReceipts,
+  ABANDONED_RUN_GRACE_MS,
 } from "./deadman";
 import { findScheduleForJob, type CronScheduleEntry } from "./cron-schedule-map";
 
@@ -157,8 +159,98 @@ describe("classifyJobPace: never-ran grace", () => {
   });
 });
 
+describe("summarizeJobReceipts", () => {
+  const now = new Date("2026-07-11T12:00:00.000Z");
+
+  it("finished rows: last run is the newest finished, nothing died", () => {
+    const s = summarizeJobReceipts(
+      [
+        { started_at: "2026-07-11T09:00:00.000Z", phase: "finished" },
+        { started_at: "2026-07-10T09:00:00.000Z", phase: "finished" },
+      ],
+      now,
+    );
+    expect(s.lastRunStartedAt).toBe("2026-07-11T09:00:00.000Z");
+    expect(s.diedMidRunStartedAt).toBeNull();
+    expect(s.oldestStartedAt).toBe("2026-07-10T09:00:00.000Z");
+  });
+
+  it("legacy rows with no phase read as finished", () => {
+    const s = summarizeJobReceipts([{ started_at: "2026-07-11T09:00:00.000Z" }], now);
+    expect(s.lastRunStartedAt).toBe("2026-07-11T09:00:00.000Z");
+    expect(s.diedMidRunStartedAt).toBeNull();
+  });
+
+  it("a RECENT started row is in-flight: counts as a fresh run, nothing died", () => {
+    const recent = new Date(now.getTime() - 60_000).toISOString(); // 1 min ago
+    const s = summarizeJobReceipts(
+      [
+        { started_at: recent, phase: "running" },
+        { started_at: "2026-07-10T09:00:00.000Z", phase: "finished" },
+      ],
+      now,
+    );
+    expect(s.lastRunStartedAt).toBe(recent); // treated as a run happening now
+    expect(s.diedMidRunStartedAt).toBeNull();
+  });
+
+  it("a STALE started row (beyond the grace window) reads as died mid-run", () => {
+    const stale = new Date(now.getTime() - ABANDONED_RUN_GRACE_MS - 60_000).toISOString();
+    const s = summarizeJobReceipts(
+      [
+        { started_at: stale, phase: "running" },
+        { started_at: "2026-07-10T09:00:00.000Z", phase: "finished" },
+      ],
+      now,
+    );
+    expect(s.diedMidRunStartedAt).toBe(stale);
+    // Pacing still points at the last real finished run, not the abandoned row.
+    expect(s.lastRunStartedAt).toBe("2026-07-10T09:00:00.000Z");
+  });
+
+  it("empty history: all null", () => {
+    const s = summarizeJobReceipts([], now);
+    expect(s).toEqual({ lastRunStartedAt: null, diedMidRunStartedAt: null, oldestStartedAt: null });
+  });
+});
+
+describe("classifyJobPace: died mid-run", () => {
+  it("an abandoned started receipt stalls with the 'did not finish' sentence", () => {
+    const pace = classifyJobPace(
+      SYNC,
+      "2026-07-09T09:00:00.000Z", // last finished run
+      "2026-07-01T09:00:00.000Z",
+      new Date("2026-07-11T09:30:00.000Z"),
+      "2026-07-11T09:00:00.000Z", // started this morning, never finished
+    );
+    expect(pace.pace).toBe("stalled");
+    expect(pace.sentence).toBe(
+      "The nightly data sync started Jul 11, 2:00 AM but did not finish. Check the Connections page.",
+    );
+    // Figure dash through horizontal bar (U+2012..U+2015), written as unicode
+    // escapes so no literal dash characters appear on this added line.
+    expect(pace.sentence).not.toMatch(new RegExp("[\\u2012\\u2013\\u2014\\u2015]"));
+  });
+});
+
 describe("assessDeadman", () => {
   const entries: CronScheduleEntry[] = [SYNC, MEASURE];
+
+  it("a died-mid-run job alarms Today with the 'did not finish' sentence", () => {
+    const verdict = assessDeadman({
+      entries,
+      latestRunByJob: latest({
+        "sync-connectors": "2026-07-11T09:35:00.000Z", // measure healthy
+        "measure-due": "2026-07-11T09:35:00.000Z",
+      }),
+      diedMidRunByJob: latest({ "sync-connectors": "2026-07-11T09:00:00.000Z" }),
+      ledgerBeganAt: "2026-07-01T09:00:00.000Z",
+      now: new Date("2026-07-11T09:30:00.000Z"),
+    });
+    expect(verdict.overall).toBe("stalled");
+    expect(verdict.alarm).toBe(true);
+    expect(verdict.sentences[0]).toContain("but did not finish");
+  });
 
   it("mixed fleet: overall takes the worst pace and alarms on stalled", () => {
     const verdict = assessDeadman({

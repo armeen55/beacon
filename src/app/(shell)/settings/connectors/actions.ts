@@ -960,7 +960,7 @@ async function writeLastSyncedAt(
         // (BUG 2) so the operator's reconnect+sync heals the banner at once.
         await updateConnectorToken(
           provider,
-          { ...patch, needs_attention_at: null, needs_attention_since: null },
+          { ...patch, needs_attention_at: null, needs_attention_since: null, needs_attention_kind: null },
           tenantId,
         );
         break;

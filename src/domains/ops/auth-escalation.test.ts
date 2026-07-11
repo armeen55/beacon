@@ -10,6 +10,8 @@ type Info = {
   auth_failed_at?: string | null;
   needs_attention_at?: string | null;
   needs_attention_since?: string | null;
+  connected_at?: string | null;
+  last_synced_at?: string | null;
 };
 const infos: Record<string, Info> = {};
 const patches: Array<{ provider: string; tenantId: string; patch: Record<string, unknown> }> = [];
@@ -38,9 +40,11 @@ vi.mock("@/domains/ops/refresh-runs-store", () => ({
 
 import {
   deriveAuthEscalation,
+  deriveInitialSilence,
   evaluateAuthEscalationForTenant,
   AUTH_ESCALATION_MIN_RUNS,
   AUTH_ESCALATION_MIN_DAYS,
+  INITIAL_SILENCE_STALE_DAYS,
 } from "./auth-escalation";
 
 const NOW = new Date("2026-07-11T12:00:00Z");
@@ -127,7 +131,95 @@ describe("deriveAuthEscalation (pure)", () => {
   });
 });
 
+describe("deriveInitialSilence (pure)", () => {
+  it("escalates when the last successful sync is older than the stale window", () => {
+    const out = deriveInitialSilence(
+      { lastSyncedAt: "2026-06-25T00:00:00Z", latestDataDate: null },
+      NOW,
+    );
+    expect(out.escalate).toBe(true);
+    expect(out.since).toBe("2026-06-25T00:00:00.000Z");
+  });
+
+  it("stays quiet when the last successful sync is recent (healthy source)", () => {
+    const recent = new Date(NOW.getTime() - 2 * 24 * 60 * 60 * 1000).toISOString();
+    expect(deriveInitialSilence({ lastSyncedAt: recent, latestDataDate: null }, NOW).escalate).toBe(false);
+  });
+
+  it("stays quiet with NO evidence at all (a bare null stamp is not proof of silence)", () => {
+    expect(deriveInitialSilence({ lastSyncedAt: null, latestDataDate: null }, NOW).escalate).toBe(false);
+  });
+
+  it("uses the NEWEST of sync stamp and data date as the recency clock", () => {
+    // sync stamp is stale, but the data date is fresh -> still healthy.
+    const freshData = new Date(NOW.getTime() - 3 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    const out = deriveInitialSilence({ lastSyncedAt: "2026-06-01T00:00:00Z", latestDataDate: freshData }, NOW);
+    expect(out.escalate).toBe(false);
+  });
+
+  it("threshold is the 14-day connection-liveness window", () => {
+    expect(INITIAL_SILENCE_STALE_DAYS).toBe(14);
+  });
+});
+
 describe("evaluateAuthEscalationForTenant (I/O, invariants)", () => {
+  it("empty ledger + a long-stale last sync stamps needs_attention with kind=initial_silence", async () => {
+    infos["tenant-a:google_gsc"] = {
+      status: "connected",
+      auth_failed_at: null,
+      needs_attention_at: null,
+      connected_at: "2026-06-25T00:00:00Z",
+      last_synced_at: "2026-06-25T00:00:00Z",
+    };
+    // No refresh_runs history at all (the ledger started empty).
+    await evaluateAuthEscalationForTenant("tenant-a", NOW);
+    const stamp = patches.find((p) => p.provider === "google_gsc");
+    expect(stamp).toBeDefined();
+    expect(stamp!.patch.needs_attention_at).toBe(NOW.toISOString());
+    expect(stamp!.patch.needs_attention_kind).toBe("initial_silence");
+    expect(stamp!.patch.needs_attention_since).toBe("2026-06-25T00:00:00.000Z");
+    // Never a revocation claim, even in the bridge path.
+    expect("auth_failed_at" in stamp!.patch).toBe(false);
+  });
+
+  it("empty ledger + a RECENT last sync never fires (healthy tenant)", async () => {
+    infos["tenant-a:google_ga4"] = {
+      status: "connected",
+      needs_attention_at: null,
+      connected_at: "2026-05-01T00:00:00Z", // connected long ago, but syncing fine
+      last_synced_at: new Date(NOW.getTime() - 24 * 60 * 60 * 1000).toISOString(),
+    };
+    await evaluateAuthEscalationForTenant("tenant-a", NOW);
+    expect(patches).toHaveLength(0);
+  });
+
+  it("empty ledger + NO sync evidence never fires (cannot prove silence)", async () => {
+    infos["tenant-a:google_gsc"] = {
+      status: "connected",
+      needs_attention_at: null,
+      connected_at: "2026-05-01T00:00:00Z",
+      last_synced_at: null,
+    };
+    await evaluateAuthEscalationForTenant("tenant-a", NOW);
+    expect(patches).toHaveLength(0);
+  });
+
+  it("bridges nights 1-4 (short history, latest failed, stale evidence) before the streak path exists", async () => {
+    infos["tenant-a:google_gsc"] = {
+      status: "connected",
+      needs_attention_at: null,
+      connected_at: "2026-06-25T00:00:00Z",
+      last_synced_at: "2026-06-25T00:00:00Z",
+    };
+    // Only 2 failed nights recorded so far - fewer than the 5-night streak floor.
+    ledger["tenant-a:gsc"] = nightly("2026-07-11T00:00:00Z", ["failed", "failed"]);
+    await evaluateAuthEscalationForTenant("tenant-a", NOW);
+    const stamp = patches.find((p) => p.provider === "google_gsc");
+    expect(stamp).toBeDefined();
+    expect(stamp!.patch.needs_attention_kind).toBe("initial_silence");
+  });
+
+
   it("8-consecutive-failure GSC stamps needs_attention_at, NEVER auth_failed_at", async () => {
     infos["tenant-a:google_gsc"] = { status: "connected", auth_failed_at: null, needs_attention_at: null };
     ledger["tenant-a:gsc"] = nightly("2026-07-11T00:00:00Z", Array(8).fill("failed") as Array<"failed">);

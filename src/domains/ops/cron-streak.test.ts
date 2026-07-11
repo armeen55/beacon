@@ -14,6 +14,7 @@ function run(startedAt: string, perSource: CronRunRow["per_source"]): CronRunRow
     per_source: perSource,
     notes: {},
     created_at: startedAt,
+    phase: "finished",
   };
 }
 
