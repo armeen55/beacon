@@ -159,6 +159,10 @@ export async function updateSession(request: NextRequest): Promise<NextResponse>
     // inside the route, so the session gate must let them through rather
     // than 307→/login (which would make the cron unreachable).
     path.startsWith("/api/cron") ||
+    // Deployment identity (2026-07-12): a public, zero-secret, zero-data GET so
+    // the currently-live build's commit SHA can be confirmed from outside. No
+    // Supabase session is present or needed, so the gate must let it through.
+    path === "/api/version" ||
     path.startsWith("/_next") ||
     path === "/favicon.ico";
 
