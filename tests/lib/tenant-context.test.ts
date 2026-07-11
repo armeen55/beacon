@@ -81,3 +81,55 @@ describe("Sprint 7 Phase 7.3 — currentTenantId resolver", () => {
     expect(a).toBe("tenant-ritz-founder");
   });
 });
+
+describe("runWithTenant explicit override (2026-07-11, BUG 1)", () => {
+  const ORIGINAL_ENV = process.env.BEACON_TENANT_ID;
+
+  beforeEach(() => {
+    mockState.headers = new Map();
+  });
+
+  afterEach(() => {
+    if (ORIGINAL_ENV !== undefined) {
+      process.env.BEACON_TENANT_ID = ORIGINAL_ENV;
+    } else {
+      delete process.env.BEACON_TENANT_ID;
+    }
+  });
+
+  it("override wins over BOTH the header and the env var", async () => {
+    mockState.headers = new Map([["x-beacon-tenant", "tenant-ritz-founder"]]);
+    process.env.BEACON_TENANT_ID = "tenant-ritz-founder";
+    const { currentTenantId, currentTenantSlug, runWithTenant } = await loadResolver();
+    await runWithTenant("tenant-iranopedia", async () => {
+      expect(await currentTenantId()).toBe("tenant-iranopedia");
+      // slug resolver honors the override too (store stub returns slug "stub").
+      expect(await currentTenantSlug()).toBe("stub");
+    });
+    // Outside the override, resolution falls back to header/env as before.
+    expect(await currentTenantId()).toBe("tenant-ritz-founder");
+  });
+
+  it("warming tenant A then tenant B in one request resolves EACH correctly (no memo bleed)", async () => {
+    // The fan-out root: no header, env = ritz. Each warm runs under its own
+    // override; the second must NOT return the first's memoized resolution.
+    process.env.BEACON_TENANT_ID = "tenant-ritz-founder";
+    const { currentTenantId, runWithTenant } = await loadResolver();
+    const seen: string[] = [];
+    for (const id of ["tenant-ritz-founder", "tenant-iranopedia"]) {
+      await runWithTenant(id, async () => {
+        seen.push(await currentTenantId());
+      });
+    }
+    expect(seen).toEqual(["tenant-ritz-founder", "tenant-iranopedia"]);
+  });
+
+  it("with NO override, ambient still resolves to the env tenant (guard stays protective)", async () => {
+    // This is the case the warm-caches guard relies on: an inline call with no
+    // explicit override sees ambient = env, so warming a DIFFERENT tenant trips
+    // the cross-tenant guard exactly as before.
+    process.env.BEACON_TENANT_ID = "tenant-ritz-founder";
+    const { currentTenantId } = await loadResolver();
+    expect(await currentTenantId()).toBe("tenant-ritz-founder");
+  });
+});

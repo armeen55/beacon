@@ -21,6 +21,7 @@
 
 import "server-only";
 
+import { AsyncLocalStorage } from "node:async_hooks";
 import { cache } from "react";
 import { headers } from "next/headers";
 
@@ -28,11 +29,38 @@ import { getTenantOrThrow, getTenant } from "@/domains/tenants/store";
 import type { BeaconTenant } from "@/domains/tenants/types";
 
 /**
- * Returns the active tenant ID. Throws when neither the header nor the
- * env var is set — intentional fail-loud posture so misconfiguration
- * surfaces immediately rather than silently routing to ritz.
+ * Explicit-tenant override (2026-07-11, refresh-reliability wave, BUG 1).
+ *
+ * A cron fan-out warms MANY tenants inside ONE request. The header/env chain
+ * below resolves ONE ambient tenant per request, so a fan-out that warmed
+ * tenant B inline (the parent request's ambient = BEACON_TENANT_ID = ritz)
+ * had every store — and warm-caches' own cross-tenant guard — resolve to
+ * ritz, silently skipping the tenant it meant to warm. (Root cause of the
+ * "the active tenant context is tenant-ritz-founder, not tenant-iranopedia,
+ * so we skipped to protect its caches" skips.)
+ *
+ * `runWithTenant(id, fn)` carries an EXPLICIT tenant end-to-end: inside the
+ * callback (and everything it awaits) `currentTenantId()` / `currentTenant()`
+ * / `currentTenantSlug()` resolve to `id`, regardless of the request header or
+ * BEACON_TENANT_ID. The override is checked BEFORE the React.cache-d resolvers,
+ * so warming tenant A then tenant B in the SAME request resolves each one
+ * correctly instead of returning the first render's memoized value. The guard
+ * still protects genuine cross-tenant work: with NO override, ambient !=
+ * requested tenant trips it exactly as before.
  */
-export const currentTenantId = cache(async (): Promise<string> => {
+const tenantOverride = new AsyncLocalStorage<string>();
+
+/** Run `fn` with `tenantId` as the explicit ambient tenant for its whole async
+ *  subtree. Used by the precompute cron so each tenant warms under ITS OWN
+ *  context without a per-tenant HTTP self-call (see route.ts). */
+export function runWithTenant<T>(tenantId: string, fn: () => T): T {
+  return tenantOverride.run(tenantId, fn);
+}
+
+/** The header/env resolution, memoized per request render tree. Kept as an
+ *  inner cached resolver so the override above can win WITHOUT being trapped by
+ *  the memo (a fan-out resolves multiple tenants in one request). */
+const resolveTenantIdFromRequest = cache(async (): Promise<string> => {
   let headerValue: string | null = null;
   try {
     headerValue = (await headers()).get("x-beacon-tenant");
@@ -49,13 +77,31 @@ export const currentTenantId = cache(async (): Promise<string> => {
 });
 
 /**
+ * Returns the active tenant ID. An explicit `runWithTenant` override wins;
+ * otherwise resolves via the request header then BEACON_TENANT_ID. Throws when
+ * neither is set — intentional fail-loud posture so misconfiguration surfaces
+ * immediately rather than silently routing to ritz.
+ */
+export const currentTenantId = async (): Promise<string> => {
+  const override = tenantOverride.getStore();
+  if (override) return override;
+  return resolveTenantIdFromRequest();
+};
+
+const resolveTenantFromRequest = cache(async (): Promise<BeaconTenant> => {
+  return await getTenantOrThrow(await resolveTenantIdFromRequest());
+});
+
+/**
  * Returns the full tenant record for the current context. Throws if the
  * resolved ID doesn't exist in the tenant store — same fail-loud posture
- * as `currentTenantId`.
+ * as `currentTenantId`. Honors the `runWithTenant` override.
  */
-export const currentTenant = cache(async (): Promise<BeaconTenant> => {
-  return await getTenantOrThrow(await currentTenantId());
-});
+export const currentTenant = async (): Promise<BeaconTenant> => {
+  const override = tenantOverride.getStore();
+  if (override) return await getTenantOrThrow(override);
+  return resolveTenantFromRequest();
+};
 
 /**
  * Resolve a tenant's slug from an EXPLICIT id - no ambient headers()/React.cache
@@ -109,7 +155,13 @@ export async function slugForTenantId(id: string): Promise<string> {
  *   3. Throw - fail-loud with a message naming both env vars so the
  *      misconfiguration surfaces immediately.
  */
-export const currentTenantSlug = cache(async (): Promise<string> => {
-  const id = await currentTenantId();
+const resolveTenantSlugFromRequest = cache(async (): Promise<string> => {
+  const id = await resolveTenantIdFromRequest();
   return slugForTenantId(id);
 });
+
+export const currentTenantSlug = async (): Promise<string> => {
+  const override = tenantOverride.getStore();
+  if (override) return slugForTenantId(override);
+  return resolveTenantSlugFromRequest();
+};
