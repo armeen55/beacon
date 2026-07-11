@@ -50,15 +50,18 @@ import {
   addDays,
   computeWindowLift,
   pickProofMetric,
+  expectedDirectionOf,
   isSnippetCapturePlay,
   proofCheckDates,
   summarizeVerdict,
   trafficTierOf,
   PROOF_WINDOW_DAYS,
   type GscWindowMetrics,
+  type ProofMetric,
   type ProofWindowResult,
   type ProofWindowDay,
 } from "./measure";
+import { DEFAULT_WINDOW_PLAN, PRIMARY_WINDOW_DAY } from "./window-role";
 import { readFloorsFor } from "./aa-calibration-store";
 import { buildPermutationNull, percentileOf, hasEnoughNullPages, type PermutationRead } from "./permutation-null";
 import { buildBayesianRead, type BayesianRead } from "./bayesian-read";
@@ -437,7 +440,15 @@ export async function measureRecord(
   // gate can read the percentile; fail-soft -> null (honest skip) whenever
   // fewer than MIN_NULL_PAGES untreated pages are available, so a thin site
   // never fabricates a percentile off a handful of comparison pages.
-  const metric = pickProofMetric(record.actionType);
+  // Predeclaration contract (protocol 4.1): once a change is predeclared, the
+  // judged metric is FROZEN at ship - read the STORED value and never recompute
+  // it here (no code path may switch the verdict metric after results are
+  // visible). A legacy record (no predeclaredAt) keeps the pickProofMetric path
+  // unchanged, byte-identical to the pre-contract behavior.
+  const metric: ProofMetric =
+    record.predeclaredAt != null && record.judgedMetric != null
+      ? record.judgedMetric
+      : pickProofMetric(record.actionType);
   const basisForPermutation = windows.filter((w) => w.ran).sort((a, b) => b.day - a.day)[0] ?? null;
   let permutationRead: PermutationRead | null = null;
   if (basisForPermutation) {
@@ -897,6 +908,32 @@ export async function recordShippedChange(args: {
     // NOT run-measurement stamping a version (null = not stamped); only the
     // future corrected classifier may ever write a registered version here.
     calibrationVersion: null,
+    // Predeclaration contract (Lane P2, protocol Section 4.1) - stamped ONCE here
+    // at ship, immutable after. judgedMetric is chosen from actionType BEFORE any
+    // post-ship data exists; measureRecord (called right below) then READS it via
+    // the predeclaredAt switch and never recomputes it. This covers every ship
+    // path (auto-record-on-ship, the manual /results form, daily-experiments)
+    // because all of them enter through recordShippedChange.
+    judgedMetric: pickProofMetric(args.actionType),
+    expectedDirection: expectedDirectionOf(args.actionType),
+    primaryWindowDays: PRIMARY_WINDOW_DAY,
+    windowPlan: [...DEFAULT_WINDOW_PLAN],
+    // controlSetIds / controlAlternates: the C4 matched-control selection lands
+    // in Lane P3, so these are stamped null now (schema + round-trip are ready).
+    controlSetIds: null,
+    controlAlternates: null,
+    // The frozen thresholds artifact (protocol Section 5 step 2) is a Lane P3
+    // deliverable; there is no hash to predeclare against yet.
+    classifierVersionPredeclared: null,
+    baselineSnapshot: {
+      clicks: base.clicks,
+      impressions: base.impressions,
+      ctr: base.ctr,
+      position: base.position,
+      windowDays: BASELINE_WINDOW_DAYS,
+      trafficTier: trafficTierOf(base.impressions),
+    },
+    predeclaredAt: now.toISOString(),
     createdAt: now.toISOString(),
     updatedAt: now.toISOString(),
   };

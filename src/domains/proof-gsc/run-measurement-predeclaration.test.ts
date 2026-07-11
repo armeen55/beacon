@@ -1,0 +1,203 @@
+import { describe, it, expect, vi, beforeEach } from "vitest";
+
+/**
+ * Predeclaration contract wiring (Lane P2, protocol Section 4.1):
+ *   - recordShippedChange STAMPS the block once at ship (judgedMetric from
+ *     actionType, expectedDirection, primaryWindowDays 28, the default window
+ *     plan, a ship-time baseline snapshot, predeclaredAt), and measureRecord
+ *     preserves it immutably.
+ *   - measureRecord READS the stored judgedMetric when predeclaredAt is set and
+ *     never recomputes it via pickProofMetric.
+ *   - a legacy record (no predeclaredAt) keeps the pickProofMetric path unchanged.
+ *
+ * I/O modules are mocked at their boundaries the way run-measurement.test.ts
+ * does. pickProofMetric is wrapped in a spy (real impl underneath) so we can
+ * assert it is / is not consulted; the "position -> no Bayesian read" rule is a
+ * second, independent observable of which metric measureRecord actually used.
+ */
+
+const gscWindow = { clicks: 100, impressions: 1000, ctr: 0.1, position: 8 };
+
+vi.mock("./gsc-window", () => ({
+  readWindowForPages: vi.fn(async () => new Map([["https://iranopedia.com/singers", gscWindow]])),
+  readLastFinalizedDate: vi.fn(async () => "2026-07-01"),
+}));
+vi.mock("./ga4-window", () => ({
+  readGa4WindowForPages: vi.fn(async () => new Map()),
+  readLatestGa4Date: vi.fn(async () => null),
+}));
+vi.mock("./citation-window", () => ({
+  computeCitationOutcomeForRecord: vi.fn(async () => null),
+}));
+vi.mock("@/domains/recommendation-intelligence/page-surgeon/assemble-packet", () => ({
+  loadPageSurgeonContext: vi.fn(async () => ({ gscByUrl: new Map(), snapshotByCanon: new Map() })),
+  assemblePacketForUrl: vi.fn(() => ({ gsc: null })),
+}));
+vi.mock("@/domains/recommendation-intelligence/page-surgeon/bridge", () => ({
+  loadPageSurgeonForUrl: vi.fn(async () => ({ status: "none" })),
+}));
+vi.mock("@/domains/serp/serp-history", () => ({
+  rankSeriesFor: vi.fn(async () => []),
+}));
+vi.mock("./rank-recheck", async () => {
+  const actual = await vi.importActual<typeof import("./rank-recheck")>("./rank-recheck");
+  return { ...actual, runRankRecheck: vi.fn(async () => null) };
+});
+vi.mock("./aa-calibration-store", () => ({ readFloorsFor: vi.fn(async () => ({})) }));
+vi.mock("./daily-series", () => ({
+  loadDailyClicksByPathsForTenant: vi.fn(async () => new Map()),
+}));
+vi.mock("./algorithm-weather-store", () => ({ loadDetectedChangepoints: vi.fn(async () => []) }));
+
+// Wrap pickProofMetric in a spy over the REAL implementation so we can assert
+// whether measureRecord consulted it (legacy path) or read the stored metric.
+const pickSpy = vi.hoisted(() => vi.fn());
+vi.mock("./measure", async () => {
+  const actual = await vi.importActual<typeof import("./measure")>("./measure");
+  pickSpy.mockImplementation(actual.pickProofMetric);
+  return { ...actual, pickProofMetric: pickSpy };
+});
+
+import { measureRecord, recordShippedChange } from "./run-measurement";
+import { DEFAULT_WINDOW_PLAN } from "./window-role";
+import type { ShippedChangeRecord } from "./shipped-change-store";
+
+function record(overrides: Partial<ShippedChangeRecord> = {}): ShippedChangeRecord {
+  return {
+    id: "singers::2026-05-01",
+    page: "https://iranopedia.com/singers",
+    path: "/singers",
+    actionType: "edit_title",
+    before: "old title",
+    after: "new title",
+    shippedAt: "2026-05-01",
+    baseline: { clicks: 50, impressions: 800, ctr: 0.06, position: 12, windowDays: 28 },
+    targetQueries: ["persian singers"],
+    controlPages: [],
+    windows: [],
+    verdict: "measuring",
+    confidence: "low",
+    measuredAt: null,
+    notes: null,
+    verifiedLive: false,
+    liveSourceUrl: null,
+    recrawlRequestedAt: null,
+    operatorVerdictOverride: null,
+    calibrationVersion: null,
+    createdAt: "2026-05-01T00:00:00Z",
+    updatedAt: "2026-05-01T00:00:00Z",
+    ...overrides,
+  };
+}
+
+const NOW = new Date("2026-05-09T00:00:00.000Z");
+
+beforeEach(() => {
+  pickSpy.mockClear();
+});
+
+describe("recordShippedChange - ship-time predeclaration stamping (protocol 4.1)", () => {
+  it("stamps the full predeclaration block once at ship", async () => {
+    const shipNow = new Date("2026-05-01T00:00:00.000Z");
+    const rec = await recordShippedChange({
+      tenantId: "tenant-iranopedia",
+      page: "https://iranopedia.com/singers",
+      path: "/singers",
+      actionType: "edit_title", // pickProofMetric -> ctr
+      before: "old",
+      after: "new",
+      targetQueries: ["persian singers"],
+      controlPages: [],
+      shippedAt: "2026-05-01",
+      now: shipNow,
+    });
+
+    expect(rec.judgedMetric).toBe("ctr");
+    expect(rec.expectedDirection).toBe(1);
+    expect(rec.primaryWindowDays).toBe(28);
+    expect(rec.windowPlan).toEqual([...DEFAULT_WINDOW_PLAN]);
+    expect(rec.predeclaredAt).toBe("2026-05-01T00:00:00.000Z");
+    // C4 matched-control selection is Lane P3 -> null now, round-trip ready.
+    expect(rec.controlSetIds).toBeNull();
+    expect(rec.controlAlternates).toBeNull();
+    expect(rec.classifierVersionPredeclared).toBeNull();
+    // Baseline snapshot from the ship-time pre window (the mocked GSC reading).
+    expect(rec.baselineSnapshot).toEqual({
+      clicks: 100,
+      impressions: 1000,
+      ctr: 0.1,
+      position: 8,
+      windowDays: 28,
+      trafficTier: "medium",
+    });
+  });
+
+  it("stamps expectedDirection -1 for a consolidation (donor page loses traffic on purpose)", async () => {
+    const rec = await recordShippedChange({
+      tenantId: "tenant-iranopedia",
+      page: "https://iranopedia.com/singers",
+      path: "/singers",
+      actionType: "consolidate",
+      before: "old",
+      after: "new",
+      targetQueries: [],
+      controlPages: [],
+      shippedAt: "2026-05-01",
+      now: new Date("2026-05-01T00:00:00.000Z"),
+    });
+    expect(rec.expectedDirection).toBe(-1);
+    expect(rec.judgedMetric).toBe("clicks"); // consolidation is not a CTR/position lever
+  });
+});
+
+describe("measureRecord - reads the STORED judged metric when predeclared", () => {
+  it("uses the stored judgedMetric and NEVER recomputes via pickProofMetric", async () => {
+    // Stored metric is "position" but the actionType (edit_title) would map to
+    // "ctr". If measureRecord read the stored value, the change is judged on
+    // position -> NO Bayesian read (buildBayesianRead returns null for position).
+    const predeclared = record({
+      actionType: "edit_title",
+      judgedMetric: "position",
+      predeclaredAt: "2026-05-01T00:00:00.000Z",
+      primaryWindowDays: 28,
+      windowPlan: [...DEFAULT_WINDOW_PLAN],
+    });
+
+    const out = await measureRecord("tenant-iranopedia", predeclared, NOW, "2026-07-01");
+
+    expect(out.bayesianRead).toBeNull(); // judged on the STORED "position" metric
+    expect(pickSpy).not.toHaveBeenCalled(); // never recomputed
+    // The predeclaration block is preserved immutably through the measure.
+    expect(out.judgedMetric).toBe("position");
+    expect(out.predeclaredAt).toBe("2026-05-01T00:00:00.000Z");
+    expect(out.windowPlan).toEqual([...DEFAULT_WINDOW_PLAN]);
+  });
+});
+
+describe("measureRecord - legacy path (no predeclaredAt) unchanged", () => {
+  it("falls back to pickProofMetric for a record with no predeclaration", async () => {
+    const legacy = record({ actionType: "edit_title" }); // predeclaredAt undefined
+
+    const out = await measureRecord("tenant-iranopedia", legacy, NOW, "2026-07-01");
+
+    // edit_title -> pickProofMetric = "ctr", which HAS a Bayesian read.
+    expect(pickSpy).toHaveBeenCalledWith("edit_title");
+    expect(out.bayesianRead).not.toBeNull();
+  });
+
+  it("a predeclared ctr metric produces the SAME verdict/windows as the legacy ctr path", async () => {
+    const legacy = record({ actionType: "edit_title" });
+    const predeclaredSameMetric = record({
+      actionType: "edit_title",
+      judgedMetric: "ctr", // equals what pickProofMetric would choose
+      predeclaredAt: "2026-05-01T00:00:00.000Z",
+    });
+
+    const a = await measureRecord("tenant-iranopedia", legacy, NOW, "2026-07-01");
+    const b = await measureRecord("tenant-iranopedia", predeclaredSameMetric, NOW, "2026-07-01");
+
+    expect(b.verdict).toBe(a.verdict);
+    expect(b.confidence).toBe(a.confidence);
+    expect(b.windows).toEqual(a.windows);
+  });
+});

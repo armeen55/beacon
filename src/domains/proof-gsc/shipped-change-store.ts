@@ -28,8 +28,11 @@ import type {
   GscWindowMetrics,
   GscProofVerdict,
   GscProofConfidence,
+  ProofMetric,
   ProofWindowResult,
+  TrafficTier,
 } from "./measure";
+import type { WindowPlanEntry } from "./window-role";
 import type { TrafficOutcome } from "./traffic-outcome";
 import type { BehaviorOutcome } from "./behavior-outcome";
 import type { CitationOutcome } from "./citation-outcome";
@@ -51,6 +54,42 @@ import type { VerdictRevision } from "./verdict-revisions";
 
 const TABLE = "shipped_change_proof";
 const STORE = "proof-gsc-ledger";
+
+/**
+ * Predeclaration contract (Lane P2, protocol Section 4.1). The block a change is
+ * judged BY, stamped ONCE at ship time and IMMUTABLE after write. A record with a
+ * non-null `predeclaredAt` is judged by the predeclaration rules (measureRecord
+ * reads the stored `judgedMetric` and never recomputes it); a record WITHOUT it
+ * predates the contract and is judged by legacy rules, and every surface labels it
+ * so. All fields are additive/optional so a pre-migration row (missing columns ->
+ * file fallback) reads as an un-predeclared legacy record.
+ */
+
+/** Frozen control set stamped at ship: ordered control URLs plus a SHA-256 over
+ *  (urls, matching inputs used). May be null at ship in Lane P2 (the C4 matched-
+ *  control selection lands in Lane P3); the round-trip is ready now. */
+export type PredeclaredControlSet = {
+  urls: string[];
+  /** SHA-256 over (urls, matching inputs used) - identity the verdict is frozen against. */
+  hash: string;
+};
+
+/** Pre-window baseline captured at ship (protocol 4.1). The cheap fields
+ *  (clicks/impressions/ctr/position/tier) are stamped at ship from the 28 day pre
+ *  window; the compute-heavier ones (dailyVariance, trendSlope, pageFamily) need
+ *  the daily series and are filled by Lane P3, so they are optional here. */
+export type ProofBaselineSnapshot = {
+  clicks: number;
+  impressions: number;
+  ctr: number;
+  position: number;
+  /** Length of the pre window these numbers cover, in days. */
+  windowDays: number;
+  trafficTier: TrafficTier;
+  dailyVariance?: number | null;
+  trendSlope?: number | null;
+  pageFamily?: string | null;
+};
 
 export type ShippedChangeRecord = {
   /** Stable per (page, ship-date). */
@@ -268,6 +307,39 @@ export type ShippedChangeRecord = {
    *  may write a registered version here. Additive, optional - a missing column
    *  reads as null (fail-closed) via the file fallback. */
   calibrationVersion: string | null;
+  /** Predeclaration contract (Lane P2, protocol Section 4.1). Stamped ONCE at
+   *  ship, immutable after write. ADDITIVE + optional, matching the posture of
+   *  the other recent persisted additive fields on this record (controlMatchNotes,
+   *  controlDonorPool, verdictRevisions, editDiff, verifyState): a record that
+   *  never went through the contract simply has these undefined, which reads
+   *  identically to a legacy row (no predeclaredAt = judged by legacy rules).
+   *  `judgedMetric` is the metric this change is judged on, computed once from
+   *  actionType at ship - measureRecord READS this when `predeclaredAt` is set and
+   *  NEVER recomputes via pickProofMetric. */
+  judgedMetric?: ProofMetric | null;
+  /** +1 or -1: the direction of the judged metric that counts as success (a title
+   *  rewrite expects +, a consolidation may expect - on the donor page). */
+  expectedDirection?: 1 | -1 | null;
+  /** The single window whose close decides the verdict (28). */
+  primaryWindowDays?: number | null;
+  /** The full ordered window plan, each labeled primary / context / demote_only
+   *  (protocol 4.2: 7 context, 14 context, 28 primary, 56 demote_only, 84 context). */
+  windowPlan?: WindowPlanEntry[] | null;
+  /** Frozen control set (ordered URLs + hash). May be null at ship in Lane P2
+   *  (C4 matched-control selection lands in Lane P3); the round-trip is ready. */
+  controlSetIds?: PredeclaredControlSet | null;
+  /** Predeclared backup controls for contamination replacement (protocol L4b).
+   *  May be null at ship in Lane P2 (see controlSetIds). */
+  controlAlternates?: string[] | null;
+  /** Hash of the frozen thresholds artifact this change was predeclared against
+   *  (protocol Section 5 step 2). Distinct from calibrationVersion (stamped at
+   *  measure time by the corrected classifier). */
+  classifierVersionPredeclared?: string | null;
+  /** Pre-window baseline captured at ship. */
+  baselineSnapshot?: ProofBaselineSnapshot | null;
+  /** ISO timestamp the predeclaration block was stamped. A record MISSING this is
+   *  judged by legacy rules; its presence is the switch measureRecord reads. */
+  predeclaredAt?: string | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -450,6 +522,20 @@ type LedgerRow = {
    *  full-record file fallback, which round-trips this field with no schema at
    *  all. null = uncalibrated by definition (no default, no backfill). */
   calibration_version?: string | null;
+  /** Predeclaration contract additive columns (migration 2026-07-13_proof_
+   *  predeclaration.sql), same posture as calibration_version: pre-migration a
+   *  missing column trips PGRST204 -> isUndefinedTableError -> full-record file
+   *  fallback, which round-trips these fields with no schema at all. All nullable,
+   *  no default, no backfill (a null predeclared_at = a legacy row). */
+  judged_metric?: string | null;
+  expected_direction?: number | null;
+  primary_window_days?: number | null;
+  window_plan?: WindowPlanEntry[] | null;
+  control_set_ids?: PredeclaredControlSet | null;
+  control_alternates?: string[] | null;
+  classifier_version_predeclared?: string | null;
+  baseline_snapshot?: ProofBaselineSnapshot | null;
+  predeclared_at?: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -482,6 +568,8 @@ const VALID_VERDICTS: ReadonlySet<string> = new Set([
   "insufficient_data",
 ]);
 const VALID_CONFIDENCES: ReadonlySet<string> = new Set(["high", "medium", "low"]);
+const VALID_METRICS: ReadonlySet<string> = new Set(["clicks", "ctr", "position"]);
+const VALID_WINDOW_ROLES: ReadonlySet<string> = new Set(["context", "primary", "demote_only"]);
 /** Fallback so a legacy/partial row without a baseline can't crash a render. */
 const ZERO_BASELINE: ShippedChangeRecord["baseline"] = {
   clicks: 0,
@@ -614,6 +702,67 @@ function isValidEditDiff(v: unknown): v is EditDiffRecord {
   );
 }
 
+/** Read-guard the predeclared judged metric; anything not a known ProofMetric
+ *  reads as null (an un-predeclared row), never a fabricated metric. */
+function coerceJudgedMetric(v: unknown): ProofMetric | null {
+  return typeof v === "string" && VALID_METRICS.has(v) ? (v as ProofMetric) : null;
+}
+
+/** Read-guard the expected direction to exactly +1 or -1; anything else -> null. */
+function coerceExpectedDirection(v: unknown): 1 | -1 | null {
+  return v === 1 ? 1 : v === -1 ? -1 : null;
+}
+
+/** Guards a read row's `window_plan` JSON: an array of {day:number, role:WindowRole}. */
+function coerceWindowPlan(v: unknown): WindowPlanEntry[] | null {
+  if (!Array.isArray(v) || v.length === 0) return null;
+  const out: WindowPlanEntry[] = [];
+  for (const e of v) {
+    if (e == null || typeof e !== "object") return null;
+    const o = e as { day?: unknown; role?: unknown };
+    if (typeof o.day !== "number" || typeof o.role !== "string" || !VALID_WINDOW_ROLES.has(o.role)) {
+      return null;
+    }
+    out.push({ day: o.day as WindowPlanEntry["day"], role: o.role as WindowPlanEntry["role"] });
+  }
+  return out;
+}
+
+/** Guards a read row's `control_set_ids` JSON against a malformed value. */
+function coerceControlSet(v: unknown): PredeclaredControlSet | null {
+  if (v == null || typeof v !== "object") return null;
+  const o = v as { urls?: unknown; hash?: unknown };
+  if (!Array.isArray(o.urls) || typeof o.hash !== "string") return null;
+  return { urls: o.urls.map((u) => String(u)), hash: o.hash };
+}
+
+/** Guards a read row's `baseline_snapshot` JSON against a malformed value. */
+function coerceBaselineSnapshot(v: unknown): ProofBaselineSnapshot | null {
+  if (v == null || typeof v !== "object") return null;
+  const o = v as Record<string, unknown>;
+  if (
+    typeof o.clicks !== "number" ||
+    typeof o.impressions !== "number" ||
+    typeof o.ctr !== "number" ||
+    typeof o.position !== "number" ||
+    typeof o.windowDays !== "number" ||
+    typeof o.trafficTier !== "string"
+  ) {
+    return null;
+  }
+  return {
+    clicks: o.clicks,
+    impressions: o.impressions,
+    ctr: o.ctr,
+    position: o.position,
+    windowDays: o.windowDays,
+    trafficTier: o.trafficTier as TrafficTier,
+    dailyVariance: typeof o.dailyVariance === "number" ? o.dailyVariance : null,
+    trendSlope: typeof o.trendSlope === "number" ? o.trendSlope : null,
+    pageFamily: typeof o.pageFamily === "string" ? o.pageFamily : null,
+  };
+}
+
 export function recordToRow(tid: string, r: ShippedChangeRecord): LedgerRow {
   return {
     tenant_id: tid,
@@ -667,6 +816,18 @@ export function recordToRow(tid: string, r: ShippedChangeRecord): LedgerRow {
     // round-trip safety as every other nullable column here. run-measurement.ts
     // never sets this; only the future corrected classifier may.
     calibration_version: r.calibrationVersion ?? null,
+    // Predeclaration contract (Lane P2), stamped once at ship and immutable
+    // after - emit unconditionally so a null still overwrites a stale value,
+    // same round-trip safety as every other nullable column here.
+    judged_metric: r.judgedMetric ?? null,
+    expected_direction: r.expectedDirection ?? null,
+    primary_window_days: r.primaryWindowDays ?? null,
+    window_plan: r.windowPlan ?? null,
+    control_set_ids: r.controlSetIds ?? null,
+    control_alternates: r.controlAlternates ?? null,
+    classifier_version_predeclared: r.classifierVersionPredeclared ?? null,
+    baseline_snapshot: r.baselineSnapshot ?? null,
+    predeclared_at: r.predeclaredAt ?? null,
     created_at: r.createdAt,
     updated_at: r.updatedAt,
   };
@@ -714,6 +875,24 @@ export function rowToRecord(row: LedgerRow): ShippedChangeRecord {
     // as null -> uncalibrated -> fail-closed. Never trusts a malformed value.
     calibrationVersion:
       typeof row.calibration_version === "string" ? row.calibration_version : null,
+    // Predeclaration contract (Lane P2): every field read through a guard so a
+    // malformed / absent column reads as null (an un-predeclared legacy row),
+    // never a fabricated value. predeclaredAt is the switch measureRecord reads.
+    judgedMetric: coerceJudgedMetric(row.judged_metric),
+    expectedDirection: coerceExpectedDirection(row.expected_direction),
+    primaryWindowDays:
+      typeof row.primary_window_days === "number" ? row.primary_window_days : null,
+    windowPlan: coerceWindowPlan(row.window_plan),
+    controlSetIds: coerceControlSet(row.control_set_ids),
+    controlAlternates: Array.isArray(row.control_alternates)
+      ? row.control_alternates.map((u) => String(u))
+      : null,
+    classifierVersionPredeclared:
+      typeof row.classifier_version_predeclared === "string"
+        ? row.classifier_version_predeclared
+        : null,
+    baselineSnapshot: coerceBaselineSnapshot(row.baseline_snapshot),
+    predeclaredAt: typeof row.predeclared_at === "string" ? row.predeclared_at : null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };

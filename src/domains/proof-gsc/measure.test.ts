@@ -3,6 +3,7 @@ import {
   addDays,
   computeWindowLift,
   pickProofMetric,
+  expectedDirectionOf,
   isSnippetCapturePlay,
   proofCheckDates,
   proofOutcomeSentence,
@@ -27,12 +28,30 @@ describe("date math", () => {
     expect(addDays("2026-06-01T12:34:56Z", 28)).toBe("2026-06-29");
     expect(addDays("2026-06-30", 1)).toBe("2026-07-01");
   });
-  it("proofCheckDates returns the 7/14/28-day closes", () => {
+  it("proofCheckDates returns a close per ProofWindowDay (7/14/28 cadence + 56/84 plan windows)", () => {
     expect(proofCheckDates("2026-06-01T00:00:00Z")).toEqual({
       7: "2026-06-08",
       14: "2026-06-15",
       28: "2026-06-29",
+      56: "2026-07-27",
+      84: "2026-08-24",
     });
+  });
+});
+
+describe("expectedDirectionOf", () => {
+  it("expects the judged metric to RISE (+1) for ordinary improvement plays", () => {
+    expect(expectedDirectionOf("edit_title")).toBe(1);
+    expect(expectedDirectionOf("add_answer_block")).toBe(1);
+    expect(expectedDirectionOf("add_internal_link")).toBe(1);
+    expect(expectedDirectionOf("fix_noindex")).toBe(1); // makes a page indexable -> traffic up
+    expect(expectedDirectionOf("")).toBe(1);
+  });
+  it("expects the judged metric to FALL (-1) for consolidation/redirect/prune donor plays", () => {
+    expect(expectedDirectionOf("consolidate")).toBe(-1);
+    expect(expectedDirectionOf("redirect")).toBe(-1);
+    expect(expectedDirectionOf("prune_page")).toBe(-1);
+    expect(expectedDirectionOf("remove_page")).toBe(-1);
   });
 });
 

@@ -42,14 +42,16 @@ import type {
   MeasurementMaturity,
   MeasurementPresentation,
 } from "./measurement-maturity";
+import type { ProofWindowDay } from "./measure";
 
 export type VerdictReliabilityGrade = "solid" | "decent" | "shaky" | "too early";
 
 export type VerdictReliabilityInput = {
   maturity: MeasurementMaturity;
-  /** The window this read is judged from (7/14/28), or null when nothing has
-   *  closed yet. Mirrors MeasurementPresentation.basisDay. */
-  basisDay: 7 | 14 | 28 | null;
+  /** The window this read is judged from (7/14/28 in practice, the measured
+   *  cadence), or null when nothing has closed yet. Typed as ProofWindowDay to
+   *  mirror MeasurementPresentation.basisDay exactly. */
+  basisDay: ProofWindowDay | null;
   /** True while Google's index has not yet been observed holding the new
    *  content (N11). Mirrors MeasurementPresentation.recrawlPending. */
   recrawlPending: boolean;

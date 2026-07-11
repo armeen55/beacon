@@ -80,3 +80,112 @@ describe("shipped-change-store row mapping — operator_verdict_override round-t
     expect(rowToRecord(legacy).operatorVerdictOverride).toBeNull();
   });
 });
+
+describe("shipped-change-store row mapping - predeclaration contract round-trip (Lane P2, protocol 4.1)", () => {
+  const predeclared: Partial<ShippedChangeRecord> = {
+    judgedMetric: "ctr",
+    expectedDirection: 1,
+    primaryWindowDays: 28,
+    windowPlan: [
+      { day: 7, role: "context" },
+      { day: 14, role: "context" },
+      { day: 28, role: "primary" },
+      { day: 56, role: "demote_only" },
+      { day: 84, role: "context" },
+    ],
+    controlSetIds: { urls: ["https://iranopedia.com/a", "https://iranopedia.com/b"], hash: "abc123" },
+    controlAlternates: ["https://iranopedia.com/c", "https://iranopedia.com/d"],
+    classifierVersionPredeclared: "c4-frozen@deadbeef",
+    baselineSnapshot: {
+      clicks: 10,
+      impressions: 1000,
+      ctr: 0.01,
+      position: 9,
+      windowDays: 28,
+      trafficTier: "medium",
+    },
+    predeclaredAt: "2026-06-20T00:00:00.000Z",
+  };
+
+  it("round-trips every predeclaration field losslessly", () => {
+    const back = rowToRecord(recordToRow("t", makeRecord(predeclared)));
+    expect(back.judgedMetric).toBe("ctr");
+    expect(back.expectedDirection).toBe(1);
+    expect(back.primaryWindowDays).toBe(28);
+    expect(back.windowPlan).toEqual(predeclared.windowPlan);
+    expect(back.controlSetIds).toEqual(predeclared.controlSetIds);
+    expect(back.controlAlternates).toEqual(predeclared.controlAlternates);
+    expect(back.classifierVersionPredeclared).toBe("c4-frozen@deadbeef");
+    expect(back.baselineSnapshot).toEqual({
+      ...predeclared.baselineSnapshot,
+      dailyVariance: null,
+      trendSlope: null,
+      pageFamily: null,
+    });
+    expect(back.predeclaredAt).toBe("2026-06-20T00:00:00.000Z");
+  });
+
+  it("round-trips a -1 expected direction (a consolidation donor page)", () => {
+    const back = rowToRecord(recordToRow("t", makeRecord({ expectedDirection: -1 })));
+    expect(back.expectedDirection).toBe(-1);
+  });
+
+  it("emits every predeclaration column UNCONDITIONALLY, even when unset (null)", () => {
+    const row = recordToRow("t", makeRecord()); // no predeclaration overrides
+    for (const key of [
+      "judged_metric",
+      "expected_direction",
+      "primary_window_days",
+      "window_plan",
+      "control_set_ids",
+      "control_alternates",
+      "classifier_version_predeclared",
+      "baseline_snapshot",
+      "predeclared_at",
+    ] as const) {
+      expect(key in row).toBe(true);
+      expect((row as Record<string, unknown>)[key]).toBeNull();
+    }
+  });
+
+  it("a legacy row (pre-migration, columns absent) reads back as un-predeclared", () => {
+    const row = recordToRow("t", makeRecord(predeclared));
+    const legacy: Record<string, unknown> = { ...row };
+    for (const key of [
+      "judged_metric",
+      "expected_direction",
+      "primary_window_days",
+      "window_plan",
+      "control_set_ids",
+      "control_alternates",
+      "classifier_version_predeclared",
+      "baseline_snapshot",
+      "predeclared_at",
+    ]) {
+      delete legacy[key];
+    }
+    const back = rowToRecord(legacy as unknown as Parameters<typeof rowToRecord>[0]);
+    // No predeclaredAt = judged by legacy rules; every predeclaration field null.
+    expect(back.predeclaredAt).toBeNull();
+    expect(back.judgedMetric).toBeNull();
+    expect(back.expectedDirection).toBeNull();
+    expect(back.windowPlan).toBeNull();
+    expect(back.controlSetIds).toBeNull();
+    expect(back.baselineSnapshot).toBeNull();
+  });
+
+  it("coerces malformed persisted values to null (never a fabricated metric/direction)", () => {
+    const row = recordToRow("t", makeRecord(predeclared)) as Record<string, unknown>;
+    row.judged_metric = "impressions"; // not a valid ProofMetric
+    row.expected_direction = 0; // not +1/-1
+    row.window_plan = [{ day: 28, role: "not_a_role" }]; // bad role
+    row.control_set_ids = { urls: "nope" }; // urls not an array, no hash
+    row.baseline_snapshot = { clicks: 10 }; // missing required fields
+    const back = rowToRecord(row as unknown as Parameters<typeof rowToRecord>[0]);
+    expect(back.judgedMetric).toBeNull();
+    expect(back.expectedDirection).toBeNull();
+    expect(back.windowPlan).toBeNull();
+    expect(back.controlSetIds).toBeNull();
+    expect(back.baselineSnapshot).toBeNull();
+  });
+});

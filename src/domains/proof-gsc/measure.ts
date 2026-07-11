@@ -31,7 +31,18 @@ export type GscProofVerdict =
 
 export type GscProofConfidence = "high" | "medium" | "low";
 
-export type ProofWindowDay = 7 | 14 | 28;
+/**
+ * The windows a shipped change is read at. 7/14/28 are the measurement cadence
+ * PROOF_WINDOW_DAYS still computes; 56 and 84 are added for the protocol Section
+ * 4.2 predeclaration contract (windowPlan) and the store round-trip. Their ROLES
+ * are pinned by windowRole in window-role.ts:
+ *   - 28 is the single PRIMARY verdict-setting window,
+ *   - 56 is DEMOTE-ONLY (a won that did not hold demotes; it never upgrades),
+ *   - 7 / 14 / 84 are CONTEXT-only (never write the verdict enum).
+ * Extending this union does NOT add 56/84 to PROOF_WINDOW_DAYS: measureRecord's
+ * read cadence is unchanged in Lane P2; the classifier that reads 56/84 is P3.
+ */
+export type ProofWindowDay = 7 | 14 | 28 | 56 | 84;
 
 /** Which Search metric drives the verdict for a given change type. A snippet
  *  play (title/meta/answer/schema) is judged on CTR at the held rank; a rank
@@ -113,6 +124,21 @@ export function isSnippetCapturePlay(actionType: string): boolean {
   return SNIPPET_CAPTURE_ACTIONS.has((actionType || "").toLowerCase());
 }
 
+/** Action types whose judged metric is EXPECTED to FALL for a success: a
+ *  consolidation / redirect / prune moves demand OFF the donor page on purpose,
+ *  so the donor's own judged metric dropping IS the win. Note fix_noindex is the
+ *  OPPOSITE (it makes a page indexable, expecting traffic to rise) and is not
+ *  here. Everything not listed expects the metric to rise. */
+const DECREASE_EXPECTED_ACTIONS = new Set([
+  "consolidate", "consolidation", "redirect", "merge_pages",
+  "prune", "prune_page", "deindex", "remove_page", "deprecate_page",
+]);
+/** Predeclared expected direction (protocol 4.1): +1 (judged metric should rise)
+ *  or -1 (should fall) for a success. Pure, chosen from actionType at ship. */
+export function expectedDirectionOf(actionType: string): 1 | -1 {
+  return DECREASE_EXPECTED_ACTIONS.has((actionType || "").toLowerCase()) ? -1 : 1;
+}
+
 export const PROOF_WINDOW_DAYS: ProofWindowDay[] = [7, 14, 28];
 
 // ── Thresholds (observational, conservative). Named so they're auditable. ──
@@ -189,12 +215,17 @@ export function addDays(dateStr: string, days: number): string {
   return `${dt.getUTCFullYear()}-${pad(dt.getUTCMonth() + 1)}-${pad(dt.getUTCDate())}`;
 }
 
-/** The 7/14/28-day check-in dates after a ship date. Pure. */
+/** The check-in dates after a ship date, one per ProofWindowDay. Pure. The 56
+ *  and 84 day entries exist so the type is total over ProofWindowDay and a future
+ *  56/84 reader has its close date; the measurement cadence that actually reads
+ *  windows is PROOF_WINDOW_DAYS (7/14/28), unchanged in Lane P2. */
 export function proofCheckDates(shippedAtIso: string): Record<ProofWindowDay, string> {
   return {
     7: addDays(shippedAtIso, 7),
     14: addDays(shippedAtIso, 14),
     28: addDays(shippedAtIso, 28),
+    56: addDays(shippedAtIso, 56),
+    84: addDays(shippedAtIso, 84),
   };
 }
 
