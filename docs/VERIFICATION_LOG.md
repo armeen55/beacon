@@ -7,6 +7,39 @@
 
 ---
 
+## 2026-07-11 - Lane P3: C4 classifier + frozen-artifact validation harness executed (uncommitted, operator gate pending)
+
+Run id pv-2026-07-11-a on tenant-iranopedia, per scratchpad/proof-validation-protocol.md
+(conditions C1 to C12 binding) and the Lane P3 packet. Repo code:
+src/domains/proof-gsc/validation/ (pure modules: series index, matched controls on
+pre-treatment scale/variance/trend with predeclared alternates and NO fallback, variance
+stabilized log-lift clicks statistic, CTR absolute diff-in-diff with missing-rate guards,
+matched-null block-placed permutation gate that gates the VERDICT, floors with LOO widening,
+placebo set design, injection suite, old-classifier baseline, ledger reclassify with reason
+codes) plus scripts/proof-validation/step0 to step10. Verified: npm run typecheck green,
+31 vitest tests green (src/domains/proof-gsc/validation/). NOTHING committed, NOTHING
+persisted to any store, CALIBRATED_VERDICT_VERSIONS untouched (still empty).
+
+Snapshot: 78,567 finalized page-day rows, 2025-03-15 to 2026-07-07 (D=480), 25 ledger rows;
+manifest sha256 in scratchpad/proofval/snapshot-pv-2026-07-11-a/manifest.json. Frozen
+classifier locked at sha256 6d6e082ba01edc38a028daa56bf5e4ebfe7b1210afc632ead48c7c2a60abe0a2.
+
+Headline numbers. OLD deployed classifier on 119 fresh calibration placebo units: 69.7
+percent FPR (random pages 66.7, engine-mimicking decliners 82.6, medium tier 90.0).
+C4 HELD-OUT evaluation (touched once): random lane point FPR 0 to 10 percent per cell but
+the C3 release gate FAILED everywhere; at n around 20 judged units per cell even zero hits
+gives a Wilson upper of 16 percent, above the 12 percent bar, and the shadow lane never
+reached 20 units. THE EVALUATION SET IS SPENT (protocol step 12): certification needs new
+calendar (history aging forward) or new pages. Injection suite: zero detection at every
+lift to +50 percent under the calibrated floors; single-page changes on this tenant are
+individually unprovable at realistic effect sizes; pooling is the path. Ledger: all 25 rows
+render MEASURING under the single 28 day primary window (none closed at watermark
+2026-07-07); at the 7 day context read, 0 of the 12 old decided verdicts survive C4; 6 rows
+are crawl_not_found including 2 stored wins (NOT_VERIFIED_LIVE). C4 does not release; no
+version registered.
+
+---
+
 ## 2026-07-11 - Binding operator decision: verdict quarantine, cron receipts, /api/version landed (b7b8a523, 3543e0d9, f298bd52, b71cd1af)
 
 BINDING OPERATOR DECISION received and recorded on three fronts: proof truth, deployment closure,
