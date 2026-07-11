@@ -69,6 +69,9 @@ function statuses(over: Partial<Record<ConnectorProvider, Partial<StatusInput>>>
       // A fully-healthy fixture source is treated as synced just now (fresh); every
       // other state has no sync timestamp, matching readStatuses' real behavior.
       lastSyncedAtIso: health === "connected" ? new Date().toISOString() : null,
+      // Wave 3A: the real data-through clock is not threaded at this layer yet, so the
+      // freshness line falls back to the sync stamp above (null-honest here too).
+      dataThroughIso: null,
     };
   });
 }
@@ -209,8 +212,9 @@ describe("DataSourcesStripView — all-connected state", () => {
       profound: { connected: true },
       wix: { connected: true },
     });
-    // UX4 item 3 - names the four distinct counts instead of one blanket claim.
-    expect(html).toContain("6 connected, 6 healthy.");
+    // Wave 3A: freshness-first health line - the required sources (GSC, Profound, Clarity) are
+    // all within SLA, so it reports currency + the oldest data-through, never a bare count.
+    expect(html).toContain("Your key sources are current");
     // No Connect affordances at all in the all-connected confirmation.
     expect(html).not.toContain("Connect →");
     expect(html).not.toContain('aria-label="Connect');
@@ -231,28 +235,48 @@ describe("DataSourcesStripView — all-connected state", () => {
   });
 });
 
-describe("DataSourcesStripView — four-state health summary (UX4 item 3)", () => {
-  it("shows a needs-attention count alongside connected/healthy when one source is degraded", () => {
+describe("DataSourcesStripView - freshness-first health line (Wave 3A)", () => {
+  it("names the gap when a REQUIRED source is not current (never a bare connected count)", () => {
+    const html = render({
+      google_gsc: { connected: true },
+      // Clarity is a REQUIRED source; degraded (no data flowing) it makes the line report a gap.
+      clarity: {
+        health: "needs_attention",
+        healthReason: "Connected. Click Refresh my data to pull your first reading.",
+      },
+      semrush: { connected: true },
+      profound: { connected: true },
+      wix: { connected: true },
+    });
+    // The health line reports the attention gap, never "6 connected, 6 healthy".
+    expect(html).toContain("key source");
+    expect(html).toContain("need");
+    expect(html).not.toContain("6 connected, 6 healthy");
+  });
+
+  it("a degraded GA4 (a removed source) never blocks the required-source freshness verdict", () => {
     const html = render({
       google_gsc: { connected: true },
       google_ga4: {
         health: "needs_attention",
-        healthReason: "Connected — pick your Analytics property to start pulling data.",
+        healthReason: "Connected. Pick your Analytics property to start pulling data.",
       },
       semrush: { connected: true },
       clarity: { connected: true },
       profound: { connected: true },
       wix: { connected: true },
     });
-    expect(html).toContain("6 connected, 5 healthy, 1 needs attention.");
+    // GSC + Profound + Clarity are all current; GA4 is removed (excluded), so the line reads current.
+    expect(html).toContain("Your key sources are current");
   });
 
-  it("shows a not-connected count when a source has never been connected", () => {
+  it("reports the gap when required sources have never connected", () => {
     const html = render({
       google_gsc: { connected: true },
       google_ga4: { connected: true },
     });
-    // Only 2 of 6 connected; the rest are not_connected.
-    expect(html).toContain("2 connected, 2 healthy, 4 not connected.");
+    // Profound + Clarity (required) have no data; the line names the gap, not a connected count.
+    expect(html).toContain("key sources need attention");
+    expect(html).not.toContain("2 connected, 2 healthy");
   });
 });

@@ -36,6 +36,7 @@ import type {
 import type { Ga4PageValue } from "@/domains/recommendation-intelligence/ga4-page-values";
 import type { ClarityPageSignal } from "@/domains/recommendation-intelligence/clarity-page-signals";
 import type { TodayDerivedKpis } from "@/domains/daily-metric-snapshots/today-kpis";
+import { SOURCE_SLA } from "@/domains/ops/source-freshness";
 
 /** One headline number on a card (big value + tiny label under it). */
 export type SourceStat = {
@@ -354,6 +355,13 @@ function buildGscCard(
  * untouched.
  */
 function buildGa4Card(_ga4: Map<string, Ga4PageValue>): SourceStatCard | null {
+  // Wave 3A: GA4 is a canonical "removed" source (source-freshness.ts SOURCE_SLA.ga4.removed).
+  // This card reads the SAME removed flag the data-source health tally reads, so the stat-card
+  // grid and the freshness health line can never disagree about GA4's status. While removed it
+  // renders no card at all - the cross-page session sum is a false total (Wave 1 P1).
+  if (SOURCE_SLA.ga4.removed) return null;
+  // If GA4 is ever un-removed, a TRUE property-grain rollup card is wired here - never the
+  // per-page session SUM shape that this guard exists to keep off the Today surface.
   return null;
 }
 

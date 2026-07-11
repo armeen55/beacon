@@ -46,6 +46,7 @@ import {
   type MeasurementPresentation,
 } from "@/domains/proof-gsc/measurement-maturity";
 import { proofCheckDates } from "@/domains/proof-gsc/measure";
+import { countLedgerLifecycle } from "@/domains/changes/lifecycle-counts";
 import { loadDemandGraphForTenantCached } from "@/domains/demand-graph/load-graph";
 import { buildMeasuringHold, isHeldForMeasurement } from "./today-measuring-hold";
 import { getStagingAvailability } from "@/domains/push/stage-change";
@@ -522,8 +523,11 @@ export async function buildTodayMovesData(
     // Learning summary (hero) - count MATURE outcomes only; everything else is still
     // measuring. Honest: a 7-day "lost" is not a loss.
     const ledgerPres = ledger.map((r) => presentationOf(r));
+    // Wave 3A: the measuring count is the canonical countLedgerLifecycle (revert bookkeeping
+    // excluded, same rule as Results / Today / the Changes list), never a raw
+    // `maturity !== "mature_result"` count over the un-filtered ledger.
     const learningSummary = {
-      measuring: ledgerPres.filter((p) => p.maturity !== "mature_result").length,
+      measuring: countLedgerLifecycle(ledger, proofNow).measuring,
       won: ledgerPres.filter((p) => p.verdict === "helped").length,
       lost: ledgerPres.filter((p) => p.verdict === "did_not_help").length,
     };

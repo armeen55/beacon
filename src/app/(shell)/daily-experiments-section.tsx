@@ -28,6 +28,7 @@ import { stripBannedDashes } from "@/lib/copy/strip-dashes";
 import { humanizeDebateLine } from "@/domains/demand-graph/debate-summary";
 import { teammateOf } from "@/domains/team/identity";
 import { Sparkline, type SparkPoint } from "@/components/data/sparkline";
+import { monthDayLabel } from "@/components/data/receipt-line";
 import { dossierHref } from "@/lib/page-dossier-link";
 import { plainPageParts } from "@/lib/plain-language";
 import { Card } from "@/components/ui/card";
@@ -839,7 +840,10 @@ export function DailyExperimentsSection({ view }: { view: DailyExperimentsView }
       {b && (
         <div className="mb-3 text-body leading-relaxed text-foreground-secondary tabular-nums">
           <div><strong>{b.label}</strong> is live. I’m tracking {b.experimentCount} change{b.experimentCount === 1 ? "" : "s"} against {b.controlCount} similar page{b.controlCount === 1 ? "" : "s"}.</div>
-          <div className="text-muted-foreground">First results around {b.nextCheckpoint}. Reliable Google data around {b.reliableDataDate}.</div>
+          <div className="text-muted-foreground">
+            {b.nextCheckpoint && monthDayLabel(b.nextCheckpoint) ? `First results around ${monthDayLabel(b.nextCheckpoint)}. ` : ""}
+            {b.reliableDataDate && monthDayLabel(b.reliableDataDate) ? `Reliable Google data around ${monthDayLabel(b.reliableDataDate)}.` : ""}
+          </div>
           {view.protectedWarning && (
             <div className="mt-1.5 rounded-xl border border-status-warning/20 bg-status-warning-bg px-3 py-2 text-sub text-status-warning">⚠ {view.protectedWarning}</div>
           )}

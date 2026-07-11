@@ -9,6 +9,8 @@
 import { GSC_LAG_DAYS } from "./experiment-eligibility";
 import type { ShippedChangeRecord } from "@/domains/proof-gsc/shipped-change-store";
 import { normalizePath, type ControlReservationRecord, type DailyExperimentPlanRecord } from "./daily-plan-types";
+import { splitLedgerLifecycle } from "@/domains/changes/lifecycle-counts";
+import { verdictSchedule } from "@/domains/proof-gsc/verdict-schedule";
 
 const CHECKPOINT_DAYS = 7;
 const FINAL_DAYS = 28;
@@ -19,8 +21,10 @@ export type DailyExperimentDashboard = {
     label: string;
     experimentCount: number;
     controlCount: number;
-    nextCheckpoint: string; // ISO date
-    reliableDataDate: string; // ISO date (checkpoint + GSC lag)
+    /** Soonest FUTURE first-read date (verdictSchedule.firstReadOn), YYYY-MM-DD or null. */
+    nextCheckpoint: string | null;
+    /** When Google's data for the final window is reliably in (verdictSchedule.reliableDataOn). */
+    reliableDataDate: string | null;
     treatedUrls: string[];
     controlUrls: string[];
   };
@@ -46,20 +50,22 @@ export function buildDailyExperimentDashboard(input: {
   reservations?: ControlReservationRecord[];
   availableCandidates?: number;
 }): DailyExperimentDashboard {
-  const measuring = input.ledger.filter((r) => r.verdict === "measuring");
+  // Wave 3A: "measuring" is the canonical lifecycle set (splitLedgerLifecycle), never a raw
+  // raw stored-verdict filter - so the batch count matches Results, Today, and the
+  // Changes list exactly. The batch dates come from the one verdictSchedule.
+  const measuring = splitLedgerLifecycle(input.ledger, input.now).measuring;
   const treated = [...new Set(measuring.map((r) => normalizePath(r.path)))];
   const controls = [...new Set(measuring.flatMap((r) => (r.controlPages ?? []).map(normalizePath)))];
 
   let activeProofBatch: DailyExperimentDashboard["activeProofBatch"];
   if (measuring.length > 0) {
-    const earliestShip = measuring.map((r) => r.shippedAt).sort()[0];
-    const checkpoint = addDays(earliestShip, CHECKPOINT_DAYS);
+    const schedule = verdictSchedule(measuring, input.now);
     activeProofBatch = {
       label: familyLabel(treated),
       experimentCount: measuring.length,
       controlCount: controls.length,
-      nextCheckpoint: checkpoint.toISOString().slice(0, 10),
-      reliableDataDate: new Date(checkpoint.getTime() + GSC_LAG_DAYS * 86_400_000).toISOString().slice(0, 10),
+      nextCheckpoint: schedule.firstReadOn,
+      reliableDataDate: schedule.reliableDataOn,
       treatedUrls: treated,
       controlUrls: controls,
     };

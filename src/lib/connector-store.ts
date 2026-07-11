@@ -52,6 +52,7 @@ import "server-only";
 
 import { getSupabaseAdmin } from "@/lib/persistence/supabase";
 import { currentTenantId } from "@/lib/tenant-context";
+import { CONNECTION_LIVENESS_STALE_DAYS } from "@/domains/ops/source-freshness";
 
 // ─────────────────────────────────────────────────────────────────────
 // Provider + token shapes
@@ -538,8 +539,16 @@ export type ConnectorHealthInfo = ConnectorInfo & {
   healthReason: string | null;
 };
 
-/** Connected-but-no-data is more than this many days stale → soft hint. */
-const STALE_DAYS = 14;
+/**
+ * Connected-but-no-data is more than this many days stale → soft hint. Wave 3A
+ * reconciliation: this is a SYNC-age connection-liveness threshold ("is this connection
+ * still alive"), DISTINCT from the per-source DATA-age SLA (gsc 3d, profound 21d, clarity
+ * 7d) that decides whether a source's numbers are current. Both now live in ONE module
+ * (src/domains/ops/source-freshness.ts): the data-age SLA is SOURCE_SLA, this liveness
+ * threshold is CONNECTION_LIVENESS_STALE_DAYS, so the three old scattered constants
+ * (this 14, the strip's 24h, golden-path's 2d) can never drift apart again.
+ */
+const STALE_DAYS = CONNECTION_LIVENESS_STALE_DAYS;
 
 /** Providers that require a per-source selection before any data can flow. */
 function requiresPropertySelection(provider: ConnectorProvider): boolean {

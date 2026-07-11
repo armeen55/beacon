@@ -10,16 +10,30 @@
  * No I/O, no LLM. GSC reports with a ~3 day lag; the caller passes whatever rows exist and the
  * math uses the latest REPORTED date as "now" so a lag never fakes a decline. Pinned by
  * scoreboard.test.ts.
+ *
+ * Wave 3A (2026-07-10): the measuring COUNT, the marker TONE, and the "next reads around"
+ * date no longer come from the raw stored verdict string. They come from the canonical
+ * selectors (splitLedgerLifecycle / verdictSchedule) so the hero line can never disagree
+ * with Results, Today's measuring strip, or the Changes list about how many changes are in
+ * flight or when the next read lands. The date is formatted with the one monthDayLabel.
  */
+
+import {
+  splitLedgerLifecycle,
+  type LedgerLifecycleStage,
+} from "@/domains/changes/lifecycle-counts";
+import { verdictSchedule, type VerdictScheduleRow } from "@/domains/proof-gsc/verdict-schedule";
+import { monthDayLabel } from "@/components/data/receipt-line";
 
 export type ScoreboardDay = { date: string; clicks: number; impressions: number };
 
-export type ScoreboardLedgerRow = {
-  path: string;
-  shippedAt: string;
-  actionType: string;
-  verdict: string; // measuring | won | lost | inconclusive | insufficient_data
-};
+/**
+ * The scoreboard reads the FULL ledger row (with windows + baseline), not a slim
+ * verdict-string projection, so it can classify each change through the canonical
+ * lifecycle rule instead of re-deriving its own from `verdict`. Structurally satisfied
+ * by ShippedChangeRecord.
+ */
+export type ScoreboardLedgerRow = VerdictScheduleRow;
 
 export type ScoreboardMarker = {
   date: string; // yyyy-mm-dd
@@ -50,8 +64,6 @@ export type Scoreboard = {
   verdictLine: string;
 };
 
-const DAY_MS = 24 * 60 * 60 * 1000;
-const iso = (ms: number): string => new Date(ms).toISOString().slice(0, 10);
 
 /** One day of dollars from revenue_facts, pre-aggregated by the loader. */
 export type ScoreboardRevenueDay = {
@@ -125,6 +137,15 @@ export function buildScoreboard(
   const last7Impressions = last7.reduce((s, d) => s + d.impressions, 0);
   const deltaPct = prior7Clicks > 0 ? Math.round(((last7Clicks - prior7Clicks) / prior7Clicks) * 100) : null;
 
+  // Canonical lifecycle classification for the WHOLE ledger, once. Marker tone and the
+  // measuring count both read this map, so they can never disagree with Results' bands or
+  // Today's measuring strip (the FP3 "25 vs 6" class of bug).
+  const split = splitLedgerLifecycle(ledger, now);
+  const stageById = new Map<string, LedgerLifecycleStage>();
+  for (const r of split.won) stageById.set(r.id, "won");
+  for (const r of split.learned) stageById.set(r.id, "learned");
+  for (const r of split.measuring) stageById.set(r.id, "measuring");
+
   // Markers: group ledger rows by ship DAY, only within the charted range.
   const first = days[0]!.date;
   const byDay = new Map<string, ScoreboardLedgerRow[]>();
@@ -138,8 +159,9 @@ export function buildScoreboard(
   const markers: ScoreboardMarker[] = [...byDay.entries()]
     .sort((a, b) => (a[0] < b[0] ? -1 : 1))
     .map(([date, rows]) => {
-      const won = rows.some((r) => r.verdict === "won");
-      const measuring = rows.some((r) => r.verdict === "measuring");
+      const stages = rows.map((r) => stageById.get(r.id) ?? "measuring");
+      const won = stages.includes("won");
+      const measuring = stages.includes("measuring");
       const tone: ScoreboardMarker["tone"] = won ? "won" : measuring ? "measuring" : "flat";
       const label =
         rows.length === 1
@@ -148,28 +170,18 @@ export function buildScoreboard(
       return { date, count: rows.length, tone, label };
     });
 
-  // Measuring count + the soonest upcoming first-read (ship + 7 days, in the future of `now`).
-  const measuringRows = ledger.filter((r) => r.verdict === "measuring");
-  const nowMs = now.getTime();
-  let nextMs = Number.POSITIVE_INFINITY;
-  for (const r of measuringRows) {
-    const ship = Date.parse(r.shippedAt);
-    if (!Number.isFinite(ship)) continue;
-    for (const windowDays of [7, 14, 28]) {
-      const checkpoint = ship + windowDays * DAY_MS;
-      if (checkpoint >= nowMs && checkpoint < nextMs) nextMs = checkpoint;
-    }
-  }
-  const nextVerdictDate = Number.isFinite(nextMs) ? iso(nextMs) : null;
+  // Measuring count + the soonest upcoming first-read, both from the canonical selectors -
+  // never a raw stored-verdict filter or a bespoke ship+day date walk.
+  const measuringCount = split.measuring.length;
+  const schedule = verdictSchedule(ledger, now);
+  const nextVerdictDate = schedule.firstReadOn;
 
   const direction =
     deltaPct == null ? "" : deltaPct > 2 ? `, up ${deltaPct}% vs the week before` : deltaPct < -2 ? `, down ${Math.abs(deltaPct)}% vs the week before` : ", about even with the week before";
-  const friendlyNext = nextVerdictDate
-    ? new Date(nextVerdictDate + "T00:00:00Z").toLocaleDateString("en-US", { month: "long", day: "numeric", timeZone: "UTC" })
-    : null;
+  const friendlyNext = monthDayLabel(nextVerdictDate);
   const measuringPart =
-    measuringRows.length > 0
-      ? ` ${measuringRows.length} change${measuringRows.length === 1 ? "" : "s"} measuring${friendlyNext ? `, next reads around ${friendlyNext}` : ""}.`
+    measuringCount > 0
+      ? ` ${measuringCount} change${measuringCount === 1 ? "" : "s"} measuring${friendlyNext ? `, next reads around ${friendlyNext}` : ""}.`
       : "";
   // R17a (brand split, v1 265): this sentence counts EVERY search - brand and
   // not - so it says which lens it uses. The non-brand growth lens renders as
@@ -184,7 +196,7 @@ export function buildScoreboard(
     deltaPct,
     last7Impressions,
     reportedThrough,
-    measuringCount: measuringRows.length,
+    measuringCount,
     nextVerdictDate,
     verdictLine,
   };

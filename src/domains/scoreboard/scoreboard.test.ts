@@ -17,9 +17,21 @@ function days(n: number, clicksFn: (i: number) => number, startMs = Date.parse("
   }));
 }
 
+// Wave 3A: ScoreboardLedgerRow is the FULL ledger row now (id + windows + baseline), so the
+// scoreboard classifies each change through the canonical lifecycle rule, not a raw verdict.
+let ROW_SEQ = 0;
 const row = (over: Partial<ScoreboardLedgerRow>): ScoreboardLedgerRow => ({
-  path: "/p", shippedAt: "2026-05-20T05:00:00.000Z", actionType: "edit_meta", verdict: "measuring", ...over,
+  id: `r${ROW_SEQ++}`,
+  path: "/p", shippedAt: "2026-05-20T05:00:00.000Z", actionType: "edit_meta", verdict: "measuring",
+  windows: [], baseline: { impressions: 1000 }, ...over,
 });
+// A 28-day window closed with enough comparisons + baseline: the only shape that classifies
+// canonically as a decided win/loss (deriveMeasurementMaturity mature_result).
+const MATURE_WINDOWS = [
+  { day: 7, ran: true, controlsUsed: 3 },
+  { day: 14, ran: true, controlsUsed: 3 },
+  { day: 28, ran: true, controlsUsed: 3 },
+];
 
 describe("buildScoreboard", () => {
   it("returns null with under 14 days of history (never fakes a trend)", () => {
@@ -51,8 +63,10 @@ describe("buildScoreboard", () => {
       d,
       [
         row({ shippedAt: `${shipDay}T04:00:00.000Z`, verdict: "measuring" }),
-        row({ shippedAt: `${shipDay}T05:00:00.000Z`, verdict: "won", path: "/q" }),
-        row({ shippedAt: "2020-01-01T00:00:00.000Z", verdict: "won", path: "/out-of-range" }),
+        // A canonically-decided win needs a mature 28-day window (a raw verdict "won" alone
+        // is still measuring), so the marker tone comes from the lifecycle rule, not the string.
+        row({ shippedAt: `${shipDay}T05:00:00.000Z`, verdict: "won", path: "/q", windows: MATURE_WINDOWS }),
+        row({ shippedAt: "2020-01-01T00:00:00.000Z", verdict: "won", path: "/out-of-range", windows: MATURE_WINDOWS }),
       ],
       NOW,
     )!;

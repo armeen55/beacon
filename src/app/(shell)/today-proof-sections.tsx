@@ -4,6 +4,9 @@ import { isOperatorModeServer } from "@/lib/operator-mode";
 import { currentTenantId } from "@/lib/tenant-context";
 import { loadProofLedgerCached } from "@/domains/proof-gsc/load-ledger";
 import { loadProvenWins } from "@/domains/attribution/load-proven-wins";
+import { splitLedgerLifecycle } from "@/domains/changes/lifecycle-counts";
+import { verdictSchedule } from "@/domains/proof-gsc/verdict-schedule";
+import { monthDayLabel } from "@/components/data/receipt-line";
 import {
   TodayV2ExperimentsMeasuring,
   type MeasuringExperiment,
@@ -23,17 +26,14 @@ export async function TodayV2ExperimentsMeasuringSection() {
   if (!tenantId) return null;
   // P0-B W1: render path serves the persisted/snapshot ledger (no re-measure on GET).
   const records = await loadProofLedgerCached(tenantId).catch(() => []);
-  const measuring = records.filter((r) => r.verdict === "measuring");
+  // Wave 3A: measuring is the canonical lifecycle set and the next-read date is the one
+  // verdictSchedule - never a raw stored-verdict filter or a bespoke checkOn walk -
+  // so Today's measuring strip agrees with Results and the scoreboard. UTC monthDayLabel.
+  const now = new Date();
+  const measuring = splitLedgerLifecycle(records, now).measuring;
   if (measuring.length === 0) return null;
 
-  const todayYmd = new Date().toISOString().slice(0, 10);
-  let nextCheckDate: string | null = null;
-  for (const r of measuring) {
-    for (const w of r.windows) {
-      if (w.ran || !w.checkOn || w.checkOn <= todayYmd) continue;
-      if (nextCheckDate == null || w.checkOn < nextCheckDate) nextCheckDate = w.checkOn;
-    }
-  }
+  const nextCheckDate = monthDayLabel(verdictSchedule(measuring, now).firstReadOn);
 
   const recent: MeasuringExperiment[] = measuring
     .slice(0, 3)

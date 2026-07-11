@@ -23,8 +23,11 @@ describe("buildDailyExperimentDashboard — active batch protection", () => {
     expect(dash.activeProofBatch?.experimentCount).toBe(2);
     expect(dash.activeProofBatch?.controlCount).toBe(3); // persian-cat dedup'd across the two
     expect(dash.activeProofBatch?.label).toContain("iran animals");
-    expect(dash.activeProofBatch?.nextCheckpoint).toBe("2026-07-07"); // shipped 06-30 + 7d
-    expect(dash.activeProofBatch?.reliableDataDate).toBe("2026-07-10"); // + 3d GSC lag
+    // Wave 3A: dates come from the canonical verdictSchedule now.
+    expect(dash.activeProofBatch?.nextCheckpoint).toBe("2026-07-07"); // firstReadOn: shipped 06-30 + 7d
+    // reliableDataDate is now final-verdict + GSC lag (ship+28 = 07-28, + 3d = 07-31), the honest
+    // "reliable Google data" date - a 7-day read was never reliable data.
+    expect(dash.activeProofBatch?.reliableDataDate).toBe("2026-07-31");
     expect(dash.protectedCounts.treatments).toBe(2);
     expect(dash.protectedCounts.controls).toBe(3);
     expect(dash.availableCandidates).toBe(52);

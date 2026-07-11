@@ -9,6 +9,14 @@ import {
   type ConnectorProvider,
 } from "@/lib/connector-store";
 import { CONNECTOR_CAPABILITY } from "@/components/connectors/connector-capability-copy";
+import {
+  classifySourceFreshness,
+  overallFreshness,
+  sourceFreshnessLine,
+  type SourceFreshness,
+  type SourceKey,
+} from "@/domains/ops/source-freshness";
+import { monthDayLabel } from "@/components/data/receipt-line";
 
 /**
  * "Your data sources" quick-connect strip (2026-06-15).
@@ -133,14 +141,25 @@ type SourceStatus = {
   /** Plain-English reason for a needs_attention source; null otherwise. */
   healthReason: string | null;
   lastSynced: string | null;
-  /** Raw ISO sync timestamp (independent of the display string above), used to
-   *  compute the UX4 four-state freshness summary without re-parsing prose. */
+  /** Raw ISO sync timestamp (independent of the display string above). Used as the recency
+   *  fallback for the freshness line until a loader threads the real per-source data-through. */
   lastSyncedAtIso: string | null;
+  /** Wave 3A: the source's newest DATA date (YYYY-MM-DD or ISO), the real recency clock -
+   *  NOT sync age. Null until a loader threads it; the freshness line then falls back to the
+   *  sync stamp above. Kept as a field so the true data clock flows through when available. */
+  dataThroughIso: string | null;
 };
 
-/** UX4 item 3 - how long ago counts as "fresh" for the compact health summary. A source that
- *  synced within this window is fresh; older than this (or never synced) is stale. */
-const FRESH_WINDOW_MS = 24 * 60 * 60 * 1000;
+/** Wave 3A: providers this strip judges for data freshness, mapped to their canonical SLA
+ *  key (source-freshness.ts). GA4 maps to "ga4" (a removed source, excluded from the tally);
+ *  a legacy provider not in this map (e.g. semrush) is not part of the freshness verdict. */
+const PROVIDER_TO_SOURCE: Partial<Record<ConnectorProvider, SourceKey>> = {
+  google_gsc: "gsc",
+  google_ga4: "ga4",
+  clarity: "clarity",
+  profound: "profound",
+  wix: "wix",
+};
 
 /**
  * Read every source's health in parallel, fail-soft per provider. A read
@@ -170,57 +189,44 @@ async function readStatuses(tenantId?: string): Promise<SourceStatus[]> {
             ? formatLastSynced(info?.last_synced_at ?? null, now)
             : null,
         lastSyncedAtIso: info?.last_synced_at ?? null,
+        // The real per-source data-through clock is not read at this layer yet (no new heavy
+        // GET load); the freshness line falls back to the sync stamp above until a loader
+        // threads it. Kept null-honest rather than faking the data date from sync age.
+        dataThroughIso: null,
       };
     }),
   );
 }
 
 /**
- * UX4 item 3 - four DISTINCT, honest counts instead of one collapsing "all connected" claim, so
- * this strip can never contradict a broken-pipe alert higher on the page:
- *   - connected: has a live token at all (connected or needs_attention; a dead/revoked token
- *     that getConnectorHealth would fail on is not_connected).
- *   - healthy: connected AND actually delivering data (no needs_attention reason).
- *   - fresh: healthy AND synced within the last 24 hours.
- *   - hasData: has synced at least once, ever (even if that sync is now stale) - distinguishes
- *     "never pulled anything" from "pulled something, just not recently".
- * PURE given the already-read statuses; no new I/O.
+ * Wave 3A: judge each source's freshness against its per-source DATA-age SLA (source-freshness.ts),
+ * not connection status. A source that is "connected" in the token store but reporting two-week-old
+ * data is NOT healthy - that was the "5 healthy while AI is 2 weeks old" leak. GA4 is a removed
+ * source (excluded from the tally). A provider with no SLA mapping (legacy semrush) is skipped.
+ * The real data-through clock is used when present; until a loader threads it, the sync stamp is
+ * the best available recency signal. PURE given the already-read statuses; no new I/O.
  */
-export function summarizeDataSourceHealth(statuses: SourceStatus[]): {
-  total: number;
-  connected: number;
-  healthy: number;
-  fresh: number;
-  hasData: number;
-} {
-  const now = Date.now();
-  let connected = 0;
-  let healthy = 0;
-  let fresh = 0;
-  let hasData = 0;
+export function statusesToFreshness(statuses: SourceStatus[], now: Date = new Date()): SourceFreshness[] {
+  const out: SourceFreshness[] = [];
   for (const s of statuses) {
-    if (s.health === "connected" || s.health === "needs_attention") connected += 1;
-    if (s.health === "connected") healthy += 1;
-    if (s.lastSyncedAtIso) {
-      hasData += 1;
-      const then = Date.parse(s.lastSyncedAtIso);
-      if (s.health === "connected" && Number.isFinite(then) && now - then <= FRESH_WINDOW_MS) fresh += 1;
-    }
+    const key = PROVIDER_TO_SOURCE[s.source.provider];
+    if (key == null) continue; // legacy provider not part of the freshness verdict
+    const connected = s.health === "connected" || s.health === "needs_attention";
+    const dataThroughDate = s.dataThroughIso ?? (connected ? s.lastSyncedAtIso : null);
+    out.push(classifySourceFreshness({ source: key, dataThroughDate }, now));
   }
-  return { total: statuses.length, connected, healthy, fresh, hasData };
+  return out;
 }
 
-/** UX4 item 3 - the compact one-line summary, e.g. "4 connected, 3 healthy, 1 needs attention".
- *  Always names the gap plainly (needs attention / no data yet) instead of a single "all good"
- *  claim, so it can never read as contradicting an alert shown above it on the page. */
-export function dataSourceHealthLine(summary: ReturnType<typeof summarizeDataSourceHealth>): string {
-  const { total, connected, healthy } = summary;
-  const needsAttention = connected - healthy;
-  const notConnected = total - connected;
-  const parts = [`${connected} connected`, `${healthy} healthy`];
-  if (needsAttention > 0) parts.push(`${needsAttention} needs attention`);
-  if (notConnected > 0) parts.push(`${notConnected} not connected`);
-  return parts.join(", ") + ".";
+/**
+ * Wave 3A: the one health line, freshness-first. It names the worst REQUIRED source's
+ * data-through date (the honest recency floor), never a bare connected count - so it can never
+ * read "6 healthy" while a required source's data is stale. GA4 is excluded (removed); Wix is
+ * optional and never blocks. UTC monthDayLabel for the date.
+ */
+export function dataSourceHealthLine(statuses: SourceStatus[], now: Date = new Date()): string {
+  const overall = overallFreshness(statusesToFreshness(statuses, now));
+  return sourceFreshnessLine(overall, monthDayLabel(overall.worstThrough));
 }
 
 /**
@@ -264,22 +270,12 @@ export function DataSourcesStripView({
   // connected-but-needs-attention source keeps the full strip visible so its
   // ⚠ reason is never hidden behind a green "all good" confirmation.
   const allConnected = statuses.every((s) => s.health === "connected");
-  // UX4 item 3 - the four-state summary line (Connected / Healthy / Fresh / Has data), so this
-  // strip can never contradict a broken-pipe alert shown higher on the page with a single
-  // over-confident "all good" claim.
-  const summary = summarizeDataSourceHealth(statuses);
+  // Wave 3A: the freshness-first health line - names the worst required source's data-through
+  // date, never a bare connected count, so this strip can never read "all healthy" while a
+  // required source's data is stale.
+  const healthLine = dataSourceHealthLine(statuses);
 
   if (allConnected) {
-    // R14b (receipts everywhere) - the collapsed all-healthy line asserts health
-    // without a when; name the freshest sync from the statuses already read.
-    const freshestSync = statuses.reduce<string | null>(
-      (latest, s) =>
-        s.lastSyncedAtIso && Number.isFinite(Date.parse(s.lastSyncedAtIso)) && (latest == null || s.lastSyncedAtIso > latest)
-          ? s.lastSyncedAtIso
-          : latest,
-      null,
-    );
-    const freshestLabel = freshestSync ? formatLastSynced(freshestSync, Date.now()) : null;
     return (
       <section
         aria-label="Your data sources"
@@ -288,8 +284,7 @@ export function DataSourcesStripView({
         <div className="flex flex-wrap items-center justify-between gap-2">
           <p className="text-[12px] text-muted-foreground">
             <Check aria-hidden="true" className="mr-1 inline-block h-3.5 w-3.5" />
-            {dataSourceHealthLine(summary)}
-            {freshestLabel ? ` Freshest source ${freshestLabel}.` : ""}{" "}
+            {healthLine}{" "}
             <Link
               href={CONNECTORS_PATH}
               className="rounded-sm text-accent-primary underline underline-offset-2 hover:text-accent-primary/85 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary/40"
@@ -314,7 +309,7 @@ export function DataSourcesStripView({
           </h2>
           {/* UX4 item 3 - the same four-state line here too, so a source that needs
               attention is never buried under a bare heading. */}
-          <p className="text-[11px] text-muted-foreground">{dataSourceHealthLine(summary)}</p>
+          <p className="text-[11px] text-muted-foreground">{healthLine}</p>
         </div>
         <Link
           href={CONNECTORS_PATH}
