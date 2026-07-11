@@ -107,8 +107,12 @@ const TYPE_SCALE_PINNED = new Set([
 // page.tsx with the composite lead headline whose presentation lives token-only in
 // src/components/today/** (outside this ratchet). Deleting LeadStoryCard's raw-palette tone maps
 // dropped the (shell) total by 44 to 1298.
+// Wave 3C (2026-07-10) migrated the "Today" pill in changes-list-client.tsx off its raw indigo
+// classes (border-indigo-200 bg-indigo-100 text-indigo-700) onto the token-based Pill "measuring"
+// intent, and the whole Wave 3C decision-queue markup (decision pill, risk/evidence/impact fields,
+// outranks line, archive expander) is token-only. Measured live total after: 1294.
 // This number may ONLY go down from here.
-const RAW_PALETTE_BASELINE = 1298;
+const RAW_PALETTE_BASELINE = 1294;
 
 function walkSourceFiles(dir: string, out: string[] = []): string[] {
   for (const name of readdirSync(dir)) {

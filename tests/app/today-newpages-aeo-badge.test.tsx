@@ -56,7 +56,7 @@ describe("New Pages AEO-validated badge", () => {
         ownDomain="iranopedia.com"
       />,
     );
-    expect(html).toContain("AI-validated");
+    expect(html).toContain("AI search demand confirmed"); // Wave 3C relabel (was "AI-validated")
     expect(html).toContain("What are popular Persian kebab varieties?");
     expect(html).toContain("Fans out into 5 related questions");
     expect(html).toContain("garsononline.com, matinabad.com");
@@ -81,13 +81,13 @@ describe("New Pages AEO-validated badge", () => {
         ownDomain="iranopedia.com"
       />,
     );
-    expect(html).toContain("AI-validated"); // receipt still shows
+    expect(html).toContain("AI search demand confirmed"); // Wave 3C relabel (was "AI-validated") // receipt still shows
     expect(html).not.toContain("Draft AEO brief"); // but not the paid-LLM button
   });
 
   it("does NOT show the badge when aeoReceipt is null", () => {
     const html = renderToStaticMarkup(<NewPageCard o={opp({ aeoReceipt: null })} ownDomain="iranopedia.com" />);
-    expect(html).not.toContain("AI-validated");
+    expect(html).not.toContain("AI search demand confirmed"); // Wave 3C relabel (was "AI-validated")
   });
 
   it("shows 'cited' instead of 'not cited yet' when the owned page is cited", () => {

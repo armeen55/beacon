@@ -73,3 +73,71 @@ export function statusCounts(changes: CanonicalChange[]): Record<StatusView, num
 export function inStatusView(c: CanonicalChange, view: StatusView): boolean {
   return statusView(c.status) === view;
 }
+
+/**
+ * Wave 3C (3D) - the comparative "why this ranks above the next idea" line. Compares the two
+ * changes' balanced strategyScore COMPONENTS (the same weights strategyScore uses: evidence
+ * strong 300 / directional 100, ready bonus 200, effort penalty -2 per minute, risk penalty
+ * 120 high / 25 medium, base impactScore) and attributes the largest positive contributors, in
+ * plain language. Returns null when nothing about `a` credibly explains ranking it above `b`
+ * (the caller then omits the line - as it must on the last visible card, which has no next idea).
+ * PURE + deterministic: same inputs, same sentence.
+ */
+const EVIDENCE_RANK: Record<CanonicalChange["evidenceStrength"], number> = { strong: 2, directional: 1, tracking: 0 };
+const EVIDENCE_WORD: Record<CanonicalChange["evidenceStrength"], string> = {
+  strong: "strong",
+  directional: "directional",
+  tracking: "tracking only",
+};
+
+export function outranksReason(a: CanonicalChange, b: CanonicalChange, strategy: Strategy = "balanced"): string | null {
+  // The list always ranks balanced; other strategies fall back to the same component read, which
+  // is a superset of what growth/clean weigh, so the sentence stays honest for any mode.
+  void strategy;
+  const reasons: Array<{ delta: number; text: string }> = [];
+
+  if (EVIDENCE_RANK[a.evidenceStrength] > EVIDENCE_RANK[b.evidenceStrength]) {
+    const evDelta = (a.evidenceStrength === "strong" ? 300 : a.evidenceStrength === "directional" ? 100 : 0) -
+      (b.evidenceStrength === "strong" ? 300 : b.evidenceStrength === "directional" ? 100 : 0);
+    reasons.push({ delta: evDelta, text: `its evidence is stronger (${EVIDENCE_WORD[a.evidenceStrength]} vs ${EVIDENCE_WORD[b.evidenceStrength]})` });
+  }
+
+  const aReady = a.status === "ready" || a.status === "apply";
+  const bReady = b.status === "ready" || b.status === "apply";
+  if (aReady && !bReady) reasons.push({ delta: 200, text: "it is already prepared to ship" });
+
+  const aEffort = Number.isFinite(a.estimatedEffortMinutes) ? a.estimatedEffortMinutes : 5;
+  const bEffort = Number.isFinite(b.estimatedEffortMinutes) ? b.estimatedEffortMinutes : 5;
+  if (aEffort < bEffort) {
+    reasons.push({ delta: (bEffort - aEffort) * 2, text: `it takes less time (${aEffort} vs ${bEffort} minutes)` });
+  }
+
+  const aRisk = a.riskLevel === "high" ? 120 : a.riskLevel === "medium" ? 25 : 0;
+  const bRisk = b.riskLevel === "high" ? 120 : b.riskLevel === "medium" ? 25 : 0;
+  if (aRisk < bRisk) reasons.push({ delta: bRisk - aRisk, text: "it carries less risk" });
+
+  const baseDelta = a.impactScore - b.impactScore;
+  if (baseDelta > 0) reasons.push({ delta: baseDelta, text: "it has more expected impact" });
+
+  if (reasons.length === 0) return null;
+  // Largest positive contributors first; name at most two so the line stays readable.
+  reasons.sort((x, y) => y.delta - x.delta);
+  const picked = reasons.slice(0, 2).map((r) => r.text);
+  const joined = picked.length === 2 ? `${picked[0]} and ${picked[1]}` : picked[0];
+  return `Ranked above the next idea because ${joined}.`;
+}
+
+/** Convenience for a rendered list: the outranks line for each row against the NEXT row in display
+ *  order, keyed by change id, with the last row mapped to null (nothing after it to out-rank).
+ *  PURE. */
+export function outranksReasonsBySequence(
+  sequence: readonly CanonicalChange[],
+  strategy: Strategy = "balanced",
+): Map<string, string | null> {
+  const out = new Map<string, string | null>();
+  for (let i = 0; i < sequence.length; i++) {
+    const next = sequence[i + 1];
+    out.set(sequence[i]!.id, next ? outranksReason(sequence[i]!, next, strategy) : null);
+  }
+  return out;
+}

@@ -10,6 +10,7 @@
  */
 import { describe, expect, it } from "vitest";
 import { dedupeIdentity, strongerChange, dedupeChanges, demoteUnsized, reconcileCannibalizationRationale, dropBoardDuplicateNewPageRows, applyOpportunityFreshness, abstentionEvidenceFor, partitionActionableByEvidence } from "./changes-data";
+import { cannibalizationDirective } from "@/domains/changes/decide-action";
 import { WATCHING_SENTENCE, heldForEvidenceLine } from "@/domains/recommendations/abstention";
 import { topicIdentityKey } from "@/domains/demand-graph/dedupe-new-page-cards";
 import type { CanonicalChange, CanonicalStatus } from "@/domains/changes/canonical-change";
@@ -207,24 +208,52 @@ describe("demoteUnsized (killer finding 1 - the honest fallback must never outra
   });
 });
 
-describe("reconcileCannibalizationRationale (killer finding 3 - the secondary line must agree)", () => {
-  function moveWithCannibalization(id: string, fix: string): TodayMove {
-    return { id, cannibalization: [{ query: "q", otherPages: ["other page"], isLead: true, leadPage: "other page", fix, linkSnippet: null }] } as unknown as TodayMove;
+describe("reconcileCannibalizationRationale (Wave 3C - the secondary line consumes the DECIDED action)", () => {
+  // The fix text still carries the OLD ambiguous "(redirect or internal-link)" here on purpose:
+  // reconcile must IGNORE it and build the rationale from the decided action instead.
+  function moveWithCannibalization(id: string, over: Record<string, unknown> = {}): TodayMove {
+    return {
+      id,
+      cannibalization: [
+        {
+          query: "q",
+          otherPages: ["other page"],
+          isLead: true,
+          leadPage: "Best Page",
+          fix: '"Best Page" is your best-ranking page for "q" - fold this into it (redirect or internal-link) so they stop splitting its clicks.',
+          linkSnippet: null,
+          decision: "consolidate",
+          ...over,
+        },
+      ],
+    } as unknown as TodayMove;
   }
 
-  it("rewrites the rationale to state the consolidation directive when it doesn't already match", () => {
-    const fix = '"Other Page" is your best-ranking page for "q" - fold this into it (redirect or internal-link) so they stop splitting its clicks.';
-    const c = cc("a", "suggested", { sourceIds: ["m1"], rationale: "You already rank position 8 for a totally different query - a sharper title can climb a few spots." });
-    const movesById = { m1: moveWithCannibalization("m1", fix) };
+  it("rewrites the rationale to the decided directive, never the ambiguous fix text", () => {
+    const c = cc("a", "suggested", { sourceIds: ["m1"], decision: "consolidate", rationale: "You already rank position 8 for a totally different query, a sharper title can climb a few spots." });
+    const movesById = { m1: moveWithCannibalization("m1") };
     const [out] = reconcileCannibalizationRationale([c], movesById);
-    expect(out!.rationale).toContain(fix);
     expect(out!.rationale).toContain("comes first");
+    expect(out!.rationale).toContain("Consolidate your competing pages");
+    // The ambiguous "(redirect or internal-link)" fork never reaches the rendered rationale.
+    expect(out!.rationale).not.toContain("redirect or internal-link");
+    expect(out!.decision).toBe("consolidate");
   });
 
-  it("leaves the rationale untouched when it already states the same fix (no contradiction to reconcile)", () => {
-    const fix = "Point this page at \"Other Page\" (your best-ranking one for \"q\") with an internal link.";
-    const c = cc("a", "suggested", { sourceIds: ["m1"], rationale: fix });
-    const movesById = { m1: moveWithCannibalization("m1", fix) };
+  it("uses the redirect directive (no fork) when Beacon decided to prune a dead page", () => {
+    const c = cc("a", "suggested", { sourceIds: ["m1"], decision: "prune_redirect" });
+    const movesById = { m1: moveWithCannibalization("m1", { decision: "prune_redirect" }) };
+    const [out] = reconcileCannibalizationRationale([c], movesById);
+    expect(out!.rationale).toContain("redirect");
+    expect(out!.rationale).not.toContain(" or internal");
+    expect(out!.decision).toBe("prune_redirect");
+  });
+
+  it("leaves the rationale untouched when it already states the decided directive", () => {
+    const directive = cannibalizationDirective({ decision: "consolidate", leadPage: "Best Page", otherPages: ["other page"], query: "q", isLead: true });
+    const rationale = `${directive} That comes first, any other edit below on this page should wait until this is resolved.`;
+    const c = cc("a", "suggested", { sourceIds: ["m1"], decision: "consolidate", rationale });
+    const movesById = { m1: moveWithCannibalization("m1") };
     const [out] = reconcileCannibalizationRationale([c], movesById);
     expect(out).toBe(c);
   });
@@ -243,9 +272,8 @@ describe("reconcileCannibalizationRationale (killer finding 3 - the secondary li
   });
 
   it("never emits an em or en dash in the reconciled sentence", () => {
-    const fix = 'Fold "other page" into this one.';
-    const c = cc("a", "suggested", { sourceIds: ["m1"], rationale: "different" });
-    const movesById = { m1: moveWithCannibalization("m1", fix) };
+    const c = cc("a", "suggested", { sourceIds: ["m1"], decision: "consolidate", rationale: "different" });
+    const movesById = { m1: moveWithCannibalization("m1") };
     const [out] = reconcileCannibalizationRationale([c], movesById);
     expect(out!.rationale).not.toMatch(/[–—]/);
   });

@@ -303,7 +303,9 @@ function resolveOne(
           confidence: "medium",
           confidenceReason: `AI splits citations across ${cannibalizing.length} owned URLs on this cluster.`,
           tier: "observation",
-          reasoning: `Multiple owned pages compete for this intent. Consolidate into ${topUrl} and redirect or update the others.`,
+          // Wave 3C - ONE action with a single named sub-directive: consolidate is the decision,
+          // and the follow-up is to redirect the weaker pages into the winner (no two-action fork).
+          reasoning: `Multiple owned pages compete for this intent. Consolidate them into ${topUrl}, then redirect the weaker pages to it.`,
           cannibalization: otherUrls,
           evidenceRefs: buildEvidenceRefs(candidate, sortedUrls.slice(0, 5)),
           coverage: "cannibalization",

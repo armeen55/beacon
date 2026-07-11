@@ -14,6 +14,12 @@
  *      serialization it replaced.
  *   3. Everything else on the view (the ranked changes, counts, receipt line) is
  *      passed through untouched.
+ *
+ * Wave 3C RE-BASELINE (2026-07-10): SLIM_MOVE_KEYS gained `demand` + `demandBasis`,
+ * the two small scalars the collapsed decision card's "why now" line reads. Measured
+ * serialized slim movesById for the 30-row heavy fixture: 36,181 -> 37,201 bytes
+ * (+1,020, ~2.8%). Still far under the 60 KB budget and under 15 percent of the full
+ * dossiers, so the budget constant is unchanged.
  */
 import { describe, expect, it } from "vitest";
 

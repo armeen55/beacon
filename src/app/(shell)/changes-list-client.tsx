@@ -25,11 +25,19 @@ import type { ChangesClientView } from "./changes-data";
 import type { TodayMove } from "./today-moves-data";
 import { loadMoveDetailAction } from "./changes/actions";
 import type { CanonicalChange, Goal, StatusView } from "@/domains/changes/canonical-change";
-import { buildForecastInputLines, statusView } from "@/domains/changes/canonical-change";
+import { buildForecastInputLines, statusView, EVIDENCE_LABEL } from "@/domains/changes/canonical-change";
 import { difficultyLabel } from "@/domains/changes/difficulty";
+import {
+  decideChangeAction,
+  DECISION_LABEL,
+  DECISION_CTA,
+  isActDecision,
+  type ChangeDecision,
+} from "@/domains/changes/decide-action";
+import { dynamicOpportunityCount } from "@/domains/changes/today-view";
 import { WATCHING_SENTENCE } from "@/domains/recommendations/abstention";
 import { ReceiptLine } from "@/components/data/receipt-line";
-import { rankChanges, goalMatches, inStatusView } from "@/domains/changes/strategy";
+import { rankChanges, goalMatches, inStatusView, outranksReasonsBySequence } from "@/domains/changes/strategy";
 import { MoveCard } from "./today-moves-card";
 import { Sparkline } from "@/components/data/sparkline";
 import { formatMetric, formatMetricCompact } from "@/lib/format-metric";
@@ -114,6 +122,24 @@ const FAMILY_CHIP: Record<string, { label: string; cls: string }> = {
 // ONE flat, opportunity-ranked list (rankChanges' balanced order, unchanged); each card carries
 // its own small type tag (FAMILY_CHIP) instead of a section header, so a title edit reads as
 // "Title" inline rather than being sorted under a bucket.
+
+// Wave 3C - THE one decision per card. Server-populated (changes-data.ts); the client falls back
+// to a pure re-derive for any row/snapshot that predates the field, so a card always shows exactly
+// one decision. The client movesById is slim (no cannibalization), so the fallback is type/family
+// based; the server value already carries the cannibalization-aware decision.
+function decisionOf(c: CanonicalChange): ChangeDecision {
+  return c.decision ?? decideChangeAction(c).decision;
+}
+// One Pill intent per decision, so the six decisions scan by shape. The four act-decisions read
+// as forward/actionable; watch is a waiting state; do_nothing is neutral.
+const DECISION_INTENT: Record<ChangeDecision, PillIntent> = {
+  edit_existing: "measuring",
+  consolidate: "measuring",
+  create_new_page: "measuring",
+  prune_redirect: "attention",
+  watch: "waiting",
+  do_nothing: "neutral",
+};
 
 const FOCUS = "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1";
 
@@ -330,6 +356,7 @@ function Row({
   detailOpen,
   onToggleDetail,
   topPick,
+  outranksLine,
 }: {
   c: CanonicalChange;
   move: ChangesClientView["movesById"][string] | undefined;
@@ -360,16 +387,33 @@ function Row({
    *  Same card, same actions, same everything - just visually dominant (a "Start here" label +
    *  a stronger border/padding) so "pick the top few" reads as true instead of ~136 equal rows. */
   topPick?: boolean;
+  /** Wave 3C (3D) - the comparative "why this ranks above the next idea" line, computed by the list
+   *  against the next visible card. Null on the last visible card (nothing after it to out-rank),
+   *  where the line is simply omitted. */
+  outranksLine?: string | null;
 }) {
   const open = detailOpen ?? false;
   const setOpen = onToggleDetail ? () => onToggleDetail(c.id) : () => {};
   const chip = STATUS_CHIP[c.status] ?? STATUS_CHIP.suggested;
   const statusDetail = STATUS_DETAIL[c.status];
   const isMeasure = c.status === "measuring" || c.status === "result";
+  // Wave 3C - THE one decision this card carries, and its one-to-one CTA. build/changes-data
+  // populate c.decision; decisionOf falls back to a pure re-derive for older snapshots/fixtures.
+  const decision = decisionOf(c);
   // B2 - "Apply in Wix" is the precise action, spoken as the BUTTON label (not a status pill).
-  // operator spec 2026-07-09 C-21 - the bare suggested/ready card action reads "See draft" (was
-  // "Review"); "Approve & Push" never appears on a card, only in the detail view.
-  const cta = isMeasure ? (c.status === "result" ? "View result" : "View measurement") : c.status === "apply" ? "Apply in Wix" : c.status === "verify" ? "Apply" : "See draft";
+  // operator spec 2026-07-09 C-21 - "Approve & Push" never appears on a card, only in the detail
+  // view. Wave 3C: the bare suggested/ready CTA is now the ONE call-to-action for the decision
+  // ("See the edit" / "See the merge plan" / "See the page plan" / "See the redirect"), so the
+  // button matches the single decision the card names.
+  const cta = isMeasure
+    ? c.status === "result"
+      ? "View result"
+      : "View measurement"
+    : c.status === "apply"
+      ? "Apply in Wix"
+      : c.status === "verify"
+        ? "Apply"
+        : DECISION_CTA[decision] ?? "See draft";
   const panelId = `change-detail-${c.id}`;
   const effort = Number.isFinite(c.estimatedEffortMinutes) ? c.estimatedEffortMinutes : null;
   const label = displayPageLabel(c, move);
@@ -449,8 +493,12 @@ function Row({
             {label.secondary ? <span className="shrink-0 text-meta text-muted-foreground">{label.secondary}</span> : null}
             {move?.sparkline && move.sparkline.length >= 5 ? <Sparkline points={move.sparkline} width={56} height={14} className="inline-block opacity-70" /> : null}
             <Pill intent={chip.intent}>{chip.label}</Pill>
+            {/* Wave 3C - THE one decision (field 2), a single verb phrase. Only on actionable rows
+                (a measuring/settled row speaks in outcome language, and a blocked row shows "Not
+                now"), so the decision pill never competes with a measurement chip. */}
+            {!isMeasure && c.status !== "blocked" ? <Pill intent={DECISION_INTENT[decision]}>{DECISION_LABEL[decision]}</Pill> : null}
             {statusDetail ? <span className="shrink-0 text-meta text-muted-foreground">{statusDetail}</span> : null}
-            {c.selectedForToday && <Pill intent="neutral" className="border-indigo-200 bg-indigo-100 text-indigo-700">Today</Pill>}
+            {c.selectedForToday && <Pill intent="measuring">Today</Pill>}
           </div>
           <div className="mt-0.5 break-words text-meta text-muted-foreground">
             {c.measurementHeadline ? (
@@ -480,6 +528,13 @@ function Row({
                 mislabeled "shown on Google/mo" which read as impressions and contradicted the
                 adjacent "usually adds X clicks a month" basis. Label it as forecast clicks. */}
             {fmt(c.upside) ? <span className="text-status-info" title={`about ${formatMetric(c.upside)} extra clicks a month if this wins`}>~{fmt(c.upside)} clicks/mo upside</span> : null}
+            {/* Wave 3C - impact range with an HONEST fallback (field 5): when there is neither a
+                sized forecast nor an upside number, say so plainly instead of showing nothing. */}
+            {!isMeasure && !fmt(c.upside) && !c.expectedOutcome ? <span title="I need more search history on this page to forecast the gain">not enough history to size this yet</span> : null}
+            {/* Wave 3C - evidence strength (field 6) + risk (field 7), both plain and self-hiding on
+                measuring/settled rows (which speak in outcome language). */}
+            {!isMeasure ? <span title="How confident I am that this will move the number">{EVIDENCE_LABEL[c.evidenceStrength]}</span> : null}
+            {!isMeasure ? <span title="How risky this change is">{c.riskLevel === "high" ? "higher risk" : c.riskLevel === "medium" ? "some risk" : "low risk"}</span> : null}
             {/* operator spec 2026-07-09 C-20 - the "Directional signal" strength chip, the separate
                 expectedOutcome chip, and the "X + Y agree" chip are all GONE. They are replaced by
                 the SINGLE evidence sentence rendered on its own line below this meta row. */}
@@ -496,6 +551,11 @@ function Row({
               no concrete sentence to stand on, so a card never shows a hand-wavy claim. */}
           {evidenceSentence ? (
             <p className="mt-0.5 text-meta text-foreground-secondary">{evidenceSentence}</p>
+          ) : null}
+          {/* Wave 3C (3D) - why this ranks above the next idea (field 9). Omitted on the last
+              visible card (outranksLine is null there) and on measuring/settled rows. */}
+          {!isMeasure && outranksLine ? (
+            <p className="mt-0.5 text-meta text-muted-foreground">{outranksLine}</p>
           ) : null}
           {/* P13 word-level diff (v1 349/397) - "see exactly what changes": before -> after as a
               word-level diff so the operator sees the EXACT edit before shipping. Only for diffable
@@ -780,6 +840,9 @@ export function ChangesListClient({ view }: { view: ChangesClientView }) {
   // deliberately-bounded set.
   const CURATION_CAP = 20;
   const [showAllRanked, setShowAllRanked] = useState(false);
+  // Wave 3C (3E) - THE decision queue: the archive (watch / leave-as-is / blocked) is split OFF the
+  // command path into its own collapsed expander. showArchive toggles it.
+  const [showArchive, setShowArchive] = useState(false);
   // N46 (R6) - opportunity expiration: an EXPIRED row sinks to the tail of the curated pool
   // (never removed, never re-ranked among its fresh/aging peers - a stable partition, so
   // rankChanges's own order is untouched within each group) so it naturally falls into the
@@ -792,11 +855,34 @@ export function ChangesListClient({ view }: { view: ChangesClientView }) {
     return expired.length > 0 ? [...fresh, ...expired] : rows;
   }, [canCollapseBatch, rowsWithoutBatch, visible]);
   const applyCuration = canCollapseBatch && !showBatchSummary;
-  const topPicks = applyCuration ? curationRows.slice(0, 3) : [];
-  const afterTop = applyCuration ? curationRows.slice(3) : curationRows;
+  // Wave 3C (3E) - only the To do / Ready tabs are a decision queue; Measuring / Results speak in
+  // outcomes, so they keep the whole ranked list without an actionable/archive split.
+  const isActionableTab = tab === "todo" || tab === "ready";
+  // Actionable queue = the four act-decisions (edit / consolidate / create / prune), still ranked.
+  // Archive = watch / leave-as-is / blocked: preserved, one click away, but off the command path.
+  const actionablePool = useMemo(
+    () => (applyCuration && isActionableTab ? curationRows.filter((c) => isActDecision(decisionOf(c)) && c.status !== "blocked") : curationRows),
+    [applyCuration, isActionableTab, curationRows],
+  );
+  const archivePool = useMemo(
+    () => (applyCuration && isActionableTab ? curationRows.filter((c) => !(isActDecision(decisionOf(c)) && c.status !== "blocked")) : []),
+    [applyCuration, isActionableTab, curationRows],
+  );
+  // Wave 3C (3E) - top 3 to 5 by the SAME dynamicOpportunityCount semantics Today uses (extend past
+  // 3 only while the next idea still has strong/directional evidence), clamped to a hard 5 so the
+  // command path never sprawls.
+  const topCount = Math.min(5, Math.max(Math.min(actionablePool.length, 3), dynamicOpportunityCount(actionablePool)));
+  const topPicks = applyCuration ? actionablePool.slice(0, topCount) : [];
+  const afterTop = applyCuration ? actionablePool.slice(topCount) : curationRows;
   const cappedRows = applyCuration && !showAllRanked ? afterTop.slice(0, CURATION_CAP) : afterTop;
   const hiddenRankedCount = applyCuration ? afterTop.length - cappedRows.length : 0;
   const expiredHiddenCount = applyCuration && !showAllRanked ? afterTop.filter((c) => c.freshness === "expired").length : 0;
+  // Wave 3C (3D) - the comparative "why this ranks above the next" line for the displayed command
+  // path (top picks + the capped actionable rest, in render order). Last card maps to null.
+  const outranksById = useMemo(
+    () => outranksReasonsBySequence([...topPicks, ...cappedRows], "balanced"),
+    [topPicks, cappedRows],
+  );
 
   // P13 honest minute math (v1 592) - the session-total sentence for the flat working view, over
   // the picks actually shown at the top (top 3 + the capped rest), so it matches what the operator
@@ -1020,6 +1106,7 @@ export function ChangesListClient({ view }: { view: ChangesClientView }) {
               onToggleSelect={toggleChecked}
               detailOpen={selectedId === c.id}
               onToggleDetail={toggleDetail}
+              outranksLine={outranksById.get(c.id) ?? null}
               topPick
             />
           ))}
@@ -1037,6 +1124,7 @@ export function ChangesListClient({ view }: { view: ChangesClientView }) {
               onToggleSelect={toggleChecked}
               detailOpen={selectedId === c.id}
               onToggleDetail={toggleDetail}
+              outranksLine={outranksById.get(c.id) ?? null}
             />
           ))}
           {/* FP9 - the honest expander: lower-priority ideas are capped from view, never lost.
@@ -1082,6 +1170,40 @@ export function ChangesListClient({ view }: { view: ChangesClientView }) {
                   onToggleDetail={toggleDetail}
                 />
               ))}
+            </div>
+          ) : null}
+          {/* Wave 3C (3E) - THE archive: watching / leave-as-is / blocked, split OFF the command
+              path. Preserved and one click away, never deleted, but out of the daily decision
+              queue so the top of the list stays the few changes worth acting on. */}
+          {applyCuration && archivePool.length > 0 ? (
+            <div className="space-y-1.5">
+              <button
+                type="button"
+                onClick={() => setShowArchive((v) => !v)}
+                aria-expanded={showArchive}
+                className={`flex w-full items-center justify-center rounded-lg border border-dashed border-border px-3 py-2 text-body font-medium text-muted-foreground hover:bg-surface-raised ${FOCUS}`}
+              >
+                {showArchive ? "Hide" : `${archivePool.length} more I am not acting on yet`}. I keep watching them so nothing is lost.
+              </button>
+              {showArchive
+                ? archivePool.map((c, i) => (
+                    <Row
+                      key={c.id}
+                      c={c}
+                      move={c.sourceIds[0] ? view.movesById[c.sourceIds[0]] : undefined}
+                      rank={topPicks.length + cappedRows.length + i + 1}
+                      highlighted={session.nextBest?.id === c.id}
+                      keyboardActive={visible[kbIndex]?.id === c.id}
+                      onAction={(kind) => rowAction(c.id, kind)}
+                      registerRef={registerRowRef}
+                      selected={checkedIds.has(c.id)}
+                      onToggleSelect={toggleChecked}
+                      detailOpen={selectedId === c.id}
+                      onToggleDetail={toggleDetail}
+                      outranksLine={null}
+                    />
+                  ))
+                : null}
             </div>
           ) : null}
         </div>

@@ -13,6 +13,7 @@ import { getLatestPreviewPlan, getAcceptedPlan, listActiveReservations } from "@
 import { buildCanonicalChanges, type CanonicalMoveInput } from "@/domains/changes/build-canonical-changes";
 import type { CanonicalChange } from "@/domains/changes/canonical-change";
 import { statusView } from "@/domains/changes/canonical-change";
+import { decideChangeAction, cannibalizationDirective } from "@/domains/changes/decide-action";
 import type { TodayMove } from "./today-moves-data";
 import { readPublishHealth } from "@/domains/push/publish-canary-store";
 // D7 (honest opportunity math) - the SAME bias-correction factor + per-family empirical capture
@@ -127,12 +128,14 @@ export type ChangesView = {
  *   - id / action / query / targetUrl: the row actions (mark done / skip / keyboard "d")
  *     and the human page label;
  *   - why / rankWhy: the client-side search haystack;
- *   - sparkline: the tiny inline clicks chart on the row.
+ *   - sparkline: the tiny inline clicks chart on the row;
+ *   - demand / demandBasis (Wave 3C): the small scalars that power the collapsed card's honest
+ *     "why now" line ("1,200 times shown on Google a month") without shipping the whole dossier.
  * The FULL TodayMove is loaded ON DEMAND (loadMoveDetailAction in changes/actions.ts)
  * when a row's detail opens. Transport/hydration only - ranking, copy, and the server
- * view are untouched (Wave 3 owns the decision-surface redesign).
+ * view are untouched by the slimming itself.
  */
-export const SLIM_MOVE_KEYS = ["id", "action", "query", "targetUrl", "why", "rankWhy", "sparkline"] as const;
+export const SLIM_MOVE_KEYS = ["id", "action", "query", "targetUrl", "why", "rankWhy", "sparkline", "demand", "demandBasis"] as const;
 export type SlimTodayMove = Pick<TodayMove, (typeof SLIM_MOVE_KEYS)[number]>;
 
 /** The ChangesView shape actually serialized to the /changes client board. */
@@ -150,6 +153,8 @@ export function slimMoveForList(m: TodayMove): SlimTodayMove {
     why: m.why,
     rankWhy: m.rankWhy,
     sparkline: m.sparkline,
+    demand: m.demand,
+    demandBasis: m.demandBasis,
   };
 }
 
@@ -251,20 +256,32 @@ export function demoteUnsized(changes: readonly CanonicalChange[]): CanonicalCha
  *  data.ts); what IS in scope is this list's own `rationale` line, which must never repeat or
  *  imply the standalone-work framing once a real cannibalization case exists for the row. When
  *  it does, `rationale` is rewritten to state the consolidation directive plainly and name that
- *  it supersedes any per-page lever work below, so the row's own two lines never disagree. */
+ *  it supersedes any per-page lever work below, so the row's own two lines never disagree.
+ *
+ *  Wave 3C: the rewrite now consumes the DECIDED action (decide-action.ts), never the raw
+ *  `move.cannibalization[0].fix` text. Beacon has already picked exactly one action for this case
+ *  (edit_existing / consolidate / prune_redirect); the rationale states that single directive, so
+ *  it can never reintroduce a "redirect or internal-link" fork even if an upstream string still
+ *  carried one. */
 export function reconcileCannibalizationRationale(
   changes: readonly CanonicalChange[],
   movesById: Record<string, TodayMove>,
 ): CanonicalChange[] {
   return changes.map((c) => {
     const move = c.sourceIds[0] ? movesById[c.sourceIds[0]] : undefined;
-    const fix = move?.cannibalization?.[0]?.fix;
-    if (!fix) return c;
-    if (c.rationale === fix) return c; // already agrees, nothing to reconcile
-    return {
-      ...c,
-      rationale: `${fix} That comes first - any other edit below on this page should wait until this is resolved.`,
-    };
+    const cannib = move?.cannibalization?.[0];
+    if (!cannib) return c;
+    const decision = c.decision ?? decideChangeAction(c, move).decision;
+    const directive = cannibalizationDirective({
+      decision,
+      leadPage: cannib.leadPage,
+      otherPages: cannib.otherPages,
+      query: cannib.query,
+      isLead: cannib.isLead,
+    });
+    const rationale = `${directive} That comes first, any other edit below on this page should wait until this is resolved.`;
+    if (c.rationale === rationale && c.decision === decision) return c; // already agrees
+    return { ...c, rationale, decision };
   });
 }
 
@@ -603,10 +620,18 @@ async function buildChangesViewUncached(tenantId: string): Promise<ChangesView> 
   // worklist/allocator overlap) survive as two rows. Collapse those here, by real-world identity
   // (page-or-topic + query + lever family), before anything ranks or renders the list.
   const deduped = dedupeChanges(fusedChanges, movesById);
+  // Wave 3C (D3) - THE one decision per card. build-canonical-changes set a base decision from each
+  // change's own type/family; here we refine it with the source move's cannibalization case (which
+  // the pure adapter cannot see) so every row - worklist AND the fused D2/D3/keyword-library lanes -
+  // carries exactly one decision + one CTA before anything ranks or renders.
+  const decided = deduped.map((c) => {
+    const move = c.sourceIds[0] ? movesById[c.sourceIds[0]] : undefined;
+    return { ...c, decision: decideChangeAction(c, move).decision };
+  });
   // FP2 (killer finding 3) - when this row's page has a real cannibalization case, its secondary
-  // line must agree with (not contradict) the consolidation directive. See the function doc for
-  // the exact contradiction this closes.
-  const reconciled = reconcileCannibalizationRationale(deduped, movesById);
+  // line must agree with (not contradict) the consolidation directive. Wave 3C: the reconciled
+  // rationale is built from the DECIDED action above, never the ambiguous fix text.
+  const reconciled = reconcileCannibalizationRationale(decided, movesById);
   // FP2 (killer finding 1) - a row whose only sizing is opportunity-math's honest "not enough
   // history"/"gap too small" fallback must never outrank a row with a real forecast. strategy.ts's
   // ranking is untouched; this only adjusts the ranking INPUT so unsized rows sort to the bottom
