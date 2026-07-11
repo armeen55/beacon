@@ -14,11 +14,15 @@ chronology of what already landed lives in VERIFICATION_LOG.md; this list is onl
 3. **Scheduled-refresh receipt.** The first cron run after this deploy must leave a started
    receipt; that receipt is what proves the scheduled refresh path is alive, since sync-connectors
    and measure-due missed their 2026-07-11 slots.
-4. **Proof-model replacement with independent validation.** Replace the verdict classifier under
-   the independent statistical validation protocol: predeclaration contract plus a
-   frozen-artifact holdout harness.
-5. **56 to 84 day confirmation ladder.** Build the demote-only confirmation tier that sits above
-   the 28-day provisional read.
+4. **Proof-model replacement with independent validation.** INFRASTRUCTURE LANDED, CERTIFICATION
+   HONESTLY BLOCKED ON UNITS, NOT ON METHOD. The verdict classifier now runs under the independent
+   statistical validation protocol (predeclaration contract plus a frozen-artifact holdout
+   harness), but the release gate failed because the tenant cannot yet supply enough judged units
+   per cell. Certification waits on more calendar or a pooled-verdict design.
+5. **56 to 84 day confirmation ladder.** STORAGE AND WINDOW CONTRACT LANDED, 56 DAY READS
+   PROVISIONAL UNTIL HISTORY SUPPORTS THEM. The demote-only confirmation tier above the 28 day
+   primary read is in the contract and the store; a 56 day demotion is flagged provisional until
+   this tenant's placebo history depth supports the window.
 6. **June GSC UI comparison (operator).** The operator compares the stored June total of 3,460
    clicks and 251,274 impressions against the Search Console UI.
 7. **Hosted UX and performance closure.** Prove the hosted speed budgets on production, not on the

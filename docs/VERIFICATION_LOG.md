@@ -40,6 +40,42 @@ version registered.
 
 ---
 
+## 2026-07-11 - Proof-model wave landed: predeclaration contract + C4 validation (250e136d, 48a5857f)
+
+Lane P2 landed (250e136d). The predeclaration contract is now code: the judged metric is frozen
+at ship, the 28 day window is the single primary decision window, the 56 day window is a
+demote-only helper (a won that did not hold demotes, it never upgrades), and 7, 14, and 84 days
+are context-only reads that never write the verdict enum. The append-only confirmation_reads
+store ships alongside. Both migrations were applied to prod by the architect through the
+management connection and verified by read-back: 9 predeclaration columns on the proof record,
+and the confirmation_reads table with deny_anon and is_tenant_member RLS.
+
+Lane P3 landed (48a5857f). The C4 classifier and the frozen-artifact validation harness are in
+the tree, and the full runbook executed on run pv-2026-07-11-a. Validation headline receipts:
+the old classifier fired won or lost on 69.7 percent of 119 fresh placebo units (Wilson 61.0 to
+77.3), and 82.6 percent on engine-mimicked decliners. C4 held-out false-positive rate per cell
+lands 0 to 10 percent points, but no cell passes the release gate (point at or under 5 percent
+AND 95 percent upper bound at or under 12 percent) because 20 units per cell cannot push the
+upper bound under 16 percent. The evaluation set is SPENT per the protocol. The minimum
+detectable effect exceeds 50 percent in every cell, so single-page changes on this tenant are
+individually unprovable at honest floors, and pooled verdicts are the certification path. All 25
+decided ledger rows reclassify to measuring under the predeclared 28 day clock (earliest close
+2026-07-18): 23 have insufficient history, and 2 are not verified live (the stored wins on
+caspian-red-deer and persian-horned-viper describe changes the crawler cannot find on the live
+pages). At the 7 day context read, 0 of 12 old decided verdicts survive. Sensitivity: 1 of 115
+unit-lanes flips class under control jackknife, and 4.7 percent flip under alternate control
+sets.
+
+CALIBRATED_VERDICT_VERSIONS remains empty, no verdict was persisted, and the quarantine stays
+exactly as deployed.
+
+Full hermetic gate at the assembled tip (fullgate-integration2.log): typecheck exit 0, test exit
+0, build exit 0. Vitest summary: 1486 test files passed (1486), 23026 tests passed and 62 skipped
+of 23088, 0 failed. No semantic fixes were needed; the widened ProofWindowDay union (7, 14, 28,
+56, 84) did not break the P3 validation modules.
+
+---
+
 ## 2026-07-11 - Binding operator decision: verdict quarantine, cron receipts, /api/version landed (b7b8a523, 3543e0d9, f298bd52, b71cd1af)
 
 BINDING OPERATOR DECISION received and recorded on three fronts: proof truth, deployment closure,

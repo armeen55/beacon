@@ -1,39 +1,44 @@
 # Beacon Verified State
 
 > 🟢 **Current verified state (2026-07-11, tip = this docs commit; its exact SHA is in the push
-> receipt in VERIFICATION_LOG.md and is what /api/version reports once the deploy lands).** Main
-> now carries the
-> verdict quarantine: every stored won or lost verdict reads as uncalibrated through the single
-> choke point src/domains/proof-gsc/verdict-calibration.ts (f298bd52 plus the review batch
-> b71cd1af; the adversarial review found 16 findings, confirmed all 16, refuted 0, and fixed all
-> 12 distinct defects), with the circuit-breaker and revert brakes deliberately left on the raw
-> verdicts so safety never depends on the quarantined read. Alongside it on main: cron invocation
-> receipts with a started-row deadman and honest Ritz initial-silence (b7b8a523), the /api/version
-> deployment-identity endpoint (3543e0d9), a one-line dash-guard test fixup, a precompute
-> test-contract fix, and this docs commit. The full hermetic gate is GREEN at this tip; the exact
-> numbers are in the 2026-07-11 entry of VERIFICATION_LOG.md.
+> receipt in the 2026-07-11 "Proof-model wave landed" entry of VERIFICATION_LOG.md, and is what
+> /api/version reports once the deploy lands).** Main now carries the proof-model wave. Lane P2's
+> predeclaration contract is code: the judged metric is frozen at ship, the 28 day window is the
+> single primary decision window, the 56 day window is a demote-only helper, 7, 14, and 84 days
+> are context-only reads, and the append-only confirmation_reads store ships alongside (both
+> migrations applied to prod and verified by read-back: 9 predeclaration columns plus
+> confirmation_reads with deny_anon and is_tenant_member RLS). Lane P3's C4 classifier and
+> frozen-artifact validation harness are also code, and the full runbook ran on pv-2026-07-11-a.
+> The release gate FAILED honestly: no cell clears the false-positive bar because the evaluation
+> set is too small, and it is now spent. So the verdict quarantine from the prior wave stays
+> exactly as deployed, every stored won or lost verdict still reads as uncalibrated through
+> src/domains/proof-gsc/verdict-calibration.ts, CALIBRATED_VERDICT_VERSIONS is still empty, and no
+> verdict was persisted. The full hermetic gate is GREEN at this tip; the exact numbers are in that
+> VERIFICATION_LOG.md entry.
 
 ## Current limitations
 
-- **The deployed SHA is unconfirmed.** This tip is pushed, but its arrival on Vercel production
-  stays unconfirmed until /api/version answers on production with this SHA.
-- **Every stored proof verdict is quarantined as uncalibrated** pending the corrected classifier.
-  The decided board will shrink when the verdicts are reclassified under honest floors.
+- **The verdict quarantine remains in force by design.** The release gate failed honestly, so no
+  calibrated verdict may show. The decided board holds 0 trustworthy wins under honest floors.
+- **Re-certification is blocked on units, not on method.** A new evaluation set needs roughly 3
+  months of fresh calendar as history ages forward, or a pooled-verdict certification design.
 - **Ritz Google reconnect is pending.** Its data stops 2026-06-26, so the second-tenant proof
   stays cold until the operator reconnects it.
-- **Two scheduled refreshes missed their 2026-07-11 slots.** sync-connectors and measure-due left
-  no app-side trace for their 2026-07-11 runs; they are under watch, with escalation if they stay
-  silent past 2026-07-12 09:39 UTC.
+- **The June GSC Search Console UI comparison is pending.** The stored June total of 3,460 clicks
+  needs an operator check against the Search Console UI.
+- **The sync-connectors 2026-07-11 gap is under watch.** It left no app-side trace for its
+  2026-07-11 run, with escalation if it stays silent past 2026-07-12 09:39 UTC.
 - **Hosted speed budgets are unproven.** I judge performance on production only, and I have not
   measured it for this tip.
 
 ## Next 3 actions
 
-1. **Confirm the deployed SHA.** Read /api/version on production, match it to this tip, and pair
-   it with the operator's 90-second Vercel cron check.
-2. **Proof-model implementation lanes P2 and P3** per the independent validation protocol: the
-   predeclaration contract plus the frozen-artifact holdout harness.
-3. **Blind holdout benchmark** of 5 preregistered unseen cases, run after code freeze.
+1. **Pooled-verdict certification design** with independent statistical review: the certification
+   path now that single-page changes on this tenant are individually unprovable at honest floors.
+2. **Blind holdout benchmark** of 5 preregistered unseen cases, run through the deployed product
+   path now that this wave freezes the code.
+3. **Operator items:** the 90 second Vercel cron check, the Search Console June comparison against
+   3,460 clicks, and the Ritz Google reconnect.
 
 ## History
 
