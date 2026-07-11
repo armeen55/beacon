@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import { buildCanonicalChanges, type CanonicalMoveInput } from "./build-canonical-changes";
 import { deriveStatus, statusView, changeTypeFamily } from "./canonical-change";
 import { rankChanges, goalMatches, statusCounts } from "./strategy";
+import { ZERO_CLICK_TRAP_REASON } from "./zero-click-trap";
 import type { DailyExperimentPlanRecord, PlannedExperimentRecord, ExperimentLever, ControlReservationRecord } from "@/domains/experiments/daily-plan-types";
 import type { PlanExecutionState } from "@/domains/experiments/execution-state";
 
@@ -42,7 +43,7 @@ describe("changeTypeFamily", () => {
   });
 });
 
-describe("deriveStatus — most-settled wins; preview ≠ measuring", () => {
+describe("deriveStatus: most-settled wins; preview is not measuring", () => {
   it("a preview-selected item is READY, not measuring", () => {
     expect(deriveStatus({ selectedForToday: true, planItemStatus: "ready_to_apply" })).toBe("apply");
     expect(deriveStatus({ selectedForToday: true })).toBe("ready");
@@ -73,7 +74,7 @@ describe("deriveStatus — most-settled wins; preview ≠ measuring", () => {
   });
 });
 
-describe("buildCanonicalChanges — one identity per page+lever, no duplicates", () => {
+describe("buildCanonicalChanges: one identity per page+lever, no duplicates", () => {
   it("a plan-selected page does NOT also appear as a separate move card (same lever collapses)", () => {
     const p = plan([planItem("t::2026-07-01::abc::/finglish", "https://s.com/finglish", "answer_block")]);
     const moves = [mv({ id: "m1", targetUrl: "https://s.com/finglish", actionType: "add_answer_block", actionTone: "citation" })];
@@ -110,7 +111,7 @@ describe("buildCanonicalChanges — one identity per page+lever, no duplicates",
   });
 });
 
-describe("Move 2 — proof maturity threads into Changes (early ≠ result)", () => {
+describe("Move 2: proof maturity threads into Changes (early is not result)", () => {
   it("a 7-day (early) proof shows as MEASURING with directional evidence, not a final result", () => {
     const moves = [
       mv({ id: "m1", targetUrl: "https://s.com/cities", actionType: "edit_meta", proofStatus: "measuring", proofMaturity: "early_checkpoint", proofDirection: "negative", proofLabel: "Early negative signal", proofNextCheckpoint: "2026-07-04" }),
@@ -143,13 +144,13 @@ describe("Move 2 — proof maturity threads into Changes (early ≠ result)", ()
   });
 });
 
-describe("Move 4 backfill — quality signal on every actionable Changes row", () => {
+describe("Move 4 backfill: quality signal on every actionable Changes row", () => {
   it("an off-topic ready rec is FLAGGED and demoted out of high-confidence Ready", () => {
     const moves = [mv({ id: "m1", targetUrl: "https://s.com/doodool-tala", pageLabel: "Doodool Tala", query: "persian jewelry", actionType: "edit_meta", preparedReady: true })];
     const out = buildCanonicalChanges({ tenantId: "t", moves, plan: null, reservations: [] });
     expect(out[0].qualityDecision).toBe("flagged");
     expect(out[0].qualityNote).toBeTruthy();
-    expect(out[0].status).toBe("suggested"); // demoted from ready — not shown as ready-to-ship
+    expect(out[0].status).toBe("suggested"); // demoted from ready, not shown as ready-to-ship
   });
   it("an on-topic ready rec passes quality and stays Ready", () => {
     const moves = [mv({ id: "m1", targetUrl: "https://s.com/persian-boy-names", pageLabel: "Persian Boy Names", query: "persian boy names", actionType: "edit_meta", preparedReady: true })];
@@ -161,6 +162,129 @@ describe("Move 4 backfill — quality signal on every actionable Changes row", (
     const p = plan([planItem("t::2026-07-01::abc::/finglish", "https://s.com/finglish", "meta")]);
     const out = buildCanonicalChanges({ tenantId: "t", moves: [], plan: p, reservations: [] });
     expect(out[0].qualityDecision).toBe("approved");
+  });
+});
+
+describe("G2 (2026-07-10 hygiene batch): zero-click / image-intent trap decides WATCH, never a naive capture-clicks pick", () => {
+  it("the /iran-flags fixture (pos 2.8, 5567 impressions, 0 clicks) decides watch with the honest reason", () => {
+    const moves = [
+      mv({
+        id: "m1",
+        targetUrl: "https://s.com/iran-flags",
+        pageLabel: "Iran Flag",
+        query: "iran flag",
+        actionType: "edit_meta",
+        actionTone: "clicks",
+        preparedReady: true,
+        topQueryPosition: 2.8,
+        topQueryImpressions90d: 5567,
+        topQueryClicks90d: 0,
+      }),
+    ];
+    const out = buildCanonicalChanges({ tenantId: "t", moves, plan: null, reservations: [] });
+    expect(out[0].qualityDecision).toBe("flagged");
+    expect(out[0].qualityNote).toBe(ZERO_CLICK_TRAP_REASON);
+    expect(out[0].decision).toBe("watch");
+    // Held, not deleted: it still renders, just off the actionable command path.
+    expect(out[0].status).toBe("suggested");
+  });
+
+  it("a single-fact zero-click trap (pos 4.1, material impressions, 0 clicks) also decides watch", () => {
+    const moves = [
+      mv({
+        id: "m1",
+        targetUrl: "https://s.com/iran-animals/asiatic-cheetah",
+        pageLabel: "Iran National Animal: The Asiatic Cheetah",
+        query: "national animal of iran",
+        actionType: "edit_meta",
+        actionTone: "clicks",
+        topQueryPosition: 4.1,
+        topQueryImpressions90d: 900,
+        topQueryClicks90d: 0,
+      }),
+    ];
+    const out = buildCanonicalChanges({ tenantId: "t", moves, plan: null, reservations: [] });
+    expect(out[0].qualityDecision).toBe("flagged");
+    expect(out[0].qualityNote).toBe(ZERO_CLICK_TRAP_REASON);
+    expect(out[0].decision).toBe("watch");
+  });
+
+  it("a genuine capture-clicks case (pos 8, healthy nonzero CTR) stays actionable", () => {
+    const moves = [
+      mv({
+        id: "m1",
+        targetUrl: "https://s.com/persian-food",
+        pageLabel: "Persian Food",
+        query: "persian food",
+        actionType: "edit_meta",
+        actionTone: "clicks",
+        preparedReady: true,
+        topQueryPosition: 8,
+        topQueryImpressions90d: 600,
+        topQueryClicks90d: 20, // ~3.3% CTR - healthy, nothing structurally unclickable here
+      }),
+    ];
+    const out = buildCanonicalChanges({ tenantId: "t", moves, plan: null, reservations: [] });
+    expect(out[0].qualityDecision).toBe("approved");
+    expect(out[0].decision).toBe("edit_existing");
+    expect(out[0].status).toBe("ready");
+  });
+
+  it("low impressions on a strong position never trips the trap (not material yet, stays honest)", () => {
+    const moves = [
+      mv({
+        id: "m1",
+        targetUrl: "https://s.com/small-page",
+        query: "small page topic",
+        pageLabel: "Small Page Topic",
+        actionTone: "clicks",
+        topQueryPosition: 2,
+        topQueryImpressions90d: 50, // below the material threshold
+        topQueryClicks90d: 0,
+      }),
+    ];
+    const out = buildCanonicalChanges({ tenantId: "t", moves, plan: null, reservations: [] });
+    expect(out[0].qualityDecision).toBe("approved");
+  });
+
+  it("a non-clicks-tone move is never checked against the trap (only capture-clicks pitches are)", () => {
+    const moves = [
+      mv({
+        id: "m1",
+        targetUrl: "https://s.com/citation-page",
+        query: "citation page topic",
+        pageLabel: "Citation Page Topic",
+        actionTone: "citation",
+        actionType: "add_answer_block",
+        topQueryPosition: 2.8,
+        topQueryImpressions90d: 5567,
+        topQueryClicks90d: 0,
+      }),
+    ];
+    const out = buildCanonicalChanges({ tenantId: "t", moves, plan: null, reservations: [] });
+    expect(out[0].qualityDecision).toBe("approved");
+  });
+
+  it("two tenants: the SAME trap query on each tenant's own page decides watch independently, no bleed", () => {
+    const trapMove = (tenantSuffix: string): CanonicalMoveInput =>
+      mv({
+        id: `m-${tenantSuffix}`,
+        targetUrl: `https://${tenantSuffix}.com/iran-flags`,
+        query: "iran flag",
+        pageLabel: "Iran Flag",
+        actionTone: "clicks",
+        topQueryPosition: 2.8,
+        topQueryImpressions90d: 5567,
+        topQueryClicks90d: 0,
+      });
+    const outA = buildCanonicalChanges({ tenantId: "tenant-a", moves: [trapMove("tenant-a")], plan: null, reservations: [] });
+    const outB = buildCanonicalChanges({ tenantId: "tenant-b", moves: [trapMove("tenant-b")], plan: null, reservations: [] });
+    expect(outA[0].qualityNote).toBe(ZERO_CLICK_TRAP_REASON);
+    expect(outB[0].qualityNote).toBe(ZERO_CLICK_TRAP_REASON);
+    expect(outA[0].decision).toBe("watch");
+    expect(outB[0].decision).toBe("watch");
+    expect(outA[0].tenantId).toBe("tenant-a");
+    expect(outB[0].tenantId).toBe("tenant-b");
   });
 });
 

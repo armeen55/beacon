@@ -1,7 +1,7 @@
 /**
- * build-canonical-changes (2026-07-01) — the PURE adapter that turns existing sources (ranked
+ * build-canonical-changes (2026-07-01), the PURE adapter that turns existing sources (ranked
  * worklist moves + today's daily plan + control reservations) into one deduped CanonicalChange[].
- * NO new persistence, NO new recommendation engine — it composes what already exists. One page+lever
+ * NO new persistence, NO new recommendation engine: it composes what already exists. One page+lever
  * has ONE identity across preparation → execution → measurement → result. Genuinely different levers
  * on a page stay separate; duplicate representations of the SAME edit collapse (most-advanced wins).
  */
@@ -15,6 +15,7 @@ import {
   type CanonicalChange, type CanonicalStatus, type ProofSignal,
 } from "./canonical-change";
 import { decideChangeAction } from "./decide-action";
+import { isZeroClickTrap, ZERO_CLICK_TRAP_REASON } from "./zero-click-trap";
 
 /** Structural subset of a worklist TodayMove the adapter needs (keeps the domain free of app types). */
 export type CanonicalMoveInput = {
@@ -52,7 +53,7 @@ export type CanonicalMoveInput = {
   before?: string | null;
   after?: string | null;
   alternateOpportunities?: string[];
-  /** Move 2 — maturity presentation threaded from the proof ledger. */
+  /** Move 2, maturity presentation threaded from the proof ledger. */
   proofMaturity?: string | null; // MeasurementMaturity
   proofDirection?: string | null;
   proofLabel?: string | null; // the maturity headline
@@ -115,7 +116,7 @@ function fromPlanItem(
     exactInstructions: wixInstructions(e),
     before: e.currentText || null,
     after: e.proposedText || null,
-    rationale: `Selected for today — “${e.targetQuery}”. Beacon will measure it against ${e.controls.length} comparison pages.`,
+    rationale: `Selected for today: “${e.targetQuery}”. Beacon will measure it against ${e.controls.length} comparison pages.`,
     estimatedEffortMinutes: e.effortMinutes,
     impactScore: 500, // today's picks rank prominently within their status view
     // D7: the plan pick already carries a numeric forecast from buildPickExpectations
@@ -167,7 +168,7 @@ function fromMove(tenantId: string, m: CanonicalMoveInput, controlPaths: Set<str
     pageMeasuring: m.pageMeasuring || isControl,
     preparedReady: m.preparedReady,
   });
-  // Move 4 backfill — surface a recommendation-quality signal on every actionable row.
+  // Move 4 backfill, surface a recommendation-quality signal on every actionable row.
   // Without the exact draft copy on a worklist move, assess the highest-value check we
   // have: does the target query fit this page? An off-topic rec is FLAGGED and demoted
   // out of high-confidence Ready (never presented as ready-to-ship).
@@ -177,9 +178,23 @@ function fromMove(tenantId: string, m: CanonicalMoveInput, controlPaths: Set<str
     const fit = internalLinkRelevance(m.query, m.pageLabel);
     if (!fit.relevant) {
       qualityDecision = "flagged";
-      qualityNote = "May be off-topic for this page — review before shipping.";
+      qualityNote = "May be off-topic for this page. Review before shipping.";
       if (status === "ready") status = "suggested";
     }
+  }
+  // G2 (2026-07-10 hygiene batch) - a "Capture clicks" edit only makes sense when the
+  // page's top query can structurally EARN clicks. Strong position + material
+  // impressions + near-zero CTR is an image-intent or true zero-click query (the
+  // pilot found /iran-flags and /iran-animals/asiatic-cheetah exactly this way) - the
+  // searcher's need is satisfied on the results page itself, so no title/meta edit can
+  // win clicks there. Checked only for clicks-tone moves (the ones actually pitched as
+  // click-capture edits) and only when nothing already flagged the rec, so this never
+  // overrides a more specific quality call. Same flagged -> watch path as the off-topic
+  // check above: never deleted, held with an honest reason instead.
+  if (qualityDecision === "approved" && m.actionTone === "clicks" && isZeroClickTrap(m)) {
+    qualityDecision = "flagged";
+    qualityNote = ZERO_CLICK_TRAP_REASON;
+    if (status === "ready") status = "suggested";
   }
   const proofResultLabel =
     m.proofStatus === "won" ? "Mature result" : m.proofStatus === "no_lift" || m.proofStatus === "no_clear_lift" ? "Mature result" : null;
@@ -277,7 +292,7 @@ function fromMove(tenantId: string, m: CanonicalMoveInput, controlPaths: Set<str
     selectedForToday: false,
     activeExperiment: status === "measuring",
     protectedControl: isControl,
-    blockedReason: isControl ? "This page is a comparison control for a live experiment." : m.pageMeasuring ? "This page is mid-measurement — another change now would muddy the proof." : null,
+    blockedReason: isControl ? "This page is a comparison control for a live experiment." : m.pageMeasuring ? "This page is mid-measurement. Another change now would muddy the proof." : null,
     result: status === "result" ? (m.proofLabel ?? proofResultLabel) : null,
     measurementHeadline: status === "measuring" || status === "result" ? (m.proofLabel ?? null) : null,
     measurementDetail: (status === "measuring" || status === "result") && m.proofNextCheckpoint ? `Next read ${m.proofNextCheckpoint}` : null,
@@ -304,14 +319,14 @@ export function buildCanonicalChanges(input: {
   const controlPaths = new Set(input.reservations.filter((r) => r.status === "reserved" || r.status === "active").map((r) => normalizePath(r.controlPath)));
   const byId = new Map<string, CanonicalChange>();
 
-  // Plan items first — they own their page+lever identity (today's selection / execution truth).
+  // Plan items first: they own their page+lever identity (today's selection / execution truth).
   if (input.plan) {
     for (const e of input.plan.selected) {
       const c = fromPlanItem(input.tenantId, input.plan, e);
       byId.set(c.id, c);
     }
   }
-  // Moves next — collapse onto an existing id when present (keep the most-advanced lifecycle).
+  // Moves next: collapse onto an existing id when present (keep the most-advanced lifecycle).
   for (const m of input.moves) {
     const c = fromMove(input.tenantId, m, controlPaths);
     const prev = byId.get(c.id);
