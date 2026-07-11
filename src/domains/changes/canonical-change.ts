@@ -7,6 +7,7 @@
  * (recommendation/draft/ActionPack/experiment/reservation/proof) never surface as separate workflows.
  */
 import { isActiveStatus, type DailyExperimentItemStatus } from "@/domains/experiments/execution-state";
+import type { ChangeDecision } from "./decide-action";
 
 export type CanonicalStatus =
   | "suggested" // recommended, not yet prepared
@@ -108,6 +109,13 @@ export type CanonicalChange = {
    *  check (e.g. off-topic for this page) → never presented as high-confidence Ready. */
   qualityDecision?: "approved" | "caution" | "flagged";
   qualityNote?: string | null;
+  /** Wave 3C (2026-07-10) - THE one decision this card carries, from decide-action.ts's six-value
+   *  enum (do_nothing | watch | edit_existing | consolidate | create_new_page | prune_redirect).
+   *  Exactly one, with a one-to-one CTA; no card ever offers two actions. Additive/optional so
+   *  existing fixtures and older persisted snapshots stay valid; build-canonical-changes.ts sets a
+   *  base decision from the change's type/family and changes-data.ts refines it with the source
+   *  move's cannibalization case before the list renders. */
+  decision?: ChangeDecision;
   sourceIds: string[];
   alternateOpportunities: string[]; // other levers available on this page (kept under the primary)
   /** D4/N1 (unified allocator, 2026-07-02) - which opportunity lanes independently surfaced this

@@ -103,6 +103,20 @@ export function NewPageCard({ o, ownDomain, enableAeoBrief = false }: { o: NewPa
     ? { ...o.preparedVerdict, prepared: true }
     : null;
 
+  // Wave 3C (3F) - BUILD only renders with a real source pack AND a "build" Google verdict. A
+  // "build" verdict with no sources behind it is not paste-ready groundwork, so it reads as WAIT
+  // ("almost, add sources") rather than a green light Beacon cannot stand behind.
+  const buildAllowed = shown?.verdict === "build" && hasSources;
+  const effectiveVerdict = shown
+    ? shown.verdict === "build" && !hasSources
+      ? ("wait" as const)
+      : shown.verdict
+    : null;
+  // Wave 3C (3F) - a WAIT or SKIP verdict (the "reject" verdict renders as SKIP) never LEADS with a
+  // draft CTA: a page Beacon is not yet ready to build must not hand the operator a "draft it now"
+  // button as the primary move.
+  const draftBlockedByVerdict = effectiveVerdict === "wait" || effectiveVerdict === "reject";
+
   const generate = () => {
     setAiStatus("pending");
     startTransition(async () => {
@@ -276,7 +290,10 @@ export function NewPageCard({ o, ownDomain, enableAeoBrief = false }: { o: NewPa
         ) : null}
         {o.aeoReceipt ? (
           <div className="mt-2 rounded-lg border border-violet-100 bg-violet-50/60 px-2.5 py-2">
-            <div className="text-meta font-semibold uppercase tracking-wide text-violet-700">✦ AI-validated</div>
+            {/* Wave 3C (3F) - "AI search demand confirmed" replaces "AI-validated": this receipt
+                means AI assistants are ASKING about this topic (real demand), never that the page's
+                facts were checked. */}
+            <div className="text-meta font-semibold uppercase tracking-wide text-violet-700">✦ AI search demand confirmed</div>
             <p className="mt-1 text-body leading-snug text-foreground-secondary">
               AI asks: <span className="font-medium text-foreground">“{o.aeoReceipt.topPrompt}”</span>
             </p>
@@ -467,7 +484,10 @@ export function NewPageCard({ o, ownDomain, enableAeoBrief = false }: { o: NewPa
         ) : null}
         {shown ? (
           (() => {
-            const vs = VERDICT_STYLE[shown.verdict] ?? VERDICT_STYLE.wait;
+            // Wave 3C - render the EFFECTIVE verdict (build downgrades to wait without sources), so
+            // BUILD never appears on an unsupported brief.
+            const vs = VERDICT_STYLE[effectiveVerdict ?? shown.verdict] ?? VERDICT_STYLE.wait;
+            const downgraded = shown.verdict === "build" && !buildAllowed;
             return (
               <div className="mt-2 rounded-lg border border-status-info/15 bg-status-info-bg px-2.5 py-2">
                 <div className="flex flex-wrap items-center gap-1.5">
@@ -475,7 +495,10 @@ export function NewPageCard({ o, ownDomain, enableAeoBrief = false }: { o: NewPa
                   <span className="text-meta font-medium uppercase tracking-wide text-muted-foreground">{shown.confidence} confidence</span>
                   <Pill intent="live">✓ Google checked{shown.prepared ? "" : " · just now"}</Pill>
                 </div>
-                <p className="mt-1 text-body leading-snug text-foreground-secondary">{plainSerpReason(shown.reason)}</p>
+                <p className="mt-1 text-body leading-snug text-foreground-secondary">
+                  {downgraded ? "The Google results support this, but I need 1 or 2 sources on the brief before I say build. " : ""}
+                  {plainSerpReason(shown.reason)}
+                </p>
                 <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-meta text-muted-foreground">
                   <span>{shown.contentDomainCount}/10 content</span>
                   {/* B10 (worklist fix batch) - plain labels, not unlabeled counts. */}
@@ -540,7 +563,9 @@ export function NewPageCard({ o, ownDomain, enableAeoBrief = false }: { o: NewPa
         >
           {serpPending ? "Checking Google…" : shown ? "↻ Re-check Google" : "Check live Google results"}
         </button>
-        {aiStatus !== "ok" ? (
+        {/* Wave 3C (3F) - WAIT/SKIP never leads with a draft CTA: hide the "Draft the opening"
+            button when Beacon is not yet ready to build this page. */}
+        {aiStatus !== "ok" && !draftBlockedByVerdict ? (
           <button
             onClick={generate}
             disabled={pending || aiStatus === "pending"}
@@ -556,7 +581,9 @@ export function NewPageCard({ o, ownDomain, enableAeoBrief = false }: { o: NewPa
         ) : aiStatus === "rejected" || aiStatus === "error" ? (
           <span className="text-meta text-muted-foreground">try again later</span>
         ) : null}
-        {o.preparedBrief && (o.briefQuality?.status === "ready" || o.briefQuality?.status === "useful_but_needs_review" || !o.briefQuality) ? (
+        {/* Wave 3C (3F) - WAIT/SKIP never leads with a draft CTA: the full-page draft only offers
+            once Beacon is ready to build (no explicit wait/skip verdict). */}
+        {o.preparedBrief && (o.briefQuality?.status === "ready" || o.briefQuality?.status === "useful_but_needs_review" || !o.briefQuality) && !draftBlockedByVerdict ? (
           <button
             onClick={draftFullPage}
             disabled={fullPagePending || fullPageStatus === "pending" || !hasSources}

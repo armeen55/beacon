@@ -1,8 +1,10 @@
 import type { TodayMove } from "./today-moves-data";
 import type { GscCannibalizationCase } from "@/domains/recommendation-intelligence/gsc-cannibalization";
+import { decisionFromCannibalization, type ChangeDecision } from "@/domains/changes/decide-action";
+import { hasOppositeQualifiers } from "@/domains/recommendations/opposite-qualifier-guard";
 
 /**
- * Pure helpers for the "Recover lost ground" section — no server imports, so they
+ * Pure helpers for the "Recover lost ground" section, no server imports, so they
  * are safely unit-testable. The section component consumes these.
  */
 
@@ -54,8 +56,13 @@ export type CannibalEntry = {
   isLead: boolean;
   /** The best-ranking page's pretty name (the consolidation target). */
   leadPage: string;
-  /** Plain-English consolidation directive (the ACTION, not just the diagnosis). */
+  /** Plain-English consolidation directive (the ACTION, not just the diagnosis). Wave 3C: exactly
+   *  ONE action, never "redirect or internal-link". */
   fix: string;
+  /** Wave 3C - THE single decided action for this case (edit_existing = keep + internal-link;
+   *  prune_redirect = redirect a dead page in). Consumed by decide-action.ts / changes-data.ts so
+   *  the ranked Changes card and this row never disagree. */
+  decision: ChangeDecision;
   /** Paste-ready internal-link snippet a FOLLOWER adds to point at the canonical
    *  lead (null for the lead page itself). The concrete consolidation artifact. */
   linkSnippet: string | null;
@@ -73,6 +80,8 @@ export type CannibalizationCaseRow = {
   /** The query's clicks, summed across all competing own-URLs (split clicks). */
   clicksAtStake: number;
   fix: string;
+  /** Wave 3C - THE single decided action for this case (edit_existing vs prune_redirect). */
+  decision: ChangeDecision;
   /** Paste-ready link a follower adds to point at the canonical lead (or null). */
   linkSnippet: string | null;
 };
@@ -102,20 +111,28 @@ export function buildCannibalizationCaseRows(
     if (others.length === 0) continue;
     const clicksAtStake = c.competingUrls.reduce((s, u) => s + Math.max(0, u.clicks), 0);
     const leadIsHome = /^https?:\/\/[^/]+\/?$/.test(leadUrl);
+    // Wave 3C - the followers' own Google clicks decide HOW to fold them in: keep + internal-link
+    // when they still earn clicks, redirect them when they are dead. One action, never a fork.
+    const followerHasDemand = c.competingUrls.filter((u) => canon(u.url) !== leadKey).reduce((s, u) => s + Math.max(0, u.clicks), 0) > 0;
+    const decision = decisionFromCannibalization({ isLead: true, followerHasDemand, leadIsHome });
     const fix = leadIsHome
-      ? `Your homepage out-ranks your topic pages for "${c.query}" — make one dedicated page the clear answer (stronger title/H1 + depth) and link to it from the homepage.`
-      : `"${leadPage}" is your best-ranking page for "${c.query}" — fold ${others.join(", ")} into it (redirect or internal-link) so they stop splitting its clicks.`;
+      ? `Your homepage out-ranks your topic pages for "${c.query}". Make one dedicated page the clear answer with a stronger title, H1, and more depth, and link to it from the homepage.`
+      : decision === "prune_redirect"
+        ? `"${leadPage}" is your best-ranking page for "${c.query}", so fold ${others.join(", ")} into it with a redirect so they stop splitting its clicks.`
+        : `"${leadPage}" is your best-ranking page for "${c.query}", so fold ${others.join(", ")} into it with one internal link each so they stop splitting its clicks.`;
     const linkSnippet = leadIsHome ? null : `<a href="${leadUrl}">${anchorCase(c.query)}</a>`;
-    rows.push({ query: c.query, leadPage, others, clicksAtStake, fix, linkSnippet });
+    rows.push({ query: c.query, leadPage, others, clicksAtStake, fix, decision, linkSnippet });
   }
   return rows.sort((a, b) => b.clicksAtStake - a.clicksAtStake).slice(0, cap);
 }
 
 /**
- * Index cannibalization cases by each competing own-URL → the cases it's in, each
- * with a CONSOLIDATION DIRECTIVE: if this page is the best-ranking one, absorb the
- * others into it; otherwise point this page at the canonical lead (or differentiate
- * intent). Pure (canon + pretty injected) so it's unit-testable.
+ * Index cannibalization cases by each competing own-URL to the cases it's in, each
+ * with a CONSOLIDATION DIRECTIVE and ONE decided action (Wave 3C): if this page is the
+ * best-ranking one, absorb the others into it (fold with internal links, or a redirect
+ * when the followers are dead); otherwise point this page at the canonical lead with an
+ * internal link, or, for a distinct audience, give it its own clearly different focus.
+ * Pure (canon + pretty injected) so it's unit-testable.
  */
 export function indexCannibalizationByUrl(
   cases: ReadonlyArray<Pick<GscCannibalizationCase, "query" | "competingUrls" | "leadUrl">>,
@@ -133,22 +150,33 @@ export function indexCannibalizationByUrl(
       if (others.length === 0) continue;
       const isLead = key === leadKey;
       // A homepage/root "lead" is a special case: a dedicated topic page should NOT
-      // defer to the homepage (that's backwards) — advise differentiation instead,
-      // and don't emit a link pointing a topic page at the root.
+      // defer to the homepage (that's backwards), so we advise making the topic page the
+      // dedicated answer instead, and never emit a link pointing a topic page at the root.
       const leadIsHome = /^https?:\/\/[^/]+\/?$/.test(c.leadUrl);
+      // Wave 3C - decide ONE action per case (never "internal link, or differentiate").
+      const followerHasDemand = c.competingUrls.filter((x) => canon(x.url) !== leadKey).reduce((s, x) => s + Math.max(0, x.clicks), 0) > 0;
+      // Distinct-audience pages (male/female, boy/girl, ...) are differentiated in place, never
+      // folded together.
+      const oppositeIntent = !isLead && !leadIsHome && hasOppositeQualifiers(cu.url, c.leadUrl);
+      const decision: ChangeDecision = decisionFromCannibalization({ isLead, followerHasDemand, oppositeIntent, leadIsHome });
       let fix: string;
       if (isLead) {
-        fix = `This is your best-ranking page for "${c.query}" — fold ${others.join(", ")} into it (redirect or internal-link) so they stop splitting its clicks.`;
+        fix = decision === "prune_redirect"
+          ? `This is your best-ranking page for "${c.query}", so fold ${others.join(", ")} into it with a redirect so they stop splitting its clicks.`
+          : `This is your best-ranking page for "${c.query}", so fold ${others.join(", ")} into it with one internal link each so they stop splitting its clicks.`;
       } else if (leadIsHome) {
-        fix = `Your homepage is currently out-ranking this page for "${c.query}" — make this the clear, dedicated answer (stronger title/H1 + depth) so it becomes the canonical result, and link to it from the homepage.`;
+        fix = `Your homepage is currently out-ranking this page for "${c.query}". Make this the clear, dedicated answer with a stronger title, H1, and more depth so it becomes the canonical result, and link to it from the homepage.`;
+      } else if (oppositeIntent) {
+        fix = `Give this page a clearly different focus from "${leadPage}" for "${c.query}" so they stop competing.`;
       } else {
-        fix = `Point this page at "${leadPage}" (your best-ranking one for "${c.query}") with an internal link, or differentiate their intent so they stop competing.`;
+        fix = `Point this page at "${leadPage}", your best-ranking one for "${c.query}", with one internal link so they stop competing.`;
       }
-      // Paste-ready internal link the FOLLOWER adds, anchored on the shared topic —
-      // only when the canonical is a real dedicated page (never point at the homepage).
-      const linkSnippet = isLead || leadIsHome ? null : `<a href="${c.leadUrl}">${anchorCase(c.query)}</a>`;
+      // Paste-ready internal link the FOLLOWER adds, anchored on the shared topic, only when the
+      // canonical is a real dedicated page (never point at the homepage) and we are keeping this
+      // page distinct rather than pointing it at the lead.
+      const linkSnippet = isLead || leadIsHome || oppositeIntent ? null : `<a href="${c.leadUrl}">${anchorCase(c.query)}</a>`;
       const arr = out.get(key) ?? [];
-      arr.push({ query: c.query, otherPages: others, isLead, leadPage, fix, linkSnippet });
+      arr.push({ query: c.query, otherPages: others, isLead, leadPage, fix, decision, linkSnippet });
       out.set(key, arr);
     }
   }

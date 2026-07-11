@@ -14,6 +14,7 @@ import {
   changeTypeFamily, effortForFamily, expectedEvidenceStrength, defaultEvidenceStrength, deriveStatus,
   type CanonicalChange, type CanonicalStatus, type ProofSignal,
 } from "./canonical-change";
+import { decideChangeAction } from "./decide-action";
 
 /** Structural subset of a worklist TodayMove the adapter needs (keeps the domain free of app types). */
 export type CanonicalMoveInput = {
@@ -99,6 +100,7 @@ function fromPlanItem(
   const changeType = LEVER_TO_ACTION_TYPE[e.lever];
   const family = changeTypeFamily(changeType);
   const status = deriveStatus({ planItemStatus: itemStatus(plan.execution, e.id), selectedForToday: true });
+  const decision = decideChangeAction({ status, changeType, changeFamily: family, qualityDecision: "approved" }).decision;
   return {
     id: changeId(tenantId, pagePath, family),
     tenantId,
@@ -148,6 +150,7 @@ function fromPlanItem(
     attributionLimited: false,
     qualityDecision: "approved", // plan items already passed the Move-4 quality gate
     qualityNote: null,
+    decision,
     sourceIds: [e.id],
     alternateOpportunities: [],
   };
@@ -205,6 +208,10 @@ function fromMove(tenantId: string, m: CanonicalMoveInput, controlPaths: Set<str
         // hypothesisId shape - never a second, divergent formula - just without the plain-English
         // position clause in the basis sentence (added once the caller supplies a real position).
         computeOpportunityFromGap(opportunityBase, m.ctrOpportunityClicks ?? 0);
+  // Wave 3C - the base decision from this change's own type/family/status. changes-data.ts refines
+  // it with the source move's cannibalization case (which this pure adapter cannot see) before the
+  // list renders.
+  const decision = decideChangeAction({ status, changeType: m.actionType, changeFamily: family, qualityDecision }).decision;
   return {
     id: changeId(tenantId, pagePath, family),
     tenantId,
@@ -278,6 +285,7 @@ function fromMove(tenantId: string, m: CanonicalMoveInput, controlPaths: Set<str
     attributionLimited: m.proofMaturity === "attribution_limited",
     qualityDecision,
     qualityNote,
+    decision,
     sourceIds: [m.id],
     alternateOpportunities: m.alternateOpportunities ?? [],
   };

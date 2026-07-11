@@ -113,8 +113,14 @@ const TYPE_SCALE_PINNED = new Set([
 // and every surviving inline strip in page.tsx (daily counter, Monday bands, count tiles,
 // skeletons) was migrated to tokens. page.tsx dropped from 56 raw-palette classes to 0. Measured
 // live total under src/app/(shell) after the migration: 1241.
+// Wave 3C (2026-07-10, merged alongside 3B) migrated the "Today" pill in changes-list-client.tsx
+// off its raw indigo classes (border-indigo-200 bg-indigo-100 text-indigo-700) onto the
+// token-based Pill "measuring" intent, and the whole Wave 3C decision-queue markup (decision
+// pill, risk/evidence/impact fields, outranks line, archive expander) is token-only.
+// The 3B and 3C migrations landed on disjoint files, so their reductions stack: integrating both
+// on top of the pre-wave-3 baseline of 1298 measured a live total under src/app/(shell) of 1238.
 // This number may ONLY go down from here.
-const RAW_PALETTE_BASELINE = 1241;
+const RAW_PALETTE_BASELINE = 1238;
 
 function walkSourceFiles(dir: string, out: string[] = []): string[] {
   for (const name of readdirSync(dir)) {
