@@ -10,6 +10,7 @@ import { itemStatus, LEVER_TO_ACTION_TYPE } from "@/domains/experiments/executio
 import { wixInstructions } from "@/domains/experiments/execution-checklist";
 import { internalLinkRelevance } from "@/domains/evidence/relevance-gate";
 import { computeOpportunity, computeOpportunityFromGap, type OpportunityForecast } from "@/domains/forecast/opportunity-math";
+import { computeSiblingCtrBasis, SIBLING_MIN_IMPRESSIONS_28D, type SiblingPageStat } from "@/domains/forecast/sibling-ctr-basis";
 import {
   changeTypeFamily, effortForFamily, expectedEvidenceStrength, defaultEvidenceStrength, deriveStatus,
   type CanonicalChange, type CanonicalStatus, type ProofSignal,
@@ -157,8 +158,31 @@ function fromPlanItem(
   };
 }
 
+/** G8 (Wave 4, 2026-07-11) - the tenant's own sibling pool for sibling-ctr-basis.ts, built ONCE
+ *  per buildCanonicalChanges call from the SAME moves this adapter already has (each move's own
+ *  top query already carries position/impressions/clicks - no new GSC read). Scoped to exactly
+ *  the one tenant this call is for (buildCanonicalChanges takes one tenantId), so a sibling can
+ *  never cross a tenant boundary. Moves with no real position/impressions signal contribute
+ *  nothing (never a fabricated sibling). */
+function buildSiblingPool(moves: readonly CanonicalMoveInput[]): SiblingPageStat[] {
+  const pool: SiblingPageStat[] = [];
+  for (const m of moves) {
+    if (m.topQueryPosition == null || !Number.isFinite(m.topQueryPosition)) continue;
+    const impressions90d = m.topQueryImpressions90d ?? 0;
+    if (!Number.isFinite(impressions90d) || impressions90d <= 0) continue;
+    const clicks = Math.max(0, m.topQueryClicks90d ?? 0);
+    pool.push({
+      page: normalizePath(m.targetUrl),
+      position: m.topQueryPosition,
+      ctr: clicks / impressions90d,
+      impressions28d: impressions90d / 3,
+    });
+  }
+  return pool;
+}
+
 /** A ranked worklist move → CanonicalChange. */
-function fromMove(tenantId: string, m: CanonicalMoveInput, controlPaths: Set<string>): CanonicalChange {
+function fromMove(tenantId: string, m: CanonicalMoveInput, controlPaths: Set<string>, siblingPool: readonly SiblingPageStat[]): CanonicalChange {
   const pagePath = normalizePath(m.targetUrl);
   const family = changeTypeFamily(m.actionType);
   const isControl = controlPaths.has(pagePath);
@@ -223,6 +247,44 @@ function fromMove(tenantId: string, m: CanonicalMoveInput, controlPaths: Set<str
         // hypothesisId shape - never a second, divergent formula - just without the plain-English
         // position clause in the basis sentence (added once the caller supplies a real position).
         computeOpportunityFromGap(opportunityBase, m.ctrOpportunityClicks ?? 0);
+  // G8 (Wave 4, 2026-07-11) - honest impact ranges on THIN history. opportunity-math.ts's own
+  // forecast only ever compares THIS page against the industry-default CTR curve; when that
+  // comparison abstains, the tenant's OWN sibling pages at a comparable position may still give a
+  // defensible basis it cannot see. Attempted ONLY for the exact class of row the pilot found the
+  // gap on: a clicks-tone move, a real position/impressions signal, unsized by opportunity-math,
+  // and material impressions (the SAME floor sibling-ctr-basis.ts applies to siblings, so the
+  // evidence gating this claim is never thinner than the evidence backing it). DISPLAY ONLY - see
+  // canonical-change.ts's siblingBasis doc: never touches impactScore/upside/expectedOutcomeLow,
+  // so ranking is byte-identical to before this gate existed.
+  let siblingBasis: string | null = null;
+  let siblingLowPerMonth: number | null = null;
+  let siblingHighPerMonth: number | null = null;
+  if (
+    opportunity.lowPerMonth == null &&
+    m.actionTone === "clicks" &&
+    m.topQueryPosition != null &&
+    Number.isFinite(m.topQueryPosition) &&
+    m.topQueryImpressions90d != null &&
+    Number.isFinite(m.topQueryImpressions90d) &&
+    m.topQueryImpressions90d > 0
+  ) {
+    const ownImpressions28d = m.topQueryImpressions90d / 3;
+    if (ownImpressions28d >= SIBLING_MIN_IMPRESSIONS_28D) {
+      const ownCtr = Math.max(0, m.topQueryClicks90d ?? 0) / m.topQueryImpressions90d;
+      const sibling = computeSiblingCtrBasis({
+        ownPage: pagePath,
+        ownPosition: m.topQueryPosition,
+        ownCtr,
+        ownImpressions28d,
+        siblings: siblingPool,
+      });
+      if (sibling) {
+        siblingBasis = sibling.basis;
+        siblingLowPerMonth = sibling.lowPerMonth;
+        siblingHighPerMonth = sibling.highPerMonth;
+      }
+    }
+  }
   // Wave 3C - the base decision from this change's own type/family/status. changes-data.ts refines
   // it with the source move's cannibalization case (which this pure adapter cannot see) before the
   // list renders.
@@ -303,6 +365,9 @@ function fromMove(tenantId: string, m: CanonicalMoveInput, controlPaths: Set<str
     decision,
     sourceIds: [m.id],
     alternateOpportunities: m.alternateOpportunities ?? [],
+    siblingBasis,
+    siblingLowPerMonth,
+    siblingHighPerMonth,
   };
 }
 
@@ -318,6 +383,9 @@ export function buildCanonicalChanges(input: {
 }): CanonicalChange[] {
   const controlPaths = new Set(input.reservations.filter((r) => r.status === "reserved" || r.status === "active").map((r) => normalizePath(r.controlPath)));
   const byId = new Map<string, CanonicalChange>();
+  // G8 - this tenant's own sibling pool (see buildSiblingPool's doc): built once from the SAME
+  // moves this one call already has, so a sibling can never cross the tenantId this call is for.
+  const siblingPool = buildSiblingPool(input.moves);
 
   // Plan items first: they own their page+lever identity (today's selection / execution truth).
   if (input.plan) {
@@ -328,7 +396,7 @@ export function buildCanonicalChanges(input: {
   }
   // Moves next: collapse onto an existing id when present (keep the most-advanced lifecycle).
   for (const m of input.moves) {
-    const c = fromMove(input.tenantId, m, controlPaths);
+    const c = fromMove(input.tenantId, m, controlPaths, siblingPool);
     const prev = byId.get(c.id);
     if (!prev) { byId.set(c.id, c); continue; }
     if (STATUS_RANK[c.status] > STATUS_RANK[prev.status]) {

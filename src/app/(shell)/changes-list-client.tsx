@@ -338,6 +338,9 @@ function RowDetailContent({
       {c.before != null && <div className="break-words text-meta"><span className="text-muted-foreground">Current: </span>{c.before || "(none)"}</div>}
       {c.after != null && <div className="break-words text-meta"><span className="text-muted-foreground">Proposed: </span><strong>{c.after}</strong></div>}
       {c.exactInstructions && <pre className="mt-2 whitespace-pre-wrap break-words rounded-md bg-surface-raised p-2 text-meta font-mono text-foreground-secondary">{c.exactInstructions}</pre>}
+      {/* G8 (Wave 4, 2026-07-11) - the same transparent sibling-CTR basis line, so the detail view
+          never says less than the collapsed card about a defensible range sized from siblings. */}
+      {c.siblingBasis && <div className="mt-2 text-meta text-foreground-secondary">{c.siblingBasis}</div>}
       <div className="mt-2 text-meta text-muted-foreground">{c.measurementMethod}{c.selectedForToday ? " · selected for today - apply it in the “Today’s changes” panel above" : ""}</div>
     </div>
   );
@@ -532,9 +535,18 @@ function Row({
                 mislabeled "shown on Google/mo" which read as impressions and contradicted the
                 adjacent "usually adds X clicks a month" basis. Label it as forecast clicks. */}
             {fmt(c.upside) ? <span className="text-status-info" title={`about ${formatMetric(c.upside)} extra clicks a month if this wins`}>~{fmt(c.upside)} clicks/mo upside</span> : null}
+            {/* G8 (Wave 4, 2026-07-11) - honest impact ranges on THIN history. Only shown when the
+                primary opportunity-math forecast abstained (c.upside is absent) AND the tenant's
+                own sibling pages sized a defensible range instead (sibling-ctr-basis.ts). Never a
+                ranking input - see canonical-change.ts's siblingBasis doc. */}
+            {!fmt(c.upside) && c.siblingLowPerMonth != null && c.siblingHighPerMonth != null ? (
+              <span className="text-status-info" title="Sized from your own pages at similar Google positions, not this page's own click history yet">
+                ~{c.siblingLowPerMonth.toLocaleString("en-US")} to {c.siblingHighPerMonth.toLocaleString("en-US")} clicks/mo upside
+              </span>
+            ) : null}
             {/* Wave 3C - impact range with an HONEST fallback (field 5): when there is neither a
                 sized forecast nor an upside number, say so plainly instead of showing nothing. */}
-            {!isMeasure && !fmt(c.upside) && !c.expectedOutcome ? <span title="I need more search history on this page to forecast the gain">not enough history to size this yet</span> : null}
+            {!isMeasure && !fmt(c.upside) && !c.expectedOutcome && c.siblingLowPerMonth == null ? <span title="I need more search history on this page to forecast the gain">not enough history to size this yet</span> : null}
             {/* Wave 3C - evidence strength (field 6) + risk (field 7), both plain and self-hiding on
                 measuring/settled rows (which speak in outcome language). */}
             {!isMeasure ? <span title="How confident I am that this will move the number">{EVIDENCE_LABEL[c.evidenceStrength]}</span> : null}
@@ -555,6 +567,14 @@ function Row({
               no concrete sentence to stand on, so a card never shows a hand-wavy claim. */}
           {evidenceSentence ? (
             <p className="mt-0.5 text-meta text-foreground-secondary">{evidenceSentence}</p>
+          ) : null}
+          {/* G8 (Wave 4, 2026-07-11) - the transparent sibling-CTR basis line, additional to
+              (never replacing) the evidence sentence above: opportunity-math's own abstention
+              still names its own honest reason there, and this names the SEPARATE, defensible
+              comparison against the tenant's own sibling pages, with real numbers, whenever one
+              exists. Covers both the sized range and the honest "already ahead" case. */}
+          {!isMeasure && c.siblingBasis ? (
+            <p className="mt-0.5 text-meta text-foreground-secondary">{c.siblingBasis}</p>
           ) : null}
           {/* Wave 3C (3D) - why this ranks above the next idea (field 9). Omitted on the last
               visible card (outranksLine is null there) and on measuring/settled rows. */}

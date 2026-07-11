@@ -325,3 +325,125 @@ describe("strategy ranking + goal filters", () => {
     expect(counts.todo).toBeGreaterThanOrEqual(1); // blocked + suggested live in To do
   });
 });
+
+/**
+ * G8 (Wave 4, 2026-07-11) - honest impact ranges on THIN history, end to end through
+ * buildCanonicalChanges. The singers-shaped fixture: /famous-iranian-singers ranks position 24
+ * (deep tail, industry-default expected CTR 0.6 percent) earning 0.76 percent CTR on 4,765
+ * monthly impressions - opportunity-math.ts's own industry-curve comparison sees NO gap (0.76 >
+ * 0.6) and abstains ("already earns close to what its position typically gets"). But 5 of the
+ * tenant's OWN sibling list pages, ranking within +/-3 positions, earn 2.0 to 5.9 percent CTR -
+ * sibling-ctr-basis.ts's own conservative (p25-to-median) band sizes a defensible +85 to +200
+ * clicks/mo range from that, without touching the primary abstention or any ranking field.
+ */
+function siblingMove(id: string, position: number, ctr28d: number, impressions28d: number): CanonicalMoveInput {
+  const impressions90d = impressions28d * 3;
+  return mv({
+    id,
+    targetUrl: `https://s.com${id}`,
+    actionType: "edit_meta",
+    actionTone: "clicks",
+    topQueryPosition: position,
+    topQueryImpressions90d: impressions90d,
+    topQueryClicks90d: ctr28d * impressions90d,
+  });
+}
+const SINGERS_SIBLINGS: CanonicalMoveInput[] = [
+  siblingMove("/famous-iranian-actors", 22, 0.02, 700),
+  siblingMove("/famous-iranian-poets", 23, 0.025, 900),
+  siblingMove("/famous-iranian-athletes", 24, 0.05, 1100),
+  siblingMove("/famous-iranian-scientists", 25, 0.055, 1300),
+  siblingMove("/famous-iranian-directors", 27, 0.059, 1500),
+];
+function singersTarget(over: Partial<CanonicalMoveInput> = {}): CanonicalMoveInput {
+  return mv({
+    id: "singers",
+    targetUrl: "https://s.com/famous-iranian-singers",
+    actionType: "edit_title",
+    actionTone: "clicks",
+    score: 300,
+    demand: 4765,
+    topQueryPosition: 24,
+    topQueryImpressions90d: 4765 * 3,
+    topQueryClicks90d: 0.0076 * 4765 * 3,
+    ...over,
+  });
+}
+
+describe("G8: sibling-ctr-basis wiring (build-canonical-changes)", () => {
+  it("the primary forecast genuinely abstains for the singers fixture (sanity check on the premise)", () => {
+    const changes = buildCanonicalChanges({ tenantId: "t", plan: null, reservations: [], moves: [singersTarget()] });
+    const singers = changes.find((c) => c.id.includes("famous-iranian-singers"))!;
+    expect(singers.expectedOutcomeLow).toBeNull();
+    expect(singers.upside).toBeNull();
+    expect(singers.expectedOutcome).toContain("already earns close to what its position typically gets");
+  });
+
+  it("sizes a sibling-based range in the +85 to +200 clicks/mo ballpark, with the transparent basis line", () => {
+    const changes = buildCanonicalChanges({
+      tenantId: "t", plan: null, reservations: [],
+      moves: [singersTarget(), ...SINGERS_SIBLINGS],
+    });
+    const singers = changes.find((c) => c.id.includes("famous-iranian-singers"))!;
+    expect(singers.siblingLowPerMonth).toBe(85);
+    expect(singers.siblingHighPerMonth).toBe(200);
+    expect(singers.siblingBasis).toContain("Based on your own pages at similar positions");
+    expect(singers.siblingBasis).toContain("2.5 to 5 percent of views as clicks");
+    expect(singers.siblingBasis).toContain("this page earns 0.8 percent on 4,765 views a month");
+    expect(singers.siblingBasis).not.toMatch(/[\u2013\u2014]/);
+  });
+
+  it("never touches the primary opportunity fields or ranking math - display + decision support only", () => {
+    const changes = buildCanonicalChanges({
+      tenantId: "t", plan: null, reservations: [],
+      moves: [singersTarget(), ...SINGERS_SIBLINGS],
+    });
+    const singers = changes.find((c) => c.id.includes("famous-iranian-singers"))!;
+    // Still abstains on the PRIMARY forecast (opportunity-math never sees siblings) - the
+    // ranking-linked fields (expectedOutcomeLow/upside/impactScore) are byte-identical to the
+    // no-siblings case above.
+    expect(singers.expectedOutcomeLow).toBeNull();
+    expect(singers.upside).toBeNull();
+    expect(singers.impactScore).toBe(300); // m.score, untouched by the sibling gate
+  });
+
+  it("fewer than 3 qualifying siblings -> siblingBasis stays null, abstention completely unchanged", () => {
+    const changes = buildCanonicalChanges({
+      tenantId: "t", plan: null, reservations: [],
+      moves: [singersTarget(), ...SINGERS_SIBLINGS.slice(0, 2)],
+    });
+    const singers = changes.find((c) => c.id.includes("famous-iranian-singers"))!;
+    expect(singers.siblingBasis).toBeNull();
+    expect(singers.siblingLowPerMonth).toBeNull();
+    expect(singers.siblingHighPerMonth).toBeNull();
+    expect(singers.expectedOutcome).toContain("already earns close to what its position typically gets");
+  });
+
+  it("a page already ahead of its own siblings gets no negative promise - honest 'already ahead' text", () => {
+    const changes = buildCanonicalChanges({
+      tenantId: "t", plan: null, reservations: [],
+      moves: [singersTarget({ id: "singers-ahead", targetUrl: "https://s.com/famous-iranian-singers-ahead", topQueryClicks90d: 0.06 * 4765 * 3 }), ...SINGERS_SIBLINGS],
+    });
+    const c = changes.find((x) => x.id.includes("famous-iranian-singers-ahead"))!;
+    expect(c.siblingLowPerMonth).toBeNull();
+    expect(c.siblingHighPerMonth).toBeNull();
+    expect(c.siblingBasis).toContain("already ahead of similar pages");
+  });
+
+  it("two-tenant isolation: a tenant's sibling pool never crosses into another tenant's computation", () => {
+    // Tenant "poor" has only the target (no rich siblings of its own) - even though a
+    // structurally identical "rich" tenant exists elsewhere, each buildCanonicalChanges call is
+    // scoped to exactly one tenantId's own moves, so "poor" must still abstain.
+    const poorChanges = buildCanonicalChanges({ tenantId: "poor", plan: null, reservations: [], moves: [singersTarget()] });
+    const richChanges = buildCanonicalChanges({
+      tenantId: "rich", plan: null, reservations: [],
+      moves: [singersTarget(), ...SINGERS_SIBLINGS],
+    });
+    const poorSingers = poorChanges.find((c) => c.id.includes("famous-iranian-singers"))!;
+    const richSingers = richChanges.find((c) => c.id.includes("famous-iranian-singers"))!;
+    expect(poorSingers.siblingBasis).toBeNull();
+    expect(richSingers.siblingBasis).not.toBeNull();
+    expect(richSingers.tenantId).toBe("rich");
+    expect(poorSingers.tenantId).toBe("poor");
+  });
+});

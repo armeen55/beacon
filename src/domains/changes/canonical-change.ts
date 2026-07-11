@@ -136,6 +136,22 @@ export type CanonicalChange = {
   /** N46 - present only when freshness is "aging": the quiet chip sentence ("evidence from 3
    *  weeks ago"). Absent otherwise. */
   agingChip?: string | null;
+  /** G8 (Wave 4, 2026-07-11) - honest impact ranges on THIN history. Present exactly when
+   *  opportunity-math.ts's own forecast was unsized (`expectedOutcomeLow` null) for a clicks-tone
+   *  move BUT the tenant's own sibling pages at a comparable Google position provide a defensible
+   *  CTR band (sibling-ctr-basis.ts: >=3 qualifying siblings). The plain-English comparison line
+   *  ("Based on your own pages at similar positions..."), Beacon voice, always names real numbers.
+   *  Also covers the honest "already ahead of similar pages" case (siblingLowPerMonth/High null
+   *  but this still set) - never silent, never a negative promise. DISPLAY + DECISION SUPPORT
+   *  ONLY: impactScore, demoteUnsized, strategy.ts's ranking, and the biggest-upside goal filter
+   *  never read this field or its numeric twins below - see sibling-ctr-basis.ts's module doc for
+   *  why. Null whenever no defensible sibling pattern exists - the existing expectedOutcome
+   *  abstention stands, completely unchanged. */
+  siblingBasis?: string | null;
+  /** G8 - numeric twins of siblingBasis's range, present exactly when siblingBasis names a sized
+   *  range (null in the "already ahead" case, where siblingBasis is set but there is no range). */
+  siblingLowPerMonth?: number | null;
+  siblingHighPerMonth?: number | null;
 };
 
 /**
