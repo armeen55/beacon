@@ -34999,3 +34999,64 @@ implied to have happened.
 VERIFIED: full hermetic gate GREEN at the branch tip 62e83046 (fullgateW2.log
 in the session scratchpad): typecheck exit 0, test exit 0 (22390 passed, 0
 failed), build exit 0.
+
+## 2026-07-10 - Wave 3B/3C/drafter last-mile (commits 08d8f4be, ebf5aad5, 24ea752d, merged dfeb33ef)
+
+Today is rebuilt around one command card: 4 kinds (the deterministic
+candidates), picked by a fixed priority order, with a 6-slot hierarchy
+underneath it for everything else. Kills executed in the same pass: the
+smoke card, the lead card, the opportunities card, "no action required" as
+its own standalone state, the cockpit duplicate of the command card, and
+non-local-timezone dates (every date on Today now renders in the tenant's
+local timezone instead of UTC).
+
+Changes is rebuilt around one decision per card: a 6-action enum replaces the
+prior open-ended status set, each card carries a 10-field summary, WAIT never
+produces a draft, BUILD is gated behind its prerequisites, and items that
+passed AI validation are relabeled instead of sitting in an ambiguous state.
+
+The drafter last-mile pilot (G4-G7): superlative claims must be grounded in a
+source before they render, an honest needs_source_check state replaces
+silently dropping an ungrounded claim, roundup coverage now reads full text
+instead of excerpts only, and a tenant allowlist gates which tenants the
+pilot runs for.
+
+Net effect on the design ratchet token count: 1298 to 1238.
+
+## 2026-07-10 - Adversarial review, Wave 3 plus the Wave 2 surfaces (per operator instruction)
+
+An adversarial review pass covered Wave 3 and, per operator instruction,
+revisited the Wave 2 surfaces alongside it. Findings: 1 P1 (a flagged item
+could become the Today command card while it was still archived on Changes,
+a state-integrity gap between the two surfaces) plus 8 P2s. All 9 are fixed
+in 3586c3dd. The review confirmed threshold behavior, decision integrity on
+Changes, drafter trust behavior, and that the Wave 2 reconciliation edge
+cases remain honest under the new Wave 3 surfaces.
+
+## 2026-07-10 - Architect browser audit on the rendered app (real Iranopedia data, desktop and mobile, screenshots)
+
+A rendered-app audit against real tenant-iranopedia data, both desktop and
+mobile, with screenshots at each step. The intended transformation was
+verified live: one command card built from real data, one canonical count
+and date shown everywhere on the page (no more disagreeing numbers), honest
+freshness copy including the AI-through-Jun-26 caveat, and a visibly more
+compact page.
+
+5 P1s were found and fixed: the top 3-5 default was actually rendering 26
+cards; 5 separate "START HERE" labels appeared at once; a degenerate
+outranks line; a self-test copy contradiction; and a celebratory greeting
+shown on a day with real problems outstanding. Post-fix re-audit verified
+live: 5 cards, exactly 1 "Start here", an honest self-test line, a neutral
+greeting, and the accent-button CTA in place.
+
+## 2026-07-10 - Honest self-test correction (important truth item)
+
+The self-test false-positive rate is genuinely 0.925 (sample size 40) for
+tenant-iranopedia. This is not a measurement artifact or a bug: the surface
+copy now states the rate honestly instead of hiding or rounding it away, and
+frames early signals as directional rather than conclusive given that rate.
+Tightening the verdict floors so this rate comes down is queued as proof-model
+work, not fixed in this wave.
+
+VERIFIED: full hermetic gate GREEN at the branch tip 3586c3dd (fullgateW3.log):
+typecheck exit 0, test exit 0 (22672 passed, 0 failed), build exit 0.

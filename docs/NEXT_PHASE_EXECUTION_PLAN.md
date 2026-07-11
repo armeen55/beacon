@@ -31,15 +31,36 @@ Wave-2 adversarial pass.
 5. **Single-flight lock on the ledger rebuild. DONE (a9023bfa, pinned by 147382ed).**
 6. **Scoreboard fresh-tail GSC live read to after(). DONE (a9023bfa).**
 
-## Wave 3 - queued 2026-07-10, 3 lanes (scope pending architect confirmation)
+## Wave 3 - DONE pending deploy confirmation (2026-07-10)
 
-Lane worktree `w3-lane-a` is provisioned at the Wave 2 tip; lanes B and C are not yet provisioned.
-This environment could not locate a saved Wave 3 lane spec in the repo (docs, worktrees, or the
-Claude plans directory); noting that honestly rather than inventing lane content. Before starting,
-confirm the 3-lane breakdown with the architect. Candidate scope to fold in once confirmed: the
-parity-matrix ranked fixes below are a reasonable starting point for lane assignment (freshness:
-cron reliability + stale-crawl trigger; signal quality: dismissal-reason capture + emitter
-consolidation; surface: insertion anchor + winners strip).
+All 3 lanes shipped and merged, plus a combined audit-fix batch. Lane A (canonical selectors) is
+already on origin/main at 996e8ee5. Lane B (Today mission control) and Lane C (Changes decision
+queue), plus the drafter last-mile pilot (G4-G7), landed in commits 08d8f4be, ebf5aad5, 24ea752d,
+merged at dfeb33ef; the combined audit-fix batch (adversarial review P1/P2 fixes plus the
+architect browser-audit P1 fixes) landed at 3586c3dd. See the 2026-07-10 Wave 3 entries in
+VERIFICATION_LOG.md and the head-state banner in HANDOFF_VERIFIED_STATE.md for full detail. Full
+hermetic gate GREEN at 3586c3dd (fullgateW3.log: typecheck exit 0, test exit 0, 22672 passed / 0
+failed, build exit 0). Deploy confirmation to Vercel production is pending; unconfirmed from this
+environment.
+
+## Queue, ranked (2026-07-10, post-Wave-3)
+
+1. **Refresh-reliability wave (#238).** Fix the precompute tenant-guard that is skipping
+   iranopedia on 6 of its last 10 runs, close the ritz auth-failure escalation gap, add a
+   per-source refresh ledger, and converge the manual and cron refresh paths so they agree on
+   state.
+2. **Verdict-floor tightening.** The self-test false-positive rate is genuinely 0.925 (sample
+   size 40); target under 5 percent.
+3. **56-84d confidence tier slice.** Build the confirmation tier that E-39's D6 already reserved
+   space for.
+4. **Pilot re-run through the product plus parity matrix update.** Re-run the pilot through the
+   shipped product and update the parity matrix against the result.
+5. **Second-tenant workflow proof.** Prove the same workflow end to end on a second tenant, not
+   tenant-iranopedia alone.
+6. **Sibling SWR stores ambient-tenant check.** Extend the Task #230 tenant-isolation fix to the
+   worklist and Today surface stores.
+7. **Remaining pre-existing dash sweep.** Includes the operator-visible string in
+   build-canonical-changes.ts.
 
 ## Wave 4 pilot - queued 2026-07-10: /famous-iranian-singers
 

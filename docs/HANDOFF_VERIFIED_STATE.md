@@ -1,4 +1,20 @@
-> 🟢 **(2026-07-10 HEAD STATE) - ORIGIN/MAIN WILL BE 62e83046 AFTER THIS PUSH (Wave 2 = W2A true
+> 🟢 **(2026-07-10 latest) - HEAD STATE: ORIGIN/MAIN WILL BE THIS DOCS TIP AFTER THIS PUSH (Wave 3
+> = Lane A canonical selectors, already on main at 996e8ee5, plus Lane B Today mission control,
+> Lane C Changes decision queue, the drafter last-mile pilot G4-G7, and the combined audit-fix
+> batch at 3586c3dd).** E-39 (adaptive control pools), Wave 1 (P0-A north-star truth removal, P0-B
+> paid-free bounded GETs), and Wave 2 (GA4 sitewide series plus the Results/Changes rearchitecture)
+> were pushed earlier and are recorded in the entries below; deployment of those pushed SHAs to
+> Vercel production remains unconfirmed from this environment, and the same caveat applies to this
+> push.
+>
+> Full hermetic gate GREEN at this tip (fullgateW3.log): typecheck exit 0, test exit 0 (22672
+> passed, 0 failed), build exit 0. Full detail on Wave 3B/3C/drafter, the adversarial review, and
+> the architect browser audit is in the 2026-07-10 entries of VERIFICATION_LOG.md. NEXT:
+> (1) confirm the Vercel production build for this tip in the dashboard (unconfirmed from this
+> environment); (2) work the queue in NEXT_PHASE_EXECUTION_PLAN.md, starting with the
+> refresh-reliability wave.
+>
+> 🟢 **(2026-07-10) - ORIGIN/MAIN WAS 62e83046 AFTER THAT PUSH (Wave 2 = W2A true
 > sitewide GA4 series + W2B Results/Changes rearchitecture + the Wave 2 finisher).** E-39 (adaptive
 > control pools) and Wave 1 (P0-A north star truth removal, P0-B paid-free bounded GETs, the Wave-1
 > review fix) are PUSHED and confirmed on origin/main at 4b10fe27; deployment to Vercel is
