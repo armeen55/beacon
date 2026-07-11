@@ -35168,3 +35168,14 @@ blocked-source honesty WORKING LIVE, G6 roundup coverage WORKING LIVE, G7 allowl
 LIVE (prod-applied); PARTIAL with named follow-ups: G3 teardown render, G8 impact-math
 abstention on thin history, G9 discarded-alternatives argument. The drafter now takes a real
 opportunity from its own ranked queue to a drafted, gate-checked answer on attempt 1.
+
+## 2026-07-11 G3 winners panel (ecaa2836)
+
+The deduped Google+AI winner analysis the product always computed now renders in the /changes
+detail view. Pure projection over persisted evidence (fuseTeardownTargets ranking + teardown
+signals + collected dates), cap 5, overlap badge (Google AND AI pick this one), plain words,
+honest absence state wired to the existing compare action, never on the slim board payload. 16
+pins. Gate 22809 passed 0 failed.
+
+G3 moves from PARTIAL to WORKING. Next in the workflow parity queue: G8 (impact math abstention
+on thin history), then G9 (discarded alternatives argument).

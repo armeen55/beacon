@@ -1,4 +1,21 @@
-> 🟢 **(2026-07-11 latest) - HEAD STATE: ORIGIN/MAIN WILL BE THIS DOCS TIP AFTER THIS PUSH (drafter
+> 🟢 **(2026-07-11 latest) - HEAD STATE: ORIGIN/MAIN WILL BE THIS DOCS TIP AFTER THIS PUSH (G3
+> winners panel: the deduped Google+AI winner analysis renders on /changes detail, commit
+> ecaa2836 rebased onto 480df5df).** Deployment of the pushed SHA to Vercel production is
+> unconfirmed from this environment.
+>
+> Full hermetic gate GREEN at this tip (fullgateG3.log: test exit 0 - 22809 tests passed, 0
+> failed). See the 2026-07-11 "G3 winners panel" entry in VERIFICATION_LOG.md for full detail: the
+> deduped Google+AI winner analysis the product always computed (fuseTeardownTargets ranking plus
+> teardown signals and collected dates) now renders in the /changes detail view - cap 5, an
+> overlap badge when Google and AI pick the same target, plain words, an honest absence state,
+> wired to the existing compare action. Pure projection over persisted evidence; never added to
+> the slim board payload. 16 pins. G3 moves from PARTIAL to WORKING on the Wave 4 workflow-parity
+> scorecard. NEXT: G8 (impact math abstention on thin history), then G9 (discarded alternatives
+> argument); confirm the Vercel production build for this tip in the dashboard (unconfirmed from
+> this environment); authenticated both-tenant smoke is OPERATOR-BLOCKED (no smoke credentials
+> available to the agent).
+>
+> 🟢 **(2026-07-11) - HEAD STATE: ORIGIN/MAIN WILL BE THIS DOCS TIP AFTER THIS PUSH (drafter
 > batch 2: generation-time invented-numbers firewall scans prose only, WAVE 4 CLOSES, commit
 > a5e2705a rebased onto 80796ea3).** Deployment of the pushed SHA to Vercel production is
 > unconfirmed from this environment.

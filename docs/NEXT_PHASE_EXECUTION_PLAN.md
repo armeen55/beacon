@@ -1,5 +1,18 @@
 # Beacon Execution Plan
 
+## G3 winners panel (ecaa2836) - DONE pending deploy confirmation (2026-07-11)
+
+The deduped Google+AI winner analysis the product always computed (fuseTeardownTargets ranking
+plus teardown signals and collected dates) now renders in the /changes detail view: cap 5, an
+overlap badge when Google and AI pick the same target, plain words, an honest absence state,
+wired to the existing compare action. Pure projection over persisted evidence, never added to
+the slim board payload. 16 pins. See the 2026-07-11 "G3 winners panel" entry in
+VERIFICATION_LOG.md for full detail. Full hermetic gate GREEN at ecaa2836 (fullgateG3.log: 22809
+passed / 0 failed). Deploy confirmation to Vercel production is pending; unconfirmed from this
+environment. G3 moves from PARTIAL to WORKING. NEXT: G8 (impact math abstention on thin
+history), then G9 (discarded alternatives argument); authenticated both-tenant smoke remains
+OPERATOR-BLOCKED (no smoke credentials available to the agent).
+
 ## Drafter batch 2 (a5e2705a) - WAVE 4 CLOSES, DONE pending deploy confirmation (2026-07-11)
 
 Drafter batch 2, rebased onto the hygiene batch tip 80796ea3 (single commit a5e2705a). The
@@ -16,13 +29,17 @@ deterministic pin. Full hermetic gate GREEN at the rebased tip (fullgateDB2.log)
 **WAVE 4 CLOSES.** The workflow-parity loop ran six product iterations end to end. Final
 scorecard: G1 ranking WORKING LIVE, G2 trap detection WORKING (hygiene batch), G4 superlatives
 WORKING, G5 blocked-source honesty WORKING LIVE, G6 roundup coverage WORKING LIVE, G7 allowlist
-WORKING LIVE (prod-applied). PARTIAL with named follow-ups: G3 teardown render, G8 impact-math
-abstention on thin history, G9 discarded-alternatives argument. The drafter now takes a real
-opportunity from its own ranked queue to a drafted, gate-checked answer on attempt 1. The
+WORKING LIVE (prod-applied). PARTIAL with named follow-ups (at the time): G3 teardown render, G8
+impact-math abstention on thin history, G9 discarded-alternatives argument. The drafter now takes
+a real opportunity from its own ranked queue to a drafted, gate-checked answer on attempt 1. The
 proof-model floor plus 56 to 84 day tier decision list remains AWAITING OPERATOR SIGN-OFF
 (unchanged by this batch). Deploy confirmation to Vercel production is pending; unconfirmed from
 this environment. NEXT: confirm the Vercel production build for this tip in the dashboard;
 authenticated both-tenant smoke is OPERATOR-BLOCKED (no smoke credentials available to the agent).
+
+**UPDATE 2026-07-11 (ecaa2836):** G3 is now WORKING (see the "G3 winners panel" section above).
+Remaining PARTIAL: G8 impact-math abstention on thin history (next), then G9
+discarded-alternatives argument.
 
 ## Hygiene batch - DONE pending deploy confirmation (2026-07-11)
 
@@ -165,26 +182,34 @@ Two filed residuals carried out of this cycle:
    downstream (persisted) gate but never the generation-time check. Queued as the FIRST item of
    the next drafter batch, below.
 
-## Queue, ranked (2026-07-11, post-drafter-batch-2, Wave 4 closed)
+## Queue, ranked (2026-07-11, post-G3-winners-panel)
 
-1. **Drafter batch 2: generation-time firewall prose scope. DONE (a5e2705a).** The
+1. **G8: impact-math abstention on thin history. NEXT.** Named follow-up from the Wave 4
+   workflow-parity scorecard: the drafter's impact-math argument should abstain honestly when the
+   underlying history is too thin to support a number, instead of asserting one.
+2. **G9: discarded-alternatives argument.** Named follow-up from the Wave 4 workflow-parity
+   scorecard, queued after G8: the drafter should be able to argue why alternative targets were
+   discarded, not just why the chosen one was picked.
+3. **G3 winners panel: deduped Google+AI winner render on /changes detail. DONE (ecaa2836).** See
+   the "G3 winners panel" section above and the matching VERIFICATION_LOG.md entry.
+4. **Drafter batch 2: generation-time firewall prose scope. DONE (a5e2705a).** The
    generation-time invented-numbers firewall no longer scans the draft's own
    proofPlan/operatorSteps/risks methodology text (draftProseStringValues' skip-list extended
    alongside sources; evidenceRefs.detail stays scanned). Proven live and by deterministic pin.
    See the "Drafter batch 2" section above and the matching VERIFICATION_LOG.md entry.
-2. **Verdict-floor tightening.** The self-test false-positive rate is genuinely 0.925 (sample
+5. **Verdict-floor tightening.** The self-test false-positive rate is genuinely 0.925 (sample
    size 40); target under 5 percent. Proof-model floor decision list delivered to the operator
    2026-07-10 late evening; AWAITING OPERATOR SIGN-OFF.
-3. **56-84d confidence tier slice.** Build the confirmation tier that E-39's D6 already reserved
+6. **56-84d confidence tier slice.** Build the confirmation tier that E-39's D6 already reserved
    space for. Part of the same 2026-07-10 late-evening decision list; AWAITING OPERATOR
    SIGN-OFF.
-4. **Parity matrix update.** The pilot re-run itself is done as of ffc39807 (third re-run,
+7. **Parity matrix update.** The pilot re-run itself is done as of ffc39807 (third re-run,
    verdict above); update the parity matrix against this result.
-5. **Second-tenant workflow proof.** Prove the same workflow end to end on a second tenant, not
+8. **Second-tenant workflow proof.** Prove the same workflow end to end on a second tenant, not
    tenant-iranopedia alone.
-6. **Sibling SWR stores ambient-tenant check.** Extend the Task #230 tenant-isolation fix to the
+9. **Sibling SWR stores ambient-tenant check.** Extend the Task #230 tenant-isolation fix to the
    worklist and Today surface stores.
-7. **Remaining pre-existing dash sweep.** Includes the operator-visible string in
+10. **Remaining pre-existing dash sweep.** Includes the operator-visible string in
    build-canonical-changes.ts.
 
 ## Wave 4 pilot - CLOSED 2026-07-11: /famous-iranian-singers
@@ -193,9 +218,9 @@ The single-page pilot on the live Iranopedia page `/famous-iranian-singers` (alr
 of several proof-engine ground-truth walks this cycle - see the N13/N10 entries in
 HANDOFF_VERIFIED_STATE.md) ran six product iterations (drafter pilot loops 1 through 6 plus
 drafter batch 2) and closes with the scorecard recorded in the "Drafter batch 2" section above:
-G1/G2/G4/G5/G6/G7 WORKING (live or hygiene-batch), G3/G8/G9 PARTIAL with named follow-ups now
-folded into the ranked queue above. The drafter takes a real ranked-queue opportunity to a
-drafted, gate-checked answer on attempt 1.
+G1/G2/G3/G4/G5/G6/G7 WORKING (live, hygiene-batch, or G3 winners panel ecaa2836); G8/G9 PARTIAL
+with named follow-ups now folded into the ranked queue above (G8 next, then G9). The drafter
+takes a real ranked-queue opportunity to a drafted, gate-checked answer on attempt 1.
 
 ## Parity-matrix ranked fixes - queued 2026-07-10
 
