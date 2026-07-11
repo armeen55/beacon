@@ -1,4 +1,24 @@
-> 🟢 **(2026-07-11 latest) - HEAD STATE: ORIGIN/MAIN WILL BE THIS DOCS TIP AFTER THIS PUSH (G9
+> 🟢 **(2026-07-11 latest) - HEAD STATE: ORIGIN/MAIN WILL BE THIS DOCS TIP AFTER THIS PUSH
+> (E-39 D4 wiring complete: a measurement past the full retry bound now reads a distinct honest
+> terminal state instead of still-arriving forever, and the dead resolveVerdictLag fields were
+> deleted with the WHY documented, commit 32696319 rebased on 7a2be62d).** Deployment of the
+> pushed SHA to Vercel production is unconfirmed from this environment.
+>
+> Full hermetic gate GREEN at this tip (fullgateE39P2.log: 22860 tests passed, 62 skipped, 0
+> failed; typecheck 0 / test 0 / build 0). See the 2026-07-11 "E-39 D4 wiring complete" entry in
+> VERIFICATION_LOG.md for full detail: honest engineering call, option B; the one real gap fixed
+> is the honest terminal state past the retry bound (28d + grace + retry window, constants
+> shared with the recompute job so bounds never drift); never in-flight, never mature, never
+> fabricates, never re-freezes, excluded from learning. Floors/56-84d untouched (sign-off
+> pending).
+>
+> **THE AUTONOMOUS QUEUE IS DRAINED.** Remaining items are OPERATOR-GATED (proof-model floor
+> sign-off; Ritz operator reconnect) plus the filed background dash chip (non-blocking cleanup).
+> Confirm the Vercel production build for this tip in the dashboard (unconfirmed from this
+> environment); authenticated both-tenant smoke: OPERATOR-BLOCKED (no smoke credentials
+> available to the agent).
+>
+> 🟢 **(2026-07-11 earlier) - PRIOR HEAD (G9
 > what else I considered panel: the router debate's rejected alternatives and dissenting
 > teammate voices render in plain words on the /changes detail view, commit 74ba6832 on
 > 52624ee0).** Deployment of the pushed SHA to Vercel production is unconfirmed from this

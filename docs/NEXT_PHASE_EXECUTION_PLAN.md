@@ -1,5 +1,23 @@
 # Beacon Execution Plan
 
+## E-39 D4 wiring (32696319) - DONE pending deploy confirmation (2026-07-11)
+
+Honest engineering call, option B: the dead resolveVerdictLag fields (markState/retryEligible)
+implied wiring that would duplicate what the maturity derivation already provides; deleted with
+the WHY documented. The ONE real gap fixed: a measurement past the full retry bound (28d +
+grace + retry window, constants shared with the recompute job so bounds never drift) now reads
+a distinct honest terminal state instead of still-arriving forever; never in-flight, never
+mature, never fabricates, never re-freezes, excluded from learning. Floors/56-84d untouched
+(sign-off pending). See the 2026-07-11 "E-39 D4 wiring complete" entry in VERIFICATION_LOG.md
+for full detail. Full hermetic gate GREEN at 32696319 (fullgateE39P2.log: 22860 passed / 0
+failed). Deploy confirmation to Vercel production is pending; unconfirmed from this environment.
+
+**THE AUTONOMOUS QUEUE IS DRAINED.** Every self-directed item is shipped. What remains is
+OPERATOR-GATED (the proof-model floor decision list awaits sign-off; second-tenant proof awaits
+the Ritz operator reconnect) plus the filed background dash chip, which is a non-blocking
+cleanup task. Authenticated both-tenant smoke remains OPERATOR-BLOCKED (no smoke credentials
+available to the agent).
+
 ## G9 what else I considered panel (74ba6832) - DONE pending deploy confirmation (2026-07-11)
 
 The router debate's rejected alternatives (veto-severity objections only, downgrades never
@@ -215,13 +233,13 @@ Two filed residuals carried out of this cycle:
    downstream (persisted) gate but never the generation-time check. Queued as the FIRST item of
    the next drafter batch, below.
 
-## Queue, ranked (2026-07-11, post-G9-alternatives-panel)
+## Queue, ranked (2026-07-11, post-E-39-D4-wiring)
 
-**The autonomous queue is drained.** All three named Wave 4 follow-ups (G3, G8, G9) are shipped
-product; the only self-directed work left ahead is E-39 P2 wiring (within the approved D4
-scope, item 5 below) and the filed background dash chip (item 10 below). OPERATOR-GATED items
-are unchanged and still await the operator: the proof-model floor plus 56-84d confidence tier
-slice (items 6-7 below), and second-tenant proof, which stays blocked on the Ritz operator
+**The autonomous queue is drained.** All three named Wave 4 follow-ups (G3, G8, G9) and the
+E-39 P2 wiring (item 5 below, now DONE) are shipped product. Nothing self-directed remains
+except the filed background dash chip (item 10 below), a non-blocking cleanup. OPERATOR-GATED
+items are unchanged and still await the operator: the proof-model floor plus 56-84d confidence
+tier slice (items 6-7 below), and second-tenant proof, which stays blocked on the Ritz operator
 reconnect (item 8 below).
 
 1. **G8: impact-math abstention on thin history. DONE (a949ba50).** See the "G8 sibling-based
@@ -235,10 +253,11 @@ reconnect (item 8 below).
    proofPlan/operatorSteps/risks methodology text (draftProseStringValues' skip-list extended
    alongside sources; evidenceRefs.detail stays scanned). Proven live and by deterministic pin.
    See the "Drafter batch 2" section above and the matching VERIFICATION_LOG.md entry.
-5. **E-39 P2 wiring (within the approved D4 scope). NEXT autonomous item.** resolveVerdictLag's
-   markState/retryEligible fields are computed but not yet wired to any caller that acts on
-   them; either consume them (persist blocked_data, drive the bounded retry) or fold them back
-   into the function until a caller exists. See "E-39 review P2 follow-ups" below.
+5. **E-39 P2 wiring (within the approved D4 scope). DONE (32696319).** Honest engineering call,
+   option B: the dead resolveVerdictLag fields (markState/retryEligible) were deleted with the
+   WHY documented, and the one real gap was fixed: a measurement past the full retry bound now
+   reads a distinct honest terminal state instead of still-arriving forever. See the "E-39 D4
+   wiring" section above and the matching VERIFICATION_LOG.md entry.
 6. **Verdict-floor tightening. OPERATOR-GATED.** The self-test false-positive rate is genuinely
    0.925 (sample size 40); target under 5 percent. Proof-model floor decision list delivered to
    the operator 2026-07-10 late evening; AWAITING OPERATOR SIGN-OFF.

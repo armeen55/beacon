@@ -35204,3 +35204,17 @@ routerDecision (appliedObjections + dissenting). Honest absence renders nothing.
 alternatives + 1 dissent, detail-hydration only, 14 pins. Gate 22849 passed 0 failed.
 
 ALL Wave 4 partials (G3, G8, G9) are now shipped product.
+
+## 2026-07-11 - E-39 D4 wiring complete (32696319, review P2)
+
+2026-07-11 E-39 D4 wiring complete (32696319, review P2): honest engineering call, option B.
+The dead resolveVerdictLag fields (markState/retryEligible) implied wiring that would duplicate
+what the maturity derivation already provides; deleted with the WHY documented. The ONE real
+gap fixed: a measurement past the full retry bound (28d + grace + retry window, constants
+shared with the recompute job so bounds never drift) now reads a distinct honest terminal state
+(Measurement stopped. I could not finish measuring this one; the data never arrived. It no
+longer blocks anything.) instead of still-arriving forever; never in-flight, never mature,
+never fabricates, never re-freezes, excluded from learning. Floors/56-84d untouched (sign-off
+pending). Gate 22843 passed 0 failed at pre-rebase tip + rebased-tip gate GREEN at 32696319
+(fullgateE39P2.log: typecheck 0 / test 0 / build 0; 1475 files, 22860 passed, 62 skipped,
+0 failed).
