@@ -23,6 +23,6 @@ describe("allChecksDoneClause - review fix 11", () => {
   });
 
   it("neither clause carries an em or en dash", () => {
-    expect(`${allChecksDoneClause(true)}${allChecksDoneClause(false)}`).not.toMatch(/[‒–—―]/);
+    expect(`${allChecksDoneClause(true)}${allChecksDoneClause(false)}`).not.toMatch(new RegExp("[\\u2012\\u2013\\u2014\\u2015]"));
   });
 });
