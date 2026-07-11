@@ -1,21 +1,39 @@
-> 🟢 **(2026-07-10 HEAD STATE) - ORIGIN/MAIN IS d73aa6af (E-39 SHIPPED, its review P1s fixed);
-> WAVE 1 (P0-A + P0-B + the Wave-1 review fix) INTEGRATED ON BRANCH wave1-integration, GATE GREEN,
-> PENDING PUSH.** E-39 adaptive control pools plus its adversarial-review P1 fixes are on
-> origin/main at d73aa6af (the E-39 entry below describes work that has since shipped). On top of
-> it, branch wave1-integration carries the product-truth Wave 1: P0-A removed the FALSE sitewide
-> monthly-visits total from the north star (non-additive GA4 session sum; the card now leads with
-> proven Search Console clicks, an honest reconciliation line, and a goal never graded from
-> clicks); P0-B made the page GETs (/, /changes, /results) paid-free and bounded (persisted state
-> with honest staleness, rebuilds in after(); measured SERP=0 LLM=0 on all three routes for both
-> tenants); and the Wave-1 adversarial review closed with NO P0. Its one P1 (the Today stat row's
-> GA4 card summed per-URL sessions28d into a "Visits (28 days)" total, the same false-total class
-> as P0-A, dormant only because Iranopedia has 0 GA4 rows) and one P2 (the /results freshness line
-> claimed "just now" over never-measured rows) are fixed in this branch's review-fix commit;
-> the remaining P2s are ledgered in NEXT_PHASE's "Wave 2 (product-truth addendum)". Full hermetic
-> gate GREEN at the branch tip (see VERIFICATION_LOG 2026-07-10 Wave 1 entries; fullgateW1.log).
-> NEXT: (1) operator/architect decision to push wave1-integration to origin/main; (2) Wave 2
-> product-truth addendum, starting with the true property-grain GA4 rollup + goal editor;
-> (3) the Results/Changes waterfall + snapshot rearchitecture (packet exists).
+> 🟢 **(2026-07-10 HEAD STATE) - ORIGIN/MAIN WILL BE 62e83046 AFTER THIS PUSH (Wave 2 = W2A true
+> sitewide GA4 series + W2B Results/Changes rearchitecture + the Wave 2 finisher).** E-39 (adaptive
+> control pools) and Wave 1 (P0-A north star truth removal, P0-B paid-free bounded GETs, the Wave-1
+> review fix) are PUSHED and confirmed on origin/main at 4b10fe27; deployment to Vercel is
+> UNCONFIRMED from this environment (do not read anything below as "live" until an operator or the
+> Vercel dashboard confirms the build). On top of 4b10fe27, this push carries Wave 2: W2A (3e0dc5d5)
+> builds the true property-grain GA4 rollup (the old ga4_monthly_sessions_v1 summing RPC was
+> invalid for sitewide use, since sessions are not additive across per-URL rows), a
+> reconciliation-gated restore of the north-star visits card (only when the reconciliation is
+> fresh, matches the tenant's currently configured GA4 property, and is non-vacuous), and a
+> settings goal editor. W2B (a9023bfa, b6deaf55, 6428b5a0, 147382ed) rearchitects /results (seven
+> side-reads parallelized and streamed via Suspense, the per-card alignment N+1 batched to one
+> read, the render-path saveMoveDraft mutation moved to after()) and /changes (a persisted
+> tenant-scoped SWR snapshot, single-flight rebuild, honest empty-vs-building copy, an 87 percent
+> smaller default payload). The finisher (20297eac, 62e83046) closed four truth gaps the first pass
+> left open: a vacuous zero-vs-zero reconciliation no longer reads as a pass; a completed month
+> missing from the rollup is now a mismatch too; a reconciliation can no longer be inherited across
+> a changed GA4 property; and the manual "Update data" click plus the on-use auto refresh now run
+> the sitewide sync themselves, so the north-star card can go live on an operator refresh without
+> waiting on the nightly cron.
+>
+> **Two corrections to prior framing, checked against live data before this entry was written:**
+> (a) GA4 tokens are NOT dead - `ga4_url_traffic` is fresh to 2026-07-08 and the `ai-referral`
+> source is fresh to 2026-07-09; the reconciled-series tables read empty today only because Wave 2
+> was unmerged, and they populate on the first sync or the first manual "Update data" click after
+> this deploys, not because a connector stopped working. (b) The real cause of stale data across
+> the product is cron reliability, not a dead connector: per `cron_runs`, `sync-connectors` has
+> succeeded on 3 of its last 8 runs and `precompute` on 2 of its last 10, with Profound stale since
+> 2026-06-29 and SEMrush stale since 2026-06-18. Repairing cron reliability (queued in NEXT_PHASE)
+> is the actual lever, not reconnecting anything.
+>
+> Full hermetic gate GREEN at this tip (fullgateW2.log): typecheck exit 0, test exit 0 (22390
+> passed, 0 failed), build exit 0. NEXT: (1) confirm the Vercel production build for 62e83046 in
+> the dashboard (unconfirmed from this environment); (2) Wave 3 (3 lanes, scope queued in
+> NEXT_PHASE_EXECUTION_PLAN.md; lane worktree w3-lane-a is provisioned at this tip, lanes B and C
+> not yet provisioned); (3) the parity-matrix ranked fixes, starting with cron reliability itself.
 >
 > 🟢 **(2026-07-10) - E-39 ADAPTIVE CONTROL POOLS (since SHIPPED to origin/main at d73aa6af with
 > its review P1 fixes; originally built in worktree e39-impl).** Admit-with-caution replaces the

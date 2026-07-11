@@ -34921,3 +34921,81 @@ the amended tip dd85908e: test_exit=0 (1432 files / 22284 tests passed, 62
 skipped), local tsc --noEmit exit 0 at the same tip. typecheck_exit=0 and build_exit=0 carry from
 91dde46a since the deltas are test files and comments only, which cannot change
 the build; noted honestly rather than re-paying a full build.
+
+============================================================================
+2026-07-10 - WAVE 2 PRODUCT-TRUTH RELEASE (W2A + W2B + finisher) on branch
+wave2-integration (base origin/main 4b10fe27, folding in Wave 1 + E-39), PUSHED
+============================================================================
+
+2026-07-10 - W2A Wave 2 (commit 3e0dc5d5): true sitewide GA4 series. Replaces
+the retired non-additive per-URL summing RPC with a date-grain source and an
+idempotent (tenant, property, date) store, so a re-sync upserts rather than
+duplicates. The north-star visits card is reconciliation-gated: it restores
+only when the reconciliation is fresh, matches the tenant's currently
+configured GA4 property, and is non-vacuous (an all-zero comparison is never
+read as a pass). Ships a goal editor on settings so monthlyVisitGoal is no
+longer hardcoded. Migration 2026-07-10_ga4_daily_totals.sql applied to prod by
+the architect via MCP; tables verified present.
+
+2026-07-10 - W2B Wave 2 (commits a9023bfa, b6deaf55, 6428b5a0, 147382ed):
+Results/Changes rearchitecture. /results collapses its seven sequential side
+reads into one parallel Promise.all, streams the cumulative strip, proof
+summary, and measured-outcomes board through their own Suspense boundaries so
+the header paints first, batches the per-card alignment N+1 into a single
+read, and moves the render-path saveMoveDraft mutation to after() (read-only
+on the GET). /changes is now served from a persisted tenant-scoped SWR
+snapshot: single-flight rebuild (concurrent stale readers collapse to one
+rebuild), a genuine empty-vs-building distinction on a cold first load
+(instead of a false "No changes yet"), a computedAt staleness label, and a
+default payload of slim row summaries with the full dossier loaded on demand
+(measured fixture: 279,902 to 36,181 bytes, 87 percent smaller). Ledger loaders
+and the after() rebuild now thread tenantId explicitly instead of reading
+ambient state. Measured dev-labeled only (not a healthy-infra measurement):
+/changes warm went from about 25s to about 7.3s once the ~14s fuse moved off
+the render path. The budgets stated in the original packet (warm 2s, cold 4s)
+are NOT claimed here; there is no healthy-infra measurement available to
+confirm them from this environment.
+
+2026-07-10 - Wave 2 finisher (commits 20297eac, 62e83046): closed four truth
+gaps the first W2A/W2B pass left open. Reconciliation
+(reconcile-ga4-monthly-series.ts): a vacuous all-zero comparison (direct report
+empty, or every reconciled month 0-vs-0) is no longer written as a pass, it now
+returns an honest error/no_data state; a completed month that GA4 reports
+directly (with traffic) but that is missing from the rollup within its covered
+range is now flagged as a mismatch too (an interior gap), while a leading
+not-yet-synced month still reads as honest coverage, not a gap. Card gate
+(ga4-sitewide-rollup.ts): loadReconciledVisitsForTenant now resolves the
+tenant's currently configured ga4_property_id and requires the reconciliation
+marker's property_id to match, so a different (old) property can never inherit
+an old passing reconciliation. On-demand refresh wiring
+(refresh-ga4-sitewide.ts, cron-sync.ts, settings connectors actions.ts): the
+manual "Update data" click and the on-use auto refresh previously pulled only
+the per-page GA4 table, so the true sitewide series and its reconciliation lit
+up only after the nightly cron; both paths now run the sitewide sync and
+reconcile whenever GA4 is connected (fail-soft, dormant until a key exists),
+so the north-star card can go live on an operator refresh without cron
+dependence. Changes surface: markChangelogEditShipped now invalidates the
+tenant-scoped /changes SWR snapshot on a real ship flip (not only
+revalidatePath), matching every other ship path, and ChangesSection is exported
+so the empty-vs-building copy distinction is render-pinned. Pinned by new
+tests: reconcile-ga4-monthly-series.test.ts (vacuous zero-vs-zero, missing
+month in both directions), ga4-sitewide-rollup.test.ts (property-mismatch
+guard), sync-sitewide-sessions.test.ts (the GA4 ~48h data-shift re-pull
+window), refresh-all-connected.test.ts + on-use-sitewide-refresh.test.ts (both
+refresh paths pull the sitewide series), mark-changelog-shipped-invalidates.test.ts
+(real ship invalidates the snapshot, a no-op flip does not),
+changes-empty-vs-building.test.tsx (distinct rendered copy), and a
+rr-pattern.test.ts clock-pin that removed a wall-clock flake from the
+aggregation's own determinism check.
+
+Honest gap: a dedicated Wave-2 adversarial review pass was attempted twice and
+did not complete either time. The coverage behind this release is the Wave-1
+adversarial review of P0-A/P0-B (verdict: no P0, see the 2026-07-10 Wave 1
+entries above) plus an operator-authored 16-item proof list, each item verified
+by a named test in the finisher commits listed above. This release has not had
+its own dedicated adversarial pass; that is ledgered as an open item, not
+implied to have happened.
+
+VERIFIED: full hermetic gate GREEN at the branch tip 62e83046 (fullgateW2.log
+in the session scratchpad): typecheck exit 0, test exit 0 (22390 passed, 0
+failed), build exit 0.

@@ -1,32 +1,81 @@
 # Beacon Execution Plan
 
-## Wave 2 (product-truth addendum) - queued 2026-07-10 after the Wave-1 adversarial review
+## Wave 2 (product-truth addendum) - DONE, pending deploy confirmation (2026-07-10)
 
 Wave 1 (P0-A north-star truth, P0-B paid-free bounded GETs, review P1 GA4 stat-card fix) is
-integrated on branch wave1-integration pending push. Wave 2 owes the replacements and the
-ledgered P2s:
+pushed to origin/main at 4b10fe27. All six items below shipped across W2A (3e0dc5d5), W2B
+(a9023bfa, b6deaf55, 6428b5a0, 147382ed), and the finisher (20297eac, 62e83046); see
+HANDOFF_VERIFIED_STATE.md and the 2026-07-10 Wave 2 entries in VERIFICATION_LOG.md for the full
+detail. Full hermetic gate GREEN at the pushed tip (fullgateW2.log: typecheck exit 0, test exit 0,
+22390 passed / 0 failed, build exit 0). Deploy confirmation is pending; a dedicated Wave-2
+adversarial review pass was attempted twice and did not complete, so coverage rests on the Wave-1
+review plus the operator's 16-item proof list (each item pinned by a named test), not a fresh
+Wave-2 adversarial pass.
 
-1. **True sitewide GA4 series at the correct grain + reconcile Feb to Jul + goal editor.** The
-   ga4_monthly_sessions_v1 summing RPC is INVALID-FOR-SITEWIDE (sessions are not additive across
-   per-URL rows); build a property-grain GA4 rollup (one row per property per period), reconcile
-   the February through July history against it, then light the monthly-visits headline and goal
-   grading back up. monthlyVisitGoal still has no settings-UI editor; ship one with it. The
-   Today stat row's GA4 card (removed in the Wave-1 review fix) returns only on this rollup,
-   never on the per-URL sum.
-2. **Results/Changes waterfall + snapshot rearchitecture.** The Wave-2 packet from P0-B exists:
-   waterfall parallelization, Changes-consumes-snapshot, N+1 batching, budgets warm <=2s cold
-   <=4s.
-3. **Route the after() results rebuild through loadShippedChangesForTenant(tenantId).** The
-   background rebuild still reaches persisted state through ambient-tenant reads in places;
-   threading the explicit tenantId closes a latent multi-tenant ambient seam.
-4. **perfCountExternal per-request reset + crawl/dataforseo wiring.** Reset the perf counters
-   per request and wire the crawler and DataForSEO clients into them so the SERP=0/LLM=0
-   invariant is observable everywhere, not only where instrumented today.
-5. **Single-flight lock on the ledger rebuild.** Concurrent after() rebuilds of the results
-   surface can run the full re-measure more than once; add a single-flight guard.
-6. **Scoreboard fresh-tail GSC live read to after().** Move the scoreboard's freshest-tail GSC
-   live read off the GET path behind the same persisted-plus-after() posture as the rest of
-   Wave 1.
+1. **True sitewide GA4 series at the correct grain + reconcile Feb to Jul + goal editor. DONE
+   (3e0dc5d5, finished by 20297eac/62e83046).** The ga4_monthly_sessions_v1 summing RPC (invalid
+   for sitewide use) is retired in favor of a property-grain GA4 rollup, reconciliation-gated
+   card restore (fresh, matching property, non-vacuous), and a settings goal editor. Migration
+   2026-07-10_ga4_daily_totals.sql is applied to prod (verified via MCP). The Today stat row's
+   GA4 card still returns only on this rollup, never on the per-URL sum.
+2. **Results/Changes waterfall + snapshot rearchitecture. DONE (a9023bfa, b6deaf55, 6428b5a0,
+   147382ed).** /results is parallelized and streamed via Suspense; /changes is served from a
+   persisted tenant-scoped SWR snapshot with an 87 percent smaller default payload. **Caveat:**
+   the original packet's stated budgets (warm <=2s, cold <=4s) are NOT verified here; only a
+   dev-labeled measurement exists (/changes warm ~25s to ~7.3s), which is a compile artifact, not
+   a production reading. Confirming the real budget needs a healthy-infra measurement after
+   deploy.
+3. **Route the after() results rebuild through loadShippedChangesForTenant(tenantId). DONE
+   (a9023bfa).**
+4. **perfCountExternal per-request reset + crawl/dataforseo wiring. DONE (a9023bfa).**
+5. **Single-flight lock on the ledger rebuild. DONE (a9023bfa, pinned by 147382ed).**
+6. **Scoreboard fresh-tail GSC live read to after(). DONE (a9023bfa).**
+
+## Wave 3 - queued 2026-07-10, 3 lanes (scope pending architect confirmation)
+
+Lane worktree `w3-lane-a` is provisioned at the Wave 2 tip; lanes B and C are not yet provisioned.
+This environment could not locate a saved Wave 3 lane spec in the repo (docs, worktrees, or the
+Claude plans directory); noting that honestly rather than inventing lane content. Before starting,
+confirm the 3-lane breakdown with the architect. Candidate scope to fold in once confirmed: the
+parity-matrix ranked fixes below are a reasonable starting point for lane assignment (freshness:
+cron reliability + stale-crawl trigger; signal quality: dismissal-reason capture + emitter
+consolidation; surface: insertion anchor + winners strip).
+
+## Wave 4 pilot - queued 2026-07-10: /famous-iranian-singers
+
+A single-page pilot on the live Iranopedia page `/famous-iranian-singers` (already the subject of
+several proof-engine ground-truth walks this cycle - see the N13/N10 entries in
+HANDOFF_VERIFIED_STATE.md). Scope not yet detailed in this environment; queued as the next pilot
+target after Wave 3 lanes are confirmed.
+
+## Parity-matrix ranked fixes - queued 2026-07-10
+
+Ranked from the parity-matrix audit, highest leverage first:
+
+1. **Cron reliability repair.** Per `cron_runs`, `sync-connectors` succeeded 3 of its last 8 runs
+   and `precompute` 2 of its last 10; Profound has been stale since 2026-06-29 and SEMrush since
+   2026-06-18. This, not a dead connector, is the real cause of stale data across the product
+   (GA4 tokens are healthy; see the HANDOFF head-state correction). Highest-leverage fix in this
+   list.
+2. **Stale-crawl age trigger.** Add an age-based trigger so a page whose crawl has gone stale
+   re-queues itself instead of waiting on a full nightly sweep.
+3. **Dismissal-reason capture.** Record why an operator dismissed a recommendation so the signal
+   feeds back into future ranking instead of being discarded.
+4. **Consolidate/prune emitters.** Reduce duplicate or redundant recommendation emitters so the
+   same underlying issue does not surface as multiple unrelated-looking cards.
+5. **Insertion anchor + winners strip.** Give new recommendations a stable insertion point and add
+   a winners strip so a shipped, proven win stays visible instead of scrolling out of view.
+
+**I-59 reframed honestly (2026-07-10):** crons are not off and are not merely a formality. All 8
+crons in `vercel.json` (publish-canary, sync-connectors, measure-due, autopilot, ai-engines,
+precompute, strategy-review, page-factory) are enabled and scheduled; their job is to optimize
+freshness proactively so data is already warm before an operator looks. On-visit warm refresh
+(I-59, W6, 53fc4077) is the guarantee layer underneath the crons: it re-checks staleness on every
+visit and fires the same refresh in the background regardless of whether the cron ran, so a
+missed or failed cron run degrades freshness, not correctness. Publishing itself stays one-click
+either way; nothing about cron reliability blocks or changes the publish path. The item to fix is
+cron reliability (ranked #1 above), not "turn crons on" (they already are) or "replace crons with
+on-visit refresh" (on-visit refresh is a backstop, not a substitute for proactive freshness).
 
 ## E-39 adaptive control pools (LANDED in worktree e39-impl, operator-approved 2026-07-10)
 
