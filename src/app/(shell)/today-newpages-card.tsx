@@ -9,6 +9,7 @@ import type { NewPageOpportunity } from "./today-newpages-data";
 import { BriefButton } from "./diagnostics/profound-intelligence/brief-button";
 import type { AssembledDraftPage } from "@/domains/llm/draft-full-page";
 import { plainSchemaTypes, plainSerpReason } from "@/lib/plain-language";
+import { dossierHref } from "@/lib/page-dossier-link";
 import { Card } from "@/components/ui/card";
 import { Pill, type PillIntent } from "@/components/ui/pill";
 
@@ -222,6 +223,40 @@ export function NewPageCard({ o, ownDomain, enableAeoBrief = false }: { o: NewPa
     }).catch(() => {});
   };
 
+  // Owned-coverage gate (2026-07-11) - an owned page already targets this cluster, so
+  // this is NOT a new page to build. Demote to the watching state: name the owned page,
+  // prefer improving it, and link to its dossier. Every create control is suppressed so
+  // the card can never read "you have no page yet" when a page already covers the topic.
+  const watching = o.ownedCoverage && o.ownedCoverage.state === "watching" ? o.ownedCoverage : null;
+  if (watching) {
+    const href = dossierHref(watching.ownedUrl);
+    return (
+      <Card padding="none" className="group flex min-w-0 flex-col justify-between overflow-hidden rounded-2xl p-4 shadow-sm">
+        <div>
+          <div className="flex items-center justify-between gap-2">
+            <Pill intent="neutral">Watching</Pill>
+            <Pill intent={signalIntent} title={o.signal.evidence ? `${o.signal.label}: ${o.signal.evidence}` : o.signal.label}>
+              {o.signal.label}
+            </Pill>
+          </div>
+          <h3 className="mt-2.5 text-sub font-semibold leading-snug tracking-tight text-foreground">{o.topic}</h3>
+          <p className="mt-2 text-body leading-relaxed text-foreground-secondary">{watching.sentence}</p>
+          <p className="mt-1.5 rounded-md bg-surface-raised px-2 py-1 text-meta leading-snug text-muted-foreground">{watching.detail}</p>
+        </div>
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          {href ? (
+            <Link
+              href={href}
+              className="inline-flex items-center gap-1 rounded-lg border border-border bg-card px-3 py-1.5 text-body font-semibold text-foreground-secondary transition-colors hover:border-status-success/40 hover:bg-status-success-bg hover:text-status-success"
+            >
+              Improve {watching.ownedPath} &rarr;
+            </Link>
+          ) : null}
+        </div>
+      </Card>
+    );
+  }
+
   return (
     <Card padding="none" className="group flex min-w-0 flex-col justify-between overflow-hidden rounded-2xl p-4 shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md">
       <div>
@@ -249,6 +284,14 @@ export function NewPageCard({ o, ownDomain, enableAeoBrief = false }: { o: NewPa
         {o.keptUnderFloorReason ? (
           <p className="mt-1 text-meta text-muted-foreground" title="Below the 50/mo floor, kept for a strategic reason">
             {o.keptUnderFloorReason}
+          </p>
+        ) : null}
+        {/* Owned-coverage acknowledgment (2026-07-11) - this create card is genuinely
+            distinct, but an owned page already covers one of the topics it used to claim
+            under "Also covers". Name that page so the card never double-builds it. */}
+        {o.ownedCoverage && o.ownedCoverage.state === "acknowledge" ? (
+          <p className="mt-1.5 rounded-md bg-surface-raised px-2 py-1 text-meta leading-snug text-foreground-secondary">
+            {o.ownedCoverage.sentence}
           </p>
         ) : null}
         <p className="mt-1.5 text-body leading-relaxed text-foreground-secondary">

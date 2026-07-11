@@ -30,6 +30,13 @@ import {
 } from "@/domains/demand-graph/intent-clustering";
 import { seedQuestionsForTopic, type UniverseQuestionRow } from "@/domains/research/question-universe";
 import { loadQuestionUniverseForTenant } from "@/domains/research/question-universe-loader";
+import { loadOwnedCoverageInputs } from "@/domains/demand-graph/owned-coverage-loader";
+import {
+  detectOwnedCoverageForCard,
+  acknowledgeSentence,
+  type OwnedCoverageBasis,
+  type OwnedCoverageInput,
+} from "@/domains/demand-graph/owned-coverage";
 import { log } from "@/lib/logger";
 
 /**
@@ -143,6 +150,21 @@ export type NewPageOpportunity = {
    *  is empty or has no relevant uncovered question - the brief and the
    *  opening drafter both consume these. */
   universeQuestions?: string[];
+  /** Owned-coverage verdict (2026-07-11) - set when an owned page already targets
+   *  this cluster (GSC serving at ANY position, or a title/H1/slug content match),
+   *  so the card must stop pitching a brand new page. "watching" demotes the card
+   *  and prefers the owned page; "acknowledge" keeps a genuinely distinct create
+   *  card but names the owned page it must not repeat. Absent = a real gap. */
+  ownedCoverage?: {
+    state: "watching" | "acknowledge";
+    ownedUrl: string;
+    ownedPath: string;
+    basis: OwnedCoverageBasis;
+    /** First-person sentence, safe to render (watching sentence or acknowledgment). */
+    sentence: string;
+    /** First-person detail explaining why it counts as covered. */
+    detail: string;
+  } | null;
 };
 
 export type NewPagesData = {
@@ -222,6 +244,7 @@ export async function buildNewPagesData(tenantId: string): Promise<NewPagesData>
   let audits: Awaited<ReturnType<typeof getCompetitorAuditsForTenant>> = new Map();
   let savedDrafts = new Map<string, MoveDraftRow>();
   let ownDomain = "";
+  let ownedUrls: string[] = [];
   let kwDemandRows: KeywordDemand[] = [];
   let storedGaps: StoredKeywordGaps | null = null;
   let storedWikiGaps: StoredWikiGaps | null = null;
@@ -256,6 +279,7 @@ export async function buildNewPagesData(tenantId: string): Promise<NewPagesData>
     if (!graphRes) return { opportunities: [], totalCandidates: 0, ownDomain: "" };
     moves = graphRes.graph.moves;
     ownDomain = deriveOwnDomain(graphRes.graph.pageNodes);
+    ownedUrls = graphRes.graph.pageNodes.filter((p) => p.isOwned && p.url).map((p) => p.url);
     audits = auditRes;
     savedDrafts = draftRes;
   } catch {
@@ -525,11 +549,80 @@ export async function buildNewPagesData(tenantId: string): Promise<NewPagesData>
           return seeds.length > 0 ? { ...o, universeQuestions: seeds } : o;
         });
 
+  // Owned-coverage gate (2026-07-11) - the LAST pass, so it sees each card's final
+  // topic + "Also covers" cluster. An owned page that already targets a card's core
+  // topic (its headline or its demand-driving keyword) demotes the card to watching;
+  // an owned page that only covers an "Also covers" topic gets that topic dropped and
+  // acknowledged. Degrade-safe: if the reads come back empty NOTHING is gated, so the
+  // board is byte-identical to before this feature when the tenant has no GSC/snapshot
+  // data to check against.
+  let coverageInputs: OwnedCoverageInput = { serving: [], ownedPages: [] };
+  try {
+    coverageInputs = await withTimeout(loadOwnedCoverageInputs(tenantId, ownedUrls), 5000, {
+      serving: [],
+      ownedPages: [],
+    });
+  } catch {
+    coverageInputs = { serving: [], ownedPages: [] };
+  }
+  const withCoverage =
+    coverageInputs.serving.length === 0 && coverageInputs.ownedPages.length === 0
+      ? withQuestions
+      : withQuestions.map((o) => applyOwnedCoverage(o, coverageInputs));
+
   return {
-    opportunities: withQuestions,
+    opportunities: withCoverage,
     totalCandidates: createMoves.length,
     ownDomain,
   };
+}
+
+/** Run the owned-coverage detector for one card and fold the verdict in: demote to
+ *  watching when a core topic is owned, else drop + acknowledge any owned "Also
+ *  covers" topic. Never widens the card; leaves it untouched when nothing is owned. */
+function applyOwnedCoverage(o: NewPageOpportunity, input: OwnedCoverageInput): NewPageOpportunity {
+  const coreTopics = [o.topic, o.keywordMatch?.keyword ?? ""].filter((t): t is string => !!t && t.trim().length > 0);
+  const verdict = detectOwnedCoverageForCard({
+    coreTopics,
+    alsoCovers: o.alsoCovers ?? [],
+    serving: input.serving,
+    ownedPages: input.ownedPages,
+  });
+
+  if (verdict.primary) {
+    const m = verdict.primary;
+    return {
+      ...o,
+      ownedCoverage: {
+        state: "watching",
+        ownedUrl: m.ownedUrl,
+        ownedPath: m.ownedPath,
+        basis: m.basis,
+        sentence: m.sentence,
+        detail: m.detail,
+      },
+    };
+  }
+
+  if (verdict.coveredAlsoCovers.length > 0) {
+    const coveredTopics = verdict.coveredAlsoCovers.map((c) => c.topic);
+    const coveredSet = new Set(coveredTopics);
+    const m = verdict.coveredAlsoCovers[0]!.match;
+    return {
+      ...o,
+      alsoCovers: (o.alsoCovers ?? []).filter((t) => !coveredSet.has(t)),
+      ownedCoverage: {
+        state: "acknowledge",
+        ownedUrl: m.ownedUrl,
+        ownedPath: m.ownedPath,
+        basis: m.basis,
+        sentence: acknowledgeSentence(m, coveredTopics),
+        detail: m.detail,
+      },
+    };
+  }
+
+  return o;
 }
 
 const MAX_GAP_CARDS = 3;

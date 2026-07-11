@@ -37,11 +37,13 @@ import { loadGapVerdictsForTenant } from "@/domains/demand-graph/native-teardown
 import { loadStealBriefsForTenant } from "@/domains/serp/serp-steal-lane";
 import { loadKeywordLibrary } from "@/domains/research/keyword-library";
 import { loadOwnershipRegistryForTenantCached } from "@/domains/ownership/registry-loader";
+import { loadOwnedCoverageInputs } from "@/domains/demand-graph/owned-coverage-loader";
+import { detectOwnedCoverageForTopic } from "@/domains/demand-graph/owned-coverage";
 import {
   normalizeWorklistEntry,
   normalizeGapVerdictEntry,
   normalizeStealBriefEntry,
-  normalizeKeywordLibraryEntryWithRegistry,
+  normalizeKeywordLibraryEntryWithCoverage,
   selectKeywordLibraryGaps,
   buildUnifiedList,
   unifiedEntryToCanonicalChange,
@@ -62,11 +64,15 @@ export type UnifiedListResult = {
  * tail so the caller's total count stays honest.
  */
 export async function fuseUnifiedList(tenantId: string, worklistChanges: readonly CanonicalChange[]): Promise<UnifiedListResult> {
-  const [gapVerdicts, stealBriefs, keywordLibrary, ownershipRegistry] = await Promise.all([
+  const [gapVerdicts, stealBriefs, keywordLibrary, ownershipRegistry, coverageInputs] = await Promise.all([
     loadGapVerdictsForTenant(tenantId).catch(() => []),
     loadStealBriefsForTenant(tenantId).catch(() => []),
     loadKeywordLibrary().catch(() => ({ rows: [], volumeCoverage: 0, total: 0, bySource: {} as never })),
     loadOwnershipRegistryForTenantCached(tenantId).catch(() => null),
+    // Owned-coverage detector inputs (2026-07-11): GSC serving at ANY position + owned
+    // page title/H1, so a deep-ranking or content-only owned page still catches a
+    // keyword-library gap that the registry misses. Fail-soft to empty (no gating).
+    loadOwnedCoverageInputs(tenantId).catch(() => ({ serving: [], ownedPages: [] })),
   ]);
 
   const worklistEntries = worklistChanges.filter((c) => c.status !== "skipped").map(normalizeWorklistEntry);
@@ -79,9 +85,13 @@ export async function fuseUnifiedList(tenantId: string, worklistChanges: readonl
   const alreadyCoveredPaths = new Set<string>(
     [...worklistEntries, ...gapEntries, ...stealEntries].map((e) => e.page).filter((p): p is string => !!p),
   );
-  const keywordEntries = selectKeywordLibraryGaps(keywordLibrary.rows, alreadyCoveredPaths).map((r) =>
-    normalizeKeywordLibraryEntryWithRegistry(tenantId, r, ownershipRegistry),
-  );
+  const keywordEntries = selectKeywordLibraryGaps(keywordLibrary.rows, alreadyCoveredPaths).map((r) => {
+    // The registry catches cannibalization / top-10 cluster owners; the detector adds
+    // deep-rank (any position) + title/H1/slug content matches, so a keyword an owned
+    // page already targets is reclassified to an edit instead of claiming "no page yet".
+    const coverage = detectOwnedCoverageForTopic(r.keyword, coverageInputs);
+    return normalizeKeywordLibraryEntryWithCoverage(tenantId, r, ownershipRegistry, coverage);
+  });
 
   const unifiedEntries = buildUnifiedList([...worklistEntries, ...gapEntries, ...stealEntries, ...keywordEntries]);
   const skippedChanges = worklistChanges.filter((c) => c.status === "skipped");

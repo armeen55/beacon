@@ -57,12 +57,17 @@ export async function TodayNewPagesSection({
   const operator = await isOperatorModeServer();
   const preparedCount = opportunities.filter((o) => o.preparedVerdict).length;
   const shown = limit ? opportunities.slice(0, limit) : opportunities;
+  // Owned-coverage honesty (2026-07-11, blind-benchmark defect 1): the blanket "you
+  // have no page yet" claim is only true when NO rendered card carries owned coverage.
+  // A Watching card naming /nowruz under that header would contradict itself on one
+  // screen, so the header softens the moment any rendered card is owned-covered.
+  const anyOwnedCoverage = shown.some((o) => !!o.ownedCoverage);
 
   return (
     <section id="new-pages" className="rounded-3xl border border-border bg-card p-6 text-card-foreground shadow-sm">
       <SectionHeader
         title="New pages to build"
-        sub="Competitor pages get cited for these topics, and you have no page yet. The fastest way to capture demand AI and Google are already sending elsewhere."
+        sub={newPagesSectionSub(anyOwnedCoverage)}
         action={
           <>
             {operator && !limit ? <NewPagesPrepareButton alreadyPrepared={preparedCount} total={opportunities.length} /> : null}
@@ -101,6 +106,17 @@ export async function TodayNewPagesSection({
  *  next step, no dashes. */
 export function newPagesSummarySentence(count: number): string {
   return `I found ${count} new page${count === 1 ? "" : "s"} worth building. The full board, with drafts and competitor teardowns, lives in Changes.`;
+}
+
+/** Owned-coverage honest subhead (2026-07-11, blind-benchmark defect 1). PURE;
+ *  exported for a direct copy pin (today-newpages-summary.test.ts). The blanket
+ *  "you have no page yet" claim only renders when no card on the board carries
+ *  owned coverage; otherwise the soft variant defers to the per-card sentences
+ *  so the section never contradicts a Watching card on the same screen. */
+export function newPagesSectionSub(anyOwnedCoverage: boolean): string {
+  return anyOwnedCoverage
+    ? "Competitor pages get cited for these topics. Where I already have a page, I say so on the card."
+    : "Competitor pages get cited for these topics, and you have no page yet. The fastest way to capture demand AI and Google are already sending elsewhere.";
 }
 
 /**

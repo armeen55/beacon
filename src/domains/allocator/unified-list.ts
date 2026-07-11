@@ -38,6 +38,7 @@ import type { StealBrief } from "@/domains/serp/serp-steal-lane";
 import type { KeywordLibraryRow } from "@/domains/research/keyword-library";
 import { normalizePath } from "@/domains/experiments/daily-plan-types";
 import { resolveOwner, type OwnershipRegistry } from "@/domains/ownership/registry";
+import type { OwnedCoverageMatch } from "@/domains/demand-graph/owned-coverage";
 
 // ── The unified shape every lane normalizes into ────────────────────────────
 
@@ -368,6 +369,43 @@ export function normalizeKeywordLibraryEntryWithRegistry(
     pageLabel: page,
     exactWhat: `Improve ${page} for "${r.keyword}" - the ownership registry already names it the owner of this topic (${basisClause}), and it gets ${demandClause}.`,
     forecastBasis: `Ownership registry (${entry.basis}) already names an owner for this topic, reclassified create -> edit (${page}).`,
+  };
+}
+
+/**
+ * Owned-coverage-aware normalizer (2026-07-11): the registry variant above only
+ * catches topics with a cannibalization case or a top-10 SERP cluster. A single
+ * owned page ranking deep (e.g. position 52) or matched only by its title/H1/slug
+ * produces neither, so a keyword-library gap could still claim "I have no page
+ * targeting this yet" when a page already targets the topic. This runs the registry
+ * variant first (unchanged), and when it is still a `create`, reclassifies to `edit`
+ * at the owned page the coverage detector found - so the false no-page sentence is
+ * never generated. `coverage` null/absent => byte-identical to the registry variant.
+ */
+export function normalizeKeywordLibraryEntryWithCoverage(
+  tenantId: string,
+  r: KeywordLibraryRow,
+  registry: OwnershipRegistry | null | undefined,
+  coverage: OwnedCoverageMatch | null | undefined,
+): UnifiedEntry {
+  const base = normalizeKeywordLibraryEntryWithRegistry(tenantId, r, registry);
+  if (base.kind !== "create" || !coverage) return base;
+
+  const page = normalizePath(coverage.ownedUrl);
+  const demandClause = r.searchesPerMo != null
+    ? `about ${r.searchesPerMo.toLocaleString("en-US")} searches a month`
+    : r.timesShownPerMo != null
+      ? `about ${r.timesShownPerMo.toLocaleString("en-US")} times shown on Google a month`
+      : "real demand with no volume number yet";
+
+  return {
+    ...base,
+    kind: "edit",
+    page,
+    topic: null,
+    pageLabel: page,
+    exactWhat: `Improve ${coverage.ownedPath} for "${r.keyword}" - I already have a page targeting this topic, so I would strengthen it before building a new one. It gets ${demandClause}.`,
+    forecastBasis: `Owned-coverage detector found ${coverage.ownedPath} already targets this topic (${coverage.basis}), reclassified create -> edit.`,
   };
 }
 
