@@ -11,7 +11,6 @@ import Link from "next/link";
 import { currentTenantId } from "@/lib/tenant-context";
 import { getTenant } from "@/domains/tenants/store";
 import { loadDailyTotalsForTenant } from "@/domains/recommendation-intelligence/gsc-page-queries";
-import { formatMetric, formatMetricCompact, formatDeltaPct } from "@/lib/format-metric";
 import { loadWithDeadline } from "@/lib/load-with-deadline";
 
 const DAY_MS = 86_400_000;
@@ -34,35 +33,35 @@ export async function CockpitBar() {
     const [tenant, daily] = raced.data;
     const rows = [...daily].sort((a, b) => a.date.localeCompare(b.date));
     if (rows.length < 8) return null;
-    const last7 = rows.slice(-7).reduce((s, r) => s + (r.clicks || 0), 0);
-    const prior7 = rows.slice(-14, -7).reduce((s, r) => s + (r.clicks || 0), 0);
-    const deltaPct = prior7 > 0 ? ((last7 - prior7) / prior7) * 100 : null;
     const lastDate = rows[rows.length - 1]!.date;
     const lagDays = Math.round((Date.now() - Date.parse(lastDate + "T00:00:00Z")) / DAY_MS);
     // Honest freshness: Google reports 2-3 days behind by design, so <= 4 days is healthy.
-    const dot = lagDays <= 4 ? "bg-emerald-500" : lagDays <= 7 ? "bg-amber-500" : "bg-red-500";
+    const dot = lagDays <= 4 ? "bg-status-success" : lagDays <= 7 ? "bg-status-warning" : "bg-status-danger";
     const dotTitle =
       lagDays <= 4
-        ? `Search data current through ${lastDate} (Google reports a few days behind - this is healthy)`
-        : `Search data stops at ${lastDate} (${lagDays} days ago) - the connection may need attention`;
-    const deltaTone = deltaPct == null ? "text-gray-400" : deltaPct > 2 ? "text-emerald-600" : deltaPct < -2 ? "text-amber-600" : "text-gray-400";
+        ? `Search data current through ${lastDate} (Google reports a few days behind, this is healthy)`
+        : `Search data stops at ${lastDate} (${lagDays} days ago), the connection may need attention`;
+    // Wave 3B (2026-07-10) - the 7-day clicks number and week-over-week delta were DROPPED from
+    // this header bar. That same number lived in two places on Today (here AND the scoreboard
+    // section), each computed independently, so a rounding or window difference could show the
+    // operator two answers for one number ("731 / -14%" twice). The scoreboard section (and the
+    // ONE Today command) is now the single owner of that number; the header keeps only the
+    // at-a-glance freshness dot so a stale connection is still visible everywhere.
     return (
       <div className="flex items-center gap-3 text-[12px] tabular-nums">
         {tenant?.business_name ? (
           <span className="hidden font-semibold text-foreground sm:inline">{tenant.business_name}</span>
         ) : null}
-        <span className="inline-flex items-center gap-1.5" title={`${formatMetric(last7)} clicks in the last 7 reported days`}>
-          <span className={`inline-block h-2 w-2 rounded-full ${dot}`} title={dotTitle} />
-          <span className="font-semibold text-foreground">{formatMetricCompact(last7)}</span>
-          <span className="text-muted-foreground">clicks/7d</span>
-          {deltaPct != null ? <span className={`font-semibold ${deltaTone}`}>{formatDeltaPct(deltaPct)}</span> : null}
+        <span className="inline-flex items-center gap-1.5" title={dotTitle}>
+          <span className={`inline-block h-2 w-2 rounded-full ${dot}`} />
+          <span className="text-muted-foreground">Search data</span>
         </span>
         {/* FP4 (2026-07-03): one name for one page. This button used to say
             "Tonight's changes" while the sidebar said "Changes" and the URL
             said /worklist; the diagnosis counted four names for the same list. */}
         <Link
           href="/changes"
-          className="rounded-md bg-gray-900 px-2.5 py-1 text-[11px] font-semibold text-white transition-colors hover:bg-gray-700 dark:bg-neutral-100 dark:text-neutral-900 dark:hover:bg-neutral-300"
+          className="rounded-md bg-foreground px-2.5 py-1 text-[11px] font-semibold text-background transition-colors hover:bg-foreground/85"
         >
           Changes
         </Link>

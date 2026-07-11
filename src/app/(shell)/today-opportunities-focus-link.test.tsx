@@ -1,83 +1,65 @@
 /**
- * B-15 (operator spec 2026-07-09) render pin - each "What to do next" card on
- * Today must deep-link to that exact CanonicalChange's detail on Changes, not
- * just the generic list. Changes opens the SAME row's detail (its own
- * selectedId affordance) when the URL carries ?focus=<id> (see the effect in
- * changes-list-client.tsx), so the href here must be `/changes?focus=<id>`,
- * not a bare `/changes`.
+ * B-15 (operator spec 2026-07-09) render pin - the Today -> Changes deep link.
  *
- * Rendered for real via renderToStaticMarkup (repo convention, no jsdom) so
- * this pins the actual anchor href a click would follow, not just props.
+ * Wave 3B (2026-07-10): the "What to do next" list on Today was subsumed by the ONE command.
+ * The B-15 contract survives on the command's ship_move kind: its CTA must deep-link to that
+ * exact CanonicalChange's detail on Changes (/changes?focus=<id>), not the bare list, so
+ * clicking "See the change" opens the same row (changes-list-client.tsx reads ?focus).
+ *
+ * Rendered for real via renderToStaticMarkup (repo convention, no jsdom) so this pins the actual
+ * anchor href a click would follow.
  */
 import { describe, it, expect } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 
-import { OpportunitiesSection, opportunityHref } from "./page";
-import type { TodayView } from "@/domains/changes/today-view";
+import { buildTodayCommand, changeFocusHref } from "@/domains/today/today-command";
+import { TodayCommandCard } from "@/components/today/today-command-card";
+import type { TodayOpportunity } from "@/domains/changes/today-view";
 
-function baseView(overrides: Partial<TodayView> = {}): TodayView {
+function opportunity(overrides: Partial<TodayOpportunity> = {}): TodayOpportunity {
   return {
-    strategy: "balanced",
-    planStatus: "none",
-    headerSentence: "Choose a few changes to work on today.",
-    attention: [],
-    measuring: [],
-    nextOpportunities: [],
-    counts: { readyToday: 0, needsAttention: 0, measuring: 0, resultsAvailable: 0 },
+    changeId: "tenant-iranopedia::/persian-rugs::title",
+    pageLabel: "/persian-rugs",
+    recommendation: "Rewrite the title to match search intent",
+    opportunityType: "title",
+    estimatedEffortMinutes: 5,
+    upside: 40,
+    evidenceStrength: "strong",
     ...overrides,
   };
 }
 
-describe("opportunityHref", () => {
+describe("changeFocusHref", () => {
   it("builds a /changes?focus=<id> deep link, URL-encoding the id", () => {
     const id = "tenant-iranopedia::/persian-rugs::title";
-    expect(opportunityHref(id)).toBe(`/changes?focus=${encodeURIComponent(id)}`);
-    expect(opportunityHref(id)).toContain("/changes?focus=");
+    expect(changeFocusHref(id)).toBe(`/changes?focus=${encodeURIComponent(id)}`);
+    expect(changeFocusHref(id)).toContain("/changes?focus=");
   });
 });
 
-describe("OpportunitiesSection - Today to Changes deep link (B-15)", () => {
-  it("each move card links to its own change detail, never the bare /changes list", () => {
-    const view = baseView({
-      nextOpportunities: [
-        {
-          changeId: "tenant-iranopedia::/persian-rugs::title",
-          pageLabel: "Persian Rugs",
-          recommendation: "Rewrite the title to match search intent.",
-          opportunityType: "title",
-          estimatedEffortMinutes: 5,
-          upside: null,
-          evidenceStrength: "strong",
-        },
-        {
-          changeId: "tenant-iranopedia::/farsi-numbers::answer_block",
-          pageLabel: "Farsi Numbers",
-          recommendation: "Add a direct answer block.",
-          opportunityType: "answer_block",
-          estimatedEffortMinutes: 10,
-          upside: null,
-          evidenceStrength: "directional",
-        },
-      ],
+describe("Today command ship_move - Today to Changes deep link (B-15)", () => {
+  it("the ship_move CTA links to its own change detail, never the bare /changes list", () => {
+    const command = buildTodayCommand({
+      pipelineAlarms: [],
+      smokeAlarm: null,
+      scoreboardDeltaPct: 3,
+      topOpportunity: opportunity(),
+      firstReadOn: null,
+      measuringCount: 0,
     });
-    const html = renderToStaticMarkup(OpportunitiesSection({ today: view }));
+    expect(command.kind).toBe("ship_move");
+    expect(command.cta?.href).toBe(
+      `/changes?focus=${encodeURIComponent("tenant-iranopedia::/persian-rugs::title")}`,
+    );
 
+    const html = renderToStaticMarkup(<TodayCommandCard command={command} />);
     expect(html).toContain(
       `href="/changes?focus=${encodeURIComponent("tenant-iranopedia::/persian-rugs::title")}"`,
     );
-    expect(html).toContain(
-      `href="/changes?focus=${encodeURIComponent("tenant-iranopedia::/farsi-numbers::answer_block")}"`,
-    );
-    // Every per-card link carries a focus id - the generic "View all in Changes"
-    // header link is the only href that may still point at the bare list.
-    const cardHrefs = [...html.matchAll(/href="(\/changes[^"]*)"/g)].map((m) => m[1]);
-    const bareListLinks = cardHrefs.filter((h) => h === "/changes");
-    expect(bareListLinks).toHaveLength(1); // the "View all in Changes" header link only
-  });
-
-  it("renders nothing extra when there are no opportunities (still valid markup)", () => {
-    const html = renderToStaticMarkup(OpportunitiesSection({ today: baseView() }));
-    expect(html).toContain("What to do next");
-    expect(html).not.toContain("focus=");
+    // The one CTA carries the focus id; there is no bare /changes list link on the card.
+    const changeHrefs = [...html.matchAll(/href="(\/changes[^"]*)"/g)].map((m) => m[1]);
+    expect(changeHrefs).toEqual([
+      `/changes?focus=${encodeURIComponent("tenant-iranopedia::/persian-rugs::title")}`,
+    ]);
   });
 });
