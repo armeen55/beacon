@@ -107,8 +107,14 @@ const TYPE_SCALE_PINNED = new Set([
 // page.tsx with the composite lead headline whose presentation lives token-only in
 // src/components/today/** (outside this ratchet). Deleting LeadStoryCard's raw-palette tone maps
 // dropped the (shell) total by 44 to 1298.
+// Wave 3B (2026-07-10, Today becomes MISSION CONTROL) rebuilt page.tsx around the ONE command:
+// the smoke-alarm / lead-headline / cumulative / "what to do next" / measuring / attention blocks
+// were killed or moved into token-only components (src/components/today/**, outside this ratchet),
+// and every surviving inline strip in page.tsx (daily counter, Monday bands, count tiles,
+// skeletons) was migrated to tokens. page.tsx dropped from 56 raw-palette classes to 0. Measured
+// live total under src/app/(shell) after the migration: 1241.
 // This number may ONLY go down from here.
-const RAW_PALETTE_BASELINE = 1298;
+const RAW_PALETTE_BASELINE = 1241;
 
 function walkSourceFiles(dir: string, out: string[] = []): string[] {
   for (const name of readdirSync(dir)) {

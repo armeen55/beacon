@@ -181,6 +181,10 @@ function headerSentenceFor(status: TodayPlanStatus, plan: TodayPlanSummary | nul
       : `All ${plan.selectedCount} change${plan.selectedCount === 1 ? "" : "s"} applied, measuring now.`;
   }
   if (status === "in_progress") return "Your changes are live and measuring.";
-  if (counts.measuring > 0 && counts.readyToday === 0) return "Your recent changes are collecting data. No action is required right now.";
+  // Wave 3B: the "nothing to do right now" reassurance is OWNED by the ONE Today command (its
+  // observe kind: "Nothing needs a decision today. Keep measuring."). The greeting brief must not
+  // repeat it, or the same reassurance renders twice, and it must never appear on a day that is
+  // NOT observe (a defect / loss / ready-to-ship day). So the brief stays factual here.
+  if (counts.measuring > 0 && counts.readyToday === 0) return "Your recent changes are collecting data.";
   return "Choose a few changes to work on today.";
 }

@@ -17,11 +17,9 @@ import { DataSourcesStrip, countConnectedDataSources } from "@/components/today/
 import { RefreshMyDataButton } from "@/components/today/refresh-my-data-button";
 import { loadTodayV2GateData } from "./today-v2-data";
 import { loadTodayView } from "./today-view-data";
-import { EVIDENCE_LABEL } from "@/domains/changes/canonical-change";
 import { currentTenantId } from "@/lib/tenant-context";
 import { FrictionFixesSection, DemandOpportunitiesSection, WarRoomQuietLine } from "./war-room-sections";
 import { ScoreboardSection } from "./scoreboard-section";
-import { CumulativeOutcomeSection } from "./cumulative-outcome-strip";
 import { loadProofLedgerCached } from "@/domains/proof-gsc/load-ledger";
 import { perfMark, perfStage } from "@/lib/obs/perf-log";
 import { buildWeeklyRecap, shippedInLastDays, shippedToday, stillDoubleCheckingCount, weeklyRecapSentence } from "@/domains/proof-gsc/weekly-recap";
@@ -38,20 +36,24 @@ import { OpsPipelineSection } from "./ops-pipeline-section";
 import { maybeRefreshStaleDataOnVisit } from "@/domains/ops/on-visit-refresh";
 import { readPipelineHealth } from "@/domains/ops/pipeline-health-store";
 import { InvestigationSection } from "./investigation-section";
-import type { TodayView } from "@/domains/changes/today-view";
 import { createPerfTrace, readPerfTraceIdFromHeaders } from "@/lib/perf-trace";
 import { loadWithDeadline, valueWithDeadline } from "@/lib/load-with-deadline";
 import { HonestDelay } from "@/components/honest-delay";
 import { loadDailyTotalsForTenant } from "@/domains/recommendation-intelligence/gsc-page-queries";
-import { moveHeadline } from "./daily-experiments-copy";
-// P14 (Today dashboard pack) - the four top-of-Today briefing blocks. Pure selectors +
-// token-only cards live in my owned src/components/today/**; page.tsx just feeds them data it
-// already loaded for its other sections and renders them (each self-hides when its selector
-// returns null), so no raw-palette class is added under (shell).
-import { buildTodayLeadHeadline, adaptProofRecordForLead } from "@/components/today/today-lead-headline";
+// Wave 3B (2026-07-10) - Today becomes MISSION CONTROL: ONE command answers "what is the single
+// best thing I should do now?". The command model is a pure selector (domains/today); its card +
+// the consolidated proof strip are token-only (src/components/today, outside the (shell) ratchet).
+import { buildTodayCommand } from "@/domains/today/today-command";
+import { TodayCommandCard } from "@/components/today/today-command-card";
+import { TodayProofStrip } from "@/components/today/today-proof-strip";
+import { verdictSchedule } from "@/domains/proof-gsc/verdict-schedule";
+import { buildScoreboard } from "@/domains/scoreboard/scoreboard";
+// P14 (Today dashboard pack) - the supporting briefing blocks that now live behind the ONE
+// "More on today" drill-down (slot 6). Pure selectors + token-only cards in src/components/today/**.
+import { adaptProofRecordForLead } from "@/components/today/today-lead-headline";
 import { buildTodaySmokeAlarm } from "@/components/today/today-smoke-alarm";
 import { buildTodayGoalPace } from "@/components/today/today-goal-pace";
-import { TodayLeadHeadlineCard, TodaySmokeAlarmCard, TodayGoalPaceCard } from "@/components/today/today-briefing";
+import { TodayGoalPaceCard } from "@/components/today/today-briefing";
 import { loadGscDecaySignalsForTenant } from "@/domains/recommendation-intelligence/gsc-page-signals";
 import { buildReceiptLine } from "@/components/data/receipt-line";
 import { buildWhileAwaySummary } from "@/components/today/today-while-away";
@@ -103,8 +105,8 @@ function CockpitSkeleton() {
         <div className="h-7 w-28 rounded-md bg-muted/40" />
         <div className="h-4 w-2/3 max-w-md rounded-md bg-muted/25" />
       </div>
-      <div className="h-28 rounded-2xl border border-gray-100 bg-gray-50" />
-      <div className="grid gap-1.5">{[0, 1, 2].map((i) => <div key={i} className="h-16 rounded-lg border border-gray-100 bg-gray-50" />)}</div>
+      <div className="h-28 rounded-2xl border border-border bg-surface-inset" />
+      <div className="grid gap-1.5">{[0, 1, 2].map((i) => <div key={i} className="h-16 rounded-lg border border-border bg-surface-inset" />)}</div>
     </div>
   );
 }
@@ -228,20 +230,6 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
   const shippedTodayCount = shippedToday(ledgerRows, Date.now());
   const doubleCheckingTodayCount = stillDoubleCheckingCount(ledgerRows, Date.now());
 
-  // FP3 - the SWR snapshot's "N mature results ready" alert carries a list-derived count
-  // computed at snapshot time; rewrite it from the canonical decided count so the alert,
-  // the Results tile below, and the Results page it links to always say the same number.
-  // Self-drops when nothing is decided.
-  const attentionItems = today.attention
-    .map((a) =>
-      a.kind === "results_ready"
-        ? lifecycle.decided > 0
-          ? { ...a, title: `${lifecycle.decided} result${lifecycle.decided === 1 ? "" : "s"} ready to review` }
-          : null
-        : a,
-    )
-    .filter((a): a is TodayView["attention"][number] => a !== null);
-
   // Item 42: the assistant sets the scene like a person would.
   const nowPacific = new Date();
   const dayLine = nowPacific.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", timeZone: "America/Los_Angeles" });
@@ -286,31 +274,14 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
       )
     : null;
 
-  // P14 item 1 (v1 459/461) - THE lead headline: the single most important thing today, told as
-  // ONE plain line - the biggest win this week PLUS the next move - built ONLY from data already
-  // loaded above (the re-measured ledger, today.attention, tonight's plan) plus the same 84-day
-  // click series the scoreboard reads (react.cache-shared, so this costs nothing extra). Every
-  // clause reuses a number another surface owns; the win-lift comes from each won record's own
-  // closed measurement window (adaptProofRecordForLead), so a hard lift number never shows off an
-  // open window. Self-hides when both clauses are empty. This is the ONE lead block on Today - it
-  // subsumes the earlier single-signal lead card so there are never two "what matters most" widgets.
+  // The same 84-day click series the scoreboard reads (react.cache-shared, so this costs nothing
+  // extra). Feeds the command's week-over-week loss check and the while-away catch-up card.
   const tonightFirstPick = activePlan?.selected[0] ?? null;
   const leadStoryDays = await valueWithDeadline(
     loadDailyTotalsForTenant(tenantId, 84).catch(() => [] as Awaited<ReturnType<typeof loadDailyTotalsForTenant>>),
     [],
   );
   const nowMs = Date.now();
-  const leadHeadline = buildTodayLeadHeadline({
-    ledger: ledgerRows.map((r) =>
-      adaptProofRecordForLead({ path: r.path, pageLabel: null, shippedAt: r.shippedAt, verdict: r.verdict, windows: r.windows }),
-    ),
-    moverDays: leadStoryDays.map((d) => ({ date: d.date, clicks: d.clicks })),
-    nextPick: tonightFirstPick
-      ? { pageLabel: tonightFirstPick.pageLabel, headline: moveHeadline(tonightFirstPick) }
-      : null,
-    topAlert: attentionItems[0] ? { title: attentionItems[0].title, href: attentionItems[0].href } : null,
-    nowMs,
-  });
 
   // P14 item 2 (v1 324) - the smoke alarm with page blame: ONE honest line naming the exact page
   // bleeding clicks and the number, from the SAME per-page GSC decay signal the war-room friction
@@ -334,6 +305,32 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
     decay: Array.from((decaySignals as Map<string, { page: string; clicksNow: number; clicksPrior: number }>).values())
       .map((d) => ({ page: d.page, clicksNow: d.clicksNow, clicksPrior: d.clicksPrior })),
     pagesWithFixReady,
+  });
+
+  // Wave 3B - THE ONE COMMAND (slot 2). Every input reuses a number another surface owns, and the
+  // priority (defect > material loss > top move > observe) picks exactly one directive so two "do
+  // this" cards can never shout at once. The week-over-week delta comes from the SAME buildScoreboard
+  // the hero chart reads (the loaders are react.cache-shared, so this is not a second heavy read),
+  // and the next-read date comes from the ONE verdictSchedule the proof strip + Results share. Only
+  // RED-tier pipeline violations count as a defect (a stale-but-connected warning is not); this
+  // mirrors the red banner OpsPipelineSection shows in slot 1.
+  const pipelineAlarms = (pipelineHealth?.violations ?? [])
+    .filter((v) => v.severity !== "info" && v.severity !== "warn")
+    .map((v) => v.sentence);
+  const scoreboardDeltaPct =
+    buildScoreboard(
+      leadStoryDays.map((d) => ({ date: d.date, clicks: d.clicks, impressions: 0 })),
+      ledgerRows,
+      new Date(nowMs),
+    )?.deltaPct ?? null;
+  const firstReadOn = verdictSchedule(ledgerRows, new Date(nowMs)).firstReadOn;
+  const command = buildTodayCommand({
+    pipelineAlarms,
+    smokeAlarm,
+    scoreboardDeltaPct,
+    topOpportunity: today.nextOpportunities[0] ?? null,
+    firstReadOn,
+    measuringCount,
   });
 
   // P14 item 3 (v1 329/331) - goal pace + start-my-day: the honest weekly pace read plus the
@@ -399,9 +396,10 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
     seenAt: lastSeen?.seenAt ?? null,
     now: { decided: lifecycle.decided, won: lifecycle.won, toDo: lifecycle.toDo },
     newWonMonthlyClickLift,
-    // At most one green win-with-a-number card per load: if the lead headline already shows the
-    // win's clicks-a-month figure, the while-away card says "N won" without a second number.
-    suppressWinFigure: Boolean(leadHeadline?.celebratesWinWithFigure),
+    // Wave 3B: the lead headline card that used to carry the win figure is gone (subsumed by the
+    // ONE command, which never celebrates a win with a number), so the while-away card is now the
+    // single place a won-clicks-a-month figure appears - never suppressed.
+    suppressWinFigure: false,
     nowMs,
   });
   const whileAwayReceipt = buildReceiptLine({
@@ -422,122 +420,94 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
 
   return (
     <div className="space-y-6">
-      {/* A1 (operator-experience fix batch, 2026-07-02) - the data-pipe alert moves to the very
-          TOP of the page when the pipeline is degraded or stale, above the hero and Tonight's
-          card, so a broken sync is never buried below numbers that look confident but aren't.
-          Self-hides when the pipe is healthy (readPipelineHealth returns null/no violations). */}
+      {/* ── SLOT 1: critical truth warnings, self-hiding ──────────────────────────────────
+          A broken data pipe or a paused autopilot are the only things that outrank the one
+          command. Both self-hide when everything is healthy, so a normal day starts clean. */}
       <Suspense fallback={null}><OpsPipelineSection tenantId={tenantId} /></Suspense>
-      {/* P14 item 2 (v1 324) - the smoke alarm with page blame sits right under any broken-pipe
-          alert: a specific page bleeding clicks is the next-most-urgent thing after a broken sync.
-          Self-hides when no page's real drop clears the floor. */}
-      {smokeAlarm ? <TodaySmokeAlarmCard alarm={smokeAlarm} /> : null}
-      {/* P14 item 1 (v1 459/461) - THE lead headline: the biggest win this week plus the next
-          move, in one plain line, right after the alarms and before the greeting, so "what
-          matters most" is the very first content block on a healthy day. */}
-      {leadHeadline ? <TodayLeadHeadlineCard headline={leadHeadline} /> : null}
-      {/* P21 item 1 (v1 238) - "while you were away": the one honest catch-up line for a
-          returning operator, right under the lead headline. Self-hides on a first visit, a
-          quick refresh, or a quiet return. Numbers are the SAME canonical counts as the
-          tiles and Results, so this can never contradict them. */}
-      {whileAway ? <TodayWhileAwayCard summary={whileAway} checkedLine={whileAwayReceipt} /> : null}
-      {/* FP8 - THE cumulative outcome strip (same component Results renders): all-time
-          shipped/wins, the measured monthly click lift the wins are adding, the honest
-          first-verdict date when nothing has settled, and the clearly-labeled dollar
-          estimate only when GA4-backed rates exist. Ledger read is request-cache shared. */}
-      <Suspense fallback={null}><CumulativeOutcomeSection /></Suspense>
+      {/* Item 80 - the portfolio circuit breaker: self-hides unless autopilot paused itself
+          after consecutive losing batches or too many rollbacks. */}
+      <Suspense fallback={null}><CircuitBreakerSection /></Suspense>
+
+      {/* The greeting + the one refresh control (page chrome, not a command). */}
       <PageHeader title={greeting} description={brief}>
         <RefreshMyDataButton connectedCount={connectedSourceCount} />
       </PageHeader>
-      <DailyCounterStrip shipped={shippedTodayCount} doubleChecking={doubleCheckingTodayCount} />
-      {/* Operator spec 2026-07-09 A-3/B-6; P0-A truth fix 2026-07-10 - the monthly north star.
-          The sitewide monthly VISITS number was withdrawn (it summed non-additive GA4 page
-          sessions); the strip now leads with last full month's Search Console clicks, states
-          plainly that monthly visits need reconciliation, and never grades the visits goal from
-          clicks. Monthly framing on purpose ("weekly won't cut it"). */}
-      <Suspense fallback={null}><MonthlyNorthStarSection tenantId={tenantId} /></Suspense>
-      {/* P14 item 3 (v1 329/331) - goal pace + start-my-day: the honest weekly pace read plus the
-          20-minute ritual step, right under the day's greeting/counter so "start my day" is the
-          first thing after the brief. Self-hides on a fresh empty tenant. */}
-      {goalPace ? <TodayGoalPaceCard pace={goalPace} checkedLine={goalPaceReceipt} /> : null}
-      {recapSentence ? (
-        <div className="rounded-xl border border-emerald-100 bg-emerald-50/70 px-4 py-2.5 text-[13px] leading-relaxed text-emerald-900 tabular-nums">
-          {recapSentence}
-        </div>
-      ) : null}
-      {/* Item 27 - the promise ledger, one sentence, Mondays only, self-hides under 3 settled. */}
-      {calibrationSentence ? (
-        <div className="rounded-xl border border-sky-100 bg-sky-50/70 px-4 py-2.5 text-[13px] leading-relaxed text-sky-900 tabular-nums">
-          {calibrationSentence}
-        </div>
-      ) : null}
-      {/* Item 51 - the weekly strategy review's signed memo: what changed in the coming
-          week's plan posture and why, Mondays only, self-hides with no fresh mix. */}
-      {strategySentence ? (
-        <div className="rounded-xl border border-violet-100 bg-violet-50/70 px-4 py-2.5 text-[13px] leading-relaxed text-violet-900 tabular-nums">
-          {strategySentence}
-        </div>
-      ) : null}
-      {/* Item 80 - the portfolio circuit breaker: self-hides unless autopilot paused
-          itself after consecutive losing batches or too many rollbacks. Mounted high
-          so a paused autopilot is the first thing seen. */}
-      <Suspense fallback={null}><CircuitBreakerSection /></Suspense>
-      {/* Operator spec 2026-07-09 B-9: the team-standup line is KILLED ("corny") until it
-          can be rebuilt as the specific evidence chain (B-14). No fake-teammate framing. */}
-      <TodayCounts
-        readyToday={today.counts.readyToday}
-        needsAttention={attentionItems.length}
-        measuring={lifecycle.measuring}
-        results={lifecycle.decided}
-      />
 
-      {/* Item 1-3: THE SCOREBOARD - the line you are trying to move, with your changes on it.
-          A1 - when the pipe is degraded, the citations stat below carries an honest
-          "numbers last updated <date>" suffix instead of reading as fresh. */}
-      <Suspense fallback={<div className="h-56 animate-pulse rounded-2xl border border-gray-100 bg-gray-50" />}>
+      {/* ── SLOT 2-4: THE ONE COMMAND ─────────────────────────────────────────────────────
+          The single best thing to do now, its evidence, one exact action, and the ONE accent
+          CTA above the fold. Subsumes and KILLS the old smoke-alarm card, lead-headline card,
+          and the lead of the "What to do next" list, so two "do this" cards never shout at once. */}
+      <TodayCommandCard command={command} />
+
+      {/* ── SLOT 5: measuring / results status ────────────────────────────────────────────
+          The monthly clicks north star, the scoreboard chart (the ONE other place a clicks
+          delta is stated, in its own week-over-week window), and the ONE consolidated proof
+          strip (canonical measuring count + next-read date + Search Console freshness). */}
+      <Suspense fallback={null}><MonthlyNorthStarSection tenantId={tenantId} /></Suspense>
+      <Suspense fallback={<div className="h-56 animate-pulse rounded-2xl border border-border bg-surface-inset" />}>
         <ScoreboardSection tenantId={tenantId} stale={pipelineDegraded} staleCheckedAt={pipelineCheckedAt} />
       </Suspense>
+      <TodayProofStrip
+        measuringCount={measuringCount}
+        firstReadOn={firstReadOn}
+        gscThrough={leadStoryDays[leadStoryDays.length - 1]?.date ?? null}
+        nowMs={nowMs}
+      />
 
-      {/* Item 53 - overnight forensic investigation: when a page family's clicks
-          collapsed hard, or a sitewide shift hit, last night's pass diagnosed the
-          most likely cause. $0 persisted read, self-hides when nothing fired. */}
-      <Suspense fallback={null}><InvestigationSection tenantId={tenantId} /></Suspense>
+      {/* ── SLOT 6: everything else, behind ONE deliberate drill-down ─────────────────────
+          The full daily context lives here so the top of Today stays a single command. Native
+          <details> keeps every band in the DOM (Suspense still resolves), just collapsed. */}
+      <details className="group" data-more-on-today="true">
+        <summary className="cursor-pointer select-none list-none text-body font-medium text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1">
+          More on today
+        </summary>
+        <div className="mt-4 space-y-6">
+          <DailyCounterStrip shipped={shippedTodayCount} doubleChecking={doubleCheckingTodayCount} />
+          {/* P14 item 3 - goal pace + the 20-minute ritual step. Self-hides on a fresh tenant. */}
+          {goalPace ? <TodayGoalPaceCard pace={goalPace} checkedLine={goalPaceReceipt} /> : null}
+          {/* P21 item 1 - "while you were away": the one honest catch-up for a returning operator. */}
+          {whileAway ? <TodayWhileAwayCard summary={whileAway} checkedLine={whileAwayReceipt} /> : null}
+          {/* Item 7 - Monday recap band: last week's outcomes in one sentence, from the ledger. */}
+          {recapSentence ? (
+            <div className="rounded-xl border border-status-success/30 bg-status-success-bg px-4 py-2.5 text-body leading-relaxed text-foreground tabular-nums">
+              {recapSentence}
+            </div>
+          ) : null}
+          {/* Item 27 - the promise ledger, one sentence, Mondays only, self-hides under 3 settled. */}
+          {calibrationSentence ? (
+            <div className="rounded-xl border border-status-info/30 bg-status-info-bg px-4 py-2.5 text-body leading-relaxed text-foreground tabular-nums">
+              {calibrationSentence}
+            </div>
+          ) : null}
+          {/* Item 51 - the weekly strategy review's signed memo, Mondays only, self-hides with no mix. */}
+          {strategySentence ? (
+            <div className="rounded-xl border border-border bg-surface-raised px-4 py-2.5 text-body leading-relaxed text-foreground tabular-nums">
+              {strategySentence}
+            </div>
+          ) : null}
+          <TodayCounts
+            readyToday={today.counts.readyToday}
+            needsAttention={today.counts.needsAttention}
+            measuring={lifecycle.measuring}
+            results={lifecycle.decided}
+          />
+          {/* Item 53 - overnight forensic investigation, self-hides when nothing fired. */}
+          <Suspense fallback={null}><InvestigationSection tenantId={tenantId} /></Suspense>
 
-      {attentionItems.length > 0 ? <AttentionSection items={attentionItems} /> : null}
+          {/* Friction + demand bands carry real signals. */}
+          <section aria-label="What I found today" className="space-y-3">
+            <h2 className="text-sub font-semibold text-foreground">What I found today</h2>
+            <Suspense fallback={<WarRoomCardSkeleton />}><FrictionFixesSection tenantId={tenantId} /></Suspense>
+            <Suspense fallback={<WarRoomCardSkeleton />}><DemandOpportunitiesSection tenantId={tenantId} /></Suspense>
+            {/* FP5b - the New Pages board's ONE home is /changes; Today gets one honest sentence. */}
+            <Suspense fallback={null}><TodayNewPagesSummaryLine /></Suspense>
+            {/* Item 49 - one quiet line when every band above stays silent. */}
+            <Suspense fallback={null}><WarRoomQuietLine tenantId={tenantId} /></Suspense>
+          </section>
 
-      {/* 2026-07-08 (operator #1 ask): "Today should show what to DO next, ranked, not what I
-          did." The ranked next-moves list is promoted ABOVE tonight's applied recap so the very
-          next action is always in view - especially once tonight's batch is applied and only
-          measuring (it used to vanish then; see today-view.ts showOpportunities). */}
-      {today.nextOpportunities.length > 0 ? <OpportunitiesSection today={today} /> : null}
-
-      {/* Operator spec 2026-07-09 B-7: the "Tonight's plan" batch panel is OFF Today. The
-          batch keeps running quietly for measurement; its apply/rollback panel now lives on
-          /changes (its one home, next to the backlog). */}
-
-      {/* FP3 - render on the canonical count, not the snapshot's capped list, so the
-          strip can never hide while the tiles say changes are measuring. */}
-      {measuringCount > 0 ? <MeasuringSection today={today} measuringCount={measuringCount} /> : null}
-
-      {/* Operator spec 2026-07-09 B-9/B-14: no fake-teammate framing; first person. The AI
-          crawlers band is KILLED ("don't do shit") and the coverage map is KILLED (rebuild
-          from scratch later). Friction + demand stay because they carry real signals. */}
-      <section aria-label="What I found today" className="space-y-3">
-        <h2 className="text-sm font-semibold text-gray-700">What I found today</h2>
-        {/* Item 22 - each band streams in behind a skeleton sized like a real war-room
-            card, so the section never flashes blank while a band is still loading. */}
-        <Suspense fallback={<WarRoomCardSkeleton />}><FrictionFixesSection tenantId={tenantId} /></Suspense>
-        <Suspense fallback={<WarRoomCardSkeleton />}><DemandOpportunitiesSection tenantId={tenantId} /></Suspense>
-        {/* FP5b - the New Pages board's ONE home is /changes; Today gets one honest
-            sentence with the same count the board shows, plus the link there. */}
-        <Suspense fallback={null}><TodayNewPagesSummaryLine /></Suspense>
-        {/* Item 49 - when every band above stays silent, the section says so in one quiet
-            line instead of leaving a heading over nothing. The presence checks re-call the
-            same loaders the sections use; those are react.cache request-memoized (or $0
-            cache-only reads), so this re-check costs nothing extra in the same request. */}
-        <Suspense fallback={null}><WarRoomQuietLine tenantId={tenantId} /></Suspense>
-      </section>
-
-      <Suspense fallback={null}><DataSourcesStrip /></Suspense>
+          <Suspense fallback={null}><DataSourcesStrip /></Suspense>
+        </div>
+      </details>
     </div>
   );
 }
@@ -545,7 +515,7 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
 /** Item 22 - a war-room band while it streams: one card-shaped placeholder (rounded-2xl,
  *  ~h-24 like the real cards) so the section holds its shape instead of flashing blank. */
 function WarRoomCardSkeleton() {
-  return <div aria-hidden className="block h-24 animate-pulse rounded-2xl border border-gray-100 bg-gray-50 dark:border-neutral-800 dark:bg-neutral-900" />;
+  return <div aria-hidden className="block h-24 animate-pulse rounded-2xl border border-border bg-surface-inset" />;
 }
 
 /** D6 (daily ritual loop) - "Today you shipped N changes. The app is double-checking M of them."
@@ -556,7 +526,7 @@ function DailyCounterStrip({ shipped, doubleChecking }: { shipped: number; doubl
   if (shipped === 0) return null;
   const checking = doubleChecking > 0 ? ` I am double-checking ${doubleChecking} of them.` : "";
   return (
-    <div className="rounded-xl border border-gray-100 bg-gray-50/70 px-4 py-2.5 text-[13px] leading-relaxed text-gray-700 tabular-nums dark:border-neutral-800 dark:bg-neutral-900/60 dark:text-neutral-300">
+    <div className="rounded-xl border border-border bg-surface-inset px-4 py-2.5 text-body leading-relaxed text-muted-foreground tabular-nums">
       Today you shipped {shipped} change{shipped === 1 ? "" : "s"}.{checking}
     </div>
   );
@@ -573,21 +543,21 @@ function TodayCounts({
   measuring: number;
   results: number;
 }) {
-  // FP3 - every tile value arrives from the shared lifecycle loader (or the remapped
-  // attention list built from it), never a second CanonicalChange-derived count, so
-  // these tiles, the standup chip, the measuring strip, and Results always agree.
-  const tiles: { label: string; value: number; cls: string; show: boolean }[] = [
-    { label: "Ready today", value: readyToday, cls: "text-sky-700", show: readyToday > 0 },
-    { label: "Needs attention", value: needsAttention, cls: "text-amber-700", show: needsAttention > 0 },
-    { label: "Measuring", value: measuring, cls: "text-emerald-700", show: measuring > 0 },
-    { label: "Results", value: results, cls: "text-violet-700", show: results > 0 },
+  // FP3 - every tile value arrives from the shared lifecycle loader, never a second
+  // CanonicalChange-derived count, so these tiles, the proof strip, and Results always agree.
+  // Wave 3B: token-only, so this slot-6 recap adds nothing to the raw-palette ratchet.
+  const tiles: { label: string; value: number; show: boolean }[] = [
+    { label: "Ready today", value: readyToday, show: readyToday > 0 },
+    { label: "Needs attention", value: needsAttention, show: needsAttention > 0 },
+    { label: "Measuring", value: measuring, show: measuring > 0 },
+    { label: "Results", value: results, show: results > 0 },
   ].filter((t) => t.show);
   if (tiles.length === 0) return null;
   return (
     <div>
-      <div className="flex flex-wrap gap-x-5 gap-y-1 text-xs text-gray-500">
+      <div className="flex flex-wrap gap-x-5 gap-y-1 text-meta text-muted-foreground tabular-nums">
         {tiles.map((t) => (
-          <span key={t.label}><span className={`font-semibold ${t.cls}`}>{t.value}</span> {t.label}</span>
+          <span key={t.label}><span className="font-semibold text-foreground">{t.value}</span> {t.label}</span>
         ))}
       </div>
       {/* R14b (receipts everywhere) - where these counts come from: the SAME live
@@ -596,53 +566,6 @@ function TodayCounts({
         From the same live change ledger Results reads, counted just now.
       </p>
     </div>
-  );
-}
-
-function AttentionSection({ items }: { items: TodayView["attention"] }) {
-  return (
-    <section className="space-y-1.5" aria-label="Needs attention">
-      <h2 className="text-sm font-semibold text-gray-900">Needs your attention</h2>
-      {items.map((a) => (
-        <Link key={a.id} href={a.href} className="flex items-center justify-between gap-3 rounded-lg border border-amber-200 bg-amber-50/60 px-3 py-2 hover:bg-amber-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400">
-          <span className="min-w-0">
-            <span className="block break-words text-sm font-medium text-amber-900">{a.title}</span>
-            <span className="block break-words text-xs text-amber-800/80">{a.message}</span>
-          </span>
-          <span aria-hidden className="shrink-0 text-amber-700">→</span>
-        </Link>
-      ))}
-    </section>
-  );
-}
-
-function MeasuringSection({ today, measuringCount }: { today: TodayView; measuringCount: number }) {
-  // A3 (2026-07-02) - collapse to one compact strip: count + next-verdicts date + link.
-  // Compute the earliest nextCheckpoint across all visible measuring items to show
-  // "Next verdicts around [date]". If all items lack a checkpoint, fall back to null.
-  const nextCheckpoints = today.measuring
-    .map((m) => m.nextCheckpoint)
-    .filter((cp): cp is string => cp !== null && cp.length > 0);
-  const earliestCheckpoint = nextCheckpoints.length > 0
-    ? nextCheckpoints.sort()[0] // ISO dates sort lexicographically
-    : null;
-  let nextVerdictLine = "";
-  if (earliestCheckpoint) {
-    const [year, month, day] = earliestCheckpoint.split("-");
-    const d = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
-    const formatted = d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
-    nextVerdictLine = ` Next verdicts around ${formatted}.`;
-  }
-
-  return (
-    <section aria-label="Measuring">
-      <div className="flex items-center justify-between gap-3 rounded-lg border border-gray-100 bg-white px-3 py-2">
-        <span className="text-sm text-gray-700">
-          <span className="font-semibold text-gray-900">{measuringCount}</span> change{measuringCount === 1 ? "" : "s"} measuring.{nextVerdictLine}
-        </span>
-        <Link href="/results" className="shrink-0 text-xs font-medium text-gray-500 underline underline-offset-2 hover:text-gray-700">View all in Results →</Link>
-      </div>
-    </section>
   );
 }
 
@@ -657,38 +580,4 @@ async function MonthlyNorthStarSection({ tenantId }: { tenantId: string }) {
     goal = null;
   }
   return <MonthlyNorthStar tenantId={tenantId} monthlyVisitGoal={goal} />;
-}
-
-/** B-15 (operator spec 2026-07-09) - each card deep-links to that exact change's
- *  detail on Changes: ?focus=<id> reuses the SAME CanonicalChange.id Today already
- *  carries and the list's own row-detail affordance (changes-list-client.tsx), so
- *  clicking a move opens the exact card, not just the list. Exported so the render
- *  pin (today-opportunities-focus-link.test.tsx) can assert the href without pulling
- *  in the rest of this route. */
-export function opportunityHref(changeId: string): string {
-  return `/changes?focus=${encodeURIComponent(changeId)}`;
-}
-
-export function OpportunitiesSection({ today }: { today: TodayView }) {
-  return (
-    <section className="space-y-1.5" aria-label="Next opportunities">
-      <div className="flex items-center justify-between gap-2">
-        <h2 className="text-sm font-semibold text-gray-900">What to do next</h2>
-        <Link href="/changes" className="text-xs font-medium text-gray-500 underline underline-offset-2 hover:text-gray-700">View all in Changes →</Link>
-      </div>
-      <div className="space-y-1.5">
-        {today.nextOpportunities.map((o) => (
-          <Link key={o.changeId} href={opportunityHref(o.changeId)} className="block rounded-lg border border-gray-100 bg-white px-3 py-2 hover:bg-gray-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500">
-            <span className="block break-words text-sm font-semibold text-gray-900">{o.pageLabel}</span>
-            <span className="block break-words text-xs text-gray-500">{o.recommendation}</span>
-            <span className="mt-0.5 flex flex-wrap items-center gap-x-3 text-[11px] text-gray-400">
-              <span>{o.opportunityType}</span>
-              <span>~{o.estimatedEffortMinutes} min</span>
-              <span className={o.evidenceStrength === "strong" ? "text-emerald-600" : o.evidenceStrength === "directional" ? "text-amber-600" : "text-gray-500"}>{EVIDENCE_LABEL[o.evidenceStrength]}</span>
-            </span>
-          </Link>
-        ))}
-      </div>
-    </section>
-  );
 }
