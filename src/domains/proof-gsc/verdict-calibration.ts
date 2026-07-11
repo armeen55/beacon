@@ -41,6 +41,18 @@
  *     DIFFERENT measurement pipeline entirely - it does not use the GSC proof
  *     thresholds that failed the self-test - so it is outside this quarantine's
  *     scope and is not routed through here.
+ *
+ * ONE SHARED-REGISTRY MEMBER (in scope, so a future reader does not mistake it
+ * for the out-of-scope citation engine above):
+ *   - The pooled batch verdict (pooled-verdict.ts helped / did_not_help /
+ *     no_clear_lift, stored in pooled-verdict-store.ts, shown on /results by
+ *     pooled-verdict-section.tsx) shares THIS registry. Its inverse-variance
+ *     pool with a sign-flip null has NOT passed a placebo self-test either, so
+ *     every pooled row carries calibrationVersion: null and is read fail-closed
+ *     through isCalibratedPooledVerdict below. Pooled wins stay quarantined until
+ *     a certified pooled classifier registers its version in
+ *     CALIBRATED_VERDICT_VERSIONS - that same one edit re-lights the pooled
+ *     surface too.
  */
 
 /**
@@ -75,6 +87,27 @@ export type CalibratableRecord = {
  */
 export function isCalibratedVerdict(record: CalibratableRecord | null | undefined): boolean {
   const version = record?.calibrationVersion;
+  if (version == null) return false;
+  return CALIBRATED_VERDICT_VERSIONS.includes(version);
+}
+
+/** The minimal pooled-row shape this module reads. Structurally satisfied by
+ *  PooledVerdictRow (proof-gsc/pooled-verdict-store.ts). */
+export type CalibratablePooledRow = {
+  calibrationVersion?: string | null;
+};
+
+/**
+ * True ONLY when a POOLED batch verdict row's calibrationVersion is a registered,
+ * self-test-passing version. Pooled verdicts share the SAME registry as per-page
+ * verdicts (CALIBRATED_VERDICT_VERSIONS), so the pooled sign-flip inference stays
+ * quarantined until a pooled classifier is certified. Fail-closed: null /
+ * undefined / unknown version -> false. Today this returns false for EVERY pooled
+ * row (CALIBRATED_VERDICT_VERSIONS is empty), so no uncertified pooled win/loss
+ * line may ever render.
+ */
+export function isCalibratedPooledVerdict(row: CalibratablePooledRow | null | undefined): boolean {
+  const version = row?.calibrationVersion;
   if (version == null) return false;
   return CALIBRATED_VERDICT_VERSIONS.includes(version);
 }

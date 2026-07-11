@@ -40,6 +40,12 @@ export type PooledVerdictRow = {
   z_score: number;
   permutation_p: number;
   verdict: PooledVerdict;
+  /** The pooled classifier version that produced this verdict, or null when the pooled inference
+   *  has NOT passed Beacon's self-test (every row today). Read fail-closed by
+   *  isCalibratedPooledVerdict (verdict-calibration.ts): a null or unknown version can never render
+   *  as a trusted pooled win. The pooled sign-flip null itself is unchanged; this field only gates
+   *  how the stored verdict is READ for display, sharing the ONE calibration registry. */
+  calibrationVersion: string | null;
   sentence: string | null;
   /** The exact pages that fed the pool, for an operator-facing "which pages" expander later. */
   pages: string[];

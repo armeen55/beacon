@@ -40,6 +40,7 @@ function row(over: Partial<PooledVerdictRow> = {}): PooledVerdictRow {
     z_score: 4.5,
     permutation_p: 0.03,
     verdict: "helped",
+    calibrationVersion: null,
     sentence: "As a group: this batch of 6 changes is up about 9 percent vs comparison pages.",
     pages: ["/a", "/b", "/c", "/d", "/e", "/f"],
     ...over,
@@ -109,5 +110,17 @@ describe("round-trip", () => {
     await upsertPooledVerdict(row({ plan_id: "planB", computed_at: "2026-07-01T00:00:00.000Z" }));
     const rows = await loadPooledVerdicts("tenant-a", NOW);
     expect(rows[0]!.plan_id).toBe("planB");
+  });
+
+  it("round-trips a null calibrationVersion (the fail-closed quarantine stamp every row carries today)", async () => {
+    await upsertPooledVerdict(row({ calibrationVersion: null }));
+    const rows = await loadPooledVerdicts("tenant-a", NOW);
+    expect(rows[0]!.calibrationVersion).toBeNull();
+  });
+
+  it("preserves a stamped calibrationVersion on round-trip (the future certified-classifier path)", async () => {
+    await upsertPooledVerdict(row({ calibrationVersion: "pooled-classifier-v1" }));
+    const rows = await loadPooledVerdicts("tenant-a", NOW);
+    expect(rows[0]!.calibrationVersion).toBe("pooled-classifier-v1");
   });
 });

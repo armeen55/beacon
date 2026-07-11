@@ -135,6 +135,10 @@ export async function computePooledVerdicts(tenantId: string, now: Date = new Da
           z_score: result.zScore,
           permutation_p: result.permutationP,
           verdict: result.verdict,
+          // The pooled sign-flip inference has NOT passed any self-test, so every row it writes is
+          // uncalibrated. Stamp null so isCalibratedPooledVerdict (verdict-calibration.ts) keeps it
+          // quarantined fail-closed until a certified pooled classifier registers its version.
+          calibrationVersion: null,
           sentence: result.sentence,
           pages: perPage.map((p) => p.page),
         };

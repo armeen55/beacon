@@ -14,6 +14,7 @@ import {
   CALIBRATED_VERDICT_VERSIONS,
   UNCALIBRATED_NO_CLEAR_EFFECT_SENTENCE,
   isCalibratedVerdict,
+  isCalibratedPooledVerdict,
   displayProofOutcome,
   learningEligibleVerdict,
 } from "./verdict-calibration";
@@ -47,6 +48,25 @@ describe("isCalibratedVerdict - fail-closed", () => {
     registerTestCalibratedVersion();
     expect(isCalibratedVerdict({ verdict: "won", calibrationVersion: TEST_CALIBRATED_VERSION })).toBe(true);
     expect(isCalibratedVerdict({ verdict: "won", calibrationVersion: "still-not-it" })).toBe(false);
+  });
+});
+
+describe("isCalibratedPooledVerdict - fail-closed, shares the same registry", () => {
+  it("is false for a null calibrationVersion (every pooled row today)", () => {
+    expect(isCalibratedPooledVerdict({ calibrationVersion: null })).toBe(false);
+  });
+  it("is false for an undefined / missing calibrationVersion", () => {
+    expect(isCalibratedPooledVerdict({})).toBe(false);
+    expect(isCalibratedPooledVerdict(undefined)).toBe(false);
+    expect(isCalibratedPooledVerdict(null)).toBe(false);
+  });
+  it("is false for an UNKNOWN (unregistered) version", () => {
+    expect(isCalibratedPooledVerdict({ calibrationVersion: "made-up-pooled-v9" })).toBe(false);
+  });
+  it("is true ONLY for a registered version (the future certified pooled classifier)", () => {
+    registerTestCalibratedVersion();
+    expect(isCalibratedPooledVerdict({ calibrationVersion: TEST_CALIBRATED_VERSION })).toBe(true);
+    expect(isCalibratedPooledVerdict({ calibrationVersion: "still-not-it" })).toBe(false);
   });
 });
 

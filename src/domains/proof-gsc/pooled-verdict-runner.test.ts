@@ -117,10 +117,21 @@ describe("computePooledVerdicts", () => {
     expect(result.groupsConsidered).toBe(1);
     expect(result.groupsPooled).toBe(1);
     expect(upsertMock).toHaveBeenCalledTimes(1);
-    const row = upsertMock.mock.calls[0]![0] as { tenant_id: string; plan_id: string; verdict: string; n: number };
+    const row = upsertMock.mock.calls[0]![0] as { tenant_id: string; plan_id: string; verdict: string; n: number; calibrationVersion: string | null };
     expect(row.tenant_id).toBe("tenant-a");
     expect(row.plan_id).toBe("plan1");
     expect(row.n).toBe(6);
+    // The pooled inference has not passed a self-test, so the row is stamped uncalibrated.
+    expect(row.calibrationVersion).toBeNull();
+  });
+
+  it("stamps calibrationVersion null so the pooled row stays quarantined fail-closed", async () => {
+    const paths = ["/a", "/b", "/c"];
+    records = paths.map((p) => ledgerRow(p, 8));
+    plans = [planWith(paths)];
+    await computePooledVerdicts("tenant-a");
+    const row = upsertMock.mock.calls[0]![0] as { calibrationVersion: string | null };
+    expect(row.calibrationVersion).toBeNull();
   });
 
   it("is idempotent: running twice on the same input persists the same row twice (overwrite, not duplicate)", async () => {

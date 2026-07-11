@@ -1,5 +1,6 @@
 import { currentTenantId } from "@/lib/tenant-context";
 import { loadLatestPooledVerdict } from "@/domains/proof-gsc/pooled-verdict-store";
+import { isCalibratedPooledVerdict } from "@/domains/proof-gsc/verdict-calibration";
 
 /**
  * pooled-verdict-section (2026-07-02, master plan item 34) - the compact "as a group" batch line
@@ -25,6 +26,12 @@ export async function PooledVerdictSection() {
     return null;
   }
   if (!row || !row.sentence) return null;
+
+  // Fail-closed calibration quarantine (2026-07-11): the pooled sign-flip inference has not passed
+  // Beacon's self-test, so an uncertified pooled row may never render a helped / did not help line
+  // or any win-or-loss wording. Self-hide (honest absence) until a pooled classifier registers its
+  // version in verdict-calibration.ts; from that moment a stamped row flows through unchanged.
+  if (!isCalibratedPooledVerdict(row)) return null;
 
   const tone = TONE[row.verdict] ?? TONE.no_clear_lift!;
 
