@@ -141,6 +141,17 @@ function estimateCostUsd(promptChars: number, completionChars: number): number {
 
 const SUPERLATIVES = /\b(best|leading|#1|number one|top-rated|guaranteed|world-class|ultimate|premier)\b/i;
 
+/** Pilot loop 6 (2026-07-11): a rephrase-class retry asks the model to REWRITE
+ *  its previous answer - exactly the moment it is tempted to "help" fill in a
+ *  more convincing-sounding claim with a fresh, invented number or percentage
+ *  (the numeric firewall would still catch it, but only after the final retry
+ *  is spent). Every rephrase-class retry instruction below closes with this
+ *  same reminder so a rewrite cannot trade an ungrounded superlative, or a
+ *  too-thin answer, for an ungrounded statistic instead. */
+const NO_NEW_NUMBERS_RETRY_REMINDER =
+  "Do not introduce any number, percentage, or statistic that is not present in the evidence; if " +
+  "unsure, write the sentence without a number.";
+
 /** G4 (2026-07-10): the RETRY instruction when an answer block asserted a
  *  superlative no cited source proves. Instructs the model to REPHRASE to a
  *  grounded, non-superlative fact (the honest fix the operator made by hand:
@@ -152,7 +163,11 @@ const SUPERLATIVES = /\b(best|leading|#1|number one|top-rated|guaranteed|world-c
  *  ungrounded one ("most famous" -> "the leading voice") - still a fail-closed
  *  reject, just on a fresh phrase. Strengthened below to rule that out
  *  explicitly and to state the preference plainly: a concrete grounded fact
- *  always beats any superlative, grounded or not. */
+ *  always beats any superlative, grounded or not.
+ *
+ *  Pilot loop 6 (2026-07-11): closes with NO_NEW_NUMBERS_RETRY_REMINDER so the
+ *  rephrase cannot launder in a fresh invented number while it removes the
+ *  superlative. */
 const SUPERLATIVE_REPHRASE_INSTRUCTION =
   'Your previous answer used a superlative or ranking claim (for example "most famous", ' +
   '"most celebrated", "leading", "best-known", "the first") that none of your cited sources ' +
@@ -164,7 +179,8 @@ const SUPERLATIVE_REPHRASE_INSTRUCTION =
   'voice in classical Persian music, awarded the UNESCO Mozart Medal" instead of "the most ' +
   'celebrated singer". A concrete grounded fact is always the better answer than any superlative - ' +
   "prefer it every time. Only keep a superlative if a cited source explicitly asserts that exact " +
-  "superlative.";
+  "superlative. " +
+  NO_NEW_NUMBERS_RETRY_REMINDER;
 
 /** Pilot loop 5 (2026-07-11): the MERGED retry instruction for when attempt 1
  *  fails BOTH the 80-word floor AND the verification-aware superlative check
@@ -175,7 +191,10 @@ const SUPERLATIVE_REPHRASE_INSTRUCTION =
  *  still carrying whichever issue the retry never mentioned. This addresses
  *  both in ONE instruction, spending no extra LLM call: lengthen with MORE
  *  grounded single-fact sentences (never padding), AND remove or replace every
- *  unproven superlative with a grounded fact, introducing no new one. */
+ *  unproven superlative with a grounded fact, introducing no new one.
+ *
+ *  Pilot loop 6 (2026-07-11): closes with NO_NEW_NUMBERS_RETRY_REMINDER so
+ *  lengthening the answer never smuggles in a fresh invented number either. */
 const COMBINED_THIN_AND_SUPERLATIVE_RETRY_INSTRUCTION =
   "Your previous answer had TWO problems - fix BOTH in this rewrite. First, it was too short: write " +
   "a complete answer of 80 to 150 words, grounded ONLY in the evidence provided - add the missing " +
@@ -186,7 +205,8 @@ const COMBINED_THIN_AND_SUPERLATIVE_RETRY_INSTRUCTION =
   "non-superlative fact using the specific honors, dates, roles, and works in the evidence. Do NOT " +
   "swap it for a DIFFERENT unproven superlative and introduce NO new superlative or ranking claim " +
   "that was not in your first answer. Only keep a superlative if a cited source explicitly asserts " +
-  "that exact superlative.";
+  "that exact superlative. " +
+  NO_NEW_NUMBERS_RETRY_REMINDER;
 
 /** Em/en-dashes are a STYLE issue, not a trust issue — normalize them to hyphens
  *  in every string field before validation, so a good draft isn't rejected for
@@ -790,7 +810,10 @@ export async function callStructuredLLM<K extends StructuredDraftKind>(
         // SUPERLATIVE_REPHRASE_INSTRUCTION already closes for a superlative-
         // triggered retry, but this retry reason never carried that reminder. State
         // it here too, so lengthening never trades away groundedness.
-        system = `${req.system}\n\nYour previous answer was too short. Write a complete answer of 80 to 150 words, grounded ONLY in the evidence provided. Add the missing length with MORE grounded facts (names, dates, honors, works) - do NOT introduce a new superlative or ranking claim while lengthening it.`;
+        // Pilot loop 6 (2026-07-11): also closes with NO_NEW_NUMBERS_RETRY_REMINDER
+        // so lengthening never trades away groundedness for an invented number
+        // either - the same reminder every other rephrase-class retry carries.
+        system = `${req.system}\n\nYour previous answer was too short. Write a complete answer of 80 to 150 words, grounded ONLY in the evidence provided. Add the missing length with MORE grounded facts (names, dates, honors, works) - do NOT introduce a new superlative or ranking claim while lengthening it. ${NO_NEW_NUMBERS_RETRY_REMINDER}`;
       } else {
         system = `${req.system}\n\nYour previous output was invalid: ${errors.slice(-3).join(" | ")}. Return ONLY valid JSON matching the described shape, with non-empty evidenceRefs.`;
         // R16 numeric repair: when the failure was an ungrounded number, inject

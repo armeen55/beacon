@@ -1578,7 +1578,9 @@ describe("pilot loop 5 - merged too-thin + superlative retry instruction (one re
     await callStructuredLLM({ kind: "answer_block", system: "s", user: "u", grounded: GROUNDED, complete, recentOutputs: [] });
     expect(systems[1]).not.toMatch(/TWO problems/i);
     expect(systems[1]).toBe(
-      `s\n\nYour previous answer was too short. Write a complete answer of 80 to 150 words, grounded ONLY in the evidence provided. Add the missing length with MORE grounded facts (names, dates, honors, works) - do NOT introduce a new superlative or ranking claim while lengthening it.`,
+      // Pilot loop 6 (2026-07-11): closes with the no-new-numbers reminder,
+      // shared by every rephrase-class retry instruction.
+      `s\n\nYour previous answer was too short. Write a complete answer of 80 to 150 words, grounded ONLY in the evidence provided. Add the missing length with MORE grounded facts (names, dates, honors, works) - do NOT introduce a new superlative or ranking claim while lengthening it. Do not introduce any number, percentage, or statistic that is not present in the evidence; if unsure, write the sentence without a number.`,
     );
   });
 
@@ -1598,5 +1600,67 @@ describe("pilot loop 5 - merged too-thin + superlative retry instruction (one re
     expect(systems[1]).toContain("Do NOT swap it for a");
     expect(systems[1]).toMatch(/no new superlative/i);
     expect(systems[1]).toMatch(/concrete grounded fact is always the better answer/i);
+  });
+});
+
+describe("pilot loop 6 - no-new-numbers reminder on every rephrase-class retry", () => {
+  const NO_NEW_NUMBERS_TEXT =
+    "Do not introduce any number, percentage, or statistic that is not present in the evidence; if unsure, write the sentence without a number.";
+  const nonSuperlativeSourceFetch = () =>
+    vi.fn(async () => ({
+      ok: true,
+      text: "Persian weddings center on the sofreh aghd ceremonial spread laid before the couple.",
+    }));
+  const withSource = (answer: string): string =>
+    JSON.stringify({
+      ...validAnswer,
+      answer,
+      sources: [
+        {
+          url: "https://www.britannica.com/biography/googoosh",
+          title: "Googoosh",
+          domain: "britannica.com",
+          retrievedAt: "2026",
+          claim: "Persian weddings center on the sofreh aghd ceremonial spread",
+          authority: "unverified",
+        },
+      ],
+    });
+
+  it("the too-thin-only retry closes with the no-new-numbers reminder", async () => {
+    const THIN =
+      "Persian hospitality traditionally revolves around continuously offering guests freshly brewed tea throughout their entire visit, alongside assorted confectioneries, fragrant pastries, and seasonal fruit arranged beautifully across decorative serving platters. Conversation, storytelling, and unhurried companionship characterize these gatherings, reflecting deeply rooted cultural expectations surrounding generosity, warmth, respect, and reciprocal kindness shown between welcoming hosts and their appreciative visitors.";
+    const systems: string[] = [];
+    const complete: CompleteFn = async ({ system }) => {
+      systems.push(system);
+      return { text: JSON.stringify({ ...validAnswer, answer: THIN }) };
+    };
+    await callStructuredLLM({ kind: "answer_block", system: "s", user: "u", grounded: GROUNDED, complete, recentOutputs: [] });
+    expect(systems[1]).toContain(NO_NEW_NUMBERS_TEXT);
+  });
+
+  it("the superlative-only retry closes with the no-new-numbers reminder", async () => {
+    const sourceFetch = nonSuperlativeSourceFetch();
+    const systems: string[] = [];
+    const complete: CompleteFn = async ({ system }) => {
+      systems.push(system);
+      return { text: withSource("Googoosh is the most famous Iranian pop singer. " + validAnswer.answer) };
+    };
+    await callStructuredLLM({ kind: "answer_block", system: "s", user: "u", grounded: GROUNDED, complete, sourceFetch });
+    expect(systems[1]).toContain(NO_NEW_NUMBERS_TEXT);
+  });
+
+  it("the combined too-thin + superlative retry closes with the no-new-numbers reminder", async () => {
+    const SHORT_SUPERLATIVE =
+      "Googoosh is widely regarded as the most extraordinarily celebrated and internationally acclaimed Iranian pop vocalist of her entire generation, continuously captivating audiences across decades with her distinctively recognizable voice, enduringly popular recorded repertoire, and unmistakably influential contributions to contemporary Persian popular music culture throughout the broader worldwide Iranian diaspora community across multiple continents.";
+    const sourceFetch = nonSuperlativeSourceFetch();
+    const systems: string[] = [];
+    const complete: CompleteFn = async ({ system }) => {
+      systems.push(system);
+      return { text: withSource(SHORT_SUPERLATIVE) };
+    };
+    await callStructuredLLM({ kind: "answer_block", system: "s", user: "u", grounded: GROUNDED, complete, sourceFetch });
+    expect(systems[1]).toMatch(/TWO problems/i);
+    expect(systems[1]).toContain(NO_NEW_NUMBERS_TEXT);
   });
 });

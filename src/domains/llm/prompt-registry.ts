@@ -44,7 +44,13 @@ export const PROMPT_REGISTRY = {
   // too-thin + superlative-rephrase instruction when attempt 1 fails both
   // checks at once. A prompt-wording change, so the cache must not serve a
   // stale v4 response under the new guidance.
-  "draft.answer_block": 5,
+  // Bumped to v6 (2026-07-11, pilot loop 6): every rephrase-class retry
+  // instruction (superlative-only, too-thin-only, and the combined
+  // instruction) now closes with a reminder not to introduce any number,
+  // percentage, or statistic absent from the evidence. A prompt-wording
+  // change, so the cache must not serve a stale v5 response under the new
+  // guidance.
+  "draft.answer_block": 6,
   "draft.atomic_edit": 1,
   "draft.create_page_brief": 1,
   "draft.cro_fix": 1,
