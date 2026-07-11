@@ -43,23 +43,33 @@ hermetic gate GREEN at 3586c3dd (fullgateW3.log: typecheck exit 0, test exit 0, 
 failed, build exit 0). Deploy confirmation to Vercel production is pending; unconfirmed from this
 environment.
 
-## Queue, ranked (2026-07-10, post-Wave-3)
+## Refresh-reliability wave (#238) - DONE pending deploy confirmation (2026-07-11)
 
-1. **Refresh-reliability wave (#238).** Fix the precompute tenant-guard that is skipping
-   iranopedia on 6 of its last 10 runs, close the ritz auth-failure escalation gap, add a
-   per-source refresh ledger, and converge the manual and cron refresh paths so they agree on
-   state.
-2. **Verdict-floor tightening.** The self-test false-positive rate is genuinely 0.925 (sample
+Fixed the precompute tenant-guard that was skipping iranopedia on 6 of its last 10 runs (root
+cause: the fan-out warmed non-env tenants under the parent request's ambient context, tripping
+the cross-tenant guard; fix is a runWithTenant AsyncLocalStorage override that warms each tenant
+inline under its explicit context), closed the ritz auth-failure escalation gap (5 consecutive
+failed cron runs spanning at least 3 days now stamps a distinct needs_attention marker, surfaced
+on /settings/connectors), and added a per-source refresh ledger (new additive refresh_runs table
+recording every refresh across cron/manual/on-use with an honest ok/partial/failed result).
+Migration 2026-07-11_refresh_runs.sql is applied to prod (verified via MCP). See the 2026-07-11
+entry in VERIFICATION_LOG.md for full detail. Full hermetic gate GREEN at the pre-amend tip
+(fullgateRR.log: 22711 passed / 0 failed). Deploy confirmation to Vercel production is pending;
+unconfirmed from this environment.
+
+## Queue, ranked (2026-07-11, post-refresh-reliability)
+
+1. **Verdict-floor tightening.** The self-test false-positive rate is genuinely 0.925 (sample
    size 40); target under 5 percent.
-3. **56-84d confidence tier slice.** Build the confirmation tier that E-39's D6 already reserved
+2. **56-84d confidence tier slice.** Build the confirmation tier that E-39's D6 already reserved
    space for.
-4. **Pilot re-run through the product plus parity matrix update.** Re-run the pilot through the
+3. **Pilot re-run through the product plus parity matrix update.** Re-run the pilot through the
    shipped product and update the parity matrix against the result.
-5. **Second-tenant workflow proof.** Prove the same workflow end to end on a second tenant, not
+4. **Second-tenant workflow proof.** Prove the same workflow end to end on a second tenant, not
    tenant-iranopedia alone.
-6. **Sibling SWR stores ambient-tenant check.** Extend the Task #230 tenant-isolation fix to the
+5. **Sibling SWR stores ambient-tenant check.** Extend the Task #230 tenant-isolation fix to the
    worklist and Today surface stores.
-7. **Remaining pre-existing dash sweep.** Includes the operator-visible string in
+6. **Remaining pre-existing dash sweep.** Includes the operator-visible string in
    build-canonical-changes.ts.
 
 ## Wave 4 pilot - queued 2026-07-10: /famous-iranian-singers

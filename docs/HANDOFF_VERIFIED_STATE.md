@@ -1,4 +1,18 @@
-> 🟢 **(2026-07-10 latest) - HEAD STATE: ORIGIN/MAIN WILL BE THIS DOCS TIP AFTER THIS PUSH (Wave 3
+> 🟢 **(2026-07-11 latest) - HEAD STATE: ORIGIN/MAIN WILL BE THIS DOCS TIP AFTER THIS PUSH (the
+> refresh-reliability wave: precompute tenant-guard fix, auth-failure escalation, and the new
+> refresh_runs ledger, commits e84f7d6d and 0998f1c2).** Deployment of the pushed SHAs to Vercel
+> production is unconfirmed from this environment.
+>
+> Full hermetic gate GREEN at the pre-amend tip (fullgateRR.log: 22711 passed, 0 failed). The
+> amend on top of that tip was comment-punctuation only; it was re-verified against the targeted
+> 144 tests plus a full typecheck, both green. See the 2026-07-11 entry in VERIFICATION_LOG.md
+> for the root-cause detail on the tenant-guard fix, the auth-escalation marker, and the new
+> refresh ledger. NEXT: (1) confirm the Vercel production build for this tip in the dashboard
+> (unconfirmed from this environment); (2) work the queue in NEXT_PHASE_EXECUTION_PLAN.md,
+> starting with verdict-floor tightening (self-test false-positive rate 0.925 at n=40, target
+> under 5 percent).
+>
+> 🟢 **(2026-07-10) - HEAD STATE: ORIGIN/MAIN WILL BE THIS DOCS TIP AFTER THIS PUSH (Wave 3
 > = Lane A canonical selectors, already on main at 996e8ee5, plus Lane B Today mission control,
 > Lane C Changes decision queue, the drafter last-mile pilot G4-G7, and the combined audit-fix
 > batch at 3586c3dd).** E-39 (adaptive control pools), Wave 1 (P0-A north-star truth removal, P0-B

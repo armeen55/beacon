@@ -7,6 +7,20 @@
 
 ---
 
+## 2026-07-11 - Refresh-reliability wave: tenant-guard fix, auth escalation, refresh_runs ledger
+
+2026-07-11 refresh-reliability: precompute tenant-guard root cause = fan-out warmed non-env
+tenants under the parent request's ambient context tripping the cross-tenant guard, fixed with a
+runWithTenant AsyncLocalStorage override warming each tenant inline under its explicit context;
+auth escalation = 5 consecutive failed cron runs spanning >= 3 days stamps a distinct
+needs_attention marker, never auth_failed_at, probe-before-stamp preserved, surfaced on
+/settings/connectors with "I have not been able to pull your data since <date>. Reconnecting
+usually fixes this."; refresh ledger = new additive refresh_runs table recording every refresh
+source-by-source across cron/manual/on-use with honest ok/partial/failed + rows persisted +
+data-through date, Profound synced-with-0-rows now reads partial no-new-data; migration
+2026-07-11_refresh_runs.sql APPLIED to prod by the architect via MCP, table + RLS verified; gate
+22711 passed 0 failed.
+
 ## 2026-07-10 - E-39 adaptive control pools (admit-with-caution) - worktree e39-impl
 
 **CORRECTED 2026-07-10 (see the follow-on entry immediately below this one):** the D6 line below
