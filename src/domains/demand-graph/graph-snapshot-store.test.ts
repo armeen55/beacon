@@ -1,8 +1,18 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
+
+const readStoreMock = vi.fn(async (..._args: unknown[]): Promise<unknown> => []);
+const writeStoreMock = vi.fn(async (..._args: unknown[]): Promise<void> => {});
+
+vi.mock("@/lib/persistence/json-store", () => ({
+  readStore: (...args: unknown[]) => readStoreMock(...args),
+  writeStore: (...args: unknown[]) => writeStoreMock(...args),
+}));
 
 import {
   isGraphStale,
   isGraphSnapshotValid,
+  readGraphSnapshot,
+  writeGraphSnapshot,
   GRAPH_FRESH_MS,
   GRAPH_SCHEMA_VERSION,
   type GraphSnapshotRow,
@@ -14,7 +24,7 @@ import type { MoveCandidate } from "./build-graph";
 const NOW = Date.parse("2026-06-29T12:00:00Z");
 
 /** A move carrying EVERY post-pass attachment (learning prior, proof caution, AEO
- *  evidence, canonical group) — the fields a serialization bug would silently drop. */
+ *  evidence, canonical group), the fields a serialization bug would silently drop. */
 function richMove(over: Partial<MoveCandidate> = {}): MoveCandidate {
   return {
     demandKey: "k1",
@@ -57,6 +67,36 @@ function row(over: Partial<GraphSnapshotRow> = {}): GraphSnapshotRow {
   return { schemaVersion: GRAPH_SCHEMA_VERSION, computedAt: "2026-06-29T11:58:00Z", data: snapshot([richMove()]), ...over };
 }
 
+beforeEach(() => {
+  readStoreMock.mockReset();
+  readStoreMock.mockResolvedValue([]);
+  writeStoreMock.mockClear();
+});
+
+describe("explicit tenantId threading (2026-07-10 hygiene batch, sibling fix)", () => {
+  it("readGraphSnapshot threads the EXPLICIT tenantId into the json-store read", async () => {
+    await readGraphSnapshot("tenant-a");
+    expect(readStoreMock).toHaveBeenCalledWith("demand-graph-snapshot", [], { tenantId: "tenant-a" });
+  });
+
+  it("writeGraphSnapshot threads the EXPLICIT tenantId into the json-store write", async () => {
+    await writeGraphSnapshot(snapshot([richMove()]), "2026-07-10T05:00:00.000Z", "tenant-a");
+    expect(writeStoreMock).toHaveBeenCalledOnce();
+    const [store, , opts] = writeStoreMock.mock.calls[0] as unknown as [string, unknown, { tenantId?: string }];
+    expect(store).toBe("demand-graph-snapshot");
+    expect(opts).toEqual({ tenantId: "tenant-a" });
+  });
+
+  it("two tenants never bleed: each write carries its OWN tenantId", async () => {
+    await writeGraphSnapshot(snapshot([richMove()]), "t1", "tenant-a");
+    await writeGraphSnapshot(snapshot([richMove()]), "t2", "tenant-b");
+    const optsA = writeStoreMock.mock.calls[0][2] as { tenantId?: string };
+    const optsB = writeStoreMock.mock.calls[1][2] as { tenantId?: string };
+    expect(optsA.tenantId).toBe("tenant-a");
+    expect(optsB.tenantId).toBe("tenant-b");
+  });
+});
+
 describe("graph-snapshot tenant isolation (store is per-tenant, never global)", () => {
   it("the demand-graph-snapshot store is classified per-tenant", () => {
     expect(classifyStore("demand-graph-snapshot")).toBe("per-tenant");
@@ -90,19 +130,19 @@ describe("isGraphSnapshotValid (version + shape gate)", () => {
   });
   it("a corrupt snapshot missing graph.moves is invalid", () => {
     const bad = row();
-    // @ts-expect-error — deliberately corrupt the shape
+    // @ts-expect-error, deliberately corrupt the shape
     delete bad.data.graph.moves;
     expect(isGraphSnapshotValid(bad)).toBe(false);
   });
   it("a corrupt snapshot missing pageNodes is invalid", () => {
     const bad = row();
-    // @ts-expect-error — deliberately corrupt
+    // @ts-expect-error, deliberately corrupt
     delete bad.data.graph.pageNodes;
     expect(isGraphSnapshotValid(bad)).toBe(false);
   });
 });
 
-describe("serialization parity — ranking + learning + proof + research survive round-trip", () => {
+describe("serialization parity, ranking + learning + proof + research survive round-trip", () => {
   it("move order and scores are byte-identical after JSON round-trip", () => {
     const original = snapshot([richMove({ demandKey: "a", score: 90 }), richMove({ demandKey: "b", score: 80 }), richMove({ demandKey: "c", score: 70 })]);
     const round = JSON.parse(JSON.stringify(original)) as LoadGraphResult;

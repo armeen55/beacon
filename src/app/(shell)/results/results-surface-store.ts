@@ -29,8 +29,16 @@ export const RESULTS_SURFACE_FRESH_MS = 15 * 60 * 1000;
 
 export type ResultsSurfaceRow = { computedAt: string; ledger: ShippedChangeRecord[] };
 
-export async function readResultsSurface(): Promise<ResultsSurfaceRow | null> {
-  const rows = await readStore<ResultsSurfaceRow>(STORE, []).catch(() => [] as ResultsSurfaceRow[]);
+/**
+ * Sibling fix (2026-07-10 hygiene batch) - `opts.tenantId`, the same purpose as
+ * changes-surface-store's: results-ledger-data.ts's after() background rebuild
+ * already resolves the tenant it means explicitly - thread that SAME tenant into
+ * the read/write instead of falling back to json-store's ambient
+ * currentTenantSlug() resolution, which is not guaranteed correct outside the
+ * render's request scope inside after(). Optional only for backward compatibility.
+ */
+export async function readResultsSurface(tenantId?: string): Promise<ResultsSurfaceRow | null> {
+  const rows = await readStore<ResultsSurfaceRow>(STORE, [], { tenantId }).catch(() => [] as ResultsSurfaceRow[]);
   const row = rows[0];
   return row && Array.isArray(row.ledger) ? row : null;
 }
@@ -38,6 +46,7 @@ export async function readResultsSurface(): Promise<ResultsSurfaceRow | null> {
 export async function writeResultsSurface(
   ledger: ShippedChangeRecord[],
   computedAtIso: string,
+  tenantId?: string,
 ): Promise<void> {
   // Empty-rebuild guard (replicates worklist-surface-store's 2026-07-02 guard):
   // loadProofLedger is fail-soft, so during a Supabase outage it can "successfully"
@@ -46,7 +55,7 @@ export async function writeResultsSurface(
   // rebuild. An empty rebuild never replaces a non-empty snapshot; a legitimate
   // reset goes through invalidateResultsSurface() explicitly.
   if (ledger.length === 0) {
-    const existing = await readResultsSurface();
+    const existing = await readResultsSurface(tenantId);
     if (existing && existing.ledger.length > 0) {
       console.warn(
         `[results-surface] refusing to overwrite a snapshot holding ${existing.ledger.length} measured changes with an empty rebuild (likely a degraded build during a data outage); keeping the snapshot from ${existing.computedAt}`,
@@ -54,7 +63,7 @@ export async function writeResultsSurface(
       return;
     }
   }
-  await writeStore<ResultsSurfaceRow>(STORE, [{ computedAt: computedAtIso, ledger }]).catch(() => {});
+  await writeStore<ResultsSurfaceRow>(STORE, [{ computedAt: computedAtIso, ledger }], { tenantId }).catch(() => {});
 }
 
 /** Invalidate the cache so the next /results load re-measures (call after ANY

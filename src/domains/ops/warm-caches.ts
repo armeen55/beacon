@@ -100,8 +100,10 @@ export type WarmCachesDeps = {
   refreshDemandGraph: (tenantId: string) => Promise<void>;
   /** Rebuild + persist the /changes SWR surface. */
   refreshWorklist: (tenantId: string) => Promise<void>;
-  /** Rebuild + persist the Today SWR surface (ambient tenant). */
-  refreshToday: () => Promise<void>;
+  /** Rebuild + persist the Today SWR surface. `tenantId` threads explicitly into the
+   *  write so it can never disagree with json-store's ambient resolution (sibling
+   *  fix, 2026-07-10 hygiene batch - same P2-f discipline as refreshWorklist above). */
+  refreshToday: (tenantId: string) => Promise<void>;
   /** Latest persisted preview plan, if any. */
   getLatestPreviewPlan: (tenantId: string) => Promise<DailyExperimentPlanRecord | null>;
   /** Latest still-open accepted plan, if any. */
@@ -162,7 +164,7 @@ async function defaultRefreshDemandGraph(tenantId: string): Promise<void> {
   const { loadDemandGraphForTenant } = await import("@/domains/demand-graph/load-graph");
   const { writeGraphSnapshot } = await import("@/domains/demand-graph/graph-snapshot-store");
   const fresh = await loadDemandGraphForTenant(tenantId);
-  await writeGraphSnapshot(fresh, new Date().toISOString());
+  await writeGraphSnapshot(fresh, new Date().toISOString(), tenantId);
 }
 
 async function defaultRefreshWorklist(tenantId: string): Promise<void> {
@@ -170,9 +172,9 @@ async function defaultRefreshWorklist(tenantId: string): Promise<void> {
   await refreshWorklistSurface(tenantId);
 }
 
-async function defaultRefreshToday(): Promise<void> {
+async function defaultRefreshToday(tenantId: string): Promise<void> {
   const { refreshTodaySurface } = await import("@/app/(shell)/today-view-data");
-  await refreshTodaySurface();
+  await refreshTodaySurface(tenantId);
 }
 
 /**
@@ -193,7 +195,7 @@ async function defaultRefreshToday(): Promise<void> {
 export async function warmFreeSurfaces(tenantId: string): Promise<void> {
   await defaultRefreshDemandGraph(tenantId).catch(() => {});
   await defaultRefreshWorklist(tenantId).catch(() => {});
-  await defaultRefreshToday().catch(() => {});
+  await defaultRefreshToday(tenantId).catch(() => {});
 }
 
 async function defaultGetLatestPreviewPlan(tenantId: string): Promise<DailyExperimentPlanRecord | null> {
@@ -427,7 +429,7 @@ export async function warmTenantCaches(
   steps.push(await runStep("demand-graph", async () => { await deps.refreshDemandGraph(tenantId); return null; }));
   steps.push(await runStep("worklist-surface", async () => { await deps.refreshWorklist(tenantId); return null; }));
   steps.push(await runStep("plan-preview", () => ensurePlanPreview(tenantId, now, date, deps)));
-  steps.push(await runStep("today-surface", async () => { await deps.refreshToday(); return null; }));
+  steps.push(await runStep("today-surface", async () => { await deps.refreshToday(tenantId); return null; }));
   // Coverage map has no persistent snapshot store today - it derives from the
   // demand-graph snapshot warmed in step 1, so there is nothing extra to write.
   steps.push({

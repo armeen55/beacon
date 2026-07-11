@@ -18,6 +18,7 @@ vi.mock("@/lib/persistence/json-store", () => ({
 }));
 
 import {
+  readWorklistSurface,
   writeWorklistSurface,
   invalidateWorklistSurface,
 } from "./worklist-surface-store";
@@ -75,5 +76,29 @@ describe("writeWorklistSurface empty-rebuild guard", () => {
   it("invalidateWorklistSurface stays the explicit reset path (writes empty rows)", async () => {
     await invalidateWorklistSurface();
     expect(writeStoreMock).toHaveBeenCalledWith("worklist-surface", []);
+  });
+});
+
+describe("sibling ambient-tenant fix (2026-07-10 hygiene batch) - explicit tenantId threading", () => {
+  it("readWorklistSurface threads the EXPLICIT tenantId into the json-store read, never ambient-only", async () => {
+    readStoreMock.mockResolvedValue([]);
+    await readWorklistSurface("tenant-a");
+    expect(readStoreMock).toHaveBeenCalledWith("worklist-surface", [], { tenantId: "tenant-a" });
+  });
+
+  it("writeWorklistSurface threads the EXPLICIT tenantId into the json-store write, never ambient-only", async () => {
+    await writeWorklistSurface(surface(7), "2026-07-02T05:00:00.000Z", "tenant-a");
+    expect(writeStoreMock).toHaveBeenCalledOnce();
+    const [, , opts] = writeStoreMock.mock.calls[0] as unknown as [string, unknown, { tenantId?: string }];
+    expect(opts).toEqual({ tenantId: "tenant-a" });
+  });
+
+  it("two tenants never bleed: each write carries its OWN tenantId", async () => {
+    await writeWorklistSurface(surface(1), "t1", "tenant-a");
+    await writeWorklistSurface(surface(1), "t2", "tenant-b");
+    const optsA = writeStoreMock.mock.calls[0][2] as { tenantId?: string };
+    const optsB = writeStoreMock.mock.calls[1][2] as { tenantId?: string };
+    expect(optsA.tenantId).toBe("tenant-a");
+    expect(optsB.tenantId).toBe("tenant-b");
   });
 });

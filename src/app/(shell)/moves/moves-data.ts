@@ -17,21 +17,21 @@ import { defaultCtrCurve } from "@/domains/forecast/tenant-ctr-curve";
 import { loadTenantCtrCurve } from "@/domains/forecast/load-tenant-ctr-curve";
 
 /**
- * /moves data (2026-06-27) — the worklist is now driven by the CANONICAL ActionPack
+ * /moves data (2026-06-27), the worklist is now driven by the CANONICAL ActionPack
  * brain (`loadActionPackWorklistForTenant`): the same deduped, cross-source-ranked
  * set the unified diagnostic proves. ActionPack decides WHAT shows + the ORDER; the
  * rich `TodayMove` (shared with Today `/`) supplies the full card body (title lab,
  * drafts, debate, prepared checklist) by joining on the page URL. Coverage-only AEO
  * packs the demand-graph worklist used to miss now appear inline (lightweight card).
  *
- * Create/hub packs are intentionally excluded here — they live on the New Pages board
+ * Create/hub packs are intentionally excluded here, they live on the New Pages board
  * (`TodayNewPagesSection`), which keeps the AI-validated badges + Draft AEO brief.
  * Read-only; no live Profound/DataForSEO on render (ActionPack reads cached/durable).
  */
 
 const canon = (u: string): string => (canonicalizeCitationUrl(u) ?? u).toLowerCase().replace(/\/+$/, "");
 
-/** Render cap for /moves — the strongest N (single-user app; the full brain count
+/** Render cap for /moves, the strongest N (single-user app; the full brain count
  *  stays in stats.movesReady). Filters narrow within the shown set. */
 const MOVES_CAP = 75;
 
@@ -81,7 +81,7 @@ function humanPageLabel(p: ActionPack): string {
   return path;
 }
 
-/** Lightweight TodayMove from an ActionPack — used for coverage-only AEO packs that
+/** Lightweight TodayMove from an ActionPack, used for coverage-only AEO packs that
  *  have no rich demand-graph move to join to. Honest: rich-only fields stay empty. */
 function actionPackToTodayMove(p: ActionPack): TodayMove {
   const action = actionKeyOf(p.actionType);
@@ -95,7 +95,7 @@ function actionPackToTodayMove(p: ActionPack): TodayMove {
     pageLabel: humanPageLabel(p),
     why: p.whyNotNoise,
     proof: p.profoundReceipt
-      ? `AI is asked “${p.profoundReceipt.topPrompt}” — ${p.profoundReceipt.citedDomains.slice(0, 2).join(", ")} cited${p.profoundReceipt.ownAbsent ? ", you're not" : ""}.`
+      ? `AI is asked “${p.profoundReceipt.topPrompt}”: ${p.profoundReceipt.citedDomains.slice(0, 2).join(", ")} cited${p.profoundReceipt.ownAbsent ? ", you're not" : ""}.`
       : "",
     confidence: p.confidence,
     demand: p.gscDemand?.impressions ?? null,
@@ -165,7 +165,7 @@ async function loadUncached(tenantId: string): Promise<TodayMovesHeroData> {
   // Cross-enrich (W6): a coverage-only (profound) pack and a demand-graph pack can
   // describe the SAME owned URL. Union their evidence sources by canonical URL so a
   // coverage card honestly shows the GSC/Clarity/etc. the brain already has for that
-  // page — not a misleadingly profound-only chip row. Honest: only real sources.
+  // page, not a misleadingly profound-only chip row. Honest: only real sources.
   const sourcesByUrl = new Map<string, Set<string>>();
   for (const p of wl.packs) {
     if (!p.targetUrl) continue;
@@ -194,13 +194,13 @@ async function loadUncached(tenantId: string): Promise<TodayMovesHeroData> {
       // card (they were computed on the pack but dropped at this projection).
       moves.push({ ...rich, sourceChips: chips, dataforseoVerdict: dfs });
     } else {
-      // coverage-only AEO pack, surfaced inline — with cross-enriched provenance.
+      // coverage-only AEO pack, surfaced inline, with cross-enriched provenance.
       moves.push({ ...actionPackToTodayMove(p), sourceChips: chips, dataforseoVerdict: dfs });
     }
   }
 
   // Cap the rendered worklist to the strongest MOVES_CAP so /moves feels powerful,
-  // not endless — the true total is preserved in stats.movesReady (the brain size).
+  // not endless, the true total is preserved in stats.movesReady (the brain size).
   const trueTotal = moves.length;
   const shown = moves.slice(0, MOVES_CAP);
 
@@ -242,7 +242,7 @@ async function loadUncached(tenantId: string): Promise<TodayMovesHeroData> {
     preparedReady: moves.filter((m) => m.preparedChecklist?.readyToReview).length,
   };
 
-  // Today-cockpit projection — the few pack-derived counts the `/` cockpit needs, computed
+  // Today-cockpit projection, the few pack-derived counts the `/` cockpit needs, computed
   // here (from the SAME `wl` this surface is built from) so Today reads them off this cached
   // snapshot instead of rebuilding the ~20s ActionPack worklist on its critical path.
   const cockpit: TodayMovesHeroData["cockpit"] = {
@@ -257,23 +257,42 @@ async function loadUncached(tenantId: string): Promise<TodayMovesHeroData> {
   return { moves: shown, stats, learning: hero?.learning ?? { measuring: 0, won: 0, lost: 0, headline: null }, cockpit };
 }
 
+/** Injectable builder so tests can drive the SWR flow without running the heavy
+ *  ~32s ActionPack/demand-graph compute (mirrors changes-data.ts's ChangesViewBuilder). */
+type WorklistSurfaceBuilder = (tenantId: string) => Promise<TodayMovesHeroData>;
+
 /**
  * Stale-while-revalidate surface cache. The cold compute (`loadUncached`) rebuilds the
- * demand graph from Supabase (~32s) and floors /changes at ~50s — only `react.cache`
+ * demand graph from Supabase (~32s) and floors /changes at ~50s, only `react.cache`
  * (per-request), no cross-request persistence. So: serve the last persisted snapshot
  * INSTANTLY (with its `computedAt` for an honest "updated N ago"), and when it's stale
  * refresh in the background via `after()` (best-effort; if the lambda freezes mid-refresh
  * the next visit retries). Only the first-ever load (cold cache) pays the full compute.
  * Mutating actions invalidate the surface so operator changes show on the next load.
+ *
+ * Exported for tests; render paths go through loadMovesWorklist below. The optional
+ * `build` dep lets a test observe the cold/stale/tenant-threading behavior with a cheap
+ * fake builder instead of the real compute.
  */
-async function loadSurfaceWithSwr(tenantId: string): Promise<TodayMovesHeroData> {
-  const cached = await readWorklistSurface().catch(() => null);
+export async function loadSurfaceWithSwr(
+  tenantId: string,
+  deps: { build?: WorklistSurfaceBuilder } = {},
+): Promise<TodayMovesHeroData> {
+  const build = deps.build ?? loadUncached;
+  // Sibling fix (2026-07-10 hygiene batch) - thread the EXPLICIT tenantId into both the
+  // read and the after() background write, the same P2-f discipline changes-surface-store
+  // already applies: writeWorklistSurface's own persistence would otherwise resolve the
+  // write's tenant via json-store's ambient currentTenantSlug() (request-header-based),
+  // which is not guaranteed correct in a background task outside the render's request
+  // scope. `tenantId` is already threaded through `build(tenantId)` below - thread it
+  // through the read/write too, so the two can never disagree.
+  const cached = await readWorklistSurface(tenantId).catch(() => null);
   if (cached) {
     if (isSurfaceStale(cached.computedAt, Date.now())) {
       after(async () => {
         try {
-          const fresh = await loadUncached(tenantId);
-          await writeWorklistSurface(fresh, new Date().toISOString());
+          const fresh = await build(tenantId);
+          await writeWorklistSurface(fresh, new Date().toISOString(), tenantId);
         } catch (e) {
           // Best-effort background refresh; the next visit retries. N39: record
           // it durably so a silently-always-stale worklist is visible on
@@ -290,8 +309,8 @@ async function loadSurfaceWithSwr(tenantId: string): Promise<TodayMovesHeroData>
     return { ...cached.data, surfaceComputedAt: cached.computedAt };
   }
   // First-ever / invalidated → compute synchronously, then persist for next time.
-  const fresh = await loadUncached(tenantId);
-  await writeWorklistSurface(fresh, new Date().toISOString());
+  const fresh = await build(tenantId);
+  await writeWorklistSurface(fresh, new Date().toISOString(), tenantId);
   return fresh;
 }
 
@@ -308,5 +327,5 @@ export const loadMovesWorklist = cache(
  */
 export async function refreshWorklistSurface(tenantId: string): Promise<void> {
   const fresh = await loadUncached(tenantId);
-  await writeWorklistSurface(fresh, new Date().toISOString());
+  await writeWorklistSurface(fresh, new Date().toISOString(), tenantId);
 }

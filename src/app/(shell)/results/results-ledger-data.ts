@@ -35,9 +35,14 @@ export type ResultsLedgerSurface = {
   computedAt: string | null;
 };
 
-/** Exported for tests; render paths use loadResultsLedgerSurface below. */
+/** Exported for tests; render paths use loadResultsLedgerSurface below. Sibling fix
+ *  (2026-07-10 hygiene batch) - thread the EXPLICIT tenantId into the read and both
+ *  after() background rebuilds, the same P2-f discipline changes-surface-store
+ *  already applies: writeResultsSurface's own persistence would otherwise resolve
+ *  the write's tenant via json-store's ambient currentTenantSlug(), which is not
+ *  guaranteed correct in a background task outside the render's request scope. */
 export async function loadLedgerWithSwr(tenantId: string): Promise<ResultsLedgerSurface> {
-  const cached = await readResultsSurface().catch(() => null);
+  const cached = await readResultsSurface(tenantId).catch(() => null);
   if (cached) {
     if (isResultsSurfaceStale(cached.computedAt, Date.now())) {
       after(async () => {
@@ -117,7 +122,7 @@ export const loadResultsLedgerSurface = cache(
 export async function rebuildResultsSurface(tenantId: string): Promise<void> {
   const computedAt = new Date().toISOString();
   const fresh = await loadProofLedger(tenantId);
-  await writeResultsSurface(fresh, computedAt);
+  await writeResultsSurface(fresh, computedAt, tenantId);
 }
 
 /**

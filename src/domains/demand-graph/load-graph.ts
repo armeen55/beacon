@@ -1,5 +1,5 @@
 /**
- * load-graph (2026-06-24, Step 1 + Step 2) — assemble the REAL demand graph for
+ * load-graph (2026-06-24, Step 1 + Step 2), assemble the REAL demand graph for
  * a tenant from already-synced signals, then hand it to the pure
  * `buildDemandGraph` assembler. This is the I/O edge; `build-graph.ts` stays pure.
  *
@@ -13,7 +13,7 @@
  * overlap (→ real answer_block / visibilityGap where AI cites a rival but not
  * you), and unmatched CONTENT competitors are synthesized into `create_page`
  * candidates (demand proxied by AI-citation breadth × volume, confidence honestly
- * LOW until SERP/volume confirms — Step L7). Tenant-agnostic via connectors.
+ * LOW until SERP/volume confirms, Step L7). Tenant-agnostic via connectors.
  */
 
 import "server-only";
@@ -82,15 +82,15 @@ export type DemandGraphCoverage = {
   createPageCandidates: number;
   ownedCited: number;
   emptySources: string[];
-  /** UX0 (2026-07-02) — the topic coherence gate's honest tally: create_page
+  /** UX0 (2026-07-02), the topic coherence gate's honest tally: create_page
    *  candidates SUPPRESSED entirely (mostly-incoherent member mix) and candidates
    *  that survived with one or more off-topic members trimmed. Zero on a clean
    *  tenant; never silent when the gate actually fires. */
   coherence: { suppressedCandidates: { label: string; reason: string }[]; trimmedCandidates: { label: string; droppedCount: number; reason: string }[] };
-  /** UX0 (2026-07-02) — create_page candidates the ownership gate reclassified
+  /** UX0 (2026-07-02), create_page candidates the ownership gate reclassified
    *  (own page already cited -> edit_page) or dropped (cited but no specific URL). */
   ownershipReclassified: { label: string; action: "reclassified" | "dropped"; ownedUrl: string | null; reason: string }[];
-  /** N5 (2026-07-03) — the information-gain gate's honest tally: create_page
+  /** N5 (2026-07-03), the information-gain gate's honest tally: create_page
    *  candidates dropped (they would only repeat what the cited winners already
    *  say), reclassified to an edit, or demoted below every adds-something row.
    *  Absent/empty when nothing had both a brief and teardown evidence to score
@@ -112,7 +112,7 @@ const STOP = new Set([
 
 /** AI-industry/meta-prompt noise from the BORROWED Profound account (whose
  *  "Evaluate <AI company>…" meta-prompts cite AI-company pages). Generic AI-vendor
- *  tokens — NOT vertical/tenant hardcoding — so this code-excludes the junk the
+ *  tokens, NOT vertical/tenant hardcoding, so this code-excludes the junk the
  *  operator flagged, for any tenant on that shared account. */
 const AI_NOISE = new Set([
   "openai", "anthropic", "claude", "chatgpt", "gpt", "gemini", "grok", "deepmind",
@@ -182,11 +182,11 @@ export function isJunkTopicLabel(label: string): boolean {
   const tokens = stripLeadingCmsTokens(l.split(/\s+/).filter(Boolean));
   if (tokens.length === 0) return true; // bare CMS path ("shop product", "category")
   if (tokens.join(" ").startsWith("research starters")) return true; // EBSCO-style slug
-  // geo/id slug e.g. g293998 (letter-prefixed) or a long pure-digit id — but NOT
+  // geo/id slug e.g. g293998 (letter-prefixed) or a long pure-digit id, but NOT
   // a 4-digit year (2026/1998 are legit topic tokens).
   if (tokens.some((t) => /^[a-z]{1,2}\d{3,}$/.test(t) || /^\d{5,}$/.test(t))) return true;
   // Grammar sanity (2026-07-02 UX0): drop it here too, before it ever becomes a
-  // create_page candidate — ground-truth found a URL-slug label trailing off on a
+  // create_page candidate, ground-truth found a URL-slug label trailing off on a
   // bare verb ("...Hear Cross") that reached the board as a broken title.
   if (isUnparseableLabel(tokens.join(" "))) return true;
   return false;
@@ -208,14 +208,18 @@ const graphRefreshing = new Set<string>();
  *  herd that quadruples wall-clock under contention). */
 const graphBuilding = new Map<string, Promise<LoadGraphResult>>();
 
-/** Build the graph once + persist; subsequent concurrent callers await the same promise. */
+/** Build the graph once + persist; subsequent concurrent callers await the same promise.
+ *  Sibling fix (2026-07-10 hygiene batch) - `tenantId` threads explicitly into the write
+ *  (the same P2-f discipline changes-surface-store already applies), so the persisted
+ *  snapshot can never land under json-store's ambient currentTenantSlug() resolution
+ *  disagreeing with the tenant this after()/detached background build ran for. */
 function buildAndPersistOnce(tenantId: string): Promise<LoadGraphResult> {
   const existing = graphBuilding.get(tenantId);
   if (existing) return existing;
   const t0 = Date.now();
   const p = (async () => {
     const fresh = await loadDemandGraphForTenant(tenantId);
-    await writeGraphSnapshot(fresh, new Date().toISOString());
+    await writeGraphSnapshot(fresh, new Date().toISOString(), tenantId);
     log.info("[graph-snapshot] built + persisted", { tenantId, buildMs: Date.now() - t0, version: GRAPH_SCHEMA_VERSION });
     return fresh;
   })().finally(() => graphBuilding.delete(tenantId));
@@ -225,7 +229,7 @@ function buildAndPersistOnce(tenantId: string): Promise<LoadGraphResult> {
 
 /** Schedule ONE background graph recompute for a stale tenant (throttled by the lock).
  *  Uses `after()` when in a request scope (so it survives the response on serverless);
- *  falls back to a detached promise otherwise. Fail-soft — a refresh failure leaves the
+ *  falls back to a detached promise otherwise. Fail-soft, a refresh failure leaves the
  *  stale snapshot in place; the next visit retries. */
 function scheduleGraphRefresh(tenantId: string): void {
   if (graphRefreshing.has(tenantId)) return;
@@ -256,7 +260,7 @@ function scheduleGraphRefresh(tenantId: string): void {
 /**
  * Cross-request stale-while-revalidate Demand Graph cache. The ~6s graph build is
  * INDEPENDENTLY rebuilt by every surface that needs it (Worklist/ActionPack, New Pages,
- * Today, Recommendations/Drafts, page-factory, enrichment) — `react.cache` only dedupes
+ * Today, Recommendations/Drafts, page-factory, enrichment), `react.cache` only dedupes
  * within ONE request. This serves the last persisted snapshot across requests and refreshes
  * in the background when stale, so warm consumers read it in ~ms instead of rebuilding.
  *
@@ -266,7 +270,7 @@ function scheduleGraphRefresh(tenantId: string): void {
  * Tenant-scoped; fail-soft (a read error → synchronous build, never a crash).
  */
 async function loadDemandGraphForTenantSWR(tenantId: string): Promise<LoadGraphResult> {
-  const snap = await readGraphSnapshot().catch(() => null);
+  const snap = await readGraphSnapshot(tenantId).catch(() => null);
   if (isGraphSnapshotValid(snap)) {
     const stale = isGraphStale(snap.computedAt, Date.now());
     if (stale) scheduleGraphRefresh(tenantId);
@@ -287,7 +291,7 @@ async function loadDemandGraphForTenantSWR(tenantId: string): Promise<LoadGraphR
 }
 
 /**
- * Request-cached, single-arg entry point — now backed by the cross-request SWR snapshot.
+ * Request-cached, single-arg entry point, now backed by the cross-request SWR snapshot.
  * `react.cache` still dedupes the (possibly snapshot-read) call WITHIN one request, so the
  * multiple in-request callers on a `/` render share one read; the SWR shares the underlying
  * graph COMPUTE across requests. Use this on render paths; the raw `loadDemandGraphForTenant`
@@ -303,12 +307,12 @@ export async function loadDemandGraphForTenant(
   config?: DemandGraphConfig,
 ): Promise<LoadGraphResult> {
   // Kick off the durable Profound evidence read NOW so it runs CONCURRENTLY with
-  // the graph's own loaders (below) — attaching it after buildDemandGraph then
+  // the graph's own loaders (below), attaching it after buildDemandGraph then
   // adds ~0 wall-clock instead of a serial +2.4s that would trip downstream
   // timeouts (e.g. the New Pages board's 8s guard). Cached store only, no live API.
   const aeoEvidencePromise = loadCachedPromptOpportunities(tenantId).catch(() => null);
   // Same trick for create_page canonicalization inputs (keyword-volume cache + move
-  // drafts) — kicked off NOW so collapseCreatePageSiblings adds ~0 wall-clock below.
+  // drafts), kicked off NOW so collapseCreatePageSiblings adds ~0 wall-clock below.
   const collapseInputsPromise = Promise.all([
     readAllCachedKeywordDemand().catch((): KeywordDemand[] => []),
     getLatestMoveDrafts(tenantId).catch(() => new Map<string, { content: string }>()),
@@ -323,7 +327,7 @@ export async function loadDemandGraphForTenant(
       log.warn("[load-graph] ga4 read failed", { tenantId, error: String(e) });
       return new Map();
     }),
-    // 2026-06-26 revenue: SEPARATE, isolated read — empty map (→ conversion
+    // 2026-06-26 revenue: SEPARATE, isolated read, empty map (→ conversion
     // fallback) when revenue columns don't exist yet / no ecommerce. Never
     // breaks the traffic read above.
     loadGa4PageRevenueForTenant(tenantId, now).catch((e): Map<string, PageRevenueValue> => {
@@ -353,7 +357,7 @@ export async function loadDemandGraphForTenant(
     }
   }
   const ownedDomain = [...hostCount.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? "";
-  // Brand token (first label of the owned domain) — used to drop "the tenant's
+  // Brand token (first label of the owned domain), used to drop "the tenant's
   // own brand on a third-party platform" create-page noise (e.g. etsy.com/shop/Iranopedia).
   const brandToken = (ownedDomain.split(".")[0] ?? "").toLowerCase();
 
@@ -404,7 +408,7 @@ export async function loadDemandGraphForTenant(
     // 2026-06-26 revenue-aware $ signal. Prefer the normalized revenue value;
     // when revenue is unknown (pre-migration / no ecommerce), build a
     // conversion-only aggregate so the BOUNDED conversion fallback still applies
-    // (revenueScoreMultiplier) — never the old conversions-as-dollars bug.
+    // (revenueScoreMultiplier), never the old conversions-as-dollars bug.
     const rev: PageRevenueValue =
       ga4Revenue.get(page) ??
       normalizePageRevenue({
@@ -439,7 +443,7 @@ export async function loadDemandGraphForTenant(
     });
   }
 
-  // Tenant topic vocabulary (union of all owned-page tokens) — used to keep
+  // Tenant topic vocabulary (union of all owned-page tokens), used to keep
   // create_page candidates ON-topic for THIS tenant (derived from its own pages,
   // not hardcoded), which also drops off-topic junk that slipped the AI-noise net.
   const tenantVocab = new Set<string>();
@@ -451,7 +455,7 @@ export async function loadDemandGraphForTenant(
   type CreateCand = {
     label: string;
     urls: string[];
-    /** Per-URL label (from the competitor's own URL slug), for the coherence gate —
+    /** Per-URL label (from the competitor's own URL slug), for the coherence gate,
      *  parallel to `urls` (member i's label is memberLabels[i]). */
     memberLabels: string[];
     citationCount: number;
@@ -502,7 +506,7 @@ export async function loadDemandGraphForTenant(
   // ×100 to read as an "AI-attention score" (citation_count is share-scaled).
   // UX0 coherence gate (2026-07-02): a bucket can still land unrelated member URLs
   // when their first-3-sorted-tokens key happens to collide (rare, but ground-truth
-  // proved it happens) — before this candidate becomes a Move, verify its OWN members
+  // proved it happens), before this candidate becomes a Move, verify its OWN members
   // actually agree with its head label; drop the disagreeing ones, and suppress the
   // whole candidate when most of them disagree (never publish an averaged-together
   // topic). Logged so `npm run` probes can list exactly what got dropped/suppressed.
@@ -556,9 +560,9 @@ export async function loadDemandGraphForTenant(
 
   const graph = buildDemandGraph({ demand, ownedPages, competitorCitations, config });
 
-  // Sprint 3 — LEARNING REWEIGHT (outside the pure scorer): tilt the ranking by
+  // Sprint 3, LEARNING REWEIGHT (outside the pure scorer): tilt the ranking by
   // past won/lost outcomes from the proof ledger. Bounded ±15%, decided-only,
-  // ≥3-sample, with backoff — so it influences ties, never dominates, and a fresh
+  // ≥3-sample, with backoff, so it influences ties, never dominates, and a fresh
   // tenant (no settled outcomes) gets byte-identical ordering. Fail-soft → raw
   // graph. Raw MoveComponents are never touched (the lie detector stays honest).
   let moves = graph.moves;
@@ -604,7 +608,7 @@ export async function loadDemandGraphForTenant(
   } catch {
     /* additive - never let the magnitude layer break the graph */
   }
-  // PAGE-SPECIFIC outcome caution (2026-06-28) — complements the pattern-level prior
+  // PAGE-SPECIFIC outcome caution (2026-06-28), complements the pattern-level prior
   // above with THIS page's own shipped changes: hold a Move while its page is mid-
   // measurement, demote a no-lift repeat, modestly boost a follow-up on a page that
   // lifted. Bounded ±10%, OUTSIDE the pure scorer, fail-soft. Reuses the Results-linker
@@ -613,7 +617,7 @@ export async function loadDemandGraphForTenant(
     const proofRows = await loadProofOutcomeRows(tenantId);
     if (proofRows.length > 0) moves = applyProofOutcomeCautionToMoves(moves, proofRows);
   } catch {
-    /* additive — never let it break the graph */
+    /* additive, never let it break the graph */
   }
   // R23 P15 - LEARN FROM SKIPS (do-not-repeat + kind demotion), OUTSIDE the pure
   // scorer. Never re-suggest an exact thing the operator already rejected or that
@@ -639,12 +643,12 @@ export async function loadDemandGraphForTenant(
     /* additive - never let the skip-learning layer break the graph */
   }
   // Profound AEO EVIDENCE fusion (evidence-only; no score change, no new actions).
-  // Reads the DURABLE cached store (loadCachedPromptOpportunities — NO live
+  // Reads the DURABLE cached store (loadCachedPromptOpportunities, NO live
   // Profound API on render), time-boxed + fail-soft so it can never hang or break
   // the cockpit. Attaches `aeoEvidence` to matched Moves so a card can say "AI is
   // asked X, fans out into Y, cites these competitors, you're absent". The
   // coverage compiler's internal_link_fix/consolidate decisions are NOT promoted
-  // to customer Moves here — they stay in the operator coverage diagnostic.
+  // to customer Moves here, they stay in the operator coverage diagnostic.
   try {
     // The read was started at the top (concurrent with the graph loaders); this
     // is almost always already resolved, so the await adds ~0. Time-boxed as a
@@ -657,9 +661,9 @@ export async function loadDemandGraphForTenant(
       moves = attachProfoundEvidenceToMoves(moves, aeo.opportunities);
     }
   } catch {
-    // evidence is additive — never let it affect the graph
+    // evidence is additive, never let it affect the graph
   }
-  // UX0 ownership gate (2026-07-02) — a create_page Move whose own AEO evidence shows
+  // UX0 ownership gate (2026-07-02), a create_page Move whose own AEO evidence shows
   // the tenant is ALREADY cited for this topic must never say "you have no page yet"
   // (ground-truth: "Persian Literature" pitched as missing while iranopedia.com's own
   // URL was in the cited pages). Runs right after the AEO attach (needs aeoEvidence)
@@ -692,7 +696,7 @@ export async function loadDemandGraphForTenant(
   } catch (e) {
     log.warn("[load-graph] create_page ownership gate skipped", { tenantId, error: e instanceof Error ? e.message : String(e) });
   }
-  // Canonicalize near-duplicate create_page moves (2026-06-29) — the 3 nowruz labels,
+  // Canonicalize near-duplicate create_page moves (2026-06-29), the 3 nowruz labels,
   // persian/iranian wedding, etc. collapse to ONE canonical move per opportunity so
   // EVERY consumer (New Pages board, ActionPack worklist, prepare-verdicts) sees one
   // card. Reuses the cached keyword-volume + drafts read kicked off at the top, so it
@@ -701,17 +705,17 @@ export async function loadDemandGraphForTenant(
     const [keywords, drafts] = await collapseInputsPromise;
     moves = collapseCreatePageSiblings(moves, { keywords, drafts });
   } catch (e) {
-    // additive dedup — never break the graph, but don't degrade SILENTLY (the New
+    // additive dedup, never break the graph, but don't degrade SILENTLY (the New
     // Pages board would then show un-collapsed siblings with no "Also covers" line).
     log.warn("[load-graph] create_page canonicalization skipped", { tenantId, error: e instanceof Error ? e.message : String(e) });
   }
-  // N5 information-gain gate (2026-07-03, R8) — the law that unfreezes the page
+  // N5 information-gain gate (2026-07-03, R8), the law that unfreezes the page
   // factories: a create_page Move whose persisted brief + torn-down competitors
   // can actually be compared must ADD something the cited winners do not already
   // say. duplicate_of_serp -> reclassify to edit_page at a known owned URL, else
   // drop with the honest reason; thin_addition -> demoted below every
   // adds_something row. A Move with no brief or no teardown evidence is
-  // UNCHECKED and untouched — never block on missing data, never fake a check
+  // UNCHECKED and untouched, never block on missing data, never fake a check
   // (byte-identical no-op pinned in info-gain-gate tests). Runs AFTER the
   // ownership gate + sibling collapse so it scores the canonical survivors.
   let infoGainChanges: InfoGainChange[] = [];

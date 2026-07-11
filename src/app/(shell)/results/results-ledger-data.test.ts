@@ -140,6 +140,28 @@ describe("loadLedgerWithSwr", () => {
     expect(writeStoreMock).not.toHaveBeenCalled(); // build-then-write: no write on failure
   });
 
+  it("TWO-TENANT (2026-07-10 hygiene batch, sibling fix): a stale rebuild re-measures + persists the EXACT tenant it was called for, no bleed", async () => {
+    const computedAt = new Date(Date.now() - RESULTS_SURFACE_FRESH_MS - 60_000).toISOString();
+    readStoreMock.mockResolvedValue([{ computedAt, ledger: [rec("snap-old")] }]);
+    loadProofLedgerMock.mockImplementation(async (t: string) => [rec(`fresh-${t}`)]);
+
+    await loadLedgerWithSwr("tenant-a");
+    await (afterMock.mock.calls[0][0] as () => Promise<void>)();
+    afterMock.mockClear();
+    await loadLedgerWithSwr("tenant-b");
+    await (afterMock.mock.calls[0][0] as () => Promise<void>)();
+
+    expect(loadProofLedgerMock).toHaveBeenCalledWith("tenant-a");
+    expect(loadProofLedgerMock).toHaveBeenCalledWith("tenant-b");
+    expect(writeStoreMock).toHaveBeenCalledTimes(2);
+    const [, rowsA, optsA] = writeStoreMock.mock.calls[0] as unknown as [string, Array<{ ledger: ShippedChangeRecord[] }>, { tenantId?: string }];
+    const [, rowsB, optsB] = writeStoreMock.mock.calls[1] as unknown as [string, Array<{ ledger: ShippedChangeRecord[] }>, { tenantId?: string }];
+    expect(optsA.tenantId).toBe("tenant-a");
+    expect(optsB.tenantId).toBe("tenant-b");
+    expect(rowsA[0].ledger.map((r) => r.id)).toEqual(["fresh-tenant-a"]);
+    expect(rowsB[0].ledger.map((r) => r.id)).toEqual(["fresh-tenant-b"]);
+  });
+
   it("SINGLE-FLIGHT (W2-B): two concurrent stale readers trigger exactly ONE background re-measure", async () => {
     const computedAt = new Date(Date.now() - RESULTS_SURFACE_FRESH_MS - 60_000).toISOString();
     readStoreMock.mockResolvedValue([{ computedAt, ledger: [rec("snap-old")] }]);

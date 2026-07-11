@@ -115,7 +115,7 @@ async function readDemandGraphCounts(tenantId: string): Promise<PipelineReadings
   try {
     const ambient = await currentTenantId();
     if (ambient !== tenantId) return null;
-    const row = await readGraphSnapshot();
+    const row = await readGraphSnapshot(tenantId);
     if (!isGraphSnapshotValid(row)) return null;
     const graph = row.data.graph;
     return { nodes: graph.demandNodes.length, moves: graph.moves.length };

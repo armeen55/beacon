@@ -21,14 +21,22 @@ export const TODAY_SURFACE_FRESH_MS = 10 * 60 * 1000;
 
 export type TodaySurfaceRow = { computedAt: string; data: TodayComposite };
 
-export async function readTodaySurface(): Promise<TodaySurfaceRow | null> {
-  const rows = await readStore<TodaySurfaceRow>(STORE, []).catch(() => [] as TodaySurfaceRow[]);
+/**
+ * Sibling fix (2026-07-10 hygiene batch) - `opts.tenantId`, the same purpose as
+ * changes-surface-store's: today-view-data.ts's after() background rebuild (and the
+ * nightly refreshTodaySurface entry) already resolve the tenant they mean explicitly -
+ * thread that SAME tenant into the read/write instead of falling back to json-store's
+ * ambient currentTenantSlug() resolution, which is not guaranteed correct outside the
+ * render's request scope inside after(). Optional only for backward compatibility.
+ */
+export async function readTodaySurface(tenantId?: string): Promise<TodaySurfaceRow | null> {
+  const rows = await readStore<TodaySurfaceRow>(STORE, [], { tenantId }).catch(() => [] as TodaySurfaceRow[]);
   const row = rows[0];
   return row && row.data ? row : null;
 }
 
-export async function writeTodaySurface(data: TodayComposite, computedAtIso: string): Promise<void> {
-  await writeStore<TodaySurfaceRow>(STORE, [{ computedAt: computedAtIso, data }]).catch(() => {});
+export async function writeTodaySurface(data: TodayComposite, computedAtIso: string, tenantId?: string): Promise<void> {
+  await writeStore<TodaySurfaceRow>(STORE, [{ computedAt: computedAtIso, data }], { tenantId }).catch(() => {});
 }
 
 /** Invalidate so the next Today load recomputes (call after a mutation that changes Today). */

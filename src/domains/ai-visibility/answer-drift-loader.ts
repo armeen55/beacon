@@ -185,9 +185,9 @@ export type DriftScanResult = {
  *  with the drifted prompt (same relevance-gate rule the query-spike band uses),
  *  or null when nothing matches. A pure concept link only - never mutates or
  *  reorders the worklist. */
-async function findRelatedMoveLabel(promptText: string, topic: string | null): Promise<string | null> {
+async function findRelatedMoveLabel(tenantId: string, promptText: string, topic: string | null): Promise<string | null> {
   try {
-    const surface = await readWorklistSurface();
+    const surface = await readWorklistSurface(tenantId);
     const moves = surface?.data.moves ?? [];
     const needle = topic || promptText;
     for (const m of moves) {
@@ -245,7 +245,7 @@ export async function scanAnswerDrift(tenantId: string, now: Date = new Date()):
         whenIso: pair.latest.observedAt,
       });
       if (detected.length === 0) continue;
-      const relatedMoveLabel = await findRelatedMoveLabel(g.promptText, g.topic);
+      const relatedMoveLabel = await findRelatedMoveLabel(tenantId, g.promptText, g.topic);
       for (const d of detected) events.push({ ...d, relatedMoveLabel });
     }
 

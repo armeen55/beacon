@@ -482,7 +482,7 @@ export async function AiCrawlerSection({ tenantId }: { tenantId: string }) {
 async function loadSpikeRows(tenantId: string): Promise<Array<{ spike: QuerySpike; searchTerm: string | null }>> {
   const spikes = (await loadQuerySpikes(tenantId).catch(() => [])).slice(0, 2);
   if (spikes.length === 0) return [];
-  const surface = await readWorklistSurface().catch(() => null);
+  const surface = await readWorklistSurface(tenantId).catch(() => null);
   const moves: MatchableMove[] = (surface?.data.moves ?? [])
     .filter((m) => {
       const view = statusView(
