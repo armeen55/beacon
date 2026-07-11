@@ -7,6 +7,23 @@
 
 ---
 
+## 2026-07-11 - Hygiene batch: trap detection, tenant-explicit SWR writes, dash sweep (0e8d2395, 38e0ce9c, 02cf2374)
+
+2026-07-11 hygiene batch (3 commits on 0e8d2395, 38e0ce9c, 02cf2374, rebased onto 2ebd45d4): (1)
+Zero-click and image-intent trap detection: a clicks-tone move whose top query sits at position
+<=5 with >=500 impressions and CTR under 0.2 percent decides watch with the honest reason (People
+see this in results but almost nobody clicks that kind of search...) via the existing flagged
+path; the iran-flags and asiatic-cheetah traps from the pilot now file as watch. (2) The
+ambient-tenant after() write bug existed in FOUR sibling SWR stores (worklist, today, results,
+graph-snapshot) plus a zero-arg refreshToday in warm-caches; all now thread explicit tenantId with
+two-tenant pins. (3) Operator-visible dash sweep: build-canonical-changes plus six core copy
+modules fixed; remaining ~1272 non-rendered candidates filed as a background task. Gate GREEN at
+the rebased tip (fullgateHY.log: typecheck exit 0, test exit 0 - 1472 test files passed, 22788
+tests passed / 62 skipped of 22850, build exit 0). First hermetic pass raced against a stray
+concurrent invocation of the same command in the same worktree and was discarded honestly
+(different pass counts, 22785 vs 22788, proved cross-contamination); this is the clean isolated
+re-run, verified single-process for its full duration.
+
 ## 2026-07-11 - Pilot loop 6: no-new-numbers retry reminder, the drafter cycle closes (3232d280)
 
 2026-07-11 pilot loop 6 (3232d280), the drafter cycle closes: no-new-numbers reminder on all

@@ -1,4 +1,23 @@
-> 🟢 **(2026-07-11 latest) - HEAD STATE: ORIGIN/MAIN WILL BE THIS DOCS TIP AFTER THIS PUSH (pilot
+> 🟢 **(2026-07-11 latest) - HEAD STATE: ORIGIN/MAIN WILL BE THIS DOCS TIP AFTER THIS PUSH (hygiene
+> batch: zero-click and image-intent trap detection, tenant-explicit SWR writes on four sibling
+> stores, operator-visible dash sweep, commits 0e8d2395/38e0ce9c/02cf2374 rebased onto 2ebd45d4).**
+> Deployment of the pushed SHA to Vercel production is unconfirmed from this environment.
+>
+> Full hermetic gate GREEN at this tip (fullgateHY.log: typecheck exit 0, test exit 0 - 1472 test
+> files passed, 22788 tests passed / 62 skipped of 22850, build exit 0; a first pass raced a stray
+> concurrent invocation and was discarded honestly, this is the verified single-process re-run).
+> See the 2026-07-11 "Hygiene batch" entry
+> in VERIFICATION_LOG.md for full detail: the iran-flags and asiatic-cheetah zero-click traps now
+> file as watch instead of an actionable capture-clicks pick, four sibling SWR surface stores
+> (worklist, today, results, graph-snapshot) plus warm-caches' refreshToday now thread explicit
+> tenantId instead of relying on after()'s unreliable ambient tenant resolution, and the
+> operator-visible dash sweep covers build-canonical-changes plus six core copy modules (remaining
+> ~1272 candidates are not rendered on any customer surface, filed as a background task). NEXT:
+> confirm the Vercel production build for this tip in the dashboard (unconfirmed from this
+> environment); authenticated both-tenant smoke on the trap-detection and tenant-explicit-write
+> fixes is OPERATOR-BLOCKED (no smoke credentials available to the agent).
+>
+> 🟢 **(2026-07-11) - HEAD STATE: ORIGIN/MAIN WILL BE THIS DOCS TIP AFTER THIS PUSH (pilot
 > loop 6: no-new-numbers reminder on all three rephrase-class retries, draft.answer_block bumped
 > to prompt-registry v6, commit 3232d280 - THE DRAFTER CYCLE CLOSES).** Deployment of the pushed
 > SHA to Vercel production is unconfirmed from this environment.

@@ -1,5 +1,21 @@
 # Beacon Execution Plan
 
+## Hygiene batch - DONE pending deploy confirmation (2026-07-11)
+
+Three-commit cleanup batch, rebased onto 2ebd45d4 and pushed (0e8d2395, 38e0ce9c, 02cf2374). (1)
+Zero-click and image-intent trap detection now holds a clicks-tone move to watch when its top
+query is strong position, material impressions, near-zero CTR, an honest reason instead of an
+actionable capture-clicks pick; proves out on the iran-flags and asiatic-cheetah pilot traps. (2)
+The ambient-tenant after() write bug (fixed on changes-surface-store in Wave 3) was still live on
+four sibling SWR stores (worklist, today, results, graph-snapshot) plus a zero-arg refreshToday in
+warm-caches; all now thread an explicit tenantId. (3) Operator-visible dash sweep across
+build-canonical-changes and six core copy modules; the remaining roughly 1272 candidates are not
+rendered on any customer surface and are filed as a background cleanup task, not blocking. See the
+2026-07-11 "Hygiene batch" entry in VERIFICATION_LOG.md. Full hermetic gate GREEN at the rebased
+tip (fullgateHY.log: typecheck exit 0, test exit 0, 22788 passed / 62 skipped of 22850, build exit
+0). Deploy confirmation to Vercel production is pending; unconfirmed from this
+environment. NEXT: confirm the Vercel production build for this tip in the dashboard.
+
 ## Wave 2 (product-truth addendum) - DONE, pending deploy confirmation (2026-07-10)
 
 Wave 1 (P0-A north-star truth, P0-B paid-free bounded GETs, review P1 GA4 stat-card fix) is
