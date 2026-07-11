@@ -1,5 +1,29 @@
 # Beacon Execution Plan
 
+## Drafter batch 2 (a5e2705a) - WAVE 4 CLOSES, DONE pending deploy confirmation (2026-07-11)
+
+Drafter batch 2, rebased onto the hygiene batch tip 80796ea3 (single commit a5e2705a). The
+generation-time invented-numbers firewall now scans prose only via the ONE shared prose-scope
+helper (draftProseStringValues excludes proofPlan/operatorSteps/risks alongside sources;
+evidenceRefs.detail stays scanned so a fabricated evidence number still fails; no laundering
+through the excluded fields). This was the FIRST queued item below and closes the loop-6 killer:
+the model's own proofPlan.metrics "target 100 percent" line no longer trips the generation-time
+check. Proven live (one real run on /famous-iranian-singers drafted attempt 1, no retry) and by a
+deterministic pin. Full hermetic gate GREEN at the rebased tip (fullgateDB2.log): typecheck exit
+0, test exit 0 (1472 test files passed, 22794 passed / 62 skipped of 22856), build exit 0. See the
+2026-07-11 "Drafter batch 2" entry in VERIFICATION_LOG.md for full detail.
+
+**WAVE 4 CLOSES.** The workflow-parity loop ran six product iterations end to end. Final
+scorecard: G1 ranking WORKING LIVE, G2 trap detection WORKING (hygiene batch), G4 superlatives
+WORKING, G5 blocked-source honesty WORKING LIVE, G6 roundup coverage WORKING LIVE, G7 allowlist
+WORKING LIVE (prod-applied). PARTIAL with named follow-ups: G3 teardown render, G8 impact-math
+abstention on thin history, G9 discarded-alternatives argument. The drafter now takes a real
+opportunity from its own ranked queue to a drafted, gate-checked answer on attempt 1. The
+proof-model floor plus 56 to 84 day tier decision list remains AWAITING OPERATOR SIGN-OFF
+(unchanged by this batch). Deploy confirmation to Vercel production is pending; unconfirmed from
+this environment. NEXT: confirm the Vercel production build for this tip in the dashboard;
+authenticated both-tenant smoke is OPERATOR-BLOCKED (no smoke credentials available to the agent).
+
 ## Hygiene batch - DONE pending deploy confirmation (2026-07-11)
 
 Three-commit cleanup batch, rebased onto 2ebd45d4 and pushed (0e8d2395, 38e0ce9c, 02cf2374). (1)
@@ -141,14 +165,13 @@ Two filed residuals carried out of this cycle:
    downstream (persisted) gate but never the generation-time check. Queued as the FIRST item of
    the next drafter batch, below.
 
-## Queue, ranked (2026-07-11, post-pilot-loop-6, drafter cycle closed)
+## Queue, ranked (2026-07-11, post-drafter-batch-2, Wave 4 closed)
 
-1. **Drafter batch 2: generation-time firewall prose scope.** The generation-time invented-numbers
-   firewall scans the draft's own proofPlan/operatorSteps methodology text; both live pilot loop 6
-   attempt-1s died on the model's own target 100 percent line. Drafter last mile 2 scoped the
-   downstream (persisted) gate but not this generation-time check. Fix: exclude proofPlan and
-   operatorSteps prose from the generation-time firewall the same way citations are already
-   excluded. FIRST item of the next drafter batch.
+1. **Drafter batch 2: generation-time firewall prose scope. DONE (a5e2705a).** The
+   generation-time invented-numbers firewall no longer scans the draft's own
+   proofPlan/operatorSteps/risks methodology text (draftProseStringValues' skip-list extended
+   alongside sources; evidenceRefs.detail stays scanned). Proven live and by deterministic pin.
+   See the "Drafter batch 2" section above and the matching VERIFICATION_LOG.md entry.
 2. **Verdict-floor tightening.** The self-test false-positive rate is genuinely 0.925 (sample
    size 40); target under 5 percent. Proof-model floor decision list delivered to the operator
    2026-07-10 late evening; AWAITING OPERATOR SIGN-OFF.
@@ -164,12 +187,15 @@ Two filed residuals carried out of this cycle:
 7. **Remaining pre-existing dash sweep.** Includes the operator-visible string in
    build-canonical-changes.ts.
 
-## Wave 4 pilot - queued 2026-07-10: /famous-iranian-singers
+## Wave 4 pilot - CLOSED 2026-07-11: /famous-iranian-singers
 
-A single-page pilot on the live Iranopedia page `/famous-iranian-singers` (already the subject of
-several proof-engine ground-truth walks this cycle - see the N13/N10 entries in
-HANDOFF_VERIFIED_STATE.md). Scope not yet detailed in this environment; queued as the next pilot
-target after Wave 3 lanes are confirmed.
+The single-page pilot on the live Iranopedia page `/famous-iranian-singers` (already the subject
+of several proof-engine ground-truth walks this cycle - see the N13/N10 entries in
+HANDOFF_VERIFIED_STATE.md) ran six product iterations (drafter pilot loops 1 through 6 plus
+drafter batch 2) and closes with the scorecard recorded in the "Drafter batch 2" section above:
+G1/G2/G4/G5/G6/G7 WORKING (live or hygiene-batch), G3/G8/G9 PARTIAL with named follow-ups now
+folded into the ranked queue above. The drafter takes a real ranked-queue opportunity to a
+drafted, gate-checked answer on attempt 1.
 
 ## Parity-matrix ranked fixes - queued 2026-07-10
 

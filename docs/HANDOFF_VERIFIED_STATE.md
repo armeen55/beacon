@@ -1,4 +1,24 @@
-> 🟢 **(2026-07-11 latest) - HEAD STATE: ORIGIN/MAIN WILL BE THIS DOCS TIP AFTER THIS PUSH (hygiene
+> 🟢 **(2026-07-11 latest) - HEAD STATE: ORIGIN/MAIN WILL BE THIS DOCS TIP AFTER THIS PUSH (drafter
+> batch 2: generation-time invented-numbers firewall scans prose only, WAVE 4 CLOSES, commit
+> a5e2705a rebased onto 80796ea3).** Deployment of the pushed SHA to Vercel production is
+> unconfirmed from this environment.
+>
+> Full hermetic gate GREEN at this tip (fullgateDB2.log: typecheck exit 0, test exit 0 - 1472 test
+> files passed, 22794 tests passed / 62 skipped of 22856, build exit 0). See the 2026-07-11
+> "Drafter batch 2" entry in VERIFICATION_LOG.md for full detail: the generation-time
+> invented-numbers firewall now excludes proofPlan/operatorSteps/risks prose alongside sources via
+> the ONE shared draftProseStringValues helper (evidenceRefs.detail stays scanned, so a fabricated
+> evidence number still fails; no laundering through the excluded fields). This closes the loop-6
+> killer (the model's own proofPlan.metrics "target 100 percent" line) - proven live (one real run
+> on /famous-iranian-singers drafted attempt 1, no retry) and by a deterministic pin. WAVE 4
+> CLOSES: six product iterations; scorecard G1/G2/G4/G5/G6/G7 WORKING (live or hygiene-batch), G3
+> teardown render / G8 impact-math abstention / G9 discarded-alternatives PARTIAL with named
+> follow-ups queued. The proof-model floor plus 56 to 84 day tier decision list remains AWAITING
+> OPERATOR SIGN-OFF (unchanged by this batch). NEXT: confirm the Vercel production build for this
+> tip in the dashboard (unconfirmed from this environment); authenticated both-tenant smoke is
+> OPERATOR-BLOCKED (no smoke credentials available to the agent).
+>
+> 🟢 **(2026-07-11) - HEAD STATE: ORIGIN/MAIN WILL BE THIS DOCS TIP AFTER THIS PUSH (hygiene
 > batch: zero-click and image-intent trap detection, tenant-explicit SWR writes on four sibling
 > stores, operator-visible dash sweep, commits 0e8d2395/38e0ce9c/02cf2374 rebased onto 2ebd45d4).**
 > Deployment of the pushed SHA to Vercel production is unconfirmed from this environment.

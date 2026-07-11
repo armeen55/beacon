@@ -35149,3 +35149,22 @@ work, not fixed in this wave.
 
 VERIFIED: full hermetic gate GREEN at the branch tip 3586c3dd (fullgateW3.log):
 typecheck exit 0, test exit 0 (22672 passed, 0 failed), build exit 0.
+
+
+## 2026-07-11 - Drafter batch 2: generation-time firewall prose scope, Wave 4 closes (a5e2705a)
+
+2026-07-11 drafter batch 2 (a5e2705a): generation-time invented-numbers firewall scans prose
+only via the ONE shared prose-scope helper (draftProseStringValues now excludes
+proofPlan/operatorSteps/risks alongside sources; evidenceRefs.detail stays scanned so
+fabricated evidence numbers still fail; no laundering through excluded fields). The loop-6
+killer (proofPlan target 100 percent) drafts on attempt 1, proven live (one real run on
+/famous-iranian-singers drafted attempt 1, no retry) and by deterministic pin. Gate GREEN at
+the rebased tip a5e2705a (fullgateDB2.log): typecheck exit 0, test exit 0 (1472 test files
+passed, 22794 passed / 62 skipped of 22856), build exit 0.
+
+WAVE 4 CLOSES: the workflow-parity loop ran six product iterations; final scorecard G1 ranking
+WORKING LIVE, G2 trap detection WORKING (hygiene batch), G4 superlatives WORKING, G5
+blocked-source honesty WORKING LIVE, G6 roundup coverage WORKING LIVE, G7 allowlist WORKING
+LIVE (prod-applied); PARTIAL with named follow-ups: G3 teardown render, G8 impact-math
+abstention on thin history, G9 discarded-alternatives argument. The drafter now takes a real
+opportunity from its own ranked queue to a drafted, gate-checked answer on attempt 1.
