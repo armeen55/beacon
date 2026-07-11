@@ -33,7 +33,12 @@ describe("proof revert proposal - source pins (item 11)", () => {
     // Operator-only compute (the action re-gates server side regardless).
     expect(src).toMatch(/if \(isOperator\) \{[\s\S]*?negativeRows/);
     // Only negative readings with a closed window get the (bounded) lookup.
-    expect(src).toContain('p.direction === "negative"');
+    // Review fix 1 (2026-07-11): the revert OFFER is a protective brake, so its
+    // direction reads the RAW stored verdict (directionOf), never the
+    // calibration-aware presentation - the quarantine removes unearned trust in
+    // wins, it must never remove caution on a possible loss.
+    expect(src).toContain('directionOf(l.verdict) === "negative"');
+    expect(src).toContain("direction: directionOf(rec.verdict)");
     expect(src).toContain("(p.basisDay ?? 0) >= 7");
   });
 

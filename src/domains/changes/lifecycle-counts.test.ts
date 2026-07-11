@@ -295,3 +295,22 @@ describe("fail-closed calibration quarantine (2026-07-11) - the bucket rule", ()
     expect(countLedgerLifecycle(ledger, NOW)).toEqual({ measuring: 3, decided: 0, won: 0 });
   });
 });
+
+describe("review fix 8 - the Today hero summary derives every number from the one counter", () => {
+  it("won/lost/measuring from countLedgerLifecycle collapse consistently on a mixed ledger", () => {
+    // 1 calibrated mature win + 1 uncalibrated mature win + 1 uncalibrated mature
+    // loss + 1 open row. The hero reads won = counts.won, lost = decided - won,
+    // measuring = counts.measuring - so the SAME record can never sit in "won"
+    // on one line while the measuring count holds it on the next.
+    const ledger = [
+      row("cal-win", "won", MATURE_WINDOWS),
+      row("uncal-win", "won", MATURE_WINDOWS, { calibrationVersion: null }),
+      row("uncal-loss", "lost", MATURE_WINDOWS, { calibrationVersion: null }),
+      row("open", "measuring", OPEN_WINDOWS),
+    ];
+    const counts = countLedgerLifecycle(ledger, NOW);
+    expect(counts).toEqual({ measuring: 3, decided: 1, won: 1 });
+    // The hero's derived pair:
+    expect(counts.decided - counts.won).toBe(0); // no "lost" claim off the uncalibrated loss
+  });
+});

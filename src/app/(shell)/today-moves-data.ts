@@ -541,14 +541,17 @@ export async function buildTodayMovesData(
     };
     // Learning summary (hero) - count MATURE outcomes only; everything else is still
     // measuring. Honest: a 7-day "lost" is not a loss.
-    const ledgerPres = ledger.map((r) => presentationOf(r));
-    // Wave 3A: the measuring count is the canonical countLedgerLifecycle (revert bookkeeping
-    // excluded, same rule as Results / Today / the Changes list), never a raw
-    // `maturity !== "mature_result"` count over the un-filtered ledger.
+    // Fail-closed calibration quarantine, review fix 8 (2026-07-11): ALL THREE
+    // numbers come from the ONE canonical counter (countLedgerLifecycle - revert
+    // bookkeeping excluded, maturity + calibration gated), never a second
+    // presentation-derived count. The old raw pres tally counted an uncalibrated
+    // mature won as "won" while the gated measuring count held the SAME record as
+    // measuring - one record, two buckets, on one surface. One counter, one truth.
+    const lifecycleCounts = countLedgerLifecycle(ledger, proofNow);
     const learningSummary = {
-      measuring: countLedgerLifecycle(ledger, proofNow).measuring,
-      won: ledgerPres.filter((p) => p.verdict === "helped").length,
-      lost: ledgerPres.filter((p) => p.verdict === "did_not_help").length,
+      measuring: lifecycleCounts.measuring,
+      won: lifecycleCounts.won,
+      lost: lifecycleCounts.decided - lifecycleCounts.won,
     };
     // Outcome-threading (2026-06-28; Move 2): the most recent shipped change per page,
     // carrying its maturity presentation so a card shows honest measurement language

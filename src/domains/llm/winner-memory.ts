@@ -67,6 +67,12 @@ export type WinnerExample = {
   /** Observational CTR lift (0-1 scale) from the mature 28-day window, when known. */
   measuredLift: number | null;
   verdict: "won";
+  /** Fail-closed calibration quarantine, review fix 6 (2026-07-11): the source
+   *  record's classifier version, copied at harvest time. Optional so a winner
+   *  persisted BEFORE the quarantine reads as null = uncalibrated, and the read
+   *  path below (loadWinners) refuses to serve it as a few-shot - the store is
+   *  history, but only calibrated wins may teach the drafters. */
+  calibrationVersion?: string | null;
   shippedAt: string;
   capturedAt: string;
 };
@@ -175,6 +181,10 @@ export async function harvestWinners(
         pattern: classifyDraftPattern(afterText),
         measuredLift: matureCtrLift(r),
         verdict: "won",
+        // Review fix 6: copy the source record's version so the READ path can
+        // re-verify calibration at serve time (a later registry change or a
+        // legacy stored row must never leak an uncalibrated few-shot).
+        calibrationVersion: r.calibrationVersion ?? null,
         shippedAt: r.shippedAt,
         capturedAt: now.toISOString(),
       };
@@ -205,13 +215,19 @@ export async function harvestWinners(
   }
 }
 
-/** Retained winners for one tenant, newest ship first. Fail-soft → []. */
+/** Retained winners for one tenant, newest ship first. Fail-soft → [].
+ *  Fail-closed calibration quarantine, review fix 6 (2026-07-11): the READ path
+ *  is gated too - a stored winner persisted before the quarantine (no version on
+ *  record) or under an unregistered version is never served as a few-shot, even
+ *  though it stays in the store as history. Every few-shot builder flows through
+ *  here (loadWinnersForLever -> buildWinnerFewShots), so one gate covers all. */
 export async function loadWinners(tenantId: string): Promise<WinnerExample[]> {
   if (!tenantId) return [];
   try {
     const all = await readAll();
     return all
       .filter((r) => r.tenantId === tenantId)
+      .filter((r) => isCalibratedVerdict({ verdict: r.verdict, calibrationVersion: r.calibrationVersion ?? null }))
       .sort((a, b) => (a.shippedAt < b.shippedAt ? 1 : -1));
   } catch {
     return [];

@@ -1,7 +1,7 @@
 import Link from "next/link";
 
 import { formatMetric, formatMetricCompact } from "@/lib/format-metric";
-import { proofMaturityLabel } from "@/domains/proof-gsc/measure-lifecycle";
+import { maturityLabelForRecord } from "@/domains/proof-gsc/measure-lifecycle";
 import { loadPageDossier } from "./page-dossier-data";
 import { DossierChart } from "./dossier-chart";
 
@@ -232,7 +232,10 @@ export async function DossierHistorySection({ path }: { path: string }) {
         <div className="mt-2 space-y-2">
           {history.map((r) => {
             const basis = r.windows.filter((w) => w.ran).sort((a, b) => b.day - a.day)[0] ?? null;
-            const label = proofMaturityLabel(r.verdict, basis?.day ?? null);
+            // Review fix 3 (2026-07-11): the SHARED calibration-aware label, so a
+            // quarantined win reads "No clear change yet" here exactly as it does
+            // on Results and in Ask - never "Helped" on one surface only.
+            const label = maturityLabelForRecord(r, basis?.day ?? null);
             return (
               <div key={r.id} className="rounded-md border border-border/40 px-3 py-2">
                 <div className="flex flex-wrap items-center gap-2">

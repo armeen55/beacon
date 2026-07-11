@@ -21,10 +21,12 @@ import { gscLagStatus, isDueForMeasure } from "@/domains/proof-gsc/measure-lifec
 import {
   buildMeasurementPresentation,
   detectMeasurementOverlaps,
+  directionOf,
   isMatureOutcome,
   measurementWindowOf,
   type MeasurementPresentation,
 } from "@/domains/proof-gsc/measurement-maturity";
+import { UNCALIBRATED_NO_CLEAR_EFFECT_SENTENCE } from "@/domains/proof-gsc/verdict-calibration";
 import { gradeFromPresentation, type VerdictReliabilityResult } from "@/domains/proof-gsc/verdict-reliability";
 import { scheduleAutoMeasure, selectRowsToReverify } from "@/domains/proof-gsc/auto-measure-on-use";
 import { loadDailyClicksByPathsForTenant } from "@/domains/proof-gsc/daily-series";
@@ -62,7 +64,7 @@ import { getOwnedAnswerAlignmentsBatch, type OwnedAlignmentRequest, type Persist
 import { permutationSentenceFromCounts } from "@/domains/proof-gsc/permutation-null";
 import { selectHeadlineSentence } from "@/domains/proof-gsc/bayesian-read";
 import type { ShippedChangeRecord } from "@/domains/proof-gsc/shipped-change-store";
-import { proofBadgeLabel, proofBadgeLabelFromVerdict, proofBadgeMaturesOn, isUncalibratedDecidedRecord } from "./proof-badge";
+import { proofBadgeLabel, proofBadgeLabelFromVerdict, proofBadgeMaturesOn, isUncalibratedDecidedRecord, presentationVerdictFor } from "./proof-badge";
 import { plainSearchHeadline } from "./proof-plain-search-line";
 import { searchAndTrafficDisagree, reconciliationSentence } from "./proof-reconciliation";
 import {
@@ -715,7 +717,14 @@ async function MeasuredOutcomesBoard({
           now: new Date(),
           latestGscDate,
           windows: (l.windows ?? []).map((w) => ({ day: w.day, ran: w.ran })),
-          verdict: l.verdict,
+          // Fail-closed calibration quarantine, review fix 1 (2026-07-11): the
+          // presentation is built from the CALIBRATION-AWARE verdict, so an
+          // uncalibrated won/lost yields exactly the neutral presentation a
+          // mature inconclusive row gets - headline, Search line, tone, and the
+          // grade sentence all read neutral, never "This helped." or "Likely
+          // helping (high confidence)". The stored verdict is untouched; the
+          // revert-offer brake below reads the RAW verdict on purpose.
+          verdict: presentationVerdictFor(l),
           controlsUsed: basisWin?.controlsUsed ?? 0,
           baselineImpressions: l.baseline?.impressions ?? 0,
           overlap: overlapById.get(l.id) ?? null,
@@ -881,12 +890,16 @@ async function MeasuredOutcomesBoard({
   const revertById = new Map<string, RevertDecision>();
   const restoredIds = new Set(ledger.filter((l) => hasRevertNote(l)).map((l) => l.id));
   if (isOperator) {
+    // Quarantine exception (review fix 1): the revert OFFER is a protective
+    // brake, so its direction reads the RAW stored verdict (directionOf), not
+    // the calibration-aware presentation above - the quarantine removes unearned
+    // trust in wins, it must never remove caution on a possible loss.
     const negativeRows = ledger
       .filter((l) => {
         const p = presById.get(l.id);
         return (
           !!p &&
-          p.direction === "negative" &&
+          directionOf(l.verdict) === "negative" &&
           (p.basisDay ?? 0) >= 7 &&
           !isRevertRecord(l) &&
           !hasRevertNote(l) &&
@@ -914,7 +927,8 @@ async function MeasuredOutcomesBoard({
             const source = sources[i];
             const decision = decideRevert({
               tenantId,
-              direction: p.direction,
+              // Same brake rule as the filter above: raw stored direction.
+              direction: directionOf(rec.verdict),
               windowDay: p.basisDay,
               attributionQuality: p.attributionQuality,
               lever: rec.actionType,
@@ -1209,20 +1223,30 @@ function LedgerCard({ rec, link, pres, grade, eventCaveat, spark, controlSparks,
   const metric = pickProofMetric(rec.actionType);
   const basis = rec.windows.filter((w) => w.ran).sort((a, b) => b.day - a.day)[0] ?? null;
   const mature = pres ? isMatureOutcome(pres.maturity) : false;
+  // Fail-closed calibration quarantine, review fix 1 (2026-07-11): every
+  // verdict-worded line on this card is built from the calibration-aware
+  // verdict, so an uncalibrated won/lost reads exactly like a mature
+  // inconclusive row (never "This helped." / "Likely helping"). The approved
+  // honest sentence renders ONCE per quarantined card, below the header.
+  const quarantined = isUncalibratedDecidedRecord(rec);
+  const cardVerdict = quarantined ? "inconclusive" : rec.verdict;
   // Move 2 - the headline Search line: at a MATURE result, the lift-bearing sentence;
   // before that, the honest maturity language (no "Likely hurting (high confidence)"
   // off a 7-day read). Falls back to the legacy sentence when no presentation.
   const floorSentence =
     pres && !mature
       ? `${pres.headline}. ${pres.explanation}`
-      : proofOutcomeSentence({ verdict: rec.verdict, confidence: pres?.confidence ?? rec.confidence, basis, metric });
+      : proofOutcomeSentence({ verdict: cardVerdict, confidence: pres?.confidence ?? rec.confidence, basis, metric });
   // Item 67 - the Bayesian read is an honest quantification layer, NOT a second
   // decision path: the stored verdict (floors + permutation) still decides
   // won/lost above. The headline sentence only upgrades to the Bayesian
   // "X percent sure, likely N to M extra clicks a month" wording when a read
   // exists AND agrees in direction with that same floor verdict - it can add
   // confidence to a floor call, never contradict or replace one.
-  const sentence = selectHeadlineSentence(rec.verdict, rec.bayesianRead, floorSentence);
+  // Review fix 1: the Bayesian "X percent sure, likely N to M extra clicks"
+  // upgrade never fires on a quarantined verdict (its read derives from the
+  // same failed thresholds' basis window).
+  const sentence = selectHeadlineSentence(cardVerdict, quarantined ? null : rec.bayesianRead, floorSentence);
   // Item C2 - secondary "matures on X" text under the collapsed badge, for any
   // pre-verdict state. Null once a final verdict exists.
   const badgeMaturesOn = pres ? proofBadgeMaturesOn(pres) : null;
@@ -1285,8 +1309,8 @@ function LedgerCard({ rec, link, pres, grade, eventCaveat, spark, controlSparks,
             renders as the neutral "No clear change" badge (never Helped/Did not
             help) with a neutral pill tone (never red/green), matching its In-flight
             band placement (splitLedgerLifecycle). A calibrated read is unchanged. */}
-        <Pill intent={isUncalibratedDecidedRecord(rec) ? "neutral" : pres ? TONE_PILL_INTENT[pres.tone] : verdictPillIntent(rec.verdict, basis?.day ?? null)}>
-          {isUncalibratedDecidedRecord(rec) ? "No clear change" : pres ? proofBadgeLabel(pres) : proofBadgeLabelFromVerdict(rec.verdict, basis?.day ?? null)}
+        <Pill intent={quarantined ? "neutral" : pres ? TONE_PILL_INTENT[pres.tone] : verdictPillIntent(rec.verdict, basis?.day ?? null)}>
+          {quarantined ? "No clear change" : pres ? proofBadgeLabel(pres) : proofBadgeLabelFromVerdict(rec.verdict, basis?.day ?? null)}
         </Pill>
         {keyNumber ? (
           <span
@@ -1303,6 +1327,12 @@ function LedgerCard({ rec, link, pres, grade, eventCaveat, spark, controlSparks,
           {plainAction(rec.actionType)} · shipped {rec.shippedAt.slice(0, 10)}
         </span>
       </div>
+
+      {/* Review fix 1: the one approved honest sentence, exactly once per
+          quarantined card, visible without expanding the full read. */}
+      {quarantined ? (
+        <p className="mt-1.5 text-[12px] text-muted-foreground">{UNCALIBRATED_NO_CLEAR_EFFECT_SENTENCE}</p>
+      ) : null}
 
       <details className="mt-2">
       <summary className="cursor-pointer text-meta text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1">

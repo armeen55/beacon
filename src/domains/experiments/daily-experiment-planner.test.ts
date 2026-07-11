@@ -11,7 +11,7 @@ import {
 beforeAll(registerTestCalibratedVersion);
 afterAll(clearTestCalibratedVersions);
 
-import { planDailyExperiments, scoreCandidate, pageFamilyOf, type DailyCandidate } from "./daily-experiment-planner";
+import { planDailyExperiments, scoreCandidate, pageFamilyOf, settledLeverRowsForRetirement, type DailyCandidate } from "./daily-experiment-planner";
 import type { ShippedChangeRecord } from "@/domains/proof-gsc/shipped-change-store";
 import { assessPower, type PowerAssessment } from "./power-analysis";
 import { hasBannedDash } from "@/lib/copy/strip-dashes";
@@ -827,5 +827,33 @@ describe("planDailyExperiments — N45 prerequisite hold", () => {
     const plan = planDailyExperiments({ tenantId: "t", date: "d", candidates, proofLedger: [], config: { now: NOW }, prerequisiteHolds });
     expect(plan.selected.map((s) => s.url)).toEqual(["https://iranopedia.com/cities/yazd"]);
     expect(plan.excluded.map((e) => e.reason)).toEqual(["prerequisite_pending"]);
+  });
+});
+
+describe("settledLeverRowsForRetirement - review fix 9 (inconclusive flows exactly as before)", () => {
+  it("an UNCALIBRATED inconclusive row still flows to retirement (never trust-bearing, never quarantined)", () => {
+    const rows = settledLeverRowsForRetirement([
+      { path: "/cities/tehran", actionType: "edit_title", verdict: "inconclusive", measuredAt: "2026-01-05T00:00:00Z", shippedAt: "2026-01-01T00:00:00Z", calibrationVersion: null },
+    ]);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ verdict: "inconclusive", settledAt: "2026-01-05T00:00:00Z" });
+  });
+
+  it("an UNCALIBRATED won/lost is excluded (cannot retire or unsuppress a lever)", () => {
+    const rows = settledLeverRowsForRetirement([
+      { path: "/a", actionType: "edit_title", verdict: "won", measuredAt: null, shippedAt: "2026-01-01T00:00:00Z", calibrationVersion: null },
+      { path: "/b", actionType: "edit_title", verdict: "lost", measuredAt: null, shippedAt: "2026-01-02T00:00:00Z", calibrationVersion: null },
+      { path: "/c", actionType: "edit_title", verdict: "measuring", measuredAt: null, shippedAt: "2026-01-03T00:00:00Z", calibrationVersion: null },
+    ]);
+    expect(rows).toHaveLength(0);
+  });
+
+  it("a CALIBRATED won/lost flows exactly as before", () => {
+    const rows = settledLeverRowsForRetirement([
+      { path: "/a", actionType: "edit_title", verdict: "won", measuredAt: "2026-01-05T00:00:00Z", shippedAt: "2026-01-01T00:00:00Z", calibrationVersion: TEST_CALIBRATED_VERSION },
+      { path: "/b", actionType: "edit_title", verdict: "lost", measuredAt: null, shippedAt: "2026-01-02T00:00:00Z", calibrationVersion: TEST_CALIBRATED_VERSION },
+    ]);
+    expect(rows.map((r) => r.verdict)).toEqual(["won", "lost"]);
+    expect(rows[1]!.settledAt).toBe("2026-01-02T00:00:00Z"); // falls back to shippedAt
   });
 });

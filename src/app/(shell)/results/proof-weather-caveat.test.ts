@@ -24,7 +24,10 @@ describe("Results page wires the algorithm-weather guard (item 32)", () => {
 
   it("passes shockWindows into buildMeasurementPresentation", () => {
     const s = src();
-    const call = s.slice(s.indexOf("buildMeasurementPresentation({"), s.indexOf("buildMeasurementPresentation({") + 600);
+    // Slice widened 600 -> 1400 (review fix 1, 2026-07-11): the call site gained
+    // the calibration-quarantine comment block above its verdict argument; the
+    // pin's intent (THIS call receives shockWindows) is unchanged.
+    const call = s.slice(s.indexOf("buildMeasurementPresentation({"), s.indexOf("buildMeasurementPresentation({") + 1400);
     expect(call).toContain("shockWindows");
   });
 

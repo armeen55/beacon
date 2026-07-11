@@ -19,6 +19,7 @@ import {
   LEVER_DAILY_CAP_MAX,
   LEVER_DAILY_CAP_MIN,
   computeLeverRecords,
+  leverHistoryFromLedger,
   decideAutopilotShips,
   getLeverPolicy,
   leverIsAutoPolicy,
@@ -32,6 +33,11 @@ import {
   type PerLeverPolicy,
 } from "@/domains/autopilot/autopilot-policy";
 import { RITZ_TENANT_ID } from "@/domains/push/push-service";
+import {
+  TEST_CALIBRATED_VERSION,
+  registerTestCalibratedVersion,
+  clearTestCalibratedVersions,
+} from "@/domains/proof-gsc/verdict-calibration-test-support";
 
 const TENANT = "tenant-iranopedia";
 
@@ -568,5 +574,43 @@ describe("decideAutopilotShips - per-lever auto policy (item 52)", () => {
       ...decision.skips.map((s) => s.reason),
     ].join(" ");
     expect(all).not.toMatch(/[\u2013\u2014]/);
+  });
+});
+
+describe("leverHistoryFromLedger - fail-closed calibration quarantine (review fixes 2 + 5)", () => {
+  const uncalWon = { actionType: "edit_title", verdict: "won", calibrationVersion: null };
+  const calWon = { actionType: "edit_title", verdict: "won", calibrationVersion: TEST_CALIBRATED_VERSION };
+
+  it("fix 2: a lever can NEVER earn automatic ship rights from uncalibrated wins", () => {
+    // 12 uncalibrated wins would have cleared minVerdicts 10 at a 100 percent
+    // non-regression rate under the raw mapping. Gated, they count as measuring:
+    // zero decided, zero nonRegression, not proven.
+    const history = leverHistoryFromLedger(Array.from({ length: 12 }, () => uncalWon));
+    const records = computeLeverRecords(history);
+    expect(records).toHaveLength(0);
+    expect(leverIsProven(records[0], cfg())).toBe(false);
+  });
+
+  it("fix 5: the settings display sees the SAME gate - no lever shown proven off quarantined wins", () => {
+    // Mixed ledger: 12 uncalibrated wins + 2 raw inconclusive. The settings view
+    // (autopilot-actions.ts) maps through this exact function, so decided counts
+    // only the two inconclusive rows - far below minVerdicts, never "proven".
+    const ledger = [...Array.from({ length: 12 }, () => uncalWon), { actionType: "edit_title", verdict: "inconclusive", calibrationVersion: null }, { actionType: "edit_title", verdict: "inconclusive", calibrationVersion: null }];
+    const records = computeLeverRecords(leverHistoryFromLedger(ledger));
+    expect(records[0]?.decided).toBe(2); // the inconclusive rows flow as before
+    expect(records[0]?.nonRegression).toBe(2);
+    expect(leverIsProven(records[0], cfg())).toBe(false);
+  });
+
+  it("a CALIBRATED history flows exactly as before (12 wins = proven at the default thresholds)", () => {
+    registerTestCalibratedVersion();
+    try {
+      const records = computeLeverRecords(leverHistoryFromLedger(Array.from({ length: 12 }, () => calWon)));
+      expect(records[0]?.decided).toBe(12);
+      expect(records[0]?.nonRegression).toBe(12);
+      expect(leverIsProven(records[0], cfg())).toBe(true);
+    } finally {
+      clearTestCalibratedVersions();
+    }
   });
 });

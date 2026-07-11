@@ -22,6 +22,7 @@ import {
 } from "@/domains/proof-gsc/measurement-maturity";
 import { buildShockWindows, overlappingShock, type ShockWindow } from "@/domains/proof-gsc/algorithm-weather";
 import { loadDetectedChangepoints } from "@/domains/proof-gsc/algorithm-weather-store";
+import { learningEligibleVerdict } from "@/domains/proof-gsc/verdict-calibration";
 import { PROOF_BASELINE_WINDOW_DAYS, addDays, type ProofWindowResult } from "@/domains/proof-gsc/measure";
 import { readWindowForPages } from "@/domains/proof-gsc/gsc-window";
 import {
@@ -51,12 +52,20 @@ function isMatureAndClean(
   shockWindows: ReadonlyArray<ShockWindow>,
 ): boolean {
   const basis = basisWindowOf(record);
+  // Fail-closed calibration quarantine, review fix 7 (2026-07-11): the selected
+  // cohort is a settled-verdicts cohort, so an uncalibrated decided verdict is
+  // treated exactly like an undecided one here - fed to the maturity gate as
+  // "measuring", it never resolves mature_result and never enters the cohort.
+  // A calibrated verdict passes through untouched (identical to before).
+  const gatedVerdict =
+    learningEligibleVerdict(record) ??
+    (record.verdict === "won" || record.verdict === "lost" ? "measuring" : record.verdict);
   const maturity = deriveMeasurementMaturity({
     shippedAt: record.shippedAt,
     now,
     latestGscDate: null,
     windows: (record.windows ?? []).map((w) => ({ day: w.day, ran: w.ran })),
-    verdict: record.verdict,
+    verdict: gatedVerdict,
     controlsUsed: basis?.controlsUsed ?? 0,
     baselineImpressions: record.baseline?.impressions ?? 0,
     overlap,

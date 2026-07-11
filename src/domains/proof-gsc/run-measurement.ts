@@ -825,6 +825,13 @@ export async function measureRecord(
     queryBreadth,
     equivalence,
     cleanWindowLift,
+    // Fail-closed calibration quarantine, review fix 4 (2026-07-11): this pass
+    // just recomputed the verdict under the CURRENT (self-test-failing)
+    // thresholds, so any previously stamped calibrationVersion no longer
+    // describes the verdict on this record - reset it to null EXPLICITLY on
+    // every re-measure. Only the future corrected classifier may stamp a
+    // version, and only at the moment it computes a verdict itself.
+    calibrationVersion: null,
     measuredAt: now.toISOString(),
     updatedAt: now.toISOString(),
   };

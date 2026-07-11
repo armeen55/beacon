@@ -20,7 +20,7 @@ import { loadGscPageSignalsForTenant } from "@/domains/recommendation-intelligen
 import { detectChangepoints, type DailyPoint } from "@/domains/proof-gsc/changepoint";
 import { loadProofLedgerCached } from "@/domains/proof-gsc/load-ledger";
 import { countLedgerLifecycle, excludeRevertBookkeeping } from "@/domains/changes/lifecycle-counts";
-import { proofMaturityLabel } from "@/domains/proof-gsc/measure-lifecycle";
+import { maturityLabelForRecord } from "@/domains/proof-gsc/measure-lifecycle";
 import { deriveMeasurementMaturity, basisDayOf } from "@/domains/proof-gsc/measurement-maturity";
 import { gradeVerdictReliability } from "@/domains/proof-gsc/verdict-reliability";
 import { getAnswerIntelligenceIndexForTenant } from "@/domains/answer-intelligence/store";
@@ -41,18 +41,6 @@ const MAX_FACTS = 10;
 
 function fact(value: string, source: AskFact["source"], href: string): AskFact {
   return { value, source, href };
-}
-
-/**
- * Fail-closed calibration quarantine (2026-07-11): the plain per-record label Ask
- * speaks. An uncalibrated won/lost (measured under thresholds that failed Beacon's
- * self-test) reads as "No clear change yet", never "Helped"/"Did not help";
- * everything else keeps the normal maturity-aware label. Today every won/lost is
- * uncalibrated, so no Ask answer claims a win off the quarantined ledger.
- */
-function maturityLabelForRecord(r: { verdict: string; calibrationVersion?: string | null }): string {
-  if (displayProofOutcome(r).kind === "no_clear_effect_uncalibrated") return "No clear change yet";
-  return proofMaturityLabel(r.verdict, null);
 }
 
 function pct(n: number): string {
@@ -494,9 +482,14 @@ export async function assembleMeasurementFacts(tenantId: string): Promise<AskFac
   // (when a revenue model is set) a dollar estimate - name both so "what did my last
   // batch do" answers with real weight, not just a win/loss label.
   for (const r of sorted.slice(0, 5)) {
+    // Fail-closed calibration quarantine, review fix 12 (2026-07-11): a record
+    // whose won/lost failed the self-test must not pair "No clear change yet"
+    // with a visits/dollar benefit claim or a "reads like a real effect" line
+    // derived from that same verdict's deltas. Suppress both for that record.
+    const quarantined = displayProofOutcome(r).kind === "no_clear_effect_uncalibrated";
     const parts = [`${r.path}: a ${plainChangeKind(r.actionType)} shipped ${r.shippedAt.slice(0, 10)}, ${maturityLabelForRecord(r)} (confidence: ${r.confidence})`];
-    if (r.dollarValue) parts.push(r.dollarValue.basisSentence);
-    if (r.permutationRead && r.permutationRead.nTotal > 0) {
+    if (r.dollarValue && !quarantined) parts.push(r.dollarValue.basisSentence);
+    if (!quarantined && r.permutationRead && r.permutationRead.nTotal > 0) {
       parts.push(
         `Only ${r.permutationRead.nGreater} of ${r.permutationRead.nTotal} untouched pages moved this much on their own, so this reads like a real effect.`,
       );

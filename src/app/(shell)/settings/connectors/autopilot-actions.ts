@@ -20,6 +20,7 @@ import {
   LEVER_DAILY_CAP_MIN,
   computeLeverRecords,
   getLeverPolicy,
+  leverHistoryFromLedger,
   leverIsProven,
   leverLabel,
   normalizeAutopilotConfig,
@@ -89,9 +90,11 @@ export async function loadAutopilotSettings(): Promise<AutopilotSettingsView> {
     loadShippedChanges().catch(() => []),
   ]);
 
-  const records = computeLeverRecords(
-    ledger.map((r) => ({ actionType: r.actionType, verdict: r.verdict })),
-  );
+  // Fail-closed calibration quarantine, review fix 5 (2026-07-11): the settings
+  // page must never show a lever as "proven" off quarantined wins - same shared
+  // gate the runner uses (leverHistoryFromLedger), so display and ship rights
+  // can never disagree.
+  const records = computeLeverRecords(leverHistoryFromLedger(ledger));
   const levers: AutopilotLeverView[] = records.map((r) => ({
     actionType: r.actionType,
     label: leverLabel(r.actionType),

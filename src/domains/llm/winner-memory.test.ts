@@ -44,6 +44,7 @@ import {
   buildWinnerFewShotsWithPattern,
 } from "./winner-memory";
 import { classifyStore } from "@/lib/persistence/store-classification";
+import { classifyDraftPattern } from "./draft-pattern";
 import type { ShippedChangeRecord } from "@/domains/proof-gsc/shipped-change-store";
 
 const NOW = new Date("2026-07-02T12:00:00.000Z");
@@ -249,6 +250,7 @@ describe("harvestWinners - mature-won-only pin", () => {
       features: extractStructuralFeatures("some other tenant's winner"),
       measuredLift: 0.01,
       verdict: "won",
+      calibrationVersion: TEST_CALIBRATED_VERSION,
       shippedAt: "2026-05-01T00:00:00.000Z",
       capturedAt: NOW.toISOString(),
     });
@@ -433,5 +435,56 @@ describe("fail-closed calibration quarantine (2026-07-11)", () => {
     expect(res.harvested).toBe(0);
     expect(await loadWinners("iranopedia")).toHaveLength(0);
     expect(await buildWinnerFewShots("iranopedia", "title")).toBe("");
+  });
+});
+
+describe("fail-closed calibration quarantine - review fix 6 (the READ path)", () => {
+  it("a winner persisted BEFORE the quarantine (no version on record) is never served as a few-shot", async () => {
+    // Seed the store directly, the way a pre-quarantine harvest left it: a stored
+    // "won" with NO calibrationVersion field at all. The store keeps it as
+    // history, but loadWinners refuses to serve it, so the few-shot fragment
+    // stays empty and the drafters run without examples.
+    stored.push({
+      tenantId: "iranopedia",
+      actionFamily: "title",
+      page: "https://iranopedia.com/legacy",
+      beforeText: "Old title",
+      afterText: "Legacy winner text with 12 words in it for the extractor",
+      features: extractStructuralFeatures("Legacy winner text with 12 words in it for the extractor"),
+      pattern: classifyDraftPattern("Legacy winner text with 12 words in it for the extractor"),
+      measuredLift: 0.02,
+      verdict: "won",
+      shippedAt: "2026-05-01T00:00:00.000Z",
+      capturedAt: "2026-06-01T00:00:00.000Z",
+    } as (typeof stored)[number]);
+    expect(await loadWinners("iranopedia")).toHaveLength(0);
+    expect(await buildWinnerFewShots("iranopedia", "title")).toBe("");
+  });
+
+  it("a stored winner under an UNREGISTERED version is refused too (fail-closed)", async () => {
+    stored.push({
+      tenantId: "iranopedia",
+      actionFamily: "title",
+      page: "https://iranopedia.com/unknown-version",
+      beforeText: null,
+      afterText: "Winner stored under a version nobody registered",
+      features: extractStructuralFeatures("Winner stored under a version nobody registered"),
+      pattern: classifyDraftPattern("Winner stored under a version nobody registered"),
+      measuredLift: 0.02,
+      verdict: "won",
+      calibrationVersion: "never-registered-v9",
+      shippedAt: "2026-05-01T00:00:00.000Z",
+      capturedAt: "2026-06-01T00:00:00.000Z",
+    } as (typeof stored)[number]);
+    expect(await loadWinners("iranopedia")).toHaveLength(0);
+  });
+
+  it("a freshly harvested CALIBRATED winner is stored WITH its version and served normally", async () => {
+    ledger = [record()]; // factory default: calibrated
+    await harvestWinners("iranopedia", { now: NOW });
+    const winners = await loadWinners("iranopedia");
+    expect(winners).toHaveLength(1);
+    expect(winners[0]!.calibrationVersion).toBe(TEST_CALIBRATED_VERSION);
+    expect(await buildWinnerFewShots("iranopedia", "title")).toContain("House patterns");
   });
 });

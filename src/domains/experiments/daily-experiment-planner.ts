@@ -330,6 +330,31 @@ export function scoreCandidate(c: DailyCandidate): number {
   return c.ctrOpportunityClicks * positionFactor * mediumFactor * (weakCtr / 1.5) * ownershipFactor * teamFactor * powerFactor * priorFactor * effectFactor;
 }
 
+/**
+ * Fail-closed calibration quarantine, review fix 9 (2026-07-11): the settled rows
+ * lever retirement (item 81) folds over. Only won/lost TRUST is quarantined:
+ *   - an uncalibrated won/lost is excluded (it can neither retire a lever nor
+ *     unsuppress one - learningEligibleVerdict fails closed);
+ *   - an INCONCLUSIVE row flows exactly as it did before the quarantine,
+ *     regardless of calibration - it was never a trust-bearing claim, and the
+ *     quarantine must not change any non-decided bucket;
+ *   - a calibrated won/lost flows exactly as before.
+ * Exported for a direct test pin. PURE.
+ */
+export function settledLeverRowsForRetirement(
+  proofLedger: ReadonlyArray<
+    Pick<ShippedChangeRecord, "path" | "actionType" | "verdict" | "measuredAt" | "shippedAt" | "calibrationVersion">
+  >,
+): SettledLeverRow[] {
+  const out: SettledLeverRow[] = [];
+  for (const r of proofLedger) {
+    const verdict = r.verdict === "inconclusive" ? "inconclusive" : learningEligibleVerdict(r);
+    if (verdict !== "won" && verdict !== "lost" && verdict !== "inconclusive") continue;
+    out.push({ path: r.path, actionType: r.actionType, verdict, settledAt: r.measuredAt ?? r.shippedAt });
+  }
+  return out;
+}
+
 /** Plan today's safe, diversified, effort-bounded batch. PURE. */
 export function planDailyExperiments(input: {
   tenantId: string;
@@ -490,17 +515,7 @@ export function planDailyExperiments(input: {
   // an arbitrary one. A ledger with no cell at >= RETIRE_LOSS_THRESHOLD settled losses and zero
   // wins yields an empty decision list and every candidate passes through untouched - the exact
   // pre-item-81 eligible/excluded shape (pinned by lever-retirement-wiring.test.ts).
-  // Fail-closed calibration quarantine (2026-07-11): lever retirement/retest is a
-  // learning decision, so it settles ONLY on calibrated verdicts. learningEligible
-  // Verdict returns the real verdict for a calibrated row and null for every
-  // uncalibrated one (all today), so an uncalibrated loss can never retire a lever
-  // and an uncalibrated win can never unsuppress one - the retirement list is empty
-  // and every candidate passes through untouched (a fresh-tenant shape).
-  const settledRows: SettledLeverRow[] = input.proofLedger
-    .map((r) => ({ r, v: learningEligibleVerdict(r) }))
-    .filter((x): x is { r: (typeof input.proofLedger)[number]; v: string } =>
-      x.v === "won" || x.v === "lost" || x.v === "inconclusive")
-    .map((x) => ({ path: x.r.path, actionType: x.r.actionType, verdict: x.v, settledAt: x.r.measuredAt ?? x.r.shippedAt }));
+  const settledRows: SettledLeverRow[] = settledLeverRowsForRetirement(input.proofLedger);
   const leverRetirements = computeLeverRetirementDecisions(settledRows, now, pageFamilyOf, actionFamilyOf);
   const retirementIndex = new RetirementIndex(leverRetirements);
   const afterRetirement: PlannedExperiment[] = [];

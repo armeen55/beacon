@@ -6,7 +6,7 @@
  * proof-plain-vocabulary.test.ts); this only pins the record-aware gate.
  */
 import { describe, expect, it, afterEach } from "vitest";
-import { isUncalibratedDecidedRecord, proofBadgeLabelFromVerdict } from "./proof-badge";
+import { isUncalibratedDecidedRecord, proofBadgeLabelFromVerdict, presentationVerdictFor } from "./proof-badge";
 import {
   TEST_CALIBRATED_VERSION,
   registerTestCalibratedVersion,
@@ -34,5 +34,24 @@ describe("isUncalibratedDecidedRecord - the card badge gate", () => {
     registerTestCalibratedVersion();
     expect(isUncalibratedDecidedRecord({ verdict: "won", calibrationVersion: TEST_CALIBRATED_VERSION })).toBe(false);
     expect(isUncalibratedDecidedRecord({ verdict: "lost", calibrationVersion: TEST_CALIBRATED_VERSION })).toBe(false);
+  });
+});
+
+describe("presentationVerdictFor - review fix 1 (the card BODY gate)", () => {
+  it("maps an uncalibrated won/lost to 'inconclusive' so the whole card presentation reads neutral", () => {
+    expect(presentationVerdictFor({ verdict: "won", calibrationVersion: null })).toBe("inconclusive");
+    expect(presentationVerdictFor({ verdict: "lost", calibrationVersion: null })).toBe("inconclusive");
+  });
+
+  it("passes non-decided verdicts through untouched (they were never a claim)", () => {
+    expect(presentationVerdictFor({ verdict: "measuring", calibrationVersion: null })).toBe("measuring");
+    expect(presentationVerdictFor({ verdict: "inconclusive", calibrationVersion: null })).toBe("inconclusive");
+    expect(presentationVerdictFor({ verdict: "insufficient_data", calibrationVersion: null })).toBe("insufficient_data");
+  });
+
+  it("passes a CALIBRATED won/lost through so the card presents the real verdict", () => {
+    registerTestCalibratedVersion();
+    expect(presentationVerdictFor({ verdict: "won", calibrationVersion: TEST_CALIBRATED_VERSION })).toBe("won");
+    expect(presentationVerdictFor({ verdict: "lost", calibrationVersion: TEST_CALIBRATED_VERSION })).toBe("lost");
   });
 });

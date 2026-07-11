@@ -9,6 +9,7 @@ import {
   excludeRevertBookkeeping,
   type LedgerLifecycleStage,
 } from "@/domains/changes/lifecycle-counts";
+import { displayProofOutcome, UNCALIBRATED_NO_CLEAR_EFFECT_SENTENCE } from "@/domains/proof-gsc/verdict-calibration";
 import { verdictSchedule } from "@/domains/proof-gsc/verdict-schedule";
 import { monthDayLabel } from "@/components/data/receipt-line";
 
@@ -42,6 +43,19 @@ function stageColor(stage: LedgerLifecycleStage): string {
     : stage === "learned"
       ? "text-rose-700"
       : "text-blue-700";
+}
+
+/**
+ * Fail-closed calibration quarantine, review fix 11 (2026-07-11): the schedule
+ * clause when no future read is left. A quarantined row (uncalibrated won/lost,
+ * gated into the Measuring stage) has all its checks run, so "All the result
+ * checks are done." next to a "Measuring" label read as a direct contradiction.
+ * For that row the clause is the one approved honest sentence instead - the
+ * checks ran; the earlier thresholds failed the self-test. Exported for a
+ * direct test pin. PURE.
+ */
+export function allChecksDoneClause(quarantined: boolean): string {
+  return quarantined ? UNCALIBRATED_NO_CLEAR_EFFECT_SENTENCE : "All the result checks are done.";
 }
 
 export async function ProofLedgerStrip() {
@@ -187,7 +201,9 @@ function ActiveExperimentCard({
             We will know if this worked by <span className="font-medium">{nextRead}</span>.
           </>
         ) : (
-          <>All the result checks are done.</>
+          // Review fix 11: a quarantined row must not claim its results are in
+          // while labeled Measuring - the honest fail-closed sentence instead.
+          <>{allChecksDoneClause(displayProofOutcome(rec).kind === "no_clear_effect_uncalibrated")}</>
         )}
       </p>
 

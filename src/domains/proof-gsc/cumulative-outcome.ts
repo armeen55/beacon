@@ -29,6 +29,7 @@
  */
 
 import { splitLedgerLifecycle } from "@/domains/changes/lifecycle-counts";
+import { displayProofOutcome, UNCALIBRATED_NO_CLEAR_EFFECT_SENTENCE } from "./verdict-calibration";
 import { toMonthlyRate } from "./change-dollar-value";
 import { addDays } from "./measure";
 import { sumWonDollarsPerMonth } from "./won-dollar-rule";
@@ -207,9 +208,19 @@ export function computeCumulativeOutcome(
         : `Together your ${fmtCount(won)} wins are adding about ${fmtCount(winClicksPerMonth)} extra clicks a month, measured against similar pages we did not change.`
       : null;
 
+  // Fail-closed calibration quarantine, review fix 10 (2026-07-11): a quarantined
+  // read (an uncalibrated won/lost sitting in the measuring band) is NOT waiting
+  // on Google - the data arrived; the thresholds failed the self-test. Blaming
+  // the data would be false, so when any quarantined read exists the waiting
+  // sentence is the one approved honest sentence instead.
+  const quarantinedReads = split.measuring.filter(
+    (r) => displayProofOutcome(r).kind === "no_clear_effect_uncalibrated",
+  ).length;
   const waitingLine =
     decided === 0 && measuring > 0
-      ? firstVerdictOn == null
+      ? quarantinedReads > 0
+        ? `${checkpointClause}${UNCALIBRATED_NO_CLEAR_EFFECT_SENTENCE}`
+        : firstVerdictOn == null
         ? `${checkpointClause}No settled reads yet. The first lands when the earliest 28-day window closes. Longer confirmation reads come later.`
         : firstVerdictOn >= today
           ? `${checkpointClause}No settled reads yet. The first lands around ${monthDayLabel(firstVerdictOn)} when the earliest 28-day window closes. Longer confirmation reads come later.`

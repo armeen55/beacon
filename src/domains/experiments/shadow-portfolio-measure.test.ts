@@ -6,7 +6,18 @@
  * clear of the real confirmed Google-update ranges in algorithm-weather.ts (same convention
  * scoreboard-section-money-lines.test.ts uses).
  */
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, beforeAll, afterAll } from "vitest";
+import {
+  TEST_CALIBRATED_VERSION,
+  registerTestCalibratedVersion,
+  clearTestCalibratedVersions,
+} from "@/domains/proof-gsc/verdict-calibration-test-support";
+
+// Fail-closed calibration quarantine (2026-07-11): the ledger fixtures default to
+// CALIBRATED so the selected-cohort cases pin calibrated behavior; the dedicated
+// uncalibrated case pins the quarantine (treated exactly like undecided).
+beforeAll(registerTestCalibratedVersion);
+afterAll(clearTestCalibratedVersions);
 import type { ShippedChangeRecord } from "@/domains/proof-gsc/shipped-change-store";
 import type { ShadowCandidateRecord } from "./shadow-portfolio-store";
 import type { GscWindowMetrics } from "@/domains/proof-gsc/measure";
@@ -63,7 +74,8 @@ function record(over: Partial<ShippedChangeRecord> = {}, path = "/p1"): ShippedC
     targetQueries: ["iranian singers"], controlPages: ["https://iranopedia.com/actors"],
     windows: [win28()], verdict: "won", confidence: "high", measuredAt: "2026-05-13T00:00:00.000Z",
     notes: null, verifiedLive: true, liveSourceUrl: null, recrawlRequestedAt: null,
-    operatorVerdictOverride: null, createdAt: "2026-04-15T00:00:00.000Z", updatedAt: "2026-05-13T00:00:00.000Z",
+    operatorVerdictOverride: null, calibrationVersion: TEST_CALIBRATED_VERSION,
+    createdAt: "2026-04-15T00:00:00.000Z", updatedAt: "2026-05-13T00:00:00.000Z",
     ...over,
   } as ShippedChangeRecord;
 }
@@ -204,5 +216,23 @@ describe("loadShadowCalibrationFeed - item 65 part 4 composition", () => {
   it("fails soft to null on an unexpected error", async () => {
     shadowRows = [];
     expect(await loadShadowCalibrationFeed("tenant-a", NOW)).toBeNull();
+  });
+});
+
+describe("buildSelectedDriftRows - fail-closed calibration quarantine (review fix 7)", () => {
+  it("an UNCALIBRATED mature won is treated exactly like an undecided row (no cohort entry)", () => {
+    const rows = buildSelectedDriftRows([record({ calibrationVersion: null })], NOW, []);
+    expect(rows).toHaveLength(0);
+  });
+
+  it("an UNCALIBRATED mature lost is excluded the same way (whole-cohort symmetry)", () => {
+    const rows = buildSelectedDriftRows([record({ verdict: "lost", calibrationVersion: null })], NOW, []);
+    expect(rows).toHaveLength(0);
+  });
+
+  it("a CALIBRATED record's cohort row is byte-identical to before", () => {
+    const rows = buildSelectedDriftRows([record()], NOW, []);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.adjustedPct).toBeCloseTo(0.35, 5);
   });
 });

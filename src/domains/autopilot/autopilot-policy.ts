@@ -19,6 +19,10 @@
  * Pinned by tests/domains/autopilot/autopilot-policy.test.ts.
  */
 
+// The one non-local import stays PURE (verdict-calibration has no I/O): the
+// 2026-07-11 quarantine's learning gate, consumed by leverHistoryFromLedger below.
+import { learningEligibleVerdict } from "@/domains/proof-gsc/verdict-calibration";
+
 /**
  * Kept aligned with RITZ_TENANT_ID in src/domains/push/push-service.ts
  * (duplicated as a plain string so this module stays pure and light).
@@ -206,6 +210,33 @@ export function leverIsProven(record: LeverRecord | undefined, config: Autopilot
   if (record == null) return false;
   if (record.decided < config.minVerdicts) return false;
   return record.nonRegression / record.decided >= config.minNonRegressionRate;
+}
+
+/**
+ * Fail-closed calibration quarantine, review fixes 2 + 5 (2026-07-11): THE one
+ * mapping from proof-ledger records to the lever-verdict history the proven-lever
+ * gate consumes. The proven-lever gate GRANTS trust (automatic ship rights), so
+ * unlike the protective brakes (circuit-breaker / run-revert, which stay raw) it
+ * must never count a won/lost measured under thresholds that failed Beacon's
+ * self-test: an uncalibrated decided verdict reads as "measuring" here, so it
+ * contributes to neither `decided` nor `nonRegression` and a lever can never
+ * earn (or be displayed as having earned) automatic ship rights off quarantined
+ * wins. A raw inconclusive still counts as decided/non-regression exactly as
+ * before (it was never a trust-bearing win claim). Used by BOTH the runner
+ * (run-autopilot.ts defaultLoadLeverHistory) and the settings display
+ * (settings/connectors/autopilot-actions.ts) so the two can never disagree.
+ * PURE.
+ */
+export function leverHistoryFromLedger(
+  records: ReadonlyArray<{ actionType: string; verdict: string; calibrationVersion?: string | null }>,
+): LeverVerdictInput[] {
+  return records.map((r) => ({
+    actionType: r.actionType,
+    verdict:
+      r.verdict === "inconclusive"
+        ? "inconclusive"
+        : (learningEligibleVerdict(r) ?? "measuring"),
+  }));
 }
 
 // ---------------------------------------------------------------------------

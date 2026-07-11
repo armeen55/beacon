@@ -1,4 +1,10 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, afterAll } from "vitest";
+import { maturityLabelForRecord } from "./measure-lifecycle";
+import {
+  TEST_CALIBRATED_VERSION,
+  registerTestCalibratedVersion,
+  clearTestCalibratedVersions,
+} from "./verdict-calibration-test-support";
 import type { ShippedChangeRecord } from "./shipped-change-store";
 import type { ProofWindowResult } from "./measure";
 import { isDueForMeasure, outcomeStateOf, gscLagStatus, proofMaturityLabel, resolveVerdictLag } from "./measure-lifecycle";
@@ -193,5 +199,27 @@ describe("proofMaturityLabel — 7d early / 14d strengthening / 28d final (UI on
     expect(proofMaturityLabel("measuring", null)).toBe("Still measuring");
     expect(proofMaturityLabel("inconclusive", 14)).toBe("No clear change");
     expect(proofMaturityLabel("won", null)).toBe("Helped");
+  });
+});
+
+describe("maturityLabelForRecord - fail-closed calibration quarantine (review fix 3)", () => {
+  afterAll(clearTestCalibratedVersions);
+
+  it("an UNCALIBRATED won/lost reads 'No clear change yet' on every surface that uses this label", () => {
+    expect(maturityLabelForRecord({ verdict: "won", calibrationVersion: null }, 28)).toBe("No clear change yet");
+    expect(maturityLabelForRecord({ verdict: "lost", calibrationVersion: null }, 28)).toBe("No clear change yet");
+    expect(maturityLabelForRecord({ verdict: "won" }, 7)).toBe("No clear change yet"); // missing field = fail closed
+  });
+
+  it("non-decided verdicts keep their normal labels (never quarantined)", () => {
+    expect(maturityLabelForRecord({ verdict: "measuring", calibrationVersion: null })).toBe("Still measuring");
+    expect(maturityLabelForRecord({ verdict: "inconclusive", calibrationVersion: null })).toBe("No clear change");
+  });
+
+  it("a CALIBRATED won keeps the maturity-aware label exactly as before", () => {
+    registerTestCalibratedVersion();
+    expect(maturityLabelForRecord({ verdict: "won", calibrationVersion: TEST_CALIBRATED_VERSION }, 28)).toBe("Helped");
+    expect(maturityLabelForRecord({ verdict: "won", calibrationVersion: TEST_CALIBRATED_VERSION }, 7)).toBe("Early positive signal");
+    expect(maturityLabelForRecord({ verdict: "lost", calibrationVersion: TEST_CALIBRATED_VERSION }, 28)).toBe("Did not help");
   });
 });

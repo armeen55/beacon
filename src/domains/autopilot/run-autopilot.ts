@@ -177,9 +177,15 @@ async function defaultCanaryHoldForBatch(args: {
 async function defaultLoadLeverHistory(): Promise<LeverVerdictInput[]> {
   // Persisted verdicts only (no re-measure on this path; the nightly
   // measure-due cron keeps them fresh). Ambient-tenant store, guarded above.
+  // Fail-closed calibration quarantine, review fix 2 (2026-07-11): the proven-
+  // lever gate GRANTS automatic ship rights, so it maps through the shared
+  // leverHistoryFromLedger gate - an uncalibrated won/lost reads as measuring
+  // and can never earn a lever its proven status. The breaker below stays raw
+  // (a brake keeps its caution).
   const { loadShippedChanges } = await import("@/domains/proof-gsc/shipped-change-store");
+  const { leverHistoryFromLedger } = await import("./autopilot-policy");
   const records = await loadShippedChanges().catch(() => []);
-  return records.map((r) => ({ actionType: r.actionType, verdict: r.verdict }));
+  return leverHistoryFromLedger(records);
 }
 
 /** Item 80: the same computed-only persisted ledger read, reshaped for the

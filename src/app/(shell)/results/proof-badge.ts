@@ -76,3 +76,17 @@ export function proofBadgeLabelFromVerdict(verdict: string, basisDay: number | n
 export function isUncalibratedDecidedRecord(record: CalibratableRecord): boolean {
   return displayProofOutcome(record).kind === "no_clear_effect_uncalibrated";
 }
+
+/**
+ * Fail-closed calibration quarantine, review fix 1 (2026-07-11): the verdict a
+ * Results card's PRESENTATION must be built from. An uncalibrated won/lost reads
+ * as "inconclusive" so buildMeasurementPresentation yields exactly the neutral
+ * presentation a mature inconclusive row gets (direction neutral, "No clear
+ * result" headline, neutral tone, neutral grade sentence) - never "This helped."
+ * or "Likely helping (high confidence)" off a quarantined verdict. A calibrated
+ * or non-decided verdict passes through untouched. The STORED verdict is never
+ * changed; this only shapes what the card says.
+ */
+export function presentationVerdictFor(record: CalibratableRecord): string {
+  return isUncalibratedDecidedRecord(record) ? "inconclusive" : record.verdict;
+}

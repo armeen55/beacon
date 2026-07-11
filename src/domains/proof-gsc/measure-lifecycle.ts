@@ -7,6 +7,7 @@
  */
 
 import { addDays, proofCheckDates, PROOF_WINDOW_DAYS, type ProofWindowDay } from "./measure";
+import { displayProofOutcome, type CalibratableRecord } from "./verdict-calibration";
 import type { ShippedChangeRecord } from "./shipped-change-store";
 
 const MAX_MEASURE_WINDOW_DAYS = Math.max(...PROOF_WINDOW_DAYS);
@@ -203,6 +204,23 @@ export function proofMaturityLabel(verdict: string, basisDay: number | null): st
   if (d <= 7) return positive ? "Early positive signal" : "Early negative signal";
   if (d <= 14) return positive ? "Positive signal strengthening" : "Negative signal strengthening";
   return positive ? "Helped" : "Did not help"; // 28-day = the main verdict
+}
+
+/**
+ * Fail-closed calibration quarantine (2026-07-11), review fix 3 - THE shared
+ * calibration-aware wrapper over proofMaturityLabel. An uncalibrated won/lost
+ * (measured under thresholds that failed Beacon's self-test) reads as "No clear
+ * change yet", never "Helped"/"Did not help"; everything else keeps the normal
+ * maturity-aware label. One home (Ask's fact assembly and the page dossier both
+ * import this) so the same record can never carry two different labels on two
+ * surfaces. PURE.
+ */
+export function maturityLabelForRecord(
+  record: CalibratableRecord,
+  basisDay: number | null = null,
+): string {
+  if (displayProofOutcome(record).kind === "no_clear_effect_uncalibrated") return "No clear change yet";
+  return proofMaturityLabel(record.verdict, basisDay);
 }
 
 /**

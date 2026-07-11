@@ -87,6 +87,11 @@ import { loadOwnershipRegistryForTenant } from "@/domains/ownership/registry-loa
 import { loadPageDossier } from "@/app/(shell)/page/[...path]/page-dossier-data";
 import { loadDailyTotalsForTenant } from "@/domains/recommendation-intelligence/gsc-page-queries";
 import { loadProofLedgerCached } from "@/domains/proof-gsc/load-ledger";
+import {
+  TEST_CALIBRATED_VERSION,
+  registerTestCalibratedVersion,
+  clearTestCalibratedVersions,
+} from "@/domains/proof-gsc/verdict-calibration-test-support";
 import { getAnswerIntelligenceIndexForTenant } from "@/domains/answer-intelligence/store";
 import { getAcceptedPlan } from "@/domains/experiments/daily-experiment-plan-store";
 import { loadNativeIntelForTenant } from "@/domains/ai-visibility/native-intel-loader";
@@ -385,12 +390,16 @@ describe("ask/fact-assembly - measurement", () => {
   // D8: reliability depth - confidence, dollar value, and permutation-null read should
   // all surface so "what did my last batch of changes do" answers with real weight.
   it("names confidence, dollar value, and the permutation-null read when present", async () => {
+    // Review fix 12 regression side: a CALIBRATED record still gets its full
+    // reliability depth (dollar + permutation lines) exactly as before.
+    registerTestCalibratedVersion();
     vi.mocked(loadProofLedgerCached).mockResolvedValueOnce([
       {
         id: "1", page: "https://x/cheetah", path: "/cheetah", actionType: "edit_title", before: "a", after: "b",
         shippedAt: new Date().toISOString(),
         baseline: { clicks: 1, impressions: 1, ctr: 1, position: 1, windowDays: 28 },
         targetQueries: [], controlPages: [], windows: [], verdict: "won", confidence: "high", measuredAt: null,
+        calibrationVersion: TEST_CALIBRATED_VERSION,
         dollarValue: { usdPerMonth: 42, basisSentence: "At your rate, this is worth about 42 dollars a month.", confidence: "medium" },
         permutationRead: { percentile: 0.04, nGreater: 2, nTotal: 50 },
       } as never,
@@ -399,6 +408,28 @@ describe("ask/fact-assembly - measurement", () => {
     expect(dossier.facts.some((f) => f.value.includes("confidence: high"))).toBe(true);
     expect(dossier.facts.some((f) => f.value.includes("42 dollars a month"))).toBe(true);
     expect(dossier.facts.some((f) => f.value.includes("2 of 50 untouched pages"))).toBe(true);
+    clearTestCalibratedVersions();
+  });
+
+  it("review fix 12: an UNCALIBRATED record's visits/dollar and real-effect claims are suppressed", async () => {
+    vi.mocked(loadProofLedgerCached).mockResolvedValueOnce([
+      {
+        id: "1", page: "https://x/cheetah", path: "/cheetah", actionType: "edit_title", before: "a", after: "b",
+        shippedAt: new Date().toISOString(),
+        baseline: { clicks: 1, impressions: 1, ctr: 1, position: 1, windowDays: 28 },
+        targetQueries: [], controlPages: [], windows: [], verdict: "won", confidence: "high", measuredAt: null,
+        calibrationVersion: null,
+        dollarValue: { usdPerMonth: 42, basisSentence: "At your rate, this is worth about 42 dollars a month.", confidence: "medium" },
+        permutationRead: { percentile: 0.04, nGreater: 2, nTotal: 50 },
+      } as never,
+    ]);
+    const dossier = await assembleAskDossier(routed({ questionClass: "measurement", pagePath: null }));
+    // The label is the honest one, and NO benefit claim derived from the
+    // quarantined verdict's deltas rides along with it.
+    expect(dossier.facts.some((f) => f.value.includes("No clear change yet"))).toBe(true);
+    expect(dossier.facts.some((f) => f.value.includes("42 dollars a month"))).toBe(false);
+    expect(dossier.facts.some((f) => f.value.includes("untouched pages"))).toBe(false);
+    expect(dossier.facts.some((f) => f.value.includes("reads like a real effect"))).toBe(false);
   });
 
   it("returns no facts when the ledger is empty", async () => {

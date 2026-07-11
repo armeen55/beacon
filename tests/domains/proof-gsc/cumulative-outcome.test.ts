@@ -323,3 +323,38 @@ describe("computeCumulativeOutcome - posture", () => {
     expect(out.measuring).toBe(0);
   });
 });
+
+describe("waitingLine - fail-closed calibration quarantine (review fix 10)", () => {
+  it("quarantined reads get the approved honest sentence, never a false 'waiting on Google' claim", () => {
+    // Two uncalibrated mature wins: their 28-day windows RAN (the data arrived);
+    // the thresholds failed the self-test. decided = 0 (gated), measuring = 2.
+    const rows = [
+      wonRow({ id: "q1", path: "/a", calibrationVersion: null }),
+      wonRow({ id: "q2", path: "/b", calibrationVersion: null }),
+    ];
+    const outcome = computeCumulativeOutcome(rows, NOW)!;
+    expect(outcome.decided).toBe(0);
+    expect(outcome.measuring).toBe(2);
+    expect(outcome.waitingLine).toContain(
+      "No clear effect yet. Earlier reads used thresholds that failed Beacon's self-test.",
+    );
+    expect(outcome.waitingLine).not.toContain("Google's data catches up");
+    expect(outcome.waitingLine).not.toContain("waiting on Google");
+  });
+
+  it("a genuinely-collecting ledger (no quarantined reads) keeps its original waiting copy", () => {
+    const rows = [
+      wonRow({
+        id: "open-1",
+        path: "/c",
+        verdict: "measuring",
+        calibrationVersion: null,
+        windows: [{ day: 7, ran: false, controlsUsed: 0, adjustedLift: 0 }],
+        shippedAt: "2026-06-20T00:00:00Z", // 28d window closes in the future
+      }),
+    ];
+    const outcome = computeCumulativeOutcome(rows, NOW)!;
+    expect(outcome.waitingLine).toContain("No settled reads yet");
+    expect(outcome.waitingLine).not.toContain("self-test");
+  });
+});

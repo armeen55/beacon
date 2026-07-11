@@ -78,6 +78,11 @@ vi.mock("./algorithm-weather-store", () => ({
 }));
 
 import { measureRecord } from "./run-measurement";
+import {
+  TEST_CALIBRATED_VERSION,
+  registerTestCalibratedVersion,
+  clearTestCalibratedVersions,
+} from "./verdict-calibration-test-support";
 import type { ShippedChangeRecord } from "./shipped-change-store";
 import type { ShockWindow } from "./algorithm-weather";
 
@@ -534,5 +539,30 @@ describe("measureRecord - item 68 target-query read integration", () => {
     const now = new Date("2026-05-09T00:00:00Z");
     const result = await measureRecord("tenant-iranopedia", record(), now, null);
     expect(result.targetQueryRead).toEqual([]);
+  });
+});
+
+describe("measureRecord - fail-closed calibration quarantine (review fix 4)", () => {
+  it("a re-measure RESETS a previously stamped calibrationVersion to null (this pass ran under the old thresholds)", async () => {
+    // A record somehow stamped with a REGISTERED version gets re-measured today.
+    // The verdict this pass computes comes from the current (self-test-failing)
+    // thresholds, so the stamp no longer describes it: the result must be null.
+    // Only the future corrected classifier may write a version, at the moment it
+    // computes a verdict itself.
+    registerTestCalibratedVersion();
+    try {
+      const now = new Date("2026-05-09T00:00:00Z");
+      const stamped = record({ calibrationVersion: TEST_CALIBRATED_VERSION });
+      const result = await measureRecord("tenant-iranopedia", stamped, now, "2026-07-01");
+      expect(result.calibrationVersion).toBeNull();
+    } finally {
+      clearTestCalibratedVersions();
+    }
+  });
+
+  it("an unstamped record stays null through a measure (no version ever invented)", async () => {
+    const now = new Date("2026-05-09T00:00:00Z");
+    const result = await measureRecord("tenant-iranopedia", record(), now, "2026-07-01");
+    expect(result.calibrationVersion).toBeNull();
   });
 });
