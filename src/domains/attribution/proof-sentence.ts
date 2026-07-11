@@ -1,17 +1,17 @@
 /**
- * proof-sentence — the causal Proof Engine's plain-English voice (2026-06-11).
+ * proof-sentence, the causal Proof Engine's plain-English voice (2026-06-11).
  *
  * The Proof Engine (natural-controls → StoredChangeOutcome) produces a
  * rigorous diff-in-differences result, but the only customer surface that
  * renders it (AttributionDrilldown) speaks analyst: "diff-in-differences
  * estimate · N_controls=3 · treated Δ=+2 · control Δ=0". Beacon's buyer is a
- * non-technical local-business owner — the wedge ("we proved your edit caused
+ * non-technical local-business owner, so the wedge ("we proved your edit caused
  * the lift") is worthless if they can't read it.
  *
  * This turns one StoredChangeOutcome into ONE honest plain-English sentence
  * (+ a supporting caveat line). Deterministic, pure, no I/O. The comparative
  * framing ("more than comparable pages that DIDN'T change") is exactly what
- * diff-in-differences licenses — and the honesty rules below mirror the
+ * diff-in-differences licenses, and the honesty rules below mirror the
  * engine's own computed-vs-weak_estimate discipline AND /settings/methodology
  * (which states Beacon measures correlation, not proven causation or revenue):
  *   • the strong-signal "associated with the lift" claim ONLY for `computed`
@@ -19,7 +19,7 @@
  *     confidence; it stops short of claiming proven causation or revenue, and
  *     the confidence tier is spoken, not hidden;
  *   • `weak_estimate` / `no_controls` / `insufficient_*` / `zero_signal` are
- *     "still measuring" — explicitly NOT a causal claim;
+ *     "still measuring", explicitly NOT a causal claim;
  *   • parallel-trends is unverifiable from data, so even a high-confidence
  *     result is phrased as "measured", and low-confidence is softened to
  *     "an early read", never overstated.
@@ -28,7 +28,7 @@
  * changelog-classifier.ts / causal-self-forecast.ts headers (Huntington-Klein
  * "The Effect" ch.18 DiD; Cunningham "Mixtape" ch.9; the parallel-trends
  * make-or-break assumption; synthetic-control comparable-unit selection; AI-
- * citation frequency as the unit). This module adds NO new claim — it only
+ * citation frequency as the unit). This module adds NO new claim, it only
  * narrates, conservatively, what the engine already computed.
  *
  * Pinned by proof-sentence.test.ts.
@@ -75,7 +75,7 @@ function controlsPhrase(controls: number): string {
 
 function relativeClause(relative_lift: number | null): string {
   if (relative_lift == null || relative_lift <= 0) return "";
-  return ` — about +${Math.round(relative_lift * 100)}% more`;
+  return `, about +${Math.round(relative_lift * 100)}% more`;
 }
 
 /**
@@ -99,7 +99,7 @@ export function buildProofSentence(outcome: StoredChangeOutcome): ProofSentence 
       // caps high→medium when the lift isn't placebo-significant, i.e.
       // "untreated pages moved this much by chance"). Even then, methodology is
       // explicit that Beacon measures correlation, not proven causation, and
-      // never revenue — so the high-tier line says the change is *associated*
+      // never revenue, so the high-tier line says the change is *associated*
       // with the lift vs. comparable pages and calls it a strong signal, not
       // proof. A `medium` result is a real measured signal but NOT yet
       // placebo-proven (or has thin controls / low baseline), so it reads
@@ -108,25 +108,25 @@ export function buildProofSentence(outcome: StoredChangeOutcome): ProofSentence 
         confidence === "low"
           ? " It's an early read, so treat it as a hint rather than a guarantee."
           : confidence === "high"
-            ? " That's a strong signal this change is associated with the lift — not just a coincidence of timing — though it's not proof of causation or revenue."
-            : " It's a real measured signal, but not yet conclusive — with the evidence so far it could still be partly timing, so treat it as promising rather than proven.";
+            ? " That's a strong signal this change is associated with the lift, not just a coincidence of timing, though it's not proof of causation or revenue."
+            : " It's a real measured signal, but not yet conclusive. With the evidence so far it could still be partly timing, so treat it as promising rather than proven.";
       return {
         tone: "helping",
         headline: `This change brought in about +${round1(lift)} more AI citation${round1(lift) === 1 ? "" : "s"} a day than comparable pages that didn't change${relativeClause(rel)}.`,
-        sub: `Measured against ${controlsPhrase(controls)} — ${conf}.${softener}`,
+        sub: `Measured against ${controlsPhrase(controls)}, ${conf}.${softener}`,
       };
     }
     if (lift <= -FLAT_LIFT_THRESHOLD) {
       return {
         tone: "hurting",
-        headline: `Since this change, this page lost about ${round1(Math.abs(lift))} AI citation${round1(Math.abs(lift)) === 1 ? "" : "s"} a day relative to comparable pages that didn't change — it may be working against you.`,
-        sub: `Measured against ${controlsPhrase(controls)} — ${conf}. Worth a second look before doing more like it.`,
+        headline: `Since this change, this page lost about ${round1(Math.abs(lift))} AI citation${round1(Math.abs(lift)) === 1 ? "" : "s"} a day relative to comparable pages that didn't change. It may be working against you.`,
+        sub: `Measured against ${controlsPhrase(controls)}, ${conf}. Worth a second look before doing more like it.`,
       };
     }
     return {
       tone: "flat",
       headline: `This change didn't move your AI citations either way, compared with comparable pages that didn't change.`,
-      sub: `Measured against ${controlsPhrase(controls)} — ${conf}.`,
+      sub: `Measured against ${controlsPhrase(controls)}, ${conf}.`,
     };
   }
 
@@ -135,13 +135,13 @@ export function buildProofSentence(outcome: StoredChangeOutcome): ProofSentence 
     case "no_controls":
       return {
         tone: "watching",
-        headline: `Still measuring — Beacon can't yet prove whether this change moved your AI citations.`,
+        headline: `Still measuring. Beacon can't yet prove whether this change moved your AI citations.`,
         sub: `There aren't enough comparable pages to separate this change's effect from everything else going on. Refresh your connected data over the next week or two to give Beacon more to measure.`,
       };
     case "insufficient_post_data":
       return {
         tone: "watching",
-        headline: `Too soon to tell — not enough days have passed since this change to measure its effect.`,
+        headline: `Too soon to tell. Not enough days have passed since this change to measure its effect.`,
         sub: `Refresh your connected data over the next week or two, then check back to see if this change moved the needle.`,
       };
     case "insufficient_baseline":
@@ -153,7 +153,7 @@ export function buildProofSentence(outcome: StoredChangeOutcome): ProofSentence 
     case "zero_signal":
       return {
         tone: "none",
-        headline: `AI tools haven't cited this page before or after this change — there's nothing to measure yet.`,
+        headline: `AI tools haven't cited this page before or after this change. There's nothing to measure yet.`,
         sub: ``,
       };
     default:

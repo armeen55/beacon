@@ -9,7 +9,7 @@ export function competitorUniverseDriftNote(
   if (!visibilityRun) return null;
   const st = visibilityRun.competitor_universe_pin_status;
   if (st === "synthetic_unpinned" || st === "legacy_unpinned" || st == null) {
-    return "Visibility run is not pinned to a competitor universe — History / Today domain labels use the current workspace universe and may not match historical sample era.";
+    return "Visibility run is not pinned to a competitor universe. History / Today domain labels use the current workspace universe and may not match historical sample era.";
   }
   if (st !== "pinned") return null;
 
@@ -19,10 +19,10 @@ export function competitorUniverseDriftNote(
   const rf = visibilityRun.competitor_universe_fingerprint;
 
   if (rf && cf && rf !== cf) {
-    return `Visibility run pinned universe ${rf.slice(0, 18)}… (v${rv ?? "—"}) · current workspace ${cf.slice(0, 18)}… (v${cv ?? "—"}) — live competitor labels use current unless you re-pin imports.`;
+    return `Visibility run pinned universe ${rf.slice(0, 18)}… (v${rv ?? "unknown"}) · current workspace ${cf.slice(0, 18)}… (v${cv ?? "unknown"}). Live competitor labels use current unless you re-pin imports.`;
   }
   if (rv != null && cv != null && rv !== cv && rf === cf) {
-    return `Visibility run universe version v${rv} vs current v${cv} — fingerprint matches (metadata-only bump).`;
+    return `Visibility run universe version v${rv} vs current v${cv}. Fingerprint matches (metadata-only bump).`;
   }
   return null;
 }
@@ -32,15 +32,15 @@ export function visibilityRunUniverseSummaryLine(
 ): string {
   const st = v.competitor_universe_pin_status;
   if (st === "synthetic_unpinned" || st == null) {
-    return "Competitor universe: synthetic / unpinned — classifications in UI use current workspace universe at read time.";
+    return "Competitor universe: synthetic / unpinned. Classifications in UI use current workspace universe at read time.";
   }
   if (st === "legacy_unpinned") {
-    return "Competitor universe: legacy unpinned — run predates universe pinning; treat competitor labels as approximate.";
+    return "Competitor universe: legacy unpinned. Run predates universe pinning; treat competitor labels as approximate.";
   }
   if (st === "pinned") {
-    const fp = v.competitor_universe_fingerprint?.slice(0, 14) ?? "—";
-    const sc = v.competitor_universe_scope ?? "—";
-    return `Competitor universe: pinned · scope ${sc} · v${v.competitor_universe_version ?? "—"} · ${fp}…`;
+    const fp = v.competitor_universe_fingerprint?.slice(0, 14) ?? "unset";
+    const sc = v.competitor_universe_scope ?? "unset";
+    return `Competitor universe: pinned · scope ${sc} · v${v.competitor_universe_version ?? "unset"} · ${fp}…`;
   }
   return "Competitor universe: unknown pin state.";
 }
@@ -58,8 +58,8 @@ export function websiteRunUniverseSummaryLine(run: {
     return "Competitor universe: legacy unpinned (pre-pinning crawl or field missing).";
   }
   if (run.competitor_universe_pin_status === "pinned") {
-    const fp = run.competitor_universe_fingerprint?.slice(0, 14) ?? "—";
-    return `Competitor universe: pinned · ${run.competitor_universe_scope ?? "—"} · v${run.competitor_universe_version ?? "—"} · ${fp}…`;
+    const fp = run.competitor_universe_fingerprint?.slice(0, 14) ?? "unset";
+    return `Competitor universe: pinned · ${run.competitor_universe_scope ?? "unset"} · v${run.competitor_universe_version ?? "unset"} · ${fp}…`;
   }
   return "Competitor universe: unknown pin state.";
 }

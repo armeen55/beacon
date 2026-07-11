@@ -1,5 +1,5 @@
 /**
- * Phase A.1 Step 6 — lifecycle copy renderer tests.
+ * Phase A.1 Step 6, lifecycle copy renderer tests.
  *
  * Every customer-facing string variant on the Changes detail Act 3
  * lifecycle line goes through `renderLifecycleCopy`. These tests pin
@@ -11,7 +11,7 @@
  *     automated sitemap + robots checks") stays present until Phase
  *     A.3 (indexability) replaces it with verdict-specific copy.
  *   • Per-platform divergence renders only when exactly one of
- *     (chatgpt, perplexity) has cited and the other has not — never
+ *     (chatgpt, perplexity) has cited and the other has not, never
  *     redundant against the primary line.
  *   • Internal taxonomy (`live_not_yet_cited`, `cited_*`, `stuck`)
  *     NEVER leaks into a rendered string.
@@ -52,7 +52,7 @@ function input(overrides: Partial<LifecycleCopyInput> = {}): LifecycleCopyInput 
 // Stage variants (Section 2.10)
 // ─────────────────────────────────────────────────────────────────────
 
-describe("renderLifecycleCopy — primary line per stage", () => {
+describe("renderLifecycleCopy, primary line per stage", () => {
   it("live_not_yet_cited renders the watching message with the fast threshold", () => {
     const copy = renderLifecycleCopy(input({ days_since_live: 3 }));
     expect(copy.primary).toBe(
@@ -65,7 +65,7 @@ describe("renderLifecycleCopy — primary line per stage", () => {
     expect(copy.primary).toContain("Live 1 day ago.");
   });
 
-  it("cited_fast renders 'This page was cited N days after the edit went live — within Beacon's fast benchmark.'", () => {
+  it("cited_fast renders 'This page was cited N days after the edit went live, within Beacon's fast benchmark.'", () => {
     const copy = renderLifecycleCopy(
       input({
         stage: "cited_fast",
@@ -74,11 +74,11 @@ describe("renderLifecycleCopy — primary line per stage", () => {
       }),
     );
     expect(copy.primary).toBe(
-      "This page was cited 4 days after the edit went live — within Beacon's fast benchmark.",
+      "This page was cited 4 days after the edit went live, within Beacon's fast benchmark.",
     );
   });
 
-  it("cited_typical renders 'This page was cited N days after the edit went live — within Beacon's typical citation window.'", () => {
+  it("cited_typical renders 'This page was cited N days after the edit went live, within Beacon's typical citation window.'", () => {
     const copy = renderLifecycleCopy(
       input({
         stage: "cited_typical",
@@ -87,11 +87,11 @@ describe("renderLifecycleCopy — primary line per stage", () => {
       }),
     );
     expect(copy.primary).toBe(
-      "This page was cited 12 days after the edit went live — within Beacon's typical citation window.",
+      "This page was cited 12 days after the edit went live, within Beacon's typical citation window.",
     );
   });
 
-  it("cited_late renders 'This page was cited N days after the edit went live — past Beacon's typical window but within the late threshold.'", () => {
+  it("cited_late renders 'This page was cited N days after the edit went live, past Beacon's typical window but within the late threshold.'", () => {
     const copy = renderLifecycleCopy(
       input({
         stage: "cited_late",
@@ -100,11 +100,11 @@ describe("renderLifecycleCopy — primary line per stage", () => {
       }),
     );
     expect(copy.primary).toBe(
-      "This page was cited 28 days after the edit went live — past Beacon's typical window but within the late threshold.",
+      "This page was cited 28 days after the edit went live, past Beacon's typical window but within the late threshold.",
     );
   });
 
-  it("cited_very_late renders 'This page was cited N days after the edit went live — late, but the page is in Beacon's rotation.'", () => {
+  it("cited_very_late renders 'This page was cited N days after the edit went live, late, but the page is in Beacon's rotation.'", () => {
     const copy = renderLifecycleCopy(
       input({
         stage: "cited_very_late",
@@ -113,7 +113,7 @@ describe("renderLifecycleCopy — primary line per stage", () => {
       }),
     );
     expect(copy.primary).toBe(
-      "This page was cited 45 days after the edit went live — late, but the page is in Beacon's rotation.",
+      "This page was cited 45 days after the edit went live, late, but the page is in Beacon's rotation.",
     );
   });
 
@@ -141,16 +141,16 @@ describe("renderLifecycleCopy — primary line per stage", () => {
       }),
     );
     expect(copy.primary).toBe(
-      "This page was cited 0 days after the edit went live — within Beacon's fast benchmark.",
+      "This page was cited 0 days after the edit went live, within Beacon's fast benchmark.",
     );
   });
 });
 
 // ─────────────────────────────────────────────────────────────────────
-// Bridge phrase (Section 2.16 — forward-compatible with Phase A.3)
+// Bridge phrase (Section 2.16, forward-compatible with Phase A.3)
 // ─────────────────────────────────────────────────────────────────────
 
-describe("renderLifecycleCopy — stuck-stage bridge phrase", () => {
+describe("renderLifecycleCopy, stuck-stage bridge phrase", () => {
   it("stuck stage carries the Phase A.3 bridge phrase verbatim", () => {
     const copy = renderLifecycleCopy(
       input({ stage: "stuck", days_since_live: 50 }),
@@ -160,7 +160,7 @@ describe("renderLifecycleCopy — stuck-stage bridge phrase", () => {
     );
   });
 
-  it("every non-stuck stage returns null bridge — the phrase is exclusive to stuck", () => {
+  it("every non-stuck stage returns null bridge, the phrase is exclusive to stuck", () => {
     const nonStuck: Array<LifecycleCopyInput["stage"]> = [
       "live_not_yet_cited",
       "cited_fast",
@@ -179,7 +179,7 @@ describe("renderLifecycleCopy — stuck-stage bridge phrase", () => {
 // Per-platform divergence (Section 2.6)
 // ─────────────────────────────────────────────────────────────────────
 
-describe("renderLifecycleCopy — per-platform divergence", () => {
+describe("renderLifecycleCopy, per-platform divergence", () => {
   it("renders 'First cited on Perplexity, not yet on ChatGPT' when only Perplexity has cited", () => {
     const copy = renderLifecycleCopy(
       input({
@@ -265,7 +265,7 @@ describe("renderLifecycleCopy — per-platform divergence", () => {
         per_platform_first_citation: {
           chatgpt: "2026-05-08",
           perplexity: "2026-05-08",
-          // @ts-expect-error — intentionally over-typing to prove
+          // @ts-expect-error, intentionally over-typing to prove
           // the renderer ignores any non-active-platform value.
           google_ai_overviews: "2026-05-08",
         },
@@ -279,7 +279,7 @@ describe("renderLifecycleCopy — per-platform divergence", () => {
 // Operator-side fields surfaced for completeness
 // ─────────────────────────────────────────────────────────────────────
 
-describe("renderLifecycleCopy — operator-side fields", () => {
+describe("renderLifecycleCopy, operator-side fields", () => {
   it("before_live_note is always null in v1 (operator-only, surfaced later)", () => {
     const copy = renderLifecycleCopy(
       input({
@@ -297,7 +297,7 @@ describe("renderLifecycleCopy — operator-side fields", () => {
 // Internal taxonomy never leaks (locked architecture rule)
 // ─────────────────────────────────────────────────────────────────────
 
-describe("renderLifecycleCopy — no internal taxonomy in rendered strings", () => {
+describe("renderLifecycleCopy, no internal taxonomy in rendered strings", () => {
   it("none of the 6 stage enum values appear verbatim in any rendered copy", () => {
     const stages: Array<LifecycleCopyInput["stage"]> = [
       "live_not_yet_cited",
@@ -326,14 +326,14 @@ describe("renderLifecycleCopy — no internal taxonomy in rendered strings", () 
 });
 
 // ─────────────────────────────────────────────────────────────────────
-// Causality safety — time-to-citation MUST NOT imply that the edit
+// Causality safety, time-to-citation MUST NOT imply that the edit
 // caused the citation. Phrasing audit (2026-05-14): the subject of
 // every cited-* primary line is "this page", and the relationship
 // to the edit is the temporal anchor "after the edit went live",
 // not a causal claim.
 // ─────────────────────────────────────────────────────────────────────
 
-describe("renderLifecycleCopy — no single-edit causal overclaim", () => {
+describe("renderLifecycleCopy, no single-edit causal overclaim", () => {
   const FORBIDDEN_CAUSAL_FRAGMENTS = [
     " caused ",
     " drove ",
@@ -429,10 +429,10 @@ describe("renderLifecycleCopy — no single-edit causal overclaim", () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────
-// Borrowed-benchmark tooltip — D15 locked phrasing
+// Borrowed-benchmark tooltip, D15 locked phrasing
 // ─────────────────────────────────────────────────────────────────────
 
-describe("BORROWED_BENCHMARK_TOOLTIP — D15 locked phrasing", () => {
+describe("BORROWED_BENCHMARK_TOOLTIP, D15 locked phrasing", () => {
   it("explains the borrowed-benchmark provenance honestly", () => {
     expect(BORROWED_BENCHMARK_TOOLTIP).toContain("6, 18, and 37 days");
     expect(BORROWED_BENCHMARK_TOOLTIP).toContain("starter benchmarks");
@@ -440,7 +440,7 @@ describe("BORROWED_BENCHMARK_TOOLTIP — D15 locked phrasing", () => {
   });
 
   it("never claims the numbers are Beacon-owned today", () => {
-    // Forbidden phrasing — Phase A.2 swaps the constant; until then,
+    // Forbidden phrasing, Phase A.2 swaps the constant; until then,
     // any wording that implies the values are computed-from-your-data
     // would be dishonest.
     expect(BORROWED_BENCHMARK_TOOLTIP).not.toMatch(/from your data/i);
@@ -449,7 +449,7 @@ describe("BORROWED_BENCHMARK_TOOLTIP — D15 locked phrasing", () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────
-// Phase A.2 Step 3a — per-source variants + tooltip helper
+// Phase A.2 Step 3a, per-source variants + tooltip helper
 // ─────────────────────────────────────────────────────────────────────
 
 /**
@@ -473,7 +473,7 @@ function decision(
 // Backward-compatibility: existing callers do NOT pass
 // threshold_decision. The renderer must default to Profound and
 // produce byte-identical Phase A.1 strings.
-describe("renderLifecycleCopy — backward compatibility (Phase A.2 §3.7)", () => {
+describe("renderLifecycleCopy, backward compatibility (Phase A.2 §3.7)", () => {
   it("missing threshold_decision (Phase A.1 callers) produces identical output to explicit profound_default", () => {
     const stages: Array<LifecycleCopyInput["stage"]> = [
       "live_not_yet_cited",
@@ -513,7 +513,7 @@ describe("renderLifecycleCopy — backward compatibility (Phase A.2 §3.7)", () 
 
 // Per-tenant variants for every cited-* + live_not_yet_cited stage,
 // plus an explicit assertion that `stuck` does NOT vary by source.
-describe("renderLifecycleCopy — per-tenant variants (Phase A.2 §3.7)", () => {
+describe("renderLifecycleCopy, per-tenant variants (Phase A.2 §3.7)", () => {
   const perTenant = (
     overrides: Partial<ThresholdDecisionLike["thresholds"]> = {},
     sample = 22,
@@ -539,7 +539,7 @@ describe("renderLifecycleCopy — per-tenant variants (Phase A.2 §3.7)", () => 
       }),
     );
     expect(copy.primary).toBe(
-      "This page was cited 4 days after the edit went live — within Beacon's fast benchmark for this site.",
+      "This page was cited 4 days after the edit went live, within Beacon's fast benchmark for this site.",
     );
   });
 
@@ -553,7 +553,7 @@ describe("renderLifecycleCopy — per-tenant variants (Phase A.2 §3.7)", () => 
       }),
     );
     expect(copy.primary).toBe(
-      "This page was cited 10 days after the edit went live — within Beacon's typical citation window for this site.",
+      "This page was cited 10 days after the edit went live, within Beacon's typical citation window for this site.",
     );
   });
 
@@ -567,7 +567,7 @@ describe("renderLifecycleCopy — per-tenant variants (Phase A.2 §3.7)", () => 
       }),
     );
     expect(copy.primary).toBe(
-      "This page was cited 20 days after the edit went live — past Beacon's typical window but within the late threshold for this site.",
+      "This page was cited 20 days after the edit went live, past Beacon's typical window but within the late threshold for this site.",
     );
   });
 
@@ -581,7 +581,7 @@ describe("renderLifecycleCopy — per-tenant variants (Phase A.2 §3.7)", () => 
       }),
     );
     expect(copy.primary).toBe(
-      "This page was cited 33 days after the edit went live — late, but the page is in Beacon's rotation for this site.",
+      "This page was cited 33 days after the edit went live, late, but the page is in Beacon's rotation for this site.",
     );
   });
 
@@ -712,7 +712,7 @@ describe("renderLifecycleCopy — per-tenant variants (Phase A.2 §3.7)", () => 
   });
 });
 
-// renderBenchmarkTooltip — single entry point for the tooltip body.
+// renderBenchmarkTooltip, single entry point for the tooltip body.
 describe("renderBenchmarkTooltip (Phase A.2 §3.7)", () => {
   it("missing decision returns BORROWED_BENCHMARK_TOOLTIP verbatim (default = Profound)", () => {
     expect(renderBenchmarkTooltip()).toBe(BORROWED_BENCHMARK_TOOLTIP);
@@ -734,7 +734,7 @@ describe("renderBenchmarkTooltip (Phase A.2 §3.7)", () => {
     );
     expect(body).toBe(
       "Computed from 22 cited shipped edits on this site. " +
-        "Bands describe pages that got cited — still-waiting and stuck " +
+        "Bands describe pages that got cited. Still-waiting and stuck " +
         "edits are tracked above.",
     );
   });
@@ -759,7 +759,7 @@ describe("renderBenchmarkTooltip (Phase A.2 §3.7)", () => {
   it("per_tenant tooltip never overclaims that all pages get cited", () => {
     // The pre-flight risk-checklist called out cited-only sampling
     // bias. Tooltip phrasing must not say "your edits get cited
-    // within X days" — only "pages that got cited."
+    // within X days", only "pages that got cited."
     const body = renderBenchmarkTooltip(
       decision({ source: "per_tenant", sample_size: 22 }),
     );
@@ -769,10 +769,10 @@ describe("renderBenchmarkTooltip (Phase A.2 §3.7)", () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────
-// Phase A.2 Step 3c — buildTileStrings
+// Phase A.2 Step 3c, buildTileStrings
 // ─────────────────────────────────────────────────────────────────────
 
-describe("buildTileStrings — Profound default source (Phase A.2 §3c)", () => {
+describe("buildTileStrings, Profound default source (Phase A.2 §3c)", () => {
   it("returns the locked Phase A.1 stage labels for profound_default", () => {
     const strings = buildTileStrings(decision({ source: "profound_default" }));
     expect(strings.stage_labels.cited_fast).toBe(
@@ -807,7 +807,7 @@ describe("buildTileStrings — Profound default source (Phase A.2 §3c)", () => 
   });
 });
 
-describe("buildTileStrings — per-tenant source (Phase A.2 §3c)", () => {
+describe("buildTileStrings, per-tenant source (Phase A.2 §3c)", () => {
   it("substitutes per-tenant thresholds into the stage labels", () => {
     const strings = buildTileStrings(
       decision({
@@ -849,7 +849,7 @@ describe("buildTileStrings — per-tenant source (Phase A.2 §3c)", () => {
     );
     // The empty state always reads the Profound fast_days because
     // when total = 0 the per-tenant numbers would be a confusing
-    // claim — Beacon hasn't actually observed anything yet.
+    // claim, Beacon hasn't actually observed anything yet.
     expect(strings.empty_state_body).toContain(
       `within ${T2C_THRESHOLDS.fast_days} days`,
     );
@@ -858,10 +858,10 @@ describe("buildTileStrings — per-tenant source (Phase A.2 §3c)", () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────
-// Phase A.3 Step 4 — renderLifecycleCopy with stuck_diagnostic input
+// Phase A.3 Step 4, renderLifecycleCopy with stuck_diagnostic input
 // ─────────────────────────────────────────────────────────────────────
 
-describe("renderLifecycleCopy — stuck_diagnostic wiring (Phase A.3 §4)", () => {
+describe("renderLifecycleCopy, stuck_diagnostic wiring (Phase A.3 §4)", () => {
   function stuckInput(
     stuckDiagnostic?: StuckDiagnosticInput | null,
   ): LifecycleCopyInput {
@@ -885,7 +885,7 @@ describe("renderLifecycleCopy — stuck_diagnostic wiring (Phase A.3 §4)", () =
     expect(copy.diagnostic).toBe(
       "This page appears discoverable. Beacon is watching for AI to pick it up.",
     );
-    // Bridge stays populated in the data model — the client decides
+    // Bridge stays populated in the data model, the client decides
     // which to render (mutually exclusive at the visible-sub-line
     // level, NOT at the data-model level).
     expect(copy.bridge).not.toBeNull();
@@ -908,7 +908,7 @@ describe("renderLifecycleCopy — stuck_diagnostic wiring (Phase A.3 §4)", () =
       }),
     );
     expect(copy.diagnostic).toBe(
-      "This page returns HTTP 404 — it may no longer serve content.",
+      "This page returns HTTP 404. It may no longer serve content.",
     );
   });
 
@@ -920,7 +920,7 @@ describe("renderLifecycleCopy — stuck_diagnostic wiring (Phase A.3 §4)", () =
       }),
     );
     expect(copy.diagnostic).toBe(
-      "This page declares a canonical to https://example.com/other — citations may credit that page instead.",
+      "This page declares a canonical to https://example.com/other. Citations may credit that page instead.",
     );
   });
 
@@ -951,7 +951,7 @@ describe("renderLifecycleCopy — stuck_diagnostic wiring (Phase A.3 §4)", () =
   });
 
   it("non-stuck stage + stuck_diagnostic input is IGNORED (diagnostic stays null)", () => {
-    // Defense — even if a caller forgets the stage gate and passes
+    // Defense, even if a caller forgets the stage gate and passes
     // a stuck_diagnostic on a cited row, the renderer suppresses it.
     const copy = renderLifecycleCopy({
       stage: "cited_typical",
@@ -1032,7 +1032,7 @@ describe("renderLifecycleCopy — stuck_diagnostic wiring (Phase A.3 §4)", () =
   });
 });
 
-describe("buildTileStrings — customer-vocabulary contract", () => {
+describe("buildTileStrings, customer-vocabulary contract", () => {
   it("no snake_case stage enum value appears in any returned string", () => {
     const sources = [
       buildTileStrings(decision({ source: "profound_default" })),
@@ -1067,7 +1067,7 @@ describe("buildTileStrings — customer-vocabulary contract", () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────
-// Phase A.3 Step 2 — renderStuckDiagnostic (pure copy helper)
+// Phase A.3 Step 2, renderStuckDiagnostic (pure copy helper)
 // ─────────────────────────────────────────────────────────────────────
 
 const ALL_VERDICTS: ReadonlyArray<IndexabilityVerdict> = [
@@ -1083,7 +1083,7 @@ const ALL_VERDICTS: ReadonlyArray<IndexabilityVerdict> = [
   "indexed_but_not_cited",
 ];
 
-describe("renderStuckDiagnostic — per-verdict copy (Phase A.3 §3)", () => {
+describe("renderStuckDiagnostic, per-verdict copy (Phase A.3 §3)", () => {
   it("ok returns the watching-positive line", () => {
     expect(renderStuckDiagnostic({ verdict: "ok" })).toBe(
       "This page appears discoverable. Beacon is watching for AI to pick it up.",
@@ -1104,7 +1104,7 @@ describe("renderStuckDiagnostic — per-verdict copy (Phase A.3 §3)", () => {
 
   it("noindex_meta returns the noindex line", () => {
     expect(renderStuckDiagnostic({ verdict: "noindex_meta" })).toBe(
-      "This page declares noindex in its meta robots tag — AI crawlers will skip it.",
+      "This page declares noindex in its meta robots tag. AI crawlers will skip it.",
     );
   });
 
@@ -1127,7 +1127,7 @@ describe("renderStuckDiagnostic — per-verdict copy (Phase A.3 §3)", () => {
   });
 });
 
-describe("renderStuckDiagnostic — blocked_by_robots_for_ai with context", () => {
+describe("renderStuckDiagnostic, blocked_by_robots_for_ai with context", () => {
   it("single blocked bot is named in the copy", () => {
     const out = renderStuckDiagnostic({
       verdict: "blocked_by_robots_for_ai",
@@ -1190,14 +1190,14 @@ describe("renderStuckDiagnostic — blocked_by_robots_for_ai with context", () =
   });
 });
 
-describe("renderStuckDiagnostic — bad_status_code with context", () => {
+describe("renderStuckDiagnostic, bad_status_code with context", () => {
   it("includes the status number when supplied", () => {
     expect(
       renderStuckDiagnostic({
         verdict: "bad_status_code",
         context: { http_status: 404 },
       }),
-    ).toBe("This page returns HTTP 404 — it may no longer serve content.");
+    ).toBe("This page returns HTTP 404. It may no longer serve content.");
   });
 
   it("includes a redirect status when supplied", () => {
@@ -1206,7 +1206,7 @@ describe("renderStuckDiagnostic — bad_status_code with context", () => {
         verdict: "bad_status_code",
         context: { http_status: 301 },
       }),
-    ).toBe("This page returns HTTP 301 — it may no longer serve content.");
+    ).toBe("This page returns HTTP 301. It may no longer serve content.");
   });
 
   it("missing status falls back to the generic error-or-redirect phrasing", () => {
@@ -1225,7 +1225,7 @@ describe("renderStuckDiagnostic — bad_status_code with context", () => {
   });
 });
 
-describe("renderStuckDiagnostic — canonical_elsewhere with context", () => {
+describe("renderStuckDiagnostic, canonical_elsewhere with context", () => {
   it("includes the canonical URL verbatim when supplied", () => {
     expect(
       renderStuckDiagnostic({
@@ -1233,13 +1233,13 @@ describe("renderStuckDiagnostic — canonical_elsewhere with context", () => {
         context: { canonical_url: "https://example.com/other" },
       }),
     ).toBe(
-      "This page declares a canonical to https://example.com/other — citations may credit that page instead.",
+      "This page declares a canonical to https://example.com/other. Citations may credit that page instead.",
     );
   });
 
   it("missing canonical falls back to the generic 'different URL' phrasing", () => {
     expect(renderStuckDiagnostic({ verdict: "canonical_elsewhere" })).toBe(
-      "This page declares a canonical to a different URL — citations may credit that page instead.",
+      "This page declares a canonical to a different URL. Citations may credit that page instead.",
     );
   });
 
@@ -1250,7 +1250,7 @@ describe("renderStuckDiagnostic — canonical_elsewhere with context", () => {
         context: { canonical_url: "" },
       }),
     ).toBe(
-      "This page declares a canonical to a different URL — citations may credit that page instead.",
+      "This page declares a canonical to a different URL. Citations may credit that page instead.",
     );
   });
 
@@ -1261,12 +1261,12 @@ describe("renderStuckDiagnostic — canonical_elsewhere with context", () => {
         context: { canonical_url: null },
       }),
     ).toBe(
-      "This page declares a canonical to a different URL — citations may credit that page instead.",
+      "This page declares a canonical to a different URL. Citations may credit that page instead.",
     );
   });
 });
 
-describe("renderStuckDiagnostic — customer-vocabulary contract", () => {
+describe("renderStuckDiagnostic, customer-vocabulary contract", () => {
   // Forbidden tokens per the operator-locked customer copy
   // guardrails. Snake_case enum identifiers (the verdict values
   // themselves) MUST NOT appear in rendered copy; causal-overclaim
@@ -1379,7 +1379,7 @@ describe("renderStuckDiagnostic — customer-vocabulary contract", () => {
   });
 });
 
-describe("renderStuckDiagnostic — determinism", () => {
+describe("renderStuckDiagnostic, determinism", () => {
   it("same input returns byte-identical output across two calls", () => {
     const input: StuckDiagnosticInput = {
       verdict: "blocked_by_robots_for_ai",

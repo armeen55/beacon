@@ -1,5 +1,5 @@
 /**
- * 2026-05-18 Phase A.2 Step 3d — pure per-row reason derivation.
+ * 2026-05-18 Phase A.2 Step 3d, pure per-row reason derivation.
  *
  * `deriveLifecycleReason({ edit, response, snapshotIndex,
  * lifecycleResult })` returns ONE locked reason code + structured
@@ -7,7 +7,7 @@
  * `/diagnostics/lifecycle-eligibility`.
  *
  * Pure. No I/O. No mutations. No match-runner calls. No GSC.
- * No LLM. Total — every input combination yields a reason.
+ * No LLM. Total: every input combination yields a reason.
  *
  * Decision tree mirrors the operator-locked taxonomy in `./types.ts`.
  * Order matters: earlier branches short-circuit before later ones
@@ -148,7 +148,7 @@ export function deriveLifecycleReason(
 
   const status = editLifecycleStatus(edit);
 
-  // 1. Dismissed at edit level. Final state — operator has acted;
+  // 1. Dismissed at edit level. Final state, operator has acted;
   //    this is a terminal decision, NOT operator inaction. Aggregator
   //    routes `blocked_by: null` into `edits_terminal_or_in_flight`.
   if (status === "dismissed") {
@@ -166,7 +166,7 @@ export function deriveLifecycleReason(
     });
   }
 
-  // 2. Dismissed at response level. Final state — operator has
+  // 2. Dismissed at response level. Final state, operator has
   //    declined the parent rec; terminal, not operator inaction.
   if (response != null && response.status === "dismissed") {
     return baseDecision({
@@ -202,7 +202,7 @@ export function deriveLifecycleReason(
     return baseDecision({
       reason: "needs_new_page_sentinel",
       blocked_by: null,
-      detail: "create-page rec — no observable URL to track",
+      detail: "create-page rec, no observable URL to track",
       ttcEligibility,
       threshold_eligible: false,
       lifecycle_stage,
@@ -216,7 +216,7 @@ export function deriveLifecycleReason(
     return baseDecision({
       reason: "missing_target_url",
       blocked_by: "system",
-      detail: "edit row has no target_url — data integrity issue",
+      detail: "edit row has no target_url, data integrity issue",
       ttcEligibility,
       threshold_eligible: false,
       lifecycle_stage,
@@ -262,7 +262,7 @@ export function deriveLifecycleReason(
   if (status === "recommended") {
     // If we can see the response was accepted at the rec level but
     // the edit is still in `recommended`, that's a match-runner
-    // reconciliation lag — flag as system-blocked instead of
+    // reconciliation lag, flag as system-blocked instead of
     // operator-blocked.
     const responseAccepted =
       response != null && response.status === "accepted";
@@ -271,7 +271,7 @@ export function deriveLifecycleReason(
         reason: "accepted_not_live",
         blocked_by: "system",
         detail:
-          "rec is response.status=accepted but edit still in recommended — match-runner reconciliation pending",
+          "rec is response.status=accepted but edit still in recommended, match-runner reconciliation pending",
         ttcEligibility,
         threshold_eligible: false,
         lifecycle_stage,
@@ -284,7 +284,7 @@ export function deriveLifecycleReason(
       blocked_by: "operator",
       detail:
         response == null
-          ? "no recommendation_responses row — operator has not opened the rec"
+          ? "no recommendation_responses row, operator has not opened the rec"
           : `response.status=${response.status}`,
       ttcEligibility,
       threshold_eligible: false,
@@ -301,7 +301,7 @@ export function deriveLifecycleReason(
       return baseDecision({
         reason: "no_snapshot_for_target_url",
         blocked_by: "system",
-        detail: `no page_snapshots row for ${targetUrl} — daily scan never crawled it`,
+        detail: `no page_snapshots row for ${targetUrl}, daily scan never crawled it`,
         ttcEligibility,
         threshold_eligible: false,
         lifecycle_stage,
@@ -313,7 +313,7 @@ export function deriveLifecycleReason(
       return baseDecision({
         reason: "url_canonicalization_mismatch",
         blocked_by: "system",
-        detail: `target=${targetUrl} but snapshot stored as ${canonicalSnapshotExactUrl} — canonical-equal but match engine compares exact URLs`,
+        detail: `target=${targetUrl} but snapshot stored as ${canonicalSnapshotExactUrl}, canonical-equal but match engine compares exact URLs`,
         ttcEligibility,
         threshold_eligible: false,
         lifecycle_stage,
@@ -321,7 +321,7 @@ export function deriveLifecycleReason(
         first_citation_date_iso,
       });
     }
-    // Match fields gating — if the action_type implies a required
+    // Match fields gating, if the action_type implies a required
     // element key and it's missing, surface that explicitly.
     if (
       requiresElementKey(edit.action_type) &&
@@ -361,7 +361,7 @@ export function deriveLifecycleReason(
       return baseDecision({
         reason: "url_canonicalization_mismatch",
         blocked_by: "system",
-        detail: `target=${targetUrl} but snapshot stored as ${canonicalSnapshotExactUrl} — shipped row has canonical-equal but not exact-equal snapshot`,
+        detail: `target=${targetUrl} but snapshot stored as ${canonicalSnapshotExactUrl}, shipped row has canonical-equal but not exact-equal snapshot`,
         ttcEligibility,
         threshold_eligible,
         lifecycle_stage,
@@ -389,7 +389,7 @@ export function deriveLifecycleReason(
         reason: "stuck_uncited",
         blocked_by: "system",
         detail:
-          "past late_days threshold without citation — see /diagnostics/indexability",
+          "past late_days threshold without citation, see /diagnostics/indexability",
         ttcEligibility,
         threshold_eligible: false,
         lifecycle_stage,
@@ -410,8 +410,8 @@ export function deriveLifecycleReason(
       });
     }
     // Shipped + cited but compute didn't classify into a cited band
-    // — possible only when lifecycle_result is missing or stage is
-    // null. Surface as unknown to flag investigation.
+    // (possible only when lifecycle_result is missing or stage is
+    // null). Surface as unknown to flag investigation.
     return baseDecision({
       reason: "unknown",
       blocked_by: "system",
@@ -428,7 +428,7 @@ export function deriveLifecycleReason(
   return baseDecision({
     reason: "unknown",
     blocked_by: null,
-    detail: `status=${status}, live_at=${edit.live_at ?? "null"} — uncategorized`,
+    detail: `status=${status}, live_at=${edit.live_at ?? "null"}, uncategorized`,
     ttcEligibility,
     threshold_eligible: false,
     lifecycle_stage,

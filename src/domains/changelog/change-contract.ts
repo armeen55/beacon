@@ -1,5 +1,5 @@
 /**
- * Change Contract System — attribution-ready changelog backbone.
+ * Change Contract System, attribution-ready changelog backbone.
  *
  * Every logged change is a verification contract, not a history note.
  * The system makes it hard to create vague entries and easy to verify
@@ -191,34 +191,34 @@ export function scoreAttributionReadiness(contract: Partial<ChangeContract>): {
   if (!contract.pageUrl || contract.pageUrl === "/") {
     // homepage is OK but flag generic
   } else if (!contract.pageUrl?.startsWith("/") && !contract.pageUrl?.startsWith("http")) {
-    issues.push("Page URL is vague — use an exact path like /locations/menlo-park");
+    issues.push("Page URL is vague. Use an exact path like /locations/menlo-park");
   }
 
   if (!contract.changeSummary || contract.changeSummary.length < 15) {
-    issues.push("Change description is too short — describe what specifically changed");
+    issues.push("Change description is too short. Describe what specifically changed");
   }
 
   const bannedPhrases = ["applied edits", "optimized pages", "updated content and structure", "based on PDF", "various improvements"];
   for (const phrase of bannedPhrases) {
     if (contract.changeSummary?.toLowerCase().includes(phrase)) {
-      issues.push(`Description contains vague phrase "${phrase}" — be more specific`);
+      issues.push(`Description contains vague phrase "${phrase}". Be more specific`);
     }
   }
 
   if (!contract.businessGoal || contract.businessGoal.length < 10) {
-    issues.push("Business goal is missing — explain why this change matters");
+    issues.push("Business goal is missing. Explain why this change matters");
   }
 
   if (!contract.intendedHypothesis || contract.intendedHypothesis.length < 10) {
-    issues.push("Expected outcome is missing — what should improve?");
+    issues.push("Expected outcome is missing. What should improve?");
   }
 
   if (!contract.changeType || contract.changeType === "other") {
-    issues.push("Change type is generic — pick a specific type");
+    issues.push("Change type is generic. Pick a specific type");
   }
 
   if (!contract.city && !contract.service && !contract.topic) {
-    issues.push("No city, service, or topic tagged — attribution will be weaker");
+    issues.push("No city, service, or topic tagged. Attribution will be weaker");
   }
 
   const score: AttributionReadiness =
@@ -274,24 +274,24 @@ export function validateContract(contract: Partial<ChangeContract>): ValidationR
   if (!contract.pageUrl) errors.push("Page URL is required");
   if (!contract.changeType) errors.push("Change type is required");
   if (!contract.changeSummary || contract.changeSummary.length < 10) errors.push("Change summary must be at least 10 characters");
-  if (!contract.businessGoal) errors.push("Business goal is required — why does this change matter?");
-  if (!contract.intendedHypothesis) errors.push("Expected outcome is required — what should this improve?");
+  if (!contract.businessGoal) errors.push("Business goal is required. Why does this change matter?");
+  if (!contract.intendedHypothesis) errors.push("Expected outcome is required. What should this improve?");
   if (!contract.dateRequested) errors.push("Date is required");
 
   if (contract.pageUrl === "All Pages" || contract.pageUrl === "Priority live pages" || contract.pageUrl === "Sitewide") {
-    errors.push("'All Pages' or 'Sitewide' is not a valid page URL — create separate entries per page, or use a sitewide change type");
+    errors.push("'All Pages' or 'Sitewide' is not a valid page URL. Create separate entries per page, or use a sitewide change type");
   }
 
   if (!contract.city && !contract.service && !contract.topic) {
-    warnings.push("No city, service, or topic — attribution will be weaker");
+    warnings.push("No city, service, or topic. Attribution will be weaker");
   }
 
   if (contract.faqCountExpected == null && (contract.changeType === "faq_addition" || contract.changeType === "city_page_upgrade" || contract.changeType === "page_reconstruction")) {
-    warnings.push("FAQ count not specified — Beacon won't be able to verify Q&A completeness");
+    warnings.push("FAQ count not specified. Beacon won't be able to verify Q&A completeness");
   }
 
   if (contract.schemaTypesExpected?.length === 0 && (contract.changeType === "schema_addition" || contract.changeType === "page_reconstruction" || contract.changeType === "new_page_creation")) {
-    warnings.push("No structured data types specified — Beacon won't be able to verify schema");
+    warnings.push("No structured data types specified. Beacon won't be able to verify schema");
   }
 
   return { valid: errors.length === 0, errors, warnings };
@@ -300,7 +300,7 @@ export function validateContract(contract: Partial<ChangeContract>): ValidationR
 // ── Persistence ──
 
 // Night-shift fix (2026-06-11): 5th instance of the process-global
-// cache class — `_changeContracts` was keyed by NOTHING (first tenant
+// cache class, `_changeContracts` was keyed by NOTHING (first tenant
 // pinned its contracts for every later tenant in a warm process) AND
 // the unscoped base read pulled EVERY tenant's rows on hosted. Now a
 // per-tenant Map over the tenant-scoped repository read; stable array

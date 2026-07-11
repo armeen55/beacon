@@ -1,5 +1,5 @@
 /**
- * 2026-05-13 Phase A.1 Step 6 — citation-lifecycle copy renderer.
+ * 2026-05-13 Phase A.1 Step 6, citation-lifecycle copy renderer.
  *
  * Pure function that maps the structured output of
  * `compute-time-to-citation.ts` + `lifecycle-stage.ts` into the
@@ -12,7 +12,7 @@
  *   • Keeps the React surface presentation-only (no string assembly,
  *     no decision logic for stuck-stage bridge phrase, no per-platform
  *     divergence math).
- *   • Pinnable in tests at the string level — every stage variant has
+ *   • Pinnable in tests at the string level, every stage variant has
  *     a tightly-scoped unit test (Phase A.1 §2.10).
  *   • Section 2.16 bridge-phrase architecture invariant scans this
  *     file for the literal "next bundle will add automated sitemap +
@@ -21,7 +21,7 @@
  *     a future phase swapping the borrowed Profound defaults for
  *     Beacon-owned values only has to update one module.
  *
- * IMPORTANT — D9 stage names (`live_not_yet_cited`, `cited_fast`, …)
+ * IMPORTANT, D9 stage names (`live_not_yet_cited`, `cited_fast`, …)
  * are operator-side enum values. They MUST NEVER appear in rendered
  * customer copy. This module is the boundary that translates them.
  */
@@ -31,7 +31,7 @@ import type { LifecycleStage } from "./lifecycle-stage";
 import type { TimeToCitationPerPlatformFirstCitation } from "./compute-time-to-citation";
 
 /**
- * Phase A.2 Step 3a (2026-05-14) — structural alias for the
+ * Phase A.2 Step 3a (2026-05-14), structural alias for the
  * threshold-decision shape consumed by this module's per-source
  * copy variants.
  *
@@ -42,7 +42,7 @@ import type { TimeToCitationPerPlatformFirstCitation } from "./compute-time-to-c
  * dependency order; the brain consumes lifecycle records, not the
  * other way around).
  *
- * Pure structural compatibility — a caller can pass the brain
+ * Pure structural compatibility, a caller can pass the brain
  * module's `ThresholdDecision` directly; TypeScript structural
  * typing makes the two interchangeable.
  */
@@ -84,7 +84,7 @@ const DEFAULT_PROFOUND_DECISION: ThresholdDecisionLike = {
  * Phase A.2 Step 3a (2026-05-14): `threshold_decision` added as an
  * OPTIONAL field. When omitted, the renderer defaults to
  * `DEFAULT_PROFOUND_DECISION` and produces byte-identical Phase A.1
- * strings — every existing production caller (loader + tests) keeps
+ * strings, every existing production caller (loader + tests) keeps
  * working without modification. The loader will start supplying a
  * resolved decision in Step 3b.
  */
@@ -98,7 +98,7 @@ export type LifecycleCopyInput = {
   /** Optional per-tenant threshold decision. Default = Profound. */
   threshold_decision?: ThresholdDecisionLike;
   /**
-   * Phase A.3 Step 4 (2026-05-14) — optional stuck-stage indexability
+   * Phase A.3 Step 4 (2026-05-14), optional stuck-stage indexability
    * diagnostic input. Caller supplies this ONLY when `stage === "stuck"`
    * AND the indexability loader succeeded. The renderer forwards it
    * to `renderStuckDiagnostic` and stores the resulting sentence on
@@ -120,7 +120,7 @@ export type LifecycleCopy = {
   /**
    * Optional per-platform divergence sub-line. Rendered only when
    * exactly one of (chatgpt, perplexity) has a first-citation date
-   * AND the other is still null — the case where customer is well-
+   * AND the other is still null, the case where customer is well-
    * served by knowing which platform picked them up first. Null
    * otherwise (Google AI Overviews is hardcoded null per D6 and is
    * therefore not part of the divergence math).
@@ -135,13 +135,13 @@ export type LifecycleCopy = {
    */
   bridge: string | null;
   /**
-   * Phase A.3 Step 4 (2026-05-14) — per-verdict stuck-stage
+   * Phase A.3 Step 4 (2026-05-14), per-verdict stuck-stage
    * discoverability diagnostic. Non-null ONLY when the caller
    * supplied a `stuck_diagnostic` input AND the stage is `stuck`.
    *
    * Client render contract (pinned by architecture invariant
    * `citation-lifecycle-stuck-bridge-phrase`): diagnostic and
-   * bridge are MUTUALLY EXCLUSIVE at the visible-sub-line level —
+   * bridge are MUTUALLY EXCLUSIVE at the visible-sub-line level:
    * when both are non-null in the data model, the client renders
    * only `diagnostic`. The renderer keeps both fields populated so
    * the consumer can choose; the operator-locked guardrail is "no
@@ -154,7 +154,7 @@ export type LifecycleCopy = {
    */
   diagnostic: string | null;
   /**
-   * Optional "was cited before live" note — surfaces the
+   * Optional "was cited before live" note, surfaces the
    * operator-shipped-late edge case from compute-time-to-citation's
    * forward-only `live_at` semantics. Operator-facing copy ONLY;
    * never customer-facing, so always null in v1 (returned for
@@ -177,7 +177,7 @@ export const BORROWED_BENCHMARK_TOOLTIP =
 
 /**
  * Per-tenant benchmark tooltip (Phase A.2 Step 3a). Rendered when
- * the threshold decision source is `per_tenant` — i.e., the tenant
+ * the threshold decision source is `per_tenant`, i.e., the tenant
  * has crossed the ≥ 20-ship gate and Beacon now publishes
  * thresholds observed in their own shipped-edit lifecycle data.
  *
@@ -186,13 +186,13 @@ export const BORROWED_BENCHMARK_TOOLTIP =
  * tracked separately in the tile above this tooltip's anchor.
  *
  * The tooltip body is composed via `renderBenchmarkTooltip(decision)`
- * — the template substitutes `{sample_size}` at call time so the
+ *, the template substitutes `{sample_size}` at call time so the
  * single source of truth lives here.
  */
 function buildPerTenantBenchmarkTooltip(sampleSize: number): string {
   return (
     `Computed from ${sampleSize} cited shipped edits on this site. ` +
-    "Bands describe pages that got cited — still-waiting and stuck " +
+    "Bands describe pages that got cited. Still-waiting and stuck " +
     "edits are tracked above."
   );
 }
@@ -203,7 +203,7 @@ function buildPerTenantBenchmarkTooltip(sampleSize: number): string {
  * this rather than reaching for `BORROWED_BENCHMARK_TOOLTIP`
  * directly so source-based variant selection lives in one place.
  *
- * Phase A.2 Step 3a: not wired into the Today tile yet — that's
+ * Phase A.2 Step 3a: not wired into the Today tile yet, that's
  * Step 3c. This helper ships now so its contract is testable at the
  * pure-function level.
  */
@@ -232,7 +232,7 @@ function primaryLine(input: LifecycleCopyInput): string {
     days_to_first_citation,
   } = input;
 
-  // Phase A.2 Step 3a — resolve the threshold decision. Missing
+  // Phase A.2 Step 3a, resolve the threshold decision. Missing
   // decision (pre-A.2.3 callers) falls back to Profound defaults so
   // existing output stays byte-identical.
   const decision = input.threshold_decision ?? DEFAULT_PROFOUND_DECISION;
@@ -273,7 +273,7 @@ function primaryLine(input: LifecycleCopyInput): string {
       //
       // Causality-safe phrasing (2026-05-14 audit): the subject is
       // explicitly "this page" and the temporal anchor is "after
-      // the edit went live" — Beacon does NOT yet claim the edit
+      // the edit went live", Beacon does NOT yet claim the edit
       // caused the citation. Time-to-citation is observational
       // timing, not attribution. The plan's Section 2.10 originally
       // locked "Cited N days after going live" which implied edit
@@ -285,39 +285,39 @@ function primaryLine(input: LifecycleCopyInput): string {
       if (isPerTenant) {
         return (
           `This page was cited ${formatDays(days_to_first_citation ?? 0)} ` +
-          `after the edit went live — within Beacon's fast benchmark ` +
+          `after the edit went live, within Beacon's fast benchmark ` +
           `${perTenantSiteSuffix}.`
         );
       }
       return (
         `This page was cited ${formatDays(days_to_first_citation ?? 0)} ` +
-        `after the edit went live — within Beacon's fast benchmark.`
+        `after the edit went live, within Beacon's fast benchmark.`
       );
 
     case "cited_typical":
       if (isPerTenant) {
         return (
           `This page was cited ${formatDays(days_to_first_citation ?? 0)} ` +
-          `after the edit went live — within Beacon's typical citation ` +
+          `after the edit went live, within Beacon's typical citation ` +
           `window ${perTenantSiteSuffix}.`
         );
       }
       return (
         `This page was cited ${formatDays(days_to_first_citation ?? 0)} ` +
-        `after the edit went live — within Beacon's typical citation window.`
+        `after the edit went live, within Beacon's typical citation window.`
       );
 
     case "cited_late":
       if (isPerTenant) {
         return (
           `This page was cited ${formatDays(days_to_first_citation ?? 0)} ` +
-          `after the edit went live — past Beacon's typical window but ` +
+          `after the edit went live, past Beacon's typical window but ` +
           `within the late threshold ${perTenantSiteSuffix}.`
         );
       }
       return (
         `This page was cited ${formatDays(days_to_first_citation ?? 0)} ` +
-        `after the edit went live — past Beacon's typical window but ` +
+        `after the edit went live, past Beacon's typical window but ` +
         `within the late threshold.`
       );
 
@@ -325,20 +325,20 @@ function primaryLine(input: LifecycleCopyInput): string {
       if (isPerTenant) {
         return (
           `This page was cited ${formatDays(days_to_first_citation ?? 0)} ` +
-          `after the edit went live — late, but the page is in Beacon's ` +
+          `after the edit went live, late, but the page is in Beacon's ` +
           `rotation ${perTenantSiteSuffix}.`
         );
       }
       return (
         `This page was cited ${formatDays(days_to_first_citation ?? 0)} ` +
-        `after the edit went live — late, but the page is in Beacon's ` +
+        `after the edit went live, late, but the page is in Beacon's ` +
         `rotation.`
       );
 
     case "stuck":
       // Discoverability concern. The bridge phrase below adds the
       // forward-looking note about Phase A.3 (indexability). Copy
-      // is identical for both threshold sources — a stuck page is a
+      // is identical for both threshold sources, a stuck page is a
       // stuck page regardless of which benchmark band defined
       // "past late_days."
       return (
@@ -358,7 +358,7 @@ const PLATFORM_LABEL: Record<"chatgpt" | "perplexity", string> = {
 };
 
 function perPlatformLine(input: LifecycleCopyInput): string | null {
-  // Surface divergence only on the cited-* stages — surfacing
+  // Surface divergence only on the cited-* stages, surfacing
   // "first cited on Perplexity, not yet on ChatGPT" on a stage
   // where neither has cited (live_not_yet_cited / stuck) is
   // tautological.
@@ -418,9 +418,9 @@ function bridgeLine(input: LifecycleCopyInput): string | null {
 export function renderLifecycleCopy(
   input: LifecycleCopyInput,
 ): LifecycleCopy {
-  // Phase A.3 Step 4 — populate `diagnostic` only on stuck rows
+  // Phase A.3 Step 4, populate `diagnostic` only on stuck rows
   // when the caller supplied indexability context. Non-stuck rows
-  // ignore `stuck_diagnostic` even if passed (defensive — the
+  // ignore `stuck_diagnostic` even if passed (defensive, the
   // loader gates the call, but the renderer also guards).
   const diagnostic =
     input.stage === "stuck" && input.stuck_diagnostic != null
@@ -456,7 +456,7 @@ export type LifecycleTileStrings = {
    *  enum values; band day-numbers come from the resolved decision. */
   stage_labels: Record<LifecycleStage, string>;
   /** Tooltip body shown when the operator hovers "Why these
-   *  benchmarks?" — source-aware (Profound vs per-tenant). */
+   *  benchmarks?", source-aware (Profound vs per-tenant). */
   tooltip_body: string;
   /** Empty-state body for the no-eligible-edits placeholder. Uses
    *  `{windowDays}` as a literal placeholder substituted by the tile
@@ -500,7 +500,7 @@ export function buildTileStrings(
 
   const tooltip_body = renderBenchmarkTooltip(decision);
 
-  // Defensive Profound copy for the empty state — the per-tenant
+  // Defensive Profound copy for the empty state, the per-tenant
   // numbers would be meaningless on a zero-record set, and a tenant
   // flipping from per_tenant → profound_default by losing data would
   // produce a confusing empty-state if the placeholder echoed the
@@ -522,7 +522,7 @@ export function buildTileStrings(
 // `@/domains/indexability/types`) to one short customer-facing
 // sentence describing WHY the stuck-stage row is likely uncited.
 //
-// IMPORTANT — this helper is NOT yet wired into the live stuck-stage
+// IMPORTANT, this helper is NOT yet wired into the live stuck-stage
 // code path. The existing `STUCK_BRIDGE_PHRASE` + `bridgeLine()` keep
 // owning the visible bridge sub-line until Phase A.3 Step 4 (the
 // atomic stuck-stage flip). A.3.2 ships the helper + its tests in
@@ -530,10 +530,10 @@ export function buildTileStrings(
 // stable, tested copy contract.
 //
 // Customer-copy guardrails honored across every variant:
-//   • No snake_case verdict enum leakage — every string is plain
+//   • No snake_case verdict enum leakage, every string is plain
 //     English; verdict identifiers (e.g., `bad_status_code`) NEVER
 //     appear in the returned copy.
-//   • No causal overclaim — observational verbs only ("appears",
+//   • No causal overclaim, observational verbs only ("appears",
 //     "did not find", "declares", "returns"). Forbidden tokens:
 //     "caused", "drove", "generated", "because", "this is why".
 //   • Specific raw detail surfaced when the caller supplies it
@@ -544,7 +544,7 @@ export function buildTileStrings(
 //     Phase A.3.b1 (GSC) wires data into a renderer that already
 //     knows the customer-facing words.
 //
-// Type-only import from the indexability module — no runtime
+// Type-only import from the indexability module, no runtime
 // cross-module dependency.
 
 import type { IndexabilityVerdict } from "@/domains/indexability/types";
@@ -571,7 +571,7 @@ export type StuckDiagnosticInput = {
 /**
  * Comma-join helper for the blocked-AI-bots list. v1 uses a simple
  * `", "` separator without an Oxford comma. Empty / null lists are
- * the caller's signal to fall back to the generic phrasing — this
+ * the caller's signal to fall back to the generic phrasing, this
  * helper assumes a non-empty list when called.
  */
 function joinBots(
@@ -585,7 +585,7 @@ function joinBots(
 /**
  * Map an `IndexabilityVerdict` to its customer-facing diagnostic
  * sentence. Pure, total, deterministic. Returns a non-null string
- * for every enum value (10 — 8 producible + 2 reserved-for-GSC).
+ * for every enum value (10, 8 producible + 2 reserved-for-GSC).
  *
  * Switch is exhaustive over `IndexabilityVerdict`; a future enum
  * addition surfaces here as a TypeScript exhaustiveness error.
@@ -611,12 +611,12 @@ export function renderStuckDiagnostic(input: StuckDiagnosticInput): string {
       return "Your robots.txt appears to block Googlebot from this page.";
 
     case "noindex_meta":
-      return "This page declares noindex in its meta robots tag — AI crawlers will skip it.";
+      return "This page declares noindex in its meta robots tag. AI crawlers will skip it.";
 
     case "bad_status_code": {
       const status = ctx.http_status ?? null;
       if (status != null) {
-        return `This page returns HTTP ${status} — it may no longer serve content.`;
+        return `This page returns HTTP ${status}. It may no longer serve content.`;
       }
       return "This page returns an error or redirect status.";
     }
@@ -624,9 +624,9 @@ export function renderStuckDiagnostic(input: StuckDiagnosticInput): string {
     case "canonical_elsewhere": {
       const target = ctx.canonical_url ?? null;
       if (target != null && target.length > 0) {
-        return `This page declares a canonical to ${target} — citations may credit that page instead.`;
+        return `This page declares a canonical to ${target}. Citations may credit that page instead.`;
       }
-      return "This page declares a canonical to a different URL — citations may credit that page instead.";
+      return "This page declares a canonical to a different URL. Citations may credit that page instead.";
     }
 
     case "unknown":

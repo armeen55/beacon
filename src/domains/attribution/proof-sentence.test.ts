@@ -1,9 +1,9 @@
 /**
- * proof-sentence — plain-English voice of the causal Proof Engine.
+ * proof-sentence, plain-English voice of the causal Proof Engine.
  *
  * Pins the honesty rules: the strong-signal "associated with the lift" claim
  * ONLY for `computed` + `high` confidence (and it never claims proven
- * causation or revenue — aligned to /settings/methodology), confidence tier
+ * causation or revenue, aligned to /settings/methodology), confidence tier
  * always spoken, weak/insufficient/zero/ineligible all render as "still
  * measuring" / "nothing to measure" (never a causal claim), and low/medium
  * computed results are softened, not overstated.

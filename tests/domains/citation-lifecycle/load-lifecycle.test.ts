@@ -1,5 +1,5 @@
 /**
- * Phase A.1 — `loadLifecycleForEdit` Path A enforcement tests.
+ * Phase A.1, `loadLifecycleForEdit` Path A enforcement tests.
  *
  * The loader is responsible for honoring the Section 2.4 Path A
  * decision: both citation regimes contribute to first-citation
@@ -13,7 +13,7 @@
  *     read, and the compute layer's `promptAnswerById` filter drops
  *     any row referencing a `prompt_answer_id` outside the caller's
  *     tenant-scoped set (the only thing keeping multi-tenant citation
- *     reads tenant-safe — `CitationObservation` has no `tenant_id`).
+ *     reads tenant-safe, `CitationObservation` has no `tenant_id`).
  *
  * These tests pin both branches end-to-end and the cross-tenant
  * safety contract. They use mocked repository + cold-store
@@ -31,7 +31,7 @@ vi.mock("next/cache", () => ({
   revalidateTag: vi.fn(),
 }));
 
-// Stateful stub for the repository — tests set the data via
+// Stateful stub for the repository, tests set the data via
 // `setRepoFixture(...)` before invoking the loader.
 type RepoFixture = {
   promptAnswerObservations: ReadonlyArray<{
@@ -101,7 +101,7 @@ vi.mock("@/lib/persistence/repositories", () => {
   };
 });
 
-// Cold-store shard fixture — set by tests via `setShardFixture(...)`.
+// Cold-store shard fixture, set by tests via `setShardFixture(...)`.
 let _shardCalls: string[] = [];
 let _shardFixture: Record<
   string,
@@ -130,7 +130,7 @@ vi.mock("@/lib/persistence/cold-store", () => ({
   },
 }));
 
-// Phase A.3 Step 4 — mock the indexability loader at the module
+// Phase A.3 Step 4, mock the indexability loader at the module
 // boundary. Tests configure the result via `setIndexabilityResult`
 // or force a throw via `setIndexabilityThrow`. The call counter
 // (`_indexabilityCalls`) backs the gating invariant: indexability
@@ -156,14 +156,14 @@ vi.mock("@/domains/indexability/load-indexability", () => ({
     if (_indexabilityThrow) throw _indexabilityThrow;
     if (_indexabilityResult == null) {
       throw new Error(
-        "test fixture: indexability result not set — call setIndexabilityResult() first",
+        "test fixture: indexability result not set, call setIndexabilityResult() first",
       );
     }
     return _indexabilityResult;
   },
 }));
 
-// Section 5.B Slice 2 (2026-05-21) — mock the per-edit repeat-citation
+// Section 5.B Slice 2 (2026-05-21), mock the per-edit repeat-citation
 // loader at the module boundary. Tests control per-edit bands via
 // `setRepeatCitationBandByEditId({...})`. Edits not in the map fall
 // back to an ineligible result (band = null). Per-edit errors are
@@ -293,7 +293,7 @@ beforeEach(() => {
 });
 
 // ────────────────────────────────────────────────────────────────────
-// Sanity check on the cutover constant — pins the assumption these
+// Sanity check on the cutover constant, pins the assumption these
 // tests are written against.
 // ────────────────────────────────────────────────────────────────────
 
@@ -304,10 +304,10 @@ describe("NATIVE_REGIME_START anchor", () => {
 });
 
 // ────────────────────────────────────────────────────────────────────
-// Case 1 — post-cutover edit: cold-store reader is never called.
+// Case 1, post-cutover edit: cold-store reader is never called.
 // ────────────────────────────────────────────────────────────────────
 
-describe("loadLifecycleForEdit — post-cutover edit (Path A native branch)", () => {
+describe("loadLifecycleForEdit, post-cutover edit (Path A native branch)", () => {
   it("does NOT read benchmark shards when live_at >= NATIVE_REGIME_START", async () => {
     setRepoFixture({
       promptAnswerObservations: [
@@ -349,11 +349,11 @@ describe("loadLifecycleForEdit — post-cutover edit (Path A native branch)", ()
 });
 
 // ────────────────────────────────────────────────────────────────────
-// Case 2 — pre-cutover edit: benchmark shards consulted, and a real
+// Case 2, pre-cutover edit: benchmark shards consulted, and a real
 // `CitationObservation` row produces a first-citation date.
 // ────────────────────────────────────────────────────────────────────
 
-describe("loadLifecycleForEdit — pre-cutover edit (Path A benchmark branch)", () => {
+describe("loadLifecycleForEdit, pre-cutover edit (Path A benchmark branch)", () => {
   it("reads benchmark shards and surfaces a first citation from CitationObservation", async () => {
     setRepoFixture({
       promptAnswerObservations: [
@@ -409,7 +409,7 @@ describe("loadLifecycleForEdit — pre-cutover edit (Path A benchmark branch)", 
     // Shard reader was consulted for at least the date that holds
     // the seeded citation.
     expect(_shardCalls).toContain("2026-03-05");
-    // Cutover-day shard MUST NOT be consulted — the upper bound is
+    // Cutover-day shard MUST NOT be consulted, the upper bound is
     // strictly `< NATIVE_REGIME_START`.
     expect(_shardCalls).not.toContain(NATIVE_REGIME_START);
 
@@ -423,14 +423,14 @@ describe("loadLifecycleForEdit — pre-cutover edit (Path A benchmark branch)", 
 });
 
 // ────────────────────────────────────────────────────────────────────
-// Case 3 — pre-cutover edit with no benchmark match: stays uncited.
+// Case 3, pre-cutover edit with no benchmark match: stays uncited.
 // ────────────────────────────────────────────────────────────────────
 
-describe("loadLifecycleForEdit — pre-cutover edit, no benchmark match", () => {
+describe("loadLifecycleForEdit, pre-cutover edit, no benchmark match", () => {
   it("returns no first-citation date and the no-citation lifecycle stage", async () => {
     setRepoFixture({
       // Tenant has observations BUT no citation_urls and no
-      // benchmark match — the URL never appears in any shard.
+      // benchmark match, the URL never appears in any shard.
       promptAnswerObservations: [
         {
           id: "pa-untouched",
@@ -488,13 +488,13 @@ describe("loadLifecycleForEdit — pre-cutover edit, no benchmark match", () => 
 });
 
 // ────────────────────────────────────────────────────────────────────
-// Case 4 — cross-tenant benchmark citation must be dropped.
+// Case 4, cross-tenant benchmark citation must be dropped.
 // ────────────────────────────────────────────────────────────────────
 
-describe("loadLifecycleForEdit — cross-tenant safety (Section 2.4 contract)", () => {
+describe("loadLifecycleForEdit, cross-tenant safety (Section 2.4 contract)", () => {
   it("drops benchmark citations whose prompt_answer_id is outside the tenant scope", async () => {
     // Tenant scope: ONLY pa-mine. The shard contains a citation that
-    // matches the edit's URL — but its prompt_answer_id points at a
+    // matches the edit's URL, but its prompt_answer_id points at a
     // DIFFERENT tenant's prompt-answer (pa-not-mine). The repo stub
     // does NOT return pa-not-mine for this tenant, so the compute
     // layer's `promptAnswerById` filter MUST drop the citation.
@@ -545,7 +545,7 @@ describe("loadLifecycleForEdit — cross-tenant safety (Section 2.4 contract)", 
       now: "2026-03-12T00:00:00.000Z",
     });
 
-    // Shard reader WAS called — we read the shard.
+    // Shard reader WAS called, we read the shard.
     expect(_shardCalls).toContain("2026-03-05");
     // But the citation MUST be dropped (different tenant's pa id),
     // so the first-citation date stays null.
@@ -556,10 +556,10 @@ describe("loadLifecycleForEdit — cross-tenant safety (Section 2.4 contract)", 
 });
 
 // ────────────────────────────────────────────────────────────────────
-// Case 5 — loader actually passes benchmark citations into compute.
+// Case 5, loader actually passes benchmark citations into compute.
 // ────────────────────────────────────────────────────────────────────
 
-describe("loadLifecycleForEdit — benchmark citations flow into compute", () => {
+describe("loadLifecycleForEdit, benchmark citations flow into compute", () => {
   it("a benchmark-side citation drives stage = cited_fast for a pre-cutover edit", async () => {
     setRepoFixture({
       promptAnswerObservations: [
@@ -618,14 +618,14 @@ describe("loadLifecycleForEdit — benchmark citations flow into compute", () =>
 });
 
 // ────────────────────────────────────────────────────────────────────
-// Helper sanity — the exclusive enumerator must not include the
+// Helper sanity, the exclusive enumerator must not include the
 // cutover date itself, since the benchmark regime is strictly
 // `< NATIVE_REGIME_START`.
 // ────────────────────────────────────────────────────────────────────
 
 import { __testing as loaderInternals } from "@/domains/citation-lifecycle/load-lifecycle";
 
-describe("loadLifecycleForEdit — readBenchmarkCitationsInWindow short-circuit", () => {
+describe("loadLifecycleForEdit, readBenchmarkCitationsInWindow short-circuit", () => {
   it("returns [] when sinceIso >= NATIVE_REGIME_START without calling getCitationsForDate", () => {
     const rows = loaderInternals.readBenchmarkCitationsInWindow(
       NATIVE_REGIME_START,
@@ -661,12 +661,12 @@ describe("loadLifecycleForEdit — readBenchmarkCitationsInWindow short-circuit"
 });
 
 // ────────────────────────────────────────────────────────────────────
-// Phase A.2 Step 3b — threshold_decision threading through loaders
+// Phase A.2 Step 3b, threshold_decision threading through loaders
 // ────────────────────────────────────────────────────────────────────
 
 /**
  * Build a fixture with N cited records whose `days_to_first_citation`
- * falls inside Profound's `cited_typical` band (= 7–18 days). Each
+ * falls inside Profound's `cited_typical` band (= 7-18 days). Each
  * record drives an edit with its own URL + a paired pa-row + a
  * native-regime `citation_urls` match. Useful for exercising the
  * tenant-thresholds gate (which counts cited records).
@@ -741,7 +741,7 @@ function seedCitedTenantFixture(count: number): {
 
 const STEP_3B_NOW = "2026-05-30T00:00:00.000Z";
 
-describe("loadLifecycleForEdit — threshold_decision field (Phase A.2 §3.7)", () => {
+describe("loadLifecycleForEdit, threshold_decision field (Phase A.2 §3.7)", () => {
   it("returns threshold_decision with source 'profound_default' for a tenant with no cited edits", async () => {
     setRepoFixture({
       promptAnswerObservations: [
@@ -929,7 +929,7 @@ describe("loadLifecycleForEdit — threshold_decision field (Phase A.2 §3.7)", 
     expect(subGate.threshold_decision.source).toBe("profound_default");
     expect(aboveGate.threshold_decision.source).toBe("per_tenant");
 
-    // Copy MUST differ — per-tenant variants carry the "for this
+    // Copy MUST differ, per-tenant variants carry the "for this
     // site" honesty suffix on cited stages. The sub-gate copy uses
     // the Profound phrasing without the suffix.
     expect(subGate.copy).not.toBeNull();
@@ -940,7 +940,7 @@ describe("loadLifecycleForEdit — threshold_decision field (Phase A.2 §3.7)", 
   });
 });
 
-describe("loadLifecycleSummaryForTenant — threshold_decision field (Phase A.2 §3.7)", () => {
+describe("loadLifecycleSummaryForTenant, threshold_decision field (Phase A.2 §3.7)", () => {
   it("returns threshold_decision with source 'profound_default' for a tenant with no cited edits", async () => {
     setRepoFixture({
       promptAnswerObservations: [],
@@ -1062,11 +1062,11 @@ describe("loadLifecycleSummaryForTenant — threshold_decision field (Phase A.2 
   });
 });
 
-describe("threshold resolution — cross-tenant safety (Section 2.4 contract)", () => {
+describe("threshold resolution, cross-tenant safety (Section 2.4 contract)", () => {
   it("foreign-tenant edits + observations do NOT contribute to threshold sample_size", async () => {
     // Tenant T1 has 5 cited records (sub-gate). Tenant T2 has 25
     // cited records (would cross the gate IF its data leaked into
-    // T1's threshold compute). Loader called for T1 — must see
+    // T1's threshold compute). Loader called for T1, must see
     // source = profound_default, sample_size = 5.
     const t1Records = seedCitedTenantFixture(5);
     const t2Records = seedCitedTenantFixture(25);
@@ -1100,7 +1100,7 @@ describe("threshold resolution — cross-tenant safety (Section 2.4 contract)", 
 });
 
 // ────────────────────────────────────────────────────────────────────
-// Phase A.3 Step 4 — stuck-row indexability diagnostic wiring
+// Phase A.3 Step 4, stuck-row indexability diagnostic wiring
 // ────────────────────────────────────────────────────────────────────
 
 /**
@@ -1146,7 +1146,7 @@ function indexabilityResult(
   };
 }
 
-// `STEP_3B_NOW = 2026-05-30` — for a stuck verdict, `live_at` must be
+// `STEP_3B_NOW = 2026-05-30`, for a stuck verdict, `live_at` must be
 // far enough back to clear Profound's 37-day late threshold.
 const STUCK_LIVE_AT = "2026-04-01T00:00:00.000Z";
 
@@ -1178,7 +1178,7 @@ function seedStuckScenario(targetUrl: string = "https://example.com/services/who
   });
 }
 
-describe("loadLifecycleForEdit — stuck-row indexability diagnostic (Phase A.3 §4)", () => {
+describe("loadLifecycleForEdit, stuck-row indexability diagnostic (Phase A.3 §4)", () => {
   it("stuck row calls the indexability loader and renders the per-verdict diagnostic", async () => {
     const edit = seedStuckScenario();
     setIndexabilityResult(
@@ -1231,7 +1231,7 @@ describe("loadLifecycleForEdit — stuck-row indexability diagnostic (Phase A.3 
       now: STEP_3B_NOW,
     });
     expect(result.copy?.diagnostic).toBe(
-      "This page returns HTTP 404 — it may no longer serve content.",
+      "This page returns HTTP 404. It may no longer serve content.",
     );
   });
 
@@ -1386,7 +1386,7 @@ describe("loadLifecycleForEdit — stuck-row indexability diagnostic (Phase A.3 
 });
 
 // ---------------------------------------------------------------------------
-// Section 5.B Slice 2 (2026-05-21) — repeat-citation 30d band aggregation
+// Section 5.B Slice 2 (2026-05-21), repeat-citation 30d band aggregation
 // ---------------------------------------------------------------------------
 
 const SECTION_5_B_2_NOW = "2026-05-20T12:00:00Z";
@@ -1436,7 +1436,7 @@ const EMPTY_PER_BAND_EXPECTED = {
   still_learning: 0,
 };
 
-describe("loadLifecycleSummaryForTenant — repeat_citation_30d aggregation (Section 5.B.2)", () => {
+describe("loadLifecycleSummaryForTenant, repeat_citation_30d aggregation (Section 5.B.2)", () => {
   beforeEach(() => {
     clearRepeatCitationCalls();
     setRepeatCitationBandByEditId({});
@@ -1501,7 +1501,7 @@ describe("loadLifecycleSummaryForTenant — repeat_citation_30d aggregation (Sec
     }
   });
 
-  it("soft-fails per-edit errors — that edit is omitted from per_band but other edits still count", async () => {
+  it("soft-fails per-edit errors, that edit is omitted from per_band but other edits still count", async () => {
     setupBandFixture({
       "e-ok": { band: "stable" },
       "e-throws": { band: null }, // placeholder; throw overrides via setter below
