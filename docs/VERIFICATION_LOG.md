@@ -7,6 +7,22 @@
 
 ---
 
+## 2026-07-11 - Pilot loop 5: one-fact-per-sentence guidance + merged retry instruction (009ef67b)
+
+2026-07-11 pilot loop 5 (009ef67b): one-fact-per-sentence guidance for entity-rich
+roundups (each claim stated in its own verifiable sentence, added length reached
+via more single-fact sentences, never longer compound ones) plus a merged
+too-thin/superlative retry instruction (verification now runs before the too-thin
+decision is acted on, one combined instruction fires when both problems hit the
+same attempt, single-error retry paths stay byte-identical to the pre-existing
+instructions, at most 2 attempts total, fail closed after). draft.answer_block
+bumped to prompt-registry v5. Live re-run: 2 real gpt-5-mini runs, both failed
+closed on model-class variance (a non-JSON/oversized-field hiccup on one run; a
+new invented 100 percent caught by the numeric firewall during the superlative
+rephrase retry on the other) - every gate behaved correctly and nothing
+unprovable shipped. Residual is model variance, not a gate gap. Next lever:
+a no-new-numbers reminder on the rephrase retry instructions.
+
 ## 2026-07-11 - Pilot loop 4: entity-reference source guidance shipped (5b655cb5)
 
 2026-07-11 pilot loop 4 (5b655cb5): entity-reference source guidance shipped. Live proof across 3

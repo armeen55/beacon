@@ -1,4 +1,22 @@
 > 🟢 **(2026-07-11 latest) - HEAD STATE: ORIGIN/MAIN WILL BE THIS DOCS TIP AFTER THIS PUSH (pilot
+> loop 5: one-fact-per-sentence guidance for entity-rich roundups plus a merged too-thin and
+> superlative retry instruction, draft.answer_block bumped to prompt-registry v5, commit
+> 009ef67b).** Deployment of the pushed SHA to Vercel production is unconfirmed from this
+> environment.
+>
+> Full hermetic gate GREEN at this tip (fullgateP5.log: 22756 passed, 0 failed). See the 2026-07-11
+> "Pilot loop 5" entry in VERIFICATION_LOG.md for the one-fact-per-sentence detail, the merged
+> retry instruction (verification now runs before the too-thin decision, single-error retry paths
+> stay byte-identical), and the live re-run verdict: 2 real gpt-5-mini runs both failed closed on
+> model-class variance (a non-JSON/oversized-field hiccup on one run; a new invented 100 percent
+> caught by the numeric firewall during the superlative rephrase retry on the other) - every gate
+> behaved correctly and nothing unprovable shipped. NEXT: (1) confirm the Vercel production build
+> for this tip in the dashboard (unconfirmed from this environment); (2) the next bounded drafter
+> lever is a no-new-numbers retry reminder on the rephrase instructions; the proof-model floor plus
+> 56 to 84 day tier package remains AWAITING OPERATOR SIGN-OFF (decision list delivered 2026-07-10
+> late evening).
+>
+> 🟢 **(2026-07-11) - HEAD STATE: ORIGIN/MAIN WILL BE THIS DOCS TIP AFTER THIS PUSH (pilot
 > loop 4: entity-reference source guidance shipped, live-proven across 3 real drafter runs with
 > zero list-index cites, the loop-3 gap fully closed, commit 5b655cb5).** Deployment of the pushed
 > SHA to Vercel production is unconfirmed from this environment.
