@@ -19,6 +19,9 @@ import type { ShippedChangeRecord } from "@/domains/proof-gsc/shipped-change-sto
 import { proofMaturityLabel } from "@/domains/proof-gsc/measure-lifecycle";
 import { loadChangesView } from "../../changes-data";
 import type { CanonicalChange } from "@/domains/changes/canonical-change";
+// Dossier honesty (2026-07-11) - name the zero-click trap plainly when this page's own numbers
+// show it, so the dossier never leaves it unexplained while the demand read sits right there.
+import { isZeroClickTrap, ZERO_CLICK_TRAP_REASON_GENERAL } from "@/domains/changes/zero-click-trap";
 import { getAcceptedPlan, getLatestPreviewPlan } from "@/domains/experiments/daily-experiment-plan-store";
 import type { PlannedExperimentRecord } from "@/domains/experiments/daily-plan-types";
 
@@ -94,6 +97,11 @@ export type PageDossier = {
 
   currentMove: DossierMove | null;
   currentPlanPick: DossierPlanPick | null;
+  /** Dossier honesty (2026-07-11) - set when this page's top query is a zero-click trap (ranks
+   *  well, real impressions, near-zero clicks): the honest sentence naming why more work here is
+   *  unlikely to pay off, shown in the Current recommendation area so the trap is never left
+   *  unexplained beside the numbers. Null when the page's top query is not trapped. */
+  trapNote: string | null;
 };
 
 /** Title-case a path's final slug for an honest, human page label when no richer
@@ -239,6 +247,21 @@ async function loadDossierUncached(tenantId: string, path: string): Promise<Page
       )
     : null;
 
+  // Dossier honesty (2026-07-11) - the zero-click trap named from this page's OWN top query (the
+  // same signal build-canonical-changes.ts trips the trap on), so a trapped page never shows its
+  // demand numbers next to a silent, unexplained recommendation. The general sentence fits any
+  // lever the dossier might otherwise imply is worth doing here.
+  const topTrapQuery = [...(gscEntry?.topQueries ?? [])].sort((a, b) => b.impressions - a.impressions)[0];
+  const trapNote =
+    topTrapQuery &&
+    isZeroClickTrap({
+      topQueryPosition: topTrapQuery.position,
+      topQueryImpressions90d: topTrapQuery.impressions,
+      topQueryClicks90d: topTrapQuery.clicks,
+    })
+      ? ZERO_CLICK_TRAP_REASON_GENERAL
+      : null;
+
   return {
     path,
     pageLabel,
@@ -258,6 +281,7 @@ async function loadDossierUncached(tenantId: string, path: string): Promise<Page
     history,
     currentMove,
     currentPlanPick,
+    trapNote,
   };
 }
 

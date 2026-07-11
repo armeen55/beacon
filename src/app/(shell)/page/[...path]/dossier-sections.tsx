@@ -265,8 +265,8 @@ export async function DossierHistorySection({ path }: { path: string }) {
 
 export async function DossierCurrentMoveSection({ path }: { path: string }) {
   const dossier = await loadPageDossier(path);
-  const { currentMove, currentPlanPick } = dossier;
-  if (!currentMove && !currentPlanPick) {
+  const { currentMove, currentPlanPick, trapNote } = dossier;
+  if (!currentMove && !currentPlanPick && !trapNote) {
     return (
       <div className={CARD}>
         <div className={LABEL}>Current recommendation</div>
@@ -281,6 +281,11 @@ export async function DossierCurrentMoveSection({ path }: { path: string }) {
     <div className={CARD}>
       <div className={LABEL}>Current recommendation</div>
       <div className="mt-2 space-y-3">
+        {/* Dossier honesty (2026-07-11) - name the zero-click trap plainly right where the numbers
+            live, so a strong-position, no-click page never shows a silent recommendation. */}
+        {trapNote ? (
+          <p className="text-[13px] leading-relaxed text-foreground">{trapNote}</p>
+        ) : null}
         {currentMove ? (
           <div>
             <div className="text-[13px] font-medium text-foreground">{currentMove.opportunityType}</div>

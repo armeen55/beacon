@@ -52,3 +52,16 @@ export function isZeroClickTrap(s: ZeroClickTrapSignal): boolean {
  *  back for this reason. Beacon voice: first person, no jargon, no dash. */
 export const ZERO_CLICK_TRAP_REASON =
   "People see this in results but almost nobody clicks that kind of search. A title change probably cannot win clicks here.";
+
+/** The same finding for a NON-clicks lever (an answer block, a section, any edit that is not
+ *  pitched as a sharper title/meta): the click-capture sentence above names a title change, which
+ *  does not fit an answer-block or citation move, so this states the situation for any lever.
+ *  Beacon voice: first person, no jargon, no dash. */
+export const ZERO_CLICK_TRAP_REASON_GENERAL =
+  "People see this page in results but almost nobody clicks that kind of search. I would not spend time here until that changes.";
+
+/** The tone-appropriate trap reason: the title/meta sentence for a "Capture clicks" (clicks-tone)
+ *  move, the general sentence for every other lever (answer block, citation, experience, ...). */
+export function zeroClickTrapReason(actionTone: string | null | undefined): string {
+  return actionTone === "clicks" ? ZERO_CLICK_TRAP_REASON : ZERO_CLICK_TRAP_REASON_GENERAL;
+}

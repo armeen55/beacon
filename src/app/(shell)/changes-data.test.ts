@@ -9,7 +9,8 @@
  * and build-canonical-changes.test.ts already use for CanonicalChange fixtures).
  */
 import { describe, expect, it } from "vitest";
-import { dedupeIdentity, strongerChange, dedupeChanges, demoteUnsized, reconcileCannibalizationRationale, dropBoardDuplicateNewPageRows, applyOpportunityFreshness, abstentionEvidenceFor, partitionActionableByEvidence } from "./changes-data";
+import { dedupeIdentity, strongerChange, dedupeChanges, demoteUnsized, reconcileCannibalizationRationale, dropBoardDuplicateNewPageRows, applyOpportunityFreshness, abstentionEvidenceFor, partitionActionableByEvidence, seasonalWaitPathsFrom, applySeasonalWaitPosture } from "./changes-data";
+import type { SeasonalQuery } from "@/domains/seasonal/seasonality";
 import { cannibalizationDirective } from "@/domains/changes/decide-action";
 import { WATCHING_SENTENCE, heldForEvidenceLine } from "@/domains/recommendations/abstention";
 import { topicIdentityKey } from "@/domains/demand-graph/dedupe-new-page-cards";
@@ -514,5 +515,75 @@ describe("N49 abstention live-path (partitionActionableByEvidence / abstentionEv
     expect(heldForEvidenceLine(6)).toBe(
       "6 possible moves are waiting for more evidence before I recommend them.",
     );
+  });
+});
+
+describe("one-posture-per-page: seasonal wait (Today) never coexists with an act-now Changes card", () => {
+  const NOW = new Date("2026-07-11T00:00:00Z");
+  function iso(daysFromNow: number): string {
+    return new Date(NOW.getTime() + daysFromNow * 86_400_000).toISOString().slice(0, 10);
+  }
+  function sq(over: Partial<SeasonalQuery> & { topPage: string | null; prepByDate: string }): SeasonalQuery {
+    return {
+      query: "iran flag history",
+      peakMonths: [3],
+      share: 0.8,
+      annualImpressions: 33119,
+      peakStartDate: iso(90),
+      sentence: 'Searches for "iran flag history" climb every March. I would prep this page by March 20, 2027, six weeks ahead, so Google has it indexed before the wave.',
+      confidence: "repeated",
+      ...over,
+    };
+  }
+
+  describe("seasonalWaitPathsFrom", () => {
+    it("maps a page whose prep deadline is beyond the urgency window to the seasonal sentence", () => {
+      const map = seasonalWaitPathsFrom([sq({ topPage: "https://s.com/iran-flags/flag-history", prepByDate: iso(60) })], NOW);
+      expect(map.get("/iran-flags/flag-history")).toContain("I would prep this page by March 20, 2027");
+    });
+    it("skips a prep deadline inside the urgency window (that is prep-now, an act-now posture)", () => {
+      const map = seasonalWaitPathsFrom([sq({ topPage: "https://s.com/iran-flags/flag-history", prepByDate: iso(10) })], NOW);
+      expect(map.size).toBe(0);
+    });
+    it("skips seasonal rows with no known top page (nothing exact to a page)", () => {
+      const map = seasonalWaitPathsFrom([sq({ topPage: null, prepByDate: iso(60) })], NOW);
+      expect(map.size).toBe(0);
+    });
+  });
+
+  describe("applySeasonalWaitPosture", () => {
+    const waitMap = new Map<string, string>([["/iran-flags/flag-history", "I would prep this page by March 20, 2027, six weeks ahead."]]);
+    it("demotes an act-now card on a seasonal-wait page to watching, held with the seasonal sentence", () => {
+      const act = cc("iran-flags/flag-history", "ready", { pagePath: "/iran-flags/flag-history", decision: "edit_existing", opportunityType: "Win AI citations" });
+      const [out] = applySeasonalWaitPosture([act], waitMap);
+      expect(out.decision).toBe("watch");
+      expect(out.qualityDecision).toBe("flagged");
+      expect(out.qualityNote).toBe("I would prep this page by March 20, 2027, six weeks ahead.");
+      expect(out.status).toBe("suggested"); // demoted off ready, never deleted
+      expect(hasBannedDash(out.qualityNote ?? "")).toBe(false);
+    });
+    it("leaves a page with no seasonal wait posture byte-identical", () => {
+      const act = cc("persian-food", "ready", { pagePath: "/persian-food", decision: "edit_existing" });
+      const [out] = applySeasonalWaitPosture([act], waitMap);
+      expect(out).toBe(act);
+    });
+    it("never re-touches a row already watching (it is not an act-now card)", () => {
+      const watching = cc("iran-flags/flag-history", "suggested", { pagePath: "/iran-flags/flag-history", decision: "watch", qualityDecision: "flagged", qualityNote: "held for another reason" });
+      const [out] = applySeasonalWaitPosture([watching], waitMap);
+      expect(out).toBe(watching);
+    });
+    it("an empty wait map is a byte-identical passthrough", () => {
+      const rows = [cc("a", "ready", { decision: "edit_existing" }), cc("b", "suggested", { decision: "edit_existing" })];
+      const out = applySeasonalWaitPosture(rows, new Map());
+      expect(out).toEqual(rows);
+    });
+    it("the demoted row drops out of the act-now ranks the /changes board keeps", () => {
+      const trapped = cc("iran-flags/flag-history", "ready", { pagePath: "/iran-flags/flag-history", decision: "edit_existing", impactScore: 44434 });
+      const healthy = cc("persian-food", "ready", { pagePath: "/persian-food", decision: "edit_existing", impactScore: 900 });
+      const out = applySeasonalWaitPosture([trapped, healthy], waitMap);
+      const actNow = rankChanges(out, "balanced").filter((c) => c.decision === "edit_existing" && c.status !== "blocked");
+      expect(actNow.map((c) => c.pagePath)).not.toContain("/iran-flags/flag-history");
+      expect(actNow.map((c) => c.pagePath)).toContain("/persian-food");
+    });
   });
 });

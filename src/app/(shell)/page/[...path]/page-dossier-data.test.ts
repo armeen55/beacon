@@ -52,6 +52,7 @@ import { loadLanguageGaps } from "@/domains/language-gap/language-gap-store";
 import { loadProofLedgerCached } from "@/domains/proof-gsc/load-ledger";
 import { loadChangesView } from "../../changes-data";
 import { getAcceptedPlan, getLatestPreviewPlan } from "@/domains/experiments/daily-experiment-plan-store";
+import { ZERO_CLICK_TRAP_REASON_GENERAL } from "@/domains/changes/zero-click-trap";
 
 const PATH = "/cities";
 
@@ -146,6 +147,28 @@ describe("loadPageDossier composition", () => {
     expect(d.queries.topQueries[0].query).toBe("iran cities");
     // The GSC signal's own canonical URL is the best-known live URL.
     expect(d.liveUrl).toBe("https://www.iranopedia.com/cities/");
+  });
+
+  it("names the zero-click trap when this page's top query ranks well, pulls impressions, and earns almost no clicks", async () => {
+    // The blind-benchmark page's own numbers: pos 3.3, 33,119 impressions/90d, ~0.13% CTR. The
+    // dossier must not show these numbers beside a silent recommendation - it names the trap plainly.
+    vi.mocked(loadGscPageSignalsForTenant).mockResolvedValue(
+      new Map([
+        ["https://iranopedia.com/cities", { page: "https://iranopedia.com/cities", clicks90d: 43, impressions90d: 33119, ctr90d: 0.0013, position90d: 3.3, topQueries: [{ query: "iran flag history", clicks: 43, impressions: 33119, ctr: 0.0013, position: 3.3 }] }],
+      ]) as never,
+    );
+    const d = await loadPageDossier(PATH);
+    expect(d.trapNote).toBe(ZERO_CLICK_TRAP_REASON_GENERAL);
+  });
+
+  it("does not flag a trap when the page's top query earns healthy clicks", async () => {
+    vi.mocked(loadGscPageSignalsForTenant).mockResolvedValue(
+      new Map([
+        ["https://iranopedia.com/cities", { page: "https://iranopedia.com/cities", clicks90d: 300, impressions90d: 5000, ctr90d: 0.06, position90d: 6, topQueries: [{ query: "iran cities", clicks: 300, impressions: 5000, ctr: 0.06, position: 6 }] }],
+      ]) as never,
+    );
+    const d = await loadPageDossier(PATH);
+    expect(d.trapNote).toBeNull();
   });
 
   it("fetches the content snapshot for the resolved live URL and surfaces it as-is", async () => {

@@ -2,7 +2,8 @@ import { describe, it, expect } from "vitest";
 import { buildCanonicalChanges, type CanonicalMoveInput } from "./build-canonical-changes";
 import { deriveStatus, statusView, changeTypeFamily } from "./canonical-change";
 import { rankChanges, goalMatches, statusCounts } from "./strategy";
-import { ZERO_CLICK_TRAP_REASON } from "./zero-click-trap";
+import { isActDecision } from "./decide-action";
+import { ZERO_CLICK_TRAP_REASON, ZERO_CLICK_TRAP_REASON_GENERAL } from "./zero-click-trap";
 import type { DailyExperimentPlanRecord, PlannedExperimentRecord, ExperimentLever, ControlReservationRecord } from "@/domains/experiments/daily-plan-types";
 import type { PlanExecutionState } from "@/domains/experiments/execution-state";
 
@@ -247,7 +248,11 @@ describe("G2 (2026-07-10 hygiene batch): zero-click / image-intent trap decides 
     expect(out[0].qualityDecision).toBe("approved");
   });
 
-  it("a non-clicks-tone move is never checked against the trap (only capture-clicks pitches are)", () => {
+  it("a citation add_answer_block on a trapped page also decides watch, with the general reason (blind-benchmark defect)", () => {
+    // The blind holdout benchmark failed here: /iran-flags... rode in as an act-now
+    // add_answer_block ("Win AI citations") because the trap only gated clicks-tone moves.
+    // A trapped page cannot earn clicks under ANY lever, so a citation edit is held too, with
+    // the lever-appropriate sentence (the title-change wording would not fit an answer block).
     const moves = [
       mv({
         id: "m1",
@@ -262,7 +267,110 @@ describe("G2 (2026-07-10 hygiene batch): zero-click / image-intent trap decides 
       }),
     ];
     const out = buildCanonicalChanges({ tenantId: "t", moves, plan: null, reservations: [] });
+    expect(out[0].qualityDecision).toBe("flagged");
+    expect(out[0].qualityNote).toBe(ZERO_CLICK_TRAP_REASON_GENERAL);
+    expect(out[0].decision).toBe("watch");
+    expect(out[0].status).toBe("suggested");
+  });
+
+  it("the flag-history fixture (pos 3.3, 33,119 impressions, 0.13% CTR) as an act-now add_answer_block demotes to watching", () => {
+    // The exact blind-benchmark page: position 3.3, 33,119 impressions/90d, ~0.13% CTR, pitched
+    // as "Win AI citations" with a huge impressions-derived impact score. It must NOT survive as
+    // an act-now card; it is held in watching with the general trap sentence.
+    const moves = [
+      mv({
+        id: "flag-history",
+        targetUrl: "https://s.com/iran-flags/iran-islamic-republic-flag-history",
+        pageLabel: "Iran Islamic Republic Flag History",
+        query: "iran flag history",
+        actionType: "add_answer_block",
+        actionTone: "citation",
+        preparedReady: true,
+        score: 44434,
+        demand: 28800,
+        topQueryPosition: 3.3,
+        topQueryImpressions90d: 33119,
+        topQueryClicks90d: 43, // 43 / 33119 = 0.13% CTR
+      }),
+    ];
+    const out = buildCanonicalChanges({ tenantId: "t", moves, plan: null, reservations: [] });
+    expect(out[0].qualityDecision).toBe("flagged");
+    expect(out[0].qualityNote).toBe(ZERO_CLICK_TRAP_REASON_GENERAL);
+    expect(out[0].decision).toBe("watch");
+    expect(out[0].status).toBe("suggested"); // demoted off ready, never deleted
+  });
+
+  it("a trapped page cannot occupy an act-now top-3 slot even with the biggest impact score", () => {
+    // Mirrors the real board: rank balanced, then keep only the act-decisions (edit/consolidate/
+    // create/prune) the way the /changes actionable queue does. The trapped page carries the
+    // highest impact score of all, yet must be absent from the act-now ranks.
+    const moves = [
+      mv({ id: "trap", targetUrl: "https://s.com/iran-flags/flag-history", pageLabel: "Flag History", query: "iran flag history", actionType: "add_answer_block", actionTone: "citation", score: 44434, topQueryPosition: 3.3, topQueryImpressions90d: 33119, topQueryClicks90d: 43 }),
+      mv({ id: "h1", targetUrl: "https://s.com/persian-food", pageLabel: "Persian Food", query: "persian food", actionType: "edit_meta", actionTone: "clicks", score: 900, topQueryPosition: 8, topQueryImpressions90d: 1200, topQueryClicks90d: 60 }),
+      mv({ id: "h2", targetUrl: "https://s.com/iran-travel", pageLabel: "Iran Travel", query: "iran travel", actionType: "edit_meta", actionTone: "clicks", score: 800, topQueryPosition: 7, topQueryImpressions90d: 1500, topQueryClicks90d: 75 }),
+      mv({ id: "h3", targetUrl: "https://s.com/tehran", pageLabel: "Tehran", query: "tehran", actionType: "edit_meta", actionTone: "clicks", score: 700, topQueryPosition: 9, topQueryImpressions90d: 1000, topQueryClicks90d: 40 }),
+    ];
+    const out = buildCanonicalChanges({ tenantId: "t", moves, plan: null, reservations: [] });
+    const actNowRanked = rankChanges(out, "balanced").filter((c) => isActDecision(c.decision) && c.status !== "blocked");
+    const top3 = actNowRanked.slice(0, 3).map((c) => c.pagePath);
+    expect(top3).not.toContain("/iran-flags/flag-history");
+    // The trapped page is preserved (held in watching), never dropped.
+    const trapped = out.find((c) => c.pagePath === "/iran-flags/flag-history")!;
+    expect(trapped.decision).toBe("watch");
+    expect(isActDecision(trapped.decision)).toBe(false);
+  });
+
+  it("a healthy citation page with good CTR still ranks act-now (regression - the guard is targeted)", () => {
+    const moves = [
+      mv({
+        id: "healthy",
+        targetUrl: "https://s.com/nowruz-guide",
+        pageLabel: "Nowruz Guide",
+        query: "nowruz guide",
+        actionType: "add_answer_block",
+        actionTone: "citation",
+        preparedReady: true,
+        topQueryPosition: 6,
+        topQueryImpressions90d: 2000,
+        topQueryClicks90d: 120, // 6% CTR - clickable, nothing trapped
+      }),
+    ];
+    const out = buildCanonicalChanges({ tenantId: "t", moves, plan: null, reservations: [] });
     expect(out[0].qualityDecision).toBe("approved");
+    expect(isActDecision(out[0].decision)).toBe(true);
+  });
+
+  it("trap boundaries: exactly-at-threshold values stay honest, just-over trips the trap", () => {
+    // position exactly 5, impressions exactly 500, CTR exactly 0.2% (1/500) - the thresholds are
+    // strict (pos <= 5, impr >= 500, ctr < 0.2%), so CTR AT 0.2% is NOT a trap.
+    // query + pageLabel match so the off-topic relevance check never fires; the trap is the only
+    // thing under test here.
+    const edge = (over: Partial<CanonicalMoveInput>): CanonicalMoveInput =>
+      mv({ id: "edge", targetUrl: "https://s.com/edge-topic", query: "edge topic", pageLabel: "Edge Topic", actionTone: "citation", actionType: "add_answer_block", ...over });
+    const atCtrFloor = buildCanonicalChanges({
+      tenantId: "t",
+      moves: [edge({ topQueryPosition: 5, topQueryImpressions90d: 500, topQueryClicks90d: 1 })],
+      plan: null,
+      reservations: [],
+    });
+    expect(atCtrFloor[0].qualityDecision).toBe("approved"); // ctr 0.2% is not < 0.2%
+    // Nudge CTR just below the floor (0 clicks) at the same strong position + material impressions.
+    const belowCtrFloor = buildCanonicalChanges({
+      tenantId: "t",
+      moves: [edge({ topQueryPosition: 5, topQueryImpressions90d: 500, topQueryClicks90d: 0 })],
+      plan: null,
+      reservations: [],
+    });
+    expect(belowCtrFloor[0].qualityDecision).toBe("flagged");
+    expect(belowCtrFloor[0].decision).toBe("watch");
+    // position 5.1 (just past the strong-position bar) is never a trap, however low the CTR.
+    const pastPosition = buildCanonicalChanges({
+      tenantId: "t",
+      moves: [edge({ topQueryPosition: 5.1, topQueryImpressions90d: 5000, topQueryClicks90d: 0 })],
+      plan: null,
+      reservations: [],
+    });
+    expect(pastPosition[0].qualityDecision).toBe("approved");
   });
 
   it("two tenants: the SAME trap query on each tenant's own page decides watch independently, no bleed", () => {

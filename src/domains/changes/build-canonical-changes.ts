@@ -16,7 +16,7 @@ import {
   type CanonicalChange, type CanonicalStatus, type ProofSignal,
 } from "./canonical-change";
 import { decideChangeAction } from "./decide-action";
-import { isZeroClickTrap, ZERO_CLICK_TRAP_REASON } from "./zero-click-trap";
+import { isZeroClickTrap, zeroClickTrapReason } from "./zero-click-trap";
 
 /** Structural subset of a worklist TodayMove the adapter needs (keeps the domain free of app types). */
 export type CanonicalMoveInput = {
@@ -206,18 +206,25 @@ function fromMove(tenantId: string, m: CanonicalMoveInput, controlPaths: Set<str
       if (status === "ready") status = "suggested";
     }
   }
-  // G2 (2026-07-10 hygiene batch) - a "Capture clicks" edit only makes sense when the
-  // page's top query can structurally EARN clicks. Strong position + material
-  // impressions + near-zero CTR is an image-intent or true zero-click query (the
-  // pilot found /iran-flags and /iran-animals/asiatic-cheetah exactly this way) - the
-  // searcher's need is satisfied on the results page itself, so no title/meta edit can
-  // win clicks there. Checked only for clicks-tone moves (the ones actually pitched as
-  // click-capture edits) and only when nothing already flagged the rec, so this never
-  // overrides a more specific quality call. Same flagged -> watch path as the off-topic
-  // check above: never deleted, held with an honest reason instead.
-  if (qualityDecision === "approved" && m.actionTone === "clicks" && isZeroClickTrap(m)) {
+  // G2 (2026-07-10 hygiene batch, extended 2026-07-11) - an act-now edit only makes sense when
+  // the page's top query can structurally EARN clicks. Strong position + material impressions +
+  // near-zero CTR is an image-intent or true zero-click query (the pilot found /iran-flags and
+  // /iran-animals/asiatic-cheetah exactly this way) - the searcher's need is satisfied on the
+  // results page itself, so no edit can win clicks there. Originally this gated ONLY clicks-tone
+  // moves, which let a trapped page ride in as an act-now add_answer_block ("Win AI citations")
+  // pick ranked #2 (its rationale sold the very Google demand its own history proves does not
+  // convert). The check now gates EVERY pre-ship edit on an existing page (title, answer block,
+  // any lever), never a brand-new page (which has no top query to trap). Only when nothing already
+  // flagged the rec, so it never overrides a more specific quality call. Same flagged -> watch path
+  // as the off-topic check above: never deleted, held with an honest, lever-appropriate reason.
+  if (
+    qualityDecision === "approved" &&
+    family !== "new_page" &&
+    (status === "ready" || status === "suggested") &&
+    isZeroClickTrap(m)
+  ) {
     qualityDecision = "flagged";
-    qualityNote = ZERO_CLICK_TRAP_REASON;
+    qualityNote = zeroClickTrapReason(m.actionTone);
     if (status === "ready") status = "suggested";
   }
   const proofResultLabel =

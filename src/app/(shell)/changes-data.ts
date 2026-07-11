@@ -13,7 +13,15 @@ import { getLatestPreviewPlan, getAcceptedPlan, listActiveReservations } from "@
 import { buildCanonicalChanges, type CanonicalMoveInput } from "@/domains/changes/build-canonical-changes";
 import type { CanonicalChange } from "@/domains/changes/canonical-change";
 import { statusView } from "@/domains/changes/canonical-change";
-import { decideChangeAction, cannibalizationDirective } from "@/domains/changes/decide-action";
+import { decideChangeAction, cannibalizationDirective, isActDecision } from "@/domains/changes/decide-action";
+// One-posture-per-page (2026-07-11) - the SAME persisted seasonal store Today's war-room reads
+// (war-room-sections.tsx -> loadSeasonalQueries -> the "I would prep this page by <date>" row), so
+// the ranked Changes list never holds an act-now card for a page Today is telling the operator to
+// wait on. Read-only; PREP_WINDOW_DAYS is the same urgency window the seasonal hint feed uses.
+import { loadSeasonalQueries } from "@/domains/seasonal/seasonal-store";
+import type { SeasonalQuery } from "@/domains/seasonal/seasonality";
+import { PREP_WINDOW_DAYS } from "@/domains/seasonal/seasonal-hints";
+import { normalizePath } from "@/domains/experiments/daily-plan-types";
 import type { TodayMove } from "./today-moves-data";
 import { readPublishHealth } from "@/domains/push/publish-canary-store";
 // D7 (honest opportunity math) - the SAME bias-correction factor + per-family empirical capture
@@ -333,6 +341,48 @@ export function applyOpportunityFreshness(
   });
 }
 
+/** One-posture-per-page (2026-07-11) - the pages Today's war-room is holding in a SEASONAL WAIT
+ *  posture, keyed by normalized path -> the exact sentence Today shows ("I would prep this page by
+ *  <date>, six weeks ahead, so Google has it indexed before the wave."). A page is in a WAIT
+ *  posture (not a "prep now" one) when its prep deadline is further out than the SAME
+ *  PREP_WINDOW_DAYS urgency window the seasonal hint feed uses: inside that window the prep IS the
+ *  act-now move, so Today and Changes already agree and nothing is demoted. Only entries with a
+ *  known top page contribute (nothing else is exact to a page). PURE; exported for a direct test pin. */
+export function seasonalWaitPathsFrom(seasonal: readonly SeasonalQuery[], now: Date = new Date()): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const s of seasonal) {
+    if (!s.topPage) continue;
+    const target = Date.parse(`${s.prepByDate}T00:00:00Z`);
+    if (!Number.isFinite(target)) continue;
+    const days = Math.round((target - now.getTime()) / 86_400_000);
+    if (days <= PREP_WINDOW_DAYS) continue; // prep is due/urgent -> act now, not a wait
+    const key = normalizePath(s.topPage);
+    if (!out.has(key)) out.set(key, s.sentence);
+  }
+  return out;
+}
+
+/** One-posture-per-page (2026-07-11) - when a page is held in a seasonal WAIT posture on another
+ *  surface (Today's war-room), the Changes board must not ALSO hold an act-now card for it, or the
+ *  operator sees "act now" and "wait until <date>" for the same page at once. For each act-now
+ *  change on such a page, demote it to the SAME watching state the zero-click trap uses (decision
+ *  "watch", held with the seasonal sentence as its honest reason), reusing decide-action's existing
+ *  vocabulary. A row already watching / blocked / measuring / settled is left untouched, and a page
+ *  with no matching wait posture rides through byte-identical. PURE; exported for a direct test pin. */
+export function applySeasonalWaitPosture(
+  changes: readonly CanonicalChange[],
+  seasonalWaitByPath: ReadonlyMap<string, string>,
+): CanonicalChange[] {
+  if (seasonalWaitByPath.size === 0) return [...changes];
+  return changes.map((c) => {
+    if (!isActDecision(c.decision)) return c;
+    const sentence = seasonalWaitByPath.get(c.pagePath);
+    if (!sentence) return c;
+    const status = c.status === "ready" ? "suggested" : c.status;
+    return { ...c, status, qualityDecision: "flagged", qualityNote: sentence, decision: "watch" };
+  });
+}
+
 // N49 (R21b, 2026-07-03) - CALIBRATED ABSTENTION, LIVE. The Quality Constitution's law 2:
 // Beacon never presents a confident move it has no real evidence for. abstention.ts is the pure
 // gate; this is its live wire-in on the ONE list the operator acts on. It runs as a FINAL filter
@@ -513,7 +563,7 @@ async function buildChangesViewUncached(tenantId: string): Promise<ChangesView> 
   // Changes list. A plan-store outage drops the "today" slice but keeps the ranked moves;
   // a worklist outage keeps any selected plan items. The page renders with what loaded.
   const tSources = perfMark();
-  const [wl, accepted, preview, reservations, ledgerRows, calibrationRecords, boardTopicKeys] = await Promise.all([
+  const [wl, accepted, preview, reservations, ledgerRows, calibrationRecords, boardTopicKeys, seasonalQueries] = await Promise.all([
     loadMovesWorklist().catch(() => ({ moves: [] as TodayMove[], stats: undefined })),
     getAcceptedPlan(tenantId).catch(() => null),
     getLatestPreviewPlan(tenantId).catch(() => null),
@@ -527,6 +577,9 @@ async function buildChangesViewUncached(tenantId: string): Promise<ChangesView> 
       new Set<string>(),
       BOARD_TOPICS_DEADLINE_MS,
     ),
+    // One-posture-per-page - the same seasonal store Today reads; fail-soft (an outage just means
+    // no seasonal demotion this build, never a blanked list).
+    loadSeasonalQueries(tenantId).catch(() => [] as SeasonalQuery[]),
   ]);
   perfStage("changes-source-read", tSources, { moves: (wl.moves ?? []).length, ledger: ledgerRows.length });
   // FP3 - THE ONE-COUNT RULE (domains/changes/lifecycle-counts.ts): the same classifier
@@ -638,11 +691,19 @@ async function buildChangesViewUncached(tenantId: string): Promise<ChangesView> 
   // line must agree with (not contradict) the consolidation directive. Wave 3C: the reconciled
   // rationale is built from the DECIDED action above, never the ambiguous fix text.
   const reconciled = reconcileCannibalizationRationale(decided, movesById);
+  // One-posture-per-page (2026-07-11) - a page Today's war-room is telling the operator to WAIT on
+  // (a seasonal window whose prep deadline is still months out) must not carry an act-now card here
+  // at the same time. Demote any such act-now row to the same watching state the zero-click trap
+  // uses, held with the exact seasonal sentence Today shows. Applied BEFORE the ranking input below
+  // (and before the client ranks) so the board order reflects the demotion, never a surface-local
+  // patch. Byte-identical when nothing is in a seasonal wait posture.
+  const seasonalWaitByPath = seasonalWaitPathsFrom(seasonalQueries);
+  const oneposture = applySeasonalWaitPosture(reconciled, seasonalWaitByPath);
   // FP2 (killer finding 1) - a row whose only sizing is opportunity-math's honest "not enough
   // history"/"gap too small" fallback must never outrank a row with a real forecast. strategy.ts's
   // ranking is untouched; this only adjusts the ranking INPUT so unsized rows sort to the bottom
   // of their status bucket instead of mixing in among sized ones.
-  const demoted = demoteUnsized(reconciled);
+  const demoted = demoteUnsized(oneposture);
   // FP5b - one home per job: a not-yet-built topic that already has a New Pages board
   // card must not ALSO render as a ranked list row ("biggest cities in iran" appearing
   // three times in two formats). The board is the richer home; the list keeps every
