@@ -265,6 +265,14 @@ export type TodayMove = {
    *  is not resolvable to a live Wix item yet (no site connected, or no
    *  collection mapping) - the card then shows only "View page" as before. */
   wixEditorUrl?: string | null;
+  /** G3 (Wave 4, 2026-07-11) - "Who wins this topic now": the deduped Google+AI
+   *  winner list (fuseTeardownTargets, overlap first) with each winner's cached
+   *  teardown signals in plain words + an honest "read <date>" collection stamp.
+   *  Null/absent when there is no competitor or Google-results evidence to fuse
+   *  for this move (the detail view then renders no panel at all). Computed at
+   *  the /moves projection from data the engine already persisted - no new
+   *  fetch, no new ranking. */
+  winners?: import("@/domains/demand-graph/winners-panel").WinnerLine[] | null;
 };
 
 export type TodayMovesHeroData = {

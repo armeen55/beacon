@@ -20,7 +20,7 @@ import {
   Zap,
 } from "lucide-react";
 import { respondToRecommendation } from "./recommendation-actions";
-import { draftMoveAnswerBlockAction, draftMoveFaqAction } from "./today-moves-actions";
+import { draftMoveAnswerBlockAction, draftMoveFaqAction, sharpenMovesWithTeardownAction } from "./today-moves-actions";
 import { getCompetitorAnswerAlignmentForClient } from "@/domains/ai-visibility/answer-alignment-actions";
 import { stageMoveInWixAction } from "./stage-in-wix-actions";
 import type { TodayMove } from "./today-moves-data";
@@ -106,6 +106,46 @@ function titleCase(s: string): string {
 function fmtNum(n: number): string {
   if (n >= 1000) return `${(n / 1000).toFixed(n >= 10000 ? 0 : 1)}k`;
   return String(n);
+}
+
+/** G3 (Wave 4) - the honest-absence CTA for "Your gap": reuses the existing,
+ *  already-wired teardown refresh (`sharpenMovesWithTeardownAction`, the same action
+ *  behind the Today page's "Sharpen with teardown" button) instead of a new action -
+ *  no new fetch engine, just the existing one triggered from this card. Read-only
+ *  against competitors; operator-gated server-side. No `useRouter` here on purpose -
+ *  MoveCard renders in a plain renderToStaticMarkup test harness with no app-router
+ *  context, and the server action's own `revalidatePath` already means the row shows
+ *  the fresh comparison the next time its detail is reopened. */
+function CompareAgainstWinnersButton() {
+  const [pending, start] = useTransition();
+  const [msg, setMsg] = useState<string | null>(null);
+  return (
+    <div className="flex flex-col items-end gap-0.5">
+      <button
+        type="button"
+        onClick={() => {
+          setMsg(null);
+          start(async () => {
+            try {
+              const r = await sharpenMovesWithTeardownAction({ limit: 12 });
+              if (r.status === "off") {
+                setMsg("Operator only.");
+                return;
+              }
+              setMsg(`Read ${r.audited} competitor page${r.audited === 1 ? "" : "s"}. Reopen this to see it.`);
+            } catch {
+              setMsg("Could not read the winners right now, try again.");
+            }
+          });
+        }}
+        disabled={pending}
+        className={`inline-flex shrink-0 items-center gap-1 rounded-md border border-border px-2.5 py-1 text-meta font-medium text-foreground-secondary hover:bg-card ${FOCUS}`}
+      >
+        {pending ? "Reading the winners…" : "Compare against the winners"}
+      </button>
+      {msg ? <span className="text-meta text-muted-foreground">{msg}</span> : null}
+    </div>
+  );
 }
 
 /** Friendly labels for the ActionPack evidence-source provenance chips (the
@@ -739,6 +779,49 @@ export function MoveCard({
         </div>
       </div>
 
+      {/* G3 (Wave 4, 2026-07-11) - "Who wins this topic now": the deduped Google+AI
+          winner list the engine already computes (fuseTeardownTargets) but never
+          rendered anywhere - the operator had to piece it together by hand. Render-only
+          over already-persisted evidence; collapsed by default so it never competes
+          with the single "What wins" line above for attention. Self-hides entirely
+          when there is no competitor/Google evidence to fuse. */}
+      {m.winners && m.winners.length > 0 ? (() => {
+        // Defensive cap: buildWinnersPanel already caps at 5, sliced again here so the
+        // card can never balloon into a second SERP even if an upstream caller changes.
+        const winners = m.winners.slice(0, 5);
+        return (
+        <details className="mt-3 rounded-xl border border-border-subtle bg-surface-raised px-3 py-2.5">
+          <summary className={`cursor-pointer text-meta font-semibold uppercase tracking-wide text-muted-foreground hover:text-foreground ${FOCUS}`}>
+            Who wins this topic now ({winners.length})
+          </summary>
+          <ul className="mt-2 space-y-2">
+            {winners.map((w) => (
+              <li key={w.domain} className="rounded-lg bg-card px-2.5 py-2 ring-1 ring-border">
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <span className="font-semibold text-foreground-secondary">{w.domain}</span>
+                  {w.overlap ? (
+                    // "live" (not "won") - this describes the winner's citation
+                    // strength, not a proven win for the operator's own move. Matches
+                    // the SAME green treatment the dataforseoVerdict pill above already
+                    // uses for "Google confirms an AI-cited rival ranks."
+                    <Pill intent="live">Google AND AI pick this one</Pill>
+                  ) : w.sources.includes("google") ? (
+                    <Pill intent="neutral">Ranks in Google results</Pill>
+                  ) : (
+                    <Pill intent="neutral">AI cites this page</Pill>
+                  )}
+                  {w.collectedLabel ? <span className="text-meta text-muted-foreground">{w.collectedLabel}</span> : null}
+                </div>
+                <div className="mt-0.5 text-meta text-foreground-secondary">
+                  {w.whyPlain ?? <span className="text-muted-foreground">I have not read this page yet</span>}
+                </div>
+              </li>
+            ))}
+          </ul>
+        </details>
+        );
+      })() : null}
+
       {m.ga4 || m.friction ? (
         <div className="mt-3 flex flex-wrap items-center gap-1.5">
           {m.ga4 ? (
@@ -881,6 +964,16 @@ export function MoveCard({
         <div className="mt-3 flex items-start gap-2 rounded-xl border border-status-danger/20 bg-status-danger-bg px-3 py-2">
           <span className="mt-0.5 text-meta font-semibold uppercase tracking-wide text-status-danger">Your gap</span>
           <span className="text-body font-medium text-status-danger">{m.yourGap}</span>
+        </div>
+      ) : !m.whatWins ? (
+        // G3 (Wave 4) - honest absence: no teardown has run for this move at all, so
+        // there is no real comparison to state as "your gap" (never a fabricated one).
+        // Only shows when whatWins is ALSO absent - if a teardown ran and simply found
+        // nothing notable, yourGap stays silently empty (that's a real result, not a
+        // missing comparison), so this line never contradicts a completed teardown.
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-border-subtle bg-surface-raised px-3 py-2">
+          <span className="text-body text-muted-foreground">I have not compared this page against the winners yet.</span>
+          <CompareAgainstWinnersButton />
         </div>
       ) : null}
 

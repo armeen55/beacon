@@ -241,3 +241,100 @@ describe("plain-word mapping covers every SERP format slug", () => {
     expect(html).not.toContain("SERP");
   });
 });
+
+describe("G3 (Wave 4) - winners panel: 'Who wins this topic now'", () => {
+  const overlapWinner = {
+    domain: "theknot.com",
+    overlap: true,
+    sources: ["ai", "google"] as ("ai" | "google")[],
+    whyPlain: "a direct answer at the top, an FAQ section (4 questions), updated recently",
+    collectedLabel: "read Jul 10",
+  };
+  const aiOnlyWinner = {
+    domain: "aionly.com",
+    overlap: false,
+    sources: ["ai"] as ("ai" | "google")[],
+    whyPlain: null,
+    collectedLabel: null,
+  };
+  const googleOnlyWinner = {
+    domain: "googleonly.com",
+    overlap: false,
+    sources: ["google"] as ("ai" | "google")[],
+    whyPlain: null,
+    collectedLabel: null,
+  };
+
+  it("renders the deduped winner list from a fixture evidence pack: domain, plain-word why, cached date, and the overlap badge", () => {
+    const html = renderToStaticMarkup(
+      <MoveCard rank={1} m={makeMove({ winners: [overlapWinner, aiOnlyWinner, googleOnlyWinner] })} />,
+    );
+    expect(html).toContain("Who wins this topic now");
+    expect(html).toContain("theknot.com");
+    expect(html).toContain("Google AND AI pick this one");
+    expect(html).toContain("a direct answer at the top, an FAQ section (4 questions), updated recently");
+    expect(html).toContain("read Jul 10");
+    expect(html).toContain("aionly.com");
+    expect(html).toContain("AI cites this page");
+    expect(html).toContain("googleonly.com");
+    expect(html).toContain("Ranks in Google results");
+    // Never fabricate a "why" for a winner Beacon has not audited yet.
+    expect(html).toContain("I have not read this page yet");
+    // Never leak lab/vendor jargon.
+    expect(html).not.toContain("SERP");
+  });
+
+  it("caps at 5 winners even when more are supplied", () => {
+    const seven = Array.from({ length: 7 }, (_, i) => ({
+      domain: `rival${i}.com`,
+      overlap: false,
+      sources: ["ai"] as ("ai" | "google")[],
+      whyPlain: null,
+      collectedLabel: null,
+    }));
+    const html = renderToStaticMarkup(<MoveCard rank={1} m={makeMove({ winners: seven })} />);
+    for (let i = 0; i < 5; i++) expect(html).toContain(`rival${i}.com`);
+    for (let i = 5; i < 7; i++) expect(html).not.toContain(`rival${i}.com`);
+  });
+
+  it("renders no winners panel at all when the move has no competitor/Google evidence", () => {
+    const htmlNull = renderToStaticMarkup(<MoveCard rank={1} m={makeMove({ winners: null })} />);
+    expect(htmlNull).not.toContain("Who wins this topic now");
+    const htmlEmpty = renderToStaticMarkup(<MoveCard rank={1} m={makeMove({ winners: [] })} />);
+    expect(htmlEmpty).not.toContain("Who wins this topic now");
+    const htmlUndefined = renderToStaticMarkup(<MoveCard rank={1} m={makeMove({})} />);
+    expect(htmlUndefined).not.toContain("Who wins this topic now");
+  });
+
+  it("emits no banned dash in the winners panel copy", () => {
+    const html = renderToStaticMarkup(
+      <MoveCard rank={1} m={makeMove({ winners: [overlapWinner, aiOnlyWinner, googleOnlyWinner] })} />,
+    );
+    expect(BANNED_DASH.test(html)).toBe(false);
+  });
+});
+
+describe("G3 (Wave 4) - honest absence for 'Your gap' when no comparison has run", () => {
+  it("shows the honest absence line + the existing refresh CTA when there is no teardown at all (whatWins null, yourGap empty)", () => {
+    const html = renderToStaticMarkup(
+      <MoveCard rank={1} m={makeMove({ whatWins: null, yourGap: "" })} />,
+    );
+    expect(html).toContain("I have not compared this page against the winners yet.");
+    expect(html).toContain("Compare against the winners");
+  });
+
+  it("stays silent (no fabricated absence line) when a teardown ran and simply found nothing notable", () => {
+    const html = renderToStaticMarkup(
+      <MoveCard rank={1} m={makeMove({ whatWins: "FAQ schema", yourGap: "" })} />,
+    );
+    expect(html).not.toContain("I have not compared this page against the winners yet.");
+  });
+
+  it("still shows the real gap line, not the absence line, when a gap was actually found", () => {
+    const html = renderToStaticMarkup(
+      <MoveCard rank={1} m={makeMove({ whatWins: "FAQ schema", yourGap: "No FAQ section" })} />,
+    );
+    expect(html).toContain("No FAQ section");
+    expect(html).not.toContain("I have not compared this page against the winners yet.");
+  });
+});

@@ -15,6 +15,9 @@ import { readWorklistSurface, writeWorklistSurface, isSurfaceStale } from "../wo
 import { computeOpportunity } from "@/domains/forecast/opportunity-math";
 import { defaultCtrCurve } from "@/domains/forecast/tenant-ctr-curve";
 import { loadTenantCtrCurve } from "@/domains/forecast/load-tenant-ctr-curve";
+import { rootDomainOf } from "@/domains/serp/serp-teardown-fusion";
+import { buildWinnersPanel, type WinnerAudit, type WinnerLine } from "@/domains/demand-graph/winners-panel";
+import { getCompetitorAuditsForTenant, type CompetitorPageAudit } from "@/domains/demand-graph/competitor-page-audit";
 
 /**
  * /moves data (2026-06-27), the worklist is now driven by the CANONICAL ActionPack
@@ -59,6 +62,51 @@ function toneOf(p: ActionPack): TodayMove["actionTone"] {
   if (p.actionType === "fix_conversion_friction") return "experience";
   if (p.actionType === "add_internal_links" || p.actionType === "consolidate_pages") return "experience";
   return "clicks";
+}
+
+/** G3 (Wave 4) - project a cached competitor-page-audit row into the lite facts
+ *  shape winners-panel/whatToSteal already reads (mirrors the exact mapping
+ *  today-moves-data.ts uses for the single-competitor "Steal this" line). */
+function auditToWinnerAudit(a: CompetitorPageAudit | undefined): WinnerAudit | undefined {
+  if (!a) return undefined;
+  const f = a.facts;
+  return {
+    auditedAt: a.auditedAt ?? null,
+    facts: f
+      ? {
+          hasAnswerBlock: f.hasAnswerBlock,
+          hasFaq: f.hasFaq,
+          faqQuestionCount: f.faqQuestionCount,
+          schemaTypes: f.schemaTypes,
+          hasToolOrCalculator: f.hasToolOrCalculator,
+          wordCount: f.wordCount,
+          sectionCount: f.sectionCount,
+          hasReviewSchema: f.eeat?.hasReviewSchema,
+        }
+      : null,
+  };
+}
+
+/** G3 (Wave 4) - "Who wins this topic now": fuse the pack's ALREADY-computed
+ *  AI-cited competitors + Google top domains (no new fetch - both are already on
+ *  the ActionPack) into the deduped, capped winner list, enriched with whatever
+ *  competitor-page-audit facts are already cached for those URLs. Null when there
+ *  is no competitor/Google evidence at all, so the detail view renders no panel
+ *  rather than an empty one. */
+function winnersForPack(p: ActionPack, audits: Map<string, CompetitorPageAudit>): WinnerLine[] | null {
+  const competitorUrls = p.competitorPagesToBeat ?? [];
+  const serpTopDomains = p.dataforseoValidation?.topDomains ?? [];
+  if (competitorUrls.length === 0 && serpTopDomains.length === 0) return null;
+  const winners = buildWinnersPanel({
+    competitorUrls,
+    serpTopDomains,
+    ownDomain: rootDomainOf(p.targetUrl ?? ""),
+    // Same key derivation the audit store itself uses (canonicalizeCitationUrl(url) ||
+    // url) - NOT the local `canon()` helper above, which additionally lowercases/strips
+    // trailing slashes for the page-URL join and would miss real cache hits here.
+    getAudit: (url) => auditToWinnerAudit(audits.get(canonicalizeCitationUrl(url) || url)),
+  });
+  return winners.length > 0 ? winners : null;
 }
 
 function prettyPath(url: string): string {
@@ -148,9 +196,13 @@ function actionPackToTodayMove(p: ActionPack): TodayMove {
 }
 
 async function loadUncached(tenantId: string): Promise<TodayMovesHeroData> {
-  const [wl, hero] = await Promise.all([
+  // G3 (Wave 4) - the SAME competitor-page-audit cache loadChangePacksForTenant already
+  // reads (react `cache()`-deduped, so this is a free re-read within the request, not a
+  // new fetch) - reused here to enrich the winners panel with cached teardown facts.
+  const [wl, hero, audits] = await Promise.all([
     loadActionPackWorklistForTenant(tenantId).catch(() => null),
     loadTodayMovesHeroData({ limit: 60 }).catch((): TodayMovesHeroData | null => null),
+    getCompetitorAuditsForTenant().catch((): Map<string, CompetitorPageAudit> => new Map()),
   ]);
 
   // No canonical worklist → fall back to the rich hero set (never a blank page).
@@ -190,12 +242,14 @@ async function loadUncached(tenantId: string): Promise<TodayMovesHeroData> {
     if (rich) {
       if (usedRich.has(rich.id)) continue; // one rich card per page
       usedRich.add(rich.id);
-      // Thread the canonical ActionPack provenance + SERP verdict onto the rich
+      // G3 (Wave 4) - "Who wins this topic now": fuse this pack's already-computed
+      // AI-cited competitors + Google top domains into the deduped winner list.
+      // Thread it + the canonical ActionPack provenance + SERP verdict onto the rich
       // card (they were computed on the pack but dropped at this projection).
-      moves.push({ ...rich, sourceChips: chips, dataforseoVerdict: dfs });
+      moves.push({ ...rich, sourceChips: chips, dataforseoVerdict: dfs, winners: winnersForPack(p, audits) });
     } else {
       // coverage-only AEO pack, surfaced inline, with cross-enriched provenance.
-      moves.push({ ...actionPackToTodayMove(p), sourceChips: chips, dataforseoVerdict: dfs });
+      moves.push({ ...actionPackToTodayMove(p), sourceChips: chips, dataforseoVerdict: dfs, winners: winnersForPack(p, audits) });
     }
   }
 
