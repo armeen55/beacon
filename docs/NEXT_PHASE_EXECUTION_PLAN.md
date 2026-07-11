@@ -1,288 +1,57 @@
 # Beacon Execution Plan
 
-## E-39 D4 wiring (32696319) - DONE pending deploy confirmation (2026-07-11)
+## Live priority order (operator, 2026-07-11)
 
-Honest engineering call, option B: the dead resolveVerdictLag fields (markState/retryEligible)
-implied wiring that would duplicate what the maturity derivation already provides; deleted with
-the WHY documented. The ONE real gap fixed: a measurement past the full retry bound (28d +
-grace + retry window, constants shared with the recompute job so bounds never drift) now reads
-a distinct honest terminal state instead of still-arriving forever; never in-flight, never
-mature, never fabricates, never re-freezes, excluded from learning. Floors/56-84d untouched
-(sign-off pending). See the 2026-07-11 "E-39 D4 wiring complete" entry in VERIFICATION_LOG.md
-for full detail. Full hermetic gate GREEN at 32696319 (fullgateE39P2.log: 22860 passed / 0
-failed). Deploy confirmation to Vercel production is pending; unconfirmed from this environment.
+This is the operator's live priority order. I work it strictly top to bottom. The dated
+chronology of what already landed lives in VERIFICATION_LOG.md; this list is only what is next.
 
-**THE AUTONOMOUS QUEUE IS DRAINED.** Every self-directed item is shipped. What remains is
-OPERATOR-GATED (the proof-model floor decision list awaits sign-off; second-tenant proof awaits
-the Ritz operator reconnect) plus the filed background dash chip, which is a non-blocking
-cleanup task. Authenticated both-tenant smoke remains OPERATOR-BLOCKED (no smoke credentials
-available to the agent).
+1. **Verdict quarantine.** DONE this push. Every stored won or lost verdict now reads as
+   uncalibrated through the single choke point src/domains/proof-gsc/verdict-calibration.ts, and
+   the protective brakes stay on the raw verdicts.
+2. **Deployed-SHA verification.** Confirm the pushed tip actually reached Vercel production by
+   reading /api/version on production and matching its answer to this tip, alongside the
+   operator's 90-second Vercel cron check.
+3. **Scheduled-refresh receipt.** The first cron run after this deploy must leave a started
+   receipt; that receipt is what proves the scheduled refresh path is alive, since sync-connectors
+   and measure-due missed their 2026-07-11 slots.
+4. **Proof-model replacement with independent validation.** Replace the verdict classifier under
+   the independent statistical validation protocol: predeclaration contract plus a
+   frozen-artifact holdout harness.
+5. **56 to 84 day confirmation ladder.** Build the demote-only confirmation tier that sits above
+   the 28-day provisional read.
+6. **June GSC UI comparison (operator).** The operator compares the stored June total of 3,460
+   clicks and 251,274 impressions against the Search Console UI.
+7. **Hosted UX and performance closure.** Prove the hosted speed budgets on production, not on the
+   dev server.
+8. **Blind unseen-topic benchmark.** Run the preregistered blind holdout of 5 unseen cases after
+   code freeze.
+9. **Fix product gaps from holdouts.** Address whatever the blind benchmark exposes.
+10. **Second tenant.** Bring a second tenant onto the same workflow; Ritz stays cold-start until
+    the operator reconnects it.
+11. **Publish one operator-approved move.** Ship a single move the operator has approved, end to
+    end.
+12. **Verify live and measure under the corrected model.** Confirm the published move is live and
+    measure it under the corrected proof model, never the quarantined one.
+13. **Claim the learning loop only then.** Only after 1 through 12 hold may we claim the learning
+    loop works.
 
-## G9 what else I considered panel (74ba6832) - DONE pending deploy confirmation (2026-07-11)
+## Recently landed (see VERIFICATION_LOG.md for the dated chronology)
 
-The router debate's rejected alternatives (veto-severity objections only, downgrades never
-claim rejection) and dissenting teammate voices now render in plain words in the /changes
-detail view, from the already-persisted routerDecision (appliedObjections + dissenting).
-Honest absence renders nothing. Cap 3 alternatives + 1 dissent, detail-hydration only, 14 pins.
-See the 2026-07-11 "G9 what else I considered panel" entry in VERIFICATION_LOG.md for full
-detail. Full hermetic gate GREEN at 74ba6832 (fullgateG9.log: 22849 passed / 0 failed). Deploy
-confirmation to Vercel production is pending; unconfirmed from this environment.
-
-**ALL Wave 4 partials (G3, G8, G9) are now shipped product.** The autonomous queue is drained
-to E-39 P2 wiring (within the approved D4 scope) and the filed background dash chip; see the
-"Queue, ranked" section below. OPERATOR-GATED items are unchanged: the proof-model floor plus
-56-84d confidence tier slice await operator sign-off, and second-tenant proof stays blocked on
-the Ritz operator reconnect. Authenticated both-tenant smoke remains OPERATOR-BLOCKED (no smoke
-credentials available to the agent).
-
-## G8 sibling-based impact ranges (a949ba50) - DONE pending deploy confirmation (2026-07-11)
-
-When the primary forecast abstains on a clicks-tone move with material impressions, the product
-now sizes a transparent range from the tenant's OWN sibling pages (position band +/-3, at least
-500 impressions, at least 1 percent CTR, at least 3 qualifying siblings, p25-to-median band,
-floored at 0, abstains under 3 clicks a month). The singers fixture reproduces the pilot's hand
-math: 85 to 200 extra clicks a month, with the full basis rendered (they earn 2.5 to 5 percent of
-views as clicks; this page earns 0.8 percent on 4,765 views a month at position 6). Honest
-abstention and already-ahead states preserved; ranking math byte-identical; structural two-tenant
-isolation. 23 pins. See the 2026-07-11 "G8 sibling-based impact ranges" entry in
-VERIFICATION_LOG.md for full detail. Full hermetic gate GREEN at a949ba50 (fullgateG8.log: 22832
-passed / 0 failed). Deploy confirmation to Vercel production is pending; unconfirmed from this
-environment. G8 moves from PARTIAL to WORKING. **G9 (discarded alternatives argument) is next and
-is the last Wave 4 partial remaining.** Authenticated both-tenant smoke remains OPERATOR-BLOCKED
-(no smoke credentials available to the agent).
-
-## G3 winners panel (ecaa2836) - DONE pending deploy confirmation (2026-07-11)
-
-The deduped Google+AI winner analysis the product always computed (fuseTeardownTargets ranking
-plus teardown signals and collected dates) now renders in the /changes detail view: cap 5, an
-overlap badge when Google and AI pick the same target, plain words, an honest absence state,
-wired to the existing compare action. Pure projection over persisted evidence, never added to
-the slim board payload. 16 pins. See the 2026-07-11 "G3 winners panel" entry in
-VERIFICATION_LOG.md for full detail. Full hermetic gate GREEN at ecaa2836 (fullgateG3.log: 22809
-passed / 0 failed). Deploy confirmation to Vercel production is pending; unconfirmed from this
-environment. G3 moves from PARTIAL to WORKING. NEXT: G8 (impact math abstention on thin
-history), then G9 (discarded alternatives argument); authenticated both-tenant smoke remains
-OPERATOR-BLOCKED (no smoke credentials available to the agent).
-
-## Drafter batch 2 (a5e2705a) - WAVE 4 CLOSES, DONE pending deploy confirmation (2026-07-11)
-
-Drafter batch 2, rebased onto the hygiene batch tip 80796ea3 (single commit a5e2705a). The
-generation-time invented-numbers firewall now scans prose only via the ONE shared prose-scope
-helper (draftProseStringValues excludes proofPlan/operatorSteps/risks alongside sources;
-evidenceRefs.detail stays scanned so a fabricated evidence number still fails; no laundering
-through the excluded fields). This was the FIRST queued item below and closes the loop-6 killer:
-the model's own proofPlan.metrics "target 100 percent" line no longer trips the generation-time
-check. Proven live (one real run on /famous-iranian-singers drafted attempt 1, no retry) and by a
-deterministic pin. Full hermetic gate GREEN at the rebased tip (fullgateDB2.log): typecheck exit
-0, test exit 0 (1472 test files passed, 22794 passed / 62 skipped of 22856), build exit 0. See the
-2026-07-11 "Drafter batch 2" entry in VERIFICATION_LOG.md for full detail.
-
-**WAVE 4 CLOSES.** The workflow-parity loop ran six product iterations end to end. Final
-scorecard: G1 ranking WORKING LIVE, G2 trap detection WORKING (hygiene batch), G4 superlatives
-WORKING, G5 blocked-source honesty WORKING LIVE, G6 roundup coverage WORKING LIVE, G7 allowlist
-WORKING LIVE (prod-applied). PARTIAL with named follow-ups (at the time): G3 teardown render, G8
-impact-math abstention on thin history, G9 discarded-alternatives argument. The drafter now takes
-a real opportunity from its own ranked queue to a drafted, gate-checked answer on attempt 1. The
-proof-model floor plus 56 to 84 day tier decision list remains AWAITING OPERATOR SIGN-OFF
-(unchanged by this batch). Deploy confirmation to Vercel production is pending; unconfirmed from
-this environment. NEXT: confirm the Vercel production build for this tip in the dashboard;
-authenticated both-tenant smoke is OPERATOR-BLOCKED (no smoke credentials available to the agent).
-
-**UPDATE 2026-07-11 (ecaa2836):** G3 is now WORKING (see the "G3 winners panel" section above).
-Remaining PARTIAL: G8 impact-math abstention on thin history (next), then G9
-discarded-alternatives argument.
-
-## Hygiene batch - DONE pending deploy confirmation (2026-07-11)
-
-Three-commit cleanup batch, rebased onto 2ebd45d4 and pushed (0e8d2395, 38e0ce9c, 02cf2374). (1)
-Zero-click and image-intent trap detection now holds a clicks-tone move to watch when its top
-query is strong position, material impressions, near-zero CTR, an honest reason instead of an
-actionable capture-clicks pick; proves out on the iran-flags and asiatic-cheetah pilot traps. (2)
-The ambient-tenant after() write bug (fixed on changes-surface-store in Wave 3) was still live on
-four sibling SWR stores (worklist, today, results, graph-snapshot) plus a zero-arg refreshToday in
-warm-caches; all now thread an explicit tenantId. (3) Operator-visible dash sweep across
-build-canonical-changes and six core copy modules; the remaining roughly 1272 candidates are not
-rendered on any customer surface and are filed as a background cleanup task, not blocking. See the
-2026-07-11 "Hygiene batch" entry in VERIFICATION_LOG.md. Full hermetic gate GREEN at the rebased
-tip (fullgateHY.log: typecheck exit 0, test exit 0, 22788 passed / 62 skipped of 22850, build exit
-0). Deploy confirmation to Vercel production is pending; unconfirmed from this
-environment. NEXT: confirm the Vercel production build for this tip in the dashboard.
-
-## Wave 2 (product-truth addendum) - DONE, pending deploy confirmation (2026-07-10)
-
-Wave 1 (P0-A north-star truth, P0-B paid-free bounded GETs, review P1 GA4 stat-card fix) is
-pushed to origin/main at 4b10fe27. All six items below shipped across W2A (3e0dc5d5), W2B
-(a9023bfa, b6deaf55, 6428b5a0, 147382ed), and the finisher (20297eac, 62e83046); see
-HANDOFF_VERIFIED_STATE.md and the 2026-07-10 Wave 2 entries in VERIFICATION_LOG.md for the full
-detail. Full hermetic gate GREEN at the pushed tip (fullgateW2.log: typecheck exit 0, test exit 0,
-22390 passed / 0 failed, build exit 0). Deploy confirmation is pending; a dedicated Wave-2
-adversarial review pass was attempted twice and did not complete, so coverage rests on the Wave-1
-review plus the operator's 16-item proof list (each item pinned by a named test), not a fresh
-Wave-2 adversarial pass.
-
-1. **True sitewide GA4 series at the correct grain + reconcile Feb to Jul + goal editor. DONE
-   (3e0dc5d5, finished by 20297eac/62e83046).** The ga4_monthly_sessions_v1 summing RPC (invalid
-   for sitewide use) is retired in favor of a property-grain GA4 rollup, reconciliation-gated
-   card restore (fresh, matching property, non-vacuous), and a settings goal editor. Migration
-   2026-07-10_ga4_daily_totals.sql is applied to prod (verified via MCP). The Today stat row's
-   GA4 card still returns only on this rollup, never on the per-URL sum.
-2. **Results/Changes waterfall + snapshot rearchitecture. DONE (a9023bfa, b6deaf55, 6428b5a0,
-   147382ed).** /results is parallelized and streamed via Suspense; /changes is served from a
-   persisted tenant-scoped SWR snapshot with an 87 percent smaller default payload. **Caveat:**
-   the original packet's stated budgets (warm <=2s, cold <=4s) are NOT verified here; only a
-   dev-labeled measurement exists (/changes warm ~25s to ~7.3s), which is a compile artifact, not
-   a production reading. Confirming the real budget needs a healthy-infra measurement after
-   deploy.
-3. **Route the after() results rebuild through loadShippedChangesForTenant(tenantId). DONE
-   (a9023bfa).**
-4. **perfCountExternal per-request reset + crawl/dataforseo wiring. DONE (a9023bfa).**
-5. **Single-flight lock on the ledger rebuild. DONE (a9023bfa, pinned by 147382ed).**
-6. **Scoreboard fresh-tail GSC live read to after(). DONE (a9023bfa).**
-
-## Wave 3 - DONE pending deploy confirmation (2026-07-10)
-
-All 3 lanes shipped and merged, plus a combined audit-fix batch. Lane A (canonical selectors) is
-already on origin/main at 996e8ee5. Lane B (Today mission control) and Lane C (Changes decision
-queue), plus the drafter last-mile pilot (G4-G7), landed in commits 08d8f4be, ebf5aad5, 24ea752d,
-merged at dfeb33ef; the combined audit-fix batch (adversarial review P1/P2 fixes plus the
-architect browser-audit P1 fixes) landed at 3586c3dd. See the 2026-07-10 Wave 3 entries in
-VERIFICATION_LOG.md and the head-state banner in HANDOFF_VERIFIED_STATE.md for full detail. Full
-hermetic gate GREEN at 3586c3dd (fullgateW3.log: typecheck exit 0, test exit 0, 22672 passed / 0
-failed, build exit 0). Deploy confirmation to Vercel production is pending; unconfirmed from this
-environment.
-
-## Refresh-reliability wave (#238) - DONE pending deploy confirmation (2026-07-11)
-
-Fixed the precompute tenant-guard that was skipping iranopedia on 6 of its last 10 runs (root
-cause: the fan-out warmed non-env tenants under the parent request's ambient context, tripping
-the cross-tenant guard; fix is a runWithTenant AsyncLocalStorage override that warms each tenant
-inline under its explicit context), closed the ritz auth-failure escalation gap (5 consecutive
-failed cron runs spanning at least 3 days now stamps a distinct needs_attention marker, surfaced
-on /settings/connectors), and added a per-source refresh ledger (new additive refresh_runs table
-recording every refresh across cron/manual/on-use with an honest ok/partial/failed result).
-Migration 2026-07-11_refresh_runs.sql is applied to prod (verified via MCP). See the 2026-07-11
-entry in VERIFICATION_LOG.md for full detail. Full hermetic gate GREEN at the pre-amend tip
-(fullgateRR.log: 22711 passed / 0 failed). Deploy confirmation to Vercel production is pending;
-unconfirmed from this environment.
-
-## Drafter last mile 2 (ffc39807) - DONE pending deploy confirmation (2026-07-11)
-
-Closed the pilot re-run gap. The numeric firewall now scans PROSE only, never the sources
-citation array, so a retrievedAt date inside a citation is never flagged as an invented number
-(the mechanical re-run killer); a prose number matching only a citation date still correctly
-fails (no laundering). Roundup full-text coverage is wired into production verification: a
-fetchable authoritative page verifies by full-text entailment when its excerpt does not
-span-match, and one page can back multiple roundup sentences (live-proven: a real Wikipedia bio
-page covered 3 of 6 sentences in one run); fetchedText stays transient, stripped at the persist
-choke point. A multi-source rule means a fully covered draft is never held hostage by an
-additional robots-blocked citation (it notes the blocked source and stays ready);
-needs_source_check still holds when coverage genuinely fails. Third pilot re-run verdict, honest:
-the mechanical blockers are gone, and the remaining hold is correct behavior (an ungrounded
-superlative refused, a bare list-index page cannot entail biographical facts). See the
-2026-07-11 "Drafter last mile 2" entry in VERIFICATION_LOG.md. Full hermetic gate GREEN at
-ffc39807 (fullgateDL2.log: 22725 passed / 0 failed). Deploy confirmation to Vercel production is
-pending; unconfirmed from this environment.
-
-## Drafter pilot loop 4 (5b655cb5) - DONE pending deploy confirmation (2026-07-11)
-
-Closed the loop-3 evidence-selection gap. Entity-reference source guidance now steers roundup
-citations to per-singer Wikipedia biography pages; live-proven across 3 real drafter runs, all 9
-citations chose a bio page, zero list-index cites. Evidence hints thread already-loaded citation
-URLs into the prompt (zero new fetches, list/index URLs filtered, an empty hint is skipped
-honestly). The superlative rephrase retry is hardened so it never introduces a NEW superlative,
-and the too-thin retry adds grounded facts only. See the 2026-07-11 "Pilot loop 4" entry in
-VERIFICATION_LOG.md for full detail. Full hermetic gate GREEN at 5b655cb5 (fullgateDE.log: 22749
-passed / 0 failed). Deploy confirmation to Vercel production is pending; unconfirmed from this
-environment. Honest verdict: not yet paste-ready; two blockers newly isolated for loop 5, queued
-below.
-
-## Drafter pilot loop 5 (009ef67b) - DONE pending deploy confirmation (2026-07-11)
-
-Closed both pilot loop 4 blockers. One-fact-per-sentence prompt guidance now steers entity-rich
-roundups to state each claim in its own verifiable sentence (added length comes from more
-single-fact sentences, never longer compound ones). The too-thin and superlative rephrase retries
-are merged into one instruction (verification runs before the too-thin decision is acted on, a
-single combined instruction fires when both problems hit the same attempt, single-error retry
-paths stay byte-identical, at most 2 attempts total, fail closed after). draft.answer_block bumped
-to prompt-registry v5. See the 2026-07-11 "Pilot loop 5" entry in VERIFICATION_LOG.md. Live re-run:
-2 real gpt-5-mini runs, both failed closed on model-class variance (a non-JSON/oversized-field
-hiccup on one run; a new invented 100 percent caught by the numeric firewall during the superlative
-rephrase retry on the other); every gate behaved correctly and nothing unprovable shipped. Residual
-was model variance, not a gate gap; the next lever queued was a no-new-numbers reminder on the
-rephrase retries, delivered in pilot loop 6 below. Full hermetic gate GREEN at 009ef67b
-(fullgateP5.log: 22756 passed / 0 failed). Deploy confirmation to Vercel production is pending;
-unconfirmed from this environment.
-
-## Drafter pilot loop 6 (3232d280) - DRAFTER CYCLE CLOSED (2026-07-11)
-
-Final iteration of this drafter cycle. A no-new-numbers reminder now fires on all three
-rephrase-class retries (draft.answer_block bumped to prompt-registry v6). Live re-runs: the model
-now reliably writes one-fact-per-sentence roundups with real facts; classifications are honest
-(too_thin at 76 words; needs_source_check with the blocked-Britannica copy); nothing unprovable
-shipped. CYCLE VERDICT: paste-ready was not achieved this cycle; the fail-closed states with
-honest operator copy are the designed fallback, not a bug. See the 2026-07-11 "Pilot loop 6" entry
-in VERIFICATION_LOG.md. Full hermetic gate GREEN at 3232d280 (fullgateP6.log: 22759 passed / 0
-failed). Deploy confirmation to Vercel production is pending; unconfirmed from this environment.
-
-Two filed residuals carried out of this cycle:
-1. Model-class length/phrasing variance (not a gate gap; see the pilot loop 5 and 6 live re-runs
-   above).
-2. A genuine defect found while closing the cycle: the generation-time invented-numbers firewall
-   scans the draft's own proofPlan/operatorSteps methodology text (both live attempt-1s in this
-   loop died on the model's own target 100 percent line). Drafter last mile 2 scoped the
-   downstream (persisted) gate but never the generation-time check. Queued as the FIRST item of
-   the next drafter batch, below.
-
-## Queue, ranked (2026-07-11, post-E-39-D4-wiring)
-
-**The autonomous queue is drained.** All three named Wave 4 follow-ups (G3, G8, G9) and the
-E-39 P2 wiring (item 5 below, now DONE) are shipped product. Nothing self-directed remains
-except the filed background dash chip (item 10 below), a non-blocking cleanup. OPERATOR-GATED
-items are unchanged and still await the operator: the proof-model floor plus 56-84d confidence
-tier slice (items 6-7 below), and second-tenant proof, which stays blocked on the Ritz operator
-reconnect (item 8 below).
-
-1. **G8: impact-math abstention on thin history. DONE (a949ba50).** See the "G8 sibling-based
-   impact ranges" section above and the matching VERIFICATION_LOG.md entry.
-2. **G9: discarded-alternatives argument. DONE (74ba6832).** See the "G9 what else I considered
-   panel" section above and the matching VERIFICATION_LOG.md entry.
-3. **G3 winners panel: deduped Google+AI winner render on /changes detail. DONE (ecaa2836).** See
-   the "G3 winners panel" section above and the matching VERIFICATION_LOG.md entry.
-4. **Drafter batch 2: generation-time firewall prose scope. DONE (a5e2705a).** The
-   generation-time invented-numbers firewall no longer scans the draft's own
-   proofPlan/operatorSteps/risks methodology text (draftProseStringValues' skip-list extended
-   alongside sources; evidenceRefs.detail stays scanned). Proven live and by deterministic pin.
-   See the "Drafter batch 2" section above and the matching VERIFICATION_LOG.md entry.
-5. **E-39 P2 wiring (within the approved D4 scope). DONE (32696319).** Honest engineering call,
-   option B: the dead resolveVerdictLag fields (markState/retryEligible) were deleted with the
-   WHY documented, and the one real gap was fixed: a measurement past the full retry bound now
-   reads a distinct honest terminal state instead of still-arriving forever. See the "E-39 D4
-   wiring" section above and the matching VERIFICATION_LOG.md entry.
-6. **Verdict-floor tightening. OPERATOR-GATED.** The self-test false-positive rate is genuinely
-   0.925 (sample size 40); target under 5 percent. Proof-model floor decision list delivered to
-   the operator 2026-07-10 late evening; AWAITING OPERATOR SIGN-OFF.
-7. **56-84d confidence tier slice. OPERATOR-GATED.** Build the confirmation tier that E-39's D6
-   already reserved space for. Part of the same 2026-07-10 late-evening decision list; AWAITING
-   OPERATOR SIGN-OFF.
-8. **Second-tenant workflow proof. BLOCKED on Ritz operator reconnect.** Prove the same workflow
-   end to end on a second tenant, not tenant-iranopedia alone; per Daily Loop Readiness, Ritz is
-   cold-start until the operator reconnects it, so this stays blocked until then.
-9. **Sibling SWR stores ambient-tenant check.** Extend the Task #230 tenant-isolation fix to the
-   worklist and Today surface stores.
-10. **Filed background dash chip.** The Hygiene batch's operator-visible dash sweep covered
-   build-canonical-changes.ts and six core copy modules; the remaining roughly 1272 candidates
-   are not rendered on any customer surface and stay filed as a background cleanup task, not
-   blocking.
+The verdict quarantine (f298bd52 plus review batch b71cd1af), the cron invocation receipts with
+/api/version and the honest Ritz initial-silence (b7b8a523, 3543e0d9), and before them the E-39 D4
+wiring, the G3, G8, and G9 Wave 4 renders, the drafter cycle, and the hygiene batch are all on
+main. Their per-commit receipts and gate numbers live in VERIFICATION_LOG.md. This plan no longer
+stacks one section per landed commit; it carries only the live priority order above plus the
+standing reference below.
 
 ## Wave 4 pilot - CLOSED 2026-07-11: /famous-iranian-singers
 
-The single-page pilot on the live Iranopedia page `/famous-iranian-singers` (already the subject
-of several proof-engine ground-truth walks this cycle - see the N13/N10 entries in
-HANDOFF_VERIFIED_STATE.md) ran six product iterations (drafter pilot loops 1 through 6 plus
-drafter batch 2) and closes with the scorecard recorded in the "Drafter batch 2" section above:
-G1/G2/G3/G4/G5/G6/G7 WORKING (live, hygiene-batch, or G3 winners panel ecaa2836); G8/G9 PARTIAL
-with named follow-ups now folded into the ranked queue above (G8 next, then G9). The drafter
-takes a real ranked-queue opportunity to a drafted, gate-checked answer on attempt 1.
+Wave 4 demonstrated that Beacon's components can support one known singers opportunity after
+targeted engineering. It did not yet prove that Beacon independently discovers and executes
+Armeen's workflow on unseen topics.
+
+The singers case is retired to a regression fixture and may not be reused as acceptance evidence.
+The real acceptance test is the blind unseen-topic benchmark (priority 8 in the live order above).
 
 ## Parity-matrix ranked fixes - queued 2026-07-10
 

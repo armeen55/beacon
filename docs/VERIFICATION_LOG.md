@@ -7,6 +7,71 @@
 
 ---
 
+## 2026-07-11 - Binding operator decision: verdict quarantine, cron receipts, /api/version landed (b7b8a523, 3543e0d9, f298bd52, b71cd1af)
+
+BINDING OPERATOR DECISION received and recorded on three fronts: proof truth, deployment closure,
+and blind validation. This push assembles four reviewed commits onto main plus a dash-guard
+fixup, a precompute test-contract fix, and this docs commit.
+
+**Commits assembled (reviewed, cherry-picked in order).** Cron invocation receipts with the
+started-row deadman pattern and honest initial-silence escalation (b7b8a523); the /api/version
+deployment-identity endpoint (3543e0d9); the fail-closed quarantine of uncalibrated verdicts
+(f298bd52); the quarantine review batch closing 12 confirmed gaps (b71cd1af). Plus a one-line
+dash-guard test rewritten to unicode escapes for the repo grep-clean rule, and a precompute test
+mock migrated to the started-row receipt contract (the cron-receipts commit swapped precompute's
+route from recordCronRun to beginCronRun and finishCronRun; the pre-existing test mock still
+exported only recordCronRun, so I aligned the test to the new contract and never reverted the
+receipts).
+
+**Verdict quarantine landed (f298bd52 plus review batch b71cd1af).** Every stored won or lost
+verdict now reads as uncalibrated through the single choke point
+src/domains/proof-gsc/verdict-calibration.ts, across learning, ranking, and display. The
+adversarial review found 16 findings, confirmed all 16, refuted 0, and the 12 distinct defects
+behind them are all fixed. The protective brakes, the circuit breaker and the revert path,
+deliberately stay on the raw verdicts, so safety never depends on the quarantined read.
+
+**Cron invocation receipts, /api/version, honest Ritz initial-silence landed (b7b8a523,
+3543e0d9).** Cron receipts write a started row the moment a job is invoked, so the stall alarm
+can tell a job Vercel never fired from one that died mid-run. /api/version reports the deployed
+identity so the pushed SHA can be confirmed on production. Ritz initial-silence is reported
+honestly rather than dressed up as activity.
+
+**Migrations APPLIED to prod by the architect via the management connection and verified by
+read-back.** cron_runs.phase (default finished, partial index) and
+shipped_change_proof.calibration_version (null means uncalibrated) are both live on production
+and confirmed by reading them back.
+
+**GSC 16-month backfill executed and verified.** tenant-iranopedia now holds 480 continuous days
+from 2025-03-15 to 2026-07-07: 480 rows on gsc_daily_totals and 78,567 rows on
+gsc_daily_page_totals. 413 days were added, 0 dates failed, and the run took 297 seconds.
+
+**June GSC reconciliation receipt.** The stored June total is 3,460 clicks and 251,274
+impressions, from property https://www.iranopedia.com/, web search type, final data only, 30 of
+30 days final, a single property, on Pacific dates. The Search Console UI comparison is pending
+the operator.
+
+**Refresh-run diagnosis (2026-07-11).** sync-connectors (09:00 UTC) and measure-due (09:30 UTC)
+left zero app-side trace, while publish-canary, autopilot, and precompute ran. Their durations
+rule out the 300 second ceiling. The ledger rows were written end-of-run only, so I could not
+tell a never-invoked job from one that died mid-run; the new started-receipts close exactly that
+gap. The decisive evidence for 07-11 remains the Vercel dashboard cron log.
+
+**Independent statistical validation protocol delivered** (scratchpad
+proof-validation-protocol.md). The C4 direction is approved with 12 binding conditions: the
+reported false-positive rates are voided as same-sample evidence; the decision uses a single
+28-day primary decision window with a demote-only 56-day confirmation; the rules are hash-locked
+and frozen; the evaluation set is touched once; a spent holdout may not be reused.
+
+**Full hermetic gate at the assembled tip (fullgate-integration.log).** typecheck exit 0, test
+exit 0, build exit 0. Vitest summary: 1481 test files passed (1481), 22962 tests passed and 62
+skipped of 23024, 0 failed. This is the clean re-run after the precompute test-contract fix; the
+first pass at the pre-fix tip flagged 9 legacy precompute mock assertions that still expected the
+old recordCronRun call, and I aligned those tests to the started-row receipt contract rather than
+revert the receipts.
+
+**Deployment status.** Pushed. The deployed SHA is unconfirmed until /api/version answers on
+production.
+
 ## 2026-07-11 - Hygiene batch: trap detection, tenant-explicit SWR writes, dash sweep (0e8d2395, 38e0ce9c, 02cf2374)
 
 2026-07-11 hygiene batch (3 commits on 0e8d2395, 38e0ce9c, 02cf2374, rebased onto 2ebd45d4): (1)
