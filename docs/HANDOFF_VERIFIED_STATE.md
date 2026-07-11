@@ -1,4 +1,24 @@
 > 🟢 **(2026-07-11 latest) - HEAD STATE: ORIGIN/MAIN WILL BE THIS DOCS TIP AFTER THIS PUSH (pilot
+> loop 6: no-new-numbers reminder on all three rephrase-class retries, draft.answer_block bumped
+> to prompt-registry v6, commit 3232d280 - THE DRAFTER CYCLE CLOSES).** Deployment of the pushed
+> SHA to Vercel production is unconfirmed from this environment.
+>
+> Full hermetic gate GREEN at this tip (fullgateP6.log: 22759 passed, 0 failed). See the 2026-07-11
+> "Pilot loop 6" entry in VERIFICATION_LOG.md for the live re-run detail: the model now reliably
+> writes one-fact-per-sentence roundups with real facts; classifications honest (too_thin at 76
+> words; needs_source_check with the blocked-Britannica copy); nothing unprovable shipped. CYCLE
+> VERDICT: paste-ready was not achieved this cycle; the fail-closed states with honest operator
+> copy are the designed fallback, not a bug. Two filed residuals: model-class length and phrasing
+> variance, and a genuine defect found while closing: the generation-time invented-numbers
+> firewall scans the draft's own proofPlan/operatorSteps methodology text (both live attempt-1s
+> died on the model's own target 100 percent line); drafter last mile 2 scoped the downstream gate
+> but not this generation-time check. NEXT: (1) confirm the Vercel production build for this tip
+> in the dashboard (unconfirmed from this environment); (2) drafter batch 2, first item: scope the
+> generation-time firewall so it excludes proofPlan and operatorSteps prose the same way citations
+> are already excluded; the proof-model floor plus 56 to 84 day tier package remains AWAITING
+> OPERATOR SIGN-OFF (decision list delivered 2026-07-10 late evening).
+>
+> 🟢 **(2026-07-11) - HEAD STATE: ORIGIN/MAIN WILL BE THIS DOCS TIP AFTER THIS PUSH (pilot
 > loop 5: one-fact-per-sentence guidance for entity-rich roundups plus a merged too-thin and
 > superlative retry instruction, draft.answer_block bumped to prompt-registry v5, commit
 > 009ef67b).** Deployment of the pushed SHA to Vercel production is unconfirmed from this

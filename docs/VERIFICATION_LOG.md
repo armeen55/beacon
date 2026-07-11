@@ -7,6 +7,19 @@
 
 ---
 
+## 2026-07-11 - Pilot loop 6: no-new-numbers retry reminder, the drafter cycle closes (3232d280)
+
+2026-07-11 pilot loop 6 (3232d280), the drafter cycle closes: no-new-numbers reminder on all
+three rephrase-class retries (draft.answer_block v6). Live re-runs: the model now reliably writes
+one-fact-per-sentence roundups with real facts; classifications honest (too_thin at 76 words;
+needs_source_check with the blocked-Britannica copy); nothing unprovable shipped. CYCLE VERDICT:
+paste-ready not achieved this cycle; the fail-closed states with honest operator copy are the
+designed fallback. Two filed residuals: model-class length/phrasing variance, and a genuine defect
+found in closing: the generation-time invented-numbers firewall scans the draft's own
+proofPlan/operatorSteps methodology text (both live attempt-1s died on the model's own target 100
+percent line); drafter last mile 2 scoped the downstream gate but not the generation-time check.
+That firewall-scope fix is the FIRST item of the next drafter batch. Gate 22759 passed 0 failed.
+
 ## 2026-07-11 - Pilot loop 5: one-fact-per-sentence guidance + merged retry instruction (009ef67b)
 
 2026-07-11 pilot loop 5 (009ef67b): one-fact-per-sentence guidance for entity-rich

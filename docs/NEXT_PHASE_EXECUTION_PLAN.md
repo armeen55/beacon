@@ -88,26 +88,64 @@ passed / 0 failed). Deploy confirmation to Vercel production is pending; unconfi
 environment. Honest verdict: not yet paste-ready; two blockers newly isolated for loop 5, queued
 below.
 
-## Queue, ranked (2026-07-11, post-pilot-loop-4)
+## Drafter pilot loop 5 (009ef67b) - DONE pending deploy confirmation (2026-07-11)
 
-1. **Pilot loop 5 fix A: one-fact-per-sentence prompt guidance.** A compound sentence bundling a
-   covered honor fact with an uncovered song-title fact fails whole today. Fix is prompt guidance
-   only, one fact per sentence; no gate change.
-2. **Pilot loop 5 fix B: merge the too-thin and superlative retries.** The two retries currently
-   share one budget slot. Fix is a single merged retry instruction; no extra LLM spend.
-3. **Verdict-floor tightening.** The self-test false-positive rate is genuinely 0.925 (sample
+Closed both pilot loop 4 blockers. One-fact-per-sentence prompt guidance now steers entity-rich
+roundups to state each claim in its own verifiable sentence (added length comes from more
+single-fact sentences, never longer compound ones). The too-thin and superlative rephrase retries
+are merged into one instruction (verification runs before the too-thin decision is acted on, a
+single combined instruction fires when both problems hit the same attempt, single-error retry
+paths stay byte-identical, at most 2 attempts total, fail closed after). draft.answer_block bumped
+to prompt-registry v5. See the 2026-07-11 "Pilot loop 5" entry in VERIFICATION_LOG.md. Live re-run:
+2 real gpt-5-mini runs, both failed closed on model-class variance (a non-JSON/oversized-field
+hiccup on one run; a new invented 100 percent caught by the numeric firewall during the superlative
+rephrase retry on the other); every gate behaved correctly and nothing unprovable shipped. Residual
+was model variance, not a gate gap; the next lever queued was a no-new-numbers reminder on the
+rephrase retries, delivered in pilot loop 6 below. Full hermetic gate GREEN at 009ef67b
+(fullgateP5.log: 22756 passed / 0 failed). Deploy confirmation to Vercel production is pending;
+unconfirmed from this environment.
+
+## Drafter pilot loop 6 (3232d280) - DRAFTER CYCLE CLOSED (2026-07-11)
+
+Final iteration of this drafter cycle. A no-new-numbers reminder now fires on all three
+rephrase-class retries (draft.answer_block bumped to prompt-registry v6). Live re-runs: the model
+now reliably writes one-fact-per-sentence roundups with real facts; classifications are honest
+(too_thin at 76 words; needs_source_check with the blocked-Britannica copy); nothing unprovable
+shipped. CYCLE VERDICT: paste-ready was not achieved this cycle; the fail-closed states with
+honest operator copy are the designed fallback, not a bug. See the 2026-07-11 "Pilot loop 6" entry
+in VERIFICATION_LOG.md. Full hermetic gate GREEN at 3232d280 (fullgateP6.log: 22759 passed / 0
+failed). Deploy confirmation to Vercel production is pending; unconfirmed from this environment.
+
+Two filed residuals carried out of this cycle:
+1. Model-class length/phrasing variance (not a gate gap; see the pilot loop 5 and 6 live re-runs
+   above).
+2. A genuine defect found while closing the cycle: the generation-time invented-numbers firewall
+   scans the draft's own proofPlan/operatorSteps methodology text (both live attempt-1s in this
+   loop died on the model's own target 100 percent line). Drafter last mile 2 scoped the
+   downstream (persisted) gate but never the generation-time check. Queued as the FIRST item of
+   the next drafter batch, below.
+
+## Queue, ranked (2026-07-11, post-pilot-loop-6, drafter cycle closed)
+
+1. **Drafter batch 2: generation-time firewall prose scope.** The generation-time invented-numbers
+   firewall scans the draft's own proofPlan/operatorSteps methodology text; both live pilot loop 6
+   attempt-1s died on the model's own target 100 percent line. Drafter last mile 2 scoped the
+   downstream (persisted) gate but not this generation-time check. Fix: exclude proofPlan and
+   operatorSteps prose from the generation-time firewall the same way citations are already
+   excluded. FIRST item of the next drafter batch.
+2. **Verdict-floor tightening.** The self-test false-positive rate is genuinely 0.925 (sample
    size 40); target under 5 percent. Proof-model floor decision list delivered to the operator
    2026-07-10 late evening; AWAITING OPERATOR SIGN-OFF.
-4. **56-84d confidence tier slice.** Build the confirmation tier that E-39's D6 already reserved
+3. **56-84d confidence tier slice.** Build the confirmation tier that E-39's D6 already reserved
    space for. Part of the same 2026-07-10 late-evening decision list; AWAITING OPERATOR
    SIGN-OFF.
-5. **Parity matrix update.** The pilot re-run itself is done as of ffc39807 (third re-run,
+4. **Parity matrix update.** The pilot re-run itself is done as of ffc39807 (third re-run,
    verdict above); update the parity matrix against this result.
-6. **Second-tenant workflow proof.** Prove the same workflow end to end on a second tenant, not
+5. **Second-tenant workflow proof.** Prove the same workflow end to end on a second tenant, not
    tenant-iranopedia alone.
-7. **Sibling SWR stores ambient-tenant check.** Extend the Task #230 tenant-isolation fix to the
+6. **Sibling SWR stores ambient-tenant check.** Extend the Task #230 tenant-isolation fix to the
    worklist and Today surface stores.
-8. **Remaining pre-existing dash sweep.** Includes the operator-visible string in
+7. **Remaining pre-existing dash sweep.** Includes the operator-visible string in
    build-canonical-changes.ts.
 
 ## Wave 4 pilot - queued 2026-07-10: /famous-iranian-singers
