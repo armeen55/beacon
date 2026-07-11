@@ -347,7 +347,10 @@ function fromMove(tenantId: string, m: CanonicalMoveInput, controlPaths: Set<str
     // has comparison data, not that the lever type is theoretically diffable).
     evidenceStrength:
       m.proofMaturity === "mature_result" ? "strong"
-      : m.proofMaturity === "collecting" || m.proofMaturity === "blocked_data" || m.proofMaturity === "scheduled" ? "tracking"
+      // E-39 D4 (review P2): "unresolved" (the retry bound exhausted, no data ever
+      // arrived) has exactly as little evidence as "blocked_data" - never let it
+      // fall through to "directional", which would imply a real early/interim read.
+      : m.proofMaturity === "collecting" || m.proofMaturity === "blocked_data" || m.proofMaturity === "scheduled" || m.proofMaturity === "unresolved" ? "tracking"
       : status === "measuring" || status === "result" ? "directional"
       : defaultEvidenceStrength(family),
     measurementMethod: expectedEvidenceStrength(family) === "strong" ? "Diff-in-diff vs comparison pages once selected" : expectedEvidenceStrength(family) === "directional" ? "Tracked vs baseline + context" : "Tracked descriptively",

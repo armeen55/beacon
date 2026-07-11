@@ -27,6 +27,7 @@
 import { addDays, proofCheckDates, PROOF_WINDOW_DAYS, type ProofWindowDay } from "./measure";
 import { overlappingShock, weatherCaveatSentence, type ShockWindow } from "./algorithm-weather";
 import { recrawlBlindSentence } from "./recrawl-clock";
+import { STALE_GRACE_DAYS, MAX_VERDICT_LAG_RETRY_DAYS } from "./measure-lifecycle";
 
 export type MeasurementMaturity =
   | "scheduled" // not yet live / activated — no measurement language at all
@@ -36,6 +37,13 @@ export type MeasurementMaturity =
   | "mature_result" // 28-day window closed + sufficient data: provisional 28-day verdict eligible (strongest tier built today; E-39 D6)
   | "inconclusive" // mature window closed but evidence insufficient/within noise
   | "blocked_data" // checkpoint date passed but the GSC/GA4 data it needs isn't in
+  | "unresolved" // E-39 D4 (review P2): blocked_data past the fair retry bound - the
+  // required GSC data never arrived within MAX_VERDICT_LAG_RETRY_DAYS beyond the
+  // ordinary horizon (measure-lifecycle.ts's resolveVerdictLag draws this same
+  // line for the background recompute job). Beacon stops waiting for good and
+  // says so plainly instead of repeating "blocked_data"'s waiting language
+  // forever over a checkpoint date that has long since passed. Never a verdict;
+  // never blocks a page again (see isInFlight below).
   | "attribution_limited"; // a measurement exists but an overlapping edit weakens it
 
 export type MeasurementDirection = "positive" | "negative" | "neutral" | "unknown";
@@ -153,6 +161,10 @@ export type MaturityInput = {
 const MIN_CONTROLS_FOR_MATURE = 2;
 const MIN_BASELINE_FOR_MATURE = 200;
 
+/** The longest proof window (28d) - the base of the "past the horizon" clock,
+ *  same value measure-lifecycle.ts computes independently for the same reason. */
+const MAX_WINDOW_DAYS = Math.max(...PROOF_WINDOW_DAYS);
+
 const dayStr = (now: Date): string => now.toISOString().slice(0, 10);
 
 /** The latest proof window day that has actually CLOSED (28 > 14 > 7), or null. */
@@ -256,7 +268,17 @@ export function deriveMeasurementMaturity(input: MaturityInput): MeasurementMatu
     const requiredGscDate = addDays(checkOn, -1);
     const calendarClosed = dayStr(input.now) >= checkOn;
     const gscAvailable = input.latestGscDate != null && input.latestGscDate >= requiredGscDate;
-    if (calendarClosed && !gscAvailable) return "blocked_data";
+    if (calendarClosed && !gscAvailable) {
+      // E-39 D4 (review P2): bounded fair retry. Past MAX_VERDICT_LAG_RETRY_DAYS
+      // beyond the ordinary horizon - the exact same bound measure-lifecycle.ts's
+      // resolveVerdictLag uses to stop the background recompute job - Beacon gives
+      // up waiting on this page's Search Console data for good. "unresolved" says
+      // so plainly instead of leaving "blocked_data" (and its "waiting for Google
+      // data" copy) rendering forever over a checkpoint date long in the past.
+      const ageDays = Math.floor((input.now.getTime() - Date.parse(input.shippedAt)) / 86_400_000);
+      if (ageDays > MAX_WINDOW_DAYS + STALE_GRACE_DAYS + MAX_VERDICT_LAG_RETRY_DAYS) return "unresolved";
+      return "blocked_data";
+    }
   }
   return "collecting";
 }
@@ -394,7 +416,7 @@ function maturityConfidence(
 
 function evidenceStrengthOf(maturity: MeasurementMaturity, attribution: AttributionQuality): EvidenceStrength {
   if (maturity === "mature_result" && attribution === "clean") return "strong";
-  if (maturity === "scheduled" || maturity === "collecting" || maturity === "blocked_data") return "tracking";
+  if (maturity === "scheduled" || maturity === "collecting" || maturity === "blocked_data" || maturity === "unresolved") return "tracking";
   return "directional"; // early / interim / inconclusive / attribution_limited
 }
 
@@ -440,9 +462,12 @@ export function buildMeasurementPresentation(input: MaturityInput): MeasurementP
   // While recrawl is pending there IS no known next search checkpoint - the
   // clock has not started, so a ship-based "matures YYYY-MM-DD" date would be
   // the exact false countdown the caveat sentence refutes. Null flows through
-  // proofBadgeMaturesOn so the badge's secondary text stays silent.
+  // proofBadgeMaturesOn so the badge's secondary text stays silent. Same honesty
+  // for "unresolved" (E-39 D4 / review P2): once the fair retry bound is
+  // exhausted there is no next checkpoint left to name - a stale, already-past
+  // date would be the exact "still waiting forever" bug this state exists to fix.
   const nextCheckpoint =
-    input.recrawlPending === true
+    input.recrawlPending === true || maturity === "unresolved"
       ? null
       : nextDay != null && checks
         ? checks[nextDay as ProofWindowDay]
@@ -586,6 +611,14 @@ export function buildMeasurementPresentation(input: MaturityInput): MeasurementP
       explanation = `Checkpoint date reached, waiting for Search Console data through ${requiredDataThrough ?? "the window close"}. This measurement is not stalled.`;
       tone = "waiting";
       break;
+    case "unresolved":
+      // E-39 D4 (review P2): the fair retry bound is exhausted - never claim a
+      // verdict was reached, never leave the operator reading "still waiting"
+      // forever, and say plainly that this no longer blocks anything.
+      headline = "Measurement stopped";
+      explanation = "I could not finish measuring this one; the data never arrived. It no longer blocks anything.";
+      tone = "neutral";
+      break;
     case "attribution_limited":
       headline = direction === "positive" ? "Directional (overlapping edit)" : direction === "negative" ? "Directional (overlapping edit)" : "Directional only";
       explanation = "Another change on this page overlaps this measurement, so attribution is weakened; read as directional.";
@@ -621,8 +654,6 @@ export function buildMeasurementPresentation(input: MaturityInput): MeasurementP
     controlPoolHealthLine: input.controlPoolHealthLine ?? null,
   };
 }
-
-const MAX_WINDOW_DAYS = Math.max(...PROOF_WINDOW_DAYS);
 
 const normPath = (p: string): string =>
   ((p || "/").replace(/^https?:\/\/[^/]+/, "") || "/").replace(/[?#].*$/, "").replace(/\/$/, "") || "/";

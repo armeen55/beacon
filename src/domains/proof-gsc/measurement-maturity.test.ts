@@ -161,6 +161,82 @@ describe("blocked_data + collecting language never imply failure", () => {
   });
 });
 
+describe("E-39 D4 review P2 - 'unresolved': the fair retry bound is exhausted, honest terminal copy", () => {
+  it("pre-bound blocked_data is UNCHANGED (only 10 days old, well inside the retry window)", () => {
+    // Same fixture as the existing blocked_data pin above - must still resolve
+    // blocked_data, never jump straight to unresolved.
+    expect(
+      deriveMeasurementMaturity(input({ shippedAt: "2026-06-20", windows: win(false, false, false), latestGscDate: "2026-06-24" })),
+    ).toBe("blocked_data");
+  });
+
+  it("past MAX_VERDICT_LAG_RETRY_DAYS beyond the horizon with no window ever run and no GSC data ⇒ unresolved", () => {
+    // shipped 2026-01-01, NOW 2026-06-30 ⇒ ~180 days old, no window ran, no GSC
+    // watermark at all - blocked_data's own horizon (35d) AND the 28-day fair
+    // retry window on top of it (63d total) are both long exhausted.
+    const maturity = deriveMeasurementMaturity(
+      input({ shippedAt: "2026-01-01", windows: win(false, false, false), latestGscDate: null }),
+    );
+    expect(maturity).toBe("unresolved");
+  });
+
+  it("the presentation carries the exact honest terminal copy, no more waiting language, no verdict", () => {
+    const p = buildMeasurementPresentation(input({ shippedAt: "2026-01-01", windows: win(false, false, false), latestGscDate: null }));
+    expect(p.maturity).toBe("unresolved");
+    expect(p.verdict).toBeNull();
+    expect(p.headline).toBe("Measurement stopped");
+    expect(p.explanation).toBe("I could not finish measuring this one; the data never arrived. It no longer blocks anything.");
+    expect(p.explanation).not.toMatch(/[\u2014\u2013]/); // no em/en dashes on operator copy
+    expect(p.tone).toBe("neutral");
+  });
+
+  it("never a stale 'matures <past date>' hint once exhausted - nextCheckpoint and requiredDataThrough are null", () => {
+    const p = buildMeasurementPresentation(input({ shippedAt: "2026-01-01", windows: win(false, false, false), latestGscDate: null }));
+    expect(p.nextCheckpoint).toBeNull();
+    expect(p.requiredDataThrough).toBeNull();
+  });
+
+  it("is NOT in-flight and NOT a mature outcome - a genuinely non-blocking terminal bucket", () => {
+    const p = buildMeasurementPresentation(input({ shippedAt: "2026-01-01", windows: win(false, false, false), latestGscDate: null }));
+    expect(isInFlight(p.maturity)).toBe(false);
+    expect(isMatureOutcome(p.maturity)).toBe(false);
+  });
+
+  it("evidence strength reads 'tracking' (no signal), same bucket as blocked_data - never 'directional'", () => {
+    const p = buildMeasurementPresentation(input({ shippedAt: "2026-01-01", windows: win(false, false, false), latestGscDate: null }));
+    expect(p.evidenceStrength).toBe("tracking");
+  });
+
+  it("never fabricates a verdict and never re-freezes learning eligibility (already false pre-mature)", () => {
+    const p = buildMeasurementPresentation(input({ shippedAt: "2026-01-01", windows: win(false, false, false), latestGscDate: null }));
+    expect(p.verdict).toBeNull();
+    expect(p.learningEligibility).toBe(false);
+  });
+
+  it("recompute path is unaffected - a record whose data finally arrived inside the bound still reaches mature_result normally", () => {
+    // shipped 2026-05-10 relative to NOW 2026-06-30 (~51 days) is past the
+    // ordinary horizon but inside the 28-day fair retry window; once its 28-day
+    // window is marked ran (the recompute already happened) and sufficiency is
+    // met, maturity reaches mature_result exactly as before this change.
+    const p = buildMeasurementPresentation(
+      input({ shippedAt: "2026-05-10", windows: win(true, true, true), verdict: "won", controlsUsed: 3, baselineImpressions: 5000, latestGscDate: "2026-06-24" }),
+    );
+    expect(p.maturity).toBe("mature_result");
+    expect(p.verdict).toBe("helped");
+  });
+
+  it("two tenants: each record's exhaustion is computed independently off ITS OWN shippedAt, no cross-contamination", () => {
+    const tenantA = deriveMeasurementMaturity(
+      input({ shippedAt: "2026-01-01", windows: win(false, false, false), latestGscDate: null }), // exhausted
+    );
+    const tenantB = deriveMeasurementMaturity(
+      input({ shippedAt: "2026-06-20", windows: win(false, false, false), latestGscDate: "2026-06-24" }), // freshly blocked_data
+    );
+    expect(tenantA).toBe("unresolved");
+    expect(tenantB).toBe("blocked_data");
+  });
+});
+
 describe("detectMeasurementOverlaps — same page within 28 days only", () => {
   it("flags two edits on the SAME page within 28 days", () => {
     const m = detectMeasurementOverlaps([

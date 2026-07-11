@@ -55,18 +55,32 @@ export function outcomeStateOf(record: ShippedChangeRecord, now: Date = new Date
  *   - "release_unresolved" horizon reached but the required GSC data is NOT in ->
  *                          RELEASE the page for editing (outcomeStateOf already
  *                          reads "stale"), PRESERVE the unfinished measurement,
- *                          mark it honestly (blocked_data), NEVER fabricate a
- *                          verdict, and retry later while `retryEligible` (a
- *                          bounded, fair window).
+ *                          NEVER fabricate a verdict.
  *
  * Wall-clock age never manufactures a verdict; missing data never permanently
  * locks the operator out.
+ *
+ * Review P2 (E-39 D4 wiring): this used to also return `markState: "blocked_data"`
+ * and `retryEligible: boolean` on the "release_unresolved" branch, but nothing
+ * ever read either field - the ONLY consumer of this function (isDueForMeasure,
+ * below) reads `.kind === "recompute"` and nothing else. The honest outcomes
+ * those fields described are both already implemented by OTHER mechanisms: the
+ * "blocked_data" mark is deriveMeasurementMaturity's own independent derivation
+ * (measurement-maturity.ts, computed straight from the record's windows + the
+ * GSC watermark, no dependency on this function), and "release" is already
+ * outcomeStateOf's "stale" state once a never-measured record ages past the
+ * horizon. The one real gap - what an operator reads once the fair retry
+ * window itself is exhausted - is now handled directly inside
+ * deriveMeasurementMaturity with the SAME MAX_VERDICT_LAG_RETRY_DAYS bound used
+ * here (a distinct "unresolved" maturity + honest terminal copy), so it no
+ * longer needs a boolean threaded through this type. Narrowed to the shape
+ * that is actually consumed; dead fields removed.
  */
 export type VerdictLagAction =
   | { kind: "in_window" }
   | { kind: "settled" }
   | { kind: "recompute" }
-  | { kind: "release_unresolved"; markState: "blocked_data"; retryEligible: boolean };
+  | { kind: "release_unresolved" };
 
 export function resolveVerdictLag(
   record: ShippedChangeRecord,
@@ -84,7 +98,7 @@ export function resolveVerdictLag(
   // past it, stop retrying entirely - never re-scan forever, never fabricate a
   // verdict; the record stays released for editing and honestly unresolved.
   if (age > horizon + MAX_VERDICT_LAG_RETRY_DAYS) {
-    return { kind: "release_unresolved", markState: "blocked_data", retryEligible: false };
+    return { kind: "release_unresolved" };
   }
 
   // Inside the bounded retry window: can the 28-day window run NOW (its required
@@ -94,9 +108,10 @@ export function resolveVerdictLag(
   const dataAvailable = lastFinalizedDate != null && lastFinalizedDate >= required28;
   if (dataAvailable) return { kind: "recompute" };
 
-  // Data still unavailable: never invent a verdict from age. Release + preserve +
-  // mark honestly (blocked_data), and stay eligible to retry as data arrives.
-  return { kind: "release_unresolved", markState: "blocked_data", retryEligible: true };
+  // Data still unavailable: never invent a verdict from age. Release + preserve,
+  // and stay eligible to retry as data arrives (deriveMeasurementMaturity keeps
+  // reading this record as "blocked_data" until the same bound above is reached).
+  return { kind: "release_unresolved" };
 }
 
 /** Why a calendar-open proof window still shows no Search verdict: Google Search

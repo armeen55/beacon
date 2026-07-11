@@ -88,16 +88,15 @@ describe("resolveVerdictLag - E-39 D4 verdict-lag repair (fail-closed, honest)",
   });
   it("release_unresolved with NO fabricated verdict when data is unavailable, and stays retryable", () => {
     const r = resolveVerdictLag(record({ shippedAt: "2026-05-10" }), "2026-06-05", NOW);
+    // Review P2: markState/retryEligible were dead (no consumer ever read them) -
+    // narrowed to the shape isDueForMeasure actually consumes. The honest
+    // "blocked_data" mark and the retry-bound-exhausted terminal state both live
+    // in deriveMeasurementMaturity now (measurement-maturity.test.ts).
     expect(r.kind).toBe("release_unresolved");
-    if (r.kind === "release_unresolved") {
-      expect(r.markState).toBe("blocked_data"); // honest, never won/lost/inconclusive
-      expect(r.retryEligible).toBe(true);
-    }
   });
-  it("stops retrying past the bounded fair window (retryEligible false), still never fabricates a verdict", () => {
+  it("stops retrying past the bounded fair window, still never fabricates a verdict", () => {
     const r = resolveVerdictLag(record({ shippedAt: "2026-01-01" }), "2026-06-24", NOW);
     expect(r.kind).toBe("release_unresolved");
-    if (r.kind === "release_unresolved") expect(r.retryEligible).toBe(false);
   });
 });
 
@@ -118,6 +117,28 @@ describe("outcomeStateOf", () => {
   it("is NOT stale if a window ran, even when old (a real reading exists)", () => {
     const r = record({ shippedAt: "2026-05-10", verdict: "measuring", windows: [win(28, true)] });
     expect(outcomeStateOf(r, NOW)).toBe("measuring");
+  });
+  it("E-39 D4 review P2: stays non-blocking ('stale', never 'measuring') even past the FULL retry bound", () => {
+    // ~175 days old, no window ever ran - well past both the ordinary horizon
+    // AND resolveVerdictLag's MAX_VERDICT_LAG_RETRY_DAYS exhaustion bound. The
+    // page was already released at the ordinary horizon; the terminal-copy fix
+    // (deriveMeasurementMaturity's "unresolved") is a presentation change only -
+    // it must never re-block eligibility or a page that is already released.
+    const r = record({ shippedAt: "2026-01-01", verdict: "measuring", windows: [] });
+    expect(outcomeStateOf(r, NOW)).toBe("stale");
+  });
+});
+
+describe("E-39 D4 review P2 - resolveVerdictLag is pure and tenant-agnostic", () => {
+  it("two tenants' records past the retry bound each resolve independently, no cross-contamination", () => {
+    const tenantA = record({ id: "a::d", page: "https://iranopedia.com/iran-flags", shippedAt: "2026-01-01" });
+    const tenantB = record({ id: "b::d", page: "https://ritzbuilders.com/kitchens", shippedAt: "2026-05-10" });
+    const a = resolveVerdictLag(tenantA, "2026-06-24", NOW);
+    const b = resolveVerdictLag(tenantB, "2026-06-24", NOW);
+    // A is well past the full retry bound (exhausted); B is inside it with data
+    // available now, so it recomputes. Neither call affects the other.
+    expect(a.kind).toBe("release_unresolved");
+    expect(b.kind).toBe("recompute");
   });
 });
 

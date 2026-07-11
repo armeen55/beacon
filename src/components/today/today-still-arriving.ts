@@ -41,6 +41,13 @@ export function readStillArriving(
   if (isMatureOutcome(maturity)) {
     return { final: true, label: "", nextCheckpoint: null };
   }
+  // E-39 D4 (review P2): "unresolved" is blocked_data past the fair retry
+  // bound - the data never arrived and Beacon stopped waiting. It is not a
+  // hard final number (never claim "final"), but it is just as dishonest to
+  // keep calling it "still arriving" once nothing is arriving anymore.
+  if (maturity === "unresolved") {
+    return { final: false, label: "did not finish measuring", nextCheckpoint: null };
+  }
   const label = maturity === "blocked_data" ? "still arriving" : "still measuring";
   return { final: false, label, nextCheckpoint };
 }

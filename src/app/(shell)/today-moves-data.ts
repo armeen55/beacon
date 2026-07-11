@@ -943,8 +943,11 @@ export async function buildTodayMovesData(
           m.pageMeasuring = !sameFamily;
           m.proofLabel = p.headline;
           // The soonest future checkpoint - the read the operator would muddy by
-          // shipping again now.
-          m.proofNextCheckpoint = p.nextCheckpoint ?? proofCheckDates(pr.shippedAt)[28];
+          // shipping again now. E-39 D4 (review P2): "unresolved" already has no
+          // real next checkpoint (p.nextCheckpoint is null) - skip the ship+28d
+          // fallback for it too, or this would resurrect exactly the stale
+          // "Next read <date long past>" line the terminal state exists to kill.
+          m.proofNextCheckpoint = p.maturity === "unresolved" ? null : p.nextCheckpoint ?? proofCheckDates(pr.shippedAt)[28];
         } else if (p.verdict === "helped") {
           m.proofStatus = "won";
           m.proofLabel = p.headline; // "Helped" / "Likely helped"
