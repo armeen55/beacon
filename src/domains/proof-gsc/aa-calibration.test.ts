@@ -245,4 +245,26 @@ describe("dash + jargon guard on the operator-visible false-positive sentence (i
     const sentence = buildAaHonestySentence(row({ falsePositiveRate: 0.01 }))!;
     expect(sentence).toContain("1 time in 100");
   });
+
+  // P1-4 (2026-07-10, visual audit) - the live Iranopedia row that produced the
+  // self-contradicting "cries wolf 93 times in 100, and we tune it to stay under 5"
+  // sentence (sampleSize 40, cumulativeSampleSize 360, falsePositiveRate 0.925). Above
+  // target, the sentence must own the miss plainly, never pair a scary rate with an
+  // unmet "already tuned" promise.
+  it("never claims the under-5 promise is already kept when the rate is above target: it owns the miss and says it is tightening now", () => {
+    const sentence = buildAaHonestySentence(
+      row({ sampleSize: 40, cumulativeSampleSize: 360, falsePositiveRate: 0.925 }),
+    )!;
+    expect(sentence).toBe(
+      "My self-test on pages I never touched flagged 93 of 100 as a win or a loss, so my verdict floors were too loose. I am tightening them now and treating early signals as directional until the self-test clears 5 in 100.",
+    );
+    expect(sentence).not.toContain("we tune it to stay under");
+    expect(sentence).not.toMatch(/[–—]/);
+    expect(sentence).not.toMatch(/\b(baselines?|treatments?|reservations?|experiments?|controls?|placebos?|SERP)\b/i);
+  });
+
+  it("keeps the confident framing once the self-test genuinely clears target (no false alarm downgraded to a hedge)", () => {
+    const sentence = buildAaHonestySentence(row({ falsePositiveRate: 0.05 }))!;
+    expect(sentence).toContain("we tune it to stay under 5");
+  });
 });

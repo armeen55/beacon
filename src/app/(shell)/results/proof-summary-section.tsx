@@ -102,6 +102,22 @@ export function buildZeroMatureLeadSentence(args: {
  * nightly pass has run at least once for this tenant (no data -> no claim).
  * Plain business words only (no "experiment/control/baseline/treatment" -
  * this surface is jargon-guarded, see proof-jargon-guard.test.ts).
+ *
+ * P1-4 (2026-07-10, visual audit) - a high measured rate right next to a
+ * confident "we keep it under 5" claim reads as self-contradicting (the
+ * audit's exact live finding: "cries wolf 93 times in 100, and we tune it to
+ * stay under 5" in one breath). Investigating the real Iranopedia row behind
+ * that sentence (sampleSize 40, cumulativeSampleSize 360) showed this is not a
+ * tiny-N fluke: the rate is real, and it is real BECAUSE the shipped default
+ * floors (3 clicks / 0.3 percent CTR) are too loose for real week-to-week
+ * traffic noise - the same run's derived floors (per byTrafficTier) are far
+ * stricter and take over from here. So when the measured rate is still above
+ * target, this sentence must not claim the "stay under 5" promise is already
+ * being kept: it says plainly that the floors were too loose, that Beacon is
+ * tightening them now (true - this run derived the stricter floors), and that
+ * early reads stay directional until the self-test actually clears target.
+ * Never fabricated reassurance; when the rate really is under target, the
+ * original confident framing stays because it is then simply true.
  */
 export function buildAaHonestySentence(row: AaCalibrationRow | null): string | null {
   if (!row || row.sampleSize <= 0) return null;
@@ -112,6 +128,9 @@ export function buildAaHonestySentence(row: AaCalibrationRow | null): string | n
   if (row.cumulativeSampleSize < 100) return null;
   const per100 = Math.round(row.falsePositiveRate * 100);
   const targetPer100 = Math.round(TARGET_FALSE_POSITIVE_RATE * 100);
+  if (per100 > targetPer100) {
+    return `My self-test on pages I never touched flagged ${per100} of 100 as a win or a loss, so my verdict floors were too loose. I am tightening them now and treating early signals as directional until the self-test clears ${targetPer100} in 100.`;
+  }
   return `We test our own measurement on pages we did not touch. Right now it cries wolf ${per100} ${
     per100 === 1 ? "time" : "times"
   } in 100, and we tune it to stay under ${targetPer100}.`;

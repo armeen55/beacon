@@ -456,7 +456,11 @@ function Row({
           : "border border-border-subtle"
       } ${c.status === "blocked" ? "opacity-70" : ""} ${ringCls}`}
     >
-      {topPick ? (
+      {/* P1-2 (2026-07-10, visual audit) - the "Start here" band is the ONE pointer to the single
+          best next move; it must never repeat across every top pick (the audit found it on 5
+          cards at once). Only rank #1 carries it - the other top picks keep their visually
+          dominant border/sizing (still "worth doing now"), just not the same band. */}
+      {topPick && rank === 1 ? (
         <div className="flex items-center gap-1.5 rounded-t-md bg-status-info-bg px-3 py-1 text-meta font-bold uppercase tracking-wide text-status-info">
           Start here
         </div>
@@ -834,11 +838,14 @@ export function ChangesListClient({ view }: { view: ChangesClientView }) {
   const showBatchSummary = canCollapseBatch && batchRows.length >= 2 && !batchExpanded;
 
   // FP9 (2026-07-02, killer finding 4) - "pick the top few" must be true, not just said: the flat
-  // status view opens with the top 3 picks visually dominant ("Start here"), then the rest of the
-  // ranked list capped at ~20 with an honest expander ("I keep them ranked so nothing is lost").
-  // Only applies to the flat, non-tonight view - "Tonight's 30 minutes" is already a small,
-  // deliberately-bounded set.
-  const CURATION_CAP = 20;
+  // status view opens with ONLY the top 3 to 5 picks visually dominant ("Start here" on the
+  // very first), and every other actionable idea sits behind ONE honest expander ("I keep them
+  // ranked so nothing is lost") - never a second wall of ~20 more cards rendered by default.
+  // P1-1 (2026-07-10, visual audit) - the default view used to render the top picks PLUS up to
+  // 20 more expanded cards (a ~26-card wall on a 94-item backlog); the fix drops that partial
+  // reveal entirely: the rest of the actionable queue is fully hidden until the operator asks
+  // for it, then shown in full (no second, smaller cap to click through). Only applies to the
+  // flat, non-tonight view - "Tonight's 30 minutes" is already a small, deliberately-bounded set.
   const [showAllRanked, setShowAllRanked] = useState(false);
   // Wave 3C (3E) - THE decision queue: the archive (watch / leave-as-is / blocked) is split OFF the
   // command path into its own collapsed expander. showArchive toggles it.
@@ -874,14 +881,20 @@ export function ChangesListClient({ view }: { view: ChangesClientView }) {
   const topCount = Math.min(5, Math.max(Math.min(actionablePool.length, 3), dynamicOpportunityCount(actionablePool)));
   const topPicks = applyCuration ? actionablePool.slice(0, topCount) : [];
   const afterTop = applyCuration ? actionablePool.slice(topCount) : curationRows;
-  const cappedRows = applyCuration && !showAllRanked ? afterTop.slice(0, CURATION_CAP) : afterTop;
-  const hiddenRankedCount = applyCuration ? afterTop.length - cappedRows.length : 0;
+  // P1-1 - the default render is topPicks ONLY; every other actionable idea (afterTop) stays
+  // fully behind the "N more ideas" expander below until the operator opts in with showAllRanked,
+  // at which point it shows in full (never a second, smaller cap to click through again).
+  const cappedRows = !applyCuration || showAllRanked ? afterTop : [];
+  const hiddenRankedCount = applyCuration && !showAllRanked ? afterTop.length : 0;
   const expiredHiddenCount = applyCuration && !showAllRanked ? afterTop.filter((c) => c.freshness === "expired").length : 0;
-  // Wave 3C (3D) - the comparative "why this ranks above the next" line for the displayed command
-  // path (top picks + the capped actionable rest, in render order). Last card maps to null.
+  // Wave 3C (3D) - the comparative "why this ranks above the next" line, computed over the full
+  // actionable order so the LAST top pick still compares against the real next idea (even while
+  // that idea is hidden behind the expander). P1-3 (2026-07-10, visual audit) - only topPicks'
+  // render site actually reads this map; every other row hardcodes outranksLine=null, so the
+  // line can only ever appear on the top 3-5 default cards, never as a repeated wall.
   const outranksById = useMemo(
-    () => outranksReasonsBySequence([...topPicks, ...cappedRows], "balanced"),
-    [topPicks, cappedRows],
+    () => outranksReasonsBySequence(actionablePool, "balanced"),
+    [actionablePool],
   );
 
   // P13 honest minute math (v1 592) - the session-total sentence for the flat working view, over
@@ -1124,7 +1137,10 @@ export function ChangesListClient({ view }: { view: ChangesClientView }) {
               onToggleSelect={toggleChecked}
               detailOpen={selectedId === c.id}
               onToggleDetail={toggleDetail}
-              outranksLine={outranksById.get(c.id) ?? null}
+              // P1-3 (2026-07-10, visual audit) - the outranks line renders AT MOST on the top
+              // 3-5 default cards (topPicks above); the rest of the queue never shows it, even
+              // once expanded, so it can never repeat as a wall of near-identical lines.
+              outranksLine={null}
             />
           ))}
           {/* FP9 - the honest expander: lower-priority ideas are capped from view, never lost.
@@ -1143,7 +1159,7 @@ export function ChangesListClient({ view }: { view: ChangesClientView }) {
                 <p className="text-center text-meta text-muted-foreground">{view.expiredSubline}</p>
               ) : null}
             </div>
-          ) : applyCuration && showAllRanked && afterTop.length > CURATION_CAP ? (
+          ) : applyCuration && showAllRanked && afterTop.length > 0 ? (
             <button
               type="button"
               onClick={() => setShowAllRanked(false)}

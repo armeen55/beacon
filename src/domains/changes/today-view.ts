@@ -9,6 +9,7 @@
 import type { CanonicalChange, Strategy } from "./canonical-change";
 import { statusView } from "./canonical-change";
 import { rankChanges } from "./strategy";
+import { decideChangeAction, isActDecision } from "./decide-action";
 
 export type TodayPlanStatus = "none" | "preview" | "accepted" | "in_progress" | "completed";
 
@@ -128,8 +129,19 @@ export function buildTodayView(input: {
   // stale/stuck/empty "tonight's plan" must never hide the real backlog again. Items already
   // in tonight's plan carry selectedForToday and are shown there, so we exclude them here to
   // avoid duplication; measuring / result / blocked items are never an actionable next step.
+  // P1-6 (2026-07-10, visual audit HARD BLOCKER) - a status of "suggested"/"ready" alone is not
+  // enough: build-canonical-changes.ts demotes a flagged (off-topic) ready item back to
+  // "suggested" rather than blocking it, so it would otherwise still pass this filter and could
+  // become nextOpportunities[0] - the Today command's "Do this next" - while the SAME item on
+  // /changes routes to decideChangeAction's "watch" and sits in the archive, never on the command
+  // path there. THE single decision authority (decide-action.ts) must gate here too, so Today can
+  // never command an item /changes itself refuses to treat as actionable: only the four
+  // act-decisions (edit/consolidate/create/prune) may become a next opportunity. Prefers the
+  // already-refined c.decision (changes-data.ts's cannibalization-aware value) when present, the
+  // same fallback changes-list-client.tsx's decisionOf uses.
   const eligibleOpportunities = rankChanges(changes, strategy)
-    .filter((c) => (c.status === "suggested" || c.status === "ready") && !c.selectedForToday);
+    .filter((c) => (c.status === "suggested" || c.status === "ready") && !c.selectedForToday)
+    .filter((c) => isActDecision(c.decision ?? decideChangeAction(c).decision));
   const nextOpportunities: TodayOpportunity[] = eligibleOpportunities
     .slice(0, dynamicOpportunityCount(eligibleOpportunities))
     .map((c) => ({

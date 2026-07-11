@@ -126,6 +126,60 @@ describe("ChangesListClient - UX3 multi-select bulk bar", () => {
   });
 });
 
+describe("ChangesListClient - P1-1 (2026-07-10 visual audit): default is top 3-5, not a wall", () => {
+  it("the default-card-count proof: cappedRows (the rest of the actionable queue) is empty until showAllRanked, so the default render is topPicks (3-5) ONLY, never topPicks plus a second batch of ~20 more expanded cards", () => {
+    expect(SRC).toContain("const cappedRows = !applyCuration || showAllRanked ? afterTop : [];");
+  });
+
+  it("topCount (the default card count) is clamped to a hard 3-5, the SAME dynamicOpportunityCount semantics Today uses", () => {
+    expect(SRC).toContain(
+      "const topCount = Math.min(5, Math.max(Math.min(actionablePool.length, 3), dynamicOpportunityCount(actionablePool)));",
+    );
+  });
+
+  it("every other actionable idea sits behind exactly ONE honest expander (hiddenRankedCount names the FULL rest of the queue, not a partial 20-item slice)", () => {
+    expect(SRC).toContain(
+      "const hiddenRankedCount = applyCuration && !showAllRanked ? afterTop.length : 0;",
+    );
+    // The old partial-reveal cap (CURATION_CAP = 20) is gone entirely.
+    expect(SRC).not.toContain("CURATION_CAP");
+  });
+
+  it("no longer renders a second capped batch of Row cards outside the expander (only topPicks.map + cappedRows.map, and cappedRows is empty by default)", () => {
+    const rowUsages = SRC.match(/<Row\s/g) ?? [];
+    // topPicks, capped rest, expanded batch, archive - still exactly 4 render sites.
+    expect(rowUsages.length).toBe(4);
+  });
+});
+
+describe("ChangesListClient - P1-2 (2026-07-10 visual audit): exactly ONE 'Start here' band", () => {
+  it("the band is gated on topPick AND rank === 1, never on topPick alone", () => {
+    expect(SRC).toContain('{topPick && rank === 1 ? (');
+    expect(SRC).not.toMatch(/\{topPick \? \(\s*<div className="flex items-center gap-1\.5 rounded-t-md bg-status-info-bg/);
+  });
+
+  it("topPicks.map always numbers rank from 1 (i + 1), so only the first topPick can ever be rank 1", () => {
+    const idx = SRC.indexOf("{topPicks.map((c, i) => (");
+    const block = SRC.slice(idx, idx + 400);
+    expect(block).toContain("rank={i + 1}");
+  });
+});
+
+describe("ChangesListClient - P1-3 (2026-07-10 visual audit): outranks line only on the top 3-5", () => {
+  it("the capped rest of the queue always hardcodes outranksLine to null (never the computed map), so the line can never repeat past the default cards", () => {
+    const idx = SRC.indexOf("{cappedRows.map((c, i) => (");
+    const block = SRC.slice(idx, idx + 1100);
+    expect(block).toContain("outranksLine={null}");
+    expect(block).not.toContain("outranksById.get(c.id)");
+  });
+
+  it("only topPicks reads the computed outranksById map", () => {
+    const idx = SRC.indexOf("{topPicks.map((c, i) => (");
+    const block = SRC.slice(idx, idx + 700);
+    expect(block).toContain("outranksLine={outranksById.get(c.id) ?? null}");
+  });
+});
+
 describe("ChangesListClient - UX3 does not regress the D6 session loop", () => {
   it("still mounts useWorklistSession over the same ranked+filtered visible list", () => {
     // R20 added a second arg (the FP3 lifecycle counts) - still the SAME `visible` list, never a

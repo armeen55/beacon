@@ -62,6 +62,21 @@ export function stageRouteForActionType(
   return null;
 }
 
+/**
+ * P2-g (2026-07-10, visual audit) - the source-safety gate (draft-quality.ts's
+ * copyAllowed - "EVERY factual draft requires 1-2 authoritative sources", W5)
+ * must ALSO block the one-click "Stage in Wix" button, not just the card's inline
+ * copy. Verified: stage-change.ts's server-side QA backstop for a worklist move
+ * checks a DIFFERENT, older verdict (recommendation-qa.ts's qaVerdict - approve +
+ * pushReadiness), which has zero knowledge of missing_source / needs_source_check.
+ * Without this gate, a draft the card itself refuses to show as ready copy could
+ * still stage straight into Wix through the one-click button. A row with no
+ * computed quality verdict at all (a legacy/undrafted row) is never newly
+ * blocked - only an explicit `copyAllowed: false` verdict disables staging. */
+export function copyAllowedForStaging(preparedQuality: { copyAllowed: boolean } | null | undefined): boolean {
+  return !preparedQuality || preparedQuality.copyAllowed;
+}
+
 /** Daily-plan levers map through the existing lever -> action-type table.
  *  internal_link has no write path (by design) and returns null. */
 export function stageRouteForLever(lever: string | null | undefined): StageRoute | null {

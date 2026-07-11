@@ -25,13 +25,23 @@ export type TodayProofStripProps = {
   measuringCount: number;
   /** verdictSchedule.firstReadOn (YYYY-MM-DD, UTC), or null when nothing has a future read. */
   firstReadOn: string | null;
+  /** P2-1 (2026-07-10, visual audit) - verdictSchedule.finalVerdictOn: the soonest date a
+   *  measuring change's 28-day window closes to a settled read. Named alongside firstReadOn
+   *  so this strip and the Results cumulative-outcome strip's "Next checkpoint" clause read
+   *  as two stages of the SAME schedule, never two unrelated dates on separate surfaces. Null
+   *  when no measuring row has a future close, or when it lands the same day as firstReadOn
+   *  (nothing to add). */
+  firstSettledReadOn?: string | null;
   /** The Search Console data-through date (YYYY-MM-DD), for the freshness receipt. */
   gscThrough: string | null;
   nowMs: number;
 };
 
-export function TodayProofStrip({ measuringCount, firstReadOn, gscThrough, nowMs }: TodayProofStripProps) {
+export function TodayProofStrip({ measuringCount, firstReadOn, firstSettledReadOn = null, gscThrough, nowMs }: TodayProofStripProps) {
   const nextRead = monthDayLabel(firstReadOn);
+  // P2-1 - only named when it is a real, later date than the checkpoint (no redundant repeat).
+  const settledRead =
+    firstSettledReadOn && firstSettledReadOn !== firstReadOn ? monthDayLabel(firstSettledReadOn) : null;
   const receipt = buildReceiptLine({
     source: "your Search Console data",
     through: gscThrough,
@@ -55,6 +65,7 @@ export function TodayProofStrip({ measuringCount, firstReadOn, gscThrough, nowMs
           <span className="font-semibold">{measuringCount.toLocaleString()}</span>{" "}
           change{measuringCount === 1 ? " is" : "s are"} measuring.
           {nextRead ? <span className="text-muted-foreground"> The next results land around {nextRead}.</span> : null}
+          {settledRead ? <span className="text-muted-foreground"> The first settled read lands around {settledRead}.</span> : null}
         </p>
         <Link
           href="/results"

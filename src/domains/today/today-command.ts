@@ -11,16 +11,20 @@
  * ...into a single command whose kind is chosen by a strict priority so two of them can never
  * shout at once.
  *
- * PURE, no I/O. Deterministic for a fixed input. The date formatting uses the one canonical
- * monthDayLabel (UTC) so the observe copy's "next results" date can never drift from the proof
- * strip or Results. Beacon voice: first person where it speaks, a concrete number, a next step;
- * no lab jargon; no em or en dashes.
+ * PURE, no I/O. Deterministic for a fixed input. Beacon voice: first person where it speaks, a
+ * concrete number, a next step; no lab jargon; no em or en dashes.
+ *
+ * P2-b (2026-07-10, visual audit) - the observe copy never repeats a number or date the proof
+ * strip (Today slot 5, right below this card) already owns: "N changes measuring" and "next
+ * results land around X" used to render on BOTH the command and the strip at once. The observe
+ * command now only points at what is measuring, in plain words, with no digit or date of its
+ * own - firstReadOn stays on the input type (verdictSchedule's date, still useful context for a
+ * future caller) but is deliberately not rendered here anymore.
  */
 
 import type { TodaySmokeAlarm } from "@/components/today/today-smoke-alarm";
 import type { TodayOpportunity } from "@/domains/changes/today-view";
-import { EVIDENCE_LABEL } from "@/domains/changes/canonical-change";
-import { monthDayLabel } from "@/components/data/receipt-line";
+import type { EvidenceStrength } from "@/domains/changes/canonical-change";
 
 export type TodayCommandKind = "fix_defect" | "respond_to_loss" | "ship_move" | "observe";
 
@@ -72,6 +76,20 @@ function stripPeriod(s: string): string {
   return s.replace(/\.\s*$/, "");
 }
 
+/**
+ * P2-d (2026-07-10, visual audit) - the command card's own evidence words, mapped from the
+ * SAME evidenceStrength field the Changes list's EVIDENCE_LABEL reads (canonical-change.ts),
+ * but plainer: "Directional signal." and "Tracking only." read as lab jargon sitting inside
+ * the ONE command's evidence bullet, even though EVIDENCE_LABEL is fine on a dense Changes row
+ * next to other short chips. This map is used ONLY here, on the command card - EVIDENCE_LABEL
+ * itself is unchanged for every other surface.
+ */
+const COMMAND_EVIDENCE_WORD: Record<EvidenceStrength, string> = {
+  strong: "Strong comparison behind it.",
+  directional: "Early evidence, worth doing.",
+  tracking: "Still building evidence for this one.",
+};
+
 /** The deep link to one change's detail on Changes (the SAME encoding the Changes list reads
  *  from ?focus). Kept here so the command's CTA and any render pin agree byte for byte. */
 export function changeFocusHref(changeId: string): string {
@@ -100,9 +118,12 @@ function respondToLoss(input: TodayCommandInput): TodayCommand {
         ? "I already have a fix ready for this page."
         : "This one is worth a look before it slides further.",
     );
-    // Name a DIFFERENT window than the 4-week page number above: the whole-site week over week.
+    // Name a DIFFERENT window than the 4-week page number above: the whole-site last-7-vs-
+    // prior-7 delta. P2-c (2026-07-10, visual audit) - standardized to "vs the week before"
+    // (the SAME phrase the no-single-page branch below uses for this identical delta), so the
+    // two never read as two different measurements of the same number.
     if (delta != null && delta <= -3) {
-      why.push(`Your whole site is down ${Math.abs(delta)}% week over week too.`);
+      why.push(`Your whole site is down ${Math.abs(delta)}% vs the week before too.`);
     }
     if (input.measuringCount > 0) {
       why.push(
@@ -130,7 +151,10 @@ function respondToLoss(input: TodayCommandInput): TodayCommand {
   }
   return {
     kind: "respond_to_loss",
-    headline: `Your search clicks are down ${pct}% over the last 7 days. That is today's biggest problem.`,
+    // P2-c (2026-07-10, visual audit) - "vs the week before" (not "over the last 7 days"),
+    // matching the SAME last-7-vs-prior-7 delta's phrasing above so the two never read as two
+    // different measurements.
+    headline: `Your search clicks are down ${pct}% vs the week before. That is today's biggest problem.`,
     why,
     exactAction: "Open Changes and ship the top recovery move.",
     cta: { label: "See what to fix", href: "/changes" },
@@ -145,7 +169,7 @@ function shipMove(input: TodayCommandInput): TodayCommand {
   } else {
     why.push(`This one is on ${o.pageLabel}.`);
   }
-  why.push(`${EVIDENCE_LABEL[o.evidenceStrength]}.`);
+  why.push(COMMAND_EVIDENCE_WORD[o.evidenceStrength]);
   why.push(`About ${o.estimatedEffortMinutes} minute${o.estimatedEffortMinutes === 1 ? "" : "s"} of work.`);
   return {
     kind: "ship_move",
@@ -159,11 +183,12 @@ function shipMove(input: TodayCommandInput): TodayCommand {
 function observe(input: TodayCommandInput): TodayCommand {
   const why: string[] = [];
   if (input.measuringCount > 0) {
-    why.push(
-      `${input.measuringCount} change${input.measuringCount === 1 ? " is" : "s are"} measuring right now.`,
-    );
-    const label = monthDayLabel(input.firstReadOn);
-    if (label) why.push(`The next results land around ${label}.`);
+    // P2-b (2026-07-10, visual audit) - the measuring count + next-read date are the proof
+    // strip's job (slot 5, right below this card); this line used to repeat both, so an
+    // observe day said "N changes are measuring... next results land around X" twice on the
+    // same screen. The command now only points at what is measuring, with no repeated number
+    // or date - the strip is the sole owner of both.
+    why.push("Your active changes are still measuring below.");
     why.push("I will tell you the moment one of them needs a decision.");
     return {
       kind: "observe",
@@ -204,4 +229,17 @@ export function buildTodayCommand(input: TodayCommandInput): TodayCommand {
   if (materialLoss) return respondToLoss(input);
   if (input.topOpportunity) return shipMove(input);
   return observe(input);
+}
+
+/**
+ * P1-5 (2026-07-10, visual audit) - whether the Today greeting's own streak clause ("you are on
+ * a roll") may celebrate for this command kind. The audit's exact live contradiction: the
+ * greeting said "16 changes shipped in the last 14 days, you are on a roll." directly above the
+ * command's "Your biggest problem today: ... lost 163 clicks." A win-streak celebration must
+ * never sit next to a command that says something is broken (fix_defect) or actively losing
+ * (respond_to_loss) - the streak COUNT itself still renders either way (it stays true), only the
+ * celebratory clause is suppressed. PURE.
+ */
+export function commandAllowsCelebration(kind: TodayCommandKind): boolean {
+  return kind !== "fix_defect" && kind !== "respond_to_loss";
 }

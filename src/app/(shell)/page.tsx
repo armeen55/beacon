@@ -32,9 +32,12 @@ import { MonthlyNorthStar } from "./monthly-north-star";
 import { getBusinessConfigForCurrentTenant } from "@/lib/business-config";
 import { TodayNewPagesSummaryLine } from "./today-newpages-section";
 import { loadLifecycleCounts } from "./lifecycle-counts-data";
-import { OpsPipelineSection } from "./ops-pipeline-section";
+import { OpsPipelineSection, DEADMAN_DEADLINE_MS } from "./ops-pipeline-section";
 import { maybeRefreshStaleDataOnVisit } from "@/domains/ops/on-visit-refresh";
 import { readPipelineHealth } from "@/domains/ops/pipeline-health-store";
+import { loadDeadmanVerdict } from "@/domains/ops/deadman-view";
+import { loadErrorSpikeLine } from "@/domains/ops/error-spike";
+import { deriveDefectSignal } from "@/domains/ops/defect-signal";
 import { InvestigationSection } from "./investigation-section";
 import { createPerfTrace, readPerfTraceIdFromHeaders } from "@/lib/perf-trace";
 import { loadWithDeadline, valueWithDeadline } from "@/lib/load-with-deadline";
@@ -43,7 +46,7 @@ import { loadDailyTotalsForTenant } from "@/domains/recommendation-intelligence/
 // Wave 3B (2026-07-10) - Today becomes MISSION CONTROL: ONE command answers "what is the single
 // best thing I should do now?". The command model is a pure selector (domains/today); its card +
 // the consolidated proof strip are token-only (src/components/today, outside the (shell) ratchet).
-import { buildTodayCommand } from "@/domains/today/today-command";
+import { buildTodayCommand, commandAllowsCelebration } from "@/domains/today/today-command";
 import { TodayCommandCard } from "@/components/today/today-command-card";
 import { TodayProofStrip } from "@/components/today/today-proof-strip";
 import { verdictSchedule } from "@/domains/proof-gsc/verdict-schedule";
@@ -238,12 +241,9 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
   const activePlan = daily?.dashboard.acceptedPlan ?? daily?.dashboard.previewPlan;
   const picks = activePlan?.selected.length ?? 0;
   const minutes = activePlan?.estimatedMinutes ?? 0;
-  const streakLine = streak > 0 ? ` ${streak} change${streak === 1 ? "" : "s"} shipped in the last 14 days${streak >= 10 ? ", you are on a roll" : ""}.` : "";
-  // Operator spec 2026-07-09 B-14: no "team" framing - purely functional.
-  const brief =
-    (picks > 0
-      ? `${dayLine}. ${picks} change${picks === 1 ? "" : "s"} ready, about ${Math.max(minutes, picks)} minutes.`
-      : `${dayLine}. ${today.headerSentence}`) + streakLine;
+  // P1-5 (2026-07-10, visual audit) - the streak's celebratory clause ("you are on a roll")
+  // and the `brief` sentence it lives in are built further below, AFTER the one command exists,
+  // so they can be gated on command.kind (see the comment there for why).
   // Item 7 - Monday recap band: last week's outcomes in one sentence, from the ledger.
   const isMonday = nowPacific.toLocaleDateString("en-US", { weekday: "long", timeZone: "America/Los_Angeles" }) === "Monday";
   const recapSentence = isMonday
@@ -311,19 +311,35 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
   // priority (defect > material loss > top move > observe) picks exactly one directive so two "do
   // this" cards can never shout at once. The week-over-week delta comes from the SAME buildScoreboard
   // the hero chart reads (the loaders are react.cache-shared, so this is not a second heavy read),
-  // and the next-read date comes from the ONE verdictSchedule the proof strip + Results share. Only
-  // RED-tier pipeline violations count as a defect (a stale-but-connected warning is not); this
-  // mirrors the red banner OpsPipelineSection shows in slot 1.
-  const pipelineAlarms = (pipelineHealth?.violations ?? [])
-    .filter((v) => v.severity !== "info" && v.severity !== "warn")
-    .map((v) => v.sentence);
+  // and the next-read date comes from the ONE verdictSchedule the proof strip + Results share.
+  // P2-a (2026-07-10, visual audit) - the command's defect signal must fire on EVERY signal that
+  // turns OpsPipelineSection's banner red in slot 1, not pipeline violations alone. Without this,
+  // a stalled overnight job or a run of failures could paint the banner red while the command
+  // still said "Do this next" or "Nothing needs a decision" right below it. deriveDefectSignal
+  // (domains/ops/defect-signal.ts) is the ONE pure read both this command and that banner use, so
+  // they can never disagree again. loadDeadmanVerdict is react.cache-shared (free here);
+  // loadErrorSpikeLine is a light per-tenant read, deadline-bound like the banner's.
+  const [deadmanVerdict, errorSpikeLine] = await Promise.all([
+    valueWithDeadline(loadDeadmanVerdict(tenantId).catch(() => null), null, DEADMAN_DEADLINE_MS),
+    valueWithDeadline(loadErrorSpikeLine(tenantId).catch(() => null), null, DEADMAN_DEADLINE_MS),
+  ]);
+  const pipelineAlarms = deriveDefectSignal({
+    violations: pipelineHealth?.violations ?? [],
+    deadman: deadmanVerdict,
+    errorSpikeLine,
+  }).sentences;
   const scoreboardDeltaPct =
     buildScoreboard(
       leadStoryDays.map((d) => ({ date: d.date, clicks: d.clicks, impressions: 0 })),
       ledgerRows,
       new Date(nowMs),
     )?.deltaPct ?? null;
-  const firstReadOn = verdictSchedule(ledgerRows, new Date(nowMs)).firstReadOn;
+  // P2-1 (2026-07-10, visual audit) - the ONE schedule read, reused for both the checkpoint
+  // (Today's own proof strip) and the settled-read date (named alongside it there, and echoed
+  // by the Results cumulative-outcome strip's "Next checkpoint" clause), so the two surfaces
+  // never show unrelated dates for what is really one schedule.
+  const schedule = verdictSchedule(ledgerRows, new Date(nowMs));
+  const firstReadOn = schedule.firstReadOn;
   const command = buildTodayCommand({
     pipelineAlarms,
     smokeAlarm,
@@ -332,6 +348,25 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
     firstReadOn,
     measuringCount,
   });
+
+  // P1-5 (2026-07-10, visual audit) - the greeting's streak clause must never celebrate ("you
+  // are on a roll") directly above the ONE command naming today's biggest problem. The audit's
+  // exact live contradiction: "16 changes shipped in the last 14 days, you are on a roll." sat
+  // right above "Your biggest problem today: ... lost 163 clicks." commandAllowsCelebration
+  // (today-command.ts) suppresses the celebratory clause whenever the command itself is a
+  // problem (fix_defect or respond_to_loss) - the streak COUNT still renders (it is real and
+  // true), just without the celebratory clause.
+  const streakLine =
+    streak > 0
+      ? ` ${streak} change${streak === 1 ? "" : "s"} shipped in the last 14 days${
+          streak >= 10 && commandAllowsCelebration(command.kind) ? ", you are on a roll" : ""
+        }.`
+      : "";
+  // Operator spec 2026-07-09 B-14: no "team" framing - purely functional.
+  const brief =
+    (picks > 0
+      ? `${dayLine}. ${picks} change${picks === 1 ? "" : "s"} ready, about ${Math.max(minutes, picks)} minutes.`
+      : `${dayLine}. ${today.headerSentence}`) + streakLine;
 
   // P14 item 3 (v1 329/331) - goal pace + start-my-day: the honest weekly pace read plus the
   // concrete 20-minute ritual step. Every number reuses an existing count - shippedThisWeek is the
@@ -450,6 +485,7 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
       <TodayProofStrip
         measuringCount={measuringCount}
         firstReadOn={firstReadOn}
+        firstSettledReadOn={schedule.finalVerdictOn}
         gscThrough={leadStoryDays[leadStoryDays.length - 1]?.date ?? null}
         nowMs={nowMs}
       />

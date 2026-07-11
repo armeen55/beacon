@@ -1,5 +1,5 @@
 /**
- * strategy (2026-07-01) — PURE ranking + filtering over CanonicalChange. The strategy mode changes
+ * strategy (2026-07-01) - PURE ranking + filtering over CanonicalChange. The strategy mode changes
  * ORDER and ELIGIBILITY only; it never changes underlying truth, never creates separate records, and
  * learning is always on regardless of mode. Goal + status filters are pure predicates.
  */
@@ -40,7 +40,7 @@ export function rankChanges(changes: CanonicalChange[], strategy: Strategy): Can
   return [...pool].sort((a, b) => strategyScore(b, strategy) - strategyScore(a, strategy));
 }
 
-/** Goal filter — a pure predicate. "recommended" is the unfiltered default. */
+/** Goal filter - a pure predicate. "recommended" is the unfiltered default. */
 export function goalMatches(c: CanonicalChange, goal: Goal): boolean {
   switch (goal) {
     case "recommended":
@@ -116,8 +116,20 @@ export function outranksReason(a: CanonicalChange, b: CanonicalChange, strategy:
   const bRisk = b.riskLevel === "high" ? 120 : b.riskLevel === "medium" ? 25 : 0;
   if (aRisk < bRisk) reasons.push({ delta: bRisk - aRisk, text: "it carries less risk" });
 
-  const baseDelta = a.impactScore - b.impactScore;
-  if (baseDelta > 0) reasons.push({ delta: baseDelta, text: "it has more expected impact" });
+  // P1-3 (2026-07-10, visual audit) - a bare "it has more expected impact" (the raw
+  // impactScore delta, with no number behind it) rendered as a near-identical line on ~24
+  // cards, since the balanced score favors higher impact almost by definition. An impact
+  // contributor may only be named here when it can be QUANTIFIED with a real forecast
+  // number (the same monthly-clicks upside the card itself shows) - otherwise it is dropped
+  // rather than stated vaguely.
+  const aUpside = Number.isFinite(a.upside) ? (a.upside as number) : null;
+  const bUpside = Number.isFinite(b.upside) ? (b.upside as number) : null;
+  if (aUpside != null && bUpside != null && aUpside > bUpside) {
+    reasons.push({
+      delta: aUpside - bUpside,
+      text: `it is forecast to add more clicks (about ${Math.round(aUpside)} vs ${Math.round(bUpside)} a month)`,
+    });
+  }
 
   if (reasons.length === 0) return null;
   // Largest positive contributors first; name at most two so the line stays readable.

@@ -59,6 +59,41 @@ describe("buildTodayView — Today is a focused slice, deduped from the canonica
     expect(ids).toEqual(["ok"]);
   });
 
+  // P1-6 (2026-07-10, visual audit HARD BLOCKER) - build-canonical-changes.ts demotes a flagged
+  // (off-topic) ready item back to "suggested" instead of blocking it, so status alone let it
+  // through as a next opportunity - meaning the Today command could say "Do this next" for the
+  // SAME item /changes routes to decideChangeAction's "watch" and keeps off its command path. The
+  // two surfaces must agree: only an act-decision item may become a next opportunity.
+  it("a flagged (off-topic) item never becomes a next opportunity, even though its status is suggested", () => {
+    const changes = [
+      ch({ id: "flagged", status: "suggested", qualityDecision: "flagged" }),
+      ch({ id: "ok", status: "suggested" }),
+    ];
+    const v = buildTodayView({ changes, strategy: "balanced", plan: null });
+    expect(v.nextOpportunities.map((o) => o.changeId)).toEqual(["ok"]);
+  });
+
+  it("an item whose already-refined server decision is a non-act decision (watch/do_nothing) never becomes a next opportunity", () => {
+    const changes = [
+      ch({ id: "watching", status: "ready", decision: "watch" }),
+      ch({ id: "nothing", status: "suggested", decision: "do_nothing" }),
+      ch({ id: "ok", status: "ready", decision: "edit_existing" }),
+    ];
+    const v = buildTodayView({ changes, strategy: "balanced", plan: null });
+    expect(v.nextOpportunities.map((o) => o.changeId)).toEqual(["ok"]);
+  });
+
+  it("the command's target is always in the actionable queue: a flagged item never wins nextOpportunities[0]", () => {
+    // Even when the flagged item would otherwise rank first (higher impact), it must never
+    // become the Today command's topOpportunity - the two surfaces (Today, /changes) must agree.
+    const changes = [
+      ch({ id: "flagged-high-impact", status: "suggested", qualityDecision: "flagged", impactScore: 999 }),
+      ch({ id: "ok", status: "suggested", impactScore: 10 }),
+    ];
+    const v = buildTodayView({ changes, strategy: "balanced", plan: null });
+    expect(v.nextOpportunities[0]?.changeId).toBe("ok");
+  });
+
   it("Clean strategy filters next opportunities to strong-evidence only", () => {
     const changes = [
       ch({ id: "strong", status: "suggested", evidenceStrength: "strong" }),

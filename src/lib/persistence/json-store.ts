@@ -419,9 +419,13 @@ const writeLocks = new Map<string, Promise<void>>();
  *
  * Phase 7.8d-1: unknown-scope reads throw fail-loud. Known stores
  * with no routed file yet return the caller's `fallback` (or `[]`).
+ *
+ * P2-f (2026-07-10, visual audit) - `opts.tenantId`, same purpose as writeStore's:
+ * lets a background caller (e.g. a next/server after() rebuild) read the tenant it
+ * already has explicitly, instead of falling back to ambient currentTenantSlug().
  */
-export async function readStore<T>(name: string, fallback?: T[]): Promise<T[]> {
-  const resolved = await resolveDataPath(name);
+export async function readStore<T>(name: string, fallback?: T[], opts: { tenantId?: string } = {}): Promise<T[]> {
+  const resolved = await resolveDataPath(name, opts.tenantId);
 
   if (resolved.scope === "unknown") {
     throw new Error(
@@ -471,9 +475,15 @@ export async function readStore<T>(name: string, fallback?: T[]): Promise<T[]> {
  *
  * Writes always go to the resolved routed path; never fall back to
  * flat. Vercel skip preserved.
+ *
+ * P2-f (2026-07-10, visual audit) - `opts.tenantId` lets a caller that already
+ * has the correct tenant in hand (e.g. a next/server after() background rebuild)
+ * write there explicitly, instead of resolveDataPath falling back to the ambient
+ * currentTenantSlug() (request-header-based; not guaranteed reliable outside the
+ * render's request scope). Omitted -> unchanged ambient behavior.
  */
-export async function writeStore<T>(name: string, data: T[]): Promise<void> {
-  const resolved = await resolveDataPath(name);
+export async function writeStore<T>(name: string, data: T[], opts: { tenantId?: string } = {}): Promise<void> {
+  const resolved = await resolveDataPath(name, opts.tenantId);
   if (resolved.scope === "unknown") {
     throw new Error(
       `[json-store] unknown store '${name}'. Add it to TENANT_SCOPED_STORES, ` +

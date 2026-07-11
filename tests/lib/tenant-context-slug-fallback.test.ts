@@ -101,3 +101,47 @@ describe("currentTenantSlug — Phase 7.8e-4b env fallback", () => {
     expect(await currentTenantSlug()).toBe("ritz-builders");
   });
 });
+
+// P2-f (2026-07-10, visual audit) - slugForTenantId is the EXPLICIT-id sibling of
+// currentTenantSlug, extracted so a background caller (e.g. next/server's after()) that
+// already has the correct tenantId in hand can resolve its slug without depending on
+// headers()/React.cache ambient resolution at all. Same resolution order + fallback,
+// just keyed off an id passed directly rather than one resolved from the request.
+describe("slugForTenantId - the explicit-id sibling used by background (after()) writers", () => {
+  const ORIGINAL_ENV = { ...process.env };
+
+  beforeEach(async () => {
+    vi.resetModules();
+    getTenantMock.mockReset();
+    process.env = { ...ORIGINAL_ENV };
+    delete process.env.BEACON_TENANT_ID;
+    delete process.env.BEACON_TENANT_SLUG;
+  });
+
+  afterEach(() => {
+    process.env = { ...ORIGINAL_ENV };
+  });
+
+  it("returns the registry slug for the given id, with no ambient headers()/currentTenantId call at all", async () => {
+    getTenantMock.mockResolvedValue({ id: "tenant-b", slug: "acme" } as never);
+    const { slugForTenantId } = await import("@/lib/tenant-context");
+    expect(await slugForTenantId("tenant-b")).toBe("acme");
+    expect(getTenantMock).toHaveBeenCalledWith("tenant-b");
+  });
+
+  it("falls back to BEACON_TENANT_SLUG only when the GIVEN id matches BEACON_TENANT_ID", async () => {
+    process.env.BEACON_TENANT_ID = "tenant-ritz-founder";
+    process.env.BEACON_TENANT_SLUG = "ritz-builders";
+    getTenantMock.mockResolvedValue(null);
+    const { slugForTenantId } = await import("@/lib/tenant-context");
+    expect(await slugForTenantId("tenant-ritz-founder")).toBe("ritz-builders");
+  });
+
+  it("throws (never silently defaults) when the given id is unknown and env doesn't match", async () => {
+    process.env.BEACON_TENANT_ID = "tenant-other";
+    process.env.BEACON_TENANT_SLUG = "ritz-builders";
+    getTenantMock.mockResolvedValue(null);
+    const { slugForTenantId } = await import("@/lib/tenant-context");
+    await expect(slugForTenantId("tenant-unrelated")).rejects.toThrow(/tenant-unrelated/);
+  });
+});

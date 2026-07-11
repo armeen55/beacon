@@ -113,8 +113,11 @@ describe("computeCumulativeOutcome - honest zero-verdict frame", () => {
     const out = computeCumulativeOutcome(rows, NOW)!;
     expect(out.decided).toBe(0);
     expect(out.firstVerdictOn).toBe("2026-07-18");
+    // P2-1 - the checkpoint clause ties this to the SAME schedule the Today proof
+    // strip names (verdictSchedule.firstReadOn), so the two surfaces read as two
+    // stages of one schedule instead of two unrelated dates.
     expect(out.waitingLine).toBe(
-      "No settled reads yet. The first lands around Jul 18 when the earliest 28-day window closes. Longer confirmation reads come later.",
+      "Next checkpoint Jul 4. No settled reads yet. The first lands around Jul 18 when the earliest 28-day window closes. Longer confirmation reads come later.",
     );
     expect(out.valueLine).toBeNull();
     expect(out.dollarLine).toBeNull();
@@ -126,9 +129,34 @@ describe("computeCumulativeOutcome - honest zero-verdict frame", () => {
     ];
     const out = computeCumulativeOutcome(rows, NOW)!;
     expect(out.firstVerdictOn).toBe("2026-05-29");
+    // P2-1 - no future checkpoint exists here, so no "Next checkpoint" clause is added.
     expect(out.waitingLine).toBe(
       "No settled reads yet. The earliest 28-day window has already closed, so the first lands as soon as Google's data catches up. Longer confirmation reads come later.",
     );
+  });
+
+  // P2-1 - when the only remaining future read IS the 28-day settle itself (the
+  // 7/14-day checkpoints already ran or passed), the checkpoint clause must not
+  // repeat the exact same date as "next checkpoint" and then again as "settled read".
+  it("suppresses the checkpoint clause when the next checkpoint and the settled read fall on the same date", () => {
+    const rows: CumulativeOutcomeRow[] = [
+      measuringRow({
+        id: "a",
+        path: "/a",
+        shippedAt: "2026-06-10T00:00:00Z", // 28-day close: Jul 8
+        windows: [
+          { day: 7, ran: true, controlsUsed: 3 },
+          { day: 14, ran: true, controlsUsed: 3 },
+          { day: 28, ran: false },
+        ],
+      }),
+    ];
+    const out = computeCumulativeOutcome(rows, NOW)!;
+    expect(out.firstVerdictOn).toBe("2026-07-08");
+    expect(out.waitingLine).toBe(
+      "No settled reads yet. The first lands around Jul 8 when the earliest 28-day window closes. Longer confirmation reads come later.",
+    );
+    expect(out.waitingLine).not.toContain("Next checkpoint");
   });
 
   it("drops the waiting frame once anything has a final read", () => {
@@ -233,7 +261,7 @@ describe("computeCumulativeOutcome - posture", () => {
     expect(out.measuring).toBe(1);
     expect(out.winClicksPerMonth).toBe(0);
     expect(out.waitingLine).toBe(
-      "No settled reads yet. The first lands around Jul 22 when the earliest 28-day window closes. Longer confirmation reads come later.",
+      "Next checkpoint Jul 8. No settled reads yet. The first lands around Jul 22 when the earliest 28-day window closes. Longer confirmation reads come later.",
     );
   });
 

@@ -20,10 +20,11 @@ import { tmpdir } from "node:os";
 
 vi.mock("@/lib/tenant-context", () => ({
   currentTenantSlug: vi.fn(async () => "ritz-builders"),
+  slugForTenantId: vi.fn(async (id: string) => `slug-for-${id}`),
 }));
 
 import { resolveDataPath } from "@/lib/persistence/resolve-data-path";
-import { currentTenantSlug } from "@/lib/tenant-context";
+import { currentTenantSlug, slugForTenantId } from "@/lib/tenant-context";
 
 let tmpRoot: string;
 let originalCwd: string;
@@ -183,5 +184,35 @@ describe("Phase 7.8b-2-a — currentTenantSlug only called for per-tenant/single
     slugSpy.mockClear();
     await resolveDataPath("citation-evidence-index");
     expect(slugSpy).toHaveBeenCalledTimes(1);
+  });
+});
+
+// P2-f (2026-07-10, visual audit) - an explicit tenantId (e.g. from a next/server
+// after() background rebuild that already has the correct tenant in hand) must resolve
+// via slugForTenantId, NEVER the ambient currentTenantSlug - a background task's request
+// context is not guaranteed to carry the right tenant.
+describe("P2-f - an explicit tenantId bypasses ambient currentTenantSlug resolution", () => {
+  it("per-tenant resolution with an explicit tenantId calls slugForTenantId, not currentTenantSlug", async () => {
+    const slugSpy = currentTenantSlug as ReturnType<typeof vi.fn>;
+    const explicitSpy = slugForTenantId as ReturnType<typeof vi.fn>;
+    slugSpy.mockClear();
+    explicitSpy.mockClear();
+    const r = await resolveDataPath("imported-results", "tenant-explicit-id");
+    expect(explicitSpy).toHaveBeenCalledWith("tenant-explicit-id");
+    expect(slugSpy).not.toHaveBeenCalled();
+    expect(r.routedPath).toBe(
+      join(tmpRoot, ".data", "tenants", "slug-for-tenant-explicit-id", "imported-results.json"),
+    );
+    expect(r.cacheKey).toBe("imported-results::tenant:slug-for-tenant-explicit-id");
+  });
+
+  it("omitting the explicit tenantId falls back to the ambient currentTenantSlug (unchanged default behavior)", async () => {
+    const slugSpy = currentTenantSlug as ReturnType<typeof vi.fn>;
+    const explicitSpy = slugForTenantId as ReturnType<typeof vi.fn>;
+    slugSpy.mockClear();
+    explicitSpy.mockClear();
+    await resolveDataPath("imported-results");
+    expect(slugSpy).toHaveBeenCalledTimes(1);
+    expect(explicitSpy).not.toHaveBeenCalled();
   });
 });

@@ -10,6 +10,7 @@ import {
 } from "@/domains/product/recommendation-response-store";
 import { currentTenantId } from "@/lib/tenant-context";
 import { autoRecordShippedChangeForRec } from "@/domains/proof-gsc/auto-record-on-ship";
+import { invalidateChangesSurface } from "./changes-surface-store";
 
 export async function respondToRecommendation(
   recId: string,
@@ -39,6 +40,13 @@ export async function respondToRecommendation(
   recordResponse(recId, status, context);
   const tenantId = await currentTenantId();
   await persistResponses(tenantId);
+  // P2-e (2026-07-10, visual audit) - every response (accepted/deferred/dismissed) changes
+  // which changes are actionable, so the /changes SWR snapshot (changes-surface-store.ts) must
+  // invalidate here too, the SAME fire-and-forget pattern opportunity-actions.ts and
+  // today-moves-actions.ts already use. Without this, revalidatePath below only busts Next's
+  // route cache; the app-level SWR snapshot could keep serving a dismissed/accepted change for
+  // up to its own staleness window.
+  await invalidateChangesSurface().catch(() => {});
 
   // Ship -> Proof BRIDGE: accepting a Move with a target URL also creates the
   // measurable shipped_changes ledger record (GSC baseline + diff-in-diff

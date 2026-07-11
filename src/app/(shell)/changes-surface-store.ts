@@ -36,13 +36,21 @@ export const CHANGES_SURFACE_FRESH_MS = 15 * 60 * 1000;
 
 export type ChangesSurfaceRow = { computedAt: string; view: ChangesView };
 
-export async function readChangesSurface(): Promise<ChangesSurfaceRow | null> {
-  const rows = await readStore<ChangesSurfaceRow>(STORE, []).catch(() => [] as ChangesSurfaceRow[]);
+export async function readChangesSurface(tenantId?: string): Promise<ChangesSurfaceRow | null> {
+  const rows = await readStore<ChangesSurfaceRow>(STORE, [], { tenantId }).catch(() => [] as ChangesSurfaceRow[]);
   const row = rows[0];
   return row && row.view && Array.isArray(row.view.changes) ? row : null;
 }
 
-export async function writeChangesSurface(view: ChangesView, computedAtIso: string): Promise<void> {
+/**
+ * P2-f (2026-07-10, visual audit) - `tenantId` should always be passed by a background
+ * caller: changes-data.ts's after() rebuild already threads the correct tenant into
+ * `build(tenantId)`, so this write (and its internal existing-snapshot read below) must
+ * resolve the SAME tenant explicitly, never fall back to json-store's ambient
+ * currentTenantSlug() resolution outside the render's request scope. Optional only for
+ * backward compatibility; every real caller today passes it.
+ */
+export async function writeChangesSurface(view: ChangesView, computedAtIso: string, tenantId?: string): Promise<void> {
   // Empty-rebuild guard (replicates worklist-surface-store's 2026-07-02 guard):
   // buildChangesViewUncached is fail-soft, so a degraded build during a data outage
   // can "successfully" produce a zero-change list. Persisting that over a real
@@ -50,7 +58,7 @@ export async function writeChangesSurface(view: ChangesView, computedAtIso: stri
   // until the next healthy rebuild. An empty rebuild never replaces a non-empty
   // snapshot; a legitimate reset goes through invalidateChangesSurface() explicitly.
   if (view.changes.length === 0) {
-    const existing = await readChangesSurface();
+    const existing = await readChangesSurface(tenantId);
     if (existing && existing.view.changes.length > 0) {
       console.warn(
         `[changes-surface] refusing to overwrite a snapshot holding ${existing.view.changes.length} ranked changes with an empty rebuild (likely a degraded build during a data outage); keeping the snapshot from ${existing.computedAt}`,
@@ -58,7 +66,7 @@ export async function writeChangesSurface(view: ChangesView, computedAtIso: stri
       return;
     }
   }
-  await writeStore<ChangesSurfaceRow>(STORE, [{ computedAt: computedAtIso, view }]).catch(() => {});
+  await writeStore<ChangesSurfaceRow>(STORE, [{ computedAt: computedAtIso, view }], { tenantId }).catch(() => {});
 }
 
 /** Invalidate the cache so the next /changes load recomputes (call after a mutation). */

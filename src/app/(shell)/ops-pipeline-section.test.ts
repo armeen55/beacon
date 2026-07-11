@@ -25,9 +25,12 @@ describe("OpsPipelineSection contract", () => {
   });
 
   it("I-60: staleness is a SEPARATE amber tier, never the red banner", () => {
-    // warn violations split out from the red-tier alarm set...
-    expect(SRC).toContain('v.severity !== "info" && v.severity !== "warn"');
-    expect(SRC).toContain('allViolations.filter((v) => v.severity === "warn")');
+    // P2-a (2026-07-10) - warn/alarm split + redFires now come from the SHARED
+    // deriveDefectSignal (domains/ops/defect-signal.ts), the same pure read page.tsx's Today
+    // command uses, so the two can never disagree about what counts as a red defect again.
+    expect(SRC).toContain('from "@/domains/ops/defect-signal"');
+    expect(SRC).toContain("deriveDefectSignal({");
+    expect(SRC).toContain("alarmViolations, warnViolations, redFires");
     // ...render in their own amber box with the amber heading, on their own if needed.
     expect(SRC).toContain('data-staleness-warn="true"');
     expect(SRC).toContain("Some data is getting stale");
@@ -35,8 +38,13 @@ describe("OpsPipelineSection contract", () => {
     // amber staleness uses the status-warning token (no new raw palette classes),
     // never the red banner's palette.
     expect(SRC).toContain("border-status-warning/40");
-    // the red banner only renders when a RED-tier signal fires (not on staleness alone).
-    expect(SRC).toContain("const redFires = pipelineFires || deadmanFires || spikeFires");
+  });
+
+  it("I-60: the shared defect-signal module itself does the alarm/warn split and the redFires OR", () => {
+    const signalSrc = readFileSync(resolve(__dirname, "../../domains/ops/defect-signal.ts"), "utf8");
+    expect(signalSrc).toContain('v.severity !== "info" && v.severity !== "warn"');
+    expect(signalSrc).toContain('v.severity === "warn"');
+    expect(signalSrc).toContain("pipelineFires || deadmanFires || spikeFires");
   });
 
   it("N39: the error-spike line joins this block (never a second widget) and is deadline-bound", () => {
@@ -86,7 +94,10 @@ describe("OpsPipelineSection contract", () => {
 
   it("is mounted on the Today page above the hero (A1: never buried below a lying stat)", () => {
     const page = readFileSync(resolve(__dirname, "page.tsx"), "utf8");
-    expect(page).toContain('import { OpsPipelineSection } from "./ops-pipeline-section"');
+    // P2-a (2026-07-10) - page.tsx also imports this file's exported DEADMAN_DEADLINE_MS
+    // constant, so its own deadman/error-spike reads for the Today command's defect signal
+    // stay deadline-bound the same as this banner's.
+    expect(page).toContain('import { OpsPipelineSection, DEADMAN_DEADLINE_MS } from "./ops-pipeline-section"');
     expect(page).toContain("<OpsPipelineSection tenantId={tenantId} />");
     const opsIdx = page.indexOf("<OpsPipelineSection tenantId={tenantId} />");
     // UX4 item 6 moved the header's "Update data" button into <PageHeader>'s children, so the

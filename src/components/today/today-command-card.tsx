@@ -71,14 +71,17 @@ export function TodayCommandCard({ command }: { command: TodayCommand }) {
             ))}
           </ul>
         ) : null}
-        {/* The exact action + the one accent CTA (slot 4). */}
+        {/* The exact action + the one accent CTA (slot 4). P2-2 (2026-07-10, visual audit) - this
+            must render as ONE accent BUTTON (the only accent element above the fold), not an
+            underlined text link (the audit found "Review the page ->" rendering as plain
+            underlined text, easy to miss and not read as the card's one action). */}
         <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 pt-1">
           <p className="min-w-0 break-words text-body text-foreground">{command.exactAction}</p>
           {command.cta ? (
             <Link
               href={command.cta.href}
               data-command-cta="true"
-              className="shrink-0 text-body font-semibold text-accent-primary underline underline-offset-2 hover:text-accent-primary/85 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
+              className="inline-flex min-h-[34px] shrink-0 items-center justify-center rounded-md bg-accent-primary px-3.5 py-1.5 text-body font-semibold text-background hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
             >
               {command.cta.label} &rarr;
             </Link>

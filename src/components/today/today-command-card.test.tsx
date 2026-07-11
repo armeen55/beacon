@@ -63,6 +63,35 @@ describe("TodayCommandCard - exactly one CTA per kind", () => {
   });
 });
 
+// P2-2 (2026-07-10, visual audit) - the CTA must render as ONE accent BUTTON (a filled
+// bg-accent-primary surface), not an underlined text link (the audit found "Review the page ->"
+// rendering as plain underlined text, easy to miss as the card's one action).
+describe("TodayCommandCard - P2-2 the CTA renders as an accent button, not an underlined link", () => {
+  it("uses a filled accent-primary surface, never an underline, for the CTA", () => {
+    const markup = renderToStaticMarkup(<TodayCommandCard command={buildTodayCommand(base({ topOpportunity: opportunity() }))} />);
+    const ctaMatch = markup.match(/<a[^>]*data-command-cta="true"[^>]*>/);
+    expect(ctaMatch).not.toBeNull();
+    const ctaTag = ctaMatch![0];
+    expect(ctaTag).toContain("bg-accent-primary");
+    expect(ctaTag).not.toContain("underline");
+  });
+
+  it("renders the CTA as an accent button on every command kind", () => {
+    const kinds: TodayCommandInput[] = [
+      base({ pipelineAlarms: ["Search Console wrote 0 rows last night."] }),
+      base({ smokeAlarm: alarm128 }),
+      base({ topOpportunity: opportunity() }),
+      base({ measuringCount: 2, firstReadOn: "2026-07-18" }),
+    ];
+    for (const input of kinds) {
+      const markup = renderToStaticMarkup(<TodayCommandCard command={buildTodayCommand(input)} />);
+      const ctaTag = markup.match(/<a[^>]*data-command-cta="true"[^>]*>/)![0];
+      expect(ctaTag).toContain("bg-accent-primary");
+      expect(ctaTag).not.toContain("underline");
+    }
+  });
+});
+
 describe("TodayCommandCard - rendered copy per kind", () => {
   it("fix_defect", () => {
     const markup = renderToStaticMarkup(
@@ -101,8 +130,11 @@ describe("TodayCommandCard - rendered copy per kind", () => {
     );
     const t = text(markup);
     expect(t).toContain("Nothing needs a decision today. Keep measuring.");
-    expect(t).toContain("3 changes are measuring right now.");
-    expect(t).toContain("The next results land around Jul 18.");
+    // P2-b (2026-07-10, visual audit) - the count and next-read date belong to the proof strip
+    // right below this card (Today slot 5); the command only points at what is measuring.
+    expect(t).toContain("Your active changes are still measuring below.");
+    expect(t).not.toContain("changes are measuring right now");
+    expect(t).not.toContain("The next results land around");
     expect(t).toContain("See what's measuring ->");
     expect(markup).not.toMatch(/[\u2012\u2013\u2014\u2015]/);
   });

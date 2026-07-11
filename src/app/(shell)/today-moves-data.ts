@@ -50,7 +50,7 @@ import { countLedgerLifecycle } from "@/domains/changes/lifecycle-counts";
 import { loadDemandGraphForTenantCached } from "@/domains/demand-graph/load-graph";
 import { buildMeasuringHold, isHeldForMeasurement } from "./today-measuring-hold";
 import { getStagingAvailability } from "@/domains/push/stage-change";
-import { stageRouteForActionType, STAGING_OFF } from "@/domains/push/stage-route";
+import { stageRouteForActionType, STAGING_OFF, copyAllowedForStaging } from "@/domains/push/stage-route";
 import { getWixUrlMap } from "@/lib/connectors/wix/url-map";
 import { getWixConnectorToken } from "@/lib/connector-store";
 import { buildWixEditorLink } from "@/domains/push/wix-deep-link";
@@ -737,10 +737,17 @@ export async function buildTodayMovesData(
       // Item 15 - "Stage in Wix": only OFFER the button for a change the existing
       // push routes could carry, with real proposed text. The server action
       // re-checks every gate and fails closed to paste.
+      // P2-g (2026-07-10, visual audit) - the server-side backstop (stage-change.ts)
+      // checks a DIFFERENT, older QA verdict (recommendation-qa.ts) that has no idea
+      // about the W5 source-safety gate (missing_source / needs_source_check), so
+      // this button must not offer a one-click push for a draft the card itself
+      // refuses to show as ready copy. copyAllowedForStaging mirrors the SAME
+      // preparedQuality.copyAllowed check the prepared checklist's readyToReview
+      // already uses above.
       const stageRoute = stageRouteForActionType(e.action_type, e.target_element_key ?? null);
       const hasStageText = Boolean((e.proposed_text ?? "").trim());
       const staging = {
-        enabled: stagingAvail.enabled && stageRoute != null && hasStageText,
+        enabled: stagingAvail.enabled && stageRoute != null && hasStageText && copyAllowedForStaging(preparedQuality),
         nudge: stagingAvail.wixTarget && !stagingAvail.armed && stageRoute != null && hasStageText,
       };
       // Item 45 - "Open in Wix": a pure resolve from the same url-map entry the

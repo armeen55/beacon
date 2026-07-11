@@ -159,6 +159,20 @@ describe("loadChangesViewWithSwr", () => {
     expect((secondView.changes[0] as { id: string }).id).toBe("built-tenant-b");
   });
 
+  // P2-f (2026-07-10, visual audit) - the after() rebuild already threads tenantId
+  // explicitly into build(tenantId); the write must carry the SAME explicit tenantId
+  // (never fall back to json-store's ambient currentTenantSlug() resolution, which is
+  // not guaranteed correct outside the render's request scope inside after()).
+  it("P2-f: writeChangesSurface is called with the EXPLICIT tenantId as its third argument", async () => {
+    const build = vi.fn(async (t: string) => view(`built-${t}`));
+    await loadChangesViewWithSwr("tenant-a", { build });
+    await (afterMock.mock.calls[0][0] as () => Promise<void>)();
+
+    expect(writeChangesSurfaceMock).toHaveBeenCalledOnce();
+    const [, , tenantIdArg] = writeChangesSurfaceMock.mock.calls[0] as [ChangesView, string, string];
+    expect(tenantIdArg).toBe("tenant-a");
+  });
+
   it("a background rebuild failure is recorded and swallowed (the next visit retries)", async () => {
     const build = vi.fn(async () => {
       throw new Error("fuse wedged");

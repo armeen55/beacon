@@ -92,9 +92,14 @@ describe("ChangesListClient - Wave 3C top 3 to 5 command path + archive split", 
     />,
   );
 
-  it("promotes at most 5 top picks (Start here), never all of them", () => {
+  // P1-2 (2026-07-10, visual audit) - the visual audit found "Start here" repeating on
+  // every top pick (5 cards at once); it must point at exactly ONE card, rank #1. The other
+  // top picks stay visually promoted (the same dominant border), just without the band.
+  it("promotes 5 top picks visually, but only rank #1 carries the 'Start here' band", () => {
     const starts = (html.match(/Start here/g) ?? []).length;
-    expect(starts).toBe(5);
+    expect(starts).toBe(1);
+    const promoted = (html.match(/border-2 border-status-info\/30 shadow-sm/g) ?? []).length;
+    expect(promoted).toBe(5);
   });
 
   it("splits watch / leave-as-is / blocked into a collapsed archive off the command path", () => {
@@ -104,8 +109,13 @@ describe("ChangesListClient - Wave 3C top 3 to 5 command path + archive split", 
     expect(html).not.toContain("Blockedtwo Page");
   });
 
-  it("keeps the command path honest - the 6th actionable is still on the list (capped, not lost)", () => {
-    expect(html).toContain("Actionable 5");
+  // P1-1 (2026-07-10, visual audit) - the default view is no longer a wall (top picks PLUS
+  // another ~20 expanded cards): the 6th actionable now sits fully behind the single "N more
+  // ideas" expander, never directly in the default markup, while its count is still named
+  // honestly (capped and counted, never silently dropped).
+  it("keeps the command path honest - the 6th actionable is capped behind ONE expander, never lost or rendered by default", () => {
+    expect(html).not.toContain("Actionable 5");
+    expect(html).toContain("1 more lower-priority idea. I keep them ranked so nothing is lost.");
   });
 });
 

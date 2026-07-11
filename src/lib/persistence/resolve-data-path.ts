@@ -29,7 +29,7 @@
 import { join } from "node:path";
 
 import { getDataDir } from "@/lib/tenant";
-import { currentTenantSlug } from "@/lib/tenant-context";
+import { currentTenantSlug, slugForTenantId } from "@/lib/tenant-context";
 
 import { classifyStore, type StoreScope } from "./store-classification";
 
@@ -61,10 +61,13 @@ export type ResolvedPath = {
  *                                  Phase 7.8d will fail loud here.)
  *
  * Pure resolution — no disk I/O, no fallback decision (callers decide
- * routed vs flat based on `existsSync`). Uses `currentTenantSlug` only
- * for per-tenant + singleton scopes.
+ * routed vs flat based on `existsSync`). Uses `currentTenantSlug` (ambient) for
+ * per-tenant + singleton scopes, UNLESS the caller passes an explicit tenantId
+ * (P2-f, 2026-07-10 visual audit): a background write outside the render's
+ * request scope (e.g. next/server's after()) should resolve the SAME tenant its
+ * caller already threaded through explicitly, never re-resolve ambiently.
  */
-export async function resolveDataPath(baseName: string): Promise<ResolvedPath> {
+export async function resolveDataPath(baseName: string, explicitTenantId?: string): Promise<ResolvedPath> {
   const scope = classifyStore(baseName);
   const root = rootDataDir();
   const flatPath = join(root, `${baseName}.json`);
@@ -81,7 +84,7 @@ export async function resolveDataPath(baseName: string): Promise<ResolvedPath> {
   }
 
   if (scope === "per-tenant" || scope === "singleton") {
-    const slug = await currentTenantSlug();
+    const slug = explicitTenantId != null ? await slugForTenantId(explicitTenantId) : await currentTenantSlug();
     const tenantDir = getDataDir(slug);
     return {
       scope,

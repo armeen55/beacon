@@ -472,7 +472,7 @@ export async function loadChangesViewWithSwr(
       }
     });
 
-  const cached = await readChangesSurface().catch(() => null);
+  const cached = await readChangesSurface(tenantId).catch(() => null);
   if (cached) {
     if (isChangesSurfaceStale(cached.computedAt, Date.now())) scheduleRebuild("background-refresh");
     return { ...cached.view, surfaceComputedAt: cached.computedAt, surfaceBuilding: false };
@@ -495,7 +495,13 @@ export async function rebuildChangesSurface(tenantId: string): Promise<void> {
 async function rebuildChangesSurfaceWith(tenantId: string, build: ChangesViewBuilder): Promise<void> {
   const computedAt = new Date().toISOString();
   const view = await build(tenantId);
-  await writeChangesSurface(view, computedAt);
+  // P2-f (2026-07-10, visual audit HARD lint) - this runs inside next/server's after()
+  // (see scheduleRebuild above), OUTSIDE the render's request scope. writeChangesSurface's
+  // own persistence would otherwise resolve the write's tenant via json-store's ambient
+  // currentTenantSlug() (request-header-based), which is not the tenant this rebuild is
+  // for in a background task. `tenantId` is already threaded through `build(tenantId)`
+  // above - thread it through the write too, so the two can never disagree.
+  await writeChangesSurface(view, computedAt, tenantId);
 }
 
 // FP3 - the heavy compute. Formerly `loadChangesView` (react.cache'd inline); now the

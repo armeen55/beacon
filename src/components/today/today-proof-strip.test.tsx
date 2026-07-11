@@ -36,6 +36,45 @@ describe("TodayProofStrip", () => {
     expect(markup).not.toMatch(/[\u2012\u2013\u2014\u2015]/);
   });
 
+  // P2-1 (2026-07-10, visual audit) - the checkpoint (firstReadOn) and the settled-read
+  // date (firstSettledReadOn) now name BOTH stages of the same schedule, tying this
+  // strip's language to the Results cumulative-outcome strip's "Next checkpoint" clause.
+  it("names the settled-read date alongside the checkpoint when it is a later, distinct date", () => {
+    const markup = renderToStaticMarkup(
+      <TodayProofStrip
+        measuringCount={2}
+        firstReadOn="2026-07-14"
+        firstSettledReadOn="2026-07-18"
+        gscThrough="2026-07-08"
+        nowMs={NOW}
+      />,
+    );
+    const t = text(markup);
+    expect(t).toContain("The next results land around Jul 14.");
+    expect(t).toContain("The first settled read lands around Jul 18.");
+  });
+
+  it("omits the settled-read clause when it is absent or the same date as the checkpoint", () => {
+    const noSettle = text(
+      renderToStaticMarkup(
+        <TodayProofStrip measuringCount={2} firstReadOn="2026-07-18" gscThrough="2026-07-08" nowMs={NOW} />,
+      ),
+    );
+    expect(noSettle).not.toContain("settled read");
+    const sameDate = text(
+      renderToStaticMarkup(
+        <TodayProofStrip
+          measuringCount={2}
+          firstReadOn="2026-07-18"
+          firstSettledReadOn="2026-07-18"
+          gscThrough="2026-07-08"
+          nowMs={NOW}
+        />,
+      ),
+    );
+    expect(sameDate).not.toContain("settled read");
+  });
+
   it("uses the singular form for one change", () => {
     const markup = renderToStaticMarkup(
       <TodayProofStrip measuringCount={1} firstReadOn="2026-07-18" gscThrough="2026-07-08" nowMs={NOW} />,

@@ -24,12 +24,16 @@ import type { PipelineViolation } from "@/domains/ops/pipeline-invariants";
 import { valueWithDeadline } from "@/lib/load-with-deadline";
 import { recoveryForCronFailure, recoveryForSiteDown } from "@/domains/ops/recovery-actions";
 import type { JobPace } from "@/domains/ops/deadman";
+import { deriveDefectSignal } from "@/domains/ops/defect-signal";
 
 const MAX_SHOWN = 2;
 
 /** FP1 convention - a wedged receipts read may cost at most this before the
- *  alert silently skips the deadman line (the pipeline half still renders). */
-const DEADMAN_DEADLINE_MS = 3500;
+ *  alert silently skips the deadman line (the pipeline half still renders).
+ *  Exported (P2-a, 2026-07-10) so page.tsx's Today command can read the SAME
+ *  deadman/error-spike signals this banner's red condition uses - see the
+ *  comment on page.tsx's pipelineAlarms for why they must agree. */
+export const DEADMAN_DEADLINE_MS = 3500;
 
 function ViolationRow({ violation }: { violation: PipelineViolation }) {
   return (
@@ -123,20 +127,19 @@ export async function OpsPipelineSection({ tenantId }: { tenantId: string }) {
     //    stale"), never red. A stale or never-synced optional source is honest, not urgent.
     //  - INFO (a connected source that synced fine but is simply quiet, e.g. a dormant/
     //    dead AI feed) is never surfaced on Today.
-    const allViolations = health?.violations ?? [];
-    const alarmViolations = allViolations.filter(
-      (v) => v.severity !== "info" && v.severity !== "warn",
-    );
-    const warnViolations = allViolations.filter((v) => v.severity === "warn");
+    // P2-a (2026-07-10, visual audit) - alarmViolations/redFires now come from the SHARED
+    // deriveDefectSignal (domains/ops/defect-signal.ts), the exact same pure read page.tsx's
+    // Today command uses to build its fix_defect gate, so the two can never disagree again.
+    const { alarmViolations, warnViolations, redFires } = deriveDefectSignal({
+      violations: health?.violations ?? [],
+      deadman,
+      errorSpikeLine: errorSpike,
+    });
     const pipelineFires = alarmViolations.length > 0;
     const warnFires = warnViolations.length > 0;
     const deadmanFires = deadman != null && deadman.alarm && deadman.sentences.length > 0;
     const spikeFires = errorSpike != null;
     if (!pipelineFires && !warnFires && !deadmanFires && !spikeFires) return null;
-
-    // The red banner shows for any RED-tier signal (a broken pipe, a stalled scheduler,
-    // or a run of failures). Amber staleness can render on its own with no red at all.
-    const redFires = pipelineFires || deadmanFires || spikeFires;
 
     const shown = pipelineFires ? alarmViolations.slice(0, MAX_SHOWN) : [];
     const hidden = alarmViolations.length - shown.length;

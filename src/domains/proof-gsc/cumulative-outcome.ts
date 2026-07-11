@@ -32,6 +32,7 @@ import { splitLedgerLifecycle } from "@/domains/changes/lifecycle-counts";
 import { toMonthlyRate } from "./change-dollar-value";
 import { addDays } from "./measure";
 import { sumWonDollarsPerMonth } from "./won-dollar-rule";
+import { verdictSchedule } from "./verdict-schedule";
 import type { ShockWindow } from "./algorithm-weather";
 
 /** The minimal ledger-row shape this module needs - structurally satisfied by
@@ -182,6 +183,18 @@ export function computeCumulativeOutcome(
   }
   const firstVerdictOn = earliestFuture ?? earliestAny;
 
+  // P2-1 (2026-07-10, visual audit) - the SAME checkpoint date the Today proof strip
+  // names (verdictSchedule.firstReadOn: the soonest future 7/14-day read), so this
+  // surface and Today read as two stages of ONE schedule instead of two unrelated
+  // dates on separate pages. Only prepended when it lands strictly before the
+  // settled-read date below (a checkpoint on the same day as the settle would just
+  // repeat the date).
+  const checkpointOn = verdictSchedule(rows, now).firstReadOn;
+  const checkpointClause =
+    checkpointOn != null && (firstVerdictOn == null || checkpointOn < firstVerdictOn)
+      ? `Next checkpoint ${monthDayLabel(checkpointOn)}. `
+      : "";
+
   const valueLine =
     won > 0 && winClicksPerMonth > 0
       ? won === 1
@@ -192,10 +205,10 @@ export function computeCumulativeOutcome(
   const waitingLine =
     decided === 0 && measuring > 0
       ? firstVerdictOn == null
-        ? "No settled reads yet. The first lands when the earliest 28-day window closes. Longer confirmation reads come later."
+        ? `${checkpointClause}No settled reads yet. The first lands when the earliest 28-day window closes. Longer confirmation reads come later.`
         : firstVerdictOn >= today
-          ? `No settled reads yet. The first lands around ${monthDayLabel(firstVerdictOn)} when the earliest 28-day window closes. Longer confirmation reads come later.`
-          : "No settled reads yet. The earliest 28-day window has already closed, so the first lands as soon as Google's data catches up. Longer confirmation reads come later."
+          ? `${checkpointClause}No settled reads yet. The first lands around ${monthDayLabel(firstVerdictOn)} when the earliest 28-day window closes. Longer confirmation reads come later.`
+          : `${checkpointClause}No settled reads yet. The earliest 28-day window has already closed, so the first lands as soon as Google's data catches up. Longer confirmation reads come later.`
       : null;
 
   const dollarLine =

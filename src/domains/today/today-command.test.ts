@@ -10,6 +10,7 @@ import { describe, it, expect } from "vitest";
 import {
   buildTodayCommand,
   changeFocusHref,
+  commandAllowsCelebration,
   LOSS_DELTA_PCT,
   type TodayCommand,
   type TodayCommandInput,
@@ -89,7 +90,19 @@ describe("buildTodayCommand priority", () => {
   it("respond_to_loss fires on a whole-site drop at exactly the threshold, no page needed", () => {
     const c = buildTodayCommand(base({ scoreboardDeltaPct: LOSS_DELTA_PCT }));
     expect(c.kind).toBe("respond_to_loss");
-    expect(c.headline).toContain("down 10% over the last 7 days");
+    // P2-c (2026-07-10, visual audit) - standardized to "vs the week before" (was "over the
+    // last 7 days"), matching the SAME phrase the page-smoke-alarm branch uses for this
+    // identical last-7-vs-prior-7 delta.
+    expect(c.headline).toContain("down 10% vs the week before");
+  });
+
+  // P2-c - both branches that name the whole-site week-over-week delta use the identical
+  // phrase, so the operator never reads them as two different measurements of one number.
+  it("uses the identical phrase for the whole-site delta whether or not a page is also blamed", () => {
+    const withPage = buildTodayCommand(base({ smokeAlarm: smokeAlarmLosing(128), scoreboardDeltaPct: -12 }));
+    const withoutPage = buildTodayCommand(base({ scoreboardDeltaPct: -12 }));
+    expect(withPage.why.join(" ")).toContain("down 12% vs the week before");
+    expect(withoutPage.headline).toContain("down 12% vs the week before");
   });
 
   it("ship_move fires only when a top opportunity exists and there is no defect or loss", () => {
@@ -99,16 +112,33 @@ describe("buildTodayCommand priority", () => {
     expect(c.cta?.href).toBe(changeFocusHref("tenant-a::/flags::title"));
     // the demand number and the evidence + effort read as the evidence lines
     expect(c.why.join(" ")).toContain("about 40 more clicks a month");
-    expect(c.why.join(" ")).toContain("Strong comparison");
+    // P2-d (2026-07-10, visual audit) - the command card uses its own plain evidence words
+    // (COMMAND_EVIDENCE_WORD), never the Changes list's EVIDENCE_LABEL chip text
+    // ("Directional signal." / "Tracking only." read as lab jargon inside the ONE command).
+    expect(c.why.join(" ")).toContain("Strong comparison behind it.");
     expect(c.why.join(" ")).toContain("5 minutes of work");
   });
 
-  it("observe when nothing needs a decision, naming the measuring count and the next-read date", () => {
+  it("P2-d: the evidence bullet uses plain words for every tier, never the Changes list's EVIDENCE_LABEL jargon", () => {
+    const directional = buildTodayCommand(base({ topOpportunity: opportunity({ evidenceStrength: "directional" }) }));
+    const tracking = buildTodayCommand(base({ topOpportunity: opportunity({ evidenceStrength: "tracking" }) }));
+    expect(directional.why.join(" ")).toContain("Early evidence, worth doing.");
+    expect(tracking.why.join(" ")).toContain("Still building evidence for this one.");
+    for (const c of [directional, tracking]) {
+      expect(c.why.join(" ")).not.toContain("Directional signal");
+      expect(c.why.join(" ")).not.toContain("Tracking only");
+    }
+  });
+
+  // P2-b (2026-07-10, visual audit) - the observe command must NOT repeat the measuring count
+  // or the next-read date; the proof strip right below it (Today slot 5) is the sole owner of
+  // both. The command only points at what is measuring, in plain words.
+  it("observe when nothing needs a decision points at what is measuring, without repeating its count or date", () => {
     const c = buildTodayCommand(base({ measuringCount: 3, firstReadOn: "2026-07-18" }));
     expect(c.kind).toBe("observe");
     expect(c.headline).toBe("Nothing needs a decision today. Keep measuring.");
-    expect(c.why.join(" ")).toContain("3 changes are measuring right now.");
-    expect(c.why.join(" ")).toContain("The next results land around Jul 18.");
+    expect(c.why.join(" ")).toContain("Your active changes are still measuring below.");
+    expect(c.why.join(" ")).not.toMatch(/\d/); // no repeated count or date, digit-free
     expect(c.cta).toEqual({ label: "See what's measuring", href: "/results" });
   });
 
@@ -167,5 +197,28 @@ describe("buildTodayCommand invariants", () => {
       expect(c.why.length).toBeGreaterThanOrEqual(1);
       expect(c.exactAction.length).toBeGreaterThan(0);
     }
+  });
+});
+
+// P1-5 (2026-07-10, visual audit) - the Today greeting must never celebrate a shipping streak
+// ("you are on a roll") directly above a command that says something is broken or losing. The
+// audit's exact live contradiction: "16 changes shipped in the last 14 days, you are on a roll."
+// sat right above "Your biggest problem today: ... lost 163 clicks." commandAllowsCelebration is
+// the one gate page.tsx's greeting reads before appending the celebratory clause.
+describe("commandAllowsCelebration - the greeting never celebrates when the command is a problem", () => {
+  it("forbids celebration for a defect or a loss - today's two problem kinds", () => {
+    expect(commandAllowsCelebration("fix_defect")).toBe(false);
+    expect(commandAllowsCelebration("respond_to_loss")).toBe(false);
+  });
+
+  it("allows celebration for a normal move or a quiet observe day", () => {
+    expect(commandAllowsCelebration("ship_move")).toBe(true);
+    expect(commandAllowsCelebration("observe")).toBe(true);
+  });
+
+  it("agrees with buildTodayCommand's real output for the audit's exact scenario (a losing page)", () => {
+    const command = buildTodayCommand(base({ smokeAlarm: smokeAlarmLosing(163) }));
+    expect(command.kind).toBe("respond_to_loss");
+    expect(commandAllowsCelebration(command.kind)).toBe(false);
   });
 });
