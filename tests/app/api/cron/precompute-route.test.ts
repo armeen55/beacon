@@ -19,8 +19,10 @@ const state = vi.hoisted(() => ({
   ],
   warmed: [] as string[],
   recorded: [] as Array<{ tenant_id: string; ok: boolean }>,
-  /** Every recordCronRun call for the precompute job (the run-level ledger row
-   *  whose `ok` the health panel + summary strip read). */
+  /** Every finishCronRun call for the precompute job (the run-level ledger row
+   *  whose `ok` the health panel + summary strip read). The route now opens the
+   *  row with beginCronRun and closes it with finishCronRun; the finish call is
+   *  what carries the run `ok` and notes. */
   cronRuns: [] as Array<{ ok: boolean; notes: Record<string, unknown> }>,
   hasRun: false,
   /** "all" = every tenant's warm throws; "core-only" = only Iranopedia throws;
@@ -65,9 +67,21 @@ vi.mock("@/lib/logger", () => ({
 }));
 
 vi.mock("@/domains/ops/cron-runs-store", () => ({
-  recordCronRun: vi.fn(async (input: { ok: boolean; notes?: Record<string, unknown> }) => {
-    state.cronRuns.push({ ok: input.ok, notes: input.notes ?? {} });
-  }),
+  // Started-row receipt pattern (2026-07-11): beginCronRun opens the row before
+  // any work, finishCronRun closes it with the run `ok` + notes. The finish call
+  // is the run-level ledger row the health panel + summary strip read.
+  beginCronRun: vi.fn(async (input: { job: string; startedAt: string }) => ({
+    storage: "supabase" as const,
+    id: "test-receipt",
+    job: input.job,
+    tenantId: null,
+    startedAt: input.startedAt,
+  })),
+  finishCronRun: vi.fn(
+    async (_receipt: unknown, input: { ok: boolean; notes?: Record<string, unknown> }) => {
+      state.cronRuns.push({ ok: input.ok, notes: input.notes ?? {} });
+    },
+  ),
 }));
 
 import { GET } from "@/app/api/cron/precompute/route";

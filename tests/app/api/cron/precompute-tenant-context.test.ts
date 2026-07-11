@@ -75,7 +75,17 @@ vi.mock("@/lib/logger", () => ({
 }));
 
 vi.mock("@/domains/ops/cron-runs-store", () => ({
-  recordCronRun: vi.fn(async () => {}),
+  // Started-row receipt pattern (2026-07-11): the route opens the row with
+  // beginCronRun and closes it with finishCronRun. This test only cares about
+  // per-tenant warm context, so begin returns a handle and finish is a no-op.
+  beginCronRun: vi.fn(async (input: { job: string; startedAt: string }) => ({
+    storage: "supabase" as const,
+    id: "test-receipt",
+    job: input.job,
+    tenantId: null,
+    startedAt: input.startedAt,
+  })),
+  finishCronRun: vi.fn(async () => {}),
 }));
 
 import { GET } from "@/app/api/cron/precompute/route";
