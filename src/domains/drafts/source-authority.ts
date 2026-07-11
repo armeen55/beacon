@@ -60,6 +60,20 @@ export type ClassifiableSource = {
    *  fetch actually confirmed, falling back to `claim` only when no excerpt was
    *  persisted (a pre-F2 draft). */
   supportingExcerpt?: string | null;
+  /** Drafter last-mile G5 (2026-07-10): the cited domain is authority-strong but
+   *  the fetch was refused (403/robots-block), so the claim could not be read +
+   *  confirmed. `authority` stays authoritative, `verified` stays false, and the
+   *  gate holds the draft as `needs_source_check` rather than `missing_source`. */
+  fetchBlocked?: boolean;
+  /** Drafter last-mile G6 (2026-07-10): the FULL fetched page text, present ONLY
+   *  at generation time (a caller that just fetched this source). When set, the
+   *  per-claim coverage check runs findSupportingSpan against this whole page
+   *  (fresh spans per draft sentence), so ONE qualifying source page (e.g. a
+   *  Wikipedia list) can back MANY sentences of a roundup - not just the single
+   *  stamped `supportingExcerpt`. TRANSIENT: not part of SourceRefSchema, never
+   *  persisted (the render/eval path keeps using the ~400-char excerpt). Absent
+   *  = coverage falls back to supportingExcerpt / claim, byte-identical to before. */
+  fetchedText?: string | null;
 };
 
 /** Universal .gov/.edu-equivalent TLDs treated as authoritative for every
@@ -432,7 +446,12 @@ export function draftFactsCoveredBySources(
   for (const sentence of protectedSentences) {
     let matched = false;
     for (const s of qualifying) {
-      const evidence = (s.supportingExcerpt ?? s.claim ?? "").trim();
+      // G6 (2026-07-10): prefer the FULL fetched page text when a caller supplied
+      // it (generation time), so one qualifying source page can back MANY
+      // sentences of a roundup - a 10-name list is structurally impossible to
+      // cover from a single ~400-char stamped excerpt. Falls back to the persisted
+      // excerpt (render/eval path), then the bare claim (pre-F2 draft).
+      const evidence = (s.fetchedText ?? s.supportingExcerpt ?? s.claim ?? "").trim();
       if (!evidence) continue; // an authoritative + verified source with no text backs nothing
       const span = findSupportingSpan(sentence, evidence, nowYear);
       if (!span.supported || span.excerpt == null) continue;
@@ -469,4 +488,86 @@ export function hasQualifyingAuthoritativeSource(
   nowYear?: number,
 ): boolean {
   return draftFactsCoveredBySources(draftText, sources, tenantAllowlist, nowYear).covered;
+}
+
+/**
+ * Drafter last-mile G4 (2026-07-10): the MARKETING-superlative net (bare
+ * promotional ranking words) the structured drafter's content firewall uses,
+ * lifted here so the drafter and the coverage check agree on what counts as a
+ * superlative. Disjoint-by-design from factual-entailment's `findSuperlatives`
+ * (which catches "the largest/first/only ..." and "most \w+"): this one adds
+ * the bare puffery ("leading", "best-known", "premier", "world-class") that has
+ * no leading article. The union of the two is the full set of claims that need
+ * a superlative-asserting source.
+ */
+const MARKETING_SUPERLATIVE =
+  /\b(?:best|leading|number one|top-rated|guaranteed|world-class|world class|ultimate|premier|best-known|best known|renowned|foremost|preeminent|unrivalled|unrivaled|unparalleled)\b|#1/gi;
+
+/**
+ * G4: every superlative phrase in `text` - the union of the ranking net
+ * (factual-entailment.findSuperlatives: "the largest", "most famous", ...) and
+ * the marketing net (MARKETING_SUPERLATIVE: "leading", "best-known", ...). Pure,
+ * deterministic, lowercased + deduped. Empty = the text asserts no superlative.
+ */
+export function findAllSuperlatives(text: string): string[] {
+  const out = new Set<string>(findSuperlatives(text));
+  for (const m of (text ?? "").matchAll(MARKETING_SUPERLATIVE)) out.add(m[0].toLowerCase());
+  return [...out];
+}
+
+/**
+ * Drafter last-mile G4 (2026-07-10): SUPERLATIVE-PARITY coverage. A superlative
+ * is the highest-risk unsupported claim, so the firewall must NOT ship one the
+ * evidence does not prove - AND it must not blanket-reject a superlative-intent
+ * topic ("most famous iranian singers") whose answer legitimately ranks.
+ *
+ * This is the deterministic middle: a superlative sentence is GROUNDED only when
+ * some QUALIFYING source (authoritative - re-derived here, never the LLM's guess
+ * - AND generation-time verified) offers a supporting span that ITSELF asserts a
+ * superlative (superlative-parity, mirroring the negation-parity guard). A source
+ * that merely mentions the entity, or backs the sentence's non-superlative facts
+ * without asserting the ranking, does NOT ground the superlative.
+ *
+ * Returns every superlative phrase from a superlative-bearing draft sentence that
+ * no qualifying source asserts. Empty = every superlative in the draft is source-
+ * asserted (or the draft has none). The drafter uses a non-empty result to
+ * trigger ONE rephrase retry, then fails closed - an ungrounded superlative never
+ * ships. PURE, no I/O; callers thread the tenant's own allowlist.
+ */
+export function ungroundedSuperlatives(
+  draftText: string,
+  sources: readonly ClassifiableSource[] | undefined,
+  tenantAllowlist?: readonly string[],
+  nowYear: number = new Date().getFullYear(),
+): string[] {
+  const text = (draftText ?? "").trim();
+  if (!text) return [];
+  const sentences = text
+    .split(/(?<=[.!?])\s+/)
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .filter((s) => findAllSuperlatives(s).length > 0);
+  if (sentences.length === 0) return [];
+
+  const qualifying = (sources ?? []).filter(
+    (s) => classifySourceAuthority(s, tenantAllowlist) === "authoritative" && s.verified === true,
+  );
+
+  const ungrounded = new Set<string>();
+  for (const sentence of sentences) {
+    let asserted = false;
+    for (const s of qualifying) {
+      const evidence = (s.fetchedText ?? s.supportingExcerpt ?? s.claim ?? "").trim();
+      if (!evidence) continue;
+      const span = findSupportingSpan(sentence, evidence, nowYear);
+      if (!span.supported || span.excerpt == null) continue;
+      // Superlative-parity: the backing span must ITSELF carry a superlative, not
+      // merely ground the sentence's entities/facts.
+      if (findAllSuperlatives(span.excerpt).length === 0) continue;
+      asserted = true;
+      break;
+    }
+    if (!asserted) for (const phrase of findAllSuperlatives(sentence)) ungrounded.add(phrase);
+  }
+  return [...ungrounded];
 }

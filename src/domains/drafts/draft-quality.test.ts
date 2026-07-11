@@ -7,6 +7,7 @@ import {
   evaluateInternalLinkQuality,
   evaluateCROFixQuality,
   evaluateSectionDraftQuality,
+  qualityLabel,
 } from "./draft-quality";
 
 // Cases are pinned to the REAL Iranopedia draft audit (scripts/wf-draft-quality.js)
@@ -155,6 +156,82 @@ describe("evaluateDraftQuality - answer blocks", () => {
   it("rejects an empty answer as malformed", () => {
     expect(evaluateDraftQuality({ answer: "" }).status).toBe("malformed");
     expect(evaluateDraftQuality({ answer: null }).status).toBe("malformed");
+  });
+});
+
+// ── G5 (2026-07-10): needs_source_check (honest unfetchable-source hold) ──────
+describe("evaluateDraftQuality - G5 needs_source_check", () => {
+  const CHEETAH =
+    "Iran's national animal is the Asiatic cheetah, a critically endangered subspecies native to the country's central plateau and its arid steppe grasslands. Conservation programs coordinated by the Department of Environment work to protect the small remaining population across a network of protected reserves and national parks, including Miandasht and Touran. Camera-trap surveys and radio-collar tracking studies help researchers estimate population trends and identify the roads and fences that fragment the cheetah's remaining range. International partners have supported captive-breeding research as a hedge against further decline, though wild recovery remains the primary conservation goal for the coming decade.";
+
+  it("holds as needs_source_check (NOT missing_source) when an authority-strong citation was robots-blocked", () => {
+    const r = evaluateDraftQuality({
+      answer: CHEETAH,
+      evidenceRefs: 0,
+      sources: [
+        {
+          url: "https://www.britannica.com/animal/asiatic-cheetah",
+          domain: "britannica.com",
+          claim: "the Asiatic cheetah is Iran's national animal and is critically endangered",
+          verified: false,
+          fetchBlocked: true,
+        },
+      ],
+    });
+    expect(r.status).toBe("needs_source_check");
+    expect(r.reasons[0]).toBe(
+      "I could not read britannica.com myself (it blocks robots). Check this citation before you paste.",
+    );
+    expect(r.copyAllowed).toBe(false);
+    expect(r.canRegenerate).toBe(false);
+  });
+
+  it("NEVER-READY-WITHOUT-VERIFICATION pin: a blocked authoritative source alone is never ready", () => {
+    const r = evaluateDraftQuality({
+      answer: CHEETAH,
+      sources: [
+        { domain: "britannica.com", claim: "the Asiatic cheetah is Iran's national animal", verified: false, fetchBlocked: true },
+      ],
+    });
+    expect(r.status).not.toBe("ready");
+    expect(r.copyAllowed).toBe(false);
+  });
+
+  it("a robots-block on a NON-authoritative domain is still plain missing_source (a block is no trust grant)", () => {
+    const r = evaluateDraftQuality({
+      answer: CHEETAH,
+      sources: [
+        { domain: "some-blog.example", claim: "the Asiatic cheetah is Iran's national animal", verified: false, fetchBlocked: true },
+      ],
+    });
+    expect(r.status).toBe("missing_source");
+  });
+
+  it("with no blocked source at all, an unsourced factual claim stays missing_source (unchanged)", () => {
+    const r = evaluateDraftQuality({ answer: CHEETAH, evidenceRefs: 0 });
+    expect(r.status).toBe("missing_source");
+  });
+
+  it("READY still requires verified coverage: a verified covering source wins even when a blocked one is also cited", () => {
+    const r = evaluateDraftQuality({
+      answer: CHEETAH,
+      sources: [
+        { domain: "britannica.com", claim: "blocked one", verified: false, fetchBlocked: true },
+        {
+          domain: "iranicaonline.org",
+          claim: "the Asiatic cheetah is Iran's national animal and is critically endangered",
+          verified: true,
+          supportingExcerpt: CHEETAH,
+        },
+      ],
+      authoritativeSourceDomains: ["iranicaonline.org"],
+    });
+    expect(r.status).toBe("ready");
+    expect(r.copyAllowed).toBe(true);
+  });
+
+  it("qualityLabel maps needs_source_check to a plain 'Check the source' chip", () => {
+    expect(qualityLabel("needs_source_check")).toBe("Check the source");
   });
 });
 

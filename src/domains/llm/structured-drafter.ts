@@ -22,6 +22,7 @@ import {
   findSupportingSpan,
   classifySourceAuthority,
   extractDomain,
+  ungroundedSuperlatives,
   type ClassifiableSource,
 } from "@/domains/drafts/source-authority";
 import { safeFetchSourceText } from "@/lib/net/safe-source-fetch";
@@ -136,6 +137,20 @@ function estimateCostUsd(promptChars: number, completionChars: number): number {
 }
 
 const SUPERLATIVES = /\b(best|leading|#1|number one|top-rated|guaranteed|world-class|ultimate|premier)\b/i;
+
+/** G4 (2026-07-10): the RETRY instruction when an answer block asserted a
+ *  superlative no cited source proves. Instructs the model to REPHRASE to a
+ *  grounded, non-superlative fact (the honest fix the operator made by hand:
+ *  "most celebrated" -> "the defining voices in classical music", grounded by
+ *  the honors/dates), rather than blanket-banning the superlative-intent topic. */
+const SUPERLATIVE_REPHRASE_INSTRUCTION =
+  'Your previous answer used a superlative or ranking claim (for example "most famous", ' +
+  '"most celebrated", "leading", "best-known", "the first") that none of your cited sources ' +
+  "actually states. Do NOT simply repeat it, and do NOT drop the topic. REPHRASE it as a " +
+  "grounded, non-superlative fact using the specific honors, dates, roles, and works in the " +
+  'evidence: for example write "a defining voice in classical Persian music, awarded the UNESCO ' +
+  'Mozart Medal" instead of "the most celebrated singer". Only keep a superlative if a cited ' +
+  "source explicitly asserts that exact superlative.";
 
 /** Em/en-dashes are a STYLE issue, not a trust issue — normalize them to hyphens
  *  in every string field before validation, so a good draft isn't rejected for
@@ -257,7 +272,7 @@ const WHOLE_DRAFT_VERIFY_DEADLINE_MS = 20_000;
 export type SourceTextFetcher = (
   url: string,
   opts?: { deadlineMs?: number },
-) => Promise<{ ok: boolean; text: string; finalUrl?: string }>;
+) => Promise<{ ok: boolean; text: string; finalUrl?: string; blocked?: boolean }>;
 
 /** Strip HTML to visible text (scripts/styles/tags removed, whitespace
  *  collapsed) so claim tokens can be matched against the page's real words. */
@@ -276,7 +291,10 @@ function defaultSourceFetcher(timeoutMs: number): SourceTextFetcher {
   return async (url: string, opts?: { deadlineMs?: number }) => {
     try {
       const res = await safeFetchSourceText(url, {}, { timeoutMs, deadlineMs: opts?.deadlineMs });
-      if (!res.ok) return { ok: false, text: "" };
+      // G5 (2026-07-10): surface a robots/anti-bot block (403 class) distinctly
+      // from an unreachable/broken URL so an authority-strong-but-unreadable
+      // source is held as "check this citation", not "no source". Never evade it.
+      if (!res.ok) return { ok: false, text: "", blocked: res.reason === "access_blocked" };
       return { ok: true, text: htmlToVisibleText(res.text), finalUrl: res.finalUrl };
     } catch {
       return { ok: false, text: "" };
@@ -304,6 +322,9 @@ function resetSourceVerification(s: Record<string, unknown>): void {
   delete s.supportingExcerpt;
   delete s.finalUrl;
   delete s.contentHash;
+  // G5 (2026-07-10): an LLM-supplied `fetchBlocked` must never survive either -
+  // only a real 403-class fetch below is allowed to set it.
+  delete s.fetchBlocked;
 }
 
 /**
@@ -357,7 +378,7 @@ function stripSourceVerificationFields(value: unknown): unknown {
 async function verifyStampedSources(
   value: unknown,
   fetcher: SourceTextFetcher,
-  cache: Map<string, Promise<{ ok: boolean; text: string; finalUrl?: string }>>,
+  cache: Map<string, Promise<{ ok: boolean; text: string; finalUrl?: string; blocked?: boolean }>>,
   nowIso: string,
   nowYear: number,
   tenantAllowlist: readonly string[] | undefined,
@@ -406,6 +427,26 @@ async function verifyStampedSources(
     }
     const fetched = await pending;
     if (!fetched.ok) {
+      // G5 (2026-07-10): a robots/anti-bot BLOCK (403 class) on an
+      // authority-strong domain is honest middle ground - we could not read the
+      // page, so we cannot mark it verified, but the domain IS trusted. Keep
+      // authority "authoritative" + verified:false + fetchBlocked:true so the
+      // gate holds the draft as `needs_source_check` ("check this citation"),
+      // NOT `missing_source`. A block on a non-trusted domain, or any
+      // dns/timeout/broken fetch, stays "weak" exactly as before.
+      if (fetched.blocked === true) {
+        const blockedHost = extractDomain({ url, domain: String(s.domain ?? "") });
+        const blockedAuthority = classifySourceAuthority(
+          { url, domain: blockedHost, claim },
+          tenantAllowlist,
+        );
+        if (blockedAuthority === "authoritative") {
+          s.authority = "authoritative";
+          s.verified = false;
+          s.fetchBlocked = true;
+          return;
+        }
+      }
       s.authority = "weak";
       return;
     }
@@ -471,11 +512,18 @@ async function verifyStampedSources(
 function runContentFirewalls(
   strings: string[],
   ledger: GroundedNumbers,
+  // G4 (2026-07-10): when true, the flat marketing-superlative reject is SKIPPED
+  // here and handled instead by the verification-aware superlative post-check
+  // after source verification (a superlative IS allowed when a qualifying
+  // verified source asserts it; an ungrounded one triggers ONE rephrase retry,
+  // then fails closed). The drafter passes this for `answer_block` only; every
+  // other kind keeps the byte-identical hard reject below.
+  opts?: { deferSuperlativeCheck?: boolean },
 ): { ok: true } | { ok: false; reason: string } {
   const blob = strings.join("  ");
   if (/\[[^\]]*\]|\{\{|TODO|TBD|lorem ipsum/i.test(blob)) return { ok: false, reason: "placeholder" };
   if (blob.includes("—")) return { ok: false, reason: "em_dash" };
-  if (SUPERLATIVES.test(blob)) return { ok: false, reason: "superlative" };
+  if (!opts?.deferSuperlativeCheck && SUPERLATIVES.test(blob)) return { ok: false, reason: "superlative" };
   const invented = findUngroundedNumbers(blob, ledger);
   if (invented.length > 0) return { ok: false, reason: `invented_numbers:${invented.slice(0, 3).join(",")}` };
   return { ok: true };
@@ -633,19 +681,26 @@ export async function callStructuredLLM<K extends StructuredDraftKind>(
   // hermetic fetcher is injected) + a per-request URL cache so the same source
   // cited on both attempts is fetched once.
   const sourceFetch = resolveSourceFetch(req.sourceFetch, timeoutMs);
-  const sourceTextCache = new Map<string, Promise<{ ok: boolean; text: string; finalUrl?: string }>>();
+  const sourceTextCache = new Map<string, Promise<{ ok: boolean; text: string; finalUrl?: string; blocked?: boolean }>>();
   const verifyNowIso = (req.now ?? new Date()).toISOString();
 
   let totalCost = 0;
   const errors: string[] = [];
   let lastFailureWasTemplated = false;
   let lastFailureWasThin = false;
+  let lastFailureWasSuperlative = false;
 
   for (let attempt = 0; attempt < 2; attempt += 1) {
     const retried = attempt > 0;
     let system = req.system;
     if (retried) {
-      if (lastFailureWasTemplated) {
+      if (lastFailureWasSuperlative) {
+        // G4 (2026-07-10): the first draft asserted a superlative no cited source
+        // proves. Retry with an explicit REPHRASE instruction (ground it in
+        // specific facts) rather than a blanket "invalid output" correction - a
+        // superlative-intent topic ("most famous X") must still be answerable.
+        system = `${req.system}\n\n${SUPERLATIVE_REPHRASE_INSTRUCTION}`;
+      } else if (lastFailureWasTemplated) {
         // R16 de-templating: the first draft read like a repeat - retry with a
         // variation instruction rather than an "invalid output" correction.
         system = `${req.system}\n\n${VARIATION_INSTRUCTION}`;
@@ -667,6 +722,13 @@ export async function callStructuredLLM<K extends StructuredDraftKind>(
         }
       }
     }
+
+    // The retry-instruction flags above have now been consumed for this attempt;
+    // clear them so any failure below re-sets only the reason that actually
+    // applies (the explicit resets on each failure path stay as documentation).
+    lastFailureWasSuperlative = false;
+    lastFailureWasTemplated = false;
+    lastFailureWasThin = false;
 
     const out = await complete({ system, user: req.user, maxTokens, timeoutMs });
     if ("error" in out) {
@@ -695,7 +757,9 @@ export async function callStructuredLLM<K extends StructuredDraftKind>(
     // W5 (J-69): the LLM may PROPOSE sources, but only source-authority.ts
     // decides `authority`, re-stamp before any firewall/cache/return step.
     const result = { ...parsed, data: stampAnySources(parsed.data, req.authoritativeSourceDomains) as typeof parsed.data };
-    const fw = runContentFirewalls(draftStringValues(result.data), ledger);
+    const fw = runContentFirewalls(draftStringValues(result.data), ledger, {
+      deferSuperlativeCheck: req.kind === "answer_block",
+    });
     if (!fw.ok) {
       errors.push(`firewall:${fw.reason}`);
       lastFailureWasTemplated = false;
@@ -743,6 +807,31 @@ export async function callStructuredLLM<K extends StructuredDraftKind>(
           req.authoritativeSourceDomains,
         )) as z.infer<(typeof SCHEMA_BY_KIND)[K]>)
       : (stripSourceVerificationFields(result.data) as z.infer<(typeof SCHEMA_BY_KIND)[K]>);
+
+    // G4 (2026-07-10): SUPERLATIVE post-check, verification-aware (runs on
+    // `answer_block` only; every other kind's marketing-superlative reject stays
+    // in runContentFirewalls above). A superlative is allowed ONLY when a
+    // QUALIFYING verified source asserts it (superlative-parity); an ungrounded
+    // one is not shipped. First attempt: ONE rephrase retry that instructs
+    // grounding the claim in specific facts. Second attempt still ungrounded:
+    // fail closed (never ship an unprovable superlative). Stays within the
+    // existing <=2 LLM attempts and adds no budget.
+    if (req.kind === "answer_block" && primary != null) {
+      const ungrounded = ungroundedSuperlatives(
+        primary,
+        (verifiedData as { sources?: ClassifiableSource[] }).sources,
+        req.authoritativeSourceDomains,
+        nowYear,
+      );
+      if (ungrounded.length > 0) {
+        errors.push(`superlative_ungrounded:${ungrounded.slice(0, 3).join(",")}`);
+        if (!retried) {
+          lastFailureWasSuperlative = true;
+          continue; // rephrase retry
+        }
+        continue; // second attempt still ungrounded -> fall through to fail-closed
+      }
+    }
 
     const drafted = {
       status: "drafted" as const,
@@ -830,6 +919,11 @@ const ANSWER_BLOCK_SYSTEM =
   '"confidence" ("high"|"medium"|"low"), "risks" (array of short strings), "operatorSteps" (array of concrete steps), ' +
   '"proofPlan" ({"metrics":[...],"windowsDays":[7,14,28],"controls":"..."}). ' +
   "Ground everything ONLY in the brief/outline/questions provided. Do NOT invent statistics, dates, prices, rankings, or superlatives. No marketing language. No em-dashes. Cite 1-2 authoritative sources for any factual claim (a date, a count, a named fact). Never state one with no source. " +
+  // G4 (2026-07-10): superlative-intent topics ("most famous X") must still be
+  // answerable WITHOUT an unprovable superlative. Instruct grounding-by-facts up
+  // front, so the drafter usually clears the verification-aware post-check on the
+  // first attempt (the rephrase retry is the safety net, not the norm).
+  "If the topic is inherently superlative (a \"most famous\" or \"best\" roundup), do NOT assert a superlative you cannot cite; instead ground it in the specific honors, dates, works, and roles in the evidence (for example \"a defining voice in classical Persian music, awarded the UNESCO Mozart Medal\" rather than \"the most celebrated singer\"). Only use a superlative if a cited source explicitly states that exact superlative. " +
   "The FIRST sentence must be specific to THIS exact page/topic — name the concrete subject, not a generic category. Do NOT open with a context-free dictionary definition (e.g. \"A gift is a voluntarily transferred item…\"); a reader must immediately know which specific topic this answers. Never defer or punt (\"varies\", \"check elsewhere\", \"consult other sources\") — answer directly. Do not claim something is \"official\" unless the grounding states it.";
 
 /** Draft a schema-valid AnswerBlockDraft for one Move. Capped + budgeted. */

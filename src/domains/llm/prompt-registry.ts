@@ -25,7 +25,12 @@ export const PROMPT_REGISTRY = {
   // + "sources" field + cite-sources instruction replace the old 40-60 word
   // prompt - the content-hash call cache must never serve a stale v1 response
   // under the new contract.
-  "draft.answer_block": 2,
+  // Bumped to v3 (2026-07-10, drafter last-mile G4): the system prompt now
+  // instructs grounding superlative-intent topics in specific facts (no
+  // unprovable superlative), paired with a verification-aware superlative
+  // post-check + rephrase retry - a contract change, so the cache must not
+  // serve a stale v2 response.
+  "draft.answer_block": 3,
   "draft.atomic_edit": 1,
   "draft.create_page_brief": 1,
   "draft.cro_fix": 1,

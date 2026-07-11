@@ -7,6 +7,8 @@ import {
   extractDomain,
   claimTokens,
   findSupportingSpan,
+  ungroundedSuperlatives,
+  findAllSuperlatives,
 } from "./source-authority";
 
 describe("classifySourceAuthority (W5, J-69)", () => {
@@ -530,5 +532,160 @@ describe("draftFactsCoveredBySources - non-ASCII numeral coverage (re-audit P2)"
     expect(hasQualifyingAuthoritativeSource(claimWithPersianNumeral, noBacker)).toBe(
       draftFactsCoveredBySources(claimWithPersianNumeral, noBacker).covered,
     );
+  });
+});
+
+// ── G6 (2026-07-10): per-claim ROUNDUP coverage against a source's FULL text ──
+describe("draftFactsCoveredBySources - G6 roundup full-text coverage", () => {
+  /** A verified, authoritative source whose FULL fetched page is `fullText`
+   *  (the generation-time enrichment). One page can back MANY sentences. */
+  const page = (fullText: string, domain = "britannica.com") => ({
+    domain,
+    claim: fullText.slice(0, 120),
+    verified: true as const,
+    // supportingExcerpt is the single stamped span; fetchedText is the whole page.
+    supportingExcerpt: fullText.slice(0, 200),
+    fetchedText: fullText,
+  });
+
+  const roundup =
+    "The Northgate Museum holds 3000 artifacts. The Riverside Gallery opened downtown. " +
+    "The Old Mill served the valley farmers. The Harbor Lighthouse guided passing ships. " +
+    "The Grand Theatre staged classical operas. The Central Library preserved rare manuscripts.";
+
+  it("a 6-entity roundup fully covered by 2 qualifying source PAGES passes (one page covers many names)", () => {
+    const pageA = page(
+      "The Northgate Museum holds 3000 artifacts in its permanent collection. " +
+        "The Riverside Gallery opened downtown near the plaza. " +
+        "The Old Mill served the valley farmers for a century.",
+    );
+    const pageB = page(
+      "The Harbor Lighthouse guided passing ships into the bay. " +
+        "The Grand Theatre staged classical operas each winter. " +
+        "The Central Library preserved rare manuscripts from the region.",
+    );
+    const r = draftFactsCoveredBySources(roundup, [pageA, pageB]);
+    expect(r.covered).toBe(true);
+    expect(r.uncovered).toEqual([]);
+    expect(r.receipts).toHaveLength(6);
+    // The receipt excerpt is the specific matched SPAN, not the whole page.
+    expect(r.receipts[0]!.excerpt.length).toBeLessThan(pageA.fetchedText.length);
+  });
+
+  it("the same roundup with 2 uncovered entities HOLDS, naming exactly the uncovered sentences", () => {
+    // pageA covers sentences 1 + 2; pageB covers 4 + 5; sentences 3 and 6 are in
+    // NEITHER page's full text -> uncovered.
+    const pageA = page(
+      "The Northgate Museum holds 3000 artifacts in its permanent collection. " +
+        "The Riverside Gallery opened downtown near the plaza.",
+    );
+    const pageB = page(
+      "The Harbor Lighthouse guided passing ships into the bay. " +
+        "The Grand Theatre staged classical operas each winter.",
+    );
+    const r = draftFactsCoveredBySources(roundup, [pageA, pageB]);
+    expect(r.covered).toBe(false);
+    expect(r.uncovered).toContain("The Old Mill served the valley farmers.");
+    expect(r.uncovered).toContain("The Central Library preserved rare manuscripts.");
+    expect(r.uncovered).not.toContain("The Northgate Museum holds 3000 artifacts.");
+  });
+
+  it("the FETCH-count cap does not cap CLAIMS covered: one page still backs all its sentences", () => {
+    const onePage = page(
+      "The Northgate Museum holds 3000 artifacts in its permanent collection. " +
+        "The Riverside Gallery opened downtown near the plaza. " +
+        "The Old Mill served the valley farmers for a century.",
+    );
+    const threeSentences =
+      "The Northgate Museum holds 3000 artifacts. The Riverside Gallery opened downtown. The Old Mill served the valley farmers.";
+    expect(draftFactsCoveredBySources(threeSentences, [onePage]).covered).toBe(true);
+  });
+
+  it("full-text coverage honors the tenant allowlist (a wikipedia.org list page covers names only when allowlisted)", () => {
+    const wikiPage = {
+      domain: "wikipedia.org",
+      claim: "list of iranian singers",
+      verified: true as const,
+      fetchedText:
+        "The Northgate Museum holds 3000 artifacts in its permanent collection. The Riverside Gallery opened downtown near the plaza.",
+    };
+    const draft = "The Northgate Museum holds 3000 artifacts. The Riverside Gallery opened downtown.";
+    // Without the allowlist, wikipedia.org is only "weak" -> not qualifying -> uncovered.
+    expect(draftFactsCoveredBySources(draft, [wikiPage]).covered).toBe(false);
+    // With the tenant allowlist, it qualifies and its full page covers both names.
+    expect(draftFactsCoveredBySources(draft, [wikiPage], ["wikipedia.org"]).covered).toBe(true);
+  });
+
+  it("a persisted source with only an excerpt (no fetchedText) is byte-identical to before (no regression)", () => {
+    const excerptOnly = {
+      domain: "britannica.com",
+      claim: "The Northgate Museum holds 3000 artifacts.",
+      verified: true as const,
+      supportingExcerpt: "The Northgate Museum holds 3000 artifacts in its permanent collection.",
+    };
+    const draft = "The Northgate Museum holds 3000 artifacts.";
+    expect(draftFactsCoveredBySources(draft, [excerptOnly]).covered).toBe(true);
+  });
+});
+
+// ── G4 (2026-07-10): superlative-parity coverage ─────────────────────────────
+describe("ungroundedSuperlatives + findAllSuperlatives - G4 superlative-parity", () => {
+  const verifiedSrc = (excerpt: string, extra: Record<string, unknown> = {}) => ({
+    domain: "britannica.com",
+    claim: excerpt,
+    verified: true as const,
+    supportingExcerpt: excerpt,
+    ...extra,
+  });
+
+  it("findAllSuperlatives unions the ranking net AND the marketing net", () => {
+    expect(findAllSuperlatives("Googoosh is the most famous singer.").some((p) => p.includes("famous"))).toBe(true);
+    expect(findAllSuperlatives("A leading, best-known voice.").length).toBeGreaterThan(0);
+    expect(findAllSuperlatives("A defining voice in classical music.")).toEqual([]);
+  });
+
+  it("a superlative ASSERTED by a qualifying verified source is grounded (empty result)", () => {
+    const draft = "Googoosh is the most famous Iranian pop singer.";
+    const src = verifiedSrc(
+      "Googoosh is widely regarded as the most famous Iranian pop singer of her generation.",
+    );
+    expect(ungroundedSuperlatives(draft, [src])).toEqual([]);
+  });
+
+  it("superlative-parity: a source that mentions the entity but asserts NO superlative does not ground it", () => {
+    const draft = "Googoosh is the most famous Iranian pop singer.";
+    // The excerpt backs the entity/facts but carries no superlative of its own.
+    const src = verifiedSrc("Googoosh is an Iranian pop singer who recorded many albums.");
+    expect(ungroundedSuperlatives(draft, [src]).some((p) => p.includes("famous"))).toBe(true);
+  });
+
+  it("an ungrounded superlative with no qualifying source is returned", () => {
+    const draft = "Shajarian is the most celebrated classical singer of all time.";
+    expect(ungroundedSuperlatives(draft, []).length).toBeGreaterThan(0);
+  });
+
+  it("a WEAK or UNVERIFIED source never grounds a superlative even with a matching excerpt", () => {
+    const draft = "Googoosh is the most famous Iranian pop singer.";
+    const weak = { domain: "some-blog.example", claim: "x", verified: true as const, supportingExcerpt: "Googoosh is the most famous Iranian pop singer." };
+    const unverified = { domain: "britannica.com", claim: "x", verified: false as const, supportingExcerpt: "Googoosh is the most famous Iranian pop singer." };
+    expect(ungroundedSuperlatives(draft, [weak]).some((p) => p.includes("famous"))).toBe(true);
+    expect(ungroundedSuperlatives(draft, [unverified]).some((p) => p.includes("famous"))).toBe(true);
+  });
+
+  it("a draft with no superlative returns [] (nothing to ground)", () => {
+    const draft = "Shajarian recorded Morgh-e Sahar and received the UNESCO Mozart Medal.";
+    expect(ungroundedSuperlatives(draft, [])).toEqual([]);
+  });
+
+  it("full-text (fetchedText) can assert the superlative for parity", () => {
+    const draft = "Googoosh is the most famous Iranian pop singer.";
+    const src = {
+      domain: "britannica.com",
+      claim: "googoosh",
+      verified: true as const,
+      fetchedText:
+        "Many artists shaped Persian pop. Googoosh is the most famous Iranian pop singer, known across generations.",
+    };
+    expect(ungroundedSuperlatives(draft, [src])).toEqual([]);
   });
 });

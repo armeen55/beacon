@@ -85,7 +85,22 @@ export type SafeFetchReason =
   | "wrong_content_type"
   | "timeout"
   | "deadline_exceeded"
+  /** Drafter last-mile G5 (2026-07-10): the host answered but REFUSED us with an
+   *  access-control status (401/403/429/451 - the robots/anti-bot block class,
+   *  e.g. britannica.com 403s BeaconBot). Kept DISTINCT from `fetch_failed`
+   *  (a broken/unreachable URL) and from `dns_error`/`timeout` (network faults):
+   *  a source we could not READ because it blocks robots is honestly different
+   *  from one that does not exist, so the caller can hold the draft as
+   *  "check this citation" instead of "no source". Never a reason to evade the
+   *  block - the UA stays identified. */
+  | "access_blocked"
   | "fetch_failed";
+
+/** HTTP statuses that mean "the host is up but is refusing this client"
+ *  (auth-required / forbidden / rate-limited / legal-block) rather than a
+ *  broken resource. These map to `access_blocked` so the draft gate can tell a
+ *  robots-blocked authoritative source apart from a dead link. */
+const ACCESS_BLOCKED_STATUSES: ReadonlySet<number> = new Set([401, 403, 429, 451]);
 
 export type SafeFetchResult =
   | { ok: true; text: string; finalUrl: string; status: number }
@@ -561,7 +576,13 @@ export async function safeFetchSourceText(
         /* ignore */
       }
       await closeDispatcher(dispatcher);
-      return { ok: false, reason: "fetch_failed" };
+      // G5 (2026-07-10): a host that answered but refused us (403/robots-block
+      // class) is reported distinctly from a dead/broken URL, so the source
+      // gate can honestly hold "could not read this citation" vs "no source".
+      return {
+        ok: false,
+        reason: ACCESS_BLOCKED_STATUSES.has(status) ? "access_blocked" : "fetch_failed",
+      };
     }
 
     // Step 5: content-type allowlist, then stream-read up to maxBytes. A
