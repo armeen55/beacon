@@ -35179,3 +35179,18 @@ pins. Gate 22809 passed 0 failed.
 
 G3 moves from PARTIAL to WORKING. Next in the workflow parity queue: G8 (impact math abstention
 on thin history), then G9 (discarded alternatives argument).
+
+## 2026-07-11 - G8 sibling-based impact ranges (a949ba50)
+
+2026-07-11 G8 sibling-based impact ranges (a949ba50): when the primary forecast abstains on a
+clicks-tone move with material impressions, the product now sizes a transparent range from the
+tenant's OWN sibling pages (position band +/-3, at least 500 impressions, at least 1 percent CTR,
+at least 3 qualifying siblings, p25-to-median band, floored at 0, abstains under 3 clicks a
+month). The singers fixture reproduces the pilot's hand math: 85 to 200 extra clicks a month,
+with the full basis rendered (they earn 2.5 to 5 percent of views as clicks; this page earns 0.8
+percent on 4,765 views a month at position 6). Honest abstention and already-ahead states
+preserved; ranking math byte-identical; structural two-tenant isolation. 23 pins. Gate 22832
+passed 0 failed.
+
+G8 moves from PARTIAL to WORKING. G9 (discarded alternatives argument) is next and is the last
+Wave 4 partial remaining.

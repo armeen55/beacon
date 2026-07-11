@@ -1,5 +1,21 @@
 # Beacon Execution Plan
 
+## G8 sibling-based impact ranges (a949ba50) - DONE pending deploy confirmation (2026-07-11)
+
+When the primary forecast abstains on a clicks-tone move with material impressions, the product
+now sizes a transparent range from the tenant's OWN sibling pages (position band +/-3, at least
+500 impressions, at least 1 percent CTR, at least 3 qualifying siblings, p25-to-median band,
+floored at 0, abstains under 3 clicks a month). The singers fixture reproduces the pilot's hand
+math: 85 to 200 extra clicks a month, with the full basis rendered (they earn 2.5 to 5 percent of
+views as clicks; this page earns 0.8 percent on 4,765 views a month at position 6). Honest
+abstention and already-ahead states preserved; ranking math byte-identical; structural two-tenant
+isolation. 23 pins. See the 2026-07-11 "G8 sibling-based impact ranges" entry in
+VERIFICATION_LOG.md for full detail. Full hermetic gate GREEN at a949ba50 (fullgateG8.log: 22832
+passed / 0 failed). Deploy confirmation to Vercel production is pending; unconfirmed from this
+environment. G8 moves from PARTIAL to WORKING. **G9 (discarded alternatives argument) is next and
+is the last Wave 4 partial remaining.** Authenticated both-tenant smoke remains OPERATOR-BLOCKED
+(no smoke credentials available to the agent).
+
 ## G3 winners panel (ecaa2836) - DONE pending deploy confirmation (2026-07-11)
 
 The deduped Google+AI winner analysis the product always computed (fuseTeardownTargets ranking

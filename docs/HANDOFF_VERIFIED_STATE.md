@@ -1,4 +1,24 @@
-> 🟢 **(2026-07-11 latest) - HEAD STATE: ORIGIN/MAIN WILL BE THIS DOCS TIP AFTER THIS PUSH (G3
+> 🟢 **(2026-07-11 latest) - HEAD STATE: ORIGIN/MAIN WILL BE THIS DOCS TIP AFTER THIS PUSH (G8
+> sibling-based impact ranges: transparent forecast ranges from the tenant's own sibling pages
+> when the primary forecast abstains, commit a949ba50 on b33f50f0).** Deployment of the pushed
+> SHA to Vercel production is unconfirmed from this environment.
+>
+> Full hermetic gate GREEN at this tip (fullgateG8.log: 22832 tests passed, 0 failed). See the
+> 2026-07-11 "G8 sibling-based impact ranges" entry in VERIFICATION_LOG.md for full detail: when
+> the primary forecast abstains on a clicks-tone move with material impressions, the product now
+> sizes a transparent range from the tenant's own sibling pages (position band +/-3, at least 500
+> impressions, at least 1 percent CTR, at least 3 qualifying siblings, p25-to-median band, floored
+> at 0, abstains under 3 clicks a month). The singers fixture reproduces the pilot's hand math: 85
+> to 200 extra clicks a month, with the full basis rendered (they earn 2.5 to 5 percent of views
+> as clicks; this page earns 0.8 percent on 4,765 views a month at position 6). Honest abstention
+> and already-ahead states preserved; ranking math byte-identical; structural two-tenant
+> isolation. 23 pins. G8 moves from PARTIAL to WORKING on the Wave 4 workflow-parity scorecard.
+> NEXT: G9 (discarded alternatives argument), the last Wave 4 partial remaining; confirm the
+> Vercel production build for this tip in the dashboard (unconfirmed from this environment);
+> authenticated both-tenant smoke is OPERATOR-BLOCKED (no smoke credentials available to the
+> agent).
+>
+> 🟢 **(2026-07-11) - HEAD STATE: ORIGIN/MAIN WILL BE THIS DOCS TIP AFTER THIS PUSH (G3
 > winners panel: the deduped Google+AI winner analysis renders on /changes detail, commit
 > ecaa2836 rebased onto 480df5df).** Deployment of the pushed SHA to Vercel production is
 > unconfirmed from this environment.
