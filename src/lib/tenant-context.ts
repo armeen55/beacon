@@ -34,7 +34,7 @@ import type { BeaconTenant } from "@/domains/tenants/types";
  * A cron fan-out warms MANY tenants inside ONE request. The header/env chain
  * below resolves ONE ambient tenant per request, so a fan-out that warmed
  * tenant B inline (the parent request's ambient = BEACON_TENANT_ID = ritz)
- * had every store — and warm-caches' own cross-tenant guard — resolve to
+ * had every store (and warm-caches' own cross-tenant guard) resolve to
  * ritz, silently skipping the tenant it meant to warm. (Root cause of the
  * "the active tenant context is tenant-ritz-founder, not tenant-iranopedia,
  * so we skipped to protect its caches" skips.)
@@ -79,7 +79,7 @@ const resolveTenantIdFromRequest = cache(async (): Promise<string> => {
 /**
  * Returns the active tenant ID. An explicit `runWithTenant` override wins;
  * otherwise resolves via the request header then BEACON_TENANT_ID. Throws when
- * neither is set — intentional fail-loud posture so misconfiguration surfaces
+ * neither is set, an intentional fail-loud posture so misconfiguration surfaces
  * immediately rather than silently routing to ritz.
  */
 export const currentTenantId = async (): Promise<string> => {

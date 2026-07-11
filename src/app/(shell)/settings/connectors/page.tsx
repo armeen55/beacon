@@ -14,8 +14,9 @@ import {
 import { loadGscIngestionGapReport } from "@/domains/gsc/load-ingestion-gaps";
 import { ingestionGapLine } from "@/domains/gsc/ingestion-gaps";
 import { currentTenantId } from "@/lib/tenant-context";
+import { latestRefreshBySource } from "@/domains/ops/refresh-runs-store";
 import { PageHeader } from "@/components/data/page-header";
-import { ConnectorsClient, type LastSyncState } from "./connectors-client";
+import { ConnectorsClient, type LastSyncState, type RefreshLedgerFacts } from "./connectors-client";
 import { PublishingModeCard } from "./publishing-mode-card";
 import { AutopilotCard } from "./autopilot-card";
 import { CronHealthPanel } from "./cron-health-panel";
@@ -151,6 +152,31 @@ async function loadConnectorsPageData() {
   ).length;
   const totalCount = 5;
 
+  // BUG 3 (2026-07-11): per-source refresh-ledger facts for the "last pulled /
+  // data through / result" strip. Read-only, fail-soft: any error self-hides the
+  // strip rather than blocking the page. Sourced from the SAME ledger the cron,
+  // manual, and on-use refresh paths all record into.
+  let refreshLedger: RefreshLedgerFacts = {};
+  try {
+    const tid = await currentTenantId();
+    const latest = await latestRefreshBySource(tid);
+    const facts: RefreshLedgerFacts = {};
+    for (const key of ["gsc", "ga4", "clarity", "profound"] as const) {
+      const row = latest[key];
+      if (row != null) {
+        facts[key] = {
+          lastPulled: row.started_at,
+          dataThrough: row.latest_data_date,
+          result: row.result,
+          reason: row.failure_category,
+        };
+      }
+    }
+    refreshLedger = facts;
+  } catch {
+    refreshLedger = {};
+  }
+
   // "Last night's sync" reads the same sync-connectors cron job the health
   // panel below renders in full - one source of truth, not a second story.
   let lastSyncState: LastSyncState = "none";
@@ -186,6 +212,7 @@ async function loadConnectorsPageData() {
     lastSyncState,
     lastSyncHeadline,
     wixUrlMapCount,
+    refreshLedger,
   };
 }
 
@@ -225,6 +252,7 @@ export default async function ConnectorsPage() {
     lastSyncState,
     lastSyncHeadline,
     wixUrlMapCount,
+    refreshLedger,
   } = raced.data;
 
   return (
@@ -252,6 +280,7 @@ export default async function ConnectorsPage() {
         lastSyncState={lastSyncState}
         lastSyncHeadline={lastSyncHeadline}
         wixUrlMapCount={wixUrlMapCount}
+        refreshLedger={refreshLedger}
       />
       {/* Armed publishing (2026-06-16) — opt in to one-click live publishing
           for safe, mapped, high-confidence edits. Default stays two-click. */}

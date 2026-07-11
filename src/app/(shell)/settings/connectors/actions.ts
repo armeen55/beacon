@@ -42,6 +42,47 @@ import { syncGa4UrlTrafficForTenant } from "@/lib/connectors/ga4/sync-url-traffi
 import { refreshGa4SitewideAndReconcile } from "@/lib/connectors/ga4/refresh-ga4-sitewide";
 import { syncProfoundNightlyForTenant } from "@/lib/connectors/profound/sync-nightly";
 import { syncClarityDailyMetricsForTenant } from "@/lib/connectors/clarity/sync-daily-metrics";
+import { recordSourceRefresh } from "@/domains/ops/record-source-refresh";
+import type { RefreshSource } from "@/domains/ops/refresh-runs-store";
+
+/** Manual-refresh provider -> refresh-ledger source name. The manual paths all
+ *  pull one of the four read sources; each maps 1:1. */
+function manualLedgerSource(provider: FreshnessProvider): RefreshSource {
+  switch (provider) {
+    case "google_gsc":
+      return "gsc";
+    case "google_ga4":
+      return "ga4";
+    case "profound":
+      return "profound";
+    case "clarity":
+      return "clarity";
+  }
+}
+
+/** Record a manual (operator-triggered) refresh into the ledger. Fail-soft:
+ *  never throws, so recording can't turn a successful refresh into a failure. */
+async function recordManualRefresh(
+  tenantId: string,
+  provider: FreshnessProvider,
+  startedAt: string,
+  value: unknown,
+): Promise<void> {
+  try {
+    await recordSourceRefresh({
+      tenantId,
+      source: manualLedgerSource(provider),
+      trigger: "manual",
+      startedAt,
+      value,
+    });
+  } catch (e) {
+    log.warn("Refresh-ledger write threw (refresh unaffected)", {
+      provider,
+      error: e instanceof Error ? e.message.slice(0, 200) : String(e),
+    });
+  }
+}
 
 export async function getGoogleGscConnectorStatus(): Promise<ConnectorInfo> {
   return getConnectorInfo("google_gsc");
@@ -915,7 +956,13 @@ async function writeLastSyncedAt(
     switch (provider) {
       case "google_gsc":
       case "google_ga4":
-        await updateConnectorToken(provider, patch, tenantId);
+        // A good manual pull also clears any bounded needs-attention marker
+        // (BUG 2) so the operator's reconnect+sync heals the banner at once.
+        await updateConnectorToken(
+          provider,
+          { ...patch, needs_attention_at: null, needs_attention_since: null },
+          tenantId,
+        );
         break;
       case "profound":
         await updateConnectorToken(provider, patch, tenantId);
@@ -940,11 +987,17 @@ async function runConnectorSyncNow(
   freshnessProvider?: FreshnessProvider,
 ): Promise<ConnectorSyncNowResult> {
   const t0 = Date.now();
+  const startedAt = new Date(t0).toISOString();
   log.info("Action started", { action });
   try {
     const tenantId = await currentTenantId();
     const result = await run(tenantId);
     const summary = summarizeConnectorSync(result);
+    // Record the honest per-source outcome into the refresh ledger so a manual
+    // "Sync now" leaves a row (cron used to be the only path that recorded).
+    if (freshnessProvider != null) {
+      await recordManualRefresh(tenantId, freshnessProvider, startedAt, result);
+    }
     // #72/#85, stamp freshness ONLY on a genuinely successful pull so the
     // connector card + freshness label stop saying "never refreshed".
     if (summary.ok && freshnessProvider != null) {
@@ -1113,6 +1166,7 @@ export async function refreshAllConnectedDataNow(): Promise<RefreshAllConnectedR
       return { ranAt, results: [] };
     }
 
+    const startedAt = new Date().toISOString();
     const settled = await Promise.allSettled(
       connected.map((s) => s.run(tenantId)),
     );
@@ -1131,6 +1185,10 @@ export async function refreshAllConnectedDataNow(): Promise<RefreshAllConnectedR
             provider: s.provider,
             error: err.slice(0, 200),
           });
+          await recordManualRefresh(tenantId, s.freshnessProvider, startedAt, {
+            synced: false,
+            reason: err.slice(0, 200),
+          });
           return {
             provider: s.provider,
             label: s.label,
@@ -1139,6 +1197,7 @@ export async function refreshAllConnectedDataNow(): Promise<RefreshAllConnectedR
           };
         }
         const summary = summarizeConnectorSync(outcome.value);
+        await recordManualRefresh(tenantId, s.freshnessProvider, startedAt, outcome.value);
         if (summary.ok) {
           // Best-effort freshness stamp; never flips a success to a failure.
           await writeLastSyncedAt(s.freshnessProvider, tenantId);

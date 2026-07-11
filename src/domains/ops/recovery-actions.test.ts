@@ -32,6 +32,20 @@ describe("recoveryForConnectorFailure", () => {
     expect(action!.selfServe).toEqual({ kind: "reconnect_google", connectorKind: "ga4" });
   });
 
+  it("sync_failing on Google offers reconnect WITHOUT claiming the login expired", () => {
+    const action = recoveryForConnectorFailure("google_gsc", "sync_failing");
+    expect(action).not.toBeNull();
+    // Non-accusatory: never asserts the login expired / was revoked.
+    expect(action!.plainProblem.toLowerCase()).not.toContain("expired");
+    expect(action!.exactFix).toContain("Reconnecting usually fixes this");
+    expect(action!.selfServe).toEqual({ kind: "reconnect_google", connectorKind: "gsc" });
+  });
+
+  it("sync_failing does not apply to non-Google sources", () => {
+    expect(recoveryForConnectorFailure("profound", "sync_failing")).toBeNull();
+    expect(recoveryForConnectorFailure("clarity", "sync_failing")).toBeNull();
+  });
+
   it("token_expired does not apply to Wix (no OAuth token)", () => {
     expect(recoveryForConnectorFailure("wix", "token_expired")).toBeNull();
   });
@@ -183,6 +197,28 @@ describe("deriveConnectorFailureState", () => {
     expect(
       deriveConnectorFailureState({ status: "connected", missingRequiredSelection: true }, now),
     ).toBe("never_connected");
+  });
+
+  it("needs_attention marker (not proven dead) reads as sync_failing (BUG 2)", () => {
+    expect(
+      deriveConnectorFailureState(
+        { status: "connected", needsAttentionAt: "2026-07-03T00:00:00.000Z" },
+        now,
+      ),
+    ).toBe("sync_failing");
+  });
+
+  it("a PROVEN-dead grant outranks the needs_attention marker (token_expired wins)", () => {
+    expect(
+      deriveConnectorFailureState(
+        {
+          status: "connected",
+          authFailedAt: "2026-07-01T00:00:00.000Z",
+          needsAttentionAt: "2026-07-03T00:00:00.000Z",
+        },
+        now,
+      ),
+    ).toBe("token_expired");
   });
 
   it("never synced (null last_synced_at) stays quiet - unreliable signal", () => {

@@ -52,6 +52,11 @@ export type RecoveryAction = {
 // revoked copy was unreachable dead copy. One honest state remains.
 export type ConnectorFailureState =
   | "token_expired"
+  // 2026-07-11 (BUG 2): the grant is NOT proven dead, but this source has failed
+  // to pull for days. A needs-attention state with honest, non-accusatory copy
+  // ("reconnecting usually fixes this"), distinct from the proven-dead
+  // token_expired above so we never claim a revocation we cannot prove.
+  | "sync_failing"
   | "never_connected"
   | "sync_stale"
   | "zero_rows_written"
@@ -121,6 +126,25 @@ export function recoveryForConnectorFailure(
   const isGoogle = connector === "google_gsc" || connector === "google_ga4";
 
   switch (state) {
+    case "sync_failing": {
+      // BUG 2 (2026-07-11): a Google source that has silently failed to pull for
+      // days without proving the grant dead. NEVER claim the login expired (we
+      // cannot prove it) - offer reconnect as the usual fix. The dated "since
+      // <date>" problem sentence is composed on the surface from
+      // needs_attention_since; this map supplies the fix + self-serve action.
+      if (!isGoogle) return null;
+      const value = CONNECTOR_VALUE[connector];
+      return {
+        plainProblem: `I have not been able to pull your ${label} data for several days.`,
+        exactFix: `Reconnecting usually fixes this. Click Connect ${label} on the Connections page to ${value}. It takes under a minute.`,
+        href: CONNECTORS_HREF,
+        selfServe: {
+          kind: "reconnect_google",
+          connectorKind: connector === "google_gsc" ? "gsc" : "ga4",
+        },
+      };
+    }
+
     case "token_expired": {
       if (!isGoogle) return null;
       // Dead-login line (2026-07-06): first person, no jargon (never
@@ -355,6 +379,10 @@ export type ConnectorFacts = {
   /** Present + non-empty means the last sync ended in a proven auth failure
    *  (ConnectorInfo.auth_failed_at). Google connectors only. */
   authFailedAt?: string | null;
+  /** Present + non-empty means the bounded escalation marker is set: this source
+   *  failed N nights spanning >= M days WITHOUT proving the grant dead (BUG 2,
+   *  ConnectorInfo.needs_attention_at). Google connectors only. */
+  needsAttentionAt?: string | null;
   lastSyncedAt?: string | null;
   /** GA4 only: connected but no property chosen yet reads as never_connected
    *  in spirit (0 rows will ever land) - callers pass this through rather
@@ -376,6 +404,11 @@ export function deriveConnectorFailureState(
   }
   if (facts.authFailedAt != null && facts.authFailedAt !== "") {
     return "token_expired";
+  }
+  // Proven-dead (token_expired) outranks this: only escalate to sync_failing when
+  // the grant is NOT proven dead but has silently failed to pull for days.
+  if (facts.needsAttentionAt != null && facts.needsAttentionAt !== "") {
+    return "sync_failing";
   }
   if (facts.missingRequiredSelection) {
     return "never_connected";

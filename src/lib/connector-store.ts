@@ -123,6 +123,22 @@ export type GoogleConnectorToken = {
    *  changes the sync's own outcome). Absent on legacy rows. google_gsc
    *  + google_ga4 only. */
   auth_failed_at?: string | null;
+  /** Bounded auth-failure escalation (2026-07-11, refresh-reliability BUG 2).
+   *  ISO 8601 timestamp stamped when a source has failed N consecutive nightly
+   *  syncs spanning >= M days WITHOUT ever proving the grant dead (only
+   *  transient classifications, so auth_failed_at stayed null and the operator
+   *  saw no reconnect prompt while data silently went stale). This is a distinct
+   *  "needs attention" marker, NOT a revocation claim: the copy says "I have not
+   *  been able to pull your data since <date>. Reconnecting usually fixes this."
+   *  auth_failed_at (proven-dead) always OUTRANKS it. Cleared (null) on the next
+   *  successful sync. Never set unless the failure pattern is durably bad, so a
+   *  live grant is never falsely alarmed. google_gsc + google_ga4 only. */
+  needs_attention_at?: string | null;
+  /** The date (ISO 8601) the failing streak began - the last time Beacon
+   *  successfully pulled this source before the run of failures. Feeds the
+   *  "since <date>" in the needs-attention copy. Only meaningful when
+   *  needs_attention_at is set. */
+  needs_attention_since?: string | null;
   /** Per-tenant OAuth (2026-07-09), the stable Google account id (`sub`
    *  from the id_token) this grant belongs to. Used by the OAuth callback
    *  to prove a re-consent is the SAME account before retaining a stored
@@ -269,6 +285,15 @@ export type ConnectorInfo = {
    *  refresh token); null/absent when the connection is healthy. Read by
    *  `getConnectorHealth` to surface a "Reconnect" state. */
   auth_failed_at?: string | null;
+  /** Bounded auth-failure escalation marker (2026-07-11, BUG 2). Set when a
+   *  Google source failed N nights spanning >= M days without proving the grant
+   *  dead; carried through so the connectors card can surface a needs-attention
+   *  line. Null when healthy / on non-Google providers. Distinct from
+   *  auth_failed_at (proven-dead), which always outranks it. */
+  needs_attention_at?: string | null;
+  /** The date the failing streak began (ISO 8601); feeds the "since <date>"
+   *  copy. Only meaningful when needs_attention_at is set. */
+  needs_attention_since?: string | null;
   /** Per-tenant OAuth (2026-07-09), the Google account email for the connected
    *  grant (Google connectors only), surfaced as "Connected as <email>" on the
    *  connector card. null on older grants (authorized before identity scopes)
@@ -462,6 +487,11 @@ export async function getConnectorInfo(
       // getConnectorHealth can surface a "Reconnect Google" state without a
       // second token read. Null on healthy connections + non-Google providers.
       auth_failed_at: token.auth_failed_at ?? null,
+      // Bounded escalation marker (2026-07-11, BUG 2), carried through so the
+      // connectors card can surface a needs-attention line for a source that
+      // has silently failed to pull for days without proving the grant dead.
+      needs_attention_at: token.needs_attention_at ?? null,
+      needs_attention_since: token.needs_attention_since ?? null,
       // Per-tenant OAuth (2026-07-09), the connected Google account email,
       // surfaced as "Connected as <email>" on the card. Null on older grants.
       google_account_email: token.google_account_email ?? null,
@@ -557,6 +587,20 @@ function requiresPropertySelection(provider: ConnectorProvider): boolean {
   return provider === "google_ga4";
 }
 
+/** Format an ISO timestamp/date as a friendly "June 30" for operator copy.
+ *  Returns null on an empty/invalid value so callers fall back to date-free
+ *  wording. UTC so it matches the stored date rather than the server locale. */
+function formatSinceDate(iso: string | null | undefined): string | null {
+  if (iso == null || iso === "") return null;
+  const ms = Date.parse(iso);
+  if (!Number.isFinite(ms)) return null;
+  return new Date(ms).toLocaleDateString("en-US", {
+    month: "long",
+    day: "numeric",
+    timeZone: "UTC",
+  });
+}
+
 /**
  * Derive honest health for a single provider from its persisted token row.
  * Fail-soft: a token-store read error degrades to `not_connected` (never
@@ -630,6 +674,22 @@ export async function getConnectorHealth(
       health: "needs_attention",
       healthReason:
         "Reconnect Google to refresh. Google access needs renewing, reconnect now.",
+    };
+  }
+
+  // 0b. Bounded escalation (2026-07-11, BUG 2). The grant is NOT proven dead
+  // (auth_failed_at is null, checked above), but this source has failed every
+  // sync for days, so its data is silently going stale. Surface a needs-attention
+  // line WITHOUT claiming revocation - reconnecting is the usual fix, but we do
+  // not assert the login expired because we cannot prove it did.
+  if (info.needs_attention_at != null && info.needs_attention_at !== "") {
+    const since = formatSinceDate(info.needs_attention_since);
+    return {
+      ...info,
+      health: "needs_attention",
+      healthReason: since
+        ? `I have not been able to pull your data since ${since}. Reconnecting usually fixes this.`
+        : "I have not been able to pull your data for several days. Reconnecting usually fixes this.",
     };
   }
 
@@ -843,6 +903,10 @@ type GoogleConnectorPatch = Partial<
     // 2026-06-15 — auth-failure reconnect signal, set on sync auth
     // failure / cleared on sync success by the GSC + GA4 sync paths.
     | "auth_failed_at"
+    // 2026-07-11 (BUG 2), bounded escalation marker, set by the nightly
+    // auth-escalation check after N failing nights, cleared on sync success.
+    | "needs_attention_at"
+    | "needs_attention_since"
   >
 >;
 type YelpConnectorPatch = Partial<

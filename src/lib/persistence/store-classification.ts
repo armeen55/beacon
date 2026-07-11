@@ -314,6 +314,12 @@ export const GLOBAL_STORES = new Set<string>([
   // rows (tenant_id nullable) with no ambient request context - same rationale as
   // the peers above.
   "cron-runs",
+  // Source-by-source refresh ledger (2026-07-11, refresh-reliability BUG 3).
+  // File-fallback mirror of the `refresh_runs` table for pre-migration /
+  // no-Supabase-env windows. Rows carry tenant_id in-row; written by the cron
+  // fan-out (no ambient request context) AND the manual/on-use refresh paths,
+  // so GLOBAL is the safe classification - same rationale as cron-runs.
+  "refresh-runs",
   // Token-expiry warning dedupe (2026-07-03, BEACON_500 item 84). One row per
   // Google connection recording the last expiry-warning email sent, so the T-2-day
   // nightly check never double-sends inside the same 7-day cycle. Global: the

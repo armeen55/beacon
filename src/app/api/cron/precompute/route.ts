@@ -18,7 +18,7 @@ export const maxDuration = 300;
  * = ritz), so every non-ritz tenant tripped the guard ("the active tenant
  * context is tenant-ritz-founder, not <tenant>, so we skipped to protect its
  * caches"). `runWithTenant` carries the EXPLICIT tenant end-to-end for the whole
- * warm, so each tenant warms under its own context — no per-tenant HTTP
+ * warm, so each tenant warms under its own context, with no per-tenant HTTP
  * self-call, no dependence on the middleware forwarding a header. The guard
  * stays intact: ambient now equals the tenant being warmed.
  */

@@ -119,7 +119,28 @@ type Props = {
    *  connected-but-zero-mapped Wix can't publish anything, this drives the
    *  shared recovery-actions fix line pointing at /diagnostics/wix. */
   wixUrlMapCount?: number;
+  /** BUG 3 (2026-07-11), per-source refresh-ledger facts for the "last pulled /
+   *  data through / result" strip. Keyed by ledger source name (gsc/ga4/clarity/
+   *  profound). Computed server-side in page.tsx from latestRefreshBySource.
+   *  Optional + self-hiding so pre-BUG3 render-test callers are unaffected. */
+  refreshLedger?: RefreshLedgerFacts;
 };
+
+/** BUG 3 (2026-07-11) per-source refresh-ledger fact for one source, as the
+ *  page hands it to the client (plain, serializable). */
+export type RefreshLedgerFact = {
+  /** ISO 8601 timestamp of the most recent refresh of this source. */
+  lastPulled: string;
+  /** Newest source data date after that run (YYYY-MM-DD), or null when unknown. */
+  dataThrough: string | null;
+  result: "ok" | "partial" | "failed";
+  /** Honest reason code when result !== "ok" (e.g. "no new data"). */
+  reason: string | null;
+};
+
+export type RefreshLedgerFacts = Partial<
+  Record<"gsc" | "ga4" | "clarity" | "profound", RefreshLedgerFact>
+>;
 
 /** FP10a (2026-07-02) - one line per source: what it actually feeds, in
  *  plain English. Lives here once so it never has to repeat in a footer
@@ -211,25 +232,101 @@ function formatDate(iso: string | null): string {
  * GSC so a proven auth failure or long-stale sync gets the same words as
  * every other card, even though GSC also shows the deeper property detail.
  */
+/** Friendly "Jul 8" for a YYYY-MM-DD source data date. Null-safe. */
+function formatDataDate(ymd?: string | null): string | null {
+  if (!ymd) return null;
+  const ms = Date.parse(`${ymd}T00:00:00Z`);
+  if (!Number.isFinite(ms)) return null;
+  try {
+    return new Date(ms).toLocaleDateString("en-US", {
+      month: "short",
+      day: "numeric",
+      timeZone: "UTC",
+    });
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * BUG 3 (2026-07-11): the per-source refresh-ledger line. States, in plain
+ * English, when this source was last pulled, what date its data is current
+ * through, and whether the pull worked - the honest facts the operator asked
+ * for. Self-hides when there is no ledger row yet. This is the surface that
+ * makes a "synced today but the newest data is weeks old" partial visible.
+ */
+function RefreshLedgerLine({ fact }: { fact?: RefreshLedgerFact }) {
+  if (fact == null) return null;
+  const when = formatDate(fact.lastPulled);
+  const through = formatDataDate(fact.dataThrough);
+  const base =
+    through != null
+      ? `Last pulled ${when}, data through ${through}.`
+      : `Last pulled ${when}.`;
+  const verdict =
+    fact.result === "ok"
+      ? ""
+      : fact.result === "partial"
+        ? " No new data came back that time."
+        : " That pull did not work; I will try again on my own.";
+  const tone =
+    fact.result === "failed"
+      ? "text-status-warning"
+      : fact.result === "partial"
+        ? "text-status-warning"
+        : "text-muted-foreground";
+  return (
+    <p className={`text-[12px] ${tone}`} data-refresh-ledger={fact.result}>
+      {base}
+      {verdict}
+    </p>
+  );
+}
+
+/** Friendly "June 30" for the needs-attention "since <date>" copy. Falls back
+ *  to null (date-free wording) on an empty/invalid value. */
+function formatSinceDate(iso?: string | null): string | null {
+  if (!iso) return null;
+  const ms = Date.parse(iso);
+  if (!Number.isFinite(ms)) return null;
+  try {
+    return new Date(ms).toLocaleDateString("en-US", {
+      month: "long",
+      day: "numeric",
+      timeZone: "UTC",
+    });
+  } catch {
+    return null;
+  }
+}
+
 function ConnectorFixLine({
   connector,
   status,
   authFailedAt,
+  needsAttentionAt,
+  needsAttentionSince,
   lastSyncedAt,
   missingRequiredSelection,
+  className,
 }: {
   connector: RecoveryConnectorKind;
   status: "connected" | "disconnected";
   authFailedAt?: string | null;
+  needsAttentionAt?: string | null;
+  needsAttentionSince?: string | null;
   lastSyncedAt?: string | null;
   missingRequiredSelection?: boolean;
+  /** Extra classes for the root; applied only when the line actually renders,
+   *  so a healthy connector shows nothing (no empty bordered strip). */
+  className?: string;
 }) {
   // Never-connected is each card's own "Connect" button state (already
   // rendered); this line only speaks up for a CONNECTED card that has gone
   // unhealthy, so it never duplicates the bare not-connected copy.
   if (status !== "connected") return null;
   const state = deriveConnectorFailureState(
-    { status, authFailedAt, lastSyncedAt, missingRequiredSelection },
+    { status, authFailedAt, needsAttentionAt, lastSyncedAt, missingRequiredSelection },
     new Date(),
   );
   if (state == null || state === "never_connected") return null;
@@ -241,11 +338,27 @@ function ConnectorFixLine({
   // stays a single soft "Fix this" line (no alarming problem sentence).
   // ("token_revoked" was removed 2026-07-09; expired covers both cases.)
   const isDeadLogin = state === "token_expired";
+  // BUG 2: the escalation state leads with the honest, non-accusatory dated
+  // sentence (the grant is NOT proven dead, so we never say "login expired").
+  const isSyncFailing = state === "sync_failing";
+  const since = formatSinceDate(needsAttentionSince);
+  const syncFailingProblem = since
+    ? `I have not been able to pull your data since ${since}. Reconnecting usually fixes this.`
+    : "I have not been able to pull your data for several days. Reconnecting usually fixes this.";
   return (
-    <div role="status" data-recovery-fix={state} className="space-y-0.5">
+    <div
+      role="status"
+      data-recovery-fix={state}
+      className={className ? `${className} space-y-0.5` : "space-y-0.5"}
+    >
       {isDeadLogin ? (
         <p className="text-[12px] font-medium text-status-danger" data-recovery-problem={state}>
           {action.plainProblem}
+        </p>
+      ) : null}
+      {isSyncFailing ? (
+        <p className="text-[12px] font-medium text-status-warning" data-recovery-problem={state}>
+          {syncFailingProblem}
         </p>
       ) : null}
       <p className="text-[12px] text-status-warning">
@@ -273,6 +386,7 @@ export function ConnectorsClient({
   lastSyncState = "none",
   lastSyncHeadline = "I have not run yet.",
   wixUrlMapCount = 0,
+  refreshLedger = {},
 }: Props) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -992,8 +1106,24 @@ export function ConnectorsClient({
                   {gscGapLine}
                 </p>
               ) : null}
+              <RefreshLedgerLine fact={refreshLedger.gsc} />
             </div>
           ) : null}
+
+          {/* BUG 2 (2026-07-11): the shared recovery fix line. Renders the
+              proven-dead reconnect prompt AND the bounded needs-attention
+              escalation ("I have not been able to pull your data since <date>")
+              for GSC, with the same words every other card uses. Self-hides when
+              the connection is healthy (no empty bordered strip). */}
+          <ConnectorFixLine
+            connector="google_gsc"
+            status={google.status}
+            authFailedAt={google.auth_failed_at}
+            needsAttentionAt={google.needs_attention_at}
+            needsAttentionSince={google.needs_attention_since}
+            lastSyncedAt={google.last_synced_at}
+            className="border-t border-border/40 px-5 py-3"
+          />
 
           {/* ── Location picker (Google connected), GBP only ── */}
           {GBP_AFFORDANCES_ENABLED ? (
@@ -1162,8 +1292,13 @@ export function ConnectorsClient({
                 connector="google_ga4"
                 status={ga4.status}
                 authFailedAt={ga4.auth_failed_at}
+                needsAttentionAt={ga4.needs_attention_at}
+                needsAttentionSince={ga4.needs_attention_since}
                 lastSyncedAt={ga4.last_synced_at}
               />
+            ) : null}
+            {ga4.ga4_property_id ? (
+              <RefreshLedgerLine fact={refreshLedger.ga4} />
             ) : null}
             {ga4SyncResult ? (
               <p
@@ -1470,6 +1605,7 @@ export function ConnectorsClient({
               status={profound.status}
               lastSyncedAt={profound.last_synced_at}
             />
+            <RefreshLedgerLine fact={refreshLedger.profound} />
             {profoundSyncResult ? (
               <p
                 className={`text-[12px] ${profoundSyncResult.ok ? "text-status-success" : "text-status-warning"}`}
@@ -1590,6 +1726,7 @@ export function ConnectorsClient({
               status={clarity.status}
               lastSyncedAt={clarity.last_synced_at}
             />
+            <RefreshLedgerLine fact={refreshLedger.clarity} />
             {claritySyncResult ? (
               <p
                 className={`text-[12px] ${claritySyncResult.ok ? "text-status-success" : "text-status-warning"}`}

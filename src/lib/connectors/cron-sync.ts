@@ -54,6 +54,9 @@ import { loadDeadmanVerdict } from "@/domains/ops/deadman-view";
 import { computePooledVerdicts } from "@/domains/proof-gsc/pooled-verdict-runner";
 import { runInvestigationForTenant } from "@/domains/investigation/run-investigation";
 import { recordCronRun, type CronRunSourceResult as LedgerSourceResult } from "@/domains/ops/cron-runs-store";
+import { recordSourceRefresh } from "@/domains/ops/record-source-refresh";
+import type { RefreshSource, RefreshTrigger } from "@/domains/ops/refresh-runs-store";
+import { evaluateAuthEscalationForTenant } from "@/domains/ops/auth-escalation";
 import { summarizeRunHealth } from "@/lib/connectors/connector-failure-class";
 import { checkTokenExpiryForTenants } from "@/domains/ops/token-expiry-notify";
 import { homepageUrlForDomain, probeHomepage, recordSiteProbe } from "@/domains/ops/site-uptime-store";
@@ -138,6 +141,50 @@ export function syncSucceeded(value: unknown): { ok: true } | { ok: false; reaso
   return { ok: false, reason };
 }
 
+/** Connector-store provider -> refresh-ledger source name (drops the vendor
+ *  prefix: google_gsc -> gsc, google_ga4 -> ga4). */
+function ledgerSource(provider: ReadProvider): RefreshSource {
+  switch (provider) {
+    case "google_gsc":
+      return "gsc";
+    case "google_ga4":
+      return "ga4";
+    case "clarity":
+      return "clarity";
+    case "profound":
+      return "profound";
+  }
+}
+
+/** Record one source's outcome into the refresh ledger (cron + on-use paths
+ *  both call this). Fail-soft: recordSourceRefresh never throws, and this catch
+ *  is belt-and-suspenders so a ledger write can never affect the sync. `value`
+ *  is the engine's return object (or a synthetic {synced:false,reason} for a
+ *  thrown/failed source) so the ledger classifies it honestly. */
+async function recordLedger(
+  tenantId: string,
+  provider: ReadProvider,
+  trigger: RefreshTrigger,
+  startedAt: string,
+  value: unknown,
+): Promise<void> {
+  try {
+    await recordSourceRefresh({
+      tenantId,
+      source: ledgerSource(provider),
+      trigger,
+      startedAt,
+      value,
+    });
+  } catch (e) {
+    log.warn("[cron-sync] refresh-ledger write threw (sync unaffected)", {
+      tenantId,
+      provider,
+      error: e instanceof Error ? e.message.slice(0, 200) : String(e),
+    });
+  }
+}
+
 /** Stamp last_synced_at so the connector card's freshness label stays honest.
  *  Best-effort — a freshness-write failure must never flip a successful sync to
  *  a failure. The per-provider switch narrows the union for updateConnectorToken's
@@ -147,10 +194,20 @@ async function stampFreshness(provider: ReadProvider, tenantId: string): Promise
   try {
     switch (provider) {
       case "google_gsc":
-        await updateConnectorToken("google_gsc", patch, tenantId);
+        // A good pull also clears any bounded needs-attention marker (BUG 2) in
+        // the SAME write, so the banner heals immediately on success.
+        await updateConnectorToken(
+          "google_gsc",
+          { ...patch, needs_attention_at: null, needs_attention_since: null },
+          tenantId,
+        );
         break;
       case "google_ga4":
-        await updateConnectorToken("google_ga4", patch, tenantId);
+        await updateConnectorToken(
+          "google_ga4",
+          { ...patch, needs_attention_at: null, needs_attention_since: null },
+          tenantId,
+        );
         break;
       case "clarity":
         await updateConnectorToken("clarity", patch, tenantId);
@@ -183,6 +240,7 @@ async function syncOneTenant(tenantId: string): Promise<CronSyncSourceResult[]> 
   const connected = READ_SOURCES.filter((_, i) => connectedFlags[i]);
   if (connected.length === 0) return [];
 
+  const startedAt = new Date().toISOString();
   const settled = await Promise.allSettled(connected.map((s) => s.run(tenantId)));
 
   return Promise.all(
@@ -197,9 +255,16 @@ async function syncOneTenant(tenantId: string): Promise<CronSyncSourceResult[]> 
           error: err.slice(0, 200),
         });
         await reportPhaseError(`sync-${s.provider}`, tenantId, outcome.reason);
+        await recordLedger(tenantId, s.provider, "cron", startedAt, {
+          synced: false,
+          reason: err.slice(0, 200),
+        });
         return { tenantId, provider: s.provider, ok: false, detail: err.slice(0, 200) };
       }
       const verdict = syncSucceeded(outcome.value);
+      // Record the honest per-source outcome (ok/partial/failed + rows + data
+      // date) into the refresh ledger regardless of verdict.
+      await recordLedger(tenantId, s.provider, "cron", startedAt, outcome.value);
       if (!verdict.ok) {
         // Failed sync — do NOT stamp freshness (the card must not claim a pull
         // that didn't happen). Surface the engine's reason for the cron log.
@@ -265,6 +330,7 @@ export async function autoRefreshStaleConnectorsForTenant(
   );
   if (stale.length === 0) return [];
 
+  const startedAt = new Date().toISOString();
   const settled = await Promise.allSettled(stale.map(({ source }) => source.run(tenantId)));
   const results = await Promise.all(
     stale.map(async ({ source }, i): Promise<CronSyncSourceResult> => {
@@ -277,9 +343,14 @@ export async function autoRefreshStaleConnectorsForTenant(
           provider: source.provider,
           error: err.slice(0, 200),
         });
+        await recordLedger(tenantId, source.provider, "on-use", startedAt, {
+          synced: false,
+          reason: err.slice(0, 200),
+        });
         return { tenantId, provider: source.provider, ok: false, detail: err.slice(0, 200) };
       }
       const verdict = syncSucceeded(outcome.value);
+      await recordLedger(tenantId, source.provider, "on-use", startedAt, outcome.value);
       if (!verdict.ok) {
         return { tenantId, provider: source.provider, ok: false, detail: verdict.reason };
       }
@@ -335,6 +406,29 @@ export async function syncAllConnectedForActiveTenants(): Promise<CronSyncResult
       const err = e instanceof Error ? e.message : String(e);
       log.error("[cron-sync] tenant failed", { tenantId: t.id, error: err.slice(0, 200) });
       await reportPhaseError("tenant-sync", t.id, e);
+    }
+  }
+
+  // PHASE 1-esc - auth-failure escalation (2026-07-11, BUG 2). The probe found
+  // GSC/GA4 grants that failed EVERY nightly sync for weeks with only transient
+  // classifications (gsc_auth_transient / token blips) that never PROVE the
+  // grant dead, so auth_failed_at stayed null and /settings/connectors never
+  // showed a "reconnect" prompt. This bounded escalation reads tonight's + prior
+  // cron rows from the refresh ledger (just written by syncOneTenant above) and,
+  // when a source has failed N nights spanning >= M days, stamps a distinct
+  // needs-attention marker with honest copy ("I have not been able to pull your
+  // data since <date>. Reconnecting usually fixes this.") - NEVER auth_failed_at,
+  // so a live-but-flaky grant is never falsely reported as revoked. Runs AFTER
+  // the syncs so tonight's outcome is included. Isolated fail-soft per tenant.
+  for (const t of tenants) {
+    try {
+      await evaluateAuthEscalationForTenant(t.id);
+    } catch (e) {
+      log.warn("[cron-sync] auth-escalation check failed", {
+        tenantId: t.id,
+        error: e instanceof Error ? e.message.slice(0, 200) : String(e),
+      });
+      await reportPhaseError("auth-escalation", t.id, e);
     }
   }
 
