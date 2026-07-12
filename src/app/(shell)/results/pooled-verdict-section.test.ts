@@ -12,8 +12,8 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import type { PooledVerdictRow } from "@/domains/proof-gsc/pooled-verdict-store";
 import {
-  TEST_CALIBRATED_VERSION,
-  registerTestCalibratedVersion,
+  TEST_CALIBRATED_POOLED_VERSION,
+  registerTestCalibratedPooledVersion,
   clearTestCalibratedVersions,
 } from "@/domains/proof-gsc/verdict-calibration-test-support";
 
@@ -125,8 +125,8 @@ describe("PooledVerdictSection - fail-closed calibration quarantine gate (2026-0
   });
 
   it("renders the batch line normally for a row stamped with a registered version", async () => {
-    registerTestCalibratedVersion();
-    latestRow = pooledRow({ calibrationVersion: TEST_CALIBRATED_VERSION });
+    registerTestCalibratedPooledVersion();
+    latestRow = pooledRow({ calibrationVersion: TEST_CALIBRATED_POOLED_VERSION });
     const el = await PooledVerdictSection();
     expect(el).not.toBeNull();
     const html = renderToStaticMarkup(el as ReactElement);

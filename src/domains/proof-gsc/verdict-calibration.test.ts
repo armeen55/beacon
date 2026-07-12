@@ -12,6 +12,7 @@
 import { describe, expect, it, afterEach } from "vitest";
 import {
   CALIBRATED_VERDICT_VERSIONS,
+  CALIBRATED_POOLED_VERDICT_VERSIONS,
   UNCALIBRATED_NO_CLEAR_EFFECT_SENTENCE,
   isCalibratedVerdict,
   isCalibratedPooledVerdict,
@@ -20,7 +21,9 @@ import {
 } from "./verdict-calibration";
 import {
   TEST_CALIBRATED_VERSION,
+  TEST_CALIBRATED_POOLED_VERSION,
   registerTestCalibratedVersion,
+  registerTestCalibratedPooledVersion,
   clearTestCalibratedVersions,
 } from "./verdict-calibration-test-support";
 
@@ -29,6 +32,7 @@ afterEach(clearTestCalibratedVersions);
 describe("the registry is empty today (fail-closed by default)", () => {
   it("ships with zero registered calibrated versions", () => {
     expect(CALIBRATED_VERDICT_VERSIONS).toEqual([]);
+    expect(CALIBRATED_POOLED_VERDICT_VERSIONS).toEqual([]);
   });
 });
 
@@ -51,7 +55,7 @@ describe("isCalibratedVerdict - fail-closed", () => {
   });
 });
 
-describe("isCalibratedPooledVerdict - fail-closed, shares the same registry", () => {
+describe("isCalibratedPooledVerdict - fail-closed with an independent registry", () => {
   it("is false for a null calibrationVersion (every pooled row today)", () => {
     expect(isCalibratedPooledVerdict({ calibrationVersion: null })).toBe(false);
   });
@@ -63,9 +67,13 @@ describe("isCalibratedPooledVerdict - fail-closed, shares the same registry", ()
   it("is false for an UNKNOWN (unregistered) version", () => {
     expect(isCalibratedPooledVerdict({ calibrationVersion: "made-up-pooled-v9" })).toBe(false);
   });
-  it("is true ONLY for a registered version (the future certified pooled classifier)", () => {
+  it("does not trust a version certified only for the per-page classifier", () => {
     registerTestCalibratedVersion();
-    expect(isCalibratedPooledVerdict({ calibrationVersion: TEST_CALIBRATED_VERSION })).toBe(true);
+    expect(isCalibratedPooledVerdict({ calibrationVersion: TEST_CALIBRATED_VERSION })).toBe(false);
+  });
+  it("is true ONLY for a separately registered pooled version", () => {
+    registerTestCalibratedPooledVersion();
+    expect(isCalibratedPooledVerdict({ calibrationVersion: TEST_CALIBRATED_POOLED_VERSION })).toBe(true);
     expect(isCalibratedPooledVerdict({ calibrationVersion: "still-not-it" })).toBe(false);
   });
 });

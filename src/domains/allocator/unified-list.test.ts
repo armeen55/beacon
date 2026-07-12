@@ -306,9 +306,10 @@ describe("normalizeKeywordLibraryEntryWithRegistry (N2 extension, lane d)", () =
     expect(e.kind).toBe("edit");
     expect(e.topic).toBeNull();
     expect(e.page).toBe("/iranian-names");
-    expect(e.exactWhat).toContain("ownership registry");
+    expect(e.exactWhat).toContain("Google sends it the most impressions");
     expect(e.exactWhat).not.toMatch(/[–—]/); // no en/em dash
-    expect(e.forecastBasis).toContain("gsc_ranks");
+    expect(e.forecastBasis).toContain("improve it before creating another page");
+    expect(e.forecastBasis).not.toContain("gsc_ranks");
   });
 
   it("leaves a genuine gap untouched when the registry has no opinion on this keyword", () => {

@@ -41,6 +41,10 @@ export type CanonicalMoveInput = {
   topQueryPosition?: number | null;
   topQueryImpressions90d?: number | null;
   topQueryClicks90d?: number | null;
+  /** A real, separately observed AI citation gap (for example, a named competitor
+   * being cited). This prevents Google zero-click behavior from suppressing an
+   * independently evidenced AEO move. */
+  hasIndependentAeoEvidence?: boolean;
   /** D7 - the tenant's own bias-correction factor + empirical capture band, when the caller has
    *  loaded them from forecast-calibration.ts. Omitted -> forecastRange's honest defaults. */
   correctionFactor?: number | null;
@@ -206,22 +210,15 @@ function fromMove(tenantId: string, m: CanonicalMoveInput, controlPaths: Set<str
       if (status === "ready") status = "suggested";
     }
   }
-  // G2 (2026-07-10 hygiene batch, extended 2026-07-11) - an act-now edit only makes sense when
-  // the page's top query can structurally EARN clicks. Strong position + material impressions +
-  // near-zero CTR is an image-intent or true zero-click query (the pilot found /iran-flags and
-  // /iran-animals/asiatic-cheetah exactly this way) - the searcher's need is satisfied on the
-  // results page itself, so no edit can win clicks there. Originally this gated ONLY clicks-tone
-  // moves, which let a trapped page ride in as an act-now add_answer_block ("Win AI citations")
-  // pick ranked #2 (its rationale sold the very Google demand its own history proves does not
-  // convert). The check now gates EVERY pre-ship edit on an existing page (title, answer block,
-  // any lever), never a brand-new page (which has no top query to trap). Only when nothing already
-  // flagged the rec, so it never overrides a more specific quality call. Same flagged -> watch path
-  // as the off-topic check above: never deleted, held with an honest, lever-appropriate reason.
+  // A zero-click Google query disproves a click-capture pitch. It does NOT disprove a separately
+  // observed AI citation gap. Hold every click move, plus non-click moves that are merely borrowing
+  // Google's impressions as their rationale; preserve citation work backed by real AI evidence.
   if (
     qualityDecision === "approved" &&
     family !== "new_page" &&
     (status === "ready" || status === "suggested") &&
-    isZeroClickTrap(m)
+    isZeroClickTrap(m) &&
+    (m.actionTone === "clicks" || !m.hasIndependentAeoEvidence)
   ) {
     qualityDecision = "flagged";
     qualityNote = zeroClickTrapReason(m.actionTone);

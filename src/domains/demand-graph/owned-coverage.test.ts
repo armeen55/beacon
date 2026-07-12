@@ -160,4 +160,10 @@ describe("acknowledgeSentence", () => {
     expect(s).toContain("Nowruz Persian New Year");
     expect(BANNED_DASH.test(s)).toBe(false);
   });
+
+  it("discloses additional covered topics instead of silently hiding them", () => {
+    const m = detectOwnedCoverageForTopic("nowruz persian new year", servingFixture)!;
+    const s = acknowledgeSentence(m, ["Nowruz Persian New Year", "Nowruz Date", "Nowruz Traditions", "Haft Sin"]);
+    expect(s).toContain("Nowruz Persian New Year and Nowruz Date and 2 more related topics");
+  });
 });

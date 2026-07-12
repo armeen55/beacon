@@ -10,10 +10,11 @@
  * modules per test file, so the mutation never leaks between files.
  */
 
-import { CALIBRATED_VERDICT_VERSIONS } from "./verdict-calibration";
+import { CALIBRATED_POOLED_VERDICT_VERSIONS, CALIBRATED_VERDICT_VERSIONS } from "./verdict-calibration";
 
 /** The version tests stamp onto records to mark them calibrated. */
 export const TEST_CALIBRATED_VERSION = "calibrated-test-v1";
+export const TEST_CALIBRATED_POOLED_VERSION = "calibrated-pooled-test-v1";
 
 /** Register the test version so isCalibratedVerdict/displayProofOutcome/
  *  learningEligibleVerdict treat TEST_CALIBRATED_VERSION records as calibrated. */
@@ -22,7 +23,13 @@ export function registerTestCalibratedVersion(): void {
   if (!arr.includes(TEST_CALIBRATED_VERSION)) arr.push(TEST_CALIBRATED_VERSION);
 }
 
+export function registerTestCalibratedPooledVersion(): void {
+  const arr = CALIBRATED_POOLED_VERDICT_VERSIONS as string[];
+  if (!arr.includes(TEST_CALIBRATED_POOLED_VERSION)) arr.push(TEST_CALIBRATED_POOLED_VERSION);
+}
+
 /** Restore the empty production registry (fail-closed for every record again). */
 export function clearTestCalibratedVersions(): void {
   (CALIBRATED_VERDICT_VERSIONS as string[]).length = 0;
+  (CALIBRATED_POOLED_VERDICT_VERSIONS as string[]).length = 0;
 }

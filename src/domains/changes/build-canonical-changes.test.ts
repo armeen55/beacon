@@ -273,6 +273,28 @@ describe("G2 (2026-07-10 hygiene batch): zero-click / image-intent trap decides 
     expect(out[0].status).toBe("suggested");
   });
 
+  it("keeps a citation move actionable when a real AI citation gap independently supports it", () => {
+    const moves = [
+      mv({
+        id: "aeo-backed",
+        targetUrl: "https://s.com/citation-page",
+        query: "citation page topic",
+        pageLabel: "Citation Page Topic",
+        actionTone: "citation",
+        actionType: "add_answer_block",
+        hasIndependentAeoEvidence: true,
+        preparedReady: true,
+        topQueryPosition: 2.8,
+        topQueryImpressions90d: 5567,
+        topQueryClicks90d: 0,
+      }),
+    ];
+    const out = buildCanonicalChanges({ tenantId: "t", moves, plan: null, reservations: [] });
+    expect(out[0].qualityDecision).toBe("approved");
+    expect(out[0].decision).toBe("edit_existing");
+    expect(out[0].status).toBe("ready");
+  });
+
   it("the flag-history fixture (pos 3.3, 33,119 impressions, 0.13% CTR) as an act-now add_answer_block demotes to watching", () => {
     // The exact blind-benchmark page: position 3.3, 33,119 impressions/90d, ~0.13% CTR, pitched
     // as "Win AI citations" with a huge impressions-derived impact score. It must NOT survive as

@@ -367,8 +367,8 @@ export function normalizeKeywordLibraryEntryWithRegistry(
     page,
     topic: null,
     pageLabel: page,
-    exactWhat: `Improve ${page} for "${r.keyword}" - the ownership registry already names it the owner of this topic (${basisClause}), and it gets ${demandClause}.`,
-    forecastBasis: `Ownership registry (${entry.basis}) already names an owner for this topic, reclassified create -> edit (${page}).`,
+    exactWhat: `Improve ${page} for "${r.keyword}" because ${basisClause}, and it gets ${demandClause}.`,
+    forecastBasis: `${page} already ranks as the best existing home for this topic, so improve it before creating another page.`,
   };
 }
 
@@ -405,7 +405,7 @@ export function normalizeKeywordLibraryEntryWithCoverage(
     topic: null,
     pageLabel: page,
     exactWhat: `Improve ${coverage.ownedPath} for "${r.keyword}" - I already have a page targeting this topic, so I would strengthen it before building a new one. It gets ${demandClause}.`,
-    forecastBasis: `Owned-coverage detector found ${coverage.ownedPath} already targets this topic (${coverage.basis}), reclassified create -> edit.`,
+    forecastBasis: `${coverage.ownedPath} already targets this topic, so improve it before creating another page.`,
   };
 }
 

@@ -644,6 +644,7 @@ async function buildChangesViewUncached(tenantId: string): Promise<ChangesView> 
       topQueryPosition: tq && tq.impressions > 0 ? tq.position : null,
       topQueryImpressions90d: tq?.impressions ?? null,
       topQueryClicks90d: tq?.clicks ?? null,
+      hasIndependentAeoEvidence: Boolean(m.whoCited),
       correctionFactor: calibrationSummary.correctionFactor,
       captureBand: { low: band.low, high: band.high, n: band.n, isEmpirical: band.isEmpirical },
       settledResultsCount: calibrationSummary.settledCount,

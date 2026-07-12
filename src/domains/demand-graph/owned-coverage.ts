@@ -278,6 +278,8 @@ export function detectOwnedCoverageForCard(args: {
  *  double an owned page (case (b)). Names the owned page and the covered topics. */
 export function acknowledgeSentence(match: OwnedCoverageMatch, coveredTopics: readonly string[]): string {
   const topics = coveredTopics.filter(Boolean);
-  const topicClause = topics.length > 0 ? ` for ${topics.slice(0, 2).join(" and ")}` : "";
+  const named = topics.slice(0, 2).join(" and ");
+  const remainder = topics.length > 2 ? ` and ${topics.length - 2} more related topic${topics.length === 3 ? "" : "s"}` : "";
+  const topicClause = topics.length > 0 ? ` for ${named}${remainder}` : "";
   return `I already have ${match.ownedPath}${topicClause}, so this new page should target something different and not repeat it.`;
 }

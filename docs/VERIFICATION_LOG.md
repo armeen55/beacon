@@ -35339,6 +35339,22 @@ alternatives + 1 dissent, detail-hydration only, 14 pins. Gate 22849 passed 0 fa
 
 ALL Wave 4 partials (G3, G8, G9) are now shipped product.
 
+## 2026-07-11 - Blind-defect correction release candidate
+
+Integrated the three held blind-benchmark fixes onto the verified production source baseline and
+reviewed them as one release candidate. Uncertified pooled Results rows now self-hide behind a
+separate pooled calibration registry. The Changes zero-click guard blocks click-capture claims and
+unsupported impression-driven edits, while preserving citation work only when a named AI-citation
+gap independently supports it. New-page candidates demote to the owned page when GSC serving or
+owned content proves coverage; secondary covered topics are removed with an acknowledgment that
+names the page and counts any additional topics. Internal detector vocabulary was removed from
+operator-facing rationale.
+
+Verification: focused regression gate 149/149; allocator copy correction 43/43; strict typecheck
+exit 0; full suite 1,489 files passed, 23,083 tests passed, 62 skipped, 0 failed; production build
+exit 0. This records a green release candidate, not deployment. The exact pushed SHA and hosted
+`/api/version` receipt belong in the deploy report after the push/deploy ladder completes.
+
 ## 2026-07-11 - E-39 D4 wiring complete (32696319, review P2)
 
 2026-07-11 E-39 D4 wiring complete (32696319, review P2): honest engineering call, option B.

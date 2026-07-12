@@ -1,8 +1,11 @@
 # Beacon Verified State
 
-> 🟢 **Current verified state (2026-07-11, tip = this docs commit; its exact SHA is in the push
-> receipt in the 2026-07-11 "Proof-model wave landed" entry of VERIFICATION_LOG.md, and is what
-> /api/version reports once the deploy lands).** Main now carries the proof-model wave. Lane P2's
+> 🟢 **Current verified state (2026-07-11, tip = this docs commit; the exact pushed SHA is what
+> /api/version must report before this wave is called deployed).** The blind holdout's three
+> product defects now have reviewed release fixes: uncertified pooled verdicts self-hide behind
+> their own calibration registry, zero-click Google demand cannot promote an unsupported edit,
+> and a proposed new page demotes when an owned page already covers its core topic. Legitimate
+> AEO work remains actionable only when separately observed AI-citation evidence supports it. Lane P2's
 > predeclaration contract is code: the judged metric is frozen at ship, the 28 day window is the
 > single primary decision window, the 56 day window is a demote-only helper, 7, 14, and 84 days
 > are context-only reads, and the append-only confirmation_reads store ships alongside (both
@@ -13,13 +16,15 @@
 > set is too small, and it is now spent. So the verdict quarantine from the prior wave stays
 > exactly as deployed, every stored won or lost verdict still reads as uncalibrated through
 > src/domains/proof-gsc/verdict-calibration.ts, CALIBRATED_VERDICT_VERSIONS is still empty, and no
-> verdict was persisted. The full hermetic gate is GREEN at this tip; the exact numbers are in that
-> VERIFICATION_LOG.md entry.
+> verdict was persisted. The full gate is GREEN at this tip: strict typecheck, 1,489 test files
+> with 23,083 passed / 62 skipped / 0 failed, and the production build.
 
 ## Current limitations
 
 - **The verdict quarantine remains in force by design.** The release gate failed honestly, so no
   calibrated verdict may show. The decided board holds 0 trustworthy wins under honest floors.
+- **The holdout fixes are not a holdout pass.** Their deterministic regressions are green, but the
+  corrected product must face fresh unseen cases. Spent cases cannot certify their own fixes.
 - **Re-certification is blocked on units, not on method.** A new evaluation set needs roughly 3
   months of fresh calendar as history ages forward, or a pooled-verdict certification design.
 - **Ritz Google reconnect is pending.** Its data stops 2026-06-26, so the second-tenant proof
@@ -33,12 +38,12 @@
 
 ## Next 3 actions
 
-1. **Pooled-verdict certification design** with independent statistical review: the certification
-   path now that single-page changes on this tenant are individually unprovable at honest floors.
-2. **Blind holdout benchmark** of 5 preregistered unseen cases, run through the deployed product
-   path now that this wave freezes the code.
-3. **Operator items:** the 90 second Vercel cron check, the Search Console June comparison against
-   3,460 clicks, and the Ritz Google reconnect.
+1. **Verify this exact SHA on production** through `/api/version`, then smoke Results, Changes,
+   and New Pages without calling the push deployed early.
+2. **Run 5 fresh preregistered blind cases** through the deployed UI. A case that causes a code
+   change is spent and must be replaced with another unseen case.
+3. **Only after the blind gate passes, choose the highest-impact operator move** and take it from
+   evidence to approval, publish, hosted verification, and later measurement.
 
 ## History
 

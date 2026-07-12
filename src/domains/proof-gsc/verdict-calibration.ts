@@ -42,17 +42,17 @@
  *     thresholds that failed the self-test - so it is outside this quarantine's
  *     scope and is not routed through here.
  *
- * ONE SHARED-REGISTRY MEMBER (in scope, so a future reader does not mistake it
+ * ONE SEPARATELY CALIBRATED MEMBER (in scope, so a future reader does not mistake it
  * for the out-of-scope citation engine above):
  *   - The pooled batch verdict (pooled-verdict.ts helped / did_not_help /
  *     no_clear_lift, stored in pooled-verdict-store.ts, shown on /results by
- *     pooled-verdict-section.tsx) shares THIS registry. Its inverse-variance
+ *     pooled-verdict-section.tsx) has its OWN registry. Its inverse-variance
  *     pool with a sign-flip null has NOT passed a placebo self-test either, so
  *     every pooled row carries calibrationVersion: null and is read fail-closed
  *     through isCalibratedPooledVerdict below. Pooled wins stay quarantined until
  *     a certified pooled classifier registers its version in
- *     CALIBRATED_VERDICT_VERSIONS - that same one edit re-lights the pooled
- *     surface too.
+ *     CALIBRATED_POOLED_VERDICT_VERSIONS. Certifying a per-page classifier must
+ *     never accidentally re-light a different pooled method.
  */
 
 /**
@@ -63,6 +63,10 @@
  * one edit re-lights every consumer at once, because they all read this list.
  */
 export const CALIBRATED_VERDICT_VERSIONS: readonly string[] = [];
+
+/** Pooled inference is a different statistical method and must pass its own
+ * placebo gate. Keep its registry separate from the per-page classifier. */
+export const CALIBRATED_POOLED_VERDICT_VERSIONS: readonly string[] = [];
 
 /** The exact customer-facing sentence for an uncalibrated decided verdict. First
  *  person Beacon voice, no lab words, no em/en dashes. This is the ONLY string a
@@ -99,17 +103,16 @@ export type CalibratablePooledRow = {
 
 /**
  * True ONLY when a POOLED batch verdict row's calibrationVersion is a registered,
- * self-test-passing version. Pooled verdicts share the SAME registry as per-page
- * verdicts (CALIBRATED_VERDICT_VERSIONS), so the pooled sign-flip inference stays
- * quarantined until a pooled classifier is certified. Fail-closed: null /
+ * self-test-passing POOLED version. The pooled sign-flip inference stays
+ * quarantined until that specific method is certified. Fail-closed: null /
  * undefined / unknown version -> false. Today this returns false for EVERY pooled
- * row (CALIBRATED_VERDICT_VERSIONS is empty), so no uncertified pooled win/loss
+ * row (CALIBRATED_POOLED_VERDICT_VERSIONS is empty), so no uncertified pooled win/loss
  * line may ever render.
  */
 export function isCalibratedPooledVerdict(row: CalibratablePooledRow | null | undefined): boolean {
   const version = row?.calibrationVersion;
   if (version == null) return false;
-  return CALIBRATED_VERDICT_VERSIONS.includes(version);
+  return CALIBRATED_POOLED_VERDICT_VERSIONS.includes(version);
 }
 
 export type ProofOutcomeDisplay =
