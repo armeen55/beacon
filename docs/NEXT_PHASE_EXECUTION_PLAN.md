@@ -19,38 +19,41 @@ chronology of what already landed lives in VERIFICATION_LOG.md; this list is onl
    degraded, broken, zero-tenant, zero-connected-source, and non-durable-receipt
    outcomes now have distinct status/body contracts; the route can no longer return fake green
    merely because the function completed.
-5. **Results initial-paint streaming.** CODE COMPLETE, FOCUSED GATE GREEN, FULL GATE/DEPLOY
-   PENDING. Only the ledger blocks the shell; four nonessential data reads plus operator context
+5. **Results initial-paint streaming.** DEPLOYED AND SHA-VERIFIED at 86ecd1f1. Only the ledger
+   blocks the shell; four nonessential data reads plus operator context
    share one promise behind Suspense with truthful fallbacks and no duplicate I/O.
-6. **Deployed-SHA verification.** Confirm the pushed tip actually reached Vercel production by
+6. **GA4 property-calendar reconciliation.** CODE COMPLETE, FOCUSED GATE GREEN, FULL GATE/DEPLOY
+   PENDING. Direct report windows and partial-month classification use the stored GA4 property
+   timezone; missing, invalid, conflicting, or changed timezones withhold the claim.
+7. **Deployed-SHA verification.** Confirm the pushed tip actually reached Vercel production by
    reading /api/version on production and matching its answer to this tip, alongside the
    operator's 90-second Vercel cron check.
-7. **Fresh blind unseen-topic benchmark.** Run 5 preregistered cases not used to build these
+8. **Fresh blind unseen-topic benchmark.** Run 5 preregistered cases not used to build these
    corrections. A case that changes code is spent and must be replaced.
-8. **Scheduled-refresh receipt.** The first cron run after this deploy must leave a started
+9. **Scheduled-refresh receipt.** The first cron run after this deploy must leave a started
    receipt; that receipt is what proves the scheduled refresh path is alive, since sync-connectors
    and measure-due missed their 2026-07-11 slots.
-9. **Proof-model replacement with independent validation.** INFRASTRUCTURE LANDED, CERTIFICATION
+10. **Proof-model replacement with independent validation.** INFRASTRUCTURE LANDED, CERTIFICATION
    HONESTLY BLOCKED ON UNITS, NOT ON METHOD. The verdict classifier now runs under the independent
    statistical validation protocol (predeclaration contract plus a frozen-artifact holdout
    harness), but the release gate failed because the tenant cannot yet supply enough judged units
    per cell. Certification waits on more calendar or a pooled-verdict design.
-10. **56 to 84 day confirmation ladder.** STORAGE AND WINDOW CONTRACT LANDED, 56 DAY READS
+11. **56 to 84 day confirmation ladder.** STORAGE AND WINDOW CONTRACT LANDED, 56 DAY READS
    PROVISIONAL UNTIL HISTORY SUPPORTS THEM. The demote-only confirmation tier above the 28 day
    primary read is in the contract and the store; a 56 day demotion is flagged provisional until
    this tenant's placebo history depth supports the window.
-11. **June GSC UI comparison (operator).** The operator compares the stored June total of 3,460
+12. **June GSC UI comparison (operator).** The operator compares the stored June total of 3,460
    clicks and 251,274 impressions against the Search Console UI.
-12. **Hosted UX and performance closure.** Prove the hosted speed budgets on production, not on the
+13. **Hosted UX and performance closure.** Prove the hosted speed budgets on production, not on the
    dev server.
-13. **Fix product gaps from holdouts.** Address whatever the fresh blind benchmark exposes.
-14. **Second tenant.** Bring a second tenant onto the same workflow; Ritz stays cold-start until
+14. **Fix product gaps from holdouts.** Address whatever the fresh blind benchmark exposes.
+15. **Second tenant.** Bring a second tenant onto the same workflow; Ritz stays cold-start until
     the operator reconnects it.
-15. **Publish one operator-approved move.** Ship a single move the operator has approved, end to
+16. **Publish one operator-approved move.** Ship a single move the operator has approved, end to
     end.
-16. **Verify live and measure under the corrected model.** Confirm the published move is live and
+17. **Verify live and measure under the corrected model.** Confirm the published move is live and
     measure it under the corrected proof model, never the quarantined one.
-17. **Claim the learning loop only then.** Only after 1 through 16 hold may we claim the learning
+18. **Claim the learning loop only then.** Only after 1 through 17 hold may we claim the learning
     loop works.
 
 ## Recently landed (see VERIFICATION_LOG.md for the dated chronology)
@@ -69,7 +72,7 @@ targeted engineering. It did not yet prove that Beacon independently discovers a
 Armeen's workflow on unseen topics.
 
 The singers case is retired to a regression fixture and may not be reused as acceptance evidence.
-The real acceptance test is the fresh blind unseen-topic benchmark (priority 7 above).
+The real acceptance test is the fresh blind unseen-topic benchmark (priority 8 above).
 
 ## Parity-matrix ranked fixes - queued 2026-07-10
 

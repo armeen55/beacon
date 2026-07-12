@@ -70,6 +70,51 @@ describe("reconcileGa4MonthlySeries - dead token / not connected", () => {
 });
 
 describe("reconcileGa4MonthlySeries - pass / mismatch", () => {
+  it("uses the GA4 property-local date at a UTC month boundary", async () => {
+    const boundaryNow = new Date("2026-07-01T01:30:00.000Z");
+    _monthlyMock.mockResolvedValue({
+      ok: true,
+      propertyTimezone: "America/Los_Angeles",
+      rows: [{ month: "2026-05-01", sessions: 100 }],
+    });
+    _rollupMock.mockResolvedValue({
+      months: [
+        { month: "2026-05-01", sessions: 100, engagedSessions: 50, partial: false },
+        { month: "2026-06-01", sessions: 20, engagedSessions: 10, partial: true },
+      ],
+      latestSyncAt: "2026-07-01T01:00:00Z",
+      propertyTimezone: "America/Los_Angeles",
+      propertyId: "p1",
+    });
+    const r = await reconcileGa4MonthlySeries("tenant-a", boundaryNow);
+    expect(r.status).toBe("pass");
+    expect(_monthlyMock).toHaveBeenCalledWith(expect.objectContaining({ endDate: "2026-06-30" }));
+  });
+
+  it("fails closed when stored and live GA4 property timezones disagree", async () => {
+    _monthlyMock.mockResolvedValue({ ok: true, propertyTimezone: "UTC", rows: [] });
+    _rollupMock.mockResolvedValue({
+      months: [{ month: "2026-06-01", sessions: 100, engagedSessions: 50, partial: false }],
+      latestSyncAt: "2026-07-10T02:00:00Z",
+      propertyTimezone: "America/Los_Angeles",
+      propertyId: "p1",
+    });
+    const r = await reconcileGa4MonthlySeries("tenant-a", NOW);
+    expect(r).toMatchObject({ status: "error", reason: "property_timezone_mismatch" });
+  });
+
+  it("fails closed when stored daily rows lack a property timezone", async () => {
+    _monthlyMock.mockResolvedValue({ ok: true, propertyTimezone: "America/Los_Angeles", rows: [] });
+    _rollupMock.mockResolvedValue({
+      months: [{ month: "2026-06-01", sessions: 100, engagedSessions: 50, partial: false }],
+      latestSyncAt: "2026-07-10T02:00:00Z",
+      propertyTimezone: null,
+      propertyId: "p1",
+    });
+    const r = await reconcileGa4MonthlySeries("tenant-a", NOW);
+    expect(r).toMatchObject({ status: "error", reason: "property_timezone_missing" });
+  });
+
   it("daily rollup matches the direct monthly total within tolerance -> pass", async () => {
     _monthlyMock.mockResolvedValue({
       ok: true,
@@ -97,13 +142,13 @@ describe("reconcileGa4MonthlySeries - pass / mismatch", () => {
   it("daily rollup off by more than tolerance -> mismatch (alert, never a claim)", async () => {
     _monthlyMock.mockResolvedValue({
       ok: true,
-      propertyTimezone: null,
+      propertyTimezone: "America/Los_Angeles",
       rows: [{ month: "2026-06-01", sessions: 12540 }],
     });
     _rollupMock.mockResolvedValue({
       months: [{ month: "2026-06-01", sessions: 15000, engagedSessions: 9000, partial: false }],
       latestSyncAt: "2026-07-10T02:00:00Z",
-      propertyTimezone: null,
+      propertyTimezone: "America/Los_Angeles",
       propertyId: "p1",
     });
     const r = await reconcileGa4MonthlySeries("tenant-a", NOW);
@@ -113,11 +158,11 @@ describe("reconcileGa4MonthlySeries - pass / mismatch", () => {
   });
 
   it("exact match passes", async () => {
-    _monthlyMock.mockResolvedValue({ ok: true, propertyTimezone: null, rows: [{ month: "2026-06-01", sessions: 999 }] });
+    _monthlyMock.mockResolvedValue({ ok: true, propertyTimezone: "America/Los_Angeles", rows: [{ month: "2026-06-01", sessions: 999 }] });
     _rollupMock.mockResolvedValue({
       months: [{ month: "2026-06-01", sessions: 999, engagedSessions: 500, partial: false }],
       latestSyncAt: "2026-07-10T02:00:00Z",
-      propertyTimezone: null,
+      propertyTimezone: "America/Los_Angeles",
       propertyId: "p1",
     });
     const r = await reconcileGa4MonthlySeries("tenant-a", NOW);
@@ -125,11 +170,11 @@ describe("reconcileGa4MonthlySeries - pass / mismatch", () => {
   });
 
   it("no stored full months to reconcile -> error (card keeps holding back)", async () => {
-    _monthlyMock.mockResolvedValue({ ok: true, propertyTimezone: null, rows: [{ month: "2026-07-01", sessions: 10 }] });
+    _monthlyMock.mockResolvedValue({ ok: true, propertyTimezone: "America/Los_Angeles", rows: [{ month: "2026-07-01", sessions: 10 }] });
     _rollupMock.mockResolvedValue({
       months: [{ month: "2026-07-01", sessions: 10, engagedSessions: 5, partial: true }],
       latestSyncAt: "2026-07-10T02:00:00Z",
-      propertyTimezone: null,
+      propertyTimezone: "America/Los_Angeles",
       propertyId: "p1",
     });
     const r = await reconcileGa4MonthlySeries("tenant-a", NOW);
@@ -139,11 +184,11 @@ describe("reconcileGa4MonthlySeries - pass / mismatch", () => {
   it("VACUOUS zero-vs-zero comparison is NOT a pass (empty data -> error, card holds back)", async () => {
     // The direct report and the stored rollup both report a completed month of ZERO
     // sessions. An empty-vs-empty comparison proves nothing - it must never write pass.
-    _monthlyMock.mockResolvedValue({ ok: true, propertyTimezone: null, rows: [{ month: "2026-06-01", sessions: 0 }] });
+    _monthlyMock.mockResolvedValue({ ok: true, propertyTimezone: "America/Los_Angeles", rows: [{ month: "2026-06-01", sessions: 0 }] });
     _rollupMock.mockResolvedValue({
       months: [{ month: "2026-06-01", sessions: 0, engagedSessions: 0, partial: false }],
       latestSyncAt: "2026-07-10T02:00:00Z",
-      propertyTimezone: null,
+      propertyTimezone: "America/Los_Angeles",
       propertyId: "p1",
     });
     const r = await reconcileGa4MonthlySeries("tenant-a", NOW);
@@ -157,11 +202,11 @@ describe("reconcileGa4MonthlySeries - pass / mismatch", () => {
     // Real stored traffic for June, but the direct report has no June row at all.
     // We cannot vouch for it -> mismatch, and because the stored month carries real
     // data this is NOT the vacuous no_data path.
-    _monthlyMock.mockResolvedValue({ ok: true, propertyTimezone: null, rows: [] });
+    _monthlyMock.mockResolvedValue({ ok: true, propertyTimezone: "America/Los_Angeles", rows: [] });
     _rollupMock.mockResolvedValue({
       months: [{ month: "2026-06-01", sessions: 5000, engagedSessions: 3000, partial: false }],
       latestSyncAt: "2026-07-10T02:00:00Z",
-      propertyTimezone: null,
+      propertyTimezone: "America/Los_Angeles",
       propertyId: "p1",
     });
     const r = await reconcileGa4MonthlySeries("tenant-a", NOW);
@@ -174,7 +219,7 @@ describe("reconcileGa4MonthlySeries - pass / mismatch", () => {
     // so the rollup cannot pass silently.
     _monthlyMock.mockResolvedValue({
       ok: true,
-      propertyTimezone: null,
+      propertyTimezone: "America/Los_Angeles",
       rows: [
         { month: "2026-04-01", sessions: 100 },
         { month: "2026-05-01", sessions: 5000 },
@@ -187,7 +232,7 @@ describe("reconcileGa4MonthlySeries - pass / mismatch", () => {
         { month: "2026-06-01", sessions: 200, engagedSessions: 120, partial: false },
       ],
       latestSyncAt: "2026-07-10T02:00:00Z",
-      propertyTimezone: null,
+      propertyTimezone: "America/Los_Angeles",
       propertyId: "p1",
     });
     const r = await reconcileGa4MonthlySeries("tenant-a", NOW);
@@ -204,7 +249,7 @@ describe("reconcileGa4MonthlySeries - pass / mismatch", () => {
     // must NOT be treated as a gap - June reconciles cleanly and the card may pass.
     _monthlyMock.mockResolvedValue({
       ok: true,
-      propertyTimezone: null,
+      propertyTimezone: "America/Los_Angeles",
       rows: [
         { month: "2026-05-01", sessions: 9000 },
         { month: "2026-06-01", sessions: 200 },
@@ -213,7 +258,7 @@ describe("reconcileGa4MonthlySeries - pass / mismatch", () => {
     _rollupMock.mockResolvedValue({
       months: [{ month: "2026-06-01", sessions: 200, engagedSessions: 120, partial: false }],
       latestSyncAt: "2026-07-10T02:00:00Z",
-      propertyTimezone: null,
+      propertyTimezone: "America/Los_Angeles",
       propertyId: "p1",
     });
     const r = await reconcileGa4MonthlySeries("tenant-a", NOW);

@@ -35416,6 +35416,26 @@ full suite 1,491 files passed, 23,095 tests passed, 62 skipped, 0 failed; produc
 Hosted latency is not claimed until authenticated production measurement. Deployment remains
 pending in this entry.
 
+Deployment receipt: `origin/main` fast-forwarded to
+`86ecd1f163873ce303bd3f28ed0954bfd949cb71`; Vercel deployment
+`dpl_2w8qbu3vTav2sK7sjtoUd3Jbre3j` reached Ready and production `/api/version` returned the exact
+SHA.
+
+## 2026-07-12 - GA4 property-calendar reconciliation release candidate
+
+Confirmed and fixed the remaining month-boundary correctness defect behind Today visit totals.
+GA4 buckets `date` and `yearMonth` in the property's reporting timezone, but reconciliation chose
+its report range and current month in UTC, and the daily rollup also marked `partial` in UTC. Added
+one shared property-calendar utility. The rollup now requires exactly one valid stored property
+timezone and uses it for partial-month classification. Reconciliation uses that same timezone for
+its 420-day direct-report window/current month and requires the live GA4 response timezone to match.
+Missing, invalid, conflicting, or changed timezones write an error marker and withhold visits.
+
+Verification: focused property-calendar, rollup, reconciliation, and monthly-pulse suites 47/47;
+strict typecheck exit 0; full suite 1,492 files passed, 23,103 tests passed, 62 skipped, 0 failed;
+production build exit 0. Boundary fixtures cover both UTC-ahead and property-ahead cases. Hosted
+Today/GA4 read-back is not claimed. Deployment remains pending in this entry.
+
 ## 2026-07-11 - E-39 D4 wiring complete (32696319, review P2)
 
 2026-07-11 E-39 D4 wiring complete (32696319, review P2): honest engineering call, option B.

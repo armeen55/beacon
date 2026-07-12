@@ -95,6 +95,41 @@ describe("loadGa4MonthlyRollupForTenant", () => {
     expect(rollup!.latestSyncAt).toBe("2026-07-10T02:00:00Z");
   });
 
+  it("marks the partial month in the property timezone, not UTC", async () => {
+    _tables.ga4_daily_totals = {
+      error: null,
+      data: [
+        { date: "2026-06-30", sessions: 10, engaged_sessions: 5, property_id: "p1", property_timezone: "America/Los_Angeles", synced_at: "2026-07-01T01:00:00Z" },
+        { date: "2026-07-01", sessions: 2, engaged_sessions: 1, property_id: "p1", property_timezone: "America/Los_Angeles", synced_at: "2026-07-01T08:00:00Z" },
+      ],
+    };
+    const rollup = await loadGa4MonthlyRollupForTenant("tenant-a", {
+      propertyId: "p1",
+      now: new Date("2026-07-01T01:30:00.000Z"),
+    });
+    expect(rollup!.months.find((m) => m.month === "2026-06-01")?.partial).toBe(true);
+    expect(rollup!.months.find((m) => m.month === "2026-07-01")?.partial).toBe(false);
+  });
+
+  it("fails closed when stored rows have missing or conflicting property timezones", async () => {
+    _tables.ga4_daily_totals = {
+      error: null,
+      data: [
+        { date: "2026-06-01", sessions: 10, engaged_sessions: 5, property_id: "p1", property_timezone: null, synced_at: "2026-07-01T01:00:00Z" },
+      ],
+    };
+    expect(await loadGa4MonthlyRollupForTenant("tenant-a", { propertyId: "p1", now: NOW })).toBeNull();
+
+    _tables.ga4_daily_totals = {
+      error: null,
+      data: [
+        { date: "2026-06-01", sessions: 10, engaged_sessions: 5, property_id: "p1", property_timezone: "UTC", synced_at: "2026-07-01T01:00:00Z" },
+        { date: "2026-06-02", sessions: 10, engaged_sessions: 5, property_id: "p1", property_timezone: "America/Los_Angeles", synced_at: "2026-07-01T01:00:00Z" },
+      ],
+    };
+    expect(await loadGa4MonthlyRollupForTenant("tenant-a", { propertyId: "p1", now: NOW })).toBeNull();
+  });
+
   it("two-tenant / two-property isolation: reads are eq-filtered by tenant and property", async () => {
     _tables.ga4_daily_totals = { error: null, data: [] };
     await loadGa4MonthlyRollupForTenant("tenant-a", { propertyId: "prop-A", now: NOW });

@@ -2,10 +2,12 @@
 
 > 🟢 **Current verified state (2026-07-11, tip = this docs commit; the exact pushed SHA is what
 > /api/version must report before this wave is called deployed).** Production is verified through
-> the truthful cron-health release at 7967d729. This tip removes the remaining Results first-paint
-> barrier: only the ledger is awaited before the page shell renders; connection health, action
-> packs, finalized GSC date, calibration, and operator context share one promise behind streamed
-> boundaries. Healthy, degraded, broken, missing fleet/source inventory, and ephemeral-receipt
+> the Results-streaming release at 86ecd1f1. This tip makes GA4 reconciliation use the property's
+> reporting calendar end to end: the direct-report window and current/partial month come from the
+> stored GA4 timezone, and missing, invalid, conflicting, or changed timezones fail closed. Only the
+> Results ledger is awaited before its shell renders; connection health, action packs, finalized
+> GSC date, calibration, and operator context share one promise behind streamed boundaries.
+> Healthy, degraded, broken, missing fleet/source inventory, and ephemeral-receipt
 > fallback no longer collapse into `200 {ok:true}`. Beacon's
 > source-visible eight-case suite now identifies itself as `known_case_regression`, never blind
 > validation, and the fresh-holdout contract fails closed unless five unseen archetypes prove
@@ -42,6 +44,8 @@
   stays cold until the operator reconnects it.
 - **The June GSC Search Console UI comparison is pending.** The stored June total of 3,460 clicks
   needs an operator check against the Search Console UI.
+- **The GA4 property-timezone fix is not yet hosted-data proof.** Its boundary fixtures and source
+  path are green; the actual Today totals still require authenticated read-back against GA4.
 - **The production receipt history could not be read from this environment.** Direct Supabase DNS
   resolution failed and Vercel returned no historical request logs. The next deployed invocation
   will expose a truthful HTTP class, but that is not evidence the July 12 schedule actually fired.
@@ -51,8 +55,8 @@
 
 ## Next 3 actions
 
-1. **Deploy and verify the Results-streaming SHA** through `/api/version`, then measure authenticated
-   first useful paint and completion latency.
+1. **Deploy and verify the GA4 property-calendar SHA** through `/api/version`, then read back the
+   stored/direct monthly reconciliation on authenticated Today.
 2. **Run 5 fresh preregistered blind cases** through the authenticated deployed UI. A case that causes a code
    change is spent and must be replaced with another unseen case.
 3. **Only after the blind gate passes, choose the highest-impact operator move** and take it from

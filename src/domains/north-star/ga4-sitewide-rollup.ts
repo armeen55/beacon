@@ -26,6 +26,7 @@ import "server-only";
 import { getSupabaseAdmin } from "@/lib/persistence/supabase";
 import { getGoogleConnectorToken } from "@/lib/connector-store";
 import { log } from "@/lib/logger";
+import { propertyMonthKey } from "./property-calendar";
 
 const DAILY_TABLE = "ga4_daily_totals";
 const RECON_TABLE = "ga4_monthly_reconciliation";
@@ -75,10 +76,6 @@ function monthKeyOf(dateIso: string): string {
   return `${dateIso.slice(0, 7)}-01`;
 }
 
-function currentMonthKey(now: Date): string {
-  return `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}-01`;
-}
-
 /**
  * Roll the tenant's `ga4_daily_totals` into calendar months. Optionally scoped to
  * one property_id (two-property isolation). The current calendar month is flagged
@@ -117,10 +114,20 @@ export async function loadGa4MonthlyRollupForTenant(
     const rows = (data ?? []) as DailyRow[];
     if (rows.length === 0) return null;
 
-    const currentKey = currentMonthKey(now);
+    const timezones = [...new Set(rows.map((r) => r.property_timezone).filter((v): v is string => !!v))];
+    if (timezones.length !== 1) {
+      log.warn("[ga4-sitewide-rollup] property timezone missing or inconsistent", {
+        tenantId,
+        propertyId: opts.propertyId ?? null,
+        timezoneCount: timezones.length,
+      });
+      return null;
+    }
+    const propertyTimezone = timezones[0]!;
+    const currentKey = propertyMonthKey(now, propertyTimezone);
+    if (currentKey == null) return null;
     const byMonth = new Map<string, { sessions: number; engagedSessions: number }>();
     let latestSyncAt: string | null = null;
-    let propertyTimezone: string | null = null;
     let propertyId: string | null = null;
     for (const r of rows) {
       if (!r.date) continue;
@@ -130,7 +137,6 @@ export async function loadGa4MonthlyRollupForTenant(
       agg.engagedSessions += Number(r.engaged_sessions) || 0;
       byMonth.set(key, agg);
       if (r.synced_at && (latestSyncAt == null || r.synced_at > latestSyncAt)) latestSyncAt = r.synced_at;
-      if (r.property_timezone) propertyTimezone = r.property_timezone;
       if (r.property_id) propertyId = r.property_id;
     }
 

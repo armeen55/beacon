@@ -20,9 +20,9 @@ import "server-only";
  * The verdict is persisted (ga4_monthly_reconciliation) with checked-at + per-month
  * values, so the card gate can require a PASS that is fresher than the latest sync.
  *
- * OPERATOR-GATED TODAY: both tenants' GA4 refresh tokens are dead (invalid_grant since
- * 2026-07-06), so the direct report returns token_expired and this returns NOT_CONNECTED
- * honestly. The moment GA4 reconnects, a run flips to pass/mismatch and the card follows.
+ * Property-calendar rule: GA4's date dimensions use the property's reporting
+ * timezone. A missing, invalid, or inconsistent timezone is therefore a non-pass,
+ * never permission to compare UTC months against property-local months.
  */
 
 import { getGoogleConnectorToken, getConnectorHealth } from "@/lib/connector-store";
@@ -34,13 +34,12 @@ import {
   writeGa4Reconciliation,
   type Ga4ReconciliationMonth,
 } from "@/domains/north-star/ga4-sitewide-rollup";
+import { dateKeyDaysBefore, propertyDateKey, propertyMonthKey } from "./property-calendar";
 
 /** Per-month tolerance for the daily-rollup-vs-direct comparison, in percent.
  *  A stored month within this band of GA4's direct monthly total (or exactly equal)
  *  passes; GA4's own late-arriving data can wobble a completed month slightly. */
 export const RECONCILE_TOLERANCE_PCT = 1;
-
-const ONE_DAY_MS = 86_400_000;
 
 /** Honest not-connected copy (Beacon voice, no dashes, concrete next step). Used when
  *  GA4 cannot deliver a live report to reconcile against - reused, never faked. */
@@ -80,11 +79,36 @@ export async function reconcileGa4MonthlySeries(
     return { status: "not_connected", reason: "no_token", healthReason, message: GA4_NOT_CONNECTED_LINE };
   }
 
+  // Read the stored property calendar BEFORE choosing the direct-report window.
+  // The daily rows already carry GA4 response metadata.timeZone; without exactly
+  // one valid timezone, month reconciliation would be calendar-ambiguous.
+  const rollup = await loadGa4MonthlyRollupForTenant(tenantId, { propertyId, now });
+  const fullMonths = (rollup?.months ?? []).filter((m) => !m.partial);
+  const propertyTimezone = rollup?.propertyTimezone ?? null;
+  // Preserve honest dead-token classification even before the first daily row
+  // exists by probing in UTC when no stored timezone exists. A successful probe
+  // still cannot pass reconciliation until the stored property timezone exists.
+  const calendarTimezone = propertyTimezone ?? "UTC";
+  const endDate = propertyDateKey(now, calendarTimezone);
+  const currentMonthKey = propertyMonthKey(now, calendarTimezone);
+  const startDate = endDate ? dateKeyDaysBefore(endDate, 420) : null;
+  if (!startDate || !endDate || !currentMonthKey) {
+    await writeGa4Reconciliation({
+      tenantId,
+      propertyId,
+      checkedAt: now.toISOString(),
+      status: "error",
+      tolerancePct: RECONCILE_TOLERANCE_PCT,
+      latestSyncAt: rollup?.latestSyncAt ?? null,
+      reconciledThrough: null,
+      perMonth: [],
+    });
+    return { status: "error", reason: "property_timezone_missing", message: "GA4 property timezone is missing or invalid" };
+  }
+
   // Window: the full retention ceiling so every stored full month has a direct
-  // counterpart to compare against.
-  const todayUtcMs = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
-  const startDate = new Date(todayUtcMs - 420 * ONE_DAY_MS).toISOString().slice(0, 10);
-  const endDate = new Date(todayUtcMs).toISOString().slice(0, 10);
+  // counterpart to compare against, using the SAME property-local calendar GA4
+  // used to bucket the stored daily rows.
 
   const direct = await runGa4SitewideMonthlyReport({ tenantId, propertyId, startDate, endDate });
   if (!direct.ok) {
@@ -114,12 +138,7 @@ export async function reconcileGa4MonthlySeries(
     });
     return { status: "error", reason: direct.reason, message: direct.message ?? "GA4 report error" };
   }
-
-  const rollup = await loadGa4MonthlyRollupForTenant(tenantId, { propertyId, now });
-  const fullMonths = (rollup?.months ?? []).filter((m) => !m.partial);
   if (fullMonths.length === 0) {
-    // Nothing stored to reconcile yet (sync hasn't populated daily totals). Not a
-    // pass; the card keeps holding back.
     await writeGa4Reconciliation({
       tenantId,
       propertyId,
@@ -131,6 +150,36 @@ export async function reconcileGa4MonthlySeries(
       perMonth: [],
     });
     return { status: "error", reason: "no_rollup", message: "no stored full months to reconcile" };
+  }
+  if (!propertyTimezone) {
+    await writeGa4Reconciliation({
+      tenantId,
+      propertyId,
+      checkedAt: now.toISOString(),
+      status: "error",
+      tolerancePct: RECONCILE_TOLERANCE_PCT,
+      latestSyncAt: rollup?.latestSyncAt ?? null,
+      reconciledThrough: null,
+      perMonth: [],
+    });
+    return { status: "error", reason: "property_timezone_missing", message: "GA4 property timezone is missing or invalid" };
+  }
+  if (direct.propertyTimezone !== propertyTimezone) {
+    await writeGa4Reconciliation({
+      tenantId,
+      propertyId,
+      checkedAt: now.toISOString(),
+      status: "error",
+      tolerancePct: RECONCILE_TOLERANCE_PCT,
+      latestSyncAt: rollup?.latestSyncAt ?? null,
+      reconciledThrough: null,
+      perMonth: [],
+    });
+    return {
+      status: "error",
+      reason: "property_timezone_mismatch",
+      message: "GA4 property timezone changed or could not be verified",
+    };
   }
 
   const directByMonth = new Map(direct.rows.map((r) => [r.month, r.sessions]));
@@ -165,7 +214,6 @@ export async function reconcileGa4MonthlySeries(
   // tenant simply has not synced yet falls outside [firstStored, lastStored] and is
   // correctly NOT flagged (that is honest coverage, not a gap).
   const storedMonths = new Set(fullMonths.map((m) => m.month));
-  const currentMonthKey = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}-01`;
   const firstStored = fullMonths[0]!.month;
   const lastStored = fullMonths[fullMonths.length - 1]!.month;
   for (const r of direct.rows) {
