@@ -1,5 +1,5 @@
 /**
- * benchmark (BEACON_500 N33, 2026-07-03, R22b) - the blind Beacon-vs-expert
+ * benchmark (BEACON_500 N33, 2026-07-03, R22b) - the known-case regression
  * benchmark, run deterministically over the gold library (N36).
  *
  * WHAT IT PROVES. For every gold case we know the correct decision (the expert
@@ -38,6 +38,9 @@ export type BenchmarkMiss = {
 };
 
 export type BenchmarkReport = {
+  /** Prevents this trained-on, source-visible fixture suite from being presented
+   * as an unseen or blind validation result. */
+  evidenceClass: "known_case_regression";
   /** How many (case × axis) checks agreed with the expert. */
   passed: number;
   /** Total (case × axis) checks. */
@@ -167,7 +170,7 @@ export function runBenchmark(): BenchmarkReport {
     if (caseClean) casesPassed += 1;
   }
 
-  return { passed, total, casesPassed, casesTotal: cases.length, misses };
+  return { evidenceClass: "known_case_regression", passed, total, casesPassed, casesTotal: cases.length, misses };
 }
 
 /**
@@ -179,7 +182,7 @@ export function runBenchmark(): BenchmarkReport {
  */
 export function benchmarkOperatorLine(report: BenchmarkReport): string {
   if (report.casesPassed === report.casesTotal) {
-    return `I checked myself against ${report.casesTotal} known-good ${report.casesTotal === 1 ? "case" : "cases"} and got ${report.casesPassed} right.`;
+    return `I rechecked ${report.casesTotal} known cases and still get all ${report.casesPassed} right. This catches regressions, but it is not a blind test.`;
   }
-  return `I checked myself against ${report.casesTotal} known-good ${report.casesTotal === 1 ? "case" : "cases"} and got ${report.casesPassed} right, so I am looking into the ${report.casesTotal - report.casesPassed} I missed.`;
+  return `I rechecked ${report.casesTotal} known cases and now miss ${report.casesTotal - report.casesPassed}. This regression must be fixed before release.`;
 }

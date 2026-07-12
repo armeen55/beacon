@@ -35355,6 +35355,27 @@ exit 0; full suite 1,489 files passed, 23,083 tests passed, 62 skipped, 0 failed
 exit 0. This records a green release candidate, not deployment. The exact pushed SHA and hosted
 `/api/version` receipt belong in the deploy report after the push/deploy ladder completes.
 
+Deployment receipt: `origin/main` fast-forwarded to `eacd00494cb093f9da830a8d7837fdb449744d54`;
+Vercel production deployment `dpl_5MAQ55cD1Tm6micR4aAECdP9hP9K` reached Ready and
+`https://beacon-bice.vercel.app/api/version` returned that exact SHA. Unauthenticated Results,
+Changes, and Today smokes returned the expected 307 login gate. Authenticated content remains the
+next operator-session gate.
+
+## 2026-07-11 - Evaluation-claim boundary release candidate
+
+Corrected a systemic evidence-label defect: `src/domains/eval/benchmark.ts` described its visible,
+trained-on gold fixtures as a blind benchmark. Its report now carries the machine-readable
+`known_case_regression` class and operator copy says plainly that it catches regressions but is not
+a blind test. Added a separate fail-closed blind-holdout contract requiring a valid candidate SHA,
+five unique cases covering edit/new-page/zero-click/decline/do-nothing, preregistration before a
+frozen prediction, expert-label reveal only afterward, every judgment passing, and zero code
+changes in response. A tuned case is counted as spent and forces a replacement. Diagnostics shows
+that no fresh blind result is registered rather than borrowing credibility from known fixtures.
+
+Verification: focused adversarial suite 11/11; strict typecheck exit 0; full suite 1,490 files
+passed, 23,087 tests passed, 62 skipped, 0 failed; production build exit 0. Deployment is not
+claimed in this entry until the push, Vercel Ready state, and exact `/api/version` match complete.
+
 ## 2026-07-11 - E-39 D4 wiring complete (32696319, review P2)
 
 2026-07-11 E-39 D4 wiring complete (32696319, review P2): honest engineering call, option B.

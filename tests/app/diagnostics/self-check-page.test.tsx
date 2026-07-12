@@ -31,7 +31,8 @@ describe("/diagnostics/self-check", () => {
     const el = await SelfCheckPage();
     const html = renderToStaticMarkup(el);
     // The honest headline line, in Beacon voice.
-    expect(html).toContain("I checked myself against 8 known-good cases and got 8 right.");
+    expect(html).toContain("I rechecked 8 known cases and still get all 8 right. This catches regressions, but it is not a blind test.");
+    expect(html).toContain("No fresh blind result is registered for this release.");
     // The four self-check sections.
     expect(html).toContain("Did I change any past call?");
     expect(html).toContain("Which signals are pulling their weight?");

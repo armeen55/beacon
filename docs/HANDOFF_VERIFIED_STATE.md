@@ -1,7 +1,12 @@
 # Beacon Verified State
 
 > 🟢 **Current verified state (2026-07-11, tip = this docs commit; the exact pushed SHA is what
-> /api/version must report before this wave is called deployed).** The blind holdout's three
+> /api/version must report before this wave is called deployed).** Production is verified through
+> the prior correction release at eacd0049. This tip adds the evaluation-claim boundary: Beacon's
+> source-visible eight-case suite now identifies itself as `known_case_regression`, never blind
+> validation, and the fresh-holdout contract fails closed unless five unseen archetypes prove
+> preregistration, prediction before expert-label reveal, no code changes in response, and a pass.
+> The blind holdout's three
 > product defects now have reviewed release fixes: uncertified pooled verdicts self-hide behind
 > their own calibration registry, zero-click Google demand cannot promote an unsupported edit,
 > and a proposed new page demotes when an owned page already covers its core topic. Legitimate
@@ -25,6 +30,8 @@
   calibrated verdict may show. The decided board holds 0 trustworthy wins under honest floors.
 - **The holdout fixes are not a holdout pass.** Their deterministic regressions are green, but the
   corrected product must face fresh unseen cases. Spent cases cannot certify their own fixes.
+- **No fresh blind receipt exists yet.** Diagnostics now says this directly. The contract is built,
+  but eligibility stays false until the authenticated hosted run produces valid evidence.
 - **Re-certification is blocked on units, not on method.** A new evaluation set needs roughly 3
   months of fresh calendar as history ages forward, or a pooled-verdict certification design.
 - **Ritz Google reconnect is pending.** Its data stops 2026-06-26, so the second-tenant proof
@@ -38,9 +45,8 @@
 
 ## Next 3 actions
 
-1. **Verify this exact SHA on production** through `/api/version`, then smoke Results, Changes,
-   and New Pages without calling the push deployed early.
-2. **Run 5 fresh preregistered blind cases** through the deployed UI. A case that causes a code
+1. **Deploy and verify this exact evaluation-boundary SHA** through `/api/version`.
+2. **Run 5 fresh preregistered blind cases** through the authenticated deployed UI. A case that causes a code
    change is spent and must be replaced with another unseen case.
 3. **Only after the blind gate passes, choose the highest-impact operator move** and take it from
    evidence to approval, publish, hosted verification, and later measurement.

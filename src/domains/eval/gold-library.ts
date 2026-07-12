@@ -4,6 +4,8 @@
  * other eval piece (the benchmark N33, the ablation N34, the replay N35) has one
  * honest substrate to test against.
  *
+ * This is intentionally a REGRESSION library, never a blind holdout: both its
+ * inputs and expert answers are visible in source and may influence implementation.
  * Each GoldCase is a self-contained, TENANT-AGNOSTIC synthetic fixture: the raw
  * demand / competitor / GSC signals for ONE page, plus the CORRECT decision an
  * expert would make about it -
