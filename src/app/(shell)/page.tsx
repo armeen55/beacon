@@ -184,32 +184,70 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
   // the staleness check + refresh via after() (post-response, serverless-safe).
   maybeRefreshStaleDataOnVisit(tenantId);
 
-  // UX4 item 6 - the one-click "Update data" control now lives in the page header, not the
-  // bottom of the page. Reads the same count the data-sources strip below computes for itself,
-  // so the header button and the strip's own affordances never disagree.
-  const connectedSourceCount = await valueWithDeadline(
-    countConnectedDataSources(tenantId).catch(() => 0),
-    0,
-  );
+  const nowPacific = new Date();
+  const activePlan = daily?.dashboard.acceptedPlan ?? daily?.dashboard.previewPlan;
+  const isMonday = nowPacific.toLocaleDateString("en-US", { weekday: "long", timeZone: "America/Los_Angeles" }) === "Monday";
 
-  // A1 (operator-experience fix batch, 2026-07-02) - read the pipeline health check once here
-  // so both the top-of-page alert AND the hero stat can react to a broken/stale data pipe. $0
-  // persisted read, fails soft to null (treated as healthy - never blocks the page).
-  const pipelineHealth = await valueWithDeadline(
-    readPipelineHealth(tenantId).catch(() => null),
-    null,
-  );
+  // Today context parallelization (2026-07-12): these eleven reads are mutually
+  // independent once tenant + cached composite are known. They used to run in
+  // several sequential waves, making their bounded deadlines additive. Start
+  // each exactly once and wait for the slowest, never the sum. Ranking/copy use
+  // the identical values and fallbacks as before.
+  const tLedger = perfMark();
+  const [
+    connectedSourceCount,
+    pipelineHealth,
+    ledgerRows,
+    lifecycle,
+    calibrationSentence,
+    strategySentence,
+    leadStoryDays,
+    decaySignals,
+    deadmanVerdict,
+    errorSpikeLine,
+    lastSeen,
+  ] = await Promise.all([
+    valueWithDeadline(countConnectedDataSources(tenantId).catch(() => 0), 0),
+    valueWithDeadline(readPipelineHealth(tenantId).catch(() => null), null),
+    valueWithDeadline(
+      loadProofLedgerCached(tenantId).catch(() => [] as Awaited<ReturnType<typeof loadProofLedgerCached>>),
+      [],
+    ),
+    valueWithDeadline(
+      loadLifecycleCounts().catch(() => ({ toDo: 0, tonightPicked: 0, tonightApplied: 0, measuring: 0, decided: 0, won: 0 })),
+      { toDo: 0, tonightPicked: 0, tonightApplied: 0, measuring: 0, decided: 0, won: 0 },
+      TODAY_HERO_DEADLINE_MS,
+    ),
+    isMonday
+      ? valueWithDeadline(
+          loadCalibrationRecords(tenantId)
+            .then((rows) => {
+              const s = summarizeForecastCalibration(rows);
+              return s.settledCount >= MIN_SETTLED_FOR_CALIBRATION ? s.sentence : null;
+            })
+            .catch(() => null),
+          null,
+        )
+      : Promise.resolve(null),
+    isMonday
+      ? valueWithDeadline(
+          loadLatestStrategyMix(tenantId).then((record) => strategyMemoLine(record, new Date())).catch(() => null),
+          null,
+        )
+      : Promise.resolve(null),
+    valueWithDeadline(
+      loadDailyTotalsForTenant(tenantId, 84).catch(() => [] as Awaited<ReturnType<typeof loadDailyTotalsForTenant>>),
+      [],
+    ),
+    valueWithDeadline(loadGscDecaySignalsForTenant(tenantId, new Date()).catch(() => new Map()), new Map(), TODAY_HERO_DEADLINE_MS),
+    valueWithDeadline(loadDeadmanVerdict(tenantId).catch(() => null), null, DEADMAN_DEADLINE_MS),
+    valueWithDeadline(loadErrorSpikeLine(tenantId).catch(() => null), null, DEADMAN_DEADLINE_MS),
+    valueWithDeadline(readTodayLastSeen().catch(() => null), null, TODAY_HERO_DEADLINE_MS),
+  ]);
+  perfStage("today-parallel-context", tLedger, { rows: ledgerRows.length });
+
   const pipelineDegraded = Boolean(pipelineHealth && pipelineHealth.violations.length > 0);
   const pipelineCheckedAt = pipelineHealth?.checked_at ?? null;
-
-  // Items 7 + 8 - the ledger speaks in the header: the 14-day shipping streak, and on Mondays
-  // a one-line recap of last week's outcomes. One cached ledger read; fail-soft to silence.
-  const tLedger = perfMark();
-  const ledgerRows = await valueWithDeadline(
-    loadProofLedgerCached(tenantId).catch(() => [] as Awaited<ReturnType<typeof loadProofLedgerCached>>),
-    [],
-  );
-  perfStage("today-proof-ledger-read", tLedger, { rows: ledgerRows.length });
   const streak = shippedInLastDays(ledgerRows, Date.now());
   // FP3 (2026-07-02, supersedes A2's verdict-field count) - THE ONE-COUNT RULE: every
   // lifecycle count on this page (the standup chip, the tiles, the measuring strip, the
@@ -218,14 +256,6 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
   // "16 measuring" here lands on exactly 16 "In flight" rows on Results, and the
   // Results tile equals the decided (Wins + What we learned) total there - never three
   // contradicting answers on three surfaces. Fail-soft to zeros, never blocks the page.
-  const lifecycle = await valueWithDeadline(
-    loadLifecycleCounts().catch(() => ({ toDo: 0, tonightPicked: 0, tonightApplied: 0, measuring: 0, decided: 0, won: 0 })),
-    { toDo: 0, tonightPicked: 0, tonightApplied: 0, measuring: 0, decided: 0, won: 0 },
-    // Matches the hero deadline: the ledger inside is request-cache-shared with the
-    // reads above (instant), and the loader bounds its own backlog read at 3.5s, so
-    // this only bites when things are genuinely wedged.
-    TODAY_HERO_DEADLINE_MS,
-  );
   const measuringCount = lifecycle.measuring;
   // D6 (daily ritual loop) - the daily counter strip's two real numbers, both read from the
   // SAME ledger rows the streak above already loaded. Server truth, never localStorage: the
@@ -235,53 +265,21 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
   const doubleCheckingTodayCount = stillDoubleCheckingCount(ledgerRows, Date.now());
 
   // Item 42: the assistant sets the scene like a person would.
-  const nowPacific = new Date();
   const dayLine = nowPacific.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", timeZone: "America/Los_Angeles" });
   const hour = Number(nowPacific.toLocaleString("en-US", { hour: "numeric", hour12: false, timeZone: "America/Los_Angeles" }));
   const greeting = hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening";
-  const activePlan = daily?.dashboard.acceptedPlan ?? daily?.dashboard.previewPlan;
   const picks = activePlan?.selected.length ?? 0;
   const minutes = activePlan?.estimatedMinutes ?? 0;
   // P1-5 (2026-07-10, visual audit) - the streak's celebratory clause ("you are on a roll")
   // and the `brief` sentence it lives in are built further below, AFTER the one command exists,
   // so they can be gated on command.kind (see the comment there for why).
   // Item 7 - Monday recap band: last week's outcomes in one sentence, from the ledger.
-  const isMonday = nowPacific.toLocaleDateString("en-US", { weekday: "long", timeZone: "America/Los_Angeles" }) === "Monday";
   const recapSentence = isMonday
     ? weeklyRecapSentence(buildWeeklyRecap(ledgerRows.map((r) => ({ shippedAt: r.shippedAt, verdict: r.verdict, calibrationVersion: r.calibrationVersion, path: r.path })), Date.now()))
     : null;
-  // Item 27 - the same Monday band gets one honest sentence on forecast accuracy, once at least
-  // MIN_SETTLED_FOR_CALIBRATION picks have settled at their 28-day window. Fail-soft: any error
-  // here just omits the sentence, never breaks the page.
-  const calibrationSentence = isMonday
-    ? await valueWithDeadline(
-        loadCalibrationRecords(tenantId)
-          .then((rows) => {
-            const s = summarizeForecastCalibration(rows);
-            return s.settledCount >= MIN_SETTLED_FOR_CALIBRATION ? s.sentence : null;
-          })
-          .catch(() => null),
-        null,
-      )
-    : null;
-  // Item 51 - the weekly strategy review's signed memo, Mondays only, self-hides when no
-  // fresh (this-or-next-week) mix exists. Fail-soft: any error just omits the line.
-  const strategySentence = isMonday
-    ? await valueWithDeadline(
-        loadLatestStrategyMix(tenantId)
-          .then((record) => strategyMemoLine(record, new Date()))
-          .catch(() => null),
-        null,
-      )
-    : null;
-
   // The same 84-day click series the scoreboard reads (react.cache-shared, so this costs nothing
   // extra). Feeds the command's week-over-week loss check and the while-away catch-up card.
   const tonightFirstPick = activePlan?.selected[0] ?? null;
-  const leadStoryDays = await valueWithDeadline(
-    loadDailyTotalsForTenant(tenantId, 84).catch(() => [] as Awaited<ReturnType<typeof loadDailyTotalsForTenant>>),
-    [],
-  );
   const nowMs = Date.now();
 
   // P14 item 2 (v1 324) - the smoke alarm with page blame: ONE honest line naming the exact page
@@ -291,11 +289,6 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
   // pagesWithFixReady = the pages tonight's plan already has a queued change for, so "I have a fix
   // ready" is only said when it is true. Self-hides when no drop clears the floor. $0-ish read,
   // fail-soft to null (no alarm), deadline-bounded like the other page reads.
-  const decaySignals = await valueWithDeadline(
-    loadGscDecaySignalsForTenant(tenantId, new Date()).catch(() => new Map()),
-    new Map(),
-    TODAY_HERO_DEADLINE_MS,
-  );
   const pagesWithFixReady = new Set<string>(
     (activePlan?.selected ?? []).map((s) => {
       const p = (s.pageLabel || "").replace(/^https?:\/\/[^/]+/i, "").replace(/\/$/, "");
@@ -320,10 +313,6 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
   // (domains/ops/defect-signal.ts) is the ONE pure read both this command and that banner use, so
   // they can never disagree again. loadDeadmanVerdict is react.cache-shared (free here);
   // loadErrorSpikeLine is a light per-tenant read, deadline-bound like the banner's.
-  const [deadmanVerdict, errorSpikeLine] = await Promise.all([
-    valueWithDeadline(loadDeadmanVerdict(tenantId).catch(() => null), null, DEADMAN_DEADLINE_MS),
-    valueWithDeadline(loadErrorSpikeLine(tenantId).catch(() => null), null, DEADMAN_DEADLINE_MS),
-  ]);
   const pipelineAlarms = deriveDefectSignal({
     violations: pipelineHealth?.violations ?? [],
     deadman: deadmanVerdict,
@@ -401,11 +390,6 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
   // ONLY the changes that won since the last visit, computed with the SAME per-record window
   // math the lead headline uses (adaptProofRecordForLead), so it never shows a hard number
   // off an open window. Fail-soft: any store outage just hides the block, never breaks Today.
-  const lastSeen = await valueWithDeadline(
-    readTodayLastSeen().catch(() => null),
-    null,
-    TODAY_HERO_DEADLINE_MS,
-  );
   const newWonMonthlyClickLift = lastSeen
     ? (() => {
         const seenMs = Date.parse(lastSeen.seenAt);

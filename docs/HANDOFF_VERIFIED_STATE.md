@@ -2,7 +2,9 @@
 
 > 🟢 **Current verified state (2026-07-11, tip = this docs commit; the exact pushed SHA is what
 > /api/version must report before this wave is called deployed).** Production is verified through
-> the Results-streaming release at 86ecd1f1. This tip makes GA4 reconciliation use the property's
+> the GA4 property-calendar release at d2ed7193. This tip removes Today's post-snapshot sequential
+> waterfall: eleven independent command-context reads now run in one bounded parallel batch, with
+> unchanged values, fallbacks, tenant scope, ranking, and copy. GA4 reconciliation uses the property's
 > reporting calendar end to end: the direct-report window and current/partial month come from the
 > stored GA4 timezone, and missing, invalid, conflicting, or changed timezones fail closed. Only the
 > Results ledger is awaited before its shell renders; connection health, action packs, finalized
@@ -50,13 +52,14 @@
   resolution failed and Vercel returned no historical request logs. The next deployed invocation
   will expose a truthful HTTP class, but that is not evidence the July 12 schedule actually fired.
 - **Hosted speed budgets are unproven.** I judge performance on production only, and I have not
-  measured authenticated p50/p95 for this tip. The source-level blocking waterfall is removed;
+  measured authenticated p50/p95 for this tip. Results' initial barrier and Today's additive
+  context waterfall are removed at source;
   that is not yet a hosted latency claim.
 
 ## Next 3 actions
 
-1. **Deploy and verify the GA4 property-calendar SHA** through `/api/version`, then read back the
-   stored/direct monthly reconciliation on authenticated Today.
+1. **Deploy and verify the Today-parallel-context SHA** through `/api/version`, then measure
+   authenticated Today and Results first useful paint.
 2. **Run 5 fresh preregistered blind cases** through the authenticated deployed UI. A case that causes a code
    change is spent and must be replaced with another unseen case.
 3. **Only after the blind gate passes, choose the highest-impact operator move** and take it from

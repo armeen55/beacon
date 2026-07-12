@@ -35436,6 +35436,24 @@ strict typecheck exit 0; full suite 1,492 files passed, 23,103 tests passed, 62 
 production build exit 0. Boundary fixtures cover both UTC-ahead and property-ahead cases. Hosted
 Today/GA4 read-back is not claimed. Deployment remains pending in this entry.
 
+Deployment receipt: `origin/main` fast-forwarded to
+`d2ed71932f711bb0087a86e4d6d707ccb98e27fc`; Vercel deployment
+`dpl_66rmRW8ZkJuuTUgJpC5xEs7ieGjo` reached Ready and production `/api/version` returned the exact
+SHA.
+
+## 2026-07-12 - Today post-snapshot parallel context release candidate
+
+Confirmed that Today still serialized roughly eleven independent reads after its cached composite:
+connected-source count, pipeline health, proof ledger, lifecycle counts, Monday calibration and
+strategy memo, 84-day GSC totals, decay signals, deadman, error spikes, and last-seen state. Moved
+them into one `Promise.all` after tenant/composite resolution. Every loader is called exactly once,
+retains its prior deadline and fail-soft fallback, and feeds the same command/ranking/copy logic.
+Worst-case wait is now the slowest bounded context read rather than their additive sequence.
+
+Verification: focused Today parallel-context/SWR/data-window suites 23/23; strict typecheck exit 0;
+full suite 1,493 files passed, 23,106 tests passed, 62 skipped, 0 failed; production build exit 0.
+Hosted latency is not claimed until authenticated measurement. Deployment remains pending.
+
 ## 2026-07-11 - E-39 D4 wiring complete (32696319, review P2)
 
 2026-07-11 E-39 D4 wiring complete (32696319, review P2): honest engineering call, option B.
