@@ -2,9 +2,11 @@
 
 > 🟢 **Current verified state (2026-07-11, tip = this docs commit; the exact pushed SHA is what
 > /api/version must report before this wave is called deployed).** Production is verified through
-> the evaluation-boundary release at 02f8ca31. This tip adds truthful scheduled-refresh HTTP
-> health: healthy, degraded, broken, missing fleet/source inventory, and ephemeral-receipt fallback
-> no longer collapse into `200 {ok:true}`. Beacon's
+> the truthful cron-health release at 7967d729. This tip removes the remaining Results first-paint
+> barrier: only the ledger is awaited before the page shell renders; connection health, action
+> packs, finalized GSC date, calibration, and operator context share one promise behind streamed
+> boundaries. Healthy, degraded, broken, missing fleet/source inventory, and ephemeral-receipt
+> fallback no longer collapse into `200 {ok:true}`. Beacon's
 > source-visible eight-case suite now identifies itself as `known_case_regression`, never blind
 > validation, and the fresh-holdout contract fails closed unless five unseen archetypes prove
 > preregistration, prediction before expert-label reveal, no code changes in response, and a pass.
@@ -44,12 +46,13 @@
   resolution failed and Vercel returned no historical request logs. The next deployed invocation
   will expose a truthful HTTP class, but that is not evidence the July 12 schedule actually fired.
 - **Hosted speed budgets are unproven.** I judge performance on production only, and I have not
-  measured it for this tip.
+  measured authenticated p50/p95 for this tip. The source-level blocking waterfall is removed;
+  that is not yet a hosted latency claim.
 
 ## Next 3 actions
 
-1. **Deploy and verify the truthful sync-health SHA** through `/api/version`, then inspect the next
-   scheduled invocation's status and durable receipt.
+1. **Deploy and verify the Results-streaming SHA** through `/api/version`, then measure authenticated
+   first useful paint and completion latency.
 2. **Run 5 fresh preregistered blind cases** through the authenticated deployed UI. A case that causes a code
    change is spent and must be replaced with another unseen case.
 3. **Only after the blind gate passes, choose the highest-impact operator move** and take it from

@@ -204,21 +204,20 @@ export default async function ProofPage({
   const tResolve = perfMark();
   const tenantId = await currentTenantId();
   perfStage("tenant-resolve", tResolve);
+  // The ledger is the ONE read needed to paint Results. Connection health,
+  // action packs, GSC finalization, calibration, and operator mode feed later
+  // banners/cards only. Start them in parallel but do not await them here, so a
+  // 15-second side dependency can never delay the header or ledger shell.
+  const initialContext = loadResultsInitialContext(tenantId);
   const tReads = perfMark();
-  const [ledgerRaced, connHealth, worklist, latestGscDate, calibrationRecords] = await Promise.all([
-    loadWithDeadline(
-      loadResultsLedgerSurface().catch(() => ({
-        ledger: [] as ShippedChangeRecord[],
-        computedAt: new Date().toISOString(),
-      })),
-      LEDGER_DEADLINE_MS,
-    ),
-    valueWithDeadline(loadConnectionHealth(tenantId).catch(() => []), [], SIDE_READ_DEADLINE_MS),
-    valueWithDeadline(loadActionPackWorklistForTenant(tenantId).catch(() => null), null, SIDE_READ_DEADLINE_MS),
-    valueWithDeadline(readLastFinalizedDate(tenantId).catch(() => null), null, SIDE_READ_DEADLINE_MS),
-    valueWithDeadline(loadCalibrationRecords(tenantId).catch(() => [] as CalibrationRecord[]), [] as CalibrationRecord[], SIDE_READ_DEADLINE_MS),
-  ]);
-  perfStage("results-initial-reads", tReads);
+  const ledgerRaced = await loadWithDeadline(
+    loadResultsLedgerSurface().catch(() => ({
+      ledger: [] as ShippedChangeRecord[],
+      computedAt: new Date().toISOString(),
+    })),
+    LEDGER_DEADLINE_MS,
+  );
+  perfStage("results-ledger-read", tReads);
   // W2-A - a timed-out ledger must never render as a confident-looking empty page
   // (that would read as "no changes yet", a lie). Say so honestly and stop.
   if (ledgerRaced.timedOut) {
@@ -238,11 +237,6 @@ export default async function ProofPage({
   const ledger = ledgerRaced.data.ledger;
   // R4 - the honest snapshot-age line under the header ("updated N ago", Beacon voice).
   const checkedAgoLine = ledgerCheckedAgoLine(ledgerRaced.data.computedAt, new Date().getTime());
-  const recordedPaths = new Set(ledger.map((l) => l.path));
-  // Item 42 - per-row forecast receipts: a settled calibration record (item 28's day-28 writer)
-  // is keyed by proofId, which IS the shipped-change ledger row's own id (see
-  // run-measurement.ts's writeCalibrationIfDue). One record per pick, so a plain map is exact.
-  const calibrationByProofId = new Map(calibrationRecords.map((r) => [r.proofId, r] as const));
 
   // W2-B (2026-07-10) - the "AI quoted this line" owned-alignment requests, derived
   // once off the ledger with the SAME gate AiQuotedReceipt used to apply per card (a
@@ -279,70 +273,6 @@ export default async function ProofPage({
     });
   }
 
-  // GSC-LAG CLARITY: Google Search Console data lags wall-clock, so a 7-day window
-  // whose calendar date has passed often can't be judged yet. Count the rows that are
-  // calendar-open but GSC-waiting, and surface the honest reason (not just "waiting").
-  // Pure derivation off the already-loaded ledger + latestGscDate; no I/O.
-  const lagByRow = new Map(
-    ledger.map((l) => [l.id, gscLagStatus(l, latestGscDate)] as const),
-  );
-  const waitingOnGsc = [...lagByRow.values()].filter(
-    (s) => s.calendarWindowClosed && !s.gscWindowAvailable && s.nextWindowDay != null,
-  );
-
-  // Passive auto-measure (2026-06-29): when the operator opens Results, fire-and-forget a
-  // due-row measurement pass AFTER the response (next/after → zero render latency) so
-  // settled verdicts + the learned re-ranking activate WITHOUT a manual "Measure now"
-  // click. Operator-only (it writes proof outcomes) + only when rows are actually due, so
-  // a customer/anon view never mutates proof data. The settled rows show on the next visit.
-  const dueNow = ledger.filter((l) => isDueForMeasure(l, latestGscDate, new Date()));
-  const isOperator = await isOperatorModeServer();
-  // W5 stop-ship F4 (2026-07-09): also schedule when nothing is due-for-measure
-  // but rows are eligible for a re-verify (never-verified / transient-failed /
-  // unresolved needs_review, past backoff). The after() re-verify loop already
-  // runs unconditionally inside scheduleAutoMeasure; this just stops that loop
-  // from being gated behind a measurement being due. No extra I/O -
-  // selectRowsToReverify runs over the ledger already in memory.
-  const eligibleReverify = selectRowsToReverify(ledger).length > 0;
-  if (isOperator && (dueNow.length > 0 || eligibleReverify)) scheduleAutoMeasure(tenantId);
-
-  // Proof compares each page to its Google Search Console history - so a stale or
-  // disconnected GSC makes the verdicts unreliable. Surface that honestly (operator
-  // brutal-audit: "if GSC/GA4 stale, say so") instead of showing confident-looking
-  // results over old data.
-  const gsc = connHealth.find((c) => c.key === "google_gsc") ?? null;
-  const gscFreshnessNote =
-    gsc == null || gsc.severity === "healthy"
-      ? null
-      : gsc.severity === "disconnected"
-        ? "Google Search Console isn't connected. Proof verdicts can't update until it is."
-        : gsc.severity === "needs_setup"
-          ? "Google Search Console is connected but hasn't synced yet. Verdicts will fill in after the first sync."
-          : `Search Console data is ${gsc.daysStale ?? "several"} days old. Recent changes may not show a verdict yet. Refresh to update.`;
-
-  // Recompute only does something once a measurement window has closed AND GSC has the
-  // data for it. Gate the button + give the honest reason (calendar vs GSC-lag).
-  const anyWindowReady = ledger.some((l) => l.windows.some((w) => w.ran));
-  // Prefer the soonest-actionable reason: a row whose calendar window is closed but is
-  // waiting on GSC explains the "date passed yet still waiting" confusion best.
-  const lagReason =
-    waitingOnGsc[0]?.reasonCopy ??
-    [...lagByRow.values()].find((s) => s.nextWindowDay != null && !s.gscWindowAvailable)?.reasonCopy ??
-    undefined;
-
-  // Operator-only: which action types past results are nudging Beacon toward /
-  // away from (the prior that steers ranking). Lets the operator SEE a skew and
-  // use "Exclude from learning" on a mis-measured result. Only types with a
-  // trusted prior or an excluded result are worth showing.
-  // W2-A drive-by fix: this used to call isOperatorModeServer() without awaiting it -
-  // a Promise is always truthy, so the operator-only section leaked to everyone. Use
-  // the already-awaited isOperator from above.
-  const learningDiag = isOperator
-    ? computeOutcomePriorDiagnostics(ledger).filter(
-        (d) => d.prior !== null || d.excluded > 0,
-      )
-    : [];
-
   return (
     <div className="mx-auto max-w-4xl px-6 py-8">
       <div className="mb-5 flex items-start justify-between gap-4">
@@ -371,35 +301,15 @@ export default async function ProofPage({
           </div>
         </div>
         {ledger.length > 0 ? (
-          <RecomputeLedgerButton
-            disabled={!anyWindowReady}
-            disabledReason={anyWindowReady ? undefined : lagReason}
-          />
+          <Suspense fallback={<RecomputeLedgerButton disabled disabledReason="Checking Search Console data." />}>
+            <RecomputeControlStream ledger={ledger} initialContext={initialContext} />
+          </Suspense>
         ) : null}
       </div>
 
-      {gscFreshnessNote ? (
-        <div className="mb-5 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
-          {gscFreshnessNote}
-        </div>
-      ) : null}
-
-      {/* GSC-lag clarity: when changes are calendar-due but Search Console hasn't caught
-          up, say so plainly instead of an unexplained "waiting". */}
-      {!gscFreshnessNote && waitingOnGsc.length > 0 ? (
-        <div className="mb-5 rounded-md border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-800">
-          {waitingOnGsc.length} change{waitingOnGsc.length === 1 ? " is" : "s are"} waiting on Search Console
-          data, not stalled. {waitingOnGsc[0]?.reasonCopy ?? ""} Google Search data typically lags 2-3 days.
-        </div>
-      ) : null}
-
-      {/* Passive auto-measure (2026-06-29): due rows are being re-measured in the
-          background (next/after) the moment Results opens - say so honestly. */}
-      {isOperator && dueNow.length > 0 ? (
-        <div className="mb-5 rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-800">
-          Measuring {dueNow.length} due result{dueNow.length === 1 ? "" : "s"} now. Refresh in a moment to see the verdict.
-        </div>
-      ) : null}
+      <Suspense fallback={null}>
+        <ResultsStatusStream ledger={ledger} tenantId={tenantId} initialContext={initialContext} />
+      </Suspense>
 
       {/* Premium "Proof at a glance" scoreboard (2026-06-25) - the Results act of
           the Move → Ship → Prove loop. Own Suspense / self-hides when nothing is
@@ -436,14 +346,11 @@ export default async function ProofPage({
           loading copy, so the settle does not shift the layout. */}
       {ledger.length > 0 ? (
         <Suspense fallback={<MeasuredOutcomesFallback rowCount={Math.min(ledger.length, 3)} />}>
-          <MeasuredOutcomesBoard
+          <MeasuredOutcomesContextStream
             sideReads={sideReads}
             ledger={ledger}
-            latestGscDate={latestGscDate}
             tenantId={tenantId}
-            isOperator={isOperator}
-            worklist={worklist}
-            calibrationByProofId={calibrationByProofId}
+            initialContext={initialContext}
           />
         </Suspense>
       ) : null}
@@ -456,42 +363,9 @@ export default async function ProofPage({
 
       {/* ── What Beacon has learned (operator-only): per-action_type prior that
           steers ranking, so a skew is visible and excludable. ── */}
-      {learningDiag.length > 0 ? (
-        <div className="mb-6">
-          <h2 className="mb-2 text-[13px] font-semibold uppercase tracking-wide text-muted-foreground">
-            What Beacon has learned
-          </h2>
-          <p className="mb-2 text-[11px] text-muted-foreground">
-            How your past results nudge which fixes Beacon suggests first. If a result
-            looks mis-measured, use &ldquo;Exclude from learning&rdquo; on it below.
-          </p>
-          <ul className="space-y-1">
-            {learningDiag.map((d) => (
-              <li key={d.actionType} className="text-[12px] text-foreground/80">
-                <span className="font-medium">{d.actionType.replace(/_/g, " ")}</span>:{" "}
-                {d.won} worked, {d.lost} did not
-                {d.excluded > 0 ? `, ${d.excluded} excluded` : ""}
-                {d.prior !== null ? (
-                  <span className="text-muted-foreground">
-                    {" "}
-                    &rarr; Beacon now{" "}
-                    {d.prior > 0
-                      ? `favors this (+${Math.round(d.prior * 100)}%)`
-                      : d.prior < 0
-                        ? `is cautious here (${Math.round(d.prior * 100)}%)`
-                        : "is neutral"}
-                  </span>
-                ) : (
-                  <span className="text-muted-foreground">
-                    {" "}
-                    &rarr; not enough results yet to change ranking
-                  </span>
-                )}
-              </li>
-            ))}
-          </ul>
-        </div>
-      ) : null}
+      <Suspense fallback={null}>
+        <LearningDiagnosticsStream ledger={ledger} initialContext={initialContext} />
+      </Suspense>
 
       {/* ── FP5c (2026-07-02, killer finding "why is there a second list of changes
           under the first list of changes") ── The former "Your changes" timeline used
@@ -513,6 +387,158 @@ export default async function ProofPage({
         </Suspense>
       </details>
 
+    </div>
+  );
+}
+
+/** The nonessential context that used to block the entire Results response.
+ * One shared promise feeds every streamed consumer, so moving it behind
+ * Suspense adds no duplicate I/O. Every read keeps its existing deadline and
+ * fail-soft fallback. */
+async function loadResultsInitialContext(tenantId: string) {
+  const tContext = perfMark();
+  const [connHealth, worklist, latestGscDate, calibrationRecords, isOperator] = await Promise.all([
+    valueWithDeadline(loadConnectionHealth(tenantId).catch(() => []), [], SIDE_READ_DEADLINE_MS),
+    valueWithDeadline(loadActionPackWorklistForTenant(tenantId).catch(() => null), null, SIDE_READ_DEADLINE_MS),
+    valueWithDeadline(readLastFinalizedDate(tenantId).catch(() => null), null, SIDE_READ_DEADLINE_MS),
+    valueWithDeadline(loadCalibrationRecords(tenantId).catch(() => [] as CalibrationRecord[]), [] as CalibrationRecord[], SIDE_READ_DEADLINE_MS),
+    valueWithDeadline(Promise.resolve().then(() => isOperatorModeServer()).catch(() => false), false, SIDE_READ_DEADLINE_MS),
+  ]);
+  perfStage("results-streamed-context", tContext);
+  return { connHealth, worklist, latestGscDate, calibrationRecords, isOperator };
+}
+
+type ResultsInitialContext = Awaited<ReturnType<typeof loadResultsInitialContext>>;
+
+function gscLagForLedger(ledger: ShippedChangeRecord[], latestGscDate: string | null) {
+  const byRow = new Map(ledger.map((l) => [l.id, gscLagStatus(l, latestGscDate)] as const));
+  const waiting = [...byRow.values()].filter(
+    (s) => s.calendarWindowClosed && !s.gscWindowAvailable && s.nextWindowDay != null,
+  );
+  return { byRow, waiting };
+}
+
+async function RecomputeControlStream({
+  ledger,
+  initialContext,
+}: {
+  ledger: ShippedChangeRecord[];
+  initialContext: Promise<ResultsInitialContext>;
+}) {
+  const { latestGscDate } = await initialContext;
+  const { byRow, waiting } = gscLagForLedger(ledger, latestGscDate);
+  const anyWindowReady = ledger.some((l) => l.windows.some((w) => w.ran));
+  const lagReason =
+    waiting[0]?.reasonCopy ??
+    [...byRow.values()].find((s) => s.nextWindowDay != null && !s.gscWindowAvailable)?.reasonCopy ??
+    undefined;
+  return <RecomputeLedgerButton disabled={!anyWindowReady} disabledReason={anyWindowReady ? undefined : lagReason} />;
+}
+
+async function ResultsStatusStream({
+  ledger,
+  tenantId,
+  initialContext,
+}: {
+  ledger: ShippedChangeRecord[];
+  tenantId: string;
+  initialContext: Promise<ResultsInitialContext>;
+}) {
+  const { connHealth, latestGscDate, isOperator } = await initialContext;
+  const { waiting } = gscLagForLedger(ledger, latestGscDate);
+  const gsc = connHealth.find((c) => c.key === "google_gsc") ?? null;
+  const freshnessNote =
+    gsc == null || gsc.severity === "healthy"
+      ? null
+      : gsc.severity === "disconnected"
+        ? "Google Search Console isn't connected. Proof verdicts can't update until it is."
+        : gsc.severity === "needs_setup"
+          ? "Google Search Console is connected but hasn't synced yet. Verdicts will fill in after the first sync."
+          : `Search Console data is ${gsc.daysStale ?? "several"} days old. Recent changes may not show a verdict yet. Refresh to update.`;
+
+  const dueNow = ledger.filter((l) => isDueForMeasure(l, latestGscDate, new Date()));
+  const eligibleReverify = selectRowsToReverify(ledger).length > 0;
+  if (isOperator && (dueNow.length > 0 || eligibleReverify)) scheduleAutoMeasure(tenantId);
+
+  return (
+    <>
+      {freshnessNote ? (
+        <div className="mb-5 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+          {freshnessNote}
+        </div>
+      ) : waiting.length > 0 ? (
+        <div className="mb-5 rounded-md border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-800">
+          {waiting.length} change{waiting.length === 1 ? " is" : "s are"} waiting on Search Console data, not stalled. {waiting[0]?.reasonCopy ?? ""} Google Search data typically lags 2-3 days.
+        </div>
+      ) : null}
+      {isOperator && dueNow.length > 0 ? (
+        <div className="mb-5 rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-800">
+          Measuring {dueNow.length} due result{dueNow.length === 1 ? "" : "s"} now. Refresh in a moment to see the verdict.
+        </div>
+      ) : null}
+    </>
+  );
+}
+
+async function MeasuredOutcomesContextStream({
+  sideReads,
+  ledger,
+  tenantId,
+  initialContext,
+}: {
+  sideReads: Promise<ResultsSideReads>;
+  ledger: ShippedChangeRecord[];
+  tenantId: string;
+  initialContext: Promise<ResultsInitialContext>;
+}) {
+  const { latestGscDate, isOperator, worklist, calibrationRecords } = await initialContext;
+  const calibrationByProofId = new Map(calibrationRecords.map((r) => [r.proofId, r] as const));
+  return (
+    <MeasuredOutcomesBoard
+      sideReads={sideReads}
+      ledger={ledger}
+      latestGscDate={latestGscDate}
+      tenantId={tenantId}
+      isOperator={isOperator}
+      worklist={worklist}
+      calibrationByProofId={calibrationByProofId}
+    />
+  );
+}
+
+async function LearningDiagnosticsStream({
+  ledger,
+  initialContext,
+}: {
+  ledger: ShippedChangeRecord[];
+  initialContext: Promise<ResultsInitialContext>;
+}) {
+  const { isOperator } = await initialContext;
+  const learningDiag = isOperator
+    ? computeOutcomePriorDiagnostics(ledger).filter((d) => d.prior !== null || d.excluded > 0)
+    : [];
+  if (learningDiag.length === 0) return null;
+  return (
+    <div className="mb-6">
+      <h2 className="mb-2 text-[13px] font-semibold uppercase tracking-wide text-muted-foreground">
+        What Beacon has learned
+      </h2>
+      <p className="mb-2 text-[11px] text-muted-foreground">
+        How your past results nudge which fixes Beacon suggests first. If a result looks mis-measured, use &ldquo;Exclude from learning&rdquo; on it below.
+      </p>
+      <ul className="space-y-1">
+        {learningDiag.map((d) => (
+          <li key={d.actionType} className="text-[12px] text-foreground/80">
+            <span className="font-medium">{d.actionType.replace(/_/g, " ")}</span>: {d.won} worked, {d.lost} did not
+            {d.excluded > 0 ? `, ${d.excluded} excluded` : ""}
+            {d.prior !== null ? (
+              <span className="text-muted-foreground"> &rarr; Beacon now {d.prior > 0 ? `favors this (+${Math.round(d.prior * 100)}%)` : d.prior < 0 ? `is cautious here (${Math.round(d.prior * 100)}%)` : "is neutral"}</span>
+            ) : (
+              <span className="text-muted-foreground"> &rarr; not enough results yet to change ranking</span>
+            )}
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }

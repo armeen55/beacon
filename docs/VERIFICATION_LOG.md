@@ -35396,6 +35396,26 @@ tests passed, 62 skipped, 0 failed; production build exit 0. Production receipt 
 unverified from this environment: Supabase DNS resolution failed and Vercel returned no historical
 request logs. Deployment remains pending in this entry.
 
+Deployment receipt: `origin/main` fast-forwarded to
+`7967d7295578f3071e89df3094612c5f756da1b7`; Vercel deployment
+`dpl_6QoQcWo2WjXpCPdEdiPfeEed3JQZ` reached Ready and production `/api/version` returned the exact
+SHA.
+
+## 2026-07-12 - Results initial-paint streaming release candidate
+
+Removed the remaining source-level initial waterfall on `/results`. The root page now awaits only
+the persisted ledger, the one dependency required to paint the shell. Connection health, action
+pack worklist, latest finalized GSC date, calibration records, and operator mode start in parallel
+as one shared promise and are awaited only inside streamed status, recompute, measured-board, and
+learning consumers. Existing 15-second deadlines and fail-soft fallbacks remain; the measured-board
+skeleton and Search Console status copy stay honest; no read is duplicated. Auto-measure remains
+operator-only and runs after the shared context resolves.
+
+Verification: focused Results streaming/side-read/ledger suites 18/18; strict typecheck exit 0;
+full suite 1,491 files passed, 23,095 tests passed, 62 skipped, 0 failed; production build exit 0.
+Hosted latency is not claimed until authenticated production measurement. Deployment remains
+pending in this entry.
+
 ## 2026-07-11 - E-39 D4 wiring complete (32696319, review P2)
 
 2026-07-11 E-39 D4 wiring complete (32696319, review P2): honest engineering call, option B.
