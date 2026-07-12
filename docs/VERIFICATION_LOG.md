@@ -35376,6 +35376,26 @@ Verification: focused adversarial suite 11/11; strict typecheck exit 0; full sui
 passed, 23,087 tests passed, 62 skipped, 0 failed; production build exit 0. Deployment is not
 claimed in this entry until the push, Vercel Ready state, and exact `/api/version` match complete.
 
+Deployment receipt (2026-07-12): `origin/main` fast-forwarded to
+`02f8ca317178f3a97c75dbc10f31521cb01b80f3`; Vercel deployment
+`dpl_21ktccabjCRMwXPDMCRsmAxVpqjM` reached Ready and production `/api/version` returned the exact
+SHA.
+
+## 2026-07-12 - Truthful sync-connectors HTTP health release candidate
+
+Confirmed a silent-success defect: `syncAllConnectedForActiveTenants` computed degraded versus
+broken health and wrote it to `cron_runs`, but omitted that health from its returned result; the
+route therefore returned `200 {ok:true}` for every non-throwing completion, including broken
+connectors and empty fleet/source inventory. The result now carries the same health roll-up the
+ledger uses. The route returns healthy 200, known-degraded 207, broken 500, zero active tenants or
+zero connected sources 503, and 503 when the invocation receipt fell back to ephemeral file
+storage. The sync work and per-source receipt still complete; only monitoring truth changes.
+
+Verification: route contract 9/9; strict typecheck exit 0; full suite 1,490 files passed, 23,092
+tests passed, 62 skipped, 0 failed; production build exit 0. Production receipt history remains
+unverified from this environment: Supabase DNS resolution failed and Vercel returned no historical
+request logs. Deployment remains pending in this entry.
+
 ## 2026-07-11 - E-39 D4 wiring complete (32696319, review P2)
 
 2026-07-11 E-39 D4 wiring complete (32696319, review P2): honest engineering call, option B.

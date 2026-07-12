@@ -1,13 +1,14 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { NextRequest } from "next/server";
+import type { CronRunHandle } from "@/domains/ops/cron-runs-store";
 
 // Records the order of the two things that matter: the invocation receipt must
 // exist BEFORE any sync work runs, so the deadman can tell "never fired" from
 // "fired but died mid-run".
 const calls: string[] = [];
-const HANDLE = { storage: "supabase" as const, id: "42", job: "sync-connectors", tenantId: null, startedAt: "x" };
+const HANDLE: CronRunHandle = { storage: "supabase", id: "42", job: "sync-connectors", tenantId: null, startedAt: "x" };
 
-const beginCronRun = vi.fn(async (..._a: unknown[]) => {
+const beginCronRun = vi.fn(async (..._a: unknown[]): Promise<CronRunHandle> => {
   calls.push("begin");
   return HANDLE;
 });
@@ -21,7 +22,7 @@ vi.mock("@/domains/ops/cron-runs-store", () => ({
 
 const syncMock = vi.fn(async (..._a: unknown[]) => {
   calls.push("sync");
-  return { ok: true } as unknown;
+  return healthyResult();
 });
 vi.mock("@/lib/connectors/cron-sync", () => ({
   syncAllConnectedForActiveTenants: (...a: unknown[]) => syncMock(...a),
@@ -39,6 +40,19 @@ vi.mock("@/lib/logger", () => ({
 
 import { GET } from "./route";
 
+function healthyResult(over: Record<string, unknown> = {}) {
+  return {
+    ranAt: "2026-07-12T09:00:00.000Z",
+    tenants: 2,
+    connectedSources: 4,
+    ok: 4,
+    failed: 0,
+    health: { state: "healthy", degraded: 0, broken: 0 },
+    results: [],
+    ...over,
+  };
+}
+
 const ORIGINAL_SECRET = process.env.CRON_SECRET;
 
 function req(headers: Record<string, string> = {}): NextRequest {
@@ -50,7 +64,7 @@ beforeEach(() => {
   calls.length = 0;
   syncMock.mockImplementation(async (_receipt?: unknown) => {
     calls.push("sync");
-    return { ok: true } as unknown;
+    return healthyResult();
   });
 });
 afterEach(() => {
@@ -98,5 +112,56 @@ describe("GET /api/cron/sync-connectors - invocation receipt", () => {
       expect.objectContaining({ ok: false }),
     );
     expect(recordAppErrorMock).toHaveBeenCalled();
+  });
+
+  it("returns 207 for known degradation instead of lying with ok true", async () => {
+    syncMock.mockImplementationOnce(async () => {
+      calls.push("sync");
+      return healthyResult({
+        ok: 3,
+        failed: 1,
+        health: { state: "degraded", degraded: 1, broken: 0 },
+      });
+    });
+    const res = await GET(req({ authorization: "Bearer test-secret" }));
+    expect(res.status).toBe(207);
+    expect(await res.json()).toMatchObject({ ok: false, state: "degraded" });
+  });
+
+  it("returns 500 when any unexpected connector failure breaks the run", async () => {
+    syncMock.mockImplementationOnce(async () => {
+      calls.push("sync");
+      return healthyResult({
+        ok: 3,
+        failed: 1,
+        health: { state: "broken", degraded: 0, broken: 1 },
+      });
+    });
+    const res = await GET(req({ authorization: "Bearer test-secret" }));
+    expect(res.status).toBe(500);
+    expect(await res.json()).toMatchObject({ ok: false, state: "broken" });
+  });
+
+  it.each([
+    ["no active tenants", { tenants: 0, connectedSources: 0 }, "no_active_tenants"],
+    ["no connected sources", { tenants: 2, connectedSources: 0 }, "no_connected_sources"],
+  ])("returns 503 for %s", async (_label, over, error) => {
+    syncMock.mockImplementationOnce(async () => {
+      calls.push("sync");
+      return healthyResult(over);
+    });
+    const res = await GET(req({ authorization: "Bearer test-secret" }));
+    expect(res.status).toBe(503);
+    expect(await res.json()).toMatchObject({ ok: false, state: "misconfigured", error });
+  });
+
+  it("returns 503 when the invocation receipt fell back to ephemeral file storage", async () => {
+    beginCronRun.mockImplementationOnce(async () => {
+      calls.push("begin");
+      return { ...HANDLE, storage: "file" as const };
+    });
+    const res = await GET(req({ authorization: "Bearer test-secret" }));
+    expect(res.status).toBe(503);
+    expect(await res.json()).toMatchObject({ ok: false, state: "misconfigured", error: "receipt_not_durable" });
   });
 });

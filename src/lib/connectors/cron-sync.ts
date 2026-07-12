@@ -110,6 +110,12 @@ export type CronSyncResult = {
   connectedSources: number;
   ok: number;
   failed: number;
+  /** The run-level truth the HTTP route and durable ledger must share. */
+  health: {
+    state: "healthy" | "degraded" | "broken";
+    degraded: number;
+    broken: number;
+  };
   results: CronSyncSourceResult[];
 };
 
@@ -1492,5 +1498,17 @@ export async function syncAllConnectedForActiveTenants(
     await reportPhaseError("cron-ledger", null, e);
   }
 
-  return { ranAt, tenants: tenants.length, connectedSources: results.length, ok, failed, results };
+  return {
+    ranAt,
+    tenants: tenants.length,
+    connectedSources: results.length,
+    ok,
+    failed,
+    health: {
+      state: health.broken.length > 0 ? "broken" : health.degraded.length > 0 ? "degraded" : "healthy",
+      degraded: health.degraded.length,
+      broken: health.broken.length,
+    },
+    results,
+  };
 }

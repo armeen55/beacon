@@ -2,7 +2,9 @@
 
 > 🟢 **Current verified state (2026-07-11, tip = this docs commit; the exact pushed SHA is what
 > /api/version must report before this wave is called deployed).** Production is verified through
-> the prior correction release at eacd0049. This tip adds the evaluation-claim boundary: Beacon's
+> the evaluation-boundary release at 02f8ca31. This tip adds truthful scheduled-refresh HTTP
+> health: healthy, degraded, broken, missing fleet/source inventory, and ephemeral-receipt fallback
+> no longer collapse into `200 {ok:true}`. Beacon's
 > source-visible eight-case suite now identifies itself as `known_case_regression`, never blind
 > validation, and the fresh-holdout contract fails closed unless five unseen archetypes prove
 > preregistration, prediction before expert-label reveal, no code changes in response, and a pass.
@@ -38,14 +40,16 @@
   stays cold until the operator reconnects it.
 - **The June GSC Search Console UI comparison is pending.** The stored June total of 3,460 clicks
   needs an operator check against the Search Console UI.
-- **The sync-connectors 2026-07-11 gap is under watch.** It left no app-side trace for its
-  2026-07-11 run, with escalation if it stays silent past 2026-07-12 09:39 UTC.
+- **The production receipt history could not be read from this environment.** Direct Supabase DNS
+  resolution failed and Vercel returned no historical request logs. The next deployed invocation
+  will expose a truthful HTTP class, but that is not evidence the July 12 schedule actually fired.
 - **Hosted speed budgets are unproven.** I judge performance on production only, and I have not
   measured it for this tip.
 
 ## Next 3 actions
 
-1. **Deploy and verify this exact evaluation-boundary SHA** through `/api/version`.
+1. **Deploy and verify the truthful sync-health SHA** through `/api/version`, then inspect the next
+   scheduled invocation's status and durable receipt.
 2. **Run 5 fresh preregistered blind cases** through the authenticated deployed UI. A case that causes a code
    change is spent and must be replaced with another unseen case.
 3. **Only after the blind gate passes, choose the highest-impact operator move** and take it from

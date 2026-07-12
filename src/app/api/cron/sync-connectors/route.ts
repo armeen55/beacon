@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { syncAllConnectedForActiveTenants } from "@/lib/connectors/cron-sync";
+import { syncAllConnectedForActiveTenants, type CronSyncResult } from "@/lib/connectors/cron-sync";
 import { log } from "@/lib/logger";
 import { recordAppError, errorFieldsFrom } from "@/lib/obs/error-ledger";
 import { beginCronRun, finishCronRun } from "@/domains/ops/cron-runs-store";
@@ -7,6 +7,27 @@ import { beginCronRun, finishCronRun } from "@/domains/ops/cron-runs-store";
 // Pure HTTP→Supabase fan-out across tenants; must never be statically rendered.
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
+
+export type SyncCronHttpOutcome = {
+  status: 200 | 207 | 500 | 503;
+  ok: boolean;
+  state: "healthy" | "degraded" | "broken" | "misconfigured";
+  error?: "receipt_not_durable" | "no_active_tenants" | "no_connected_sources";
+};
+
+/**
+ * PURE route health contract. A completed function is not automatically a
+ * healthy cron. Fail closed on an ephemeral receipt, missing fleet/source
+ * inventory, or a broken connector; distinguish known degradation with 207.
+ */
+export function syncCronHttpOutcome(result: CronSyncResult, durableReceipt: boolean): SyncCronHttpOutcome {
+  if (!durableReceipt) return { status: 503, ok: false, state: "misconfigured", error: "receipt_not_durable" };
+  if (result.tenants === 0) return { status: 503, ok: false, state: "misconfigured", error: "no_active_tenants" };
+  if (result.connectedSources === 0) return { status: 503, ok: false, state: "misconfigured", error: "no_connected_sources" };
+  if (result.health.state === "broken") return { status: 500, ok: false, state: "broken" };
+  if (result.health.state === "degraded") return { status: 207, ok: false, state: "degraded" };
+  return { status: 200, ok: true, state: "healthy" };
+}
 
 /**
  * Nightly data-sync cron (scheduled in vercel.json, 09:00 UTC).
@@ -45,7 +66,8 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   const receipt = await beginCronRun({ job: "sync-connectors", startedAt: new Date().toISOString() });
   try {
     const result = await syncAllConnectedForActiveTenants(receipt);
-    return NextResponse.json({ ok: true, summary: result });
+    const outcome = syncCronHttpOutcome(result, receipt.storage === "supabase");
+    return NextResponse.json({ ...outcome, summary: result }, { status: outcome.status });
   } catch (e) {
     const err = e instanceof Error ? e.message : String(e);
     log.error("[cron-sync] route failed", { error: err.slice(0, 300) });
