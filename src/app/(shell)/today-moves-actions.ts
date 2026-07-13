@@ -238,6 +238,8 @@ export type PrepareTonightsPlanResult =
       prepared: number;
       readyToReview: number;
       improved: number;
+      competitorPagesAnalyzed: number;
+      competitorPagesRefreshed: number;
       enrichedPatterns: number;
       llmCostUsd: number;
       failed: number;
@@ -246,16 +248,27 @@ export type PrepareTonightsPlanResult =
 /**
  * prepareTonightsPlanAction (UX3, 2026-07-02) — the ONE command that replaces the
  * Improve-top-3 / Enrich-research / Prepare-top-10 button cluster on /changes. Runs the
- * exact same three pipelines, in the order that makes each one sharper for the next
- * (competitor teardown research first, so the drafts written after it can use those facts):
- * enrich research packs (DataForSEO, dry-run unless already configured live) → prepare the
- * top 10 Moves end to end → improve the top 3 teardown-backed drafts with competitor facts.
+ * existing research + preparation pipelines, in the order that makes each one sharper for the
+ * next: reverse-engineer the top competitor pages → enrich keyword/SERP research packs
+ * (DataForSEO, dry-run unless already configured live) → prepare the top 10 Moves end to end →
+ * improve the top 3 teardown-backed drafts with competitor facts.
  * Each step is independently capped/cached exactly as it is today; a failure in one step
  * never blocks the others (fail-soft per step, honest partial summary). The granular
  * buttons remain available in the overflow menu for an operator who wants just one step.
  */
 export async function prepareTonightsPlanAction(): Promise<PrepareTonightsPlanResult> {
   if (!(await isOperatorModeServer())) return { ok: false, reason: "Operator mode only." };
+  let competitorPagesAnalyzed = 0;
+  let competitorPagesRefreshed = 0;
+  try {
+    const teardown = await sharpenMovesWithTeardownAction({ limit: 12 });
+    if (teardown.status === "ok") {
+      competitorPagesAnalyzed = teardown.audited;
+      competitorPagesRefreshed = Math.max(0, teardown.audited - teardown.cached);
+    }
+  } catch {
+    // Fail-soft: cached teardown evidence may still exist, and preparation remains useful.
+  }
   let enrichedPatterns = 0;
   try {
     const enrich = await enrichTopResearchPacksAction({ topN: 5 });
@@ -281,6 +294,8 @@ export async function prepareTonightsPlanAction(): Promise<PrepareTonightsPlanRe
     prepared: prepare.summary.prepared,
     readyToReview: prepare.summary.readyToReview,
     improved,
+    competitorPagesAnalyzed,
+    competitorPagesRefreshed,
     enrichedPatterns,
     llmCostUsd: prepare.summary.llmCostUsd + regenCostUsd,
     failed: prepare.summary.failed,

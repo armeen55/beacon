@@ -15,9 +15,17 @@ const BUTTON_SRC = readFileSync(resolve(__dirname, "today-moves-prepare.tsx"), "
 const PAGE_SRC = readFileSync(resolve(__dirname, "changes/page.tsx"), "utf8");
 
 describe("prepareTonightsPlanAction - composes the existing pipelines, does not reimplement them", () => {
-  it("calls the same three server actions the granular buttons already call", () => {
+  it("runs competitor teardown before keyword/SERP enrichment and drafting", () => {
     const idx = ACTIONS_SRC.indexOf("export async function prepareTonightsPlanAction");
-    const block = ACTIONS_SRC.slice(idx, idx + 1600);
+    const block = ACTIONS_SRC.slice(idx, idx + 2400);
+    const teardown = block.indexOf("await sharpenMovesWithTeardownAction({ limit: 12 })");
+    const enrich = block.indexOf("await enrichTopResearchPacksAction({ topN: 5 })");
+    const prepare = block.indexOf("await prepareTopMovesAction({ maxN: 10 })");
+    const improve = block.indexOf("await regenerateTopDraftsFromTeardownAction({ limit: 3, maxUsd: 0.1 })");
+    expect(teardown).toBeGreaterThan(-1);
+    expect(teardown).toBeLessThan(enrich);
+    expect(enrich).toBeLessThan(prepare);
+    expect(prepare).toBeLessThan(improve);
     expect(block).toContain("await enrichTopResearchPacksAction({ topN: 5 })");
     expect(block).toContain("await prepareTopMovesAction({ maxN: 10 })");
     expect(block).toContain("await regenerateTopDraftsFromTeardownAction({ limit: 3, maxUsd: 0.1 })");
@@ -33,6 +41,14 @@ describe("prepareTonightsPlanAction - composes the existing pipelines, does not 
     const idx = ACTIONS_SRC.indexOf("export async function prepareTonightsPlanAction");
     const block = ACTIONS_SRC.slice(idx, idx + 1600);
     expect(block).toMatch(/try \{\s*const enrich = await enrichTopResearchPacksAction/);
+  });
+
+  it("a competitor teardown failure never blocks cached research and drafting", () => {
+    const idx = ACTIONS_SRC.indexOf("export async function prepareTonightsPlanAction");
+    const block = ACTIONS_SRC.slice(idx, idx + 1200);
+    expect(block).toMatch(/try \{[\s\S]*?await sharpenMovesWithTeardownAction/);
+    expect(block).toContain("competitorPagesAnalyzed = teardown.audited");
+    expect(block).toContain("competitorPagesRefreshed = Math.max(0, teardown.audited - teardown.cached)");
   });
 
   it("a real prepare failure is the only thing that short-circuits the combined result", () => {
@@ -51,6 +67,14 @@ describe("PrepareTonightButton - the ONE command replacing the button cluster", 
     const idx = BUTTON_SRC.indexOf("export function PrepareTonightButton");
     const block = BUTTON_SRC.slice(idx, idx + 1200);
     expect(block).toContain("await prepareTonightsPlanAction()");
+  });
+
+  it("reports how many winner pages were analyzed without calling cached work fresh", () => {
+    const idx = BUTTON_SRC.indexOf("export function PrepareTonightButton");
+    const block = BUTTON_SRC.slice(idx, idx + 1800);
+    expect(block).toContain("winner page");
+    expect(block).toContain("analyzed");
+    expect(block).toContain("refreshed");
   });
 
   it("never renders an em or en dash", () => {

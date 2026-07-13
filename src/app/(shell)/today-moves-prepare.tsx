@@ -11,9 +11,9 @@ import {
 
 /**
  * PrepareTonightButton (UX3, 2026-07-02), the ONE command replacing the Improve-top-3 /
- * Enrich-research / Prepare-top-10 button cluster on /changes. Runs the same three
- * pipelines under the hood (research enrichment, then prepare, then competitor-fact
- * improvement) via `prepareTonightsPlanAction`, and reports one honest combined summary.
+ * Enrich-research / Prepare-top-10 button cluster on /changes. Runs the full existing
+ * pipeline under the hood (competitor teardown, research enrichment, prepare, then
+ * competitor-fact improvement) via `prepareTonightsPlanAction`, and reports one honest combined summary.
  * The granular buttons still exist, now tucked into a native <details> overflow menu for
  * the operator who wants a single step, no new UI dependency.
  */
@@ -32,6 +32,10 @@ export function PrepareTonightButton({ readyCount, total }: { readyCount: number
           return;
         }
         const parts = [`Prepared ${r.prepared}`, `${r.readyToReview} ready to review`];
+        if (r.competitorPagesAnalyzed > 0) {
+          const refreshed = r.competitorPagesRefreshed > 0 ? ` (${r.competitorPagesRefreshed} refreshed)` : "";
+          parts.push(`${r.competitorPagesAnalyzed} winner page${r.competitorPagesAnalyzed === 1 ? "" : "s"} analyzed${refreshed}`);
+        }
         if (r.improved > 0) parts.push(`${r.improved} improved with competitor facts`);
         if (r.enrichedPatterns > 0) parts.push(`${r.enrichedPatterns} fresh live-Google pattern${r.enrichedPatterns === 1 ? "" : "s"}`);
         if (r.failed > 0) parts.push(`${r.failed} need a look`);
