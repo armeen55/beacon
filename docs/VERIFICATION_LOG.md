@@ -35667,8 +35667,31 @@ parallel rather than a three-step waterfall. Missing tenant domain fails closed 
 misattributed milestone.
 
 Verification: focused tenant milestone/scan suites 5/5; strict typecheck exit 0; full suite 1,503
-files passed, 23,128 tests passed, 62 skipped, 0 failed; production build exit 0. Deployment remains
-pending and is not claimed.
+files passed, 23,128 tests passed, 62 skipped, 0 failed; production build exit 0. Deployment receipt:
+`origin/main` fast-forwarded to `96a475b07eaa264953f7fe530482ada1671972b8`; Vercel deployment
+`dpl_86HMDuEocVmHqUugtqaFxfobsQni` completed and production `/api/version` returned the exact SHA.
+
+## 2026-07-13 - Main/worktree reconciliation
+
+Reconciled git reality across the visible root checkout, `origin/main`, the Codex integration
+worktree, and the recent Opus/Fable worktrees. Every July 10-12 Opus code commit that appeared ahead
+of `origin/main` has a patch-equivalent integrated commit on main. The only recent branch-only commit
+was a stale documentation wrapper (`93c4f859`), not missing product behavior. It was not replayed over
+the newer verified-state ledger.
+
+The visible root `main` was 1,188 commits behind. Its four local June 16 audit-pointer edits were
+preserved reversibly as `stash@{0}` and the checkout was fast-forwarded to `96a475b0` without deleting
+untracked files. The 596-line June audit remains untouched and untracked because its active-priority
+claims are now stale; importing it as the current plan would regress truth. The old 27-file W5
+worktree diff also remains quarantined: it is the explicitly stopped pre-redesign partial containing
+the unsafe fetch/verification approach later replaced by the reviewed W5 implementation already on
+main (`a01a5fc3`, `81d2c500`, `1de8ea67`). No quarantined code was merged.
+
+Verification: `main` and `origin/main` both resolved to
+`96a475b07eaa264953f7fe530482ada1671972b8` before this docs-only commit; production `/api/version`
+returned the same code SHA and deployment ID `dpl_86HMDuEocVmHqUugtqaFxfobsQni`. No behavior changed,
+so the existing full gate receipt (1,503 files, 23,128 passed, 62 skipped, build green) remains the
+applicable code gate.
 
 ## 2026-07-11 - E-39 D4 wiring complete (32696319, review P2)
 

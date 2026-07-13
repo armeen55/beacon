@@ -58,7 +58,7 @@ chronology of what already landed lives in VERIFICATION_LOG.md; this list is onl
 17. **Tenant-explicit website scan.** DEPLOYED AND SHA-VERIFIED at 199acb0e. Resolve the
    current tenant's business domain once and thread it through crawl, robots, homepage identity,
    and findings. Never inherit `BEACON_SITE_DOMAIN` from process state.
-18. **Tenant-explicit post-import milestones.** CODE COMPLETE; full gate green; deploy pending.
+18. **Tenant-explicit post-import milestones.** DEPLOYED AND SHA-VERIFIED at 96a475b0.
    Owned citation attribution and competitor classification use one current-tenant business config,
    while independent import evidence reads run concurrently.
 19. **Fresh blind unseen-topic benchmark.** Run 5 preregistered cases not used to build these
