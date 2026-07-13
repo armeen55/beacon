@@ -14,7 +14,7 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   buildTrackedPromptRow,
-  executeLaunchTransaction,
+  executeLaunchTransaction as executeLaunchTransactionReal,
 } from "./launch-flow";
 
 const FIXED_NOW = "2026-05-07T18:00:00.000Z";
@@ -28,6 +28,22 @@ const persistConfigStub = vi.fn(async () => ({
   derivedFields: [] as string[],
   suggestedSegment: null,
 }));
+
+/**
+ * Every successful launch dispatches its first scan. Most tests in this file exercise the
+ * transaction, not scanning, so default them to the injectable "already dispatched" outcome.
+ * Scan-specific tests pass their own dispatcher/crawler and still exercise the full branch.
+ * Without this harness boundary, eleven unrelated tests performed a real bounded crawl and
+ * added roughly 70 seconds to every hermetic gate.
+ */
+function executeLaunchTransaction(
+  args: Parameters<typeof executeLaunchTransactionReal>[0],
+) {
+  return executeLaunchTransactionReal({
+    dispatchFirstScan: async () => ({ status: "dispatched", httpStatus: 204 }),
+    ...args,
+  });
+}
 
 const PENDING_TENANT = {
   id: "tenant-8c9d2f4a",
