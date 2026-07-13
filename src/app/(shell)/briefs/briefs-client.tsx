@@ -6,7 +6,6 @@ import { PageHeader } from "@/components/data/page-header";
 import { TabFilter } from "@/components/display/tab-filter";
 import { BriefStatusBadge } from "@/components/display/status-badge";
 import { PriorityBadge } from "@/components/display/priority-badge";
-import { EffortBadge } from "@/components/display/effort-badge";
 import { ProgressBar } from "@/components/display/progress-bar";
 import { StallDot } from "@/components/display/stall-dot";
 import { BriefVerdictBadge } from "@/components/display/brief-verdict-badge";

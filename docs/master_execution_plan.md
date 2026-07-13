@@ -40,6 +40,15 @@
 
 ## 1. Current Repo Truth
 
+### Autonomous operating model decision (2026-07-13)
+
+Beacon must not hide its core intelligence behind a sequence of research buttons or depend on cron
+for a single-user product. A normal signed-in visit schedules a bounded, once-per-tenant/day
+post-response cycle that acquires fresh connector, SEO, AEO, competitor, question, claim and link
+evidence before final ranking and draft preparation. Research remains inspectable through a
+structured visible receipt, paid work remains cache/ledger/cap guarded, and publishing always
+requires its separate safety path. Cron may remain a backup/warm optimization, never the only path.
+
 ### Identity
 - **Name:** `beacon`, private, version 0.1.0
 - **Framework:** Next.js 16.2.2, React 19.2.4, App Router

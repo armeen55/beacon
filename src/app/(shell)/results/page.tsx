@@ -1,6 +1,5 @@
 import { Suspense, type ReactNode } from "react";
 import { after } from "next/server";
-import { notFound } from "next/navigation";
 import Link from "next/link";
 import { Check, CornerUpLeft } from "lucide-react";
 import { dossierHref } from "@/lib/page-dossier-link";
@@ -164,14 +163,6 @@ const GRADE_STYLE: Record<VerdictReliabilityResult["grade"], string> = {
   shaky: "border-amber-200 bg-amber-50/60 text-amber-700/90",
   "too early": "border-border bg-muted/20 text-muted-foreground/80",
 };
-
-function toPath(url: string): string {
-  try {
-    return new URL(url).pathname || "/";
-  } catch {
-    return url;
-  }
-}
 
 // W2-A (2026-07-02) - FP1 always-paint floor extended to this page: every awaited read
 // on the render path is deadline-bounded so one wedged Supabase read (each 522 is ~30s)

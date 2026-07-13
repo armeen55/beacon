@@ -75,6 +75,16 @@ chronology of what already landed lives in VERIFICATION_LOG.md; this list is onl
    257 unused declarations, 44 static-graph orphans, and 103 test-only production files. Deletion
    order: skipped legacy blocks and unused imports; proven orphans; test-only feature islands plus
    their tests; then consolidate source contracts and split parallel-safe from serial route tests.
+   IN PROGRESS LOCALLY: obsolete skipped blocks were removed from five mixed suites while their 73
+   active assertions stayed green. Whole-file deletion has not started because the repository
+   contract requires a fresh pause before file deletion. A four-worker full-suite experiment in an
+   isolated CI-clean `/tmp` copy passed every file in 77.10s; the real checkout then passed all
+   1,505 files / 23,132 assertions / 40 conditional skips in 74.47s, versus 239.14s serial.
+20a. **Autonomous research-before-ranking MVP.** IMPLEMENTED LOCALLY, RELEASE GATE PENDING. Every
+   signed-in shell visit can trigger one bounded tenant/day post-response cycle: connector freshness,
+   winner teardown, DataForSEO competitor keyword gaps and clone briefs, keyword/SERP enrichment,
+   AI citations, question/factual/internal-link graphs, loss and steal reflexes, final fusion/ranking,
+   capped draft preparation, then Today. It uses existing guarded producers and never publishes.
 21. **Fresh blind unseen-topic benchmark.** Run 5 preregistered cases not used to build these
    corrections. A case that changes code is spent and must be replaced.
 22. **Scheduled-refresh receipt.** The first cron run after this deploy must leave a started

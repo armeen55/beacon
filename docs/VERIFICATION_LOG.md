@@ -7,6 +7,30 @@
 
 ---
 
+## 2026-07-13 - Autonomous research-before-ranking MVP + cleanup wave (local, release pending)
+
+Beacon's disconnected manual/nightly research pieces are now composed into one post-response,
+tenant-explicit daily pass scheduled from the signed-in shell. The causal order is evidence first,
+then final graph fusion and ranking, capped preparation, and Today snapshot last. It includes stale
+connector pulls, top-12 winner teardown, top-three competitor DataForSEO Labs keyword mining and
+clone briefs, top-five research-pack keyword/SERP enrichment, AI-citation topics, the merged
+GSC/fanout/PAA question universe, factual claim conflicts, internal PageRank/orphans, displacement,
+striking-distance SERP steals, and native-citation commonality. Existing provider dry-run, cache,
+ledger, breaker, and spend caps remain the only paid-call path; publishing is never invoked.
+
+Verification so far: strict typecheck exit 0; 49 focused autonomy/ordering/tenant-receipt/cron tests
+green; full pre-cleanup suite 1,505 files, 23,132 passed, 62 skipped, 0 failed in 239.14 seconds.
+Five mixed legacy suites then had only their obsolete skipped blocks removed; their remaining 73/73
+assertions are green and 22 obsolete skips are gone. An isolated CI-clean copy proved four-worker
+file parallelism with all 1,505 files / 23,132 passed / 40 remaining conditional skips / 0 failed
+in 77.10 seconds; the real checkout repeated the green gate in 74.47 seconds, versus 239.14 seconds
+serial.
+The production build also completed successfully outside the filesystem sandbox (the first attempt
+failed only because Turbopack could not bind its internal local port under sandbox policy). Three
+pre-existing broad NFT trace warnings remain; route generation and TypeScript both completed.
+No production data, environment variable, paid provider, or Wix publish was used. Commit, push,
+Vercel deploy, hosted SHA, and two-tenant visit receipts remain pending.
+
 ## 2026-07-13 - Test-suite bloat audit + accidental-network fix (eef191db, b66ae0c1)
 
 The maximum audit measured 1,503 files / 23,192 tests, about 322,000 test lines versus about

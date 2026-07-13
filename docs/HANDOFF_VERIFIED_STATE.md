@@ -1,5 +1,19 @@
 # Beacon Verified State
 
+> 🟠 **Autonomous research MVP is implemented locally and awaiting release.** A normal signed-in
+> shell visit now schedules one tenant-explicit, post-response research cycle per Pacific day; a
+> failed/started cycle waits two hours before retrying. The ordered pass refreshes stale connectors,
+> builds a seed demand graph, audits winner pages, mines the top three competitors' keyword
+> portfolios/intersections through the existing DataForSEO Labs gauntlet, enriches top research
+> packs with keyword volume and SERP patterns, refreshes AI-citation topics, question coverage,
+> factual claims and internal PageRank, runs loss/steal/native-citation lanes, then rebuilds the
+> final graph, ranks, prepares (never publishes), and writes Today last. A visible Today line shows
+> its structured receipt. Every paid producer retains its existing cache, dry-run, per-call ledger,
+> monthly/global cap, and bounded batch. Focused gates are green; the first full pre-cleanup gate is
+> also green at 1,505 files / 23,132 passed / 62 skipped in 239.14 seconds. After removing 22
+> obsolete skips and enabling four isolated workers, the real checkout passed 1,505 files / 23,132
+> assertions / 40 remaining conditional skips in 74.47 seconds. This is not deployed yet.
+
 > 🟢 **Current verified state (2026-07-13, tip = this docs commit; the exact pushed SHA is what
 > /api/version must report before this docs-only reconciliation is called deployed).** Product code
 > is SHA-verified in production through `b66ae0c1` (Vercel
@@ -102,16 +116,20 @@
   44 apparently orphaned production files, and 103 production files reachable only from tests. These
   are deletion candidates, not deletion proof; computed imports and intended offline tools require a
   bounded review before removal.
+- **Autonomous research has a cross-instance lock residual.** The daily durable receipt plus the
+  process single-flight collapse normal visits, and every paid producer is independently cached and
+  capped, but the receipt claim is not one atomic database compare-and-set across two simultaneous
+  serverless instances. That hardening is not required for the bounded MVP but remains before SaaS.
 
 ## Next 3 actions
 
-1. **Audit and reduce test/code bloat by evidence**, starting with duplicated source-pinning,
-   dead-feature, obsolete-compatibility, and high-runtime/low-value suites; delete only after proving
-   the protected runtime path is dead or equivalently covered.
-2. **Continue explicit site identity through remaining active customer paths**, then measure
-   authenticated Today and Results first useful paint when a hosted session is available.
-3. **Run 5 fresh preregistered blind cases** through the authenticated deployed UI. A case that causes a code
-   change is spent and must be replaced with another unseen case.
+1. **Release and dogfood the autonomous research MVP on both tenants.** Finish the clean gate, push,
+   prove the deployed SHA, then capture each tenant's visible visit receipt without changing paid
+   provider configuration or publishing.
+2. **Continue bounded test/code deletion.** Obsolete skipped blocks have begun disappearing while
+   active contracts remain green. Whole-file deletion waits on the required explicit deletion pause.
+3. **Prove hosted speed and research usefulness.** Measure authenticated Today/Results latency and
+   inspect whether the daily output contains genuinely better competitor-backed, keyword-backed moves.
 
 ## History
 

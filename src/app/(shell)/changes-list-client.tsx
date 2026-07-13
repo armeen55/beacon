@@ -25,7 +25,7 @@ import type { ChangesClientView } from "./changes-data";
 import type { TodayMove } from "./today-moves-data";
 import { loadMoveDetailAction } from "./changes/actions";
 import type { CanonicalChange, Goal, StatusView } from "@/domains/changes/canonical-change";
-import { buildForecastInputLines, statusView, EVIDENCE_LABEL } from "@/domains/changes/canonical-change";
+import { buildForecastInputLines, EVIDENCE_LABEL } from "@/domains/changes/canonical-change";
 import { difficultyLabel } from "@/domains/changes/difficulty";
 import {
   decideChangeAction,
@@ -44,7 +44,6 @@ import { formatMetric, formatMetricCompact } from "@/lib/format-metric";
 import { dossierHref } from "@/lib/page-dossier-link";
 import { respondToRecommendation } from "./recommendation-actions";
 import { useWorklistSession, WorklistSessionBanner } from "./worklist-session-strip";
-import { Card } from "@/components/ui/card";
 import { Pill, type PillIntent } from "@/components/ui/pill";
 import { EmptyState } from "@/components/ui/empty-state";
 import {

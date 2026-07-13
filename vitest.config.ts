@@ -10,8 +10,11 @@ export default defineConfig({
   },
   test: {
     include: ["tests/**/*.test.ts", "tests/**/*.test.tsx", "src/**/*.test.ts", "src/**/*.test.tsx"],
-    /** Avoid dynamic-import timeouts when many heavy route modules load in parallel. */
-    fileParallelism: false,
+    /** Four isolated workers cut the hermetic full gate from ~239s to ~77s.
+     * Route/store tests stay isolated by Vitest worker process; paid/live creds
+     * remain blank below, so parallelism cannot fan out external calls. */
+    fileParallelism: true,
+    maxWorkers: 4,
     testTimeout: 30_000,
     /**
      * Hydrates a small synthetic `.data/` fixture in CI when the operator's

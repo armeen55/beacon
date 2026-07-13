@@ -75,12 +75,6 @@ export default async function BriefDetailPage({
   const dueDelta = getDueDelta(brief.due_date);
   const briefVerdict = computeBriefVerdict(brief);
 
-  const hasConnections =
-    sourceOpportunities.length > 0 ||
-    relatedChanges.length > 0 ||
-    relatedResults.length > 0 ||
-    relatedBriefs.length > 0;
-
   const changeNames: Record<string, string> = {};
   for (const item of brief.checklist) {
     if (item.linked_changelog_id) {

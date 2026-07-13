@@ -28,13 +28,6 @@ const LOAD_QUEUE_PATH = resolve(
 );
 const LOAD_QUEUE_SOURCE = readFileSync(LOAD_QUEUE_PATH, "utf8");
 
-// Surface collapse (2026-06-15): the legacy recommendations-client was
-// deleted. The action-row builder + server-action wiring now live on the V2
-// card (covered by tests/app/recommendations/recommendations-v2-client.test.tsx).
-// The client-UI describe block below is skipped; this placeholder keeps it
-// compiling.
-const CLIENT_SOURCE = "";
-
 const ACTIONS_PATH = resolve(
   __dirname,
   "../src/app/(shell)/recommendations/actions.ts",
@@ -127,65 +120,13 @@ describe("Phase 6A.1.12 — /recommendations page wiring", () => {
     );
   });
 
-  // Surface collapse (2026-06-15): the `editsByRecId` grouping was a
-  // legacy-branch concern (the legacy page decorated rows with edits before
-  // handing to the legacy table). The V2 page consumes the persisted
-  // loader's pre-decorated queue, so the page no longer does this grouping.
-  it.skip("groups edits by rec_id and threads them into the decorated rows (legacy page branch removed)", () => {
-    expect(PAGE_SOURCE).toMatch(/editsByRecId/);
-    expect(PAGE_SOURCE).toMatch(/edits:\s*editsByRecId\.get\(rec\.stableKey\)/);
-  });
-
   it("RecommendationQueueRow + RecommendationWatchRow expose the edits slice", () => {
     // Move 5 (2026-07-01): these row types moved to the loader with the index redirect.
     expect(LOAD_QUEUE_SOURCE).toMatch(/edits:\s*RecommendedEditRow\[\]/);
   });
 });
 
-// ── 3. recommendations-client UI ──────────────────────────────────────────
-
-describe.skip("Phase 6A.1.12 — recommendations-client UI (legacy recommendations-client removed 2026-06-15; V2 card covered separately)", () => {
-  // After W3 Step 3.5e (2026-05-03) the page is a HubSpot-style
-  // ranked action table. The pre-3.5e wiring assertions
-  // ("destructure edits from row" / "Specific edits section") no
-  // longer apply — that work moved into the pure
-  // `buildRecommendationActionRows` builder, which the client
-  // imports + invokes once per render.
-  //
-  // What the contract still pins:
-  //   - The client consumes recommended-edit rows via the action-row
-  //     builder (same upstream data; new shape).
-  //   - The accept / defer / dismiss / mark-shipped / undo server
-  //     actions are still wired into row buttons.
-  //
-  // The detailed table contract lives in
-  // `tests/architecture/recommendations-step-3.5e-action-table.test.ts`.
-
-  it("imports buildRecommendationActionRows from the recommendations domain", () => {
-    expect(CLIENT_SOURCE).toMatch(
-      /import\s*\{[^}]*buildRecommendationActionRows[^}]*\}\s*from\s*["']@\/domains\/recommendations\/recommendation-action-rows["']/,
-    );
-  });
-
-  it("invokes buildRecommendationActionRows with the queue prop", () => {
-    // W3 §3.5f — the call now also threads `promptTextById` so the
-    // builder can scan affected-prompt texts for topic / geo
-    // signals when the cluster label is thin.
-    expect(CLIENT_SOURCE).toMatch(
-      /buildRecommendationActionRows\(\s*\{\s*queue\s*,\s*promptTextById\s*\}/,
-    );
-  });
-
-  it("Accept / Defer / Dismiss / Mark-shipped / Undo server actions still wired into row buttons", () => {
-    expect(CLIENT_SOURCE).toMatch(/acceptRecommendation\(/);
-    expect(CLIENT_SOURCE).toMatch(/deferRecommendation\(/);
-    expect(CLIENT_SOURCE).toMatch(/dismissRecommendation\(/);
-    expect(CLIENT_SOURCE).toMatch(/markRecommendationShipped\(/);
-    expect(CLIENT_SOURCE).toMatch(/undoRecommendationResponse\(/);
-  });
-});
-
-// ── 4. Accept action fan-out wiring ───────────────────────────────────────
+// ── 3. Accept action fan-out wiring ───────────────────────────────────────
 
 describe("Phase 6A.1.12 — accept action fan-out", () => {
   it("imports the repository to fetch fresh recommended_edits", () => {

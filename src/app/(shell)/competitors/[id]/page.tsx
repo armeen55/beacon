@@ -15,26 +15,8 @@ import {
   getCompetitorSnapshots,
 } from "@/lib/seed-data.server";
 import { getOpportunitiesForCompetitor } from "@/lib/lookups";
-import { computeCompetitiveLandscape } from "@/domains/opportunities/competitive";
 import { PLATFORM_LABELS, OPPORTUNITY_STATUS_LABELS } from "@/lib/constants";
 import type { ThreatLevel } from "@/lib/constants";
-
-function Field({
-  label,
-  children,
-}: {
-  label: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div>
-      <p className="text-[11px] font-medium text-muted-foreground mb-1">
-        {label}
-      </p>
-      <div className="text-[13px]">{children}</div>
-    </div>
-  );
-}
 
 function deriveThreatLevel(rank: number | null): ThreatLevel {
   if (rank == null) return "low";
