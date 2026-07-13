@@ -55,7 +55,7 @@ chronology of what already landed lives in VERIFICATION_LOG.md; this list is onl
    `local_service` tenants receive coverage expansion.
 16. **Tenant-explicit recommendation URLs.** DEPLOYED AND SHA-VERIFIED at 83fa59b5. Relative strengthen/investigate targets resolve from explicit tenant origin or withhold
    the absolute URL; the active engine no longer imports process-global site config.
-17. **Tenant-explicit website scan.** CODE COMPLETE; full gate green; deploy pending. Resolve the
+17. **Tenant-explicit website scan.** DEPLOYED AND SHA-VERIFIED at 199acb0e. Resolve the
    current tenant's business domain once and thread it through crawl, robots, homepage identity,
    and findings. Never inherit `BEACON_SITE_DOMAIN` from process state.
 18. **Fresh blind unseen-topic benchmark.** Run 5 preregistered cases not used to build these

@@ -2,9 +2,8 @@
 
 > 🟢 **Current verified state (2026-07-12, tip = this docs commit; the exact pushed SHA is what
 > /api/version must report before this wave is called deployed).** Production is SHA-verified through
-> tenant-explicit recommendation targets at `83fa59b5` (Vercel
-> `dpl_DhUmhaZqqD6RDfcMJUnVVyXDpJ8T`), which also proves the Proposed Brief commit in its ancestry.
-> This tip makes the website scan boundary tenant-explicit: crawl target, child-process domain,
+> the tenant-explicit website scan at `199acb0e` (Vercel
+> `dpl_5jxepUZ4v4uCPpwSV3VAJdiZrKKJ`). The scan boundary is tenant-explicit: crawl target, child-process domain,
 > robots lookup, homepage identity, and finding generation share the current tenant's validated
 > business domain and cannot inherit another request's process-wide site identity. This tip makes live recommendation
 > targets tenant-explicit: relative strengthen/investigate URLs resolve only from the current
@@ -91,8 +90,7 @@
 
 ## Next 3 actions
 
-1. **Deploy and verify the tenant-explicit scan SHA** through `/api/version`, then continue site
-   identity through active scan/customer paths; measure
+1. **Continue explicit site identity through remaining active customer paths**, then measure
    authenticated Today and Results first useful paint when a hosted session is available.
 2. **Run 5 fresh preregistered blind cases** through the authenticated deployed UI. A case that causes a code
    change is spent and must be replaced with another unseen case.

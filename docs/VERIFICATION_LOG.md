@@ -35653,7 +35653,9 @@ is genuinely absent; all substantive assertions remain unchanged whenever dogfoo
 
 Verification: focused scan/harness suites 36/36 across six files; strict typecheck exit 0; full suite
 1,502 files passed, 23,126 tests passed, 62 skipped, 0 failed; production build exit 0. Deployment
-remains pending and is not claimed.
+receipt: `origin/main` fast-forwarded to `199acb0ed3e5fc87e5b2b683c6e164105f3a6214`;
+Vercel deployment `dpl_5jxepUZ4v4uCPpwSV3VAJdiZrKKJ` completed and production `/api/version`
+returned the exact SHA.
 
 ## 2026-07-11 - E-39 D4 wiring complete (32696319, review P2)
 
