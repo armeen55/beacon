@@ -7,6 +7,22 @@
 
 ---
 
+## 2026-07-13 - Research-to-draft orchestration connected (a2c60e85; deployment pending)
+
+The `/changes` one-click plan builder now executes the existing dream-state components in the
+order its UI already promised: competitor winner teardown, keyword/SERP enrichment, top-move
+preparation, then competitor-grounded regeneration. Before this change, the command never invoked
+the teardown producer, so a cold topic could reach drafting with no competitor evidence and the
+final regeneration step could have nothing to use. The action is fail-soft per external step and
+reports total analyzed winner pages separately from pages freshly fetched, so cache hits are never
+described as fresh research.
+
+Verification in the clean `codex-high-impact-integration` worktree: strict typecheck exit 0; focused
+orchestration suite 14/14; full Vitest gate 1,503 files, 23,130 passed, 62 skipped, 0 failed; Next.js
+production build exit 0. No paid research run, Wix write, publish, or tenant data mutation was used
+to prove the orchestration contract. Push, Vercel deployment, and hosted SHA verification remain
+pending at this entry.
+
 ## 2026-07-11 - Lane P3: C4 classifier + frozen-artifact validation harness executed (uncommitted, operator gate pending)
 
 Run id pv-2026-07-11-a on tenant-iranopedia, per scratchpad/proof-validation-protocol.md

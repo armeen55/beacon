@@ -4,7 +4,11 @@
 > /api/version must report before this docs-only reconciliation is called deployed).** Product code
 > is SHA-verified in production through `96a475b0` (Vercel
 > `dpl_86HMDuEocVmHqUugtqaFxfobsQni`). The visible root checkout, `origin/main`, and the verified
-> integration branch are reconciled at that code tip. The scan boundary is tenant-explicit: crawl target, child-process domain,
+> integration branch are reconciled at that code tip. The gated local tip also connects the existing
+> one-click plan builder in its intended order: competitor winner teardown, keyword/SERP enrichment,
+> move preparation, then competitor-grounded draft regeneration. It reports analyzed pages separately
+> from pages freshly fetched, and remains fail-soft when external research is unavailable. Deployment
+> of that orchestration tip is pending. The scan boundary is tenant-explicit: crawl target, child-process domain,
 > robots lookup, homepage identity, and finding generation share the current tenant's validated
 > business domain and cannot inherit another request's process-wide site identity. This tip also
 > makes post-import milestone ownership tenant-explicit and parallelizes its independent evidence
@@ -66,7 +70,7 @@
 > exactly as deployed, every stored won or lost verdict still reads as uncalibrated through
 > src/domains/proof-gsc/verdict-calibration.ts, CALIBRATED_VERDICT_VERSIONS is still empty, and no
 > verdict was persisted. The full gate is GREEN at this tip: strict typecheck, 1,503 test files
-> with 23,128 passed / 62 skipped / 0 failed, and the production build.
+> with 23,130 passed / 62 skipped / 0 failed, and the production build.
 
 ## Current limitations
 
@@ -94,12 +98,13 @@
 
 ## Next 3 actions
 
-1. **Continue explicit site identity through remaining active customer paths**, then measure
+1. **Audit and reduce test/code bloat by evidence**, starting with duplicated source-pinning,
+   dead-feature, obsolete-compatibility, and high-runtime/low-value suites; delete only after proving
+   the protected runtime path is dead or equivalently covered.
+2. **Continue explicit site identity through remaining active customer paths**, then measure
    authenticated Today and Results first useful paint when a hosted session is available.
-2. **Run 5 fresh preregistered blind cases** through the authenticated deployed UI. A case that causes a code
+3. **Run 5 fresh preregistered blind cases** through the authenticated deployed UI. A case that causes a code
    change is spent and must be replaced with another unseen case.
-3. **Only after the blind gate passes, choose the highest-impact operator move** and take it from
-   evidence to approval, publish, hosted verification, and later measurement.
 
 ## History
 

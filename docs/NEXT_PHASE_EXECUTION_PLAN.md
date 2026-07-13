@@ -61,32 +61,39 @@ chronology of what already landed lives in VERIFICATION_LOG.md; this list is onl
 18. **Tenant-explicit post-import milestones.** DEPLOYED AND SHA-VERIFIED at 96a475b0.
    Owned citation attribution and competitor classification use one current-tenant business config,
    while independent import evidence reads run concurrently.
-19. **Fresh blind unseen-topic benchmark.** Run 5 preregistered cases not used to build these
+19. **Connect the existing research-to-draft loop.** GATED LOCALLY, DEPLOYMENT PENDING.
+   The one-click plan action now runs competitor winner teardown before keyword/SERP enrichment,
+   move preparation, and competitor-grounded draft regeneration. Cached analyses and fresh fetches
+   are reported separately; failure of external research does not block the rest of the plan.
+20. **Test and dead-code reduction audit.** Measure suite ownership, duplication, runtime, and
+   production reachability before proposing deletions. Remove obsolete protection and unreachable
+   code in bounded reviewed batches, never by raw test-count target.
+21. **Fresh blind unseen-topic benchmark.** Run 5 preregistered cases not used to build these
    corrections. A case that changes code is spent and must be replaced.
-20. **Scheduled-refresh receipt.** The first cron run after this deploy must leave a started
+22. **Scheduled-refresh receipt.** The first cron run after this deploy must leave a started
    receipt; that receipt is what proves the scheduled refresh path is alive, since sync-connectors
    and measure-due missed their 2026-07-11 slots.
-21. **Proof-model replacement with independent validation.** INFRASTRUCTURE LANDED, CERTIFICATION
+23. **Proof-model replacement with independent validation.** INFRASTRUCTURE LANDED, CERTIFICATION
    HONESTLY BLOCKED ON UNITS, NOT ON METHOD. The verdict classifier now runs under the independent
    statistical validation protocol (predeclaration contract plus a frozen-artifact holdout
    harness), but the release gate failed because the tenant cannot yet supply enough judged units
    per cell. Certification waits on more calendar or a pooled-verdict design.
-22. **56 to 84 day confirmation ladder.** STORAGE AND WINDOW CONTRACT LANDED, 56 DAY READS
+24. **56 to 84 day confirmation ladder.** STORAGE AND WINDOW CONTRACT LANDED, 56 DAY READS
    PROVISIONAL UNTIL HISTORY SUPPORTS THEM. The demote-only confirmation tier above the 28 day
    primary read is in the contract and the store; a 56 day demotion is flagged provisional until
    this tenant's placebo history depth supports the window.
-23. **June GSC UI comparison (operator).** The operator compares the stored June total of 3,460
+25. **June GSC UI comparison (operator).** The operator compares the stored June total of 3,460
    clicks and 251,274 impressions against the Search Console UI.
-24. **Hosted UX and performance closure.** Prove the hosted speed budgets on production, not on the
+26. **Hosted UX and performance closure.** Prove the hosted speed budgets on production, not on the
    dev server.
-25. **Fix product gaps from holdouts.** Address whatever the fresh blind benchmark exposes.
-26. **Second tenant.** Bring a second tenant onto the same workflow; Ritz stays cold-start until
+27. **Fix product gaps from holdouts.** Address whatever the fresh blind benchmark exposes.
+28. **Second tenant.** Bring a second tenant onto the same workflow; Ritz stays cold-start until
     the operator reconnects it.
-27. **Publish one operator-approved move.** Ship a single move the operator has approved, end to
+29. **Publish one operator-approved move.** Ship a single move the operator has approved, end to
     end.
-28. **Verify live and measure under the corrected model.** Confirm the published move is live and
+30. **Verify live and measure under the corrected model.** Confirm the published move is live and
     measure it under the corrected proof model, never the quarantined one.
-29. **Claim the learning loop only then.** Only after 1 through 28 hold may we claim the learning
+31. **Claim the learning loop only then.** Only after 1 through 30 hold may we claim the learning
     loop works.
 
 ## Recently landed (see VERIFICATION_LOG.md for the dated chronology)
