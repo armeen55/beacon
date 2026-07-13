@@ -280,7 +280,7 @@ export default async function DiagnosticsPage() {
     repo.getPageSnapshots(),
     loadFanoutSeedsForTenant(tenantId).catch(() => []),
   ]);
-  await warmPageRegistry();
+  await warmPageRegistry(tenantId);
   const ctx: DiagnosticsContext = { pages, pageSnapshots, citationEvidenceIndex, promptLibrary, activePrompts, fanoutSeeds };
 
   const { attribution: attrResults } = partitionResultsByMode(results);
@@ -290,7 +290,10 @@ export default async function DiagnosticsPage() {
   for (const event of events) {
     const anchor = results.find((r) => r.id === event.anchor_result_id);
     if (!anchor) continue;
-    const cands = discoverCandidates(anchor, changelogEntries, opportunities);
+    const cands = discoverCandidates(anchor, changelogEntries, opportunities, {
+      tenantId,
+      siteDomain: getBusinessConfig(tenantId).domain,
+    });
     candCountMap.set(event.anchor_result_id, cands.length);
     triageMap.set(event.anchor_result_id, triageCandidates(cands));
   }

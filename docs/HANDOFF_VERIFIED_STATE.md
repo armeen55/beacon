@@ -2,7 +2,11 @@
 
 > 🟢 **Current verified state (2026-07-12, tip = this docs commit; the exact pushed SHA is what
 > /api/version must report before this wave is called deployed).** Production is verified through
-> evidence-tier identity at 51f4eb63. This tip removes process-global site identity from attribution
+> attribution site identity at c06e4b56. This tip removes the attribution candidate registry's
+> process-global last-warmed-tenant pointer. Registry and citation-topic evidence are selected by
+> explicit tenant ID; active Diagnostics, Review, and History callers thread it; missing context
+> yields empty evidence rather than another tenant's pages. The pointer allowlist is now empty.
+> This tip also removed process-global site identity from attribution
 > URL matching and candidate citation support. Relative URLs use an explicit tenant domain or fail
 > closed as unknown; architecture and A→B→A tests pin that B cannot inherit A. This tip also removed process-global site identity from
 > evidence-tier classification: relative changelog URLs require an explicit tenant domain and fail
@@ -77,8 +81,8 @@
 
 ## Next 3 actions
 
-1. **Deploy and verify the attribution-identity SHA** through `/api/version`, then replace the
-   candidate registry's last-warmed-tenant pointer; measure
+1. **Deploy and verify the explicit attribution-registry SHA** through `/api/version`, then continue
+   site identity through frontier/scans/customer surfaces; measure
    authenticated Today and Results first useful paint when a hosted session is available.
 2. **Run 5 fresh preregistered blind cases** through the authenticated deployed UI. A case that causes a code
    change is spent and must be replaced with another unseen case.

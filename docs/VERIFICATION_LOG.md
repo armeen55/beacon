@@ -35575,6 +35575,25 @@ Verification: focused attribution/evidence identity suites 2/2; strict typecheck
 1,499 files passed, 23,117 tests passed, 62 skipped, 0 failed; production build exit 0. Deployment
 remains pending and is not claimed.
 
+Deployment receipt: `origin/main` fast-forwarded to
+`c06e4b568e5e0444e449f1f7a49bf1943952a43c`; Vercel deployment
+`dpl_89KSA3c7UmmZUdBnFVp8zn9oGLpz` reached Ready and production `/api/version` returned the exact
+SHA.
+
+## 2026-07-12 - Explicit attribution registry selection release candidate
+
+The candidate scorer kept tenant-keyed page registries but selected among them through one mutable
+module-global `_lastWarmedTenant` pointer. Overlapping A/B requests could therefore score A with B's
+page registry or citation-topic index. `warmPageRegistry` now accepts/returns an explicit tenant ID,
+loads pages and citation evidence through that tenant's repository, and synchronous candidate
+discovery selects both maps using `options.tenantId`. Missing tenant context returns empty maps.
+Diagnostics, Review, and History thread tenant ID (and domain) through warming and discovery. The
+architecture pointer allowlist is empty, so reintroducing this pattern fails CI.
+
+Verification: focused registry/identity architecture suites 5/5; strict typecheck exit 0; full suite
+1,499 files passed, 23,117 tests passed, 62 skipped, 0 failed; production build exit 0. Deployment
+remains pending and is not claimed.
+
 ## 2026-07-11 - E-39 D4 wiring complete (32696319, review P2)
 
 2026-07-11 E-39 D4 wiring complete (32696319, review P2): honest engineering call, option B.

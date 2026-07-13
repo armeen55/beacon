@@ -23,6 +23,8 @@ import {
   BRIEF_TYPE_LABELS,
   SIGNAL_TYPE_LABELS,
 } from "@/lib/constants";
+import { currentTenantId } from "@/lib/tenant-context";
+import { getBusinessConfig } from "@/lib/business-config";
 
 function Field({
   label,
@@ -55,6 +57,8 @@ export default async function ResultDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
+  const tenantId = await currentTenantId();
+  const siteDomain = getBusinessConfig(tenantId).domain;
   const [results, changelogEntries, opportunities, eventDecisions, truthLabels] = await Promise.all([
     getResults(),
     getChangelogEntries(),
@@ -64,7 +68,7 @@ export default async function ResultDetailPage({
   ]);
   const result = results.find((r) => r.id === id);
   if (!result) notFound();
-  await warmPageRegistry();
+  await warmPageRegistry(tenantId);
 
   const isInverted =
     result.metric_type === "visibility_rank" ||
@@ -85,7 +89,10 @@ export default async function ResultDetailPage({
     ? changelogEntries.find((c) => c.id === operatorDecision.primary_change_id)
     : null;
 
-  const candidates = discoverCandidates(result, changelogEntries, opportunities);
+  const candidates = discoverCandidates(result, changelogEntries, opportunities, {
+    tenantId,
+    siteDomain,
+  });
   const triage = triageCandidates(candidates);
   const allTriaged = [
     ...(triage.primary ? [triage.primary] : []),
@@ -391,7 +398,10 @@ export default async function ResultDetailPage({
           .map((ev) => {
             const anchor = resultMap.get(ev.anchor_result_id);
             if (!anchor) return null;
-            const c = discoverCandidates(anchor, changelogEntries, opportunities);
+            const c = discoverCandidates(anchor, changelogEntries, opportunities, {
+              tenantId,
+              siteDomain,
+            });
             const t = triageCandidates(c);
             return { result: anchor, reviewCount: t.needsReview.length };
           })

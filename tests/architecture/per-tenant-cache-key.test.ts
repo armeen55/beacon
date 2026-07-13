@@ -67,17 +67,9 @@ const ALLOWLIST = new Set<string>([
  * pointer is shared — if a sync consumer runs without first warming the
  * pointer for the active tenant, it reads whatever tenant warmed last.
  */
-const POINTER_ALLOWLIST = new Set<string>([
-  // candidates.ts: `_lastWarmedTenant` indexes per-tenant Maps
-  // (_registryByTenant/_topicIndexByTenant) for the SYNC scoring chain.
-  // Data is per-tenant, but 5 of 6 discoverCandidates callers don't
-  // `await warmPageRegistry()` first, so a warm process can read another
-  // tenant's page registry into the scoring INPUTS (a correctness bug, not
-  // a data-exposure leak). Tracked for a daylight fix (warm-before-discover
-  // in the 5 callers, or thread tenantId into discoverCandidates). See
-  // docs/AUDIT_50_MULTI_TENANT_FIXES.md §I.
-  "domains/attribution/candidates.ts",
-]);
+// The final pointer exception was removed on 2026-07-12: attribution
+// candidates now select registry/topic-index Maps by explicit tenantId.
+const POINTER_ALLOWLIST = new Set<string>();
 
 function stripComments(src: string): string {
   return src

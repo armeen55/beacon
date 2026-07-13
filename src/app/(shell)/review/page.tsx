@@ -20,6 +20,7 @@ import {
   type Decisionability,
 } from "./review-queue-client";
 import { PageHeader } from "@/components/data/page-header";
+import { getBusinessConfig } from "@/lib/business-config";
 
 const EVENT_TYPE_LABELS: Record<OutcomeEventType, string> = {
   first_appearance: "Showed up",
@@ -101,8 +102,10 @@ const DECISIONABILITY_ORDER: Record<Decisionability, number> = {
 export const dynamic = "force-dynamic";
 
 export default async function ReviewPage() {
-  await warmPageRegistry();
-  const repo = getRepository().forTenant(await currentTenantId());
+  const tenantId = await currentTenantId();
+  await warmPageRegistry(tenantId);
+  const repo = getRepository().forTenant(tenantId);
+  const siteDomain = getBusinessConfig(tenantId).domain;
   const [results, changelogEntries, opportunities, candidateLinks, eventDecisions] = await Promise.all([
     getResults(),
     repo.getChangelogEntries(),
@@ -126,7 +129,12 @@ export default async function ReviewPage() {
     const anchorResult = resultMap.get(event.anchor_result_id);
     if (!anchorResult) continue;
 
-    const candidates = discoverCandidates(anchorResult, changelogEntries, opportunities);
+    const candidates = discoverCandidates(
+      anchorResult,
+      changelogEntries,
+      opportunities,
+      { tenantId, siteDomain },
+    );
     candCountMap.set(event.anchor_result_id, candidates.length);
     if (candidates.length === 0) continue;
 

@@ -1,5 +1,6 @@
 import type { ChangelogEntry } from "@/domains/changelog/types";
 import { currentTenantId } from "@/lib/tenant-context";
+import { getRepository } from "@/lib/persistence/repositories";
 import type { Result } from "@/domains/results/types";
 import type { Opportunity } from "@/domains/opportunities/types";
 import type { Attribution, MatchStrength } from "./types";
@@ -14,7 +15,6 @@ import { ATTRIBUTION_CONFIG } from "./config";
 import { classifyEvidenceTier } from "@/domains/pages/evidence-tier";
 import { normalizePageUrl } from "@/domains/pages/classify";
 import type { EvidenceTier, PageEntity } from "@/domains/pages/types";
-import { getOwnedPages } from "@/domains/pages/page-store";
 
 // ── Page registry (loaded once for evidence tier verification) ──────
 //
@@ -38,26 +38,23 @@ import { getOwnedPages } from "@/domains/pages/page-store";
 // Night-shift cache sweep (2026-06-11): per-tenant warm. The previous
 // single global registry pinned the FIRST tenant's pages for every
 // later tenant in a warm process — permanently wrong for tenant B.
-// Sync consumers (discoverCandidates' scoring chain) resolve via the
-// last-warmed tenant pointer set by `warmPageRegistry()`; the
-// documented contract (await warm BEFORE discover) makes sequential
-// flows strictly correct. Residual: concurrent multi-tenant renders in
-// ONE process could transiently interleave the pointer — self-corrects
-// next request, and is strictly better than the permanent pin it
-// replaces.
+// Sync consumers must name the tenant whose registry they want. There is no
+// process-global "last warmed" pointer: overlapping A/B requests cannot change
+// which registry a later synchronous call observes.
 const _registryByTenant = new Map<string, Map<string, PageEntity>>();
 const _registryPromiseByTenant = new Map<string, Promise<void>>();
-let _lastWarmedTenant: string | null = null;
 
-export async function warmPageRegistry(): Promise<void> {
-  const tenantId = await currentTenantId();
-  _lastWarmedTenant = tenantId;
-  if (_registryByTenant.has(tenantId)) return;
+export async function warmPageRegistry(
+  explicitTenantId?: string,
+): Promise<string> {
+  const tenantId = explicitTenantId ?? await currentTenantId();
+  if (_registryByTenant.has(tenantId)) return tenantId;
   if (!_registryPromiseByTenant.has(tenantId)) {
     _registryPromiseByTenant.set(
       tenantId,
       (async () => {
-        const pages = await getOwnedPages();
+        const repo = getRepository().forTenant(tenantId);
+        const pages = await repo.getPages();
         _registryByTenant.set(tenantId, new Map(pages.map((p) => [p.url, p])));
         // Topic index warms alongside (see getCitationTopicIndex).
         await warmCitationTopicIndex(tenantId);
@@ -65,10 +62,11 @@ export async function warmPageRegistry(): Promise<void> {
     );
   }
   await _registryPromiseByTenant.get(tenantId)!;
+  return tenantId;
 }
 
-function getPageRegistry(): Map<string, PageEntity> {
-  return (_lastWarmedTenant ? _registryByTenant.get(_lastWarmedTenant) : undefined) ?? new Map();
+function getPageRegistry(tenantId?: string): Map<string, PageEntity> {
+  return (tenantId ? _registryByTenant.get(tenantId) : undefined) ?? new Map();
 }
 
 // ── Citation topic index (which pages are cited for which topics) ────
@@ -83,10 +81,9 @@ const _topicIndexByTenant = new Map<string, Map<string, Set<string>>>();
 async function warmCitationTopicIndex(tenantId: string): Promise<void> {
   if (_topicIndexByTenant.has(tenantId)) return;
   try {
-    const { getCitationEvidenceIndex } = await import(
-      "@/domains/pages/citation-evidence-store"
-    );
-    const index = await getCitationEvidenceIndex();
+    const index = await getRepository()
+      .forTenant(tenantId)
+      .getCitationEvidenceIndex();
     const ptMap: Record<string, string[]> =
       (index?.page_to_topics as Record<string, string[]>) ?? {};
     _topicIndexByTenant.set(
@@ -98,8 +95,8 @@ async function warmCitationTopicIndex(tenantId: string): Promise<void> {
   }
 }
 
-function getCitationTopicIndex(): Map<string, Set<string>> {
-  return (_lastWarmedTenant ? _topicIndexByTenant.get(_lastWarmedTenant) : undefined) ?? new Map();
+function getCitationTopicIndex(tenantId?: string): Map<string, Set<string>> {
+  return (tenantId ? _topicIndexByTenant.get(tenantId) : undefined) ?? new Map();
 }
 
 export type CandidateResult = {
@@ -165,10 +162,11 @@ function hasCitationTopicSupport(
   change: ChangelogEntry,
   resultTopic: string | null,
   siteDomain?: string,
+  tenantId?: string,
 ): boolean {
   if (!resultTopic || !change.url) return false;
 
-  const index = getCitationTopicIndex();
+  const index = getCitationTopicIndex(tenantId);
   if (index.size === 0) return false;
 
   const parsed = normalizePageUrl(change.url, siteDomain);
@@ -224,6 +222,7 @@ export function discoverCandidates(
     topK?: number;
     candidateLinks?: CandidateLink[];
     siteDomain?: string;
+    tenantId?: string;
   },
 ): CandidateResult[] {
   const { maxDays, minScore, topK } = ATTRIBUTION_CONFIG.discovery;
@@ -254,7 +253,7 @@ export function discoverCandidates(
     .map((change) => {
       const evidenceMeta = classifyEvidenceTier(
         change,
-        getPageRegistry(),
+        getPageRegistry(options?.tenantId),
         options?.siteDomain,
       );
       const attribution = computeAttribution(
@@ -269,6 +268,7 @@ export function discoverCandidates(
         change,
         result.topic,
         options?.siteDomain,
+        options?.tenantId,
       );
       const score = adjustScore(rawScore, evidenceMeta.tier, attribution.matches, citationSupport);
       return { change, attribution, score };
