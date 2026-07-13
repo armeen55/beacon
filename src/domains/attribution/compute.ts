@@ -219,7 +219,7 @@ function normalizeAndCanonicalize(
 ): { url: string; domain: string; path: string } | null {
   const parsed = normalizePageUrl(raw, siteDomain);
   if (!parsed) return null;
-  return canonicalizeOwnedUrl(parsed);
+  return canonicalizeOwnedUrl(parsed, siteDomain);
 }
 
 // ── Geo matching (with containment) ─────────────────────────────────

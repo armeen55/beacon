@@ -92,6 +92,7 @@ async function main() {
   const citationIndex = buildCitationEvidenceIndex({
     citations: allCitations,
     promptAnswers,
+    ownedDomain,
   });
 
   console.log(`Citations processed: ${citationIndex.total_citations_processed}`);

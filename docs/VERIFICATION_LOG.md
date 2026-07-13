@@ -35515,6 +35515,26 @@ Verification: page-inventory decision suites 44/44; strict typecheck exit 0; ful
 passed, 23,112 tests passed, 62 skipped, 0 failed; production build exit 0. Deployment remains
 pending and is not claimed.
 
+Deployment receipt: `origin/main` fast-forwarded to
+`19409888330495a357bdf26cb26043b14d870928`; Vercel deployment
+`dpl_Fig9Z3qVeo6cN4Bu5kCjmd3opQD3` reached Ready and production `/api/version` returned the exact
+SHA.
+
+## 2026-07-12 - Explicit owned-URL identity release candidate
+
+Confirmed that owned-URL canonicalization read a process-global site config and always mapped
+`rfritz.com` to whichever site domain had populated that cache. The pure canonicalizer now requires
+an explicit tenant domain and an optional explicit legacy-domain list. No alias means no rewrite;
+the hardcoded founder alias and Palo Alto path rewrite are removed. Profound citation-index builds
+pass their tenant business domain explicitly; native citations retain their already-current URL;
+attribution passes its existing site-domain argument rather than re-reading inside canonicalization.
+An A→B→A same-process test proves the founder alias cannot become Iranopedia ownership and that the
+second A call is byte-identical to the first.
+
+Verification: focused ownership/citation isolation suites 17/17; strict typecheck exit 0; full suite
+1,496 files passed, 23,114 tests passed, 62 skipped, 0 failed; production build exit 0. Deployment
+remains pending and is not claimed.
+
 ## 2026-07-11 - E-39 D4 wiring complete (32696319, review P2)
 
 2026-07-11 E-39 D4 wiring complete (32696319, review P2): honest engineering call, option B.

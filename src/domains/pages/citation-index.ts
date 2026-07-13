@@ -37,8 +37,10 @@ type RollupAcc = {
 export function buildCitationEvidenceIndex(opts: {
   citations: CitationObservation[];
   promptAnswers: PromptAnswerObservation[];
+  ownedDomain: string;
+  legacyOwnedDomains?: ReadonlyArray<string>;
 }): CitationEvidenceIndex {
-  const { citations, promptAnswers } = opts;
+  const { citations, promptAnswers, ownedDomain, legacyOwnedDomains } = opts;
   const paMap = new Map<string, PromptAnswerObservation>();
   for (const pa of promptAnswers) {
     paMap.set(pa.id, pa);
@@ -55,7 +57,9 @@ export function buildCitationEvidenceIndex(opts: {
     const parsed = normalizePageUrl(raw);
     if (!parsed) continue;
 
-    const canonical = c.is_owned ? canonicalizeOwnedUrl(parsed) : parsed;
+    const canonical = c.is_owned
+      ? canonicalizeOwnedUrl(parsed, ownedDomain, legacyOwnedDomains)
+      : parsed;
 
     const topic = pa.topic;
     const platform = pa.platform;
@@ -294,7 +298,9 @@ export function buildNativeCitationEvidenceIndex(opts: {
       if (!parsed) continue;
 
       const isOwned = ownedDomains.has(parsed.domain.toLowerCase());
-      const canonical = isOwned ? canonicalizeOwnedUrl(parsed) : parsed;
+      // Native observations already carry the tenant's current owned URL.
+      // Do not rewrite them through a process-global founder alias table.
+      const canonical = parsed;
       const key: RollupKey = `${canonical.url}|${topic}`;
 
       if (seenKeys.has(key)) continue; // INVARIANT: dedup within observation

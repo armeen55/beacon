@@ -1,7 +1,6 @@
 import type { PageType, OwnershipTier } from "./types";
 import type { SourceCategory } from "@/domains/citation-observations/types";
 import { GEO_CONTAINMENT } from "@/domains/attribution/config";
-import { getSiteConfig } from "@/lib/site-config";
 
 // ── Known directory / social / institutional domains ────────────────
 
@@ -165,26 +164,25 @@ export function normalizePageUrl(raw: string, defaultDomain?: string): {
 
 // ── Canonical URL rewriting (legacy domain → current domain) ─────
 
-const PATH_ALIASES = new Map<string, string>([
-  ["/palo-alto", "/locations/palo-alto"],
-]);
-
 export function canonicalizeOwnedUrl(
-  parsed: { url: string; domain: string; path: string }
+  parsed: { url: string; domain: string; path: string },
+  siteDomain: string,
+  legacyOwnedDomains: ReadonlyArray<string> = [],
 ): { url: string; domain: string; path: string } {
-  const { siteDomain } = getSiteConfig();
-  const legacyToCurrent = new Map<string, string>([["rfritz.com", siteDomain]]);
-  const canonical = legacyToCurrent.get(parsed.domain);
-  if (!canonical) return parsed;
-
-  let path = parsed.path;
-  const aliased = PATH_ALIASES.get(path);
-  if (aliased) path = aliased;
+  const canonicalDomain = siteDomain.trim().toLowerCase().replace(/^www\./, "");
+  if (!canonicalDomain) return parsed;
+  const sourceDomain = parsed.domain.toLowerCase().replace(/^www\./, "");
+  const aliases = new Set(
+    legacyOwnedDomains.map((domain) =>
+      domain.trim().toLowerCase().replace(/^www\./, ""),
+    ),
+  );
+  if (!aliases.has(sourceDomain)) return parsed;
 
   return {
-    url: `https://${canonical}${path}`,
-    domain: canonical,
-    path,
+    url: `https://${canonicalDomain}${parsed.path}`,
+    domain: canonicalDomain,
+    path: parsed.path,
   };
 }
 

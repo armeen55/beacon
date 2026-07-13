@@ -383,6 +383,7 @@ export async function runProfoundImport(
   const citationIndex = buildCitationEvidenceIndex({
     citations: allCitationsForIndex,
     promptAnswers: mergedObservations,
+    ownedDomain: business.domain,
   });
   const ciPath = join(DATA_DIR, "citation-evidence-index.json");
   const ciTmp = ciPath + ".tmp";
