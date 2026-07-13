@@ -8,7 +8,6 @@ import "server-only";
 
 import { getResults } from "@/lib/seed-data.server";
 import { getCitationEvidenceIndex } from "@/domains/pages/citation-evidence-store";
-import { stripSiteOrigin, getSiteConfig } from "@/lib/site-config";
 import { buildCompetitorRank } from "@/lib/performance-timeseries";
 import { classifyCompetitorType } from "@/domains/competitors/classify-type";
 import { getBusinessConfigForCurrentTenant } from "@/lib/business-config";
@@ -18,11 +17,18 @@ export async function runMilestoneSync(): Promise<{
   newEvents: number;
   dirty: boolean;
 }> {
-  const { siteDomain } = getSiteConfig();
-  const citationEvidenceIndex = await getCitationEvidenceIndex();
-  // MT-3B (2026-05-22) — inject tenant directoryDomains into the
-  // competitor classifier (CLI-safe: resolves via BEACON_TENANT_ID env).
-  const businessConfig = await getBusinessConfigForCurrentTenant();
+  // One current-tenant config drives both owned-domain attribution and the
+  // competitor taxonomy. These reads are independent, so import completion
+  // does not pay an avoidable three-step waterfall.
+  const [businessConfig, citationEvidenceIndex, results] = await Promise.all([
+    getBusinessConfigForCurrentTenant(),
+    getCitationEvidenceIndex(),
+    getResults(),
+  ]);
+  const siteDomain = businessConfig.domain.trim().toLowerCase().replace(/^www\./, "");
+  if (!siteDomain) {
+    throw new Error("Cannot sync milestones without the current tenant's domain");
+  }
   const competitorRank = buildCompetitorRank(
     citationEvidenceIndex,
     siteDomain,
@@ -30,7 +36,7 @@ export async function runMilestoneSync(): Promise<{
   );
 
   const { newEvents } = await syncMilestonesFromWorkspace({
-    results: await getResults(),
+    results,
     citationIndex: citationEvidenceIndex,
     siteDomain,
     competitorRank,

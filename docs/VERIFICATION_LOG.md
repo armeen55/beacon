@@ -35657,6 +35657,19 @@ receipt: `origin/main` fast-forwarded to `199acb0ed3e5fc87e5b2b683c6e164105f3a62
 Vercel deployment `dpl_5jxepUZ4v4uCPpwSV3VAJdiZrKKJ` completed and production `/api/version`
 returned the exact SHA.
 
+## 2026-07-12 - Tenant-explicit post-import milestones release candidate
+
+Post-import milestone sync mixed two identity sources: competitor type used the current tenant's
+business config, but owned citation attribution and milestone generation used process-global site
+config. It now resolves one current-tenant business config and uses its normalized domain for both
+competitor rank and milestone sync. Business config, citation evidence, and imported results load in
+parallel rather than a three-step waterfall. Missing tenant domain fails closed before writing a
+misattributed milestone.
+
+Verification: focused tenant milestone/scan suites 5/5; strict typecheck exit 0; full suite 1,503
+files passed, 23,128 tests passed, 62 skipped, 0 failed; production build exit 0. Deployment remains
+pending and is not claimed.
+
 ## 2026-07-11 - E-39 D4 wiring complete (32696319, review P2)
 
 2026-07-11 E-39 D4 wiring complete (32696319, review P2): honest engineering call, option B.

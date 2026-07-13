@@ -5,7 +5,10 @@
 > the tenant-explicit website scan at `199acb0e` (Vercel
 > `dpl_5jxepUZ4v4uCPpwSV3VAJdiZrKKJ`). The scan boundary is tenant-explicit: crawl target, child-process domain,
 > robots lookup, homepage identity, and finding generation share the current tenant's validated
-> business domain and cannot inherit another request's process-wide site identity. This tip makes live recommendation
+> business domain and cannot inherit another request's process-wide site identity. This tip also
+> makes post-import milestone ownership tenant-explicit and parallelizes its independent evidence
+> reads, so an import cannot rank one tenant's competitors against another tenant's owned domain.
+> This tip makes live recommendation
 > targets tenant-explicit: relative strengthen/investigate URLs resolve only from the current
 > tenant origin and otherwise withhold the absolute target instead of borrowing process-global
 > identity. This tip also fixes Proposed Briefs for non-local
@@ -61,8 +64,8 @@
 > set is too small, and it is now spent. So the verdict quarantine from the prior wave stays
 > exactly as deployed, every stored won or lost verdict still reads as uncalibrated through
 > src/domains/proof-gsc/verdict-calibration.ts, CALIBRATED_VERDICT_VERSIONS is still empty, and no
-> verdict was persisted. The full gate is GREEN at this tip: strict typecheck, 1,501 test files
-> with 23,123 passed / 62 skipped / 0 failed, and the production build.
+> verdict was persisted. The full gate is GREEN at this tip: strict typecheck, 1,503 test files
+> with 23,128 passed / 62 skipped / 0 failed, and the production build.
 
 ## Current limitations
 

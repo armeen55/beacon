@@ -58,32 +58,35 @@ chronology of what already landed lives in VERIFICATION_LOG.md; this list is onl
 17. **Tenant-explicit website scan.** DEPLOYED AND SHA-VERIFIED at 199acb0e. Resolve the
    current tenant's business domain once and thread it through crawl, robots, homepage identity,
    and findings. Never inherit `BEACON_SITE_DOMAIN` from process state.
-18. **Fresh blind unseen-topic benchmark.** Run 5 preregistered cases not used to build these
+18. **Tenant-explicit post-import milestones.** CODE COMPLETE; full gate green; deploy pending.
+   Owned citation attribution and competitor classification use one current-tenant business config,
+   while independent import evidence reads run concurrently.
+19. **Fresh blind unseen-topic benchmark.** Run 5 preregistered cases not used to build these
    corrections. A case that changes code is spent and must be replaced.
-19. **Scheduled-refresh receipt.** The first cron run after this deploy must leave a started
+20. **Scheduled-refresh receipt.** The first cron run after this deploy must leave a started
    receipt; that receipt is what proves the scheduled refresh path is alive, since sync-connectors
    and measure-due missed their 2026-07-11 slots.
-20. **Proof-model replacement with independent validation.** INFRASTRUCTURE LANDED, CERTIFICATION
+21. **Proof-model replacement with independent validation.** INFRASTRUCTURE LANDED, CERTIFICATION
    HONESTLY BLOCKED ON UNITS, NOT ON METHOD. The verdict classifier now runs under the independent
    statistical validation protocol (predeclaration contract plus a frozen-artifact holdout
    harness), but the release gate failed because the tenant cannot yet supply enough judged units
    per cell. Certification waits on more calendar or a pooled-verdict design.
-21. **56 to 84 day confirmation ladder.** STORAGE AND WINDOW CONTRACT LANDED, 56 DAY READS
+22. **56 to 84 day confirmation ladder.** STORAGE AND WINDOW CONTRACT LANDED, 56 DAY READS
    PROVISIONAL UNTIL HISTORY SUPPORTS THEM. The demote-only confirmation tier above the 28 day
    primary read is in the contract and the store; a 56 day demotion is flagged provisional until
    this tenant's placebo history depth supports the window.
-22. **June GSC UI comparison (operator).** The operator compares the stored June total of 3,460
+23. **June GSC UI comparison (operator).** The operator compares the stored June total of 3,460
    clicks and 251,274 impressions against the Search Console UI.
-23. **Hosted UX and performance closure.** Prove the hosted speed budgets on production, not on the
+24. **Hosted UX and performance closure.** Prove the hosted speed budgets on production, not on the
    dev server.
-24. **Fix product gaps from holdouts.** Address whatever the fresh blind benchmark exposes.
-25. **Second tenant.** Bring a second tenant onto the same workflow; Ritz stays cold-start until
+25. **Fix product gaps from holdouts.** Address whatever the fresh blind benchmark exposes.
+26. **Second tenant.** Bring a second tenant onto the same workflow; Ritz stays cold-start until
     the operator reconnects it.
-26. **Publish one operator-approved move.** Ship a single move the operator has approved, end to
+27. **Publish one operator-approved move.** Ship a single move the operator has approved, end to
     end.
-27. **Verify live and measure under the corrected model.** Confirm the published move is live and
+28. **Verify live and measure under the corrected model.** Confirm the published move is live and
     measure it under the corrected proof model, never the quarantined one.
-28. **Claim the learning loop only then.** Only after 1 through 27 hold may we claim the learning
+29. **Claim the learning loop only then.** Only after 1 through 28 hold may we claim the learning
     loop works.
 
 ## Recently landed (see VERIFICATION_LOG.md for the dated chronology)
