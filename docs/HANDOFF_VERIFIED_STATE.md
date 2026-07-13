@@ -2,7 +2,9 @@
 
 > 🟢 **Current verified state (2026-07-12, tip = this docs commit; the exact pushed SHA is what
 > /api/version must report before this wave is called deployed).** Production is verified through
-> explicit owned-URL identity at 000d1c99. This tip removes process-global site identity from
+> evidence-tier identity at 51f4eb63. This tip removes process-global site identity from attribution
+> URL matching and candidate citation support. Relative URLs use an explicit tenant domain or fail
+> closed as unknown; architecture and A→B→A tests pin that B cannot inherit A. This tip also removed process-global site identity from
 > evidence-tier classification: relative changelog URLs require an explicit tenant domain and fail
 > closed when it is absent, rather than borrowing whichever domain first populated the process.
 > This tip continues the explicit site-identity P0
@@ -46,8 +48,8 @@
 > set is too small, and it is now spent. So the verdict quarantine from the prior wave stays
 > exactly as deployed, every stored won or lost verdict still reads as uncalibrated through
 > src/domains/proof-gsc/verdict-calibration.ts, CALIBRATED_VERDICT_VERSIONS is still empty, and no
-> verdict was persisted. The full gate is GREEN at this tip: strict typecheck, 1,497 test files
-> with 23,115 passed / 62 skipped / 0 failed, and the production build.
+> verdict was persisted. The full gate is GREEN at this tip: strict typecheck, 1,499 test files
+> with 23,117 passed / 62 skipped / 0 failed, and the production build.
 
 ## Current limitations
 
@@ -75,8 +77,8 @@
 
 ## Next 3 actions
 
-1. **Deploy and verify the evidence-tier identity SHA** through `/api/version`, then continue
-   threading explicit site identity through attribution; measure
+1. **Deploy and verify the attribution-identity SHA** through `/api/version`, then replace the
+   candidate registry's last-warmed-tenant pointer; measure
    authenticated Today and Results first useful paint when a hosted session is available.
 2. **Run 5 fresh preregistered blind cases** through the authenticated deployed UI. A case that causes a code
    change is spent and must be replaced with another unseen case.

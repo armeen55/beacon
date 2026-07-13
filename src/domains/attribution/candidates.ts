@@ -15,7 +15,6 @@ import { classifyEvidenceTier } from "@/domains/pages/evidence-tier";
 import { normalizePageUrl } from "@/domains/pages/classify";
 import type { EvidenceTier, PageEntity } from "@/domains/pages/types";
 import { getOwnedPages } from "@/domains/pages/page-store";
-import { getSiteConfig } from "@/lib/site-config";
 
 // ── Page registry (loaded once for evidence tier verification) ──────
 //
@@ -164,14 +163,15 @@ const CITATION_EVIDENCE_BONUS = 12;
  */
 function hasCitationTopicSupport(
   change: ChangelogEntry,
-  resultTopic: string | null
+  resultTopic: string | null,
+  siteDomain?: string,
 ): boolean {
   if (!resultTopic || !change.url) return false;
 
   const index = getCitationTopicIndex();
   if (index.size === 0) return false;
 
-  const parsed = normalizePageUrl(change.url, getSiteConfig().siteDomain);
+  const parsed = normalizePageUrl(change.url, siteDomain);
   if (!parsed) return false;
 
   const topics = index.get(parsed.url);
@@ -218,7 +218,13 @@ export function discoverCandidates(
   result: Result,
   allChanges: ChangelogEntry[],
   allOpportunities: Opportunity[],
-  options?: { maxDays?: number; minScore?: number; topK?: number; candidateLinks?: CandidateLink[] }
+  options?: {
+    maxDays?: number;
+    minScore?: number;
+    topK?: number;
+    candidateLinks?: CandidateLink[];
+    siteDomain?: string;
+  },
 ): CandidateResult[] {
   const { maxDays, minScore, topK } = ATTRIBUTION_CONFIG.discovery;
   const maxDaysResolved = options?.maxDays ?? maxDays;
@@ -246,15 +252,24 @@ export function discoverCandidates(
       return diffDays >= 0 && diffDays <= maxDaysResolved;
     })
     .map((change) => {
-      const evidenceMeta = classifyEvidenceTier(change, getPageRegistry());
+      const evidenceMeta = classifyEvidenceTier(
+        change,
+        getPageRegistry(),
+        options?.siteDomain,
+      );
       const attribution = computeAttribution(
         change,
         result,
         allOpportunities,
-        evidenceMeta
+        evidenceMeta,
+        options?.siteDomain,
       );
       const rawScore = computeConfidenceScore(attribution.matches);
-      const citationSupport = hasCitationTopicSupport(change, result.topic);
+      const citationSupport = hasCitationTopicSupport(
+        change,
+        result.topic,
+        options?.siteDomain,
+      );
       const score = adjustScore(rawScore, evidenceMeta.tier, attribution.matches, citationSupport);
       return { change, attribution, score };
     })

@@ -35555,6 +35555,26 @@ run had one unrelated diagnostics operator-mode test time out at 30 seconds unde
 that file passed 52/52 in 1.69 seconds alone, then the complete gate was restarted from zero and
 passed. Deployment remains pending and is not claimed.
 
+Deployment receipt: `origin/main` fast-forwarded to
+`51f4eb6385c5855525ec2629e33e5c667de323d6`; Vercel deployment
+`dpl_Z8NV37tNvpim8dRt8YE8qiqvuXoD` reached Ready and production `/api/version` returned the exact
+SHA.
+
+## 2026-07-12 - Attribution explicit site identity release candidate
+
+Attribution URL matching and candidate citation support still read the process-global site config.
+They now accept one optional explicit tenant domain threaded through `computeAttribution`, aggregate
+attribution/verdict helpers, and `discoverCandidates`. Relative URLs without that context fail
+closed (`unknown` or no citation bonus); absolute URLs remain self-contained. Candidate evidence
+tiering receives the same domain so tier, URL match, and citation support cannot disagree. A same-
+process A→B→A regression proves a relative A change matches A strongly, not B, and repeats
+byte-identically. An architecture invariant forbids `getSiteConfig` across attribution, evidence
+tier, owned canonicalization, and citation-index modules.
+
+Verification: focused attribution/evidence identity suites 2/2; strict typecheck exit 0; full suite
+1,499 files passed, 23,117 tests passed, 62 skipped, 0 failed; production build exit 0. Deployment
+remains pending and is not claimed.
+
 ## 2026-07-11 - E-39 D4 wiring complete (32696319, review P2)
 
 2026-07-11 E-39 D4 wiring complete (32696319, review P2): honest engineering call, option B.

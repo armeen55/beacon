@@ -4,7 +4,6 @@ import type { Brief } from "@/domains/briefs/types";
 import type { Opportunity } from "@/domains/opportunities/types";
 import type { EvidenceTier, EvidenceTierMeta } from "@/domains/pages/types";
 import { normalizePageUrl, canonicalizeOwnedUrl } from "@/domains/pages/classify";
-import { getSiteConfig } from "@/lib/site-config";
 import { METRIC_DIRECTION } from "@/lib/constants";
 import type { Platform, SignalType } from "@/lib/constants";
 import {
@@ -188,11 +187,14 @@ function matchSourceCategory(
 
 // ── URL matching ────────────────────────────────────────────────────
 
-function matchUrl(change: ChangelogEntry, result: Result): MatchStrength {
+function matchUrl(
+  change: ChangelogEntry,
+  result: Result,
+  siteDomain?: string,
+): MatchStrength {
   if (!change.url && !result.url_measured) return "unknown";
   if (!change.url || !result.url_measured) return "unknown";
 
-  const { siteDomain } = getSiteConfig();
   const cp = normalizeAndCanonicalize(change.url, siteDomain);
   const rp = normalizeAndCanonicalize(result.url_measured, siteDomain);
 
@@ -215,11 +217,11 @@ function matchUrl(change: ChangelogEntry, result: Result): MatchStrength {
 
 function normalizeAndCanonicalize(
   raw: string,
-  siteDomain: string,
+  siteDomain?: string,
 ): { url: string; domain: string; path: string } | null {
   const parsed = normalizePageUrl(raw, siteDomain);
   if (!parsed) return null;
-  return canonicalizeOwnedUrl(parsed, siteDomain);
+  return siteDomain ? canonicalizeOwnedUrl(parsed, siteDomain) : parsed;
 }
 
 // ── Geo matching (with containment) ─────────────────────────────────
@@ -370,11 +372,12 @@ export function computeAttribution(
   change: ChangelogEntry,
   result: Result,
   allOpportunities: Opportunity[],
-  evidenceMeta?: EvidenceTierMeta | null
+  evidenceMeta?: EvidenceTierMeta | null,
+  siteDomain?: string,
 ): Attribution {
   const platformMatch = matchSignalPlatform(change, result, allOpportunities);
   const topicMatch = matchTopic(change, result, allOpportunities);
-  const urlMatch = matchUrl(change, result);
+  const urlMatch = matchUrl(change, result, siteDomain);
   const geoMatch = matchGeo(change, result);
   const temporal = matchTemporal(change, result);
   const sourceCatMatch = matchSourceCategory(change, result);
@@ -441,7 +444,8 @@ export function computeAttributionsForResult(
   resultId: string,
   allChanges: ChangelogEntry[],
   allResults: Result[],
-  allOpportunities: Opportunity[]
+  allOpportunities: Opportunity[],
+  siteDomain?: string,
 ): Attribution[] {
   const result = allResults.find((r) => r.id === resultId);
   if (!result || result.attributed_changelog_ids.length === 0) return [];
@@ -451,7 +455,7 @@ export function computeAttributionsForResult(
   );
 
   const attributions = linkedChanges.map((change) =>
-    computeAttribution(change, result, allOpportunities)
+    computeAttribution(change, result, allOpportunities, undefined, siteDomain)
   );
 
   return assignRoles(attributions);
@@ -468,7 +472,8 @@ function isPositiveDelta(result: Result): boolean {
 export function computeChangeVerdict(
   change: ChangelogEntry,
   allResults: Result[],
-  allOpportunities: Opportunity[]
+  allOpportunities: Opportunity[],
+  siteDomain?: string,
 ): ChangeVerdictData {
   const attributed = allResults.filter((r) =>
     r.attributed_changelog_ids.includes(change.id)
@@ -483,7 +488,7 @@ export function computeChangeVerdict(
   }
 
   const attributions = attributed.map((r) =>
-    computeAttribution(change, r, allOpportunities)
+    computeAttribution(change, r, allOpportunities, undefined, siteDomain)
   );
 
   const positive = attributed.filter(isPositiveDelta);
