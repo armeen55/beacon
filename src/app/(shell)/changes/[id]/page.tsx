@@ -151,7 +151,15 @@ export default async function ChangeDetailPage({
   // MT-3C (2026-05-23) — resolve tenant config once; thread into the
   // section analyzer (now requires config) + reuse for brandName below.
   const businessConfig = getBusinessConfig(tenantId);
-  const allRecs = computeRecommendations({ impactRows, patterns, briefs, sectionAnalyzerConfig: getSectionAnalyzerConfig(businessConfig) });
+  const allRecs = computeRecommendations({
+    impactRows,
+    patterns,
+    briefs,
+    sectionAnalyzerConfig: getSectionAnalyzerConfig(businessConfig),
+    siteOrigin: businessConfig.domain
+      ? `https://${businessConfig.domain.replace(/^www\./, "")}`
+      : undefined,
+  });
 
   const trackRecord = computeTrackRecord({ impactRows, patterns });
   const recommendedMatch = wasChangeRecommended(id, trackRecord);

@@ -35612,6 +35612,24 @@ Verification: tenant-aware brief-archetype suite 4/4; strict typecheck exit 0; f
 passed, 23,121 tests passed, 62 skipped, 0 failed; production build exit 0. Deployment remains
 pending and is not claimed.
 
+Deployment status: `origin/main` fast-forwarded to
+`14ab4258baac443f30bb6547d2801041fd5866ff`; Vercel deployment
+`dpl_Er1u1y9j6TQEw7ZrZUHoS7LwboVn` reached Ready. Exact production `/api/version` verification was
+not available from the environment, so deployed-SHA identity remains unclaimed.
+
+## 2026-07-12 - Tenant-explicit recommendation target URLs release candidate
+
+The active product recommendation engine converted relative changelog targets with
+process-global `absoluteUrlForPath`, so a shared process could emit another tenant's domain on
+strengthen/investigate cards and citation-count lookups. The engine now accepts `siteOrigin`, the
+active Changes detail page derives it from that tenant's business config, and a pure resolver
+returns null for relative URLs when identity is absent. Absolute external URLs remain unchanged.
+An A→B→A regression proves stable isolation.
+
+Verification: focused recommendation URL/engine suites 18/18; strict typecheck exit 0; full suite
+1,501 files passed, 23,123 tests passed, 62 skipped, 0 failed; production build exit 0. Deployment
+remains pending and is not claimed.
+
 ## 2026-07-11 - E-39 D4 wiring complete (32696319, review P2)
 
 2026-07-11 E-39 D4 wiring complete (32696319, review P2): honest engineering call, option B.

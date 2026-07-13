@@ -1,8 +1,12 @@
 # Beacon Verified State
 
 > 🟢 **Current verified state (2026-07-12, tip = this docs commit; the exact pushed SHA is what
-> /api/version must report before this wave is called deployed).** Production is verified through
-> explicit attribution-registry selection at f31ecd14. This tip fixes Proposed Briefs for non-local
+> /api/version must report before this wave is called deployed).** Exact production SHA is verified
+> through explicit attribution-registry selection at f31ecd14; Vercel reports the Proposed Brief
+> deployment Ready but its `/api/version` read remains pending. This tip makes live recommendation
+> targets tenant-explicit: relative strengthen/investigate URLs resolve only from the current
+> tenant origin and otherwise withhold the absolute target instead of borrowing process-global
+> identity. This tip also fixes Proposed Briefs for non-local
 > tenants: a city-bearing opportunity becomes local coverage expansion only when the current tenant
 > is explicitly `local_service`. Content publishers, SaaS, and unknown types receive a neutral
 > new-page brief; its schema guidance no longer treats LocalBusiness as a generic default. This tip also removed the attribution candidate registry's
@@ -55,8 +59,8 @@
 > set is too small, and it is now spent. So the verdict quarantine from the prior wave stays
 > exactly as deployed, every stored won or lost verdict still reads as uncalibrated through
 > src/domains/proof-gsc/verdict-calibration.ts, CALIBRATED_VERDICT_VERSIONS is still empty, and no
-> verdict was persisted. The full gate is GREEN at this tip: strict typecheck, 1,500 test files
-> with 23,121 passed / 62 skipped / 0 failed, and the production build.
+> verdict was persisted. The full gate is GREEN at this tip: strict typecheck, 1,501 test files
+> with 23,123 passed / 62 skipped / 0 failed, and the production build.
 
 ## Current limitations
 
@@ -84,8 +88,8 @@
 
 ## Next 3 actions
 
-1. **Deploy and verify the tenant-aware brief-archetype SHA** through `/api/version`, then continue
-   site identity through frontier/scans/customer surfaces; measure
+1. **Deploy and verify the recommendation-URL SHA** through `/api/version`, then continue site
+   identity through active scan/customer paths; measure
    authenticated Today and Results first useful paint when a hosted session is available.
 2. **Run 5 fresh preregistered blind cases** through the authenticated deployed UI. A case that causes a code
    change is spent and must be replaced with another unseen case.

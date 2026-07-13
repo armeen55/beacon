@@ -14,7 +14,6 @@ import type { CitationDecayResult } from "@/domains/attribution/decay-types";
 import type { AnswerIntelligenceIndex } from "@/domains/answer-intelligence/types";
 import type { ChangePattern } from "@/domains/learning/change-patterns";
 import type { QueryKeywordIndex } from "@/domains/answer-intelligence/query-index";
-import { absoluteUrlForPath } from "@/lib/site-config";
 // keyword-optimizer removed 2026-04-18 (Phase 7 cleanup) \u2014 bigram Frankenstein.
 // Replaced by data-grounded keyword-gap scanner that emits evidence-only
 // findings (no auto-rewrite). See docs/IDEAS_PARKING_LOT.md for the ablation
@@ -110,6 +109,16 @@ export type BeaconRecommendation = {
    *  originally written against before the router swapped the target. */
   movedFromPath?: string | null;
 };
+
+export function resolveRecommendationUrl(
+  rawUrl: string | null | undefined,
+  siteOrigin?: string,
+): string | null {
+  if (!rawUrl) return null;
+  if (!rawUrl.startsWith("/")) return rawUrl;
+  const origin = siteOrigin?.trim().replace(/\/+$/, "");
+  return origin ? `${origin}${rawUrl}` : null;
+}
 
 // ---------------------------------------------------------------------------
 // Platform targeting — maps rec types to observed platform behavior
@@ -253,6 +262,9 @@ export function computeRecommendations(opts: {
    *  by the page-job-fit router to widen tenant scope beyond current site
    *  vocabulary. Optional and non-blocking — empty/undefined → no-op. */
   tenantServices?: string[];
+  /** Explicit tenant origin for relative changelog targets. Omit → keep the
+   * path but withhold an absolute URL; never borrow process-global identity. */
+  siteOrigin?: string;
   /** Phase 3-post: business-config.stripWords (or equivalent). Tokens merged
    *  into the tenant-generic set so common industry words don't anchor fits. */
   additionalGenerics?: string[];
@@ -361,9 +373,10 @@ export function computeRecommendations(opts: {
     const gapStr = gaps.join(", ");
 
     const strengthenUrl = row.change.url;
-    const strengthenFullUrl = strengthenUrl
-      ? (strengthenUrl.startsWith("/") ? absoluteUrlForPath(strengthenUrl) : strengthenUrl)
-      : null;
+    const strengthenFullUrl = resolveRecommendationUrl(
+      strengthenUrl,
+      opts.siteOrigin,
+    );
     recs.push({
       id: `rec-strengthen-${row.change.id}`,
       type: "strengthen",
@@ -395,14 +408,13 @@ export function computeRecommendations(opts: {
     // Skip investigate recs for pages with no meaningful citation evidence
     const rawUrl = row.change.url;
     if (rawUrl && opts.citationCountMap) {
-      const normUrl = (rawUrl.startsWith("/") ? absoluteUrlForPath(rawUrl) : rawUrl)
-        .replace(/\/+$/, "").toLowerCase();
+      const resolvedUrl = resolveRecommendationUrl(rawUrl, opts.siteOrigin);
+      if (!resolvedUrl) continue;
+      const normUrl = resolvedUrl.replace(/\/+$/, "").toLowerCase();
       const pageCitations = opts.citationCountMap.get(normUrl) ?? 0;
       if (pageCitations < 5) continue; // Not enough signal to investigate
     }
-    const fullUrl = rawUrl
-      ? (rawUrl.startsWith("/") ? absoluteUrlForPath(rawUrl) : rawUrl)
-      : null;
+    const fullUrl = resolveRecommendationUrl(rawUrl, opts.siteOrigin);
     recs.push({
       id: `rec-investigate-${row.change.id}`,
       type: "investigate",
