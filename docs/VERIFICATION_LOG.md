@@ -35478,6 +35478,24 @@ exit 0. The first full-suite attempt correctly failed only because the new archi
 not yet registered in the required catalog; the catalog entry was added and the entire gate was
 rerun from zero. Deployment remains pending and is not claimed.
 
+Deployment receipt: `origin/main` fast-forwarded to
+`ac2f8d604f13fe34bc142a81756123ec53f3dea4`; Vercel deployment
+`dpl_6JyFwK8ui1v7ek1LBUWGDVb9NKbT` reached Ready and production `/api/version` returned the exact
+SHA.
+
+## 2026-07-12 - Today compulsory-gate parallelization release candidate
+
+Today's warm snapshot was still unreachable until the demo/first-reading gate completed, and that
+gate serialized import/activity detection, connector detection, and tenant resolution before its
+already-parallel narrow observation/prompt reads. The three independent first-wave reads now start
+in one `Promise.all`; demo and first-reading decisions, fail-soft handling, data sources, and outer
+eight-second deadline remain unchanged. This removes additive latency without adding a refresh,
+write, paid call, or inferred state on GET.
+
+Verification: focused Today gate/window/streaming suites 29/29; strict typecheck exit 0; full suite
+1,495 files passed, 23,111 tests passed, 62 skipped, 0 failed; production build exit 0. Deployment
+remains pending and is not claimed.
+
 ## 2026-07-11 - E-39 D4 wiring complete (32696319, review P2)
 
 2026-07-11 E-39 D4 wiring complete (32696319, review P2): honest engineering call, option B.

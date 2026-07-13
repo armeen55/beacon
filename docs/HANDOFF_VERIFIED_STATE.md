@@ -2,7 +2,9 @@
 
 > 🟢 **Current verified state (2026-07-12, tip = this docs commit; the exact pushed SHA is what
 > /api/version must report before this wave is called deployed).** Production is verified through
-> the Today parallel-context release at 1a02d8a4. This tip closes a reachable legacy-import
+> the Profound tenant-boundary release at ac2f8d60. This tip removes another avoidable Today
+> first-paint waterfall: import/activity state, connected-source state, and request tenant now
+> resolve concurrently inside the compulsory demo/first-reading gate. This tip also closes a reachable legacy-import
 > cross-tenant defect: the Settings server action now resolves the authenticated request tenant,
 > the importer accepts that tenant explicitly, owned identity comes from that tenant's business
 > config, and founder-specific competitor/brand defaults are gone. Because the legacy CSV path uses
@@ -35,7 +37,7 @@
 > exactly as deployed, every stored won or lost verdict still reads as uncalibrated through
 > src/domains/proof-gsc/verdict-calibration.ts, CALIBRATED_VERDICT_VERSIONS is still empty, and no
 > verdict was persisted. The full gate is GREEN at this tip: strict typecheck, 1,495 test files
-> with 23,110 passed / 62 skipped / 0 failed, and the production build.
+> with 23,111 passed / 62 skipped / 0 failed, and the production build.
 
 ## Current limitations
 
@@ -63,7 +65,7 @@
 
 ## Next 3 actions
 
-1. **Deploy and verify the Profound tenant-boundary SHA** through `/api/version`, then measure
+1. **Deploy and verify the Today gate-parallelization SHA** through `/api/version`, then measure
    authenticated Today and Results first useful paint when a hosted session is available.
 2. **Run 5 fresh preregistered blind cases** through the authenticated deployed UI. A case that causes a code
    change is spent and must be replaced with another unseen case.

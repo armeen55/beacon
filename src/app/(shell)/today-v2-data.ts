@@ -1175,8 +1175,15 @@ export async function loadTodayV2GateData(): Promise<TodayV2GateData> {
   // import or first reading. Mirrors the shell's hasRealConnector gate
   // (layout.tsx) so the two never disagree. (2026-06-15 fix: GSC-connected
   // tenants were wrongly shown "Connect your data sources".)
-  const isDemoMode =
-    !(await hasActiveExperiment()) && !(await hasAnyConnectedDataSource());
+  // These three reads are independent. This gate blocks Today's first useful
+  // paint, so serializing them made a slow connector lookup wait behind the
+  // import check before the narrow tenant data reads could even start.
+  const [activeExperiment, connectedDataSource, tenantId] = await Promise.all([
+    hasActiveExperiment(),
+    hasAnyConnectedDataSource(),
+    currentTenantId(),
+  ]);
+  const isDemoMode = !activeExperiment && !connectedDataSource;
   // Phase 1 (2026-05-12): the gate used to call `loadCachedFreshCanonical`
   // (60d obs pull) just to inspect observationCount > 0 and active prompt
   // count. Now we read a narrow 7d obs window + tracked_prompts directly
@@ -1189,7 +1196,6 @@ export async function loadTodayV2GateData(): Promise<TodayV2GateData> {
   let observationCount = 0;
   let activePromptCount = 0;
   try {
-    const tenantId = await currentTenantId();
     const repo = getRepository().forTenant(tenantId);
     const since = new Date(Date.now() - 7 * 86_400_000).toISOString();
     const [recentObs, prompts] = await Promise.all([

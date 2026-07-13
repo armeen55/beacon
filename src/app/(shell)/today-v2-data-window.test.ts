@@ -77,6 +77,17 @@ describe("Phase 1 loader window contracts", () => {
     expect(fn).toMatch(/7\s*\*\s*86_400_000/);
   });
 
+  it("starts the gate's independent import, connector, and tenant reads together", () => {
+    const fn = SOURCE.split("export async function loadTodayV2GateData")[1] ?? "";
+    const gateHead = fn.split("const repo =")[0] ?? fn;
+    expect(gateHead).toMatch(/Promise\.all\(\s*\[/);
+    expect(gateHead).toMatch(/hasActiveExperiment\(\)/);
+    expect(gateHead).toMatch(/hasAnyConnectedDataSource\(\)/);
+    expect(gateHead).toMatch(/currentTenantId\(\)/);
+    expect(gateHead).not.toMatch(/await\s+hasActiveExperiment\(\)/);
+    expect(gateHead).not.toMatch(/await\s+hasAnyConnectedDataSource\(\)/);
+  });
+
   it("`loadTodayV2VisibilityData` calls the snapshot read-model loader (Phase 2B swap)", () => {
     // After Phase 2B the visibility loader sources every chart series,
     // leaderboard slice, by-platform series, and competitor series from
