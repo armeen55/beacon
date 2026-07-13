@@ -7,7 +7,7 @@
 
 ---
 
-## 2026-07-13 - Research-to-draft orchestration connected (a2c60e85; deployment pending)
+## 2026-07-13 - Research-to-draft orchestration connected (a2c60e85, 004e2694)
 
 The `/changes` one-click plan builder now executes the existing dream-state components in the
 order its UI already promised: competitor winner teardown, keyword/SERP enrichment, top-move
@@ -20,8 +20,9 @@ described as fresh research.
 Verification in the clean `codex-high-impact-integration` worktree: strict typecheck exit 0; focused
 orchestration suite 14/14; full Vitest gate 1,503 files, 23,130 passed, 62 skipped, 0 failed; Next.js
 production build exit 0. No paid research run, Wix write, publish, or tenant data mutation was used
-to prove the orchestration contract. Push, Vercel deployment, and hosted SHA verification remain
-pending at this entry.
+to prove the orchestration contract. `origin/main` reached `004e2694`; production `/api/version`
+returned that exact SHA and deployment `dpl_AkWz6reNCUREHgnrtWjv737Ajhe6`; `/login` returned 200 and
+`/changes` returned the expected 307 auth redirect to `/login?next=%2Fchanges`.
 
 ## 2026-07-11 - Lane P3: C4 classifier + frozen-artifact validation harness executed (uncommitted, operator gate pending)
 

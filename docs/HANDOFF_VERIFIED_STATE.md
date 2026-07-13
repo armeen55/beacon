@@ -2,13 +2,12 @@
 
 > 🟢 **Current verified state (2026-07-13, tip = this docs commit; the exact pushed SHA is what
 > /api/version must report before this docs-only reconciliation is called deployed).** Product code
-> is SHA-verified in production through `96a475b0` (Vercel
-> `dpl_86HMDuEocVmHqUugtqaFxfobsQni`). The visible root checkout, `origin/main`, and the verified
-> integration branch are reconciled at that code tip. The gated local tip also connects the existing
+> is SHA-verified in production through `004e2694` (Vercel
+> `dpl_AkWz6reNCUREHgnrtWjv737Ajhe6`). The visible root checkout, `origin/main`, and the verified
+> integration branch are reconciled at that code tip. This tip also connects the existing
 > one-click plan builder in its intended order: competitor winner teardown, keyword/SERP enrichment,
 > move preparation, then competitor-grounded draft regeneration. It reports analyzed pages separately
-> from pages freshly fetched, and remains fail-soft when external research is unavailable. Deployment
-> of that orchestration tip is pending. The scan boundary is tenant-explicit: crawl target, child-process domain,
+> from pages freshly fetched, and remains fail-soft when external research is unavailable. The scan boundary is tenant-explicit: crawl target, child-process domain,
 > robots lookup, homepage identity, and finding generation share the current tenant's validated
 > business domain and cannot inherit another request's process-wide site identity. This tip also
 > makes post-import milestone ownership tenant-explicit and parallelizes its independent evidence

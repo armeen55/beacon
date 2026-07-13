@@ -61,7 +61,7 @@ chronology of what already landed lives in VERIFICATION_LOG.md; this list is onl
 18. **Tenant-explicit post-import milestones.** DEPLOYED AND SHA-VERIFIED at 96a475b0.
    Owned citation attribution and competitor classification use one current-tenant business config,
    while independent import evidence reads run concurrently.
-19. **Connect the existing research-to-draft loop.** GATED LOCALLY, DEPLOYMENT PENDING.
+19. **Connect the existing research-to-draft loop.** DEPLOYED AND SHA-VERIFIED at 004e2694.
    The one-click plan action now runs competitor winner teardown before keyword/SERP enrichment,
    move preparation, and competitor-grounded draft regeneration. Cached analyses and fresh fetches
    are reported separately; failure of external research does not block the rest of the plan.
