@@ -4,6 +4,11 @@ import {
   type PageInventoryEntry,
 } from "@/domains/recommendations/page-inventory";
 
+const BUILDER_FIXTURE_SYNONYMS = {
+  renovation: "remodel",
+  builders: "builder",
+} as const;
+
 /**
  * Phase 2.7 (2026-04-24) — service-specific page preference.
  *
@@ -86,6 +91,7 @@ describe("Phase 2.7 — service-specific page preference", () => {
       kind: "topic",
       inventory: RITZ_INVENTORY,
       topN: 5,
+      synonyms: BUILDER_FIXTURE_SYNONYMS,
     });
     expect(matches.length).toBeGreaterThan(0);
     expect(matches[0].url).toBe(DESIGN_BUILD.url);
@@ -145,6 +151,7 @@ describe("Phase 2.7 — service-specific page preference", () => {
       kind: "topic",
       inventory: RITZ_INVENTORY,
       topN: 5,
+      synonyms: BUILDER_FIXTURE_SYNONYMS,
     });
     expect(matches.length).toBeGreaterThan(0);
     expect(matches[0].url).toBe(WHOLE_HOME_REMODEL.url);

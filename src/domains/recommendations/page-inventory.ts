@@ -137,43 +137,22 @@ export function buildPageInventory(args: {
 /** Tokenize a cluster label or prompt text into lowercase word tokens,
  *  dropping short filler words. Matching uses overlap against a similarly
  *  tokenized searchable text per page. */
-/**
- * Synonym map for known customer-domain vocabulary variations.
- * Applied AFTER stopword filtering, BEFORE overlap matching.
- *
- * Conservative set — only unambiguous equivalences where the two forms
- * refer to the same intent in the construction/home-builder domain.
- * Extending this map is how we widen deterministic matching without
- * reaching for an LLM.
- *
- * Each key token is normalized to the value token. Non-listed tokens
- * pass through unchanged.
- */
-const SYNONYM_MAP: Readonly<Record<string, string>> = {
-  // renovation ↔ remodel
-  renovation: "remodel",
-  renovations: "remodel",
-  renovating: "remodel",
-  remodeling: "remodel",
-  remodels: "remodel",
-  // "build on my lot" ↔ "build on your lot"
-  your: "my",
-  // architect-provided ↔ architectural
-  architectural: "architect",
-  architects: "architect",
-  // construction ↔ builder (one-way: construction → builder, since "builder"
-  // is the more common customer-facing token in this domain)
-  construction: "builder",
-  constructions: "builder",
-  builders: "builder",
-  // common plural/singular normalizations
+/** Universal morphology only. Domain-specific equivalences such as
+ * `construction -> builder` are not universally true and must not influence
+ * every tenant's edit-vs-new decision. */
+const UNIVERSAL_TOKEN_NORMALIZATION: Readonly<Record<string, string>> = {
   homes: "home",
   services: "service",
   locations: "location",
   projects: "project",
 };
 
-export function tokenizeForMatch(input: string): string[] {
+export type InventoryMatchSynonyms = Readonly<Record<string, string>>;
+
+export function tokenizeForMatch(
+  input: string,
+  synonyms: InventoryMatchSynonyms = {},
+): string[] {
   const stopwords = new Set<string>([
     "the", "a", "an", "of", "in", "on", "at", "to", "for", "with", "and", "or",
     "but", "is", "are", "was", "were", "be", "been", "being", "as", "by",
@@ -187,7 +166,7 @@ export function tokenizeForMatch(input: string): string[] {
   const raw = cleaned.split(/[^a-z0-9]+/g).filter(Boolean);
   return raw
     .filter((t) => t.length >= 3 && !stopwords.has(t))
-    .map((t) => SYNONYM_MAP[t] ?? t);
+    .map((t) => synonyms[t] ?? UNIVERSAL_TOKEN_NORMALIZATION[t] ?? t);
 }
 
 export function matchClusterToInventory(args: {
@@ -196,11 +175,13 @@ export function matchClusterToInventory(args: {
   inventory: ReadonlyArray<PageInventoryEntry>;
   /** Return at most N matches. Defaults to 5. */
   topN?: number;
+  /** Optional tenant-curated vocabulary. Empty is the safe neutral default. */
+  synonyms?: InventoryMatchSynonyms;
 }): InventoryMatch[] {
   const topN = args.topN ?? 5;
   if (args.inventory.length === 0) return [];
 
-  const clusterTokens = tokenizeForMatch(args.label);
+  const clusterTokens = tokenizeForMatch(args.label, args.synonyms);
   if (clusterTokens.length === 0) return [];
 
   const clusterTokenSet = new Set(clusterTokens);
@@ -208,7 +189,7 @@ export function matchClusterToInventory(args: {
 
   const matches: InventoryMatch[] = [];
   for (const entry of args.inventory) {
-    const searchable = buildSearchableTokens(entry);
+    const searchable = buildSearchableTokens(entry, args.synonyms);
     const reasons: string[] = [];
 
     let overlap = 0;
@@ -254,14 +235,14 @@ export function matchClusterToInventory(args: {
 
     // Boost: cluster label token matches detected geo/service.
     if (entry.detectedGeo) {
-      const geoTokens = tokenizeForMatch(entry.detectedGeo);
+      const geoTokens = tokenizeForMatch(entry.detectedGeo, args.synonyms);
       if (geoTokens.some((t) => clusterTokenSet.has(t))) {
         score += 0.10;
         reasons.push(`detected geo "${entry.detectedGeo}" matches label`);
       }
     }
     if (entry.detectedService) {
-      const svcTokens = tokenizeForMatch(entry.detectedService);
+      const svcTokens = tokenizeForMatch(entry.detectedService, args.synonyms);
       if (svcTokens.some((t) => clusterTokenSet.has(t))) {
         score += 0.10;
         reasons.push(`detected service "${entry.detectedService}" matches label`);
@@ -273,7 +254,7 @@ export function matchClusterToInventory(args: {
     // more specific match than a page whose slug has many unrelated tokens.
     // This is what stops the homepage from beating /locations/palo-alto for
     // a "Palo Alto" cluster.
-    const urlPathTokens = urlPathTokenSet(entry.url);
+    const urlPathTokens = urlPathTokenSet(entry.url, args.synonyms);
     const unmatchedSlugTokens = [...urlPathTokens].filter(
       (t) => !clusterTokenSet.has(t),
     );
@@ -311,7 +292,7 @@ export function matchClusterToInventory(args: {
     // explicitly lists multiple distinct parts (separated by " and ", " & ",
     // " + ", " / ", or comma) covers the cluster AND more. Flag for
     // needs_review / split_or_separate_page rather than auto-strengthen.
-    const isBundled = detectBundledCoverage(entry, clusterTokenSet);
+    const isBundled = detectBundledCoverage(entry, clusterTokenSet, args.synonyms);
     if (isBundled) {
       reasons.push("page title covers cluster + additional parts (bundled)");
     }
@@ -333,7 +314,7 @@ export function matchClusterToInventory(args: {
     // and urlPathOverlap so clusters like "Best Design-Build Firm for
     // Custom Homes (Bay Area)" pick `/services/design-build` over a
     // broad `/custom-home-builder-bay-area` hub.
-    const svcSlug = serviceSlugTokens(entry);
+    const svcSlug = serviceSlugTokens(entry, args.synonyms);
     const isExplicitServiceMatch =
       svcSlug.size > 0 &&
       [...svcSlug].every((t) => clusterTokenSet.has(t));
@@ -412,7 +393,10 @@ export function matchClusterToInventory(args: {
  * routeTypes, so hub pages are never treated as explicit-service
  * matches even if their URL slug happens to tokenize into the cluster.
  */
-function serviceSlugTokens(entry: PageInventoryEntry): Set<string> {
+function serviceSlugTokens(
+  entry: PageInventoryEntry,
+  synonyms: InventoryMatchSynonyms = {},
+): Set<string> {
   if (entry.routeType !== "service") return new Set();
   try {
     const pathname = new URL(entry.url).pathname;
@@ -420,7 +404,7 @@ function serviceSlugTokens(entry: PageInventoryEntry): Set<string> {
       .replace(/^\/services\//, "")
       .replace(/^\/+|\/+$/g, "");
     if (!slug) return new Set();
-    return new Set(tokenizeForMatch(slug));
+    return new Set(tokenizeForMatch(slug, synonyms));
   } catch {
     return new Set();
   }
@@ -432,11 +416,17 @@ function serviceSlugTokens(entry: PageInventoryEntry): Set<string> {
  * cluster label is more likely the intended target than a page whose
  * slug has many extra unrelated tokens.
  */
-function urlPathTokenSet(url: string): Set<string> {
+function urlPathTokenSet(
+  url: string,
+  synonyms: InventoryMatchSynonyms = {},
+): Set<string> {
   try {
     const pathname = new URL(url).pathname;
     const set = new Set<string>();
-    for (const t of tokenizeForMatch(pathname.replace(/[/_-]+/g, " "))) {
+    for (const t of tokenizeForMatch(
+      pathname.replace(/[/_-]+/g, " "),
+      synonyms,
+    )) {
       set.add(t);
     }
     return set;
@@ -460,6 +450,7 @@ function urlPathTokenSet(url: string): Set<string> {
 function detectBundledCoverage(
   entry: PageInventoryEntry,
   clusterTokenSet: ReadonlySet<string>,
+  synonyms: InventoryMatchSynonyms = {},
 ): boolean {
   const texts = [entry.h1, entry.title].filter(
     (t): t is string => typeof t === "string" && t.length > 0,
@@ -476,7 +467,9 @@ function detectBundledCoverage(
     if (!text) continue;
     const parts = text.split(connectorPattern);
     if (parts.length < 2) continue;
-    const significant = parts.filter((p) => tokenizeForMatch(p).length >= 2);
+    const significant = parts.filter(
+      (p) => tokenizeForMatch(p, synonyms).length >= 2,
+    );
     if (significant.length < 2) continue;
     // Phase 2.6 (2026-04-24): require at least one side to carry ≥4
     // substantive tokens. Short two-sided titles like
@@ -488,20 +481,23 @@ function detectBundledCoverage(
     // Los Altos & Los Altos Hills | Design Build Firm" = 6 + 6, or
     // "Palo Alto and Menlo Park remodeling services" = 2 + 4).
     const maxSubstantive = Math.max(
-      ...significant.map((p) => tokenizeForMatch(p).length),
+      ...significant.map((p) => tokenizeForMatch(p, synonyms).length),
     );
     if (maxSubstantive < 4) continue;
     // At least one side must overlap the cluster label — otherwise it's
     // a bundled page unrelated to this cluster.
     const anyOverlaps = significant.some((p) =>
-      tokenizeForMatch(p).some((t) => clusterTokenSet.has(t)),
+      tokenizeForMatch(p, synonyms).some((t) => clusterTokenSet.has(t)),
     );
     if (anyOverlaps) return true;
   }
   return false;
 }
 
-function buildSearchableTokens(entry: PageInventoryEntry): Set<string> {
+function buildSearchableTokens(
+  entry: PageInventoryEntry,
+  synonyms: InventoryMatchSynonyms = {},
+): Set<string> {
   const parts: string[] = [];
   try {
     const url = new URL(entry.url);
@@ -518,7 +514,7 @@ function buildSearchableTokens(entry: PageInventoryEntry): Set<string> {
 
   const set = new Set<string>();
   for (const p of parts) {
-    for (const t of tokenizeForMatch(p)) set.add(t);
+    for (const t of tokenizeForMatch(p, synonyms)) set.add(t);
   }
   return set;
 }

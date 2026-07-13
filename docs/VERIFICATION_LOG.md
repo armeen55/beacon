@@ -35496,6 +35496,25 @@ Verification: focused Today gate/window/streaming suites 29/29; strict typecheck
 1,495 files passed, 23,111 tests passed, 62 skipped, 0 failed; production build exit 0. Deployment
 remains pending and is not claimed.
 
+Deployment receipt: `origin/main` fast-forwarded to
+`a0722e1ff5453f8c5a53e2c060432ae41bed3aab`; Vercel deployment
+`dpl_HDRyUfviHxPJWLmLdKjmLoNxGcuV` reached Ready and production `/api/version` returned the exact
+SHA.
+
+## 2026-07-12 - Tenant-neutral inventory matcher release candidate
+
+Confirmed that the live recommendation queue's inventory matcher applied one construction-builder
+synonym table to every tenant before deciding whether to create a page or strengthen/expand an
+existing page. The default tokenizer now performs only universal plural normalization. Vertical
+equivalences such as construction→builder, renovation→remodel, architectural→architect, and
+your→my are absent unless a caller explicitly supplies a curated map. The active queue supplies
+none, so a content tenant cannot have an editorial construction topic redirected to a builder page.
+Builder fixtures retain their historical expectations only by passing fixture-local synonyms.
+
+Verification: page-inventory decision suites 44/44; strict typecheck exit 0; full suite 1,495 files
+passed, 23,112 tests passed, 62 skipped, 0 failed; production build exit 0. Deployment remains
+pending and is not claimed.
+
 ## 2026-07-11 - E-39 D4 wiring complete (32696319, review P2)
 
 2026-07-11 E-39 D4 wiring complete (32696319, review P2): honest engineering call, option B.

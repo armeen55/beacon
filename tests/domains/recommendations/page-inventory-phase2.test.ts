@@ -5,6 +5,13 @@ import {
   type PageInventoryEntry,
 } from "@/domains/recommendations/page-inventory";
 
+const BUILDER_FIXTURE_SYNONYMS = {
+  renovation: "remodel",
+  renovations: "remodel",
+  your: "my",
+  architectural: "architect",
+} as const;
+
 /**
  * Phase 2 (2026-04-24) — resolver correctness contract.
  *
@@ -144,6 +151,7 @@ describe("Phase 2 — homepage penalty", () => {
       label: "Luxury Home Builder Bay Area",
       kind: "topic",
       inventory: RITZ_INVENTORY,
+      synonyms: BUILDER_FIXTURE_SYNONYMS,
     });
     expect(matches[0].url).toBe(LUXURY_HUB.url);
     const homepageMatch = matches.find((m) => m.url === HOMEPAGE.url);
@@ -157,6 +165,7 @@ describe("Phase 2 — homepage penalty", () => {
       label: "Custom Home Builder Bay Area",
       kind: "topic",
       inventory: RITZ_INVENTORY,
+      synonyms: BUILDER_FIXTURE_SYNONYMS,
     });
     expect(matches[0].url).toBe(CUSTOM_HUB.url);
   });
@@ -210,6 +219,7 @@ describe("Phase 2 — synonym matching", () => {
       label: "Whole Home Renovation Builders",
       kind: "topic",
       inventory: RITZ_INVENTORY,
+      synonyms: BUILDER_FIXTURE_SYNONYMS,
     });
     expect(matches[0]?.url).toBe(WHOLE_HOME_REMODEL.url);
   });
@@ -219,6 +229,7 @@ describe("Phase 2 — synonym matching", () => {
       label: "Build on My Lot",
       kind: "topic",
       inventory: RITZ_INVENTORY,
+      synonyms: BUILDER_FIXTURE_SYNONYMS,
     });
     expect(matches[0]?.url).toBe(BUILD_ON_YOUR_LOT.url);
   });
@@ -228,15 +239,40 @@ describe("Phase 2 — synonym matching", () => {
       label: "Architectural Plans",
       kind: "topic",
       inventory: RITZ_INVENTORY,
+      synonyms: BUILDER_FIXTURE_SYNONYMS,
     });
     expect(matches[0]?.url).toBe(ARCHITECT_PROVIDED.url);
   });
 
   it("tokenizeForMatch normalizes known synonyms", () => {
-    expect(tokenizeForMatch("renovation")).toEqual(["remodel"]);
-    expect(tokenizeForMatch("renovations")).toEqual(["remodel"]);
-    expect(tokenizeForMatch("your")).toEqual(["my"]);
-    expect(tokenizeForMatch("architectural")).toEqual(["architect"]);
+    expect(tokenizeForMatch("renovation", BUILDER_FIXTURE_SYNONYMS)).toEqual(["remodel"]);
+    expect(tokenizeForMatch("renovations", BUILDER_FIXTURE_SYNONYMS)).toEqual(["remodel"]);
+    expect(tokenizeForMatch("your", BUILDER_FIXTURE_SYNONYMS)).toEqual(["my"]);
+    expect(tokenizeForMatch("architectural", BUILDER_FIXTURE_SYNONYMS)).toEqual(["architect"]);
+  });
+
+  it("does not impose builder vocabulary on a tenant with no curated synonyms", () => {
+    expect(tokenizeForMatch("construction history")).toEqual([
+      "construction",
+      "history",
+    ]);
+    expect(tokenizeForMatch("builder history")).toEqual(["builder", "history"]);
+
+    const editorialInventory: PageInventoryEntry[] = [{
+      url: "https://iranopedia.com/builders",
+      title: "Notable Builders",
+      h1: "Notable Builders",
+      metaDescription: null,
+      h2s: [],
+      routeType: "other",
+      detectedGeo: null,
+      detectedService: null,
+    }];
+    expect(matchClusterToInventory({
+      label: "History of Construction",
+      kind: "topic",
+      inventory: editorialInventory,
+    })).toEqual([]);
   });
 });
 
