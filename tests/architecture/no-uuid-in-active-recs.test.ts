@@ -81,14 +81,18 @@ describe("Architecture — no UUID in ship-as-is fields of active recs", () => {
       .map((entry) => join(TENANTS_DIR, entry.name));
   })();
 
-  if (tenantDirs.length === 0) {
-    it("no tenant directories present — skipping queue audit", () => {
-      expect(tenantDirs.length).toBe(0);
+  const queueFiles = tenantDirs.filter((tenantDir) =>
+    existsSync(join(tenantDir, "recommended-edits.json")),
+  );
+
+  if (queueFiles.length === 0) {
+    it("no tenant queues present — skipping queue audit", () => {
+      expect(queueFiles).toEqual([]);
     });
     return;
   }
 
-  for (const tenantDir of tenantDirs) {
+  for (const tenantDir of queueFiles) {
     const editsPath = join(tenantDir, "recommended-edits.json");
     if (!existsSync(editsPath)) continue;
     const tenantSlug = tenantDir.split("/").pop() ?? "(unknown)";
@@ -171,14 +175,18 @@ describe("Diagnostic — legacy UUID leaks in `why` (sanitized at render)", () =
       .map((entry) => join(TENANTS_DIR, entry.name));
   })();
 
-  if (tenantDirs.length === 0) {
-    it("no tenant directories — skipping legacy-why count", () => {
-      expect(tenantDirs.length).toBe(0);
+  const queueFiles = tenantDirs.filter((tenantDir) =>
+    existsSync(join(tenantDir, "recommended-edits.json")),
+  );
+
+  if (queueFiles.length === 0) {
+    it("no tenant queues — skipping legacy-why count", () => {
+      expect(queueFiles).toEqual([]);
     });
     return;
   }
 
-  for (const tenantDir of tenantDirs) {
+  for (const tenantDir of queueFiles) {
     const editsPath = join(tenantDir, "recommended-edits.json");
     if (!existsSync(editsPath)) continue;
     const tenantSlug = tenantDir.split("/").pop() ?? "(unknown)";
@@ -243,9 +251,13 @@ describe("Architecture — LLM-DryRun-2: no NEW LLM-source UUID-in-why row", () 
       .map((entry) => join(TENANTS_DIR, entry.name));
   })();
 
-  if (tenantDirs.length === 0) {
-    it("no tenant directories — skipping LLM-source UUID-in-why audit", () => {
-      expect(tenantDirs.length).toBe(0);
+  const queueFiles = tenantDirs.filter((tenantDir) =>
+    existsSync(join(tenantDir, "recommended-edits.json")),
+  );
+
+  if (queueFiles.length === 0) {
+    it("no tenant queues — skipping LLM-source UUID-in-why audit", () => {
+      expect(queueFiles).toEqual([]);
     });
     return;
   }
@@ -260,7 +272,7 @@ describe("Architecture — LLM-DryRun-2: no NEW LLM-source UUID-in-why row", () 
   // rejects them at validation time.
   const PRE_CUTOVER_LLM_UUID_IN_WHY_CEILING = 9;
 
-  for (const tenantDir of tenantDirs) {
+  for (const tenantDir of queueFiles) {
     const editsPath = join(tenantDir, "recommended-edits.json");
     if (!existsSync(editsPath)) continue;
     const tenantSlug = tenantDir.split("/").pop() ?? "(unknown)";

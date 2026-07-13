@@ -1,9 +1,12 @@
 # Beacon Verified State
 
 > 🟢 **Current verified state (2026-07-12, tip = this docs commit; the exact pushed SHA is what
-> /api/version must report before this wave is called deployed).** Exact production SHA is verified
-> through explicit attribution-registry selection at f31ecd14; Vercel reports the Proposed Brief
-> deployment Ready but its `/api/version` read remains pending. This tip makes live recommendation
+> /api/version must report before this wave is called deployed).** Production is SHA-verified through
+> tenant-explicit recommendation targets at `83fa59b5` (Vercel
+> `dpl_DhUmhaZqqD6RDfcMJUnVVyXDpJ8T`), which also proves the Proposed Brief commit in its ancestry.
+> This tip makes the website scan boundary tenant-explicit: crawl target, child-process domain,
+> robots lookup, homepage identity, and finding generation share the current tenant's validated
+> business domain and cannot inherit another request's process-wide site identity. This tip makes live recommendation
 > targets tenant-explicit: relative strengthen/investigate URLs resolve only from the current
 > tenant origin and otherwise withhold the absolute target instead of borrowing process-global
 > identity. This tip also fixes Proposed Briefs for non-local
@@ -88,7 +91,7 @@
 
 ## Next 3 actions
 
-1. **Deploy and verify the recommendation-URL SHA** through `/api/version`, then continue site
+1. **Deploy and verify the tenant-explicit scan SHA** through `/api/version`, then continue site
    identity through active scan/customer paths; measure
    authenticated Today and Results first useful paint when a hosted session is available.
 2. **Run 5 fresh preregistered blind cases** through the authenticated deployed UI. A case that causes a code

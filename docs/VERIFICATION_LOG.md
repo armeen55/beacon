@@ -35630,6 +35630,31 @@ Verification: focused recommendation URL/engine suites 18/18; strict typecheck e
 1,501 files passed, 23,123 tests passed, 62 skipped, 0 failed; production build exit 0. Deployment
 remains pending and is not claimed.
 
+Deployment receipt: `origin/main` fast-forwarded to
+`83fa59b5e344954f0be478f2b7a344afe7b28232`; Vercel deployment
+`dpl_DhUmhaZqqD6RDfcMJUnVVyXDpJ8T` reached Ready and production `/api/version` returned the exact
+SHA. This also verifies the Proposed Brief commit in the deployed tip's ancestry.
+
+## 2026-07-12 - Tenant-explicit website scan release candidate
+
+The active scan orchestrator previously logged and regenerated findings with process-global site
+configuration, while its CLI child inherited `BEACON_SITE_DOMAIN` unless that value happened to be
+empty. In a shared process, tenant B could therefore crawl tenant A and persist the resulting
+snapshots/findings under B. The orchestrator now resolves the current tenant's hydrated business
+config once, validates its domain, always overwrites the child domain, and threads the same explicit
+tenant/domain pair through robots, homepage identity, and finding generation. Invalid or missing
+identity fails before scan state or evidence is written. A→B→A and source-wiring regressions pin the
+boundary.
+
+The full gate also exposed two pre-existing clean-worktree harness defects: data-dependent dogfood
+suites claimed to skip when recommendation fixtures were absent but instead registered no tests or
+required a non-empty local queue. They now skip only the fixture-dependent assertion when the fixture
+is genuinely absent; all substantive assertions remain unchanged whenever dogfood data exists.
+
+Verification: focused scan/harness suites 36/36 across six files; strict typecheck exit 0; full suite
+1,502 files passed, 23,126 tests passed, 62 skipped, 0 failed; production build exit 0. Deployment
+remains pending and is not claimed.
+
 ## 2026-07-11 - E-39 D4 wiring complete (32696319, review P2)
 
 2026-07-11 E-39 D4 wiring complete (32696319, review P2): honest engineering call, option B.

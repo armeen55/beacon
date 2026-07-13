@@ -50,16 +50,14 @@ chronology of what already landed lives in VERIFICATION_LOG.md; this list is onl
 14. **Explicit attribution registry selection.** DEPLOYED AND SHA-VERIFIED at f31ecd14. The shared
    last-warmed pointer is removed; registries and citation-topic
    indexes are keyed and selected by explicit tenant ID, and the architecture allowlist is empty.
-15. **Tenant-aware Proposed Brief archetypes.** PUSHED at 14ab4258; full gate green and Vercel
-   deployment `dpl_Er1u1y9j6TQEw7ZrZUHoS7LwboVn` Ready, exact `/api/version` match pending. City
+15. **Tenant-aware Proposed Brief archetypes.** DEPLOYED BY ANCESTRY AND SHA-VERIFIED at 83fa59b5. City
    presence alone cannot produce LocalBusiness/NAP/service-area plans; only explicit
    `local_service` tenants receive coverage expansion.
-16. **Tenant-explicit recommendation URLs.** CODE COMPLETE, FOCUSED GATE GREEN, FULL GATE/DEPLOY
-   PENDING. Relative strengthen/investigate targets resolve from explicit tenant origin or withhold
+16. **Tenant-explicit recommendation URLs.** DEPLOYED AND SHA-VERIFIED at 83fa59b5. Relative strengthen/investigate targets resolve from explicit tenant origin or withhold
    the absolute URL; the active engine no longer imports process-global site config.
-17. **Deployed-SHA verification.** Confirm the pushed tip actually reached Vercel production by
-   reading /api/version on production and matching its answer to this tip, alongside the
-   operator's 90-second Vercel cron check.
+17. **Tenant-explicit website scan.** CODE COMPLETE; full gate green; deploy pending. Resolve the
+   current tenant's business domain once and thread it through crawl, robots, homepage identity,
+   and findings. Never inherit `BEACON_SITE_DOMAIN` from process state.
 18. **Fresh blind unseen-topic benchmark.** Run 5 preregistered cases not used to build these
    corrections. A case that changes code is spent and must be replaced.
 19. **Scheduled-refresh receipt.** The first cron run after this deploy must leave a started

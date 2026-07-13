@@ -6,7 +6,7 @@ import { promisify } from "node:util";
 import { log } from "@/lib/logger";
 import { currentTenantId, currentTenantSlug } from "@/lib/tenant-context";
 import { getChangelogEntries } from "@/lib/seed-data.server";
-import { getSiteConfig } from "@/lib/site-config";
+import { getBusinessConfigForCurrentTenant } from "@/lib/business-config";
 import { isLifecycleEnabled } from "@/lib/flags";
 import { readDotDataJson } from "@/lib/persistence/dotdata-json";
 import type { CitationEvidenceIndex } from "@/domains/pages/types";
@@ -27,7 +27,10 @@ import {
 } from "@/lib/persistence/dual-write";
 import type { PageElementInventoryRow } from "@/domains/pages/extractors/persist";
 import type { LastScanResultPayload } from "./last-scan-result";
-import { readLastScanResult, writeLastScanResultFile } from "./last-scan-result";
+import {
+  readLastScanResult,
+  writeLastScanResultFile,
+} from "./last-scan-result";
 import type { ScanTrigger } from "./scan-state";
 import {
   readScanState,
@@ -37,7 +40,6 @@ import {
   writeIdleScanStateFromLastResult,
   writeRunningScanState,
 } from "./scan-state";
-import { resolveBeaconSiteDomainForScan } from "./scan-site-domain";
 import { getPageSnapshots } from "@/domains/pages/snapshot-store";
 import { getGuardrailAlerts } from "@/domains/pages/guardrail-store";
 
@@ -45,6 +47,24 @@ const execAsync = promisify(exec);
 
 const SCAN_CLI_CMD =
   "npx tsx --require ./scripts/mock-server-only.cjs --require ./scripts/apply-scan-site-domain.cjs scripts/scan-owned-pages.ts";
+
+/** Convert a tenant business-domain value into the only host the crawler may use. */
+export function normalizeTenantScanDomain(value: string): string | null {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  try {
+    const url = new URL(
+      /^[a-z][a-z\d+.-]*:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`,
+    );
+    if (url.protocol !== "http:" && url.protocol !== "https:") return null;
+    if (url.username || url.password || url.port) return null;
+    if (url.pathname !== "/" || url.search || url.hash) return null;
+    const hostname = url.hostname.toLowerCase().replace(/^www\./, "");
+    return hostname.includes(".") && !hostname.endsWith(".") ? hostname : null;
+  } catch {
+    return null;
+  }
+}
 
 export type WebsiteScanResult = {
   ok: boolean;
@@ -62,7 +82,9 @@ export function scanRoutesShouldRevalidate(r: WebsiteScanResult): boolean {
   return true;
 }
 
-function buildCitationLookup(index: CitationEvidenceIndex | null): Map<string, number> {
+function buildCitationLookup(
+  index: CitationEvidenceIndex | null,
+): Map<string, number> {
   const citLookup = new Map<string, number>();
   if (!index) return citLookup;
   for (const rollup of index.by_page_and_topic) {
@@ -81,8 +103,10 @@ export async function regenerateScanFindings(opts: {
   previousSnapshots: PageSnapshot[];
   previousGuardrails: GuardrailAlert[];
   scanRunId: string;
+  tenantId: string;
+  siteDomain: string;
 }): Promise<number> {
-  const tenantId = await currentTenantId();
+  const { tenantId, siteDomain } = opts;
   const freshSnapshots =
     (await readDotDataJson<PageSnapshot[]>("page-snapshots")) ?? [];
   const freshGuardrails =
@@ -92,7 +116,6 @@ export async function regenerateScanFindings(opts: {
     "citation-evidence-index",
   );
   const citLookup = buildCitationLookup(citationIndex);
-  const { siteDomain } = getSiteConfig();
   const homepageUrl = `https://${siteDomain}/`;
   const previouslyRejectedTypes = await getPreviouslyRejectedTypeKeys();
 
@@ -190,6 +213,13 @@ export async function runWebsiteScan(opts: {
   // always writes under the right tenant. Fail-loud (throws) on a genuine
   // misconfiguration — consistent with currentTenantId() above.
   const tenantSlug = await currentTenantSlug();
+  const businessConfig = await getBusinessConfigForCurrentTenant();
+  const siteDomain = normalizeTenantScanDomain(businessConfig.domain);
+  if (!siteDomain) {
+    throw new Error(
+      `Cannot scan tenant ${tenantId}: its business domain is missing or invalid`,
+    );
+  }
 
   // ── Stale-running detection & duplicate guard ──
   const priorState = readScanState();
@@ -206,7 +236,9 @@ export async function runWebsiteScan(opts: {
     }
     const ageMs = runningScanAgeMs(priorState) ?? 0;
     log.warn("Scan marked stale", {
-      runId: priorState.trigger ? `stale-${priorState.trigger}` : "stale-unknown",
+      runId: priorState.trigger
+        ? `stale-${priorState.trigger}`
+        : "stale-unknown",
       ageMs,
       thresholdMs: STALE_SCAN_THRESHOLD_MS,
     });
@@ -214,7 +246,10 @@ export async function runWebsiteScan(opts: {
       `Previous scan stuck in running state for ${Math.round(ageMs / 1000)}s — recovered`,
       priorState.trigger ?? trigger,
     );
-    writeIdleScanStateFromLastResult(priorState.trigger ?? trigger, stalePayload);
+    writeIdleScanStateFromLastResult(
+      priorState.trigger ?? trigger,
+      stalePayload,
+    );
     log.info("Recovered stale scan state", { runId });
   }
 
@@ -224,7 +259,7 @@ export async function runWebsiteScan(opts: {
   log.info("Scan started", {
     runId,
     trigger: scanLogTrigger(trigger),
-    siteDomain: getSiteConfig().siteDomain,
+    siteDomain,
     baselineSnapshots: previousSnapshots.length,
     baselineGuardrails: previousGuardrails.length,
   });
@@ -233,7 +268,6 @@ export async function runWebsiteScan(opts: {
 
   log.info("Scan step", { runId, step: "cli_spawn", cmd: SCAN_CLI_CMD });
 
-  const scanDomain = resolveBeaconSiteDomainForScan();
   // Phase 7.7e (2026-04-25): explicit BEACON_TENANT_ID injection.
   // The spawned CLI (scripts/scan-owned-pages.ts) requires the env var
   // (Phase 7.5d fail-loud). Until now we relied on implicit inheritance
@@ -250,14 +284,12 @@ export async function runWebsiteScan(opts: {
     // current-tenant slug guarantees the child writes under the RIGHT tenant
     // even when the ambient env carries a different (or no) slug.
     BEACON_TENANT_SLUG: tenantSlug,
+    // Isolation boundary: always overwrite the process-wide value. Inheriting
+    // another request's domain can crawl and persist evidence for the wrong site.
+    BEACON_SITE_DOMAIN: siteDomain,
     NODE_NO_WARNINGS: "1",
     NODE_TLS_REJECT_UNAUTHORIZED: "0",
   };
-  if (!execEnv.BEACON_SITE_DOMAIN?.trim() && scanDomain) {
-    execEnv.BEACON_SITE_DOMAIN = scanDomain;
-    log.info("Scan step", { runId, step: "inferred_site_domain", siteDomain: scanDomain });
-  }
-
   // CLI timeout scales with the crawl ceiling (P0 wall 2, 2026-06-10).
   // 120s fit Ritz's ~80 serial fetches but killed encyclopedia-scale
   // tenants mid-crawl. Budget ~1s/page on top of a 120s floor, capped
@@ -340,22 +372,37 @@ export async function runWebsiteScan(opts: {
   let findingsAdded = 0;
   if (merged.exit !== "aborted" && !merged.dryRun) {
     const scanRunId = merged.observationRunId ?? `scan-${Date.now()}`;
-    log.info("Scan step", { runId, step: "regenerate_findings_start", scanRunId });
+    log.info("Scan step", {
+      runId,
+      step: "regenerate_findings_start",
+      scanRunId,
+    });
     findingsAdded = await regenerateScanFindings({
       previousSnapshots,
       previousGuardrails,
       scanRunId,
+      tenantId,
+      siteDomain,
     });
-    log.info("Scan step", { runId, step: "regenerate_findings_done", findingsAdded });
+    log.info("Scan step", {
+      runId,
+      step: "regenerate_findings_done",
+      findingsAdded,
+    });
 
     // Phase 11: enrich findings with signal quality (best-effort)
     try {
-      const { enrichFindingsWithSignalQuality } = await import("./findings-store");
-      const { readDotDataJson: readDotData } = await import("@/lib/persistence/dotdata-json");
-      const { getDailyMetricSnapshots } = await import("@/storage/canonical-store");
+      const { enrichFindingsWithSignalQuality } =
+        await import("./findings-store");
+      const { readDotDataJson: readDotData } =
+        await import("@/lib/persistence/dotdata-json");
+      const { getDailyMetricSnapshots } =
+        await import("@/storage/canonical-store");
       const dms = await getDailyMetricSnapshots();
       await enrichFindingsWithSignalQuality({
-        citationIndex: await readDotData<import("@/domains/pages/types").CitationEvidenceIndex>("citation-evidence-index"),
+        citationIndex: await readDotData<
+          import("@/domains/pages/types").CitationEvidenceIndex
+        >("citation-evidence-index"),
         snapshots: dms,
       });
       log.info("Scan step", { runId, step: "findings_enrichment_done" });
@@ -368,7 +415,8 @@ export async function runWebsiteScan(opts: {
 
     // Phase 12: triage rule learning (best-effort, passive storage only)
     try {
-      const { materializeTriageRules } = await import("@/domains/learning/triage-rules");
+      const { materializeTriageRules } =
+        await import("@/domains/learning/triage-rules");
       const { getFindings: getAllFindings } = await import("./findings-store");
       await materializeTriageRules(await getAllFindings());
       log.info("Scan step", { runId, step: "triage_rules_done" });
@@ -416,9 +464,9 @@ export async function runWebsiteScan(opts: {
     let syncRunsLen = 0;
     try {
       const syncRuns =
-        (await readDotDataJson<import("@/domains/observations/types").ObservationRun[]>(
-          "observation-runs",
-        )) ?? [];
+        (await readDotDataJson<
+          import("@/domains/observations/types").ObservationRun[]
+        >("observation-runs")) ?? [];
       syncRunsLen = syncRuns.length;
       if (syncRuns.length > 0) {
         await syncObservationRuns(syncRuns, tenantId);
@@ -479,9 +527,8 @@ export async function runWebsiteScan(opts: {
       runnerCalled: false,
     };
     try {
-      const { runLifecycleMatchAgainstScan } = await import(
-        "@/domains/recommendations/match-runner"
-      );
+      const { runLifecycleMatchAgainstScan } =
+        await import("@/domains/recommendations/match-runner");
       const lifecycleResult = await runLifecycleMatchAgainstScan({
         tenantId,
       });
