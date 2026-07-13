@@ -14,13 +14,17 @@ import {
   deriveConfidence,
   computeCaveatSeverity,
 } from "./scoring";
+import type { BusinessConfig } from "@/lib/business-config";
+
+type BusinessType = BusinessConfig["businessType"];
 
 export function buildProposedBriefs(
   actions: ActionItem[],
   clusters: ActionCluster[],
   patterns: Pattern[],
   opportunities: Opportunity[],
-  persistedStates: PersistedBriefState[]
+  persistedStates: PersistedBriefState[],
+  businessType?: BusinessType,
 ): ProposedBrief[] {
   const stateIndex = new Map(persistedStates.map((s) => [s.briefId, s]));
   const clusterIndex = new Map(clusters.map((c) => [c.id, c]));
@@ -80,7 +84,12 @@ export function buildProposedBriefs(
     if (seenKeys.has(dedupeKey)) continue;
     seenKeys.add(dedupeKey);
 
-    const brief = buildBriefFromOpportunity(opp, matchingPattern, stateIndex);
+    const brief = buildBriefFromOpportunity(
+      opp,
+      matchingPattern,
+      stateIndex,
+      businessType,
+    );
     if (brief) briefs.push(brief);
   }
 
@@ -190,11 +199,10 @@ function buildBriefFromAction(
 function buildBriefFromOpportunity(
   opp: Opportunity,
   pattern: Pattern | null,
-  stateIndex: Map<string, PersistedBriefState>
+  stateIndex: Map<string, PersistedBriefState>,
+  businessType?: BusinessType,
 ): ProposedBrief | null {
-  const briefType: ProposedBriefType = opp.city
-    ? "coverage_expansion"
-    : "new_page";
+  const briefType = deriveOpportunityBriefType(opp.city, businessType);
 
   const caveats: string[] = [];
   if (opp.notes) {
@@ -299,6 +307,18 @@ function buildBriefFromOpportunity(
     score,
     status: persisted?.status ?? "proposed",
   };
+}
+
+/** A geography field describes the subject of many editorial pages. It only
+ * implies a local-market expansion page when the tenant is explicitly a local
+ * service business. */
+export function deriveOpportunityBriefType(
+  city: string | null,
+  businessType?: BusinessType,
+): ProposedBriefType {
+  return city && businessType === "local_service"
+    ? "coverage_expansion"
+    : "new_page";
 }
 
 function deriveBriefType(

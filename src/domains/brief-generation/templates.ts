@@ -94,7 +94,7 @@ function newPageTemplate(ctx: TemplateContext): TemplateOutput {
     requiredComponents: [
       "Clear primary intent mapping — one page, one job",
       "Unique substantive content (not thin or templated)",
-      "Appropriate schema markup (FAQPage, Service, or LocalBusiness)",
+      "Appropriate schema markup for the page type (for example Article, FAQPage, Service, or LocalBusiness only when applicable)",
       "Internal link integration with existing site hierarchy",
       "Meta tags targeting primary query intent",
     ],

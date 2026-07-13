@@ -35594,6 +35594,24 @@ Verification: focused registry/identity architecture suites 5/5; strict typechec
 1,499 files passed, 23,117 tests passed, 62 skipped, 0 failed; production build exit 0. Deployment
 remains pending and is not claimed.
 
+Deployment receipt: `origin/main` fast-forwarded to
+`f31ecd141cc8c32e0624c810d7895559abdd7634`; Vercel deployment
+`dpl_GyuYSHRba1uWXJf8RG6QLCQabiyB` reached Ready and production `/api/version` returned the exact
+SHA.
+
+## 2026-07-12 - Tenant-aware Proposed Brief archetypes release candidate
+
+The live Proposed Briefs builder treated any opportunity with a `city` value as local coverage
+expansion, producing LocalBusiness schema, NAP, areaServed, project/testimonial proof, and doorway-
+page checks for editorial topics such as Tehran. The active page now resolves the current tenant's
+business type and threads it through compute/build. Coverage expansion requires explicit
+`local_service`; content publisher, SaaS, other, and unknown types receive `new_page`. The neutral
+new-page template describes page-appropriate schema and names LocalBusiness only when applicable.
+
+Verification: tenant-aware brief-archetype suite 4/4; strict typecheck exit 0; full suite 1,500 files
+passed, 23,121 tests passed, 62 skipped, 0 failed; production build exit 0. Deployment remains
+pending and is not claimed.
+
 ## 2026-07-11 - E-39 D4 wiring complete (32696319, review P2)
 
 2026-07-11 E-39 D4 wiring complete (32696319, review P2): honest engineering call, option B.

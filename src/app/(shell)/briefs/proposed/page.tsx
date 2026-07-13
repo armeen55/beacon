@@ -1,4 +1,6 @@
 import Link from "next/link";
+import { currentTenantId } from "@/lib/tenant-context";
+import { getBusinessConfig } from "@/lib/business-config";
 import {
   getResults,
   getChangelogEntries,
@@ -53,6 +55,7 @@ export default async function ProposedBriefsPage() {
     );
   }
 
+  const tenantId = await currentTenantId();
   const [results, changelogEntries, opportunities, candidateLinks, briefStates, actionStates] = await Promise.all([
     getResults(),
     getChangelogEntries(),
@@ -67,7 +70,8 @@ export default async function ProposedBriefsPage() {
     opportunities,
     candidateLinks,
     briefStates,
-    actionStates
+    actionStates,
+    getBusinessConfig(tenantId).businessType,
   );
 
   const summary = summarizeBriefQueue(briefs);

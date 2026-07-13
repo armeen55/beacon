@@ -8,6 +8,7 @@ import type { PersistedActionState } from "@/domains/actions/types";
 import { computeFullActionQueue } from "@/domains/actions/compute";
 import { computeOpportunityCandidates } from "@/domains/opportunity-candidates/compute";
 import { buildProposedBriefs } from "./builders";
+import type { BusinessConfig } from "@/lib/business-config";
 
 export function computeProposedBriefs(
   results: Result[],
@@ -15,7 +16,8 @@ export function computeProposedBriefs(
   opportunities: Opportunity[],
   candidateLinks: CandidateLink[],
   persistedStates: PersistedBriefState[],
-  actionStates: PersistedActionState[]
+  actionStates: PersistedActionState[],
+  businessType?: BusinessConfig["businessType"],
 ): {
   briefs: ProposedBrief[];
   candidates: OpportunityCandidate[];
@@ -40,7 +42,8 @@ export function computeProposedBriefs(
     clusters,
     patterns,
     opportunities,
-    persistedStates
+    persistedStates,
+    businessType,
   );
 
   return { briefs, candidates };
