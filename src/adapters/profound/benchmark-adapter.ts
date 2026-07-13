@@ -6,7 +6,6 @@ import {
   parseCSV,
   parsePercent,
 } from "@/lib/persistence/csv-parser";
-import { getSiteConfig } from "@/lib/site-config";
 
 type BenchmarkCSVRow = {
   key?: string;
@@ -99,23 +98,18 @@ function slugify(text: string): string {
 /**
  * Merge owned-entity name variants (legacy demo sheets + configured tenant) so scope_id stays consistent.
  */
-function canonicalAssetLabel(asset: string): string {
+function canonicalAssetLabel(asset: string, ownedEntityName: string): string {
   const norm = asset.trim().replace(/\s+/g, " ");
   if (norm.length === 0) return norm;
   const lower = norm.toLowerCase();
-  const { entityDisplayName } = getSiteConfig();
-  const entityLower = entityDisplayName.trim().toLowerCase();
+  const entityLower = ownedEntityName.trim().toLowerCase();
   const firstTok = entityLower.split(/\s+/)[0] ?? "";
-  const legacyRitz =
-    lower === "ritz" ||
-    lower === "ritz builders" ||
-    lower.startsWith("ritz /");
   const matchesTenant =
     lower === entityLower ||
     (firstTok.length > 0 &&
       (lower === firstTok || lower.startsWith(`${firstTok} /`)));
-  if (legacyRitz || matchesTenant) {
-    return entityDisplayName.trim();
+  if (matchesTenant) {
+    return ownedEntityName.trim();
   }
   return norm;
 }
@@ -142,6 +136,7 @@ export function parseProfoundBenchmark(
   accountId: string,
   entityLookup: Map<string, string>,
   tenantId: string,
+  ownedEntityName: string,
 ): {
   snapshots: DailyMetricSnapshot[];
   entityCandidates: EntityCandidate[];
@@ -175,7 +170,7 @@ export function parseProfoundBenchmark(
       warnings.push(`Row ${rowNum}: missing platform`);
     }
 
-    const canonical = canonicalAssetLabel(asset);
+    const canonical = canonicalAssetLabel(asset, ownedEntityName);
     if (canonical.length > 0) {
       candidateCounts.set(
         canonical,
@@ -185,7 +180,7 @@ export function parseProfoundBenchmark(
 
     const resolvedId = entityLookup.get(asset);
     const scopeId =
-      resolvedId ?? slugify(canonicalAssetLabel(asset));
+      resolvedId ?? slugify(canonicalAssetLabel(asset, ownedEntityName));
 
     const id = `bench-${date}-${slugify(asset)}-${slugify(platform)}`;
 

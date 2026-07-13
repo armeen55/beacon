@@ -8,35 +8,7 @@
 import "server-only";
 
 import type { TrackedEntity } from "@/domains/tracked-entities/types";
-import { getSiteConfig } from "@/lib/site-config";
-
-const COMPETITOR_DOMAINS: Record<string, string> = {
-  "constructelements.com": "Element Homes",
-  "valleyboutiquebuilders.com": "Valley Boutique Builders",
-  "supplehomesinc.com": "Supple Homes",
-  "craftsmensguild.com": "Craftsmen's Guild",
-  "greenberg.construction": "Greenberg Construction",
-  "demattei.com": "De Mattei Construction",
-  "baysidebuildersgroup.com": "Bayside Builders Group",
-  "baybuilders.com": "Bay Builders",
-  "valleyhomebuilders.com": "Valley Home Builders",
-  "noadesignbuild.com": "Noa Design Build",
-  "goldengategroupinc.com": "Golden Gate Group",
-  "siliconvalleybuilders.com": "Silicon Valley Builders",
-  "customhome.us": "Custom Home US",
-  "crcbuildersinc.com": "CRC Builders",
-  "wisebuilders.org": "Wise Builders",
-  "feldman.construction": "Feldman Construction",
-  "icb.builders": "ICB Builders",
-  "kastenbuilders.com": "Kasten Builders",
-  "barccibuilders.com": "Barcci Builders",
-  "artluxuryhomebuilder.com": "Art Luxury Home Builder",
-  "paragoncb.com": "Paragon Custom Builders",
-  "formagc.com": "Forma GC",
-  "darco-ca.com": "DARCO",
-  "casautopia.com": "Casa Utopia",
-  "at6db.com": "AT6 Design Build",
-};
+import type { BusinessConfig } from "@/lib/business-config";
 
 const DIRECTORY_DOMAINS: Record<string, string> = {
   "houzz.com": "Houzz",
@@ -62,7 +34,32 @@ function makeId(prefix: string, domain: string): string {
   return `${prefix}-${domain.replace(/\./g, "-")}`;
 }
 
-export function buildEntitySeed(accountId: string): {
+function configuredCompetitorDomains(
+  competitors: string[],
+): Array<{ domain: string; name: string }> {
+  const seen = new Set<string>();
+  const result: Array<{ domain: string; name: string }> = [];
+  for (const value of competitors) {
+    const raw = value.trim();
+    if (!raw) continue;
+    let hostname: string;
+    try {
+      hostname = new URL(raw.includes("://") ? raw : `https://${raw}`).hostname;
+    } catch {
+      continue;
+    }
+    const domain = hostname.toLowerCase().replace(/^www\./, "");
+    if (!domain.includes(".") || seen.has(domain)) continue;
+    seen.add(domain);
+    result.push({ domain, name: domain });
+  }
+  return result;
+}
+
+export function buildEntitySeed(
+  accountId: string,
+  business: Pick<BusinessConfig, "domain" | "name" | "primaryCompetitors">,
+): {
   entities: TrackedEntity[];
   ownedDomains: string[];
   domainToEntityId: Map<string, string>;
@@ -70,7 +67,14 @@ export function buildEntitySeed(accountId: string): {
   const now = new Date().toISOString();
   const entities: TrackedEntity[] = [];
   const domainToEntityId = new Map<string, string>();
-  const { siteDomain, entityDisplayName } = getSiteConfig();
+  const siteDomain = business.domain.trim().toLowerCase().replace(/^www\./, "");
+  if (!siteDomain || !siteDomain.includes(".")) {
+    throw new Error("Profound import requires a valid tenant business domain");
+  }
+  const entityDisplayName = business.name.trim();
+  if (!entityDisplayName) {
+    throw new Error("Profound import requires a tenant business name");
+  }
   const ownedDomains = [siteDomain];
 
   for (const domain of ownedDomains) {
@@ -99,7 +103,9 @@ export function buildEntitySeed(accountId: string): {
     domainToEntityId.set(domain, id);
   }
 
-  for (const [domain, name] of Object.entries(COMPETITOR_DOMAINS)) {
+  for (const { domain, name } of configuredCompetitorDomains(
+    business.primaryCompetitors,
+  )) {
     const id = makeId("comp", domain);
     entities.push({
       id,

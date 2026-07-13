@@ -2,13 +2,15 @@
 
 import { revalidatePath } from "next/cache";
 import { log } from "@/lib/logger";
+import { currentTenantId } from "@/lib/tenant-context";
 import { runProfoundImport, type ProfoundImportResult } from "./import-orchestrator";
 
 export async function importProfoundData(): Promise<ProfoundImportResult> {
   const action = "importProfoundData";
   const t0 = Date.now();
-  log.info("Action started", { action, params: { tenant: "ritz-builders" } });
-  const result = await runProfoundImport("ritz-builders");
+  const tenantId = await currentTenantId();
+  log.info("Action started", { action, tenantId });
+  const result = await runProfoundImport(tenantId);
   revalidatePath("/", "layout");
   if (!result.success) {
     log.error("Action failed", {

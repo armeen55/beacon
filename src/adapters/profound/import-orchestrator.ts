@@ -50,7 +50,7 @@ import { discoverPages } from "@/domains/pages/discover";
 import { buildCitationEvidenceIndex } from "@/domains/pages/citation-index";
 import { buildAnswerIntelligenceIndex } from "@/domains/answer-intelligence/build-index";
 import { writeStore, readStore } from "@/lib/persistence/json-store";
-import { getSiteConfig } from "@/lib/site-config";
+import { getBusinessConfig } from "@/lib/business-config";
 import {
   getResults,
   getChangelogEntries,
@@ -98,17 +98,32 @@ export type ProfoundImportResult = {
 };
 
 export async function runProfoundImport(
-  accountId: string
+  tenantId: string,
 ): Promise<ProfoundImportResult> {
-  // Phase 7.7b Commit 2 (2026-04-25): CLI-context tenantId resolution.
-  // Profound import orchestrator runs from a CLI script; require the env
-  // var explicitly per Phase 7.5d, no silent fallback.
-  const tenantId = process.env.BEACON_TENANT_ID;
+  tenantId = tenantId.trim();
   if (!tenantId) {
     throw new Error(
-      "[profound/import-orchestrator] runProfoundImport requires BEACON_TENANT_ID env var (CLI context)",
+      "[profound/import-orchestrator] runProfoundImport requires an explicit tenantId",
     );
   }
+  // This legacy importer reads operator-dropped files from `.data/` and uses
+  // synchronous cold stores that are scoped to one local process. It is not a
+  // hosted, multi-tenant connector. Refuse to run where the filesystem is
+  // read-only or when the request tenant differs from the explicitly configured
+  // local tenant; silently crossing either boundary could mix customer data.
+  if (process.env.VERCEL === "1") {
+    throw new Error(
+      "[profound/import-orchestrator] legacy CSV import is local-operator-only and cannot run on Vercel",
+    );
+  }
+  const configuredTenantId = process.env.BEACON_TENANT_ID?.trim();
+  if (!configuredTenantId || configuredTenantId !== tenantId) {
+    throw new Error(
+      "[profound/import-orchestrator] request tenant must match the explicitly configured local BEACON_TENANT_ID",
+    );
+  }
+  const accountId = tenantId;
+  const business = getBusinessConfig(tenantId);
 
   const start = Date.now();
   const warnings: string[] = [];
@@ -166,7 +181,18 @@ export async function runProfoundImport(
   const importRunId = `import-${Date.now()}`;
 
   // Phase 1: Entity seed
-  const { entities, ownedDomains, domainToEntityId } = buildEntitySeed(accountId);
+  const { entities, ownedDomains, domainToEntityId } = buildEntitySeed(
+    accountId,
+    business,
+  );
+  const ownedEntity = entities.find(
+    (entity) => entity.is_owned && entity.entity_type === "brand",
+  );
+  if (!ownedEntity) {
+    throw new Error(
+      `[profound/import-orchestrator] no owned brand entity for tenant ${tenantId}`,
+    );
+  }
   await replaceTrackedEntities(entities, tenantId);
 
   // Phase 2: Prompts — merge all prompt-shaped CSVs + existing store
@@ -194,8 +220,7 @@ export async function runProfoundImport(
   //   3. First-word shortening of the above ("Ritz Builders" \u2192 "Ritz")
   // The entity-seed-only path produced "Ritzbuilders" (one word) which failed
   // to match "Ritz Builders" in actual response text.
-  const { getBusinessConfig } = await import("@/lib/business-config");
-  const bizName = getBusinessConfig(tenantId).name;
+  const bizName = business.name;
   const rawAliases = new Set<string>();
   if (bizName) rawAliases.add(bizName);
   for (const e of entities) {
@@ -262,9 +287,11 @@ export async function runProfoundImport(
   }
 
   // Phase 5: Derived snapshots from merged observations
-  const ownedEntity = entities.find((e) => e.is_owned && e.entity_type === "brand");
-  const ownedEntityId = ownedEntity?.id ?? "ritz";
-  const derivedSnapshots = buildDerivedSnapshots(mergedObservations, ownedEntityId, tenantId);
+  const derivedSnapshots = buildDerivedSnapshots(
+    mergedObservations,
+    ownedEntity.id,
+    tenantId,
+  );
 
   // Phase 6: Benchmark — merge all summarized files + existing benchmark rows on disk
   const entityLookup = new Map<string, string>();
@@ -279,7 +306,13 @@ export async function runProfoundImport(
   const candidateLists: EntityCandidate[][] = [];
 
   for (const filePath of byKind.benchmark) {
-    const bench = parseProfoundBenchmark(filePath, accountId, entityLookup, tenantId);
+    const bench = parseProfoundBenchmark(
+      filePath,
+      accountId,
+      entityLookup,
+      tenantId,
+      business.name,
+    );
     warnings.push(...bench.warnings);
     mergedBenchmark = mergeById(mergedBenchmark, bench.snapshots, true);
     candidateLists.push(bench.entityCandidates);
@@ -336,7 +369,7 @@ export async function runProfoundImport(
     allCitationsForIndex.push(...getCitationsForDate(d));
   }
 
-  const { siteDomain } = getSiteConfig();
+  const siteDomain = business.domain.trim().toLowerCase().replace(/^www\./, "");
   const pages = discoverPages({
     citations: allCitationsForIndex,
     changes: importedChanges,
@@ -360,11 +393,10 @@ export async function runProfoundImport(
   // Build answer intelligence index — extracts brand positioning, visibility
   // time-series, co-citation analysis, and narrative shifts from observation +
   // answer text data that the citation-evidence-index doesn't surface.
-  const { entityDisplayName } = getSiteConfig();
   const answerIntelIndex = buildAnswerIntelligenceIndex({
     observations: mergedObservations,
     answerTexts: mergedAnswerTexts,
-    brandName: entityDisplayName,
+    brandName: business.name,
     ownedDomain: siteDomain,
     tenantId,
   });

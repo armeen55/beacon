@@ -1,8 +1,13 @@
 # Beacon Verified State
 
-> 🟢 **Current verified state (2026-07-11, tip = this docs commit; the exact pushed SHA is what
+> 🟢 **Current verified state (2026-07-12, tip = this docs commit; the exact pushed SHA is what
 > /api/version must report before this wave is called deployed).** Production is verified through
-> the GA4 property-calendar release at d2ed7193. This tip removes Today's post-snapshot sequential
+> the Today parallel-context release at 1a02d8a4. This tip closes a reachable legacy-import
+> cross-tenant defect: the Settings server action now resolves the authenticated request tenant,
+> the importer accepts that tenant explicitly, owned identity comes from that tenant's business
+> config, and founder-specific competitor/brand defaults are gone. Because the legacy CSV path uses
+> process-local cold files, it now fails closed on Vercel and whenever the request tenant differs
+> from the explicitly configured local tenant. This tip also removes Today's post-snapshot sequential
 > waterfall: eleven independent command-context reads now run in one bounded parallel batch, with
 > unchanged values, fallbacks, tenant scope, ranking, and copy. GA4 reconciliation uses the property's
 > reporting calendar end to end: the direct-report window and current/partial month come from the
@@ -29,8 +34,8 @@
 > set is too small, and it is now spent. So the verdict quarantine from the prior wave stays
 > exactly as deployed, every stored won or lost verdict still reads as uncalibrated through
 > src/domains/proof-gsc/verdict-calibration.ts, CALIBRATED_VERDICT_VERSIONS is still empty, and no
-> verdict was persisted. The full gate is GREEN at this tip: strict typecheck, 1,489 test files
-> with 23,083 passed / 62 skipped / 0 failed, and the production build.
+> verdict was persisted. The full gate is GREEN at this tip: strict typecheck, 1,495 test files
+> with 23,110 passed / 62 skipped / 0 failed, and the production build.
 
 ## Current limitations
 
@@ -58,8 +63,8 @@
 
 ## Next 3 actions
 
-1. **Deploy and verify the Today-parallel-context SHA** through `/api/version`, then measure
-   authenticated Today and Results first useful paint.
+1. **Deploy and verify the Profound tenant-boundary SHA** through `/api/version`, then measure
+   authenticated Today and Results first useful paint when a hosted session is available.
 2. **Run 5 fresh preregistered blind cases** through the authenticated deployed UI. A case that causes a code
    change is spent and must be replaced with another unseen case.
 3. **Only after the blind gate passes, choose the highest-impact operator move** and take it from

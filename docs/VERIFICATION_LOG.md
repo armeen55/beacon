@@ -35454,6 +35454,30 @@ Verification: focused Today parallel-context/SWR/data-window suites 23/23; stric
 full suite 1,493 files passed, 23,106 tests passed, 62 skipped, 0 failed; production build exit 0.
 Hosted latency is not claimed until authenticated measurement. Deployment remains pending.
 
+Deployment receipt: `origin/main` fast-forwarded to
+`1a02d8a40d8728bce38c198f93df112f19e2969f`; Vercel deployment
+`dpl_Hhp4yQ3K8KUEEMume8yb4URf34v1` reached Ready and production `/api/version` returned the exact
+SHA.
+
+## 2026-07-12 - Legacy Profound import tenant boundary release candidate
+
+Confirmed a reachable cross-tenant defect in Settings' advanced CSV import. The server action
+hardcoded `ritz-builders`, the orchestrator recovered a potentially different tenant from the
+process environment, and entity/benchmark identity came from process-global site config plus a
+founder-specific competitor catalog and owned-entity fallback. The action now resolves the request
+tenant exactly once and passes it explicitly. The importer derives account, owned brand, domain,
+aliases, benchmark labels, and configured competitor domains from that tenant's business config;
+it has no Ritz fallback. Because its legacy citation and answer-text cold stores are synchronous
+local files rather than tenant-routed stores, the importer fails closed on Vercel and unless the
+request tenant exactly matches the configured local process tenant. It therefore cannot mutate a
+different tenant while this legacy path remains available.
+
+Verification: focused import action/entity/runtime/default-surface suites 317/317; strict typecheck
+exit 0; full suite 1,495 files passed, 23,110 tests passed, 62 skipped, 0 failed; production build
+exit 0. The first full-suite attempt correctly failed only because the new architecture test was
+not yet registered in the required catalog; the catalog entry was added and the entire gate was
+rerun from zero. Deployment remains pending and is not claimed.
+
 ## 2026-07-11 - E-39 D4 wiring complete (32696319, review P2)
 
 2026-07-11 E-39 D4 wiring complete (32696319, review P2): honest engineering call, option B.
