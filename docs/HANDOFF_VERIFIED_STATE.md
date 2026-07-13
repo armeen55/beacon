@@ -2,15 +2,15 @@
 
 > 🟢 **Current verified state (2026-07-13, tip = this docs commit; the exact pushed SHA is what
 > /api/version must report before this docs-only reconciliation is called deployed).** Product code
-> is SHA-verified in production through `004e2694` (Vercel
-> `dpl_AkWz6reNCUREHgnrtWjv737Ajhe6`). The visible root checkout, `origin/main`, and the verified
+> is SHA-verified in production through `b66ae0c1` (Vercel
+> `dpl_3Sdb2dsjJdL78UGjt4Bb3i8DCTda`). The visible root checkout, `origin/main`, and the verified
 > integration branch are reconciled at that code tip. This tip also connects the existing
 > one-click plan builder in its intended order: competitor winner teardown, keyword/SERP enrichment,
 > move preparation, then competitor-grounded draft regeneration. It reports analyzed pages separately
 > from pages freshly fetched, and remains fail-soft when external research is unavailable. The gated
-> local test-harness tip also prevents unrelated onboarding transaction tests from falling through to
+> deployed test-harness tip also prevents unrelated onboarding transaction tests from falling through to
 > a real cold-start crawl: the same 23,130 tests pass, while full-suite time fell from 308.95 seconds
-> to 234.91 seconds. Deployment of that test-only tip is pending. The scan boundary is tenant-explicit: crawl target, child-process domain,
+> to 234.91 seconds. The scan boundary is tenant-explicit: crawl target, child-process domain,
 > robots lookup, homepage identity, and finding generation share the current tenant's validated
 > business domain and cannot inherit another request's process-wide site identity. This tip also
 > makes post-import milestone ownership tenant-explicit and parallelizes its independent evidence

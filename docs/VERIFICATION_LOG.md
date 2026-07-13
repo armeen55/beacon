@@ -7,7 +7,7 @@
 
 ---
 
-## 2026-07-13 - Test-suite bloat audit + accidental-network fix (eef191db; deployment pending)
+## 2026-07-13 - Test-suite bloat audit + accidental-network fix (eef191db, b66ae0c1)
 
 The maximum audit measured 1,503 files / 23,192 tests, about 322,000 test lines versus about
 379,000 production TypeScript lines, 360 source-reading test files containing 4,273 statically
@@ -23,7 +23,8 @@ defaults the existing injectable dispatcher to a successful no-network outcome; 
 still supply their own dispatcher and crawler. Focused result: 33/33, 17ms test-body time. Clean full
 gate: strict typecheck exit 0; 1,503 files, 23,130 passed, 62 skipped, 0 failed; suite duration 234.91s
 versus 308.95s before (74.04s / 24% faster); production build exit 0. No product behavior changed.
-Push, deployment, and hosted SHA verification remain pending at this entry.
+`origin/main` reached `b66ae0c1`; Vercel deployment `dpl_3Sdb2dsjJdL78UGjt4Bb3i8DCTda` reached
+Ready and production `/api/version` returned the exact SHA; `/login` returned 200.
 
 ## 2026-07-13 - Research-to-draft orchestration connected (a2c60e85, 004e2694)
 
