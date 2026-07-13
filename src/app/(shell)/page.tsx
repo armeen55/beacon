@@ -33,7 +33,6 @@ import { getBusinessConfigForCurrentTenant } from "@/lib/business-config";
 import { TodayNewPagesSummaryLine } from "./today-newpages-section";
 import { loadLifecycleCounts } from "./lifecycle-counts-data";
 import { OpsPipelineSection, DEADMAN_DEADLINE_MS } from "./ops-pipeline-section";
-import { maybeRefreshStaleDataOnVisit } from "@/domains/ops/on-visit-refresh";
 import { readPipelineHealth } from "@/domains/ops/pipeline-health-store";
 import { loadDeadmanVerdict } from "@/domains/ops/deadman-view";
 import { loadErrorSpikeLine } from "@/domains/ops/error-spike";
@@ -48,6 +47,7 @@ import { loadDailyTotalsForTenant } from "@/domains/recommendation-intelligence/
 // the consolidated proof strip are token-only (src/components/today, outside the (shell) ratchet).
 import { buildTodayCommand, commandAllowsCelebration } from "@/domains/today/today-command";
 import { TodayCommandCard } from "@/components/today/today-command-card";
+import { AutonomousResearchStatus } from "./autonomous-research-status";
 import { TodayProofStrip } from "@/components/today/today-proof-strip";
 import { verdictSchedule } from "@/domains/proof-gsc/verdict-schedule";
 import { buildScoreboard } from "@/domains/scoreboard/scoreboard";
@@ -180,10 +180,6 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
   }
   const { today, daily } = composite;
   const tenantId = await currentTenantId();
-  // I-59: freshness is guaranteed on visit, never dependent on a cron. Schedules
-  // the staleness check + refresh via after() (post-response, serverless-safe).
-  maybeRefreshStaleDataOnVisit(tenantId);
-
   const nowPacific = new Date();
   const activePlan = daily?.dashboard.acceptedPlan ?? daily?.dashboard.previewPlan;
   const isMonday = nowPacific.toLocaleDateString("en-US", { weekday: "long", timeZone: "America/Los_Angeles" }) === "Monday";
@@ -455,6 +451,7 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
       <PageHeader title={greeting} description={brief}>
         <RefreshMyDataButton connectedCount={connectedSourceCount} />
       </PageHeader>
+      <Suspense fallback={null}><AutonomousResearchStatus tenantId={tenantId} /></Suspense>
 
       {/* ── SLOT 2-4: THE ONE COMMAND ─────────────────────────────────────────────────────
           The single best thing to do now, its evidence, one exact action, and the ONE accent

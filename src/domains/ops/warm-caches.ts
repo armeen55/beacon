@@ -14,10 +14,8 @@ import "server-only";
  *   1. demand-graph        - the shared graph snapshot every surface reads
  *   2. worklist-surface    - built FROM the fresh graph
  *   3. plan-preview        - ensure tonight's plan exists (skip when it does)
- *   4. today-surface       - built AFTER the preview so Today shows the plan
- *   5. coverage-map        - no persistent store today; recorded as skipped
- *                            (it reads the demand-graph snapshot warmed in 1)
- *   6. displacement-check  - BEACON 500 item 82 (2026-07-02): a LOSS reflex,
+ *   4. coverage-map        - reads the graph snapshot; no separate store
+ *   5. displacement-check  - BEACON 500 item 82 (2026-07-02): a LOSS reflex,
  *                            not a cache warm. Finds money queries that fell
  *                            3+ Google positions vs a week ago and spends AT
  *                            MOST 3 capped live checks per tenant per night
@@ -25,7 +23,7 @@ import "server-only";
  *                            (untouched here). Isolated step: a failure or a
  *                            capped/dry-run outcome never affects the 5 warm
  *                            steps above it. See displacement-check.ts.
- *   7. serp-steal-lane     - DREAM SITE V1 item D3 (2026-07-02): the GAIN
+ *   6. serp-steal-lane     - DREAM SITE V1 item D3 (2026-07-02): the GAIN
  *                            mirror of displacement-check. Finds GSC keywords
  *                            where we rank 4-20 with real impressions,
  *                            resolves each one's Google top-5 (a stored
@@ -37,7 +35,7 @@ import "server-only";
  *                            step, same posture as displacement-check - a
  *                            failure here never affects any step above it.
  *                            See serp-steal-lane.ts.
- *   8. native-teardown     - DREAM SITE V1 item D2 (2026-07-02): reads the
+ *   7. native-teardown     - DREAM SITE V1 item D2 (2026-07-02): reads the
  *                            top-cited pages per NATIVE poll prompt (up to 10
  *                            prompts/night), politely tears them down (FREE,
  *                            14d cached, same cache as the other teardown
@@ -49,7 +47,7 @@ import "server-only";
  *                            fail-soft, same posture as displacement-check
  *                            and serp-steal-lane. See
  *                            native-teardown-runner.ts.
- *   9. prepare-ahead      - R20 (D6 dynamic auto-mode): PREPARE-ahead only,
+ *   8. prepare-ahead       - R20 (D6 dynamic auto-mode): PREPARE-ahead only,
  *                            gated on the operator's prepare-ahead-overnight
  *                            toggle (autopilot config, DEFAULT OFF). Off ->
  *                            a byte-identical skip (nightly path unchanged).
@@ -58,7 +56,9 @@ import "server-only";
  *                            publishes (publishing waits for the operator, or
  *                            the separate publish-autopilot switch). Capped +
  *                            cache-first (a warm cache is $0), isolated +
- *                            fail-soft, runs last. See prepare-today-moves.ts.
+ *                            fail-soft. See prepare-today-moves.ts.
+ *   9. today-surface       - built LAST, after the plan and prepared drafts,
+ *                            so the first render sees the completed pass.
  *
  * Money posture (verified in the callees, none edited here):
  *   - graph/changes/today loaders are cached/durable reads only ($0).
@@ -429,7 +429,6 @@ export async function warmTenantCaches(
   steps.push(await runStep("demand-graph", async () => { await deps.refreshDemandGraph(tenantId); return null; }));
   steps.push(await runStep("worklist-surface", async () => { await deps.refreshWorklist(tenantId); return null; }));
   steps.push(await runStep("plan-preview", () => ensurePlanPreview(tenantId, now, date, deps)));
-  steps.push(await runStep("today-surface", async () => { await deps.refreshToday(tenantId); return null; }));
   // Coverage map has no persistent snapshot store today - it derives from the
   // demand-graph snapshot warmed in step 1, so there is nothing extra to write.
   steps.push({
@@ -486,8 +485,8 @@ export async function warmTenantCaches(
   // nightly path is unchanged until the operator opts in. When ON, it PREPARES (drafts +
   // SERP-checks) the top Moves so the morning queue is already prepared; it NEVER publishes.
   // Isolated + fail-soft like every step above; capped + cache-first (a warm cache is $0), so
-  // it stays inside the existing budgets. Runs LAST so a slow prepare pass never delays any
-  // cache warm above it.
+  // it stays inside the existing budgets. Today is refreshed after this step so newly prepared
+  // drafts are visible on the first post-pass render, not one visit later.
   steps.push(
     await runStep("prepare-ahead", async () => {
       const enabled = await deps.isPrepareAheadEnabled(tenantId);
@@ -499,6 +498,7 @@ export async function warmTenantCaches(
       return { note };
     }),
   );
+  steps.push(await runStep("today-surface", async () => { await deps.refreshToday(tenantId); return null; }));
 
   return {
     tenant_id: tenantId,

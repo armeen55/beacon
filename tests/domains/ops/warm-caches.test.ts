@@ -6,12 +6,9 @@
  * Pins the composition contract with injected deps (no Supabase, no graph
  * build, no filesystem):
  *   - step ORDER: demand-graph -> worklist-surface -> plan-preview ->
- *     today-surface -> coverage-map -> displacement-check -> serp-steal-lane
- *     -> native-teardown (Today is warmed AFTER the plan so the morning open
- *     shows tonight's picks; the two money-spending steps run before the
- *     free native-teardown lane, since they must never block the free cache
- *     warms above them; native-teardown itself is also $0 but runs last so a
- *     hung/slow native lane never delays anything else),
+ *     coverage-map -> displacement-check -> serp-steal-lane -> native-teardown
+ *     -> prepare-ahead -> today-surface. Today runs last so newly acquired
+ *     evidence and prepared drafts are visible in the first completed surface.
  *   - fail-soft isolation: one failed step never stops the next,
  *   - skip-when-fresh: an existing preview for the Pacific day (or an open
  *     accepted batch) means the builder is NEVER invoked (no double spend),
@@ -110,28 +107,28 @@ function makeDeps(overrides: Partial<WarmCachesDeps> = {}) {
 }
 
 describe("warmTenantCaches", () => {
-  it("runs the steps in the pinned order (plan BEFORE today-surface, the money steps then native-teardown LAST)", async () => {
+  it("runs research and preparation before the final Today surface", async () => {
     const { deps, calls } = makeDeps();
     const receipt = await warmTenantCaches(TENANT, NOW, deps);
     expect(calls).toEqual([
       "demand-graph",
       "worklist-surface",
       "plan-preview",
-      "today-surface",
       "displacement-check",
       "serp-steal-lane",
       "native-teardown",
+      "today-surface",
     ]);
     expect(receipt.steps.map((s) => s.name)).toEqual([
       "demand-graph",
       "worklist-surface",
       "plan-preview",
-      "today-surface",
       "coverage-map",
       "displacement-check",
       "serp-steal-lane",
       "native-teardown",
       "prepare-ahead",
+      "today-surface",
     ]);
     // R20: prepare-ahead is OFF by default, so runPrepareAhead is never invoked (not in `calls`)
     // and the step records an honest skip - the nightly work is byte-identical to before.
@@ -154,10 +151,10 @@ describe("warmTenantCaches", () => {
     expect(calls).toEqual([
       "worklist-surface",
       "plan-preview",
-      "today-surface",
       "displacement-check",
       "serp-steal-lane",
       "native-teardown",
+      "today-surface",
     ]);
     expect(receipt.ok).toBe(false);
     // 9 steps total (incl. the R20 prepare-ahead skip); only demand-graph failed, so 8 are ok.
@@ -175,9 +172,9 @@ describe("warmTenantCaches", () => {
       "demand-graph",
       "worklist-surface",
       "plan-preview",
-      "today-surface",
       "serp-steal-lane",
       "native-teardown",
+      "today-surface",
     ]);
     const warmSteps = receipt.steps.filter((s) => s.name !== "displacement-check");
     expect(warmSteps.every((s) => s.ok)).toBe(true);
@@ -196,9 +193,9 @@ describe("warmTenantCaches", () => {
       "demand-graph",
       "worklist-surface",
       "plan-preview",
-      "today-surface",
       "displacement-check",
       "native-teardown",
+      "today-surface",
     ]);
     const otherSteps = receipt.steps.filter((s) => s.name !== "serp-steal-lane");
     expect(otherSteps.every((s) => s.ok)).toBe(true);
@@ -217,9 +214,9 @@ describe("warmTenantCaches", () => {
       "demand-graph",
       "worklist-surface",
       "plan-preview",
-      "today-surface",
       "displacement-check",
       "serp-steal-lane",
+      "today-surface",
     ]);
     const otherSteps = receipt.steps.filter((s) => s.name !== "native-teardown");
     expect(otherSteps.every((s) => s.ok)).toBe(true);
@@ -298,8 +295,8 @@ describe("warmTenantCaches", () => {
     const receipt = await warmTenantCaches(TENANT, NOW, deps);
     expect(deps.runPrepareAhead).toHaveBeenCalledWith(TENANT, NOW);
     expect(calls).toContain("prepare-ahead");
-    // Prepare-ahead runs LAST (after native-teardown), so a slow prepare never delays a warm.
-    expect(calls[calls.length - 1]).toBe("prepare-ahead");
+    // Today runs after prepare so the completed surface includes the new drafts.
+    expect(calls.slice(-2)).toEqual(["prepare-ahead", "today-surface"]);
     const step = receipt.steps.find((s) => s.name === "prepare-ahead");
     expect(step?.ok).toBe(true);
     expect(step?.skipped).toBeUndefined();
@@ -320,10 +317,10 @@ describe("warmTenantCaches", () => {
       "demand-graph",
       "worklist-surface",
       "plan-preview",
-      "today-surface",
       "displacement-check",
       "serp-steal-lane",
       "native-teardown",
+      "today-surface",
     ]);
     const otherSteps = receipt.steps.filter((s) => s.name !== "prepare-ahead");
     expect(otherSteps.every((s) => s.ok)).toBe(true);

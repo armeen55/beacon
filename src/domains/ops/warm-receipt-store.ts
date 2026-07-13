@@ -17,8 +17,34 @@ import { readStore, writeStore } from "@/lib/persistence/json-store";
 
 const STORE = "precompute-warm-receipts";
 
-/** Keep at most this many receipts per tenant (a rolling two weeks). */
-const KEEP_PER_TENANT = 14;
+/** Keep at most this many receipts per tenant (cron + visit receipts for two weeks). */
+const KEEP_PER_TENANT = 28;
+
+export type WarmRunSummary = {
+  competitorPagesAnalyzed: number;
+  competitorPagesRefreshed: number;
+  competitorsMined: number;
+  keywordGapsFound: number;
+  cloneBriefsBuilt: number;
+  keywordTermsPlanned: number;
+  serpPatternsWritten: number;
+  aiTopicsPolled: number;
+  aiCitationRecords: number;
+  questionsRanked: number;
+  uncoveredQuestions: number;
+  claimsChecked: number;
+  conflictingClaims: number;
+  pagesMapped: number;
+  orphanPagesFound: number;
+  beatenKeywords: number;
+  stealBriefsBuilt: number;
+  nativePromptsAnalyzed: number;
+  citedPagesAnalyzed: number;
+  movesPrepared: number;
+  readyToReview: number;
+  draftsRegenerated: number;
+  spendUsd: number;
+};
 
 export type WarmStepReceipt = {
   name: string;
@@ -39,6 +65,10 @@ export type WarmRunReceipt = {
   ok: boolean;
   totalMs: number;
   steps: WarmStepReceipt[];
+  /** Cron and on-visit receipts coexist for the same day. Legacy rows omit it. */
+  trigger?: "cron" | "visit" | "manual";
+  /** Structured autonomous-research outcome used by the customer-facing status line. */
+  summary?: WarmRunSummary;
 };
 
 /**
@@ -60,7 +90,11 @@ export async function recordWarmRun(receipt: WarmRunReceipt): Promise<void> {
   const rows = await readStore<WarmRunReceipt>(STORE, []);
   const others = rows.filter((r) => r.tenant_id !== receipt.tenant_id);
   const mine = rows
-    .filter((r) => r.tenant_id === receipt.tenant_id && r.date !== receipt.date)
+    .filter(
+      (r) =>
+        r.tenant_id === receipt.tenant_id &&
+        !(r.date === receipt.date && (r.trigger ?? "cron") === (receipt.trigger ?? "cron")),
+    )
     .concat(receipt)
     .sort((a, b) => a.date.localeCompare(b.date))
     .slice(-KEEP_PER_TENANT);
@@ -68,11 +102,14 @@ export async function recordWarmRun(receipt: WarmRunReceipt): Promise<void> {
 }
 
 /** Latest receipt for the tenant (the /diagnostics line), or null. */
-export async function readLastWarmReceipt(tenantId: string): Promise<WarmRunReceipt | null> {
+export async function readLastWarmReceipt(
+  tenantId: string,
+  trigger?: WarmRunReceipt["trigger"],
+): Promise<WarmRunReceipt | null> {
   try {
     const rows = await readStore<WarmRunReceipt>(STORE, []);
     const mine = rows
-      .filter((r) => r.tenant_id === tenantId)
+      .filter((r) => r.tenant_id === tenantId && (trigger == null || (r.trigger ?? "cron") === trigger))
       .sort((a, b) => b.ran_at.localeCompare(a.ran_at));
     return mine[0] ?? null;
   } catch {

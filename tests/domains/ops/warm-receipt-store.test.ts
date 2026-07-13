@@ -85,7 +85,7 @@ describe("warm-receipt-store", () => {
     }
     await recordWarmRun(receipt({ tenant_id: "tenant-other", date: "2026-07-02" }));
     const rows = mem.rows as WarmRunReceipt[];
-    expect(rows.filter((r) => r.tenant_id === TENANT).length).toBeLessThanOrEqual(14);
+    expect(rows.filter((r) => r.tenant_id === TENANT).length).toBeLessThanOrEqual(28);
     expect(rows.filter((r) => r.tenant_id === "tenant-other")).toHaveLength(1);
   });
 
@@ -97,5 +97,13 @@ describe("warm-receipt-store", () => {
     expect(last?.totalMs).toBe(999);
     mem.failReads = true;
     expect(await readLastWarmReceipt(TENANT)).toBeNull();
+  });
+
+  it("keeps cron and visit receipts for the same tenant and day independently", async () => {
+    await recordWarmRun(receipt({ trigger: "cron", totalMs: 10 }));
+    await recordWarmRun(receipt({ trigger: "visit", totalMs: 20 }));
+    expect((mem.rows as WarmRunReceipt[]).filter((r) => r.tenant_id === TENANT)).toHaveLength(2);
+    expect((await readLastWarmReceipt(TENANT, "cron"))?.totalMs).toBe(10);
+    expect((await readLastWarmReceipt(TENANT, "visit"))?.totalMs).toBe(20);
   });
 });

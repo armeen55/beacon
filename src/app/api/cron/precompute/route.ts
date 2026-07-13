@@ -82,7 +82,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         // Persist the receipt (it doubles as the per-day marker when ok). A
         // failed pass is recorded too, but does NOT mark the day - a re-fire
         // can retry the missed step at zero risk.
-        await recordWarmRun(receipt).catch((e) => {
+        await recordWarmRun({ ...receipt, trigger: "cron" }).catch((e) => {
           log.warn("[precompute] receipt write failed", {
             tenantId: t.id,
             error: e instanceof Error ? e.message : String(e),

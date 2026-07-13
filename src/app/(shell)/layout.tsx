@@ -1,4 +1,5 @@
 export const dynamic = "force-dynamic"; // shell layout reads tenant context (Supabase) - force the whole shell subtree dynamic so NO page prerenders at build (avoids build-time "Invalid API key")
+export const maxDuration = 300; // the post-response autonomous research cycle is bounded but intentionally comprehensive
 
 import { ShellProvider, ShellDataHydrator, type NavBadges, type LatePaletteItem } from "@/components/shell/shell-provider";
 import { AppSidebar, MobileSidebar } from "@/components/shell/app-sidebar";
@@ -15,10 +16,7 @@ import {
 } from "@/lib/seed-data.server";
 import { allNavItems } from "@/lib/navigation";
 import { getPendingFindings } from "@/domains/scanning/findings-store";
-import {
-  CONTENT_CHANGE_TYPES,
-  BUG_FINDING_TYPES,
-} from "@/domains/scanning/content-change-types";
+import { CONTENT_CHANGE_TYPES } from "@/domains/scanning/content-change-types";
 import {
   getWatchingUrlOutcomes,
   ensureUrlChangeOutcomesSeeded,
@@ -28,7 +26,7 @@ import {
   readPerfTraceIdFromHeaders,
 } from "@/lib/perf-trace";
 import { currentTenantId } from "@/lib/tenant-context";
-import { scheduleConnectorAutoRefresh } from "@/lib/connectors/auto-refresh-on-use";
+import { scheduleAutonomousRefreshOnVisit } from "@/domains/ops/on-visit-refresh";
 import { loadWithDeadline } from "@/lib/load-with-deadline";
 
 // T-CustomerNav (2026-05-08) - keys aligned with `navigationGroups`
@@ -156,12 +154,10 @@ async function loadShellData(): Promise<{
     traceId: await readPerfTraceIdFromHeaders(),
   });
 
-  // On-USE connector auto-refresh (2026-06-22) - keep every connected source
-  // live without a "Pull my data" click. Scheduled via next/after so it runs
-  // AFTER this response (zero added page latency) and only refreshes sources
-  // whose last_synced_at has aged past their per-provider threshold, so firing
-  // on every signed-in click can't hammer egress or paid API quota. Fail-soft.
-  scheduleConnectorAutoRefresh(await currentTenantId());
+  // One shell-level trigger keeps connectors fresh and performs the bounded,
+  // once-daily research-before-ranking cycle after the response. No cron and no
+  // repeated research buttons are required; durable receipts prevent repeats.
+  scheduleAutonomousRefreshOnVisit(await currentTenantId());
 
   // Perf bundle 6 (2026-05-12) - parallelize the independent shell reads
   // that fire on EVERY signed-in click. Pre-fix: five sequential awaits, a

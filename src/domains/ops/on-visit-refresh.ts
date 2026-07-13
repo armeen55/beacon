@@ -2,154 +2,96 @@ import "server-only";
 
 import { after } from "next/server";
 
+import { autoRefreshStaleConnectorsForTenant } from "@/lib/connectors/cron-sync";
 import { log } from "@/lib/logger";
-import { getConnectorInfo } from "@/lib/connector-store";
-import { refreshAllConnectedDataNow } from "@/app/(shell)/settings/connectors/actions";
-import { readStore, writeStore } from "@/lib/persistence/json-store";
+import { runWithTenant } from "@/lib/tenant-context";
+import { runAutonomousResearchForTenant } from "./autonomous-research";
+import {
+  readLastWarmReceipt,
+  recordWarmRun,
+  type WarmRunReceipt,
+} from "./warm-receipt-store";
 
-/**
- * on-visit-refresh (operator spec 2026-07-09, I-59) - freshness is guaranteed ON
- * VISIT, never dependent on a cron. A single-operator app is opened by hand, not
- * on a schedule, so the moment the operator lands on Today we check whether the
- * freshest connected read source has gone stale and, if so, fire the EXISTING
- * one-click "refresh everything" action in the background.
- *
- * The whole pass runs via next/after, the same pattern as auto-measure-on-use:
- * it adds ZERO render latency, and on serverless it survives the response (a
- * plain floating promise is frozen the moment the lambda answers, which would
- * silently kill a multi-source refresh in prod while looking fine in dev).
- *
- * A nightly cron may still warm data as a long-term optimization, but the product
- * must never DEPEND on it. This closes that gap. Content publishing is never
- * touched here - this is a READ refresh only (refreshAllConnectedDataNow pulls
- * every connected read source and warms the shared surfaces; Wix is publish-only
- * and excluded there).
- */
+/** Failed/started research may retry after this durable cooldown. */
+export const AUTONOMOUS_RETRY_COOLDOWN_MS = 2 * 60 * 60_000;
+const scheduled = new Set<string>();
 
-/** How old the freshest good sync must be before an on-visit refresh fires. */
-export const STALE_AFTER_HOURS = 12;
-/** Never fire a second background refresh inside this window (no refresh storm on
- *  rapid revisits). Persisted per tenant in the on-visit-refresh-marker store. */
-export const THROTTLE_HOURS = 6;
-
-/** The connected READ sources whose freshness governs an on-visit refresh - the
- *  same set refreshAllConnectedDataNow pulls (Wix is publish-only, excluded). */
-const READ_SOURCE_PROVIDERS = [
-  "google_gsc",
-  "google_ga4",
-  "clarity",
-  "profound",
-] as const;
-
-const MARKER_STORE = "on-visit-refresh-marker";
-
-type OnVisitRefreshMarker = { lastAttemptAt: string };
-
-/**
- * PURE decision: given the freshest good sync across connected read sources, the
- * last auto-refresh attempt, the current time, and how many read sources are
- * connected, should we fire an on-visit refresh now?
- *
- *  - stale + not throttled          -> true
- *  - fresh                          -> false
- *  - stale + attempted recently     -> false (throttled)
- *  - never synced, sources connected -> true (first pull)
- *  - nothing connected              -> false (nothing to refresh)
- */
-export function shouldAutoRefresh(
-  freshestSyncIso: string | null,
-  lastAttemptIso: string | null,
-  nowMs: number,
-  connectedSourceCount: number,
+/** Pure once-a-day + retry decision, pinned independently from Next's after(). */
+export function shouldRunAutonomousResearch(
+  receipt: WarmRunReceipt | null,
+  now: Date,
 ): boolean {
-  // Throttle wins over staleness: never fire a second background refresh inside
-  // the throttle window, so rapid revisits can't trigger a refresh storm.
-  if (lastAttemptIso != null && lastAttemptIso !== "") {
-    const attemptMs = Date.parse(lastAttemptIso);
-    if (Number.isFinite(attemptMs) && nowMs - attemptMs < THROTTLE_HOURS * 3_600_000) {
-      return false;
-    }
-  }
-  // Nothing connected: there is nothing to pull, so never fire.
-  if (connectedSourceCount <= 0) return false;
-  // Never synced (or an unreadable stamp): a connected source with no data yet
-  // should refresh on the first visit.
-  if (freshestSyncIso == null || freshestSyncIso === "") return true;
-  const freshestMs = Date.parse(freshestSyncIso);
-  if (!Number.isFinite(freshestMs)) return true;
-  // Stale when the freshest good sync is older than the staleness limit.
-  return nowMs - freshestMs >= STALE_AFTER_HOURS * 3_600_000;
+  if (!receipt) return true;
+  const today = now.toLocaleDateString("en-CA", { timeZone: "America/Los_Angeles" });
+  if (receipt.date !== today) return true;
+  if (receipt.ok) return false;
+  const attemptedAt = Date.parse(receipt.ran_at);
+  return !Number.isFinite(attemptedAt) || now.getTime() - attemptedAt >= AUTONOMOUS_RETRY_COOLDOWN_MS;
 }
 
-/** Read the per-tenant attempt marker, or null on first visit / any store outage. */
-async function readMarker(): Promise<OnVisitRefreshMarker | null> {
-  const rows = await readStore<OnVisitRefreshMarker>(MARKER_STORE, []).catch(
-    () => [] as OnVisitRefreshMarker[],
-  );
-  const row = rows[0];
-  if (!row || typeof row.lastAttemptAt !== "string") return null;
-  return row;
+function startedReceipt(tenantId: string, now: Date): WarmRunReceipt {
+  return {
+    tenant_id: tenantId,
+    date: now.toLocaleDateString("en-CA", { timeZone: "America/Los_Angeles" }),
+    ran_at: now.toISOString(),
+    ok: false,
+    totalMs: 0,
+    trigger: "visit",
+    steps: [{ name: "autonomous-research", ok: true, ms: 0, note: "running after this response" }],
+  };
 }
 
-/** Stamp this attempt. Fail-soft: a write outage just means the next visit is not
- *  throttled, never a thrown render. */
-async function writeMarker(marker: OnVisitRefreshMarker): Promise<void> {
-  await writeStore<OnVisitRefreshMarker>(MARKER_STORE, [marker]).catch(() => {});
+async function runPostResponseCycle(tenantId: string): Promise<void> {
+  await runWithTenant(tenantId, async () => {
+    const connectorResults = await autoRefreshStaleConnectorsForTenant(tenantId).catch((error) => {
+      log.warn("[autonomous] connector refresh failed", {
+        tenantId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return [];
+    });
+    const now = new Date();
+    const prior = await readLastWarmReceipt(tenantId, "visit");
+    if (!shouldRunAutonomousResearch(prior, now)) return;
+
+    // Write before work begins. This is the durable cross-instance throttle and
+    // gives the UI an honest running state instead of a mysterious blank.
+    await recordWarmRun(startedReceipt(tenantId, now));
+    const receipt = await runAutonomousResearchForTenant(tenantId, now);
+    await recordWarmRun(receipt);
+    log.info("[autonomous] research cycle finished", {
+      tenantId,
+      connectorsRefreshed: connectorResults.length,
+      ok: receipt.ok,
+      totalMs: receipt.totalMs,
+      summary: receipt.summary,
+    });
+  });
 }
 
 /**
- * On-visit entry point (I-59). Schedules the WHOLE pass via after(): read the
- * freshest last_synced_at across the connected read sources (same
- * getConnectorInfo read the Connections cards and the pipeline readings use),
- * consult the throttle marker, and if a refresh is warranted record the attempt
- * then run the existing one-click refresh - all post-response, so the render
- * pays nothing and the refresh survives on serverless. Every error is swallowed
- * with one log.warn; outside a request scope (tests, scripts) this is a no-op.
+ * Schedule one unified, post-response freshness + research cycle from the app
+ * shell. Every navigation may call this; per-instance single-flight plus the
+ * durable daily receipt prevent refresh storms and repeated paid work.
  */
-export function maybeRefreshStaleDataOnVisit(tenantId: string): void {
+export function scheduleAutonomousRefreshOnVisit(tenantId: string): void {
+  if (!tenantId || scheduled.has(tenantId)) return;
+  scheduled.add(tenantId);
   try {
     after(async () => {
       try {
-        let freshestMs = Number.NEGATIVE_INFINITY;
-        let freshestIso: string | null = null;
-        let connectedCount = 0;
-        for (const provider of READ_SOURCE_PROVIDERS) {
-          const info = await getConnectorInfo(provider, tenantId).catch(() => null);
-          if (info == null || info.status !== "connected") continue;
-          connectedCount += 1;
-          const iso = info.last_synced_at;
-          if (typeof iso === "string" && iso !== "") {
-            const ms = Date.parse(iso);
-            if (Number.isFinite(ms) && ms > freshestMs) {
-              freshestMs = ms;
-              freshestIso = iso;
-            }
-          }
-        }
-
-        const marker = await readMarker();
-        const nowMs = Date.now();
-        if (!shouldAutoRefresh(freshestIso, marker?.lastAttemptAt ?? null, nowMs, connectedCount)) {
-          return;
-        }
-
-        // Record the attempt BEFORE the refresh so a slow or failed refresh still
-        // throttles the next visit (no refresh storm while one is in flight).
-        await writeMarker({ lastAttemptAt: new Date(nowMs).toISOString() });
-
-        // The existing one-click refresh (pulls every connected read source +
-        // warms the shared surfaces). Awaited here inside after(), where the
-        // platform keeps the lambda alive until it settles.
-        await refreshAllConnectedDataNow();
-      } catch (e) {
-        log.warn("On-visit auto-refresh failed", {
-          tenantId,
-          error: e instanceof Error ? e.message.slice(0, 200) : String(e),
-        });
+        await runPostResponseCycle(tenantId);
+      } catch (error) {
+          log.warn("[autonomous] on-visit cycle failed (non-blocking)", {
+            tenantId,
+            error: error instanceof Error ? error.message.slice(0, 200) : String(error),
+          });
+      } finally {
+        scheduled.delete(tenantId);
       }
     });
   } catch {
-    // after() is only valid inside a request scope - a test or script caller
-    // simply gets a no-op, same as scheduleAutoMeasure.
+    scheduled.delete(tenantId);
+    // after() is only valid in a request scope. Tests and scripts get a no-op.
   }
 }
