@@ -11,7 +11,6 @@
 import type { ChangelogEntry } from "@/domains/changelog/types";
 import type { EvidenceTier, EvidenceTierMeta, PageEntity } from "./types";
 import { isOpaqueUrl, normalizePageUrl } from "./classify";
-import { getSiteConfig } from "@/lib/site-config";
 
 const WEAK_DESCRIPTION_PATTERNS = [
   /applied.*edits.*based on/i,
@@ -53,7 +52,10 @@ const MEASUREMENT_SIGNALS = new Set(["measurement"]);
  */
 export function classifyEvidenceTier(
   change: ChangelogEntry,
-  pageRegistry?: Map<string, PageEntity>
+  pageRegistry?: Map<string, PageEntity>,
+  /** Required only to resolve relative URLs. Omit → relative URL is not
+   * structural; never borrow a process-global tenant domain. */
+  siteDomain?: string,
 ): EvidenceTierMeta {
   const flags: string[] = [];
 
@@ -68,7 +70,7 @@ export function classifyEvidenceTier(
 
   const hasUrl = !!change.url && !isOpaqueUrl(change.url);
   const parsed = hasUrl
-    ? normalizePageUrl(change.url!, getSiteConfig().siteDomain)
+    ? normalizePageUrl(change.url!, siteDomain)
     : null;
   const hasStructuralUrl = !!parsed;
 
@@ -118,11 +120,15 @@ export function classifyEvidenceTier(
  */
 export function classifyAllEntries(
   changes: ChangelogEntry[],
-  pageRegistry?: Map<string, PageEntity>
+  pageRegistry?: Map<string, PageEntity>,
+  siteDomain?: string,
 ): Map<string, EvidenceTierMeta> {
   const result = new Map<string, EvidenceTierMeta>();
   for (const change of changes) {
-    result.set(change.id, classifyEvidenceTier(change, pageRegistry));
+    result.set(
+      change.id,
+      classifyEvidenceTier(change, pageRegistry, siteDomain),
+    );
   }
   return result;
 }

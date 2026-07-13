@@ -35535,6 +35535,26 @@ Verification: focused ownership/citation isolation suites 17/17; strict typechec
 1,496 files passed, 23,114 tests passed, 62 skipped, 0 failed; production build exit 0. Deployment
 remains pending and is not claimed.
 
+Deployment receipt: `origin/main` fast-forwarded to
+`000d1c99ff9997cac2f7b3877c1838942a347691`; Vercel deployment
+`dpl_fJDXrTGzf21PGFXCsguwAZcAz7cy` reached Ready and production `/api/version` returned the exact
+SHA.
+
+## 2026-07-12 - Evidence-tier explicit site identity release candidate
+
+Evidence-tier classification used process-global `getSiteConfig()` only to resolve a relative
+changelog URL. It now accepts an explicit tenant domain. Absolute URLs remain self-contained;
+relative URLs without domain context fail closed as non-structural and lower confidence rather than
+borrowing another tenant's identity. `classifyAllEntries` threads the same explicit argument. An
+A→B→A same-process regression proves explicit domains remain stable and no-context behavior is
+conservative.
+
+Verification: focused explicit-site identity suites 3/3; strict typecheck exit 0; full suite 1,497
+files passed, 23,115 tests passed, 62 skipped, 0 failed; production build exit 0. The first full
+run had one unrelated diagnostics operator-mode test time out at 30 seconds under suite contention;
+that file passed 52/52 in 1.69 seconds alone, then the complete gate was restarted from zero and
+passed. Deployment remains pending and is not claimed.
+
 ## 2026-07-11 - E-39 D4 wiring complete (32696319, review P2)
 
 2026-07-11 E-39 D4 wiring complete (32696319, review P2): honest engineering call, option B.
