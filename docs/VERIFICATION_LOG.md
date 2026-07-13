@@ -7,6 +7,24 @@
 
 ---
 
+## 2026-07-13 - Test-suite bloat audit + accidental-network fix (eef191db; deployment pending)
+
+The maximum audit measured 1,503 files / 23,192 tests, about 322,000 test lines versus about
+379,000 production TypeScript lines, 360 source-reading test files containing 4,273 statically
+collected cases, 62 skipped tests, and 257 strict unused-declaration findings (210 source, 21 scripts,
+26 tests). Static runtime reachability identified 44 apparently orphaned production files (about
+4,360 lines), 103 files reachable only from tests (about 21,042 lines), 23 offline validation/script
+files, and one script-only file. These are candidates for bounded deletion, not a claim that every
+file is safe to remove; computed imports remain the principal residual.
+
+Runtime profiling found one concrete defect: eleven unrelated onboarding launch tests used the real
+default first-scan path and each waited about six seconds on a bounded crawl. The test harness now
+defaults the existing injectable dispatcher to a successful no-network outcome; scan-specific tests
+still supply their own dispatcher and crawler. Focused result: 33/33, 17ms test-body time. Clean full
+gate: strict typecheck exit 0; 1,503 files, 23,130 passed, 62 skipped, 0 failed; suite duration 234.91s
+versus 308.95s before (74.04s / 24% faster); production build exit 0. No product behavior changed.
+Push, deployment, and hosted SHA verification remain pending at this entry.
+
 ## 2026-07-13 - Research-to-draft orchestration connected (a2c60e85, 004e2694)
 
 The `/changes` one-click plan builder now executes the existing dream-state components in the

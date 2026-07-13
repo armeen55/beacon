@@ -7,7 +7,10 @@
 > integration branch are reconciled at that code tip. This tip also connects the existing
 > one-click plan builder in its intended order: competitor winner teardown, keyword/SERP enrichment,
 > move preparation, then competitor-grounded draft regeneration. It reports analyzed pages separately
-> from pages freshly fetched, and remains fail-soft when external research is unavailable. The scan boundary is tenant-explicit: crawl target, child-process domain,
+> from pages freshly fetched, and remains fail-soft when external research is unavailable. The gated
+> local test-harness tip also prevents unrelated onboarding transaction tests from falling through to
+> a real cold-start crawl: the same 23,130 tests pass, while full-suite time fell from 308.95 seconds
+> to 234.91 seconds. Deployment of that test-only tip is pending. The scan boundary is tenant-explicit: crawl target, child-process domain,
 > robots lookup, homepage identity, and finding generation share the current tenant's validated
 > business domain and cannot inherit another request's process-wide site identity. This tip also
 > makes post-import milestone ownership tenant-explicit and parallelizes its independent evidence
@@ -94,6 +97,11 @@
   measured authenticated p50/p95 for this tip. Results' initial barrier and Today's additive
   context waterfall are removed at source;
   that is not yet a hosted latency claim.
+- **The repository is materially overgrown.** The audit found about 322,000 lines of tests against
+  about 379,000 lines of production TypeScript, 360 source-reading test files, 257 unused declarations,
+  44 apparently orphaned production files, and 103 production files reachable only from tests. These
+  are deletion candidates, not deletion proof; computed imports and intended offline tools require a
+  bounded review before removal.
 
 ## Next 3 actions
 

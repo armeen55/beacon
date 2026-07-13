@@ -67,7 +67,13 @@ chronology of what already landed lives in VERIFICATION_LOG.md; this list is onl
    are reported separately; failure of external research does not block the rest of the plan.
 20. **Test and dead-code reduction audit.** Measure suite ownership, duplication, runtime, and
    production reachability before proposing deletions. Remove obsolete protection and unreachable
-   code in bounded reviewed batches, never by raw test-count target.
+   code in bounded reviewed batches, never by raw test-count target. FIRST PERF FIX GATED LOCALLY:
+   the onboarding launch suite now injects its first-scan dependency instead of crawling a real host;
+   33/33 assertions remain and the full suite fell from 308.95s to 234.91s. Audit baseline: about
+   322k test lines, 360 source-reading files / 4,273 statically collected cases, 62 skipped tests,
+   257 unused declarations, 44 static-graph orphans, and 103 test-only production files. Deletion
+   order: skipped legacy blocks and unused imports; proven orphans; test-only feature islands plus
+   their tests; then consolidate source contracts and split parallel-safe from serial route tests.
 21. **Fresh blind unseen-topic benchmark.** Run 5 preregistered cases not used to build these
    corrections. A case that changes code is spent and must be replaced.
 22. **Scheduled-refresh receipt.** The first cron run after this deploy must leave a started
