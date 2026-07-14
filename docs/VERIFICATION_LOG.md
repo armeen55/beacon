@@ -35831,4 +35831,7 @@ then explicitly rebuilds the separate fused Changes snapshot. Previously the aut
 finish with new research while `/changes` continued serving its prior snapshot until that cache's
 own stale-refresh window. Today still refreshes last. Verification: focused autonomy/warm-surface
 suites 28/28; strict typecheck exit 0; complete suite 1,490 files / 22,859 passed / 23 skipped / 0
-failed; production build exit 0 with the same pre-existing warnings. Deployment pending.
+failed; production build exit 0 with the same pre-existing warnings. Deployment receipt:
+`acca40f3e4041f36dc717fae4162ca8eac032489` pushed to `origin/main`; Vercel deployment
+`dpl_HaJPBbXRVuJ9bbhfRE5wx2Prs347` reached Ready; production `/api/version` returned the exact SHA;
+public login returned 200 and protected Changes returned the expected 307 to login.

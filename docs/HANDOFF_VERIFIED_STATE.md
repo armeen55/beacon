@@ -14,7 +14,8 @@
 > Ask, Prompts, and Connectors; local Supabase network access was unavailable, so authenticated
 > data-backed visual verification remains pending. Production `/api/version` returned the exact
 > release SHA; `/login` returned 200 and `/changes` returned the expected 307 to login.
-> A follow-up warm-path correction is gate-green: the autonomous/free refresh now rebuilds the
+> A follow-up warm-path correction is deployed and SHA-verified at `acca40f3` (Vercel
+> `dpl_HaJPBbXRVuJ9bbhfRE5wx2Prs347`): the autonomous/free refresh now rebuilds the
 > separate fused Changes snapshot after the canonical worklist and before Today, so fresh research
 > is visible on the next page navigation instead of waiting for Changes' independent cache TTL.
 
