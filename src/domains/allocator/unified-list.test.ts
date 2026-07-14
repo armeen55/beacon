@@ -7,6 +7,7 @@ import {
   normalizeKeywordLibraryEntryWithRegistry,
   selectKeywordLibraryGaps,
   fuseByPage,
+  attachExactKeywordDemand,
   rankUnifiedEntries,
   unifiedScore,
   buildUnifiedList,
@@ -481,6 +482,33 @@ describe("unifiedScore + rankUnifiedEntries (ranking determinism, multi-lane boo
     const slow = { ...base, id: "slow", effortMinutes: 60 };
     const ranked = rankUnifiedEntries([slow, quick]);
     expect(ranked.map((e) => e.id)).toEqual(["quick", "slow"]);
+  });
+
+  it("measured demand breaks an otherwise-equal unsized tie without inventing a forecast", () => {
+    const unsized = { ...base, expectedValue: { ...base.expectedValue, low: null, high: null } };
+    const small = { ...unsized, id: "small", demandEvidence: { gscMonthly: null, searchVolumeMonthly: 10 } };
+    const large = { ...unsized, id: "large", demandEvidence: { gscMonthly: null, searchVolumeMonthly: 10_000 } };
+    expect(rankUnifiedEntries([small, large]).map((entry) => entry.id)).toEqual(["large", "small"]);
+    expect(large.expectedValue.low).toBeNull();
+    expect(large.expectedValue.high).toBeNull();
+  });
+
+  it("keeps the existing effort tiebreak for sized opportunities even when demand differs", () => {
+    const quick = { ...base, id: "quick", effortMinutes: 15, demandEvidence: { gscMonthly: null, searchVolumeMonthly: 10 } };
+    const slow = { ...base, id: "slow", effortMinutes: 60, demandEvidence: { gscMonthly: null, searchVolumeMonthly: 10_000 } };
+    expect(rankUnifiedEntries([slow, quick]).map((entry) => entry.id)).toEqual(["quick", "slow"]);
+  });
+
+  it("attaches exact cached volume across lanes and never fuzzy-matches a nearby query", () => {
+    const rows = [
+      { keyword: "persian tea culture", searchesPerMo: 1_900 },
+      { keyword: "persian tea", searchesPerMo: 9_000 },
+    ];
+    const exact = { ...base, id: "exact", query: "Persian Tea Culture" };
+    const nearby = { ...base, id: "nearby", query: "culture of persian tea" };
+    const [grounded, untouched] = attachExactKeywordDemand([exact, nearby], rows);
+    expect(grounded!.demandEvidence.searchVolumeMonthly).toBe(1_900);
+    expect(untouched).toBe(nearby);
   });
 
   it("a held entry sinks to the bottom but is never dropped from the list", () => {

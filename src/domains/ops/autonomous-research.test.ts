@@ -119,6 +119,10 @@ function deps(calls: string[]): AutonomousResearchDeps {
       calls.push("native");
       return { promptsAnalyzed: 3, torndownPages: 7, fromCache: 2, verdicts: [], results: [] };
     }),
+    completeFinalKeywordDemand: vi.fn(async () => {
+      calls.push("final-keywords");
+      return { status: "ok" as const, candidates: 12, missing: 8, checked: 8, withVolume: 7, costUsd: 0.075 };
+    }),
     prepareMoves: vi.fn(async () => {
       calls.push("prepare");
       return {
@@ -162,7 +166,7 @@ describe("runAutonomousResearchForTenant", () => {
     const receipt = await runAutonomousResearchForTenant(TENANT, NOW, deps(calls));
     expect(calls).toEqual([
       "graph", "competitors", "gaps", "packs", "keywords", "engines", "ai", "questions", "claims", "authority",
-      "loss", "steal", "native", "fuse", "prepare", "today",
+      "loss", "steal", "native", "final-keywords", "fuse", "prepare", "today",
     ]);
     expect(receipt.ok).toBe(true);
     expect(receipt.trigger).toBe("visit");
@@ -183,9 +187,10 @@ describe("runAutonomousResearchForTenant", () => {
       claimsChecked: 35,
       pagesMapped: 90,
       stealBriefsBuilt: 4,
+      finalKeywordTermsChecked: 8,
       readyToReview: 5,
       draftsRegenerated: 2,
-      spendUsd: 0.288,
+      spendUsd: 0.363,
     });
   });
 

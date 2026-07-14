@@ -534,6 +534,31 @@ export function fuseByPage(entries: readonly UnifiedEntry[]): UnifiedEntry[] {
   return fused;
 }
 
+/**
+ * Attach only exact cached keyword-demand matches to every lane before the one
+ * allocator run. This lets a newly discovered AEO gap retain its own lane and
+ * teardown while still carrying the market-volume receipt completed just before
+ * fusion. No fuzzy matching and no forecast is invented from volume alone.
+ */
+export function attachExactKeywordDemand(
+  entries: readonly UnifiedEntry[],
+  rows: readonly Pick<KeywordLibraryRow, "keyword" | "searchesPerMo">[],
+): UnifiedEntry[] {
+  const volumeByQuery = new Map(
+    rows
+      .filter((row) => row.searchesPerMo != null)
+      .map((row) => [row.keyword.trim().toLocaleLowerCase("en-US"), row.searchesPerMo!] as const),
+  );
+  return entries.map((entry) => {
+    const volume = volumeByQuery.get(entry.query.trim().toLocaleLowerCase("en-US"));
+    if (volume == null || entry.demandEvidence.searchVolumeMonthly === volume) return entry;
+    return {
+      ...entry,
+      demandEvidence: { ...entry.demandEvidence, searchVolumeMonthly: volume },
+    };
+  });
+}
+
 // ── Ranking ──────────────────────────────────────────────────────────────
 
 export const MULTI_LANE_BOOST_PER_EXTRA_SOURCE = 0.15; // +15% per corroborating lane beyond the first
@@ -573,6 +598,16 @@ export function rankUnifiedEntries(entries: readonly UnifiedEntry[]): UnifiedEnt
     const ra = Math.round(sa * 100);
     const rb = Math.round(sb * 100);
     if (ra !== rb) return rb - ra;
+    // When two opportunities are otherwise equal and honestly unsized, prefer
+    // the one with more measured demand. This is a tiebreaker, not a fabricated
+    // click forecast, and applies equally to GSC and exact market volume.
+    const bothUnsized = a.expectedValue.low == null && a.expectedValue.high == null &&
+      b.expectedValue.low == null && b.expectedValue.high == null;
+    if (bothUnsized) {
+      const demandA = Math.max(a.demandEvidence.gscMonthly ?? 0, a.demandEvidence.searchVolumeMonthly ?? 0);
+      const demandB = Math.max(b.demandEvidence.gscMonthly ?? 0, b.demandEvidence.searchVolumeMonthly ?? 0);
+      if (demandA !== demandB) return demandB - demandA;
+    }
     if (a.effortMinutes !== b.effortMinutes) return a.effortMinutes - b.effortMinutes;
     return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
   });

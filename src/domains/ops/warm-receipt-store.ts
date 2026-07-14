@@ -49,6 +49,7 @@ export type WarmRunSummary = {
   /** Same-cycle Google research over the exact final Changes order. */
   finalSerpQueriesChecked?: number;
   finalSerpWinnersAnalyzed?: number;
+  finalKeywordTermsChecked?: number;
   movesPrepared: number;
   readyToReview: number;
   draftsRegenerated: number;

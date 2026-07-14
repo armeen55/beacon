@@ -44,6 +44,7 @@ import {
   normalizeGapVerdictEntry,
   normalizeStealBriefEntry,
   normalizeKeywordLibraryEntryWithCoverage,
+  attachExactKeywordDemand,
   selectKeywordLibraryGaps,
   buildUnifiedList,
   unifiedEntryToCanonicalChange,
@@ -96,7 +97,11 @@ export async function fuseUnifiedList(tenantId: string, worklistChanges: readonl
     return normalizeKeywordLibraryEntryWithCoverage(tenantId, r, ownershipRegistry, coverage);
   });
 
-  const unifiedEntries = buildUnifiedList([...worklistEntries, ...gapEntries, ...stealEntries, ...keywordEntries]);
+  const demandGroundedEntries = attachExactKeywordDemand(
+    [...worklistEntries, ...gapEntries, ...stealEntries, ...keywordEntries],
+    keywordLibrary.rows,
+  );
+  const unifiedEntries = buildUnifiedList(demandGroundedEntries);
   const skippedChanges = worklistChanges.filter((c) => c.status === "skipped");
 
   const changes: CanonicalChange[] = [

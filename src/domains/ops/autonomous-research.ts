@@ -12,6 +12,7 @@ import type { EnrichmentRunResult } from "@/domains/serp/research-enrichment-pro
 import type { ResearchPackLite } from "@/domains/serp/research-enrichment";
 import type { KeywordGapRunResult } from "@/domains/serp/keyword-gap-producer";
 import type { StealLaneRunSummary } from "@/domains/serp/serp-steal-lane";
+import type { FinalKeywordDemandResult } from "@/domains/serp/final-keyword-demand";
 import type {
   WarmRunReceipt,
   WarmRunSummary,
@@ -42,6 +43,14 @@ const EMPTY_NATIVE: NativeTeardownRunSummary = {
   fromCache: 0,
   verdicts: [],
   results: [],
+};
+const EMPTY_FINAL_KEYWORDS: FinalKeywordDemandResult = {
+  status: "error",
+  candidates: 0,
+  missing: 0,
+  checked: 0,
+  withVolume: 0,
+  costUsd: 0,
 };
 const EMPTY_PREPARE: PrepareMovesSummary = {
   considered: 0,
@@ -75,6 +84,7 @@ export type AutonomousResearchDeps = {
   checkDisplacement: (tenantId: string, now: Date) => Promise<DisplacementCheckSummary>;
   runStealLane: (tenantId: string, now: Date) => Promise<StealLaneRunSummary>;
   runNativeTeardown: (tenantId: string) => Promise<NativeTeardownRunSummary>;
+  completeFinalKeywordDemand: (tenantId: string) => Promise<FinalKeywordDemandResult>;
   prepareMoves: (tenantId: string, now: Date) => Promise<PrepareMovesSummary>;
   finishSurfaces: (
     tenantId: string,
@@ -158,6 +168,10 @@ const defaultDeps: AutonomousResearchDeps = {
   runNativeTeardown: async (tenantId) => {
     const { runNativeTeardownForTenant } = await import("@/domains/demand-graph/native-teardown-runner");
     return await runNativeTeardownForTenant(tenantId, { maxPrompts: 10 });
+  },
+  completeFinalKeywordDemand: async (tenantId) => {
+    const { completeFinalKeywordDemandForTenant } = await import("@/domains/serp/final-keyword-demand");
+    return await completeFinalKeywordDemandForTenant(tenantId, { maxQueries: 25 });
   },
   prepareMoves: async (tenantId, now) => {
     const [{ prepareTodayMovesForTenant }, { readChangesSurface }] = await Promise.all([
@@ -269,6 +283,9 @@ export async function runAutonomousResearchForTenant(
   steps.push(steal.receipt);
   const native = await runStep("native-citation-teardown", EMPTY_NATIVE, () => deps.runNativeTeardown(tenantId));
   steps.push(native.receipt);
+  const finalKeywords = await runStep("final-keyword-demand", EMPTY_FINAL_KEYWORDS, () =>
+    deps.completeFinalKeywordDemand(tenantId));
+  steps.push(finalKeywords.receipt);
 
   let prepared = EMPTY_PREPARE;
   const finish = await runStep<WarmRunReceipt | null>("fuse-rank-prepare-surfaces", null, () =>
@@ -290,9 +307,9 @@ export async function runAutonomousResearchForTenant(
   }
 
   const dataForSeoStatus: WarmRunSummary["dataForSeoStatus"] =
-    enrichment.value?.configured !== true || keywordGaps.value?.status === "disabled" || topics.value?.status === "disabled"
+    enrichment.value?.configured !== true || keywordGaps.value?.status === "disabled" || topics.value?.status === "disabled" || finalKeywords.value.status === "disabled"
       ? "disabled"
-      : enrichment.value.mode === "dry_run" || keywordGaps.value?.status === "dry_run" || topics.value?.status === "dry_run"
+      : enrichment.value.mode === "dry_run" || keywordGaps.value?.status === "dry_run" || topics.value?.status === "dry_run" || finalKeywords.value.status === "dry_run"
         ? "dry_run"
         : "live";
   const summary: WarmRunSummary = {
@@ -323,6 +340,7 @@ export async function runAutonomousResearchForTenant(
     citedPagesAnalyzed: native.value.torndownPages,
     finalSerpQueriesChecked: prepared.serpQueriesChecked ?? 0,
     finalSerpWinnersAnalyzed: prepared.serpWinnerPagesAnalyzed ?? 0,
+    finalKeywordTermsChecked: finalKeywords.value.checked,
     movesPrepared: prepared.prepared,
     readyToReview: prepared.readyToReview,
     draftsRegenerated: prepared.regenerated,
@@ -333,6 +351,7 @@ export async function runAutonomousResearchForTenant(
       (enginePoll.value?.engines.reduce((sum, engine) => sum + engine.costUsd, 0) ?? 0) +
       displacement.value.costUsd +
       steal.value.liveCostUsd +
+      finalKeywords.value.costUsd +
       prepared.llmCostUsd +
       prepared.serpCostUsd
     ).toFixed(3)),

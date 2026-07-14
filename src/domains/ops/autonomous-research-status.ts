@@ -16,6 +16,9 @@ export function autonomousResearchStatusLine(receipt: WarmRunReceipt | null): st
   const s = receipt.summary;
   const evidence = [
     `${s.keywordTermsPlanned.toLocaleString()} keyword signals`,
+    ...((s.finalKeywordTermsChecked ?? 0) > 0
+      ? [`${(s.finalKeywordTermsChecked ?? 0).toLocaleString()} final keyword volumes`]
+      : []),
     `${s.keywordGapsFound.toLocaleString()} competitor keyword gaps`,
     `${s.competitorPagesAnalyzed.toLocaleString()} competitor pages`,
     ...((s.finalSerpWinnersAnalyzed ?? 0) > 0
