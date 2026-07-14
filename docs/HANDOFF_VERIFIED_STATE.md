@@ -1,5 +1,22 @@
 # Beacon Verified State
 
+> 🟠 **The 2026-07-14 P0 recommendation-surface tenant-isolation fix is deployed and
+> SHA-verified at `dfa8ff8a` (Vercel `dpl_A9CEmJDPbQcWn2YNh3sErzjRkVs4`).** Authenticated operator
+> evidence showed the Iranopedia shell and Iranopedia Search Console totals while Changes listed
+> Ritz construction queries. The cause was a real background-boundary defect: the Changes rebuild
+> received an explicit Iranopedia tenant ID, but its worklist/new-page dependencies and nested Today
+> and competitor-audit reads fell back to the process-default Ritz tenant before the result was
+> written under Iranopedia's snapshot key. Those dependencies are now tenant-explicit throughout;
+> tenant business configuration is hydrated from Supabase before the local fallback; persisted
+> Changes/worklist snapshots embed tenant identity and reject legacy, missing, or mismatched
+> identity; and a final owned-domain guard prevents absolute cross-domain edit targets from reaching
+> a tenant's list. Verification: strict typecheck; 1,495 test files / 22,888 passed / 23 conditional
+> skips / 0 failed; production build exit 0 with the three existing Turbopack NFT trace warnings and
+> middleware deprecation warning. Production `/api/version` returned the exact full SHA; `/login`
+> returned 200 and unauthenticated `/changes` returned the expected 307. Authenticated post-fix
+> Iranopedia list inspection remains pending; the fix is deployed, but the corrected tenant data is
+> not yet visually claimed.
+
 > 🟢 **The 2026-07-14 final-demand completion release is deployed and SHA-verified at `287d7c3a`
 > (Vercel `dpl_5KTG1sFoYjVxSoPiSV7maNDC9dWi`).** Immediately after native AEO teardown and before
 > the one final allocator/fusion pass, the autonomous visit runner now finds missing exact keyword

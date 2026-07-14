@@ -3105,6 +3105,15 @@ create expected clicks, override a sized opportunity, or introduce another formu
 receipt exposes checked terms. The remaining proof is one authenticated hosted tenant run showing
 the receipt and allocator-only winner through PreparedMove.
 
+**P0 tenant-isolation decision, 2026-07-14:** every background or post-response builder that begins
+with an explicit tenant must keep that tenant explicit through every nested recommendation and
+research read. Request-ambient or process-default tenant selection is forbidden inside that graph.
+Persisted recommendation surfaces must carry tenant identity and fail closed on missing or
+mismatched identity; absolute edit targets receive a final owned-domain check before display. This
+decision follows authenticated evidence of an Iranopedia Changes snapshot built from Ritz ambient
+dependencies. It is a correctness boundary for the connected brain, not optional multi-tenant SaaS
+scope, and it must remain intact before further autonomous proof is accepted.
+
 ---
 
 ## FUTURE IDEAS (not in current execution plan)

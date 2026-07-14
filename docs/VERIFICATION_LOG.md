@@ -7,6 +7,32 @@
 
 ---
 
+## 2026-07-14 - P0 recommendation-surface tenant isolation (dfa8ff8a)
+
+Authenticated operator evidence showed a coherent Iranopedia Today page and tenant header, but the
+Iranopedia Changes page ranked Ritz construction queries. This was not a labeling defect. The
+tenant-explicit Changes background builder called ambient worklist and new-page loaders; the
+worklist in turn called ambient Today-move and competitor-audit readers. Outside request context,
+those dependencies selected the process-default Ritz tenant, and the resulting Ritz-derived list
+was persisted under Iranopedia's correctly scoped Changes snapshot key.
+
+The rebuild now passes its explicit tenant through the Changes surface, worklist, Today-move,
+new-page, and competitor-audit paths. Tenant business configuration is hydrated from Supabase before
+falling back to synchronous local configuration. Changes and worklist snapshots now persist the
+requested tenant ID and explicit reads reject legacy snapshots with no identity as well as mismatched
+snapshots, forcing a clean rebuild instead of serving potentially contaminated data. The worklist
+also applies a last-line owned-domain guard to absolute edit targets while preserving relative URLs
+and legitimate new-page moves. Regression coverage pins A/B competitor-audit reads, source wiring,
+snapshot rejection/identity writes, and the domain guard.
+
+Verification: strict typecheck exit 0; full suite 1,495 files passed, 22,888 tests passed, 23 skipped,
+0 failed in 89.21 seconds; production build exit 0. Build emitted the three pre-existing broad
+Turbopack NFT trace warnings and existing middleware deprecation warning. Product commit
+`dfa8ff8a1549cda3fd4d8bd1290357cb14573e4f` pushed to `origin/main`; Vercel deployment
+`dpl_A9CEmJDPbQcWn2YNh3sErzjRkVs4` reached Ready; production `/api/version` returned that exact SHA;
+`/login` returned 200; unauthenticated `/changes` returned the expected 307 to login. Authenticated
+post-fix Iranopedia list verification is still pending, so no corrected-data claim is made yet.
+
 ## 2026-07-14 - Final candidate keyword-demand completion (287d7c3a)
 
 Closed the last same-cycle demand seam before final ranking. Earlier enrichment measured an initial

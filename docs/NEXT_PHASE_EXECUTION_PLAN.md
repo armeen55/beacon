@@ -114,8 +114,14 @@ chronology of what already landed lives in VERIFICATION_LOG.md; this list is onl
    to 25 AEO-gap, SERP-steal, and graph candidates through one existing guarded batch. Cached volume
    attaches across every lane; it only breaks otherwise-equal unsized ties and never fabricates a
    forecast or changes sized-opportunity ranking. The autonomous receipt reports checked terms. No
-   render-time paid call, second ranker, button, cron, or publish path was added. Next: authenticated
-   hosted proof on one real allocator-only winner, then the fresh unseen-topic dogfood run.
+   render-time paid call, second ranker, button, cron, or publish path was added. P0 TENANT-ISOLATION
+   CORRECTION DEPLOYED AND SHA-VERIFIED at `dfa8ff8a`: authenticated evidence caught an Iranopedia
+   Changes snapshot populated from Ritz through ambient dependencies inside an explicit background
+   rebuild. Changes, worklist, Today, new-page, and competitor-audit reads are now tenant-explicit;
+   stored surface snapshots carry and validate tenant identity; and an owned-domain guard rejects
+   cross-domain edit targets. Next: refresh authenticated Iranopedia Changes to prove the rebuilt
+   top five contain only Iranopedia demand, then inspect one real allocator-only winner through its
+   PreparedMove.
 21. **Fresh blind unseen-topic benchmark.** Run 5 preregistered cases not used to build these
    corrections. A case that changes code is spent and must be replaced.
 22. **Scheduled-refresh receipt.** The first cron run after this deploy must leave a started
