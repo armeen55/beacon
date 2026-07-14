@@ -35825,3 +35825,10 @@ access failed, so no authenticated visual/data-backed claim is made. Deployment 
 `4f7fa7340335ffa40ed31733aa813cae7eb2537e` pushed to `origin/main`; Vercel deployment
 `dpl_4QMQYSjHpbNWzb92hbKeQtzcFLpr` reached Ready; production `/api/version` returned the exact SHA;
 `/login` returned 200; `/changes` returned the expected 307 to `/login?next=%2Fchanges`.
+
+Follow-up warm-path correction: `defaultRefreshWorklist` now refreshes the canonical worklist and
+then explicitly rebuilds the separate fused Changes snapshot. Previously the autonomous cycle could
+finish with new research while `/changes` continued serving its prior snapshot until that cache's
+own stale-refresh window. Today still refreshes last. Verification: focused autonomy/warm-surface
+suites 28/28; strict typecheck exit 0; complete suite 1,490 files / 22,859 passed / 23 skipped / 0
+failed; production build exit 0 with the same pre-existing warnings. Deployment pending.

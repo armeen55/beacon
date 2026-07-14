@@ -97,7 +97,9 @@ chronology of what already landed lives in VERIFICATION_LOG.md; this list is onl
    ResearchDossier per graph move from cached keyword volume/difficulty, live SERP patterns, AI
    prompts/citations/fanouts, clone briefs, and question coverage; it becomes part of EvidencePacket,
    draft inputs, staleness hashing, source references, and the persisted PreparedMove receipt. Next:
-   prepare allocator-only winners through this same path without creating a second ranker.
+   prepare allocator-only winners through this same path without creating a second ranker. FOLLOW-UP
+   GATE-GREEN: the warm path now rebuilds the separate fused Changes snapshot after the worklist, so
+   autonomous evidence/ranking changes paint before Today and do not wait on Changes' cache TTL.
 21. **Fresh blind unseen-topic benchmark.** Run 5 preregistered cases not used to build these
    corrections. A case that changes code is spent and must be replaced.
 22. **Scheduled-refresh receipt.** The first cron run after this deploy must leave a started

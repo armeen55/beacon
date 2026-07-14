@@ -168,8 +168,16 @@ async function defaultRefreshDemandGraph(tenantId: string): Promise<void> {
 }
 
 async function defaultRefreshWorklist(tenantId: string): Promise<void> {
-  const { refreshWorklistSurface } = await import("@/app/(shell)/moves/moves-data");
+  const [{ refreshWorklistSurface }, { rebuildChangesSurface }] = await Promise.all([
+    import("@/app/(shell)/moves/moves-data"),
+    import("@/app/(shell)/changes-data"),
+  ]);
+  // The worklist and Changes have separate durable SWR snapshots. Research
+  // changes the inputs to both, so warming only /moves leaves /changes serving
+  // the previous ranking until its independent TTL expires. Rebuild in
+  // dependency order: canonical worklist first, then the fused Changes view.
   await refreshWorklistSurface(tenantId);
+  await rebuildChangesSurface(tenantId);
 }
 
 async function defaultRefreshToday(tenantId: string): Promise<void> {
