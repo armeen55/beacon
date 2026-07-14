@@ -1,7 +1,7 @@
 # Beacon Verified State
 
-> 🟢 **The 2026-07-14 ResearchDossier convergence release candidate is gate-green and awaiting
-> deployment identity.** Beacon now assembles one tenant-explicit, timestamp-stable dossier for
+> 🟢 **The 2026-07-14 ResearchDossier convergence release is deployed and SHA-verified at
+> `4f7fa734` (Vercel `dpl_4QMQYSjHpbNWzb92hbKeQtzcFLpr`).** Beacon now assembles one tenant-explicit, timestamp-stable dossier for
 > every graph-derived Move from the existing keyword library, cached DataForSEO volume/difficulty,
 > live SERP winner patterns, AI prompts/citations/fanouts, clone-brief winner teardowns, and the
 > ranked question universe. The dossier is part of the canonical EvidencePacket and its material
@@ -12,7 +12,8 @@
 > added. Full gate: strict typecheck; 1,490 test files / 22,859 passed / 23 conditional skips / 0
 > failed; production build exit 0. Local auth-bypass smoke returned 200 for Today, Changes, Results,
 > Ask, Prompts, and Connectors; local Supabase network access was unavailable, so authenticated
-> data-backed visual verification remains a hosted check after deploy.
+> data-backed visual verification remains pending. Production `/api/version` returned the exact
+> release SHA; `/login` returned 200 and `/changes` returned the expected 307 to login.
 
 > 🟢 **The 2026-07-14 autonomous-clarity release is pushed and SHA-verified in production at
 > `d6dcb0c7` (Vercel `dpl_6x3xjQVMjS4dyswTbjKVujMpJNxz`).** It combines the stronger

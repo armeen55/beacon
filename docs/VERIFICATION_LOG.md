@@ -35821,5 +35821,7 @@ files passed, 22,859 tests passed, 23 skipped, 0 failed; production build exit 0
 Turbopack NFT trace warnings plus the existing middleware deprecation warning). Local auth-bypass
 server smoke returned HTTP 200 for `/`, `/changes`, `/results`, `/ask`, `/prompts`, and
 `/settings/connectors`. The in-app browser runtime could not initialize, and local Supabase network
-access failed, so no authenticated visual/data-backed claim is made. Deployment and hosted exact-SHA
-verification are pending.
+access failed, so no authenticated visual/data-backed claim is made. Deployment receipt:
+`4f7fa7340335ffa40ed31733aa813cae7eb2537e` pushed to `origin/main`; Vercel deployment
+`dpl_4QMQYSjHpbNWzb92hbKeQtzcFLpr` reached Ready; production `/api/version` returned the exact SHA;
+`/login` returned 200; `/changes` returned the expected 307 to `/login?next=%2Fchanges`.

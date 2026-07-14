@@ -89,7 +89,7 @@ chronology of what already landed lives in VERIFICATION_LOG.md; this list is onl
    reflexes, final fusion/ranking, capped draft preparation, then Today. It uses existing guarded
    producers and never publishes. Local hardening overlaps native AI calls through a bounded pool,
    preserves sequential paid-ledger calls, reports same-day no-op honestly, and includes engine cost.
-20b. **Dream-state convergence seam.** SECOND SLICE GATE-GREEN, DEPLOYMENT IDENTITY PENDING. Real top GSC queries
+20b. **Dream-state convergence seam.** SECOND SLICE DEPLOYED AND SHA-VERIFIED at `4f7fa734`. Real top GSC queries
    and impression weights now survive graph compilation into EvidencePacket, intent routing, prepared
    packs, and drafting; minor count drift is bucketed before evidence-hash invalidation. The global
    shell header shows the existing durable autonomous receipt without adding a control, and the unified
