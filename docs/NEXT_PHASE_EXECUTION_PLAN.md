@@ -109,8 +109,13 @@ chronology of what already landed lives in VERIFICATION_LOG.md; this list is onl
    dossier and prepared move. The exact final top-ten order also receives cache-first live Google
    research; up to two on-topic winners per query are politely torn down before packets/drafts are
    built, and new-page moves are held before LLM spend when Google rejects them. No second ranker,
-   button, cron, or publish path was added. Next: authenticated hosted proof on one real
-   allocator-only winner, then the fresh unseen-topic dogfood run.
+   button, cron, or publish path was added. FIFTH SLICE DEPLOYED AND SHA-VERIFIED at `287d7c3a`:
+   immediately before final fusion, the visit runner completes missing exact keyword demand for up
+   to 25 AEO-gap, SERP-steal, and graph candidates through one existing guarded batch. Cached volume
+   attaches across every lane; it only breaks otherwise-equal unsized ties and never fabricates a
+   forecast or changes sized-opportunity ranking. The autonomous receipt reports checked terms. No
+   render-time paid call, second ranker, button, cron, or publish path was added. Next: authenticated
+   hosted proof on one real allocator-only winner, then the fresh unseen-topic dogfood run.
 21. **Fresh blind unseen-topic benchmark.** Run 5 preregistered cases not used to build these
    corrections. A case that changes code is spent and must be replaced.
 22. **Scheduled-refresh receipt.** The first cron run after this deploy must leave a started

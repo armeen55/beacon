@@ -1,5 +1,21 @@
 # Beacon Verified State
 
+> 🟢 **The 2026-07-14 final-demand completion release is deployed and SHA-verified at `287d7c3a`
+> (Vercel `dpl_5KTG1sFoYjVxSoPiSV7maNDC9dWi`).** Immediately after native AEO teardown and before
+> the one final allocator/fusion pass, the autonomous visit runner now finds missing exact keyword
+> demand across new AEO gaps, SERP steals, and graph moves and sends at most 25 queries through one
+> existing guarded DataForSEO volume batch. Fresh cached rows cost nothing; disabled, dry-run,
+> capped, or failed reads remain fail-soft. The resulting exact-match volumes attach to every lane
+> before ranking. They break only otherwise-equal ties where both opportunities are honestly
+> unsized; sized opportunities keep the existing score and effort order, and Beacon never invents
+> a click forecast. The global autonomous receipt reports how many final keyword volumes were
+> actually checked. No render-time paid call, second formula/ranker, page, button, cron, or publish
+> path was added. Verification: strict typecheck; 1,494 test files / 22,880 passed / 23 conditional
+> skips / 0 failed; production build exit 0 with three existing Turbopack NFT trace warnings and
+> the middleware deprecation warning. Production `/api/version` returned the exact full release
+> SHA; `/login` returned 200 and `/changes` returned the expected 307 to login. Authenticated hosted
+> tenant-data proof remains pending.
+
 > 🟢 **The 2026-07-14 final-winner research release is deployed and SHA-verified at `06644b31` (Vercel
 > `dpl_54nD1Pt4nucC8NQXxm8vMeUMRoe3`).** The exact final Changes order now receives one bounded,
 > cache-first live Google read per top query before preparation. Beacon selects up to two on-topic
@@ -186,9 +202,10 @@
   source-pinning tests; no OAuth, tenant isolation, publishing, factual-safety, connector
   reconciliation, or rollback contracts were removed.
 - **The connected research architecture is complete in code, not yet proven on hosted tenant data.**
-  Worklist, native/Profound AEO, SERP-steal, keyword gaps, final live Google winners, one allocator,
-  one EvidencePacket and one PreparedMove are structurally connected. The remaining bar is one
-  authenticated visit proving those receipts and the resulting allocator-only move on real data.
+  Worklist, native/Profound AEO, SERP-steal, exact final-candidate keyword demand, final live Google
+  winners, one allocator, one EvidencePacket and one PreparedMove are structurally connected. The
+  remaining bar is one authenticated visit proving those receipts and the resulting allocator-only
+  move on real data.
   GA4 engagement is also not yet a bounded ranking input.
 - **Autonomous research has a cross-instance lock residual.** The daily durable receipt plus the
   process single-flight collapse normal visits, and every paid producer is independently cached and
@@ -198,8 +215,8 @@
 ## Next 3 actions
 
 1. **Verify this release on one authenticated autonomous visit.** Confirm the global header reaches
-   ready/partial, names final Google winners analyzed, and the top allocator-only Changes winner
-   becomes the source-backed PreparedMove in that exact order.
+   ready/partial, names final Google winners and final keyword volumes analyzed, and the top
+   allocator-only Changes winner becomes the source-backed PreparedMove in that exact order.
 2. **Dogfood Iranopedia end to end.** Run one fresh unseen topic through automatic research -> ranked
    move -> source-backed draft, and judge whether the instruction is actually useful.
 3. **Measure authenticated hosted speed.** Capture Today/Changes/Results p50-style navigation timings

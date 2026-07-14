@@ -7,6 +7,32 @@
 
 ---
 
+## 2026-07-14 - Final candidate keyword-demand completion (287d7c3a)
+
+Closed the last same-cycle demand seam before final ranking. Earlier enrichment measured an initial
+shortlist, but a newly discovered native AEO or SERP-steal candidate could enter the final allocator
+without exact keyword volume. Because unsized create-page candidates then shared the same fallback
+score, materially different demand could collapse to effort or ID order.
+
+The autonomous visit runner now performs one fail-soft `final-keyword-demand` step after native AEO
+teardown and before final surfaces/fusion. It prioritizes AEO gaps, SERP steals, then graph move
+labels; normalizes and deduplicates exact queries; removes fresh 14-day cache hits; caps the pool at
+25; and calls the existing DataForSEO keyword-volume runner at most once. That runner retains its
+configured/dry-run/cache/spend-ledger/monthly-cap fail-closed gauntlet. The refreshed keyword library
+then attaches exact volume across worklist, AEO, steal, and keyword-library lanes before the single
+allocator pass. Volume breaks only an otherwise-equal tie when both candidates have no expected-
+value bounds; sized opportunities retain the existing effort tiebreak. No forecast is inferred from
+volume. The autonomous status receipt reports actually checked final terms.
+
+Verification: focused final-demand/allocator/autonomy/status suites 57/57; strict typecheck exit 0;
+full suite 1,494 files passed, 22,880 tests passed, 23 skipped, 0 failed in 86.25 seconds; production
+build exit 0. Build emitted three pre-existing broad NFT trace warnings and the existing middleware
+deprecation warning. Product commit `287d7c3a8663d8a7e22d177909c1e2f4b99004c8` pushed to
+`origin/main`; Vercel deployment `dpl_5KTG1sFoYjVxSoPiSV7maNDC9dWi` reached Ready; production
+`/api/version` returned that exact SHA; `/login` returned 200; `/changes` returned the expected 307
+to `/login?next=%2Fchanges`. Authenticated tenant-data inspection remains pending; no such claim is
+made.
+
 ## 2026-07-14 - Final live-winner + native AEO convergence (06644b31)
 
 Closed two evidence-loss seams in the autonomous research path. First, native AI polling already

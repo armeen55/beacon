@@ -3096,6 +3096,15 @@ Google reject. This preserves one ranker and one prepared-move path; no new page
 publishing path exists. Remaining proof is operational and authenticated, not another architecture
 slice.
 
+**Fifth slice implemented 2026-07-14:** final candidate demand now closes inside the same visit-run
+before the allocator's one final pass. Beacon prioritizes native AEO gaps, then SERP steals, then
+graph move labels; excludes fresh exact cached demand; and sends at most 25 missing queries through
+one existing guarded DataForSEO keyword-volume batch. Exact volume is attached across all allocator
+lanes and may only break an otherwise-equal tie when both entries are honestly unsized. It does not
+create expected clicks, override a sized opportunity, or introduce another formula/ranker. The
+receipt exposes checked terms. The remaining proof is one authenticated hosted tenant run showing
+the receipt and allocator-only winner through PreparedMove.
+
 ---
 
 ## FUTURE IDEAS (not in current execution plan)
