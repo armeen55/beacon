@@ -26,8 +26,11 @@ invariant pins all four redirects and the customer link, and its catalog entry i
 Verification: focused route/invariant suites 19/19; strict typecheck exit 0; full suite 1,496 files
 passed, 22,893 tests passed, 23 skipped, 0 failed in 87.31 seconds; production build exit 0. Build
 emitted two pre-existing broad Turbopack NFT trace warnings and the existing middleware deprecation
-warning. Product commit `940a2e40` is ready to push; deployment and hosted redirect verification are
-pending.
+warning. Product commit `940a2e40` and documentation tip `94ac32f4` were pushed to `origin/main`;
+Vercel deployment `dpl_66ydvpq8Rydr867C6ioZSQRkcDPK` reached Ready; production `/api/version`
+returned exact tip SHA `94ac32f4d43cf8a661f1b3e10225f9611bc7598d`; `/login` returned 200;
+and unauthenticated protected-route requests reached their expected login continuations. The four
+signed-in redirects still require one authenticated browser read-back, so no visual claim is made.
 
 ## 2026-07-14 - P0 recommendation-surface tenant isolation (dfa8ff8a)
 

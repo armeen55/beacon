@@ -1,6 +1,7 @@
 # Beacon Verified State
 
-> 🟢 **The 2026-07-14 customer-path correction is code-complete at `940a2e40`.** The legacy
+> 🟢 **The 2026-07-14 customer-path correction is deployed at `940a2e40` and SHA-verified
+> through documentation tip `94ac32f4` (Vercel `dpl_66ydvpq8Rydr867C6ioZSQRkcDPK`).** The legacy
 > operator pages `/diagnostics`, `/diagnostics/brain`, `/diagnostics/spikes`, and
 > `/diagnostics/action-packs` no longer terminate a normal signed-in journey in filesystem reports,
 > command-line scripts, feature flags, empty forensic panels, or a second allocator view. They route
@@ -9,8 +10,10 @@
 > no customer has to run a script, set an environment variable, press a new control, or wait for a
 > new cron. Verification: strict typecheck; focused route/invariant suites 19/19; full suite 1,496
 > files / 22,893 passed / 23 conditional skips / 0 failed; production build exit 0 with two existing
-> broad Turbopack NFT trace warnings and the middleware deprecation warning. Production deployment
-> and hosted redirect smoke are pending.
+> broad Turbopack NFT trace warnings and the middleware deprecation warning. Production
+> `/api/version` returned exact tip SHA `94ac32f4d43cf8a661f1b3e10225f9611bc7598d`; `/login` returned
+> 200; and unauthenticated protected-route requests reached their expected login continuations.
+> Signed-in visual redirect proof remains pending.
 
 > 🟠 **The 2026-07-14 P0 recommendation-surface tenant-isolation fix is deployed and
 > SHA-verified at `dfa8ff8a` (Vercel `dpl_A9CEmJDPbQcWn2YNh3sErzjRkVs4`).** Authenticated operator
