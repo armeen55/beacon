@@ -119,7 +119,11 @@ chronology of what already landed lives in VERIFICATION_LOG.md; this list is onl
    Changes snapshot populated from Ritz through ambient dependencies inside an explicit background
    rebuild. Changes, worklist, Today, new-page, and competitor-audit reads are now tenant-explicit;
    stored surface snapshots carry and validate tenant identity; and an owned-domain guard rejects
-   cross-domain edit targets. Next: refresh authenticated Iranopedia Changes to prove the rebuilt
+   cross-domain edit targets. CUSTOMER-PATH CORRECTION CODE-COMPLETE at `940a2e40`: the legacy
+   diagnostics index, filesystem-backed brain report, empty spike forensics, and allocator dump now
+   return signed-in users to Today, Results, or the canonical Changes list. No customer-facing flow
+   asks the operator to run scripts, configure environment values, or choose a diagnostic ranker.
+   Next: refresh authenticated Iranopedia Changes to prove the rebuilt
    top five contain only Iranopedia demand, then inspect one real allocator-only winner through its
    PreparedMove.
 21. **Fresh blind unseen-topic benchmark.** Run 5 preregistered cases not used to build these

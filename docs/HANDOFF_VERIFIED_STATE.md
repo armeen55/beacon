@@ -1,5 +1,17 @@
 # Beacon Verified State
 
+> 🟢 **The 2026-07-14 customer-path correction is code-complete at `940a2e40`.** The legacy
+> operator pages `/diagnostics`, `/diagnostics/brain`, `/diagnostics/spikes`, and
+> `/diagnostics/action-packs` no longer terminate a normal signed-in journey in filesystem reports,
+> command-line scripts, feature flags, empty forensic panels, or a second allocator view. They route
+> to Today, Results, or the canonical Changes list. Today's remaining new-page continuation also
+> stays inside Changes. The engineering implementations remain intact behind the source boundary;
+> no customer has to run a script, set an environment variable, press a new control, or wait for a
+> new cron. Verification: strict typecheck; focused route/invariant suites 19/19; full suite 1,496
+> files / 22,893 passed / 23 conditional skips / 0 failed; production build exit 0 with two existing
+> broad Turbopack NFT trace warnings and the middleware deprecation warning. Production deployment
+> and hosted redirect smoke are pending.
+
 > 🟠 **The 2026-07-14 P0 recommendation-surface tenant-isolation fix is deployed and
 > SHA-verified at `dfa8ff8a` (Vercel `dpl_A9CEmJDPbQcWn2YNh3sErzjRkVs4`).** Authenticated operator
 > evidence showed the Iranopedia shell and Iranopedia Search Console totals while Changes listed
@@ -224,6 +236,10 @@
   remaining bar is one authenticated visit proving those receipts and the resulting allocator-only
   move on real data.
   GA4 engagement is also not yet a bounded ranking input.
+- **The old diagnostics implementations still exist as engineering code, but they are no longer a
+  customer destination.** The four routes that caused the reported dead ends now return users to
+  Today, Results, or Changes; this is not a claim that every legacy diagnostic subtree has been
+  physically deleted.
 - **Autonomous research has a cross-instance lock residual.** The daily durable receipt plus the
   process single-flight collapse normal visits, and every paid producer is independently cached and
   capped, but the receipt claim is not one atomic database compare-and-set across two simultaneous
@@ -231,13 +247,12 @@
 
 ## Next 3 actions
 
-1. **Verify this release on one authenticated autonomous visit.** Confirm the global header reaches
-   ready/partial, names final Google winners and final keyword volumes analyzed, and the top
-   allocator-only Changes winner becomes the source-backed PreparedMove in that exact order.
-2. **Dogfood Iranopedia end to end.** Run one fresh unseen topic through automatic research -> ranked
-   move -> source-backed draft, and judge whether the instruction is actually useful.
-3. **Measure authenticated hosted speed.** Capture Today/Changes/Results p50-style navigation timings
-   and close any remaining page-transition friction with evidence, not local-build inference.
+1. **Refresh authenticated Iranopedia Changes.** Prove the rebuilt top five contain only Iranopedia
+   demand and no Ritz query or target after the P0 isolation release.
+2. **Verify one real autonomous move end to end.** Confirm the global state reaches ready/partial and
+   the top allocator winner becomes the source-backed PreparedMove in that exact order.
+3. **Measure authenticated hosted speed.** Capture Today/Changes/Results navigation timings and close
+   any remaining page-transition friction with production evidence.
 
 ## History
 

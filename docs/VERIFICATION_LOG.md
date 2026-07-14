@@ -7,6 +7,28 @@
 
 ---
 
+## 2026-07-14 - Customer journey exits legacy diagnostics (940a2e40)
+
+Authenticated product use exposed a category error: old operator routes rendered inside the normal
+Beacon shell and instructed the user to run local TypeScript scripts, read on-disk reports, set
+environment configuration, or interpret empty internal forensics. A normal SaaS user should never
+be responsible for those operations, and the canonical autonomous state already lives in Today,
+Changes, Results, and the global shell receipt.
+
+The diagnostics index and filesystem-backed brain page now return users to Today; spike forensics
+returns users to Results; and the old action-pack allocator dump returns users to the canonical
+Changes list. Today's overflow link for new-page opportunities also stays inside Changes rather than
+opening rank-revenue diagnostics. The legacy engineering implementations remain present, avoiding
+an unapproved destructive deletion, but they are no longer terminal customer workflows. No button,
+cron, environment change, paid call, or second product surface was added. A new architecture
+invariant pins all four redirects and the customer link, and its catalog entry is synchronized.
+
+Verification: focused route/invariant suites 19/19; strict typecheck exit 0; full suite 1,496 files
+passed, 22,893 tests passed, 23 skipped, 0 failed in 87.31 seconds; production build exit 0. Build
+emitted two pre-existing broad Turbopack NFT trace warnings and the existing middleware deprecation
+warning. Product commit `940a2e40` is ready to push; deployment and hosted redirect verification are
+pending.
+
 ## 2026-07-14 - P0 recommendation-surface tenant isolation (dfa8ff8a)
 
 Authenticated operator evidence showed a coherent Iranopedia Today page and tenant header, but the

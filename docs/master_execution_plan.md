@@ -3114,6 +3114,13 @@ decision follows authenticated evidence of an Iranopedia Changes snapshot built 
 dependencies. It is a correctness boundary for the connected brain, not optional multi-tenant SaaS
 scope, and it must remain intact before further autonomous proof is accepted.
 
+**Customer-operation boundary, 2026-07-14:** the connected brain is judged through the normal
+product journey: Today explains current state, Changes holds the one ranked worklist, Results shows
+movement, and Activity shows what Beacon did. Filesystem reports, CLI scripts, environment setup,
+feature flags, internal taxonomy, and alternative allocator dumps are engineering evidence, not
+customer work. Old diagnostic URLs must return a signed-in user to the corresponding canonical
+surface rather than teaching them to operate Beacon's implementation.
+
 ---
 
 ## FUTURE IDEAS (not in current execution plan)
