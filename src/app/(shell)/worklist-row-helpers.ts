@@ -21,7 +21,7 @@ import { formatMetricCompact } from "@/lib/format-metric";
 export type RowMoveLike = {
   rankWhy?: string | null;
   demand?: number | null;
-  demandBasis?: "gsc" | "ai_attention" | "mixed" | null;
+  demandBasis?: "gsc" | "search_volume" | "ai_attention" | "mixed" | null;
   draftTitle?: string | null;
   draftMeta?: string | null;
   preparedDraftText?: string | null;

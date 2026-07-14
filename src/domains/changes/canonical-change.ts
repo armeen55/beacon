@@ -44,6 +44,9 @@ export type CanonicalChange = {
   pagePath: string; // normalized
   pageUrl: string;
   pageLabel: string;
+  /** Demand phrase behind this change. Optional for persisted snapshots from
+   * before the unified preparation handoff. */
+  primaryQuery?: string | null;
   opportunityType: string; // operator-facing label ("Capture clicks", "Win AI citations", …)
   changeType: string; // canonical action_type (edit_meta, add_internal_link, …)
   changeFamily: string; // coarse family for identity (meta|title|h1|link|answer|schema|new_page|cro|other)

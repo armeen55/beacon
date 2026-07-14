@@ -164,6 +164,17 @@ describe("buildEvidencePacket — deterministic Source-of-Truth packet", () => {
     expect(mk(2000).evidenceHash).not.toBe(mk(9000).evidenceHash); // changes with facts
   });
 
+  it("invalidates a prepared packet when the ranked instruction changes", () => {
+    const mk = (rationale: string) => buildEvidencePacket({
+      move: move({ gap: "edit_page", label: "persian tea", rationale }),
+      brand: "Iranopedia",
+      ownedFacts: null,
+      ownedGsc: null,
+      competitor: null,
+    });
+    expect(mk("Rewrite the title").evidenceHash).not.toBe(mk("Add a comparison table").evidenceHash);
+  });
+
   it("never runs an LLM — draft is always a labeled deterministic skeleton", () => {
     const p = buildEvidencePacket({
       move: move({ gap: "create_page", label: "x", competitorUrls: ["https://c.com/x"] }),
@@ -174,6 +185,25 @@ describe("buildEvidencePacket — deterministic Source-of-Truth packet", () => {
     });
     expect(p.draft.kind).toBe("deterministic_skeleton");
     expect(p.draft.note.toLowerCase()).toContain("deterministic");
+  });
+
+  it("preserves the allocator instruction and labels measured volume honestly", () => {
+    const p = buildEvidencePacket({
+      move: move({
+        gap: "create_page",
+        label: "persian tea gifts",
+        signals: ["volume"],
+        rationale: "Build the missing comparison page around the three buyer questions.",
+        components: { demand: 900, winnability: 0.5, dollarValue: 0, visibilityGap: 1, friction: 0 },
+      }),
+      brand: "Iranopedia",
+      ownedFacts: null,
+      ownedGsc: null,
+      competitor: null,
+    });
+    expect(p.move.instruction).toBe("Build the missing comparison page around the three buyer questions.");
+    expect(p.demand.basis).toBe("search_volume");
+    expect(p.demand.demandWeight).toBe(900);
   });
 
   it("relevance gate: an off-topic cited page is labeled, not inherited", () => {

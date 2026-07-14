@@ -52,6 +52,9 @@ export type UnifiedEntry = {
   /** Stable across re-renders of the same underlying opportunity on the same day (lane-prefixed
    *  so two lanes can never collide even if they happen to target the same page). */
   id: string;
+  /** The demand phrase this opportunity is trying to win. Kept separately
+   * from pageLabel because an owned-page row labels the page, not the query. */
+  query: string;
   kind: UnifiedKind;
   /** The page this entry targets, or null for a not-yet-created page (a "create" candidate with
    *  no URL yet - the topic IS the target). */
@@ -83,7 +86,28 @@ export type UnifiedEntry = {
    *  entries newly synthesized from D2/D3/keyword-library (the loader builds a fresh
    *  CanonicalChange for those; see load-unified-list.ts). */
   sourceChange: CanonicalChange | null;
+  /** Grounded research seeds already known by this lane. These are carried
+   * into preparation; they never trigger I/O or affect ranking here. */
+  competitorUrls: string[];
+  fanoutSeeds: string[];
+  /** Lane-native measured demand, normalized to monthly units where possible.
+   *  Null means that lane did not measure it; never substitute a rank score. */
+  demandEvidence: { gscMonthly: number | null; searchVolumeMonthly: number | null };
 };
+
+/** Compact, JSON-safe server handoff from the final Changes ranking into
+ * preparation. `sourceChange` is deliberately removed so the client-sized
+ * Changes snapshot does not duplicate whole CanonicalChange rows. */
+export type RankedUnifiedEntry = Omit<UnifiedEntry, "sourceChange"> & {
+  rank: number;
+  allocatorScore: number;
+  graphBacked: boolean;
+};
+
+export function toRankedUnifiedEntry(entry: UnifiedEntry, rank: number): RankedUnifiedEntry {
+  const { sourceChange: _sourceChange, ...compact } = entry;
+  return { ...compact, rank, allocatorScore: unifiedScore(entry), graphBacked: entry.sourceChange != null };
+}
 
 // ── Lane (a): worklist / canonical changes ──────────────────────────────────
 
@@ -115,6 +139,7 @@ export function normalizeWorklistEntry(c: CanonicalChange): UnifiedEntry {
   const hold = holdFromCanonicalChange(c);
   return {
     id: `worklist:${c.id}`,
+    query: c.primaryQuery ?? c.pageLabel,
     kind,
     page: c.pagePath || null,
     topic: kind === "create" ? c.pageLabel : null,
@@ -135,6 +160,12 @@ export function normalizeWorklistEntry(c: CanonicalChange): UnifiedEntry {
     forecastBasis: c.expectedOutcome ?? "not enough history yet",
     hold,
     sourceChange: c,
+    competitorUrls: [],
+    fanoutSeeds: [],
+    demandEvidence: {
+      gscMonthly: c.forecastInputs?.impressions90d != null ? c.forecastInputs.impressions90d / 3 : null,
+      searchVolumeMonthly: null,
+    },
   };
 }
 
@@ -167,6 +198,7 @@ export function normalizeGapVerdictEntry(
   const rationale = v.renderedSentence ?? v.reason ?? "AI answer teardown found a consensus among winning pages.";
   return {
     id: `aeo_gap:${v.promptId}`,
+    query: v.promptText,
     kind: isEdit ? "edit" : "create",
     page: page ? normalizePath(page) : null,
     topic: isEdit ? null : v.promptText,
@@ -191,6 +223,12 @@ export function normalizeGapVerdictEntry(
     forecastBasis: rationale,
     hold: { held: false, reason: null },
     sourceChange: null,
+    competitorUrls: [],
+    fanoutSeeds: [
+      ...(v.atomicEdit?.fanoutQuestionsToWeave ?? []),
+      ...(v.newPage?.fanoutQuestionsToWeave ?? []),
+    ].slice(0, 12),
+    demandEvidence: { gscMonthly: null, searchVolumeMonthly: null },
   };
 }
 
@@ -218,6 +256,7 @@ export function normalizeStealBriefEntry(tenantId: string, b: StealBrief): Unifi
       : `Close the structure gap on "${b.keyword}" - ${b.whatWins ?? "match what the top result does better"}.`;
   return {
     id: `serp_steal:${b.keyword.trim().toLowerCase()}`,
+    query: b.keyword,
     kind: "edit",
     page,
     topic: page ? null : b.keyword,
@@ -241,6 +280,9 @@ export function normalizeStealBriefEntry(tenantId: string, b: StealBrief): Unifi
     forecastBasis: b.summary,
     hold: { held: false, reason: null },
     sourceChange: null,
+    competitorUrls: b.competitorUrl ? [b.competitorUrl] : [],
+    fanoutSeeds: [],
+    demandEvidence: { gscMonthly: b.impressions / 3, searchVolumeMonthly: null },
   };
 }
 
@@ -296,6 +338,7 @@ export function normalizeKeywordLibraryEntry(tenantId: string, r: KeywordLibrary
     : `Improve the page ranking position ${Math.round(r.yourPosition ?? 0)} for "${r.keyword}" - it gets ${demandClause} but is not on page 1 yet.`;
   return {
     id: `keyword_library:${r.keyword.trim().toLowerCase()}`,
+    query: r.keyword,
     kind,
     page,
     topic: notOwned ? r.keyword : null,
@@ -320,6 +363,12 @@ export function normalizeKeywordLibraryEntry(tenantId: string, r: KeywordLibrary
     forecastBasis: `${demandClause}${r.competitorOwners.length > 0 ? `, ${r.competitorOwners[0]} already ranks for it` : ""}`,
     hold: { held: false, reason: null },
     sourceChange: null,
+    competitorUrls: [],
+    fanoutSeeds: r.relatedQuestions.slice(0, 12),
+    demandEvidence: {
+      gscMonthly: r.timesShownPerMo ?? null,
+      searchVolumeMonthly: r.searchesPerMo ?? null,
+    },
   };
 }
 
@@ -459,6 +508,18 @@ export function fuseByPage(entries: readonly UnifiedEntry[]): UnifiedEntry[] {
       // the caution just because another lane didn't know about it).
       hold: sorted.some((e) => e.hold.held) ? sorted.find((e) => e.hold.held)!.hold : primary.hold,
       riskFlags: [...new Set(sorted.flatMap((e) => e.riskFlags))],
+      competitorUrls: [...new Set(sorted.flatMap((e) => e.competitorUrls))].slice(0, 8),
+      fanoutSeeds: [...new Set(sorted.flatMap((e) => e.fanoutSeeds))].slice(0, 12),
+      demandEvidence: {
+        gscMonthly: sorted.reduce<number | null>((best, entry) => {
+          const value = entry.demandEvidence.gscMonthly;
+          return value == null ? best : Math.max(best ?? 0, value);
+        }, null),
+        searchVolumeMonthly: sorted.reduce<number | null>((best, entry) => {
+          const value = entry.demandEvidence.searchVolumeMonthly;
+          return value == null ? best : Math.max(best ?? 0, value);
+        }, null),
+      },
     });
   }
   return fused;
@@ -555,6 +616,7 @@ export function unifiedEntryToCanonicalChange(tenantId: string, e: UnifiedEntry)
     pagePath,
     pageUrl: e.page ?? "",
     pageLabel: e.pageLabel,
+    primaryQuery: e.query,
     opportunityType: KIND_TO_OPPORTUNITY_LABEL[e.kind],
     changeType: e.sources[0] === "aeo_gap" && e.kind === "edit" ? "add_answer_block" : e.kind === "create" ? "create_new_page" : "edit_existing_page",
     changeFamily: family,

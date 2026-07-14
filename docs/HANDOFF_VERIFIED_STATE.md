@@ -1,5 +1,18 @@
 # Beacon Verified State
 
+> 🟡 **The 2026-07-14 unified-ranked preparation release candidate is locally verified and awaiting
+> deployment.** Beacon now persists a compact, server-only handoff from the final rendered Changes
+> order into preparation. Worklist, AI-citation/AEO, live-SERP steal, and keyword-library winners all
+> enter the same EvidencePacket -> PreparedMove pipeline; preparation follows the allocator's exact
+> final order and does not run a second score. Allocator-only entries retain their query, exact
+> instruction, competitor URLs, fanouts, and measured monthly GSC/search-volume provenance, then join
+> the existing ResearchDossier and cached winner teardown. The handoff is stripped from the browser
+> payload. Autonomous completion, prepare-ahead, auto-advance, and manual preparation all consume the
+> same ranked snapshot. No page, button, cron, render-time paid call, or publishing path was added.
+> Verification: strict typecheck; 1,490 test files / 22,865 passed / 23 conditional skips / 0 failed;
+> production build exit 0 with three pre-existing Turbopack NFT trace warnings plus the existing
+> middleware deprecation warning. Deployment and hosted verification are not yet claimed.
+
 > 🟢 **The 2026-07-14 ResearchDossier convergence release is deployed and SHA-verified at
 > `4f7fa734` (Vercel `dpl_4QMQYSjHpbNWzb92hbKeQtzcFLpr`).** Beacon now assembles one tenant-explicit, timestamp-stable dossier for
 > every graph-derived Move from the existing keyword library, cached DataForSEO volume/difficulty,
@@ -150,13 +163,11 @@
   bounded review before removal. The first bounded wave removed only unreachable islands and their
   source-pinning tests; no OAuth, tenant isolation, publishing, factual-safety, connector
   reconciliation, or rollback contracts were removed.
-- **The autonomous runner is not yet the full dream-state research brain.** Graph-derived moves now
-  receive one ResearchDossier spanning GSC, cached DataForSEO keyword facts, live SERP patterns,
-  Google/AI winner evidence, clone briefs, and question coverage, and that evidence reaches drafting
-  plus the persisted prepared receipt. The remaining structural gap is allocator-only winners: they
-  can rank on Changes without entering graph preparation. GA4 engagement is also not yet a bounded
-  ranking input. The next slice must adapt the already-ranked UnifiedEntry into the same preparation
-  path without creating a second ranker.
+- **The autonomous runner is not yet the full dream-state research brain.** The ranked allocator and
+  preparation path are now structurally converged across worklist, AEO, SERP-steal, and keyword gaps,
+  but the release still needs one authenticated hosted run proving that a real allocator-only winner
+  becomes the same source-backed prepared move the operator sees. GA4 engagement is also not yet a
+  bounded ranking input.
 - **Autonomous research has a cross-instance lock residual.** The daily durable receipt plus the
   process single-flight collapse normal visits, and every paid producer is independently cached and
   capped, but the receipt claim is not one atomic database compare-and-set across two simultaneous
@@ -164,12 +175,13 @@
 
 ## Next 3 actions
 
-1. **Verify the deployed dossier release on one authenticated autonomous visit.** Confirm the global
-   header moves from researching to ready/partial and inspect one PreparedMove's research receipt.
-2. **Prepare allocator-only winners through the same path.** Adapt the already-ranked UnifiedEntry into
-   EvidencePacket/PreparedMove; do not introduce a second score or parallel queue.
-3. **Dogfood Iranopedia end to end.** Run one fresh topic through automatic research -> ranked move
-   -> source-backed draft, then measure authenticated Today/Results speed and evidence usefulness.
+1. **Verify this release on one authenticated autonomous visit.** Confirm the global header reaches
+   ready/partial and the top allocator-only Changes winner becomes a source-backed PreparedMove in
+   that exact order.
+2. **Dogfood Iranopedia end to end.** Run one fresh unseen topic through automatic research -> ranked
+   move -> source-backed draft, and judge whether the instruction is actually useful.
+3. **Measure authenticated hosted speed.** Capture Today/Changes/Results p50-style navigation timings
+   and close any remaining page-transition friction with evidence, not local-build inference.
 
 ## History
 

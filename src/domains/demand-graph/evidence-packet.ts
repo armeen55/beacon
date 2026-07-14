@@ -75,13 +75,15 @@ export type EvidencePacket = {
     score: number;
     components: MoveComponents;
     signals: string[];
+    /** Exact lane instruction/rationale that produced this move. */
+    instruction?: string;
   };
   demand: {
     /** Fused demand weight (GSC impressions/volume + AI-ask). For create_page
      *  candidates this is an AI-attention proxy, NOT measured search volume —
      *  `basis` says which, so the number is never silently mislabeled. */
     demandWeight: number;
-    basis: "gsc" | "ai_attention" | "mixed";
+    basis: "gsc" | "search_volume" | "ai_attention" | "mixed";
     /** Real query evidence feeding this move, ranked by observed signal. GSC
      *  impressions are preserved when available; synthesized graph queries use
      *  a weight of 1 and are identified by their source. */
@@ -318,7 +320,9 @@ export function buildEvidencePacket(input: BuildEvidencePacketInput): EvidencePa
   const demandQueryTotal = demandQueries.reduce((sum, row) => sum + row.impressions, 0);
   const packetCore = {
     k: move.demandKey,
+    i: move.rationale,
     s: move.score,
+    sg: move.signals,
     c: move.components,
     cf: cFacts ? { t: cFacts.title, w: cFacts.wordCount, h: cFacts.h2Count, sc: cFacts.schemaTypes, faq: cFacts.hasFaq, ab: cFacts.hasAnswerBlock } : null,
     of: ownedFacts ? { t: ownedFacts.title, w: ownedFacts.wordCount, sc: ownedFacts.schemaTypes } : null,
@@ -342,6 +346,7 @@ export function buildEvidencePacket(input: BuildEvidencePacketInput): EvidencePa
       score: move.score,
       components: move.components,
       signals: move.signals,
+      instruction: move.rationale,
     },
     demand: {
       demandWeight: move.components.demand,
@@ -349,7 +354,11 @@ export function buildEvidencePacket(input: BuildEvidencePacketInput): EvidencePa
         ? move.signals.includes("AI")
           ? "mixed"
           : "gsc"
-        : "ai_attention",
+        : move.signals.includes("volume")
+          ? move.signals.includes("AI")
+            ? "mixed"
+            : "search_volume"
+          : "ai_attention",
       queries: demandQueries,
       fanoutSeeds,
     },

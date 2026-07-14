@@ -100,6 +100,12 @@ chronology of what already landed lives in VERIFICATION_LOG.md; this list is onl
    prepare allocator-only winners through this same path without creating a second ranker. FOLLOW-UP
    DEPLOYED AND SHA-VERIFIED at `acca40f3`: the warm path now rebuilds the separate fused Changes snapshot after the worklist, so
    autonomous evidence/ranking changes paint before Today and do not wait on Changes' cache TTL.
+   THIRD SLICE LOCALLY VERIFIED, DEPLOYMENT PENDING: the final actionable Changes order now persists
+   a compact server-only ranked handoff. Worklist, AEO, SERP-steal, and keyword-library winners enter
+   the same EvidencePacket/PreparedMove path with exact query/instruction, grounded seeds, and honest
+   measured-demand provenance. Autonomous, prepare-ahead, auto-advance, and manual preparation use
+   that order without a second ranker. Next: authenticated hosted proof on one real allocator-only
+   winner, then the fresh unseen-topic dogfood run.
 21. **Fresh blind unseen-topic benchmark.** Run 5 preregistered cases not used to build these
    corrections. A case that changes code is spent and must be replaced.
 22. **Scheduled-refresh receipt.** The first cron run after this deploy must leave a started

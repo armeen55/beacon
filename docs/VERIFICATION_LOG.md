@@ -7,6 +7,24 @@
 
 ---
 
+## 2026-07-14 - Unified ranked preparation release candidate
+
+Closed the remaining structural split between the final Changes allocator and preparation. The
+server-side Changes snapshot now retains a compact projection of its final actionable order and
+strips it before client serialization. Worklist, AEO citation-gap, SERP-steal, and keyword-library
+winners therefore enter one EvidencePacket/PreparedMove path in the exact order the operator sees,
+without a second score or queue. Allocator-only packets preserve the real query, lane instruction,
+competitor URL, fanout questions, and monthly GSC/search-volume evidence, then join the existing
+cached ResearchDossier and winner teardown. Search volume has its own honest evidence basis rather
+than being labeled as GSC or AI attention. Autonomous completion, overnight prepare-ahead,
+post-ship auto-advance, and explicit preparation all read the same ranked snapshot. No UI control,
+cron, network producer, render-time paid call, or publishing behavior was added.
+
+Verification: focused allocator/payload/evidence/preparation suites 70/70; strict typecheck exit 0;
+full suite 1,490 files passed, 22,865 tests passed, 23 skipped, 0 failed; production build exit 0.
+Build emitted three pre-existing Turbopack NFT trace warnings and the existing middleware deprecation
+warning. Deployment and hosted smoke are pending and are not claimed in this entry.
+
 ## 2026-07-14 - Autonomous clarity + GSC query convergence (d6dcb0c7)
 
 The first dream-state convergence slice closes a real evidence-loss defect: the graph already loaded

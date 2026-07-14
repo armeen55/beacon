@@ -299,6 +299,7 @@ function fromMove(tenantId: string, m: CanonicalMoveInput, controlPaths: Set<str
     pagePath,
     pageUrl: m.targetUrl,
     pageLabel: m.pageLabel,
+    primaryQuery: m.query,
     opportunityType: opportunityLabel(m.actionTone),
     changeType: m.actionType,
     changeFamily: family,

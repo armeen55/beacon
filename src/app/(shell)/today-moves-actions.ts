@@ -24,6 +24,7 @@ import { autoRecordShippedChangeForRec } from "@/domains/proof-gsc/auto-record-o
 import { autoMeasureDuePass, type AutoMeasurePassResult } from "@/domains/proof-gsc/auto-measure-pass";
 import { harvestWinners } from "@/domains/llm/winner-memory";
 import { buildTeamScoreboardSummary } from "@/domains/team-scoreboard/compute-scoreboard";
+import { readChangesSurface } from "./changes-surface-store";
 
 export type SharpenMovesResult =
   | { status: "off" }
@@ -32,6 +33,11 @@ export type SharpenMovesResult =
 export type PrepareTopMovesResult =
   | { ok: false; reason: string }
   | { ok: true; summary: PrepareMovesSummary };
+
+async function rankedEntriesForPreparation(tenantId: string) {
+  return (await readChangesSurface(tenantId).catch(() => null))
+    ?.view.rankedPreparationEntries ?? [];
+}
 
 /**
  * prepareTopMovesAction (2026-06-25, P5) — "Prepare my top 10". One click runs the
@@ -50,7 +56,11 @@ export type PrepareTopMovesResult =
 export async function prepareTopMovesAction(opts: { maxN?: number } = {}): Promise<PrepareTopMovesResult> {
   if (!(await isOperatorModeServer())) return { ok: false, reason: "Operator mode only." };
   try {
-    const summary = await prepareTodayMovesForTenant(await currentTenantId(), { maxN: opts.maxN ?? 10 });
+    const tenantId = await currentTenantId();
+    const summary = await prepareTodayMovesForTenant(tenantId, {
+      maxN: opts.maxN ?? 10,
+      rankedEntries: await rankedEntriesForPreparation(tenantId),
+    });
     await invalidateWorklistSurface().catch(() => {}); // prepared state changed → recompute next /changes load
     await invalidateChangesSurface().catch(() => {}); // ...and the ranked /changes snapshot
     revalidatePath("/");
@@ -93,6 +103,7 @@ export async function autoAdvancePrepareAction(): Promise<AutoAdvancePrepareResu
         const summary = await prepareTodayMovesForTenant(tenantId, {
           maxN: AUTO_ADVANCE_MAX_N,
           maxUsd: AUTO_ADVANCE_MAX_USD,
+          rankedEntries: await rankedEntriesForPreparation(tenantId),
         });
         // Only recompute the surface when a prepare actually changed something (a fresh
         // draft, not a pure cache hit) - a cache-only pass leaves the surface identical, so
@@ -214,11 +225,13 @@ export async function regenerateTopDraftsFromTeardownAction(
 ): Promise<RegenerateFromTeardownResult> {
   if (!(await isOperatorModeServer())) return { ok: false, reason: "Operator mode only." };
   try {
-    const summary = await prepareTodayMovesForTenant(await currentTenantId(), {
+    const tenantId = await currentTenantId();
+    const summary = await prepareTodayMovesForTenant(tenantId, {
       maxN: Math.min(opts.limit ?? 3, 5),
       maxUsd: Math.min(opts.maxUsd ?? 0.1, 0.1),
       forceRegenerate: true,
       requireTeardown: true,
+      rankedEntries: await rankedEntriesForPreparation(tenantId),
     });
     await invalidateWorklistSurface().catch(() => {}); // regenerated drafts → readiness changes → recompute
     await invalidateChangesSurface().catch(() => {});

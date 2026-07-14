@@ -285,11 +285,17 @@ const MAX_PREPARE_AHEAD_MOVES_PER_NIGHT = 10;
 const MAX_PREPARE_AHEAD_USD_PER_NIGHT = 0.15;
 
 async function defaultRunPrepareAhead(tenantId: string, now: Date): Promise<PrepareMovesSummary> {
-  const { prepareTodayMovesForTenant } = await import("@/domains/demand-graph/prepare-today-moves");
+  const [{ prepareTodayMovesForTenant }, { readChangesSurface }] = await Promise.all([
+    import("@/domains/demand-graph/prepare-today-moves"),
+    import("@/app/(shell)/changes-surface-store"),
+  ]);
+  const rankedEntries = (await readChangesSurface(tenantId).catch(() => null))
+    ?.view.rankedPreparationEntries ?? [];
   return await prepareTodayMovesForTenant(tenantId, {
     maxN: MAX_PREPARE_AHEAD_MOVES_PER_NIGHT,
     maxUsd: MAX_PREPARE_AHEAD_USD_PER_NIGHT,
     now: () => now,
+    rankedEntries,
   });
 }
 

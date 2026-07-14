@@ -157,8 +157,18 @@ const defaultDeps: AutonomousResearchDeps = {
     return await runNativeTeardownForTenant(tenantId, { maxPrompts: 10 });
   },
   prepareMoves: async (tenantId, now) => {
-    const { prepareTodayMovesForTenant } = await import("@/domains/demand-graph/prepare-today-moves");
-    return await prepareTodayMovesForTenant(tenantId, { maxN: 10, maxUsd: 0.15, now: () => now });
+    const [{ prepareTodayMovesForTenant }, { readChangesSurface }] = await Promise.all([
+      import("@/domains/demand-graph/prepare-today-moves"),
+      import("@/app/(shell)/changes-surface-store"),
+    ]);
+    const rankedEntries = (await readChangesSurface(tenantId).catch(() => null))
+      ?.view.rankedPreparationEntries ?? [];
+    return await prepareTodayMovesForTenant(tenantId, {
+      maxN: 10,
+      maxUsd: 0.15,
+      now: () => now,
+      rankedEntries,
+    });
   },
   finishSurfaces: async (tenantId, now, acquired) => {
     const { warmTenantCaches } = await import("./warm-caches");

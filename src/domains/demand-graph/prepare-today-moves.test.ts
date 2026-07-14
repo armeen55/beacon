@@ -276,3 +276,23 @@ describe("prepareTodayMovesForTenant - pilot loop 4 reference-candidate wiring",
     expect((input as { referenceCandidates?: string[] }).referenceCandidates).toEqual([]);
   });
 });
+
+describe("prepareTodayMovesForTenant - authoritative Changes order", () => {
+  it("passes the ranked handoff to the compiler and does not re-sort its packets", async () => {
+    const first = packet({ demandKey: "ranked:first", label: "first ranked move", score: 1 });
+    const second = packet({ demandKey: "ranked:second", label: "second ranked move", score: 9_999 });
+    vi.mocked(loadChangePacksForTenant).mockResolvedValue({ packets: [first, second] } as never);
+    const rankedEntries = [{ id: "first" }, { id: "second" }] as never;
+
+    const summary = await prepareTodayMovesForTenant("tenant-iranopedia", {
+      rankedEntries,
+      checkWinnability: false,
+    });
+
+    expect(loadChangePacksForTenant).toHaveBeenCalledWith("tenant-iranopedia", {
+      limit: 25,
+      rankedEntries,
+    });
+    expect(summary.outcomes.map((outcome) => outcome.moveId)).toEqual(["ranked:first", "ranked:second"]);
+  });
+});

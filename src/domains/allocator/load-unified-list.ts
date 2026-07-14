@@ -53,6 +53,9 @@ import {
 
 export type UnifiedListResult = {
   changes: CanonicalChange[];
+  /** Same authoritative order used to render Changes; callers may compact it
+   * for the server-only preparation handoff instead of ranking again. */
+  entries: UnifiedEntry[];
   laneCounts: Record<"worklist" | "aeo_gap" | "serp_steal" | "keyword_library", number>;
 };
 
@@ -103,6 +106,7 @@ export async function fuseUnifiedList(tenantId: string, worklistChanges: readonl
 
   return {
     changes,
+    entries: unifiedEntries,
     laneCounts: {
       worklist: worklistEntries.length,
       aeo_gap: gapEntries.length,

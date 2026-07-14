@@ -36,6 +36,7 @@ import { getBusinessConfig } from "@/lib/business-config";
 import type { FirstMentionConfig } from "@/domains/drafts/first-mention-check";
 import { log } from "@/lib/logger";
 import { dossierReferenceCandidates, researchDossierHints } from "@/domains/research/research-dossier";
+import type { RankedUnifiedEntry } from "@/domains/allocator/unified-list";
 
 /** First path segment groups a family - mirrors pageFamilyOf in
  *  daily-experiment-planner.ts (duplicated here to avoid an experiments ->
@@ -171,6 +172,7 @@ export function competitorTeardownHints(packet: EvidencePacket): string[] {
 
 function evidenceHintsFor(packet: EvidencePacket): string[] {
   return [
+    packet.move.instruction ? `Ranked move: ${packet.move.instruction}` : "",
     packet.competitor.domain && !packet.competitor.looselyMatched ? `AI cites ${packet.competitor.domain} for this topic, not you` : "",
     packet.yourPage.gsc ? "the page already ranks on Google but isn't the cited source" : "",
     ...researchDossierHints(packet.research),
@@ -422,6 +424,9 @@ export async function prepareTodayMovesForTenant(
     checkWinnability?: boolean;
     /** RANK-3 (tests): inject the SERP runner so no live paid call is ever made. */
     runSerp?: typeof runSerpQuery;
+    /** Authoritative final /changes order. When supplied, preparation follows
+     *  this exact sequence instead of independently re-ranking graph packets. */
+    rankedEntries?: readonly RankedUnifiedEntry[];
   } = {},
 ): Promise<PrepareMovesSummary> {
   const max = opts.maxN ?? 10;
@@ -451,8 +456,14 @@ export async function prepareTodayMovesForTenant(
     outcomes: [],
   };
 
-  const { packets } = await loadChangePacksForTenant(tenantId, { limit: Math.max(max, 25) }).catch(() => ({ packets: [] as EvidencePacket[] }));
-  const targets = packets
+  const { packets } = await loadChangePacksForTenant(tenantId, {
+    limit: Math.max(max, 25),
+    rankedEntries: opts.rankedEntries,
+  }).catch(() => ({ packets: [] as EvidencePacket[] }));
+  const orderedPackets = opts.rankedEntries?.length
+    ? packets
+    : [...packets].sort((a, b) => b.move.score - a.move.score);
+  const targets = orderedPackets
     .filter(
       (p) =>
         p.move.gapType === "answer_block" ||
@@ -461,7 +472,6 @@ export async function prepareTodayMovesForTenant(
         p.move.gapType === "create_page",
     )
     .filter((p) => !opts.requireTeardown || hasUsableTeardown(p))
-    .sort((a, b) => b.move.score - a.move.score)
     .slice(0, max);
   summary.considered = targets.length;
 

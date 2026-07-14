@@ -3075,8 +3075,16 @@ the tenant-explicit cached research corpus. Material dossier evidence participat
 evidence hash; timestamp-only refreshes do not churn drafts. The drafter receives grounded SERP,
 AI, keyword, competitor, and unanswered-question hints/references, while PreparedMove persists only
 a compact evidence-source/count receipt. This preserves the decision above: no new producer, ranker,
-page, button, cron, or publishing path. The remaining convergence step is the already-ranked
-allocator-only `UnifiedEntry -> EvidencePacket/PreparedMove` adapter.
+page, button, cron, or publishing path.
+
+**Third slice implemented 2026-07-14:** the final actionable Changes order now emits a compact
+server-only `RankedUnifiedEntry` handoff. Allocator-only AEO, SERP-steal, and keyword gaps are adapted
+into the existing EvidencePacket/PreparedMove path with exact instructions, competitor/fanout seeds,
+ResearchDossier convergence, and measured-demand provenance; graph-backed worklist entries reuse
+their canonical packets. Preparation preserves this final order instead of re-sorting. The handoff is
+removed from the client payload, and no new surface, producer, scheduler, ranker, or publish path was
+introduced. Remaining proof is operational: authenticate, run one real visit cycle, and inspect a
+real allocator-only winner end to end.
 
 ---
 

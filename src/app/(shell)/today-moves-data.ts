@@ -89,7 +89,7 @@ export type TodayMove = {
   proof: string;
   confidence: "high" | "medium" | "low";
   demand: number | null;
-  demandBasis: "gsc" | "ai_attention" | "mixed" | null;
+  demandBasis: "gsc" | "search_volume" | "ai_attention" | "mixed" | null;
   whoCited: string | null;
   whatWins: string | null;
   /** Phase 1d: the actionable "steal this" line from the top competitor's page structure

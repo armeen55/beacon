@@ -16,6 +16,7 @@ import {
   sourcesSentence,
   MULTI_LANE_BOOST_PER_EXTRA_SOURCE,
   RISK_PENALTY,
+  toRankedUnifiedEntry,
   type UnifiedEntry,
 } from "./unified-list";
 import type { CanonicalChange } from "@/domains/changes/canonical-change";
@@ -382,6 +383,7 @@ describe("fuseByPage (multi-lane agreement)", () => {
 describe("unifiedScore + rankUnifiedEntries (ranking determinism, multi-lane boost, risk penalty)", () => {
   const base: UnifiedEntry = {
     id: "a",
+    query: "example query",
     kind: "edit",
     page: "/a",
     topic: null,
@@ -396,6 +398,9 @@ describe("unifiedScore + rankUnifiedEntries (ranking determinism, multi-lane boo
     forecastBasis: "b",
     hold: { held: false, reason: null },
     sourceChange: null,
+    competitorUrls: [],
+    fanoutSeeds: [],
+    demandEvidence: { gscMonthly: null, searchVolumeMonthly: null },
   };
 
   it("is deterministic: same input always produces the same order", () => {
@@ -408,6 +413,16 @@ describe("unifiedScore + rankUnifiedEntries (ranking determinism, multi-lane boo
     const r2 = rankUnifiedEntries([...entries].reverse()).map((e) => e.id);
     expect(r1).toEqual(r2);
     expect(r1).toEqual(["b", "a", "c"]);
+  });
+
+  it("creates a compact server handoff with rank, demand provenance, and no source change", () => {
+    const sourceChange = change({ forecastInputs: { impressions90d: 900, currentPosition: 8, curveBasis: "tenant CTR" } });
+    const entry = normalizeWorklistEntry(sourceChange);
+    const ranked = toRankedUnifiedEntry(entry, 2);
+    expect(ranked.rank).toBe(2);
+    expect(ranked.graphBacked).toBe(true);
+    expect(ranked.demandEvidence.gscMonthly).toBe(300);
+    expect("sourceChange" in ranked).toBe(false);
   });
 
   it("a second corroborating lane boosts the score by exactly the documented multiplier", () => {

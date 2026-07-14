@@ -23,8 +23,16 @@
  */
 import { describe, expect, it } from "vitest";
 
-import { SLIM_MOVE_KEYS, slimMoveForList, toClientView, type ChangesView } from "./changes-data";
+import {
+  SLIM_MOVE_KEYS,
+  selectRankedPreparationEntries,
+  slimMoveForList,
+  toClientView,
+  type ChangesView,
+} from "./changes-data";
 import type { TodayMove } from "./today-moves-data";
+import type { UnifiedEntry } from "@/domains/allocator/unified-list";
+import type { CanonicalChange } from "@/domains/changes/canonical-change";
 
 /** A realistic heavy TodayMove: sized like a prepared, teardown-backed move. */
 function heavyMove(i: number): TodayMove {
@@ -154,5 +162,56 @@ describe("/changes payload budget", () => {
     expect(client.movesById["move-1"]?.id).toBe("move-1");
     expect(client.movesById["move-1"]?.targetUrl).toBe("https://site.com/page-1");
     expect(client.movesById["move-1"]?.action).toBe("add_answer_block");
+  });
+
+  it("never serializes the server-only ranked preparation handoff", () => {
+    const view = viewWith([heavyMove(1)]);
+    view.rankedPreparationEntries = [{ id: "secret-server-entry" }] as never;
+    const client = toClientView(view) as unknown as Record<string, unknown>;
+    expect(client.rankedPreparationEntries).toBeUndefined();
+    expect(JSON.stringify(client)).not.toContain("secret-server-entry");
+  });
+});
+
+describe("selectRankedPreparationEntries", () => {
+  const entry = (id: string, sourceId: string | null, held = false): UnifiedEntry => ({
+    id,
+    query: `${id} query`,
+    kind: "edit",
+    page: `/${id}`,
+    topic: null,
+    pageLabel: id,
+    exactWhat: `Improve ${id}`,
+    expectedValue: { low: 1, high: 2, basis: "real evidence", days: 28, hypothesisId: null },
+    confidence: 0.6,
+    risk: "low",
+    riskFlags: [],
+    effortMinutes: 3,
+    sources: [sourceId ? "worklist" : "keyword_library"],
+    forecastBasis: "real evidence",
+    hold: { held, reason: held ? "wait" : null },
+    sourceChange: sourceId ? ({ id: sourceId } as CanonicalChange) : null,
+    competitorUrls: [],
+    fanoutSeeds: [],
+    demandEvidence: { gscMonthly: 300, searchVolumeMonthly: null },
+  });
+
+  it("follows the final Changes order, excludes non-actionable rows, and strips sourceChange", () => {
+    const changes = [
+      { id: "allocator-b", status: "suggested" },
+      { id: "worklist-a", status: "ready" },
+      { id: "allocator-held", status: "suggested" },
+      { id: "allocator-measuring", status: "measuring" },
+    ] as CanonicalChange[];
+    const ranked = selectRankedPreparationEntries(changes, [
+      entry("worklist-entry", "worklist-a"),
+      entry("allocator-b", null),
+      entry("allocator-held", null, true),
+      entry("allocator-measuring", null),
+    ]);
+
+    expect(ranked.map((row) => row.id)).toEqual(["allocator-b", "worklist-entry"]);
+    expect(ranked.map((row) => row.rank)).toEqual([0, 1]);
+    expect(ranked.every((row) => !("sourceChange" in row))).toBe(true);
   });
 });

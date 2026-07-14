@@ -56,6 +56,11 @@ import { buildReceiptLine, checkedAgoLabel } from "@/components/data/receipt-lin
 // operator's "one ranked decision" across every opportunity source, not just the ActionPack
 // worklist. Read-only additive lanes; a lane outage narrows the fused set, never blocks the page.
 import { fuseUnifiedList } from "@/domains/allocator/load-unified-list";
+import {
+  toRankedUnifiedEntry,
+  type RankedUnifiedEntry,
+  type UnifiedEntry,
+} from "@/domains/allocator/unified-list";
 import { classifyOpportunityFreshness, summarizeExpiry } from "@/domains/changes/opportunity-expiry";
 import { perfMark, perfStage } from "@/lib/obs/perf-log";
 import { after } from "next/server";
@@ -70,6 +75,9 @@ import {
 export type ChangesView = {
   changes: CanonicalChange[];
   movesById: Record<string, TodayMove>;
+  /** Server-only authoritative preparation handoff. Same final actionable
+   * order as `changes`, compacted and stripped from the client payload. */
+  rankedPreparationEntries?: RankedUnifiedEntry[];
   summary: { todo: number; ready: number; measuring: number; results: number; selectedForToday: number; protectedPages: number };
   hasPlan: boolean;
   planAccepted: boolean;
@@ -147,7 +155,7 @@ export const SLIM_MOVE_KEYS = ["id", "action", "query", "targetUrl", "why", "ran
 export type SlimTodayMove = Pick<TodayMove, (typeof SLIM_MOVE_KEYS)[number]>;
 
 /** The ChangesView shape actually serialized to the /changes client board. */
-export type ChangesClientView = Omit<ChangesView, "movesById"> & {
+export type ChangesClientView = Omit<ChangesView, "movesById" | "rankedPreparationEntries"> & {
   movesById: Record<string, SlimTodayMove>;
 };
 
@@ -168,9 +176,34 @@ export function slimMoveForList(m: TodayMove): SlimTodayMove {
 
 /** PURE: the client-payload projection of a ChangesView (slim movesById, all else as is). */
 export function toClientView(view: ChangesView): ChangesClientView {
+  const { rankedPreparationEntries: _serverOnly, movesById: fullMovesById, ...clientView } = view;
   const movesById: Record<string, SlimTodayMove> = {};
-  for (const [id, m] of Object.entries(view.movesById)) movesById[id] = slimMoveForList(m);
-  return { ...view, movesById };
+  for (const [id, m] of Object.entries(fullMovesById)) movesById[id] = slimMoveForList(m);
+  return { ...clientView, movesById };
+}
+
+const PREPARABLE_STATUSES = new Set<CanonicalChange["status"]>(["suggested", "ready", "apply"]);
+
+/** PURE: project the final rendered Changes order back onto the allocator's
+ * entries. This is the only preparation order; blocked/watching/measuring rows
+ * never enter the handoff, and whole source CanonicalChanges are removed. */
+export function selectRankedPreparationEntries(
+  changes: readonly CanonicalChange[],
+  entries: readonly UnifiedEntry[],
+): RankedUnifiedEntry[] {
+  const byChangeId = new Map<string, UnifiedEntry>();
+  for (const entry of entries) {
+    byChangeId.set(entry.id, entry);
+    if (entry.sourceChange?.id) byChangeId.set(entry.sourceChange.id, entry);
+  }
+  const ranked: RankedUnifiedEntry[] = [];
+  for (const change of changes) {
+    if (!PREPARABLE_STATUSES.has(change.status)) continue;
+    const entry = byChangeId.get(change.id);
+    if (!entry || entry.hold.held || (entry.kind !== "edit" && entry.kind !== "create" && entry.kind !== "fix")) continue;
+    ranked.push(toRankedUnifiedEntry(entry, ranked.length));
+  }
+  return ranked;
 }
 
 /** FP2 (2026-07-02, killer finding 1) - normalized identity for the dedupe pass below: the
@@ -668,7 +701,7 @@ async function buildChangesViewUncached(tenantId: string): Promise<ChangesView> 
   // CanonicalChange[]. Fail-soft as a whole (fuseUnifiedList never throws); on any unexpected
   // failure fall back to the worklist-only list rather than blanking the page.
   const tFuse = perfMark();
-  const { changes: fusedChanges } = await fuseUnifiedList(tenantId, worklistChanges).catch(() => ({ changes: worklistChanges }));
+  const { changes: fusedChanges, entries: unifiedEntries } = await fuseUnifiedList(tenantId, worklistChanges).catch(() => ({ changes: worklistChanges, entries: [] as UnifiedEntry[] }));
   perfStage("changes-allocator-fuse", tFuse, { fused: fusedChanges.length });
 
   const movesById: Record<string, TodayMove> = {};
@@ -729,6 +762,7 @@ async function buildChangesViewUncached(tenantId: string): Promise<ChangesView> 
   // surfaced in full on their own lower-priority "Watching" tab instead, each with the honest
   // WATCHING_SENTENCE. Nothing deleted; a held row lives in exactly one place.
   const watching = abstention.held;
+  const rankedPreparationEntries = selectRankedPreparationEntries(changes, unifiedEntries);
 
   const expirySummary = summarizeExpiry(changes.map((c) => c.freshness ?? "fresh"));
 
@@ -798,6 +832,7 @@ async function buildChangesViewUncached(tenantId: string): Promise<ChangesView> 
   return {
     changes,
     movesById,
+    rankedPreparationEntries,
     summary,
     hasPlan: !!plan,
     planAccepted: !!accepted,
