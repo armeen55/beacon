@@ -174,6 +174,34 @@ describe("normalizeGapVerdictEntry (lane b, D2)", () => {
     expect(e.sources).toEqual(["aeo_gap"]);
   });
 
+  it("preserves cited winner pages, fanouts, and the complete native AI receipt", () => {
+    const aeoEvidence = {
+      source: "native" as const,
+      prompts: ["what happens at a persian wedding"],
+      promptCount: 1,
+      fanoutQueries: ["what is a sofreh aghd"],
+      topCitedPages: [
+        { url: "https://winner.com/wedding", hostname: "winner.com", isOwned: false, answers: 3 },
+      ],
+      topCitedDomains: [{ hostname: "winner.com", answers: 3 }],
+      ownCitationCount: 0,
+      competitorCitationCount: 3,
+      recommendedContentShape: "steps",
+      confidence: "high" as const,
+      matchBasis: "native cited winners",
+    };
+    const e = normalizeGapVerdictEntry(TENANT, gapVerdict({
+      aeoEvidence,
+      atomicEdit: {
+        ...gapVerdict().atomicEdit!,
+        fanoutQuestionsToWeave: ["what is a sofreh aghd"],
+      },
+    }))!;
+    expect(e.competitorUrls).toEqual(["https://winner.com/wedding"]);
+    expect(e.fanoutSeeds).toEqual(["what is a sofreh aghd"]);
+    expect(e.aeoEvidence).toEqual(aeoEvidence);
+  });
+
   it("normalizes a new_page verdict to a create entry with no page, only a topic", () => {
     const v = gapVerdict({
       outcome: "new_page",

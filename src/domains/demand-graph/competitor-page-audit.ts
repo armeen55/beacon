@@ -424,6 +424,44 @@ async function saveAudits(audits: CompetitorPageAudit[]): Promise<void> {
 }
 
 /**
+ * Cache-aware teardown for an explicit set of winner URLs. This is the shared
+ * seam for final-ranked live SERP research: the SERP producer decides which
+ * pages won, while this module reuses the same polite fetch, 14-day freshness
+ * rule, and persisted audit store as every other competitor teardown lane.
+ */
+export async function auditCompetitorUrls(
+  urls: readonly string[],
+  deps: CompetitorAuditDeps = {},
+): Promise<{ audits: CompetitorPageAudit[]; fromCache: number }> {
+  const cache = await getCompetitorAuditsForTenant();
+  const unique = [...new Set(urls.map((url) => canonicalizeCitationUrl(url) || url).filter(Boolean))];
+  const nowMs = (() => {
+    const t = Date.parse((deps.now ?? (() => new Date().toISOString()))());
+    return Number.isFinite(t) ? t : Date.now();
+  })();
+  const audits: CompetitorPageAudit[] = [];
+  const fresh: CompetitorPageAudit[] = [];
+  let fromCache = 0;
+
+  for (const url of unique) {
+    const prior = cache.get(url);
+    if (prior && prior.fetchStatus === "ok" && isTeardownFresh(prior.auditedAt, nowMs)) {
+      audits.push(prior);
+      fromCache += 1;
+      continue;
+    }
+    const audit = await auditCompetitorPage(url, deps);
+    audits.push(audit);
+    fresh.push(audit);
+    // `getCompetitorAuditsForTenant` is request-cached. Mutating this map keeps a
+    // compiler read later in the same autonomous pass from seeing the old view.
+    cache.set(canonicalizeCitationUrl(audit.url) || audit.url, audit);
+  }
+  if (fresh.length > 0) await saveAudits(fresh);
+  return { audits, fromCache };
+}
+
+/**
  * Audit the competitor pages the Top-N MOVES actually reference (each move's
  * top cited competitor), so the teardown aligns 1:1 with the EvidencePackets.
  * Cache-aware (skips a URL already audited "ok" unless `force`). Fail-soft per URL.

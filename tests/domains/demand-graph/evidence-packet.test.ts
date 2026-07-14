@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import { buildEvidencePacket, competitorRelevance, type PageStructureFacts } from "@/domains/demand-graph/evidence-packet";
 import type { MoveCandidate } from "@/domains/demand-graph/build-graph";
 import type { CompetitorPageFacts } from "@/domains/demand-graph/competitor-page-audit";
+import { buildResearchDossier } from "@/domains/research/research-dossier";
 
 function move(p: Partial<MoveCandidate> & { gap: MoveCandidate["gap"] }): MoveCandidate {
   return {
@@ -16,6 +17,7 @@ function move(p: Partial<MoveCandidate> & { gap: MoveCandidate["gap"] }): MoveCa
     competitorUrls: p.competitorUrls ?? [],
     fanoutSeeds: p.fanoutSeeds ?? [],
     rationale: p.rationale ?? "",
+    aeoEvidence: p.aeoEvidence,
   };
 }
 
@@ -204,6 +206,62 @@ describe("buildEvidencePacket — deterministic Source-of-Truth packet", () => {
     expect(p.move.instruction).toBe("Build the missing comparison page around the three buyer questions.");
     expect(p.demand.basis).toBe("search_volume");
     expect(p.demand.demandWeight).toBe(900);
+  });
+
+  it("turns native cited-winner consensus into the prepared outline and schema brief", () => {
+    const m = move({
+      gap: "create_page",
+      label: "persian wedding ceremony",
+      signals: ["AI"],
+      competitorUrls: ["https://winner.com/wedding"],
+      aeoEvidence: {
+        source: "native",
+        prompts: ["what happens at a persian wedding"],
+        promptCount: 1,
+        fanoutQueries: ["what is a sofreh aghd"],
+        topCitedPages: [{ url: "https://winner.com/wedding", hostname: "winner.com", isOwned: false, answers: 3 }],
+        topCitedDomains: [{ hostname: "winner.com", answers: 3 }],
+        ownCitationCount: 0,
+        competitorCitationCount: 3,
+        recommendedContentShape: "steps",
+        confidence: "high",
+        matchBasis: "native cited winners",
+        winnerConsensus: {
+          sourceCount: 3,
+          sharedHeadings: ["Sofreh Aghd", "Ceremony order"],
+          answerShape: "steps",
+          wordBand: { low: 1200, high: 1800, median: 1500 },
+          schemaTypes: ["Article", "FAQPage"],
+          openingPattern: "direct_definition",
+          hasFaqConsensus: true,
+          hasToolConsensus: false,
+        },
+      },
+    });
+    const researchDossier = buildResearchDossier({
+      tenantId: "tenant-iranopedia",
+      move: m,
+      demandQueries: [{ query: m.label, impressions: 1 }],
+      corpus: {
+        keywordLibrary: { rows: [], volumeCoverage: 0, total: 0, bySource: {} as never },
+        serpPatterns: new Map(),
+        cloneBriefs: [],
+        questions: [],
+      },
+      nowIso: "2026-07-14T00:00:00Z",
+    });
+    const p = buildEvidencePacket({
+      move: m,
+      brand: "Iranopedia",
+      ownedFacts: null,
+      ownedGsc: null,
+      competitor: null,
+      researchDossier,
+    });
+    expect(p.draft.outline).toEqual(expect.arrayContaining(["Sofreh Aghd", "Ceremony order", "what is a sofreh aghd"]));
+    expect(p.draft.schemaRecommendations).toEqual(["Article", "FAQPage"]);
+    expect(p.draft.answerBlockBrief).toContain("steps shape");
+    expect(p.competitor.topUrl).toBe("https://winner.com/wedding");
   });
 
   it("relevance gate: an off-topic cited page is labeled, not inherited", () => {

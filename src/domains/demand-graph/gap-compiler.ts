@@ -24,6 +24,7 @@ import { buildResearchDossier } from "@/domains/research/research-dossier";
 import { loadResearchCorpusForTenant } from "@/domains/research/research-dossier-loader";
 import type { RankedUnifiedEntry } from "@/domains/allocator/unified-list";
 import type { MoveCandidate } from "./build-graph";
+import { mergeRankedEvidenceIntoGraphMove } from "./ranked-evidence-merge";
 
 function stripWww(h: string): string {
   return h.replace(/^www\./i, "").toLowerCase();
@@ -130,12 +131,17 @@ export async function loadChangePacksForTenant(
     graph.demandNodes.map((node) => [node.key, node.queries] as const),
   );
 
+  const rankedEntries = opts.rankedEntries ?? [];
   const actionable = graph.moves.filter((m) => m.gap !== "low_demand" && m.gap !== "healthy");
   const top = actionable.slice(0, limit);
 
   let withTeardown = 0;
   let withSnapshot = 0;
-  const graphPackets: EvidencePacket[] = top.map((move) => {
+  const graphPackets: EvidencePacket[] = top.map((graphMove) => {
+    // The final-ranked research pass can discover fresher live-SERP winners than
+    // the graph carried when it was seeded. Merge only evidence into the graph
+    // move; rank, score, type, target, and rationale remain authoritative.
+    const move = mergeRankedEvidenceIntoGraphMove(graphMove, rankedEntries);
     // top competitor audit
     const topCompUrl = move.competitorUrls[0] ?? null;
     const audit = topCompUrl ? audits.get(canonicalizeCitationUrl(topCompUrl) || topCompUrl) : undefined;
@@ -198,7 +204,6 @@ export async function loadChangePacksForTenant(
     });
   });
 
-  const rankedEntries = opts.rankedEntries ?? [];
   const usedGraphPackets = new Set<number>();
   const packets: EvidencePacket[] = [];
 
@@ -264,6 +269,7 @@ export async function loadChangePacksForTenant(
       competitorUrls: entry.competitorUrls,
       fanoutSeeds: entry.fanoutSeeds,
       rationale: entry.exactWhat,
+      aeoEvidence: entry.aeoEvidence ?? undefined,
     };
     const demandQueries: DemandQuerySignal[] = [{
       query: entry.query,

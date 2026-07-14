@@ -27,7 +27,7 @@ import { ExperimentPlanSchema, type ExperimentPlan, type ImplementationStep } fr
 import type { EvidencePacket } from "./evidence-packet";
 import { classifyQueryIntent } from "@/domains/experiments/answer-intent";
 import { loadFamilyDemandProfiles } from "@/domains/seasonal/family-demand-profile-store";
-import { runSerpQuery } from "@/domains/serp/dataforseo-serp";
+import { runSerpQuery, type SerpRunResult } from "@/domains/serp/dataforseo-serp";
 import { validateCreatePage } from "@/domains/serp/serp-validation";
 import { rootDomain } from "@/domains/serp/serp-provider";
 import { parsePreparedVerdict, type PreparedSerpVerdict } from "@/domains/serp/prepare-create-page-verdicts";
@@ -37,6 +37,10 @@ import type { FirstMentionConfig } from "@/domains/drafts/first-mention-check";
 import { log } from "@/lib/logger";
 import { dossierReferenceCandidates, researchDossierHints } from "@/domains/research/research-dossier";
 import type { RankedUnifiedEntry } from "@/domains/allocator/unified-list";
+import {
+  researchFinalRankedSerps,
+  type RankedSerpResearchDeps,
+} from "@/domains/serp/ranked-serp-research";
 
 /** First path segment groups a family - mirrors pageFamilyOf in
  *  daily-experiment-planner.ts (duplicated here to avoid an experiments ->
@@ -56,9 +60,10 @@ function pageFamilyOfUrl(url: string): string {
  *
  * Operator-triggered + capped: one paid LLM draft per Move (gpt-5-mini, ~$0.01),
  * fail-soft per Move (one failure never aborts the batch), and CACHE-FIRST — a
- * non-stale pack that already has a draft is skipped (zero re-spend). NO publish,
- * NO SERP, NO migration. Existing-page Moves only (create_page lives on the New
- * Pages board). Tenant-agnostic.
+ * non-stale pack that already has a draft is skipped (zero LLM re-spend). NO
+ * publish and NO migration. The exact final-ranked queries are checked through
+ * the existing capped/cache-first SERP gauntlet before drafting, including new
+ * pages. Tenant-agnostic.
  */
 
 const ALL_SPECIALISTS: Specialist[] = ["gsc", "ga4", "clarity", "profound", "dataforseo", "wix", "llm", "commerce_asset", "seasonal"];
@@ -100,6 +105,11 @@ export type PrepareMovesSummary = {
    *  (separate from llmCostUsd). 0 when every check was a cache hit / dry-run /
    *  unconfigured (no live call). */
   serpCostUsd: number;
+  /** Exact final-ranked queries that returned a real or cached live SERP. */
+  serpQueriesChecked?: number;
+  /** Organic winner pages torn down before packet compilation and drafting. */
+  serpWinnerPagesAnalyzed?: number;
+  serpWinnerPagesFromCache?: number;
   outcomes: PrepareMoveOutcome[];
 };
 
@@ -328,8 +338,8 @@ function draftExcerpt(pack: PreparedMovePack | null): string | null {
   return typeof text === "string" && text.trim() ? text.trim().slice(0, 200) : null;
 }
 
-/** The existing-page move types the RANK-3 live Google-results check applies to
- *  (create_page candidates are checked separately by prepare-create-page-verdicts). */
+/** Existing-page move types handled alongside create_page by the final-ranked
+ * live Google-results check. */
 const EXISTING_MOVE_TYPES = new Set<string>(["answer_block", "edit_page", "fix_experience"]);
 const SERP_VERDICT_FRESH_MS = 14 * 24 * 60 * 60 * 1000; // align to the 14d SERP cache
 
@@ -352,6 +362,7 @@ async function checkExistingPageWinnability(
   nowIso: string,
   saved: Map<string, { content?: string }>,
   runSerp: typeof runSerpQuery,
+  prefetched?: SerpRunResult,
 ): Promise<{ verdict: PreparedSerpVerdict | null; costUsd: number }> {
   const demandKey = packet.move.key;
   const query = packet.move.label?.trim();
@@ -367,7 +378,7 @@ async function checkExistingPageWinnability(
   // a real snapshot; everything else means "no verdict" (no spend, no hold).
   let r;
   try {
-    r = await runSerp(query, { depth: 10 });
+    r = prefetched ?? await runSerp(query, { depth: 10 });
   } catch {
     return { verdict: null, costUsd: 0 };
   }
@@ -375,7 +386,16 @@ async function checkExistingPageWinnability(
     return { verdict: null, costUsd: 0 };
   }
 
-  const profoundDomains = [...new Set(packet.competitor.otherUrls.concat(packet.competitor.topUrl ?? "").map((u) => rootDomain(u)).filter(Boolean))];
+  // Keep AI overlap honest. The packet's leading competitor may now be a
+  // winner discovered by this same Google read, which is not independent AI
+  // confirmation merely because it was added to the packet before drafting.
+  const aeoUrls = packet.research?.ai?.topCitedPages
+    .filter((page) => !page.isOwned)
+    .map((page) => page.url) ?? [];
+  const overlapUrls = packet.research
+    ? aeoUrls
+    : packet.competitor.otherUrls.concat(packet.competitor.topUrl ?? "");
+  const profoundDomains = [...new Set(overlapUrls.map((url) => rootDomain(url)).filter(Boolean))];
   const v = validateCreatePage({ snapshot: r.snapshot, ownDomain, profoundDomains, searchVolume: null });
   const compact: PreparedSerpVerdict = {
     verdict: v.verdict,
@@ -391,7 +411,7 @@ async function checkExistingPageWinnability(
     costUsd: r.costUsd,
   };
   await saveMoveDraft(tenantId, demandKey, "serp_verdict", JSON.stringify(compact)).catch(() => false);
-  return { verdict: compact, costUsd: r.status === "ok" ? r.costUsd : 0 };
+  return { verdict: compact, costUsd: prefetched ? 0 : r.status === "ok" ? r.costUsd : 0 };
 }
 
 /** Derive the tenant's own root domain from the graph's page URLs (most common). */
@@ -424,6 +444,9 @@ export async function prepareTodayMovesForTenant(
     checkWinnability?: boolean;
     /** RANK-3 (tests): inject the SERP runner so no live paid call is ever made. */
     runSerp?: typeof runSerpQuery;
+    /** Tests may inject the final-ranked research seam and winner auditor. */
+    researchRankedSerps?: typeof researchFinalRankedSerps;
+    auditSerpWinnerUrls?: RankedSerpResearchDeps["auditUrls"];
     /** Authoritative final /changes order. When supplied, preparation follows
      *  this exact sequence instead of independently re-ranking graph packets. */
     rankedEntries?: readonly RankedUnifiedEntry[];
@@ -453,14 +476,38 @@ export async function prepareTodayMovesForTenant(
     llmCostUsd: 0,
     winnabilityHeld: 0,
     serpCostUsd: 0,
+    serpQueriesChecked: 0,
+    serpWinnerPagesAnalyzed: 0,
+    serpWinnerPagesFromCache: 0,
     outcomes: [],
   };
 
+  let rankedEntries = opts.rankedEntries;
+  let prefetchedSerps = new Map<string, SerpRunResult>();
+  if (checkWinnability && rankedEntries?.length) {
+    const research = opts.researchRankedSerps ?? researchFinalRankedSerps;
+    const researchDeps: Partial<RankedSerpResearchDeps> = { runSerp };
+    if (opts.auditSerpWinnerUrls) researchDeps.auditUrls = opts.auditSerpWinnerUrls;
+    const receipt = await research(
+      rankedEntries,
+      { maxEntries: max, winnersPerQuery: 2 },
+      researchDeps,
+    ).catch(() => null);
+    if (receipt) {
+      rankedEntries = receipt.entries;
+      prefetchedSerps = receipt.byQuery;
+      summary.serpCostUsd += receipt.costUsd;
+      summary.serpQueriesChecked = (summary.serpQueriesChecked ?? 0) + receipt.queriesChecked;
+      summary.serpWinnerPagesAnalyzed = (summary.serpWinnerPagesAnalyzed ?? 0) + receipt.winnerPagesAnalyzed;
+      summary.serpWinnerPagesFromCache = (summary.serpWinnerPagesFromCache ?? 0) + receipt.winnerPagesFromCache;
+    }
+  }
+
   const { packets } = await loadChangePacksForTenant(tenantId, {
     limit: Math.max(max, 25),
-    rankedEntries: opts.rankedEntries,
+    rankedEntries,
   }).catch(() => ({ packets: [] as EvidencePacket[] }));
-  const orderedPackets = opts.rankedEntries?.length
+  const orderedPackets = rankedEntries?.length
     ? packets
     : [...packets].sort((a, b) => b.move.score - a.move.score);
   const targets = orderedPackets
@@ -516,7 +563,7 @@ export async function prepareTodayMovesForTenant(
       let winnabilityLine: string | undefined;
       let winnabilityHold = false;
       let hasSerpVerdict = false;
-      if (checkWinnability && EXISTING_MOVE_TYPES.has(packet.move.gapType)) {
+      if (checkWinnability && (EXISTING_MOVE_TYPES.has(packet.move.gapType) || packet.move.gapType === "create_page")) {
         const { verdict, costUsd } = await checkExistingPageWinnability(
           tenantId,
           packet,
@@ -524,13 +571,21 @@ export async function prepareTodayMovesForTenant(
           nowIso,
           saved,
           runSerp,
+          prefetchedSerps.get(packet.move.label.trim().toLocaleLowerCase("en-US")),
         );
         summary.serpCostUsd += costUsd;
         if (verdict) {
           hasSerpVerdict = true;
-          const hold = decideExistingPageHold({ verdict, moveType: packet.move.gapType as ExistingMoveType });
-          winnabilityHold = hold.hold;
-          winnabilityLine = hold.line ?? undefined;
+          if (packet.move.gapType === "create_page") {
+            winnabilityHold = verdict.verdict === "reject";
+            winnabilityLine = winnabilityHold
+              ? `Google checked: do not build this page yet. ${verdict.reason}`
+              : `Google checked: ${verdict.verdict.toUpperCase()} is supported. ${verdict.reason}`;
+          } else {
+            const hold = decideExistingPageHold({ verdict, moveType: packet.move.gapType as ExistingMoveType });
+            winnabilityHold = hold.hold;
+            winnabilityLine = hold.line ?? undefined;
+          }
         }
       }
 

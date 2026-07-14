@@ -32,6 +32,7 @@ import { canonicalizeCitationUrl } from "@/domains/citation-lifecycle/canonicali
 import type { PageSnapshot } from "@/domains/pages/types";
 import { ENGINE_PLAIN_NAME } from "@/domains/ai-visibility/engine-types";
 import type { NativeObservationInput } from "@/domains/ai-visibility/native-intel";
+import { loadFanoutSeedsForTenant, fanoutSeedsForNode } from "./load-fanout-seeds";
 import {
   planNativeCitedTargets,
   auditNativeCitedTargets,
@@ -50,6 +51,8 @@ import {
   type PersistedGapVerdict,
 } from "./teardown-commonality-verdict";
 import { getLatestMoveDrafts, saveMoveDraft } from "./move-draft-store";
+import { buildNativeAeoEvidence, fanoutQuestionsForNativePrompt } from "./native-aeo-evidence";
+import type { AeoEvidence } from "./profound-evidence-fusion";
 
 export const MAX_PROMPTS_PER_NIGHT = 10;
 
@@ -60,6 +63,7 @@ export type NativeTeardownPromptResult = {
   audits: CompetitorPageAudit[];
   brief: CommonalityBrief | null;
   verdict: GapVerdict;
+  aeoEvidence: AeoEvidence | null;
 };
 
 export type NativeTeardownRunSummary = {
@@ -254,9 +258,10 @@ export async function runNativeTeardownForTenant(
     if (targets.length === 0) return EMPTY_SUMMARY;
 
     const maxPrompts = opts.maxPrompts ?? MAX_PROMPTS_PER_NIGHT;
-    const [{ byPrompt, audited, fromCache }, ownedIndex] = await Promise.all([
+    const [{ byPrompt, audited, fromCache }, ownedIndex, fanoutSeeds] = await Promise.all([
       auditNativeCitedTargets({ targets, maxPrompts }, opts.deps ?? {}),
       loadOwnedFactsIndex(tenantId),
+      loadFanoutSeedsForTenant(tenantId).catch(() => []),
     ]);
 
     const results: NativeTeardownPromptResult[] = [];
@@ -268,12 +273,24 @@ export async function runNativeTeardownForTenant(
         ? (ownedIndex.byCanon.get(canonicalizeCitationUrl(ownedUrl) || ownedUrl) ?? ownedIndex.byPath.get(pathKeyOf(ownedUrl)) ?? null)
         : null;
       const brief = buildCommonalityBrief(facts, { ownedFacts });
+      const relatedFanouts = fanoutSeedsForNode(t.promptText, [t.promptText], fanoutSeeds, 12);
+      const fanoutQuestions = fanoutQuestionsForNativePrompt(inputs, t.promptId, relatedFanouts);
       const verdict = routeGapVerdict({
         promptId: t.promptId,
         brief,
         ownership: { ownedUrl },
+        fanoutQuestions,
       });
-      results.push({ promptId: t.promptId, promptText: t.promptText, targets: t.urls, audits, brief, verdict });
+      const aeoEvidence = brief
+        ? buildNativeAeoEvidence({
+            target: t,
+            observations: inputs,
+            brief,
+            fanoutQuestions,
+            ownedRoot,
+          })
+        : null;
+      results.push({ promptId: t.promptId, promptText: t.promptText, targets: t.urls, audits, brief, verdict, aeoEvidence });
     }
 
     // D4 (unified allocator) needs to read these verdicts back without re-running the
@@ -294,6 +311,7 @@ export async function runNativeTeardownForTenant(
               ...r.verdict,
               promptText: r.promptText,
               ownedUrl: resolveOwnedUrlForPrompt(inputs, r.promptId, ownedRoot),
+              aeoEvidence: r.aeoEvidence,
             };
             if (!alreadyVerdict || JSON.stringify(alreadyVerdict) !== JSON.stringify(payload)) {
               await saveMoveDraft(tenantId, draftKey, GAP_VERDICT_KIND, serializeGapVerdict(payload)).catch(() => false);

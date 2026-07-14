@@ -18,6 +18,9 @@ export function autonomousResearchStatusLine(receipt: WarmRunReceipt | null): st
     `${s.keywordTermsPlanned.toLocaleString()} keyword signals`,
     `${s.keywordGapsFound.toLocaleString()} competitor keyword gaps`,
     `${s.competitorPagesAnalyzed.toLocaleString()} competitor pages`,
+    ...((s.finalSerpWinnersAnalyzed ?? 0) > 0
+      ? [`${(s.finalSerpWinnersAnalyzed ?? 0).toLocaleString()} final Google winners`]
+      : []),
     `${s.aiTopicsPolled.toLocaleString()} AI topics`,
     `${s.questionsRanked.toLocaleString()} questions`,
   ].join(", ");

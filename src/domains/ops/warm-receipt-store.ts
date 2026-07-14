@@ -46,6 +46,9 @@ export type WarmRunSummary = {
   stealBriefsBuilt: number;
   nativePromptsAnalyzed: number;
   citedPagesAnalyzed: number;
+  /** Same-cycle Google research over the exact final Changes order. */
+  finalSerpQueriesChecked?: number;
+  finalSerpWinnersAnalyzed?: number;
   movesPrepared: number;
   readyToReview: number;
   draftsRegenerated: number;

@@ -22,7 +22,7 @@ import type { MoveCandidate } from "./build-graph";
 import type { PromptOpportunity } from "@/domains/profound-question-intelligence/prompt-opportunity";
 
 export type AeoEvidence = {
-  source: "profound";
+  source: "profound" | "native";
   /** The AI questions this Move answers (highest-attention first, capped). */
   prompts: string[];
   /** Total prompts matched (prompts[] may be capped for display). */
@@ -42,6 +42,18 @@ export type AeoEvidence = {
   confidence: "high" | "medium" | "low";
   /** Human-readable: why these prompts were matched to this Move. */
   matchBasis: string;
+  /** Structural consensus from 2-5 cited winner-page teardowns. Native AEO
+   * verdicts populate this; older/Profound-only evidence remains compatible. */
+  winnerConsensus?: {
+    sourceCount: number;
+    sharedHeadings: string[];
+    answerShape: string;
+    wordBand: { low: number; high: number; median: number };
+    schemaTypes: string[];
+    openingPattern: string;
+    hasFaqConsensus: boolean;
+    hasToolConsensus: boolean;
+  } | null;
 };
 
 const DIRECTORY = new Set([

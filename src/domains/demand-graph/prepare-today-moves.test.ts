@@ -22,7 +22,7 @@ vi.mock("@/domains/seasonal/family-demand-profile-store", () => ({ loadFamilyDem
 import { prepareTodayMovesForTenant } from "./prepare-today-moves";
 import { loadChangePacksForTenant } from "./gap-compiler";
 import { saveMoveDraft, getLatestMoveDrafts } from "./move-draft-store";
-import { draftAnswerBlockStructured } from "@/domains/llm/structured-drafter";
+import { draftAnswerBlockStructured, draftCreatePageStructured } from "@/domains/llm/structured-drafter";
 import { buildEvidencePacket } from "./evidence-packet";
 import type { MoveCandidate } from "./build-graph";
 import type { SerpRunResult } from "@/domains/serp/dataforseo-serp";
@@ -294,5 +294,54 @@ describe("prepareTodayMovesForTenant - authoritative Changes order", () => {
       rankedEntries,
     });
     expect(summary.outcomes.map((outcome) => outcome.moveId)).toEqual(["ranked:first", "ranked:second"]);
+  });
+
+  it("researches a final-ranked create move, compiles its live winner, and holds an unwinnable page before drafting", async () => {
+    const rankedEntries = [{
+      id: "create-one",
+      query: "persian tea marketplace",
+      competitorUrls: [],
+    }] as never;
+    const enrichedEntries = [{
+      id: "create-one",
+      query: "persian tea marketplace",
+      competitorUrls: ["https://winner.example/persian-tea"],
+    }] as never;
+    const createPacket = packet({
+      demandKey: "allocator:create-one",
+      label: "persian tea marketplace",
+      gap: "create_page",
+      ownedUrl: null,
+      competitorUrls: ["https://winner.example/persian-tea"],
+    });
+    vi.mocked(loadChangePacksForTenant).mockResolvedValue({ packets: [createPacket] } as never);
+    const prefetched = serpResult("ok", MARKETPLACE_SNAPSHOT, 0.003);
+    const researchRankedSerps = vi.fn(async () => ({
+      entries: enrichedEntries,
+      byQuery: new Map([["persian tea marketplace", prefetched]]),
+      queriesChecked: 1,
+      winnerPagesAnalyzed: 2,
+      winnerPagesFromCache: 1,
+      costUsd: 0.003,
+    }));
+    const runSerp = vi.fn();
+
+    const summary = await prepareTodayMovesForTenant("tenant-iranopedia", {
+      rankedEntries,
+      runSerp: runSerp as never,
+      researchRankedSerps: researchRankedSerps as never,
+    });
+
+    expect(loadChangePacksForTenant).toHaveBeenCalledWith("tenant-iranopedia", {
+      limit: 25,
+      rankedEntries: enrichedEntries,
+    });
+    expect(runSerp).not.toHaveBeenCalled();
+    expect(summary.serpQueriesChecked).toBe(1);
+    expect(summary.serpWinnerPagesAnalyzed).toBe(2);
+    expect(summary.serpCostUsd).toBe(0.003);
+    expect(summary.winnabilityHeld).toBe(1);
+    expect(draftCreatePageStructured).not.toHaveBeenCalled();
+    expect(summary.outcomes[0]!.note).toContain("held");
   });
 });

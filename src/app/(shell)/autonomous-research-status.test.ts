@@ -29,6 +29,8 @@ const summary: WarmRunSummary = {
   stealBriefsBuilt: 4,
   nativePromptsAnalyzed: 5,
   citedPagesAnalyzed: 12,
+  finalSerpQueriesChecked: 10,
+  finalSerpWinnersAnalyzed: 8,
   movesPrepared: 7,
   readyToReview: 6,
   draftsRegenerated: 3,
@@ -58,6 +60,7 @@ describe("autonomousResearchStatusLine", () => {
     expect(line).toContain("500 keyword signals");
     expect(line).toContain("120 competitor keyword gaps");
     expect(line).toContain("10 competitor pages");
+    expect(line).toContain("8 final Google winners");
     expect(line).toContain("5 AI topics");
     expect(line).toContain("6 moves ready to review");
   });

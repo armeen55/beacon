@@ -267,10 +267,15 @@ export function buildEvidencePacket(input: BuildEvidencePacketInput): EvidencePa
   }
 
   // ── deterministic draft skeleton (grounded; NO fabricated prose, NO LLM) ──
+  const winnerConsensus = researchDossier?.ai?.winnerConsensus ?? null;
   const outline: string[] = [];
   // Only inherit the competitor's outline when it's on-topic; otherwise the draft
   // is built from Profound fanouts alone (never an off-topic page's structure).
   for (const h of (competitorOnTopic ? cFacts?.outline : []) ?? []) {
+    if (outline.length >= 12) break;
+    if (h && !outline.includes(h)) outline.push(h);
+  }
+  for (const h of winnerConsensus?.sharedHeadings ?? []) {
     if (outline.length >= 12) break;
     if (h && !outline.includes(h)) outline.push(h);
   }
@@ -279,7 +284,10 @@ export function buildEvidencePacket(input: BuildEvidencePacketInput): EvidencePa
     if (!outline.includes(q)) outline.push(q);
   }
   const faqQuestions = [...new Set([...(competitorOnTopic ? cFacts?.faqQuestions ?? [] : []), ...fanoutSeeds])].slice(0, 8);
-  const schemaRecommendations = (competitorOnTopic ? cFacts?.schemaTypes ?? [] : []).filter((t) => !(ownedFacts?.schemaTypes ?? []).includes(t)).slice(0, 6);
+  const schemaRecommendations = [...new Set([
+    ...(competitorOnTopic ? cFacts?.schemaTypes ?? [] : []),
+    ...(winnerConsensus?.schemaTypes ?? []),
+  ])].filter((t) => !(ownedFacts?.schemaTypes ?? []).includes(t)).slice(0, 6);
   const isCreate = move.gap === "create_page" || !hasOwned;
   const hasToolGap = gaps.some((g) => g.kind === "missing_tool");
 
@@ -290,7 +298,8 @@ export function buildEvidencePacket(input: BuildEvidencePacketInput): EvidencePa
     outline,
     answerBlockBrief:
       gaps.some((g) => g.kind === "missing_answer_block") || isCreate
-        ? `Open with a 40–60 word direct answer to "${primaryQuery}" (the AEO answer-block pattern competitors win with).`
+        ? `Open with a 40–60 word direct answer to "${primaryQuery}"` +
+          `${winnerConsensus ? ` using the winners' ${winnerConsensus.answerShape.replace(/_/g, " ")} shape and ${winnerConsensus.openingPattern.replace(/_/g, " ")} opening` : ""}.`
         : null,
     faqQuestions,
     schemaRecommendations,

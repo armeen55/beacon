@@ -29,6 +29,7 @@
 
 import type { CommonalityBrief, ConsensusSpec } from "./teardown-commonality";
 import { commonalitySentence } from "./teardown-commonality";
+import type { AeoEvidence } from "./profound-evidence-fusion";
 
 export type GapVerdictOutcome = "atomic_edit" | "new_page" | "no_verdict";
 
@@ -96,7 +97,13 @@ export type GapVerdict = {
 /** The stored row: the pure GapVerdict plus the two I/O-layer facts D4 needs
  *  to build a CanonicalChange without re-reading raw observation rows
  *  (promptText for the card label, ownedUrl to resolve the target page). */
-export type PersistedGapVerdict = GapVerdict & { promptText: string; ownedUrl: string | null };
+export type PersistedGapVerdict = GapVerdict & {
+  promptText: string;
+  ownedUrl: string | null;
+  /** Full native-AI research receipt behind this verdict. Optional for rows
+   * persisted before the connected preparation seam. */
+  aeoEvidence?: AeoEvidence | null;
+};
 
 /** Stable move_drafts key for one tenant+prompt pair - a re-run lands on the
  *  same row (latest wins, same read contract as serp-steal-lane's steal briefs). */

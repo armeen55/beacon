@@ -39,6 +39,7 @@ import type { KeywordLibraryRow } from "@/domains/research/keyword-library";
 import { normalizePath } from "@/domains/experiments/daily-plan-types";
 import { resolveOwner, type OwnershipRegistry } from "@/domains/ownership/registry";
 import type { OwnedCoverageMatch } from "@/domains/demand-graph/owned-coverage";
+import type { AeoEvidence } from "@/domains/demand-graph/profound-evidence-fusion";
 
 // ── The unified shape every lane normalizes into ────────────────────────────
 
@@ -93,6 +94,9 @@ export type UnifiedEntry = {
   /** Lane-native measured demand, normalized to monthly units where possible.
    *  Null means that lane did not measure it; never substitute a rank score. */
   demandEvidence: { gscMonthly: number | null; searchVolumeMonthly: number | null };
+  /** Native/Profound AI evidence already attached to this lane. Carried into
+   * the shared ResearchDossier instead of reducing AEO to a boolean source. */
+  aeoEvidence?: AeoEvidence | null;
 };
 
 /** Compact, JSON-safe server handoff from the final Changes ranking into
@@ -223,12 +227,16 @@ export function normalizeGapVerdictEntry(
     forecastBasis: rationale,
     hold: { held: false, reason: null },
     sourceChange: null,
-    competitorUrls: [],
+    competitorUrls: (v.aeoEvidence?.topCitedPages ?? [])
+      .filter((cited) => !cited.isOwned)
+      .map((cited) => cited.url)
+      .slice(0, 8),
     fanoutSeeds: [
       ...(v.atomicEdit?.fanoutQuestionsToWeave ?? []),
       ...(v.newPage?.fanoutQuestionsToWeave ?? []),
     ].slice(0, 12),
     demandEvidence: { gscMonthly: null, searchVolumeMonthly: null },
+    aeoEvidence: v.aeoEvidence ?? null,
   };
 }
 
@@ -510,6 +518,7 @@ export function fuseByPage(entries: readonly UnifiedEntry[]): UnifiedEntry[] {
       riskFlags: [...new Set(sorted.flatMap((e) => e.riskFlags))],
       competitorUrls: [...new Set(sorted.flatMap((e) => e.competitorUrls))].slice(0, 8),
       fanoutSeeds: [...new Set(sorted.flatMap((e) => e.fanoutSeeds))].slice(0, 12),
+      aeoEvidence: sorted.find((entry) => entry.aeoEvidence)?.aeoEvidence ?? primary.aeoEvidence ?? null,
       demandEvidence: {
         gscMonthly: sorted.reduce<number | null>((best, entry) => {
           const value = entry.demandEvidence.gscMonthly;

@@ -55,6 +55,9 @@ const EMPTY_PREPARE: PrepareMovesSummary = {
   llmCostUsd: 0,
   winnabilityHeld: 0,
   serpCostUsd: 0,
+  serpQueriesChecked: 0,
+  serpWinnerPagesAnalyzed: 0,
+  serpWinnerPagesFromCache: 0,
   outcomes: [],
 };
 
@@ -318,6 +321,8 @@ export async function runAutonomousResearchForTenant(
     stealBriefsBuilt: steal.value.briefsBuilt,
     nativePromptsAnalyzed: native.value.promptsAnalyzed,
     citedPagesAnalyzed: native.value.torndownPages,
+    finalSerpQueriesChecked: prepared.serpQueriesChecked ?? 0,
+    finalSerpWinnersAnalyzed: prepared.serpWinnerPagesAnalyzed ?? 0,
     movesPrepared: prepared.prepared,
     readyToReview: prepared.readyToReview,
     draftsRegenerated: prepared.regenerated,
