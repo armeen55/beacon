@@ -11,7 +11,7 @@
  * real tenant data. Not customer-facing (customer shell is at /audit).
  */
 
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { isOperatorModeServer } from "@/lib/operator-mode";
 import { PageHeader } from "@/components/data/page-header";
 import { getDailyMetricSnapshots } from "@/storage/canonical-store";
@@ -33,6 +33,10 @@ import type { ChangePattern } from "@/domains/learning/change-patterns";
 
 export const dynamic = "force-dynamic";
 
+function sendCustomerToResults(): void {
+  redirect("/results");
+}
+
 /**
  * 2026-05-06 demo-path fix — same operator-only gate as /diagnostics.
  * URL-guessable in production; mirrors the parent guard rule.
@@ -46,6 +50,9 @@ export default async function SpikeForensicsPage() {
   if (!isOperatorMode()) {
     notFound();
   }
+  // Customer-facing movement and attribution live in Results. Keep the old
+  // forensic implementation out of the normal product journey.
+  sendCustomerToResults();
   const tenantId = await currentTenantId();
   // Load upstream primitives once for all events.
   const outcomes = await readStore<ChangeOutcome>("change-outcomes");

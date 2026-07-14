@@ -82,7 +82,7 @@ export async function TodayNewPagesSection({
             ) : null}
             {!limit && data.totalCandidates > opportunities.length ? (
               <Link
-                href="/diagnostics/rank-revenue"
+                href="/changes#new-pages"
                 className="rounded-lg border border-border bg-card px-3.5 py-1.5 text-body font-semibold text-foreground-secondary transition-colors hover:bg-surface-raised"
               >
                 +{data.totalCandidates - opportunities.length} more →

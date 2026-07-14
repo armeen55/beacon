@@ -8,7 +8,7 @@
  * (coverage from the durable cached store). This is the surface that must match
  * or beat the legacy surfaces before any legacy ranking path is removed (Phase E).
  */
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { isOperatorModeServer } from "@/lib/operator-mode";
 import { PageHeader } from "@/components/data/page-header";
 import { currentTenantId } from "@/lib/tenant-context";
@@ -17,6 +17,10 @@ import { ACTION_LABEL, actionFamily, type ActionPack } from "@/domains/action-pa
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
+
+function sendCustomerToChanges(): void {
+  redirect("/changes");
+}
 
 function gate(): boolean {
   return isOperatorModeServer() || process.env.NODE_ENV === "test";
@@ -71,6 +75,9 @@ function Section({ title, blurb, packs }: { title: string; blurb: string; packs:
 
 export default async function ActionPacksPage({ searchParams }: { searchParams?: Promise<{ mode?: string }> }) {
   if (!gate()) notFound();
+  // Changes is the one customer worklist. Do not make a signed-in user choose
+  // between a diagnostic allocator dump and the product surface.
+  sendCustomerToChanges();
   const tenantId = await currentTenantId();
   const mode = (await searchParams)?.mode === "full" ? "full" : "fast";
   const wl = await loadActionPackWorklistForTenant(tenantId, { mode });

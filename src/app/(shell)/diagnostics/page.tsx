@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { isOperatorModeServer } from "@/lib/operator-mode";
 import { PageHeader } from "@/components/data/page-header";
 import { StatCard } from "@/components/data/stat-card";
@@ -237,10 +237,19 @@ function isOperatorMode(): boolean {
 // `tests/architecture/diagnostics-page-dynamic.test.ts`.
 export const dynamic = "force-dynamic";
 
+function sendCustomerToToday(): void {
+  redirect("/");
+}
+
 export default async function DiagnosticsPage() {
   if (!isOperatorMode()) {
     notFound();
   }
+  // Diagnostics is an engineering surface, not a customer workflow. A signed-in
+  // product user who follows an old/deep link should land on Beacon's actual
+  // autonomous summary instead of being asked to reason about stores, scripts,
+  // flags, or environment configuration.
+  sendCustomerToToday();
   const [results, changelogEntries, opportunities, briefs, competitors, eventDecisions, candidateLinks, pageIssues, outcomeRecords, answerSnapshots, citationEvidenceIndex, promptLibrary, activePrompts] = await Promise.all([
     getResults(),
     getChangelogEntries(),

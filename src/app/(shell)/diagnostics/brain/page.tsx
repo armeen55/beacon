@@ -20,11 +20,15 @@
 import { readFileSync, existsSync } from "node:fs";
 import { join, resolve } from "node:path";
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { isOperatorModeServer } from "@/lib/operator-mode";
 import { PageHeader } from "@/components/data/page-header";
 
 export const dynamic = "force-dynamic";
+
+function sendCustomerToToday(): void {
+  redirect("/");
+}
 
 function isOperatorMode(): boolean {
   // Server-only gate. Test extension preserves render-under-test.
@@ -131,6 +135,11 @@ export default async function OperatorBrainPage() {
   if (!isOperatorMode()) {
     notFound();
   }
+
+  // The real brain status is part of the normal signed-in shell and Today. Do
+  // not expose filesystem reports or command-line recovery instructions as a
+  // product workflow.
+  sendCustomerToToday();
 
   const manifest = safeRead<Manifest>(join(BRAIN_DIR, "manifest.json"));
   const opportunities = safeRead<OpportunityRow[]>(
