@@ -18,9 +18,22 @@ export function autonomousResearchStatusLine(receipt: WarmRunReceipt | null): st
     `${s.questionsRanked.toLocaleString()} questions`,
   ].join(", ");
   const outcome = `${s.readyToReview.toLocaleString()} move${s.readyToReview === 1 ? "" : "s"} ready to review`;
+  const dataForSeo =
+    s.dataForSeoStatus === "disabled"
+      ? " DataForSEO is not connected, so competitor keyword mining stayed off."
+      : s.dataForSeoStatus === "dry_run"
+        ? " DataForSEO is in dry-run, so its paid lookups were planned but not called."
+        : "";
+  const aiPoll = s.aiEnginePollStatus === "already_ran"
+    ? " AI-engine answers were already refreshed today."
+    : s.aiEnginePollStatus === "no_prompts"
+      ? " AI-engine polling needs tracked questions before it can run."
+      : s.aiEnginePollStatus === "error" || s.aiEnginePollStatus === "not_run"
+        ? " AI-engine polling did not complete and will retry safely."
+        : "";
   return receipt.ok
-    ? `Automatic research complete: ${evidence}; ${outcome}.`
-    : `Automatic research partially completed: ${evidence}; ${outcome}. Beacon will retry safely.`;
+    ? `Automatic research complete: ${evidence}; ${outcome}.${dataForSeo}${aiPoll}`
+    : `Automatic research partially completed: ${evidence}; ${outcome}. Beacon will retry safely.${dataForSeo}${aiPoll}`;
 }
 
 export async function AutonomousResearchStatus({ tenantId }: { tenantId: string }) {

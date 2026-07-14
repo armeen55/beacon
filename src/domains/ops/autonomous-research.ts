@@ -1,6 +1,7 @@
 import "server-only";
 
 import type { TopicMentionsRunResult } from "@/domains/ai-visibility/run-topic-mentions";
+import type { EnginePollResult } from "@/domains/ai-visibility/run-engine-poll";
 import type { NativeTeardownRunSummary } from "@/domains/demand-graph/native-teardown-runner";
 import type { PrepareMovesSummary } from "@/domains/demand-graph/prepare-today-moves";
 import type { QuestionUniverseRebuildResult } from "@/domains/research/question-universe-loader";
@@ -63,6 +64,7 @@ export type AutonomousResearchDeps = {
   mineCompetitorKeywords: (tenantId: string) => Promise<KeywordGapRunResult>;
   buildResearchPacks: (tenantId: string) => Promise<ResearchPackLite[]>;
   enrichResearch: (packs: ResearchPackLite[]) => Promise<EnrichmentRunResult>;
+  pollAiEngines: (tenantId: string) => Promise<EnginePollResult>;
   pollAiTopics: (tenantId: string) => Promise<TopicMentionsRunResult>;
   rebuildQuestions: (tenantId: string) => Promise<QuestionUniverseRebuildResult>;
   rebuildClaims: (tenantId: string) => Promise<ClaimGraphRebuildResult>;
@@ -121,6 +123,10 @@ const defaultDeps: AutonomousResearchDeps = {
   enrichResearch: async (packs) => {
     const { enrichResearchPacks } = await import("@/domains/serp/research-enrichment-producer");
     return await enrichResearchPacks(packs);
+  },
+  pollAiEngines: async (tenantId) => {
+    const { runEnginePollForTenant } = await import("@/domains/ai-visibility/run-engine-poll");
+    return await runEnginePollForTenant(tenantId);
   },
   pollAiTopics: async (tenantId) => {
     const { runTopicMentionsForTenant } = await import("@/domains/ai-visibility/run-topic-mentions");
@@ -228,6 +234,9 @@ export async function runAutonomousResearchForTenant(
     deps.enrichResearch(packs.value));
   steps.push(enrichment.receipt);
 
+  const enginePoll = await runStep<EnginePollResult | null>("multi-engine-aeo-poll", null, () =>
+    deps.pollAiEngines(tenantId));
+  steps.push(enginePoll.receipt);
   const topics = await runStep<TopicMentionsRunResult | null>("ai-citation-fanout", null, () =>
     deps.pollAiTopics(tenantId));
   steps.push(topics.receipt);
@@ -267,7 +276,15 @@ export async function runAutonomousResearchForTenant(
     );
   }
 
+  const dataForSeoStatus: WarmRunSummary["dataForSeoStatus"] =
+    enrichment.value?.configured !== true || keywordGaps.value?.status === "disabled" || topics.value?.status === "disabled"
+      ? "disabled"
+      : enrichment.value.mode === "dry_run" || keywordGaps.value?.status === "dry_run" || topics.value?.status === "dry_run"
+        ? "dry_run"
+        : "live";
   const summary: WarmRunSummary = {
+    dataForSeoStatus,
+    aiEnginePollStatus: enginePoll.value?.status ?? "not_run",
     competitorPagesAnalyzed: competitors.value.targets,
     competitorPagesRefreshed: Math.max(0, competitors.value.audited - competitors.value.cached),
     competitorsMined: keywordGaps.value?.competitors.length ?? 0,
@@ -277,6 +294,10 @@ export async function runAutonomousResearchForTenant(
     serpPatternsWritten: enrichment.value?.patternsWritten ?? 0,
     aiTopicsPolled: topics.value?.topics.length ?? 0,
     aiCitationRecords: topics.value?.records ?? 0,
+    aiEnginePrompts: enginePoll.value?.promptsRequested ?? 0,
+    aiEnginesChecked: enginePoll.value?.enginesChecked.length ?? 0,
+    aiObservationsWritten: enginePoll.value?.observationsWritten ?? 0,
+    aiCitationGaps: enginePoll.value?.gaps ?? 0,
     questionsRanked: questions.value?.rows ?? 0,
     uncoveredQuestions: questions.value?.uncovered ?? 0,
     claimsChecked: claims.value?.claims ?? 0,
@@ -294,6 +315,7 @@ export async function runAutonomousResearchForTenant(
       (enrichment.value?.spentUsd ?? 0) +
       (keywordGaps.value?.spentUsd ?? 0) +
       (topics.value?.costUsd ?? 0) +
+      (enginePoll.value?.engines.reduce((sum, engine) => sum + engine.costUsd, 0) ?? 0) +
       displacement.value.costUsd +
       steal.value.liveCostUsd +
       prepared.llmCostUsd +

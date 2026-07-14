@@ -56,6 +56,20 @@ function deps(calls: string[]): AutonomousResearchDeps {
         spentUsd: 0.083,
       };
     }),
+    pollAiEngines: vi.fn(async () => {
+      calls.push("engines");
+      return {
+        tenantId: TENANT,
+        date: "2026-07-13",
+        status: "ok" as const,
+        promptsRequested: 25,
+        engines: [{ engine: "gemini" as const, status: "ok" as const, answers: 10, citedYou: 2, costUsd: 0.03, detail: "checked" }],
+        observationsWritten: 40,
+        enginesChecked: ["chatgpt", "perplexity"] as Array<"chatgpt" | "perplexity">,
+        gaps: 8,
+        detail: "checked",
+      };
+    }),
     pollAiTopics: vi.fn(async () => {
       calls.push("ai");
       return { tenantId: TENANT, status: "ok" as const, topics: ["singers"], records: 4, costUsd: 0.01, detail: "ok" };
@@ -147,25 +161,31 @@ describe("runAutonomousResearchForTenant", () => {
     const calls: string[] = [];
     const receipt = await runAutonomousResearchForTenant(TENANT, NOW, deps(calls));
     expect(calls).toEqual([
-      "graph", "competitors", "gaps", "packs", "keywords", "ai", "questions", "claims", "authority",
+      "graph", "competitors", "gaps", "packs", "keywords", "engines", "ai", "questions", "claims", "authority",
       "loss", "steal", "native", "fuse", "prepare", "today",
     ]);
     expect(receipt.ok).toBe(true);
     expect(receipt.trigger).toBe("visit");
     expect(receipt.summary).toMatchObject({
       keywordTermsPlanned: 2,
+      dataForSeoStatus: "live",
+      aiEnginePollStatus: "ok",
       competitorPagesAnalyzed: 10,
       competitorsMined: 2,
       keywordGapsFound: 120,
       cloneBriefsBuilt: 3,
       aiCitationRecords: 4,
+      aiEnginePrompts: 25,
+      aiEnginesChecked: 2,
+      aiObservationsWritten: 40,
+      aiCitationGaps: 8,
       questionsRanked: 50,
       claimsChecked: 35,
       pagesMapped: 90,
       stealBriefsBuilt: 4,
       readyToReview: 5,
       draftsRegenerated: 2,
-      spendUsd: 0.258,
+      spendUsd: 0.288,
     });
   });
 

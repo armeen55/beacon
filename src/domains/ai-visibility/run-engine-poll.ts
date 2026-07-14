@@ -88,7 +88,28 @@ export type NativeEngineAnswer = {
 export type NativeEngineClient = (question: string) => Promise<NativeEngineAnswer | null>;
 
 const NATIVE_TIMEOUT_MS = 45_000;
+const NATIVE_CONCURRENCY = 5;
 const URL_RE = /https?:\/\/[^\s)"'\]<>]+/g;
+
+async function mapWithConcurrency<T, R>(
+  items: readonly T[],
+  limit: number,
+  worker: (item: T) => Promise<R>,
+): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let cursor = 0;
+  const workers = Array.from(
+    { length: Math.min(Math.max(1, limit), items.length) },
+    async () => {
+      while (cursor < items.length) {
+        const index = cursor++;
+        results[index] = await worker(items[index]!);
+      }
+    },
+  );
+  await Promise.all(workers);
+  return results;
+}
 
 function dedupeUrls(urls: string[]): string[] {
   const seen = new Set<string>();
@@ -547,55 +568,98 @@ export async function runEnginePollForTenant(
       return citedYou;
     };
 
-    // (3a) native engines - bounded sequential calls, skip without a key.
+    // (3a) Native engines use a small concurrency pool. The old fully
+    // sequential loop could overrun the autonomous runner's 120s step ceiling,
+    // letting teardown start before fresh observations were persisted.
     const natives: Array<{ engine: EngineId; client: NativeEngineClient | null }> = [
       { engine: "chatgpt", client: deps.openAiClient },
       { engine: "perplexity", client: deps.perplexityClient },
     ];
-    for (const { engine, client } of natives) {
-      if (!client) {
-        engineResults.push({ engine, status: "skipped_no_key", answers: 0, citedYou: 0, costUsd: 0, detail: "no API key on this environment" });
-        continue;
-      }
-      const answered: Array<{ prompt: UniverseQuestion; answer: EngineAnswerLite }> = [];
-      for (const question of questions) {
-        const ans = await client(question.text);
-        if (ans) answered.push({ prompt: question, answer: { promptId: question.id, ...ans } });
-      }
-      const citedYou = collect(engine, answered);
-      engineResults.push({
-        engine,
-        status: answered.length > 0 ? "ok" : "error",
-        answers: answered.length,
-        citedYou,
-        costUsd: 0,
-        detail: answered.length > 0 ? `${answered.length}/${questions.length} answers` : "all calls failed",
-      });
-    }
+    const nativeRunsPromise = Promise.all(
+      natives.map(async ({ engine, client }) => {
+        if (!client) {
+          return {
+            engine,
+            answered: [] as Array<{ prompt: UniverseQuestion; answer: EngineAnswerLite }>,
+            status: "skipped_no_key" as const,
+            detail: "no API key on this environment",
+          };
+        }
+        const answers = await mapWithConcurrency(questions, NATIVE_CONCURRENCY, async (question) => {
+          const answer = await client(question.text);
+          return answer ? { prompt: question, answer: { promptId: question.id, ...answer } } : null;
+        });
+        const answered = answers.filter(
+          (answer): answer is { prompt: UniverseQuestion; answer: EngineAnswerLite } => answer !== null,
+        );
+        return {
+          engine,
+          answered,
+          status: answered.length > 0 ? "ok" as const : "error" as const,
+          detail: answered.length > 0 ? `${answered.length}/${questions.length} answers` : "all calls failed",
+        };
+      }),
+    );
 
     // (3b) DataForSEO engines - the full money gauntlet lives inside the
-    // runner (cache -> dry-run -> shared fail-closed cap -> ledger).
+    // runner (cache -> dry-run -> shared fail-closed cap -> ledger). Keep its
+    // two paid engines sequential so the shared budget ledger remains ordered,
+    // but overlap that chain with the native-engine pool.
     const items: PromptAnswerItem[] = questions.map((q) => ({ key: q.id, question: q.text }));
     const promptById = new Map(questions.map((q) => [q.id, q]));
-    for (const engine of DATAFORSEO_ENGINES) {
-      const dfsEngine = engine as "gemini" | "claude";
-      const r = await deps.runDataForSeoEngine(items, dfsEngine, tenantId);
-      const answered = r.answers
-        .map((a) => {
-          const prompt = promptById.get(a.key);
-          return prompt
-            ? { prompt, answer: { promptId: a.key, answerText: a.answerText, citedUrls: a.citedUrls, model: a.model } }
-            : null;
-        })
-        .filter((x): x is { prompt: UniverseQuestion; answer: EngineAnswerLite } => x !== null);
-      const citedYou = collect(engine, answered);
+    const dataForSeoRunsPromise = (async () => {
+      const runs: Array<{
+        engine: EngineId;
+        answered: Array<{ prompt: UniverseQuestion; answer: EngineAnswerLite }>;
+        status: EnginePollEngineResult["status"];
+        costUsd: number;
+        detail: string;
+      }> = [];
+      for (const engine of DATAFORSEO_ENGINES) {
+        const dfsEngine = engine as "gemini" | "claude";
+        const result = await deps.runDataForSeoEngine(items, dfsEngine, tenantId);
+        const answered = result.answers
+          .map((answer) => {
+            const prompt = promptById.get(answer.key);
+            return prompt
+              ? { prompt, answer: { promptId: answer.key, answerText: answer.answerText, citedUrls: answer.citedUrls, model: answer.model } }
+              : null;
+          })
+          .filter((answer): answer is { prompt: UniverseQuestion; answer: EngineAnswerLite } => answer !== null);
+        runs.push({
+          engine,
+          answered,
+          status: result.status === "ok" || result.status === "cache_hit"
+            ? (answered.length > 0 ? result.status : "error")
+            : result.status,
+          costUsd: result.costUsd,
+          detail: result.detail,
+        });
+      }
+      return runs;
+    })();
+
+    const [nativeRuns, dataForSeoRuns] = await Promise.all([nativeRunsPromise, dataForSeoRunsPromise]);
+    for (const run of nativeRuns) {
+      const citedYou = collect(run.engine, run.answered);
       engineResults.push({
-        engine,
-        status: r.status === "ok" || r.status === "cache_hit" ? (answered.length > 0 ? r.status : "error") : r.status,
-        answers: answered.length,
+        engine: run.engine,
+        status: run.status,
+        answers: run.answered.length,
         citedYou,
-        costUsd: r.costUsd,
-        detail: r.detail,
+        costUsd: 0,
+        detail: run.detail,
+      });
+    }
+    for (const run of dataForSeoRuns) {
+      const citedYou = collect(run.engine, run.answered);
+      engineResults.push({
+        engine: run.engine,
+        status: run.status,
+        answers: run.answered.length,
+        citedYou,
+        costUsd: run.costUsd,
+        detail: run.detail,
       });
     }
 

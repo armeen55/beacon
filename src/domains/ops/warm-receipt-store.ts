@@ -21,6 +21,8 @@ const STORE = "precompute-warm-receipts";
 const KEEP_PER_TENANT = 28;
 
 export type WarmRunSummary = {
+  dataForSeoStatus: "live" | "dry_run" | "disabled";
+  aiEnginePollStatus?: "ok" | "already_ran" | "no_prompts" | "error" | "not_run";
   competitorPagesAnalyzed: number;
   competitorPagesRefreshed: number;
   competitorsMined: number;
@@ -30,6 +32,10 @@ export type WarmRunSummary = {
   serpPatternsWritten: number;
   aiTopicsPolled: number;
   aiCitationRecords: number;
+  aiEnginePrompts: number;
+  aiEnginesChecked: number;
+  aiObservationsWritten: number;
+  aiCitationGaps: number;
   questionsRanked: number;
   uncoveredQuestions: number;
   claimsChecked: number;

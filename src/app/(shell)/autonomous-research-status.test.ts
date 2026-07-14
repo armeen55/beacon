@@ -4,6 +4,8 @@ import { autonomousResearchStatusLine } from "./autonomous-research-status";
 import type { WarmRunReceipt, WarmRunSummary } from "@/domains/ops/warm-receipt-store";
 
 const summary: WarmRunSummary = {
+  dataForSeoStatus: "live",
+  aiEnginePollStatus: "ok",
   competitorPagesAnalyzed: 10,
   competitorPagesRefreshed: 4,
   competitorsMined: 3,
@@ -13,6 +15,10 @@ const summary: WarmRunSummary = {
   serpPatternsWritten: 3,
   aiTopicsPolled: 5,
   aiCitationRecords: 20,
+  aiEnginePrompts: 25,
+  aiEnginesChecked: 2,
+  aiObservationsWritten: 40,
+  aiCitationGaps: 8,
   questionsRanked: 80,
   uncoveredQuestions: 25,
   claimsChecked: 40,
@@ -58,5 +64,17 @@ describe("autonomousResearchStatusLine", () => {
 
   it("states a partial pass and safe retry honestly", () => {
     expect(autonomousResearchStatusLine(receipt(false))).toContain("retry safely");
+  });
+
+  it("states plainly when the paid research connector is unavailable", () => {
+    const row = receipt(true);
+    row.summary = { ...summary, dataForSeoStatus: "disabled" };
+    expect(autonomousResearchStatusLine(row)).toContain("DataForSEO is not connected");
+  });
+
+  it("distinguishes an earlier same-day AI poll from zero new work", () => {
+    const row = receipt(true);
+    row.summary = { ...summary, aiEnginePollStatus: "already_ran", aiObservationsWritten: 0 };
+    expect(autonomousResearchStatusLine(row)).toContain("already refreshed today");
   });
 });

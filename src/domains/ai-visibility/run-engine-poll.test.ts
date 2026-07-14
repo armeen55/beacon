@@ -87,6 +87,21 @@ describe("runEnginePollForTenant - idempotency + caps", () => {
     expect(runDataForSeoEngine).toHaveBeenCalledTimes(2); // gemini + claude
   });
 
+  it("polls native questions concurrently without exceeding the bounded pool", async () => {
+    let active = 0;
+    let maxActive = 0;
+    const openAiClient = vi.fn(async () => {
+      active += 1;
+      maxActive = Math.max(maxActive, active);
+      await new Promise((resolve) => setTimeout(resolve, 2));
+      active -= 1;
+      return { answerText: "no links here", citedUrls: [], model: "gpt-test" };
+    });
+    await runEnginePollForTenant(TENANT_ID, deps({ openAiClient }));
+    expect(maxActive).toBeGreaterThan(1);
+    expect(maxActive).toBeLessThanOrEqual(5);
+  });
+
   it("no active prompts -> honest no_prompts, nothing runs", async () => {
     const runDataForSeoEngine = vi.fn();
     const r = await runEnginePollForTenant(
