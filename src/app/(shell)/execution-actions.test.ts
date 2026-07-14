@@ -98,7 +98,6 @@ describe("no Wix publish / no live-CMS path (structural)", () => {
       "src/app/(shell)/execution-actions.ts",
       "src/domains/execution/implementation-plan.ts",
       "src/domains/execution/location-resolver.ts",
-      "src/app/(shell)/execution-data.ts",
     ];
     for (const f of files) {
       const src = readFileSync(join(root, f), "utf-8");

@@ -25,7 +25,6 @@
  *   - tests/                          (assertions about the helper)
  *   - .github/workflows/              (yaml secrets passed to runners)
  *   - .env.local.example, README, docs/, ops/                  (docs)
- *   - src/domains/today/command-center-data.test.ts            (test mutates env)
  */
 
 import { describe, expect, it } from "vitest";
@@ -40,13 +39,6 @@ const HELPER_PATH = join(REPO_ROOT, "src/lib/operator-mode.ts");
 const ALLOW_LIST_ABS = new Set<string>([
   // The helper itself.
   join(REPO_ROOT, "src/lib/operator-mode.ts"),
-  // command-center-data.test.ts mutates the env var to assert the
-  // resolved boolean — that's the right shape for that test.
-  join(REPO_ROOT, "src/domains/today/command-center-data.test.ts"),
-  // lifecycle-status-pill.test.tsx mutates NEXT_PUBLIC_OPERATOR_MODE +
-  // NODE_ENV to assert the data-lifecycle-key leak gate strips the
-  // attribute in customer mode (2026-05-10 customer-mode audit).
-  join(REPO_ROOT, "src/components/display/lifecycle-status-pill.test.tsx"),
 ]);
 
 const ALLOW_LIST_PREFIXES = [
@@ -150,7 +142,6 @@ describe("Operator-mode helpers — Invariant 3: server gates use isOperatorMode
     "src/app/(shell)/diagnostics/brain/page.tsx",
     "src/app/(shell)/diagnostics/spikes/page.tsx",
     "src/app/(shell)/settings/exit-gates-settings-hint.tsx",
-    "src/domains/today/command-center-data.ts",
   ];
 
   for (const rel of PAGES) {

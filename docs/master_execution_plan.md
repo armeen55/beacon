@@ -3058,6 +3058,17 @@ Full audit files are in `docs/archive/audits/` (9 documents). Key findings prese
 
 ---
 
+## Dream-state convergence decision (active, 2026-07-13)
+
+Do not build another producer, hidden packet, or parallel ranking system. The active architecture is
+one tenant-explicit seam: `ResearchDossier -> UnifiedEntry -> PreparedMove`. It must converge GSC/GA4
+signals, DataForSEO keyword and SERP evidence, top Google and AI-cited winner evidence, clone briefs,
+factual sources, and existing learning/measurement state into the one allocator and one prepared
+atomic move. The first slice reuses existing stores and threads the evidence currently displayed on
+Today into the EvidencePacket and drafter; publishing remains operator-approved.
+
+---
+
 ## FUTURE IDEAS (not in current execution plan)
 
 These are ideas, experiments, and dream-state features that are NOT in the active phases. They live here so they are never lost. Move to `NEXT_PHASE_EXECUTION_PLAN.md` only when they become active work.

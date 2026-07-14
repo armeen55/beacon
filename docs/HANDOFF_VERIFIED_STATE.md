@@ -1,18 +1,23 @@
 # Beacon Verified State
 
-> 🟠 **Autonomous research MVP is implemented locally and awaiting release.** A normal signed-in
+> 🟠 **Autonomous research MVP is pushed; the stronger AI poll + deletion wave are locally gated
+> and awaiting the next release.** A normal signed-in
 > shell visit now schedules one tenant-explicit, post-response research cycle per Pacific day; a
 > failed/started cycle waits two hours before retrying. The ordered pass refreshes stale connectors,
 > builds a seed demand graph, audits winner pages, mines the top three competitors' keyword
 > portfolios/intersections through the existing DataForSEO Labs gauntlet, enriches top research
-> packs with keyword volume and SERP patterns, refreshes AI-citation topics, question coverage,
+> packs with keyword volume and SERP patterns, polls the tenant question universe across available
+> AI engines, refreshes AI-citation topics, question coverage,
 > factual claims and internal PageRank, runs loss/steal/native-citation lanes, then rebuilds the
 > final graph, ranks, prepares (never publishes), and writes Today last. A visible Today line shows
 > its structured receipt. Every paid producer retains its existing cache, dry-run, per-call ledger,
 > monthly/global cap, and bounded batch. Focused gates are green; the first full pre-cleanup gate is
 > also green at 1,505 files / 23,132 passed / 62 skipped in 239.14 seconds. After removing 22
-> obsolete skips and enabling four isolated workers, the real checkout passed 1,505 files / 23,132
-> assertions / 40 remaining conditional skips in 74.47 seconds. This is not deployed yet.
+> obsolete skips and enabling four isolated workers, the first cleanup checkout passed 1,505 files /
+> 23,132 assertions / 40 remaining conditional skips in 74.47 seconds. Commits `ce4d4345` and
+> `96e137ab` are on `origin/main`; hosted SHA proof for that deployment remains pending. The current
+> local wave removes 60 proven dead/test-only files (about 5,550 lines) with no surviving production
+> imports, and passes strict typecheck plus 1,488 files / 22,849 assertions / 23 conditional skips.
 
 > 🟢 **Current verified state (2026-07-13, tip = this docs commit; the exact pushed SHA is what
 > /api/version must report before this docs-only reconciliation is called deployed).** Product code
@@ -111,11 +116,20 @@
   measured authenticated p50/p95 for this tip. Results' initial barrier and Today's additive
   context waterfall are removed at source;
   that is not yet a hosted latency claim.
-- **The repository is materially overgrown.** The audit found about 322,000 lines of tests against
+- **The repository remains materially overgrown, but the first proven deletion wave is green.** The audit found about 322,000 lines of tests against
   about 379,000 lines of production TypeScript, 360 source-reading test files, 257 unused declarations,
   44 apparently orphaned production files, and 103 production files reachable only from tests. These
   are deletion candidates, not deletion proof; computed imports and intended offline tools require a
-  bounded review before removal.
+  bounded review before removal. The first bounded wave removed only unreachable islands and their
+  source-pinning tests; no OAuth, tenant isolation, publishing, factual-safety, connector
+  reconciliation, or rollback contracts were removed.
+- **The autonomous runner is not yet the full dream-state research brain.** Its producers now run in
+  one cycle, but the richest evidence does not all converge into the same prepared move: GSC query
+  demand and DataForSEO/SERP enrichment are thinner in EvidencePacket than on Today; clone briefs
+  are persisted but not consumed; the unified allocator and graph preparer use different candidate
+  sets; Google and AI winner sets are not one dossier; GA4 engagement is not yet a bounded ranking
+  input. The binding next architecture is one tenant-explicit `ResearchDossier -> UnifiedEntry ->
+  PreparedMove` seam, not another page or producer.
 - **Autonomous research has a cross-instance lock residual.** The daily durable receipt plus the
   process single-flight collapse normal visits, and every paid producer is independently cached and
   capped, but the receipt claim is not one atomic database compare-and-set across two simultaneous
@@ -123,13 +137,13 @@
 
 ## Next 3 actions
 
-1. **Release and dogfood the autonomous research MVP on both tenants.** Finish the clean gate, push,
-   prove the deployed SHA, then capture each tenant's visible visit receipt without changing paid
-   provider configuration or publishing.
-2. **Continue bounded test/code deletion.** Obsolete skipped blocks have begun disappearing while
-   active contracts remain green. Whole-file deletion waits on the required explicit deletion pause.
-3. **Prove hosted speed and research usefulness.** Measure authenticated Today/Results latency and
-   inspect whether the daily output contains genuinely better competitor-backed, keyword-backed moves.
+1. **Release the AI-poll hardening and proven deletion wave.** Re-run the combined build, commit,
+   push, prove the deployed SHA, and inspect the visible autonomous receipt without publishing.
+2. **Build the dream-state convergence seam.** Thread tenant-explicit GSC queries, cached DataForSEO
+   volume/SERP patterns, and clone-brief winner evidence through one dossier into the existing unified
+   allocator and prepared-move path. Fix the ambient keyword-library read in the same wave.
+3. **Dogfood Iranopedia end to end.** Run one fresh topic through automatic research -> ranked move
+   -> source-backed draft, then measure authenticated Today/Results speed and evidence usefulness.
 
 ## History
 

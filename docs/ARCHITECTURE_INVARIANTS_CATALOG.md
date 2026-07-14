@@ -153,7 +153,6 @@
 |---|---|---|---|---|---|---|
 | competitor-page-blueprints-contract | `tests/architecture/competitor-page-blueprints-contract.test.ts` | T-CompPageBlueprints (2026-05-08) | `competitorPageBlueprints` populated-fields contract. | active | Permanent — packet contract. | 2026-05-14 |
 | customer-nav-exposure | `tests/architecture/customer-nav-exposure.test.ts` | T-CustomerNav (2026-05-08) | Customer nav exposure contract: sidebar + command palette + settings tabs expose only the customer-safe set. | active | Permanent — customer-nav floor. | 2026-05-14 |
-| customer-readiness-round-1 | `tests/architecture/customer-readiness-round-1.test.ts` | Round 1 (2026-05-05) | 6 customer-readiness paper-cut fixes. | active | Permanent — customer-vocabulary floor. | 2026-05-14 |
 | customer-readiness-round-2 | `tests/architecture/customer-readiness-round-2.test.ts` | Round 2 (2026-05-06) | Round 2 customer-readiness paper-cuts. | active | Permanent — customer-vocabulary floor. | 2026-05-14 |
 | demo-path-fixes-2026-05-06 | `tests/architecture/demo-path-fixes-2026-05-06.test.ts` | War-room bundle (2026-05-06) | 5 customer-facing copy/UX fixes. | active | Permanent — customer-vocabulary floor. | 2026-05-14 |
 | demo-path-fixes-2026-05-06-bis | `tests/architecture/demo-path-fixes-2026-05-06-bis.test.ts` | War-room bundle 2-bis (2026-05-06) | 8 customer-facing copy/UX fixes. | active | Permanent — customer-vocabulary floor. | 2026-05-14 |

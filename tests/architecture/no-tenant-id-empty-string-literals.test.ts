@@ -150,7 +150,6 @@ describe("Architecture — no tenant_id empty-string literals in production sour
       // D1 — D-a coercion-drop
       "src/domains/changelog/actions.ts",
       "src/domains/attribution/candidate-actions.ts",
-      "src/app/(shell)/finding-actions.ts",
       "src/lib/connectors/connector-review-import-run.ts",
       "src/lib/import/actions.ts",
       // D3 — D-c entry-point-resolved

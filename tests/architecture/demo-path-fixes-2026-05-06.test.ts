@@ -22,8 +22,8 @@
  *     restores the operator surface for diagnostics + recommendations
  *     drawer; tests run as if operator mode were on (NODE_ENV=test).
  *
- * Companion to `tests/architecture/customer-readiness-round-1.test.ts` +
- * `customer-readiness-round-2.test.ts` — same shape, different bundle.
+ * Companion to `customer-readiness-round-2.test.ts` — same shape,
+ * different bundle.
  */
 
 import { describe, expect, it } from "vitest";
@@ -34,10 +34,6 @@ const REPO_ROOT = resolve(__dirname, "../..");
 
 const LIFECYCLE_CLASSIFICATION = readFileSync(
   resolve(REPO_ROOT, "src/domains/attribution/lifecycle-classification.ts"),
-  "utf8",
-);
-const LIFECYCLE_PILL = readFileSync(
-  resolve(REPO_ROOT, "src/components/display/lifecycle-status-pill.tsx"),
   "utf8",
 );
 // IA consolidation (2026-06-23): the /changes index empty-state gate moved into
@@ -91,13 +87,6 @@ describe("Demo-path fix 1 (2026-05-06) — Pre-launch history rename", () => {
     expect(LIFECYCLE_CLASSIFICATION).not.toMatch(
       /scan_confirmed:\s*"Scan-confirmed"/,
     );
-  });
-
-  it("LifecycleStatusPill renders 'Pre-launch' label/compactLabel for imported_legacy", () => {
-    expect(LIFECYCLE_PILL).toMatch(/label:\s*"Pre-launch"/);
-    expect(LIFECYCLE_PILL).toMatch(/compactLabel:\s*"Pre-launch"/);
-    expect(LIFECYCLE_PILL).not.toMatch(/label:\s*"Imported legacy"/);
-    expect(LIFECYCLE_PILL).not.toMatch(/compactLabel:\s*"Legacy"/);
   });
 
 });
@@ -293,7 +282,6 @@ describe("Demo-path bundle 2026-05-06 — cross-cutting negative invariants", ()
     // Scan the three current call-site files after stripping comments.
     for (const [name, src] of [
       ["lifecycle-classification.ts", LIFECYCLE_CLASSIFICATION],
-      ["lifecycle-status-pill.tsx", LIFECYCLE_PILL],
       ["changes/page.tsx", CHANGES_PAGE],
     ] as const) {
       const stripped = stripComments(src);

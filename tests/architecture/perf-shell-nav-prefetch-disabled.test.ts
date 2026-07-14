@@ -78,14 +78,6 @@ describe("Emergency P0 v3: shell nav Link prefetch disabled", () => {
     expect(prefetchFalseCount).toBe(linkCount);
   });
 
-  it("EvidenceFreshnessBanner — methodologyHref Links have prefetch={false}", () => {
-    const src = read("src/components/shell/evidence-freshness-banner.tsx");
-    const linkCount = countLinkOpenTags(src);
-    const prefetchFalseCount = countPrefetchFalse(src);
-    expect(linkCount).toBeGreaterThanOrEqual(2);
-    expect(prefetchFalseCount).toBe(linkCount);
-  });
-
   it("Navigation registry still ships the core top-level routes", () => {
     const src = read("src/lib/navigation.ts");
     expect(src).toMatch(/href:\s*["']\/["']/);

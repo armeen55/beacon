@@ -7,7 +7,7 @@
 
 ---
 
-## 2026-07-13 - Autonomous research-before-ranking MVP + cleanup wave (local, release pending)
+## 2026-07-13 - Autonomous research-before-ranking MVP + cleanup wave (partially pushed; next release pending)
 
 Beacon's disconnected manual/nightly research pieces are now composed into one post-response,
 tenant-explicit daily pass scheduled from the signed-in shell. The causal order is evidence first,
@@ -25,11 +25,22 @@ assertions are green and 22 obsolete skips are gone. An isolated CI-clean copy p
 file parallelism with all 1,505 files / 23,132 passed / 40 remaining conditional skips / 0 failed
 in 77.10 seconds; the real checkout repeated the green gate in 74.47 seconds, versus 239.14 seconds
 serial.
-The production build also completed successfully outside the filesystem sandbox (the first attempt
+
+The autonomous scheduler and first suite-cleanup commits are pushed as `ce4d4345` and `96e137ab`.
+The next local wave adds the tenant question universe's multi-engine poll to the same visit cycle,
+uses a five-call native concurrency pool while keeping DataForSEO engines sequential for ordered
+budget accounting, includes engine spend in the receipt, and distinguishes `already_ran` from zero
+work. A reviewed deletion batch removes 60 unreachable/test-only files and about 5,550 lines; no
+surviving production import references a deleted module and core safety suites remain. The complete
+post-deletion gate is strict typecheck exit 0 plus 1,488 files / 22,849 passed / 23 intentional
+conditional skips / 0 failed in 118.68 seconds. The focused post-poll gate is 21/21.
+
+The production build also completed successfully outside the filesystem sandbox before the final
+AI-poll hardening (the first attempt
 failed only because Turbopack could not bind its internal local port under sandbox policy). Three
 pre-existing broad NFT trace warnings remain; route generation and TypeScript both completed.
-No production data, environment variable, paid provider, or Wix publish was used. Commit, push,
-Vercel deploy, hosted SHA, and two-tenant visit receipts remain pending.
+No production data, environment variable, paid provider, or Wix publish was used. Final combined
+build, commit, push, Vercel SHA verification, and authenticated visit receipts remain pending.
 
 ## 2026-07-13 - Test-suite bloat audit + accidental-network fix (eef191db, b66ae0c1)
 

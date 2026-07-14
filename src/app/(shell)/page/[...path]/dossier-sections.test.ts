@@ -5,8 +5,7 @@ import { resolve } from "node:path";
 import { dossierHref } from "@/lib/page-dossier-link";
 
 /**
- * dossier-sections contract pins (BEACON_500 item 54) - the sibling source-pin
- * pattern (see coverage-map-section.test.ts): the dossier's bands must render
+ * dossier-sections contract pins (BEACON_500 item 54): the dossier's bands must render
  * honest empty states, reuse the shared chart/formatting components, stream
  * behind their own Suspense on the route, carry dark-mode-safe token classes,
  * and never contain an em or en dash. Plus the cross-app link pins: the four

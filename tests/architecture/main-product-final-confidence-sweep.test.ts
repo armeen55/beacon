@@ -13,7 +13,7 @@
  *   - src/app/(shell)/prompts/page.tsx
  *   - src/app/(shell)/settings/import/import-page.tsx
  *   - src/components/today/*
- *   - src/components/changes/* (excluding why-this-verdict, which is a drawer)
+ *   - src/components/changes/*
  *   - src/components/recommendations/*
  *
  * Out of scope (proof drawers + operator pages — keep their rigor):
@@ -22,7 +22,6 @@
  *   - src/app/(shell)/settings/methodology/* (operator-locked)
  *   - src/app/(shell)/settings/health/* (operator)
  *   - src/components/today/why-this-number.tsx (proof drawer; details>)
- *   - src/components/changes/why-this-verdict.tsx (proof drawer; details>)
  *
  * Method: parse each guarded file, strip JSX comments and block
  * comments and line comments, then assert no forbidden phrase appears
@@ -65,7 +64,6 @@ const GUARDED_DIRS = [
 /** Drawer/operator files explicitly excluded from default-surface scope. */
 const DRAWER_EXEMPTIONS = new Set([
   "src/components/today/why-this-number.tsx",
-  "src/components/changes/why-this-verdict.tsx",
 ]);
 
 /**
