@@ -7,7 +7,7 @@
 
 ---
 
-## 2026-07-14 - Autonomous clarity + GSC query convergence (local gate green; release pending)
+## 2026-07-14 - Autonomous clarity + GSC query convergence (d6dcb0c7)
 
 The first dream-state convergence slice closes a real evidence-loss defect: the graph already loaded
 each owned page's top GSC queries, but EvidencePacket replaced them with an empty list. Tenant-explicit
@@ -27,7 +27,12 @@ build exit 0 outside the sandbox. The first sandbox build failed only because Tu
 its internal local port (`Operation not permitted`); the unrestricted rerun compiled successfully,
 finished TypeScript, generated all static pages, and finalized every route. Two pre-existing broad NFT
 trace warnings remain. No production data, paid API, environment variable, or publish action was used.
-Commit, push, Vercel SHA proof, and authenticated receipt inspection remain pending.
+The four-commit stack pushed `96e137ab..d6dcb0c7` to `origin/main`. Vercel deployment
+`dpl_6x3xjQVMjS4dyswTbjKVujMpJNxz` reached production and `/api/version` returned the exact full SHA
+`d6dcb0c7009c52fff3f95cde2912c85865b38cf3`; `/login` returned 200 and `/changes` returned the
+expected 307 redirect to `/login?next=%2Fchanges`. Authenticated receipt/header inspection did not run:
+the in-app browser bootstrap failed before tab attachment with a runtime property conflict. This is an
+environment limitation, not hosted UI proof; no authenticated claim is made.
 
 ## 2026-07-13 - Autonomous research-before-ranking MVP + cleanup wave (partially pushed; next release pending)
 

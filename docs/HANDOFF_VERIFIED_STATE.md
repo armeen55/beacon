@@ -1,7 +1,8 @@
 # Beacon Verified State
 
-> 🟠 **The 2026-07-14 autonomous-clarity release candidate is locally green and awaiting push.**
-> It combines the stronger multi-engine poll, the proven 60-file deletion wave, the deterministic
+> 🟢 **The 2026-07-14 autonomous-clarity release is pushed and SHA-verified in production at
+> `d6dcb0c7` (Vercel `dpl_6x3xjQVMjS4dyswTbjKVujMpJNxz`).** It combines the stronger
+> multi-engine poll, the proven 60-file deletion wave, the deterministic
 > deadline-test repair, and the first dream-state convergence slice. A normal signed-in
 > shell visit now schedules one tenant-explicit, post-response research cycle per Pacific day; a
 > failed/started cycle waits two hours before retrying. The ordered pass refreshes stale connectors,
@@ -19,18 +20,18 @@
 > monthly/global cap, and bounded batch. Focused gates are green; the first full pre-cleanup gate is
 > also green at 1,505 files / 23,132 passed / 62 skipped in 239.14 seconds. After removing 22
 > obsolete skips and enabling four isolated workers, the first cleanup checkout passed 1,505 files /
-> 23,132 assertions / 40 remaining conditional skips in 74.47 seconds. Commits `ce4d4345` and
-> `96e137ab` are on `origin/main`; hosted SHA proof for that deployment remains pending. The current
-> release candidate removes 60 proven dead/test-only files (about 5,550 lines) with no surviving
+> 23,132 assertions / 40 remaining conditional skips in 74.47 seconds. The final four-commit stack
+> (`433614ac`, `bf8a3c97`, `fb71aee3`, `d6dcb0c7`) is on `origin/main` and SHA-verified. The current
+> release removes 60 proven dead/test-only files (about 5,550 lines) with no surviving
 > production imports. Its final local gate is strict typecheck, 1,489 files / 22,855 passed / 23
 > conditional skips / 0 failed in 83.65 seconds, and a successful production build outside the
-> sandbox. Push, Vercel SHA proof, and authenticated receipt inspection remain pending.
+> sandbox. Production `/api/version` returned the exact release SHA; `/login` returned 200 and
+> `/changes` returned the expected 307 to `/login?next=%2Fchanges`. Authenticated receipt/header
+> inspection remains pending because the in-app browser runtime could not attach in this environment.
 
-> 🟢 **Current verified state (2026-07-13, tip = this docs commit; the exact pushed SHA is what
-> /api/version must report before this docs-only reconciliation is called deployed).** Product code
-> is SHA-verified in production through `b66ae0c1` (Vercel
-> `dpl_3Sdb2dsjJdL78UGjt4Bb3i8DCTda`). The visible root checkout, `origin/main`, and the verified
-> integration branch are reconciled at that code tip. This tip also connects the existing
+> 🟢 **Current verified state (2026-07-14, product release `d6dcb0c7`).** Product code is
+> SHA-verified in production at Vercel deployment `dpl_6x3xjQVMjS4dyswTbjKVujMpJNxz`. The visible
+> root checkout and `origin/main` are reconciled at that code tip. This tip also connects the existing
 > one-click plan builder in its intended order: competitor winner teardown, keyword/SERP enrichment,
 > move preparation, then competitor-grounded draft regeneration. It reports analyzed pages separately
 > from pages freshly fetched, and remains fail-soft when external research is unavailable. The gated
@@ -145,8 +146,8 @@
 
 ## Next 3 actions
 
-1. **Release the combined local candidate.** Commit the GSC-query/header-status slice, push all four
-   local commits, prove the deployed SHA, and inspect the visible autonomous receipt without publishing.
+1. **Inspect one authenticated autonomous visit.** Confirm the global header moves from researching to
+   ready/partial and Today shows the matching durable receipt; do not publish or trigger paid work manually.
 2. **Continue the dream-state convergence seam.** Thread cached DataForSEO volume/SERP patterns and
    clone-brief winner evidence through one dossier into the existing unified allocator and prepared-move
    path; then bring allocator-only winners into preparation without creating a second ranker.

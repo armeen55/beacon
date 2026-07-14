@@ -75,21 +75,21 @@ chronology of what already landed lives in VERIFICATION_LOG.md; this list is onl
    257 unused declarations, 44 static-graph orphans, and 103 test-only production files. Deletion
    order: skipped legacy blocks and unused imports; proven orphans; test-only feature islands plus
    their tests; then consolidate source contracts and split parallel-safe from serial route tests.
-   COMPLETE LOCALLY, RELEASE PENDING: after explicit operator deletion approval, the first bounded wave removes 60
+   DEPLOYED AND SHA-VERIFIED at `d6dcb0c7`: after explicit operator deletion approval, the first bounded wave removes 60
    proven unreachable/test-only files and about 5,550 lines. No surviving production import points to
    them; strict typecheck and the complete 1,488-file / 22,849-pass / 23-conditional-skip suite are
    green. A four-worker full-suite experiment in an
    isolated CI-clean `/tmp` copy passed every file in 77.10s; the real checkout then passed all
    1,505 files / 23,132 assertions / 40 conditional skips in 74.47s, versus 239.14s serial.
-20a. **Autonomous research-before-ranking MVP.** PUSHED at `ce4d4345` with parallel-suite cleanup at
-   `96e137ab`; local hardening is green and release pending. Every
+20a. **Autonomous research-before-ranking MVP.** DEPLOYED AND SHA-VERIFIED at `d6dcb0c7` (initial
+   scheduler `ce4d4345`, suite cleanup `96e137ab`, AI-poll hardening `433614ac`). Every
    signed-in shell visit can trigger one bounded tenant/day post-response cycle: connector freshness,
    winner teardown, DataForSEO competitor keyword gaps and clone briefs, keyword/SERP enrichment,
    multi-engine AI answers, AI citations, question/factual/internal-link graphs, loss and steal
    reflexes, final fusion/ranking, capped draft preparation, then Today. It uses existing guarded
    producers and never publishes. Local hardening overlaps native AI calls through a bounded pool,
    preserves sequential paid-ledger calls, reports same-day no-op honestly, and includes engine cost.
-20b. **Dream-state convergence seam.** FIRST SLICE COMPLETE LOCALLY, ACTIVE NEXT. Real top GSC queries
+20b. **Dream-state convergence seam.** FIRST SLICE DEPLOYED AND SHA-VERIFIED at `d6dcb0c7`, ACTIVE NEXT. Real top GSC queries
    and impression weights now survive graph compilation into EvidencePacket, intent routing, prepared
    packs, and drafting; minor count drift is bucketed before evidence-hash invalidation. The global
    shell header shows the existing durable autonomous receipt without adding a control, and the unified
