@@ -1,7 +1,8 @@
 # Beacon Verified State
 
-> 🟡 **The 2026-07-14 unified-ranked preparation release candidate is locally verified and awaiting
-> deployment.** Beacon now persists a compact, server-only handoff from the final rendered Changes
+> 🟢 **The 2026-07-14 unified-ranked preparation release is deployed and SHA-verified at
+> `4191a90d` (Vercel `dpl_2wBB3xVAb3JYVEEaw7k2yJ5f79NL`).** Beacon now persists a compact,
+> server-only handoff from the final rendered Changes
 > order into preparation. Worklist, AI-citation/AEO, live-SERP steal, and keyword-library winners all
 > enter the same EvidencePacket -> PreparedMove pipeline; preparation follows the allocator's exact
 > final order and does not run a second score. Allocator-only entries retain their query, exact
@@ -11,7 +12,9 @@
 > same ranked snapshot. No page, button, cron, render-time paid call, or publishing path was added.
 > Verification: strict typecheck; 1,490 test files / 22,865 passed / 23 conditional skips / 0 failed;
 > production build exit 0 with three pre-existing Turbopack NFT trace warnings plus the existing
-> middleware deprecation warning. Deployment and hosted verification are not yet claimed.
+> middleware deprecation warning. Production `/api/version` returned the exact release SHA;
+> `/login` returned 200 and `/changes` returned the expected 307 to login. Authenticated data-backed
+> inspection remains pending.
 
 > 🟢 **The 2026-07-14 ResearchDossier convergence release is deployed and SHA-verified at
 > `4f7fa734` (Vercel `dpl_4QMQYSjHpbNWzb92hbKeQtzcFLpr`).** Beacon now assembles one tenant-explicit, timestamp-stable dossier for

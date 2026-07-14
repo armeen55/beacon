@@ -100,7 +100,7 @@ chronology of what already landed lives in VERIFICATION_LOG.md; this list is onl
    prepare allocator-only winners through this same path without creating a second ranker. FOLLOW-UP
    DEPLOYED AND SHA-VERIFIED at `acca40f3`: the warm path now rebuilds the separate fused Changes snapshot after the worklist, so
    autonomous evidence/ranking changes paint before Today and do not wait on Changes' cache TTL.
-   THIRD SLICE LOCALLY VERIFIED, DEPLOYMENT PENDING: the final actionable Changes order now persists
+   THIRD SLICE DEPLOYED AND SHA-VERIFIED at `4191a90d`: the final actionable Changes order now persists
    a compact server-only ranked handoff. Worklist, AEO, SERP-steal, and keyword-library winners enter
    the same EvidencePacket/PreparedMove path with exact query/instruction, grounded seeds, and honest
    measured-demand provenance. Autonomous, prepare-ahead, auto-advance, and manual preparation use

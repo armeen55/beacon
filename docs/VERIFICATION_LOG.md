@@ -7,7 +7,7 @@
 
 ---
 
-## 2026-07-14 - Unified ranked preparation release candidate
+## 2026-07-14 - Unified ranked preparation release (4191a90d)
 
 Closed the remaining structural split between the final Changes allocator and preparation. The
 server-side Changes snapshot now retains a compact projection of its final actionable order and
@@ -23,7 +23,10 @@ cron, network producer, render-time paid call, or publishing behavior was added.
 Verification: focused allocator/payload/evidence/preparation suites 70/70; strict typecheck exit 0;
 full suite 1,490 files passed, 22,865 tests passed, 23 skipped, 0 failed; production build exit 0.
 Build emitted three pre-existing Turbopack NFT trace warnings and the existing middleware deprecation
-warning. Deployment and hosted smoke are pending and are not claimed in this entry.
+warning. Deployment receipt: `4191a90df21a4fb2818f6ba292b858d06de17407` pushed to
+`origin/main`; Vercel deployment `dpl_2wBB3xVAb3JYVEEaw7k2yJ5f79NL` reached Ready; production
+`/api/version` returned that exact SHA; `/login` returned 200; `/changes` returned the expected 307
+to `/login?next=%2Fchanges`. Authenticated data-backed inspection remains pending.
 
 ## 2026-07-14 - Autonomous clarity + GSC query convergence (d6dcb0c7)
 
