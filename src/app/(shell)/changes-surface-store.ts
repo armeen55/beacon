@@ -34,11 +34,15 @@ const STORE = "changes-surface";
 /** Serve the cached snapshot instantly always; background-refresh once older than this. */
 export const CHANGES_SURFACE_FRESH_MS = 15 * 60 * 1000;
 
-export type ChangesSurfaceRow = { computedAt: string; view: ChangesView };
+export type ChangesSurfaceRow = { computedAt: string; tenantId?: string; view: ChangesView };
 
 export async function readChangesSurface(tenantId?: string): Promise<ChangesSurfaceRow | null> {
   const rows = await readStore<ChangesSurfaceRow>(STORE, [], { tenantId }).catch(() => [] as ChangesSurfaceRow[]);
   const row = rows[0];
+  // Fail closed on a legacy or mismatched snapshot. The store key alone is not
+  // sufficient: before the 2026-07-14 P0 fix, an explicit Iranopedia write could
+  // contain worklist content loaded from the ambient Ritz env fallback.
+  if (tenantId && row?.tenantId !== tenantId) return null;
   return row && row.view && Array.isArray(row.view.changes) ? row : null;
 }
 
@@ -66,7 +70,7 @@ export async function writeChangesSurface(view: ChangesView, computedAtIso: stri
       return;
     }
   }
-  await writeStore<ChangesSurfaceRow>(STORE, [{ computedAt: computedAtIso, view }], { tenantId }).catch(() => {});
+  await writeStore<ChangesSurfaceRow>(STORE, [{ computedAt: computedAtIso, tenantId, view }], { tenantId }).catch(() => {});
 }
 
 /** Invalidate the cache so the next /changes load recomputes (call after a mutation). */

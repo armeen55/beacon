@@ -2,14 +2,14 @@ import "server-only";
 import { cache } from "react";
 import { currentTenantId } from "@/lib/tenant-context";
 import { loadDemandGraphForTenantCached } from "@/domains/demand-graph/load-graph";
-import { getCompetitorAuditsForTenant, whatWins } from "@/domains/demand-graph/competitor-page-audit";
+import { getCompetitorAuditsForTenantId, whatWins } from "@/domains/demand-graph/competitor-page-audit";
 import { getLatestMoveDrafts, type MoveDraftRow } from "@/domains/demand-graph/move-draft-store";
 import { canonicalizeCitationUrl } from "@/domains/citation-lifecycle/canonicalize-url";
 import { parsePreparedVerdict, type PreparedSerpVerdict } from "@/domains/serp/prepare-create-page-verdicts";
 import { parsePreparedPack } from "@/domains/demand-graph/prepared-move-pack";
 import type { CreatePageBrief } from "@/domains/llm/schemas";
 import { evaluateCreatePageBriefQuality, evaluateDraftQuality, type DraftQualityResult } from "@/domains/drafts/draft-quality";
-import { getBusinessConfig } from "@/lib/business-config";
+import { getBusinessConfig, hydrateBusinessConfigFromSupabase } from "@/lib/business-config";
 import type { SourceRef } from "@/domains/llm/schemas";
 import { readAllCachedKeywordDemand, type KeywordDemand } from "@/domains/serp/dataforseo-keywords";
 import { readKeywordGapResults, type StoredKeywordGaps } from "@/domains/serp/keyword-gap-store";
@@ -237,11 +237,11 @@ export async function buildNewPagesData(tenantId: string): Promise<NewPagesData>
   // W5 P1-3/P1-4 (2026-07-09): this tenant's source-authority allowlist +
   // first-mention rule, resolved ONCE, so the brief + opening quality gates see
   // this tenant's config (never another tenant's). Unset = byte-identical gate.
-  const bizConfig = getBusinessConfig(tenantId);
+  const bizConfig = (await hydrateBusinessConfigFromSupabase(tenantId).catch(() => null)) ?? getBusinessConfig(tenantId);
   const authoritativeSourceDomains = bizConfig.authoritativeSourceDomains;
   const firstMentionConfig = bizConfig.firstMention ?? null;
   let moves;
-  let audits: Awaited<ReturnType<typeof getCompetitorAuditsForTenant>> = new Map();
+  let audits: Awaited<ReturnType<typeof getCompetitorAuditsForTenantId>> = new Map();
   let savedDrafts = new Map<string, MoveDraftRow>();
   let ownDomain = "";
   let ownedUrls: string[] = [];
@@ -258,7 +258,7 @@ export async function buildNewPagesData(tenantId: string): Promise<NewPagesData>
         30000,
         null,
       ),
-      getCompetitorAuditsForTenant().catch(() => new Map()),
+      getCompetitorAuditsForTenantId(tenantId).catch(() => new Map()),
       // Persisted AI openings (degrade-safe: empty map if the table isn't migrated).
       withTimeout(getLatestMoveDrafts(tenantId), 4000, new Map<string, MoveDraftRow>()),
       // Connectedness (2026-06-28) — real DataForSEO search volume from the cached

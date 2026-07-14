@@ -12,6 +12,8 @@
  *   - TWO-TENANT: the rebuild builds for the EXACT tenantId (explicit threading).
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 
 const readChangesSurfaceMock = vi.fn(async (): Promise<unknown> => null);
 const writeChangesSurfaceMock = vi.fn(async (..._a: unknown[]): Promise<void> => {});
@@ -182,5 +184,21 @@ describe("loadChangesViewWithSwr", () => {
     await expect(cb()).resolves.toBeUndefined();
     expect(recordAppErrorMock).toHaveBeenCalledOnce();
     expect(writeChangesSurfaceMock).not.toHaveBeenCalled(); // build-then-write: no write on failure
+  });
+});
+
+describe("Changes background rebuild tenant-source wiring", () => {
+  it("passes the explicit tenant through every ambient-capable source", () => {
+    const changesSource = readFileSync(resolve(__dirname, "changes-data.ts"), "utf8");
+    const worklistSource = readFileSync(resolve(__dirname, "moves/moves-data.ts"), "utf8");
+
+    expect(changesSource).toContain("loadSurfaceWithSwr(tenantId)");
+    expect(changesSource).toContain("buildNewPagesData(tenantId)");
+    expect(changesSource).not.toContain("loadMovesWorklist()");
+    expect(changesSource).not.toContain("loadNewPagesData()");
+
+    expect(worklistSource).toContain("buildTodayMovesData(tenantId, { limit: 60 })");
+    expect(worklistSource).toContain("getCompetitorAuditsForTenantId(tenantId)");
+    expect(worklistSource).not.toContain("loadTodayMovesHeroData({ limit: 60 })");
   });
 });

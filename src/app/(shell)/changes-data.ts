@@ -8,7 +8,7 @@ import "server-only";
  * working actions).
  */
 import { currentTenantId } from "@/lib/tenant-context";
-import { loadMovesWorklist } from "./moves/moves-data";
+import { loadSurfaceWithSwr } from "./moves/moves-data";
 import { getLatestPreviewPlan, getAcceptedPlan, listActiveReservations } from "@/domains/experiments/daily-experiment-plan-store";
 import { buildCanonicalChanges, type CanonicalMoveInput } from "@/domains/changes/build-canonical-changes";
 import type { CanonicalChange } from "@/domains/changes/canonical-change";
@@ -44,7 +44,7 @@ import { countLedgerLifecycle, excludeRevertBookkeeping, tonightCounts } from "@
 // FP5b (2026-07-02) - the New Pages board is the ONE home for not-yet-built topics; a
 // page-less create row whose topic already has a board card is a duplicate, not a
 // second opportunity. Same normalizer the board's own dedupe pass uses.
-import { loadNewPagesData } from "./today-newpages-data";
+import { buildNewPagesData } from "./today-newpages-data";
 import { topicIdentityKey } from "@/domains/demand-graph/dedupe-new-page-cards";
 import { valueWithDeadline } from "@/lib/load-with-deadline";
 import { cache } from "react";
@@ -597,14 +597,14 @@ async function buildChangesViewUncached(tenantId: string): Promise<ChangesView> 
   // a worklist outage keeps any selected plan items. The page renders with what loaded.
   const tSources = perfMark();
   const [wl, accepted, preview, reservations, ledgerRows, calibrationRecords, boardTopicKeys, seasonalQueries] = await Promise.all([
-    loadMovesWorklist().catch(() => ({ moves: [] as TodayMove[], stats: undefined })),
+    loadSurfaceWithSwr(tenantId).catch(() => ({ moves: [] as TodayMove[], stats: undefined })),
     getAcceptedPlan(tenantId).catch(() => null),
     getLatestPreviewPlan(tenantId).catch(() => null),
     listActiveReservations(tenantId).catch(() => []),
     loadProofLedgerCached(tenantId).catch(() => []),
     loadCalibrationRecords(tenantId).catch(() => []),
     valueWithDeadline(
-      loadNewPagesData()
+      buildNewPagesData(tenantId)
         .then((d) => new Set(d.opportunities.map((o) => topicIdentityKey(o.topic))))
         .catch(() => new Set<string>()),
       new Set<string>(),

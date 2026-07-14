@@ -21,7 +21,7 @@ const STORE = "worklist-surface";
 /** Serve the cached snapshot instantly always; background-refresh once it's older than this. */
 export const SURFACE_FRESH_MS = 15 * 60 * 1000;
 
-export type WorklistSurfaceRow = { computedAt: string; data: TodayMovesHeroData };
+export type WorklistSurfaceRow = { computedAt: string; tenantId?: string; data: TodayMovesHeroData };
 
 /**
  * P2-f sibling fix (2026-07-10 hygiene batch) - `opts.tenantId`, same purpose as
@@ -35,6 +35,11 @@ export type WorklistSurfaceRow = { computedAt: string; data: TodayMovesHeroData 
 export async function readWorklistSurface(tenantId?: string): Promise<WorklistSurfaceRow | null> {
   const rows = await readStore<WorklistSurfaceRow>(STORE, [], { tenantId }).catch(() => [] as WorklistSurfaceRow[]);
   const row = rows[0];
+  // P0 tenant-isolation guard (2026-07-14): legacy snapshots had no embedded
+  // identity, so a background builder could read the env-default tenant and
+  // persist that content under another tenant's correctly scoped blob key.
+  // Explicit callers fail closed on missing/mismatched identity and rebuild.
+  if (tenantId && row?.tenantId !== tenantId) return null;
   return row && row.data ? row : null;
 }
 
@@ -53,7 +58,7 @@ export async function writeWorklistSurface(data: TodayMovesHeroData, computedAtI
       return;
     }
   }
-  await writeStore<WorklistSurfaceRow>(STORE, [{ computedAt: computedAtIso, data }], { tenantId }).catch(() => {});
+  await writeStore<WorklistSurfaceRow>(STORE, [{ computedAt: computedAtIso, tenantId, data }], { tenantId }).catch(() => {});
 }
 
 /** Invalidate the cache so the next /changes load recomputes (call after a mutation). */

@@ -10,14 +10,15 @@ import { ACTION_LABEL, actionFamily, type ActionPack } from "@/domains/action-pa
 
 import { after } from "next/server";
 import { recordAppError, errorFieldsFrom } from "@/lib/obs/error-ledger";
-import { loadTodayMovesHeroData, type TodayMove, type TodayMovesHeroData } from "../today-moves-data";
+import { buildTodayMovesData, type TodayMove, type TodayMovesHeroData } from "../today-moves-data";
 import { readWorklistSurface, writeWorklistSurface, isSurfaceStale } from "../worklist-surface-store";
 import { computeOpportunity } from "@/domains/forecast/opportunity-math";
 import { defaultCtrCurve } from "@/domains/forecast/tenant-ctr-curve";
 import { loadTenantCtrCurve } from "@/domains/forecast/load-tenant-ctr-curve";
 import { rootDomainOf } from "@/domains/serp/serp-teardown-fusion";
 import { buildWinnersPanel, type WinnerAudit, type WinnerLine } from "@/domains/demand-graph/winners-panel";
-import { getCompetitorAuditsForTenant, type CompetitorPageAudit } from "@/domains/demand-graph/competitor-page-audit";
+import { getCompetitorAuditsForTenantId, type CompetitorPageAudit } from "@/domains/demand-graph/competitor-page-audit";
+import { getBusinessConfig, hydrateBusinessConfigFromSupabase } from "@/lib/business-config";
 
 /**
  * /moves data (2026-06-27), the worklist is now driven by the CANONICAL ActionPack
@@ -33,6 +34,18 @@ import { getCompetitorAuditsForTenant, type CompetitorPageAudit } from "@/domain
  */
 
 const canon = (u: string): string => (canonicalizeCitationUrl(u) ?? u).toLowerCase().replace(/\/+$/, "");
+
+/** Last-line P0 guard: an edit worklist may target only this tenant's owned
+ * domain. Relative paths and the create-page sentinel are tenant-local; an
+ * absolute URL for any other root domain is rejected, never rendered. */
+export function targetBelongsToTenantDomain(targetUrl: string, ownedDomain: string): boolean {
+  const target = targetUrl.trim();
+  if (!target) return false;
+  if (target === "needs_new_page" || target.startsWith("/")) return true;
+  const own = rootDomainOf(ownedDomain);
+  const candidate = rootDomainOf(target);
+  return Boolean(own && candidate && own === candidate);
+}
 
 /** Render cap for /moves, the strongest N (single-user app; the full brain count
  *  stays in stats.movesReady). Filters narrow within the shown set. */
@@ -199,18 +212,23 @@ async function loadUncached(tenantId: string): Promise<TodayMovesHeroData> {
   // G3 (Wave 4) - the SAME competitor-page-audit cache loadChangePacksForTenant already
   // reads (react `cache()`-deduped, so this is a free re-read within the request, not a
   // new fetch) - reused here to enrich the winners panel with cached teardown facts.
-  const [wl, hero, audits] = await Promise.all([
+  const [wl, hero, audits, hydratedConfig] = await Promise.all([
     loadActionPackWorklistForTenant(tenantId).catch(() => null),
-    loadTodayMovesHeroData({ limit: 60 }).catch((): TodayMovesHeroData | null => null),
-    getCompetitorAuditsForTenant().catch((): Map<string, CompetitorPageAudit> => new Map()),
+    buildTodayMovesData(tenantId, { limit: 60 }).catch((): TodayMovesHeroData | null => null),
+    getCompetitorAuditsForTenantId(tenantId).catch((): Map<string, CompetitorPageAudit> => new Map()),
+    hydrateBusinessConfigFromSupabase(tenantId).catch(() => null),
   ]);
+  const ownedDomain = (hydratedConfig ?? getBusinessConfig(tenantId)).domain;
+  const safeHero = hero
+    ? { ...hero, moves: hero.moves.filter((move) => targetBelongsToTenantDomain(move.targetUrl, ownedDomain)) }
+    : null;
 
   // No canonical worklist → fall back to the rich hero set (never a blank page).
-  if (!wl) return hero ?? { moves: [], stats: EMPTY_STATS, learning: { measuring: 0, won: 0, lost: 0, headline: null }, cockpit: null };
+  if (!wl) return safeHero ?? { moves: [], stats: EMPTY_STATS, learning: { measuring: 0, won: 0, lost: 0, headline: null }, cockpit: null };
 
   // Index rich demand-graph moves by canonical page URL for the join (one per page).
   const richByUrl = new Map<string, TodayMove>();
-  for (const m of hero?.moves ?? []) {
+  for (const m of safeHero?.moves ?? []) {
     if (m.targetUrl && m.targetUrl !== "needs_new_page") richByUrl.set(canon(m.targetUrl), m);
   }
 
@@ -233,6 +251,7 @@ async function loadUncached(tenantId: string): Promise<TodayMovesHeroData> {
     // Create/hub packs live on the New Pages board, not this worklist.
     const fam = actionFamily(p.actionType);
     if (fam === "new_page" || fam === "hub") continue;
+    if (!p.targetUrl || !targetBelongsToTenantDomain(p.targetUrl, ownedDomain)) continue;
 
     const chips = p.targetUrl ? [...(sourcesByUrl.get(canon(p.targetUrl)) ?? p.evidenceSources)] : p.evidenceSources;
     const dfs = p.dataforseoValidation
@@ -289,10 +308,10 @@ async function loadUncached(tenantId: string): Promise<TodayMovesHeroData> {
     citationsContested: moves.filter((m) => m.actionTone === "citation").length,
     pagesCovered: new Set(moves.map((m) => m.targetUrl)).size,
     draftsReady: moves.filter((m) => m.savedAnswerBlock || m.preparedChecklist?.draftPrepared).length,
-    strikingWins: hero?.stats.strikingWins ?? 0,
-    losingQueries: hero?.stats.losingQueries ?? 0,
-    selfCompeting: hero?.stats.selfCompeting ?? 0,
-    heldWhileMeasuring: hero?.stats.heldWhileMeasuring ?? 0,
+    strikingWins: safeHero?.stats.strikingWins ?? 0,
+    losingQueries: safeHero?.stats.losingQueries ?? 0,
+    selfCompeting: safeHero?.stats.selfCompeting ?? 0,
+    heldWhileMeasuring: safeHero?.stats.heldWhileMeasuring ?? 0,
     preparedReady: moves.filter((m) => m.preparedChecklist?.readyToReview).length,
   };
 
@@ -308,7 +327,7 @@ async function loadUncached(tenantId: string): Promise<TodayMovesHeroData> {
     sourceCoverage: wl.summary.sourceCoverage,
   };
 
-  return { moves: shown, stats, learning: hero?.learning ?? { measuring: 0, won: 0, lost: 0, headline: null }, cockpit };
+  return { moves: shown, stats, learning: safeHero?.learning ?? { measuring: 0, won: 0, lost: 0, headline: null }, cockpit };
 }
 
 /** Injectable builder so tests can drive the SWR flow without running the heavy

@@ -86,11 +86,25 @@ describe("sibling ambient-tenant fix (2026-07-10 hygiene batch) - explicit tenan
     expect(readStoreMock).toHaveBeenCalledWith("worklist-surface", [], { tenantId: "tenant-a" });
   });
 
+  it("rejects legacy and mismatched snapshots for an explicit tenant", async () => {
+    readStoreMock.mockResolvedValue([{ computedAt: "old", data: surface(7) }]);
+    await expect(readWorklistSurface("tenant-a")).resolves.toBeNull();
+    readStoreMock.mockResolvedValue([{ computedAt: "old", tenantId: "tenant-b", data: surface(7) }]);
+    await expect(readWorklistSurface("tenant-a")).resolves.toBeNull();
+  });
+
+  it("serves only a snapshot carrying the requested tenant identity", async () => {
+    readStoreMock.mockResolvedValue([{ computedAt: "fresh", tenantId: "tenant-a", data: surface(7) }]);
+    await expect(readWorklistSurface("tenant-a")).resolves.toMatchObject({ tenantId: "tenant-a" });
+  });
+
   it("writeWorklistSurface threads the EXPLICIT tenantId into the json-store write, never ambient-only", async () => {
     await writeWorklistSurface(surface(7), "2026-07-02T05:00:00.000Z", "tenant-a");
     expect(writeStoreMock).toHaveBeenCalledOnce();
     const [, , opts] = writeStoreMock.mock.calls[0] as unknown as [string, unknown, { tenantId?: string }];
     expect(opts).toEqual({ tenantId: "tenant-a" });
+    const rows = writeStoreMock.mock.calls[0][1] as Array<{ tenantId?: string }>;
+    expect(rows[0]?.tenantId).toBe("tenant-a");
   });
 
   it("two tenants never bleed: each write carries its OWN tenantId", async () => {

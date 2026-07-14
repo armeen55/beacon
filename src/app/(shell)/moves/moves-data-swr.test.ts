@@ -28,7 +28,7 @@ vi.mock("@/lib/obs/error-ledger", () => ({
 }));
 vi.mock("@/lib/tenant-context", () => ({ currentTenantId: async () => "tenant-test" }));
 
-import { loadSurfaceWithSwr } from "./moves-data";
+import { loadSurfaceWithSwr, targetBelongsToTenantDomain } from "./moves-data";
 import type { TodayMovesHeroData } from "../today-moves-data";
 
 const surface = (id: string): TodayMovesHeroData =>
@@ -119,5 +119,18 @@ describe("loadSurfaceWithSwr", () => {
     await expect(cb()).resolves.toBeUndefined();
     expect(recordAppErrorMock).toHaveBeenCalledOnce();
     expect(writeWorklistSurfaceMock).not.toHaveBeenCalled(); // build-then-write: no write on failure
+  });
+});
+
+describe("targetBelongsToTenantDomain", () => {
+  it("allows Iranopedia-owned and local targets", () => {
+    expect(targetBelongsToTenantDomain("https://www.iranopedia.com/nowruz", "iranopedia.com")).toBe(true);
+    expect(targetBelongsToTenantDomain("/nowruz", "iranopedia.com")).toBe(true);
+    expect(targetBelongsToTenantDomain("needs_new_page", "iranopedia.com")).toBe(true);
+  });
+
+  it("fails closed on a Ritz target or missing tenant domain", () => {
+    expect(targetBelongsToTenantDomain("https://ritzbuilders.com/palo-alto", "iranopedia.com")).toBe(false);
+    expect(targetBelongsToTenantDomain("https://iranopedia.com/nowruz", "")).toBe(false);
   });
 });

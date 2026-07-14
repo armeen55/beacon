@@ -18,6 +18,7 @@ import { load as cheerioLoad } from "cheerio";
 import { createHash } from "node:crypto";
 
 import { readStore, writeStore } from "@/lib/persistence/json-store";
+import { currentTenantId } from "@/lib/tenant-context";
 import { canonicalizeCitationUrl } from "@/domains/citation-lifecycle/canonicalize-url";
 import { fetchPageHtml } from "@/domains/competitor-intel/polite-fetch";
 import { loadDemandGraphForTenant } from "./load-graph";
@@ -406,13 +407,22 @@ export async function auditCompetitorPage(
 
 // Request-cached: both cockpit sections (Today's Moves teardown + New Pages
 // "what wins") read the audit store on one `/` render — share a single read.
-export const getCompetitorAuditsForTenant = cache(
-  async (): Promise<Map<string, CompetitorPageAudit>> => {
-    const rows = await readStore<CompetitorPageAudit>(STORE, []).catch(() => []);
+export const getCompetitorAuditsForTenantId = cache(
+  async (tenantId: string): Promise<Map<string, CompetitorPageAudit>> => {
+    if (!tenantId) return new Map();
+    const rows = await readStore<CompetitorPageAudit>(STORE, [], { tenantId }).catch(() => []);
     const map = new Map<string, CompetitorPageAudit>();
     for (const r of rows) map.set(canonicalizeCitationUrl(r.url) || r.url, r);
     return map;
   },
+);
+
+/** Request-context convenience wrapper. Background and fan-out callers must use
+ * getCompetitorAuditsForTenantId so a Vercel env fallback can never select a
+ * different tenant's teardown cache. */
+export const getCompetitorAuditsForTenant = cache(
+  async (): Promise<Map<string, CompetitorPageAudit>> =>
+    getCompetitorAuditsForTenantId(await currentTenantId()),
 );
 
 async function saveAudits(audits: CompetitorPageAudit[]): Promise<void> {

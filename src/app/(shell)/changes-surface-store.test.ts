@@ -16,6 +16,7 @@ vi.mock("@/lib/persistence/json-store", () => ({
 }));
 
 import {
+  readChangesSurface,
   writeChangesSurface,
   invalidateChangesSurface,
   isChangesSurfaceStale,
@@ -75,6 +76,24 @@ describe("writeChangesSurface empty-rebuild guard", () => {
   it("invalidateChangesSurface writes empty rows (explicit reset path)", async () => {
     await invalidateChangesSurface();
     expect(writeStoreMock).toHaveBeenCalledWith("changes-surface", []);
+  });
+});
+
+describe("Changes snapshot embedded tenant identity", () => {
+  it("rejects legacy and mismatched snapshots for an explicit tenant", async () => {
+    readStoreMock.mockResolvedValue([{ computedAt: "old", view: view(9) }]);
+    await expect(readChangesSurface("tenant-a")).resolves.toBeNull();
+    readStoreMock.mockResolvedValue([{ computedAt: "old", tenantId: "tenant-b", view: view(9) }]);
+    await expect(readChangesSurface("tenant-a")).resolves.toBeNull();
+  });
+
+  it("writes and serves only the requested tenant identity", async () => {
+    await writeChangesSurface(view(9), "fresh", "tenant-a");
+    const rows = writeStoreMock.mock.calls[0][1] as Array<{ tenantId?: string }>;
+    expect(rows[0]?.tenantId).toBe("tenant-a");
+
+    readStoreMock.mockResolvedValue([{ computedAt: "fresh", tenantId: "tenant-a", view: view(9) }]);
+    await expect(readChangesSurface("tenant-a")).resolves.toMatchObject({ tenantId: "tenant-a" });
   });
 });
 
