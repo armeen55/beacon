@@ -35963,3 +35963,28 @@ failed; production build exit 0 with the same pre-existing warnings. Deployment 
 `acca40f3e4041f36dc717fae4162ca8eac032489` pushed to `origin/main`; Vercel deployment
 `dpl_HaJPBbXRVuJ9bbhfRE5wx2Prs347` reached Ready; production `/api/version` returned the exact SHA;
 public login returned 200 and protected Changes returned the expected 307 to login.
+
+## 2026-07-14 - Autonomous recovery and deep keyword research release
+
+Normal signed-in navigation now uses the existing post-response cycle to detect and repair an
+abandoned weekly page-factory run. If the tenant/week batch already exists, Beacon reconciles the
+receipt; otherwise it reruns the same idempotent production line. Failure remains visible and
+retryable. Today separately represents data-pipeline trust and background-work health, so a failed
+page batch cannot discredit accurate Search Console totals.
+
+DataForSEO research now reads up to 500 ranked keywords for each of five selected exact winning
+pages and independently reads up to 1,000 related keywords for each of five final topic seeds. The
+30-day cache, dry-run, cost ledger, breaker, and monthly cap remain authoritative. Cached related
+rows are promoted into the unified keyword library. Winner teardown now produces a compact observed
+content blueprint; candidate factual sources flow into drafting and must pass the existing fetch,
+authority, and entailment gate. Topic clustering, AEO fanout relevance, and exact-source redirect
+safety were hardened with regressions.
+
+Verification: strict typecheck exit 0; complete suite 1,497 files / 22,909 passed / 23 conditional
+skips / 0 failed in 82.28 seconds; production build exit 0 with the existing middleware deprecation
+and two Turbopack NFT trace warnings; `git diff --check` exit 0. Product commit
+`4779a1bb7bd429df368f468ca9b1253d765c0331` was pushed to `origin/main`; Vercel deployment
+`dpl_4Fijnb9Xc2V16QWDZkDNRE1Pvi9f` reached Ready. Production `/api/version` returned that exact SHA,
+`/login` returned 200, and unauthenticated `/changes` returned the expected 307 to
+`/login?next=%2Fchanges`. Authenticated Iranopedia data-backed inspection remains the operator's
+next proof and is not claimed here.

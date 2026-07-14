@@ -123,9 +123,16 @@ chronology of what already landed lives in VERIFICATION_LOG.md; this list is onl
    diagnostics index, filesystem-backed brain report, empty spike forensics, and allocator dump now
    return signed-in users to Today, Results, or the canonical Changes list. No customer-facing flow
    asks the operator to run scripts, configure environment values, or choose a diagnostic ranker.
-   Next: refresh authenticated Iranopedia Changes to prove the rebuilt
-   top five contain only Iranopedia demand, then inspect one real allocator-only winner through its
-   PreparedMove.
+   SIXTH SLICE DEPLOYED AND SHA-VERIFIED at `4779a1bb`: the on-visit cycle now repairs abandoned
+   weekly page-factory work without a button or new cron, and Today keeps trustworthy Google data
+   separate from background-work health. Exact winning pages receive up to 500 ranked-keyword rows;
+   final topic seeds independently receive up to 1,000 related-keyword rows per call. Both corpora
+   are 30-day cached behind the existing cost controls, and related rows feed the unified library.
+   Prepared moves carry compact observed content blueprints and candidate sources through the
+   existing verification gate. Topic sibling clustering, AEO fanout relevance, and redirect safety
+   are tightened before display. Next: run one authenticated Iranopedia visit cycle, refresh Today,
+   then inspect the top Changes and one PreparedMove. This is operational proof, not another
+   architecture slice.
 21. **Fresh blind unseen-topic benchmark.** Run 5 preregistered cases not used to build these
    corrections. A case that changes code is spent and must be replaced.
 22. **Scheduled-refresh receipt.** The first cron run after this deploy must leave a started

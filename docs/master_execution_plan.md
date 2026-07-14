@@ -3105,6 +3105,18 @@ create expected clicks, override a sized opportunity, or introduce another formu
 receipt exposes checked terms. The remaining proof is one authenticated hosted tenant run showing
 the receipt and allocator-only winner through PreparedMove.
 
+**Sixth slice implemented 2026-07-14:** ordinary navigation is now the repair surface. The existing
+post-response visit cycle detects an abandoned weekly page-factory receipt and idempotently retries
+or reconciles the tenant/week batch; no control, customer script, environment ceremony, or new cron
+was introduced. Research depth is deliberately two-dimensional: up to 500 ranked keywords for each
+selected exact winning page and, independently, the provider's 1,000-row per-call related-keyword
+maximum for each selected final topic seed. Full responses are cached for 30 days behind the shared
+spend gauntlet, while compact rows are promoted into the unified keyword library and dossier so the
+paid corpus is reused. Winner structure becomes an observed content blueprint, source candidates
+must survive the existing verification gate, unrelated fanout is suppressed, obvious topic siblings
+merge, and redirects require an exact safe source URL. The remaining proof is one normal signed-in
+Iranopedia visit followed by a refresh and inspection of the resulting top move.
+
 **P0 tenant-isolation decision, 2026-07-14:** every background or post-response builder that begins
 with an explicit tenant must keep that tenant explicit through every nested recommendation and
 research read. Request-ambient or process-default tenant selection is forbidden inside that graph.

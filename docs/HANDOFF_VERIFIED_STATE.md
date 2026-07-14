@@ -1,5 +1,26 @@
 # Beacon Verified State
 
+> 🟢 **The 2026-07-14 autonomous recovery and deep-research release is deployed and SHA-verified
+> at `4779a1bb` (Vercel `dpl_4Fijnb9Xc2V16QWDZkDNRE1Pvi9f`).** A normal signed-in visit now
+> detects an abandoned weekly page-factory run and idempotently retries or reconciles it in the
+> existing post-response cycle; Today no longer calls trustworthy Search Console numbers broken
+> merely because that background job failed. DataForSEO research now separates exact winning-page
+> evidence (up to 500 ranked keywords per selected page) from independent topic discovery (up to
+> 1,000 related keywords per seed), caches both for 30 days behind the existing dry-run, ledger,
+> breaker, and monthly cap, and reuses cached topic rows in the unified keyword library. The top
+> five money pages and top five final candidate topics receive this deeper pass. ResearchDossier
+> now carries compact reverse-engineered content blueprints and draft source candidates; the
+> drafter must return exact sources that still pass the existing fetch, authority, and entailment
+> gate. Topic clustering merges obvious Iranopedia siblings, irrelevant AEO fanout is withheld,
+> and unsafe inferred redirects are demoted instead of emitted. Verification: strict typecheck;
+> 1,497 test files / 22,909 passed / 23 conditional skips / 0 failed; production build exit 0 with
+> the existing middleware deprecation and two Turbopack trace warnings. Production `/api/version`
+> returned the exact full SHA; `/login` returned 200; unauthenticated `/changes` returned the
+> expected 307 to login. Next three actions: (1) make one normal signed-in navigation and allow the
+> background cycle to run, (2) refresh Today and confirm the abandoned-work warning clears without
+> discrediting Google data, and (3) inspect Iranopedia's top Changes plus one prepared move for
+> coherent topic grouping, deep keyword evidence, and verified sources.
+
 > 🟢 **The 2026-07-14 customer-path correction is deployed at `940a2e40` and SHA-verified
 > through documentation tip `94ac32f4` (Vercel `dpl_66ydvpq8Rydr867C6ioZSQRkcDPK`).** The legacy
 > operator pages `/diagnostics`, `/diagnostics/brain`, `/diagnostics/spikes`, and
