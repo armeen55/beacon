@@ -104,8 +104,13 @@ chronology of what already landed lives in VERIFICATION_LOG.md; this list is onl
    a compact server-only ranked handoff. Worklist, AEO, SERP-steal, and keyword-library winners enter
    the same EvidencePacket/PreparedMove path with exact query/instruction, grounded seeds, and honest
    measured-demand provenance. Autonomous, prepare-ahead, auto-advance, and manual preparation use
-   that order without a second ranker. Next: authenticated hosted proof on one real allocator-only
-   winner, then the fresh unseen-topic dogfood run.
+   that order without a second ranker. FOURTH SLICE DEPLOYED at `06644b31`: native AEO cited pages,
+   exact questions, fanouts, citation counts, and multi-winner consensus now survive into the same
+   dossier and prepared move. The exact final top-ten order also receives cache-first live Google
+   research; up to two on-topic winners per query are politely torn down before packets/drafts are
+   built, and new-page moves are held before LLM spend when Google rejects them. No second ranker,
+   button, cron, or publish path was added. Next: authenticated hosted proof on one real
+   allocator-only winner, then the fresh unseen-topic dogfood run.
 21. **Fresh blind unseen-topic benchmark.** Run 5 preregistered cases not used to build these
    corrections. A case that changes code is spent and must be replaced.
 22. **Scheduled-refresh receipt.** The first cron run after this deploy must leave a started

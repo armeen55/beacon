@@ -7,6 +7,36 @@
 
 ---
 
+## 2026-07-14 - Final live-winner + native AEO convergence (06644b31)
+
+Closed two evidence-loss seams in the autonomous research path. First, native AI polling already
+selected and tore down up to five cited winner pages per prompt, but its persisted gap verdict
+dropped the winner URLs, per-answer citation counts, exact native questions, related fanouts, and
+the structural consensus. The verdict and unified allocator now retain that complete AEO receipt;
+ResearchDossier and EvidencePacket use it for competitor references, outline headings, schema,
+answer shape, and opening pattern before the one PreparedMove is drafted.
+
+Second, exact final-ranked moves already received a live Google winnability check, but Beacon threw
+away the organic winner URLs and page facts before drafting, and final-ranked create-page moves did
+not get the same autonomous check. Preparation now researches the exact top order first through the
+existing DataForSEO gauntlet, adds up to two relevant organic winners per query, tears them down
+through the existing polite 14-day cache, recompiles both graph-backed and allocator-only packets
+with those facts, then drafts in the unchanged allocator order. Create-page rejects are held before
+LLM spend. Google/AI overlap remains honest: a page found by the current Google read is not counted
+as independent AI confirmation. The durable receipt and global status line report successfully
+analyzed final Google winners. No UI control, cron, second ranker, render-time call, or publish path
+was added.
+
+Verification: 11 focused files / 118 passed; strict typecheck exit 0; full suite 1,493 files passed,
+22,874 tests passed, 23 skipped, 0 failed in 61.46 seconds; production build exit 0. Build emitted
+three pre-existing broad NFT trace warnings and the existing middleware deprecation warning.
+Product commit `06644b31` pushed to `origin/main`; Vercel deployment
+`dpl_54nD1Pt4nucC8NQXxm8vMeUMRoe3` reached Ready; production `/api/version` returned exact SHA
+`06644b312642dac62a956731db4580018344c46e`; `/login` returned 200; `/changes` returned the expected
+307 to `/login?next=%2Fchanges`. Authenticated data-backed inspection remains pending because the
+in-app browser bootstrap could not attach in this environment; no authenticated UI or tenant-data
+claim is made.
+
 ## 2026-07-14 - Unified ranked preparation release (4191a90d)
 
 Closed the remaining structural split between the final Changes allocator and preparation. The

@@ -1,5 +1,24 @@
 # Beacon Verified State
 
+> 🟢 **The 2026-07-14 final-winner research release is deployed and SHA-verified at `06644b31` (Vercel
+> `dpl_54nD1Pt4nucC8NQXxm8vMeUMRoe3`).** The exact final Changes order now receives one bounded,
+> cache-first live Google read per top query before preparation. Beacon selects up to two on-topic
+> organic winners, reuses the existing polite 14-day competitor teardown cache, and merges those
+> structural facts into the same EvidencePacket before drafting without changing the allocator's
+> order, score, move type, or instruction. New-page moves now receive this same live check and are
+> held before LLM spend when Google says the page is not winnable. The autonomous receipt names how
+> many final Google winners were actually analyzed. Separately, native AEO teardown no longer
+> discards its own expensive work: cited URLs, citation counts, exact native questions, related
+> fanouts, and multi-winner structure consensus now persist through the gap verdict, unified
+> allocator, ResearchDossier, deterministic outline/schema/answer brief, and PreparedMove. No page,
+> button, cron, second ranker, render-time paid call, or publishing path was added. Existing
+> DataForSEO dry-run, cache, ledger, breaker, monthly cap, and ten-query run ceiling remain intact.
+> Verification: strict typecheck; 1,493 test files / 22,874 passed / 23 conditional skips / 0 failed;
+> production build exit 0 with three existing Turbopack NFT trace warnings and the middleware
+> deprecation warning. Production `/api/version` returned the exact full release SHA;
+> `/login` returned 200 and `/changes` returned the expected 307 to login. Authenticated hosted data
+> proof remains pending.
+
 > 🟢 **The 2026-07-14 unified-ranked preparation release is deployed and SHA-verified at
 > `4191a90d` (Vercel `dpl_2wBB3xVAb3JYVEEaw7k2yJ5f79NL`).** Beacon now persists a compact,
 > server-only handoff from the final rendered Changes
@@ -166,11 +185,11 @@
   bounded review before removal. The first bounded wave removed only unreachable islands and their
   source-pinning tests; no OAuth, tenant isolation, publishing, factual-safety, connector
   reconciliation, or rollback contracts were removed.
-- **The autonomous runner is not yet the full dream-state research brain.** The ranked allocator and
-  preparation path are now structurally converged across worklist, AEO, SERP-steal, and keyword gaps,
-  but the release still needs one authenticated hosted run proving that a real allocator-only winner
-  becomes the same source-backed prepared move the operator sees. GA4 engagement is also not yet a
-  bounded ranking input.
+- **The connected research architecture is complete in code, not yet proven on hosted tenant data.**
+  Worklist, native/Profound AEO, SERP-steal, keyword gaps, final live Google winners, one allocator,
+  one EvidencePacket and one PreparedMove are structurally connected. The remaining bar is one
+  authenticated visit proving those receipts and the resulting allocator-only move on real data.
+  GA4 engagement is also not yet a bounded ranking input.
 - **Autonomous research has a cross-instance lock residual.** The daily durable receipt plus the
   process single-flight collapse normal visits, and every paid producer is independently cached and
   capped, but the receipt claim is not one atomic database compare-and-set across two simultaneous
@@ -179,8 +198,8 @@
 ## Next 3 actions
 
 1. **Verify this release on one authenticated autonomous visit.** Confirm the global header reaches
-   ready/partial and the top allocator-only Changes winner becomes a source-backed PreparedMove in
-   that exact order.
+   ready/partial, names final Google winners analyzed, and the top allocator-only Changes winner
+   becomes the source-backed PreparedMove in that exact order.
 2. **Dogfood Iranopedia end to end.** Run one fresh unseen topic through automatic research -> ranked
    move -> source-backed draft, and judge whether the instruction is actually useful.
 3. **Measure authenticated hosted speed.** Capture Today/Changes/Results p50-style navigation timings

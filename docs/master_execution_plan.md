@@ -3086,6 +3086,16 @@ removed from the client payload, and no new surface, producer, scheduler, ranker
 introduced. Remaining proof is operational: authenticate, run one real visit cycle, and inspect a
 real allocator-only winner end to end.
 
+**Fourth slice implemented 2026-07-14:** both winner-research lanes now cross the convergence seam
+without data loss. Native AI cited-page teardown persists cited URLs/counts, exact questions,
+fanouts, and multi-page structural consensus into the unified allocator and ResearchDossier. The
+exact final Changes order receives one guarded/cache-first live Google read per top query, up to two
+on-topic organic winners are torn down through the existing polite cache, and those facts enter the
+EvidencePacket before drafting. New-page moves use the same check and stop before LLM spend on a
+Google reject. This preserves one ranker and one prepared-move path; no new page, button, cron, or
+publishing path exists. Remaining proof is operational and authenticated, not another architecture
+slice.
+
 ---
 
 ## FUTURE IDEAS (not in current execution plan)
