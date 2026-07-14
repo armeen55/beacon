@@ -1,7 +1,8 @@
 # Beacon Verified State
 
-> 🟠 **Autonomous research MVP is pushed; the stronger AI poll + deletion wave are locally gated
-> and awaiting the next release.** A normal signed-in
+> 🟠 **The 2026-07-14 autonomous-clarity release candidate is locally green and awaiting push.**
+> It combines the stronger multi-engine poll, the proven 60-file deletion wave, the deterministic
+> deadline-test repair, and the first dream-state convergence slice. A normal signed-in
 > shell visit now schedules one tenant-explicit, post-response research cycle per Pacific day; a
 > failed/started cycle waits two hours before retrying. The ordered pass refreshes stale connectors,
 > builds a seed demand graph, audits winner pages, mines the top three competitors' keyword
@@ -9,15 +10,21 @@
 > packs with keyword volume and SERP patterns, polls the tenant question universe across available
 > AI engines, refreshes AI-citation topics, question coverage,
 > factual claims and internal PageRank, runs loss/steal/native-citation lanes, then rebuilds the
-> final graph, ranks, prepares (never publishes), and writes Today last. A visible Today line shows
-> its structured receipt. Every paid producer retains its existing cache, dry-run, per-call ledger,
+> final graph, ranks, prepares (never publishes), and writes Today last. The durable receipt now
+> drives a quiet global header state on every page: researching, ready, partial, or up to date.
+> Prepared moves retain the tenant's real top GSC queries and impression weights through intent
+> routing and drafting instead of guessing from one label; minor daily count drift is bucketed so it
+> cannot churn paid drafts. The unified allocator's keyword library read is tenant-explicit. Every
+> paid producer retains its existing cache, dry-run, per-call ledger,
 > monthly/global cap, and bounded batch. Focused gates are green; the first full pre-cleanup gate is
 > also green at 1,505 files / 23,132 passed / 62 skipped in 239.14 seconds. After removing 22
 > obsolete skips and enabling four isolated workers, the first cleanup checkout passed 1,505 files /
 > 23,132 assertions / 40 remaining conditional skips in 74.47 seconds. Commits `ce4d4345` and
 > `96e137ab` are on `origin/main`; hosted SHA proof for that deployment remains pending. The current
-> local wave removes 60 proven dead/test-only files (about 5,550 lines) with no surviving production
-> imports, and passes strict typecheck plus 1,488 files / 22,849 assertions / 23 conditional skips.
+> release candidate removes 60 proven dead/test-only files (about 5,550 lines) with no surviving
+> production imports. Its final local gate is strict typecheck, 1,489 files / 22,855 passed / 23
+> conditional skips / 0 failed in 83.65 seconds, and a successful production build outside the
+> sandbox. Push, Vercel SHA proof, and authenticated receipt inspection remain pending.
 
 > 🟢 **Current verified state (2026-07-13, tip = this docs commit; the exact pushed SHA is what
 > /api/version must report before this docs-only reconciliation is called deployed).** Product code
@@ -124,12 +131,13 @@
   source-pinning tests; no OAuth, tenant isolation, publishing, factual-safety, connector
   reconciliation, or rollback contracts were removed.
 - **The autonomous runner is not yet the full dream-state research brain.** Its producers now run in
-  one cycle, but the richest evidence does not all converge into the same prepared move: GSC query
-  demand and DataForSEO/SERP enrichment are thinner in EvidencePacket than on Today; clone briefs
-  are persisted but not consumed; the unified allocator and graph preparer use different candidate
-  sets; Google and AI winner sets are not one dossier; GA4 engagement is not yet a bounded ranking
-  input. The binding next architecture is one tenant-explicit `ResearchDossier -> UnifiedEntry ->
-  PreparedMove` seam, not another page or producer.
+  one cycle, and real GSC query demand now reaches EvidencePacket, intent routing, prepared packs,
+  and drafting. The remaining rich evidence still does not all converge into the same prepared
+  move: cached DataForSEO volume/SERP patterns and clone briefs are not consumed there; allocator-only
+  winners can rank on Changes without entering graph preparation; Google and AI winner sets are not
+  one dossier; GA4 engagement is not yet a bounded ranking input. The binding next architecture is
+  still one tenant-explicit `ResearchDossier -> UnifiedEntry -> PreparedMove` seam, not another page
+  or producer.
 - **Autonomous research has a cross-instance lock residual.** The daily durable receipt plus the
   process single-flight collapse normal visits, and every paid producer is independently cached and
   capped, but the receipt claim is not one atomic database compare-and-set across two simultaneous
@@ -137,11 +145,11 @@
 
 ## Next 3 actions
 
-1. **Release the AI-poll hardening and proven deletion wave.** Re-run the combined build, commit,
-   push, prove the deployed SHA, and inspect the visible autonomous receipt without publishing.
-2. **Build the dream-state convergence seam.** Thread tenant-explicit GSC queries, cached DataForSEO
-   volume/SERP patterns, and clone-brief winner evidence through one dossier into the existing unified
-   allocator and prepared-move path. Fix the ambient keyword-library read in the same wave.
+1. **Release the combined local candidate.** Commit the GSC-query/header-status slice, push all four
+   local commits, prove the deployed SHA, and inspect the visible autonomous receipt without publishing.
+2. **Continue the dream-state convergence seam.** Thread cached DataForSEO volume/SERP patterns and
+   clone-brief winner evidence through one dossier into the existing unified allocator and prepared-move
+   path; then bring allocator-only winners into preparation without creating a second ranker.
 3. **Dogfood Iranopedia end to end.** Run one fresh topic through automatic research -> ranked move
    -> source-backed draft, then measure authenticated Today/Results speed and evidence usefulness.
 

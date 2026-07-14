@@ -13,15 +13,10 @@
  * understands (Objection.severity: "veto" | "downgrade") - no new machinery,
  * just a new voice in the debate.
  *
- * DATA HONESTY NOTE: EvidencePacket.demand.queries is always [] in production
- * today (no per-query GSC impressions survive into a Move - see build-graph.ts /
- * evidence-packet.ts). This module follows the SAME synthesis convention already
- * used by demand-graph/prepare-today-moves.ts (the only other demand-graph
- * caller of answer-intent's classifyQueryIntent): the Move's own label counts as
- * the strongest signal (weight 2), each AI fanout sub-question counts once
- * (weight 1). That is real evidence (the actual query + the actual fanout
- * questions), just not impression-weighted - the veto is conservative
- * specifically because this signal is coarser than raw GSC.
+ * DATA HONESTY NOTE: EvidencePacket.demand.queries carries the tenant's real,
+ * impression-weighted GSC queries when an owned page exists. Create-page and
+ * cold-start moves may only have graph/fanout evidence; those retain the
+ * conservative label + fanout fallback below.
  *
  * PURE / deterministic / no I/O / no LLM. Every rule below is documented in
  * place (Constitution law 2: a veto must name its evidence). Pinned by
@@ -230,16 +225,15 @@ export function checkIntentVeto(input: IntentVetoInput): Objection | null {
   const { packet, action, tenantHasNoTransactionalSurface } = input;
   const primaryLabel = packet.move.label;
 
-  // Synthesize the impression-weighted query signal the packet doesn't carry
-  // yet (see the module doc's DATA HONESTY NOTE): the Move's own label is the
-  // strongest real signal (weight 2 - it is literally what the demand graph
-  // clustered this Move under), each AI fanout sub-question counts once. This
-  // mirrors prepare-today-moves.ts's existing, shipped convention exactly, so
-  // this module makes no new assumption about the data.
-  const signal = [
-    { query: primaryLabel, impressions: 2 },
-    ...(packet.demand.fanoutSeeds ?? []).map((q) => ({ query: q, impressions: 1 })),
-  ].filter((s) => s.query && s.query.trim());
+  const observedQueries = packet.demand.queries
+    .filter((row) => row.query.trim() && row.impressions > 0)
+    .map((row) => ({ query: row.query, impressions: row.impressions }));
+  const signal = observedQueries.length > 0
+    ? observedQueries
+    : [
+        { query: primaryLabel, impressions: 2 },
+        ...(packet.demand.fanoutSeeds ?? []).map((q) => ({ query: q, impressions: 1 })),
+      ].filter((s) => s.query && s.query.trim());
 
   const cls = classifyQueryIntent(signal);
   if (!cls) return null; // no signal at all → abstain, never guess

@@ -195,14 +195,17 @@ async function draftForPacket(
   opts: { complete?: CompleteFn; bypassCache?: boolean; authoritativeSourceDomains?: readonly string[] },
 ): Promise<StructuredDraftResult<{ evidenceRefs: unknown[]; operatorSteps: string[]; risks: string[] }>> {
   const evidenceHints = evidenceHintsFor(packet);
-  // Intent-aware drafting (C): classify the dominant intent from the topic + its fan-out sub-questions
-  // (the demand-graph packet carries no raw GSC queries), so the LLM writes the RIGHT answer type
-  // (a date for "when", a price for "cost") instead of a generic definition. The daily batch passes a
-  // stronger impression-weighted intent; here the fan-outs are the best available signal.
-  const intent = classifyQueryIntent([
-    { query: packet.move.label, impressions: 2 },
-    ...(packet.demand.fanoutSeeds ?? []).map((q) => ({ query: q, impressions: 1 })),
-  ])?.dominant;
+  // Prefer the tenant's real, impression-weighted GSC queries. Cold-start and
+  // create-page moves retain the conservative label + fanout fallback.
+  const observedQueries = packet.demand.queries
+    .filter((row) => row.query.trim() && row.impressions > 0)
+    .map((row) => ({ query: row.query, impressions: row.impressions }));
+  const intent = classifyQueryIntent(observedQueries.length > 0
+    ? observedQueries
+    : [
+        { query: packet.move.label, impressions: 2 },
+        ...(packet.demand.fanoutSeeds ?? []).map((q) => ({ query: q, impressions: 1 })),
+      ])?.dominant;
   const common = {
     query: packet.move.label,
     pageLabel: packet.yourPage.url ?? packet.move.label,
@@ -236,7 +239,10 @@ async function draftForPacket(
         query: packet.move.label,
         pageLabel: packet.yourPage.url ?? packet.move.label,
         competitorPages: [packet.competitor.topUrl, ...(packet.competitor.otherUrls ?? [])].filter((u): u is string => !!u),
-        fanoutQueries: packet.demand.fanoutSeeds ?? [],
+        fanoutQueries: [...new Set([
+          ...packet.demand.queries.map((row) => row.query),
+          ...(packet.demand.fanoutSeeds ?? []),
+        ])],
         evidenceHints,
       },
       opts,

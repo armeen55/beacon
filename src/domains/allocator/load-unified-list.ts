@@ -35,7 +35,7 @@ import "server-only";
 import type { CanonicalChange } from "@/domains/changes/canonical-change";
 import { loadGapVerdictsForTenant } from "@/domains/demand-graph/native-teardown-runner";
 import { loadStealBriefsForTenant } from "@/domains/serp/serp-steal-lane";
-import { loadKeywordLibrary } from "@/domains/research/keyword-library";
+import { loadKeywordLibraryForTenant } from "@/domains/research/keyword-library";
 import { loadOwnershipRegistryForTenantCached } from "@/domains/ownership/registry-loader";
 import { loadOwnedCoverageInputs } from "@/domains/demand-graph/owned-coverage-loader";
 import { detectOwnedCoverageForTopic } from "@/domains/demand-graph/owned-coverage";
@@ -67,7 +67,7 @@ export async function fuseUnifiedList(tenantId: string, worklistChanges: readonl
   const [gapVerdicts, stealBriefs, keywordLibrary, ownershipRegistry, coverageInputs] = await Promise.all([
     loadGapVerdictsForTenant(tenantId).catch(() => []),
     loadStealBriefsForTenant(tenantId).catch(() => []),
-    loadKeywordLibrary().catch(() => ({ rows: [], volumeCoverage: 0, total: 0, bySource: {} as never })),
+    loadKeywordLibraryForTenant(tenantId).catch(() => ({ rows: [], volumeCoverage: 0, total: 0, bySource: {} as never })),
     loadOwnershipRegistryForTenantCached(tenantId).catch(() => null),
     // Owned-coverage detector inputs (2026-07-11): GSC serving at ANY position + owned
     // page title/H1, so a deep-ranking or content-only owned page still catches a

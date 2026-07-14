@@ -211,7 +211,10 @@ export function buildPreparedMovePack(input: BuildPreparedMovePackInput): Prepar
     targetUrl: packet.yourPage.url,
     proposedSlug: isCreate ? slugify(packet.move.label) : null,
     primaryQuery: packet.move.label,
-    secondaryQueries: packet.demand.fanoutSeeds ?? [],
+    secondaryQueries: [...new Set([
+      ...packet.demand.queries.map((row) => row.query),
+      ...(packet.demand.fanoutSeeds ?? []),
+    ])].filter((query) => query.toLocaleLowerCase("en-US") !== packet.move.label.toLocaleLowerCase("en-US")),
     specialistOpinions: opinions,
     routerDecision: decision,
     proofPlan: packet.proofPlan,

@@ -16,6 +16,7 @@ function packet(
   label: string,
   gapType: GapKind = "answer_block",
   fanoutSeeds: string[] = [],
+  queries: EvidencePacket["demand"]["queries"] = [],
 ): EvidencePacket {
   return {
     move: {
@@ -27,7 +28,7 @@ function packet(
       components: components(),
       signals: ["GSC"],
     },
-    demand: { demandWeight: 1000, basis: "gsc", queries: [], fanoutSeeds },
+    demand: { demandWeight: 1000, basis: "gsc", queries, fanoutSeeds },
     competitor: { topUrl: null, domain: null, fetchStatus: null, facts: null, whatWins: "-", relevance: 0, looselyMatched: false, otherUrls: [] },
     yourPage: { url: "https://example.com/page", facts: null, gsc: null, dollarValue: 0, friction: 0 },
     gaps: [],
@@ -76,6 +77,17 @@ describe("checkIntentVeto - abstains (silent, conservative)", () => {
 });
 
 describe("checkIntentVeto - rule 1: answer-shaped lever cannot serve a date/price lookup (the chaharshanbe bug)", () => {
+  it("uses real impression-weighted GSC queries instead of guessing from the move label", () => {
+    const p = packet("nowruz traditions", "answer_block", [], [
+      { query: "when is nowruz 2027", impressions: 900, source: "gsc" },
+      { query: "nowruz traditions", impressions: 100, source: "gsc" },
+    ]);
+    const obj = checkIntentVeto({ packet: p, action: "add_answer_block" });
+    expect(obj?.severity).toBe("veto");
+    expect(obj?.detail).toContain("when is nowruz 2027");
+    expect(obj?.evidenceRefs[0]?.detail).toContain("90%");
+  });
+
   it("VETOes add_answer_block when the dominant intent is clearly 'when' (a date)", () => {
     const p = packet("chaharshanbe suri 2026", "answer_block", ["when is chaharshanbe suri", "chaharshanbe suri date"]);
     const obj = checkIntentVeto({ packet: p, action: "add_answer_block" });

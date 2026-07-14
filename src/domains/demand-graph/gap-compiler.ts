@@ -15,6 +15,7 @@ import { loadDemandGraphForTenantCached } from "./load-graph";
 import { getCompetitorAuditsForTenant } from "./competitor-page-audit";
 import {
   buildEvidencePacket,
+  type DemandQuerySignal,
   type EvidencePacket,
   type PageStructureFacts,
 } from "./evidence-packet";
@@ -114,6 +115,9 @@ export async function loadChangePacksForTenant(
   }
   const ownedDomain = [...hostCount.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? "";
   const brand = ownedDomain ? brandFromDomain(ownedDomain) : "Your site";
+  const graphQueriesByKey = new Map(
+    graph.demandNodes.map((node) => [node.key, node.queries] as const),
+  );
 
   const actionable = graph.moves.filter((m) => m.gap !== "low_demand" && m.gap !== "healthy");
   const top = actionable.slice(0, limit);
@@ -144,12 +148,22 @@ export async function loadChangePacksForTenant(
     // Real GSC signal for the owned page → powers the CTR-gap upside + the
     // "ranks #N, under-clicked" gap detail (was always null before).
     let ownedGsc: EvidencePacket["yourPage"]["gsc"] = null;
+    let demandQueries: DemandQuerySignal[] = (graphQueriesByKey.get(move.demandKey) ?? []).map((query) => ({
+      query,
+      impressions: 1,
+      source: "graph",
+    }));
     if (move.ownedUrl) {
       const sig =
         gscByCanon.get(canonicalizeCitationUrl(move.ownedUrl) || move.ownedUrl) ??
         gscByPath.get(pathKey(move.ownedUrl));
       if (sig) {
         ownedGsc = { clicks: sig.clicks90d, impressions: sig.impressions90d, ctr: sig.ctr90d, position: sig.position90d };
+        demandQueries = sig.topQueries.map((query) => ({
+          query: query.query,
+          impressions: query.impressions,
+          source: "gsc",
+        }));
       }
     }
 
@@ -160,6 +174,7 @@ export async function loadChangePacksForTenant(
       ownedGsc,
       competitor,
       fanoutSeeds: move.fanoutSeeds,
+      demandQueries,
     });
   });
 

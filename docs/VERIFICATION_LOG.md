@@ -7,6 +7,28 @@
 
 ---
 
+## 2026-07-14 - Autonomous clarity + GSC query convergence (local gate green; release pending)
+
+The first dream-state convergence slice closes a real evidence-loss defect: the graph already loaded
+each owned page's top GSC queries, but EvidencePacket replaced them with an empty list. Tenant-explicit
+query text and impression weights now survive graph compilation into the packet, the intent veto, the
+prepared pack, and structured drafting. Create-page/cold-start moves retain the prior graph/fanout
+fallback. Evidence hashes use ten-point query-share buckets, so a tiny rolling-window count change does
+not trigger paid re-drafting while a material intent shift still invalidates the pack.
+
+The durable on-visit receipt now also powers one quiet header state across every signed-in page:
+researching, moves ready, partially refreshed, or up to date. This adds no button, new scheduler, cron,
+provider call, or publishing path. The Today detail line reuses the same domain presenter. The unified
+allocator's formerly ambient keyword-library read now calls the existing tenant-explicit reader.
+
+Verification: strict typecheck exit 0; focused gate 7 files / 89 passed / 0 failed; complete Vitest gate
+1,489 files / 22,855 passed / 23 intentional conditional skips / 0 failed in 83.65 seconds; production
+build exit 0 outside the sandbox. The first sandbox build failed only because Turbopack could not bind
+its internal local port (`Operation not permitted`); the unrestricted rerun compiled successfully,
+finished TypeScript, generated all static pages, and finalized every route. Two pre-existing broad NFT
+trace warnings remain. No production data, paid API, environment variable, or publish action was used.
+Commit, push, Vercel SHA proof, and authenticated receipt inspection remain pending.
+
 ## 2026-07-13 - Autonomous research-before-ranking MVP + cleanup wave (partially pushed; next release pending)
 
 Beacon's disconnected manual/nightly research pieces are now composed into one post-response,

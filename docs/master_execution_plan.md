@@ -48,6 +48,9 @@ post-response cycle that acquires fresh connector, SEO, AEO, competitor, questio
 evidence before final ranking and draft preparation. Research remains inspectable through a
 structured visible receipt, paid work remains cache/ledger/cap guarded, and publishing always
 requires its separate safety path. Cron may remain a backup/warm optimization, never the only path.
+The receipt should collapse to one calm global status across navigation, while the detailed audit
+remains available on Today. Real query evidence must survive into the prepared move; no downstream
+intent or draft step may silently replace loaded GSC queries with a guessed label.
 
 ### Identity
 - **Name:** `beacon`, private, version 0.1.0

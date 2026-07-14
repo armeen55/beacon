@@ -81,7 +81,10 @@ export type EvidencePacket = {
      *  `basis` says which, so the number is never silently mislabeled. */
     demandWeight: number;
     basis: "gsc" | "ai_attention" | "mixed";
-    queries: string[];
+    /** Real query evidence feeding this move, ranked by observed signal. GSC
+     *  impressions are preserved when available; synthesized graph queries use
+     *  a weight of 1 and are identified by their source. */
+    queries: DemandQuerySignal[];
     fanoutSeeds: string[];
   };
   competitor: {
@@ -109,6 +112,12 @@ export type EvidencePacket = {
   evidenceHash: string;
 };
 
+export type DemandQuerySignal = {
+  query: string;
+  impressions: number;
+  source: "gsc" | "graph";
+};
+
 export type BuildEvidencePacketInput = {
   move: MoveCandidate;
   brand: string;
@@ -119,7 +128,26 @@ export type BuildEvidencePacketInput = {
   competitor: { url: string; domain: string; fetchStatus: string; facts: CompetitorPageFacts | null } | null;
   /** Profound fanout sub-questions for this cluster, if any. */
   fanoutSeeds?: string[];
+  /** Tenant-explicit query evidence already loaded by the graph compiler. */
+  demandQueries?: DemandQuerySignal[];
 };
+
+function normalizeDemandQueries(rows: readonly DemandQuerySignal[]): DemandQuerySignal[] {
+  const byQuery = new Map<string, DemandQuerySignal>();
+  for (const row of rows) {
+    const query = row.query.trim();
+    if (!query) continue;
+    const key = query.toLocaleLowerCase("en-US");
+    const impressions = Number.isFinite(row.impressions) ? Math.max(0, row.impressions) : 0;
+    const existing = byQuery.get(key);
+    if (!existing || impressions > existing.impressions || (row.source === "gsc" && existing.source !== "gsc")) {
+      byQuery.set(key, { query, impressions, source: row.source });
+    }
+  }
+  return [...byQuery.values()]
+    .sort((a, b) => b.impressions - a.impressions || a.query.localeCompare(b.query))
+    .slice(0, 8);
+}
 
 function clampTitle(s: string): string {
   return s.length <= 60 ? s : s.slice(0, 57).trimEnd() + "…";
@@ -161,6 +189,7 @@ export function buildEvidencePacket(input: BuildEvidencePacketInput): EvidencePa
   const cFacts = competitor?.facts ?? null;
   const fanoutSeeds = (input.fanoutSeeds ?? move.fanoutSeeds ?? []).slice(0, 10);
   const primaryQuery = move.label;
+  const demandQueries = normalizeDemandQueries(input.demandQueries ?? []);
 
   // Relevance gate: only let an on-topic competitor drive the draft + comparative
   // gaps. AI-cited pages can be tangential (the borrowed Profound account cites
@@ -270,6 +299,10 @@ export function buildEvidencePacket(input: BuildEvidencePacketInput): EvidencePa
   else if (move.gap === "fix_experience") metrics.push("Clarity dead/rage clicks", "engaged sessions");
   if (move.components.dollarValue > 0) metrics.push("GA4 conversions");
 
+  // Hash query MIX, not raw daily impression totals. A one-impression rollover
+  // in a 90-day window should not force a paid re-draft; a material share shift
+  // or a different top query should. Ten-point share buckets provide that seam.
+  const demandQueryTotal = demandQueries.reduce((sum, row) => sum + row.impressions, 0);
   const packetCore = {
     k: move.demandKey,
     s: move.score,
@@ -277,6 +310,11 @@ export function buildEvidencePacket(input: BuildEvidencePacketInput): EvidencePa
     cf: cFacts ? { t: cFacts.title, w: cFacts.wordCount, h: cFacts.h2Count, sc: cFacts.schemaTypes, faq: cFacts.hasFaq, ab: cFacts.hasAnswerBlock } : null,
     of: ownedFacts ? { t: ownedFacts.title, w: ownedFacts.wordCount, sc: ownedFacts.schemaTypes } : null,
     g: gaps.map((g) => g.kind),
+    q: demandQueries.map((q) => [
+      q.query,
+      demandQueryTotal > 0 ? Math.round((q.impressions / demandQueryTotal) * 10) : 0,
+      q.source,
+    ]),
     d: { o: outline, f: faqQuestions, s: schemaRecommendations },
   };
   const evidenceHash = createHash("sha256").update(JSON.stringify(packetCore)).digest("hex").slice(0, 16);
@@ -298,7 +336,7 @@ export function buildEvidencePacket(input: BuildEvidencePacketInput): EvidencePa
           ? "mixed"
           : "gsc"
         : "ai_attention",
-      queries: [],
+      queries: demandQueries,
       fanoutSeeds,
     },
     competitor: {
