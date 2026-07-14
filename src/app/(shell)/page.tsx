@@ -309,11 +309,15 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
   // (domains/ops/defect-signal.ts) is the ONE pure read both this command and that banner use, so
   // they can never disagree again. loadDeadmanVerdict is react.cache-shared (free here);
   // loadErrorSpikeLine is a light per-tenant read, deadline-bound like the banner's.
-  const pipelineAlarms = deriveDefectSignal({
+  const defectSignal = deriveDefectSignal({
     violations: pipelineHealth?.violations ?? [],
     deadman: deadmanVerdict,
     errorSpikeLine,
-  }).sentences;
+  });
+  const pipelineAlarms = defectSignal.sentences;
+  const dataTrustBroken = defectSignal.alarmViolations.length > 0 || Boolean(
+    deadmanVerdict?.jobs.some((job) => job.job === "sync-connectors" && job.pace === "stalled"),
+  );
   const scoreboardDeltaPct =
     buildScoreboard(
       leadStoryDays.map((d) => ({ date: d.date, clicks: d.clicks, impressions: 0 })),
@@ -328,6 +332,7 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
   const firstReadOn = schedule.firstReadOn;
   const command = buildTodayCommand({
     pipelineAlarms,
+    dataTrustBroken,
     smokeAlarm,
     scoreboardDeltaPct,
     topOpportunity: today.nextOpportunities[0] ?? null,

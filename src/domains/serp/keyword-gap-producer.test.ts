@@ -53,6 +53,14 @@ function deps(over: Partial<ProduceKeywordGapsDeps> = {}): Partial<ProduceKeywor
     loadOwnedQueries: async () => [],
     runRanked: vi.fn(async (d: string) => labsResult("ok", [row(uniqueTopic(d), d)], LABS_COST_USD)),
     runIntersection: vi.fn(async (d: string) => labsResult("ok", [row(gapTopic(d), d, { source: "domain_intersection" })], LABS_COST_USD)),
+    runPageRanked: vi.fn(async () => labsResult("cache_hit", [])),
+    runRelated: vi.fn(async () => ({
+      status: "cache_hit" as const,
+      plan: { endpoint: "related", cacheKey: "related", estCostUsd: 0.14 },
+      rows: [],
+      costUsd: 0,
+      detail: "cache_hit",
+    })),
     writeResults: vi.fn(async () => {}),
     // Item 60 deps - explicit no-op stubs so unit tests never touch real I/O.
     readCachedDifficulty: vi.fn(async () => new Map()),
@@ -72,7 +80,7 @@ describe("produceKeywordGaps - the bounded batch", () => {
     expect(r.competitors).toEqual(["a-comp.com", "b-comp.com", "c-comp.com"]); // most-cited first
     expect(r.calls).toHaveLength(MAX_GAP_COMPETITORS * 2);
     expect(r.spentUsd).toBeLessThanOrEqual(MAX_GAP_RUN_COST_USD);
-    expect(MAX_GAP_RUN_COST_USD).toBeLessThan(1); // the ~$1 per-run promise
+    expect(MAX_GAP_RUN_COST_USD).toBeLessThanOrEqual(1.8);
     expect(vi.mocked(d.runRanked!)).toHaveBeenCalledTimes(3);
     expect(vi.mocked(d.runIntersection!)).toHaveBeenCalledTimes(3);
     // intersection is called against the derived own domain
@@ -205,9 +213,9 @@ describe("produceKeywordGaps - item 60 clone-and-beat briefs", () => {
     expect(r.moneyPagesFound).toBeGreaterThan(0);
     expect(r.cloneBriefs.length).toBeGreaterThan(0);
     expect(r.cloneBriefs.length).toBeLessThanOrEqual(5); // MAX_BRIEF_TEARDOWNS
-    // no NEW Labs calls beyond the same 6 (3 competitors x 2 endpoints) - the
-    // teardown rides the polite fetcher, not another paid Labs call.
-    expect(r.calls).toHaveLength(6);
+    expect(r.calls.filter((call) => call.endpoint === "ranked_keywords" || call.endpoint === "domain_intersection")).toHaveLength(6);
+    expect(r.calls.filter((call) => call.endpoint === "page_ranked_keywords")).toHaveLength(3);
+    expect(r.calls.filter((call) => call.endpoint === "related_keywords")).toHaveLength(3);
     expect(vi.mocked(d.writeBriefs!)).toHaveBeenCalledTimes(1);
     expect(r.message).toContain("clone-and-beat brief");
   });

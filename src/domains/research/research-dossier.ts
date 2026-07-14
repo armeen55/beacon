@@ -7,7 +7,7 @@
 
 import { createHash } from "node:crypto";
 
-import { topicTokens } from "@/domains/evidence/relevance-gate";
+import { promptRelevance, topicTokens } from "@/domains/evidence/relevance-gate";
 import type { MoveCandidate } from "@/domains/demand-graph/build-graph";
 import type { AeoEvidence } from "@/domains/demand-graph/profound-evidence-fusion";
 import type { KeywordLibrary, KeywordLibraryRow, KeywordLibrarySource } from "./keyword-library";
@@ -57,6 +57,8 @@ export type DossierCloneBrief = {
   whatWins: string | null;
   teardownStatus: CloneBrief["teardownStatus"];
   demand: CloneBrief["demand"];
+  keywordResearch: CloneBrief["keywordResearch"];
+  blueprint: CloneBrief["blueprint"];
   coverageGaps: string[];
   buildPointer: CloneBrief["buildPointer"];
   summary: string;
@@ -154,7 +156,9 @@ function compactClone(brief: CloneBrief): DossierCloneBrief {
     trafficWeight: brief.trafficWeight,
     whatWins: brief.whatWins,
     teardownStatus: brief.teardownStatus,
-    demand: brief.demand.slice(0, 5),
+    demand: brief.demand.slice(0, 25),
+    keywordResearch: brief.keywordResearch ?? null,
+    blueprint: brief.blueprint ?? null,
     coverageGaps: brief.coverageGaps.slice(0, 6),
     buildPointer: brief.buildPointer,
     summary: brief.summary.slice(0, 500),
@@ -173,12 +177,31 @@ function dossierHash(input: Omit<ResearchDossier, "builtAt" | "evidenceHash">): 
 export function buildResearchDossier(input: BuildResearchDossierInput): ResearchDossier {
   const { tenantId, move, corpus, nowIso } = input;
   const targetKey = urlKey(move.ownedUrl);
+  const ownedQuestionEvidence = new Set(
+    corpus.questions
+      .filter((row) => targetKey && urlKey(row.ownership) === targetKey)
+      .map((row) => norm(row.question)),
+  );
+  const relevantAeo = move.aeoEvidence
+    ? {
+        ...move.aeoEvidence,
+        prompts: move.aeoEvidence.prompts.filter((prompt) => promptRelevance(move.label, prompt).relevant),
+        fanoutQueries: move.aeoEvidence.fanoutQueries.filter(
+          (query) =>
+            promptRelevance(move.label, query).relevant ||
+            ownedQuestionEvidence.has(norm(query)) ||
+            (move.aeoEvidence?.winnerConsensus?.sharedHeadings ?? []).some(
+              (heading) => promptRelevance(heading, query).relevant,
+            ),
+        ),
+      }
+    : null;
   const topics = [
     move.label,
     ...input.demandQueries.map((row) => row.query),
     ...move.fanoutSeeds,
-    ...(move.aeoEvidence?.prompts ?? []),
-    ...(move.aeoEvidence?.fanoutQueries ?? []),
+    ...(relevantAeo?.prompts ?? []),
+    ...(relevantAeo?.fanoutQueries ?? []),
   ].filter(Boolean);
 
   const keywordMatches = corpus.keywordLibrary.rows
@@ -252,10 +275,10 @@ export function buildResearchDossier(input: BuildResearchDossierInput): Research
   }
   if (serpPatterns.length > 0) sources.add("live_serp");
   if (cloneBriefs.some((brief) => brief.teardownStatus === "torn_down")) sources.add("competitor_teardown");
-  if (move.aeoEvidence) {
-    if (move.aeoEvidence.promptCount > 0) sources.add("ai_answers");
-    if (move.aeoEvidence.fanoutQueries.length > 0) sources.add("ai_fanout");
-    if (move.aeoEvidence.topCitedPages.length > 0) sources.add("ai_citations");
+  if (relevantAeo) {
+    if (relevantAeo.prompts.length > 0) sources.add("ai_answers");
+    if (relevantAeo.fanoutQueries.length > 0) sources.add("ai_fanout");
+    if (relevantAeo.topCitedPages.length > 0) sources.add("ai_citations");
   }
   if (questions.some((row) => row.sources.includes("paa"))) sources.add("paa");
 
@@ -267,7 +290,7 @@ export function buildResearchDossier(input: BuildResearchDossierInput): Research
     keywords: keywordMatches,
     serpPatterns,
     questions,
-    ai: move.aeoEvidence ?? null,
+    ai: relevantAeo,
     cloneBriefs,
     evidenceSources: [...sources].sort(),
   };
@@ -303,13 +326,31 @@ export function researchDossierHints(dossier: ResearchDossier | null | undefined
   }
   for (const brief of dossier.cloneBriefs.slice(0, 2)) {
     hints.push(`Competitor reverse-engineering: ${brief.summary}`);
+    if (brief.keywordResearch && brief.keywordResearch.keywordCount > 0) {
+      hints.push(
+        `Exact-page keyword corpus: ${brief.keywordResearch.keywordCount.toLocaleString("en-US")} ranking keywords checked, ` +
+        `${(brief.keywordResearch.relatedKeywordCount ?? 0).toLocaleString("en-US")} broader related keywords checked, ` +
+        `${brief.keywordResearch.withVolume.toLocaleString("en-US")} with volume, ` +
+        `${brief.keywordResearch.totalSearchVolume.toLocaleString("en-US")} combined monthly searches.`,
+      );
+    }
+    if (brief.blueprint) {
+      const b = brief.blueprint;
+      hints.push(
+        `Observed winner blueprint: ${b.observedWordCount.toLocaleString("en-US")} words, ${b.observedSectionCount} sections, ` +
+        `${b.faqQuestionCount} FAQ questions, ${b.observedInternalLinks} internal links, ${b.observedImages} images, ` +
+        `${b.requiresDirectAnswer ? "a direct answer block" : "no detected answer block"}, ` +
+        `${b.schemaTypes.length > 0 ? `schema ${b.schemaTypes.join(", ")}` : "no detected schema"}.`,
+      );
+      if (b.outline.length > 0) hints.push(`Observed winner outline: ${b.outline.slice(0, 10).join("; ")}.`);
+    }
   }
   const unanswered = dossier.questions
     .filter((row) => row.coverageStatus !== "answered")
     .slice(0, 6)
     .map((row) => row.question);
   if (unanswered.length > 0) hints.push(`Questions this move should answer: ${unanswered.join("; ")}.`);
-  return hints.slice(0, 12);
+  return hints.slice(0, 16);
 }
 
 export function dossierReferenceCandidates(dossier: ResearchDossier | null | undefined): string[] {

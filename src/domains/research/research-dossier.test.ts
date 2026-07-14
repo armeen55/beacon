@@ -161,6 +161,36 @@ describe("buildResearchDossier", () => {
     expect(researchDossierHints(dossier).join(" ")).toContain("Competitor reverse-engineering");
   });
 
+  it("drops an unrelated AI fanout even when the parent topic has valid native evidence", () => {
+    const m = move();
+    m.label = "iran natural attractions";
+    m.aeoEvidence = {
+      ...m.aeoEvidence!,
+      source: "native",
+      prompts: ["what are iran natural attractions"],
+      fanoutQueries: ["what are the most beautiful words in the persian language"],
+      winnerConsensus: {
+        sourceCount: 3,
+        sharedHeadings: ["Natural wonders", "Mountains and deserts"],
+        answerShape: "guide",
+        wordBand: { low: 1000, high: 1800, median: 1400 },
+        schemaTypes: ["Article"],
+        openingPattern: "direct_definition",
+        hasFaqConsensus: false,
+        hasToolConsensus: false,
+      },
+    };
+    const dossier = buildResearchDossier({
+      tenantId: "tenant-iranopedia",
+      move: m,
+      demandQueries: [],
+      corpus: { keywordLibrary: keywordLibrary(), serpPatterns: new Map(), cloneBriefs: [], questions: [] },
+      nowIso: "2026-07-14T00:00:00.000Z",
+    });
+    expect(dossier.ai?.fanoutQueries).toEqual([]);
+    expect(dossier.evidenceSources).not.toContain("ai_fanout");
+  });
+
   it("does not mix unrelated high-volume research into the move", () => {
     const dossier = buildResearchDossier({
       tenantId: "tenant-iranopedia",

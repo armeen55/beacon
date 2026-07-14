@@ -31,6 +31,12 @@ import type { KeywordGapRow } from "./keyword-gaps";
 // early rather than late - same conservative posture as SERP_COST_USD ($0.003 vs
 // ~$0.0006 list) and KEYWORDS_COST_USD ($0.075 vs ~$0.05).
 export const LABS_COST_USD = 0.11;
+/** One exact-page ranked-keyword read. DataForSEO supports webpage targets and
+ * up to 1,000 rows; Beacon deliberately caps this at 500 and over-estimates the
+ * current list price so the shared monthly cap still trips early. */
+export const PAGE_KEYWORDS_COST_USD = 0.08;
+/** One maximum-width related-keyword universe call (up to 1,000 rows). */
+export const RELATED_KEYWORDS_COST_USD = 0.14;
 
 // ── Winnability-read cost constants (2026-07-02, master plan item 18) ─────────
 // All three are conservative OVER-estimates of list price so the shared cap trips
@@ -57,6 +63,18 @@ const LABS_BASE = "https://api.dataforseo.com/v3/dataforseo_labs/google";
 const BACKLINKS_BASE = "https://api.dataforseo.com/v3/backlinks";
 /** Hard row ceiling per call - bounded response, bounded per-row pricing. */
 export const LABS_ROW_LIMIT = 300;
+/** Deep research ceiling for one proven competitor page. The full response is
+ * cached for 30 days; only compact evidence is promoted into recommendation UI. */
+export const PAGE_KEYWORD_ROW_LIMIT = 500;
+export const RELATED_KEYWORD_ROW_LIMIT = 1000;
+
+export type RelatedKeywordRow = {
+  keyword: string;
+  volume: number | null;
+  cpcUsd: number | null;
+  difficulty: number | null;
+  monthlySearches: Array<{ year: number; month: number; searchVolume: number }>;
+};
 /** Batch-first ceilings: difficulty/ranks ride 1000-target bulk endpoints; the
  *  backlinks read is bounded to 100 page targets per verdict run. */
 export const BULK_KEYWORDS_LIMIT = 1000;
@@ -160,6 +178,23 @@ export function normalizeDomainTarget(domain: string): string {
   }
 }
 
+/** DataForSEO accepts an absolute webpage URL as a ranked_keywords target. Keep
+ * the path and query-free canonical shape so page research cannot silently turn
+ * back into a domain-wide sample. */
+export function normalizePageTarget(value: string): string {
+  const raw = value.trim();
+  if (!raw) return "";
+  try {
+    const url = new URL(/^https?:\/\//i.test(raw) ? raw : `https://${raw}`);
+    if (!/^https?:$/.test(url.protocol) || !url.hostname) return "";
+    url.hash = "";
+    url.search = "";
+    return url.toString();
+  } catch {
+    return "";
+  }
+}
+
 /** rank_group (fallback rank_absolute) from a Labs serp element - defensively
  *  accepts both the nested { serp_item: {...} } and the flattened shape. */
 function rankOf(el: unknown): number | null {
@@ -244,6 +279,39 @@ export function parseDomainIntersection(body: unknown, competitorDomain: string)
     }
   } catch {
     /* malformed body -> [] */
+  }
+  return out;
+}
+
+/** Parse the broad topic-universe endpoint without pretending its rows rank on
+ * a particular competitor page. These rows are research evidence, not gaps. */
+export function parseRelatedKeywords(body: unknown): RelatedKeywordRow[] {
+  const out: RelatedKeywordRow[] = [];
+  try {
+    for (const it of labsItems(body)) {
+      const { keyword, volume, cpc } = keywordDataOf(it);
+      if (!keyword) continue;
+      const kd = (it.keyword_data ?? {}) as Record<string, unknown>;
+      const props = (kd.keyword_properties ?? {}) as Record<string, unknown>;
+      const info = (kd.keyword_info ?? {}) as Record<string, unknown>;
+      const monthlyRaw = Array.isArray(info.monthly_searches) ? info.monthly_searches : [];
+      const monthlySearches = monthlyRaw.flatMap((raw) => {
+        if (!raw || typeof raw !== "object") return [];
+        const row = raw as Record<string, unknown>;
+        return typeof row.year === "number" && typeof row.month === "number" && typeof row.search_volume === "number"
+          ? [{ year: row.year, month: row.month, searchVolume: row.search_volume }]
+          : [];
+      });
+      out.push({
+        keyword,
+        volume,
+        cpcUsd: cpc,
+        difficulty: typeof props.keyword_difficulty === "number" ? props.keyword_difficulty : null,
+        monthlySearches,
+      });
+    }
+  } catch {
+    return [];
   }
   return out;
 }
@@ -398,6 +466,116 @@ export async function runRankedKeywords(
     },
     depsOverride,
   );
+}
+
+/**
+ * Deep keyword research for ONE exact winning webpage. This is intentionally a
+ * separate runner from domain discovery: target retains the full URL, rank is
+ * allowed through 100, synonyms stay enabled, and up to 500 real keyword rows
+ * are cached for 30 days behind the same dry-run and monthly spend gauntlet.
+ */
+export async function runRankedKeywordsForPage(
+  pageUrl: string,
+  opts: LabsQueryOpts = {},
+  depsOverride: Partial<LabsRunDeps> = {},
+): Promise<LabsRunResult> {
+  const target = normalizePageTarget(pageUrl);
+  if (!target) {
+    return {
+      status: "error",
+      plan: { endpoint: `${LABS_BASE}/ranked_keywords/live`, cacheKey: "", estCostUsd: PAGE_KEYWORDS_COST_USD },
+      rows: [],
+      costUsd: 0,
+      detail: "empty page URL",
+    };
+  }
+  const locationCode = opts.locationCode ?? 2840;
+  const languageCode = opts.languageCode ?? "en";
+  const competitorDomain = normalizeDomainTarget(target);
+  return runLabsQuery(
+    "ranked_keywords/live",
+    {
+      target,
+      location_code: locationCode,
+      language_code: languageCode,
+      item_types: ["organic"],
+      limit: PAGE_KEYWORD_ROW_LIMIT,
+      ignore_synonyms: false,
+      order_by: ["keyword_data.keyword_info.search_volume,desc"],
+      filters: [["ranked_serp_element.serp_item.rank_group", "<=", 100]],
+    },
+    {
+      cacheKey: `ranked_keywords_page|${locationCode}|${languageCode}|${target}`,
+      estCostUsd: PAGE_KEYWORDS_COST_USD,
+      parse: (body) => parseRankedKeywords(body, competitorDomain),
+    },
+    depsOverride,
+  );
+}
+
+/** Maximum-width topic discovery from one seed: depth 4 can expose thousands
+ * of candidates, while limit 1,000 extracts the provider's per-call maximum.
+ * Clickstream and SERP payloads stay off to avoid doubled price and response
+ * bloat. Full rows live in the same 30-day cache. */
+export async function runRelatedKeywords(
+  seedKeyword: string,
+  opts: LabsQueryOpts = {},
+  depsOverride: Partial<LabsRunDeps> = {},
+): Promise<LabsRunResult<RelatedKeywordRow>> {
+  const keyword = seedKeyword.trim().toLocaleLowerCase("en-US");
+  if (!keyword) {
+    return {
+      status: "error",
+      plan: { endpoint: `${LABS_BASE}/related_keywords/live`, cacheKey: "", estCostUsd: RELATED_KEYWORDS_COST_USD },
+      rows: [],
+      costUsd: 0,
+      detail: "empty seed keyword",
+    };
+  }
+  const locationCode = opts.locationCode ?? 2840;
+  const languageCode = opts.languageCode ?? "en";
+  return runLabsQuery<RelatedKeywordRow>(
+    "related_keywords/live",
+    {
+      keyword,
+      location_code: locationCode,
+      language_code: languageCode,
+      depth: 4,
+      limit: RELATED_KEYWORD_ROW_LIMIT,
+      include_seed_keyword: true,
+      include_serp_info: false,
+      include_clickstream_data: false,
+      ignore_synonyms: false,
+      order_by: ["keyword_data.keyword_info.search_volume,desc"],
+    },
+    {
+      cacheKey: `related_keywords|${locationCode}|${languageCode}|depth4|${keyword}`,
+      estCostUsd: RELATED_KEYWORDS_COST_USD,
+      parse: parseRelatedKeywords,
+    },
+    depsOverride,
+  );
+}
+
+/** Read every fresh related-keyword corpus already paid for. This is the bridge
+ * from raw provider cache to Beacon's unified keyword library; no API call and
+ * no spend. Newer corpus entries win on duplicate keyword strings. */
+export async function readAllCachedRelatedKeywords(
+  deps: { now?: () => Date; readCache?: () => Promise<CacheRow[]> } = {},
+): Promise<Array<RelatedKeywordRow & { fetchedAt: string }>> {
+  const nowMs = (deps.now ?? (() => new Date()))().getTime();
+  const cached = await (deps.readCache ?? defaultDeps.readCache)().catch(() => []);
+  const entries = cached
+    .filter((row) => row.key.startsWith("related_keywords|") && nowMs - Date.parse(row.fetchedAt) < LABS_CACHE_TTL_MS)
+    .sort((a, b) => a.fetchedAt.localeCompare(b.fetchedAt));
+  const byKeyword = new Map<string, RelatedKeywordRow & { fetchedAt: string }>();
+  for (const entry of entries) {
+    for (const row of entry.rows as RelatedKeywordRow[]) {
+      if (!row.keyword?.trim()) continue;
+      byKeyword.set(row.keyword.trim().toLocaleLowerCase("en-US"), { ...row, fetchedAt: entry.fetchedAt });
+    }
+  }
+  return [...byKeyword.values()];
 }
 
 /**

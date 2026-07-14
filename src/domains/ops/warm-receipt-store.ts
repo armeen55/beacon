@@ -28,6 +28,8 @@ export type WarmRunSummary = {
   competitorsMined: number;
   keywordGapsFound: number;
   cloneBriefsBuilt: number;
+  pageKeywordsChecked?: number;
+  relatedKeywordsChecked?: number;
   keywordTermsPlanned: number;
   serpPatternsWritten: number;
   aiTopicsPolled: number;

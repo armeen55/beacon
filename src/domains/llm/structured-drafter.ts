@@ -1334,6 +1334,10 @@ export type CreatePageStructuredInput = {
   fanoutQueries: string[];
   /** Evidence the team established (GSC demand, profound prompt, etc.). */
   evidenceHints?: string[];
+  /** Exact cached pages Beacon already found while researching this topic. The
+   * model may cite only a page that supports its claim; the existing fetch and
+   * entailment boundary still decides whether it is verified. */
+  referenceCandidates?: string[];
 };
 
 const CREATE_PAGE_SYSTEM =
@@ -1342,6 +1346,7 @@ const CREATE_PAGE_SYSTEM =
   '"metaDescription" (120-160 chars, page-specific, no overpromising), "openingAnswer" (a 40-80 word direct, extractable answer), ' +
   '"outline" (3-16 H2 section headings, specific to the topic), "faqQuestions" (real questions a reader asks, from the grounding), ' +
   '"schemaTypes" (relevant schema.org types, e.g. Article, FAQPage — only if warranted), ' +
+  '"sources" (array of 1-2 {"url","title","domain","retrievedAt","claim","authority"} authoritative sources backing factual opening claims; use a real exact URL from the provided candidates when it supports the claim, leave authority "unverified" for the caller), ' +
   '"evidenceRefs" (array of {"source","detail"}, at least one, from the grounding; source one of gsc|ga4|clarity|profound|dataforseo|semrush|competitor_teardown|owned_snapshot|fanout), ' +
   '"confidence" ("high"|"medium"|"low"), "risks" (array of short strings), "operatorSteps" (concrete build steps), ' +
   '"proofPlan" ({"metrics":[...],"windowsDays":[7,14,28],"controls":"..."}). ' +
@@ -1366,11 +1371,15 @@ export async function draftCreatePageStructured(
   const competitorPages = sanitizeEvidenceTexts(input.competitorPages);
   const fanoutQueries = sanitizeEvidenceTexts(input.fanoutQueries);
   const evidenceHints = sanitizeEvidenceTexts(input.evidenceHints ?? []);
+  const referenceCandidates = [
+    ...new Set(sanitizeEvidenceTexts(input.referenceCandidates ?? []).filter((url) => !looksLikeListOrIndexUrl(url))),
+  ].slice(0, MAX_REFERENCE_CANDIDATES);
   const grounded = [
     input.query,
     competitorPages.join(" "),
     fanoutQueries.join(" "),
     evidenceHints.join(" "),
+    referenceCandidates.join(" "),
   ].join(" ");
   const user = [
     `New-page topic: "${input.query}"`,
@@ -1378,6 +1387,9 @@ export async function draftCreatePageStructured(
     fanoutQueries.length ? `Sub-questions AI is asked: ${fanoutQueries.slice(0, 10).join("; ")}` : "",
     competitorPages.length ? `Competitor pages cited now (study + beat): ${competitorPages.slice(0, 6).join("; ")}` : "",
     evidenceHints.length ? `Evidence the team established: ${evidenceHints.join("; ")}` : "",
+    referenceCandidates.length
+      ? `Exact source pages already found during research (cite only when the page supports the specific claim): ${referenceCandidates.join("; ")}`
+      : "",
     "",
     "Return the JSON now.",
   ]

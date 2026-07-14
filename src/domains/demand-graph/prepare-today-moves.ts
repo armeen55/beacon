@@ -272,6 +272,7 @@ async function draftForPacket(
             .map((row) => row.question),
         ])],
         evidenceHints,
+        referenceCandidates: referenceCandidatesFor(packet),
       },
       opts,
     ) as Promise<StructuredDraftResult<{ evidenceRefs: unknown[]; operatorSteps: string[]; risks: string[] }>>;

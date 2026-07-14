@@ -9,7 +9,7 @@
  * and build-canonical-changes.test.ts already use for CanonicalChange fixtures).
  */
 import { describe, expect, it } from "vitest";
-import { dedupeIdentity, strongerChange, dedupeChanges, demoteUnsized, reconcileCannibalizationRationale, dropBoardDuplicateNewPageRows, applyOpportunityFreshness, abstentionEvidenceFor, partitionActionableByEvidence, seasonalWaitPathsFrom, applySeasonalWaitPosture } from "./changes-data";
+import { dedupeIdentity, strongerChange, dedupeChanges, demoteUnsized, reconcileCannibalizationRationale, applySafeRedirectPlans, dropBoardDuplicateNewPageRows, applyOpportunityFreshness, abstentionEvidenceFor, partitionActionableByEvidence, seasonalWaitPathsFrom, applySeasonalWaitPosture } from "./changes-data";
 import type { SeasonalQuery } from "@/domains/seasonal/seasonality";
 import { cannibalizationDirective } from "@/domains/changes/decide-action";
 import { WATCHING_SENTENCE, heldForEvidenceLine } from "@/domains/recommendations/abstention";
@@ -277,6 +277,43 @@ describe("reconcileCannibalizationRationale (Wave 3C - the secondary line consum
     const movesById = { m1: moveWithCannibalization("m1") };
     const [out] = reconcileCannibalizationRationale([c], movesById);
     expect(out!.rationale).not.toMatch(/[–—]/);
+  });
+});
+
+describe("applySafeRedirectPlans", () => {
+  it("emits an exact redirect only when source and target URLs form a verified same-site map", () => {
+    const c = cc("a", "suggested", { sourceIds: ["m1"], decision: "prune_redirect" });
+    const movesById = {
+      m1: {
+        id: "m1",
+        cannibalization: [{
+          decision: "prune_redirect",
+          leadUrl: "https://iranopedia.com/iran-flag",
+          otherUrls: ["https://iranopedia.com/old-iran-flag", "https://iranopedia.com/flag-history-old"],
+        }],
+      } as unknown as TodayMove,
+    };
+    const [out] = applySafeRedirectPlans([c], movesById);
+    expect(out.decision).toBe("prune_redirect");
+    expect(out.exactInstructions).toContain("https://iranopedia.com/old-iran-flag -> https://iranopedia.com/iran-flag");
+    expect(out.qualityDecision).toBe("approved");
+  });
+
+  it("fails closed when exact URLs are missing or cross-site", () => {
+    const c = cc("a", "suggested", { sourceIds: ["m1"], decision: "prune_redirect" });
+    const missing = { m1: { id: "m1", cannibalization: [{ decision: "prune_redirect" }] } as unknown as TodayMove };
+    expect(applySafeRedirectPlans([c], missing)[0].decision).toBe("watch");
+
+    const crossSite = {
+      m1: {
+        id: "m1",
+        cannibalization: [{ decision: "prune_redirect", leadUrl: "https://iranopedia.com/iran-flag", otherUrls: ["https://evil.example/page"] }],
+      } as unknown as TodayMove,
+    };
+    const [held] = applySafeRedirectPlans([c], crossSite);
+    expect(held.decision).toBe("watch");
+    expect(held.exactInstructions).toBeNull();
+    expect(held.qualityDecision).toBe("flagged");
   });
 });
 

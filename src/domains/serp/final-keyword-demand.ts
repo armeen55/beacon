@@ -9,8 +9,10 @@ import {
   type KeywordDemand,
   type KeywordsRunResult,
 } from "./dataforseo-keywords";
+import { runRelatedKeywords, type LabsRunResult, type RelatedKeywordRow } from "./dataforseo-labs";
 
 export const MAX_FINAL_KEYWORD_QUERIES = 25;
+export const MAX_FINAL_TOPIC_CORPORA = 5;
 
 export type FinalKeywordDemandResult = {
   status: KeywordsRunResult["status"] | "already_fresh";
@@ -19,6 +21,8 @@ export type FinalKeywordDemandResult = {
   checked: number;
   withVolume: number;
   costUsd: number;
+  topicSeedsChecked?: number;
+  relatedKeywordsChecked?: number;
 };
 
 export type FinalKeywordDemandDeps = {
@@ -27,6 +31,7 @@ export type FinalKeywordDemandDeps = {
   loadStealQueries: (tenantId: string) => Promise<string[]>;
   loadCached: () => Promise<KeywordDemand[]>;
   runVolume: typeof runKeywordVolume;
+  runRelated: (seedKeyword: string) => Promise<LabsRunResult<RelatedKeywordRow>>;
 };
 
 const norm = (value: string) => value.trim().toLocaleLowerCase("en-US").replace(/\s+/g, " ");
@@ -62,6 +67,7 @@ const defaultDeps: FinalKeywordDemandDeps = {
   loadStealQueries: async (tenantId) => (await loadStealBriefsForTenant(tenantId)).map((row) => row.keyword),
   loadCached: () => readAllCachedKeywordDemand(),
   runVolume: (queries, opts) => runKeywordVolume(queries, opts),
+  runRelated: (seedKeyword) => runRelatedKeywords(seedKeyword),
 };
 
 /**
@@ -84,19 +90,32 @@ export async function completeFinalKeywordDemandForTenant(
   ]);
   const cachedQueries = new Set(cached.map((row) => norm(row.keyword)));
   const plan = planFinalKeywordQueries({ gapQueries, stealQueries, graphQueries, cachedQueries, maxQueries: opts.maxQueries });
-  if (plan.missing.length === 0) {
-    return { status: "already_fresh", candidates: plan.candidates.length, missing: 0, checked: 0, withVolume: 0, costUsd: 0 };
+  const result = plan.missing.length > 0 ? await deps.runVolume(plan.missing).catch(() => null) : null;
+  if (plan.missing.length > 0 && !result) {
+    return { status: "error", candidates: plan.candidates.length, missing: plan.missing.length, checked: 0, withVolume: 0, costUsd: 0, topicSeedsChecked: 0, relatedKeywordsChecked: 0 };
   }
-  const result = await deps.runVolume(plan.missing).catch(() => null);
-  if (!result) {
-    return { status: "error", candidates: plan.candidates.length, missing: plan.missing.length, checked: 0, withVolume: 0, costUsd: 0 };
+  let topicSeedsChecked = 0;
+  let relatedKeywordsChecked = 0;
+  let relatedCostUsd = 0;
+  // Independent of competitor discovery: expand the final ranked topic seeds
+  // themselves, extracting the provider's maximum 1,000 rows per call. The
+  // runner is cache-first and rechecks the shared cap before every seed.
+  for (const seed of plan.candidates.slice(0, MAX_FINAL_TOPIC_CORPORA)) {
+    const related = await deps.runRelated(seed).catch(() => null);
+    if (!related) continue;
+    topicSeedsChecked += 1;
+    if (related.status === "ok" || related.status === "cache_hit") relatedKeywordsChecked += related.rows.length;
+    relatedCostUsd += related.costUsd;
   }
+  const noMissing = plan.missing.length === 0;
   return {
-    status: result.status,
+    status: noMissing ? "already_fresh" : result!.status,
     candidates: plan.candidates.length,
     missing: plan.missing.length,
-    checked: result.keywords.length,
-    withVolume: result.keywords.filter((row) => row.searchVolume != null).length,
-    costUsd: result.costUsd,
+    checked: result?.keywords.length ?? 0,
+    withVolume: result?.keywords.filter((row) => row.searchVolume != null).length ?? 0,
+    costUsd: Number(((result?.costUsd ?? 0) + relatedCostUsd).toFixed(3)),
+    topicSeedsChecked,
+    relatedKeywordsChecked,
   };
 }

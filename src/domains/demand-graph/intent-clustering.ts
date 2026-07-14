@@ -24,6 +24,8 @@
  * Pinned by intent-clustering.test.ts.
  */
 
+import { topicTokens } from "@/domains/evidence/relevance-gate";
+
 // ── candidate + cluster shapes ───────────────────────────────────────────────
 
 export type NewPageClusterCandidate = {
@@ -90,13 +92,12 @@ export function singularizeToken(raw: string): string {
  *  whitespace, singularize each, drop empties. Order preserved (the head noun is the
  *  last token). */
 export function labelTokens(label: string): string[] {
-  return label
-    .toLowerCase()
-    .replace(/[^a-z0-9\s]+/g, " ")
-    .split(/\s+/)
-    .filter(Boolean)
-    .map(singularizeToken)
-    .filter(Boolean);
+  return topicTokens(label).map((token) => {
+    // Small editorial-intent ontology, not tenant-specific keyword stuffing.
+    // These words describe the same destination-page intent in content SERPs.
+    if (token === "wonder" || token === "sight" || token === "landmark") return "attraction";
+    return token;
+  });
 }
 
 /** The sorted UNIQUE token set - the intent key two candidates match on. */
@@ -139,6 +140,15 @@ type Prepared = {
 function shouldMerge(a: Prepared, b: Prepared): boolean {
   if (setsEqual(a.set, b.set)) return true;
   if (a.head && a.head === b.head && (isSubset(a.set, b.set) || isSubset(b.set, a.set))) return true;
+  const shared = a.set.filter((token) => b.set.includes(token)).length;
+  const smaller = Math.min(a.set.length, b.set.length);
+  // Two or more shared distinguishing concepts with strong containment is one
+  // page intent even when a modifier changes the final noun (kids vs USA).
+  if (shared >= 2 && smaller > 0 && shared / smaller >= 0.66) return true;
+  // A bare core topic plus a short, clearly more specific editorial framing is
+  // a hub/section relationship, not two independent pages (wedding vs wedding
+  // culture and traditions). Bound the larger side to avoid sweeping merges.
+  if (shared === 1 && smaller === 1 && Math.max(a.set.length, b.set.length) <= 4) return true;
   return false;
 }
 

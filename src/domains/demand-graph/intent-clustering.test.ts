@@ -78,6 +78,28 @@ describe("D-27 singularization + clustering", () => {
     expect(out).toHaveLength(2);
   });
 
+  it("merges obvious hub siblings that would cannibalize each other", () => {
+    const wedding = clusterNewPageCandidates([
+      cand({ id: "w1", label: "Lifestyle Culture Wedding Traditions Iran", volume: 500 }),
+      cand({ id: "w2", label: "Persian Wedding", volume: 900 }),
+    ]);
+    expect(wedding).toHaveLength(1);
+
+    const nowruz = clusterNewPageCandidates([
+      cand({ id: "n1", label: "Nowruz Activities USA", volume: 300 }),
+      cand({ id: "n2", label: "Nowruz Activities for Kids", volume: 500 }),
+    ]);
+    expect(nowruz).toHaveLength(1);
+  });
+
+  it("normalizes natural wonders and attractions into one destination intent", () => {
+    const out = clusterNewPageCandidates([
+      cand({ id: "a", label: "Travel Iran Beautiful Natural Wonders", volume: 400 }),
+      cand({ id: "b", label: "Iran Natural Attractions", volume: 700 }),
+    ]);
+    expect(out).toHaveLength(1);
+  });
+
   it("computes DEDUPLICATED demand = MAX + 30% of the sum of the others, never a blind sum", () => {
     const out = clusterNewPageCandidates([
       cand({ id: "a", label: "Iranian director", volume: 200 }),

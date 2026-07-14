@@ -38,6 +38,7 @@ import {
   type OwnedCoverageInput,
 } from "@/domains/demand-graph/owned-coverage";
 import { log } from "@/lib/logger";
+import { promptRelevance } from "@/domains/evidence/relevance-gate";
 
 /**
  * today-newpages-data (2026-06-24) — the loader behind the "New Pages to Build"
@@ -335,14 +336,20 @@ export async function buildNewPagesData(tenantId: string): Promise<NewPagesData>
     // AEO receipt: read the Move's ALREADY-ATTACHED cached evidence (no live call,
     // no fresh matching). Eligible only when confident AND a competitor is cited.
     const e = m.aeoEvidence;
+    const relevantPrompts = e?.prompts.filter((prompt) => promptRelevance(m.label, prompt).relevant) ?? [];
+    const relevantFanouts = e?.fanoutQueries.filter(
+      (query) =>
+        promptRelevance(m.label, query).relevant ||
+        (e.winnerConsensus?.sharedHeadings ?? []).some((heading) => promptRelevance(heading, query).relevant),
+    ) ?? [];
     const aeoReceipt =
-      e && e.confidence !== "low" && e.topCitedDomains.length > 0 && (e.prompts[0] ?? "").length > 0
+      e && e.confidence !== "low" && e.topCitedDomains.length > 0 && relevantPrompts.length > 0
         ? {
-            topPrompt: e.prompts[0]!,
-            fanoutCount: e.fanoutQueries.length,
+            topPrompt: relevantPrompts[0]!,
+            fanoutCount: relevantFanouts.length,
             citedDomains: e.topCitedDomains.slice(0, 3).map((d) => d.hostname),
             ownAbsent: e.ownCitationCount === 0,
-            fanoutQueries: e.fanoutQueries.slice(0, 12),
+            fanoutQueries: relevantFanouts.slice(0, 12),
             competitorPages: e.topCitedPages.filter((p) => !p.isOwned).map((p) => p.url).slice(0, 10),
             ownCitedUrls: e.topCitedPages.filter((p) => p.isOwned).map((p) => p.url).slice(0, 10),
           }

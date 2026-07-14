@@ -253,7 +253,7 @@ const CRON_JOB_NEXT_STEP: Record<string, string> = {
   autopilot: "Autopilot will resume shipping on its own next run. Your queued changes are safe and waiting.",
   "ai-engines": "I will check AI answers again on the next scheduled run. Nothing you need to click.",
   precompute: "I will keep preparing drafts on the next run. Nothing you need to click.",
-  "page-factory": "I will build the next batch of pages on its own next scheduled run.",
+  "page-factory": "I am retrying this batch automatically in the background when you use Beacon. Refresh once in a moment to see the recovered result.",
   "strategy-review": "I will run the next strategy review on its own next scheduled run.",
 };
 

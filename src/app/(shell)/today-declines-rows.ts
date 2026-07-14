@@ -56,6 +56,10 @@ export type CannibalEntry = {
   isLead: boolean;
   /** The best-ranking page's pretty name (the consolidation target). */
   leadPage: string;
+  /** Exact owned URLs retained for a fail-closed redirect plan. Labels alone
+   * are never enough to emit a destructive redirect instruction. */
+  leadUrl?: string;
+  otherUrls?: string[];
   /** Plain-English consolidation directive (the ACTION, not just the diagnosis). Wave 3C: exactly
    *  ONE action, never "redirect or internal-link". */
   fix: string;
@@ -147,6 +151,7 @@ export function indexCannibalizationByUrl(
     for (const cu of c.competingUrls) {
       const key = canon(cu.url);
       const others = [...new Set(c.competingUrls.filter((x) => canon(x.url) !== key).map((x) => pretty(x.url)))].slice(0, maxOthers);
+      const otherUrls = [...new Set(c.competingUrls.filter((x) => canon(x.url) !== key).map((x) => x.url))].slice(0, maxOthers);
       if (others.length === 0) continue;
       const isLead = key === leadKey;
       // A homepage/root "lead" is a special case: a dedicated topic page should NOT
@@ -176,7 +181,7 @@ export function indexCannibalizationByUrl(
       // page distinct rather than pointing it at the lead.
       const linkSnippet = isLead || leadIsHome || oppositeIntent ? null : `<a href="${c.leadUrl}">${anchorCase(c.query)}</a>`;
       const arr = out.get(key) ?? [];
-      arr.push({ query: c.query, otherPages: others, isLead, leadPage, fix, decision, linkSnippet });
+      arr.push({ query: c.query, otherPages: others, leadUrl: c.leadUrl, otherUrls, isLead, leadPage, fix, decision, linkSnippet });
       out.set(key, arr);
     }
   }

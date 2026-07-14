@@ -2,11 +2,18 @@ import { describe, it, expect, vi } from "vitest";
 import {
   runLabsQuery,
   runRankedKeywords,
+  runRankedKeywordsForPage,
+  runRelatedKeywords,
+  readAllCachedRelatedKeywords,
   runDomainIntersection,
   parseRankedKeywords,
   parseDomainIntersection,
   normalizeDomainTarget,
   LABS_COST_USD,
+  PAGE_KEYWORDS_COST_USD,
+  PAGE_KEYWORD_ROW_LIMIT,
+  RELATED_KEYWORDS_COST_USD,
+  RELATED_KEYWORD_ROW_LIMIT,
   runBulkKeywordDifficulty,
   runBulkDomainRanks,
   runBacklinksSummary,
@@ -238,6 +245,58 @@ describe("endpoint runners", () => {
     expect(payload.target).toBe("supplehomes.com");
     expect(payload.limit).toBe(300);
     expect(payload.filters).toEqual([["ranked_serp_element.serp_item.rank_group", "<=", 20]]);
+  });
+
+  it("runRankedKeywordsForPage keeps the exact URL and requests 500 cached keywords", async () => {
+    const fetchImpl = vi.fn(async () => ({ ok: true, json: async () => RANKED_BODY }) as unknown as Response);
+    const r = await runRankedKeywordsForPage(
+      "https://www.SuppleHomes.com/sofreh-guide?ref=test#top",
+      {},
+      deps({ fetchImpl: fetchImpl as unknown as typeof fetch }),
+    );
+    expect(r.status).toBe("ok");
+    expect(r.costUsd).toBe(PAGE_KEYWORDS_COST_USD);
+    const [, init] = fetchImpl.mock.calls[0] as unknown as [string, RequestInit];
+    const payload = JSON.parse(String(init.body))[0];
+    expect(payload.target).toBe("https://www.supplehomes.com/sofreh-guide");
+    expect(payload.limit).toBe(PAGE_KEYWORD_ROW_LIMIT);
+    expect(payload.item_types).toEqual(["organic"]);
+    expect(payload.ignore_synonyms).toBe(false);
+    expect(payload.filters).toEqual([["ranked_serp_element.serp_item.rank_group", "<=", 100]]);
+    expect(r.plan.cacheKey).toContain("ranked_keywords_page");
+  });
+
+  it("runRelatedKeywords extracts the provider maximum without paid clickstream bloat", async () => {
+    const body = {
+      tasks: [{ result: [{ items: [{
+        keyword_data: {
+          keyword: "nowruz activities for kids",
+          keyword_info: { search_volume: 1900, cpc: 0.25, monthly_searches: [{ year: 2026, month: 3, search_volume: 2400 }] },
+          keyword_properties: { keyword_difficulty: 28 },
+        },
+      }] }] }],
+    };
+    const fetchImpl = vi.fn(async () => ({ ok: true, json: async () => body }) as unknown as Response);
+    const r = await runRelatedKeywords("Nowruz Activities", {}, deps({ fetchImpl: fetchImpl as unknown as typeof fetch }));
+    expect(r.status).toBe("ok");
+    expect(r.costUsd).toBe(RELATED_KEYWORDS_COST_USD);
+    expect(r.rows[0]).toMatchObject({ keyword: "nowruz activities for kids", volume: 1900, difficulty: 28 });
+    const [, init] = fetchImpl.mock.calls[0] as unknown as [string, RequestInit];
+    const payload = JSON.parse(String(init.body))[0];
+    expect(payload.depth).toBe(4);
+    expect(payload.limit).toBe(RELATED_KEYWORD_ROW_LIMIT);
+    expect(payload.include_seed_keyword).toBe(true);
+    expect(payload.include_clickstream_data).toBe(false);
+    expect(payload.include_serp_info).toBe(false);
+  });
+
+  it("promotes fresh broad-topic cache rows for the unified keyword library", async () => {
+    const rows = [{ keyword: "nowruz activities", volume: 900, cpcUsd: null, difficulty: 25, monthlySearches: [] }];
+    const result = await readAllCachedRelatedKeywords({
+      now: () => new Date("2026-07-14T00:00:00.000Z"),
+      readCache: async () => [{ key: "related_keywords|2840|en|depth4|nowruz", rows, fetchedAt: "2026-07-13T00:00:00.000Z" }],
+    });
+    expect(result).toEqual([{ ...rows[0], fetchedAt: "2026-07-13T00:00:00.000Z" }]);
   });
 
   it("runDomainIntersection posts intersections:false (their wins, your absences)", async () => {

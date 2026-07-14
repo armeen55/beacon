@@ -78,13 +78,13 @@ describe("aggregateMoneyPages - traffic-weighted rollup", () => {
     expect(pages.filter((p) => p.competitorDomain === "b-comp.com")).toHaveLength(1);
   });
 
-  it("caps topKeywords per page at 10, highest-weight first", () => {
-    const rows = Array.from({ length: 15 }, (_, i) =>
+  it("caps promoted topKeywords per page at 50, highest-weight first", () => {
+    const rows = Array.from({ length: 60 }, (_, i) =>
       row({ keyword: `kw ${i}`, volume: 100 * (i + 1), competitorRank: 3 }),
     );
     const pages = aggregateMoneyPages(rows);
-    expect(pages[0].topKeywords).toHaveLength(10);
-    expect(pages[0].topKeywords[0].keyword).toBe("kw 14"); // highest volume -> highest weight
+    expect(pages[0].topKeywords).toHaveLength(50);
+    expect(pages[0].topKeywords[0].keyword).toBe("kw 59"); // highest volume -> highest weight
   });
 
   it("keywordCount only counts keywords with a real volume (never guessed)", () => {

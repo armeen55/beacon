@@ -77,13 +77,30 @@ describe("buildCloneBrief - torn down", () => {
     expect(brief.summary).toContain("FAQ schema");
   });
 
-  it("caps demand keywords at 5, highest weight first", () => {
+  it("caps compact demand evidence at 25, highest weight first", () => {
     const many = page({
-      topKeywords: Array.from({ length: 8 }, (_, i) => ({ keyword: `kw ${i}`, volume: 100 * (i + 1), rank: 3, weight: 100 * (i + 1) })),
+      topKeywords: Array.from({ length: 30 }, (_, i) => ({ keyword: `kw ${i}`, volume: 100 * (i + 1), rank: 3, weight: 100 * (i + 1) })),
     });
     const brief = buildCloneBrief({ ...base, page: many });
-    expect(brief.demand).toHaveLength(5);
-    expect(brief.demand[0].keyword).toBe("kw 7"); // highest weight
+    expect(brief.demand).toHaveLength(25);
+    expect(brief.demand[0].keyword).toBe("kw 29"); // highest weight
+  });
+
+  it("promotes the exact-page research receipt and measured winner blueprint", () => {
+    const brief = buildCloneBrief({
+      ...base,
+      keywordResearch: { status: "cache_hit", keywordCount: 500, withVolume: 420, totalSearchVolume: 148000 },
+    });
+    expect(brief.keywordResearch?.keywordCount).toBe(500);
+    expect(brief.blueprint).toMatchObject({
+      observedWordCount: 2200,
+      observedSectionCount: 6,
+      faqQuestionCount: 4,
+      requiresDirectAnswer: true,
+      observedInternalLinks: 12,
+      observedImages: 8,
+    });
+    expect(brief.blueprint?.schemaTypes).toContain("FAQPage");
   });
 
   it("names real coverage gaps vs the tenant's own pages", () => {

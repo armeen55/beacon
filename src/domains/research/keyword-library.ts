@@ -5,7 +5,7 @@ import { cache } from "react";
 import { log } from "@/lib/logger";
 import { dossierHref } from "@/lib/page-dossier-link";
 import { readAllCachedKeywordDemand, type KeywordDemand } from "@/domains/serp/dataforseo-keywords";
-import { readAllCachedKeywordDifficulty } from "@/domains/serp/dataforseo-labs";
+import { readAllCachedKeywordDifficulty, readAllCachedRelatedKeywords } from "@/domains/serp/dataforseo-labs";
 import { readKeywordGapResults } from "@/domains/serp/keyword-gap-store";
 import { loadLatestSerpReadingsByQuery } from "@/domains/serp/serp-history";
 import { featureStealHistoryRows } from "@/domains/serp/serp-history";
@@ -325,12 +325,13 @@ export async function loadKeywordLibraryForTenant(tenantId: string): Promise<Key
     .then((t) => t?.domain ?? null)
     .catch(() => null);
 
-  const [gscQueries, demand, difficulty, gapResult, serpReadings, featureStealRows, spikes, seasonal] = await Promise.all([
+  const [gscQueries, demand, relatedDemand, difficulty, gapResult, serpReadings, featureStealRows, spikes, seasonal] = await Promise.all([
     loadTopTenantQueriesWithOwner(tenantId, { limit: GSC_QUERY_LIMIT }).catch((e) => {
       log.warn("[keyword-library] gsc query portfolio failed", { error: e instanceof Error ? e.message : String(e) });
       return [];
     }),
     readAllCachedKeywordDemand().catch(() => []),
+    readAllCachedRelatedKeywords().catch(() => []),
     readAllCachedKeywordDifficulty().catch(() => new Map<string, number | null>()),
     readKeywordGapResults(tenantId).catch(() => null),
     loadLatestSerpReadingsByQuery(tenantId).catch(() => new Map()),
@@ -349,7 +350,23 @@ export async function loadKeywordLibraryForTenant(tenantId: string): Promise<Key
 
   return mergeKeywordLibrary({
     gscQueries: gscQueries.map((q) => ({ query: q.query, clicks: q.clicks, impressions: q.impressions, position: q.position ?? null, ownerPage: q.ownerPage })),
-    demand,
+    demand: [
+      ...demand,
+      ...relatedDemand.map((row) => ({
+        keyword: row.keyword,
+        searchVolume: row.volume,
+        cpcUsd: row.cpcUsd,
+        competition: null,
+        competitionLevel: null,
+        monthlySearches: row.monthlySearches.map((month) => ({ year: month.year, month: month.month, volume: month.searchVolume })),
+        locationCode: 2840,
+        languageCode: "en",
+        source: "dataforseo" as const,
+        fetchedAt: row.fetchedAt,
+        confidence: row.volume != null ? "high" as const : "low" as const,
+        evidenceRef: "DataForSEO Labs related keyword corpus (30 day cache)",
+      })),
+    ],
     difficulty,
     gapKeywords: (gapResult?.gaps ?? []).map((g) => ({ keyword: g.keyword, volume: g.volume, competitorDomain: g.competitorDomain, ownRank: g.ownRank })),
     serpReadings: new Map([...serpReadings.entries()].map(([q, r]) => [q, { capturedAt: r.capturedAt, ownRank: r.ownRank, topDomains: r.topDomains }])),

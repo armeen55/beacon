@@ -326,6 +326,54 @@ export function reconcileCannibalizationRationale(
   });
 }
 
+/** A redirect is the one recommendation Beacon must never infer from labels.
+ * Require exact same-site source and target URLs, a non-home target, and at
+ * least one distinct source. Otherwise demote to Watch instead of presenting a
+ * destructive instruction that the operator cannot verify. */
+export function applySafeRedirectPlans(
+  changes: readonly CanonicalChange[],
+  movesById: Record<string, TodayMove>,
+): CanonicalChange[] {
+  return changes.map((change) => {
+    if (change.decision !== "prune_redirect") return change;
+    const move = change.sourceIds[0] ? movesById[change.sourceIds[0]] : undefined;
+    const caseRow = move?.cannibalization?.find((row) => row.decision === "prune_redirect");
+    const leadUrl = caseRow?.leadUrl ?? "";
+    const sourceUrls = [...new Set(caseRow?.otherUrls ?? [])];
+    let safe = sourceUrls.length > 0;
+    try {
+      const target = new URL(leadUrl);
+      safe = safe && target.pathname !== "/";
+      for (const sourceUrl of sourceUrls) {
+        const source = new URL(sourceUrl);
+        if (source.hostname !== target.hostname || source.href === target.href) safe = false;
+      }
+    } catch {
+      safe = false;
+    }
+    if (!safe) {
+      return {
+        ...change,
+        decision: "watch",
+        exactInstructions: null,
+        qualityDecision: "flagged",
+        qualityNote: "I do not have an exact, same-site source-to-target redirect map yet, so I will not ask you to redirect anything.",
+        rationale: "I am holding this until every source URL and the live destination are verified.",
+      };
+    }
+    const mappings = sourceUrls.map((source) => `${source} -> ${leadUrl}`).join("\n");
+    return {
+      ...change,
+      exactInstructions: `Create these permanent redirects:\n${mappings}\nKeep ${leadUrl} live and indexable.`,
+      before: sourceUrls.join(", "),
+      after: leadUrl,
+      recommendation: `Redirect ${sourceUrls.length} dead competing page${sourceUrls.length === 1 ? "" : "s"} into ${leadUrl}.`,
+      qualityDecision: "approved",
+      qualityNote: "Exact same-site source and destination URLs verified from Search Console cannibalization evidence.",
+    };
+  });
+}
+
 /** FP5b (2026-07-02, killer finding "New-page ideas appear three times") - drop a
  *  page-less create row whose normalized topic already has a card on the New Pages
  *  board (its single home). Rows with a real page are never dropped (an edit to an
@@ -724,7 +772,7 @@ async function buildChangesViewUncached(tenantId: string): Promise<ChangesView> 
   // FP2 (killer finding 3) - when this row's page has a real cannibalization case, its secondary
   // line must agree with (not contradict) the consolidation directive. Wave 3C: the reconciled
   // rationale is built from the DECIDED action above, never the ambiguous fix text.
-  const reconciled = reconcileCannibalizationRationale(decided, movesById);
+  const reconciled = applySafeRedirectPlans(reconcileCannibalizationRationale(decided, movesById), movesById);
   // One-posture-per-page (2026-07-11) - a page Today's war-room is telling the operator to WAIT on
   // (a seasonal window whose prep deadline is still months out) must not carry an act-now card here
   // at the same time. Demote any such act-now row to the same watching state the zero-click trap

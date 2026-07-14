@@ -41,6 +41,7 @@ import {
   callStructuredLLM,
   draftAnswerBlockStructured,
   draftAtomicEditStructured,
+  draftCreatePageStructured,
   draftAeoPromptBrief,
   intentDirective,
   serializeStructuredDraft,
@@ -60,6 +61,21 @@ const validAnswer = {
   risks: ["keep claims neutral"],
   operatorSteps: ["Add this answer block directly under the H1"],
   proofPlan: { metrics: ["Profound citations", "position"], windowsDays: [7, 14, 28], controls: "comparable unchanged pages" },
+};
+
+const validCreatePage = {
+  proposedTitle: "Persian Wedding Traditions and the Sofreh Aghd",
+  metaDescription: "Understand the sofreh aghd, ceremony, reception, symbols, and guest customs that shape a Persian wedding celebration.",
+  openingAnswer: "A Persian wedding brings the formal aghd ceremony and the jashn celebration together around the sofreh aghd, a symbolic spread placed before the couple. A useful page should explain the ceremony, the objects on the spread, the roles of family and guests, and the ways couples adapt these traditions today.",
+  outline: ["The aghd ceremony", "The sofreh aghd", "The jashn celebration"],
+  faqQuestions: ["What happens during the aghd ceremony?"],
+  schemaTypes: ["Article", "FAQPage"],
+  sources: [],
+  evidenceRefs: [{ source: "competitor_teardown", detail: "the winning page explains the ceremony and sofreh" }],
+  confidence: "high",
+  risks: ["verify factual symbolism"],
+  operatorSteps: ["Build the outlined sections"],
+  proofPlan: { metrics: ["clicks", "citations"], windowsDays: [7, 14, 28], controls: "comparable unchanged pages" },
 };
 
 /** A completion fn that replays a fixed queue of responses (last one repeats). */
@@ -1476,6 +1492,31 @@ describe("pilot loop 4 - 'sources you may cite' evidence hint (cheap, determinis
     expect(capturedUserB).toContain("ritzbuilders.com");
     expect(capturedUserA).not.toContain("ritzbuilders.com");
     expect(capturedUserB).not.toContain("wikipedia.org");
+  });
+});
+
+describe("create-page source completion", () => {
+  it("asks for authoritative sources and passes cached exact-page candidates into the brief", async () => {
+    let capturedSystem = "";
+    let capturedUser = "";
+    await draftCreatePageStructured(
+      {
+        query: "persian wedding traditions",
+        pageLabel: "persian-wedding-traditions",
+        competitorPages: ["https://winner.example/persian-wedding"],
+        fanoutQueries: ["what is a sofreh aghd"],
+        referenceCandidates: ["https://en.wikipedia.org/wiki/Persian_wedding"],
+      },
+      { complete: async ({ system, user }) => {
+        capturedSystem = system;
+        capturedUser = user;
+        return { text: JSON.stringify(validCreatePage) };
+      } },
+    );
+    expect(capturedSystem).toContain('"sources"');
+    expect(capturedSystem).toContain("authoritative sources");
+    expect(capturedUser).toContain("Exact source pages already found during research");
+    expect(capturedUser).toContain("https://en.wikipedia.org/wiki/Persian_wedding");
   });
 });
 

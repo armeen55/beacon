@@ -14,7 +14,10 @@ vi.mock("@/domains/recommendation-intelligence/gsc-page-queries", () => ({
   loadTopTenantQueriesWithOwner: vi.fn(async () => []),
 }));
 vi.mock("@/domains/serp/dataforseo-keywords", () => ({ readAllCachedKeywordDemand: vi.fn(async () => []) }));
-vi.mock("@/domains/serp/dataforseo-labs", () => ({ readAllCachedKeywordDifficulty: vi.fn(async () => new Map()) }));
+vi.mock("@/domains/serp/dataforseo-labs", () => ({
+  readAllCachedKeywordDifficulty: vi.fn(async () => new Map()),
+  readAllCachedRelatedKeywords: vi.fn(async () => []),
+}));
 vi.mock("@/domains/serp/keyword-gap-store", () => ({ readKeywordGapResults: vi.fn(async () => null) }));
 vi.mock("@/domains/serp/serp-history", () => ({
   loadLatestSerpReadingsByQuery: vi.fn(async () => new Map()),

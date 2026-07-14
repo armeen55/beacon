@@ -51,6 +51,8 @@ const EMPTY_FINAL_KEYWORDS: FinalKeywordDemandResult = {
   checked: 0,
   withVolume: 0,
   costUsd: 0,
+  topicSeedsChecked: 0,
+  relatedKeywordsChecked: 0,
 };
 const EMPTY_PREPARE: PrepareMovesSummary = {
   considered: 0,
@@ -320,6 +322,8 @@ export async function runAutonomousResearchForTenant(
     competitorsMined: keywordGaps.value?.competitors.length ?? 0,
     keywordGapsFound: keywordGaps.value?.gapsFound ?? 0,
     cloneBriefsBuilt: keywordGaps.value?.cloneBriefs.length ?? 0,
+    pageKeywordsChecked: keywordGaps.value?.pageKeywordsFound ?? 0,
+    relatedKeywordsChecked: (keywordGaps.value?.relatedKeywordsFound ?? 0) + (finalKeywords.value.relatedKeywordsChecked ?? 0),
     keywordTermsPlanned: enrichment.value?.plan.volumeTerms.length ?? 0,
     serpPatternsWritten: enrichment.value?.patternsWritten ?? 0,
     aiTopicsPolled: topics.value?.topics.length ?? 0,

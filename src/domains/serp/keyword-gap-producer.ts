@@ -3,11 +3,16 @@ import "server-only";
 import { log } from "@/lib/logger";
 import {
   runRankedKeywords,
+  runRankedKeywordsForPage,
+  runRelatedKeywords,
   runDomainIntersection,
   readAllCachedKeywordDifficulty,
   LABS_COST_USD,
+  PAGE_KEYWORDS_COST_USD,
+  RELATED_KEYWORDS_COST_USD,
   type LabsRunResult,
   type LabsRunStatus,
+  type RelatedKeywordRow,
 } from "./dataforseo-labs";
 import {
   computeKeywordGaps,
@@ -38,16 +43,17 @@ import { canonicalizeCitationUrl } from "@/domains/citation-lifecycle/canonicali
  * Hard ceilings, by construction:
  *   - top MAX_COMPETITORS competitors only (from the demand graph's citation
  *     evidence, noise/reference domains filtered)
- *   - 2 calls per competitor (ranked_keywords + domain_intersection) = at most
- *     MAX_COMPETITORS * 2 calls, ~$0.66 at the conservative $0.11/call estimate
+ *   - 2 discovery calls per competitor (ranked_keywords + domain_intersection),
+ *     then for the top five proven pages one exact-page 500-keyword corpus and
+ *     one maximum-width 1,000-keyword related-topic corpus
  *   - every call re-runs the full money gauntlet (cache -> dry-run -> shared cap)
  *     inside dataforseo-labs, so the cap is re-checked before EVERY call and a
  *     re-run within 30 days is served from cache for $0
- *   - item 60 adds: money-page aggregation from the SAME rows above ($0 marginal),
- *     then up to MAX_BRIEF_TEARDOWNS (5) bounded, polite, 14d-cached competitor
- *     page fetches through the EXISTING competitor-page-audit teardown - so the
- *     documented per-run ceiling stays ~$0.66 (the teardowns are free; they ride
- *     the same polite fetcher every other teardown uses, not a paid API)
+ *   - every keyword corpus is retained in the 30-day cache and reused by the
+ *     unified keyword library; compact receipts and winner blueprints flow to
+ *     the recommendation path instead of giant raw responses
+ *   - item 60 adds up to MAX_BRIEF_TEARDOWNS (5) bounded, polite, 14d-cached
+ *     competitor page fetches through the existing teardown engine
  *
  * Item 18 wiring: every gap is labeled with computeWinnability from a CACHED
  * difficulty read (readAllCachedKeywordDifficulty - $0, no fresh Labs call) so an
@@ -60,14 +66,20 @@ import { canonicalizeCitationUrl } from "@/domains/citation-lifecycle/canonicali
 
 export const MAX_GAP_COMPETITORS = 3;
 export const MAX_GAP_CALLS = MAX_GAP_COMPETITORS * 2;
-/** The documented per-run ceiling at the conservative estimate. */
-export const MAX_GAP_RUN_COST_USD = Number((MAX_GAP_CALLS * LABS_COST_USD).toFixed(2));
 /** Item 60: bounded teardown fetches per run - top 5 money pages, polite + cached. */
 export const MAX_BRIEF_TEARDOWNS = 5;
+/** One exact-page keyword corpus per teardown target, cached for 30 days. */
+export const MAX_PAGE_KEYWORD_CALLS = MAX_BRIEF_TEARDOWNS;
+export const MAX_RELATED_KEYWORD_CALLS = MAX_BRIEF_TEARDOWNS;
+/** The documented per-run ceiling at conservative estimates: three domain pairs
+ * plus five exact-page 500-keyword reads. */
+export const MAX_GAP_RUN_COST_USD = Number(
+  (MAX_GAP_CALLS * LABS_COST_USD + MAX_PAGE_KEYWORD_CALLS * PAGE_KEYWORDS_COST_USD + MAX_RELATED_KEYWORD_CALLS * RELATED_KEYWORDS_COST_USD).toFixed(2),
+);
 
 export type KeywordGapCallReceipt = {
   competitor: string;
-  endpoint: "ranked_keywords" | "domain_intersection";
+  endpoint: "ranked_keywords" | "domain_intersection" | "page_ranked_keywords" | "related_keywords";
   status: LabsRunStatus;
   costUsd: number;
   rows: number;
@@ -91,6 +103,11 @@ export type KeywordGapRunResult = {
   /** Item 60: "their best page, our better version" briefs, bounded to the top
    *  MAX_BRIEF_TEARDOWNS money pages actually torn down this run. */
   cloneBriefs: CloneBrief[];
+  /** Exact competitor pages researched beyond the domain-level discovery pass. */
+  pagesDeepResearched?: number;
+  /** Real page-level keyword rows returned across those pages. */
+  pageKeywordsFound?: number;
+  relatedKeywordsFound?: number;
   /** Operator-facing receipt. First person, concrete numbers, no dashes. */
   message: string;
 };
@@ -104,6 +121,8 @@ export type ProduceKeywordGapsDeps = {
   loadOwnedQueries: (tenantId: string) => Promise<OwnedQuery[]>;
   runRanked: (domain: string) => Promise<LabsRunResult>;
   runIntersection: (competitorDomain: string, ownDomain: string) => Promise<LabsRunResult>;
+  runPageRanked: (pageUrl: string) => Promise<LabsRunResult>;
+  runRelated: (seedKeyword: string) => Promise<LabsRunResult<RelatedKeywordRow>>;
   writeResults: (r: StoredKeywordGaps) => Promise<void>;
   /** Item 60: cached-only difficulty read for the winnability labeling ($0). */
   readCachedDifficulty: () => Promise<Map<string, number | null>>;
@@ -133,6 +152,8 @@ const defaultDeps: ProduceKeywordGapsDeps = {
   },
   runRanked: (domain) => runRankedKeywords(domain),
   runIntersection: (competitorDomain, ownDomain) => runDomainIntersection(competitorDomain, ownDomain),
+  runPageRanked: (pageUrl) => runRankedKeywordsForPage(pageUrl),
+  runRelated: (seedKeyword) => runRelatedKeywords(seedKeyword),
   writeResults: (r) => writeKeywordGapResults(r),
   readCachedDifficulty: () => readAllCachedKeywordDifficulty(),
   readTeardownCache: async () => {
@@ -184,6 +205,9 @@ export async function produceKeywordGaps(
     gaps: [] as KeywordGap[],
     moneyPagesFound: 0,
     cloneBriefs: [] as CloneBrief[],
+    pagesDeepResearched: 0,
+    pageKeywordsFound: 0,
+    relatedKeywordsFound: 0,
   };
 
   let graph: Awaited<ReturnType<ProduceKeywordGapsDeps["loadGraph"]>> = null;
@@ -250,6 +274,9 @@ export async function produceKeywordGaps(
         gaps: [],
         moneyPagesFound: 0,
         cloneBriefs: [],
+        pagesDeepResearched: 0,
+        pageKeywordsFound: 0,
+        relatedKeywordsFound: 0,
         message: `Dry run only, I spent nothing. I would check ${competitors.length} competitors (${names}) with ${calls.length} Google index lookups for about ${usd(plannedUsd)}. Turn dry run off and click again to fetch the real list.`,
       };
     }
@@ -266,6 +293,9 @@ export async function produceKeywordGaps(
         gaps: [],
         moneyPagesFound: 0,
         cloneBriefs: [],
+        pagesDeepResearched: 0,
+        pageKeywordsFound: 0,
+        relatedKeywordsFound: 0,
         message: "DataForSEO is not connected, so I cannot check competitor keywords yet. Add the DataForSEO key first.",
       };
     }
@@ -282,6 +312,9 @@ export async function produceKeywordGaps(
         gaps: [],
         moneyPagesFound: 0,
         cloneBriefs: [],
+        pagesDeepResearched: 0,
+        pageKeywordsFound: 0,
+        relatedKeywordsFound: 0,
         message: "I stopped before spending: this month's DataForSEO budget is already used up. I will not go over the cap.",
       };
     }
@@ -297,9 +330,63 @@ export async function produceKeywordGaps(
       gaps: [],
       moneyPagesFound: 0,
       cloneBriefs: [],
+      pagesDeepResearched: 0,
+      pageKeywordsFound: 0,
+      relatedKeywordsFound: 0,
       message: `I checked ${competitors.length} competitors (${names}) but the lookups came back empty. Nothing beyond ${usd(spentUsd)} was spent. Try again later.`,
     };
   }
+
+  // The domain pass discovers which URLs matter. Now research the top five exact
+  // pages, sequentially, through the same cache/dry-run/cap guard. This turns a
+  // ten-keyword hint into a bounded corpus of up to 500 real keywords per winner.
+  const discoveredMoneyPages = aggregateMoneyPages(rows);
+  const pageResearch = new Map<string, {
+    status: LabsRunStatus;
+    keywordCount: number;
+    relatedKeywordCount: number;
+    withVolume: number;
+    totalSearchVolume: number;
+  }>();
+  for (const page of pickTeardownTargets(discoveredMoneyPages, MAX_PAGE_KEYWORD_CALLS)) {
+    const r = await deps.runPageRanked(page.url);
+    calls.push({ competitor: page.url, endpoint: "page_ranked_keywords", status: r.status, costUsd: r.costUsd, rows: r.rows.length });
+    spentUsd += r.costUsd;
+    if (r.status === "cache_hit") cacheHits += 1;
+    if (r.status === "dry_run") plannedUsd += r.plan.estCostUsd;
+    if (r.status === "ok" || r.status === "cache_hit") {
+      rows.push(...r.rows);
+      pageResearch.set(page.url, {
+        status: r.status,
+        keywordCount: r.rows.length,
+        relatedKeywordCount: 0,
+        withVolume: r.rows.filter((row) => row.volume != null).length,
+        totalSearchVolume: r.rows.reduce((sum, row) => sum + (row.volume ?? 0), 0),
+      });
+    } else {
+      pageResearch.set(page.url, { status: r.status, keywordCount: 0, relatedKeywordCount: 0, withVolume: 0, totalSearchVolume: 0 });
+    }
+
+    const seed = page.topKeywords[0]?.keyword?.trim() ?? "";
+    if (seed) {
+      const related = await deps.runRelated(seed);
+      calls.push({ competitor: page.url, endpoint: "related_keywords", status: related.status, costUsd: related.costUsd, rows: related.rows.length });
+      spentUsd += related.costUsd;
+      if (related.status === "cache_hit") cacheHits += 1;
+      if (related.status === "dry_run") plannedUsd += related.plan.estCostUsd;
+      const prior = pageResearch.get(page.url)!;
+      if (related.status === "ok" || related.status === "cache_hit") {
+        pageResearch.set(page.url, {
+          ...prior,
+          relatedKeywordCount: related.rows.length,
+          withVolume: prior.withVolume + related.rows.filter((row) => row.volume != null).length,
+          totalSearchVolume: prior.totalSearchVolume + related.rows.reduce((sum, row) => sum + (row.volume ?? 0), 0),
+        });
+      }
+    }
+  }
+  spentUsd = Number(spentUsd.toFixed(2));
+  plannedUsd = Number(plannedUsd.toFixed(2));
 
   let gaps = computeKeywordGaps({ rows, ownedQueries, ownDomain });
 
@@ -334,7 +421,7 @@ export async function produceKeywordGaps(
 
   // Item 60: money-page aggregation from the SAME rows above, $0 marginal cost.
   const moneyPages = aggregateMoneyPages(rows);
-  const cloneBriefs = await buildCloneBriefsForRun({ moneyPages, graph, deps }).catch((e) => {
+  const cloneBriefs = await buildCloneBriefsForRun({ moneyPages, graph, deps, pageResearch }).catch((e) => {
     log.warn("[clone-brief] brief build failed (gaps still returned)", {
       tenantId,
       error: e instanceof Error ? e.message : String(e),
@@ -355,6 +442,9 @@ export async function produceKeywordGaps(
   const cacheNote =
     cacheHits > 0 ? ` ${cacheHits} of ${calls.length} lookups came from my 30 day cache at no extra cost.` : "";
   const briefNote = cloneBriefs.length > 0 ? ` I also built ${cloneBriefs.length} clone-and-beat brief${cloneBriefs.length === 1 ? "" : "s"} from their top money pages.` : "";
+  const pageResearchNote = pageResearch.size > 0
+    ? ` I deeply researched ${pageResearch.size} winning page${pageResearch.size === 1 ? "" : "s"} and cached ${[...pageResearch.values()].reduce((sum, row) => sum + row.keywordCount, 0).toLocaleString("en-US")} page-ranking keywords plus ${[...pageResearch.values()].reduce((sum, row) => sum + row.relatedKeywordCount, 0).toLocaleString("en-US")} broader topic keywords.`
+    : "";
   return {
     status: "ok",
     competitors,
@@ -367,7 +457,10 @@ export async function produceKeywordGaps(
     gaps,
     moneyPagesFound: moneyPages.length,
     cloneBriefs,
-    message: `I checked ${competitors.length} competitors on Google's index for ${usd(spentUsd)} and found ${gaps.length} keywords they win that you do not.${cacheNote}${briefNote} The best ones are on the New Pages board now.`,
+    pagesDeepResearched: [...pageResearch.values()].filter((row) => row.keywordCount > 0).length,
+    pageKeywordsFound: [...pageResearch.values()].reduce((sum, row) => sum + row.keywordCount, 0),
+    relatedKeywordsFound: [...pageResearch.values()].reduce((sum, row) => sum + row.relatedKeywordCount, 0),
+    message: `I checked ${competitors.length} competitors on Google's index for ${usd(spentUsd)} and found ${gaps.length} keywords they win that you do not.${cacheNote}${pageResearchNote}${briefNote} The best ones are on the New Pages board now.`,
   };
 }
 
@@ -381,8 +474,9 @@ async function buildCloneBriefsForRun(args: {
   moneyPages: readonly MoneyPage[];
   graph: Awaited<ReturnType<ProduceKeywordGapsDeps["loadGraph"]>>;
   deps: ProduceKeywordGapsDeps;
+  pageResearch: ReadonlyMap<string, { status: LabsRunStatus; keywordCount: number; relatedKeywordCount: number; withVolume: number; totalSearchVolume: number }>;
 }): Promise<CloneBrief[]> {
-  const { moneyPages, graph, deps } = args;
+  const { moneyPages, graph, deps, pageResearch } = args;
   const targets = pickTeardownTargets(moneyPages, MAX_BRIEF_TEARDOWNS);
   if (targets.length === 0) return [];
 
@@ -408,7 +502,7 @@ async function buildCloneBriefsForRun(args: {
     // module's rule, not that one's) - only call it when there is something real
     // to describe; an "ok" fetch with no facts stays honestly null.
     const wins = audit?.fetchStatus === "ok" && audit.facts ? whatWins(audit.facts) : null;
-    briefs.push(buildCloneBrief({ page, audit, whatWins: wins, ownedTopics }));
+    briefs.push(buildCloneBrief({ page, audit, whatWins: wins, ownedTopics, keywordResearch: pageResearch.get(page.url) ?? null }));
   }
   return briefs;
 }

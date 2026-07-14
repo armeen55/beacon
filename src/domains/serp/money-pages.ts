@@ -38,7 +38,10 @@ export type MoneyPage = {
   topKeywords: MoneyPageKeyword[];
 };
 
-const MAX_TOP_KEYWORDS_PER_PAGE = 10;
+/** Compact promotion ceiling. The complete 500-row corpus stays in the 30-day
+ * provider cache; fifty high-signal rows are enough for downstream clustering
+ * and drafting without hauling the raw response through every page render. */
+const MAX_TOP_KEYWORDS_PER_PAGE = 50;
 
 /**
  * Aggregate raw Labs rows (both endpoints, all checked competitors) into a

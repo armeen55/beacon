@@ -6,6 +6,7 @@ import { autoRefreshStaleConnectorsForTenant } from "@/lib/connectors/cron-sync"
 import { log } from "@/lib/logger";
 import { runWithTenant } from "@/lib/tenant-context";
 import { runAutonomousResearchForTenant } from "./autonomous-research";
+import { recoverAbandonedPageFactoryForTenant } from "./recover-abandoned-work";
 import {
   readLastWarmReceipt,
   recordWarmRun,
@@ -51,6 +52,14 @@ async function runPostResponseCycle(tenantId: string): Promise<void> {
       return [];
     });
     const now = new Date();
+    const recovery = await recoverAbandonedPageFactoryForTenant(tenantId, now).catch((error) => ({
+      status: "failed" as const,
+      weekOf: "unknown",
+      reason: error instanceof Error ? error.message : String(error),
+    }));
+    if (recovery.status !== "not_needed") {
+      log.info("[autonomous] page factory recovery checked", { tenantId, recovery });
+    }
     const prior = await readLastWarmReceipt(tenantId, "visit");
     if (!shouldRunAutonomousResearch(prior, now)) return;
 

@@ -49,6 +49,9 @@ export type TodayCommandInput = {
    *  Empty when the pipe is healthy. A stale-but-connected warning is NOT a defect and must be
    *  filtered out by the caller before it lands here. */
   pipelineAlarms: readonly string[];
+  /** True only when the defect invalidates measurement itself. A failed draft
+   * or page-factory job is operationally real but must not discredit valid GSC. */
+  dataTrustBroken?: boolean;
   /** The page-blame smoke alarm (a specific page losing real clicks), or null. Already gated at
    *  its own floor (MIN_CLICKS_LOST = 10) upstream, so its mere presence is a material loss. */
   smokeAlarm: TodaySmokeAlarm | null;
@@ -97,6 +100,15 @@ export function changeFocusHref(changeId: string): string {
 }
 
 function fixDefect(input: TodayCommandInput): TodayCommand {
+  if (input.dataTrustBroken === false) {
+    return {
+      kind: "fix_defect",
+      headline: "Some background work failed. Your Google numbers are still trustworthy.",
+      why: input.pipelineAlarms.slice(0, 4).map((s) => s.trim()).filter(Boolean),
+      exactAction: "I am retrying the failed work automatically while you use Beacon. Refresh once in a moment to see the recovered state.",
+      cta: null,
+    };
+  }
   return {
     kind: "fix_defect",
     headline: "Something is broken, so today's numbers are not trustworthy yet.",

@@ -80,6 +80,17 @@ describe("buildTodayCommand priority", () => {
     expect(c.kind).toBe("fix_defect");
   });
 
+  it("does not discredit GSC when only background preparation failed", () => {
+    const c = buildTodayCommand(base({
+      pipelineAlarms: ["The weekly new-page batch did not finish."],
+      dataTrustBroken: false,
+    }));
+    expect(c.kind).toBe("fix_defect");
+    expect(c.headline).toContain("Google numbers are still trustworthy");
+    expect(c.exactAction).toContain("retrying");
+    expect(c.cta).toBeNull();
+  });
+
   it("respond_to_loss fires on a page smoke alarm, naming the page and the 4-week clicks", () => {
     const c = buildTodayCommand(base({ smokeAlarm: smokeAlarmLosing(128) }));
     expect(c.kind).toBe("respond_to_loss");

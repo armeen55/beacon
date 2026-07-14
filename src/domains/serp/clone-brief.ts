@@ -26,6 +26,31 @@ export type CloneBrief = {
   teardownStatus: CloneBriefTeardownStatus;
   /** The demand this page captures - top keywords + volumes from the Labs pull. */
   demand: { keyword: string; volume: number | null }[];
+  /** Receipt for the exact-page keyword corpus. Full rows remain in the guarded
+   * 30-day cache; this summary proves whether the research actually happened. */
+  keywordResearch?: {
+    status: "ok" | "cache_hit" | "dry_run" | "disabled" | "capped" | "error";
+    keywordCount: number;
+    relatedKeywordCount?: number;
+    withVolume: number;
+    totalSearchVolume: number;
+  } | null;
+  /** Observed anatomy of the winning page, expressed as a build specification.
+   * These are measured competitor facts, not a promise that copying causes rank. */
+  blueprint?: {
+    observedWordCount: number;
+    observedSectionCount: number;
+    outline: string[];
+    faqQuestionCount: number;
+    faqQuestions: string[];
+    schemaTypes: string[];
+    requiresDirectAnswer: boolean;
+    observedInternalLinks: number;
+    observedImages: number;
+    includesTool: boolean;
+    freshnessDate: string | null;
+    importantTerms: string[];
+  } | null;
   /** Topics/tokens this page covers that the tenant has NO page for yet. */
   coverageGaps: string[];
   /** The "build our better version" pointer - a candidate label + reason, feeding
@@ -36,7 +61,7 @@ export type CloneBrief = {
   summary: string;
 };
 
-const MAX_DEMAND_KEYWORDS = 5;
+const MAX_DEMAND_KEYWORDS = 25;
 const MAX_COVERAGE_GAPS = 6;
 
 const fmt = (n: number): string => n.toLocaleString("en-US");
@@ -85,6 +110,7 @@ export type BuildCloneBriefInput = {
   whatWins: string | null;
   /** Labels/titles of pages the tenant already owns - the coverage-gap comparison. */
   ownedTopics: readonly string[];
+  keywordResearch?: CloneBrief["keywordResearch"];
 };
 
 /**
@@ -105,6 +131,22 @@ export function buildCloneBrief(input: BuildCloneBriefInput): CloneBrief {
     .map((k) => ({ keyword: k.keyword, volume: k.volume }));
 
   const facts = audit?.facts ?? null;
+  const blueprint = teardownStatus === "torn_down" && facts
+    ? {
+        observedWordCount: facts.wordCount,
+        observedSectionCount: facts.sectionCount,
+        outline: facts.outline.slice(0, 20),
+        faqQuestionCount: facts.faqQuestionCount,
+        faqQuestions: facts.faqQuestions.slice(0, 12),
+        schemaTypes: facts.schemaTypes.slice(0, 10),
+        requiresDirectAnswer: facts.hasAnswerBlock,
+        observedInternalLinks: facts.internalLinkCount,
+        observedImages: facts.imageCount,
+        includesTool: facts.hasToolOrCalculator,
+        freshnessDate: facts.freshnessDate,
+        importantTerms: facts.topTerms.slice(0, 20),
+      }
+    : null;
   const pageTokens = pageTopicTokens(facts);
   const coverageGaps = teardownStatus === "torn_down" ? computeCoverageGaps(pageTokens, ownedTopics) : [];
 
@@ -149,6 +191,8 @@ export function buildCloneBrief(input: BuildCloneBriefInput): CloneBrief {
     whatWins: teardownStatus === "torn_down" ? whatWins : null,
     teardownStatus,
     demand,
+    keywordResearch: input.keywordResearch ?? null,
+    blueprint,
     coverageGaps,
     buildPointer,
     summary,
