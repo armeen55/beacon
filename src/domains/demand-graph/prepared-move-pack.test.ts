@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import type { EvidencePacket, DraftSkeleton } from "./evidence-packet";
 import type { GapKind, MoveComponents } from "./build-graph";
 import type { CompetitorPageFacts } from "./competitor-page-audit";
+import type { ResearchDossier } from "@/domains/research/research-dossier";
 import { routeMove } from "./move-router";
 import {
   buildPreparedMovePack,
@@ -27,6 +28,7 @@ function packet(gapType: GapKind, over: { competitorFacts?: CompetitorPageFacts 
     demand: { demandWeight: 1000, basis: "gsc", queries: [], fanoutSeeds: ["what to wear", "how long"] },
     competitor: { topUrl: "https://theknot.com/x", domain: "theknot.com", fetchStatus: "ok", facts: over.competitorFacts ?? null, whatWins: "—", relevance: 0.8, looselyMatched: false, otherUrls: [] },
     yourPage: { url: gapType === "create_page" ? null : "https://iranopedia.com/wedding", facts: null, gsc: null, dollarValue: 0, friction: 0 },
+    research: null,
     gaps: [],
     draft,
     proofPlan: { metrics: ["clicks"], windowsDays: [7, 14, 28], controls: "comparable pages" },
@@ -35,6 +37,41 @@ function packet(gapType: GapKind, over: { competitorFacts?: CompetitorPageFacts 
 }
 
 const facts = (): CompetitorPageFacts => ({} as CompetitorPageFacts); // presence is all derivePreparedStatus checks
+
+const research = (): ResearchDossier => ({
+  tenantId: "tenant-iranopedia",
+  moveKey: "k1",
+  topic: "persian wedding traditions",
+  targetUrl: "https://iranopedia.com/wedding",
+  keywords: [{
+    query: "persian wedding traditions",
+    searchesPerMo: 1400,
+    timesShownOnGoogle: 420,
+    clicks: 12,
+    yourPosition: 11.4,
+    difficulty: 37,
+    trend: null,
+    ownerPage: "https://iranopedia.com/wedding",
+    competitorOwners: ["theknot.com"],
+    relatedQuestions: ["What happens at a Persian wedding?"],
+    sources: ["gsc", "dataforseo_demand"],
+    lastChecked: NOW,
+  }],
+  serpPatterns: [],
+  questions: [{
+    question: "Who pays for a Persian wedding?",
+    sources: ["paa"],
+    demandScore: 18,
+    priority: 8,
+    ownership: null,
+    coverageStatus: "not_answered",
+  }],
+  ai: null,
+  cloneBriefs: [],
+  evidenceSources: ["gsc", "keyword_volume", "paa"],
+  builtAt: NOW,
+  evidenceHash: "research-A",
+});
 
 describe("buildPreparedMovePack", () => {
   it("assembles a compact pack from packet + opinions + decision", () => {
@@ -63,6 +100,25 @@ describe("buildPreparedMovePack", () => {
     const pack = buildPreparedMovePack({ tenantId: "t", packet: p, opinions: [], decision, nowIso: NOW });
     expect(pack.targetUrl).toBeNull();
     expect(pack.proposedSlug).toBe("persian-wedding-traditions");
+  });
+
+  it("persists the research receipt and uncovered questions into the prepared work", () => {
+    const p = packet("answer_block", { competitorFacts: facts() });
+    p.research = research();
+    const decision = routeMove({ packet: p, opinions: [] });
+    const pack = buildPreparedMovePack({ tenantId: "tenant-iranopedia", packet: p, opinions: [], decision, nowIso: NOW });
+
+    expect(pack.secondaryQueries).toContain("Who pays for a Persian wedding?");
+    expect(pack.researchSummary).toEqual({
+      evidenceSources: ["gsc", "keyword_volume", "paa"],
+      keywords: 1,
+      serpPatterns: 0,
+      questions: 1,
+      cloneBriefs: 0,
+      aiPrompts: 0,
+      citedPages: 0,
+    });
+    expect(parsePreparedPack(toPersistedPack(pack))?.researchSummary).toEqual(pack.researchSummary);
   });
 });
 

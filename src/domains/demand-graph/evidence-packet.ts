@@ -19,6 +19,7 @@ import type { CompetitorPageFacts } from "./competitor-page-audit";
 import { whatWins } from "./competitor-page-audit";
 import { bestTitle } from "./ctr-title-scorer";
 import { buildAssetSpec, type AssetSpec } from "./asset-spec";
+import type { ResearchDossier } from "@/domains/research/research-dossier";
 
 /** Structural facts both owned + competitor pages expose, for comparison. */
 export type PageStructureFacts = {
@@ -106,6 +107,9 @@ export type EvidencePacket = {
     dollarValue: number;
     friction: number;
   };
+  /** Converged cached research for this move. Null only when a legacy/test
+   * caller bypasses the production gap compiler. */
+  research: ResearchDossier | null;
   gaps: EvidenceGap[];
   draft: DraftSkeleton;
   proofPlan: { metrics: string[]; windowsDays: number[]; controls: string };
@@ -130,6 +134,8 @@ export type BuildEvidencePacketInput = {
   fanoutSeeds?: string[];
   /** Tenant-explicit query evidence already loaded by the graph compiler. */
   demandQueries?: DemandQuerySignal[];
+  /** Cached keyword/SERP/AI/competitor/question evidence for this move. */
+  researchDossier?: ResearchDossier | null;
 };
 
 function normalizeDemandQueries(rows: readonly DemandQuerySignal[]): DemandQuerySignal[] {
@@ -187,7 +193,14 @@ const REL_MIN = 0.6;
 export function buildEvidencePacket(input: BuildEvidencePacketInput): EvidencePacket {
   const { move, brand, ownedFacts, competitor } = input;
   const cFacts = competitor?.facts ?? null;
-  const fanoutSeeds = (input.fanoutSeeds ?? move.fanoutSeeds ?? []).slice(0, 10);
+  const researchDossier = input.researchDossier ?? null;
+  const fanoutSeeds = [...new Set([
+    ...(input.fanoutSeeds ?? move.fanoutSeeds ?? []),
+    ...(researchDossier?.ai?.fanoutQueries ?? []),
+    ...(researchDossier?.questions ?? [])
+      .filter((row) => row.coverageStatus !== "answered")
+      .map((row) => row.question),
+  ])].slice(0, 16);
   const primaryQuery = move.label;
   const demandQueries = normalizeDemandQueries(input.demandQueries ?? []);
 
@@ -315,6 +328,7 @@ export function buildEvidencePacket(input: BuildEvidencePacketInput): EvidencePa
       demandQueryTotal > 0 ? Math.round((q.impressions / demandQueryTotal) * 10) : 0,
       q.source,
     ]),
+    r: researchDossier?.evidenceHash ?? null,
     d: { o: outline, f: faqQuestions, s: schemaRecommendations },
   };
   const evidenceHash = createHash("sha256").update(JSON.stringify(packetCore)).digest("hex").slice(0, 16);
@@ -358,6 +372,7 @@ export function buildEvidencePacket(input: BuildEvidencePacketInput): EvidencePa
       dollarValue: move.components.dollarValue,
       friction: move.components.friction,
     },
+    research: researchDossier,
     gaps,
     draft,
     proofPlan: {

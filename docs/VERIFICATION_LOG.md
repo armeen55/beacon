@@ -35804,3 +35804,22 @@ never fabricates, never re-freezes, excluded from learning. Floors/56-84d untouc
 pending). Gate 22843 passed 0 failed at pre-rebase tip + rebased-tip gate GREEN at 32696319
 (fullgateE39P2.log: typecheck 0 / test 0 / build 0; 1475 files, 22860 passed, 62 skipped,
 0 failed).
+
+## 2026-07-14 - ResearchDossier convergence release candidate
+
+Added one tenant-explicit research convergence layer for graph-derived Moves. It joins the existing
+keyword library (GSC plus cached DataForSEO volume/difficulty), cached live-SERP winner patterns,
+AI prompt/citation/fanout evidence, competitor clone briefs, and ranked question coverage without
+performing network I/O or ranking again. The canonical EvidencePacket now carries the dossier and
+includes its material hash; timestamp-only cache refreshes do not invalidate drafts. Preparation
+uses dossier hints, unanswered questions, and source candidates, and PreparedMovePack persists a
+compact research provenance/count receipt. No producer, button, cron, publish path, or new paid call
+was added.
+
+Verification: focused dossier/preparation suites 42/42; strict typecheck exit 0; full suite 1,490
+files passed, 22,859 tests passed, 23 skipped, 0 failed; production build exit 0 (three pre-existing
+Turbopack NFT trace warnings plus the existing middleware deprecation warning). Local auth-bypass
+server smoke returned HTTP 200 for `/`, `/changes`, `/results`, `/ask`, `/prompts`, and
+`/settings/connectors`. The in-app browser runtime could not initialize, and local Supabase network
+access failed, so no authenticated visual/data-backed claim is made. Deployment and hosted exact-SHA
+verification are pending.

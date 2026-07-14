@@ -1,5 +1,19 @@
 # Beacon Verified State
 
+> 🟢 **The 2026-07-14 ResearchDossier convergence release candidate is gate-green and awaiting
+> deployment identity.** Beacon now assembles one tenant-explicit, timestamp-stable dossier for
+> every graph-derived Move from the existing keyword library, cached DataForSEO volume/difficulty,
+> live SERP winner patterns, AI prompts/citations/fanouts, clone-brief winner teardowns, and the
+> ranked question universe. The dossier is part of the canonical EvidencePacket and its material
+> hash, so a real evidence change invalidates stale work while a timestamp-only refresh does not.
+> Drafting consumes the dossier's unanswered questions, SERP/title patterns, AI citation evidence,
+> competitor gaps, and source URLs; the persisted PreparedMovePack keeps a compact provenance/count
+> receipt. No new producer, ranker, render-time paid call, button, cron, or publishing path was
+> added. Full gate: strict typecheck; 1,490 test files / 22,859 passed / 23 conditional skips / 0
+> failed; production build exit 0. Local auth-bypass smoke returned 200 for Today, Changes, Results,
+> Ask, Prompts, and Connectors; local Supabase network access was unavailable, so authenticated
+> data-backed visual verification remains a hosted check after deploy.
+
 > 🟢 **The 2026-07-14 autonomous-clarity release is pushed and SHA-verified in production at
 > `d6dcb0c7` (Vercel `dpl_6x3xjQVMjS4dyswTbjKVujMpJNxz`).** It combines the stronger
 > multi-engine poll, the proven 60-file deletion wave, the deterministic
@@ -131,14 +145,13 @@
   bounded review before removal. The first bounded wave removed only unreachable islands and their
   source-pinning tests; no OAuth, tenant isolation, publishing, factual-safety, connector
   reconciliation, or rollback contracts were removed.
-- **The autonomous runner is not yet the full dream-state research brain.** Its producers now run in
-  one cycle, and real GSC query demand now reaches EvidencePacket, intent routing, prepared packs,
-  and drafting. The remaining rich evidence still does not all converge into the same prepared
-  move: cached DataForSEO volume/SERP patterns and clone briefs are not consumed there; allocator-only
-  winners can rank on Changes without entering graph preparation; Google and AI winner sets are not
-  one dossier; GA4 engagement is not yet a bounded ranking input. The binding next architecture is
-  still one tenant-explicit `ResearchDossier -> UnifiedEntry -> PreparedMove` seam, not another page
-  or producer.
+- **The autonomous runner is not yet the full dream-state research brain.** Graph-derived moves now
+  receive one ResearchDossier spanning GSC, cached DataForSEO keyword facts, live SERP patterns,
+  Google/AI winner evidence, clone briefs, and question coverage, and that evidence reaches drafting
+  plus the persisted prepared receipt. The remaining structural gap is allocator-only winners: they
+  can rank on Changes without entering graph preparation. GA4 engagement is also not yet a bounded
+  ranking input. The next slice must adapt the already-ranked UnifiedEntry into the same preparation
+  path without creating a second ranker.
 - **Autonomous research has a cross-instance lock residual.** The daily durable receipt plus the
   process single-flight collapse normal visits, and every paid producer is independently cached and
   capped, but the receipt claim is not one atomic database compare-and-set across two simultaneous
@@ -146,11 +159,10 @@
 
 ## Next 3 actions
 
-1. **Inspect one authenticated autonomous visit.** Confirm the global header moves from researching to
-   ready/partial and Today shows the matching durable receipt; do not publish or trigger paid work manually.
-2. **Continue the dream-state convergence seam.** Thread cached DataForSEO volume/SERP patterns and
-   clone-brief winner evidence through one dossier into the existing unified allocator and prepared-move
-   path; then bring allocator-only winners into preparation without creating a second ranker.
+1. **Verify the deployed dossier release on one authenticated autonomous visit.** Confirm the global
+   header moves from researching to ready/partial and inspect one PreparedMove's research receipt.
+2. **Prepare allocator-only winners through the same path.** Adapt the already-ranked UnifiedEntry into
+   EvidencePacket/PreparedMove; do not introduce a second score or parallel queue.
 3. **Dogfood Iranopedia end to end.** Run one fresh topic through automatic research -> ranked move
    -> source-backed draft, then measure authenticated Today/Results speed and evidence usefulness.
 

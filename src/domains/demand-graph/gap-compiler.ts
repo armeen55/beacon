@@ -20,6 +20,8 @@ import {
   type PageStructureFacts,
 } from "./evidence-packet";
 import { loadGscPageSignalsForTenant, type GscPageSignal } from "@/domains/recommendation-intelligence/gsc-page-signals";
+import { buildResearchDossier } from "@/domains/research/research-dossier";
+import { loadResearchCorpusForTenant } from "@/domains/research/research-dossier-loader";
 
 function stripWww(h: string): string {
   return h.replace(/^www\./i, "").toLowerCase();
@@ -72,14 +74,21 @@ export async function loadChangePacksForTenant(
 ): Promise<LoadChangePacksResult> {
   const limit = opts.limit ?? 25;
 
-  const [{ graph }, audits, snapshots, gscSignals] = await Promise.all([
+  const now = new Date();
+  const [{ graph }, audits, snapshots, gscSignals, researchCorpus] = await Promise.all([
     loadDemandGraphForTenantCached(tenantId),
     getCompetitorAuditsForTenant().catch(() => new Map()),
     getRepository()
       .forTenant(tenantId)
       .getPageSnapshots()
       .catch(() => [] as PageSnapshot[]),
-    loadGscPageSignalsForTenant(tenantId, new Date()).catch((): Map<string, GscPageSignal> => new Map()),
+    loadGscPageSignalsForTenant(tenantId, now).catch((): Map<string, GscPageSignal> => new Map()),
+    loadResearchCorpusForTenant(tenantId, now).catch(() => ({
+      keywordLibrary: { rows: [], volumeCoverage: 0, total: 0, bySource: {} as never },
+      serpPatterns: new Map(),
+      cloneBriefs: [],
+      questions: [],
+    })),
   ]);
 
   // GSC per-page signal indexed for robust owned-URL matching (canonical + path).
@@ -167,6 +176,14 @@ export async function loadChangePacksForTenant(
       }
     }
 
+    const researchDossier = buildResearchDossier({
+      tenantId,
+      move,
+      demandQueries,
+      corpus: researchCorpus,
+      nowIso: now.toISOString(),
+    });
+
     return buildEvidencePacket({
       move,
       brand,
@@ -175,6 +192,7 @@ export async function loadChangePacksForTenant(
       competitor,
       fanoutSeeds: move.fanoutSeeds,
       demandQueries,
+      researchDossier,
     });
   });
 

@@ -85,6 +85,7 @@ function packet(over: {
       friction: 0,
       ...over.yourPage,
     },
+    research: null,
     gaps: over.gaps ?? [],
     draft: baseDraft(over.draft),
     proofPlan: { metrics: ["clicks"], windowsDays: [7, 14, 28], controls: "comparable pages" },

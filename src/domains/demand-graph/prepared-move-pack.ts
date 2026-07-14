@@ -59,6 +59,16 @@ export type PreparedMovePack = {
   proposedSlug: string | null;
   primaryQuery: string;
   secondaryQueries: string[];
+  /** Compact receipt proving which research systems converged before drafting. */
+  researchSummary?: {
+    evidenceSources: string[];
+    keywords: number;
+    serpPatterns: number;
+    questions: number;
+    cloneBriefs: number;
+    aiPrompts: number;
+    citedPages: number;
+  };
   /** The team's opinions (P1) - what each specialist found / objected to. */
   specialistOpinions: SpecialistOpinion[];
   /** The debate outcome (P2). */
@@ -214,7 +224,23 @@ export function buildPreparedMovePack(input: BuildPreparedMovePackInput): Prepar
     secondaryQueries: [...new Set([
       ...packet.demand.queries.map((row) => row.query),
       ...(packet.demand.fanoutSeeds ?? []),
+      ...(packet.research?.questions ?? [])
+        .filter((row) => row.coverageStatus !== "answered")
+        .map((row) => row.question),
     ])].filter((query) => query.toLocaleLowerCase("en-US") !== packet.move.label.toLocaleLowerCase("en-US")),
+    ...(packet.research
+      ? {
+          researchSummary: {
+            evidenceSources: packet.research.evidenceSources,
+            keywords: packet.research.keywords.length,
+            serpPatterns: packet.research.serpPatterns.length,
+            questions: packet.research.questions.length,
+            cloneBriefs: packet.research.cloneBriefs.length,
+            aiPrompts: packet.research.ai?.promptCount ?? 0,
+            citedPages: packet.research.ai?.topCitedPages.length ?? 0,
+          },
+        }
+      : {}),
     specialistOpinions: opinions,
     routerDecision: decision,
     proofPlan: packet.proofPlan,

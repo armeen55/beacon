@@ -34,6 +34,7 @@ function packet(over: {
       url: "https://iranopedia.com/wedding", facts: null, gsc: null, dollarValue: 0, friction: 0,
       ...over.yourPage,
     },
+    research: null,
     gaps: [],
     draft: baseDraft(),
     proofPlan: { metrics: ["clicks"], windowsDays: [7, 14, 28], controls: "comparable pages" },

@@ -35,6 +35,7 @@ import { decideExistingPageHold, type ExistingMoveType } from "@/domains/serp/ex
 import { getBusinessConfig } from "@/lib/business-config";
 import type { FirstMentionConfig } from "@/domains/drafts/first-mention-check";
 import { log } from "@/lib/logger";
+import { dossierReferenceCandidates, researchDossierHints } from "@/domains/research/research-dossier";
 
 /** First path segment groups a family - mirrors pageFamilyOf in
  *  daily-experiment-planner.ts (duplicated here to avoid an experiments ->
@@ -172,8 +173,9 @@ function evidenceHintsFor(packet: EvidencePacket): string[] {
   return [
     packet.competitor.domain && !packet.competitor.looselyMatched ? `AI cites ${packet.competitor.domain} for this topic, not you` : "",
     packet.yourPage.gsc ? "the page already ranks on Google but isn't the cited source" : "",
+    ...researchDossierHints(packet.research),
     ...competitorTeardownHints(packet),
-  ].filter(Boolean);
+  ].filter(Boolean).slice(0, 18);
 }
 
 /** Pilot loop 4 (2026-07-10): the packet's own AI-cited competitor URLs (topUrl +
@@ -184,9 +186,13 @@ function evidenceHintsFor(packet: EvidencePacket): string[] {
  *  is deliberately un-filtered here - just the cheap candidate pool the drafter then
  *  narrows down. Empty when the packet carries no competitor URL, never an error. */
 function referenceCandidatesFor(packet: EvidencePacket): string[] {
-  return [packet.competitor.topUrl, ...(packet.competitor.otherUrls ?? [])].filter(
+  return [...new Set([
+    packet.competitor.topUrl,
+    ...(packet.competitor.otherUrls ?? []),
+    ...dossierReferenceCandidates(packet.research),
+  ])].filter(
     (u): u is string => !!u,
-  );
+  ).slice(0, 12);
 }
 
 async function draftForPacket(
@@ -217,11 +223,18 @@ async function draftForPacket(
     pageFamily: packet.yourPage.url ? pageFamilyOfUrl(packet.yourPage.url) : undefined,
   };
   if (packet.move.gapType === "answer_block") {
+    const researchedQuestions = (packet.research?.questions ?? [])
+      .filter((row) => row.coverageStatus !== "answered")
+      .map((row) => row.question);
     return draftAnswerBlockStructured(
       {
         ...common,
         brief: packet.draft.answerBlockBrief,
-        faqs: packet.draft.faqQuestions.length ? packet.draft.faqQuestions : packet.demand.fanoutSeeds,
+        faqs: [...new Set([
+          ...packet.draft.faqQuestions,
+          ...researchedQuestions,
+          ...packet.demand.fanoutSeeds,
+        ])].slice(0, 12),
         referenceCandidates: referenceCandidatesFor(packet),
       },
       opts,
@@ -242,6 +255,9 @@ async function draftForPacket(
         fanoutQueries: [...new Set([
           ...packet.demand.queries.map((row) => row.query),
           ...(packet.demand.fanoutSeeds ?? []),
+          ...(packet.research?.questions ?? [])
+            .filter((row) => row.coverageStatus !== "answered")
+            .map((row) => row.question),
         ])],
         evidenceHints,
       },

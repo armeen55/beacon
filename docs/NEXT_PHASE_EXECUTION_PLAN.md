@@ -89,13 +89,15 @@ chronology of what already landed lives in VERIFICATION_LOG.md; this list is onl
    reflexes, final fusion/ranking, capped draft preparation, then Today. It uses existing guarded
    producers and never publishes. Local hardening overlaps native AI calls through a bounded pool,
    preserves sequential paid-ledger calls, reports same-day no-op honestly, and includes engine cost.
-20b. **Dream-state convergence seam.** FIRST SLICE DEPLOYED AND SHA-VERIFIED at `d6dcb0c7`, ACTIVE NEXT. Real top GSC queries
+20b. **Dream-state convergence seam.** SECOND SLICE GATE-GREEN, DEPLOYMENT IDENTITY PENDING. Real top GSC queries
    and impression weights now survive graph compilation into EvidencePacket, intent routing, prepared
    packs, and drafting; minor count drift is bucketed before evidence-hash invalidation. The global
    shell header shows the existing durable autonomous receipt without adding a control, and the unified
-   allocator now uses the tenant-explicit keyword-library reader. Next thread cached keyword volume/SERP
-   patterns and clone briefs into the same dossier, then prepare allocator-only winners without creating
-   a second ranker.
+   allocator uses the tenant-explicit keyword-library reader. The second slice adds one tenant-explicit
+   ResearchDossier per graph move from cached keyword volume/difficulty, live SERP patterns, AI
+   prompts/citations/fanouts, clone briefs, and question coverage; it becomes part of EvidencePacket,
+   draft inputs, staleness hashing, source references, and the persisted PreparedMove receipt. Next:
+   prepare allocator-only winners through this same path without creating a second ranker.
 21. **Fresh blind unseen-topic benchmark.** Run 5 preregistered cases not used to build these
    corrections. A case that changes code is spent and must be replaced.
 22. **Scheduled-refresh receipt.** The first cron run after this deploy must leave a started

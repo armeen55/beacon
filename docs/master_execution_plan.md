@@ -3070,6 +3070,14 @@ factual sources, and existing learning/measurement state into the one allocator 
 atomic move. The first slice reuses existing stores and threads the evidence currently displayed on
 Today into the EvidencePacket and drafter; publishing remains operator-approved.
 
+**Second slice implemented 2026-07-14:** graph-derived moves now receive the compact dossier from
+the tenant-explicit cached research corpus. Material dossier evidence participates in the canonical
+evidence hash; timestamp-only refreshes do not churn drafts. The drafter receives grounded SERP,
+AI, keyword, competitor, and unanswered-question hints/references, while PreparedMove persists only
+a compact evidence-source/count receipt. This preserves the decision above: no new producer, ranker,
+page, button, cron, or publishing path. The remaining convergence step is the already-ranked
+allocator-only `UnifiedEntry -> EvidencePacket/PreparedMove` adapter.
+
 ---
 
 ## FUTURE IDEAS (not in current execution plan)

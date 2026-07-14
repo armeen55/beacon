@@ -31,6 +31,7 @@ function packet(
     demand: { demandWeight: 1000, basis: "gsc", queries, fanoutSeeds },
     competitor: { topUrl: null, domain: null, fetchStatus: null, facts: null, whatWins: "-", relevance: 0, looselyMatched: false, otherUrls: [] },
     yourPage: { url: "https://example.com/page", facts: null, gsc: null, dollarValue: 0, friction: 0 },
+    research: null,
     gaps: [],
     draft: { kind: "deterministic_skeleton", titleSuggestion: null, metaBrief: null, outline: [], answerBlockBrief: null, faqQuestions: [], schemaRecommendations: [], assetSpec: null, asset: null, note: "" },
     proofPlan: { metrics: ["clicks"], windowsDays: [7, 14, 28], controls: "comparable pages" },
