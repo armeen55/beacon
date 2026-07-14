@@ -69,14 +69,17 @@ describe("CompetitorRivalsSection", () => {
 
   it("self-hides when the loader misses the render deadline (never stalls /prompts)", async () => {
     // A loader that never resolves: the deadline race must return null, not hang.
-    loadCompetitorRivalsMock.mockImplementationOnce(() => new Promise(() => {}));
-    const { CompetitorRivalsSection } = await import("./competitor-rivals-section");
-    const el = await Promise.race([
-      CompetitorRivalsSection(),
-      new Promise<"hung">((resolve) => setTimeout(() => resolve("hung"), 8000)),
-    ]);
-    expect(el).toBeNull();
-  }, 10_000);
+    vi.useFakeTimers();
+    try {
+      loadCompetitorRivalsMock.mockImplementationOnce(() => new Promise(() => {}));
+      const { CompetitorRivalsSection } = await import("./competitor-rivals-section");
+      const pending = CompetitorRivalsSection();
+      await vi.advanceTimersByTimeAsync(5_000);
+      await expect(pending).resolves.toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 
   it("renders real domain rows, citation counts, and a steal-this move link", async () => {
     loadCompetitorRivalsMock.mockResolvedValueOnce(rivalsWithDomains());
