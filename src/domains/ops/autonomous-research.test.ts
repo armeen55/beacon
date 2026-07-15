@@ -10,6 +10,7 @@ const NOW = new Date("2026-07-13T18:00:00.000Z");
 
 function deps(calls: string[]): AutonomousResearchDeps {
   return {
+    publishUsableSurfaces: vi.fn(async () => { calls.push("usable"); }),
     refreshGraph: vi.fn(async () => { calls.push("graph"); }),
     auditCompetitors: vi.fn(async () => {
       calls.push("competitors");
@@ -180,7 +181,7 @@ describe("runAutonomousResearchForTenant", () => {
     const calls: string[] = [];
     const receipt = await runAutonomousResearchForTenant(TENANT, NOW, deps(calls));
     expect(calls).toEqual([
-      "graph", "competitors", "gaps", "packs", "keywords", "engines", "ai", "questions", "claims", "authority",
+      "usable", "graph", "competitors", "gaps", "packs", "keywords", "engines", "ai", "questions", "claims", "authority",
       "loss", "steal", "native", "final-keywords", "new-pages", "fuse", "prepare", "today",
     ]);
     expect(receipt.ok).toBe(true);
@@ -218,6 +219,20 @@ describe("runAutonomousResearchForTenant", () => {
     expect(calls).toContain("today");
     expect(receipt.ok).toBe(false);
     expect(receipt.steps.find((step) => step.name === "keyword-serp-enrichment")?.note).toContain("provider unavailable");
+    expect(receipt.summary?.readyToReview).toBe(5);
+  });
+
+  it("publishes a usable snapshot before slow research and keeps going if that early publish fails", async () => {
+    const calls: string[] = [];
+    const d = deps(calls);
+    d.publishUsableSurfaces = vi.fn(async () => {
+      calls.push("usable");
+      throw new Error("snapshot store unavailable");
+    });
+    const receipt = await runAutonomousResearchForTenant(TENANT, NOW, d);
+    expect(calls[0]).toBe("usable");
+    expect(calls[1]).toBe("graph");
+    expect(receipt.steps.find((step) => step.name === "publish-usable-surfaces")?.note).toContain("snapshot store unavailable");
     expect(receipt.summary?.readyToReview).toBe(5);
   });
 });

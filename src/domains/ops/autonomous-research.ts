@@ -86,6 +86,9 @@ const EMPTY_NEW_PAGES: PrepareNewPagesSummary = {
 };
 
 export type AutonomousResearchDeps = {
+  /** Publish a usable ranking from already-cached evidence before any long or
+   * paid research. Deep research may enrich and replace it later. */
+  publishUsableSurfaces: (tenantId: string) => Promise<void>;
   refreshGraph: (tenantId: string, now: Date) => Promise<void>;
   auditCompetitors: (tenantId: string) => Promise<{ audited: number; targets: number; cached: number }>;
   mineCompetitorKeywords: (tenantId: string) => Promise<KeywordGapRunResult>;
@@ -138,6 +141,16 @@ async function defaultBuildResearchPacks(tenantId: string): Promise<ResearchPack
 }
 
 const defaultDeps: AutonomousResearchDeps = {
+  publishUsableSurfaces: async (tenantId) => {
+    const [{ refreshWorklistSurface }, { rebuildChangesSurface }, { refreshTodaySurface }] = await Promise.all([
+      import("@/app/(shell)/moves/moves-data"),
+      import("@/app/(shell)/changes-data"),
+      import("@/app/(shell)/today-view-data"),
+    ]);
+    await refreshWorklistSurface(tenantId);
+    await rebuildChangesSurface(tenantId);
+    await refreshTodaySurface(tenantId);
+  },
   refreshGraph: defaultRefreshGraph,
   auditCompetitors: async (tenantId) => {
     const { auditTopCompetitorsForTenant } = await import("@/domains/demand-graph/competitor-page-audit");
@@ -266,6 +279,13 @@ export async function runAutonomousResearchForTenant(
   const deps = { ...defaultDeps, ...depsOverride };
   const startedAt = Date.now();
   const steps: WarmStepReceipt[] = [];
+
+  // Publish the best complete view Beacon can assemble from durable cached
+  // evidence first. The operator gets a useful Today/Changes snapshot even if
+  // a later provider is slow or the continuation reaches its hard deadline.
+  const usable = await runStep("publish-usable-surfaces", undefined, () =>
+    deps.publishUsableSurfaces(tenantId));
+  steps.push(usable.receipt);
 
   const graph = await runStep("seed-demand-graph", undefined, () => deps.refreshGraph(tenantId, now));
   steps.push(graph.receipt);

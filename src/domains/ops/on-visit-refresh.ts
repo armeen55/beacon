@@ -36,7 +36,7 @@ export function shouldRunAutonomousResearch(
   return !Number.isFinite(attemptedAt) || now.getTime() - attemptedAt >= AUTONOMOUS_RETRY_COOLDOWN_MS;
 }
 
-function startedReceipt(tenantId: string, now: Date): WarmRunReceipt {
+export function startedReceipt(tenantId: string, now: Date, prior: WarmRunReceipt | null): WarmRunReceipt {
   return {
     tenant_id: tenantId,
     date: now.toLocaleDateString("en-CA", { timeZone: "America/Los_Angeles" }),
@@ -45,10 +45,14 @@ function startedReceipt(tenantId: string, now: Date): WarmRunReceipt {
     totalMs: 0,
     trigger: "visit",
     steps: [{ name: "autonomous-research", ok: true, ms: 0, note: "running after this response" }],
+    // Keep the last completed outcome visible while a newer pass runs. The
+    // presentation snapshots are still usable; starting research must not make
+    // the whole product look empty or unfinished again.
+    ...(prior?.summary ? { summary: prior.summary } : {}),
   };
 }
 
-export function timedOutReceipt(tenantId: string, now: Date): WarmRunReceipt {
+export function timedOutReceipt(tenantId: string, now: Date, prior: WarmRunReceipt | null = null): WarmRunReceipt {
   return {
     tenant_id: tenantId,
     date: now.toLocaleDateString("en-CA", { timeZone: "America/Los_Angeles" }),
@@ -62,6 +66,7 @@ export function timedOutReceipt(tenantId: string, now: Date): WarmRunReceipt {
       ms: AUTONOMOUS_RUN_DEADLINE_MS,
       note: "This pass reached its safe time limit. I will continue from cached work on your next navigation.",
     }],
+    ...(prior?.summary ? { summary: prior.summary } : {}),
   };
 }
 
@@ -79,12 +84,12 @@ async function runPostResponseCycle(tenantId: string): Promise<void> {
     if (shouldRunAutonomousResearch(prior, now)) {
       // Write before work begins. This is the durable cross-instance throttle
       // and gives the UI an honest running state instead of a blank.
-      await recordWarmRun(startedReceipt(tenantId, now));
+      await recordWarmRun(startedReceipt(tenantId, now, prior));
       const raced = await loadWithDeadline(
         runAutonomousResearchForTenant(tenantId, now),
         AUTONOMOUS_RUN_DEADLINE_MS,
       );
-      const receipt = raced.timedOut ? timedOutReceipt(tenantId, now) : raced.data;
+      const receipt = raced.timedOut ? timedOutReceipt(tenantId, now, prior) : raced.data;
       // A hard continuation limit must never leave the durable status on
       // "running". A partial receipt permits the next navigation to continue
       // through the producers' own caches after a short cooldown.

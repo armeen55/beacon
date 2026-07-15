@@ -39,9 +39,19 @@ export async function writeTodaySurface(data: TodayComposite, computedAtIso: str
   await writeStore<TodaySurfaceRow>(STORE, [{ computedAt: computedAtIso, data }], { tenantId }).catch(() => {});
 }
 
-/** Invalidate so the next Today load recomputes (call after a mutation that changes Today). */
-export async function invalidateTodaySurface(): Promise<void> {
-  await writeStore<TodaySurfaceRow>(STORE, []).catch(() => {});
+/**
+ * Mark Today stale while preserving its last-known-good snapshot. The next
+ * request serves that snapshot immediately and replaces it in the background;
+ * user actions must never turn a warm page back into a cold loading screen.
+ */
+export async function invalidateTodaySurface(tenantId?: string): Promise<void> {
+  const existing = await readTodaySurface(tenantId).catch(() => null);
+  if (!existing) return;
+  await writeStore<TodaySurfaceRow>(
+    STORE,
+    [{ ...existing, computedAt: new Date(0).toISOString() }],
+    tenantId ? { tenantId } : {},
+  ).catch(() => {});
 }
 
 /** PURE: is a snapshot stale (or its timestamp unparseable)? */

@@ -33,11 +33,11 @@ import { BeaconLearnedTile } from "@/domains/insight/beacon-learned-tile";
 
 // W2-A (2026-07-02) - FP1 always-paint floor extended to this page: every async section
 // body is deadline-bounded so a wedged Supabase read (each 522 is ~30s) can never strand
-// a Suspense fallback or hold the HTTP stream open forever. The main list gets a generous
-// window (it has an SWR snapshot that normally answers in seconds; a cold rebuild is the
-// slow path); the self-hiding side sections time out to null, same as their existing
-// fail-soft posture.
-const MAIN_LIST_DEADLINE_MS = 25_000;
+// a Suspense fallback or hold the HTTP stream open forever. The main list only reads a
+// durable snapshot now, so it gets a short ceiling; research and rebuilding are never
+// permitted to turn navigation into a wait. Self-hiding side sections keep their
+// existing fail-soft posture.
+const MAIN_LIST_DEADLINE_MS = 5_000;
 const SIDE_SECTION_DEADLINE_MS = 15_000;
 
 // Exported for the render pin in changes-empty-vs-building.test.tsx (both empty-state
@@ -195,7 +195,7 @@ function ChangesListFallback() {
   return (
     <div className="space-y-2 rounded-2xl border border-gray-100 bg-white p-4">
       <p className="text-[12px] text-gray-400">
-        Pulling your ranked changes together. This usually takes a few seconds.
+        Opening your saved ranking.
       </p>
       <div className="h-9 animate-pulse rounded-lg bg-gray-50" />
       <div className="h-9 animate-pulse rounded-lg bg-gray-50" />

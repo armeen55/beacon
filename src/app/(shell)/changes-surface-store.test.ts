@@ -22,6 +22,7 @@ import {
   isChangesSurfaceStale,
   CHANGES_SURFACE_FRESH_MS,
 } from "./changes-surface-store";
+import type { ChangesSurfaceRow } from "./changes-surface-store";
 import type { ChangesView } from "./changes-data";
 
 function view(changeCount: number): ChangesView {
@@ -73,9 +74,23 @@ describe("writeChangesSurface empty-rebuild guard", () => {
     expect(rows[0].view.changes).toHaveLength(9);
   });
 
-  it("invalidateChangesSurface writes empty rows (explicit reset path)", async () => {
+  it("invalidateChangesSurface preserves the last-known-good list and marks it stale", async () => {
+    readStoreMock.mockResolvedValue([{
+      computedAt: "2026-07-10T00:00:00.000Z",
+      tenantId: "tenant-a",
+      view: view(9),
+    }]);
     await invalidateChangesSurface();
-    expect(writeStoreMock).toHaveBeenCalledWith("changes-surface", []);
+    expect(writeStoreMock).toHaveBeenCalledOnce();
+    const [, rows] = writeStoreMock.mock.calls[0] as unknown as [string, ChangesSurfaceRow[]];
+    expect(rows[0]?.view.changes).toHaveLength(9);
+    expect(rows[0]?.computedAt).toBe("1970-01-01T00:00:00.000Z");
+  });
+
+  it("invalidateChangesSurface leaves a true cold tenant untouched", async () => {
+    readStoreMock.mockResolvedValue([]);
+    await invalidateChangesSurface("tenant-cold");
+    expect(writeStoreMock).not.toHaveBeenCalled();
   });
 });
 

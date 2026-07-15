@@ -73,9 +73,23 @@ export async function writeChangesSurface(view: ChangesView, computedAtIso: stri
   await writeStore<ChangesSurfaceRow>(STORE, [{ computedAt: computedAtIso, tenantId, view }], { tenantId }).catch(() => {});
 }
 
-/** Invalidate the cache so the next /changes load recomputes (call after a mutation). */
-export async function invalidateChangesSurface(): Promise<void> {
-  await writeStore<ChangesSurfaceRow>(STORE, []).catch(() => {});
+/**
+ * Mark the snapshot stale without deleting the last-known-good list.
+ *
+ * Mutations used to empty this store. The very next navigation therefore had
+ * nothing useful to render and showed a rebuilding screen even though Beacon
+ * still had a perfectly valid previous ranking. Preserve that ranking, age its
+ * timestamp, and let the normal SWR path replace it atomically in the
+ * background. A true first-ever tenant still has no row and remains cold.
+ */
+export async function invalidateChangesSurface(tenantId?: string): Promise<void> {
+  const existing = await readChangesSurface(tenantId).catch(() => null);
+  if (!existing) return;
+  await writeStore<ChangesSurfaceRow>(
+    STORE,
+    [{ ...existing, computedAt: new Date(0).toISOString() }],
+    tenantId ? { tenantId } : {},
+  ).catch(() => {});
 }
 
 /** PURE: is a snapshot stale (or its timestamp unparseable)? */

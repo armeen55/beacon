@@ -6,8 +6,18 @@ export type AutonomousResearchHeaderStatus = {
   title: string;
 };
 
+function isRunning(receipt: WarmRunReceipt): boolean {
+  return receipt.steps.some((step) => step.name === "autonomous-research" && step.note === "running after this response");
+}
+
 export function autonomousResearchStatusLine(receipt: WarmRunReceipt | null): string {
   if (!receipt) return "Beacon will research, compare, rank, and prepare your next moves automatically after this visit.";
+  if (isRunning(receipt) && receipt.summary) {
+    return "Your saved results are ready. Beacon is refreshing the evidence and will replace them only when the newer pass is complete.";
+  }
+  if (isRunning(receipt)) {
+    return "Beacon is preparing the first saved result in the background. You can keep using the app.";
+  }
   if (!receipt.summary) {
     return receipt.ok
       ? "Beacon’s automatic research pass is complete."
@@ -49,7 +59,9 @@ export function autonomousResearchStatusLine(receipt: WarmRunReceipt | null): st
 export function autonomousResearchHeaderStatus(receipt: WarmRunReceipt | null): AutonomousResearchHeaderStatus {
   const title = autonomousResearchStatusLine(receipt);
   if (!receipt) return { label: "Research starts on visit", tone: "idle", title };
-  if (!receipt.summary && !receipt.ok) return { label: "Researching now", tone: "running", title };
+  if (isRunning(receipt) && receipt.summary) return { label: "Up to date · refreshing", tone: "ready", title };
+  if (isRunning(receipt)) return { label: "Preparing in background", tone: "running", title };
+  if (!receipt.summary && !receipt.ok) return { label: "Preparing in background", tone: "running", title };
   if (!receipt.ok) return { label: "Research partially refreshed", tone: "partial", title };
   const ready = receipt.summary?.readyToReview ?? 0;
   return {

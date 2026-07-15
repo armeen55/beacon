@@ -17,7 +17,7 @@ vi.mock("@/lib/persistence/json-store", () => ({
   writeStore: (...args: unknown[]) => writeStoreMock(...args),
 }));
 
-import { readTodaySurface, writeTodaySurface, invalidateTodaySurface } from "./today-surface-store";
+import { readTodaySurface, writeTodaySurface, invalidateTodaySurface, type TodaySurfaceRow } from "./today-surface-store";
 import type { TodayComposite } from "./today-view-data";
 
 function composite(): TodayComposite {
@@ -53,8 +53,18 @@ describe("explicit tenantId threading", () => {
     expect(optsB.tenantId).toBe("tenant-b");
   });
 
-  it("invalidateTodaySurface stays the explicit reset path (writes empty rows)", async () => {
+  it("invalidateTodaySurface preserves the last-known-good view and marks it stale", async () => {
+    readStoreMock.mockResolvedValue([{ computedAt: "fresh", data: composite() }]);
     await invalidateTodaySurface();
-    expect(writeStoreMock).toHaveBeenCalledWith("today-surface", []);
+    expect(writeStoreMock).toHaveBeenCalledOnce();
+    const [, rows] = writeStoreMock.mock.calls[0] as unknown as [string, TodaySurfaceRow[]];
+    expect(rows[0]?.data).toEqual(composite());
+    expect(rows[0]?.computedAt).toBe("1970-01-01T00:00:00.000Z");
+  });
+
+  it("invalidateTodaySurface leaves a true cold tenant untouched", async () => {
+    readStoreMock.mockResolvedValue([]);
+    await invalidateTodaySurface("tenant-cold");
+    expect(writeStoreMock).not.toHaveBeenCalled();
   });
 });

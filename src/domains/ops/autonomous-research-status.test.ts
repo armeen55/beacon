@@ -56,10 +56,22 @@ describe("autonomousResearchHeaderStatus", () => {
     });
   });
 
-  it("shows the durable in-progress receipt as active work", () => {
-    expect(autonomousResearchHeaderStatus(receipt())).toMatchObject({
-      label: "Researching now",
+  it("shows first preparation as non-blocking background work", () => {
+    expect(autonomousResearchHeaderStatus(receipt({
+      steps: [{ name: "autonomous-research", ok: true, ms: 0, note: "running after this response" }],
+    }))).toMatchObject({
+      label: "Preparing in background",
       tone: "running",
+    });
+  });
+
+  it("keeps the saved result ready while a newer pass refreshes", () => {
+    expect(autonomousResearchHeaderStatus(receipt({
+      summary,
+      steps: [{ name: "autonomous-research", ok: true, ms: 0, note: "running after this response" }],
+    }))).toMatchObject({
+      label: "Up to date · refreshing",
+      tone: "ready",
     });
   });
 

@@ -4,6 +4,7 @@ import {
   AUTONOMOUS_RUN_DEADLINE_MS,
   AUTONOMOUS_RETRY_COOLDOWN_MS,
   shouldRunAutonomousResearch,
+  startedReceipt,
   timedOutReceipt,
 } from "./on-visit-refresh";
 import type { WarmRunReceipt } from "./warm-receipt-store";
@@ -50,5 +51,11 @@ describe("shouldRunAutonomousResearch", () => {
     expect(result.totalMs).toBe(AUTONOMOUS_RUN_DEADLINE_MS);
     expect(result.steps[0]?.note).toContain("continue from cached work");
     expect(result.steps[0]?.note).not.toContain("running");
+  });
+
+  it("keeps the last completed outcome visible while refreshing or after a timeout", () => {
+    const prior = receipt({ summary: { readyToReview: 7 } as WarmRunReceipt["summary"] });
+    expect(startedReceipt("tenant-iranopedia", NOW, prior).summary?.readyToReview).toBe(7);
+    expect(timedOutReceipt("tenant-iranopedia", NOW, prior).summary?.readyToReview).toBe(7);
   });
 });
