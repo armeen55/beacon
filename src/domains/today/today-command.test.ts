@@ -85,7 +85,7 @@ describe("buildTodayCommand priority", () => {
       pipelineAlarms: ["The weekly new-page batch did not finish."],
       dataTrustBroken: false,
     }));
-    expect(c.kind).toBe("fix_defect");
+    expect(c.kind).toBe("background_recovery");
     expect(c.headline).toContain("Google numbers are still trustworthy");
     expect(c.exactAction).toContain("retrying");
     expect(c.cta).toBeNull();
@@ -219,6 +219,7 @@ describe("buildTodayCommand invariants", () => {
 describe("commandAllowsCelebration - the greeting never celebrates when the command is a problem", () => {
   it("forbids celebration for a defect or a loss - today's two problem kinds", () => {
     expect(commandAllowsCelebration("fix_defect")).toBe(false);
+    expect(commandAllowsCelebration("background_recovery")).toBe(false);
     expect(commandAllowsCelebration("respond_to_loss")).toBe(false);
   });
 

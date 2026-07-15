@@ -105,6 +105,20 @@ describe("TodayCommandCard - rendered copy per kind", () => {
     expect(markup).not.toMatch(/[\u2012\u2013\u2014\u2015]/);
   });
 
+  it("background recovery is calm and never tells the operator to fix it", () => {
+    const markup = renderToStaticMarkup(
+      <TodayCommandCard command={buildTodayCommand(base({
+        pipelineAlarms: ["The weekly new-page batch did not finish."],
+        dataTrustBroken: false,
+      }))} />,
+    );
+    const t = text(markup);
+    expect(t).toContain("Working in background");
+    expect(t).toContain("Google numbers are still trustworthy");
+    expect(t).not.toContain("Fix this first");
+    expect(markup).not.toContain('role="alert"');
+  });
+
   it("respond_to_loss", () => {
     const markup = renderToStaticMarkup(<TodayCommandCard command={buildTodayCommand(base({ smokeAlarm: alarm128 }))} />);
     const t = text(markup);

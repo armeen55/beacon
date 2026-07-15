@@ -69,6 +69,31 @@ describe("deriveDefectSignal - redFires matches the ops banner exactly", () => {
     expect(out.sentences).toEqual(["My overnight sync for Search Console did not run last night."]);
   });
 
+  it("keeps an automatically recovered page-factory receipt off the red customer surface", () => {
+    const sentence = "The weekly new-page batch started Jul 13 but did not finish.";
+    const out = deriveDefectSignal({
+      violations: [],
+      deadman: deadman({
+        overall: "stalled",
+        alarm: true,
+        sentences: [sentence],
+        jobs: [{
+          job: "page-factory",
+          label: "Weekly new-page batch",
+          pace: "stalled",
+          lastRunAt: "2026-07-13T13:49:00.000Z",
+          lastDueAt: "2026-07-13T13:49:00.000Z",
+          periodMs: 604800000,
+          sentence,
+        }],
+      }),
+      errorSpikeLine: null,
+    });
+    expect(out.redFires).toBe(false);
+    expect(out.deadmanSentences).toEqual([]);
+    expect(out.sentences).toEqual([]);
+  });
+
   it("fires on an error spike alone, with no pipeline violation or deadman alarm", () => {
     const out = deriveDefectSignal({
       violations: [],

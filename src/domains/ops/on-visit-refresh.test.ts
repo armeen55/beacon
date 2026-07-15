@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  AUTONOMOUS_RUN_DEADLINE_MS,
   AUTONOMOUS_RETRY_COOLDOWN_MS,
   shouldRunAutonomousResearch,
+  timedOutReceipt,
 } from "./on-visit-refresh";
 import type { WarmRunReceipt } from "./warm-receipt-store";
 
@@ -32,12 +34,21 @@ describe("shouldRunAutonomousResearch", () => {
   });
 
   it("throttles a running or failed attempt, then permits a safe retry", () => {
-    expect(shouldRunAutonomousResearch(receipt({ ok: false }), NOW)).toBe(false);
+    const recent = new Date(NOW.getTime() - AUTONOMOUS_RETRY_COOLDOWN_MS / 2).toISOString();
+    expect(shouldRunAutonomousResearch(receipt({ ok: false, ran_at: recent }), NOW)).toBe(false);
     const old = new Date(NOW.getTime() - AUTONOMOUS_RETRY_COOLDOWN_MS - 1).toISOString();
     expect(shouldRunAutonomousResearch(receipt({ ok: false, ran_at: old }), NOW)).toBe(true);
   });
 
   it("fails open for an unreadable attempt stamp", () => {
     expect(shouldRunAutonomousResearch(receipt({ ok: false, ran_at: "not-a-date" }), NOW)).toBe(true);
+  });
+
+  it("turns a continuation deadline into a terminal retryable receipt", () => {
+    const result = timedOutReceipt("tenant-iranopedia", NOW);
+    expect(result.ok).toBe(false);
+    expect(result.totalMs).toBe(AUTONOMOUS_RUN_DEADLINE_MS);
+    expect(result.steps[0]?.note).toContain("continue from cached work");
+    expect(result.steps[0]?.note).not.toContain("running");
   });
 });

@@ -123,6 +123,21 @@ function deps(calls: string[]): AutonomousResearchDeps {
       calls.push("final-keywords");
       return { status: "ok" as const, candidates: 12, missing: 8, checked: 8, withVolume: 7, costUsd: 0.075 };
     }),
+    prepareNewPages: vi.fn(async () => {
+      calls.push("new-pages");
+      return {
+        validated: 5,
+        cached: 4,
+        skipped: 0,
+        briefs: 2,
+        costUsd: 0.003,
+        briefCostUsd: 0.03,
+        capped: false,
+        winnabilityCostUsd: 0,
+        skippedQualityGate: [],
+        skippedOwnedByRegistry: [],
+      };
+    }),
     prepareMoves: vi.fn(async () => {
       calls.push("prepare");
       return {
@@ -166,7 +181,7 @@ describe("runAutonomousResearchForTenant", () => {
     const receipt = await runAutonomousResearchForTenant(TENANT, NOW, deps(calls));
     expect(calls).toEqual([
       "graph", "competitors", "gaps", "packs", "keywords", "engines", "ai", "questions", "claims", "authority",
-      "loss", "steal", "native", "final-keywords", "fuse", "prepare", "today",
+      "loss", "steal", "native", "final-keywords", "new-pages", "fuse", "prepare", "today",
     ]);
     expect(receipt.ok).toBe(true);
     expect(receipt.trigger).toBe("visit");
@@ -188,9 +203,10 @@ describe("runAutonomousResearchForTenant", () => {
       pagesMapped: 90,
       stealBriefsBuilt: 4,
       finalKeywordTermsChecked: 8,
+      newPageBriefsPrepared: 2,
       readyToReview: 5,
       draftsRegenerated: 2,
-      spendUsd: 0.363,
+      spendUsd: 0.396,
     });
   });
 

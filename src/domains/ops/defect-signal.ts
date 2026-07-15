@@ -30,19 +30,32 @@ export type DefectSignal = {
    *  straight into buildTodayCommand's pipelineAlarms so the command can never miss a red
    *  signal the banner is already showing. */
   sentences: string[];
+  /** Customer-relevant deadman sentences. The page-factory is automatically
+   * repaired and its work is already represented on Changes, so its internal
+   * scheduler receipt is not a customer action or a red Today alarm. */
+  deadmanSentences: string[];
 };
 
 export function deriveDefectSignal(input: DefectSignalInput): DefectSignal {
   const alarmViolations = input.violations.filter((v) => v.severity !== "info" && v.severity !== "warn");
   const warnViolations = input.violations.filter((v) => v.severity === "warn");
   const pipelineFires = alarmViolations.length > 0;
-  const deadmanFires = input.deadman != null && input.deadman.alarm && input.deadman.sentences.length > 0;
+  const automaticPageFactorySentences = new Set(
+    input.deadman?.jobs
+      .filter((job) => job.job === "page-factory")
+      .map((job) => job.sentence)
+      .filter((sentence): sentence is string => !!sentence) ?? [],
+  );
+  const deadmanSentences = input.deadman?.alarm
+    ? input.deadman.sentences.filter((sentence) => !automaticPageFactorySentences.has(sentence))
+    : [];
+  const deadmanFires = deadmanSentences.length > 0;
   const spikeFires = input.errorSpikeLine != null;
   const redFires = pipelineFires || deadmanFires || spikeFires;
   const sentences = [
     ...alarmViolations.map((v) => v.sentence),
-    ...(deadmanFires ? input.deadman!.sentences : []),
+    ...deadmanSentences,
     ...(spikeFires ? [input.errorSpikeLine as string] : []),
   ];
-  return { alarmViolations, warnViolations, redFires, sentences };
+  return { alarmViolations, warnViolations, redFires, sentences, deadmanSentences };
 }

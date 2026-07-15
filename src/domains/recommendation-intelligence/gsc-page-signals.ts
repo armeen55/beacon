@@ -20,6 +20,7 @@
 
 import "server-only";
 
+import { cache } from "react";
 import { getSupabaseAdmin } from "@/lib/persistence/supabase";
 import { canonicalizeCitationUrl } from "@/domains/citation-lifecycle/canonicalize-url";
 import { readLastFinalizedDate } from "@/domains/proof-gsc/gsc-window";
@@ -70,7 +71,7 @@ const MAX_ROWS = 80_000;
 /** PostgREST response cap — page through in chunks of this size. */
 const PAGE_SIZE = 1_000;
 
-export async function loadGscPageSignalsForTenant(
+async function loadGscPageSignalsForTenantUncached(
   tenantId: string,
   now: Date = new Date(),
 ): Promise<Map<string, GscPageSignal>> {
@@ -238,6 +239,14 @@ export async function loadGscPageSignalsForTenant(
 
   return out;
 }
+
+/** One exact RPC result per tenant/date argument in a request. The demand graph,
+ * trigger loader, ownership registry, and preparation path can all ask for this
+ * same expensive 90-day aggregate during one Changes rebuild. Without request
+ * memoization they issued duplicate GROUP BY statements concurrently; on the
+ * authenticated Iranopedia refresh one of those statements timed out and the
+ * rebuilt ranking lost evidence. */
+export const loadGscPageSignalsForTenant = cache(loadGscPageSignalsForTenantUncached);
 
 // ── Site totals slice (2026-06-15) — light per-day site-totals read ──
 

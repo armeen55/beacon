@@ -80,6 +80,15 @@ export type ProductionLineDeps = {
   /** N5 (2026-07-03): injectable topic-keyed teardown extracts for the
    *  info-gain check; defaults to the steal-brief + audit-cache join. */
   teardownEntries?: TeardownTopicEntry[];
+  /** Optional narrower landing strip for an on-visit recovery. The scheduled
+   * weekly run keeps the five-page default; recovery may create one useful
+   * review item without attempting a whole multi-page LLM batch inside a
+   * request's post-response lifetime. */
+  maxDrafts?: number;
+  /** Full-page prose is valuable but much slower than a reviewable grounded
+   * brief. On-visit recovery can persist the brief and let normal preparation
+   * complete prose later. Defaults to true for the regular weekly run. */
+  draftFullPages?: boolean;
 };
 
 /** Monday of the week containing `now`, as an ISO date (YYYY-MM-DD), UTC. Mirrors
@@ -105,6 +114,8 @@ export async function runProductionLineForTenant(
   const now = deps.now ?? (() => new Date());
   const draftBrief = deps.draftBrief ?? draftCreatePageStructured;
   const draftFullPage = deps.draftFullPage ?? draftFullPageStructured;
+  const maxDrafts = Math.max(1, Math.min(MAX_DRAFTS_PER_WEEK, deps.maxDrafts ?? MAX_DRAFTS_PER_WEEK));
+  const shouldDraftFullPages = deps.draftFullPages ?? true;
 
   const empty = (reason: string): ProductionLineSummary => ({
     tenantId,
@@ -192,7 +203,7 @@ export async function runProductionLineForTenant(
     const governorCtx =
       deps.governorContext ??
       (await loadGovernorContextForTenant(tenantId, now()).catch(() => EMPTY_GOVERNOR_CONTEXT));
-    const considered = rankedAll.slice(0, MAX_DRAFTS_PER_WEEK);
+    const considered = rankedAll.slice(0, maxDrafts);
     const govern = governFactoryBatch({
       candidates: considered.map((r) => ({ slug: r.candidate.slug, title: r.candidate.title })),
       newPagesThisWeek: governorCtx.newPagesThisWeek,
@@ -309,20 +320,24 @@ export async function runProductionLineForTenant(
         faqQuestions: briefValue.faqQuestions,
       };
 
-      let fullPageResult: Awaited<ReturnType<typeof draftFullPageStructured>>;
-      try {
-        fullPageResult = await draftFullPage(
-          fullPageBrief,
-          { topic: candidate.title, evidenceFacts: [candidate.why] },
-          { now: nowDate },
-        );
-      } catch (e) {
-        log.warn("[page-factory] full-page draft threw (fail-soft, keeping brief-only)", {
-          tenantId,
-          slug: candidate.slug,
-          error: e instanceof Error ? e.message : String(e),
-        });
-        fullPageResult = { status: "drafted", outcomes: [], totalCostUsd: 0, sectionsDrafted: 0, sectionsFallback: 0 };
+      let fullPageResult: Awaited<ReturnType<typeof draftFullPageStructured>> = {
+        status: "off",
+      };
+      if (shouldDraftFullPages) {
+        try {
+          fullPageResult = await draftFullPage(
+            fullPageBrief,
+            { topic: candidate.title, evidenceFacts: [candidate.why] },
+            { now: nowDate },
+          );
+        } catch (e) {
+          log.warn("[page-factory] full-page draft threw (fail-soft, keeping brief-only)", {
+            tenantId,
+            slug: candidate.slug,
+            error: e instanceof Error ? e.message : String(e),
+          });
+          fullPageResult = { status: "drafted", outcomes: [], totalCostUsd: 0, sectionsDrafted: 0, sectionsFallback: 0 };
+        }
       }
 
       if (fullPageResult.status === "drafted") {

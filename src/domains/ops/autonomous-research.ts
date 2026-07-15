@@ -13,6 +13,7 @@ import type { ResearchPackLite } from "@/domains/serp/research-enrichment";
 import type { KeywordGapRunResult } from "@/domains/serp/keyword-gap-producer";
 import type { StealLaneRunSummary } from "@/domains/serp/serp-steal-lane";
 import type { FinalKeywordDemandResult } from "@/domains/serp/final-keyword-demand";
+import type { PrepareSummary as PrepareNewPagesSummary } from "@/domains/serp/prepare-create-page-verdicts";
 import type {
   WarmRunReceipt,
   WarmRunSummary,
@@ -71,6 +72,18 @@ const EMPTY_PREPARE: PrepareMovesSummary = {
   serpWinnerPagesFromCache: 0,
   outcomes: [],
 };
+const EMPTY_NEW_PAGES: PrepareNewPagesSummary = {
+  validated: 0,
+  cached: 0,
+  skipped: 0,
+  briefs: 0,
+  costUsd: 0,
+  briefCostUsd: 0,
+  capped: false,
+  winnabilityCostUsd: 0,
+  skippedQualityGate: [],
+  skippedOwnedByRegistry: [],
+};
 
 export type AutonomousResearchDeps = {
   refreshGraph: (tenantId: string, now: Date) => Promise<void>;
@@ -87,6 +100,7 @@ export type AutonomousResearchDeps = {
   runStealLane: (tenantId: string, now: Date) => Promise<StealLaneRunSummary>;
   runNativeTeardown: (tenantId: string) => Promise<NativeTeardownRunSummary>;
   completeFinalKeywordDemand: (tenantId: string) => Promise<FinalKeywordDemandResult>;
+  prepareNewPages: (tenantId: string) => Promise<PrepareNewPagesSummary>;
   prepareMoves: (tenantId: string, now: Date) => Promise<PrepareMovesSummary>;
   finishSurfaces: (
     tenantId: string,
@@ -174,6 +188,14 @@ const defaultDeps: AutonomousResearchDeps = {
   completeFinalKeywordDemand: async (tenantId) => {
     const { completeFinalKeywordDemandForTenant } = await import("@/domains/serp/final-keyword-demand");
     return await completeFinalKeywordDemandForTenant(tenantId, { maxQueries: 25 });
+  },
+  prepareNewPages: async (tenantId) => {
+    const { prepareCreatePageVerdicts } = await import("@/domains/serp/prepare-create-page-verdicts");
+    return await prepareCreatePageVerdicts(tenantId, {
+      maxValidations: 5,
+      maxBriefs: 5,
+      skipExistingBrief: true,
+    });
   },
   prepareMoves: async (tenantId, now) => {
     const [{ prepareTodayMovesForTenant }, { readChangesSurface }] = await Promise.all([
@@ -289,6 +311,13 @@ export async function runAutonomousResearchForTenant(
     deps.completeFinalKeywordDemand(tenantId));
   steps.push(finalKeywords.receipt);
 
+  // The New Pages board used to require its own "Prepare all" click and could
+  // retain an unsourced brief forever. Run the same capped/cache-first path
+  // automatically; only missing or quality-failing briefs are regenerated.
+  const newPages = await runStep("prepare-new-pages", EMPTY_NEW_PAGES, () =>
+    deps.prepareNewPages(tenantId));
+  steps.push(newPages.receipt);
+
   let prepared = EMPTY_PREPARE;
   const finish = await runStep<WarmRunReceipt | null>("fuse-rank-prepare-surfaces", null, () =>
     deps.finishSurfaces(tenantId, now, {
@@ -345,6 +374,7 @@ export async function runAutonomousResearchForTenant(
     finalSerpQueriesChecked: prepared.serpQueriesChecked ?? 0,
     finalSerpWinnersAnalyzed: prepared.serpWinnerPagesAnalyzed ?? 0,
     finalKeywordTermsChecked: finalKeywords.value.checked,
+    newPageBriefsPrepared: newPages.value.briefs,
     movesPrepared: prepared.prepared,
     readyToReview: prepared.readyToReview,
     draftsRegenerated: prepared.regenerated,
@@ -356,6 +386,9 @@ export async function runAutonomousResearchForTenant(
       displacement.value.costUsd +
       steal.value.liveCostUsd +
       finalKeywords.value.costUsd +
+      newPages.value.costUsd +
+      newPages.value.briefCostUsd +
+      newPages.value.winnabilityCostUsd +
       prepared.llmCostUsd +
       prepared.serpCostUsd
     ).toFixed(3)),

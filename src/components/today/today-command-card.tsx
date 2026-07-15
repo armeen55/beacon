@@ -21,6 +21,7 @@ import type { TodayCommand, TodayCommandKind } from "@/domains/today/today-comma
  *  default card, a quiet day rides the calm quiet surface. */
 const KIND_VARIANT: Record<TodayCommandKind, "default" | "quiet" | "alert"> = {
   fix_defect: "alert",
+  background_recovery: "quiet",
   respond_to_loss: "alert",
   ship_move: "default",
   observe: "quiet",
@@ -30,6 +31,7 @@ const KIND_VARIANT: Record<TodayCommandKind, "default" | "quiet" | "alert"> = {
  *  accent element on the card. */
 const KIND_PILL: Record<TodayCommandKind, { intent: PillIntent; label: string }> = {
   fix_defect: { intent: "attention", label: "Fix this first" },
+  background_recovery: { intent: "measuring", label: "Working in background" },
   respond_to_loss: { intent: "attention", label: "Losing clicks" },
   ship_move: { intent: "neutral", label: "Do this next" },
   observe: { intent: "measuring", label: "All clear" },
@@ -37,6 +39,7 @@ const KIND_PILL: Record<TodayCommandKind, { intent: PillIntent; label: string }>
 
 const KIND_LABEL: Record<TodayCommandKind, string> = {
   fix_defect: "Something is broken",
+  background_recovery: "Background work is continuing",
   respond_to_loss: "Today's biggest problem",
   ship_move: "Today's move",
   observe: "Nothing needs a decision",

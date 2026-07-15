@@ -4,6 +4,7 @@ import { after } from "next/server";
 
 import { autoRefreshStaleConnectorsForTenant } from "@/lib/connectors/cron-sync";
 import { log } from "@/lib/logger";
+import { loadWithDeadline } from "@/lib/load-with-deadline";
 import { runWithTenant } from "@/lib/tenant-context";
 import { runAutonomousResearchForTenant } from "./autonomous-research";
 import { recoverAbandonedPageFactoryForTenant } from "./recover-abandoned-work";
@@ -13,8 +14,13 @@ import {
   type WarmRunReceipt,
 } from "./warm-receipt-store";
 
-/** Failed/started research may retry after this durable cooldown. */
-export const AUTONOMOUS_RETRY_COOLDOWN_MS = 2 * 60 * 60_000;
+/** Failed/partial research retries on a later navigation. Provider and draft
+ * caches make this continuation cheap; a two-hour freeze made a killed Vercel
+ * continuation look permanently stuck to the operator. */
+export const AUTONOMOUS_RETRY_COOLDOWN_MS = 60_000;
+/** Leave enough of the shell's 300-second lifetime to persist a terminal
+ * receipt and attempt the deliberately narrow page-factory repair. */
+export const AUTONOMOUS_RUN_DEADLINE_MS = 210_000;
 const scheduled = new Set<string>();
 
 /** Pure once-a-day + retry decision, pinned independently from Next's after(). */
@@ -42,6 +48,23 @@ function startedReceipt(tenantId: string, now: Date): WarmRunReceipt {
   };
 }
 
+export function timedOutReceipt(tenantId: string, now: Date): WarmRunReceipt {
+  return {
+    tenant_id: tenantId,
+    date: now.toLocaleDateString("en-CA", { timeZone: "America/Los_Angeles" }),
+    ran_at: now.toISOString(),
+    ok: false,
+    totalMs: AUTONOMOUS_RUN_DEADLINE_MS,
+    trigger: "visit",
+    steps: [{
+      name: "autonomous-research",
+      ok: false,
+      ms: AUTONOMOUS_RUN_DEADLINE_MS,
+      note: "This pass reached its safe time limit. I will continue from cached work on your next navigation.",
+    }],
+  };
+}
+
 async function runPostResponseCycle(tenantId: string): Promise<void> {
   await runWithTenant(tenantId, async () => {
     const connectorResults = await autoRefreshStaleConnectorsForTenant(tenantId).catch((error) => {
@@ -52,7 +75,35 @@ async function runPostResponseCycle(tenantId: string): Promise<void> {
       return [];
     });
     const now = new Date();
-    const recovery = await recoverAbandonedPageFactoryForTenant(tenantId, now).catch((error) => ({
+    const prior = await readLastWarmReceipt(tenantId, "visit");
+    if (shouldRunAutonomousResearch(prior, now)) {
+      // Write before work begins. This is the durable cross-instance throttle
+      // and gives the UI an honest running state instead of a blank.
+      await recordWarmRun(startedReceipt(tenantId, now));
+      const raced = await loadWithDeadline(
+        runAutonomousResearchForTenant(tenantId, now),
+        AUTONOMOUS_RUN_DEADLINE_MS,
+      );
+      const receipt = raced.timedOut ? timedOutReceipt(tenantId, now) : raced.data;
+      // A hard continuation limit must never leave the durable status on
+      // "running". A partial receipt permits the next navigation to continue
+      // through the producers' own caches after a short cooldown.
+      await recordWarmRun(receipt);
+      log.info("[autonomous] research cycle finished", {
+        tenantId,
+        connectorsRefreshed: connectorResults.length,
+        ok: receipt.ok,
+        timedOut: raced.timedOut,
+        totalMs: receipt.totalMs,
+        summary: receipt.summary,
+      });
+    }
+
+    // This used to run first and could spend the whole continuation lifetime
+    // drafting five pages, preventing the primary research brain from ever
+    // replacing its "running" receipt. Recovery is now one brief, no full-page
+    // walker, and runs only after the main brain has a terminal receipt.
+    const recovery = await recoverAbandonedPageFactoryForTenant(tenantId, new Date()).catch((error) => ({
       status: "failed" as const,
       weekOf: "unknown",
       reason: error instanceof Error ? error.message : String(error),
@@ -60,21 +111,6 @@ async function runPostResponseCycle(tenantId: string): Promise<void> {
     if (recovery.status !== "not_needed") {
       log.info("[autonomous] page factory recovery checked", { tenantId, recovery });
     }
-    const prior = await readLastWarmReceipt(tenantId, "visit");
-    if (!shouldRunAutonomousResearch(prior, now)) return;
-
-    // Write before work begins. This is the durable cross-instance throttle and
-    // gives the UI an honest running state instead of a mysterious blank.
-    await recordWarmRun(startedReceipt(tenantId, now));
-    const receipt = await runAutonomousResearchForTenant(tenantId, now);
-    await recordWarmRun(receipt);
-    log.info("[autonomous] research cycle finished", {
-      tenantId,
-      connectorsRefreshed: connectorResults.length,
-      ok: receipt.ok,
-      totalMs: receipt.totalMs,
-      summary: receipt.summary,
-    });
   });
 }
 

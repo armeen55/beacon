@@ -15,6 +15,12 @@ vi.mock("./dataforseo-labs", () => ({
   runBacklinksSummary: vi.fn(),
 }));
 vi.mock("@/domains/ownership/registry-loader", () => ({ loadOwnershipRegistryForTenant: vi.fn(async () => null) }));
+vi.mock("@/lib/business-config", () => ({
+  hydrateBusinessConfigFromSupabase: vi.fn(async () => ({
+    authoritativeSourceDomains: ["history.com"],
+  })),
+  getBusinessConfig: vi.fn(() => ({ authoritativeSourceDomains: [] })),
+}));
 
 import { prepareCreatePageVerdicts, parsePreparedVerdict } from "./prepare-create-page-verdicts";
 import { loadDemandGraphForTenant } from "@/domains/demand-graph/load-graph";
@@ -23,6 +29,7 @@ import { runSerpQuery } from "./dataforseo-serp";
 import { runBulkKeywordDifficulty, runBulkDomainRanks, runBacklinksSummary } from "./dataforseo-labs";
 import { loadOwnershipRegistryForTenant } from "@/domains/ownership/registry-loader";
 import { buildOwnershipRegistry } from "@/domains/ownership/registry";
+import { draftCreatePageStructured } from "@/domains/llm/structured-drafter";
 import type { GscCannibalizationCase } from "@/domains/recommendation-intelligence/gsc-cannibalization";
 
 type Move = {
@@ -86,6 +93,19 @@ function cannibalCase(over: Partial<GscCannibalizationCase> & { query: string })
 }
 
 describe("prepareCreatePageVerdicts + winnability integration (item 18)", () => {
+  it("passes exact SERP pages and the tenant authority allowlist into brief drafting", async () => {
+    await prepareCreatePageVerdicts("tenant-iranopedia");
+    expect(draftCreatePageStructured).toHaveBeenCalledWith(
+      expect.objectContaining({
+        referenceCandidates: expect.arrayContaining([
+          "https://history.com/z",
+          "https://wikipedia.org/w",
+        ]),
+      }),
+      expect.objectContaining({ authoritativeSourceDomains: ["history.com"] }),
+    );
+  });
+
   it("BATCHES difficulty/domain-rank/backlinks reads ONCE per run, not per candidate", async () => {
     vi.mocked(loadDemandGraphForTenant).mockResolvedValue({
       graph: {

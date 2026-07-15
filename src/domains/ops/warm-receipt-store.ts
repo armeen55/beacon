@@ -52,6 +52,8 @@ export type WarmRunSummary = {
   finalSerpQueriesChecked?: number;
   finalSerpWinnersAnalyzed?: number;
   finalKeywordTermsChecked?: number;
+  /** Source-verified create-page briefs completed by the autonomous pass. */
+  newPageBriefsPrepared?: number;
   movesPrepared: number;
   readyToReview: number;
   draftsRegenerated: number;

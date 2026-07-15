@@ -25,7 +25,14 @@ export type PageFactoryRecoveryDeps = {
 const defaultDeps: PageFactoryRecoveryDeps = {
   listRuns: listRecentCronRuns,
   hasBatch: hasFactoryBatchForWeek,
-  runFactory: (tenantId, weekOf, now) => runProductionLineForTenant(tenantId, weekOf, { now: () => now }),
+  // Recovery runs inside Next's post-response lifetime. Produce one grounded
+  // review brief and defer full prose to normal preparation so this repair
+  // cannot monopolize the entire autonomous visit cycle again.
+  runFactory: (tenantId, weekOf, now) => runProductionLineForTenant(tenantId, weekOf, {
+    now: () => now,
+    maxDrafts: 1,
+    draftFullPages: false,
+  }),
   recordRun: recordCronRun,
 };
 

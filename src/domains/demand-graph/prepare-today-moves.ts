@@ -32,7 +32,7 @@ import { validateCreatePage } from "@/domains/serp/serp-validation";
 import { rootDomain } from "@/domains/serp/serp-provider";
 import { parsePreparedVerdict, type PreparedSerpVerdict } from "@/domains/serp/prepare-create-page-verdicts";
 import { decideExistingPageHold, type ExistingMoveType } from "@/domains/serp/existing-page-winnability";
-import { getBusinessConfig } from "@/lib/business-config";
+import { getBusinessConfig, hydrateBusinessConfigFromSupabase } from "@/lib/business-config";
 import type { FirstMentionConfig } from "@/domains/drafts/first-mention-check";
 import { log } from "@/lib/logger";
 import { dossierReferenceCandidates, researchDossierHints } from "@/domains/research/research-dossier";
@@ -462,7 +462,9 @@ export async function prepareTodayMovesForTenant(
   // first-mention rule, resolved ONCE, so generation-time source stamping and
   // the quality gate both see this tenant's config (and never another
   // tenant's). Unset fields leave every gate byte-identical to today.
-  const bizConfig = getBusinessConfig(tenantId);
+  const bizConfig =
+    (await hydrateBusinessConfigFromSupabase(tenantId).catch(() => null)) ??
+    getBusinessConfig(tenantId);
   const authoritativeSourceDomains = bizConfig.authoritativeSourceDomains;
   const firstMentionConfig: FirstMentionConfig | null = bizConfig.firstMention ?? null;
   const summary: PrepareMovesSummary = {

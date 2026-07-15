@@ -168,6 +168,41 @@ describe("runProductionLineForTenant - governance", () => {
     expect(res.drafted).toBe(MAX_DRAFTS_PER_WEEK);
   });
 
+  it("supports a one-brief recovery run without invoking the full-page walker", async () => {
+    loadPageCandidatesMock.mockResolvedValue([candidate()]);
+    readAllCachedKeywordDemandMock.mockResolvedValue([
+      {
+        keyword: "nowruz meaning",
+        searchVolume: 500,
+        cpcUsd: null,
+        competition: null,
+        competitionLevel: null,
+        monthlySearches: [],
+        locationCode: 2840,
+        languageCode: "en",
+        source: "dataforseo" as const,
+        fetchedAt: new Date().toISOString(),
+        confidence: "high" as const,
+        evidenceRef: "x",
+      },
+    ]);
+    const fullPage = emptyFullPageFn();
+    const res = await runProductionLineForTenant("t1", "2026-07-06", {
+      draftBrief: goodBriefFn(),
+      draftFullPage: fullPage,
+      maxDrafts: 1,
+      draftFullPages: false,
+    });
+    expect(res.drafted).toBe(1);
+    expect(fullPage).not.toHaveBeenCalled();
+    expect(saveMoveDraftMock).toHaveBeenCalledWith(
+      "t1",
+      "nowruz-meaning",
+      "create_page_brief",
+      expect.any(String),
+    );
+  });
+
   it("rejects a candidate whose matched keyword volume is under the demand floor", async () => {
     loadPageCandidatesMock.mockResolvedValue([candidate()]);
     readAllCachedKeywordDemandMock.mockResolvedValue([

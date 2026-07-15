@@ -130,14 +130,14 @@ export async function OpsPipelineSection({ tenantId }: { tenantId: string }) {
     // P2-a (2026-07-10, visual audit) - alarmViolations/redFires now come from the SHARED
     // deriveDefectSignal (domains/ops/defect-signal.ts), the exact same pure read page.tsx's
     // Today command uses to build its fix_defect gate, so the two can never disagree again.
-    const { alarmViolations, warnViolations, redFires } = deriveDefectSignal({
+    const { alarmViolations, warnViolations, redFires, deadmanSentences } = deriveDefectSignal({
       violations: health?.violations ?? [],
       deadman,
       errorSpikeLine: errorSpike,
     });
     const pipelineFires = alarmViolations.length > 0;
     const warnFires = warnViolations.length > 0;
-    const deadmanFires = deadman != null && deadman.alarm && deadman.sentences.length > 0;
+    const deadmanFires = deadmanSentences.length > 0;
     const spikeFires = errorSpike != null;
     if (!pipelineFires && !warnFires && !deadmanFires && !spikeFires) return null;
 
@@ -185,16 +185,16 @@ export async function OpsPipelineSection({ tenantId }: { tenantId: string }) {
               </p>
             ) : null}
             {deadmanFires
-              ? deadman.sentences.map((s) => {
+              ? deadmanSentences.map((s) => {
                   // Site-down sentence is exactly deadman.siteSentence; every other
                   // sentence traces back to one job in deadman.jobs (or is the
                   // trailing "N other jobs are stalled too" summary line, which
                   // names no single job and gets no fix line of its own).
                   const fix =
-                    s === deadman.siteSentence
+                    s === deadman?.siteSentence
                       ? recoveryForSiteDown().exactFix
                       : (() => {
-                          const job = jobForSentence(deadman.jobs, s);
+                          const job = jobForSentence(deadman?.jobs ?? [], s);
                           if (job == null || job.pace === "healthy" || job.pace === "waiting") return undefined;
                           return recoveryForCronFailure(job.job, job.label, job.pace).exactFix;
                         })();

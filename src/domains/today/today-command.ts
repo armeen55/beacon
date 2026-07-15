@@ -26,7 +26,7 @@ import type { TodaySmokeAlarm } from "@/components/today/today-smoke-alarm";
 import type { TodayOpportunity } from "@/domains/changes/today-view";
 import type { EvidenceStrength } from "@/domains/changes/canonical-change";
 
-export type TodayCommandKind = "fix_defect" | "respond_to_loss" | "ship_move" | "observe";
+export type TodayCommandKind = "fix_defect" | "background_recovery" | "respond_to_loss" | "ship_move" | "observe";
 
 /** The one accent call to action. The card renders exactly one of these; it is the only accent
  *  element above the fold. */
@@ -102,8 +102,8 @@ export function changeFocusHref(changeId: string): string {
 function fixDefect(input: TodayCommandInput): TodayCommand {
   if (input.dataTrustBroken === false) {
     return {
-      kind: "fix_defect",
-      headline: "Some background work failed. Your Google numbers are still trustworthy.",
+      kind: "background_recovery",
+      headline: "I am finishing some background work. Your Google numbers are still trustworthy.",
       why: input.pipelineAlarms.slice(0, 4).map((s) => s.trim()).filter(Boolean),
       exactAction: "I am retrying the failed work automatically while you use Beacon. Refresh once in a moment to see the recovered state.",
       cta: null,
@@ -253,5 +253,5 @@ export function buildTodayCommand(input: TodayCommandInput): TodayCommand {
  * celebratory clause is suppressed. PURE.
  */
 export function commandAllowsCelebration(kind: TodayCommandKind): boolean {
-  return kind !== "fix_defect" && kind !== "respond_to_loss";
+  return kind !== "fix_defect" && kind !== "background_recovery" && kind !== "respond_to_loss";
 }

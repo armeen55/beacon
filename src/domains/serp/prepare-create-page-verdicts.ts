@@ -17,6 +17,7 @@ import type { Winnability } from "./winnability";
 import { checkTopicCoherence } from "@/domains/demand-graph/topic-coherence-gate";
 import { loadOwnershipRegistryForTenant } from "@/domains/ownership/registry-loader";
 import { resolveOwner } from "@/domains/ownership/registry";
+import { getBusinessConfig, hydrateBusinessConfigFromSupabase } from "@/lib/business-config";
 
 /**
  * prepare-create-page-verdicts (2026-06-25, Phase 4-auto) - the "prepared, not a
@@ -126,6 +127,12 @@ export async function prepareCreatePageVerdicts(
     skipExistingBrief?: boolean;
   } = {},
 ): Promise<PrepareSummary> {
+  // This path creates the briefs rendered on the New Pages board. Resolve the
+  // tenant's durable config before drafting so source allowlists do not fall
+  // back to the process-local placeholder on Vercel.
+  const bizConfig =
+    (await hydrateBusinessConfigFromSupabase(tenantId).catch(() => null)) ??
+    getBusinessConfig(tenantId);
   const max = opts.maxValidations ?? 25;
   const now = opts.now ?? (() => new Date());
   const summary: PrepareSummary = {
@@ -254,6 +261,7 @@ export async function prepareCreatePageVerdicts(
         faqQuestions: b.faqQuestions,
         schemaTypes: b.schemaTypes,
         hasSerpVerdict: hasVerdict,
+        authoritativeSourceDomains: bizConfig.authoritativeSourceDomains,
       }).copyAllowed;
     } catch {
       return false;
@@ -402,6 +410,16 @@ export async function prepareCreatePageVerdicts(
             v.profoundOverlapCount > 0 ? "Google and AI cite the same competitors for this topic" : "",
             `${v.contentDomainCount} of 10 SERP results are beatable content pages`,
           ].filter(Boolean),
+          // SERP winners are not automatically authorities, but this is the
+          // broadest exact-page pool already paid for. The drafter chooses a
+          // candidate and the existing fetch/authority/entailment gate still
+          // rejects anything weak or irrelevant.
+          referenceCandidates: [...new Set([
+            ...(snapshot?.results ?? []).map((result) => result.url),
+            ...m.competitorUrls,
+          ])].slice(0, 12),
+        }, {
+          authoritativeSourceDomains: bizConfig.authoritativeSourceDomains,
         });
         if (brief.status === "drafted") {
           summary.briefs += 1;
