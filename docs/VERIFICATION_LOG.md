@@ -35988,3 +35988,31 @@ and two Turbopack NFT trace warnings; `git diff --check` exit 0. Product commit
 `/login` returned 200, and unauthenticated `/changes` returned the expected 307 to
 `/login?next=%2Fchanges`. Authenticated Iranopedia data-backed inspection remains the operator's
 next proof and is not claimed here.
+
+## 2026-07-14 - Authenticated autonomous-flow correction
+
+Authenticated Iranopedia verification exposed operational defects hidden by the prior green local
+gate. Production logs proved a 404 request to `/today`, a timed-out `gsc_page_signals_v1` statement,
+and a tenant business-config placeholder warning during the same interaction. Product output proved
+the abandoned page-factory alarm had not cleared, Changes warmed through a delay and then changed
+order/numbers, and New Pages retained factual openings that failed the authoritative-source gate.
+
+The correction adds `/today` as a redirect to canonical Today, bounds an autonomous continuation to
+210 seconds with a terminal retryable receipt, reduces failed-attempt cooldown to one minute so
+subsequent navigation continues through existing caches, and moves page-factory recovery after the
+primary brain. Recovery is narrowed to one grounded brief with no full-page walker. A page-factory
+receipt is no longer a red Today alarm. The expensive per-page GSC aggregate is request-memoized.
+Both prepared-move and New Pages preparation hydrate the explicit tenant config before source
+classification. The autonomous pass now runs the existing capped New Pages prepare path for up to
+five candidates, and that path supplies exact SERP result URLs as source candidates while retaining
+the existing fetch, authority, and entailment fail-closed gate.
+
+Verification: focused correction suites 10 files / 86 tests passed; strict typecheck exit 0;
+complete suite 1,498 files / 22,934 passed / 23 conditional skips / 0 failed in 93.58 seconds;
+production build exit 0 with the existing middleware deprecation and two Turbopack NFT trace
+warnings; `git diff --check` exit 0. Product commit
+`198299e3b9ad24000dfec72eee795ecb7845a550` was pushed to `origin/main`; Vercel deployment
+`dpl_8JZ3ipLJZVP9K4PC4zFvB7bJBoog` reached Ready; production `/api/version` returned that exact
+SHA. Unauthenticated `/today` and `/changes` correctly reached their login continuations. The
+signed-in `/today` compatibility redirect and regenerated source-ready Iranopedia brief remain the
+next operator proof and are not claimed here.

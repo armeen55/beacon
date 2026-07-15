@@ -132,7 +132,14 @@ chronology of what already landed lives in VERIFICATION_LOG.md; this list is onl
    existing verification gate. Topic sibling clustering, AEO fanout relevance, and redirect safety
    are tightened before display. Next: run one authenticated Iranopedia visit cycle, refresh Today,
    then inspect the top Changes and one PreparedMove. This is operational proof, not another
-   architecture slice.
+   architecture slice. AUTHENTICATED-PRODUCTION CORRECTION DEPLOYED AND SHA-VERIFIED at
+   `198299e3`: `/today` is a compatibility redirect; an autonomous continuation writes a terminal
+   receipt by 210 seconds and may continue from caches after a one-minute cooldown; the narrow
+   page-factory repair runs after the primary brain; duplicate same-request GSC aggregate reads
+   collapse; tenant source configuration hydrates before preparation; and up to five failing New
+   Pages briefs automatically re-enter the exact-SERP source verification path. The internal
+   page-factory receipt no longer renders as a red customer emergency. Next: one authenticated
+   Iranopedia navigation, one refresh after four minutes, and inspection of one regenerated brief.
 21. **Fresh blind unseen-topic benchmark.** Run 5 preregistered cases not used to build these
    corrections. A case that changes code is spent and must be replaced.
 22. **Scheduled-refresh receipt.** The first cron run after this deploy must leave a started

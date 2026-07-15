@@ -1,5 +1,23 @@
 # Beacon Verified State
 
+> 🟢 **The 2026-07-14 authenticated-production correction is deployed and SHA-verified at
+> `198299e3` (Vercel `dpl_8JZ3ipLJZVP9K4PC4zFvB7bJBoog`).** Real Iranopedia use exposed five
+> failures the local gate could not prove: `/today` returned 404, the visit receipt could remain
+> `running`, an expensive five-page recovery ran before the primary brain, duplicate GSC aggregate
+> reads could time out and destabilize a rebuild, and New Pages kept source-failing briefs unless
+> the operator pressed Prepare. `/today` now redirects to canonical Today; every autonomous pass
+> records a terminal result by 210 seconds and retries from producer caches after one minute; the
+> page-factory repair runs after the brain, creates at most one review brief, and skips full prose;
+> request-level GSC signal reads are memoized; and the autonomous cycle now re-prepares up to five
+> missing or quality-failing New Pages briefs with exact SERP reference pages and the hydrated
+> tenant source allowlist. A page-factory scheduler receipt no longer occupies Today's red customer
+> alarm because it is automatically recovered and does not invalidate Google data. Verification:
+> strict typecheck; 1,498 files / 22,934 passed / 23 conditional skips / 0 failed; production build
+> exit 0 with the existing middleware deprecation and two Turbopack trace warnings. Production
+> `/api/version` returned the exact full product SHA. Next three actions: (1) open signed-in Today
+> once and navigate to Changes, (2) wait up to four minutes and refresh Today once, and (3) confirm
+> there is no `/today` 404 or red page-factory alarm and inspect one New Page brief's source state.
+
 > 🟢 **The 2026-07-14 autonomous recovery and deep-research release is deployed and SHA-verified
 > at `4779a1bb` (Vercel `dpl_4Fijnb9Xc2V16QWDZkDNRE1Pvi9f`).** A normal signed-in visit now
 > detects an abandoned weekly page-factory run and idempotently retries or reconciles it in the

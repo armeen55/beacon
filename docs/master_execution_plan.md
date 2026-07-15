@@ -3117,6 +3117,17 @@ must survive the existing verification gate, unrelated fanout is suppressed, obv
 merge, and redirects require an exact safe source URL. The remaining proof is one normal signed-in
 Iranopedia visit followed by a refresh and inspection of the resulting top move.
 
+**Authenticated-production correction implemented 2026-07-14:** autonomous work is a bounded,
+continuable product state, not one enormous post-response promise. A visit attempt receives a
+terminal receipt by 210 seconds; a partial pass resumes through the producers' caches after a short
+cooldown, so the header cannot remain `running` indefinitely. Weekly page recovery is subordinate
+to the primary research brain and is deliberately one brief without the full-page walker. New-page
+source completion now runs automatically for up to five candidates using the exact pages already
+returned by the paid SERP read plus the hydrated tenant authority allowlist. Same-request GSC page
+aggregation is memoized to reduce statement-timeout instability. `/today` is a supported alias for
+canonical Today, and an automatically repaired scheduler receipt is kept out of the red customer
+alarm because it is neither operator-actionable nor a Google-data trust failure.
+
 **P0 tenant-isolation decision, 2026-07-14:** every background or post-response builder that begins
 with an explicit tenant must keep that tenant explicit through every nested recommendation and
 research read. Request-ambient or process-default tenant selection is forbidden inside that graph.
