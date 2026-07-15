@@ -3128,6 +3128,14 @@ aggregation is memoized to reduce statement-timeout instability. `/today` is a s
 canonical Today, and an automatically repaired scheduler receipt is kept out of the red customer
 alarm because it is neither operator-actionable nor a Google-data trust failure.
 
+**Instant-autonomy decision, 2026-07-15:** research freshness and product availability are separate
+contracts. Today and Changes always serve the last complete tenant-scoped snapshot; a mutation marks
+that snapshot stale but never deletes it, and a replacement becomes visible only after the full new
+surface is built. The autonomous runner must publish a usable cached-evidence surface before slow or
+paid enrichment. Provider latency, a partial pass, or a continuation deadline may delay deeper
+evidence, but may not turn normal navigation into a waiting ritual or erase the operator's usable
+ranking. Customer instructions must never ask for timed waits or double refreshes to make Beacon work.
+
 **P0 tenant-isolation decision, 2026-07-14:** every background or post-response builder that begins
 with an explicit tenant must keep that tenant explicit through every nested recommendation and
 research read. Request-ambient or process-default tenant selection is forbidden inside that graph.

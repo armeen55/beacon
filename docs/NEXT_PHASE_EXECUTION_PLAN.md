@@ -140,6 +140,12 @@ chronology of what already landed lives in VERIFICATION_LOG.md; this list is onl
    Pages briefs automatically re-enter the exact-SERP source verification path. The internal
    page-factory receipt no longer renders as a red customer emergency. Next: one authenticated
    Iranopedia navigation, one refresh after four minutes, and inspection of one regenerated brief.
+20c. **Instant autonomous surfaces.** DEPLOYED AND SHA-VERIFIED at `d685cd15`. Today and Changes
+   retain their last complete snapshot across mutations, mark it stale instead of deleting it, and
+   replace it atomically through the existing SWR path. The visit runner publishes a usable cached-
+   evidence surface before expensive research, while the global status retains the last completed
+   summary during refresh. Navigation never waits for the deep research pipeline; no cron, button,
+   external integration, or publish permission was added.
 21. **Fresh blind unseen-topic benchmark.** Run 5 preregistered cases not used to build these
    corrections. A case that changes code is spent and must be replaced.
 22. **Scheduled-refresh receipt.** The first cron run after this deploy must leave a started

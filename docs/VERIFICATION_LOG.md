@@ -36016,3 +36016,28 @@ warnings; `git diff --check` exit 0. Product commit
 SHA. Unauthenticated `/today` and `/changes` correctly reached their login continuations. The
 signed-in `/today` compatibility redirect and regenerated source-ready Iranopedia brief remain the
 next operator proof and are not claimed here.
+
+## 2026-07-15 - Instant autonomous surfaces
+
+The previous handoff incorrectly asked the operator to wait up to four minutes and refresh to prove
+background completion. That is an engineering verification ritual, not an acceptable product
+contract. The actual root was broader: mutations deleted the durable Today/Changes presentation
+snapshots, turning a warm product cold, and the visit runner did not publish its fused surfaces until
+after every slow research producer and preparation step.
+
+Today and Changes invalidation now preserves the last-known-good payload and only ages its timestamp;
+the existing SWR reader serves it immediately and replaces it after a complete background rebuild.
+The autonomous runner publishes the best usable worklist, fused Changes view, and Today composite
+from cached evidence as its first isolated step, then performs deeper graph, competitor, DataForSEO,
+AI, source, and drafting enrichment. Running and timed-out receipts keep the prior completed summary,
+and the header says the saved result is usable while refresh continues. The Changes snapshot ceiling
+is reduced from 25 seconds to 5 seconds.
+
+Verification: focused snapshot/autonomy suites 8 files / 41 tests passed before the final receipt
+coverage; strict typecheck exit 0; complete suite 1,498 files / 22,939 passed / 23 conditional skips /
+0 failed in 65.95 seconds; production build exit 0 with the existing middleware deprecation and two
+Turbopack NFT trace warnings; `git diff --check` exit 0. Product commit
+`d685cd1505bc79495bf58cfb6bfb52bd29e90721` was pushed to `origin/main`; Vercel deployment
+`dpl_55VKFwGfyomtHgp8fzotYF2M4ged` reached Ready; production `/api/version` returned that exact SHA.
+Unauthenticated `/today` and `/changes` reached their expected login continuations. Authenticated
+rendering is intentionally not claimed from this environment.

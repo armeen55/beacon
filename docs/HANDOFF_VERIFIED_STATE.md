@@ -1,5 +1,21 @@
 # Beacon Verified State
 
+> 🟢 **The 2026-07-15 instant-autonomy correction is deployed and SHA-verified at
+> `d685cd15` (Vercel `dpl_55VKFwGfyomtHgp8fzotYF2M4ged`).** The operator correctly rejected the
+> previous four-minute verification ritual: background intelligence may take time, but using Beacon
+> must not. Today and Changes invalidation now preserves the last-known-good snapshot, marks it stale
+> internally, serves it immediately, and atomically replaces it only after a complete rebuild. The
+> autonomous cycle publishes a usable worklist/Changes/Today set from durable cached evidence before
+> long competitor, keyword, AI, or drafting work, so a slow provider or the 210-second continuation
+> deadline cannot prevent a useful product state from landing. A running receipt retains the last
+> completed summary and reads `Up to date · refreshing`; it no longer makes ready saved results look
+> unfinished. Changes' snapshot-read ceiling is 5 seconds rather than 25. Verification: strict
+> typecheck; 1,498 files / 22,939 passed / 23 conditional skips / 0 failed; production build exit 0
+> with the existing middleware deprecation and two Turbopack trace warnings. Production
+> `/api/version` returned the exact full SHA. Next three actions: (1) use Beacon normally, (2) report
+> only if a normal navigation loses the saved list or produces an error, and (3) otherwise continue
+> with the ranked work without waiting for background research.
+
 > 🟢 **The 2026-07-14 authenticated-production correction is deployed and SHA-verified at
 > `198299e3` (Vercel `dpl_8JZ3ipLJZVP9K4PC4zFvB7bJBoog`).** Real Iranopedia use exposed five
 > failures the local gate could not prove: `/today` returned 404, the visit receipt could remain
