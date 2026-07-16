@@ -79,6 +79,17 @@ Beacon retries the current page once automatically after the abandoned load has 
 the durable cache. A per-page session cooldown prevents retry loops. Cold or failed Changes reads
 must never assign “refresh and wait” work back to the user.
 
+Results settlement follows the same rule: opening the authenticated Results surface schedules the
+existing bounded, zero-paid-call measurement and reverification pass whenever work is due. This
+safe maintenance is a product behavior, not an operator-mode feature. Manual proof mutations and
+restore actions retain their independent protections. Registration failures must not advance a
+throttle for work that never started.
+
+Strict unused-code diagnostics are an audit signal, not deletion authority. Remove proven imports
+and locals in bounded batches; review public parameters and algorithm inputs against all callers
+before changing them. The 2026-07-16 baseline was 231 diagnostic lines across 113 source-tree files;
+the first reviewed batch reduced it to 201 lines and 97 files.
+
 ### Production artifact boundary decision (2026-07-16)
 
 Production server traces may contain compiled Next output, runtime dependencies, and the root

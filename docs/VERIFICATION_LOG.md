@@ -7,6 +7,35 @@
 
 ---
 
+## 2026-07-16 - Autonomous Results maintenance + strict unused cleanup (c6b872d9, b23a4cfc)
+
+Removed an obsolete operator-mode gate from the existing passive Results maintenance path. Every
+authenticated Results visit may now schedule due proof measurement and bounded live-page
+reverification from already-synced data with paid rank rechecks disabled. Manual proof writes,
+restore actions, and diagnostics remain separately operator-gated. The scheduler now records its
+ten-minute warm-instance throttle only after `after()` registration succeeds, so a registration
+failure cannot suppress a later legitimate request. Today and Keywords read failures use automatic
+recovery; stale GSC, connector-cron, page-factory, and timed-out research copy describes Beacon's
+on-use recovery without asking the user to refresh or sync manually.
+
+The follow-up strict TypeScript audit (`noUnusedLocals` + `noUnusedParameters`) reported 231 lines
+across 113 source-tree files before cleanup. A bounded import/local-only batch removed 30 proven
+diagnostics across 21 production modules, leaving 201 lines and 97 affected source-tree files.
+Function parameters, exported shapes, and ambiguous algorithm inputs were deliberately retained for
+caller-by-caller review.
+
+Verification: focused autonomy/recovery suites 62/62; strict typecheck exit 0; ESLint exit 0; full
+suite 1,506 files / 22,980 passed / 23 skipped / 0 failed after each coherent wave; production
+dependency audit zero; production build exit 0 after each wave with only the protected middleware
+filename deprecation. Behavior commit `c6b872d9ca68c17b49341803783d7be2ee77f660` deployed as
+`dpl_5Wbr568U9gb6cC8sKKneL9UD1QPG`; all 77 non-dynamic page contracts returned the expected public
+200 or protected 307 with zero unexpected statuses. Cleanup commit
+`b23a4cfce96a253461db1840f1326ff563e66d6f` deployed as
+`dpl_HGeMMdB8PL3UvSAC6PSQqMx8jAUY`; five production version reads returned the exact final SHA and
+three representative route passes were correct. Vercel's representative function remains 2.19 MB.
+No paid provider call, data mutation, hosted environment mutation, or destructive operation
+occurred.
+
 ## 2026-07-16 - Autonomous delay recovery and full page-contract sweep (90c3f843)
 
 Converted the shared deadline fallback from a passive “next visit” message into one automatic

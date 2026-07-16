@@ -1,5 +1,24 @@
 # Beacon Verified State
 
+> 🟢 **The 2026-07-16 autonomous Results maintenance and strict cleanup wave is deployed and
+> SHA-verified through `b23a4cfc` (behavior commit `c6b872d9`; Vercel
+> `dpl_HGeMMdB8PL3UvSAC6PSQqMx8jAUY`).** Opening Results as any authenticated user now schedules
+> bounded, zero-paid-call measurement and live-page reverification when work is due; the old
+> operator-mode gate remains only on manual proof mutations and restore actions. A failed
+> `after()` registration no longer writes the ten-minute throttle before work is scheduled.
+> Today, Keywords, connector recovery, page-factory recovery, and Results freshness copy no longer
+> assign manual refresh work to the user. The first strict-unused batch then removed 30 proven
+> diagnostics across 21 production modules without changing public signatures or behavior.
+> Verification: focused autonomy/recovery 62/62; strict typecheck; lint exit 0; complete suite 1,506
+> files / 22,980 passed / 23 conditional skips / 0 failed; production dependency audit zero;
+> production build exit 0. Vercel's representative function remains 2.19 MB. Both product commits
+> were separately deployed and exact-SHA checked; the final tip returned exact SHA five times and
+> three representative route passes were correct. The comprehensive behavior-build sweep covered
+> all 77 non-dynamic pages with zero unexpected statuses. Strict unused diagnostics fell from 231
+> to 201 lines and affected source-tree files from 113 to 97. Next three actions: (1) continue the
+> measured unused-code audit in bounded batches, (2) use signed-in Today → Changes → Results
+> normally, and (3) rename the protected middleware file only after explicit deletion approval.
+
 > 🟢 **The 2026-07-16 autonomous delay recovery is deployed and SHA-verified at
 > `90c3f843` (Vercel `dpl_85SP949LwuwozpMaEdzMDsd2dMvw`).** A missed server deadline no longer
 > tells the user to return on a later visit: the shared fallback schedules one router refresh after

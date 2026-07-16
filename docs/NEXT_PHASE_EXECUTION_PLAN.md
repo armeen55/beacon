@@ -103,7 +103,11 @@ chronology of what already landed lives in VERIFICATION_LOG.md; this list is onl
    SECOND BOUNDED CLEANUP DEPLOYED AND SHA-VERIFIED at `fc7c980a`: removed the retired pre-tenant
    robots flat-file implementation and stale planner imports/locals, leaving tenant repositories as
    the sole robots-state boundary without changing planner output. Focused 65/65 and the complete
-   1,504-file / 22,971-pass suite are green.
+   1,504-file / 22,971-pass suite are green. THIRD BOUNDED CLEANUP DEPLOYED AND SHA-VERIFIED at
+   `b23a4cfc`: a strict `noUnusedLocals` / `noUnusedParameters` audit established 231 diagnostic
+   lines across 113 source-tree files; the first import/local-only batch removed 30 diagnostics
+   across 21 modules, leaving 201 lines and 97 affected source-tree files. Parameters and public
+   shapes remain untouched until each caller contract is reviewed.
 20a. **Autonomous research-before-ranking MVP.** DEPLOYED AND SHA-VERIFIED at `d6dcb0c7` (initial
    scheduler `ce4d4345`, suite cleanup `96e137ab`, AI-poll hardening `433614ac`). Every
    signed-in shell visit can trigger one bounded tenant/day post-response cycle: connector freshness,
@@ -171,7 +175,11 @@ chronology of what already landed lives in VERIFICATION_LOG.md; this list is onl
    external integration, or publish permission was added. DELAY-RECOVERY FOLLOW-UP DEPLOYED AND
    SHA-VERIFIED at `90c3f843`: shared deadline fallbacks and Changes' cold/error states now retry
    once automatically, with a per-page 30-second session cooldown that prevents refresh loops. The
-   user is no longer instructed to come back or manually refresh these states.
+   user is no longer instructed to come back or manually refresh these states. RESULTS-MAINTENANCE
+   FOLLOW-UP DEPLOYED AND SHA-VERIFIED at `c6b872d9`: authenticated Results visits schedule the
+   existing bounded $0 measurement/reverification pass without an operator-mode dependency;
+   failed `after()` registration cannot poison its throttle, and remaining normal-path recovery
+   copy no longer asks for a manual refresh.
 21. **Fresh blind unseen-topic benchmark.** Run 5 preregistered cases not used to build these
    corrections. A case that changes code is spent and must be replaced.
 22. **Scheduled-refresh receipt.** The first cron run after this deploy must leave a started
