@@ -1,17 +1,55 @@
+"use client";
+
+import { useEffect } from "react";
+import { usePathname, useRouter } from "next/navigation";
+
+const RETRY_DELAY_MS = 1_500;
+export const HONEST_DELAY_RETRY_COOLDOWN_MS = 30_000;
+
+export function shouldScheduleHonestDelayRetry(args: {
+  lastRetryAtMs: number | null;
+  nowMs: number;
+  cooldownMs?: number;
+}): boolean {
+  if (args.lastRetryAtMs === null || !Number.isFinite(args.lastRetryAtMs)) return true;
+  return args.nowMs - args.lastRetryAtMs >= (args.cooldownMs ?? HONEST_DELAY_RETRY_COOLDOWN_MS);
+}
+
 /**
- * HonestDelay (FINISHED PRODUCT FP1, 2026-07-02) - what a streamed section says
- * when its loader missed the deadline (see `src/lib/load-with-deadline.ts`).
- * One honest sentence instead of an infinite gray pulse box. The abandoned
- * loader keeps running in the background and warms the cache, so "next visit"
- * is a real promise, not a brush-off. Server component, no client JS.
+ * A deadline miss must not become work for the user. Schedule one bounded
+ * router refresh per page and cooldown window while the abandoned server load
+ * warms the durable cache. Session storage prevents a slow dependency from
+ * turning this into a refresh loop.
  */
 export function HonestDelay() {
+  const pathname = usePathname();
+  const router = useRouter();
+
+  useEffect(() => {
+    const key = `beacon:delay-retry:${pathname}`;
+    const nowMs = Date.now();
+    let lastRetryAtMs: number | null = null;
+    try {
+      const stored = window.sessionStorage.getItem(key);
+      lastRetryAtMs = stored === null ? null : Number(stored);
+      if (!shouldScheduleHonestDelayRetry({ lastRetryAtMs, nowMs })) return;
+      window.sessionStorage.setItem(key, String(nowMs));
+    } catch {
+      // Storage can be unavailable in hardened browser modes. In that case,
+      // preserve the calm fallback and avoid an unbounded retry.
+      return;
+    }
+
+    const timer = window.setTimeout(() => router.refresh(), RETRY_DELAY_MS);
+    return () => window.clearTimeout(timer);
+  }, [pathname, router]);
+
   return (
     <p
       role="status"
       className="rounded-2xl border border-dashed border-gray-200 bg-white px-4 py-3 text-[13px] text-gray-500 dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-400"
     >
-      This section is taking longer than it should. It will be here on your next visit.
+      This section is taking longer than it should. Beacon is retrying automatically.
     </p>
   );
 }
