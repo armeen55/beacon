@@ -572,7 +572,6 @@ export function buildSpecificEditEvidencePacket(
   args: BuildSpecificEditEvidencePacketArgs,
 ): SpecificEditEvidencePacket {
   const now = args.now ?? new Date();
-  const affectedSet = new Set(args.affectedPromptIds);
 
   const promptTextById = new Map(
     args.trackedPrompts.map((p) => [p.id, p.text]),

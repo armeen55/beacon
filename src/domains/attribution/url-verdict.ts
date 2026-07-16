@@ -320,12 +320,6 @@ function stddev(nums: number[], m: number): number {
   return Math.sqrt(s / (nums.length - 1));
 }
 
-function isoDaysBetween(aISO: string, bISO: string): number {
-  const a = new Date(aISO + "T00:00:00Z").getTime();
-  const b = new Date(bISO + "T00:00:00Z").getTime();
-  return Math.round((b - a) / 86_400_000);
-}
-
 function shiftIsoDate(iso: string, days: number): string {
   const t = new Date(iso + "T00:00:00Z").getTime() + days * 86_400_000;
   return new Date(t).toISOString().slice(0, 10);
@@ -374,7 +368,6 @@ export function computeUrlVerdict(input: ComputeVerdictInput): UrlVerdict {
   // only honest move. Abstain (`not_enough_native_baseline`) only when
   // the filtered baseline is too thin to compute a verdict from.
   let benchmarkBaselineDropped = 0;
-  let benchmarkPostDropped = 0;
   {
     const allBaselineTagged =
       baselinePoints.length > 0 &&
@@ -411,8 +404,6 @@ export function computeUrlVerdict(input: ComputeVerdictInput): UrlVerdict {
         );
         benchmarkBaselineDropped =
           baselinePoints.length - filteredBaseline.length;
-        benchmarkPostDropped = postPoints.length - filteredPost.length;
-
         if (filteredBaseline.length < t.baselineMinDays) {
           const muPreLocal = mean(filteredBaseline.map((p) => p.count));
           const muPostLocal = mean(filteredPost.map((p) => p.count));

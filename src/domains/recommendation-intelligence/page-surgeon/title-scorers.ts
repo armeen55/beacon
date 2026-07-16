@@ -39,7 +39,6 @@ export const TITLE_WEIGHTS: Record<ScoreDimension, number> = {
   ux_friction_impact: 0.1,
 };
 
-const IDEAL_MIN = 30;
 const IDEAL_MAX = 60;
 const TRUNCATE_HARD = 65;
 

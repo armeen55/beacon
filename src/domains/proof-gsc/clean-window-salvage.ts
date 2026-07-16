@@ -109,14 +109,12 @@ export function computeCleanWindowSalvage(args: {
   const cleanPost: number[] = [];
   let muddiedDays = 0;
   let sawConfirmed = false;
-  let sawSuspected = false;
   for (let i = 0; i < args.windowDays; i++) {
     const date = addDays(ship, i);
     const shock = inAnyShock(date, args.shocks);
     if (shock) {
       muddiedDays++;
       if (shock.kind === "confirmed") sawConfirmed = true;
-      else sawSuspected = true;
     } else {
       cleanPost.push(clicksOn(date));
     }

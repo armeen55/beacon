@@ -24,7 +24,6 @@ import type { ChangeOutcome } from "@/domains/attribution/change-outcome";
 import type { PageSnapshot } from "@/domains/pages/types";
 import { clusterChange } from "@/domains/forensics/spike-forensics";
 import {
-  type GlobalPattern,
   type PatternKey,
   type OutcomeClass,
   type ContextBin,
@@ -197,8 +196,6 @@ export async function aggregateTenantOutcomes(
   const existingPatterns = await listGlobalPatterns();
   const patternsById = new Map(existingPatterns.map((p) => [p.id, p]));
 
-  // Track dedup keys already in each pattern
-  const existingDedupKeys = new Map<string, Set<string>>();
   // We can't track dedup keys in the stored pattern itself (too large),
   // so we track tenant_id presence in contributing_tenant_ids.
   // Per-change dedup within the same tenant needs a separate mechanism.

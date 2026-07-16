@@ -50,7 +50,6 @@ function weakestDimension(score: CandidateScore): string {
 }
 
 function rejectionReason(
-  cand: CandidateOption,
   score: CandidateScore,
   bestTotal: number,
 ): string {
@@ -99,7 +98,6 @@ export function evaluateTitle(args: EvaluateTitleArgs): EvaluatorDecision {
   );
   const best = ranked[0] ?? keepScore!;
   const second = ranked[1] ?? null;
-  const bestCand = byId.get(best.candidateId)!;
   const margin = second ? best.weightedTotal - second.weightedTotal : 1;
 
   // Evidence strength gates confidence. No GSC demand ⇒ we cannot judge a title
@@ -141,7 +139,7 @@ export function evaluateTitle(args: EvaluateTitleArgs): EvaluatorDecision {
       return {
         candidateId: s.candidateId,
         title: c.proposedText,
-        reason: rejectionReason(c, s, effectiveBest.weightedTotal),
+        reason: rejectionReason(s, effectiveBest.weightedTotal),
       };
     });
 

@@ -61,14 +61,14 @@ export function checkFirstMention(
   const sentence = firstSentenceOf(text);
   if (!sentence) return { ok: true }; // nothing to check yet (malformed/empty handled elsewhere)
 
-  let nativeScript: RegExp;
+  let nativeScriptSpan: RegExp;
   try {
-    nativeScript = new RegExp(`[${config.native}]`);
+    nativeScriptSpan = new RegExp(`[${config.native}]+`);
   } catch {
     return { ok: true }; // a bad config must never block a draft
   }
 
-  const nativeMatch = new RegExp(`[${config.native}]+`).exec(sentence);
+  const nativeMatch = nativeScriptSpan.exec(sentence);
   if (!nativeMatch) {
     return {
       ok: false,

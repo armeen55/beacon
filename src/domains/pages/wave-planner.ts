@@ -145,8 +145,6 @@ type BriefGroup = {
   patternEvidence: PatternEvidence;
 };
 
-const PAGE_TYPE_FROM_URL: Record<string, string> = {};
-
 function pageTypeFromUrl(url: string): string {
   if (url.includes("/locations/")) return "city";
   if (url.includes("/services/")) return "service";

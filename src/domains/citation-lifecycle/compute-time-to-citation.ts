@@ -107,17 +107,6 @@ export type ComputeTimeToCitationArgs = {
 // Constants
 // ─────────────────────────────────────────────────────────────────────
 
-/**
- * The two platforms Phase A.1 currently polls. The aggregate
- * first-citation timestamp considers ONLY citations from these
- * platforms; unknown platforms (anything outside this set, including
- * Profound's historical `google_ai_overviews` rows from the benchmark
- * regime) are silently dropped per the Section 2.20 coding prompt
- * preference. They never participate in `per_platform_first_citation`
- * either.
- */
-const ACTIVE_PLATFORMS: ReadonlySet<string> = new Set(["chatgpt", "perplexity"]);
-
 const MS_PER_DAY = 86_400_000;
 
 // ─────────────────────────────────────────────────────────────────────

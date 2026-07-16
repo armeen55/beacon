@@ -28,7 +28,6 @@
 
 import {
   computeDimPriors,
-  MIN_DECIDED,
   type SettledOutcome,
 } from "@/domains/learning/experiment-prior";
 

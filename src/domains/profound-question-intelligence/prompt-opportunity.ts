@@ -190,7 +190,6 @@ export function buildPromptOpportunities(args: BuildPromptOpportunityArgs): Prom
       .slice(0, 8);
 
     const fanoutQueries = [...(fanoutByPrompt.get(acc.prompt.toLowerCase()) ?? [])].slice(0, 12);
-    const ownPresent = acc.ownMentioned > 0 || acc.ownCited > 0;
     const anyCitations = acc.pageAnswers.size > 0;
     const hasCompetitor = topCompetitorDomains.length > 0;
 

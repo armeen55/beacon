@@ -143,8 +143,6 @@ export const CONTAMINATED_DATES = [
   "2026-05-06",
 ] as const;
 
-const CONTAMINATED_SET = new Set<string>(CONTAMINATED_DATES);
-
 /**
  * Returns true when the inclusive [start, end] date range overlaps any
  * known contaminated date. Half-open windows are caller's responsibility;

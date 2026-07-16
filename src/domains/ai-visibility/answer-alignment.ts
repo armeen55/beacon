@@ -32,14 +32,6 @@ const MIN_SENTENCE_WORDS = 4;
  *  couple of common words. */
 const MIN_CONTAINMENT_SCORE = 0.2;
 
-const STOPWORDS = new Set([
-  "the", "a", "an", "of", "for", "in", "on", "to", "and", "or", "is", "are", "was",
-  "were", "with", "your", "you", "this", "that", "these", "those", "from", "by", "as",
-  "it", "be", "we", "our", "their", "they", "have", "has", "had", "can", "will",
-  "more", "all", "about", "into", "out", "up", "if", "but", "at", "than", "then",
-  "so", "no", "not", "do", "does", "did", "been", "being", "am", "im",
-]);
-
 // ---------------------------------------------------------------------------
 // Sentence splitting
 // ---------------------------------------------------------------------------

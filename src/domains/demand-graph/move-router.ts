@@ -359,11 +359,9 @@ export function routeMove(input: RouteInput): MoveRouterDecision {
     opinions.find((o) => o.specialist === "dataforseo")?.scoreContribution.scoreMultiplier ?? 1;
   let confidence = baseConfidence;
   let scoreMult = 1;
-  let overlapBoosted = false;
   if (hasGsc && hasProfound && overlapMult > 1) {
     confidence = clamp01(confidence * 1.3);
     scoreMult *= overlapMult;
-    overlapBoosted = true;
     rationale += " Google + AI both confirm this demand (double-confirmed).";
   }
 
