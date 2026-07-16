@@ -100,6 +100,10 @@ chronology of what already landed lives in VERIFICATION_LOG.md; this list is onl
    green. A four-worker full-suite experiment in an
    isolated CI-clean `/tmp` copy passed every file in 77.10s; the real checkout then passed all
    1,505 files / 23,132 assertions / 40 conditional skips in 74.47s, versus 239.14s serial.
+   SECOND BOUNDED CLEANUP DEPLOYED AND SHA-VERIFIED at `fc7c980a`: removed the retired pre-tenant
+   robots flat-file implementation and stale planner imports/locals, leaving tenant repositories as
+   the sole robots-state boundary without changing planner output. Focused 65/65 and the complete
+   1,504-file / 22,971-pass suite are green.
 20a. **Autonomous research-before-ranking MVP.** DEPLOYED AND SHA-VERIFIED at `d6dcb0c7` (initial
    scheduler `ce4d4345`, suite cleanup `96e137ab`, AI-poll hardening `433614ac`). Every
    signed-in shell visit can trigger one bounded tenant/day post-response cycle: connector freshness,

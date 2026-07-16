@@ -7,6 +7,24 @@
 
 ---
 
+## 2026-07-16 - Retired runtime remnants removed (fc7c980a)
+
+Removed the unreachable synchronous `.data/robots-state.json` implementation and its Node
+filesystem imports from the robots parser. The public tenant-explicit repository path is now the
+only implementation and the surrounding documentation matches it. Removed one stale type import
+and three unused planner locals/destructures that never affected deterministic action selection.
+
+Verification: focused robots-parser and action-planner suites 65/65; strict typecheck exit 0; ESLint
+exit 0 with no warnings or errors; full suite 1,504 files / 22,971 passed / 23 skipped / 0 failed;
+`npm audit --omit=dev --audit-level=moderate` found zero vulnerabilities; production build exit 0
+with only the protected middleware-filename deprecation. Commit
+`fc7c980ae381ac98e74be1dba8642c4807f5956d` was pushed to `origin/main`; Vercel deployment
+`dpl_6t7ms8gLGTnoQy1LiiCLqWrsL1ZM` reached Ready and retained the 2.18 MB representative function.
+Five consecutive `/api/version` reads returned the exact SHA and deployment ID. Three production
+route passes returned `/login` 200 and the correct 307 login continuation for `/`, `/today`,
+`/changes`, `/results`, `/research/keywords`, and `/settings/connectors`. No paid call, hosted
+environment mutation, data mutation, or destructive file operation occurred.
+
 ## 2026-07-16 - Production server-artifact boundary (1f3bb082)
 
 Next's dynamic filesystem tracing was packaging nearly the full local repository into every server

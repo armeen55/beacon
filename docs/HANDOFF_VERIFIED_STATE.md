@@ -1,5 +1,19 @@
 # Beacon Verified State
 
+> 🟢 **The 2026-07-16 retired-runtime cleanup is deployed and SHA-verified at
+> `fc7c980a` (Vercel `dpl_6t7ms8gLGTnoQy1LiiCLqWrsL1ZM`).** The robots parser no longer imports
+> Node filesystem primitives or retains a dead pre-tenant flat-file path; tenant repositories are
+> now the only state boundary described or implemented there. The action planner also drops stale
+> imports and locals that had no effect on its deterministic decision path. Verification: focused
+> parser/planner suites 65/65; strict typecheck; lint exit 0 with no output; complete suite 1,504
+> files / 22,971 passed / 23 conditional skips / 0 failed; production dependency audit zero;
+> production build exit 0. Vercel retained the 2.18 MB representative function size. Five
+> consecutive production version reads returned the exact full SHA and deployment ID; three route
+> passes returned login 200 and the correct protected-route redirects. Only the protected
+> middleware-filename deprecation remains. Next three actions: (1) use Today and Changes normally,
+> (2) report a real signed-in route, tenant, queue, or copy defect, and (3) rename the middleware
+> file only after explicit deletion approval.
+
 > 🟢 **The 2026-07-16 production-artifact boundary is deployed and SHA-verified at
 > `1f3bb082` (Vercel `dpl_EgNF9R1mjis3zwu5LKp7LUD3nW2r`).** A deep inspection of Next's
 > `.nft.json` manifests found that dynamic local storage tracing pulled nearly the entire repository
