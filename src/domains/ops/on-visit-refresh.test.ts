@@ -49,7 +49,8 @@ describe("shouldRunAutonomousResearch", () => {
     const result = timedOutReceipt("tenant-iranopedia", NOW);
     expect(result.ok).toBe(false);
     expect(result.totalMs).toBe(AUTONOMOUS_RUN_DEADLINE_MS);
-    expect(result.steps[0]?.note).toContain("continue from cached work");
+    expect(result.steps[0]?.note).toContain("continue from cached work automatically");
+    expect(result.steps[0]?.note).not.toContain("next navigation");
     expect(result.steps[0]?.note).not.toContain("running");
   });
 

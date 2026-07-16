@@ -49,9 +49,7 @@ export default async function KeywordsPage() {
     return (
       <div className="max-w-6xl space-y-6">
         <PageHeader title="Keywords" description="Every keyword I have researched for you, in one place." />
-        <p className="rounded-2xl border border-dashed border-gray-200 bg-white p-8 text-center text-sm text-gray-500">
-          I could not load your keyword library just now. Refresh in a moment.
-        </p>
+        <HonestDelay message="I couldn’t load your keyword library just now. Beacon is retrying automatically." />
       </div>
     );
   }

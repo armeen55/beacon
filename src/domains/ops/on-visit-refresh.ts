@@ -67,7 +67,7 @@ export function timedOutReceipt(tenantId: string, now: Date, prior: WarmRunRecei
       name: "autonomous-research",
       ok: false,
       ms: AUTONOMOUS_RUN_DEADLINE_MS,
-      note: "This pass reached its safe time limit. I will continue from cached work on your next navigation.",
+      note: "This pass reached its safe time limit. I will continue from cached work automatically as you keep using Beacon.",
     }],
     ...(prior?.summary ? { summary: prior.summary } : {}),
     ...(prior?.pipeline ? { pipeline: prior.pipeline } : {}),

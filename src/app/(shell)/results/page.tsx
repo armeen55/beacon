@@ -439,7 +439,7 @@ async function ResultsStatusStream({
   tenantId: string;
   initialContext: Promise<ResultsInitialContext>;
 }) {
-  const { connHealth, latestGscDate, isOperator } = await initialContext;
+  const { connHealth, latestGscDate } = await initialContext;
   const { waiting } = gscLagForLedger(ledger, latestGscDate);
   const gsc = connHealth.find((c) => c.key === "google_gsc") ?? null;
   const freshnessNote =
@@ -449,11 +449,11 @@ async function ResultsStatusStream({
         ? "Google Search Console isn't connected. Proof verdicts can't update until it is."
         : gsc.severity === "needs_setup"
           ? "Google Search Console is connected but hasn't synced yet. Verdicts will fill in after the first sync."
-          : `Search Console data is ${gsc.daysStale ?? "several"} days old. Recent changes may not show a verdict yet. Refresh to update.`;
+          : `Search Console data is ${gsc.daysStale ?? "several"} days old. Recent changes may not show a verdict yet. Beacon is refreshing connected data in the background.`;
 
   const dueNow = ledger.filter((l) => isDueForMeasure(l, latestGscDate, new Date()));
   const eligibleReverify = selectRowsToReverify(ledger).length > 0;
-  if (isOperator && (dueNow.length > 0 || eligibleReverify)) scheduleAutoMeasure(tenantId);
+  if (dueNow.length > 0 || eligibleReverify) scheduleAutoMeasure(tenantId);
 
   return (
     <>
@@ -464,11 +464,6 @@ async function ResultsStatusStream({
       ) : waiting.length > 0 ? (
         <div className="mb-5 rounded-md border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-800">
           {waiting.length} change{waiting.length === 1 ? " is" : "s are"} waiting on Search Console data, not stalled. {waiting[0]?.reasonCopy ?? ""} Google Search data typically lags 2-3 days.
-        </div>
-      ) : null}
-      {isOperator && dueNow.length > 0 ? (
-        <div className="mb-5 rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-800">
-          Measuring {dueNow.length} due result{dueNow.length === 1 ? "" : "s"} now. Refresh in a moment to see the verdict.
         </div>
       ) : null}
     </>

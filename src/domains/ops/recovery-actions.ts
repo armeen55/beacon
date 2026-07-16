@@ -248,12 +248,12 @@ const CRON_JOB_SYNC_NOW: Partial<Record<string, RecoverySelfServe>> = {
 
 const CRON_JOB_NEXT_STEP: Record<string, string> = {
   "publish-canary": "I will keep checking your site every night. If Wix is connected and mapped, publishing itself is unaffected by this check running late.",
-  "sync-connectors": "Pull each connected source's data yourself right now with the Sync now button on its card, on the Connections page.",
+  "sync-connectors": "I retry stale connected sources automatically while you use Beacon. I will update this after the next completed pull.",
   "measure-due": "I will pick this back up on its own overnight. Nothing you need to click.",
   autopilot: "Autopilot will resume shipping on its own next run. Your queued changes are safe and waiting.",
   "ai-engines": "I will check AI answers again on the next scheduled run. Nothing you need to click.",
   precompute: "I will keep preparing drafts on the next run. Nothing you need to click.",
-  "page-factory": "I am retrying this batch automatically in the background when you use Beacon. Refresh once in a moment to see the recovered result.",
+  "page-factory": "I am retrying this batch automatically in the background when you use Beacon. I will update the result when the retry finishes.",
   "strategy-review": "I will run the next strategy review on its own next scheduled run.",
 };
 
@@ -275,10 +275,7 @@ export function recoveryForCronFailure(
   const severity = state === "stalled" ? "has stopped showing up" : "is running behind";
   return {
     plainProblem: `${label} ${severity}.`,
-    exactFix:
-      job === "sync-connectors"
-        ? `${nextStep} Open the Connections page.`
-        : nextStep,
+    exactFix: nextStep,
     href: CONNECTORS_HREF,
     selfServe,
   };

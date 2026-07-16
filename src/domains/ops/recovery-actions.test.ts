@@ -133,11 +133,20 @@ describe("recoveryForConnectorFailure", () => {
 });
 
 describe("recoveryForCronFailure", () => {
-  it("sync-connectors points at the per-source Sync now buttons, never a dead-end", () => {
+  it("sync-connectors describes on-use recovery without assigning a manual sync", () => {
     const action = recoveryForCronFailure("sync-connectors", "The nightly data sync", "stalled");
-    expect(action.exactFix.toLowerCase()).toContain("sync now");
+    expect(action.exactFix).toContain("retry stale connected sources automatically");
+    expect(action.exactFix.toLowerCase()).not.toContain("yourself");
+    expect(action.exactFix.toLowerCase()).not.toContain("sync now button");
+    expect(action.exactFix).not.toContain("Open the Connections page");
     expect(action.href).toBe("/settings/connectors");
     expect(action.plainProblem).toContain("has stopped showing up");
+  });
+
+  it("page-factory recovery updates itself without asking for a refresh", () => {
+    const action = recoveryForCronFailure("page-factory", "The weekly page batch", "stalled");
+    expect(action.exactFix).toContain("retrying this batch automatically");
+    expect(action.exactFix).not.toMatch(/refresh|come back|next visit/i);
   });
 
   it("late uses a softer verb than stalled", () => {

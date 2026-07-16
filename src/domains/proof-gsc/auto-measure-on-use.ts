@@ -16,7 +16,7 @@ import { harvestWinners } from "@/domains/llm/winner-memory";
 import { buildTeamScoreboardSummary } from "@/domains/team-scoreboard/compute-scoreboard";
 
 /**
- * auto-measure-on-use (2026-06-29) — PASSIVE settle of due proof rows when the operator
+ * auto-measure-on-use (2026-06-29) — PASSIVE settle of due proof rows when the user
  * opens the Results page. The proof→ranking loop is fully wired, but `autoMeasureDuePass`
  * previously ran ONLY from the explicit "Measure now" operator action, so due rows sat
  * un-measured (and learning never activated) unless the operator remembered to click.
@@ -24,8 +24,8 @@ import { buildTeamScoreboardSummary } from "@/domains/team-scoreboard/compute-sc
  * This schedules the SAME engine via next/after — it runs AFTER the response, so it adds
  * ZERO render latency and never blocks the page. On-demand (operator opens /results), NOT a
  * cron. Fail-soft. Bounded (autoMeasureDuePass caps records + does GSC reads from already-
- * synced data — no paid calls). The caller gates this to operator mode + only fires when
- * due rows exist, so a customer/anon view never mutates proof data.
+ * synced data — no paid calls). The authenticated Results route fires only when due or
+ * re-verifiable rows exist. Manual proof mutations remain operator-gated separately.
  *
  * Idempotence: a per-warm-lambda throttle collapses rapid /results renders into one pass;
  * autoMeasureDuePass itself is deterministic (re-measuring the same GSC window yields the
@@ -91,7 +91,6 @@ export function scheduleAutoMeasure(tenantId: string): void {
   const nowMs = Date.now();
   const last = lastRunAt.get(tenantId) ?? 0;
   if (nowMs - last < MIN_GAP_MS) return; // collapse rapid renders (one pass per window)
-  lastRunAt.set(tenantId, nowMs);
   try {
     after(async () => {
       try {
@@ -109,8 +108,7 @@ export function scheduleAutoMeasure(tenantId: string): void {
         }
         // R4 (2026-07-03): the pass's upserts invalidated the /results SWR snapshot
         // (shipped-change-store choke point). Rebuild it here, still in the same
-        // after() window, so "Refresh in a moment to see the verdict" lands on a
-        // page that is both instant AND current instead of a slow cold re-measure.
+        // after() window, so the next normal render is both instant and current.
         if (res.measured > 0) {
           try {
             const { rebuildResultsSurface } = await import(
@@ -179,6 +177,9 @@ export function scheduleAutoMeasure(tenantId: string): void {
         });
       }
     });
+    // A failed after() registration did no work and must not suppress the next
+    // legitimate request for ten minutes.
+    lastRunAt.set(tenantId, nowMs);
   } catch {
     // after() is only valid inside a request scope — ignore outside one.
   }

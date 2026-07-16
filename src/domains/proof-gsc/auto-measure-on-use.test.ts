@@ -1,4 +1,8 @@
-import { describe, it, expect } from "vitest";
+import { beforeEach, describe, it, expect, vi } from "vitest";
+
+const { afterMock } = vi.hoisted(() => ({ afterMock: vi.fn() }));
+vi.mock("next/server", () => ({ after: afterMock }));
+
 import { scheduleAutoMeasure, selectRowsToReverify } from "./auto-measure-on-use";
 import type { ShippedChangeRecord, VerifyEnvelope, VerifyAttempt } from "./shipped-change-store";
 
@@ -7,17 +11,29 @@ import type { ShippedChangeRecord, VerifyEnvelope, VerifyAttempt } from "./shipp
 // be broken by the passive trigger. (The real measurement is covered by the
 // auto-measure-pass / measure-lifecycle suites.)
 describe("scheduleAutoMeasure — fail-soft render contract", () => {
+  beforeEach(() => {
+    afterMock.mockReset();
+    afterMock.mockImplementation(() => undefined);
+  });
+
   it("no-ops on empty tenantId", () => {
     expect(() => scheduleAutoMeasure("")).not.toThrow();
+    expect(afterMock).not.toHaveBeenCalled();
   });
-  it("never throws when called outside a request scope", () => {
-    expect(() => scheduleAutoMeasure("tenant-iranopedia")).not.toThrow();
+  it("a failed after registration never throws or poisons the next attempt", () => {
+    afterMock.mockImplementationOnce(() => {
+      throw new Error("outside request scope");
+    });
+    expect(() => scheduleAutoMeasure("tenant-registration-retry")).not.toThrow();
+    expect(() => scheduleAutoMeasure("tenant-registration-retry")).not.toThrow();
+    expect(afterMock).toHaveBeenCalledTimes(2);
   });
   it("throttles a rapid second call without throwing", () => {
     expect(() => {
       scheduleAutoMeasure("tenant-throttle-test");
       scheduleAutoMeasure("tenant-throttle-test");
     }).not.toThrow();
+    expect(afterMock).toHaveBeenCalledTimes(1);
   });
 });
 

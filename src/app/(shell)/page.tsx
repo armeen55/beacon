@@ -171,12 +171,7 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
     if (viewRaced.timedOut) return <HonestDelay />;
     composite = viewRaced.data;
   } catch {
-    return (
-      <div role="alert" className="rounded-lg border border-border/60 bg-surface-inset/30 p-6 text-center">
-        <p className="text-sm font-medium text-foreground">Couldn’t load Today just now.</p>
-        <p className="mt-1 text-xs text-muted-foreground">Your data is safe. Refresh in a moment, or open <Link href="/changes" className="underline">Changes</Link>.</p>
-      </div>
-    );
+    return <HonestDelay message="Couldn’t load Today just now. Your data is safe, and Beacon is retrying automatically." />;
   }
   const { today, daily } = composite;
   const tenantId = await currentTenantId();
