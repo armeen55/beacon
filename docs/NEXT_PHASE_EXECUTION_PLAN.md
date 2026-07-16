@@ -168,7 +168,10 @@ chronology of what already landed lives in VERIFICATION_LOG.md; this list is onl
    replace it atomically through the existing SWR path. The visit runner publishes a usable cached-
    evidence surface before expensive research, while the global status retains the last completed
    summary during refresh. Navigation never waits for the deep research pipeline; no cron, button,
-   external integration, or publish permission was added.
+   external integration, or publish permission was added. DELAY-RECOVERY FOLLOW-UP DEPLOYED AND
+   SHA-VERIFIED at `90c3f843`: shared deadline fallbacks and Changes' cold/error states now retry
+   once automatically, with a per-page 30-second session cooldown that prevents refresh loops. The
+   user is no longer instructed to come back or manually refresh these states.
 21. **Fresh blind unseen-topic benchmark.** Run 5 preregistered cases not used to build these
    corrections. A case that changes code is spent and must be replaced.
 22. **Scheduled-refresh receipt.** The first cron run after this deploy must leave a started

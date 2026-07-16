@@ -74,6 +74,11 @@ persisted through the existing recommendation-response learning path, while defe
 truthfully labeled week. Scheduling background preparation must never be presented as completed
 work; only a subsequent server surface may claim a new edit is ready.
 
+Deadline recovery follows the same autonomy rule. If a server section misses its bounded deadline,
+Beacon retries the current page once automatically after the abandoned load has had time to warm
+the durable cache. A per-page session cooldown prevents retry loops. Cold or failed Changes reads
+must never assign “refresh and wait” work back to the user.
+
 ### Production artifact boundary decision (2026-07-16)
 
 Production server traces may contain compiled Next output, runtime dependencies, and the root

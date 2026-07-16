@@ -1,5 +1,20 @@
 # Beacon Verified State
 
+> 🟢 **The 2026-07-16 autonomous delay recovery is deployed and SHA-verified at
+> `90c3f843` (Vercel `dpl_85SP949LwuwozpMaEdzMDsd2dMvw`).** A missed server deadline no longer
+> tells the user to return on a later visit: the shared fallback schedules one router refresh after
+> 1.5 seconds and records a per-page session cooldown so a slow dependency cannot cause a refresh
+> loop. Changes' first-ever snapshot and failed-read states use the same recovery and no longer ask
+> for a manual refresh. Verification: focused retry and Changes-state suites 6/6; strict typecheck;
+> lint exit 0; complete suite 1,505 files / 22,975 passed / 23 conditional skips / 0 failed;
+> production dependency audit zero; production build exit 0. The representative Vercel function
+> remains 2.19 MB. Five production version reads returned the exact full SHA and deployment ID; an
+> exhaustive unauthenticated contract sweep returned the expected result for all 77 non-dynamic
+> pages with zero 404s, 500s, or wrong redirects. Only the protected middleware-filename
+> deprecation remains. Next three actions: (1) use Today → Changes normally, (2) report only a real
+> signed-in tenant, queue, copy, or interaction defect, and (3) rename the middleware file only
+> after explicit deletion approval.
+
 > 🟢 **The 2026-07-16 retired-runtime cleanup is deployed and SHA-verified at
 > `fc7c980a` (Vercel `dpl_6t7ms8gLGTnoQy1LiiCLqWrsL1ZM`).** The robots parser no longer imports
 > Node filesystem primitives or retains a dead pre-tenant flat-file path; tenant repositories are

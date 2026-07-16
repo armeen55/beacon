@@ -7,6 +7,25 @@
 
 ---
 
+## 2026-07-16 - Autonomous delay recovery and full page-contract sweep (90c3f843)
+
+Converted the shared deadline fallback from a passive “next visit” message into one automatic
+router refresh after 1.5 seconds. A per-page timestamp in session storage enforces a 30-second
+cooldown, and unavailable browser storage fails calm rather than risking an unbounded loop.
+Changes' failed snapshot read and first-ever snapshot-building states now use that same mechanism
+and no longer ask the user to refresh manually. No button, cron, provider call, or publishing right
+was added.
+
+Verification: focused retry and Changes empty/building suites 6/6; strict typecheck exit 0; ESLint
+exit 0; full suite 1,505 files / 22,975 passed / 23 skipped / 0 failed; production dependency audit
+zero; production build exit 0 with only the protected middleware-filename deprecation. Product
+commits `c2305fd0` and `90c3f843fa9f3d89d1d298a645e01c41395228c5` were pushed to `origin/main`;
+Vercel deployment `dpl_85SP949LwuwozpMaEdzMDsd2dMvw` reached Ready with a 2.19 MB representative
+function. Five `/api/version` reads returned the exact final SHA and deployment ID. A hosted sweep
+of all 77 non-dynamic page routes returned the exact public-200 or protected-307 contract with zero
+unexpected statuses, including zero 404s and 500s. No paid call, data mutation, hosted environment
+mutation, or destructive operation occurred.
+
 ## 2026-07-16 - Retired runtime remnants removed (fc7c980a)
 
 Removed the unreachable synchronous `.data/robots-state.json` implementation and its Node
