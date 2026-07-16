@@ -5,6 +5,16 @@
 This is the operator's live priority order. I work it strictly top to bottom. The dated
 chronology of what already landed lives in VERIFICATION_LOG.md; this list is only what is next.
 
+> 🟢 **2026-07-15 continuous execution loop — DEPLOYED AND SHA-VERIFIED (`ef41bac6`).** The
+> operator selected items 2 and 3 and explicitly skipped item 1. Beacon now restores a five-item
+> copy-ready queue during ordinary same-day navigation and after every handled row without a cron,
+> manual prepare control, Wix dependency, or render-time paid call. It scans the full final Changes
+> order under a hard maintenance budget and atomically republishes Today + Changes. The visible
+> product spine is Today → Changes → Results; research and audit support remain searchable but do
+> not compete with the working loop. **Next:** use one real Changes session and evaluate only the
+> resulting queue continuity and copy quality; do not add another surface or control unless that
+> real use exposes a specific defect.
+
 > 🟢 **2026-07-15 autonomous-ready extension — DEPLOYED AND SHA-VERIFIED (`17255d5b`).** The
 > operator-approved top three are complete: automatic evidence-gated preparation of the first five
 > ranked changes with no Wix dependency; an eight-stage durable cursor that resumes from the first

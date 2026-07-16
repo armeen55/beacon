@@ -52,6 +52,21 @@ The receipt should collapse to one calm global status across navigation, while t
 remains available on Today. Real query evidence must survive into the prepared move; no downstream
 intent or draft step may silently replace loaded GSC queries with a guessed label.
 
+### Continuous execution-loop decision (2026-07-15)
+
+Beacon's daily product loop is Today → Changes → Results. Supporting research and receipt surfaces
+remain reachable through command search, but they do not compete in the primary sidebar. Changes is
+an execution queue, not a second analytics or research dashboard: its visible states are To do and
+Ready, exact copy leads, and evidence machinery is collapsed. Measurement and settled outcomes live
+on Results.
+
+The ready queue maintains a tenant-scoped floor of five through ordinary signed-in navigation and
+after any handled change. Maintenance consumes the already-ranked, already-cached evidence graph,
+scans the full authoritative Changes order, prepares only missing capacity under a hard cost cap,
+does no live SERP work, and republishes one atomic customer release. The deeper competitor,
+DataForSEO, AI, source, and keyword pipeline keeps its once-daily resumable cadence. A rejected
+cached draft is preserved for deep or explicit repair rather than regenerated on every visit.
+
 ### Identity
 - **Name:** `beacon`, private, version 0.1.0
 - **Framework:** Next.js 16.2.2, React 19.2.4, App Router

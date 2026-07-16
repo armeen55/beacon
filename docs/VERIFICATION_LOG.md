@@ -36067,3 +36067,31 @@ Turbopack NFT trace warnings; `git diff --check` exit 0. Product commit
 `dpl_4feLx2WfyhYiX5fQgEhWUAXF6FkQ` reached Ready. Production `/api/version` returned that exact SHA,
 `/login` returned 200, and unauthenticated `/today` and `/changes` returned their expected 307 login
 continuations. No paid provider run or hosted environment mutation was performed during verification.
+
+## 2026-07-15 - Continuous execution loop and three-stage customer journey
+
+Implemented the operator-selected items 2 and 3; item 1 was intentionally skipped. A new
+tenant-scoped queue-maintenance service restores a floor of five ready changes from the exact final
+Changes order. It refreshes the atomic customer release before deciding what is missing, scans the
+full ranked queue past cached or quality-held entries, prepares only missing capacity with live SERP
+checks disabled and a hard $0.05 cap, preserves rejected cached drafts instead of repeatedly paying
+to regenerate them, and publishes the completed Today + Changes release last. The lane runs after
+done, skip, and not-now actions and on ordinary same-day navigation when the daily deep-research pass
+does not need to run. Deep research retains its existing once-daily resumable cadence.
+
+The customer interface now centers Today → Changes → Results. Sidebar navigation contains Today,
+Changes, Results, Connections, and Settings. Ask, keyword research, AI questions, and activity
+receipts remain available through command search. Changes exposes To do and Ready only, removes the
+manual preparation controls and secondary research/page-factory boards, leads each expanded card
+with exact copy-ready text, and collapses evidence machinery. Measurement remains on Results, where
+the manual record form is now a collapsed fallback.
+
+Verification was deliberately repeated. Focused behavior pass: 10 files / 110 tests passed.
+Independent tenant/customer-surface pass: 17 files / 251 tests passed. Strict `npm run typecheck`
+passed. Complete `npm run test` passed twice; the final pass reported 1,502 files / 22,959 passed /
+23 conditional skips / 0 failed in 74.79 seconds. `npm run build` exited 0 with the existing
+middleware deprecation and two Turbopack NFT trace warnings. `git diff --check` passed. Product
+commit `ef41bac649037928b5c199020eea2b9c01f03e2b` was pushed to `origin/main`; Vercel deployment
+`dpl_aTkX6JkZjE8HzmK9VgKPwRtDyuGt` reached Ready. Production `/api/version` returned that exact SHA;
+`/login` returned 200; and unauthenticated `/`, `/today`, `/changes`, and `/results` returned their
+expected 307 login continuations. No paid provider run or hosted environment mutation was performed.

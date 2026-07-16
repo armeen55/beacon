@@ -1,5 +1,25 @@
 # Beacon Verified State
 
+> 🟢 **The 2026-07-15 continuous execution loop is deployed and SHA-verified at
+> `ef41bac6` (Vercel `dpl_aTkX6JkZjE8HzmK9VgKPwRtDyuGt`).** Changes now maintains a
+> tenant-scoped floor of five copy-ready opportunities after normal same-day navigation and after
+> done, skip, or not-now actions. The cheap maintenance lane reranks from the atomic customer
+> release, scans the full authoritative queue past cached or quality-held drafts, prepares only
+> missing capacity under a $0.05 ceiling, avoids live SERP work, and republishes Today + Changes
+> together. Rejected cached drafts are preserved rather than repeatedly regenerated. The visible
+> journey is now Today → Changes → Results: Changes exposes only To do, Ready, search, exact copy,
+> and collapsed evidence; measurement stays on Results; manual Results recording is collapsed;
+> research and activity tools remain command-palette accessible without competing in the sidebar.
+> Verification: focused 110/110; independent tenant/surface audit 251/251; strict typecheck; two
+> complete suite passes ending at 1,502 files / 22,959 passed / 23 conditional skips / 0 failed;
+> production build exit 0 with the existing middleware deprecation and two Turbopack NFT trace
+> warnings. Production `/api/version` returned the exact full SHA; `/login` returned 200; `/`,
+> `/today`, `/changes`, and `/results` returned their expected 307 login continuations. No paid
+> provider run or hosted environment mutation was performed. Next three actions: (1) use Today and
+> Changes normally, (2) complete or snooze one real change and confirm the queue remains useful on
+> the next navigation, and (3) report only a wrong tenant, missing exact edit, empty queue, or route
+> error.
+
 > 🟢 **The 2026-07-15 autonomous-ready customer release is deployed and SHA-verified at
 > `17255d5b` (Vercel `dpl_4feLx2WfyhYiX5fQgEhWUAXF6FkQ`).** Normal navigation now prepares the
 > strongest five ranked moves into exact copy-ready edits without requiring Wix; Wix remains only
