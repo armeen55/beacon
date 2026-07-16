@@ -181,8 +181,11 @@ chronology of what already landed lives in VERIFICATION_LOG.md; this list is onl
    this tenant's placebo history depth supports the window.
 25. **June GSC UI comparison (operator).** The operator compares the stored June total of 3,460
    clicks and 251,274 impressions against the Search Console UI.
-26. **Hosted UX and performance closure.** Prove the hosted speed budgets on production, not on the
-   dev server.
+26. **Hosted UX and performance closure. PARTIAL, artifact boundary DEPLOYED AND SHA-VERIFIED at
+    `1f3bb082`.** Server file tracing no longer packages local data/backups, source, tests, docs,
+    scripts, migrations, or temporary files. Representative Vercel function size fell from 14.02 MB
+    to 2.18 MB and repeated hosted route continuations stayed correct. Remaining closure still needs
+    authenticated paint/interaction timing against the signed-in customer surfaces.
 27. **Fix product gaps from holdouts.** Address whatever the fresh blind benchmark exposes.
 28. **Second tenant.** Bring a second tenant onto the same workflow; Ritz stays cold-start until
     the operator reconnects it.

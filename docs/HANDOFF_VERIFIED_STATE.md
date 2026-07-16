@@ -1,5 +1,23 @@
 # Beacon Verified State
 
+> 🟢 **The 2026-07-16 production-artifact boundary is deployed and SHA-verified at
+> `1f3bb082` (Vercel `dpl_EgNF9R1mjis3zwu5LKp7LUD3nW2r`).** A deep inspection of Next's
+> `.nft.json` manifests found that dynamic local storage tracing pulled nearly the entire repository
+> into every server route: `.data` backups, source, 824 tests, 124 docs, 100 scripts, migrations,
+> and temporary files. Every route now excludes workstation state and repository-only material from
+> production file tracing. The worst manifest fell from about 3,843 files to 233; aggregate trace
+> manifests fell from about 23 MB to 1.5 MB; local `.next/server` fell from 126 MB to 105 MB; and
+> local repository references are now only the intentional root `package.json`. Vercel's
+> representative function fell from 14.02 MB to 2.18 MB (about 84%). The two broad Turbopack trace
+> warnings are gone; only the separate protected middleware-filename deprecation remains.
+> Verification: new invariant 9/9; strict typecheck; complete suite 1,504 files / 22,971 passed / 23
+> conditional skips / 0 failed; zero production vulnerabilities; lint error gate zero; production
+> build exit 0; three local production-mode and three hosted route passes across version, login,
+> Today, Changes, Results, Keywords, and Connections. Production `/api/version` returned the exact
+> full SHA and deployment ID. No data, environment, or paid provider mutation was performed. Next
+> three actions: (1) use Today and Changes normally, (2) report any real signed-in route or data
+> mismatch, and (3) migrate the protected middleware filename only with explicit deletion approval.
+
 > 🟢 **The 2026-07-16 autonomous hardening release is deployed and SHA-verified at
 > `0cbbac4d` (Vercel `dpl_6XDXDaeiEUtJWFnRp2JRLXNggRVy`).** The requested stale-crawl and
 > dismissal-feedback gaps are closed without a new button or cron dependency: ordinary signed-in

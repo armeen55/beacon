@@ -7,6 +7,27 @@
 
 ---
 
+## 2026-07-16 - Production server-artifact boundary (1f3bb082)
+
+Next's dynamic filesystem tracing was packaging nearly the full local repository into every server
+route, including `.data/_backups`, 824 tests, 124 docs, 100 scripts, source files, migrations, and
+temporary state. Added a universal output-file-tracing exclusion for workstation/runtime-external
+material and pinned the boundary with a cataloged architecture invariant. Hosted truth remains
+Supabase plus compiled Next chunks; local `.data` is gitignored and must never enter a deployment.
+
+Before/after evidence: worst route manifest about 3,843 → 233 files; aggregate `.nft.json` size about
+23 MB → 1.5 MB; `.next/server` 126 MB → 105 MB; local repository references across final manifests
+reduced to the intentional root `package.json`; broad Turbopack NFT warnings 2 → 0. Vercel's
+representative function fell from 14.02 MB to 2.18 MB. Verification: focused invariant 9/9; strict
+typecheck exit 0; full suite 1,504 files / 22,971 passed / 23 skipped / 0 failed; production
+dependency audit zero; ESLint error-only gate exit 0; production build exit 0; three local
+production-mode route passes and three hosted passes for `/api/version`, `/login`, `/`, `/today`,
+`/changes`, `/results`, `/research/keywords`, and `/settings/connectors`. Commit
+`1f3bb082a0cac2f56887fdeffa56cb19d75b7318` was pushed to `origin/main`; Vercel deployment
+`dpl_EgNF9R1mjis3zwu5LKp7LUD3nW2r` reached Ready and `/api/version` returned the exact SHA. Only the
+separate middleware-filename deprecation remains. No paid call, data deletion, or environment
+mutation occurred.
+
 ## 2026-07-16 - Autonomous customer-loop hardening (0cbbac4d)
 
 Closed the requested parity items 2 and 3 plus defects found during three audit passes. Completed

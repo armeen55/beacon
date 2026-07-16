@@ -74,6 +74,15 @@ persisted through the existing recommendation-response learning path, while defe
 truthfully labeled week. Scheduling background preparation must never be presented as completed
 work; only a subsequent server surface may claim a new edit is ready.
 
+### Production artifact boundary decision (2026-07-16)
+
+Production server traces may contain compiled Next output, runtime dependencies, and the root
+package manifest only. They must not package `.data`, backups, source, tests, docs, scripts,
+migrations, Supabase development files, or temporary operator material. Hosted persistence is
+Supabase; repository/workstation artifacts are neither runtime dependencies nor deployable data.
+This boundary reduced the representative Vercel function from 14.02 MB to 2.18 MB and is pinned by
+the `server-trace-local-state-boundary` architecture invariant.
+
 ### Identity
 - **Name:** `beacon`, private, version 0.1.0
 - **Framework:** Next.js 16.2.10, React 19.2.4, App Router
