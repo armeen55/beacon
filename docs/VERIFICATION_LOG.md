@@ -36206,3 +36206,24 @@ commit `ef41bac649037928b5c199020eea2b9c01f03e2b` was pushed to `origin/main`; V
 `dpl_aTkX6JkZjE8HzmK9VgKPwRtDyuGt` reached Ready. Production `/api/version` returned that exact SHA;
 `/login` returned 200; and unauthenticated `/`, `/today`, `/changes`, and `/results` returned their
 expected 307 login continuations. No paid provider run or hosted environment mutation was performed.
+
+## 2026-07-16 - Intelligence-path residue audit
+
+Reviewed strict-unused findings inside recommendation, attribution, citation, research, drafting,
+and page-planning algorithms instead of treating the compiler list as deletion authority. Removed
+proven dead constants, state flags, imports, sets, and local helpers across 14 modules. The only
+runtime refinement is in the first-mention checker: it now constructs the configured native-script
+span regex once per check and reuses it. Exported contracts, ranking and confidence behavior,
+budgets, persistence, and customer controls are unchanged.
+
+Verification: focused domain pass 16 files / 362 tests; follow-up pass 4 files / 81 tests; `npm run
+typecheck` exit 0; `npm run lint` exit 0 (existing warnings remain non-blocking); complete `npm test`
+1,506 files / 22,980 passed / 23 conditional skips / 0 failed; `npm run build` exit 0 with only the
+existing middleware-filename deprecation; `npm audit --omit=dev --audit-level=moderate` found zero
+vulnerabilities; `git diff --check` exit 0. Strict-unused output fell from 201 to 185 lines and
+affected source-tree files from 97 to 85. Product commit
+`e7719d1e7d5e5f1786094db091ddb740579684ac` was pushed to `origin/main`; Vercel deployment
+`dpl_2Gcq4kKxcf6p3vboppkjDcfqA9GQ` reached Ready with a representative 2.18 MB function. Production
+`/api/version` returned the exact SHA five consecutive times. Three exhaustive hosted sweeps covered
+all 77 non-dynamic page contracts (231 requests) with zero unexpected statuses. No paid provider,
+hosted environment, or data mutation was performed.

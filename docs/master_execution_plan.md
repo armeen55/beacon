@@ -89,6 +89,8 @@ Strict unused-code diagnostics are an audit signal, not deletion authority. Remo
 and locals in bounded batches; review public parameters and algorithm inputs against all callers
 before changing them. The 2026-07-16 baseline was 231 diagnostic lines across 113 source-tree files;
 the first reviewed batch reduced it to 201 lines and 97 files.
+The second reviewed batch examined algorithm-adjacent values rather than deleting by compiler
+label, removed only proven residue, and reduced the output to 185 lines across 85 source-tree files.
 
 ### Production artifact boundary decision (2026-07-16)
 

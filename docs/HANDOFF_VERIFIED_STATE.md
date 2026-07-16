@@ -1,5 +1,21 @@
 # Beacon Verified State
 
+> 🟢 **The 2026-07-16 intelligence-path residue audit is deployed and SHA-verified at
+> `e7719d1e` (Vercel `dpl_2Gcq4kKxcf6p3vboppkjDcfqA9GQ`).** Fourteen recommendation,
+> attribution, citation, research, drafting, and page-planning modules lost 49 lines of proven dead
+> state, constants, imports, and helpers. The native-script first-mention check now compiles its
+> configured character-span expression once per check instead of constructing a discarded regex
+> first. No exported contract, rank order, confidence rule, budget, persistence path, or customer
+> control changed. Verification: focused passes 362/362 and 81/81; standard typecheck; lint exit 0;
+> complete suite 1,506 files / 22,980 passed / 23 conditional skips / 0 failed; production build
+> exit 0; dependency audit zero; `git diff --check` clean. Strict-unused output fell from 201 to 185
+> lines and affected source-tree files from 97 to 85. The representative Vercel function is 2.18
+> MB. Production returned the exact SHA five times, and three exhaustive sweeps checked all 77
+> non-dynamic page contracts (231 requests) with zero unexpected statuses. Next three actions: (1)
+> continue the caller-by-caller unused-code audit, (2) prove the signed-in Iranopedia Today →
+> Changes → Results flow with real tenant data, and (3) migrate the protected middleware filename
+> only after explicit deletion approval.
+
 > 🟢 **The 2026-07-16 autonomous Results maintenance and strict cleanup wave is deployed and
 > SHA-verified through `b23a4cfc` (behavior commit `c6b872d9`; Vercel
 > `dpl_HGeMMdB8PL3UvSAC6PSQqMx8jAUY`).** Opening Results as any authenticated user now schedules

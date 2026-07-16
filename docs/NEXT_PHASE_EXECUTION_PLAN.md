@@ -107,7 +107,11 @@ chronology of what already landed lives in VERIFICATION_LOG.md; this list is onl
    `b23a4cfc`: a strict `noUnusedLocals` / `noUnusedParameters` audit established 231 diagnostic
    lines across 113 source-tree files; the first import/local-only batch removed 30 diagnostics
    across 21 modules, leaving 201 lines and 97 affected source-tree files. Parameters and public
-   shapes remain untouched until each caller contract is reviewed.
+   shapes remain untouched until each caller contract is reviewed. FOURTH BOUNDED CLEANUP DEPLOYED
+   AND SHA-VERIFIED at `e7719d1e`: reviewed algorithm-adjacent residue across 14 modules, removed 49
+   dead lines without changing exported behavior, and reduced the strict output to 185 lines across
+   85 affected source-tree files. Continue with caller-by-caller review; do not mass-delete unused
+   parameters or public shapes.
 20a. **Autonomous research-before-ranking MVP.** DEPLOYED AND SHA-VERIFIED at `d6dcb0c7` (initial
    scheduler `ce4d4345`, suite cleanup `96e137ab`, AI-poll hardening `433614ac`). Every
    signed-in shell visit can trigger one bounded tenant/day post-response cycle: connector freshness,
