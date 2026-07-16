@@ -1037,14 +1037,6 @@ export function ChangesListClient({ view }: { view: ChangesClientView }) {
       {view.readyZeroHint ? (
         <p className="rounded-md border border-border-subtle bg-surface-raised px-2.5 py-1.5 text-body text-foreground-secondary">
           {view.readyZeroHint}
-          {view.readyZeroHint.includes("Wix pages aren't mapped") ? (
-            <>
-              {" "}
-              <Link href="/settings/connectors" className={`rounded-sm font-medium text-status-info underline underline-offset-2 hover:opacity-80 ${FOCUS}`}>
-                Check your Wix connection →
-              </Link>
-            </>
-          ) : null}
         </p>
       ) : null}
       {/* FP2 (killer finding 5) - "Fix the experience rows silently vanish": one quiet

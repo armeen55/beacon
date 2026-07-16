@@ -19,6 +19,7 @@ import { currentTenantId } from "@/lib/tenant-context";
 import { loadExperimentOutcomes } from "@/domains/learning/load-experiment-outcomes";
 import { buildBeaconLearnedSummary } from "@/domains/insight/beacon-learned-summary";
 import { BeaconLearnedTile } from "@/domains/insight/beacon-learned-tile";
+import { loadCurrentCustomerSurface } from "../customer-surface-store";
 
 /**
  * /changes → the canonical CHANGES list (2026-07-01 consolidation). One object, a CHANGE, across
@@ -142,6 +143,7 @@ async function TonightPanel() {
  * new-page idea never renders twice on this page.
  */
 async function NewPagesBoard() {
+  const customerSurface = await loadCurrentCustomerSurface().catch(() => null);
   const factoryTopics = await loadWithDeadline(
     loadFactoryBatchCardData()
       .then((d) => (d ? d.items.map((i) => i.title) : []))
@@ -152,6 +154,7 @@ async function NewPagesBoard() {
     TodayNewPagesSection({
       enableAeoBrief: true,
       excludeTopics: factoryTopics.timedOut ? [] : factoryTopics.data,
+      dataOverride: customerSurface ? customerSurface.newPages : undefined,
     }),
     SIDE_SECTION_DEADLINE_MS,
   );

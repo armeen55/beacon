@@ -75,6 +75,21 @@ describe("autonomousResearchHeaderStatus", () => {
     });
   });
 
+  it("keeps a checkpointed partial pipeline customer-ready between navigations", () => {
+    expect(autonomousResearchHeaderStatus(receipt({
+      summary,
+      pipeline: {
+        version: 1,
+        completedStages: ["baseline", "graph", "competitors"],
+        nextStage: "keywords",
+        updatedAt: "2026-07-14T18:01:00.000Z",
+      },
+    }))).toMatchObject({
+      label: "Up to date · refreshing",
+      tone: "ready",
+    });
+  });
+
   it("collapses a completed pass to the outcome that matters", () => {
     const row = receipt({
       ok: true,

@@ -18,7 +18,7 @@ import "server-only";
  * not, and does not need to, dedupe across instances.
  */
 
-const inFlight = new Map<string, Promise<void>>();
+const inFlight = new Map<string, Promise<unknown>>();
 
 /**
  * Run `fn` under `key`, or join the run already in flight for that key. The
@@ -26,12 +26,12 @@ const inFlight = new Map<string, Promise<void>>();
  * cleared when the run settles (success or failure), so the next request can
  * trigger a fresh rebuild.
  */
-export function runSingleFlight(key: string, fn: () => Promise<void>): Promise<void> {
+export function runSingleFlight<T>(key: string, fn: () => Promise<T>): Promise<T> {
   const existing = inFlight.get(key);
-  if (existing) return existing;
+  if (existing) return existing as Promise<T>;
   const run = (async () => {
     try {
-      await fn();
+      return await fn();
     } finally {
       inFlight.delete(key);
     }

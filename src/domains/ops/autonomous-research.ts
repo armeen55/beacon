@@ -18,6 +18,7 @@ import type {
   WarmRunReceipt,
   WarmRunSummary,
   WarmStepReceipt,
+  AutonomousPipelineStage,
 } from "./warm-receipt-store";
 
 const STEP_TIMEOUT_MS = 120_000;
@@ -89,6 +90,7 @@ export type AutonomousResearchDeps = {
   /** Publish a usable ranking from already-cached evidence before any long or
    * paid research. Deep research may enrich and replace it later. */
   publishUsableSurfaces: (tenantId: string) => Promise<void>;
+  prepareTopFive: (tenantId: string, now: Date) => Promise<PrepareMovesSummary>;
   refreshGraph: (tenantId: string, now: Date) => Promise<void>;
   auditCompetitors: (tenantId: string) => Promise<{ audited: number; targets: number; cached: number }>;
   mineCompetitorKeywords: (tenantId: string) => Promise<KeywordGapRunResult>;
@@ -142,14 +144,21 @@ async function defaultBuildResearchPacks(tenantId: string): Promise<ResearchPack
 
 const defaultDeps: AutonomousResearchDeps = {
   publishUsableSurfaces: async (tenantId) => {
-    const [{ refreshWorklistSurface }, { rebuildChangesSurface }, { refreshTodaySurface }] = await Promise.all([
-      import("@/app/(shell)/moves/moves-data"),
-      import("@/app/(shell)/changes-data"),
-      import("@/app/(shell)/today-view-data"),
+    const { refreshCustomerSurface } = await import("@/app/(shell)/customer-surface-refresh");
+    await refreshCustomerSurface(tenantId);
+  },
+  prepareTopFive: async (tenantId, now) => {
+    const [{ prepareTodayMovesForTenant }, { readChangesSurface }] = await Promise.all([
+      import("@/domains/demand-graph/prepare-today-moves"),
+      import("@/app/(shell)/changes-surface-store"),
     ]);
-    await refreshWorklistSurface(tenantId);
-    await rebuildChangesSurface(tenantId);
-    await refreshTodaySurface(tenantId);
+    const rankedEntries = (await readChangesSurface(tenantId).catch(() => null))?.view.rankedPreparationEntries ?? [];
+    return prepareTodayMovesForTenant(tenantId, {
+      maxN: 5,
+      maxUsd: 0.15,
+      now: () => now,
+      rankedEntries,
+    });
   },
   refreshGraph: defaultRefreshGraph,
   auditCompetitors: async (tenantId) => {
@@ -218,7 +227,7 @@ const defaultDeps: AutonomousResearchDeps = {
     const rankedEntries = (await readChangesSurface(tenantId).catch(() => null))
       ?.view.rankedPreparationEntries ?? [];
     return await prepareTodayMovesForTenant(tenantId, {
-      maxN: 10,
+      maxN: 5,
       maxUsd: 0.15,
       now: () => now,
       rankedEntries,
@@ -235,6 +244,27 @@ const defaultDeps: AutonomousResearchDeps = {
     });
   },
 };
+
+export const AUTONOMOUS_PIPELINE_STAGES: readonly AutonomousPipelineStage[] = [
+  "baseline", "graph", "competitors", "keywords", "ai", "knowledge", "opportunities", "finalize",
+];
+
+type AutonomousRunConfig = {
+  resume?: WarmRunReceipt | null;
+  onCheckpoint?: (receipt: WarmRunReceipt) => Promise<void>;
+};
+
+function emptySummary(): WarmRunSummary {
+  return {
+    dataForSeoStatus: "disabled", competitorPagesAnalyzed: 0, competitorPagesRefreshed: 0,
+    competitorsMined: 0, keywordGapsFound: 0, cloneBriefsBuilt: 0, keywordTermsPlanned: 0,
+    serpPatternsWritten: 0, aiTopicsPolled: 0, aiCitationRecords: 0, aiEnginePrompts: 0,
+    aiEnginesChecked: 0, aiObservationsWritten: 0, aiCitationGaps: 0, questionsRanked: 0,
+    uncoveredQuestions: 0, claimsChecked: 0, conflictingClaims: 0, pagesMapped: 0,
+    orphanPagesFound: 0, beatenKeywords: 0, stealBriefsBuilt: 0, nativePromptsAnalyzed: 0,
+    citedPagesAnalyzed: 0, movesPrepared: 0, readyToReview: 0, draftsRegenerated: 0, spendUsd: 0,
+  };
+}
 
 async function runStep<T>(
   name: string,
@@ -269,159 +299,179 @@ async function runStep<T>(
 /**
  * One bounded, tenant-explicit research-before-ranking pass. All paid producers
  * retain their own cache, dry-run, ledger and global/monthly budget guards.
- * Failures are isolated and recorded; publishing is never called.
+ * Failures are recorded at a durable stage boundary and stop dependent work.
+ * A later visit resumes from the first unfinished stage.
  */
 export async function runAutonomousResearchForTenant(
   tenantId: string,
   now: Date = new Date(),
   depsOverride: Partial<AutonomousResearchDeps> = {},
+  config: AutonomousRunConfig = {},
 ): Promise<WarmRunReceipt> {
   const deps = { ...defaultDeps, ...depsOverride };
   const startedAt = Date.now();
   const steps: WarmStepReceipt[] = [];
+  const date = now.toLocaleDateString("en-CA", { timeZone: "America/Los_Angeles" });
+  const resumed = config.resume?.date === date && config.resume.pipeline?.version === 1 ? config.resume : null;
+  const completed = new Set<AutonomousPipelineStage>(resumed?.pipeline?.completedStages ?? []);
+  const summary: WarmRunSummary = { ...emptySummary(), ...(resumed?.summary ?? {}) };
+  let lastReceipt: WarmRunReceipt | null = null;
 
-  // Publish the best complete view Beacon can assemble from durable cached
-  // evidence first. The operator gets a useful Today/Changes snapshot even if
-  // a later provider is slow or the continuation reaches its hard deadline.
-  const usable = await runStep("publish-usable-surfaces", undefined, () =>
-    deps.publishUsableSurfaces(tenantId));
-  steps.push(usable.receipt);
-
-  const graph = await runStep("seed-demand-graph", undefined, () => deps.refreshGraph(tenantId, now));
-  steps.push(graph.receipt);
-
-  const competitors = await runStep("competitor-teardown", { audited: 0, targets: 0, cached: 0 }, () =>
-    deps.auditCompetitors(tenantId));
-  steps.push(competitors.receipt);
-
-  const keywordGaps = await runStep<KeywordGapRunResult | null>("competitor-keyword-mining", null, () =>
-    deps.mineCompetitorKeywords(tenantId));
-  steps.push(keywordGaps.receipt);
-
-  const packs = await runStep("research-pack-selection", [] as ResearchPackLite[], () =>
-    deps.buildResearchPacks(tenantId));
-  steps.push(packs.receipt);
-  const enrichment = await runStep<EnrichmentRunResult | null>("keyword-serp-enrichment", null, () =>
-    deps.enrichResearch(packs.value));
-  steps.push(enrichment.receipt);
-
-  const enginePoll = await runStep<EnginePollResult | null>("multi-engine-aeo-poll", null, () =>
-    deps.pollAiEngines(tenantId));
-  steps.push(enginePoll.receipt);
-  const topics = await runStep<TopicMentionsRunResult | null>("ai-citation-fanout", null, () =>
-    deps.pollAiTopics(tenantId));
-  steps.push(topics.receipt);
-  const questions = await runStep<QuestionUniverseRebuildResult | null>("question-universe", null, () =>
-    deps.rebuildQuestions(tenantId));
-  steps.push(questions.receipt);
-  const claims = await runStep<ClaimGraphRebuildResult | null>("factual-claim-graph", null, () =>
-    deps.rebuildClaims(tenantId));
-  steps.push(claims.receipt);
-  const authority = await runStep<PageRankRebuildResult | null>("internal-authority-map", null, () =>
-    deps.rebuildInternalAuthority(tenantId));
-  steps.push(authority.receipt);
-  const displacement = await runStep("loss-reflex", EMPTY_DISPLACEMENT, () =>
-    deps.checkDisplacement(tenantId, now));
-  steps.push(displacement.receipt);
-  const steal = await runStep("serp-steal", EMPTY_STEAL, () => deps.runStealLane(tenantId, now));
-  steps.push(steal.receipt);
-  const native = await runStep("native-citation-teardown", EMPTY_NATIVE, () => deps.runNativeTeardown(tenantId));
-  steps.push(native.receipt);
-  const finalKeywords = await runStep("final-keyword-demand", EMPTY_FINAL_KEYWORDS, () =>
-    deps.completeFinalKeywordDemand(tenantId));
-  steps.push(finalKeywords.receipt);
-
-  // The New Pages board used to require its own "Prepare all" click and could
-  // retain an unsourced brief forever. Run the same capped/cache-first path
-  // automatically; only missing or quality-failing briefs are regenerated.
-  const newPages = await runStep("prepare-new-pages", EMPTY_NEW_PAGES, () =>
-    deps.prepareNewPages(tenantId));
-  steps.push(newPages.receipt);
-
-  let prepared = EMPTY_PREPARE;
-  const finish = await runStep<WarmRunReceipt | null>("fuse-rank-prepare-surfaces", null, () =>
-    deps.finishSurfaces(tenantId, now, {
-      displacement: displacement.value,
-      steal: steal.value,
-      native: native.value,
-      prepare: async (id, at) => {
-        prepared = await deps.prepareMoves(id, at);
-        return prepared;
+  const checkpoint = async (stage: AutonomousPipelineStage, receipts: WarmStepReceipt[]) => {
+    steps.push(...receipts);
+    const stageOk = receipts.every((receipt) => receipt.ok);
+    if (stageOk) completed.add(stage);
+    const nextStage = AUTONOMOUS_PIPELINE_STAGES.find((candidate) => !completed.has(candidate)) ?? null;
+    lastReceipt = {
+      tenant_id: tenantId,
+      date,
+      ran_at: now.toISOString(),
+      ok: nextStage == null,
+      totalMs: Date.now() - startedAt,
+      steps: [...steps],
+      trigger: "visit",
+      summary: { ...summary },
+      pipeline: {
+        version: 1,
+        completedStages: AUTONOMOUS_PIPELINE_STAGES.filter((candidate) => completed.has(candidate)),
+        nextStage,
+        updatedAt: new Date().toISOString(),
       },
-    }));
-  steps.push(finish.receipt);
-  if (finish.value) {
-    steps.push(
-      ...finish.value.steps.filter((step) =>
-        !["displacement-check", "serp-steal-lane", "native-teardown"].includes(step.name)),
-    );
-  }
-
-  const dataForSeoStatus: WarmRunSummary["dataForSeoStatus"] =
-    enrichment.value?.configured !== true || keywordGaps.value?.status === "disabled" || topics.value?.status === "disabled" || finalKeywords.value.status === "disabled"
-      ? "disabled"
-      : enrichment.value.mode === "dry_run" || keywordGaps.value?.status === "dry_run" || topics.value?.status === "dry_run" || finalKeywords.value.status === "dry_run"
-        ? "dry_run"
-        : "live";
-  const summary: WarmRunSummary = {
-    dataForSeoStatus,
-    aiEnginePollStatus: enginePoll.value?.status ?? "not_run",
-    competitorPagesAnalyzed: competitors.value.targets,
-    competitorPagesRefreshed: Math.max(0, competitors.value.audited - competitors.value.cached),
-    competitorsMined: keywordGaps.value?.competitors.length ?? 0,
-    keywordGapsFound: keywordGaps.value?.gapsFound ?? 0,
-    cloneBriefsBuilt: keywordGaps.value?.cloneBriefs.length ?? 0,
-    pageKeywordsChecked: keywordGaps.value?.pageKeywordsFound ?? 0,
-    relatedKeywordsChecked: (keywordGaps.value?.relatedKeywordsFound ?? 0) + (finalKeywords.value.relatedKeywordsChecked ?? 0),
-    keywordTermsPlanned: enrichment.value?.plan.volumeTerms.length ?? 0,
-    serpPatternsWritten: enrichment.value?.patternsWritten ?? 0,
-    aiTopicsPolled: topics.value?.topics.length ?? 0,
-    aiCitationRecords: topics.value?.records ?? 0,
-    aiEnginePrompts: enginePoll.value?.promptsRequested ?? 0,
-    aiEnginesChecked: enginePoll.value?.enginesChecked.length ?? 0,
-    aiObservationsWritten: enginePoll.value?.observationsWritten ?? 0,
-    aiCitationGaps: enginePoll.value?.gaps ?? 0,
-    questionsRanked: questions.value?.rows ?? 0,
-    uncoveredQuestions: questions.value?.uncovered ?? 0,
-    claimsChecked: claims.value?.claims ?? 0,
-    conflictingClaims: claims.value?.conflicting ?? 0,
-    pagesMapped: authority.value?.pages ?? 0,
-    orphanPagesFound: authority.value?.orphaned ?? 0,
-    beatenKeywords: steal.value.beatenKeywordsFound,
-    stealBriefsBuilt: steal.value.briefsBuilt,
-    nativePromptsAnalyzed: native.value.promptsAnalyzed,
-    citedPagesAnalyzed: native.value.torndownPages,
-    finalSerpQueriesChecked: prepared.serpQueriesChecked ?? 0,
-    finalSerpWinnersAnalyzed: prepared.serpWinnerPagesAnalyzed ?? 0,
-    finalKeywordTermsChecked: finalKeywords.value.checked,
-    newPageBriefsPrepared: newPages.value.briefs,
-    movesPrepared: prepared.prepared,
-    readyToReview: prepared.readyToReview,
-    draftsRegenerated: prepared.regenerated,
-    spendUsd: Number((
-      (enrichment.value?.spentUsd ?? 0) +
-      (keywordGaps.value?.spentUsd ?? 0) +
-      (topics.value?.costUsd ?? 0) +
-      (enginePoll.value?.engines.reduce((sum, engine) => sum + engine.costUsd, 0) ?? 0) +
-      displacement.value.costUsd +
-      steal.value.liveCostUsd +
-      finalKeywords.value.costUsd +
-      newPages.value.costUsd +
-      newPages.value.briefCostUsd +
-      newPages.value.winnabilityCostUsd +
-      prepared.llmCostUsd +
-      prepared.serpCostUsd
-    ).toFixed(3)),
+    };
+    if (config.onCheckpoint) await config.onCheckpoint(lastReceipt);
+    return stageOk;
   };
 
-  return {
-    tenant_id: tenantId,
-    date: now.toLocaleDateString("en-CA", { timeZone: "America/Los_Angeles" }),
-    ran_at: now.toISOString(),
-    ok: steps.every((step) => step.ok),
-    totalMs: Date.now() - startedAt,
-    steps,
-    trigger: "visit",
-    summary,
+  let displacement = EMPTY_DISPLACEMENT;
+  let steal = EMPTY_STEAL;
+  let native = EMPTY_NATIVE;
+  let opportunitiesRanNow = false;
+
+  if (!completed.has("baseline")) {
+    const usable = await runStep("publish-usable-surfaces", undefined, () => deps.publishUsableSurfaces(tenantId));
+    const prepared = await runStep("prepare-top-five", EMPTY_PREPARE, () => deps.prepareTopFive(tenantId, now));
+    const republished = await runStep("publish-prepared-top-five", undefined, () => deps.publishUsableSurfaces(tenantId));
+    summary.movesPrepared = prepared.value.prepared;
+    summary.readyToReview = prepared.value.readyToReview;
+    summary.draftsRegenerated = prepared.value.regenerated;
+    summary.finalSerpQueriesChecked = prepared.value.serpQueriesChecked ?? 0;
+    summary.finalSerpWinnersAnalyzed = prepared.value.serpWinnerPagesAnalyzed ?? 0;
+    summary.spendUsd = Number((summary.spendUsd + prepared.value.llmCostUsd + prepared.value.serpCostUsd).toFixed(3));
+    if (!(await checkpoint("baseline", [usable.receipt, prepared.receipt, republished.receipt]))) return lastReceipt!;
+  }
+
+  if (!completed.has("graph")) {
+    const graph = await runStep("seed-demand-graph", undefined, () => deps.refreshGraph(tenantId, now));
+    if (!(await checkpoint("graph", [graph.receipt]))) return lastReceipt!;
+  }
+
+  if (!completed.has("competitors")) {
+    const competitors = await runStep("competitor-teardown", { audited: 0, targets: 0, cached: 0 }, () => deps.auditCompetitors(tenantId));
+    summary.competitorPagesAnalyzed = competitors.value.targets;
+    summary.competitorPagesRefreshed = Math.max(0, competitors.value.audited - competitors.value.cached);
+    if (!(await checkpoint("competitors", [competitors.receipt]))) return lastReceipt!;
+  }
+
+  if (!completed.has("keywords")) {
+    const keywordGaps = await runStep<KeywordGapRunResult | null>("competitor-keyword-mining", null, () => deps.mineCompetitorKeywords(tenantId));
+    const packs = await runStep("research-pack-selection", [] as ResearchPackLite[], () => deps.buildResearchPacks(tenantId));
+    const enrichment = await runStep<EnrichmentRunResult | null>("keyword-serp-enrichment", null, () => deps.enrichResearch(packs.value));
+    summary.competitorsMined = keywordGaps.value?.competitors.length ?? 0;
+    summary.keywordGapsFound = keywordGaps.value?.gapsFound ?? 0;
+    summary.cloneBriefsBuilt = keywordGaps.value?.cloneBriefs.length ?? 0;
+    summary.pageKeywordsChecked = keywordGaps.value?.pageKeywordsFound ?? 0;
+    summary.relatedKeywordsChecked = keywordGaps.value?.relatedKeywordsFound ?? 0;
+    summary.keywordTermsPlanned = enrichment.value?.plan.volumeTerms.length ?? 0;
+    summary.serpPatternsWritten = enrichment.value?.patternsWritten ?? 0;
+    summary.dataForSeoStatus = enrichment.value?.configured !== true || keywordGaps.value?.status === "disabled"
+      ? "disabled"
+      : enrichment.value.mode === "dry_run" || keywordGaps.value?.status === "dry_run" ? "dry_run" : "live";
+    summary.spendUsd = Number((summary.spendUsd + (keywordGaps.value?.spentUsd ?? 0) + (enrichment.value?.spentUsd ?? 0)).toFixed(3));
+    if (!(await checkpoint("keywords", [keywordGaps.receipt, packs.receipt, enrichment.receipt]))) return lastReceipt!;
+  }
+
+  if (!completed.has("ai")) {
+    const enginePoll = await runStep<EnginePollResult | null>("multi-engine-aeo-poll", null, () => deps.pollAiEngines(tenantId));
+    const topics = await runStep<TopicMentionsRunResult | null>("ai-citation-fanout", null, () => deps.pollAiTopics(tenantId));
+    summary.aiEnginePollStatus = enginePoll.value?.status ?? "not_run";
+    summary.aiTopicsPolled = topics.value?.topics.length ?? 0;
+    summary.aiCitationRecords = topics.value?.records ?? 0;
+    summary.aiEnginePrompts = enginePoll.value?.promptsRequested ?? 0;
+    summary.aiEnginesChecked = enginePoll.value?.enginesChecked.length ?? 0;
+    summary.aiObservationsWritten = enginePoll.value?.observationsWritten ?? 0;
+    summary.aiCitationGaps = enginePoll.value?.gaps ?? 0;
+    summary.spendUsd = Number((summary.spendUsd + (topics.value?.costUsd ?? 0) + (enginePoll.value?.engines.reduce((sum, engine) => sum + engine.costUsd, 0) ?? 0)).toFixed(3));
+    if (!(await checkpoint("ai", [enginePoll.receipt, topics.receipt]))) return lastReceipt!;
+  }
+
+  if (!completed.has("knowledge")) {
+    const questions = await runStep<QuestionUniverseRebuildResult | null>("question-universe", null, () => deps.rebuildQuestions(tenantId));
+    const claims = await runStep<ClaimGraphRebuildResult | null>("factual-claim-graph", null, () => deps.rebuildClaims(tenantId));
+    const authority = await runStep<PageRankRebuildResult | null>("internal-authority-map", null, () => deps.rebuildInternalAuthority(tenantId));
+    summary.questionsRanked = questions.value?.rows ?? 0;
+    summary.uncoveredQuestions = questions.value?.uncovered ?? 0;
+    summary.claimsChecked = claims.value?.claims ?? 0;
+    summary.conflictingClaims = claims.value?.conflicting ?? 0;
+    summary.pagesMapped = authority.value?.pages ?? 0;
+    summary.orphanPagesFound = authority.value?.orphaned ?? 0;
+    if (!(await checkpoint("knowledge", [questions.receipt, claims.receipt, authority.receipt]))) return lastReceipt!;
+  }
+
+  if (!completed.has("opportunities")) {
+    const lossRun = await runStep("loss-reflex", EMPTY_DISPLACEMENT, () => deps.checkDisplacement(tenantId, now));
+    const stealRun = await runStep("serp-steal", EMPTY_STEAL, () => deps.runStealLane(tenantId, now));
+    const nativeRun = await runStep("native-citation-teardown", EMPTY_NATIVE, () => deps.runNativeTeardown(tenantId));
+    const finalKeywords = await runStep("final-keyword-demand", EMPTY_FINAL_KEYWORDS, () => deps.completeFinalKeywordDemand(tenantId));
+    const newPages = await runStep("prepare-new-pages", EMPTY_NEW_PAGES, () => deps.prepareNewPages(tenantId));
+    displacement = lossRun.value;
+    steal = stealRun.value;
+    native = nativeRun.value;
+    opportunitiesRanNow = true;
+    summary.beatenKeywords = steal.beatenKeywordsFound;
+    summary.stealBriefsBuilt = steal.briefsBuilt;
+    summary.nativePromptsAnalyzed = native.promptsAnalyzed;
+    summary.citedPagesAnalyzed = native.torndownPages;
+    summary.finalKeywordTermsChecked = finalKeywords.value.checked;
+    summary.relatedKeywordsChecked = (summary.relatedKeywordsChecked ?? 0) + (finalKeywords.value.relatedKeywordsChecked ?? 0);
+    summary.newPageBriefsPrepared = newPages.value.briefs;
+    summary.spendUsd = Number((summary.spendUsd + displacement.costUsd + steal.liveCostUsd + finalKeywords.value.costUsd + newPages.value.costUsd + newPages.value.briefCostUsd + newPages.value.winnabilityCostUsd).toFixed(3));
+    if (!(await checkpoint("opportunities", [lossRun.receipt, stealRun.receipt, nativeRun.receipt, finalKeywords.receipt, newPages.receipt]))) return lastReceipt!;
+  }
+
+  if (!completed.has("finalize")) {
+    const resumeReceipts: WarmStepReceipt[] = [];
+    if (!opportunitiesRanNow) {
+      const lossRun = await runStep("resume-loss-reflex", EMPTY_DISPLACEMENT, () => deps.checkDisplacement(tenantId, now));
+      const stealRun = await runStep("resume-serp-steal", EMPTY_STEAL, () => deps.runStealLane(tenantId, now));
+      const nativeRun = await runStep("resume-native-citation-teardown", EMPTY_NATIVE, () => deps.runNativeTeardown(tenantId));
+      displacement = lossRun.value;
+      steal = stealRun.value;
+      native = nativeRun.value;
+      resumeReceipts.push(lossRun.receipt, stealRun.receipt, nativeRun.receipt);
+    }
+    let prepared = EMPTY_PREPARE;
+    const finish = await runStep<WarmRunReceipt | null>("fuse-rank-prepare-surfaces", null, () =>
+      deps.finishSurfaces(tenantId, now, {
+        displacement,
+        steal,
+        native,
+        prepare: async (id, at) => {
+          prepared = await deps.prepareMoves(id, at);
+          return prepared;
+        },
+      }));
+    summary.movesPrepared = Math.max(summary.movesPrepared, prepared.prepared);
+    summary.readyToReview = Math.max(summary.readyToReview, prepared.readyToReview);
+    summary.draftsRegenerated += prepared.regenerated;
+    summary.finalSerpQueriesChecked = prepared.serpQueriesChecked ?? summary.finalSerpQueriesChecked;
+    summary.finalSerpWinnersAnalyzed = prepared.serpWinnerPagesAnalyzed ?? summary.finalSerpWinnersAnalyzed;
+    summary.spendUsd = Number((summary.spendUsd + prepared.llmCostUsd + prepared.serpCostUsd).toFixed(3));
+    if (!(await checkpoint("finalize", [...resumeReceipts, finish.receipt]))) return lastReceipt!;
+  }
+
+  return lastReceipt ?? {
+    tenant_id: tenantId, date, ran_at: now.toISOString(), ok: true, totalMs: Date.now() - startedAt,
+    steps, trigger: "visit", summary,
+    pipeline: { version: 1, completedStages: [...AUTONOMOUS_PIPELINE_STAGES], nextStage: null, updatedAt: new Date().toISOString() },
   };
 }

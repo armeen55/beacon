@@ -2,7 +2,7 @@
  * warmFreeSurfaces (2026-07-08) - the FREE cache-warm subset called right after
  * a manual "Update data" refresh so the post-refresh repaint is warm, not a cold
  * ~6s demand-graph rebuild. Pins the composition contract:
- *   - runs the free surfaces (demand-graph -> worklist -> fused Changes -> today),
+ *   - runs the free surfaces (demand-graph -> worklist -> fused Changes -> atomic customer release),
  *   - in dependency order,
  *   - NONE of the paid nightly-only steps (displacement / steal / teardown /
  *     prepare-ahead) are touched,
@@ -37,9 +37,9 @@ vi.mock("@/app/(shell)/changes-data", () => ({
     calls.push("changes");
   }),
 }));
-vi.mock("@/app/(shell)/today-view-data", () => ({
-  refreshTodaySurface: vi.fn(async () => {
-    calls.push("today");
+vi.mock("@/app/(shell)/customer-surface-refresh", () => ({
+  refreshCustomerSurface: vi.fn(async () => {
+    calls.push("customer");
   }),
 }));
 
@@ -54,8 +54,8 @@ describe("warmFreeSurfaces", () => {
 
   it("warms the worklist and its fused Changes view in dependency order", async () => {
     await warmFreeSurfaces(TENANT);
-    // Graph is built then persisted; Changes consumes the fresh worklist; Today paints last.
-    expect(calls).toEqual(["graph:build", "graph:write", "worklist", "changes", "today"]);
+    // Graph is built then persisted; Changes consumes the fresh worklist; the shared customer release publishes last.
+    expect(calls).toEqual(["graph:build", "graph:write", "worklist", "changes", "customer"]);
   });
 
   it("never touches a paid nightly-only step (no displacement/steal/teardown/prepare)", async () => {
@@ -72,10 +72,10 @@ describe("warmFreeSurfaces", () => {
         throw new Error("graph build blew up");
       },
     );
-    // Must not throw, and worklist + Changes + Today still run despite the graph failure.
+    // Must not throw, and worklist + Changes + the customer release still run despite the graph failure.
     await expect(warmFreeSurfaces(TENANT)).resolves.toBeUndefined();
     expect(calls).toContain("worklist");
     expect(calls).toContain("changes");
-    expect(calls).toContain("today");
+    expect(calls).toContain("customer");
   });
 });

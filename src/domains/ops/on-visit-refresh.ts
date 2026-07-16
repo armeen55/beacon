@@ -49,6 +49,7 @@ export function startedReceipt(tenantId: string, now: Date, prior: WarmRunReceip
     // presentation snapshots are still usable; starting research must not make
     // the whole product look empty or unfinished again.
     ...(prior?.summary ? { summary: prior.summary } : {}),
+    ...(prior?.pipeline ? { pipeline: prior.pipeline } : {}),
   };
 }
 
@@ -67,6 +68,7 @@ export function timedOutReceipt(tenantId: string, now: Date, prior: WarmRunRecei
       note: "This pass reached its safe time limit. I will continue from cached work on your next navigation.",
     }],
     ...(prior?.summary ? { summary: prior.summary } : {}),
+    ...(prior?.pipeline ? { pipeline: prior.pipeline } : {}),
   };
 }
 
@@ -85,11 +87,18 @@ async function runPostResponseCycle(tenantId: string): Promise<void> {
       // Write before work begins. This is the durable cross-instance throttle
       // and gives the UI an honest running state instead of a blank.
       await recordWarmRun(startedReceipt(tenantId, now, prior));
+      let latestCheckpoint = prior;
       const raced = await loadWithDeadline(
-        runAutonomousResearchForTenant(tenantId, now),
+        runAutonomousResearchForTenant(tenantId, now, {}, {
+          resume: prior,
+          onCheckpoint: async (checkpoint) => {
+            latestCheckpoint = checkpoint;
+            await recordWarmRun(checkpoint);
+          },
+        }),
         AUTONOMOUS_RUN_DEADLINE_MS,
       );
-      const receipt = raced.timedOut ? timedOutReceipt(tenantId, now, prior) : raced.data;
+      const receipt = raced.timedOut ? timedOutReceipt(tenantId, now, latestCheckpoint) : raced.data;
       // A hard continuation limit must never leave the durable status on
       // "running". A partial receipt permits the next navigation to continue
       // through the producers' own caches after a short cooldown.

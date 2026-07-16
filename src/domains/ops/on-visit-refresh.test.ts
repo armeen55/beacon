@@ -54,8 +54,17 @@ describe("shouldRunAutonomousResearch", () => {
   });
 
   it("keeps the last completed outcome visible while refreshing or after a timeout", () => {
-    const prior = receipt({ summary: { readyToReview: 7 } as WarmRunReceipt["summary"] });
+    const prior = receipt({
+      summary: { readyToReview: 7 } as WarmRunReceipt["summary"],
+      pipeline: {
+        version: 1,
+        completedStages: ["baseline", "graph"],
+        nextStage: "competitors",
+        updatedAt: NOW.toISOString(),
+      },
+    });
     expect(startedReceipt("tenant-iranopedia", NOW, prior).summary?.readyToReview).toBe(7);
     expect(timedOutReceipt("tenant-iranopedia", NOW, prior).summary?.readyToReview).toBe(7);
+    expect(timedOutReceipt("tenant-iranopedia", NOW, prior).pipeline?.nextStage).toBe("competitors");
   });
 });

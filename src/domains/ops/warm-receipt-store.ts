@@ -83,7 +83,25 @@ export type WarmRunReceipt = {
   trigger?: "cron" | "visit" | "manual";
   /** Structured autonomous-research outcome used by the customer-facing status line. */
   summary?: WarmRunSummary;
+  /** Durable resume cursor for the visit-driven brain. Completed stages are
+   * cache-safe and never repeated merely because a later stage timed out. */
+  pipeline?: {
+    version: 1;
+    completedStages: AutonomousPipelineStage[];
+    nextStage: AutonomousPipelineStage | null;
+    updatedAt: string;
+  };
 };
+
+export type AutonomousPipelineStage =
+  | "baseline"
+  | "graph"
+  | "competitors"
+  | "keywords"
+  | "ai"
+  | "knowledge"
+  | "opportunities"
+  | "finalize";
 
 /**
  * Has a SUCCESSFUL warm pass already completed for this tenant + Pacific day?

@@ -77,6 +77,7 @@ export const SUPABASE_MIRRORED_STORES = new Set<string>([
   // every hosted lambda starts cold and pays the ~14s allocator fuse; the blob makes
   // the SWR snapshot warm across instances (same rationale as worklist/today/results).
   "changes-surface",
+  "customer-surface",
   // 2026-07-08 - the SOURCE demand-graph SWR snapshot (graph-snapshot-store.ts). This was
   // the missed one: worklist-surface + today-surface (both DERIVED from it) were mirrored
   // on 2026-07-01, but the ~6s graph build they read was not, so on Vercel it lived only in

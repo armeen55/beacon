@@ -7,6 +7,8 @@ import { loadWithDeadline } from "@/lib/load-with-deadline";
 import { HonestDelay } from "@/components/honest-delay";
 import { SectionHeader } from "@/components/ui/section-header";
 import { topicIdentityKey } from "@/domains/demand-graph/dedupe-new-page-cards";
+import type { NewPagesData } from "./today-newpages-data";
+import { loadCurrentCustomerSurface } from "./customer-surface-store";
 
 /**
  * today-newpages-section (2026-06-24) — the "New Pages to Build" board: the
@@ -33,15 +35,21 @@ export async function TodayNewPagesSection({
   enableAeoBrief = false,
   limit,
   excludeTopics = [],
-}: { enableAeoBrief?: boolean; limit?: number; excludeTopics?: string[] } = {}) {
+  dataOverride,
+}: { enableAeoBrief?: boolean; limit?: number; excludeTopics?: string[]; dataOverride?: NewPagesData | null } = {}) {
   let data;
   try {
     // FP1 (2026-07-02) - this board can rebuild the demand graph on a cold cache,
     // the slowest read on Today. Deadline-bounded so its pulse skeleton can never
     // strand; the abandoned build keeps running and warms the cache.
-    const raced = await loadWithDeadline(loadNewPagesData());
-    if (raced.timedOut) return <HonestDelay />;
-    data = raced.data;
+    if (dataOverride === null) return null;
+    if (dataOverride !== undefined) {
+      data = dataOverride;
+    } else {
+      const raced = await loadWithDeadline(loadNewPagesData());
+      if (raced.timedOut) return <HonestDelay />;
+      data = raced.data;
+    }
   } catch {
     return null;
   }
@@ -129,9 +137,14 @@ export function newPagesSectionSub(anyOwnedCoverage: boolean): string {
 export async function TodayNewPagesSummaryLine() {
   let count = 0;
   try {
-    const raced = await loadWithDeadline(loadNewPagesData());
-    if (raced.timedOut) return null;
-    count = raced.data.opportunities.length;
+    const customer = await loadCurrentCustomerSurface().catch(() => null);
+    if (customer) {
+      count = customer.newPages?.opportunities.length ?? 0;
+    } else {
+      const raced = await loadWithDeadline(loadNewPagesData());
+      if (raced.timedOut) return null;
+      count = raced.data.opportunities.length;
+    }
   } catch {
     return null;
   }

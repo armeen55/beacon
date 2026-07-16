@@ -23,7 +23,6 @@ import type { SeasonalQuery } from "@/domains/seasonal/seasonality";
 import { PREP_WINDOW_DAYS } from "@/domains/seasonal/seasonal-hints";
 import { normalizePath } from "@/domains/experiments/daily-plan-types";
 import type { TodayMove } from "./today-moves-data";
-import { readPublishHealth } from "@/domains/push/publish-canary-store";
 // D7 (honest opportunity math) - the SAME bias-correction factor + per-family empirical capture
 // band build-today-preview.ts already resolves for the nightly plan, reused here so the ranked
 // Changes list forecasts with the tenant's own track record instead of the static 25/75 fallback
@@ -71,6 +70,7 @@ import {
   writeChangesSurface,
   isChangesSurfaceStale,
 } from "./changes-surface-store";
+import { readCustomerSurface, isCustomerSurfaceStale } from "./customer-surface-store";
 
 export type ChangesView = {
   changes: CanonicalChange[];
@@ -134,6 +134,8 @@ export type ChangesView = {
    *  empty because the rebuild was just scheduled in the background, NOT because
    *  there is genuinely nothing to do. The page renders an honest building state. */
   surfaceBuilding?: boolean;
+  /** Atomic customer release shared with Today and New Pages. */
+  surfaceVersion?: string | null;
 };
 
 /**
@@ -603,6 +605,21 @@ export async function loadChangesViewWithSwr(
       }
     });
 
+  const customer = await readCustomerSurface(tenantId).catch(() => null);
+  if (customer) {
+    if (isCustomerSurfaceStale(customer.computedAt, Date.now())) {
+      after(async () => {
+        const { refreshCustomerSurface } = await import("./customer-surface-refresh");
+        await refreshCustomerSurface(tenantId).catch(() => null);
+      });
+    }
+    return {
+      ...customer.changes,
+      surfaceComputedAt: customer.computedAt,
+      surfaceBuilding: false,
+      surfaceVersion: customer.releaseId,
+    };
+  }
   const cached = await readChangesSurface(tenantId).catch(() => null);
   if (cached) {
     if (isChangesSurfaceStale(cached.computedAt, Date.now())) scheduleRebuild("background-refresh");
@@ -619,11 +636,11 @@ export async function loadChangesViewWithSwr(
  * refresh body; also the nightly-warm entry). Build-then-write: a failed build throws
  * and the previous snapshot stays in place.
  */
-export async function rebuildChangesSurface(tenantId: string): Promise<void> {
+export async function rebuildChangesSurface(tenantId: string): Promise<ChangesView> {
   return rebuildChangesSurfaceWith(tenantId, buildChangesViewUncached);
 }
 
-async function rebuildChangesSurfaceWith(tenantId: string, build: ChangesViewBuilder): Promise<void> {
+async function rebuildChangesSurfaceWith(tenantId: string, build: ChangesViewBuilder): Promise<ChangesView> {
   const computedAt = new Date().toISOString();
   const view = await build(tenantId);
   // P2-f (2026-07-10, visual audit HARD lint) - this runs inside next/server's after()
@@ -633,6 +650,7 @@ async function rebuildChangesSurfaceWith(tenantId: string, build: ChangesViewBui
   // for in a background task. `tenantId` is already threaded through `build(tenantId)`
   // above - thread it through the write too, so the two can never disagree.
   await writeChangesSurface(view, computedAt, tenantId);
+  return view;
 }
 
 // FP3 - the heavy compute. Formerly `loadChangesView` (react.cache'd inline); now the
@@ -851,11 +869,8 @@ async function buildChangesViewUncached(tenantId: string): Promise<ChangesView> 
   // never blocks the list.
   let readyZeroHint: string | null = null;
   if (summary.ready === 0) {
-    const health = await readPublishHealth(tenantId).catch(() => null);
-    if (health && health.urlMapOk === false) {
-      readyZeroHint = "0 ready to publish because your Wix pages aren't mapped yet. Once you connect them, prepared changes will show up here ready to ship.";
-    } else if (summary.todo > 0) {
-      readyZeroHint = `0 are ready to publish yet because none of your ${summary.todo} open idea${summary.todo === 1 ? "" : "s"} has been prepared into an exact edit. Open one from To do and prepare it, and it will show up here.`;
+    if (summary.todo > 0) {
+      readyZeroHint = `I am preparing exact, copy-ready edits for the strongest open ideas in the background. The first five move here as each draft passes its evidence and quality checks; Wix is only needed if you want Beacon to publish for you.`;
     } else if (summary.measuring > 0) {
       readyZeroHint = `0 ready right now because everything is already live and measuring (${summary.measuring} in progress). I'll show new ideas here once fresh demand data comes in or a measurement settles.`;
     } else {

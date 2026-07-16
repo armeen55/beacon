@@ -106,6 +106,10 @@ export const TENANT_SCOPED_STORES = new Set<string>([
   // ChangesView snapshot per tenant), same discipline as worklist-surface. Presentation
   // cache only: the moves/plan/ledger sources stay canonical, never here.
   "changes-surface",
+  // 2026-07-15 - atomic customer-visible release shared by Today and Changes.
+  // Contains the complete ranked Changes view, Today composite, and New Pages
+  // board under one release id so visible state never mixes build generations.
+  "customer-surface",
   // 2026-07-03 R4 - /results stale-while-revalidate surface (the RE-MEASURED proof
   // ledger snapshot per tenant), same discipline as worklist-surface. Presentation
   // cache only: measurement history stays in shipped_changes, never here.

@@ -11,6 +11,14 @@ const NOW = new Date("2026-07-13T18:00:00.000Z");
 function deps(calls: string[]): AutonomousResearchDeps {
   return {
     publishUsableSurfaces: vi.fn(async () => { calls.push("usable"); }),
+    prepareTopFive: vi.fn(async () => {
+      calls.push("prepare-five");
+      return {
+        considered: 5, prepared: 5, readyToReview: 4, draftReady: 1, cached: 0,
+        failed: 0, regenerated: 0, stoppedForBudget: false, llmCostUsd: 0.03,
+        winnabilityHeld: 0, serpCostUsd: 0.002, outcomes: [],
+      };
+    }),
     refreshGraph: vi.fn(async () => { calls.push("graph"); }),
     auditCompetitors: vi.fn(async () => {
       calls.push("competitors");
@@ -181,7 +189,7 @@ describe("runAutonomousResearchForTenant", () => {
     const calls: string[] = [];
     const receipt = await runAutonomousResearchForTenant(TENANT, NOW, deps(calls));
     expect(calls).toEqual([
-      "usable", "graph", "competitors", "gaps", "packs", "keywords", "engines", "ai", "questions", "claims", "authority",
+      "usable", "prepare-five", "usable", "graph", "competitors", "gaps", "packs", "keywords", "engines", "ai", "questions", "claims", "authority",
       "loss", "steal", "native", "final-keywords", "new-pages", "fuse", "prepare", "today",
     ]);
     expect(receipt.ok).toBe(true);
@@ -207,22 +215,23 @@ describe("runAutonomousResearchForTenant", () => {
       newPageBriefsPrepared: 2,
       readyToReview: 5,
       draftsRegenerated: 2,
-      spendUsd: 0.396,
+      spendUsd: 0.428,
     });
   });
 
-  it("records an isolated producer failure and still fuses the remaining evidence", async () => {
+  it("records a producer failure and stops before dependent stages", async () => {
     const calls: string[] = [];
     const d = deps(calls);
     d.enrichResearch = vi.fn(async () => { calls.push("keywords"); throw new Error("provider unavailable"); });
     const receipt = await runAutonomousResearchForTenant(TENANT, NOW, d);
-    expect(calls).toContain("today");
+    expect(calls).not.toContain("today");
     expect(receipt.ok).toBe(false);
     expect(receipt.steps.find((step) => step.name === "keyword-serp-enrichment")?.note).toContain("provider unavailable");
-    expect(receipt.summary?.readyToReview).toBe(5);
+    expect(receipt.summary?.readyToReview).toBe(4);
+    expect(receipt.pipeline?.nextStage).toBe("keywords");
   });
 
-  it("publishes a usable snapshot before slow research and keeps going if that early publish fails", async () => {
+  it("stops safely at baseline when the usable snapshot cannot be published", async () => {
     const calls: string[] = [];
     const d = deps(calls);
     d.publishUsableSurfaces = vi.fn(async () => {
@@ -231,8 +240,41 @@ describe("runAutonomousResearchForTenant", () => {
     });
     const receipt = await runAutonomousResearchForTenant(TENANT, NOW, d);
     expect(calls[0]).toBe("usable");
-    expect(calls[1]).toBe("graph");
+    expect(calls).toEqual(["usable", "prepare-five", "usable"]);
     expect(receipt.steps.find((step) => step.name === "publish-usable-surfaces")?.note).toContain("snapshot store unavailable");
-    expect(receipt.summary?.readyToReview).toBe(5);
+    expect(receipt.summary?.readyToReview).toBe(4);
+    expect(receipt.pipeline?.nextStage).toBe("baseline");
+  });
+
+  it("resumes from the first unfinished durable stage without repeating completed work", async () => {
+    const firstCalls: string[] = [];
+    const firstDeps = deps(firstCalls);
+    firstDeps.enrichResearch = vi.fn(async () => {
+      firstCalls.push("keywords");
+      throw new Error("temporary keyword provider failure");
+    });
+    const checkpoints: import("./warm-receipt-store").WarmRunReceipt[] = [];
+    const partial = await runAutonomousResearchForTenant(TENANT, NOW, firstDeps, {
+      onCheckpoint: async (receipt) => { checkpoints.push(receipt); },
+    });
+    expect(checkpoints).toHaveLength(4);
+    expect(partial.ok).toBe(false);
+    expect(partial.pipeline?.nextStage).toBe("keywords");
+    expect(partial.pipeline?.completedStages).toEqual(["baseline", "graph", "competitors"]);
+
+    const resumedCalls: string[] = [];
+    const resumed = await runAutonomousResearchForTenant(TENANT, NOW, deps(resumedCalls), { resume: partial });
+    expect(resumedCalls).toEqual([
+      "gaps", "packs", "keywords",
+      "engines", "ai",
+      "questions", "claims", "authority",
+      "loss", "steal", "native", "final-keywords", "new-pages",
+      "fuse", "prepare", "today",
+    ]);
+    expect(resumed.ok).toBe(true);
+    expect(resumed.pipeline?.nextStage).toBeNull();
+    expect(resumed.pipeline?.completedStages).toEqual([
+      "baseline", "graph", "competitors", "keywords", "ai", "knowledge", "opportunities", "finalize",
+    ]);
   });
 });

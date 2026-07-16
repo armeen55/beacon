@@ -181,8 +181,8 @@ async function defaultRefreshWorklist(tenantId: string): Promise<void> {
 }
 
 async function defaultRefreshToday(tenantId: string): Promise<void> {
-  const { refreshTodaySurface } = await import("@/app/(shell)/today-view-data");
-  await refreshTodaySurface(tenantId);
+  const { refreshCustomerSurface } = await import("@/app/(shell)/customer-surface-refresh");
+  await refreshCustomerSurface(tenantId);
 }
 
 /**

@@ -46,12 +46,15 @@ export async function writeTodaySurface(data: TodayComposite, computedAtIso: str
  */
 export async function invalidateTodaySurface(tenantId?: string): Promise<void> {
   const existing = await readTodaySurface(tenantId).catch(() => null);
-  if (!existing) return;
-  await writeStore<TodaySurfaceRow>(
-    STORE,
-    [{ ...existing, computedAt: new Date(0).toISOString() }],
-    tenantId ? { tenantId } : {},
-  ).catch(() => {});
+  if (existing) {
+    await writeStore<TodaySurfaceRow>(
+      STORE,
+      [{ ...existing, computedAt: new Date(0).toISOString() }],
+      tenantId ? { tenantId } : {},
+    ).catch(() => {});
+  }
+  const { invalidateCustomerSurface } = await import("./customer-surface-store");
+  await invalidateCustomerSurface(tenantId).catch(() => {});
 }
 
 /** PURE: is a snapshot stale (or its timestamp unparseable)? */

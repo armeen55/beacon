@@ -13,8 +13,15 @@ import { loadChangesView } from "./changes-data";
 import { loadDailyExperimentsView, type DailyExperimentsView } from "./daily-experiments-data";
 import { buildTodayView, type TodayView, type TodayPlanSummary } from "@/domains/changes/today-view";
 import { readTodaySurface, writeTodaySurface, isTodaySurfaceStale } from "./today-surface-store";
+import { readCustomerSurface, isCustomerSurfaceStale } from "./customer-surface-store";
 
-export type TodayComposite = { today: TodayView; daily: DailyExperimentsView | null; hasChanges: boolean };
+export type TodayComposite = {
+  today: TodayView;
+  daily: DailyExperimentsView | null;
+  hasChanges: boolean;
+  surfaceVersion?: string;
+  surfaceComputedAt?: string;
+};
 
 function planSummaryOf(v: DailyExperimentsView): TodayPlanSummary | null {
   const d = v.dashboard;
@@ -35,6 +42,14 @@ async function loadTodayViewUncached(): Promise<TodayComposite> {
   const plan = daily ? planSummaryOf(daily) : null;
   const today = buildTodayView({ changes: changesView?.changes ?? [], strategy: "balanced", plan });
   return { today, daily, hasChanges: !!changesView && changesView.changes.length > 0 };
+}
+
+/** Compose Today from the exact Changes release that will ship beside it. */
+export async function buildTodayCompositeFromChanges(changesView: import("./changes-data").ChangesView): Promise<TodayComposite> {
+  const daily = await loadDailyExperimentsView().catch(() => null);
+  const plan = daily ? planSummaryOf(daily) : null;
+  const today = buildTodayView({ changes: changesView.changes, strategy: "balanced", plan });
+  return { today, daily, hasChanges: changesView.changes.length > 0 };
 }
 
 /**
@@ -67,6 +82,20 @@ export async function loadTodayViewWithSwr(
   deps: { build?: TodayViewBuilder } = {},
 ): Promise<TodayComposite> {
   const build = deps.build ?? loadTodayViewUncached;
+  const customer = await readCustomerSurface(tenantId).catch(() => null);
+  if (customer) {
+    if (isCustomerSurfaceStale(customer.computedAt, Date.now())) {
+      after(async () => {
+        const { refreshCustomerSurface } = await import("./customer-surface-refresh");
+        await refreshCustomerSurface(tenantId).catch(() => null);
+      });
+    }
+    return {
+      ...customer.today,
+      surfaceVersion: customer.releaseId,
+      surfaceComputedAt: customer.computedAt,
+    };
+  }
   const cached = await readTodaySurface(tenantId).catch(() => null);
   if (cached) {
     if (isTodaySurfaceStale(cached.computedAt, Date.now())) {

@@ -84,12 +84,15 @@ export async function writeChangesSurface(view: ChangesView, computedAtIso: stri
  */
 export async function invalidateChangesSurface(tenantId?: string): Promise<void> {
   const existing = await readChangesSurface(tenantId).catch(() => null);
-  if (!existing) return;
-  await writeStore<ChangesSurfaceRow>(
-    STORE,
-    [{ ...existing, computedAt: new Date(0).toISOString() }],
-    tenantId ? { tenantId } : {},
-  ).catch(() => {});
+  if (existing) {
+    await writeStore<ChangesSurfaceRow>(
+      STORE,
+      [{ ...existing, computedAt: new Date(0).toISOString() }],
+      tenantId ? { tenantId } : {},
+    ).catch(() => {});
+  }
+  const { invalidateCustomerSurface } = await import("./customer-surface-store");
+  await invalidateCustomerSurface(tenantId).catch(() => {});
 }
 
 /** PURE: is a snapshot stale (or its timestamp unparseable)? */
