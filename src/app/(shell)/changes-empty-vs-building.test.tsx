@@ -13,6 +13,10 @@ import { describe, it, expect, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 
 vi.mock("server-only", () => ({}));
+vi.mock("next/navigation", () => ({
+  usePathname: () => "/changes",
+  useRouter: () => ({ refresh: vi.fn() }),
+}));
 
 // loadWithDeadline just resolves the view (no timeout) so ChangesSection reaches its
 // empty-state branches deterministically.
@@ -61,6 +65,8 @@ describe("ChangesSection empty vs building (item 14)", () => {
   it("COLD rebuild (surfaceBuilding) renders the honest BUILDING copy, never 'No changes yet'", async () => {
     const html = await render(emptyView({ surfaceBuilding: true }));
     expect(html).toContain("I&#x27;m putting your ranked changes together for the first time");
+    expect(html).toContain("Beacon is checking again automatically");
+    expect(html).not.toContain("Refresh in a moment");
     expect(html).not.toContain("No changes yet");
   });
 

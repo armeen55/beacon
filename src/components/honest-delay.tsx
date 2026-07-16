@@ -21,7 +21,11 @@ export function shouldScheduleHonestDelayRetry(args: {
  * warms the durable cache. Session storage prevents a slow dependency from
  * turning this into a refresh loop.
  */
-export function HonestDelay() {
+export function HonestDelay({
+  message = "This section is taking longer than it should. Beacon is retrying automatically.",
+}: {
+  message?: string;
+}) {
   const pathname = usePathname();
   const router = useRouter();
 
@@ -49,7 +53,7 @@ export function HonestDelay() {
       role="status"
       className="rounded-2xl border border-dashed border-gray-200 bg-white px-4 py-3 text-[13px] text-gray-500 dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-400"
     >
-      This section is taking longer than it should. Beacon is retrying automatically.
+      {message}
     </p>
   );
 }

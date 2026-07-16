@@ -33,11 +33,7 @@ const MAIN_LIST_DEADLINE_MS = 5_000;
 export async function ChangesSection() {
   const raced = await loadWithDeadline(loadChangesView(), MAIN_LIST_DEADLINE_MS).catch(() => null);
   if (raced == null) {
-    return (
-      <p className="rounded-2xl border border-dashed border-gray-200 bg-white p-8 text-center text-sm text-gray-500">
-        Couldn&apos;t load your changes just now. Refresh in a moment.
-      </p>
-    );
+    return <HonestDelay message="Couldn’t load your saved changes just now. Beacon is retrying automatically." />;
   }
   if (raced.timedOut) return <HonestDelay />;
   const view = raced.data;
@@ -48,10 +44,7 @@ export async function ChangesSection() {
     if (view.surfaceBuilding) {
       return (
         <div className="space-y-2 rounded-2xl border border-border bg-surface-raised p-6">
-          <p className="text-body text-foreground-secondary">
-            I&apos;m putting your ranked changes together for the first time. This takes a few
-            seconds. Refresh in a moment and they&apos;ll be here.
-          </p>
+          <HonestDelay message={"I'm putting your ranked changes together for the first time. Beacon is checking again automatically."} />
           <div className="h-9 animate-pulse rounded-lg bg-surface-inset/50" />
           <div className="h-9 animate-pulse rounded-lg bg-surface-inset/50" />
         </div>
