@@ -7,6 +7,30 @@
 
 ---
 
+## 2026-07-16 - Autonomous customer-loop hardening (0cbbac4d)
+
+Closed the requested parity items 2 and 3 plus defects found during three audit passes. Completed
+owned-site crawls now re-queue after seven days through the existing on-visit background cycle, and
+unfinished queues advance there too. The compact Changes Not now menu records a fixed dismissal
+reason through the canonical response store or performs one accurately labeled one-week snooze; it
+no longer offers tomorrow/month labels that persisted the same one-week date. Auto-advance no
+longer requires operator mode or claims a replacement draft is ready when only scheduled. Removed
+hidden Yelp loading/client state/actions from Connections. Corrected render-time clock access,
+command palette state/dependencies, chart render mutation, static imports, and async fail-soft page
+boundaries. Upgraded Next to 16.2.10, pinned PostCSS 8.5.19, and removed unused vulnerable xlsx.
+
+Verification: focused autonomous/tenant/extractor gate 98/98; focused connector gate 34/34;
+stale-crawl/dismissal gate 34/34; strict typecheck exit 0; ESLint error-only gate exit 0; first
+complete suite 1,502 files / 22,960 passed / 23 skipped; final complete suite 1,503 files / 22,962
+passed / 23 skipped / 0 failed; `npm audit --omit=dev --audit-level=moderate` found zero
+vulnerabilities; production build exit 0. The build retains two broad Turbopack NFT trace warnings
+and the protected middleware-filename deprecation warning. Commit `0cbbac4d1bfedd4c06649a6b656927031795c56c`
+was pushed to `origin/main`; Vercel deployment `dpl_6XDXDaeiEUtJWFnRp2JRLXNggRVy` reached Ready;
+production `/api/version` returned the exact SHA. Three consecutive production requests verified
+`/login` 200 and the expected 307 login continuation for `/`, `/today`, `/changes`, `/results`,
+`/research/keywords`, and `/settings/connectors`. No paid provider call, data deletion, or hosted
+environment mutation was performed.
+
 ## 2026-07-14 - Customer journey exits legacy diagnostics (940a2e40)
 
 Authenticated product use exposed a category error: old operator routes rendered inside the normal

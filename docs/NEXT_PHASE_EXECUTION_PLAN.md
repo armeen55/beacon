@@ -220,10 +220,14 @@ Ranked from the parity-matrix audit, highest leverage first:
    2026-06-18. This, not a dead connector, is the real cause of stale data across the product
    (GA4 tokens are healthy; see the HANDOFF head-state correction). Highest-leverage fix in this
    list.
-2. **Stale-crawl age trigger.** Add an age-based trigger so a page whose crawl has gone stale
-   re-queues itself instead of waiting on a full nightly sweep.
-3. **Dismissal-reason capture.** Record why an operator dismissed a recommendation so the signal
-   feeds back into future ranking instead of being discarded.
+2. **Stale-crawl age trigger. DONE, DEPLOYED, SHA-VERIFIED at `0cbbac4d`.** The existing on-visit
+   post-response cycle continues an unfinished owned-site frontier and force re-discovers a
+   completed frontier once its last update is seven days old. It remains tenant-explicit, bounded,
+   free, and independent of cron timing.
+3. **Dismissal-reason capture. DONE, DEPLOYED, SHA-VERIFIED at `0cbbac4d`.** Changes' existing Not
+   now menu passes a fixed structured reason through the canonical recommendation-response store;
+   exact dismissals already feed the existing suppression/track-record path. The same menu retains
+   one truthful one-week deferral and removes the false tomorrow/month labels.
 4. **Consolidate/prune emitters.** Reduce duplicate or redundant recommendation emitters so the
    same underlying issue does not surface as multiple unrelated-looking cards.
 5. **Insertion anchor + winners strip.** Give new recommendations a stable insertion point and add

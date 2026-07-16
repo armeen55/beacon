@@ -1,5 +1,26 @@
 # Beacon Verified State
 
+> 🟢 **The 2026-07-16 autonomous hardening release is deployed and SHA-verified at
+> `0cbbac4d` (Vercel `dpl_6XDXDaeiEUtJWFnRp2JRLXNggRVy`).** The requested stale-crawl and
+> dismissal-feedback gaps are closed without a new button or cron dependency: ordinary signed-in
+> use continues unfinished owned-site crawls and re-queues a completed crawl once it is seven days
+> old; Changes' existing compact Not now menu now offers one truthful one-week reminder or a
+> structured reasoned dismissal. The previous tomorrow/month choices, which all secretly deferred
+> for one week, are gone. Queue auto-advance is available to the signed-in tenant rather than
+> operator mode, and the UI no longer says the next draft is ready merely because background work
+> was scheduled. Hidden Yelp reads/actions/state were removed from Connections. Render-time clock,
+> command-palette, chart purity, static import, and async fail-soft defects were corrected. Next was
+> upgraded to 16.2.10, unused vulnerable xlsx was removed, PostCSS was patched, and the production
+> dependency audit is zero. Verification: focused 132/132 across the two waves; strict typecheck;
+> lint error gate zero; two complete suites ending at 1,503 files / 22,962 passed / 23 conditional
+> skips / 0 failed; production build exit 0 with two existing Turbopack trace warnings and the
+> legacy middleware-filename warning. Production `/api/version` returned the exact full SHA;
+> `/login` returned 200; and three consecutive requests to `/`, `/today`, `/changes`, `/results`,
+> `/research/keywords`, and `/settings/connectors` returned their correct 307 login continuations.
+> Next three actions: (1) use Today and Changes normally, (2) snooze or dismiss one real change and
+> confirm the next best row appears, and (3) report only a wrong tenant, missing exact edit, route
+> error, or genuinely empty queue.
+
 > 🟢 **The 2026-07-15 continuous execution loop is deployed and SHA-verified at
 > `ef41bac6` (Vercel `dpl_aTkX6JkZjE8HzmK9VgKPwRtDyuGt`).** Changes now maintains a
 > tenant-scoped floor of five copy-ready opportunities after normal same-day navigation and after

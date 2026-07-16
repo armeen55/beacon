@@ -67,9 +67,16 @@ does no live SERP work, and republishes one atomic customer release. The deeper 
 DataForSEO, AI, source, and keyword pipeline keeps its once-daily resumable cadence. A rejected
 cached draft is preserved for deep or explicit repair rather than regenerated on every visit.
 
+The 2026-07-16 hardening pass extends that same ordinary-use guarantee to owned-site inventory:
+unfinished crawl frontiers continue after a response, and a completed crawl re-queues after seven
+days. Operator feedback stays inside the single compact Not now menu; a fixed dismissal reason is
+persisted through the existing recommendation-response learning path, while deferral is one
+truthfully labeled week. Scheduling background preparation must never be presented as completed
+work; only a subsequent server surface may claim a new edit is ready.
+
 ### Identity
 - **Name:** `beacon`, private, version 0.1.0
-- **Framework:** Next.js 16.2.2, React 19.2.4, App Router
+- **Framework:** Next.js 16.2.10, React 19.2.4, App Router
 - **Persistence:** `.data/*.json` via `src/lib/persistence/json-store.ts` (comment: "NOT the long-term production architecture"); optional per-tenant roots `.data/tenants/{slug}/` when `BEACON_TENANT` is set (`src/lib/tenant.ts`)
 - **Mode:** Single-user first; lightweight tenant isolation for early external users (env-selected slug). No auth/billing/teams in product rules unless explicitly requested.
 
