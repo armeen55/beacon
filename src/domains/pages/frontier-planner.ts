@@ -10,7 +10,7 @@ import { currentTenantId } from "@/lib/tenant-context";
 
 import { writeStore } from "@/lib/persistence/json-store";
 import { getRepository } from "@/lib/persistence/repositories";
-import type { CitationEvidenceIndex, TopicCitationSummary } from "./types";
+import type { CitationEvidenceIndex } from "./types";
 import type { PageSnapshot } from "./types";
 import type { PlaybookBrief, MinedPattern } from "./playbook";
 import type { RolloutWave } from "./wave-planner";

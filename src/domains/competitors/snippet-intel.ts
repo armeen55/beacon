@@ -13,7 +13,7 @@
 import "server-only";
 
 import type { PageSnapshot } from "@/domains/pages/types";
-import type { CitationEvidenceIndex, TopicCitationSummary } from "@/domains/pages/types";
+import type { CitationEvidenceIndex } from "@/domains/pages/types";
 import type { PageExtractability } from "@/domains/pages/extractability";
 import type { SnippetSignal, SnippetIntelligence } from "./snippet-types";
 
@@ -29,8 +29,6 @@ export function computeSnippetIntelligence(opts: {
   ownedDomain: string;
 }): SnippetIntelligence {
   const signals: SnippetSignal[] = [];
-  const ownedNorm = opts.ownedDomain.replace(/^www\./, "").toLowerCase();
-
   // 1. Owned extractable patterns — pages with good extractability that earn many citations
   const strongOwned = opts.ownedExtractability
     .filter((e) => e.grade === "good" && e.citation_count >= 20)

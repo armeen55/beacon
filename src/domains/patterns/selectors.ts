@@ -1,4 +1,4 @@
-import type { Pattern, PatternConfidence, PatternTrend } from "./types";
+import type { Pattern } from "./types";
 
 export function topPatterns(patterns: Pattern[], n: number): Pattern[] {
   return [...patterns].sort((a, b) => b.score - a.score).slice(0, n);

@@ -7,14 +7,14 @@
  * Design principle: Profound-simple on the surface, attribution brain underneath.
  */
 
-import type { BeaconRecommendation, RecommendationType } from "./recommendation-engine";
+import type { RecommendationType } from "./recommendation-engine";
 import type { PrioritizedAction } from "./priority-engine";
 import type { AnswerIntelligenceIndex, BrandPositioningByTopic } from "@/domains/answer-intelligence/types";
 import type { CitationEvidenceIndex, PageSnapshot, FaqItem } from "@/domains/pages/types";
 import type { MemoryInsight } from "@/domains/attribution/memory";
 import type { CompetitorAlert, CompetitorSitemapSnapshot } from "@/domains/competitor-monitoring/types";
 import { recConfidenceLabel } from "@/lib/confidence-labels";
-import { type QueryKeywordIndex, getQueriesForPage, getQueriesForTopic, getTopQueryForTopicCity, getRelevantQueriesForPage } from "@/domains/answer-intelligence/query-index";
+import { type QueryKeywordIndex, getQueriesForPage, getQueriesForTopic, getRelevantQueriesForPage } from "@/domains/answer-intelligence/query-index";
 
 // ---------------------------------------------------------------------------
 // Config type for industry-specific FAQ generation

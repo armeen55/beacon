@@ -25,7 +25,6 @@ import type { EntityIndex } from "./types";
 import type {
   Discrepancy,
   DiscrepancyReport,
-  DiscrepancyType,
 } from "./discrepancy-types";
 
 const MIN_ANSWERS_FOR_ANALYSIS = 20;

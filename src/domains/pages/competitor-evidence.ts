@@ -9,7 +9,7 @@ import { cache } from "react";
 import { currentTenantId } from "@/lib/tenant-context";
 import { writeStore } from "@/lib/persistence/json-store";
 import { getRepository } from "@/lib/persistence/repositories";
-import type { CitationEvidenceIndex, CitationPageRollup, TopicCitationSummary } from "./types";
+import type { CitationEvidenceIndex } from "./types";
 import { getSiteConfig } from "@/lib/site-config";
 
 // ── Source type classification ──

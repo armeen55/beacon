@@ -11,7 +11,7 @@ import { currentTenantId } from "@/lib/tenant-context";
 
 import { writeStore } from "@/lib/persistence/json-store";
 import { getRepository } from "@/lib/persistence/repositories";
-import type { PlaybookBrief, PatternEvidence, PatternType } from "./playbook";
+import type { PlaybookBrief, PatternEvidence } from "./playbook";
 import type { PersistedIssue, RolloutExecution } from "./issues";
 
 // ── Types ──

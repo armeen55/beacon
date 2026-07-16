@@ -22,7 +22,6 @@ import "server-only";
 
 import type {
   ScoreDimension,
-  DimensionStatus,
   BeaconScoreResult,
 } from "./beacon-score-types";
 

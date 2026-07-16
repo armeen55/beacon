@@ -15,7 +15,7 @@ import type { Result } from "@/domains/results/types";
 import type { ChangelogEntry } from "@/domains/changelog/types";
 import type { Opportunity } from "@/domains/opportunities/types";
 import type { Competitor } from "@/domains/competitors/types";
-import type { Platform, MetricType } from "@/lib/constants";
+import type { Platform } from "@/lib/constants";
 
 type RowResult<T> = {
   entity: T | null;

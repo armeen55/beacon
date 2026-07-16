@@ -28,7 +28,6 @@
 
 import type {
   ChangeEvent,
-  EventScope,
   EventType,
 } from "@/domains/events/types";
 

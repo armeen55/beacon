@@ -30,7 +30,6 @@ import {
 import type { LifecycleForEdit } from "@/domains/citation-lifecycle/load-lifecycle";
 import type {
   RecommendationResponse,
-  RecommendationResponseStatus,
 } from "@/domains/product/recommendation-response-store";
 
 import type { LifecycleEligibilityReason, PerRowEligibility } from "./types";

@@ -4,8 +4,6 @@ import type { Pattern } from "@/domains/patterns/types";
 import type { ActionCluster } from "@/domains/action-clusters/types";
 import type {
   OpportunityCandidate,
-  OpportunityCandidateType,
-  CandidateConfidence,
 } from "./types";
 import { scoreCandidate } from "./scoring";
 

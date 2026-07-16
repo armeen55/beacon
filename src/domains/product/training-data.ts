@@ -10,7 +10,6 @@ import "server-only";
 
 import type { PageSnapshot } from "@/domains/pages/types";
 import type {
-  ContentVisibilityChannel,
   ChannelReadiness,
   TrainingDataReadiness,
 } from "./training-data-types";

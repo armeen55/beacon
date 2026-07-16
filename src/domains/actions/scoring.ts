@@ -1,4 +1,4 @@
-import type { ActionItem, ActionBucket, StalenessBand } from "./types";
+import type { ActionBucket, StalenessBand } from "./types";
 import type { ActionCluster } from "@/domains/action-clusters/types";
 
 /**

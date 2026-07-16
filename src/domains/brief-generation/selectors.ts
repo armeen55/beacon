@@ -1,4 +1,4 @@
-import type { ProposedBrief, ProposedBriefStatus } from "./types";
+import type { ProposedBrief } from "./types";
 
 export function proposedBriefs(briefs: ProposedBrief[]): ProposedBrief[] {
   return briefs.filter((b) => b.status === "proposed");

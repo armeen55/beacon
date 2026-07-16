@@ -13,7 +13,7 @@
  */
 
 import type { BeaconTenant } from "@/domains/tenants/types";
-import type { DetectedGap, GuidedPayload, FaqPayload, ComparisonPayload, SchemaPayload, ContentPayload } from "./types";
+import type { DetectedGap, GuidedPayload } from "./types";
 
 // ---------------------------------------------------------------------------
 // FAQ generator

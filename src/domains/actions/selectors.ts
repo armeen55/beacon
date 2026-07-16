@@ -1,4 +1,4 @@
-import type { ActionItem, ActionBucket, OperatorState } from "./types";
+import type { ActionItem, ActionBucket } from "./types";
 
 export function actionsByBucket(
   actions: ActionItem[],

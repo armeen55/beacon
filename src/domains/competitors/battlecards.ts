@@ -8,7 +8,7 @@
 
 import "server-only";
 
-import type { CitationEvidenceIndex, TopicCitationSummary } from "@/domains/pages/types";
+import type { CitationEvidenceIndex } from "@/domains/pages/types";
 import type { CoMentionMatrix } from "./co-mention-types";
 import type { SourceTrustIndex } from "./source-trust-types";
 import type { GeoCoverageIndex } from "@/domains/geo/types";
@@ -32,9 +32,7 @@ export function computeBattlecards(opts: {
   ownedDomain: string;
   competitorNames: Map<string, string>;
 }): BattlecardIndex {
-  const { citationIndex, coMentionMatrix, trustIndex, geoCoverage, ownedDomain } = opts;
-  const ownedNorm = ownedDomain.replace(/^www\./, "").toLowerCase();
-
+  const { citationIndex, coMentionMatrix, trustIndex, geoCoverage } = opts;
   // Aggregate competitor citations across topics
   const compCitTotals = new Map<string, number>();
   const compTopics = new Map<string, Map<string, number>>();

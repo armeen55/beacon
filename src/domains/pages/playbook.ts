@@ -6,7 +6,7 @@
  */
 
 import type { PageSnapshot } from "./types";
-import type { ScorecardRow, TrustSource } from "@/domains/attribution/scorecard";
+import type { ScorecardRow } from "@/domains/attribution/scorecard";
 import type { RolloutExecution, PatternEvidenceRecord } from "./issues";
 
 // ── Types ──

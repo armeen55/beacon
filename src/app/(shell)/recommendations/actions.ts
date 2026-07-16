@@ -20,10 +20,7 @@ import { getChangelogEntries } from "@/lib/seed-data.server";
 import { getRepository } from "@/lib/persistence/repositories";
 import { currentTenantId } from "@/lib/tenant-context";
 import type { ChangelogEntry } from "@/domains/changelog/types";
-import type {
-  RecommendationCandidate,
-  RecommendationType,
-} from "@/domains/recommendations/generate";
+import type { RecommendationType } from "@/domains/recommendations/generate";
 import type {
   RecommendationAction,
   RecommendationMotive,

@@ -15,7 +15,7 @@
 import { createHash } from "node:crypto";
 import type { ActionType } from "@/domains/recommendations/action-types";
 import type { RecommendationCandidateRow, CandidateConfidence, CandidateImpactEstimate } from "@/domains/recommendation-intelligence/emitter/candidate-row";
-import type { DemandGraph, MoveCandidate, GapKind } from "./build-graph";
+import type { DemandGraph, GapKind } from "./build-graph";
 import type { EvidencePacket } from "./evidence-packet";
 import { groupMovesByOwnedPage, secondaryGapPhrase } from "./group-moves";
 import { UNSUPPORTED_CLAIM_TOKENS } from "@/domains/recommendation-intelligence/safety-audit";
