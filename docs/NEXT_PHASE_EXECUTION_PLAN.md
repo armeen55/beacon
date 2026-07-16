@@ -5,6 +5,15 @@
 This is the operator's live priority order. I work it strictly top to bottom. The dated
 chronology of what already landed lives in VERIFICATION_LOG.md; this list is only what is next.
 
+> 🟢 **2026-07-15 autonomous-ready extension — DEPLOYED AND SHA-VERIFIED (`17255d5b`).** The
+> operator-approved top three are complete: automatic evidence-gated preparation of the first five
+> ranked changes with no Wix dependency; an eight-stage durable cursor that resumes from the first
+> failed or timed-out dependency; and a single versioned tenant customer snapshot consumed by
+> Today, Changes, and New Pages. The prior complete snapshot stays visible until the replacement is
+> fully assembled. No button, cron, publish right, or render-time paid call was added. **Next:** use
+> the normal Today → Changes journey and evaluate the first real prepared edit; engineering should
+> react only to an actual route/list/tenant/draft defect, not ask the operator to wait and refresh.
+
 1. **Verdict quarantine.** DONE. Every stored won or lost verdict now reads as
    uncalibrated through the single choke point src/domains/proof-gsc/verdict-calibration.ts, and
    the protective brakes stay on the raw verdicts. Pooled verdicts have a separate empty registry.

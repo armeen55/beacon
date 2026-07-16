@@ -1,5 +1,20 @@
 # Beacon Verified State
 
+> 🟢 **The 2026-07-15 autonomous-ready customer release is deployed and SHA-verified at
+> `17255d5b` (Vercel `dpl_4feLx2WfyhYiX5fQgEhWUAXF6FkQ`).** Normal navigation now prepares the
+> strongest five ranked moves into exact copy-ready edits without requiring Wix; Wix remains only
+> an optional publishing path. The research brain checkpoints eight dependency-ordered stages,
+> stops honestly at the first failed stage, and resumes there without repeating completed work.
+> Today, Changes, and New Pages now consume one tenant-scoped atomic customer release, so a partial
+> rebuild cannot expose mismatched versions across pages. The prior complete release remains usable
+> during refresh. Verification: focused 23/23; strict typecheck; complete suite 1,500 files / 22,948
+> passed / 23 conditional skips / 0 failed; production build exit 0 with the middleware deprecation
+> and three Turbopack NFT trace warnings. Production `/api/version` returned the exact full SHA;
+> `/login` returned 200; unauthenticated `/today` and `/changes` returned the expected 307 login
+> continuations. Next three actions: (1) use Today and Changes normally, (2) inspect the top prepared
+> edit when it appears through normal use, and (3) report only a real missing list, error, or wrong
+> tenant—not a timed background wait.
+
 > 🟢 **The 2026-07-15 instant-autonomy correction is deployed and SHA-verified at
 > `d685cd15` (Vercel `dpl_55VKFwGfyomtHgp8fzotYF2M4ged`).** The operator correctly rejected the
 > previous four-minute verification ritual: background intelligence may take time, but using Beacon

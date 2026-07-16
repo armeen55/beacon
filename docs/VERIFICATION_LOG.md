@@ -36041,3 +36041,29 @@ Turbopack NFT trace warnings; `git diff --check` exit 0. Product commit
 `dpl_55VKFwGfyomtHgp8fzotYF2M4ged` reached Ready; production `/api/version` returned that exact SHA.
 Unauthenticated `/today` and `/changes` reached their expected login continuations. Authenticated
 rendering is intentionally not claimed from this environment.
+
+## 2026-07-15 - Autonomous-ready customer release
+
+Beacon now automatically prepares the strongest five ranked Changes into exact copy-ready edits
+through the existing evidence, source, winnability, quality, cache, ledger, and spend guards. This
+does not require Wix; Wix is used only if the operator later chooses Beacon-managed publishing.
+
+The visit-driven research pass is now an eight-stage durable pipeline: baseline, graph,
+competitors, keywords, AI, knowledge, opportunities, and finalize. Each successful stage is
+checkpointed. A failure stops dependent work and preserves the first unfinished stage; a later
+navigation resumes there without redoing completed stages. Timeouts preserve the latest checkpoint
+and the last useful summary, so saved customer results remain ready while deeper evidence refreshes.
+
+Today, Changes, and New Pages now read one tenant-scoped `CustomerSurface` release. Builders assemble
+the full next release before writing it last; a partial rebuild cannot make the pages disagree, and
+soft invalidation retains the prior complete release during refresh. The legacy snapshots remain
+warm for non-customer callers.
+
+Verification: focused autonomy/customer-surface suites 6 files / 23 tests passed; `npm run
+typecheck` exit 0; complete `npm run test` 1,500 files / 22,948 passed / 23 conditional skips / 0
+failed in 67.18 seconds; `npm run build` exit 0 with the existing middleware deprecation and three
+Turbopack NFT trace warnings; `git diff --check` exit 0. Product commit
+`17255d5b11834ff9f9fc0ba78bae0c9f9f9af89a` was pushed to `origin/main`; Vercel deployment
+`dpl_4feLx2WfyhYiX5fQgEhWUAXF6FkQ` reached Ready. Production `/api/version` returned that exact SHA,
+`/login` returned 200, and unauthenticated `/today` and `/changes` returned their expected 307 login
+continuations. No paid provider run or hosted environment mutation was performed during verification.

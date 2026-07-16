@@ -3154,6 +3154,15 @@ surface rather than teaching them to operate Beacon's implementation.
 
 ---
 
+**Autonomous-ready customer-release decision, 2026-07-15:** a usable customer state is one atomic,
+tenant-scoped release shared by Today, Changes, and New Pages. Producers may update their own caches
+independently, but customer pages adopt a new version only after the whole release is assembled.
+Normal navigation automatically prepares the first five ranked moves through the existing guarded
+PreparedMove path; a CMS connection is never a prerequisite for copy-ready work. The intelligence
+pipeline checkpoints dependency-ordered stages and stops at the first failed stage so resumption is
+truthful and does not build downstream claims on missing evidence. This adds no customer control,
+cron, publishing permission, or render-time paid call.
+
 ## FUTURE IDEAS (not in current execution plan)
 
 These are ideas, experiments, and dream-state features that are NOT in the active phases. They live here so they are never lost. Move to `NEXT_PHASE_EXECUTION_PLAN.md` only when they become active work.
