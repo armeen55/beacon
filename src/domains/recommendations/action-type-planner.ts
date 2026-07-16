@@ -40,7 +40,6 @@ import type { ElementType } from "@/domains/pages/extractors/registry";
 import type {
   AffectedPromptBlock,
   AiSearchSignalBlock,
-  CompetitorPageBlueprint,
   OwnedPageCandidateBlock,
   SpecificEditEvidencePacket,
 } from "./specific-edit-evidence";
@@ -527,8 +526,6 @@ export function buildRecommendedActionPlan(
   const owned = ownedPageBestMatch(packet.ownedPageCandidates);
   const ownedTarget = owned?.url ?? null;
   const ownedLabel = owned ? labelFromOwnedPage(owned) : "New page";
-  const topQuery = packet.aiSearchSignal.topSearchQueries[0]?.query ?? null;
-
   const intent = normalizedIntentFromSignal(
     packet.aiSearchSignal,
     packet.affectedPrompts,
@@ -841,7 +838,7 @@ function composeWhyThis(args: {
   readonly owned: OwnedPageCandidateBlock | null;
   readonly homepageOverCited: boolean;
 }): string {
-  const { plan, packet, facts, owned, homepageOverCited } = args;
+  const { plan, packet, facts, owned } = args;
   switch (plan) {
     case "create_page":
       return `No owned page covers the "${packet.clusterLabel ?? "target"}" cluster — fanout shows distinct buyer intent that warrants a dedicated page.`;
@@ -885,7 +882,7 @@ function composeWhyNotOthers(args: {
   readonly owned: OwnedPageCandidateBlock | null;
   readonly homepageOverCited: boolean;
 }): ReadonlyArray<{ type: PlanActionType; because: string }> {
-  const { chosen, packet, facts, owned, homepageOverCited } = args;
+  const { chosen } = args;
   const out: Array<{ type: PlanActionType; because: string }> = [];
   const ALL: PlanActionType[] = [
     "create_page",

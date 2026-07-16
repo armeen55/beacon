@@ -26,9 +26,6 @@
 
 import "server-only";
 
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
-
 export const AI_CRAWLERS = [
   "GPTBot",
   "ChatGPT-User",
@@ -77,13 +74,6 @@ export type AiBotAccessVerdict = {
   blockedCrawlers: AiCrawler[];
 };
 
-// ---------------------------------------------------------------------------
-// State file (cached parsed directives per site — mirrors scan-state shape).
-// ---------------------------------------------------------------------------
-
-const DATA_DIR = join(process.cwd(), ".data");
-const STATE_FILE_NAME = "robots-state";
-
 export type RobotsStateFile = {
   schemaVersion: 1;
   siteDomain: string;
@@ -91,15 +81,6 @@ export type RobotsStateFile = {
   lastFetchedAt: string;
   lastFetchError: string | null;
 };
-
-function ensureDataDir(): void {
-  if (process.env.VERCEL === "1") return;
-  if (!existsSync(DATA_DIR)) mkdirSync(DATA_DIR, { recursive: true });
-}
-
-function statePath(): string {
-  return join(DATA_DIR, `${STATE_FILE_NAME}.json`);
-}
 
 /**
  * Phase A.3 (post-A.3.5, 2026-05-15) — async + tenant-scoped robots-
@@ -117,13 +98,10 @@ function statePath(): string {
  *     the path resolves to `.data/tenants/{slug}/robots-state.json`
  *     via the AsyncLocalStorage tenant context.
  *
- * The pre-A.3 flat-path file (`.data/robots-state.json`) is RETIRED.
- * Legacy `statePath()` / `ensureDataDir()` / synchronous helpers are
- * kept inside the module only because `writeRobotsState`'s file-side
- * write delegates to the tenant-routed `writeDotDataJson` — which
- * itself uses atomic rename. Any caller still importing the old
- * flat-path helpers will fail-loud at the type level: the public
- * signatures are now async and take `tenantId`.
+ * The pre-A.3 flat-path file (`.data/robots-state.json`) and its
+ * synchronous helpers are retired. Persistence now lives entirely
+ * behind the tenant repository; the public signatures are async and
+ * require `tenantId`.
  */
 export async function readRobotsState(opts: {
   tenantId: string;
@@ -249,7 +227,7 @@ export async function fetchAndParseRobots(siteDomain: string): Promise<RobotsFil
     const res = await fetch(url, { headers: { "User-Agent": "BeaconScanner/1.0" } });
     const text = res.ok ? await res.text() : "";
     return parseRobotsText(text, url, res.status);
-  } catch (err) {
+  } catch {
     return {
       directives: [],
       sitemaps: [],
