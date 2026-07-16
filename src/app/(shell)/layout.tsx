@@ -14,7 +14,7 @@ import {
   getChangelogEntries,
   hasActiveExperiment,
 } from "@/lib/seed-data.server";
-import { allNavItems } from "@/lib/navigation";
+import { allNavItems, paletteOnlyItems } from "@/lib/navigation";
 import { getPendingFindings } from "@/domains/scanning/findings-store";
 import { CONTENT_CHANGE_TYPES } from "@/domains/scanning/content-change-types";
 import {
@@ -79,7 +79,7 @@ export default async function ShellLayout({
 
   // Static palette entries only (nav routes, zero I/O). The changelog "Results"
   // group streams in with the deferred shell data below.
-  const paletteItems: PaletteItem[] = allNavItems.map((n) => ({
+  const paletteItems: PaletteItem[] = [...allNavItems, ...paletteOnlyItems].map((n) => ({
     id: `nav-${n.href}`,
     label: n.label,
     group: "Navigate",

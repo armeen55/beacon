@@ -435,6 +435,12 @@ export async function prepareTodayMovesForTenant(
     maxUsd?: number;
     /** Always re-draft (skip the cache-first serve) — used by teardown regeneration. */
     forceRegenerate?: boolean;
+    /** Cheap maintenance passes may preserve a rejected cached draft for later
+     * explicit/deep repair instead of paying to regenerate it every visit. */
+    regenerateRejected?: boolean;
+    /** Stop after this many fresh draft attempts while still scanning past
+     * cached/held entries in the authoritative order. */
+    maxNewDrafts?: number;
     /** Only prepare Moves that carry an on-topic competitor teardown. */
     requireTeardown?: boolean;
     /** RANK-3: run a live Google-results winnability check per existing-page move
@@ -547,6 +553,7 @@ export async function prepareTodayMovesForTenant(
     : undefined;
 
   for (const packet of targets) {
+    if (opts.maxNewDrafts != null && summary.prepared >= opts.maxNewDrafts) break;
     const moveId = packet.move.key;
     try {
       const seasonalProfile = packet.yourPage.url
@@ -639,6 +646,11 @@ export async function prepareTodayMovesForTenant(
           if (existing.preparedStatus === "ready_to_review") summary.readyToReview += 1;
           else if (existing.preparedStatus === "draft_ready") summary.draftReady += 1;
           summary.outcomes.push(outcomeOf(existing, packet, opinions, "cached (unchanged)"));
+          continue;
+        }
+        if (opts.regenerateRejected === false) {
+          summary.cached += 1;
+          summary.outcomes.push(outcomeOf(existing, packet, opinions, "cached needs-review draft preserved"));
           continue;
         }
         // else fall through → regenerate this low-quality cached draft.

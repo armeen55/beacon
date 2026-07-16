@@ -62,26 +62,11 @@ export const navigationGroups: NavGroup[] = [
       { label: "Today", href: "/", icon: Sun },
       { label: "Changes", href: "/changes", icon: ListTodo },
       { label: "Results", href: "/results", icon: LineChart },
-      { label: "Ask", href: "/ask", icon: MessageCircle },
-    ],
-  },
-  {
-    label: "Research",
-    items: [
-      // UX2 (BEACON_500 master plan, the operator's own idea) - every cached
-      // keyword in one sortable library.
-      { label: "Keywords", href: "/research/keywords", icon: Search },
-      { label: "AI questions", href: "/prompts", icon: ListChecks },
     ],
   },
   {
     label: "",
     items: [
-      // R14a (2026-07-03): the audit log - "what has Beacon done while I was
-      // away". It sits with the system rows (not the workflow group) because
-      // it is a receipt surface over the whole product, not a work stage; the
-      // stream itself deep-links back into Today / Results / Connections.
-      { label: "Activity", href: "/activity", icon: History },
       { label: "Connections", href: "/settings/connectors", icon: Plug },
       { label: "Settings", href: "/settings", icon: Settings },
     ],
@@ -89,6 +74,15 @@ export const navigationGroups: NavGroup[] = [
 ];
 
 export const allNavItems: NavItem[] = navigationGroups.flatMap((g) => g.items);
+
+/** Supporting evidence remains searchable from the existing command palette,
+ * but no longer competes with the daily Today → Changes → Results loop. */
+export const paletteOnlyItems: NavItem[] = [
+  { label: "Ask Beacon", href: "/ask", icon: MessageCircle },
+  { label: "Keyword research", href: "/research/keywords", icon: Search },
+  { label: "AI questions", href: "/prompts", icon: ListChecks },
+  { label: "Activity receipts", href: "/activity", icon: History },
+];
 
 /**
  * Kept as an EMPTY group for import compatibility (the server layout + sidebar

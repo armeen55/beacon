@@ -31,16 +31,16 @@ function baseView(over: Partial<ChangesView> = {}): ChangesView {
   } as ChangesView;
 }
 
-describe("ChangesListClient - Measuring tab badge", () => {
-  it("shows a bare count when the worklist's own measuring count matches the canonical total", () => {
+describe("ChangesListClient - measurement stays on Results", () => {
+  it("does not expose a Measuring tab even when measurements exist", () => {
     const html = renderToStaticMarkup(<ChangesListClient view={baseView({ measuringCountCanonical: 6 })} />);
-    expect(html).toContain(">6<");
-    expect(html).not.toContain("of 6");
+    expect(html).not.toContain("Measuring");
+    expect(html).not.toContain(">6<");
   });
 
-  it("operator ground-truth: shows 'N of M' when the canonical total exceeds this worklist's own subset", () => {
+  it("does not leak subset-versus-canonical measurement math into Changes", () => {
     const html = renderToStaticMarkup(<ChangesListClient view={baseView({ measuringCountCanonical: 16 })} />);
-    expect(html).toContain("6 of 16");
+    expect(html).not.toContain("6 of 16");
   });
 
   it("never shows a bare count that disagrees with Today's canonical number", () => {

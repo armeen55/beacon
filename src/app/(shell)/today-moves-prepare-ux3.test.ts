@@ -109,13 +109,14 @@ describe("PrepareOverflowMenu - the granular buttons stay available, just demote
   });
 });
 
-describe("/changes page - wires the one-command button + overflow, not the old cluster", () => {
-  it("imports PrepareTonightButton and PrepareOverflowMenu, not the three individual buttons directly", () => {
-    expect(PAGE_SRC).toContain('import { PrepareTonightButton, PrepareOverflowMenu } from "../today-moves-prepare";');
+describe("/changes page - preparation is autonomous", () => {
+  it("does not import manual prepare controls", () => {
+    expect(PAGE_SRC).not.toContain("PrepareTonightButton");
+    expect(PAGE_SRC).not.toContain("PrepareOverflowMenu");
   });
 
-  it("renders both in the changes section header", () => {
-    expect(PAGE_SRC).toContain("<PrepareOverflowMenu readyCount={view.summary.ready} total={view.changes.length} />");
-    expect(PAGE_SRC).toContain("<PrepareTonightButton readyCount={view.summary.ready} total={view.changes.length} />");
+  it("promises the maintained copy-ready queue instead of asking for a click", () => {
+    expect(PAGE_SRC).toContain("Beacon keeps the strongest five copy-ready while you work.");
+    expect(PAGE_SRC).not.toContain("Prepare tonight");
   });
 });

@@ -86,8 +86,8 @@ export type WorklistSessionState = {
   weeklyLine: string | null;
   /** R20 - the background auto-advance prepare state, surfaced honestly on the strip. */
   prepareStatus: PrepareStatus;
-  /** Call after ANY row action (done, skip, not-now) - never leaves the operator at a dead end.
-   *  On "done" it also kicks off the background auto-advance prepare (fail-soft). */
+  /** Call after ANY row action (done, skip, not-now) - never leaves the operator at a dead end
+   *  and asks the background maintenance lane to restore five ready changes. */
   handleRowAction: (handledId: string, kind: "done" | "skip" | "not_now") => void;
   /** Clears the banner (e.g. once the operator opens the next row themselves). */
   dismissBanner: () => void;
@@ -130,16 +130,13 @@ export function useWorklistSession(
           writeStoredCount(next);
           return next;
         });
-        // R20 - auto-advance: the moment a change ships, prepare the next best opportunity in
-        // the background so it is ready by the time the operator reaches it. Fail-soft and
-        // never blocking - the server schedules the work via next/after and returns instantly;
-        // this only reflects the honest "Preparing... -> Ready" status on the strip. An error
-        // silently falls back to "ready" (the existing on-demand Prepare button still works).
-        setPrepareStatus("preparing");
-        void autoAdvancePrepareAction()
-          .then(() => setPrepareStatus("ready"))
-          .catch(() => setPrepareStatus("ready"));
       }
+      // Every handled row changes the actionable order. Refill after done, skip,
+      // or not-now so the session never drains into tomorrow's batch.
+      setPrepareStatus("preparing");
+      void autoAdvancePrepareAction()
+        .then(() => setPrepareStatus("ready"))
+        .catch(() => setPrepareStatus("ready"));
       // NO DEAD ENDS: after any action, always compute and surface the next actionable row.
       const upcoming = findNextActionable(orderedChanges, handledId, handledIds);
       setNextBest(upcoming);

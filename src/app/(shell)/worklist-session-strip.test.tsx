@@ -165,15 +165,14 @@ describe("useWorklistSession - wired to the pure session-flow helpers, not reimp
   });
 });
 
-describe("useWorklistSession - R20 auto-advance prepare (background, done-only, fail-soft)", () => {
-  it("kicks off the background prepare ONLY inside the 'done' branch, never on skip/not-now", () => {
-    // The auto-advance call sits inside the same `kind === "done"` block that bumps the counter,
-    // so a skip/not-now advances the next-best row without spending on a prepare.
+describe("useWorklistSession - continuous ready-queue maintenance", () => {
+  it("refills after every handled row while keeping the shipped counter done-only", () => {
     const doneIdx = SRC.indexOf('kind === "done"');
     const advanceIdx = SRC.indexOf("autoAdvancePrepareAction()");
     expect(advanceIdx).toBeGreaterThan(doneIdx);
-    const doneBlock = SRC.slice(doneIdx, SRC.indexOf("// NO DEAD ENDS"));
-    expect(doneBlock).toContain("autoAdvancePrepareAction()");
+    const doneBlock = SRC.slice(doneIdx, advanceIdx);
+    expect(doneBlock).toContain("setShippedCount");
+    expect(SRC.slice(advanceIdx, SRC.indexOf("// NO DEAD ENDS"))).toContain("autoAdvancePrepareAction()");
   });
 
   it("reflects the honest Preparing -> Ready status and fails soft to Ready on error", () => {

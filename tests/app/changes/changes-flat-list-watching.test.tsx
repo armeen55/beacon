@@ -21,7 +21,6 @@ vi.mock("next/navigation", () => ({
 import { ChangesListClient } from "@/app/(shell)/changes-list-client";
 import type { ChangesView } from "@/app/(shell)/changes-data";
 import type { CanonicalChange, CanonicalStatus } from "@/domains/changes/canonical-change";
-import { WATCHING_SENTENCE } from "@/domains/recommendations/abstention";
 
 function cc(id: string, status: CanonicalStatus, over: Partial<CanonicalChange> = {}): CanonicalChange {
   return {
@@ -113,37 +112,27 @@ describe("ChangesListClient - C-16 one flat list, no bucket headers, no picker",
   });
 });
 
-describe("ChangesListClient - C-17 Watching tab", () => {
-  it("renders a Watching tab in the tab bar", () => {
+describe("ChangesListClient - execution-only tabs", () => {
+  it("keeps Watching, Measuring, and Results out of the execution queue", () => {
     h.params = new URLSearchParams();
     const html = renderToStaticMarkup(<ChangesListClient view={view()} />);
-    expect(html).toContain("Watching");
+    expect(html).not.toContain("Watching");
+    expect(html).not.toContain("Measuring");
+    expect(html).not.toContain(">Results<");
   });
 
-  it("on the Watching tab, shows each held item's label + the honest hold sentence", () => {
+  it("treats a legacy Watching deep-link as the current To do queue", () => {
     h.params = new URLSearchParams("status=watching");
-    const held = cc("nowruz", "suggested", { pageLabel: "Persian New Year", changeFamily: "answer" });
-    const html = renderToStaticMarkup(<ChangesListClient view={view({ watching: [held] })} />);
+    const row = cc("nowruz", "suggested", { pageLabel: "Persian New Year", changeFamily: "answer" });
+    const html = renderToStaticMarkup(<ChangesListClient view={view({ changes: [row], summary: { todo: 1, ready: 0, measuring: 0, results: 0, selectedForToday: 0, protectedPages: 0 } })} />);
     expect(html).toContain("Persian New Year");
-    expect(html).toContain(WATCHING_SENTENCE);
+    expect(html).toContain('aria-pressed="true" aria-label="To do, 1 change"');
   });
 
-  it("on the Watching tab with nothing held, shows the honest empty line (never a bare zero)", () => {
-    h.params = new URLSearchParams("status=watching");
-    const html = renderToStaticMarkup(<ChangesListClient view={view({ watching: [] })} />);
-    expect(html).toContain("Nothing is waiting for more evidence right now.");
-  });
-});
-
-describe("ChangesListClient - Results tab empty state (E-39 review P1-1, D6 pin)", () => {
-  // FP3 - when the canonical decided count is positive but this subset list has
-  // no matching row (the decided changes live on the Results page instead), the
-  // empty state must say so honestly, WITHOUT ever calling a 28-day result final
-  // (the 7/28/56-84 contract: the 56 to 84 day confirmation tier is not built yet).
-  it("names the 28-day read, never a final verdict, when the canonical count is positive", () => {
+  it("treats a legacy Results deep-link as To do because outcomes live on Results", () => {
     h.params = new URLSearchParams("status=results");
     const html = renderToStaticMarkup(<ChangesListClient view={view({ decidedCountCanonical: 3 })} />);
-    expect(html).toContain("3 changes have their 28-day read.");
-    expect(html).not.toMatch(/\bfinal\b/i);
+    expect(html).toContain("No changes to do right now.");
+    expect(html).not.toContain("28-day read");
   });
 });

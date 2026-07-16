@@ -2,8 +2,8 @@
 
 /**
  * ChangesListClient (2026-07-02; UX3 dense inbox) - the canonical Changes list. ONE compact,
- * action-first row per change; status views (incl. the Watching evidence-hold tab) + goal filter +
- * search, pure client filtering over the server-built CanonicalChange[]. The list is ONE flat,
+ * action-first row per change; two execution states plus search, with optional legacy deep-link
+ * filters over the server-built CanonicalChange[]. The list is ONE flat,
  * opportunity-ranked list (operator spec 2026-07-09 C-16/C-23: no strategy picker, no goal-bucket
  * section headers). Advanced detail opens in a split side panel
  * (desktop) so clicking a row never loses the list's scroll position; the existing MoveCard renders
@@ -35,7 +35,6 @@ import {
   type ChangeDecision,
 } from "@/domains/changes/decide-action";
 import { dynamicOpportunityCount } from "@/domains/changes/today-view";
-import { WATCHING_SENTENCE } from "@/domains/recommendations/abstention";
 import { ReceiptLine } from "@/components/data/receipt-line";
 import { rankChanges, goalMatches, inStatusView, outranksReasonsBySequence } from "@/domains/changes/strategy";
 import { MoveCard } from "./today-moves-card";
@@ -60,13 +59,11 @@ import {
 // strategy.ts are untouched (other callers still use them); this client just no longer offers a
 // mode toggle.
 
-// operator spec 2026-07-09 C-17 - the status tabs, plus a last, lower-priority "Watching" tab for
-// changes Beacon is holding for insufficient evidence. "watching" is a view id, not a lifecycle
-// status (it never maps to a CanonicalStatus), so it rides alongside StatusView as a TabId.
-type TabId = StatusView | "watching";
+// The working surface only exposes execution states. Measurement and settled outcomes live
+// on Results; held evidence remains available in the underlying data without another daily tab.
+type TabId = Extract<StatusView, "todo" | "ready">;
 const TABS: { id: TabId; label: string }[] = [
-  { id: "todo", label: "To do" }, { id: "ready", label: "Ready" }, { id: "measuring", label: "Measuring" }, { id: "results", label: "Results" },
-  { id: "watching", label: "Watching" },
+  { id: "todo", label: "To do" }, { id: "ready", label: "Ready" },
 ];
 const GOALS: { id: Goal; label: string }[] = [
   { id: "recommended", label: "Recommended" }, { id: "quick_wins", label: "Quick wins" }, { id: "biggest_upside", label: "Biggest upside" },
@@ -673,8 +670,6 @@ export function ChangesListClient({ view }: { view: ChangesClientView }) {
   const [tab, setTab] = useState<TabId>(initialTab);
   const [goal, setGoal] = useState<Goal>(pGoal && GOAL_IDS.has(pGoal) ? (pGoal as Goal) : "recommended");
   const [q, setQ] = useState(params.get("search") ?? "");
-  // Item 56 - "Tonight's 30 minutes": the accepted plan + top ready items that fit a 30-minute budget.
-  const [tonight, setTonight] = useState(false);
 
   // operator spec 2026-07-09 C-16/C-23 - ONE flat, opportunity-ranked list under the default
   // "balanced" strategy (no picker, no goal buckets). The Strategy union + rankChanges are
@@ -691,22 +686,9 @@ export function ChangesListClient({ view }: { view: ChangesClientView }) {
         m?.query ?? "", m?.why ?? "", m?.rankWhy ?? "",
       ].join(" ").toLowerCase();
     };
-    // The flat list shows the current status tab. The "Watching" tab (C-17) renders its own held
-    // items separately (view.watching), never the ranked action list, so it filters to empty here.
-    const statusOk = (c: CanonicalChange) => (tab === "watching" ? false : inStatusView(c, tab));
-    let rows = ranked.filter((c) => statusOk(c) && goalMatches(c, goal) && (!needle || hay(c).includes(needle)));
-    if (tonight) {
-      const actionable = rows.filter((c) => c.selectedForToday || c.status === "ready" || c.status === "apply");
-      const picked: CanonicalChange[] = [];
-      let budget = 30;
-      for (const c of [...actionable].sort((a, b) => (b.selectedForToday ? 1 : 0) - (a.selectedForToday ? 1 : 0))) {
-        const mins = Number.isFinite(c.estimatedEffortMinutes) ? c.estimatedEffortMinutes : 5;
-        if (mins <= budget) { picked.push(c); budget -= mins; }
-      }
-      rows = picked;
-    }
-    return rows;
-  }, [ranked, tab, goal, q, tonight, view.movesById]);
+    const statusOk = (c: CanonicalChange) => inStatusView(c, tab);
+    return ranked.filter((c) => statusOk(c) && goalMatches(c, goal) && (!needle || hay(c).includes(needle)));
+  }, [ranked, tab, goal, q, view.movesById]);
 
   // D6 (daily ritual loop) - the session loop: after ANY row action (done/skip/not-now), always
   // point at the next best row + count it. Walks the SAME `visible` (already ranked + filtered)
@@ -843,11 +825,9 @@ export function ChangesListClient({ view }: { view: ChangesClientView }) {
   // suggested/ready into verify/measuring/result is one applied receipt. Collapsing them to a
   // single summary row keeps the list dense once the plan has been worked; the individual
   // receipts stay one click away, never deleted or hidden for good. Only collapses in the flat
-  // status views (never inside "Tonight's 30 minutes", which is already a bounded set).
+  // working status views.
   const [batchExpanded, setBatchExpanded] = useState(false);
-  // operator spec 2026-07-09 C-16 - the goal-bucket grouping is gone; the batch collapse now only
-  // steps aside for the Tonight budget view.
-  const canCollapseBatch = !tonight;
+  const canCollapseBatch = true;
   const batchRows = useMemo(
     () => (canCollapseBatch ? visible.filter((c) => c.selectedForToday && (c.status === "verify" || c.status === "measuring" || c.status === "result")) : []),
     [canCollapseBatch, visible],
@@ -864,7 +844,7 @@ export function ChangesListClient({ view }: { view: ChangesClientView }) {
   // 20 more expanded cards (a ~26-card wall on a 94-item backlog); the fix drops that partial
   // reveal entirely: the rest of the actionable queue is fully hidden until the operator asks
   // for it, then shown in full (no second, smaller cap to click through). Only applies to the
-  // flat, non-tonight view - "Tonight's 30 minutes" is already a small, deliberately-bounded set.
+  // flat working view.
   const [showAllRanked, setShowAllRanked] = useState(false);
   // Wave 3C (3E) - THE decision queue: the archive (watch / leave-as-is / blocked) is split OFF the
   // command path into its own collapsed expander. showArchive toggles it.
@@ -934,29 +914,10 @@ export function ChangesListClient({ view }: { view: ChangesClientView }) {
     if (goal === "new_pages") {
       // FP5b - new-page ideas' single home is the New Pages board on this same page;
       // a bare "no matches" here would read as "Beacon has no page ideas", a lie.
-      return { title: "New page ideas live on the New pages board below.", hint: "Every topic worth building has one card there, with the competitor teardown and a draft.", action: null };
+      return { title: "No new-page changes are ready in this execution queue.", hint: "Beacon will add one when the evidence is strong enough to act on.", action: null };
     }
     if (isFiltered) {
       return { title: "No changes match these filters.", hint: "Try another status, strategy, or goal.", action: { label: "Reset filters", onClick: () => { setGoal("recommended"); setQ(""); } } };
-    }
-    if (tab === "results") {
-      // FP3 - never say "no results" when the canonical count says otherwise; this
-      // list is a subset (a decided change may have no matching worklist move).
-      if (view.decidedCountCanonical > 0) {
-        return { title: `${view.decidedCountCanonical} change${view.decidedCountCanonical === 1 ? " has" : "s have"} their 28-day read.`, hint: "None of them have a matching item in this list. They all live on the Results page.", action: null };
-      }
-      return { title: "No mature results yet.", hint: "Your active changes are still collecting data. Early checkpoints stay in Measuring.", action: null };
-    }
-    if (tab === "measuring") {
-      // UX0 (2026-07-02) - never say "none measuring" when the canonical ledger count
-      // says otherwise; this worklist's list is a subset (e.g. a page-factory or
-      // AI-visibility measurement with no matching worklist move).
-      if (view.measuringCountCanonical > 0) {
-        // FP5d - the measuring list's single home is Results; this tab only ever
-        // holds the subset with a matching worklist item.
-        return { title: `${view.measuringCountCanonical} change${view.measuringCountCanonical === 1 ? " is" : "s are"} measuring right now.`, hint: "None of them have a matching item in this list. The full measuring list lives on the Results page.", action: null };
-      }
-      return { title: "No changes are measuring yet.", hint: "Applied and verified changes will appear here.", action: null };
     }
     if (tab === "ready") return { title: "No changes are fully prepared.", hint: "Prepare a recommendation from To do, or accept today’s plan above.", action: null };
     return { title: "No changes to do right now.", hint: "Once your Google + AI demand data syncs, ranked changes appear here.", action: null };
@@ -971,26 +932,13 @@ export function ChangesListClient({ view }: { view: ChangesClientView }) {
       {/* Status tabs (scrollable on mobile) + goal + search */}
       <div className="flex flex-wrap items-center gap-2">
         <div role="group" aria-label="Filter by status" className="-mx-1 max-w-full overflow-x-auto px-1">
-          {/* operator spec 2026-07-09 C-16/C-17 - no goal-bucket grouping toggle (ONE flat list);
-              the last tab, "Watching", is the lower-priority evidence-hold view. */}
+          {/* Execution has two visible states. Measurement and outcomes live on Results;
+              held research remains evidence, not another daily queue. */}
           <div className="inline-flex rounded-lg border border-border p-0.5">
             {TABS.map((t) => {
               const active = tab === t.id;
-              const isWatching = t.id === "watching";
-              // UX0/FP3 (2026-07-02) - the Measuring and Results tabs show the SAME
-              // canonical counts Today and the Results page show (the ONE-COUNT RULE in
-              // domains/changes/lifecycle-counts.ts), never a separately-derived number
-              // that can silently disagree (ground-truth: Today said 16, this tab said
-              // 10). When this worklist only has a subset of the tenant's measuring or
-              // decided changes, the badge is honest about it ("10 of 16"). The Watching
-              // tab counts the held items (C-17), which summary does not track.
-              const summaryCount = isWatching ? (view.watching?.length ?? 0) : s[t.id as StatusView];
-              const canonical =
-                t.id === "measuring" ? view.measuringCountCanonical : t.id === "results" ? view.decidedCountCanonical : null;
-              const displayCount = canonical ?? summaryCount;
-              const badgeLabel = canonical != null && canonical > summaryCount
-                ? `${summaryCount} of ${canonical}`
-                : String(displayCount);
+              const displayCount = s[t.id];
+              const badgeLabel = String(displayCount);
               return (
                 <button key={t.id} type="button" onClick={() => setTab(t.id)} aria-pressed={active} aria-label={`${t.label}, ${displayCount} ${displayCount === 1 ? "change" : "changes"}`}
                   className={`min-h-[32px] shrink-0 whitespace-nowrap rounded-md px-2.5 py-1 text-body font-medium ${FOCUS} ${active ? "bg-status-info text-background hover:opacity-90" : "text-foreground-secondary hover:bg-surface-raised"}`}>
@@ -1000,14 +948,6 @@ export function ChangesListClient({ view }: { view: ChangesClientView }) {
             })}
           </div>
         </div>
-        <button type="button" onClick={() => setTonight((v) => !v)} aria-pressed={tonight}
-          title="Just the accepted plan plus the top ready items that fit 30 minutes."
-          className={`min-h-[32px] rounded-md border px-2.5 py-1 text-body font-medium ${FOCUS} ${tonight ? "border-indigo-300 bg-indigo-600 text-background hover:bg-indigo-500" : "border-border text-foreground-secondary hover:bg-surface-raised"}`}>
-          Tonight&apos;s 30 minutes
-        </button>
-        <select aria-label="Filter by goal" value={goal} onChange={(e) => setGoal(e.target.value as Goal)} className={`min-h-[32px] rounded-md border border-border px-2 py-1 text-body text-foreground-secondary ${FOCUS}`}>
-          {GOALS.map((g) => <option key={g.id} value={g.id}>{g.label}</option>)}
-        </select>
         <input aria-label="Search pages" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search pages…" className={`min-h-[32px] w-full rounded-md border border-border px-2 py-1 text-body sm:ml-auto sm:w-44 ${FOCUS}`} />
       </div>
       {/* D6 - the daily ritual loop's session strip: "You have shipped N changes today" +
@@ -1048,32 +988,7 @@ export function ChangesListClient({ view }: { view: ChangesClientView }) {
           source, built server-side in changes-data.ts so it never drifts on hydration. */}
       <ReceiptLine line={view.receiptLine} />
       {/* List */}
-      {tab === "watching" ? (
-        // operator spec 2026-07-09 C-17 - the Watching tab: changes Beacon is holding because it
-        // does not yet have enough evidence (the N49 abstention hold). Each shows its page label,
-        // its type tag, and the honest WATCHING_SENTENCE. Never a confident move, never deleted.
-        // The empty state is honest, never a bare zero.
-        <div role="status" className="space-y-1.5">
-          {(view.watching ?? []).length === 0 ? (
-            <EmptyState headline="Nothing is waiting for more evidence right now." />
-          ) : (
-            (view.watching ?? []).map((c) => {
-              const move = c.sourceIds[0] ? view.movesById[c.sourceIds[0]] : undefined;
-              const wLabel = displayPageLabel(c, move);
-              const fam = FAMILY_CHIP[c.changeFamily] ?? FAMILY_CHIP.other!;
-              return (
-                <div key={c.id} className="rounded-lg border border-border-subtle bg-card px-3 py-2.5">
-                  <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                    <span className={`shrink-0 rounded px-1.5 py-0.5 text-meta font-semibold ring-1 ${fam.cls}`}>{fam.label}</span>
-                    <span className="min-w-0 break-words text-body font-semibold capitalize text-foreground" title={wLabel.secondary ?? undefined}>{wLabel.title}</span>
-                  </div>
-                  <p className="mt-0.5 text-meta text-muted-foreground">{WATCHING_SENTENCE}</p>
-                </div>
-              );
-            })
-          )}
-        </div>
-      ) : visible.length === 0 ? (
+      {visible.length === 0 ? (
         <div role="status">
           <EmptyState headline={em.title} nextStep={em.hint ?? undefined} />
           {em.action ? (
@@ -1082,15 +997,8 @@ export function ChangesListClient({ view }: { view: ChangesClientView }) {
         </div>
       ) : (
         <div className="space-y-1.5">
-          {tonight ? (
-            <p className="text-meta text-muted-foreground tabular-nums">
-              Tonight&apos;s set: {visible.length} change{visible.length === 1 ? "" : "s"}, about {visible.reduce((t, c) => t + (Number.isFinite(c.estimatedEffortMinutes) ? c.estimatedEffortMinutes : 5), 0)} minutes.
-            </p>
-          ) : null}
-          {/* P13 honest minute math (v1 592) - the session total across the picks shown at the top,
-              in the SAME per-change effort fallback the "Tonight's 30 minutes" budget uses, so the
-              two never disagree. Only on the flat working view (the Tonight view has its own). */}
-          {!tonight && sessionTotalLine ? (
+          {/* P13 honest minute math - the session total across the picks shown at the top. */}
+          {sessionTotalLine ? (
             <p className="text-meta text-muted-foreground tabular-nums">{sessionTotalLine}</p>
           ) : null}
           {/* UX3 - the applied-batch summary row: "Tonight's batch: N applied, all verified"

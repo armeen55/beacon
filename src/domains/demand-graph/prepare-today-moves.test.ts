@@ -345,3 +345,45 @@ describe("prepareTodayMovesForTenant - authoritative Changes order", () => {
     expect(summary.outcomes[0]!.note).toContain("held");
   });
 });
+
+describe("prepareTodayMovesForTenant - cheap queue maintenance", () => {
+  it("stops after the requested number of fresh draft attempts while scanning a larger order", async () => {
+    vi.mocked(loadChangePacksForTenant).mockResolvedValue({ packets: [
+      packet({ demandKey: "maintain:one", label: "one" }),
+      packet({ demandKey: "maintain:two", label: "two" }),
+      packet({ demandKey: "maintain:three", label: "three" }),
+    ] } as never);
+
+    const summary = await prepareTodayMovesForTenant("tenant-iranopedia", {
+      maxN: 3,
+      maxNewDrafts: 1,
+      checkWinnability: false,
+    });
+
+    expect(summary.prepared).toBe(1);
+    expect(draftAnswerBlockStructured).toHaveBeenCalledTimes(1);
+  });
+
+  it("preserves a rejected cached draft without paying to regenerate it", async () => {
+    vi.mocked(draftAnswerBlockStructured).mockResolvedValue({
+      ...draftedOk(),
+      value: { answer: "Tea is popular.", evidenceRefs: [], operatorSteps: [], risks: [] },
+    } as never);
+    await prepareTodayMovesForTenant("tenant-iranopedia", { checkWinnability: false });
+    const persisted = vi.mocked(saveMoveDraft).mock.calls.find((call) => call[2] === "prepared_pack")?.[3];
+    expect(typeof persisted).toBe("string");
+
+    vi.mocked(draftAnswerBlockStructured).mockClear();
+    vi.mocked(getLatestMoveDrafts).mockResolvedValue(new Map([
+      ["gap:persian-tea::prepared_pack", { content: persisted }],
+    ]) as never);
+    const summary = await prepareTodayMovesForTenant("tenant-iranopedia", {
+      checkWinnability: false,
+      regenerateRejected: false,
+    });
+
+    expect(draftAnswerBlockStructured).not.toHaveBeenCalled();
+    expect(summary.cached).toBe(1);
+    expect(summary.outcomes[0]?.note).toContain("preserved");
+  });
+});

@@ -8,6 +8,7 @@ import { loadWithDeadline } from "@/lib/load-with-deadline";
 import { runWithTenant } from "@/lib/tenant-context";
 import { runAutonomousResearchForTenant } from "./autonomous-research";
 import { recoverAbandonedPageFactoryForTenant } from "./recover-abandoned-work";
+import { replenishReadyQueueForTenant } from "./ready-queue-replenishment";
 import {
   readLastWarmReceipt,
   recordWarmRun,
@@ -83,7 +84,8 @@ async function runPostResponseCycle(tenantId: string): Promise<void> {
     });
     const now = new Date();
     const prior = await readLastWarmReceipt(tenantId, "visit");
-    if (shouldRunAutonomousResearch(prior, now)) {
+    const shouldRunDeepResearch = shouldRunAutonomousResearch(prior, now);
+    if (shouldRunDeepResearch) {
       // Write before work begins. This is the durable cross-instance throttle
       // and gives the UI an honest running state instead of a blank.
       await recordWarmRun(startedReceipt(tenantId, now, prior));
@@ -111,6 +113,19 @@ async function runPostResponseCycle(tenantId: string): Promise<void> {
         totalMs: receipt.totalMs,
         summary: receipt.summary,
       });
+    } else {
+      // A successful daily brain pass suppresses expensive research, not queue
+      // maintenance. Normal navigation still restores missing ready capacity.
+      const refill = await replenishReadyQueueForTenant(tenantId).catch((error) => {
+        log.warn("[autonomous] ready queue refill failed", {
+          tenantId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+        return null;
+      });
+      if (refill && !refill.skipped) {
+        log.info("[autonomous] ready queue replenished", { tenantId, ...refill });
+      }
     }
 
     // This used to run first and could spend the whole continuation lifetime

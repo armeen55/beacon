@@ -482,6 +482,30 @@ export function MoveCard({
       </p>
       <p className="mt-2 text-body leading-relaxed text-foreground-secondary">{m.why}</p>
 
+      {m.preparedDraftText && (!q || q.copyAllowed) ? (
+        <div className="mt-3 rounded-xl border border-indigo-200 bg-indigo-50/60 px-3 py-2.5">
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-meta font-semibold uppercase tracking-wide text-indigo-600">
+              Exact copy-ready change
+            </span>
+            <button
+              type="button"
+              onClick={copyPrepared}
+              className={`inline-flex items-center gap-1 rounded-md border border-indigo-200 bg-card px-2 py-1 text-meta font-semibold text-indigo-700 hover:bg-indigo-50 ${FOCUS}`}
+            >
+              {copiedPrepared ? <>Copied<Check className="h-3.5 w-3.5" aria-hidden /></> : "Copy"}
+            </button>
+          </div>
+          <p className="mt-1 text-body leading-relaxed text-foreground">{m.preparedDraftText}</p>
+        </div>
+      ) : null}
+
+      <details className="mt-3 rounded-xl border border-border-subtle bg-surface-raised px-3 py-2.5">
+        <summary className={`cursor-pointer text-body font-medium text-muted-foreground hover:text-foreground ${FOCUS}`}>
+          Evidence and details
+        </summary>
+        <div className="pb-1">
+
       <LearnedMoveLine tag={m.learnedTag} />
 
       {/* Page-specific learning caution (2026-06-28) - this page's own shipped change
@@ -1059,6 +1083,9 @@ export function MoveCard({
           {m.proof}
         </p>
       ) : null}
+
+        </div>
+      </details>
 
       {showDraft && hasDraft ? (
         <div className="mt-3 rounded-xl border border-border bg-surface-raised/80 p-3.5">

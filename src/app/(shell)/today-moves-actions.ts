@@ -77,18 +77,11 @@ export type AutoAdvancePrepareResult =
 
 /**
  * R20 (D6 dynamic auto-mode) - auto-advance prepare. When the operator ships a change in the
- * session flow, the NEXT best opportunity should already be prepared by the time they reach it.
- * This schedules ONE bounded prepare pass AFTER the response via next/after, so it adds ZERO
- * latency and never blocks the operator's next click. It reuses prepareTodayMovesForTenant's
- * exact single-move path, which is CACHE-FIRST (a non-stale pack with a good draft is skipped at
- * $0) and CAPPED (a hard per-run $ ceiling), so on a warm cache this is free and on a cold one
- * it prepares the top unprepared Move within a tight budget. Fail-soft: any error is logged and
- * swallowed; the operator's existing on-demand Prepare button remains the fallback. NO publish,
- * NO SERP, NO migration. This is prepare-ahead only - it never ships anything.
+ * session flow, keep five quality-ready opportunities available. The maintenance
+ * lane reranks after the action, prepares only missing capacity from cached evidence,
+ * and atomically republishes Today + Changes. It remains bounded, fail-soft, and
+ * never publishes a site edit.
  */
-const AUTO_ADVANCE_MAX_N = 3;
-const AUTO_ADVANCE_MAX_USD = 0.05;
-
 export async function autoAdvancePrepareAction(): Promise<AutoAdvancePrepareResult> {
   if (!(await isOperatorModeServer())) return { ok: false, reason: "Operator mode only." };
   let tenantId: string;
@@ -100,26 +93,11 @@ export async function autoAdvancePrepareAction(): Promise<AutoAdvancePrepareResu
   try {
     after(async () => {
       try {
-        const summary = await prepareTodayMovesForTenant(tenantId, {
-          maxN: AUTO_ADVANCE_MAX_N,
-          maxUsd: AUTO_ADVANCE_MAX_USD,
-          rankedEntries: await rankedEntriesForPreparation(tenantId),
-        });
-        // Only recompute the surface when a prepare actually changed something (a fresh
-        // draft, not a pure cache hit) - a cache-only pass leaves the surface identical, so
-        // we skip the invalidate/revalidate to keep this genuinely $0 and side-effect-free.
-        if (summary.prepared > 0) {
-          await invalidateWorklistSurface().catch(() => {});
-          await invalidateChangesSurface().catch(() => {});
-          revalidatePath("/changes");
-        }
-        log.info("[auto-advance-prepare] ran after ship", {
-          tenantId,
-          prepared: summary.prepared,
-          cached: summary.cached,
-          readyToReview: summary.readyToReview,
-          llmCostUsd: summary.llmCostUsd,
-        });
+        const { replenishReadyQueueForTenant } = await import("@/domains/ops/ready-queue-replenishment");
+        const result = await replenishReadyQueueForTenant(tenantId);
+        revalidatePath("/");
+        revalidatePath("/changes");
+        log.info("[auto-advance-prepare] maintained ready queue", { tenantId, ...result });
       } catch (e) {
         log.warn("[auto-advance-prepare] pass failed (non-blocking)", {
           tenantId,

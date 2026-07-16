@@ -323,12 +323,15 @@ export default async function ProofPage({
         <BoundedSection render={() => PooledVerdictSection()} />
       </Suspense>
 
-      {/* Record a shipped change for ANY page (manual-ship companion). Prefills
-          the page from a ?page= hand-off (e.g. the Workbench "Record this
-          change" link) so recording doesn't mean re-typing the path. */}
-      <div className="mb-6">
-        <RecordAnyPageForm initialPage={initialPage} />
-      </div>
+      {/* Manual recording is a fallback, not a normal workflow stage. */}
+      <details className="mb-6 rounded-xl border border-border-subtle bg-surface-raised px-3 py-2.5">
+        <summary className="cursor-pointer text-body font-medium text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1">
+          Record a change manually
+        </summary>
+        <div className="mt-3">
+          <RecordAnyPageForm initialPage={initialPage} />
+        </div>
+      </details>
 
       {/* ── Measured outcomes (shipped changes being tracked vs controls) ──
           W2-B: the cards board (with its revert offers, alignment receipts, and

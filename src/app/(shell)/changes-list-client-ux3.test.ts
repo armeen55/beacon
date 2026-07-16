@@ -66,9 +66,9 @@ describe("ChangesListClient - UX3 applied-batch collapse", () => {
     expect(SRC).toContain("batchRows.length >= 2");
   });
 
-  it("only collapses in the flat status views, never inside 'Tonight's 30 minutes'", () => {
-    // operator spec 2026-07-09 C-16 - "By goal" grouping is gone; only the Tonight budget view opts out.
-    expect(SRC).toContain("const canCollapseBatch = !tonight;");
+  it("collapses receipts within the simplified working view without a separate Tonight mode", () => {
+    expect(SRC).toContain("const canCollapseBatch = true;");
+    expect(SRC).not.toContain("const [tonight");
   });
 
   it("the summary row names the exact count and verified state in one honest sentence", () => {

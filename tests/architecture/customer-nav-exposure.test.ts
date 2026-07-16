@@ -51,7 +51,7 @@ import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 
-import { navigationGroups } from "@/lib/navigation";
+import { navigationGroups, paletteOnlyItems } from "@/lib/navigation";
 
 const REPO_ROOT = resolve(__dirname, "..", "..");
 function readSrc(rel: string): string {
@@ -87,18 +87,13 @@ describe("customer nav exposure — Invariant 1: SIDEBAR is the unified workflow
   // /worklist to /changes and the results page from /proof to /results so the
   // URL, the nav label, and the page h1 agree; the old URLs are permanent
   // redirects.
-  // 2026-07-03 (R14a, P1 trust receipts): added /activity, the unified audit
-  // log ("what has Beacon done while I was away"). It sits in the system group
-  // next to Connections/Settings because it is a receipt surface over the
-  // whole product, not a work stage.
+  // 2026-07-15 execution-loop consolidation: the sidebar exposes the three
+  // daily workflow surfaces plus setup utilities. Ask, research, and receipts
+  // remain reachable through Cmd+K without competing for daily attention.
   const EXPECTED_HREFS = new Set([
     "/",
     "/changes",
     "/results",
-    "/ask",
-    "/activity",
-    "/prompts",
-    "/research/keywords",
     "/settings/connectors",
     "/settings",
   ]);
@@ -108,6 +103,12 @@ describe("customer nav exposure — Invariant 1: SIDEBAR is the unified workflow
       .flatMap((g) => g.items.map((i) => i.href))
       .sort();
     expect(new Set(allHrefs)).toEqual(EXPECTED_HREFS);
+  });
+
+  it("keeps supporting evidence in the command palette rather than the sidebar", () => {
+    expect(new Set(paletteOnlyItems.map((item) => item.href))).toEqual(new Set([
+      "/ask", "/research/keywords", "/prompts", "/activity",
+    ]));
   });
 
   it("navigationGroups does NOT include any truly-dead / debug-only routes", () => {
