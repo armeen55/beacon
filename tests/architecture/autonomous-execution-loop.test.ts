@@ -10,6 +10,7 @@ describe("autonomous execution loop", () => {
   const moveCard = read("src/app/(shell)/today-moves-card.tsx");
   const resultsPage = read("src/app/(shell)/results/page.tsx");
   const visitRunner = read("src/domains/ops/on-visit-refresh.ts");
+  const moveActions = read("src/app/(shell)/today-moves-actions.ts");
 
   it("maintains the ready queue on same-day navigation without rerunning deep research", () => {
     expect(visitRunner).toMatch(
@@ -22,6 +23,15 @@ describe("autonomous execution loop", () => {
     expect(changesPage).not.toContain("PrepareOverflowMenu");
     expect(changesPage).not.toContain("NewPagesBoard");
     expect(changesPage).not.toContain("PageFactoryBatch");
+  });
+
+  it("lets the signed-in customer schedule bounded queue maintenance without operator mode", () => {
+    const start = moveActions.indexOf("export async function autoAdvancePrepareAction");
+    const end = moveActions.indexOf("export type EnrichResearchResult", start);
+    const action = moveActions.slice(start, end);
+    expect(action).toContain("replenishReadyQueueForTenant");
+    expect(action).not.toContain("isOperatorModeServer");
+    expect(action).not.toContain("Operator mode only");
   });
 
   it("keeps Changes focused on To do and Ready", () => {

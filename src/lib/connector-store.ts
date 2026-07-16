@@ -387,7 +387,6 @@ export async function readConnectorToken(
     // getConnectorToken degrades it to null (disconnected), while write-path
     // callers (the OAuth callback, saveConnectorToken's blank-refresh guard)
     // treat it as "unknown" and refuse to write.
-    // eslint-disable-next-line no-console
     console.warn(
       `[connector-store] read failed for provider=${provider}, treating as disconnected (app stays up): ${(error.message ?? String(error)).slice(0, 200)}`,
     );
@@ -843,7 +842,6 @@ export async function saveConnectorToken(
     // The guarded RPC is not installed on this database (fresh install, or the
     // migration is not applied yet). Fall back to the app-side guarded path
     // below, LOUDLY, so a missing migration can never brick a connect.
-    // eslint-disable-next-line no-console
     console.warn(
       `[connector-store] save_connector_token_guarded_v1 missing (apply migrations/2026-07-09_connector_token_guarded_upsert.sql); falling back to the app-side guarded save for provider=${token.provider}`,
     );
@@ -1058,7 +1056,6 @@ export async function updateConnectorToken(
     // read-merge-write LOUDLY so a missing migration can never brick a patch.
     // This fallback keeps the pre-guard behavior: it merges onto the stored row
     // (which retains its refresh_token) and saves via the connect-guarded path.
-    // eslint-disable-next-line no-console
     console.warn(
       `[connector-store] save_connector_token_guarded_v1 missing (apply migrations/2026-07-09_connector_token_patch_mode.sql); falling back to the app-side read-merge-write patch for provider=${provider}`,
     );
@@ -1129,7 +1126,6 @@ export async function persistRefreshedGoogleToken(
     // Monotonic guard first, so even the fallback cannot clobber a FRESHER
     // stored token with this staler one; rotation (a new refresh_token) always
     // persists because its expiry is by construction the newest.
-    // eslint-disable-next-line no-console
     console.warn(
       `[connector-store] save_connector_token_guarded_v1 missing (apply migrations/2026-07-09_connector_token_guarded_upsert.sql); falling back to the app-side refresh persist for provider=${provider}`,
     );
@@ -1153,7 +1149,6 @@ export async function persistRefreshedGoogleToken(
     }
     await saveConnectorToken(merged, tid);
   } catch (err) {
-    // eslint-disable-next-line no-console
     console.warn(
       `[connector-store] persistRefreshedGoogleToken failed for provider=${provider}, continuing with in-memory token: ${(err instanceof Error ? err.message : String(err)).slice(0, 200)}`,
     );

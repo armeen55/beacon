@@ -7,6 +7,7 @@ import {
   persistResponses,
   ensureRecommendationResponsesSeeded,
   type RecommendationResponseStatus,
+  type DismissReason,
 } from "@/domains/product/recommendation-response-store";
 import { currentTenantId } from "@/lib/tenant-context";
 import { autoRecordShippedChangeForRec } from "@/domains/proof-gsc/auto-record-on-ship";
@@ -21,6 +22,7 @@ export async function respondToRecommendation(
     /** Move action_type + topic — lets the ship auto-create the proof record. */
     actionType?: string | null;
     query?: string | null;
+    dismissReason?: DismissReason | null;
   },
 ): Promise<{ success: boolean }> {
   const action = "respondToRecommendation";
@@ -32,6 +34,7 @@ export async function respondToRecommendation(
       status,
       hasTarget: Boolean(context?.targetPageUrl),
       hasPattern: Boolean(context?.patternId),
+      dismissReason: context?.dismissReason ?? null,
     },
   });
   // Phase 3.5C: merge DB state into the in-memory array before mutating so

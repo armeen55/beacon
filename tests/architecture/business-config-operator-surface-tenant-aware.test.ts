@@ -33,10 +33,11 @@ import { resolve } from "node:path";
 
 const REPO_ROOT = resolve(__dirname, "..", "..");
 
-// Exactly the 9 operator entry files migrated in MT-3A.
+// Operator entries that still consume business config. The Connectors page was
+// removed from this list when its last config-backed (hidden Yelp) prop was
+// deleted; a file that no longer reads config cannot regress to an ambient read.
 const MIGRATED_OPERATOR_FILES = [
   "src/app/(shell)/settings/connectors/actions.ts",
-  "src/app/(shell)/settings/connectors/page.tsx",
   "src/app/(shell)/settings/config/actions.ts",
   "src/app/(shell)/settings/config/page.tsx",
   "src/app/(shell)/diagnostics/page.tsx",
@@ -58,7 +59,7 @@ const NO_ARG_CALL = /getBusinessConfig\(\s*\)/;
 const TENANT_ARG_CALL = /getBusinessConfig\(\s*[A-Za-z_$]/;
 
 describe("business-config-operator-surface-tenant-aware (MT-3A)", () => {
-  it("all 9 allowlisted operator entry files exist on disk", () => {
+  it("all allowlisted config-consuming operator entry files exist on disk", () => {
     for (const rel of MIGRATED_OPERATOR_FILES) {
       expect(
         existsSync(resolve(REPO_ROOT, rel)),

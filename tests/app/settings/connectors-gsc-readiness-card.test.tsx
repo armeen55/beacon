@@ -84,10 +84,8 @@ function renderClient(args: {
       googleSelectedLocation={null}
       ga4={disconnectedInfo()}
       wix={disconnectedInfo()}
-      yelp={disconnectedInfo()}
       profound={disconnectedInfo()}
       clarity={disconnectedInfo()}
-      configYelpBusinessId=""
       gscStaleCopy={null}
       gscReadiness={args.gscReadiness}
       ga4StaleCopy={null}

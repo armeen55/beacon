@@ -7,6 +7,11 @@ import { load as cheerioLoad } from "cheerio";
 import { createHash } from "node:crypto";
 import type { PageSnapshot, FaqItem, PageImage } from "./types";
 import { validateSchemaToStrings } from "./schema-validator";
+import {
+  getBusinessConfig,
+  getLocationRegex,
+  getServiceRegex,
+} from "@/lib/business-config";
 
 function hash(input: string): string {
   return createHash("sha256").update(input).digest("hex").slice(0, 16);
@@ -95,7 +100,7 @@ export function extractPageSnapshot(
         if (sibTag === "h3") {
           const qText = sibling.text().trim();
           if (qText.endsWith("?")) {
-            let answerParts: string[] = [];
+            const answerParts: string[] = [];
             let ansNext = sibling.next();
             while (ansNext.length) {
               const ansTag = (ansNext[0] as unknown as { tagName: string }).tagName?.toLowerCase();
@@ -401,11 +406,6 @@ export function extractPageSnapshot(
     // implicitly read the process-env tenant. Production behavior is
     // identical for a real tenant; the inline-default catch below stays
     // as the safety net if business-config fails to load.
-    const {
-      getBusinessConfig,
-      getLocationRegex,
-      getServiceRegex,
-    } = require("@/lib/business-config");
     const cfg = getBusinessConfig(tenantId);
     locationRegex = getLocationRegex(cfg);
     serviceRegex = getServiceRegex(cfg);

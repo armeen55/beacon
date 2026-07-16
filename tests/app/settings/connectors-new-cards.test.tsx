@@ -31,11 +31,9 @@ function render(over: Partial<Record<"profound" | "clarity", ConnectorInfo>> = {
       google={off}
       googleSelectedLocation={null}
       ga4={off}
-      yelp={off}
       wix={off}
       profound={over.profound ?? off}
       clarity={over.clarity ?? off}
-      configYelpBusinessId=""
       gscStaleCopy={null}
       ga4StaleCopy={null}
     />,

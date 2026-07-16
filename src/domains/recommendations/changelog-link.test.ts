@@ -34,7 +34,6 @@ describe("buildChangelogIdByRecId", () => {
   it("ignores entries with empty/non-string id", () => {
     const map = buildChangelogIdByRecId([
       { id: "", source_rec_id: "rec-A" },
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       { id: 42 as any, source_rec_id: "rec-B" },
       { id: "cl-3", source_rec_id: "rec-C" },
     ]);

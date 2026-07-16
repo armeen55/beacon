@@ -284,7 +284,6 @@ describe("recordSpendDualWrite — Invariant 4: validation rejects bad input", (
       name: "invalid platform",
       input: {
         tenantId: "t1",
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         platform: "claude" as any,
         costUsd: 0.05,
       },

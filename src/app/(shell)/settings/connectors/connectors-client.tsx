@@ -15,19 +15,15 @@ import {
   getGoogleGscConnectorStatus,
   getGoogleGa4ConnectorStatus,
   getWixConnectorStatus,
-  getYelpConnectorStatus,
   disconnectGoogle,
   disconnectGoogleGa4,
-  disconnectYelp,
   saveWixConnection,
   disconnectWix,
   saveProfoundConnection,
   disconnectProfound,
   saveClarityConnection,
   disconnectClarity,
-  saveYelpApiKey,
   syncGoogleReviews,
-  syncYelpReviews,
   loadGoogleLocations,
   selectGoogleLocation,
   listGa4Properties,
@@ -61,13 +57,10 @@ type Props = {
   /** Slice 9.A1β (2026-05-18), GA4 connector status. Mirrors the
    *  GSC props shape (status, expires_at, ga4_property_id, etc.). */
   ga4: ConnectorInfo;
-  yelp: ConnectorInfo;
   /** North-star onboarding (2026-06-11), self-serve Wix connection. */
   wix: ConnectorInfo;
   profound: ConnectorInfo;
   clarity: ConnectorInfo;
-  /** From business config, for operator hint only (not a secret). */
-  configYelpBusinessId: string;
   /** J5 (2026-05-18), pre-rendered "GSC data last refreshed X days
    *  ago. Reconnect to refresh." copy. Computed server-side in
    *  page.tsx so the formatting helper stays `server-only`. Present
@@ -372,11 +365,9 @@ export function ConnectorsClient({
   google: initialGoogle,
   googleSelectedLocation: initialSelectedLocation,
   ga4: initialGa4,
-  yelp: initialYelp,
   wix: initialWix,
   profound: initialProfound,
   clarity: initialClarity,
-  configYelpBusinessId,
   gscStaleCopy = null,
   gscReadiness,
   gscGapLine = null,
@@ -394,7 +385,6 @@ export function ConnectorsClient({
 
   const [google, setGoogle] = useState<ConnectorInfo>(initialGoogle);
   const [ga4, setGa4] = useState<ConnectorInfo>(initialGa4);
-  const [yelp, setYelp] = useState<ConnectorInfo>(initialYelp);
   const [wix, setWix] = useState<ConnectorInfo>(initialWix);
   const [wixKeyInput, setWixKeyInput] = useState("");
   const [wixSiteIdInput, setWixSiteIdInput] = useState("");
@@ -406,8 +396,6 @@ export function ConnectorsClient({
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [googleSyncInFlight, setGoogleSyncInFlight] = useState(false);
-  const [yelpSyncInFlight, setYelpSyncInFlight] = useState(false);
-  const [yelpKeyInput, setYelpKeyInput] = useState("");
 
   // Customer "Pull my data now" affordances (2026-06-14), each
   // connected source gets a per-card sync button wired to its
@@ -693,23 +681,6 @@ export function ConnectorsClient({
     }
   }
 
-  function handleSaveYelpKey() {
-    setError(null);
-    setSuccess(null);
-    startTransition(async () => {
-      const result = await saveYelpApiKey(yelpKeyInput);
-      if (result.success) {
-        setYelpKeyInput("");
-        const status = await getYelpConnectorStatus();
-        setYelp(status);
-        setSuccess("Yelp API key saved. Use Sync now when you want to pull reviews.");
-        router.refresh();
-      } else {
-        setError(result.error ?? "Could not save Yelp key.");
-      }
-    });
-  }
-
   function handleSaveWixConnection() {
     setError(null);
     setSuccess(null);
@@ -797,58 +768,6 @@ export function ConnectorsClient({
     });
   }
 
-  function handleDisconnectYelp() {
-    setError(null);
-    setSuccess(null);
-    startTransition(async () => {
-      const result = await disconnectYelp();
-      if (result.success) {
-        setYelp({
-          status: "disconnected",
-          connected_at: null,
-          expires_at: null,
-          last_synced_at: null,
-        });
-        setSuccess("Yelp disconnected. Previously synced Yelp rows in Local presence are preserved.");
-        router.refresh();
-      } else {
-        setError(result.error ?? "Failed to disconnect Yelp.");
-      }
-    });
-  }
-
-  async function handleYelpSyncNow() {
-    setError(null);
-    setSuccess(null);
-    setYelpSyncInFlight(true);
-    try {
-      const result = await syncYelpReviews();
-      if (!result.ok) {
-        if (result.code === "invalid_key") {
-          setError(result.message);
-        } else {
-          setError(result.message || "Sync failed.");
-        }
-        return;
-      }
-      const status = await getYelpConnectorStatus();
-      setYelp(status);
-      let msg = `Synced ${result.imported} review${result.imported === 1 ? "" : "s"} from Yelp.`;
-      if (result.rejected > 0) {
-        msg += ` ${result.rejected} row${result.rejected === 1 ? "" : "s"} skipped (invalid data).`;
-      }
-      if (result.partial && result.warnings.length > 0) {
-        msg += ` Completed with ${result.warnings.length} warning${result.warnings.length === 1 ? "" : "s"}, some data may be incomplete.`;
-      }
-      setSuccess(msg);
-      router.refresh();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Sync failed.");
-    } finally {
-      setYelpSyncInFlight(false);
-    }
-  }
-
   // Shared driver for the per-connector "Pull my data now" buttons.
   // Runs the action inside the transition, toggles the card's pending
   // flag, and stores the returned detail (ok) / error (failure) as a
@@ -878,7 +797,7 @@ export function ConnectorsClient({
     });
   }
 
-  const anySync = googleSyncInFlight || yelpSyncInFlight;
+  const anySync = googleSyncInFlight;
 
   // FP10a (2026-07-02) - one health color for the summary strip. All
   // connected + last sync clean is "live"; any sync issue is "attention";

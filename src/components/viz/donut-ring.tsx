@@ -9,6 +9,29 @@ export type DonutSegment = {
   color: string;
 };
 
+type DonutArc = DonutSegment & {
+  pct: number;
+  dashArray: string;
+  dashOffset: number;
+  index: number;
+};
+
+function buildArcs(segments: DonutSegment[], total: number, circumference: number): DonutArc[] {
+  let cumulative = 0;
+  return segments.map((segment, index) => {
+    const pct = segment.value / total;
+    const arc = {
+      ...segment,
+      pct,
+      dashArray: `${circumference * pct} ${circumference * (1 - pct)}`,
+      dashOffset: -circumference * cumulative,
+      index,
+    };
+    cumulative += pct;
+    return arc;
+  });
+}
+
 export function DonutRing({
   segments,
   size = 80,
@@ -30,14 +53,7 @@ export function DonutRing({
   const circumference = 2 * Math.PI * radius;
   const center = size / 2;
 
-  let cumulative = 0;
-  const arcs = segments.map((seg, i) => {
-    const pct = seg.value / total;
-    const dashArray = `${circumference * pct} ${circumference * (1 - pct)}`;
-    const dashOffset = -circumference * cumulative;
-    cumulative += pct;
-    return { ...seg, pct, dashArray, dashOffset, index: i };
-  });
+  const arcs = buildArcs(segments, total, circumference);
 
   return (
     <div className="inline-flex items-center gap-3">

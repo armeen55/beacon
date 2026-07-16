@@ -5,6 +5,7 @@ import { isOperatorModeServer } from "@/lib/operator-mode";
 import { PageShell } from "@/components/ui/page-shell";
 import { loadReportModel } from "../../reports-data";
 import { WinCardView, WinCardEmpty } from "../../win-card";
+import { serverNowMs } from "@/lib/server-clock";
 
 /**
  * /reports/win/[id] (P23, v1 233 export-a-win) - one measured win on its own
@@ -38,7 +39,7 @@ export default async function WinExportPage({
       description="A clean card for one measured result. Screenshot it to share."
     >
       {win ? (
-        <WinCardView win={win} computedAt={model.computedAt} nowMs={Date.now()} />
+        <WinCardView win={win} computedAt={model.computedAt} nowMs={serverNowMs()} />
       ) : (
         <WinCardEmpty />
       )}

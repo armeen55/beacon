@@ -16,6 +16,7 @@ import { pageActivityEvents } from "@/domains/activity/activity-stream";
 import { buildReceiptLine, ReceiptLine } from "@/components/data/receipt-line";
 import { loadActivityEvents } from "./activity-data";
 import { ActivityList } from "./activity-list";
+import { serverNowMs } from "@/lib/server-clock";
 
 const PAGE_DEADLINE_MS = 15_000;
 
@@ -51,7 +52,7 @@ export default async function ActivityPage({
                 source: "your own change, plan, job, spend, and connection records",
                 checkedAt: new Date().toISOString(),
                 verb: "assembled",
-                nowMs: Date.now(),
+                nowMs: serverNowMs(),
               })}
             />
             {raced.data.length > 0 ? (

@@ -211,7 +211,7 @@ function normalizeThresholds(input: ThresholdValues): ThresholdValues {
   // Floor at 1, then enforce monotonicity. Order matters: enforce
   // monotonicity AFTER flooring so the floor cannot break the
   // ordering established by the percentile compute.
-  let fast = Math.max(1, Math.ceil(input.fast_days));
+  const fast = Math.max(1, Math.ceil(input.fast_days));
   let median = Math.max(1, Math.ceil(input.median_days));
   let late = Math.max(1, Math.ceil(input.late_days));
   if (median < fast) median = fast;

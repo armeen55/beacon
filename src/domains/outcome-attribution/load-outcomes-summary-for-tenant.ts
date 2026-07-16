@@ -188,7 +188,7 @@ export async function loadOutcomesSummaryForTenant(
       }
 
       // Step 5: ONE Supabase SELECT — skip entirely if no candidates.
-      let trafficRows: Ga4UrlTrafficRow[] = [];
+      const trafficRows: Ga4UrlTrafficRow[] = [];
       if (candidateSet.size > 0) {
         let admin;
         try {

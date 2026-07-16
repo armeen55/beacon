@@ -98,7 +98,7 @@ export async function loadCompetitorCitedPagesForTenant(
     rowsScanned: 0,
   };
 
-  let rows: Array<{ root_domain: string; url: string; model: string; citation_count: number }> = [];
+  const rows: Array<{ root_domain: string; url: string; model: string; citation_count: number }> = [];
   try {
     const sb = getSupabaseAdmin();
     const PAGE = 1000;

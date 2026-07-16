@@ -120,7 +120,10 @@ export function overallReferralTrend(rows: ProfoundReferralRow[]): {
   const mid = dates[Math.floor(dates.length / 2)];
   let recent = 0;
   let prior = 0;
-  for (const r of dated) (r.date >= mid ? (recent += r.visits) : (prior += r.visits));
+  for (const row of dated) {
+    if (row.date >= mid) recent += row.visits;
+    else prior += row.visits;
+  }
   if (prior <= 0) return { direction: recent > 0 ? "rising" : "unknown", recentVisits: recent, priorVisits: prior };
   const delta = (recent - prior) / prior;
   const direction = delta >= 0.15 ? "rising" : delta <= -0.15 ? "declining" : "flat";

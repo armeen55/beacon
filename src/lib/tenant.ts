@@ -18,7 +18,7 @@
  */
 
 import { join } from "node:path";
-import { existsSync, mkdirSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync } from "node:fs";
 
 // Phase 7.8b-1 (2026-04-25): computed at call time so tests can
 // `process.chdir()` and have path resolution follow.
@@ -47,7 +47,6 @@ export function createTenant(slug: string): string {
 export function listTenants(): string[] {
   const td = tenantsDir();
   if (!existsSync(td)) return [];
-  const { readdirSync } = require("fs");
   return (readdirSync(td, { withFileTypes: true }) as { name: string; isDirectory: () => boolean }[])
     .filter((d) => d.isDirectory())
     .map((d) => d.name);

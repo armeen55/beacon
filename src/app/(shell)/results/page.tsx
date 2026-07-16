@@ -3,6 +3,7 @@ import { after } from "next/server";
 import Link from "next/link";
 import { Check, CornerUpLeft } from "lucide-react";
 import { dossierHref } from "@/lib/page-dossier-link";
+import { serverNowMs } from "@/lib/server-clock";
 
 import { isOperatorModeServer } from "@/lib/operator-mode";
 import { ResultsTimeline } from "../changes/results-timeline";
@@ -998,7 +999,7 @@ async function MeasuredOutcomesBoard({
         line={buildReceiptLine({
           source: "your Search Console data",
           through: latestGscDate,
-          nowMs: Date.now(),
+          nowMs: serverNowMs(),
           note: "Google reports a few days behind.",
         })}
         className="mb-2"
@@ -1296,7 +1297,7 @@ function LedgerCard({ rec, link, pres, grade, eventCaveat, spark, controlSparks,
     const next = rec.windows.filter((w) => !w.ran).sort((a, b) => a.day - b.day)[0];
     if (next) {
       const anyRead = rec.windows.some((w) => w.ran);
-      const daysLeft = Math.ceil((Date.parse(addDays(rec.shippedAt, next.day)) - Date.now()) / 86_400_000);
+      const daysLeft = Math.ceil((Date.parse(addDays(rec.shippedAt, next.day)) - serverNowMs()) / 86_400_000);
       return daysLeft <= 0
         ? "verdict due any day now"
         : `${anyRead ? "next" : "first"} read in ${daysLeft} day${daysLeft === 1 ? "" : "s"}`;
@@ -1749,7 +1750,7 @@ function LedgerCard({ rec, link, pres, grade, eventCaveat, spark, controlSparks,
               line={buildReceiptLine({
                 source: "your site analytics and Clarity behavior data",
                 through: b.dataThrough,
-                nowMs: Date.now(),
+                nowMs: serverNowMs(),
               })}
             />
           </div>

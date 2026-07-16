@@ -26,11 +26,14 @@ export type VisibilityLeaderboardProps = {
   entities: EntityVisibility[];
   /** Metric display name shown in the header (e.g., "Visibility score"). */
   metricLabel?: string;
+  /** Last day represented by the loaded visibility snapshot (YYYY-MM-DD). */
+  windowEndDate?: string | null;
 };
 
 export function VisibilityLeaderboard({
   entities,
   metricLabel = "Visibility score",
+  windowEndDate = null,
 }: VisibilityLeaderboardProps) {
   const brandRow = entities.find((e) => e.isOwned);
   // A rank only means something against a real opponent — mirror the hero card,
@@ -104,10 +107,11 @@ export function VisibilityLeaderboard({
             // can flag when the operator might be looking at a long window
             // that crosses the cutover boundary. Use today − windowDays
             // as the start.
-            const todayMs = Date.now();
-            const startMs = todayMs - windowDays * 24 * 60 * 60 * 1000;
-            const startISO = new Date(startMs).toISOString().slice(0, 10);
-            const windowTouchesPreCutover = startISO < NATIVE_REGIME_START;
+            const endMs = windowEndDate ? Date.parse(`${windowEndDate}T00:00:00Z`) : Number.NaN;
+            const startISO = Number.isFinite(endMs)
+              ? new Date(endMs - windowDays * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
+              : null;
+            const windowTouchesPreCutover = startISO != null && startISO < NATIVE_REGIME_START;
             const prov = buildCompetitorLeaderboardProvenance({
               windowDays,
               windowTouchesPreCutover,

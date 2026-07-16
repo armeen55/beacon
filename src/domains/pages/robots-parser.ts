@@ -137,7 +137,6 @@ export async function readRobotsState(opts: {
     // misconfigured backend during early init) degrades to null
     // rather than throwing — the indexability loader treats null
     // as "no evidence" and the verdict falls to `unknown`.
-    // eslint-disable-next-line no-console
     console.warn(
       "[robots-parser] readRobotsState repository read failed",
       e,

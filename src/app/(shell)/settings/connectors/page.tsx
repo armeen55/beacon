@@ -1,6 +1,5 @@
 import { getConnectorInfo, getGoogleConnectorToken } from "@/lib/connector-store";
 import { getWixUrlMap } from "@/lib/connectors/wix/url-map";
-import { getBusinessConfigForCurrentTenant } from "@/lib/business-config";
 import { formatLastRefreshedCopy } from "@/lib/connectors/gsc/expiry-handler";
 import {
   loadGscReadiness,
@@ -45,14 +44,12 @@ async function loadConnectorsPageData() {
   // state without cross-provider coupling.
   const googleGsc = await getConnectorInfo("google_gsc");
   const googleGa4 = await getConnectorInfo("google_ga4");
-  const yelp = await getConnectorInfo("yelp");
   // North-star onboarding (2026-06-11): self-serve Wix connection card.
   const wix = await getConnectorInfo("wix");
   // Connect-cards slice (2026-06-12): the END-STATE contract — every
   // data source connects HERE, self-serve.
   const profound = await getConnectorInfo("profound");
   const clarity = await getConnectorInfo("clarity");
-  const cfg = await getBusinessConfigForCurrentTenant();
   // Selected GBP location lives on the (deferred) google_gbp token. Read
   // it so a returning GBP card can immediately show the saved selection.
   const gbpTok = await getGoogleConnectorToken("gbp");
@@ -197,11 +194,9 @@ async function loadConnectorsPageData() {
     cronHealthPanel,
     googleGsc,
     googleGa4,
-    yelp,
     wix,
     profound,
     clarity,
-    cfg,
     gbpTok,
     gscStaleCopy,
     gscReadiness,
@@ -237,11 +232,9 @@ export default async function ConnectorsPage() {
     cronHealthPanel,
     googleGsc,
     googleGa4,
-    yelp,
     wix,
     profound,
     clarity,
-    cfg,
     gbpTok,
     gscStaleCopy,
     gscReadiness,
@@ -266,11 +259,9 @@ export default async function ConnectorsPage() {
             : null
         }
         ga4={googleGa4}
-        yelp={yelp}
         wix={wix}
         profound={profound}
         clarity={clarity}
-        configYelpBusinessId={cfg.yelpBusinessId ?? ""}
         gscStaleCopy={gscStaleCopy}
         gscReadiness={gscReadiness}
         gscGapLine={gscGapLine}

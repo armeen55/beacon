@@ -62,11 +62,9 @@ function render(over: {
       google={over.google ?? off}
       googleSelectedLocation={null}
       ga4={over.ga4 ?? off}
-      yelp={off}
       wix={over.wix ?? off}
       profound={over.profound ?? off}
       clarity={over.clarity ?? off}
-      configYelpBusinessId=""
       gscStaleCopy={null}
       ga4StaleCopy={null}
       connectedCount={over.connectedCount ?? 0}

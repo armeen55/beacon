@@ -9,6 +9,7 @@ import { runWithTenant } from "@/lib/tenant-context";
 import { runAutonomousResearchForTenant } from "./autonomous-research";
 import { recoverAbandonedPageFactoryForTenant } from "./recover-abandoned-work";
 import { replenishReadyQueueForTenant } from "./ready-queue-replenishment";
+import { refreshStaleCrawlForCurrentTenant } from "@/domains/scanning/stale-crawl-refresh";
 import {
   readLastWarmReceipt,
   recordWarmRun,
@@ -82,6 +83,16 @@ async function runPostResponseCycle(tenantId: string): Promise<void> {
       });
       return [];
     });
+    const crawlRefresh = await refreshStaleCrawlForCurrentTenant(tenantId).catch((error) => {
+      log.warn("[autonomous] stale crawl refresh failed", {
+        tenantId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return null;
+    });
+    if (crawlRefresh?.ran) {
+      log.info("[autonomous] owned-site crawl advanced", { tenantId, ...crawlRefresh });
+    }
     const now = new Date();
     const prior = await readLastWarmReceipt(tenantId, "visit");
     const shouldRunDeepResearch = shouldRunAutonomousResearch(prior, now);

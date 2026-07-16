@@ -17,7 +17,7 @@
  * Pure read. No paid APIs. No mutations. Vercel-safe.
  */
 
-import { readFileSync, existsSync } from "node:fs";
+import { readFileSync, existsSync, readdirSync } from "node:fs";
 import { join, resolve } from "node:path";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
@@ -58,9 +58,7 @@ function safeRead<T>(path: string): T | null {
 function findLatestReport(prefix: string): string | null {
   try {
     if (!existsSync(REPORTS_DIR)) return null;
-    const fs = require("node:fs") as typeof import("node:fs");
-    const files = fs
-      .readdirSync(REPORTS_DIR)
+    const files = readdirSync(REPORTS_DIR)
       .filter((n) => n.startsWith(prefix) && n.endsWith(".json"))
       .sort();
     if (files.length === 0) return null;

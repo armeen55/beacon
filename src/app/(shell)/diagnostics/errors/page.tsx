@@ -14,6 +14,7 @@ import { PageHeader } from "@/components/data/page-header";
 import { currentTenantId } from "@/lib/tenant-context";
 import { listAppErrorsForTenant, groupAppErrors } from "@/lib/obs/error-ledger";
 import { fmtPacific } from "@/domains/ops/deadman";
+import { serverNowMs } from "@/lib/server-clock";
 
 export const dynamic = "force-dynamic";
 
@@ -22,9 +23,10 @@ export default async function ErrorsDiagnosticsPage() {
   const rows = await listAppErrorsForTenant(tenantId);
   const recent = rows.slice(0, 50);
   const groups = groupAppErrors(recent);
+  const nowMs = serverNowMs();
   const last24h = rows.filter((r) => {
     const t = Date.parse(r.at);
-    return Number.isFinite(t) && Date.now() - t <= 24 * 60 * 60 * 1000;
+    return Number.isFinite(t) && nowMs - t <= 24 * 60 * 60 * 1000;
   }).length;
 
   return (

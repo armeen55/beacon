@@ -167,7 +167,7 @@ export async function generateClusterCards(
   deps: ClusterDeps = {},
 ): Promise<ClusterFactoryResult> {
   // The existing gate: deterministic mode = no LLM content, loudly.
-  let model = deps.model ?? "gpt-5-mini";
+  const model = deps.model ?? "gpt-5-mini";
   if (deps.apiKey == null) {
     try {
       const provider = resolveLLMProvider();
@@ -225,7 +225,7 @@ export async function generateClusterCards(
       ),
     ].join("\n");
 
-    let fields: Record<string, string> = {};
+    const fields: Record<string, string> = {};
     let costUsd = 0;
     try {
       // R16: transport via the ONE gateway. The per-item loop previously had NO

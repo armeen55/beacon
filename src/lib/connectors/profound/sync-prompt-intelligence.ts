@@ -43,7 +43,6 @@ const msg = (e: unknown): string => (e instanceof Error ? e.message : String(e))
 // Strip NUL + C0 control chars (keep \t\n) — Postgres/PostgREST reject these in
 // text values ("invalid input syntax"). AI response text + scraped citation URLs
 // occasionally carry them; sanitize before persisting.
-// eslint-disable-next-line no-control-regex
 const CONTROL = /[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g;
 // Also drop UNPAIRED UTF-16 surrogates: slicing text to 500 chars can split an
 // emoji pair -> a lone surrogate -> "invalid input syntax for type json" on

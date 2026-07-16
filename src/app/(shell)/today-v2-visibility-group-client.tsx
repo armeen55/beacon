@@ -231,7 +231,10 @@ export function TodayV2VisibilityGroupClient({
         className="space-y-3"
         data-today-v2-section="visibility-leaderboard"
       >
-        <VisibilityLeaderboard entities={leaderboardEntities} />
+        <VisibilityLeaderboard
+          entities={leaderboardEntities}
+          windowEndDate={visibilityData.chartEndDate ?? null}
+        />
       </section>
     </div>
   );

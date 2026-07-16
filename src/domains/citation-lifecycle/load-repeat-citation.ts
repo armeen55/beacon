@@ -108,7 +108,7 @@ function readBenchmarkCitationsInWindow(
   // `getAllCitationDates` is referenced for forward-compat (in case
   // a future shard layout requires intersecting available dates with
   // the requested range); v1 enumerates directly.
-  getAllCitationDates;
+  void getAllCitationDates;
   const out: CitationObservation[] = [];
   for (const date of dates) {
     const shard = getCitationsForDate(date);

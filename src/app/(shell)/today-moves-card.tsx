@@ -220,7 +220,6 @@ export function MoveCard({
     return () => {
       cancelled = true;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [m.id, m.whoCited, m.competitorSteal, m.query]);
 
   // On-demand LLM answer-block draft (off unless BEACON_LLM_PROVIDER=openai; the

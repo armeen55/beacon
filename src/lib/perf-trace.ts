@@ -169,7 +169,6 @@ export function createPerfTrace(
       flushed = true;
       const totalMs = performance.now() - startMs;
       // Structured log line — easy to grep + parse in Vercel logs.
-      // eslint-disable-next-line no-console
       console.log(
         `[perf-trace] phase=${phase} route=${route} id=${id} total_ms=${totalMs.toFixed(
           1,

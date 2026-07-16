@@ -66,10 +66,9 @@ export type WorklistSessionCounts = {
   shippedThisWeek?: number;
 };
 
-/** R20 - the honest status of the background auto-advance prepare. "idle" before any ship,
- *  "preparing" while the next best is being drafted in the background, "ready" once it lands.
- *  Reuses ONLY the existing Preparing/Ready words - never a new lifecycle status. */
-export type PrepareStatus = "idle" | "preparing" | "ready";
+/** Honest transient state while background queue maintenance is being scheduled.
+ * Completion is never inferred client-side; the next server surface owns that truth. */
+export type PrepareStatus = "idle" | "preparing";
 
 export type WorklistSessionState = {
   /** "You have shipped N changes today" - same-day, localStorage-backed convenience counter. */
@@ -135,8 +134,10 @@ export function useWorklistSession(
       // or not-now so the session never drains into tomorrow's batch.
       setPrepareStatus("preparing");
       void autoAdvancePrepareAction()
-        .then(() => setPrepareStatus("ready"))
-        .catch(() => setPrepareStatus("ready"));
+        // The server action confirms scheduling, not completion. Clear this
+        // transient state without claiming a replacement draft has landed;
+        // the next server-rendered queue is the only source of that truth.
+        .finally(() => setPrepareStatus("idle"));
       // NO DEAD ENDS: after any action, always compute and surface the next actionable row.
       const upcoming = findNextActionable(orderedChanges, handledId, handledIds);
       setNextBest(upcoming);
@@ -170,12 +171,9 @@ export function useWorklistSession(
   };
 }
 
-/** The honest one-liner for the background auto-advance prepare state. "preparing" while the
- *  next best is being drafted, "ready" once it lands, nothing before the first ship. Reuses the
- *  existing Preparing/Ready words only. */
+/** The honest one-liner while background queue maintenance is being scheduled. */
 function prepareStatusLine(status: PrepareStatus): string | null {
-  if (status === "preparing") return "Preparing the next one while you work...";
-  if (status === "ready") return "The next one is ready.";
+  if (status === "preparing") return "Preparing another copy-ready change in the background...";
   return null;
 }
 

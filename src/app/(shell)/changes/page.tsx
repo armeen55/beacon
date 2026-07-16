@@ -7,6 +7,7 @@ import { ChangesListClient } from "../changes-list-client";
 import { loadWithDeadline } from "@/lib/load-with-deadline";
 import { checkedAgoLabel } from "@/components/data/receipt-line";
 import { HonestDelay } from "@/components/honest-delay";
+import { serverNowMs } from "@/lib/server-clock";
 
 /**
  * /changes → the canonical CHANGES list (2026-07-01 consolidation). One object, a CHANGE, across
@@ -30,18 +31,16 @@ const MAIN_LIST_DEADLINE_MS = 5_000;
 // Exported for the render pin in changes-empty-vs-building.test.tsx (both empty-state
 // copies must stay distinct); the router only consumes the default export below.
 export async function ChangesSection() {
-  let view;
-  try {
-    const raced = await loadWithDeadline(loadChangesView(), MAIN_LIST_DEADLINE_MS);
-    if (raced.timedOut) return <HonestDelay />;
-    view = raced.data;
-  } catch {
+  const raced = await loadWithDeadline(loadChangesView(), MAIN_LIST_DEADLINE_MS).catch(() => null);
+  if (raced == null) {
     return (
       <p className="rounded-2xl border border-dashed border-gray-200 bg-white p-8 text-center text-sm text-gray-500">
         Couldn&apos;t load your changes just now. Refresh in a moment.
       </p>
     );
   }
+  if (raced.timedOut) return <HonestDelay />;
+  const view = raced.data;
   if (view.changes.length === 0) {
     // W2-B - distinguish a COLD first-ever render (the SWR snapshot is building in
     // the background) from a genuinely empty list. Never claim "no changes" while
@@ -66,7 +65,7 @@ export async function ChangesSection() {
   }
   // W2-B - honest staleness from the SWR snapshot's real build time (not a frozen
   // "just now" baked into the snapshot). Self-hides on a synchronous/unknown build.
-  const rankedAgo = view.surfaceComputedAt ? checkedAgoLabel(view.surfaceComputedAt, Date.now()) : null;
+  const rankedAgo = view.surfaceComputedAt ? checkedAgoLabel(view.surfaceComputedAt, serverNowMs()) : null;
   return (
     <div className="space-y-4">
       {rankedAgo ? (

@@ -258,7 +258,10 @@ function founderTenantId(): string {
     : "tenant-ritz-founder";
 }
 
-const DATA_DIR = path.join(process.cwd(), ".data");
+// Runtime tenant data is deliberately outside the bundle. Without this trace
+// boundary Turbopack treats process.cwd() as a request to package the entire
+// repository into every route that reads business config.
+const DATA_DIR = path.join(/*turbopackIgnore: true*/ process.cwd(), ".data");
 /**
  * Pre-2026-05-05 read path. Kept as the FIRST file location to preserve
  * /settings/config save-path behavior (saves write here). Operator-edited

@@ -319,7 +319,7 @@ export async function promoteEligibleCandidates(
     // neutral priors
   }
 
-  let triggerCandidates = [
+  const triggerCandidates = [
     ...triggerResult.candidates,
     ...triggerResult.diagnostic_only,
   ];

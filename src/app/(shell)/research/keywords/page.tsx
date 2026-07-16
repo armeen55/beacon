@@ -28,6 +28,7 @@ import { currentTenantId } from "@/lib/tenant-context";
 // R14b (receipts everywhere) - the hero numbers' one-line receipt, from the
 // newest lastChecked stamp the loaded rows ALREADY carry. No new reads.
 import { buildReceiptLine, ReceiptLine } from "@/components/data/receipt-line";
+import { serverNowMs } from "@/lib/server-clock";
 
 /**
  * /research/keywords: the Keywords library (MASTER PLAN v2 UX2 first slice,
@@ -43,19 +44,8 @@ import { buildReceiptLine, ReceiptLine } from "@/components/data/receipt-line";
 const KEYWORDS_DEADLINE_MS = 15_000;
 
 export default async function KeywordsPage() {
-  let library;
-  try {
-    const raced = await loadWithDeadline(loadKeywordLibrary(), KEYWORDS_DEADLINE_MS);
-    if (raced.timedOut) {
-      return (
-        <div className="max-w-6xl space-y-6">
-          <PageHeader title="Keywords" description="Every keyword I have researched for you, in one place." />
-          <HonestDelay />
-        </div>
-      );
-    }
-    library = raced.data;
-  } catch {
+  const raced = await loadWithDeadline(loadKeywordLibrary(), KEYWORDS_DEADLINE_MS).catch(() => null);
+  if (raced == null) {
     return (
       <div className="max-w-6xl space-y-6">
         <PageHeader title="Keywords" description="Every keyword I have researched for you, in one place." />
@@ -65,6 +55,15 @@ export default async function KeywordsPage() {
       </div>
     );
   }
+  if (raced.timedOut) {
+    return (
+      <div className="max-w-6xl space-y-6">
+        <PageHeader title="Keywords" description="Every keyword I have researched for you, in one place." />
+        <HonestDelay />
+      </div>
+    );
+  }
+  const library = raced.data;
 
   const coverageLine =
     library.total === 0
@@ -157,7 +156,7 @@ export default async function KeywordsPage() {
                 : latest,
             null,
           ),
-          nowMs: Date.now(),
+          nowMs: serverNowMs(),
         })}
       />
       <KeywordsTableClient rows={library.rows} worklistBaseHref="/changes" />

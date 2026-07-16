@@ -83,7 +83,6 @@ export type AutoAdvancePrepareResult =
  * never publishes a site edit.
  */
 export async function autoAdvancePrepareAction(): Promise<AutoAdvancePrepareResult> {
-  if (!(await isOperatorModeServer())) return { ok: false, reason: "Operator mode only." };
   let tenantId: string;
   try {
     tenantId = await currentTenantId();

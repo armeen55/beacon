@@ -211,7 +211,6 @@ function logEgress(opts: {
   // Always-on alarm for anomalously large reads (no stringify cost — rows is
   // already counted). This is the "never surprises us again" guard.
   if (!debug && opts.rows >= BIG_READ_WARN_ROWS) {
-    // eslint-disable-next-line no-console
     console.warn(
       `[supabase-egress][LARGE READ] table=${opts.table} rows=${opts.rows} ms=${opts.durationMs}` +
         `${opts.tenantId ? ` tenant=${opts.tenantId}` : ""} — consider column projection / a tighter window. ` +
@@ -229,7 +228,6 @@ function logEgress(opts: {
   }
   // Simple console line — keeps the logger dependency-free and avoids
   // triggering the structured-logger code path during cold-start tests.
-  // eslint-disable-next-line no-console
   console.log(
     `[supabase-egress] table=${opts.table} rows=${opts.rows} bytes≈${approxBytes} ms=${opts.durationMs}${opts.tenantId ? ` tenant=${opts.tenantId}` : ""}${opts.filter ? ` filter=${opts.filter}` : ""}`,
   );

@@ -80,7 +80,7 @@ describe("WorklistSessionBanner - render", () => {
     expect(html).not.toContain("You have shipped 3 changes today.");
   });
 
-  it("R20 - shows the honest auto-advance prepare status (Preparing... then Ready), no new lifecycle word", () => {
+  it("R20 - shows only the honest scheduling state and never claims completion", () => {
     const preparing = renderToStaticMarkup(
       <WorklistSessionBanner
         shippedCount={1}
@@ -90,22 +90,13 @@ describe("WorklistSessionBanner - render", () => {
         onDismiss={() => {}}
       />,
     );
-    expect(preparing).toContain("Preparing the next one while you work...");
-    const ready = renderToStaticMarkup(
-      <WorklistSessionBanner
-        shippedCount={1}
-        banner={null}
-        progressLine="1 shipped today."
-        prepareStatus="ready"
-        onDismiss={() => {}}
-      />,
-    );
-    expect(ready).toContain("The next one is ready.");
+    expect(preparing).toContain("Preparing another copy-ready change in the background...");
+    expect(preparing).not.toContain("The next one is ready.");
     // Idle before the first ship shows no prepare line.
     const idle = renderToStaticMarkup(
       <WorklistSessionBanner shippedCount={1} banner={null} progressLine="1 shipped today." prepareStatus="idle" onDismiss={() => {}} />,
     );
-    expect(idle).not.toContain("Preparing the next one");
+    expect(idle).not.toContain("Preparing another copy-ready change");
     expect(idle).not.toContain("The next one is ready.");
   });
 
@@ -175,10 +166,11 @@ describe("useWorklistSession - continuous ready-queue maintenance", () => {
     expect(SRC.slice(advanceIdx, SRC.indexOf("// NO DEAD ENDS"))).toContain("autoAdvancePrepareAction()");
   });
 
-  it("reflects the honest Preparing -> Ready status and fails soft to Ready on error", () => {
+  it("never turns a scheduling receipt into a false ready claim", () => {
     expect(SRC).toContain('setPrepareStatus("preparing")');
-    expect(SRC).toMatch(/\.then\(\(\)\s*=>\s*setPrepareStatus\("ready"\)\)/);
-    expect(SRC).toMatch(/\.catch\(\(\)\s*=>\s*setPrepareStatus\("ready"\)\)/);
+    expect(SRC).toMatch(/\.finally\(\(\)\s*=>\s*setPrepareStatus\("idle"\)\)/);
+    expect(SRC).not.toContain('setPrepareStatus("ready")');
+    expect(SRC).not.toContain("The next one is ready.");
   });
 
   it("still advances the next-best row through the SAME pure findNextActionable (no re-rank, no double-prepare)", () => {

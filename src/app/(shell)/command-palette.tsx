@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
 /**
@@ -24,6 +24,19 @@ export function CommandPalette({ targets }: { targets: PaletteTarget[] }) {
   // recomputed each open so the palette never offers a dead jump.
   const [liveIds, setLiveIds] = useState<Set<string> | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  const openPalette = useCallback(() => {
+    const live = new Set<string>();
+    for (const target of targets) {
+      const element = document.getElementById(target.id);
+      if (element && element.childElementCount > 0) live.add(target.id);
+    }
+    setLiveIds(live);
+    setQuery("");
+    setActive(0);
+    setOpen(true);
+    window.setTimeout(() => inputRef.current?.focus(), 0);
+  }, [targets]);
 
   const entries = useMemo<Entry[]>(() => {
     const scrollTo = (id: string) => () => {
@@ -59,7 +72,7 @@ export function CommandPalette({ targets }: { targets: PaletteTarget[] }) {
       { label: "Back to top", hint: "Action", go: () => window.scrollTo({ top: 0, behavior: "smooth" }) },
     ];
     return [...sectionEntries, ...routeEntries];
-  }, [targets, router]);
+  }, [targets, router, liveIds]);
 
   const filtered = useMemo(() => {
     const q = query.toLowerCase().trim();
@@ -72,36 +85,15 @@ export function CommandPalette({ targets }: { targets: PaletteTarget[] }) {
     function onKey(e: KeyboardEvent) {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
         e.preventDefault();
-        setOpen((v) => !v);
+        if (open) setOpen(false);
+        else openPalette();
       } else if (e.key === "Escape") {
         setOpen(false);
       }
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, []);
-
-  // Focus + reset on open; recompute which section anchors actually rendered
-  // content (self-hiding sections leave an empty wrapper) so dead jumps are hidden.
-  useEffect(() => {
-    if (open) {
-      setQuery("");
-      setActive(0);
-      const live = new Set<string>();
-      for (const t of targets) {
-        const el = document.getElementById(t.id);
-        if (el && el.childElementCount > 0) live.add(t.id);
-      }
-      setLiveIds(live);
-      const t = setTimeout(() => inputRef.current?.focus(), 0);
-      return () => clearTimeout(t);
-    }
-    return undefined;
-  }, [open, targets]);
-
-  useEffect(() => {
-    setActive(0);
-  }, [query]);
+  }, [open, openPalette]);
 
   // Discoverable, clickable trigger (the shortcut alone is invisible). Fixed,
   // unobtrusive; opens the same palette ⌘K does.
@@ -109,7 +101,7 @@ export function CommandPalette({ targets }: { targets: PaletteTarget[] }) {
     return (
       <button
         type="button"
-        onClick={() => setOpen(true)}
+        onClick={openPalette}
         aria-label="Open command palette"
         className="fixed bottom-5 right-5 z-50 flex items-center gap-2 rounded-full border border-border bg-background/90 px-3.5 py-2 text-[12px] font-medium text-muted-foreground shadow-lg backdrop-blur transition-colors hover:text-foreground print:hidden"
       >
@@ -140,7 +132,10 @@ export function CommandPalette({ targets }: { targets: PaletteTarget[] }) {
         <input
           ref={inputRef}
           value={query}
-          onChange={(e) => setQuery(e.target.value)}
+          onChange={(e) => {
+            setQuery(e.target.value);
+            setActive(0);
+          }}
           onKeyDown={(e) => {
             if (e.key === "ArrowDown") {
               e.preventDefault();

@@ -36,6 +36,11 @@ describe("ChangesListClient - D6 session loop reuses existing affordances", () =
     expect(SRC).toContain('respondToRecommendation(move.id, "deferred"');
   });
 
+  it("a dismissal records its structured reason through the existing response path", () => {
+    expect(SRC).toContain('respondToRecommendation(move.id, "dismissed"');
+    expect(SRC).toContain("dismissReason: reason");
+  });
+
   it("the d keyboard shortcut calls the SAME respondToRecommendation('accepted') ship() uses, never a new write path", () => {
     expect(SRC).toContain('respondToRecommendation(move.id, "accepted", { targetPageUrl: move.targetUrl, actionType: move.action, query: move.query })');
   });

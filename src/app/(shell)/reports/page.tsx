@@ -11,6 +11,7 @@ import { ReceiptLine, buildReceiptLine } from "@/components/data/receipt-line";
 import { loadReportModel } from "./reports-data";
 import { monthlyHeadline, missesOwnedLine } from "./report-model";
 import { WinCardView, WinCardEmpty } from "./win-card";
+import { serverNowMs } from "@/lib/server-clock";
 
 /**
  * /reports (P23, v1 257 + 575 merged, INTERNAL-only) - the trailing-month
@@ -43,7 +44,7 @@ export default async function ReportsPage() {
   }
 
   const model = await loadReportModel();
-  const nowMs = Date.now();
+  const nowMs = serverNowMs();
   const headline = monthlyHeadline(model);
   const misses = missesOwnedLine(model);
   const receipt = buildReceiptLine({

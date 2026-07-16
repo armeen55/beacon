@@ -39,6 +39,5 @@ export function debugRecEngine(message: string): void {
   if (!debugRecEngineEnabled()) return;
   // Use console.log (not console.error) so Next.js dev overlay is NOT
   // triggered for expected diagnostic events.
-  // eslint-disable-next-line no-console
   console.log(message);
 }

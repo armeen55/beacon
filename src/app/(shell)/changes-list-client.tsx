@@ -42,6 +42,7 @@ import { Sparkline } from "@/components/data/sparkline";
 import { formatMetric, formatMetricCompact } from "@/lib/format-metric";
 import { dossierHref } from "@/lib/page-dossier-link";
 import { respondToRecommendation } from "./recommendation-actions";
+import type { DismissReason } from "@/domains/product/recommendation-response-store";
 import { useWorklistSession, WorklistSessionBanner } from "./worklist-session-strip";
 import { Pill, type PillIntent } from "@/components/ui/pill";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -51,7 +52,6 @@ import {
   sessionMinutesLine,
   resolveDiffPair,
   wordDiff,
-  SNOOZE_DURATIONS,
 } from "./worklist-row-helpers";
 
 // operator spec 2026-07-09 C-23 - the priority/strategy mode picker is KILLED. The list always
@@ -212,13 +212,24 @@ export function WordLevelDiff({ before, after }: { before: string; after: string
 // "remind me in a week" is the true label for the unchanged behavior. The extra durations frame the
 // same deferral (a custom remind date is a shared-store follow-up). "Redraft this" opens the row's
 // detail, which carries the existing in-place Regenerate control - no new write path, no new widget.
+const DISMISS_REASONS: ReadonlyArray<{ reason: DismissReason; label: string }> = [
+  { reason: "already_done", label: "I already handled this" },
+  { reason: "not_relevant", label: "This is not relevant" },
+  { reason: "wrong_page", label: "This targets the wrong page" },
+  { reason: "bad_suggestion", label: "This is a bad suggestion" },
+  { reason: "too_risky", label: "This feels too risky" },
+];
+
 export function NotNowMenu({
   onSnooze,
+  onDismiss,
   onRedraft,
   canRedraft,
 }: {
   /** Fires the deferral (same path the old bare Skip used) then advances the session. */
   onSnooze: () => void;
+  /** Permanently dismisses with a structured reason for future ranking. */
+  onDismiss: (reason: DismissReason) => void;
   /** Opens the row detail so the operator reaches the existing Regenerate affordance. */
   onRedraft: () => void;
   /** Only offer "Redraft this" when there is a matching move to regenerate. */
@@ -243,20 +254,29 @@ export function NotNowMenu({
           role="menu"
           className="absolute right-0 z-10 mt-1 w-56 overflow-hidden rounded-lg border border-border bg-card py-1 shadow-lg"
         >
-          {SNOOZE_DURATIONS.map((d) => (
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => {
+              setMenuOpen(false);
+              onSnooze();
+            }}
+            className={`block w-full px-3 py-1.5 text-left text-meta text-foreground-secondary hover:bg-surface-raised ${FOCUS}`}
+          >
+            Remind me in a week
+          </button>
+          {DISMISS_REASONS.map((item) => (
             <button
-              key={d.id}
+              key={item.reason}
               type="button"
               role="menuitem"
               onClick={() => {
                 setMenuOpen(false);
-                // Every duration routes through the SAME deferral the old Skip used (the store
-                // defers a week regardless); the labels frame it honestly for the operator.
-                onSnooze();
+                onDismiss(item.reason);
               }}
               className={`block w-full px-3 py-1.5 text-left text-meta text-foreground-secondary hover:bg-surface-raised ${FOCUS}`}
             >
-              {d.label}
+              {item.label}
             </button>
           ))}
           {canRedraft ? (
@@ -629,6 +649,15 @@ function Row({
                     // no sourceIds entry), this still advances the session; there's just nothing
                     // server-side to defer.
                     if (move) void respondToRecommendation(move.id, "deferred", { targetPageUrl: move.targetUrl });
+                    onAction("skip");
+                  }}
+                  onDismiss={(reason) => {
+                    if (move) {
+                      void respondToRecommendation(move.id, "dismissed", {
+                        targetPageUrl: move.targetUrl,
+                        dismissReason: reason,
+                      });
+                    }
                     onAction("skip");
                   }}
                   onRedraft={() => setOpen()}

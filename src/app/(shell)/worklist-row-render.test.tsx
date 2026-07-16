@@ -37,9 +37,9 @@ describe("WordLevelDiff - see exactly what changes", () => {
   });
 });
 
-describe("NotNowMenu - not-now durations + one-click re-draft", () => {
+describe("NotNowMenu - one compact defer/dismiss menu", () => {
   const html = renderToStaticMarkup(
-    <NotNowMenu canRedraft onSnooze={() => {}} onRedraft={() => {}} />,
+    <NotNowMenu canRedraft onSnooze={() => {}} onDismiss={() => {}} onRedraft={() => {}} />,
   );
 
   it("labels the collapsed control 'Not now'", () => {

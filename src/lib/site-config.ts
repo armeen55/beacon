@@ -1,3 +1,6 @@
+import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
+
 /**
  * Single-tenant site settings. Override with env for another builder site.
  *
@@ -32,11 +35,9 @@ function explicitSiteDomainSet(): boolean {
 
 function domainFromBusinessConfig(): string | null {
   try {
-    const fs = require("node:fs");
-    const path = require("node:path");
-    const p = path.join(process.cwd(), ".data", "business-config.json");
-    if (!fs.existsSync(p)) return null;
-    const j = JSON.parse(fs.readFileSync(p, "utf8")) as { domain?: unknown };
+    const p = join(process.cwd(), ".data", "business-config.json");
+    if (!existsSync(p)) return null;
+    const j = JSON.parse(readFileSync(p, "utf8")) as { domain?: unknown };
     if (typeof j.domain === "string") {
       const d = j.domain.trim().toLowerCase().replace(/^www\./, "");
       if (d.length > 0) return d;
