@@ -36249,3 +36249,12 @@ pass 5 files / 14 tests; `npm run typecheck` exit 0; `npm run lint` exit 0; comp
 exit 0 after correcting the newly exposed date-dependent test; `npm run build` exit 0 with only the
 existing protected middleware-filename deprecation; `npm audit --audit-level=high` exit 0. No paid
 provider, hosted environment, or customer data mutation was performed.
+
+Founder follow-up closed the compound-action gap before final release. The overlap model already
+declared an intentional `compound` state but its detector never emitted it. Same-page rows shipped
+on the same date now receive a stable sorted combo identity and render as one named package in
+Results. The page-level result remains visible, but the learning edge neutralizes every member
+lever, so a simultaneous title and answer edit can never teach Beacon that either lever won alone.
+An edit on a later date inside the 28-day window remains an accidental overlap and stays
+attribution-limited. Focused compound, maturity, learning, Results-copy, and architecture guards:
+5 files / 152 tests passed; typecheck and lint exited 0.

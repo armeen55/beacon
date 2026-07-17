@@ -113,6 +113,7 @@ import { buildReceiptLine, ReceiptLine } from "@/components/data/receipt-line";
 // live_at clock, self-hiding below its sample floors.
 import { behaviorHasContent } from "@/domains/proof-gsc/behavior-outcome";
 import { sortInFlightByNextRead } from "./in-flight-order";
+import { compoundActionGroupsById, type CompoundActionGroup } from "@/domains/proof-gsc/compound-actions";
 
 /**
  * Proof / Learning - operator-OS rebuild, surface (6). Every REVIEWED change
@@ -727,6 +728,7 @@ async function MeasuredOutcomesBoard({
   // Move 2 - the shared maturity presentation per row, so every card reads the same
   // honest measurement language (an early read is never a final verdict, never red/green).
   const overlapById = detectMeasurementOverlaps(ledger.map((l) => ({ id: l.id, path: l.path, shippedAt: l.shippedAt })));
+  const compoundById = compoundActionGroupsById(ledger);
   const presById = new Map<string, MeasurementPresentation>(
     ledger.map((l) => {
       const basisWin = (l.windows ?? []).filter((w) => w.ran).sort((a, b) => b.day - a.day)[0];
@@ -1034,7 +1036,7 @@ async function MeasuredOutcomesBoard({
           <p className="mt-0.5 text-[11px] text-muted-foreground">
             These changes beat their comparison pages over the full window. Real lifts, measured.
           </p>
-          <LedgerRowGroup rows={winRows} band="win" linkByRowId={linkByRowId} presById={presById} gradeById={gradeById} eventCaveatById={eventCaveatById} sparkByPath={sparkByPath} controlSparkByPath={controlSparkByPath} revertById={revertById} restoredIds={restoredIds} calibrationByProofId={calibrationByProofId} ownedAlignmentByRecId={ownedAlignmentByRecId} />
+          <LedgerRowGroup rows={winRows} band="win" linkByRowId={linkByRowId} presById={presById} compoundById={compoundById} gradeById={gradeById} eventCaveatById={eventCaveatById} sparkByPath={sparkByPath} controlSparkByPath={controlSparkByPath} revertById={revertById} restoredIds={restoredIds} calibrationByProofId={calibrationByProofId} ownedAlignmentByRecId={ownedAlignmentByRecId} />
         </div>
       ) : null}
 
@@ -1047,7 +1049,7 @@ async function MeasuredOutcomesBoard({
           <p className="mt-0.5 text-[11px] text-muted-foreground">
             These changes did not move the number, and that teaches us which lever to try next on pages like these.
           </p>
-          <LedgerRowGroup rows={learningRows} band="learning" linkByRowId={linkByRowId} presById={presById} gradeById={gradeById} eventCaveatById={eventCaveatById} sparkByPath={sparkByPath} controlSparkByPath={controlSparkByPath} revertById={revertById} restoredIds={restoredIds} calibrationByProofId={calibrationByProofId} ownedAlignmentByRecId={ownedAlignmentByRecId} />
+          <LedgerRowGroup rows={learningRows} band="learning" linkByRowId={linkByRowId} presById={presById} compoundById={compoundById} gradeById={gradeById} eventCaveatById={eventCaveatById} sparkByPath={sparkByPath} controlSparkByPath={controlSparkByPath} revertById={revertById} restoredIds={restoredIds} calibrationByProofId={calibrationByProofId} ownedAlignmentByRecId={ownedAlignmentByRecId} />
         </div>
       ) : null}
 
@@ -1065,7 +1067,7 @@ async function MeasuredOutcomesBoard({
             </div>
             <span className="text-[10px] text-muted-foreground">Nothing to do until a read lands</span>
           </div>
-          <LedgerRowGroup rows={closestInFlightRows} band="inflight" linkByRowId={linkByRowId} presById={presById} gradeById={gradeById} eventCaveatById={eventCaveatById} sparkByPath={sparkByPath} controlSparkByPath={controlSparkByPath} revertById={revertById} restoredIds={restoredIds} ownedAlignmentByRecId={ownedAlignmentByRecId} />
+          <LedgerRowGroup rows={closestInFlightRows} band="inflight" linkByRowId={linkByRowId} presById={presById} compoundById={compoundById} gradeById={gradeById} eventCaveatById={eventCaveatById} sparkByPath={sparkByPath} controlSparkByPath={controlSparkByPath} revertById={revertById} restoredIds={restoredIds} ownedAlignmentByRecId={ownedAlignmentByRecId} />
           {laterInFlightRows.length > 0 ? (
             <details className="mt-3 rounded-xl border border-border-subtle bg-surface-raised px-3 py-2.5">
               <summary className="cursor-pointer text-[12px] font-medium text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1">
@@ -1074,7 +1076,7 @@ async function MeasuredOutcomesBoard({
               <p className="mt-1 text-[10px] text-muted-foreground">
                 These are healthy and still collecting data. They are hidden by default so the nearest decisions stay clear.
               </p>
-              <LedgerRowGroup rows={laterInFlightRows} band="inflight" linkByRowId={linkByRowId} presById={presById} gradeById={gradeById} eventCaveatById={eventCaveatById} sparkByPath={sparkByPath} controlSparkByPath={controlSparkByPath} revertById={revertById} restoredIds={restoredIds} ownedAlignmentByRecId={ownedAlignmentByRecId} />
+              <LedgerRowGroup rows={laterInFlightRows} band="inflight" linkByRowId={linkByRowId} presById={presById} compoundById={compoundById} gradeById={gradeById} eventCaveatById={eventCaveatById} sparkByPath={sparkByPath} controlSparkByPath={controlSparkByPath} revertById={revertById} restoredIds={restoredIds} ownedAlignmentByRecId={ownedAlignmentByRecId} />
             </details>
           ) : null}
         </div>
@@ -1178,6 +1180,7 @@ function LedgerRowGroup({
   band,
   linkByRowId,
   presById,
+  compoundById,
   gradeById,
   eventCaveatById,
   sparkByPath,
@@ -1191,6 +1194,7 @@ function LedgerRowGroup({
   band: LedgerBand;
   linkByRowId: Map<string, ProofLink>;
   presById: Map<string, MeasurementPresentation>;
+  compoundById: Map<string, CompoundActionGroup>;
   gradeById?: Map<string, VerdictReliabilityResult>;
   /** N32 (R21b) - per-row external-event caveat (already deduped against the weather caveat). */
   eventCaveatById?: Map<string, string | null>;
@@ -1221,6 +1225,7 @@ function LedgerRowGroup({
         band={band}
         link={linkByRowId.get(rec.id) ?? null}
         pres={presById.get(rec.id) ?? null}
+        compound={compoundById.get(rec.id) ?? null}
         grade={gradeById?.get(rec.id) ?? null}
         eventCaveat={eventCaveatById?.get(rec.id) ?? null}
         spark={sparkByPath.get(rec.path)}
@@ -1259,7 +1264,7 @@ function LedgerRowGroup({
   );
 }
 
-function LedgerCard({ rec, link, pres, grade, eventCaveat, spark, controlSparks, band, revert, restored, calibration, ownedAlignment }: { rec: ShippedChangeRecord; link?: ProofLink | null; pres?: MeasurementPresentation | null; grade?: VerdictReliabilityResult | null; eventCaveat?: string | null; spark?: SparkPoint[]; controlSparks?: Array<{ path: string; points: SparkPoint[] }>; band?: LedgerBand; revert?: RevertDecision | null; restored?: boolean; calibration?: CalibrationRecord | null; ownedAlignment?: PersistedAnswerAlignment | null }) {
+function LedgerCard({ rec, link, pres, compound, grade, eventCaveat, spark, controlSparks, band, revert, restored, calibration, ownedAlignment }: { rec: ShippedChangeRecord; link?: ProofLink | null; pres?: MeasurementPresentation | null; compound?: CompoundActionGroup | null; grade?: VerdictReliabilityResult | null; eventCaveat?: string | null; spark?: SparkPoint[]; controlSparks?: Array<{ path: string; points: SparkPoint[] }>; band?: LedgerBand; revert?: RevertDecision | null; restored?: boolean; calibration?: CalibrationRecord | null; ownedAlignment?: PersistedAnswerAlignment | null }) {
   // Judge a meta/title test on CTR, a content test on position, else clicks, so
   // every line on this card reads in the unit that actually moved.
   const metric = pickProofMetric(rec.actionType);
@@ -1374,6 +1379,11 @@ function LedgerCard({ rec, link, pres, grade, eventCaveat, spark, controlSparks,
           quarantined card, visible without expanding the full read. */}
       {quarantined ? (
         <p className="mt-1.5 text-[12px] text-muted-foreground">{UNCALIBRATED_NO_CLEAR_EFFECT_SENTENCE}</p>
+      ) : null}
+      {compound ? (
+        <p className="mt-1.5 rounded-md bg-indigo-50/70 px-2.5 py-1.5 text-[11px] text-indigo-800">
+          Measured as one {compound.changeCount}-change package: {compound.label}. This page-level result belongs to the combination; Beacon will not credit either edit alone.
+        </p>
       ) : null}
 
       <details className="mt-2">

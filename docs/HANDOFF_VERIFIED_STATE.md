@@ -7,11 +7,14 @@
 > The autonomous header reports factual progress across the existing eight durable stages. Results
 > now explains the 7/14/28-day evidence clock visually, orders in-flight changes by the next unread
 > checkpoint, shows the closest five by default, collapses later reads, and keeps manual recording
-> below the normal journey. The same correction wave fixed edited-copy proof identity, stale
+> below the normal journey. Same-page edits shipped on one date are now identified and explained as
+> one compound package; Beacon preserves a stable combo identity but blocks every member lever from
+> individual learning. A later mid-window edit remains an accidental overlap. The same correction
+> wave fixed edited-copy proof identity, stale
 > cross-tenant ownership flags, repeated chart labels, a redundant rank import, and date-dependent
 > GA4 tests. Verification: focused trust/UI suites passed; strict typecheck, lint, complete test
 > suite, production build, and dependency audit exited 0; `git diff --check` remains to be recorded
-> with the release. Next three actions: (1) commit and deploy this release, (2) verify hosted version
+> with the release. Next three actions: (1) commit and deploy the compound follow-up, (2) verify hosted version
 > and route contracts, and (3) inspect one authenticated Iranopedia Ready card only after Ready is
 > non-zero.
 

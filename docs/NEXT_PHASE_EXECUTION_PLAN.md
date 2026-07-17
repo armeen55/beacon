@@ -9,7 +9,9 @@ chronology of what already landed lives in VERIFICATION_LOG.md; this list is onl
 > Iranopedia journey exposed the remaining trust gap: Changes promised five copy-ready items while
 > Ready was zero, and Results made 25 measuring rows feel like 25 decisions. Exact redirect maps
 > now appear before action, Ready copy is fail-closed, the eight-stage background brain has factual
-> progress, and Results is answer-first with five nearest reads plus collapsed history. Edited
+> progress, and Results is answer-first with five nearest reads plus collapsed history. Intentional
+> same-page same-date edits are measured as one named package and may never train an individual
+> lever; accidental later overlaps remain quarantined. Edited
 > operator copy now remains identical through live verification and proof recording. **Next:** land,
 > deploy, verify the hosted SHA/routes, then use the first real Ready item; do not act on a merely
 > directional To do card.

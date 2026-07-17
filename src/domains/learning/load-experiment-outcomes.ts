@@ -100,6 +100,11 @@ export function maturityGatedVerdict(
     live: true,
   });
   if (maturity !== "mature_result") return "measuring";
+  // An intentional same-day package may earn a page-level result, but that
+  // result cannot train any member lever by itself. The stable combo identity
+  // is preserved by compound-actions.ts for a future bundle learner; until
+  // that learner has repeated calibrated packages, individual priors stay neutral.
+  if (overlap?.kind === "compound") return "measuring";
   // Additive weather gate: a mature, cleanly-attributed result STILL doesn't
   // train the prior when its own window overlapped a sitewide shock.
   const window = measurementWindowOf(r.shippedAt, r.windows ?? []);

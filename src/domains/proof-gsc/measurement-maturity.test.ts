@@ -238,6 +238,14 @@ describe("E-39 D4 review P2 - 'unresolved': the fair retry bound is exhausted, h
 });
 
 describe("detectMeasurementOverlaps — same page within 28 days only", () => {
+  it("treats same-page edits shipped on the same date as one intentional package", () => {
+    const m = detectMeasurementOverlaps([
+      { id: "a", path: "/cities", shippedAt: "2026-06-20T08:00:00Z" },
+      { id: "b", path: "/cities", shippedAt: "2026-06-20T09:00:00Z" },
+    ]);
+    expect(m.get("a")).toEqual({ kind: "compound", otherChangeCount: 1 });
+    expect(m.get("b")).toEqual({ kind: "compound", otherChangeCount: 1 });
+  });
   it("flags two edits on the SAME page within 28 days", () => {
     const m = detectMeasurementOverlaps([
       { id: "a", path: "/cities", shippedAt: "2026-06-20" },
@@ -273,6 +281,15 @@ describe("attribution_limited", () => {
     expect(p.learningEligibility).toBe(false);
     expect(p.attributionQuality).toBe("limited");
     expect(p.explanation).toMatch(/overlap/i);
+  });
+});
+
+describe("compound attribution", () => {
+  it("reads the package outcome but does not credit an individual lever", () => {
+    const p = buildMeasurementPresentation(input({ windows: win(true, true, true), verdict: "won", controlsUsed: 3, baselineImpressions: 5000, overlap: { kind: "compound", otherChangeCount: 1 } }));
+    expect(p.maturity).toBe("mature_result");
+    expect(p.attributionQuality).toBe("compound");
+    expect(p.learningEligibility).toBe(false);
   });
 });
 

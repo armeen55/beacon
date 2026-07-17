@@ -328,3 +328,15 @@ describe("fail-closed calibration quarantine (2026-07-11)", () => {
     expect(rows[0]!.confidence).toBe("low");
   });
 });
+
+describe("compound action learning boundary", () => {
+  it("does not credit either individual lever when same-page edits shipped as one package", async () => {
+    ledger = [
+      record({ id: "title", actionType: "edit_title" }),
+      record({ id: "answer", actionType: "add_answer_block" }),
+    ];
+    const outcomes = await loadExperimentOutcomes("iranopedia");
+    expect(outcomes).toHaveLength(2);
+    expect(outcomes.every((outcome) => outcome.verdict === "measuring")).toBe(true);
+  });
+});

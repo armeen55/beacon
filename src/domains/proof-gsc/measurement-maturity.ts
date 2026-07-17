@@ -661,9 +661,9 @@ const normPath = (p: string): string =>
 /**
  * Derive overlap context for each proof record from ship timestamps alone (no new
  * table): two records on the SAME page whose 28-day measurement windows intersect
- * weaken each other's attribution. PURE. Returns a Map keyed by record id; absence
- * = clean. Intentional same-day packages collapse to one proof id upstream
- * (id = path::date), so anything detected here is an accidental overlap.
+ * share attribution. Same-date rows are an intentional compound package; a row
+ * from a later date is an accidental overlap and dominates. PURE. Returns a Map
+ * keyed by record id; absence = clean.
  */
 export function detectMeasurementOverlaps(
   records: ReadonlyArray<{ id: string; path: string; shippedAt: string }>,
@@ -673,14 +673,21 @@ export function detectMeasurementOverlaps(
     const a = records[i];
     if (!a.shippedAt) continue;
     let count = 0;
+    let accidentalCount = 0;
     for (let j = 0; j < records.length; j++) {
       if (i === j) continue;
       const b = records[j];
       if (!b.shippedAt || normPath(a.path) !== normPath(b.path)) continue;
       const diffDays = Math.abs(Date.parse(a.shippedAt) - Date.parse(b.shippedAt)) / 86_400_000;
-      if (diffDays < MAX_WINDOW_DAYS) count++;
+      if (diffDays < MAX_WINDOW_DAYS) {
+        count++;
+        // The proof ledger's unit for an intentional package is page + ship
+        // date. Separate lever rows on that same unit are one compound action;
+        // a later date is an accidental mid-window edit and dominates.
+        if (a.shippedAt.slice(0, 10) !== b.shippedAt.slice(0, 10)) accidentalCount++;
+      }
     }
-    if (count > 0) out.set(a.id, { kind: "overlap", otherChangeCount: count });
+    if (count > 0) out.set(a.id, { kind: accidentalCount > 0 ? "overlap" : "compound", otherChangeCount: count });
   }
   return out;
 }

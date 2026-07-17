@@ -3220,6 +3220,13 @@ remaining. Results is an answer surface, not a second worklist: lead with the ev
 nearest reads, keep later measuring rows accessible but collapsed, and place manual fallback paths
 after the normal tracked journey.
 
+**Compound-action boundary, 2026-07-17:** simultaneous edits cannot be causally separated from one
+page-level outcome. Same-page edits shipped on the same date are one intentional package with a
+stable sorted combo identity. Results may report the package outcome but must not credit or train
+any member lever. A later edit inside the measurement window is accidental overlap and remains
+quarantined. A future combo prior may learn only from repeated calibrated outcomes for that exact
+package identity; it may never back-propagate the package result into its ingredients.
+
 ## FUTURE IDEAS (not in current execution plan)
 
 These are ideas, experiments, and dream-state features that are NOT in the active phases. They live here so they are never lost. Move to `NEXT_PHASE_EXECUTION_PLAN.md` only when they become active work.
