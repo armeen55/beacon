@@ -1,5 +1,20 @@
 # Beacon Verified State
 
+> 🟡 **The 2026-07-17 signed-in journey correction is code-complete and awaiting deploy.**
+> Real Iranopedia Today → Changes → Results evidence replaced the old readiness promise with a
+> fail-closed contract: To do remains To do until exact copy or an exact redirect map clears the
+> gates, and safe redirect summaries now expose every source and destination URL before action.
+> The autonomous header reports factual progress across the existing eight durable stages. Results
+> now explains the 7/14/28-day evidence clock visually, orders in-flight changes by the next unread
+> checkpoint, shows the closest five by default, collapses later reads, and keeps manual recording
+> below the normal journey. The same correction wave fixed edited-copy proof identity, stale
+> cross-tenant ownership flags, repeated chart labels, a redundant rank import, and date-dependent
+> GA4 tests. Verification: focused trust/UI suites passed; strict typecheck, lint, complete test
+> suite, production build, and dependency audit exited 0; `git diff --check` remains to be recorded
+> with the release. Next three actions: (1) commit and deploy this release, (2) verify hosted version
+> and route contracts, and (3) inspect one authenticated Iranopedia Ready card only after Ready is
+> non-zero.
+
 > 🟢 **The 2026-07-16 intelligence-path residue audit is deployed and SHA-verified at
 > `e7719d1e` (Vercel `dpl_2Gcq4kKxcf6p3vboppkjDcfqA9GQ`).** Fourteen recommendation,
 > attribution, citation, research, drafting, and page-planning modules lost 49 lines of proven dead

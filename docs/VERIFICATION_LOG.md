@@ -36227,3 +36227,25 @@ affected source-tree files from 97 to 85. Product commit
 `/api/version` returned the exact SHA five consecutive times. Three exhaustive hosted sweeps covered
 all 77 non-dynamic page contracts (231 requests) with zero unexpected statuses. No paid provider,
 hosted environment, or data mutation was performed.
+
+## 2026-07-17 - Signed-in Today, Changes, and Results correction
+
+Authenticated Iranopedia text exposed two customer-level contradictions. Changes said Beacon kept
+five items copy-ready while its authoritative count was Ready 0, and the safest redirect card hid
+the source URL until expansion. The page now states the actual gate, keeps zero-ready language
+fail-closed, and exposes exact verified source-to-destination mappings in the recommendation. The
+existing eight-stage autonomous receipt now produces a factual stage count, next-stage label, and
+header progress rail without estimating provider time.
+
+Results now leads with a compact 7/14/28-day evidence explanation, orders in-flight work by its next
+unread checkpoint, renders only the closest five by default, and keeps every later read available
+behind one disclosure. Manual recording follows the tracked outcomes instead of interrupting the
+normal journey. The same audit fixed exact edited-copy propagation into live verification and the
+proof record, explicit-domain ownership correction in performance series, repeated-label chart
+positions, redundant or dead imports/props, and a GA4 test clock that expired with wall time.
+
+Verification before release: focused trust and regression pass 8 files / 92 tests; Results-focused
+pass 5 files / 14 tests; `npm run typecheck` exit 0; `npm run lint` exit 0; complete `npm run test`
+exit 0 after correcting the newly exposed date-dependent test; `npm run build` exit 0 with only the
+existing protected middleware-filename deprecation; `npm audit --audit-level=high` exit 0. No paid
+provider, hosted environment, or customer data mutation was performed.

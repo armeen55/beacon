@@ -5,6 +5,15 @@
 This is the operator's live priority order. I work it strictly top to bottom. The dated
 chronology of what already landed lives in VERIFICATION_LOG.md; this list is only what is next.
 
+> 🟡 **2026-07-17 signed-in journey correction — CODE-COMPLETE, DEPLOY NEXT.** The real
+> Iranopedia journey exposed the remaining trust gap: Changes promised five copy-ready items while
+> Ready was zero, and Results made 25 measuring rows feel like 25 decisions. Exact redirect maps
+> now appear before action, Ready copy is fail-closed, the eight-stage background brain has factual
+> progress, and Results is answer-first with five nearest reads plus collapsed history. Edited
+> operator copy now remains identical through live verification and proof recording. **Next:** land,
+> deploy, verify the hosted SHA/routes, then use the first real Ready item; do not act on a merely
+> directional To do card.
+
 > 🟢 **2026-07-15 continuous execution loop — DEPLOYED AND SHA-VERIFIED (`ef41bac6`).** The
 > operator selected items 2 and 3 and explicitly skipped item 1. Beacon now restores a five-item
 > copy-ready queue during ordinary same-day navigation and after every handled row without a cron,

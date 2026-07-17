@@ -3212,6 +3212,14 @@ pipeline checkpoints dependency-ordered stages and stops at the first failed sta
 truthful and does not build downstream claims on missing evidence. This adds no customer control,
 cron, publishing permission, or render-time paid call.
 
+**Ready and result-compression decision, 2026-07-17:** To do is ranked evidence, not a promise that
+an edit is publishable. Ready is reserved for exact copy or an exact safe redirect map that passed
+the existing evidence and quality gates; a zero count must never imply a guaranteed draft is about
+to appear. Background progress may show only durable completed pipeline stages, never invented time
+remaining. Results is an answer surface, not a second worklist: lead with the evidence clock and the
+nearest reads, keep later measuring rows accessible but collapsed, and place manual fallback paths
+after the normal tracked journey.
+
 ## FUTURE IDEAS (not in current execution plan)
 
 These are ideas, experiments, and dream-state features that are NOT in the active phases. They live here so they are never lost. Move to `NEXT_PHASE_EXECUTION_PLAN.md` only when they become active work.
