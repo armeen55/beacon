@@ -116,7 +116,7 @@ describe("/changes page - preparation is autonomous", () => {
   });
 
   it("promises the maintained copy-ready queue instead of asking for a click", () => {
-    expect(PAGE_SRC).toContain("Beacon keeps the strongest five copy-ready while you work.");
+    expect(PAGE_SRC).toContain("An idea moves to Ready only after its exact edit passes evidence and safety checks.");
     expect(PAGE_SRC).not.toContain("Prepare tonight");
   });
 });

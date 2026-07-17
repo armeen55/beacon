@@ -51,7 +51,7 @@ describe("autonomous execution loop", () => {
   });
 
   it("keeps the Results manual-record path as a collapsed fallback", () => {
-    const label = resultsPage.indexOf("Record a change manually");
+    const label = resultsPage.indexOf("Record a change Beacon did not track");
     expect(label).toBeGreaterThan(-1);
     expect(resultsPage.lastIndexOf("<details", label)).toBeGreaterThan(-1);
   });

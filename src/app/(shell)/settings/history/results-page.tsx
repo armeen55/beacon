@@ -42,14 +42,17 @@ export default async function ResultsPage() {
     drivers[k] = v;
   }
 
-  const crawl = await latestWebsiteCrawlRun();
-  const primaryVisibility = await primaryVisibilityRunForResults(results);
-  const rollupForStale = await citationRollupVisibilityRun();
+  const [crawl, primaryVisibility, rollupForStale, universeRuntime, citIdx] =
+    await Promise.all([
+      latestWebsiteCrawlRun(),
+      primaryVisibilityRunForResults(results),
+      citationRollupVisibilityRun(),
+      loadCompetitorUniverseRuntime(),
+      getCitationEvidenceIndex(),
+    ]);
   const { stale: visibilityStaleVsCrawl, note: staleNote } =
     visibilitySampleStaleVsCrawl(rollupForStale, crawl?.completed_at ?? null);
 
-  const universeRuntime = await loadCompetitorUniverseRuntime();
-  const citIdx = await getCitationEvidenceIndex();
   const competitorUniverseSummary =
     citIdx && citIdx.by_topic?.length
       ? buildResultsCompetitorUniverseSummary(
@@ -71,8 +74,6 @@ export default async function ResultsPage() {
   return (
     <ResultsClient
       results={results}
-      changelogEntries={changelogEntries}
-      opportunities={opportunities}
       drivers={drivers}
       sampleObservation={{
         importedRowCount: results.length,

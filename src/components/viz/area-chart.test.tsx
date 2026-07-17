@@ -51,4 +51,17 @@ describe("AreaChart accessible data table (#367)", () => {
     );
     expect(html).not.toContain("data-area-chart-data-table");
   });
+
+  it("plots repeated labels at their own indexes instead of the first match", () => {
+    const html = renderToStaticMarkup(
+      <AreaChart
+        series={[{ label: "You", data: [10, 20, 30], color: "stroke-accent-primary" }]}
+        labels={["Jun 1", "Jun 1", "Jun 2"]}
+        responsive={false}
+      />,
+    );
+
+    expect(html).toContain('<text x="6" y="216" text-anchor="start"');
+    expect(html).toContain('<text x="200" y="216" text-anchor="middle"');
+  });
 });

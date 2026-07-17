@@ -179,7 +179,6 @@ export function TodayV2VisibilityGroupClient({
       brandName: visibilityData.brandName,
       score,
       delta,
-      windowDays: visibilityWindow,
       rank: brandRow?.rank ?? null,
       totalRanked: leaderboard.length,
       closestChallenger,

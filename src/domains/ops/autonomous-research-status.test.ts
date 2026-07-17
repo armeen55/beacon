@@ -76,7 +76,7 @@ describe("autonomousResearchHeaderStatus", () => {
   });
 
   it("keeps a checkpointed partial pipeline customer-ready between navigations", () => {
-    expect(autonomousResearchHeaderStatus(receipt({
+    const status = autonomousResearchHeaderStatus(receipt({
       summary,
       pipeline: {
         version: 1,
@@ -84,10 +84,13 @@ describe("autonomousResearchHeaderStatus", () => {
         nextStage: "keywords",
         updatedAt: "2026-07-14T18:01:00.000Z",
       },
-    }))).toMatchObject({
-      label: "Up to date · refreshing",
+    }));
+    expect(status).toMatchObject({
+      label: "Refreshing · 3/8",
       tone: "ready",
+      progress: { completed: 3, total: 8, percent: 38, nextLabel: "expanding keywords" },
     });
+    expect(status.title).toContain("3 of 8: expanding keywords");
   });
 
   it("collapses a completed pass to the outcome that matters", () => {

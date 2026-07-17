@@ -1,10 +1,39 @@
-import type { WarmRunReceipt } from "./warm-receipt-store";
+import type { AutonomousPipelineStage, WarmRunReceipt } from "./warm-receipt-store";
 
 export type AutonomousResearchHeaderStatus = {
   label: string;
   tone: "idle" | "running" | "ready" | "partial";
   title: string;
+  progress: { completed: number; total: number; percent: number; nextLabel: string } | null;
 };
+
+const PIPELINE_STAGES: readonly AutonomousPipelineStage[] = [
+  "baseline", "graph", "competitors", "keywords", "ai", "knowledge", "opportunities", "finalize",
+];
+
+const STAGE_LABEL: Record<AutonomousPipelineStage, string> = {
+  baseline: "checking your site",
+  graph: "mapping demand",
+  competitors: "studying competitors",
+  keywords: "expanding keywords",
+  ai: "checking AI answers",
+  knowledge: "checking facts",
+  opportunities: "ranking opportunities",
+  finalize: "saving the strongest moves",
+};
+
+/** Factual pipeline progress only. This never estimates time or pretends an
+ * external Google reporting window is a controllable loading job. */
+export function autonomousResearchProgress(receipt: WarmRunReceipt | null) {
+  if (!receipt?.pipeline || receipt.pipeline.version !== 1 || receipt.pipeline.nextStage == null) return null;
+  const completed = new Set(receipt.pipeline.completedStages.filter((stage) => PIPELINE_STAGES.includes(stage))).size;
+  return {
+    completed,
+    total: PIPELINE_STAGES.length,
+    percent: Math.round((completed / PIPELINE_STAGES.length) * 100),
+    nextLabel: STAGE_LABEL[receipt.pipeline.nextStage],
+  };
+}
 
 function isRunning(receipt: WarmRunReceipt): boolean {
   return receipt.steps.some((step) => step.name === "autonomous-research" && step.note === "running after this response");
@@ -17,10 +46,12 @@ function hasMorePipelineWork(receipt: WarmRunReceipt): boolean {
 export function autonomousResearchStatusLine(receipt: WarmRunReceipt | null): string {
   if (!receipt) return "Beacon will research, compare, rank, and prepare your next moves automatically after this visit.";
   if ((isRunning(receipt) || hasMorePipelineWork(receipt)) && receipt.summary) {
-    return "Your saved results are ready. Beacon is refreshing the evidence and will replace them only when the newer pass is complete.";
+    const progress = autonomousResearchProgress(receipt);
+    return `Your saved results are ready. Beacon is refreshing the evidence${progress ? ` (${progress.completed} of ${progress.total}: ${progress.nextLabel})` : ""} and will replace them only when the newer pass is complete.`;
   }
   if (isRunning(receipt) || hasMorePipelineWork(receipt)) {
-    return "Beacon is preparing the first saved result in the background. You can keep using the app.";
+    const progress = autonomousResearchProgress(receipt);
+    return `Beacon is preparing the first saved result in the background${progress ? ` (${progress.completed} of ${progress.total}: ${progress.nextLabel})` : ""}. You can keep using the app.`;
   }
   if (!receipt.summary) {
     return receipt.ok
@@ -62,15 +93,17 @@ export function autonomousResearchStatusLine(receipt: WarmRunReceipt | null): st
 
 export function autonomousResearchHeaderStatus(receipt: WarmRunReceipt | null): AutonomousResearchHeaderStatus {
   const title = autonomousResearchStatusLine(receipt);
-  if (!receipt) return { label: "Research starts on visit", tone: "idle", title };
-  if ((isRunning(receipt) || hasMorePipelineWork(receipt)) && receipt.summary) return { label: "Up to date · refreshing", tone: "ready", title };
-  if (isRunning(receipt) || hasMorePipelineWork(receipt)) return { label: "Preparing in background", tone: "running", title };
-  if (!receipt.summary && !receipt.ok) return { label: "Preparing in background", tone: "running", title };
-  if (!receipt.ok) return { label: "Research partially refreshed", tone: "partial", title };
+  const progress = autonomousResearchProgress(receipt);
+  if (!receipt) return { label: "Research starts on visit", tone: "idle", title, progress: null };
+  if ((isRunning(receipt) || hasMorePipelineWork(receipt)) && receipt.summary) return { label: progress ? `Refreshing · ${progress.completed}/${progress.total}` : "Up to date · refreshing", tone: "ready", title, progress };
+  if (isRunning(receipt) || hasMorePipelineWork(receipt)) return { label: progress ? `Preparing · ${progress.completed}/${progress.total}` : "Preparing in background", tone: "running", title, progress };
+  if (!receipt.summary && !receipt.ok) return { label: "Preparing in background", tone: "running", title, progress: null };
+  if (!receipt.ok) return { label: "Research partially refreshed", tone: "partial", title, progress: null };
   const ready = receipt.summary?.readyToReview ?? 0;
   return {
     label: ready > 0 ? `${ready.toLocaleString()} move${ready === 1 ? "" : "s"} ready` : "Research up to date",
     tone: "ready",
     title,
+    progress: null,
   };
 }

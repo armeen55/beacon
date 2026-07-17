@@ -296,6 +296,8 @@ describe("applySafeRedirectPlans", () => {
     const [out] = applySafeRedirectPlans([c], movesById);
     expect(out.decision).toBe("prune_redirect");
     expect(out.exactInstructions).toContain("https://iranopedia.com/old-iran-flag -> https://iranopedia.com/iran-flag");
+    expect(out.recommendation).toContain("https://iranopedia.com/old-iran-flag");
+    expect(out.recommendation).toContain("https://iranopedia.com/flag-history-old");
     expect(out.qualityDecision).toBe("approved");
   });
 

@@ -108,10 +108,6 @@ export function AreaChart({
 
   function buildArea(data: number[], baseline?: number[]): string {
     const top = data.map((v, i) => `${i === 0 ? "M" : "L"}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(" ");
-    const btm = (baseline ?? data.map(() => 0))
-      .map((v, i) => `L${x(n - 1 - i).toFixed(1)},${y(v).toFixed(1)}`)
-      .reverse()
-      .join(" ");
     const bottomPath = baseline
       ? [...baseline].reverse().map((v, i) => `L${x(n - 1 - i).toFixed(1)},${y(v).toFixed(1)}`).join(" ")
       : `L${x(n - 1).toFixed(1)},${y(0).toFixed(1)} L${x(0).toFixed(1)},${y(0).toFixed(1)}`;
@@ -267,15 +263,16 @@ export function AreaChart({
           </>
         )}
 
-        {labels.filter((_, i) => i % Math.ceil(n / 6) === 0 || i === n - 1).map((label, _, arr) => {
-          const origIdx = labels.indexOf(label);
+        {labels.map((label, index) => ({ label, index }))
+          .filter(({ index }) => index % Math.ceil(n / 6) === 0 || index === n - 1)
+          .map(({ label, index: origIdx }) => {
           // Anchor first/last labels to edges so they don't clip against the
           // SVG viewport. Middle labels stay centered.
           const anchor =
             origIdx === 0 ? "start" : origIdx === n - 1 ? "end" : "middle";
           return (
             <text
-              key={label}
+              key={`${label}-${origIdx}`}
               x={x(origIdx)}
               y={height - 4}
               textAnchor={anchor}

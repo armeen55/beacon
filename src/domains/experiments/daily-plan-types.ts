@@ -108,6 +108,29 @@ export type PlannedExperimentRecord = {
     | { kind: "refresh_section"; briefSentences: string[]; clicksLostPerMonth: number };
 };
 
+/**
+ * Resolve the exact text the operator approved for a planned experiment.
+ *
+ * Staging, live verification, and proof recording must all consume this same
+ * projection. Internal links are structural edits, so free-text overrides do
+ * not apply to them. Returning the original object for a no-op also keeps the
+ * common frozen-plan path allocation-free.
+ */
+export function withApprovedExperimentText(
+  experiment: PlannedExperimentRecord,
+  editedText: string | undefined,
+): PlannedExperimentRecord {
+  const edited = (editedText ?? "").trim();
+  if (
+    edited.length === 0 ||
+    edited === experiment.proposedText ||
+    experiment.lever === "internal_link"
+  ) {
+    return experiment;
+  }
+  return { ...experiment, proposedText: edited };
+}
+
 /** R14a (2026-07-03): one candidate tonight's planner looked at and set aside, frozen on the
  *  plan record so the "Why not the others?" expander renders the planner's OWN sentences at $0
  *  (never a re-derivation, never a raw code - daily-experiments-copy.ts translates `reason`).

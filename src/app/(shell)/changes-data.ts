@@ -369,7 +369,10 @@ export function applySafeRedirectPlans(
       exactInstructions: `Create these permanent redirects:\n${mappings}\nKeep ${leadUrl} live and indexable.`,
       before: sourceUrls.join(", "),
       after: leadUrl,
-      recommendation: `Redirect ${sourceUrls.length} dead competing page${sourceUrls.length === 1 ? "" : "s"} into ${leadUrl}.`,
+      recommendation:
+        sourceUrls.length === 1
+          ? `Redirect ${sourceUrls[0]} into ${leadUrl}.`
+          : `Redirect these ${sourceUrls.length} dead competing pages into ${leadUrl}: ${sourceUrls.join(", ")}.`,
       qualityDecision: "approved",
       qualityNote: "Exact same-site source and destination URLs verified from Search Console cannibalization evidence.",
     };
@@ -870,7 +873,7 @@ async function buildChangesViewUncached(tenantId: string): Promise<ChangesView> 
   let readyZeroHint: string | null = null;
   if (summary.ready === 0) {
     if (summary.todo > 0) {
-      readyZeroHint = `I am preparing exact, copy-ready edits for the strongest open ideas in the background. The first five move here as each draft passes its evidence and quality checks; Wix is only needed if you want Beacon to publish for you.`;
+      readyZeroHint = `None has cleared Ready yet. I am checking the strongest ideas automatically. Until a card contains the exact publishable copy or redirect map, leave it in To do; Wix is only needed if you want Beacon to publish for you.`;
     } else if (summary.measuring > 0) {
       readyZeroHint = `0 ready right now because everything is already live and measuring (${summary.measuring} in progress). I'll show new ideas here once fresh demand data comes in or a measurement settles.`;
     } else {

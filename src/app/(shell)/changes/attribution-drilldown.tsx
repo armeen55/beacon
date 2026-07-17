@@ -23,7 +23,7 @@ import { buildProofSentence, type ProofTone } from "@/domains/attribution/proof-
 import { AttributionStatusPill } from "./attribution-status-pill";
 
 export function AttributionDrilldown({ outcome }: { outcome: StoredChangeOutcome }) {
-  const { status, confidence } = outcome;
+  const { status } = outcome;
 
   return (
     <section

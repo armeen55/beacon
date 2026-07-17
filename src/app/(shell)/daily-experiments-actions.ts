@@ -14,7 +14,12 @@ import { loadProofLedger } from "@/domains/proof-gsc/load-ledger";
 import { deriveExperimentStates, GSC_LAG_DAYS } from "@/domains/experiments/experiment-eligibility";
 import { buildTodayExperimentPreview } from "@/domains/experiments/build-today-preview";
 import { validatePlanAcceptance, type AcceptanceContext } from "@/domains/experiments/validate-plan-acceptance";
-import { reservationId, normalizePath, type DailyExperimentPlanRecord } from "@/domains/experiments/daily-plan-types";
+import {
+  reservationId,
+  normalizePath,
+  withApprovedExperimentText,
+  type DailyExperimentPlanRecord,
+} from "@/domains/experiments/daily-plan-types";
 import {
   createPreviewPlan, getPlan, expirePlans, abandonPreviewPlan, acceptPlanViaRpc, listActiveReservations,
   activateItemViaRpc, skipItemViaRpc, updateItemExecution, completePlan, listReservationsForPlan, type AcceptResult,
@@ -184,19 +189,14 @@ export async function markDailyExperimentAppliedAction(input: { planId: string; 
     const plan = await getPlan(tenantId, input.planId);
     if (!plan) return { ok: false, reason: "plan_not_found" };
     if (plan.status !== "accepted") return { ok: false, reason: `plan_${plan.status}` };
-    const exp = plan.selected.find((e) => e.id === input.experimentId);
-    if (!exp) return { ok: false, reason: "item_not_found" };
+    const frozenExp = plan.selected.find((e) => e.id === input.experimentId);
+    if (!frozenExp) return { ok: false, reason: "item_not_found" };
 
     // D-3: the operator can tweak the proposed text inline before applying. Verify + record what they
     // ACTUALLY shipped (the edited text), not the original proposal. Only for text levers (a link's
     // verification keys on anchor/destination, not proposedText). The edit is an apply-time override;
     // the frozen plan proposal is unchanged.
-    const editedText = (input.editedText ?? "").trim();
-    const effectiveExp =
-      editedText && editedText !== exp.proposedText && exp.lever !== "internal_link"
-        ? { ...exp, proposedText: editedText }
-        : exp;
-    const wasEdited = effectiveExp !== exp;
+    const exp = withApprovedExperimentText(frozenExp, input.editedText);
 
     const current = itemStatus(plan.execution, input.experimentId);
     if (isActiveStatus(current)) {

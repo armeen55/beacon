@@ -12,7 +12,7 @@
  *   - fail-soft contract mirrors the sibling reports (no_token / token_expired).
  */
 
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
 import type { GoogleConnectorToken } from "@/lib/connector-store";
 
@@ -69,7 +69,11 @@ const ARGS = {
 beforeEach(() => {
   _ga4Token = null;
   vi.restoreAllMocks();
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date(NOW_MS));
 });
+
+afterEach(() => vi.useRealTimers());
 
 describe("buildSitewideSessionsReportBody - date dimension ONLY (no pagePath)", () => {
   it("requests ONLY the date dimension so GA4 aggregates sessions sitewide", () => {

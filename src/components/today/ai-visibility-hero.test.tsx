@@ -17,7 +17,6 @@ const RITZ_FULL: AIVisibilityHeroProps = {
   brandName: "Ritz Builders",
   score: 64.2,
   delta: 2.1,
-  windowDays: 14,
   rank: 1,
   totalRanked: 6,
   closestChallenger: { name: "De Mattei Construction", score: 49.3 },

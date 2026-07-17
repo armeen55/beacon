@@ -95,7 +95,7 @@ export default function WorklistPage() {
     <div className="max-w-5xl space-y-6">
       <PageHeader
         title="Changes"
-        description="Your ranked execution queue. Beacon keeps the strongest five copy-ready while you work."
+        description="Your ranked execution queue. An idea moves to Ready only after its exact edit passes evidence and safety checks."
       />
       <Suspense fallback={<ChangesListFallback />}>
         <ChangesSection />

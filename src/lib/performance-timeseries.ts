@@ -174,6 +174,13 @@ export function buildCompetitorRank(
 ): CompetitorRankEntry[] {
   if (!citationIndex) return [];
 
+  const ownedNorm = ownedDomain
+    .trim()
+    .toLowerCase()
+    .replace(/^https?:\/\//, "")
+    .replace(/\/.*$/, "")
+    .replace(/^www\./, "");
+
   const domainCits = new Map<string, { citations: number; isOwned: boolean }>();
   let total = 0;
 
@@ -189,9 +196,12 @@ export function buildCompetitorRank(
       })();
     if (!domain) continue;
     const norm = domain.toLowerCase().replace(/^www\./, "");
+    const isExplicitlyOwned =
+      ownedNorm.length > 0 &&
+      (norm === ownedNorm || norm.endsWith(`.${ownedNorm}`));
     const existing = domainCits.get(norm) ?? { citations: 0, isOwned: false };
     existing.citations += row.total_citations;
-    if (row.is_owned) existing.isOwned = true;
+    if (isExplicitlyOwned) existing.isOwned = true;
     domainCits.set(norm, existing);
     total += row.total_citations;
   }

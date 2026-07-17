@@ -3,7 +3,6 @@
 import { useState, useMemo } from "react";
 import Link from "next/link";
 import { PageHeader } from "@/components/data/page-header";
-import { StatCard } from "@/components/data/stat-card";
 import { TabFilter } from "@/components/display/tab-filter";
 import { DeltaIndicator } from "@/components/display/delta-indicator";
 import { KpiCard } from "@/components/viz/kpi-card";
@@ -17,10 +16,8 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { PLATFORM_LABELS, METRIC_TYPE_LABELS, METRIC_DIRECTION } from "@/lib/constants";
+import { PLATFORM_LABELS, METRIC_TYPE_LABELS } from "@/lib/constants";
 import type { Result } from "@/domains/results/types";
-import type { ChangelogEntry } from "@/domains/changelog/types";
-import type { Opportunity } from "@/domains/opportunities/types";
 import type { EvidenceTier } from "@/domains/pages/types";
 import type {
   ResultDriverInfo,
@@ -155,16 +152,12 @@ export type SampleObservationContext = {
 
 interface ResultsClientProps {
   results: Result[];
-  changelogEntries: ChangelogEntry[];
-  opportunities: Opportunity[];
   drivers: Record<string, ResultDriverInfo>;
   sampleObservation: SampleObservationContext;
 }
 
 export function ResultsClient({
   results,
-  changelogEntries,
-  opportunities,
   drivers,
   sampleObservation,
 }: ResultsClientProps) {

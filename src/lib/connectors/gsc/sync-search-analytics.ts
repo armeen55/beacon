@@ -108,7 +108,6 @@ const GSC_REQUIRED_SCOPE = "https://www.googleapis.com/auth/webmasters.readonly"
  */
 async function classifyMissingGscToken(
   tenantId: string,
-  now: Date,
 ): Promise<string> {
   let token;
   try {
@@ -343,7 +342,7 @@ export async function syncGscSearchAnalyticsForTenant(args: {
     // we re-read the token row here (classification only — no fetch) to emit
     // the honest reason. A present-but-stale/disconnected/scope-lost token →
     // gsc_token_expired; a genuinely absent token → no_usable_gsc_token.
-    const reason = await classifyMissingGscToken(tenantId, now);
+    const reason = await classifyMissingGscToken(tenantId);
     // Reconnect signal (2026-06-15): only an EXPIRED/BROKEN grant
     // (gsc_token_expired) means the operator must reconnect; a genuinely
     // never-connected tenant (no_usable_gsc_token) must NOT be stamped — that

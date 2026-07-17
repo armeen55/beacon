@@ -221,7 +221,7 @@ function CandidateCard({
   onReject: (id: string) => void;
   showReason?: boolean;
 }) {
-  const { change, attribution, score } = item;
+  const { change, attribution } = item;
   return (
     <div className="rounded-md border border-dashed border-border p-3 space-y-2">
       <div className="flex items-start justify-between gap-3">

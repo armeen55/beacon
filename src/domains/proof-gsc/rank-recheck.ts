@@ -191,7 +191,6 @@ export async function runRankRecheck(
   } catch {
     ownDomain = null;
   }
-  const { resolveOwnRank } = await import("@/domains/serp/dataforseo-serp");
   const own = resolveOwnRank(fresh.snapshot.results, ownDomain);
   const nowAt = deps.now().toISOString();
   const nowRank = own.ownRank;

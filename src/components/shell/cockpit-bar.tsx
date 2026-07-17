@@ -74,6 +74,11 @@ export async function CockpitBar() {
           <span className={`inline-block h-2 w-2 rounded-full ${researchDot}`} />
           <span className="hidden text-muted-foreground lg:inline">{research.label}</span>
           <span className="sr-only lg:hidden">{research.label}</span>
+          {research.progress ? (
+            <span className="hidden h-1.5 w-10 overflow-hidden rounded-full bg-surface-inset lg:inline-block" aria-hidden>
+              <span className="block h-full rounded-full bg-accent-primary transition-[width]" style={{ width: `${research.progress.percent}%` }} />
+            </span>
+          ) : null}
         </span>
         {/* FP4 (2026-07-03): one name for one page. This button used to say
             "Tonight's changes" while the sidebar said "Changes" and the URL

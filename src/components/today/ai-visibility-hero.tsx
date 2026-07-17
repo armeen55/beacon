@@ -40,8 +40,6 @@ export type AIVisibilityHeroProps = {
    * the honest-no-data treatment the leaderboard uses.
    */
   delta: number | null;
-  /** Window length used for the delta semantic label, in calendar days. */
-  windowDays: number;
   /** Brand's current rank in the leaderboard (1-indexed). Null when no data. */
   rank: number | null;
   /** Total ranked entities in the leaderboard (incl. owned). */
@@ -106,7 +104,6 @@ export function AIVisibilityHero(props: AIVisibilityHeroProps) {
     brandName,
     score,
     delta,
-    windowDays,
     rank,
     totalRanked,
     closestChallenger,

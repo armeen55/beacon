@@ -112,6 +112,7 @@ import { buildReceiptLine, ReceiptLine } from "@/components/data/receipt-line";
 // engagement, frustration, and the did-they-find-their-answer read, on the
 // live_at clock, self-hiding below its sample floors.
 import { behaviorHasContent } from "@/domains/proof-gsc/behavior-outcome";
+import { sortInFlightByNextRead } from "./in-flight-order";
 
 /**
  * Proof / Learning - operator-OS rebuild, surface (6). Every REVIEWED change
@@ -172,6 +173,7 @@ const GRADE_STYLE: Record<VerdictReliabilityResult["grade"], string> = {
 // existing fail-soft fallback, just bounded. Section internals are untouched (FP8).
 const LEDGER_DEADLINE_MS = 20_000;
 const SIDE_READ_DEADLINE_MS = 15_000;
+const IN_FLIGHT_VISIBLE_LIMIT = 5;
 
 /**
  * W2-A - page-level deadline around a self-hiding streamed section. Races the section's
@@ -266,7 +268,7 @@ export default async function ProofPage({
   }
 
   return (
-    <div className="mx-auto max-w-4xl px-6 py-8">
+    <div className="mx-auto max-w-5xl px-6 py-8">
       <div className="mb-5 flex items-start justify-between gap-4">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Results</h1>
@@ -324,16 +326,6 @@ export default async function ProofPage({
         <BoundedSection render={() => PooledVerdictSection()} />
       </Suspense>
 
-      {/* Manual recording is a fallback, not a normal workflow stage. */}
-      <details className="mb-6 rounded-xl border border-border-subtle bg-surface-raised px-3 py-2.5">
-        <summary className="cursor-pointer text-body font-medium text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1">
-          Record a change manually
-        </summary>
-        <div className="mt-3">
-          <RecordAnyPageForm initialPage={initialPage} />
-        </div>
-      </details>
-
       {/* ── Measured outcomes (shipped changes being tracked vs controls) ──
           W2-B: the cards board (with its revert offers, alignment receipts, and
           contamination caveats) streams inside its own Suspense boundary so the
@@ -349,6 +341,18 @@ export default async function ProofPage({
           />
         </Suspense>
       ) : null}
+
+      {/* Manual recording is a fallback, not part of the normal Results journey.
+          Keep it after the answer-first summary and measured rows so an average
+          user never mistakes it for the next required step. */}
+      <details className="mb-6 rounded-xl border border-border-subtle bg-surface-raised px-3 py-2.5">
+        <summary className="cursor-pointer text-body font-medium text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1">
+          Record a change Beacon did not track
+        </summary>
+        <div className="mt-3">
+          <RecordAnyPageForm initialPage={initialPage} />
+        </div>
+      </details>
 
       {/* ── R14a "We got this wrong" (P1 trust receipts): revised-downward verdicts +
           proven-did-nothing changes, owned plainly, max 5, each linking to its own
@@ -890,7 +894,9 @@ async function MeasuredOutcomesBoard({
   const bands = splitLedgerLifecycle(ledger);
   const winRows = bands.won;
   const learningRows = bands.learned;
-  const inFlightRows = bands.measuring;
+  const inFlightRows = sortInFlightByNextRead(bands.measuring);
+  const closestInFlightRows = inFlightRows.slice(0, IN_FLIGHT_VISIBLE_LIMIT);
+  const laterInFlightRows = inFlightRows.slice(IN_FLIGHT_VISIBLE_LIMIT);
 
   // Item C7 - the seasonal-overlap caveat used to render its full paragraph on
   // every affected card (15 identical copies on a page with 15 seasonal
@@ -1048,13 +1054,29 @@ async function MeasuredOutcomesBoard({
       {/* Item 68 band 3: everything still measuring or waiting on data. */}
       {inFlightRows.length > 0 ? (
         <div className="mt-4">
-          <h3 className="text-[12px] font-semibold uppercase tracking-wide text-muted-foreground">
-            In flight ({inFlightRows.length})
-          </h3>
-          <p className="mt-0.5 text-[11px] text-muted-foreground">
-            Still collecting data. Each one gets its verdict when its full window closes.
-          </p>
-          <LedgerRowGroup rows={inFlightRows} band="inflight" linkByRowId={linkByRowId} presById={presById} gradeById={gradeById} eventCaveatById={eventCaveatById} sparkByPath={sparkByPath} controlSparkByPath={controlSparkByPath} revertById={revertById} restoredIds={restoredIds} ownedAlignmentByRecId={ownedAlignmentByRecId} />
+          <div className="flex flex-wrap items-end justify-between gap-2">
+            <div>
+              <h3 className="text-[12px] font-semibold uppercase tracking-wide text-muted-foreground">
+                Closest results ({closestInFlightRows.length} of {inFlightRows.length})
+              </h3>
+              <p className="mt-0.5 text-[11px] text-muted-foreground">
+                The next changes likely to teach you something, ordered by their upcoming read.
+              </p>
+            </div>
+            <span className="text-[10px] text-muted-foreground">Nothing to do until a read lands</span>
+          </div>
+          <LedgerRowGroup rows={closestInFlightRows} band="inflight" linkByRowId={linkByRowId} presById={presById} gradeById={gradeById} eventCaveatById={eventCaveatById} sparkByPath={sparkByPath} controlSparkByPath={controlSparkByPath} revertById={revertById} restoredIds={restoredIds} ownedAlignmentByRecId={ownedAlignmentByRecId} />
+          {laterInFlightRows.length > 0 ? (
+            <details className="mt-3 rounded-xl border border-border-subtle bg-surface-raised px-3 py-2.5">
+              <summary className="cursor-pointer text-[12px] font-medium text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1">
+                See all {laterInFlightRows.length} later reads
+              </summary>
+              <p className="mt-1 text-[10px] text-muted-foreground">
+                These are healthy and still collecting data. They are hidden by default so the nearest decisions stay clear.
+              </p>
+              <LedgerRowGroup rows={laterInFlightRows} band="inflight" linkByRowId={linkByRowId} presById={presById} gradeById={gradeById} eventCaveatById={eventCaveatById} sparkByPath={sparkByPath} controlSparkByPath={controlSparkByPath} revertById={revertById} restoredIds={restoredIds} ownedAlignmentByRecId={ownedAlignmentByRecId} />
+            </details>
+          ) : null}
         </div>
       ) : null}
     </div>
@@ -1067,27 +1089,31 @@ async function MeasuredOutcomesBoard({
  */
 function WhatHappensNext() {
   return (
-    <div className="rounded-lg border border-blue-200 bg-blue-50/50 p-3.5">
-      <div className="text-[12px] font-semibold text-foreground">What happens next</div>
-      <ul className="mt-1.5 space-y-1 text-[11px] text-foreground/75">
-        <li>
-          • Google takes time to recrawl and re-rank. The first check opens{" "}
-          <span className="font-medium">7 days</span> after you shipped, then again at 14
-          and 28 days.
-        </li>
-        <li>
-          • At each check Beacon compares this page (visits, click rate, or Google
-          rank, depending on the change) to similar pages you did not change, then
-          tells you whether it{" "}
-          <span className="font-medium">helped</span>,{" "}
-          <span className="font-medium">did not help</span>, or showed{" "}
-          <span className="font-medium">no clear change</span>.
-        </li>
-        <li>
-          • This compares your page to similar pages, so it is a strong signal, not
-          a lab-perfect guarantee. Google data is naturally a bit noisy.
-        </li>
-      </ul>
+    <div className="rounded-2xl border border-sky-200 bg-gradient-to-r from-sky-50/80 to-indigo-50/50 p-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <div className="text-[13px] font-semibold text-foreground">How a result becomes trustworthy</div>
+          <p className="mt-1 max-w-xl text-[11px] leading-relaxed text-foreground/65">
+            Beacon compares each changed page with similar untouched pages. Google reports a few days behind, so these are evidence checkpoints, not a loading timer.
+          </p>
+        </div>
+        <span className="rounded-full border border-sky-200 bg-white/80 px-2.5 py-1 text-[10px] font-medium text-sky-800">
+          No action needed while measuring
+        </span>
+      </div>
+      <div className="mt-4 grid grid-cols-3 gap-2" aria-label="Result measurement checkpoints">
+        {[
+          ["7 days", "First signal"],
+          ["14 days", "Direction firms up"],
+          ["28 days", "Strongest read"],
+        ].map(([day, label], index) => (
+          <div key={day} className="relative rounded-xl border border-white/80 bg-white/70 px-3 py-2 shadow-sm">
+            {index < 2 ? <span aria-hidden className="absolute -right-2 top-1/2 z-10 h-px w-2 bg-sky-300" /> : null}
+            <div className="text-[12px] font-semibold tabular-nums text-foreground">{day}</div>
+            <div className="mt-0.5 text-[10px] text-muted-foreground">{label}</div>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

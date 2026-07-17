@@ -64,9 +64,10 @@ import {
   itemStatus,
   LEVER_TO_ACTION_TYPE,
 } from "@/domains/experiments/execution-state";
-import type {
-  DailyExperimentPlanRecord,
-  PlannedExperimentRecord,
+import {
+  withApprovedExperimentText,
+  type DailyExperimentPlanRecord,
+  type PlannedExperimentRecord,
 } from "@/domains/experiments/daily-plan-types";
 import { getRepository } from "@/lib/persistence/repositories";
 import {
@@ -374,9 +375,7 @@ function editRowForDailyPick(
   editedText: string | undefined,
   now: Date,
 ): RecommendedEditRow {
-  const edited = (editedText ?? "").trim();
-  const useEdited =
-    edited.length > 0 && edited !== exp.proposedText && exp.lever !== "internal_link";
+  const approved = withApprovedExperimentText(exp, editedText);
   return {
     id: `stage-${exp.id}`,
     tenant_id: tenantId,
@@ -389,7 +388,7 @@ function editRowForDailyPick(
     target_element_key: null,
     display_label: exp.pageLabel,
     current_text: exp.currentText ?? "",
-    proposed_text: useEdited ? edited : exp.proposedText,
+    proposed_text: approved.proposedText,
     why: exp.whyNow ?? "",
     evidence: [],
     expected_impact: null,
