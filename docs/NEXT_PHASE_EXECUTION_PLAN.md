@@ -5,8 +5,8 @@
 This is the operator's live priority order. I work it strictly top to bottom. The dated
 chronology of what already landed lives in VERIFICATION_LOG.md; this list is only what is next.
 
-> 🟡 **2026-07-17 exhaustive audit execution loop — SLICES 1–7 DEPLOYED; FINAL LIVE-MODULE
-> AUDIT RELEASE-GATED.**
+> 🟢 **2026-07-17 exhaustive audit execution loop — ALL EIGHT SLICES DEPLOYED AND
+> EXACT-SHA VERIFIED.**
 > Competitor teardown evidence is tenant-explicit from orchestration through cache persistence and
 > deployed at `5a869835`; production returned the exact SHA. `/changes/[id]` now resolves the
 > tenant's fresh changelog row and hands every outcome question to the canonical proof-gsc Results
@@ -29,8 +29,9 @@ chronology of what already landed lives in VERIFICATION_LOG.md; this list is onl
 > deployed at `2f3821cb` and exact-SHA verified. The highest-risk customer route, Results, now
 > delegates its proof-card presentation to a synchronous no-I/O module while retaining every
 > measurement and compound-package contract; the full suite is green at 1,515 files / 23,001
-> passed / 23 conditional skips / 0 failed. **Next:** deploy the final audit slice and complete the
-> exact-SHA production smoke.
+> passed / 23 conditional skips / 0 failed. The final slice is deployed at `3648fdd2` and
+> exact-SHA verified. **Next:** use the normal Today → Changes → Results loop on a real prepared
+> Iranopedia change; open a new engineering slice only for a defect that real use exposes.
 >
 > The tenant-boundary slice removed all ambient read/write seams in the production graph and is
 > pinned by read-and-write isolation tests.

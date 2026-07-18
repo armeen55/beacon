@@ -36449,3 +36449,9 @@ zero errors; complete suite 1,515 files / 23,001 passed / 23 conditional skips /
 production build exit 0 with only the existing protected middleware-filename deprecation;
 dependency audit found zero vulnerabilities; `git diff --check` clean. No paid provider call,
 hosted environment mutation, or customer-data mutation was performed.
+
+Release: commit `3648fdd267aa161266a9d89824c7da6441df0236` was pushed to `origin/main`.
+Vercel deployment `dpl_EU3Djg319UTva4UzmaAnwUDrzv1q` reached Ready and production
+`/api/version` returned that exact SHA. Unauthenticated `/`, `/today`, `/changes`, `/results`, and
+`/diagnostics` returned their expected 307 login continuations. This completes the accepted
+eight-slice exhaustive audit loop.
