@@ -18,6 +18,9 @@ import type { CitationIntelligenceSnapshot } from "@/domains/ai-visibility/citat
 import type { CitationPatternBucket } from "@/domains/citability/pattern-classifier";
 import type { DriftEventKind } from "@/domains/ai-visibility/answer-drift";
 import type { SecondOrderDomainClass } from "@/domains/ai-visibility/second-order-citations";
+import type { ClarityPageSignal } from "@/domains/recommendation-intelligence/clarity-page-signals";
+import { routeClarityFriction, type ClarityMoveType } from "@/domains/recommendation-intelligence/clarity-move-router";
+import type { WhyThemReport, StructureGap } from "@/domains/competitor-intel/types";
 
 export type ResearchEvidenceSource =
   | "gsc"
@@ -31,7 +34,35 @@ export type ResearchEvidenceSource =
   | "paa"
   | "citation_patterns"
   | "answer_drift"
-  | "second_order_citations";
+  | "second_order_citations"
+  | "clarity_behavior"
+  | "competitor_forensics";
+
+export type DossierClarityEvidence = {
+  sessions: number;
+  moveType: ClarityMoveType;
+  severity: "high" | "medium";
+  reason: string;
+  evidence: string;
+};
+
+export type DossierCompetitorForensics = {
+  domain: string;
+  displayName: string;
+  theirUrl: string;
+  theirCitationTotal: number;
+  equivalentPageUrl: string | null;
+  gaps: StructureGap[];
+  citedPrompts: string[];
+  theirDescriptors: string[];
+  ourDescriptors: string[];
+};
+
+export type DossierFanoutQuality = {
+  relevantQuestions: string[];
+  corroboratedQuestions: string[];
+  withheldIrrelevant: number;
+};
 
 export type DossierCitationIntelligence = {
   patterns: {
@@ -104,6 +135,9 @@ export type ResearchDossier = {
   questions: DossierQuestion[];
   ai: AeoEvidence | null;
   cloneBriefs: DossierCloneBrief[];
+  clarity?: DossierClarityEvidence | null;
+  competitorForensics?: DossierCompetitorForensics[];
+  fanoutQuality?: DossierFanoutQuality;
   citationIntelligence?: DossierCitationIntelligence | null;
   evidenceSources: ResearchEvidenceSource[];
   builtAt: string;
@@ -117,6 +151,8 @@ export type ResearchCorpus = {
   cloneBriefs: CloneBrief[];
   questions: UniverseQuestionRow[];
   citationIntelligence?: CitationIntelligenceSnapshot | null;
+  claritySignals?: Map<string, ClarityPageSignal>;
+  competitorForensics?: WhyThemReport[];
 };
 
 export type BuildResearchDossierInput = {
@@ -128,6 +164,16 @@ export type BuildResearchDossierInput = {
 };
 
 const norm = (value: string): string => value.trim().toLocaleLowerCase("en-US");
+const questionKey = (value: string): string => norm(value).replace(/[?!.]+$/, "");
+
+function uniqueQuestions(values: readonly string[]): string[] {
+  const byNormalized = new Map<string, string>();
+  for (const value of values) {
+    const key = questionKey(value);
+    if (key && !byNormalized.has(key)) byNormalized.set(key, value.trim());
+  }
+  return [...byNormalized.values()];
+}
 
 function urlKey(value: string | null | undefined): string {
   if (!value) return "";
@@ -212,26 +258,38 @@ export function buildResearchDossier(input: BuildResearchDossierInput): Research
   const ownedQuestionEvidence = new Set(
     corpus.questions
       .filter((row) => targetKey && urlKey(row.ownership) === targetKey)
-      .map((row) => norm(row.question)),
+      .map((row) => questionKey(row.question)),
   );
+  const demandTopics = [move.label, ...input.demandQueries.map((row) => row.query)].filter(Boolean);
+  const questionByText = new Map(corpus.questions.map((row) => [questionKey(row.question), row]));
+  const relevantMoveFanouts = move.fanoutSeeds.filter((query) => {
+    const question = questionByText.get(questionKey(query));
+    return promptRelevance(move.label, query).relevant ||
+      bestTopicMatch(query, demandTopics) >= 0.6 ||
+      ownedQuestionEvidence.has(questionKey(query)) ||
+      (question != null && question.sources.length >= 2);
+  });
   const relevantAeo = move.aeoEvidence
     ? {
         ...move.aeoEvidence,
         prompts: move.aeoEvidence.prompts.filter((prompt) => promptRelevance(move.label, prompt).relevant),
         fanoutQueries: move.aeoEvidence.fanoutQueries.filter(
-          (query) =>
-            promptRelevance(move.label, query).relevant ||
-            ownedQuestionEvidence.has(norm(query)) ||
+          (query) => {
+            const question = questionByText.get(questionKey(query));
+            return promptRelevance(move.label, query).relevant ||
+            ownedQuestionEvidence.has(questionKey(query)) ||
+            (question != null && question.sources.length >= 2) ||
             (move.aeoEvidence?.winnerConsensus?.sharedHeadings ?? []).some(
               (heading) => promptRelevance(heading, query).relevant,
-            ),
+            );
+          },
         ),
       }
     : null;
   const topics = [
     move.label,
     ...input.demandQueries.map((row) => row.query),
-    ...move.fanoutSeeds,
+    ...relevantMoveFanouts,
     ...(relevantAeo?.prompts ?? []),
     ...(relevantAeo?.fanoutQueries ?? []),
   ].filter(Boolean);
@@ -298,6 +356,54 @@ export function buildResearchDossier(input: BuildResearchDossierInput): Research
     }));
 
   const citationIntel = corpus.citationIntelligence;
+
+  const rawFanoutQuestions = uniqueQuestions([
+    ...move.fanoutSeeds,
+    ...(move.aeoEvidence?.fanoutQueries ?? []),
+  ]);
+  const relevantFanoutQuestions = uniqueQuestions([
+    ...relevantMoveFanouts,
+    ...(relevantAeo?.fanoutQueries ?? []),
+  ]);
+  const corroboratedFanoutQuestions = relevantFanoutQuestions.filter((query) => {
+    const row = questionByText.get(questionKey(query));
+    return row != null && row.sources.length >= 2;
+  });
+  const fanoutQuality: DossierFanoutQuality = {
+    relevantQuestions: relevantFanoutQuestions.slice(0, 10),
+    corroboratedQuestions: corroboratedFanoutQuestions.slice(0, 10),
+    withheldIrrelevant: Math.max(0, rawFanoutQuestions.length - relevantFanoutQuestions.length),
+  };
+
+  let clarity: DossierClarityEvidence | null = null;
+  if (targetKey) {
+    const signal = [...(corpus.claritySignals?.entries() ?? [])]
+      .find(([url]) => urlKey(url) === targetKey)?.[1];
+    if (signal) {
+      const decision = routeClarityFriction(signal);
+      if (decision) clarity = { sessions: signal.sessions, ...decision };
+    }
+  }
+
+  const competitorForensics: DossierCompetitorForensics[] = (corpus.competitorForensics ?? [])
+    .filter((report) =>
+      (!!targetKey && urlKey(report.equivalentPageUrl) === targetKey) ||
+      move.competitorUrls.some((url) => urlKey(url) === urlKey(report.theirUrl)) ||
+      report.prompts.some((row) => bestTopicMatch(row.promptText, topics) >= 0.6),
+    )
+    .sort((a, b) => b.theirCitationTotal - a.theirCitationTotal)
+    .slice(0, 3)
+    .map((report) => ({
+      domain: report.domain,
+      displayName: report.displayName,
+      theirUrl: report.theirUrl,
+      theirCitationTotal: report.theirCitationTotal,
+      equivalentPageUrl: report.equivalentPageUrl,
+      gaps: report.gaps.slice(0, 5),
+      citedPrompts: report.prompts.slice(0, 5).map((row) => row.promptText),
+      theirDescriptors: report.descriptors.theirs.slice(0, 6),
+      ourDescriptors: report.descriptors.ours.slice(0, 6),
+    }));
   const driftEvents = (citationIntel?.drift.events ?? [])
     .filter((event) =>
       (event.relatedMoveLabel != null && norm(event.relatedMoveLabel) === norm(move.label)) ||
@@ -352,6 +458,8 @@ export function buildResearchDossier(input: BuildResearchDossierInput): Research
   if (citationIntelligence?.patterns) sources.add("citation_patterns");
   if (citationIntelligence?.driftEvents.length) sources.add("answer_drift");
   if (citationIntelligence?.secondOrderSources.length) sources.add("second_order_citations");
+  if (clarity) sources.add("clarity_behavior");
+  if (competitorForensics.length > 0) sources.add("competitor_forensics");
 
   const stable: Omit<ResearchDossier, "builtAt" | "evidenceHash"> = {
     tenantId,
@@ -363,6 +471,9 @@ export function buildResearchDossier(input: BuildResearchDossierInput): Research
     questions,
     ai: relevantAeo,
     cloneBriefs,
+    ...(clarity ? { clarity } : {}),
+    ...(competitorForensics.length > 0 ? { competitorForensics } : {}),
+    fanoutQuality,
     ...(citationIntelligence ? { citationIntelligence } : {}),
     evidenceSources: [...sources].sort(),
   };
@@ -394,6 +505,23 @@ export function researchDossierHints(dossier: ResearchDossier | null | undefined
       `AI evidence: ${dossier.ai.promptCount} matched prompts, ${dossier.ai.fanoutQueries.length} fan-out questions, ` +
       `${dossier.ai.ownCitationCount} owned citations, ${dossier.ai.competitorCitationCount} competitor citations` +
       `${domains ? `; top cited competitors: ${domains}` : ""}. Preferred content shape: ${dossier.ai.recommendedContentShape}.`,
+    );
+  }
+  if (dossier.fanoutQuality && (dossier.fanoutQuality.relevantQuestions.length > 0 || dossier.fanoutQuality.withheldIrrelevant > 0)) {
+    hints.push(
+      `AI question quality check: ${dossier.fanoutQuality.relevantQuestions.length} relevant fan-out questions kept, ` +
+      `${dossier.fanoutQuality.corroboratedQuestions.length} corroborated by another source, ` +
+      `${dossier.fanoutQuality.withheldIrrelevant} off-topic questions withheld.`,
+    );
+  }
+  if (dossier.clarity) {
+    hints.push(`Visitor behavior across ${dossier.clarity.sessions} Clarity sessions: ${dossier.clarity.evidence}. ${dossier.clarity.reason}`);
+  }
+  for (const report of dossier.competitorForensics ?? []) {
+    const gaps = report.gaps.map((gap) => gap.sentence).join(" ");
+    hints.push(
+      `Why ${report.displayName} wins: ${report.theirCitationTotal} citations across matched answers` +
+      `${gaps ? `. Verified structural gaps: ${gaps}` : ". No structural gap is claimed without a captured page."}`,
     );
   }
   for (const brief of dossier.cloneBriefs.slice(0, 2)) {
@@ -440,6 +568,7 @@ export function dossierReferenceCandidates(dossier: ResearchDossier | null | und
   if (!dossier) return [];
   return [...new Set([
     ...dossier.cloneBriefs.map((brief) => brief.url),
+    ...(dossier.competitorForensics ?? []).map((report) => report.theirUrl),
     ...(dossier.ai?.topCitedPages ?? []).filter((page) => !page.isOwned).map((page) => page.url),
     ...(dossier.citationIntelligence?.secondOrderSources ?? []).map((source) => source.exampleCitedUrl),
   ].filter(Boolean))].slice(0, 10);

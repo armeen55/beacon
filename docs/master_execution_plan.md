@@ -3262,6 +3262,12 @@ Repeated-source strength must preserve the stored aggregate citation count. A se
 be used as a source/distribution lead, never as automatic proof of a factual claim or permission to
 send outreach.
 
+**Evidence-depth convergence boundary, 2026-07-17:** Clarity behavior, citation-backed competitor
+forensics, and AI fanout quality converge before drafting in the same ResearchDossier. Behavior may
+prescribe a fix only above deterministic session/rate floors; competitor gaps require a captured
+page plus cited prompts; fanouts must pass move relevance before they can widen keyword matching,
+with multi-source corroboration tracked separately. None creates a parallel ranker or customer UI.
+
 ## FUTURE IDEAS (not in current execution plan)
 
 These are ideas, experiments, and dream-state features that are NOT in the active phases. They live here so they are never lost. Move to `NEXT_PHASE_EXECUTION_PLAN.md` only when they become active work.

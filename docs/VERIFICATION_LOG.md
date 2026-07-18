@@ -36374,3 +36374,25 @@ Release: commit `5a892dd077067435a9074b2d6565992e4afd7b15` was pushed to `origin
 Vercel deployment `dpl_75KYzWB1N32RbW3P6f77nZWvca8y` reached Ready and production
 `/api/version` returned that exact SHA. Unauthenticated `/`, `/today`, `/changes`, and `/results`
 returned their expected 307 login continuations.
+
+## 2026-07-17 - Clarity, competitor forensics, and fanout QA converge
+
+Connected three remaining evidence-depth gaps to the canonical ResearchDossier. Page-matched
+Clarity metrics now route through the existing deterministic friction router and contribute an
+exact behavior-backed fix instruction only above its session and rate floors. The existing
+"why them, not you" engine now has a bounded tenant-explicit loader over configured competitors,
+page-level citation evidence, captured competitor structure, owned snapshots, prompts, and answer
+observations; only reports with the existing citation and concrete-prompt floors reach the current
+move. Fanout relevance is applied before fanout text may expand topic matching, closing a leak where
+an off-topic AI question could still pull unrelated keyword evidence after being removed from the
+visible AI block. Relevant and multi-source-corroborated fanouts are recorded separately and
+withheld rows remain observable in the dossier.
+
+The path is read-only and cache-backed. It performs no crawl, native poll, DataForSEO call, customer
+data mutation, or automatic publish, and adds no customer surface, button, cron dependency, ranker,
+or serial autonomous stage. Verification before release: focused dossier/forensics/Clarity/question
+pass 4 files / 34 tests plus final convergence/route-isolation/architecture pass 5 files / 35 tests;
+strict typecheck; lint exit 0 with 91 pre-existing warnings and zero errors; complete suite 1,515
+files / 23,012 passed / 23 conditional skips / 0 failed; production build exit 0 with only the
+existing protected middleware-filename deprecation; dependency audit zero; `git diff --check`
+clean. No paid provider call, hosted environment mutation, or customer-data mutation was performed.

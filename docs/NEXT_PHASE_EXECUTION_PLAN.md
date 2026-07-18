@@ -5,7 +5,8 @@
 This is the operator's live priority order. I work it strictly top to bottom. The dated
 chronology of what already landed lives in VERIFICATION_LOG.md; this list is only what is next.
 
-> 🟡 **2026-07-17 exhaustive audit execution loop — SLICES 1–5 DEPLOYED.**
+> 🟡 **2026-07-17 exhaustive audit execution loop — SLICES 1–5 DEPLOYED; SLICE 6
+> CODE-COMPLETE.**
 > Competitor teardown evidence is tenant-explicit from orchestration through cache persistence and
 > deployed at `5a869835`; production returned the exact SHA. `/changes/[id]` now resolves the
 > tenant's fresh changelog row and hands every outcome question to the canonical proof-gsc Results
@@ -19,7 +20,9 @@ chronology of what already landed lives in VERIFICATION_LOG.md; this list is onl
 > `49d56191` and exact-SHA verified. Citation phrasing, answer drift, and second-order citations now
 > converge into the same dossier during the autonomous knowledge stage, with real aggregate counts
 > and explicit tenant cache reads. Slice 5 is deployed at `5a892dd0` and exact-SHA verified.
-> **Next:** connect competitor-forensics, Clarity-depth, and generalized fanout QA evidence.
+> Page-matched Clarity friction, citation-backed competitor forensics, and fanout relevance/
+> corroboration now converge into the canonical dossier without a new surface or paid call.
+> **Next:** deploy slice 6, then remove/archive superseded engines, UI remnants, and stubs.
 >
 > The tenant-boundary slice removed all ambient read/write seams in the production graph and is
 > pinned by read-and-write isolation tests.

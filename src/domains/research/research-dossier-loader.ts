@@ -7,6 +7,8 @@ import { readCloneBriefResults } from "@/domains/serp/clone-brief-store";
 import { loadQuestionUniverseForTenant } from "./question-universe-loader";
 import type { ResearchCorpus } from "./research-dossier";
 import { readCitationIntelligenceForTenant } from "@/domains/ai-visibility/citation-intelligence-snapshot";
+import { loadClarityPageSignalsForTenant } from "@/domains/recommendation-intelligence/clarity-page-signals";
+import { loadCompetitorForensicsForTenant } from "./competitor-forensics-loader";
 
 /**
  * Read every already-paid/crawled research store needed to build per-move
@@ -26,15 +28,19 @@ export async function loadResearchCorpusForTenant(
       cloneBriefs: [],
       questions: [],
       citationIntelligence: null,
+      claritySignals: new Map(),
+      competitorForensics: [],
     };
   }
   return await runWithTenant(tenantId, async () => {
-    const [keywordLibrary, serpPatterns, cloneResult, questions, citationIntelligence] = await Promise.all([
+    const [keywordLibrary, serpPatterns, cloneResult, questions, citationIntelligence, claritySignals, competitorForensics] = await Promise.all([
       loadKeywordLibraryForTenant(tenantId).catch(() => ({ rows: [], volumeCoverage: 0, total: 0, bySource: {} as ResearchCorpus["keywordLibrary"]["bySource"] })),
       readCachedSerpPatterns().catch(() => new Map()),
       readCloneBriefResults(tenantId, now).catch(() => null),
       loadQuestionUniverseForTenant(tenantId).catch(() => []),
       readCitationIntelligenceForTenant(tenantId).catch(() => null),
+      loadClarityPageSignalsForTenant(tenantId, now).catch(() => new Map()),
+      loadCompetitorForensicsForTenant(tenantId).catch(() => []),
     ]);
     return {
       keywordLibrary,
@@ -42,6 +48,8 @@ export async function loadResearchCorpusForTenant(
       cloneBriefs: cloneResult?.briefs ?? [],
       questions,
       citationIntelligence,
+      claritySignals,
+      competitorForensics,
     };
   });
 }

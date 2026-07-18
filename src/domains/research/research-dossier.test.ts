@@ -125,6 +125,31 @@ function corpus(): ResearchCorpus {
       priority: 140,
       builtAt: "2026-07-14T00:00:00.000Z",
     }],
+    claritySignals: new Map([["https://iranopedia.com/nowruz/", {
+      url: "https://iranopedia.com/nowruz/",
+      sessions: 100,
+      rageClicks: 1,
+      deadClicks: 2,
+      quickbacks: 42,
+      excessiveScroll: 0,
+      scriptErrors: 0,
+      rageRate: 0.01,
+      deadRate: 0.02,
+      quickbackRate: 0.42,
+      scrollDepthPct: 0.6,
+      engagementSeconds: 45,
+    }]]),
+    competitorForensics: [{
+      domain: "winner.example",
+      displayName: "Winner",
+      theirUrl: "https://winner.example/nowruz-guide",
+      theirTitle: "Nowruz guide",
+      theirCitationTotal: 9,
+      equivalentPageUrl: "https://iranopedia.com/nowruz",
+      gaps: [{ dimension: "faq", theirs: "5 answered questions", ours: "none", sentence: "Their page answers 5 common questions; yours answers none." }],
+      prompts: [{ promptText: "what are nowruz traditions", platform: "ChatGPT", lastSeen: "2026-07-14", theirRank: 1, ourRank: null, theyWereFirst: true }],
+      descriptors: { theirs: ["complete", "authoritative"], ours: ["brief"] },
+    }],
     citationIntelligence: {
       tenantId: "tenant-iranopedia",
       computedAt: "2026-07-14T00:00:00.000Z",
@@ -196,6 +221,8 @@ describe("buildResearchDossier", () => {
       "citation_patterns",
       "answer_drift",
       "second_order_citations",
+      "clarity_behavior",
+      "competitor_forensics",
     ]));
     expect(dossierReferenceCandidates(dossier)).toEqual([
       "https://winner.example/nowruz-guide",
@@ -208,6 +235,10 @@ describe("buildResearchDossier", () => {
     expect(researchDossierHints(dossier).join(" ")).toContain("Observed citation phrasing");
     expect(researchDossierHints(dossier).join(" ")).toContain("brand dropped");
     expect(researchDossierHints(dossier).join(" ")).toContain("Second-order citation evidence");
+    expect(researchDossierHints(dossier).join(" ")).toContain("42% quick-back rate");
+    expect(researchDossierHints(dossier).join(" ")).toContain("Why Winner wins");
+    expect(researchDossierHints(dossier).join(" ")).toContain("off-topic questions withheld");
+    expect(dossier.fanoutQuality?.corroboratedQuestions).toContain("what happens at haft sin");
   });
 
   it("drops an unrelated AI fanout even when the parent topic has valid native evidence", () => {
@@ -238,6 +269,20 @@ describe("buildResearchDossier", () => {
     });
     expect(dossier.ai?.fanoutQueries).toEqual([]);
     expect(dossier.evidenceSources).not.toContain("ai_fanout");
+  });
+
+  it("withholds unrelated move fanouts before they can widen keyword matching", () => {
+    const m = move();
+    m.fanoutSeeds = ["best plumbing company", "when is nowruz 2027"];
+    const dossier = buildResearchDossier({
+      tenantId: "tenant-iranopedia",
+      move: m,
+      demandQueries: [{ query: "nowruz traditions", impressions: 1200 }],
+      corpus: corpus(),
+      nowIso: "2026-07-14T00:00:00.000Z",
+    });
+    expect(dossier.keywords.some((row) => row.query === "best plumbing company")).toBe(false);
+    expect(dossier.fanoutQuality?.withheldIrrelevant).toBe(1);
   });
 
   it("does not mix unrelated high-volume research into the move", () => {
