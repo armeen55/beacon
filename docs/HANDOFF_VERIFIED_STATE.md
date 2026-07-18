@@ -1,7 +1,7 @@
 # Beacon Verified State
 
-> 🟡 **The 2026-07-17 evidence-depth convergence slice is code-complete and awaiting release
-> verification.** The live ResearchDossier now adds page-matched Clarity friction decisions and
+> 🟢 **The 2026-07-17 evidence-depth convergence slice is deployed and exact-SHA verified at
+> `46fe9517` (Vercel `dpl_FEHMGhczSg7QSLovu4oTqXZSo43U`).** The live ResearchDossier now adds page-matched Clarity friction decisions and
 > the existing citation-backed "why them, not you" competitor forensics to the same PreparedMove
 > path. Fanout questions are quality-gated before they may widen the topic/keyword match set;
 > irrelevant fanouts are counted and withheld, while multi-source questions are marked as
@@ -9,8 +9,9 @@
 > the existing citation/prompt floors. No new screen, button, cron dependency, provider call, or
 > serial background stage was added. Verification: focused convergence and route-isolation passes
 > green; strict typecheck and lint; complete suite 1,515 files / 23,012 passed / 23 conditional
-> skips / 0 failed; production build and dependency audit exit 0; `git diff --check` clean. Next is
-> release, then cleanup of superseded engines and UI remnants.
+> skips / 0 failed; production build and dependency audit exit 0; `git diff --check` clean.
+> Production `/api/version` returned the exact full SHA and core route contracts were correct. Next
+> is cleanup of superseded engines and UI remnants.
 
 > 🟢 **The 2026-07-17 citation-intelligence convergence slice is deployed and exact-SHA verified at
 > `5a892dd0` (Vercel `dpl_75KYzWB1N32RbW3P6f77nZWvca8y`).** The autonomous knowledge stage now mines real quoted-sentence patterns,

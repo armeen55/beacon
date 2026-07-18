@@ -36396,3 +36396,8 @@ strict typecheck; lint exit 0 with 91 pre-existing warnings and zero errors; com
 files / 23,012 passed / 23 conditional skips / 0 failed; production build exit 0 with only the
 existing protected middleware-filename deprecation; dependency audit zero; `git diff --check`
 clean. No paid provider call, hosted environment mutation, or customer-data mutation was performed.
+
+Release: commit `46fe9517fc3d4d46d09f0f50e51123d7b4010eb0` was pushed to `origin/main`.
+Vercel deployment `dpl_FEHMGhczSg7QSLovu4oTqXZSo43U` reached Ready and production
+`/api/version` returned that exact SHA. Unauthenticated `/`, `/today`, `/changes`, and `/results`
+returned their expected 307 login continuations.
