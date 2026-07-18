@@ -10,12 +10,22 @@ import {
   summarizeJobReceipts,
   ABANDONED_RUN_GRACE_MS,
 } from "./deadman";
-import { findScheduleForJob, type CronScheduleEntry } from "./cron-schedule-map";
+import type { CronScheduleEntry } from "./cron-schedule-map";
 
-const SYNC = findScheduleForJob("sync-connectors")!; // "0 9 * * *" daily
-const MEASURE = findScheduleForJob("measure-due")!; // "30 9 * * *" daily
-const AI = findScheduleForJob("ai-engines")!; // "17 10 * * 1,3,5"
-const FACTORY = findScheduleForJob("page-factory")!; // "47 13 * * 1" weekly
+// Historical schedule math stays unit-tested with explicit fixtures even
+// though the live deployment intentionally has no Vercel schedules.
+const SYNC: CronScheduleEntry = {
+  job: "sync-connectors", path: "/api/cron/sync-connectors", schedule: "0 9 * * *", label: "Nightly data sync",
+};
+const MEASURE: CronScheduleEntry = {
+  job: "measure-due", path: "/api/cron/measure-due", schedule: "30 9 * * *", label: "Nightly results check",
+};
+const AI: CronScheduleEntry = {
+  job: "ai-engines", path: "/api/cron/ai-engines", schedule: "17 10 * * 1,3,5", label: "AI answer check",
+};
+const FACTORY: CronScheduleEntry = {
+  job: "page-factory", path: "/api/cron/page-factory", schedule: "47 13 * * 1", label: "Weekly new-page batch",
+};
 
 function latest(map: Record<string, string | null>): Map<string, string | null> {
   return new Map(Object.entries(map));

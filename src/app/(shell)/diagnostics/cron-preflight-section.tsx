@@ -20,6 +20,14 @@ export function CronPreflightSection() {
   const result = runCronPreflight(declared, process.env as Record<string, string | undefined>);
 
   if (result.ok) {
+    if (result.cronsDeclared === 0 && result.cronsMapped === 0) {
+      return (
+        <p className="-mt-4 text-xs text-muted-foreground" data-diagnostic="cron-preflight">
+          No Vercel schedules are configured. Beacon advances after authenticated use and records
+          that work through its visit and source-refresh receipts.
+        </p>
+      );
+    }
     return (
       <p className="-mt-4 text-xs text-muted-foreground" data-diagnostic="cron-preflight">
         Nightly machinery preflight: all {result.cronsDeclared} scheduled jobs are declared and

@@ -23,6 +23,11 @@ describe("CRON_SCHEDULE_MAP pins vercel.json", () => {
     }
   });
 
+  it("keeps Vercel scheduling disabled because authenticated use drives upkeep", () => {
+    expect(readVercelCrons()).toEqual([]);
+    expect(CRON_SCHEDULE_MAP).toEqual([]);
+  });
+
   it("does not contain any entry NOT present in vercel.json (stale/removed cron)", () => {
     const real = readVercelCrons();
     const realPaths = new Set(real.map((c) => c.path));
@@ -67,8 +72,8 @@ describe("nextScheduledRun", () => {
 });
 
 describe("findScheduleForJob", () => {
-  it("finds a known job", () => {
-    expect(findScheduleForJob("sync-connectors")?.path).toBe("/api/cron/sync-connectors");
+  it("does not pretend guarded maintenance routes are scheduled", () => {
+    expect(findScheduleForJob("sync-connectors")).toBeNull();
   });
 
   it("returns null for an unknown job", () => {

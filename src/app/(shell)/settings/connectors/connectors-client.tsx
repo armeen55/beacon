@@ -39,9 +39,8 @@ type SelectedLocation = { id: string; name: string } | null;
 
 type LocationOption = { locationId: string; locationName: string; address: string | null };
 
-/** FP10a (2026-07-02) - "last night's sync" state for the summary strip,
- *  computed server-side in page.tsx from the sync-connectors cron job. */
-export type LastSyncState = "ok" | "issues" | "none";
+/** Real on-use lifecycle state for the summary strip. */
+export type AutonomousHealthState = "ok" | "working" | "issues" | "none";
 
 /**
  * 2026-05-16, GSC scope split: the Google card is GSC-focused for v1.
@@ -103,10 +102,9 @@ type Props = {
    *  older render-test callers (pre-FP10a) working without every prop. */
   connectedCount?: number;
   totalCount?: number;
-  /** FP10a (2026-07-02), "last night's sync" state + plain-English headline,
-   *  read from the same sync-connectors cron job the health panel renders. */
-  lastSyncState?: LastSyncState;
-  lastSyncHeadline?: string;
+  /** Plain-English state derived from durable on-use source + warm receipts. */
+  autonomousState?: AutonomousHealthState;
+  autonomousHeadline?: string;
   /** T0b (2026-07-03), how many pages Wix's url map currently covers.
    *  Computed server-side in page.tsx from getWixUrlMap().length. A
    *  connected-but-zero-mapped Wix can't publish anything, this drives the
@@ -374,8 +372,8 @@ export function ConnectorsClient({
   ga4StaleCopy = null,
   connectedCount = 0,
   totalCount = 5,
-  lastSyncState = "none",
-  lastSyncHeadline = "I have not run yet.",
+  autonomousState = "none",
+  autonomousHeadline = "starts when you use Beacon.",
   wixUrlMapCount = 0,
   refreshLedger = {},
 }: Props) {
@@ -800,22 +798,18 @@ export function ConnectorsClient({
   const anySync = googleSyncInFlight;
 
   // FP10a (2026-07-02) - one health color for the summary strip. All
-  // connected + last sync clean is "live"; any sync issue is "attention";
+  // connected + latest upkeep clean is "live"; any issue is "attention";
   // still missing sources is "waiting"; nothing connected yet is "neutral".
   const summaryIntent =
-    lastSyncState === "issues"
+    autonomousState === "issues"
       ? "attention"
+      : autonomousState === "working"
+        ? "waiting"
       : connectedCount >= totalCount && connectedCount > 0
         ? "live"
         : connectedCount > 0
           ? "waiting"
           : "neutral";
-
-  // lastSyncHeadline (from cron-health-view's buildHeadline) already ends in
-  // its own period ("I showed up 7 of 7 nights this week."); the "none"
-  // fallback doesn't, so only that branch gets one appended below.
-  const lastSyncCopy =
-    lastSyncState === "none" ? "has not run yet." : lastSyncHeadline;
 
   return (
     <div className="space-y-6">
@@ -833,7 +827,7 @@ export function ConnectorsClient({
           {connectedCount} of {totalCount} connected
         </Pill>
         <p className="text-[12px] text-muted-foreground">
-          Last night&rsquo;s sync: {lastSyncCopy}
+          Automatic upkeep: {autonomousHeadline}
         </p>
       </div>
       <p className="text-[12px] text-muted-foreground leading-relaxed">

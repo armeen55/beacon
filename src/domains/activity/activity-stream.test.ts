@@ -81,7 +81,7 @@ describe("composeActivityStream (R14a)", () => {
     expect(a.href).toBe("/results#proof-/a::2026-07-01");
   });
 
-  it("cron receipts wear their PLAIN job names, never a raw key", () => {
+  it("unscheduled maintenance receipts wear plain names without claiming a schedule", () => {
     const events = composeActivityStream(
       {
         ...EMPTY,
@@ -92,9 +92,9 @@ describe("composeActivityStream (R14a)", () => {
       },
       NOW,
     );
-    expect(events[0]!.title).toBe("Nightly data sync");
-    expect(events[0]!.sentence).toBe("This ran on schedule and took 12 seconds.");
-    expect(events[1]!.title).toBe("Nightly results check");
+    expect(events[0]!.title).toBe("Sync connectors");
+    expect(events[0]!.sentence).toBe("This maintenance run completed and took 12 seconds.");
+    expect(events[1]!.title).toBe("Measure due");
     expect(events[1]!.sentence).toContain("This run failed.");
     expect(JSON.stringify(events)).not.toContain("sync-connectors");
   });

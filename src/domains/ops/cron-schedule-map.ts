@@ -24,58 +24,10 @@ export type CronScheduleEntry = {
   label: string;
 };
 
-// Mirror of vercel.json's `crons` array. Keep job identifiers aligned with
-// the `job` string each cron route passes to beginCronRun / finishCronRun.
-export const CRON_SCHEDULE_MAP: readonly CronScheduleEntry[] = [
-  {
-    job: "publish-canary",
-    path: "/api/cron/publish-canary",
-    schedule: "51 8 * * *",
-    label: "Wix connection check",
-  },
-  {
-    job: "sync-connectors",
-    path: "/api/cron/sync-connectors",
-    schedule: "0 9 * * *",
-    label: "Nightly data sync",
-  },
-  {
-    job: "measure-due",
-    path: "/api/cron/measure-due",
-    schedule: "30 9 * * *",
-    label: "Nightly results check",
-  },
-  {
-    job: "autopilot",
-    path: "/api/cron/autopilot",
-    schedule: "7 10 * * *",
-    label: "Autopilot auto-ship",
-  },
-  {
-    job: "ai-engines",
-    path: "/api/cron/ai-engines",
-    schedule: "17 10 * * 1,3,5",
-    label: "AI answer check (Mon/Wed/Fri)",
-  },
-  {
-    job: "precompute",
-    path: "/api/cron/precompute",
-    schedule: "3 12 * * *",
-    label: "Getting drafts ready",
-  },
-  {
-    job: "page-factory",
-    path: "/api/cron/page-factory",
-    schedule: "47 13 * * 1",
-    label: "Weekly new-page batch (Monday)",
-  },
-  {
-    job: "strategy-review",
-    path: "/api/cron/strategy-review",
-    schedule: "33 13 * * 0",
-    label: "Weekly strategy review (Sunday)",
-  },
-];
+// The product advances from the authenticated shell's post-response on-use
+// runner. Cron routes remain as guarded maintenance entry points, but Vercel
+// does not schedule them and customer readiness never depends on them.
+export const CRON_SCHEDULE_MAP: readonly CronScheduleEntry[] = [];
 
 /**
  * Parse a 5-field cron expression's next UTC fire time after `from`. Supports

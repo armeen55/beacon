@@ -4,6 +4,18 @@ let runsByJob: Record<string, unknown[]> = {};
 vi.mock("./cron-runs-store", () => ({
   listRecentCronRuns: async (job: string) => runsByJob[job] ?? [],
 }));
+vi.mock("./cron-schedule-map", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./cron-schedule-map")>();
+  return {
+    ...actual,
+    CRON_SCHEDULE_MAP: [{
+      job: "sync-connectors",
+      path: "/api/cron/sync-connectors",
+      schedule: "0 9 * * *",
+      label: "Nightly data sync",
+    }],
+  };
+});
 
 import { loadCronHealthView } from "./cron-health-view";
 import { CRON_SCHEDULE_MAP } from "./cron-schedule-map";

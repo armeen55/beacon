@@ -108,12 +108,19 @@ export function runCronPreflight(
   env: Record<string, string | undefined>,
   map: ReadonlyArray<CronScheduleEntry> = CRON_SCHEDULE_MAP,
 ): CronPreflightResult {
-  const findings = [...checkCronRegistration(declared, map), ...checkRequiredEnv(env)];
+  // No declared/mapped schedules is an intentional on-use deployment, not a
+  // broken nightly system. In that mode CRON_SECRET and cron-only provider
+  // prerequisites cannot be release gates.
+  const scheduled = declared.length > 0 || map.length > 0;
+  const findings = [
+    ...checkCronRegistration(declared, map),
+    ...(scheduled ? checkRequiredEnv(env) : []),
+  ];
   return {
     ok: findings.length === 0,
     findings,
     cronsDeclared: declared.length,
     cronsMapped: map.length,
-    envChecked: REQUIRED_ENV.length,
+    envChecked: scheduled ? REQUIRED_ENV.length : 0,
   };
 }

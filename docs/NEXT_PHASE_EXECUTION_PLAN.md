@@ -5,6 +5,19 @@
 This is the operator's live priority order. I work it strictly top to bottom. The dated
 chronology of what already landed lives in VERIFICATION_LOG.md; this list is only what is next.
 
+> 🟡 **2026-07-17 acceptance hardening — RELEASE PENDING.** Beacon now has one honest autonomous
+> operating model: Vercel schedules are intentionally empty, while normal authenticated use starts
+> the bounded post-response visit runner and persists visit/source receipts. Connections reports
+> those receipts instead of inferring a nightly sync. Blind validation is now a server-sealed,
+> append-only preregister → predict → reveal protocol bound to the live release SHA; reused IDs,
+> revealed-before-predicted cases, and cases whose build changed are refused or spent. Verification
+> is green at 1,536 files / 23,080 passed / 23 conditional skips / 0 failed plus typecheck, lint,
+> build, audit, and diff checks. **Strict order after deployment:** (1) execute five genuinely unseen
+> hosted cases through all three phases; (2) make one authenticated hosted visit and confirm the
+> on-use visit/source receipt plus Today/Changes/Results timings; (3) enter real unit economics;
+> (4) reconnect Ritz; (5) approve and publish one Iranopedia move; (6) verify it live and wait for
+> the predeclared measurement windows. No extra product surface belongs ahead of those gates.
+
 > 🟢 **2026-07-17 code-verifiable trust backlog — CLOSED, deployed, exact-SHA verified.** Durable blind-run
 > receipts, push fail-closed behavior, mark-shipped authorization, schema revert restoration,
 > accept idempotency, live-slug duplicate protection, fan-out parsing, GA4 pagination, stable page
@@ -18,8 +31,9 @@ chronology of what already landed lives in VERIFICATION_LOG.md; this list is onl
 > Union and batch-planner callouts require no resurrection. Release
 > `9350d0dce45b041ee0d363a3f6da0c3924be1d92` is live in Vercel deployment
 > `dpl_5eBWaXqFgrX6CdUDFQuAtQNVmmrF`, and production returned the exact SHA. **Next, in strict
-> order:** (1) run five genuinely unseen blind cases against the hosted release and register the
-> immutable receipt; (2) observe one scheduled-refresh receipt in production; (3) enter real unit
+> order:** (1) run five genuinely unseen blind cases against the hosted release through the
+> server-sealed phased protocol; (2) observe one authenticated on-use visit/source receipt in
+> production; (3) enter real unit
 > economics before certifying revenue; (4) reconnect Ritz as the second tenant; (5) approve and
 > publish one Iranopedia move; (6) verify it live and wait for the
 > predeclared measurement windows before claiming learning. No additional feature surface belongs
@@ -247,9 +261,9 @@ chronology of what already landed lives in VERIFICATION_LOG.md; this list is onl
    copy no longer asks for a manual refresh.
 21. **Fresh blind unseen-topic benchmark.** Run 5 preregistered cases not used to build these
    corrections. A case that changes code is spent and must be replaced.
-22. **Scheduled-refresh receipt.** The first cron run after this deploy must leave a started
-   receipt; that receipt is what proves the scheduled refresh path is alive, since sync-connectors
-   and measure-due missed their 2026-07-11 slots.
+22. **On-use refresh receipt.** No Vercel schedule is a product dependency. The first authenticated
+   visit after this deploy must leave its visit-runner receipt and any due connected-source receipt;
+   those durable records, not an inferred nightly schedule, prove that autonomous upkeep is alive.
 23. **Proof-model replacement with independent validation.** INFRASTRUCTURE LANDED, CERTIFICATION
    HONESTLY BLOCKED ON UNITS, NOT ON METHOD. The verdict classifier now runs under the independent
    statistical validation protocol (predeclaration contract plus a frozen-artifact holdout
@@ -316,16 +330,14 @@ Ranked from the parity-matrix audit, highest leverage first:
 5. **Insertion anchor + winners strip.** Give new recommendations a stable insertion point and add
    a winners strip so a shipped, proven win stays visible instead of scrolling out of view.
 
-**I-59 reframed honestly (2026-07-10):** crons are not off and are not merely a formality. All 8
-crons in `vercel.json` (publish-canary, sync-connectors, measure-due, autopilot, ai-engines,
-precompute, strategy-review, page-factory) are enabled and scheduled; their job is to optimize
-freshness proactively so data is already warm before an operator looks. On-visit warm refresh
-(I-59, W6, 53fc4077) is the guarantee layer underneath the crons: it re-checks staleness on every
-visit and fires the same refresh in the background regardless of whether the cron ran, so a
-missed or failed cron run degrades freshness, not correctness. Publishing itself stays one-click
-either way; nothing about cron reliability blocks or changes the publish path. The item to fix is
-cron reliability (ranked #1 above), not "turn crons on" (they already are) or "replace crons with
-on-visit refresh" (on-visit refresh is a backstop, not a substitute for proactive freshness).
+**I-59 final operating decision (2026-07-17):** Vercel schedules are intentionally empty. Normal
+authenticated use is the primary trigger: the bounded post-response visit runner re-checks source
+staleness, advances research/crawl/preparation, republishes cached surfaces, and records durable
+visit/source receipts. Guarded `/api/cron/*` routes remain only as explicit maintenance endpoints;
+customer health, readiness, and copy may not depend on or infer executions from them. Publishing
+keeps its separate approval and safety path. If Beacon is not used, it makes no promise of a hidden
+nightly run; when it is used, the work starts without a button and the prior complete snapshot stays
+available while the replacement is built.
 
 ## E-39 adaptive control pools (LANDED in worktree e39-impl, operator-approved 2026-07-10)
 

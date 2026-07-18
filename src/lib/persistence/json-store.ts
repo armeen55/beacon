@@ -344,6 +344,10 @@ export const SUPABASE_MIRRORED_STORES = new Set<string>([
   // hosted receipt would disappear with the Vercel instance and the release
   // could never carry durable independent-validation evidence.
   "blind-holdout-receipts",
+  // Server-stamped preregistration/prediction/reveal events. These are the
+  // evidence substrate from which a blind receipt is generated; they must
+  // survive Vercel instance recycling just like the receipt they support.
+  "blind-holdout-case-events",
 ]);
 
 const BLOBS_TABLE = "json_store_blobs";

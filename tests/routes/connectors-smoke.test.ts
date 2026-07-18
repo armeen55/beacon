@@ -28,20 +28,19 @@ vi.mock("next/navigation", () => ({
   usePathname: () => "/settings/connectors",
 }));
 
-// FP10a (2026-07-02) - the summary strip's "last night's sync" fact reads
-// this same job the health panel below renders in full.
-vi.mock("@/domains/ops/cron-health-view", () => ({
-  loadCronHealthView: vi.fn(async () => [
-    {
-      job: "sync-connectors",
-      label: "Nightly data sync",
-      nextScheduledAtIso: null,
-      lastRun: { startedAt: "2026-07-02T09:00:00.000Z", ok: true, durationMs: 1200 },
-      headline: "I showed up 7 of 7 nights this week.",
-      perSourceThisWeek: [],
-      failureStreaks: [],
-    },
-  ]),
+vi.mock("@/domains/ops/refresh-runs-store", () => ({
+  latestRefreshBySource: vi.fn(async () => ({})),
+}));
+vi.mock("@/domains/ops/warm-receipt-store", () => ({
+  readLastWarmReceipt: vi.fn(async () => ({
+    tenant_id: "tenant-iranopedia",
+    date: "2026-07-17",
+    ran_at: "2026-07-18T05:30:00.000Z",
+    ok: true,
+    totalMs: 1200,
+    trigger: "visit",
+    steps: [],
+  })),
 }));
 
 describe("Connectors settings route smoke", () => {
@@ -69,12 +68,12 @@ describe("Connectors settings route smoke", () => {
     // up top plus a single intro sentence.
     expect(html).toContain('data-connectors-summary-strip="true"');
     expect(html).toContain("connected");
-    expect(html).toContain("Last night’s sync:");
+    expect(html).toContain("Automatic upkeep:");
     expect(html).toContain("The only thing I never do on my own is change your live site");
     expect(html).toContain("Manual CSV/JSON import remains available");
   });
 
-  it("computes 'N of M connected' from the real per-provider connector reads, and surfaces last night's sync headline", async () => {
+  it("computes 'N of M connected' from provider reads and surfaces the on-use receipt", async () => {
     const { getConnectorInfo } = await import("@/lib/connector-store");
     vi.mocked(getConnectorInfo).mockImplementation(async (provider: string) => {
       const connected = provider === "google_gsc" || provider === "wix";
@@ -95,8 +94,7 @@ describe("Connectors settings route smoke", () => {
     // 2 of the 5 counted self-serve sources (GSC, GA4, Wix, Profound,
     // Clarity) are connected in this mock.
     expect(html).toContain("2 of 5 connected");
-    // The last-night's-sync fact came from the mocked cron-health-view job,
-    // not a second, independently-worded story.
-    expect(html).toContain("Last night’s sync: I showed up 7 of 7 nights this week.");
+    expect(html).toContain("Automatic upkeep: last finished");
+    expect(html).not.toContain("Last night’s sync");
   });
 });

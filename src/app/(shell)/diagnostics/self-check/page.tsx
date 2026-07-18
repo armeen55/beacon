@@ -25,6 +25,7 @@ import {
   readCurrentBlindHoldoutStatus,
 } from "@/domains/eval/blind-holdout-store";
 import { BlindHoldoutForm } from "./blind-holdout-form";
+import { readBlindHoldoutProgress } from "@/domains/eval/blind-holdout-session-store";
 
 export const dynamic = "force-dynamic";
 
@@ -40,6 +41,7 @@ export default async function SelfCheckPage() {
   const replay = replayGoldBaseline();
   const fallback = runModelFallbackBenchmark();
   const blind = await readCurrentBlindHoldoutStatus();
+  const blindProgress = await readBlindHoldoutProgress(blind.currentSha ?? undefined);
 
   return (
     <div className="space-y-8 p-6">
@@ -73,6 +75,11 @@ export default async function SelfCheckPage() {
           <ul className="mt-2 space-y-1 text-meta text-muted-foreground">
             {blind.validation.reasons.map((reason) => <li key={reason}>{reason}</li>)}
           </ul>
+        ) : null}
+        {blindProgress.length > 0 ? (
+          <p className="mt-2 text-meta text-muted-foreground" data-diagnostic="self-check-blind-progress">
+            Server-sealed progress: {blindProgress.filter((row) => row.expertLabelRevealedAt != null).length} revealed, {blindProgress.filter((row) => row.predictionRecordedAt != null && row.expertLabelRevealedAt == null).length} awaiting expert labels, {blindProgress.filter((row) => row.predictionRecordedAt == null).length} awaiting predictions.
+          </p>
         ) : null}
         {blind.state !== "eligible" && blind.state !== "missing_build" ? <BlindHoldoutForm /> : null}
       </section>

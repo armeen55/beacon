@@ -14,12 +14,12 @@ import { loadGscIngestionGapReport } from "@/domains/gsc/load-ingestion-gaps";
 import { ingestionGapLine } from "@/domains/gsc/ingestion-gaps";
 import { currentTenantId } from "@/lib/tenant-context";
 import { latestRefreshBySource } from "@/domains/ops/refresh-runs-store";
+import { readLastWarmReceipt } from "@/domains/ops/warm-receipt-store";
+import { buildAutonomousHealth } from "@/domains/ops/autonomous-health";
 import { PageHeader } from "@/components/data/page-header";
-import { ConnectorsClient, type LastSyncState, type RefreshLedgerFacts } from "./connectors-client";
+import { ConnectorsClient, type RefreshLedgerFacts } from "./connectors-client";
 import { PublishingModeCard } from "./publishing-mode-card";
 import { AutopilotCard } from "./autopilot-card";
-import { CronHealthPanel } from "./cron-health-panel";
-import { loadCronHealthView } from "@/domains/ops/cron-health-view";
 import { loadWithDeadline } from "@/lib/load-with-deadline";
 import { HonestDelay } from "@/components/honest-delay";
 
@@ -34,9 +34,6 @@ const CONNECTORS_DEADLINE_MS = 15_000;
 /** Everything the page body needs, loaded exactly as before - just gathered into one
  *  bounded unit. Behavior of each individual read is unchanged. */
 async function loadConnectorsPageData() {
-  // Awaited as a function call (not a JSX tag) so the async panel resolves before
-  // render - renderToStaticMarkup in the route tests cannot handle a suspending child.
-  const cronHealthPanel = await CronHealthPanel();
   // GSC is the v1 Google card. GBP card is deferred (Section 7 wire-up).
   // GA4 card added in Slice 9.A1β (2026-05-18) — consumes the GA4
   // connector substrate that shipped in Slice 9.A1α (commit e88a060).
@@ -154,9 +151,17 @@ async function loadConnectorsPageData() {
   // strip rather than blocking the page. Sourced from the SAME ledger the cron,
   // manual, and on-use refresh paths all record into.
   let refreshLedger: RefreshLedgerFacts = {};
+  let autonomousHealth = buildAutonomousHealth({
+    receipt: null,
+    latestBySource: {},
+    connectedSources: [],
+  });
   try {
     const tid = await currentTenantId();
-    const latest = await latestRefreshBySource(tid);
+    const [latest, warmReceipt] = await Promise.all([
+      latestRefreshBySource(tid),
+      readLastWarmReceipt(tid, "visit"),
+    ]);
     const facts: RefreshLedgerFacts = {};
     for (const key of ["gsc", "ga4", "clarity", "profound"] as const) {
       const row = latest[key];
@@ -170,28 +175,21 @@ async function loadConnectorsPageData() {
       }
     }
     refreshLedger = facts;
+    autonomousHealth = buildAutonomousHealth({
+      receipt: warmReceipt,
+      latestBySource: latest,
+      connectedSources: [
+        ...(googleGsc.status === "connected" ? ["gsc" as const] : []),
+        ...(googleGa4.status === "connected" ? ["ga4" as const] : []),
+        ...(clarity.status === "connected" ? ["clarity" as const] : []),
+        ...(profound.status === "connected" ? ["profound" as const] : []),
+      ],
+    });
   } catch {
     refreshLedger = {};
   }
 
-  // "Last night's sync" reads the same sync-connectors cron job the health
-  // panel below renders in full - one source of truth, not a second story.
-  let lastSyncState: LastSyncState = "none";
-  let lastSyncHeadline = "I have not run yet.";
-  try {
-    const jobs = await loadCronHealthView();
-    const syncJob = jobs.find((j) => j.job === "sync-connectors");
-    if (syncJob?.lastRun) {
-      lastSyncState = syncJob.lastRun.ok ? "ok" : "issues";
-      lastSyncHeadline = syncJob.headline;
-    }
-  } catch {
-    // Soft-fail: the health panel below will show its own honest state;
-    // the summary strip just falls back to "none".
-  }
-
   return {
-    cronHealthPanel,
     googleGsc,
     googleGa4,
     wix,
@@ -204,8 +202,7 @@ async function loadConnectorsPageData() {
     ga4StaleCopy,
     connectedCount,
     totalCount,
-    lastSyncState,
-    lastSyncHeadline,
+    autonomousHealth,
     wixUrlMapCount,
     refreshLedger,
   };
@@ -229,7 +226,6 @@ export default async function ConnectorsPage() {
     );
   }
   const {
-    cronHealthPanel,
     googleGsc,
     googleGa4,
     wix,
@@ -242,8 +238,7 @@ export default async function ConnectorsPage() {
     ga4StaleCopy,
     connectedCount,
     totalCount,
-    lastSyncState,
-    lastSyncHeadline,
+    autonomousHealth,
     wixUrlMapCount,
     refreshLedger,
   } = raced.data;
@@ -268,8 +263,8 @@ export default async function ConnectorsPage() {
         ga4StaleCopy={ga4StaleCopy}
         connectedCount={connectedCount}
         totalCount={totalCount}
-        lastSyncState={lastSyncState}
-        lastSyncHeadline={lastSyncHeadline}
+        autonomousState={autonomousHealth.state}
+        autonomousHeadline={autonomousHealth.headline}
         wixUrlMapCount={wixUrlMapCount}
         refreshLedger={refreshLedger}
       />
@@ -282,11 +277,6 @@ export default async function ConnectorsPage() {
           budget of auto-shipped changes from proven change types. Default OFF. */}
       <div className="mt-6">
         <AutopilotCard />
-      </div>
-      {/* Cron health panel (2026-07-03, item 85) - "I showed up every night this
-          week" for every scheduled job, plus any 3+ night failure streaks. */}
-      <div className="mt-6">
-        {cronHealthPanel}
       </div>
     </div>
   );

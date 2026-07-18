@@ -216,14 +216,17 @@ export function composeActivityStream(inputs: ActivityInputs, now: Date): Activi
   for (const run of inputs.cronRuns) {
     const at = validAt(run.finished_at) ? run.finished_at : run.started_at;
     if (!validAt(at)) continue;
-    const label = findScheduleForJob(run.job)?.label ?? humanizeJob(run.job);
+    const schedule = findScheduleForJob(run.job);
+    const label = schedule?.label ?? humanizeJob(run.job);
     const seconds = Math.max(1, Math.round((run.duration_ms ?? 0) / 1000));
     events.push({
       at,
       kind: "cron",
       title: label,
       sentence: run.ok
-        ? `This ran on schedule and took ${seconds} second${seconds === 1 ? "" : "s"}.`
+        ? schedule
+          ? `This ran on schedule and took ${seconds} second${seconds === 1 ? "" : "s"}.`
+          : `This maintenance run completed and took ${seconds} second${seconds === 1 ? "" : "s"}.`
         : `This run failed. I keep the full receipt on the source health page.`,
       href: "/settings/health",
       linkLabel: "Source health",

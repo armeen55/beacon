@@ -2,16 +2,15 @@
  * FP10a (2026-07-02) — /settings/connectors summary strip render tests.
  *
  * The diagnosis this slice fixes: the same three facts (what's connected,
- * whether last night's sync worked, that nothing auto-publishes without a
+ * whether automatic on-use upkeep worked, that nothing auto-publishes without a
  * click) were stated five-plus times down the page, and connected sources
  * forced a read through four stacked paragraphs of onboarding copy for
  * connections made weeks ago.
  *
  * Pins:
  *   • the summary strip renders "N of M connected" via the Pill primitive,
- *     with the health color following connected count + last-sync state;
- *   • "Last night's sync: <state>" renders from the pre-composed
- *     lastSyncHeadline/lastSyncState props (no page-level re-computation);
+ *     with the health color following connected count + autonomous state;
+ *   • "Automatic upkeep: <state>" renders from pre-composed receipt evidence;
  *   • connected sources collapse into a <details> with a "Manage" affordance
  *     that reveals the disconnect/sync-now controls, not open by default;
  *   • the once-repeated "never changes your live site without approval"
@@ -54,8 +53,8 @@ function render(over: {
   clarity?: ConnectorInfo;
   connectedCount?: number;
   totalCount?: number;
-  lastSyncState?: "ok" | "issues" | "none";
-  lastSyncHeadline?: string;
+  autonomousState?: "ok" | "working" | "issues" | "none";
+  autonomousHeadline?: string;
 } = {}) {
   return renderToStaticMarkup(
     <ConnectorsClient
@@ -69,8 +68,8 @@ function render(over: {
       ga4StaleCopy={null}
       connectedCount={over.connectedCount ?? 0}
       totalCount={over.totalCount ?? 5}
-      lastSyncState={over.lastSyncState ?? "none"}
-      lastSyncHeadline={over.lastSyncHeadline ?? "I have not run yet."}
+      autonomousState={over.autonomousState ?? "none"}
+      autonomousHeadline={over.autonomousHeadline ?? "starts when you use Beacon."}
     />,
   );
 }
@@ -82,17 +81,17 @@ describe("connectors summary strip", () => {
     expect(html).toContain('data-slot="pill"');
     expect(html).toContain('data-intent="neutral"');
     expect(html).toContain("0 of 5 connected");
-    expect(html).toContain("Last night’s sync: has not run yet.");
+    expect(html).toContain("Automatic upkeep: starts when you use Beacon.");
   });
 
   it("renders a 'waiting' color when some but not all sources are connected", () => {
-    const html = render({ connectedCount: 2, totalCount: 5, lastSyncState: "ok" });
+    const html = render({ connectedCount: 2, totalCount: 5, autonomousState: "ok" });
     expect(html).toContain('data-intent="waiting"');
     expect(html).toContain("2 of 5 connected");
   });
 
   it("renders a 'live' color when every source is connected and last sync was clean", () => {
-    const html = render({ connectedCount: 5, totalCount: 5, lastSyncState: "ok" });
+    const html = render({ connectedCount: 5, totalCount: 5, autonomousState: "ok" });
     expect(html).toContain('data-intent="live"');
     expect(html).toContain("5 of 5 connected");
   });
@@ -101,11 +100,16 @@ describe("connectors summary strip", () => {
     const html = render({
       connectedCount: 5,
       totalCount: 5,
-      lastSyncState: "issues",
-      lastSyncHeadline: "I showed up 3 of 7 nights this week.",
+      autonomousState: "issues",
+      autonomousHeadline: "1 connected source needs attention.",
     });
     expect(html).toContain('data-intent="attention"');
-    expect(html).toContain("Last night’s sync: I showed up 3 of 7 nights this week.");
+    expect(html).toContain("Automatic upkeep: 1 connected source needs attention.");
+  });
+
+  it("uses a waiting color while the post-response cycle is working", () => {
+    const html = render({ connectedCount: 5, totalCount: 5, autonomousState: "working" });
+    expect(html).toContain('data-intent="waiting"');
   });
 
   it("states the never-auto-publish fact exactly once, not in a separate nightly-job box and a separate 'what you'll get' box", () => {

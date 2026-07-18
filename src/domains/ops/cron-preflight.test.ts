@@ -34,8 +34,8 @@ describe("checkCronRegistration", () => {
   });
 
   it("flags a mapped job that vercel.json no longer declares", () => {
-    const declared = realVercelCrons().filter((c) => c.path !== "/api/cron/measure-due");
-    const findings = checkCronRegistration(declared);
+    const map = [{ job: "measure-due", path: "/api/cron/measure-due", schedule: "30 9 * * *", label: "Results" }];
+    const findings = checkCronRegistration([], map);
     expect(findings).toHaveLength(1);
     expect(findings[0]!.kind).toBe("cron_mapped_not_declared");
     expect(findings[0]!.sentence).toContain("/api/cron/measure-due");
@@ -43,10 +43,9 @@ describe("checkCronRegistration", () => {
   });
 
   it("flags a schedule string drift", () => {
-    const declared = realVercelCrons().map((c) =>
-      c.path === "/api/cron/sync-connectors" ? { ...c, schedule: "0 4 * * *" } : c,
-    );
-    const findings = checkCronRegistration(declared);
+    const declared = [{ path: "/api/cron/sync-connectors", schedule: "0 4 * * *" }];
+    const map = [{ job: "sync-connectors", path: "/api/cron/sync-connectors", schedule: "0 9 * * *", label: "Sync" }];
+    const findings = checkCronRegistration(declared, map);
     expect(findings).toHaveLength(1);
     expect(findings[0]!.kind).toBe("cron_schedule_mismatch");
     expect(findings[0]!.sentence).toContain('"0 4 * * *"');
@@ -85,15 +84,19 @@ describe("runCronPreflight", () => {
     expect(result.findings).toEqual([]);
     expect(result.cronsDeclared).toBe(CRON_SCHEDULE_MAP.length);
     expect(result.cronsMapped).toBe(CRON_SCHEDULE_MAP.length);
-    expect(result.envChecked).toBe(REQUIRED_ENV.length);
+    expect(result.envChecked).toBe(0);
   });
 
   it("aggregates drift + env findings and flips ok", () => {
-    const declared = realVercelCrons().slice(1);
+    const declared = [{ path: "/api/cron/new", schedule: "0 8 * * *" }];
     const env = { ...FULL_ENV, GOOGLE_CLIENT_ID: undefined };
     const result = runCronPreflight(declared, env);
     expect(result.ok).toBe(false);
     expect(result.findings).toHaveLength(2);
+  });
+
+  it("does not require cron-only environment variables in on-use mode", () => {
+    expect(runCronPreflight([], {})).toMatchObject({ ok: true, envChecked: 0, findings: [] });
   });
 
   it("no finding sentence carries an em or en dash", () => {

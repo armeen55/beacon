@@ -370,6 +370,7 @@ export const GLOBAL_STORES = new Set<string>([
   // Supabase-mirrored and bounded; failed/spent attempts remain honest evidence
   // but can never grant eligibility (domains/eval/blind-holdout-store.ts).
   "blind-holdout-receipts",
+  "blind-holdout-case-events",
   // Nightly precompute warm pass (2026-07-02, master plan item 13). Same cron
   // fan-out rationale: rows carry tenant_id. Per-day run marker (double-fire
   // idempotency) + the "last warmed" receipts /diagnostics shows.

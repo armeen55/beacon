@@ -82,10 +82,21 @@ for a single-user product. A normal signed-in visit schedules a bounded, once-pe
 post-response cycle that acquires fresh connector, SEO, AEO, competitor, question, claim and link
 evidence before final ranking and draft preparation. Research remains inspectable through a
 structured visible receipt, paid work remains cache/ledger/cap guarded, and publishing always
-requires its separate safety path. Cron may remain a backup/warm optimization, never the only path.
-The receipt should collapse to one calm global status across navigation, while the detailed audit
-remains available on Today. Real query evidence must survive into the prepared move; no downstream
-intent or draft step may silently replace loaded GSC queries with a guessed label.
+requires its separate safety path. Vercel schedules are intentionally empty: guarded maintenance
+routes may remain for explicit operations, but no customer health, readiness, or product copy may
+depend on or infer a cron execution. The receipt should collapse to one calm global status across
+navigation, while the detailed audit remains available on Today. Real query evidence must survive
+into the prepared move; no downstream intent or draft step may silently replace loaded GSC queries
+with a guessed label.
+
+### Blind-validation integrity decision (2026-07-17)
+
+A blind result is eligible only when Beacon itself seals the chronology against one release SHA:
+preregister an unseen input digest, freeze a prediction digest before the label is available, then
+reveal the independent expert-label digest and result. Events are append-only and server-timestamped;
+case IDs are single-use, reveal-before-prediction is invalid, and a build change spends the case.
+Five diverse passing cases remain the minimum. A caller-supplied receipt, timestamp, SHA assertion,
+or post-hoc success blob is regression evidence at best and can never certify a release.
 
 ### Continuous execution-loop decision (2026-07-15)
 

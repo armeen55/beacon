@@ -1,5 +1,26 @@
 # Beacon Verified State
 
+> 🟡 **2026-07-17 on-use autonomy and server-sealed blind validation are release-ready; deployment
+> is pending.** Vercel schedules are intentionally empty. Beacon's normal signed-in navigation is
+> the primary operating loop: the existing bounded visit runner refreshes stale connected sources,
+> advances crawl and research work, prepares moves, refills the Ready queue, republishes cached
+> Today/Changes surfaces, and leaves durable visit/source receipts after the response. Guarded
+> maintenance routes remain callable for explicit operations, but no customer health claim or
+> product readiness state depends on them. Connections now reports that real receipt/source state
+> as Automatic upkeep instead of inventing “Last night's sync.” Historical maintenance receipts no
+> longer claim an absent schedule. Blind validation is now an append-only, server-sealed three-phase
+> protocol: preregister the unseen input, freeze a prediction against the live release SHA, then
+> reveal the expert label. The server stamps order and digests artifacts, rejects reused case IDs,
+> refuses reveal-before-prediction, and spends any case whose build changed before reveal. Five
+> diverse passing cases are still required; the UI can no longer accept caller-supplied timestamps,
+> SHA claims, or one post-hoc success blob. Verification: strict typecheck and lint; complete suite
+> 1,536 files / 23,080 passed / 23 conditional skips / 0 failed; production build; dependency audit
+> 0 vulnerabilities. No paid call, environment change, customer-data mutation, or publish occurred.
+> The external gates remain explicit: run five genuinely unseen cases on the hosted release, open
+> one authenticated hosted visit and confirm its receipt/timings, enter real unit economics,
+> reconnect Ritz, approve one Iranopedia move, verify it live, and wait through its predeclared
+> measurement windows.
+
 > 🟢 **2026-07-17 trust-integrity and historical audit backlog closure is deployed and exact-SHA verified.**
 > The remaining code-verifiable audit ledger is now closed as one coherent safety slice. Fresh
 > blind-evaluation receipts are immutable, release-SHA-bound, tenant-routed, and fail closed;
@@ -593,12 +614,14 @@
 
 ## Next 3 actions
 
-1. **Run five genuinely unseen blind cases on the hosted release.** Register the immutable receipt
-   against the exact production SHA before inspecting outcomes.
-2. **Observe one hosted scheduled-refresh receipt.** Confirm the existing autonomous path completes
-   and persists its evidence without operator repair.
-3. **Begin the real-business acceptance sequence.** Enter unit economics, reconnect Ritz, then approve
-   one Iranopedia move and follow its predeclared live measurement windows.
+1. **Run five genuinely unseen cases through the hosted three-phase blind protocol.** Preregister
+   each input, freeze its prediction against the exact production SHA, and only then reveal its
+   independent expert label.
+2. **Use the authenticated hosted app once and verify the on-use receipt.** Confirm the visit runner
+   and any stale connected-source refresh persist their evidence; capture signed-in Today, Changes,
+   and Results paint/interaction timings in the same pass.
+3. **Begin the real-business acceptance sequence.** Enter unit economics, reconnect Ritz, approve
+   one Iranopedia move, verify it live, and follow its predeclared measurement windows.
 
 ## History
 

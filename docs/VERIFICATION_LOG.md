@@ -36510,3 +36510,36 @@ Vercel deployment `dpl_5eBWaXqFgrX6CdUDFQuAtQNVmmrF` reached Ready and productio
 `/diagnostics` returned their expected 307 login continuations. External usage gates remain
 explicitly unclaimed: five unseen blind cases, one hosted refresh receipt, real unit economics,
 Ritz reconnection, one approved publish, live verification, and the predeclared measurement windows.
+
+## 2026-07-17 - On-use autonomy and server-sealed blind validation (release pending)
+
+Removed the last mismatch between Beacon's intended single-user experience and its deployed
+operating contract. `vercel.json` now declares no schedules, and cron preflight treats that as the
+intentional on-use mode instead of a failure. The existing authenticated visit runner remains the
+primary bounded post-response path for stale connector refresh, crawl progress, cached surface
+publication, research, demand enrichment, move preparation, and Ready-queue refill. Connections now
+derives “Automatic upkeep” from the real visit receipt and latest connected-source refresh rows;
+it no longer invents “Last night's sync” from cron metadata. Historical activity rows without a
+live schedule also no longer say they ran on schedule. Guarded maintenance routes remain callable,
+but no customer health or readiness claim depends on them.
+
+Replaced the post-hoc blind-receipt form with an append-only, server-sealed three-phase store. The
+operator preregisters the complete unseen input, freezes the complete prediction against the live
+release SHA, and only then reveals the independent expert label and pass/fail result. The server
+stamps event order and stores artifact digests, rejects case-ID reuse, refuses reveal before a
+prediction, and automatically spends a case if the live build changed. Only the canonical receipt
+generated from five diverse server-ordered passing cases can satisfy the existing gate; callers can
+no longer supply their own timestamps, SHA claim, or all-success receipt.
+
+Verification before release: `npm run typecheck` exit 0; `npm run lint` exit 0; isolated complete
+`npm run test` passed 1,536 files / 23,080 tests / 23 conditional skips / 0 failures (23,103 total,
+66.35 seconds); `npm run build` exit 0 with only the existing protected middleware-filename
+deprecation; `npm audit --omit=dev` found 0 vulnerabilities; `git diff --check` clean before this
+documentation sync. Vercel's retained seven-day logs showed no executions for the former scheduled
+endpoints, confirming the old schedule-derived UI was not operational evidence. Direct production
+database reads were unavailable from this environment because the hosted database name did not
+resolve, and the signed-in browser runtime failed to initialize, so no authenticated hosted receipt
+or timing is claimed. No paid provider call, environment change, customer-data mutation, or publish
+occurred. Still external: five genuinely unseen cases, one authenticated hosted receipt/timing pass,
+real unit economics, Ritz OAuth reconnection, one approved Iranopedia publish, live verification,
+and its predeclared measurement windows.
