@@ -1,6 +1,6 @@
 # Beacon Verified State
 
-> 🟢 **2026-07-17 trust-integrity and historical audit backlog closure is release-ready (deployment pending).**
+> 🟢 **2026-07-17 trust-integrity and historical audit backlog closure is deployed and exact-SHA verified.**
 > The remaining code-verifiable audit ledger is now closed as one coherent safety slice. Fresh
 > blind-evaluation receipts are immutable, release-SHA-bound, tenant-routed, and fail closed;
 > transient push-cap failures refuse publishing; manual “mark shipped” actions enforce server-side
@@ -21,7 +21,11 @@
 > than 45 days without hiding the recommendation. Verification: strict typecheck; lint 0 errors /
 > 74 pre-existing warnings; complete suite 1,534 files / 23,070 passed / 23 conditional skips / 0 failed; production build;
 > dependency audit 0 vulnerabilities; `git diff --check` clean. No paid call, hosted environment
-> mutation, customer-data mutation, or publish occurred. External acceptance gates remain usage-
+> mutation, customer-data mutation, or publish occurred. Release commit
+> `9350d0dce45b041ee0d363a3f6da0c3924be1d92` was pushed to `origin/main`; Vercel deployment
+> `dpl_5eBWaXqFgrX6CdUDFQuAtQNVmmrF` reached Ready; production `/api/version` returned the exact
+> release SHA; and unauthenticated `/`, `/today`, `/changes`, `/results`, and `/diagnostics`
+> returned their expected 307 login continuations. External acceptance gates remain usage-
 > bound: execute five truly unseen blind cases, observe a hosted refresh receipt, add unit economics
 > before revenue certification, reconnect Ritz, publish one approved move, and collect its live
 > measurement window.
@@ -589,12 +593,12 @@
 
 ## Next 3 actions
 
-1. **Refresh authenticated Iranopedia Changes.** Prove the rebuilt top five contain only Iranopedia
-   demand and no Ritz query or target after the P0 isolation release.
-2. **Verify one real autonomous move end to end.** Confirm the global state reaches ready/partial and
-   the top allocator winner becomes the source-backed PreparedMove in that exact order.
-3. **Measure authenticated hosted speed.** Capture Today/Changes/Results navigation timings and close
-   any remaining page-transition friction with production evidence.
+1. **Run five genuinely unseen blind cases on the hosted release.** Register the immutable receipt
+   against the exact production SHA before inspecting outcomes.
+2. **Observe one hosted scheduled-refresh receipt.** Confirm the existing autonomous path completes
+   and persists its evidence without operator repair.
+3. **Begin the real-business acceptance sequence.** Enter unit economics, reconnect Ritz, then approve
+   one Iranopedia move and follow its predeclared live measurement windows.
 
 ## History
 

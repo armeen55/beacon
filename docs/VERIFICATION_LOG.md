@@ -36479,7 +36479,7 @@ or publish occurred. External gates are explicitly not claimed: five unseen blin
 refresh receipt, unit economics, Ritz reconnection, one approved publish, live verification, and
 the predeclared measurement windows remain next.
 
-## 2026-07-17 - Historical audit ledger closure (release pending)
+## 2026-07-17 - Historical audit ledger closure (deployed)
 
 Finished the older audit-wave and generic-cold-start items that were still live after the main
 trust slice. Today citation rate now uses an exact observation-level numerator stored in existing
@@ -36502,5 +36502,11 @@ Verification: focused suites remained green throughout; strict `npm run typechec
 `npm run test` passed 1,534 files / 23,070 tests / 23 conditional skips / 0 failures;
 `npm run build` exit 0 with only the existing middleware/proxy deprecation; `npm audit --omit=dev`
 found 0 vulnerabilities; `git diff --check` clean. No paid call, customer-data mutation, hosted
-environment change, or publish occurred. Deployment and external usage gates remain explicitly
-unclaimed until the release is pushed and verified.
+environment change, or publish occurred.
+
+Release: commit `9350d0dce45b041ee0d363a3f6da0c3924be1d92` was pushed to `origin/main`.
+Vercel deployment `dpl_5eBWaXqFgrX6CdUDFQuAtQNVmmrF` reached Ready and production
+`/api/version` returned that exact SHA. Unauthenticated `/`, `/today`, `/changes`, `/results`, and
+`/diagnostics` returned their expected 307 login continuations. External usage gates remain
+explicitly unclaimed: five unseen blind cases, one hosted refresh receipt, real unit economics,
+Ritz reconnection, one approved publish, live verification, and the predeclared measurement windows.

@@ -5,7 +5,7 @@
 This is the operator's live priority order. I work it strictly top to bottom. The dated
 chronology of what already landed lives in VERIFICATION_LOG.md; this list is only what is next.
 
-> 🟢 **2026-07-17 code-verifiable trust backlog — CLOSED, release pending.** Durable blind-run
+> 🟢 **2026-07-17 code-verifiable trust backlog — CLOSED, deployed, exact-SHA verified.** Durable blind-run
 > receipts, push fail-closed behavior, mark-shipped authorization, schema revert restoration,
 > accept idempotency, live-slug duplicate protection, fan-out parsing, GA4 pagination, stable page
 > identity, scan-shell/error preservation, FAQ direction, content-schema parity, dense GSC series,
@@ -15,11 +15,13 @@ chronology of what already landed lives in VERIFICATION_LOG.md; this list is onl
 > bounded queue hygiene, page-specific Profound gaps, schema-less publisher inference, and crawl-
 > age confidence labels are green. The old audit-wave-2 through wave-7 code defects are therefore
 > superseded by this closure; dead State-of-the-
-> Union and batch-planner callouts require no resurrection. **Next, in strict order:** (1) commit,
-> push, deploy, and exact-SHA verify this slice; (2) run five genuinely unseen blind cases against
-> the hosted release and register the immutable receipt; (3) observe one scheduled-refresh receipt
-> in production; (4) enter real unit economics before certifying revenue; (5) reconnect Ritz as the
-> second tenant; (6) approve and publish one Iranopedia move; (7) verify it live and wait for the
+> Union and batch-planner callouts require no resurrection. Release
+> `9350d0dce45b041ee0d363a3f6da0c3924be1d92` is live in Vercel deployment
+> `dpl_5eBWaXqFgrX6CdUDFQuAtQNVmmrF`, and production returned the exact SHA. **Next, in strict
+> order:** (1) run five genuinely unseen blind cases against the hosted release and register the
+> immutable receipt; (2) observe one scheduled-refresh receipt in production; (3) enter real unit
+> economics before certifying revenue; (4) reconnect Ritz as the second tenant; (5) approve and
+> publish one Iranopedia move; (6) verify it live and wait for the
 > predeclared measurement windows before claiming learning. No additional feature surface belongs
 > ahead of those acceptance gates.
 
