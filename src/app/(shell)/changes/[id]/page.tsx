@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { getResults, getOpportunities } from "@/lib/seed-data.server";
 import type { ChangelogEntry } from "@/domains/changelog/types";
 import { getEventDecisions } from "@/domains/attribution/store";
@@ -50,6 +50,8 @@ import {
   createPerfTrace,
   readPerfTraceIdFromHeaders,
 } from "@/lib/perf-trace";
+import { loadProofLedgerPersisted } from "@/domains/proof-gsc/load-ledger";
+import { findProofForChange, proofResultHref } from "@/domains/proof-gsc/change-proof-link";
 
 // Phase 1.6 (Sprint 1 follow-up, 2026-04-24): force dynamic render so every
 // request runs the fresh-repo-read pattern below. Matches /changes main list.
@@ -99,6 +101,15 @@ export default async function ChangeDetailPage({
 
   const entry = freshChangelogEntries.find((c) => c.id === id);
   if (!entry) notFound();
+
+  // Results owns the measurement truth. A tracked change deep-links to its
+  // exact proof card (including compound-package semantics); an older untracked
+  // changelog row lands on Results without inventing an outcome. The retired
+  // detail implementation remains below temporarily for removal in the bounded
+  // cleanup wave, but is no longer customer-reachable.
+  const proofLedger = await loadProofLedgerPersisted(tenantId).catch(() => []);
+  const canonicalProof = findProofForChange(entry, proofLedger);
+  redirectToCanonicalResult(canonicalProof ? proofResultHref(canonicalProof) : "/results");
 
   const [results, opportunities, eventDecisions, rolloutExecutions, persistedPatternEvidence] = await Promise.all([
     getResults(),
@@ -413,6 +424,12 @@ export default async function ChangeDetailPage({
   } finally {
     trace.flush();
   }
+}
+
+/** Keep the retired implementation type-checkable until its bounded deletion
+ * wave while making the runtime redirect unconditional. */
+function redirectToCanonicalResult(href: string): void {
+  redirect(href);
 }
 
 /**

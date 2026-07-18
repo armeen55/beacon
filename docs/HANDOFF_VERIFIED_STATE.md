@@ -1,7 +1,17 @@
 # Beacon Verified State
 
-> 🟡 **The 2026-07-17 competitor-evidence tenant boundary is code-complete and awaiting
-> deploy.** Every competitor teardown cache read and write now requires the caller's explicit
+> 🟡 **The 2026-07-17 canonical change-result handoff is code-complete and awaiting
+> deploy.** `/changes/[id]` no longer renders a second attribution engine. It fresh-reads the
+> tenant's changelog, links page + ship date to the proof-gsc ledger, and redirects to the exact
+> Results card. Simultaneous same-page edits intentionally share the same compound-package result;
+> an older row with no canonical proof lands on Results without inventing a verdict. Focused
+> verification: 36/36; strict typecheck; lint exit 0 with 91 existing warnings; complete suite
+> 1,512 files / 22,999 passed / 23 conditional skips / 0 failed; production build and dependency
+> audit exit 0; `git diff --check` clean. Next: deploy, then connect the existing 56/84-day
+> confirmation-read store to the canonical proof runner.
+
+> 🟢 **The 2026-07-17 competitor-evidence tenant boundary is deployed and SHA-verified at
+> `5a869835` (Vercel `dpl_7k4SwpVX1aaYY87TMQTExN97Jhby`).** Every competitor teardown cache read and write now requires the caller's explicit
 > tenant ID. Native cited-page audits, final-ranked SERP research, keyword-gap clone briefs,
 > retrieval-twin indexing, demand-graph compilation, answer alignment, displacement checks,
 > factory governance, diagnostics, and competitor views can no longer fall back to ambient request
@@ -9,11 +19,13 @@
 > both explicit cross-tenant reads and explicitly scoped writes. Verification: focused 69/69;
 > strict typecheck; lint exit 0 with 93 pre-existing warnings; complete suite 1,511 files / 22,994
 > passed / 23 conditional skips / 0 failed; production build exit 0; dependency audit zero;
-> `git diff --check` clean. Next three actions: (1) deploy and SHA-verify this tenant-boundary
-> slice, (2) collapse Changes detail onto proof-gsc as the sole attribution truth, and (3) connect
-> the durable 56/84-day confirmation reads after the canonical read model is in place.
+> `git diff --check` clean. Production returned the exact full SHA; `/`, `/today`, `/changes`, and
+> `/results` returned their correct login continuations. Next three actions: (1) deploy the canonical
+> change-result handoff, (2) connect durable 56/84-day confirmation reads, and (3) preserve the
+> fail-closed calibration quarantine while doing so.
 
-> 🟡 **The 2026-07-17 signed-in journey correction is code-complete and awaiting deploy.**
+> 🟢 **The 2026-07-17 signed-in journey correction is deployed in production SHA
+> `5a869835`.**
 > Real Iranopedia Today → Changes → Results evidence replaced the old readiness promise with a
 > fail-closed contract: To do remains To do until exact copy or an exact redirect map clears the
 > gates, and safe redirect summaries now expose every source and destination URL before action.
@@ -26,10 +38,10 @@
 > wave fixed edited-copy proof identity, stale
 > cross-tenant ownership flags, repeated chart labels, a redundant rank import, and date-dependent
 > GA4 tests. Verification: focused trust/UI suites passed; strict typecheck, lint, complete test
-> suite, production build, and dependency audit exited 0; `git diff --check` remains to be recorded
-> with the release. Next three actions: (1) commit and deploy the compound follow-up, (2) verify hosted version
-> and route contracts, and (3) inspect one authenticated Iranopedia Ready card only after Ready is
-> non-zero.
+> suite, production build, dependency audit, and `git diff --check` exited 0. Production returned
+> the exact SHA and correct route contracts. Next three actions: (1) inspect one authenticated
+> Iranopedia Ready card only after Ready is non-zero, (2) keep To do distinct from Ready, and (3)
+> report only a concrete tenant, draft, or measurement defect.
 
 > 🟢 **The 2026-07-16 intelligence-path residue audit is deployed and SHA-verified at
 > `e7719d1e` (Vercel `dpl_2Gcq4kKxcf6p3vboppkjDcfqA9GQ`).** Fourteen recommendation,

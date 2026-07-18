@@ -3234,6 +3234,12 @@ keyword-gap work, retrieval indexing, graph compilation, diagnostics, and downst
 pass that ID through directly. An empty tenant fails closed; an ambient process default may never
 select a different tenant's competitor cache.
 
+**Canonical change-result boundary, 2026-07-17:** Results/proof-gsc is the only customer-facing
+measurement truth. A raw changelog deep link may resolve identity and navigation, but it may not
+recompute or present a parallel verdict. Page + ship date links changelog rows to proof records;
+same-page same-date edits therefore resolve to the same compound package. A historical row with no
+proof record lands on Results without an outcome claim.
+
 ## FUTURE IDEAS (not in current execution plan)
 
 These are ideas, experiments, and dream-state features that are NOT in the active phases. They live here so they are never lost. Move to `NEXT_PHASE_EXECUTION_PLAN.md` only when they become active work.

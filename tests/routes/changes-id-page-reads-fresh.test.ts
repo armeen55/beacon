@@ -108,6 +108,12 @@ describe("Sprint 1 / Phase 1.6 — /changes/[id] fresh-read invariants", () => {
           (err as unknown as { digest: string }).digest = "NEXT_NOT_FOUND";
           throw err;
         },
+        redirect: (href: string) => {
+          throw new Error(`NEXT_REDIRECT:${href}`);
+        },
+      }));
+      vi.doMock("@/domains/proof-gsc/load-ledger", () => ({
+        loadProofLedgerPersisted: async () => [],
       }));
       vi.doMock("@/lib/seed-data.server", () => ({
         getOpportunities: vi.fn(async () => []),
@@ -198,21 +204,14 @@ describe("Sprint 1 / Phase 1.6 — /changes/[id] fresh-read invariants", () => {
       }));
     };
 
-    it("renders a scan_detection entry that exists only in the repository, not in module-level seed data", async () => {
+    it("finds a repository-only scan row and sends it to the canonical Results surface", async () => {
       mockRepoWithChangelog(async () => [mockEntry]);
       const { default: ChangeDetailPage } = await import(
         "@/app/(shell)/changes/[id]/page"
       );
-      const tree = await ChangeDetailPage({
+      await expect(ChangeDetailPage({
         params: Promise.resolve({ id: mockEntry.id }),
-      });
-      const html = renderToStaticMarkup(tree as ReactElement);
-
-      // Entry's core fields must appear in the detail body.
-      expect(html).toContain("/faq");
-      expect(html).toContain("FAQ expanded from 10 to 34 questions");
-      // Must not have hit the honest-error branch.
-      expect(html).not.toContain("Couldn&#x27;t load this change");
+      })).rejects.toThrow("NEXT_REDIRECT:/results");
     });
 
     it("shows honest error state when the repository read throws", async () => {

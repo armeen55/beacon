@@ -12,6 +12,10 @@ import { renderToStaticMarkup } from "react-dom/server";
 import type { ReactElement } from "react";
 import type { ChangelogEntry } from "@/domains/changelog/types";
 
+const redirectMock = vi.fn((href: string): never => {
+  throw new Error(`NEXT_REDIRECT:${href}`);
+});
+
 const mockEntry: ChangelogEntry = {
   id: "cl-test-1",
   timestamp: "2026-04-22T18:21:08.931Z",
@@ -64,6 +68,7 @@ async function render(): Promise<string> {
 describe("/changes/[id] V2-only render contract", () => {
   beforeEach(() => {
     vi.resetModules();
+    redirectMock.mockClear();
     vi.doMock("next/cache", () => ({ revalidatePath: vi.fn() }));
     vi.doMock("next/navigation", () => ({
       notFound: () => {
@@ -71,6 +76,10 @@ describe("/changes/[id] V2-only render contract", () => {
         (err as unknown as { digest: string }).digest = "NEXT_NOT_FOUND";
         throw err;
       },
+      redirect: redirectMock,
+    }));
+    vi.doMock("@/domains/proof-gsc/load-ledger", () => ({
+      loadProofLedgerPersisted: async () => [],
     }));
     vi.doMock("@/lib/seed-data.server", () => ({
       getOpportunities: vi.fn(async () => []),
@@ -225,10 +234,26 @@ describe("/changes/[id] V2-only render contract", () => {
     );
   });
 
-  it("renders the v2 proof brief (the only surface)", async () => {
-    const html = await render();
-    expect(html).toContain('data-change-detail-stub="v2"');
-    // The deleted legacy detail layout's row description must NOT render.
-    expect(html).not.toContain("FAQ expanded from 10 to 34 questions");
+  it("sends an untracked historical row to Results instead of rendering a second outcome engine", async () => {
+    await expect(render()).rejects.toThrow("NEXT_REDIRECT:/results");
+    expect(redirectMock).toHaveBeenCalledWith("/results");
+  }, 15_000);
+
+  it("sends a tracked change to its one canonical Results proof card", async () => {
+    vi.doMock("@/domains/proof-gsc/load-ledger", () => ({
+      loadProofLedgerPersisted: async () => [{
+        id: "faq::2026-04-22",
+        page: mockEntry.url,
+        path: "/faq",
+        shippedAt: "2026-04-22T00:00:00.000Z",
+      }],
+    }));
+
+    await expect(render()).rejects.toThrow(
+      "NEXT_REDIRECT:/results#proof-faq%3A%3A2026-04-22",
+    );
+    expect(redirectMock).toHaveBeenCalledWith(
+      "/results#proof-faq%3A%3A2026-04-22",
+    );
   }, 15_000);
 });

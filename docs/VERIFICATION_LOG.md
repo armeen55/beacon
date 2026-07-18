@@ -36275,3 +36275,21 @@ passed / 23 conditional skips / 0 failed; `npm run build` exit 0 with only the e
 middleware-filename deprecation; `npm audit --omit=dev --audit-level=moderate` found zero
 vulnerabilities; `git diff --check` exit 0. No paid provider call, hosted environment mutation, or
 customer-data mutation was performed.
+
+Release: commit `5a86983599bedcd91cd6db910d39a138f76c5133` was pushed to `origin/main`.
+Vercel deployment `dpl_7k4SwpVX1aaYY87TMQTExN97Jhby` reached Ready and production
+`/api/version` returned that exact SHA. Unauthenticated `/`, `/today`, `/changes`, and `/results`
+returned their expected 307 login continuations.
+
+## 2026-07-17 - One canonical change-result handoff
+
+The historical `/changes/[id]` route no longer tells a second outcome story from the legacy
+scorecard, URL-outcome, and stored citation-attribution stack. It fresh-reads the tenant changelog,
+matches the row to proof-gsc by normalized page and ship date, and redirects to the exact Results
+card. Multiple changes on the same page and date intentionally share the same canonical compound
+result. Rows that predate proof tracking land on Results without a fabricated verdict. Focused
+verification: 5 files / 36 tests; strict typecheck; lint exit 0 with 91 existing warnings and zero
+errors; complete suite 1,512 files / 22,999 passed / 23 conditional skips / 0 failed; production
+build exit 0 with only the existing protected middleware-filename deprecation; dependency audit
+zero; `git diff --check` clean. No paid provider call, hosted environment mutation, or customer-data
+mutation was performed.

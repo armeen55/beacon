@@ -5,23 +5,26 @@
 This is the operator's live priority order. I work it strictly top to bottom. The dated
 chronology of what already landed lives in VERIFICATION_LOG.md; this list is only what is next.
 
-> 🟡 **2026-07-17 exhaustive audit execution loop — SLICE 1 CODE-COMPLETE, DEPLOY NEXT.**
-> Competitor teardown evidence is now tenant-explicit from orchestration through cache persistence;
-> all ambient read/write seams in the production graph were removed and the boundary is pinned by
-> read-and-write isolation tests. **Next:** deploy and exact-SHA verify this slice, then make
-> proof-gsc the only attribution/read-model source used by both Results and `/changes/[id]`. After
-> that, connect the existing 56/84-day confirmation store without weakening calibration gates.
+> 🟡 **2026-07-17 exhaustive audit execution loop — SLICE 1 DEPLOYED; SLICE 2 CODE-COMPLETE.**
+> Competitor teardown evidence is tenant-explicit from orchestration through cache persistence and
+> deployed at `5a869835`; production returned the exact SHA. `/changes/[id]` now resolves the
+> tenant's fresh changelog row and hands every outcome question to the canonical proof-gsc Results
+> card, including shared compound-package outcomes. An untracked historical row lands on Results
+> without a legacy verdict. The full release gate is green. **Next:** deploy slice 2, then connect
+> the existing 56/84-day confirmation reads without weakening calibration gates.
+>
+> The tenant-boundary slice removed all ambient read/write seams in the production graph and is
+> pinned by read-and-write isolation tests.
 
-> 🟡 **2026-07-17 signed-in journey correction — CODE-COMPLETE, DEPLOY NEXT.** The real
+> 🟢 **2026-07-17 signed-in journey correction — DEPLOYED IN `5a869835`.** The real
 > Iranopedia journey exposed the remaining trust gap: Changes promised five copy-ready items while
 > Ready was zero, and Results made 25 measuring rows feel like 25 decisions. Exact redirect maps
 > now appear before action, Ready copy is fail-closed, the eight-stage background brain has factual
 > progress, and Results is answer-first with five nearest reads plus collapsed history. Intentional
 > same-page same-date edits are measured as one named package and may never train an individual
 > lever; accidental later overlaps remain quarantined. Edited
-> operator copy now remains identical through live verification and proof recording. **Next:** land,
-> deploy, verify the hosted SHA/routes, then use the first real Ready item; do not act on a merely
-> directional To do card.
+> operator copy now remains identical through live verification and proof recording. **Next:** use
+> the first real Ready item; do not act on a merely directional To do card.
 
 > 🟢 **2026-07-15 continuous execution loop — DEPLOYED AND SHA-VERIFIED (`ef41bac6`).** The
 > operator selected items 2 and 3 and explicitly skipped item 1. Beacon now restores a five-item
