@@ -1,7 +1,7 @@
 # Beacon Verified State
 
-> 🟡 **The 2026-07-17 citation-intelligence convergence slice is code-complete and awaiting
-> release verification.** The autonomous knowledge stage now mines real quoted-sentence patterns,
+> 🟢 **The 2026-07-17 citation-intelligence convergence slice is deployed and exact-SHA verified at
+> `5a892dd0` (Vercel `dpl_75KYzWB1N32RbW3P6f77nZWvca8y`).** The autonomous knowledge stage now mines real quoted-sentence patterns,
 > week-over-week answer drift, and second-order cited sources in parallel, saves one tenant-explicit
 > durable snapshot, and feeds relevant evidence into the same ResearchDossier → PreparedMove path.
 > It adds no screen, ranker, button, cron dependency, or paid call. Second-order rows now preserve
@@ -9,8 +9,9 @@
 > hints use an explicit tenant cache. Verification: focused citation/dossier/autonomy pass 7 files /
 > 81 tests plus storage invariants 53/53; strict typecheck and lint; complete suite 1,514 files /
 > 23,010 passed / 23 conditional skips / 0 failed; production build and dependency audit exit 0;
-> `git diff --check` clean. Next: deploy, then connect the remaining competitor-forensics and
-> Clarity-depth evidence gaps.
+> `git diff --check` clean. Production `/api/version` returned the exact full SHA and core route
+> contracts were correct. Next: connect the remaining competitor-forensics and Clarity-depth
+> evidence gaps.
 
 > 🟢 **The 2026-07-17 cached keyword-to-action portfolio is deployed and exact-SHA verified at
 > `49d56191` (Vercel `dpl_CbeNZZVZ8p5sMTcr83EsyVmoPqyB`).** The live Today/Changes move path now merges page GSC queries, cached

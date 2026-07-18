@@ -36369,3 +36369,8 @@ storage routing/invariant pass 4 files / 53 tests; strict typecheck; lint exit 0
 1,514 files / 23,010 passed / 23 conditional skips / 0 failed; production build exit 0 with only
 the existing protected middleware-filename deprecation; dependency audit zero; `git diff --check`
 clean. No paid provider call, hosted environment mutation, or customer-data mutation was performed.
+
+Release: commit `5a892dd077067435a9074b2d6565992e4afd7b15` was pushed to `origin/main`.
+Vercel deployment `dpl_75KYzWB1N32RbW3P6f77nZWvca8y` reached Ready and production
+`/api/version` returned that exact SHA. Unauthenticated `/`, `/today`, `/changes`, and `/results`
+returned their expected 307 login continuations.
