@@ -7,6 +7,56 @@
 
 ---
 
+## 2026-07-18 - Trust hardening: results contradiction warnings, real on-use autonomy, tenant isolation closure, demo-data gate, copy honesty (pending commit)
+
+Five areas landed together as one trust-hardening slice.
+
+1. **Results trust.** A new liveContradictionLine in results/trust-receipts.ts renders on any card
+   where verified_live is latched true but the latest crawl attempt was not_found or crawl_failed
+   with no newer re-confirmation; in production data this fires on 12 of the 25 shipped changes. A
+   new LEGACY_MEASUREMENT_CAVEAT renders a directional-read notice on all 25 pre-protocol rows. A
+   call-chain audit confirmed every live ship path funnels through recordShippedChange, which
+   stamps predeclaredAt, judgedMetric, expectedDirection, and windowPlan, so every NEW ship is
+   measured by the predeclared protocol (controlSetIds remain null by design, Lane P3 pending).
+2. **On-use autonomy made real.** Removed every (shell) page-level maxDuration=60 override (/,
+   onboard x3, diagnostics x3) so all shell routes inherit the layout's 300s; the landing page had
+   been killing the roughly 210-second post-response cycle at 60s and leaving a permanent ghost
+   "working in background" state. Status modules now treat a "running" receipt older than 15
+   minutes as cut short instead of hanging. New table autonomous_run_claims (migration
+   migrations/2026-07-18_autonomous_run_claims.sql, applied to production Supabase) gives atomic
+   cross-instance mutual exclusion on (tenant_id, day_key), released in finally, fail-soft when
+   unreachable. GSC deep-history backfill now continues one 30-day chunk per owned cycle during
+   normal use instead of only through the disabled cron path.
+3. **Tenant isolation class closure.** Answer-texts moved from a global store to tenant-scoped
+   caches with a temporary legacy-flat read fallback; the prompt-library global singleton is
+   deleted outright and its last caller (find-wiki-citations) rerouted to tenant-scoped
+   tracked_prompts via forTenant; result-mode's module-level mutable visibility rules are removed,
+   so Bay Area patterns are founder-tenant-only; unknown store classification now logs loudly
+   instead of silently minting a tenant-blind flat cache key; competitor-page-audit write merge
+   confirmed already scoped; 8 of 11 flagged bare repository reads verified already isolated via
+   the tenant-scoped path layer.
+4. **Demo data gate unified.** New shared predicate shouldServeDemoData in src/lib/demo-mode.ts;
+   fixtures serve only when founder tenant AND zero imports AND no real connector; the sample-data
+   banner uses the same predicate. Closes the live bug where the founder tenant with GSC connected
+   got fabricated fixture numbers with the sample-data banner off.
+5. **Copy honesty completed.** Every remaining rendered "tonight / last night / overnight /
+   nightly" claim removed across war-room, investigation, ops-pipeline, scoreboard,
+   daily-experiments, changes list, ask, connectors, and diagnostics surfaces, each with a guard
+   test. The false "Continues automatically each night" deep-backfill copy replaced with truthful
+   chunked-continue copy, then made true again by item 2's wiring. The dormant, unmounted Autopilot
+   overnight card file is deleted; four other verified-zero-production-mount files are deleted
+   outright: today-moves-prepare.tsx, team-standup.tsx, autopilot-actions.ts, and their dead action
+   chain in today-moves-actions.ts (413 to 217 lines). TonightSummaryChip is renamed
+   TodaySummaryChip (it is mounted on /changes); PrepareTonightButton is renamed then deleted with
+   its file.
+
+Verification: targeted vitest green per packet (30, 56, 116, 130, 15, 21, 8 tests across the seven
+lanes); `npx tsc --noEmit` clean. Full suite and production build were running at the time of this
+entry and will be confirmed before push. The autonomous_run_claims migration is applied and
+verified against production Supabase (table exists, 0 rows). No paid call, customer-data mutation,
+or publish occurred. This slice is not yet committed or pushed as of this entry; it is expected to
+land immediately after as commit(s) tagged "trust hardening."
+
 ## 2026-07-16 - Autonomous Results maintenance + strict unused cleanup (c6b872d9, b23a4cfc)
 
 Removed an obsolete operator-mode gate from the existing passive Results maintenance path. Every

@@ -1,5 +1,55 @@
 # Beacon Verified State
 
+> 🟡 **2026-07-18 trust-hardening slice, verified locally, not yet committed or pushed.** Five
+> areas landed together. Results trust: a new live-check contradiction line fires on any shipped
+> change where I latched verified_live true but my latest crawl attempt came back not_found or
+> crawl_failed with no newer re-confirmation ("I confirmed this edit earlier, but my latest check
+> of the live page could not find it. Open the page and confirm the edit is still there."), and it
+> fires on 12 of the 25 shipped changes today. A new directional-read caveat now renders on all 25
+> pre-protocol rows ("I measured this with my earlier method, before I locked in measurement plans
+> up front. Treat it as a directional read.") Every live ship path already funnels through
+> recordShippedChange, which stamps a predeclared metric, direction, and window plan, so every NEW
+> ship going forward is measured by the predeclared protocol (control-set IDs remain null by
+> design, pending Lane P3). On-use autonomy: removed the page-level 60-second timeout override on
+> every shell route (/, onboard x3, diagnostics x3) so all of them inherit the shared 300-second
+> layout budget. The landing page had been killing the roughly 210-second post-response
+> background cycle at 60 seconds and leaving a permanent ghost "working in background" state. A
+> "running" receipt older than 15 minutes now reads as cut short ("My last background pass was cut
+> short. I will pick it up on your next visit.") instead of hanging forever. A new
+> autonomous_run_claims table (migration applied to production Supabase, 0 rows) gives
+> cross-instance mutual exclusion on the paid research pipeline per tenant per day, atomic insert on
+> (tenant_id, day_key), released in finally, fail-soft if the table is unreachable. GSC deep-history
+> backfill now continues one 30-day chunk per owned background cycle during normal use instead of
+> only through the disabled cron path. Tenant isolation: answer-texts moved from a global store to
+> tenant-scoped caches with a temporary legacy-flat read fallback; the prompt-library global
+> singleton is deleted outright and its one remaining caller now goes through tenant-scoped
+> tracked_prompts; result-mode's module-level mutable visibility rules are gone, so Bay Area
+> patterns are founder-tenant-only; unknown store classification now logs loudly instead of
+> silently minting a tenant-blind flat cache key. Demo data: a single shouldServeDemoData predicate
+> now gates both the fixture data path and the sample-data banner (founder tenant, zero imports, no
+> real connector), closing the live bug where the founder tenant with GSC connected saw fabricated
+> fixture numbers with no banner warning. Copy honesty: every remaining "tonight / last night /
+> overnight / nightly" claim is removed across war-room, investigation, ops-pipeline, scoreboard,
+> daily-experiments, changes list, ask, connectors, and diagnostics, each pinned by its own guard
+> test; the dormant unmounted Autopilot overnight card and four other verified-zero-mount files are
+> deleted outright (today-moves-prepare.tsx, team-standup.tsx, autopilot-actions.ts, and their dead
+> action chain in today-moves-actions.ts, 413 to 217 lines); TonightSummaryChip is renamed
+> TodaySummaryChip because it is actually mounted on /changes.
+> Verification: targeted suites green per packet (30, 56, 116, 130, 15, 21, 8 tests across the
+> seven lanes); `npx tsc --noEmit` clean; full suite and production build were running at the time
+> of this entry and will be confirmed at push time; the autonomous_run_claims migration is applied
+> and verified against production Supabase (table exists, 0 rows). No paid call, customer-data
+> mutation, or publish occurred. This slice is not yet committed, pushed, or deployed as of this
+> entry.
+>
+> **Next 3 actions:** (1) confirm the full suite and production build, then commit, push, and
+> verify the hosted deploy by exact SHA; (2) the operator begins the first wave of real Iranopedia
+> edits, since every accepted change now gets a predeclared measurement plan automatically;
+> (3) close the
+> remaining external gates: five unseen blind cases, one authenticated hosted visit receipt/timing
+> pass, real unit economics, Ritz reconnection, and the measurement windows on the first approved
+> Iranopedia publish.
+
 > 🟢 **2026-07-17 customer-language convergence is deployed and exact-SHA verified.** The
 > no-schedule operating model is now consistent at every audited live touchpoint. Connections no
 > longer mounts the dormant “Autopilot overnight” publishing/preparation control. Today recovery
@@ -633,21 +683,24 @@
   customer destination.** The four routes that caused the reported dead ends now return users to
   Today, Results, or Changes; this is not a claim that every legacy diagnostic subtree has been
   physically deleted.
-- **Autonomous research has a cross-instance lock residual.** The daily durable receipt plus the
-  process single-flight collapse normal visits, and every paid producer is independently cached and
-  capped, but the receipt claim is not one atomic database compare-and-set across two simultaneous
-  serverless instances. That hardening is not required for the bounded MVP but remains before SaaS.
+- **Autonomous research cross-instance lock is closed pending push.** The 2026-07-18 slice adds
+  autonomous_run_claims, an atomic insert on (tenant_id, day_key) released in finally, so
+  concurrent tabs or instances can no longer double-run the paid research pipeline; it fails soft
+  if the table is unreachable. Verified locally against production Supabase (table exists, 0
+  rows); the fix is not yet committed, pushed, or deployed.
 
 ## Next 3 actions
 
-1. **Run five genuinely unseen cases through the hosted three-phase blind protocol.** Preregister
-   each input, freeze its prediction against the exact production SHA, and only then reveal its
-   independent expert label.
-2. **Use the authenticated hosted app once and verify the on-use receipt.** Confirm the visit runner
-   and any stale connected-source refresh persist their evidence; capture signed-in Today, Changes,
-   and Results paint/interaction timings in the same pass.
-3. **Begin the real-business acceptance sequence.** Enter unit economics, reconnect Ritz, approve
-   one Iranopedia move, verify it live, and follow its predeclared measurement windows.
+1. **Confirm the full suite and production build for the 2026-07-18 trust-hardening slice, then
+   commit, push, and verify the hosted deploy by exact SHA.** Targeted suites and typecheck are
+   already green; only the full gate and the deploy itself remain.
+2. **The operator begins the first wave of real Iranopedia edits.** Every accepted change now gets
+   a predeclared measurement plan automatically, so this is the clear next step once the slice is
+   deployed.
+3. **Close the unchanged external gates.** Five genuinely unseen blind cases through the hosted
+   three-phase protocol, one authenticated hosted visit receipt/timing pass, real unit economics,
+   Ritz reconnection, and the predeclared measurement windows on the first approved Iranopedia
+   publish.
 
 ## History
 

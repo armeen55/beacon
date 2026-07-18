@@ -5,6 +5,34 @@
 This is the operator's live priority order. I work it strictly top to bottom. The dated
 chronology of what already landed lives in VERIFICATION_LOG.md; this list is only what is next.
 
+> 🟡 **2026-07-18 trust-hardening slice, VERIFIED LOCALLY, PENDING COMMIT/PUSH.** Results now
+> warns when a latched live-verified edit's latest crawl came back not_found or crawl_failed with
+> no newer re-confirmation, firing on 12 of the 25 shipped changes today, and a directional-read
+> caveat now marks all 25 pre-protocol rows measured before the predeclared-protocol lock-in. Every
+> live ship already funnels through recordShippedChange, so every NEW ship is measured by the
+> predeclared protocol going forward. On-use autonomy is now real: the page-level 60-second timeout
+> override that was killing the roughly 210-second post-response background cycle on the landing
+> page is removed from every shell route, a stuck "running" receipt older than 15 minutes now says
+> so instead of hanging forever, a new autonomous_run_claims table (migration applied to production
+> Supabase, 0 rows) gives cross-instance mutual exclusion on the paid research pipeline, and GSC
+> deep-history backfill now continues one chunk per owned background cycle during normal use
+> instead of only through the disabled cron path. Tenant isolation: answer-texts is tenant-scoped,
+> the prompt-library global singleton is deleted, result-mode's global visibility rules are gone
+> (Bay Area patterns are founder-tenant-only), and unknown store classification now fails loudly
+> instead of silently minting a tenant-blind cache key. Demo data now serves only under one shared
+> shouldServeDemoData predicate (founder tenant, zero imports, no real connector), closing the bug
+> where a connected founder tenant saw fabricated numbers with no banner. Copy honesty: every
+> remaining false "tonight / overnight / nightly" claim is removed with a guard test per surface,
+> and five verified-zero-mount files are deleted outright. Verification: targeted suites green per
+> packet (30, 56, 116, 130, 15, 21, 8 tests across the seven lanes); strict typecheck clean; full
+> suite and production build were running at doc-write time and will be confirmed at push; the
+> Supabase migration is applied and verified against production (table exists, 0 rows). **Next, in
+> strict order:** (1) confirm the full suite and build, then commit, push, and verify the hosted
+> deploy by exact SHA; (2) the operator begins the first wave of real Iranopedia edits, the clear
+> next step, since every accepted change now gets a predeclared measurement plan automatically;
+> (3) the external gates remain unchanged after that: five genuinely unseen blind cases, one
+> authenticated hosted visit receipt/timing pass, real unit economics, and Ritz reconnection.
+
 > 🟢 **2026-07-17 on-use customer-language convergence — DEPLOYED AND EXACT-SHA VERIFIED at
 > `9174b0f1` (Vercel `dpl_FGsSQhMVrfzCQfx2SwJDSzN4mTjc`).** The dormant
 > overnight Autopilot card is no longer mounted on Connections, and audited customer surfaces no
