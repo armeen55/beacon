@@ -155,12 +155,12 @@ export function ingestionGapLine(
   const gaps = report.gapDates;
   if (gaps.length === 0) return null;
   if (gaps.length === 1) {
-    return `I am missing 1 day of Google data (${monthDay(gaps[0]!)}). I will re-pull it tonight.`;
+    return `I am missing 1 day of Google data (${monthDay(gaps[0]!)}). I will re-pull it automatically while you use Beacon.`;
   }
   const first = monthDay(gaps[0]!);
   const last = monthDay(gaps[gaps.length - 1]!);
   if (gaps.length <= repullCapPerNight) {
-    return `I am missing ${gaps.length} days of Google data between ${first} and ${last}. I will re-pull them tonight.`;
+    return `I am missing ${gaps.length} days of Google data between ${first} and ${last}. I will re-pull them automatically while you use Beacon.`;
   }
-  return `I am missing ${gaps.length} days of Google data between ${first} and ${last}. I will re-pull them over the coming nights, ${repullCapPerNight} a night.`;
+  return `I am missing ${gaps.length} days of Google data between ${first} and ${last}. I will recover up to ${repullCapPerNight} missing days each time background upkeep runs.`;
 }

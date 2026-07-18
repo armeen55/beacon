@@ -29,8 +29,8 @@ export const ERROR_SPIKE_WINDOW_MS = 24 * 60 * 60 * 1000;
  *  the same machinery is never described two ways on the same banner. Routes
  *  without an entry simply drop the "mostly on" clause (no raw keys on Today). */
 const ROUTE_SUBJECT: Record<string, string> = {
-  "cron/sync-connectors": "the nightly data sync",
-  "cron/measure-due": "the nightly results check",
+  "cron/sync-connectors": "the connected-source refresh",
+  "cron/measure-due": "the results check",
   "/changes": "the worklist refresh",
   "/results": "the results page refresh",
   "action/stage-in-wix": "staging changes in Wix",

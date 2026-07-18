@@ -144,7 +144,7 @@ export function engineGapHeadline(
   const head = `${parts.join(", ")}.`;
   const tail =
     plannedGapChanges > 0
-      ? ` Tonight's plan includes ${plannedGapChanges} change${plannedGapChanges === 1 ? "" : "s"} aimed at the gap.`
+      ? ` Today's plan includes ${plannedGapChanges} change${plannedGapChanges === 1 ? "" : "s"} aimed at the gap.`
       : ` I am lining up changes aimed at the gap.`;
   return head + tail;
 }

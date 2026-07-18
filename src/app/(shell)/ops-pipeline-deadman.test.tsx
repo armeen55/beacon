@@ -84,7 +84,7 @@ function brokenPipe(): PipelineHealthRow {
     violations: [
       {
         stage: "gsc_sync",
-        sentence: "Search Console is connected but last night's sync wrote 0 rows.",
+        sentence: "Search Console is connected but the latest sync wrote 0 rows.",
         expected: "> 0 rows in the last 48h",
         actual: "0 rows",
       },
@@ -117,7 +117,7 @@ describe("OpsPipelineSection + deadman (T0c)", () => {
     health = null;
     verdict = stalledVerdict();
     const html = renderToStaticMarkup(await OpsPipelineSection({ tenantId: "tenant-iranopedia" }));
-    expect(html).toContain("My overnight work is not running");
+    expect(html).toContain("My background work needs attention");
     expect(html).toContain(
       "The nightly results check has not run since Jul 3, 2:30 AM. It was due again this morning. Check the Connections page.",
     );
@@ -133,8 +133,8 @@ describe("OpsPipelineSection + deadman (T0c)", () => {
     // One section, the pipe heading, both messages inside it.
     expect(html.match(/<section/g)).toHaveLength(1);
     expect(html).toContain("Your data pipe needs attention");
-    expect(html).not.toContain("My overnight work is not running");
-    expect(html).toContain("Search Console is connected but last night&#x27;s sync wrote 0 rows.");
+    expect(html).not.toContain("My background work needs attention");
+    expect(html).toContain("Search Console is connected but the latest sync wrote 0 rows.");
     expect(html).toContain("The nightly results check has not run since Jul 3, 2:30 AM.");
     expect(html).toContain('data-deadman-line="true"');
   });
@@ -174,7 +174,7 @@ describe("OpsPipelineSection + deadman (T0c)", () => {
     // The exact fix sentence recovery-actions.ts returns for a stalled
     // measure-due job (no per-source Sync now covers it -> Beacon's own
     // next-run wording, never a "tell me and I will investigate" dead end).
-    expect(html).toContain("I will pick this back up on its own overnight.");
+    expect(html).toContain("I will pick this back up automatically when you use Results.");
     expect(html).not.toMatch(/[‒–—―]/);
   });
 

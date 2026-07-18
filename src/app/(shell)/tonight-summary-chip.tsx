@@ -13,7 +13,7 @@ export function TonightSummaryChip({ picked, applied }: { picked: number; applie
       data-tonight-summary-chip="true"
       className="rounded-lg border border-border-subtle bg-surface-raised px-3 py-2 text-body text-foreground-secondary tabular-nums"
     >
-      Tonight: {picked} picked, {applied} applied. The batch is below.
+      Today: {picked} picked, {applied} applied. The batch is below.
     </p>
   );
 }

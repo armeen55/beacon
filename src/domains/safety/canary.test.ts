@@ -115,6 +115,6 @@ describe("buildHoldReason", () => {
   });
   it("joins failure reasons and ends with the reassurance", () => {
     const r = buildHoldReason([{ canary: "empty_field", reason: "2 drafts were missing a title or a target page." }]);
-    expect(r).toBe("I held tonight's batch: 2 drafts were missing a title or a target page. Nothing was published.");
+    expect(r).toBe("I held today's batch: 2 drafts were missing a title or a target page. Nothing was published.");
   });
 });

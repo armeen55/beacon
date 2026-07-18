@@ -72,7 +72,7 @@ describe("ChangesListClient - UX3 applied-batch collapse", () => {
   });
 
   it("the summary row names the exact count and verified state in one honest sentence", () => {
-    expect(SRC).toMatch(/Tonight&apos;s batch: \{batchRows\.length\} applied\{batchVerifiedCount === batchRows\.length \? ", all verified" : `, \$\{batchVerifiedCount\} of \$\{batchRows\.length\} verified`\}/);
+    expect(SRC).toMatch(/Today&apos;s batch: \{batchRows\.length\} applied\{batchVerifiedCount === batchRows\.length \? ", all verified" : `, \$\{batchVerifiedCount\} of \$\{batchRows\.length\} verified`\}/);
   });
 
   it("expanding the summary reveals the individual receipts (a real Row per change, not a re-derived count)", () => {
@@ -81,7 +81,7 @@ describe("ChangesListClient - UX3 applied-batch collapse", () => {
   });
 
   it("never renders an em or en dash in the batch summary copy", () => {
-    const idx = SRC.indexOf("Tonight&apos;s batch:");
+    const idx = SRC.indexOf("Today&apos;s batch:");
     const block = SRC.slice(idx, idx + 300);
     expect(block).not.toMatch(/[–—]/);
   });

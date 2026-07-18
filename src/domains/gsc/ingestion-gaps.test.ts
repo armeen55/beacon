@@ -81,13 +81,13 @@ describe("ingestionGapLine", () => {
 
   it("one missing day names the date", () => {
     expect(ingestionGapLine({ gapDates: ["2026-06-14"] })).toBe(
-      "I am missing 1 day of Google data (Jun 14). I will re-pull it tonight.",
+      "I am missing 1 day of Google data (Jun 14). I will re-pull it automatically while you use Beacon.",
     );
   });
 
   it("a few missing days name the span and promise tonight", () => {
     expect(ingestionGapLine({ gapDates: ["2026-06-14", "2026-06-15"] })).toBe(
-      "I am missing 2 days of Google data between Jun 14 and Jun 15. I will re-pull them tonight.",
+      "I am missing 2 days of Google data between Jun 14 and Jun 15. I will re-pull them automatically while you use Beacon.",
     );
   });
 
@@ -95,7 +95,7 @@ describe("ingestionGapLine", () => {
     const gaps = Array.from({ length: 12 }, (_, i) => `2026-06-${String(i + 2).padStart(2, "0")}`);
     const line = ingestionGapLine(gaps.length > 0 ? { gapDates: gaps } : { gapDates: [] })!;
     expect(line).toContain("I am missing 12 days of Google data between Jun 2 and Jun 13.");
-    expect(line).toContain(`over the coming nights, ${GAP_REPULL_CAP_PER_NIGHT} a night`);
+    expect(line).toContain(`up to ${GAP_REPULL_CAP_PER_NIGHT} missing days each time background upkeep runs`);
   });
 
   it("never emits an em or en dash", () => {

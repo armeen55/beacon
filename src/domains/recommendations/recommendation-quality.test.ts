@@ -179,7 +179,7 @@ describe("N9 - pause when sources contradict (Quality Constitution law 1)", () =
     expect(r.operatorReason).toContain("1,200");
     expect(r.operatorReason).toContain("3");
     expect(r.operatorReason).toContain("I am not recommending changes to it until I trust the data");
-    expect(r.operatorReason).toContain("Checking again nightly");
+    expect(r.operatorReason).toContain("I will check again during background upkeep");
   });
 
   it("a rank-visibility contradiction (GSC top-5 vs SERP snapshot absent from top 10) also pauses", () => {

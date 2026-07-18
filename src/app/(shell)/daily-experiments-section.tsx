@@ -673,8 +673,8 @@ function ExecutionChecklistView({ checklist, sparklineByUrl, staging, wixEditorU
     <div>
       {total > 0 ? (
         <div className="mb-3 tabular-nums">
-          <div className="mb-1 text-meta font-semibold text-muted-foreground">Tonight: {applied} of {total} applied</div>
-          <div className="flex gap-[2px]" role="img" aria-label={`Tonight: ${applied} of ${total} applied`}>
+          <div className="mb-1 text-meta font-semibold text-muted-foreground">Today: {applied} of {total} applied</div>
+          <div className="flex gap-[2px]" role="img" aria-label={`Today: ${applied} of ${total} applied`}>
             {Array.from({ length: total }, (_, i) => (
               <span key={i} className={`h-[6px] flex-1 rounded-full ${i < applied ? "bg-status-success" : "bg-status-neutral-bg"}`} />
             ))}

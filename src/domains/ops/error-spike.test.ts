@@ -66,7 +66,7 @@ describe("buildErrorSpikeLine (pure, both states)", () => {
       ...Array.from({ length: 3 }, (_, i) => errAt(i, "/changes")),
     ];
     expect(buildErrorSpikeLine(rows, NOW)).toBe(
-      "Something failed 14 times since yesterday, mostly on the nightly data sync. Details are on the Diagnostics page.",
+      "Something failed 14 times since yesterday, mostly on the connected-source refresh. Details are on the Diagnostics page.",
     );
   });
 

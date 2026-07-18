@@ -83,7 +83,7 @@ describe("engineGapHeadline - the Today line", () => {
   it("says who recommends you for how many questions, plus tonight's aim", () => {
     const line = engineGapHeadline(report, 2)!;
     expect(line).toBe(
-      "ChatGPT recommends you for 4 of 25 questions I checked, Gemini for 1 of 25. Tonight's plan includes 2 changes aimed at the gap.",
+      "ChatGPT recommends you for 4 of 25 questions I checked, Gemini for 1 of 25. Today's plan includes 2 changes aimed at the gap.",
     );
   });
 

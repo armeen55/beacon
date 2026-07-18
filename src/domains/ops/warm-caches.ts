@@ -388,15 +388,15 @@ async function ensurePlanPreview(
     await deps.completeAcceptedPlan(tenantId, accepted.id, now).catch(() => {});
   }
   if (preview && preview.date >= date) {
-    return { skipped: true, note: `tonight's plan already exists with ${preview.selected.length} picks` };
+    return { skipped: true, note: `today's plan already exists with ${preview.selected.length} picks` };
   }
   await deps.expirePlans(tenantId, now).catch(() => 0);
   const { record } = await deps.buildPreview(tenantId, now);
   if (record.selected.length === 0) {
-    return { note: "nothing eligible tonight, so no plan was persisted" };
+    return { note: "nothing eligible today, so no plan was persisted" };
   }
   await deps.persistPreview(record);
-  return { note: `built tonight's plan with ${record.selected.length} picks` };
+  return { note: `built today's plan with ${record.selected.length} picks` };
 }
 
 /**
@@ -463,8 +463,8 @@ export async function warmTenantCaches(
       const summary = await deps.runDisplacementChecks(tenantId, now);
       const note =
         summary.verdicts.length > 0
-          ? `checked ${summary.checked + summary.cached} money query drop(s), found ${summary.verdicts.length} still displaced, skipped ${summary.skippedNoBudget} past the nightly cap`
-          : `no qualifying money query drops to check tonight (skipped ${summary.skippedRecent} already checked recently, ${summary.skippedNoBudget} past the nightly cap)`;
+          ? `checked ${summary.checked + summary.cached} money query drop(s), found ${summary.verdicts.length} still displaced, skipped ${summary.skippedNoBudget} past the per-run cap`
+          : `no qualifying money query drops to check in this pass (skipped ${summary.skippedRecent} already checked recently, ${summary.skippedNoBudget} past the per-run cap)`;
       return { note };
     }),
   );
@@ -474,7 +474,7 @@ export async function warmTenantCaches(
     await runStep("serp-steal-lane", async () => {
       const summary = await deps.runStealLane(tenantId, now);
       if (summary.beatenKeywordsFound === 0) {
-        return { skipped: true, note: "no beaten keywords (rank 4-20 with real impressions) found tonight" };
+        return { skipped: true, note: "no beaten keywords (rank 4-20 with real impressions) found in this pass" };
       }
       const note = `found ${summary.beatenKeywordsFound} beaten keyword(s), read ${summary.teardownsTorndown} competitor page(s) (${summary.storedSerpHits} from stored SERPs, ${summary.livePullsUsed} live), built ${summary.briefsBuilt} steal brief(s)`;
       return { note };
@@ -488,7 +488,7 @@ export async function warmTenantCaches(
     await runStep("native-teardown", async () => {
       const summary = await deps.runNativeTeardown(tenantId, now);
       if (summary.promptsAnalyzed === 0) {
-        return { skipped: true, note: "no native-poll prompts with cited pages to tear down tonight" };
+        return { skipped: true, note: "no native-poll prompts with cited pages to tear down in this pass" };
       }
       const note = `analyzed ${summary.promptsAnalyzed} native prompt(s), read ${summary.torndownPages} competitor page(s) (${summary.fromCache} from cache), verdicts: ${summary.verdicts.filter((v) => v.outcome === "atomic_edit").length} atomic edit, ${summary.verdicts.filter((v) => v.outcome === "new_page").length} new page, ${summary.verdicts.filter((v) => v.outcome === "no_verdict").length} not enough winners yet`;
       return { note };
@@ -505,10 +505,10 @@ export async function warmTenantCaches(
     await runStep("prepare-ahead", async () => {
       const enabled = await deps.isPrepareAheadEnabled(tenantId);
       if (!enabled) {
-        return { skipped: true, note: "prepare-ahead-overnight is off, so the morning queue prepares on demand" };
+        return { skipped: true, note: "prepare-ahead is off, so the queue prepares on demand" };
       }
       const summary = await deps.runPrepareAhead(tenantId, now);
-      const note = `prepared ${summary.prepared} Move(s) (${summary.cached} already prepared, ${summary.readyToReview} ready to review), spent $${summary.llmCostUsd.toFixed(3)}${summary.stoppedForBudget ? " (stopped at the nightly cap)" : ""}${summary.failed ? `, ${summary.failed} need a look` : ""}`;
+      const note = `prepared ${summary.prepared} Move(s) (${summary.cached} already prepared, ${summary.readyToReview} ready to review), spent $${summary.llmCostUsd.toFixed(3)}${summary.stoppedForBudget ? " (stopped at the per-run cap)" : ""}${summary.failed ? `, ${summary.failed} need a look` : ""}`;
       return { note };
     }),
   );

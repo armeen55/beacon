@@ -77,7 +77,7 @@ describe("volume invariants (connected source wrote 0 rows)", () => {
     expect(violations).toHaveLength(1);
     expect(violations[0]!.stage).toBe("gsc_sync");
     expect(violations[0]!.actual).toBe("0 rows");
-    expect(violations[0]!.sentence).toContain("Search Console is connected but last night's sync wrote 0 rows");
+    expect(violations[0]!.sentence).toContain("Search Console is connected but the latest sync wrote 0 rows");
     expect(violations[0]!.sentence).toContain("broken at the Search Console stage");
     expect(violations[0]!.sentence).toContain("stale, not zero");
   });

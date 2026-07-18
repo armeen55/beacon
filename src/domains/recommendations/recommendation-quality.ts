@@ -203,7 +203,7 @@ export function reviewRecommendation(input: RecommendationInput): Recommendation
       hardFailures: [check],
       cautions: [],
       checks: [check],
-      operatorReason: `${sourceContradictions[0].detail} I am not recommending changes to it until I trust the data. Checking again nightly.`,
+      operatorReason: `${sourceContradictions[0].detail} I am not recommending changes to it until I trust the data. I will check again during background upkeep.`,
       version: RECOMMENDATION_QUALITY_VERSION,
       sourceContradictions,
     };

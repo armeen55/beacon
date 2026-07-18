@@ -74,12 +74,12 @@ export const EXCLUDED_REASON_COPY: Record<string, string> = {
   compound_edit: "This page changed recently, and stacking edits would hide which one worked.",
   insufficient_controls: "I could not find enough similar pages to compare it against.",
   // planner caps + holds
-  page_family_cap: "Tonight's batch already has enough pages of this kind.",
-  action_family_cap: "Tonight's batch already has enough changes of this kind.",
-  high_traffic_cap: "Tonight's batch already carries enough of your busiest pages.",
-  budget_full: "Tonight's time budget was already full.",
-  over_max: "Tonight's list was already full.",
-  influenced_conflict: "It touches a page tonight's picks already influence.",
+  page_family_cap: "Today's batch already has enough pages of this kind.",
+  action_family_cap: "Today's batch already has enough changes of this kind.",
+  high_traffic_cap: "Today's batch already carries enough of your busiest pages.",
+  budget_full: "Today's time budget was already full.",
+  over_max: "Today's list was already full.",
+  influenced_conflict: "It touches a page today's picks already influence.",
   underpowered: "This page does not get enough traffic yet for me to prove an effect either way.",
   lever_retired: "I stopped making this kind of change on pages like this after it lost repeatedly.",
   interference_hold: "I am holding it while nearby changes finish their reads.",
@@ -92,5 +92,5 @@ export const EXCLUDED_REASON_COPY: Record<string, string> = {
 /** One plain sentence for an excluded candidate: the planner's own frozen sentence when it
  *  wrote one, else the reason-code translation, else an honest generic hold. Never a raw code. */
 export function excludedReasonSentence(e: { reason: string; plainReason?: string }): string {
-  return e.plainReason ?? EXCLUDED_REASON_COPY[e.reason] ?? "I held this one back tonight.";
+  return e.plainReason ?? EXCLUDED_REASON_COPY[e.reason] ?? "I held this one back today.";
 }

@@ -104,7 +104,11 @@ Beacon's daily product loop is Today → Changes → Results. Supporting researc
 remain reachable through command search, but they do not compete in the primary sidebar. Changes is
 an execution queue, not a second analytics or research dashboard: its visible states are To do and
 Ready, exact copy leads, and evidence machinery is collapsed. Measurement and settled outcomes live
-on Results.
+on Results. Customer language follows that same clock: current work is “today's,” and autonomous
+work is described as advancing while Beacon is used or as new evidence arrives. No mounted customer
+control or recovery sentence may promise an overnight, nightly, or next-scheduled action while
+Vercel schedules are intentionally empty. Dormant automated-publishing controls do not belong on
+Connections; publishing remains on its separate explicit safety path.
 
 The ready queue maintains a tenant-scoped floor of five through ordinary signed-in navigation and
 after any handled change. Maintenance consumes the already-ranked, already-cached evidence graph,

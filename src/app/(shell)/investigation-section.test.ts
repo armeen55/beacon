@@ -51,7 +51,7 @@ describe("InvestigationSection contract", () => {
   });
 
   it("speaks first person", () => {
-    expect(SRC).toContain("I investigated a clicks drop overnight");
+    expect(SRC).toContain("I investigated a clicks drop in the background");
   });
 
   it("contains no em or en dashes anywhere", () => {

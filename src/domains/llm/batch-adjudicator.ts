@@ -53,7 +53,7 @@ const pathOf = (u: string): string =>
 const truncate = (s: string, max: number): string => (s.length <= max ? s : `${s.slice(0, max - 3)}...`);
 
 const SYSTEM = [
-  "You are the final reviewer on an SEO team, sanity-checking tonight's planned page changes before the site owner sees them.",
+  "You are the final reviewer on an SEO team, sanity-checking today's planned page changes before the site owner sees them.",
   "For EACH pick decide one thing: does the proposed text actually match what the top search is asking for?",
   "The classic miss you exist to catch: the search asks for a date or a number and the proposed text gives a definition instead.",
   'Return ONLY JSON: {"picks":[{"pickId": string, "verdict": "looks_right" or "concern", "concern": string}]}.',
@@ -87,7 +87,7 @@ export async function adjudicateBatch(
       .filter(Boolean)
       .join("\n"),
   );
-  const user = [`Tonight's batch (${picks.length} picks):`, "", lines.join("\n\n"), "", "Return the JSON now."].join("\n");
+  const user = [`Today's batch (${picks.length} picks):`, "", lines.join("\n\n"), "", "Return the JSON now."].join("\n");
   // Grounding for the numeric-fidelity firewall: every number the model may
   // legitimately echo (ids, queries, proposed text, evidence) is in here, so a
   // concern that invents a figure is rejected by the shared firewall.
@@ -117,7 +117,7 @@ export async function adjudicateBatch(
     // FAIL OPEN, LOUDLY: the batch ships with zero flags rather than being blocked.
     console.warn(
       `[batch-adjudicator] FINAL REVIEW FAILED OPEN (${r.status} - ${detail}). ` +
-        `All ${picks.length} picks ship WITHOUT a final-review check tonight. The plan itself is unaffected.`,
+        `All ${picks.length} picks continue WITHOUT a final-review check today. The plan itself is unaffected.`,
     );
     return new Map();
   }

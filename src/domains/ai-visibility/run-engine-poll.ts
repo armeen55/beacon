@@ -506,7 +506,7 @@ export async function runEnginePollForTenant(
   try {
     // (1) idempotency - one real run per tenant per UTC night.
     if (await deps.hasRunForNight(tenantId, date)) {
-      return { ...base, status: "already_ran", detail: "tonight's poll already ran for this tenant" };
+      return { ...base, status: "already_ran", detail: "today's bounded AI check already ran for this tenant" };
     }
 
     const tenant = await deps.loadTenant(tenantId);
@@ -677,7 +677,7 @@ export async function runEnginePollForTenant(
         status: er.status === "error" ? "failed" : "completed",
         started_at: observedAtIso,
         completed_at: deps.now().toISOString(),
-        scope_label: `ai engines nightly ${er.engine} - ${er.answers}/${questions.length} questions`,
+        scope_label: `ai engines background ${er.engine} - ${er.answers}/${questions.length} questions`,
         pages_scanned: 0,
         pages_changed: 0,
         pages_with_errors: 0,

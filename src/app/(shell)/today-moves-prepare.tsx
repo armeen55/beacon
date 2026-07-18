@@ -62,7 +62,7 @@ export function PrepareTonightButton({ readyCount, total }: { readyCount: number
             Preparing tonight&apos;s plan…
           </>
         ) : (
-          <>✦ Prepare tonight&apos;s plan (takes a minute){readyCount > 0 ? ` (${readyCount}/${total} ready)` : ""}</>
+          <>✦ Prepare today&apos;s plan (takes a minute){readyCount > 0 ? ` (${readyCount}/${total} ready)` : ""}</>
         )}
       </button>
       {msg ? <span className="max-w-xs text-right text-[11px] text-gray-500">{msg}</span> : null}

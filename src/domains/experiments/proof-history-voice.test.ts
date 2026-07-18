@@ -30,7 +30,7 @@ describe("proof-history-voice (item 27)", () => {
     const s = settle([row("/iran-flags/a", "edit_title", "inconclusive")]);
     const line = proofHistoryLine(s, pageFamilyOf("/iran-flags/b"), "meta");
     expect(line).toContain("We tried a title change on similar pages");
-    expect(line).toContain("That is why tonight is a description change, not a title change.");
+    expect(line).toContain("That is why today's change is a description change, not a title change.");
   });
 
   it("says so when the sibling lever HURT", () => {

@@ -212,7 +212,7 @@ function checkSource(
         expected: `more than 0 rows written in the last ${readings.recentWindowHours} hours`,
         actual: "0 rows",
         sentence:
-          `${cap(label)} is connected but last night's sync wrote 0 rows. ` +
+          `${cap(label)} is connected but the latest sync wrote 0 rows. ` +
           `The data pipe is broken at the ${SOURCE_STAGE_NAME[key]} stage; downstream numbers are stale, not zero. ` +
           CONNECTIONS_NEXT_STEP,
       };

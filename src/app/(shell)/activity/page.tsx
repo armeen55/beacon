@@ -37,7 +37,7 @@ export default async function ActivityPage({
   return (
     <PageShell
       title="Activity"
-      description="Everything Beacon did while you were away: changes shipped, plans approved, nightly jobs, and anything that needs your eye."
+      description="Everything Beacon did while you were away: changes shipped, plans approved, background work, and anything that needs your eye."
     >
       {raced.timedOut ? (
         <HonestDelay />

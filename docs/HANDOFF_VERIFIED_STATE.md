@@ -1,5 +1,22 @@
 # Beacon Verified State
 
+> 🟡 **2026-07-17 customer-language convergence is release-ready; deployment pending.** The
+> no-schedule operating model is now consistent at every audited live touchpoint. Connections no
+> longer mounts the dormant “Autopilot overnight” publishing/preparation control. Today recovery
+> says background work and rechecks while Beacon is used; shared connector/job recovery never
+> promises a nonexistent overnight or scheduled retry. Today and Changes consistently call the
+> working set “today's” picks/batch, while Activity, unanswered questions, source contradictions,
+> GSC gap recovery, AI checks, proof follow-up, revenue confirmation, and background investigation
+> describe the real on-use or evidence-arrival lifecycle. Internal LLM review prompts and durable
+> receipts use the same daily/per-run language, so generated copy cannot reintroduce the mismatch.
+> A new architecture invariant prevents remounting the dormant Autopilot card or restoring the
+> misleading phrases on the critical customer surfaces. Verification: strict typecheck; lint with
+> zero errors / 74 existing warnings; complete suite 1,537 files / 23,085 passed / 23 conditional
+> skips / 0 failed; `git diff --check` clean. No paid call, hosted environment mutation,
+> customer-data mutation, OAuth action, or publish occurred. The same external acceptance sequence
+> remains next: five unseen cases, one signed-in on-use receipt/timing pass, real unit economics,
+> Ritz reconnection, one approved Iranopedia publish, live verification, and its measurement windows.
+
 > 🟢 **2026-07-17 on-use autonomy and server-sealed blind validation are deployed and exact-SHA
 > verified.** Vercel schedules are intentionally empty. Beacon's normal signed-in navigation is
 > the primary operating loop: the existing bounded visit runner refreshes stale connected sources,

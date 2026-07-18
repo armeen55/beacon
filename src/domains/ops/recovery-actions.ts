@@ -183,7 +183,7 @@ export function recoveryForConnectorFailure(
         plainProblem: `${label} is connected, but its last good sync is old.`,
         exactFix: selfServe
           ? `Click Pull my data now on the ${label} card on the Connections page. If that keeps failing, reconnect ${label}.`
-          : `Open the Connections page and check the ${label} card. I will keep retrying this on my own overnight.`,
+          : `Open the Connections page and check the ${label} card. I retry stale sources automatically while you use Beacon.`,
         href: CONNECTORS_HREF,
         selfServe,
       };
@@ -247,18 +247,18 @@ const CRON_JOB_SYNC_NOW: Partial<Record<string, RecoverySelfServe>> = {
 };
 
 const CRON_JOB_NEXT_STEP: Record<string, string> = {
-  "publish-canary": "I will keep checking your site every night. If Wix is connected and mapped, publishing itself is unaffected by this check running late.",
+  "publish-canary": "I recheck the publish path before a live write. If Wix is connected and mapped, queued changes remain safe while this check catches up.",
   "sync-connectors": "I retry stale connected sources automatically while you use Beacon. I will update this after the next completed pull.",
-  "measure-due": "I will pick this back up on its own overnight. Nothing you need to click.",
-  autopilot: "Autopilot will resume shipping on its own next run. Your queued changes are safe and waiting.",
-  "ai-engines": "I will check AI answers again on the next scheduled run. Nothing you need to click.",
-  precompute: "I will keep preparing drafts on the next run. Nothing you need to click.",
+  "measure-due": "I will pick this back up automatically when you use Results. Nothing you need to click.",
+  autopilot: "Your queued changes are safe and waiting. Nothing publishes without the configured approval path.",
+  "ai-engines": "I will check AI answers again in the background as you use Beacon.",
+  precompute: "I will keep preparing drafts in the background as you use Beacon.",
   "page-factory": "I am retrying this batch automatically in the background when you use Beacon. I will update the result when the retry finishes.",
-  "strategy-review": "I will run the next strategy review on its own next scheduled run.",
+  "strategy-review": "I will run the next strategy review in the background as you use Beacon.",
 };
 
 const DEFAULT_CRON_NEXT_STEP =
-  "This is Beacon's own overnight schedule, not something to click here. I will retry it on the next scheduled run.";
+  "This is Beacon's background work, not something you need to start. I will retry it as you keep using Beacon.";
 
 /**
  * Recovery for a late/stalled cron job. `job` is the CRON_SCHEDULE_MAP job

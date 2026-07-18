@@ -690,7 +690,7 @@ describe("planDailyExperiments — R6 / N12 same-query experiment blocking", () 
     const held = plan.excluded.find((e) => e.url.includes("persian-cat-guide"));
     expect(held?.reason).toBe("query_overlap_hold");
     expect(held?.plainReason).toBe(
-      "I am holding this because it competes for the same searches as tonight's pick for /iran-animals/persian-cat.",
+      "I am holding this because it competes for the same searches as today's pick for /iran-animals/persian-cat.",
     );
     expect(hasBannedDash(held?.plainReason ?? "")).toBe(false);
   });

@@ -891,7 +891,7 @@ async function buildChangesViewUncached(tenantId: string): Promise<ChangesView> 
     checkedAt: new Date(nowMs).toISOString(),
     verb: "ranked",
     nowMs,
-    note: planAgo ? `Tonight's picks were put together ${planAgo}.` : null,
+    note: planAgo ? `Today's picks were put together ${planAgo}.` : null,
   });
 
   perfStage("changes-assembly", tSources, { changes: changes.length, watching: watching.length });

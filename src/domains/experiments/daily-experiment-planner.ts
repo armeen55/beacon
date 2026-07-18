@@ -500,7 +500,7 @@ export function planDailyExperiments(input: {
         url: e.url,
         actionFamily: e.actionFamily,
         reason: "query_overlap_hold",
-        plainReason: `I am holding this because it competes for the same searches as tonight's pick for ${colliderPath}.`,
+        plainReason: `I am holding this because it competes for the same searches as today's pick for ${colliderPath}.`,
       });
       continue;
     }

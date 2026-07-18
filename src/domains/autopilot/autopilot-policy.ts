@@ -428,7 +428,7 @@ export function decideAutopilotShips(input: AutopilotDecisionInput): AutopilotDe
     if (seenUrls.has(urlKey)) {
       skips.push({
         candidate,
-        reason: "I already picked a change for this page tonight, so I left this one for you.",
+        reason: "I already picked a change for this page today, so I left this one for you.",
       });
       continue;
     }

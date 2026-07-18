@@ -64,9 +64,9 @@ export async function InvestigationSection({ tenantId }: { tenantId: string }) {
     // one, instead of letting every card repeat it.
     const sharedWeatherSentence = rows.find((r) => r.diagnosis.weatherContext)?.diagnosis.weatherContext?.sentence ?? null;
     return (
-      <section aria-label="Overnight investigation" className="space-y-1.5">
+      <section aria-label="Background investigation" className="space-y-1.5">
         <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5">
-          <h2 className="text-sm font-semibold text-red-900 dark:text-red-200">I investigated a clicks drop overnight</h2>
+          <h2 className="text-sm font-semibold text-red-900 dark:text-red-200">I investigated a clicks drop in the background</h2>
         </div>
         {rows.map((r) => (
           <DiagnosisCard key={r.key} diagnosis={r.diagnosis} />

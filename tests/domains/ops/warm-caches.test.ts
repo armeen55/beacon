@@ -134,7 +134,7 @@ describe("warmTenantCaches", () => {
     // and the step records an honest skip - the nightly work is byte-identical to before.
     const prep = receipt.steps.find((s) => s.name === "prepare-ahead");
     expect(prep?.skipped).toBe(true);
-    expect(prep?.note).toContain("prepare-ahead-overnight is off");
+    expect(prep?.note).toContain("prepare-ahead is off");
     expect(receipt.ok).toBe(true);
     expect(receipt.date).toBe(TODAY);
   });
@@ -268,7 +268,7 @@ describe("warmTenantCaches", () => {
     const step = receipt.steps.find((s) => s.name === "prepare-ahead");
     expect(step?.ok).toBe(true);
     expect(step?.skipped).toBe(true);
-    expect(step?.note).toContain("prepare-ahead-overnight is off");
+    expect(step?.note).toContain("prepare-ahead is off");
   });
 
   it("prepare-ahead ON: runs the capped prepare pass and reports an honest note", async () => {
@@ -387,7 +387,7 @@ describe("warmTenantCaches", () => {
     const step = receipt.steps.find((s) => s.name === "displacement-check");
     expect(step?.ok).toBe(true);
     expect(step?.note).toContain("1 still displaced");
-    expect(step?.note).toContain("skipped 1 past the nightly cap");
+    expect(step?.note).toContain("skipped 1 past the per-run cap");
   });
 
   it("skip-when-fresh: a preview for today's Pacific day means NO build call", async () => {

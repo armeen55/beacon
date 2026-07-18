@@ -163,7 +163,7 @@ describe("recoveryForCronFailure", () => {
 
   it("an unknown job key still returns an honest generic next step, never throws", () => {
     const action = recoveryForCronFailure("some-future-job", "The future job", "late");
-    expect(action.exactFix).toContain("next scheduled run");
+    expect(action.exactFix).toContain("as you keep using Beacon");
   });
 
   it("every cron recovery sentence is free of em/en dashes", () => {

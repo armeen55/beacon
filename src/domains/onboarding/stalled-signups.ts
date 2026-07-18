@@ -52,7 +52,7 @@ const STAGE_RECOVERY: Record<StalledStage, { plainProblem: string; exactFix: str
   },
   scan_stalled: {
     plainProblem: "The first read started but has not moved in over a day.",
-    exactFix: "Click Continue reading here. Each click reads one more bounded batch; the nightly run also continues it.",
+    exactFix: "Click Continue reading here. Each click reads one more bounded batch, and normal Beacon use keeps it moving in the background.",
     href: "/diagnostics",
   },
   site_unreachable: {

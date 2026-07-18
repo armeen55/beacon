@@ -163,7 +163,7 @@ export async function OpsPipelineSection({ tenantId }: { tenantId: string }) {
     const heading = pipelineFires
       ? "Your data pipe needs attention"
       : deadmanFires
-        ? "My overnight work is not running"
+        ? "My background work needs attention"
         : "Some of my background work kept failing";
 
     return (
@@ -235,7 +235,7 @@ export async function OpsPipelineSection({ tenantId }: { tenantId: string }) {
           </div>
         ) : null}
         <p className="text-[11px] text-gray-500 dark:text-neutral-400">
-          I recheck this after every nightly sync. Connections live in{" "}
+          I recheck this automatically while you use Beacon. Connections live in{" "}
           <Link href="/settings/connectors" className="underline underline-offset-2 hover:text-gray-700 dark:hover:text-neutral-200">Settings, Connections</Link>.
         </p>
       </section>

@@ -27,7 +27,7 @@ vi.mock("@/domains/ops/error-spike", () => ({
 import { OpsPipelineSection } from "./ops-pipeline-section";
 
 const SPIKE_SENTENCE =
-  "Something failed 14 times since yesterday, mostly on the nightly data sync. Details are on the Diagnostics page.";
+  "Something failed 14 times since yesterday, mostly on the connected-source refresh. Details are on the Diagnostics page.";
 
 function quietVerdict(): DeadmanVerdict {
   return {
@@ -82,7 +82,7 @@ describe("OpsPipelineSection + error spike (N39)", () => {
     spike = SPIKE_SENTENCE;
     const html = renderToStaticMarkup(await OpsPipelineSection({ tenantId: "tenant-iranopedia" }));
     expect(html).toContain("Some of my background work kept failing");
-    expect(html).toContain("Something failed 14 times since yesterday, mostly on the nightly data sync.");
+    expect(html).toContain("Something failed 14 times since yesterday, mostly on the connected-source refresh.");
     expect(html).toContain("Details are on the Diagnostics page.");
     expect(html).toContain('href="/diagnostics/errors"');
     expect(html).toContain('data-error-spike="true"');

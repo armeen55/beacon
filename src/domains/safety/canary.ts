@@ -160,5 +160,5 @@ export function runCanaries(moves: readonly CanaryMove[], ctx: CanaryContext): C
 export function buildHoldReason(failures: readonly CanaryFailure[]): string {
   if (failures.length === 0) return "";
   const detail = failures.map((f) => f.reason).join(" ");
-  return `I held tonight's batch: ${detail} Nothing was published.`;
+  return `I held today's batch: ${detail} Nothing was published.`;
 }

@@ -98,19 +98,19 @@ export function buildTodayGoalPace(input: {
     const page = prettyPath(input.topReadyPage);
     ritualClause = `Start your day: open the top change on ${page}, ship it, then check yesterday's numbers. About 20 minutes.`;
     href = "#daily-experiments";
-    actionLabel = "Start with tonight's plan";
+    actionLabel = "Start with today's plan";
   } else if (ready > 0) {
     ritualClause = `Start your day: review your ${spell(ready)} ready change${ready === 1 ? "" : "s"}, ship what looks right, then check yesterday's numbers. About 20 minutes.`;
     href = "#daily-experiments";
-    actionLabel = "Start with tonight's plan";
+    actionLabel = "Start with today's plan";
   } else if (measuring > 0) {
     ritualClause = `Start your day: nothing is queued, so peek at the ${spell(measuring)} change${measuring === 1 ? "" : "s"} still measuring, then pick tomorrow's move. About 20 minutes.`;
     href = "/results";
     actionLabel = "See what is measuring";
   } else {
-    ritualClause = "Start your day: pick your next change from Changes and get it queued for tonight. About 20 minutes.";
+    ritualClause = "Start your day: pick your next change from Changes and get it ready to ship. About 20 minutes.";
     href = "/changes";
-    actionLabel = "Pick tonight's move";
+    actionLabel = "Pick today's move";
   }
 
   return { paceClause, ritualClause, href, actionLabel, progress, onTrack };

@@ -280,16 +280,16 @@ async function buildLines(
     key: "llm",
     line:
       (picksTonight > 0
-        ? `picked ${picksTonight} change${picksTonight === 1 ? "" : "s"} tonight, ${measuringCount} measuring${won > 0 ? `, ${won} won` : ""}`
+        ? `picked ${picksTonight} change${picksTonight === 1 ? "" : "s"} today, ${measuringCount} measuring${won > 0 ? `, ${won} won` : ""}`
         : measuringCount > 0
           ? `${measuringCount} change${measuringCount === 1 ? "" : "s"} measuring${won > 0 ? `, ${won} won` : ""}`
           : "reviewing the next batch") + recordSuffixFor(records, "llm"),
     active: picksTonight > 0 || measuringCount > 0,
     brief: {
-      watched: "I picked tonight's changes and I am tracking every change already live.",
+      watched: "I picked today's changes and I am tracking every change already live.",
       number:
         picksTonight > 0
-          ? `${picksTonight} change${picksTonight === 1 ? "" : "s"} picked tonight.`
+          ? `${picksTonight} change${picksTonight === 1 ? "" : "s"} picked today.`
           : measuringCount > 0
             ? `${measuringCount} change${measuringCount === 1 ? "" : "s"} measuring.`
             : "No picks queued yet.",
@@ -300,7 +300,7 @@ async function buildLines(
             ? "Still waiting on enough days of data to call a winner."
             : "I am reviewing the next batch of ideas now.",
       href: "#daily-experiments",
-      linkLabel: "See tonight's picks",
+      linkLabel: "See today's picks",
     },
   });
 

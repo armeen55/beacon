@@ -148,11 +148,11 @@ const PACIFIC = "America/Los_Angeles";
 /** Plain sentence subjects per job. Fallback: "the <label>". */
 const JOB_SUBJECT: Record<string, string> = {
   "publish-canary": "the Wix connection check",
-  "sync-connectors": "the nightly data sync",
-  "measure-due": "the nightly results check",
+  "sync-connectors": "the connected-source refresh",
+  "measure-due": "the results check",
   autopilot: "the autopilot shipping pass",
   "ai-engines": "the AI answer check",
-  precompute: "the overnight draft prep",
+  precompute: "the background draft prep",
   "page-factory": "the weekly new-page batch",
   "strategy-review": "the weekly strategy review",
 };

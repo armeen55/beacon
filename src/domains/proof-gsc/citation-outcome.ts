@@ -313,7 +313,7 @@ function buildSentence(a: {
     // would misread a visible dip.
     return "AI mentions of this page dipped after the change, but similar pages I did not touch dipped about as much, so I am not blaming this change.";
   }
-  return `AI mentions of this page look about the same since the change: ${plural(a.treatedPostCount, "mention")} in the ${a.postDays} days after. I keep checking every night.`;
+  return `AI mentions of this page look about the same since the change: ${plural(a.treatedPostCount, "mention")} in the ${a.postDays} days after. I keep checking as new evidence arrives.`;
 }
 
 /**

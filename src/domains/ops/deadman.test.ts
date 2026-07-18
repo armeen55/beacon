@@ -78,7 +78,7 @@ describe("classifyJobPace: jobs with receipts", () => {
       new Date("2026-07-04T08:00:00.000Z"), // ~47h later
     );
     expect(pace.pace).toBe("late");
-    expect(pace.sentence).toContain("The nightly data sync is running behind.");
+    expect(pace.sentence).toContain("The connected-source refresh is running behind.");
     expect(pace.sentence).toContain("It last ran");
   });
 
@@ -93,7 +93,7 @@ describe("classifyJobPace: jobs with receipts", () => {
     );
     expect(pace.pace).toBe("stalled");
     expect(pace.sentence).toBe(
-      "The nightly results check has not run since Jul 3, 2:30 AM. It was due again this morning. Check the Connections page.",
+      "The results check has not run since Jul 3, 2:30 AM. It was due again this morning. Check the Connections page.",
     );
   });
 
@@ -139,7 +139,7 @@ describe("classifyJobPace: never-ran grace", () => {
     );
     expect(pace.pace).toBe("late");
     expect(pace.sentence).toBe(
-      "The nightly data sync has not made its first run yet. It was due this morning.",
+      "The connected-source refresh has not made its first run yet. It was due this morning.",
     );
   });
 
@@ -152,7 +152,7 @@ describe("classifyJobPace: never-ran grace", () => {
     );
     expect(pace.pace).toBe("stalled");
     expect(pace.sentence).toBe(
-      "The nightly data sync has never run. Its first run was due yesterday. Check the Connections page.",
+      "The connected-source refresh has never run. Its first run was due yesterday. Check the Connections page.",
     );
   });
 
@@ -235,7 +235,7 @@ describe("classifyJobPace: died mid-run", () => {
     );
     expect(pace.pace).toBe("stalled");
     expect(pace.sentence).toBe(
-      "The nightly data sync started Jul 11, 2:00 AM but did not finish. Check the Connections page.",
+      "The connected-source refresh started Jul 11, 2:00 AM but did not finish. Check the Connections page.",
     );
     // Figure dash through horizontal bar (U+2012..U+2015), written as unicode
     // escapes so no literal dash characters appear on this added line.
@@ -275,7 +275,7 @@ describe("assessDeadman", () => {
     expect(verdict.overall).toBe("stalled");
     expect(verdict.alarm).toBe(true);
     expect(verdict.sentences).toEqual([
-      "The nightly results check has not run since Jul 3, 2:30 AM. It was due again this morning. Check the Connections page.",
+      "The results check has not run since Jul 3, 2:30 AM. It was due again this morning. Check the Connections page.",
     ]);
   });
 
@@ -320,7 +320,7 @@ describe("assessDeadman", () => {
       now: new Date("2026-07-06T16:00:00.000Z"),
     });
     expect(verdict.sentences).toHaveLength(2);
-    expect(verdict.sentences[0]).toContain("The nightly data sync has not run since");
+    expect(verdict.sentences[0]).toContain("The connected-source refresh has not run since");
     expect(verdict.sentences[1]).toBe("1 other scheduled job is stalled too.");
   });
 
@@ -343,7 +343,7 @@ describe("assessDeadman", () => {
     expect(verdict.sentences[0]).toBe(
       "Your site did not answer the last two times I checked. I last tried Jul 6, 2:10 AM. Check that your site is up before anything else.",
     );
-    expect(verdict.sentences[1]).toContain("The nightly results check has not run since");
+    expect(verdict.sentences[1]).toContain("The results check has not run since");
   });
 
   it("one failed probe alone stays quiet (weather, not fire)", () => {

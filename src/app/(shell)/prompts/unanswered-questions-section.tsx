@@ -43,7 +43,7 @@ export async function UnansweredQuestionsSection() {
     <section aria-labelledby="unanswered-questions-heading" className="space-y-3">
       <SectionHeader
         title="Questions people ask that no one answers well"
-        sub="Real questions with demand behind them that none of your pages answers yet. I rebuild this list every night from your Google queries, AI question expansions, People also ask, and your tracked questions."
+        sub="Real questions with demand behind them that none of your pages answers yet. I refresh this list in the background as you use Beacon, using your Google queries, AI question expansions, People also ask, and tracked questions."
       />
       <div className="grid gap-3">
         {top.map((r) => (

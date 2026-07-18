@@ -211,5 +211,5 @@ function powerSentence(band: PowerBand, forecastMidpoint: number, mde: number): 
   if (band === "marginal") {
     return `The result may take longer than 28 days to prove on this page, traffic is thin. Worth doing, slower to verify. I would need to see about ${roundedMde} extra clicks a month to be sure, and I am forecasting roughly ${roundedForecast}.`;
   }
-  return `This page gets about ${roundedForecast} clicks a month of headroom here, and I would need to see about ${roundedMde} to tell a real change from normal noise. Even a good change would be invisible for months, so I am spending tonight's slot on a page where we can actually see the result.`;
+  return `This page gets about ${roundedForecast} clicks a month of headroom here, and I would need to see about ${roundedMde} to tell a real change from normal noise. Even a good change would be invisible for months, so I am spending today's slot on a page where we can actually see the result.`;
 }

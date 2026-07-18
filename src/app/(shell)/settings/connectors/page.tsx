@@ -19,7 +19,6 @@ import { buildAutonomousHealth } from "@/domains/ops/autonomous-health";
 import { PageHeader } from "@/components/data/page-header";
 import { ConnectorsClient, type RefreshLedgerFacts } from "./connectors-client";
 import { PublishingModeCard } from "./publishing-mode-card";
-import { AutopilotCard } from "./autopilot-card";
 import { loadWithDeadline } from "@/lib/load-with-deadline";
 import { HonestDelay } from "@/components/honest-delay";
 
@@ -276,7 +275,6 @@ export default async function ConnectorsPage() {
       {/* Trust-budget autopilot (2026-07-01, item 1) - opt in to a weekly
           budget of auto-shipped changes from proven change types. Default OFF. */}
       <div className="mt-6">
-        <AutopilotCard />
       </div>
     </div>
   );

@@ -1042,7 +1042,7 @@ export function ChangesListClient({ view }: { view: ChangesClientView }) {
               className={`flex w-full items-center justify-between gap-3 rounded-lg border border-status-success/20 bg-status-success-bg px-3 py-2.5 text-left text-body font-medium text-status-success hover:opacity-90 ${FOCUS}`}
             >
               <span>
-                Tonight&apos;s batch: {batchRows.length} applied{batchVerifiedCount === batchRows.length ? ", all verified" : `, ${batchVerifiedCount} of ${batchRows.length} verified`}.
+                Today&apos;s batch: {batchRows.length} applied{batchVerifiedCount === batchRows.length ? ", all verified" : `, ${batchVerifiedCount} of ${batchRows.length} verified`}.
               </span>
               <span className="shrink-0 text-meta font-semibold underline underline-offset-2">Show receipts</span>
             </button>

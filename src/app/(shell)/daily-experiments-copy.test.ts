@@ -89,7 +89,7 @@ describe("daily-experiments-copy — assistant-first, no lab jargon, no dashes",
 
   it("the underpowered sentence names a real number and the honest 'spending the slot elsewhere' reasoning", () => {
     expect(underpoweredSentence).toMatch(/\d/);
-    expect(underpoweredSentence.toLowerCase()).toContain("tonight's slot");
+    expect(underpoweredSentence.toLowerCase()).toContain("today's slot");
   });
 
   it("the marginal sentence reads as 'worth doing, slower to verify', never as a silent drop", () => {
@@ -124,13 +124,13 @@ describe("excludedReasonSentence (R14a)", () => {
   it("prefers the planner's own frozen plainReason sentence when one exists", () => {
     const s = excludedReasonSentence({
       reason: "query_overlap_hold",
-      plainReason: "I am holding this because it competes for the same searches as tonight's pick for /persian-cat.",
+      plainReason: "I am holding this because it competes for the same searches as today's pick for /persian-cat.",
     });
-    expect(s).toBe("I am holding this because it competes for the same searches as tonight's pick for /persian-cat.");
+    expect(s).toBe("I am holding this because it competes for the same searches as today's pick for /persian-cat.");
   });
 
   it("falls back to the code translation, then to an honest generic hold - never a raw code", () => {
-    expect(excludedReasonSentence({ reason: "budget_full" })).toBe("Tonight's time budget was already full.");
-    expect(excludedReasonSentence({ reason: "some_future_reason" })).toBe("I held this one back tonight.");
+    expect(excludedReasonSentence({ reason: "budget_full" })).toBe("Today's time budget was already full.");
+    expect(excludedReasonSentence({ reason: "some_future_reason" })).toBe("I held this one back today.");
   });
 });

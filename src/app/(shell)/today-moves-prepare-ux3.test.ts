@@ -60,7 +60,7 @@ describe("prepareTonightsPlanAction - composes the existing pipelines, does not 
 
 describe("PrepareTonightButton - the ONE command replacing the button cluster", () => {
   it("keeps the '(takes a minute)' honesty line", () => {
-    expect(BUTTON_SRC).toContain("Prepare tonight&apos;s plan (takes a minute)");
+    expect(BUTTON_SRC).toContain("Prepare today&apos;s plan (takes a minute)");
   });
 
   it("calls the combined action, not a single pipeline step", () => {

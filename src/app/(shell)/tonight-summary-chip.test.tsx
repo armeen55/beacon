@@ -12,14 +12,14 @@ describe("TonightSummaryChip", () => {
     // Operator spec 2026-07-09 B-7: the batch panel moved to /changes, directly under
     // this chip - so the old "See them on Today" link is gone (it would be a dead end).
     const html = renderToStaticMarkup(<TonightSummaryChip picked={6} applied={6} />);
-    expect(html).toContain("Tonight: 6 picked, 6 applied.");
+    expect(html).toContain("Today: 6 picked, 6 applied.");
     expect(html).not.toContain("See them on Today");
     expect(html).not.toContain('href="/"');
   });
 
   it("shows a partially applied batch honestly", () => {
     const html = renderToStaticMarkup(<TonightSummaryChip picked={5} applied={2} />);
-    expect(html).toContain("Tonight: 5 picked, 2 applied.");
+    expect(html).toContain("Today: 5 picked, 2 applied.");
   });
 
   it("self-hides when nothing is picked (no bare-zero chip)", () => {

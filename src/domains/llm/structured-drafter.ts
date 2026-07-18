@@ -1678,7 +1678,7 @@ export async function draftTeamVerdictStructured(
     user: [
       `Page: ${input.pageLabel}`,
       `The search: "${input.targetQuery}"`,
-      `Tonight's change: ${input.leverPlain}`,
+      `Today's change: ${input.leverPlain}`,
       `New text: ${input.proposedText}`,
       "",
       "The specialists said:",

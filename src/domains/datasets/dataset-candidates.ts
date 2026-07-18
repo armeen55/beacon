@@ -343,7 +343,7 @@ export function buildFanoutVolumeCandidate(
     description: "A compiled table of the sub-questions AI answer engines fan your top topics into, tracked from real prompt runs.",
     kind: "beacon_aggregate",
     columns: [
-      { key: "sub_question", label: "Sub-Question", source: "AI prompt fan-out tracking (Beacon's own nightly runs)." },
+      { key: "sub_question", label: "Sub-Question", source: "AI prompt fan-out tracking from Beacon's background checks." },
     ],
     rowCountEstimate: rowCount,
     sourceFamilies: ["ai_fanout_universe"],

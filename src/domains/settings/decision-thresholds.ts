@@ -111,6 +111,6 @@ export const DECISION_THRESHOLDS: ReadonlyArray<DecisionThreshold> = [
     id: "nightly-question-cap",
     label: "How many AI questions I check a night",
     value: `${NIGHTLY_PROMPT_CAP} questions`,
-    sentence: `Each night I ask AI assistants at most ${NIGHTLY_PROMPT_CAP} of your tracked questions, so the answer history grows steadily without surprise costs.`,
+    sentence: `During each bounded background check I ask AI assistants at most ${NIGHTLY_PROMPT_CAP} tracked questions, so the answer history grows steadily without surprise costs.`,
   },
 ];

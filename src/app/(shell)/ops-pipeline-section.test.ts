@@ -84,7 +84,7 @@ describe("OpsPipelineSection contract", () => {
   it("speaks first person with the checked time and a next step", () => {
     expect(SRC).toContain("Your data pipe needs attention");
     expect(SRC).toContain("I checked");
-    expect(SRC).toContain("I recheck this after every nightly sync");
+    expect(SRC).toContain("I recheck this automatically while you use Beacon");
     expect(SRC).toContain('href="/settings/connectors"');
   });
 

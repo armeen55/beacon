@@ -65,7 +65,7 @@ export function proofHistoryLine(
       const outcome = sib.lost > 0 ? "it hurt" : "no lift after the full window";
       const sibPlain = FAMILY_PLAIN[lever ?? "other"] ?? "a change";
       const tonightPlain = FAMILY_PLAIN[actionFamily] ?? "a different change";
-      return `We tried ${sibPlain} on similar pages: ${outcome}. That is why tonight is ${tonightPlain}, not ${sibPlain}.`;
+      return `We tried ${sibPlain} on similar pages: ${outcome}. That is why today's change is ${tonightPlain}, not ${sibPlain}.`;
     }
   }
   return null;

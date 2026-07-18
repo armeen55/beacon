@@ -119,7 +119,7 @@ export function RevenueModelCard({ initial }: { initial: RevenueModelInitial }) 
             {result.success
               ? kind === "off"
                 ? "Saved. I will not show dollar estimates."
-                : "Saved. Tonight I will turn your real traffic into dollar estimates, labeled as your rate x real traffic."
+                : "Saved. I will now turn your real traffic into dollar estimates, labeled as your rate x real traffic."
               : result.error || "Could not save. Please try again."}
           </div>
         ) : null}

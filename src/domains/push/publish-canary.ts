@@ -63,10 +63,10 @@ const RITZ_FIX_HINT = "Publishing is off for this site.";
 /** Plain-language, first-person next steps - never a raw code word. */
 const FIX_HINTS = {
   noToken: "I don't have a site connection for this tenant yet. Connect Wix on Settings to enable publishing.",
-  tokenDead: "Your site connection expired. Reconnect on Settings and tonight's batch can publish again.",
+  tokenDead: "Your site connection expired. Reconnect in Settings before publishing again.",
   urlMapEmpty: "I don't have a page map for your site yet. Resync your Wix connection on Settings so I know which pages to update.",
   urlMapStale: "One of your mapped pages no longer exists on your site. Resync your Wix connection on Settings to refresh the map.",
-  dryRunFailed: "A practice run of the publish path failed. I'll keep trying tonight, but recheck your Wix connection on Settings if this continues.",
+  dryRunFailed: "A practice run of the publish path failed. Nothing was published. Recheck your Wix connection in Settings before trying again.",
 } as const;
 
 /** Small, injectable seam for tests - defaults call the real modules. */

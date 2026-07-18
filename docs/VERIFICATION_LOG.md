@@ -36548,3 +36548,33 @@ Release: commit `cacb0ad32972b6662208246660764bb31b911471` was pushed to `origin
 Vercel deployment `dpl_3BA1TVcUjYa6brJGJBpqZyxTyCwW` reached Ready and production
 `/api/version` returned that exact SHA. Unauthenticated `/`, `/today`, `/changes`, `/results`,
 `/diagnostics`, and `/settings/connectors` returned their expected 307 login continuations.
+
+## 2026-07-17 - On-use customer-language convergence (release pending)
+
+Audited every live customer-facing occurrence of “overnight,” “nightly,” “tonight,” and “scheduled
+run” after removing Vercel schedules. The audit found one major product contradiction: Connections
+still mounted an Autopilot card promising unattended overnight publishing and draft preparation,
+even though the on-use visit runner does not execute that publisher and all live publishing remains
+on a separate approval/safety path. The card is no longer mounted. Its underlying guarded,
+unscheduled maintenance code remains untouched; no publishing authority or stored configuration was
+mutated.
+
+Converged the remaining real touchpoints on the operating contract. Today machinery and shared
+recovery now say background work advances while the operator uses Beacon. Today/Changes batches,
+progress, holds, plan links, dossier labels, team summary, power analysis, proof-history explanation,
+and safety-canary copy say “today.” Activity, unanswered questions, source-contradiction pauses,
+GSC gap recovery, AI polling, citation follow-up, revenue-model confirmation, background
+investigation, publish-path failures, and receipt notes no longer claim a hidden nightly schedule.
+Internal structured-draft and batch-review prompts use the same wording so generated artifacts do
+not leak the old promise back into customer copy. Added
+`tests/architecture/on-use-customer-language.test.ts` and cataloged it; the invariant pins the
+unmounted Autopilot control and the critical recovery/execution/supporting-surface language.
+
+Verification before release: targeted convergence coverage passed 13 files / 201 tests, followed by
+the expanded shared-copy and maintenance set; `npm run typecheck` exit 0; `npm run lint` exit 0 with
+74 existing warnings and zero errors; isolated complete `npm run test` passed 1,537 files / 23,085
+tests / 23 conditional skips / 0 failures (23,108 total, 56.50 seconds); `git diff --check` clean
+before this documentation sync. No paid provider call, environment change, customer-data mutation,
+OAuth action, or publish occurred. Hosted acceptance remains external: five unseen cases, one
+authenticated visit/source receipt and signed-in timing pass, real unit economics, Ritz reconnect,
+one approved Iranopedia publish, live verification, and its predeclared measurement windows.

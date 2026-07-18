@@ -71,6 +71,8 @@ describe("Connectors settings route smoke", () => {
     expect(html).toContain("Automatic upkeep:");
     expect(html).toContain("The only thing I never do on my own is change your live site");
     expect(html).toContain("Manual CSV/JSON import remains available");
+    expect(html).not.toContain("Autopilot for proven changes");
+    expect(html).not.toContain("Prepare tomorrow");
   });
 
   it("computes 'N of M connected' from provider reads and surfaces the on-use receipt", async () => {

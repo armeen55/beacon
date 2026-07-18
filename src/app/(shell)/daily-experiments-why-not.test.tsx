@@ -28,16 +28,16 @@ describe("WhyNotOthers (R14a)", () => {
         actionFamily: "meta",
         reason: "query_overlap_hold",
         plainReason:
-          "I am holding this because it competes for the same searches as tonight's pick for /persian-cats.",
+          "I am holding this because it competes for the same searches as today's pick for /persian-cats.",
       },
       { url: "https://iranopedia.com/iran-flags", actionFamily: "meta", reason: "budget_full" },
     ];
     const html = renderToStaticMarkup(<WhyNotOthers excluded={excluded} />);
     expect(html).toContain("Why not the others?");
     expect(html).toContain(
-      "I am holding this because it competes for the same searches as tonight&#x27;s pick for /persian-cats.",
+      "I am holding this because it competes for the same searches as today&#x27;s pick for /persian-cats.",
     );
-    expect(html).toContain("Tonight&#x27;s time budget was already full.");
+    expect(html).toContain("Today&#x27;s time budget was already full.");
     expect(html).not.toContain("query_overlap_hold");
     expect(html).not.toContain("budget_full");
     expect(html).not.toMatch(/[‒–—―]/);

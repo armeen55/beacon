@@ -233,7 +233,7 @@ function buildNextClause(
     return {
       text: `Your next move: ${nextPick.headline}.`,
       href: "#daily-experiments",
-      actionLabel: "See tonight's plan",
+      actionLabel: "See today's plan",
     };
   }
   if (topAlert) {
