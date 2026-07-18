@@ -4,12 +4,12 @@
  * share this single home so a broken pipe and a stalled scheduler can never
  * render as two competing red boxes:
  *
- *   1. Pipeline invariants (item 10): last night's persisted stage check - a
+ *   1. Pipeline invariants (item 10): the latest persisted stage check - a
  *      connected source that wrote 0 rows, a stale sync, a plan with no
  *      candidates. Renders up to 2 red items naming the exact broken stage.
  *   2. The operational deadman (T0c): the cron_runs receipts vs the schedule
  *      map. When a scheduled job is stalled (or the site itself did not answer
- *      the last two nightly probes), its plain sentence joins this same block
+ *      the last two background probes), its plain sentence joins this same block
  *      as one more line - never a second widget.
  *
  * Sibling pattern (CoverageMapSection): server component, $0 persisted reads

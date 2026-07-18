@@ -27,7 +27,14 @@ describe("autonomous execution loop", () => {
 
   it("lets the signed-in customer schedule bounded queue maintenance without operator mode", () => {
     const start = moveActions.indexOf("export async function autoAdvancePrepareAction");
-    const end = moveActions.indexOf("export type EnrichResearchResult", start);
+    // 2026-07-18 - the dead `EnrichResearchResult` export this used as an end
+    // marker was deleted in the today-moves-actions.ts slimming, which made
+    // indexOf return -1 and the slice run to (effectively) the end of the
+    // file - capturing every later action (including ones that DO gate on
+    // isOperatorModeServer) instead of just this function. Find the next
+    // top-level `export` declaration after this one instead, so the slice
+    // stops exactly at the end of autoAdvancePrepareAction.
+    const end = moveActions.indexOf("\nexport ", start + 1);
     const action = moveActions.slice(start, end);
     expect(action).toContain("replenishReadyQueueForTenant");
     expect(action).not.toContain("isOperatorModeServer");

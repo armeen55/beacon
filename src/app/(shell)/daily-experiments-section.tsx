@@ -148,7 +148,7 @@ function KeywordResearch({ e }: { e: PlannedExperimentRecord }) {
  *  as a real team thread - avatar chip on the left, the take as a speech line, pushback offset
  *  like a reply, the verdict as a distinct closing line. This is the REAL debate frozen at
  *  planning time - the same specialists (search demand, revenue, visitor behavior, live Google
- *  results, AI citations) whose evidence chose tonight's batch. Persisted records may carry
+ *  results, AI citations) whose evidence chose today's batch. Persisted records may carry
  *  older template strings, so every dynamic line runs through humanizeDebateLine too. */
 export function TeamRoundtable({ e }: { e: PlannedExperimentRecord }) {
   const t = e.teamReview;
@@ -296,7 +296,7 @@ function ExpectationLines({ e }: { e: PlannedExperimentRecord }) {
 }
 
 /** Item 47 (2026-07-02): what the ledger has already learned about moves like this one, shown
- *  right on the pick card (not buried in the expander) since it is part of why tonight picked
+ *  right on the pick card (not buried in the expander) since it is part of why today picked
  *  this over another candidate. Absent when the tag is neutral (no settled bucket cleared the
  *  sample bar yet) - a fresh tenant with no history shows nothing here, exactly as before. */
 function LearnedPriorTag({ e }: { e: PlannedExperimentRecord }) {
@@ -661,7 +661,7 @@ function ExecutionChecklistView({ checklist, sparklineByUrl, staging, wixEditorU
   const router = useRouter();
   const [pending, start] = useTransition();
   const [msg, setMsg] = useState<string | null>(null);
-  // Item 44 - tonight's batch progress: one segment per approved change.
+  // Item 44 - today's batch progress: one segment per approved change.
   const total = s.accepted;
   const applied = total - s.left;
   const finish = () => start(async () => {
@@ -720,12 +720,12 @@ function ExecutionChecklistView({ checklist, sparklineByUrl, staging, wixEditorU
         ) : null}
       </div>
       {checklist.items.map((item) => <ExecutionCard key={item.experiment.id} planId={checklist.planId} item={item} spark={sparklineByUrl[item.experiment.url]} staging={staging} wixEditorUrl={wixEditorUrlByUrl?.[item.experiment.url]} />)}
-      {/* Item 62 - the sticky batch bar: while tonight's items are pending, the count
+      {/* Item 62 - the sticky batch bar: while today's items are pending, the count
           follows the operator down the page so finishing never falls off-screen. */}
       {s.left > 0 ? (
         <div className="sticky bottom-3 z-10 mt-3 flex items-center justify-between gap-3 rounded-xl border border-border bg-card/95 px-4 py-2.5 shadow-lg backdrop-blur">
           <span className="text-sub font-semibold text-foreground-secondary tabular-nums">
-            Tonight: {s.left} left to apply
+            Today: {s.left} left to apply
           </span>
           <span className="flex flex-1 gap-0.5" aria-hidden>
             {Array.from({ length: s.accepted }, (_, i) => (
@@ -746,7 +746,7 @@ function ExecutionChecklistView({ checklist, sparklineByUrl, staging, wixEditorU
   );
 }
 
-/** R14a - the quiet "Why not the others?" expander: the candidates tonight's planner
+/** R14a - the quiet "Why not the others?" expander: the candidates today's planner
  *  looked at and set aside, with the planner's OWN frozen sentences (plainReason) or the
  *  reason-code translation from daily-experiments-copy.ts. Pure surfacing of what the
  *  plan record already carries (capped at 8 at persist time); self-hiding when the
@@ -781,10 +781,10 @@ function QualityLine({ summary }: { summary: DailyExperimentsView["qualitySummar
       <div className="mt-1 text-meta font-medium text-status-success tabular-nums">{parts.join(" · ")}</div>
       {/* N9 - self-hiding: only renders when a page's own sources disagree (Search Console vs
           Analytics, a live check vs Search Console's own ranking, or a dead page still getting
-          clicks). Absent on every ordinary night. */}
+          clicks). Absent whenever every source already agrees. */}
       {summary.paused > 0 && (
         <div className="mt-0.5 text-meta font-medium text-status-warning tabular-nums">
-          ⏸ {summary.paused} paused until the data agrees - checking again nightly
+          ⏸ {summary.paused} paused until the data agrees, I recheck automatically while you use Beacon
         </div>
       )}
     </>
@@ -827,7 +827,7 @@ export function DailyExperimentsSection({ view }: { view: DailyExperimentsView }
 
   const b = dashboard.activeProofBatch;
   return (
-    // id: the item-56 "Pages fading" row in the Demand band deep-links here ("See tonight's picks").
+    // id: the item-56 "Pages fading" row in the Demand band deep-links here ("See today's picks").
     <section id="daily-experiments" className="my-4 rounded-2xl border border-border bg-card p-4">
       <SectionHeader title="Today’s changes" className="mb-2" />
       {/* R14b (receipts everywhere) - when the active plan was put together and from
@@ -870,7 +870,7 @@ export function DailyExperimentsSection({ view }: { view: DailyExperimentsView }
         <button type="button" disabled={pending} aria-busy={pending} onClick={plan} className={BTN_PRIMARY}>{pending ? "Thinking..." : "Show me today’s changes"}</button>
       )}
 
-      {/* R14a - "Why not the others?": the candidates tonight's planner set aside, with
+      {/* R14a - "Why not the others?": the candidates today's planner set aside, with
           its own frozen reasons. Renders for whichever plan is on screen (accepted or
           preview); absent when the record predates R14a or nothing was excluded. */}
       <WhyNotOthers excluded={(accepted ?? preview)?.excluded} />

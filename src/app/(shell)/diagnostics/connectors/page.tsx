@@ -176,7 +176,8 @@ export default async function ConnectorsDiagnosticPage() {
           seasonality engine needs multiple years of demand to prove a wave
           repeats every year, but the normal sync only ever holds 90 days.
           One click reaches back up to 16 months in resumable chunks; the
-          nightly sync continues it automatically until complete. */}
+          operator clicking continue on each visit runs the next chunk until
+          complete (Beacon has no scheduler to continue it automatically). */}
       <section className="rounded-lg border border-border/40 bg-surface-inset/30 p-4">
         <h2 className="mb-1 text-sm font-semibold uppercase tracking-wider text-muted-foreground">
           Load my full Search Console history
@@ -185,14 +186,16 @@ export default async function ConnectorsDiagnosticPage() {
           Google keeps up to 16 months of search history, but I only load 90
           days by default. Loading the full history lets me prove a search
           wave repeats every year instead of guessing off one season, and
-          schedule prep work 6 to 8 weeks before it hits. This runs in the
-          background across several nights; one click starts it.
+          schedule prep work 6 to 8 weeks before it hits. I pull it in chunks
+          of about a month each so a single request never times out; one
+          click starts it, and clicking continue each time you are back
+          finishes it.
         </p>
         {backfillStatus.started ? (
           <p className="mb-3 text-xs text-muted-foreground" data-testid="gsc-backfill-status">
             {backfillStatus.status === "complete"
               ? `Done. History now reaches back to ${backfillStatus.targetDate}.`
-              : `In progress: back to ${backfillStatus.cursorDate ?? backfillStatus.targetDate} so far, heading to ${backfillStatus.targetDate}. Continues automatically each night.`}
+              : `In progress: back to ${backfillStatus.cursorDate ?? backfillStatus.targetDate} so far, heading to ${backfillStatus.targetDate}. Click continue to pull the next chunk.`}
           </p>
         ) : null}
         <form action={startGscDeepBackfillFromForm}>

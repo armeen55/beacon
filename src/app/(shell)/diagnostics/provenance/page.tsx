@@ -7,7 +7,7 @@ import "server-only";
  * dates, is-a definitions), each linked to its sources, dates, reliability,
  * and affected pages.
  *
- * Read-only: reads the nightly-persisted "claim-graph" store rows plus the
+ * Read-only: reads the on-use-persisted "claim-graph" store rows plus the
  * ship-time "fact-propagation-plans" history for the current tenant ($0, no
  * scan, no paid call). Shows the counts by status, the conflicting list, the
  * stale list (facts past their freshness deadline - the same findings the
@@ -89,13 +89,13 @@ export default async function ProvenanceDiagnosticsPage() {
         <h1 className="text-xl font-semibold text-foreground">Fact provenance</h1>
         <p className="mt-1 text-sm text-foreground-secondary">
           Every factual claim I found on your pages, linked to its source, date, and reliability. I rebuild
-          this nightly from your stored page text, competitor reads, and the changes you shipped.
+          this automatically while you use Beacon, from your stored page text, competitor reads, and the changes you shipped.
         </p>
       </div>
 
       {records.length === 0 ? (
         <p className="rounded-2xl border border-dashed border-border bg-card p-8 text-center text-sm text-muted-foreground">
-          No claims tracked yet. The graph fills in after the next nightly sync reads your stored pages.
+          No claims tracked yet. The graph fills in the next time I read your stored pages while you use Beacon.
         </p>
       ) : (
         <>

@@ -18,58 +18,14 @@ import {
 } from "@/domains/demand-graph/llm-answer-block";
 import { saveMoveDraft } from "@/domains/demand-graph/move-draft-store";
 import { auditTopCompetitorsForTenant } from "@/domains/demand-graph/competitor-page-audit";
-import { prepareTodayMovesForTenant, type PrepareMovesSummary } from "@/domains/demand-graph/prepare-today-moves";
-export type { PrepareMovesSummary } from "@/domains/demand-graph/prepare-today-moves";
 import { autoRecordShippedChangeForRec } from "@/domains/proof-gsc/auto-record-on-ship";
 import { autoMeasureDuePass, type AutoMeasurePassResult } from "@/domains/proof-gsc/auto-measure-pass";
 import { harvestWinners } from "@/domains/llm/winner-memory";
 import { buildTeamScoreboardSummary } from "@/domains/team-scoreboard/compute-scoreboard";
-import { readChangesSurface } from "./changes-surface-store";
 
 export type SharpenMovesResult =
   | { status: "off" }
   | { status: "ok"; audited: number; targets: number; cached: number };
-
-export type PrepareTopMovesResult =
-  | { ok: false; reason: string }
-  | { ok: true; summary: PrepareMovesSummary };
-
-async function rankedEntriesForPreparation(tenantId: string) {
-  return (await readChangesSurface(tenantId).catch(() => null))
-    ?.view.rankedPreparationEntries ?? [];
-}
-
-/**
- * prepareTopMovesAction (2026-06-25, P5) — "Prepare my top 10". One click runs the
- * full prepare pipeline (specialist opinions → router → structured draft →
- * experiment → proof plan → PreparedMovePack) for the tenant's top existing-page
- * Moves and persists each pack, so the cockpit arrives "ready to review" instead
- * of chore-ready. Operator-gated, fires only on explicit click (never on render),
- * cache-first + capped (one budgeted LLM draft per Move; re-runs are cheap). NO
- * publish, NO migration. RANK-3: it now also runs a LIVE Google-results
- * winnability check per existing-page Move (cache-first, behind runSerpQuery's
- * full money gauntlet, so it makes NO paid call when SERP is unconfigured or
- * dry-run); an effectively-unwinnable Move is held at "serp_checked" with an
- * honest line instead of a confident "ready" draft. Revalidates "/" so the hero
- * re-renders prepared.
- */
-export async function prepareTopMovesAction(opts: { maxN?: number } = {}): Promise<PrepareTopMovesResult> {
-  if (!(await isOperatorModeServer())) return { ok: false, reason: "Operator mode only." };
-  try {
-    const tenantId = await currentTenantId();
-    const summary = await prepareTodayMovesForTenant(tenantId, {
-      maxN: opts.maxN ?? 10,
-      rankedEntries: await rankedEntriesForPreparation(tenantId),
-    });
-    await invalidateWorklistSurface().catch(() => {}); // prepared state changed → recompute next /changes load
-    await invalidateChangesSurface().catch(() => {}); // ...and the ranked /changes snapshot
-    revalidatePath("/");
-    revalidatePath("/changes");
-    return { ok: true, summary };
-  } catch (e) {
-    return { ok: false, reason: e instanceof Error ? e.message.slice(0, 120) : "prepare failed" };
-  }
-}
 
 export type AutoAdvancePrepareResult =
   | { ok: false; reason: string }
@@ -111,47 +67,6 @@ export async function autoAdvancePrepareAction(): Promise<AutoAdvancePrepareResu
   }
 }
 
-export type EnrichResearchResult =
-  | { status: "off" }
-  | { status: "error"; reason: string }
-  | { status: "ok"; result: import("@/domains/serp/research-enrichment-producer").EnrichmentRunResult };
-
-/**
- * enrichTopResearchPacksAction (2026-06-29) — the operator-triggered DataForSEO PRODUCER
- * for the top-N PageResearchPack cards. DRY-RUN DEFAULT: reports the plan + exact spend
- * estimate and makes ZERO paid calls. Live (only when DATAFORSEO_DRY_RUN=false) fetches
- * the MISSING keyword volume + SERP winner-title/format patterns through the shared
- * capped + 14d-cached + ledgered gauntlet and caches them for the research module to read.
- * NEVER runs on the render path. NO Wix, NO proof mutation, NO env flip by me.
- */
-export async function enrichTopResearchPacksAction(opts: { topN?: number } = {}): Promise<EnrichResearchResult> {
-  if (!(await isOperatorModeServer())) return { status: "off" };
-  const topN = opts.topN ?? 5;
-  try {
-    const { buildTodayMovesData } = await import("./today-moves-data");
-    const { enrichResearchPacks } = await import("@/domains/serp/research-enrichment-producer");
-    const data = await buildTodayMovesData(await currentTenantId(), { limit: topN });
-    const packs = data.moves
-      .filter((m) => m.researchPack)
-      .slice(0, topN)
-      .map((m) => ({
-        url: m.targetUrl,
-        primaryIntent: m.researchPack!.primaryIntent,
-        own: m.researchPack!.own,
-        sibling: m.researchPack!.sibling,
-      }));
-    const result = await enrichResearchPacks(packs);
-    if (result.mode === "live" && result.patternsWritten > 0) {
-      await invalidateWorklistSurface().catch(() => {}); // new SERP patterns → cards change → recompute
-      await invalidateChangesSurface().catch(() => {});
-      revalidatePath("/changes");
-    }
-    return { status: "ok", result };
-  } catch (e) {
-    return { status: "error", reason: e instanceof Error ? e.message.slice(0, 140) : "enrich failed" };
-  }
-}
-
 /**
  * sharpenMovesWithTeardownAction (2026-06-25) — bring the core "reverse-engineer
  * the winner" IP into the cockpit. Runs the deterministic competitor teardown
@@ -180,116 +95,6 @@ export async function sharpenMovesWithTeardownAction(
   revalidatePath("/prompts");
   revalidatePath("/changes");
   return { status: "ok", audited: audited.length, targets, cached };
-}
-
-export type RegenerateFromTeardownResult =
-  | { ok: false; reason: string }
-  | { ok: true; summary: PrepareMovesSummary };
-
-/**
- * regenerateTopDraftsFromTeardownAction (2026-06-28) — bounded "improve the top drafts
- * using the pages that currently win." Re-runs the structured drafter for the top
- * teardown-backed Moves with the competitor's real facts (title/sections/schema/word
- * count/FAQ) threaded into the prompt as "beat it, don't copy it." HARD per-run $ cap
- * (default $0.10, top 3); every regenerated draft must pass the existing quality gate
- * (a failure surfaces "Needs review", never a fake "ready"). The prior draft stays
- * recoverable (move_drafts is insert-only) + its quality/excerpt is captured in the
- * pack's regenMeta. Operator-gated, on-demand only, cache-bypassing. NO publish, NO
- * Wix, NO migration. Revalidates "/" + worklist + drafts so the chips render.
- */
-export async function regenerateTopDraftsFromTeardownAction(
-  opts: { limit?: number; maxUsd?: number } = {},
-): Promise<RegenerateFromTeardownResult> {
-  if (!(await isOperatorModeServer())) return { ok: false, reason: "Operator mode only." };
-  try {
-    const tenantId = await currentTenantId();
-    const summary = await prepareTodayMovesForTenant(tenantId, {
-      maxN: Math.min(opts.limit ?? 3, 5),
-      maxUsd: Math.min(opts.maxUsd ?? 0.1, 0.1),
-      forceRegenerate: true,
-      requireTeardown: true,
-      rankedEntries: await rankedEntriesForPreparation(tenantId),
-    });
-    await invalidateWorklistSurface().catch(() => {}); // regenerated drafts → readiness changes → recompute
-    await invalidateChangesSurface().catch(() => {});
-    revalidatePath("/");
-    revalidatePath("/changes");
-    revalidatePath("/drafts");
-    return { ok: true, summary };
-  } catch (e) {
-    return { ok: false, reason: e instanceof Error ? e.message.slice(0, 120) : "regeneration failed" };
-  }
-}
-
-export type PrepareTonightsPlanResult =
-  | { ok: false; reason: string }
-  | {
-      ok: true;
-      prepared: number;
-      readyToReview: number;
-      improved: number;
-      competitorPagesAnalyzed: number;
-      competitorPagesRefreshed: number;
-      enrichedPatterns: number;
-      llmCostUsd: number;
-      failed: number;
-    };
-
-/**
- * prepareTonightsPlanAction (UX3, 2026-07-02) — the ONE command that replaces the
- * Improve-top-3 / Enrich-research / Prepare-top-10 button cluster on /changes. Runs the
- * existing research + preparation pipelines, in the order that makes each one sharper for the
- * next: reverse-engineer the top competitor pages → enrich keyword/SERP research packs
- * (DataForSEO, dry-run unless already configured live) → prepare the top 10 Moves end to end →
- * improve the top 3 teardown-backed drafts with competitor facts.
- * Each step is independently capped/cached exactly as it is today; a failure in one step
- * never blocks the others (fail-soft per step, honest partial summary). The granular
- * buttons remain available in the overflow menu for an operator who wants just one step.
- */
-export async function prepareTonightsPlanAction(): Promise<PrepareTonightsPlanResult> {
-  if (!(await isOperatorModeServer())) return { ok: false, reason: "Operator mode only." };
-  let competitorPagesAnalyzed = 0;
-  let competitorPagesRefreshed = 0;
-  try {
-    const teardown = await sharpenMovesWithTeardownAction({ limit: 12 });
-    if (teardown.status === "ok") {
-      competitorPagesAnalyzed = teardown.audited;
-      competitorPagesRefreshed = Math.max(0, teardown.audited - teardown.cached);
-    }
-  } catch {
-    // Fail-soft: cached teardown evidence may still exist, and preparation remains useful.
-  }
-  let enrichedPatterns = 0;
-  try {
-    const enrich = await enrichTopResearchPacksAction({ topN: 5 });
-    if (enrich.status === "ok" && enrich.result.mode === "live") enrichedPatterns = enrich.result.patternsWritten;
-  } catch {
-    // fail-soft: research enrichment is a nice-to-have ahead of drafting, never a blocker
-  }
-  const prepare = await prepareTopMovesAction({ maxN: 10 });
-  if (!prepare.ok) return { ok: false, reason: prepare.reason };
-  let improved = 0;
-  let regenCostUsd = 0;
-  try {
-    const regen = await regenerateTopDraftsFromTeardownAction({ limit: 3, maxUsd: 0.1 });
-    if (regen.ok) {
-      improved = regen.summary.regenerated ?? 0;
-      regenCostUsd = regen.summary.llmCostUsd ?? 0;
-    }
-  } catch {
-    // fail-soft: the base prepare pass already produced a reviewable plan without this
-  }
-  return {
-    ok: true,
-    prepared: prepare.summary.prepared,
-    readyToReview: prepare.summary.readyToReview,
-    improved,
-    competitorPagesAnalyzed,
-    competitorPagesRefreshed,
-    enrichedPatterns,
-    llmCostUsd: prepare.summary.llmCostUsd + regenCostUsd,
-    failed: prepare.summary.failed,
-  };
 }
 
 export type MarkAppliedResult =

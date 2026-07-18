@@ -13,6 +13,8 @@
  * quarantines (same convention compute-scoreboard.test.ts uses).
  */
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import {
   TEST_CALIBRATED_VERSION,
   registerTestCalibratedVersion,
@@ -262,5 +264,12 @@ describe("scoreboard-section money-line block - no em/en dashes anywhere", () =>
     );
     const cf = computePortfolioCounterfactual(cfRows);
     expect(cf?.sentence ?? "").not.toMatch(/[–—]/);
+  });
+});
+
+describe("scoreboard-section - no scheduled/overnight timing claims", () => {
+  it("never claims tonight/last night/overnight/nightly timing (Beacon has no scheduler)", () => {
+    const SRC = readFileSync(resolve(__dirname, "scoreboard-section.tsx"), "utf8");
+    expect(SRC).not.toMatch(/tonight|last night|overnight|nightly/i);
   });
 });

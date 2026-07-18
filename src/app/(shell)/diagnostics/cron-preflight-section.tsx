@@ -1,5 +1,5 @@
 /**
- * CronPreflightSection (BEACON_500 T0c, 2026-07-03) - the nightly-machinery
+ * CronPreflightSection (BEACON_500 T0c, 2026-07-03) - the scheduled-job
  * preflight on the operator-gated /diagnostics page: is every cron declared
  * AND mapped (config drift), and is every required env var present (names
  * only, never values). Pure checks in cron-preflight.ts; this component just
@@ -30,7 +30,7 @@ export function CronPreflightSection() {
     }
     return (
       <p className="-mt-4 text-xs text-muted-foreground" data-diagnostic="cron-preflight">
-        Nightly machinery preflight: all {result.cronsDeclared} scheduled jobs are declared and
+        Scheduled-job preflight: all {result.cronsDeclared} scheduled jobs are declared and
         mapped, and all {result.envChecked} required environment variables are present.
       </p>
     );
@@ -42,7 +42,7 @@ export function CronPreflightSection() {
       data-diagnostic="cron-preflight"
     >
       <p className="text-[13px] font-semibold text-status-danger">
-        Nightly machinery preflight found {result.findings.length}{" "}
+        Scheduled-job preflight found {result.findings.length}{" "}
         {result.findings.length === 1 ? "problem" : "problems"}.
       </p>
       <ul className="mt-1 space-y-1">

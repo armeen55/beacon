@@ -7,7 +7,7 @@
  * opportunity-ranked list (operator spec 2026-07-09 C-16/C-23: no strategy picker, no goal-bucket
  * section headers). Advanced detail opens in a split side panel
  * (desktop) so clicking a row never loses the list's scroll position; the existing MoveCard renders
- * unchanged inside that panel. Tonight's applied batch (every change selected for today that has
+ * unchanged inside that panel. Today's applied batch (every change selected for today that has
  * moved to verify/measuring/result) collapses to one summary row, expandable to the individual
  * receipts. Multi-select adds a checkbox per row + a floating bulk bar reusing the same per-row
  * done/skip actions in a bounded, sequential loop. Move 3: responsive control cluster (no clip/
@@ -850,7 +850,7 @@ export function ChangesListClient({ view }: { view: ChangesClientView }) {
     el?.scrollIntoView({ behavior: "smooth", block: "center" });
   }, [focusId, visible]);
 
-  // UX3 - "tonight's batch" collapse: every change selected for today that has moved past
+  // UX3 - "today's batch" collapse: every change selected for today that has moved past
   // suggested/ready into verify/measuring/result is one applied receipt. Collapsing them to a
   // single summary row keeps the list dense once the plan has been worked; the individual
   // receipts stay one click away, never deleted or hidden for good. Only collapses in the flat
@@ -1030,9 +1030,9 @@ export function ChangesListClient({ view }: { view: ChangesClientView }) {
           {sessionTotalLine ? (
             <p className="text-meta text-muted-foreground tabular-nums">{sessionTotalLine}</p>
           ) : null}
-          {/* UX3 - the applied-batch summary row: "Tonight's batch: N applied, all verified"
+          {/* UX3 - the applied-batch summary row: "Today's batch: N applied, all verified"
               (or "M of N verified" while some are still confirming), expandable to the
-              individual receipts. Only appears once 2+ of tonight's picks have moved past
+              individual receipts. Only appears once 2+ of today's picks have moved past
               suggested/ready, so a fresh or barely-started plan still shows every row plainly. */}
           {showBatchSummary ? (
             <button
@@ -1048,7 +1048,7 @@ export function ChangesListClient({ view }: { view: ChangesClientView }) {
             </button>
           ) : canCollapseBatch && batchRows.length >= 2 ? (
             <div className="flex items-center justify-between gap-3 rounded-lg border border-status-success/15 bg-status-success-bg/60 px-3 py-1.5 text-meta font-medium text-status-success">
-              <span>Tonight&apos;s batch, {batchRows.length} receipts</span>
+              <span>Today&apos;s batch, {batchRows.length} receipts</span>
               <button type="button" onClick={() => setBatchExpanded(false)} className={`shrink-0 underline underline-offset-2 ${FOCUS}`}>Collapse</button>
             </div>
           ) : null}

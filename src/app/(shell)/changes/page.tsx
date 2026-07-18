@@ -15,8 +15,8 @@ import { serverNowMs } from "@/lib/server-clock";
  * list with a strategy control + status views + goal filter. The old per-move rich card is reused
  * on demand (expand a row), not the default view.
  *
- * FP5a (2026-07-02) - tonight's picked-changes cards (DailyExperimentsSection) render ONLY on
- * Today now; this page shows the one-line TonightSummaryChip instead (same FP3 counts, one home
+ * FP5a (2026-07-02) - today's picked-changes cards (DailyExperimentsSection) render ONLY on
+ * Today now; this page shows the one-line TodaySummaryChip instead (same FP3 counts, one home
  * per job). FP5b - the New Pages board's single home is HERE; Today shows a one-line summary.
  */
 

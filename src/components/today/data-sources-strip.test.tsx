@@ -97,7 +97,7 @@ describe("DataSourcesStripView — not-connected state", () => {
     expect(html).toContain('href="/settings/connectors"');
     // Honest copy — Connect arrow, no phantom-automation claims.
     expect(html).toContain("Connect →");
-    expect(html).not.toMatch(/automatically|on a schedule|nightly/i);
+    expect(html).not.toMatch(/automatically|on a schedule|nightly|tonight|last night|overnight/i);
   });
 
   it("gives connect affordances a >=44px tap target", () => {
@@ -178,7 +178,7 @@ describe("DataSourcesStripView — needs_attention state", () => {
     // which this fixture has none of.
     expect(onlyAttention).not.toContain("border-status-success/40");
     // Honest copy invariant still holds — no phantom-automation claims.
-    expect(onlyAttention).not.toMatch(/automatically|on a schedule|nightly/i);
+    expect(onlyAttention).not.toMatch(/automatically|on a schedule|nightly|tonight|last night|overnight/i);
   });
 
   it("keeps the full strip visible (no all-connected collapse) when one source needs attention", () => {

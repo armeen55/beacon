@@ -116,11 +116,12 @@ export async function loadTodayViewWithSwr(
 }
 
 /**
- * Nightly warm pass entry (BEACON 500 item 13): rebuild the Today composite NOW and
+ * Background warm-pass entry (BEACON 500 item 13): rebuild the Today composite NOW and
  * persist the SWR snapshot - the same `loadTodayViewUncached` + write the background
- * refresh runs, exposed so the 5am precompute cron can front-run the morning open.
+ * refresh runs. Beacon has no scheduler (no cron triggers this); it exists so an
+ * on-demand background pass can refresh the surface after a signed-in visit lands.
  * `tenantId` is threaded explicitly through the write (the compose itself still reads
- * the ambient/runWithTenant-scoped tenant the cron already wraps every step in) so the
+ * the ambient/runWithTenant-scoped tenant this refresh is wrapped in) so the
  * persisted snapshot can never land under json-store's ambient resolution disagreeing
  * with the tenant this refresh was actually called for. Build-then-write: a failed
  * rebuild throws and the previous snapshot stays in place.

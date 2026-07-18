@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { splitFewShotLine, FEW_SHOT_PREFIX } from "./daily-experiments-section";
+
+const SRC = readFileSync(resolve(__dirname, "daily-experiments-section.tsx"), "utf8");
 
 /**
  * BEACON_500 item 74 - the draft-provenance line on the daily card. This component owns
@@ -44,5 +48,11 @@ describe("splitFewShotLine - BEACON_500 item 74", () => {
   it("never throws on an empty string", () => {
     expect(() => splitFewShotLine("")).not.toThrow();
     expect(splitFewShotLine("").fewShotLine).toBeNull();
+  });
+});
+
+describe("DailyExperimentsSection - no-scheduler honesty (Beacon has no cron)", () => {
+  it("never claims scheduled/overnight timing", () => {
+    expect(SRC).not.toMatch(/tonight|last night|overnight|nightly/i);
   });
 });

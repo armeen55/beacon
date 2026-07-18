@@ -58,6 +58,10 @@ describe("InvestigationSection contract", () => {
     expect(SRC).not.toMatch(/[–—]/);
   });
 
+  it("never claims scheduled/overnight timing (Beacon has no scheduler)", () => {
+    expect(SRC).not.toMatch(/tonight|last night|overnight|nightly/i);
+  });
+
   it("is mounted on the Today page beside the Ops card", () => {
     const page = readFileSync(resolve(__dirname, "page.tsx"), "utf8");
     expect(page).toContain('import { InvestigationSection } from "./investigation-section"');

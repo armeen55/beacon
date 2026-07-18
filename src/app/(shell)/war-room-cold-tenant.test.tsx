@@ -14,6 +14,8 @@
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import type { ClarityPageSignal } from "@/domains/recommendation-intelligence/clarity-page-signals";
 
 let claritySignals = new Map<string, ClarityPageSignal>();
@@ -101,5 +103,12 @@ describe("DemandOpportunitiesSection - no vendor leak (FIX 4)", () => {
     expect(html).not.toContain("DataForSEO");
     // The rendered subtitle reuses the plain phrasing from the line above it.
     expect(html).toContain("keyword research");
+  });
+});
+
+describe("war-room-sections - no scheduled/overnight timing claims", () => {
+  it("never claims tonight/last night/overnight/nightly timing (Beacon has no scheduler)", () => {
+    const SRC = readFileSync(resolve(__dirname, "war-room-sections.tsx"), "utf8");
+    expect(SRC).not.toMatch(/tonight|last night|overnight|nightly/i);
   });
 });

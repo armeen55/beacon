@@ -87,9 +87,10 @@ type Props = {
   };
   /** R17a (v1 266), pre-composed missing-days line for the GSC card, e.g.
    *  "I am missing 2 days of Google data between Jun 14 and Jun 15. I will
-   *  re-pull them tonight." Computed server-side in page.tsx from the same
-   *  daily totals the sync writes. Null when nothing is missing inside the
-   *  covered range (the card renders exactly as before). */
+   *  re-pull them automatically while you use Beacon." Computed server-side
+   *  in page.tsx from the same daily totals the sync writes. Null when
+   *  nothing is missing inside the covered range (the card renders exactly
+   *  as before). */
   gscGapLine?: string | null;
   /** Slice 9.A1β (2026-05-18), pre-rendered "Google Analytics data
    *  last refreshed X days ago" copy. Computed server-side in
@@ -1013,7 +1014,8 @@ export function ConnectorsClient({
               </p>
               {/* R17a (v1 266) - missing days INSIDE the covered range (a sync
                   hole, not Google's normal lag): say so, and say the fix
-                  (tonight's sync re-pulls them). Self-hides when complete. */}
+                  (re-pulls them automatically while you use Beacon). Self-hides
+                  when complete. */}
               {gscGapLine ? (
                 <p className="text-[12px] text-status-warning" data-gsc-gap-line="true">
                   {gscGapLine}

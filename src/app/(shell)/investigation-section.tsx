@@ -1,11 +1,11 @@
 /**
  * InvestigationSection (2026-07-02, master plan item 53; revised 2026-07-09
- * for operator spec B-10) - the red attention card for overnight forensic
- * investigations. When last night's pass found a high-severity page-family
+ * for operator spec B-10) - the red attention card for background forensic
+ * investigations. When the latest pass found a high-severity page-family
  * collapse (or the sitewide changepoint detector flagged a high-magnitude
  * drop), this renders the drop headline plus the top ranked page-specific
- * causes and the one action they imply, so a drop is investigated overnight
- * instead of just shown on a chart.
+ * causes and the one action they imply, so a drop is investigated in the
+ * background instead of just shown on a chart.
  *
  * B-10 fix: each item states the drop once and stops - it used to also repeat
  * the same "most likely cause" sentence a second time as a sub-line, and

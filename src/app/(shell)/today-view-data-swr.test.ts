@@ -8,6 +8,8 @@
  * loadChangesViewWithSwr already proves, with a cheap injected builder.
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 
 const readTodaySurfaceMock = vi.fn(async (..._a: unknown[]): Promise<unknown> => null);
 const writeTodaySurfaceMock = vi.fn(async (..._a: unknown[]): Promise<void> => {});
@@ -91,5 +93,12 @@ describe("loadTodayViewWithSwr", () => {
     expect(readTodaySurfaceMock).toHaveBeenCalledWith("tenant-b");
     const tenantArgs = writeTodaySurfaceMock.mock.calls.map((c) => c[2]);
     expect(tenantArgs).toEqual(["tenant-a", "tenant-b"]);
+  });
+});
+
+describe("today-view-data - no scheduled/overnight timing claims", () => {
+  it("never claims tonight/last night/overnight/nightly timing (Beacon has no scheduler)", () => {
+    const SRC = readFileSync(resolve(__dirname, "today-view-data.ts"), "utf8");
+    expect(SRC).not.toMatch(/tonight|last night|overnight|nightly/i);
   });
 });

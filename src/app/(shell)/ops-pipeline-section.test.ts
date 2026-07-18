@@ -92,6 +92,10 @@ describe("OpsPipelineSection contract", () => {
     expect(SRC).not.toMatch(/[–—]/);
   });
 
+  it("never claims scheduled/overnight timing (Beacon has no scheduler)", () => {
+    expect(SRC).not.toMatch(/tonight|last night|overnight|nightly/i);
+  });
+
   it("is mounted on the Today page above the hero (A1: never buried below a lying stat)", () => {
     const page = readFileSync(resolve(__dirname, "page.tsx"), "utf8");
     // P2-a (2026-07-10) - page.tsx also imports this file's exported DEADMAN_DEADLINE_MS

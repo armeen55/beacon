@@ -302,7 +302,7 @@ export async function AiCrawlerSection({ tenantId }: { tenantId: string }) {
         const feeds = await Promise.all([
           loadBotReferralSignals(tenantId),
           readAllCachedLlmMentions().catch(() => []),
-          // Item 4: one honest line from last night's 4-engine question check ($0 store read).
+          // Item 4: one honest line from the latest 4-engine question check ($0 store read).
           loadEngineGapTodayLine(tenantId).catch(() => null),
           // Item 6: real GA4 sessions that arrived FROM an AI assistant ($0 table read).
           loadAiReferralSummary(tenantId).catch(() => null),
@@ -473,7 +473,7 @@ export async function AiCrawlerSection({ tenantId }: { tenantId: string }) {
   }
 }
 
-/** Item 14 - this week's query spikes ($0 store read from last night's radar pass),
+/** Item 14 - this week's query spikes ($0 store read from the latest radar pass),
  *  each deep-linked to its matching worklist change when one exists. The match runs
  *  against the cached WORKLIST SURFACE rows (the exact rows /changes renders, $0
  *  read, no compute on miss) and only rows in the default To do / Ready views, so
@@ -495,7 +495,7 @@ async function loadSpikeRows(tenantId: string): Promise<Array<{ spike: QuerySpik
 }
 
 /** Master plan item 21 - the single most urgent upcoming seasonal window ($0 store read from
- *  last night's seasonality pass over the permanent GSC monthly archive). Seasonal windows
+ *  the latest seasonality pass over the permanent GSC monthly archive). Seasonal windows
  *  arrive ranked soonest-prep-deadline-first, so the first row is the one this slot shows;
  *  null when nothing is due (the row stays silent, never a placeholder). */
 async function loadTopSeasonalRow(tenantId: string): Promise<SeasonalQuery | null> {
@@ -504,7 +504,7 @@ async function loadTopSeasonalRow(tenantId: string): Promise<SeasonalQuery | nul
 }
 
 /** Master plan item 24 - the single biggest Farsi/Finglish language gap ($0 store read
- *  from last night's language-gap matrix pass). Gaps arrive ranked biggest-impressions-
+ *  from the latest language-gap matrix pass). Gaps arrive ranked biggest-impressions-
  *  first, so the first row is the one this slot shows; null when nothing is found (the
  *  row stays silent, never a placeholder). */
 async function loadTopLanguageGapRow(tenantId: string): Promise<LanguageGap | null> {
@@ -512,11 +512,11 @@ async function loadTopLanguageGapRow(tenantId: string): Promise<LanguageGap | nu
   return gaps[0] ?? null;
 }
 
-/** Master plan item 56 - the single worst FADING page ($0 store read from last night's
+/** Master plan item 56 - the single worst FADING page ($0 store read from the latest
  *  refresh-queue pass over quarter-over-quarter GSC clicks). The queue arrives ranked
  *  worst-lost-clicks-first, so the first row is the one this slot shows; null when nothing
- *  is fading (the row stays silent, never a placeholder). The nightly plan builder reads the
- *  same queue, so the worst fades also arrive as ready-to-ship refresh picks (max 2/night). */
+ *  is fading (the row stays silent, never a placeholder). The plan builder reads the
+ *  same queue, so the worst fades also arrive as ready-to-ship refresh picks (max 2 per pass). */
 async function loadTopFadingRow(tenantId: string): Promise<RefreshBrief | null> {
   const queue = await loadRefreshQueue(tenantId).catch(() => [] as RefreshBrief[]);
   return queue[0] ?? null;
@@ -608,7 +608,7 @@ export async function DemandOpportunitiesSection({ tenantId }: { tenantId: strin
           {(spikeRows.length > 0 || seasonalRow || fadingRow) ? (
             <div className="space-y-1.5">
               <p className="px-0.5 text-meta font-semibold text-muted-foreground">Searches moving this week</p>
-              {/* Item 14 - this week's query spikes: time-boxed demand from last night's radar
+              {/* Item 14 - this week's query spikes: time-boxed demand from the latest radar
                   pass. Identity color: amber marks "search demand" rows. */}
               {spikeRows.map(({ spike, searchTerm }) => (
                 <div key={`s-${spike.query}`} className="rounded-xl bg-amber-50/70 px-3 py-2">
@@ -638,9 +638,9 @@ export async function DemandOpportunitiesSection({ tenantId }: { tenantId: strin
                   ) : null}
                 </div>
               ) : null}
-              {/* Master plan item 56 - the single worst FADING page, from last night's refresh-queue
+              {/* Master plan item 56 - the single worst FADING page, from the latest refresh-queue
                   pass (quarter-over-quarter GSC clicks). Below the seasonal row; silent when
-                  nothing is fading. The same queue feeds the nightly plan, so the fix is a plan
+                  nothing is fading. The same queue feeds the plan, so the fix is a plan
                   pick away, not a separate workflow. Identity color: rose marks "losing ground". */}
               {fadingRow ? (
                 <div key={`fade-${fadingRow.page}`} className="rounded-xl bg-rose-50/70 px-3 py-2">
@@ -649,12 +649,12 @@ export async function DemandOpportunitiesSection({ tenantId }: { tenantId: strin
                   </p>
                   <p className="mt-0.5 flex flex-wrap items-baseline gap-x-2 text-meta text-rose-800/90">
                     {briefSentences(fadingRow)[0] ? <span>{briefSentences(fadingRow)[0]}</span> : null}
-                    <span>I put a refresh in tonight&apos;s plan when there is a concrete section to add.</span>
+                    <span>I will add a refresh to today&apos;s plan when there is a concrete section to fix.</span>
                     <Link
                       href="#daily-experiments"
                       className={`rounded-sm font-medium text-rose-700 underline underline-offset-2 hover:text-rose-900 ${FOCUS}`}
                     >
-                      See tonight&apos;s picks
+                      See today&apos;s picks
                     </Link>
                   </p>
                 </div>
@@ -747,7 +747,7 @@ export async function WarRoomQuietLine({ tenantId }: { tenantId: string }) {
   // renders nothing; the "all clear" line simply stays silent this visit).
   // Operator spec 2026-07-09 B-9: the AI-crawlers band is off Today, so the quiet
   // check only considers the two bands that still render (friction + demand), and
-  // the copy is first person - no "team", no "tonight's picks".
+  // the copy is first person - no "team" language and no claims of scheduled timing.
   const raced = await loadWithDeadline(loadQuietChecks(tenantId));
   if (raced.timedOut) return null;
   const [clarityQuiet, , demandQuiet] = raced.data;

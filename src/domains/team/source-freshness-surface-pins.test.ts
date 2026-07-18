@@ -1,45 +1,19 @@
 /**
  * Source-freshness surface + wiring pins (2026-07-02, master plan item 46 / CARRY-OVER 115).
  *
- * Source-level pins: the standup strip reads real connector freshness (the SAME reads
- * /settings/connectors and the item-10 pipeline-readings collector already use) and renders an
- * amber/red dot + tooltip for a degraded teammate; the daily card's "how we know" brief notes
- * when a voice's source was stale/dead, composed additively beside every other evidence section.
- * Also the no-dash hard rule over every touched surface.
+ * Source-level pins: the daily card's "how we know" brief notes when a voice's source was
+ * stale/dead, composed additively beside every other evidence section. Also the no-dash hard
+ * rule over every touched surface.
+ *
+ * (The former "standup strip" block here pinned team-standup.tsx, which was deleted as
+ * unmounted dead code — nothing renders it.)
  */
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
-const STANDUP = readFileSync(resolve(__dirname, "../../app/(shell)/team-standup.tsx"), "utf8");
 const PREVIEW = readFileSync(resolve(__dirname, "../experiments/build-today-preview.ts"), "utf8");
 const CARD = readFileSync(resolve(__dirname, "../../app/(shell)/daily-experiments-section.tsx"), "utf8");
-
-describe("standup strip (team-standup.tsx)", () => {
-  it("reads real per-teammate freshness via the shared loader (no re-implemented detection)", () => {
-    expect(STANDUP).toContain('from "@/domains/team/source-freshness"');
-    expect(STANDUP).toContain("loadTeammateFreshness(tenantId)");
-  });
-
-  it("renders an amber/red dot for a degraded (stale/dead) teammate, fail-soft to the identity color", () => {
-    expect(STANDUP).toContain("FRESHNESS_DOT_COLOR");
-    expect(STANDUP).toContain('fresh.status !== "fresh"');
-  });
-
-  it("stacks the freshness sentence into the chip's tooltip beside the item-43 calibration line", () => {
-    expect(STANDUP).toContain("chipTitle(l.title");
-  });
-
-  it("a freshness read failure never blocks the standup render (fail-soft to an empty map)", () => {
-    const idx = STANDUP.indexOf("loadTeammateFreshness(tenantId)");
-    expect(idx).toBeGreaterThan(-1);
-    expect(STANDUP.slice(idx - 40, idx + 20)).toContain("safe(");
-  });
-
-  it("contains no em or en dashes anywhere", () => {
-    expect(STANDUP).not.toMatch(/[–—]/);
-  });
-});
 
 describe("daily plan builder (build-today-preview.ts) - honest degradation wiring", () => {
   it("loads teammate freshness once per plan build, fail-soft to an empty map", () => {

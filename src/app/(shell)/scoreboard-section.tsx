@@ -259,7 +259,7 @@ export async function ScoreboardSection({
   staleCheckedAt = null,
 }: {
   tenantId: string;
-  /** A1 (operator-experience fix batch) - true when last night's sync hit a pipeline
+  /** A1 (operator-experience fix batch) - true when the latest sync hit a pipeline
    *  invariant violation (e.g. wrote 0 rows). The citations stat then carries an honest
    *  "numbers last updated" suffix instead of implying the count is current. */
   stale?: boolean;
@@ -497,8 +497,8 @@ export async function ScoreboardSection({
                 nowMs: Date.now(),
               })}
             />
-            {/* A1 - honest badge when last night's sync hit a data-pipe problem: this count
-                may not include last night, so say so instead of reading as fully current. */}
+            {/* A1 - honest badge when the latest sync hit a data-pipe problem: this count
+                may not include the latest activity, so say so instead of reading as fully current. */}
             {stale ? (
               <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
                 numbers last updated {staleDateLabel(staleCheckedAt) ?? "recently"}
