@@ -81,7 +81,7 @@ vi.mock("@/domains/learning/load-experiment-outcomes", () => ({
 
 let tenantsFixture: Array<{ id: string; segment: string }> = [];
 vi.mock("@/domains/tenants/store", () => ({
-  listTenants: async () => tenantsFixture,
+  listActiveTenants: async () => tenantsFixture,
 }));
 
 import {

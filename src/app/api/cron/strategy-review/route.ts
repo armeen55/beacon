@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { listTenants } from "@/domains/tenants/store";
+import { listActiveTenants } from "@/domains/tenants/store";
 import { runStrategyReview, type RunStrategyReviewResult } from "@/domains/strategy-review/run-strategy-review";
 import { hasStrategyMixForWeek } from "@/domains/strategy-review/strategy-mix-store";
 import { log } from "@/lib/logger";
@@ -75,7 +75,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
   const results: Array<{ tenantId: string; result: RunStrategyReviewResult }> = [];
   try {
-    const tenants = await listTenants();
+    const tenants = await listActiveTenants();
     for (const t of tenants) {
       try {
         if (await hasStrategyMixForWeek(t.id, weekOf)) {

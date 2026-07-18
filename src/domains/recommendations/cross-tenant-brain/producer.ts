@@ -34,7 +34,12 @@ import type {
 } from "../cross-tenant-brain";
 
 export type CrossTenantProducerDeps = {
-  /** Enumerate all tenants (the producer excludes the requester). */
+  /** Enumerate tenants (the producer excludes the requester). MUST be wired to
+   *  `listActiveTenants` in production (2026-07-18 tenant-safety fix): a paused
+   *  tenant's cited-edit outcomes must not feed the cross-tenant brain / paid
+   *  work. This producer is dependency-injected and gated off by default
+   *  (`BEACON_CROSS_TENANT_BRAIN`), so there is no production caller to switch
+   *  yet; when one is wired, it must pass `listActiveTenants`. */
   listTenants: () => Promise<ReadonlyArray<{ id: string }>>;
   /** Load one tenant's cited-edit outcomes (matchKey + helped). */
   loadOutcomesForTenant: (

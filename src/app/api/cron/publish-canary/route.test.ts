@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { NextRequest } from "next/server";
 
 const listTenantsMock = vi.fn();
-vi.mock("@/domains/tenants/store", () => ({ listTenants: (...a: unknown[]) => listTenantsMock(...a) }));
+vi.mock("@/domains/tenants/store", () => ({ listActiveTenants: (...a: unknown[]) => listTenantsMock(...a) }));
 
 const runPublishCanaryMock = vi.fn();
 vi.mock("@/domains/push/publish-canary", () => ({

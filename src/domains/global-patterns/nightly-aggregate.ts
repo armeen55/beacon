@@ -27,7 +27,7 @@ import "server-only";
  */
 
 import { getSupabaseAdmin } from "@/lib/persistence/supabase";
-import { listTenants } from "@/domains/tenants/store";
+import { listActiveTenants } from "@/domains/tenants/store";
 import type { TenantSegment } from "@/domains/tenants/types";
 import { rowToRecord } from "@/domains/proof-gsc/shipped-change-store";
 import { gateRecordsToOutcomes } from "@/domains/learning/load-experiment-outcomes";
@@ -133,7 +133,7 @@ export async function runGlobalPatternsNightlyAggregation(): Promise<{
   observationsAggregated: number;
   written: boolean;
 }> {
-  const tenants = await listTenants();
+  const tenants = await listActiveTenants();
   const allObservations: RrCellObservation[] = [];
 
   for (const tenant of tenants) {

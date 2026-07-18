@@ -71,7 +71,10 @@ export async function switchTenantFromForm(formData: FormData): Promise<void> {
   // only check is that the target is a real tenant. Customers never hit this.
   if (isOperatorModeServer()) {
     const t = await getTenant(target);
-    if (t == null) redirect("/"); // unknown tenant — change nothing
+    // 2026-07-18 tenant-safety fix: only an ACTIVE tenant may be switched to.
+    // A paused tenant (e.g. Ritz) must be invisible and non-switchable even in
+    // operator god-view, though it still RESOLVES so its data is not orphaned.
+    if (t == null || t.status !== "active") redirect("/"); // unknown/paused — change nothing
   } else {
     const supabase = await getSupabaseServerClient();
     const { data: userData } = await supabase.auth.getUser();
@@ -86,6 +89,9 @@ export async function switchTenantFromForm(formData: FormData): Promise<void> {
       // Not a member (or lookup failed) — change nothing.
       redirect("/");
     }
+    // 2026-07-18: even a valid member may only switch to an ACTIVE tenant.
+    const t = await getTenant(target);
+    if (t == null || t.status !== "active") redirect("/");
   }
 
   const cookieStore = await cookies();

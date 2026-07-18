@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { listTenants } from "@/domains/tenants/store";
+import { listActiveTenants } from "@/domains/tenants/store";
 import { measureDueForTenant, type AutoMeasureResult } from "@/domains/proof-gsc/auto-measure";
 import { log } from "@/lib/logger";
 import { beginCronRun, finishCronRun, type CronRunHandle } from "@/domains/ops/cron-runs-store";
@@ -33,7 +33,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   const receipt = await beginCronRun({ job: "measure-due", startedAt });
   const results: AutoMeasureResult[] = [];
   try {
-    const tenants = await listTenants();
+    const tenants = await listActiveTenants();
     for (const t of tenants) {
       try {
         results.push(await measureDueForTenant(t.id));

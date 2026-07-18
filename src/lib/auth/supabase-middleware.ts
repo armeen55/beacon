@@ -6,6 +6,7 @@ import {
   perfTraceEnabled,
 } from "@/lib/perf-trace";
 import { isOperatorModeServer } from "@/lib/operator-mode";
+import { TENANT_COOKIE, TENANT_COOKIE_MAX_AGE_S } from "@/lib/tenant-cookie";
 
 function requireEnv(name: string): string {
   const v = process.env[name];
@@ -36,6 +37,42 @@ function withMwTimeout<T>(p: PromiseLike<T>, onTimeout: T): Promise<T> {
 }
 
 /**
+ * Best-effort check that `tenantId` names an ACTIVE tenant, used ONLY by the
+ * operator auth-bypass below.
+ *
+ * Why a direct REST read instead of `listActiveTenants()` from the tenant store:
+ * the middleware runs in the edge runtime, and the store's persistence layer
+ * (`json-store`) statically imports `node:fs`, which cannot load on the edge.
+ * A plain `fetch` against the Supabase REST endpoint with the service-role key
+ * is edge-safe and bypasses RLS (the bypass has no Supabase user session to
+ * satisfy a tenant-scoped policy).
+ *
+ * Returns `false` whenever active status cannot be POSITIVELY confirmed
+ * (Supabase env absent, network error, timeout, unknown or non-active tenant),
+ * so an unverifiable or paused cookie value is never honored on the bypass.
+ */
+async function isActiveTenantBestEffort(tenantId: string): Promise<boolean> {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!url || !key || !tenantId) return false;
+  try {
+    const endpoint =
+      `${url}/rest/v1/tenants?select=id&status=eq.active&id=eq.${encodeURIComponent(tenantId)}`;
+    const res = await withMwTimeout<Response | null>(
+      fetch(endpoint, {
+        headers: { apikey: key, authorization: `Bearer ${key}` },
+      }),
+      null,
+    );
+    if (!res || !res.ok) return false;
+    const rows = (await res.json()) as unknown;
+    return Array.isArray(rows) && rows.length > 0;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Phase 2 auth gate. Single-user dogfood: any authenticated Supabase user
  * may access the shell; unauthenticated users are redirected to /login.
  * Public paths: /login, /signup, /auth/*, and static assets.
@@ -48,8 +85,10 @@ function withMwTimeout<T>(p: PromiseLike<T>, onTimeout: T): Promise<T> {
  *   - 2+ tenants → redirect to /login?error=multiple_tenants. The current
  *     `tenant_members` schema (Phase 7.1) has no primary indicator; until
  *     a primary is added, multi-tenant memberships are unsupported.
- *   - Transient DB errors fall through; the resolver uses BEACON_TENANT_ID
- *     env fallback so a Supabase blip doesn't strand authenticated requests.
+ *   - Transient DB errors / timeouts take the SAFE fallthrough (2026-07-18):
+ *     honor the membership-validated `beacon_tenant` cookie, else redirect to
+ *     /login?error=tenant_unavailable. They NEVER reach the BEACON_TENANT_ID
+ *     env fallback, which names ritz in prod and silently leaked its data.
  *
  * Set BEACON_AUTH_DISABLED=1 in .env.local to bypass (useful for CLI scripts
  * and pre-auth local dev while we iterate). In prod / hosted dogfood the
@@ -64,13 +103,23 @@ export async function updateSession(request: NextRequest): Promise<NextResponse>
     const bypassHeaders = new Headers(request.headers);
     bypassHeaders.delete("x-beacon-tenant");
     // Operator god-view: on the auth bypass there's no Supabase user, so the
-    // normal cookie-honoring path below never runs. Honor the `beacon_tenant`
-    // switch cookie here so the operator dropdown works in local/dogfood dev.
-    // Gated on operator mode — a customer build never sets this flag, and the
-    // resolver still falls back to BEACON_TENANT_ID when no cookie is present.
+    // normal cookie-honoring path below never runs. This path exists so the
+    // operator's tenant-switcher dropdown works in local/dogfood dev where
+    // BEACON_AUTH_DISABLED=1 (there is no Supabase session to resolve a tenant
+    // from). Gated on operator mode — a customer build never sets this flag.
+    //
+    // 2026-07-18 tenant-safety fix: previously this honored the `beacon_tenant`
+    // cookie with NO validation, so a stale cookie (e.g. the operator's browser
+    // still carrying beacon_tenant=tenant-ritz-founder from the pre-multi-tenant
+    // era) would render a PAUSED tenant's data on the bypass. Now the cookie is
+    // honored ONLY when it positively names an ACTIVE tenant; anything
+    // unverifiable or paused falls back to the previous default (header unset →
+    // the resolver uses BEACON_TENANT_ID), never a paused/unknown tenant.
     if (isOperatorModeServer()) {
       const preferred = request.cookies.get("beacon_tenant")?.value;
-      if (preferred) bypassHeaders.set("x-beacon-tenant", preferred);
+      if (preferred && (await isActiveTenantBestEffort(preferred))) {
+        bypassHeaders.set("x-beacon-tenant", preferred);
+      }
     }
     return NextResponse.next({ request: { headers: bypassHeaders } });
   }
@@ -175,9 +224,49 @@ export async function updateSession(request: NextRequest): Promise<NextResponse>
     return NextResponse.redirect(redirectUrl);
   }
 
+  /**
+   * SAFE fallthrough for an AUTHENTICATED request whose tenant_members lookup
+   * FAILED or TIMED OUT (2026-07-18 tenant-safety fix).
+   *
+   * Old behavior: do nothing and let the resolver use the BEACON_TENANT_ID env
+   * fallback. But in hosted production BEACON_TENANT_ID names tenant-ritz-founder
+   * (pre-multi-tenant era), so under Supabase load an authenticated request
+   * silently rendered the WRONG tenant (the incident). We must NEVER hand an
+   * authenticated request to that env fallback again.
+   *
+   * Design that can never render another tenant's data silently:
+   *   1. If the browser carries a `beacon_tenant` cookie, honor it for best-effort
+   *      continuity through the Supabase blip. That cookie is written ONLY by the
+   *      membership-validated switch action/route, and the successful path below
+   *      overwrites it whenever it names a non-member tenant, so it converges to a
+   *      tenant the user is actually allowed to see.
+   *   2. No cookie → nothing here is trustworthy (the env fallback IS the leak), so
+   *      redirect to a lightweight login retry with a distinct error param. This
+   *      self-heals on the next warm request rather than guessing a tenant.
+   */
+  const safeTenantFallthrough = (reason: string): NextResponse => {
+    const preferred = request.cookies.get(TENANT_COOKIE)?.value;
+    if (preferred) {
+      requestHeaders.set("x-beacon-tenant", preferred);
+      const carriedCookies = response.headers.getSetCookie();
+      const next = NextResponse.next({ request: { headers: requestHeaders } });
+      for (const c of carriedCookies) next.headers.append("Set-Cookie", c);
+      trace.data("tenant_decision", `${reason}_cookie_honored`);
+      trace.flush();
+      return next;
+    }
+    trace.data("tenant_decision", `${reason}_safe_redirect`);
+    trace.flush();
+    const url = request.nextUrl.clone();
+    url.pathname = "/login";
+    url.searchParams.set("error", "tenant_unavailable");
+    return NextResponse.redirect(url);
+  };
+
   // Sprint 7 Phase 7.4 — tenant injection (authenticated requests only).
   // Public paths are never tenant-scoped (login / auth / static / machine
-  // endpoints). Errors fall through to the resolver's env fallback.
+  // endpoints). A failed/timed-out lookup takes the SAFE fallthrough above,
+  // never the env fallback.
   if (user) {
     try {
       // Timeout-guarded: a slow tenant lookup resolves to an error, which flows into
@@ -198,9 +287,9 @@ export async function updateSession(request: NextRequest): Promise<NextResponse>
 
       if (error) {
         console.error("[mw-tenant] tenant_members query failed:", error.message);
-        // Fall through — resolver uses BEACON_TENANT_ID env fallback so a
-        // Supabase outage doesn't 500 every authenticated request.
-        trace.data("tenant_decision", "error_fallthrough");
+        // 2026-07-18: SAFE fallthrough (cookie or redirect), NEVER the env
+        // fallback — that env names ritz in prod and silently leaked its data.
+        return safeTenantFallthrough("error");
       } else if (!data || data.length === 0) {
         console.warn("[mw-tenant] no tenant_members row for user:", user.id);
         trace.data("tenant_decision", "no_tenant_redirect");
@@ -219,7 +308,9 @@ export async function updateSession(request: NextRequest): Promise<NextResponse>
         // is: the cookie-preferred tenant IF the user is a member of it,
         // else the earliest membership. Deterministic, never a lockout.
         const memberIds = data.map((r) => r.tenant_id);
-        const preferred = request.cookies.get("beacon_tenant")?.value;
+        const preferred = request.cookies.get(TENANT_COOKIE)?.value;
+        const staleCookie =
+          preferred != null && preferred !== "" && !memberIds.includes(preferred);
         const chosen =
           preferred && memberIds.includes(preferred)
             ? preferred
@@ -230,6 +321,21 @@ export async function updateSession(request: NextRequest): Promise<NextResponse>
         for (const c of setCookieHeaders) {
           response.headers.append("Set-Cookie", c);
         }
+        // 2026-07-18 tenant-safety fix: actively overwrite a stale beacon_tenant
+        // cookie that names a tenant the user is NOT a member of (the operator's
+        // browser may still carry beacon_tenant=tenant-ritz-founder). Left alone,
+        // the safe fallthrough above would honor it during the next Supabase blip
+        // and render a non-member tenant. Overwriting it to the tenant we actually
+        // resolved makes the cookie converge to a value the user may always see.
+        if (staleCookie) {
+          response.cookies.set(TENANT_COOKIE, chosen, {
+            path: "/",
+            maxAge: TENANT_COOKIE_MAX_AGE_S,
+            sameSite: "lax",
+            httpOnly: true,
+            secure: process.env.NODE_ENV === "production",
+          });
+        }
         trace.data(
           "tenant_decision",
           data.length > 1 ? "injected_default_of_many" : "injected",
@@ -237,8 +343,8 @@ export async function updateSession(request: NextRequest): Promise<NextResponse>
       }
     } catch (e) {
       console.error("[mw-tenant] tenant lookup threw:", e);
-      // Fall through — resolver uses env fallback.
-      trace.data("tenant_decision", "throw_fallthrough");
+      // 2026-07-18: SAFE fallthrough (cookie or redirect), NEVER the env fallback.
+      return safeTenantFallthrough("throw");
     }
   } else {
     trace.data("tenant_decision", "public_path");

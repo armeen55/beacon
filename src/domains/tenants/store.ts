@@ -119,6 +119,21 @@ export async function listTenants(): Promise<BeaconTenant[]> {
   return await readStore<BeaconTenant>(STORE_NAME);
 }
 
+/**
+ * Tenants eligible for background/paid work and switchable-to (status === "active").
+ *
+ * 2026-07-18 tenant-safety fix: a paused/cancelled/pending_onboarding tenant must
+ * still RESOLVE (getTenant / getTenantOrThrow / slug lookups keep working so its
+ * stored data is never orphaned), but it must consume ZERO fan-out work and must
+ * never be switchable-to. Every caller that ENUMERATES tenants to DO work (cron
+ * fan-outs, precompute/warm passes, nightly aggregates, the cross-tenant brain
+ * producer) must enumerate through this helper, not `listTenants`. Identity /
+ * resolution callers keep using `listTenants` (a paused tenant must still resolve).
+ */
+export async function listActiveTenants(): Promise<BeaconTenant[]> {
+  return (await listTenants()).filter((t) => t.status === "active");
+}
+
 export async function getTenant(id: string): Promise<BeaconTenant | null> {
   return (await listTenants()).find((t) => t.id === id) ?? null;
 }

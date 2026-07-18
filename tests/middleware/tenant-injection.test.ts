@@ -218,25 +218,55 @@ describe("Sprint 7 Phase 7.4 — middleware tenant injection", () => {
     expect(res.headers.get("location")).toBeNull();
   });
 
-  it("transient tenant_members query error falls through (no redirect; resolver uses env)", async () => {
+  // 2026-07-18 tenant-safety fix: a failed/timed-out tenant lookup NEVER falls
+  // through to the resolver's BEACON_TENANT_ID env fallback (which names ritz in
+  // prod and silently rendered the WRONG tenant during the incident). With no
+  // beacon_tenant cookie the request takes a safe login redirect; with the
+  // cookie present it is honored for continuity (the successful path scrubs any
+  // cookie naming a non-member tenant, so it converges to an allowed value).
+  it("transient tenant_members query error with NO cookie redirects to /login?error=tenant_unavailable (never the env fallback)", async () => {
     supabaseState.user = { id: "user-1" };
     supabaseState.tenantMembersError = { message: "simulated DB outage" };
     const req = makeRequest("/today");
     const res = await updateSession(req);
-    // No redirect — request proceeds, resolver in RSC will use env fallback.
-    expect(res.status).toBe(200);
-    // No header was injected.
-    const forwarded = res.headers.get("x-middleware-request-x-beacon-tenant");
-    expect(forwarded).toBeNull();
+    expect(res.status).toBe(307);
+    const location = res.headers.get("location") ?? "";
+    expect(location).toContain("/login");
+    expect(location).toContain("error=tenant_unavailable");
+    // No env-fallback tenant was ever injected.
+    expect(res.headers.get("x-middleware-request-x-beacon-tenant")).toBeNull();
   });
 
-  it("tenant lookup throw (e.g., edge fetch failure) falls through; no redirect", async () => {
+  it("transient tenant_members query error WITH a beacon_tenant cookie honors the cookie (200, cookie tenant injected)", async () => {
+    supabaseState.user = { id: "user-1" };
+    supabaseState.tenantMembersError = { message: "simulated DB outage" };
+    const req = makeRequest("/today");
+    req.cookies.set("beacon_tenant", "tenant-iranopedia");
+    const res = await updateSession(req);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("x-middleware-request-x-beacon-tenant")).toBe("tenant-iranopedia");
+  });
+
+  it("tenant lookup throw (e.g., edge fetch failure) with NO cookie redirects to /login?error=tenant_unavailable (never the env fallback)", async () => {
     supabaseState.user = { id: "user-1" };
     supabaseState.tenantQueryThrows = true;
     const req = makeRequest("/today");
     const res = await updateSession(req);
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(307);
+    const location = res.headers.get("location") ?? "";
+    expect(location).toContain("/login");
+    expect(location).toContain("error=tenant_unavailable");
     expect(res.headers.get("x-middleware-request-x-beacon-tenant")).toBeNull();
+  });
+
+  it("tenant lookup throw WITH a beacon_tenant cookie honors the cookie (200, cookie tenant injected)", async () => {
+    supabaseState.user = { id: "user-1" };
+    supabaseState.tenantQueryThrows = true;
+    const req = makeRequest("/today");
+    req.cookies.set("beacon_tenant", "tenant-iranopedia");
+    const res = await updateSession(req);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("x-middleware-request-x-beacon-tenant")).toBe("tenant-iranopedia");
   });
 
   // 2026-07-08: the MIDDLEWARE_INVOCATION_TIMEOUT class. A slow/cold Supabase must
@@ -258,7 +288,7 @@ describe("Sprint 7 Phase 7.4 — middleware tenant injection", () => {
     }
   });
 
-  it("a hung tenant lookup degrades to the env-fallback (no redirect, no 504)", async () => {
+  it("a hung tenant lookup with NO cookie degrades to the safe login redirect (never the env fallback, never a 504)", async () => {
     vi.useFakeTimers();
     try {
       supabaseState.user = { id: "user-1" };
@@ -266,10 +296,32 @@ describe("Sprint 7 Phase 7.4 — middleware tenant injection", () => {
       const p = updateSession(makeRequest("/today"));
       await vi.advanceTimersByTimeAsync(5001);
       const res = await p;
-      // Timed out -> error fallback -> falls through to the resolver's env tenant,
-      // request proceeds (200), no header injected. The app stays up.
-      expect(res.status).toBe(200);
+      // Timed out -> 2026-07-18 safe fallthrough: no cookie means nothing here is
+      // trustworthy (the env fallback IS the leak), so redirect to a lightweight
+      // login retry. Fast, self-heals on the next warm request, never a 504 and
+      // never another tenant's data.
+      expect(res.status).toBe(307);
+      const location = res.headers.get("location") ?? "";
+      expect(location).toContain("/login");
+      expect(location).toContain("error=tenant_unavailable");
       expect(res.headers.get("x-middleware-request-x-beacon-tenant")).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("a hung tenant lookup WITH a beacon_tenant cookie honors the cookie (200, cookie tenant injected, no 504)", async () => {
+    vi.useFakeTimers();
+    try {
+      supabaseState.user = { id: "user-1" };
+      supabaseState.tenantHangs = true;
+      const req = makeRequest("/today");
+      req.cookies.set("beacon_tenant", "tenant-iranopedia");
+      const p = updateSession(req);
+      await vi.advanceTimersByTimeAsync(5001);
+      const res = await p;
+      expect(res.status).toBe(200);
+      expect(res.headers.get("x-middleware-request-x-beacon-tenant")).toBe("tenant-iranopedia");
     } finally {
       vi.useRealTimers();
     }

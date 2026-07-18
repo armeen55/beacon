@@ -7,7 +7,7 @@
  */
 
 import { getSupabaseServerClient } from "@/lib/auth/supabase-server";
-import { getTenant, listTenants } from "@/domains/tenants/store";
+import { getTenant, listActiveTenants } from "@/domains/tenants/store";
 import { currentTenantId } from "@/lib/tenant-context";
 import { isOperatorModeServer } from "@/lib/operator-mode";
 import { switchTenantFromForm } from "@/app/(shell)/tenant-switch-action";
@@ -16,12 +16,14 @@ export async function TenantSwitcher() {
   let tenants: Array<{ id: string; name: string }> = [];
 
   if (isOperatorModeServer()) {
-    // Operator god-view (founder/agency): list EVERY tenant so the founder
-    // can hop between their sites with one click — no login, no membership
-    // rows, works even on the local auth bypass. Customers are never in
-    // operator mode, so they never reach this branch.
+    // Operator god-view (founder/agency): list every ACTIVE tenant so the
+    // founder can hop between their sites with one click — no login, no
+    // membership rows, works even on the local auth bypass. Customers are never
+    // in operator mode, so they never reach this branch. 2026-07-18: switched
+    // to listActiveTenants so a PAUSED tenant (e.g. Ritz) is never offered as a
+    // switch target — it must be invisible until a separate account exists.
     try {
-      tenants = (await listTenants()).map((t) => ({
+      tenants = (await listActiveTenants()).map((t) => ({
         id: t.id,
         name: t.business_name || t.slug,
       }));

@@ -1,5 +1,5 @@
 import { log } from "@/lib/logger";
-import { listTenants, updateTenant } from "@/domains/tenants/store";
+import { listTenants, listActiveTenants, updateTenant } from "@/domains/tenants/store";
 import { refreshTenantProfile } from "@/domains/onboarding/refresh-tenant-profile";
 import { getConnectorInfo, updateConnectorToken } from "@/lib/connector-store";
 import { syncGscSearchAnalyticsForTenant } from "@/lib/connectors/gsc/sync-search-analytics";
@@ -411,7 +411,7 @@ export async function syncAllConnectedForActiveTenants(
   const startMs = Date.now();
   const ENRICH_DEADLINE_MS = 240_000;
   const pastDeadline = () => Date.now() - startMs > ENRICH_DEADLINE_MS;
-  const tenants = (await listTenants()).filter((t) => t.status === "active");
+  const tenants = await listActiveTenants();
   const results: CronSyncSourceResult[] = [];
   // RANK-8 topic-mentions receipt accumulator (filled in PHASE 2a-m below), read
   // into the cron_runs notes at the end so the run honestly logs what the paid

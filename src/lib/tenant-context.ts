@@ -62,13 +62,34 @@ export function runWithTenant<T>(tenantId: string, fn: () => T): T {
  *  the memo (a fan-out resolves multiple tenants in one request). */
 const resolveTenantIdFromRequest = cache(async (): Promise<string> => {
   let headerValue: string | null = null;
+  // Belt-and-suspenders (2026-07-18 tenant-safety fix): distinguish "no request
+  // context at all" from "request context but the middleware failed to inject the
+  // header". The first is legitimate (CLI / scripts / vitest / module init) and
+  // uses the env quietly. The second means an authenticated request is about to
+  // silently resolve to BEACON_TENANT_ID (which names ritz in prod) — the exact
+  // shape of the incident — so we warn LOUDLY naming the env tenant. We do NOT
+  // throw: middleware now redirects/honors-the-cookie on lookup failure, so this
+  // path should be unreachable for authenticated requests, but if it ever fires
+  // the log is the tripwire. Throwing here would also break the legitimate
+  // headers()-succeeded-but-genuinely-header-free machine paths.
+  let inRequestContext = false;
   try {
     headerValue = (await headers()).get("x-beacon-tenant");
+    inRequestContext = true;
   } catch {
     // Not in a request context (CLI / vitest / module init). Fall through to env.
   }
   if (headerValue) return headerValue;
-  if (process.env.BEACON_TENANT_ID) return process.env.BEACON_TENANT_ID;
+  if (process.env.BEACON_TENANT_ID) {
+    if (inRequestContext) {
+      console.warn(
+        `[tenant-context] SAFETY: reached BEACON_TENANT_ID env fallback (${process.env.BEACON_TENANT_ID}) ` +
+          "inside a request context with NO x-beacon-tenant header. The middleware failed to inject a tenant; " +
+          "this request may resolve to the wrong tenant. Check middleware tenant_lookup health.",
+      );
+    }
+    return process.env.BEACON_TENANT_ID;
+  }
   throw new Error(
     "currentTenantId: no x-beacon-tenant header and no BEACON_TENANT_ID env var. " +
       "In production this means middleware (Phase 7.4) didn't run. " +

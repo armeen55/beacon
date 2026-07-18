@@ -51,6 +51,17 @@ vi.mock("@/lib/auth/supabase-server", () => ({
   }),
 }));
 
+// 2026-07-18 tenant-safety: the action now requires the target tenant to be
+// ACTIVE in the tenant store (a paused tenant, e.g. Ritz, is non-switchable).
+// Tests control each tenant's status here; unknown ids resolve to null.
+const tenantStore = vi.hoisted(() => ({
+  statuses: {} as Record<string, string>,
+}));
+vi.mock("@/domains/tenants/store", () => ({
+  getTenant: async (id: string) =>
+    tenantStore.statuses[id] ? { id, status: tenantStore.statuses[id] } : null,
+}));
+
 import { switchTenantFromForm } from "@/app/(shell)/tenant-switch-action";
 import { canSwitchToTenant, TENANT_COOKIE } from "@/lib/tenant-cookie";
 
@@ -75,6 +86,7 @@ describe("switchTenantFromForm", () => {
     redirects.log = [];
     authState.user = { id: "user-1" };
     authState.memberships = [{ tenant_id: "tenant-a" }, { tenant_id: "tenant-b" }];
+    tenantStore.statuses = { "tenant-a": "active", "tenant-b": "active" };
     reqHeaders.referer = null;
     reqHeaders.host = "app.beacon.test";
   });
@@ -117,6 +129,14 @@ describe("switchTenantFromForm", () => {
 
   it("NON-member target → no cookie write (fail-closed)", async () => {
     await expect(switchTenantFromForm(form("tenant-attacker"))).rejects.toThrow("REDIRECT:/");
+    expect(cookieSet).not.toHaveBeenCalled();
+  });
+
+  // 2026-07-18 tenant-safety: even a valid member may only switch to an ACTIVE
+  // tenant. A paused tenant (e.g. Ritz after the incident) is non-switchable.
+  it("PAUSED member target → no cookie write (redirects home, change nothing)", async () => {
+    tenantStore.statuses["tenant-b"] = "paused";
+    await expect(switchTenantFromForm(form("tenant-b"))).rejects.toThrow("REDIRECT:/");
     expect(cookieSet).not.toHaveBeenCalled();
   });
 

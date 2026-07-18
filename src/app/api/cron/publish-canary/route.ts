@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { listTenants } from "@/domains/tenants/store";
+import { listActiveTenants } from "@/domains/tenants/store";
 import { runPublishCanary } from "@/domains/push/publish-canary";
 import { log } from "@/lib/logger";
 import { beginCronRun, finishCronRun } from "@/domains/ops/cron-runs-store";
@@ -41,7 +41,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   const startedAt = new Date().toISOString();
   const receipt = await beginCronRun({ job: "publish-canary", startedAt });
   try {
-    const tenants = await listTenants();
+    const tenants = await listActiveTenants();
     const results = await runPublishCanary(tenants.map((t) => t.id));
     await finishCronRun(receipt, {
       ok: true,

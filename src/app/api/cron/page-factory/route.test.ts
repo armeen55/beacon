@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { NextRequest } from "next/server";
 
 const listTenantsMock = vi.fn();
-vi.mock("@/domains/tenants/store", () => ({ listTenants: (...a: unknown[]) => listTenantsMock(...a) }));
+vi.mock("@/domains/tenants/store", () => ({ listActiveTenants: (...a: unknown[]) => listTenantsMock(...a) }));
 
 const hasFactoryBatchForWeekMock = vi.fn();
 vi.mock("@/domains/page-factory/batch-store", () => ({
@@ -147,7 +147,11 @@ describe("GET /api/cron/page-factory - tenant fan-out + idempotency", () => {
     vi.useRealTimers();
   });
 
-  it("still fans out to Ritz alongside every other tenant (staging only, never a publish) - the live-write guard lives in executePush/auto-record, not here", async () => {
+  it("fans out to exactly the tenants listActiveTenants returns (a paused tenant is excluded upstream in the store, so it never reaches this fan-out)", async () => {
+    // 2026-07-18: the route enumerates via listActiveTenants, so a paused tenant
+    // (e.g. Ritz) is filtered out before this loop ever sees it. Here the active
+    // list happens to contain only Ritz; the route processes whatever active
+    // tenants it is handed.
     listTenantsMock.mockResolvedValue([{ id: RITZ_TENANT_ID }]);
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-07-06T10:00:00Z"));

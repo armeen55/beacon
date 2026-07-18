@@ -38,6 +38,9 @@ const state = vi.hoisted(() => ({
 
 vi.mock("@/domains/tenants/store", () => ({
   listTenants: vi.fn(async () => state.tenants),
+  // 2026-07-18 tenant-safety: the route now enumerates via listActiveTenants.
+  // The fixture tenants are all treated as active so existing expectations hold.
+  listActiveTenants: vi.fn(async () => state.tenants),
   getTenant: (id: string) => ({ id, slug: "stub" }),
   getTenantOrThrow: (id: string) => ({ id, slug: "stub", business_name: "stub" }),
 }));

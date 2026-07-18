@@ -15,7 +15,7 @@
 import type { BeaconTenant } from "@/domains/tenants/types";
 import type { RecoveryAction } from "@/domains/ops/recovery-actions";
 import type { CrawlFrontierState } from "@/domains/scanning/crawl-frontier";
-import { listTenants } from "@/domains/tenants/store";
+import { listActiveTenants } from "@/domains/tenants/store";
 import { loadAllCrawlFrontiers } from "@/domains/scanning/crawl-frontier";
 
 /** How long a pending signup may sit quiet before it surfaces as stalled. */
@@ -136,7 +136,7 @@ export function classifyStalledSignups(
  *  the operator page down. */
 export async function loadStalledSignups(now: Date = new Date()): Promise<StalledSignup[]> {
   try {
-    const [tenants, frontiers] = await Promise.all([listTenants(), loadAllCrawlFrontiers()]);
+    const [tenants, frontiers] = await Promise.all([listActiveTenants(), loadAllCrawlFrontiers()]);
     return classifyStalledSignups(tenants, frontiers, now);
   } catch {
     return [];

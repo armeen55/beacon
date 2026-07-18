@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { listTenants } from "@/domains/tenants/store";
+import { listActiveTenants } from "@/domains/tenants/store";
 import { runAutopilotPass, type AutopilotPassResult } from "@/domains/autopilot/run-autopilot";
 import { log } from "@/lib/logger";
 import { beginCronRun, finishCronRun } from "@/domains/ops/cron-runs-store";
@@ -38,7 +38,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   const receipt = await beginCronRun({ job: "autopilot", startedAt });
   const results: AutopilotPassResult[] = [];
   try {
-    const tenants = await listTenants();
+    const tenants = await listActiveTenants();
     for (const t of tenants) {
       try {
         results.push(await runAutopilotPass(t.id));

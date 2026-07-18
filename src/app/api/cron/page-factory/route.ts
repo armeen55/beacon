@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { listTenants } from "@/domains/tenants/store";
+import { listActiveTenants } from "@/domains/tenants/store";
 import { runProductionLineForTenant, mondayOfWeek, type ProductionLineSummary } from "@/domains/page-factory/production-line";
 import { hasFactoryBatchForWeek } from "@/domains/page-factory/batch-store";
 import { log } from "@/lib/logger";
@@ -64,7 +64,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
   const results: Array<{ tenantId: string; result: ProductionLineSummary }> = [];
   try {
-    const tenants = await listTenants();
+    const tenants = await listActiveTenants();
     for (const t of tenants) {
       try {
         if (await hasFactoryBatchForWeek(t.id, weekOf)) {

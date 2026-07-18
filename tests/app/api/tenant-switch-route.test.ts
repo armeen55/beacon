@@ -26,6 +26,16 @@ vi.mock("@/lib/auth/supabase-server", () => ({
   }),
 }));
 
+// 2026-07-18 tenant-safety: the route now requires the target tenant to be
+// ACTIVE via the tenant store (a paused tenant, e.g. Ritz, is non-switchable).
+const tenantStore = vi.hoisted(() => ({
+  statuses: {} as Record<string, string>,
+}));
+vi.mock("@/domains/tenants/store", () => ({
+  getTenant: async (id: string) =>
+    tenantStore.statuses[id] ? { id, status: tenantStore.statuses[id] } : null,
+}));
+
 import { GET } from "@/app/api/tenant-switch/route";
 
 function req(qs: string): NextRequest {
@@ -35,6 +45,7 @@ function req(qs: string): NextRequest {
 beforeEach(() => {
   authState.user = { id: "user-1" };
   authState.memberships = [{ tenant_id: "tenant-iranopedia" }];
+  tenantStore.statuses = { "tenant-iranopedia": "active" };
 });
 
 describe("GET /api/tenant-switch", () => {
@@ -49,6 +60,15 @@ describe("GET /api/tenant-switch", () => {
     const res = await GET(req("tenant=tenant-attacker&next=%2Frecommendations"));
     expect(res.headers.get("location")).toBe("https://beacon-bice.vercel.app/recommendations");
     expect(res.headers.get("set-cookie") ?? "").not.toContain("tenant-attacker");
+  });
+
+  // 2026-07-18 tenant-safety: even a valid member may only deep-link into an
+  // ACTIVE tenant. A paused tenant (e.g. Ritz after the incident) is rejected.
+  it("PAUSED member target → redirect with NO cookie (change nothing)", async () => {
+    tenantStore.statuses["tenant-iranopedia"] = "paused";
+    const res = await GET(req("tenant=tenant-iranopedia&next=%2Frecommendations"));
+    expect(res.headers.get("location")).toBe("https://beacon-bice.vercel.app/recommendations");
+    expect(res.headers.get("set-cookie") ?? "").not.toContain("beacon_tenant");
   });
 
   it("no session → /login carrying next", async () => {

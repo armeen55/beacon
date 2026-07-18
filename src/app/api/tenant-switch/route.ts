@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
 import { getSupabaseServerClient } from "@/lib/auth/supabase-server";
+import { getTenant } from "@/domains/tenants/store";
 import {
   TENANT_COOKIE,
   TENANT_COOKIE_MAX_AGE_S,
@@ -51,6 +52,12 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       .eq("user_id", user.id);
     if (error || !canSwitchToTenant(memberships ?? [], target)) {
       return NextResponse.redirect(dest); // fail-closed: no change
+    }
+    // 2026-07-18 tenant-safety fix: a member may only deep-link into an ACTIVE
+    // tenant. A paused tenant (e.g. Ritz) is invisible and non-switchable.
+    const t = await getTenant(target);
+    if (t == null || t.status !== "active") {
+      return NextResponse.redirect(dest); // paused/unknown — no change
     }
   } catch {
     return NextResponse.redirect(dest);

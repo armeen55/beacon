@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { listTenants } from "@/domains/tenants/store";
+import { listActiveTenants } from "@/domains/tenants/store";
 import { runEnginePollForTenant, type EnginePollResult } from "@/domains/ai-visibility/run-engine-poll";
 import { log } from "@/lib/logger";
 import { beginCronRun, finishCronRun } from "@/domains/ops/cron-runs-store";
@@ -41,7 +41,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   const receipt = await beginCronRun({ job: "ai-engines", startedAt });
   const results: EnginePollResult[] = [];
   try {
-    const tenants = await listTenants();
+    const tenants = await listActiveTenants();
     // Iranopedia first: the tenant the whole loop is being proven on.
     const ordered = [...tenants].sort(
       (a, b) => Number(b.slug.includes("iranopedia")) - Number(a.slug.includes("iranopedia")),

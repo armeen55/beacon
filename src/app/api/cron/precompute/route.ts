@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { listTenants } from "@/domains/tenants/store";
+import { listActiveTenants } from "@/domains/tenants/store";
 import { warmTenantCaches, pacificDay } from "@/domains/ops/warm-caches";
 import { hasWarmRunForDay, recordWarmRun, type WarmRunReceipt } from "@/domains/ops/warm-receipt-store";
 import { log } from "@/lib/logger";
@@ -59,7 +59,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   const results: WarmRunReceipt[] = [];
   try {
     const day = pacificDay(new Date());
-    const tenants = await listTenants();
+    const tenants = await listActiveTenants();
     // Iranopedia first: the tenant the whole loop is being proven on.
     const ordered = [...tenants].sort(
       (a, b) => Number(b.slug.includes("iranopedia")) - Number(a.slug.includes("iranopedia")),
