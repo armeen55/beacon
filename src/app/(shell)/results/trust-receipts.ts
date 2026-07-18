@@ -69,3 +69,50 @@ export function verifyGaveUpLine(
   if (env.canonical != null) return null; // a latched success is never "gave up"
   return "I could not verify this after several tries; check it yourself.";
 }
+
+/**
+ * Trust-audit fix (2026-07-18): the CONTRADICTION line. A row can be latched
+ * `verifiedLive` (a one-way flag - once true it never flips back) while the
+ * LATEST crawl attempt could NOT find the edit on the live page (lastAttempt
+ * state not_found or crawl_failed). Left silent, Beacon shows a green "verified
+ * live" badge on a page its own most recent check says is missing the edit -
+ * exactly the dishonesty the product is built to avoid. This says so plainly.
+ *
+ * Returns the line ONLY when verifiedLive is true AND the last attempt failed
+ * to find the edit AND no latched verified-live success POSTDATES that failed
+ * attempt (a fresh success clears an older miss). Null otherwise, so a genuinely
+ * re-confirmed row, a row with no failed attempt, or an unverified row stays
+ * quiet. Beacon voice: first person, a concrete next step, no lab words, no
+ * dashes. Pinned by trust-receipts.test.ts.
+ */
+export function liveContradictionLine(
+  verifyState: VerifyEnvelopeLike,
+  verifiedLive: boolean,
+): string | null {
+  if (!verifiedLive) return null;
+  if (!verifyState || typeof verifyState !== "object") return null;
+  const env = verifyState as {
+    canonical?: { outcome?: unknown } | null;
+    canonicalAt?: unknown;
+    lastAttempt?: { state?: unknown; at?: unknown } | null;
+  };
+  const attempt = env.lastAttempt;
+  if (!attempt || typeof attempt !== "object") return null;
+  const state = attempt.state;
+  if (state !== "not_found" && state !== "crawl_failed") return null;
+  // A latched verified-live success that POSTDATES this failed attempt clears
+  // it (the edit was re-confirmed after the miss); an older success does not.
+  const canonOutcome = env.canonical?.outcome;
+  if (canonOutcome === "verified_live" || canonOutcome === "verified_live_modified") {
+    const canonicalAt = typeof env.canonicalAt === "string" ? env.canonicalAt : "";
+    const attemptAt = typeof attempt.at === "string" ? attempt.at : "";
+    if (canonicalAt && (!attemptAt || canonicalAt > attemptAt)) return null;
+  }
+  return "I confirmed this edit earlier, but my latest check of the live page could not find it. Open the page and confirm the edit is still there.";
+}
+
+/** Legacy-row honesty caveat (2026-07-18): rows shipped before Beacon locked in
+ *  an up-front measurement plan (no `predeclaredAt`) were judged by the older
+ *  method, so their verdict is a directional read, not a predeclared test. */
+export const LEGACY_MEASUREMENT_CAVEAT =
+  "I measured this with my earlier method, before I locked in measurement plans up front. Treat it as a directional read.";

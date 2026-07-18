@@ -53,6 +53,8 @@ import { Pill, type PillIntent } from "@/components/ui/pill";
 import { buildVerdictRevisionLines } from "@/domains/proof-gsc/verdict-revisions";
 import {
   controlsLegendLine,
+  LEGACY_MEASUREMENT_CAVEAT,
+  liveContradictionLine,
   prepSpendLine,
   verifyGaveUpLine,
 } from "./trust-receipts";
@@ -318,6 +320,12 @@ function LedgerCard({ rec, link, pres, compound, grade, eventCaveat, spark, cont
   })();
   // W5 stop-ship F6: honest terminal copy when the crawl-verify pass gave up.
   const verifyGaveUp = verifyGaveUpLine(rec.verifyState, rec.verifiedLive);
+  // Trust-audit fix (2026-07-18): a row latched verified_live whose LATEST crawl
+  // could not find the edit - say so instead of showing a lone green badge.
+  const liveContradiction = liveContradictionLine(rec.verifyState, rec.verifiedLive);
+  // Legacy-row honesty: rows shipped before the up-front measurement plan
+  // (no predeclaredAt) were judged by the older method - name it once.
+  const legacyMeasurement = rec.predeclaredAt == null;
   return (
     // R14a - the stable per-record anchor so the /activity stream and the
     // "We got this wrong" recap can deep-link straight to this card.
@@ -370,6 +378,23 @@ function LedgerCard({ rec, link, pres, compound, grade, eventCaveat, spark, cont
         <p className="mt-1.5 rounded-md bg-indigo-50/70 px-2.5 py-1.5 text-[11px] text-indigo-800">
           Measured as one {compound.changeCount}-change package: {compound.label}. This page-level result belongs to the combination; Beacon will not credit either edit alone.
         </p>
+      ) : null}
+
+      {/* Trust-audit fix (2026-07-18): the LIVE-CONTRADICTION line. When a row is
+          latched verified_live but the latest crawl could not find the edit, this
+          amber line renders on the card itself (not hidden behind the full read),
+          so a stale green badge never stands alone. */}
+      {liveContradiction ? (
+        <p className="mt-1.5 rounded-md border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-[12px] font-medium text-amber-800">
+          {liveContradiction}
+        </p>
+      ) : null}
+
+      {/* Legacy-row honesty caveat (2026-07-18): rows shipped before the up-front
+          measurement plan (no predeclaredAt) carry the older method's directional
+          read - name it once near the verdict, verdict text itself unchanged. */}
+      {legacyMeasurement ? (
+        <p className="mt-1.5 text-[12px] text-muted-foreground">{LEGACY_MEASUREMENT_CAVEAT}</p>
       ) : null}
 
       <details className="mt-2">

@@ -162,6 +162,35 @@ describe("recordShippedChange - ship-time predeclaration stamping (protocol 4.1)
     expect(rec.expectedDirection).toBe(-1);
     expect(rec.judgedMetric).toBe("clicks"); // consolidation is not a CTR/position lever
   });
+
+  // Trust-audit fix (2026-07-18): the production Iranopedia rows all carry a NULL
+  // predeclaredAt / windowPlan (shipped before this contract landed), which is
+  // what the /results legacy-measurement caveat keys on. This pins the opposite
+  // invariant for a NEW ship: every live ship path funnels through
+  // recordShippedChange, so a change shipped today is ALWAYS predeclared (a
+  // non-null predeclaredAt and a populated windowPlan) and would never show that
+  // caveat. If this ever regresses, new ships would silently look "legacy".
+  it("a fresh ship is always predeclared (non-null predeclaredAt + populated windowPlan)", async () => {
+    for (const actionType of ["edit_title", "edit_meta", "add_answer_block", "add_schema"]) {
+      const rec = await recordShippedChange({
+        tenantId: "tenant-iranopedia",
+        page: "https://iranopedia.com/singers",
+        path: "/singers",
+        actionType,
+        before: "old",
+        after: "new",
+        targetQueries: [],
+        controlPages: [],
+        shippedAt: "2026-05-01",
+        now: new Date("2026-05-01T00:00:00.000Z"),
+      });
+      expect(rec.predeclaredAt).not.toBeNull();
+      expect(rec.predeclaredAt).toBeTruthy();
+      expect((rec.windowPlan ?? []).length).toBeGreaterThan(0);
+      expect(rec.judgedMetric).not.toBeNull();
+      expect(rec.expectedDirection == null).toBe(false);
+    }
+  });
 });
 
 describe("measureRecord - reads the STORED judged metric when predeclared", () => {

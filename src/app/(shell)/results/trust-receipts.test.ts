@@ -3,7 +3,12 @@
  * prep-spend join line on the /results cards.
  */
 import { describe, expect, it } from "vitest";
-import { controlsLegendLine, prepSpendLine, verifyGaveUpLine } from "./trust-receipts";
+import {
+  controlsLegendLine,
+  liveContradictionLine,
+  prepSpendLine,
+  verifyGaveUpLine,
+} from "./trust-receipts";
 
 describe("controlsLegendLine", () => {
   it("names two comparison pages", () => {
@@ -68,5 +73,75 @@ describe("verifyGaveUpLine (W5 stop-ship F6)", () => {
   });
   it("never emits an em or en dash", () => {
     expect(verifyGaveUpLine(exhausted, false)).not.toMatch(/[‒–—―]/);
+  });
+});
+
+describe("liveContradictionLine (trust-audit 2026-07-18)", () => {
+  // Shaped like the real production rows: latched verifiedLive, canonical null,
+  // latest attempt could not find the edit (low similarity not_found).
+  const notFound = {
+    canonical: null,
+    canonicalAt: null,
+    lastAttempt: { state: "not_found", at: "2026-07-15T00:00:00.000Z", similarity: 0.27 },
+    attempts: 3,
+    nextRetryAt: null,
+    exhausted: false,
+  };
+  const EXPECTED =
+    "I confirmed this edit earlier, but my latest check of the live page could not find it. Open the page and confirm the edit is still there.";
+
+  it("fires when verifiedLive is true but the latest crawl could not find the edit", () => {
+    expect(liveContradictionLine(notFound, true)).toBe(EXPECTED);
+  });
+
+  it("fires on a crawl_failed latest attempt too", () => {
+    expect(
+      liveContradictionLine(
+        { canonical: null, canonicalAt: null, lastAttempt: { state: "crawl_failed", at: "2026-07-15T00:00:00.000Z" } },
+        true,
+      ),
+    ).toBe(EXPECTED);
+  });
+
+  it("is null when a verified-live success POSTDATES the failed attempt", () => {
+    expect(
+      liveContradictionLine(
+        {
+          canonical: { outcome: "verified_live", kind: "exact" },
+          canonicalAt: "2026-07-16T00:00:00.000Z",
+          lastAttempt: { state: "not_found", at: "2026-07-15T00:00:00.000Z", similarity: 0.27 },
+        },
+        true,
+      ),
+    ).toBeNull();
+  });
+
+  it("still fires when the latched success is OLDER than the failed attempt", () => {
+    expect(
+      liveContradictionLine(
+        {
+          canonical: { outcome: "verified_live", kind: "exact" },
+          canonicalAt: "2026-07-10T00:00:00.000Z",
+          lastAttempt: { state: "not_found", at: "2026-07-15T00:00:00.000Z", similarity: 0.31 },
+        },
+        true,
+      ),
+    ).toBe(EXPECTED);
+  });
+
+  it("is null when verified with no failed attempt on record", () => {
+    expect(
+      liveContradictionLine({ canonical: null, canonicalAt: null, lastAttempt: null }, true),
+    ).toBeNull();
+    expect(liveContradictionLine(null, true)).toBeNull();
+    expect(liveContradictionLine(undefined, true)).toBeNull();
+  });
+
+  it("is null when the row is not verifiedLive (verifyGaveUpLine owns that case)", () => {
+    expect(liveContradictionLine(notFound, false)).toBeNull();
+  });
+
+  it("never emits an em or en dash", () => {
+    expect(liveContradictionLine(notFound, true)).not.toMatch(/[‒–—―]/);
   });
 });
