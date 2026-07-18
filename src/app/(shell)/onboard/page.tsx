@@ -16,9 +16,11 @@ import { requireOnboardingTenant } from "@/domains/onboarding/access";
 import { UrlFirstForm } from "./url-form";
 
 export const dynamic = "force-dynamic";
-// The submit action runs a polite bounded crawl of the stranger's site
-// (discovery + one batch + $0 baselines). Same ceiling as /onboard/review.
-export const maxDuration = 60;
+// No page-level maxDuration override: this route INHERITS the (shell) layout's
+// 300s ceiling so the layout's post-response autonomous cycle can never be
+// killed mid-flight (a 60s cap left the status UI stuck on "working"). The
+// submit action's polite bounded crawl (discovery + one batch + $0 baselines)
+// still finishes well under that ceiling.
 
 export default async function OnboardUrlFirstPage() {
   const { tenant } = await requireOnboardingTenant();

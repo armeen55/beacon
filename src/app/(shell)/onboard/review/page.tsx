@@ -42,12 +42,11 @@ import { LaunchForm } from "./launch-form";
 import { resolvePreviewConfigSignals } from "./resolve-preview-config";
 
 export const dynamic = "force-dynamic";
-// audit-6 #2: the launch action awaits a bounded in-process cold-start crawl +
-// promotion (the Vercel fallback when GitHub dispatch is inert). Give it
-// headroom above the default function timeout so a brand-new tenant's launch
-// completes instead of being killed mid-crawl. The scan's own budget
-// (discovery + crawl, ~22s shared) stays well under this ceiling.
-export const maxDuration = 60;
+// No page-level maxDuration override: this route INHERITS the (shell) layout's
+// 300s ceiling. A 60s cap would kill the layout's post-response autonomous
+// cycle before it can write a terminal receipt (leaving the status UI stuck on
+// "working"). audit-6 #2's launch action (a bounded in-process cold-start crawl
+// + promotion, ~22s shared budget) still finishes well under 300s.
 
 const CATEGORY_LABELS: Record<PromptCategory, string> = {
   brand_discovery: "When people search your name",

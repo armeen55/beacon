@@ -21,8 +21,10 @@ import { ConnectGscCard } from "./connect-gsc-card";
 import { keepScanningAction, retryFirstLookAction } from "./actions";
 
 export const dynamic = "force-dynamic";
-// Keep scanning runs one bounded crawl batch (max 15 pages / 45s).
-export const maxDuration = 60;
+// No page-level maxDuration override: this route INHERITS the (shell) layout's
+// 300s ceiling so the layout's post-response autonomous cycle is never killed
+// early (a 60s cap left the status UI stuck on "working"). Keep scanning's one
+// bounded crawl batch (max 15 pages / 45s) still finishes far under that.
 
 function Stat({ label, value }: { label: string; value: number }) {
   return (

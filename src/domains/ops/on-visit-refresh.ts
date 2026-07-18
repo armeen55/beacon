@@ -3,9 +3,14 @@ import "server-only";
 import { after } from "next/server";
 
 import { autoRefreshStaleConnectorsForTenant } from "@/lib/connectors/cron-sync";
+import {
+  continueDeepBackfillIfStarted,
+  type DeepBackfillChunkResult,
+} from "@/lib/connectors/gsc/deep-backfill";
 import { log } from "@/lib/logger";
 import { loadWithDeadline } from "@/lib/load-with-deadline";
 import { runWithTenant } from "@/lib/tenant-context";
+import { claimAutonomousRun, releaseAutonomousRun } from "./autonomous-run-claim";
 import { runAutonomousResearchForTenant } from "./autonomous-research";
 import { recoverAbandonedPageFactoryForTenant } from "./recover-abandoned-work";
 import { replenishReadyQueueForTenant } from "./ready-queue-replenishment";
@@ -74,8 +79,60 @@ export function timedOutReceipt(tenantId: string, now: Date, prior: WarmRunRecei
   };
 }
 
-async function runPostResponseCycle(tenantId: string): Promise<void> {
+/** Pacific day-key, the (tenant_id, day_key) claim unit and the receipt date. */
+function pacificDayKey(now: Date): string {
+  return now.toLocaleDateString("en-CA", { timeZone: "America/Los_Angeles" });
+}
+
+/** Injectable clock + deadline so the deadline-bounded steps below are testable
+ *  with a short budget; production passes nothing and uses the real values. */
+export type PostResponseCycleOptions = {
+  now?: () => Date;
+  deadlineMs?: number;
+};
+
+export async function runPostResponseCycle(
+  tenantId: string,
+  options: PostResponseCycleOptions = {},
+): Promise<void> {
+  const nowFn = options.now ?? (() => new Date());
   await runWithTenant(tenantId, async () => {
+    // Cross-instance atomic claim FIRST, before any connector/crawl refresh or
+    // the research decision. This is the durable throttle the per-process Set and
+    // the read-then-write receipt check could never be: two concurrent requests
+    // on different Vercel instances used to both pass the check and both run the
+    // paid pipeline. Exactly one instance wins the day's cycle here.
+    const dayKey = pacificDayKey(nowFn());
+    const claim = await claimAutonomousRun(tenantId, dayKey);
+    if (claim === "already-claimed") {
+      // Another instance owns today's cycle right now. Exit quietly, write
+      // nothing - the owner is (or already did) the work.
+      log.info("[autonomous] skipped: another instance owns today's cycle", { tenantId, dayKey });
+      return;
+    }
+    if (claim === "unavailable") {
+      // Supabase is not configured / not reachable / the table is not migrated
+      // yet. Proceed best-effort on the in-memory Set + daily receipt alone; do
+      // not block the product on DB health. One honest log line.
+      log.warn("[autonomous] cross-instance lock unavailable, running best-effort", { tenantId, dayKey });
+    }
+    try {
+      await runOwnedCycle(tenantId, options);
+    } finally {
+      // The claim is a LOCK, not the daily idempotency record (the warm receipt
+      // is). Release it whatever the outcome so later same-day visits keep doing
+      // maintenance and a failed pass can retry after its cooldown; a successful
+      // pass is blocked from rerunning by shouldRunAutonomousResearch, not this
+      // row. Only release what THIS instance actually claimed.
+      if (claim === "claimed") await releaseAutonomousRun(tenantId, dayKey);
+    }
+  });
+}
+
+async function runOwnedCycle(tenantId: string, options: PostResponseCycleOptions = {}): Promise<void> {
+  const nowFn = options.now ?? (() => new Date());
+  const deadlineMs = options.deadlineMs ?? AUTONOMOUS_RUN_DEADLINE_MS;
+  {
     const connectorResults = await autoRefreshStaleConnectorsForTenant(tenantId).catch((error) => {
       log.warn("[autonomous] connector refresh failed", {
         tenantId,
@@ -83,6 +140,47 @@ async function runPostResponseCycle(tenantId: string): Promise<void> {
       });
       return [];
     });
+
+    // GSC deep-history backfill continuation. When the operator started a "Load
+    // my full Search Console history" backfill, advance exactly ONE more monthly
+    // chunk so it finishes during normal use instead of stalling until they click
+    // "Continue loading history" again (Beacon has no scheduler, so the nightly
+    // cron path that used to advance this never runs). Two tiny reads no-op
+    // cheaply for every tenant that never started one. Bounded by the same
+    // continuation deadline as the research pass below so a wedged GSC pull can
+    // never strand the lambda; on a timeout the chunk's cursor is left untouched
+    // (the chunk marks progress only on a completed pull), so the next visit
+    // resumes the same window. Fail-soft and isolated like the steps beside it: a
+    // backfill failure must never break the rest of the cycle.
+    //
+    // Capped separately from the research pass below. Both steps used to share
+    // the full deadlineMs (210s), which put a 420s worst case inside a 300s
+    // lambda. The backfill chunk only needs to pull one bounded window, so it
+    // gets a much smaller budget; Math.min keeps injected test deadlines (for
+    // example 10ms) in effect.
+    const backfillDeadlineMs = Math.min(deadlineMs, 60_000);
+    const backfill = await loadWithDeadline(
+      continueDeepBackfillIfStarted(tenantId, nowFn()),
+      backfillDeadlineMs,
+    ).catch((error): { timedOut: false; data: DeepBackfillChunkResult } => {
+      log.warn("[autonomous] gsc deep backfill continuation failed", {
+        tenantId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return { timedOut: false, data: { ran: false, reason: "error" } };
+    });
+    if (backfill.timedOut) {
+      log.info("[autonomous] gsc deep backfill hit the cycle deadline; resuming next visit", { tenantId });
+    } else if (backfill.data.ran) {
+      log.info("[autonomous] gsc deep backfill chunk advanced", {
+        tenantId,
+        chunkStart: backfill.data.chunkStart,
+        chunkEnd: backfill.data.chunkEnd,
+        daysPulled: backfill.data.daysPulled,
+        complete: backfill.data.complete,
+      });
+    }
+
     const crawlRefresh = await refreshStaleCrawlForCurrentTenant(tenantId).catch((error) => {
       log.warn("[autonomous] stale crawl refresh failed", {
         tenantId,
@@ -93,7 +191,7 @@ async function runPostResponseCycle(tenantId: string): Promise<void> {
     if (crawlRefresh?.ran) {
       log.info("[autonomous] owned-site crawl advanced", { tenantId, ...crawlRefresh });
     }
-    const now = new Date();
+    const now = nowFn();
     const prior = await readLastWarmReceipt(tenantId, "visit");
     const shouldRunDeepResearch = shouldRunAutonomousResearch(prior, now);
     if (shouldRunDeepResearch) {
@@ -109,7 +207,7 @@ async function runPostResponseCycle(tenantId: string): Promise<void> {
             await recordWarmRun(checkpoint);
           },
         }),
-        AUTONOMOUS_RUN_DEADLINE_MS,
+        deadlineMs,
       );
       const receipt = raced.timedOut ? timedOutReceipt(tenantId, now, latestCheckpoint) : raced.data;
       // A hard continuation limit must never leave the durable status on
@@ -143,7 +241,7 @@ async function runPostResponseCycle(tenantId: string): Promise<void> {
     // drafting five pages, preventing the primary research brain from ever
     // replacing its "running" receipt. Recovery is now one brief, no full-page
     // walker, and runs only after the main brain has a terminal receipt.
-    const recovery = await recoverAbandonedPageFactoryForTenant(tenantId, new Date()).catch((error) => ({
+    const recovery = await recoverAbandonedPageFactoryForTenant(tenantId, nowFn()).catch((error) => ({
       status: "failed" as const,
       weekOf: "unknown",
       reason: error instanceof Error ? error.message : String(error),
@@ -151,7 +249,7 @@ async function runPostResponseCycle(tenantId: string): Promise<void> {
     if (recovery.status !== "not_needed") {
       log.info("[autonomous] page factory recovery checked", { tenantId, recovery });
     }
-  });
+  }
 }
 
 /**

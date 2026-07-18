@@ -1,5 +1,6 @@
 import type { RefreshRunRow, RefreshSource } from "./refresh-runs-store";
 import type { WarmRunReceipt } from "./warm-receipt-store";
+import { STALE_RUNNING_MS, CUT_SHORT_COPY } from "./autonomous-research-status";
 
 export type AutonomousHealthState = "ok" | "working" | "issues" | "none";
 
@@ -33,9 +34,28 @@ function displayTime(iso: string): string | null {
   });
 }
 
-function isRunning(receipt: WarmRunReceipt | null, now: Date): boolean {
+function hasRunningNote(receipt: WarmRunReceipt | null, now: Date): boolean {
   if (!receipt || receipt.ok || receipt.date !== pacificDate(now)) return false;
   return receipt.steps.some((step) => /running after this response/i.test(step.note ?? ""));
+}
+
+/** Still genuinely running: the "running" receipt is fresh enough that its
+ * lambda could still be alive. */
+function isRunning(receipt: WarmRunReceipt | null, now: Date): boolean {
+  if (!hasRunningNote(receipt, now)) return false;
+  const ranAt = Date.parse(receipt!.ran_at);
+  if (Number.isFinite(ranAt) && now.getTime() - ranAt >= STALE_RUNNING_MS) return false;
+  return true;
+}
+
+/** A "running" receipt older than STALE_RUNNING_MS whose terminal receipt never
+ * arrived: the scheduling lambda was killed (e.g. a page maxDuration under the
+ * cycle's 210s deadline). We tell the truth instead of "working in background"
+ * forever. */
+function isStalledRunning(receipt: WarmRunReceipt | null, now: Date): boolean {
+  if (!hasRunningNote(receipt, now)) return false;
+  const ranAt = Date.parse(receipt!.ran_at);
+  return Number.isFinite(ranAt) && now.getTime() - ranAt >= STALE_RUNNING_MS;
 }
 
 /**
@@ -49,6 +69,11 @@ export function buildAutonomousHealth(input: Input): AutonomousHealth {
     .map((source) => input.latestBySource[source])
     .filter((row): row is RefreshRunRow => row != null);
 
+  if (isStalledRunning(input.receipt, now)) {
+    // The background pass was cut short and never wrote its terminal receipt.
+    // Honest, self-healing copy: it resumes on the next visit.
+    return { state: "issues", headline: CUT_SHORT_COPY };
+  }
   if (isRunning(input.receipt, now)) {
     return { state: "working", headline: "working now in the background." };
   }

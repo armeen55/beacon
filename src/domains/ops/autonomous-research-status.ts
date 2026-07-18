@@ -35,21 +35,54 @@ export function autonomousResearchProgress(receipt: WarmRunReceipt | null) {
   };
 }
 
-function isRunning(receipt: WarmRunReceipt): boolean {
+/** A "running after this response" receipt older than this never got its
+ * terminal receipt written - the lambda that scheduled the after() work was
+ * killed (e.g. a page maxDuration under the cycle's 210s deadline). Past this we
+ * stop calling it "running" and tell the truth: the pass was cut short and picks
+ * back up on the next visit. */
+export const STALE_RUNNING_MS = 15 * 60_000;
+
+/** The exact copy for a background pass that never finished. First person, no
+ * jargon, no dashes. Shared with autonomous-health.ts. */
+export const CUT_SHORT_COPY =
+  "My last background pass was cut short. I will pick it up on your next visit.";
+
+function hasRunningNote(receipt: WarmRunReceipt): boolean {
   return receipt.steps.some((step) => step.name === "autonomous-research" && step.note === "running after this response");
+}
+
+/** True only while the "running" receipt is still FRESH (its lambda could still
+ * be alive). A stale one reads as stalled, never as running. */
+function isRunning(receipt: WarmRunReceipt, now: Date): boolean {
+  if (!hasRunningNote(receipt)) return false;
+  const ranAt = Date.parse(receipt.ran_at);
+  if (Number.isFinite(ranAt) && now.getTime() - ranAt >= STALE_RUNNING_MS) return false;
+  return true;
+}
+
+/** A "running" receipt whose lambda is long dead: the terminal receipt never
+ * arrived. Only fires for the note-based started receipt, never for a resumable
+ * checkpointed pipeline (that legitimately persists across navigations). */
+function isStalledRunning(receipt: WarmRunReceipt, now: Date): boolean {
+  if (!hasRunningNote(receipt)) return false;
+  const ranAt = Date.parse(receipt.ran_at);
+  return Number.isFinite(ranAt) && now.getTime() - ranAt >= STALE_RUNNING_MS;
 }
 
 function hasMorePipelineWork(receipt: WarmRunReceipt): boolean {
   return receipt.pipeline?.version === 1 && receipt.pipeline.nextStage != null;
 }
 
-export function autonomousResearchStatusLine(receipt: WarmRunReceipt | null): string {
+export function autonomousResearchStatusLine(receipt: WarmRunReceipt | null, now: Date = new Date()): string {
   if (!receipt) return "Beacon will research, compare, rank, and prepare your next moves automatically after this visit.";
-  if ((isRunning(receipt) || hasMorePipelineWork(receipt)) && receipt.summary) {
+  // A stalled "running" receipt with no resumable pipeline is a dead lambda, not
+  // live work: say so honestly instead of an eternal "preparing in background".
+  if (isStalledRunning(receipt, now) && !hasMorePipelineWork(receipt)) return CUT_SHORT_COPY;
+  if ((isRunning(receipt, now) || hasMorePipelineWork(receipt)) && receipt.summary) {
     const progress = autonomousResearchProgress(receipt);
     return `Your saved results are ready. Beacon is refreshing the evidence${progress ? ` (${progress.completed} of ${progress.total}: ${progress.nextLabel})` : ""} and will replace them only when the newer pass is complete.`;
   }
-  if (isRunning(receipt) || hasMorePipelineWork(receipt)) {
+  if (isRunning(receipt, now) || hasMorePipelineWork(receipt)) {
     const progress = autonomousResearchProgress(receipt);
     return `Beacon is preparing the first saved result in the background${progress ? ` (${progress.completed} of ${progress.total}: ${progress.nextLabel})` : ""}. You can keep using the app.`;
   }
@@ -91,12 +124,14 @@ export function autonomousResearchStatusLine(receipt: WarmRunReceipt | null): st
     : `Automatic research partially completed: ${evidence}; ${outcome}. Beacon will retry safely.${dataForSeo}${aiPoll}`;
 }
 
-export function autonomousResearchHeaderStatus(receipt: WarmRunReceipt | null): AutonomousResearchHeaderStatus {
-  const title = autonomousResearchStatusLine(receipt);
+export function autonomousResearchHeaderStatus(receipt: WarmRunReceipt | null, now: Date = new Date()): AutonomousResearchHeaderStatus {
+  const title = autonomousResearchStatusLine(receipt, now);
   const progress = autonomousResearchProgress(receipt);
   if (!receipt) return { label: "Research starts on visit", tone: "idle", title, progress: null };
-  if ((isRunning(receipt) || hasMorePipelineWork(receipt)) && receipt.summary) return { label: progress ? `Refreshing · ${progress.completed}/${progress.total}` : "Up to date · refreshing", tone: "ready", title, progress };
-  if (isRunning(receipt) || hasMorePipelineWork(receipt)) return { label: progress ? `Preparing · ${progress.completed}/${progress.total}` : "Preparing in background", tone: "running", title, progress };
+  // A cut-short pass (dead lambda, no resumable pipeline) is honestly partial.
+  if (isStalledRunning(receipt, now) && !hasMorePipelineWork(receipt)) return { label: "Last pass cut short", tone: "partial", title, progress: null };
+  if ((isRunning(receipt, now) || hasMorePipelineWork(receipt)) && receipt.summary) return { label: progress ? `Refreshing · ${progress.completed}/${progress.total}` : "Up to date · refreshing", tone: "ready", title, progress };
+  if (isRunning(receipt, now) || hasMorePipelineWork(receipt)) return { label: progress ? `Preparing · ${progress.completed}/${progress.total}` : "Preparing in background", tone: "running", title, progress };
   if (!receipt.summary && !receipt.ok) return { label: "Preparing in background", tone: "running", title, progress: null };
   if (!receipt.ok) return { label: "Research partially refreshed", tone: "partial", title, progress: null };
   const ready = receipt.summary?.readyToReview ?? 0;

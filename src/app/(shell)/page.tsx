@@ -1,11 +1,11 @@
 export const dynamic = "force-dynamic";
-// The "Update data" refresh (refreshAllConnectedDataNow) is a Server Action
-// hosted by this route: it pulls every connected source AND warms the shared
-// surfaces so the repaint is instant. That is deliberately long-running work the
-// operator explicitly waits on, so give the action headroom above the ~15s
-// default (well under the plan's 300s ceiling). Normal fast renders are
-// unaffected - this only raises the ceiling.
-export const maxDuration = 60;
+// No page-level maxDuration override: this route INHERITS the (shell) layout's
+// 300s ceiling. A 60s page cap used to kill the lambda before the layout's
+// post-response autonomous cycle (AUTONOMOUS_RUN_DEADLINE_MS = 210s) could write
+// its terminal receipt, leaving the status UI stuck on "working" forever. The
+// 300s ceiling also covers this route's long "Update data" Server Action
+// (refreshAllConnectedDataNow), which pulls every connected source and warms the
+// shared surfaces - it has more headroom now, not less.
 
 import { Suspense } from "react";
 import { after } from "next/server";

@@ -47,6 +47,8 @@ describe("buildAutonomousHealth", () => {
     const out = buildAutonomousHealth({
       receipt: receipt({
         ok: false,
+        // Fresh: 10 minutes before NOW, still under the 15-minute stale cutoff.
+        ran_at: "2026-07-18T05:50:00.000Z",
         steps: [{ name: "autonomous-research", ok: true, ms: 0, note: "running after this response" }],
       }),
       latestBySource: {},
@@ -54,6 +56,25 @@ describe("buildAutonomousHealth", () => {
       now: NOW,
     });
     expect(out).toEqual({ state: "working", headline: "working now in the background." });
+  });
+
+  it("treats a running receipt older than 15 minutes as cut short, not working", () => {
+    const out = buildAutonomousHealth({
+      receipt: receipt({
+        ok: false,
+        // Stale: 30 minutes before NOW - the terminal receipt never arrived, so
+        // the scheduling lambda was killed. Never render "working" forever.
+        ran_at: "2026-07-18T05:30:00.000Z",
+        steps: [{ name: "autonomous-research", ok: true, ms: 0, note: "running after this response" }],
+      }),
+      latestBySource: {},
+      connectedSources: [],
+      now: NOW,
+    });
+    expect(out).toEqual({
+      state: "issues",
+      headline: "My last background pass was cut short. I will pick it up on your next visit.",
+    });
   });
 
   it("reports only connected-source failures", () => {

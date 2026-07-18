@@ -307,12 +307,15 @@ export async function recomputeProofFromForm(
 // ─────────────────────────────────────────────────────────────────────
 // GSC deep history backfill (2026-07-02, master plan item 63) — the seasonality
 // engine's peak calendar needs multiple YEARS of demand to prove a wave repeats,
-// but the normal nightly sync only ever holds a 90-day cold-start window. This
+// but the normal sync only ever holds a 90-day cold-start window. This
 // one-time operator action reaches back up to DEEP_BACKFILL_DAYS (480, GSC's own
 // ~16-month retention ceiling) in small resumable chunks, so a lambda timeout or
 // a dropped invocation never loses progress. Runs the FIRST chunk synchronously
-// (so the operator sees an immediate result) and marks the rest to continue via
-// the nightly cron (continueDeepBackfillIfStarted) until complete.
+// (so the operator sees an immediate result); the operator clicking "Continue
+// loading history" on a later visit runs the next chunk the same way. Beacon has
+// no scheduler, but continueDeepBackfillIfStarted below also fires during normal
+// use, one chunk per owned background visit cycle - the click path and the
+// on-use cycle both finish this over time.
 // ─────────────────────────────────────────────────────────────────────
 
 export type GscDeepBackfillStatus =
@@ -361,7 +364,8 @@ export type StartGscDeepBackfillResult =
 /** Operator gesture: "Load my full Search Console history." Initializes the
  *  progress row (idempotent - safe to click again mid-backfill) and runs the
  *  first bounded chunk immediately so the click has a visible effect; the
- *  remaining chunks continue nightly via cron-sync's PHASE wiring. */
+ *  remaining chunks finish the same way, one click per visit ("Continue
+ *  loading history" calls this same action again). */
 export async function startGscDeepBackfillNow(): Promise<StartGscDeepBackfillResult> {
   if (!isOperatorModeServer()) return { ok: false, reason: "not_operator" };
   const tenantId = await currentTenantId();

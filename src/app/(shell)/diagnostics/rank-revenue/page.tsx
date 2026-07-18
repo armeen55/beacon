@@ -27,7 +27,11 @@ import type { EvidencePacket } from "@/domains/demand-graph/evidence-packet";
 import { aeoEvidenceSentence } from "@/domains/demand-graph/profound-evidence-fusion";
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 60;
+// No page-level maxDuration override: this route INHERITS the (shell) layout's
+// 300s ceiling. Any (shell) page mounts the layout's post-response autonomous
+// cycle (AUTONOMOUS_RUN_DEADLINE_MS = 210s); a 60s page cap would kill it before
+// its terminal receipt writes, leaving the status UI stuck on "working". This
+// read-only diagnostics render is fast either way; only the ceiling changes.
 
 function isOperatorMode(): boolean {
   return isOperatorModeServer();
