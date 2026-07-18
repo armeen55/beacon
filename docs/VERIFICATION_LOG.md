@@ -36425,3 +36425,8 @@ sync 8/8; strict typecheck; lint exit 0; complete suite 1,514 files / 22,997 pas
 conditional skips / 0 failed; production build exit 0 with only the existing protected
 middleware-filename deprecation; dependency audit found zero vulnerabilities; `git diff --check`
 clean. No paid provider call, hosted environment mutation, or customer-data mutation was performed.
+
+Release: commit `2f3821cb780cce5e9b63cc2694fcd68178e3481b` was pushed to `origin/main`.
+Vercel deployment `dpl_4Ch3YCpk3CgKGLEjGquceoriokzY` reached Ready and production
+`/api/version` returned that exact SHA. Unauthenticated `/`, `/today`, `/changes`, `/results`, and
+the retired `/diagnostics` link returned their expected 307 login continuations.

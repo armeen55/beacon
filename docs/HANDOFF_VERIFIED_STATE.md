@@ -1,7 +1,7 @@
 # Beacon Verified State
 
-> 🟡 **The 2026-07-17 retired-runtime archive slice is release-gated and awaiting deploy
-> verification.** The live `/diagnostics` index is now a 12-line redirect instead of importing
+> 🟢 **The 2026-07-17 retired-runtime archive slice is deployed and exact-SHA verified at
+> `2f3821cb` (Vercel `dpl_4Ch3YCpk3CgKGLEjGquceoriokzY`).** The live `/diagnostics` index is now a 12-line redirect instead of importing
 > 2,255 lines of unreachable engineering UI and domain readers; the historical body is preserved
 > as non-compiled archive text. The zero-production-import provider barrel and unreachable
 > Anthropic failure stub are likewise archived, while historical Anthropic provenance remains a
@@ -11,7 +11,8 @@
 > live dispatcher's total-map contract still consumes them. Focused checks are green; strict
 > typecheck passes; lint has zero errors; the complete suite passes 1,514 files / 22,997 tests / 23
 > conditional skips / 0 failures; production build and dependency audit pass; `git diff --check`
-> is clean. Deploy and exact-SHA production verification remain.
+> is clean. Production `/api/version` returned the exact full SHA and core route/login
+> continuation contracts were correct. Next is the oversized-live-module split and final audit.
 
 > 🟢 **The 2026-07-17 evidence-depth convergence slice is deployed and exact-SHA verified at
 > `46fe9517` (Vercel `dpl_FEHMGhczSg7QSLovu4oTqXZSo43U`).** The live ResearchDossier now adds page-matched Clarity friction decisions and
