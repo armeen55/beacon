@@ -30,6 +30,8 @@ import { cache } from "react";
 import * as seed from "./seed-data";
 import { getRepository } from "./persistence/repositories";
 import { currentTenantId } from "./tenant-context";
+import { getConnectorInfo } from "./connector-store";
+import { shouldServeDemoData, SEED_OWNER_TENANT_ID } from "./demo-mode";
 
 import type { Result } from "@/domains/results/types";
 import type { ChangelogEntry } from "@/domains/changelog/types";
@@ -90,19 +92,11 @@ function emptyState(): State {
 // entries, so they can't race-clobber a single shared `_state`.
 const _stateByTenant = new Map<string, State>();
 
-/**
- * The seed (`./seed-data`) is the FOUNDER's demo dataset — every row is
- * `tenant_id: "tenant-ritz-founder"` (a builder). It may only be used as the
- * empty-state fallback for the tenant that OWNS it; returning it for any other
- * tenant bleeds builder demo content (changelog "Custom Home Building",
- * competitors, opportunities) into unrelated verticals — e.g. it surfaced in
- * Iranopedia's ⌘K Changes group. Derived from the seed itself so it tracks the
- * data, not a hardcoded literal.
- */
-const SEED_OWNER_TENANT_ID =
-  seed.changelogEntries[0]?.tenant_id ??
-  seed.results[0]?.tenant_id ??
-  "tenant-ritz-founder";
+// `SEED_OWNER_TENANT_ID`, the founder tenant that owns `./seed-data`'s
+// hardcoded fixture rows (changelog "Custom Home Building", competitors,
+// opportunities), now lives in `./demo-mode` alongside the shared
+// `shouldServeDemoData` predicate so this module and the shell layout's
+// "Sample data" banner agree on exactly one rule (2026-07-18).
 
 async function loadFromRepoOrSeed(tenantId: string): Promise<State> {
   const cached = _stateByTenant.get(tenantId);
@@ -130,27 +124,65 @@ async function loadFromRepoOrSeed(tenantId: string): Promise<State> {
     state.competitors = comps;
     state.briefs = [];
     state.competitorSnapshots = [];
-  } else if (tenantId === SEED_OWNER_TENANT_ID) {
-    // Founder/demo tenant with no import yet → show the demo dataset.
-    state.results = [...seed.results];
-    state.changelogEntries = [...seed.changelogEntries];
-    state.opportunities = [...seed.opportunities];
-    state.competitors = [...seed.competitors];
-    state.briefs = [...seed.briefs];
-    state.competitorSnapshots = [...seed.competitorSnapshots];
   } else {
-    // Any OTHER tenant with no import_runs (e.g. a GSC-led content tenant
-    // like Iranopedia that has real data but never imported a CSV) → EMPTY,
-    // never the founder's builder demo data. Surfaces render honest empty
-    // states; tenant-specific data still loads via its own scoped loaders.
-    state.results = [];
-    state.changelogEntries = [];
-    state.opportunities = [];
-    state.competitors = [];
-    state.briefs = [];
-    state.competitorSnapshots = [];
+    // Only the founder tenant can possibly qualify for fixtures, so skip
+    // the two connector reads entirely for every other zero-import tenant.
+    const hasRealConnector =
+      tenantId === SEED_OWNER_TENANT_ID
+        ? await hasAnyRealConnector(tenantId)
+        : false;
+
+    if (
+      shouldServeDemoData({
+        tenantId,
+        importRunsCount: importRuns.length,
+        hasRealConnector,
+      })
+    ) {
+      // Founder/demo tenant, no imports, no real connector → show the demo
+      // dataset (a product walkthrough, never mistaken for real numbers;
+      // the shell's "Sample data" banner uses this SAME predicate).
+      state.results = [...seed.results];
+      state.changelogEntries = [...seed.changelogEntries];
+      state.opportunities = [...seed.opportunities];
+      state.competitors = [...seed.competitors];
+      state.briefs = [...seed.briefs];
+      state.competitorSnapshots = [...seed.competitorSnapshots];
+    } else {
+      // Honest empty state: either (a) any OTHER tenant with no import_runs
+      // (e.g. a GSC-led content tenant like Iranopedia that has real data
+      // but never imported a CSV), which must never see the founder's
+      // builder demo data, or (b) the founder tenant itself once a real
+      // source (Wix/GSC) is connected: a connected real source means NO
+      // fixture data, ever, even before the first CSV import (2026-07-18).
+      // Surfaces render honest empty states; tenant-specific data still
+      // loads via its own scoped loaders.
+      state.results = [];
+      state.changelogEntries = [];
+      state.opportunities = [];
+      state.competitors = [];
+      state.briefs = [];
+      state.competitorSnapshots = [];
+    }
   }
   return state;
+}
+
+/**
+ * True when the tenant has a real data source connected (Wix or GSC).
+ * Mirrors the shell layout's `hasRealConnector` check (layout.tsx), kept
+ * as its own small helper here (rather than duplicating the two-provider
+ * check inline) so both call sites read the same two providers the same
+ * way. Wix/GSC only, matching the pair layout.tsx has checked since
+ * 2026-06-13; other connectors (GA4, SEMrush, Clarity, Profound) are not
+ * part of this fixture-vs-real-data decision.
+ */
+async function hasAnyRealConnector(tenantId: string): Promise<boolean> {
+  const [wixInfo, gscInfo] = await Promise.all([
+    getConnectorInfo("wix", tenantId),
+    getConnectorInfo("google_gsc", tenantId),
+  ]);
+  return wixInfo.status === "connected" || gscInfo.status === "connected";
 }
 
 /**

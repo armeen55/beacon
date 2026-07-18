@@ -14,6 +14,7 @@ import {
   getChangelogEntries,
   hasActiveExperiment,
 } from "@/lib/seed-data.server";
+import { shouldServeDemoData } from "@/lib/demo-mode";
 import { allNavItems, paletteOnlyItems } from "@/lib/navigation";
 import { getPendingFindings } from "@/domains/scanning/findings-store";
 import { CONTENT_CHANGE_TYPES } from "@/domains/scanning/content-change-types";
@@ -227,12 +228,23 @@ async function loadShellData(): Promise<{
   if (todayBadge > 0) badges["/"] = todayBadge;
   if (changesBadge > 0) badges["/results"] = changesBadge;
 
-  // Sample / walkthrough data when no import runs exist (`import-runs` store
-  // empty) - UNLESS a real source is connected. A tenant with Wix or GSC wired
-  // is operating on its own live data, never "demo content" (2026-06-13).
+  // "Sample data" banner uses the SAME predicate seed-data.server.ts uses to
+  // decide whether to serve fixture rows (shouldServeDemoData in
+  // demo-mode.ts) so the two can never disagree: fixtures render implies
+  // the banner is visible, and the banner is visible implies fixtures are
+  // rendering. Before this fix the banner only checked "no real connector",
+  // so the founder tenant with GSC connected and zero import runs got the
+  // fixture dataset with NO banner (2026-07-18).
   const hasRealConnector =
     wixInfo.status === "connected" || gscInfo.status === "connected";
-  const isDemoMode = !isDemoModeRaw && !hasRealConnector;
+  const isDemoMode = shouldServeDemoData({
+    tenantId: await currentTenantId(),
+    // `isDemoModeRaw` is `hasActiveExperiment()` - true when import runs
+    // exist. The predicate only cares whether the count is zero, so a
+    // presence flag is coerced to a stand-in count (0 or 1).
+    importRunsCount: isDemoModeRaw ? 1 : 0,
+    hasRealConnector,
+  });
 
   // ── Late palette items ──
   // T-CustomerNav (2026-05-08) - palette items only surface customer-facing

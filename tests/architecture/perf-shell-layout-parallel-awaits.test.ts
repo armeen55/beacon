@@ -99,7 +99,14 @@ describe("Shell layout: parallel awaits (perf bundle 6)", () => {
     // future edit can't drop one accidentally.
     expect(stripped).toMatch(/pendingFindings\.filter\(/);
     expect(stripped).toMatch(/watchingUrlOutcomes\.filter\(/);
-    expect(stripped).toMatch(/!isDemoModeRaw/);
+    // 2026-07-18 - isDemoMode is no longer `!isDemoModeRaw` directly; it now
+    // comes from the shared `shouldServeDemoData` predicate (same one
+    // seed-data.server.ts uses), fed by the awaited `isDemoModeRaw`
+    // (hasActiveExperiment) coerced into an importRunsCount, plus the
+    // awaited connector info. Pin that wiring instead of the old inline
+    // negation.
+    expect(stripped).toMatch(/isDemoMode\s*=\s*shouldServeDemoData\(/);
+    expect(stripped).toMatch(/importRunsCount:\s*isDemoModeRaw\s*\?\s*1\s*:\s*0/);
     expect(stripped).toMatch(/changelogEntries\.length/);
   });
 });
