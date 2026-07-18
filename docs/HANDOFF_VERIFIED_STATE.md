@@ -1,6 +1,6 @@
 # Beacon Verified State
 
-> 🟡 **2026-07-18 trust-hardening slice, verified locally, not yet committed or pushed.** Five
+> 🟢 **2026-07-18 trust hardening is deployed and exact-SHA verified.** Five
 > areas landed together. Results trust: a new live-check contradiction line fires on any shipped
 > change where I latched verified_live true but my latest crawl attempt came back not_found or
 > crawl_failed with no newer re-confirmation ("I confirmed this edit earlier, but my latest check
@@ -36,19 +36,25 @@
 > action chain in today-moves-actions.ts, 413 to 217 lines); TonightSummaryChip is renamed
 > TodaySummaryChip because it is actually mounted on /changes.
 > Verification: targeted suites green per packet (30, 56, 116, 130, 15, 21, 8 tests across the
-> seven lanes); `npx tsc --noEmit` clean; full suite and production build were running at the time
-> of this entry and will be confirmed at push time; the autonomous_run_claims migration is applied
-> and verified against production Supabase (table exists, 0 rows). No paid call, customer-data
-> mutation, or publish occurred. This slice is not yet committed, pushed, or deployed as of this
-> entry.
+> seven lanes); strict typecheck clean; lint 0 errors / 74 pre-existing warnings; complete suite
+> 1,544 files / 23,100 passed / 23 skipped / 0 failed; production build passed. Three architecture
+> test pins that drifted (the gsc-no-hardcoded-site-url fixture, the perf-shell-layout demo
+> predicate pin, and the autonomous-execution-loop extraction marker) were fixed for the right
+> reasons and pass. The autonomous_run_claims migration was applied to production Supabase and
+> verified before push (table exists, 0 rows). Six commits were pushed to `origin/main`:
+> `183f4317` (Results contradiction and legacy caveats), `7b6f5afd` (on-use autonomy coherent,
+> locked, complete), `7ffe0e77` (cross-tenant leak class closure), `c8471edd` (demo data banner
+> predicate), `d559fe6e` (copy honesty and dead surface deletion), and `a19ba958` (docs). Release
+> HEAD `a19ba9589f766c43dec79052c4d3316e9fd68519` deployed as `dpl_4eGz8bcz5dZntAJJQhn9GQMwthtR`;
+> production `/api/version` returned the exact SHA; and unauthenticated `/`, `/today`, `/changes`,
+> `/results`, `/activity`, and `/settings/connectors` returned their expected 307 login
+> continuations. No paid call, customer-data mutation, or publish occurred.
 >
-> **Next 3 actions:** (1) confirm the full suite and production build, then commit, push, and
-> verify the hosted deploy by exact SHA; (2) the operator begins the first wave of real Iranopedia
-> edits, since every accepted change now gets a predeclared measurement plan automatically;
-> (3) close the
-> remaining external gates: five unseen blind cases, one authenticated hosted visit receipt/timing
-> pass, real unit economics, Ritz reconnection, and the measurement windows on the first approved
-> Iranopedia publish.
+> **Next 3 actions:** (1) the operator begins the first wave of real Iranopedia edits; every
+> accepted change now gets a predeclared measurement plan automatically; (2) close the unchanged
+> external gates: five unseen blind cases, one authenticated hosted visit receipt/timing pass,
+> real unit economics, and Ritz reconnection; (3) verify the first approved Iranopedia publish
+> live and wait through its predeclared measurement windows.
 
 > 🟢 **2026-07-17 customer-language convergence is deployed and exact-SHA verified.** The
 > no-schedule operating model is now consistent at every audited live touchpoint. Connections no
@@ -683,24 +689,22 @@
   customer destination.** The four routes that caused the reported dead ends now return users to
   Today, Results, or Changes; this is not a claim that every legacy diagnostic subtree has been
   physically deleted.
-- **Autonomous research cross-instance lock is closed pending push.** The 2026-07-18 slice adds
+- **Autonomous research cross-instance lock is closed.** The 2026-07-18 release adds
   autonomous_run_claims, an atomic insert on (tenant_id, day_key) released in finally, so
   concurrent tabs or instances can no longer double-run the paid research pipeline; it fails soft
-  if the table is unreachable. Verified locally against production Supabase (table exists, 0
-  rows); the fix is not yet committed, pushed, or deployed.
+  if the table is unreachable. The migration is applied and verified against production Supabase
+  and the fix is deployed at `a19ba958`.
 
 ## Next 3 actions
 
-1. **Confirm the full suite and production build for the 2026-07-18 trust-hardening slice, then
-   commit, push, and verify the hosted deploy by exact SHA.** Targeted suites and typecheck are
-   already green; only the full gate and the deploy itself remain.
-2. **The operator begins the first wave of real Iranopedia edits.** Every accepted change now gets
-   a predeclared measurement plan automatically, so this is the clear next step once the slice is
-   deployed.
-3. **Close the unchanged external gates.** Five genuinely unseen blind cases through the hosted
+1. **The operator begins the first wave of real Iranopedia edits.** Every accepted change now gets
+   a predeclared measurement plan automatically; the trust-hardening release that makes this true
+   is deployed and exact-SHA verified.
+2. **Close the unchanged external gates.** Five genuinely unseen blind cases through the hosted
    three-phase protocol, one authenticated hosted visit receipt/timing pass, real unit economics,
-   Ritz reconnection, and the predeclared measurement windows on the first approved Iranopedia
-   publish.
+   and Ritz reconnection.
+3. **Verify the first approved Iranopedia publish live and wait through its predeclared
+   measurement windows.**
 
 ## History
 

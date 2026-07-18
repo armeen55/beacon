@@ -5,7 +5,8 @@
 This is the operator's live priority order. I work it strictly top to bottom. The dated
 chronology of what already landed lives in VERIFICATION_LOG.md; this list is only what is next.
 
-> 🟡 **2026-07-18 trust-hardening slice, VERIFIED LOCALLY, PENDING COMMIT/PUSH.** Results now
+> 🟢 **2026-07-18 trust hardening, DEPLOYED AND EXACT-SHA VERIFIED at `a19ba958`
+> (Vercel `dpl_4eGz8bcz5dZntAJJQhn9GQMwthtR`).** Results now
 > warns when a latched live-verified edit's latest crawl came back not_found or crawl_failed with
 > no newer re-confirmation, firing on 12 of the 25 shipped changes today, and a directional-read
 > caveat now marks all 25 pre-protocol rows measured before the predeclared-protocol lock-in. Every
@@ -23,15 +24,20 @@ chronology of what already landed lives in VERIFICATION_LOG.md; this list is onl
 > shouldServeDemoData predicate (founder tenant, zero imports, no real connector), closing the bug
 > where a connected founder tenant saw fabricated numbers with no banner. Copy honesty: every
 > remaining false "tonight / overnight / nightly" claim is removed with a guard test per surface,
-> and five verified-zero-mount files are deleted outright. Verification: targeted suites green per
-> packet (30, 56, 116, 130, 15, 21, 8 tests across the seven lanes); strict typecheck clean; full
-> suite and production build were running at doc-write time and will be confirmed at push; the
-> Supabase migration is applied and verified against production (table exists, 0 rows). **Next, in
-> strict order:** (1) confirm the full suite and build, then commit, push, and verify the hosted
-> deploy by exact SHA; (2) the operator begins the first wave of real Iranopedia edits, the clear
-> next step, since every accepted change now gets a predeclared measurement plan automatically;
-> (3) the external gates remain unchanged after that: five genuinely unseen blind cases, one
-> authenticated hosted visit receipt/timing pass, real unit economics, and Ritz reconnection.
+> and five verified-zero-mount files are deleted outright. Verification is green at 1,544 files /
+> 23,100 passed / 23 skipped / 0 failed plus typecheck, lint (0 errors / 74 pre-existing warnings),
+> and production build; three drifted architecture test pins (gsc-no-hardcoded-site-url fixture,
+> perf-shell-layout demo predicate pin, autonomous-execution-loop extraction marker) were fixed for
+> the right reasons and pass. The autonomous_run_claims migration was applied to production
+> Supabase and verified before push. Six commits reached `origin/main` (`183f4317`, `7b6f5afd`,
+> `7ffe0e77`, `c8471edd`, `d559fe6e`, `a19ba958`); production `/api/version` returned the exact
+> release SHA and unauthenticated `/`, `/today`, `/changes`, `/results`, `/activity`, and
+> `/settings/connectors` returned their expected 307 login continuations. **Next, in strict
+> order:** (1) the operator begins the first wave of real Iranopedia edits; every accepted change
+> now gets a predeclared measurement plan automatically; (2) the external gates remain unchanged:
+> five genuinely unseen blind cases, one authenticated hosted visit receipt/timing pass, real unit
+> economics, and Ritz reconnection; (3) verify the first approved Iranopedia publish live and wait
+> through its predeclared measurement windows.
 
 > 🟢 **2026-07-17 on-use customer-language convergence — DEPLOYED AND EXACT-SHA VERIFIED at
 > `9174b0f1` (Vercel `dpl_FGsSQhMVrfzCQfx2SwJDSzN4mTjc`).** The dormant

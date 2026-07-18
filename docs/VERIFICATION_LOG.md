@@ -7,7 +7,7 @@
 
 ---
 
-## 2026-07-18 - Trust hardening: results contradiction warnings, real on-use autonomy, tenant isolation closure, demo-data gate, copy honesty (pending commit)
+## 2026-07-18 - Trust hardening: results contradiction warnings, real on-use autonomy, tenant isolation closure, demo-data gate, copy honesty (a19ba958)
 
 Five areas landed together as one trust-hardening slice.
 
@@ -51,11 +51,19 @@ Five areas landed together as one trust-hardening slice.
    its file.
 
 Verification: targeted vitest green per packet (30, 56, 116, 130, 15, 21, 8 tests across the seven
-lanes); `npx tsc --noEmit` clean. Full suite and production build were running at the time of this
-entry and will be confirmed before push. The autonomous_run_claims migration is applied and
-verified against production Supabase (table exists, 0 rows). No paid call, customer-data mutation,
-or publish occurred. This slice is not yet committed or pushed as of this entry; it is expected to
-land immediately after as commit(s) tagged "trust hardening."
+lanes) during development. Final gate before push: strict typecheck clean; full suite 1,544 files /
+23,100 passed / 23 skipped / 0 failed; lint 0 errors / 74 pre-existing warnings; production build
+passed. Three architecture test pins that drifted (the gsc-no-hardcoded-site-url fixture, the
+perf-shell-layout demo predicate pin, and the autonomous-execution-loop extraction marker) were
+fixed for the right reasons and pass. The autonomous_run_claims migration was applied to production
+Supabase and verified before push (table exists, 0 rows). Six commits were pushed to `origin/main`:
+`183f4317` (Results contradiction and legacy caveats), `7b6f5afd` (on-use autonomy coherent,
+locked, complete), `7ffe0e77` (cross-tenant leak class closure), `c8471edd` (demo data banner
+predicate), `d559fe6e` (copy honesty and dead surface deletion), `a19ba958` (docs). Release HEAD
+`a19ba9589f766c43dec79052c4d3316e9fd68519` deployed as `dpl_4eGz8bcz5dZntAJJQhn9GQMwthtR`;
+production `/api/version` returned the exact SHA; unauthenticated `/`, `/today`, `/changes`,
+`/results`, `/activity`, and `/settings/connectors` all returned their expected 307 login
+continuations. No paid call, customer-data mutation, or publish occurred.
 
 ## 2026-07-16 - Autonomous Results maintenance + strict unused cleanup (c6b872d9, b23a4cfc)
 
