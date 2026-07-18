@@ -1,10 +1,8 @@
 /**
  * Architecture invariant — operator surface prerender safety (2026-05-15).
  *
- * The operator-only `/diagnostics` page family executes tenant-scoped
- * Supabase reads at render time (e.g.,
- * `src/app/(shell)/diagnostics/page.tsx:261` calls
- * `repo.getPageSnapshots()` on a ≥ 1,367-row table). Without an
+ * The operator-only `/diagnostics` deep-page family executes tenant-scoped
+ * Supabase reads at render time. Without an
  * `export const dynamic = "force-dynamic"` directive, Next.js's
  * Turbopack build attempts to statically prerender the page during
  * `next build`, which executes the server-component body — and on
@@ -24,10 +22,8 @@
  * siblings so a future drive-by edit can't drop the directive from
  * any of them.
  *
- * Defense-in-depth pin (3rd assertion): the operator gate on the
- * index page (`isOperatorMode()` + `notFound()`) MUST remain
- * intact. This guarantees the dynamic-directive fix doesn't
- * accidentally remove the gate while replacing the file body.
+ * The index itself is now a deliberately tiny redirect to Today; it must not
+ * regain the retired all-in-one diagnostics implementation.
  */
 
 import { describe, expect, it } from "vitest";
@@ -66,23 +62,16 @@ describe("Architecture — operator-only diagnostics pages declare force-dynamic
   }
 });
 
-describe("Architecture — /diagnostics index operator gate remains intact", () => {
-  // Defense-in-depth: pin that the dynamic-directive fix didn't
-  // accidentally remove the operator-mode gate while editing the
-  // file body.
+describe("Architecture — /diagnostics index remains a tiny customer redirect", () => {
   const SRC = read("src/app/(shell)/diagnostics/page.tsx");
 
-  it("references isOperatorMode()", () => {
-    expect(SRC).toMatch(/isOperatorMode\s*\(\s*\)/);
+  it("redirects to Today", () => {
+    expect(SRC).toContain('redirect("/")');
   });
 
-  it("calls notFound() when not in operator mode", () => {
-    expect(SRC).toMatch(/notFound\s*\(\s*\)/);
-  });
-
-  it("imports the operator-mode helper from @/lib/operator-mode", () => {
-    expect(SRC).toMatch(
-      /from\s+["']@\/lib\/operator-mode["']/,
-    );
+  it("does not import data, operator, or diagnostics engines", () => {
+    expect(SRC).not.toMatch(/@\/domains\//);
+    expect(SRC).not.toMatch(/seed-data|operator-mode|persistence/);
+    expect(SRC.split("\n").length).toBeLessThanOrEqual(20);
   });
 });

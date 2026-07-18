@@ -16,10 +16,9 @@
  *      - any other value → throw (no silent fallback)
  *   2. unset / empty → default to "deterministic"
  *
- * Anthropic is NOT a valid value in 6A.2. The provider stub at
- * `src/domains/recommendations/providers/anthropic.ts` still throws
- * `not_implemented`; this helper refuses to resolve to it. A future
- * Phase 6A.2-bis (or 6A.3) will broaden the union.
+ * Anthropic is not a runtime provider. Historical `source="anthropic"`
+ * provenance remains readable, but config refuses to dispatch to an
+ * implementation that does not exist.
  *
  * Why a separate file (not src/lib/flags.ts):
  *   flags.ts is for boolean feature flags. This is a discriminated
@@ -33,8 +32,7 @@
  *   - "openai" requires `OPENAI_API_KEY` (throws otherwise)
  *   - "deterministic" never touches `OPENAI_API_KEY`
  *   - unknown values throw with the list of allowed values
- *   - "anthropic" is rejected even though `SpecificEditProviderName`
- *     includes it — Sprint 6A.2 is openai-only
+ *   - "anthropic" is rejected; only implemented providers are configurable
  */
 
 import "server-only";

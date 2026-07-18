@@ -206,7 +206,6 @@
 | match-engine-purity | `tests/architecture/match-engine-purity.test.ts` | Phase 3 wiring (pre-plan) | Match engine is pure (no I/O); wired into the scan dual-write block separately. | active | Permanent — match-engine purity floor. | 2026-05-14 |
 | measurement-quality-boundary-pin | `tests/architecture/measurement-quality-boundary-pin.test.ts` | S1 (operator audit, 2026-05-05) | Pins `NATIVE_REGIME_START = "2026-04-22"` as the single source of truth for the regime boundary. | active | Permanent — regime-boundary single source of truth. | 2026-05-14 |
 | url-normalize-canonical-location | `tests/architecture/url-normalize-canonical-location.test.ts` | Trust Sprint T6.6 (2026-05-06) | URL normalize canonical location (single source of truth for URL canonicalization). | active | Permanent — URL canonicalization safety. | 2026-05-14 |
-| diagnostics-no-module-level-state | `tests/architecture/diagnostics-no-module-level-state.test.ts` | Sprint 7 Phase 7.5c/4 (2026-04-25) | Diagnostics pages have no module-level state (per-render fresh reads). | active | Permanent — diagnostics correctness. | 2026-05-14 |
 
 ---
 

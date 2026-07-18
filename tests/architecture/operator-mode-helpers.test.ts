@@ -138,7 +138,6 @@ describe("Operator-mode helpers — Invariant 2: no direct env reads outside all
 
 describe("Operator-mode helpers — Invariant 3: server gates use isOperatorModeServer", () => {
   const PAGES = [
-    "src/app/(shell)/diagnostics/page.tsx",
     "src/app/(shell)/diagnostics/brain/page.tsx",
     "src/app/(shell)/diagnostics/spikes/page.tsx",
     "src/app/(shell)/settings/exit-gates-settings-hint.tsx",

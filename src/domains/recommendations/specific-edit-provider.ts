@@ -13,14 +13,15 @@
  * one per provider — so provider-specific dependencies stay isolated
  * and auditable.
  *
- * Why three providers behind one interface:
+ * Runtime providers behind one interface:
  *   - `deterministic` — the shell that activates in Phase 6A.1.9 with
  *     hand-written generators for the v1 active action types
  *     (edit_title, add_h2_section, add_faq).
- *   - `openai` / `anthropic` — stubs today; 6A.2 fills in the actual
- *     SDK calls + structured output validation. The stubs throw
- *     `not_implemented` so any premature caller hits an explicit
- *     failure rather than silent empty output.
+ *   - `openai` — implemented behind the budgeted structured-output
+ *     boundary.
+ *   - `anthropic` remains a historical source/provider-name value so
+ *     stored provenance still round-trips, but it is not configurable
+ *     or implemented at runtime.
  *
  * The same `SpecificEditEvidencePacket` flows through every provider.
  * Callers swap providers with one line; no upstream code changes.

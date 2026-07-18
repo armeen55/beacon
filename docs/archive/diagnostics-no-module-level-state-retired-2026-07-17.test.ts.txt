@@ -1,4 +1,9 @@
 /**
+ * RETIRED 2026-07-17: preserved as historical architecture evidence after
+ * the diagnostics index became a tiny redirect and stopped loading data.
+ * The live redirect/no-domain-import contract now lives in
+ * tests/architecture/diagnostics-page-dynamic.test.ts.
+ *
  * Sprint 7 Phase 7.5c/4 (2026-04-25) — diagnostics page module-level state
  * lift invariant.
  *

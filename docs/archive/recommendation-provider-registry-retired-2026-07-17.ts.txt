@@ -1,3 +1,6 @@
+// Retired source archive: production dispatch imports the only two supported
+// providers directly and config rejects Anthropic. No production importer used
+// this barrel.
 /**
  * Sprint 6A.1 Phase 8 (2026-04-24) — Provider registry.
  *

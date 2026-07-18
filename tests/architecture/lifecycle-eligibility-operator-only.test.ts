@@ -18,12 +18,9 @@
  *   4. The page allows `NODE_ENV === "test"` to bypass the gate for
  *      render-test coverage (mirrors indexability + brain
  *      diagnostics).
- *   5. The diagnostics hub page (`/diagnostics`) links to the page
- *      and the link target carries the `data-diagnostics-hub-link`
- *      attribute (matches existing hub-link convention).
- *   6. NO customer-facing layout/nav file references the page —
- *      the only reachable path is via the operator-gated hub link
- *      OR via a direct URL bar visit (which the gate handles).
+ *   5. NO customer-facing layout/nav file references the page. The retired
+ *      diagnostics index redirects to Today, so this operator surface is
+ *      reachable only by its explicit deep URL (which the gate handles).
  *
  * Retirement: permanent. Operator-only diagnostic surfaces stay
  * operator-only — this invariant has no exit path.
@@ -105,14 +102,6 @@ describe("Architecture — /diagnostics/lifecycle-eligibility operator-only gate
   // ─────────────────────────────────────────────────────────────────
   // Pin 5: diagnostics hub page links to the surface
   // ─────────────────────────────────────────────────────────────────
-
-  it("diagnostics hub page links to /diagnostics/lifecycle-eligibility with the hub-link data-attr", () => {
-    const src = readFileSync(HUB_PAGE_PATH, "utf-8");
-    expect(src).toContain("/diagnostics/lifecycle-eligibility");
-    expect(src).toContain(
-      'data-diagnostics-hub-link="lifecycle-eligibility"',
-    );
-  });
 
   // ─────────────────────────────────────────────────────────────────
   // Pin 6: no customer-facing nav/layout references the page

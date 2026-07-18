@@ -36401,3 +36401,27 @@ Release: commit `46fe9517fc3d4d46d09f0f50e51123d7b4010eb0` was pushed to `origin
 Vercel deployment `dpl_FEHMGhczSg7QSLovu4oTqXZSo43U` reached Ready and production
 `/api/version` returned that exact SHA. Unauthenticated `/`, `/today`, `/changes`, and `/results`
 returned their expected 307 login continuations.
+
+## 2026-07-17 - Retired runtime and UI archives leave compilation
+
+Collapsed the root Diagnostics route from a 2,255-line all-in-one implementation to a 12-line
+redirect to Today. The prior body was already unreachable after its unconditional redirect, but
+its static imports still forced a large engineering dependency fan into compilation and kept 16
+unused-code warnings alive. Its full source is preserved as non-compiled text under `docs/archive`.
+The architecture contract now pins the index as a tiny redirect with no domain, persistence,
+seed-data, or operator-engine imports; deep operator routes remain untouched.
+
+The provider dependency audit proved that `providers/index.ts` had zero production importers and
+that the Anthropic implementation was an explicit-failure stub reachable only through that dead
+barrel and its own test. Runtime dispatch already imports deterministic/OpenAI directly and
+`resolveLLMProvider` rejects Anthropic. Both retired files are preserved as non-compiled archive
+text; provider tests now pin the implemented runtime set. Historical `source="anthropic"` values
+remain accepted for provenance. Inactive page-extractor entries were not archived because the live
+dispatcher depends on their exhaustive map even though their registry flags are off.
+
+Net compiled-source reduction: 2,423 lines. Lint warnings fell from 91 to 75 with zero errors.
+Verification before release: corrected architecture/provider focus 6 files / 80 tests plus catalog
+sync 8/8; strict typecheck; lint exit 0; complete suite 1,514 files / 22,997 passed / 23
+conditional skips / 0 failed; production build exit 0 with only the existing protected
+middleware-filename deprecation; dependency audit found zero vulnerabilities; `git diff --check`
+clean. No paid provider call, hosted environment mutation, or customer-data mutation was performed.

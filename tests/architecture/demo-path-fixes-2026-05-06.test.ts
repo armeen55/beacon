@@ -98,14 +98,10 @@ describe("Demo-path fix 1 (2026-05-06) — Pre-launch history rename", () => {
 // ── Fix 3 — /diagnostics operator guard ───────────────────────────────
 
 describe("Demo-path fix 3 (2026-05-06) — diagnostics operator guard", () => {
-  it("/diagnostics/page.tsx imports notFound + gates via isOperatorModeServer() with NODE_ENV-test extension", () => {
+  it("/diagnostics/page.tsx immediately returns customers to Today without loading diagnostic engines", () => {
     expect(DIAGNOSTICS_PAGE).toMatch(/from "next\/navigation"/);
-    expect(DIAGNOSTICS_PAGE).toMatch(/notFound\(\)/);
-    // Helper-based gate; test-env extension preserved.
-    expect(DIAGNOSTICS_PAGE).toMatch(
-      /isOperatorModeServer\(\)[\s\S]{0,80}NODE_ENV/,
-    );
-    expect(DIAGNOSTICS_PAGE).not.toMatch(/process\.env\.BEACON_OPERATOR_MODE/);
+    expect(DIAGNOSTICS_PAGE).toMatch(/redirect\("\/"\)/);
+    expect(DIAGNOSTICS_PAGE).not.toMatch(/getRepository|currentTenantId|isOperatorModeServer/);
   });
 
   it("/diagnostics/spikes/page.tsx imports notFound + gates via isOperatorModeServer() with NODE_ENV-test extension", () => {
@@ -117,7 +113,7 @@ describe("Demo-path fix 3 (2026-05-06) — diagnostics operator guard", () => {
     expect(SPIKES_PAGE).not.toMatch(/process\.env\.BEACON_OPERATOR_MODE/);
   });
 
-  it("/settings/health re-exports /diagnostics/page (so it inherits the guard automatically)", () => {
+  it("/settings/health re-exports /diagnostics/page (so retired links return to Today)", () => {
     const settingsHealth = readFileSync(
       resolve(REPO_ROOT, "src/app/(shell)/settings/health/page.tsx"),
       "utf8",

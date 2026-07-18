@@ -4,35 +4,21 @@ import { join, resolve } from "node:path";
 
 import { buildSpecificEditEvidencePacket } from "../specific-edit-evidence";
 import type { SpecificEditEvidencePacket } from "../specific-edit-evidence";
-import {
-  deterministicProvider,
-  openaiProvider,
-  anthropicProvider,
-  PROVIDERS,
-  getProvider,
-} from "./index";
+import { deterministicProvider } from "./deterministic";
+import { openaiProvider } from "./openai";
 import {
   emptyBundleFor,
   type SpecificEditBundle,
   type SpecificEdit,
   type SpecificEditProvider,
 } from "../specific-edit-provider";
-// Phase 6A.2b (2026-04-26): the openai provider no longer exports
-// NOT_IMPLEMENTED_MESSAGE — its body is implemented behind a mockable
-// fetch boundary. Live-behavior tests live in `./openai.test.ts`. The
-// anthropic stub is unchanged (Sprint 6A.2 is openai-only).
-import {
-  NOT_IMPLEMENTED_MESSAGE as ANTHROPIC_NOT_IMPL,
-} from "./anthropic";
-
 // ---------------------------------------------------------------------------
-// Sprint 6A.1 Phase 8 — provider interface + 3 implementations.
+// Active provider interface: deterministic + OpenAI.
 //
 // Phase 8 ships the SHELL only:
 //   - deterministic: returns empty bundle (Phase 6A.1.9 fills in
 //     generators)
-//   - openai / anthropic: stubs that throw not_implemented so any
-//     premature caller hits a loud failure
+//   - openai: implemented behind a mockable fetch boundary
 // ---------------------------------------------------------------------------
 
 // ── Fixture: minimal valid packet ─────────────────────────────────────────
@@ -66,7 +52,6 @@ describe("Phase 6A.1.8 — SpecificEditProvider interface contract", () => {
   it.each([
     ["deterministic", deterministicProvider],
     ["openai", openaiProvider],
-    ["anthropic", anthropicProvider],
   ] as const)(
     "%s provider exposes correct name + async generate signature",
     (expectedName, provider) => {
@@ -75,26 +60,17 @@ describe("Phase 6A.1.8 — SpecificEditProvider interface contract", () => {
       // The interface contract: generate() returns a Promise.
       const packet = makePacket();
       const result = provider.generate(packet);
-      // Every provider — even the stubs — returns a thenable. Stubs
-      // reject; the deterministic provider resolves.
+      // Every active provider returns a thenable. OpenAI rejects without
+      // the injected test fetch boundary; deterministic resolves.
       expect(result).toBeInstanceOf(Promise);
       // Catch the stub rejection so vitest doesn't flag unhandled.
       result.catch(() => {});
     },
   );
 
-  it("PROVIDERS registry covers every SpecificEditProviderName key", () => {
-    expect(Object.keys(PROVIDERS).sort()).toEqual([
-      "anthropic",
-      "deterministic",
-      "openai",
-    ]);
-  });
-
-  it("getProvider returns the registry entry", () => {
-    expect(getProvider("deterministic")).toBe(deterministicProvider);
-    expect(getProvider("openai")).toBe(openaiProvider);
-    expect(getProvider("anthropic")).toBe(anthropicProvider);
+  it("the runtime config exposes only implemented providers", async () => {
+    const { ALLOWED_LLM_PROVIDERS } = await import("@/lib/llm/config");
+    expect(ALLOWED_LLM_PROVIDERS).toEqual(["deterministic", "openai"]);
   });
 });
 
@@ -185,20 +161,6 @@ describe("Phase 6A.1.8 — deterministic provider shell", () => {
 // Promise. Without an explicit fetchImpl the provider rejects in vitest
 // (Sprint 6A.2b safety guard) — that rejection is captured by the
 // interface-contract test's `.catch(() => {})`.
-
-// ── Anthropic stub behavior ───────────────────────────────────────────────
-
-describe("Phase 6A.1.8 — anthropic provider stub", () => {
-  it("throws not_implemented when generate() is called", async () => {
-    await expect(anthropicProvider.generate(makePacket())).rejects.toThrow(
-      ANTHROPIC_NOT_IMPL,
-    );
-  });
-
-  it("the not_implemented message references Sprint 6A.2 (the activation milestone)", () => {
-    expect(ANTHROPIC_NOT_IMPL).toMatch(/6A\.2/i);
-  });
-});
 
 // ── emptyBundleFor helper ─────────────────────────────────────────────────
 
@@ -383,14 +345,10 @@ describe("Phase 6A.1.8 — interface accepts SpecificEditEvidencePacket", () => 
     // deterministic: must succeed.
     const detBundle = await deterministicProvider.generate(packet);
     expect(detBundle.evidenceHash).toBe(packet.evidenceHash);
-    // stubs: must reject (we already covered the message; here we
-    // assert the call EVEN COMPILES against the SpecificEditEvidencePacket
-    // type).
+    // OpenAI must accept the same packet shape; without a fetch boundary it
+    // rejects safely in tests.
     await expect(
       (openaiProvider as SpecificEditProvider).generate(packet),
-    ).rejects.toThrow();
-    await expect(
-      (anthropicProvider as SpecificEditProvider).generate(packet),
     ).rejects.toThrow();
   });
 });

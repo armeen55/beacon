@@ -1,3 +1,5 @@
+// Retired source archive: this explicit-failure stub was unreachable because
+// resolveLLMProvider accepts only deterministic and OpenAI.
 /**
  * Sprint 6A.1 Phase 8 (2026-04-24) — Anthropic SpecificEditProvider stub.
  *

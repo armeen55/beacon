@@ -40,7 +40,6 @@ const MIGRATED_OPERATOR_FILES = [
   "src/app/(shell)/settings/connectors/actions.ts",
   "src/app/(shell)/settings/config/actions.ts",
   "src/app/(shell)/settings/config/page.tsx",
-  "src/app/(shell)/diagnostics/page.tsx",
   "src/app/(shell)/diagnostics/recommendation-triggers/page.tsx",
   "src/app/(shell)/diagnostics/recommendation-triggers/actions.ts",
   "src/app/(shell)/diagnostics/repeat-citation/page.tsx",

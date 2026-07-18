@@ -3268,6 +3268,12 @@ prescribe a fix only above deterministic session/rate floors; competitor gaps re
 page plus cited prompts; fanouts must pass move relevance before they can widen keyword matching,
 with multi-source corroboration tracked separately. None creates a parallel ranker or customer UI.
 
+**Retired-runtime boundary, 2026-07-17:** unreachable or explicit-failure runtime surfaces with zero
+production importers leave compilation, but their source is preserved as non-compiled archive text
+until permanent deletion is explicitly approved. Customer redirects and the implemented provider
+set receive architecture pins. A disabled registry entry is not considered dead when a live
+dispatcher still requires it for exhaustive type/runtime mapping.
+
 ## FUTURE IDEAS (not in current execution plan)
 
 These are ideas, experiments, and dream-state features that are NOT in the active phases. They live here so they are never lost. Move to `NEXT_PHASE_EXECUTION_PLAN.md` only when they become active work.
