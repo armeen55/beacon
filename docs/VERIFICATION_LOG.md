@@ -7,6 +7,37 @@
 
 ---
 
+## 2026-07-18 - Tenant-fallback incident: silent Ritz takeover of a live Iranopedia session, closed (4cd7169a)
+
+Incident: during the operator's live Iranopedia session, /results flipped to Ritz Builders
+mid-session, including one mixed render with the Iranopedia header over Ritz staleness data. Root
+cause: the middleware tenant_members lookup timed out under Supabase load and the app silently
+fell back to BEACON_TENANT_ID (tenant-ritz-founder). Amplifier: the operator account held two
+memberships.
+
+Fixes, all live:
+
+1. **Data, applied directly to production Supabase (no deploy needed).** Deleted the operator's
+   tenant-ritz-founder membership row, recorded for future restore (user
+   465480f5-6419-4bae-a4bd-42f59305ec40, created 2026-06-19 18:20:38 UTC), and set
+   tenants.status='paused' for tenant-ritz-founder. Beacon is now single tenant (Iranopedia).
+   Ritz data is fully preserved for a future separate account; nothing was deleted beyond the one
+   membership row.
+2. **Code (commit 4cd7169a).** Authenticated requests can never reach the env fallback; on lookup
+   failure the middleware honors the membership-validated beacon_tenant cookie or redirects to
+   /login?error=tenant_unavailable; stale cookies naming a non-member tenant are scrubbed on the
+   next successful request; the operator bypass validates the cookie against active tenants via an
+   edge-safe REST check; new listActiveTenants() is used by all background fan-outs (8 cron
+   routes, cron-sync, nightly-aggregate, stalled-signups, tenant-switcher) so the paused tenant
+   consumes zero work; the tenant switch action and route reject non-active targets; the
+   resolution layer logs loudly if the env fallback is ever reached inside a request.
+3. **Tests.** Old tests that pinned the env-fallback leak were rewritten to pin the safe contract;
+   five stale fixture files were updated.
+
+Verification: strict typecheck clean; full suite about 1,546 files / 23,113 passed / 23 skipped /
+0 failed; production build passed. Commit `4cd7169a` deployed as
+`dpl_47ABTKPKwBG5xkJ8fceUf7dfqcfN`; production `/api/version` returned the exact SHA.
+
 ## 2026-07-18 - Trust hardening: results contradiction warnings, real on-use autonomy, tenant isolation closure, demo-data gate, copy honesty (a19ba958)
 
 Five areas landed together as one trust-hardening slice.

@@ -1,5 +1,30 @@
 # Beacon Verified State
 
+> 🟢 **2026-07-18 tenant-fallback incident closed, deployed and exact-SHA verified.** The
+> operator's live Iranopedia session flipped to Ritz Builders mid-session on /results, including
+> one mixed render (Iranopedia header over Ritz staleness data). Root cause: the middleware
+> tenant_members lookup timed out under Supabase load and the app silently fell back to
+> BEACON_TENANT_ID (tenant-ritz-founder); the operator account holding two memberships amplified
+> it. Three fixes are live. Data, applied directly to production Supabase with no deploy needed:
+> the operator's tenant-ritz-founder membership row is deleted (recorded for future restore: user
+> 465480f5-6419-4bae-a4bd-42f59305ec40, created 2026-06-19 18:20:38 UTC) and
+> tenants.status='paused' is set for tenant-ritz-founder, so Beacon is now single tenant
+> (Iranopedia); Ritz data is fully preserved for a future separate account and nothing was deleted
+> beyond the one membership row. Code, commit `4cd7169a` deployed as
+> `dpl_47ABTKPKwBG5xkJ8fceUf7dfqcfN` with `/api/version` returning the exact SHA: authenticated
+> requests can never reach the env fallback; on lookup failure the middleware honors the
+> membership-validated beacon_tenant cookie or redirects to /login?error=tenant_unavailable; stale
+> cookies naming a non-member tenant are scrubbed on the next successful request; the operator
+> bypass validates the cookie against active tenants via an edge-safe REST check; a new
+> listActiveTenants() feeds all background fan-outs (8 cron routes, cron-sync, nightly-aggregate,
+> stalled-signups, tenant-switcher) so the paused tenant consumes zero work; the tenant switch
+> action and route reject non-active targets; and the resolution layer logs loudly if the env
+> fallback is ever reached inside a request. Old tests that pinned the env-fallback leak were
+> rewritten to pin the safe contract and five stale fixture files were updated. Gate: strict
+> typecheck clean; full suite about 1,546 files / 23,113 passed / 23 skipped / 0 failed;
+> production build passed. Next actions are unchanged: the operator begins the first wave of
+> Iranopedia edits.
+
 > 🟢 **2026-07-18 trust hardening is deployed and exact-SHA verified.** Five
 > areas landed together. Results trust: a new live-check contradiction line fires on any shipped
 > change where I latched verified_live true but my latest crawl attempt came back not_found or

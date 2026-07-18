@@ -5,6 +5,26 @@
 This is the operator's live priority order. I work it strictly top to bottom. The dated
 chronology of what already landed lives in VERIFICATION_LOG.md; this list is only what is next.
 
+> 🟢 **2026-07-18 tenant-fallback incident, CLOSED, DEPLOYED AND EXACT-SHA VERIFIED at
+> `4cd7169a` (Vercel `dpl_47ABTKPKwBG5xkJ8fceUf7dfqcfN`).** The operator's live Iranopedia
+> session flipped to Ritz Builders mid-session on /results, including one mixed render (Iranopedia
+> header over Ritz staleness data). Root cause: the middleware tenant_members lookup timed out
+> under Supabase load and the app silently fell back to BEACON_TENANT_ID (tenant-ritz-founder),
+> amplified by the operator account holding two memberships. Data fix, applied directly to
+> production Supabase: the operator's tenant-ritz-founder membership row is deleted (recorded for
+> future restore: user 465480f5-6419-4bae-a4bd-42f59305ec40, created 2026-06-19 18:20:38 UTC) and
+> tenant-ritz-founder is paused, so Beacon is now single tenant (Iranopedia) with all Ritz data
+> preserved for a future separate account. Code fix: authenticated requests can never reach the
+> env fallback; lookup failure honors the membership-validated beacon_tenant cookie or redirects
+> to /login?error=tenant_unavailable; stale non-member cookies are scrubbed; the operator bypass
+> validates against active tenants via an edge-safe REST check; listActiveTenants() feeds all
+> background fan-outs so the paused tenant consumes zero work; tenant switching rejects non-active
+> targets; and the resolution layer logs loudly if the env fallback is ever reached inside a
+> request. Leak-pinning tests were rewritten to pin the safe contract and five stale fixtures
+> updated. Gate: strict typecheck clean; full suite about 1,546 files / 23,113 passed / 23 skipped
+> / 0 failed; production build passed; production `/api/version` returned the exact SHA. **Next is
+> unchanged:** the operator begins the first wave of real Iranopedia edits.
+
 > 🟢 **2026-07-18 trust hardening, DEPLOYED AND EXACT-SHA VERIFIED at `a19ba958`
 > (Vercel `dpl_4eGz8bcz5dZntAJJQhn9GQMwthtR`).** Results now
 > warns when a latched live-verified edit's latest crawl came back not_found or crawl_failed with
