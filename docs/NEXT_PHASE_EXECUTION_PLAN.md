@@ -5,14 +5,16 @@
 This is the operator's live priority order. I work it strictly top to bottom. The dated
 chronology of what already landed lives in VERIFICATION_LOG.md; this list is only what is next.
 
-> 🟡 **2026-07-17 acceptance hardening — RELEASE PENDING.** Beacon now has one honest autonomous
+> 🟢 **2026-07-17 acceptance hardening — DEPLOYED AND EXACT-SHA VERIFIED at `cacb0ad3`
+> (Vercel `dpl_3BA1TVcUjYa6brJGJBpqZyxTyCwW`).** Beacon now has one honest autonomous
 > operating model: Vercel schedules are intentionally empty, while normal authenticated use starts
 > the bounded post-response visit runner and persists visit/source receipts. Connections reports
 > those receipts instead of inferring a nightly sync. Blind validation is now a server-sealed,
 > append-only preregister → predict → reveal protocol bound to the live release SHA; reused IDs,
 > revealed-before-predicted cases, and cases whose build changed are refused or spent. Verification
 > is green at 1,536 files / 23,080 passed / 23 conditional skips / 0 failed plus typecheck, lint,
-> build, audit, and diff checks. **Strict order after deployment:** (1) execute five genuinely unseen
+> build, audit, and diff checks. Production returned the exact full SHA and core signed-out route
+> continuations remained correct. **Strict order now:** (1) execute five genuinely unseen
 > hosted cases through all three phases; (2) make one authenticated hosted visit and confirm the
 > on-use visit/source receipt plus Today/Changes/Results timings; (3) enter real unit economics;
 > (4) reconnect Ritz; (5) approve and publish one Iranopedia move; (6) verify it live and wait for

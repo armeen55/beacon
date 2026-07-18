@@ -36511,7 +36511,7 @@ Vercel deployment `dpl_5eBWaXqFgrX6CdUDFQuAtQNVmmrF` reached Ready and productio
 explicitly unclaimed: five unseen blind cases, one hosted refresh receipt, real unit economics,
 Ritz reconnection, one approved publish, live verification, and the predeclared measurement windows.
 
-## 2026-07-17 - On-use autonomy and server-sealed blind validation (release pending)
+## 2026-07-17 - On-use autonomy and server-sealed blind validation (deployed)
 
 Removed the last mismatch between Beacon's intended single-user experience and its deployed
 operating contract. `vercel.json` now declares no schedules, and cron preflight treats that as the
@@ -36543,3 +36543,8 @@ or timing is claimed. No paid provider call, environment change, customer-data m
 occurred. Still external: five genuinely unseen cases, one authenticated hosted receipt/timing pass,
 real unit economics, Ritz OAuth reconnection, one approved Iranopedia publish, live verification,
 and its predeclared measurement windows.
+
+Release: commit `cacb0ad32972b6662208246660764bb31b911471` was pushed to `origin/main`.
+Vercel deployment `dpl_3BA1TVcUjYa6brJGJBpqZyxTyCwW` reached Ready and production
+`/api/version` returned that exact SHA. Unauthenticated `/`, `/today`, `/changes`, `/results`,
+`/diagnostics`, and `/settings/connectors` returned their expected 307 login continuations.

@@ -1,7 +1,7 @@
 # Beacon Verified State
 
-> 🟡 **2026-07-17 on-use autonomy and server-sealed blind validation are release-ready; deployment
-> is pending.** Vercel schedules are intentionally empty. Beacon's normal signed-in navigation is
+> 🟢 **2026-07-17 on-use autonomy and server-sealed blind validation are deployed and exact-SHA
+> verified.** Vercel schedules are intentionally empty. Beacon's normal signed-in navigation is
 > the primary operating loop: the existing bounded visit runner refreshes stale connected sources,
 > advances crawl and research work, prepares moves, refills the Ready queue, republishes cached
 > Today/Changes surfaces, and leaves durable visit/source receipts after the response. Guarded
@@ -15,7 +15,11 @@
 > diverse passing cases are still required; the UI can no longer accept caller-supplied timestamps,
 > SHA claims, or one post-hoc success blob. Verification: strict typecheck and lint; complete suite
 > 1,536 files / 23,080 passed / 23 conditional skips / 0 failed; production build; dependency audit
-> 0 vulnerabilities. No paid call, environment change, customer-data mutation, or publish occurred.
+> 0 vulnerabilities. Release `cacb0ad32972b6662208246660764bb31b911471` was pushed to
+> `origin/main`; Vercel deployment `dpl_3BA1TVcUjYa6brJGJBpqZyxTyCwW` reached Ready; production
+> `/api/version` returned the exact release SHA; and unauthenticated `/`, `/today`, `/changes`,
+> `/results`, `/diagnostics`, and `/settings/connectors` returned their expected 307 login
+> continuations. No paid call, environment change, customer-data mutation, or publish occurred.
 > The external gates remain explicit: run five genuinely unseen cases on the hosted release, open
 > one authenticated hosted visit and confirm its receipt/timings, enter real unit economics,
 > reconnect Ritz, approve one Iranopedia move, verify it live, and wait through its predeclared
