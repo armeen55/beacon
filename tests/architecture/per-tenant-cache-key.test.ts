@@ -47,10 +47,9 @@ const SRC = join(process.cwd(), "src");
  *       `tenant-scoped-reads.test.ts` allowlist. Burn down, never grow.
  */
 const ALLOWLIST = new Set<string>([
-  // (a) GLOBAL: prompt-library is classified GLOBAL in
-  // store-classification.ts — an operator-shared corpus with no tenant_id
-  // column. A single process cache is correct; there is no tenant to key by.
-  "domains/prompts/prompt-library.ts",
+  // (prompt-library.ts deleted 2026-07-18, finding B — the GLOBAL singleton
+  // corpus was removed once wiki-gap rerouted onto tenant-scoped prompts, so
+  // it no longer needs an allowlist exemption.)
   // (b) seed-data.server.ts — BURNED DOWN 2026-06-12. Refactored from one
   // process-global `_state` (read via the non-tenant-filtered base
   // getRepository()) to a per-tenant `_stateByTenant` Map keyed by

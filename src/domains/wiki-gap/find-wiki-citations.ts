@@ -2,7 +2,6 @@ import "server-only";
 
 import { log } from "@/lib/logger";
 import { getRepository } from "@/lib/persistence/repositories";
-import { getPromptLibrary } from "@/domains/prompts/prompt-library";
 import { aiOverviewHistoryRows } from "@/domains/serp/serp-history";
 
 /**
@@ -104,7 +103,7 @@ export type FindWikiCitationsDeps = {
     tenantId: string,
     since: string,
   ) => Promise<Array<{ prompt_id: string; observed_at: string; citation_domains: string[]; citation_urls?: string[] | null }>>;
-  loadPromptTextById: () => Promise<Map<string, string>>;
+  loadPromptTextById: (tenantId: string) => Promise<Map<string, string>>;
   loadProfoundCitations: (tenantId: string) => Promise<Array<{ url: string; root_domain: string; category_id: string; date: string }>>;
   loadAiOverviewRows: (
     tenantId: string,
@@ -128,20 +127,22 @@ const defaultDeps: FindWikiCitationsDeps = {
         citation_urls: r.citation_urls ?? null,
       }));
   },
-  loadPromptTextById: async () => {
+  loadPromptTextById: async (tenantId) => {
+    // Findings B + C (2026-07-18): the question text must come from THIS
+    // tenant's own prompts, never a shared corpus. The prior path read the
+    // GLOBAL `prompt-library` singleton (Ritz's questions leaked into
+    // Iranopedia's miner — the exact bug tenant-question-library.ts fixed for
+    // the engine poll) and then a BARE getRepository().getTrackedPrompts()
+    // (an unscoped `select *` on the tracked_prompts table = every tenant's
+    // rows). Both are replaced by a single tenant-scoped read: forTenant
+    // pushes down `.eq("tenant_id", tenantId)`, so only this tenant's prompt
+    // texts can ever join here.
     const map = new Map<string, string>();
     try {
-      const library = await getPromptLibrary();
-      for (const p of library) map.set(p.id, p.prompt_text);
+      const prompts = await getRepository().forTenant(tenantId).getTrackedPrompts();
+      for (const p of prompts) map.set(p.id, p.text);
     } catch {
       /* fail-soft - the miner still works with fewer joined queries */
-    }
-    try {
-      const { getRepository: getRepo } = await import("@/lib/persistence/repositories");
-      const prompts = await getRepo().getTrackedPrompts();
-      for (const p of prompts) if (!map.has(p.id)) map.set(p.id, p.text);
-    } catch {
-      /* fail-soft */
     }
     return map;
   },
@@ -212,7 +213,7 @@ export async function findWikiCitations(
   try {
     const [observations, promptText] = await Promise.all([
       deps.loadObservations(tenantId, since),
-      deps.loadPromptTextById(),
+      deps.loadPromptTextById(tenantId),
     ]);
     for (const obs of observations) {
       const domains = obs.citation_domains ?? [];

@@ -235,7 +235,9 @@ export async function runProfoundImport(
   const ownedBrandAliases = [...rawAliases];
 
   let mergedObservations: PromptAnswerObservation[] = [...(await getPromptAnswerObservations())];
-  const mergedAnswerTexts: Record<string, string> = { ...readAnswerTextsFromDisk() };
+  // Finding A (2026-07-18): answer-texts is tenant-scoped — merge onto THIS
+  // tenant's existing map (routed file), never the flat cross-tenant blob.
+  const mergedAnswerTexts: Record<string, string> = { ...(await readAnswerTextsFromDisk(tenantId)) };
   for (const filePath of byKind.raw_executions) {
     const ex = parseProfoundExecutions(
       filePath,
@@ -257,7 +259,7 @@ export async function runProfoundImport(
   );
   await replaceObservationRuns(mergedRuns);
   await replaceObservations(mergedObservations, tenantId);
-  writeAnswerTexts(mergedAnswerTexts);
+  await writeAnswerTexts(mergedAnswerTexts, tenantId);
 
   // Phase 4: Citations — merge per date into shards
   clearCitationCache();

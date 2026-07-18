@@ -95,9 +95,20 @@ export async function resolveDataPath(baseName: string, explicitTenantId?: strin
     };
   }
 
-  // Unknown — keep using flat. Phase 7.8d will move flat → _legacy
-  // and fail loud on unknowns; until then, "unknown" stays flat so
-  // legacy stores keep working.
+  // Unknown — an unclassified store name. The runtime read/write helpers
+  // (readStore/writeStore in json-store.ts, readDotDataJson/writeDotDataJson in
+  // dotdata-json.ts) all THROW on `scope === "unknown"` before they ever touch
+  // this flat shape, so this branch is not reachable through them. It is kept
+  // only so `resolveDataPath` stays a pure resolver. Log loudly (finding E,
+  // 2026-07-18) so that ANY direct/future caller that forgets the scope guard
+  // still gets an unmissable signal instead of silently binding to a
+  // tenant-blind flat path (`${name}::flat`) — the exact shape that caused the
+  // original cross-tenant leak class.
+  console.error(
+    `[resolve-data-path] unknown store '${baseName}' resolved to a tenant-BLIND flat path. ` +
+      `Add it to TENANT_SCOPED_STORES, SINGLETON_STORES, or GLOBAL_STORES in ` +
+      `src/lib/persistence/store-classification.ts. Runtime read/write helpers throw on this.`,
+  );
   return {
     scope,
     routedDir: root,

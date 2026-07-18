@@ -232,6 +232,21 @@ export const TENANT_SCOPED_STORES = new Set<string>([
   // Written from the Today render context (ambient tenant), so file-routed
   // tenant-scoped like today-last-seen, not a cron-fan-out GLOBAL store.
   "on-visit-refresh-marker",
+  // 2026-07-18 cross-tenant leak hardening (finding A) — answer_texts is the
+  // per-observation AI answer body, read by discrepancy-detect inside a
+  // per-tenant brand/competitor loop. It was GLOBAL, so `.data/answer-texts.json`
+  // was one flat cross-tenant blob (Ritz + Iranopedia answer text merged). The
+  // consumer only ever looked up its OWN observation ids (globally unique, one
+  // tenant each), so the practical leak was bounded, but a flat cross-tenant
+  // file is exactly the structural hazard this file exists to remove. Now
+  // per-tenant: cold-store routes reads/writes to `.data/tenants/{slug}/
+  // answer-texts.json` (with a temporary legacy-flat read fallback in
+  // cold-store.ts until every environment re-imports). NOTE: the Supabase
+  // `answer_texts` mirror is keyed by observation_id only (no tenant_id column),
+  // so on that side isolation still rests on observation-id uniqueness; a
+  // tenant_id column would be the follow-up if answer_texts is ever read from
+  // Supabase (today cold-store reads the file, never the table).
+  "answer-texts",
 ]);
 
 export const SINGLETON_STORES = new Set<string>([
@@ -281,7 +296,8 @@ export const GLOBAL_STORES = new Set<string>([
   // as part of Phase A.3 (post-A.3.5, 2026-05-15). See the entry
   // above + the migration in `migrations/<date>_phase_a3_sitemap_reconciliation_mirror.sql`.
   "prompt-library",
-  "answer-texts",
+  // NOTE: "answer-texts" was moved GLOBAL → TENANT_SCOPED (finding A,
+  // 2026-07-18). See the entry + rationale in TENANT_SCOPED_STORES above.
   "cost-ledger",
   // Phase 7.8a.1 (2026-04-25) — globals added from the live dry-run.
   // Each is operator-shared / cross-tenant by design.
@@ -596,9 +612,21 @@ export type StoreScope = "per-tenant" | "singleton" | "global" | "unknown";
 
 /**
  * Pure / no I/O. Single classification dispatch shared by every
- * caller. Returns `unknown` for any store name not in the three Sets
- * — that's the signal for "operator hasn't classified yet" and triggers
- * the safe fallback path in runtime helpers.
+ * caller. Returns `unknown` for any store name not in the three Sets.
+ *
+ * Fail-loud contract (finding E, 2026-07-18): `classifyStore` deliberately
+ * stays PURE and keeps returning `unknown` rather than throwing, because two
+ * legitimate callers depend on that value:
+ *   - the migration CLI (`scripts/migrate-flat-to-tenant-data.ts`) iterates
+ *     every store name and SKIPS the unknowns instead of crashing; and
+ *   - ~20 store tests assert a specific scope for their store name.
+ * The fail-loud guarantee lives at the RUNTIME chokepoints instead, where an
+ * unclassified store can actually leak: `readStore`/`writeStore`
+ * (json-store.ts) and `readDotDataJson`/`writeDotDataJson` (dotdata-json.ts)
+ * all THROW on `scope === "unknown"`, and `resolveDataPath` logs loudly before
+ * returning the (never-used-at-runtime) flat shape. So no runtime read/write
+ * can silently fall through to a tenant-blind flat path — an unclassified
+ * store surfaces immediately as a thrown error, never a cross-tenant leak.
  */
 export function classifyStore(name: string): StoreScope {
   if (TENANT_SCOPED_STORES.has(name)) return "per-tenant";

@@ -1,4 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import {
   findWikiCitations,
   isWikipediaDomain,
@@ -200,10 +202,70 @@ describe("findWikiCitations - mapping + dedupe", () => {
   });
 });
 
+// Findings B + C (2026-07-18): the prompt-text join must be tenant-scoped.
+// The prior code read the GLOBAL prompt-library singleton (Ritz's questions
+// leaked into Iranopedia's miner) plus a BARE getRepository().getTrackedPrompts()
+// (an unscoped select *). Both are gone; the join now goes through
+// loadPromptTextById(tenantId), which the default wires to
+// getRepository().forTenant(tenantId).getTrackedPrompts().
+describe("findWikiCitations - tenant-scoped prompt join (findings B/C)", () => {
+  it("forwards the caller's tenantId to loadPromptTextById (no shared corpus)", async () => {
+    const seenTenants: string[] = [];
+    const d = deps({
+      loadObservations: async () => [
+        {
+          prompt_id: "p1",
+          observed_at: "2026-06-01T00:00:00Z",
+          citation_domains: ["en.wikipedia.org"],
+          citation_urls: ["https://en.wikipedia.org/wiki/Nowruz"],
+        },
+      ],
+      loadPromptTextById: async (tenantId) => {
+        seenTenants.push(tenantId);
+        return new Map([["p1", `question owned by ${tenantId}`]]);
+      },
+    });
+    const hits = await findWikiCitations("tenant-iranopedia", d);
+    expect(seenTenants).toEqual(["tenant-iranopedia"]);
+    expect(hits[0].queryText).toBe("question owned by tenant-iranopedia");
+  });
+
+  it("tenant A and tenant B each resolve their OWN prompt text (isolation)", async () => {
+    const perTenant: Record<string, Map<string, string>> = {
+      "tenant-a": new Map([["p1", "A question"]]),
+      "tenant-b": new Map([["p1", "B question"]]),
+    };
+    const makeDeps = () =>
+      deps({
+        loadObservations: async () => [
+          {
+            prompt_id: "p1",
+            observed_at: "2026-06-01T00:00:00Z",
+            citation_domains: ["en.wikipedia.org"],
+            citation_urls: ["https://en.wikipedia.org/wiki/Nowruz"],
+          },
+        ],
+        loadPromptTextById: async (tenantId) => perTenant[tenantId] ?? new Map(),
+      });
+    const aHits = await findWikiCitations("tenant-a", makeDeps());
+    const bHits = await findWikiCitations("tenant-b", makeDeps());
+    expect(aHits[0].queryText).toBe("A question");
+    expect(bHits[0].queryText).toBe("B question");
+  });
+});
+
 // Guard: never call the module's real defaults during tests (no live Supabase).
 describe("findWikiCitations - safety", () => {
   it("is a plain async function that accepts injected deps (never touches vi.mock internals)", () => {
     expect(typeof findWikiCitations).toBe("function");
     expect(vi.isMockFunction(findWikiCitations)).toBe(false);
+  });
+
+  it("source no longer imports the GLOBAL prompt-library singleton (finding B)", () => {
+    const src = readFileSync(resolve(__dirname, "find-wiki-citations.ts"), "utf-8");
+    expect(src).not.toContain('from "@/domains/prompts/prompt-library"');
+    expect(src).not.toContain("getPromptLibrary(");
+    // The tenant-scoped seam must be present.
+    expect(src).toContain("forTenant(tenantId).getTrackedPrompts()");
   });
 });

@@ -410,7 +410,9 @@ describe("Phase 7.8e-3 — mutable-array stores expose cached async getters", ()
     // exports were removed; pin so they don't get reintroduced.
     { module: "@/domains/pages/citation-evidence-store", name: "citationEvidenceIndex" },
     { module: "@/domains/answer-intelligence/store", name: "answerIntelligenceIndex" },
-    { module: "@/domains/prompts/prompt-library", name: "promptLibrary" },
+    // prompt-library module deleted 2026-07-18 (finding B) — its last production
+    // caller (wiki-gap) was rerouted onto tenant-scoped tracked_prompts, leaving
+    // the GLOBAL singleton dead. No entry needed now that the module is gone.
   ];
 
   function* walk(dir: string): Generator<string> {
@@ -580,11 +582,6 @@ describe("Phase 7.8e-4d — no module-level tenant/data reads outside allowlist"
     expect(src).not.toMatch(/^(?:export\s+)?(?:const|let)[^=]*=\s*await\s+/m);
   });
 
-  it("prompt-library.ts has NO module-level top-level await read (Phase 7.8e-4c)", () => {
-    const src = readFileSync(
-      resolve(SRC_ROOT, "domains/prompts/prompt-library.ts"),
-      "utf8",
-    );
-    expect(src).not.toMatch(/^(?:export\s+)?(?:const|let)[^=]*=\s*await\s+readStore/m);
-  });
+  // (prompt-library.ts deleted 2026-07-18, finding B — its top-level-await
+  // invariant test was removed with the module.)
 });

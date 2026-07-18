@@ -19,8 +19,9 @@
 
 import "server-only";
 
-import { getAnswerText } from "@/lib/persistence/cold-store";
+import { loadTenantAnswerTexts } from "@/lib/persistence/cold-store";
 import { readStore } from "@/lib/persistence/json-store";
+import { currentTenantId } from "@/lib/tenant-context";
 import type { EntityIndex } from "./types";
 import type {
   Discrepancy,
@@ -45,6 +46,12 @@ export async function detectDiscrepancies(
 ): Promise<DiscrepancyReport> {
   const now = new Date().toISOString();
   const discrepancies: Discrepancy[] = [];
+
+  // Finding A (2026-07-18): answer text is now tenant-scoped. Load THIS tenant's
+  // map once (the pao rows below are already this tenant's, so every id we look
+  // up belongs to this tenant) rather than reading a flat cross-tenant blob.
+  const tenantId = await currentTenantId();
+  const answerTexts = await loadTenantAnswerTexts(tenantId);
 
   const paoStore = await readStore<{
     id: string;
@@ -83,7 +90,7 @@ export async function detectDiscrepancies(
   const knownServicePatterns = buildServicePatterns(ownedServicesLower);
 
   for (const pao of paoStore) {
-    const answerText = getAnswerText(pao.id);
+    const answerText = answerTexts.get(pao.id) ?? null;
     if (!answerText) continue;
     answersChecked++;
 
