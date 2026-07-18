@@ -1,5 +1,16 @@
 # Beacon Verified State
 
+> 🟡 **The 2026-07-17 final live-module audit is release-gated and awaiting deploy.**
+> Results no longer mixes its server data path with the full proof-card renderer: `page.tsx` fell
+> from 1,982 to 1,052 lines and the extracted 968-line presentation module is synchronous, has no
+> request/persistence access, and preserves the exact overlap, recrawl, weather, control-pool,
+> restore, citation, behavior, and trust-receipt rendering contracts. A new boundary invariant
+> explicitly forbids crediting either individual edit when simultaneous same-page edits were
+> measured as one compound package. Results focus passes 20 files / 166 tests; expanded focus 23
+> files / 206 tests; strict typecheck and lint pass; the complete suite passes 1,515 files / 23,001
+> tests / 23 conditional skips / 0 failures; production build and dependency audit pass;
+> `git diff --check` is clean. Commit, deploy, and exact-SHA production verification remain.
+
 > 🟢 **The 2026-07-17 retired-runtime archive slice is deployed and exact-SHA verified at
 > `2f3821cb` (Vercel `dpl_4Ch3YCpk3CgKGLEjGquceoriokzY`).** The live `/diagnostics` index is now a 12-line redirect instead of importing
 > 2,255 lines of unreachable engineering UI and domain readers; the historical body is preserved

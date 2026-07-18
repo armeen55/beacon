@@ -36430,3 +36430,22 @@ Release: commit `2f3821cb780cce5e9b63cc2694fcd68178e3481b` was pushed to `origin
 Vercel deployment `dpl_4Ch3YCpk3CgKGLEjGquceoriokzY` reached Ready and production
 `/api/version` returned that exact SHA. Unauthenticated `/`, `/today`, `/changes`, `/results`, and
 the retired `/diagnostics` link returned their expected 307 login continuations.
+
+## 2026-07-17 - Results server and proof-card boundary
+
+Split the highest-risk oversized customer route without changing its data flow or presentation.
+The Results server route now owns tenant resolution, deadline-bounded reads, measurement assembly,
+compound grouping, and streaming orchestration; a separate synchronous presentation module owns
+ledger grouping and proof-card rendering. The route fell from 1,982 to 1,052 lines. The extracted
+968-line renderer imports no request context, persistence repository, or `next/server` capability
+and contains no async work. Existing source-level invariants were moved to follow their actual
+render seam instead of weakening or deleting them.
+
+The new boundary test pins the overlap-learning rule directly: simultaneous same-page edits render
+as one named package, the result belongs to the combination, and Beacon may not credit either edit
+alone. Verification before release: Results focus 20 files / 166 tests; expanded route/dossier/
+effect-prior focus 23 files / 206 tests; strict typecheck; lint exit 0 with 75 existing warnings and
+zero errors; complete suite 1,515 files / 23,001 passed / 23 conditional skips / 0 failed;
+production build exit 0 with only the existing protected middleware-filename deprecation;
+dependency audit found zero vulnerabilities; `git diff --check` clean. No paid provider call,
+hosted environment mutation, or customer-data mutation was performed.

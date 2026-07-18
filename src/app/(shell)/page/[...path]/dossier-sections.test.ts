@@ -102,7 +102,7 @@ describe("cross-app dossier links (every reachable page-name surface)", () => {
   const surfaces = [
     "../../today-moves-card.tsx", // worklist MoveCard
     "../../daily-experiments-section.tsx", // daily card
-    "../../results/page.tsx", // proof ledger rows
+    "../../results/results-ledger-card.tsx", // proof ledger rows
     "../../war-room-sections.tsx", // war-room funnel band
     "../../changes-list-client.tsx", // Changes (/changes) row titles
     "../../diagnostics/page-surgeon/page-surgeon-client.tsx", // Page Surgeon brief cards

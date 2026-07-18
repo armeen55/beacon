@@ -3274,6 +3274,11 @@ until permanent deletion is explicitly approved. Customer redirects and the impl
 set receive architecture pins. A disabled registry entry is not considered dead when a live
 dispatcher still requires it for exhaustive type/runtime mapping.
 
+**Results presentation boundary, 2026-07-17:** the route owns request context, bounded reads,
+measurement assembly, and compound grouping; proof-card rendering stays synchronous and cannot
+read persistence or request state. Simultaneous same-page changes remain one compound learning
+package, and presentation code may never assign the package result to an individual lever.
+
 ## FUTURE IDEAS (not in current execution plan)
 
 These are ideas, experiments, and dream-state features that are NOT in the active phases. They live here so they are never lost. Move to `NEXT_PHASE_EXECUTION_PLAN.md` only when they become active work.

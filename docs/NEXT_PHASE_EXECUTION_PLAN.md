@@ -6,7 +6,7 @@ This is the operator's live priority order. I work it strictly top to bottom. Th
 chronology of what already landed lives in VERIFICATION_LOG.md; this list is only what is next.
 
 > 🟡 **2026-07-17 exhaustive audit execution loop — SLICES 1–7 DEPLOYED; FINAL LIVE-MODULE
-> AUDIT NEXT.**
+> AUDIT RELEASE-GATED.**
 > Competitor teardown evidence is tenant-explicit from orchestration through cache persistence and
 > deployed at `5a869835`; production returned the exact SHA. `/changes/[id]` now resolves the
 > tenant's fresh changelog row and hands every outcome question to the canonical proof-gsc Results
@@ -26,8 +26,11 @@ chronology of what already landed lives in VERIFICATION_LOG.md; this list is onl
 > index body, dead provider barrel, and unreachable Anthropic failure stub are preserved outside
 > compilation as archive text; live route/config contracts now pin the reduced surface. Its full
 > suite is green at 1,514 files / 22,997 passed / 23 conditional skips / 0 failed. Slice 7 is
-> deployed at `2f3821cb` and exact-SHA verified. **Next:** split the highest-risk oversized live
-> modules and run the final completion audit.
+> deployed at `2f3821cb` and exact-SHA verified. The highest-risk customer route, Results, now
+> delegates its proof-card presentation to a synchronous no-I/O module while retaining every
+> measurement and compound-package contract; the full suite is green at 1,515 files / 23,001
+> passed / 23 conditional skips / 0 failed. **Next:** deploy the final audit slice and complete the
+> exact-SHA production smoke.
 >
 > The tenant-boundary slice removed all ambient read/write seams in the production graph and is
 > pinned by read-and-write isolation tests.

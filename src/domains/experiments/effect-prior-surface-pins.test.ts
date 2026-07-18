@@ -20,7 +20,11 @@ const PLAN_RECORD = readFileSync(resolve(__dirname, "./build-daily-plan-record.t
 const TYPES = readFileSync(resolve(__dirname, "./daily-plan-types.ts"), "utf8");
 const CARD = readFileSync(resolve(__dirname, "../../app/(shell)/daily-experiments-section.tsx"), "utf8");
 const LOAD_GRAPH = readFileSync(resolve(__dirname, "../demand-graph/load-graph.ts"), "utf8");
-const RESULTS_PAGE = readFileSync(resolve(__dirname, "../../app/(shell)/results/page.tsx"), "utf8");
+const RESULTS_PAGE = ["page.tsx", "results-ledger-card.tsx"]
+  .map((file) =>
+    readFileSync(resolve(__dirname, "../../app/(shell)/results", file), "utf8"),
+  )
+  .join("\n");
 const LOADER = readFileSync(resolve(__dirname, "../learning/load-experiment-outcomes.ts"), "utf8");
 
 describe("N15 - the worklist graph applies the effect-size prior at the same post-score seam", () => {

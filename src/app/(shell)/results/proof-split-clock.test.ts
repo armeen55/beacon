@@ -67,7 +67,7 @@ describe("split clock - SEARCH lane is recrawl-gated", () => {
 });
 
 describe("split clock - TRAFFIC lane is NOT recrawl-gated (source pin on the /results card)", () => {
-  const source = readFileSync(resolve(__dirname, "page.tsx"), "utf8");
+  const source = readFileSync(resolve(__dirname, "results-ledger-card.tsx"), "utf8");
 
   it("the GA4 traffic block renders unconditionally on rec.trafficOutcome", () => {
     // The exact unconditional JSX condition - if someone wraps it in a recrawl

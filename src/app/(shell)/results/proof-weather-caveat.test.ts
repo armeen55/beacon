@@ -12,7 +12,9 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 function src(): string {
-  return readFileSync(resolve(__dirname, "page.tsx"), "utf8");
+  return ["page.tsx", "results-ledger-card.tsx"]
+    .map((file) => readFileSync(resolve(__dirname, file), "utf8"))
+    .join("\n");
 }
 
 describe("Results page wires the algorithm-weather guard (item 32)", () => {

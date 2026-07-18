@@ -27,7 +27,9 @@ import {
 import { weatherCaveatSentence, type ShockWindow } from "@/domains/proof-gsc/algorithm-weather";
 
 function src(): string {
-  return readFileSync(resolve(__dirname, "page.tsx"), "utf8");
+  return ["page.tsx", "results-ledger-card.tsx"]
+    .map((file) => readFileSync(resolve(__dirname, file), "utf8"))
+    .join("\n");
 }
 
 const confirmedShock: ShockWindow = {

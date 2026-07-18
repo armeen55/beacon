@@ -19,7 +19,10 @@ import { resolve } from "node:path";
  * If any of these pins break, the proposal surface silently regressed.
  */
 
-const read = (file: string): string => readFileSync(resolve(__dirname, file), "utf8");
+const read = (file: string): string =>
+  (file === "page.tsx" ? [file, "results-ledger-card.tsx"] : [file])
+    .map((name) => readFileSync(resolve(__dirname, name), "utf8"))
+    .join("\n");
 
 describe("proof revert proposal - source pins (item 11)", () => {
   it("page.tsx derives eligibility from the shared revert policy, operator-gated", () => {
