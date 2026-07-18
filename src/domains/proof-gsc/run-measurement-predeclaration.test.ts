@@ -17,6 +17,12 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
  */
 
 const gscWindow = { clicks: 100, impressions: 1000, ctr: 0.1, position: 8 };
+const confirmationReadMock = vi.hoisted(() => vi.fn(async (_input: { windowDays: number; tenantId: string }) => {}));
+const loadConfirmationReadsMock = vi.hoisted(() => vi.fn(async () => [] as Array<{
+  windowDays: number;
+  computationVersion: string;
+  result: Record<string, unknown>;
+}>));
 
 vi.mock("./gsc-window", () => ({
   readWindowForPages: vi.fn(async () => new Map([["https://iranopedia.com/singers", gscWindow]])),
@@ -48,6 +54,10 @@ vi.mock("./daily-series", () => ({
   loadDailyClicksByPathsForTenant: vi.fn(async () => new Map()),
 }));
 vi.mock("./algorithm-weather-store", () => ({ loadDetectedChangepoints: vi.fn(async () => []) }));
+vi.mock("./confirmation-reads-store", () => ({
+  loadConfirmationReads: loadConfirmationReadsMock,
+  recordConfirmationRead: confirmationReadMock,
+}));
 
 // Wrap pickProofMetric in a spy over the REAL implementation so we can assert
 // whether measureRecord consulted it (legacy path) or read the stored metric.
@@ -60,6 +70,7 @@ vi.mock("./measure", async () => {
 
 import { measureRecord, recordShippedChange } from "./run-measurement";
 import { DEFAULT_WINDOW_PLAN } from "./window-role";
+import { CONFIRMATION_COMPUTATION_VERSION } from "./confirmation-read";
 import type { ShippedChangeRecord } from "./shipped-change-store";
 
 function record(overrides: Partial<ShippedChangeRecord> = {}): ShippedChangeRecord {
@@ -94,6 +105,9 @@ const NOW = new Date("2026-05-09T00:00:00.000Z");
 
 beforeEach(() => {
   pickSpy.mockClear();
+  confirmationReadMock.mockClear();
+  loadConfirmationReadsMock.mockReset();
+  loadConfirmationReadsMock.mockResolvedValue([]);
 });
 
 describe("recordShippedChange - ship-time predeclaration stamping (protocol 4.1)", () => {
@@ -171,6 +185,46 @@ describe("measureRecord - reads the STORED judged metric when predeclared", () =
     expect(out.judgedMetric).toBe("position");
     expect(out.predeclaredAt).toBe("2026-05-01T00:00:00.000Z");
     expect(out.windowPlan).toEqual([...DEFAULT_WINDOW_PLAN]);
+    expect(out.windows.map((window) => window.day)).toEqual([7, 14, 28]);
+    expect(confirmationReadMock.mock.calls.map(([input]) => input.windowDays)).toEqual([7, 14, 28, 56]);
+    expect(confirmationReadMock.mock.calls.every(([input]) => input.tenantId === "tenant-iranopedia")).toBe(true);
+  });
+
+  it("reuses first-written confirmation reads without duplicate writes", async () => {
+    loadConfirmationReadsMock.mockResolvedValue(
+      [7, 14, 28, 56].map((windowDays) => ({
+        windowDays,
+        computationVersion: CONFIRMATION_COMPUTATION_VERSION,
+        result: { readVerdict: "inconclusive" },
+      })),
+    );
+    const predeclared = record({
+      judgedMetric: "ctr",
+      predeclaredAt: "2026-05-01T00:00:00.000Z",
+      windowPlan: [...DEFAULT_WINDOW_PLAN],
+    });
+
+    const out = await measureRecord("tenant-iranopedia", predeclared, NOW, "2026-07-01");
+
+    expect(out.windows.map((window) => window.day)).toEqual([7, 14, 28]);
+    expect(confirmationReadMock).not.toHaveBeenCalled();
+  });
+
+  it("records the predeclared 84-day context read once it closes", async () => {
+    const predeclared = record({
+      judgedMetric: "ctr",
+      predeclaredAt: "2026-05-01T00:00:00.000Z",
+      windowPlan: [...DEFAULT_WINDOW_PLAN],
+    });
+
+    await measureRecord(
+      "tenant-iranopedia",
+      predeclared,
+      new Date("2026-08-01T00:00:00.000Z"),
+      "2026-08-01",
+    );
+
+    expect(confirmationReadMock.mock.calls.map(([input]) => input.windowDays)).toEqual([7, 14, 28, 56, 84]);
   });
 });
 

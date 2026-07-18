@@ -36293,3 +36293,23 @@ errors; complete suite 1,512 files / 22,999 passed / 23 conditional skips / 0 fa
 build exit 0 with only the existing protected middleware-filename deprecation; dependency audit
 zero; `git diff --check` clean. No paid provider call, hosted environment mutation, or customer-data
 mutation was performed.
+
+Release: commit `19d292c1fc8f0fe56cf4a674fdafc99e5413ef51` was pushed to `origin/main`.
+Vercel deployment `dpl_83UnjoPduKince2gFTMwZZxyDQsw` reached Ready and production
+`/api/version` returned that exact SHA. Unauthenticated `/`, `/today`, `/changes`, and `/results`
+returned their expected 307 login continuations.
+
+## 2026-07-17 - Long-horizon confirmation runner
+
+Connected the predeclared repeated-look contract and the existing durable `confirmation_reads`
+table to the canonical proof runner. Every closed 7/14/28/56/84-day window is appended under a
+stable computation version and first-write-wins identity. Existing reads are loaded before work,
+reused without duplicate queries or writes, and a stored day-56 decision is reapplied instead of
+being silently changed by later historical-data corrections. Day 56 is strictly demote-only; day
+84 is context-only. A 56-day demotion remains provisional while certified placebo history is
+absent, so this does not weaken the verdict-calibration quarantine. The canonical 7/14/28 window
+array and every existing Results contract remain unchanged. Verification: proof-gsc 60 files /
+1,057 tests; strict typecheck; lint exit 0 with 91 existing warnings and zero errors; complete suite
+1,513 files / 23,004 passed / 23 conditional skips / 0 failed; production build exit 0 with only
+the existing protected middleware-filename deprecation; dependency audit zero; `git diff --check`
+clean. No paid provider call, hosted environment mutation, or customer-data mutation was performed.

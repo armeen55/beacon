@@ -3240,6 +3240,13 @@ recompute or present a parallel verdict. Page + ship date links changelog rows t
 same-page same-date edits therefore resolve to the same compound package. A historical row with no
 proof record lands on Results without an outcome claim.
 
+**Repeated-look execution boundary, 2026-07-17:** a predeclared proof run appends one immutable
+read per window and computation version. The 28-day read remains the only primary decision; day 56
+may only demote a win that failed to hold, and day 84 is context-only. A later pass must reuse the
+first-written day-56 decision rather than recompute history into a different answer. Until a
+certified 56-day placebo history exists, any demotion is labeled provisional and no long-horizon
+read may release or bypass the calibration quarantine.
+
 ## FUTURE IDEAS (not in current execution plan)
 
 These are ideas, experiments, and dream-state features that are NOT in the active phases. They live here so they are never lost. Move to `NEXT_PHASE_EXECUTION_PLAN.md` only when they become active work.

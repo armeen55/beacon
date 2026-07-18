@@ -5,13 +5,17 @@
 This is the operator's live priority order. I work it strictly top to bottom. The dated
 chronology of what already landed lives in VERIFICATION_LOG.md; this list is only what is next.
 
-> 🟡 **2026-07-17 exhaustive audit execution loop — SLICE 1 DEPLOYED; SLICE 2 CODE-COMPLETE.**
+> 🟡 **2026-07-17 exhaustive audit execution loop — SLICES 1–2 DEPLOYED; SLICE 3
+> CODE-COMPLETE.**
 > Competitor teardown evidence is tenant-explicit from orchestration through cache persistence and
 > deployed at `5a869835`; production returned the exact SHA. `/changes/[id]` now resolves the
 > tenant's fresh changelog row and hands every outcome question to the canonical proof-gsc Results
 > card, including shared compound-package outcomes. An untracked historical row lands on Results
-> without a legacy verdict. The full release gate is green. **Next:** deploy slice 2, then connect
-> the existing 56/84-day confirmation reads without weakening calibration gates.
+> without a legacy verdict. Slice 2 is deployed at `19d292c1` and exact-SHA verified. The proof
+> runner now appends immutable versioned reads for all predeclared windows, applies day 56 as
+> demote-only, keeps day 84 context-only, and reuses the first-written decision on later passes.
+> The full release gate is green. **Next:** deploy slice 3, then connect keyword portfolio and
+> granular action planning to the canonical move pipeline.
 >
 > The tenant-boundary slice removed all ambient read/write seams in the production graph and is
 > pinned by read-and-write isolation tests.

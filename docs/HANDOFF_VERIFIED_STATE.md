@@ -1,14 +1,26 @@
 # Beacon Verified State
 
-> 🟡 **The 2026-07-17 canonical change-result handoff is code-complete and awaiting
-> deploy.** `/changes/[id]` no longer renders a second attribution engine. It fresh-reads the
+> 🟡 **The 2026-07-17 long-horizon confirmation runner is code-complete and awaiting
+> full release verification.** Predeclared proof records now compute and append versioned
+> 7/14/28/56/84-day reads. Day 56 can only demote a win that did not hold; day 84 is context-only
+> and can never alter the primary decision. First-written reads are immutable and reused on later
+> passes, so historical corrections cannot silently rewrite the repeated-look decision. The
+> 56-day demotion remains provisional until certified placebo history exists, preserving the
+> calibration quarantine. Verification: proof-gsc 60 files / 1,057 tests; strict typecheck; lint
+> exit 0 with 91 existing warnings; complete suite 1,513 files / 23,004 passed / 23 conditional
+> skips / 0 failed; production build and dependency audit exit 0; `git diff --check` clean. Next:
+> deploy, then continue with keyword/action intelligence.
+
+> 🟢 **The 2026-07-17 canonical change-result handoff is deployed and SHA-verified at
+> `19d292c1` (Vercel `dpl_83UnjoPduKince2gFTMwZZxyDQsw`).** `/changes/[id]` no longer renders a second attribution engine. It fresh-reads the
 > tenant's changelog, links page + ship date to the proof-gsc ledger, and redirects to the exact
 > Results card. Simultaneous same-page edits intentionally share the same compound-package result;
 > an older row with no canonical proof lands on Results without inventing a verdict. Focused
 > verification: 36/36; strict typecheck; lint exit 0 with 91 existing warnings; complete suite
 > 1,512 files / 22,999 passed / 23 conditional skips / 0 failed; production build and dependency
-> audit exit 0; `git diff --check` clean. Next: deploy, then connect the existing 56/84-day
-> confirmation-read store to the canonical proof runner.
+> audit exit 0; `git diff --check` clean. Production returned the exact SHA and correct route
+> contracts. Next: connect the existing 56/84-day confirmation-read store to the canonical proof
+> runner.
 
 > 🟢 **The 2026-07-17 competitor-evidence tenant boundary is deployed and SHA-verified at
 > `5a869835` (Vercel `dpl_7k4SwpVX1aaYY87TMQTExN97Jhby`).** Every competitor teardown cache read and write now requires the caller's explicit

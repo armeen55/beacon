@@ -62,6 +62,12 @@ import {
   type ProofWindowDay,
 } from "./measure";
 import { DEFAULT_WINDOW_PLAN, PRIMARY_WINDOW_DAY } from "./window-role";
+import { loadConfirmationReads, recordConfirmationRead } from "./confirmation-reads-store";
+import {
+  CONFIRMATION_COMPUTATION_VERSION,
+  confirmationResultPayload,
+  decideConfirmationRead,
+} from "./confirmation-read";
 import { readFloorsFor } from "./aa-calibration-store";
 import { buildPermutationNull, percentileOf, hasEnoughNullPages, type PermutationRead } from "./permutation-null";
 import { buildBayesianRead, type BayesianRead } from "./bayesian-read";
@@ -352,6 +358,14 @@ export async function measureRecord(
   const pre = await readWindowForPages({ tenantId, pages, start: preStart, end: shipDate });
 
   const checks = proofCheckDates(record.shippedAt);
+  const existingConfirmationReads = record.predeclaredAt != null && record.windowPlan?.length
+    ? await loadConfirmationReads(tenantId, { proofId: record.id }).catch(() => [])
+    : [];
+  const existingConfirmationByDay = new Map(
+    existingConfirmationReads
+      .filter((read) => read.computationVersion === CONFIRMATION_COMPUTATION_VERSION)
+      .map((read) => [read.windowDays, read] as const),
+  );
   const windows: ProofWindowResult[] = [];
   // Item 67 (Bayesian read): the loop below only keeps computeWindowLift's
   // DERIVED numbers (deltas), not the raw treated-post window metrics the
@@ -359,7 +373,17 @@ export async function measureRecord(
   // window day so the basis window's raw reading can be looked up after the
   // loop without re-deriving it from the lift math.
   const treatedPostByDay = new Map<ProofWindowDay, GscWindowMetrics>();
-  for (const day of PROOF_WINDOW_DAYS) {
+  const plannedConfirmationDays = (record.windowPlan ?? [])
+    .map((entry) => entry.day)
+    .filter((day): day is 56 | 84 =>
+      (day === 56 || day === 84) && !existingConfirmationByDay.has(day),
+    );
+  const measurementDays = [...new Set<ProofWindowDay>([
+    ...PROOF_WINDOW_DAYS,
+    ...plannedConfirmationDays,
+  ])];
+  const confirmationWindows: ProofWindowResult[] = [];
+  for (const day of measurementDays) {
     const checkOn = checks[day as ProofWindowDay];
     // The window [shipDate, checkOn) is only judgeable once its LAST day
     // (checkOn − 1) has finalized GSC data. Gating on the finalized watermark
@@ -394,8 +418,7 @@ export async function measureRecord(
         post: post?.get(cp) ?? NULL_METRICS,
       }));
 
-    windows.push(
-      computeWindowLift({
+    const computedWindow = computeWindowLift({
         day: day as ProofWindowDay,
         checkOn,
         ran,
@@ -405,8 +428,12 @@ export async function measureRecord(
         // The pre window is 28d but each post window is 7/14/28d — tell
         // computeWindowLift so it pro-rates the pre clicks to the post window.
         preWindowDays: BASELINE_WINDOW_DAYS,
-      }),
-    );
+      });
+    if (PROOF_WINDOW_DAYS.includes(day as (typeof PROOF_WINDOW_DAYS)[number])) {
+      windows.push(computedWindow);
+    } else {
+      confirmationWindows.push(computedWindow);
+    }
   }
 
   // Items 27/28 - the calibration write. Once the 28-day window has actually run, and the pick
@@ -472,7 +499,7 @@ export async function measureRecord(
     }
   }
 
-  const { verdict: computedVerdict, confidence } = summarizeVerdict({
+  const summary = summarizeVerdict({
     windows,
     baselineImpressions,
     baselineClicks: treatedPre?.clicks ?? record.baseline.clicks,
@@ -485,14 +512,79 @@ export async function measureRecord(
     floors,
     permutationP: permutationRead?.percentile,
   });
+  const computedVerdict = summary.verdict;
+  let confidence = summary.confidence;
 
   // Operator override: a mis-attributed "won"/"lost" (control contamination,
   // seasonal co-movement) can be PINNED to "inconclusive" so it drops out of
   // the per-action_type outcome prior that steers ranking. Applied AFTER the
   // GSC math (the numbers/windows still compute + display), and re-applied on
   // every measure so neither recompute nor on-load re-measurement clobbers it.
-  const verdict: GscProofVerdict =
+  let verdict: GscProofVerdict =
     record.operatorVerdictOverride === "inconclusive" ? "inconclusive" : computedVerdict;
+
+  // A first-written 56-day read is immutable. Re-apply its stored demotion on
+  // later measurement passes instead of re-reading corrected historical GSC
+  // data and silently changing the repeated-look decision.
+  const persisted56Verdict = existingConfirmationByDay.get(56)?.result.readVerdict;
+  if (isProofVerdict(persisted56Verdict)) {
+    const persistedDecision = decideConfirmationRead({
+      day: 56,
+      primaryVerdict: verdict,
+      readVerdict: persisted56Verdict,
+      placeboHistorySupports56: false,
+    });
+    if (persistedDecision.demoted) {
+      verdict = persistedDecision.verdictAfterRead;
+      confidence = "low";
+    }
+  }
+
+  // Repeated-look protocol: every closed window is appended under a stable
+  // computation version. The 56-day read may only demote a primary win; the
+  // 84-day read is context-only. Writes are idempotent and fail-soft, and the
+  // canonical 7/14/28 `windows` array remains unchanged for every existing UI.
+  const closedReads = record.predeclaredAt != null && record.windowPlan?.length
+    ? [...windows, ...confirmationWindows].filter((window) => window.ran)
+    : [];
+  const existingConfirmationDays = new Set<number>(existingConfirmationByDay.keys());
+  for (const window of closedReads) {
+    const readSummary = summarizeVerdict({
+      windows: [window],
+      baselineImpressions,
+      baselineClicks: treatedPre?.clicks ?? record.baseline.clicks,
+      metric,
+      snippetCapturePlay: isSnippetCapturePlay(record.actionType),
+      floors,
+    });
+    const decision = decideConfirmationRead({
+      day: window.day,
+      primaryVerdict: verdict,
+      readVerdict: readSummary.verdict,
+      // Fail closed until certified 56-day placebo history is connected.
+      placeboHistorySupports56: false,
+    });
+    if (!existingConfirmationDays.has(window.day)) {
+      await recordConfirmationRead({
+        tenantId,
+        proofId: record.id,
+        windowDays: window.day,
+        computationVersion: CONFIRMATION_COMPUTATION_VERSION,
+        readAt: now.toISOString(),
+        result: confirmationResultPayload({
+          window,
+          decision,
+          primaryVerdict: verdict,
+          metric,
+        }),
+      });
+      existingConfirmationDays.add(window.day);
+    }
+    if (decision.demoted) {
+      verdict = decision.verdictAfterRead;
+      confidence = "low";
+    }
+  }
 
   // Item 67 (Bayesian verdicts with credible intervals): a pure, additive
   // quantification layer beside the hard-floor verdict above. Reads the SAME
@@ -846,6 +938,11 @@ export async function measureRecord(
     measuredAt: now.toISOString(),
     updatedAt: now.toISOString(),
   };
+}
+
+function isProofVerdict(value: unknown): value is GscProofVerdict {
+  return value === "measuring" || value === "won" || value === "lost" ||
+    value === "inconclusive" || value === "insufficient_data";
 }
 
 /**
