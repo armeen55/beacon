@@ -5,7 +5,7 @@
 This is the operator's live priority order. I work it strictly top to bottom. The dated
 chronology of what already landed lives in VERIFICATION_LOG.md; this list is only what is next.
 
-> 🟡 **2026-07-17 exhaustive audit execution loop — SLICES 1–2 DEPLOYED; SLICE 3
+> 🟡 **2026-07-17 exhaustive audit execution loop — SLICES 1–3 DEPLOYED; SLICE 4
 > CODE-COMPLETE.**
 > Competitor teardown evidence is tenant-explicit from orchestration through cache persistence and
 > deployed at `5a869835`; production returned the exact SHA. `/changes/[id]` now resolves the
@@ -14,8 +14,11 @@ chronology of what already landed lives in VERIFICATION_LOG.md; this list is onl
 > without a legacy verdict. Slice 2 is deployed at `19d292c1` and exact-SHA verified. The proof
 > runner now appends immutable versioned reads for all predeclared windows, applies day 56 as
 > demote-only, keeps day 84 context-only, and reuses the first-written decision on later passes.
-> The full release gate is green. **Next:** deploy slice 3, then connect keyword portfolio and
-> granular action planning to the canonical move pipeline.
+> Slice 3 is deployed at `ec0d8f1f` and exact-SHA verified. The live move path now merges cached
+> DataForSEO demand, related keywords, difficulty, GSC, and AI questions into the canonical
+> page-element plan, using one cache read and zero render-time spend. The full release gate is
+> green. **Next:** deploy slice 4, then connect citation-pattern learning, answer drift, and
+> second-order citation evidence.
 >
 > The tenant-boundary slice removed all ambient read/write seams in the production graph and is
 > pinned by read-and-write isolation tests.

@@ -64,6 +64,18 @@ describe("buildKeywordPortfolio", () => {
     expect(portfolio.questionTargets).toContain("how to grill koobideh");
   });
 
+  it("ranks cached DataForSEO candidates by demand instead of cache insertion order", () => {
+    const ranked = buildKeywordPortfolio({
+      keywords: [
+        { term: "koobideh origin timeline guide", source: "dataforseo", volume: 40, difficulty: 10 },
+        { term: "koobideh calories nutrition facts", source: "dataforseo", volume: 900, difficulty: 25 },
+      ],
+      pageIntentClass: "informational",
+      pageTopicTokens: PAGE_TOKENS,
+    });
+    expect(ranked.newPageCandidates[0]).toBe("koobideh calories nutrition facts");
+  });
+
   it("explains the portfolio + leaves the LLM-only fields structured-empty", () => {
     expect(portfolio.reasoning).toContain("koobideh kabob recipe");
     expect(portfolio.reasoning.length).toBeGreaterThan(10);

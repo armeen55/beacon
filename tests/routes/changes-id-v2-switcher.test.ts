@@ -15,6 +15,12 @@ import type { ChangelogEntry } from "@/domains/changelog/types";
 const redirectMock = vi.fn((href: string): never => {
   throw new Error(`NEXT_REDIRECT:${href}`);
 });
+let proofLedgerMockRows: Array<{
+  id: string;
+  page: string;
+  path: string;
+  shippedAt: string;
+}> = [];
 
 const mockEntry: ChangelogEntry = {
   id: "cl-test-1",
@@ -69,6 +75,7 @@ describe("/changes/[id] V2-only render contract", () => {
   beforeEach(() => {
     vi.resetModules();
     redirectMock.mockClear();
+    proofLedgerMockRows = [];
     vi.doMock("next/cache", () => ({ revalidatePath: vi.fn() }));
     vi.doMock("next/navigation", () => ({
       notFound: () => {
@@ -79,7 +86,7 @@ describe("/changes/[id] V2-only render contract", () => {
       redirect: redirectMock,
     }));
     vi.doMock("@/domains/proof-gsc/load-ledger", () => ({
-      loadProofLedgerPersisted: async () => [],
+      loadProofLedgerPersisted: async () => proofLedgerMockRows,
     }));
     vi.doMock("@/lib/seed-data.server", () => ({
       getOpportunities: vi.fn(async () => []),
@@ -240,14 +247,12 @@ describe("/changes/[id] V2-only render contract", () => {
   }, 15_000);
 
   it("sends a tracked change to its one canonical Results proof card", async () => {
-    vi.doMock("@/domains/proof-gsc/load-ledger", () => ({
-      loadProofLedgerPersisted: async () => [{
-        id: "faq::2026-04-22",
-        page: mockEntry.url,
-        path: "/faq",
-        shippedAt: "2026-04-22T00:00:00.000Z",
-      }],
-    }));
+    proofLedgerMockRows = [{
+      id: "faq::2026-04-22",
+      page: mockEntry.url,
+      path: "/faq",
+      shippedAt: "2026-04-22T00:00:00.000Z",
+    }];
 
     await expect(render()).rejects.toThrow(
       "NEXT_REDIRECT:/results#proof-faq%3A%3A2026-04-22",

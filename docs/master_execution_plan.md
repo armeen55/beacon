@@ -3247,6 +3247,13 @@ first-written day-56 decision rather than recompute history into a different ans
 certified 56-day placebo history exists, any demotion is labeled provisional and no long-horizon
 read may release or bypass the calibration quarantine.
 
+**Keyword-to-action boundary, 2026-07-17:** cached keyword research is useful only when it changes
+the canonical move's exact page plan. GSC queries, DataForSEO demand/related-keyword/difficulty
+caches, and AI fan-out questions merge into one intent-gated portfolio. That portfolio may choose
+the title target, supporting sections, FAQ answers, and adjacent topics that need their own page;
+it may not stuff an off-topic or wrong-intent term into the current page. Customer renders read
+the cache once, never invoke a paid producer, and never create a second recommendation ranker.
+
 ## FUTURE IDEAS (not in current execution plan)
 
 These are ideas, experiments, and dream-state features that are NOT in the active phases. They live here so they are never lost. Move to `NEXT_PHASE_EXECUTION_PLAN.md` only when they become active work.

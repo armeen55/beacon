@@ -590,6 +590,9 @@ export function MoveCard({
             {rp.sibling.length ? (
               <p className="mt-0.5 text-body text-violet-700"><span className="font-semibold">Cross-link, don&apos;t merge:</span> {rp.sibling.join(", ")}</p>
             ) : null}
+            {rp.keywordPortfolio?.newPageCandidates.length ? (
+              <p className="mt-0.5 text-meta text-violet-700"><span className="font-semibold">Keep off this page:</span> {rp.keywordPortfolio.newPageCandidates.slice(0, 2).join(", ")} should get {rp.keywordPortfolio.newPageCandidates.length === 1 ? "its" : "their"} own page.</p>
+            ) : null}
             {rp.onPagePlan?.doFirst ? (
               <div className="mt-1.5 border-t border-violet-100 pt-1.5">
                 <p className="text-meta text-violet-900"><ChevronRight className="inline-block h-3.5 w-3.5" aria-hidden /> <span className="font-semibold">Do first:</span> {rp.onPagePlan.doFirst.recommendation}</p>

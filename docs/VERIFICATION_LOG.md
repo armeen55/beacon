@@ -36313,3 +36313,31 @@ array and every existing Results contract remain unchanged. Verification: proof-
 1,513 files / 23,004 passed / 23 conditional skips / 0 failed; production build exit 0 with only
 the existing protected middleware-filename deprecation; dependency audit zero; `git diff --check`
 clean. No paid provider call, hosted environment mutation, or customer-data mutation was performed.
+
+Release: commit `ec0d8f1f6c0eb617265d50d2574d3d846bb9d4e5` was pushed to `origin/main`.
+Vercel deployment `dpl_3oUFgc7CZAQcx5DuWqMXMCMTcJmL` reached Ready and production
+`/api/version` returned that exact SHA. Unauthenticated `/`, `/today`, `/changes`, and `/results`
+returned their expected 307 login continuations.
+
+## 2026-07-17 - Cached keyword portfolio reaches the live action plan
+
+Connected the previously isolated keyword-portfolio logic to the Today/Changes move projection
+and the canonical page-element plan. Each existing-page move now merges its GSC queries with the
+already-paid DataForSEO demand cache, Labs related-keyword corpus, cached keyword difficulty, and
+AI fan-out questions. Intent and topic gates choose a primary target, supporting H2s, FAQs, and
+separate-page candidates while keeping wrong-page terms out. The chosen portfolio now drives the
+visible owner list, addressable volume, title target, section plan, FAQ plan, and "keep off this
+page" warning. Related-keyword and difficulty projections share one underlying cache read; the
+customer render path makes no paid provider call. Candidate ordering is deterministic by demand
+and difficulty rather than cache insertion order.
+
+An exhaustive run also exposed an order-dependent `/changes/[id]` test mock. Its proof ledger is
+now controlled through one stable mutable test seam, eliminating mock re-registration leakage in
+the complete suite without changing production behavior.
+
+Verification before release: focused keyword/action/cache/UI pass 4 files / 95 tests; isolated
+route regression 2/2; `npm run typecheck` exit 0; `npm run lint` exit 0; complete `npm test` 1,513
+files / 23,007 passed / 23 conditional skips / 0 failed; `npm run build` exit 0 with only the
+existing protected middleware-filename deprecation; `npm audit --omit=dev --audit-level=moderate`
+found zero vulnerabilities; `git diff --check` clean. No paid provider call, environment change,
+or customer-data mutation was performed.

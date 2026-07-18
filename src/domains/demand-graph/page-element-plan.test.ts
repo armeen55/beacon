@@ -78,6 +78,23 @@ describe("buildOnPagePlan — concrete element placement (P4)", () => {
     expect(plan.title?.evidence).toMatch(/~50k searches\/mo/);
   });
 
+  it("turns the merged keyword portfolio into the title, sections, FAQs, and separate-page plan", () => {
+    const plan = buildOnPagePlan(buildPageResearchPack(boyNames), {
+      keywordPortfolio: {
+        primaryTarget: "persian male names",
+        secondaryTargets: ["rare persian boy names"],
+        questionTargets: ["what are traditional persian boy names?"],
+        newPageCandidates: ["persian girl names"],
+      },
+      volumeByKeyword: { "persian male names": 1900, "rare persian boy names": 500 },
+    });
+    expect(plan.title?.recommendation).toMatch(/Persian Male Names/);
+    expect(plan.sections[0]?.recommendation).toMatch(/Rare Persian Boy Names/);
+    expect(plan.sections[0]?.evidence).toMatch(/DataForSEO/);
+    expect(plan.faqs.some((faq) => faq.recommendation.includes("traditional persian boy names"))).toBe(true);
+    expect(plan.newSiblings[0]?.recommendation).toMatch(/dedicated page.*Persian Girl Names/i);
+  });
+
   it("Persian Swear Words: title_meta proof-flat is NEVER doFirst + surfaces a 'different lever' warning", () => {
     const swear: PageResearchInput = {
       ...base,

@@ -12,6 +12,10 @@ import { loadRetrainedTitleWeights } from "@/domains/learning/load-experiment-ou
 import { buildPageResearchPack, addressableVolume } from "@/domains/demand-graph/page-research-pack";
 import { buildOnPagePlan } from "@/domains/demand-graph/page-element-plan";
 import { readAllCachedKeywordDemand } from "@/domains/serp/dataforseo-keywords";
+import { readCachedKeywordResearchCorpus } from "@/domains/serp/dataforseo-labs";
+import { buildKeywordPortfolio } from "@/domains/recommendations/keyword-portfolio";
+import { classifyQueryIntent } from "@/domains/recommendations/page-topic-fit";
+import { topicTokens } from "@/domains/evidence/relevance-gate";
 import { readCachedSerpPatterns } from "@/domains/serp/research-enrichment-producer";
 import { whatToSteal } from "@/domains/experiments/daily-evidence-brief";
 import { getLatestMoveDrafts, type MoveDraftRow } from "@/domains/demand-graph/move-draft-store";
@@ -247,6 +251,14 @@ export type TodayMove = {
     primaryLever: { lever: string; reason: string } | null;
     blockedLevers: { lever: string; reason: string }[];
     elements: { keyword: string; element: string; why: string }[];
+    keywordPortfolio?: {
+      primaryTarget: string | null;
+      secondaryTargets: string[];
+      questionTargets: string[];
+      newPageCandidates: string[];
+      excludedCount: number;
+      reasoning: string;
+    } | null;
     /** P4 - concrete "put X here" element plan: the one to do first + sections / FAQ
      *  targets / cross-links to add, each citing a real signal; + proof warnings. */
     onPagePlan: {
@@ -876,7 +888,7 @@ export async function buildTodayMovesData(
     const limit = opts.limit ?? 6;
     const pool = moves.slice(0, Math.max(limit, 12)); // bounded: ≤12 pages read
     const poolUrls = pool.map((m) => m.targetUrl);
-    const [queryMap, declineMap, cannibalCases, ga4Values, clarityValues, cachedKeywords, cachedSerpPatterns, sparkMap] = await Promise.all([
+    const [queryMap, declineMap, cannibalCases, ga4Values, clarityValues, cachedKeywords, cachedKeywordResearch, cachedSerpPatterns, sparkMap] = await Promise.all([
       withTimeout(loadTopQueriesForPages(tenantId, poolUrls), 5000, new Map<string, PageQuery[]>()),
       withTimeout(loadQueryDeclinesForPages(tenantId, poolUrls), 6000, new Map<string, QueryDecline[]>()),
       withTimeout(loadGscCannibalizationForTenant(tenantId), 6000, [] as GscCannibalizationCase[]),
@@ -885,6 +897,14 @@ export async function buildTodayMovesData(
       // Cached DataForSEO keyword volume ONLY - a $0 cache read, no live call (the paid
       // population is the operator-gated producer behind DATAFORSEO_DRY_RUN). Fail-soft.
       withTimeout(readAllCachedKeywordDemand().catch(() => []), 4000, [] as Awaited<ReturnType<typeof readAllCachedKeywordDemand>>),
+      // Deep DataForSEO Labs research is already paid for and cached for 30 days.
+      // Read the whole cached related-keyword corpus + difficulty map here; never call
+      // DataForSEO during a page render.
+      withTimeout(
+        readCachedKeywordResearchCorpus().catch(() => ({ relatedKeywords: [], difficultyByKeyword: new Map<string, number | null>() })),
+        4000,
+        { relatedKeywords: [], difficultyByKeyword: new Map<string, number | null>() },
+      ),
       // Cached SERP "what wins" patterns (also $0, producer-populated) → query → pattern.
       withTimeout(readCachedSerpPatterns().catch(() => new Map()), 4000, new Map() as Awaited<ReturnType<typeof readCachedSerpPatterns>>),
       // Item 4: 70d daily clicks per pooled page (one bounded IN(<=16) read) for sparklines.
@@ -892,9 +912,15 @@ export async function buildTodayMovesData(
     ]);
     // keyword (lowercased) → cached search volume, for the research pack's addressable demand.
     const volumeByKeyword = new Map<string, number | null>();
+    const cachedRelatedKeywords = cachedKeywordResearch.relatedKeywords;
+    const cachedKeywordDifficulty = cachedKeywordResearch.difficultyByKeyword;
     for (const k of cachedKeywords) {
       const key = k.keyword.trim().toLowerCase();
       if (key && !volumeByKeyword.has(key)) volumeByKeyword.set(key, k.searchVolume);
+    }
+    for (const k of cachedRelatedKeywords) {
+      const key = k.keyword.trim().toLowerCase();
+      if (key && !volumeByKeyword.has(key)) volumeByKeyword.set(key, k.volume);
     }
     // Canon-key the GA4 + Clarity values so a Move's targetUrl matches regardless of trailing-slash/case.
     const ga4ByCanon = new Map<string, Ga4PageValue>();
@@ -1080,6 +1106,40 @@ export async function buildTodayMovesData(
           ownedSiblings,
           proof: { measuringFamilies, lostFamilies },
         });
+        const pageTopicText = [m.currentTitle, m.pageLabel, m.targetUrl, ...m.topQueries.map((q) => q.query)]
+          .filter((value): value is string => Boolean(value))
+          .join(" ");
+        const portfolio = buildKeywordPortfolio({
+          keywords: [
+            ...m.topQueries.map((q) => ({
+              term: q.query,
+              source: "gsc" as const,
+              volume: q.impressions,
+              difficulty: cachedKeywordDifficulty.get(q.query.trim().toLowerCase()) ?? null,
+              position: q.position,
+            })),
+            ...cachedKeywords.map((k) => ({
+              term: k.keyword,
+              source: "dataforseo" as const,
+              volume: k.searchVolume,
+              difficulty: cachedKeywordDifficulty.get(k.keyword.trim().toLowerCase()) ?? null,
+            })),
+            ...cachedRelatedKeywords.map((k) => ({
+              term: k.keyword,
+              source: "dataforseo" as const,
+              volume: k.volume,
+              difficulty: k.difficulty ?? cachedKeywordDifficulty.get(k.keyword.trim().toLowerCase()) ?? null,
+            })),
+            ...m.faqs.map((question) => ({ term: question, source: "fanout" as const })),
+          ],
+          pageIntentClass: classifyQueryIntent(m.pageLabel, {
+            brandTerms: bizConfig.name ? [bizConfig.name] : [],
+            localeTerms: bizConfig.locations,
+          }),
+          pageTopicTokens: [...new Set(topicTokens(pageTopicText).flatMap((token) => [token, `${token}s`]))],
+          brandTerms: bizConfig.name ? [bizConfig.name] : [],
+          localeTerms: bizConfig.locations,
+        });
         const primaryLever = pack.levers.find((l) => l.primary) ?? null;
         // The cannibalization detector ALREADY proved these queries compete with another
         // OWNED page - they are cross-link siblings by definition (token overlap can miss
@@ -1098,14 +1158,21 @@ export async function buildTodayMovesData(
           primaryIntent: pack.primaryIntent,
           // Real (cached) DataForSEO/keyword volume this page should own - null when none
           // of the owned keywords are in the cache yet (the paid producer populates it).
-          addressableVolume: addressableVolume(pack.clusters.own, volumeByKeyword),
+          addressableVolume: addressableVolume(
+            [portfolio.primaryTarget, ...portfolio.secondaryTargets].filter((k): k is string => Boolean(k)),
+            volumeByKeyword,
+          ) ?? addressableVolume(pack.clusters.own, volumeByKeyword),
           // Cached SERP "what wins" pattern for the primary intent (producer-populated, $0
           // to read) - null until enriched. A compact projection (format + element + winners).
           serpPattern: (() => {
             const sp = pack.primaryIntent ? cachedSerpPatterns.get(pack.primaryIntent.toLowerCase()) : null;
             return sp ? { format: sp.format, titlePattern: sp.titlePattern, elementImplication: sp.elementImplication, winningDomains: sp.winningDomains.slice(0, 3) } : null;
           })(),
-          own: pack.clusters.own.filter((k) => !siblingLc.has(k.toLowerCase())).slice(0, 6),
+          own: [...new Set([
+            portfolio.primaryTarget,
+            ...portfolio.secondaryTargets,
+            ...pack.clusters.own,
+          ].filter((k): k is string => typeof k === "string" && k.length > 0 && !siblingLc.has(k.toLowerCase())))].slice(0, 6),
           sibling: sibling.slice(0, 4),
           primaryLever: primaryLever ? { lever: primaryLever.lever, reason: primaryLever.reason } : null,
           blockedLevers: pack.levers.filter((l) => l.blocked).map((l) => ({ lever: l.lever, reason: l.reason })),
@@ -1115,6 +1182,14 @@ export async function buildTodayMovesData(
             .filter((k) => (k.bucket === "own" || k.bucket === "answer") && k.element)
             .slice(0, 5)
             .map((k) => ({ keyword: k.keyword, element: k.element as string, why: k.why })),
+          keywordPortfolio: {
+            primaryTarget: portfolio.primaryTarget,
+            secondaryTargets: portfolio.secondaryTargets.slice(0, 8),
+            questionTargets: portfolio.questionTargets.slice(0, 8),
+            newPageCandidates: portfolio.newPageCandidates.slice(0, 5),
+            excludedCount: portfolio.doNotTargetHere.length,
+            reasoning: portfolio.reasoning,
+          },
           // P4 - "put X here": compose the pack with the live SERP pattern + Clarity
           // friction + current title + cached volume into a concrete, evidence-cited plan.
           onPagePlan: (() => {
@@ -1126,6 +1201,7 @@ export async function buildTodayMovesData(
               friction: m.friction,
               currentTitle: m.currentTitle ?? null,
               volumeByKeyword,
+              keywordPortfolio: portfolio,
             });
             const slim = (e: { slot: string; recommendation: string; evidence: string } | null) =>
               e ? { slot: e.slot, recommendation: e.recommendation, evidence: e.evidence } : null;

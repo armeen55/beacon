@@ -17,6 +17,7 @@
  */
 
 import type { PageResearchPack, ResearchLever } from "./page-research-pack";
+import type { KeywordPortfolio } from "@/domains/recommendations/keyword-portfolio";
 
 export type PageElementSlot =
   | "title"
@@ -69,6 +70,11 @@ export type OnPagePlanOpts = {
   currentTitle?: string | null;
   /** Cached (real) keyword volume — cites "~Nk searches/mo" when present, never guesses. */
   volumeByKeyword?: Map<string, number | null> | Record<string, number | null> | null;
+  /** The merged GSC + cached DataForSEO + AI-question portfolio for this page. */
+  keywordPortfolio?: Pick<
+    KeywordPortfolio,
+    "primaryTarget" | "secondaryTargets" | "questionTargets" | "newPageCandidates"
+  > | null;
 };
 
 const titleCase = (s: string): string =>
@@ -117,7 +123,8 @@ function leverFamily(l: ResearchLever): string {
  * Build the concrete on-page element plan. PURE.
  */
 export function buildOnPagePlan(pack: PageResearchPack, opts: OnPagePlanOpts = {}): PageElementPlan {
-  const primary = pack.primaryIntent;
+  const portfolio = opts.keywordPortfolio ?? null;
+  const primary = portfolio?.primaryTarget ?? pack.primaryIntent;
   const serp = opts.serpPattern ?? null;
   const warnings: string[] = [];
 
@@ -157,7 +164,17 @@ export function buildOnPagePlan(pack: PageResearchPack, opts: OnPagePlanOpts = {
     : null;
 
   // ---- H2 sections (owned sub-intents mapped to h2_section) -------------------
-  const sections: PlanElement[] = pack.keywords
+  const portfolioSections: PlanElement[] = (portfolio?.secondaryTargets ?? []).slice(0, 5).map((keyword) => {
+    const v = volOf(keyword, opts.volumeByKeyword);
+    return {
+      slot: "h2" as const,
+      recommendation: `Add an H2 section: "${titleCase(keyword)}".`,
+      evidence: ["Cached keyword portfolio: on-topic, same-intent supporting demand", v ? `${fmtVol(v)} searches/mo (DataForSEO)` : null]
+        .filter(Boolean)
+        .join(" · "),
+    };
+  });
+  const packSections: PlanElement[] = pack.keywords
     .filter((k) => k.bucket === "own" && k.element === "h2_section")
     .slice(0, 5)
     .map((k) => {
@@ -168,9 +185,15 @@ export function buildOnPagePlan(pack: PageResearchPack, opts: OnPagePlanOpts = {
         evidence: [k.why, v ? `${fmtVol(v)} searches/mo` : null].filter(Boolean).join(" · "),
       };
     });
+  const sections: PlanElement[] = dedupeElements([...portfolioSections, ...packSections], 5);
 
   // ---- FAQ / answer-block targets (the AI fan-out questions) ------------------
-  const faqs: PlanElement[] = pack.keywords
+  const portfolioFaqs: PlanElement[] = (portfolio?.questionTargets ?? []).slice(0, 5).map((keyword) => ({
+    slot: "faq" as const,
+    recommendation: `Answer "${keyword}" in an FAQ + a concise answer block.`,
+    evidence: "AI fan-out or cached question demand for this exact page topic.",
+  }));
+  const packFaqs: PlanElement[] = pack.keywords
     .filter((k) => k.bucket === "answer")
     .slice(0, 5)
     .map((k) => ({
@@ -178,6 +201,7 @@ export function buildOnPagePlan(pack: PageResearchPack, opts: OnPagePlanOpts = {
       recommendation: `Answer "${k.keyword}" in an FAQ + a concise answer block.`,
       evidence: k.source === "ai_fanout" ? "AI fans out into this sub-question." : k.why,
     }));
+  const faqs: PlanElement[] = dedupeElements([...portfolioFaqs, ...packFaqs], 5);
 
   // A dedicated opening answer block for the primary intent (definitional capture).
   const answerBlock: PlanElement | null = primary
@@ -228,11 +252,17 @@ export function buildOnPagePlan(pack: PageResearchPack, opts: OnPagePlanOpts = {
   }
 
   // ---- new siblings (spin-off pages) ------------------------------------------
-  const newSiblings: PlanElement[] = pack.clusters.new_page.slice(0, 3).map((s) => ({
+  const portfolioSiblings: PlanElement[] = (portfolio?.newPageCandidates ?? []).slice(0, 3).map((s) => ({
+    slot: "new_sibling" as const,
+    recommendation: `Create a dedicated page for "${titleCase(s)}" instead of stuffing it here.`,
+    evidence: "Cached demand is topically adjacent but the intent does not belong on this page.",
+  }));
+  const packSiblings: PlanElement[] = pack.clusters.new_page.slice(0, 3).map((s) => ({
     slot: "new_sibling" as const,
     recommendation: `Consider a dedicated page for "${titleCase(s)}".`,
     evidence: "Real demand, but a different intent than this page — a focused page ranks better than a buried section.",
   }));
+  const newSiblings: PlanElement[] = dedupeElements([...portfolioSiblings, ...packSiblings], 3);
 
   // ---- warnings (proof) -------------------------------------------------------
   for (const fam of pack.proofConstraints.lostFamilies) {
@@ -261,6 +291,19 @@ export function buildOnPagePlan(pack: PageResearchPack, opts: OnPagePlanOpts = {
     newSiblings,
     warnings,
   };
+}
+
+function dedupeElements(elements: PlanElement[], limit: number): PlanElement[] {
+  const seen = new Set<string>();
+  const out: PlanElement[] = [];
+  for (const element of elements) {
+    const key = element.recommendation.trim().toLowerCase();
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    out.push(element);
+    if (out.length >= limit) break;
+  }
+  return out;
 }
 
 /** Map the chosen primary lever to the element it concretely changes. */

@@ -579,6 +579,28 @@ export async function readAllCachedRelatedKeywords(
 }
 
 /**
+ * Read the two customer-facing keyword-research projections from ONE cache load.
+ * Today/Changes need both related-keyword rows and difficulty, and issuing two
+ * repository reads for the same cache made the render path pay duplicate I/O.
+ * This remains cache-only and $0; the injected one-shot reader also keeps it easy
+ * to test without a database.
+ */
+export async function readCachedKeywordResearchCorpus(
+  deps: { now?: () => Date; readCache?: () => Promise<CacheRow[]> } = {},
+): Promise<{
+  relatedKeywords: Array<RelatedKeywordRow & { fetchedAt: string }>;
+  difficultyByKeyword: Map<string, number | null>;
+}> {
+  const rows = await (deps.readCache ?? defaultDeps.readCache)().catch(() => []);
+  const readCache = async () => rows;
+  const [relatedKeywords, difficultyByKeyword] = await Promise.all([
+    readAllCachedRelatedKeywords({ now: deps.now, readCache }),
+    readAllCachedKeywordDifficulty({ now: deps.now, readCache }),
+  ]);
+  return { relatedKeywords, difficultyByKeyword };
+}
+
+/**
  * Keywords the competitor ranks for where the tenant does NOT appear
  * (intersections: false), ordered by search volume. The literal gap list.
  */

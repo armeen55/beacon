@@ -32,7 +32,7 @@ import { classifyQueryIntent, type IntentClass } from "./page-topic-fit";
 import { normalizeText } from "./match-engine/normalize-text";
 import { tokenize } from "./match-engine/similarity";
 
-export type KeywordSource = "gsc" | "semrush" | "fanout";
+export type KeywordSource = "gsc" | "dataforseo" | "semrush" | "fanout";
 
 export type PortfolioInputKeyword = {
   term: string;
@@ -160,8 +160,8 @@ export function buildKeywordPortfolio(input: {
   }
 
   const doNotTargetHere: RejectedKeyword[] = [];
-  const newPageCandidates: string[] = [];
-  const questionTargets: string[] = [];
+  const newPageCandidates: Scored[] = [];
+  const questionTargets: Scored[] = [];
   const onTarget: Scored[] = [];
 
   for (const s of scored) {
@@ -169,7 +169,7 @@ export function buildKeywordPortfolio(input: {
     // Off-topic entirely → wrong page (or a new page if it has real demand).
     if (s.overlap < 0.2) {
       if (s.value > 1 && s.overlap > 0) {
-        newPageCandidates.push(s.display);
+        newPageCandidates.push(s);
       } else {
         doNotTargetHere.push({
           term: s.display,
@@ -188,26 +188,30 @@ export function buildKeywordPortfolio(input: {
     }
     // Topically adjacent (partial overlap) + real demand → its own page.
     if (s.overlap < 0.5 && s.value > 1) {
-      newPageCandidates.push(s.display);
+      newPageCandidates.push(s);
       continue;
     }
     // audit-wave4 #16: question-shaped terms are FAQ/answer-block fodder, not
     // title-target priority/support terms — route them to questionTargets only
     // (don't ALSO list them in onTarget, which feeds primary/secondary targets).
     if (s.question) {
-      questionTargets.push(s.display);
+      questionTargets.push(s);
       continue;
     }
     onTarget.push(s);
   }
 
   onTarget.sort((a, b) => b.value - a.value || b.overlap - a.overlap);
+  newPageCandidates.sort((a, b) => b.value - a.value || b.overlap - a.overlap);
+  questionTargets.sort((a, b) => b.value - a.value || b.overlap - a.overlap);
   const primaryTarget = onTarget[0]?.display ?? null;
   const secondaryTargets = onTarget.slice(1).map((s) => s.display);
+  const rankedNewPageCandidates = newPageCandidates.map((s) => s.display);
+  const rankedQuestionTargets = questionTargets.map((s) => s.display);
 
   const reasoning = (() => {
-    if (primaryTarget == null && newPageCandidates.length > 0) {
-      return `No keyword fits this page well; the strongest demand (${newPageCandidates[0]}) likely deserves its own page.`;
+    if (primaryTarget == null && rankedNewPageCandidates.length > 0) {
+      return `No keyword fits this page well; the strongest demand (${rankedNewPageCandidates[0]}) likely deserves its own page.`;
     }
     if (primaryTarget == null) {
       return "No on-topic, on-intent keyword with enough demand to target here yet.";
@@ -219,8 +223,8 @@ export function buildKeywordPortfolio(input: {
     if (doNotTargetHere.length > 0) {
       parts.push(`${doNotTargetHere.length} keyword(s) excluded as off-topic or wrong-intent.`);
     }
-    if (newPageCandidates.length > 0) {
-      parts.push(`${newPageCandidates.length} adjacent topic(s) would be better as their own page.`);
+    if (rankedNewPageCandidates.length > 0) {
+      parts.push(`${rankedNewPageCandidates.length} adjacent topic(s) would be better as their own page.`);
     }
     return parts.join(" ");
   })();
@@ -228,11 +232,11 @@ export function buildKeywordPortfolio(input: {
   return {
     primaryTarget,
     secondaryTargets,
-    questionTargets,
+    questionTargets: rankedQuestionTargets,
     entityAliases: [],
     transliterationVariants: [],
     doNotTargetHere,
-    newPageCandidates,
+    newPageCandidates: rankedNewPageCandidates,
     reasoning,
   };
 }

@@ -21,6 +21,7 @@ import {
   parseBulkDomainRanks,
   parseBacklinksSummary,
   readAllCachedKeywordDifficulty,
+  readCachedKeywordResearchCorpus,
   readAllCachedBacklinks,
   LABS_BULK_DIFFICULTY_COST_USD,
   BACKLINKS_BULK_RANKS_COST_USD,
@@ -494,6 +495,30 @@ describe("readAllCachedKeywordDifficulty - $0 read for the daily-evidence-brief 
   it("is fail-soft on a cache read error (empty map, never throws)", async () => {
     const map = await readAllCachedKeywordDifficulty({ readCache: async () => { throw new Error("boom"); } });
     expect(map.size).toBe(0);
+  });
+});
+
+describe("readCachedKeywordResearchCorpus - one cache read for customer surfaces", () => {
+  it("projects related keywords and difficulty without duplicate repository I/O", async () => {
+    const readCache = vi.fn(async () => [
+      {
+        key: "related_keywords|2840|en|depth4|persian names",
+        rows: [{ keyword: "rare persian names", volume: 700, cpcUsd: 0.2, difficulty: 18, monthlySearches: [] }],
+        fetchedAt: "2026-07-01T00:00:00Z",
+      },
+      {
+        key: "bulk_keyword_difficulty|2840|en|rare persian names",
+        rows: [{ keyword: "rare persian names", difficulty: 18 }],
+        fetchedAt: "2026-07-01T00:00:00Z",
+      },
+    ]);
+    const corpus = await readCachedKeywordResearchCorpus({
+      now: () => new Date("2026-07-17T00:00:00Z"),
+      readCache,
+    });
+    expect(readCache).toHaveBeenCalledTimes(1);
+    expect(corpus.relatedKeywords[0]?.keyword).toBe("rare persian names");
+    expect(corpus.difficultyByKeyword.get("rare persian names")).toBe(18);
   });
 });
 

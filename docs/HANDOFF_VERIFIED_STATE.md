@@ -1,15 +1,26 @@
 # Beacon Verified State
 
-> 🟡 **The 2026-07-17 long-horizon confirmation runner is code-complete and awaiting
-> full release verification.** Predeclared proof records now compute and append versioned
+> 🟡 **The 2026-07-17 cached keyword-to-action portfolio is code-complete and awaiting
+> release verification.** The live Today/Changes move path now merges page GSC queries, cached
+> DataForSEO demand, up to 1,000 cached related keywords per researched seed, cached difficulty,
+> and AI fan-out questions into one intent-gated page portfolio. That portfolio changes the exact
+> title target, H2 plan, FAQ targets, addressable demand, and separate-page warnings; wrong-intent
+> terms remain excluded. Both DataForSEO projections share one cache read, so the render path adds
+> no paid call and no duplicate repository I/O. Verification: focused 95/95 plus the order-isolated
+> route regression 2/2; strict typecheck and lint; complete suite 1,513 files / 23,007 passed / 23
+> conditional skips / 0 failed; production build and dependency audit exit 0; `git diff --check`
+> clean. Next: deploy, then connect citation-pattern learning and answer drift.
+
+> 🟢 **The 2026-07-17 long-horizon confirmation runner is deployed and exact-SHA verified at
+> `ec0d8f1f` (Vercel `dpl_3oUFgc7CZAQcx5DuWqMXMCMTcJmL`).** Predeclared proof records now compute and append versioned
 > 7/14/28/56/84-day reads. Day 56 can only demote a win that did not hold; day 84 is context-only
 > and can never alter the primary decision. First-written reads are immutable and reused on later
 > passes, so historical corrections cannot silently rewrite the repeated-look decision. The
 > 56-day demotion remains provisional until certified placebo history exists, preserving the
 > calibration quarantine. Verification: proof-gsc 60 files / 1,057 tests; strict typecheck; lint
 > exit 0 with 91 existing warnings; complete suite 1,513 files / 23,004 passed / 23 conditional
-> skips / 0 failed; production build and dependency audit exit 0; `git diff --check` clean. Next:
-> deploy, then continue with keyword/action intelligence.
+> skips / 0 failed; production build and dependency audit exit 0; `git diff --check` clean.
+> Production `/api/version` returned the exact full SHA and the core route contracts were correct.
 
 > 🟢 **The 2026-07-17 canonical change-result handoff is deployed and SHA-verified at
 > `19d292c1` (Vercel `dpl_83UnjoPduKince2gFTMwZZxyDQsw`).** `/changes/[id]` no longer renders a second attribution engine. It fresh-reads the
