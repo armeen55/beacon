@@ -38,6 +38,9 @@ export type WarmRunSummary = {
   aiEnginesChecked: number;
   aiObservationsWritten: number;
   aiCitationGaps: number;
+  citationPatternsMined?: number;
+  answerDriftEvents?: number;
+  secondOrderDomains?: number;
   questionsRanked: number;
   uncoveredQuestions: number;
   claimsChecked: number;

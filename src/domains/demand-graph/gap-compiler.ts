@@ -91,6 +91,7 @@ export async function loadChangePacksForTenant(
       serpPatterns: new Map(),
       cloneBriefs: [],
       questions: [],
+      citationIntelligence: null,
     })),
   ]);
 

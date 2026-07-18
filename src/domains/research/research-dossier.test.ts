@@ -125,6 +125,46 @@ function corpus(): ResearchCorpus {
       priority: 140,
       builtAt: "2026-07-14T00:00:00.000Z",
     }],
+    citationIntelligence: {
+      tenantId: "tenant-iranopedia",
+      computedAt: "2026-07-14T00:00:00.000Z",
+      patterns: {
+        tenant_id: "tenant-iranopedia",
+        computed_at: "2026-07-14T00:00:00.000Z",
+        observationsWithCitations: 20,
+        observationsWithText: 18,
+        sentencesClassified: 14,
+        bucketCounts: { stat_first: 7, definition: 4, attributed_claim: 3, list_lead: 0, date_anchored: 0, other: 0 },
+        bucketSharePct: { stat_first: 50, definition: 29, attributed_claim: 21, list_lead: 0, date_anchored: 0, other: 0 },
+        dominantPatterns: ["stat_first", "definition", "attributed_claim"],
+      },
+      drift: {
+        coverage: { pairsWithHistory: 4, pairsComparable: 3, observationsConsidered: 12 },
+        events: [{
+          promptText: "what are nowruz traditions",
+          engine: "ChatGPT",
+          kind: "brand_dropped",
+          beforeSentence: "Iranopedia explained Nowruz traditions.",
+          afterSentence: null,
+          whenIso: "2026-07-14T00:00:00.000Z",
+          relatedMoveLabel: "nowruz traditions",
+        }],
+      },
+      secondOrder: {
+        rowsScanned: 50,
+        domains: [{
+          domain: "culture-directory.example",
+          class: "directory",
+          isOutreachTarget: true,
+          citationCount: 12,
+          topTopics: ["nowruz traditions guide"],
+          exampleCitedUrl: "https://culture-directory.example/directory/nowruz",
+          examplePrompt: "What are Nowruz traditions?",
+          suggestedAction: "Add a listing.",
+          outreach: { inOutreachPipeline: false },
+        }],
+      },
+    },
   };
 }
 
@@ -153,12 +193,21 @@ describe("buildResearchDossier", () => {
       "ai_fanout",
       "competitor_teardown",
       "paa",
+      "citation_patterns",
+      "answer_drift",
+      "second_order_citations",
     ]));
-    expect(dossierReferenceCandidates(dossier)).toEqual(["https://winner.example/nowruz-guide"]);
+    expect(dossierReferenceCandidates(dossier)).toEqual([
+      "https://winner.example/nowruz-guide",
+      "https://culture-directory.example/directory/nowruz",
+    ]);
     expect(researchDossierHints(dossier).join(" ")).toContain("1,900 searches/month");
     expect(researchDossierHints(dossier).join(" ")).toContain("Live Google results");
     expect(researchDossierHints(dossier).join(" ")).toContain("AI evidence");
     expect(researchDossierHints(dossier).join(" ")).toContain("Competitor reverse-engineering");
+    expect(researchDossierHints(dossier).join(" ")).toContain("Observed citation phrasing");
+    expect(researchDossierHints(dossier).join(" ")).toContain("brand dropped");
+    expect(researchDossierHints(dossier).join(" ")).toContain("Second-order citation evidence");
   });
 
   it("drops an unrelated AI fanout even when the parent topic has valid native evidence", () => {

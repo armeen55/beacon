@@ -249,7 +249,7 @@ describe("/changes/[id] V2-only render contract", () => {
   it("sends a tracked change to its one canonical Results proof card", async () => {
     proofLedgerMockRows = [{
       id: "faq::2026-04-22",
-      page: mockEntry.url,
+      page: mockEntry.url ?? "",
       path: "/faq",
       shippedAt: "2026-04-22T00:00:00.000Z",
     }];

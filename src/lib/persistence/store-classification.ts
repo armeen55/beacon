@@ -95,6 +95,9 @@ export const TENANT_SCOPED_STORES = new Set<string>([
   // 2026-07-01 R4 - per-tenant cache of "which domains do LLM answers cite for a
   // topic" (domains/serp/dataforseo-llm-mentions.ts), the owned AI-visibility feed.
   "dataforseo-llm-mentions",
+  // Autonomous, cache-only synthesis of citation phrasing, answer drift, and
+  // second-order citation targets. One compact snapshot per explicit tenant.
+  "citation-intelligence-snapshot",
   // 2026-06-29 /changes stale-while-revalidate surface cache — the fully-computed
   // TodayMovesHeroData snapshot per tenant. Cold render serves this instantly + refreshes
   // in the background, so the ~32s demand-graph rebuild no longer floors every visit.

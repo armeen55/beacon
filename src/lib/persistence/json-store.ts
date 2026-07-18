@@ -66,6 +66,7 @@ export const SUPABASE_MIRRORED_STORES = new Set<string>([
   "research-serp-patterns",
   "competitor-page-audit",
   "dataforseo-llm-mentions",
+  "citation-intelligence-snapshot",
   // 2026-07-01 items 93/94 - the SWR surface snapshots. Without the mirror, Vercel lambdas
   // only keep them in-process (warm-lambda-only); the blob makes warm true across instances.
   // 2026-07-03 R4 adds results-surface (the re-measured proof ledger snapshot) to the

@@ -6,6 +6,7 @@ import { readCachedSerpPatterns } from "@/domains/serp/research-enrichment-produ
 import { readCloneBriefResults } from "@/domains/serp/clone-brief-store";
 import { loadQuestionUniverseForTenant } from "./question-universe-loader";
 import type { ResearchCorpus } from "./research-dossier";
+import { readCitationIntelligenceForTenant } from "@/domains/ai-visibility/citation-intelligence-snapshot";
 
 /**
  * Read every already-paid/crawled research store needed to build per-move
@@ -24,20 +25,23 @@ export async function loadResearchCorpusForTenant(
       serpPatterns: new Map(),
       cloneBriefs: [],
       questions: [],
+      citationIntelligence: null,
     };
   }
   return await runWithTenant(tenantId, async () => {
-    const [keywordLibrary, serpPatterns, cloneResult, questions] = await Promise.all([
+    const [keywordLibrary, serpPatterns, cloneResult, questions, citationIntelligence] = await Promise.all([
       loadKeywordLibraryForTenant(tenantId).catch(() => ({ rows: [], volumeCoverage: 0, total: 0, bySource: {} as ResearchCorpus["keywordLibrary"]["bySource"] })),
       readCachedSerpPatterns().catch(() => new Map()),
       readCloneBriefResults(tenantId, now).catch(() => null),
       loadQuestionUniverseForTenant(tenantId).catch(() => []),
+      readCitationIntelligenceForTenant(tenantId).catch(() => null),
     ]);
     return {
       keywordLibrary,
       serpPatterns,
       cloneBriefs: cloneResult?.briefs ?? [],
       questions,
+      citationIntelligence,
     };
   });
 }

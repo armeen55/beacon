@@ -108,6 +108,10 @@ function deps(calls: string[]): AutonomousResearchDeps {
       calls.push("authority");
       return { tenantId: TENANT, pages: 90, orphaned: 7, edges: 300 };
     }),
+    refreshCitationIntelligence: vi.fn(async () => {
+      calls.push("citation-intel");
+      return { snapshot: {} as never, patternsMined: 14, driftEvents: 2, secondOrderDomains: 6 };
+    }),
     checkDisplacement: vi.fn(async () => {
       calls.push("loss");
       return { checked: 2, cached: 0, skippedRecent: 0, skippedNoBudget: 0, costUsd: 0.006, verdicts: [] };
@@ -189,7 +193,7 @@ describe("runAutonomousResearchForTenant", () => {
     const calls: string[] = [];
     const receipt = await runAutonomousResearchForTenant(TENANT, NOW, deps(calls));
     expect(calls).toEqual([
-      "usable", "prepare-five", "usable", "graph", "competitors", "gaps", "packs", "keywords", "engines", "ai", "questions", "claims", "authority",
+      "usable", "prepare-five", "usable", "graph", "competitors", "gaps", "packs", "keywords", "engines", "ai", "questions", "claims", "authority", "citation-intel",
       "loss", "steal", "native", "final-keywords", "new-pages", "fuse", "prepare", "today",
     ]);
     expect(receipt.ok).toBe(true);
@@ -210,6 +214,9 @@ describe("runAutonomousResearchForTenant", () => {
       questionsRanked: 50,
       claimsChecked: 35,
       pagesMapped: 90,
+      citationPatternsMined: 14,
+      answerDriftEvents: 2,
+      secondOrderDomains: 6,
       stealBriefsBuilt: 4,
       finalKeywordTermsChecked: 8,
       newPageBriefsPrepared: 2,
@@ -267,7 +274,7 @@ describe("runAutonomousResearchForTenant", () => {
     expect(resumedCalls).toEqual([
       "gaps", "packs", "keywords",
       "engines", "ai",
-      "questions", "claims", "authority",
+      "questions", "claims", "authority", "citation-intel",
       "loss", "steal", "native", "final-keywords", "new-pages",
       "fuse", "prepare", "today",
     ]);

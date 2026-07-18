@@ -273,6 +273,24 @@ export async function readAllCachedLlmMentions(
   return [...byTopic.values()];
 }
 
+/** Tenant-explicit cache read for background research. The request-facing helper
+ * above may use ambient routing, but an autonomous tenant run must never inherit
+ * a different request's cache scope. No API call and no spend. */
+export async function readAllCachedLlmMentionsForTenant(
+  tenantId: string,
+  opts: { now?: () => Date; readTenantCache?: (tenantId: string) => Promise<CacheRow[]> } = {},
+): Promise<LlmMentionRecord[]> {
+  if (!tenantId) return [];
+  const readTenantCache = async (): Promise<CacheRow[]> => {
+    if (opts.readTenantCache) return opts.readTenantCache(tenantId);
+    return await readStore<CacheRow>(MENTIONS_STORE, [], { tenantId });
+  };
+  return readAllCachedLlmMentions({
+    now: opts.now,
+    readCache: readTenantCache,
+  });
+}
+
 export type LlmMentionsRunDeps = {
   env: NodeJS.ProcessEnv;
   now: () => Date;

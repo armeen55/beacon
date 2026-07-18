@@ -3,6 +3,7 @@ import {
   runLlmMentions,
   runLlmPromptResponses,
   readAllCachedLlmMentions,
+  readAllCachedLlmMentionsForTenant,
   parseLlmMentions,
   planLlmMentionsCall,
   questionForTopic,
@@ -350,6 +351,22 @@ describe("readAllCachedLlmMentions (cache-only, $0)", () => {
       },
     });
     expect(out).toEqual([]);
+  });
+});
+
+describe("readAllCachedLlmMentionsForTenant", () => {
+  it("passes the explicit tenant into the cache boundary", async () => {
+    const readTenantCache = vi.fn(async () => [{
+      key: "gpt-4o-mini|persian carpets",
+      record: record("persian carpets", "2026-07-16T00:00:00Z"),
+      fetchedAt: "2026-07-16T00:00:00Z",
+    }]);
+    const rows = await readAllCachedLlmMentionsForTenant("tenant-iranopedia", {
+      now: () => new Date("2026-07-17T00:00:00Z"),
+      readTenantCache,
+    });
+    expect(readTenantCache).toHaveBeenCalledWith("tenant-iranopedia");
+    expect(rows.map((row) => row.topic)).toEqual(["persian carpets"]);
   });
 });
 

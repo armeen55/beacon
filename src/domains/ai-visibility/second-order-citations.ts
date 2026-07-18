@@ -360,10 +360,10 @@ function slugTopicLabel(url: string): string | null {
 
 async function readCitationRows(
   tenantId: string,
-): Promise<Array<{ root_domain: string; url: string; category_id: string | null }>> {
+): Promise<Array<{ root_domain: string; url: string; category_id: string | null; citation_count: number }>> {
   if (!isSupabaseConfigured()) return [];
   const sb = getSupabaseAdmin();
-  const rows: Array<{ root_domain: string; url: string; category_id: string | null }> = [];
+  const rows: Array<{ root_domain: string; url: string; category_id: string | null; citation_count: number }> = [];
   for (let off = 0; off < MAX_ROWS; off += ROW_PAGE_SIZE) {
     const { data, error } = await sb
       .from("profound_citation_rows")
@@ -381,7 +381,12 @@ async function readCitationRows(
       citation_count: number | null;
     }>;
     for (const r of batch) {
-      rows.push({ root_domain: r.root_domain, url: r.url, category_id: r.category_id });
+      rows.push({
+        root_domain: r.root_domain,
+        url: r.url,
+        category_id: r.category_id,
+        citation_count: typeof r.citation_count === "number" && r.citation_count > 0 ? r.citation_count : 1,
+      });
     }
     if (batch.length < ROW_PAGE_SIZE) break;
   }
@@ -390,8 +395,8 @@ async function readCitationRows(
 
 async function readPromptHints(tenantId: string): Promise<SecondOrderPromptHint[]> {
   try {
-    const { readAllCachedLlmMentions } = await import("@/domains/serp/dataforseo-llm-mentions");
-    const records = await readAllCachedLlmMentions();
+    const { readAllCachedLlmMentionsForTenant } = await import("@/domains/serp/dataforseo-llm-mentions");
+    const records = await readAllCachedLlmMentionsForTenant(tenantId);
     const hints: SecondOrderPromptHint[] = [];
     for (const rec of records) {
       for (const m of rec.mentions) {
@@ -425,7 +430,7 @@ async function loadUncached(tenantId: string): Promise<SecondOrderPlaybookResult
   const ownDomain = (config.domain || "").trim();
 
   const [rawRows, promptHints, outreachDomains] = await Promise.all([
-    readCitationRows(tenantId).catch((e): Array<{ root_domain: string; url: string; category_id: string | null }> => {
+    readCitationRows(tenantId).catch((e): Array<{ root_domain: string; url: string; category_id: string | null; citation_count: number }> => {
       log.warn("[second-order-citations] citation row read threw", { tenantId, error: String(e) });
       return [];
     }),
@@ -437,18 +442,41 @@ async function loadUncached(tenantId: string): Promise<SecondOrderPlaybookResult
     return { domains: [], rowsScanned: 0 };
   }
 
-  const citations: SecondOrderCitationInput[] = rawRows.map((r) => {
-    const rawCategory = (r.category_id || "").trim();
-    const topic = rawCategory && !UUID_RE.test(rawCategory) ? rawCategory : slugTopicLabel(r.url);
-    return { domain: r.root_domain || "", url: r.url || "", topic, count: 1 };
-  });
+  const citations: SecondOrderCitationInput[] = rawRows.map(citationRowToInput);
 
   const domains = rankSecondOrderDomains(citations, { ownDomain, promptHints, outreachDomains });
 
   return { domains, rowsScanned: rawRows.length };
 }
 
+/** Preserve the provider's aggregate citation_count when projecting storage
+ * rows into the pure ranker. The old loader flattened every row to count=1,
+ * making a page cited 100 times indistinguishable from a page cited once. */
+export function citationRowToInput(r: {
+  root_domain: string;
+  url: string;
+  category_id: string | null;
+  citation_count: number | null;
+}): SecondOrderCitationInput {
+  const rawCategory = (r.category_id || "").trim();
+  const topic = rawCategory && !UUID_RE.test(rawCategory) ? rawCategory : slugTopicLabel(r.url);
+  return {
+    domain: r.root_domain || "",
+    url: r.url || "",
+    topic,
+    count: typeof r.citation_count === "number" && r.citation_count > 0 ? r.citation_count : 1,
+  };
+}
+
 /** Request-memoized: computes on render, no store, no migration. */
 export const loadSecondOrderCitationPlaybook = cache(
   async (): Promise<SecondOrderPlaybookResult> => loadUncached(await currentTenantId()),
 );
+
+/** Tenant-explicit background/customer-snapshot loader. */
+export async function loadSecondOrderCitationPlaybookForTenant(
+  tenantId: string,
+): Promise<SecondOrderPlaybookResult> {
+  if (!tenantId) return { domains: [], rowsScanned: 0 };
+  return loadUncached(tenantId);
+}

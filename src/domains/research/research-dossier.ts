@@ -14,6 +14,10 @@ import type { KeywordLibrary, KeywordLibraryRow, KeywordLibrarySource } from "./
 import type { SerpPattern } from "@/domains/serp/research-enrichment";
 import type { CloneBrief } from "@/domains/serp/clone-brief";
 import type { UniverseQuestionRow } from "./question-universe";
+import type { CitationIntelligenceSnapshot } from "@/domains/ai-visibility/citation-intelligence-snapshot";
+import type { CitationPatternBucket } from "@/domains/citability/pattern-classifier";
+import type { DriftEventKind } from "@/domains/ai-visibility/answer-drift";
+import type { SecondOrderDomainClass } from "@/domains/ai-visibility/second-order-citations";
 
 export type ResearchEvidenceSource =
   | "gsc"
@@ -24,7 +28,33 @@ export type ResearchEvidenceSource =
   | "ai_citations"
   | "ai_fanout"
   | "competitor_teardown"
-  | "paa";
+  | "paa"
+  | "citation_patterns"
+  | "answer_drift"
+  | "second_order_citations";
+
+export type DossierCitationIntelligence = {
+  patterns: {
+    sentencesClassified: number;
+    dominant: Array<{ bucket: CitationPatternBucket; sharePct: number }>;
+  } | null;
+  driftEvents: Array<{
+    promptText: string;
+    engine: string;
+    kind: DriftEventKind;
+    beforeSentence: string | null;
+    afterSentence: string | null;
+    whenIso: string;
+  }>;
+  secondOrderSources: Array<{
+    domain: string;
+    class: SecondOrderDomainClass;
+    citationCount: number;
+    exampleCitedUrl: string;
+    examplePrompt: string | null;
+    suggestedAction: string;
+  }>;
+};
 
 export type DossierKeyword = {
   query: string;
@@ -74,6 +104,7 @@ export type ResearchDossier = {
   questions: DossierQuestion[];
   ai: AeoEvidence | null;
   cloneBriefs: DossierCloneBrief[];
+  citationIntelligence?: DossierCitationIntelligence | null;
   evidenceSources: ResearchEvidenceSource[];
   builtAt: string;
   /** Stable over timestamps; changes only when material evidence changes. */
@@ -85,6 +116,7 @@ export type ResearchCorpus = {
   serpPatterns: Map<string, SerpPattern>;
   cloneBriefs: CloneBrief[];
   questions: UniverseQuestionRow[];
+  citationIntelligence?: CitationIntelligenceSnapshot | null;
 };
 
 export type BuildResearchDossierInput = {
@@ -265,6 +297,42 @@ export function buildResearchDossier(input: BuildResearchDossierInput): Research
       coverageStatus: row.coverageStatus,
     }));
 
+  const citationIntel = corpus.citationIntelligence;
+  const driftEvents = (citationIntel?.drift.events ?? [])
+    .filter((event) =>
+      (event.relatedMoveLabel != null && norm(event.relatedMoveLabel) === norm(move.label)) ||
+      bestTopicMatch(event.promptText, topics) >= 0.6,
+    )
+    .slice(0, 3)
+    .map(({ relatedMoveLabel: _relatedMoveLabel, ...event }) => event);
+  const secondOrderSources = (citationIntel?.secondOrder.domains ?? [])
+    .filter((domain) => domain.topTopics.some((topic) => bestTopicMatch(topic, topics) >= 0.6))
+    .slice(0, 3)
+    .map((domain) => ({
+      domain: domain.domain,
+      class: domain.class,
+      citationCount: domain.citationCount,
+      exampleCitedUrl: domain.exampleCitedUrl,
+      examplePrompt: domain.examplePrompt,
+      suggestedAction: domain.suggestedAction,
+    }));
+  const patternProfile = citationIntel?.patterns;
+  const citationIntelligence: DossierCitationIntelligence | null = citationIntel
+    ? {
+        patterns: patternProfile && patternProfile.sentencesClassified > 0
+          ? {
+              sentencesClassified: patternProfile.sentencesClassified,
+              dominant: patternProfile.dominantPatterns.slice(0, 3).map((bucket) => ({
+                bucket,
+                sharePct: patternProfile.bucketSharePct[bucket],
+              })),
+            }
+          : null,
+        driftEvents,
+        secondOrderSources,
+      }
+    : null;
+
   const sources = new Set<ResearchEvidenceSource>();
   for (const keyword of keywordMatches) {
     if (keyword.sources.includes("gsc")) sources.add("gsc");
@@ -281,6 +349,9 @@ export function buildResearchDossier(input: BuildResearchDossierInput): Research
     if (relevantAeo.topCitedPages.length > 0) sources.add("ai_citations");
   }
   if (questions.some((row) => row.sources.includes("paa"))) sources.add("paa");
+  if (citationIntelligence?.patterns) sources.add("citation_patterns");
+  if (citationIntelligence?.driftEvents.length) sources.add("answer_drift");
+  if (citationIntelligence?.secondOrderSources.length) sources.add("second_order_citations");
 
   const stable: Omit<ResearchDossier, "builtAt" | "evidenceHash"> = {
     tenantId,
@@ -292,6 +363,7 @@ export function buildResearchDossier(input: BuildResearchDossierInput): Research
     questions,
     ai: relevantAeo,
     cloneBriefs,
+    ...(citationIntelligence ? { citationIntelligence } : {}),
     evidenceSources: [...sources].sort(),
   };
   return { ...stable, builtAt: nowIso, evidenceHash: dossierHash(stable) };
@@ -350,6 +422,17 @@ export function researchDossierHints(dossier: ResearchDossier | null | undefined
     .slice(0, 6)
     .map((row) => row.question);
   if (unanswered.length > 0) hints.push(`Questions this move should answer: ${unanswered.join("; ")}.`);
+  if (dossier.citationIntelligence?.patterns) {
+    const p = dossier.citationIntelligence.patterns;
+    const dominant = p.dominant.map((row) => `${row.bucket.replaceAll("_", " ")} (${row.sharePct}%)`).join(", ");
+    if (dominant) hints.push(`Observed citation phrasing across ${p.sentencesClassified} quoted sentences: ${dominant}. Use only the patterns that fit this page's verified facts.`);
+  }
+  for (const event of dossier.citationIntelligence?.driftEvents ?? []) {
+    hints.push(`AI answer drift on "${event.promptText}" in ${event.engine}: ${event.kind.replaceAll("_", " ")} on ${event.whenIso.slice(0, 10)}.`);
+  }
+  for (const source of dossier.citationIntelligence?.secondOrderSources ?? []) {
+    hints.push(`Second-order citation evidence: AI cited ${source.domain} ${source.citationCount} times for this topic. Treat ${source.exampleCitedUrl || source.domain} as a source/distribution lead, not as proof of a claim.`);
+  }
   return hints.slice(0, 16);
 }
 
@@ -358,5 +441,6 @@ export function dossierReferenceCandidates(dossier: ResearchDossier | null | und
   return [...new Set([
     ...dossier.cloneBriefs.map((brief) => brief.url),
     ...(dossier.ai?.topCitedPages ?? []).filter((page) => !page.isOwned).map((page) => page.url),
+    ...(dossier.citationIntelligence?.secondOrderSources ?? []).map((source) => source.exampleCitedUrl),
   ].filter(Boolean))].slice(0, 10);
 }

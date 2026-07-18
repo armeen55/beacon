@@ -5,6 +5,7 @@ import type { EnginePollResult } from "@/domains/ai-visibility/run-engine-poll";
 import type { NativeTeardownRunSummary } from "@/domains/demand-graph/native-teardown-runner";
 import type { PrepareMovesSummary } from "@/domains/demand-graph/prepare-today-moves";
 import type { QuestionUniverseRebuildResult } from "@/domains/research/question-universe-loader";
+import type { CitationIntelligenceRefreshResult } from "@/domains/ai-visibility/citation-intelligence-snapshot";
 import type { ClaimGraphRebuildResult } from "@/domains/provenance/claim-graph-loader";
 import type { PageRankRebuildResult } from "@/domains/linkgraph/internal-pagerank-loader";
 import type { DisplacementCheckSummary } from "@/domains/serp/displacement-check";
@@ -101,6 +102,7 @@ export type AutonomousResearchDeps = {
   rebuildQuestions: (tenantId: string) => Promise<QuestionUniverseRebuildResult>;
   rebuildClaims: (tenantId: string) => Promise<ClaimGraphRebuildResult>;
   rebuildInternalAuthority: (tenantId: string) => Promise<PageRankRebuildResult>;
+  refreshCitationIntelligence: (tenantId: string, now: Date) => Promise<CitationIntelligenceRefreshResult>;
   checkDisplacement: (tenantId: string, now: Date) => Promise<DisplacementCheckSummary>;
   runStealLane: (tenantId: string, now: Date) => Promise<StealLaneRunSummary>;
   runNativeTeardown: (tenantId: string) => Promise<NativeTeardownRunSummary>;
@@ -194,6 +196,10 @@ const defaultDeps: AutonomousResearchDeps = {
   rebuildInternalAuthority: async (tenantId) => {
     const { rebuildInternalPageRankForTenant } = await import("@/domains/linkgraph/internal-pagerank-loader");
     return await rebuildInternalPageRankForTenant(tenantId);
+  },
+  refreshCitationIntelligence: async (tenantId, now) => {
+    const { refreshCitationIntelligenceForTenant } = await import("@/domains/ai-visibility/citation-intelligence-snapshot");
+    return await refreshCitationIntelligenceForTenant(tenantId, now);
   },
   checkDisplacement: async (tenantId, now) => {
     const { runDisplacementCheckForTenant } = await import("@/domains/serp/displacement-check");
@@ -405,16 +411,25 @@ export async function runAutonomousResearchForTenant(
   }
 
   if (!completed.has("knowledge")) {
-    const questions = await runStep<QuestionUniverseRebuildResult | null>("question-universe", null, () => deps.rebuildQuestions(tenantId));
-    const claims = await runStep<ClaimGraphRebuildResult | null>("factual-claim-graph", null, () => deps.rebuildClaims(tenantId));
-    const authority = await runStep<PageRankRebuildResult | null>("internal-authority-map", null, () => deps.rebuildInternalAuthority(tenantId));
+    // These four reads derive independent, $0 snapshots from already-stored
+    // evidence. Run them together so adding citation learning does not extend
+    // the operator's background wait by the sum of four database scans.
+    const [questions, claims, authority, citationIntel] = await Promise.all([
+      runStep<QuestionUniverseRebuildResult | null>("question-universe", null, () => deps.rebuildQuestions(tenantId)),
+      runStep<ClaimGraphRebuildResult | null>("factual-claim-graph", null, () => deps.rebuildClaims(tenantId)),
+      runStep<PageRankRebuildResult | null>("internal-authority-map", null, () => deps.rebuildInternalAuthority(tenantId)),
+      runStep<CitationIntelligenceRefreshResult | null>("citation-intelligence", null, () => deps.refreshCitationIntelligence(tenantId, now)),
+    ]);
     summary.questionsRanked = questions.value?.rows ?? 0;
     summary.uncoveredQuestions = questions.value?.uncovered ?? 0;
     summary.claimsChecked = claims.value?.claims ?? 0;
     summary.conflictingClaims = claims.value?.conflicting ?? 0;
     summary.pagesMapped = authority.value?.pages ?? 0;
     summary.orphanPagesFound = authority.value?.orphaned ?? 0;
-    if (!(await checkpoint("knowledge", [questions.receipt, claims.receipt, authority.receipt]))) return lastReceipt!;
+    summary.citationPatternsMined = citationIntel.value?.patternsMined ?? 0;
+    summary.answerDriftEvents = citationIntel.value?.driftEvents ?? 0;
+    summary.secondOrderDomains = citationIntel.value?.secondOrderDomains ?? 0;
+    if (!(await checkpoint("knowledge", [questions.receipt, claims.receipt, authority.receipt, citationIntel.receipt]))) return lastReceipt!;
   }
 
   if (!completed.has("opportunities")) {

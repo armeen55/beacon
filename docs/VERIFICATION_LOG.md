@@ -36341,3 +36341,31 @@ files / 23,007 passed / 23 conditional skips / 0 failed; `npm run build` exit 0 
 existing protected middleware-filename deprecation; `npm audit --omit=dev --audit-level=moderate`
 found zero vulnerabilities; `git diff --check` clean. No paid provider call, environment change,
 or customer-data mutation was performed.
+
+Release: commit `49d56191208088534196994ac5d93e910d305c58` was pushed to `origin/main`.
+Vercel deployment `dpl_CbeNZZVZ8p5sMTcr83EsyVmoPqyB` reached Ready and production
+`/api/version` returned that exact SHA. Unauthenticated `/`, `/today`, `/changes`, and `/results`
+returned their expected 307 login continuations.
+
+## 2026-07-17 - Citation intelligence converges into PreparedMove
+
+Connected three existing but fragmented intelligence families to the visit-driven autonomous
+knowledge stage: real quoted-sentence pattern mining, week-over-week AI answer drift, and
+second-order citation sources. They run in parallel with the existing question, claim, and
+internal-authority rebuilds so the new intelligence does not add their scan times serially. One
+bounded tenant-explicit snapshot is persisted through the existing Supabase-mirrored blob path.
+The ResearchDossier filters that snapshot to the current move and carries relevant citation
+phrasing, brand drift, and repeatedly cited source evidence into the existing PreparedMove hints
+and reference candidates. No new customer screen, ranker, control, cron dependency, paid API call,
+or automatic outreach action was added.
+
+The audit found and corrected two trust defects in second-order evidence. The loader selected
+`citation_count` but discarded it, flattening every stored aggregate row to one; it now preserves
+the real count through a pinned pure projection. Its optional DataForSEO prompt hints now use a
+tenant-explicit cache reader instead of ambient routing during background work.
+
+Verification before release: focused citation/dossier/autonomy pass 7 files / 81 tests; focused
+storage routing/invariant pass 4 files / 53 tests; strict typecheck; lint exit 0; complete suite
+1,514 files / 23,010 passed / 23 conditional skips / 0 failed; production build exit 0 with only
+the existing protected middleware-filename deprecation; dependency audit zero; `git diff --check`
+clean. No paid provider call, hosted environment mutation, or customer-data mutation was performed.

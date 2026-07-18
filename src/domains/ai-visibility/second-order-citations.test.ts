@@ -5,6 +5,7 @@ import {
   isRealisticOutreachTarget,
   rankSecondOrderDomains,
   suggestedActionFor,
+  citationRowToInput,
   type SecondOrderCitationInput,
 } from "./second-order-citations";
 
@@ -181,5 +182,16 @@ describe("rankSecondOrderDomains, ranking by citation frequency", () => {
       expect(r.suggestedAction).not.toMatch(/[–—]/);
       if (r.examplePrompt) expect(r.examplePrompt).not.toMatch(/[–—]/);
     }
+  });
+});
+
+describe("citationRowToInput", () => {
+  it("preserves the stored aggregate citation count instead of flattening it to one", () => {
+    expect(citationRowToInput({
+      root_domain: "example.com",
+      url: "https://example.com/nowruz-guide",
+      category_id: "nowruz traditions",
+      citation_count: 37,
+    }).count).toBe(37);
   });
 });

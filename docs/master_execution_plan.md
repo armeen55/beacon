@@ -3254,6 +3254,14 @@ the title target, supporting sections, FAQ answers, and adjacent topics that nee
 it may not stuff an off-topic or wrong-intent term into the current page. Customer renders read
 the cache once, never invoke a paid producer, and never create a second recommendation ranker.
 
+**Citation-intelligence convergence boundary, 2026-07-17:** quoted-sentence patterns, answer
+drift, and second-order cited sources are background-derived evidence for the canonical move
+dossier, not independent customer worklists or ranking engines. The autonomous knowledge stage
+computes them from existing tenant data in parallel and persists one tenant-explicit snapshot.
+Repeated-source strength must preserve the stored aggregate citation count. A second-order URL may
+be used as a source/distribution lead, never as automatic proof of a factual claim or permission to
+send outreach.
+
 ## FUTURE IDEAS (not in current execution plan)
 
 These are ideas, experiments, and dream-state features that are NOT in the active phases. They live here so they are never lost. Move to `NEXT_PHASE_EXECUTION_PLAN.md` only when they become active work.

@@ -1,7 +1,19 @@
 # Beacon Verified State
 
-> 🟡 **The 2026-07-17 cached keyword-to-action portfolio is code-complete and awaiting
-> release verification.** The live Today/Changes move path now merges page GSC queries, cached
+> 🟡 **The 2026-07-17 citation-intelligence convergence slice is code-complete and awaiting
+> release verification.** The autonomous knowledge stage now mines real quoted-sentence patterns,
+> week-over-week answer drift, and second-order cited sources in parallel, saves one tenant-explicit
+> durable snapshot, and feeds relevant evidence into the same ResearchDossier → PreparedMove path.
+> It adds no screen, ranker, button, cron dependency, or paid call. Second-order rows now preserve
+> real aggregate citation counts instead of flattening every source to one, and DataForSEO mention
+> hints use an explicit tenant cache. Verification: focused citation/dossier/autonomy pass 7 files /
+> 81 tests plus storage invariants 53/53; strict typecheck and lint; complete suite 1,514 files /
+> 23,010 passed / 23 conditional skips / 0 failed; production build and dependency audit exit 0;
+> `git diff --check` clean. Next: deploy, then connect the remaining competitor-forensics and
+> Clarity-depth evidence gaps.
+
+> 🟢 **The 2026-07-17 cached keyword-to-action portfolio is deployed and exact-SHA verified at
+> `49d56191` (Vercel `dpl_CbeNZZVZ8p5sMTcr83EsyVmoPqyB`).** The live Today/Changes move path now merges page GSC queries, cached
 > DataForSEO demand, up to 1,000 cached related keywords per researched seed, cached difficulty,
 > and AI fan-out questions into one intent-gated page portfolio. That portfolio changes the exact
 > title target, H2 plan, FAQ targets, addressable demand, and separate-page warnings; wrong-intent
@@ -9,7 +21,7 @@
 > no paid call and no duplicate repository I/O. Verification: focused 95/95 plus the order-isolated
 > route regression 2/2; strict typecheck and lint; complete suite 1,513 files / 23,007 passed / 23
 > conditional skips / 0 failed; production build and dependency audit exit 0; `git diff --check`
-> clean. Next: deploy, then connect citation-pattern learning and answer drift.
+> clean. Production `/api/version` returned the exact full SHA and core route contracts were correct.
 
 > 🟢 **The 2026-07-17 long-horizon confirmation runner is deployed and exact-SHA verified at
 > `ec0d8f1f` (Vercel `dpl_3oUFgc7CZAQcx5DuWqMXMCMTcJmL`).** Predeclared proof records now compute and append versioned
