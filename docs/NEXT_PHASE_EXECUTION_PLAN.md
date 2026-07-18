@@ -5,13 +5,16 @@
 This is the operator's live priority order. I work it strictly top to bottom. The dated
 chronology of what already landed lives in VERIFICATION_LOG.md; this list is only what is next.
 
-> 🟡 **2026-07-17 on-use customer-language convergence — RELEASE PENDING.** The dormant
+> 🟢 **2026-07-17 on-use customer-language convergence — DEPLOYED AND EXACT-SHA VERIFIED at
+> `9174b0f1` (Vercel `dpl_FGsSQhMVrfzCQfx2SwJDSzN4mTjc`).** The dormant
 > overnight Autopilot card is no longer mounted on Connections, and audited customer surfaces no
 > longer promise overnight, nightly, or next-scheduled work that does not exist. Execution copy is
 > consistently Today; autonomous recovery says it advances while Beacon is used or when new
 > evidence arrives. A cataloged architecture invariant pins the operating-model boundary. Full
 > verification is green at 1,537 files / 23,085 passed / 23 conditional skips / 0 failed plus
-> typecheck, lint, and diff checks. The strict external acceptance order below is unchanged.
+> typecheck, lint, build, audit, and diff checks. Production returned the exact full SHA and core
+> signed-out route continuations remained correct. The strict external acceptance order below is
+> unchanged.
 
 > 🟢 **2026-07-17 acceptance hardening — DEPLOYED AND EXACT-SHA VERIFIED at `cacb0ad3`
 > (Vercel `dpl_3BA1TVcUjYa6brJGJBpqZyxTyCwW`).** Beacon now has one honest autonomous

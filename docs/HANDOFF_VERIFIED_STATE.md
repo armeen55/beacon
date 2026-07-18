@@ -1,6 +1,6 @@
 # Beacon Verified State
 
-> 🟡 **2026-07-17 customer-language convergence is release-ready; deployment pending.** The
+> 🟢 **2026-07-17 customer-language convergence is deployed and exact-SHA verified.** The
 > no-schedule operating model is now consistent at every audited live touchpoint. Connections no
 > longer mounts the dormant “Autopilot overnight” publishing/preparation control. Today recovery
 > says background work and rechecks while Beacon is used; shared connector/job recovery never
@@ -12,7 +12,12 @@
 > A new architecture invariant prevents remounting the dormant Autopilot card or restoring the
 > misleading phrases on the critical customer surfaces. Verification: strict typecheck; lint with
 > zero errors / 74 existing warnings; complete suite 1,537 files / 23,085 passed / 23 conditional
-> skips / 0 failed; `git diff --check` clean. No paid call, hosted environment mutation,
+> skips / 0 failed; production build; dependency audit 0 vulnerabilities; `git diff --check`
+> clean. Release `9174b0f1cc318714d0ac6c41bd56f3478dc44f4f` was pushed to `origin/main`;
+> Vercel deployment `dpl_FGsSQhMVrfzCQfx2SwJDSzN4mTjc` reached Ready; production `/api/version`
+> returned the exact release SHA; and unauthenticated `/`, `/today`, `/changes`, `/results`,
+> `/activity`, `/research/keywords`, and `/settings/connectors` returned their expected 307 login
+> continuations. No paid call, hosted environment mutation,
 > customer-data mutation, OAuth action, or publish occurred. The same external acceptance sequence
 > remains next: five unseen cases, one signed-in on-use receipt/timing pass, real unit economics,
 > Ritz reconnection, one approved Iranopedia publish, live verification, and its measurement windows.

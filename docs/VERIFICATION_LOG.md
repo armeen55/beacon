@@ -36549,7 +36549,7 @@ Vercel deployment `dpl_3BA1TVcUjYa6brJGJBpqZyxTyCwW` reached Ready and productio
 `/api/version` returned that exact SHA. Unauthenticated `/`, `/today`, `/changes`, `/results`,
 `/diagnostics`, and `/settings/connectors` returned their expected 307 login continuations.
 
-## 2026-07-17 - On-use customer-language convergence (release pending)
+## 2026-07-17 - On-use customer-language convergence (deployed)
 
 Audited every live customer-facing occurrence of “overnight,” “nightly,” “tonight,” and “scheduled
 run” after removing Vercel schedules. The audit found one major product contradiction: Connections
@@ -36578,3 +36578,9 @@ before this documentation sync. No paid provider call, environment change, custo
 OAuth action, or publish occurred. Hosted acceptance remains external: five unseen cases, one
 authenticated visit/source receipt and signed-in timing pass, real unit economics, Ritz reconnect,
 one approved Iranopedia publish, live verification, and its predeclared measurement windows.
+
+Release: commit `9174b0f1cc318714d0ac6c41bd56f3478dc44f4f` was pushed to `origin/main`.
+Vercel deployment `dpl_FGsSQhMVrfzCQfx2SwJDSzN4mTjc` reached Ready and production
+`/api/version` returned that exact SHA. Unauthenticated `/`, `/today`, `/changes`, `/results`,
+`/activity`, `/research/keywords`, and `/settings/connectors` returned their expected 307 login
+continuations.
