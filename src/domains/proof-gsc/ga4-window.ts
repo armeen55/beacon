@@ -18,6 +18,9 @@ import "server-only";
 
 import { getSupabaseAdmin } from "@/lib/persistence/supabase";
 
+const PAGE_SIZE = 1_000;
+const MAX_ROWS = 100_000;
+
 export type Ga4WindowMetrics = {
   sessions: number;
   engagedSessions: number;
@@ -71,23 +74,41 @@ export async function readGa4WindowForPages(args: {
 
   try {
     const admin = getSupabaseAdmin();
-    const { data, error } = await admin
-      .from("ga4_url_traffic")
-      .select("url, sessions, engaged_sessions, conversions")
-      .eq("tenant_id", args.tenantId)
-      .gte("date", args.start)
-      .lt("date", args.end)
-      .or(orFilter);
-    if (error || !Array.isArray(data)) return out;
-
-    // Sum per path key.
-    const byKey = new Map<string, Ga4WindowMetrics>();
-    for (const r of data as Array<{
+    const allRows: Array<{
       url: string;
       sessions: number | string | null;
       engaged_sessions: number | string | null;
       conversions: number | string | null;
-    }>) {
+    }> = [];
+    let complete = false;
+    for (let offset = 0; offset < MAX_ROWS; offset += PAGE_SIZE) {
+      const { data, error } = await admin
+        .from("ga4_url_traffic")
+        .select("url, sessions, engaged_sessions, conversions")
+        .eq("tenant_id", args.tenantId)
+        .gte("date", args.start)
+        .lt("date", args.end)
+        .or(orFilter)
+        // Stable ordering is required for offset pagination; without it rows
+        // can move between pages and be skipped or counted twice.
+        .order("date", { ascending: true })
+        .order("url", { ascending: true })
+        .range(offset, offset + PAGE_SIZE - 1);
+      if (error || !Array.isArray(data)) return out;
+      const rows = data as typeof allRows;
+      allRows.push(...rows);
+      if (rows.length < PAGE_SIZE) {
+        complete = true;
+        break;
+      }
+    }
+    // Never report a truncated aggregate as a real total. The row ceiling is
+    // a fail-closed bound, not permission to undercount a high-traffic page.
+    if (!complete) return out;
+
+    // Sum per path key.
+    const byKey = new Map<string, Ga4WindowMetrics>();
+    for (const r of allRows) {
       const k = ga4PathKey(r.url);
       const acc = byKey.get(k) ?? zero();
       acc.sessions += Number(r.sessions) || 0;

@@ -24,6 +24,13 @@ import type {
   DecayStatus,
 } from "./decay-types";
 import { DEFAULT_DECAY_CONFIG } from "./decay-types";
+import { NATIVE_REGIME_START } from "@/domains/product/native-regime";
+import type { CitationObservation } from "@/domains/citation-observations/types";
+
+export type CitationDateShard = {
+  date: string;
+  citations: CitationObservation[];
+};
 
 /**
  * Compute citation decay for all owned pages across the full date range.
@@ -33,9 +40,56 @@ export function computeCitationDecay(
   config: DecayConfig = DEFAULT_DECAY_CONFIG,
 ): CitationDecayResult[] {
   const dates = getAllCitationDates();
+  return computeCitationDecayFromShards(
+    dates.map((date) => ({ date, citations: getCitationsForDate(date) })),
+    ownedDomain,
+    config,
+  );
+}
+
+/** Pure core. Cold history that ends before the native-poll regime abstains. */
+export function computeCitationDecayFromShards(
+  shards: CitationDateShard[],
+  ownedDomain: string,
+  config: DecayConfig = DEFAULT_DECAY_CONFIG,
+): CitationDecayResult[] {
+  const ordered = [...shards].sort((a, b) => a.date.localeCompare(b.date));
+  const dates = ordered.map((shard) => shard.date);
   if (dates.length < config.min_periods) return [];
 
   const ownedNorm = ownedDomain.replace(/^www\./, "").toLowerCase();
+
+  // The legacy cold shards stopped being the complete source when native
+  // polling launched. A pre-regime series cannot honestly claim a current
+  // decline, so retain the pages but mark every read insufficient.
+  if (dates[dates.length - 1]! < NATIVE_REGIME_START) {
+    const counts = new Map<string, { count: number; last: string }>();
+    for (const shard of ordered) {
+      for (const citation of shard.citations) {
+        if (!citation.is_owned) continue;
+        const domain = citation.domain?.replace(/^www\./, "").toLowerCase();
+        const url = (citation.url ?? "").replace(/\/+$/, "").toLowerCase();
+        if (domain !== ownedNorm || !url) continue;
+        const previous = counts.get(url);
+        counts.set(url, {
+          count: (previous?.count ?? 0) + 1,
+          last: previous && previous.last > shard.date ? previous.last : shard.date,
+        });
+      }
+    }
+    return [...counts.entries()].map(([page_url, value]) => ({
+      page_url,
+      topic: null,
+      status: "insufficient_history" as const,
+      current_period_citations: 0,
+      previous_period_citations: value.count,
+      change_pct: null,
+      periods_analyzed: dates.length,
+      last_citation_date: value.last,
+      explanation:
+        "Historical citation shards end before native AI polling began, so they cannot support a current decay comparison.",
+    }));
+  }
 
   // Split dates into two halves: earlier vs recent
   const midpoint = Math.floor(dates.length / 2);
@@ -50,7 +104,7 @@ export function computeCitationDecay(
   const lastSeen = new Map<string, string>();
 
   for (const date of earlierDates) {
-    const citations = getCitationsForDate(date);
+    const citations = ordered.find((shard) => shard.date === date)?.citations ?? [];
     for (const c of citations) {
       if (!c.is_owned) continue;
       const domain = c.domain?.replace(/^www\./, "").toLowerCase();
@@ -64,7 +118,7 @@ export function computeCitationDecay(
   }
 
   for (const date of recentDates) {
-    const citations = getCitationsForDate(date);
+    const citations = ordered.find((shard) => shard.date === date)?.citations ?? [];
     for (const c of citations) {
       if (!c.is_owned) continue;
       const domain = c.domain?.replace(/^www\./, "").toLowerCase();

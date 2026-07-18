@@ -56,6 +56,10 @@ afterEach(() => {
 });
 
 describe("mapRowToTenant", () => {
+  it("maps a missing or invalid segment to the fail-safe unknown bucket", () => {
+    expect(mapRowToTenant(row({ segment: null })).segment).toBe("unknown");
+    expect(mapRowToTenant(row({ segment: "garbage" })).segment).toBe("unknown");
+  });
   it("preserves a valid publish_target (wix_cms → Accept can reach Wix)", () => {
     expect(mapRowToTenant(row()).publish_target).toBe("wix_cms");
   });

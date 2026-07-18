@@ -37,7 +37,7 @@ import { classifyQueryIntent, type QueryIntent } from "@/domains/demand-graph/qu
 export type SiteCategory = TenantSegment;
 
 export function siteCategoryFromSegment(segment: TenantSegment | null | undefined): SiteCategory {
-  return segment ?? "local_service";
+  return segment ?? "unknown";
 }
 
 // ---------------------------------------------------------------------------

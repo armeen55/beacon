@@ -1056,9 +1056,10 @@ export function composeContentArticleSchema(
   if (kind === "list") return composeContentListDirective();
 
   const pageUrl = candidate.target_url ?? snap.url;
-  const description =
-    snap.meta_description?.trim() ||
-    clipOnWordBoundary((snap.body_paragraph_sample ?? []).join(" "), 155);
+  const descriptionSource = selectMetaSource(snap, () => false);
+  const description = descriptionSource
+    ? clipOnWordBoundary(descriptionSource, 155)
+    : null;
   const orgName = brand?.suffix?.trim() || "";
   // Entity coherence (L11): reference the site Organization's stable @id (the one
   // the Entity-foundation Organization+WebSite graph publishes) so this page's
@@ -1281,9 +1282,10 @@ function composeSchema(
 
   const name = snap.title?.trim() || snap.h1?.trim() || "";
   if (!name) return null;
-  const description =
-    snap.meta_description?.trim() ||
-    clipOnWordBoundary((snap.body_paragraph_sample ?? []).join(" "), 155);
+  const descriptionSource = selectMetaSource(snap, () => false);
+  const description = descriptionSource
+    ? clipOnWordBoundary(descriptionSource, 155)
+    : null;
   const jsonLd = {
     "@context": "https://schema.org",
     "@type": "WebPage",

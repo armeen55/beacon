@@ -102,7 +102,13 @@ import { answerBlockReadiness } from "./triggers/answer-block-readiness";
 import { clarityFriction } from "./triggers/clarity-friction";
 import { loadClarityPageSignalsForTenant } from "./clarity-page-signals";
 import { gscDecay } from "./triggers/gsc-decay";
-import { profoundAeoGap } from "./triggers/profound-aeo-gap";
+import {
+  profoundAeoGap,
+  profoundPageAeoGaps,
+} from "./triggers/profound-aeo-gap";
+import { loadCachedProfoundCoverageForTenant } from "@/domains/profound-coverage/load-cached";
+import type { AeoActionPack } from "@/domains/profound-coverage/types";
+import { annotateCrawlStaleness } from "./crawl-staleness";
 // AEO defense pack (BEACON 500 P8, 2026-07-03): three deterministic $0
 // detectors over ALREADY-PERSISTED Profound rows (never a live API call).
 import { aeoZeroSourceOpening } from "./triggers/aeo-zero-source-opening";
@@ -472,6 +478,7 @@ export async function loadTriggerCandidatesForTenant(options: {
   // name + first word + domain host). Soft-empty when Profound isn't
   // connected / no rows — the predicate then never fires.
   let profoundTopicSignals: ProfoundTopicSignal[] = [];
+  let profoundPagePacks: AeoActionPack[] = [];
   try {
     const ownAliases = buildOwnAliasSet({
       brandName: businessConfig.name,
@@ -487,6 +494,14 @@ export async function loadTriggerCandidatesForTenant(options: {
   } catch (err) {
     console.error(
       `[trigger-loader] profound topic-signals load failed for ${tenantId} (profound_aeo_gap skips): ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+  try {
+    const coverage = await loadCachedProfoundCoverageForTenant(tenantId);
+    profoundPagePacks = coverage.actionPacks;
+  } catch (err) {
+    console.error(
+      `[trigger-loader] Profound page coverage load failed for ${tenantId} (page-specific profound_aeo_gap skips): ${err instanceof Error ? err.message : String(err)}`,
     );
   }
 
@@ -929,14 +944,25 @@ export async function loadTriggerCandidatesForTenant(options: {
       ?.trim()
       .replace(/^https?:\/\//, "")
       .replace(/\/$/, "");
-    all.push(
-      ...profoundAeoGap({
-        tenantId,
-        signals: profoundTopicSignals,
-        siteRootUrl: rootDomain ? "https://" + rootDomain + "/" : null,
-        signalAt: new Date().toISOString(),
-      }),
-    );
+    const signalAt = new Date().toISOString();
+    const pageSpecific = profoundPageAeoGaps({
+      tenantId,
+      packs: profoundPagePacks,
+      signalAt,
+    });
+    all.push(...pageSpecific);
+    // Historical visibility-only data has no prompt-to-page assignments. Keep
+    // one honest root-level fallback only when the richer compiler found none.
+    if (pageSpecific.length === 0) {
+      all.push(
+        ...profoundAeoGap({
+          tenantId,
+          signals: profoundTopicSignals,
+          siteRootUrl: rootDomain ? "https://" + rootDomain + "/" : null,
+          signalAt,
+        }),
+      );
+    }
     // AEO defense pack (BEACON 500 P8): same site-root anchoring - each is a
     // topic-level / brand-level AEO signal, not a page-level edit. Pure
     // predicates over the pre-loaded, already-detected signals; no Profound
@@ -1730,7 +1756,12 @@ export async function loadTriggerCandidatesForTenant(options: {
     }
   }
 
-  const { candidates, diagnostic_only } = applyQueueRules(all);
+  const freshnessAware = annotateCrawlStaleness({
+    candidates: all,
+    snapshots,
+    now: new Date(),
+  });
+  const { candidates, diagnostic_only } = applyQueueRules(freshnessAware);
   const dedupedC = dedupeByKey(candidates);
   const dedupedD = dedupeByKey(diagnostic_only);
 

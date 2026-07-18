@@ -46,6 +46,7 @@ import { dedupeKey } from "../emitter/dedupe-key";
 import type { RecommendationCandidateRow } from "../emitter/candidate-row";
 import { profoundAeoGapCopy } from "../customer-copy-templates";
 import type { ProfoundTopicSignal } from "../profound-topic-signals";
+import type { AeoActionPack } from "@/domains/profound-coverage/types";
 
 export type ProfoundAeoGapInput = {
   tenantId: string;
@@ -66,6 +67,86 @@ const MIN_EXECUTIONS = 10;
 /** A competitor must clear this mention floor to count as "winning" the
  *  topic — guards against a stray one-mention noise asset. */
 const MIN_COMPETITOR_MENTIONS = 2;
+export const MAX_PROFOUND_PAGE_GAPS = 5;
+
+export type ProfoundPageAeoGapInput = {
+  tenantId: string;
+  packs: ReadonlyArray<AeoActionPack>;
+  signalAt: string;
+};
+
+/**
+ * Convert the coverage compiler's prompt-to-best-page decisions into a bounded
+ * set of page-specific queue candidates. Highest-priority pack wins per URL,
+ * so the promotion cooldown identity cannot collapse unrelated topics onto the
+ * homepage and the operator never gets several AI cards for one page at once.
+ */
+export function profoundPageAeoGaps(
+  input: ProfoundPageAeoGapInput,
+): RecommendationCandidateRow[] {
+  const eligible = [...input.packs]
+    .filter(
+      (p) =>
+        p.targetUrl != null &&
+        (p.action === "add_answer_block" || p.action === "expand_existing_page"),
+    )
+    .sort(
+      (a, b) =>
+        b.priorityScore - a.priorityScore || a.prompt.localeCompare(b.prompt),
+    );
+
+  const selected: AeoActionPack[] = [];
+  const seenUrls = new Set<string>();
+  for (const pack of eligible) {
+    const targetUrl = pack.targetUrl!;
+    if (seenUrls.has(targetUrl)) continue;
+    seenUrls.add(targetUrl);
+    selected.push(pack);
+    if (selected.length >= MAX_PROFOUND_PAGE_GAPS) break;
+  }
+
+  return selected.map((pack) => {
+    const targetUrl = pack.targetUrl!;
+    const actionType = "add_answer_block" as const;
+    const topicClusterLabel = `profound_prompt:${pack.promptId ?? pack.prompt}`;
+    return {
+      tenant_id: input.tenantId,
+      trigger_signal: "profound_aeo_gap",
+      action_type: actionType,
+      generator_kind: "deterministic",
+      target_url: targetUrl,
+      topic_cluster_label: topicClusterLabel,
+      evidence: [
+        {
+          kind: "prompt_answer_observation",
+          ref: `profound:${pack.promptId ?? pack.prompt}`,
+          detail: pack.evidence,
+        },
+      ],
+      confidence: "medium",
+      impact_estimate: "high",
+      customer_copy:
+        `AI assistants answer “${pack.prompt}” from other sources. ` +
+        "Add a direct answer to this page so it is easier to cite.",
+      operator_evidence:
+        `signal=profound_page_aeo_gap; prompt=${pack.prompt}; ` +
+        `priority=${pack.priorityScore}; target=${targetUrl}; ${pack.evidence}`,
+      dedupe_key: dedupeKey({
+        tenantId: input.tenantId,
+        actionType,
+        targetUrl,
+        topicClusterLabel,
+      }),
+      cooldown_key: cooldownKey({
+        tenantId: input.tenantId,
+        actionType,
+        targetUrl,
+      }),
+      created_from_signal_at: input.signalAt,
+      safety_flags: [],
+    };
+  });
+}
 
 /**
  * @no-classifier-required: topic-level AEO gap, not page-scoped. The unit

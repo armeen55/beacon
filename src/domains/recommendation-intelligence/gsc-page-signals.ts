@@ -25,6 +25,7 @@ import { getSupabaseAdmin } from "@/lib/persistence/supabase";
 import { canonicalizeCitationUrl } from "@/domains/citation-lifecycle/canonicalize-url";
 import { readLastFinalizedDate } from "@/domains/proof-gsc/gsc-window";
 import { log } from "@/lib/logger";
+import { densifyDailyClicks } from "@/domains/gsc/densify-daily-series";
 
 export type GscQuerySignal = {
   query: string;
@@ -361,10 +362,9 @@ export async function loadGscSiteTotalsForTenant(
     }
     if (impressions90d <= 0) return null;
 
-    const dailyClicks = [...clicksByDate.entries()].map(([date, clicks]) => ({
-      date,
-      clicks,
-    }));
+    const dailyClicks = densifyDailyClicks(
+      [...clicksByDate.entries()].map(([date, clicks]) => ({ date, clicks })),
+    );
 
     return {
       clicks90d,

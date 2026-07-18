@@ -47,6 +47,7 @@ import {
   rebuildProfoundImportRuns,
 } from "./merge-ingest";
 import { discoverPages } from "@/domains/pages/discover";
+import type { PageEntity } from "@/domains/pages/types";
 import { buildCitationEvidenceIndex } from "@/domains/pages/citation-index";
 import { buildAnswerIntelligenceIndex } from "@/domains/answer-intelligence/build-index";
 import { writeStore, readStore } from "@/lib/persistence/json-store";
@@ -370,12 +371,14 @@ export async function runProfoundImport(
   }
 
   const siteDomain = business.domain.trim().toLowerCase().replace(/^www\./, "");
+  const existingPages = await readStore<PageEntity>("pages");
   const pages = discoverPages({
     citations: allCitationsForIndex,
     changes: importedChanges,
     entities,
     ownedDomain: siteDomain,
     tenantId,
+    existingPages,
   });
   await writeStore("pages", pages);
   await syncPages(pages, tenantId);

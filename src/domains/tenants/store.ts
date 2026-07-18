@@ -30,6 +30,15 @@ function coerceTenantRole(v: unknown): BeaconTenant["role"] {
     : "paid_customer";
 }
 
+function coerceTenantSegment(v: unknown): BeaconTenant["segment"] {
+  return v === "local_residential_builder" ||
+    v === "local_service" ||
+    v === "content_publisher" ||
+    v === "product_app"
+    ? v
+    : "unknown";
+}
+
 // ---------------------------------------------------------------------------
 // Read
 // ---------------------------------------------------------------------------
@@ -47,7 +56,7 @@ export function mapRowToTenant(r: Record<string, unknown>): BeaconTenant {
     slug: String(r.slug ?? ""),
     business_name: String(r.business_name ?? ""),
     domain: String(r.domain ?? ""),
-    segment: (r.segment as BeaconTenant["segment"]) ?? "local_service",
+    segment: coerceTenantSegment(r.segment),
     project_mix: arr(r.project_mix) as BeaconTenant["project_mix"],
     cities_served: arr(r.cities_served),
     budget_range: (r.budget_range as BeaconTenant["budget_range"]) ?? "mixed",

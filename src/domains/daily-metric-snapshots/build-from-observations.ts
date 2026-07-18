@@ -367,6 +367,9 @@ export function buildDailySnapshotsFromObservations(
       (o) =>
         o.tracked_brand_cited === true || o.tracked_brand_mentioned === true,
     ).length;
+    const platformCitedObservations = observations.filter(
+      (o) => o.tracked_brand_cited === true,
+    ).length;
 
     rows.push({
       id,
@@ -385,12 +388,16 @@ export function buildDailySnapshotsFromObservations(
         source_system: "beacon_native",
         derived_from_run_id: observationRunId,
         scope_semantics: "owned_brand_rollup",
+        // Stored inside the existing metadata column so this correctness fix
+        // deploys safely without depending on a hosted schema migration.
+        cited_obs_count: platformCitedObservations,
       },
       tenant_id: tenantId,
       // Phase 2A read-model extensions. `cited_or_mentioned_count` is
       // the headline addition for platform rows. The two entity-only
       // fields stay null here — they live on entity rows.
       cited_or_mentioned_count: platformCitedOrMentioned,
+      cited_obs_count: platformCitedObservations,
       position_weighted_citation_count: null,
       mentioned_obs_count: null,
       // Section 6 C2 — populated on the platform aggregate row.

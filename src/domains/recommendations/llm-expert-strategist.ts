@@ -109,8 +109,8 @@ export type ExpertSynthesis = ExpertVerdict & {
 // Generic "helps AI assistants read it" is allowed; "AI assistants cite X" is
 // a factual claim that requires real answer-engine evidence.
 const AI_CLAIM_PATTERNS: ReadonlyArray<RegExp> = [
-  /\b(ai|assistant|assistants|answer engines?)\b[^.]{0,48}\b(cite|cites|cited|citing|recommend|recommends|recommended|recommending|mention|mentions|mentioned|answer|answers|answered)\b/i,
-  /\b(cite|cites|cited|citing|recommend|recommends|recommended|mention|mentions|mentioned)\b[^.]{0,48}\b(ai|assistant|assistants|answer engines?)\b/i,
+  /\b(ai|assistant|assistants|answer engines?)\b[^.!?]{0,240}\b(cite|cites|cited|citing|recommend|recommends|recommended|recommending|mention|mentions|mentioned|answer|answers|answered)\b/i,
+  /\b(cite|cites|cited|citing|recommend|recommends|recommended|mention|mentions|mentioned)\b[^.!?]{0,240}\b(ai|assistant|assistants|answer engines?)\b/i,
 ];
 
 // Internal-identifier leaks (the model sometimes echoes a payload JSON key into

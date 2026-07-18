@@ -44,6 +44,11 @@ const SEGMENT_DEFAULTS: Record<TenantSegment, ResolvedTenantFeatures> = {
     call_tracking: false,
     geo_pages: false,
   },
+  unknown: {
+    local_service: false,
+    call_tracking: false,
+    geo_pages: false,
+  },
 };
 
 const SAFE_FALLBACK: ResolvedTenantFeatures = {

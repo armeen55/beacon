@@ -50,13 +50,15 @@ async function main() {
 
   // Phase 1: Discover pages
   console.log("\n--- Phase 1: Page Discovery ---");
-  const ownedDomain = getSiteConfig().siteDomain;
+  const ownedDomain = getSiteConfig(tenantId).siteDomain;
+  const existingPages = await readStore<PageEntity>("pages");
   const pages = discoverPages({
     citations: allCitations,
     changes,
     entities,
     ownedDomain,
     tenantId,
+    existingPages,
   });
 
   const ownedPages = pages.filter(p => p.is_owned);

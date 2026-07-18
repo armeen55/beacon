@@ -127,6 +127,7 @@ export function profileFromSnapshotsAndConfig(
   const services = new Set<string>();
   const locations = new Set<string>();
   let sawContentSchema = false;
+  const editorialUrls = new Set<string>();
 
   const CONTENT = new Set([
     "Article", "NewsArticle", "BlogPosting", "Blog", "ScholarlyArticle", "TechArticle", "Report",
@@ -148,6 +149,18 @@ export function profileFromSnapshotsAndConfig(
     for (const name of s.schema_entity_names ?? []) {
       const v = name.trim().toLowerCase();
       if (v && v.length <= 60) services.add(v);
+    }
+    // Cold-start fallback for publishers that need schema precisely because
+    // they do not have it yet. Require a portfolio of substantial, structured
+    // pages with no local-service/location signal; this cannot be triggered by
+    // one incidental company blog post.
+    if (
+      (s.word_count ?? 0) >= 500 &&
+      (s.h2_list ?? []).length >= 2 &&
+      (s.service_terms ?? []).length === 0 &&
+      (s.location_terms ?? []).length === 0
+    ) {
+      editorialUrls.add(s.url);
     }
   }
 
@@ -176,9 +189,13 @@ export function profileFromSnapshotsAndConfig(
     services: [...services].slice(0, 40),
     keyPages: config.keyPages ?? [],
     socialProfiles: [],
-    // A content-schema site is only a content publisher when it has no physical
-    // presence (same rule as launch's contentSiteSignal).
-    contentSiteSignal: sawContentSchema && address === null && phone === null,
+    // A content-schema site OR a strong five-page editorial portfolio is only a
+    // content publisher when it has no physical presence. Five pages keeps the
+    // post-crawl inference conservative for generic service/product tenants.
+    contentSiteSignal:
+      (sawContentSchema || editorialUrls.size >= 5) &&
+      address === null &&
+      phone === null,
   };
 }
 

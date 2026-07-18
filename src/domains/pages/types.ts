@@ -219,6 +219,9 @@ export type PageSnapshotDiff = {
   h1_changed: boolean;
   meta_description_changed: boolean;
   faq_count_changed: boolean;
+  /** Exact prior FAQ count captured when the diff is built. Optional for
+   * pre-2026-07-17 stored diffs, which cannot support a directional alert. */
+  previous_faq_count?: number;
   schema_changed: boolean;
   content_changed: boolean;
   headings_changed: boolean;

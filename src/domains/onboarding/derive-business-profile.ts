@@ -30,8 +30,8 @@
  *              furniture (home/about/contact/... — vertical-agnostic)
  *   keyPages:  internal nav hrefs, normalized paths, capped
  *   social:    JSON-LD sameAs + footer profile links
- *   contentSiteSignal: Article-family schema present AND no physical
- *              address (encyclopedias/blogs vs. local businesses)
+ *   contentSiteSignal: Article-family schema OR repeated semantic editorial
+ *              pages, AND no physical address/phone (publishers vs. local businesses)
  */
 
 import { load as cheerioLoad } from "cheerio";
@@ -304,8 +304,17 @@ export function deriveBusinessProfile(
   const services = new Set<string>();
   const socialProfiles = new Set<string>();
   let sawContentSchema = false;
+  let editorialPageCount = 0;
 
   for (const page of pages) {
+    const pageDom = cheerioLoad(page.html);
+    const articleText = pageDom("article").first().text().replace(/\s+/g, " ").trim();
+    const articleWords = articleText === "" ? 0 : articleText.split(/\s+/).length;
+    // A repeated, substantial semantic <article> is strong publisher evidence
+    // even when the site is missing the Article JSON-LD Beacon should recommend.
+    // One incidental blog post never flips the tenant; the final gate requires
+    // multiple pages and still gives address/phone absolute precedence.
+    if (articleWords >= 250) editorialPageCount += 1;
     const nodes = collectJsonLdNodes(page.html);
     for (const node of nodes) {
       for (const t of typesOf(node)) {
@@ -412,7 +421,11 @@ export function deriveBusinessProfile(
   // PostalAddress) while their homepage carries an incidental Article/BlogPosting
   // node — that combination must NOT mis-flag them as a content publisher.
   // Require the ABSENCE of BOTH address and phone before declaring a content site.
+  // Repeated semantic article pages close the no-schema catch-22 conservatively:
+  // two substantial <article> pages are evidence; one incidental post is not.
   profile.contentSiteSignal =
-    sawContentSchema && profile.address === null && profile.phone === null;
+    (sawContentSchema || editorialPageCount >= 2) &&
+    profile.address === null &&
+    profile.phone === null;
   return profile;
 }

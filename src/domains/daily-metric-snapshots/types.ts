@@ -55,6 +55,15 @@ export type DailyMetricSnapshot = {
   cited_or_mentioned_count?: number | null;
 
   /**
+   * Number of observations where the owned brand was cited at least once.
+   * New builders persist the value in `metadata.cited_obs_count` so the
+   * customer-facing citation rate uses an observation numerator rather than
+   * the number of cited URLs (which can legitimately exceed observations).
+   * Kept optional here for file/import compatibility with historical rows.
+   */
+  cited_obs_count?: number | null;
+
+  /**
    * Per-entity sum of position-weighted brand citations. Populated on
    * owned-brand entity-scope rows; null on competitor entity rows and
    * on platform/topic rows. Formula:

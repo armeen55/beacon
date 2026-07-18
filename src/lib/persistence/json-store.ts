@@ -43,6 +43,7 @@ import {
   writeFileSync,
   renameSync,
 } from "node:fs";
+import { randomUUID } from "node:crypto";
 
 import { resolveDataPath } from "./resolve-data-path";
 
@@ -339,6 +340,10 @@ export const SUPABASE_MIRRORED_STORES = new Set<string>([
   // the verify module's OWN receipt (a distinct scope_key), never one of the
   // stores it verifies.
   "backup-verify-receipts",
+  // Release-level blind benchmark receipts. Without this mirror a legitimate
+  // hosted receipt would disappear with the Vercel instance and the release
+  // could never carry durable independent-validation evidence.
+  "blind-holdout-receipts",
 ]);
 
 const BLOBS_TABLE = "json_store_blobs";
@@ -547,7 +552,9 @@ async function atomicWrite<T>(
     }
   }
 
-  const tmp = resolved.routedPath + ".tmp";
+  // Unique temp names prevent independent Node workers (test runners, CLI
+  // jobs, overlapping serverless work) from renaming one another's file.
+  const tmp = `${resolved.routedPath}.${process.pid}.${randomUUID()}.tmp`;
   const json = JSON.stringify(data, null, 2);
   writeFileSync(tmp, json, "utf-8");
   renameSync(tmp, resolved.routedPath);

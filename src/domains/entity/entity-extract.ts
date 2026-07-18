@@ -22,9 +22,18 @@ import type {
 } from "./types";
 import { getSiteConfig } from "@/lib/site-config";
 import { readStore } from "@/lib/persistence/json-store";
+import { currentTenantId } from "@/lib/tenant-context";
 
 function canonicalize(name: string): string {
   return name.trim().toLowerCase().replace(/['']/g, "'").replace(/\s+/g, " ");
+}
+
+export function isOwnedBrandMention(
+  mention: string,
+  ownedAliases: ReadonlyArray<string>,
+): boolean {
+  const canonical = canonicalize(mention);
+  return ownedAliases.some((alias) => canonicalize(alias) === canonical);
 }
 
 function entityId(type: BeaconEntityType, canonical: string): string {
@@ -37,7 +46,7 @@ function entityId(type: BeaconEntityType, canonical: string): string {
 export async function extractEntities(
   snapshots: PageSnapshot[],
 ): Promise<EntityIndex> {
-  const config = getSiteConfig();
+  const config = getSiteConfig(await currentTenantId());
   const entityMap = new Map<string, BeaconEntity>();
   const now = new Date().toISOString();
 
@@ -109,16 +118,13 @@ export async function extractEntities(
     }
   }
 
-  const ownedCanonical = canonicalize(config.entityDisplayName);
-  const ownedShortCanonical = canonicalize(config.ownedBrandShort);
+  const ownedAliases = [config.entityDisplayName, config.ownedBrandShort].filter(
+    (alias) => alias.trim() && alias !== "You",
+  );
 
   for (const [canonical, count] of mentionCounts) {
     if (count < 2) continue;
-    const isOwned =
-      canonical === ownedCanonical ||
-      canonical === ownedShortCanonical ||
-      canonical.includes(ownedCanonical) ||
-      ownedCanonical.includes(canonical);
+    const isOwned = isOwnedBrandMention(canonical, ownedAliases);
 
     const displayName = [...mentionCounts.keys()]
       .find((k) => canonicalize(k) === canonical) ?? canonical;

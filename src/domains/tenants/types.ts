@@ -35,7 +35,9 @@ export type TenantSegment =
   | "local_residential_builder"
   | "local_service"
   | "content_publisher"
-  | "product_app";
+  | "product_app"
+  /** Missing/invalid registry value. All segment-specific engines stay off. */
+  | "unknown";
 
 /**
  * Per-tenant engine toggles. Absent field → segment default (see

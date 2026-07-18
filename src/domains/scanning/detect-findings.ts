@@ -10,10 +10,9 @@ import {
   type RobotsFile,
 } from "@/domains/pages/robots-parser";
 import { classifyAssetType } from "@/domains/pages/classify-asset-type";
-import {
-  diffSchemaCoverage,
-  type SchemaCoverageDiff,
-} from "@/domains/pages/expected-schema";
+import { diffSchemaCoverage, type SchemaCoverageDiff } from "@/domains/pages/expected-schema";
+import { schemaExpectationForSnapshot } from "@/domains/recommendation-intelligence/schema-expectation";
+import { getBusinessConfig } from "@/lib/business-config";
 import { classifyFaqChange } from "./faq-change-classifier";
 import { isFindingAutoLinkEnabled } from "@/lib/flags";
 
@@ -658,10 +657,24 @@ export function generateFindings(opts: {
   //
   // Dedupe across scans: `addFindings` in findings-store.ts replaces
   // same-type+same-url pending findings (see that file for the branch).
+  const businessConfig = getBusinessConfig(tenantId);
   for (const curr of currentSnapshots) {
-    const assetType = classifyAssetType(curr.url);
+    // Content tenants use the universal content/store classifier. Preserve the
+    // calibrated local-service asset map for non-content tenants until that
+    // map is replaced by an equally specific config-driven policy.
+    const expectation = businessConfig.contentSiteMode === true
+      ? schemaExpectationForSnapshot(curr, businessConfig)
+      : (() => {
+          const assetType = classifyAssetType(curr.url);
+          return {
+            pageType: assetType,
+            assetLabel: assetType.replace(/_/g, " "),
+            coverage: diffSchemaCoverage(assetType, curr.schema_types),
+          };
+        })();
+    if (!expectation) continue;
     const schemaTypes = curr.schema_types ?? [];
-    const coverage = diffSchemaCoverage(assetType, schemaTypes);
+    const coverage = expectation.coverage;
     if (coverage.satisfies_all_required) continue;
 
     const key = norm(curr.url);
@@ -679,17 +692,22 @@ export function generateFindings(opts: {
     // which excluded every content publisher's high-citation pages (articles,
     // guides, hubs) from ever reaching HIGH. Infra/sitemap/directory/lead-form
     // are not content assets and stay out.
-    const CONTENT_ASSET_TYPES = new Set([
+    const CONTENT_PAGE_TYPES = new Set([
       "homepage",
+      "city",
       "city_page",
+      "service",
       "service_page",
+      "project",
       "project_page",
       "process_page",
       "brand_page",
+      "hub",
       "hub_page",
+      "content",
     ]);
     const severity: FindingSeverity =
-      CONTENT_ASSET_TYPES.has(assetType) && citations > 50
+      CONTENT_PAGE_TYPES.has(expectation.pageType) && citations > 50
         ? "high"
         : missingCount >= 2
           ? "medium"
@@ -701,7 +719,7 @@ export function generateFindings(opts: {
     findings.push(
       makeSchemaMissingFinding({
         url: curr.url,
-        assetType,
+      assetLabel: expectation.assetLabel,
         severity,
         missingCount,
         missingStr,
@@ -916,7 +934,7 @@ function makeFinding(opts: {
  */
 function makeSchemaMissingFinding(opts: {
   url: string;
-  assetType: import("@/lib/constants").AssetType;
+  assetLabel: string;
   severity: FindingSeverity;
   missingCount: number;
   missingStr: string;
@@ -928,8 +946,7 @@ function makeSchemaMissingFinding(opts: {
   citations: number;
   isHP: boolean;
 }): Finding {
-  const assetLabel = opts.assetType.replace(/_/g, " ");
-  const summary = `${pathOf(opts.url)}: ${assetLabel} is missing ${opts.missingCount} required schema type${opts.missingCount === 1 ? "" : "s"} — ${opts.missingStr}`;
+  const summary = `${pathOf(opts.url)}: ${opts.assetLabel} is missing ${opts.missingCount} required schema type${opts.missingCount === 1 ? "" : "s"} — ${opts.missingStr}`;
   const suggestedAction = `Add page-scoped JSON-LD for: ${opts.missingStr}. Do not change visible content. Run a fresh scan after deploy.`;
 
   return makeFinding({

@@ -19,6 +19,7 @@ import {
   isOpaqueUrl,
 } from "./classify";
 import { getBusinessConfig } from "@/lib/business-config";
+import { createHash } from "node:crypto";
 
 type DiscoveredPage = {
   url: string;
@@ -45,6 +46,9 @@ export function discoverPages(opts: {
   entities: TrackedEntity[];
   ownedDomain: string;
   tenantId: string;
+  /** Existing registry rows preserve their historical ids during the migration
+   * from positional ids. Newly discovered URLs receive a stable tenant+URL id. */
+  existingPages?: PageEntity[];
 }): PageEntity[] {
   const { citations, changes, entities, ownedDomain, tenantId } = opts;
   if (!tenantId) {
@@ -69,6 +73,9 @@ export function discoverPages(opts: {
   );
 
   const pageMap = new Map<string, DiscoveredPage>();
+  const existingIdByUrl = new Map(
+    (opts.existingPages ?? []).map((page) => [page.url.replace(/\/+$/, "").toLowerCase(), page.id]),
+  );
 
   function getOrCreate(url: string, domain: string, path: string): DiscoveredPage {
     let page = pageMap.get(url);
@@ -134,10 +141,7 @@ export function discoverPages(opts: {
   }
 
   const results: PageEntity[] = [];
-  let idx = 0;
-
   for (const [, p] of pageMap) {
-    idx++;
     const pageType = classifyPageType(p.path, p.domain);
     const primaryCategory = mostCommon(p.source_categories) as
       | CitationObservation["source_category"]
@@ -155,7 +159,9 @@ export function discoverPages(opts: {
     const entityId = p.entity_ids.size > 0 ? [...p.entity_ids][0] : null;
 
     results.push({
-      id: `pg-${idx}`,
+      id:
+        existingIdByUrl.get(p.url.replace(/\/+$/, "").toLowerCase()) ??
+        stablePageId(tenantId, p.url),
       url: p.url,
       canonical_url: p.url,
       domain: p.domain,
@@ -178,6 +184,15 @@ export function discoverPages(opts: {
   }
 
   return results;
+}
+
+export function stablePageId(tenantId: string, url: string): string {
+  const normalizedUrl = url.trim().replace(/\/+$/, "").toLowerCase();
+  const digest = createHash("sha256")
+    .update(`${tenantId}\0${normalizedUrl}`)
+    .digest("hex")
+    .slice(0, 20);
+  return `pg-${digest}`;
 }
 
 function mostCommon(arr: string[]): string | undefined {

@@ -284,6 +284,38 @@ describe("deriveBusinessProfile — empty/hostile input", () => {
   });
 });
 
+describe("deriveBusinessProfile — schema-less publisher cold start", () => {
+  const article = (title: string) => `<html><head><title>${title} | Atlas</title></head><body><article><h1>${title}</h1><p>${Array.from({ length: 270 }, (_, i) => `word${i}`).join(" ")}</p></article></body></html>`;
+
+  it("recognizes repeated substantial semantic articles without requiring JSON-LD", () => {
+    const p = deriveBusinessProfile([
+      { url: "https://atlas.example/one", html: article("One") },
+      { url: "https://atlas.example/two", html: article("Two") },
+    ]);
+    expect(p.schemaTypes).toEqual([]);
+    expect(p.contentSiteSignal).toBe(true);
+  });
+
+  it("one incidental article never flips a generic site", () => {
+    const p = deriveBusinessProfile([
+      { url: "https://atlas.example/", html: article("One") },
+    ]);
+    expect(p.contentSiteSignal).toBe(false);
+  });
+
+  it("physical-presence evidence still wins over repeated articles", () => {
+    const p = deriveBusinessProfile([
+      {
+        url: "https://atlas.example/one",
+        html: article("One").replace("</body>", '<footer><a href="tel:4155550100">415-555-0100</a></footer></body>'),
+      },
+      { url: "https://atlas.example/two", html: article("Two") },
+    ]);
+    expect(p.phone).toBe("4155550100");
+    expect(p.contentSiteSignal).toBe(false);
+  });
+});
+
 // ── Live-check hardening (2026-06-11, ritzbuilders.com run) ──
 
 describe("normalizeDerivedLocations — real-world areaServed noise", () => {

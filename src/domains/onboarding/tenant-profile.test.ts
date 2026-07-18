@@ -143,6 +143,56 @@ describe("profileFromSnapshotsAndConfig — fuse snapshots + config", () => {
     expect(p.contentSiteSignal).toBe(false);
   });
 
+  it("five substantial non-local pages close the no-schema publisher catch-22", () => {
+    const pages = Array.from({ length: 5 }, (_, i) =>
+      snapshot({
+        id: `snap-${i}`,
+        page_id: `page-${i}`,
+        url: `https://example.com/article-${i}`,
+        word_count: 900,
+        h2_list: ["Background", "Details", "Sources"],
+        schema_types: [],
+        service_terms: [],
+        location_terms: [],
+      }),
+    );
+    const p = profileFromSnapshotsAndConfig(
+      pages,
+      baseConfig({ address: "", phone: "" }),
+    );
+    expect(p.contentSiteSignal).toBe(true);
+  });
+
+  it("four pages, local terms, or a phone keep the inference safely off", () => {
+    const page = (i: number, serviceTerms: string[] = []) =>
+      snapshot({
+        id: `snap-${i}`,
+        page_id: `page-${i}`,
+        url: `https://example.com/page-${i}`,
+        word_count: 900,
+        h2_list: ["Overview", "Details"],
+        service_terms: serviceTerms,
+      });
+    expect(
+      profileFromSnapshotsAndConfig(
+        Array.from({ length: 4 }, (_, i) => page(i)),
+        baseConfig({ address: "", phone: "" }),
+      ).contentSiteSignal,
+    ).toBe(false);
+    expect(
+      profileFromSnapshotsAndConfig(
+        Array.from({ length: 5 }, (_, i) => page(i, ["installation"])),
+        baseConfig({ address: "", phone: "" }),
+      ).contentSiteSignal,
+    ).toBe(false);
+    expect(
+      profileFromSnapshotsAndConfig(
+        Array.from({ length: 5 }, (_, i) => page(i)),
+        baseConfig({ address: "", phone: "555-0100" }),
+      ).contentSiteSignal,
+    ).toBe(false);
+  });
+
   it("empty snapshots + empty config → empty-safe profile, no crash", () => {
     const p = profileFromSnapshotsAndConfig([], baseConfig());
     expect(p.schemaTypes).toEqual([]);

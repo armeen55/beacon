@@ -48,7 +48,7 @@ type ProfoundCitationRow = {
  *  owned domain is owned), mirroring execution-adapter — an exact-only `.has()`
  *  mislabels blog./www2./shop. citations as "other" and undercounts owned AEO
  *  citations. */
-function isOwnedHost(host: string, ownedSet: Set<string>): boolean {
+export function isOwnedHost(host: string, ownedSet: Set<string>): boolean {
   if (ownedSet.has(host)) return true;
   for (const d of ownedSet) {
     if (host === d || host.endsWith("." + d)) return true;
@@ -66,7 +66,13 @@ function mapSourceCategory(
   const c = rawCategory.trim().toLowerCase().replace(/\s+/g, "_");
   switch (c) {
     case "owned":
-      return "owned";
+      if (isOwnedHost(normalizedHost, ownedSet)) return "owned";
+      warnings.push(
+        `Row ${rowIndex + 2}: source marked owned but hostname ${normalizedHost} is not an owned domain; treating from hostname`,
+      );
+      if (DIRECTORY_DOMAINS.has(normalizedHost)) return "directory";
+      if (SOCIAL_DOMAINS.has(normalizedHost)) return "social";
+      return "other";
     case "social":
       return "social";
     case "earned_media":
@@ -150,7 +156,7 @@ export function parseProfoundCitations(
       warnings,
       i
     );
-    const is_owned = ownedSet.has(domain);
+    const is_owned = isOwnedHost(domain, ownedSet);
     const tracked_entity_id = entityLookup.get(domain) ?? null;
 
     const titleRaw = row.title?.trim() ?? "";

@@ -81,6 +81,56 @@ describe("Page Surgeon — artifact composer (finished, CMS-ready content)", () 
     ]);
   });
 
+  it("schema breadcrumbs include the site root and URL hierarchy, never one weak self item", () => {
+    const base = packet();
+    const b = composeArtifactBundle(
+      decision(change("schema")),
+      {
+        ...base,
+        current: {
+          ...base.current,
+          pageUrl: "https://iranopedia.com/language/funny-farsi-phrases",
+        },
+      },
+    );
+    const parsed = JSON.parse(b.primary!.jsonLd!.code);
+    const crumb = parsed["@graph"].find(
+      (node: { "@type": string }) => node["@type"] === "BreadcrumbList",
+    );
+    expect(crumb.itemListElement).toEqual([
+      {
+        "@type": "ListItem",
+        position: 1,
+        name: "iranopedia.com",
+        item: "https://iranopedia.com/",
+      },
+      {
+        "@type": "ListItem",
+        position: 2,
+        name: "Language",
+        item: "https://iranopedia.com/language",
+      },
+      { "@type": "ListItem", position: 3, name: "Old Title" },
+    ]);
+  });
+
+  it("does not claim breadcrumbs on the homepage", () => {
+    const base = packet();
+    const b = composeArtifactBundle(
+      decision(change("schema")),
+      {
+        ...base,
+        current: { ...base.current, pageUrl: "https://iranopedia.com/" },
+      },
+    );
+    const parsed = JSON.parse(b.primary!.jsonLd!.code);
+    expect(
+      parsed["@graph"].some(
+        (node: { "@type": string }) => node["@type"] === "BreadcrumbList",
+      ),
+    ).toBe(false);
+  });
+
   it("measurement is made counterfactual with control pages (diff-in-diff)", () => {
     const b = composeArtifactBundle(decision(change("title", { exact_change: "New Title" })), packet(), [], ["/cities", "/iran-flags"]);
     expect(b.primary!.measurement).toMatch(/control/i);

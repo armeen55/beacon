@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { log } from "@/lib/logger";
 import { getRepository } from "@/lib/persistence/repositories";
 import { currentTenantId } from "@/lib/tenant-context";
+import { canPublishForCurrentTenant } from "@/lib/auth/can-publish";
 import { changelogJoinKey, indexEditsByJoinKey } from "@/domains/attribution/lifecycle-classification";
 import {
   editLifecycleStatus,
@@ -62,6 +63,14 @@ export async function markChangelogEditShipped(args: {
   const action = "markChangelogEditShipped";
   const t0 = Date.now();
   log.info("Action started", { action, params: { changelogId: args.changelogId } });
+
+  // This action changes attribution truth from accepted to verified-live. It
+  // must carry the same tenant publish authority as the actual push path; a
+  // stale or hand-crafted client request cannot mark work live merely because
+  // it reached the server action.
+  if (!(await canPublishForCurrentTenant())) {
+    return { success: false, error: "You do not have permission to mark this change live." };
+  }
 
   const tenantId = await currentTenantId();
   const repo = getRepository().forTenant(tenantId);

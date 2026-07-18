@@ -24,9 +24,9 @@ describe("siteCategoryFromSegment", () => {
   it("passes through a known segment", () => {
     expect(siteCategoryFromSegment("content_publisher")).toBe("content_publisher");
   });
-  it("defaults to local_service when segment is missing (honest coarse default)", () => {
-    expect(siteCategoryFromSegment(null)).toBe("local_service");
-    expect(siteCategoryFromSegment(undefined)).toBe("local_service");
+  it("defaults to unknown when segment is missing so local engines/patterns do not activate", () => {
+    expect(siteCategoryFromSegment(null)).toBe("unknown");
+    expect(siteCategoryFromSegment(undefined)).toBe("unknown");
   });
 });
 
@@ -110,7 +110,7 @@ describe("deriveRrPatternKey", () => {
       targetQuery: null,
       prePosition: null,
     });
-    expect(key.siteCategory).toBe("local_service");
+    expect(key.siteCategory).toBe("unknown");
     expect(key.canonicalMoveType).toBe("other");
     expect(key.intentBucket).toBe("informational");
     expect(key.positionBand).toBe("unranked");

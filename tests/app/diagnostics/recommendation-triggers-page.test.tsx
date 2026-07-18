@@ -372,7 +372,10 @@ describe("/diagnostics/recommendation-triggers", () => {
     // so missing_meta now correctly emits the `improve_meta` DIRECTIVE
     // (composeMeta can't auto-draft a meta) rather than a blank `edit_meta`.
     expect(html).toContain('data-row-action-type="improve_meta"');
-    expect(html).toContain('data-row-confidence="high"');
+    // The fixture crawl is 60 days old relative to the test clock. The row
+    // stays visible but its confidence is honestly reduced and labeled.
+    expect(html).toContain('data-row-confidence="medium"');
+    expect(html).toContain("page data behind this is 60 days old");
     expect(html).toContain('data-row-count="2"');
   });
 

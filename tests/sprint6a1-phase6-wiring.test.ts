@@ -192,7 +192,8 @@ describe("Phase 6A.1.6 — scan-owned-pages.ts CLI wiring", () => {
   });
 
   it("writes the inventory rows to .data/page-element-inventory.json near the snapshot save", () => {
-    expect(SCAN_CLI_SOURCE).toMatch(/saveElementInventory\(allElementRows\)/);
+    expect(SCAN_CLI_SOURCE).toMatch(/saveElementInventory\(persistedElementRows\)/);
+    expect(SCAN_CLI_SOURCE).toContain("mergeLatestCanonicalInventory");
     expect(SCAN_CLI_SOURCE).toMatch(/page-element-inventory\.json/);
   });
 

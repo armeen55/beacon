@@ -128,6 +128,57 @@ function cmsField(field: "title" | "meta" | "h1", value: string): CmsFieldArtifa
   return { field, value: v, charCount: v.length, limit, withinLimit: v.length <= limit, autoTrimmed };
 }
 
+function humanizeBreadcrumbSegment(segment: string): string {
+  try {
+    return decodeURIComponent(segment)
+      .replace(/[-_]+/g, " ")
+      .replace(/\s+/g, " ")
+      .trim()
+      .replace(/(^|\s)([a-z])/g, (_m, space: string, ch: string) =>
+        space + ch.toUpperCase(),
+      );
+  } catch {
+    return segment.replace(/[-_]+/g, " ");
+  }
+}
+
+function breadcrumbGraphForPage(
+  pageUrl: string,
+  leafName: string,
+): Record<string, unknown> | null {
+  try {
+    const url = new URL(pageUrl);
+    const segments = url.pathname.split("/").filter(Boolean);
+    if (segments.length === 0) return null;
+    const items: Record<string, unknown>[] = [
+      {
+        "@type": "ListItem",
+        position: 1,
+        name: url.hostname.replace(/^www\./i, ""),
+        item: `${url.origin}/`,
+      },
+    ];
+    let cumulative = "";
+    for (const segment of segments.slice(0, -1)) {
+      cumulative += `/${segment}`;
+      items.push({
+        "@type": "ListItem",
+        position: items.length + 1,
+        name: humanizeBreadcrumbSegment(segment),
+        item: `${url.origin}${cumulative}`,
+      });
+    }
+    items.push({
+      "@type": "ListItem",
+      position: items.length + 1,
+      name: leafName,
+    });
+    return { "@type": "BreadcrumbList", itemListElement: items };
+  } catch {
+    return null;
+  }
+}
+
 /** Deterministic Article + BreadcrumbList (+ FAQPage when FAQ content exists)
  *  JSON-LD from the packet. No invented values. */
 export function composeJsonLd(packet: EvidencePacket, faq: FaqItem[] | undefined): { schemaType: string; code: string } {
@@ -147,12 +198,8 @@ export function composeJsonLd(packet: EvidencePacket, faq: FaqItem[] | undefined
       mainEntityOfPage: { "@type": "WebPage", "@id": url },
     },
   ];
-  if (name) {
-    graph.push({
-      "@type": "BreadcrumbList",
-      itemListElement: [{ "@type": "ListItem", position: 1, name, item: url }],
-    });
-  }
+  const breadcrumb = name ? breadcrumbGraphForPage(url, name) : null;
+  if (breadcrumb) graph.push(breadcrumb);
   if (faq && faq.length > 0) {
     graph.push({
       "@type": "FAQPage",

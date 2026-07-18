@@ -137,6 +137,45 @@ export function lastPathSegment(url: string): string {
   }
 }
 
+/** Parse the exact Wix Stores seoData snapshot used by a schema rollback.
+ * Fail closed on malformed/foreign shapes so an operator-facing Revert can
+ * never send unchecked JSON to the Catalog API. */
+export function parseSeoDataSnapshotTags(text: string): WixSeoTag[] | null {
+  try {
+    const parsed = JSON.parse(text) as unknown;
+    if (parsed == null || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+    const tags = (parsed as { tags?: unknown }).tags;
+    if (!Array.isArray(tags)) return null;
+    const allowed = new Set<WixSeoTag["type"]>(["title", "meta", "script", "link"]);
+    const out: WixSeoTag[] = [];
+    for (const raw of tags) {
+      if (raw == null || typeof raw !== "object" || Array.isArray(raw)) return null;
+      const row = raw as Record<string, unknown>;
+      if (typeof row.type !== "string" || !allowed.has(row.type as WixSeoTag["type"])) return null;
+      if (row.children != null && typeof row.children !== "string") return null;
+      if (row.custom != null && typeof row.custom !== "boolean") return null;
+      if (row.disabled != null && typeof row.disabled !== "boolean") return null;
+      let props: Record<string, string> | undefined;
+      if (row.props != null) {
+        if (typeof row.props !== "object" || Array.isArray(row.props)) return null;
+        const entries = Object.entries(row.props as Record<string, unknown>);
+        if (entries.some(([, value]) => typeof value !== "string")) return null;
+        props = Object.fromEntries(entries) as Record<string, string>;
+      }
+      out.push({
+        type: row.type as WixSeoTag["type"],
+        ...(props != null ? { props } : {}),
+        ...(typeof row.children === "string" ? { children: row.children } : {}),
+        ...(typeof row.custom === "boolean" ? { custom: row.custom } : {}),
+        ...(typeof row.disabled === "boolean" ? { disabled: row.disabled } : {}),
+      });
+    }
+    return out;
+  } catch {
+    return null;
+  }
+}
+
 export const RITZ_TENANT_ID = "tenant-ritz-founder";
 
 /** Statuses a card may be pushed from (human approved or queued). */
@@ -342,9 +381,56 @@ export async function executePush(
     }
     const existing = await resolveWixItemForUrl(edit.target_url);
     if (existing != null) {
+      await recordLedger(tenantId, edit, "push_failed", "create_target_already_mapped", now, reservationId);
       return {
         kind: "refused",
         reason: `a CMS item already renders ${edit.target_url} — creation never overwrites (use a field: edit card)`,
+      };
+    }
+
+    // The URL map is a cache and can be stale between syncs. Before INSERT,
+    // verify the proposed slug against the live collection itself; otherwise a
+    // page created directly in Wix after the last map sync can be duplicated by
+    // a seemingly-unmapped factory card.
+    const targetSlug = lastPathSegment(edit.target_url).trim().replace(/^\/+|\/+$/g, "").toLocaleLowerCase();
+    const slugFields = Object.entries(fields)
+      .filter(([, value]) =>
+        typeof value === "string" &&
+        value.trim().replace(/^\/+|\/+$/g, "").toLocaleLowerCase() === targetSlug,
+      )
+      .map(([key]) => key);
+    if (targetSlug === "" || slugFields.length === 0) {
+      await recordLedger(tenantId, edit, "push_failed", "create_slug_not_verifiable", now, reservationId);
+      return {
+        kind: "refused",
+        reason: "the proposed CMS fields do not contain the target URL slug, so I cannot verify this page is new",
+      };
+    }
+    const liveItems = await wixQueryAllDataItems(
+      { dataCollectionId: collectionId },
+      { ...deps.wix, tenantId },
+    );
+    if (!liveItems.ok) {
+      await recordLedger(tenantId, edit, "push_failed", `create_slug_check: ${liveItems.reason}`, now, reservationId);
+      return {
+        kind: "refused",
+        reason: `I could not verify the live collection before creating this page (${liveItems.reason}), so nothing was inserted`,
+      };
+    }
+    const liveMatch = liveItems.value.find((item) =>
+      slugFields.some((fieldName) => {
+        const value = item.data[fieldName];
+        return (
+          typeof value === "string" &&
+          value.trim().replace(/^\/+|\/+$/g, "").toLocaleLowerCase() === targetSlug
+        );
+      }),
+    );
+    if (liveMatch != null) {
+      await recordLedger(tenantId, edit, "push_failed", `create_slug_exists: ${liveMatch.id}`, now, reservationId);
+      return {
+        kind: "refused",
+        reason: `a live ${collectionId} item already uses the slug “${targetSlug}”, so I did not create a duplicate`,
       };
     }
     if (dryRun) {
@@ -378,8 +464,20 @@ export async function executePush(
   // field (template-based by platform design) → those cards refuse
   // here and stay paste-ready.
   if (edit.action_type === "add_schema") {
-    const blocks = extractJsonLdScriptBlocks(edit.proposed_text ?? "");
-    if (blocks.length === 0) {
+    // A buildRevertEdit-produced schema rollback carries the snapshot's exact
+    // `{tags:[...]}` JSON, not a new <script> block. The old route tried to
+    // extract JSON-LD from that JSON and always refused, making Revert a no-op.
+    const restoredTags = isRevert
+      ? parseSeoDataSnapshotTags(edit.proposed_text ?? "")
+      : null;
+    if (isRevert && restoredTags == null) {
+      return {
+        kind: "refused",
+        reason: "the saved product SEO snapshot is malformed, so I did not overwrite the live tags",
+      };
+    }
+    const blocks = isRevert ? [] : extractJsonLdScriptBlocks(edit.proposed_text ?? "");
+    if (!isRevert && blocks.length === 0) {
       return {
         kind: "refused",
         reason:
@@ -387,7 +485,7 @@ export async function executePush(
       };
     }
     // Wix structured-data limits: ≤5 markups/page, <7,000 chars each.
-    if (blocks.length > 5 || blocks.some((b) => b.length >= 7000)) {
+    if (!isRevert && (blocks.length > 5 || blocks.some((b) => b.length >= 7000))) {
       return {
         kind: "refused",
         reason: "JSON-LD exceeds Wix limits (max 5 markups, <7000 chars each)",
@@ -457,16 +555,16 @@ export async function executePush(
         return true;
       }
     });
-    const tags: WixSeoTag[] = [
-      ...existing,
-      ...blocks.map((b) => ({
-        type: "script" as const,
-        props: { type: "application/ld+json" },
-        children: b,
-        custom: true,
-        disabled: false,
-      })),
-    ];
+    const tags: WixSeoTag[] = restoredTags ?? [
+        ...existing,
+        ...blocks.map((b) => ({
+          type: "script" as const,
+          props: { type: "application/ld+json" },
+          children: b,
+          custom: true,
+          disabled: false,
+        })),
+      ];
     // Audit #33 (2026-06-12): Wix's ≤5-markups-per-page limit applies
     // to the PAGE total — enforce it on the MERGED set, not just the
     // incoming blocks, or successive pushes of different @types pile
@@ -477,7 +575,7 @@ export async function executePush(
         (t.props as { type?: unknown } | undefined)?.type ===
           "application/ld+json",
     ).length;
-    if (mergedJsonLdCount > MAX_JSONLD_TAGS_PER_PAGE) {
+    if (!isRevert && mergedJsonLdCount > MAX_JSONLD_TAGS_PER_PAGE) {
       await recordLedger(tenantId, edit, "push_failed", `merged_tags_limit: ${mergedJsonLdCount}`, now, reservationId);
       return {
         kind: "refused",
@@ -488,7 +586,9 @@ export async function executePush(
       return {
         kind: "dry_run",
         adapter: "wix_cms",
-        detail: `would apply ${blocks.length} JSON-LD block(s) to product ${match.id} seoData (${edit.target_url}); merged page total ${mergedJsonLdCount}/${MAX_JSONLD_TAGS_PER_PAGE}`,
+        detail: isRevert
+          ? `would restore ${tags.length} saved SEO tag(s) to product ${match.id} (${edit.target_url})`
+          : `would apply ${blocks.length} JSON-LD block(s) to product ${match.id} seoData (${edit.target_url}); merged page total ${mergedJsonLdCount}/${MAX_JSONLD_TAGS_PER_PAGE}`,
       };
     }
     // Fail-closed snapshot of the product's CURRENT seoData — must
@@ -524,12 +624,16 @@ export async function executePush(
       };
     }
     {
-      const detail = `applied ${blocks.length} JSON-LD block(s) to product seoData (${edit.target_url})`;
+      const detail = isRevert
+        ? `restored ${tags.length} saved SEO tag(s) to product seoData (${edit.target_url})`
+        : `applied ${blocks.length} JSON-LD block(s) to product seoData (${edit.target_url})`;
       await recordLedger(
         tenantId,
         edit,
         "pushed",
-        `seoData: ${blocks.length} JSON-LD block(s) on product ${match.id}`,
+        isRevert
+          ? `seoData: restored ${tags.length} saved tag(s) on product ${match.id}`
+          : `seoData: ${blocks.length} JSON-LD block(s) on product ${match.id}`,
         now,
         reservationId,
         outboxFinalize(detail),

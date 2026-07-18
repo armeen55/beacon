@@ -36455,3 +36455,52 @@ Vercel deployment `dpl_EU3Djg319UTva4UzmaAnwUDrzv1q` reached Ready and productio
 `/api/version` returned that exact SHA. Unauthenticated `/`, `/today`, `/changes`, `/results`, and
 `/diagnostics` returned their expected 307 login continuations. This completes the accepted
 eight-slice exhaustive audit loop.
+
+## 2026-07-17 - Trust-integrity backlog closure (release pending)
+
+Closed the remaining code-verifiable trust ledger in one release-shaped slice. Added durable,
+tenant-routed, release-SHA-bound blind-holdout receipts; fail-closed publish-cap behavior and
+manual ship authorization; exact Wix SEO-schema restore; deterministic per-edit acceptance IDs;
+live-slug duplicate-create refusal; conservative fan-out parsing; and ordered/paginated GA4 proof
+windows. Hardened crawl persistence against HTTP error documents, short CMS shells, partial scans,
+scan caps, and single-URL scans while retaining last-known canonical evidence. New page IDs are
+tenant+URL stable and reuse legacy IDs by URL. Corrected FAQ added/lost direction, content-publisher
+schema expectations, GSC sparkline date gaps, legacy citation-decay claims, >48-character AI-claim
+firewall bypass, cross-source review duplication, invalid tenant segment defaults, and warm-process
+site-config leakage. Unique atomic-write temp paths close an independent multi-worker collision
+found by the full suite.
+
+Verification before release: focused suites passed throughout; `npm run typecheck` exit 0;
+`npm run lint` exit 0 with 74 existing warnings and no errors; complete `npm run test` passed 1,530
+files / 23,048 tests / 23 conditional skips / 0 failures; `npm run build` exit 0 with only the
+existing protected middleware-filename deprecation; `npm audit --omit=dev` found 0 vulnerabilities;
+`git diff --check` clean. No paid provider call, customer-data mutation, hosted environment change,
+or publish occurred. External gates are explicitly not claimed: five unseen blind cases, hosted
+refresh receipt, unit economics, Ritz reconnection, one approved publish, live verification, and
+the predeclared measurement windows remain next.
+
+## 2026-07-17 - Historical audit ledger closure (release pending)
+
+Finished the older audit-wave and generic-cold-start items that were still live after the main
+trust slice. Today citation rate now uses an exact observation-level numerator stored in existing
+snapshot metadata; legacy rows keep a bounded compatibility fallback. Article/WebPage schema
+descriptions reuse the meta prose gate, Page Surgeon breadcrumbs carry the real URL hierarchy and
+omit the homepage, and the existing nightly path runs crawl-proven recommendation retirement
+before the 30-day/50-row machine-queue sweeper. Profound cached coverage now produces up to five
+unique best-page answer-block candidates with one per URL; the homepage card is fallback-only.
+Schema-less publishers can self-classify from repeated substantial editorial structure, while
+address/phone, insufficient page count, and local page signals fail closed. Crawl evidence older
+than 45 days is labeled with its exact age and high confidence is lowered without hiding the row.
+
+This release also includes the earlier trust closure: SHA-bound immutable blind receipts; publish
+cap/authorization rails; exact Wix revert and live-slug protection; acceptance idempotency; stable
+tenant+URL page identity; trustworthy crawl carry-forward; FAQ/schema/GSC/citation fixes; tenant
+classification/config isolation; review content dedupe; and collision-free atomic JSON writes.
+
+Verification: focused suites remained green throughout; strict `npm run typecheck` exit 0;
+`npm run lint` exit 0 with 74 pre-existing warnings and zero errors; isolated complete
+`npm run test` passed 1,534 files / 23,070 tests / 23 conditional skips / 0 failures;
+`npm run build` exit 0 with only the existing middleware/proxy deprecation; `npm audit --omit=dev`
+found 0 vulnerabilities; `git diff --check` clean. No paid call, customer-data mutation, hosted
+environment change, or publish occurred. Deployment and external usage gates remain explicitly
+unclaimed until the release is pushed and verified.

@@ -369,6 +369,47 @@ describe("push happy path + failure ledger", () => {
     if (r2.kind === "refused") expect(r2.reason).toMatch(/never overwrites/);
   });
 
+  it("create route refuses a live duplicate slug even when the cached URL map is stale", async () => {
+    _urlMapEntry = null;
+    _queryResult.value = [
+      {
+        id: "existing-live-item",
+        dataCollectionId: "Foods",
+        data: { slug: "ghormeh-sabzi", title: "Already live" },
+      },
+    ];
+    const r = await executePush({
+      tenantId: "tenant-iranopedia",
+      edit: edit({
+        target_element_key: "create:Foods",
+        target_url: "https://www.iranopedia.com/persian-food/ghormeh-sabzi",
+        current_text: null,
+        proposed_text: JSON.stringify({ slug: "ghormeh-sabzi", title: "Duplicate" }),
+      }),
+    });
+    expect(r.kind).toBe("refused");
+    if (r.kind === "refused") expect(r.reason).toContain("already uses the slug");
+    expect(_insertCalls).toHaveLength(0);
+  });
+
+  it("create route fails closed when the live slug check is unavailable", async () => {
+    _urlMapEntry = null;
+    _queryResult.ok = false;
+    _queryResult.reason = "api_error";
+    const r = await executePush({
+      tenantId: "tenant-iranopedia",
+      edit: edit({
+        target_element_key: "create:Foods",
+        target_url: "https://www.iranopedia.com/persian-food/fesenjan",
+        current_text: null,
+        proposed_text: JSON.stringify({ slug: "fesenjan", title: "Fesenjan" }),
+      }),
+    });
+    expect(r.kind).toBe("refused");
+    if (r.kind === "refused") expect(r.reason).toContain("could not verify the live collection");
+    expect(_insertCalls).toHaveLength(0);
+  });
+
   it("N41 outbox: an IDENTICAL retry of a landed push is an idempotent replay, never a second write", async () => {
     _urlMapEntry = null;
     const createCard = edit({
@@ -464,6 +505,55 @@ describe("wix_cms SEO route — add_schema cards push to product seoData", () =>
     const tags = (_seoUpdateCalls[0]!.tags ?? []) as Array<Record<string, unknown>>;
     expect(tags.filter((t) => t.type === "script")).toHaveLength(1);
     expect(tags.find((t) => t.type === "title")).toBeDefined();
+  });
+
+  it("restores the exact saved seoData tags for a snapshot revert instead of re-running JSON-LD extraction", async () => {
+    const savedTags = [
+      { type: "title", children: "Saved title", custom: false, disabled: false },
+      {
+        type: "script",
+        props: { type: "application/ld+json" },
+        children: '{"@type":"Product"}',
+        custom: true,
+        disabled: false,
+      },
+    ];
+    _productResult = {
+      ok: true,
+      value: {
+        id: "prod-1",
+        name: "P",
+        slug: "persian-cat-hoodie",
+        seoData: { tags: [{ type: "title", children: "Current title" }] },
+      },
+    };
+    const r = await executePush({
+      tenantId: "tenant-iranopedia",
+      edit: schemaEdit({
+        id: "edit-1__revert",
+        rec_id: "rec-1__revert",
+        current_text: SCHEMA_DRAFT,
+        proposed_text: JSON.stringify({ tags: savedTags }),
+      }),
+    });
+    expect(r.kind).toBe("pushed");
+    if (r.kind === "pushed") expect(r.detail).toContain("restored 2 saved SEO tag");
+    expect(_seoUpdateCalls).toHaveLength(1);
+    expect(_seoUpdateCalls[0]!.tags).toEqual(savedTags);
+  });
+
+  it("fails closed when a schema revert snapshot is malformed", async () => {
+    const r = await executePush({
+      tenantId: "tenant-iranopedia",
+      edit: schemaEdit({
+        id: "edit-1__revert",
+        rec_id: "rec-1__revert",
+        proposed_text: '{"tags":[{"type":"script","props":{"type":42}}]}',
+      }),
+    });
+    expect(r.kind).toBe("refused");
+    if (r.kind === "refused") expect(r.reason).toContain("snapshot is malformed");
+    expect(_seoUpdateCalls).toHaveLength(0);
   });
 
   it("refuses when the URL does not match any store product (card stays paste-ready)", async () => {

@@ -13,13 +13,18 @@ import {
 } from "@/domains/product/recommendation-response-store";
 import { createChangelogEntry } from "@/domains/changelog/actions";
 import { updateChangelogHypothesis } from "@/domains/changelog/actions";
-import { generateId, now } from "@/lib/actions";
+import { now } from "@/lib/actions";
 import { writeStore } from "@/lib/persistence/json-store";
 import { syncChangelogEntries } from "@/lib/persistence/dual-write";
 import { getChangelogEntries } from "@/lib/seed-data.server";
 import { getRepository } from "@/lib/persistence/repositories";
 import { currentTenantId } from "@/lib/tenant-context";
+import { canPublishForCurrentTenant } from "@/lib/auth/can-publish";
 import type { ChangelogEntry } from "@/domains/changelog/types";
+import {
+  deterministicEditChangelogId,
+  editChangelogIdentity,
+} from "@/domains/changelog/per-edit-identity";
 import type { RecommendationType } from "@/domains/recommendations/generate";
 import type {
   RecommendationAction,
@@ -270,6 +275,30 @@ async function createChangelogEntriesForEdits(
   const ids: string[] = [];
   const newEntries: ChangelogEntry[] = [];
 
+  // Read once before constructing rows. Existing per-edit rows are reused so
+  // a double-submit or retry cannot fan the same accepted lever into duplicate
+  // Changes entries. New IDs are deterministic as a second concurrency rail:
+  // two serverless instances independently produce the same primary key and
+  // Supabase upserts one row rather than persisting two random IDs.
+  const changelogEntries = await getChangelogEntries();
+  const existingByIdentity = new Map<string, ChangelogEntry>();
+  for (const entry of changelogEntries) {
+    if (
+      entry.tenant_id !== tenantId ||
+      entry.source_rec_id == null ||
+      entry.action_type == null
+    ) continue;
+    existingByIdentity.set(
+      editChangelogIdentity({
+        tenantId,
+        stableKey: entry.source_rec_id,
+        actionType: entry.action_type,
+        targetElementKey: entry.target_element_key ?? null,
+      }),
+      entry,
+    );
+  }
+
   // Step 1.1 (master plan) — fetch prompt text once per Accept so the
   // evidence summary in changelog notes renders a snippet instead of
   // a raw promptId UUID. Best-effort: an empty map causes prompt refs
@@ -293,7 +322,18 @@ async function createChangelogEntriesForEdits(
   }
 
   for (const edit of edits) {
-    const editId = generateId("cl");
+    const identity = editChangelogIdentity({
+      tenantId,
+      stableKey: payload.stableKey,
+      actionType: edit.action_type,
+      targetElementKey: edit.target_element_key ?? null,
+    });
+    const prior = existingByIdentity.get(identity);
+    if (prior != null) {
+      ids.push(prior.id);
+      continue;
+    }
+    const editId = deterministicEditChangelogId(identity);
     ids.push(editId);
 
     const spec = ACTION_TYPE_REGISTRY[edit.action_type as ActionType];
@@ -362,21 +402,24 @@ async function createChangelogEntriesForEdits(
       tenant_id: tenantId,
     };
     newEntries.push(entry);
+    existingByIdentity.set(identity, entry);
   }
 
-  // Push all then persist once for efficiency.
-  const changelogEntries = await getChangelogEntries();
-  for (const entry of newEntries) {
-    changelogEntries.push(entry);
-  }
-  await writeStore("imported-changes", changelogEntries);
-  try {
-    await syncChangelogEntries(newEntries, tenantId);
-  } catch (e) {
-    console.error(
-      "[recommendations] per-edit changelog Supabase sync failed:",
-      e,
-    );
+  if (newEntries.length > 0) {
+    const byId = new Map(changelogEntries.map((entry) => [entry.id, entry]));
+    for (const entry of newEntries) byId.set(entry.id, entry);
+    // Preserve the seed-data module's stable array reference while replacing
+    // its contents with the idempotently merged set.
+    changelogEntries.splice(0, changelogEntries.length, ...byId.values());
+    await writeStore("imported-changes", changelogEntries);
+    try {
+      await syncChangelogEntries(newEntries, tenantId);
+    } catch (e) {
+      console.error(
+        "[recommendations] per-edit changelog Supabase sync failed:",
+        e,
+      );
+    }
   }
   return ids;
 }
@@ -692,6 +735,13 @@ export async function markRecommendationShipped(args: {
   const action = "markRecommendationShipped";
   const t0 = Date.now();
   log.info("Action started", { action, params: { stableKey: args.stableKey } });
+
+  // Defense in depth: this lifecycle override is equivalent to declaring a
+  // live publish. Enforce the tenant's publish authority at the server seam,
+  // not only through the UI that happens to expose the button.
+  if (!(await canPublishForCurrentTenant())) {
+    return { success: false, error: "You do not have permission to mark this recommendation live." };
+  }
 
   const tenantId = await currentTenantId();
 

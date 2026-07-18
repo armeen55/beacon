@@ -606,6 +606,8 @@ describe("Phase 2A — read-model extension fields", () => {
       // Union = 3 (the first three obs each contribute exactly once;
       // the all-false obs contributes zero).
       expect(platformRow.cited_or_mentioned_count).toBe(3);
+      expect(platformRow.cited_obs_count).toBe(2);
+      expect(platformRow.metadata.cited_obs_count).toBe(2);
 
       // The two entity-only fields stay null on the platform row.
       expect(platformRow.position_weighted_citation_count).toBeNull();
@@ -650,6 +652,7 @@ describe("Phase 2A — read-model extension fields", () => {
       });
       const platformRow = rows.find((r) => r.scope_type === "platform")!;
       expect(platformRow.cited_or_mentioned_count).toBe(0);
+      expect(platformRow.cited_obs_count).toBe(0);
     });
   });
 

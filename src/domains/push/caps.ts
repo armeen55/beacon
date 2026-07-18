@@ -318,14 +318,25 @@ export async function reservePushSlot(args: {
       p_adapter: adapter,
     });
     if (error) {
-      // Function/table not provisioned (pre-migration) OR any RPC error →
-      // file fallback. Never silently uncapped: the file path still enforces.
-      return reservePushSlotFile(fileArgs);
+      // Only an explicitly not-yet-provisioned schema may use the legacy file
+      // fallback. Once Supabase is configured, an arbitrary RPC/network error
+      // makes the durable count UNKNOWN; a cold Vercel file cache would read 0
+      // and fail open. Refuse the publish until the atomic safety check works.
+      if (isMissingFunction(error)) return reservePushSlotFile(fileArgs);
+      return {
+        allowed: false,
+        reason: "daily publishing safety check is unavailable — nothing was published; try again",
+      };
     }
     if (data === true) return { allowed: true, reservationId: id };
     return { allowed: false, reason: capReachedReason(max, max, day) };
   } catch {
-    return reservePushSlotFile(fileArgs);
+    // Supabase was configured but the durable RPC could not be reached. The
+    // file mirror is not authoritative on hosted instances, so fail closed.
+    return {
+      allowed: false,
+      reason: "daily publishing safety check is unavailable — nothing was published; try again",
+    };
   }
 }
 

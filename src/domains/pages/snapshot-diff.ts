@@ -103,6 +103,7 @@ export function diffSnapshots(
     h1_changed: h1Changed,
     meta_description_changed: metaDescriptionChanged,
     faq_count_changed: faqCountChanged,
+    previous_faq_count: previous.faqs.length,
     schema_changed: schemaChanged,
     content_changed: contentChanged,
     headings_changed: headingsChanged,

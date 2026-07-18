@@ -11,7 +11,12 @@ import { describe, expect, it } from "vitest";
 
 import type { ProfoundTopicSignal } from "@/domains/recommendation-intelligence/profound-topic-signals";
 import { buildOwnAliasSet } from "@/domains/recommendation-intelligence/profound-topic-signals";
-import { profoundAeoGap } from "@/domains/recommendation-intelligence/triggers/profound-aeo-gap";
+import {
+  MAX_PROFOUND_PAGE_GAPS,
+  profoundAeoGap,
+  profoundPageAeoGaps,
+} from "@/domains/recommendation-intelligence/triggers/profound-aeo-gap";
+import type { AeoActionPack } from "@/domains/profound-coverage/types";
 
 const ROOT = "https://iranopedia.com/";
 
@@ -37,6 +42,30 @@ function run(
     siteRootUrl,
     signalAt: "2026-06-14T04:00:00Z",
   });
+}
+
+function pack(over: Partial<AeoActionPack> = {}): AeoActionPack {
+  return {
+    action: "add_answer_block",
+    priorityScore: 80,
+    targetUrl: "https://iranopedia.com/nowruz",
+    newPageSlug: null,
+    title: "Nowruz",
+    h1: "Nowruz",
+    directAnswerBrief: "Answer the prompt directly.",
+    sectionsToAdd: [],
+    faqQuestions: [],
+    schemaRecommendation: "Article",
+    sourceReferences: ["https://example.org/source"],
+    competitorPagesToBeat: ["https://example.org/winner"],
+    internalLinks: [],
+    measurementPlan: ["AI citations"],
+    evidence: "executions=20; competitor_pages=2; own_citations=0",
+    needsSerpValidation: false,
+    promptId: "prompt-nowruz",
+    prompt: "What is Nowruz?",
+    ...over,
+  };
 }
 
 describe("profoundAeoGap — emits on a clear, sourced gap", () => {
@@ -105,6 +134,68 @@ describe("profoundAeoGap — abstains on thin / non-gap data", () => {
   it("abstains when the tenant has no configured domain (no URL to anchor)", () => {
     expect(run([topic()], null)).toEqual([]);
     expect(run([topic()], "")).toEqual([]);
+  });
+});
+
+describe("profoundPageAeoGaps — best-page mapping", () => {
+  it("emits distinct page-specific candidates instead of collapsing on the homepage", () => {
+    const out = profoundPageAeoGaps({
+      tenantId: "tenant-a",
+      signalAt: "2026-07-17T00:00:00Z",
+      packs: [
+        pack(),
+        pack({
+          promptId: "prompt-food",
+          prompt: "What is ghormeh sabzi?",
+          targetUrl: "https://iranopedia.com/ghormeh-sabzi",
+          priorityScore: 70,
+        }),
+      ],
+    });
+    expect(out).toHaveLength(2);
+    expect(out.map((x) => x.target_url)).toEqual([
+      "https://iranopedia.com/nowruz",
+      "https://iranopedia.com/ghormeh-sabzi",
+    ]);
+    expect(new Set(out.map((x) => x.cooldown_key)).size).toBe(2);
+  });
+
+  it("keeps only the strongest prompt per page and caps the queue at five pages", () => {
+    const packs = [
+      pack({ prompt: "Weak same-page prompt", priorityScore: 10 }),
+      pack({ prompt: "Strong same-page prompt", priorityScore: 95 }),
+      ...Array.from({ length: 8 }, (_, i) =>
+        pack({
+          promptId: `prompt-${i}`,
+          prompt: `Prompt ${i}`,
+          targetUrl: `https://iranopedia.com/page-${i}`,
+          priorityScore: 80 - i,
+        }),
+      ),
+    ];
+    const out = profoundPageAeoGaps({
+      tenantId: "tenant-a",
+      signalAt: "2026-07-17T00:00:00Z",
+      packs,
+    });
+    expect(out).toHaveLength(MAX_PROFOUND_PAGE_GAPS);
+    expect(out.filter((x) => x.target_url === "https://iranopedia.com/nowruz")).toHaveLength(1);
+    expect(out.find((x) => x.target_url === "https://iranopedia.com/nowruz")?.customer_copy).toContain(
+      "Strong same-page prompt",
+    );
+  });
+
+  it("ignores new-page and link-only packs because this trigger edits existing pages", () => {
+    expect(
+      profoundPageAeoGaps({
+        tenantId: "tenant-a",
+        signalAt: "2026-07-17T00:00:00Z",
+        packs: [
+          pack({ action: "create_new_page", targetUrl: null }),
+          pack({ action: "add_internal_links" }),
+        ],
+      }),
+    ).toEqual([]);
   });
 });
 

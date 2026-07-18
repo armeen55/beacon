@@ -32,6 +32,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  citedObservationCount,
   indexSnapshots,
   isActiveSnapshotPlatform,
 } from "./visibility-read-model";
@@ -54,11 +55,47 @@ function snap(over: Partial<DailyMetricSnapshot>): DailyMetricSnapshot {
     metadata: over.metadata ?? {},
     tenant_id: over.tenant_id ?? "tenant-test",
     cited_or_mentioned_count: over.cited_or_mentioned_count ?? null,
+    cited_obs_count: over.cited_obs_count ?? null,
     position_weighted_citation_count:
       over.position_weighted_citation_count ?? null,
     mentioned_obs_count: over.mentioned_obs_count ?? null,
   };
 }
+
+describe("citedObservationCount — honest citation-rate numerator", () => {
+  it("uses the observation count even when one answer cites many owned URLs", () => {
+    const row = snap({
+      total_possible: 2,
+      citation_count: 7,
+      cited_obs_count: 1,
+      metadata: { cited_obs_count: 1 },
+    });
+    expect(citedObservationCount(row)).toBe(1);
+  });
+
+  it("reads the production-safe metadata value and bounds historical fallback", () => {
+    expect(
+      citedObservationCount(
+        snap({
+          total_possible: 4,
+          citation_count: 9,
+          cited_obs_count: null,
+          metadata: { cited_obs_count: 3 },
+        }),
+      ),
+    ).toBe(3);
+    expect(
+      citedObservationCount(
+        snap({
+          total_possible: 4,
+          citation_count: 9,
+          cited_obs_count: null,
+          metadata: {},
+        }),
+      ),
+    ).toBe(4);
+  });
+});
 
 describe("isActiveSnapshotPlatform — active-provider scope predicate", () => {
   it("returns true for ChatGPT (TitleCase, as written to snapshots)", () => {

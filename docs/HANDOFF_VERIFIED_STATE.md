@@ -1,5 +1,31 @@
 # Beacon Verified State
 
+> 🟢 **2026-07-17 trust-integrity and historical audit backlog closure is release-ready (deployment pending).**
+> The remaining code-verifiable audit ledger is now closed as one coherent safety slice. Fresh
+> blind-evaluation receipts are immutable, release-SHA-bound, tenant-routed, and fail closed;
+> transient push-cap failures refuse publishing; manual “mark shipped” actions enforce server-side
+> publish authority; Wix schema reverts restore the captured SEO tag snapshot; accepting the same
+> edit twice reuses a deterministic changelog identity; stale Wix URL maps cannot create a
+> duplicate slug; fan-out query parsing preserves embedded lists; and GA4 proof reads are ordered,
+> paginated, and discard partial aggregates. Scanner baselines now reject HTTP error documents and
+> sub-500-character rendering shells, preserve the last trustworthy canonical snapshot/inventory
+> across failed, capped, and single-page scans, and use stable tenant+URL page IDs without orphaning
+> legacy IDs. FAQ direction, content-tenant schema expectations, GSC date gaps, pre-native citation
+> decay, long-distance unsupported AI claims, cross-source review duplicates, missing tenant
+> segments, and process-global site identity are all corrected. Atomic JSON writes now use unique
+> worker temp files. The final historical sweep also replaces URL-count citation rates with exact
+> cited-observation numerators, filters schema descriptions through the prose gate, builds valid
+> hierarchical breadcrumbs, activates bounded queue hygiene, maps Profound gaps to up to five
+> distinct best-matching pages, identifies schema-less publishers only from repeated editorial
+> structure with physical-presence vetoes, and visibly lowers confidence on crawl evidence older
+> than 45 days without hiding the recommendation. Verification: strict typecheck; lint 0 errors /
+> 74 pre-existing warnings; complete suite 1,534 files / 23,070 passed / 23 conditional skips / 0 failed; production build;
+> dependency audit 0 vulnerabilities; `git diff --check` clean. No paid call, hosted environment
+> mutation, customer-data mutation, or publish occurred. External acceptance gates remain usage-
+> bound: execute five truly unseen blind cases, observe a hosted refresh receipt, add unit economics
+> before revenue certification, reconnect Ritz, publish one approved move, and collect its live
+> measurement window.
+
 > 🟢 **The 2026-07-17 final live-module audit is deployed and exact-SHA verified at
 > `3648fdd2` (Vercel `dpl_EU3Djg319UTva4UzmaAnwUDrzv1q`).**
 > Results no longer mixes its server data path with the full proof-card renderer: `page.tsx` fell

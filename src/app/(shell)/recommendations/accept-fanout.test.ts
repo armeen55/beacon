@@ -79,6 +79,7 @@ vi.mock("@/lib/persistence/repositories", () => {
 // so tests don't need a real BEACON_TENANT_ID env or request context.
 vi.mock("@/lib/tenant-context", () => ({
   currentTenantId: async () => "tenant-ritz-founder",
+  currentTenantSlug: async () => "ritz-founder",
 }));
 
 vi.mock("@/lib/persistence/dual-write", async () => {

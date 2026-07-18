@@ -67,6 +67,8 @@ import { checkTokenExpiryForTenants } from "@/domains/ops/token-expiry-notify";
 import { homepageUrlForDomain, probeHomepage, recordSiteProbe } from "@/domains/ops/site-uptime-store";
 import { runBackupVerification } from "@/domains/ops/backup-verify";
 import { recordAppError, errorFieldsFrom } from "@/lib/obs/error-ledger";
+import { sweepQueueForTenant } from "@/domains/recommendations/queue-sweeper";
+import { demoteResolvedForTenant } from "@/domains/recommendations/recrawl-demotion-runner";
 
 /** N39 error spine: record one phase failure to the durable app-errors ledger
  *  (the log.warn lines below vanish when Vercel rotates function logs). NEVER
@@ -1051,6 +1053,34 @@ export async function syncAllConnectedForActiveTenants(
         error: e instanceof Error ? e.message.slice(0, 200) : String(e),
       });
       await reportPhaseError("profile-self-heal", t.id, e);
+    }
+  }
+
+  // PHASE 2a-hygiene — retire only machine-created queue rows that are stale,
+  // overflow the bounded queue, or whose latest trustworthy crawl proves the
+  // requested change is already live. Reuses the existing nightly execution
+  // path (no new cron) and never touches operator-created or in-flight rows.
+  for (const t of tenants) {
+    try {
+      // Resolve first so one row cannot be selected and concurrently written
+      // by both hygiene passes. The subsequent sweep reloads current state.
+      const resolved = await demoteResolvedForTenant(t.id);
+      const swept = await sweepQueueForTenant(t.id);
+      if (swept.expiredTtl + swept.expiredOverflow + resolved.retired > 0) {
+        log.info("[cron-sync] recommendation queue hygiene", {
+          tenantId: t.id,
+          expiredTtl: swept.expiredTtl,
+          expiredOverflow: swept.expiredOverflow,
+          resolved: resolved.retired,
+          pendingAfter: swept.pendingAfter,
+        });
+      }
+    } catch (e) {
+      log.warn("[cron-sync] recommendation queue hygiene failed", {
+        tenantId: t.id,
+        error: e instanceof Error ? e.message.slice(0, 200) : String(e),
+      });
+      await reportPhaseError("recommendation-queue-hygiene", t.id, e);
     }
   }
 

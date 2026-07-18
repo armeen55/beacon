@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { getBusinessConfig } from "@/lib/business-config";
 
 /**
  * Single-tenant site settings. Override with env for another builder site.
@@ -21,7 +22,7 @@ export type SiteConfig = {
   entityDisplayName: string;
 };
 
-let cached: SiteConfig | null = null;
+const cachedByTenant = new Map<string, SiteConfig>();
 
 function defaultEntityName(domain: string): string {
   const stem = domain.split(".")[0] ?? domain;
@@ -46,16 +47,29 @@ function domainFromBusinessConfig(): string | null {
   return null;
 }
 
-function readConfig(): SiteConfig {
+function readConfig(tenantId: string | null): SiteConfig {
+  let tenantBusiness: { domain?: string; name?: string } | null = null;
+  if (tenantId) {
+    try {
+      const config = getBusinessConfig(tenantId);
+      if (!config.__placeholder) tenantBusiness = config;
+    } catch { /* use explicit env/file fallback */ }
+  }
   const raw = process.env.BEACON_SITE_DOMAIN?.trim();
-  const fromConfig = !raw || raw.length === 0 ? domainFromBusinessConfig() : null;
-  const siteDomain = (raw && raw.length > 0 ? raw : fromConfig ?? "example.com")
+  const tenantDomain = tenantBusiness?.domain?.trim();
+  const fromConfig = !tenantDomain && (!raw || raw.length === 0) ? domainFromBusinessConfig() : null;
+  const siteDomain = (tenantDomain || (raw && raw.length > 0 ? raw : fromConfig ?? "example.com"))
     .toLowerCase()
     .replace(/^www\./, "");
-  let siteOrigin = (process.env.BEACON_SITE_ORIGIN ?? "").trim().replace(/\/+$/, "");
+  // A process-global origin is safe only when no tenant-specific config won.
+  let siteOrigin = tenantDomain
+    ? ""
+    : (process.env.BEACON_SITE_ORIGIN ?? "").trim().replace(/\/+$/, "");
   if (!siteOrigin) siteOrigin = `https://${siteDomain}`;
   const ownedBrandShort =
-    (process.env.BEACON_SITE_BRAND_SHORT ?? "You").trim() || "You";
+    tenantBusiness?.name?.trim() ||
+    (process.env.BEACON_SITE_BRAND_SHORT ?? "You").trim() ||
+    "You";
   const entityDisplayName =
     (process.env.BEACON_SITE_ENTITY_NAME ?? "").trim() ||
     (ownedBrandShort !== "You"
@@ -66,26 +80,31 @@ function readConfig(): SiteConfig {
   return { siteOrigin, siteDomain, ownedBrandShort, entityDisplayName };
 }
 
-export function getSiteConfig(): SiteConfig {
-  if (!cached) cached = readConfig();
-  return cached;
+export function getSiteConfig(tenantId?: string): SiteConfig {
+  const resolvedTenantId = tenantId?.trim() || process.env.BEACON_TENANT_ID?.trim() || null;
+  const cacheKey = resolvedTenantId ?? "__legacy_global__";
+  const cached = cachedByTenant.get(cacheKey);
+  if (cached) return cached;
+  const config = readConfig(resolvedTenantId);
+  cachedByTenant.set(cacheKey, config);
+  return config;
 }
 
 /** Tests only — env is read once per process unless reset */
 export function resetSiteConfigCache(): void {
-  cached = null;
+  cachedByTenant.clear();
 }
 
-export function absoluteUrlForPath(path: string): string {
-  const { siteOrigin } = getSiteConfig();
+export function absoluteUrlForPath(path: string, tenantId?: string): string {
+  const { siteOrigin } = getSiteConfig(tenantId);
   const p = path.startsWith("/") ? path : `/${path}`;
   const joined = `${siteOrigin.replace(/\/+$/, "")}${p}`;
   return joined.replace(/\/+$/, "") || siteOrigin.replace(/\/+$/, "");
 }
 
 /** Origins to strip when normalizing URLs to site-relative paths. */
-function ownedUrlPrefixes(): string[] {
-  const { siteOrigin, siteDomain } = getSiteConfig();
+function ownedUrlPrefixes(tenantId?: string): string[] {
+  const { siteOrigin, siteDomain } = getSiteConfig(tenantId);
   const base = [
     siteOrigin.replace(/\/+$/, ""),
     `https://${siteDomain}`,
@@ -107,9 +126,9 @@ function ownedUrlPrefixes(): string[] {
   return [...base, ...extra];
 }
 
-export function stripSiteOrigin(fullUrl: string): string {
+export function stripSiteOrigin(fullUrl: string, tenantId?: string): string {
   const norm = fullUrl.replace(/\/+$/, "");
-  for (const prefix of ownedUrlPrefixes()) {
+  for (const prefix of ownedUrlPrefixes(tenantId)) {
     if (norm.toLowerCase().startsWith(prefix.toLowerCase())) {
       const rest = norm.slice(prefix.length) || "/";
       return rest.startsWith("/") ? rest : `/${rest}`;

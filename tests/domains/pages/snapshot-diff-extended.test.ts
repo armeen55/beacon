@@ -165,3 +165,19 @@ describe("diffSnapshots — changed flag includes new booleans", () => {
     expect(d.summary).toContain("H3");
   });
 });
+
+describe("diffSnapshots — FAQ direction evidence", () => {
+  const faq = (question: string) => ({
+    question,
+    answer_excerpt: "Answer",
+    source: "html_section" as const,
+  });
+
+  it("persists the exact previous FAQ count so guardrails can tell added from lost", () => {
+    const previous = snap({ faqs: [faq("One"), faq("Two"), faq("Three")] });
+    const current = snap({ faqs: [faq("One")] });
+    const diff = diffSnapshots(current, previous);
+    expect(diff.faq_count_changed).toBe(true);
+    expect(diff.previous_faq_count).toBe(3);
+  });
+});

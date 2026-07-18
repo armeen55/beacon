@@ -365,6 +365,11 @@ export const GLOBAL_STORES = new Set<string>([
   // this is the module's OWN receipt row, a DIFFERENT scope_key from the mirrored
   // stores it verifies - the verify pass only READS those, never writes them.
   "backup-verify-receipts",
+  // Release-level blind evaluation receipts. These certify an immutable
+  // application SHA rather than a tenant, so they are global. The store is
+  // Supabase-mirrored and bounded; failed/spent attempts remain honest evidence
+  // but can never grant eligibility (domains/eval/blind-holdout-store.ts).
+  "blind-holdout-receipts",
   // Nightly precompute warm pass (2026-07-02, master plan item 13). Same cron
   // fan-out rationale: rows carry tenant_id. Per-day run marker (double-fire
   // idempotency) + the "last warmed" receipts /diagnostics shows.

@@ -242,7 +242,12 @@ export function classifyGuardrails(
 
 function estimatePrevFaqCount(snap: PageSnapshot, diff: PageSnapshotDiff): number {
   if (!diff.faq_count_changed) return snap.faqs.length;
-  return snap.faqs.length;
+  // Old stored diffs did not persist the prior count. Returning the current
+  // count for those rows intentionally emits no directional claim; fresh diffs
+  // carry the exact count and can finally distinguish added from lost FAQs.
+  return typeof diff.previous_faq_count === "number"
+    ? diff.previous_faq_count
+    : snap.faqs.length;
 }
 
 export type ScanRunMeta = {

@@ -590,7 +590,7 @@ export function attributeEventViaTriage(opts: {
       return {
         cluster: acc.cluster,
         role: acc.role,
-        changeCount: acc.count,
+        changeCount: impact.breakdown.changeCount,
         primaryWindowDays: pickWindowDays(acc.minDaysBefore),
         impactScore: impact.score,
         impactBreakdown: impact.breakdown,

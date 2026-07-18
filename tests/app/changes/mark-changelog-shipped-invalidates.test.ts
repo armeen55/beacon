@@ -12,6 +12,10 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 vi.mock("@/lib/logger", () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } }));
 vi.mock("@/lib/tenant-context", () => ({ currentTenantId: async () => "tenant-a" }));
+const _canPublish = vi.fn(async () => true);
+vi.mock("@/lib/auth/can-publish", () => ({
+  canPublishForCurrentTenant: () => _canPublish(),
+}));
 
 const _repo = {
   getChangelogEntries: vi.fn(async () => [{ id: "cl1" }]),
@@ -48,6 +52,8 @@ beforeEach(() => {
   _markShipped.mockReset();
   _markShipped.mockResolvedValue({ flipped: 1, skipped: 0 });
   _invalidate.mockClear();
+  _canPublish.mockReset();
+  _canPublish.mockResolvedValue(true);
 });
 
 describe("markChangelogEditShipped - invalidates the /changes snapshot (item 15)", () => {
@@ -64,5 +70,19 @@ describe("markChangelogEditShipped - invalidates the /changes snapshot (item 15)
     expect(r.success).toBe(true);
     expect(r.flipped ?? 0).toBe(0);
     expect(_invalidate).not.toHaveBeenCalled();
+  });
+
+  it("refuses before any lifecycle read or write when tenant publish authority is absent", async () => {
+    _canPublish.mockResolvedValue(false);
+    _repo.getChangelogEntries.mockClear();
+    _repo.getRecommendedEdits.mockClear();
+    const r = await markChangelogEditShipped({ changelogId: "cl1" });
+    expect(r).toEqual({
+      success: false,
+      error: "You do not have permission to mark this change live.",
+    });
+    expect(_repo.getChangelogEntries).not.toHaveBeenCalled();
+    expect(_repo.getRecommendedEdits).not.toHaveBeenCalled();
+    expect(_markShipped).not.toHaveBeenCalled();
   });
 });

@@ -4,6 +4,7 @@ import { cache } from "react";
 
 import { getSupabaseAdmin } from "@/lib/persistence/supabase";
 import { log } from "@/lib/logger";
+import { densifyDailyClicks } from "@/domains/gsc/densify-daily-series";
 
 /**
  * gsc-page-queries (2026-06-25) — the LIGHT per-query GSC path (IDEAS #0's
@@ -260,7 +261,7 @@ export async function loadDailyClicksByPagesForTenant(
     for (const [page, dm] of byPageDate) {
       out.set(
         page,
-        [...dm.entries()].map(([date, clicks]) => ({ date, clicks })).sort((a, b) => a.date.localeCompare(b.date)),
+        densifyDailyClicks([...dm.entries()].map(([date, clicks]) => ({ date, clicks }))),
       );
     }
     return out;

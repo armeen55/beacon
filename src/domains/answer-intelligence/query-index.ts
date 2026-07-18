@@ -20,6 +20,7 @@
 
 import type { PromptAnswerObservation } from "@/domains/prompt-answer-observations/types";
 import type { CitationEvidenceIndex } from "@/domains/pages/types";
+import { parseSearchQueries } from "@/domains/prompt-answer-observations/search-query-parser";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -98,8 +99,10 @@ export function buildQueryKeywordIndex(
     const topic = obs.topic;
     if (!topic) continue;
 
-    // Split comma-separated fan-outs into individual queries
-    const queries = sq.split(",").map((q) => q.trim()).filter((q) => q.length > 3);
+    // Use the canonical conservative parser. A bare comma split shatters
+    // embedded name lists into fake one-word/short "queries", inflating the
+    // fan-out corpus and teaching the allocator from fragments.
+    const queries = parseSearchQueries(sq);
 
     let topicMap = topicQueryCounts.get(topic);
     if (!topicMap) {

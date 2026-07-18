@@ -171,7 +171,7 @@ export async function computeCompetitorEvidence(
   const competitorPages = await getCompetitorPages();
   const sourcePatternsState = await getSourcePatterns();
   const results = new Map<string, FrontierCompetitiveSummary>();
-  const brand = getSiteConfig().ownedBrandShort;
+  const brand = getSiteConfig(await currentTenantId()).ownedBrandShort;
   const hasNoEquiv =
     brand === "You" ? "you have" : `${brand} has`;
 
@@ -369,7 +369,7 @@ async function rebuildSummariesFromStores(
   const competitorPages = await getCompetitorPages();
   const sourcePatterns = await getSourcePatterns();
   const results = new Map<string, FrontierCompetitiveSummary>();
-  const brand = getSiteConfig().ownedBrandShort;
+  const brand = getSiteConfig(await currentTenantId()).ownedBrandShort;
   const hasNoEquiv = brand === "You" ? "you have" : `${brand} has`;
 
   const topicKeys = new Set(competitorPages.map((c) => c.frontierKey));

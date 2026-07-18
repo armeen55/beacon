@@ -160,4 +160,20 @@ describe("composeContentArticleSchema, Person alongside Article", () => {
     expect(fill!.proposed_text).not.toContain('"sameAs"');
     expect(fill!.proposed_text).not.toContain("Q999002");
   });
+
+  it("omits label-soup from Article descriptions instead of publishing broken schema copy", () => {
+    const labelSoup = snap({
+      title: "Koobideh Kabob",
+      h1: "Koobideh Kabob",
+      meta_description: null,
+      body_paragraph_sample: [
+        "Ingredients: beef: onion: salt: Serving Info: Step 1: Step 2:",
+      ],
+      h2_list: ["Ingredients:", "Serving Info:", "Step 1:"],
+    });
+    const fill = composeContentArticleSchema(candidate(), labelSoup, null);
+    expect(fill).not.toBeNull();
+    expect(fill!.proposed_text).not.toContain('"description"');
+    expect(fill!.proposed_text).not.toContain("Ingredients:");
+  });
 });

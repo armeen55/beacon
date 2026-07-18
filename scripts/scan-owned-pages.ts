@@ -42,6 +42,11 @@ import {
 } from "../src/domains/scanning/last-scan-result";
 import { writeIdleScanStateFromLastResult } from "../src/domains/scanning/scan-state";
 import { currentTenantId } from "../src/lib/tenant-context";
+import {
+  mergeLatestCanonicalInventory,
+  mergeLatestCanonicalSnapshots,
+  pageFetchRejectionReason,
+} from "../src/domains/scanning/scan-persistence";
 
 // Root .data dir — only used for un-classified outputs / legacy fall-through.
 const DATA_DIR = join(process.cwd(), ".data");
@@ -96,7 +101,9 @@ function syncScanStateAfterResult(payload: LastScanResultPayload): void {
     console.warn("[scan] scan-state sync failed:", err instanceof Error ? err.message : String(err));
   }
 }
-const { siteOrigin, siteDomain: CANONICAL_DOMAIN } = getSiteConfig();
+const { siteOrigin, siteDomain: CANONICAL_DOMAIN } = getSiteConfig(
+  process.env.BEACON_TENANT_ID,
+);
 const SITEMAP_URL = `${siteOrigin.replace(/\/+$/, "")}/sitemap.xml`;
 
 function formatErrorWithCause(e: unknown): string {
@@ -308,6 +315,16 @@ function saveElementInventory(rows: PageElementInventoryRow[]): void {
   const tmp = path + ".tmp";
   writeFileSync(tmp, JSON.stringify(rows, null, 2), "utf8");
   renameSync(tmp, path);
+}
+
+function loadPreviousElementInventory(): PageElementInventoryRow[] {
+  const path = join(requireTenantDir(), "page-element-inventory.json");
+  if (!existsSync(path)) return [];
+  try {
+    return JSON.parse(readFileSync(path, "utf8")) as PageElementInventoryRow[];
+  } catch {
+    return [];
+  }
 }
 
 /** Read city + service dictionaries directly from the on-disk
@@ -630,6 +647,7 @@ async function main() {
   console.log(`\n--- Scanning ${scanSet.length} canonical pages ---\n`);
 
   const previousSnapshots = loadPreviousSnapshots();
+  const previousElementRows = loadPreviousElementInventory();
   const prevByPageId = new Map<string, PageSnapshot>();
   const prevByUrl = new Map<string, PageSnapshot>();
   for (const snap of previousSnapshots) {
@@ -672,6 +690,13 @@ async function main() {
 
     if ("error" in result) {
       errors.push({ url: page.url, error: result.error });
+      continue;
+    }
+
+    const rejectionReason = pageFetchRejectionReason(result);
+    if (rejectionReason) {
+      console.warn(`[scan] refusing untrustworthy response for ${page.url}: ${rejectionReason}`);
+      errors.push({ url: page.url, error: rejectionReason });
       continue;
     }
 
@@ -781,16 +806,29 @@ async function main() {
   }
 
   // ── Step 7: Save ──
+  const persistedSnapshots = mergeLatestCanonicalSnapshots({
+    canonicalUrls: canonical.map((page) => page.url),
+    freshSnapshots: newSnapshots,
+    previousSnapshots,
+  });
+  const persistedElementRows = mergeLatestCanonicalInventory({
+    canonicalUrls: canonical.map((page) => page.url),
+    freshRows: allElementRows,
+    previousRows: previousElementRows,
+    freshSnapshotUrls: newSnapshots.map((snapshot) => snapshot.url),
+  });
   archivePreviousSnapshots();
-  saveSnapshots(newSnapshots);
-  console.log(`Wrote ${newSnapshots.length} snapshots (tenant-routed)`);
+  saveSnapshots(persistedSnapshots);
+  console.log(
+    `Wrote ${persistedSnapshots.length} latest-known snapshots (${newSnapshots.length} freshly observed; tenant-routed)`,
+  );
 
   // Sprint 6A.1 Phase 6 — write the inventory rows accumulated in the
   // scan loop. orchestrate-scan reads this file after the CLI exits and
   // calls `syncPageElementInventory` to dual-write to Supabase.
-  saveElementInventory(allElementRows);
+  saveElementInventory(persistedElementRows);
   console.log(
-    `Wrote ${allElementRows.length} page-element-inventory rows (tenant-routed)`,
+    `Wrote ${persistedElementRows.length} latest-known page-element-inventory rows (${allElementRows.length} freshly observed; tenant-routed)`,
   );
 
   if (diffs.length > 0) {

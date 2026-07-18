@@ -20,7 +20,11 @@ import { runBenchmark, benchmarkOperatorLine } from "@/domains/eval/benchmark";
 import { runAblation } from "@/domains/eval/ablation";
 import { replayGoldBaseline } from "@/domains/eval/replay";
 import { runModelFallbackBenchmark } from "@/domains/eval/model-fallback";
-import { NO_BLIND_HOLDOUT_LINE } from "@/domains/eval/blind-holdout-contract";
+import {
+  blindHoldoutStatusLine,
+  readCurrentBlindHoldoutStatus,
+} from "@/domains/eval/blind-holdout-store";
+import { BlindHoldoutForm } from "./blind-holdout-form";
 
 export const dynamic = "force-dynamic";
 
@@ -35,6 +39,7 @@ export default async function SelfCheckPage() {
   const ablation = runAblation();
   const replay = replayGoldBaseline();
   const fallback = runModelFallbackBenchmark();
+  const blind = await readCurrentBlindHoldoutStatus();
 
   return (
     <div className="space-y-8 p-6">
@@ -62,8 +67,14 @@ export default async function SelfCheckPage() {
       <section className="rounded-lg border border-border/40 bg-surface-inset/30 p-4">
         <h2 className="text-section font-semibold">Fresh blind validation</h2>
         <p className="mt-2 text-body text-muted-foreground" data-diagnostic="self-check-blind-holdout-line">
-          {NO_BLIND_HOLDOUT_LINE}
+          {blindHoldoutStatusLine(blind)}
         </p>
+        {blind.validation?.reasons.length ? (
+          <ul className="mt-2 space-y-1 text-meta text-muted-foreground">
+            {blind.validation.reasons.map((reason) => <li key={reason}>{reason}</li>)}
+          </ul>
+        ) : null}
+        {blind.state !== "eligible" && blind.state !== "missing_build" ? <BlindHoldoutForm /> : null}
       </section>
 
       {/* Replay: did I change any settled decision? */}

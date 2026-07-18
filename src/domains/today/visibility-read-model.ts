@@ -405,13 +405,30 @@ export function indexSnapshots(rows: DailyMetricSnapshot[]): SnapshotIndex {
 // Chart time-series builders (per-day)
 // ─────────────────────────────────────────────────────────────────────
 
-/** Clamp a percentage to [0,100]. citation_count is multi-per-observation (one AI
- *  answer can cite several URLs), so `citation_count / observations` can exceed
- *  100% — an absurd value for a metric labelled + charted as a rate. Clamp it; the
- *  trend below 100% is untouched. (Proper fix: a per-platform cited_obs_count column
- *  → rate = cited_obs / total_obs — audit-wave-3 #4, needs a schema change.) */
+/** Clamp a percentage to [0,100] as a final defensive boundary. */
 function clampPct(n: number): number {
   return Math.max(0, Math.min(100, n));
+}
+
+/**
+ * Exact observation-level citation numerator for new native snapshots.
+ * Historical rows predate this value, so they retain the bounded legacy
+ * fallback instead of disappearing from the chart.
+ */
+export function citedObservationCount(row: DailyMetricSnapshot): number {
+  const direct = row.cited_obs_count;
+  const metadata = row.metadata?.cited_obs_count;
+  const exact =
+    typeof direct === "number"
+      ? direct
+      : typeof metadata === "number"
+        ? metadata
+        : null;
+  const total = Math.max(0, row.total_possible ?? 0);
+  if (exact != null && Number.isFinite(exact)) {
+    return Math.max(0, Math.min(total, exact));
+  }
+  return Math.max(0, Math.min(total, row.citation_count));
 }
 
 /** Brand chart series for one metric. Skips zero-sample dates. */
@@ -426,14 +443,15 @@ function buildBrandSeries(
     if (platformRows.length === 0) continue;
 
     let totalObs = 0;
-    let totalCitations = 0;
+    let totalCitedObservations = 0;
     const perPlatformCiteRates: number[] = [];
     for (const r of platformRows) {
       const total = r.total_possible ?? 0;
       if (total === 0) continue;
       totalObs += total;
-      totalCitations += r.citation_count;
-      perPlatformCiteRates.push(clampPct((r.citation_count / total) * 100));
+      const citedObs = citedObservationCount(r);
+      totalCitedObservations += citedObs;
+      perPlatformCiteRates.push(clampPct((citedObs / total) * 100));
     }
     if (totalObs === 0) continue;
 
@@ -442,7 +460,7 @@ function buildBrandSeries(
     for (const r of brandDateRows) totalMentions += r.mentioned_obs_count ?? 0;
 
     const mentionRate = (totalMentions / totalObs) * 100;
-    const citationRate = clampPct((totalCitations / totalObs) * 100);
+    const citationRate = clampPct((totalCitedObservations / totalObs) * 100);
     const composite =
       perPlatformCiteRates.length > 0
         ? perPlatformCiteRates.reduce((a, b) => a + b, 0) /

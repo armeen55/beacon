@@ -228,6 +228,23 @@ describe("sanitizeStrategistReasoning — honesty + white-label + AI-claims", ()
     expect(res.ok).toBe(false);
     if (!res.ok) expect(res.reason).toBe("ai_claim_without_ai_evidence");
   });
+  it("rejects the same unsupported claim when its AI and citation terms are more than 48 characters apart", () => {
+    const r = {
+      ...VALID_REASONING,
+      whyThisNow:
+        "AI assistants evaluating the topic across detailed pages and several competing sources currently cite a rival, not you.",
+    };
+    const res = sanitizeStrategistReasoning(r, ledger, { hasAeoEvidence: false });
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.reason).toBe("ai_claim_without_ai_evidence");
+  });
+  it("still allows non-behavioural readability language without AEO evidence", () => {
+    const r = {
+      ...VALID_REASONING,
+      whyThisNow: "Clear headings help AI assistants understand the page structure.",
+    };
+    expect(sanitizeStrategistReasoning(r, ledger, { hasAeoEvidence: false }).ok).toBe(true);
+  });
   it("allows the same AI-citation claim when answer-engine evidence IS present", () => {
     const r = { ...VALID_REASONING, whyThisNow: "AI assistants currently cite a rival, not you." };
     expect(sanitizeStrategistReasoning(r, ledger, { hasAeoEvidence: true }).ok).toBe(true);

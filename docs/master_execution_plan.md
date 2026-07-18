@@ -40,6 +40,41 @@
 
 ## 1. Current Repo Truth
 
+### Trustworthy-baseline and identity decision (2026-07-17)
+
+A failed crawl response is never a page change. HTTP error documents and sub-500-character CMS
+rendering shells are rejected; full-replace snapshot and element stores preserve the last
+trustworthy canonical observation for failed, capped, or intentionally single-page scans while
+dropping URLs genuinely removed from the current sitemap. Fresh observations alone may generate
+diffs, alerts, or scan-success counts. Page registry identity is tenant+normalized-URL stable for
+new URLs, while an existing URL retains its historical ID during migration.
+
+Missing tenant classification is a first-class `unknown` state, not an implicit local-service
+tenant. Unknown turns segment-specific engines off and stays in its own global-pattern bucket.
+Site domain/brand configuration is tenant-keyed in one warm process and prefers the tenant's own
+business configuration over process-global site env. Review identity is content-based across
+manual and connector sources (normalized author + date + text), with exact provider ID still the
+strongest replacement key. These are permanent trust boundaries, not presentation choices.
+
+### Historical audit closure decisions (2026-07-17)
+
+Citation rate means the share of observations citing the owned brand, never the number of cited
+URLs divided by answers. New snapshots carry the exact observation numerator inside their durable
+metadata so correctness does not depend on a hosted schema migration; old rows use an explicitly
+bounded compatibility fallback. Schema descriptions must pass the same prose/label-list firewall
+as meta copy. Breadcrumbs must express root → intermediate path → leaf and are omitted on the
+homepage. Machine-created recommendation queues are bounded at 50 pending rows and 30 days; crawl-
+proven resolutions retire first, then the sweeper runs, so the two writers never race one row.
+
+Profound prompt intelligence is interpreted through the existing prompt-to-page coverage compiler.
+At most five strongest unique existing-page gaps enter the queue, one per target URL; the old root-
+page recommendation is visibility-only fallback behavior. Provider prompt creation stays operator-
+managed, especially for borrowed workspaces. Publisher inference may use repeated editorial
+structure without Article schema only when there is no address/phone; the launch threshold is two
+substantial semantic articles and the post-crawl threshold is five substantial non-local pages.
+Recommendations grounded in a crawl older than 45 days remain visible but state the exact age and
+cannot retain high confidence.
+
 ### Autonomous operating model decision (2026-07-13)
 
 Beacon must not hide its core intelligence behind a sequence of research buttons or depend on cron
