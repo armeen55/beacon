@@ -19,7 +19,7 @@ import "server-only";
 
 import { getSupabaseAdmin, isSupabaseConfigured } from "@/lib/persistence/supabase";
 import { canonicalizeCitationUrl } from "@/domains/citation-lifecycle/canonicalize-url";
-import { getCompetitorAuditsForTenant, type CompetitorPageAudit } from "@/domains/demand-graph/competitor-page-audit";
+import { getCompetitorAuditsForTenantId, type CompetitorPageAudit } from "@/domains/demand-graph/competitor-page-audit";
 import { chunkStructuredPage, type Chunk } from "./chunker";
 import { embedChunks, contentHashOf, type EmbeddableChunk } from "./embeddings";
 import { log } from "@/lib/logger";
@@ -192,7 +192,7 @@ const defaultDeps: BuildIndexDeps = {
   readOwnedDemand: defaultReadOwnedDemand,
   readOwnedUrls: defaultReadOwnedUrls,
   readOwnedSnapshots,
-  readCompetitorAudits: getCompetitorAuditsForTenant,
+  readCompetitorAudits: getCompetitorAuditsForTenantId,
   embed: embedChunks,
 };
 

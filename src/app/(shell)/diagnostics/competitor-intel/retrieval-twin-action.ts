@@ -38,8 +38,8 @@ export async function checkAnswerRaceAction(): Promise<AnswerRaceActionResponse>
     // Best-effort: name a page from the index and show its first question's ranking. Never
     // blocks the receipt - a report failure just means no example sentence this time.
     try {
-      const { getCompetitorAuditsForTenant } = await import("@/domains/demand-graph/competitor-page-audit");
-      const audits = await getCompetitorAuditsForTenant();
+      const { getCompetitorAuditsForTenantId } = await import("@/domains/demand-graph/competitor-page-audit");
+      const audits = await getCompetitorAuditsForTenantId(tenantId);
       const anyCompetitorUrl = [...audits.values()].find((a) => a.fetchStatus === "ok")?.url;
       if (anyCompetitorUrl) {
         // Use the demand graph to find an owned page in the same tenant to report on.

@@ -26,7 +26,7 @@ import "server-only";
 import { getSupabaseAdmin } from "@/lib/persistence/supabase";
 import { loadFactoryBatchHistory } from "@/domains/page-factory/batch-store";
 import { loadStealBriefsForTenant } from "@/domains/serp/serp-steal-lane";
-import { getCompetitorAuditsForTenant } from "@/domains/demand-graph/competitor-page-audit";
+import { getCompetitorAuditsForTenantId } from "@/domains/demand-graph/competitor-page-audit";
 import { canonicalizeCitationUrl } from "@/domains/citation-lifecycle/canonicalize-url";
 import { auditToExtract, type CompetitorExtract } from "@/domains/drafts/info-gain-gate";
 import { countInWeekOf, countInMonthOf } from "./factory-governor";
@@ -103,7 +103,7 @@ export async function loadTeardownTopicEntriesForTenant(tenantId: string): Promi
   try {
     const [briefs, audits] = await Promise.all([
       loadStealBriefsForTenant(tenantId),
-      getCompetitorAuditsForTenant(),
+      getCompetitorAuditsForTenantId(tenantId),
     ]);
     const out: TeardownTopicEntry[] = [];
     for (const b of briefs) {

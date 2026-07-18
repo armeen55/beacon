@@ -17,8 +17,7 @@ import { currentTenantId } from "@/lib/tenant-context";
 import { PageHeader } from "@/components/data/page-header";
 import { loadDemandGraphForTenant } from "@/domains/demand-graph/load-graph";
 import type { MoveCandidate, ConfidenceLevel } from "@/domains/demand-graph/build-graph";
-import { auditTopCompetitorsForTenant, getCompetitorAuditsForTenant, whatWins } from "@/domains/demand-graph/competitor-page-audit";
-import { canonicalizeCitationUrl } from "@/domains/citation-lifecycle/canonicalize-url";
+import { auditTopCompetitorsForTenant, getCompetitorAuditsForTenantId } from "@/domains/demand-graph/competitor-page-audit";
 import { loadChangePacksForTenant } from "@/domains/demand-graph/gap-compiler";
 import { formatMoveCard } from "@/domains/demand-graph/move-card";
 import { teardownView } from "@/domains/demand-graph/teardown-state";
@@ -84,7 +83,7 @@ export default async function RankRevenuePage({
   }
   const [{ graph, coverage }, audits, packsResult] = await Promise.all([
     loadDemandGraphForTenant(tenantId),
-    getCompetitorAuditsForTenant().catch(() => new Map()),
+    getCompetitorAuditsForTenantId(tenantId).catch(() => new Map()),
     loadChangePacksForTenant(tenantId, { limit: 25 }).catch(() => ({ packets: [] as EvidencePacket[] })),
   ]);
   const auditedOk = [...audits.values()].filter((a) => a.fetchStatus === "ok").length;

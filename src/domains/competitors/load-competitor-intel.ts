@@ -4,7 +4,7 @@ import { cache } from "react";
 import { currentTenantId } from "@/lib/tenant-context";
 import { loadActionPackWorklistForTenant } from "@/domains/action-pack/load";
 import {
-  getCompetitorAuditsForTenant,
+  getCompetitorAuditsForTenantId,
   planTeardownTargetsForTenant,
   whatWins,
 } from "@/domains/demand-graph/competitor-page-audit";
@@ -190,7 +190,7 @@ export const loadCompetitorRivals = cache(
 async function loadUncached(tenantId: string): Promise<CompetitorIntel> {
   const [wl, audits] = await Promise.all([
     loadActionPackWorklistForTenant(tenantId).catch(() => null),
-    getCompetitorAuditsForTenant().catch(() => new Map()),
+    getCompetitorAuditsForTenantId(tenantId).catch(() => new Map()),
   ]);
   if (!wl) return EMPTY;
   const packs = wl.packs;

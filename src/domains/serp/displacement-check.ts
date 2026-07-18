@@ -4,7 +4,7 @@ import { getSupabaseAdmin } from "@/lib/persistence/supabase";
 import { readLastFinalizedDate } from "@/domains/proof-gsc/gsc-window";
 import { log } from "@/lib/logger";
 import { getLatestMoveDrafts, saveMoveDraft } from "@/domains/demand-graph/move-draft-store";
-import { getCompetitorAuditsForTenant, whatWins } from "@/domains/demand-graph/competitor-page-audit";
+import { getCompetitorAuditsForTenantId, whatWins } from "@/domains/demand-graph/competitor-page-audit";
 import { canonicalizeCitationUrl } from "@/domains/citation-lifecycle/canonicalize-url";
 import { runSerpQuery } from "./dataforseo-serp";
 import { rootDomain } from "./serp-provider";
@@ -353,7 +353,7 @@ export async function runDisplacementCheckForTenant(
 
   const existingDrafts = await getLatestMoveDrafts(tenantId).catch(() => new Map());
   const nowMs = now().getTime();
-  const competitorAudits = await getCompetitorAuditsForTenant().catch(() => new Map());
+  const competitorAudits = await getCompetitorAuditsForTenantId(tenantId).catch(() => new Map());
 
   let spent = 0;
   for (const drop of drops) {

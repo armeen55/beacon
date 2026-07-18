@@ -60,7 +60,7 @@ vi.mock("@/domains/demand-graph/move-draft-store", () => ({
   saveMoveDraft: (...a: unknown[]) => saveMoveDraftMock(...(a as [])),
 }));
 vi.mock("@/domains/demand-graph/competitor-page-audit", () => ({
-  getCompetitorAuditsForTenant: async () => new Map(),
+  getCompetitorAuditsForTenantId: async () => new Map(),
 }));
 
 import { getOwnedAnswerAlignmentsBatch } from "./answer-alignment-store";

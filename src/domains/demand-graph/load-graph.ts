@@ -58,7 +58,7 @@ import { loadOwnershipRegistryForTenant } from "@/domains/ownership/registry-loa
 import { isUnparseableLabel } from "./clean-topic-label";
 import { readAllCachedKeywordDemand, type KeywordDemand } from "@/domains/serp/dataforseo-keywords";
 import { getLatestMoveDrafts } from "./move-draft-store";
-import { getCompetitorAuditsForTenant } from "./competitor-page-audit";
+import { getCompetitorAuditsForTenantId } from "./competitor-page-audit";
 import {
   buildCreatePageInfoGainInputs,
   gateCreatePageInfoGain,
@@ -722,7 +722,7 @@ export async function loadDemandGraphForTenant(
   try {
     if (moves.some((m) => m.gap === "create_page")) {
       const [, drafts] = await collapseInputsPromise;
-      const audits = await getCompetitorAuditsForTenant().catch(() => new Map());
+      const audits = await getCompetitorAuditsForTenantId(tenantId).catch(() => new Map());
       const inputs = buildCreatePageInfoGainInputs({
         moves,
         auditsByUrl: audits,

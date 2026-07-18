@@ -3227,6 +3227,13 @@ any member lever. A later edit inside the measurement window is accidental overl
 quarantined. A future combo prior may learn only from repeated calibrated outcomes for that exact
 package identity; it may never back-propagate the package result into its ingredients.
 
+**Competitor-evidence tenant boundary, 2026-07-17:** competitor teardown evidence is owned by an
+explicit tenant at every layer, including cache merge/write operations. Request context may resolve
+the tenant once at a customer-facing boundary, but background research, final-ranked SERP teardown,
+keyword-gap work, retrieval indexing, graph compilation, diagnostics, and downstream learning must
+pass that ID through directly. An empty tenant fails closed; an ambient process default may never
+select a different tenant's competitor cache.
+
 ## FUTURE IDEAS (not in current execution plan)
 
 These are ideas, experiments, and dream-state features that are NOT in the active phases. They live here so they are never lost. Move to `NEXT_PHASE_EXECUTION_PLAN.md` only when they become active work.

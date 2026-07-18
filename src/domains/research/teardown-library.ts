@@ -3,7 +3,7 @@ import "server-only";
 import { cache } from "react";
 
 import {
-  getCompetitorAuditsForTenant,
+  getCompetitorAuditsForTenantId,
   isTeardownFresh,
   whatWins,
   type CompetitorPageAudit,
@@ -21,7 +21,7 @@ import type { CommonalityBrief } from "@/domains/demand-graph/teardown-commonali
  * teardown) both write into the SAME underlying cache -
  * `competitor-page-audit.ts`'s `competitor-page-audit` store (imported
  * read-only here; never re-implemented) - because they both call the same
- * `auditCompetitorPage`/`getCompetitorAuditsForTenant` functions on a URL.
+ * `auditCompetitorPage`/`getCompetitorAuditsForTenantId` functions on a URL.
  * This module does not add a new store; it adds the missing UNION view: one
  * entry per torn-down URL, tagged with which lane(s) actually asked for it
  * and, when available, the commonality brief for that lane.
@@ -90,7 +90,7 @@ export const listTeardownLibrary = cache(async (tenantId: string): Promise<Teard
   if (!tenantId) return [];
 
   const [auditCache, stealBriefs, commonalityBriefs] = await Promise.all([
-    getCompetitorAuditsForTenant().catch(() => new Map<string, CompetitorPageAudit>()),
+    getCompetitorAuditsForTenantId(tenantId).catch(() => new Map<string, CompetitorPageAudit>()),
     loadStealBriefsForTenant(tenantId).catch(() => [] as StealBrief[]),
     readCommonalityBriefs(tenantId).catch(() => new Map<string, CommonalityBrief>()),
   ]);

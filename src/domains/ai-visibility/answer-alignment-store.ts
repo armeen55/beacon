@@ -38,7 +38,7 @@ import "server-only";
 import { getSupabaseAdmin, isSupabaseConfigured } from "@/lib/persistence/supabase";
 import { log } from "@/lib/logger";
 import { getLatestMoveDrafts, saveMoveDraft, type MoveDraftKind } from "@/domains/demand-graph/move-draft-store";
-import { getCompetitorAuditsForTenant, type CompetitorPageFacts } from "@/domains/demand-graph/competitor-page-audit";
+import { getCompetitorAuditsForTenantId, type CompetitorPageFacts } from "@/domains/demand-graph/competitor-page-audit";
 import {
   alignAnswerToPage,
   alignmentContentHash,
@@ -280,7 +280,7 @@ export async function getCompetitorAnswerAlignment(
   const draftKey = `${recId}::competitor`;
   try {
     const [audits, excerpts, existingDrafts] = await Promise.all([
-      getCompetitorAuditsForTenant(),
+      getCompetitorAuditsForTenantId(tenantId),
       readProfoundAnswerExcerpts(tenantId),
       getLatestMoveDrafts(tenantId),
     ]);

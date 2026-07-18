@@ -5,6 +5,13 @@
 This is the operator's live priority order. I work it strictly top to bottom. The dated
 chronology of what already landed lives in VERIFICATION_LOG.md; this list is only what is next.
 
+> 🟡 **2026-07-17 exhaustive audit execution loop — SLICE 1 CODE-COMPLETE, DEPLOY NEXT.**
+> Competitor teardown evidence is now tenant-explicit from orchestration through cache persistence;
+> all ambient read/write seams in the production graph were removed and the boundary is pinned by
+> read-and-write isolation tests. **Next:** deploy and exact-SHA verify this slice, then make
+> proof-gsc the only attribution/read-model source used by both Results and `/changes/[id]`. After
+> that, connect the existing 56/84-day confirmation store without weakening calibration gates.
+
 > 🟡 **2026-07-17 signed-in journey correction — CODE-COMPLETE, DEPLOY NEXT.** The real
 > Iranopedia journey exposed the remaining trust gap: Changes promised five copy-ready items while
 > Ready was zero, and Results made 25 measuring rows feel like 25 decisions. Exact redirect maps

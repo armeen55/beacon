@@ -36258,3 +36258,20 @@ lever, so a simultaneous title and answer edit can never teach Beacon that eithe
 An edit on a later date inside the 28-day window remains an accidental overlap and stays
 attribution-limited. Focused compound, maturity, learning, Results-copy, and architecture guards:
 5 files / 152 tests passed; typecheck and lint exited 0.
+
+## 2026-07-17 - Competitor-evidence tenant boundary
+
+Removed the last ambient-tenant selection from the competitor teardown evidence graph. Cache reads
+and merged writes now require an explicit tenant ID, including native cited-page teardown, final
+ranked SERP winner research, keyword-gap clone briefs, retrieval indexing, answer alignment,
+competitor intelligence, claim provenance, factory governance, demand-graph compilation,
+displacement analysis, SERP-steal analysis, and internal diagnostics. Missing tenant identity fails
+closed. The isolation regression now proves separate explicit reads and that a refreshed audit is
+written with the requested tenant scope.
+
+Verification before release: focused pass 8 files / 69 tests; `npm run typecheck` exit 0; `npm run
+lint` exit 0 with 93 existing warnings and zero errors; complete `npm run test` 1,511 files / 22,994
+passed / 23 conditional skips / 0 failed; `npm run build` exit 0 with only the existing protected
+middleware-filename deprecation; `npm audit --omit=dev --audit-level=moderate` found zero
+vulnerabilities; `git diff --check` exit 0. No paid provider call, hosted environment mutation, or
+customer-data mutation was performed.

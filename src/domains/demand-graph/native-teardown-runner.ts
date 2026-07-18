@@ -259,7 +259,7 @@ export async function runNativeTeardownForTenant(
 
     const maxPrompts = opts.maxPrompts ?? MAX_PROMPTS_PER_NIGHT;
     const [{ byPrompt, audited, fromCache }, ownedIndex, fanoutSeeds] = await Promise.all([
-      auditNativeCitedTargets({ targets, maxPrompts }, opts.deps ?? {}),
+      auditNativeCitedTargets({ tenantId, targets, maxPrompts }, opts.deps ?? {}),
       loadOwnedFactsIndex(tenantId),
       loadFanoutSeedsForTenant(tenantId).catch(() => []),
     ]);

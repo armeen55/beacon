@@ -15,7 +15,7 @@ vi.mock("@/domains/retrieval-twin/citation-likelihood", () => ({
 }));
 
 vi.mock("@/domains/demand-graph/competitor-page-audit", () => ({
-  getCompetitorAuditsForTenant: vi.fn(async () => new Map([["https://wikipedia.org/nowruz", { fetchStatus: "ok", url: "https://wikipedia.org/nowruz" }]])),
+  getCompetitorAuditsForTenantId: vi.fn(async () => new Map([["https://wikipedia.org/nowruz", { fetchStatus: "ok", url: "https://wikipedia.org/nowruz" }]])),
 }));
 
 vi.mock("@/domains/demand-graph/load-graph", () => ({

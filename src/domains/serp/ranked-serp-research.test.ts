@@ -87,7 +87,7 @@ describe("researchFinalRankedSerps", () => {
     }));
     const auditUrls = vi.fn(async (urls: readonly string[]) => ({ audits: urls.map(audit), fromCache: 1 }));
 
-    const result = await researchFinalRankedSerps(entries, {}, { runSerp: runSerp as never, auditUrls });
+    const result = await researchFinalRankedSerps("tenant-iranopedia", entries, {}, { runSerp: runSerp as never, auditUrls });
 
     expect(result.entries.map((row) => row.id)).toEqual(["one", "two"]);
     expect(result.entries.map((row) => row.allocatorScore)).toEqual([90, 50]);
@@ -102,7 +102,7 @@ describe("researchFinalRankedSerps", () => {
 
   it("is fail-soft and leaves entries unchanged when the guarded runner has no snapshot", async () => {
     const original = entry();
-    const result = await researchFinalRankedSerps([original], {}, {
+    const result = await researchFinalRankedSerps("tenant-iranopedia", [original], {}, {
       runSerp: vi.fn(async () => ({ status: "dry_run", plan: {} as never, snapshot: null, costUsd: 0, detail: "dry" })) as never,
       auditUrls: vi.fn(),
     });

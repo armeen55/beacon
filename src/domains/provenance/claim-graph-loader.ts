@@ -5,9 +5,8 @@ import { cache } from "react";
 import { log } from "@/lib/logger";
 import { readStore, writeStore } from "@/lib/persistence/json-store";
 import { getSupabaseAdmin, isSupabaseConfigured } from "@/lib/persistence/supabase";
-import { currentTenantId } from "@/lib/tenant-context";
 import { loadGscPageSignalsForTenant } from "@/domains/recommendation-intelligence/gsc-page-signals";
-import { getCompetitorAuditsForTenant } from "@/domains/demand-graph/competitor-page-audit";
+import { getCompetitorAuditsForTenantId } from "@/domains/demand-graph/competitor-page-audit";
 import { readPageBodyTextForEntailment } from "@/domains/drafts/factual-entailment-store";
 import { checkFactualEntailment } from "@/domains/drafts/factual-entailment";
 
@@ -124,16 +123,10 @@ async function readPageTexts(tenantId: string): Promise<PageTextInput[]> {
   }
 }
 
-/** The teardown cache as dated competitor text sources. Fail-soft -> [].
- *  getCompetitorAuditsForTenant reads the TENANT-SCOPED store off ambient
- *  tenant context, so in a cron fan-out this only contributes when the
- *  ambient tenant matches the one being rebuilt - otherwise it honestly
- *  skips (never misfiles another tenant's teardown text into this graph). */
+/** The tenant's teardown cache as dated competitor text sources. Fail-soft -> []. */
 async function readTeardownTexts(tenantId: string): Promise<TeardownTextInput[]> {
   try {
-    const ambient = await currentTenantId().catch(() => null);
-    if (ambient !== tenantId) return [];
-    const audits = await getCompetitorAuditsForTenant();
+    const audits = await getCompetitorAuditsForTenantId(tenantId);
     return [...audits.values()]
       .filter((a) => a.facts != null)
       .slice(0, MAX_TEARDOWN_SOURCES)

@@ -18,7 +18,6 @@ import { load as cheerioLoad } from "cheerio";
 import { createHash } from "node:crypto";
 
 import { readStore, writeStore } from "@/lib/persistence/json-store";
-import { currentTenantId } from "@/lib/tenant-context";
 import { canonicalizeCitationUrl } from "@/domains/citation-lifecycle/canonicalize-url";
 import { fetchPageHtml } from "@/domains/competitor-intel/polite-fetch";
 import { loadDemandGraphForTenant } from "./load-graph";
@@ -417,20 +416,13 @@ export const getCompetitorAuditsForTenantId = cache(
   },
 );
 
-/** Request-context convenience wrapper. Background and fan-out callers must use
- * getCompetitorAuditsForTenantId so a Vercel env fallback can never select a
- * different tenant's teardown cache. */
-export const getCompetitorAuditsForTenant = cache(
-  async (): Promise<Map<string, CompetitorPageAudit>> =>
-    getCompetitorAuditsForTenantId(await currentTenantId()),
-);
-
-async function saveAudits(audits: CompetitorPageAudit[]): Promise<void> {
-  const existing = await readStore<CompetitorPageAudit>(STORE, []).catch(() => []);
+async function saveAudits(tenantId: string, audits: CompetitorPageAudit[]): Promise<void> {
+  if (!tenantId || audits.length === 0) return;
+  const existing = await readStore<CompetitorPageAudit>(STORE, [], { tenantId }).catch(() => []);
   const byUrl = new Map<string, CompetitorPageAudit>();
   for (const r of existing) byUrl.set(canonicalizeCitationUrl(r.url) || r.url, r);
   for (const a of audits) byUrl.set(canonicalizeCitationUrl(a.url) || a.url, a);
-  await writeStore(STORE, [...byUrl.values()]);
+  await writeStore(STORE, [...byUrl.values()], { tenantId });
 }
 
 /**
@@ -440,10 +432,12 @@ async function saveAudits(audits: CompetitorPageAudit[]): Promise<void> {
  * rule, and persisted audit store as every other competitor teardown lane.
  */
 export async function auditCompetitorUrls(
+  tenantId: string,
   urls: readonly string[],
   deps: CompetitorAuditDeps = {},
 ): Promise<{ audits: CompetitorPageAudit[]; fromCache: number }> {
-  const cache = await getCompetitorAuditsForTenant();
+  if (!tenantId) return { audits: [], fromCache: 0 };
+  const cache = await getCompetitorAuditsForTenantId(tenantId);
   const unique = [...new Set(urls.map((url) => canonicalizeCitationUrl(url) || url).filter(Boolean))];
   const nowMs = (() => {
     const t = Date.parse((deps.now ?? (() => new Date().toISOString()))());
@@ -463,11 +457,11 @@ export async function auditCompetitorUrls(
     const audit = await auditCompetitorPage(url, deps);
     audits.push(audit);
     fresh.push(audit);
-    // `getCompetitorAuditsForTenant` is request-cached. Mutating this map keeps a
+    // The explicit tenant read is request-cached. Mutating this map keeps a
     // compiler read later in the same autonomous pass from seeing the old view.
     cache.set(canonicalizeCitationUrl(audit.url) || audit.url, audit);
   }
-  if (fresh.length > 0) await saveAudits(fresh);
+  if (fresh.length > 0) await saveAudits(tenantId, fresh);
   return { audits, fromCache };
 }
 
@@ -499,7 +493,7 @@ export async function planTeardownTargetsForTenant(
   const { graph } = await loadDemandGraphForTenant(tenantId);
   const actionable = graph.moves.filter((m) => m.gap !== "low_demand" && m.gap !== "healthy");
 
-  const cache = await getCompetitorAuditsForTenant();
+  const cache = await getCompetitorAuditsForTenantId(tenantId);
   const cacheKey = (u: string) => canonicalizeCitationUrl(u) || u;
   // A competitor we've already fetched and FAILED on (blocks crawlers / 404 / non-HTML)
   // — don't keep picking it when a fetchable rival sits one slot down.
@@ -628,13 +622,14 @@ export function planNativeCitedTargets(
  * `auditTopCompetitorsForTenant` (Profound-cited planning is untouched).
  */
 export async function auditNativeCitedTargets(
-  args: { targets: readonly NativePromptTeardownTarget[]; maxPrompts?: number },
+  args: { tenantId: string; targets: readonly NativePromptTeardownTarget[]; maxPrompts?: number },
   deps: CompetitorAuditDeps = {},
 ): Promise<{ byPrompt: Map<string, CompetitorPageAudit[]>; audited: CompetitorPageAudit[]; fromCache: number }> {
   const maxPrompts = args.maxPrompts ?? 10;
   const chosen = args.targets.slice(0, maxPrompts);
 
-  const cache = await getCompetitorAuditsForTenant();
+  if (!args.tenantId) return { byPrompt: new Map(), audited: [], fromCache: 0 };
+  const cache = await getCompetitorAuditsForTenantId(args.tenantId);
   const cacheKey = (u: string) => canonicalizeCitationUrl(u) || u;
   const nowMs = (() => {
     const t = Date.parse((deps.now ?? (() => new Date().toISOString()))());
@@ -663,7 +658,7 @@ export async function auditNativeCitedTargets(
     }
     byPrompt.set(t.promptId, pageAudits);
   }
-  if (toSave.length > 0) await saveAudits(toSave);
+  if (toSave.length > 0) await saveAudits(args.tenantId, toSave);
   return { byPrompt, audited, fromCache };
 }
 
@@ -695,6 +690,6 @@ export async function auditTopCompetitorsForTenant(
     }
     out.push(await auditCompetitorPage(t.url, deps));
   }
-  await saveAudits(out);
+  await saveAudits(args.tenantId, out);
   return { audited: out, targets: targets.length, cached };
 }

@@ -28,7 +28,7 @@ import { buildCloneBrief, type CloneBrief } from "./clone-brief";
 import { writeCloneBriefResults } from "./clone-brief-store";
 import {
   auditCompetitorPage,
-  getCompetitorAuditsForTenant,
+  getCompetitorAuditsForTenantId,
   isTeardownFresh,
   whatWins,
   type CompetitorPageAudit,
@@ -127,7 +127,7 @@ export type ProduceKeywordGapsDeps = {
   /** Item 60: cached-only difficulty read for the winnability labeling ($0). */
   readCachedDifficulty: () => Promise<Map<string, number | null>>;
   /** Item 60: the existing teardown cache, read-only (no fresh fetch). */
-  readTeardownCache: () => Promise<Map<string, { fetchStatus: CompetitorPageAudit["fetchStatus"]; facts: CompetitorPageAudit["facts"]; auditedAt: string }>>;
+  readTeardownCache: (tenantId: string) => Promise<Map<string, { fetchStatus: CompetitorPageAudit["fetchStatus"]; facts: CompetitorPageAudit["facts"]; auditedAt: string }>>;
   /** Item 60: ONE bounded, polite, cache-aware fetch of a competitor page. */
   auditPage: (url: string) => Promise<{ fetchStatus: CompetitorPageAudit["fetchStatus"]; facts: CompetitorPageAudit["facts"] }>;
   writeBriefs: (tenantId: string, briefs: CloneBrief[], now: Date) => Promise<void>;
@@ -156,8 +156,8 @@ const defaultDeps: ProduceKeywordGapsDeps = {
   runRelated: (seedKeyword) => runRelatedKeywords(seedKeyword),
   writeResults: (r) => writeKeywordGapResults(r),
   readCachedDifficulty: () => readAllCachedKeywordDifficulty(),
-  readTeardownCache: async () => {
-    const cache = await getCompetitorAuditsForTenant();
+  readTeardownCache: async (tenantId) => {
+    const cache = await getCompetitorAuditsForTenantId(tenantId);
     const out = new Map<string, { fetchStatus: CompetitorPageAudit["fetchStatus"]; facts: CompetitorPageAudit["facts"]; auditedAt: string }>();
     for (const [key, a] of cache) out.set(key, { fetchStatus: a.fetchStatus, facts: a.facts, auditedAt: a.auditedAt });
     return out;
@@ -421,7 +421,7 @@ export async function produceKeywordGaps(
 
   // Item 60: money-page aggregation from the SAME rows above, $0 marginal cost.
   const moneyPages = aggregateMoneyPages(rows);
-  const cloneBriefs = await buildCloneBriefsForRun({ moneyPages, graph, deps, pageResearch }).catch((e) => {
+  const cloneBriefs = await buildCloneBriefsForRun({ tenantId, moneyPages, graph, deps, pageResearch }).catch((e) => {
     log.warn("[clone-brief] brief build failed (gaps still returned)", {
       tenantId,
       error: e instanceof Error ? e.message : String(e),
@@ -471,12 +471,13 @@ export async function produceKeywordGaps(
  * API). Fail-soft per URL: one bad fetch never drops the whole batch.
  */
 async function buildCloneBriefsForRun(args: {
+  tenantId: string;
   moneyPages: readonly MoneyPage[];
   graph: Awaited<ReturnType<ProduceKeywordGapsDeps["loadGraph"]>>;
   deps: ProduceKeywordGapsDeps;
   pageResearch: ReadonlyMap<string, { status: LabsRunStatus; keywordCount: number; relatedKeywordCount: number; withVolume: number; totalSearchVolume: number }>;
 }): Promise<CloneBrief[]> {
-  const { moneyPages, graph, deps, pageResearch } = args;
+  const { tenantId, moneyPages, graph, deps, pageResearch } = args;
   const targets = pickTeardownTargets(moneyPages, MAX_BRIEF_TEARDOWNS);
   if (targets.length === 0) return [];
 
@@ -485,7 +486,7 @@ async function buildCloneBriefsForRun(args: {
     .map((m) => m.label)
     .filter((l): l is string => Boolean(l));
 
-  const teardownCache = await deps.readTeardownCache().catch(() => new Map());
+  const teardownCache = await deps.readTeardownCache(tenantId).catch(() => new Map());
   const nowMs = deps.now().getTime();
 
   const briefs: CloneBrief[] = [];

@@ -12,7 +12,7 @@ import { canonicalizeCitationUrl } from "@/domains/citation-lifecycle/canonicali
 import type { PageSnapshot } from "@/domains/pages/types";
 
 import { loadDemandGraphForTenantCached } from "./load-graph";
-import { getCompetitorAuditsForTenant } from "./competitor-page-audit";
+import { getCompetitorAuditsForTenantId } from "./competitor-page-audit";
 import {
   buildEvidencePacket,
   type DemandQuerySignal,
@@ -80,7 +80,7 @@ export async function loadChangePacksForTenant(
   const now = new Date();
   const [{ graph }, audits, snapshots, gscSignals, researchCorpus] = await Promise.all([
     loadDemandGraphForTenantCached(tenantId),
-    getCompetitorAuditsForTenant().catch(() => new Map()),
+    getCompetitorAuditsForTenantId(tenantId).catch(() => new Map()),
     getRepository()
       .forTenant(tenantId)
       .getPageSnapshots()

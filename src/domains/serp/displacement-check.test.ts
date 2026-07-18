@@ -20,7 +20,7 @@ vi.mock("@/domains/demand-graph/move-draft-store", () => ({
   saveMoveDraft: vi.fn(async () => true),
 }));
 vi.mock("@/domains/demand-graph/competitor-page-audit", () => ({
-  getCompetitorAuditsForTenant: vi.fn(async () => new Map()),
+  getCompetitorAuditsForTenantId: vi.fn(async () => new Map()),
   whatWins: vi.fn(() => "FAQ, answer block"),
 }));
 vi.mock("./dataforseo-serp", () => ({ runSerpQuery: vi.fn() }));

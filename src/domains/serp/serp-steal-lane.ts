@@ -6,7 +6,7 @@ import { readLastFinalizedDate } from "@/domains/proof-gsc/gsc-window";
 import { getLatestMoveDrafts, saveMoveDraft } from "@/domains/demand-graph/move-draft-store";
 import {
   auditCompetitorPage,
-  getCompetitorAuditsForTenant,
+  getCompetitorAuditsForTenantId,
   isTeardownFresh,
   whatWins,
   type CompetitorPageAudit,
@@ -518,7 +518,7 @@ export async function runStealLaneForTenant(
   const serpByQuery = new Map(serpResults.map((r) => [r.query, r]));
   const storedSerpHits = serpResults.filter((r) => r.source === "stored_history").length;
 
-  const teardownCache = await getCompetitorAuditsForTenant().catch(() => new Map<string, CompetitorPageAudit>());
+  const teardownCache = await getCompetitorAuditsForTenantId(tenantId).catch(() => new Map<string, CompetitorPageAudit>());
   const nowFn = opts.now ?? (() => new Date());
   const nowMs = nowFn().getTime();
 

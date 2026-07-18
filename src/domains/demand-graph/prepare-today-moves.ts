@@ -498,6 +498,7 @@ export async function prepareTodayMovesForTenant(
     const researchDeps: Partial<RankedSerpResearchDeps> = { runSerp };
     if (opts.auditSerpWinnerUrls) researchDeps.auditUrls = opts.auditSerpWinnerUrls;
     const receipt = await research(
+      tenantId,
       rankedEntries,
       { maxEntries: max, winnersPerQuery: 2 },
       researchDeps,

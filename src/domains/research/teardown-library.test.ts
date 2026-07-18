@@ -13,7 +13,7 @@ import { describe, it, expect, vi } from "vitest";
 vi.mock("server-only", () => ({}));
 
 vi.mock("@/domains/demand-graph/competitor-page-audit", () => ({
-  getCompetitorAuditsForTenant: vi.fn(),
+  getCompetitorAuditsForTenantId: vi.fn(),
   isTeardownFresh: vi.fn((auditedAt: string, nowMs: number) => {
     const t = Date.parse(auditedAt);
     return Number.isFinite(t) && nowMs - t < 14 * 24 * 60 * 60 * 1000;
@@ -25,7 +25,7 @@ vi.mock("@/domains/serp/serp-steal-lane", () => ({
   loadStealBriefsForTenant: vi.fn(),
 }));
 
-import { getCompetitorAuditsForTenant } from "@/domains/demand-graph/competitor-page-audit";
+import { getCompetitorAuditsForTenantId } from "@/domains/demand-graph/competitor-page-audit";
 import { loadStealBriefsForTenant } from "@/domains/serp/serp-steal-lane";
 import { listTeardownLibrary, listTeardownLibraryFiltered, summarizeTeardownLibrary } from "./teardown-library";
 import type { CompetitorPageAudit } from "@/domains/demand-graph/competitor-page-audit";
@@ -63,7 +63,7 @@ function brief(over: Partial<StealBrief> = {}): StealBrief {
   };
 }
 
-const mockAudits = getCompetitorAuditsForTenant as unknown as ReturnType<typeof vi.fn>;
+const mockAudits = getCompetitorAuditsForTenantId as unknown as ReturnType<typeof vi.fn>;
 const mockBriefs = loadStealBriefsForTenant as unknown as ReturnType<typeof vi.fn>;
 
 describe("listTeardownLibrary", () => {

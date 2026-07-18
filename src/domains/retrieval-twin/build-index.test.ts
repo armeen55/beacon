@@ -8,7 +8,7 @@ vi.mock("@/lib/persistence/supabase", () => ({
 }));
 
 vi.mock("@/domains/demand-graph/competitor-page-audit", () => ({
-  getCompetitorAuditsForTenant: async () => new Map(),
+  getCompetitorAuditsForTenantId: async () => new Map(),
 }));
 
 import { buildRetrievalIndex, pickTopOwnedUrls, MAX_OWNED_PAGES, type BuildIndexDeps } from "./build-index";

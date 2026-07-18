@@ -1,5 +1,18 @@
 # Beacon Verified State
 
+> 🟡 **The 2026-07-17 competitor-evidence tenant boundary is code-complete and awaiting
+> deploy.** Every competitor teardown cache read and write now requires the caller's explicit
+> tenant ID. Native cited-page audits, final-ranked SERP research, keyword-gap clone briefs,
+> retrieval-twin indexing, demand-graph compilation, answer alignment, displacement checks,
+> factory governance, diagnostics, and competitor views can no longer fall back to ambient request
+> state inside their evidence graph. Empty tenant IDs fail closed. A dedicated regression proves
+> both explicit cross-tenant reads and explicitly scoped writes. Verification: focused 69/69;
+> strict typecheck; lint exit 0 with 93 pre-existing warnings; complete suite 1,511 files / 22,994
+> passed / 23 conditional skips / 0 failed; production build exit 0; dependency audit zero;
+> `git diff --check` clean. Next three actions: (1) deploy and SHA-verify this tenant-boundary
+> slice, (2) collapse Changes detail onto proof-gsc as the sole attribution truth, and (3) connect
+> the durable 56/84-day confirmation reads after the canonical read model is in place.
+
 > 🟡 **The 2026-07-17 signed-in journey correction is code-complete and awaiting deploy.**
 > Real Iranopedia Today → Changes → Results evidence replaced the old readiness promise with a
 > fail-closed contract: To do remains To do until exact copy or an exact redirect map clears the

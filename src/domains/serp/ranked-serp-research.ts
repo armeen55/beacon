@@ -23,9 +23,8 @@ export type RankedSerpResearchDeps = {
   auditUrls: (urls: readonly string[]) => Promise<{ audits: CompetitorPageAudit[]; fromCache: number }>;
 };
 
-const defaultDeps: RankedSerpResearchDeps = {
+const defaultDeps: Pick<RankedSerpResearchDeps, "runSerp"> = {
   runSerp: (query, opts) => runSerpQuery(query, opts),
-  auditUrls: (urls) => auditCompetitorUrls(urls),
 };
 
 const norm = (value: string) => value.trim().toLocaleLowerCase("en-US");
@@ -42,11 +41,16 @@ function ownDomains(entries: readonly RankedUnifiedEntry[]): Set<string> {
  * byte; only grounded winner URLs are added to each entry's evidence receipt.
  */
 export async function researchFinalRankedSerps(
+  tenantId: string,
   entries: readonly RankedUnifiedEntry[],
   opts: { maxEntries?: number; winnersPerQuery?: number } = {},
   depsOverride: Partial<RankedSerpResearchDeps> = {},
 ): Promise<RankedSerpResearchResult> {
-  const deps = { ...defaultDeps, ...depsOverride };
+  const deps: RankedSerpResearchDeps = {
+    ...defaultDeps,
+    auditUrls: (urls) => auditCompetitorUrls(tenantId, urls),
+    ...depsOverride,
+  };
   const maxEntries = Math.max(0, Math.min(opts.maxEntries ?? 10, 10));
   const winnersPerQuery = Math.max(1, Math.min(opts.winnersPerQuery ?? 2, 3));
   const owners = ownDomains(entries);
