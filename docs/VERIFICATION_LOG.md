@@ -7,6 +7,53 @@
 
 ---
 
+## 2026-07-18 - Autonomous simplification campaign, two phases (349b63f0, e19db90b, 68f7b075; 99b8c1fc)
+
+Operator-authorized campaign run with 5 audit agents plus 12 fix lanes. Two phases pushed.
+
+**Phase 1** (commits `349b63f0` chore: delete dead code, `e19db90b` refactor: retire the legacy
+recommendation engine, `68f7b075` fix: honest counts honest states loud failures): net minus
+39,666 lines. The import-reachability audit found 173 files with zero production importers,
+including whole retired domains, legacy Today v2 components, superseded cost modules, the executed
+one-time customer-one backfill migration and its 2,710 line test, and the 1,787 line morning-brief
+engine; all deleted. The legacy 2,041 line recommendation engine is retired to an 82 line
+extraction. Today's measuring/decided counts now come from the same ledger classifier as Changes
+and Results, resolving the 25 vs 7 contradiction (25 whole-tenant is the honest number). The
+header refresh chip is now bounded by pipeline progress, so a pass dead at stage zero says cut
+short after 15 minutes instead of showing Refreshing 0/8 forever. The Results staleness banner
+reads the finalized data watermark rather than the connector sync stamp, fixing an 18-days-old
+claim when the real age was 3 days. 26 silent catch blocks feeding rendered numbers now log, and a
+failed shock-window read suppresses the lifetime earnings number instead of overstating it.
+Deployed and exact-SHA verified: `68f7b075` as `dpl_HAsgMH9d5zFFPQcKexCGHiyVJ3Le`, all 7 routes
+returning their expected 307 continuations.
+
+**Phase 2** (collapse the unreachable change-detail body, retire the briefs surface onto Changes,
+split on-use connector refresh out of the nightly module; HEAD `99b8c1fc`): net minus 11,792
+lines. changes/[id] collapsed to its
+redirect (477 to 116 lines) and the orphaned v2 client/loader chain deleted. /briefs,
+/briefs/proposed, and /briefs/[id] now redirect to /changes, matching the worklist precedent, with
+six orphaned components deleted. On-use connector refresh extracted to
+src/lib/connectors/on-use-refresh.ts so the hot path stops importing the 1,544 line nightly
+orchestrator. The auto-measure due loop is unified to one core with two thin entry points,
+freshness thresholds are consolidated beside SOURCE_SLA, and stale scheduled-cron docstrings are
+corrected.
+
+Deliberately not done, deferred on record: the proof-gsc/validation offline study harness is kept
+(blind-validation adjacency); GSC query-window reader consolidation deferred (verdict-affecting
+math); briefs slice 2 (brief-generation, actions, action-clusters, opportunity-candidates domains
+plus the getActionStates/getBriefStates persistence interface and resetExperiment coupling, about
+45 files) deferred with a written cascade map; the ts-prune long tail of 335 dead exports
+deferred.
+
+Verification: full suite after both phases 21,810 passed / 23 skipped / 0 failed; the suite shrank
+by about 1,300 dead tests and runs about 15 seconds faster. Final full gate: lint 0 errors / 63
+warnings (down from 74); npm audit 0 vulnerabilities; `git diff --check` clean; production build
+passed. Phase 1 deployed as `dpl_HAsgMH9d5zFFPQcKexCGHiyVJ3Le` with exact-SHA verification. Phase
+2 deployed as `dpl_6Hpmgce1XojNqGyEUnpWf4QJHcfJ`; production `/api/version` returned
+`99b8c1fce827624d02dd2b2092ba418e500a7827`, and all seven routes (`/`, `/today`, `/changes`,
+`/results`, `/briefs`, `/worklist`, `/settings/connectors`) returned their 307 login
+continuations, confirming the new briefs redirect behaves exactly like worklist.
+
 ## 2026-07-18 - Tenant-fallback incident: silent Ritz takeover of a live Iranopedia session, closed (4cd7169a)
 
 Incident: during the operator's live Iranopedia session, /results flipped to Ritz Builders

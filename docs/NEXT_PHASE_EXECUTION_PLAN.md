@@ -5,6 +5,38 @@
 This is the operator's live priority order. I work it strictly top to bottom. The dated
 chronology of what already landed lives in VERIFICATION_LOG.md; this list is only what is next.
 
+> 🟢 **2026-07-18 autonomous simplification campaign, BOTH PHASES DEPLOYED AND EXACT-SHA VERIFIED
+> (operator-authorized, 5 audit agents plus 12 fix lanes).** Phase 1 (`349b63f0`, `e19db90b`, `68f7b075`) is net minus
+> 39,666 lines: 173 zero-importer files deleted (retired domains, legacy Today v2 components,
+> superseded cost modules, the executed customer-one backfill migration and its 2,710 line test,
+> the 1,787 line morning-brief engine); the legacy 2,041 line recommendation engine retired to an
+> 82 line extraction; Today's measuring/decided counts unified onto the same ledger classifier as
+> Changes and Results (25 whole-tenant is the honest number, the 25 vs 7 contradiction is
+> resolved); the header refresh chip bounded by pipeline progress instead of Refreshing 0/8
+> forever; the Results staleness banner reading the finalized data watermark instead of the
+> connector sync stamp (18 days claimed vs real 3 days fixed); 26 silent catch blocks feeding
+> rendered numbers now log, and a failed shock-window read suppresses the lifetime earnings number
+> instead of overstating it. Phase 1 is deployed and exact-SHA verified at `68f7b075`
+> (Vercel `dpl_HAsgMH9d5zFFPQcKexCGHiyVJ3Le`, all 7 routes 307). Phase 2 (HEAD `99b8c1fc`) is
+> deployed and exact-SHA verified as `dpl_6Hpmgce1XojNqGyEUnpWf4QJHcfJ`; production
+> `/api/version` returned `99b8c1fce827624d02dd2b2092ba418e500a7827` and `/`, `/today`,
+> `/changes`, `/results`, `/briefs`, `/worklist`, and `/settings/connectors` all returned their
+> 307 login continuations, confirming the briefs redirect behaves exactly like worklist. It is
+> net minus 11,792 lines: changes/[id] collapsed to its
+> redirect (477 to 116 lines) with the orphaned v2 client/loader chain deleted; /briefs,
+> /briefs/proposed, and /briefs/[id] redirect to /changes per the worklist precedent with six
+> orphaned components deleted; on-use connector refresh extracted to
+> src/lib/connectors/on-use-refresh.ts so the hot path stops importing the 1,544 line nightly
+> orchestrator; the auto-measure due loop unified to one core with two thin entry points;
+> freshness thresholds consolidated beside SOURCE_SLA; stale scheduled-cron docstrings corrected.
+> Final full gate: 21,810 passed / 23 skipped / 0 failed, about 1,300 dead tests removed and
+> about 15 seconds faster; lint 0 errors / 63 warnings (down from 74); npm audit 0
+> vulnerabilities; `git diff --check` clean; production build passed. Deferred with reasons on
+> record in
+> HANDOFF_VERIFIED_STATE.md: the offline study harness (kept), GSC query-window reader
+> consolidation, briefs slice 2 (about 45 files, cascade map written), and the ts-prune long tail
+> of 335 dead exports. **Next is unchanged:** the operator begins wave 1 of Iranopedia edits.
+
 > 🟢 **2026-07-18 tenant-fallback incident, CLOSED, DEPLOYED AND EXACT-SHA VERIFIED at
 > `4cd7169a` (Vercel `dpl_47ABTKPKwBG5xkJ8fceUf7dfqcfN`).** The operator's live Iranopedia
 > session flipped to Ritz Builders mid-session on /results, including one mixed render (Iranopedia
