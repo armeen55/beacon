@@ -353,14 +353,24 @@ describe("/diagnostics/recommendation-triggers", () => {
   });
 
   it("renders the candidate table with per-row data attributes when predicates fire", async () => {
+    // The page computes crawl age against the real wall clock
+    // (`annotateCrawlStaleness({ now: new Date() })` in
+    // load-trigger-candidates-for-tenant.ts), so a hardcoded
+    // `fetched_at` drifts a day further stale every day this suite
+    // runs. Anchor the fixture to "now minus exactly 60 days,"
+    // captured at test time, so the rendered age is always 60
+    // regardless of wall-clock date.
+    const staleFetchedAt = new Date(Date.now() - 60 * 24 * 60 * 60 * 1000).toISOString();
     _snapshotsToReturn = [
       makeSnapshot({
         url: "https://example.com/missing-title",
         title: null,
+        fetched_at: staleFetchedAt,
       }),
       makeSnapshot({
         url: "https://example.com/missing-meta",
         meta_description: null,
+        fetched_at: staleFetchedAt,
       }),
     ];
     const html = await renderPage();
@@ -372,7 +382,7 @@ describe("/diagnostics/recommendation-triggers", () => {
     // so missing_meta now correctly emits the `improve_meta` DIRECTIVE
     // (composeMeta can't auto-draft a meta) rather than a blank `edit_meta`.
     expect(html).toContain('data-row-action-type="improve_meta"');
-    // The fixture crawl is 60 days old relative to the test clock. The row
+    // The fixture crawl is anchored to exactly 60 days old. The row
     // stays visible but its confidence is honestly reduced and labeled.
     expect(html).toContain('data-row-confidence="medium"');
     expect(html).toContain("page data behind this is 60 days old");
