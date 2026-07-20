@@ -9,6 +9,35 @@
 This is the operator's live priority order. I work it strictly top to bottom. The dated
 chronology of what already landed lives in VERIFICATION_LOG.md; this list is only what is next.
 
+> 🟢 **2026-07-20 unattended truth-and-convergence phase, DEPLOYED AND EXACT-SHA VERIFIED
+> (operator-authorized, strictly ordered tasks 1 to 6; commits `ed4d7d78`, `1bd4dd5e`,
+> `cebb210c`, `95b8c715`, `75e6aab3`; Vercel `dpl_52jeQ4KG84C8F9F9FphGrsma7zAQ`; six routes
+> 307).** The signed-in journey audit ran on a local operator-bypass server but was blocked from
+> live numbers because the local .env.local still points at the dead pre-cutover Supabase project
+> (operator-fix item); the outage exposed five database-unreachable honesty defects, all fixed.
+> The production surface-blob truth audit came back tenant identity CLEAN, canonical 25
+> reconciling across Today, Changes, and Results, Ritz pause holding. Forensic QA of the
+> Iranopedia queue top items found and fixed the headline defects: the 0 Ready mystery (about 24
+> genuine ready_to_review drafts orphaned by a packet URL-join miss and re-invalidated by an
+> all-inputs evidence hash; drafts now attach by canonical URL, staleness keys only on
+> copy-invalidating fields plus a 14 day age bound, Ready should light up on the next on-use
+> rebuild); two destructive approved redirects that passed the old same-host-only gate (a new
+> deterministic gate requires thin, demand-subset, or near-duplicate sources, hubs never redirect
+> to a leaf, unsafe plans demote to an internal-link suggestion, both live items demote on next
+> rebuild); card demand claims now state their true 90 day window; five database-unreachable lies
+> replaced with honest states; the unrendered TodayView counts, measuring list, attention fields,
+> and phantom movesReady stat deleted so stale divergent numbers can never persist again (the 7/0
+> blob predated the count-unification deploy by 10 hours and self-heals). The architecture-test
+> diet folded 45 duplicated source-scanning tests into 7 parameterized guard files (214 files /
+> 33,725 lines to 176 files / 29,881 lines, every trust invariant at exactly one pin), and the
+> canonical docs are compacted (VERIFICATION_LOG 36,722 to 7,428 lines, this plan 1,751 to 949
+> lines, halves archived verbatim). Final gate: typecheck clean; full suite 20,497 passed / 23
+> skipped / 0 failed in about 64 seconds; lint 0 errors / 63 warnings; npm audit 0
+> vulnerabilities; `git diff --check` clean; production build passed. Deferred: briefs slice 2,
+> GSC query-window reader consolidation, ts-prune long tail, master_execution_plan.md compaction,
+> and the operator-only .env.local fix. **Next is unchanged:** the operator begins wave 1 of
+> Iranopedia edits; the Ready queue should now populate on their first visit.
+
 > 🟢 **2026-07-18 autonomous simplification campaign, BOTH PHASES DEPLOYED AND EXACT-SHA VERIFIED
 > (operator-authorized, 5 audit agents plus 12 fix lanes).** Phase 1 (`349b63f0`, `e19db90b`, `68f7b075`) is net minus
 > 39,666 lines: 173 zero-importer files deleted (retired domains, legacy Today v2 components,

@@ -1,5 +1,44 @@
 # Beacon Verified State
 
+> 🟢 **2026-07-20 unattended truth-and-convergence phase, deployed and exact-SHA verified
+> (operator-authorized, strictly ordered tasks 1 to 6).** Three audits ran: a signed-in journey
+> audit on a local operator-bypass server (blocked from live numbers because the local .env.local
+> still points at the dead pre-cutover Supabase project, an operator-fix item; the outage exposed
+> five database-unreachable honesty defects, all fixed), a production surface-blob truth audit
+> (tenant identity CLEAN, the canonical 25 reconciles across Today, Changes, and Results, the Ritz
+> pause is holding), and a forensic QA of the Iranopedia queue top items. Headline defects found
+> and fixed (commits `ed4d7d78`, `1bd4dd5e`, `cebb210c`, `95b8c715`, `75e6aab3`, deployed as
+> `dpl_52jeQ4KG84C8F9F9FphGrsma7zAQ`, `/api/version` exact SHA verified, six routes 307): the 0
+> Ready mystery, where about 24 pages had genuine ready_to_review drafts that never surfaced
+> because a packet URL-join miss orphaned them and an all-inputs evidence hash invalidated valid
+> copy on every rebuild; drafts now attach by canonical URL and staleness keys only on
+> copy-invalidating fields (page title, action, source query) plus a 14 day age bound, so Ready
+> should light up on the next on-use rebuild. Two destructive approved redirects (a Tehran page
+> into a city list; a product category into one t-shirt) had passed the old same-host-only gate; a
+> new deterministic gate requires the source to be thin, a demand subset, or a near-duplicate,
+> hubs never redirect to a leaf, unsafe plans demote to an internal-link suggestion, and both live
+> items demote on next rebuild. Card demand claims now state their true 90 day window (a position
+> 9 claim was a 90 day average; actual current is 20 to 27). Five database-unreachable lies are
+> fixed: the false "Search Console isn't connected", the false "Nothing logged yet, assembled just
+> now", a raw vendor error leak, a forever "retrying automatically" that now escalates honestly
+> after 4 attempts, and a meaningless error reference reframed for support. Cross-surface
+> convergence: the unrendered TodayView counts, measuring list, and attention fields are deleted
+> so stale divergent numbers can never persist into the customer surface again, the phantom
+> movesReady stat is deleted, and freshness stamps use the earliest source consulted;
+> investigation proved the 7/0 blob predated the count-unification deploy by 10 hours and
+> self-heals. The architecture-test diet folded 45 duplicated source-scanning tests into 7
+> parameterized guard files (tests/architecture went from 214 files / 33,725 lines to 176 files /
+> 29,881 lines) with every trust invariant kept at exactly one pin. Canonical docs are compacted:
+> VERIFICATION_LOG 36,722 to 7,428 lines with the first half of 2026 moved verbatim to
+> docs/archive/VERIFICATION_LOG_2026H1.md, and the execution plan 1,751 to 949 lines with legacy
+> history archived. Final gate: strict typecheck clean; full suite 20,497 passed / 23 skipped / 0
+> failed (about 64 seconds); lint 0 errors / 63 warnings; npm audit 0 vulnerabilities; `git diff
+> --check` clean; production build passed. Deliberately deferred: briefs slice 2 retirement, GSC
+> query-window reader consolidation, the ts-prune long tail, master_execution_plan.md compaction
+> (228 KB, out of scope), and the operator-only item: fix the local .env.local to point at the
+> current Supabase project. Next actions are unchanged: the operator begins wave 1 of Iranopedia
+> edits; the Ready queue should now populate on their first visit.
+
 > 🟢 **2026-07-18 autonomous simplification campaign, both phases deployed and exact-SHA verified
 > (operator-authorized, 5 audit agents plus 12 fix lanes).** Phase 1 (commits `349b63f0` dead-code deletion, `e19db90b`
 > legacy recommendation engine retirement, `68f7b075` honest counts, honest states, loud
