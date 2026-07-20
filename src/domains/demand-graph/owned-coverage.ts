@@ -33,6 +33,11 @@ export type OwnedPageContent = {
   url: string;
   title: string | null;
   h1: string | null;
+  /** Main-content word count from the latest crawl snapshot; null when the page
+   *  was never crawled. Additive (2026-07-20): the redirect-safety gate reads it
+   *  to tell a thin shell from a real standalone page. The coverage detector
+   *  ignores it, so pre-existing callers are byte-identical. */
+  wordCount?: number | null;
 };
 
 /** One GSC serving row: which owned page Google sends a query to, at any position. */

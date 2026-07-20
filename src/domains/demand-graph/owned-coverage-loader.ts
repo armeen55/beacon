@@ -26,7 +26,7 @@ import type { OwnedCoverageInput, OwnedPageContent, OwnedServingRow } from "./ow
 const SERVING_QUERY_LIMIT = 1000;
 const MAX_OWNED_CONTENT_PAGES = 200;
 
-type OwnedContentRow = { url: string; title: string | null; h1: string | null };
+type OwnedContentRow = { url: string; title: string | null; h1: string | null; word_count: number | null };
 
 async function readOwnedPageContent(tenantId: string, urls: readonly string[]): Promise<OwnedPageContent[]> {
   const wanted = [...new Set(urls.filter(Boolean))].slice(0, MAX_OWNED_CONTENT_PAGES);
@@ -35,7 +35,7 @@ async function readOwnedPageContent(tenantId: string, urls: readonly string[]): 
     const sb = getSupabaseAdmin();
     const { data, error } = await sb
       .from("page_snapshots")
-      .select("url, title, h1, fetched_at")
+      .select("url, title, h1, word_count, fetched_at")
       .eq("tenant_id", tenantId)
       .in("url", wanted)
       .order("fetched_at", { ascending: false })
@@ -47,7 +47,7 @@ async function readOwnedPageContent(tenantId: string, urls: readonly string[]): 
       const key = (r.url ?? "").toLowerCase();
       if (!key || seen.has(key)) continue; // newest snapshot per URL wins (rows arrive newest first)
       seen.add(key);
-      out.push({ url: r.url, title: r.title ?? null, h1: r.h1 ?? null });
+      out.push({ url: r.url, title: r.title ?? null, h1: r.h1 ?? null, wordCount: r.word_count ?? null });
     }
     return out;
   } catch (e) {

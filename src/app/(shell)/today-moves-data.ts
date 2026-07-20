@@ -42,6 +42,8 @@ import {
   buildPreparedMovePack,
   parsePreparedPack,
   isPackStale,
+  indexReadyPacksByUrl,
+  selectPersistedPackForRow,
   type PreparedStatus,
 } from "@/domains/demand-graph/prepared-move-pack";
 import { loadShippedChanges } from "@/domains/proof-gsc/shipped-change-store";
@@ -301,7 +303,6 @@ export type TodayMove = {
 export type TodayMovesHeroData = {
   moves: TodayMove[];
   stats: {
-    movesReady: number;
     demandAtStake: number;
     citationsContested: number;
     pagesCovered: number;
@@ -601,6 +602,18 @@ export async function buildTodayMovesData(
       if (u && !packetByUrl.has(u)) packetByUrl.set(u, p);
     }
 
+    // FALLBACK JOIN (2026-07-20): the packet-first draft lookup below keys on
+    // `${packet.move.key}::prepared_pack`, so a persisted ready draft is INVISIBLE
+    // whenever the live build emits no packet for its row's URL (or emits one under
+    // a different move.key). That orphaned 71 prepared packs against 0 Ready. Here
+    // we index every persisted prepared_pack that is ITSELF ready_to_review by its
+    // own canonical target URL, so a row with no packet can still surface its ready
+    // draft. Newest wins (savedDrafts is already newest-first per rec). This NEVER
+    // fabricates readiness: only a pack whose persisted status is ready_to_review
+    // and whose target URL canonically equals the row's target is eligible, and it
+    // still passes the same draft-quality gate every packet-path pack passes.
+    const persistedReadyPackByUrl = indexReadyPacksByUrl(savedDrafts.values(), canon);
+
     // Collect engine-action, live, not-actioned edits grouped by PAGE - so a page
     // is ONE premium card (primary action + "also on this page"), never several
     // near-duplicate cards. Non-engine queue rows (schema fixes etc.) are excluded;
@@ -662,10 +675,23 @@ export async function buildTodayMovesData(
       // Prefer a PERSISTED prepared pack (from "Prepare my top 10") when it's not
       // stale - it carries the structured draft + experiment that lift the Move to
       // ready_to_review. Otherwise fall back to the in-memory (un-drafted) pack.
-      const persistedPack = packet
+      // Packet-keyed persisted pack (the original move.key join), then the URL
+      // fallback: when the packet-key join misses (no packet for this row, or the
+      // packet's move.key differs from the key the pack was saved under), the row's
+      // canonical target URL (`pk`) surfaces its persisted ready draft. A draft for
+      // URL X can never attach to a row for URL Y (see selectPersistedPackForRow).
+      const packetKeyedPack = packet
         ? parsePreparedPack(savedDrafts.get(`${packet.move.key}::prepared_pack`)?.content)
         : null;
-      const persistedFresh = !!(packet && persistedPack && !isPackStale(persistedPack, packet.evidenceHash, nowIso));
+      const persistedPack = selectPersistedPackForRow({
+        packetKeyedPack,
+        readyByUrl: persistedReadyPackByUrl,
+        rowCanonUrl: pk,
+      });
+      // Staleness: compare against the live packet when we have one (full copy-basis
+      // check); on the URL-fallback path there is no live packet, so the persisted
+      // ready copy governs itself under the age/TTL bounds only (isPackStale(null)).
+      const persistedFresh = !!(persistedPack && !isPackStale(persistedPack, packet ?? null, nowIso));
       const effectivePack = persistedFresh ? persistedPack : inMemoryPack;
       const preparedStale = !!(persistedPack && !persistedFresh);
 
@@ -1046,9 +1072,13 @@ export async function buildTodayMovesData(
       // Sharpest, grounded "why" for a striking-distance clicks move: name the
       // exact query, current rank, and real demand - the most compelling framing.
       // (Skipped when the title lever already lost - see the gate below.)
+      // Honesty (2026-07-20): sd.position and sd.impressions are the 90-day
+      // impression-weighted average position and the 90-day impression SUM for this
+      // query (loadTopQueriesForPages, WINDOW_DAYS = 90), not a monthly figure or a
+      // live rank. Label the real window so the number matches its source.
       const sd = m.topQueries.find((q) => q.strikingDistance);
       if (sd && m.action === "edit_title" && !titleLeverLost) {
-        m.why = `You already rank position ${Math.round(sd.position)} for "${sd.query}" (${sd.impressions.toLocaleString()} monthly impressions). A sharper title can climb a few spots and capture far more of those clicks.`;
+        m.why = `Over the last 90 days you averaged Google position ${Math.round(sd.position)} for "${sd.query}", with ${sd.impressions.toLocaleString()} impressions. A sharper title can climb a few spots and capture far more of those clicks.`;
         // Grounded proof line, symmetric with the why - names the exact metric to watch.
         m.proof = `You'll know it worked when the click-through rate for "${sd.query}" rises over the next few weeks of Search Console data while the ranking holds.`;
       }
@@ -1056,7 +1086,8 @@ export async function buildTodayMovesData(
       // citation gap with the real search position - you're visible, just not cited.
       const tq = m.topQueries[0];
       if (m.action === "add_answer_block" && tq && m.whoCited) {
-        m.why = `AI cites ${m.whoCited} for this. You already rank position ${Math.round(tq.position)} for "${tq.query}" (${tq.impressions.toLocaleString()} monthly impressions) but aren't the cited source - a quotable answer block can win the citation.`;
+        // Same 90-day basis as above; state the window rather than imply "monthly".
+        m.why = `AI cites ${m.whoCited} for this. Over the last 90 days you averaged Google position ${Math.round(tq.position)} for "${tq.query}", with ${tq.impressions.toLocaleString()} impressions, but you aren't the cited source. A quotable answer block can win the citation.`;
       }
       // Highest-priority "why": an ACTIVE loss is more urgent than an opportunity.
       // If the page is shedding clicks on a real query, lead with that.
@@ -1274,7 +1305,6 @@ export async function buildTodayMovesData(
     return {
       moves: top,
       stats: {
-        movesReady: top.length,
         demandAtStake: Math.round(demandAtStake),
         citationsContested,
         pagesCovered,

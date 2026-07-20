@@ -17,7 +17,7 @@ describe("buildForecastInputLines", () => {
       }),
     ).toEqual([
       "Shown on Google 5,400 times in the last 90 days for its top search.",
-      "Ranked about number 6 on Google today.",
+      "Ranked about number 6 on Google on average over the last 90 days.",
       "Sized from your own click rates at each Google position.",
     ]);
   });

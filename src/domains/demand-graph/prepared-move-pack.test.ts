@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
-import type { EvidencePacket, DraftSkeleton } from "./evidence-packet";
+import type { EvidencePacket, DraftSkeleton, PageStructureFacts } from "./evidence-packet";
+import { computeCopyBasisHash } from "./evidence-packet";
 import type { GapKind, MoveComponents } from "./build-graph";
 import type { CompetitorPageFacts } from "./competitor-page-audit";
 import type { ResearchDossier } from "@/domains/research/research-dossier";
@@ -10,6 +11,8 @@ import {
   isPackStale,
   toPersistedPack,
   parsePreparedPack,
+  indexReadyPacksByUrl,
+  selectPersistedPackForRow,
 } from "./prepared-move-pack";
 
 const NOW = "2026-06-25T00:00:00.000Z";
@@ -139,17 +142,75 @@ describe("derivePreparedStatus — honest by construction", () => {
   });
 });
 
-describe("isPackStale", () => {
+describe("isPackStale — legacy packs (no copyBasisHash) fall back to evidenceHash", () => {
   it("is stale when the evidence hash drifts", () => {
-    const p = packet("edit_page");
+    const p = packet("edit_page"); // fixture has no copyBasisHash → legacy path
     const pack = buildPreparedMovePack({ tenantId: "t", packet: p, opinions: [], decision: routeMove({ packet: p, opinions: [] }), nowIso: NOW });
-    expect(isPackStale(pack, "hash-A", NOW)).toBe(false);
-    expect(isPackStale(pack, "hash-DIFFERENT", NOW)).toBe(true);
+    expect(pack.copyBasisHash).toBeUndefined();
+    expect(isPackStale(pack, { evidenceHash: "hash-A" }, NOW)).toBe(false);
+    expect(isPackStale(pack, { evidenceHash: "hash-DIFFERENT" }, NOW)).toBe(true);
   });
   it("is stale once the TTL has passed", () => {
     const p = packet("edit_page");
     const pack = buildPreparedMovePack({ tenantId: "t", packet: p, opinions: [], decision: routeMove({ packet: p, opinions: [] }), nowIso: NOW });
-    expect(isPackStale(pack, "hash-A", "2026-08-01T00:00:00.000Z")).toBe(true);
+    expect(isPackStale(pack, { evidenceHash: "hash-A" }, "2026-08-01T00:00:00.000Z")).toBe(true);
+  });
+});
+
+describe("isPackStale — two-tier copy-basis contract (new packs)", () => {
+  const facts_ = (title: string | null): PageStructureFacts => ({
+    title, metaDescription: null, h1: null, h2Count: 0, outline: [], schemaTypes: [], hasFaq: false, hasAnswerBlock: false, wordCount: 0,
+  });
+  // A pack whose copyBasisHash is computed from the owned title, edit_page action,
+  // and primary query (the fixture's default label). Mirrors buildEvidencePacket.
+  function packForTitle(title: string | null, nowIso = NOW): { pack: ReturnType<typeof buildPreparedMovePack> } {
+    const p = packet("edit_page");
+    p.yourPage.facts = facts_(title);
+    p.copyBasisHash = computeCopyBasisHash({ ownedTitle: title, ownedH1: null, gapType: "edit_page", primaryQuery: p.move.label });
+    const pack = buildPreparedMovePack({ tenantId: "t", packet: p, opinions: [], decision: routeMove({ packet: p, opinions: [] }), nowIso });
+    return { pack };
+  }
+  // The live build's current inputs: a fresh evidenceHash (drifts freely) plus a
+  // copyBasisHash derived from the current title.
+  const current = (title: string | null, evidenceHash = "evidence-live") => ({
+    evidenceHash,
+    copyBasisHash: computeCopyBasisHash({ ownedTitle: title, ownedH1: null, gapType: "edit_page", primaryQuery: "persian wedding traditions" }),
+  });
+
+  it("(b) stays FRESH when only volatile evidence changed (competitor facts / dossier / share drift)", () => {
+    const { pack } = packForTitle("Persian Wedding Traditions");
+    expect(pack.copyBasisHash).toBeDefined();
+    // evidenceHash is wildly different (competitor teardown re-fetched, dossier
+    // re-hashed) but the owned title, action, and source query are unchanged.
+    expect(isPackStale(pack, current("Persian Wedding Traditions", "totally-different-evidence"), NOW)).toBe(false);
+  });
+
+  it("(c) goes STALE when the owned page title the edit was computed against changed", () => {
+    const { pack } = packForTitle("Persian Wedding Traditions");
+    expect(isPackStale(pack, current("Persian Wedding Traditions — Updated 2026"), NOW)).toBe(true);
+  });
+
+  it("goes STALE when the action type changed", () => {
+    const { pack } = packForTitle("Persian Wedding Traditions");
+    const currentDifferentAction = {
+      evidenceHash: "evidence-live",
+      copyBasisHash: computeCopyBasisHash({ ownedTitle: "Persian Wedding Traditions", ownedH1: null, gapType: "answer_block", primaryQuery: "persian wedding traditions" }),
+    };
+    expect(isPackStale(pack, currentDifferentAction, NOW)).toBe(true);
+  });
+
+  it("(d) a 15-day-old pack is stale regardless of matching hashes", () => {
+    const { pack } = packForTitle("Persian Wedding Traditions");
+    const fifteenDaysLater = new Date(Date.parse(NOW) + 15 * 24 * 60 * 60 * 1000).toISOString();
+    // Copy basis is unchanged, but the age bound (14 days) fires anyway.
+    expect(isPackStale(pack, current("Persian Wedding Traditions"), fifteenDaysLater)).toBe(true);
+  });
+
+  it("URL-fallback path (no live packet) keeps a fresh pack fresh under the age bound", () => {
+    const { pack } = packForTitle("Persian Wedding Traditions");
+    expect(isPackStale(pack, null, NOW)).toBe(false);
+    const fifteenDaysLater = new Date(Date.parse(NOW) + 15 * 24 * 60 * 60 * 1000).toISOString();
+    expect(isPackStale(pack, null, fifteenDaysLater)).toBe(true);
   });
 });
 
@@ -190,5 +251,81 @@ describe("toPersistedPack / parsePreparedPack round-trip", () => {
     };
     expect(parsed.structuredDraft.value.sources[0]!.fetchedText).toBeUndefined();
     expect(parsed.structuredDraft.value.sources[0]!.supportingExcerpt).toBe("MUSEUM MUSEUM");
+  });
+});
+
+describe("fallback join — indexReadyPacksByUrl / selectPersistedPackForRow", () => {
+  const canonLower = (u: string | null | undefined): string => (u ?? "").toLowerCase();
+
+  function readyPackFor(url: string) {
+    const p = packet("answer_block", { competitorFacts: facts() });
+    p.yourPage.url = url;
+    const pack = buildPreparedMovePack({
+      tenantId: "t",
+      packet: p,
+      opinions: [],
+      decision: routeMove({ packet: p, opinions: [] }),
+      nowIso: NOW,
+      structuredDraft: { kind: "answer_block", value: { answer: "A grounded, paste-ready answer block." } },
+    });
+    expect(pack.preparedStatus).toBe("ready_to_review"); // draft + proof plan => ready
+    return pack;
+  }
+
+  function notReadyPackFor(url: string) {
+    const p = packet("answer_block", { competitorFacts: facts() });
+    p.yourPage.url = url;
+    const pack = buildPreparedMovePack({ tenantId: "t", packet: p, opinions: [], decision: routeMove({ packet: p, opinions: [] }), nowIso: NOW });
+    expect(pack.preparedStatus).not.toBe("ready_to_review"); // no draft => competitors_read
+    return pack;
+  }
+
+  it("indexes only ready_to_review prepared_pack rows, keyed by canonical target URL", () => {
+    const rows = [
+      { kind: "prepared_pack", content: toPersistedPack(readyPackFor("https://iranopedia.com/Famous-Iranian-Singers")) },
+      { kind: "prepared_pack", content: toPersistedPack(notReadyPackFor("https://iranopedia.com/not-ready")) },
+      { kind: "answer_block", content: toPersistedPack(readyPackFor("https://iranopedia.com/other")) }, // wrong kind
+      { kind: "prepared_pack", content: "not json" }, // fail-soft
+    ];
+    const idx = indexReadyPacksByUrl(rows, canonLower);
+    expect([...idx.keys()]).toEqual(["https://iranopedia.com/famous-iranian-singers"]);
+    expect(idx.get("https://iranopedia.com/not-ready")).toBeUndefined();
+  });
+
+  it("(a) a row whose packet join MISSES surfaces its persisted ready draft by URL", () => {
+    const url = "https://iranopedia.com/famous-iranian-singers";
+    const readyByUrl = indexReadyPacksByUrl(
+      [{ kind: "prepared_pack", content: toPersistedPack(readyPackFor(url)) }],
+      canonLower,
+    );
+    // No packet emitted for this row → packetKeyedPack is null (the orphan case).
+    const picked = selectPersistedPackForRow({ packetKeyedPack: null, readyByUrl, rowCanonUrl: url });
+    expect(picked).not.toBeNull();
+    expect(picked!.preparedStatus).toBe("ready_to_review");
+    expect(canonLower(picked!.targetUrl)).toBe(url);
+  });
+
+  it("the packet-key match wins and the URL fallback is not consulted when a packet-keyed pack exists", () => {
+    const url = "https://iranopedia.com/famous-iranian-singers";
+    const packetKeyedPack = readyPackFor(url);
+    const readyByUrl = indexReadyPacksByUrl(
+      [{ kind: "prepared_pack", content: toPersistedPack(readyPackFor("https://iranopedia.com/somewhere-else")) }],
+      canonLower,
+    );
+    const picked = selectPersistedPackForRow({ packetKeyedPack, readyByUrl, rowCanonUrl: url });
+    expect(picked).toBe(packetKeyedPack);
+  });
+
+  it("(e) a draft for URL X can never attach to a row for URL Y", () => {
+    const readyByUrl = indexReadyPacksByUrl(
+      [{ kind: "prepared_pack", content: toPersistedPack(readyPackFor("https://iranopedia.com/url-x")) }],
+      canonLower,
+    );
+    const picked = selectPersistedPackForRow({
+      packetKeyedPack: null,
+      readyByUrl,
+      rowCanonUrl: "https://iranopedia.com/url-y",
+    });
+    expect(picked).toBeNull();
   });
 });

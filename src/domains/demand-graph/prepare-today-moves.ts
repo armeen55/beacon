@@ -633,7 +633,7 @@ export async function prepareTodayMovesForTenant(
       // re-drafted with the hardened prompt, so "Prepare" upgrades bad output in place.
       // forceRegenerate (teardown regeneration) ALWAYS re-drafts.
       const existing = parsePreparedPack(saved.get(`${moveId}::prepared_pack`)?.content);
-      if (!opts.forceRegenerate && existing && existing.structuredDraft && !isPackStale(existing, packet.evidenceHash, nowIso)) {
+      if (!opts.forceRegenerate && existing && existing.structuredDraft && !isPackStale(existing, packet, nowIso)) {
         const q = evaluatePreparedPackQuality({
           structuredDraft: existing.structuredDraft as { kind?: string; value?: unknown },
           preparedStatus: existing.preparedStatus,
@@ -675,7 +675,7 @@ export async function prepareTodayMovesForTenant(
       // the identical cached output - bypass the call cache for a fresh take.
       const regenerateInPlace =
         opts.forceRegenerate === true ||
-        (existing?.structuredDraft != null && !isPackStale(existing, packet.evidenceHash, nowIso));
+        (existing?.structuredDraft != null && !isPackStale(existing, packet, nowIso));
       const draftRes = await draftForPacket(packet, tenantId, {
         complete: opts.complete,
         bypassCache: regenerateInPlace,

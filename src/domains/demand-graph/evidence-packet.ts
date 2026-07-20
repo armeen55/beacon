@@ -116,7 +116,42 @@ export type EvidencePacket = {
   draft: DraftSkeleton;
   proofPlan: { metrics: string[]; windowsDays: number[]; controls: string };
   evidenceHash: string;
+  /**
+   * copyBasisHash (2026-07-20) - the staleness key for a PREPARED COPY, distinct
+   * from evidenceHash (which folds in volatile evidence CONTEXT). It hashes ONLY
+   * the inputs that can invalidate an already-drafted piece of copy:
+   *   1. the owned page's own current title + H1 the edit was computed against,
+   *   2. the action type (a title edit is not an answer block),
+   *   3. the proposed copy's source query (the primary query the draft answers).
+   * It deliberately EXCLUDES competitor facts, the research dossier hash, and
+   * demand query-share percentages: those drift constantly and are evidence for
+   * the recommendation, not inputs to the copy, so they must not discard a valid
+   * prepared draft. See isPackStale (prepared-move-pack.ts) for the two-tier check.
+   * Optional only so legacy/test packet literals type-check; buildEvidencePacket
+   * always populates it, so every production packet carries it.
+   */
+  copyBasisHash?: string;
 };
+
+/**
+ * Hash the copy-invalidating subset of a Move (see EvidencePacket.copyBasisHash).
+ * PURE. Exported so the packet builder, the prepare path, and tests share ONE
+ * definition of "what actually changes a prepared draft".
+ */
+export function computeCopyBasisHash(input: {
+  ownedTitle: string | null;
+  ownedH1: string | null;
+  gapType: GapKind;
+  primaryQuery: string;
+}): string {
+  const basis = {
+    t: input.ownedTitle ?? null,
+    h: input.ownedH1 ?? null,
+    a: input.gapType,
+    q: input.primaryQuery.trim().toLocaleLowerCase("en-US"),
+  };
+  return createHash("sha256").update(JSON.stringify(basis)).digest("hex").slice(0, 16);
+}
 
 export type DemandQuerySignal = {
   query: string;
@@ -345,6 +380,15 @@ export function buildEvidencePacket(input: BuildEvidencePacketInput): EvidencePa
     d: { o: outline, f: faqQuestions, s: schemaRecommendations },
   };
   const evidenceHash = createHash("sha256").update(JSON.stringify(packetCore)).digest("hex").slice(0, 16);
+  // Copy-basis staleness key: ONLY the inputs that invalidate a prepared draft
+  // (owned title/H1, action type, source query). Volatile evidence context is
+  // intentionally absent so a valid drafted pack survives competitor/dossier drift.
+  const copyBasisHash = computeCopyBasisHash({
+    ownedTitle: ownedFacts?.title ?? null,
+    ownedH1: ownedFacts?.h1 ?? null,
+    gapType: move.gap,
+    primaryQuery,
+  });
 
   return {
     move: {
@@ -399,5 +443,6 @@ export function buildEvidencePacket(input: BuildEvidencePacketInput): EvidencePa
       controls: "comparable same-type Iranopedia pages, unchanged in the window",
     },
     evidenceHash,
+    copyBasisHash,
   };
 }

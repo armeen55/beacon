@@ -172,7 +172,10 @@ export function buildForecastInputLines(
     );
   }
   if (fi.currentPosition != null && Number.isFinite(fi.currentPosition)) {
-    lines.push(`Ranked about number ${Math.round(fi.currentPosition)} on Google today.`);
+    // Honesty (2026-07-20): currentPosition is the impression-weighted AVERAGE
+    // position over the same 90-day window as impressions90d, not today's live
+    // rank. Say so, so a page that has since slipped is not misread as steady.
+    lines.push(`Ranked about number ${Math.round(fi.currentPosition)} on Google on average over the last 90 days.`);
   }
   lines.push(`Sized from ${fi.curveBasis}.`);
   return lines;
