@@ -38,7 +38,7 @@ import { loadStealBriefsForTenant } from "@/domains/serp/serp-steal-lane";
 import { loadKeywordLibraryForTenant } from "@/domains/research/keyword-library";
 import { loadOwnershipRegistryForTenantCached } from "@/domains/ownership/registry-loader";
 import { loadOwnedCoverageInputs } from "@/domains/demand-graph/owned-coverage-loader";
-import { detectOwnedCoverageForTopic } from "@/domains/demand-graph/owned-coverage";
+import { detectOwnedCoverageForTopic, type OwnedCoverageInput } from "@/domains/demand-graph/owned-coverage";
 import {
   normalizeWorklistEntry,
   normalizeGapVerdictEntry,
@@ -58,6 +58,11 @@ export type UnifiedListResult = {
    * for the server-only preparation handoff instead of ranking again. */
   entries: UnifiedEntry[];
   laneCounts: Record<"worklist" | "aeo_gap" | "serp_steal" | "keyword_library", number>;
+  /** The owned-coverage inputs this fuse ALREADY loaded (GSC serving queries per
+   *  owned page + owned page title/h1/word-count). Surfaced so the caller's
+   *  redirect-safety gate can read per-page demand + thinness WITHOUT a second
+   *  fetch (2026-07-20). Empty when the coverage read failed. */
+  coverageInputs: OwnedCoverageInput;
 };
 
 /**
@@ -118,5 +123,6 @@ export async function fuseUnifiedList(tenantId: string, worklistChanges: readonl
       serp_steal: stealEntries.length,
       keyword_library: keywordEntries.length,
     },
+    coverageInputs,
   };
 }

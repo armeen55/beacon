@@ -9,7 +9,7 @@
  * and build-canonical-changes.test.ts already use for CanonicalChange fixtures).
  */
 import { describe, expect, it } from "vitest";
-import { dedupeIdentity, strongerChange, dedupeChanges, demoteUnsized, reconcileCannibalizationRationale, applySafeRedirectPlans, dropBoardDuplicateNewPageRows, applyOpportunityFreshness, abstentionEvidenceFor, partitionActionableByEvidence, seasonalWaitPathsFrom, applySeasonalWaitPosture } from "./changes-data";
+import { dedupeIdentity, strongerChange, dedupeChanges, demoteUnsized, reconcileCannibalizationRationale, applySafeRedirectPlans, buildRedirectSafetyEvidence, dropBoardDuplicateNewPageRows, applyOpportunityFreshness, abstentionEvidenceFor, partitionActionableByEvidence, seasonalWaitPathsFrom, applySeasonalWaitPosture } from "./changes-data";
 import type { SeasonalQuery } from "@/domains/seasonal/seasonality";
 import { cannibalizationDirective } from "@/domains/changes/decide-action";
 import { WATCHING_SENTENCE, heldForEvidenceLine } from "@/domains/recommendations/abstention";
@@ -281,7 +281,17 @@ describe("reconcileCannibalizationRationale (Wave 3C - the secondary line consum
 });
 
 describe("applySafeRedirectPlans", () => {
-  it("emits an exact redirect only when source and target URLs form a verified same-site map", () => {
+  // Evidence helper: build the same coverage-derived facts the fuse threads in.
+  const ev = (
+    ownedPages: Array<{ url: string; title?: string | null; h1?: string | null; wordCount?: number | null }>,
+    serving: Array<{ query: string; ownerPage: string }> = [],
+  ) =>
+    buildRedirectSafetyEvidence({
+      ownedPages: ownedPages.map((p) => ({ url: p.url, title: p.title ?? null, h1: p.h1 ?? null, wordCount: p.wordCount ?? null })),
+      serving: serving.map((s) => ({ query: s.query, ownerPage: s.ownerPage, position: null })),
+    });
+
+  it("emits an exact redirect only when source and target form a verified same-site map AND the sources are thin shells", () => {
     const c = cc("a", "suggested", { sourceIds: ["m1"], decision: "prune_redirect" });
     const movesById = {
       m1: {
@@ -293,7 +303,12 @@ describe("applySafeRedirectPlans", () => {
         }],
       } as unknown as TodayMove,
     };
-    const [out] = applySafeRedirectPlans([c], movesById);
+    const evidence = ev([
+      { url: "https://iranopedia.com/iran-flag", wordCount: 2200, title: "Iran Flag" },
+      { url: "https://iranopedia.com/old-iran-flag", wordCount: 120, title: "Old Iran Flag" },
+      { url: "https://iranopedia.com/flag-history-old", wordCount: 90, title: "Flag History Old" },
+    ]);
+    const [out] = applySafeRedirectPlans([c], movesById, evidence);
     expect(out.decision).toBe("prune_redirect");
     expect(out.exactInstructions).toContain("https://iranopedia.com/old-iran-flag -> https://iranopedia.com/iran-flag");
     expect(out.recommendation).toContain("https://iranopedia.com/old-iran-flag");
@@ -316,6 +331,116 @@ describe("applySafeRedirectPlans", () => {
     expect(held.decision).toBe("watch");
     expect(held.exactInstructions).toBeNull();
     expect(held.qualityDecision).toBe("flagged");
+  });
+
+  it("BLOCKS a redirect that would destroy a substantial standalone page (tehran -> /cities), demoting it to an internal link", () => {
+    const c = cc("a", "suggested", { sourceIds: ["m1"], decision: "prune_redirect" });
+    const movesById = {
+      m1: {
+        id: "m1",
+        cannibalization: [{
+          decision: "prune_redirect",
+          leadUrl: "https://iranopedia.com/cities",
+          otherUrls: ["https://iranopedia.com/tehran"],
+        }],
+      } as unknown as TodayMove,
+    };
+    // /tehran is substantial (1800 words), titles differ, and its served demand does
+    // NOT overlap /cities: fails thin, subset, and title near-duplicate.
+    const evidence = ev(
+      [
+        { url: "https://iranopedia.com/cities", wordCount: 1600, title: "Cities of Iran" },
+        { url: "https://iranopedia.com/tehran", wordCount: 1800, title: "Tehran, Iran's Capital City" },
+      ],
+      [
+        { query: "list of iranian cities", ownerPage: "https://iranopedia.com/cities" },
+        { query: "tehran travel guide", ownerPage: "https://iranopedia.com/tehran" },
+        { query: "things to do in tehran", ownerPage: "https://iranopedia.com/tehran" },
+      ],
+    );
+    const [out] = applySafeRedirectPlans([c], movesById, evidence);
+    expect(out.decision).toBe("edit_existing");
+    expect(out.exactInstructions).toContain("add one internal link pointing at https://iranopedia.com/cities");
+    expect(out.exactInstructions).not.toContain("permanent redirect");
+    expect(out.qualityDecision).toBe("flagged");
+    expect(out.recommendation).toContain("instead of redirecting");
+  });
+
+  it("BLOCKS a category/hub source from folding into a single leaf page (orphans all siblings)", () => {
+    const c = cc("a", "suggested", { sourceIds: ["m1"], decision: "prune_redirect" });
+    const movesById = {
+      m1: {
+        id: "m1",
+        cannibalization: [{
+          decision: "prune_redirect",
+          leadUrl: "https://iranopedia.com/product/iran-world-cup-tshirt",
+          otherUrls: ["https://iranopedia.com/category/iran-world-cup-products"],
+        }],
+      } as unknown as TodayMove,
+    };
+    // Even with thin evidence, a category source is never redirect-safe.
+    const evidence = ev([
+      { url: "https://iranopedia.com/category/iran-world-cup-products", wordCount: 50, title: "Iran World Cup Products" },
+      { url: "https://iranopedia.com/product/iran-world-cup-tshirt", wordCount: 300, title: "Iran World Cup T-Shirt" },
+    ]);
+    const [out] = applySafeRedirectPlans([c], movesById, evidence);
+    expect(out.decision).toBe("watch");
+    expect(out.exactInstructions).toBeNull();
+    expect(out.qualityNote).toContain("category or hub");
+    expect(out.qualityDecision).toBe("flagged");
+  });
+
+  it("ALLOWS a redirect when the source is a genuinely thin duplicate page", () => {
+    const c = cc("a", "suggested", { sourceIds: ["m1"], decision: "prune_redirect" });
+    const movesById = {
+      m1: {
+        id: "m1",
+        cannibalization: [{
+          decision: "prune_redirect",
+          leadUrl: "https://iranopedia.com/nowruz",
+          otherUrls: ["https://iranopedia.com/nowrooz"],
+        }],
+      } as unknown as TodayMove,
+    };
+    const evidence = ev([
+      { url: "https://iranopedia.com/nowruz", wordCount: 1900, title: "Nowruz" },
+      { url: "https://iranopedia.com/nowrooz", wordCount: 90, title: "Nowrooz" },
+    ]);
+    const [out] = applySafeRedirectPlans([c], movesById, evidence);
+    expect(out.decision).toBe("prune_redirect");
+    expect(out.qualityDecision).toBe("approved");
+    expect(out.exactInstructions).toContain("Create these permanent redirects");
+  });
+
+  it("ALLOWS a redirect when the source's demand is a subset of the destination's, even if not thin", () => {
+    const c = cc("a", "suggested", { sourceIds: ["m1"], decision: "prune_redirect" });
+    const movesById = {
+      m1: {
+        id: "m1",
+        cannibalization: [{
+          decision: "prune_redirect",
+          leadUrl: "https://iranopedia.com/persian-food",
+          otherUrls: ["https://iranopedia.com/iranian-food"],
+        }],
+      } as unknown as TodayMove,
+    };
+    // Source is NOT thin (1200 words) but every query it serves is also served by the
+    // destination: redirecting loses no demand.
+    const evidence = ev(
+      [
+        { url: "https://iranopedia.com/persian-food", wordCount: 2400, title: "Persian Food" },
+        { url: "https://iranopedia.com/iranian-food", wordCount: 1200, title: "Iranian Food" },
+      ],
+      [
+        { query: "persian food", ownerPage: "https://iranopedia.com/persian-food" },
+        { query: "iranian cuisine", ownerPage: "https://iranopedia.com/persian-food" },
+        { query: "persian food", ownerPage: "https://iranopedia.com/iranian-food" },
+        { query: "iranian cuisine", ownerPage: "https://iranopedia.com/iranian-food" },
+      ],
+    );
+    const [out] = applySafeRedirectPlans([c], movesById, evidence);
+    expect(out.decision).toBe("prune_redirect");
+    expect(out.qualityDecision).toBe("approved");
   });
 });
 

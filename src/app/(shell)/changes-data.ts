@@ -60,6 +60,17 @@ import {
   type RankedUnifiedEntry,
   type UnifiedEntry,
 } from "@/domains/allocator/unified-list";
+// Redirect-safety gate (2026-07-20): the SAME owned-coverage inputs fuseUnifiedList already
+// loaded (GSC serving queries per owned page + owned page title/h1/word-count) are the evidence
+// applySafeRedirectPlans reads to prove a source is thin/duplicative before allowing a destructive
+// redirect. No new fetch: the packet is threaded out of the fuse.
+import type { OwnedCoverageInput } from "@/domains/demand-graph/owned-coverage";
+// Reuse the canonical exported similarity scorer (max jaccard-tokens / 1-lev-ratio) - no new
+// similarity math - for the source-vs-destination title/H1 near-duplicate check.
+import { similarity as titleSimilarity } from "@/domains/recommendations/match-engine/similarity";
+// Same canonicalizer the GSC cannibalization loader keys competing URLs by, so redirect URLs and
+// coverage-evidence URLs land on one key.
+import { canonicalizeCitationUrl } from "@/domains/citation-lifecycle/canonicalize-url";
 import { classifyOpportunityFreshness, summarizeExpiry } from "@/domains/changes/opportunity-expiry";
 import { perfMark, perfStage } from "@/lib/obs/perf-log";
 import { after } from "next/server";
@@ -98,9 +109,8 @@ export type ChangesView = {
   decidedCountCanonical: number;
   /** FP2 (2026-07-02) - "Fix the experience rows silently vanish" finding. Set exactly when
    *  a row TYPE got filtered upstream (the worklist render cap in moves/moves-data.ts truncates
-   *  to its strongest N and keeps the true count in stats.movesReady) so the list can say so in
-   *  one quiet line instead of just showing fewer rows with no acknowledgment. Null when nothing
-   *  was suppressed this load. */
+   *  to its strongest N) so the list can say so in one quiet line instead of just showing fewer
+   *  rows with no acknowledgment. Null when nothing was suppressed this load. */
   suppressedRowsNote: string | null;
   /** N46 (R6, 2026-07-02) - present exactly when at least one row's evidence has expired (45d+,
    *  or a seasonal window that already passed) this load. Renders as an honest sub-line inside
@@ -328,13 +338,134 @@ export function reconcileCannibalizationRationale(
   });
 }
 
-/** A redirect is the one recommendation Beacon must never infer from labels.
- * Require exact same-site source and target URLs, a non-home target, and at
- * least one distinct source. Otherwise demote to Watch instead of presenting a
- * destructive instruction that the operator cannot verify. */
+/** Per-page crawl + demand facts the redirect-safety gate reasons over, keyed by
+ *  canonical URL. Built purely from the owned-coverage inputs the fuse already
+ *  loaded (no new fetch). */
+export type RedirectPageFacts = {
+  /** Latest-crawl main-content word count; null when the page was never crawled. */
+  wordCount: number | null;
+  title: string | null;
+  h1: string | null;
+  /** GSC queries Google serves to this URL (any position). */
+  queries: ReadonlySet<string>;
+};
+
+export type RedirectSafetyEvidence = {
+  byUrl: ReadonlyMap<string, RedirectPageFacts>;
+};
+
+/** One canonical key so a cannibalization URL and a coverage-evidence URL match.
+ *  Same canonicalizer the GSC cannibalization loader uses, then lower-cased and
+ *  de-trailing-slashed for a stable map key. */
+function redirectUrlKey(url: string): string {
+  const canon = canonicalizeCitationUrl(url) ?? url;
+  return canon.trim().toLowerCase().replace(/\/+$/, "");
+}
+
+/** THIN source: a page whose crawled main content is below this many words is a
+ *  thin shell that a redirect can safely fold away. Justified from the existing
+ *  crawl thresholds: `MIN_TRUSTWORTHY_HTML_CHARS` (500, scan-persistence.ts) is the
+ *  floor below which a response is a rendering shell, not a page at all; ~1500
+ *  chars of main content (3x that floor, ~250 words at ~6 chars/word) is the
+ *  ceiling below which a page is real but too thin to stand on its own. This is
+ *  intentionally STRICTER than the 400-word `THIN_WORD_COUNT` merge trigger,
+ *  because a redirect DESTROYS the source whereas a merge only folds it. A page
+ *  above this bar is treated as a real standalone page and is never auto-redirected. */
+export const REDIRECT_SOURCE_THIN_WORD_COUNT = 250;
+/** SUBSET demand: the source must serve at least this many GSC queries for a
+ *  subset test to mean anything (a single-query page passing "subset" is noise). */
+export const REDIRECT_SUBSET_MIN_QUERIES = 2;
+/** SUBSET demand: fraction of the source's served queries that the destination
+ *  must also serve for the source's demand to count as already-covered by the
+ *  destination (so the redirect loses no demand). High by design. */
+export const REDIRECT_SUBSET_OVERLAP_FRACTION = 0.75;
+/** NEAR-DUPLICATE titles: source and destination title/H1 similarity at or above
+ *  this is a near-duplicate. Well above the 0.5 merge-jaccard and 0.3 title/H1
+ *  mismatch lines already in the codebase, since here it AUTHORIZES destruction. */
+export const REDIRECT_TITLE_DUP_SIMILARITY = 0.8;
+
+/** Path shapes that mark a source as a category / hub whose whole point is to list
+ *  many child pages. Folding one of these into a single leaf page orphans every
+ *  sibling, so a hub source is never redirect-safe regardless of the other tests. */
+const HUB_PATH = /\/(category|categories|product-category|collections?|shop|tag|tags|topics?)\//i;
+
+function isHubSource(url: string): boolean {
+  try {
+    return HUB_PATH.test(new URL(url).pathname);
+  } catch {
+    return HUB_PATH.test(url);
+  }
+}
+
+/** Build the redirect-safety evidence map from the owned-coverage inputs the fuse
+ *  already loaded. PURE; no I/O. */
+export function buildRedirectSafetyEvidence(coverage: OwnedCoverageInput | null | undefined): RedirectSafetyEvidence {
+  const byUrl = new Map<string, { wordCount: number | null; title: string | null; h1: string | null; queries: Set<string> }>();
+  const ensure = (url: string) => {
+    const key = redirectUrlKey(url);
+    let row = byUrl.get(key);
+    if (!row) {
+      row = { wordCount: null, title: null, h1: null, queries: new Set<string>() };
+      byUrl.set(key, row);
+    }
+    return row;
+  };
+  for (const p of coverage?.ownedPages ?? []) {
+    if (!p.url) continue;
+    const row = ensure(p.url);
+    row.wordCount = p.wordCount ?? row.wordCount;
+    row.title = p.title ?? row.title;
+    row.h1 = p.h1 ?? row.h1;
+  }
+  for (const s of coverage?.serving ?? []) {
+    if (!s.ownerPage || !s.query) continue;
+    ensure(s.ownerPage).queries.add(s.query.trim().toLowerCase());
+  }
+  return { byUrl };
+}
+
+/** Is a single source URL safe to fold into the destination via a permanent redirect?
+ *  Safe only when at least one destructive-suggestion guard is deterministically
+ *  satisfied: the source is a thin shell, OR its served demand is a subset of the
+ *  destination's, OR their titles/H1s are near-duplicates. A source we have no
+ *  evidence for fails all three (unknown is never "safe to destroy"). */
+function redirectSourceIsSafe(sourceUrl: string, leadUrl: string, evidence: RedirectSafetyEvidence): boolean {
+  const src = evidence.byUrl.get(redirectUrlKey(sourceUrl));
+  const dest = evidence.byUrl.get(redirectUrlKey(leadUrl));
+
+  const thin = src?.wordCount != null && src.wordCount < REDIRECT_SOURCE_THIN_WORD_COUNT;
+
+  let subset = false;
+  if (src && dest && src.queries.size >= REDIRECT_SUBSET_MIN_QUERIES) {
+    let shared = 0;
+    for (const q of src.queries) if (dest.queries.has(q)) shared++;
+    subset = shared / src.queries.size >= REDIRECT_SUBSET_OVERLAP_FRACTION;
+  }
+
+  let titleDup = false;
+  if (src && dest) {
+    const st = `${src.title ?? ""} ${src.h1 ?? ""}`.trim().toLowerCase();
+    const dt = `${dest.title ?? ""} ${dest.h1 ?? ""}`.trim().toLowerCase();
+    titleDup = st.length > 0 && dt.length > 0 && titleSimilarity(st, dt) >= REDIRECT_TITLE_DUP_SIMILARITY;
+  }
+
+  return thin || subset || titleDup;
+}
+
+/** A redirect is the one recommendation Beacon must never infer from labels, and
+ * the one it must never emit against a real page. Gate order:
+ *   1. Exact same-site source and target URLs, a non-home target, >=1 source
+ *      (fail-closed to Watch - we cannot verify a partial map).
+ *   2. Destructive-suggestion guard (2026-07-20): every source must be thin, or
+ *      demand-subset of the destination, or a title/H1 near-duplicate. A category
+ *      or hub source is NEVER redirect-safe (folding it into one leaf orphans its
+ *      children). A plan that fails the guard is DEMOTED to a non-destructive
+ *      internal-link consolidation (the pipeline's edit_existing action) rather
+ *      than shipping a destructive redirect the operator cannot undo. */
 export function applySafeRedirectPlans(
   changes: readonly CanonicalChange[],
   movesById: Record<string, TodayMove>,
+  evidence: RedirectSafetyEvidence = { byUrl: new Map() },
 ): CanonicalChange[] {
   return changes.map((change) => {
     if (change.decision !== "prune_redirect") return change;
@@ -363,6 +494,40 @@ export function applySafeRedirectPlans(
         rationale: "I am holding this until every source URL and the live destination are verified.",
       };
     }
+
+    // Destructive-suggestion guard. A category / hub source can never fold into one
+    // leaf, so it is held for a human even if the URL map is clean.
+    const hubSource = sourceUrls.find((u) => isHubSource(u));
+    if (hubSource) {
+      return {
+        ...change,
+        decision: "watch",
+        exactInstructions: null,
+        qualityDecision: "flagged",
+        qualityNote: `I will not redirect a category or hub page (${hubSource}) into a single page. That would orphan every child page under it, so I am holding this for a human to review.`,
+        rationale: "A category page lists many children; folding it into one page loses all the siblings, so I am not treating this as a redirect.",
+      };
+    }
+    // Every remaining source must prove it is thin, demand-subset, or a near-duplicate.
+    const unsafeSource = sourceUrls.find((u) => !redirectSourceIsSafe(u, leadUrl, evidence));
+    if (unsafeSource) {
+      const linkPlan = sourceUrls.map((source) => `${source} -> add one internal link to ${leadUrl}`).join("\n");
+      return {
+        ...change,
+        decision: "edit_existing",
+        before: sourceUrls.join(", "),
+        after: leadUrl,
+        exactInstructions: `Keep every page live. On each of these, add one internal link pointing at ${leadUrl} so they stop splitting its clicks:\n${linkPlan}`,
+        recommendation:
+          sourceUrls.length === 1
+            ? `Link ${sourceUrls[0]} to ${leadUrl} instead of redirecting it.`
+            : `Link these ${sourceUrls.length} pages to ${leadUrl} with one internal link each instead of redirecting them.`,
+        qualityDecision: "flagged",
+        qualityNote: `${unsafeSource} looks like a real standalone page (not thin, not a demand subset of the destination, not a near-duplicate title), so I will not ask you to delete it with a redirect. Consolidate with an internal link instead.`,
+        rationale: "I only redirect a page when it is a thin shell or a duplicate of the destination. This one is neither, so the safe move is an internal link, not a redirect.",
+      };
+    }
+
     const mappings = sourceUrls.map((source) => `${source} -> ${leadUrl}`).join("\n");
     return {
       ...change,
@@ -374,7 +539,7 @@ export function applySafeRedirectPlans(
           ? `Redirect ${sourceUrls[0]} into ${leadUrl}.`
           : `Redirect these ${sourceUrls.length} dead competing pages into ${leadUrl}: ${sourceUrls.join(", ")}.`,
       qualityDecision: "approved",
-      qualityNote: "Exact same-site source and destination URLs verified from Search Console cannibalization evidence.",
+      qualityNote: "Exact same-site source and destination URLs verified from Search Console cannibalization evidence, and the source is a thin or duplicative page safe to fold in.",
     };
   });
 }
@@ -770,7 +935,7 @@ async function buildChangesViewUncached(tenantId: string): Promise<ChangesView> 
   // CanonicalChange[]. Fail-soft as a whole (fuseUnifiedList never throws); on any unexpected
   // failure fall back to the worklist-only list rather than blanking the page.
   const tFuse = perfMark();
-  const { changes: fusedChanges, entries: unifiedEntries } = await fuseUnifiedList(tenantId, worklistChanges).catch(() => ({ changes: worklistChanges, entries: [] as UnifiedEntry[] }));
+  const { changes: fusedChanges, entries: unifiedEntries, coverageInputs } = await fuseUnifiedList(tenantId, worklistChanges).catch(() => ({ changes: worklistChanges, entries: [] as UnifiedEntry[], coverageInputs: { serving: [], ownedPages: [] } as OwnedCoverageInput }));
   perfStage("changes-allocator-fuse", tFuse, { fused: fusedChanges.length });
 
   const movesById: Record<string, TodayMove> = {};
@@ -793,7 +958,8 @@ async function buildChangesViewUncached(tenantId: string): Promise<ChangesView> 
   // FP2 (killer finding 3) - when this row's page has a real cannibalization case, its secondary
   // line must agree with (not contradict) the consolidation directive. Wave 3C: the reconciled
   // rationale is built from the DECIDED action above, never the ambiguous fix text.
-  const reconciled = applySafeRedirectPlans(reconcileCannibalizationRationale(decided, movesById), movesById);
+  const redirectEvidence = buildRedirectSafetyEvidence(coverageInputs);
+  const reconciled = applySafeRedirectPlans(reconcileCannibalizationRationale(decided, movesById), movesById, redirectEvidence);
   // One-posture-per-page (2026-07-11) - a page Today's war-room is telling the operator to WAIT on
   // (a seasonal window whose prep deadline is still months out) must not carry an act-now card here
   // at the same time. Demote any such act-now row to the same watching state the zero-click trap
