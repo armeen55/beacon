@@ -25,8 +25,9 @@ vi.mock("./today-surface-store", () => ({
 }));
 vi.mock("@/lib/tenant-context", () => ({ currentTenantId: async () => "tenant-test" }));
 
-import { loadTodayViewWithSwr } from "./today-view-data";
+import { loadTodayViewWithSwr, ledgerCountsOf } from "./today-view-data";
 import type { TodayComposite } from "./today-view-data";
+import type { ChangesView } from "./changes-data";
 
 const composite = (id: string): TodayComposite =>
   ({ today: { id } as never, daily: null, hasChanges: false }) as unknown as TodayComposite;
@@ -93,6 +94,26 @@ describe("loadTodayViewWithSwr", () => {
     expect(readTodaySurfaceMock).toHaveBeenCalledWith("tenant-b");
     const tenantArgs = writeTodaySurfaceMock.mock.calls.map((c) => c[2]);
     expect(tenantArgs).toEqual(["tenant-a", "tenant-b"]);
+  });
+});
+
+describe("ledgerCountsOf - the blob writer's canonical mapping (defect A, 2026-07-20)", () => {
+  // The production defect: the persisted today-surface blob carried measuring=7,
+  // resultsAvailable=0 while the SAME customer-surface release carried
+  // measuringCountCanonical=25. Root cause was a pre-fix status-derived count in the
+  // then-live code; this pins the mapping the current composition threads into
+  // buildTodayView so the divergence can never be reintroduced at this boundary.
+  it("threads the canonical ledger pair, never a status-derived count", () => {
+    const view = { measuringCountCanonical: 25, decidedCountCanonical: 3 } as unknown as ChangesView;
+    expect(ledgerCountsOf(view)).toEqual({ measuring: 25, decided: 3 });
+  });
+  it("maps decided from decidedCountCanonical, not measuring (no field swap)", () => {
+    const view = { measuringCountCanonical: 7, decidedCountCanonical: 0 } as unknown as ChangesView;
+    expect(ledgerCountsOf(view)).toEqual({ measuring: 7, decided: 0 });
+  });
+  it("falls back to 0 on a null view or a pre-FP3 snapshot missing the canonical fields", () => {
+    expect(ledgerCountsOf(null)).toEqual({ measuring: 0, decided: 0 });
+    expect(ledgerCountsOf({} as unknown as ChangesView)).toEqual({ measuring: 0, decided: 0 });
   });
 });
 

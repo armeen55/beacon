@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   computeBehaviorOutcome,
+  behaviorDataThroughBound,
   taskCompletionShare,
   elapsedPostDays,
   behaviorHasContent,
@@ -11,6 +12,23 @@ import {
   CLARITY_MIN_VISITS_PER_WINDOW,
   type BehaviorOutcome,
 } from "./behavior-outcome";
+
+describe("behaviorDataThroughBound (defect E: honest lower bound, never the max)", () => {
+  it("stamps the EARLIER source when both GA4 and Clarity have data", () => {
+    // GA4 reaches the 19th, Clarity only the 17th; the fused read is honest only
+    // through the 17th (the exact production defect: a 07-19 stamp over a GSC
+    // verdict basis that ended 07-17).
+    expect(behaviorDataThroughBound("2026-07-19", "2026-07-17")).toBe("2026-07-17");
+    expect(behaviorDataThroughBound("2026-07-15", "2026-07-18")).toBe("2026-07-15");
+  });
+  it("uses the one source present when the other is null", () => {
+    expect(behaviorDataThroughBound("2026-07-19", null)).toBe("2026-07-19");
+    expect(behaviorDataThroughBound(null, "2026-07-17")).toBe("2026-07-17");
+  });
+  it("is null when neither source has landed yet", () => {
+    expect(behaviorDataThroughBound(null, null)).toBeNull();
+  });
+});
 
 /**
  * behavior-outcome.test.ts (BEACON_500 N4 + N17) - pins the sample floors

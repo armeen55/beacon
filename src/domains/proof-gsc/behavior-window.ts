@@ -22,6 +22,7 @@ import { readGa4WindowForPages, readLatestGa4Date } from "./ga4-window";
 import { readClarityWindowForPage, readLatestClarityDate } from "./clarity-window";
 import { addDays, PROOF_WINDOW_DAYS, PROOF_BASELINE_WINDOW_DAYS } from "./measure";
 import {
+  behaviorDataThroughBound,
   computeBehaviorOutcome,
   elapsedPostDays,
   type BehaviorOutcome,
@@ -49,12 +50,11 @@ export async function computeBehaviorOutcomeForRecord(args: {
       readLatestGa4Date(tenantId).catch(() => null),
       readLatestClarityDate(tenantId).catch(() => null),
     ]);
-    const dataThrough =
-      latestGa4 != null && latestClarity != null
-        ? latestGa4 > latestClarity
-          ? latestGa4
-          : latestClarity
-        : (latestGa4 ?? latestClarity);
+    // Defect E (2026-07-20): the behavior lane fuses GA4 + Clarity, so its window
+    // and receipt are bounded by the EARLIER source (the MIN), never the later one.
+    // The old max stamped a "through" date one source had not actually reached,
+    // and let the window run past the day both sources still had data.
+    const dataThrough = behaviorDataThroughBound(latestGa4, latestClarity);
     const elapsed = elapsedPostDays(shipDate, dataThrough, Math.max(...PROOF_WINDOW_DAYS));
     if (elapsed <= 0) return null;
 

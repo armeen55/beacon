@@ -279,6 +279,26 @@ function answerDeltaLineFor(
 }
 
 /**
+ * The behavior lane's honest "data through" bound (defect E, 2026-07-20). The
+ * lane fuses GA4 traffic AND Clarity behavior; its combined window is only fully
+ * covered as far as the EARLIER of the two sources reaches, so the receipt must
+ * name the MINIMUM of the sources it used, never the max. The old max overstated
+ * freshness: a row measured on GA4 through the 19th and Clarity through the 17th
+ * stamped "through the 19th" over a Clarity read that stopped two days short.
+ * When only one source has any data, that source's date is the honest bound;
+ * null when neither source has landed yet. PURE.
+ */
+export function behaviorDataThroughBound(
+  latestGa4: string | null,
+  latestClarity: string | null,
+): string | null {
+  if (latestGa4 != null && latestClarity != null) {
+    return latestGa4 < latestClarity ? latestGa4 : latestClarity;
+  }
+  return latestGa4 ?? latestClarity;
+}
+
+/**
  * The one composite read. Floors are applied PER METRIC PER WINDOW: a window
  * below its floor contributes null for that source's metrics (honest absence),
  * and a lane needs both windows to say anything about direction.

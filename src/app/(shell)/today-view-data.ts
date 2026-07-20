@@ -37,8 +37,11 @@ function planSummaryOf(v: DailyExperimentsView): TodayPlanSummary | null {
 /** FP3 ONE-COUNT RULE - Today's measuring/resultsAvailable counts are the SAME canonical
  *  ledger pair the ChangesView release already computed (countLedgerLifecycle), never a
  *  second CanonicalChange.status recount. The `?? 0` guards a pre-FP3 persisted snapshot
- *  that predates the canonical fields. */
-function ledgerCountsOf(v: import("./changes-data").ChangesView | null): { measuring: number; decided: number } {
+ *  that predates the canonical fields. Exported for the boundary regression test (defect
+ *  A, 2026-07-20): this is the exact mapping the customer-surface composition threads into
+ *  buildTodayView before the blob is persisted, so a broken mapping here is what would
+ *  reintroduce the "today blob says 7 while changes says 25" divergence. */
+export function ledgerCountsOf(v: import("./changes-data").ChangesView | null): { measuring: number; decided: number } {
   return { measuring: v?.measuringCountCanonical ?? 0, decided: v?.decidedCountCanonical ?? 0 };
 }
 

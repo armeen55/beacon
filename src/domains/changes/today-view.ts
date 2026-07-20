@@ -4,38 +4,15 @@
  * powers /changes (Changes). One identity, one lifecycle, one measurement state, one
  * quality decision, one action path, no parallel recommendation engine, no new
  * persistence. Changes is the complete backlog; Today answers only: what needs attention,
- * what am I planning, what's measuring, what's next if today is empty.
+ * what am I planning, what's next if today is empty. (2026-07-20: the unrendered
+ * measuring-list/attention-list/counts.measuring/counts.resultsAvailable fields were deleted;
+ * Today's own page renders measuring/results straight off the canonical lifecycle loader.)
  */
 import type { CanonicalChange, Strategy } from "./canonical-change";
-import { statusView } from "./canonical-change";
 import { rankChanges } from "./strategy";
 import { decideChangeAction, isActDecision } from "./decide-action";
 
 export type TodayPlanStatus = "none" | "preview" | "accepted" | "in_progress" | "completed";
-
-export type TodayAttentionKind =
-  | "review_plan" // a preview plan is ready to review/accept
-  | "apply_pending" // accepted item(s) awaiting the operator's Wix edit
-  | "results_ready" // mature result(s) ready to review
-  | "refresh_plan"; // plan is stale/expired and was refreshed
-
-export type TodayAttentionItem = {
-  id: string;
-  kind: TodayAttentionKind;
-  title: string;
-  message: string;
-  href: string;
-  priority: number; // lower = more urgent
-};
-
-export type TodayMeasuringItem = {
-  changeId: string;
-  pageLabel: string;
-  pageUrl: string;
-  headline: string; // maturity headline (Move 2)
-  nextCheckpoint: string | null;
-  attributionLimited: boolean;
-};
 
 export type TodayOpportunity = {
   changeId: string;
@@ -48,23 +25,24 @@ export type TodayOpportunity = {
 };
 
 /**
- * FP3 - THE ONE-COUNT RULE (see domains/changes/lifecycle-counts.ts). `measuring` and
- * `resultsAvailable` are the CANONICAL whole-tenant ledger counts (countLedgerLifecycle:
- * measuring = Results' "In flight" set, resultsAvailable = decided = Wins + What we
- * learned), threaded in from the same ChangesView release that carries
- * measuringCountCanonical / decidedCountCanonical. They are NEVER re-derived from
- * CanonicalChange.status here: the status slice is worklist-scoped (only pages still in
- * the ranked pool get a row), so a status-derived count silently diverges from the
- * ledger truth every other surface shows (the "25 vs 7" class of contradiction).
+ * FP3 - THE ONE-COUNT RULE (see domains/changes/lifecycle-counts.ts). The builder takes the
+ * CANONICAL whole-tenant ledger pair (countLedgerLifecycle: measuring = Results' "In flight"
+ * set, decided = Wins + What we learned) threaded in from the same ChangesView release that
+ * carries measuringCountCanonical / decidedCountCanonical, and uses it ONLY to decide the
+ * greeting sentence and whether a "results ready" alert fires (folded into `needsAttention`
+ * below). Neither raw number is exposed on `counts`: every rendered surface that needs the
+ * measuring/decided totals (Today's own page, Results) already reads them straight off the
+ * SAME canonical loader, so re-exposing a second copy here is exactly how the "25 vs 7"
+ * divergence class reappears (a persisted Today blob can go stale independently of the live
+ * ledger). `readyToday` and `needsAttention` are Today-specific derived numbers with no other
+ * canonical source, so they stay.
  */
-export type TodayCounts = { readyToday: number; needsAttention: number; measuring: number; resultsAvailable: number };
+export type TodayCounts = { readyToday: number; needsAttention: number };
 
 export type TodayView = {
   strategy: Strategy;
   planStatus: TodayPlanStatus;
   headerSentence: string;
-  attention: TodayAttentionItem[];
-  measuring: TodayMeasuringItem[];
   nextOpportunities: TodayOpportunity[];
   counts: TodayCounts;
 };
@@ -78,7 +56,6 @@ export type TodayPlanSummary = {
   wasRefreshed?: boolean;
 };
 
-const MAX_MEASURING = 5;
 const MIN_OPPORTUNITIES = 3;
 const MAX_OPPORTUNITIES = 10;
 
@@ -123,25 +100,11 @@ export function buildTodayView(input: {
   const plan = input.plan;
   const planStatus: TodayPlanStatus = plan?.status ?? "none";
 
-  // Measuring DETAIL items (not a count), compact, cap 5. Deduped by identity
-  // (CanonicalChange already dedupes). This is the worklist-scoped slice of what is
-  // measuring; the COUNT below is the canonical whole-tenant ledger number, which can
-  // legitimately be larger than this list (pages that left the ranked pool keep
-  // measuring in the ledger).
-  const measuring: TodayMeasuringItem[] = changes
-    .filter((c) => statusView(c.status) === "measuring")
-    .slice(0, MAX_MEASURING)
-    .map((c) => ({
-      changeId: c.id,
-      pageLabel: c.pageLabel,
-      pageUrl: c.pageUrl,
-      headline: c.measurementHeadline ?? "Measuring",
-      nextCheckpoint: c.nextCheckpoint,
-      attributionLimited: c.attributionLimited,
-    }));
-
   // FP3 ONE-COUNT RULE: the canonical decided total (Results' Wins + What we learned),
-  // never a status === "result" recount of the worklist slice.
+  // never a status === "result" recount of the worklist slice. Used ONLY below to decide
+  // whether the "results ready" condition contributes to `needsAttention` - the decided
+  // total itself is never re-exposed on `counts` (Results already renders it straight off
+  // the same canonical loader).
   const resultsAvailable = input.ledgerCounts.decided;
 
   // Next opportunities, the ranked "what to do next" list - the operator's primary daily
@@ -176,40 +139,36 @@ export function buildTodayView(input: {
       evidenceStrength: c.evidenceStrength,
     }));
 
-  // Attention, deterministic priority; each item is one reason + one action + (where
-  // relevant) one canonical identity. "Collecting normally" is NOT an alert.
-  const attention: TodayAttentionItem[] = [];
-  if (plan?.wasRefreshed) {
-    attention.push({ id: "refresh", kind: "refresh_plan", priority: 1, href: "/changes",
-      title: "Today’s plan was refreshed", message: "It had timed out, review the updated list before accepting." });
-  }
-  if (planStatus === "accepted" && plan && plan.leftToApply > 0) {
-    attention.push({ id: "apply", kind: "apply_pending", priority: 2, href: "/changes",
-      title: `${plan.leftToApply} change${plan.leftToApply === 1 ? "" : "s"} ready to apply`, message: "Apply each in Wix, then Beacon verifies it live." });
-  }
-  if (planStatus === "preview" && plan && plan.selectedCount > 0) {
-    attention.push({ id: "review", kind: "review_plan", priority: 3, href: "/changes",
-      title: `${plan.selectedCount} quality-checked change${plan.selectedCount === 1 ? "" : "s"} ready for review`, message: "Review and accept today’s batch." });
-  }
-  if (resultsAvailable > 0) {
-    attention.push({ id: "results", kind: "results_ready", priority: 4, href: "/results",
-      title: `${resultsAvailable} mature result${resultsAvailable === 1 ? "" : "s"} ready`, message: "See what your shipped changes drove." });
-  }
-  attention.sort((a, b) => a.priority - b.priority);
+  // needsAttention, deterministic count of the same conditions that used to render as a
+  // titled/messaged alert list (that list itself rendered nowhere and was deleted 2026-07-20;
+  // the count is still Today's own "Needs attention" tile). "Collecting normally" is NOT an
+  // alert.
+  let needsAttention = 0;
+  if (plan?.wasRefreshed) needsAttention += 1;
+  if (planStatus === "accepted" && plan && plan.leftToApply > 0) needsAttention += 1;
+  if (planStatus === "preview" && plan && plan.selectedCount > 0) needsAttention += 1;
+  if (resultsAvailable > 0) needsAttention += 1;
 
   const counts: TodayCounts = {
     readyToday: planStatus === "preview" || planStatus === "accepted" ? (plan?.selectedCount ?? 0) : 0,
-    needsAttention: attention.length,
-    // FP3 ONE-COUNT RULE: the canonical whole-tenant measuring count (Results' "In
-    // flight" set), never the worklist-scoped status filter's length.
-    measuring: input.ledgerCounts.measuring,
-    resultsAvailable,
+    needsAttention,
   };
 
-  return { strategy, planStatus, headerSentence: headerSentenceFor(planStatus, plan, counts), attention, measuring, nextOpportunities, counts };
+  return {
+    strategy,
+    planStatus,
+    headerSentence: headerSentenceFor(planStatus, plan, counts, input.ledgerCounts.measuring),
+    nextOpportunities,
+    counts,
+  };
 }
 
-function headerSentenceFor(status: TodayPlanStatus, plan: TodayPlanSummary | null, counts: TodayCounts): string {
+function headerSentenceFor(
+  status: TodayPlanStatus,
+  plan: TodayPlanSummary | null,
+  counts: TodayCounts,
+  ledgerMeasuring: number,
+): string {
   if (status === "preview" && plan) return `${plan.selectedCount} quality-checked change${plan.selectedCount === 1 ? "" : "s"} ready for review.`;
   if (status === "accepted" && plan) {
     return plan.leftToApply > 0
@@ -221,6 +180,6 @@ function headerSentenceFor(status: TodayPlanStatus, plan: TodayPlanSummary | nul
   // observe kind: "Nothing needs a decision today. Keep measuring."). The greeting brief must not
   // repeat it, or the same reassurance renders twice, and it must never appear on a day that is
   // NOT observe (a defect / loss / ready-to-ship day). So the brief stays factual here.
-  if (counts.measuring > 0 && counts.readyToday === 0) return "Your recent changes are collecting data.";
+  if (ledgerMeasuring > 0 && counts.readyToday === 0) return "Your recent changes are collecting data.";
   return "Choose a few changes to work on today.";
 }
