@@ -1,6 +1,7 @@
 import type { ChangelogEntry } from "@/domains/changelog/types";
 import { currentTenantId } from "@/lib/tenant-context";
 import { getRepository } from "@/lib/persistence/repositories";
+import { log } from "@/lib/logger";
 import type { Result } from "@/domains/results/types";
 import type { Opportunity } from "@/domains/opportunities/types";
 import type { Attribution, MatchStrength } from "./types";
@@ -90,7 +91,12 @@ async function warmCitationTopicIndex(tenantId: string): Promise<void> {
       tenantId,
       new Map(Object.entries(ptMap).map(([url, topics]) => [url, new Set(topics)])),
     );
-  } catch {
+  } catch (err) {
+    log.warn("candidates: citation topic-index warm failed; topic matching runs empty", {
+      tenant: tenantId,
+      store: "citation-evidence-index",
+      error: err instanceof Error ? err.message : String(err),
+    });
     _topicIndexByTenant.set(tenantId, new Map());
   }
 }

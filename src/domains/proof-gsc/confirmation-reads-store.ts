@@ -112,7 +112,11 @@ export function buildConfirmationReadRow(input: ConfirmationReadInput, now: Date
 async function readFile(): Promise<FileRow[]> {
   try {
     return (await readStore<FileRow>(STORE, [])) ?? [];
-  } catch {
+  } catch (err) {
+    log.warn("confirmation-reads-store: file read failed; treating as no confirmation reads", {
+      store: STORE,
+      error: err instanceof Error ? err.message : String(err),
+    });
     return [];
   }
 }

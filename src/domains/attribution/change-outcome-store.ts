@@ -24,6 +24,7 @@
 import "server-only";
 
 import { readStore, writeStore } from "@/lib/persistence/json-store";
+import { log } from "@/lib/logger";
 import type {
   NaturalControlResult,
   PlatformLift,
@@ -482,11 +483,22 @@ async function loadChangeOutcomesFromSupabase(): Promise<StoredChangeOutcome[] |
       .from(SUPABASE_TABLE)
       .select("outcome")
       .eq("tenant_id", tenantId);
-    if (error || !data) return null;
+    if (error || !data) {
+      log.warn("change-outcome-store: Supabase read failed; falling back to local", {
+        tenant: tenantId,
+        store: SUPABASE_TABLE,
+        error: error?.message ?? "no data returned",
+      });
+      return null;
+    }
     return data
       .map((r) => (r as { outcome: StoredChangeOutcome }).outcome)
       .filter((o): o is StoredChangeOutcome => !!o && typeof o === "object");
-  } catch {
+  } catch (err) {
+    log.warn("change-outcome-store: Supabase read threw; falling back to local", {
+      store: SUPABASE_TABLE,
+      error: err instanceof Error ? err.message : String(err),
+    });
     return null;
   }
 }

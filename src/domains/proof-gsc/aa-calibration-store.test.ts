@@ -11,11 +11,19 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 let stored: unknown[] = [];
+const readRef = { throws: false };
 vi.mock("@/lib/persistence/json-store", () => ({
-  readStore: async () => stored,
+  readStore: async () => {
+    if (readRef.throws) throw new Error("store read failed");
+    return stored;
+  },
   writeStore: async (_name: string, data: unknown[]) => {
     stored = data;
   },
+}));
+
+vi.mock("@/lib/logger", () => ({
+  log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
 }));
 
 import {
@@ -25,6 +33,7 @@ import {
   type AaCalibrationRow,
 } from "./aa-calibration-store";
 import { classifyStore } from "@/lib/persistence/store-classification";
+import { log } from "@/lib/logger";
 
 const NOW = new Date("2026-07-02T12:00:00.000Z");
 
@@ -46,6 +55,7 @@ function row(over: Partial<AaCalibrationRow> = {}): AaCalibrationRow {
 
 beforeEach(() => {
   stored = [];
+  readRef.throws = false;
 });
 
 describe("registration pins", () => {
@@ -87,6 +97,15 @@ describe("round-trip", () => {
   it("unknown tenant reads as absent", async () => {
     await writeAaCalibration(row());
     expect(await readAaCalibration("tenant-z", NOW)).toBeNull();
+  });
+
+  it("a read failure reads as absent (null) AND logs (floors then fall back to defaults, visibly)", async () => {
+    readRef.throws = true;
+    vi.mocked(log.warn).mockClear();
+    const back = await readAaCalibration("tenant-a", NOW);
+    expect(back).toBeNull();
+    expect(vi.mocked(log.warn)).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(log.warn).mock.calls[0]![0]).toContain("aa-calibration-store");
   });
 });
 

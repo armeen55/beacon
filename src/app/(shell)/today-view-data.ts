@@ -34,13 +34,26 @@ function planSummaryOf(v: DailyExperimentsView): TodayPlanSummary | null {
   return null;
 }
 
+/** FP3 ONE-COUNT RULE - Today's measuring/resultsAvailable counts are the SAME canonical
+ *  ledger pair the ChangesView release already computed (countLedgerLifecycle), never a
+ *  second CanonicalChange.status recount. The `?? 0` guards a pre-FP3 persisted snapshot
+ *  that predates the canonical fields. */
+function ledgerCountsOf(v: import("./changes-data").ChangesView | null): { measuring: number; decided: number } {
+  return { measuring: v?.measuringCountCanonical ?? 0, decided: v?.decidedCountCanonical ?? 0 };
+}
+
 async function loadTodayViewUncached(): Promise<TodayComposite> {
   const [changesView, daily] = await Promise.all([
     loadChangesView().catch(() => null),
     loadDailyExperimentsView().catch(() => null),
   ]);
   const plan = daily ? planSummaryOf(daily) : null;
-  const today = buildTodayView({ changes: changesView?.changes ?? [], strategy: "balanced", plan });
+  const today = buildTodayView({
+    changes: changesView?.changes ?? [],
+    strategy: "balanced",
+    plan,
+    ledgerCounts: ledgerCountsOf(changesView),
+  });
   return { today, daily, hasChanges: !!changesView && changesView.changes.length > 0 };
 }
 
@@ -48,7 +61,12 @@ async function loadTodayViewUncached(): Promise<TodayComposite> {
 export async function buildTodayCompositeFromChanges(changesView: import("./changes-data").ChangesView): Promise<TodayComposite> {
   const daily = await loadDailyExperimentsView().catch(() => null);
   const plan = daily ? planSummaryOf(daily) : null;
-  const today = buildTodayView({ changes: changesView.changes, strategy: "balanced", plan });
+  const today = buildTodayView({
+    changes: changesView.changes,
+    strategy: "balanced",
+    plan,
+    ledgerCounts: ledgerCountsOf(changesView),
+  });
   return { today, daily, hasChanges: changesView.changes.length > 0 };
 }
 

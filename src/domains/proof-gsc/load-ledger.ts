@@ -28,6 +28,7 @@ import { loadDetectedChangepoints } from "./algorithm-weather-store";
 import { attachFdrToLedger } from "./fdr-adjust";
 import { activeTreatmentPaths } from "@/domains/experiments/experiment-eligibility";
 import { perfMark, perfStage } from "@/lib/obs/perf-log";
+import { log } from "@/lib/logger";
 
 export async function loadProofLedger(
   tenantId: string,
@@ -117,7 +118,12 @@ export const loadProofLedgerCached = cache(
       const surface = await loadLedgerWithSwr(tenantId);
       perfStage("proof-ledger-cached", start, { rows: surface.ledger.length, source: "snapshot" });
       return surface.ledger;
-    } catch {
+    } catch (err) {
+      log.warn("load-ledger: SWR snapshot read failed; serving persisted verdicts instead", {
+        tenant: tenantId,
+        store: "results-ledger-swr",
+        error: err instanceof Error ? err.message : String(err),
+      });
       // Fail-soft: never let the shared ledger read blank a page. Serve the stored
       // verdicts directly (still no re-measure, no paid call).
       const persisted = await loadProofLedgerPersisted(tenantId);

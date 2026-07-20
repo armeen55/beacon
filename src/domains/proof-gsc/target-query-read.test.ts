@@ -25,6 +25,7 @@ type Row = { page: string; query: string; clicks?: number; impressions?: number;
 const windowRows = new Map<string, Row[]>();
 const rangeCalls: Array<{ from: number; to: number; start: string; end: string }> = [];
 let throwOnRead: Error | null = null;
+let hardThrowOnRead: Error | null = null;
 
 function windowKey(start: string, end: string): string {
   return `${start}..${end}`;
@@ -46,6 +47,7 @@ function chainFor() {
     const start = state.start ?? "";
     const end = state.end ?? "";
     rangeCalls.push({ from, to, start, end });
+    if (hardThrowOnRead) return Promise.reject(hardThrowOnRead);
     if (throwOnRead) return Promise.resolve({ data: null, error: { message: throwOnRead.message } });
     if (from > 0) return Promise.resolve({ data: [], error: null }); // one page of fixtures is enough for these tests
     return Promise.resolve({ data: windowRows.get(windowKey(start, end)) ?? [], error: null });
@@ -58,6 +60,7 @@ vi.mock("@/lib/persistence/supabase", () => ({
 }));
 
 import { buildTargetQueryReads, targetQuerySentence, MIN_QUERY_IMPRESSIONS } from "./target-query-read";
+import { log } from "@/lib/logger";
 
 const PRE = { start: "2026-05-01", end: "2026-05-29" };
 const POST = { start: "2026-05-29", end: "2026-06-05" };
@@ -66,6 +69,7 @@ beforeEach(() => {
   windowRows.clear();
   rangeCalls.length = 0;
   throwOnRead = null;
+  hardThrowOnRead = null;
 });
 
 describe("buildTargetQueryReads - basic diff-in-diff", () => {
@@ -269,6 +273,29 @@ describe("buildTargetQueryReads - fail-soft", () => {
       postEnd: POST.end,
     });
     expect(reads).toEqual([]);
+  });
+
+  it("a thrown read resolves to [] AND logs the failure (never a silent empty read)", async () => {
+    hardThrowOnRead = new Error("network down");
+    vi.mocked(log.warn).mockClear();
+    const reads = await buildTargetQueryReads({
+      tenantId: "tenant-x",
+      page: "https://site.com/treated",
+      controlPages: [],
+      targetQueries: ["q"],
+      preStart: PRE.start,
+      preEnd: PRE.end,
+      postStart: POST.start,
+      postEnd: POST.end,
+    });
+    expect(reads).toEqual([]);
+    // The read failure is logged (readTargetQueryWindow fail-softs per window
+    // with its own log; the orchestrator's catch is a defensive backstop), so a
+    // read failure is never a silent empty result.
+    expect(vi.mocked(log.warn)).toHaveBeenCalled();
+    expect(
+      vi.mocked(log.warn).mock.calls.some((c) => String(c[0]).includes("target-query-read")),
+    ).toBe(true);
   });
 
   it("resolves to [] for a missing tenant id (no read attempted)", async () => {

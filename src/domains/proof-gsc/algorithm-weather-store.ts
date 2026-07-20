@@ -18,6 +18,7 @@ import "server-only";
 
 import { cache } from "react";
 import { readStore, writeStore } from "@/lib/persistence/json-store";
+import { log } from "@/lib/logger";
 import type { Changepoint } from "./changepoint";
 
 const STORE = "algorithm-weather-shocks";
@@ -62,7 +63,16 @@ export async function readAlgorithmWeatherSummary(
     const age = now.getTime() - Date.parse(latest.computed_at);
     if (!Number.isFinite(age) || age >= SHOCKS_MAX_AGE_MS) return null;
     return latest;
-  } catch {
+  } catch (err) {
+    // This feeds the scoreboard shock-window gate that decides which wins are
+    // shock-tainted; a swallowed read failure here reads as "no shocks" and can
+    // OVERSTATE the money odometer, so make it loud even though the shape stays
+    // null (indistinguishable from "no fresh pass" at this layer by design).
+    log.warn("algorithm-weather-store: summary read failed; treating as no detected weather", {
+      tenant: tenantId,
+      store: STORE,
+      error: err instanceof Error ? err.message : String(err),
+    });
     return null;
   }
 }

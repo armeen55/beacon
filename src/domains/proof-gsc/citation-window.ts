@@ -29,6 +29,7 @@ import { cache } from "react";
 
 import { getSupabaseAdmin } from "@/lib/persistence/supabase";
 import { getRepository } from "@/lib/persistence/repositories";
+import { log } from "@/lib/logger";
 import { addDays, PROOF_WINDOW_DAYS, PROOF_BASELINE_WINDOW_DAYS } from "./measure";
 import {
   computeCitationOutcome,
@@ -64,9 +65,21 @@ const readOwnedCitingObservationsSince = cache(
         .gt("owned_citation_count", 0)
         .gte("observed_at", sinceDay)
         .limit(MAX_OBSERVATION_ROWS);
-      if (error || !Array.isArray(data)) return [];
+      if (error || !Array.isArray(data)) {
+        log.warn("citation-window: native citing-observations read failed; treating as no citations", {
+          tenant: tenantId,
+          store: "prompt_answer_observations",
+          error: error?.message ?? "no rows returned",
+        });
+        return [];
+      }
       return data as unknown as NativeCitationRow[];
-    } catch {
+    } catch (err) {
+      log.warn("citation-window: native citing-observations read threw; treating as no citations", {
+        tenant: tenantId,
+        store: "prompt_answer_observations",
+        error: err instanceof Error ? err.message : String(err),
+      });
       return [];
     }
   },
@@ -85,9 +98,21 @@ const readImportedCitationRowsSince = cache(
         .eq("tenant_id", tenantId)
         .gte("date", sinceDay)
         .limit(MAX_IMPORTED_ROWS);
-      if (error || !Array.isArray(data)) return [];
+      if (error || !Array.isArray(data)) {
+        log.warn("citation-window: imported citation-rows read failed; treating as no citations", {
+          tenant: tenantId,
+          store: "profound_citation_rows",
+          error: error?.message ?? "no rows returned",
+        });
+        return [];
+      }
       return data as unknown as ImportedCitationRow[];
-    } catch {
+    } catch (err) {
+      log.warn("citation-window: imported citation-rows read threw; treating as no citations", {
+        tenant: tenantId,
+        store: "profound_citation_rows",
+        error: err instanceof Error ? err.message : String(err),
+      });
       return [];
     }
   },
@@ -106,10 +131,23 @@ const readLatestSourceDay = cache(
         .eq("tenant_id", tenantId)
         .order(column, { ascending: false })
         .limit(1);
-      if (error || !Array.isArray(data) || data.length === 0) return null;
+      if (error) {
+        log.warn("citation-window: latest-source-day probe failed; treating window as unmeasured", {
+          tenant: tenantId,
+          store: table,
+          error: error.message,
+        });
+        return null;
+      }
+      if (!Array.isArray(data) || data.length === 0) return null;
       const v = (data[0] as Record<string, unknown>)[column];
       return typeof v === "string" ? dateOnly(v) : null;
-    } catch {
+    } catch (err) {
+      log.warn("citation-window: latest-source-day probe threw; treating window as unmeasured", {
+        tenant: tenantId,
+        store: table,
+        error: err instanceof Error ? err.message : String(err),
+      });
       return null;
     }
   },
@@ -133,10 +171,23 @@ const readEarliestSourceDaySince = cache(
         .gte(column, sinceDay)
         .order(column, { ascending: true })
         .limit(1);
-      if (error || !Array.isArray(data) || data.length === 0) return null;
+      if (error) {
+        log.warn("citation-window: earliest-source-day probe failed; treating window as unmeasured", {
+          tenant: tenantId,
+          store: table,
+          error: error.message,
+        });
+        return null;
+      }
+      if (!Array.isArray(data) || data.length === 0) return null;
       const v = (data[0] as Record<string, unknown>)[column];
       return typeof v === "string" ? dateOnly(v) : null;
-    } catch {
+    } catch (err) {
+      log.warn("citation-window: earliest-source-day probe threw; treating window as unmeasured", {
+        tenant: tenantId,
+        store: table,
+        error: err instanceof Error ? err.message : String(err),
+      });
       return null;
     }
   },
@@ -152,7 +203,12 @@ const readPromptTextById = cache(async (tenantId: string): Promise<Map<string, s
       if (p.id && typeof p.text === "string" && p.text.trim() !== "") out.set(p.id, p.text.trim());
     }
     return out;
-  } catch {
+  } catch (err) {
+    log.warn("citation-window: tracked-prompt text read failed; question labels unavailable", {
+      tenant: tenantId,
+      store: "tracked-prompts",
+      error: err instanceof Error ? err.message : String(err),
+    });
     return new Map();
   }
 });
@@ -259,7 +315,12 @@ export async function computeCitationOutcomeForRecord(args: {
       sourceActiveInPre,
       sourceActiveInPost,
     });
-  } catch {
+  } catch (err) {
+    log.warn("citation-window: citation outcome computation failed; card self-hides", {
+      tenant: tenantId,
+      page: record.page,
+      error: err instanceof Error ? err.message : String(err),
+    });
     return null;
   }
 }

@@ -27,6 +27,8 @@
 
 import "server-only";
 
+import { log } from "@/lib/logger";
+
 import { loadAllChangeOutcomes } from "./change-outcome-store";
 import { buildProofSentence, FLAT_LIFT_THRESHOLD } from "./proof-sentence";
 
@@ -55,7 +57,14 @@ export async function loadProvenWins(
   let outcomes;
   try {
     outcomes = await loadAllChangeOutcomes();
-  } catch {
+  } catch (err) {
+    // A read failure here silently blanks the home-screen proven-wins rail.
+    // Callers only see [] (rail self-hides) so they cannot distinguish "no
+    // wins yet" from "read broke", so always log to make the difference visible.
+    log.warn("load-proven-wins: outcomes read failed; proven-wins rail will self-hide", {
+      store: "change-outcomes",
+      error: err instanceof Error ? err.message : String(err),
+    });
     return [];
   }
   return outcomes

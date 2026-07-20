@@ -47,6 +47,16 @@ export type TodayOpportunity = {
   evidenceStrength: CanonicalChange["evidenceStrength"];
 };
 
+/**
+ * FP3 - THE ONE-COUNT RULE (see domains/changes/lifecycle-counts.ts). `measuring` and
+ * `resultsAvailable` are the CANONICAL whole-tenant ledger counts (countLedgerLifecycle:
+ * measuring = Results' "In flight" set, resultsAvailable = decided = Wins + What we
+ * learned), threaded in from the same ChangesView release that carries
+ * measuringCountCanonical / decidedCountCanonical. They are NEVER re-derived from
+ * CanonicalChange.status here: the status slice is worklist-scoped (only pages still in
+ * the ranked pool get a row), so a status-derived count silently diverges from the
+ * ledger truth every other surface shows (the "25 vs 7" class of contradiction).
+ */
 export type TodayCounts = { readyToday: number; needsAttention: number; measuring: number; resultsAvailable: number };
 
 export type TodayView = {
@@ -99,28 +109,40 @@ export function dynamicOpportunityCount(items: ReadonlyArray<Pick<CanonicalChang
   return count;
 }
 
-/** Build the Today slice from the canonical backlog + the daily-plan summary. PURE. */
+/** Build the Today slice from the canonical backlog + the daily-plan summary. PURE.
+ *  `ledgerCounts` is the FP3 canonical pair from the SAME ChangesView release
+ *  (measuringCountCanonical / decidedCountCanonical, i.e. countLedgerLifecycle over the
+ *  proof ledger) - see the TodayCounts doc above for why status must never re-derive it. */
 export function buildTodayView(input: {
   changes: CanonicalChange[];
   strategy: Strategy;
   plan: TodayPlanSummary | null;
+  ledgerCounts: { measuring: number; decided: number };
 }): TodayView {
   const { changes, strategy } = input;
   const plan = input.plan;
   const planStatus: TodayPlanStatus = plan?.status ?? "none";
 
-  // Measuring, compact, cap 5. Deduped by identity (CanonicalChange already dedupes).
-  const measuringAll = changes.filter((c) => statusView(c.status) === "measuring");
-  const measuring: TodayMeasuringItem[] = measuringAll.slice(0, MAX_MEASURING).map((c) => ({
-    changeId: c.id,
-    pageLabel: c.pageLabel,
-    pageUrl: c.pageUrl,
-    headline: c.measurementHeadline ?? "Measuring",
-    nextCheckpoint: c.nextCheckpoint,
-    attributionLimited: c.attributionLimited,
-  }));
+  // Measuring DETAIL items (not a count), compact, cap 5. Deduped by identity
+  // (CanonicalChange already dedupes). This is the worklist-scoped slice of what is
+  // measuring; the COUNT below is the canonical whole-tenant ledger number, which can
+  // legitimately be larger than this list (pages that left the ranked pool keep
+  // measuring in the ledger).
+  const measuring: TodayMeasuringItem[] = changes
+    .filter((c) => statusView(c.status) === "measuring")
+    .slice(0, MAX_MEASURING)
+    .map((c) => ({
+      changeId: c.id,
+      pageLabel: c.pageLabel,
+      pageUrl: c.pageUrl,
+      headline: c.measurementHeadline ?? "Measuring",
+      nextCheckpoint: c.nextCheckpoint,
+      attributionLimited: c.attributionLimited,
+    }));
 
-  const resultsAvailable = changes.filter((c) => c.status === "result").length;
+  // FP3 ONE-COUNT RULE: the canonical decided total (Results' Wins + What we learned),
+  // never a status === "result" recount of the worklist slice.
+  const resultsAvailable = input.ledgerCounts.decided;
 
   // Next opportunities, the ranked "what to do next" list - the operator's primary daily
   // surface. ALWAYS the best undone moves by opportunity, independent of any plan/cron
@@ -178,7 +200,9 @@ export function buildTodayView(input: {
   const counts: TodayCounts = {
     readyToday: planStatus === "preview" || planStatus === "accepted" ? (plan?.selectedCount ?? 0) : 0,
     needsAttention: attention.length,
-    measuring: measuringAll.length,
+    // FP3 ONE-COUNT RULE: the canonical whole-tenant measuring count (Results' "In
+    // flight" set), never the worklist-scoped status filter's length.
+    measuring: input.ledgerCounts.measuring,
     resultsAvailable,
   };
 

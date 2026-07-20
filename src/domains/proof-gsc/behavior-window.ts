@@ -17,6 +17,7 @@ import "server-only";
  * failure here can never touch windows/verdict/confidence.
  */
 
+import { log } from "@/lib/logger";
 import { readGa4WindowForPages, readLatestGa4Date } from "./ga4-window";
 import { readClarityWindowForPage, readLatestClarityDate } from "./clarity-window";
 import { addDays, PROOF_WINDOW_DAYS, PROOF_BASELINE_WINDOW_DAYS } from "./measure";
@@ -76,7 +77,12 @@ export async function computeBehaviorOutcomeForRecord(args: {
       clarityPost,
       dataThrough,
     });
-  } catch {
+  } catch (err) {
+    log.warn("behavior-window: behavior outcome computation failed; card self-hides", {
+      tenant: tenantId,
+      page: record.page,
+      error: err instanceof Error ? err.message : String(err),
+    });
     return null;
   }
 }

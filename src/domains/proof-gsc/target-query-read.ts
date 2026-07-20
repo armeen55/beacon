@@ -248,7 +248,13 @@ export async function buildTargetQueryReads(args: {
       readTargetQueryWindow(args.tenantId, pages, queries, args.preStart, args.preEnd),
       readTargetQueryWindow(args.tenantId, pages, queries, args.postStart, args.postEnd),
     ]);
-  } catch {
+  } catch (err) {
+    log.warn("target-query-read: per-query window read failed; returning no query reads", {
+      tenant: args.tenantId,
+      store: "gsc_daily_rows",
+      page: args.page,
+      error: err instanceof Error ? err.message : String(err),
+    });
     return [];
   }
 

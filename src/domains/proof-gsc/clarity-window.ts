@@ -14,6 +14,7 @@ import "server-only";
  */
 
 import { getSupabaseAdmin } from "@/lib/persistence/supabase";
+import { log } from "@/lib/logger";
 
 export type ClarityWindowMetrics = {
   visits: number;
@@ -59,7 +60,15 @@ export async function readClarityWindowForPage(args: {
       .gte("date", args.start)
       .lt("date", args.end)
       .or(`url.ilike.*${key},url.ilike.*${key}/`);
-    if (error || !Array.isArray(data)) return { ...ZERO };
+    if (error || !Array.isArray(data)) {
+      log.warn("clarity-window: window query errored; returning all-zero behavior", {
+        tenant: args.tenantId,
+        store: "clarity_daily_url_metrics",
+        page: args.page,
+        error: error?.message ?? "non-array response",
+      });
+      return { ...ZERO };
+    }
 
     const out = { ...ZERO };
     for (const r of data as Array<{
@@ -76,7 +85,15 @@ export async function readClarityWindowForPage(args: {
       out.quickbacks += Number(r.quickbacks) || 0;
     }
     return out;
-  } catch {
+  } catch (err) {
+    // Fail-soft zeros read downstream as "no friction" - a real read failure
+    // would silently zero this page's behavior proof.
+    log.warn("clarity-window: window read failed; returning all-zero behavior", {
+      tenant: args.tenantId,
+      store: "clarity_daily_url_metrics",
+      page: args.page,
+      error: err instanceof Error ? err.message : String(err),
+    });
     return { ...ZERO };
   }
 }
@@ -97,7 +114,12 @@ export async function readLatestClarityDate(tenantId: string): Promise<string | 
     if (error || !Array.isArray(data) || data.length === 0) return null;
     const d = (data[0] as { date?: string }).date;
     return typeof d === "string" ? d.slice(0, 10) : null;
-  } catch {
+  } catch (err) {
+    log.warn("clarity-window: latest-date probe failed; window gate reads as no data", {
+      tenant: tenantId,
+      store: "clarity_daily_url_metrics",
+      error: err instanceof Error ? err.message : String(err),
+    });
     return null;
   }
 }

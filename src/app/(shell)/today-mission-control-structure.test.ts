@@ -95,7 +95,8 @@ describe("Today six-slot structure (source invariants)", () => {
 
 describe('the "No action is required" reassurance is owned by the observe command', () => {
   it("the greeting brief (today-view headerSentence) never says it, on any kind", () => {
-    const view = buildTodayView({ changes: [change()], strategy: "balanced", plan: null });
+    // FP3 - the canonical ledger pair is threaded in (never re-derived from status).
+    const view = buildTodayView({ changes: [change()], strategy: "balanced", plan: null, ledgerCounts: { measuring: 1, decided: 0 } });
     expect(view.counts.measuring).toBe(1);
     expect(view.counts.readyToday).toBe(0);
     expect(view.headerSentence).not.toContain("No action is required");

@@ -6,8 +6,23 @@ import {
   shouldRunAutonomousResearch,
   startedReceipt,
   timedOutReceipt,
+  withPipelineAdvance,
 } from "./on-visit-refresh";
 import type { WarmRunReceipt } from "./warm-receipt-store";
+
+type PipelineWithAdvance = NonNullable<WarmRunReceipt["pipeline"]> & { pipelineAdvancedAt?: string };
+function advancedAt(receipt: WarmRunReceipt): string | undefined {
+  return (receipt.pipeline as PipelineWithAdvance | undefined)?.pipelineAdvancedAt;
+}
+function pipe(over: Partial<PipelineWithAdvance>): WarmRunReceipt["pipeline"] {
+  return {
+    version: 1,
+    completedStages: [],
+    nextStage: "baseline",
+    updatedAt: "2026-07-09T11:00:00.000Z",
+    ...over,
+  } as WarmRunReceipt["pipeline"];
+}
 
 const NOW = new Date("2026-07-09T12:00:00.000Z");
 
@@ -67,5 +82,47 @@ describe("shouldRunAutonomousResearch", () => {
     expect(startedReceipt("tenant-iranopedia", NOW, prior).summary?.readyToReview).toBe(7);
     expect(timedOutReceipt("tenant-iranopedia", NOW, prior).summary?.readyToReview).toBe(7);
     expect(timedOutReceipt("tenant-iranopedia", NOW, prior).pipeline?.nextStage).toBe("competitors");
+  });
+
+  it("carries pipelineAdvancedAt forward untouched in startedReceipt", () => {
+    const stamp = "2026-07-09T10:30:00.000Z";
+    const prior = receipt({ pipeline: pipe({ completedStages: ["baseline"], nextStage: "graph", pipelineAdvancedAt: stamp }) });
+    expect(advancedAt(startedReceipt("tenant-iranopedia", NOW, prior))).toBe(stamp);
+  });
+});
+
+describe("withPipelineAdvance", () => {
+  const checkpoint = (over: Partial<WarmRunReceipt>): WarmRunReceipt => receipt({ ok: false, ...over });
+
+  it("initializes pipelineAdvancedAt to now when the pipeline is first seen", () => {
+    const cp = checkpoint({ pipeline: pipe({ completedStages: [], nextStage: "baseline" }) });
+    expect(advancedAt(withPipelineAdvance(cp, null, NOW))).toBe(NOW.toISOString());
+  });
+
+  it("bumps pipelineAdvancedAt only when completedStages grow", () => {
+    const early = "2026-07-09T11:30:00.000Z";
+    const prior = checkpoint({ pipeline: pipe({ completedStages: ["baseline"], nextStage: "graph", pipelineAdvancedAt: early }) });
+    const grew = checkpoint({ pipeline: pipe({ completedStages: ["baseline", "graph"], nextStage: "competitors" }) });
+    expect(advancedAt(withPipelineAdvance(grew, prior, NOW))).toBe(NOW.toISOString());
+  });
+
+  it("carries pipelineAdvancedAt forward when a stage did NOT grow (a stalled retry)", () => {
+    const early = "2026-07-09T11:30:00.000Z";
+    const prior = checkpoint({ pipeline: pipe({ completedStages: [], nextStage: "baseline", pipelineAdvancedAt: early }) });
+    // Same completedStages, a fresh failing checkpoint: the clock must NOT move.
+    const stalledAgain = checkpoint({ pipeline: pipe({ completedStages: [], nextStage: "baseline" }) });
+    expect(advancedAt(withPipelineAdvance(stalledAgain, prior, NOW))).toBe(early);
+  });
+
+  it("re-initializes fresh when the prior pipeline is from a different day", () => {
+    const yesterdayStamp = "2026-07-08T11:30:00.000Z";
+    const prior = checkpoint({ date: "2026-07-08", pipeline: pipe({ completedStages: ["baseline", "graph"], nextStage: "competitors", pipelineAdvancedAt: yesterdayStamp }) });
+    const today = checkpoint({ date: "2026-07-09", pipeline: pipe({ completedStages: [], nextStage: "baseline" }) });
+    expect(advancedAt(withPipelineAdvance(today, prior, NOW))).toBe(NOW.toISOString());
+  });
+
+  it("is a no-op for a receipt without a pipeline", () => {
+    const cp = checkpoint({ pipeline: undefined });
+    expect(withPipelineAdvance(cp, null, NOW).pipeline).toBeUndefined();
   });
 });

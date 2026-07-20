@@ -61,8 +61,10 @@ function isRunning(receipt: WarmRunReceipt, now: Date): boolean {
 }
 
 /** A "running" receipt whose lambda is long dead: the terminal receipt never
- * arrived. Only fires for the note-based started receipt, never for a resumable
- * checkpointed pipeline (that legitimately persists across navigations). */
+ * arrived. Note-based only. A resumable pipeline is judged separately, by its own
+ * PROGRESS freshness (hasStalledPipeline / hasAdvancingPipeline below), because
+ * startedReceipt rewrites ran_at on every visit and would otherwise keep a dead
+ * pipeline looking fresh forever. */
 function isStalledRunning(receipt: WarmRunReceipt, now: Date): boolean {
   if (!hasRunningNote(receipt)) return false;
   const ranAt = Date.parse(receipt.ran_at);
@@ -73,16 +75,62 @@ function hasMorePipelineWork(receipt: WarmRunReceipt): boolean {
   return receipt.pipeline?.version === 1 && receipt.pipeline.nextStage != null;
 }
 
+/** The pipeline object carries an extra progress stamp written by on-visit-refresh
+ * (kept off the shared store type so this fix stays inside its own files). */
+type PipelineWithAdvance = NonNullable<WarmRunReceipt["pipeline"]> & { pipelineAdvancedAt?: string };
+
+/** Epoch ms of the last time this pipeline's completedStages actually GREW. New
+ * receipts carry pipelineAdvancedAt, which on-visit-refresh stamps only on real
+ * stage growth (updatedAt is unreliable here: autonomous-research bumps it on
+ * every checkpoint, including a failing stage that adds nothing). Legacy receipts
+ * that predate the field fall back to updatedAt: a genuinely advancing pipeline
+ * still has a recent updatedAt, and the very next checkpoint stamps the precise
+ * field, so the fallback can never pin a healthy pipeline as stalled for long. */
+function pipelineProgressMs(receipt: WarmRunReceipt): number | null {
+  const p = receipt.pipeline as PipelineWithAdvance | undefined;
+  if (!p) return null;
+  const ms = Date.parse(p.pipelineAdvancedAt ?? p.updatedAt);
+  return Number.isFinite(ms) ? ms : null;
+}
+
+/** A resumable pipeline that still has a next stage AND advanced recently: real
+ * background work the next visit resumes. An unparseable stamp is trusted as
+ * advancing so a bad timestamp never invents a cut-short state. */
+function hasAdvancingPipeline(receipt: WarmRunReceipt, now: Date): boolean {
+  if (!hasMorePipelineWork(receipt)) return false;
+  const advancedMs = pipelineProgressMs(receipt);
+  return advancedMs == null || now.getTime() - advancedMs < STALE_RUNNING_MS;
+}
+
+/** A resumable pipeline that has stopped advancing for longer than the stale
+ * window: its background pass keeps dying before it can finish a new stage. This
+ * is an honest cut-short, not an eternal "Refreshing 0/8" chip. */
+function hasStalledPipeline(receipt: WarmRunReceipt, now: Date): boolean {
+  if (!hasMorePipelineWork(receipt)) return false;
+  const advancedMs = pipelineProgressMs(receipt);
+  return advancedMs != null && now.getTime() - advancedMs >= STALE_RUNNING_MS;
+}
+
+/** One truthful "the last pass was cut short" test, whether the dead pass was a
+ * note-only started receipt or a checkpointed pipeline that stopped advancing.
+ * Both render the same honest copy and never coexist with a "refreshing" state. */
+function isCutShort(receipt: WarmRunReceipt, now: Date): boolean {
+  return hasStalledPipeline(receipt, now) || (isStalledRunning(receipt, now) && !hasMorePipelineWork(receipt));
+}
+
 export function autonomousResearchStatusLine(receipt: WarmRunReceipt | null, now: Date = new Date()): string {
   if (!receipt) return "Beacon will research, compare, rank, and prepare your next moves automatically after this visit.";
-  // A stalled "running" receipt with no resumable pipeline is a dead lambda, not
-  // live work: say so honestly instead of an eternal "preparing in background".
-  if (isStalledRunning(receipt, now) && !hasMorePipelineWork(receipt)) return CUT_SHORT_COPY;
-  if ((isRunning(receipt, now) || hasMorePipelineWork(receipt)) && receipt.summary) {
+  // A pass that never wrote its terminal receipt - a dead note-only lambda OR a
+  // pipeline that stopped advancing - is not live work. Say so honestly instead
+  // of an eternal "preparing in background" or "Refreshing 0/8". This returns
+  // before any "will retry safely" summary copy, so the two can never contradict.
+  if (isCutShort(receipt, now)) return CUT_SHORT_COPY;
+  const live = isRunning(receipt, now) || hasAdvancingPipeline(receipt, now);
+  if (live && receipt.summary) {
     const progress = autonomousResearchProgress(receipt);
     return `Your saved results are ready. Beacon is refreshing the evidence${progress ? ` (${progress.completed} of ${progress.total}: ${progress.nextLabel})` : ""} and will replace them only when the newer pass is complete.`;
   }
-  if (isRunning(receipt, now) || hasMorePipelineWork(receipt)) {
+  if (live) {
     const progress = autonomousResearchProgress(receipt);
     return `Beacon is preparing the first saved result in the background${progress ? ` (${progress.completed} of ${progress.total}: ${progress.nextLabel})` : ""}. You can keep using the app.`;
   }
@@ -128,10 +176,12 @@ export function autonomousResearchHeaderStatus(receipt: WarmRunReceipt | null, n
   const title = autonomousResearchStatusLine(receipt, now);
   const progress = autonomousResearchProgress(receipt);
   if (!receipt) return { label: "Research starts on visit", tone: "idle", title, progress: null };
-  // A cut-short pass (dead lambda, no resumable pipeline) is honestly partial.
-  if (isStalledRunning(receipt, now) && !hasMorePipelineWork(receipt)) return { label: "Last pass cut short", tone: "partial", title, progress: null };
-  if ((isRunning(receipt, now) || hasMorePipelineWork(receipt)) && receipt.summary) return { label: progress ? `Refreshing · ${progress.completed}/${progress.total}` : "Up to date · refreshing", tone: "ready", title, progress };
-  if (isRunning(receipt, now) || hasMorePipelineWork(receipt)) return { label: progress ? `Preparing · ${progress.completed}/${progress.total}` : "Preparing in background", tone: "running", title, progress };
+  // A cut-short pass (dead note-only lambda OR a pipeline that stopped advancing)
+  // is honestly partial. No progress bar - it is not moving.
+  if (isCutShort(receipt, now)) return { label: "Last pass cut short", tone: "partial", title, progress: null };
+  const live = isRunning(receipt, now) || hasAdvancingPipeline(receipt, now);
+  if (live && receipt.summary) return { label: progress ? `Refreshing · ${progress.completed}/${progress.total}` : "Up to date · refreshing", tone: "ready", title, progress };
+  if (live) return { label: progress ? `Preparing · ${progress.completed}/${progress.total}` : "Preparing in background", tone: "running", title, progress };
   if (!receipt.summary && !receipt.ok) return { label: "Preparing in background", tone: "running", title, progress: null };
   if (!receipt.ok) return { label: "Research partially refreshed", tone: "partial", title, progress: null };
   const ready = receipt.summary?.readyToReview ?? 0;

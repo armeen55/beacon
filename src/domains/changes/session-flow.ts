@@ -53,7 +53,7 @@ export type SessionAction = "done" | "skip" | "not_now";
 
 /**
  * R20 (D6 dynamic auto-mode) - the live progress line for the session strip. PURE arithmetic
- * over the FP3 lifecycle counts (domains/attribution/lifecycle-counts.ts) plus this session's
+ * over the FP3 lifecycle counts (domains/changes/lifecycle-counts.ts) plus this session's
  * own "shipped today" tally and the next-best row, so the counter never re-derives a number
  * another surface already owns.
  *

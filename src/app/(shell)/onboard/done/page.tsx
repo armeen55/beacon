@@ -166,8 +166,9 @@ export default async function OnboardDonePage() {
               Keep scanning now
             </button>
             <p className="mt-2 text-[12px] text-muted-foreground">
-              Each click reads up to 15 more pages. I also keep going on my
-              own every night until I have read everything, up to 150 pages.
+              Each click reads up to 15 more pages. I also keep reading a few
+              more each time you use Beacon, until I have read everything, up to
+              150 pages.
             </p>
           </form>
         ) : null}

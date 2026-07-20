@@ -1,6 +1,16 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, afterAll } from "vitest";
 import { buildTodayView, dynamicOpportunityCount, type TodayPlanSummary } from "./today-view";
 import type { CanonicalChange, EvidenceStrength } from "./canonical-change";
+import { countLedgerLifecycle } from "./lifecycle-counts";
+import {
+  TEST_CALIBRATED_VERSION,
+  registerTestCalibratedVersion,
+  clearTestCalibratedVersions,
+} from "@/domains/proof-gsc/verdict-calibration-test-support";
+
+/** FP3 - buildTodayView takes the canonical ledger pair; zero for tests that don't
+ *  exercise the counts. */
+const LC0 = { measuring: 0, decided: 0 };
 
 function ch(over: Partial<CanonicalChange> & { id: string; status: CanonicalChange["status"] }): CanonicalChange {
   return {
@@ -20,7 +30,7 @@ describe("buildTodayView — Today is a focused slice, deduped from the canonica
       ch({ id: "a", status: "measuring", pageLabel: "Cities", measurementHeadline: "Early negative signal", nextCheckpoint: "2026-07-04" }),
       ch({ id: "b", status: "suggested", pageLabel: "Flags" }),
     ];
-    const v = buildTodayView({ changes, strategy: "balanced", plan: null });
+    const v = buildTodayView({ ledgerCounts: LC0, changes, strategy: "balanced", plan: null });
     expect(v.measuring.map((m) => m.changeId)).toEqual(["a"]);
     expect(v.measuring[0].headline).toBe("Early negative signal");
     // no plan → opportunities show, but the measuring item must NOT appear there
@@ -35,14 +45,14 @@ describe("buildTodayView — Today is a focused slice, deduped from the canonica
     const changes = [ch({ id: "b", status: "suggested" }), ch({ id: "c", status: "ready" })];
     for (const status of ["none", "preview", "accepted", "in_progress", "completed"] as const) {
       const plan = status === "none" ? null : { status, selectedCount: 6, leftToApply: status === "accepted" ? 3 : 0 };
-      const v = buildTodayView({ changes, strategy: "balanced", plan });
+      const v = buildTodayView({ ledgerCounts: LC0, changes, strategy: "balanced", plan });
       expect(v.nextOpportunities.map((o) => o.changeId).sort()).toEqual(["b", "c"]);
     }
   });
 
   it("still excludes items already selected in tonight's plan (no duplication with the plan panel)", () => {
     const changes = [ch({ id: "sel", status: "ready", selectedForToday: true }), ch({ id: "free", status: "suggested" })];
-    const v = buildTodayView({ changes, strategy: "balanced", plan: { status: "accepted", selectedCount: 1, leftToApply: 1 } });
+    const v = buildTodayView({ ledgerCounts: LC0, changes, strategy: "balanced", plan: { status: "accepted", selectedCount: 1, leftToApply: 1 } });
     expect(v.nextOpportunities.map((o) => o.changeId)).toEqual(["free"]);
   });
 
@@ -54,7 +64,7 @@ describe("buildTodayView — Today is a focused slice, deduped from the canonica
       ch({ id: "sel", status: "ready", selectedForToday: true }),
       ch({ id: "ok", status: "suggested" }),
     ];
-    const v = buildTodayView({ changes, strategy: "balanced", plan: null });
+    const v = buildTodayView({ ledgerCounts: LC0, changes, strategy: "balanced", plan: null });
     const ids = v.nextOpportunities.map((o) => o.changeId);
     expect(ids).toEqual(["ok"]);
   });
@@ -69,7 +79,7 @@ describe("buildTodayView — Today is a focused slice, deduped from the canonica
       ch({ id: "flagged", status: "suggested", qualityDecision: "flagged" }),
       ch({ id: "ok", status: "suggested" }),
     ];
-    const v = buildTodayView({ changes, strategy: "balanced", plan: null });
+    const v = buildTodayView({ ledgerCounts: LC0, changes, strategy: "balanced", plan: null });
     expect(v.nextOpportunities.map((o) => o.changeId)).toEqual(["ok"]);
   });
 
@@ -79,7 +89,7 @@ describe("buildTodayView — Today is a focused slice, deduped from the canonica
       ch({ id: "nothing", status: "suggested", decision: "do_nothing" }),
       ch({ id: "ok", status: "ready", decision: "edit_existing" }),
     ];
-    const v = buildTodayView({ changes, strategy: "balanced", plan: null });
+    const v = buildTodayView({ ledgerCounts: LC0, changes, strategy: "balanced", plan: null });
     expect(v.nextOpportunities.map((o) => o.changeId)).toEqual(["ok"]);
   });
 
@@ -90,7 +100,7 @@ describe("buildTodayView — Today is a focused slice, deduped from the canonica
       ch({ id: "flagged-high-impact", status: "suggested", qualityDecision: "flagged", impactScore: 999 }),
       ch({ id: "ok", status: "suggested", impactScore: 10 }),
     ];
-    const v = buildTodayView({ changes, strategy: "balanced", plan: null });
+    const v = buildTodayView({ ledgerCounts: LC0, changes, strategy: "balanced", plan: null });
     expect(v.nextOpportunities[0]?.changeId).toBe("ok");
   });
 
@@ -99,41 +109,95 @@ describe("buildTodayView — Today is a focused slice, deduped from the canonica
       ch({ id: "strong", status: "suggested", evidenceStrength: "strong" }),
       ch({ id: "tracking", status: "suggested", evidenceStrength: "tracking", changeFamily: "new_page", changeType: "create_new_page" }),
     ];
-    const clean = buildTodayView({ changes, strategy: "clean", plan: null });
+    const clean = buildTodayView({ ledgerCounts: LC0, changes, strategy: "clean", plan: null });
     expect(clean.nextOpportunities.map((o) => o.changeId)).toEqual(["strong"]);
   });
 
-  it("attention: preview plan → review; accepted with leftToApply → apply; mature result → results", () => {
+  it("attention: preview plan → review; accepted with leftToApply → apply; canonical decided → results", () => {
+    // FP3 - the results_ready alert fires off the CANONICAL decided count (the ledger's
+    // Wins + What we learned), never a status === "result" recount of the worklist slice.
     const changes = [ch({ id: "res", status: "result" })];
-    const preview = buildTodayView({ changes, strategy: "balanced", plan: { status: "preview", selectedCount: 6, leftToApply: 0 } });
+    const decidedOne = { measuring: 0, decided: 1 };
+    const preview = buildTodayView({ ledgerCounts: decidedOne, changes, strategy: "balanced", plan: { status: "preview", selectedCount: 6, leftToApply: 0 } });
     expect(preview.attention.some((a) => a.kind === "review_plan")).toBe(true);
     expect(preview.attention.some((a) => a.kind === "results_ready")).toBe(true);
     // apply is more urgent than review is more urgent than results (priority order)
-    const accepted = buildTodayView({ changes, strategy: "balanced", plan: { status: "accepted", selectedCount: 6, leftToApply: 3 } });
+    const accepted = buildTodayView({ ledgerCounts: decidedOne, changes, strategy: "balanced", plan: { status: "accepted", selectedCount: 6, leftToApply: 3 } });
     expect(accepted.attention[0].kind).toBe("apply_pending");
   });
 
   it("a stale/refreshed plan is the top attention item", () => {
-    const v = buildTodayView({ changes: [], strategy: "balanced", plan: { status: "preview", selectedCount: 6, leftToApply: 0, wasRefreshed: true } });
+    const v = buildTodayView({ ledgerCounts: LC0, changes: [], strategy: "balanced", plan: { status: "preview", selectedCount: 6, leftToApply: 0, wasRefreshed: true } });
     expect(v.attention[0].kind).toBe("refresh_plan");
   });
 
   it("normal collecting is NOT an alert; header stays calm", () => {
     const changes = [ch({ id: "a", status: "measuring", measurementHeadline: "Collecting data" })];
-    const v = buildTodayView({ changes, strategy: "balanced", plan: null });
+    const v = buildTodayView({ ledgerCounts: { measuring: 1, decided: 0 }, changes, strategy: "balanced", plan: null });
     expect(v.attention).toEqual([]);
     expect(v.headerSentence).toMatch(/collecting data|No action is required/i);
   });
 
-  it("counts reflect the slice", () => {
+  it("counts.measuring/resultsAvailable are the CANONICAL ledger pair, never a status recount", () => {
+    // The worklist slice says 2 measuring + 1 result; the canonical ledger says 5 / 3.
+    // The rendered counts must be the ledger truth (FP3 ONE-COUNT RULE).
     const changes = [
       ch({ id: "a", status: "measuring" }), ch({ id: "b", status: "measuring" }),
       ch({ id: "r", status: "result" }),
     ];
-    const v = buildTodayView({ changes, strategy: "balanced", plan: { status: "preview", selectedCount: 6, leftToApply: 0 } });
-    expect(v.counts.measuring).toBe(2);
-    expect(v.counts.resultsAvailable).toBe(1);
+    const v = buildTodayView({ ledgerCounts: { measuring: 5, decided: 3 }, changes, strategy: "balanced", plan: { status: "preview", selectedCount: 6, leftToApply: 0 } });
+    expect(v.counts.measuring).toBe(5);
+    expect(v.counts.resultsAvailable).toBe(3);
     expect(v.counts.readyToday).toBe(6);
+    // The measuring DETAIL strip stays the worklist slice (cap 5) - a list, not a count.
+    expect(v.measuring.map((m) => m.changeId)).toEqual(["a", "b"]);
+  });
+});
+
+describe("FP3 divergence pin - Today's counts equal countLedgerLifecycle for a release with a divergent row", () => {
+  // The exact "25 vs 7" class: a change's snapshot status still says "measuring" while
+  // the ledger already classifies the SAME page's shipped change as decided (auto-measure
+  // matured it between rebuilds). Today's rendered counts must side with the ledger.
+  registerTestCalibratedVersion();
+  afterAll(clearTestCalibratedVersions);
+
+  const NOW = new Date("2026-07-02T12:00:00Z");
+  const MATURE = [
+    { day: 7, ran: true, controlsUsed: 3 },
+    { day: 14, ran: true, controlsUsed: 3 },
+    { day: 28, ran: true, controlsUsed: 3 },
+  ];
+  const OPEN = [
+    { day: 7, ran: false },
+    { day: 14, ran: false },
+    { day: 28, ran: false },
+  ];
+  const ledger = [
+    // Decided in the ledger, but the stale CanonicalChange below still says "measuring".
+    { id: "l-divergent", path: "/divergent", shippedAt: "2026-05-01T00:00:00.000Z", verdict: "won", windows: MATURE, baseline: { impressions: 1000 }, actionType: "edit_title", calibrationVersion: TEST_CALIBRATED_VERSION },
+    // Genuinely still measuring; its page fell OUT of the ranked worklist pool, so no
+    // CanonicalChange row exists for it at all (the substrate half of the divergence).
+    { id: "l-open", path: "/gone-from-worklist", shippedAt: "2026-06-25T00:00:00.000Z", verdict: "measuring", windows: OPEN, baseline: { impressions: 1000 }, actionType: "edit_meta", calibrationVersion: TEST_CALIBRATED_VERSION },
+  ];
+
+  it("counts side with the ledger classifier, not the stale status slice", () => {
+    const canonical = countLedgerLifecycle(ledger, NOW);
+    expect(canonical).toEqual({ measuring: 1, decided: 1, won: 1 });
+
+    const changes = [ch({ id: "divergent", status: "measuring", pagePath: "/divergent" })];
+    const v = buildTodayView({
+      changes,
+      strategy: "balanced",
+      plan: null,
+      ledgerCounts: { measuring: canonical.measuring, decided: canonical.decided },
+    });
+    // The canonical numbers, exactly.
+    expect(v.counts.measuring).toBe(canonical.measuring);
+    expect(v.counts.resultsAvailable).toBe(canonical.decided);
+    // And the status recount would have disagreed on decided (0 result rows in the
+    // slice vs 1 decided in the ledger) - the divergence this pin exists to catch.
+    expect(changes.filter((c) => c.status === "result")).toHaveLength(0);
+    expect(v.counts.resultsAvailable).not.toBe(0);
   });
 });
 

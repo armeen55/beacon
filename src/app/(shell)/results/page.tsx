@@ -12,7 +12,7 @@ import { currentTenantId } from "@/lib/tenant-context";
 // start (first visit, or right after a mutation invalidated it) pays the full
 // synchronous re-measure. Measurement history itself is untouched.
 import { ledgerCheckedAgoLine, loadResultsLedgerSurface } from "./results-ledger-data";
-import { loadConnectionHealth } from "@/domains/insight/connection-health";
+import { loadConnectionHealth, type ConnectionHealth } from "@/domains/insight/connection-health";
 import { readLastFinalizedDate } from "@/domains/proof-gsc/gsc-window";
 import { gscLagStatus, isDueForMeasure } from "@/domains/proof-gsc/measure-lifecycle";
 import {
@@ -366,6 +366,49 @@ async function RecomputeControlStream({
   return <RecomputeLedgerButton disabled={!anyWindowReady} disabledReason={anyWindowReady ? undefined : lagReason} />;
 }
 
+/** Days the finalized Search Console DATA watermark may lag before the amber
+ * "data is N days old" banner is honest. Google reports 2-3 days behind by design
+ * (the cockpit header treats <= 4 days as healthy, cockpit-bar.tsx:41), so only
+ * past 5 days is the finalized proof data genuinely behind. */
+export const RESULTS_STALE_DATA_DAYS = 5;
+/** Days with no connector sync before we name the connection as the cause - but
+ * only ever when the DATA is also behind. Fresh data means the pipeline is
+ * working whatever a stale sync stamp claims, so we never cry "check the
+ * connection" over a connector that is demonstrably delivering data. */
+export const RESULTS_STALE_SYNC_DAYS = 5;
+
+function daysBehind(iso: string | null, now: Date): number | null {
+  if (!iso) return null;
+  const t = Date.parse(iso.length === 10 ? `${iso}T00:00:00Z` : iso);
+  if (Number.isNaN(t)) return null;
+  return Math.floor((now.getTime() - t) / 86_400_000);
+}
+
+/** The single honest Search Console freshness banner for /results. It reads the
+ * finalized DATA watermark (latestGscDate) - the SAME source as the receipt line
+ * lower on this page - not the connector sync stamp (daysStale). Reading the sync
+ * stamp is the bug that once showed "18 days old" while the data was 3 days
+ * fresh, self-contradicting on one page. */
+export function resultsFreshnessNote(
+  gsc: Pick<ConnectionHealth, "severity" | "daysStale"> | null,
+  latestGscDate: string | null,
+  now: Date,
+): string | null {
+  if (gsc == null || gsc.severity === "healthy") return null;
+  if (gsc.severity === "disconnected")
+    return "Google Search Console isn't connected. Proof verdicts can't update until it is.";
+  if (gsc.severity === "needs_setup")
+    return "Google Search Console is connected but hasn't synced yet. Verdicts will fill in after the first sync.";
+  const dataDays = daysBehind(latestGscDate, now);
+  // The finalized DATA watermark is the source of truth for "is my proof
+  // current". Fresh data means the pipeline is working, so show nothing.
+  if (dataDays == null || dataDays <= RESULTS_STALE_DATA_DAYS) return null;
+  const syncDays = gsc.daysStale;
+  if (syncDays != null && syncDays > RESULTS_STALE_SYNC_DAYS)
+    return `I have not been able to sync Search Console for ${syncDays} days. Check the connection.`;
+  return `Search Console data is ${dataDays} days old. Recent changes may not show a verdict yet. I am refreshing connected data in the background.`;
+}
+
 async function ResultsStatusStream({
   ledger,
   tenantId,
@@ -378,14 +421,7 @@ async function ResultsStatusStream({
   const { connHealth, latestGscDate } = await initialContext;
   const { waiting } = gscLagForLedger(ledger, latestGscDate);
   const gsc = connHealth.find((c) => c.key === "google_gsc") ?? null;
-  const freshnessNote =
-    gsc == null || gsc.severity === "healthy"
-      ? null
-      : gsc.severity === "disconnected"
-        ? "Google Search Console isn't connected. Proof verdicts can't update until it is."
-        : gsc.severity === "needs_setup"
-          ? "Google Search Console is connected but hasn't synced yet. Verdicts will fill in after the first sync."
-          : `Search Console data is ${gsc.daysStale ?? "several"} days old. Recent changes may not show a verdict yet. Beacon is refreshing connected data in the background.`;
+  const freshnessNote = resultsFreshnessNote(gsc, latestGscDate, new Date());
 
   const dueNow = ledger.filter((l) => isDueForMeasure(l, latestGscDate, new Date()));
   const eligibleReverify = selectRowsToReverify(ledger).length > 0;

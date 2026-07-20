@@ -3,20 +3,45 @@
  * Covers pure converter + invariant enforcement + sparkline extraction + index projection.
  */
 
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi, afterEach } from "vitest";
 import type {
   NaturalControlResult,
   PlatformLift,
   RawPrePost,
 } from "./natural-controls";
 import type { UrlCitationHistory, UrlCitationSeries } from "../product/url-citation-history";
+
+// The local store is mocked empty so loadAllChangeOutcomes falls through to the
+// Supabase durable read (the hosted web-app path), the read whose silent
+// failure site 1 fixes. Pure tests below never touch these mocks.
+const localRows = { current: [] as unknown[] };
+vi.mock("@/lib/persistence/json-store", () => ({
+  readStore: async () => localRows.current,
+  writeStore: async () => {},
+}));
+const supabaseRef = { throws: false };
+vi.mock("@/lib/persistence/supabase", () => ({
+  getSupabaseAdmin: () => {
+    if (supabaseRef.throws) throw new Error("supabase env unavailable");
+    return {};
+  },
+}));
+vi.mock("@/lib/tenant-context", () => ({
+  currentTenantId: async () => "tenant-a",
+}));
+vi.mock("@/lib/logger", () => ({
+  log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
+}));
+
 import {
   buildOutcomeSummaryIndex,
   buildSparklines,
   buildDrilldownView,
   fromNaturalControlResult,
   validateInvariants,
+  loadAllChangeOutcomes,
 } from "./change-outcome-store";
+import { log } from "@/lib/logger";
 
 // ---------------------------------------------------------------------------
 // Fixture helpers
@@ -394,5 +419,26 @@ describe("buildDrilldownView", () => {
     const v = buildDrilldownView(o);
     expect(v.warnings_grouped.alert.length).toBe(1); // overlap → alert
     expect(v.warnings_grouped.info.length).toBe(1); // thin_control_set → info
+  });
+});
+
+describe("loadAllChangeOutcomes: Supabase read failure is logged, never a silent empty list", () => {
+  const prevDataSource = process.env.DATA_SOURCE;
+  afterEach(() => {
+    if (prevDataSource === undefined) delete process.env.DATA_SOURCE;
+    else process.env.DATA_SOURCE = prevDataSource;
+    localRows.current = [];
+    supabaseRef.throws = false;
+    vi.mocked(log.warn).mockClear();
+  });
+
+  it("logs and falls back to local ([]) when the durable Supabase read throws", async () => {
+    process.env.DATA_SOURCE = "supabase"; // arm the READ gate
+    localRows.current = []; // empty local -> fall through to Supabase
+    supabaseRef.throws = true; // getSupabaseAdmin throws inside the try
+    const out = await loadAllChangeOutcomes();
+    expect(out).toEqual([]);
+    expect(vi.mocked(log.warn)).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(log.warn).mock.calls[0]![0]).toContain("change-outcome-store");
   });
 });

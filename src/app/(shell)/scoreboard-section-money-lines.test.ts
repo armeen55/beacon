@@ -273,3 +273,28 @@ describe("scoreboard-section - no scheduled/overnight timing claims", () => {
     expect(SRC).not.toMatch(/tonight|last night|overnight|nightly/i);
   });
 });
+
+describe("scoreboard-section - money honesty on a failed shock-window read", () => {
+  // The shock-window gate EXCLUDES wins whose measurement overlaps an algorithm
+  // shock, but only when shockWindows.length > 0 (won-dollar-rule). A read
+  // failure that returned [] would skip that exclusion and OVERSTATE the money
+  // odometer. The fix: loadShockWindowsForGate returns null on failure, the
+  // deadline fallback is null (not []), and the component suppresses BOTH money
+  // claims when shockWindows is null. Pin that decision at the source so it can
+  // never silently regress back to computing money on known-incomplete inputs.
+  const SRC = readFileSync(resolve(__dirname, "scoreboard-section.tsx"), "utf8");
+
+  it("loadShockWindowsForGate returns null (not []) on a read failure", () => {
+    expect(SRC).toMatch(/loadShockWindowsForGate[\s\S]*?Promise<ShockWindow\[\] \| null>/);
+    expect(SRC).toMatch(/loadShockWindowsForGate[\s\S]*?catch[\s\S]*?return null;/);
+  });
+
+  it("the deadline fallback is null, so a timed-out shock read also suppresses the claim", () => {
+    expect(SRC).toMatch(/valueWithDeadline\(loadShockWindowsForGate\(tenantId\), null\)/);
+  });
+
+  it("both money claims are suppressed (null) when shockWindows is unknown", () => {
+    expect(SRC).toMatch(/shockWindows == null[\s\S]*?\?\s*null[\s\S]*?computeLifetimeEarnings/);
+    expect(SRC).toMatch(/shockWindows == null[\s\S]*?\?\s*null[\s\S]*?computePortfolioCounterfactual/);
+  });
+});

@@ -73,7 +73,11 @@ export async function loadProfoundOwnedCitations(
       return [];
     }
     rows = (data ?? []) as unknown as Row[];
-  } catch {
+  } catch (err) {
+    log.warn("[profound-proof] read threw", {
+      tenantId,
+      error: err instanceof Error ? err.message : String(err),
+    });
     return [];
   }
   if (rows == null || rows.length === 0) return [];

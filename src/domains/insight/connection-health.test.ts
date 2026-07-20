@@ -1,6 +1,19 @@
-import { describe, expect, it } from "vitest";
-import { deriveConnectionHealth, CONNECTION_SOURCES } from "./connection-health";
+import { describe, expect, it, vi } from "vitest";
+
+const getConnectorInfoRef = { throws: false };
+vi.mock("@/lib/connector-store", () => ({
+  getConnectorInfo: async () => {
+    if (getConnectorInfoRef.throws) throw new Error("connector store down");
+    return null;
+  },
+}));
+vi.mock("@/domains/serp/dataforseo-serp", () => ({
+  isDataForSeoConfigured: () => false,
+}));
+
+import { deriveConnectionHealth, loadConnectionHealth, CONNECTION_SOURCES } from "./connection-health";
 import type { ConnectorInfo } from "@/lib/connector-store";
+import { log } from "@/lib/logger";
 
 const meta = CONNECTION_SOURCES[0]; // google_gsc
 const now = new Date("2026-06-19T00:00:00Z");
@@ -35,5 +48,22 @@ describe("deriveConnectionHealth", () => {
     const h = deriveConnectionHealth(meta, null, now);
     expect(h.unlocks.length).toBeGreaterThan(0);
     expect(h.blockedWhenMissing.length).toBeGreaterThan(0);
+  });
+});
+
+describe("loadConnectionHealth", () => {
+  it("logs a connector read failure instead of silently rendering it as disconnected", async () => {
+    getConnectorInfoRef.throws = true;
+    const warn = vi.spyOn(log, "warn").mockImplementation(() => {});
+    const health = await loadConnectionHealth("tenant-1", now);
+    // Shape is preserved: every token connector still resolves to a row (as
+    // "disconnected", the existing conservative state), but the transient
+    // read failure is now visible in the logs, once per failing source.
+    const tokenSources = CONNECTION_SOURCES.filter((s) => s.key !== "dataforseo").length;
+    expect(warn).toHaveBeenCalledTimes(tokenSources);
+    expect(warn.mock.calls[0]![0]).toContain("connection-health");
+    expect(health.find((h) => h.key === "google_gsc")!.severity).toBe("disconnected");
+    warn.mockRestore();
+    getConnectorInfoRef.throws = false;
   });
 });

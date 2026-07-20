@@ -36,6 +36,7 @@
 
 import "server-only";
 
+import { log } from "@/lib/logger";
 import {
   buildUrlCitationHistory,
   NATIVE_REGIME_START,
@@ -141,7 +142,12 @@ export async function buildAndPersistTenantProof(
       try {
         const { getRepository } = await import("@/lib/persistence/repositories");
         return await getRepository().forTenant(tenantId).getRecommendedEdits();
-      } catch {
+      } catch (err) {
+        log.warn("proof-engine: recommended-edits read failed; treatment-date alignment is a no-op", {
+          tenant: tenantId,
+          store: "recommended-edits",
+          error: err instanceof Error ? err.message : String(err),
+        });
         return [];
       }
     });
@@ -164,7 +170,12 @@ export async function buildAndPersistTenantProof(
           "./profound-proof-observations"
         );
         profoundOwnedCitations = await loadProfoundOwnedCitations(tenantId);
-      } catch {
+      } catch (err) {
+        log.warn("proof-engine: profound owned-citation gap-fill read failed; native-only measurement", {
+          tenant: tenantId,
+          store: "profound_citation_rows",
+          error: err instanceof Error ? err.message : String(err),
+        });
         profoundOwnedCitations = [];
       }
       // sinceDate windows OUT the pre-cutover GLOBAL benchmark cold-store

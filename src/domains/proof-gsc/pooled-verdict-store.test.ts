@@ -10,8 +10,12 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 let stored: unknown[] = [];
+const readRef = { throws: false };
 vi.mock("@/lib/persistence/json-store", () => ({
-  readStore: async () => stored,
+  readStore: async () => {
+    if (readRef.throws) throw new Error("store read failed");
+    return stored;
+  },
   writeStore: async (_name: string, data: unknown[]) => {
     stored = data;
   },
@@ -24,6 +28,7 @@ import {
   type PooledVerdictRow,
 } from "./pooled-verdict-store";
 import { classifyStore } from "@/lib/persistence/store-classification";
+import { log } from "@/lib/logger";
 
 const NOW = new Date("2026-07-02T12:00:00.000Z");
 
@@ -49,6 +54,7 @@ function row(over: Partial<PooledVerdictRow> = {}): PooledVerdictRow {
 
 beforeEach(() => {
   stored = [];
+  readRef.throws = false;
 });
 
 describe("registration pins", () => {
@@ -122,5 +128,15 @@ describe("round-trip", () => {
     await upsertPooledVerdict(row({ calibrationVersion: "pooled-classifier-v1" }));
     const rows = await loadPooledVerdicts("tenant-a", NOW);
     expect(rows[0]!.calibrationVersion).toBe("pooled-classifier-v1");
+  });
+
+  it("a read failure returns [] AND logs (never a silent empty pool)", async () => {
+    readRef.throws = true;
+    const warn = vi.spyOn(log, "warn").mockImplementation(() => {});
+    const rows = await loadPooledVerdicts("tenant-a", NOW);
+    expect(rows).toEqual([]);
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn.mock.calls[0]![0]).toContain("pooled-verdict-store");
+    warn.mockRestore();
   });
 });

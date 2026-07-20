@@ -6,6 +6,7 @@ import {
   type ConnectorInfo,
 } from "@/lib/connector-store";
 import { isDataForSeoConfigured } from "@/domains/serp/dataforseo-serp";
+import { log } from "@/lib/logger";
 
 /** Sources shown on the Data Health surface. DataForSEO is env-based (not a token
  *  connector), so it's not a ConnectorProvider — widen the key here. */
@@ -130,7 +131,21 @@ export async function loadConnectionHealth(
           note: configured ? "Connected. Live SERP validation ready" : "Not connected",
         };
       }
-      const info = await getConnectorInfo(meta.key, tenantId).catch(() => null);
+      // A transient connector-store read failure returns null, which
+      // deriveConnectionHealth renders as "disconnected" / "Not connected" -
+      // indistinguishable from a genuinely absent connection. ConnectionSeverity
+      // has no "unknown"/"degraded" state and we are not adding UI here, so the
+      // minimum honest fix is to LOG the read failure so a transient error that
+      // is silently mislabeling a live connector is visible.
+      const info = await getConnectorInfo(meta.key, tenantId).catch((err) => {
+        log.warn("connection-health: connector read failed; source will render as disconnected", {
+          tenant: tenantId,
+          store: "connectors",
+          source: meta.key,
+          error: err instanceof Error ? err.message : String(err),
+        });
+        return null;
+      });
       return deriveConnectionHealth(meta, info, now);
     }),
   );

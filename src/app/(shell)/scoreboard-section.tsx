@@ -51,6 +51,7 @@ import { loadGscWeeklyLens } from "@/domains/gsc/load-weekly-dimensions";
 import { readGscFreshTailCached, refreshGscFreshTail } from "@/domains/gsc/load-fresh-tail";
 import { FRESH_TAIL_NOTE, type FreshTailPoint } from "@/domains/gsc/fresh-tail";
 import { after } from "next/server";
+import { log } from "@/lib/logger";
 
 const W = 720;
 const H = 170;
@@ -172,12 +173,28 @@ function Chart({ s, freshTail }: { s: Scoreboard; freshTail?: FreshTailPoint[] |
  * same screen again. This file only loads the shock windows and maps the
  * selected rows into each aggregator's input shape.
  */
-async function loadShockWindowsForGate(tenantId: string): Promise<ShockWindow[]> {
+/**
+ * Returns the known algorithm-shock windows, or `null` when the changepoint
+ * read FAILS. The distinction is load-bearing for honest money: the dollar
+ * rule EXCLUDES wins whose measurement window overlaps a shock, but only when
+ * `shockWindows.length > 0` (won-dollar-rule.ts hasCleanAttribution). An empty
+ * array therefore reads as "no shocks exist" and skips that exclusion, so a
+ * silent read failure that returned [] would let shock-tainted wins through and
+ * OVERSTATE the lifetime-earnings odometer. Returning null lets the caller
+ * suppress the precise money claim rather than compute it from known-incomplete
+ * inputs.
+ */
+async function loadShockWindowsForGate(tenantId: string): Promise<ShockWindow[] | null> {
   try {
     const changepoints = await loadDetectedChangepoints(tenantId);
     return buildShockWindows({ dailySeries: [], priorChangepoints: changepoints });
-  } catch {
-    return [];
+  } catch (err) {
+    log.warn("scoreboard-section: shock-window read failed; suppressing money claim this render", {
+      tenant: tenantId,
+      store: "algorithm-weather-changepoints",
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return null;
   }
 }
 
@@ -351,13 +368,21 @@ export async function ScoreboardSection({
     // counterfactual, both computed from the SAME re-measured ledger, both
     // independently self-hiding (null when the honest minimum isn't met).
     const now = new Date();
-    const shockWindows = await valueWithDeadline(loadShockWindowsForGate(tenantId), []);
-    const lifetimeEarnings = computeLifetimeEarnings(
-      buildLifetimeEarningsRows(measuredLedger, now, shockWindows),
-    );
-    const portfolioCounterfactual = computePortfolioCounterfactual(
-      buildCounterfactualRows(measuredLedger, now, shockWindows),
-    );
+    // null = the shock read failed OR timed out (the deadline fallback is null,
+    // not []). Without the shock windows we cannot honestly exclude wins that
+    // overlap an algorithm shock, and computing anyway would OVERSTATE the money
+    // (see loadShockWindowsForGate). So we suppress the precise dollar claims
+    // this render - the odometer + counterfactual simply self-hide, the exact
+    // conservative state they already show when the honest minimum isn't met.
+    const shockWindows = await valueWithDeadline(loadShockWindowsForGate(tenantId), null);
+    const lifetimeEarnings =
+      shockWindows == null
+        ? null
+        : computeLifetimeEarnings(buildLifetimeEarningsRows(measuredLedger, now, shockWindows));
+    const portfolioCounterfactual =
+      shockWindows == null
+        ? null
+        : computePortfolioCounterfactual(buildCounterfactualRows(measuredLedger, now, shockWindows));
 
     // Item 65 - the shadow portfolio: picks Beacon actually shipped versus the top eligible
     // candidates it considered but skipped, over matching windows. Distinct from item 41 above

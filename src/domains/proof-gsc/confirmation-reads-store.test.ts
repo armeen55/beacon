@@ -35,6 +35,8 @@ import {
   __testing,
 } from "./confirmation-reads-store";
 import { classifyStore } from "@/lib/persistence/store-classification";
+import { readStore } from "@/lib/persistence/json-store";
+import { log } from "@/lib/logger";
 
 beforeEach(() => {
   stored = [];
@@ -144,6 +146,19 @@ describe("loadConfirmationReads - filtering", () => {
     expect(await loadConfirmationReads("t")).toHaveLength(2);
     expect(await loadConfirmationReads("t", { proofId: "p1" })).toHaveLength(1);
     expect(await loadConfirmationReads("")).toHaveLength(0);
+  });
+});
+
+describe("readFile failure", () => {
+  it("a file read failure returns [] AND logs (never a silent empty ledger)", async () => {
+    vi.mocked(readStore).mockRejectedValueOnce(new Error("file read failed"));
+    vi.mocked(log.warn).mockClear();
+    // getSupabaseAdmin throws in this suite, so loadConfirmationReads takes the
+    // file-mirror path -> readFile(), which now logs on failure.
+    const rows = await loadConfirmationReads("t");
+    expect(rows).toEqual([]);
+    expect(vi.mocked(log.warn)).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(log.warn).mock.calls[0]![0]).toContain("confirmation-reads-store");
   });
 });
 

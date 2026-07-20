@@ -84,6 +84,37 @@ function pacificDayKey(now: Date): string {
   return now.toLocaleDateString("en-CA", { timeZone: "America/Los_Angeles" });
 }
 
+/** The pipeline object gains a pipelineAdvancedAt stamp - the last time its
+ * completedStages actually GREW. The status header uses this (not ran_at, which
+ * startedReceipt rewrites on every visit, and not updatedAt, which the research
+ * pass bumps on every checkpoint including a failing stage) to tell a live,
+ * advancing pipeline apart from one that keeps dying at the same stage. Kept off
+ * the shared WarmRunReceipt type so this fix stays inside its own files. */
+type PipelineWithAdvance = NonNullable<WarmRunReceipt["pipeline"]> & { pipelineAdvancedAt?: string };
+
+/** Stamp pipelineAdvancedAt on a fresh checkpoint. Set to now when the pipeline is
+ * first seen or its completedStages grow (or a stage count that went DOWN / a new
+ * day, i.e. a restart); otherwise carry the prior stamp forward untouched so a
+ * stalled pipeline's clock keeps running. */
+export function withPipelineAdvance(
+  checkpoint: WarmRunReceipt,
+  prior: WarmRunReceipt | null,
+  now: Date,
+): WarmRunReceipt {
+  if (!checkpoint.pipeline) return checkpoint;
+  const priorPipeline = prior?.pipeline as PipelineWithAdvance | undefined;
+  // Only compare against a prior pipeline from the SAME day: a receipt carried
+  // over from a previous day is a restart, not a continuation, so it must not
+  // freeze the new pipeline's clock to yesterday.
+  const sameContext = priorPipeline != null && prior?.date === checkpoint.date;
+  const priorCount = sameContext ? priorPipeline.completedStages.length : -1;
+  const priorAdvancedAt = sameContext ? priorPipeline.pipelineAdvancedAt : undefined;
+  const grew = checkpoint.pipeline.completedStages.length > priorCount;
+  const pipelineAdvancedAt = grew || !priorAdvancedAt ? now.toISOString() : priorAdvancedAt;
+  const pipeline: PipelineWithAdvance = { ...checkpoint.pipeline, pipelineAdvancedAt };
+  return { ...checkpoint, pipeline };
+}
+
 /** Injectable clock + deadline so the deadline-bounded steps below are testable
  *  with a short budget; production passes nothing and uses the real values. */
 export type PostResponseCycleOptions = {
@@ -203,8 +234,12 @@ async function runOwnedCycle(tenantId: string, options: PostResponseCycleOptions
         runAutonomousResearchForTenant(tenantId, now, {}, {
           resume: prior,
           onCheckpoint: async (checkpoint) => {
-            latestCheckpoint = checkpoint;
-            await recordWarmRun(checkpoint);
+            // Stamp the progress clock (initialize on first sight, bump only on
+            // real stage growth) before persisting, comparing against the last
+            // checkpoint this cycle wrote.
+            const stamped = withPipelineAdvance(checkpoint, latestCheckpoint, now);
+            latestCheckpoint = stamped;
+            await recordWarmRun(stamped);
           },
         }),
         deadlineMs,

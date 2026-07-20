@@ -20,6 +20,7 @@ import "server-only";
  */
 
 import { readStore, writeStore } from "@/lib/persistence/json-store";
+import { log } from "@/lib/logger";
 import type { TrafficTier, VerdictFloors } from "./measure";
 
 const STORE = "aa-calibration";
@@ -78,7 +79,12 @@ export async function readAaCalibration(
     const age = now.getTime() - Date.parse(latest.computed_at);
     if (!Number.isFinite(age) || age >= AA_CALIBRATION_MAX_AGE_MS) return null;
     return latest;
-  } catch {
+  } catch (err) {
+    log.warn("aa-calibration-store: read failed; verdict floors fall back to defaults", {
+      tenant: tenantId,
+      store: STORE,
+      error: err instanceof Error ? err.message : String(err),
+    });
     return null;
   }
 }

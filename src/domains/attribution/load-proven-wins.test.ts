@@ -20,6 +20,7 @@ vi.mock("./change-outcome-store", () => ({
 
 import { loadProvenWins } from "./load-proven-wins";
 import type { StoredChangeOutcome } from "./change-outcome-store";
+import { log } from "@/lib/logger";
 
 function outcome(
   source_id: string,
@@ -117,10 +118,14 @@ describe("loadProvenWins", () => {
     expect(wins.map((w) => w.sourceId)).toEqual(["a", "b"]);
   });
 
-  it("failure-soft: a store read error returns [] (section self-hides)", async () => {
+  it("failure-soft: a store read error returns [] (section self-hides) AND logs the failure", async () => {
     outcomesRef.throws = true;
+    const warn = vi.spyOn(log, "warn").mockImplementation(() => {});
     const wins = await loadProvenWins();
     expect(wins).toEqual([]);
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn.mock.calls[0]![0]).toContain("load-proven-wins");
+    warn.mockRestore();
   });
 
   it("no proven wins → [] (e.g. only weak outcomes)", async () => {

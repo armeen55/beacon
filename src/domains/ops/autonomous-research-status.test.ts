@@ -60,6 +60,19 @@ function receipt(over: Partial<WarmRunReceipt> = {}): WarmRunReceipt {
   };
 }
 
+// pipelineAdvancedAt is written by on-visit-refresh, not the shared store type;
+// this builder attaches it so the status reader can be exercised as prod sees it.
+type PipelineWithAdvance = NonNullable<WarmRunReceipt["pipeline"]> & { pipelineAdvancedAt?: string };
+function pipe(over: Partial<PipelineWithAdvance> = {}): WarmRunReceipt["pipeline"] {
+  return {
+    version: 1,
+    completedStages: ["baseline"],
+    nextStage: "graph",
+    updatedAt: RAN_AT,
+    ...over,
+  } as WarmRunReceipt["pipeline"];
+}
+
 describe("autonomousResearchHeaderStatus", () => {
   it("shows the honest first-visit state", () => {
     expect(autonomousResearchHeaderStatus(null)).toMatchObject({
@@ -102,29 +115,69 @@ describe("autonomousResearchHeaderStatus", () => {
     });
   });
 
-  it("keeps a stale receipt WITH resumable pipeline progress as refreshing, not cut short", () => {
-    // A checkpointed pipeline legitimately persists across navigations; the next
-    // visit resumes it, so it is never a dead-lambda ghost.
+  it("keeps a stale receipt whose pipeline is still ADVANCING as refreshing, not cut short", () => {
+    // pipelineAdvancedAt is recent, so the pipeline provably grew a stage lately;
+    // the next visit resumes it. ran_at being stale (startedReceipt rewrote it) is
+    // irrelevant - progress freshness, not ran_at, governs a pipeline.
+    const advancing = new Date(STALE_NOW.getTime() - 60_000).toISOString();
     const status = autonomousResearchHeaderStatus(receipt({
       ran_at: RAN_AT,
       summary,
       steps: [{ name: "autonomous-research", ok: true, ms: 0, note: "running after this response" }],
-      pipeline: { version: 1, completedStages: ["baseline"], nextStage: "graph", updatedAt: RAN_AT },
+      pipeline: pipe({ pipelineAdvancedAt: advancing }),
     }), STALE_NOW);
     expect(status.tone).toBe("ready");
     expect(status.title).not.toBe(CUT_SHORT_COPY);
   });
 
+  it("stops calling a STALLED pipeline 'Refreshing' and tells the truth", () => {
+    // completedStages has not grown for longer than the stale window
+    // (pipelineAdvancedAt is old): the background pass keeps dying at stage 0. No
+    // eternal "Refreshing 0/8".
+    const stalled = receipt({
+      ran_at: RAN_AT,
+      summary,
+      steps: [{ name: "autonomous-research", ok: true, ms: 0, note: "running after this response" }],
+      pipeline: pipe({ completedStages: [], nextStage: "baseline", pipelineAdvancedAt: RAN_AT }),
+    });
+    expect(autonomousResearchStatusLine(stalled, STALE_NOW)).toBe(CUT_SHORT_COPY);
+    expect(autonomousResearchHeaderStatus(stalled, STALE_NOW)).toMatchObject({
+      label: "Last pass cut short",
+      tone: "partial",
+      title: CUT_SHORT_COPY,
+      progress: null,
+    });
+  });
+
+  it("falls back to updatedAt for a legacy pipeline with no pipelineAdvancedAt", () => {
+    // Existing prod receipts predate the field. A recent updatedAt keeps them
+    // refreshing; an old one honestly reads cut-short, and the next checkpoint
+    // stamps the precise field.
+    const freshUpdatedAt = new Date(STALE_NOW.getTime() - 60_000).toISOString();
+    const legacyFresh = autonomousResearchHeaderStatus(receipt({
+      summary,
+      pipeline: { version: 1, completedStages: ["baseline"], nextStage: "graph", updatedAt: freshUpdatedAt },
+    }), STALE_NOW);
+    expect(legacyFresh.tone).toBe("ready");
+    expect(legacyFresh.title).not.toBe(CUT_SHORT_COPY);
+
+    const legacyStale = autonomousResearchHeaderStatus(receipt({
+      summary,
+      pipeline: { version: 1, completedStages: ["baseline"], nextStage: "graph", updatedAt: RAN_AT },
+    }), STALE_NOW);
+    expect(legacyStale.title).toBe(CUT_SHORT_COPY);
+  });
+
   it("keeps a checkpointed partial pipeline customer-ready between navigations", () => {
+    const advancing = new Date(STALE_NOW.getTime() - 60_000).toISOString();
     const status = autonomousResearchHeaderStatus(receipt({
       summary,
-      pipeline: {
-        version: 1,
+      pipeline: pipe({
         completedStages: ["baseline", "graph", "competitors"],
         nextStage: "keywords",
-        updatedAt: "2026-07-14T18:01:00.000Z",
-      },
-    }));
+        pipelineAdvancedAt: advancing,
+      }),
+    }), STALE_NOW);
     expect(status).toMatchObject({
       label: "Refreshing · 3/8",
       tone: "ready",

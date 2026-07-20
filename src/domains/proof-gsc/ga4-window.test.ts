@@ -33,7 +33,12 @@ vi.mock("@/lib/persistence/supabase", () => ({
   getSupabaseAdmin: () => ({ from: () => chain() }),
 }));
 
+vi.mock("@/lib/logger", () => ({
+  log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
+}));
+
 import { readGa4WindowForPages } from "./ga4-window";
+import { log } from "@/lib/logger";
 
 describe("readGa4WindowForPages paging", () => {
   beforeEach(() => {
@@ -79,6 +84,7 @@ describe("readGa4WindowForPages paging", () => {
       conversions: 1,
     }));
     failPage = 1;
+    vi.mocked(log.warn).mockClear();
     const out = await readGa4WindowForPages({
       tenantId: "tenant-a",
       pages: ["https://example.com/a"],
@@ -90,5 +96,8 @@ describe("readGa4WindowForPages paging", () => {
       engagedSessions: 0,
       conversions: 0,
     });
+    // The silent zero is now logged, not hidden.
+    expect(vi.mocked(log.warn)).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(log.warn).mock.calls[0]![0]).toContain("ga4-window");
   });
 });

@@ -16,6 +16,7 @@ import "server-only";
 
 import { getSupabaseAdmin } from "@/lib/persistence/supabase";
 import { canonicalizeCitationUrl } from "@/domains/citation-lifecycle/canonicalize-url";
+import { log } from "@/lib/logger";
 import type { GscWindowMetrics } from "./measure";
 
 type Cumulative = { clicks: number; impressions: number; posWeighted: number };
@@ -32,7 +33,16 @@ export async function readCumulativeSince(
       p_tenant: tenantId,
       p_since: since,
     });
-    if (error || !Array.isArray(data)) return out;
+    if (error || !Array.isArray(data)) {
+      // A DB error silently returns an empty map (every page reads as "no
+      // clicks") - make the failure visible instead of a quiet zero.
+      log.warn("gsc-window: cumulative-totals query errored; returning no page totals", {
+        tenant: tenantId,
+        store: "gsc_page_totals_v1",
+        error: error?.message ?? "non-array response",
+      });
+      return out;
+    }
     for (const r of data as Array<{
       page: string;
       clicks: number | string;
@@ -54,8 +64,14 @@ export async function readCumulativeSince(
         out.set(canon, cur);
       }
     }
-  } catch {
-    /* fail-soft */
+  } catch (err) {
+    // Fail-soft returns an empty map, which downstream reads as "no clicks" -
+    // a real read failure would silently zero every page's traffic proof.
+    log.warn("gsc-window: cumulative-totals read failed; returning no page totals", {
+      tenant: tenantId,
+      store: "gsc_page_totals_v1",
+      error: err instanceof Error ? err.message : String(err),
+    });
   }
   return out;
 }
@@ -81,7 +97,12 @@ export async function readLastFinalizedDate(tenantId: string): Promise<string | 
     if (error || !Array.isArray(data) || data.length === 0) return null;
     const d = (data[0] as { date?: string }).date;
     return typeof d === "string" ? d.slice(0, 10) : null;
-  } catch {
+  } catch (err) {
+    log.warn("gsc-window: last-finalized-date probe failed; window gate reads as no data", {
+      tenant: tenantId,
+      store: "gsc_daily_page_totals",
+      error: err instanceof Error ? err.message : String(err),
+    });
     return null;
   }
 }

@@ -18,6 +18,7 @@
 import "server-only";
 
 import { readStore, writeStore } from "@/lib/persistence/json-store";
+import { log } from "@/lib/logger";
 import type { ExperimentFamily } from "@/domains/experiments/experiment-eligibility";
 import type { PooledVerdict } from "./pooled-verdict";
 
@@ -77,7 +78,12 @@ export async function loadPooledVerdicts(
         return Number.isFinite(age) && age < POOLED_VERDICT_MAX_AGE_MS;
       })
       .sort((a, b) => b.computed_at.localeCompare(a.computed_at));
-  } catch {
+  } catch (err) {
+    log.warn("pooled-verdict-store: read failed; returning no pooled verdicts", {
+      tenant: tenantId,
+      store: STORE,
+      error: err instanceof Error ? err.message : String(err),
+    });
     return [];
   }
 }

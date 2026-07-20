@@ -12,6 +12,7 @@ import "server-only";
  */
 
 import { getSupabaseAdmin } from "@/lib/persistence/supabase";
+import { log } from "@/lib/logger";
 import {
   loadDailyClicksByPagesForTenant,
   type DailyClicks,
@@ -51,7 +52,12 @@ async function resolvePathsToPages(
       const prev = best.get(orig);
       if (!prev || clicks > prev.clicks) best.set(orig, { page: r.page, clicks });
     }
-  } catch {
+  } catch (err) {
+    log.warn("daily-series: path-to-page resolve read failed; before/after line self-hides", {
+      tenant: tenantId,
+      store: "gsc_page_totals_v1",
+      error: err instanceof Error ? err.message : String(err),
+    });
     return new Map();
   }
   return new Map([...best.entries()].map(([orig, v]) => [orig, v.page]));

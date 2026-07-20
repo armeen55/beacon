@@ -11,11 +11,19 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 let stored: unknown[] = [];
+const readRef = { throws: false };
 vi.mock("@/lib/persistence/json-store", () => ({
-  readStore: async () => stored,
+  readStore: async () => {
+    if (readRef.throws) throw new Error("store read failed");
+    return stored;
+  },
   writeStore: async (_name: string, data: unknown[]) => {
     stored = data;
   },
+}));
+
+vi.mock("@/lib/logger", () => ({
+  log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
 }));
 
 import {
@@ -25,6 +33,7 @@ import {
   type AlgorithmWeatherRow,
 } from "./algorithm-weather-store";
 import { classifyStore } from "@/lib/persistence/store-classification";
+import { log } from "@/lib/logger";
 import type { Changepoint } from "./changepoint";
 
 const NOW = new Date("2026-07-02T12:00:00.000Z");
@@ -46,6 +55,7 @@ function summary(over: Partial<AlgorithmWeatherRow> = {}): AlgorithmWeatherRow {
 
 beforeEach(() => {
   stored = [];
+  readRef.throws = false;
 });
 
 describe("registration pins", () => {
@@ -96,6 +106,15 @@ describe("round-trip", () => {
   it("unknown tenant reads as absent", async () => {
     await writeAlgorithmWeatherSummary(summary());
     expect(await readAlgorithmWeatherSummary("tenant-z", NOW)).toBeNull();
+  });
+
+  it("a read failure reads as absent (null) AND logs (feeds the money-honest shock gate)", async () => {
+    readRef.throws = true;
+    vi.mocked(log.warn).mockClear();
+    const back = await readAlgorithmWeatherSummary("tenant-a", NOW);
+    expect(back).toBeNull();
+    expect(vi.mocked(log.warn)).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(log.warn).mock.calls[0]![0]).toContain("algorithm-weather-store");
   });
 
   it("merges clicks + impressions changepoints, deduping identical date+direction", async () => {

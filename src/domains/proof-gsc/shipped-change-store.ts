@@ -22,6 +22,7 @@ import { join } from "node:path";
 import { getSupabaseAdmin } from "@/lib/persistence/supabase";
 import { currentTenantId } from "@/lib/tenant-context";
 import { readStore, writeStore } from "@/lib/persistence/json-store";
+import { log } from "@/lib/logger";
 import { getDataDir } from "@/lib/tenant";
 import { getTenant } from "@/domains/tenants/store";
 import type {
@@ -901,7 +902,11 @@ export function rowToRecord(row: LedgerRow): ShippedChangeRecord {
 async function readFile(): Promise<ShippedChangeRecord[]> {
   try {
     return (await readStore<ShippedChangeRecord>(STORE)) ?? [];
-  } catch {
+  } catch (err) {
+    log.warn("shipped-change-store: file ledger read failed; treating as empty", {
+      store: STORE,
+      error: err instanceof Error ? err.message : String(err),
+    });
     return [];
   }
 }
@@ -945,7 +950,13 @@ async function readShippedChangesFileForTenant(tenantId: string): Promise<Shippe
   try {
     const parsed = JSON.parse(readFileSync(filePath, "utf-8"));
     return Array.isArray(parsed) ? (parsed as ShippedChangeRecord[]) : [];
-  } catch {
+  } catch (err) {
+    log.warn("shipped-change-store: tenant ledger file unreadable/corrupt; treating as empty", {
+      tenant: tenantId,
+      store: STORE,
+      file: filePath,
+      error: err instanceof Error ? err.message : String(err),
+    });
     return [];
   }
 }
@@ -990,7 +1001,13 @@ async function loadShippedChangesUncached(): Promise<ShippedChangeRecord[]> {
   let tid: string;
   try {
     tid = await currentTenantId();
-  } catch {
+  } catch (err) {
+    // Sibling read-error branch in queryTenantLedger (:~1029) logs; this one
+    // silently blanked the ledger when the tenant could not be resolved.
+    log.warn("shipped-change-store: tenant resolve failed; ledger reads as empty", {
+      store: STORE,
+      error: err instanceof Error ? err.message : String(err),
+    });
     return [];
   }
   return queryTenantLedger(admin, tid);

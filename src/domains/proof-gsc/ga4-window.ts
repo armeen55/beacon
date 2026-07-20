@@ -17,6 +17,7 @@ import "server-only";
  */
 
 import { getSupabaseAdmin } from "@/lib/persistence/supabase";
+import { log } from "@/lib/logger";
 
 const PAGE_SIZE = 1_000;
 const MAX_ROWS = 100_000;
@@ -94,7 +95,16 @@ export async function readGa4WindowForPages(args: {
         .order("date", { ascending: true })
         .order("url", { ascending: true })
         .range(offset, offset + PAGE_SIZE - 1);
-      if (error || !Array.isArray(data)) return out;
+      if (error || !Array.isArray(data)) {
+        // A mid-pagination DB error silently returns all-zeros (a page reads as
+        // "no traffic") - make the failure visible instead of a quiet zero.
+        log.warn("ga4-window: window page read failed; returning all-zero traffic", {
+          tenant: args.tenantId,
+          store: "ga4_url_traffic",
+          error: error?.message ?? "non-array response",
+        });
+        return out;
+      }
       const rows = data as typeof allRows;
       allRows.push(...rows);
       if (rows.length < PAGE_SIZE) {
@@ -122,8 +132,14 @@ export async function readGa4WindowForPages(args: {
       if (!summed) continue;
       for (const p of pagesForKey) out.set(p, { ...summed });
     }
-  } catch {
-    /* fail-soft */
+  } catch (err) {
+    // Fail-soft returns all-zeros, which downstream reads as "no traffic" - a
+    // real read failure would silently zero a page's behavior/money proof.
+    log.warn("ga4-window: window read failed; returning all-zero traffic", {
+      tenant: args.tenantId,
+      store: "ga4_url_traffic",
+      error: err instanceof Error ? err.message : String(err),
+    });
   }
   return out;
 }
@@ -143,7 +159,12 @@ export async function readLatestGa4Date(tenantId: string): Promise<string | null
     if (error || !Array.isArray(data) || data.length === 0) return null;
     const d = (data[0] as { date?: string }).date;
     return typeof d === "string" ? d.slice(0, 10) : null;
-  } catch {
+  } catch (err) {
+    log.warn("ga4-window: latest-date probe failed; GA4 window gate reads as no data", {
+      tenant: tenantId,
+      store: "ga4_url_traffic",
+      error: err instanceof Error ? err.message : String(err),
+    });
     return null;
   }
 }
