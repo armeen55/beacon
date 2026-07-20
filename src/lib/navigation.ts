@@ -128,8 +128,8 @@ type RouteTitleEntry = {
 /**
  * Non-nav routes that render inside the shell. Nav items themselves are
  * folded in automatically from `navigationGroups`. Bookmark-compat redirect
- * stubs (/worklist, /proof, /moves, ...) never paint a header so they are not
- * listed.
+ * stubs (/worklist, /proof, /moves, /briefs, ...) never paint a header so
+ * they are not listed.
  */
 const EXTRA_ROUTE_TITLES: RouteTitleEntry[] = [
   { prefix: "/changes", title: "Changes", childTitle: "Change detail" },
@@ -158,8 +158,6 @@ const EXTRA_ROUTE_TITLES: RouteTitleEntry[] = [
   { prefix: "/reports", title: "Monthly report", childTitle: "Export a win" },
   { prefix: "/reports/win", title: "Export a win", parentHref: "/reports", childTitle: "Export a win" },
   { prefix: "/review", title: "Attribution review", parentHref: "/diagnostics" },
-  { prefix: "/briefs", title: "Execution briefs", childTitle: "Brief detail" },
-  { prefix: "/briefs/proposed", title: "Proposed briefs", parentHref: "/briefs" },
   { prefix: "/local", title: "Local presence" },
   { prefix: "/observations", title: "Scan report", parentHref: "/settings/history", childTitle: "Scan report" },
   { prefix: "/topics/opportunity", title: "Opportunity detail", parentHref: "/prompts", childTitle: "Opportunity detail" },

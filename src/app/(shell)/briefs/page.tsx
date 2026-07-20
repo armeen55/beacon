@@ -1,31 +1,24 @@
-import Link from "next/link";
-import { getBriefs, hasActiveExperiment } from "@/lib/seed-data.server";
-import { BriefsClient } from "./briefs-client";
+import { permanentRedirect } from "next/navigation";
 
-export default async function BriefsPage() {
-  const [isExperimentActive, briefs] = await Promise.all([
-    hasActiveExperiment(),
-    getBriefs(),
-  ]);
-  if (isExperimentActive && briefs.length === 0) {
-    return (
-      <div className="max-w-2xl mx-auto py-16 text-center">
-        <h2 className="text-[16px] font-semibold mb-2">
-          No execution briefs yet
-        </h2>
-        <p className="text-[13px] text-muted-foreground mb-4">
-          Briefs are execution plans generated from actions and promoted opportunities.
-          Accept proposed briefs to create execution plans.
-        </p>
-        <Link
-          href="/briefs/proposed"
-          className="text-[12px] text-accent-primary hover:underline font-medium"
-        >
-          View Proposed Briefs
-        </Link>
-      </div>
-    );
+/**
+ * /briefs -> /changes (retiring the standalone briefs UI surface, matching
+ * the /worklist redirect precedent). The ranked Changes list is the single
+ * surface for execution work; briefs as a separate list added a second view
+ * of the same underlying work without adding a decision the operator
+ * couldn't already make from Changes. This is a permanent (308) redirect
+ * that preserves query strings so old bookmarks and deep links keep working.
+ */
+export default async function BriefsRedirect({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  const params = await searchParams;
+  const qs = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    if (Array.isArray(value)) for (const v of value) qs.append(key, v);
+    else if (value != null) qs.append(key, value);
   }
-
-  return <BriefsClient briefs={briefs} />;
+  const suffix = qs.toString();
+  permanentRedirect(suffix ? `/changes?${suffix}` : "/changes");
 }
