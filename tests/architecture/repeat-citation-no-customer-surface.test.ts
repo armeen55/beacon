@@ -5,16 +5,18 @@
  * transitioned from blanket ban to allowlist; EXTENDED 2026-05-21
  * with Section 5.B Slice 2 Today tile files).
  *
- * Section 5.B Slice 1 (Changes detail Act 3 sub-line) introduced
- * the FIRST customer-facing files permitted to reference
- * repeat-citation symbols:
+ * Section 5.B Slice 1 (Changes detail Act 3 sub-line) is HISTORICAL
+ * as of the 2026-07-20 bounded orphan sweep — `/changes/[id]`
+ * collapsed to a canonical-Results redirect (2026-07-17, commit
+ * `19d292c1`) and its two allowlisted render files were deleted as
+ * dead code:
  *
- *   • src/components/changes/repeat-citation-act3.tsx
- *     (the customer-safe render component)
- *   • src/app/(shell)/changes/[id]/page.tsx
- *     (the server-side loader call site)
- *   • src/app/(shell)/changes/[id]/change-detail-v2-client.tsx
- *     (the v2 client that consumes the rendered component)
+ *   • src/components/changes/repeat-citation-act3.tsx (deleted)
+ *   • src/app/(shell)/changes/[id]/change-detail-v2-client.tsx (deleted)
+ *
+ * `src/app/(shell)/changes/[id]/page.tsx` itself no longer references
+ * any repeat-citation symbol post-collapse, so it is dropped from the
+ * allowlist too — the scan tree simply has nothing left to allow here.
  *
  * Section 5.B Slice 2 (Today edit-lifecycle tile band counter, added
  * 2026-05-21) is HISTORICAL — both of its allowlisted files
@@ -133,18 +135,18 @@ for (const rel of ADDITIONAL_SCAN_FILES) {
  * here is the structural signal that it is part of a deliberately
  * reviewed customer-facing repeat-citation surface.
  *
- * Slice 1 (2026-05-16): Changes detail Act 3 sub-line (3 files).
- * Slice 2 (2026-05-21): Today edit-lifecycle tile band counter (2 files).
+ * Slice 1 (2026-05-16): Changes detail Act 3 sub-line — removed
+ * 2026-07-20 (bounded orphan sweep): both allowlisted files were
+ * deleted as dead code once `/changes/[id]` collapsed to a
+ * canonical-Results redirect (2026-07-17), and the redirect page
+ * itself no longer references any repeat-citation symbol.
+ * Slice 2 (2026-05-21): Today edit-lifecycle tile band counter (2 files),
+ * removed 2026-07-02 (UX5 legacy sweep).
  */
 const ALLOWED_FILES: ReadonlySet<string> = new Set([
-  // 5.B Slice 1 — Changes detail Act 3 sub-line
-  "src/components/changes/repeat-citation-act3.tsx",
-  "src/app/(shell)/changes/[id]/page.tsx",
-  "src/app/(shell)/changes/[id]/change-detail-v2-client.tsx",
-  // 5.B Slice 2 (Today edit-lifecycle tile band counter) removed 2026-07-02
-  // (UX5 legacy sweep): edit-lifecycle-tile.tsx + its host
-  // today-v2-sections.tsx were both already deleted (2026-06-28 homepage
-  // fold cleanup) — this allowlist entry had gone stale for days.
+  // Empty — both Slice 1 and Slice 2 allowlisted files are deleted.
+  // Adding a new customer-facing repeat-citation surface means adding
+  // its file here AND the matching catalog row.
 ]);
 
 describe("Architecture — no customer-surface references to repeat-citation symbols (with Section 5.B allowlist)", () => {
@@ -161,9 +163,7 @@ describe("Architecture — no customer-surface references to repeat-citation sym
           const end = Math.min(active.length, idx + token.length + 40);
           throw new Error(
             `${rel}: customer surface references repeat-citation symbol '${token}' but is not in the Section 5.B allowlist.\n` +
-              `Section 5.B Slice 1 allowlist: src/components/changes/repeat-citation-act3.tsx,\n` +
-              `  src/app/(shell)/changes/[id]/page.tsx,\n` +
-              `  src/app/(shell)/changes/[id]/change-detail-v2-client.tsx.\n` +
+              `The allowlist is currently empty (Slice 1 + Slice 2 files both deleted as dead code).\n` +
               `Adding a new allowlisted file means a deliberately reviewed surface — update the allowlist and the catalog row alongside.\n` +
               `Excerpt: ...${active.slice(start, end)}...`,
           );

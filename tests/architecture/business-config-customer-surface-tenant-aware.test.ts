@@ -42,10 +42,14 @@ const REPO_ROOT = resolve(__dirname, "..", "..");
 
 // The customer-facing entry files migrated in MT-2 (today-data.ts was one
 // of the original 8; deleted 2026-07-01, FINAL PREMIUM PLAN item 101).
+// Surface collapse + dead-body removal (2026-07-20): src/app/(shell)/
+// changes/[id]/page.tsx was collapsed to a resolve-and-redirect route and no
+// longer resolves business config (the getBusinessConfig call lived in the
+// deleted v2 brief body). It is therefore no longer a business-config
+// customer surface and was removed from this allowlist.
 const MIGRATED_ENTRY_FILES = [
   "src/domains/off-site-authority/load-snapshot.ts",
   "src/domains/today/visibility-read-model.ts",
-  "src/app/(shell)/changes/[id]/page.tsx",
   "src/app/(shell)/today-v2-data.ts",
   "src/app/(shell)/local/page.tsx",
   "src/lib/local-presence.ts",

@@ -9,7 +9,7 @@
  * mutually-exclusive client render path that prefers the diagnostic
  * over the bridge.
  *
- * This invariant now pins FIVE structural facts:
+ * This invariant now pins FOUR structural facts:
  *
  *   1. The exact substring "next bundle will add automated sitemap +
  *      robots checks" remains in `render-copy.ts`. Removing it
@@ -32,10 +32,13 @@
  *      diagnostic is the primary stuck-row sub-line in A.3.4+; the
  *      bridge is the fallback.
  *
- *   5. The Changes detail v2 client renders the diagnostic
- *      PREFERRED OVER the bridge (mutual exclusion at the visible-
- *      sub-line level). Pin both data-attrs and the precedence
- *      shape in the source.
+ * A former Pin 5 asserted the Changes detail v2 client rendered the
+ * diagnostic preferred over the bridge at the mutual-exclusion level.
+ * Retired 2026-07-20 (bounded orphan sweep) — `change-detail-v2-client.tsx`
+ * was deleted as dead code once `/changes/[id]` collapsed to a
+ * canonical-Results redirect (2026-07-17, commit `19d292c1`). The
+ * render-copy.ts pins above (1-4) are unaffected; that module is alive
+ * and still produces the diagnostic + bridge copy.
  *
  * Retirement: this invariant retires FULLY when (a) production
  * telemetry confirms zero stuck rows hit the bridge fallback path
@@ -58,18 +61,8 @@ const RENDER_COPY_PATH = resolve(
   "citation-lifecycle",
   "render-copy.ts",
 );
-const CLIENT_PATH = resolve(
-  REPO_ROOT,
-  "src",
-  "app",
-  "(shell)",
-  "changes",
-  "[id]",
-  "change-detail-v2-client.tsx",
-);
 
 const RENDER_COPY_SRC = readFileSync(RENDER_COPY_PATH, "utf-8");
-const CLIENT_SRC = readFileSync(CLIENT_PATH, "utf-8");
 
 const BRIDGE_PHRASE = "next bundle will add automated sitemap + robots checks";
 
@@ -131,86 +124,5 @@ describe("Architecture — citation-lifecycle stuck-stage bridge phrase (Phase A
     );
     expect(fnMatch, "renderLifecycleCopy function body not found").toBeTruthy();
     expect(fnMatch![0]).toMatch(/renderStuckDiagnostic\s*\(/);
-  });
-
-  // ─────────────────────────────────────────────────────────────────
-  // Pin 5 (NEW — A.3.4): client renders diagnostic preferred over bridge
-  // ─────────────────────────────────────────────────────────────────
-
-  it("Changes detail v2 client renders the diagnostic sub-line via data-change-detail-act3-lifecycle-diagnostic='true'", () => {
-    expect(CLIENT_SRC).toContain(
-      'data-change-detail-act3-lifecycle-diagnostic="true"',
-    );
-  });
-
-  it("Changes detail v2 client still references the bridge data-attr for the fallback path", () => {
-    expect(CLIENT_SRC).toContain(
-      'data-change-detail-act3-lifecycle-bridge="true"',
-    );
-  });
-
-  it("client render path prefers diagnostic over bridge — diagnostic check appears BEFORE the bridge check in LifecycleLine", () => {
-    // Locate the LifecycleLine function body by brace-depth tracking
-    // from the opening `function LifecycleLine(` declaration through
-    // the matching close. Simple column-0 `}` heuristics get
-    // confused by destructured-param syntax (`}: {`) on the
-    // signature lines; brace counting is robust to that.
-    const startIdx = CLIENT_SRC.search(/function\s+LifecycleLine\s*\(/);
-    expect(
-      startIdx,
-      "LifecycleLine function declaration not found in change-detail-v2-client.tsx",
-    ).toBeGreaterThanOrEqual(0);
-    // Walk forward from startIdx, find the first `{` that opens the
-    // function body (must come AFTER the destructured-param section
-    // — track `(` depth alongside `{` depth and pick the `{` whose
-    // immediate `(`-depth context is 0).
-    let i = startIdx;
-    let parenDepth = 0;
-    let braceDepth = 0;
-    let inBody = false;
-    let endIdx = -1;
-    while (i < CLIENT_SRC.length) {
-      const ch = CLIENT_SRC[i];
-      if (ch === "(") parenDepth++;
-      else if (ch === ")") parenDepth--;
-      else if (ch === "{") {
-        if (!inBody && parenDepth === 0) {
-          // First brace at paren-depth 0 AFTER the `function`
-          // signature opens the body.
-          inBody = true;
-        }
-        braceDepth++;
-      } else if (ch === "}") {
-        braceDepth--;
-        if (inBody && braceDepth === 0) {
-          endIdx = i + 1;
-          break;
-        }
-      }
-      i++;
-    }
-    expect(
-      endIdx,
-      "LifecycleLine function close not found via brace tracking",
-    ).toBeGreaterThan(startIdx);
-    const body = CLIENT_SRC.slice(startIdx, endIdx);
-    const diagIdx = body.indexOf(
-      'data-change-detail-act3-lifecycle-diagnostic="true"',
-    );
-    const bridgeIdx = body.indexOf(
-      'data-change-detail-act3-lifecycle-bridge="true"',
-    );
-    expect(
-      diagIdx,
-      "diagnostic data-attr missing from LifecycleLine body",
-    ).toBeGreaterThanOrEqual(0);
-    expect(
-      bridgeIdx,
-      "bridge data-attr missing from LifecycleLine body",
-    ).toBeGreaterThanOrEqual(0);
-    expect(
-      diagIdx < bridgeIdx,
-      `LifecycleLine renders bridge BEFORE diagnostic — mutual-exclusion contract violated. diagnostic@${diagIdx}, bridge@${bridgeIdx}`,
-    ).toBe(true);
   });
 });

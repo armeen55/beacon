@@ -6,15 +6,18 @@ import type { ReactElement } from "react";
 import type { ChangelogEntry } from "@/domains/changelog/types";
 
 // ---------------------------------------------------------------------------
-// Sprint 1 / Phase 1.6 regression tests — /changes/[id] detail page.
+// Sprint 1 / Phase 1.6 regression tests — /changes/[id] detail route.
 //
 // /changes/[id] was one click away from /changes and still read the module-
 // level `changelogEntries` array from @/lib/seed-data.server. After Phase
 // 1.2 fixed /changes, a scan_detection row written by a different lambda
 // would appear on the main list but 404 on its own detail page. This file
-// proves the detail page reads from the repository per request and shows
-// an honest error on read failure / a standard notFound when the id is
-// genuinely absent from Supabase.
+// proves the route reads from the repository per request, redirects to the
+// canonical Results surface, and shows an honest error on read failure / a
+// standard notFound when the id is genuinely absent from Supabase.
+//
+// Surface collapse (2026-06-15) + dead-body removal (2026-07-20): the route
+// renders no detail body of its own — it resolves the entry and redirects.
 // ---------------------------------------------------------------------------
 
 const PAGE_PATH = resolve(
@@ -26,16 +29,15 @@ const PAGE_SOURCE = readFileSync(PAGE_PATH, "utf8");
 describe("Sprint 1 / Phase 1.6 — /changes/[id] fresh-read invariants", () => {
   describe("structural invariants (source-level)", () => {
     it("does NOT import mutable `changelogEntries` from seed-data.server", () => {
-      // Enrichment imports (`results`, `opportunities`) remain in scope —
-      // they feed the scorecard/coverage display, and Phase 1.6 explicitly
-      // limits itself to the core `changelogEntries` read path. What must
-      // NOT appear is any `changelogEntries` import from seed-data.server,
-      // which is the root of the cross-lambda stale-read bug.
-      const importBlocks = PAGE_SOURCE.match(
-        /import\s+\{[^}]+\}\s+from\s+["']@\/lib\/seed-data\.server["']/g,
-      );
-      expect(importBlocks).not.toBeNull();
-      for (const block of importBlocks!) {
+      // The route no longer imports from seed-data.server at all after the
+      // dead-body removal. The invariant that must hold either way: no
+      // `changelogEntries` import from seed-data.server (the root of the
+      // cross-lambda stale-read bug).
+      const importBlocks =
+        PAGE_SOURCE.match(
+          /import\s+\{[^}]+\}\s+from\s+["']@\/lib\/seed-data\.server["']/g,
+        ) ?? [];
+      for (const block of importBlocks) {
         expect(block).not.toMatch(/\bchangelogEntries\b/);
       }
     });
@@ -99,9 +101,8 @@ describe("Sprint 1 / Phase 1.6 — /changes/[id] fresh-read invariants", () => {
 
     beforeEach(() => {
       vi.resetModules();
-      vi.doMock("next/cache", () => ({ revalidatePath: vi.fn() }));
-      // notFound() throws a special NEXT_NOT_FOUND sentinel in Next.js.
-      // Represent with a typed error so tests can assert on it.
+      // notFound() / redirect() throw special sentinels in Next.js.
+      // Represent with typed errors so tests can assert on them.
       vi.doMock("next/navigation", () => ({
         notFound: () => {
           const err = new Error("NEXT_NOT_FOUND");
@@ -114,85 +115,6 @@ describe("Sprint 1 / Phase 1.6 — /changes/[id] fresh-read invariants", () => {
       }));
       vi.doMock("@/domains/proof-gsc/load-ledger", () => ({
         loadProofLedgerPersisted: async () => [],
-      }));
-      vi.doMock("@/lib/seed-data.server", () => ({
-        getOpportunities: vi.fn(async () => []),
-        getResults: vi.fn(async () => []),
-      }));
-      vi.doMock("@/domains/attribution/store", () => ({
-        getEventDecisions: vi.fn(async () => []),
-      }));
-      vi.doMock("@/lib/persistence/json-store", () => ({
-        readStore: () => [],
-        writeStore: vi.fn(async () => {}),
-      }));
-      vi.doMock("@/domains/pages/citation-evidence-store", () => ({
-        getCitationEvidenceIndex: vi.fn(async () => null),
-      }));
-      // Sprint 7 Phase 7.5c/3 (2026-04-25) — page-store now exports a lazy
-      // async function instead of a module-level array.
-      // Perf+egress bundle 2 (2026-05-12) — /changes/[id] legacy
-      // branch reads via getOwnedPageSummaries; mock both shapes.
-      vi.doMock("@/domains/pages/page-store", () => ({
-        getOwnedPages: async () => [],
-        getOwnedPageSummaries: async () => [],
-      }));
-      vi.doMock("@/domains/pages/issues", () => ({
-        getRolloutExecutions: vi.fn(async () => []),
-        getPatternEvidence: vi.fn(async () => []),
-      }));
-      vi.doMock("@/domains/pages/playbook", () => ({
-        minePatterns: () => [],
-        generateBriefs: () => [],
-      }));
-      vi.doMock("@/domains/product/replicate-count", () => ({
-        countReplicateRecsForChange: () => 0,
-      }));
-      vi.doMock("@/domains/product/recommendation-tracker", () => ({
-        computeTrackRecord: () => ({ patterns: [] }),
-        wasChangeRecommended: () => null,
-      }));
-      vi.doMock("@/lib/business-config", () => ({
-        getSectionAnalyzerConfig: () => ({}),
-        // MT-3C (2026-05-23) — the page now resolves businessConfig once
-        // (getBusinessConfig(tenantId)) to thread into the section
-        // analyzer + brandName, so the mock must provide it.
-        getBusinessConfig: () => ({ name: "Test Brand" }),
-      }));
-      vi.doMock("@/domains/observations/read", () => ({
-        latestWebsiteCrawlRun: () => null,
-      }));
-      vi.doMock("@/domains/attribution/change-outcome-store", () => ({
-        loadChangeOutcomeById: () => null,
-      }));
-      // computeScorecard builds the drilldown row; wrap it to a trivial
-      // pass-through so the test doesn't depend on the full attribution
-      // engine. `row.change.id === id` is what /changes/[id] checks.
-      vi.doMock("@/domains/attribution/scorecard", () => ({
-        computeScorecard: (changes: ChangelogEntry[]) =>
-          changes.map((c) => ({
-            change: c,
-            daysSinceChange: 1,
-            topics: [],
-            platforms: [],
-            eventAttributions: [],
-            evidenceTier: "probable",
-            verdict: "too_early",
-            verdictSummary: "pending",
-            operatorConfirmedCount: 0,
-            topTrust: null,
-            topScore: null,
-            topConfidence: null,
-          })),
-      }));
-      vi.doMock("@/domains/attribution/change-impact", () => ({
-        enrichWithImpact: (rows: unknown[]) => rows,
-        computeChangeImpact: () => ({
-          confidence: "low",
-          direction: "none",
-          whyExplanation: "",
-          nextAction: "",
-        }),
       }));
     });
 
@@ -229,8 +151,6 @@ describe("Sprint 1 / Phase 1.6 — /changes/[id] fresh-read invariants", () => {
       // Honest error surface, not a silent fallback to cached stale data.
       expect(html).toMatch(/Couldn(&#x27;|')t load this change/);
       expect(html).toContain("supabase connection refused");
-      // Detail body content MUST NOT render in the error branch.
-      expect(html).not.toContain("FAQ expanded from 10 to 34 questions");
     });
 
     it("calls notFound() — not silent-fallback to stale cache — when the id is absent from the repo", async () => {
