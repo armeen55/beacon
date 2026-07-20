@@ -8,6 +8,15 @@
       "autoPort": true
     },
     {
+      "name": "beacon-audit",
+      "runtimeExecutable": "sh",
+      "runtimeArgs": [
+        "-c",
+        "cd /Users/armeen/beacon && OPENAI_API_KEY= PERPLEXITY_API_KEY= DATA_SOURCE=supabase BEACON_AUTH_DISABLED=1 BEACON_OPERATOR_MODE=true BEACON_TENANT_ID=tenant-iranopedia BEACON_TENANT_SLUG=iranopedia npm run dev -- -p 3141"
+      ],
+      "port": 3141
+    },
+    {
       "name": "beacon-iranopedia",
       "runtimeExecutable": "sh",
       "runtimeArgs": [
