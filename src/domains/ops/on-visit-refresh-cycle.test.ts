@@ -21,7 +21,7 @@ vi.mock("./autonomous-run-claim", () => ({
 }));
 
 const autoRefreshStaleConnectorsForTenantMock = vi.fn();
-vi.mock("@/lib/connectors/cron-sync", () => ({
+vi.mock("@/lib/connectors/on-use-refresh", () => ({
   autoRefreshStaleConnectorsForTenant: (...a: unknown[]) => autoRefreshStaleConnectorsForTenantMock(...a),
 }));
 

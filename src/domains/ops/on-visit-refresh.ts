@@ -2,7 +2,7 @@ import "server-only";
 
 import { after } from "next/server";
 
-import { autoRefreshStaleConnectorsForTenant } from "@/lib/connectors/cron-sync";
+import { autoRefreshStaleConnectorsForTenant } from "@/lib/connectors/on-use-refresh";
 import {
   continueDeepBackfillIfStarted,
   type DeepBackfillChunkResult,

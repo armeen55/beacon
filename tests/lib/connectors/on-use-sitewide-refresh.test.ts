@@ -45,7 +45,7 @@ vi.mock("@/lib/connectors/profound/sync-nightly", () => ({
   syncProfoundNightlyForTenant: async () => ({ synced: true }),
 }));
 
-import { autoRefreshStaleConnectorsForTenant } from "@/lib/connectors/cron-sync";
+import { autoRefreshStaleConnectorsForTenant } from "@/lib/connectors/on-use-refresh";
 
 beforeEach(() => {
   _connected = { google_gsc: true, google_ga4: true, clarity: true, profound: true };

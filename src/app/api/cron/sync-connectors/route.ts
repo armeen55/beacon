@@ -30,7 +30,9 @@ export function syncCronHttpOutcome(result: CronSyncResult, durableReceipt: bool
 }
 
 /**
- * Nightly data-sync cron (scheduled in vercel.json, 09:00 UTC).
+ * Manual data-sync maintenance endpoint (NOT on a schedule — vercel.json `crons`
+ * is empty; Beacon has no scheduler, so the on-visit refresh is the live freshness
+ * path). Invoked by hand to force a full fleet sync + enrichment when needed.
  *
  * Keeps every connected read source fresh AND keeps Google OAuth tokens alive
  * inside their 7-day refresh window (so connections stop going stale). After

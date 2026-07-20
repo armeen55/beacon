@@ -9,11 +9,10 @@
 import "server-only";
 
 import { getSupabaseAdmin } from "@/lib/persistence/supabase";
-import { measureRecord } from "./run-measurement";
+import { measureDueRecords } from "./auto-measure-pass";
 import { readLastFinalizedDate } from "./gsc-window";
 import { activeTreatmentPaths } from "@/domains/experiments/experiment-eligibility";
 import { recordToRow, rowToRecord, type ShippedChangeRecord } from "./shipped-change-store";
-import { MAX_RANK_RECHECKS_PER_PASS } from "./rank-recheck";
 import { attachRecrawlClockForLedger } from "./attach-recrawl-clock";
 import { gscUrlInspect } from "@/lib/connectors/gsc/client";
 import { log } from "@/lib/logger";
@@ -135,33 +134,29 @@ export async function measureDueForTenant(tenantId: string, now: Date = new Date
 
   // Oldest ship first: the rows closest to a window boundary settle soonest.
   const batch = [...due].sort((a, b) => Date.parse(a.shippedAt) - Date.parse(b.shippedAt)).slice(0, MAX_PER_RUN);
-  // Item 19: bounded live-SERP rank re-checks for this WHOLE pass (not per
-  // record) - a tenant with 16 due records still spends at most
-  // MAX_RANK_RECHECKS_PER_PASS x ~$0.003 here, never 16x.
-  let rankRechecksUsed = 0;
-  for (const r of batch) {
-    try {
-      const allowRankRecheck = rankRechecksUsed < MAX_RANK_RECHECKS_PER_PASS;
-      const measured: ShippedChangeRecord = await measureRecord(
-        tenantId,
-        r,
-        now,
-        lastFinal,
-        activeTreatments,
-        allowRankRecheck,
-      );
-      if (allowRankRecheck && measured.rankOutcome != null) rankRechecksUsed += 1;
-      const up = await admin.from(TABLE).upsert(recordToRow(tenantId, measured), { onConflict: "tenant_id,id" });
-      if (up.error != null) {
-        out.errors += 1;
-        continue;
-      }
-      out.remeasured += 1;
-      if (measured.verdict !== "measuring") out.settled += 1;
-    } catch {
-      out.errors += 1;
-    }
-  }
+
+  // THE shared measure loop (measureDueRecords). This cron pass excludes active
+  // treatments from controls and persists straight to Supabase; a persist error
+  // counts as an error WITHOUT throwing (the returned { ok:false }), and a
+  // measure/persist throw counts an error silently - byte-identical to the loop
+  // that used to live here. Item 19's bounded live-SERP rank-recheck budget
+  // (MAX_RANK_RECHECKS_PER_PASS, never per-record) lives inside the core.
+  const { measured, failed } = await measureDueRecords(tenantId, batch, {
+    now,
+    lastFinal,
+    excludeControls: activeTreatments,
+    allowPaidRankRecheck: true,
+    persist: async (m) => {
+      const up = await admin.from(TABLE).upsert(recordToRow(tenantId, m), { onConflict: "tenant_id,id" });
+      return { ok: up.error == null };
+    },
+    onMeasured: (_before, m) => {
+      if (m.verdict !== "measuring") out.settled += 1;
+    },
+  });
+  out.remeasured = measured;
+  out.errors = failed;
+
   if (out.settled > 0) {
     log.info("[auto-measure] verdicts settled", { tenantId, settled: out.settled, remeasured: out.remeasured });
   }

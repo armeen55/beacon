@@ -10,7 +10,7 @@
  */
 import { describe, expect, it } from "vitest";
 
-import { syncSucceeded } from "@/lib/connectors/cron-sync";
+import { syncSucceeded } from "@/lib/connectors/on-use-refresh";
 
 describe("cron-sync syncSucceeded (audit-3 #5)", () => {
   it("treats { synced: true } as success", () => {

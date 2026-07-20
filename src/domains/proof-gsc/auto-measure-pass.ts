@@ -41,6 +41,71 @@ export type AutoMeasurePassResult = {
 };
 
 /**
+ * THE shared measure loop (2026-07-20 consolidation). Both due-row passes — the
+ * on-use/action pass (autoMeasureDuePass below) and the cron pass
+ * (auto-measure.ts measureDueForTenant) — used to carry byte-identical copies of
+ * this loop; the cron file's own comment admitted it was "mirroring
+ * auto-measure.ts's cron pass". This is the one copy.
+ *
+ * It iterates a PRE-FILTERED, pre-ordered due batch, spends the bounded live-SERP
+ * rank-recheck budget (MAX_RANK_RECHECKS_PER_PASS) across the WHOLE batch, measures
+ * each record with the exact same engine (measureRecord), and persists via the
+ * injected writer. The two callers still differ ONLY in what they legitimately
+ * must (data source + due gate, control exclusion, recrawl-inspection budget,
+ * result shape, settled accounting), so those stay in the callers and flow in as
+ * `ctx`; the measurement semantics live here and stay identical for both.
+ *
+ *   - `persist` returns { ok:false } to count a record as failed WITHOUT throwing
+ *     (matches the cron path's upsert-error branch, which incremented errors and
+ *     continued). A throw from persist or measureRecord counts the record failed too.
+ *   - `onMeasured` fires once per successfully persisted record so each caller keeps
+ *     its own settled/changed/outcome accounting.
+ *   - `onError` fires once per failed record (the cron path passes none = silent
+ *     errors++; the on-use pass logs). Never rethrows.
+ */
+export type MeasureDueContext = {
+  now: Date;
+  lastFinal: string | null;
+  /** Passed to measureRecord as its excludeControls arg. undefined = exclude nothing. */
+  excludeControls: Set<string> | undefined;
+  /** Whether the bounded paid live-SERP rank re-check may be spent this pass. */
+  allowPaidRankRecheck: boolean;
+  /** Persist one freshly measured record. Return { ok:false } to count a failure
+   *  without throwing. */
+  persist: (measured: ShippedChangeRecord) => Promise<{ ok: boolean }>;
+  onMeasured?: (before: ShippedChangeRecord, after: ShippedChangeRecord) => void;
+  onError?: (record: ShippedChangeRecord, error: unknown) => void;
+};
+
+export async function measureDueRecords(
+  tenantId: string,
+  due: ReadonlyArray<ShippedChangeRecord>,
+  ctx: MeasureDueContext,
+): Promise<{ measured: number; failed: number }> {
+  let rankRechecksUsed = 0;
+  let measured = 0;
+  let failed = 0;
+  for (const record of due) {
+    try {
+      const allowRankRecheck = ctx.allowPaidRankRecheck && rankRechecksUsed < MAX_RANK_RECHECKS_PER_PASS;
+      const next = await measureRecord(tenantId, record, ctx.now, ctx.lastFinal, ctx.excludeControls, allowRankRecheck);
+      if (allowRankRecheck && next.rankOutcome != null) rankRechecksUsed += 1;
+      const { ok } = await ctx.persist(next);
+      if (!ok) {
+        failed += 1;
+        continue;
+      }
+      measured += 1;
+      ctx.onMeasured?.(record, next);
+    } catch (e) {
+      failed += 1;
+      ctx.onError?.(record, e);
+    }
+  }
+  return { measured, failed };
+}
+
+/**
  * Re-measure all applied Moves due for a fresh reading. Bounded + fail-soft +
  * cache-first. Returns a full report. NEVER throws.
  */
@@ -78,17 +143,20 @@ export async function autoMeasureDuePass(
   const due = records.filter((r) => isDueForMeasure(r, lastFinal, now)).slice(0, max);
   result.due = due.length;
 
-  // Item 19: bounded live-SERP rank re-checks for this WHOLE pass, mirroring
-  // auto-measure.ts's cron pass - a passive on-page-load pass never spends more
-  // than MAX_RANK_RECHECKS_PER_PASS x ~$0.003 regardless of how many records are due.
-  let rankRechecksUsed = 0;
-  for (const record of due) {
-    try {
-      const allowRankRecheck = allowPaid && rankRechecksUsed < MAX_RANK_RECHECKS_PER_PASS;
-      const next = await measureRecord(tenantId, record, now, lastFinal, undefined, allowRankRecheck);
-      if (allowRankRecheck && next.rankOutcome != null) rankRechecksUsed += 1;
+  // Item 19: the bounded live-SERP rank re-check budget for the WHOLE pass lives in
+  // measureDueRecords now (MAX_RANK_RECHECKS_PER_PASS x ~$0.003, never per-record).
+  // This pass excludes no controls (undefined) and persists via upsertShippedChange;
+  // its rich per-record accounting (changed / settled / outcomes) rides onMeasured.
+  const { measured, failed } = await measureDueRecords(tenantId, due, {
+    now,
+    lastFinal,
+    excludeControls: undefined,
+    allowPaidRankRecheck: allowPaid,
+    persist: async (next) => {
       await upsertShippedChange(next);
-      result.measured += 1;
+      return { ok: true };
+    },
+    onMeasured: (record, next) => {
       const changed = next.verdict !== record.verdict;
       if (changed) result.changed += 1;
       if (next.verdict === "won" || next.verdict === "lost") result.settled += 1;
@@ -101,14 +169,16 @@ export async function autoMeasureDuePass(
         state: outcomeStateOf(next, now),
         changed,
       });
-    } catch (e) {
-      result.failed += 1;
+    },
+    onError: (record, e) => {
       log.warn("[auto-measure] record failed (non-blocking)", {
         tenantId,
         id: record.id,
         error: e instanceof Error ? e.message : String(e),
       });
-    }
-  }
+    },
+  });
+  result.measured = measured;
+  result.failed = failed;
   return result;
 }
