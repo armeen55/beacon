@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import {
+  HONEST_DELAY_ESCALATED_MESSAGE,
+  HONEST_DELAY_MAX_VISIBLE_RETRIES,
   HONEST_DELAY_RETRY_COOLDOWN_MS,
+  honestDelayHasEscalated,
   shouldScheduleHonestDelayRetry,
 } from "./honest-delay";
 
@@ -30,6 +33,31 @@ describe("honest delay automatic retry", () => {
 
   it("treats malformed stored timestamps as no prior retry", () => {
     expect(shouldScheduleHonestDelayRetry({ lastRetryAtMs: Number.NaN, nowMs: 1_000 })).toBe(true);
+  });
+});
+
+describe("honest delay bounded escalation", () => {
+  it("does not escalate before the visible-retry budget is spent", () => {
+    expect(honestDelayHasEscalated(0)).toBe(false);
+    expect(honestDelayHasEscalated(HONEST_DELAY_MAX_VISIBLE_RETRIES - 1)).toBe(false);
+  });
+
+  it("escalates at and past the budget so we stop implying success", () => {
+    expect(honestDelayHasEscalated(HONEST_DELAY_MAX_VISIBLE_RETRIES)).toBe(true);
+    expect(honestDelayHasEscalated(HONEST_DELAY_MAX_VISIBLE_RETRIES + 9)).toBe(true);
+  });
+
+  it("treats a malformed retry count as not-yet-escalated", () => {
+    expect(honestDelayHasEscalated(Number.NaN)).toBe(false);
+  });
+
+  it("uses honest, calm escalation copy with no dashes and no false promise", () => {
+    expect(HONEST_DELAY_ESCALATED_MESSAGE).toContain("could not load");
+    expect(HONEST_DELAY_ESCALATED_MESSAGE).toContain("on my side");
+    expect(HONEST_DELAY_ESCALATED_MESSAGE).toContain("your data is safe");
+    // Never implies it is about to succeed the way the default message does.
+    expect(HONEST_DELAY_ESCALATED_MESSAGE).not.toContain("retrying automatically");
+    expect(HONEST_DELAY_ESCALATED_MESSAGE).not.toMatch(/[‒–—―]/);
   });
 });
 

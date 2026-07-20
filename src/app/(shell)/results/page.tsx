@@ -395,6 +395,10 @@ export function resultsFreshnessNote(
   now: Date,
 ): string | null {
   if (gsc == null || gsc.severity === "healthy") return null;
+  // A read failure is NOT a disconnection. Say we could not check, promise a
+  // retry, and never imply the operator lost their connection.
+  if (gsc.severity === "unknown")
+    return "I could not check the Search Console connection just now. Your data and settings are unchanged. I will retry on your next visit.";
   if (gsc.severity === "disconnected")
     return "Google Search Console isn't connected. Proof verdicts can't update until it is.";
   if (gsc.severity === "needs_setup")

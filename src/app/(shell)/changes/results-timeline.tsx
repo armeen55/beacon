@@ -71,7 +71,10 @@ export async function ResultsTimeline() {
     try {
       freshChangelogEntries = await repository.getChangelogEntries();
     } catch (error) {
-      return <ResultsTimelineReadError error={error} />;
+      // The raw technical error (which can carry the store internals and the
+      // failing table name) goes to the SERVER log only, never to the operator.
+      console.error("[results-timeline] change history read failed", error);
+      return <ResultsTimelineReadError />;
     }
 
     const liveEntries = freshChangelogEntries.filter((c) => !c.archived);
@@ -264,12 +267,12 @@ export async function ResultsTimeline() {
 }
 
 /**
- * Compact embedded error state (no PageHeader). Mirrors the old /changes
- * honest-error behavior: never falls back to stale cached truth.
+ * Compact embedded error state (no PageHeader). Never falls back to stale
+ * cached truth, and never leaks the raw technical error (store internals, table
+ * names, stack fragments) to the operator - that goes to the server log at the
+ * catch site. The operator sees calm, plain recovery copy only.
  */
-function ResultsTimelineReadError({ error }: { error: unknown }) {
-  const message =
-    error instanceof Error ? error.message : "Unknown error reading changelog";
+export function ResultsTimelineReadError() {
   return (
     <section
       className="rounded-lg border border-status-warning/40 bg-status-warning/5 px-5 py-5"
@@ -280,14 +283,10 @@ function ResultsTimelineReadError({ error }: { error: unknown }) {
         id="results-timeline-read-error-heading"
         className="text-[13px] font-semibold text-foreground tracking-tight"
       >
-        Couldn&apos;t load your changes
+        I could not read your change history just now.
       </h2>
       <p className="mt-2 text-[13px] leading-relaxed text-muted-foreground">
-        {message}
-      </p>
-      <p className="mt-2 text-[12px] leading-relaxed text-muted-foreground">
-        This usually means the database is temporarily unreachable. Refresh the
-        page to retry.
+        Try again in a minute.
       </p>
     </section>
   );

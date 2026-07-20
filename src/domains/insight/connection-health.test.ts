@@ -52,18 +52,31 @@ describe("deriveConnectionHealth", () => {
 });
 
 describe("loadConnectionHealth", () => {
-  it("logs a connector read failure instead of silently rendering it as disconnected", async () => {
+  it("reports a connector read failure as unknown, never as disconnected, and logs it", async () => {
     getConnectorInfoRef.throws = true;
     const warn = vi.spyOn(log, "warn").mockImplementation(() => {});
     const health = await loadConnectionHealth("tenant-1", now);
-    // Shape is preserved: every token connector still resolves to a row (as
-    // "disconnected", the existing conservative state), but the transient
-    // read failure is now visible in the logs, once per failing source.
+    // Shape is preserved: every token connector still resolves to a row, but a
+    // transient read failure is now the honest "unknown" state (we could not
+    // check), NEVER "disconnected" - which would falsely tell a connected
+    // operator they lost their connection. Still logged, once per failing source.
     const tokenSources = CONNECTION_SOURCES.filter((s) => s.key !== "dataforseo").length;
     expect(warn).toHaveBeenCalledTimes(tokenSources);
     expect(warn.mock.calls[0]![0]).toContain("connection-health");
-    expect(health.find((h) => h.key === "google_gsc")!.severity).toBe("disconnected");
+    const gsc = health.find((h) => h.key === "google_gsc")!;
+    expect(gsc.severity).toBe("unknown");
+    expect(gsc.connected).toBe(false);
+    expect(gsc.note).toContain("could not check");
+    // Never leaks the raw error or a "not connected" claim into the note.
+    expect(gsc.note).not.toContain("Not connected");
     warn.mockRestore();
     getConnectorInfoRef.throws = false;
+  });
+
+  it("still reports a positively-absent token as disconnected (not unknown)", async () => {
+    // Mock resolves null (a successful read with no token) - the genuine
+    // absence path must stay "disconnected".
+    const health = await loadConnectionHealth("tenant-1", now);
+    expect(health.find((h) => h.key === "google_gsc")!.severity).toBe("disconnected");
   });
 });

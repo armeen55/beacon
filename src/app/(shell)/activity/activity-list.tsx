@@ -10,8 +10,24 @@ import { Card } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
 import type { ActivityPage } from "@/domains/activity/activity-stream";
 
-export function ActivityList({ paged }: { paged: ActivityPage }) {
+export function ActivityList({
+  paged,
+  loadFailed = false,
+}: {
+  paged: ActivityPage;
+  /** True when a read failed this visit, so an empty stream means "I could not
+   *  look", NOT "nothing happened". The two must never share copy. */
+  loadFailed?: boolean;
+}) {
   if (paged.total === 0) {
+    if (loadFailed) {
+      return (
+        <EmptyState
+          headline="I could not load your activity just now. Nothing is lost."
+          nextStep="Refreshing usually fixes this. I also retry on my next background pass."
+        />
+      );
+    }
     return (
       <EmptyState
         headline="Nothing logged yet."

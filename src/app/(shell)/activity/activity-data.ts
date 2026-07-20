@@ -73,28 +73,51 @@ async function loadConnectionEvents(tenantId: string): Promise<ConnectionInput[]
 /** R14b - how far back the spend join reads (the same 30-day frame /settings/spend uses). */
 const SPEND_SINCE_DAYS = 30;
 
-/** The composed stream, newest first. Fail-soft per source; never throws. */
+/** The composed stream plus whether any underlying read failed this visit. A
+ *  failed read must never masquerade as a genuinely empty stream (that would
+ *  render "Nothing logged yet." while the truth is we could not look). */
+export type ActivityFeed = {
+  events: ActivityEvent[];
+  anyReadFailed: boolean;
+};
+
+/** The composed stream, newest first. Fail-soft per source; never throws.
+ *  Kept for callers (the CSV export) that only need the rows. */
 export async function loadActivityEvents(now: Date = new Date()): Promise<ActivityEvent[]> {
+  return (await loadActivityFeed(now)).events;
+}
+
+/** The composed stream plus a read-health flag, newest first. Fail-soft per
+ *  source; never throws. Any source that throws flips `anyReadFailed` so the
+ *  page can tell "nothing happened" apart from "I could not load your activity".
+ */
+export async function loadActivityFeed(now: Date = new Date()): Promise<ActivityFeed> {
   const tenantId = await currentTenantId();
+  let anyReadFailed = false;
+  const onFail = <T>(fallback: T) => (err: unknown): T => {
+    anyReadFailed = true;
+    void err;
+    return fallback;
+  };
   const [shipped, receipts, plans, cronRuns, errorRows, connections, spendRows] = await Promise.all([
-    valueWithDeadline(loadShippedChanges().catch(() => []), [], SOURCE_DEADLINE_MS),
+    valueWithDeadline(loadShippedChanges().catch(onFail([])), [], SOURCE_DEADLINE_MS),
     valueWithDeadline(
       getAutopilotState()
         .then((s) => s.receipts)
-        .catch(() => []),
+        .catch(onFail([])),
       [],
       SOURCE_DEADLINE_MS,
     ),
-    valueWithDeadline(listPlans(tenantId, MAX_PLANS).catch(() => []), [], SOURCE_DEADLINE_MS),
-    valueWithDeadline(loadCronRunsBounded().catch(() => []), [], SOURCE_DEADLINE_MS),
+    valueWithDeadline(listPlans(tenantId, MAX_PLANS).catch(onFail([])), [], SOURCE_DEADLINE_MS),
+    valueWithDeadline(loadCronRunsBounded().catch(onFail([])), [], SOURCE_DEADLINE_MS),
     valueWithDeadline(
-      listAppErrorsForTenant(tenantId).catch(() => [] as AppErrorRow[]),
+      listAppErrorsForTenant(tenantId).catch(onFail([] as AppErrorRow[])),
       [] as AppErrorRow[],
       SOURCE_DEADLINE_MS,
     ),
-    valueWithDeadline(loadConnectionEvents(tenantId).catch(() => []), [], SOURCE_DEADLINE_MS),
+    valueWithDeadline(loadConnectionEvents(tenantId).catch(onFail([])), [], SOURCE_DEADLINE_MS),
     valueWithDeadline(
-      readRecentSpendRows(tenantId, SPEND_SINCE_DAYS).catch(() => [] as SpendActivityRow[]),
+      readRecentSpendRows(tenantId, SPEND_SINCE_DAYS).catch(onFail([] as SpendActivityRow[])),
       [] as SpendActivityRow[],
       SOURCE_DEADLINE_MS,
     ),
@@ -141,5 +164,5 @@ export async function loadActivityEvents(now: Date = new Date()): Promise<Activi
       updatedAt: s.updatedAt,
     })),
   };
-  return composeActivityStream(inputs, now);
+  return { events: composeActivityStream(inputs, now), anyReadFailed };
 }

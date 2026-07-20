@@ -14,7 +14,7 @@ import { HonestDelay } from "@/components/honest-delay";
 import { loadWithDeadline } from "@/lib/load-with-deadline";
 import { pageActivityEvents } from "@/domains/activity/activity-stream";
 import { buildReceiptLine, ReceiptLine } from "@/components/data/receipt-line";
-import { loadActivityEvents } from "./activity-data";
+import { loadActivityFeed } from "./activity-data";
 import { ActivityList } from "./activity-list";
 import { serverNowMs } from "@/lib/server-clock";
 
@@ -30,9 +30,12 @@ export default async function ActivityPage({
   const requestedPage = typeof params.p === "string" ? Number.parseInt(params.p, 10) : 1;
 
   const raced = await loadWithDeadline(
-    loadActivityEvents().catch(() => []),
+    loadActivityFeed().catch(() => ({ events: [], anyReadFailed: true })),
     PAGE_DEADLINE_MS,
   );
+
+  const events = raced.timedOut ? [] : raced.data.events;
+  const loadFailed = raced.timedOut ? false : raced.data.anyReadFailed;
 
   return (
     <PageShell
@@ -45,26 +48,33 @@ export default async function ActivityPage({
         <div>
           {/* R14b (receipts everywhere) - the stream's own receipt: what records it
               is assembled from and that it was composed this visit, plus the same
-              rows as a file. */}
-          <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
-            <ReceiptLine
-              line={buildReceiptLine({
-                source: "your own change, plan, job, spend, and connection records",
-                checkedAt: new Date().toISOString(),
-                verb: "assembled",
-                nowMs: serverNowMs(),
-              })}
-            />
-            {raced.data.length > 0 ? (
-              <a
-                href="/activity/export"
-                className="text-meta text-muted-foreground underline underline-offset-2 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
-              >
-                Download as spreadsheet
-              </a>
-            ) : null}
-          </div>
-          <ActivityList paged={pageActivityEvents(raced.data, Number.isFinite(requestedPage) ? requestedPage : 1)} />
+              rows as a file. The receipt CLAIMS a clean assembly, so it must not
+              render when a read failed this visit - that would be a lie about what
+              we could actually reach. */}
+          {loadFailed ? null : (
+            <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
+              <ReceiptLine
+                line={buildReceiptLine({
+                  source: "your own change, plan, job, spend, and connection records",
+                  checkedAt: new Date().toISOString(),
+                  verb: "assembled",
+                  nowMs: serverNowMs(),
+                })}
+              />
+              {events.length > 0 ? (
+                <a
+                  href="/activity/export"
+                  className="text-meta text-muted-foreground underline underline-offset-2 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
+                >
+                  Download as spreadsheet
+                </a>
+              ) : null}
+            </div>
+          )}
+          <ActivityList
+            paged={pageActivityEvents(events, Number.isFinite(requestedPage) ? requestedPage : 1)}
+            loadFailed={loadFailed}
+          />
         </div>
       )}
     </PageShell>

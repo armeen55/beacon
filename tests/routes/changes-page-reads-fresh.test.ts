@@ -239,10 +239,16 @@ describe("Sprint 1 / Phase 1.3 — /changes fresh-read invariants", () => {
       const tree = await ResultsTimeline();
       const html = renderToStaticMarkup(tree as ReactElement);
 
-      // Honest error surface, NOT a silent fallback to cached stale data.
-      // HTML-entity-encoded apostrophe (&#x27;) covers the React output case.
-      expect(html).toMatch(/Couldn(&#x27;|')t load your changes/);
-      expect(html).toContain("supabase connection refused");
+      // Honest error surface, NOT a silent fallback to cached stale data, and
+      // NOT a leak of the raw exception. The heading + next step render, while
+      // the raw error (store name, "connection refused", table names) is logged
+      // server-side only and must never reach the operator's HTML.
+      expect(html).toContain("I could not read your change history just now.");
+      expect(html).toContain("Try again in a minute.");
+      expect(html).not.toContain("supabase connection refused");
+      expect(html).not.toContain("supabase");
+      expect(html).not.toContain("connection refused");
+      expect(html).not.toContain("changelog_entries");
       // Phase 6A.2 (2026-04-28): the at-a-glance strip's "live verified"
       // label and the dedupe banner MUST NOT render in error state. Pre-6A.2
       // this asserted on "changes tracked" — same intent, new copy.

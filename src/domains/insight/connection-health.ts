@@ -16,7 +16,11 @@ export type ConnectionSeverity =
   | "healthy"
   | "stale"
   | "needs_setup"
-  | "disconnected";
+  | "disconnected"
+  // A connector-store READ failed this visit (transient), so we genuinely do
+  // not know the state. Never the same as a positively-absent token. Renders
+  // honest "I could not check just now" copy, never "not connected".
+  | "unknown";
 
 export type ConnectionHealth = {
   key: HealthKey;
@@ -107,6 +111,24 @@ export function deriveConnectionHealth(
   };
 }
 
+/** The honest health for a source whose connector read FAILED this visit. We do
+ *  not know the state, so we say exactly that and promise a retry - never that it
+ *  is disconnected. */
+export function unknownConnectionHealth(meta: SourceMeta): ConnectionHealth {
+  return {
+    key: meta.key,
+    label: meta.label,
+    role: meta.role,
+    unlocks: meta.unlocks,
+    blockedWhenMissing: meta.blockedWhenMissing,
+    connected: false,
+    lastSyncedAt: null,
+    daysStale: null,
+    severity: "unknown",
+    note: "I could not check this connection just now. Nothing changed. I will retry on your next visit.",
+  };
+}
+
 /** Load per-source connection health for a tenant. Fail-soft per source. */
 export async function loadConnectionHealth(
   tenantId: string,
@@ -131,22 +153,24 @@ export async function loadConnectionHealth(
           note: configured ? "Connected. Live SERP validation ready" : "Not connected",
         };
       }
-      // A transient connector-store read failure returns null, which
-      // deriveConnectionHealth renders as "disconnected" / "Not connected" -
-      // indistinguishable from a genuinely absent connection. ConnectionSeverity
-      // has no "unknown"/"degraded" state and we are not adding UI here, so the
-      // minimum honest fix is to LOG the read failure so a transient error that
-      // is silently mislabeling a live connector is visible.
-      const info = await getConnectorInfo(meta.key, tenantId).catch((err) => {
-        log.warn("connection-health: connector read failed; source will render as disconnected", {
+      // A transient connector-store read failure must NEVER be reported as
+      // "not connected" - that is indistinguishable from a genuinely absent
+      // token and once made /results tell a live, freshly-authorized operator
+      // their Search Console was disconnected. On a read failure we return the
+      // honest "unknown" state (we could not check just now), log it, and only
+      // ever say "disconnected" from a POSITIVE absence of a token.
+      try {
+        const info = await getConnectorInfo(meta.key, tenantId);
+        return deriveConnectionHealth(meta, info, now);
+      } catch (err) {
+        log.warn("connection-health: connector read failed; state unknown this visit", {
           tenant: tenantId,
           store: "connectors",
           source: meta.key,
           error: err instanceof Error ? err.message : String(err),
         });
-        return null;
-      });
-      return deriveConnectionHealth(meta, info, now);
+        return unknownConnectionHealth(meta);
+      }
     }),
   );
 }

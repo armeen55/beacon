@@ -48,6 +48,18 @@ describe("resultsFreshnessNote", () => {
     expect(resultsFreshnessNote({ severity: "needs_setup", daysStale: null }, null, NOW)).toContain("hasn't synced yet");
   });
 
+  it("says 'could not check', never 'isn't connected', on a read failure (unknown state)", () => {
+    // The real prod bug: a connected, freshly-authorized operator saw
+    // "isn't connected" because the connector READ threw. Unknown must read as
+    // "I could not check just now", promise a retry, and never imply a lost link.
+    const note = resultsFreshnessNote({ severity: "unknown", daysStale: null }, null, NOW);
+    expect(note).toContain("could not check the Search Console connection just now");
+    expect(note).toContain("unchanged");
+    expect(note).toContain("retry");
+    expect(note).not.toContain("isn't connected");
+    expect(note).not.toMatch(/[‒–—―]/);
+  });
+
   it("shows nothing for a healthy connector or a missing gsc row", () => {
     expect(resultsFreshnessNote({ severity: "healthy", daysStale: 1 }, daysAgo(2), NOW)).toBeNull();
     expect(resultsFreshnessNote(null, daysAgo(30), NOW)).toBeNull();
