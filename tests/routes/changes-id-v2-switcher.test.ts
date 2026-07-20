@@ -118,8 +118,8 @@ describe("/changes/[id] V2-only render contract", () => {
       minePatterns: () => [],
       generateBriefs: () => [],
     }));
-    vi.doMock("@/domains/product/recommendation-engine", () => ({
-      computeRecommendations: () => [],
+    vi.doMock("@/domains/product/replicate-count", () => ({
+      countReplicateRecsForChange: () => 0,
     }));
     vi.doMock("@/domains/product/recommendation-tracker", () => ({
       computeTrackRecord: () => ({ patterns: [] }),

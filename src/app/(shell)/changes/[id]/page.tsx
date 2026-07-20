@@ -13,9 +13,8 @@ import {
   getPatternEvidence,
 } from "@/domains/pages/issues";
 import { minePatterns, generateBriefs } from "@/domains/pages/playbook";
-import { computeRecommendations } from "@/domains/product/recommendation-engine";
+import { countReplicateRecsForChange } from "@/domains/product/replicate-count";
 import { computeTrackRecord, wasChangeRecommended } from "@/domains/product/recommendation-tracker";
-import { getSectionAnalyzerConfig } from "@/lib/business-config";
 import { loadChangeOutcomeById } from "@/domains/attribution/change-outcome-store";
 import { buildProofSentence } from "@/domains/attribution/proof-sentence";
 import { getUrlChangeOutcomes } from "@/domains/attribution/url-change-outcome";
@@ -162,22 +161,20 @@ export default async function ChangeDetailPage({
   // MT-3C (2026-05-23) — resolve tenant config once; thread into the
   // section analyzer (now requires config) + reuse for brandName below.
   const businessConfig = getBusinessConfig(tenantId);
-  const allRecs = computeRecommendations({
-    impactRows,
-    patterns,
-    briefs,
-    sectionAnalyzerConfig: getSectionAnalyzerConfig(businessConfig),
-    siteOrigin: businessConfig.domain
-      ? `https://${businessConfig.domain.replace(/^www\./, "")}`
-      : undefined,
-  });
 
   const trackRecord = computeTrackRecord({ impactRows, patterns });
   const recommendedMatch = wasChangeRecommended(id, trackRecord);
 
-  const replicateRecs = allRecs.filter(
-    (r) => r.type === "replicate" && r.sourceChangeId === id,
-  );
+  // Act 5's "Replicate this pattern" CTA only ever needed the COUNT of
+  // replicate recommendations sourced from this change — not the full
+  // recommendation objects. This is the faithful extraction of that count
+  // (see replicate-count.ts) that replaced the retired 2000-line engine.
+  const replicateRecCount = countReplicateRecsForChange({
+    changeId: id,
+    impactRows,
+    patterns,
+    briefs,
+  });
 
   {
     // v2 proof brief — pure presentation, derived from the same data
@@ -186,7 +183,7 @@ export default async function ChangeDetailPage({
     //   • `row.eventAttributions` for Act 4 (humanized event labels)
     //   • `row.platforms` for Act 3 platform chips
     //   • `recommendedMatch` for the "Beacon recommended" tag
-    //   • `replicateRecs` for Act 5's "Replicate this pattern" CTA
+    //   • `replicateRecCount` for Act 5's "Replicate this pattern" CTA
     //   • per-URL outcome verdict for the result-pill resolver
     //   • sparkline points from `storedOutcome.sparklines.treated`
     const [urlOutcomesAll, storedOutcome, recommendedEdits] = await Promise.all([
@@ -365,7 +362,7 @@ export default async function ChangeDetailPage({
     const nextActions = resolveNextActions({
       pillKind: pill.kind,
       sourceRecId: entry.source_rec_id ?? null,
-      replicateRecCount: replicateRecs.length,
+      replicateRecCount,
     });
 
     // Customer-safe title projection — strips internal prompt IDs,

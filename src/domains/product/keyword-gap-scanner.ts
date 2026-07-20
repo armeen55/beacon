@@ -27,7 +27,7 @@
 
 import type { PageSnapshot, CitationEvidenceIndex } from "@/domains/pages/types";
 import type { PromptAnswerObservation } from "@/domains/prompt-answer-observations/types";
-import type { BeaconRecommendation } from "./recommendation-engine";
+import type { BeaconRecommendation } from "./recommendation-types";
 import { debugRecEngine } from "@/lib/debug-log";
 
 // ---------------------------------------------------------------------------

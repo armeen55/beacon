@@ -837,7 +837,16 @@ export function isDirectoryDomain(domain: string, config: BusinessConfig): boole
 // ---------------------------------------------------------------------------
 
 import type { SectionAnalyzerConfig } from "@/domains/product/section-analyzer";
-import type { FaqTemplate } from "@/domains/product/morning-brief";
+
+/**
+ * FAQ template shape consumed by getFaqTemplates. Relocated here from the
+ * retired morning-brief module (2026-07-20 legacy cleanup) — this is now its
+ * only consumer.
+ */
+export type FaqTemplate = {
+  topicPattern: string;
+  questions: string[];
+};
 
 /** Build the section analyzer config from business config. MT-3C: `config` required. */
 export function getSectionAnalyzerConfig(config: BusinessConfig): SectionAnalyzerConfig {

@@ -13,7 +13,7 @@ import type { ScorecardRowWithImpact } from "@/domains/attribution/change-impact
 import type { MinedPattern } from "@/domains/pages/playbook";
 import type { ChangeVerdict, ImpactDirection } from "@/domains/attribution/types";
 import type { ChangelogEntry } from "@/domains/changelog/types";
-import type { BeaconRecommendation } from "./recommendation-engine";
+import type { BeaconRecommendation } from "./recommendation-types";
 import type { RecommendationResponse } from "./recommendation-response-store";
 
 // ---------------------------------------------------------------------------

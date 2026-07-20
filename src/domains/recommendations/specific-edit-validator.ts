@@ -77,6 +77,7 @@ import {
   parseFaqProposedText,
 } from "./placeholder-detection";
 import { containsUuid } from "./copy-sanitize";
+import { extractElementKeyHashSuffix } from "./recommendation-action-rows";
 
 // ---------------------------------------------------------------------------
 // Result types
@@ -2071,22 +2072,4 @@ function checkFaqPairing(
   // first (operator scans top-to-bottom).
   failures.sort((a, b) => a.editIndex - b.editIndex);
   return failures;
-}
-
-/**
- * Extract the hash suffix from a `<type>[new]:<hash>` element key.
- * Returns null when the key isn't additive or has no `:hash` suffix.
- */
-function extractElementKeyHashSuffix(elementKey: string): string | null {
-  if (typeof elementKey !== "string") return null;
-  // additive shape: `faq_question[new]:abc123`
-  const additiveMatch = elementKey.match(/\[new\]:(.+)$/);
-  if (additiveMatch && additiveMatch[1].length > 0) return additiveMatch[1];
-  // existing-element shape: `faq_question:existing-id` — match
-  // anything after the first colon.
-  const colonIdx = elementKey.indexOf(":");
-  if (colonIdx > 0 && colonIdx < elementKey.length - 1) {
-    return elementKey.slice(colonIdx + 1);
-  }
-  return null;
 }

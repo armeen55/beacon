@@ -11,7 +11,7 @@
  *   - Recency (0-10)
  */
 
-import type { BeaconRecommendation } from "./recommendation-engine";
+import type { BeaconRecommendation } from "./recommendation-types";
 import type { ScorecardRowWithImpact } from "@/domains/attribution/change-impact";
 import type { MinedPattern } from "@/domains/pages/playbook";
 import type { EvidenceTier } from "@/domains/pages/types";

@@ -30,7 +30,6 @@ import type {
 } from "@/domains/prompt-answer-observations/enrichment-rollup";
 import type { PromptsTeaserSummary } from "@/components/today/prompts-teaser";
 import type { TopPickSummary } from "@/components/today/top-pick-card";
-import type { MorningBriefData } from "@/domains/product/morning-brief";
 import type {
   VisibilityMetric,
   VisibilityPoint,
@@ -202,7 +201,6 @@ export type TodayClientProps = {
   secondaryAction?: TodayPrimaryAction | null;
   moreActions?: TodayPrimaryAction[];
   measuredWins?: TodayPrimaryAction[];
-  morningBrief?: MorningBriefData | null;
   scoreboard: ScoreboardData;
   visibilityData?: {
     brandName: string;

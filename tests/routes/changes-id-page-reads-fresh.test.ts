@@ -145,8 +145,8 @@ describe("Sprint 1 / Phase 1.6 — /changes/[id] fresh-read invariants", () => {
         minePatterns: () => [],
         generateBriefs: () => [],
       }));
-      vi.doMock("@/domains/product/recommendation-engine", () => ({
-        computeRecommendations: () => [],
+      vi.doMock("@/domains/product/replicate-count", () => ({
+        countReplicateRecsForChange: () => 0,
       }));
       vi.doMock("@/domains/product/recommendation-tracker", () => ({
         computeTrackRecord: () => ({ patterns: [] }),
