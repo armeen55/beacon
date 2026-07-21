@@ -249,7 +249,7 @@ export function composeActivityStream(inputs: ActivityInputs, now: Date): Activi
         kind: "errors",
         title: "Repeated failures",
         sentence: spikeLine,
-        href: "/diagnostics/errors",
+        href: "/diagnostics",
         linkLabel: "See details",
       });
     }

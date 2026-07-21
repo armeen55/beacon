@@ -51,7 +51,7 @@ describe("OpsPipelineSection contract", () => {
     expect(SRC).toContain('from "@/domains/ops/error-spike"');
     expect(SRC).toContain("loadErrorSpikeLine(tenantId)");
     expect(SRC).toContain('data-error-spike="true"');
-    expect(SRC).toContain('href="/diagnostics/errors"');
+    expect(SRC).toContain('href="/diagnostics"');
   });
 
   it("T0c: the deadman verdict joins this block (never a second widget) and is deadline-bound", () => {

@@ -6,7 +6,7 @@ import { draftMoveAnswerBlockAction } from "./today-moves-actions";
 import { validateCreatePageWithSerpAction, type SerpValidationResponse } from "./serp-actions";
 import { draftFullPageAction } from "./today-newpages-draft-actions";
 import type { NewPageOpportunity } from "./today-newpages-data";
-import { BriefButton } from "./diagnostics/profound-intelligence/brief-button";
+import { BriefButton } from "./aeo-brief-button";
 import type { AssembledDraftPage } from "@/domains/llm/draft-full-page";
 import { plainSchemaTypes, plainSerpReason } from "@/lib/plain-language";
 import { dossierHref } from "@/lib/page-dossier-link";

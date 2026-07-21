@@ -84,7 +84,7 @@ describe("OpsPipelineSection + error spike (N39)", () => {
     expect(html).toContain("Some of my background work kept failing");
     expect(html).toContain("Something failed 14 times since yesterday, mostly on the connected-source refresh.");
     expect(html).toContain("Details are on the Diagnostics page.");
-    expect(html).toContain('href="/diagnostics/errors"');
+    expect(html).toContain('href="/diagnostics"');
     expect(html).toContain('data-error-spike="true"');
     expect(html).not.toMatch(/[‒–—―]/);
   });

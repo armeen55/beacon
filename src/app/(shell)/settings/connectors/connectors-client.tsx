@@ -30,6 +30,7 @@ import {
   syncGscNow,
   syncGa4Now,
   syncClarityNow,
+  discoverWixCollections,
 } from "./actions";
 import type { ConnectorSyncNowResult } from "./actions";
 
@@ -114,7 +115,7 @@ type Props = {
   /** T0b (2026-07-03), how many pages Wix's url map currently covers.
    *  Computed server-side in page.tsx from getWixUrlMap().length. A
    *  connected-but-zero-mapped Wix can't publish anything, this drives the
-   *  shared recovery-actions fix line pointing at /diagnostics/wix. */
+   *  Discover collections fix block on the Wix card. */
   wixUrlMapCount?: number;
   /** BUG 3 (2026-07-11), per-source refresh-ledger facts for the "last pulled /
    *  data through / result" strip. Keyed by ledger source name (gsc/ga4/clarity/
@@ -398,6 +399,13 @@ export function ConnectorsClient({
   const [wix, setWix] = useState<ConnectorInfo>(initialWix);
   const [wixKeyInput, setWixKeyInput] = useState("");
   const [wixSiteIdInput, setWixSiteIdInput] = useState("");
+  // Wix page mapping (relocated 2026-07-20 from the retired /diagnostics/wix).
+  // The Discover collections button on the connected Wix card runs the relocated
+  // server action and reports the resulting mapped-page count right here.
+  const [wixDiscoverPending, setWixDiscoverPending] = useState(false);
+  const [wixDiscoverResult, setWixDiscoverResult] = useState<
+    { ok: boolean; text: string } | null
+  >(null);
   // Connect-cards slice (2026-06-12)
   const [clarity, setClarity] = useState<ConnectorInfo>(initialClarity);
   const [clarityTokenInput, setClarityTokenInput] = useState("");
@@ -772,6 +780,58 @@ export function ConnectorsClient({
         setError(result.error ?? "Could not disconnect Wix.");
       }
     });
+  }
+
+  // Discover collections (relocated from /diagnostics/wix). Runs read-only
+  // discovery + builds the url map, then reports the mapped-page count. router
+  // .refresh() so a now-mapped Wix (count > 0) re-renders healthy (the fix block
+  // self-hides). All copy is first person, no dashes.
+  function discoverErrorText(reason: string): string {
+    switch (reason) {
+      case "no_key":
+        return "Wix is not connected yet. Add your Wix API key and site id above first.";
+      case "disconnected":
+        return "Wix is disconnected. Reconnect it above, then click Discover collections again.";
+      case "sync_failed":
+        return "I reached Wix but could not build your page map. Set your website domain in Settings, Business info if you have not, then try again.";
+      default:
+        return "I could not reach Wix just now. Please try again in a moment.";
+    }
+  }
+
+  async function handleDiscoverWixCollections() {
+    setWixDiscoverResult(null);
+    setWixDiscoverPending(true);
+    try {
+      const result = await discoverWixCollections();
+      if (result.ok && result.mappedPages > 0) {
+        setWixDiscoverResult({
+          ok: true,
+          text: `I mapped ${result.mappedPages.toLocaleString()} page${
+            result.mappedPages === 1 ? "" : "s"
+          } across ${result.collectionsMapped} collection${
+            result.collectionsMapped === 1 ? "" : "s"
+          }. You can publish approved changes to your site now.`,
+        });
+        router.refresh();
+      } else if (result.ok) {
+        setWixDiscoverResult({
+          ok: false,
+          text: `I found ${result.collectionsFound} collection${
+            result.collectionsFound === 1 ? "" : "s"
+          } but could not map any pages yet. Check that your Wix collections have published items with a page address.`,
+        });
+      } else {
+        setWixDiscoverResult({ ok: false, text: discoverErrorText(result.reason) });
+      }
+    } catch (e) {
+      setWixDiscoverResult({
+        ok: false,
+        text: e instanceof Error && e.message ? e.message : "I could not finish mapping just now. Please try again in a moment.",
+      });
+    } finally {
+      setWixDiscoverPending(false);
+    }
   }
 
   // Shared driver for the per-connector "Pull my data now" buttons.
@@ -1423,13 +1483,29 @@ export function ConnectorsClient({
               Authorized {formatDate(wix.connected_at)}
             </p>
             {wixUrlMapCount === 0 ? (
-              <p className="text-[12px] text-status-warning" role="status" data-recovery-fix="wix_url_map_empty">
-                <span className="font-semibold">Fix this:</span>{" "}
-                <a href="/diagnostics/wix" className="underline underline-offset-2 hover:text-foreground">
-                  Open Wix page mapping
-                </a>{" "}
-                and click Discover collections, then Save mapping for each page type. I cannot publish anything to your site until this is done.
-              </p>
+              <div role="status" data-recovery-fix="wix_url_map_empty" className="space-y-2">
+                <p className="text-[12px] text-status-warning">
+                  <span className="font-semibold">Fix this:</span>{" "}
+                  Click Discover collections below so I can map your Wix pages. I cannot publish anything to your site until this is done.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => void handleDiscoverWixCollections()}
+                  disabled={wixDiscoverPending || isPending}
+                  data-wix-discover="true"
+                  className="rounded-md bg-foreground px-3 py-1.5 text-[12px] font-medium text-background transition-colors hover:opacity-90 disabled:opacity-50"
+                >
+                  {wixDiscoverPending ? "Discovering…" : "Discover collections"}
+                </button>
+                {wixDiscoverResult ? (
+                  <p
+                    data-wix-discover-result={wixDiscoverResult.ok ? "ok" : "error"}
+                    className={`text-[12px] ${wixDiscoverResult.ok ? "text-status-success" : "text-status-warning"}`}
+                  >
+                    {wixDiscoverResult.text}
+                  </p>
+                ) : null}
+              </div>
             ) : null}
             <button
               type="button"

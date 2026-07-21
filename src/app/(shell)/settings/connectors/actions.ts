@@ -43,6 +43,11 @@ import { refreshGa4SitewideAndReconcile } from "@/lib/connectors/ga4/refresh-ga4
 import { syncClarityDailyMetricsForTenant } from "@/lib/connectors/clarity/sync-daily-metrics";
 import { recordSourceRefresh } from "@/domains/ops/record-source-refresh";
 import type { RefreshSource } from "@/domains/ops/refresh-runs-store";
+import { getBusinessConfig } from "@/lib/business-config";
+import {
+  discoverAndMapWixCollections,
+  type DiscoverWixResult,
+} from "./wix-mapping";
 
 /** Manual-refresh provider -> refresh-ledger source name. The manual paths all
  *  pull one of the four read sources; each maps 1:1. */
@@ -169,6 +174,59 @@ export async function disconnectWix(): Promise<{
       error: err.slice(0, 500),
     });
     return { success: false, error: err };
+  }
+}
+
+export type { DiscoverWixResult } from "./wix-mapping";
+
+/**
+ * Discover the connected Wix site's collections and build the page map so
+ * approved changes can publish (relocated 2026-07-20 from the retired
+ * /diagnostics/wix surface). Read-only discovery + an internal url-map build:
+ * this NEVER writes to the live site. Returns the mapped-page count on success
+ * so the Wix card can say exactly how many pages it can now publish to, or an
+ * honest reason on failure. Fail-soft: never throws.
+ */
+export async function discoverWixCollections(): Promise<DiscoverWixResult> {
+  const action = "discoverWixCollections";
+  const t0 = Date.now();
+  log.info("Action started", { action });
+  try {
+    const tenantId = await currentTenantId();
+    const domain = (getBusinessConfig(tenantId).domain ?? "").trim();
+    if (domain === "") {
+      // A well-formed site base URL needs the operator's domain; without it we
+      // cannot derive any page URLs. Surface it as an honest api_error-adjacent
+      // reason the card explains plainly.
+      return {
+        ok: false,
+        reason: "sync_failed",
+        detail: "no site domain set",
+      };
+    }
+    const siteBaseUrl = `https://www.${domain.replace(/^www\./, "")}`;
+    const result = await discoverAndMapWixCollections({ siteBaseUrl }, { tenantId });
+    if (result.ok) {
+      // A fresh url map changes what the push service can resolve; drop the
+      // cross-request graph snapshot so the next render sees it.
+      await invalidateDemandGraph(`wix discover: ${action}`).catch(() => {});
+      revalidatePath("/settings/connectors");
+    }
+    log.info("Action completed", {
+      action,
+      durationMs: Date.now() - t0,
+      ok: result.ok,
+      mappedPages: result.ok ? result.mappedPages : undefined,
+    });
+    return result;
+  } catch (e) {
+    const err = e instanceof Error ? e.message : String(e);
+    log.error("Action failed", {
+      action,
+      durationMs: Date.now() - t0,
+      error: err.slice(0, 500),
+    });
+    return { ok: false, reason: "api_error", detail: err.slice(0, 500) };
   }
 }
 

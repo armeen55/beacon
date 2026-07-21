@@ -209,7 +209,7 @@ export async function OpsPipelineSection({ tenantId }: { tenantId: string }) {
                 <p className="min-w-0 break-words text-[13px] leading-relaxed text-status-warning tabular-nums">
                   {errorSpike}{" "}
                   <Link
-                    href="/diagnostics/errors"
+                    href="/diagnostics"
                     className="underline underline-offset-2 hover:opacity-80"
                   >
                     See what failed

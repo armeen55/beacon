@@ -1,9 +1,12 @@
 "use server";
 
 /**
- * Profound Question Intelligence — server action: draft the structured AEO brief
- * for one prompt opportunity (slice 7 made usable from the diagnostics surface).
- * Operator-gated. Paid LLM call is capped + logged + firewalled inside
+ * AEO brief drafter — server action powering the "Draft AEO brief" button on
+ * the customer Today new-pages card. Relocated out of the retired
+ * /diagnostics/profound-intelligence surface (2026-07-20 diagnostics amputation)
+ * because the customer card is its only surviving consumer.
+ *
+ * Operator-gated. The paid LLM call is capped + logged + firewalled inside
  * draftAeoPromptBrief (fail-closed on budget). On-demand only (one click).
  */
 import { isOperatorModeServer } from "@/lib/operator-mode";

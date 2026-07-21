@@ -15,7 +15,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 // The component imports the EXISTING revert server action; stub it so the
 // render test doesn't pull in the server-only push/Wix chain. The form's
 // `action` only needs to be a function reference for SSR.
-vi.mock("@/app/(shell)/diagnostics/wix/actions", () => ({
+vi.mock("./revert-push-action", () => ({
   revertPushFromForm: async () => {},
 }));
 

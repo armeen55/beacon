@@ -24,7 +24,7 @@
 
 import { cn } from "@/lib/utils";
 import type { PushReceipt } from "@/domains/push/push-receipt";
-import { revertPushFromForm } from "@/app/(shell)/diagnostics/wix/actions";
+import { revertPushFromForm } from "./revert-push-action";
 
 /** Verify-status → badge presentation. Plain-English, customer-safe. */
 const VERIFY_BADGE: Record<

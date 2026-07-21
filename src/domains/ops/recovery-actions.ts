@@ -12,8 +12,9 @@
  *
  * HARD RULE: this module NEVER invents a new write action. `selfServe` only
  * ever names an action that already exists elsewhere in the codebase (the
- * Google OAuth start route, a "Sync now" server action, the /diagnostics/wix
- * mapper). When no safe self-serve action exists, `selfServe` is undefined
+ * Google OAuth start route, a "Sync now" server action, the Discover
+ * collections button on the Wix card on the Connections page). When no safe
+ * self-serve action exists, `selfServe` is undefined
  * and `exactFix` is an honest sentence about what to click or what Beacon
  * will do on its own next - never "contact support" or "investigate this".
  *
@@ -91,7 +92,6 @@ const CONNECTOR_VALUE: Record<ConnectorKind, string> = {
 };
 
 const CONNECTORS_HREF = "/settings/connectors";
-const WIX_DIAGNOSTICS_HREF = "/diagnostics/wix";
 
 /** Sources with an on-page "Sync now" server action (actions.ts). Wix is
  *  publish-only and never gets a data "Sync now" button; GA4/GSC/Profound/
@@ -208,8 +208,8 @@ export function recoveryForConnectorFailure(
       if (connector !== "wix") return null;
       return {
         plainProblem: "Wix is connected, but I have no page map yet, so I cannot publish anything to your site.",
-        exactFix: "Open Wix page mapping and click Discover collections, then Save mapping for each page type.",
-        href: WIX_DIAGNOSTICS_HREF,
+        exactFix: "Click Discover collections on the Wix card on the Connections page. I cannot publish anything until your pages are mapped.",
+        href: CONNECTORS_HREF,
         selfServe: { kind: "wix_map_collections" },
       };
     }
@@ -305,18 +305,18 @@ export type SetupItemKind =
   | "gsc_full_backfill"
   | "revenue_model";
 
-const DIAGNOSTICS_CONNECTORS_HREF = "/diagnostics/connectors";
-
 const SETUP_HREF: Record<SetupItemKind, string> = {
-  wix_page_mapping: WIX_DIAGNOSTICS_HREF,
+  wix_page_mapping: CONNECTORS_HREF,
   // BEACON_DIGEST_TO / RESEND_API_KEY are Vercel environment variables, not
   // an in-app form field (grepped: no page writes them). The honest deep
   // link is the Connections page, where the rest of the operator's setup
   // lives, alongside a fix sentence that names Vercel plainly rather than
   // pointing at a button that does not exist.
   digest_email: CONNECTORS_HREF,
-  indexnow_key: DIAGNOSTICS_CONNECTORS_HREF,
-  gsc_full_backfill: DIAGNOSTICS_CONNECTORS_HREF,
+  // The diagnostics tree was retired 2026-07-20; all connector setup lives on
+  // the Connections page now (never a dead /diagnostics deep link).
+  indexnow_key: CONNECTORS_HREF,
+  gsc_full_backfill: CONNECTORS_HREF,
   revenue_model: "/settings/config",
 };
 
@@ -329,10 +329,10 @@ const SETUP_PROBLEM: Record<SetupItemKind, string> = {
 };
 
 const SETUP_FIX: Record<SetupItemKind, string> = {
-  wix_page_mapping: "Open Wix page mapping, click Discover collections, then Save mapping for each page type.",
+  wix_page_mapping: "Open the Wix card on the Connections page and click Discover collections.",
   digest_email: "Set BEACON_DIGEST_TO (your email) and RESEND_API_KEY in your Vercel project settings, then redeploy. This one is a server setting, not something inside the app.",
-  indexnow_key: "Open the connectors diagnostics page and generate an IndexNow key.",
-  gsc_full_backfill: "Open the connectors diagnostics page and click Load my full Search Console history.",
+  indexnow_key: "Open the Connections page and generate an IndexNow key.",
+  gsc_full_backfill: "Open the Connections page and click Load my full Search Console history.",
   revenue_model: "Open Business info and set your revenue model (per visit or per lead) so I can estimate dollars from real traffic.",
 };
 

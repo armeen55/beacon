@@ -38,6 +38,7 @@ vi.mock("@/app/(shell)/settings/connectors/actions", () => ({
   selectGoogleLocation: vi.fn(),
   listGa4Properties: vi.fn(),
   selectGa4Property: vi.fn(),
+  discoverWixCollections: vi.fn(),
 }));
 
 import { ConnectorsClient } from "@/app/(shell)/settings/connectors/connectors-client";
@@ -116,7 +117,7 @@ describe("Wix connector card", () => {
     }
   });
 
-  it("T0b: connected + zero mapped pages shows the exact recovery fix, deep-linked to /diagnostics/wix", () => {
+  it("T0b: connected + zero mapped pages shows the Discover collections button (relocated from /diagnostics/wix)", () => {
     const html = clientWith(
       {
         status: "connected",
@@ -128,8 +129,9 @@ describe("Wix connector card", () => {
     );
     expect(html).toContain('data-recovery-fix="wix_url_map_empty"');
     expect(html).toContain("Fix this:");
-    expect(html).toContain('href="/diagnostics/wix"');
-    expect(html).toContain("Open Wix page mapping");
+    // The dead diagnostics route is gone; the fix now points at the button itself.
+    expect(html).not.toContain('href="/diagnostics/wix"');
+    expect(html).toContain('data-wix-discover="true"');
     expect(html).toContain("Discover collections");
     expect(html).not.toMatch(/[‒–—―]/);
   });

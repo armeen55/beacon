@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { draftAeoBriefAction, type DraftAeoBriefInput, type DraftAeoBriefResult } from "./actions";
+import { draftAeoBriefAction, type DraftAeoBriefInput, type DraftAeoBriefResult } from "./aeo-brief-actions";
 
 /** Tiny copy-to-clipboard button (per-field, per operator spec). */
 function CopyBtn({ text, label = "Copy" }: { text: string; label?: string }) {
