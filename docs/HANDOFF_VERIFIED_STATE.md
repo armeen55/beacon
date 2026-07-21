@@ -1,5 +1,36 @@
 # Beacon Verified State
 
+> 🟢 **2026-07-21 phase 4, the hidden-second-product deletion, four banked deploys, deployed and
+> exact-SHA verified.** The operator's scope decision is now the product boundary: Beacon is
+> Today, Changes, Results, Connections, minimal Settings, and minimal onboarding. 4A (commit
+> `8bcb2ac3`, deployed): the Profound CSV import island is deleted (2,881 lines), which removes
+> the one unguarded Vercel file write by deleting its only caller; the token expiry email
+> machinery and the backup verify producer are deleted (1,139 lines); connection health is
+> untouched. 4B (commit `cf7ae6df`, deployed): the hidden second product behind the palette is
+> deleted: the ask, activity, keyword research, prompts, and recommendations surfaces plus the
+> competitor, opportunity, observation, and local detail pages (net minus 24,938 lines).
+> Intelligence survives as backend evidence; activity receipts fold into Connections as a Recent
+> activity list; and the indexing directive hold now guards the LIVE accept paths on Changes and
+> Today, which the deleted cards never protected, pinned constitutionally. 4C plus 4D (commit
+> `c7c1834f`, deployed): Settings collapsed from nine sections to Connections and Business info
+> (5,210 lines); Today reduced from ten blocks and a drawer to a six block spine (net minus 6,379
+> lines) with the investigation finding folded into one honest self-hiding alert line; nav,
+> palette, shortcuts, and titles reference only live routes. One regression was caught and fixed
+> (commit `50991401`, deployed as `dpl_7F5WVgAUGmUHcwaQs98vANyzXJAg`, exact SHA verified): the
+> re-homed enrichment running concurrently with cold rebuilds pushed the readiness critical
+> drafts read past its 4 second timeout, silently zeroing the Ready queue; the read now carries
+> the same 30 second bound as its siblings, verified live with Ready rendering 1 (the tehran
+> draft). Final verification checklist, all passed: signed-in Today, Changes, Results, and
+> Connections render real data with zero error states; Ready is above zero (1, tehran, others
+> honestly gated); Iranopedia is the only active tenant with zero Ritz strings; the Results
+> answer band renders in 0.48 seconds; zero deleted-surface references remain in rendered pages,
+> nav, palette, or shortcuts; production returned exact SHA `50991401`. Metrics after phase 4:
+> production TypeScript 276,796 lines (campaign start 344,970); test code 234,399 lines (from
+> 302,804); test cases 15,194 (from 20,533); test files 1,066. Deferred on record: decouple
+> on-visit enrichment from the surface-build lambda so slow reads degrade non-catastrophically;
+> the remaining numeric diet targets need further operator scope decisions. Next actions are
+> unchanged: the operator ships wave 1 from the Ready tab.
+
 > 🟢 **2026-07-21 repository amputation campaign, three banked phases, deployed and exact-SHA
 > verified (operator-directed).** Targets versus result, stated honestly: production TypeScript
 > went 344,970 to 304,375 lines against a target under 200,000, not reached; test code went

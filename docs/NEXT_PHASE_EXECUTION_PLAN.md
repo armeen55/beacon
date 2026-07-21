@@ -9,6 +9,32 @@
 This is the operator's live priority order. I work it strictly top to bottom. The dated
 chronology of what already landed lives in VERIFICATION_LOG.md; this list is only what is next.
 
+> 🟢 **2026-07-21 phase 4, THE HIDDEN-SECOND-PRODUCT DELETION, FOUR BANKED DEPLOYS, DEPLOYED AND
+> EXACT-SHA VERIFIED (final fix `50991401`, Vercel `dpl_7F5WVgAUGmUHcwaQs98vANyzXJAg`).** The
+> operator's scope decision is the product boundary: Beacon is Today, Changes, Results,
+> Connections, minimal Settings, and minimal onboarding. 4A (`8bcb2ac3`): Profound CSV import
+> island deleted (2,881 lines), removing the one unguarded Vercel file write by deleting its only
+> caller; token expiry email machinery and backup verify producer deleted (1,139 lines);
+> connection health untouched. 4B (`cf7ae6df`): the hidden second product deleted (ask, activity,
+> keyword research, prompts, recommendations surfaces plus competitor, opportunity, observation,
+> and local detail pages, net minus 24,938 lines); intelligence survives as backend evidence;
+> activity receipts fold into Connections as Recent activity; the indexing directive hold now
+> guards the LIVE accept paths on Changes and Today with a constitutional pin. 4C plus 4D
+> (`c7c1834f`): Settings collapsed from nine sections to Connections and Business info (5,210
+> lines); Today reduced from ten blocks and a drawer to a six block spine (net minus 6,379 lines)
+> with the investigation finding as one honest self-hiding alert line; nav, palette, shortcuts,
+> and titles reference only live routes. Regression caught and fixed (`50991401`): concurrent
+> enrichment pushed the readiness critical drafts read past its 4 second timeout and silently
+> zeroed the Ready queue; the read now carries the same 30 second bound as its siblings, verified
+> live with Ready rendering 1 (tehran). Final checklist all passed: signed-in Today, Changes,
+> Results, Connections real data zero error states; Ready above zero; Iranopedia the only active
+> tenant, zero Ritz strings; Results answer band 0.48 seconds; zero deleted-surface references;
+> production exact SHA `50991401`. Metrics after phase 4: production TypeScript 276,796 lines
+> (campaign start 344,970); test code 234,399 lines (from 302,804); test cases 15,194 (from
+> 20,533); test files 1,066. Deferred: decouple on-visit enrichment from the surface-build lambda
+> so slow reads degrade non-catastrophically; remaining numeric diet targets need further
+> operator scope decisions. **Next is unchanged:** the operator ships wave 1 from the Ready tab.
+
 > 🟢 **2026-07-21 repository amputation campaign, THREE BANKED PHASES DEPLOYED AND EXACT-SHA
 > VERIFIED (operator-directed; Phase 3 at `cc743bf5`, Vercel
 > `dpl_Hb69586NRjKGRi53Z92KLT2ERxNS`).** Honest scoreboard: production TypeScript 344,970 to
