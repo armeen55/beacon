@@ -1,6 +1,6 @@
 @import "tailwindcss";
 @import "tw-animate-css";
-@import "shadcn/tailwind.css";
+@import "./shadcn-tailwind.css"; /* vendored from shadcn/dist/tailwind.css (v4.1.2): the package exports map does not expose the subpath, which 500s dev-mode resolution */
 
 @custom-variant dark (&:is(.dark *));
 
