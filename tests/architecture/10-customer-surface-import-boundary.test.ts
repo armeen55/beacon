@@ -25,7 +25,7 @@
 
 import { describe, expect, it } from "vitest";
 import { readdirSync, readFileSync, statSync } from "node:fs";
-import { resolve, join, relative } from "node:path";
+import { resolve, join } from "node:path";
 
 const REPO_ROOT = resolve(__dirname, "..", "..");
 
@@ -232,47 +232,6 @@ describe("customer-surface import boundary (consolidated)", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// Inverse boundary — Section 7 C7a (2026-05-16): the operator-only off-site
-// authority modules must NOT import FROM any customer-facing surface. Defense
-// in depth against a drive-by "show on Today" component import.
-// ---------------------------------------------------------------------------
-const C7A_FILES = [
-  "src/domains/off-site-authority/types.ts",
-  "src/domains/off-site-authority/compute-snapshot.ts",
-  "src/domains/off-site-authority/load-snapshot.ts",
-] as const;
-
-const C7A_FORBIDDEN_PREFIXES = [
-  "@/app/(shell)/today",
-  "@/app/(shell)/recommendations",
-  "@/app/(shell)/changes",
-  "@/app/(shell)/prompts",
-  "@/app/(shell)/local",
-  "../../today",
-  "../../recommendations",
-  "../../changes",
-  "../../prompts",
-  "../../local",
-] as const;
-
-describe("off-site-authority — no customer-surface imports (Section 7 C7a)", () => {
-  for (const rel of C7A_FILES) {
-    it(`${rel}: imports no customer-surface path`, () => {
-      const active = stripComments(
-        readFileSync(resolve(REPO_ROOT, rel), "utf-8"),
-      );
-      const hits: string[] = [];
-      for (const prefix of C7A_FORBIDDEN_PREFIXES) {
-        const escaped = prefix.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-        const re = new RegExp(`from\\s+["']${escaped}(?:["']|\\/)`);
-        if (re.test(active)) hits.push(prefix);
-      }
-      expect(
-        hits,
-        `${relative(REPO_ROOT, resolve(REPO_ROOT, rel))} imports a customer ` +
-          `surface (${hits.join(", ")}); C7a is operator-only.`,
-      ).toEqual([]);
-    });
-  }
-});
+// Section 7 C7a inverse boundary (off-site-authority must not import
+// customer surfaces) retired 2026-07-21 with the off-site-authority
+// domain itself (CORE 100K orphan sweep: zero prod importers).
