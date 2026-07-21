@@ -17,10 +17,13 @@ import "server-only";
  * NEVER touches measurement history - this is a NEW, separate, append-only ledger. A capture call
  * is idempotent per hypothesisId (opportunity-math.ts derives the id from tenant+page+lever+day, so
  * re-rendering the SAME opportunity on the SAME day logs once, not once per page view).
+ *
+ * Write-only today (repository diet 2026-07-21): the in-app read API was deleted with no consumer;
+ * the durable rows remain joinable by a future calibration reader.
  */
 
 import { readStore, writeStore } from "@/lib/persistence/json-store";
-import type { OpportunityForecast, OpportunityInput } from "./opportunity-math";
+import type { OpportunityForecast } from "./opportunity-math";
 
 const STORE = "opportunity-hypotheses";
 
@@ -59,18 +62,6 @@ async function readAll(): Promise<HypothesisRecord[]> {
   }
 }
 
-/** All hypothesis records for a tenant. Fail-soft -> []. */
-export async function loadHypothesisLog(tenantId: string): Promise<HypothesisRecord[]> {
-  const rows = await readAll();
-  return rows.filter((r) => r.tenantId === tenantId);
-}
-
-/** True when this exact hypothesisId was already logged (idempotency guard). */
-export async function hasHypothesisRecord(tenantId: string, hypothesisId: string): Promise<boolean> {
-  const rows = await readAll();
-  return rows.some((r) => r.tenantId === tenantId && r.hypothesisId === hypothesisId);
-}
-
 /**
  * Record one rendered forecast as a falsifiable hypothesis. Additive-only: a repeat capture of the
  * SAME hypothesisId (the same tenant+page+lever+day) is a no-op (returns false) - re-rendering a
@@ -92,18 +83,4 @@ export async function captureHypothesis(
   } catch {
     return false;
   }
-}
-
-/** Convenience: compute-and-capture in one call for a page render call site. Never throws (the
- *  capture itself is already fail-soft); returns the forecast either way so a caller can render it
- *  even if the log write silently failed. `compute` is injected so this file stays a thin I/O
- *  wrapper and does not import opportunity-math's pure math directly into its own call graph in a
- *  way that would complicate testing the I/O separately from the math. */
-export async function computeAndCaptureOpportunity(
-  input: OpportunityInput,
-  compute: (i: OpportunityInput) => OpportunityForecast,
-): Promise<OpportunityForecast> {
-  const forecast = compute(input);
-  await captureHypothesis(input.tenantId, input.page, input.lever, forecast);
-  return forecast;
 }

@@ -209,8 +209,12 @@ describe("Architecture — every sync* writer either requires tenantId or target
   });
 
   it("the contract distinguishes tenant-scoped from global writers (sanity check)", () => {
-    // At least 2 of each must be present so a structural change that
-    // accidentally moves everyone to one bucket is caught.
+    // A floor on each bucket so a structural change that accidentally
+    // moves everyone to one bucket is caught. The global floor dropped
+    // 2 -> 1 on 2026-07-21 (CORE 100K): the dead writers syncAnswerTexts,
+    // syncRawPollChunk, syncCitationEvidenceIndex, syncAnswerIntelligenceIndex,
+    // and syncPageVisibility were deleted with their callers, leaving
+    // syncBusinessConfig as the one live global-table writer.
     const tenantScoped = SYNC_FNS.filter((f) =>
       takesTenantId(f.signatureBlock),
     );
@@ -220,6 +224,6 @@ describe("Architecture — every sync* writer either requires tenantId or target
       return t != null && GLOBAL_TABLES.has(t);
     });
     expect(tenantScoped.length).toBeGreaterThanOrEqual(15);
-    expect(globalScoped.length).toBeGreaterThanOrEqual(2);
+    expect(globalScoped.length).toBeGreaterThanOrEqual(1);
   });
 });

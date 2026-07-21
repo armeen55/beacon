@@ -6,8 +6,9 @@
  *
  * Conservative by construction (the operator's hard rules):
  *  - A match needs a shared DISTINGUISHING token (not just "persian"/"iran"/"gift").
- *    Reusing keyword-opportunities `tokens()` (+ STOP/depluralize) so normalization is
- *    identical to the rest of the demand engine.
+ *    `tokens()` (+ STOP/depluralize) and the COMMERCE lexicon were relocated here from
+ *    the deleted keyword-opportunities engine (repository diet 2026-07-21), keeping
+ *    normalization identical to what the demand engine used.
  *  - EXACT phrase (same token set) wins even when all-generic ("things to do in iran"),
  *    but a generic-ONLY token overlap is rejected ("Things Iran Highlights" → none).
  *  - Prefer the culturally-specific keyword (more shared distinguishing tokens) over a
@@ -16,8 +17,27 @@
  * PURE / deterministic / no I/O. Pinned by keyword-match.test.ts.
  */
 
-import { tokens, COMMERCE } from "./keyword-opportunities";
 import type { KeywordDemand } from "@/domains/serp/dataforseo-keywords";
+
+const STOP = new Set([
+  "the", "a", "an", "and", "or", "of", "for", "to", "in", "on", "is", "are", "what", "how", "best", "vs",
+  "with", "your", "you", "near", "me", "list", "top", "guide",
+]);
+
+/** Generic commercial-intent tokens (tenant-agnostic SEO lexicon). */
+const COMMERCE = new Set([
+  "buy", "shop", "gift", "gifts", "shirt", "shirts", "tshirt", "t-shirt", "tee", "jersey", "mug", "poster",
+  "jewelry", "necklace", "bracelet", "ring", "print", "sticker", "hoodie", "merch", "store", "sale", "price",
+]);
+
+/** Normalize a phrase into lowercase, stop-word-free, depluralized tokens. */
+export function tokens(s: string): string[] {
+  return s
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter((t) => t.length >= 3 && !STOP.has(t))
+    .map((t) => (t.length > 4 && t.endsWith("s") ? t.slice(0, -1) : t));
+}
 
 /** Brand/locale tokens that are NOT distinguishing on their own (every Iranopedia
  *  topic shares them). Tenant-agnostic default; could be config-driven later. */

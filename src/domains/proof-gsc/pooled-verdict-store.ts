@@ -1,8 +1,8 @@
 /**
- * pooled-verdict-store (2026-07-02, master plan item 34) - persistence for the pooled batch
- * verdicts computed by pooled-verdict-runner.ts, so /results (and, later, the learning/prior
- * readers - not wired this cycle, see the runner's doc comment) can read the latest pool for a
- * tenant without recomputing it on every page load.
+ * pooled-verdict-store (2026-07-02, master plan item 34) - persistence for pooled batch
+ * verdicts, so /results can read the latest pool for a tenant without recomputing it on every
+ * page load. The runner and pure estimator that once wrote these rows were deleted (repository
+ * diet); the store remains the read path for any historically computed rows.
  *
  * Follows the algorithm-weather-store.ts / aa-calibration-store.ts sibling pattern exactly: a
  * GLOBAL json-store (rows carry tenant_id because the nightly cron fans out across tenants with
@@ -20,7 +20,10 @@ import "server-only";
 import { readStore, writeStore } from "@/lib/persistence/json-store";
 import { log } from "@/lib/logger";
 import type { ExperimentFamily } from "@/domains/experiments/experiment-eligibility";
-import type { PooledVerdict } from "./pooled-verdict";
+
+/** The three honest outcomes a pooled batch verdict can take (formerly declared by the
+ *  deleted pooled-verdict.ts estimator; the stored rows keep the same vocabulary). */
+export type PooledVerdict = "helped" | "no_clear_lift" | "did_not_help";
 
 const STORE = "pooled-verdicts";
 

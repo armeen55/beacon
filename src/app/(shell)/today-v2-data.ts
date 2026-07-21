@@ -77,7 +77,6 @@ import {
   type TodayLifecycleSummary,
   type TodayPageData,
 } from "./today-data-lite";
-import type { ActionCardAction } from "@/components/today/action-card";
 import type { TodayPrimaryAction } from "./today-shared-types";
 import type { ChangelogEntry } from "@/domains/changelog/types";
 import { loadPersistedRecommendationQueueForPage } from "@/domains/recommendations/load-queue";
@@ -689,6 +688,54 @@ export async function loadTodayV2VisibilityData(): Promise<TodayV2VisibilityData
 // `lifecycleSummary` is built via the SAME helper the legacy path uses
 // (buildTodayLifecycleSummary), so the Working card is byte-equivalent.
 // ─────────────────────────────────────────────────────────────────────
+
+// Relocated 2026-07-21 (CORE 100K Lane K) from the deleted orphaned
+// src/components/today/action-card.tsx client component: this loader was the
+// type's only surviving consumer.
+export type ActionCardAction = {
+  id: string;
+  headline: string;
+  rationale: string;
+  expectedOutcome: string;
+  sourceEvidence: string;
+  priorityScore: number;
+  bucket: "critical" | "high_leverage" | "opportunistic";
+  type: string;
+  confidence: "high" | "medium" | "low";
+  href: string;
+  responseStatus?: "accepted" | "dismissed" | "deferred" | null;
+  confidenceReason?: string;
+  watchAfter?: string;
+  dataFreshness?: string | null;
+  hasExperiment?: boolean;
+  targetPageUrl?: string | null;
+  targetPagePath?: string | null;
+  baselineCitations?: number | null;
+  sourceChangeId?: string | null;
+  /** Fix 2 (2026-04-21) — carried through to the accept-response handler so
+   *  the recommendation-response-store can auto-link a later-detected change
+   *  on the same URL back to this acceptance. Optional: not every rec has a
+   *  pattern. */
+  patternId?: string | null;
+  lineageBullets?: string[];
+  answerContext?: string | null;
+  specificMove?: string | null;
+  actionClass?: string | null;
+  targetSection?: string | null;
+  priorSuccess?: { changeId: string; pagePath: string; description: string; citationDelta: number } | null;
+  engineTiming?: { platform: string; medianDays: number; sampleCount: number }[] | null;
+  expectedMetric?: string | null;
+  /** Phase 2 (2026-04-20): strongest honest evidence basis for this card.
+   *  One of "heuristic" | "tenant_history" | "current_dataset" | "shared_pattern". */
+  evidenceBasis?: "heuristic" | "tenant_history" | "current_dataset" | "shared_pattern";
+  /** Phase 3-post (2026-04-20): page-job-fit router verdict for keyword
+   *  positioning recs. Drives card label overrides and badge rendering.
+   *  Defaults to "keep" when absent. */
+  placementMode?: "keep" | "move" | "new_page";
+  /** When placementMode === "move", the path the rec was originally written
+   *  against before the router swapped the target. */
+  movedFromPath?: string | null;
+};
 
 export type TodayV2ActionCardsData = {
   primaryAction: TodayPrimaryAction | null;

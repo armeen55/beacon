@@ -15,10 +15,10 @@
  *   • Both platforms compute independently
  *   • Rounding matches `Math.round((P/N) × 100)` (single round)
  *
- * Companion equivalence harness
- * `tests/domains/today/today-primary-share-equivalence.test.ts`
- * proves the helper output matches the legacy
- * `enrichmentV2.sparklines[].primaryRate` path within 0pp drift.
+ * (2026-07-21) The companion equivalence harness that proved this helper
+ * matched the legacy `enrichmentV2.sparklines[].primaryRate` client path
+ * was retired after the C4b flip completed and the old client closure
+ * was deleted; these unit pins are now the canonical contract.
  */
 
 import { describe, expect, it } from "vitest";

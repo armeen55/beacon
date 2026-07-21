@@ -19,7 +19,87 @@
 import type { PromptAnswerObservation } from "@/domains/prompt-answer-observations/types";
 import type { TrackedEntity } from "@/domains/tracked-entities/types";
 import { makeCompetitorRankingFilter } from "@/domains/recommendations/entity-pollution-filter";
-import type { ObservationRollup } from "@/domains/today/observation-rollup";
+
+// ---------------------------------------------------------------------------
+// Rollup types (relocated 2026-07-21 from the deleted
+// src/domains/today/observation-rollup.ts engine, repository diet). The
+// rollup fast paths below accept this pre-bucketed shape; the superseded
+// builder that produced it in /today was replaced by the visibility read
+// model, so callers today take the direct observation-walk path.
+// ---------------------------------------------------------------------------
+
+/** Per-(date, platform) aggregates for the brand. */
+export type RollupPlatformDateBrand = Readonly<{
+  /** Observations in this (platform, date) bucket. Denominator for
+   *  per-platform rate. */
+  obs: number;
+  /** Obs where the brand was mentioned (via `tracked_brand_mentioned`
+   *  flag or alias hit in `mentions[]`). */
+  brandMentioned: number;
+  /** Obs where the brand was cited (`tracked_brand_cited === true`). */
+  brandCited: number;
+  /** Obs where the brand was either mentioned OR cited — used by the
+   *  per-platform chart variant (`computeVisibilityTimeSeriesByPlatform`). */
+  brandCitedOrMentioned: number;
+}>;
+
+/** Per-date aggregates rolled up across all platforms. */
+export type RollupDateBucket = Readonly<{
+  /** Total observations on this date (bucket.length). */
+  total: number;
+  /** Obs where the brand was mentioned. */
+  brandMentioned: number;
+  /** Obs where the brand was cited (raw — no position weight). */
+  brandCited: number;
+  /** Sum of `citationPositionWeight(cited, position)` across this date's
+   *  observations. The leaderboard's brand citation rate divides this by
+   *  `total` to get a 0–100 number. */
+  brandCitationWeightSum: number;
+  /** Per-platform breakdown (used for the time-series composite metric). */
+  perPlatform: ReadonlyMap<string, RollupPlatformDateBrand>;
+}>;
+
+/** Per-(entity-slug, date) competitor bucket. Brand is NEVER stored here —
+ *  brand goes through `byDate`. */
+export type RollupEntityDateBucket = Readonly<{
+  /** Number of observations on this date where the slug appears in
+   *  `obs.mentions[]` at least once (per-obs dedupe). */
+  dedupedMentions: number;
+  /** Sum of slug occurrences across `obs.mentions[]` arrays for this
+   *  date. Multiple appearances within one obs each contribute. */
+  rawMentions: number;
+  /** Per-platform deduped mentions (1 per obs). */
+  perPlatform: ReadonlyMap<string, number>;
+  /** Smallest index in the original `observations` array where this
+   *  (slug, date) was mentioned — reproduces the direct path's
+   *  window-bound entity insertion order so leaderboard outputs stay
+   *  byte-identical between paths even when entities tie on score. */
+  firstObsIndex: number;
+}>;
+
+export type ObservationRollup = Readonly<{
+  /** Distinct YYYY-MM-DD dates with ≥1 observation. Sorted ascending. */
+  sampledDates: ReadonlyArray<string>;
+  /** Set form of `sampledDates` for O(1) membership. */
+  sampledDateSet: ReadonlySet<string>;
+  /** Per-date aggregates. */
+  byDate: ReadonlyMap<string, RollupDateBucket>;
+  /** Per-entity-slug → per-date bucket. Brand absent. */
+  byEntityDate: ReadonlyMap<string, ReadonlyMap<string, RollupEntityDateBucket>>;
+  /** Display name (first observed) for each entity slug. */
+  entityNameBySlug: ReadonlyMap<string, string>;
+  /** Brand aliases the rollup was built with. */
+  brandAliases: ReadonlyArray<string>;
+  /** Set of `slugifyEntity(alias)` for fast brand-alias membership. */
+  brandSlugs: ReadonlySet<string>;
+  /** Total observations the rollup was built from. */
+  totalObservations: number;
+  /** Full ISO timestamp of the latest observation, or null. */
+  latestObservedAt: string | null;
+  /** Total occurrences of each mention name as it appeared in
+   *  `obs.mentions[]` (original case preserved), excluding brand aliases. */
+  mentionCountsByOriginalName: ReadonlyMap<string, number>;
+}>;
 
 // ---------------------------------------------------------------------------
 // Types
@@ -185,8 +265,9 @@ export function computeVisibilityTimeSeries(opts: {
    */
   rollup?: ObservationRollup;
 }): VisibilityPoint[] {
-  // Fast path: caller supplied a rollup. Equivalence with the direct
-  // path is pinned in `observation-rollup-equivalence.test.ts`.
+  // Fast path: caller supplied a rollup. Must stay output-equivalent to the
+  // direct path below (the former equivalence test was retired with the
+  // rollup builder; no live caller supplies a rollup today).
   if (opts.rollup) {
     return computeVisibilityTimeSeriesFromRollup({
       rollup: opts.rollup,
@@ -664,13 +745,9 @@ export function computeCompetitorSeries(opts: {
 // Perf bundle 3 (2026-05-12) — Rollup fast-path helpers.
 //
 // Each helper produces output that MUST match the direct path
-// byte-for-byte for the same inputs. Equivalence is pinned in
-// `tests/domains/today/observation-rollup-equivalence.test.ts` over:
-//   • all 3 metrics × the 4 leaderboard windows
-//   • brand + competitor time-series
-//   • per-platform variant
-//   • empty observation arrays
-//   • single-platform / partial-platform data
+// byte-for-byte for the same inputs. (The equivalence test suite was retired
+// 2026-07-21 along with the rollup builder; no live caller supplies a rollup
+// today.)
 //
 // The helpers run in O(window-days × entity-count), independent of the
 // observation array's size.

@@ -195,7 +195,6 @@ const DISPLAY_SURFACES = [
   "src/app/(shell)/today-v2-data.ts",
   "src/app/(shell)/changes/page.tsx",
   "src/app/(shell)/changes/changes-v2-client.tsx",
-  "src/app/(shell)/changes/proof-ledger-strip.tsx",
   "src/app/(shell)/results/page.tsx",
   "src/app/(shell)/results/proof-summary-section.tsx",
   "src/app/(shell)/results/proof-ledger-client.tsx",
@@ -217,7 +216,6 @@ const DISPLAY_SURFACES = [
   "src/domains/recommendation-intelligence/page-surgeon/bridge.ts",
   "src/domains/recommendation-intelligence/evidence-summary.ts",
   "src/lib/connectors/gsc/readiness.ts",
-  "src/components/today/action-card.tsx",
   "src/components/today/first-reading-waiting.tsx",
   // health-strip.tsx + how-we-know-panel.tsx deleted 2026-07-21 (Phase 4D): the
   // TodayScoreboard render that mounted them was dead; today-scoreboard.tsx is

@@ -7,9 +7,9 @@ import { isCalibratedPooledVerdict } from "@/domains/proof-gsc/verdict-calibrati
  * for /results. A daily batch ships one lever across many sibling pages at once; each page's own
  * read is individually noisy, but pooled together the batch can read a confident helped / did not
  * help / no clear lift. Self-hides when no batch has reached the pooling floor (>= 3 measured
- * pages under the same plan + lever) - see pooled-verdict-runner.ts for how the row is computed
- * and pooled-verdict.ts for the estimator itself. Read-only, $0 (reads the already-computed
- * pooled-verdicts store; no measurement here).
+ * pages under the same plan + lever). The runner and estimator that computed these rows were
+ * deleted (repository diet); this section reads any historically computed rows from
+ * pooled-verdict-store.ts. Read-only, $0 (no measurement here).
  */
 const TONE: Record<string, string> = {
   helped: "border-emerald-200 bg-emerald-50 text-emerald-800",

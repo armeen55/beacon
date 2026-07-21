@@ -319,7 +319,7 @@ export async function persistGa4UrlTraffic(
   let revByKey: Map<string, Ga4RevenueRow> | null = null;
   if (revenueReport.ok) {
     revByKey = new Map<string, Ga4RevenueRow>();
-    for (const r of revenueReport.rows) revByKey.set(`${r.date} ${r.url}`, r);
+    for (const r of revenueReport.rows) revByKey.set(`${r.date}\u0000${r.url}`, r);
     revenueStatus = {
       synced: true,
       rows_with_revenue: 0, // filled below as rows are built
@@ -344,7 +344,7 @@ export async function persistGa4UrlTraffic(
       updated_at: nowIso,
     };
     if (revByKey != null) {
-      const rev = revByKey.get(`${row.date} ${row.url}`);
+      const rev = revByKey.get(`${row.date}\u0000${row.url}`);
       // Revenue call succeeded → this page's revenue is KNOWN. Absent from the
       // revenue rows = no purchases that day = OBSERVED 0 (not unknown).
       const total = rev?.totalRevenue ?? 0;

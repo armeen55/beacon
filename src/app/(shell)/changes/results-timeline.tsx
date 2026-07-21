@@ -23,10 +23,10 @@ import {
   indexEditsByJoinKey,
 } from "@/domains/attribution/lifecycle-classification";
 import {
+  buildSyntheticChangelogRows,
   computeLifecycleCounts,
   editNeedsRewrite,
-} from "@/domains/attribution/lifecycle-counts";
-import { buildSyntheticChangelogRows } from "@/domains/attribution/synthesize-pending-changelog";
+} from "@/domains/attribution/pending-timeline-rows";
 import type {
   ImplementationStatus,
   RecommendedEditRow,

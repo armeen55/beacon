@@ -15,13 +15,11 @@
  */
 
 import "server-only";
-import { cache } from "react";
 
 import { getSupabaseAdmin, isSupabaseConfigured } from "@/lib/persistence/supabase";
 import { log } from "@/lib/logger";
 import { getTenant } from "@/domains/tenants/store";
 import { rootDomain } from "@/domains/serp/serp-provider";
-import { currentTenantId } from "@/lib/tenant-context";
 import { ENGINE_PLAIN_NAME } from "./engine-types";
 import {
   buildNativeIntelReport,
@@ -135,14 +133,8 @@ async function loadUncached(tenantId: string): Promise<NativeIntelReport> {
   }
 }
 
-/** Request-memoized native-intel report for the current tenant. $0 - reads
- *  only the already-polled observation rows. */
-export const loadNativeIntel = cache(
-  async (): Promise<NativeIntelReport> => loadUncached(await currentTenantId()),
-);
-
-/** Explicit-tenant variant for scripts/cron/tests that don't run inside a
- *  request (currentTenantId requires request context or BEACON_TENANT_ID). */
+/** Explicit-tenant native-intel report. $0 - reads only the already-polled
+ *  observation rows. Sole live consumer: demand-graph/load-fanout-seeds.ts. */
 export async function loadNativeIntelForTenant(tenantId: string): Promise<NativeIntelReport> {
   return loadUncached(tenantId);
 }

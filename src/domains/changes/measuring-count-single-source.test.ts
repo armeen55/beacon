@@ -106,7 +106,6 @@ describe("static guard - no displayed count derives from the raw verdict string"
   const noRawMeasuring = [
     "src/domains/scoreboard/scoreboard.ts",
     "src/domains/experiments/daily-experiment-dashboard.ts",
-    "src/app/(shell)/changes/proof-ledger-strip.tsx",
   ];
   for (const rel of noRawMeasuring) {
     it(`${rel} contains no verdict === "measuring"`, () => {

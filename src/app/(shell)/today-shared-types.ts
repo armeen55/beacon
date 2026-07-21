@@ -226,7 +226,6 @@ export type TodayClientProps = {
   pendingFindings?: SerializedFinding[];
   shouldTriggerScan?: boolean;
   proofContext: TodayProofContext;
-  localAttentionStrip?: import("@/lib/local-presence").TodayLocalAttention | null;
   onConfirmFinding?: (findingId: string) => Promise<{ success: boolean; changeId?: string }>;
   onDismissFinding?: (findingId: string) => Promise<{ success: boolean }>;
   experimentProof?: TodayExperimentProof | null;

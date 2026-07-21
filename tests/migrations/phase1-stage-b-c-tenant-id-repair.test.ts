@@ -141,14 +141,8 @@ describe("Phase 1 Stage B — Invariant 4: dual-write stamps tenant_id on Cat-B"
     expect(dualWrite).toMatch(/mapPersistedIssueToRow\([^)]*tenantId[^)]*\)/);
   });
 
-  it("syncPageVisibility requires tenantId and uses tenantizeRows", () => {
-    expect(dualWrite).toMatch(
-      /export async function syncPageVisibility\([^)]*tenantId: string[^)]*\):/,
-    );
-    expect(dualWrite).toMatch(
-      /tenantizeRows\(rows, tenantId, "page_visibility"\)/,
-    );
-  });
+  // syncPageVisibility pin removed 2026-07-21 (CORE 100K Lane K): the writer
+  // and its only caller (page-visibility.ts) were deleted.
 });
 
 // ─── Invariant 5 — Category C still works; tenant_id is canonical ────────

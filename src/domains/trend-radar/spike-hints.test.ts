@@ -1,13 +1,12 @@
 /**
- * spike-hints + spike-move-match (2026-07-02, master plan item 14): the hint
- * feed only fires for pages that verifiably lack an answer, stays bounded, and
- * keys by normalized path; the worklist matcher prefers the owned page and
- * falls back to a distinguishing-token topic match, never a generic-word one.
+ * spike-hints (2026-07-02, master plan item 14): the hint feed only fires for
+ * pages that verifiably lack an answer, stays bounded, and keys by normalized
+ * path. (The spike-move-match worklist matcher was deleted 2026-07-21,
+ * repository diet - it had no production caller.)
  */
 import { describe, expect, it } from "vitest";
 
 import { buildSpikeHintNotes, MAX_SPIKE_HINTS_PER_NIGHT } from "./spike-hints";
-import { matchSpikeToMove } from "./spike-move-match";
 import type { QuerySpike } from "./query-spikes";
 
 function spike(over: Partial<QuerySpike> = {}): QuerySpike {
@@ -56,41 +55,5 @@ describe("buildSpikeHintNotes", () => {
     );
     expect(out.size).toBe(1);
     expect(out.get("/chaharshanbe-suri")?.query).toBe("first");
-  });
-});
-
-describe("matchSpikeToMove", () => {
-  const moves = [
-    { label: "persian wedding traditions", ownedUrl: "https://iranopedia.com/persian-wedding" },
-    { label: "chaharshanbe suri", ownedUrl: "https://iranopedia.com/chaharshanbe-suri" },
-  ];
-
-  it("prefers the owned-page path match and returns the path as the search term", () => {
-    const m = matchSpikeToMove(spike(), moves);
-    expect(m?.searchTerm).toBe("/chaharshanbe-suri");
-  });
-
-  it("topic match on the label returns the row's page path (the guaranteed search hit)", () => {
-    const m = matchSpikeToMove(spike({ topPage: null, query: "chaharshanbe date" }), moves);
-    expect(m?.searchTerm).toBe("/chaharshanbe-suri");
-  });
-
-  it("topic match works on the row's target search too, and falls back to the label without a page", () => {
-    const rows = [{ label: "festival dates", query: "chaharshanbe suri date", ownedUrl: null }];
-    const m = matchSpikeToMove(spike({ topPage: null, query: "chaharshanbe 2026" }), rows);
-    expect(m?.searchTerm).toBe("festival dates");
-  });
-
-  it("returns null when no move matches", () => {
-    expect(matchSpikeToMove(spike({ topPage: null, query: "unrelated gadgets" }), moves)).toBeNull();
-  });
-
-  it("never matches on generic words alone", () => {
-    const generic = [{ label: "best guide list", ownedUrl: null }];
-    expect(matchSpikeToMove(spike({ topPage: null, query: "best top guide" }), generic)).toBeNull();
-  });
-
-  it("returns null against an empty move list", () => {
-    expect(matchSpikeToMove(spike(), [])).toBeNull();
   });
 });

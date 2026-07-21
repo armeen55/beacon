@@ -1,6 +1,20 @@
 import type { PageType, OwnershipTier } from "./types";
 import type { SourceCategory } from "@/domains/citation-observations/types";
-import { GEO_CONTAINMENT } from "@/domains/attribution/config";
+
+// ── Geo containment ─────────────────────────────────────────────────
+// Metro areas and which cities they contain. Formerly the sole live export of
+// the deleted attribution/config.ts; inlined here (its only consumer).
+
+const GEO_CONTAINMENT: Record<string, string[]> = {
+  "bay area": [
+    "menlo park", "palo alto", "los altos", "los altos hills",
+    "atherton", "woodside", "portola valley", "mountain view",
+    "saratoga", "campbell", "cupertino", "san jose", "sunnyvale",
+    "san mateo", "redwood city", "san carlos", "burlingame",
+    "foster city", "fremont", "milpitas", "santa clara",
+    "san francisco", "oakland", "berkeley",
+  ],
+};
 
 // ── Known directory / social / institutional domains ────────────────
 

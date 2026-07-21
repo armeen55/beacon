@@ -13,28 +13,5 @@ export type PromptsTeaserSummary = {
   groupSummaries: CategoryGroupSummary[];
 };
 
-export function buildSummarySentence(args: {
-  outranked: number;
-  absent: number;
-  close: number;
-  winning: number;
-  early: number;
-  total: number;
-}): string {
-  const { outranked, absent, close, winning, early, total } = args;
-  const weak = outranked + absent;
-  if (total === 0) return "No prompts tracked yet.";
-  if (winning > 0 && weak === 0) {
-    return `Winning on ${winning} of ${total} tracked prompts.`;
-  }
-  if (weak > 0 && winning > 0) {
-    return `Winning ${winning}, ${weak === 1 ? "weak on 1 prompt" : `weak on ${weak}`}${close > 0 ? ` · ${close} close to breaking through` : ""}.`;
-  }
-  if (weak > 0) {
-    return `Weak on ${weak} of ${total} tracked prompts${close > 0 ? ` · ${close} close to breaking through` : ""}.`;
-  }
-  if (early === total) {
-    return `Too early to judge. The next AI reading will add data.`;
-  }
-  return `${winning} winning, ${close} close, ${absent} absent, ${outranked} outranked.`;
-}
+// buildSummarySentence removed 2026-07-21 (CORE 100K Lane K): no renderer
+// called it; the file survives for the PromptsTeaserSummary type above.

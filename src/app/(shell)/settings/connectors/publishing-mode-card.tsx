@@ -23,51 +23,6 @@ import {
   disarmPublishing,
   type PublishingModeReadiness,
 } from "./publishing-mode-actions";
-import {
-  loadPublishCanarySummary,
-  type PublishCanarySummary,
-} from "@/domains/push/publish-canary-actions";
-
-/** "1:51 AM" style clock, in the operator's browser timezone. */
-function formatClockTime(iso: string): string {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "";
-  return d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
-}
-
-/**
- * Compact, self-hiding canary line: only renders once a check has landed.
- * `showReady` gates the "all clear" line to the armed state (a not-yet-armed
- * site already shows the readiness checklist above, so repeating "ready"
- * there would be redundant) - a fix hint always renders, since a dead
- * connection matters before the operator ever turns publishing on too.
- */
-function PublishCanaryStatus({
-  summary,
-  showReady,
-}: {
-  summary: PublishCanarySummary | null;
-  showReady: boolean;
-}) {
-  const row = summary?.row;
-  if (row == null) return null; // no check yet (or it aged out) - stay silent, never guess
-  if (row.fixHint) {
-    return (
-      <p className="mt-3 text-[12px] leading-relaxed text-status-danger" data-publish-canary="fix">
-        {row.fixHint}
-      </p>
-    );
-  }
-  if (showReady && row.tokenOk && row.dryRunOk) {
-    const time = formatClockTime(row.whenIso);
-    return (
-      <p className="mt-3 text-[12px] leading-relaxed text-muted-foreground" data-publish-canary="ok">
-        Publishing is ready. I checked your site connection{time ? ` at ${time}` : ""} and a practice run passed.
-      </p>
-    );
-  }
-  return null; // an unclear state (no token check occurred) - stay silent rather than half-report
-}
 
 export function PublishingModeCard() {
   const router = useRouter();
@@ -75,7 +30,6 @@ export function PublishingModeCard() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [confirmed, setConfirmed] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
-  const [canary, setCanary] = useState<PublishCanarySummary | null>(null);
   const [pending, startTransition] = useTransition();
 
   const refresh = useCallback(async () => {
@@ -91,15 +45,6 @@ export function PublishingModeCard() {
   useEffect(() => {
     void refresh();
   }, [refresh]);
-
-  useEffect(() => {
-    // Best-effort, non-blocking: the nightly canary read never gates the
-    // arm/disarm flow above, and a failure here stays silent (the block
-    // self-hides on null, same fail-soft posture as the store read itself).
-    loadPublishCanarySummary()
-      .then(setCanary)
-      .catch(() => setCanary(null));
-  }, []);
 
   const onArm = useCallback(() => {
     setActionError(null);
@@ -251,7 +196,6 @@ export function PublishingModeCard() {
           <p className="text-[12px] text-muted-foreground">
             Accepting still snapshots, caps daily pushes, and never changes URLs or links.
           </p>
-          <PublishCanaryStatus summary={canary} showReady={true} />
         </div>
       )}
 

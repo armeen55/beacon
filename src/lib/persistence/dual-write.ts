@@ -300,11 +300,10 @@ import type { Opportunity } from "@/domains/opportunities/types";
 import type { Competitor } from "@/domains/competitors/types";
 import type { ImportRun } from "@/lib/import/types";
 import type { EventDecision, CandidateLink } from "@/domains/attribution/types";
-import type { PageSnapshot, CitationEvidenceIndex, PageEntity } from "@/domains/pages/types";
+import type { PageSnapshot, PageEntity } from "@/domains/pages/types";
 import type { GuardrailAlert } from "@/domains/pages/guardrails";
 import type { Finding } from "@/domains/scanning/types";
 import type { ObservationRun } from "@/domains/observations/types";
-import type { AnswerIntelligenceIndex } from "@/domains/answer-intelligence/types";
 import type { ChangeContract } from "@/domains/changelog/change-contract";
 import type { PersistedIssue } from "@/domains/pages/types";
 import type { BusinessConfig } from "@/lib/business-config";
@@ -312,7 +311,6 @@ import type { DailyMetricSnapshot } from "@/domains/daily-metric-snapshots/types
 import type { PromptAnswerObservation } from "@/domains/prompt-answer-observations/types";
 import type { TrackedPrompt } from "@/domains/tracked-prompts/types";
 import type { TrackedEntity } from "@/domains/tracked-entities/types";
-import type { PageVisibilitySummary } from "@/domains/pages/page-visibility";
 import type { RecommendationResponse } from "@/domains/product/recommendation-response-store";
 import type { UrlChangeOutcome } from "@/domains/attribution/url-change-outcome";
 
@@ -719,100 +717,9 @@ export async function syncPromptAnswerObservations(
 }
 
 // ── Poll Integrity Hardening (2026-05-04, post May 2-4 incident) ──
-//
-// Raw provider response store written BEFORE observation upsert. Preserves
-// data even if the transform/upsert step fails (the May 2-4 silent-failure
-// pattern). Throws on any error — silent-fail here would defeat the entire
-// purpose of the safety net.
-
-export type RawPollChunkRow = {
-  run_id: string;
-  tenant_id: string;
-  platform: string;
-  source: string;
-  chunk_offset: number;
-  chunk_limit: number | null;
-  prompt_count: number;
-  prompt_ids: string[];
-  raw_response: unknown;
-  cost_usd: number | null;
-};
-
-/**
- * Upsert a raw poll chunk row. Schema-stable: only minimal fields the
- * `raw_poll_chunks` table accepts. THROWS on any error (no silent-
- * swallow) so the orchestrator can fail loud BEFORE running the
- * transform/upsert step. PK is `run_id` so re-runs are idempotent.
- */
-export async function syncRawPollChunk(
-  row: RawPollChunkRow,
-): Promise<void> {
-  if (!isDualWriteEnabled()) return;
-  if (!row.run_id || !row.tenant_id) {
-    throw new Error(
-      "[syncRawPollChunk] run_id and tenant_id are required",
-    );
-  }
-  const sb = getSupabaseAdmin();
-  const { error } = await sb
-    .from("raw_poll_chunks")
-    .upsert(
-      {
-        run_id: row.run_id,
-        tenant_id: row.tenant_id,
-        platform: row.platform,
-        source: row.source,
-        chunk_offset: row.chunk_offset,
-        chunk_limit: row.chunk_limit,
-        prompt_count: row.prompt_count,
-        prompt_ids: row.prompt_ids,
-        raw_response: row.raw_response,
-        cost_usd: row.cost_usd,
-        // observations_persisted_count + reconciliation_status are
-        // stamped post-pipeline by `stampRawPollChunkReconciliation`.
-        observations_persisted_count: null,
-        reconciliation_status: "pending",
-      },
-      { onConflict: "run_id" },
-    );
-  if (error) {
-    throw new Error(
-      `[syncRawPollChunk] upsert failed for run_id=${row.run_id}: ${error.message ?? String(error)}`,
-    );
-  }
-}
-
-/**
- * Stamp the post-pipeline reconciliation result on a raw chunk row. Called
- * after observation upsert + snapshot derivation either succeed or fail.
- * Updates `observations_persisted_count` + `reconciliation_status`.
- *
- * Throws on error (no silent-fail).
- */
-export async function stampRawPollChunkReconciliation(args: {
-  runId: string;
-  observationsPersistedCount: number;
-  reconciliationStatus:
-    | "verified_complete"
-    | "persistence_mismatch"
-    | "observation_upsert_threw"
-    | "snapshot_derivation_failed";
-}): Promise<void> {
-  if (!isDualWriteEnabled()) return;
-  const sb = getSupabaseAdmin();
-  const { error } = await sb
-    .from("raw_poll_chunks")
-    .update({
-      observations_persisted_count: args.observationsPersistedCount,
-      reconciliation_status: args.reconciliationStatus,
-    })
-    .eq("run_id", args.runId);
-  if (error) {
-    throw new Error(
-      `[stampRawPollChunkReconciliation] update failed for run_id=${args.runId}: ${error.message ?? String(error)}`,
-    );
-  }
-}
+// syncRawPollChunk + stampRawPollChunkReconciliation + RawPollChunkRow removed
+// 2026-07-21 (CORE 100K Lane K): zero callers remained after the poll
+// orchestrator retirement.
 
 // ── Scan output sync (Phases 2 & 4) ──
 
@@ -1068,68 +975,8 @@ export async function syncScanFindings(
 }
 
 // ── Intelligence index sync (Phase 5) ──
-
-export async function syncCitationEvidenceIndex(
-  index: CitationEvidenceIndex,
-  tenantId: string,
-): Promise<void> {
-  if (!isDualWriteEnabled()) return;
-  const sb = getSupabaseAdmin();
-  try {
-    // Night-shift fix (2026-06-11): the table keys on (tenant_id, id) —
-    // every write stamps its tenant; the global-singleton write is gone.
-    const { error } = await sb.from("citation_evidence_index").upsert(
-      {
-        id: "current",
-        tenant_id: tenantId,
-        built_at: index.built_at,
-        total_citations_processed: index.total_citations_processed,
-        by_page_and_topic: index.by_page_and_topic,
-        by_topic: index.by_topic,
-        page_to_topics: index.page_to_topics,
-      },
-      { onConflict: "tenant_id,id" },
-    );
-    if (error) {
-      console.error(
-        `[dual-write] citation_evidence_index: ${error.message}`,
-      );
-    }
-  } catch (e) {
-    console.error(
-      `[dual-write] citation_evidence_index: ${e instanceof Error ? e.message : e}`,
-    );
-  }
-}
-
-export async function syncAnswerIntelligenceIndex(
-  index: AnswerIntelligenceIndex,
-  tenantId: string,
-): Promise<void> {
-  if (!isDualWriteEnabled()) return;
-  const sb = getSupabaseAdmin();
-  try {
-    // Night-shift fix (2026-06-11): per-tenant row on (tenant_id, id).
-    const { error } = await sb.from("answer_intelligence_index").upsert(
-      {
-        id: "current",
-        tenant_id: tenantId,
-        built_at: index.built_at,
-        data: index,
-      },
-      { onConflict: "tenant_id,id" },
-    );
-    if (error) {
-      console.error(
-        `[dual-write] answer_intelligence_index: ${error.message}`,
-      );
-    }
-  } catch (e) {
-    console.error(
-      `[dual-write] answer_intelligence_index: ${e instanceof Error ? e.message : e}`,
-    );
-  }
-}
+// syncCitationEvidenceIndex + syncAnswerIntelligenceIndex removed 2026-07-21
+// (CORE 100K Lane K): zero callers anywhere.
 
 // ── Config tables sync (Phase 10) ──
 
@@ -1175,52 +1022,14 @@ export async function syncTrackedEntities(
   );
 }
 
-export async function syncAnswerTexts(
-  texts: Record<string, string>,
-): Promise<void> {
-  if (!isDualWriteEnabled()) return;
-
-  const sb = getSupabaseAdmin();
-  const entries = Object.entries(texts);
-  if (entries.length === 0) return;
-
-  try {
-    for (let i = 0; i < entries.length; i += CHUNK_SIZE) {
-      const chunk = entries.slice(i, i + CHUNK_SIZE).map(([observation_id, body]) => ({
-        observation_id,
-        body,
-      }));
-      const { error } = await sb
-        .from("answer_texts")
-        .upsert(chunk, { onConflict: "observation_id" });
-      if (error) {
-        console.error(
-          `[dual-write] answer_texts: upsert chunk ${i}-${i + chunk.length} failed — ${error.message}`,
-        );
-      }
-    }
-  } catch (e) {
-    console.error(
-      `[dual-write] answer_texts: unexpected error — ${e instanceof Error ? e.message : e}`,
-    );
-  }
-}
+// syncAnswerTexts removed 2026-07-21 (CORE 100K): zero callers; the answer_texts
+// table stays readable as deliberately historical data (see store-classification).
 
 // ── Materialized relationship stores (Phase 11) ──
 // syncChangeOutcomes removed 2026-07-21 (CORE 100K Lane F): its only caller was
 // the retired attribution memory loop (change-outcome.ts).
-
-export async function syncPageVisibility(
-  rows: PageVisibilitySummary[],
-  tenantId: string,
-): Promise<void> {
-  const stamped = tenantizeRows(rows, tenantId, "page_visibility");
-  await dualWriteUpsert(
-    "page_visibility",
-    stamped as unknown as AnyRow[],
-    "id",
-  );
-}
+// syncPageVisibility removed 2026-07-21 (CORE 100K Lane K): its only caller was
+// the dead materializePageVisibility writer (page-visibility.ts, deleted).
 
 // ── Learning stores sync (Phase 12) ──
 // syncChangePatterns removed 2026-07-21 (CORE 100K Lane F): its only caller was

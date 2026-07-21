@@ -1,10 +1,18 @@
+/**
+ * Merged tests for pending-timeline-rows.ts (folded 2026-07-21 from the former
+ * lifecycle-counts.test.ts + synthesize-pending-changelog.test.ts, pruned to
+ * the surviving live exports).
+ */
+
 import { describe, expect, it } from "vitest";
 
 import {
-  buildSyntheticPendingRows,
+  buildSyntheticChangelogRows,
+  computeLifecycleCounts,
+  editNeedsRewrite,
   LIFECYCLE_PENDING_SOURCE_SYSTEM,
   synthesizePendingChangelog,
-} from "./synthesize-pending-changelog";
+} from "./pending-timeline-rows";
 import type { ChangelogEntry } from "@/domains/changelog/types";
 import type { RecommendedEditRow } from "@/domains/recommendations/recommended-edits-persistence";
 
@@ -47,6 +55,94 @@ function editStub(
   };
 }
 
+describe("computeLifecycleCounts", () => {
+  it("buckets every status correctly", () => {
+    const result = computeLifecycleCounts([
+      editStub({ id: "1", implementation_status: "verified_live" }),
+      editStub({ id: "2", implementation_status: "verified_live_modified" }),
+      editStub({ id: "3", implementation_status: "accepted" }),
+      editStub({ id: "4", implementation_status: "accepted" }),
+      editStub({ id: "5", implementation_status: "needs_review" }),
+      editStub({ id: "6", implementation_status: "partially_implemented" }),
+      editStub({ id: "7", implementation_status: "wrong_page" }),
+      editStub({ id: "8", implementation_status: "not_found_after_7d" }),
+      editStub({ id: "9", implementation_status: "dismissed" }),
+      editStub({ id: "10", implementation_status: "recommended" }),
+    ]);
+    expect(result.counts.liveVerified).toBe(2);
+    expect(result.counts.pendingImplementation).toBe(2);
+    expect(result.counts.needsReview).toBe(3);
+    expect(result.counts.notFoundAfter7d).toBe(1);
+    expect(result.counts.actionableTotal).toBe(5); // pending + needs review
+  });
+
+  it("dismissed and recommended are NOT counted (production sanity)", () => {
+    const result = computeLifecycleCounts([
+      editStub({ id: "d1", implementation_status: "dismissed" }),
+      editStub({ id: "d2", implementation_status: "dismissed" }),
+      editStub({ id: "r1", implementation_status: "recommended" }),
+    ]);
+    expect(result.counts.liveVerified).toBe(0);
+    expect(result.counts.pendingImplementation).toBe(0);
+    expect(result.counts.needsReview).toBe(0);
+    expect(result.counts.notFoundAfter7d).toBe(0);
+    expect(result.counts.actionableTotal).toBe(0);
+  });
+
+  it("undefined status is not counted (legacy file rows with no implementation_status field)", () => {
+    const result = computeLifecycleCounts([
+      editStub({ id: "legacy", implementation_status: undefined }),
+    ]);
+    expect(result.counts.actionableTotal).toBe(0);
+  });
+
+  it("Los Altos production fixture: 5 accepted → pendingImplementation=5", () => {
+    const losAltosEdits: RecommendedEditRow[] = [
+      editStub({ id: "h2", action_type: "add_h2_section", implementation_status: "accepted" }),
+      editStub({ id: "f1", action_type: "add_faq", target_element_key: "faq_question[new]:d1", implementation_status: "accepted" }),
+      editStub({ id: "f2", action_type: "add_faq", target_element_key: "faq_question[new]:f2", implementation_status: "accepted" }),
+      editStub({ id: "f3", action_type: "add_faq", target_element_key: "faq_question[new]:93", implementation_status: "accepted" }),
+      editStub({ id: "f4", action_type: "add_faq", target_element_key: "faq_question[new]:ff", implementation_status: "accepted" }),
+    ];
+    const result = computeLifecycleCounts(losAltosEdits);
+    expect(result.counts.pendingImplementation).toBe(5);
+    expect(result.buckets.pendingEdits).toHaveLength(5);
+    expect(result.counts.actionableTotal).toBe(5);
+  });
+
+  it("returns the original edit rows in their bucket arrays", () => {
+    const accepted = editStub({ id: "a", implementation_status: "accepted" });
+    const live = editStub({ id: "l", implementation_status: "verified_live" });
+    const result = computeLifecycleCounts([accepted, live]);
+    expect(result.buckets.pendingEdits).toEqual([accepted]);
+    expect(result.buckets.liveVerifiedEdits).toEqual([live]);
+  });
+});
+
+describe("editNeedsRewrite", () => {
+  it("returns true when proposed_text contains the generator placeholder", () => {
+    expect(
+      editNeedsRewrite({
+        proposed_text:
+          "Q: Who builds in Los Altos?\n\nA: Draft answer (operator: rewrite). Anchor on: Los Altos.",
+      }),
+    ).toBe(true);
+  });
+
+  it("returns false for clean operator-written FAQ answers", () => {
+    expect(
+      editNeedsRewrite({
+        proposed_text: "Q: Who builds in Los Altos?\n\nA: Hire an architect-led firm.",
+      }),
+    ).toBe(false);
+  });
+
+  it("returns false when proposed_text is null or empty", () => {
+    expect(editNeedsRewrite({ proposed_text: null })).toBe(false);
+    expect(editNeedsRewrite({ proposed_text: "" })).toBe(false);
+  });
+});
+
 describe("synthesizePendingChangelog", () => {
   it("produces a ChangelogEntry-shaped record with the edit's deterministic id", () => {
     const edit = editStub();
@@ -68,17 +164,13 @@ describe("synthesizePendingChangelog", () => {
     ).toBe("add_h2_section");
   });
 
-  it("change_description is the proposed_text snippet (≤240 chars)", () => {
-    const edit = editStub({ proposed_text: "x".repeat(500) });
-    const synth = synthesizePendingChangelog(edit);
-    expect(synth.change_description.length).toBeLessThanOrEqual(240);
-  });
-
-  it("change_description falls back to action_type when proposed_text is null", () => {
-    const synth = synthesizePendingChangelog(
+  it("change_description is the proposed_text snippet (≤240 chars), action_type fallback", () => {
+    const long = synthesizePendingChangelog(editStub({ proposed_text: "x".repeat(500) }));
+    expect(long.change_description.length).toBeLessThanOrEqual(240);
+    const fallback = synthesizePendingChangelog(
       editStub({ proposed_text: null, action_type: "add_h2_section" }),
     );
-    expect(synth.change_description).toBe("add_h2_section");
+    expect(fallback.change_description).toBe("add_h2_section");
   });
 
   it("source_system is the lifecycle_pending sentinel", () => {
@@ -94,28 +186,21 @@ describe("synthesizePendingChangelog", () => {
     expect(synth.action_type).toBe(edit.action_type);
     expect(synth.target_element_key).toBe(edit.target_element_key);
   });
-
-  it("Los Altos H2 fixture produces a stable synthetic id", () => {
-    const synth = synthesizePendingChangelog(editStub());
-    expect(synth.id).toBe(
-      `${REC_ID}__add_h2_section__h2[new]:c75a1120a6aa`,
-    );
-  });
 });
 
-describe("buildSyntheticPendingRows", () => {
+describe("buildSyntheticChangelogRows", () => {
   it("returns empty array when no pending edits", () => {
-    const result = buildSyntheticPendingRows({
+    const result = buildSyntheticChangelogRows({
       changelogEntries: [],
-      pendingEdits: [],
+      editsToSynthesize: [],
     });
     expect(result).toEqual([]);
   });
 
   it("returns one synthetic row for an edit with no matching changelog row", () => {
-    const result = buildSyntheticPendingRows({
+    const result = buildSyntheticChangelogRows({
       changelogEntries: [],
-      pendingEdits: [editStub({ id: "e1" })],
+      editsToSynthesize: [editStub({ id: "e1" })],
     });
     expect(result).toHaveLength(1);
     expect(result[0].id).toBe("e1");
@@ -142,9 +227,9 @@ describe("buildSyntheticPendingRows", () => {
       updated_at: "x",
       tenant_id: TENANT,
     };
-    const result = buildSyntheticPendingRows({
+    const result = buildSyntheticChangelogRows({
       changelogEntries: [existingChangelog],
-      pendingEdits: [editStub({ id: "e1" })],
+      editsToSynthesize: [editStub({ id: "e1" })],
     });
     expect(result).toEqual([]);
   });
@@ -172,9 +257,9 @@ describe("buildSyntheticPendingRows", () => {
       action_type: "add_h2_section",
       target_element_key: "h2[new]:c75a1120a6aa",
     };
-    const result = buildSyntheticPendingRows({
+    const result = buildSyntheticChangelogRows({
       changelogEntries: [existingChangelog],
-      pendingEdits: [editStub({ id: "e1" })],
+      editsToSynthesize: [editStub({ id: "e1" })],
     });
     expect(result).toEqual([]);
   });
@@ -187,60 +272,24 @@ describe("buildSyntheticPendingRows", () => {
       editStub({ id: "fq3", action_type: "add_faq", target_element_key: "faq_question[new]:93" }),
       editStub({ id: "fq4", action_type: "add_faq", target_element_key: "faq_question[new]:ff" }),
     ];
-    const result = buildSyntheticPendingRows({
+    const result = buildSyntheticChangelogRows({
       changelogEntries: [],
-      pendingEdits: losAltosEdits,
+      editsToSynthesize: losAltosEdits,
     });
     expect(result).toHaveLength(5);
     expect(result.map((r) => r.id)).toEqual(["h2", "fq1", "fq2", "fq3", "fq4"]);
   });
 
-  it("Whole Home Remodel mixed scenario: 3 edits, 3 changelog rows → 0 synthetic", () => {
-    const whrEdits: RecommendedEditRow[] = [
-      editStub({
-        id: "h2",
-        rec_id:
-          "create_cluster_page:topic:Whole Home Renovation Builders (Bay Area)",
-        action_type: "add_h2_section",
-        target_element_key: "h2[new]:abc",
-      }),
-    ];
-    const existingChangelog: ChangelogEntry = {
-      id: "h2",
-      timestamp: "2026-04-27T00:00:00Z",
-      signal_type: "content",
-      asset_type: "service_page",
-      url: "x",
-      asset_name: "x",
-      change_description: "x",
-      topic_targeted: "x",
-      city_targeted: null,
-      hypothesis: null,
-      expected_impact_window: null,
-      brief_id: null,
-      opportunity_id: null,
-      notes: null,
-      created_at: "x",
-      updated_at: "x",
-      tenant_id: TENANT,
-    };
-    const result = buildSyntheticPendingRows({
-      changelogEntries: [existingChangelog],
-      pendingEdits: whrEdits,
-    });
-    expect(result).toEqual([]);
-  });
-
   it("idempotent: same inputs produce same output ids in same order", () => {
     const inputs = {
       changelogEntries: [],
-      pendingEdits: [
+      editsToSynthesize: [
         editStub({ id: "a", target_element_key: "a" }),
         editStub({ id: "b", target_element_key: "b" }),
       ],
     };
-    const r1 = buildSyntheticPendingRows(inputs);
-    const r2 = buildSyntheticPendingRows(inputs);
+    const r1 = buildSyntheticChangelogRows(inputs);
+    const r2 = buildSyntheticChangelogRows(inputs);
     expect(r1.map((r) => r.id)).toEqual(r2.map((r) => r.id));
   });
 });

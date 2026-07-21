@@ -10,8 +10,8 @@
  * strings shown to a user. Import these constants/helpers into UI; never
  * hand-write a plain label that already lives here.
  *
- * Companion: confidence-labels.ts (confidence/verdict display) and
- * beacon-proof-copy.ts (proof wording). Keep all three aligned.
+ * Companion: confidence-labels.ts (confidence/verdict display). Keep both
+ * aligned.
  */
 
 // ---------------------------------------------------------------------------

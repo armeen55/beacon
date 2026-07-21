@@ -201,7 +201,7 @@ describe("spikeSentence + dash guard", () => {
   });
 
   it("keeps every new trend-radar module free of em and en dashes (hard rule)", () => {
-    const files = ["query-spikes.ts", "spike-hints.ts", "spike-move-match.ts", "spike-store.ts", "load-query-spikes.ts"];
+    const files = ["query-spikes.ts", "spike-hints.ts", "spike-store.ts", "load-query-spikes.ts"];
     for (const f of files) {
       const src = readFileSync(resolve(__dirname, f), "utf8");
       expect(src, `${f} must not contain em or en dashes`).not.toMatch(/[–—]/);

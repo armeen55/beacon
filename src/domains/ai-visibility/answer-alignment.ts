@@ -338,7 +338,7 @@ export function summarizeWinningShapes(alignedPassages: ReadonlyArray<AlignedPas
  * this module stays pure (no I/O).
  */
 export function alignmentContentHash(answerText: string, pageText: string): string {
-  const input = `${(answerText ?? "").trim()} ${(pageText ?? "").trim()}`;
+  const input = `${(answerText ?? "").trim()}\u0000${(pageText ?? "").trim()}`;
   let h1 = 0x811c9dc5;
   for (let i = 0; i < input.length; i++) {
     h1 ^= input.charCodeAt(i);
