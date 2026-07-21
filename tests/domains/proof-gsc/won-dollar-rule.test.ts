@@ -32,8 +32,6 @@ import {
   BEHAVIOR_CORROBORATION_NOTE,
 } from "@/domains/proof-gsc/won-dollar-rule";
 import { computeCumulativeOutcome } from "@/domains/proof-gsc/cumulative-outcome";
-import { computeLifetimeEarnings } from "@/domains/proof-gsc/lifetime-earnings";
-import { buildLifetimeEarningsRows } from "@/app/(shell)/scoreboard-section";
 import type { ShockWindow } from "@/domains/proof-gsc/algorithm-weather";
 import type { ShippedChangeRecord } from "@/domains/proof-gsc/shipped-change-store";
 import type { TrafficOutcome } from "@/domains/proof-gsc/traffic-outcome";
@@ -205,34 +203,23 @@ describe("buildWonDollarBreakdown - N4 behavior corroboration on win rows", () =
   });
 });
 
-describe("DOLLAR PARITY - strip and odometer render the same figure from the same ledger", () => {
-  it("cumulative outcome strip total === lifetime earnings odometer total", () => {
+describe("DOLLAR figure - the cumulative outcome strip renders the summed figure", () => {
+  it("cumulative outcome strip carries the $40 a month figure", () => {
     const strip = computeCumulativeOutcome(LEDGER, NOW, SHOCKS)!;
-    const odometer = computeLifetimeEarnings(buildLifetimeEarningsRows(LEDGER, NOW, SHOCKS))!;
-
     expect(strip.estimatedUsdPerMonth).toBe(40);
-    expect(odometer.usdPerMonth).toBe(40);
-    expect(strip.estimatedUsdPerMonth).toBe(odometer.usdPerMonth);
-
-    // The rendered sentences carry the same figure.
     expect(strip.dollarLine).toContain("$40 a month");
-    expect(odometer.sentence).toContain("$40 a month");
   });
 
-  it("both surfaces drop dollars together when the only dollar-bearing win is quarantined", () => {
+  it("the strip drops dollars when the only dollar-bearing win is quarantined", () => {
     const rows = [shockWin, weakWin, measuringRow];
     const strip = computeCumulativeOutcome(rows, NOW, SHOCKS)!;
-    const odometerRows = buildLifetimeEarningsRows(rows, NOW, SHOCKS);
-
     expect(strip.estimatedUsdPerMonth).toBeNull();
     expect(strip.dollarLine).toBeNull();
-    expect(computeLifetimeEarnings(odometerRows)).toBeNull();
   });
 
-  it("no sentence on either surface carries an em or en dash", () => {
+  it("no sentence on the strip carries an em or en dash", () => {
     const strip = computeCumulativeOutcome(LEDGER, NOW, SHOCKS)!;
-    const odometer = computeLifetimeEarnings(buildLifetimeEarningsRows(LEDGER, NOW, SHOCKS))!;
-    for (const s of [strip.valueLine, strip.dollarLine, strip.waitingLine, odometer.sentence]) {
+    for (const s of [strip.valueLine, strip.dollarLine, strip.waitingLine]) {
       if (s != null) expect(s).not.toMatch(/[–—]/);
     }
   });
@@ -243,6 +230,5 @@ describe("fail-closed calibration quarantine (2026-07-11)", () => {
     const uncalWin = record("/clean-win", "2026-04-15", { dollarValue: usd(40), calibrationVersion: null });
     expect(selectDollarRuleWins([uncalWin], NOW, SHOCKS)).toHaveLength(0);
     expect(sumWonDollarsPerMonth([uncalWin], NOW, SHOCKS).usdPerMonth).toBeNull();
-    expect(buildLifetimeEarningsRows([uncalWin], NOW, SHOCKS)).toHaveLength(0);
   });
 });

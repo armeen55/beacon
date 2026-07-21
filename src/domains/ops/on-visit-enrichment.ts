@@ -27,7 +27,6 @@ import { buildExternalEventLedger, type OutageSignal } from "@/domains/events/ex
 import { writeExternalEventLedger } from "@/domains/events/external-event-store";
 import { loadProofLedger } from "@/domains/proof-gsc/load-ledger";
 import { loadDeadmanVerdict } from "@/domains/ops/deadman-view";
-import { computePooledVerdicts } from "@/domains/proof-gsc/pooled-verdict-runner";
 import { runAaCalibrationForTenant } from "@/domains/proof-gsc/aa-calibration";
 import { demoteResolvedForTenant } from "@/domains/recommendations/recrawl-demotion-runner";
 import { sweepQueueForTenant } from "@/domains/recommendations/queue-sweeper";
@@ -234,12 +233,6 @@ export async function runOnVisitEnrichment(
       anchor_date: totals.length > 0 ? totals[totals.length - 1]!.date : null,
       events,
     });
-  });
-
-  // Pooled batch verdicts: stack per-page adjusted lifts inside each accepted
-  // batch into one confident batch-level verdict.
-  await step("pooled-verdicts", async () => {
-    await computePooledVerdicts(tenantId);
   });
 
   // A/A calibration: Beacon's own false-positive rate on pages it never touched.

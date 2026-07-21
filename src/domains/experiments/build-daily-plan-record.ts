@@ -107,7 +107,6 @@ function toExperimentRecord(
       correctionFactor,
       captureBand: { low: band.low, high: band.high, n: band.n, isEmpirical: band.isEmpirical },
     }),
-    power: c.power,
     learnedPrior: c.learnedPrior,
     effectPrior: c.effectPrior,
     controls,

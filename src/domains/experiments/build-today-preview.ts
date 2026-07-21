@@ -38,7 +38,6 @@ import { aggregateSettled, proofHistoryLine } from "./proof-history-voice";
 import { retirementLine } from "./lever-retirement";
 import { reviewCandidateWithTeam } from "./team-review";
 import { loadSpecialistWeightTable } from "@/domains/team-scoreboard/load-team-scoreboard";
-import { findEvidenceGaps, buyEvidenceForPick, type EvidenceGapCandidate } from "./buy-missing-evidence";
 import { loadEngineGapNotes } from "@/domains/ai-visibility/gap-store";
 import type { EngineGapNote } from "@/domains/ai-visibility/candidate-feed";
 import { loadQuerySpikes } from "@/domains/trend-radar/spike-store";
@@ -52,10 +51,6 @@ import { loadCrawlCitationFunnel } from "@/domains/ai-visibility/load-crawl-cita
 import { buildCitabilityHintNotes } from "@/domains/citability/citability-hints";
 import { loadCalibrationRecords } from "./forecast-calibration-store";
 import { summarizeForecastCalibration, captureDistributionFromCalibrationRecords } from "./forecast-calibration";
-import { loadDailyClicksByPagesForTenant } from "@/domains/recommendation-intelligence/gsc-page-queries";
-import { forecastRange } from "./pick-expectations";
-import { blendCaptureBand } from "./empirical-capture";
-import { computeMde, estimateNoiseCv, assessPower } from "./power-analysis";
 import { loadTeammateFreshness } from "@/domains/team/source-freshness";
 import { teammateOf } from "@/domains/team/identity";
 import { loadLatestStrategyMix } from "@/domains/strategy-review/strategy-mix-store";
@@ -65,7 +60,6 @@ import { loadExperimentOutcomes, gateRecordsToEffectObservations } from "@/domai
 import { computeDimPriors, resolvePrior, canonicalMoveType, pageTypeFromUrl, queryClusterKey } from "@/domains/learning/experiment-prior";
 import { computeEffectSizeTable, resolveEffectPrior } from "@/domains/learning/effect-size-prior";
 import { attachControlContaminationForLedger, computeLastCleanDonorHolds } from "@/domains/proof-gsc/attach-control-contamination";
-import { computeQueryOverlapHoldsForLedger, type InterferenceLedgerShip } from "@/domains/proof-gsc/interference-graph";
 // N45 (R21b, 2026-07-03) - the PURE prerequisite gate. Derives dependency edges between the
 // candidates queued together (a content edit on a technically-blocked page waits for the fix; an
 // internal link waits for its destination page to be built; a schema-dependent edit waits for the
@@ -78,8 +72,6 @@ import { outcomeStateOf } from "@/domains/proof-gsc/measure-lifecycle";
 import { measurementWindowOf } from "@/domains/proof-gsc/measurement-maturity";
 import { learningEligibleVerdict } from "@/domains/proof-gsc/verdict-calibration";
 import { classifyOpportunityFreshness } from "@/domains/changes/opportunity-expiry";
-import { buildShadowCandidates } from "./shadow-portfolio-capture";
-import { writeShadowPortfolioBatch } from "./shadow-portfolio-store";
 import { loadClaimGraphForTenant } from "@/domains/provenance/claim-graph-loader";
 import { claimEvidenceForDraft } from "@/domains/provenance/claim-graph";
 
@@ -509,11 +501,9 @@ export async function buildTodayExperimentPreview(tenantId: string, now: Date = 
         b.teamReview.voices.push({ specialist: "proof", label: "Results so far", claim: hist, confidencePct: 65 });
       }
     }
-    // Item 29: a family-propagation win already carries a visible, bounded boost
-    // (build-daily-candidates sets teamScoreMultiplier = familyWin.boost); COMPOSE the team's
-    // multiplier on top of it multiplicatively instead of overwriting, so a proven-family win
-    // stays boosted even when the team is silent (result.scoreMultiplier defaults to 1).
-    b.teamScoreMultiplier = (b.familyWin ? b.familyWin.boost : 1) * result.scoreMultiplier;
+    // The team's bounded multiplier is the pick's score adjustment (defaults to 1 when the team
+    // is silent).
+    b.teamScoreMultiplier = result.scoreMultiplier;
     if (result.vetoed) { teamVetoed += 1; return false; }
     return true;
   });
@@ -576,37 +566,6 @@ export async function buildTodayExperimentPreview(tenantId: string, now: Date = 
     /* additive - never let the magnitude layer block or alter a nightly plan */
   }
 
-  // Item 35 - THE POWER GATE: before the planner scores/selects, ask whether each candidate's own
-  // page has enough traffic to actually SEE its forecast effect within the 28-day read. Bounded to
-  // the top POWER_CHECK_CAP candidates by raw opportunity (ctrOpportunityClicks) so a busy night
-  // never turns into an unbounded per-page fan-out; a candidate outside the cap is left unassessed
-  // (power stays undefined -> neutral score, never penalized for a check that didn't run).
-  const POWER_CHECK_CAP = 20;
-  const topByOpportunity = [...teamReviewed].sort((a, b) => b.ctrOpportunityClicks - a.ctrOpportunityClicks).slice(0, POWER_CHECK_CAP);
-  const dailySeriesByUrl = topByOpportunity.length
-    ? await loadDailyClicksByPagesForTenant(tenantId, topByOpportunity.map((c) => c.url), 90).catch(() => new Map<string, { date: string; clicks: number }[]>())
-    : new Map<string, { date: string; clicks: number }[]>();
-  for (const c of topByOpportunity) {
-    // Item 64: resolve THIS candidate's family capture band so the power check reasons about the
-    // exact same range the plan record will later persist (see toExperimentRecord in
-    // build-daily-plan-record.ts) - never a mismatched, pre-item-64 static-band range.
-    const band = blendCaptureBand(captureDistribution.get(canonicalMoveType(c.actionFamily)));
-    const range = forecastRange(c.ctrOpportunityClicks, correctionFactor, { low: band.low, high: band.high });
-    if (!range) continue; // nothing forecast honestly -> nothing to power-check either
-    const sig = signals.get(c.url);
-    const baselineDailyClicks = sig ? sig.clicks90d / 90 : 0;
-    const baselineDailyImpressions = sig ? sig.impressions90d / 90 : c.impressions / 90;
-    const { noiseCv } = estimateNoiseCv(dailySeriesByUrl.get(c.url) ?? []);
-    const mde = computeMde({ baselineDailyClicks, baselineDailyImpressions, windowDays: 28, noiseCv });
-    c.power = assessPower({ forecastLow: range.low, forecastHigh: range.high, mde });
-    // Item 35 - the roundtable gains a measurement voice ONLY when the read is genuinely thin
-    // (marginal or worse); a well-powered pick needs no extra reassurance and stays silent, so this
-    // never floods the debate on an ordinary night.
-    if (c.power.band !== "well_powered" && c.teamReview && !c.teamReview.voices.some((v) => v.label === "How sure we can be")) {
-      c.teamReview.voices.push({ specialist: "proof", label: "How sure we can be", claim: c.power.sentence, confidencePct: 60 });
-    }
-  }
-
   // N16 (R5) - THE LAST-CLEAN-DONOR HOLD: before the planner selects, learn which pages
   // are the LAST clean comparison page for a change still measuring (still-clean serving
   // controls plus the untreated bench of each ship's FROZEN donor pool, per the same
@@ -622,33 +581,14 @@ export async function buildTodayExperimentPreview(tenantId: string, now: Date = 
     /* additive - a failed pool-health read must never block or alter a nightly plan */
   }
 
-  // R6 (N12) - SAME-QUERY BLOCKING: the narrow, query-overlap-only subset of N14's full
-  // interference graph, safe to flip live tonight (N14's full graph hits 100% of ships on the
-  // real ledger - too aggressive without an operator review pass; query_overlap alone is a much
-  // narrower, self-evidently correct rule). Reuses the SAME ledger the rest of this pipeline
-  // already loaded - no new store, no new read. Each candidate's own queries also ride along
+  // R6 (N12) - SAME-QUERY BLOCKING (intra-batch): give each candidate its own real query set
   // (relatedQueries, from queriesByUrl - the page's real GSC top queries, already computed above
-  // for the keyword-research brief) so the planner's intra-batch check compares real query sets,
-  // not just each candidate's single displayed targetQuery. Fail-soft -> no holds (byte-identical
-  // to before N12 existed).
+  // for the keyword-research brief) so the planner's intra-batch same-query check compares real
+  // query sets, not just each candidate's single displayed targetQuery. Absent relatedQueries
+  // falls back to the singleton [targetQuery] inside the planner - byte-identical when unset.
   for (const c of teamReviewed) {
     const related = queriesByUrl.get(c.url);
     if (related && related.length > 0) c.relatedQueries = related;
-  }
-  let queryOverlapHolds: ReadonlyMap<string, { hold: boolean; reason: string }> = new Map();
-  try {
-    const ships: InterferenceLedgerShip[] = ledger.map((r) => ({
-      id: r.id,
-      path: r.path,
-      shippedAt: r.shippedAt,
-      measuring: outcomeStateOf(r, now) === "measuring",
-      window: measurementWindowOf(r.shippedAt, r.windows ?? []),
-      targetQueries: r.targetQueries ?? [],
-      controlPages: r.controlPages ?? [],
-    }));
-    queryOverlapHolds = computeQueryOverlapHoldsForLedger({ ships });
-  } catch {
-    /* additive - a failed graph read must never block or alter a nightly plan */
   }
 
   // N46 (R6, 2026-07-03) - OPPORTUNITY EXPIRATION: a candidate whose best cached SERP-pattern
@@ -700,7 +640,7 @@ export async function buildTodayExperimentPreview(tenantId: string, now: Date = 
     /* additive - a failed dependency derivation must never block or alter a nightly plan */
   }
 
-  const plan = planDailyExperiments({ tenantId, date: now.toISOString().slice(0, 10), candidates: teamReviewed, proofLedger: ledger, config: { ...PLANNER_CONFIG, now }, lastCleanDonorHolds, queryOverlapHolds, prerequisiteHolds });
+  const plan = planDailyExperiments({ tenantId, date: now.toISOString().slice(0, 10), candidates: teamReviewed, proofLedger: ledger, config: { ...PLANNER_CONFIG, now }, lastCleanDonorHolds, prerequisiteHolds });
 
   const byUrl = new Map(built.map((b) => [b.url, b]));
   const selected = plan.selected.map((s) => byUrl.get(s.url)).filter(Boolean) as BuiltCandidate[];
@@ -888,26 +828,6 @@ export async function buildTodayExperimentPreview(tenantId: string, now: Date = 
         });
       }
     }
-    // Item 29 - the FAMILY-WIN voice + evidence-brief provenance line: this pick's lever
-    // already proved itself (a mature, positive verdict) on a sibling page in the same
-    // family. The card's "how we know" gains the provenance and the roundtable gains a
-    // dedicated high-confidence voice, since a proven-family repeat is closer to a fact than
-    // an opinion. Deterministic, from the ledger's own settled record ($0). Absent otherwise
-    // - honest silence, never a fabricated "proven" claim.
-    if (c.familyWin) {
-      c.evidenceBrief = {
-        ...(c.evidenceBrief ?? { keywords: [], addressableVolume: null }),
-        familyWin: { sourceWinPage: c.familyWin.sourceWinPage, sentence: c.familyWin.sentence },
-      };
-      if (c.teamReview && !c.teamReview.voices.some((v) => v.label === "Proven on this family")) {
-        c.teamReview.voices.push({
-          specialist: "proof",
-          label: "Proven on this family",
-          claim: c.familyWin.sentence,
-          confidencePct: 85,
-        });
-      }
-    }
     // N3 (R13, 2026-07-03) - claim provenance: the checked facts this draft leans on, each
     // with its source and date ("From your /iran-flags page, confirmed Mar 2026." / "From
     // britannica.com, seen 3 weeks ago."). One line per claim, capped at 3, conflicting
@@ -938,60 +858,6 @@ export async function buildTodayExperimentPreview(tenantId: string, now: Date = 
         c.evidenceBrief = { ...(c.evidenceBrief ?? { keywords: [], addressableVolume: null }), staleSource: staleNote };
       }
     }
-  }
-
-  // Item 39 - BUY THE MISSING DECISIVE EVIDENCE before the batch finalizes. A top pick's
-  // live-Google teammate (emitDataforseoOpinion) abstains whenever no SERP evidence exists for
-  // its query - honest, but on tonight's TOP picks that silence is worth closing with one
-  // targeted, gauntleted lookup rather than shipping the pick with a silent voice. Bounded to
-  // the top 5 picks by opportunity; only when the evidence is genuinely absent (no cached
-  // pattern, no fresh history); one attempt per pick (runSerpQuery's own 14d cache makes a
-  // second attempt the same night or the same fortnight a free cache hit, never a second spend);
-  // fail-soft throughout - a decline (dry-run/disabled/capped/error/no-results) just keeps the
-  // pick's original abstain and the batch keeps moving.
-  const gapCandidates: EvidenceGapCandidate[] = selected.map((c) => {
-    const q = c.targetQuery.trim().toLowerCase();
-    return {
-      url: c.url,
-      targetQuery: c.targetQuery,
-      packet: packetByPath.get(normalizePath(c.url)) ?? null,
-      rankScore: c.ctrOpportunityClicks,
-      hasCachedSerpPattern: serpByTerm.has(q),
-      hasFreshSerpHistory: false,
-    };
-  });
-  const evidenceGaps = findEvidenceGaps(gapCandidates, { maxGaps: 5 });
-  if (evidenceGaps.length > 0) {
-    const ownDomain = await currentTenant().then((t) => t.domain).catch(() => null);
-    await Promise.all(
-      evidenceGaps.map(async (gap) => {
-        const c = selected.find((s) => normalizePath(s.url) === normalizePath(gap.candidate.url));
-        if (!c) return;
-        const purchase = await buyEvidenceForPick(gap, { ownDomain }).catch(() => null);
-        if (!purchase || purchase.status !== "bought" || !purchase.serpVerdict) return; // fail-soft: keep original abstain
-        // Re-run THIS pick's team review with the fresh live-Google verdict threaded in, so the
-        // debate the card shows reflects the teammate that just spoke instead of the stale one
-        // that abstained. Every other pick is untouched.
-        const packet = packetByPath.get(normalizePath(c.url));
-        const result = reviewCandidateWithTeam(packet, nowIso, { serpVerdict: purchase.serpVerdict }, specialistWeight);
-        if (result.review) {
-          c.teamReview = result.review;
-          const hist = historyLine(c.pageFamily ?? "", c.actionFamily);
-          if (hist && !c.teamReview.voices.some((v) => v.label === "Results so far")) {
-            c.teamReview.voices.push({ specialist: "proof", label: "Results so far", claim: hist, confidencePct: 65 });
-          }
-          if (purchase.receiptSentence) {
-            c.teamReview.voices.push({
-              specialist: "dataforseo",
-              label: "Live Google results",
-              claim: purchase.receiptSentence,
-              confidencePct: 80,
-            });
-          }
-        }
-        c.teamScoreMultiplier = (c.familyWin ? c.familyWin.boost : 1) * result.scoreMultiplier;
-      }),
-    );
   }
 
   // Item 25 - the strategist WRITES the team verdict for each pick: a grounded 1-3 sentence
@@ -1043,19 +909,6 @@ export async function buildTodayExperimentPreview(tenantId: string, now: Date = 
       plainReason: e.plainReason,
     })),
   });
-
-  // Item 65 - THE SHADOW PORTFOLIO: capture tonight's top rejected-but-eligible candidates (the
-  // best of `teamReviewed` that did NOT make it into `selected`, ranked the same way the planner
-  // itself ranks a pick) as a free counterfactual cohort. Additive, fail-soft, computed-only here -
-  // the write never blocks or alters the plan record itself, and a store error just means tonight
-  // has no shadow batch (the /results line and the drift calibration feed both self-hide on absence).
-  await writeShadowPortfolioBatch({
-    tenant_id: tenantId,
-    plan_id: record.id,
-    date: record.date,
-    captured_at: nowIso,
-    candidates: buildShadowCandidates(teamReviewed, new Set(selected.map((c) => c.url)), correctionFactor),
-  }).catch(() => {});
 
   // Item 12 - the FINAL REVIEW: after picks are FINAL, one bounded LLM read checks each pick
   // against its own evidence ("does the proposed text match what the top search asks?") and

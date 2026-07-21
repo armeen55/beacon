@@ -13,7 +13,6 @@ afterAll(clearTestCalibratedVersions);
 
 import { planDailyExperiments, scoreCandidate, pageFamilyOf, settledLeverRowsForRetirement, type DailyCandidate } from "./daily-experiment-planner";
 import type { ShippedChangeRecord } from "@/domains/proof-gsc/shipped-change-store";
-import { assessPower, type PowerAssessment } from "./power-analysis";
 import { hasBannedDash } from "@/lib/copy/strip-dashes";
 import { MIN_MULTIPLIER, MAX_MULTIPLIER, type LearnedPrior } from "@/domains/learning/experiment-prior";
 
@@ -174,113 +173,6 @@ describe("planDailyExperiments — internal-link influence model", () => {
   });
 });
 
-// ── Item 35: power-analysis gate ────────────────────────────────────────────
-
-const wellPowered: PowerAssessment = assessPower({ forecastLow: 300, forecastHigh: 400, mde: { mdeClicksPerMonth: 100, confidence: "estimated" } });
-const marginal: PowerAssessment = assessPower({ forecastLow: 80, forecastHigh: 100, mde: { mdeClicksPerMonth: 100, confidence: "estimated" } });
-const underpoweredNotExtreme: PowerAssessment = assessPower({ forecastLow: 60, forecastHigh: 70, mde: { mdeClicksPerMonth: 100, confidence: "rough" } });
-const extremeShortfall: PowerAssessment = assessPower({ forecastLow: 5, forecastHigh: 10, mde: { mdeClicksPerMonth: 100, confidence: "rough" } });
-
-describe("scoreCandidate — item 35 power penalty", () => {
-  it("a well-powered candidate scores identically to one with no power assessment (neutral)", () => {
-    const base = cand({ url: "/a", ctrOpportunityClicks: 200 });
-    const withWellPowered = { ...base, power: wellPowered };
-    expect(scoreCandidate(withWellPowered)).toBeCloseTo(scoreCandidate(base), 6);
-  });
-
-  it("a marginal candidate is downranked but not to zero", () => {
-    const base = cand({ url: "/a", ctrOpportunityClicks: 200 });
-    const marginalCand = { ...base, power: marginal };
-    const score = scoreCandidate(marginalCand);
-    expect(score).toBeGreaterThan(0);
-    expect(score).toBeLessThan(scoreCandidate(base));
-  });
-
-  it("an underpowered (non-extreme) candidate is downranked harder than marginal", () => {
-    const base = cand({ url: "/a", ctrOpportunityClicks: 200 });
-    const marginalScore = scoreCandidate({ ...base, power: marginal });
-    const underpoweredScore = scoreCandidate({ ...base, power: underpoweredNotExtreme });
-    expect(underpoweredScore).toBeGreaterThan(0);
-    expect(underpoweredScore).toBeLessThan(marginalScore);
-  });
-});
-
-describe("planDailyExperiments — item 35 power gate", () => {
-  it("degrades honestly: a marginal candidate still gets selected when it's the only option (warn, not silently drop)", () => {
-    const candidates = [cand({ url: "/only", power: marginal })];
-    const plan = planDailyExperiments({ tenantId: "t", date: "d", candidates, proofLedger: [], config: { now: NOW } });
-    expect(plan.selected.map((s) => s.url)).toEqual(["/only"]);
-    expect(plan.excluded).toHaveLength(0);
-  });
-
-  it("degrades honestly: an underpowered-but-not-extreme candidate still gets selected alone (never a silent zero)", () => {
-    const candidates = [cand({ url: "/only", power: underpoweredNotExtreme })];
-    const plan = planDailyExperiments({ tenantId: "t", date: "d", candidates, proofLedger: [], config: { now: NOW } });
-    expect(plan.selected.map((s) => s.url)).toEqual(["/only"]);
-  });
-
-  it("hard-excludes only the EXTREME shortfall (ratio < 0.5), with the reason recorded", () => {
-    const candidates = [
-      cand({ url: "/good", power: wellPowered, ctrOpportunityClicks: 50 }),
-      cand({ url: "/doomed", power: extremeShortfall, ctrOpportunityClicks: 500 }),
-    ];
-    const plan = planDailyExperiments({ tenantId: "t", date: "d", candidates, proofLedger: [], config: { now: NOW } });
-    expect(plan.selected.map((s) => s.url)).toEqual(["/good"]);
-    const excluded = plan.excluded.find((e) => e.url === "/doomed");
-    expect(excluded?.reason).toBe("underpowered");
-  });
-
-  it("prefers a well-powered candidate over a similar-raw-opportunity marginal one when the batch is capped", () => {
-    const candidates = [
-      cand({ url: "/big-noisy", pageFamily: "a", actionFamily: "title", ctrOpportunityClicks: 350, power: marginal }),
-      cand({ url: "/small-clean", pageFamily: "b", actionFamily: "meta", ctrOpportunityClicks: 300, power: wellPowered }),
-    ];
-    const plan = planDailyExperiments({ tenantId: "t", date: "d", candidates, proofLedger: [], config: { now: NOW, maxExperiments: 1, backups: 0 } });
-    expect(plan.selected.map((s) => s.url)).toEqual(["/small-clean"]);
-  });
-
-  it("an extreme raw-opportunity gap can still outrank a marginal penalty (the penalty tilts, it doesn't override real opportunity differences)", () => {
-    const candidates = [
-      cand({ url: "/huge", pageFamily: "a", actionFamily: "title", ctrOpportunityClicks: 1000, power: marginal }),
-      cand({ url: "/tiny", pageFamily: "b", actionFamily: "meta", ctrOpportunityClicks: 300, power: wellPowered }),
-    ];
-    const plan = planDailyExperiments({ tenantId: "t", date: "d", candidates, proofLedger: [], config: { now: NOW, maxExperiments: 1, backups: 0 } });
-    // /huge scores 1000*0.6=600 (marginal) vs /tiny's 300*1=300 (well powered) - opportunity still
-    // wins here, which is correct: the penalty downranks, it does not pretend a 3x bigger real
-    // opportunity is worthless. assessPower's own "marginal, worth doing, slower to verify" sentence
-    // (not "skip it") backs this up.
-    expect(plan.selected.map((s) => s.url)).toEqual(["/huge"]);
-  });
-
-  it("never-empty-plan guard: when EVERY candidate is marginal or underpowered (but none extreme), the plan is still non-empty", () => {
-    const candidates = [
-      cand({ url: "/p1", pageFamily: "a", power: marginal, ctrOpportunityClicks: 300 }),
-      cand({ url: "/p2", pageFamily: "b", power: underpoweredNotExtreme, ctrOpportunityClicks: 250 }),
-      cand({ url: "/p3", pageFamily: "c", power: marginal, ctrOpportunityClicks: 200 }),
-    ];
-    const plan = planDailyExperiments({ tenantId: "t", date: "d", candidates, proofLedger: [], config: { now: NOW } });
-    expect(plan.selected.length).toBeGreaterThan(0);
-    expect(plan.selected.length).toBe(3);
-  });
-
-  it("a candidate with NO power assessment (bounded read didn't reach it) is never penalized or excluded", () => {
-    const candidates = [cand({ url: "/unassessed" })]; // power is undefined
-    const plan = planDailyExperiments({ tenantId: "t", date: "d", candidates, proofLedger: [], config: { now: NOW } });
-    expect(plan.selected.map((s) => s.url)).toEqual(["/unassessed"]);
-  });
-
-  it("power sentences carried on selected/excluded picks never contain a banned dash", () => {
-    const candidates = [
-      cand({ url: "/m", power: marginal }),
-      cand({ url: "/e", power: extremeShortfall, pageFamily: "z" }),
-    ];
-    const plan = planDailyExperiments({ tenantId: "t", date: "d", candidates, proofLedger: [], config: { now: NOW } });
-    for (const s of plan.selected) if (s.power) expect(hasBannedDash(s.power.sentence)).toBe(false);
-    expect(hasBannedDash(marginal.sentence)).toBe(false);
-    expect(hasBannedDash(extremeShortfall.sentence)).toBe(false);
-  });
-});
-
 // ── Item 47: learned priors folded into the nightly planner score ──────────
 
 const won: LearnedPrior = { multiplier: 1.15, decidedSample: 5, basis: "actionType:answer_block", tag: "I moved this up because your answer-block changes keep winning (4 of the last 5 won)." };
@@ -320,8 +212,8 @@ describe("scoreCandidate — item 47 learned-prior fold", () => {
     expect(scoreCandidate(rogueLow)).toBeCloseTo(scoreCandidate(base) * MIN_MULTIPLIER, 6);
   });
 
-  it("composes multiplicatively with the team-score and power factors, not by replacing them", () => {
-    const base = cand({ url: "/a", ctrOpportunityClicks: 200, teamScoreMultiplier: 1.2, power: wellPowered });
+  it("composes multiplicatively with the team-score factor, not by replacing it", () => {
+    const base = cand({ url: "/a", ctrOpportunityClicks: 200, teamScoreMultiplier: 1.2 });
     const withPrior = { ...base, learnedPrior: won };
     expect(scoreCandidate(withPrior)).toBeCloseTo(scoreCandidate(base) * won.multiplier, 6);
   });

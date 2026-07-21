@@ -21,7 +21,6 @@ import {
   type ExternalFlags,
   type AttributionCaution,
 } from "./experiment-eligibility";
-import { EXTREME_SHORTFALL_RATIO, type PowerAssessment } from "./power-analysis";
 import { expectedCtrAt } from "./pick-expectations";
 import { MIN_MULTIPLIER, MAX_MULTIPLIER, type LearnedPrior } from "@/domains/learning/experiment-prior";
 import { EFFECT_MIN_MULTIPLIER, EFFECT_MAX_MULTIPLIER, type EffectPrior } from "@/domains/learning/effect-size-prior";
@@ -29,11 +28,13 @@ import {
   computeLeverRetirementDecisions, RetirementIndex, type LeverRetirementDecision, type SettledLeverRow,
 } from "./lever-retirement";
 import { learningEligibleVerdict } from "@/domains/proof-gsc/verdict-calibration";
-// R6 (N12) - the SAME honest Jaccard floors interference-graph.ts's query_overlap edge already
-// enforces on ledger ships, reused verbatim for the intra-batch check below (never reimplemented,
-// never loosened). interference-graph.ts is pure (no I/O), so this import adds no new dependency
-// surface beyond two numeric constants.
-import { MIN_QUERY_OVERLAP_JACCARD, MIN_QUERIES_FOR_OVERLAP_JUDGMENT } from "@/domains/proof-gsc/interference-graph";
+
+// R6 (N12) - the honest Jaccard floors for the intra-batch same-query check below: two
+// candidates in tonight's own batch are only treated as competing for the same searches when
+// each side has at least MIN_QUERIES_FOR_OVERLAP_JUDGMENT queries and their Jaccard clears
+// MIN_QUERY_OVERLAP_JACCARD, so "one shared generic query" is never counted as evidence.
+const MIN_QUERY_OVERLAP_JACCARD = 1 / 3;
+const MIN_QUERIES_FOR_OVERLAP_JUDGMENT = 2;
 
 /** First path segment groups a family (iran-animals/*, iran-flags/*); top-level slugs are
  *  their own family. Generic — no hardcoded vocabulary. */
@@ -72,13 +73,6 @@ export type DailyCandidate = {
   /** R1 (2026-07-01): bounded 0.5..1.5 multiplier from the specialist-team debate (move-router
    *  adjustedScore/baseScore). Absent/1 = team silent or neutral - identical pre-team score. */
   teamScoreMultiplier?: number;
-  /** Item 35 (2026-07-02): the power-analysis verdict for this candidate's page - can this page's
-   *  own traffic and noise actually resolve the forecast effect within the batch's read window?
-   *  Computed by the caller (build-today-preview.ts) from a bounded per-page daily-series read +
-   *  the candidate's own numeric forecast (pick-expectations.ts forecastLow/forecastHigh); absent
-   *  when no forecast exists yet (nothing to assess) or the read was skipped (budget/cache miss) -
-   *  absence is treated as neutral, never as a penalty or an exclusion. */
-  power?: PowerAssessment;
   /** Item 47 (2026-07-02): the learned win-rate prior for this exact (actionType, pageType,
    *  queryCluster) from src/domains/learning/experiment-prior.ts, resolved by the caller
    *  (build-daily-candidates.ts) from loadExperimentOutcomes. Bounded [0.85, 1.15], decided-only,
@@ -147,7 +141,7 @@ export type PlannedExperiment = DailyCandidate & {
    *  Absent on a fully clean pick. */
   attributionCaution?: AttributionCaution;
 };
-export type ExcludedReason = EligibilityReason | "page_family_cap" | "action_family_cap" | "high_traffic_cap" | "budget_full" | "over_max" | "influenced_conflict" | "underpowered" | "lever_retired" | "interference_hold" | "last_clean_donor" | "query_overlap_hold" | "evidence_expired" | "prerequisite_pending";
+export type ExcludedReason = EligibilityReason | "page_family_cap" | "action_family_cap" | "high_traffic_cap" | "budget_full" | "over_max" | "influenced_conflict" | "lever_retired" | "interference_hold" | "last_clean_donor" | "query_overlap_hold" | "evidence_expired" | "prerequisite_pending";
 export type ExcludedExperiment = {
   url: string;
   actionFamily: ExperimentFamily;
@@ -272,20 +266,6 @@ export type DailyExperimentPlan = {
 // pick-expectations' expectedCtrAt) - byte-identical values, one source.
 const expectedCtr = expectedCtrAt;
 
-/** Item 35 - the power-band score multiplier: a well-powered pick is unaffected, a marginal pick
- *  is downranked (still eligible - worth doing, just not tonight's FIRST choice when a
- *  well-powered alternative exists), an underpowered pick is downranked hard (it only survives
- *  selection at all when nothing better fills the batch - see EXTREME_SHORTFALL_RATIO for the
- *  harder hard-exclude line applied in the selection loop below). Absent power = neutral (1): a
- *  candidate the caller never assessed (no forecast yet, or the bounded read didn't reach it)
- *  must never be silently punished for a gate that hasn't run. */
-function powerScoreFactor(power: PowerAssessment | undefined): number {
-  if (!power) return 1;
-  if (power.band === "well_powered") return 1;
-  if (power.band === "marginal") return 0.6;
-  return 0.25;
-}
-
 /** Item 47 (2026-07-02) - the learned-prior score factor: the SAME bounded multiplier the
  *  demand-graph worklist ranking already applies (see load-graph.ts / experiment-prior.ts),
  *  clamped again here defensively so a caller mistake can never push the nightly planner's score
@@ -316,9 +296,6 @@ export function scoreCandidate(c: DailyCandidate): number {
   const ownershipFactor = 0.5 + Math.min(0.5, c.ownership);
   // The team's bounded, visible adjustment (R1). Neutral when the team abstained.
   const teamFactor = Math.max(0.5, Math.min(1.5, c.teamScoreMultiplier ?? 1));
-  // Item 35 - a candidate this page's own traffic can't resolve within the window is worth less
-  // tonight than one we can actually verify, even if the raw opportunity looks identical.
-  const powerFactor = powerScoreFactor(c.power);
   // Item 47 - what the ledger has already learned about this exact (actionType, pageType,
   // queryCluster) tilts ties, never dominates (bounded to +/-15%, same discipline as the
   // worklist's demand-graph ranking).
@@ -327,7 +304,7 @@ export function scoreCandidate(c: DailyCandidate): number {
   // twin of the win-rate prior above). Bounded to [0.8, 1.3]; neutral when no bucket has
   // 3+ settled magnitudes, so a fresh tenant scores byte-identically.
   const effectFactor = effectPriorScoreFactor(c.effectPrior);
-  return c.ctrOpportunityClicks * positionFactor * mediumFactor * (weakCtr / 1.5) * ownershipFactor * teamFactor * powerFactor * priorFactor * effectFactor;
+  return c.ctrOpportunityClicks * positionFactor * mediumFactor * (weakCtr / 1.5) * ownershipFactor * teamFactor * priorFactor * effectFactor;
 }
 
 /**
@@ -394,15 +371,6 @@ export function planDailyExperiments(input: {
     const elig = assessEligibility({ url: c.url, family: c.actionFamily, states, external: c.external });
     if (!elig.eligible) {
       excluded.push({ url: c.url, actionFamily: c.actionFamily, reason: elig.reason, availableAt: elig.availableAt, relatedProofIds: elig.relatedProofIds });
-      continue;
-    }
-    // Item 35 - honest degrade, not silent shrink: a MARGINAL or plain UNDERPOWERED pick still
-    // enters the pool (scoreCandidate already downranks it, see powerScoreFactor) so the operator's
-    // plan never quietly loses a slot to a gate they can't see. Only an EXTREME shortfall (the
-    // forecast midpoint sits below half the page's own detectable floor - the test is doomed even
-    // with patience) is hard-excluded, and the reason is recorded so nothing disappears silently.
-    if (c.power && c.power.ratio < EXTREME_SHORTFALL_RATIO) {
-      excluded.push({ url: c.url, actionFamily: c.actionFamily, reason: "underpowered" });
       continue;
     }
     // N46 (R6, 2026-07-03) - EXPIRED EVIDENCE: a candidate whose own evidence has already

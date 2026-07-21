@@ -57,11 +57,6 @@ export type PlannedExperimentRecord = {
    *  flag a one-line caution, it can never drop or reorder a pick. Absent when the review is off,
    *  abstained, or failed (the batch always ships). */
   teamCheck?: { verdict: "looks_right" | "concern"; concern?: string };
-  /** Item 35: the power-analysis verdict for this pick's page (can its own traffic + noise resolve
-   *  the forecast effect within 28 days?), frozen at planning time. Absent when the bounded
-   *  per-batch read didn't reach this pick or it had no numeric forecast to assess - never a
-   *  penalty, just nothing to show. Type lives in ./power-analysis (type-only import). */
-  power?: import("./power-analysis").PowerAssessment;
   /** Item 47: the learned win-rate prior for this pick's (actionType, pageType, queryCluster),
    *  frozen at planning time. Absent/neutral (multiplier 1, tag null) when no settled outcome
    *  bucket cleared the >=3-sample bar - a fresh tenant with no history never shows a tag. Type

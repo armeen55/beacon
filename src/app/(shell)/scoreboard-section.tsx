@@ -6,31 +6,12 @@
  * fail-soft (self-hides without enough history so it never renders an empty box).
  */
 import { loadDailyTotalsForTenant } from "@/domains/recommendation-intelligence/gsc-page-queries";
-import { loadShippedChanges, type ShippedChangeRecord } from "@/domains/proof-gsc/shipped-change-store";
+import { loadShippedChanges } from "@/domains/proof-gsc/shipped-change-store";
 import { buildScoreboard, buildMoneyLine, type Scoreboard } from "@/domains/scoreboard/scoreboard";
 import { loadRevenueByDayForTenant } from "@/domains/revenue/load-revenue";
 import { loadOwnCitationsByDay } from "@/domains/recommendation-intelligence/citations-daily";
 import { currentTenantSlug } from "@/lib/tenant-context";
 import { Sparkline } from "@/components/data/sparkline";
-import { loadProofLedgerCached } from "@/domains/proof-gsc/load-ledger";
-import { buildShockWindows, type ShockWindow } from "@/domains/proof-gsc/algorithm-weather";
-import { loadDetectedChangepoints } from "@/domains/proof-gsc/algorithm-weather-store";
-import {
-  monthlyExtraSessionsRate,
-  selectDollarRuleWins,
-  selectMatureCleanResults,
-} from "@/domains/proof-gsc/won-dollar-rule";
-import { PROOF_BASELINE_WINDOW_DAYS, type ProofWindowResult } from "@/domains/proof-gsc/measure";
-import {
-  computeLifetimeEarnings,
-  type LifetimeEarningsRow,
-} from "@/domains/proof-gsc/lifetime-earnings";
-import {
-  computePortfolioCounterfactual,
-  type CounterfactualRow,
-} from "@/domains/proof-gsc/portfolio-counterfactual";
-import { compareShadowPortfolio } from "@/domains/proof-gsc/shadow-portfolio-drift";
-import { loadShadowPortfolioMeasurement } from "@/domains/experiments/shadow-portfolio-measure";
 import { ScoreboardChartTabs, type ChartTabDef } from "./scoreboard-chart-tabs";
 import { loadWithDeadline, valueWithDeadline } from "@/lib/load-with-deadline";
 import { HonestDelay } from "@/components/honest-delay";
@@ -51,7 +32,6 @@ import { loadGscWeeklyLens } from "@/domains/gsc/load-weekly-dimensions";
 import { readGscFreshTailCached, refreshGscFreshTail } from "@/domains/gsc/load-fresh-tail";
 import { FRESH_TAIL_NOTE, type FreshTailPoint } from "@/domains/gsc/fresh-tail";
 import { after } from "next/server";
-import { log } from "@/lib/logger";
 
 const W = 720;
 const H = 170;
@@ -164,102 +144,6 @@ function Chart({ s, freshTail }: { s: Scoreboard; freshTail?: FreshTailPoint[] |
   );
 }
 
-/**
- * Items 40 + 41 (2026-07-02) - the shared eligibility gate for both the
- * lifetime-earnings odometer and the portfolio counterfactual. R4 (2026-07-03):
- * the gate itself moved into domains/proof-gsc/won-dollar-rule.ts (THE ONE
- * DOLLAR RULE) so the cumulative outcome strip and this odometer select the
- * exact same rows - two cumulative dollar figures can never disagree on the
- * same screen again. This file only loads the shock windows and maps the
- * selected rows into each aggregator's input shape.
- */
-/**
- * Returns the known algorithm-shock windows, or `null` when the changepoint
- * read FAILS. The distinction is load-bearing for honest money: the dollar
- * rule EXCLUDES wins whose measurement window overlaps a shock, but only when
- * `shockWindows.length > 0` (won-dollar-rule.ts hasCleanAttribution). An empty
- * array therefore reads as "no shocks exist" and skips that exclusion, so a
- * silent read failure that returned [] would let shock-tainted wins through and
- * OVERSTATE the lifetime-earnings odometer. Returning null lets the caller
- * suppress the precise money claim rather than compute it from known-incomplete
- * inputs.
- */
-async function loadShockWindowsForGate(tenantId: string): Promise<ShockWindow[] | null> {
-  try {
-    const changepoints = await loadDetectedChangepoints(tenantId);
-    return buildShockWindows({ dailySeries: [], priorChangepoints: changepoints });
-  } catch (err) {
-    log.warn("scoreboard-section: shock-window read failed; suppressing money claim this render", {
-      tenant: tenantId,
-      store: "algorithm-weather-changepoints",
-      error: err instanceof Error ? err.message : String(err),
-    });
-    return null;
-  }
-}
-
-function basisWindowOf(record: ShippedChangeRecord): ProofWindowResult | null {
-  const ran = (record.windows ?? []).filter((w) => w.ran).sort((a, b) => b.day - a.day);
-  return ran[0] ?? null;
-}
-
-/** Days between ship and now, floored at 0 (a backdated/clock-skewed ship
- *  never contributes a negative lifetime span). */
-function daysLiveOf(shippedAt: string, now: Date): number {
-  const shipped = Date.parse(shippedAt);
-  if (!Number.isFinite(shipped)) return 0;
-  return Math.max(0, Math.floor((now.getTime() - shipped) / 86_400_000));
-}
-
-/**
- * Item 40 - build the odometer's input rows from the measured ledger: every
- * record THE ONE DOLLAR RULE selects (won + mature + clean attribution + a
- * positive measured traffic rate) contributes its current monthly rate (the
- * SAME control-adjusted extra-sessions number change-dollar-value.ts already
- * put on the row as dollarValue/trafficOutcome at measure time - never
- * re-derived here) plus its days-live for the honest proration. The selection
- * is the shared won-dollar-rule gate, so this odometer's dollar total is
- * byte-identical to the cumulative outcome strip's.
- */
-export function buildLifetimeEarningsRows(ledger: ShippedChangeRecord[], now: Date, shockWindows: ShockWindow[]): LifetimeEarningsRow[] {
-  return selectDollarRuleWins(ledger, now, shockWindows).map((r) => ({
-    id: r.id,
-    extraSessionsPerMonth: monthlyExtraSessionsRate(r),
-    usdPerMonth: r.dollarValue?.usdPerMonth ?? null,
-    daysLive: daysLiveOf(r.shippedAt, now),
-  }));
-}
-
-/**
- * Item 41 - build the counterfactual's input rows from the measured ledger:
- * every record that reaches deriveMeasurementMaturity's "mature_result"
- * contributes its basis window's treated/control click deltas and its own
- * pre-ship baseline, pro-rated to the basis window length (the same
- * scaledBaseline pooled-verdict-runner.ts's percentLiftOf uses). This is
- * WON and LOST rows both (the portfolio claim is about the whole settled
- * cohort, not only the wins) - an "inconclusive" 28-day read never reaches
- * mature_result at all (deriveMeasurementMaturity requires a real won/lost
- * call for sufficiency), so it is correctly excluded rather than diluting
- * the average with a null result.
- */
-export function buildCounterfactualRows(ledger: ShippedChangeRecord[], now: Date, shockWindows: ShockWindow[]): CounterfactualRow[] {
-  const rows: CounterfactualRow[] = [];
-  for (const r of selectMatureCleanResults(ledger, now, shockWindows)) {
-    const basis = basisWindowOf(r);
-    if (!basis) continue;
-    const baselineClicks = r.baseline?.clicks ?? 0;
-    const scaledBaseline = baselineClicks * (basis.day / PROOF_BASELINE_WINDOW_DAYS);
-    rows.push({
-      id: r.id,
-      treatedDelta: basis.treatedDelta,
-      controlDelta: basis.controlDelta,
-      scaledBaseline,
-      controlsUsed: basis.controlsUsed,
-    });
-  }
-  return rows;
-}
-
 /** Plain "Jul 2" style date label for the A1 honest-staleness suffix, Pacific time
  *  to match the rest of Today's date formatting. Null input (bad/missing timestamp)
  *  renders nothing, never a garbled date. */
@@ -290,18 +174,13 @@ export async function ScoreboardSection({
       Promise.all([
         loadDailyTotalsForTenant(tenantId, 84),
         loadShippedChanges().catch(() => []),
-        // Items 40 + 41 need dollarValue/trafficOutcome, which only exist on the
-        // RE-MEASURED ledger (loadShippedChanges alone never populates them).
-        // react.cache-shared with the /today page's own loadProofLedgerCached
-        // call in the same request, so this is not a second heavy re-measure.
-        loadProofLedgerCached(tenantId).catch(() => [] as ShippedChangeRecord[]),
         currentTenantSlug().catch(() => ""),
         // Item 3 - honest dollars from revenue_facts; fail-soft -> the line self-hides.
         loadRevenueByDayForTenant(tenantId).catch(() => []),
       ] as const),
     );
     if (raced.timedOut) return <HonestDelay />;
-    const [daily, ledger, measuredLedger, slug, revenueDays] = raced.data;
+    const [daily, ledger, slug, revenueDays] = raced.data;
     // Item 9 - the AI-visibility mini-scoreboard: your own domain's citations over time,
     // next to the Google chart. Fail-soft -> band self-hides. Deadline-bounded like the
     // reads above so one slow follow-up read cannot re-strand the section.
@@ -363,39 +242,6 @@ export async function ScoreboardSection({
       { id: "visitors", label: "Visitors", color: "#0891b2", unitLabel: "sessions", points: [] },
       { id: "value", label: "Value", color: "#059669", unitLabel: "dollars", points: revenueDays.filter((d) => d.revenueUsd > 0).map((d) => ({ date: d.day, value: d.revenueUsd })) },
     ];
-
-    // Items 40 + 41 - the lifetime earnings odometer and the portfolio
-    // counterfactual, both computed from the SAME re-measured ledger, both
-    // independently self-hiding (null when the honest minimum isn't met).
-    const now = new Date();
-    // null = the shock read failed OR timed out (the deadline fallback is null,
-    // not []). Without the shock windows we cannot honestly exclude wins that
-    // overlap an algorithm shock, and computing anyway would OVERSTATE the money
-    // (see loadShockWindowsForGate). So we suppress the precise dollar claims
-    // this render - the odometer + counterfactual simply self-hide, the exact
-    // conservative state they already show when the honest minimum isn't met.
-    const shockWindows = await valueWithDeadline(loadShockWindowsForGate(tenantId), null);
-    const lifetimeEarnings =
-      shockWindows == null
-        ? null
-        : computeLifetimeEarnings(buildLifetimeEarningsRows(measuredLedger, now, shockWindows));
-    const portfolioCounterfactual =
-      shockWindows == null
-        ? null
-        : computePortfolioCounterfactual(buildCounterfactualRows(measuredLedger, now, shockWindows));
-
-    // Item 65 - the shadow portfolio: picks Beacon actually shipped versus the top eligible
-    // candidates it considered but skipped, over matching windows. Distinct from item 41 above
-    // (that line is about a SHIPPED change's own diff-in-diff comparison pages; this one is about
-    // the PICKING process itself). Fail-soft and independently self-hiding - a read error or a
-    // thin sample just means this line stays silent beside the others.
-    const shadowMeasurement = await valueWithDeadline(
-      loadShadowPortfolioMeasurement(tenantId, now).catch(() => null),
-      null,
-    );
-    const shadowPortfolio = shadowMeasurement
-      ? compareShadowPortfolio(shadowMeasurement.selected, shadowMeasurement.shadow)
-      : null;
 
     const deltaTone = s.deltaPct == null ? "text-gray-500 dark:text-neutral-400" : s.deltaPct > 2 ? "text-emerald-600 dark:text-emerald-400" : s.deltaPct < -2 ? "text-amber-600 dark:text-amber-400" : "text-gray-500 dark:text-neutral-400";
     return (
@@ -494,19 +340,6 @@ export async function ScoreboardSection({
         ) : null}
         {moneyLine ? (
           <p className="mt-1 text-[13px] font-medium text-emerald-700 dark:text-emerald-300">{moneyLine}</p>
-        ) : null}
-        {lifetimeEarnings || portfolioCounterfactual || shadowPortfolio ? (
-          <div className="mt-2 space-y-1 border-t border-gray-100 pt-2 dark:border-neutral-800">
-            {lifetimeEarnings ? (
-              <p className="text-[13px] font-medium text-indigo-700 dark:text-indigo-300">{lifetimeEarnings.sentence}</p>
-            ) : null}
-            {portfolioCounterfactual ? (
-              <p className="text-[13px] text-gray-600 dark:text-neutral-300">{portfolioCounterfactual.sentence}</p>
-            ) : null}
-            {shadowPortfolio ? (
-              <p className="text-[13px] text-gray-600 dark:text-neutral-300">{shadowPortfolio.sentence}</p>
-            ) : null}
-          </div>
         ) : null}
         {citations.total > 0 ? (
           <div className="mt-2 flex flex-wrap items-center gap-2 border-t border-gray-100 pt-2 text-[12px] text-gray-600 dark:border-neutral-800 dark:text-neutral-300 tabular-nums">
