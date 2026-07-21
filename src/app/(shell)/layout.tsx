@@ -15,7 +15,7 @@ import {
   hasActiveExperiment,
 } from "@/lib/seed-data.server";
 import { shouldServeDemoData } from "@/lib/demo-mode";
-import { allNavItems, paletteOnlyItems } from "@/lib/navigation";
+import { allNavItems } from "@/lib/navigation";
 import { getPendingFindings } from "@/domains/scanning/findings-store";
 import { CONTENT_CHANGE_TYPES } from "@/domains/scanning/content-change-types";
 import {
@@ -36,22 +36,17 @@ import { loadWithDeadline } from "@/lib/load-with-deadline";
 // 2026-04-22 (/pages, /local, and the competitor map).
 //
 // 2026-06-14 - these palette labels MUST match the actual g+<key>
-// handler in `command-palette.tsx`. Previously this map advertised
-// `G R` / `G P` next to Recommendations / Prompts and omitted
-// Connectors entirely, while the handler only fired on t/c/s - so
-// the palette promised shortcuts that did nothing and hid the one
-// new customer surface. Now all six customer routes carry the exact
-// key the handler implements (`g+k` → Connectors). Keep this in
-// lockstep with the handler + the help dialog; the architecture test
-// `customer-nav-exposure.test.ts` enforces no hidden routes.
+// handler in `command-palette.tsx`. Keep this in lockstep with the
+// handler + the help dialog.
+//
+// Phase 4D (2026-07-21) - the /ask and /prompts shortcuts (G A / G P) were
+// dropped with their surfaces; only the five live nav routes carry a hint.
 const NAV_SHORTCUTS: Record<string, string> = {
   "/": "G T",
   // FP4 (2026-07-03): URLs now match nav labels, so the letters follow the
   // names. G C = Changes (/changes), G E = Results (/results).
   "/changes": "G C",
   "/results": "G E",
-  "/ask": "G A",
-  "/prompts": "G P",
   "/settings/connectors": "G K",
   "/settings": "G S",
 };
@@ -80,7 +75,7 @@ export default async function ShellLayout({
 
   // Static palette entries only (nav routes, zero I/O). The changelog "Results"
   // group streams in with the deferred shell data below.
-  const paletteItems: PaletteItem[] = [...allNavItems, ...paletteOnlyItems].map((n) => ({
+  const paletteItems: PaletteItem[] = allNavItems.map((n) => ({
     id: `nav-${n.href}`,
     label: n.label,
     group: "Navigate",

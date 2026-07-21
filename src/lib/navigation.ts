@@ -1,13 +1,9 @@
 import {
   Sun,
   Settings,
-  History,
-  ListChecks,
   ListTodo,
-  MessageCircle,
   LineChart,
   Plug,
-  Search,
   type LucideIcon,
 } from "lucide-react";
 
@@ -39,16 +35,11 @@ export type NavGroup = {
  * bounced somewhere else entirely; after FP4 the URL, the sidebar label, and
  * the page h1 agree everywhere.
  *
- * "Drafts" (/recommendations) and "Ready to ship" (/experiments) are NOT
- * separate products; they are STAGES of a change, reachable from the Changes
- * list and via direct URL (both redirect into /changes views).
- *
- * "Ask" (/ask, master plan item 59) answers questions about the SAME change
- * lifecycle in plain language, so it sits with the core workflow, not Research.
- *
- * "Competitors" (FP10b, 2026-07-02) was removed as a Research entry; its real
- * intelligence lives inside AI questions (/prompts) and /competitors redirects
- * there.
+ * Phase 4D (2026-07-21): the ⌘K palette's "supporting evidence" extras (Ask,
+ * Keyword research, AI questions, Activity receipts) were removed along with
+ * their surfaces, so the palette now lists only the five nav routes. The
+ * stage-of-a-change redirect stubs (/recommendations, /experiments) still
+ * bounce into /changes views but carry no nav or palette entry.
  *
  * The last group deliberately has NO heading: the audit flagged "Settings" as
  * both a group label and an item directly beneath it, which read as the same
@@ -74,15 +65,6 @@ export const navigationGroups: NavGroup[] = [
 ];
 
 export const allNavItems: NavItem[] = navigationGroups.flatMap((g) => g.items);
-
-/** Supporting evidence remains searchable from the existing command palette,
- * but no longer competes with the daily Today → Changes → Results loop. */
-export const paletteOnlyItems: NavItem[] = [
-  { label: "Ask Beacon", href: "/ask", icon: MessageCircle },
-  { label: "Keyword research", href: "/research/keywords", icon: Search },
-  { label: "AI questions", href: "/prompts", icon: ListChecks },
-  { label: "Activity receipts", href: "/activity", icon: History },
-];
 
 /**
  * Kept as an EMPTY group for import compatibility (the server layout + sidebar
@@ -131,31 +113,23 @@ type RouteTitleEntry = {
  * stubs (/worklist, /proof, /moves, /briefs, ...) never paint a header so
  * they are not listed.
  */
+// Phase 4D (2026-07-21): pruned to routes that still render a shell header. The
+// pruned entries (/recommendations, /prompts, /ask, /local, /observations,
+// /topics/opportunity, /competitors, and the retired /settings/{import,prompts,
+// history,spend,methodology,exit-gates,health} sub-pages) named surfaces that no
+// longer exist; a request to any of them 404s or redirects and never paints a
+// header, so a title entry for it was dead weight.
 const EXTRA_ROUTE_TITLES: RouteTitleEntry[] = [
   { prefix: "/changes", title: "Changes", childTitle: "Change detail" },
   { prefix: "/changes/dedupe", title: "Duplicate changes", parentHref: "/changes" },
   { prefix: "/changes/truth", title: "Change verification", parentHref: "/changes" },
-  { prefix: "/recommendations", title: "Drafts", parentHref: "/changes", childTitle: "Draft detail" },
-  { prefix: "/prompts", title: "AI questions", childTitle: "AI question" },
   { prefix: "/page", title: "Page report", childTitle: "Page report" },
-  { prefix: "/ask", title: "Ask" },
   { prefix: "/help", title: "Help & glossary" },
   { prefix: "/onboard", title: "Set up your business", childTitle: "Set up your business" },
   { prefix: "/settings", title: "Settings" },
   { prefix: "/settings/connectors", title: "Connections", parentHref: "/settings" },
   { prefix: "/settings/config", title: "Business info", parentHref: "/settings" },
-  { prefix: "/settings/import", title: "Import", parentHref: "/settings" },
-  { prefix: "/settings/prompts", title: "Tracked questions", parentHref: "/settings" },
-  { prefix: "/settings/history", title: "Data history", parentHref: "/settings", childTitle: "Result history" },
-  { prefix: "/settings/spend", title: "Spend", parentHref: "/settings" },
-  { prefix: "/settings/methodology", title: "How Beacon measures", parentHref: "/settings" },
-  { prefix: "/settings/exit-gates", title: "Sign-offs", parentHref: "/settings" },
-  { prefix: "/settings/health", title: "Source health", parentHref: "/settings" },
   { prefix: "/diagnostics", title: "Diagnostics" },
-  { prefix: "/local", title: "Local presence" },
-  { prefix: "/observations", title: "Scan report", parentHref: "/settings/history", childTitle: "Scan report" },
-  { prefix: "/topics/opportunity", title: "Opportunity detail", parentHref: "/prompts", childTitle: "Opportunity detail" },
-  { prefix: "/competitors", title: "Competitor detail", parentHref: "/prompts", childTitle: "Competitor detail" },
 ];
 
 const ROUTE_TITLES: RouteTitleEntry[] = [

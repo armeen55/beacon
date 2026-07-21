@@ -4,8 +4,6 @@
  * string` parameter and fail loud on missing.
  *
  * Stage D2 (2026-05-09) closed the 14 D-b factory paths:
- *   src/lib/import/engine.ts           (mapResultRow, mapChangeRow,
- *                                       mapOpportunityRow, mapCompetitorRow)
  *   src/domains/pages/extractor.ts     (extractPageSnapshot)
  *   src/domains/pages/discover.ts      (discoverPages — opts.tenantId)
  *   src/domains/pages/guardrails.ts    (classifyGuardrails)
@@ -65,10 +63,9 @@ type FactoryContract = {
 
 const D2_FACTORIES: ReadonlyArray<FactoryContract> = [
   // Positional `tenantId: string` parameter
-  { file: "src/lib/import/engine.ts", fn: "mapResultRow", shape: "positional" },
-  { file: "src/lib/import/engine.ts", fn: "mapChangeRow", shape: "positional" },
-  { file: "src/lib/import/engine.ts", fn: "mapOpportunityRow", shape: "positional" },
-  { file: "src/lib/import/engine.ts", fn: "mapCompetitorRow", shape: "positional" },
+  // src/lib/import/engine.ts (mapResultRow/mapChangeRow/mapOpportunityRow/
+  // mapCompetitorRow) deleted 2026-07-21 (Phase 4D): the CSV import engine was
+  // dead code (no importers); its tenant-isolation contract retired with it.
   { file: "src/domains/pages/extractor.ts", fn: "extractPageSnapshot", shape: "positional" },
   { file: "src/domains/pages/guardrails.ts", fn: "classifyGuardrails", shape: "positional" },
   { file: "src/derivations/snapshot-builder.ts", fn: "buildDerivedSnapshots", shape: "positional" },

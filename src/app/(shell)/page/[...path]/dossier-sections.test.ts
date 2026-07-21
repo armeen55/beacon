@@ -102,11 +102,12 @@ describe("cross-app dossier links (every reachable page-name surface)", () => {
     "../../today-moves-card.tsx", // worklist MoveCard
     "../../daily-experiments-section.tsx", // daily card
     "../../results/results-ledger-card.tsx", // proof ledger rows
-    "../../war-room-sections.tsx", // war-room funnel band
     "../../changes-list-client.tsx", // Changes (/changes) row titles
     // 2026-07-20 diagnostics amputation: Page Surgeon (diagnostics/page-surgeon/*)
     // was deleted with the rest of the /diagnostics web product; those three
     // link-pin cases no longer have a file to scan.
+    // 2026-07-21 Phase 4D: war-room-sections.tsx (the war-room funnel band) was
+    // deleted with the Today band surgery, so its link-pin case is gone too.
   ];
   for (const rel of surfaces) {
     it(`${rel.replace(/^(\.\.\/)+/, "")} links page names through the shared dossierHref helper`, () => {

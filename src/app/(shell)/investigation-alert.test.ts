@@ -1,74 +1,79 @@
 /**
- * InvestigationSection contract pins (2026-07-02, master plan item 53).
+ * InvestigationAlertLine contract pins (2026-07-21, Phase 4D fold of master-plan
+ * item 53).
  *
- * Source-level pins (the OpsPipelineSection sibling pattern): the card must
- * read the PERSISTED diagnosis store (never run an investigation on render),
- * cap the cards and causes shown, self-hide when nothing fired, fail soft to
- * null, carry dark-mode + small-screen classes, never contain an em or en
- * dash, be mounted on Today beside the Ops card, and have the cron wire the
- * runner as an isolated phase.
+ * The standalone InvestigationSection drawer card is gone; its ONE headline
+ * conclusion is folded into a single compact alert line beside the circuit
+ * breaker. The PRODUCER (runInvestigationForTenant, wired into the on-use
+ * enrichment cycle) is unchanged - these pins guard both the new display and the
+ * surviving producer.
  */
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
-const SRC = readFileSync(resolve(__dirname, "investigation-section.tsx"), "utf8");
+const SRC = readFileSync(resolve(__dirname, "investigation-alert.tsx"), "utf8");
 
-describe("InvestigationSection contract", () => {
+describe("InvestigationAlertLine contract", () => {
   it("reads the persisted investigation store (no investigation on render)", () => {
     expect(SRC).toContain('from "@/domains/investigation/investigation-store"');
     expect(SRC).toContain("loadLatestInvestigations(tenantId");
-    expect(SRC).not.toContain("runInvestigationForTenant");
+    // never RUNS an investigation on render (a comment may name the producer)
+    expect(SRC).not.toContain("runInvestigationForTenant(");
     expect(SRC).not.toContain("collectIndexabilityEvidence");
     expect(SRC).not.toContain("detectFamilyCollapses");
   });
 
   it("self-hides when no fresh investigation exists", () => {
-    expect(SRC).toContain("if (rows.length === 0) return null");
+    expect(SRC).toContain("if (!row) return null");
   });
 
-  it("caps the cards and the causes shown", () => {
-    expect(SRC).toContain("MAX_CARDS = 2");
-    expect(SRC).toContain("MAX_CAUSES_SHOWN = 2");
-    expect(SRC).toContain("causes.slice(0, MAX_CAUSES_SHOWN)");
+  it("folds the top cause and its one implied action into the conclusion", () => {
+    expect(SRC).toContain("d.causes[0]");
+    expect(SRC).toContain("topCause.sentence");
+    expect(SRC).toContain("topCause.actionSentence");
   });
 
-  it("shows the one action the diagnosis implies", () => {
-    expect(SRC).toContain("actionSentence");
-    expect(SRC).toContain("Next step:");
+  it("states an honest no-cause conclusion instead of inventing one", () => {
+    expect(SRC).toContain("found no clear cause");
+  });
+
+  it("gives one next step (a link to Changes)", () => {
+    expect(SRC).toContain('href="/changes"');
+    expect(SRC).toContain("Review in Changes");
   });
 
   it("fails soft to null (never a crashed Today)", () => {
     expect(SRC).toMatch(/catch\s*\{\s*return null;\s*\}/);
   });
 
-  it("renders red attention styling with dark-mode + 375px safety", () => {
-    expect(SRC).toContain("border-red-200");
-    expect(SRC).toContain("dark:border-red-900/60");
-    expect(SRC).toContain("break-words");
-    expect(SRC).toContain("flex-wrap");
-    expect(SRC).toContain("tabular-nums");
+  it("speaks first person, one compact line", () => {
+    expect(SRC).toContain("I looked into the clicks drop on");
   });
 
-  it("speaks first person", () => {
-    expect(SRC).toContain("I investigated a clicks drop in the background");
+  it("carries 375px safety classes", () => {
+    expect(SRC).toContain("break-words");
+    expect(SRC).toContain("tabular-nums");
   });
 
   it("contains no em or en dashes anywhere", () => {
     expect(SRC).not.toMatch(/[–—]/);
   });
 
-  it("never claims scheduled/overnight timing (Beacon has no scheduler)", () => {
-    expect(SRC).not.toMatch(/tonight|last night|overnight|nightly/i);
-  });
-
-  it("is mounted on the Today page beside the Ops card", () => {
+  it("is mounted on the Today page in the alert lane", () => {
     const page = readFileSync(resolve(__dirname, "page.tsx"), "utf8");
-    expect(page).toContain('import { InvestigationSection } from "./investigation-section"');
-    expect(page).toContain("<InvestigationSection tenantId={tenantId} />");
+    expect(page).toContain('import { InvestigationAlertLine } from "./investigation-alert"');
+    expect(page).toContain("<InvestigationAlertLine tenantId={tenantId} />");
   });
 
-  it("the on-use enrichment cycle wires the investigation runner as an isolated step", () => {
+  it("the standalone drawer section is fully removed", () => {
+    const page = readFileSync(resolve(__dirname, "page.tsx"), "utf8");
+    expect(page).not.toContain("InvestigationSection");
+  });
+});
+
+describe("investigation producer survives the fold", () => {
+  it("the on-use enrichment cycle still wires the investigation runner as an isolated step", () => {
     // Beacon has no scheduler: the nightly cron was deleted and its $0 producers
     // were re-homed onto the on-use cycle (runOwnedCycle -> runOnVisitEnrichment).
     const enrichment = readFileSync(resolve(__dirname, "../../domains/ops/on-visit-enrichment.ts"), "utf8");

@@ -223,8 +223,9 @@ const DISPLAY_SURFACES = [
   "src/components/today/action-card.tsx",
   "src/components/today/ai-visibility-hero.tsx",
   "src/components/today/first-reading-waiting.tsx",
-  "src/components/today/health-strip.tsx",
-  "src/components/today/how-we-know-panel.tsx",
+  // health-strip.tsx + how-we-know-panel.tsx deleted 2026-07-21 (Phase 4D): the
+  // TodayScoreboard render that mounted them was dead; today-scoreboard.tsx is
+  // now a pure type module.
   "src/components/today/refresh-my-data-button.tsx",
   "src/components/today/today-scoreboard.tsx",
   "src/components/today/visibility-leaderboard.tsx",

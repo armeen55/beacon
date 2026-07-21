@@ -92,7 +92,6 @@ export async function sharpenMovesWithTeardownAction(
   await invalidateWorklistSurface().catch(() => {}); // fresh teardown → "what wins" changes → recompute
   await invalidateChangesSurface().catch(() => {});
   revalidatePath("/");
-  revalidatePath("/prompts");
   revalidatePath("/changes");
   return { status: "ok", audited: audited.length, targets, cached };
 }

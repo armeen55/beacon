@@ -133,19 +133,16 @@ export function CommandPalette({ items: staticItems }: { items: PaletteItem[] })
         //
         // FP4 (2026-07-03) - route-name unification: URLs now match the nav
         // labels, so the chord letters follow the names. g+c = Changes
-        // (/changes), g+e = Results (/results), g+a = Ask. g+r
-        // (/recommendations) was dropped: Drafts left the nav in the
-        // 2026-07-01 consolidation and its route is a redirect into /changes
-        // now. Keep this in lockstep with the help dialog's Navigation group
-        // and `NAV_SHORTCUTS` in `src/app/(shell)/layout.tsx` +
-        // `app-sidebar.tsx`; the architecture test
-        // `customer-nav-exposure.test.ts` enforces no hidden routes.
+        // (/changes), g+e = Results (/results).
+        //
+        // Phase 4D (2026-07-21) - g+a (Ask) and g+p (AI questions) were dropped
+        // with their surfaces; the chord map now targets only the five live nav
+        // routes. Keep this in lockstep with the help dialog's Navigation group
+        // and `NAV_SHORTCUTS` in `src/app/(shell)/layout.tsx` + `app-sidebar.tsx`.
         const routes: Record<string, string> = {
           t: "/",
           c: "/changes",
           e: "/results",
-          a: "/ask",
-          p: "/prompts",
           k: "/settings/connectors",
           s: "/settings",
         };
@@ -387,8 +384,6 @@ export function CommandPalette({ items: staticItems }: { items: PaletteItem[] })
                 <HelpRow keys="G T" label="Today" />
                 <HelpRow keys="G C" label="Changes" />
                 <HelpRow keys="G E" label="Results" />
-                <HelpRow keys="G A" label="Ask" />
-                <HelpRow keys="G P" label="AI questions" />
                 <HelpRow keys="G K" label="Connections" />
                 <HelpRow keys="G S" label="Settings" />
               </HelpGroup>

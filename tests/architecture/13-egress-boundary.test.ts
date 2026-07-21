@@ -27,11 +27,10 @@ const strip = (s: string) =>
   s.replace(/^\s*\/\/.*$/gm, "").replace(/\/\*[\s\S]*?\*\//g, "");
 
 const LOAD_QUEUE_SRC = read("src/domains/recommendations/load-queue.ts");
-const SETTINGS_PROMPTS_SRC = strip(read("src/app/(shell)/settings/prompts/page.tsx"));
-// Surface-collapse (2026-07-21): the standalone /prompts list + /prompts/[id]
-// detail pages were deleted. Their bounded-window egress guards went with them;
-// the surviving route-render egress surfaces (load-queue, settings/prompts,
-// today-v2-data) are still pinned below.
+// Surface-collapse (2026-07-21): the /prompts list + /prompts/[id] detail pages
+// and the /settings/prompts management UI were all deleted. Their bounded-window
+// egress guards went with them; the surviving route-render egress surfaces
+// (load-queue, today-v2-data) are still pinned below.
 const TODAY_V2_DATA_SRC = read("src/app/(shell)/today-v2-data.ts");
 const CANONICAL_STORE_SRC = read("src/storage/canonical-store.ts");
 const SUPABASE_BACKEND_SRC = read("src/lib/persistence/repositories/supabase-backend.ts");
@@ -48,14 +47,6 @@ describe("route loaders read observations bounded, never unbounded", () => {
     expect(LOAD_QUEUE_SRC).toMatch(/leanObservations:\s*true/);
   });
 
-  it("settings/prompts reads only tracked_prompts (no canonical fan-out)", () => {
-    expect(SETTINGS_PROMPTS_SRC).not.toMatch(/loadFreshCanonicalData\s*\(/);
-    expect(SETTINGS_PROMPTS_SRC).not.toMatch(/ensureCanonicalStoresSeeded\s*\(/);
-    expect(SETTINGS_PROMPTS_SRC).toMatch(
-      /getRepository\(\)[\s\S]*?\.forTenant\([^)]+\)[\s\S]*?\.getTrackedPrompts\(\s*\)/,
-    );
-  });
-
   it("today-v2-data windows both observations (60d) and snapshots (120d)", () => {
     expect(TODAY_V2_DATA_SRC).toContain("60 * 86_400_000");
     expect(TODAY_V2_DATA_SRC).toContain("120 * 86_400_000");
@@ -68,7 +59,6 @@ describe("route loaders read observations bounded, never unbounded", () => {
   it("no bare loadFreshCanonicalData() across the route-render sources", () => {
     const all = [
       LOAD_QUEUE_SRC,
-      SETTINGS_PROMPTS_SRC,
       TODAY_V2_DATA_SRC,
     ].join("\n");
     expect(all).not.toMatch(/loadFreshCanonicalData\(\s*\)/);

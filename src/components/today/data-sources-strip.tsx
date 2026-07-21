@@ -1,381 +1,54 @@
-import Link from "next/link";
-import { Check } from "lucide-react";
-import { teammateOf } from "@/domains/team/identity";
-
 import {
   getConnectorHealth,
-  type ConnectorHealth,
-  type ConnectorHealthInfo,
   type ConnectorProvider,
 } from "@/lib/connector-store";
-import { CONNECTOR_CAPABILITY } from "@/components/connectors/connector-capability-copy";
-import {
-  classifySourceFreshness,
-  overallFreshness,
-  sourceFreshnessLine,
-  type SourceFreshness,
-  type SourceKey,
-} from "@/domains/ops/source-freshness";
 import {
   CONNECTOR_REGISTRY,
   connectorById,
   isPublishOnly,
 } from "@/lib/connectors/registry";
-import { monthDayLabel } from "@/components/data/receipt-line";
 
 /**
- * "Your data sources" quick-connect strip (2026-06-15).
+ * Connected-data-source count (Phase 4D, 2026-07-21).
  *
- * A compact, always-useful affordance on the Today command center so the
- * owner can see — at a glance — which sources are connected and connect a
- * missing one in ONE click, without hunting for the operator connectors
- * page.
+ * The old "Your data sources" strip that rendered per-source health on Today was
+ * removed: the connectors page (`/settings/connectors`) already shows every
+ * source's health card AND a "Recent activity" list (recent-upkeep.tsx), so a
+ * second freshness widget on Today was a redundant view of the same numbers.
  *
- * Reuse contract (no new OAuth flow):
- *   - Connection HEALTH comes from `getConnectorHealth(provider, tenantId)` —
- *     an honest three-state derive (connected / needs_attention /
- *     not_connected). A source can be `connected` in the token store yet not
- *     actually deliver data (GA4 with no property picked; never synced; very
- *     stale). Those render a ⚠ "needs attention" treatment with a plain-
- *     English reason — NOT the success-green ✓ — so the owner is never told a
- *     broken source is fine.
- *   - The CONNECT target for every not-connected source is the existing
- *     connectors page (`/settings/connectors`). That page already owns the
- *     real connect entry points — the Google OAuth `getGoogleAuthUrl` server
- *     action behind the "Connect Google Search Console" / "Connect Google
- *     Analytics" buttons, and the paste-a-key forms for Profound, Clarity,
- *     and Wix. We deep-link straight to each source's card via its
- *     `data-connector-card` anchor where one exists (#connector-<id>), so the
- *     owner lands on the exact card to finish the connect in one place.
- *
- * Render contract:
- *   - When ALL six sources are fully healthy, render a tiny confirmation
- *     (never a heavy empty block) that still names the four DISTINCT counts
- *     (Connected / Healthy / Fresh / Has data, UX4 item 3) instead of a single
- *     "all connected" claim, so this strip can never contradict a
- *     broken-pipe alert shown higher on the page.
- *   - Honest copy only: "Connected" / "Connect →". No phantom-automation
- *     claims — connecting just grants access; nothing runs on a schedule.
- *   - The one-click refresh control lives in the PAGE HEADER (UX4 item 6),
- *     not here; this strip is connect/status only.
- *
- * This is a server component island: it reads statuses server-side and emits
- * static markup + links (no client JS needed). Status reads are fail-soft per
- * provider — a read error counts as "not connected" so the strip degrades to
- * a Connect link and never crashes the page.
+ * What survives is the ONE number the page header's "Update data" button needs:
+ * how many read data sources are connected. Kept here (fail-soft, one read per
+ * source in parallel) so the header and any future caller share a single derive.
  */
 
-type DataSource = {
-  provider: ConnectorProvider;
-  /** Plain-English label shown to the owner. */
-  label: string;
-  /**
-   * The connectors-page card anchor. Every connector card carries both
-   * `data-connector-card="<id>"` and `id="connector-<id>"` on its wrapper, so
-   * we deep-link to `#connector-<id>` and the owner lands on the exact card.
-   * (Kept nullable for safety: a null anchor falls back to the page root.)
-   */
-  cardAnchor: string | null;
-};
-
 /**
- * The read/publish sources, in canonical connect order, derived from the ONE
- * connector registry (the same set as `REAL_DATA_SOURCE_PROVIDERS` in
- * connector-store, which defines a "real, non-demo" tenant), so the strip's
- * all-connected state and the gate agree by construction.
+ * The read/publish sources, derived from the ONE connector registry (the same
+ * set `REAL_DATA_SOURCE_PROVIDERS` uses to define a "real, non-demo" tenant), so
+ * this count and the demo gate agree by construction.
  */
-const DATA_SOURCES: readonly DataSource[] = CONNECTOR_REGISTRY.map((c) => ({
-  provider: c.id,
-  label: c.label,
-  cardAnchor: c.cardAnchor,
-}));
-
-// Item 51 - the strip speaks in TEAMMATE identities: each source renders its teammate's
-// color dot, so the team health strip and the roundtable share one visual language.
-// Teammate key comes from the ONE connector registry.
-const TEAMMATE_KEY: Partial<Record<ConnectorProvider, string>> = Object.fromEntries(
-  CONNECTOR_REGISTRY.map((c) => [c.id, c.teammateKey]),
-);
-
-/** Auth-dead detection: a needs_attention reason that means the connection itself is broken
- *  (expired/revoked/invalid) renders RED with a one-click reconnect, not a soft amber. */
-function isAuthDead(reason: string | null): boolean {
-  if (!reason) return false;
-  return /expired|revoked|invalid|reconnect|unauthorized|sign in again/i.test(reason);
-}
-
-const CONNECTORS_PATH = "/settings/connectors";
-
-function connectHref(source: DataSource): string {
-  return source.cardAnchor
-    ? `${CONNECTORS_PATH}#connector-${source.cardAnchor}`
-    : CONNECTORS_PATH;
-}
+const DATA_SOURCES: readonly ConnectorProvider[] = CONNECTOR_REGISTRY.map((c) => c.id);
 
 /**
- * Customer-safe relative "last connected/synced" copy. Never decimals, never
- * negative, never provider jargon. Returns null when there's nothing useful
- * to show.
- */
-function formatLastSynced(iso: string | null, now: number): string | null {
-  if (!iso) return null;
-  const then = Date.parse(iso);
-  if (!Number.isFinite(then)) return null;
-  const hours = Math.floor(Math.max(0, now - then) / (60 * 60 * 1000));
-  if (hours < 1) return "synced just now";
-  if (hours < 24) return `synced ${hours}h ago`;
-  const days = Math.floor(hours / 24);
-  if (days === 1) return "synced 1 day ago";
-  return `synced ${days} days ago`;
-}
-
-type SourceStatus = {
-  source: DataSource;
-  /** Honest three-state health (connected / needs_attention / not_connected). */
-  health: ConnectorHealth;
-  /** Plain-English reason for a needs_attention source; null otherwise. */
-  healthReason: string | null;
-  lastSynced: string | null;
-  /** Raw ISO sync timestamp (independent of the display string above). Used as the recency
-   *  fallback for the freshness line until a loader threads the real per-source data-through. */
-  lastSyncedAtIso: string | null;
-  /** Wave 3A: the source's newest DATA date (YYYY-MM-DD or ISO), the real recency clock -
-   *  NOT sync age. Null until a loader threads it; the freshness line then falls back to the
-   *  sync stamp above. Kept as a field so the true data clock flows through when available. */
-  dataThroughIso: string | null;
-};
-
-/** Wave 3A: providers this strip judges for data freshness, mapped to their canonical SLA
- *  key, derived from the ONE connector registry. GA4 maps to "ga4" (a removed source,
- *  excluded from the tally); a provider not in this map is not part of the freshness verdict. */
-const PROVIDER_TO_SOURCE: Partial<Record<ConnectorProvider, SourceKey>> = Object.fromEntries(
-  CONNECTOR_REGISTRY.map((c) => [c.id, c.sourceKey]),
-);
-
-/**
- * Read every source's health in parallel, fail-soft per provider. A read
- * error → treated as not_connected (shows a Connect link) so the strip never
- * blocks the command-center render.
- */
-async function readStatuses(tenantId?: string): Promise<SourceStatus[]> {
-  const now = Date.now();
-  return Promise.all(
-    DATA_SOURCES.map(async (source) => {
-      let info: ConnectorHealthInfo | null = null;
-      try {
-        info = await getConnectorHealth(source.provider, tenantId, now);
-      } catch {
-        info = null;
-      }
-      const health = info?.health ?? "not_connected";
-      return {
-        source,
-        health,
-        healthReason: info?.healthReason ?? null,
-        // Only show "synced X ago" on the fully-healthy state — a
-        // needs_attention source carries its own reason instead, and a
-        // not_connected one has no sync to report.
-        lastSynced:
-          health === "connected"
-            ? formatLastSynced(info?.last_synced_at ?? null, now)
-            : null,
-        lastSyncedAtIso: info?.last_synced_at ?? null,
-        // The real per-source data-through clock is not read at this layer yet (no new heavy
-        // GET load); the freshness line falls back to the sync stamp above until a loader
-        // threads it. Kept null-honest rather than faking the data date from sync age.
-        dataThroughIso: null,
-      };
-    }),
-  );
-}
-
-/**
- * Wave 3A: judge each source's freshness against its per-source DATA-age SLA (source-freshness.ts),
- * not connection status. A source that is "connected" in the token store but reporting two-week-old
- * data is NOT healthy - that was the "5 healthy while AI is 2 weeks old" leak. GA4 is a removed
- * source (excluded from the tally). A provider with no SLA mapping is skipped.
- * The real data-through clock is used when present; until a loader threads it, the sync stamp is
- * the best available recency signal. PURE given the already-read statuses; no new I/O.
- */
-export function statusesToFreshness(statuses: SourceStatus[], now: Date = new Date()): SourceFreshness[] {
-  const out: SourceFreshness[] = [];
-  for (const s of statuses) {
-    const key = PROVIDER_TO_SOURCE[s.source.provider];
-    if (key == null) continue; // legacy provider not part of the freshness verdict
-    const connected = s.health === "connected" || s.health === "needs_attention";
-    const dataThroughDate = s.dataThroughIso ?? (connected ? s.lastSyncedAtIso : null);
-    out.push(classifySourceFreshness({ source: key, dataThroughDate }, now));
-  }
-  return out;
-}
-
-/**
- * Wave 3A: the one health line, freshness-first. It names the worst REQUIRED source's
- * data-through date (the honest recency floor), never a bare connected count - so it can never
- * read "6 healthy" while a required source's data is stale. GA4 is excluded (removed); Wix is
- * optional and never blocks. UTC monthDayLabel for the date.
- */
-export function dataSourceHealthLine(statuses: SourceStatus[], now: Date = new Date()): string {
-  const overall = overallFreshness(statusesToFreshness(statuses, now));
-  return sourceFreshnessLine(overall, monthDayLabel(overall.worstThrough));
-}
-
-/**
- * Server component island. Pass the tenant id (the caller already resolves
- * `currentTenantId()` on the command-center path); omit it to let
- * `getConnectorHealth` resolve the current tenant.
- */
-export async function DataSourcesStrip({
-  tenantId,
-}: {
-  tenantId?: string;
-}) {
-  const statuses = await readStatuses(tenantId);
-  return <DataSourcesStripView statuses={statuses} />;
-}
-
-/**
- * UX4 item 6 - the header's "Update data" button needs the same connected-source count the
- * strip computes for its own refresh button, so the two never disagree. Exported so the page
- * header (which renders the button ABOVE this strip now) can read one shared number instead of
- * re-deriving its own. Same fail-soft posture as readStatuses: a read error counts a source as
- * not connected.
+ * UX4 item 6 - the header's "Update data" button reads this shared connected-source
+ * count so it never disagrees with any other derive. Fail-soft per provider: a read
+ * error counts a source as not connected. Publish-only sources (Wix) never pull a
+ * reading, so they never count as a "connected DATA source".
  */
 export async function countConnectedDataSources(tenantId?: string): Promise<number> {
-  const statuses = await readStatuses(tenantId);
-  return statuses.filter((s) => {
+  const now = Date.now();
+  const healths = await Promise.all(
+    DATA_SOURCES.map(async (provider) => {
+      try {
+        const info = await getConnectorHealth(provider, tenantId, now);
+        return { provider, health: info?.health ?? "not_connected" as const };
+      } catch {
+        return { provider, health: "not_connected" as const };
+      }
+    }),
+  );
+  return healths.filter((s) => {
     if (s.health !== "connected" && s.health !== "needs_attention") return false;
-    // Publish-only sources (Wix) never pull a reading, so they never count as a
-    // "connected DATA source". Read the fact off the ONE connector registry.
-    const entry = connectorById(s.source.provider);
+    const entry = connectorById(s.provider);
     return entry == null || !isPublishOnly(entry);
   }).length;
-}
-
-/**
- * Pure presentational view — split out so tests can render fixed states
- * without a Supabase round-trip.
- */
-export function DataSourcesStripView({
-  statuses,
-}: {
-  statuses: SourceStatus[];
-}) {
-  // All-connected collapse only when EVERY source is fully healthy — a
-  // connected-but-needs-attention source keeps the full strip visible so its
-  // ⚠ reason is never hidden behind a green "all good" confirmation.
-  const allConnected = statuses.every((s) => s.health === "connected");
-  // Wave 3A: the freshness-first health line - names the worst required source's data-through
-  // date, never a bare connected count, so this strip can never read "all healthy" while a
-  // required source's data is stale.
-  const healthLine = dataSourceHealthLine(statuses);
-
-  if (allConnected) {
-    return (
-      <section
-        aria-label="Your data sources"
-        className="rounded-lg border border-border/40 bg-surface-inset/10 px-4 py-2.5"
-      >
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <p className="text-[12px] text-muted-foreground">
-            <Check aria-hidden="true" className="mr-1 inline-block h-3.5 w-3.5" />
-            {healthLine}{" "}
-            <Link
-              href={CONNECTORS_PATH}
-              className="rounded-sm text-accent-primary underline underline-offset-2 hover:text-accent-primary/85 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary/40"
-            >
-              Manage
-            </Link>
-          </p>
-        </div>
-      </section>
-    );
-  }
-
-  return (
-    <section
-      aria-label="Your data sources"
-      className="rounded-lg border border-border/60 bg-surface-inset/20 px-4 py-3"
-    >
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div>
-          <h2 className="text-[12px] font-semibold text-foreground tracking-tight">
-            Your data sources
-          </h2>
-          {/* UX4 item 3 - the same four-state line here too, so a source that needs
-              attention is never buried under a bare heading. */}
-          <p className="text-[11px] text-muted-foreground">{healthLine}</p>
-        </div>
-        <Link
-          href={CONNECTORS_PATH}
-          className="rounded-sm text-[12px] text-accent-primary underline underline-offset-2 hover:text-accent-primary/85 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary/40"
-        >
-          Manage all
-        </Link>
-      </div>
-      <ul className="mt-2 flex flex-wrap gap-2">
-        {statuses.map(({ source, health, healthReason, lastSynced }) => {
-          // What Beacon does with this source, in plain English (same copy as
-          // the connectors page) — surfaced as a hover tooltip + folded into
-          // the accessible name so the "why connect this?" answer is right
-          // here on Today, not only on the settings page.
-          const automated = CONNECTOR_CAPABILITY[source.provider]?.automated;
-          return (
-          <li key={source.provider}>
-            {health === "connected" ? (
-              <span
-                className="inline-flex min-h-[44px] items-center gap-1.5 rounded-md border border-status-success/40 bg-status-success/[0.06] px-3 py-2 text-[12px] text-foreground"
-                title={automated}
-                aria-label={`${source.label}: connected${lastSynced ? `, ${lastSynced}` : ""}`}
-              >
-                <span aria-hidden="true" className="inline-flex items-center gap-1">
-                  <span className="inline-block h-2 w-2 rounded-full" style={{ background: teammateOf(TEAMMATE_KEY[source.provider] ?? "llm").color }} />
-                  <span className="inline-block h-1.5 w-1.5 rounded-full bg-status-success" />
-                </span>
-                <span className="font-medium">{source.label}</span>
-                {lastSynced ? (
-                  <span className="text-muted-foreground">· {lastSynced}</span>
-                ) : null}
-              </span>
-            ) : health === "needs_attention" ? (
-              // Connected in the token store, but provably NOT delivering data
-              // yet (no GA4 property picked / never synced / very stale). Honest
-              // ⚠ treatment — NOT the success green ✓ — plus the actionable
-              // reason and a deep-link to fix it on the connectors page. The
-              // reason is the visible text AND the accessible name.
-              <Link
-                href={connectHref(source)}
-                title={automated}
-                aria-label={`${source.label}: needs attention. ${healthReason ?? ""}`.trim()}
-                className="inline-flex min-h-[44px] items-center gap-1.5 rounded-md border border-status-warning/50 bg-status-warning/[0.08] px-3 py-2 text-[12px] text-foreground transition-colors hover:border-status-warning/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-status-warning/40"
-              >
-                <span aria-hidden="true" className="inline-flex items-center gap-1">
-                  <span className="inline-block h-2 w-2 rounded-full" style={{ background: teammateOf(TEAMMATE_KEY[source.provider] ?? "llm").color }} />
-                  <span className={`inline-block h-1.5 w-1.5 rounded-full ${isAuthDead(healthReason) ? "bg-status-danger" : "bg-status-warning"}`} />
-                </span>
-                <span className="font-medium">{source.label}</span>
-                {healthReason ? (
-                  <span className="text-muted-foreground">· {healthReason}</span>
-                ) : null}
-                {isAuthDead(healthReason) ? (
-                  <span className="font-semibold text-status-danger">Reconnect →</span>
-                ) : null}
-              </Link>
-            ) : (
-              <Link
-                href={connectHref(source)}
-                title={automated}
-                aria-label={`Connect ${source.label}`}
-                className="inline-flex min-h-[44px] items-center gap-1.5 rounded-md border border-border/60 bg-background px-3 py-2 text-[12px] font-medium text-foreground transition-colors hover:border-foreground/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary/40"
-              >
-                <span>{source.label}</span>
-                <span className="text-accent-primary">Connect →</span>
-              </Link>
-            )}
-          </li>
-          );
-        })}
-      </ul>
-    </section>
-  );
 }

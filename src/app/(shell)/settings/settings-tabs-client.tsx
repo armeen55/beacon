@@ -8,8 +8,8 @@ import { SETTINGS_SECTIONS } from "./settings-sections";
 /**
  * FP4 (2026-07-03) - the tab strip renders the ONE settings table of contents
  * (settings-sections.ts), the same list the /settings index page shows as
- * cards, so the two can never disagree again. A deeper page (e.g.
- * /settings/history/<id>) keeps its parent tab lit.
+ * cards, so the two can never disagree again. A deeper page under a section
+ * (e.g. /settings/connectors/...) keeps its parent tab lit.
  */
 export function SettingsTabsClient({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();

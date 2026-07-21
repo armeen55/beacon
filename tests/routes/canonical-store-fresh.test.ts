@@ -37,13 +37,9 @@ const FILES = {
     "../../src/app/(shell)/recommendations/page.tsx",
   ),
   // Surface-collapse (2026-07-21): the standalone /prompts + /prompts/[id]
-  // render paths were deleted; their fresh-per-render pins went with them. The
-  // surviving render-path freshness invariants (recommendations redirect,
-  // settings/prompts direct reads, today-v2-data) stay pinned below.
-  settingsPrompts: resolve(
-    __dirname,
-    "../../src/app/(shell)/settings/prompts/page.tsx",
-  ),
+  // render paths AND the /settings/prompts management UI were deleted; their
+  // fresh-per-render pins went with them. The surviving render-path freshness
+  // invariants (recommendations redirect, today-v2-data) stay pinned below.
   todayData: resolve(__dirname, "../../src/app/(shell)/today-v2-data.ts"),
 };
 
@@ -247,24 +243,6 @@ describe("Sprint 4 / Phase 4.9 — canonical-store fresh-per-render", () => {
     // exist; the tenant-repo read patterns they exercised remain pinned by
     // the surviving settings/prompts + today-v2-data assertions here and by
     // tests/architecture/*scoped-reads*.
-
-    it("/settings/prompts does NOT import canonical-store fan-out APIs (deploy hardening 2026-05-12)", () => {
-      // Deploy hardening (2026-05-12) — `/settings/prompts` now reads
-      // `tracked_prompts` directly via the tenant repo, skipping the
-      // canonical-store fan-out entirely. The page no longer needs to
-      // touch the `@/storage/canonical-store` module. Pinned by
-      // `tests/architecture/deploy-settings-prompts-dynamic.test.ts`
-      // and `tests/architecture/egress-bounded-reads-p0.test.ts`.
-      const canonImports = SRC.settingsPrompts.match(
-        /import\s+\{[^}]+\}\s+from\s+["']@\/storage\/canonical-store["']/g,
-      );
-      expect(canonImports).toBeNull();
-      // Must use the direct tenant-repo reader instead.
-      expect(SRC.settingsPrompts).toMatch(
-        /from\s+["']@\/lib\/persistence\/repositories["']/,
-      );
-      expect(SRC.settingsPrompts).toMatch(/\.getTrackedPrompts\(\s*\)/);
-    });
 
     it("today-v2-data.ts imports loadFreshCanonicalData AND does not statically import dailyMetricSnapshots", () => {
       const canonImports = SRC.todayData.match(

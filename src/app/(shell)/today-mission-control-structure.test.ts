@@ -1,10 +1,12 @@
 /**
- * Wave 3B (2026-07-10) - Today is MISSION CONTROL. This suite pins the six-slot hierarchy and the
- * contradiction kills that give the operator ONE command in under five seconds:
+ * Wave 3B (2026-07-10; Phase 4D surgery 2026-07-21) - Today is MISSION CONTROL. This suite pins
+ * the stripped-down spine and the contradiction kills that give the operator ONE command in
+ * under five seconds:
  *
- *   - slot 1 (Ops / CircuitBreaker) is self-hiding, never an unconditional banner
+ *   - slot 1 (CircuitBreaker + the investigation conclusion) is self-hiding, never a hard banner
+ *   - the redundant ops-pipeline banner is gone; its defect signal feeds the ONE command instead
  *   - slot 2 (the ONE command) is always rendered, and the killed lead cards are gone
- *   - slot 6 is collapsed behind ONE <details> ("More on today"), closed by default
+ *   - the whole "More on today" drawer and every war-room band are removed
  *   - the "No action is required" reassurance is OWNED by the observe command, suppressed on the
  *     greeting brief for every other kind
  *   - the 7-day clicks number renders ONCE on Today (the header bar dropped its duplicate)
@@ -64,28 +66,44 @@ function change(overrides: Partial<CanonicalChange> = {}): CanonicalChange {
   };
 }
 
-describe("Today six-slot structure (source invariants)", () => {
+describe("Today stripped-spine structure (source invariants)", () => {
   it("slot 2: the ONE command card is always rendered (not behind a condition)", () => {
     expect(PAGE).toContain("<TodayCommandCard command={command} />");
   });
 
-  it("slot 6: everything else is behind ONE collapsed drill-down", () => {
-    expect(PAGE).toContain('data-more-on-today="true"');
-    expect(PAGE).toContain("More on today");
-    // The <details> must NOT be open by default - the drill-down is deliberate.
-    expect(PAGE).not.toMatch(/<details[^>]*\sopen\b/);
+  it("the whole 'More on today' drawer is removed", () => {
+    expect(PAGE).not.toContain('data-more-on-today="true"');
+    expect(PAGE).not.toMatch(/<details\b/);
+    expect(PAGE).not.toContain("<summary");
   });
 
   it("slot 1: the truth warnings are self-hiding (Suspense fallback null), never a hard banner", () => {
-    expect(PAGE).toContain("<Suspense fallback={null}><OpsPipelineSection tenantId={tenantId} /></Suspense>");
     expect(PAGE).toContain("<Suspense fallback={null}><CircuitBreakerSection /></Suspense>");
+    expect(PAGE).toContain("<Suspense fallback={null}><InvestigationAlertLine tenantId={tenantId} /></Suspense>");
+  });
+
+  it("the redundant ops-pipeline banner is gone (its defect signal feeds the command)", () => {
+    // the banner is neither imported nor mounted (a comment may still name it)
+    expect(PAGE).not.toContain("<OpsPipelineSection");
+    expect(PAGE).not.toContain('from "./ops-pipeline-section"');
+    // the command still consumes the same inputs the banner used to
+    expect(PAGE).toContain("deriveDefectSignal");
+  });
+
+  it("the war-room bands and the north-star line are removed from Today", () => {
+    expect(PAGE).not.toContain("FrictionFixesSection");
+    expect(PAGE).not.toContain("DemandOpportunitiesSection");
+    expect(PAGE).not.toContain("WarRoomQuietLine");
+    expect(PAGE).not.toContain("TodayNewPagesSummaryLine");
+    expect(PAGE).not.toContain("MonthlyNorthStar");
+    expect(PAGE).not.toContain("AutonomousResearchStatus");
+    expect(PAGE).not.toContain("DataSourcesStrip");
   });
 
   it("the subsumed lead cards and the opportunities list are KILLED from Today", () => {
     expect(PAGE).not.toContain("TodaySmokeAlarmCard");
     expect(PAGE).not.toContain("TodayLeadHeadlineCard");
     expect(PAGE).not.toContain("CumulativeOutcomeSection");
-    // the killed "What to do next" list (DemandOpportunitiesSection is a different, kept band)
     expect(PAGE).not.toContain("<OpportunitiesSection");
     expect(PAGE).not.toContain("function OpportunitiesSection");
     expect(PAGE).not.toContain("<MeasuringSection");

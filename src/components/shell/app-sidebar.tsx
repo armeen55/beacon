@@ -22,12 +22,12 @@ import { useShell } from "./shell-provider";
 // FP4 (2026-07-03): keys follow the ROUTE NAMES now that URLs match nav labels.
 // G C = Changes (/changes), G E = Results (/results). Keep in lockstep with the
 // g-chord handler in command-palette.tsx + NAV_SHORTCUTS in (shell)/layout.tsx.
+// Phase 4D (2026-07-21): only the five live nav routes carry a hint; the /ask
+// (G A) and /prompts (G P) shortcuts were dropped with their surfaces.
 const NAV_SHORTCUTS: Record<string, string> = {
   "/": "G T",
   "/changes": "G C",
   "/results": "G E",
-  "/ask": "G A",
-  "/prompts": "G P",
   "/settings/connectors": "G K",
   "/settings": "G S",
 };

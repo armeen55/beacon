@@ -1711,17 +1711,6 @@ export function ConnectorsClient({
           </div>
         </div>
       )}
-
-      {/* ── Manual import note ── */}
-      <div className="rounded-lg border border-border/40 bg-surface-inset/10 px-5 py-3">
-        <p className="text-[11px] text-muted-foreground leading-relaxed">
-          Manual CSV/JSON import remains available under{" "}
-          <a href="/settings/import" className="text-accent-primary hover:underline">
-            Settings → Import
-          </a>{" "}
-          regardless of connector status. Connectors are additive; they do not replace manual import.
-        </p>
-      </div>
     </div>
   );
 }

@@ -291,7 +291,8 @@ export const GLOBAL_STORES = new Set<string>([
   "confidence-calibration",
   "business-config",
   "competitor-universe",
-  "exit-gates",
+  // "exit-gates" was removed 2026-07-21 (Phase 4D): its only reader/writer
+  // (lib/exit-gates-store.ts) was deleted with the phase-sign-off surface.
   "milestone-state",
   "scan-state",
   "last-scan-result",

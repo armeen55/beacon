@@ -51,7 +51,7 @@ describe("Connectors settings route smoke", () => {
     const tree = await ConnectorsPage();
     const html = renderToStaticMarkup(tree as ReactElement);
 
-    expect(html).toContain("Connectors");
+    expect(html).toContain("Connect your tools");
     expect(html).toContain("Google Search Console");
     expect(html).toContain("Connect Google Search Console");
     // Slice 9.A1β (2026-05-18) — Google Analytics card now ships in
@@ -70,7 +70,6 @@ describe("Connectors settings route smoke", () => {
     expect(html).toContain("connected");
     expect(html).toContain("Automatic upkeep:");
     expect(html).toContain("The only thing I never do on my own is change your live site");
-    expect(html).toContain("Manual CSV/JSON import remains available");
     expect(html).not.toContain("Autopilot for proven changes");
     expect(html).not.toContain("Prepare tomorrow");
   });
