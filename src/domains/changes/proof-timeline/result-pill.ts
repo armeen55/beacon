@@ -1,26 +1,33 @@
 /**
- * /changes proof timeline — result-pill resolver.
+ * /changes proof timeline - result-pill resolver.
  *
- * Bundle (2026-05-10) — second pass at /changes per the maximum-depth
- * UI audit (~/.claude/plans/i-want-a-maximum-depth-curried-curry.md):
- * collapse the legacy table's three competing pills (Attribution
- * Status + Impact Direction + Verdict) into ONE customer-facing
- * "result" pill per row. The v2 timeline card calls this resolver
- * once per row.
+ * Bundle (2026-05-10) - second pass at /changes per the maximum-depth
+ * UI audit: collapse the legacy table's three competing pills into ONE
+ * customer-facing "result" pill per row. The v2 timeline card calls
+ * this resolver once per row.
  *
- * Pure module — no I/O, no DOM, no React. Lives next to the rest of
+ * Verdict-engine consolidation (2026-07-21, CORE 100K Lane F): the pill
+ * used to read the parallel URL Z-score verdict engine. It now reads the
+ * SAME proof-gsc measurement presentation Results renders (shipped-change
+ * ledger -> buildMeasurementPresentation), so one change can never carry
+ * two competing verdicts on one page. A row with no shipped-change proof
+ * coverage gets an honest "not measured" line, never an invented verdict.
+ *
+ * Pure module - no I/O, no DOM, no React. Lives next to the rest of
  * the proof-timeline helpers so it's testable in Node and reusable
  * from any future surface (timeline rail, share view, etc.).
  *
  * Customer-vocabulary contract (forbidden-vocabulary guardrail):
- *   • Labels are plain English ("Helping", "Hurting", "Too early",
+ *   - Labels are plain English ("Helping", "Hurting", "Too early",
  *     "No signal yet", "Needs review", "Live", "Watching").
- *   • Blurbs are one-line sentences a non-engineer reads as truth.
- *   • Never reference the Z-score engine, evidence tier, lifecycle
- *     classification, raw event enum names, or any other internal
- *     subsystem.
+ *   - Blurbs are one-line sentences a non-engineer reads as truth.
+ *   - Never reference maturity enums, calibration, lifecycle
+ *     classification, or any other internal subsystem.
  */
-import type { VerdictLabel } from "@/domains/attribution/url-verdict";
+import type {
+  MeasurementDirection,
+  MeasurementMaturity,
+} from "@/domains/proof-gsc/measurement-maturity";
 import type { LifecycleTabClass } from "@/domains/attribution/lifecycle-classification";
 import type { ImplementationStatus } from "@/domains/recommendations/recommended-edits-persistence";
 
@@ -50,37 +57,57 @@ export type ProofPill = {
   blurb: string;
 };
 
+/**
+ * The minimal slice of the proof-gsc MeasurementPresentation the pill
+ * needs. Built by the caller from buildMeasurementPresentation over the
+ * row's shipped-change ledger record (calibration-quarantined verdict in,
+ * so an uncalibrated won/lost already reads as inconclusive here).
+ */
+export type ProofMeasurementSummary = {
+  maturity: MeasurementMaturity;
+  direction: MeasurementDirection;
+  verdict: "helped" | "no_lift" | "did_not_help" | null;
+};
+
 export type ResolveProofPillInput = {
-  /** URL-level result, when one was computed for this change. */
-  urlVerdict: { verdict: VerdictLabel } | null;
+  /** Google-measured presentation for this change's proof record. Null when
+   *  the change has no shipped-change proof coverage (not being measured). */
+  proof: ProofMeasurementSummary | null;
   /** Classifier output: which timeline bucket this row sits in. */
   lifecycleClass: LifecycleTabClass | null;
   /** Linked edit's implementation status, when one joins this row. */
   lifecycleStatus: ImplementationStatus | null;
 };
 
+const TOO_EARLY_PILL: ProofPill = {
+  kind: "too_early",
+  label: "Too early",
+  tone: "muted",
+  blurb: "Too soon to tell. I need more days of Google data after this change.",
+};
+
 /**
  * Resolve the single customer-facing pill + blurb for one /changes row.
  *
  * Decision order (first match wins):
- *   1. `needs_review` class → "Needs review".
- *   2. Pending implementation (accepted but not yet on the page) →
+ *   1. `needs_review` class -> "Needs review".
+ *   2. Pending implementation (accepted but not yet on the page) ->
  *      "Watching".
- *   3. Linked edit is `not_implemented` → "Needs review" (the scan
+ *   3. Linked edit is `not_found_after_7d` -> "Needs review" (the scan
  *      never found the proposed change after the bake window).
- *   4. URL verdict is `helping` → "Helping".
- *   5. URL verdict is `hurting` → "Hurting".
- *   6. URL verdict is one of the early/insufficient buckets
- *      → "Too early".
- *   7. URL verdict is `nothing_yet` → "No signal yet".
- *   8. URL verdict is `weak_signal` → "Watching" (directional only,
- *      never described as proof).
- *   9. URL verdict is `not_implemented` → "Needs review".
- *  10. Row is `live_verified` with no computable verdict → "Live".
- *  11. Otherwise → "Watching".
+ *   4. A proof-gsc measurement exists for the row:
+ *      - mature helped -> "Helping"; mature did_not_help -> "Hurting";
+ *        mature without lift, or inconclusive -> "No signal yet";
+ *      - an early or interim read -> "Watching" (directional only,
+ *        never described as proof);
+ *      - unresolved (Google's data never arrived) -> "No signal yet";
+ *      - still collecting / blocked -> "Too early".
+ *   5. No proof coverage + row is `live_verified` -> "Live", saying
+ *      plainly the change is not being measured.
+ *   6. Otherwise -> "Watching", with the same honest not-measured line.
  */
 export function resolveProofPill(input: ResolveProofPillInput): ProofPill {
-  const { urlVerdict, lifecycleClass, lifecycleStatus } = input;
+  const { proof, lifecycleClass, lifecycleStatus } = input;
 
   // 1. Needs-review bucket.
   if (lifecycleClass === "needs_review") {
@@ -92,7 +119,7 @@ export function resolveProofPill(input: ResolveProofPillInput): ProofPill {
     };
   }
 
-  // 2. Pending implementation — accepted but the scan hasn't seen it
+  // 2. Pending implementation - accepted but the scan hasn't seen it
   //    live on the site. Always "Watching" so the timeline reads as
   //    in-flight rather than measured.
   if (lifecycleClass === "pending_implementation") {
@@ -105,7 +132,7 @@ export function resolveProofPill(input: ResolveProofPillInput): ProofPill {
   }
 
   // 3. Linked edit confirmed "not implemented" (bake window passed,
-  //    scan never matched). Operator should look — surface as Needs
+  //    scan never matched). Operator should look - surface as Needs
   //    review even if the row sits in a different bucket.
   if (lifecycleStatus === "not_found_after_7d") {
     return {
@@ -116,76 +143,93 @@ export function resolveProofPill(input: ResolveProofPillInput): ProofPill {
     };
   }
 
-  if (urlVerdict) {
-    switch (urlVerdict.verdict) {
-      case "helping":
-        // "since this change" — NOT "after this change went live": a helping/
-        // hurting verdict can attach to a row that isn't lifecycle-verified live
-        // (the live gate only short-circuits pending/not-found above), so we must
-        // not assert live-on-site as fact. The verdict is measured relative to the
-        // change's recorded date, which "since this change" states honestly.
+  // 4. The row joins a shipped-change proof record: read the SAME
+  //    maturity-gated presentation Results renders. An early read is
+  //    never surfaced as a verdict.
+  if (proof) {
+    if (proof.maturity === "mature_result") {
+      if (proof.verdict === "helped") {
         return {
           kind: "helping",
           label: "Helping",
           tone: "success",
-          blurb: "AI has been mentioning you more since this change.",
+          blurb: "More people found this page from Google since this change.",
         };
-      case "hurting":
+      }
+      if (proof.verdict === "did_not_help") {
         return {
           kind: "hurting",
           label: "Hurting",
           tone: "danger",
-          blurb: "AI has been mentioning you less since this change.",
+          blurb: "Fewer people found this page from Google since this change.",
         };
-      case "too_early":
-      case "not_enough_data":
-      case "not_enough_native_baseline":
-        return {
-          kind: "too_early",
-          label: "Too early",
-          tone: "muted",
-          blurb: "Too soon to tell. We need more days of data after the change.",
-        };
-      case "nothing_yet":
-        return {
-          kind: "no_signal_yet",
-          label: "No signal yet",
-          tone: "muted",
-          blurb: "Nothing has moved yet. We are still watching.",
-        };
-      case "weak_signal":
+      }
+      return {
+        kind: "no_signal_yet",
+        label: "No signal yet",
+        tone: "muted",
+        blurb: "The full 28 days passed without a clear move in your Google numbers.",
+      };
+    }
+    if (proof.maturity === "inconclusive") {
+      return {
+        kind: "no_signal_yet",
+        label: "No signal yet",
+        tone: "muted",
+        blurb: "I watched the full 28 days but the data was too thin for a clear answer.",
+      };
+    }
+    if (
+      proof.maturity === "early_checkpoint" ||
+      proof.maturity === "interim_checkpoint" ||
+      proof.maturity === "attribution_limited"
+    ) {
+      if (proof.direction === "positive") {
         return {
           kind: "watching",
           label: "Watching",
           tone: "info",
-          blurb: "Early signs of movement, but not enough to be sure yet.",
+          blurb: "Early signs of a lift in your Google numbers. I will call it after the full 28 days.",
         };
-      case "not_implemented":
+      }
+      if (proof.direction === "negative") {
         return {
-          kind: "needs_review",
-          label: "Needs review",
-          tone: "warning",
-          blurb: "We waited, but couldn't find this change on the page. Worth a look.",
+          kind: "watching",
+          label: "Watching",
+          tone: "info",
+          blurb: "The early Google read looks soft so far. I will call it after the full 28 days.",
         };
+      }
+      return TOO_EARLY_PILL;
     }
+    if (proof.maturity === "unresolved") {
+      return {
+        kind: "no_signal_yet",
+        label: "No signal yet",
+        tone: "muted",
+        blurb: "Google never sent enough data to measure this one, so I stopped waiting on it.",
+      };
+    }
+    // scheduled / collecting / blocked_data - nothing readable yet.
+    return TOO_EARLY_PILL;
   }
 
-  // 10. Live and confirmed on the page, but no measurable verdict yet.
+  // 5. Live and confirmed on the page, but not on the measured ledger:
+  //    say so plainly instead of inventing a verdict.
   if (lifecycleClass === "live_verified") {
     return {
       kind: "live",
       label: "Live",
       tone: "success",
-      blurb: "Live on your site. We are watching to see if AI mentions you more.",
+      blurb: "Live on your site. I am not measuring this one against your Google data yet.",
     };
   }
 
-  // 11. Calm default — Beacon knows about the row but doesn't have a
-  //     stronger answer yet.
+  // 6. Calm default - Beacon knows about the row but is not measuring it.
   return {
     kind: "watching",
     label: "Watching",
     tone: "info",
-    blurb: "We are keeping an eye on this change.",
+    blurb: "I logged this change but I am not measuring it against your Google data yet.",
   };
 }

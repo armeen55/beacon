@@ -33,6 +33,17 @@ vi.mock("@/lib/seed-data.server", async (importOriginal) => {
   return { ...actual, hasActiveExperiment: async () => true };
 });
 
+// Verdict-engine consolidation (2026-07-21): the timeline joins rows to the
+// request-memoized /results measured-ledger snapshot. Stub it empty so this
+// render contract stays hermetic (no SWR store or tenant reads).
+vi.mock("@/app/(shell)/results/results-ledger-data", () => ({
+  loadResultsLedgerSurface: vi.fn(async () => ({
+    ledger: [],
+    computedAt: null,
+    closedContaminationById: new Map(),
+  })),
+}));
+
 vi.mock("@/app/(shell)/changes/changes-v2-client", () => {
   const React = require("react") as typeof import("react");
   return {

@@ -29,18 +29,18 @@
  *   └──────────────────────────────────────────┴─────────────────────────┘
  *
  * Pure presentation — no state, no server actions, no data layer
- * rewrite. Consumes the same `EnrichedChangeRow[]` the legacy
- * scorecard table consumes; the proof-pill resolver collapses the
- * legacy three-pill row into ONE customer-readable pill per card.
+ * rewrite. Consumes `EnrichedChangeRow[]` (changelog entry + the
+ * proof-gsc measurement summary); the proof-pill resolver collapses
+ * that into ONE customer-readable pill per card.
  *
  * Customer-vocabulary contract (forbidden-vocabulary guardrail):
- *   • No "Z-score", "evidence tier", or other internal vocabulary
- *     ever appears in rendered copy.
+ *   • No maturity enums, calibration words, or other internal
+ *     vocabulary ever appear in rendered copy.
  *   • Raw verdict / lifecycle enums stay as code identifiers; the
  *     customer reads "Helping" / "Watching" / "Live" / etc.
- *   • Pattern-timing reads as "Similar changes usually show signal
- *     around day N" — never references median_landing_day or the
- *     pattern brain.
+ *   • Timing reads as "I will take the next Google reading on
+ *     [date]" — sourced from the proof ledger's own checkpoint
+ *     schedule, never a guess.
  */
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
@@ -126,7 +126,7 @@ export function ChangesV2Client({
     targetUrl: card.targetUrl,
     shippedAt: card.shippedAt,
     pillKind: card.pill.kind,
-    readyOn: card.readyOn,
+    nextCheckpoint: card.nextCheckpoint,
   }));
   const railItems = buildWaitingRail(railInput);
 
@@ -259,10 +259,8 @@ type ProjectInput = {
 };
 
 type ProjectedCardRow = ChangesV2CardRow & {
-  readyOn: {
-    daysFromChange: number;
-    confidenceTier: "high" | "medium" | "low" | null;
-  } | null;
+  /** Soonest future proof checkpoint (YYYY-MM-DD), threaded to the rail. */
+  nextCheckpoint: string | null;
   /** Parity with legacy scorecard gating: linked edit is `accepted`. */
   canMarkShipped: boolean;
 };
@@ -273,19 +271,19 @@ function projectToCardRows({
   editStatusByChangelogId,
 }: ProjectInput): ProjectedCardRow[] {
   return rows.map((row) => {
-    const ch = row.scorecard.change;
+    const ch = row.change;
     const lifecycleClass: LifecycleTabClass =
       classByChangelogId[ch.id] ?? "unclassified";
     const lifecycleStatus: ImplementationStatus | null =
       editStatusByChangelogId[ch.id] ?? null;
 
     const pill: ProofPill = resolveProofPill({
-      urlVerdict: row.urlVerdict ?? null,
+      proof: row.proof,
       lifecycleClass,
       lifecycleStatus,
     });
 
-    const patternTimingNarrative = formatPatternTiming(row.readyOn ?? null);
+    const patternTimingNarrative = formatNextReading(row.proof, pill.kind);
 
     // Project the raw change_description into a short customer-
     // facing title. Strips prompt IDs, internal "packet"
@@ -309,28 +307,38 @@ function projectToCardRows({
       // the operator can confirm is live). The server action re-validates
       // this server-side, so a stale UI can't skip the Accept step.
       canMarkShipped: lifecycleStatus === "accepted",
-      readyOn: row.readyOn
-        ? {
-            daysFromChange: row.readyOn.daysFromChange,
-            confidenceTier: row.readyOn.confidenceTier,
-          }
-        : null,
+      nextCheckpoint: row.proof?.nextCheckpoint ?? null,
     };
   });
 }
 
 /**
- * Rewrite the row's `readyOn` field into ONE customer-safe sentence.
- * Returns `null` when there's no pattern timing to surface (the card
- * skips the line).
+ * ONE customer-safe timing sentence per card: the date the proof ledger
+ * takes its next Google reading for this row. Only shown while the row is
+ * still pre-verdict (a decided row has nothing left to wait for), and
+ * only when the ledger actually scheduled a checkpoint. Returns `null`
+ * when there is nothing honest to say (the card skips the line).
  */
-function formatPatternTiming(
-  readyOn: EnrichedChangeRow["readyOn"] | null,
+function formatNextReading(
+  proof: EnrichedChangeRow["proof"],
+  pillKind: ProofPill["kind"],
 ): string | null {
-  if (!readyOn) return null;
-  const day = readyOn.daysFromChange;
-  if (!Number.isFinite(day) || day <= 0) return null;
-  return `Similar changes usually show signal around day ${day}.`;
+  if (!proof?.nextCheckpoint) return null;
+  if (pillKind !== "too_early" && pillKind !== "watching") return null;
+  const formatted = formatCheckpointDate(proof.nextCheckpoint);
+  if (!formatted) return null;
+  return `I will take the next Google reading on ${formatted}.`;
+}
+
+/** "2026-07-28" -> "July 28". Null on an unparseable date (skip the line). */
+function formatCheckpointDate(isoDate: string): string | null {
+  const parsed = Date.parse(`${isoDate}T00:00:00Z`);
+  if (!Number.isFinite(parsed)) return null;
+  return new Date(parsed).toLocaleDateString("en-US", {
+    month: "long",
+    day: "numeric",
+    timeZone: "UTC",
+  });
 }
 
 // ─────────────────────────────────────────────────────────────────────

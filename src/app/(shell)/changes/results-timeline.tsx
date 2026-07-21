@@ -1,32 +1,22 @@
 import Link from "next/link";
-// R4 (2026-07-03) - this timeline renders only on /results, so its ledger COUNT
-// reads the same request-memoized SWR snapshot the page already serves instead of
-// re-triggering a full re-measure (loadProofLedger) for one number.
+// R4 (2026-07-03) - this timeline renders only on /results, so its ledger read
+// uses the same request-memoized SWR snapshot the page already serves instead of
+// re-triggering a full re-measure (loadProofLedger).
 import { loadResultsLedgerSurface } from "../results/results-ledger-data";
+import { presentationVerdictFor } from "../results/proof-badge";
 import { isOperatorModeServer } from "@/lib/operator-mode";
-import { getOpportunities, getResults } from "@/lib/seed-data.server";
 import type { ChangelogEntry } from "@/domains/changelog/types";
-import { getEventDecisions } from "@/domains/attribution/store";
-import { computeScorecard } from "@/domains/attribution/scorecard";
-import { enrichWithImpact } from "@/domains/attribution/change-impact";
-import type { EnrichedChangeRow } from "./types";
+import type { EnrichedChangeRow, ChangeRowProof } from "./types";
 import { ChangesV2Client } from "./changes-v2-client";
 import { getRepository } from "@/lib/persistence/repositories";
 import { currentTenantId } from "@/lib/tenant-context";
-import {
-  buildUrlCitationHistory,
-  getSeriesForUrl,
-  denseSeries,
-  normalizeUrl,
-} from "@/domains/product/url-citation-history";
-import { computeUrlVerdict } from "@/domains/attribution/url-verdict";
 import { maybeRefreshUrlWatcher } from "@/domains/product/url-watcher";
-import { readStore } from "@/lib/persistence/json-store";
+import { findProofForChange } from "@/domains/proof-gsc/change-proof-link";
+import type { ShippedChangeRecord } from "@/domains/proof-gsc/shipped-change-store";
 import {
-  findBestUrlPattern,
-  type UrlChangePattern,
-} from "@/domains/learning/change-patterns";
-import { extractEditTokens } from "@/domains/changelog/dedupe";
+  buildMeasurementPresentation,
+  detectMeasurementOverlaps,
+} from "@/domains/proof-gsc/measurement-maturity";
 import {
   changelogJoinKey,
   classifyAll,
@@ -50,12 +40,18 @@ import {
  * ResultsTimeline — the "what changed / is it measuring / did it work" timeline.
  *
  * IA consolidation (2026-06-23): this is the former `/changes` index body,
- * extracted verbatim (no attribution/proof math changes) so it can be embedded
- * inside the single Results (/results) page. The /changes index is now a thin
- * redirect to /results; this component renders the v2 proof timeline with its
- * own header SUPPRESSED (Results shows the page header) and without the
- * duplicate proof-ledger strip (Results already renders the measured-outcomes
- * ledger above it).
+ * extracted so it can be embedded inside the single Results (/results) page.
+ * The /changes index is now a thin redirect to /results; this component renders
+ * the v2 proof timeline with its own header SUPPRESSED (Results shows the page
+ * header) and without the duplicate proof-ledger strip.
+ *
+ * Verdict-engine consolidation (2026-07-21, CORE 100K Lane F): the per-row
+ * result used to come from a parallel URL Z-score verdict engine plus the
+ * legacy ChangeImpact scorecard. Each row now joins the SAME shipped-change
+ * proof ledger Results renders (request-memoized SWR snapshot) and reads the
+ * maturity-gated buildMeasurementPresentation summary, so one change can never
+ * show two competing verdicts on one page. Rows without proof coverage say
+ * plainly they are not being measured.
  *
  * Embedded empty/error states are compact (no PageHeader) so they compose
  * cleanly as a section under the Results page.
@@ -157,100 +153,64 @@ export async function ResultsTimeline() {
       }
     }
 
-    const URL_HISTORY_WINDOW_DAYS = 60;
-    const urlHistorySinceDate = new Date(
-      Date.now() - URL_HISTORY_WINDOW_DAYS * 86_400_000,
-    )
-      .toISOString()
-      .slice(0, 10);
-    const urlHistory = await buildUrlCitationHistory({
-      ownedOnly: true,
-      sinceDate: urlHistorySinceDate,
-    });
-    const today = new Date().toISOString().slice(0, 10);
-    const historyRange = {
-      first: urlHistory.date_range.first ?? today,
-      last: urlHistory.date_range.last ?? today,
+    // The measured ledger this page's verdict bands already render. The SWR
+    // surface read is request-memoized (React cache), so this shares ONE
+    // snapshot with the rest of /results. Fail-soft to [] - the rows then
+    // render the honest not-measured line, same posture as the count below.
+    let ledger: ShippedChangeRecord[] = [];
+    try {
+      ledger = (await loadResultsLedgerSurface()).ledger;
+    } catch (err) {
+      console.error("[results-timeline] proof ledger read failed (non-fatal)", err);
+    }
+
+    const proofNow = new Date();
+    const overlapById = detectMeasurementOverlaps(
+      ledger.map((r) => ({ id: r.id, path: r.path, shippedAt: r.shippedAt })),
+    );
+    // Same compact presentation input today-moves-data.ts uses: the pill needs
+    // mature-vs-not + direction, not the blocked/collecting split, so the GSC
+    // watermark is omitted. The calibration quarantine (presentationVerdictFor)
+    // keeps an uncalibrated won/lost reading as inconclusive, matching the
+    // Results cards above this section.
+    const proofSummaryFor = (record: ShippedChangeRecord): ChangeRowProof => {
+      const basisWin = (record.windows ?? [])
+        .filter((w) => w.ran)
+        .sort((a, b) => b.day - a.day)[0];
+      const pres = buildMeasurementPresentation({
+        shippedAt: record.shippedAt,
+        now: proofNow,
+        latestGscDate: null,
+        windows: (record.windows ?? []).map((w) => ({ day: w.day, ran: w.ran })),
+        verdict: presentationVerdictFor(record),
+        controlsUsed: basisWin?.controlsUsed ?? 0,
+        baselineImpressions: record.baseline?.impressions ?? 0,
+        overlap: overlapById.get(record.id) ?? null,
+        live: true,
+        weakComparison: record.controlMatchWeak === true,
+      });
+      return {
+        maturity: pres.maturity,
+        direction: pres.direction,
+        verdict: pres.verdict,
+        nextCheckpoint: pres.nextCheckpoint,
+      };
     };
 
-    const [results, opportunities, eventDecisions] = await Promise.all([
-      getResults(),
-      getOpportunities(),
-      getEventDecisions(),
-    ]);
-    const rawRows = computeScorecard(
-      allRowsForClassifier,
-      results,
-      opportunities,
-      eventDecisions,
-    );
-    const rows = enrichWithImpact(rawRows);
-
-    rows.sort(
+    const sortedRows = [...allRowsForClassifier].sort(
       (a, b) =>
-        new Date(b.change.timestamp).getTime() -
-        new Date(a.change.timestamp).getTime(),
+        new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime(),
     );
 
-    const urlPatterns = await readStore<UrlChangePattern>("url-change-patterns");
-
-    const enriched: EnrichedChangeRow[] = rows.map((scorecard) => {
-      const change = scorecard.change;
-      const changeDate = change.timestamp.slice(0, 10);
-
-      const rawUrl = change.url?.trim() ?? "";
-      const looksLikeUrl =
-        rawUrl.startsWith("/") || /^https?:\/\//i.test(rawUrl);
-      const normUrl = looksLikeUrl ? normalizeUrl(rawUrl) : null;
-      const series = normUrl ? getSeriesForUrl(urlHistory, normUrl) : null;
-
-      if (!series) {
-        return {
-          scorecard,
-          urlVerdict: null,
-          seriesPreview: null,
-          hasUrl: !!normUrl,
-        };
-      }
-
-      const dense = denseSeries(series, historyRange);
-      const verdict = computeUrlVerdict({
-        series: dense,
-        changeDate,
-        asOfDate: historyRange.last,
-      });
-
-      let readyOn: EnrichedChangeRow["readyOn"] = null;
-      if (verdict.verdict === "too_early") {
-        readyOn = computeReadyOn({
-          changeTimestamp: change.timestamp,
-          editTypeTokens: [...extractEditTokens(change.change_description)],
-          assetType: change.asset_type,
-          patterns: urlPatterns,
-        });
-      }
-
+    const enriched: EnrichedChangeRow[] = sortedRows.map((change) => {
+      const record = findProofForChange(change, ledger);
       return {
-        scorecard,
-        urlVerdict: verdict,
-        seriesPreview: dense.filter((d) => {
-          const c = new Date(changeDate).getTime();
-          const t = new Date(d.date).getTime();
-          return Math.abs(t - c) / 86_400_000 <= 45;
-        }),
-        hasUrl: true,
-        readyOn,
+        change,
+        proof: record ? proofSummaryFor(record) : null,
       };
     });
 
-    let proofLedgerCount = 0;
-    if (isOperatorModeServer()) {
-      try {
-        proofLedgerCount = (await loadResultsLedgerSurface()).ledger.length;
-      } catch {
-        proofLedgerCount = 0;
-      }
-    }
+    const proofLedgerCount = isOperatorModeServer() ? ledger.length : 0;
 
     return (
       <ChangesV2Client
@@ -290,74 +250,4 @@ export function ResultsTimelineReadError() {
       </p>
     </section>
   );
-}
-
-/**
- * G5 — "Ready on [date]" prediction for a too-early row (moved verbatim from
- * the /changes index; no math change).
- */
-function computeReadyOn(input: {
-  changeTimestamp: string;
-  editTypeTokens: string[];
-  assetType: import("@/lib/constants").AssetType;
-  patterns: UrlChangePattern[];
-}): EnrichedChangeRow["readyOn"] {
-  const FALLBACK_DAYS = 7;
-
-  const pattern = findBestUrlPattern(
-    input.editTypeTokens as import("@/domains/changelog/dedupe").EditToken[],
-    input.assetType,
-    input.patterns,
-  );
-
-  const changeMs = new Date(input.changeTimestamp).getTime();
-
-  if (
-    pattern &&
-    pattern.helping_count > 0 &&
-    pattern.median_landing_day !== null
-  ) {
-    const readyMs = changeMs + pattern.median_landing_day * 86_400_000;
-    return {
-      readyDate: new Date(readyMs).toISOString().slice(0, 10),
-      daysFromChange: pattern.median_landing_day,
-      patternId: pattern.id,
-      helpingCount: pattern.helping_count,
-      sampleCount: pattern.sample_count,
-      confidenceTier: pattern.confidence_tier,
-      narrative: `${pattern.helping_count} of ${pattern.sample_count} similar ${prettyToken(pattern.edit_type_token)} edits on ${prettyAsset(pattern.asset_type)}s landed by day ${pattern.median_landing_day}.`,
-    };
-  }
-
-  if (pattern) {
-    const readyMs = changeMs + FALLBACK_DAYS * 86_400_000;
-    return {
-      readyDate: new Date(readyMs).toISOString().slice(0, 10),
-      daysFromChange: FALLBACK_DAYS,
-      patternId: pattern.id,
-      helpingCount: 0,
-      sampleCount: pattern.sample_count,
-      confidenceTier: pattern.confidence_tier,
-      narrative: `No prior ${prettyToken(pattern.edit_type_token)} edits on ${prettyAsset(pattern.asset_type)}s have landed as helping yet in your workspace (${pattern.sample_count} sample${pattern.sample_count === 1 ? "" : "s"}, 0 helping). Using 7-day default.`,
-    };
-  }
-
-  const readyMs = changeMs + FALLBACK_DAYS * 86_400_000;
-  return {
-    readyDate: new Date(readyMs).toISOString().slice(0, 10),
-    daysFromChange: FALLBACK_DAYS,
-    patternId: null,
-    helpingCount: 0,
-    sampleCount: 0,
-    confidenceTier: null,
-    narrative: `No prior similar-edit data in your workspace yet. Using 7-day default. Beacon will sharpen this once more changes land.`,
-  };
-}
-
-function prettyToken(token: string): string {
-  return token.replace(/_/g, " ");
-}
-
-function prettyAsset(asset: string): string {
-  return asset.replace(/_/g, " ");
 }

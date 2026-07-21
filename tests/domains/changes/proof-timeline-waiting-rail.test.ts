@@ -2,8 +2,10 @@
  * /changes proof-timeline — "Waiting for signal" rail builder.
  *
  * Pins that the rail filters to in-flight rows, sorts newest-first,
- * caps results, and rewrites the pattern-timing prediction into ONE
- * customer-safe sentence per item.
+ * caps results, and names the next Google reading date from the proof
+ * ledger's own checkpoint schedule (verdict-engine consolidation
+ * 2026-07-21, CORE 100K Lane F: the retired pattern-brain "ready on"
+ * guess no longer feeds this rail).
  */
 import { describe, expect, it } from "vitest";
 
@@ -19,7 +21,7 @@ function row(overrides: Partial<WaitingRailInput> = {}): WaitingRailInput {
     targetUrl: "/services/modern-home-builder-atherton",
     shippedAt: "2026-05-01T00:00:00Z",
     pillKind: "too_early",
-    readyOn: null,
+    nextCheckpoint: null,
     ...overrides,
   };
 }
@@ -64,23 +66,42 @@ describe("buildWaitingRail", () => {
     expect(items.length).toBe(3);
   });
 
-  it("rewrites readyOn into a plain-English narrative with the day number", () => {
+  it("names the next Google reading date from the proof checkpoint", () => {
     const items = buildWaitingRail([
-      row({
-        readyOn: { daysFromChange: 7, confidenceTier: "high" },
-      }),
+      row({ nextCheckpoint: "2026-05-15" }),
     ]);
     expect(items.length).toBe(1);
-    expect(items[0].narrative).toContain("day 7");
-    expect(items[0].narrative.toLowerCase()).toContain("similar changes");
+    expect(items[0].narrative).toBe(
+      "I will take the next Google reading on May 15.",
+    );
   });
 
-  it("falls back to a generic narrative when readyOn is null", () => {
-    const items = buildWaitingRail([row({ readyOn: null })]);
-    expect(items[0].narrative.toLowerCase()).toContain("watching");
+  it("says plainly when no reading is scheduled yet", () => {
+    const items = buildWaitingRail([row({ nextCheckpoint: null })]);
+    expect(items[0].narrative).toBe(
+      "I have not scheduled a Google reading for this one yet.",
+    );
   });
 
-  it("never leaks pattern-brain / median-landing vocabulary", () => {
+  it("live rows without proof coverage get the honest not-measured line", () => {
+    const items = buildWaitingRail([
+      row({ pillKind: "live", nextCheckpoint: null }),
+    ]);
+    expect(items[0].narrative).toBe(
+      "Live on your site. This one is not on my measured list yet.",
+    );
+  });
+
+  it("skips an unparseable checkpoint date instead of rendering garbage", () => {
+    const items = buildWaitingRail([
+      row({ nextCheckpoint: "not-a-date" }),
+    ]);
+    expect(items[0].narrative).toBe(
+      "I have not scheduled a Google reading for this one yet.",
+    );
+  });
+
+  it("never leaks internal vocabulary or em/en dashes", () => {
     const banned = [
       "median_landing",
       "median landing",
@@ -89,19 +110,24 @@ describe("buildWaitingRail", () => {
       "edit_type",
       "edit type",
       "asset_type",
+      "checkpoint",
+      "maturity",
+      "baseline",
+      "experiment",
+      "control",
     ];
     const items = buildWaitingRail([
-      row({ readyOn: { daysFromChange: 7, confidenceTier: "high" } }),
-      row({ readyOn: { daysFromChange: 14, confidenceTier: "medium" } }),
-      row({ readyOn: { daysFromChange: 3, confidenceTier: "low" } }),
-      row({ readyOn: null }),
-      row({ pillKind: "live", readyOn: null }),
+      row({ nextCheckpoint: "2026-05-15" }),
+      row({ nextCheckpoint: null }),
+      row({ pillKind: "watching", nextCheckpoint: "2026-06-01" }),
+      row({ pillKind: "live", nextCheckpoint: null }),
     ]);
     for (const it of items) {
       const lower = it.narrative.toLowerCase();
       for (const term of banned) {
         expect(lower, `narrative leaked '${term}'`).not.toContain(term);
       }
+      expect(it.narrative).not.toMatch(/[–—]/);
     }
   });
 });

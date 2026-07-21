@@ -1,55 +1,35 @@
-import type { ScorecardRowWithImpact } from "@/domains/attribution/change-impact";
-import type { UrlVerdict } from "@/domains/attribution/url-verdict";
+import type { ChangelogEntry } from "@/domains/changelog/types";
+import type { ProofMeasurementSummary } from "@/domains/changes/proof-timeline/result-pill";
 
 /**
  * Shared /changes row types.
  *
- * Surface collapse (2026-06-15) — these types used to live in the legacy
- * `scorecard-client.tsx`. They were imported by BOTH the legacy table and
- * the v2 proof timeline (`page.tsx` + `changes-v2-client.tsx`). When the
- * legacy client was deleted, the types moved here so the v2 surface no
- * longer depends on a legacy client module.
+ * Surface collapse (2026-06-15) - these types used to live in the legacy
+ * `scorecard-client.tsx`. Verdict-engine consolidation (2026-07-21, CORE
+ * 100K Lane F) retired the parallel URL Z-score verdict and the legacy
+ * ChangeImpact scorecard: a timeline row now carries the changelog entry
+ * plus the SAME proof-gsc measurement summary Results renders, joined via
+ * the shipped-change ledger (change-proof-link.ts).
  */
 
 /**
- * A single row on the /changes page.
- * - `scorecard` = the per-change row with topic event attributions
- *   (kept for drill-down context only; NOT used for the verdict).
- * - `urlVerdict` = the URL-level Z-score verdict (the new primary signal).
- *   null when the change has no URL (site-wide).
- * - `seriesPreview` = trimmed dense daily series around the change date for
- *   optional sparkline rendering in the expand panel.
- * - `hasUrl` = convenience; `false` means site-wide / untracked.
- * - `readyOn` = dynamic "Ready on [date]" prediction from the URL pattern
- *   brain, attached only when the verdict is `too_early`. Tells the
- *   operator when to check back for a landed verdict.
+ * A single row on the raw-change-log timeline (embedded in /results).
+ * - `change` = the changelog entry (title, URL, timestamp, ids).
+ * - `proof` = the maturity-gated Google measurement summary for the row's
+ *   shipped-change ledger record. Null when the change has no proof
+ *   coverage - the pill then says plainly it is not being measured.
  */
 export type EnrichedChangeRow = {
-  scorecard: ScorecardRowWithImpact;
-  urlVerdict: UrlVerdict | null;
-  seriesPreview: Array<{ date: string; count: number }> | null;
-  hasUrl: boolean;
-  readyOn?: ReadyOnPrediction | null;
+  change: ChangelogEntry;
+  proof: ChangeRowProof | null;
 };
 
 /**
- * G5 — "Ready on [date]" block shown on too-early rows. Sourced from the
- * URL pattern brain (`url-change-patterns.json`) when a matching bucket
- * exists, else a transparent fallback.
+ * The proof slice a timeline row needs: the pill summary plus the soonest
+ * future checkpoint date so pre-verdict rows can name when the next Google
+ * reading lands (replaces the retired pattern-brain "ready on" guess).
  */
-export type ReadyOnPrediction = {
-  /** ISO date string for when first verdict read-out is expected. */
-  readyDate: string;
-  /** Days from the change timestamp until readyDate. */
-  daysFromChange: number;
-  /** Bucket we derived from, or null when falling back. */
-  patternId: string | null;
-  /** Helping-count in bucket. 0 = fallback triggered. */
-  helpingCount: number;
-  /** Total sample count in the bucket. */
-  sampleCount: number;
-  /** Confidence tier of the bucket (null when fallback). */
-  confidenceTier: "high" | "medium" | "low" | null;
-  /** Plain-English sentence ready for render. */
-  narrative: string;
+export type ChangeRowProof = ProofMeasurementSummary & {
+  /** Soonest future proof checkpoint date (YYYY-MM-DD), or null. */
+  nextCheckpoint: string | null;
 };

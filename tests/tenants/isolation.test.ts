@@ -18,7 +18,6 @@ import {
   getFindingsForTenant,
   getPagesForTenant,
   getSnapshotsForTenant,
-  getOutcomesForTenant,
   getObservationRunsForTenant,
 } from "@/lib/tenant-data";
 import { getTenantOrThrow, listTenants } from "@/domains/tenants/store";
@@ -97,14 +96,6 @@ describe("tenant data isolation — founder tenant", () => {
     }
   });
 
-  it("getOutcomesForTenant returns only founder data", async () => {
-    const outcomes = await getOutcomesForTenant(FOUNDER);
-    expect(outcomes.length).toBeGreaterThan(0);
-    for (const o of outcomes) {
-      expect(o.tenant_id).toBe(FOUNDER);
-    }
-  });
-
   it("getObservationRunsForTenant returns only founder data", async () => {
     const runs = await getObservationRunsForTenant(FOUNDER);
     expect(runs.length).toBeGreaterThan(0);
@@ -133,10 +124,6 @@ describe("tenant data isolation — nonexistent tenant returns empty", () => {
 
   it("getPagesForTenant returns empty for unknown tenant", async () => {
     expect(await getPagesForTenant(NONEXISTENT)).toEqual([]);
-  });
-
-  it("getOutcomesForTenant returns empty for unknown tenant", async () => {
-    expect(await getOutcomesForTenant(NONEXISTENT)).toEqual([]);
   });
 
   it("getObservationRunsForTenant returns empty for unknown tenant", async () => {

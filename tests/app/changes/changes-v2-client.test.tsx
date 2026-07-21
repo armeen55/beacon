@@ -34,7 +34,7 @@ vi.mock("@/app/(shell)/changes/actions", () => ({
 }));
 
 import { ChangesV2Client } from "@/app/(shell)/changes/changes-v2-client";
-import type { EnrichedChangeRow } from "@/app/(shell)/changes/types";
+import type { EnrichedChangeRow, ChangeRowProof } from "@/app/(shell)/changes/types";
 import type { LifecycleTabClass } from "@/domains/attribution/lifecycle-classification";
 import type { ImplementationStatus } from "@/domains/recommendations/recommended-edits-persistence";
 
@@ -43,53 +43,52 @@ type RowOverrides = {
   description?: string;
   url?: string | null;
   timestamp?: string;
-  verdict?: import("@/domains/attribution/url-verdict").VerdictLabel | null;
-  readyOn?: EnrichedChangeRow["readyOn"];
+  /** Proof-gsc measurement summary for the row's ledger record. Omitted =
+   *  a mature helped result; null = no proof coverage (not measured). */
+  proof?: ChangeRowProof | null;
 };
+
+/** Shorthand proof summaries mirroring the old verdict fixture vocabulary. */
+const PROOF = {
+  helping: {
+    maturity: "mature_result",
+    direction: "positive",
+    verdict: "helped",
+    nextCheckpoint: null,
+  },
+  hurting: {
+    maturity: "mature_result",
+    direction: "negative",
+    verdict: "did_not_help",
+    nextCheckpoint: null,
+  },
+  tooEarly: {
+    maturity: "collecting",
+    direction: "unknown",
+    verdict: null,
+    nextCheckpoint: "2026-05-15",
+  },
+  earlyPositive: {
+    maturity: "early_checkpoint",
+    direction: "positive",
+    verdict: null,
+    nextCheckpoint: "2026-05-20",
+  },
+} satisfies Record<string, ChangeRowProof>;
 
 function makeRow(over: RowOverrides = {}): EnrichedChangeRow {
   const id = over.id ?? "change-1";
   return {
-    scorecard: {
-      // Cast only the parts we actually use in the card.
-      change: {
-        id,
-        timestamp: over.timestamp ?? "2026-05-04T00:00:00Z",
-        asset_type: "page",
-        url: over.url === undefined ? "/services/modern-home-builder-atherton" : over.url,
-        asset_name: "Modern Home Builder Atherton",
-        change_description:
-          over.description ?? "Add an FAQ section for Atherton modern home builder",
-      } as unknown as EnrichedChangeRow["scorecard"]["change"],
-      verdict: "ok" as never,
-      verdictSummary: "",
-      evidenceTier: "exact" as never,
-      evidenceFlags: [],
-      topScore: null,
-      topConfidence: null,
-      topTrust: null,
-      eventAttributions: [],
-      platforms: [],
-      topics: [],
-      totalEventsLinked: 0,
-      operatorConfirmedCount: 0,
-      daysSinceChange: 7,
-      impact: {
-        confidence: "low",
-        direction: "neutral",
-        whyExplanation: "",
-        nextAction: "",
-      } as never,
-    },
-    urlVerdict:
-      over.verdict === null
-        ? null
-        : ({
-            verdict: over.verdict ?? ("helping" as const),
-          } as unknown as EnrichedChangeRow["urlVerdict"]),
-    seriesPreview: null,
-    hasUrl: true,
-    readyOn: over.readyOn ?? null,
+    change: {
+      id,
+      timestamp: over.timestamp ?? "2026-05-04T00:00:00Z",
+      asset_type: "page",
+      url: over.url === undefined ? "/services/modern-home-builder-atherton" : over.url,
+      asset_name: "Modern Home Builder Atherton",
+      change_description:
+        over.description ?? "Add an FAQ section for Atherton modern home builder",
+    } as unknown as EnrichedChangeRow["change"],
+    proof: over.proof === undefined ? PROOF.helping : over.proof,
   };
 }
 
@@ -159,8 +158,8 @@ describe("ChangesV2Client — proof timeline", () => {
   it("renders timeline cards with exactly ONE result pill per card", () => {
     const html = render({
       rows: [
-        makeRow({ id: "card-1", verdict: "helping" }),
-        makeRow({ id: "card-2", verdict: "hurting" }),
+        makeRow({ id: "card-1", proof: PROOF.helping }),
+        makeRow({ id: "card-2", proof: PROOF.hurting }),
       ],
       classByChangelogId: {
         "card-1": "live_verified",
@@ -190,27 +189,19 @@ describe("ChangesV2Client — proof timeline", () => {
     expect(html).toContain("Open change");
   });
 
-  it("renders the Waiting-for-signal rail for too-early rows with pattern-timing rewritten", () => {
+  it("renders the Waiting-for-signal rail for too-early rows naming the next reading date", () => {
     const html = render({
       rows: [
         makeRow({
           id: "waiting-1",
-          verdict: "too_early",
-          readyOn: {
-            readyDate: "2026-05-15",
-            daysFromChange: 7,
-            patternId: "pat-1",
-            helpingCount: 3,
-            sampleCount: 4,
-            confidenceTier: "high",
-            narrative: "Internal narrative",
-          },
+          proof: PROOF.tooEarly,
         }),
       ],
     });
     expect(html).toContain('data-changes-rail="waiting-for-signal"');
     expect(html).toContain('data-changes-rail-item="true"');
-    expect(html).toContain("Similar changes usually show signal around day 7");
+    // The date comes from the proof ledger's own checkpoint schedule.
+    expect(html).toContain("I will take the next Google reading on May 15.");
   });
 
   it("no longer renders the 'Open table view' customer-facing footer CTA (removed 2026-05-12)", () => {
@@ -230,22 +221,10 @@ describe("ChangesV2Client — proof timeline", () => {
   it("never leaks internal vocabulary in the rendered output", () => {
     const html = render({
       rows: [
-        makeRow({ id: "r1", verdict: "helping" }),
-        makeRow({ id: "r2", verdict: "too_early" }),
-        makeRow({ id: "r3", verdict: "weak_signal" }),
-        makeRow({
-          id: "r4",
-          verdict: "too_early",
-          readyOn: {
-            readyDate: "2026-05-20",
-            daysFromChange: 7,
-            patternId: "pat-1",
-            helpingCount: 3,
-            sampleCount: 4,
-            confidenceTier: "high",
-            narrative: "Internal narrative",
-          },
-        }),
+        makeRow({ id: "r1", proof: PROOF.helping }),
+        makeRow({ id: "r2", proof: PROOF.tooEarly }),
+        makeRow({ id: "r3", proof: PROOF.earlyPositive }),
+        makeRow({ id: "r4", proof: null }),
       ],
       classByChangelogId: {
         r1: "live_verified",
@@ -308,16 +287,7 @@ describe("ChangesV2Client — proof timeline", () => {
         makeRow({
           id: "rail-leaky",
           description: rawLeaky,
-          verdict: "too_early",
-          readyOn: {
-            readyDate: "2026-05-15",
-            daysFromChange: 7,
-            patternId: "pat-1",
-            helpingCount: 3,
-            sampleCount: 4,
-            confidenceTier: "high",
-            narrative: "internal",
-          },
+          proof: PROOF.tooEarly,
         }),
       ],
     });
@@ -334,7 +304,7 @@ describe("ChangesV2Client — proof timeline", () => {
   it("shows the Mark shipped button ONLY for an accepted edit (legacy gating parity)", () => {
     // Accepted → button present (operator can confirm it's live).
     const acceptedHtml = render({
-      rows: [makeRow({ id: "accepted-row", verdict: null })],
+      rows: [makeRow({ id: "accepted-row", proof: null })],
       classByChangelogId: { "accepted-row": "pending_implementation" },
       editStatusByChangelogId: { "accepted-row": "accepted" },
     });
@@ -344,7 +314,7 @@ describe("ChangesV2Client — proof timeline", () => {
     // Recommended (NOT yet accepted) → button absent. Mirrors the legacy
     // M4 rule: Mark shipped must never skip the Accept step.
     const recommendedHtml = render({
-      rows: [makeRow({ id: "rec-row", verdict: null })],
+      rows: [makeRow({ id: "rec-row", proof: null })],
       classByChangelogId: { "rec-row": "pending_implementation" },
       editStatusByChangelogId: { "rec-row": "recommended" },
     });
@@ -352,14 +322,14 @@ describe("ChangesV2Client — proof timeline", () => {
 
     // No linked edit status at all → button absent (legacy / scan rows).
     const noStatusHtml = render({
-      rows: [makeRow({ id: "plain-row", verdict: "helping" })],
+      rows: [makeRow({ id: "plain-row", proof: PROOF.helping })],
       classByChangelogId: { "plain-row": "live_verified" },
     });
     expect(noStatusHtml).not.toContain('data-changes-card-mark-shipped="true"');
 
     // Already verified_live → button absent (nothing left to confirm).
     const liveHtml = render({
-      rows: [makeRow({ id: "live-row", verdict: "helping" })],
+      rows: [makeRow({ id: "live-row", proof: PROOF.helping })],
       classByChangelogId: { "live-row": "live_verified" },
       editStatusByChangelogId: { "live-row": "verified_live" },
     });
@@ -375,7 +345,7 @@ describe("ChangesV2Client — proof timeline", () => {
     );
     const classByChangelogId: Record<string, LifecycleTabClass> = {};
     for (const r of many) {
-      classByChangelogId[r.scorecard.change.id] = "live_verified";
+      classByChangelogId[r.change.id] = "live_verified";
     }
     const html = render({ rows: many, classByChangelogId });
     const cards = html.match(/data-changes-card="proof-timeline"/g) ?? [];

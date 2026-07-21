@@ -40,13 +40,14 @@ describe("Sprint 1 / Phase 1.3 — /changes fresh-read invariants", () => {
       // The mutable array `changelogEntries` lives at module scope in
       // seed-data.server and is hydrated once per lambda cold start. Any
       // render-visible import of it re-introduces the cross-lambda stale-read
-      // bug. Type-only imports of `ChangelogEntry` are fine because they
-      // disappear at compile time.
+      // bug. Verdict-engine consolidation (2026-07-21) removed the timeline's
+      // seed-data.server imports entirely (getResults/getOpportunities fed the
+      // retired scorecard), so today there is no import block at all; if one
+      // ever returns it must not carry the mutable array.
       const importBlocks = PAGE_SOURCE.match(
         /import\s+\{[^}]+\}\s+from\s+["']@\/lib\/seed-data\.server["']/g,
       );
-      expect(importBlocks).not.toBeNull();
-      for (const block of importBlocks!) {
+      for (const block of importBlocks ?? []) {
         expect(block).not.toMatch(/\bchangelogEntries\b/);
       }
     });
@@ -152,25 +153,18 @@ describe("Sprint 1 / Phase 1.3 — /changes fresh-read invariants", () => {
         useSearchParams: () => new URLSearchParams(),
         usePathname: () => "/changes",
       }));
-      vi.doMock("@/lib/seed-data.server", () => ({
-        getOpportunities: vi.fn(async () => []),
-        getResults: vi.fn(async () => []),
-        hasActiveExperiment: vi.fn(async () => true),
-      }));
-      vi.doMock("@/domains/attribution/store", () => ({
-        getEventDecisions: vi.fn(async () => []),
-      }));
       vi.doMock("@/domains/product/url-watcher", () => ({
         maybeRefreshUrlWatcher: vi.fn(async () => {}),
       }));
-      vi.doMock("@/domains/product/url-citation-history", () => ({
-        buildUrlCitationHistory: () => ({
-          series_by_url: {},
-          date_range: { first: null, last: null },
-        }),
-        getSeriesForUrl: () => null,
-        denseSeries: () => [],
-        normalizeUrl: (u: string) => u,
+      // Verdict-engine consolidation (2026-07-21): the timeline joins rows to
+      // the request-memoized /results measured-ledger snapshot. Stub it empty
+      // so this suite pins the fresh changelog read, not the proof join.
+      vi.doMock("@/app/(shell)/results/results-ledger-data", () => ({
+        loadResultsLedgerSurface: vi.fn(async () => ({
+          ledger: [],
+          computedAt: null,
+          closedContaminationById: new Map(),
+        })),
       }));
       vi.doMock("@/domains/observations/read", () => ({
         latestWebsiteCrawlRun: () => null,

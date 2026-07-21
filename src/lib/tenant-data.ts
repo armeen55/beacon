@@ -33,7 +33,6 @@ import type { Finding } from "@/domains/scanning/types";
 import type { PageEntity, PageSnapshot } from "@/domains/pages/types";
 import type { ObservationRun } from "@/domains/observations/types";
 import type { DailyMetricSnapshot } from "@/domains/daily-metric-snapshots/types";
-import type { ChangeOutcome } from "@/domains/attribution/change-outcome";
 
 // ---------------------------------------------------------------------------
 // Generic filter
@@ -211,12 +210,6 @@ export async function getSnapshotsForTenant(
   );
 }
 
-export async function getOutcomesForTenant(
-  tenantId: string,
-): Promise<ChangeOutcome[]> {
-  return filterByTenant(
-    await readStore<ChangeOutcome>("change-outcomes"),
-    tenantId,
-  );
-}
+// getOutcomesForTenant removed 2026-07-21 (CORE 100K Lane F): no callers; the
+// ChangeOutcome type retired with the attribution memory loop.
 

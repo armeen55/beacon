@@ -2,21 +2,23 @@
  * /changes proof timeline — "Waiting for signal" right-rail builder.
  *
  * Bundle (2026-05-10) — second pass at /changes per the maximum-depth
- * UI audit (~/.claude/plans/i-want-a-maximum-depth-curried-curry.md).
- * The right rail surfaces the rows the operator is actively waiting
- * on, plus a plain-English line ("Similar changes usually show signal
- * around day N") rewritten from the existing pattern-timing
- * `readyOn` field.
+ * UI audit. The right rail surfaces the rows the operator is actively
+ * waiting on, plus a plain-English line naming when the next Google
+ * reading lands (from the proof ledger's own checkpoint schedule).
+ *
+ * Verdict-engine consolidation (2026-07-21, CORE 100K Lane F): the
+ * timing line used to come from the retired pattern-brain "ready on"
+ * guess. It now reads the row's proof-gsc `nextCheckpoint` date, the
+ * same schedule Results renders, so the rail never promises a date the
+ * measurement engine did not set.
  *
  * Pure module. Consumes a minimal projection of EnrichedChangeRow so
- * tests can pin behavior without rebuilding the whole scorecard
- * pipeline.
+ * tests can pin behavior with plain JSON fixtures.
  *
  * Customer-vocabulary contract:
- *   • Narratives use plain English ("Similar changes usually show
- *     signal around day N"). No median-landing-day terminology, no
- *     references to the pattern brain, no edit-type/asset-type
- *     vocabulary.
+ *   • Narratives use plain English ("I will take the next Google
+ *     reading on July 28."). No maturity enums, no internal
+ *     checkpoint/window vocabulary.
  *   • Items have a stable href for navigation to /changes/[id].
  */
 
@@ -38,11 +40,8 @@ export type WaitingRailInput = {
     | "needs_review"
     | "live"
     | "watching";
-  /** Pattern-timing prediction, when one exists. */
-  readyOn: {
-    daysFromChange: number;
-    confidenceTier: "high" | "medium" | "low" | null;
-  } | null;
+  /** Soonest future proof checkpoint (YYYY-MM-DD), when one is scheduled. */
+  nextCheckpoint: string | null;
 };
 
 export type WaitingRailItem = {
@@ -90,22 +89,30 @@ export function buildWaitingRail(
 }
 
 /**
- * Convert the row's pill kind + readyOn into a single sentence the
- * operator reads under the title. Always plain English.
+ * Convert the row's pill kind + next-checkpoint date into a single
+ * sentence the operator reads under the title. Always plain English,
+ * never a promise the measurement engine did not schedule.
  */
 function narrativeFor(row: WaitingRailInput): string {
-  if (row.readyOn) {
-    const days = row.readyOn.daysFromChange;
-    const tierClause =
-      row.readyOn.confidenceTier === "high"
-        ? " in your history"
-        : row.readyOn.confidenceTier === "medium"
-          ? " in your history"
-          : "";
-    return `Similar changes usually show signal around day ${days}${tierClause}.`;
+  const formatted = row.nextCheckpoint
+    ? formatCheckpointDate(row.nextCheckpoint)
+    : null;
+  if (formatted) {
+    return `I will take the next Google reading on ${formatted}.`;
   }
   if (row.pillKind === "live") {
-    return "Live on your site. Beacon is watching for AI to respond.";
+    return "Live on your site. This one is not on my measured list yet.";
   }
-  return "Beacon is watching for the first signal.";
+  return "I have not scheduled a Google reading for this one yet.";
+}
+
+/** "2026-07-28" -> "July 28". Null on an unparseable date. */
+function formatCheckpointDate(isoDate: string): string | null {
+  const parsed = Date.parse(`${isoDate}T00:00:00Z`);
+  if (!Number.isFinite(parsed)) return null;
+  return new Date(parsed).toLocaleDateString("en-US", {
+    month: "long",
+    day: "numeric",
+    timeZone: "UTC",
+  });
 }

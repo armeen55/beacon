@@ -59,7 +59,10 @@ const D2_FACTORIES: ReadonlyArray<FactoryContract> = [
   // dead code (no importers); its tenant-isolation contract retired with it.
   { file: "src/domains/pages/extractor.ts", fn: "extractPageSnapshot", shape: "positional" },
   { file: "src/domains/pages/guardrails.ts", fn: "classifyGuardrails", shape: "positional" },
-  { file: "src/domains/attribution/change-outcome.ts", fn: "insightToOutcome", shape: "positional" },
+  // src/domains/attribution/change-outcome.ts (insightToOutcome) deleted
+  // 2026-07-21 (CORE 100K Lane F): the attribution memory loop was a closed
+  // producer with no rendered consumer; its tenant-isolation contract retired
+  // with it.
   // Opts-object `opts.tenantId: string`
   { file: "src/domains/pages/discover.ts", fn: "discoverPages", shape: "opts" },
   // snapshot-builder / detect-findings / answer-intelligence build-index /

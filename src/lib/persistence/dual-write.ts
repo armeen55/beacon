@@ -306,17 +306,13 @@ import type { Finding } from "@/domains/scanning/types";
 import type { ObservationRun } from "@/domains/observations/types";
 import type { AnswerIntelligenceIndex } from "@/domains/answer-intelligence/types";
 import type { ChangeContract } from "@/domains/changelog/change-contract";
-import type { PersistedIssue } from "@/domains/pages/issues";
+import type { PersistedIssue } from "@/domains/pages/types";
 import type { BusinessConfig } from "@/lib/business-config";
 import type { DailyMetricSnapshot } from "@/domains/daily-metric-snapshots/types";
 import type { PromptAnswerObservation } from "@/domains/prompt-answer-observations/types";
 import type { TrackedPrompt } from "@/domains/tracked-prompts/types";
 import type { TrackedEntity } from "@/domains/tracked-entities/types";
-import type { ChangeOutcome } from "@/domains/attribution/change-outcome";
 import type { PageVisibilitySummary } from "@/domains/pages/page-visibility";
-import type { ChangePattern } from "@/domains/learning/change-patterns";
-import type { TriageRule } from "@/domains/learning/triage-rules";
-import type { ConfidenceCalibration } from "@/domains/learning/confidence-calibration";
 import type { RecommendationResponse } from "@/domains/product/recommendation-response-store";
 import type { UrlChangeOutcome } from "@/domains/attribution/url-change-outcome";
 
@@ -1211,14 +1207,8 @@ export async function syncAnswerTexts(
 }
 
 // ── Materialized relationship stores (Phase 11) ──
-
-export async function syncChangeOutcomes(
-  rows: ChangeOutcome[],
-  tenantId: string,
-): Promise<void> {
-  const stamped = tenantizeRows(rows, tenantId, "change_outcomes");
-  await dualWriteUpsert("change_outcomes", stamped as unknown as AnyRow[], "id");
-}
+// syncChangeOutcomes removed 2026-07-21 (CORE 100K Lane F): its only caller was
+// the retired attribution memory loop (change-outcome.ts).
 
 export async function syncPageVisibility(
   rows: PageVisibilitySummary[],
@@ -1233,28 +1223,8 @@ export async function syncPageVisibility(
 }
 
 // ── Learning stores sync (Phase 12) ──
-
-export async function syncChangePatterns(
-  rows: ChangePattern[],
-): Promise<void> {
-  await dualWriteUpsert("change_patterns", rows as unknown as AnyRow[], "id");
-}
-
-export async function syncTriageRules(
-  rows: TriageRule[],
-): Promise<void> {
-  await dualWriteUpsert("triage_rules", rows as unknown as AnyRow[], "id");
-}
-
-export async function syncConfidenceCalibration(
-  calibration: ConfidenceCalibration,
-): Promise<void> {
-  await dualWriteUpsert(
-    "confidence_calibration",
-    [calibration] as unknown as AnyRow[],
-    "id",
-  );
-}
+// syncChangePatterns removed 2026-07-21 (CORE 100K Lane F): its only caller was
+// the retired ChangeOutcome-fed materializeChangePatterns producer.
 
 // ── Operator loop (Phase 1a) ──
 

@@ -403,7 +403,8 @@ const TIER_A_SYNC_HELPERS = [
   "syncRecommendationResponses",
   "syncUrlChangeOutcomes",
   "syncPageElementInventory",
-  "syncChangeOutcomes",
+  // syncChangeOutcomes removed 2026-07-21 (CORE 100K Lane F): its only caller
+  // was the retired attribution memory loop (change-outcome.ts).
 ] as const;
 
 /** Slice the function body from `export async function NAME(` up to the
@@ -418,9 +419,10 @@ function sliceHelperBody(source: string, name: string): string {
 }
 
 describe("Phase 7.7b Commit 6 — Tier A sync* helpers require tenantId", () => {
-  it("enumerates exactly 15 converted Tier A helpers", () => {
-    // Sanity: keep the list aligned with the operator's plan.
-    expect(TIER_A_SYNC_HELPERS.length).toBe(15);
+  it("enumerates exactly 14 converted Tier A helpers", () => {
+    // Sanity: keep the list aligned with the operator's plan. Was 15 until
+    // syncChangeOutcomes retired with the attribution memory loop (2026-07-21).
+    expect(TIER_A_SYNC_HELPERS.length).toBe(14);
   });
 
   for (const helper of TIER_A_SYNC_HELPERS) {
