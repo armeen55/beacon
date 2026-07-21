@@ -30,6 +30,13 @@ export const AUTONOMOUS_RETRY_COOLDOWN_MS = 60_000;
 export const AUTONOMOUS_RUN_DEADLINE_MS = 210_000;
 const scheduled = new Set<string>();
 
+/** Reasons the deep-backfill continuation returns when there is simply nothing
+ *  to do (no backfill started, already finished, or no synced property yet).
+ *  These are the healthy no-ops that fire for every tenant that never started a
+ *  backfill; they must NOT log a failure. Anything else is a real chunk failure
+ *  worth surfacing. */
+const BENIGN_BACKFILL_SKIPS = new Set(["not_started", "already_complete", "no_synced_property", "no_cursor"]);
+
 /** Pure once-a-day + retry decision, pinned independently from Next's after(). */
 export function shouldRunAutonomousResearch(
   receipt: WarmRunReceipt | null,
@@ -209,6 +216,17 @@ async function runOwnedCycle(tenantId: string, options: PostResponseCycleOptions
         chunkEnd: backfill.data.chunkEnd,
         daysPulled: backfill.data.daysPulled,
         complete: backfill.data.complete,
+      });
+    } else if (!BENIGN_BACKFILL_SKIPS.has(backfill.data.reason)) {
+      // A started backfill's chunk did not advance for a real reason (auth /
+      // quota / network). The cursor is durably untouched so the same window
+      // retries next visit, but a REPEATED failure would otherwise be invisible:
+      // no cursor move means gsc_backfill_progress.updated_at stays put, which is
+      // exactly the durable stall the operator status now reads (isBackfillStalled).
+      // Surface it here too so a wedged backfill is observable, not silent.
+      log.warn("[autonomous] gsc deep backfill chunk did not advance", {
+        tenantId,
+        reason: backfill.data.reason,
       });
     }
 

@@ -9,6 +9,8 @@ import {
 } from "@/lib/business-config";
 import { isUsableRevenueModel } from "@/domains/revenue/compute-unit-economics";
 import type { ChangeRevenueModel } from "@/domains/proof-gsc/change-dollar-value";
+import { buildShockWindows } from "@/domains/proof-gsc/algorithm-weather";
+import { loadDetectedChangepoints } from "@/domains/proof-gsc/algorithm-weather-store";
 import { loadResultsLedgerSurface } from "../results/results-ledger-data";
 import { buildReportModel, type ReportModel } from "./report-model";
 
@@ -31,13 +33,20 @@ import { buildReportModel, type ReportModel } from "./report-model";
  *  one snapshot and the numbers never drift within a page. */
 export const loadReportModel = cache(async (): Promise<ReportModel> => {
   const tenantId = await currentTenantId(); // ambient-tenant read keeps this in lockstep with /results routing
+  const now = new Date();
   const surface = await loadResultsLedgerSurface().catch(() => null);
   const revenueModel = await resolveTenantRevenueModel(tenantId);
+  // Same shock windows /results builds (loadDetectedChangepoints is react-cached, so
+  // this shares the read), so /reports dollars route through THE ONE DOLLAR RULE and
+  // can never claim earnings for a win Today and Results exclude. Fail-soft to [].
+  const changepoints = await loadDetectedChangepoints(tenantId, now).catch(() => []);
+  const shockWindows = buildShockWindows({ dailySeries: [], priorChangepoints: changepoints });
   return buildReportModel({
     ledger: surface?.ledger ?? [],
-    computedAt: surface?.computedAt ?? new Date().toISOString(),
-    now: new Date(),
+    computedAt: surface?.computedAt ?? now.toISOString(),
+    now,
     revenueModel,
+    shockWindows,
   });
 });
 

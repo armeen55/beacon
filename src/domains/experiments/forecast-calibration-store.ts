@@ -27,6 +27,8 @@ import "server-only";
  * at read time instead.
  */
 
+import { cache } from "react";
+
 import { readStore, writeStore } from "@/lib/persistence/json-store";
 
 const STORE = "forecast-calibration";
@@ -111,11 +113,18 @@ async function readAll(): Promise<CalibrationRecord[]> {
   }
 }
 
-/** All calibration records for a tenant. Fail-soft -> []. */
-export async function loadCalibrationRecords(tenantId: string): Promise<CalibrationRecord[]> {
-  const rows = await readAll();
-  return rows.filter((r) => r.tenantId === tenantId);
-}
+/** All calibration records for a tenant. Fail-soft -> []. Request-memoized
+ *  (React.cache) so multiple render-tree readers in one request (on /results:
+ *  the page's initialContext, the forecast-calibration card, and the proof
+ *  summary all read this) collapse to ONE store read. Outside a request scope
+ *  (crons/scripts/tests) cache() is a passthrough, so accumulation + write
+ *  paths are unaffected. */
+export const loadCalibrationRecords = cache(
+  async (tenantId: string): Promise<CalibrationRecord[]> => {
+    const rows = await readAll();
+    return rows.filter((r) => r.tenantId === tenantId);
+  },
+);
 
 /** True when a pick already has a calibration record (idempotency guard for the day-28 writer). */
 export async function hasCalibrationRecord(tenantId: string, pickId: string): Promise<boolean> {

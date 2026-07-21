@@ -14,6 +14,8 @@ import "server-only";
  * No new migration needed for reads. Fail-soft (empty map on any error).
  */
 
+import { cache } from "react";
+
 import { getSupabaseAdmin } from "@/lib/persistence/supabase";
 import { canonicalizeCitationUrl } from "@/domains/citation-lifecycle/canonicalize-url";
 import { log } from "@/lib/logger";
@@ -83,8 +85,13 @@ export async function readCumulativeSince(
  * off, so the finalized watermark can lag wall-clock arbitrarily — judging on
  * `today >= checkOn` alone would read a short (3+ days incomplete) post window
  * and bias the verdict. Bounded single-row read; fail-soft.
+ *
+ * Request-memoized (React.cache): on /results the page's initialContext and the
+ * proof-summary section both probe this watermark; the cache collapses them to
+ * one single-row query per request. Outside a request scope cache() is a
+ * passthrough, so background/cron callers re-read as before.
  */
-export async function readLastFinalizedDate(tenantId: string): Promise<string | null> {
+export const readLastFinalizedDate = cache(async (tenantId: string): Promise<string | null> => {
   try {
     const admin = getSupabaseAdmin();
     const { data, error } = await admin
@@ -105,7 +112,7 @@ export async function readLastFinalizedDate(tenantId: string): Promise<string | 
     });
     return null;
   }
-}
+});
 
 function subtract(start: Cumulative | undefined, end: Cumulative | undefined): GscWindowMetrics {
   const clicks = Math.max(0, (start?.clicks ?? 0) - (end?.clicks ?? 0));

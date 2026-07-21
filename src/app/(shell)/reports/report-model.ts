@@ -21,6 +21,14 @@
  *     uses for winClicksPerMonth.
  * So /reports can never print a count or a clicks total that /results contradicts.
  *
+ * DOLLAR AGREEMENT CONTRACT
+ * ------------------------
+ * Each win card's dollar line is gated by hasCleanAttribution (won-dollar-rule.ts) -
+ * THE ONE DOLLAR RULE - so /reports can never celebrate earnings for a win that Today
+ * and Results exclude from every cumulative dollar figure (shock-window overlap or a
+ * weak comparison set). shockWindows is threaded from reports-data.ts (the same set
+ * /results loads).
+ *
  * Beacon voice: first person, a concrete number, no lab words, wins in one
  * sentence, misses owned plainly, no em or en dashes ever.
  */
@@ -37,6 +45,8 @@ import {
   groundedDollarLine,
   CONNECT_REVENUE_PROMPT,
 } from "@/domains/money/resolve-monthly-dollars";
+import { hasCleanAttribution } from "@/domains/proof-gsc/won-dollar-rule";
+import type { ShockWindow } from "@/domains/proof-gsc/algorithm-weather";
 import { buildRecapItems, type RecapItem } from "../results/results-recap";
 import { plainChangeKind } from "@/lib/plain-language";
 
@@ -65,9 +75,11 @@ export type WinCard = {
    *  configured rate. Null when there is no usable basis - the card then shows
    *  `dollarPrompt` instead. NEVER an invented number. */
   dollarLine: string | null;
-  /** The honest connect-prompt shown IN PLACE OF a dollar figure when no basis
-   *  exists. Non-null exactly when `dollarLine` is null, so the card always
-   *  says something true about money and never a fake $0. */
+  /** The honest connect-prompt shown IN PLACE OF a dollar figure when a CLEAN win
+   *  simply lacks a usable rate. Null when the win has a dollar line, and also null
+   *  when the win's attribution is not clean (shock overlap / weak comparison) - a
+   *  contaminated win says nothing about money rather than falsely prompting the
+   *  operator to "connect revenue" they may already have configured. */
   dollarPrompt: string | null;
 };
 
@@ -146,16 +158,29 @@ export function buildWinCards(
    *  dollar basis (the number itself already lives in each record's dollarValue).
    *  Null/undefined = no usable rate, so every card shows the honest prompt. */
   revenueModel?: ChangeRevenueModel | null,
+  /** Known Google shock windows, so a win's dollar line is gated by the SAME
+   *  clean-attribution test the cumulative dollar figures use (won-dollar-rule.ts).
+   *  Callers without a loaded set pass [] - the weak-comparison veto still applies. */
+  shockWindows: ReadonlyArray<ShockWindow> = [],
 ): WinCard[] {
   const split = splitLedgerLifecycle(ledger, now);
   const cards: WinCard[] = [];
   for (const rec of split.won) {
     const { clicksPerMonth, windowDays } = winClicksPerMonthOf(rec);
     if (clicksPerMonth <= 0) continue;
+    // THE ONE DOLLAR RULE: a win whose measurement window overlapped a Google shock
+    // or leaned on a weak comparison set is excluded from EVERY cumulative dollar
+    // figure on Today and Results. This per-win card must not claim dollars the rest
+    // of the app refuses to. When attribution is not clean we show clicks only and
+    // stay silent about money - NOT the connect-prompt, which would falsely imply the
+    // operator has not told us what traffic is worth.
+    const cleanAttribution = hasCleanAttribution(rec, shockWindows);
     // RANK-2 dollar line: resolve the win's own already-priced dollarValue
     // through THE money model. A grounded positive figure -> the celebratory
     // dollar line; anything else -> the honest connect-prompt (never a fake $0).
-    const money = resolveMonthlyDollars({ dollarValue: rec.dollarValue, revenueModel });
+    const money = cleanAttribution
+      ? resolveMonthlyDollars({ dollarValue: rec.dollarValue, revenueModel })
+      : { usd: null, basis: null as null };
     const dollarLine = groundedDollarLine(money);
     const base = {
       id: rec.id,
@@ -166,7 +191,9 @@ export function buildWinCards(
       windowDays,
       shippedOn: (rec.shippedAt ?? "").slice(0, 10),
       dollarLine,
-      dollarPrompt: dollarLine == null ? CONNECT_REVENUE_PROMPT : null,
+      // Prompt only when a clean win simply lacks a usable rate; a contaminated win
+      // says nothing about money (dollarLine and dollarPrompt both null).
+      dollarPrompt: dollarLine == null && cleanAttribution ? CONNECT_REVENUE_PROMPT : null,
     };
     cards.push({ ...base, headline: winHeadline(base) });
   }
@@ -194,11 +221,16 @@ export function buildReportModel(input: {
    *  so each win's dollar line names the right basis. Null/undefined = no rate,
    *  so the win cards show the honest connect-prompt instead of a dollar figure. */
   revenueModel?: ChangeRevenueModel | null;
+  /** Known Google shock windows, threaded to both computeCumulativeOutcome and
+   *  buildWinCards so /reports dollars route through THE ONE DOLLAR RULE exactly
+   *  like Today and Results. Omitted = [] (the weak-comparison veto still applies). */
+  shockWindows?: ReadonlyArray<ShockWindow>;
 }): ReportModel {
   const now = input.now ?? new Date();
   const ledger = input.ledger;
-  const outcome = computeCumulativeOutcome(ledger, now);
-  const wins = buildWinCards(ledger, now, input.revenueModel);
+  const shockWindows = input.shockWindows ?? [];
+  const outcome = computeCumulativeOutcome(ledger, now, shockWindows);
+  const wins = buildWinCards(ledger, now, input.revenueModel, shockWindows);
   const misses = buildRecapItems(ledger, plainChangeKind);
   const shippedThisMonth = ledger.filter((r) =>
     shippedWithinWindow(r.shippedAt ?? "", now, REPORT_WINDOW_DAYS),

@@ -64,6 +64,32 @@ function addDays(isoDate: string, days: number): string {
 
 const TABLE = "gsc_backfill_progress";
 
+/** An in-progress backfill whose cursor has not advanced in this long is not
+ *  making progress: the chunk keeps failing (auth / quota / network, all of
+ *  which leave the cursor AND updated_at untouched), or nothing has run it
+ *  recently. Either way the operator status must say so plainly instead of an
+ *  unchanging "in progress ... click continue". Wider than the ~1 day the on-use
+ *  cycle takes per chunk (one advance per Pacific-day claim) so a normal
+ *  slow-but-working backfill never misreads as stalled. */
+export const BACKFILL_STALL_MS = 3 * 24 * 60 * 60 * 1000;
+
+/** PURE: is an in-progress backfill stalled (no SUCCESSFUL chunk in the last
+ *  BACKFILL_STALL_MS)? writeProgress bumps updated_at ONLY on a completed chunk,
+ *  so a stale updated_at on an in_progress row is the durable proof the backfill
+ *  has stopped advancing - the failure receipt the operator status reads. A
+ *  complete row is never stalled; an unparseable stamp is trusted as fresh so a
+ *  bad timestamp can never invent a stall. */
+export function isBackfillStalled(
+  progress: Pick<BackfillProgressRow, "status" | "updated_at">,
+  now: Date = new Date(),
+  stallMs: number = BACKFILL_STALL_MS,
+): boolean {
+  if (progress.status !== "in_progress") return false;
+  const updatedMs = Date.parse(progress.updated_at);
+  if (!Number.isFinite(updatedMs)) return false;
+  return now.getTime() - updatedMs >= stallMs;
+}
+
 /** Read the tenant's backfill progress row for a property, or null if the
  *  backfill has never been started. Fail-soft -> null. */
 export async function readBackfillProgress(

@@ -73,8 +73,11 @@ export function monthlyExtraSessionsRate(row: WonDollarRow): number {
   return toMonthlyRate(extraSessionsFromTrafficOutcome(t), t.windowDays);
 }
 
-/** Rule 2: no shock-window overlap, no weak comparison match. */
-function hasCleanAttribution(row: WonDollarRow, shockWindows: ReadonlyArray<ShockWindow>): boolean {
+/** Rule 2: no shock-window overlap, no weak comparison match. Exported so any
+ *  per-change dollar surface (e.g. the /reports win cards) can gate its own dollar
+ *  line by the SAME trustworthiness test the cumulative figures use, instead of
+ *  claiming dollars for a win every cumulative total excludes. */
+export function hasCleanAttribution(row: WonDollarRow, shockWindows: ReadonlyArray<ShockWindow>): boolean {
   if (row.controlMatchWeak === true) return false;
   if (shockWindows.length > 0) {
     const window = measurementWindowOf(row.shippedAt, row.windows);

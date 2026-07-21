@@ -167,6 +167,50 @@ describe("report-model: win cards", () => {
   });
 });
 
+describe("report-model: win-card dollar lines route through THE ONE DOLLAR RULE", () => {
+  const revenueModel = { kind: "per_lead" as const, dollarsPerLead: 10 };
+  /** A mature won row carrying a priced dollarValue, so a CLEAN win yields a dollar
+   *  line. `contaminated` sets the weak-comparison veto the cumulative dollar figures
+   *  already exclude on. */
+  function pricedWonRow(over: { controlMatchWeak?: boolean; shippedAt?: string } = {}): ShippedChangeRecord {
+    return {
+      ...wonRow("w-money", "/persian-comedians", "edit_title", 35, over.shippedAt ?? "2026-05-20"),
+      dollarValue: { usdPerMonth: 420 },
+      controlMatchWeak: over.controlMatchWeak ?? false,
+    } as unknown as ShippedChangeRecord;
+  }
+
+  it("shows the grounded dollar line for a CLEAN win with a usable rate", () => {
+    const [card] = buildWinCards([pricedWonRow()], NOW, revenueModel, []);
+    expect(card.dollarLine).toContain("This change earned about $420 a month");
+    expect(card.dollarPrompt).toBeNull();
+  });
+
+  it("suppresses the dollar line AND the connect-prompt for a weak-comparison win (matches Today/Results exclusion)", () => {
+    const [card] = buildWinCards([pricedWonRow({ controlMatchWeak: true })], NOW, revenueModel, []);
+    // Today and Results exclude this win from every cumulative dollar figure; the
+    // /reports card must not claim it earned money, and must not falsely prompt to
+    // "connect revenue" the operator already configured.
+    expect(card.dollarLine).toBeNull();
+    expect(card.dollarPrompt).toBeNull();
+    // The clicks win still stands.
+    expect(card.clicksPerMonth).toBeGreaterThan(0);
+  });
+
+  it("suppresses the dollar line for a win whose measurement window overlaps a Google shock", () => {
+    const shock = [{ id: "s1", start: "2026-05-25", end: "2026-06-10", kind: "confirmed" as const, label: "a Google core update" }];
+    const [card] = buildWinCards([pricedWonRow()], NOW, revenueModel, shock);
+    expect(card.dollarLine).toBeNull();
+    expect(card.dollarPrompt).toBeNull();
+  });
+
+  it("still prompts a CLEAN win that has no usable rate (nothing to hide, real ask)", () => {
+    const [card] = buildWinCards([pricedWonRow()], NOW, null, []);
+    expect(card.dollarLine).toBeNull();
+    expect(card.dollarPrompt).toContain("Connect revenue");
+  });
+});
+
 describe("report-model: monthly headline + misses (Beacon voice)", () => {
   it("headline states shipped-this-month and the honest scoreboard", () => {
     const ledger = [

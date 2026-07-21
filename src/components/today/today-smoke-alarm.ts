@@ -2,7 +2,8 @@
  * today-smoke-alarm (P14, v1 324 - "smoke alarm with page blame") - ONE honest alarm line at the
  * top of Today when a real problem exists, naming the exact page and the number:
  *
- *   "Heads up: /nowruz lost 18 clicks in the last 4 weeks. I have a fix ready."
+ *   "Heads up: /nowruz lost 18 clicks vs the previous 4 weeks (data through Jul 9).
+ *    I have a fix ready."
  *
  * PURE (no I/O). Reads the SAME per-page GSC decay signal the war-room friction band + the GSC
  * scoreboard card already load (two consecutive 28-day click windows per page). It never invents
@@ -34,6 +35,11 @@ export type TodaySmokeAlarm = {
   page: string;
   /** Absolute clicks lost across the two windows (a positive number). */
   clicksLost: number;
+  /** The defined window phrase the clicksLost delta is measured against, so the
+   *  alarm sentence AND the Today command headline name the SAME window in the SAME
+   *  words (single source). "the previous 4 weeks (data through Jul 9)" when the
+   *  window end is known; "the previous 4 weeks" when it is not. */
+  windowLabel: string;
   /** The one alarm sentence. */
   sentence: string;
   /** Where the fix link points (the page's own change queue / dossier). */
@@ -76,10 +82,26 @@ function normalizedFixKey(u: string): string {
  *
  * PURE - deterministic for a fixed input. Returns null when nothing clears the floor.
  */
+/** "Jul 9" from an ISO date (YYYY-MM-DD) or timestamp; null when unparseable. Kept
+ *  local so this pure server-and-client module does not pull in the receipt-line
+ *  React component just for a date label. UTC so the label matches the finalized
+ *  GSC day exactly. */
+function monthDay(iso: string | null | undefined): string | null {
+  if (!iso) return null;
+  const t = Date.parse(iso.length === 10 ? `${iso}T00:00:00Z` : iso);
+  if (!Number.isFinite(t)) return null;
+  return new Date(t).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
+}
+
 export function buildTodaySmokeAlarm(input: {
   decay: ReadonlyArray<SmokeAlarmDecayRow>;
   /** Set of page paths (host-stripped) that already have a queued/ready change. */
   pagesWithFixReady: ReadonlySet<string>;
+  /** The last finalized GSC day the decay "now" window ends on (from the same
+   *  GscDecaySignal the rows came from). Names the exact window so the claim is
+   *  reproducible; when absent the phrase omits the date but still names the
+   *  two-window comparison. */
+  windowEnd?: string | null;
 }): TodaySmokeAlarm | null {
   let worst: { page: string; lost: number } | null = null;
   for (const row of input.decay) {
@@ -97,7 +119,18 @@ export function buildTodaySmokeAlarm(input: {
   const lost = Math.round(worst.lost);
   const fixReady = input.pagesWithFixReady.has(fixKey);
   const closing = fixReady ? "I have a fix ready." : "Worth a look before it slides further.";
-  const sentence = `Heads up: ${label} lost ${lost.toLocaleString()} click${lost === 1 ? "" : "s"} in the last 4 weeks. ${closing}`;
+  // `lost` is clicksPrior - clicksNow across two consecutive 28-day windows: the
+  // page got `lost` FEWER clicks in the most recent 4 weeks than in the 4 weeks
+  // before. "in the last 4 weeks" read as an absolute single-window count and was
+  // not reproducible (an auditor's undated 4 weeks, including the ~3 unfinalized lag
+  // days, lands 3-20 clicks off). Name the comparison AND the finalized window end
+  // so the number reproduces exactly. windowLabel is the single source both this
+  // sentence and the Today command headline render.
+  const through = monthDay(input.windowEnd);
+  const windowLabel = through
+    ? `the previous 4 weeks (data through ${through})`
+    : "the previous 4 weeks";
+  const sentence = `Heads up: ${label} lost ${lost.toLocaleString()} click${lost === 1 ? "" : "s"} vs ${windowLabel}. ${closing}`;
 
   // The CTA points at the exact bleeding page's dossier (its own change queue), not a /changes
   // deep link the Changes list ignores. dossierHref normalizes the RAW page (host-strip, one
@@ -109,6 +142,7 @@ export function buildTodaySmokeAlarm(input: {
   return {
     page: label,
     clicksLost: lost,
+    windowLabel,
     sentence,
     href,
     actionLabel: fixReady ? "See the fix" : "Review the page",

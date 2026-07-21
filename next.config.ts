@@ -10,7 +10,6 @@ const nextConfig: NextConfig = {
       ".data/**",
       ".claude/**",
       ".codex/**",
-      ".github/**",
       "docs/**",
       "migrations/**",
       "scripts/**",

@@ -399,6 +399,12 @@ export type GscDecaySignal = {
   clicksPrior: number;
   positionPrior: number;
   impressionsPrior: number;
+  /** The last FINALIZED GSC day the "now" window ends on (the split/anchor), so a
+   *  surface can name the exact window the clicksNow/clicksPrior delta was measured
+   *  through. Without this the copy says "the last 4 weeks" with no defined end, and
+   *  an auditor picking their own 4 weeks (including the ~3 unfinalized lag days)
+   *  reproduces a DIFFERENT number. Same value for every row in one read. */
+  windowNowEnd: string;
 };
 
 const DECAY_WINDOW_DAYS = 28;
@@ -427,6 +433,10 @@ export async function loadGscDecaySignalsForTenant(
   const anchorMs = lastFinal
     ? new Date(`${lastFinal}T00:00:00.000Z`).getTime()
     : now.getTime();
+  // The "now" window ends on the anchor (last finalized GSC day, or today when no
+  // finalized data exists). Surfaces render this so the clicks delta names its exact
+  // window end instead of an undated "last 4 weeks".
+  const windowNowEnd = (lastFinal ?? new Date(anchorMs).toISOString().slice(0, 10));
   const splitMs = anchorMs - DECAY_WINDOW_DAYS * 86_400_000;
   const split = new Date(splitMs).toISOString().slice(0, 10);
   const since = new Date(splitMs - DECAY_WINDOW_DAYS * 86_400_000)
@@ -537,6 +547,7 @@ export async function loadGscDecaySignalsForTenant(
       impressionsPrior: p?.impressions ?? 0,
       positionPrior:
         p != null && p.impressions > 0 ? p.positionWeighted / p.impressions : 0,
+      windowNowEnd,
     });
   }
   return out;

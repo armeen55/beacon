@@ -144,7 +144,11 @@ function respondToLoss(input: TodayCommandInput): TodayCommand {
     }
     return {
       kind: "respond_to_loss",
-      headline: `Your biggest problem today: ${alarm.page} lost ${alarm.clicksLost.toLocaleString()} click${alarm.clicksLost === 1 ? "" : "s"} in the last 4 weeks.`,
+      // The clicksLost delta and its window phrase both come from the ONE smoke
+      // alarm (windowLabel), so this headline and the alarm sentence name the same
+      // number over the same defined, reproducible window - never "the last 4
+      // weeks" with no end date. See today-smoke-alarm.ts for why.
+      headline: `Your biggest problem today: ${alarm.page} lost ${alarm.clicksLost.toLocaleString()} click${alarm.clicksLost === 1 ? "" : "s"} vs ${alarm.windowLabel}.`,
       why,
       exactAction: fixReady
         ? `Open ${alarm.page} and apply the fix.`

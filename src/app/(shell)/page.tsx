@@ -286,10 +286,16 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
       return p || "/";
     }),
   );
+  const decayRows = Array.from(
+    (decaySignals as Map<string, { page: string; clicksNow: number; clicksPrior: number; windowNowEnd?: string }>).values(),
+  );
   const smokeAlarm = buildTodaySmokeAlarm({
-    decay: Array.from((decaySignals as Map<string, { page: string; clicksNow: number; clicksPrior: number }>).values())
-      .map((d) => ({ page: d.page, clicksNow: d.clicksNow, clicksPrior: d.clicksPrior })),
+    decay: decayRows.map((d) => ({ page: d.page, clicksNow: d.clicksNow, clicksPrior: d.clicksPrior })),
     pagesWithFixReady,
+    // The finalized day the decay "now" window ends on (same for every row in one
+    // read), so the alarm names its exact reproducible window instead of an undated
+    // "last 4 weeks".
+    windowEnd: decayRows[0]?.windowNowEnd ?? null,
   });
 
   // Wave 3B - THE ONE COMMAND (slot 2). Every input reuses a number another surface owns, and the

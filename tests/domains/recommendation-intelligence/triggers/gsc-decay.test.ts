@@ -55,6 +55,7 @@ function decaying(over: Partial<GscDecaySignal> = {}): GscDecaySignal {
     impressionsPrior: 2100,
     positionNow: 9.4,
     positionPrior: 5.1,
+    windowNowEnd: "2026-07-09",
     ...over,
   };
 }

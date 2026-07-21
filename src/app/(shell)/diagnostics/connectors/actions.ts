@@ -35,7 +35,7 @@ import { refreshCallRailMetrics } from "@/app/(shell)/diagnostics/callrail/actio
 // so connecting those sources actually pulls data with no nightly job.
 import { syncGscSearchAnalyticsForTenant } from "@/lib/connectors/gsc/sync-search-analytics";
 import { syncClarityDailyMetricsForTenant } from "@/lib/connectors/clarity/sync-daily-metrics";
-import { startDeepBackfill, runDeepBackfillChunk, readBackfillProgress } from "@/lib/connectors/gsc/deep-backfill";
+import { startDeepBackfill, runDeepBackfillChunk, readBackfillProgress, isBackfillStalled } from "@/lib/connectors/gsc/deep-backfill";
 
 const ROUTE = "/diagnostics/connectors";
 
@@ -311,6 +311,11 @@ export type GscDeepBackfillStatus =
       cursorDate: string | null;
       status: "in_progress" | "complete";
       daysPulled: number;
+      /** Last time a chunk actually completed (YYYY-MM-DD). */
+      lastAdvancedDate: string;
+      /** True when an in_progress backfill has stopped advancing: its chunk keeps
+       *  failing, so the operator must see the honest stall, not a bland "in progress". */
+      stalled: boolean;
     };
 
 /** Read-only status for the connectors page (no mutation) - lets the operator
@@ -335,6 +340,8 @@ export async function loadGscDeepBackfillStatus(): Promise<GscDeepBackfillStatus
       cursorDate: progress.cursor_date,
       status: progress.status,
       daysPulled: progress.days_pulled,
+      lastAdvancedDate: progress.updated_at.slice(0, 10),
+      stalled: isBackfillStalled(progress, new Date()),
     };
   } catch (e) {
     return { started: false, reason: e instanceof Error ? e.message.slice(0, 120) : "error" };

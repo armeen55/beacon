@@ -58,6 +58,7 @@ vi.mock("./warm-receipt-store", () => ({
 }));
 
 import { runPostResponseCycle } from "./on-visit-refresh";
+import { log } from "@/lib/logger";
 
 const T = "tenant-iranopedia";
 
@@ -180,6 +181,31 @@ describe("runPostResponseCycle GSC deep-backfill continuation", () => {
     expect(continueDeepBackfillIfStartedMock).toHaveBeenCalledTimes(1);
     expect(runAutonomousResearchForTenantMock).toHaveBeenCalled();
     expect(releaseAutonomousRunMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("surfaces a real chunk failure (auth/quota/network) as a warn so a wedged backfill is not silent", async () => {
+    continueDeepBackfillIfStartedMock.mockResolvedValue({ ran: false, reason: "gsc_auth_transient" });
+
+    await runPostResponseCycle(T);
+
+    expect(log.warn).toHaveBeenCalledWith(
+      "[autonomous] gsc deep backfill chunk did not advance",
+      expect.objectContaining({ tenantId: T, reason: "gsc_auth_transient" }),
+    );
+    // The rest of the cycle is unaffected by a failed chunk.
+    expect(runAutonomousResearchForTenantMock).toHaveBeenCalled();
+    expect(releaseAutonomousRunMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("stays silent on the benign no-op reasons that fire for every tenant with no backfill", async () => {
+    continueDeepBackfillIfStartedMock.mockResolvedValue({ ran: false, reason: "already_complete" });
+
+    await runPostResponseCycle(T);
+
+    expect(log.warn).not.toHaveBeenCalledWith(
+      "[autonomous] gsc deep backfill chunk did not advance",
+      expect.anything(),
+    );
   });
 
   it("respects the cycle deadline: a slow chunk is abandoned and the cycle continues", async () => {

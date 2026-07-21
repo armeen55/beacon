@@ -91,11 +91,27 @@ describe("buildTodayCommand priority", () => {
     expect(c.cta).toBeNull();
   });
 
-  it("respond_to_loss fires on a page smoke alarm, naming the page and the 4-week clicks", () => {
+  it("respond_to_loss fires on a page smoke alarm, naming the page and the two-window click delta", () => {
     const c = buildTodayCommand(base({ smokeAlarm: smokeAlarmLosing(128) }));
     expect(c.kind).toBe("respond_to_loss");
-    expect(c.headline).toBe("Your biggest problem today: /nowruz lost 128 clicks in the last 4 weeks.");
+    // The delta is prior-4-weeks minus now-4-weeks, so the headline names the
+    // comparison (not the undated absolute "in the last 4 weeks" that could not be
+    // reproduced from a single window).
+    expect(c.headline).toBe("Your biggest problem today: /nowruz lost 128 clicks vs the previous 4 weeks.");
+    expect(c.headline).not.toContain("in the last 4 weeks");
     expect(c.cta?.label).toBe("See the fix");
+  });
+
+  it("carries the alarm's dated window into the headline so the number reproduces", () => {
+    const alarm = buildTodaySmokeAlarm({
+      decay: [{ page: "/nowruz", clicksNow: 72, clicksPrior: 200 }], // lost 128
+      pagesWithFixReady: new Set(["/nowruz"]),
+      windowEnd: "2026-07-09",
+    });
+    const c = buildTodayCommand(base({ smokeAlarm: alarm }));
+    expect(c.headline).toBe(
+      "Your biggest problem today: /nowruz lost 128 clicks vs the previous 4 weeks (data through Jul 9).",
+    );
   });
 
   it("respond_to_loss fires on a whole-site drop at exactly the threshold, no page needed", () => {

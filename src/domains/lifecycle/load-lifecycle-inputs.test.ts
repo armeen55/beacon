@@ -95,6 +95,7 @@ describe("assembleLifecycleInputs", () => {
       clicksPrior: 100,
       positionPrior: 4,
       impressionsPrior: 400,
+      windowNowEnd: "2026-07-09",
     };
     const withDecay = assembleLifecycleInputs({
       snapshots: [snap({ url: "https://x.com/a" })],

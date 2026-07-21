@@ -29,8 +29,32 @@ describe("buildTodaySmokeAlarm", () => {
     expect(r).not.toBeNull();
     expect(r!.page).toBe("/nowruz");
     expect(r!.clicksLost).toBe(18);
-    expect(r!.sentence).toBe("Heads up: /nowruz lost 18 clicks in the last 4 weeks. Worth a look before it slides further.");
+    // No windowEnd supplied: the phrase still names the two-window comparison, just
+    // without a date, and never the undated absolute "in the last 4 weeks".
+    expect(r!.windowLabel).toBe("the previous 4 weeks");
+    expect(r!.sentence).toBe("Heads up: /nowruz lost 18 clicks vs the previous 4 weeks. Worth a look before it slides further.");
     expect(r!.actionLabel).toBe("Review the page");
+  });
+
+  it("names the exact finalized window end when windowEnd is supplied, so the number reproduces", () => {
+    const r = buildTodaySmokeAlarm({
+      decay: [{ page: "/nowruz", clicksNow: 42, clicksPrior: 60 }], // lost 18
+      pagesWithFixReady: new Set(),
+      windowEnd: "2026-07-09",
+    });
+    expect(r!.windowLabel).toBe("the previous 4 weeks (data through Jul 9)");
+    expect(r!.sentence).toBe(
+      "Heads up: /nowruz lost 18 clicks vs the previous 4 weeks (data through Jul 9). Worth a look before it slides further.",
+    );
+  });
+
+  it("never renders the undated 'in the last 4 weeks' phrasing (certified-drift regression)", () => {
+    const r = buildTodaySmokeAlarm({
+      decay: [{ page: "/nowruz", clicksNow: 42, clicksPrior: 60 }],
+      pagesWithFixReady: new Set(),
+      windowEnd: "2026-07-09",
+    });
+    expect(r!.sentence).not.toContain("in the last 4 weeks");
   });
 
   it("says 'I have a fix ready' only when a fix is queued for the bleeding page", () => {

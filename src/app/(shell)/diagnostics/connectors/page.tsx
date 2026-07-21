@@ -194,7 +194,9 @@ export default async function ConnectorsDiagnosticPage() {
           <p className="mb-3 text-xs text-muted-foreground" data-testid="gsc-backfill-status">
             {backfillStatus.status === "complete"
               ? `Done. History now reaches back to ${backfillStatus.targetDate}.`
-              : `In progress: back to ${backfillStatus.cursorDate ?? backfillStatus.targetDate} so far, heading to ${backfillStatus.targetDate}. Click continue to pull the next chunk.`}
+              : backfillStatus.stalled
+                ? `I loaded ${backfillStatus.daysPulled} days of history back to ${backfillStatus.cursorDate ?? backfillStatus.targetDate}, but I have not been able to pull more since ${backfillStatus.lastAdvancedDate}. Click continue to try the next chunk now. If it keeps stalling, your Search Console connection may need a look.`
+                : `In progress: back to ${backfillStatus.cursorDate ?? backfillStatus.targetDate} so far, heading to ${backfillStatus.targetDate}. Click continue to pull the next chunk.`}
           </p>
         ) : null}
         <form action={startGscDeepBackfillFromForm}>

@@ -122,7 +122,7 @@ describe("TodayCommandCard - rendered copy per kind", () => {
   it("respond_to_loss", () => {
     const markup = renderToStaticMarkup(<TodayCommandCard command={buildTodayCommand(base({ smokeAlarm: alarm128 }))} />);
     const t = text(markup);
-    expect(t).toContain("Your biggest problem today: /nowruz lost 128 clicks in the last 4 weeks.");
+    expect(t).toContain("Your biggest problem today: /nowruz lost 128 clicks vs the previous 4 weeks.");
     expect(t).toContain("See the fix ->");
     expect(markup).toContain('role="alert"');
     expect(markup).not.toMatch(/[\u2012\u2013\u2014\u2015]/);

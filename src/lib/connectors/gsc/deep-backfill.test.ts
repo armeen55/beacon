@@ -85,6 +85,8 @@ import {
   runDeepBackfillChunk,
   continueDeepBackfillIfStarted,
   readBackfillProgress,
+  isBackfillStalled,
+  BACKFILL_STALL_MS,
   CHUNK_DAYS,
   DEEP_BACKFILL_DAYS,
 } from "./deep-backfill";
@@ -237,6 +239,50 @@ describe("readBackfillProgress", () => {
     const r = await readBackfillProgress(TENANT, PROPERTY);
     expect(r?.tenant_id).toBe(TENANT);
     expect(r?.property).toBe(PROPERTY);
+  });
+});
+
+describe("isBackfillStalled - honest stall receipt", () => {
+  const base = {
+    tenant_id: TENANT,
+    property: PROPERTY,
+    target_date: "2025-03-01",
+    cursor_date: "2025-06-01",
+    days_pulled: 60,
+    started_at: "2026-07-01T00:00:00Z",
+  };
+
+  it("is NOT stalled when an in_progress chunk advanced within the window", () => {
+    const now = new Date("2026-07-10T00:00:00Z");
+    const progress = { ...base, status: "in_progress" as const, updated_at: "2026-07-09T00:00:00Z" };
+    expect(isBackfillStalled(progress, now)).toBe(false);
+  });
+
+  it("IS stalled when an in_progress chunk has not advanced past the stall window", () => {
+    const updatedAt = "2026-07-01T00:00:00Z";
+    // Just over the stall window past the last advance.
+    const now = new Date(Date.parse(updatedAt) + BACKFILL_STALL_MS + 1);
+    const progress = { ...base, status: "in_progress" as const, updated_at: updatedAt };
+    expect(isBackfillStalled(progress, now)).toBe(true);
+  });
+
+  it("is exactly at the boundary stalled (>= stallMs)", () => {
+    const updatedAt = "2026-07-01T00:00:00Z";
+    const now = new Date(Date.parse(updatedAt) + BACKFILL_STALL_MS);
+    const progress = { ...base, status: "in_progress" as const, updated_at: updatedAt };
+    expect(isBackfillStalled(progress, now)).toBe(true);
+  });
+
+  it("a complete backfill is never stalled, however old its stamp", () => {
+    const now = new Date("2027-01-01T00:00:00Z");
+    const progress = { ...base, status: "complete" as const, updated_at: "2026-01-01T00:00:00Z" };
+    expect(isBackfillStalled(progress, now)).toBe(false);
+  });
+
+  it("an unparseable stamp is trusted as fresh (never invents a stall)", () => {
+    const now = new Date("2026-07-30T00:00:00Z");
+    const progress = { ...base, status: "in_progress" as const, updated_at: "not-a-date" };
+    expect(isBackfillStalled(progress, now)).toBe(false);
   });
 });
 

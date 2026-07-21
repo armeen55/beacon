@@ -3,7 +3,14 @@ import "server-only";
 import { after } from "next/server";
 
 import { log } from "@/lib/logger";
-import { autoMeasureDuePass } from "./auto-measure-pass";
+// The four heavy background dependencies (the measurement engine, the crawl
+// verifier, the LLM winner-memory harvest, and the team-scoreboard recompute)
+// are used ONLY inside the after() callback below, so they are pulled with
+// dynamic import() at background time instead of statically. This keeps the
+// module that page.tsx imports for `scheduleAutoMeasure` + the pure
+// `selectRowsToReverify` from eagerly evaluating that whole graph on the
+// /results render path (same dynamic-in-after pattern this file already uses
+// for rebuildResultsSurface below).
 import {
   loadShippedChangesForTenant,
   canonicalOutcome,
@@ -11,9 +18,6 @@ import {
   verifyLastAttemptAt,
   type ShippedChangeRecord,
 } from "./shipped-change-store";
-import { verifyShippedChange } from "./verify-shipped-change";
-import { harvestWinners } from "@/domains/llm/winner-memory";
-import { buildTeamScoreboardSummary } from "@/domains/team-scoreboard/compute-scoreboard";
 
 /**
  * auto-measure-on-use (2026-06-29) — PASSIVE settle of due proof rows when the user
@@ -96,6 +100,7 @@ export function scheduleAutoMeasure(tenantId: string): void {
       try {
         // P0-B W1: this pass rides a page GET's after(); it must spend nothing.
         // Bounded (PER_RUN_CAP) GSC-only re-measure, zero paid live-SERP calls.
+        const { autoMeasureDuePass } = await import("./auto-measure-pass");
         const res = await autoMeasureDuePass(tenantId, { maxRecords: PER_RUN_CAP, allowPaidRankRecheck: false });
         if (res.measured > 0) {
           log.info("[auto-measure-on-use] passive pass ran", {
@@ -135,6 +140,7 @@ export function scheduleAutoMeasure(tenantId: string): void {
           // (or an empty) tenant and re-verify another tenant's rows.
           const rows = await loadShippedChangesForTenant(tenantId);
           const toReverify = selectRowsToReverify(rows, MAX_REVERIFY_PER_PASS);
+          const { verifyShippedChange } = await import("./verify-shipped-change");
           for (const record of toReverify) {
             try {
               await verifyShippedChange({ tenantId, record });
@@ -154,6 +160,7 @@ export function scheduleAutoMeasure(tenantId: string): void {
         }
         if (res.settled > 0) {
           try {
+            const { harvestWinners } = await import("@/domains/llm/winner-memory");
             await harvestWinners(tenantId);
           } catch (e) {
             log.warn("[auto-measure-on-use] winner harvest failed (non-blocking)", {
@@ -162,6 +169,7 @@ export function scheduleAutoMeasure(tenantId: string): void {
             });
           }
           try {
+            const { buildTeamScoreboardSummary } = await import("@/domains/team-scoreboard/compute-scoreboard");
             await buildTeamScoreboardSummary(tenantId);
           } catch (e) {
             log.warn("[auto-measure-on-use] team scoreboard recompute failed (non-blocking)", {

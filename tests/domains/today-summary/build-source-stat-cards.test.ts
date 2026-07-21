@@ -240,6 +240,7 @@ describe("buildSourceStatCards — per-page click-loss decomposition (#topDeclin
         positionPrior: 4,
         impressionsNow: 1000,
         impressionsPrior: 1200,
+        windowNowEnd: "2026-07-09",
       },
     ];
   }
