@@ -77,7 +77,7 @@ import {
   parseFaqProposedText,
 } from "./placeholder-detection";
 import { containsUuid } from "./copy-sanitize";
-import { extractElementKeyHashSuffix } from "./recommendation-action-rows";
+import { extractElementKeyHashSuffix } from "./element-key";
 
 // ---------------------------------------------------------------------------
 // Result types
