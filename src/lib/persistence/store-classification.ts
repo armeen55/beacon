@@ -249,6 +249,13 @@ export const TENANT_SCOPED_STORES = new Set<string>([
   // so on that side isolation still rests on observation-id uniqueness; a
   // tenant_id column would be the follow-up if answer_texts is ever read from
   // Supabase (today cold-store reads the file, never the table).
+  // LEGACY (2026-07-21): the ONLY writer of `.data/tenants/{slug}/
+  // answer-texts.json` was the Profound CSV import path (cold-store
+  // writeAnswerTexts), now deleted with the adapter island. Kept
+  // registered because historical `answer_texts` rows live in Supabase
+  // and are read directly (by observation id) in
+  // domains/citability/mine-answer-patterns; store-classification must
+  // still recognize the key for PGRST205 file-fallback + mirroring.
   "answer-texts",
 ]);
 
@@ -353,11 +360,6 @@ export const GLOBAL_STORES = new Set<string>([
   // context, plus on-use / manual re-measure), so GLOBAL is the safe
   // classification - same rationale as refresh-runs / cron-runs.
   "confirmation-reads",
-  // Token-expiry warning dedupe (2026-07-03, BEACON_500 item 84). One row per
-  // Google connection recording the last expiry-warning email sent, so the T-2-day
-  // nightly check never double-sends inside the same 7-day cycle. Global: the
-  // cron has no ambient tenant context when it fans out.
-  "token-expiry-warnings",
   // Site uptime probes (2026-07-03, BEACON_500 T0c). Rows carry tenant_id;
   // written by the nightly sync's uptime phase (no ambient request context,
   // same cron fan-out rationale as the peers above). One HEAD/GET status +
@@ -377,12 +379,14 @@ export const GLOBAL_STORES = new Set<string>([
   // set. Supabase-mirrored in json-store.ts so the terminal per-key row
   // survives Vercel lambdas and a retry can never double-publish.
   "publish-outbox",
-  // Backup-verification receipts (2026-07-03, BEACON_500 R22a / T0d). Fleet-level
-  // rows (no tenant) written by the nightly cron's final backup-verify phase (a
-  // Vercel lambda, no disk); read by diagnostics. Mirrored so the receipt trail
-  // ("Backup check: 14 of 14 stores mirrored") survives lambda recycling. Note:
-  // this is the module's OWN receipt row, a DIFFERENT scope_key from the mirrored
-  // stores it verifies - the verify pass only READS those, never writes them.
+  // Backup-verification receipts (2026-07-03, BEACON_500 R22a / T0d).
+  // LEGACY (2026-07-21, Phase 4A Lane 2): the producer (domains/ops/backup-verify.ts,
+  // a final phase of the nightly cron) was deleted with the rest of the cron-era
+  // fleet producers - nothing writes new receipts and nothing reads this store on
+  // any live surface anymore. Kept registered (not removed) because a real historical
+  // blob (backup-verify-receipts::global) still exists in prod; this entry just keeps
+  // it classifying correctly if anything ever reads it again. Do not resurrect the
+  // producer without re-wiring it to something live.
   "backup-verify-receipts",
   // Release-level blind evaluation receipts. These certify an immutable
   // application SHA rather than a tenant, so they are global. The store is

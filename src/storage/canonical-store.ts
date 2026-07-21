@@ -1,7 +1,13 @@
 /**
  * Profound import pipeline data stores.
  *
- * This module is consumed ONLY by `adapters/profound/import-orchestrator.ts`.
+ * WRITE layer NOW ORPHANED (2026-07-21): the `replace*` seed writers here
+ * were called ONLY by `adapters/profound/import-orchestrator.ts`, which was
+ * deleted with the Profound CSV import adapter island. The READ helpers
+ * (getPromptAnswerObservations, getTrackedPrompts, getDailyMetricSnapshots,
+ * etc.) remain LIVE — consumed by today-v2-data, load-queue, url-change-outcome,
+ * visibility-read-model, url-citation-history, and others — so this module
+ * stays. Reaping the dead write/seed functions is a follow-up (4C).
  * **Profound / import pipeline only.** App routes must not use this for website
  * crawl/verify runs — those are `domains/observations/read.ts` → repository.
  * Event decisions for routes use `domains/attribution/store.ts`.

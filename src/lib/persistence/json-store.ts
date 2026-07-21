@@ -327,13 +327,12 @@ export const SUPABASE_MIRRORED_STORES = new Set<string>([
   // cron retry or a delayed re-click could double-publish the SAME change to the
   // live site, which is the exact hole this outbox exists to close.
   "publish-outbox",
-  // 2026-07-03 BEACON_500 R22a / T0d - backup-verification receipts. Fleet-level
-  // rows written by the nightly cron's final backup-verify phase (a Vercel
-  // lambda, no disk); without the mirror the receipt trail would vanish on the
-  // next lambda recycle, so the operator could never see "my backups are healthy"
-  // on hosted prod, which defeats the point of a verification receipt. This is
-  // the verify module's OWN receipt (a distinct scope_key), never one of the
-  // stores it verifies.
+  // 2026-07-03 BEACON_500 R22a / T0d - backup-verification receipts.
+  // LEGACY (2026-07-21, Phase 4A Lane 2): the producer was cron-only and was
+  // deleted with the rest of the unwired fleet producers; nothing writes here
+  // anymore. Left in the mirrored set (not removed) so the historical prod blob
+  // stays readable rather than orphaned. This was always the verify module's
+  // OWN receipt (a distinct scope_key), never one of the stores it verified.
   "backup-verify-receipts",
   // Release-level blind benchmark receipts. Without this mirror a legitimate
   // hosted receipt would disappear with the Vercel instance and the release

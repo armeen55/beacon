@@ -332,8 +332,4 @@ describe("registration pin", () => {
   it("cron-runs is a GLOBAL store (fleet-level rows, no ambient tenant)", () => {
     expect(classifyStore("cron-runs")).toBe("global");
   });
-
-  it("token-expiry-warnings is a GLOBAL store", () => {
-    expect(classifyStore("token-expiry-warnings")).toBe("global");
-  });
 });

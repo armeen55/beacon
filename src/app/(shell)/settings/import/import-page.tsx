@@ -32,10 +32,7 @@ import {
   getImportRuns,
   resetExperiment,
   getDataCoverage,
-  postImportSetup,
 } from "@/lib/import/actions";
-import { importProfoundData } from "@/adapters/profound/actions";
-import type { ProfoundImportResult } from "@/adapters/profound/import-orchestrator";
 import { IMPORT_COLUMN_DOCS } from "@/lib/import/types";
 import type { ImportEntityType, ImportFormat, ImportPreview, ImportResult, ImportRun } from "@/lib/import/types";
 import { cn } from "@/lib/utils";
@@ -78,9 +75,6 @@ export default function ImportPage() {
   const [isPending, startTransition] = useTransition();
   const [advancedOpen, setAdvancedOpen] = useState(false);
 
-  // Advanced: Profound
-  const [profoundResult, setProfoundResult] = useState<ProfoundImportResult | null>(null);
-
   // Advanced: Manual
   const [entityType, setEntityType] = useState<ImportEntityType>("results");
   const [format, setFormat] = useState<ImportFormat>("csv");
@@ -104,15 +98,6 @@ export default function ImportPage() {
     getDataCoverage().then(setCoverage);
     getImportRuns().then(setRuns);
   }, []);
-
-  const [setupResult, setSetupResult] = useState<{
-    success: boolean;
-    registryBuilt?: boolean;
-    scanRun?: boolean;
-    pagesRegistered?: number;
-    pagesScanned?: number;
-    error?: string;
-  } | null>(null);
 
   const freshnessDays = (() => {
     if (!coverage?.latestDate) return null;
@@ -196,17 +181,14 @@ export default function ImportPage() {
       </div>
 
       {/* ── 3. Legacy / advanced importer (collapsed by default) ──
-          D2 (operator audit, 2026-05-05) — the Profound batch importer
-          and other internal tooling now live below the disclosure. The
-          default page no longer mentions Profound, `.data/`, or
-          internal copy ("bridged results", etc.). Operators with a
-          legacy export can still reach the controls; new customers
-          never see the internal scaffolding. */}
-      {/* 2026-05-06 demo-path fix 5: the entire Advanced disclosure
-          (CSV batch importer, manual paste, reset, import log) is now
-          operator-only. Customer mode renders nothing here. The
-          historical workflow is preserved when NEXT_PUBLIC_OPERATOR_MODE
-          is set or under test. */}
+          The Profound CSV batch importer was retired 2026-07-21 (its
+          adapter island + the unguarded cold-store shard write were
+          deleted). What remains under the disclosure is generic
+          internal tooling: manual paste import, reset, and the import
+          log. Historical Profound rows already in the database still
+          render (the import log relabels them "Historical CSV"). */}
+      {/* The Advanced disclosure toggle itself is operator-only; customer
+          mode renders nothing here. */}
       {OPERATOR_MODE && (
         <div className="border-t border-border/60 pt-6 mt-2">
           <button
@@ -217,158 +199,14 @@ export default function ImportPage() {
             <span className={cn("transition-transform text-[9px] text-muted-foreground/50", advancedOpen ? "rotate-90" : "")}>
               ▶
             </span>
-            Advanced: import a spreadsheet, paste data, reset, or view the import log
+            Advanced: paste data, reset, or view the import log
           </button>
           {!advancedOpen && (
             <p className="text-[11px] text-muted-foreground/80 mt-2 leading-relaxed">
-              For loading data from a spreadsheet, pasting it in by hand, clearing your data, and seeing past imports.
+              For pasting data in by hand, clearing your data, and seeing past imports.
             </p>
           )}
         </div>
-      )}
-
-      {OPERATOR_MODE && advancedOpen && (
-      <div className="rounded-lg border-2 border-border/70 bg-surface-raised/30 p-6 mt-6 mb-6 space-y-4">
-        <div className="flex items-center gap-2">
-          <Upload className="h-5 w-5 text-accent-primary" />
-          <h2 className="text-[15px] font-semibold">Import from a spreadsheet</h2>
-        </div>
-        <p className="text-[12px] text-muted-foreground leading-relaxed">
-          Internal tooling — drop CSV exports on the server filesystem and the importer detects file type from headers. Multiple files of the same type are merged. Newer files win on duplicate keys (mtime order).
-        </p>
-        <ul className="text-[11px] text-muted-foreground space-y-1 list-disc pl-5 leading-relaxed">
-          <li>Required kinds: <span className="font-mono text-foreground/90">prompts</span>, <span className="font-mono text-foreground/90">raw executions</span>, <span className="font-mono text-foreground/90">citations</span>.</li>
-          <li>Optional: benchmark/summarized export, changelog.</li>
-          <li>Unrecognized CSVs are skipped; check import result warnings for <span className="font-medium text-foreground">Unclassified CSV</span>.</li>
-        </ul>
-        <div className="rounded-md border border-border/50 bg-surface-inset/20 px-3 py-2 text-[11px] text-muted-foreground leading-relaxed">
-          <span className="font-medium text-foreground">How merging works:</span> new data is added to what you already have, not swapped in. Nothing existing is deleted, and Beacon recalculates its numbers from the combined set. So you can safely add a partial export without losing older data.
-        </div>
-        <Button
-          type="button"
-          onClick={() => {
-            setProfoundResult(null);
-            setSetupResult(null);
-            startTransition(async () => {
-              const result = await importProfoundData();
-              setProfoundResult(result);
-              const [newCoverage, history] = await Promise.all([
-                getDataCoverage(),
-                getImportRuns(),
-              ]);
-              setCoverage(newCoverage);
-              setRuns(history);
-              if (result.success) {
-                const setup = await postImportSetup();
-                setSetupResult(setup);
-              }
-            });
-          }}
-          disabled={isPending}
-          className="bg-accent-primary text-accent-primary-foreground hover:opacity-90"
-        >
-          {isPending ? "Importing…" : "Import these files"}
-        </Button>
-        {isPending && !profoundResult && (
-          <p className="text-[12px] text-accent-primary font-medium animate-pulse">Running importer…</p>
-        )}
-
-        {profoundResult && (
-          <div className={cn(
-            "rounded-lg border p-4 space-y-3",
-            profoundResult.success ? "border-status-success/35 bg-status-success/[0.05]" : "border-status-danger/35 bg-status-danger/[0.05]",
-          )}>
-            <div className="flex items-center gap-2">
-              {profoundResult.success ? (
-                <CheckCircle2 className="h-5 w-5 text-status-success" />
-              ) : (
-                <AlertTriangle className="h-5 w-5 text-status-danger" />
-              )}
-              <span className="text-[14px] font-semibold">
-                {profoundResult.success ? "Batch complete" : "Batch failed"}
-              </span>
-            </div>
-
-            {profoundResult.success && (
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-                {[
-                  { label: "Bridged results", value: profoundResult.counts.bridgedResults },
-                  { label: "Bridged changes", value: profoundResult.counts.bridgedChanges },
-                  { label: "Citations written", value: profoundResult.counts.citations },
-                  { label: "Observations", value: profoundResult.counts.observations },
-                ].map((s) => (
-                  <div key={s.label} className="rounded border border-border bg-background px-2 py-2 text-center">
-                    <p className="text-[16px] font-bold tabular-nums">{s.value.toLocaleString()}</p>
-                    <p className="text-[9px] text-muted-foreground leading-tight">{s.label}</p>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {profoundResult.errors.length > 0 && (
-              <div className="space-y-1">
-                {profoundResult.errors.map((e, i) => (
-                  <p key={i} className="text-[12px] text-status-danger">{e}</p>
-                ))}
-              </div>
-            )}
-
-            {profoundResult.warnings.length > 0 && (
-              <details className="text-[11px]">
-                <summary className="cursor-pointer text-muted-foreground">{profoundResult.warnings.length} warnings</summary>
-                <div className="mt-1 max-h-32 overflow-y-auto space-y-0.5">
-                  {profoundResult.warnings.slice(0, 40).map((w, i) => (
-                    <p key={i} className="text-status-warning">{w}</p>
-                  ))}
-                </div>
-              </details>
-            )}
-
-            {setupResult && profoundResult.success && (
-              <div className="rounded border border-border/60 bg-background px-3 py-2 space-y-1">
-                <p className="text-[10px] font-semibold text-foreground">Post-import setup</p>
-                <div className="flex flex-wrap gap-2 text-[10px] text-muted-foreground">
-                  <span className={setupResult.registryBuilt ? "text-status-success" : ""}>
-                    {setupResult.registryBuilt ? `Registry (${setupResult.pagesRegistered ?? 0} pages)` : "Registry skipped"}
-                  </span>
-                  <span className={setupResult.scanRun ? "text-status-success" : ""}>
-                    {setupResult.scanRun ? `Scan (${setupResult.pagesScanned ?? 0} pages)` : "Scan skipped"}
-                  </span>
-                </div>
-                {setupResult.error && <p className="text-[10px] text-status-warning">{setupResult.error}</p>}
-              </div>
-            )}
-
-            {profoundResult.success && (
-              <div className="space-y-2 pt-1">
-                <div className="rounded-lg border border-accent-primary/30 bg-accent-primary/5 px-3 py-2">
-                  <p className="text-[11px] font-medium text-accent-primary">
-                    Data imported — scan your site to detect what changed
-                  </p>
-                  <p className="text-[10px] text-muted-foreground mt-0.5">
-                    Go to Today and run a scan. Beacon will compare your site now vs your last scan and surface any changes for you to confirm.
-                  </p>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  <Link href="/" className="inline-flex items-center gap-2 rounded-md bg-foreground px-4 py-2 text-[11px] font-semibold text-background hover:opacity-90">
-                    Today — scan &amp; review →
-                  </Link>
-                  <Link href="/settings/history" className="inline-flex items-center gap-2 rounded-md border border-border px-4 py-2 text-[11px] font-medium hover:bg-surface-inset">
-                    History →
-                  </Link>
-                  <button
-                    type="button"
-                    onClick={() => { setProfoundResult(null); setSetupResult(null); }}
-                    className="text-[11px] text-muted-foreground hover:text-foreground"
-                  >
-                    Dismiss
-                  </button>
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-      </div>
       )}
 
       {advancedOpen && (
@@ -518,7 +356,7 @@ export default function ImportPage() {
                     <input type="checkbox" checked={preserveLabels} onChange={(e) => setPreserveLabels(e.target.checked)} className="rounded" />
                     Keep review decisions
                   </label>
-                  <Button variant="outline" size="sm" onClick={() => { if (!confirm(preserveLabels ? "Reset all imported data? Review decisions will be preserved." : "Reset ALL data including review decisions? Cannot be undone.")) return; setResetDone(null); setProfoundResult(null); setImportResult(null); setPreview(null); setSetupResult(null); startTransition(async () => { const r = await resetExperiment({ preserveTruthLabels: preserveLabels }); setResetDone(r); const c = await getDataCoverage(); setCoverage(c); setRuns([]); }); }} disabled={isPending} className="text-status-danger border-status-danger/30 hover:bg-status-danger/10">
+                  <Button variant="outline" size="sm" onClick={() => { if (!confirm(preserveLabels ? "Reset all imported data? Review decisions will be preserved." : "Reset ALL data including review decisions? Cannot be undone.")) return; setResetDone(null); setImportResult(null); setPreview(null); startTransition(async () => { const r = await resetExperiment({ preserveTruthLabels: preserveLabels }); setResetDone(r); const c = await getDataCoverage(); setCoverage(c); setRuns([]); }); }} disabled={isPending} className="text-status-danger border-status-danger/30 hover:bg-status-danger/10">
                     <Trash2 className="h-3.5 w-3.5" data-icon="inline-start" />
                     {isPending ? "Resetting…" : "Reset"}
                   </Button>

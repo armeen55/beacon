@@ -18,15 +18,14 @@
  *   src/domains/visibility-events/engine.ts
  *                                      (analyzeVisibilityEvent
  *                                       — opts.tenantId)
- *   src/adapters/profound/bridge.ts    (canonicalSnapshotsToResults,
- *                                       parseChangelogCSVToLegacy,
- *                                       writeLegacyBridge)
- *   src/adapters/profound/benchmark-adapter.ts
- *                                      (parseProfoundBenchmark)
- *   src/adapters/profound/execution-adapter.ts
- *                                      (parseProfoundExecutions)
  *   src/domains/attribution/change-outcome.ts
  *                                      (insightToOutcome)
+ *
+ * (2026-07-21) The four src/adapters/profound/* factory entries
+ * — bridge.ts canonicalSnapshotsToResults / parseChangelogCSVToLegacy,
+ * benchmark-adapter.ts parseProfoundBenchmark, execution-adapter.ts
+ * parseProfoundExecutions — were dropped when the Profound CSV import
+ * adapter island was deleted. Nothing else in the repo imported them.
  *
  * After D2, every one of these functions MUST take a tenantId
  * parameter (or opts.tenantId) and MUST validate it before use. This
@@ -73,10 +72,6 @@ const D2_FACTORIES: ReadonlyArray<FactoryContract> = [
   { file: "src/domains/pages/extractor.ts", fn: "extractPageSnapshot", shape: "positional" },
   { file: "src/domains/pages/guardrails.ts", fn: "classifyGuardrails", shape: "positional" },
   { file: "src/derivations/snapshot-builder.ts", fn: "buildDerivedSnapshots", shape: "positional" },
-  { file: "src/adapters/profound/bridge.ts", fn: "canonicalSnapshotsToResults", shape: "positional" },
-  { file: "src/adapters/profound/bridge.ts", fn: "parseChangelogCSVToLegacy", shape: "positional" },
-  { file: "src/adapters/profound/benchmark-adapter.ts", fn: "parseProfoundBenchmark", shape: "positional" },
-  { file: "src/adapters/profound/execution-adapter.ts", fn: "parseProfoundExecutions", shape: "positional" },
   { file: "src/domains/attribution/change-outcome.ts", fn: "insightToOutcome", shape: "positional" },
   // Opts-object `opts.tenantId: string`
   { file: "src/domains/pages/discover.ts", fn: "discoverPages", shape: "opts" },
