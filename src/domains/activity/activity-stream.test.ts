@@ -110,7 +110,7 @@ describe("composeActivityStream (R14a)", () => {
     expect(events).toHaveLength(1);
     expect(events[0]!.kind).toBe("errors");
     expect(events[0]!.sentence).toContain("Something failed 12 times since yesterday");
-    expect(events[0]!.href).toBe("/diagnostics/errors");
+    expect(events[0]!.href).toBe("/diagnostics");
   });
 
   it("plan accept + abandon and connection events speak plainly with deep links", () => {

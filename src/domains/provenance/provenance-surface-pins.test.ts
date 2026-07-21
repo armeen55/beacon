@@ -12,6 +12,13 @@
  *   - the store is registered (global classification + Supabase mirror)
  *   - the nightly cron rebuild is an isolated fail-soft phase
  *   - the no-dash hard rule over every touched surface block
+ *
+ * 2026-07-20 diagnostics amputation: the "diagnostics surface gains the
+ * stale list + propagation history" pins scanned
+ * src/app/(shell)/diagnostics/provenance/page.tsx, which was deleted along
+ * with the rest of the /diagnostics web product (only the health page at
+ * /diagnostics survives). Those pins are removed below; every other pin here
+ * scans a file that is still live.
  */
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
@@ -30,7 +37,6 @@ const STORE_CLASSIFICATION = readFileSync(resolve(__dirname, "../../lib/persiste
 const JSON_STORE = readFileSync(resolve(__dirname, "../../lib/persistence/json-store.ts"), "utf8");
 const CRON = readFileSync(resolve(__dirname, "../../lib/connectors/cron-sync.ts"), "utf8");
 const COPY = readFileSync(resolve(__dirname, "../recommendation-intelligence/customer-copy-templates.ts"), "utf8");
-const DIAGNOSTICS = readFileSync(resolve(__dirname, "../../app/(shell)/diagnostics/provenance/page.tsx"), "utf8");
 
 describe("evidence brief carries the claims field", () => {
   it("DailyEvidenceBrief has an optional claims field of EvidenceClaimSource", () => {
@@ -133,26 +139,6 @@ describe("fact propagation (N26) rides the ship seam, once-only, never auto-push
   });
 });
 
-describe("diagnostics surface gains the stale list + propagation history (no new customer widget)", () => {
-  it("renders the stale list through the same sentence the trigger uses", () => {
-    expect(DIAGNOSTICS).toContain("findStaleFactFindings");
-    expect(DIAGNOSTICS).toContain("staleFactSentence(f, nowIso)");
-    expect(DIAGNOSTICS).toContain("Facts due a fresh check");
-  });
-
-  it("renders the propagation history with the per-page prepared fixes", () => {
-    expect(DIAGNOSTICS).toContain("loadFactPropagationPlansForTenant");
-    expect(DIAGNOSTICS).toContain("Fixes I spread after your corrections");
-    expect(DIAGNOSTICS).toContain("{plan.summary}");
-    expect(DIAGNOSTICS).toContain("{c.instruction}");
-    expect(DIAGNOSTICS).toContain("I never push these myself.");
-  });
-
-  it("the stale status renders with a plain label, not a raw key", () => {
-    expect(DIAGNOSTICS).toContain('stale_check_due: "Stale check due"');
-  });
-});
-
 describe("ship-time registration (the N8 seam)", () => {
   it("stage-change registers a shipped draft's checked facts, fail-soft, after the push landed", () => {
     expect(STAGE).toContain('from "@/domains/provenance/claim-graph-loader"');
@@ -201,10 +187,6 @@ describe("no em or en dashes in any touched surface block (hard rule)", () => {
     const start = CARD.indexOf("function ClaimSources");
     expect(start).toBeGreaterThan(-1);
     expect(CARD.slice(start, start + 700)).not.toMatch(/[–—]/);
-  });
-
-  it("the diagnostics page is dash-clean", () => {
-    expect(DIAGNOSTICS).not.toMatch(/[–—]/);
   });
 
   it("the copy template block is dash-clean", () => {

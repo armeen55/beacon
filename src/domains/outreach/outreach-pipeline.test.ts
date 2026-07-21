@@ -9,20 +9,25 @@ import { join } from "node:path";
  * click. Beacon NEVER auto-sends, and follow-ups are queued as ready-to-send
  * drafts the operator must also click Send on.
  *
- * This test greps the outreach domain + its surface for every import of
- * `sendEmail` from `@/lib/email/resend` and asserts it appears in EXACTLY ONE
- * file: `send-pitch.ts` (which is itself called from exactly one server
- * action: `sendOutreachPitchAction`). If a future change adds a second call
- * site (a cron, a batch, an "auto-follow-up" path), this test fails loudly.
+ * This test greps the outreach domain for every import of `sendEmail` from
+ * `@/lib/email/resend` and asserts it appears in EXACTLY ONE file:
+ * `send-pitch.ts`. If a future change adds a second call site (a cron, a
+ * batch, an "auto-follow-up" path), this test fails loudly.
+ *
+ * 2026-07-20 diagnostics amputation: the operator-only surface this feature
+ * lived on (`/diagnostics/competitor-intel` - outreach-actions.ts,
+ * outreach-section.tsx, which called `sendOutreachPitchAction`) was deleted
+ * along with the rest of the /diagnostics web product. A repo-wide search
+ * turns up no remaining caller of `sendOutreachPitchAction` or
+ * `sendOutreachPitch` anywhere in src/app - the send-pitch path is currently
+ * UNREACHABLE from any live UI. Outreach is a phase-2 deletion candidate.
+ * The domain-level invariants below (sendEmail has one caller, markSent has
+ * one caller) still hold against live domain files, so this file keeps those
+ * and drops the cases that only had meaning against the deleted surface
+ * directory.
  */
 
 const OUTREACH_DOMAIN_DIR = join(process.cwd(), "src/domains/outreach");
-// FP10b (2026-07-02): the outreach surface moved from the retired customer
-// /competitors shell to /diagnostics/competitor-intel (operator-only home).
-const OUTREACH_SURFACE_DIR = join(
-  process.cwd(),
-  "src/app/(shell)/diagnostics/competitor-intel",
-);
 
 function tsFilesIn(dir: string): string[] {
   return readdirSync(dir)
@@ -42,24 +47,6 @@ describe("architecture pin - sendEmail has exactly one caller in the outreach fe
     expect(callers).toEqual(["send-pitch.ts"]);
   });
 
-  it("the competitors surface never imports sendEmail directly (only through the action -> send-pitch chain)", () => {
-    const files = tsFilesIn(OUTREACH_SURFACE_DIR);
-    const callers = files.filter(importsSendEmail);
-    expect(callers).toEqual([]);
-  });
-
-  it("sendOutreachPitchAction is the only server action that calls sendOutreachPitch", () => {
-    const actionsFile = join(OUTREACH_SURFACE_DIR, "outreach-actions.ts");
-    const src = readFileSync(actionsFile, "utf8");
-    const matches = src.match(/sendOutreachPitch\(/g) ?? [];
-    // exactly one call site (inside sendOutreachPitchAction's body)
-    expect(matches.length).toBe(1);
-    // and it must be gated by isOperatorModeServer before it can run
-    const fnBody = src.slice(src.indexOf("export async function sendOutreachPitchAction"));
-    expect(fnBody.indexOf("isOperatorModeServer")).toBeGreaterThanOrEqual(0);
-    expect(fnBody.indexOf("isOperatorModeServer")).toBeLessThan(fnBody.indexOf("sendOutreachPitch("));
-  });
-
   it("markSent (the only status='sent' setter) is called from exactly one place in the outreach domain", () => {
     const files = tsFilesIn(OUTREACH_DOMAIN_DIR);
     const callers: string[] = [];
@@ -75,15 +62,8 @@ describe("architecture pin - sendEmail has exactly one caller in the outreach fe
     expect(callers).toEqual(["send-pitch.ts"]);
   });
 
-  it("no email/pitch text in this feature contains an em or en dash (dash guard)", () => {
-    // Scope to files THIS item owns - the shared /diagnostics/competitor-intel
-    // surface directory also holds sibling features' files (keyword-gap-button.tsx
-    // etc.) that are out of scope for item 57 and owned by other agents.
-    const OUTREACH_SURFACE_FILES = ["outreach-actions.ts", "outreach-section.tsx"];
-    const files = [
-      ...tsFilesIn(OUTREACH_DOMAIN_DIR),
-      ...OUTREACH_SURFACE_FILES.map((f) => join(OUTREACH_SURFACE_DIR, f)),
-    ];
+  it("no email/pitch text in the outreach domain contains an em or en dash (dash guard)", () => {
+    const files = tsFilesIn(OUTREACH_DOMAIN_DIR);
     const offenders: string[] = [];
     for (const f of files) {
       const src = readFileSync(f, "utf8");

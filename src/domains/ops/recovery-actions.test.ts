@@ -90,9 +90,10 @@ describe("recoveryForConnectorFailure", () => {
     expect(recoveryForConnectorFailure("wix", "zero_rows_written")).toBeNull();
   });
 
-  it("wix_url_map_empty deep-links to /diagnostics/wix with the mapper self-serve", () => {
+  it("wix_url_map_empty deep-links to the Connections page (Discover collections lives on the Wix card)", () => {
     const action = recoveryForConnectorFailure("wix", "wix_url_map_empty");
-    expect(action!.href).toBe("/diagnostics/wix");
+    expect(action!.href).toBe("/settings/connectors");
+    expect(action!.exactFix).toContain("Discover collections");
     expect(action!.selfServe).toEqual({ kind: "wix_map_collections" });
     expect(action!.plainProblem).toContain("no page map");
   });
@@ -258,15 +259,16 @@ describe("recoveryForSetupItem", () => {
     expect(recoveryForSetupItem({ kind: "revenue_model", done: true })).toBeNull();
   });
 
-  it("wix_page_mapping deep-links to the Wix mapper with the self-serve action", () => {
+  it("wix_page_mapping deep-links to the Connections page with the self-serve action", () => {
     const action = recoveryForSetupItem({ kind: "wix_page_mapping", done: false });
-    expect(action!.href).toBe("/diagnostics/wix");
+    expect(action!.href).toBe("/settings/connectors");
+    expect(action!.exactFix).toContain("Discover collections");
     expect(action!.selfServe).toEqual({ kind: "wix_map_collections" });
   });
 
-  it("gsc_full_backfill deep-links to the diagnostics page with the backfill-start self-serve", () => {
+  it("gsc_full_backfill deep-links to the Connections page with the backfill-start self-serve", () => {
     const action = recoveryForSetupItem({ kind: "gsc_full_backfill", done: false });
-    expect(action!.href).toBe("/diagnostics/connectors");
+    expect(action!.href).toBe("/settings/connectors");
     expect(action!.selfServe).toEqual({ kind: "gsc_backfill_start" });
     expect(action!.exactFix).toContain("Load my full Search Console history");
   });
