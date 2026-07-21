@@ -40,10 +40,10 @@ const ALLOWLIST = new Set<string>([
   // (domains/actions/store.ts:getActionStates and
   // domains/brief-generation/store.ts:getBriefStates removed 2026-07-20:
   // the pre-ActionPack brief/action compute cluster was retired.)
-  "domains/pages/asset-response.ts:getAssetResponses",
-  "domains/pages/frontier-planner.ts:getFrontierOpportunities",
-  "domains/pages/outcome-watch.ts:getOutcomeObservations",
-  "domains/pages/wave-planner.ts:getRolloutWaves",
+  // (domains/pages/{asset-response,frontier-planner,outcome-watch,
+  // wave-planner}.ts entries removed 2026-07-21: the frontier/wave/outcome
+  // engines were deleted outright in the dead-code campaign, so their
+  // unscoped reads are gone. Allowlist is now EMPTY; keep it that way.)
 ]);
 
 /** repo getters that return TENANT-OWNED rows (must be scoped). */

@@ -12,15 +12,15 @@ import type {
   PersistedIssue,
   RolloutExecution,
   PatternEvidenceRecord,
-} from "@/domains/pages/issues";
-import type { RolloutWave } from "@/domains/pages/wave-planner";
-import type { FrontierOpportunity } from "@/domains/pages/frontier-planner";
+} from "@/domains/pages/types";
 import type {
+  RolloutWave,
+  FrontierOpportunity,
   FrontierAttackPackage,
   TrackedMissingPage,
-} from "@/domains/pages/frontier-compiler";
-import type { AssetResponse } from "@/domains/pages/asset-response";
-import type { OutcomeObservation } from "@/domains/pages/outcome-watch";
+  AssetResponse,
+  OutcomeObservation,
+} from "@/domains/pages/types";
 import type {
   CompetitorPageEvidence,
   SourcePatternEvidence,

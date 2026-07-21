@@ -11,7 +11,6 @@
 
 import type { CitationEvidenceIndex } from "@/domains/pages/types";
 import type { DailyMetricSnapshot } from "@/domains/daily-metric-snapshots/types";
-import type { ChangeOutcome } from "@/domains/attribution/change-outcome";
 import { writeStore } from "@/lib/persistence/json-store";
 import { syncPageVisibility } from "@/lib/persistence/dual-write";
 
@@ -106,16 +105,6 @@ function computeTrendForTopics(
   return "stable";
 }
 
-/** Same normalization as computeMemoryInsights' normalizeTopicKey — strips
- *  "Shield:", "(Bay Area)", and lowercases for consistent topic matching. */
-function normalizeTopicForJoin(topic: string): string {
-  return topic
-    .toLowerCase()
-    .replace(/\s*\(bay area\)\s*/gi, "")
-    .replace(/shield:\s*/gi, "")
-    .trim();
-}
-
 function addDays(date: string, days: number): string {
   const d = new Date(date + "T00:00:00Z");
   d.setUTCDate(d.getUTCDate() + days);
@@ -130,7 +119,6 @@ export async function materializePageVisibility(
   citationIndex: CitationEvidenceIndex,
   snapshots: DailyMetricSnapshot[],
   tenantId: string,
-  changeOutcomes?: ChangeOutcome[],
 ): Promise<PageVisibilitySummary[]> {
   // Aggregate per owned page URL
   const pageMap = new Map<
@@ -223,49 +211,9 @@ export async function materializePageVisibility(
     });
   }
 
-  // Phase 12: Page Response Profiling
-  if (changeOutcomes && changeOutcomes.length > 0) {
-    // Match by topic overlap, using the same normalization as computeMemoryInsights
-    for (const summary of summaries) {
-      const pageTopicSet = new Set(
-        summary.top_topics.map((t) => normalizeTopicForJoin(t.topic)),
-      );
-
-      const matchingOutcomes = changeOutcomes.filter((o) =>
-        pageTopicSet.has(normalizeTopicForJoin(o.topic_targeted)),
-      );
-
-      if (matchingOutcomes.length >= 2) {
-        const improving = matchingOutcomes.filter(
-          (o) => o.direction === "improving",
-        );
-        // Which signal_types were responsive (need changelog join — use topic as proxy)
-        const responsiveTo = [
-          ...new Set(
-            improving.map((o) => o.topic_targeted),
-          ),
-        ].slice(0, 5);
-
-        const avgDelta =
-          improving.length > 0
-            ? Math.round(
-                (improving.reduce((a, o) => a + o.citation_delta_pct, 0) /
-                  improving.length) *
-                  10,
-              ) / 10
-            : 0;
-
-        summary.response_profile = {
-          changes_applied: matchingOutcomes.length,
-          responsive_to: responsiveTo,
-          avg_citation_delta: avgDelta,
-          profiled: true,
-        };
-      } else {
-        summary.response_profile = null;
-      }
-    }
-  }
+  // Phase 12 "Page Response Profiling" removed 2026-07-21 (CORE 100K Lane F):
+  // it read the retired attribution memory loop's ChangeOutcome rows. The
+  // optional response_profile field stays on the type for legacy stored rows.
 
   // Sort by total citations descending
   summaries.sort((a, b) => b.total_citations - a.total_citations);

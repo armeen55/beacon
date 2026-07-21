@@ -1,4 +1,7 @@
 import type { SourceCategory } from "@/domains/citation-observations/types";
+// Type-only import (erased at compile) for the retired-engine row shapes
+// at the bottom of this file; no runtime cycle with competitor-evidence.
+import type { SourceType, ResponseType } from "./competitor-evidence";
 
 // ── Page types ──────────────────────────────────────────────────────
 
@@ -347,4 +350,301 @@ export type SitemapReconciliation = {
   sitemap_domain?: string;
   registry_matched?: number;
   sitemap_only?: number;
+};
+
+// ── Retired frontier/wave/outcome engine row shapes ─────────────────
+// The compute engines (frontier-planner.ts, frontier-compiler.ts,
+// wave-planner.ts, outcome-watch.ts, asset-response.ts) were deleted in the
+// 2026-07 dead-code campaign; nothing produced or consumed their outputs at
+// runtime. The persistence layer still declares repository getters typed
+// against these persisted-store row shapes, so the type definitions live on
+// here.
+
+export type FrontierType =
+  | "topic_frontier"
+  | "city_frontier"
+  | "service_frontier"
+  | "page_gap_frontier"
+  | "competitor_pressure_frontier";
+
+export type RecommendedMoveType =
+  | "repair_existing_pages"
+  | "roll_out_validated_pattern"
+  | "create_missing_page"
+  | "expand_internal_link_cluster"
+  | "strengthen_entity_support"
+  | "comparison_content_play";
+
+export type FrontierStatus = "opportunity" | "attacking" | "watching" | "dismissed";
+
+export type FrontierOpportunity = {
+  frontierOpportunityId: string;
+  frontierKey: string;
+  frontierType: FrontierType;
+  title: string;
+  createdAt: string;
+  status: FrontierStatus;
+  topic: string;
+  geography: string | null;
+  service: string | null;
+  ownedCoverageSummary: string;
+  competitorPressureSummary: string;
+  citationOpportunity: number;
+  ownedShare: number;
+  ownedPageCount: number;
+  ownedPagesWithFaq: number;
+  competitorCitations: number;
+  structuralOpportunity: number;
+  recommendedMoveType: RecommendedMoveType;
+  linkedPages: string[];
+  linkedBriefIds: string[];
+  linkedWaveIds: string[];
+  rationale: string;
+  priorityScore: number;
+  notes: string | null;
+};
+
+export type WaveType =
+  | "quick_fix_wave"
+  | "pattern_rollout_wave"
+  | "verification_wave"
+  | "mixed_operator_wave";
+
+export type WaveStatus =
+  | "proposed"
+  | "handed_off"
+  | "in_progress"
+  | "partially_shipped"
+  | "shipped"
+  | "partially_verified"
+  | "completed"
+  | "dismissed";
+
+export type RolloutWave = {
+  rolloutWaveId: string;
+  title: string;
+  sourcePatternId: string;
+  waveType: WaveType;
+  createdAt: string;
+  status: WaveStatus;
+  targetPages: string[];
+  briefIds: string[];
+  issueIds: string[];
+  rationale: string;
+  priorityScore: number;
+  expectedVerificationMode: string;
+  notes: string | null;
+};
+
+export type OutcomeAssessment =
+  | "too_early"
+  | "incubating"
+  | "early_movement"
+  | "likely_no_visible_effect_yet"
+  | "mixed_signal"
+  | "promising_but_ambiguous";
+
+export type OutcomeObservation = {
+  outcomeObservationId: string;
+  issueId: string;
+  rolloutExecutionId: string;
+  sourcePatternId: string;
+  targetPage: string;
+  observedAt: string;
+  daysSinceVerified: number;
+  citationCount: number | null;
+  citationDelta: number | null;
+  scorecardSignals: string;
+  resultSignals: string;
+  outcomeAssessment: OutcomeAssessment;
+  evidenceSummary: string;
+  linkedResultIds: string[];
+  notes: string | null;
+};
+
+export type RecommendedAssetType =
+  | "city_page"
+  | "service_page"
+  | "comparison_page"
+  | "guide_article"
+  | "entity_profile_strengthening"
+  | "directory_profile_strengthening"
+  | "roundup_outreach_target"
+  | "internal_link_support_package"
+  | "structural_refresh_existing_page";
+
+export type ConfidenceLabel = "strong_fit" | "probable_fit" | "weak_fit" | "mixed";
+
+export type AssetResponse = {
+  assetResponseId: string;
+  frontierKey: string;
+  topic: string;
+  createdAt: string;
+  dominantSourceType: SourceType;
+  responseType: ResponseType;
+  recommendedAssetType: RecommendedAssetType;
+  confidenceLabel: ConfidenceLabel;
+  rationale: string;
+  ownedEquivalentExists: boolean;
+  ownedEquivalentPages: string[];
+  missingAssetSignals: string[];
+  supportingSourcePatterns: string[];
+  linkedFrontierOpportunityId: string | null;
+  linkedAttackPackageId: string | null;
+  notes: string | null;
+};
+
+export type PackageStatus =
+  | "proposed"
+  | "compiled"
+  | "launched"
+  | "handed_off"
+  | "in_progress"
+  | "partially_verified"
+  | "completed"
+  | "dismissed";
+
+export type MissingPagePlan = {
+  suggestedTitle: string;
+  pageType: string;
+  targetTopic: string;
+  targetCity: string | null;
+  targetService: string | null;
+  rationale: string;
+  suggestedComponents: string[];
+  suggestedInternalLinksIn: string[];
+  suggestedInternalLinksOut: string[];
+  verificationExpectations: string[];
+};
+
+export type FrontierAttackPackage = {
+  frontierAttackPackageId: string;
+  frontierOpportunityId: string;
+  title: string;
+  createdAt: string;
+  status: PackageStatus;
+  recommendedMoveType: RecommendedMoveType;
+  linkedPages: string[];
+  pagesToRepair: string[];
+  pagesToCreate: MissingPagePlan[];
+  comparisonTargets: string[];
+  internalLinkTargets: { from: string; to: string; reason: string }[];
+  linkedBriefIds: string[];
+  linkedWaveIds: string[];
+  rationale: string;
+  executionSteps: string[];
+  verificationPlan: string[];
+  priorityScore: number;
+  assetResponseSummary: string | null;
+  notes: string | null;
+};
+
+export type MissingPageStatus =
+  | "planned"
+  | "handed_off"
+  | "drafted"
+  | "launched"
+  | "indexed"
+  | "watching"
+  | "completed"
+  | "dismissed";
+
+export type TrackedMissingPage = {
+  missingPagePlanId: string;
+  frontierAttackPackageId: string;
+  title: string;
+  pageType: string;
+  targetTopic: string;
+  targetCity: string | null;
+  targetService: string | null;
+  status: MissingPageStatus;
+  rationale: string;
+  suggestedComponents: string[];
+  suggestedInternalLinksIn: string[];
+  suggestedInternalLinksOut: string[];
+  verificationExpectations: string[];
+  createdAt: string;
+  handedOffAt: string | null;
+  launchedAt: string | null;
+  indexedAt: string | null;
+  notes: string | null;
+};
+
+// Relocated verbatim from src/domains/pages/issues.ts (CORE 100K, 2026-07-21).
+// The runtime issue-store getters had no callers; the persistence layer
+// consumes only these row types.
+
+export type IssueStatus =
+  | "new"
+  | "handed_off"
+  | "in_progress"
+  | "shipped"
+  | "verified"
+  | "not_fixed"
+  | "dismissed";
+
+export type PersistedIssue = {
+  issueId: string;
+  pageUrl: string;
+  pagePath: string;
+  category: string;
+  status: IssueStatus;
+  handedOffAt: string | null;
+  shippedAt: string | null;
+  verifiedAt: string | null;
+  updatedAt: string;
+  verifyResult: {
+    cleared: boolean;
+    remaining: string[];
+    summary: string;
+  } | null;
+  /**
+   * ObservationRun id for the live verify fetch that produced the persisted snapshot
+   * (`website_verify`). Present for verifications after this field shipped.
+   */
+  verificationObservationRunId?: string | null;
+  /**
+   * Snapshot / crawl ObservationRun id on disk immediately before verify ran (nullable legacy).
+   */
+  verificationBaselineObservationRunId?: string | null;
+};
+
+export type RolloutExecution = {
+  executionId: string;
+  briefId: string;
+  issueId: string;
+  sourcePatternId: string;
+  targetPage: string;
+  briefTitle: string;
+  briefType: "fix" | "growth";
+  createdAt: string;
+  handedOffAt: string | null;
+  shippedAt: string | null;
+  verifiedAt: string | null;
+  verificationResult: string | null;
+  notes: string | null;
+};
+
+export type OutcomeStatus =
+  | "shipped_not_verified"
+  | "verification_failed"
+  | "structurally_verified_outcome_too_early"
+  | "structurally_verified_no_clear_impact_yet"
+  | "structurally_verified_with_positive_signal";
+
+export type PatternEvidenceRecord = {
+  patternEvidenceId: string;
+  sourcePatternId: string;
+  briefId: string;
+  issueId: string;
+  rolloutExecutionId: string;
+  targetPage: string;
+  createdAt: string;
+  shippedAt: string | null;
+  verifiedAt: string | null;
+  structuralVerificationResult: string | null;
+  preShipCitationCount: number | null;
+  postShipCitationCount: number | null;
+  outcomeStatus: OutcomeStatus;
+  notes: string | null;
 };
