@@ -44,7 +44,6 @@ const ALLOWLIST = new Set<string>([
   "domains/pages/frontier-planner.ts:getFrontierOpportunities",
   "domains/pages/outcome-watch.ts:getOutcomeObservations",
   "domains/pages/wave-planner.ts:getRolloutWaves",
-  "domains/observations/visibility-observation-explicit-store.ts:getVisibilityObservationRunsExplicit",
 ]);
 
 /** repo getters that return TENANT-OWNED rows (must be scoped). */

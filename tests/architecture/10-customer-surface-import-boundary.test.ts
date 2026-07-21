@@ -165,8 +165,8 @@ const FORBIDDEN_ROWS: ReadonlyArray<ForbiddenRow> = [
     label: "lifecycle-eligibility operator vocabulary (Phase A.2 §3d)",
     reason:
       "@/domains/lifecycle-eligibility/** exposes snake_case operator tokens " +
-      "that would leak as raw text. Customer + settings surfaces consume " +
-      "@/domains/citation-lifecycle/render-copy instead.",
+      "that would leak as raw text. Customer + settings surfaces consume the " +
+      "plain-language render-copy layer instead.",
     roots: ROOTS_WITH_SETTINGS,
     patterns: [
       {

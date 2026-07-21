@@ -100,12 +100,6 @@
 |---|---|---|---|---|---|
 | immutable-measurement | `tests/architecture/21-immutable-measurement.test.ts` | 9 | NATIVE_REGIME_START is the single canonical measurement boundary (value locked, declared once, no drift), pure-split cross-regime windows abstain, and sampling-guard demotions are logged loud with typed, reused metadata. | active | 2026-07-20 |
 
-## Clause 10 — Claim provenance
-
-| name | source test file | clause | purpose (one sentence) | status | last-verified |
-|---|---|---|---|---|---|
-| claim-provenance | `tests/architecture/22-claim-provenance.test.ts` | 10 | Score and verdict provenance carry honest 3-level trust labels that track the audit findings; `trustworthy` is reachable only where earned, and customer copy never leaks raw Z-scores, Greek, SQL, or table names. | active | 2026-07-20 |
-
 ## Clause 11 — Fixture isolation
 
 | name | source test file | clause | purpose (one sentence) | status | last-verified |

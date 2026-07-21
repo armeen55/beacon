@@ -100,7 +100,6 @@ describe("dossier sections", () => {
 describe("cross-app dossier links (every reachable page-name surface)", () => {
   const surfaces = [
     "../../today-moves-card.tsx", // worklist MoveCard
-    "../../daily-experiments-section.tsx", // daily card
     "../../results/results-ledger-card.tsx", // proof ledger rows
     "../../changes-list-client.tsx", // Changes (/changes) row titles
     // 2026-07-20 diagnostics amputation: Page Surgeon (diagnostics/page-surgeon/*)

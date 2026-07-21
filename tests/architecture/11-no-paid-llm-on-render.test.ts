@@ -85,7 +85,6 @@ describe("page render must NOT import LLM dispatch surfaces", () => {
 describe("only documented files reach api.openai.com", () => {
   const ALLOWED_OPENAI_CALLERS = new Set<string>([
     "src/domains/llm/gateway.ts",
-    "src/domains/retrieval-twin/embeddings.ts",
   ]);
 
   it("no source file outside the allowlist references `api.openai.com`", () => {
@@ -122,26 +121,10 @@ describe("OpenAI provider build-time guard is pinned in source", () => {
 });
 
 describe("cost ledgers have single-writer isolation (fail-closed cap)", () => {
-  it("only budget.ts writes cost-ledger.json", () => {
-    const ALLOWED_WRITERS = new Set<string>(["src/lib/cost/budget.ts"]);
-    const offenders: string[] = [];
-    for (const f of walk(SRC_ROOT)) {
-      const rel = f.slice(REPO_ROOT.length + 1);
-      if (ALLOWED_WRITERS.has(rel)) continue;
-      const src = readFileSync(f, "utf8");
-      if (
-        /cost-ledger\.json/.test(src) &&
-        /writeFileSync|writeStore|appendFileSync/.test(src)
-      )
-        offenders.push(rel);
-    }
-    expect(offenders).toEqual([]);
-    const budgetSrc = readFileSync(resolve(SRC_ROOT, "lib/cost/budget.ts"), "utf8");
-    expect(budgetSrc).toMatch(/cost-ledger\.json/);
-    expect(budgetSrc).toMatch(/writeFileSync/);
-    const monthlySrc = readFileSync(resolve(SRC_ROOT, "lib/cost/monthly.ts"), "utf8");
-    expect(monthlySrc).not.toMatch(/writeFileSync|appendFileSync/);
-  });
+  // The file-based cost-ledger.json single-writer pin retired 2026-07-21: its
+  // only writer (src/lib/cost/budget.ts) plus src/lib/cost/monthly.ts were dead
+  // code (no production importer) and were deleted. Per-tenant spend now lives in
+  // budget-ledger-supabase; the "llm-budget" store single-writer pin below stays.
 
   it('only adjudicator-budget.ts writes the "llm-budget" store', () => {
     const ALLOWED = new Set<string>([

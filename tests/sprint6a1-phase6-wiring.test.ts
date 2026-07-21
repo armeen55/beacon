@@ -29,12 +29,6 @@ import { join, resolve } from "node:path";
 const SCAN_CLI_PATH = resolve(__dirname, "../scripts/scan-owned-pages.ts");
 const SCAN_CLI_SOURCE = readFileSync(SCAN_CLI_PATH, "utf8");
 
-const ORCHESTRATE_PATH = resolve(
-  __dirname,
-  "../src/domains/scanning/orchestrate-scan.ts",
-);
-const ORCHESTRATE_SOURCE = readFileSync(ORCHESTRATE_PATH, "utf8");
-
 const PERSIST_PATH = resolve(
   __dirname,
   "../src/domains/pages/extractors/persist.ts",
@@ -214,32 +208,10 @@ describe("Phase 6A.1.6 — scan-owned-pages.ts CLI wiring", () => {
   });
 });
 
-// ── 2. Wiring invariants — orchestrate-scan.ts ─────────────────────────────
-
-describe("Phase 6A.1.6 — orchestrate-scan.ts wiring", () => {
-  it("imports syncPageElementInventory + PageElementInventoryRow type", () => {
-    expect(ORCHESTRATE_SOURCE).toMatch(/syncPageElementInventory/);
-    expect(ORCHESTRATE_SOURCE).toMatch(/PageElementInventoryRow/);
-  });
-
-  it("reads .data/page-element-inventory.json and calls syncPageElementInventory in the dual-write block", () => {
-    expect(ORCHESTRATE_SOURCE).toMatch(
-      /readDotDataJson<PageElementInventoryRow\[\]>\(\s*["']page-element-inventory["']/,
-    );
-    // Phase 7.7b Commit 5 (2026-04-25): syncPageElementInventory now requires tenantId.
-    expect(ORCHESTRATE_SOURCE).toMatch(
-      /syncPageElementInventory\(syncInventory,\s*tenantId\)/,
-    );
-  });
-
-  it("wraps the inventory dual-write in try/catch so it cannot regress the scan", () => {
-    expect(ORCHESTRATE_SOURCE).toMatch(
-      /try\s*\{[\s\S]*?syncPageElementInventory\(syncInventory,\s*tenantId\)[\s\S]*?\}\s*catch/,
-    );
-  });
-});
-
-// ── 3. No-route-render-extraction invariant ────────────────────────────────
+// ── 2. No-route-render-extraction invariant ────────────────────────────────
+// (The orchestrate-scan.ts post-CLI wiring block retired 2026-07-21: orchestrate-scan
+//  was unreachable dead code — only tests imported it — and was deleted. The live scan
+//  CLI wiring above plus the dual-write helper below stay pinned.)
 
 function walkSync(dir: string, predicate: (p: string) => boolean): string[] {
   const out: string[] = [];

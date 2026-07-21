@@ -84,7 +84,6 @@ const FORBIDDEN: readonly ForbiddenRule[] = [
   {
     phrase: "Z-score",
     rationale: "Statistical jargon; operator-only surfaces may keep it.",
-    allowedFiles: ["src/domains/attribution/verdict-provenance.ts"],
   },
   { phrase: "Recommendation lifecycle", rationale: "Operator vocabulary." },
   { phrase: "decision queue", rationale: "Old internal name for /recommendations." },
@@ -215,21 +214,16 @@ const DISPLAY_SURFACES = [
   "src/app/(shell)/settings/connectors/connectors-client.tsx",
   "src/app/(shell)/settings/connectors/page.tsx",
   "src/app/(shell)/settings/connectors/publishing-mode-card.tsx",
-  "src/components/connectors/connector-capability-copy.ts",
   "src/domains/recommendation-intelligence/page-surgeon/bridge.ts",
   "src/domains/recommendation-intelligence/evidence-summary.ts",
-  "src/domains/recommendations/evidence-summary.ts",
   "src/lib/connectors/gsc/readiness.ts",
   "src/components/today/action-card.tsx",
-  "src/components/today/ai-visibility-hero.tsx",
   "src/components/today/first-reading-waiting.tsx",
   // health-strip.tsx + how-we-know-panel.tsx deleted 2026-07-21 (Phase 4D): the
   // TodayScoreboard render that mounted them was dead; today-scoreboard.tsx is
   // now a pure type module.
   "src/components/today/refresh-my-data-button.tsx",
   "src/components/today/today-scoreboard.tsx",
-  "src/components/today/visibility-leaderboard.tsx",
-  "src/components/today/visibility-score-chart.tsx",
   "src/app/(shell)/scoreboard-section.tsx",
   "src/app/(shell)/settings/config/revenue-model-card.tsx",
   "src/domains/scoreboard/scoreboard.ts",

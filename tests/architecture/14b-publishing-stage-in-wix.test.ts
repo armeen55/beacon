@@ -30,7 +30,6 @@ const read = (p: string) => readFileSync(resolve(REPO_ROOT, p), "utf8");
 const stageChangeSrc = read("src/domains/push/stage-change.ts");
 const stageRouteSrc = read("src/domains/push/stage-route.ts");
 const actionsSrc = read("src/app/(shell)/stage-in-wix-actions.ts");
-const dailyCardSrc = read("src/app/(shell)/daily-experiments-section.tsx");
 const moveCardSrc = read("src/app/(shell)/today-moves-card.tsx");
 const dailyDataSrc = read("src/app/(shell)/daily-experiments-data.ts");
 const movesDataSrc = read("src/app/(shell)/today-moves-data.ts");
@@ -63,31 +62,10 @@ describe("item 15 - stage-change is composition over the existing push rails", (
   });
 });
 
-describe("item 15 - daily card surface", () => {
-  it("offers Stage in Wix through the operator-gated server action", () => {
-    expect(dailyCardSrc).toMatch(/import \{ stageDailyPickInWixAction \} from "\.\/stage-in-wix-actions"/);
-    expect(dailyCardSrc).toContain("Stage in Wix");
-  });
-
-  it("only offers the button when the site is armed AND the lever has a route", () => {
-    expect(dailyCardSrc).toMatch(/staging\?\.enabled.*stageRouteForLever\(e\.lever\) != null/);
-  });
-
-  it("keeps the paste flow as the visible fallback", () => {
-    expect(dailyCardSrc).toContain("or copy and paste it yourself");
-    expect(dailyCardSrc).toContain("I did it in Wix"); // the manual confirm stays
-  });
-
-  it("renders the staging receipt on the card", () => {
-    expect(dailyCardSrc).toMatch(/setStagedReceipt\(r\.receiptLine\)/);
-    expect(dailyCardSrc).toMatch(/\{stagedReceipt\}/);
-  });
-
-  it("nudges at the publishing settings when Wix is connected but not armed", () => {
-    expect(dailyCardSrc).toMatch(/staging\.wixTarget && !staging\.armed/);
-    expect(dailyCardSrc).toContain('href="/settings/connectors"');
-  });
-
+describe("item 15 - daily loader surface", () => {
+  // The daily-experiments-section.tsx card was deleted 2026-07-21 (reachability
+  // amputation): its surface was unreachable. The loader (daily-experiments-data)
+  // survives, so its staging fail-safe stays pinned.
   it("the loader threads staging availability fail-safe (OFF on any uncertainty)", () => {
     expect(dailyDataSrc).toMatch(/getStagingAvailability\(tenantId\)\.catch\(\(\) => STAGING_OFF\)/);
   });
@@ -152,7 +130,6 @@ describe("item 15 - dash guard (no em/en/figure/bar dash anywhere)", () => {
     ["stage-change.ts", stageChangeSrc],
     ["stage-route.ts", stageRouteSrc],
     ["stage-in-wix-actions.ts", actionsSrc],
-    ["daily-experiments-section.tsx", dailyCardSrc],
     ["today-moves-card.tsx", moveCardSrc],
   ];
   for (const [name, src] of files) {

@@ -221,28 +221,9 @@ describe("Architecture — citation-lifecycle tenant isolation (Phase A.1 §2.18
     }
   });
 
-  it("when load-lifecycle.ts imports getCitationsForDate it also references NATIVE_REGIME_START (regime gate)", () => {
-    // The cold-store reader has no built-in regime gate. The
-    // loader is responsible for short-circuiting on post-cutover
-    // windows. Pin the regime cross-reference at the source so a
-    // future "let's read benchmark shards unconditionally" mistake
-    // trips the build.
-    const loaderPath = files.find((f) => f.endsWith("/load-lifecycle.ts"));
-    expect(loaderPath, "load-lifecycle.ts should exist in this domain").toBeDefined();
-    const src = readFileSync(loaderPath!, "utf-8");
-    const importsColdStore =
-      /import\s+\{[^}]*\bgetCitationsForDate\b[^}]*\}\s+from\s+["']@\/lib\/persistence\/cold-store["']/.test(
-        src,
-      );
-    if (!importsColdStore) {
-      // Allow the loader to drop the cold-store branch in a future
-      // phase (Phase A.3+) — the invariant only enforces the gate
-      // when the import is present.
-      return;
-    }
-    expect(
-      src,
-      "load-lifecycle.ts imports getCitationsForDate without referencing NATIVE_REGIME_START — Path A regime gate must be visible",
-    ).toMatch(/\bNATIVE_REGIME_START\b/);
-  });
+  // The load-lifecycle.ts regime-gate pin retired 2026-07-21 (reachability
+  // amputation): the citation-lifecycle loader/compute modules (load-lifecycle,
+  // load-repeat-citation, compute-*, eligibility, lifecycle-stage, render-copy,
+  // thresholds) were unreachable dead code and were deleted. canonicalize-url.ts
+  // survives and stays covered by the tenant-isolation ratchet above.
 });

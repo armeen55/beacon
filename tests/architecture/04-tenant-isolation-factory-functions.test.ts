@@ -7,15 +7,6 @@
  *   src/domains/pages/extractor.ts     (extractPageSnapshot)
  *   src/domains/pages/discover.ts      (discoverPages — opts.tenantId)
  *   src/domains/pages/guardrails.ts    (classifyGuardrails)
- *   src/domains/scanning/detect-findings.ts
- *                                      (generateFindings — opts.tenantId)
- *   src/derivations/snapshot-builder.ts (buildDerivedSnapshots)
- *   src/domains/answer-intelligence/build-index.ts
- *                                      (buildAnswerIntelligenceIndex
- *                                       — opts.tenantId)
- *   src/domains/visibility-events/engine.ts
- *                                      (analyzeVisibilityEvent
- *                                       — opts.tenantId)
  *   src/domains/attribution/change-outcome.ts
  *                                      (insightToOutcome)
  *
@@ -68,13 +59,13 @@ const D2_FACTORIES: ReadonlyArray<FactoryContract> = [
   // dead code (no importers); its tenant-isolation contract retired with it.
   { file: "src/domains/pages/extractor.ts", fn: "extractPageSnapshot", shape: "positional" },
   { file: "src/domains/pages/guardrails.ts", fn: "classifyGuardrails", shape: "positional" },
-  { file: "src/derivations/snapshot-builder.ts", fn: "buildDerivedSnapshots", shape: "positional" },
   { file: "src/domains/attribution/change-outcome.ts", fn: "insightToOutcome", shape: "positional" },
   // Opts-object `opts.tenantId: string`
   { file: "src/domains/pages/discover.ts", fn: "discoverPages", shape: "opts" },
-  { file: "src/domains/scanning/detect-findings.ts", fn: "generateFindings", shape: "opts" },
-  { file: "src/domains/answer-intelligence/build-index.ts", fn: "buildAnswerIntelligenceIndex", shape: "opts" },
-  { file: "src/domains/visibility-events/engine.ts", fn: "analyzeVisibilityEvent", shape: "opts" },
+  // snapshot-builder / detect-findings / answer-intelligence build-index /
+  // visibility-events engine deleted 2026-07-21 (reachability amputation): the
+  // factories were dead code (no production importer); their tenant-isolation
+  // contract retired with them.
 ];
 
 /** Locate the function declaration's parameter block (between paren depth
