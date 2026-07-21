@@ -9,6 +9,37 @@
 This is the operator's live priority order. I work it strictly top to bottom. The dated
 chronology of what already landed lives in VERIFICATION_LOG.md; this list is only what is next.
 
+> 🟢 **2026-07-20/21 three-phase campaign (verification, canonicalization, reliability), DEPLOYED
+> AND EXACT-SHA VERIFIED (operator-authorized, about 20 agents; Phase B commits `a9a22514`,
+> `c7de4db3`, `7e802cd3`, `d9a9352c`; Phase C commit `002e79d8` deployed as
+> `dpl_7hCWQ7mFJqN8Jq21ooGEtdyk3KKM`, six routes 307).** Phase A certified the signed-in journey
+> read-only against real production data with paid keys stripped: Today reconciled 14 of 14
+> headline numbers exactly to SQL; Results reconciled all data-integrity checks (25 rows, caveats,
+> 10 contradiction lines matching canonical-null rows exactly); the native-capability map shows
+> Profound's core wedge native and running same-day (ChatGPT engine) and SEMrush cleanly retired
+> with GSC-native striking distance live, with remaining gaps being delivery (single engine,
+> DataForSEO dry-run pause), not honesty; the destructive-action audit found zero destructive
+> queue items and page creation triple-guarded. Phase B: Ready is above zero for the first time,
+> verified live (verification-based staleness with copyBasisHash to 45 days, no shadowing by
+> regressed packs, orphaned ready drafts surfaced honestly, /tehran renders ready with an approved
+> draft); the epoch-zero date bomb is guarded; ready means one thing; plain-language ranking
+> rationale; true 90 day windows; measuring points to Results without a tab; notes sanitized at
+> render; chart early counts labeled; stale engines drop off the checked claim; Activity honors
+> page links. One canonical connector registry (headline 4 of 4 connected, 2 need attention). GA4
+> root cause closed: the single 27,000 row upsert that lost the statement-timeout race is now
+> 1,000 row batches plus 3-strike escalation without a cron. Indexing directives held for review;
+> consolidate rows can never carry paste-ready instructions; new-page actions on existing pages
+> decide as edits. Phase C: the stage-receipt table verified honest across the on-visit cycle with
+> the stalled-backfill gap fixed; Today's click-loss claim states its comparison and dated window;
+> /reports applies the same clean-attribution dollar rule as Today and Results; per-request read
+> dedupe and the measurement/LLM graph off the Results render path; pino removed (13 packages);
+> body-parser advisory patched to 0 vulnerabilities. Final gate: typecheck clean; full suite
+> 20,533 passed / 23 skipped / 0 failed; lint 0 errors; npm audit 0 vulnerabilities; `git diff
+> --check` clean; production build passed. Deferred on record: DataForSEO unfreeze and Perplexity
+> key (paid, operator decision), /results side-read latency, weekly-cadence copy nuance, shadcn
+> devDependency reclassification. **Next:** the operator begins wave 1 of Iranopedia edits from
+> the Ready tab, which now has real prepared work.
+
 > 🟢 **2026-07-20 unattended truth-and-convergence phase, DEPLOYED AND EXACT-SHA VERIFIED
 > (operator-authorized, strictly ordered tasks 1 to 6; commits `ed4d7d78`, `1bd4dd5e`,
 > `cebb210c`, `95b8c715`, `75e6aab3`; Vercel `dpl_52jeQ4KG84C8F9F9FphGrsma7zAQ`; six routes

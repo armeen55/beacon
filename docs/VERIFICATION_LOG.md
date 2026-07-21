@@ -10,6 +10,49 @@
 > Older entries (before 2026-07-01) are archived verbatim in `docs/archive/VERIFICATION_LOG_2026H1.md`.
 > That archive holds first-half-2026 history; this file holds 2026-07-01 onward.
 
+## 2026-07-20/21 - Three-phase campaign: verification, canonicalization, reliability (a9a22514, c7de4db3, 7e802cd3, d9a9352c, 002e79d8)
+
+Operator-authorized campaign, about 20 agents, three strictly ordered phases.
+
+**Phase A (verification, read-only).** Full signed-in certification of Today, Changes, Results,
+Connections, and Activity against real production data on a local server with paid keys stripped.
+Today: 14 of 14 headline numbers reconciled exactly to SQL. Results: all data-integrity checks
+reconciled (25 rows, caveats, 10 contradiction lines matching canonical-null rows exactly).
+Native-capability map: Profound's core wedge is native and ran same-day (ChatGPT engine); SEMrush
+is cleanly retired with GSC-native striking distance live; the remaining gaps are delivery (single
+engine, DataForSEO dry-run pause), not honesty. Destructive-action audit: zero destructive items
+in the current queue; page creation is triple-guarded.
+
+**Phase B (commits `a9a22514`, `c7de4db3`, `7e802cd3`, `d9a9352c`).** Ready above zero for the
+first time, verified live: verification-based staleness with copyBasisHash extended to 45 days,
+ready packs cannot be shadowed by regressed ones, orphaned ready drafts surface as honest rows,
+and /tehran renders ready with an approved draft. Also fixed: the epoch-zero date bomb is guarded,
+ready means one thing, ranking rationale is plain language, windows state their true 90 days, the
+measuring pointer goes to Results without a tab, notes are sanitized at render, chart early counts
+are labeled, stale engines drop off the checked claim, and Activity honors page links and leads
+with real pulls. One canonical connector registry; the headline now reads 4 of 4 connected, 2 need
+attention. GA4 root cause closed: a single 27,000 row upsert lost the statement-timeout race under
+load; persistence is now 1,000 row batches plus 3-strike escalation without a cron. Indexing
+directives are held for review, consolidate rows can never carry paste-ready instructions, and
+new-page actions on existing pages decide as edits.
+
+**Phase C (commit `002e79d8`).** The stage-receipt table is verified honest across the whole
+on-visit cycle with one gap fixed: a stalled backfill now says when it stopped advancing. Today's
+click-loss claim now states its comparison and dated window. /reports applies the same
+clean-attribution dollar rule as Today and Results, so contaminated wins cannot claim earnings.
+Per-request read dedupe and the measurement/LLM graph are off the Results render path. pino is
+removed (13 packages) and the body-parser advisory is patched to 0 vulnerabilities.
+
+Earlier the same day, documented separately and referenced here: Profound and SEMrush fully
+disconnected (`ab2912ec`), env consolidated, and the local Supabase connection fixed.
+
+Verification: strict typecheck clean; full suite 20,533 passed / 23 skipped / 0 failed; lint 0
+errors; npm audit 0 vulnerabilities; `git diff --check` clean; production build passed. Commit
+`002e79d8` deployed as `dpl_7hCWQ7mFJqN8Jq21ooGEtdyk3KKM`; production `/api/version` returned the
+exact SHA; six routes returned their expected 307 login continuations. Deferred on record:
+DataForSEO unfreeze and Perplexity key (paid, operator decision), /results side-read latency
+(caching-strategy question), weekly-cadence copy nuance, shadcn devDependency reclassification.
+
 ## 2026-07-20 - Unattended truth-and-convergence phase (ed4d7d78, 1bd4dd5e, cebb210c, 95b8c715, 75e6aab3)
 
 Operator-authorized unattended phase, strictly ordered tasks 1 to 6.

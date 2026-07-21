@@ -1,5 +1,43 @@
 # Beacon Verified State
 
+> 🟢 **2026-07-20/21 three-phase campaign (verification, canonicalization, reliability), deployed
+> and exact-SHA verified (operator-authorized, about 20 agents).** Phase A, read-only
+> verification: full signed-in certification of Today, Changes, Results, Connections, and Activity
+> against real production data on a local server with paid keys stripped. Today reconciled 14 of
+> 14 headline numbers exactly to SQL. Results reconciled every data-integrity check: 25 rows,
+> caveats, and 10 contradiction lines matching the canonical-null rows exactly. The
+> native-capability map shows Profound's core wedge is native and ran same-day (ChatGPT engine),
+> SEMrush is cleanly retired with GSC-native striking distance live, and the remaining gaps are
+> delivery (single engine, DataForSEO dry-run pause), not honesty. The destructive-action audit
+> found zero destructive items in the current queue and page creation triple-guarded. Phase B
+> fixes (commits `a9a22514`, `c7de4db3`, `7e802cd3`, `d9a9352c`): Ready is above zero for the
+> first time, verified live. Verification-based staleness with copyBasisHash extends to 45 days,
+> ready packs cannot be shadowed by regressed ones, orphaned ready drafts surface as honest rows,
+> and /tehran renders ready with an approved draft. Also: the epoch-zero date bomb is guarded,
+> ready means one thing, ranking rationale is plain language, windows state their true 90 days,
+> the measuring pointer goes to Results without a tab, notes are sanitized at render, chart early
+> counts are labeled, stale engines drop off the checked claim, and Activity honors page links and
+> leads with real pulls. One canonical connector registry replaces the scattered checks; the
+> headline now reads 4 of 4 connected, 2 need attention. The GA4 root cause is closed: a single
+> 27,000 row upsert lost the statement-timeout race under load; persistence is now 1,000 row
+> batches plus 3-strike escalation without a cron. Indexing directives are held for review,
+> consolidate rows can never carry paste-ready instructions, and new-page actions on existing
+> pages decide as edits. Phase C fixes (commit `002e79d8`, deployed as
+> `dpl_7hCWQ7mFJqN8Jq21ooGEtdyk3KKM`, `/api/version` exact SHA, six routes 307): the stage-receipt
+> table is verified honest across the whole on-visit cycle with one gap fixed (a stalled backfill
+> now says when it stopped advancing); Today's click-loss claim now states its comparison and
+> dated window; /reports applies the same clean-attribution dollar rule as Today and Results so
+> contaminated wins cannot claim earnings; per-request read dedupe and the measurement/LLM graph
+> are off the Results render path; pino is removed (13 packages); the body-parser advisory is
+> patched to 0 vulnerabilities. Earlier the same day, already documented and for reference only:
+> Profound and SEMrush fully disconnected (`ab2912ec`), env consolidated, and the local Supabase
+> connection fixed. Final gate: strict typecheck clean; full suite 20,533 passed / 23 skipped / 0
+> failed; lint 0 errors; npm audit 0 vulnerabilities; `git diff --check` clean; production build
+> passed. Deferred on record: the DataForSEO unfreeze and Perplexity key (paid, operator
+> decision), /results side-read latency (a caching-strategy question), the weekly-cadence copy
+> nuance, and the shadcn devDependency reclassification. Next actions: the operator begins wave 1
+> of Iranopedia edits from the Ready tab, which now has real prepared work.
+
 > 🟢 **2026-07-20 unattended truth-and-convergence phase, deployed and exact-SHA verified
 > (operator-authorized, strictly ordered tasks 1 to 6).** Three audits ran: a signed-in journey
 > audit on a local operator-bypass server (blocked from live numbers because the local .env.local
