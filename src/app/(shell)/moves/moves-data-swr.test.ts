@@ -28,8 +28,8 @@ vi.mock("@/lib/obs/error-ledger", () => ({
 }));
 vi.mock("@/lib/tenant-context", () => ({ currentTenantId: async () => "tenant-test" }));
 
-import { loadSurfaceWithSwr, targetBelongsToTenantDomain } from "./moves-data";
-import type { TodayMovesHeroData } from "../today-moves-data";
+import { loadSurfaceWithSwr, targetBelongsToTenantDomain, withReadyOverflow } from "./moves-data";
+import type { TodayMove, TodayMovesHeroData } from "../today-moves-data";
 
 const surface = (id: string): TodayMovesHeroData =>
   ({
@@ -132,5 +132,27 @@ describe("targetBelongsToTenantDomain", () => {
   it("fails closed on a Ritz target or missing tenant domain", () => {
     expect(targetBelongsToTenantDomain("https://ritzbuilders.com/palo-alto", "iranopedia.com")).toBe(false);
     expect(targetBelongsToTenantDomain("https://iranopedia.com/nowruz", "")).toBe(false);
+  });
+});
+
+describe("withReadyOverflow - a valid ready row is never dropped by the cap (prepared work is sunk cost)", () => {
+  const mv = (id: string, ready: boolean): TodayMove =>
+    ({ id, preparedChecklist: ready ? { readyToReview: true } : { readyToReview: false } }) as unknown as TodayMove;
+
+  it("(e) appends a READY row that fell outside the cap", () => {
+    const moves = [mv("a", false), mv("b", false), mv("ready", true)];
+    const shown = withReadyOverflow(moves, 2); // cap hides index 2 (the ready one)
+    expect(shown.map((m) => m.id)).toEqual(["a", "b", "ready"]);
+  });
+
+  it("does not duplicate a ready row already inside the cap", () => {
+    const moves = [mv("ready", true), mv("b", false), mv("c", false)];
+    const shown = withReadyOverflow(moves, 2);
+    expect(shown.map((m) => m.id)).toEqual(["ready", "b"]);
+  });
+
+  it("returns the plain cap when nothing overflows", () => {
+    const moves = [mv("a", false), mv("b", true)];
+    expect(withReadyOverflow(moves, 5).map((m) => m.id)).toEqual(["a", "b"]);
   });
 });

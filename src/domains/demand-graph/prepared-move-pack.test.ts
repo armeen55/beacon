@@ -13,6 +13,7 @@ import {
   parsePreparedPack,
   indexReadyPacksByUrl,
   selectPersistedPackForRow,
+  unsurfacedReadyPackUrls,
 } from "./prepared-move-pack";
 
 const NOW = "2026-06-25T00:00:00.000Z";
@@ -142,18 +143,24 @@ describe("derivePreparedStatus — honest by construction", () => {
   });
 });
 
-describe("isPackStale — legacy packs (no copyBasisHash) fall back to evidenceHash", () => {
-  it("is stale when the evidence hash drifts", () => {
-    const p = packet("edit_page"); // fixture has no copyBasisHash → legacy path
+describe("isPackStale — legacy packs (no copyBasisHash): basis is UNVERIFIABLE, so age governs", () => {
+  it("stays FRESH within 14 days regardless of evidence drift (volatile context never invalidates)", () => {
+    const p = packet("edit_page"); // fixture has no copyBasisHash → unverifiable basis
     const pack = buildPreparedMovePack({ tenantId: "t", packet: p, opinions: [], decision: routeMove({ packet: p, opinions: [] }), nowIso: NOW });
     expect(pack.copyBasisHash).toBeUndefined();
+    // A wildly different evidenceHash (competitor teardown re-fetched, dossier
+    // re-hashed) no longer discards a legacy draft: it cannot verify the copy
+    // basis, so the honest 14-day age bound governs, not evidence drift.
     expect(isPackStale(pack, { evidenceHash: "hash-A" }, NOW)).toBe(false);
-    expect(isPackStale(pack, { evidenceHash: "hash-DIFFERENT" }, NOW)).toBe(true);
+    expect(isPackStale(pack, { evidenceHash: "hash-DIFFERENT" }, NOW)).toBe(false);
   });
-  it("is stale once the TTL has passed", () => {
+  it("goes stale once the 14-day age bound / TTL has passed", () => {
     const p = packet("edit_page");
     const pack = buildPreparedMovePack({ tenantId: "t", packet: p, opinions: [], decision: routeMove({ packet: p, opinions: [] }), nowIso: NOW });
     expect(isPackStale(pack, { evidenceHash: "hash-A" }, "2026-08-01T00:00:00.000Z")).toBe(true);
+    // 15 days is already past the unverifiable 14-day bound.
+    const fifteenDaysLater = new Date(Date.parse(NOW) + 15 * 24 * 60 * 60 * 1000).toISOString();
+    expect(isPackStale(pack, { evidenceHash: "hash-A" }, fifteenDaysLater)).toBe(true);
   });
 });
 
@@ -177,7 +184,9 @@ describe("isPackStale — two-tier copy-basis contract (new packs)", () => {
     copyBasisHash: computeCopyBasisHash({ ownedTitle: title, ownedH1: null, gapType: "edit_page", primaryQuery: "persian wedding traditions" }),
   });
 
-  it("(b) stays FRESH when only volatile evidence changed (competitor facts / dossier / share drift)", () => {
+  const daysLater = (n: number) => new Date(Date.parse(NOW) + n * 24 * 60 * 60 * 1000).toISOString();
+
+  it("stays FRESH when only volatile evidence changed (competitor facts / dossier / share drift)", () => {
     const { pack } = packForTitle("Persian Wedding Traditions");
     expect(pack.copyBasisHash).toBeDefined();
     // evidenceHash is wildly different (competitor teardown re-fetched, dossier
@@ -185,9 +194,26 @@ describe("isPackStale — two-tier copy-basis contract (new packs)", () => {
     expect(isPackStale(pack, current("Persian Wedding Traditions", "totally-different-evidence"), NOW)).toBe(false);
   });
 
-  it("(c) goes STALE when the owned page title the edit was computed against changed", () => {
+  it("(a) a 20-day-old pack with a VERIFIED matching copyBasisHash stays FRESH (age alone does not invalidate verified copy)", () => {
+    const { pack } = packForTitle("Persian Wedding Traditions");
+    // 20 days > the 14-day unverifiable bound, but the basis is verified unchanged
+    // against the current page, so the 45-day verified horizon applies.
+    expect(isPackStale(pack, current("Persian Wedding Traditions"), daysLater(20))).toBe(false);
+  });
+
+  it("(b) a 20-day-old pack whose title changed is STALE (verified mismatch beats age)", () => {
+    const { pack } = packForTitle("Persian Wedding Traditions");
+    expect(isPackStale(pack, current("Persian Wedding Traditions — Updated 2026"), daysLater(20))).toBe(true);
+  });
+
+  it("also STALE at any age when the owned title changed (immediate copy-basis mismatch)", () => {
     const { pack } = packForTitle("Persian Wedding Traditions");
     expect(isPackStale(pack, current("Persian Wedding Traditions — Updated 2026"), NOW)).toBe(true);
+  });
+
+  it("(c) a 50-day-old pack is ALWAYS stale, even with a verified matching basis (past the 45-day horizon)", () => {
+    const { pack } = packForTitle("Persian Wedding Traditions");
+    expect(isPackStale(pack, current("Persian Wedding Traditions"), daysLater(50))).toBe(true);
   });
 
   it("goes STALE when the action type changed", () => {
@@ -199,18 +225,11 @@ describe("isPackStale — two-tier copy-basis contract (new packs)", () => {
     expect(isPackStale(pack, currentDifferentAction, NOW)).toBe(true);
   });
 
-  it("(d) a 15-day-old pack is stale regardless of matching hashes", () => {
-    const { pack } = packForTitle("Persian Wedding Traditions");
-    const fifteenDaysLater = new Date(Date.parse(NOW) + 15 * 24 * 60 * 60 * 1000).toISOString();
-    // Copy basis is unchanged, but the age bound (14 days) fires anyway.
-    expect(isPackStale(pack, current("Persian Wedding Traditions"), fifteenDaysLater)).toBe(true);
-  });
-
-  it("URL-fallback path (no live packet) keeps a fresh pack fresh under the age bound", () => {
+  it("URL-fallback path (no live packet) cannot verify basis, so the 14-day bound governs", () => {
     const { pack } = packForTitle("Persian Wedding Traditions");
     expect(isPackStale(pack, null, NOW)).toBe(false);
-    const fifteenDaysLater = new Date(Date.parse(NOW) + 15 * 24 * 60 * 60 * 1000).toISOString();
-    expect(isPackStale(pack, null, fifteenDaysLater)).toBe(true);
+    // No live packet => unverifiable => the 14-day (not 45-day) bound applies.
+    expect(isPackStale(pack, null, daysLater(15))).toBe(true);
   });
 });
 
@@ -316,7 +335,40 @@ describe("fallback join — indexReadyPacksByUrl / selectPersistedPackForRow", (
     expect(picked).toBe(packetKeyedPack);
   });
 
-  it("(e) a draft for URL X can never attach to a row for URL Y", () => {
+  it("(d) a READY URL-indexed pack beats a REGRESSED (non-ready) packet-keyed pack", () => {
+    const url = "https://iranopedia.com/tehran";
+    // The packet-keyed pack regressed to competitors_read (a re-prepare that never
+    // reached a draft); a valid ready pack for the same URL still exists.
+    const regressed = notReadyPackFor(url);
+    const readyByUrl = indexReadyPacksByUrl(
+      [{ kind: "prepared_pack", content: toPersistedPack(readyPackFor(url)) }],
+      canonLower,
+    );
+    const picked = selectPersistedPackForRow({
+      packetKeyedPack: regressed,
+      readyByUrl,
+      rowCanonUrl: url,
+      isReadyAndValid: (p) => p.preparedStatus === "ready_to_review",
+    });
+    expect(picked).not.toBeNull();
+    expect(picked!.preparedStatus).toBe("ready_to_review");
+    // A ready pack is never shadowed by a regressed one.
+    expect(picked).not.toBe(regressed);
+  });
+
+  it("keeps the (non-ready) packet-keyed pack when there is NO ready URL fallback for the row", () => {
+    const url = "https://iranopedia.com/tehran";
+    const regressed = notReadyPackFor(url);
+    const picked = selectPersistedPackForRow({
+      packetKeyedPack: regressed,
+      readyByUrl: new Map(),
+      rowCanonUrl: url,
+      isReadyAndValid: (p) => p.preparedStatus === "ready_to_review",
+    });
+    expect(picked).toBe(regressed);
+  });
+
+  it("a draft for URL X can never attach to a row for URL Y", () => {
     const readyByUrl = indexReadyPacksByUrl(
       [{ kind: "prepared_pack", content: toPersistedPack(readyPackFor("https://iranopedia.com/url-x")) }],
       canonLower,
@@ -327,5 +379,29 @@ describe("fallback join — indexReadyPacksByUrl / selectPersistedPackForRow", (
       rowCanonUrl: "https://iranopedia.com/url-y",
     });
     expect(picked).toBeNull();
+  });
+
+  it("(e) unsurfacedReadyPackUrls selects a fresh ready pack whose URL has NO existing row, and skips existing / stale ones", () => {
+    const orphanUrl = "https://iranopedia.com/cuisine";
+    const surfacedUrl = "https://iranopedia.com/famous-iranian-singers";
+    const staleUrl = "https://iranopedia.com/old-page";
+    const readyByUrl = indexReadyPacksByUrl(
+      [
+        { kind: "prepared_pack", content: toPersistedPack(readyPackFor(orphanUrl)) },
+        { kind: "prepared_pack", content: toPersistedPack(readyPackFor(surfacedUrl)) },
+        { kind: "prepared_pack", content: toPersistedPack(readyPackFor(staleUrl)) },
+      ],
+      canonLower,
+    );
+    const existingRowUrls = new Set([canonLower(surfacedUrl)]); // this URL already has a row
+    const out = unsurfacedReadyPackUrls({
+      readyByUrl,
+      existingRowUrls,
+      isFresh: (pack) => canonLower(pack.targetUrl) !== canonLower(staleUrl), // pretend the old page's pack aged out
+    });
+    const urls = out.map((o) => o.url);
+    expect(urls).toContain(canonLower(orphanUrl)); // orphan with no row → surfaced
+    expect(urls).not.toContain(canonLower(surfacedUrl)); // already a row → skipped
+    expect(urls).not.toContain(canonLower(staleUrl)); // aged out → skipped
   });
 });

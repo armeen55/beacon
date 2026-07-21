@@ -267,10 +267,23 @@ export function buildPreparedMovePack(input: BuildPreparedMovePackInput): Prepar
   };
 }
 
-/** The honest hard age cap. A prepared pack older than this is re-checked no
- *  matter what its hashes say: two-week-old copy deserves a fresh look even when
- *  nothing we can observe changed. Aligned to the DataForSEO SERP cache TTL. */
+/**
+ * Two-tier, VERIFICATION-BASED age bounds (2026-07-20 redesign).
+ *
+ * MAX_PACK_AGE_MS (14d) - the UNVERIFIABLE-basis horizon. When we cannot confirm
+ * the copy against the page's CURRENT signals (no live packet, or a legacy pack
+ * that predates copyBasisHash and stores no basis we could recompute), a
+ * two-week-old draft deserves a fresh look. Aligned to the DataForSEO SERP cache
+ * TTL.
+ *
+ * VERIFIED_MAX_PACK_AGE_MS (45d) - the VERIFIED-basis horizon. When the pack's
+ * copyBasisHash still MATCHES the page's current title/H1/action/query, the copy
+ * is provably unchanged, so age alone must not discard it: it stays valid out to
+ * the crawl-evidence confidence horizon (45 days), the pack's own 14-day TTL
+ * notwithstanding. Beyond 45 days we re-check even verified copy.
+ */
 const MAX_PACK_AGE_MS = 14 * DAY;
+const VERIFIED_MAX_PACK_AGE_MS = 45 * DAY;
 
 /** What the live build knows about a Move's current inputs, for the staleness
  *  comparison. `null` means there is NO live packet for this row (the URL-fallback
@@ -280,35 +293,41 @@ export type CurrentPackInputs = { evidenceHash: string; copyBasisHash?: string |
 
 /**
  * A pack is stale when its PREPARED COPY is no longer valid, or it aged out.
- * Two-tier contract (2026-07-20), replacing the old all-or-nothing evidenceHash
- * equality that discarded perfectly good drafts whenever any evidence context
- * (competitor facts, dossier hash, demand query-share) drifted:
+ * Verification-based two-tier contract (2026-07-20), replacing the old all-or-
+ * nothing evidenceHash equality that discarded perfectly good drafts whenever any
+ * evidence context (competitor facts, dossier hash, demand query-share) drifted:
  *
- *   (1) Age: older than MAX_PACK_AGE_MS (or past its own staleAt) => stale.
- *   (2) Copy basis (new packs): stale ONLY when copyBasisHash changed - i.e. the
- *       owned page's title/H1 the edit was computed against, the action type, or
- *       the source query changed. Volatile evidence context never invalidates.
- *   (2b) Legacy packs (no copyBasisHash): fall back ONCE to evidenceHash equality;
- *        the next prepare stamps copyBasisHash and upgrades them.
- *   (3) No live packet (URL-fallback join): only (1) applies; the persisted
- *       ready copy stands on its own age.
+ *   (A) VERIFIABLE basis - BOTH the pack and the live page expose a copyBasisHash.
+ *       The copy's validity is checked DIRECTLY against current signals; volatile
+ *       evidence context is never consulted.
+ *         - mismatch => the title/H1/action/query the copy was written against
+ *                       changed => STALE now, at any age.
+ *         - match    => provably unchanged => FRESH out to the hard 45-day
+ *                       crawl-evidence horizon, regardless of the 14-day TTL.
+ *   (B) UNVERIFIABLE basis - no live packet, a copyBasisHash missing on either
+ *       side, or a legacy pack. The copy cannot be confirmed against current
+ *       signals, so the honest 14-day age bound (plus the pack's own staleAt TTL)
+ *       governs. We deliberately do NOT discard the copy on volatile evidence
+ *       drift here: a legacy pack stores no basis we could recompute, and folding
+ *       in evidence CONTEXT was the exact bug this redesign removes. After the
+ *       next prepare stamps copyBasisHash, the pack upgrades to tier (A).
  */
 export function isPackStale(pack: PreparedMovePack, current: CurrentPackInputs, nowIso?: string): boolean {
   const now = nowIso ? Date.parse(nowIso) : Date.now();
-  // (1) Age bounds - honest hard cap plus the pack's own TTL.
   const genMs = Date.parse(pack.generatedAt);
-  if (Number.isFinite(genMs) && now - genMs > MAX_PACK_AGE_MS) return true;
-  if (Number.isFinite(Date.parse(pack.staleAt)) && now > Date.parse(pack.staleAt)) return true;
-  // (3) No live packet to compare against: age alone governs.
-  if (!current) return false;
-  // (2) New packs: compare the copy-only key. A missing current copyBasisHash
-  // (older packet build) cannot prove drift, so we keep the copy FRESH rather
-  // than discard it on absent data.
-  if (pack.copyBasisHash != null) {
-    return current.copyBasisHash != null && pack.copyBasisHash !== current.copyBasisHash;
+  const ageMs = Number.isFinite(genMs) ? now - genMs : 0;
+
+  // (A) Verifiable basis: compare the copy-only key against the live page.
+  if (current && pack.copyBasisHash != null && current.copyBasisHash != null) {
+    if (pack.copyBasisHash !== current.copyBasisHash) return true;
+    // Verified unchanged: valid to the 45-day horizon, age/TTL notwithstanding.
+    return ageMs > VERIFIED_MAX_PACK_AGE_MS;
   }
-  // (2b) Legacy packs: the old behavior, exactly once.
-  return pack.evidenceHash !== current.evidenceHash;
+
+  // (B) Unverifiable basis: the honest 14-day age bound + the pack's own TTL.
+  if (ageMs > MAX_PACK_AGE_MS) return true;
+  if (Number.isFinite(Date.parse(pack.staleAt)) && now > Date.parse(pack.staleAt)) return true;
+  return false;
 }
 
 /** Projection for durable storage. The pack is already compact (it references the
@@ -353,20 +372,67 @@ export function indexReadyPacksByUrl(
 }
 
 /**
- * Pick the persisted pack for a Move row under the fallback-join contract:
- * the packet-key match wins; otherwise the URL-keyed ready pack, consulted ONLY
- * when the packet-key join missed. A draft for URL X can never attach to a row for
- * URL Y: the index is keyed by each pack's own canonical target and looked up by
- * the row's canonical target, so `readyByUrl.get(rowCanonUrl)` can only return a
- * pack whose canonical target equals the row's. PURE.
+ * Pick the persisted pack for a Move row under the fallback-join contract. The
+ * packet-key match wins - EXCEPT when it is itself regressed (not ready) or stale
+ * while a ready + valid URL-indexed pack exists for the same URL: a genuinely
+ * ready draft must never be shadowed by a packet-keyed pack that lost its draft
+ * (e.g. a re-prepare that only reached competitors_read) or aged out. When the
+ * packet-key join misses entirely, the URL-keyed ready pack is used.
+ *
+ * A draft for URL X can never attach to a row for URL Y: the index is keyed by
+ * each pack's own canonical target and looked up by the row's canonical target,
+ * so `readyByUrl.get(rowCanonUrl)` can only return a pack whose canonical target
+ * equals the row's. PURE.
+ *
+ * `isReadyAndValid` decides whether a candidate is ready + fresh (the caller
+ * supplies the staleness check, which needs the live packet + clock). It defaults
+ * to treating every pack as ready + valid, preserving the original packet-key-wins
+ * behavior when the caller does not supply a verdict.
  */
 export function selectPersistedPackForRow(args: {
   packetKeyedPack: PreparedMovePack | null;
   readyByUrl: Map<string, PreparedMovePack>;
   rowCanonUrl: string;
+  isReadyAndValid?: (pack: PreparedMovePack) => boolean;
 }): PreparedMovePack | null {
-  if (args.packetKeyedPack) return args.packetKeyedPack;
-  return args.readyByUrl.get(args.rowCanonUrl) ?? null;
+  const urlPack = args.readyByUrl.get(args.rowCanonUrl) ?? null;
+  const ok = args.isReadyAndValid ?? (() => true);
+  if (args.packetKeyedPack) {
+    // Prefer the packet-key match when it is itself ready + valid.
+    if (ok(args.packetKeyedPack)) return args.packetKeyedPack;
+    // Regressed/stale packet-keyed pack: a ready + valid URL-indexed pack wins so
+    // a real ready draft is never shadowed. Otherwise keep the packet-keyed pack
+    // (its non-ready status is the honest current state of preparation).
+    if (urlPack && ok(urlPack)) return urlPack;
+    return args.packetKeyedPack;
+  }
+  return urlPack;
+}
+
+/**
+ * ROW-EXISTENCE fallback (2026-07-20). The URL-fallback join can only lift an
+ * EXISTING move row; a URL whose only surfaced evidence is a persisted READY
+ * prepared pack - with no live queue row at all - would still render nothing.
+ * Prepared work is sunk cost and immediately executable, so it must surface even
+ * when its demand rank never earned a worklist row.
+ *
+ * Returns the { url, pack } to synthesize a surfaced row for: every entry in
+ * `readyByUrl` that is (1) not already a row (`existingRowUrls`, canonical) and
+ * (2) still valid under the caller's freshness predicate (an aged-out ready pack
+ * must not resurface as a live "ready" row). PURE.
+ */
+export function unsurfacedReadyPackUrls(args: {
+  readyByUrl: Map<string, PreparedMovePack>;
+  existingRowUrls: ReadonlySet<string>;
+  isFresh: (pack: PreparedMovePack) => boolean;
+}): Array<{ url: string; pack: PreparedMovePack }> {
+  const out: Array<{ url: string; pack: PreparedMovePack }> = [];
+  for (const [url, pack] of args.readyByUrl) {
+    if (!url || args.existingRowUrls.has(url)) continue;
+    if (!args.isFresh(pack)) continue;
+    out.push({ url, pack });
+  }
+  return out;
 }
 
 /** Parse a persisted pack. Fail-soft → null on any malformed/legacy content. */

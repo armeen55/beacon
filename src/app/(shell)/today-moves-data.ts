@@ -44,7 +44,9 @@ import {
   isPackStale,
   indexReadyPacksByUrl,
   selectPersistedPackForRow,
+  unsurfacedReadyPackUrls,
   type PreparedStatus,
+  type PreparedMovePack,
 } from "@/domains/demand-graph/prepared-move-pack";
 import { loadShippedChanges } from "@/domains/proof-gsc/shipped-change-store";
 import {
@@ -298,6 +300,11 @@ export type TodayMove = {
    *  in-memory from the same opinions/decision this loader already builds - no
    *  new fetch, no new ranking. */
   whatElseIConsidered?: import("@/domains/demand-graph/alternatives-panel").AlternativesPanelData | null;
+  /** Row-existence fallback (2026-07-20) - set when this row exists ONLY because a
+   *  valid READY prepared pack was surfaced for a URL the live worklist never
+   *  ranked a row for (prepared work is sunk cost + immediately executable). Names
+   *  why it is here so the surface never looks like it fabricated a move. */
+  inclusionReason?: string | null;
 };
 
 export type TodayMovesHeroData = {
@@ -363,6 +370,15 @@ const ACTION_PRIORITY: Record<string, number> = {
   create_page: 0,
 };
 const CONF_RANK = { high: 3, medium: 2, low: 1 } as const;
+
+/** Prepared-pack moveType (the engine's GapKind) -> the TodayMove action key that
+ *  drives the card's tone + label. Mirrors the ActionPack mapping in moves-data.ts. */
+const MOVETYPE_TO_ACTION: Record<string, TodayMoveAction> = {
+  answer_block: "add_answer_block",
+  edit_page: "edit_title",
+  fix_experience: "fix_page_experience",
+  create_page: "create_page",
+};
 
 const PROOF_MARKERS = ["You'll know it worked", "Once it's live"];
 
@@ -445,6 +461,94 @@ function withTimeout<T>(p: Promise<T>, ms: number, fallback: T): Promise<T> {
     p.catch(() => fallback),
     new Promise<T>((resolve) => setTimeout(() => resolve(fallback), ms)),
   ]);
+}
+
+/**
+ * Row-existence fallback (2026-07-20): synthesize a surfaced TodayMove from a
+ * valid READY prepared pack whose URL never earned a live worklist row. Honest by
+ * construction - every rich signal (demand, GSC queries, competitor teardown) it
+ * did not recompute stays empty/null (NO fabricated numbers); it carries only the
+ * pack's own real prepared evidence (the structured draft, proof plan, router
+ * decision, readiness). `inclusionReason` names why it appears. The readiness
+ * strip reflects the SAME draft-quality gate every packet-path row passes, so a
+ * bad draft is still demoted out of "ready to review". PURE.
+ */
+export function buildReadyOrphanMove(
+  pack: PreparedMovePack,
+  targetUrl: string,
+  preparedQuality: DraftQualityResult | null,
+): TodayMove {
+  const action = MOVETYPE_TO_ACTION[pack.moveType] ?? "edit_title";
+  const meta = ACTION_META[action] ?? { label: "Make this move", tone: "page" as const };
+  const draftValue = pack.structuredDraft as { kind?: string; value?: { answer?: string; after?: string } } | null;
+  const preparedDraftText = draftValue?.value?.answer ?? draftValue?.value?.after ?? null;
+  const draftPrepared = !!preparedDraftText;
+  const qualityOk = !preparedQuality || preparedQuality.status === "ready" || preparedQuality.status === "useful_but_needs_review";
+  const readyToReview = pack.preparedStatus === "ready_to_review" && qualityOk;
+  return {
+    id: pack.moveId,
+    action,
+    actionLabel: meta.label,
+    actionTone: meta.tone,
+    query: pack.primaryQuery,
+    targetUrl,
+    pageLabel: prettyPage(targetUrl),
+    why: pack.routerDecision?.rationale?.trim() || "Prepared and ready for your review.",
+    proof: "",
+    confidence: pack.confidence ?? "medium",
+    demand: null,
+    demandBasis: null,
+    whoCited: null,
+    whatWins: null,
+    yourGap: "",
+    topQueries: [],
+    declines: [],
+    cannibalization: [],
+    ga4: null,
+    friction: null,
+    looselyMatched: false,
+    also: [],
+    outline: [],
+    answerBrief: null,
+    draftTitle: null,
+    draftMeta: null,
+    faqs: [],
+    schema: [],
+    titleVariants: [],
+    rankWhy: "",
+    // No fabricated rank: prepared orphans carry no demand-graph score. They are
+    // guaranteed a surfaced row by inclusion below, not by out-ranking real moves.
+    score: 0,
+    savedAnswerBlock: null,
+    savedFaqJsonLd: null,
+    specialists: [],
+    debate: summarizeSpecialistDebate([]),
+    routerAction: pack.routerDecision?.action ?? null,
+    routerRationale: pack.routerDecision?.rationale ?? null,
+    routerConfidence: pack.confidence ?? null,
+    preparedStatus: pack.preparedStatus,
+    preparedChecklist: {
+      googleChecked: false,
+      aiChecked: false,
+      competitorsRead: false,
+      draftPrepared,
+      proofPlanReady: draftPrepared && (pack.proofPlan?.metrics?.length ?? 0) > 0,
+      readyToReview,
+    },
+    preparedDraftKind: draftValue?.kind ?? null,
+    preparedDraftText,
+    preparedQuality,
+    preparedExperiment: pack.experiment?.hypothesis ?? null,
+    preparedStale: false,
+    learnedTag: null,
+    inclusionReason: "prepared_ready",
+    competitorInformed:
+      pack.regenMeta?.regeneratedFromTeardown && pack.regenMeta.competitorDomain
+        ? { domain: pack.regenMeta.competitorDomain }
+        : null,
+    winnabilityLine: pack.winnabilityLine ?? null,
+    winnabilityHeld: pack.winnabilityHold === true,
+  };
 }
 
 /**
@@ -683,10 +787,16 @@ export async function buildTodayMovesData(
       const packetKeyedPack = packet
         ? parsePreparedPack(savedDrafts.get(`${packet.move.key}::prepared_pack`)?.content)
         : null;
+      // Ready + valid = ready_to_review AND not stale (the freshness check needs the
+      // live packet + clock, so the caller owns it). A regressed/stale packet-keyed
+      // pack must never shadow a genuinely ready URL-indexed one.
+      const readyAndValid = (candidate: PreparedMovePack): boolean =>
+        candidate.preparedStatus === "ready_to_review" && !isPackStale(candidate, packet ?? null, nowIso);
       const persistedPack = selectPersistedPackForRow({
         packetKeyedPack,
         readyByUrl: persistedReadyPackByUrl,
         rowCanonUrl: pk,
+        isReadyAndValid: readyAndValid,
       });
       // Staleness: compare against the live packet when we have one (full copy-basis
       // check); on the URL-fallback path there is no live packet, so the persisted
@@ -896,6 +1006,36 @@ export async function buildTodayMovesData(
         winnabilityLine: persistedFresh ? persistedPack!.winnabilityLine ?? null : null,
         winnabilityHeld: persistedFresh ? persistedPack!.winnabilityHold === true : false,
       });
+    }
+
+    // ROW-EXISTENCE fallback (2026-07-20): surface every VALID ready prepared pack
+    // whose URL never earned a live queue row. The URL-fallback join above can only
+    // lift EXISTING rows; a fresh ready draft for a page with no `recommended_edits`
+    // row (the dominant blocker - most prepared packs are produced from the
+    // allocator worklist, not the queue) would otherwise stay invisible. Prepared
+    // work is sunk cost and immediately executable, so we synthesize an honest row
+    // for it (no fabricated demand), gated by the SAME draft-quality check. Freshness
+    // uses the live packet when one exists (full copy-basis check), else the pack's
+    // own age (isPackStale(null)) so an aged-out ready pack never resurfaces.
+    const surfacedUrls = new Set(moves.map((m) => canon(m.targetUrl)));
+    const orphans = unsurfacedReadyPackUrls({
+      readyByUrl: persistedReadyPackByUrl,
+      existingRowUrls: surfacedUrls,
+      isFresh: (candidate) => !isPackStale(candidate, packetByUrl.get(canon(candidate.targetUrl)) ?? null, nowIso),
+    });
+    for (const { pack } of orphans) {
+      const orphanUrl = pack.targetUrl;
+      if (!orphanUrl) continue;
+      const quality = pack.structuredDraft
+        ? evaluatePreparedPackQuality({
+            structuredDraft: pack.structuredDraft as { kind?: string; value?: unknown },
+            preparedStatus: pack.preparedStatus,
+            moveType: pack.moveType,
+            authoritativeSourceDomains,
+            firstMentionConfig,
+          })
+        : null;
+      moves.push(buildReadyOrphanMove(pack, orphanUrl, quality));
     }
 
     // Rank: engine score desc, then confidence, then demand.
@@ -1264,7 +1404,16 @@ export async function buildTodayMovesData(
         CONF_RANK[b.confidence] - CONF_RANK[a.confidence] ||
         (b.demand ?? 0) - (a.demand ?? 0),
     );
-    const top = pool.slice(0, limit);
+    // Prepared work is sunk cost: a VALID ready row must never be dropped by the
+    // `limit` cut just because its demand rank is low (score 0 for synthesized
+    // orphans). Append any ready row that fell outside the shown set so it always
+    // surfaces (the canonical Changes list does its own ordering downstream).
+    const base = pool.slice(0, limit);
+    const inBase = new Set(base.map((m) => m.id));
+    const readyOverflow = moves.filter(
+      (m) => m.preparedChecklist?.readyToReview && !inBase.has(m.id),
+    );
+    const top = readyOverflow.length ? [...base, ...readyOverflow] : base;
 
     // D7 (honest opportunity math, DREAM SITE V1) - this USED to be a raw sum of demand-graph
     // weight/impressions ("500k people at risk" territory - a number nobody could act on). It is

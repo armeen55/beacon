@@ -51,6 +51,19 @@ export function targetBelongsToTenantDomain(targetUrl: string, ownedDomain: stri
  *  within the shown set. */
 const MOVES_CAP = 75;
 
+/**
+ * Cap the worklist to the strongest N, but NEVER let the cap hide a VALID ready
+ * move (prepared work is sunk cost + immediately executable). Any ready row that
+ * fell outside the cap is appended so it always surfaces. PURE - exported for the
+ * cap-survival test. */
+export function withReadyOverflow(moves: TodayMove[], cap: number): TodayMove[] {
+  const capped = moves.slice(0, cap);
+  if (capped.length === moves.length) return capped;
+  const inCap = new Set(capped.map((m) => m.id));
+  const readyOverflow = moves.filter((m) => m.preparedChecklist?.readyToReview && !inCap.has(m.id));
+  return readyOverflow.length ? [...capped, ...readyOverflow] : capped;
+}
+
 const EMPTY_STATS: TodayMovesHeroData["stats"] = {
   demandAtStake: 0, citationsContested: 0, pagesCovered: 0,
   draftsReady: 0, strikingWins: 0, losingQueries: 0, selfCompeting: 0,
@@ -272,12 +285,27 @@ async function loadUncached(tenantId: string): Promise<TodayMovesHeroData> {
     }
   }
 
+  // Row-existence fallback (2026-07-20): a rich hero move that is READY but whose
+  // URL never appeared in the ActionPack worklist (its demand rank fell below the
+  // pack set, or it exists only as prepared sunk-cost work) is still a real,
+  // immediately-executable move - surface it inline. buildTodayMovesData already
+  // gated its readiness on the same draft-quality check every pack-path row passes.
+  for (const m of safeHero?.moves ?? []) {
+    if (!m.preparedChecklist?.readyToReview) continue;
+    if (!m.targetUrl || m.targetUrl === "needs_new_page") continue;
+    if (usedRich.has(m.id)) continue;
+    usedRich.add(m.id);
+    const chipSet = sourcesByUrl.get(canon(m.targetUrl));
+    moves.push(chipSet ? { ...m, sourceChips: [...chipSet] } : m);
+  }
+
   // Cap the rendered worklist to the strongest MOVES_CAP so /moves feels powerful,
   // not endless. Nothing renders a "true total" count, so we no longer carry one
   // (defect D, 2026-07-20: the old stats.movesReady held the pre-cap pool size of
   // 141, a number no surface showed and which read as a stale contradiction next
-  // to the 75 shown and the 39 canonical Changes to-do).
-  const shown = moves.slice(0, MOVES_CAP);
+  // to the 75 shown and the 39 canonical Changes to-do). Ready rows never fall to
+  // the cap (prepared work is sunk cost) - withReadyOverflow appends any that did.
+  const shown = withReadyOverflow(moves, MOVES_CAP);
 
   // D7 (honest opportunity math, DREAM SITE V1) - was a raw sum of demand-graph weight/GSC
   // impressions ("500k people at risk" territory). Now the sum of each move's own CTR-curve
