@@ -66,18 +66,9 @@ describe("customer recovery boundaries", () => {
     new URL("../app/(shell)/page.tsx", import.meta.url),
     "utf8",
   );
-  const keywordSource = readFileSync(
-    new URL("../app/(shell)/research/keywords/page.tsx", import.meta.url),
-    "utf8",
-  );
 
   it("Today load failures use automatic recovery", () => {
     expect(todaySource).toContain("Couldn’t load Today just now. Your data is safe, and Beacon is retrying automatically.");
     expect(todaySource).not.toContain("Your data is safe. Refresh in a moment");
-  });
-
-  it("keyword-library load failures use automatic recovery", () => {
-    expect(keywordSource).toContain("I couldn’t load your keyword library just now. Beacon is retrying automatically.");
-    expect(keywordSource).not.toContain("I could not load your keyword library just now. Refresh in a moment.");
   });
 });

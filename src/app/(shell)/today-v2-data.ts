@@ -784,7 +784,7 @@ export function adaptPersistedRecToTodayPrimaryAction(
     "Ship a saved recommendation";
   const rationale =
     why ||
-    "This recommendation is queued in /recommendations and ready to act on.";
+    "This recommendation is queued in your Changes list and ready to act on.";
   const confidence: "low" | "medium" | "high" =
     primaryEdit?.confidence ?? "medium";
   const bucket: TodayPrimaryAction["bucket"] =
@@ -815,14 +815,14 @@ export function adaptPersistedRecToTodayPrimaryAction(
     headline,
     rationale,
     expectedOutcome,
-    sourceEvidence: `${item.edits.length} edit${item.edits.length === 1 ? "" : "s"} ready in /recommendations`,
+    sourceEvidence: `${item.edits.length} edit${item.edits.length === 1 ? "" : "s"} ready in Changes`,
     // Below the hurting-verdict floor (80 + |z|) so any hurting verdict
     // dominates this fallback. Above the helping-verdict scores (~75-).
     priorityScore: 60,
     bucket,
     type: "persisted_recommendation",
     confidence,
-    href: `/recommendations/${rec.stableKey}`,
+    href: `/changes`,
     responseStatus: responseStatus ?? null,
     targetPageUrl: targetUrl,
     targetPagePath: targetUrl,

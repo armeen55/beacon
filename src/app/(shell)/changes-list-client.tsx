@@ -42,6 +42,11 @@ import { Sparkline } from "@/components/data/sparkline";
 import { formatMetric, formatMetricCompact } from "@/lib/format-metric";
 import { dossierHref } from "@/lib/page-dossier-link";
 import { respondToRecommendation } from "./recommendation-actions";
+import {
+  isIndexingDirectiveActionType,
+  INDEXING_DIRECTIVE_CAVEAT,
+  type ActionType,
+} from "@/domains/recommendations/action-types";
 import type { DismissReason } from "@/domains/product/recommendation-response-store";
 import { useWorklistSession, WorklistSessionBanner } from "./worklist-session-strip";
 import { Pill, type PillIntent } from "@/components/ui/pill";
@@ -437,6 +442,14 @@ function Row({
   const effort = Number.isFinite(c.estimatedEffortMinutes) ? c.estimatedEffortMinutes : null;
   const label = displayPageLabel(c, move);
   const href = dossierHref(c.pagePath || c.pageUrl);
+  // #310 / destructive-action safety - when the row's underlying move is a crawl/index
+  // directive (robots.txt, meta noindex, canonical, redirect/status) it can DEINDEX a
+  // live site if applied with a wrong value. It is HELD FOR REVIEW: type-driven, never
+  // copy-driven. The one-tap accept affordances are suppressed (no multi-select checkbox,
+  // so it can never be bulk-accepted, and the keyboard "d" accept skips it) and the
+  // plain-English hold notice renders inline. The row's own "See the edit" CTA still
+  // opens the review, so the review is the only path forward. Benign moves are unchanged.
+  const heldForReview = isIndexingDirectiveActionType((move?.action ?? null) as ActionType | null);
   // P13 honest minute math (v1 592) - a truthful bucket ("about 5 minutes") from the effort
   // field, self-hiding when there is no honest figure. Replaces the raw "~5 min" chip.
   const minuteLabel = honestMinutesLabel(c);
@@ -486,8 +499,10 @@ function Row({
       ) : null}
       <div className={`flex items-center gap-3 px-3 ${topPick ? "py-3.5" : "py-2.5"}`}>
         {/* UX3 - multi-select checkbox. Absent (no reflow) on rows the list doesn't offer
-            selection for (Not-now/blocked rows keep their own trailing control instead). */}
-        {onToggleSelect ? (
+            selection for (Not-now/blocked rows keep their own trailing control instead).
+            #310: also absent on a held indexing directive - selecting it would feed the
+            bulk "Mark done" one-tap accept, which an indexing directive must never take. */}
+        {onToggleSelect && !heldForReview ? (
           <input
             type="checkbox"
             checked={selected ?? false}
@@ -623,6 +638,20 @@ function Row({
                 ))}
               </ul>
             </details>
+          ) : null}
+          {/* #310 - indexing-safety hold notice. A crawl/index directive can DEINDEX a
+              live site if applied with a wrong value, so it is never a one-tap change:
+              the multi-select checkbox is suppressed above and this plain-English hold
+              renders inline. The row's own "See the edit" CTA still opens the review,
+              which stays the only path forward. Benign content changes render no notice. */}
+          {heldForReview ? (
+            <p
+              role="alert"
+              data-change-row-indexing-hold="true"
+              className="mt-1.5 rounded-md border border-status-warning/40 bg-status-warning-bg px-2.5 py-1.5 text-meta leading-relaxed text-status-warning"
+            >
+              {INDEXING_DIRECTIVE_CAVEAT}
+            </p>
           ) : null}
         </div>
         <div className="flex shrink-0 items-center gap-2">
@@ -769,7 +798,11 @@ export function ChangesListClient({ view }: { view: ChangesClientView }) {
         const move = c?.sourceIds[0] ? view.movesById[c.sourceIds[0]] : undefined;
         if (move) {
           if (kind === "done") {
-            await respondToRecommendation(move.id, "accepted", { targetPageUrl: move.targetUrl, actionType: move.action, query: move.query });
+            // #310 - a held indexing directive can never be bulk-accepted. Its checkbox is
+            // suppressed so it should never reach here; this is the defensive backstop.
+            if (!isIndexingDirectiveActionType(move.action as ActionType)) {
+              await respondToRecommendation(move.id, "accepted", { targetPageUrl: move.targetUrl, actionType: move.action, query: move.query });
+            }
           } else {
             await respondToRecommendation(move.id, "deferred", { targetPageUrl: move.targetUrl });
           }
@@ -817,6 +850,9 @@ export function ChangesListClient({ view }: { view: ChangesClientView }) {
         const c = visible[kbIndex];
         const move = c.sourceIds[0] ? view.movesById[c.sourceIds[0]] : undefined;
         if (!move) return; // nothing markable without a real MoveCard - honest no-op, not fake state
+        // #310 - an indexing directive is held for review, never a one-tap accept (even
+        // by keyboard). Honest no-op; the owner must open the review to act on it.
+        if (isIndexingDirectiveActionType(move.action as ActionType)) return;
         e.preventDefault();
         void respondToRecommendation(move.id, "accepted", { targetPageUrl: move.targetUrl, actionType: move.action, query: move.query });
         rowAction(c.id, "done");

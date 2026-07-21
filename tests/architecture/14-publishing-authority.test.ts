@@ -18,13 +18,14 @@ import { describe, expect, it } from "vitest";
 const ROOT = resolve(__dirname, "../..");
 
 describe("manual verified-live overrides enforce tenant publish authority", () => {
+  // Surface-collapse (2026-07-21): the /recommendations manual override
+  // (`markRecommendationShipped` in the deleted recommendations/actions.ts) was
+  // removed with the recommendations presentation. The surviving manual
+  // verified-live override is markChangelogEditShipped on the Changes surface;
+  // the invariant (publish authority enforced BEFORE any tenant work) holds
+  // there unchanged.
   for (const [label, rel, action] of [
     ["Changes", "src/app/(shell)/changes/actions.ts", "markChangelogEditShipped"],
-    [
-      "Recommendations",
-      "src/app/(shell)/recommendations/actions.ts",
-      "markRecommendationShipped",
-    ],
   ] as const) {
     it(`${label} checks canPublishForCurrentTenant inside ${action}`, () => {
       const source = readFileSync(resolve(ROOT, rel), "utf8");

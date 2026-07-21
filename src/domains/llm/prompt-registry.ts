@@ -61,7 +61,6 @@ export const PROMPT_REGISTRY = {
   "draft.strategy_review": 1,
   "draft.section_draft": 1,
   "draft.outreach_pitch": 1,
-  "draft.ask_answer": 1,
   // Registered schema kinds with no bespoke production prompt yet (P8 targets);
   // callStructuredLLM derives draft.<kind>, so they must resolve to a version.
   "draft.tool_asset": 1,

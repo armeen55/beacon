@@ -149,13 +149,13 @@ export function FirstReadingWaiting({
 
         <div className="flex flex-wrap items-center gap-4 pt-2">
           <Link
-            href="/prompts"
+            href="/changes"
             className="text-[13px] underline"
           >
-            Review tracked prompts
+            See your changes
           </Link>
           <Link
-            href="/recommendations"
+            href="/changes?status=ready"
             className="text-[13px] underline text-muted-foreground"
           >
             Recommendations (available after first reading)

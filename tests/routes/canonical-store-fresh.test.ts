@@ -36,11 +36,10 @@ const FILES = {
     __dirname,
     "../../src/app/(shell)/recommendations/page.tsx",
   ),
-  prompts: resolve(__dirname, "../../src/app/(shell)/prompts/page.tsx"),
-  promptDetail: resolve(
-    __dirname,
-    "../../src/app/(shell)/prompts/[id]/page.tsx",
-  ),
+  // Surface-collapse (2026-07-21): the standalone /prompts + /prompts/[id]
+  // render paths were deleted; their fresh-per-render pins went with them. The
+  // surviving render-path freshness invariants (recommendations redirect,
+  // settings/prompts direct reads, today-v2-data) stay pinned below.
   settingsPrompts: resolve(
     __dirname,
     "../../src/app/(shell)/settings/prompts/page.tsx",
@@ -242,40 +241,12 @@ describe("Sprint 4 / Phase 4.9 — canonical-store fresh-per-render", () => {
       expect(loadQueueSrc).toMatch(/loadFreshCanonicalData\(/);
     });
 
-    it("/prompts uses direct tenant-repo reads (emergency P0 2026-05-12)", () => {
-      // Emergency P0 fix — `/prompts` no longer reads via
-      // `loadFreshCanonicalData` (which fanned out 4 parallel reads
-      // including the unused `daily_metric_snapshots`). It reads
-      // directly from the tenant repo on a 14-day window. See
-      // `tests/architecture/perf-prompts-scoped-reads.test.ts` and
-      // `tests/architecture/supabase-egress-windowing.test.ts` for
-      // the full new-architecture pin.
-      const canonImports = SRC.prompts.match(
-        /import\s+\{[^}]+\}\s+from\s+["']@\/storage\/canonical-store["']/g,
-      );
-      expect(canonImports).toBeNull();
-      expect(SRC.prompts).toMatch(
-        /from\s+["']@\/lib\/persistence\/repositories["']/,
-      );
-      expect(SRC.prompts).toMatch(/tenantRepo\.getTrackedPrompts\(\)/);
-    });
-
-    it("/prompts/[id] uses prompt-scoped tenant-repo reads (emergency P0 2026-05-12)", () => {
-      // Emergency P0 fix — `/prompts/[id]` no longer reads via
-      // `loadFreshCanonicalData`. It pushes `prompt_id = $1` down
-      // to Postgres via the tenant-repo's new `promptId` option, so
-      // the row count crossing the wire drops from ~15k to <500.
-      const canonImports = SRC.promptDetail.match(
-        /import\s+\{[^}]+\}\s+from\s+["']@\/storage\/canonical-store["']/g,
-      );
-      expect(canonImports).toBeNull();
-      expect(SRC.promptDetail).toMatch(
-        /from\s+["']@\/lib\/persistence\/repositories["']/,
-      );
-      expect(SRC.promptDetail).toMatch(
-        /tenantRepo\.getPromptAnswerObservations\(\s*\{[\s\S]*?promptId/,
-      );
-    });
+    // Surface-collapse (2026-07-21): the "/prompts" and "/prompts/[id]"
+    // direct-tenant-repo-read pins were removed with those deleted render
+    // paths. Their scoped-read perf invariants covered pages that no longer
+    // exist; the tenant-repo read patterns they exercised remain pinned by
+    // the surviving settings/prompts + today-v2-data assertions here and by
+    // tests/architecture/*scoped-reads*.
 
     it("/settings/prompts does NOT import canonical-store fan-out APIs (deploy hardening 2026-05-12)", () => {
       // Deploy hardening (2026-05-12) — `/settings/prompts` now reads

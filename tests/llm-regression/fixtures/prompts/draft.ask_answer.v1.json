@@ -1,6 +1,0 @@
-{
-  "runner": "structured-draft",
-  "kind": "ask_answer",
-  "grounded": "date question impressions",
-  "valueFixture": "schemas/ask_answer.json"
-}

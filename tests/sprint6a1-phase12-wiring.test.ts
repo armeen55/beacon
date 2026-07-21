@@ -28,12 +28,6 @@ const LOAD_QUEUE_PATH = resolve(
 );
 const LOAD_QUEUE_SOURCE = readFileSync(LOAD_QUEUE_PATH, "utf8");
 
-const ACTIONS_PATH = resolve(
-  __dirname,
-  "../src/app/(shell)/recommendations/actions.ts",
-);
-const ACTIONS_SOURCE = readFileSync(ACTIONS_PATH, "utf8");
-
 const REPO_TYPES_PATH = resolve(
   __dirname,
   "../src/lib/persistence/repositories/types.ts",
@@ -127,52 +121,13 @@ describe("Phase 6A.1.12 — /recommendations page wiring", () => {
 });
 
 // ── 3. Accept action fan-out wiring ───────────────────────────────────────
-
-describe("Phase 6A.1.12 — accept action fan-out", () => {
-  it("imports the repository to fetch fresh recommended_edits", () => {
-    expect(ACTIONS_SOURCE).toMatch(
-      /from\s+["']@\/lib\/persistence\/repositories["']/,
-    );
-    // Sprint 7 Phase 7.5b Commit 2 (2026-04-25) — tenant-bound read.
-    expect(ACTIONS_SOURCE).toMatch(
-      /getRepository\(\)\.forTenant\([^)]+\)\.getRecommendedEdits\(/,
-    );
-  });
-
-  it("filters fetched edits by rec_id === payload.stableKey", () => {
-    expect(ACTIONS_SOURCE).toMatch(
-      /allEdits\.filter\(\(e\)\s*=>\s*e\.rec_id\s*===\s*payload\.stableKey\)/,
-    );
-  });
-
-  it("falls back to the legacy single-entry path when editsForRec is empty", () => {
-    // The legacy path is gated on `editsForRec.length > 0`.
-    expect(ACTIONS_SOURCE).toMatch(/editsForRec\.length\s*>\s*0/);
-  });
-
-  it("fan-out helper stamps action_type + target_element_key + source_rec_id", () => {
-    expect(ACTIONS_SOURCE).toMatch(/action_type:\s*edit\.action_type/);
-    expect(ACTIONS_SOURCE).toMatch(/target_element_key:\s*edit\.target_element_key/);
-    expect(ACTIONS_SOURCE).toMatch(/source_rec_id:\s*payload\.stableKey/);
-  });
-
-  it("fan-out persists via writeStore + syncChangelogEntries (matches createChangelogEntry semantics)", () => {
-    expect(ACTIONS_SOURCE).toMatch(
-      /writeStore\(\s*["']imported-changes["']/,
-    );
-    // Phase 7.7b Commit 2 (2026-04-25): syncChangelogEntries now requires tenantId.
-    expect(ACTIONS_SOURCE).toMatch(/syncChangelogEntries\(newEntries,\s*tenantId\)/);
-  });
-
-  it("returns changeIds (array) when fan-out fired; preserves changeId (string) for both paths", () => {
-    expect(ACTIONS_SOURCE).toMatch(/changeIds:\s*string\[\]/);
-    expect(ACTIONS_SOURCE).toMatch(/return\s*\{\s*success:\s*true,\s*changeId,\s*changeIds\s*\}/);
-  });
-
-  it("graceful degrade: edits read failure does not abort acceptance — falls through to single-entry path", () => {
-    expect(ACTIONS_SOURCE).toMatch(/edits read failed; falling back/);
-  });
-});
+// REMOVED (surface-collapse, 2026-07-21): the accept fan-out lived in the
+// deleted `acceptRecommendation` server action (src/app/(shell)/recommendations/
+// actions.ts). That action was reachable ONLY through the retired recommendation
+// cards; the LIVE Changes/Today accept path (respondToRecommendation +
+// autoRecordShippedChangeForRec Ship->Proof bridge) is a separate, surviving
+// action and is covered by its own suites. The deleted fan-out's scan assertions
+// went with the feature.
 
 // ── 5. ChangelogEntry type extension ──────────────────────────────────────
 

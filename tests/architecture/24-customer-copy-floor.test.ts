@@ -201,7 +201,10 @@ const DISPLAY_SURFACES = [
   "src/app/(shell)/results/proof-summary-section.tsx",
   "src/app/(shell)/results/proof-ledger-client.tsx",
   "src/app/(shell)/opportunities/page.tsx",
-  "src/components/recommendations/v2/recommendation-v2-card.tsx",
+  // Surface-collapse (2026-07-21): the recommendations v2 card was deleted; its
+  // customer-copy responsibility (incl. the indexing-safety hold notice) folded
+  // into the surviving Changes card, which is now the dash-floored surface.
+  "src/components/changes/v2/changes-v2-card.tsx",
   "src/domains/recommendation-intelligence/page-surgeon/change-pack.ts",
   "src/domains/insight/connection-health.ts",
   "src/domains/insight/page-primary.ts",

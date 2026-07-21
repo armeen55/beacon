@@ -267,7 +267,6 @@ describe("SCHEMA_BY_KIND registry", () => {
     const expected: StructuredDraftKind[] = [
       "aeo_prompt_brief",
       "answer_block",
-      "ask_answer", // BEACON 500 item 59: the /ask chat's per-teammate grounded answer
       "atomic_edit",
       "batch_adjudication", // BEACON 500 item 12: the nightly final review's per-pick verdicts
       "commerce_asset",

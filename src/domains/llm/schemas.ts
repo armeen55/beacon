@@ -374,27 +374,6 @@ export const OutreachPitchSchema = z.object({
 });
 export type OutreachPitch = z.infer<typeof OutreachPitchSchema>;
 
-// ── ask-your-team answer (BEACON_500 item 59 - /ask chat) ────────────────────
-// One teammate's first-person answer to an operator's free-text question, composed
-// ONLY from the bounded fact dossier assembled for that question's class (see
-// src/domains/ask/fact-assembly.ts). `speaker` is one of the real teammate keys (see
-// src/domains/team/identity.ts) so the answer renders under the right identity chip.
-// `citedFacts` must reference facts that were actually provided - the numeric-fidelity
-// firewall (shared with every other structured draft) rejects any number in `answer`
-// that does not appear in the grounded fact list.
-
-export const AskCitedFactSchema = z.object({
-  fact: z.string().min(1).max(400),
-  href: z.string().min(1).max(200),
-});
-
-export const AskAnswerSchema = z.object({
-  speaker: z.enum(["gsc", "ga4", "clarity", "profound", "dataforseo", "wix", "llm", "commerce_asset", "proof"]),
-  answer: z.string().min(20).max(1200),
-  citedFacts: z.array(AskCitedFactSchema).min(1).max(10),
-});
-export type AskAnswerDraft = z.infer<typeof AskAnswerSchema>;
-
 // ── registry: kind → schema (the structured-drafter dispatches on this) ──────
 
 export type StructuredDraftKind =
@@ -411,8 +390,7 @@ export type StructuredDraftKind =
   | "batch_adjudication"
   | "strategy_review"
   | "section_draft"
-  | "outreach_pitch"
-  | "ask_answer";
+  | "outreach_pitch";
 
 export const SCHEMA_BY_KIND = {
   answer_block: AnswerBlockDraftSchema,
@@ -429,7 +407,6 @@ export const SCHEMA_BY_KIND = {
   strategy_review: StrategyReviewSchema,
   section_draft: SectionDraftSchema,
   outreach_pitch: OutreachPitchSchema,
-  ask_answer: AskAnswerSchema,
 } as const satisfies Record<StructuredDraftKind, z.ZodTypeAny>;
 
 // ── R16 (P6 LLM engine pack): the FULL output-shape registry ─────────────────

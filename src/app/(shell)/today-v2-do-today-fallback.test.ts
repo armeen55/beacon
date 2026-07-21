@@ -124,9 +124,11 @@ describe("adaptPersistedRecToTodayPrimaryAction — Phase 1 Do Today fallback", 
     ).toBe("low");
   });
 
-  it("routes href to /recommendations/<stableKey>", () => {
+  it("routes href to the Changes queue (surface-collapse repoint 2026-07-21)", () => {
     const out = adaptPersistedRecToTodayPrimaryAction(makeItem());
-    expect(out.href).toBe("/recommendations/rec-abc-123");
+    // The standalone /recommendations/[id] brief was removed; a queued
+    // persisted recommendation now drills into the canonical Changes queue.
+    expect(out.href).toBe("/changes");
   });
 
   it("uses the primary edit's display_label as the headline when present", () => {

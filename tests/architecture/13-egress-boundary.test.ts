@@ -28,8 +28,10 @@ const strip = (s: string) =>
 
 const LOAD_QUEUE_SRC = read("src/domains/recommendations/load-queue.ts");
 const SETTINGS_PROMPTS_SRC = strip(read("src/app/(shell)/settings/prompts/page.tsx"));
-const PROMPTS_DETAIL_SRC = read("src/app/(shell)/prompts/[id]/page.tsx");
-const PROMPTS_LIST_SRC = read("src/app/(shell)/prompts/page.tsx");
+// Surface-collapse (2026-07-21): the standalone /prompts list + /prompts/[id]
+// detail pages were deleted. Their bounded-window egress guards went with them;
+// the surviving route-render egress surfaces (load-queue, settings/prompts,
+// today-v2-data) are still pinned below.
 const TODAY_V2_DATA_SRC = read("src/app/(shell)/today-v2-data.ts");
 const CANONICAL_STORE_SRC = read("src/storage/canonical-store.ts");
 const SUPABASE_BACKEND_SRC = read("src/lib/persistence/repositories/supabase-backend.ts");
@@ -54,12 +56,6 @@ describe("route loaders read observations bounded, never unbounded", () => {
     );
   });
 
-  it("prompt detail + list pages use bounded observation windows", () => {
-    expect(PROMPTS_DETAIL_SRC).toMatch(/60\s*\*\s*86_400_000/);
-    expect(PROMPTS_LIST_SRC).toContain("14 * 86_400_000");
-    expect(strip(PROMPTS_LIST_SRC)).not.toMatch(/loadFreshCanonicalData\s*\(/);
-  });
-
   it("today-v2-data windows both observations (60d) and snapshots (120d)", () => {
     expect(TODAY_V2_DATA_SRC).toContain("60 * 86_400_000");
     expect(TODAY_V2_DATA_SRC).toContain("120 * 86_400_000");
@@ -73,7 +69,6 @@ describe("route loaders read observations bounded, never unbounded", () => {
     const all = [
       LOAD_QUEUE_SRC,
       SETTINGS_PROMPTS_SRC,
-      PROMPTS_DETAIL_SRC,
       TODAY_V2_DATA_SRC,
     ].join("\n");
     expect(all).not.toMatch(/loadFreshCanonicalData\(\s*\)/);

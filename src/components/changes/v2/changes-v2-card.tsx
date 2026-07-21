@@ -23,6 +23,11 @@ import Link from "next/link";
 
 import { cn } from "@/lib/utils";
 import type { ProofPill } from "@/domains/changes/proof-timeline/result-pill";
+import {
+  isIndexingDirectiveActionType,
+  INDEXING_DIRECTIVE_CAVEAT,
+  type ActionType,
+} from "@/domains/recommendations/action-types";
 
 import { ChangesV2ResultPill } from "./changes-v2-result-pill";
 
@@ -33,6 +38,16 @@ export type ChangesV2CardRow = {
   shippedAt: string;
   pill: ProofPill;
   patternTimingNarrative: string | null;
+  /**
+   * #310 / destructive-action safety (folded here from the retired
+   * recommendation cards, 2026-07-21). The change's underlying edit action
+   * type. When it is a crawl/index directive (robots.txt, meta noindex,
+   * canonical, redirect/status) the card HOLDS it for review: it never offers
+   * a one-tap live-confirm affordance and shows the plain-English hold notice
+   * instead, so a wrong value can never ship in one tap. Type-driven, never
+   * copy-driven. Optional/null on the common on-page-content change.
+   */
+  editActionType?: ActionType | null;
 };
 
 /**
@@ -67,8 +82,16 @@ export function ChangesV2Card({
   className?: string;
   markShipped?: ChangesV2CardMarkShipped;
 }) {
+  // #310 / destructive-action audit (folded here 2026-07-21 from the retired
+  // recommendation cards) — crawl/index directives (robots.txt, meta noindex,
+  // canonical, redirect/status) can DEINDEX a live site. They are HELD FOR
+  // REVIEW: type-driven, never copy-driven. When true the card SUPPRESSES the
+  // one-tap "I made this change" live-confirm affordance and routes the owner
+  // to the change's review surface instead, so a wrong value can never ship in
+  // one tap. The plain-English hold notice renders above the CTA row.
+  const heldForReview = isIndexingDirectiveActionType(row.editActionType);
   const showMarkShipped = Boolean(
-    markShipped?.canMarkShipped && markShipped.onMarkShipped,
+    !heldForReview && markShipped?.canMarkShipped && markShipped.onMarkShipped,
   );
   return (
     <article
@@ -127,6 +150,22 @@ export function ChangesV2Card({
           data-changes-card-pattern-timing="true"
         >
           {row.patternTimingNarrative}
+        </p>
+      )}
+
+      {/* #310 — indexing-safety hold notice. A crawl/index directive can
+          DEINDEX a live site if applied wrong, so it is never presented as a
+          casual one-tap change: the notice renders here and the one-tap
+          live-confirm affordance below is suppressed. Benign on-page content
+          changes render no notice. */}
+      {heldForReview && (
+        <p
+          className="mt-3 rounded border border-status-warning/40 bg-status-warning/[0.08] px-2.5 py-2 text-[11.5px] leading-relaxed text-status-warning"
+          role="alert"
+          data-changes-card-indexing-caveat="true"
+        >
+          <span aria-hidden="true">⚠️ </span>
+          {INDEXING_DIRECTIVE_CAVEAT}
         </p>
       )}
 

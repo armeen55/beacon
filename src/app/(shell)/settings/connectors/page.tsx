@@ -20,6 +20,7 @@ import { buildAutonomousHealth } from "@/domains/ops/autonomous-health";
 import { PageHeader } from "@/components/data/page-header";
 import { ConnectorsClient, type RefreshLedgerFacts } from "./connectors-client";
 import { PublishingModeCard } from "./publishing-mode-card";
+import { loadRecentUpkeep, RecentUpkeepList, type RecentUpkeepEntry } from "./recent-upkeep";
 import { loadWithDeadline } from "@/lib/load-with-deadline";
 import { HonestDelay } from "@/components/honest-delay";
 
@@ -234,6 +235,17 @@ async function loadConnectorsPageData() {
     rollup = undefined;
   }
 
+  // Activity fold (Phase 4B Lane 1, 2026-07-21) - /activity retired; the "recent
+  // refresh history" value it delivered now renders here, sourced from the SAME
+  // refresh ledger read above. Fail-soft: a read error just self-hides the list.
+  let recentUpkeep: RecentUpkeepEntry[] = [];
+  try {
+    const tid = await currentTenantId();
+    recentUpkeep = await loadRecentUpkeep(tid);
+  } catch {
+    recentUpkeep = [];
+  }
+
   return {
     googleGsc,
     googleGa4,
@@ -250,6 +262,7 @@ async function loadConnectorsPageData() {
     autonomousHealth,
     wixUrlMapCount,
     refreshLedger,
+    recentUpkeep,
   };
 }
 
@@ -286,6 +299,7 @@ export default async function ConnectorsPage() {
     autonomousHealth,
     wixUrlMapCount,
     refreshLedger,
+    recentUpkeep,
   } = raced.data;
 
   return (
@@ -322,6 +336,7 @@ export default async function ConnectorsPage() {
           budget of auto-shipped changes from proven change types. Default OFF. */}
       <div className="mt-6">
       </div>
+      <RecentUpkeepList entries={recentUpkeep} />
     </div>
   );
 }

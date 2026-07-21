@@ -21,7 +21,7 @@ const names = Object.keys(LLM_OUTPUT_SCHEMAS) as LlmOutputSchemaName[];
 
 describe("LLM schema registry - every entry parses its recorded fixture", () => {
   it("the registry is complete (all drafter kinds + the hand-rolled parser contracts)", () => {
-    expect(names.length).toBeGreaterThanOrEqual(21);
+    expect(names.length).toBeGreaterThanOrEqual(20);
     for (const required of [
       "answer_block",
       "faq_pairs",

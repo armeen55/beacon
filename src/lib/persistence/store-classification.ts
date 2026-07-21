@@ -211,18 +211,11 @@ export const TENANT_SCOPED_STORES = new Set<string>([
   // tenant-domain filter defended against — that filter remains as
   // defense-in-depth.
   "sitemap-reconciliation",
-  // Ask-your-team chat (2026-07-02, master plan item 59). Per-tenant, append-only,
-  // capped history of operator questions + the answered teammate response (see
-  // src/domains/ask/history-store.ts). Written from a request context (the /ask page
-  // action already knows the tenant), unlike the cron-written tenant_id-carrying stores
-  // elsewhere in this file, so it belongs in the file-routed TENANT_SCOPED set rather
-  // than GLOBAL.
-  "ask-history",
   // Wikidata entity grounding (2026-07-02, master plan item 73). Per-entity cache of
   // wbsearchentities lookups keyed by queried person name (src/lib/connectors/wikidata/
   // client.ts). Written from the schema-move build path (a request/build context that
-  // already knows the tenant), not a cron fan-out with no ambient context — tenant-scoped
-  // like ask-history above, not global like the Wikipedia/DataForSEO market-data caches.
+  // already knows the tenant), not a cron fan-out with no ambient context — tenant-scoped,
+  // not global like the Wikipedia/DataForSEO market-data caches.
   "wikidata-entity-cache",
   // IndexNow ping receipts (2026-07-02, BEACON_500 item 75). Per-tenant append-only log
   // of every IndexNow ping attempt fired from the verify-live path (src/lib/connectors/

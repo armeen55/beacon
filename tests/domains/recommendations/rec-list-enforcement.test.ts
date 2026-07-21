@@ -22,7 +22,6 @@ import {
   deriveRecQaDisplay,
   type RecQaVerdict,
 } from "@/domains/recommendations/recommendation-qa";
-import { visibleActionsForRow } from "@/app/(shell)/recommendations/[id]/recommendation-detail-actions";
 import {
   dedupeDoubledWords,
   stripInstructionArtifactPrefix,
@@ -236,26 +235,12 @@ describe("list/detail PARITY (trust audit B) — both surfaces share one verdict
   }
 });
 
-describe("detail-page Accept gating (visibleActionsForRow)", () => {
-  const base = { status: "new" as const, hasExactEdit: true, eligibleEditCount: 0 };
-
-  it("withholds Accept when the QA verdict is not actionable", () => {
-    const actions = visibleActionsForRow(base, { qaActionable: false });
-    expect(actions).not.toContain("accept");
-    expect(actions).toContain("defer");
-    expect(actions).toContain("dismiss");
-  });
-
-  it("offers Accept when the QA verdict is actionable", () => {
-    const actions = visibleActionsForRow(base, { qaActionable: true });
-    expect(actions).toContain("accept");
-  });
-
-  it("defaults to permitted (back-compat) when no QA flag is passed", () => {
-    const actions = visibleActionsForRow(base);
-    expect(actions).toContain("accept");
-  });
-});
+// NOTE (2026-07-21, surface-collapse): the "detail-page Accept gating
+// (visibleActionsForRow)" describe block was removed with the /recommendations
+// [id] detail route. `visibleActionsForRow` was a presentation-gating helper on
+// that (now-deleted) surface. The deterministic authority it wrapped,
+// `deriveRecQaDisplay`, survives and its "not actionable → no Accept" contract
+// is still pinned by the "deriveRecQaDisplay" describe block above.
 
 describe("copy artifacts can never reach the customer card", () => {
   it("schema title cannot render 'Add Add' (doubled leading verb collapsed)", () => {

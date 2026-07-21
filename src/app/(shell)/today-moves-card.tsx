@@ -20,6 +20,11 @@ import {
   Zap,
 } from "lucide-react";
 import { respondToRecommendation } from "./recommendation-actions";
+import {
+  isIndexingDirectiveActionType,
+  INDEXING_DIRECTIVE_CAVEAT,
+  type ActionType,
+} from "@/domains/recommendations/action-types";
 import { draftMoveAnswerBlockAction, draftMoveFaqAction, sharpenMovesWithTeardownAction } from "./today-moves-actions";
 import { getCompetitorAnswerAlignmentForClient } from "@/domains/ai-visibility/answer-alignment-actions";
 import { stageMoveInWixAction } from "./stage-in-wix-actions";
@@ -179,6 +184,15 @@ export function MoveCard({
   // Defensive: an unexpected actionTone/confidence must never crash the card.
   const tone = TONE[m.actionTone] ?? TONE.clicks;
   const conf = CONF[m.confidence] ?? CONF.medium;
+  // #310 / destructive-action safety - a crawl/index directive (robots.txt,
+  // meta noindex, canonical, redirect/status) can DEINDEX a live site if applied
+  // with a wrong value. It is HELD FOR REVIEW, never a one-tap ship: type-driven,
+  // never copy-driven. When true, this card suppresses the one-tap accept/apply
+  // affordances (Stage in Wix, Ship it, "I did it myself", Ship anyway) and shows
+  // the plain-English hold notice instead, routing the owner to the review path
+  // (Open in queue) so a wrong value can never ship in one tap. Benign on-page
+  // content moves are unchanged.
+  const heldForReview = isIndexingDirectiveActionType(m.action as ActionType);
   const [state, setState] = useState<"idle" | "shipped" | "snoozed">("idle");
   const [pending, startTransition] = useTransition();
   const [showDraft, setShowDraft] = useState(false);
@@ -313,6 +327,7 @@ export function MoveCard({
   };
 
   const ship = () => {
+    if (heldForReview) return; // #310 - an indexing directive is never one-tap shippable
     setState("shipped"); // optimistic
     startTransition(async () => {
       try {
@@ -328,10 +343,11 @@ export function MoveCard({
   // the existing armed-publish rails (snapshot first, daily cap, Ritz blocked).
   // Only offered when the loader says the site is armed + this change is
   // pushable; the server action re-checks every gate and fails closed to paste.
-  const canStage = Boolean(m.staging?.enabled) && !m.alreadyMeasuring && !m.pageMeasuring;
+  const canStage = Boolean(m.staging?.enabled) && !m.alreadyMeasuring && !m.pageMeasuring && !heldForReview;
   const [stagedLine, setStagedLine] = useState<string | null>(null);
   const [stageMsg, setStageMsg] = useState<string | null>(null);
   const stage = () => {
+    if (heldForReview) return; // #310 - held for review, never one-tap staged
     startTransition(async () => {
       setStageMsg(null);
       try {
@@ -1235,42 +1251,64 @@ export function MoveCard({
         </div>
       ) : null}
 
+      {/* #310 - indexing-safety hold notice. A crawl/index directive can DEINDEX a
+          live site if applied with a wrong value, so it is never presented as a
+          casual one-tap ship: the notice renders here and the Stage in Wix / Ship
+          affordances below are suppressed. The review route (Open in queue) stays
+          the only path forward. Benign on-page content moves render no notice. */}
+      {heldForReview ? (
+        <div
+          role="alert"
+          data-move-indexing-hold="true"
+          className="mt-4 flex items-start gap-1.5 rounded-lg border border-status-warning/25 bg-status-warning-bg px-3 py-2 text-body text-status-warning"
+        >
+          <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
+          <span>{INDEXING_DIRECTIVE_CAVEAT}</span>
+        </div>
+      ) : null}
+
       <div className="mt-4 flex items-center gap-3 border-t border-border-subtle pt-3">
         {/* Item 15 - the primary apply affordance becomes "Stage in Wix" when the
             site is armed and this change is pushable; Ship it stays as the manual
-            fallback ("I did it myself"). */}
-        {canStage ? (
-          <button
-            onClick={stage}
-            disabled={pending}
-            className={`inline-flex items-center gap-1 rounded-lg px-3.5 py-1.5 text-body font-semibold text-background transition-colors disabled:opacity-60 ${tone.btn} ${FOCUS}`}
-            title="I make this change in Wix for you and save the old version first, so one click restores it."
-          >
-            <Zap className="h-3.5 w-3.5" aria-hidden />Stage in Wix
-          </button>
+            fallback ("I did it myself"). #310: both are suppressed for a held
+            indexing directive - the hold notice above replaces them and the owner
+            is routed to the review (Open in queue), never a one-tap change. */}
+        {!heldForReview ? (
+          <>
+            {canStage ? (
+              <button
+                onClick={stage}
+                disabled={pending}
+                className={`inline-flex items-center gap-1 rounded-lg px-3.5 py-1.5 text-body font-semibold text-background transition-colors disabled:opacity-60 ${tone.btn} ${FOCUS}`}
+                title="I make this change in Wix for you and save the old version first, so one click restores it."
+              >
+                <Zap className="h-3.5 w-3.5" aria-hidden />Stage in Wix
+              </button>
+            ) : null}
+            {/* Already mid-measurement on this exact page+action: a second ship would
+                contaminate the open proof window - demote Ship, don't block it. */}
+            <button
+              onClick={ship}
+              disabled={pending}
+              className={
+                m.alreadyMeasuring || m.pageMeasuring || canStage
+                  ? `inline-flex items-center gap-1 rounded-lg border border-border bg-card px-3.5 py-1.5 text-body font-semibold text-foreground-secondary transition-colors hover:bg-surface-raised disabled:opacity-60 ${FOCUS}`
+                  : `inline-flex items-center gap-1 rounded-lg px-3.5 py-1.5 text-body font-semibold text-background transition-colors disabled:opacity-60 ${tone.btn} ${FOCUS}`
+              }
+              title={
+                m.alreadyMeasuring
+                  ? "This page+change is already measuring - shipping again would muddy the proof window"
+                  : m.pageMeasuring
+                    ? "This page is mid-measurement on another change - a second change muddies the open proof window"
+                    : canStage
+                      ? "Applied the change yourself? Click this and I start the measure loop."
+                      : undefined
+              }
+            >
+              {m.alreadyMeasuring || m.pageMeasuring ? "Ship anyway" : canStage ? "I did it myself" : <><Zap className="h-3.5 w-3.5" aria-hidden />Ship it</>}
+            </button>
+          </>
         ) : null}
-        {/* Already mid-measurement on this exact page+action: a second ship would
-            contaminate the open proof window - demote Ship, don't block it. */}
-        <button
-          onClick={ship}
-          disabled={pending}
-          className={
-            m.alreadyMeasuring || m.pageMeasuring || canStage
-              ? `inline-flex items-center gap-1 rounded-lg border border-border bg-card px-3.5 py-1.5 text-body font-semibold text-foreground-secondary transition-colors hover:bg-surface-raised disabled:opacity-60 ${FOCUS}`
-              : `inline-flex items-center gap-1 rounded-lg px-3.5 py-1.5 text-body font-semibold text-background transition-colors disabled:opacity-60 ${tone.btn} ${FOCUS}`
-          }
-          title={
-            m.alreadyMeasuring
-              ? "This page+change is already measuring - shipping again would muddy the proof window"
-              : m.pageMeasuring
-                ? "This page is mid-measurement on another change - a second change muddies the open proof window"
-                : canStage
-                  ? "Applied the change yourself? Click this and I start the measure loop."
-                  : undefined
-          }
-        >
-          {m.alreadyMeasuring || m.pageMeasuring ? "Ship anyway" : canStage ? "I did it myself" : <><Zap className="h-3.5 w-3.5" aria-hidden />Ship it</>}
-        </button>
         {hasDraft ? (
           <button
             onClick={() => setShowDraft((v) => !v)}
@@ -1324,8 +1362,9 @@ export function MoveCard({
       {stageMsg ? (
         <p role="status" aria-live="polite" className="mt-1.5 text-meta text-status-warning">{stageMsg}</p>
       ) : null}
-      {/* Item 15 - quiet nudge: this change is pushable, but publishing is not armed. */}
-      {m.staging?.nudge && !canStage ? (
+      {/* Item 15 - quiet nudge: this change is pushable, but publishing is not armed.
+          #310: never nudged for a held indexing directive (it is not a one-tap change). */}
+      {m.staging?.nudge && !canStage && !heldForReview ? (
         <p className="mt-1.5 text-meta text-muted-foreground">
           I can put this change into Wix for you.{" "}
           <Link href="/settings/connectors" className={`rounded-sm font-medium underline underline-offset-2 hover:text-foreground-secondary ${FOCUS}`}>
