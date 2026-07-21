@@ -42,8 +42,6 @@ if (existsSync(envPath)) {
 import { readRecommendedEditsLocal } from "../src/domains/recommendations/recommended-edits-persistence";
 import { getUrlChangeOutcomes } from "../src/domains/attribution/url-change-outcome";
 import type { RecommendedEditRow, ImplementationStatus } from "../src/domains/recommendations/recommended-edits-persistence";
-import { deriveConfidence, type DerivedConfidenceLabel } from "../src/domains/recommendations/derived-confidence";
-import { computeEvidenceDepth } from "../src/domains/recommendations/recommendation-action-rows";
 import { normalizeUrl } from "../src/lib/url/normalize";
 import { getChangelogEntries } from "../src/lib/seed-data.server";
 import type { ChangelogEntry } from "../src/domains/changelog/types";
@@ -112,15 +110,10 @@ function analyzeSourceFunnel(recs: RecommendedEditRow[]) {
 }
 
 function analyzeConfidenceFunnel(recs: RecommendedEditRow[]) {
-  // T6.5 (2026-05-06) — REPORT BOTH PERSISTED AND DERIVED.
-  //
-  // Persisted `confidence` is intentionally not mutated (T4.4 commit
-  // 72b8675). Customer UI reads `derivedConfidence` via
-  // <DerivedConfidencePill>. Scripts that read recommended_edits.json
-  // directly must compute derived at read-time.
-  //
-  // Pre-T6.5: this analyzer reported only persisted, which read 100%
-  // medium and was misleading.
+  // CORE 100K (2026-07-21): the "derived" T4.4 confidence dimension was
+  // removed together with derived-confidence.ts — the customer-facing pill
+  // that consumed it died with the /recommendations surfaces. Only the
+  // persisted `confidence` column remains reportable.
 
   const persisted: Record<string, { total: number; reviewed: number; shipped: number; ship_rate_of_reviewed: string }> = {};
   for (const conf of ["high", "medium", "low"] as const) {
@@ -141,39 +134,10 @@ function analyzeConfidenceFunnel(recs: RecommendedEditRow[]) {
     };
   }
 
-  const derived: Record<DerivedConfidenceLabel, { total: number; reviewed: number; shipped: number; ship_rate_of_reviewed: string }> = {
-    strong_evidence: { total: 0, reviewed: 0, shipped: 0, ship_rate_of_reviewed: "—" },
-    moderate_evidence: { total: 0, reviewed: 0, shipped: 0, ship_rate_of_reviewed: "—" },
-    needs_review: { total: 0, reviewed: 0, shipped: 0, ship_rate_of_reviewed: "—" },
-  };
-  for (const r of recs) {
-    const refs = r.evidence ?? [];
-    const isFaqAnswer = (r.target_element_key ?? "").startsWith("faq_answer[");
-    const lbl = deriveConfidence({
-      evidenceRefs: refs,
-      evidenceDepth: computeEvidenceDepth(refs),
-      affectedPromptCount: refs.filter((x) => x.type === "prompt").length,
-      isFaqAnswer,
-      hasTopCompetitor: refs.some((x) => x.type === "competitor"),
-    });
-    derived[lbl].total += 1;
-    const st = statusOf(r);
-    if (st === "accepted" || st === "verified_live" || st === "verified_live_modified" || st === "dismissed") {
-      derived[lbl].reviewed += 1;
-    }
-    if (st === "accepted" || st === "verified_live" || st === "verified_live_modified") {
-      derived[lbl].shipped += 1;
-    }
-  }
-  for (const lbl of ["strong_evidence", "moderate_evidence", "needs_review"] as const) {
-    derived[lbl].ship_rate_of_reviewed = pct(derived[lbl].shipped, derived[lbl].reviewed);
-  }
-
   return {
     persisted,
-    derived,
     note:
-      "Persisted is the legacy `confidence` column on recommended_edits.json — intentionally NOT mutated by T4.4. Derived is the customer-facing label rendered by <DerivedConfidencePill>. Pre-T6.5 this analyzer reported only persisted and falsely flagged the queue as 100% medium.",
+      "Persisted is the legacy `confidence` column on recommended_edits.json — intentionally NOT mutated by T4.4. The derived T4.4 label dimension was removed with derived-confidence.ts (CORE 100K, 2026-07-21).",
   };
 }
 
@@ -425,8 +389,6 @@ function analyzeCausalRecChain(
  *   - shipped count                    (causal chain completed)
  *   - causal outcome count             (= shipped that have a verdict)
  *   - helping / weak_signal / nothing_yet / hurting verdict counts
- *   - needs_review_rate                (T4.4 derived label distribution)
- *   - average evidence depth
  *   - sample size                      (causal outcome count)
  *   - confidence_label                 ("insufficient sample" / "directional"
  *                                       / "credible") gated by sample size
@@ -456,12 +418,6 @@ type LearningScoreRow = {
   causal_hurting: number;
   causal_too_early: number;
   causal_other: number;
-  /** Derived T4.4 label distribution among all recs of this action_type (regardless of outcome). */
-  derived_strong: number;
-  derived_moderate: number;
-  derived_needs_review: number;
-  needs_review_rate: number;
-  avg_evidence_depth: number;
   sample_size: number;
   confidence_label: "insufficient_sample" | "directional" | "credible";
 };
@@ -527,66 +483,11 @@ function buildLearningScoreV0(
     else b.other += 1;
   }
 
-  // Group recs by action_type (even unaccepted ones) for derived-label
-  // distribution + evidence depth.
-  type RecAgg = {
-    derivedStrong: number;
-    derivedModerate: number;
-    derivedNeedsReview: number;
-    evidenceDepthSum: number;
-    recCount: number;
-  };
-  const recsByAction = new Map<string, RecAgg>();
-  for (const r of recs) {
-    const refs = r.evidence ?? [];
-    const isFaqAnswer = (r.target_element_key ?? "").startsWith("faq_answer[");
-    const lbl = deriveConfidence({
-      evidenceRefs: refs,
-      evidenceDepth: computeEvidenceDepth(refs),
-      affectedPromptCount: refs.filter((x) => x.type === "prompt").length,
-      isFaqAnswer,
-      hasTopCompetitor: refs.some((x) => x.type === "competitor"),
-    });
-    const action = r.action_type ?? "(none)";
-    let a = recsByAction.get(action);
-    if (!a) {
-      a = {
-        derivedStrong: 0,
-        derivedModerate: 0,
-        derivedNeedsReview: 0,
-        evidenceDepthSum: 0,
-        recCount: 0,
-      };
-      recsByAction.set(action, a);
-    }
-    a.recCount += 1;
-    a.evidenceDepthSum += computeEvidenceDepth(refs);
-    if (lbl === "strong_evidence") a.derivedStrong += 1;
-    else if (lbl === "moderate_evidence") a.derivedModerate += 1;
-    else if (lbl === "needs_review") a.derivedNeedsReview += 1;
-  }
-
-  // Merge: every action_type that appears in EITHER bucket gets a row.
-  const allActions = new Set([...byAction.keys(), ...recsByAction.keys()]);
+  // One row per action_type that shipped through the causal chain. (The
+  // derived-label / evidence-depth columns died with derived-confidence.ts,
+  // CORE 100K 2026-07-21.)
   const rows: LearningScoreRow[] = [];
-  for (const action of allActions) {
-    const b = byAction.get(action) ?? {
-      shipped: 0,
-      helping: 0,
-      weak_signal: 0,
-      nothing_yet: 0,
-      hurting: 0,
-      too_early: 0,
-      other: 0,
-      causalOutcomes: 0,
-    };
-    const a = recsByAction.get(action) ?? {
-      derivedStrong: 0,
-      derivedModerate: 0,
-      derivedNeedsReview: 0,
-      evidenceDepthSum: 0,
-      recCount: 0,
-    };
+  for (const [action, b] of byAction) {
     const sample = b.causalOutcomes;
     const conf: LearningScoreRow["confidence_label"] =
       sample >= LEARNING_SCORE_CREDIBLE_FLOOR
@@ -594,8 +495,6 @@ function buildLearningScoreV0(
         : sample >= LEARNING_SCORE_DIRECTIONAL_FLOOR
           ? "directional"
           : "insufficient_sample";
-    const needsReviewRate = a.recCount > 0 ? a.derivedNeedsReview / a.recCount : 0;
-    const avgDepth = a.recCount > 0 ? a.evidenceDepthSum / a.recCount : 0;
     rows.push({
       action_type: action,
       shipped_causal_count: b.shipped,
@@ -606,11 +505,6 @@ function buildLearningScoreV0(
       causal_hurting: b.hurting,
       causal_too_early: b.too_early,
       causal_other: b.other,
-      derived_strong: a.derivedStrong,
-      derived_moderate: a.derivedModerate,
-      derived_needs_review: a.derivedNeedsReview,
-      needs_review_rate: Number(needsReviewRate.toFixed(3)),
-      avg_evidence_depth: Number(avgDepth.toFixed(2)),
       sample_size: sample,
       confidence_label: conf,
     });
@@ -624,7 +518,6 @@ function buildLearningScoreV0(
       "v0 — uses CAUSAL chain (T7.1) only. URL-level coincidence is NOT counted as causal.",
       `confidence_label gated by sample size: <${LEARNING_SCORE_DIRECTIONAL_FLOOR} = "insufficient_sample"; <${LEARNING_SCORE_CREDIBLE_FLOOR} = "directional"; ≥${LEARNING_SCORE_CREDIBLE_FLOOR} = "credible".`,
       "Brain MUST NOT change ranking based on rows labeled `insufficient_sample`. `directional` is operator-readable only. `credible` is the floor for any future ranking change (operator opts in).",
-      "needs_review_rate measures the fraction of recs of this action_type whose T4.4 derived confidence is `needs_review` — a separate signal from the causal outcome.",
       "Rec rows are NOT mutated by this script. Pure read.",
     ],
   };
@@ -654,10 +547,6 @@ function renderReport(report: any): string {
   lines.push(`### Persisted (legacy column — T4.4 intentionally leaves untouched):`);
   for (const [conf, row] of Object.entries(report.confidence_funnel.persisted as Record<string, any>)) {
     lines.push(`  ${conf.padEnd(8)} total ${row.total}, reviewed ${row.reviewed}, shipped ${row.shipped} (ship-rate of reviewed: ${row.ship_rate_of_reviewed})`);
-  }
-  lines.push(`### Derived (T4.4 customer-facing label, computed from evidence at read-time):`);
-  for (const [lbl, row] of Object.entries(report.confidence_funnel.derived as Record<string, any>)) {
-    lines.push(`  ${lbl.padEnd(20)} total ${row.total}, reviewed ${row.reviewed}, shipped ${row.shipped} (ship-rate of reviewed: ${row.ship_rate_of_reviewed})`);
   }
   lines.push(`  note: ${report.confidence_funnel.note}`);
   lines.push("");
@@ -739,12 +628,7 @@ function renderReport(report: any): string {
       lines.push(
         `  [${tag.padEnd(22)}] ${r.action_type.padEnd(24)} shipped=${r.shipped_causal_count} causal_outcomes=${r.causal_outcome_count} (helping=${r.causal_helping}, weak=${r.causal_weak_signal}, nothing_yet=${r.causal_nothing_yet})`,
       );
-      lines.push(
-        `       derived: strong=${r.derived_strong} moderate=${r.derived_moderate} needs_review=${r.derived_needs_review} (rate ${(r.needs_review_rate * 100).toFixed(1)}%)`,
-      );
-      lines.push(
-        `       avg_evidence_depth=${r.avg_evidence_depth} sample_size=${r.sample_size}`,
-      );
+      lines.push(`       sample_size=${r.sample_size}`);
     }
   }
   for (const note of ls.notes as string[]) lines.push(`  note: ${note}`);

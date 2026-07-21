@@ -14,14 +14,11 @@
  *   - `RecommendationActionRow`: the minimal row shape
  *     `buildRecommendationQaVerdict` and `deriveRowTopicFit` read. Assembled
  *     by `load-action-row-by-edit.ts` from a persisted edit at push time.
- *   - `computeEvidenceDepth`: the grounding-category counter feeding
- *     `deriveConfidence`, pinned against the persisted queue.
  *
  * Pure / deterministic. No I/O. No React.
  */
 
 import type { ActionType } from "./action-types";
-import type { SpecificEditEvidenceRef } from "./specific-edit-provider";
 import type { EvidenceLine } from "@/domains/recommendation-intelligence/evidence-summary";
 
 // ── Type system ─────────────────────────────────────────────────────────
@@ -160,58 +157,4 @@ export function actionRowTypeForEdit(actionType: ActionType): ActionRowType {
     case "improve_meta":
       return "review_decision";
   }
-}
-
-/**
- * T4.2 (2026-05-06): evidence-depth counter: how many distinct
- * grounding-signal categories an evidence array carries. The categories
- * tracked match the structural sources the abstention contract (T4.1)
- * considers grounding:
- *
- *   - prompt: at least one prompt evidence ref → +1
- *   - multi-prompt bonus: ≥2 prompt refs → +1
- *   - owned_page: at least one owned-page evidence ref → +1
- *   - competitor: at least one competitor evidence ref → +1
- *   - element: at least one page-element evidence ref → +1
- *   - prior_outcome: at least one prior-outcome evidence ref → +1
- *
- * Returns 0..6. Higher = richer evidence. Feeds `deriveConfidence`
- * (derived-confidence.ts), which is pinned against the persisted queue by
- * tests/persistence/derived-confidence-against-ritz-queue.test.ts. Pure.
- */
-export function computeEvidenceDepth(
-  evidenceRefs: ReadonlyArray<SpecificEditEvidenceRef>,
-): number {
-  let promptCount = 0;
-  let ownedPageCount = 0;
-  let competitorCount = 0;
-  let elementCount = 0;
-  let priorOutcomeCount = 0;
-  for (const ref of evidenceRefs) {
-    switch (ref.type) {
-      case "prompt":
-        promptCount += 1;
-        break;
-      case "owned_page":
-        ownedPageCount += 1;
-        break;
-      case "competitor":
-        competitorCount += 1;
-        break;
-      case "element":
-        elementCount += 1;
-        break;
-      case "prior_outcome":
-        priorOutcomeCount += 1;
-        break;
-    }
-  }
-  let depth = 0;
-  if (promptCount > 0) depth += 1;
-  if (promptCount >= 2) depth += 1; // multi-prompt bonus
-  if (ownedPageCount > 0) depth += 1;
-  if (competitorCount > 0) depth += 1;
-  if (elementCount > 0) depth += 1;
-  if (priorOutcomeCount > 0) depth += 1;
-  return depth;
 }

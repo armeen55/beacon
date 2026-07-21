@@ -1,20 +1,13 @@
 /**
- * Pins the two pure utils that survived the deletion of the
+ * Pins the pure util that survived the deletion of the
  * /recommendations table builder (CORE 100K Lane D, 2026-07-21):
  *
  *   - actionRowTypeForEdit: the ActionType -> ActionRowType mapping the QA
  *     layer keys push readiness off (paste_ready vs review_only).
- *   - computeEvidenceDepth: the grounding-category counter feeding
- *     deriveConfidence (coverage carried over from the deleted
- *     recommendation-action-rows-ranking.test.ts).
  */
 
 import { describe, it, expect } from "vitest";
-import {
-  actionRowTypeForEdit,
-  computeEvidenceDepth,
-} from "./recommendation-action-rows";
-import type { SpecificEditEvidenceRef } from "./specific-edit-provider";
+import { actionRowTypeForEdit } from "./recommendation-action-rows";
 
 describe("actionRowTypeForEdit", () => {
   it("maps paste-ready copy edits onto their row types", () => {
@@ -54,48 +47,5 @@ describe("actionRowTypeForEdit", () => {
   it("maps page-lifecycle types", () => {
     expect(actionRowTypeForEdit("create_page")).toBe("create_page");
     expect(actionRowTypeForEdit("reorder_sections")).toBe("technical_fix");
-  });
-});
-
-describe("computeEvidenceDepth", () => {
-  it("returns 0 for empty evidence", () => {
-    expect(computeEvidenceDepth([])).toBe(0);
-  });
-
-  it("counts a single prompt as depth 1", () => {
-    expect(
-      computeEvidenceDepth([
-        { type: "prompt", promptId: "p1" },
-      ] as SpecificEditEvidenceRef[]),
-    ).toBe(1);
-  });
-
-  it("awards the multi-prompt bonus", () => {
-    expect(
-      computeEvidenceDepth([
-        { type: "prompt", promptId: "p1" },
-        { type: "prompt", promptId: "p2" },
-      ] as SpecificEditEvidenceRef[]),
-    ).toBe(2);
-  });
-
-  it("counts distinct grounding categories", () => {
-    expect(
-      computeEvidenceDepth([
-        { type: "prompt", promptId: "p1" },
-        { type: "owned_page", pageId: "pg1" },
-        { type: "competitor", competitorId: "c1" },
-      ] as unknown as SpecificEditEvidenceRef[]),
-    ).toBe(3);
-  });
-
-  it("caps categories, not raw counts (duplicates in one category add nothing)", () => {
-    expect(
-      computeEvidenceDepth([
-        { type: "owned_page", pageId: "pg1" },
-        { type: "owned_page", pageId: "pg2" },
-        { type: "owned_page", pageId: "pg3" },
-      ] as unknown as SpecificEditEvidenceRef[]),
-    ).toBe(1);
   });
 });

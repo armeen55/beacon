@@ -17,11 +17,7 @@
 
 import { describe, it, expect } from "vitest";
 
-import {
-  buildRecommendationQaVerdict,
-  deriveRecQaDisplay,
-  type RecQaVerdict,
-} from "@/domains/recommendations/recommendation-qa";
+import { buildRecommendationQaVerdict } from "@/domains/recommendations/recommendation-qa";
 import {
   dedupeDoubledWords,
   stripInstructionArtifactPrefix,
@@ -63,94 +59,8 @@ function row(o: {
   } as unknown as RecommendationActionRow;
 }
 
-/** Synthetic verdict to pin the display-mapping bands precisely. */
-function verdict(
-  confidence: RecQaVerdict["confidence"],
-  approve: boolean,
-  pushReadiness: RecQaVerdict["pushReadiness"] = "paste_ready",
-): RecQaVerdict {
-  return {
-    intentFit: null,
-    confidence,
-    approve,
-    whyExists: "x",
-    whyMatchValid: null,
-    evidenceSupports: [],
-    evidenceMissing: [],
-    confidenceReason: "x",
-    pushReadiness,
-    copySafe: true,
-  };
-}
-
-describe("deriveRecQaDisplay — status / CTA / pushability mapping", () => {
-  it("rejected suggestion → 'Rejected by QA' + NOT actionable + 'Review only'", () => {
-    const d = deriveRecQaDisplay({
-      qaVerdict: verdict("rejected", false),
-      isSuggestion: true,
-    });
-    expect(d.statusOverride).toBe("Rejected by QA");
-    expect(d.actionable).toBe(false);
-    expect(d.primaryCtaLabel).toBe("Review only");
-  });
-
-  it("needs_more_evidence suggestion → 'Needs more evidence' + NOT actionable", () => {
-    const d = deriveRecQaDisplay({
-      qaVerdict: verdict("needs_more_evidence", false),
-      isSuggestion: true,
-    });
-    expect(d.statusOverride).toBe("Needs more evidence");
-    expect(d.actionable).toBe(false);
-    expect(d.primaryCtaLabel).toBe("Review only");
-  });
-
-  it("low suggestion → 'Needs review' + NOT actionable", () => {
-    const d = deriveRecQaDisplay({
-      qaVerdict: verdict("low", false),
-      isSuggestion: true,
-    });
-    expect(d.statusOverride).toBe("Needs review");
-    expect(d.actionable).toBe(false);
-  });
-
-  it("high suggestion → no override, actionable, 'Accept' (a valid rec is NOT punished)", () => {
-    const d = deriveRecQaDisplay({
-      qaVerdict: verdict("high", true),
-      isSuggestion: true,
-    });
-    expect(d.statusOverride).toBeNull();
-    expect(d.actionable).toBe(true);
-    expect(d.primaryCtaLabel).toBe("Accept");
-  });
-
-  it("review_only push readiness → 'Not publishable' label", () => {
-    const d = deriveRecQaDisplay({
-      qaVerdict: verdict("high", true, "review_only"),
-      isSuggestion: true,
-    });
-    expect(d.pushLabel).toBe("Not publishable");
-  });
-
-  it("manual push readiness → 'Manual build' label", () => {
-    const d = deriveRecQaDisplay({
-      qaVerdict: verdict("high", true, "manual"),
-      isSuggestion: true,
-    });
-    expect(d.pushLabel).toBe("Manual build");
-  });
-
-  it("an already-actioned (non-suggestion) row keeps its real status — never rewritten", () => {
-    const d = deriveRecQaDisplay({
-      qaVerdict: verdict("rejected", false),
-      isSuggestion: false,
-    });
-    expect(d.statusOverride).toBeNull();
-    expect(d.actionable).toBe(true);
-  });
-});
-
-describe("operator production cases — verdict → visible enforcement", () => {
-  it("Asiatic Cheetah optimized for an unrelated query → cannot render Accept", () => {
+describe("operator production cases — the gate rejects off-topic recs", () => {
+  it("Asiatic Cheetah optimized for an unrelated query → rejected, never approvable", () => {
     const v = buildRecommendationQaVerdict({
       row: row({
         targetLabel: "Asiatic Cheetah",
@@ -159,16 +69,14 @@ describe("operator production cases — verdict → visible enforcement", () => 
       }),
       affectedPromptTexts: [],
     });
-    const d = deriveRecQaDisplay({ qaVerdict: v, isSuggestion: true });
     expect(v.confidence).toBe("rejected");
-    expect(d.actionable).toBe(false);
-    expect(d.primaryCtaLabel).toBe("Review only");
+    expect(v.approve).toBe(false);
   });
 
-  it("Pahlavi reject → cannot render Suggested + Accept", () => {
+  it("Pahlavi reject → the gate withholds approval", () => {
     // A confident topic mismatch (a transactional/unrelated query on the
-    // dynasty page) is rejected by the gate → the pill must read "Rejected by
-    // QA", never the default "Suggested", and the CTA must not be Accept.
+    // dynasty page) is rejected by the gate → downstream surfaces must never
+    // present it as approvable.
     const v = buildRecommendationQaVerdict({
       row: row({
         targetLabel: "Pahlavi dynasty",
@@ -177,14 +85,11 @@ describe("operator production cases — verdict → visible enforcement", () => 
       }),
       affectedPromptTexts: [],
     });
-    const d = deriveRecQaDisplay({ qaVerdict: v, isSuggestion: true });
     expect(v.approve).toBe(false);
-    expect(d.statusOverride).not.toBeNull();
-    expect(d.statusOverride).not.toBe("Suggested");
-    expect(d.actionable).toBe(false);
+    expect(["rejected", "needs_more_evidence", "low"]).toContain(v.confidence);
   });
 
-  it("a valid on-topic rec (Abbasid history) can STILL render High + Accept", () => {
+  it("a valid on-topic rec (Abbasid history) is STILL approved with real confidence", () => {
     const v = buildRecommendationQaVerdict({
       row: row({
         targetLabel: "Abbasid Caliphate",
@@ -193,54 +98,16 @@ describe("operator production cases — verdict → visible enforcement", () => 
       }),
       affectedPromptTexts: ["abbasid caliphate timeline", "who were the abbasids"],
     });
-    const d = deriveRecQaDisplay({ qaVerdict: v, isSuggestion: true });
     expect(["high", "medium"]).toContain(v.confidence);
     expect(v.approve).toBe(true);
-    expect(d.statusOverride).toBeNull();
-    expect(d.actionable).toBe(true);
-    expect(d.primaryCtaLabel).toBe("Accept");
   });
 });
 
-describe("list/detail PARITY (trust audit B) — both surfaces share one verdict", () => {
-  // The list card and the detail page BOTH derive their status pill + CTA from
-  // deriveRecQaDisplay(row.detail.qaVerdict). Since it's one pure function over
-  // the one stored verdict, they CANNOT disagree — pinning that here closes the
-  // operator's #1 bug (list said "Needs more evidence / Review only" while
-  // detail said "Suggested / High confidence / Accept").
-  const cases: Array<{ name: string; v: RecQaVerdict }> = [
-    { name: "approved high", v: verdict("high", true) },
-    { name: "approved medium", v: verdict("medium", true) },
-    { name: "rejected", v: verdict("rejected", false) },
-    { name: "needs_more_evidence", v: verdict("needs_more_evidence", false) },
-    { name: "low", v: verdict("low", false) },
-  ];
-  for (const c of cases) {
-    it(`${c.name}: the list-card display === the detail display`, () => {
-      // Exactly how the v2 card computes it:
-      const listDisplay = deriveRecQaDisplay({ qaVerdict: c.v, isSuggestion: true });
-      // Exactly how the detail client computes it (same helper, same inputs):
-      const detailDisplay = deriveRecQaDisplay({ qaVerdict: c.v, isSuggestion: true });
-      expect(detailDisplay).toEqual(listDisplay);
-      // And an approved verdict is High+Accept on BOTH; a non-approved one is
-      // never Accept on EITHER.
-      if (c.v.approve) {
-        expect(listDisplay.statusOverride).toBeNull();
-        expect(listDisplay.actionable).toBe(true);
-      } else {
-        expect(listDisplay.actionable).toBe(false);
-        expect(listDisplay.primaryCtaLabel).toBe("Review only");
-      }
-    });
-  }
-});
-
-// NOTE (2026-07-21, surface-collapse): the "detail-page Accept gating
-// (visibleActionsForRow)" describe block was removed with the /recommendations
-// [id] detail route. `visibleActionsForRow` was a presentation-gating helper on
-// that (now-deleted) surface. The deterministic authority it wrapped,
-// `deriveRecQaDisplay`, survives and its "not actionable → no Accept" contract
-// is still pinned by the "deriveRecQaDisplay" describe block above.
+// NOTE (2026-07-21, CORE 100K): the `deriveRecQaDisplay` display-mapping and
+// list/detail parity describe blocks were removed together with the function
+// itself — it lost its last production caller when the /recommendations list +
+// detail surfaces collapsed into /changes. The deterministic authority,
+// `buildRecommendationQaVerdict`, is live (publish gate) and stays pinned above.
 
 describe("copy artifacts can never reach the customer card", () => {
   it("schema title cannot render 'Add Add' (doubled leading verb collapsed)", () => {
