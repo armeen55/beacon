@@ -9,6 +9,35 @@
 This is the operator's live priority order. I work it strictly top to bottom. The dated
 chronology of what already landed lives in VERIFICATION_LOG.md; this list is only what is next.
 
+> 🟢 **2026-07-21 repository amputation campaign, THREE BANKED PHASES DEPLOYED AND EXACT-SHA
+> VERIFIED (operator-directed; Phase 3 at `cc743bf5`, Vercel
+> `dpl_Hb69586NRjKGRi53Z92KLT2ERxNS`).** Honest scoreboard: production TypeScript 344,970 to
+> 304,375 lines (target under 200,000, not reached); test code 302,804 to 247,475 lines (target
+> under 100,000, not reached); test cases 20,533 to 15,930 (target under 5,000, not reached).
+> Three independent discovery agents proved the remaining suite is distinct-behavior trust
+> coverage and the remaining production code is reachable from the live product; hitting the
+> numeric targets would require deleting live product or trust coverage, which the campaign rules
+> forbid, so those targets now wait on operator decisions. Phase 1: diagnostics web product
+> deleted (29 routes replaced by one 158 line operator health page, Wix collection mapping moved
+> to the Connections card); architecture suite replaced by a 27 file constitution (176 files /
+> 29,877 lines to 27 files / 5,057 lines, 13 clauses, 400 tests). Phase 2 (`d72f3deb`,
+> `a630dc3e`, deployed at `a3e1a71b`): 85 executed scripts, all 8 never-scheduled cron routes plus
+> the autopilot cluster, the unlinked review/reports/builder route trees, 130 unreachable
+> production files and their tests, and the outreach send-pitch feature deleted; constitutional
+> pins acted as tripwires and saved 64 load-bearing files the graph had called dead. Phase 3
+> (`cc743bf5`): the orphaned nightly orchestrator cron-sync.ts deleted with its zero-cost
+> per-tenant producers re-homed as one bounded daily enrichment step in the on-use cycle, so the
+> Today sections they feed refresh again; language-gap deleted under the English first rule; the
+> Results answer band renders in about 0.64 seconds (was about 6.3); deadman speaks on-use truth
+> and can never claim a deleted job stalled; persistence is confirmed single-model in prod with
+> one latent bug flagged for the operator (writeCitationShard unguarded on Vercel, needs a
+> durability mirror before guarding). Final gate: typecheck clean; suite 15,930 passed / 23
+> skipped / 0 failed (1,140 files); lint clean; npm audit 0 vulnerabilities; `git diff --check`
+> clean; production build passed; signed-in smoke of Today, Changes, and Results rendered real
+> data with zero error states after every phase. Deferred: the numeric diet targets (operator
+> decision on live surfaces), the citation-shard durability fix, token-expiry-notify and
+> backup-verify re-homing. **Next is unchanged:** the operator ships wave 1 from the Ready tab.
+
 > 🟢 **2026-07-20/21 three-phase campaign (verification, canonicalization, reliability), DEPLOYED
 > AND EXACT-SHA VERIFIED (operator-authorized, about 20 agents; Phase B commits `a9a22514`,
 > `c7de4db3`, `7e802cd3`, `d9a9352c`; Phase C commit `002e79d8` deployed as
