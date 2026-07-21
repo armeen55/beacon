@@ -38,13 +38,16 @@ const REPO_TYPES_SRC = read("src/lib/persistence/repositories/types.ts");
 const TENANT_REPO_SRC = read("src/lib/persistence/repositories/tenant-repo.ts");
 
 describe("route loaders read observations bounded, never unbounded", () => {
-  it("load-queue passes observationsSince + skipSnapshots + lean projection", () => {
-    expect(LOAD_QUEUE_SRC).toMatch(
-      /loadFreshCanonicalData\(\{[\s\S]{0,200}observationsSince[\s\S]{0,200}skipSnapshots:\s*true/,
-    );
-    expect(LOAD_QUEUE_SRC).not.toMatch(/loadFreshCanonicalData\(\s*\)/);
-    expect(LOAD_QUEUE_SRC).toMatch(/60\s*\*\s*86_400_000/);
-    expect(LOAD_QUEUE_SRC).toMatch(/leanObservations:\s*true/);
+  it("load-queue's persisted render path never touches the canonical observation pipeline", () => {
+    // Amputation (2026-07-21): the /recommendations live loader that paged
+    // canonical data (`loadLiveRecommendationQueue` → `loadFreshCanonicalData`)
+    // was deleted as dead code. The surviving render loader
+    // (`loadPersistedRecommendationQueueForPage`) reads ONLY small per-tenant
+    // stores (recommended_edits, recommendation_responses, tracked_prompts,
+    // changelog, GSC/Clarity signals). It calls `loadFreshCanonicalData` NOT AT
+    // ALL — a strictly stronger egress guarantee than the old bounded window,
+    // so no unbounded observation read can slip back onto this surface.
+    expect(LOAD_QUEUE_SRC).not.toMatch(/loadFreshCanonicalData/);
   });
 
   it("today-v2-data windows both observations (60d) and snapshots (120d)", () => {

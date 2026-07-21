@@ -214,12 +214,15 @@ describe("Sprint 4 / Phase 4.9 — canonical-store fresh-per-render", () => {
   });
 
   describe("render-path structural invariants", () => {
-    it("/recommendations index redirects; the persisted loader still delegates to loadFreshCanonicalData", () => {
+    it("/recommendations index redirects; the persisted loader never touches the canonical fan-out", () => {
       // Move 5 (2026-07-01): the /recommendations index is now a redirect to
-      // /changes?status=ready (a duplicate of the canonical Changes list). The
-      // Sprint 4 freshness contract is preserved one layer down where the loader
-      // is still used (/recommendations/[id], /changes): `load-queue.ts` calls
-      // `loadFreshCanonicalData`.
+      // /changes?status=ready (a duplicate of the canonical Changes list).
+      // CORE 100K Lane A (2026-07-21): the dead in-file LLM queue builder
+      // (`loadLiveRecommendationQueue`) was the ONLY load-queue caller of
+      // `loadFreshCanonicalData`; it was deleted. The surviving persisted
+      // loader reads the tenant repo directly, so the STRONGER guarantee is
+      // that load-queue never performs the 4-table canonical fan-out at all
+      // (also pinned by tests/architecture/13-egress-boundary).
       expect(SRC.recommendations).toMatch(/\bredirect\(/);
       const loadQueueSrc = readFileSync(
         resolve(
@@ -228,13 +231,7 @@ describe("Sprint 4 / Phase 4.9 — canonical-store fresh-per-render", () => {
         ),
         "utf8",
       );
-      expect(loadQueueSrc).toMatch(
-        /import\s+\{[^}]*loadFreshCanonicalData[^}]*\}\s+from\s+["']@\/storage\/canonical-store["']/,
-      );
-      // EGRESS-P0 (2026-05-07): load-queue now passes
-      // `{ observationsSince, snapshotsSince }`. Loosen the pin to
-      // accept any call form (matches the loosening on line ~315).
-      expect(loadQueueSrc).toMatch(/loadFreshCanonicalData\(/);
+      expect(loadQueueSrc).not.toMatch(/loadFreshCanonicalData/);
     });
 
     // Surface-collapse (2026-07-21): the "/prompts" and "/prompts/[id]"
@@ -263,22 +260,15 @@ describe("Sprint 4 / Phase 4.9 — canonical-store fresh-per-render", () => {
       );
     });
 
-    it("all five render paths call loadFreshCanonicalData() at render time (directly OR via loadLiveRecommendationQueue)", () => {
-      // Phase 14 (2026-04-24): /recommendations no longer calls
-      // `loadFreshCanonicalData()` directly — the call moved into
-      // `loadLiveRecommendationQueue`.
-      //
+    it("only the /today loader calls loadFreshCanonicalData() at render time", () => {
       // Emergency P0 fix (2026-05-12) — `/prompts` and `/prompts/[id]`
-      // were also removed from this list. They now read directly from
-      // the tenant repo (with a `since` window + optional `promptId`)
-      // because `loadFreshCanonicalData` was a 4-table fan-out costing
+      // read directly from the tenant repo (scoped `since` window)
+      // because `loadFreshCanonicalData` is a 4-table fan-out costing
       // 8-11 s in production for routes that only needed observations.
-      // See `tests/architecture/perf-prompts-scoped-reads.test.ts` for
-      // the new-architecture pin.
       //
-      // Only the /today loader (today-v2-data.ts; legacy today-data.ts
-      // deleted 2026-07-01, item 101) still calls `loadFreshCanonicalData`
-      // at render time.
+      // CORE 100K Lane A (2026-07-21): load-queue's only caller of
+      // `loadFreshCanonicalData` was the deleted dead LLM queue builder,
+      // so /today (today-v2-data.ts) is now the SOLE render-time caller.
       const directTargets = [
         { name: "today-v2-data.ts", src: SRC.todayData },
       ];
@@ -287,26 +277,7 @@ describe("Sprint 4 / Phase 4.9 — canonical-store fresh-per-render", () => {
           /loadFreshCanonicalData\(/,
         );
       }
-      // /recommendations: page must call SOME variant of the queue
-      // loader (the cached page-shaped wrapper, OR the raw loader for
-      // tests/CLI), and load-queue.ts must call loadFreshCanonicalData.
-      // Sprint 7 Phase 7.3: page now passes `{ tenantId }`; relaxed
-      // from empty-parens to any call form.
-      // EGRESS-P0 (2026-05-07): load-queue now passes
-      // `{ observationsSince, snapshotsSince }` to bound the read.
-      // Move 5 (2026-07-01): the /recommendations index redirects to /changes;
-      // load-queue.ts still calls `loadFreshCanonicalData` (asserted below) for
-      // the surviving /recommendations/[id] + /changes surfaces, so the
-      // render-time freshness contract is preserved.
       expect(SRC.recommendations).toMatch(/\bredirect\(/);
-      const loadQueueSrc = readFileSync(
-        resolve(
-          __dirname,
-          "../../src/domains/recommendations/load-queue.ts",
-        ),
-        "utf8",
-      );
-      expect(loadQueueSrc).toMatch(/loadFreshCanonicalData\(/);
     });
   });
 

@@ -30,48 +30,22 @@
 
 import "server-only";
 
-import { adjudicateFromCacheOnly, applyAdjudicationToResolution } from "./adjudicate";
-import { buildPageInventory, type PageInventoryEntry } from "./page-inventory";
-import { generateRecommendations, type RecommendationCandidate } from "./generate";
-import {
-  prioritizeRecommendations,
-  type PrioritizedRecommendation,
-} from "./prioritize";
-import { resolvePageIntent } from "./resolve-page-intent";
-import { getBusinessConfig } from "@/lib/business-config";
-import type { PageEntity } from "@/domains/pages/types";
+import type { PageInventoryEntry } from "./page-inventory";
+import type { RecommendationCandidate } from "./recommendation-types";
 import type { CrossTenantPattern } from "./cross-tenant-brain";
 import {
   buildSpecificEditEvidencePacket,
-  hasAiSearchSignalForRec,
-  hasCompetitorPageBlueprintsForRec,
   type SpecificEditEvidencePacket,
 } from "./specific-edit-evidence";
 import type { ResolvedRecommendationCandidate } from "./resolved-types";
-import { buildPromptDecisionMatrix, type DecisionMatrix } from "@/domains/prompts/decision-matrix";
+import type { DecisionMatrix } from "@/domains/prompts/decision-matrix";
 import { getRepository } from "@/lib/persistence/repositories";
-import {
-  ensureCanonicalStoresSeeded,
-  loadFreshCanonicalData,
-} from "@/storage/canonical-store";
-import { ensureRecommendationResponsesSeeded } from "@/domains/product/recommendation-response-store";
-import {
-  selectRecrawlDemotions,
-  latestSnapshotByPath,
-} from "./recrawl-demotion";
-import { createPerfTrace } from "@/lib/perf-trace";
 import type { PromptAnswerObservation } from "@/domains/prompt-answer-observations/types";
 import type { TrackedPrompt } from "@/domains/tracked-prompts/types";
 import type { TrackedEntity } from "@/domains/tracked-entities/types";
-import {
-  getCompetitorPageSnapshotsByUrl,
-  type CompetitorPageSnapshot,
-} from "@/domains/pages/competitor-page-snapshots";
+import type { CompetitorPageSnapshot } from "@/domains/pages/competitor-page-snapshots";
 import type { PageElementInventoryRow } from "@/domains/pages/extractors/persist";
-import {
-  computeRecConfidence,
-  type RecConfidenceVerdict,
-} from "./confidence";
+import type { RecConfidenceVerdict } from "./confidence";
 import type { RecommendedEditRow } from "./recommended-edits-persistence";
 import {
   loadGscPageSignalsForTenant,
@@ -82,6 +56,31 @@ import {
   type ClarityPageSignal,
 } from "@/domains/recommendation-intelligence/clarity-page-signals";
 import { canonicalizeCitationUrl } from "@/domains/citation-lifecycle/canonicalize-url";
+
+/**
+ * Ranking tier a prioritized rec lands in. Formerly emitted by the removed
+ * in-file prioritizer; retained here as the queue item's shared vocabulary.
+ */
+export type PrioritizedRecommendationTier = "now" | "this_week" | "later";
+
+/**
+ * A `RecommendationCandidate` decorated with the ranking fields the queue
+ * item + packet builder read. The runtime prioritizer that produced these
+ * has been removed; the persisted loader synthesizes the same shape from
+ * stored edit rows. `resolution` is attached by the page-intent resolver
+ * when present.
+ */
+export type PrioritizedRecommendation = RecommendationCandidate & {
+  /** Final rubric score. */
+  score: number;
+  tier: PrioritizedRecommendationTier;
+  /** 1-indexed position in the queue (1 is top). */
+  rank: number;
+  /** One-sentence operator-facing justification for the position. */
+  reasoning: string;
+  /** Attached by the resolver when the input includes it. */
+  resolution?: ResolvedRecommendationCandidate["resolution"];
+};
 
 /**
  * W3 Step 3.3 (2026-05-01) — `PrioritizedRecommendation` decorated with
@@ -104,24 +103,6 @@ export type LiveRecQueueItem = PrioritizedRecommendation & {
    *  the search signals can't see. */
   claritySignal?: ClarityPageSignal | null;
 };
-
-/**
- * Law 2 abstention predicate (audit #1/#6, 2026-07-09): is this decorated rec a PURE GUESS
- * that must be held in the watchlist rather than shipped as a confident recommendation?
- * True only when the confidence engine already flagged it "single_prompt_no_evidence"
- * (one prompt, no AI-search signal, no competitor teardown, no evidence refs) AND the target
- * page carries no first-party GSC demand. The gscSignal guard makes this STRICTER than the
- * confidence engine alone, so no rec with AI/competitor/evidence-ref/multi-prompt/GSC signal
- * can ever be held. PURE - exported so a test can pin it without the full pipeline.
- */
-export function isBaselessGuessRec(
-  rec: Pick<LiveRecQueueItem, "engineConfidence" | "gscSignal">,
-): boolean {
-  return (
-    rec.engineConfidence.reasons.includes("single_prompt_no_evidence") &&
-    rec.gscSignal == null
-  );
-}
 
 /**
  * Output of `loadLiveRecommendationQueue`. Shape mirrors what the
@@ -168,38 +149,6 @@ export type LiveRecommendationQueue = {
   errors: string[];
 };
 
-export type LoadLiveRecommendationQueueOptions = {
-  /** Required tenant scope. Used by the adjudicator cache-read step
-   *  (key namespace) and threaded through to packet builders. Sprint 7
-   *  Phase 7.3 (2026-04-25): plumbed through from `currentTenantId()`;
-   *  callers must resolve and pass this explicitly. */
-  tenantId: string;
-  /** Override the "now" used by `buildPromptDecisionMatrix`. Useful
-   *  for deterministic tests; defaults to `new Date()`. */
-  now?: Date;
-  /** 2026-06-15 — when true, read prompt_answer_observations with the lean
-   *  column projection (drop `metadata` + the unused citation/search columns
-   *  the matrix + resolvePageIntent never touch). The PAGE wrapper sets this
-   *  (the cached page value strips observations after the matrix anyway); the
-   *  CLI / tests leave it OFF so `buildPacketForRec` still gets full rows
-   *  (the packet builder reads `metadata`). Cuts the ~17 MB observation read
-   *  ~45% for a data-rich tenant — the /recommendations half of the /today
-   *  egress/timeout fix. */
-  leanObservations?: boolean;
-};
-
-/** The 23 columns the /recommendations LIST render (matrix + resolvePageIntent)
- *  reads — identical to /today's `TODAY_OBSERVATION_COLUMNS` (same consumers).
- *  MUST stay in sync with it: both omit `metadata`, `citation_domains`,
- *  `citation_categories`, `raw_search_queries`, `search_queries`. Pinned by
- *  tests/architecture/egress-bounded-reads-p0.test.ts. */
-const LIST_OBSERVATION_COLUMNS =
-  "id, prompt_id, run_id, answer_hash, position, tracked_brand_mentioned, " +
-  "tracked_brand_cited, citation_count, owned_citation_count, mentions, " +
-  "observed_at, platform, topic, tenant_id, mention_position, citation_rank, " +
-  "primary_recommendation, descriptor_window, competitor_co_mentions, " +
-  "citation_domain_classes, answer_structure, citation_urls, " +
-  "competitor_descriptor_windows";
 
 async function safeCall<T>(
   fn: () => Promise<T> | T,
@@ -216,11 +165,6 @@ async function safeCall<T>(
   }
 }
 
-/**
- * Run the full orchestration the `/recommendations` page used to inline.
- * Returns a `LiveRecommendationQueue` with the decorated queue + every
- * intermediate input the CLI needs to build packets.
- */
 /**
  * Night-shift #48 (2026-06-11) — unified queue ordering score for a
  * rec_id's edit group: drafted moves (proposed_text present) outrank
@@ -240,489 +184,6 @@ export function queueGroupScore(
   return best;
 }
 
-export async function loadLiveRecommendationQueue(
-  opts: LoadLiveRecommendationQueueOptions,
-): Promise<LiveRecommendationQueue> {
-  const { tenantId } = opts;
-  const errors: string[] = [];
-
-  // Emergency P0 fix (2026-05-12) — granular tracing inside the
-  // recommendation queue loader. NOOP when `BEACON_PERF_TRACE != "true"`.
-  // When enabled, emits one log line per major sub-step so the next
-  // production capture can identify which call dominates the measured
-  // 33 s loader time (vs the existing single-line "loadLiveRecommendationQueue
-  // ms=33004" which gives us no decomposition).
-  const trace = createPerfTrace("load-queue", { route: "internal" });
-
-  const seedRes = await trace.time("seed_canonical_stores", () =>
-    safeCall(
-      () => ensureCanonicalStoresSeeded(),
-      undefined,
-      "seed canonical stores",
-    ),
-  );
-  if (seedRes.error) errors.push(seedRes.error);
-  const respSeedRes = await trace.time("seed_recommendation_responses", () =>
-    safeCall(
-      () => ensureRecommendationResponsesSeeded(),
-      undefined,
-      "seed recommendation responses",
-    ),
-  );
-  if (respSeedRes.error) errors.push(respSeedRes.error);
-
-  // EGRESS-P0 (2026-05-07) — bound the observations window. Without a
-  // `since`, this loads ALL observations from prompt_answer_observations
-  // (the largest table in the system) on every /recommendations
-  // navigation. Recommendations only need recent activity to evaluate;
-  // 60 days covers every confidence/dedup window the engine consults.
-  // Snapshots window is wider (120 days) to keep verdict-baseline math
-  // honest. Pinned by tests/architecture/egress-bounded-reads-p0.test.ts.
-  const NOW_MS = Date.now();
-  const observationsSince = new Date(NOW_MS - 60 * 86_400_000).toISOString();
-  // 2026-06-15 — load-queue builds the matrix from observations only and
-  // never reads dailyMetricSnapshots (the destructure below omits it), so the
-  // snapshot read was ~9 MB + ~19 paged round-trips of pure waste per render
-  // for a data-rich tenant. skipSnapshots eliminates it. (page_snapshots —
-  // the page inventory — is a SEPARATE read further down and is unaffected.)
-  const freshCanonRes = await trace.time("loadFreshCanonicalData", () =>
-    safeCall(
-      () =>
-        loadFreshCanonicalData({
-          observationsSince,
-          skipSnapshots: true,
-          // PAGE render only — matrix + resolvePageIntent never read the heavy
-          // dropped columns. CLI/tests leave leanObservations off so the packet
-          // builder still gets full rows.
-          ...(opts.leanObservations
-            ? { observationsColumns: LIST_OBSERVATION_COLUMNS }
-            : {}),
-        }),
-      {
-        trackedPrompts: [],
-        promptAnswerObservations: [],
-        trackedEntities: [],
-        dailyMetricSnapshots: [],
-      },
-      "fetch fresh canonical data",
-    ),
-  );
-  if (freshCanonRes.error) errors.push(freshCanonRes.error);
-  const { trackedPrompts, promptAnswerObservations, trackedEntities } =
-    freshCanonRes.value;
-
-  const matrixRes = await trace.time("buildPromptDecisionMatrix", () =>
-    safeCall(
-      () =>
-        buildPromptDecisionMatrix({
-          prompts: trackedPrompts,
-          observations: promptAnswerObservations,
-          activeEntities: trackedEntities,
-          now: opts.now ?? new Date(),
-        }),
-      null,
-      "build decision matrix",
-    ),
-  );
-  if (matrixRes.error) errors.push(matrixRes.error);
-  const matrix = matrixRes.value;
-
-  if (!matrix) {
-    trace.data("outcome", "no_matrix");
-    trace.flush();
-    return {
-      queue: [],
-      watchlist: [],
-      matrix: null,
-      trackedPrompts,
-      trackedEntities,
-      promptAnswerObservations,
-      pageInventory: [],
-      recommendedEdits: [],
-      competitorPageSnapshotsByUrl: new Map(),
-      competitorBlueprintBrandScrubAliases: [],
-      errors,
-    };
-  }
-
-  const candidates = (
-    await trace.time("generateRecommendations", () =>
-      safeCall(
-        () =>
-          generateRecommendations({
-            matrix,
-            activeEntities: trackedEntities,
-            trackedPrompts,
-          }),
-        [],
-        "generate candidates",
-      ),
-    )
-  ).value;
-  trace.data("candidates_count", candidates.length);
-
-  // Phase 14 (2026-04-24): fetch pages + snapshots via the repository
-  // instead of importing the seeded `allPages` module. The seeded
-  // module uses top-level await which breaks `tsx → esbuild` CJS
-  // transform that the CLI runs through. The repo call returns the
-  // same data; both backends already cache appropriately.
-  // Sprint 7 Phase 7.5b Commit 3 (2026-04-25) — tenant-bound reads.
-  // `tenantId` is required by `LoadLiveRecommendationQueueOptions` (Phase 7.3).
-  const [pagesValue, pageSnapshotsValue] = await trace.time(
-    "pages+snapshots_parallel",
-    () =>
-      Promise.all([
-        trace.time("tenantRepo.getPages", async () =>
-          safeCall(
-            async () => getRepository().forTenant(tenantId).getPages(),
-            [] as PageEntity[],
-            "fetch pages",
-          ).then((r) => r.value),
-        ),
-        trace.time("tenantRepo.getPageSnapshots", async () =>
-          safeCall(
-            async () => getRepository().forTenant(tenantId).getPageSnapshots(),
-            [],
-            "fetch page snapshots",
-          ).then((r) => r.value),
-        ),
-      ]),
-  );
-  const pages = pagesValue;
-  const pageSnapshots = pageSnapshotsValue;
-  trace.data("pages_count", pages.length);
-  trace.data("page_snapshots_count", pageSnapshots.length);
-
-  const pageInventory = (
-    await trace.time("buildPageInventory", () =>
-      safeCall(
-        () =>
-          buildPageInventory({
-            pages,
-            snapshots: pageSnapshots,
-            activeEntities: trackedEntities,
-          }),
-        [],
-        "build page inventory",
-      ),
-    )
-  ).value;
-
-  const resolved: ResolvedRecommendationCandidate[] = (
-    await trace.time("resolvePageIntent", () =>
-      safeCall(
-        () =>
-          resolvePageIntent({
-            candidates,
-            observations: promptAnswerObservations,
-            activeEntities: trackedEntities,
-            pageInventory,
-            // GQA-4 — tenant brand/locale for the generation-time intent-fit
-            // classification (from config, never baked; gracefully empty when
-            // a tenant's config lives only in Supabase — the fit still scores
-            // topic + universal intent markers).
-            brandTerms: (() => {
-              const n = getBusinessConfig(tenantId).name?.trim();
-              return n ? [n] : undefined;
-            })(),
-            localeTerms: (() => {
-              const locs = getBusinessConfig(tenantId).locations;
-              return Array.isArray(locs) && locs.length > 0 ? locs : undefined;
-            })(),
-          }),
-        [] as ResolvedRecommendationCandidate[],
-        "resolve page intent",
-      ),
-    )
-  ).value;
-
-  const adjudicated: ResolvedRecommendationCandidate[] = await trace.time(
-    "adjudicator_loop",
-    async () => {
-      const out: ResolvedRecommendationCandidate[] = [];
-      for (const candidate of resolved) {
-        const result = await safeCall(
-          () =>
-            adjudicateFromCacheOnly({
-              tenantId,
-              candidate,
-              matrixPrompts: matrix.prompts,
-              trackedPrompts,
-              activeEntities: trackedEntities,
-              observations: promptAnswerObservations,
-              pageInventory,
-            }),
-          null,
-          `adjudicator cache read ${candidate.stableKey}`,
-        );
-        if (result.value && result.value.status === "ok") {
-          out.push(
-            applyAdjudicationToResolution(candidate, result.value.output),
-          );
-        } else {
-          out.push(candidate);
-        }
-      }
-      return out;
-    },
-  );
-  trace.data("adjudicated_count", adjudicated.length);
-
-  const prioritized = (
-    await trace.time("prioritizeRecommendations", () =>
-      safeCall(
-        () => prioritizeRecommendations(adjudicated),
-        {
-          queue: [] as PrioritizedRecommendation[],
-          watchlist: [] as RecommendationCandidate[],
-        },
-        "prioritize recommendations",
-      ),
-    )
-  ).value;
-
-  // W3 Step 3.3 (2026-05-01) — fresh-read recommended_edits for the
-  // engine-confidence stamp. Same source the page render fetches; we
-  // load it here so the rec carries its trust label and the page
-  // doesn't double-fetch. Failure here gracefully degrades — recs get
-  // engineConfidence = "low" with reason "no_edits".
-  const editsRes = await trace.time("tenantRepo.getRecommendedEdits", () =>
-    safeCall(
-      () => getRepository().forTenant(tenantId).getRecommendedEdits(),
-      [] as RecommendedEditRow[],
-      "fetch recommended_edits",
-    ),
-  );
-  if (editsRes.error) errors.push(editsRes.error);
-  // N13 recrawl demotion (2026-07-03): a rec whose precondition the LATEST crawl
-  // proves is already met (title now reads as suggested, schema now present, the
-  // H2 already exists) is RETIRED here at read time, so it never renders as a
-  // confident move. Retired rows become `expired` (machine hygiene, downstream
-  // already treats them as non-actionable) and carry the honest "You already
-  // fixed this. I retired it." note on `why`. Byte-identical when nothing is
-  // resolved: selectRecrawlDemotions returns [] and the rows pass through
-  // unchanged. Pure + deterministic; reuses the same page_snapshots read above.
-  const recommendedEditsRaw = editsRes.value;
-  const demotions = selectRecrawlDemotions(
-    recommendedEditsRaw,
-    latestSnapshotByPath(pageSnapshots),
-  );
-  trace.data("recrawl_demotions_count", demotions.length);
-  const recommendedEdits =
-    demotions.length === 0
-      ? recommendedEditsRaw
-      : (() => {
-          const noteById = new Map(
-            demotions.map((d) => [d.row.id, d.note] as const),
-          );
-          return recommendedEditsRaw.map((row) =>
-            noteById.has(row.id)
-              ? {
-                  ...row,
-                  implementation_status: "expired" as const,
-                  why: noteById.get(row.id)!,
-                }
-              : row,
-          );
-        })();
-  const editsByRecId = new Map<string, RecommendedEditRow[]>();
-  for (const row of recommendedEdits) {
-    const list = editsByRecId.get(row.rec_id);
-    if (list) list.push(row);
-    else editsByRecId.set(row.rec_id, [row]);
-  }
-
-  // Competitor name list for the leakage guard. Sourced from active
-  // competitor entities; directories + brand entities are excluded.
-  // Empty list disables the check (defensive — the validator already
-  // ran the same check at write time; this is defense-in-depth).
-  const competitorNames = trackedEntities
-    .filter((e) => e.entity_type === "competitor" && e.is_active)
-    .map((e) => e.name)
-    .filter((n) => n.length >= 3);
-
-  // Pivot (2026-06-13) — per-page GSC signals so each card can lead with
-  // first-party search demand (impressions/CTR/position) when present. One
-  // bounded Supabase read; soft-fail to empty so the queue still renders.
-  const gscRes = await trace.time("loadGscPageSignals", () =>
-    safeCall(
-      () => loadGscPageSignalsForTenant(tenantId, opts.now),
-      new Map<string, GscPageSignal>(),
-      "load GSC page signals",
-    ),
-  );
-  if (gscRes.error) errors.push(gscRes.error);
-  const gscByUrl = gscRes.value;
-
-  // (SEMrush per-page signals removed Phase F.1 — SEMrush deleted caller-first.)
-
-  // 2026-06-15 — per-page Microsoft Clarity signals so each card can quote
-  // the on-page FRICTION (rage-clicks / page errors) the search signals can't
-  // see. Already-synced data only (no new fetch); one bounded tenant-scoped
-  // Supabase read; soft-fail to empty so the queue still renders.
-  const clarityRes = await trace.time("loadClarityPageSignals", () =>
-    safeCall(
-      () => loadClarityPageSignalsForTenant(tenantId, opts.now),
-      new Map<string, ClarityPageSignal>(),
-      "load Clarity page signals",
-    ),
-  );
-  if (clarityRes.error) errors.push(clarityRes.error);
-  const clarityByUrl = clarityRes.value;
-
-  trace.mark("decoration_loop_start");
-  const decoratedQueue: LiveRecQueueItem[] = prioritized.queue.map((rec) => {
-    const edits = editsByRecId.get(rec.stableKey) ?? [];
-    const affectedPromptIds = rec.affectedPromptIds ?? [];
-    // W3 Step 3.4 (2026-05-02) — close the loop. Real packet signals
-    // derived from the same observations the LLM provider will
-    // receive when it activates. Cheap (per-rec scan over already-
-    // loaded observations of affected prompts; no extra I/O). HIGH
-    // is now reachable when the rec has multi-prompt validation +
-    // grounded packet evidence + every other dimension passes.
-    const hasAiSearchSignal = hasAiSearchSignalForRec({
-      affectedPromptIds,
-      observations: promptAnswerObservations,
-      trackedEntities,
-    });
-    const hasCompetitorPageBlueprints = hasCompetitorPageBlueprintsForRec({
-      affectedPromptIds,
-      observations: promptAnswerObservations,
-      ownedPageInventory: pageInventory,
-    });
-    const engineConfidence = computeRecConfidence({
-      // Defensive reads: synthetic test fixtures occasionally omit
-      // these fields. Pre-W3 page-render tests want to exercise the
-      // UI layer without filling the full RecommendationCandidate
-      // shape; treat missing values as zero/empty so the stamp never
-      // crashes the page render.
-      affectedPromptCount: affectedPromptIds.length,
-      resolverTier: rec.resolution?.tier ?? "deterministic_only",
-      resolutionConfidence: rec.resolution?.confidence ?? "low",
-      needsHumanReview: rec.resolution?.needsHumanReview ?? false,
-      evidenceRefCount: rec.resolution?.evidenceRefs?.length ?? 0,
-      edits,
-      hasAiSearchSignal,
-      hasCompetitorPageBlueprints,
-      competitorNames,
-    });
-    const targetUrl = rec.resolution?.targetUrl ?? null;
-    const canonical =
-      targetUrl != null && targetUrl !== "needs_new_page"
-        ? canonicalizeCitationUrl(targetUrl)
-        : null;
-    const gscSignal = canonical != null ? gscByUrl.get(canonical) ?? null : null;
-    const claritySignal =
-      canonical != null ? clarityByUrl.get(canonical) ?? null : null;
-    return { ...rec, engineConfidence, gscSignal, claritySignal };
-  });
-  trace.mark("decoration_loop_end");
-
-  // Law 2 abstention wire-in (audit #1/#6, 2026-07-09). The abstention gate
-  // (abstention.ts) was written but never applied, so a rec the confidence engine
-  // already deems baseless - a SINGLE prompt with no AI-search signal, no competitor
-  // teardown, and no evidence refs (reason "single_prompt_no_evidence") - still shipped
-  // as a "low confidence" queue item ("Lower confidence, optional" on a pure guess).
-  // Hold those in the watchlist (the honest "watching" state) instead of recommending
-  // them. The extra `gscSignal == null` guard is STRICTER than the confidence engine
-  // alone: a page with real first-party Google demand is never held. This provably
-  // cannot hold any rec that carries an AI signal, a competitor teardown, an evidence
-  // ref, multi-prompt validation, OR GSC demand - so demand/new-page/competitor-backed
-  // recs are untouched; only pure hunches move.
-  const readyQueue = decoratedQueue.filter((rec) => !isBaselessGuessRec(rec));
-  const heldForEvidence = decoratedQueue.filter(isBaselessGuessRec);
-
-  trace.data("queue_count", readyQueue.length);
-  trace.data("held_for_evidence_count", heldForEvidence.length);
-  trace.data("watchlist_count", prioritized.watchlist.length + heldForEvidence.length);
-
-  // T-CompPageBlueprints (2026-05-08) — load competitor page
-  // structural snapshots (manual scanner output) and assemble the
-  // brand-scrub alias list (operator brand from tracked-entities
-  // is_owned=true + every active competitor name). Both are passed
-  // through to `buildPacketForRec` so `competitorPageBlueprints`
-  // gets real h1/topH2s/faqQuestions/metaDescription instead of
-  // hardcoded null/[]. Empty Map preserves byte-identical pre-patch
-  // behavior for tenants that haven't run the scanner.
-  const compSnapshotsRes = await trace.time(
-    "getCompetitorPageSnapshotsByUrl",
-    () =>
-      safeCall(
-        () => getCompetitorPageSnapshotsByUrl(),
-        new Map<string, CompetitorPageSnapshot>(),
-        "load competitor page snapshots",
-      ),
-  );
-  if (compSnapshotsRes.error) errors.push(compSnapshotsRes.error);
-  const competitorPageSnapshotsByUrl = compSnapshotsRes.value;
-  const competitorBlueprintBrandScrubAliases = trackedEntities
-    .filter(
-      (e) =>
-        e.is_active &&
-        (e.is_owned === true || e.entity_type === "competitor"),
-    )
-    .map((e) => e.name)
-    .filter((n) => typeof n === "string" && n.length >= 3);
-
-  trace.data("errors_count", errors.length);
-  trace.flush();
-  return {
-    queue: readyQueue,
-    watchlist: [...prioritized.watchlist, ...heldForEvidence],
-    matrix,
-    trackedPrompts,
-    trackedEntities,
-    promptAnswerObservations,
-    pageInventory,
-    recommendedEdits,
-    competitorPageSnapshotsByUrl,
-    competitorBlueprintBrandScrubAliases,
-    errors,
-  };
-}
-
-// ---------------------------------------------------------------------------
-// Emergency P0 v4 (2026-05-12) — cached wrapper for the page-render path.
-//
-// The full `loadLiveRecommendationQueue` runs a long pipeline (canonical
-// seed → matrix → generate → page reads → resolve → adjudicate loop →
-// prioritize → edits read → comp snapshots → decoration) measured at
-// ~33 s on cold Vercel in production. The user-visible result for one
-// tenant is deterministic across a short window — page renders within
-// ~60 s of a mutation-free interval can serve the same result.
-//
-// `loadLiveRecommendationQueueForPage` wraps the loader with
-// `unstable_cache`, keyed on tenantId, TTL 60 s, tag
-// `recs-queue:<tenantId>`. The 7 mutation server actions in
-// `src/app/(shell)/recommendations/actions.ts` call
-// `revalidateTag(buildRecQueueCacheTag(tenantId))` so accept / defer /
-// dismiss / shipped / restore / promote / undo invalidate the cache
-// IMMEDIATELY — no stale action state is ever served.
-//
-// Return shape strips `competitorPageSnapshotsByUrl` (a `Map`) which:
-//   (1) doesn't round-trip safely across Next's cache serialization,
-//   (2) is only consumed by the CLI's `buildPacketForRec`, never by the
-//       page render. Test fixtures and the CLI continue to use the
-//       uncached `loadLiveRecommendationQueue` directly.
-//
-// wave-6 (2026-06-14) — it ALSO strips the heavy pipeline-INPUT fields the
-// legacy page render never reads: `promptAnswerObservations` (the full
-// per-tenant observation array — ~21k wide-JSONB rows / ~23 MB for Ritz),
-// `pageInventory`, `trackedEntities`, and
-// `competitorBlueprintBrandScrubAliases`. Next's `unstable_cache` REJECTS
-// any value over 2 MB ("items over 2MB can not be cached"); the 23 MB
-// payload made the cache-set throw an unhandledRejection on EVERY
-// /recommendations render (the default legacy path) AND meant the cache
-// could never populate, so each render re-ran the full ~10 s pipeline with
-// zero cache benefit. Dropping the unused inputs keeps the cached value
-// small (only queue/watchlist/matrix/recommendedEdits/trackedPrompts/errors,
-// which is all the render consumes), so the cache actually works. The page
-// fetches competitorNames itself; the CLI/tests use the uncached loader.
-//
-// Cache scope: per-tenant. The cache key is `["recs-queue:v1", tenantId]`;
-// no cross-tenant bleed is possible. `revalidateTag` is also tenant-scoped.
-// ---------------------------------------------------------------------------
-
 /** Tag string for `revalidateTag` from mutation actions. Shared between
  *  the cached wrapper (`tags: [...]`) and the mutation actions
  *  (`revalidateTag(...)`). */
@@ -736,66 +197,6 @@ export function buildRecQueueCacheTag(tenantId: string): string {
 // immediately, so the TTL only governs IDLE auto-refresh. 30 min cuts idle
 // re-reads ~30x with zero freshness cost on the button-refresh flow.
 const REC_QUEUE_CACHE_TTL_SECONDS = 1800;
-
-/** Page-render-only shape — drops the non-serializable Map field plus the
- *  heavy pipeline-INPUT fields the page render never reads (so the cached
- *  value stays under Next's 2 MB `unstable_cache` ceiling). See the header
- *  comment for the full rationale. */
-export type PageShapedLiveRecommendationQueue = Omit<
-  LiveRecommendationQueue,
-  | "competitorPageSnapshotsByUrl"
-  | "promptAnswerObservations"
-  | "pageInventory"
-  | "trackedEntities"
-  | "competitorBlueprintBrandScrubAliases"
->;
-
-/**
- * Cached page-shaped loader. Pages call this; tests + CLI call the raw
- * `loadLiveRecommendationQueue` (uncached, unmodified). Cache invalidates
- * on TTL expiry (60 s) OR `revalidateTag(buildRecQueueCacheTag(tenantId))`.
- */
-export async function loadLiveRecommendationQueueForPage(opts: {
-  tenantId: string;
-}): Promise<PageShapedLiveRecommendationQueue> {
-  const { unstable_cache } = await import("next/cache");
-  const { tenantId } = opts;
-  const cached = unstable_cache(
-    async () => {
-      const full = await loadLiveRecommendationQueue({
-        tenantId,
-        // Page render builds the matrix then discards observations (below) —
-        // read them lean (no metadata). The CLI calls the raw loader without
-        // this so its packet builder still gets full rows.
-        leanObservations: true,
-      });
-      // Strip the Map + heavy unused pipeline inputs — see header comment.
-      // Keeping the cached value small is what lets `unstable_cache`
-      // actually store it (the 23 MB observation array tripped the 2 MB
-      // ceiling and threw an unhandledRejection on every render).
-      const {
-        competitorPageSnapshotsByUrl: _dropMap,
-        promptAnswerObservations: _dropObs,
-        pageInventory: _dropInv,
-        trackedEntities: _dropEntities,
-        competitorBlueprintBrandScrubAliases: _dropAliases,
-        ...rest
-      } = full;
-      void _dropMap;
-      void _dropObs;
-      void _dropInv;
-      void _dropEntities;
-      void _dropAliases;
-      return rest;
-    },
-    ["recs-queue:v1", tenantId],
-    {
-      revalidate: REC_QUEUE_CACHE_TTL_SECONDS,
-      tags: [buildRecQueueCacheTag(tenantId)],
-    },
-  );
-  return cached();
-}
 
 // ---------------------------------------------------------------------------
 // Emergency P0 v5 (2026-05-12) — persisted fast loader for v2 page renders.

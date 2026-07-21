@@ -9,7 +9,6 @@ import type { TrackedEntity } from "@/domains/tracked-entities/types";
 import type { PageInventoryEntry } from "./page-inventory";
 import {
   buildPacketForRec,
-  isBaselessGuessRec,
   type LiveRecommendationQueue,
   type LiveRecQueueItem,
 } from "./load-queue";
@@ -23,13 +22,9 @@ import type { PageElementInventoryRow } from "@/domains/pages/extractors/persist
 //      + inventory rows; asserts the packet's tenant_id / recId / cluster
 //      flow through cleanly and that targetPageElements come from the
 //      inventory.
-//   2. Source-scan invariants — the page imports `loadLiveRecommendationQueue`
-//      (NOT the inlined steps it used to call directly); the CLI imports
-//      the same function; no LLM SDK; no app route imports the CLI.
-//
-// `loadLiveRecommendationQueue` itself is mostly orchestration — the
-// individual layers it composes already have their own tests. We assert
-// the page + CLI consume it (i.e. the EXTRACT actually happened).
+//   2. Source-scan invariants — the page no longer inlines generation
+//      steps; no app route imports the CLI packet builder; `server-only`
+//      keeps the loader off the client bundle.
 // ---------------------------------------------------------------------------
 
 // ── Fixture builders ──────────────────────────────────────────────────────
@@ -394,18 +389,6 @@ describe("Phase 6A.1.14 — orchestration is shared between page + CLI", () => {
     expect(src).not.toMatch(/prioritizeRecommendations\(/);
   });
 
-  it("loadLiveRecommendationQueue uses forTenant for getPages + getPageSnapshots", () => {
-    // Sprint 7 Phase 7.5b Commit 3 (2026-04-25) — tenant-bound orchestration
-    // reads. Must NOT call getRepository().getPages() / .getPageSnapshots()
-    // unscoped; the tenantId from LoadLiveRecommendationQueueOptions
-    // (Phase 7.3) flows into both reads.
-    const src = readFileSync(LOAD_QUEUE_PATH, "utf8");
-    expect(src).toMatch(/getRepository\(\)\.forTenant\([^)]+\)\.getPages\(/);
-    expect(src).toMatch(/getRepository\(\)\.forTenant\([^)]+\)\.getPageSnapshots\(/);
-    expect(src).not.toMatch(/getRepository\(\)\.getPages\(/);
-    expect(src).not.toMatch(/getRepository\(\)\.getPageSnapshots\(/);
-  });
-
 });
 
 // ── 3. No-route-render-generation invariant (CLI must not be route-imported) ──
@@ -460,29 +443,5 @@ describe("Phase 6A.1.14 — no route-render generation", () => {
   it("load-queue.ts has 'server-only' so it cannot leak into the client bundle", () => {
     const src = readFileSync(LOAD_QUEUE_PATH, "utf8");
     expect(src).toMatch(/import\s+["']server-only["']/);
-  });
-});
-
-describe("isBaselessGuessRec — Law 2 abstention partition (audit #1/#6)", () => {
-  const gsc = { clicks: 5, impressions: 200 } as unknown as NonNullable<LiveRecQueueItem["gscSignal"]>;
-  it("HOLDS a single-prompt no-evidence rec with no GSC demand (pure guess)", () => {
-    expect(
-      isBaselessGuessRec({ engineConfidence: { confidence: "low", reasons: ["single_prompt_no_evidence"] }, gscSignal: null }),
-    ).toBe(true);
-  });
-  it("KEEPS the same rec when the page HAS first-party GSC demand (never hide demand)", () => {
-    expect(
-      isBaselessGuessRec({ engineConfidence: { confidence: "low", reasons: ["single_prompt_no_evidence"] }, gscSignal: gsc }),
-    ).toBe(false);
-  });
-  it("KEEPS recs flagged low for OTHER reasons (only the no-evidence hunch is held)", () => {
-    for (const reason of ["no_edits", "needs_human_review", "edit_low_confidence"] as const) {
-      expect(isBaselessGuessRec({ engineConfidence: { confidence: "low", reasons: [reason] }, gscSignal: null })).toBe(false);
-    }
-  });
-  it("KEEPS an evidenced rec (multi_prompt/high) regardless of GSC", () => {
-    expect(
-      isBaselessGuessRec({ engineConfidence: { confidence: "high", reasons: ["multi_prompt_signal"] }, gscSignal: null }),
-    ).toBe(false);
   });
 });

@@ -18,7 +18,7 @@ import {
   canonicalizeUrl,
 } from "@/domains/recommendations/resolve-page-intent";
 import type { PageInventoryEntry } from "@/domains/recommendations/page-inventory";
-import type { RecommendationCandidate } from "@/domains/recommendations/generate";
+import type { RecommendationCandidate } from "@/domains/recommendations/recommendation-types";
 import type { PromptAnswerObservation } from "@/domains/prompt-answer-observations/types";
 import type { TrackedEntity } from "@/domains/tracked-entities/types";
 

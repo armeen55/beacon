@@ -1,4 +1,4 @@
-import type { RecommendationType } from "@/domains/recommendations/generate";
+import type { RecommendationType } from "@/domains/recommendations/recommendation-types";
 import type { RecommendationAction } from "@/domains/recommendations/resolved-types";
 
 /**

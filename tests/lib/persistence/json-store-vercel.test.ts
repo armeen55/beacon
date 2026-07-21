@@ -81,7 +81,7 @@ describe("json-store on VERCEL=1 — safe against missing .data", () => {
   });
 });
 
-describe("adjudicator stores on VERCEL=1 with no .data — safe defaults", () => {
+describe("adjudicator-budget store on VERCEL=1 with no .data — safe defaults", () => {
   const previousVercel = process.env.VERCEL;
   const previousCwd = process.cwd();
   let isolatedCwd: string | null = null;
@@ -132,15 +132,6 @@ describe("adjudicator stores on VERCEL=1 with no .data — safe defaults", () =>
     isolatedCwd = null;
   });
 
-  it("readCacheEntry returns null for missing hash, no per-tenant subdir created", async () => {
-    const { readCacheEntry } = await import(
-      "@/domains/recommendations/adjudicator-cache"
-    );
-    expect(await readCacheEntry("no-such-hash")).toBeNull();
-    // Per-tenant subdir is the failure mode this test exists to catch on Vercel.
-    expect(fs.existsSync(path.join(isolatedCwd!, ".data", "tenants", "ritz-builders"))).toBe(false);
-  });
-
   it("checkBudget returns allowed=true at empty state, no per-tenant subdir created", async () => {
     const { checkBudget } = await import(
       "@/domains/recommendations/adjudicator-budget"
@@ -150,71 +141,10 @@ describe("adjudicator stores on VERCEL=1 with no .data — safe defaults", () =>
     expect(fs.existsSync(path.join(isolatedCwd!, ".data", "tenants", "ritz-builders"))).toBe(false);
   });
 
-  it("appendHistory + writeCacheEntry + recordSpend all no-throw, no per-tenant subdir created", async () => {
-    const { appendHistory } = await import(
-      "@/domains/recommendations/adjudicator-history"
-    );
-    const { writeCacheEntry } = await import(
-      "@/domains/recommendations/adjudicator-cache"
-    );
+  it("recordSpend no-throws at empty state, no per-tenant subdir created", async () => {
     const { recordSpend } = await import(
       "@/domains/recommendations/adjudicator-budget"
     );
-
-    await expect(
-      appendHistory({
-        timestamp: new Date().toISOString(),
-        evidenceHash: "h",
-        stableKey: "k",
-        model: "gpt-5-mini",
-        inputTokens: 0,
-        outputTokens: 0,
-        costUsd: 0,
-        output: null,
-        packetSummary: {
-          schemaVersion: "v1",
-          candidate: {
-            stableKey: "k",
-            deterministicAction: "create_new_page",
-            clusterLabel: null,
-          },
-          promptCount: 0,
-          inventoryCount: 0,
-          excerptCount: 0,
-        },
-        source: "error",
-      }),
-    ).resolves.toBeUndefined();
-
-    await expect(
-      writeCacheEntry({
-        evidenceHash: "h",
-        stableKey: "k",
-        model: "gpt-5-mini",
-        output: {
-          finalAction: "needs_review",
-          primaryMotive: "improve_close_prompt",
-          targetUrl: "needs_new_page",
-          confidence: "low",
-          confidenceReason: "",
-          needsHumanReview: true,
-          operatorTitle: "x",
-          why: "x",
-          specificRecommendation: "x",
-          suggestedEdits: [],
-          pageBrief: null,
-          proposedSlug: null,
-          evidenceRefs: [],
-          risks: [],
-          mergeWithUrls: null,
-          noActionReason: "x",
-        },
-        inputTokens: 0,
-        outputTokens: 0,
-        costUsd: 0,
-        cachedAt: new Date().toISOString(),
-      }),
-    ).resolves.toBeUndefined();
 
     await expect(recordSpend(0.001)).resolves.toBeUndefined();
 

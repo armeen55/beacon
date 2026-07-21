@@ -60,8 +60,9 @@ function SidebarContent({ isOperator = false }: { isOperator?: boolean }) {
         {/* Emergency P0 v3 (2026-05-12) — prefetch={false} on every
             shell nav Link. Beacon's top-level routes (/, /recommendations,
             /changes, /prompts, /settings) are all data-heavy server
-            routes that each call expensive loaders (loadLiveRecommendationQueue
-            etc). Default Next prefetch on visibility hydrates ALL of them
+            routes that each call expensive loaders (the persisted
+            recommendation queue loader etc). Default Next prefetch on
+            visibility hydrates ALL of them
             on first paint of the shell — one click = N background server
             renders = Vercel function + Supabase pool exhaustion. Detail
             Links were already prefetch={false}; this closes the

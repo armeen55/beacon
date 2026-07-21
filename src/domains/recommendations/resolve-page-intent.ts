@@ -29,7 +29,7 @@ import type { PromptAnswerObservation } from "@/domains/prompt-answer-observatio
 import type { TrackedEntity } from "@/domains/tracked-entities/types";
 import { NATIVE_REGIME_START } from "@/domains/product/url-citation-history";
 import { hasOppositeQualifiers } from "./opposite-qualifier-guard";
-import type { RecommendationCandidate } from "./generate";
+import type { RecommendationCandidate } from "./recommendation-types";
 import {
   NEEDS_NEW_PAGE,
   type EvidenceRef,

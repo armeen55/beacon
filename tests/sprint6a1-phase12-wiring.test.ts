@@ -93,13 +93,16 @@ describe("Phase 6A.1.12 — /recommendations page wiring", () => {
     // engineConfidence can be stamped server-side once. Page.tsx
     // consumes via `live.recommendedEdits` instead of re-fetching.
     // The repository read invariant still holds; it's just relocated.
+    // CORE 100K Lane A (2026-07-21): the surviving persisted loader binds
+    // `const repo = getRepository().forTenant(tenantId)` once and calls
+    // `repo.getRecommendedEdits()` — same tenant-bound repository read,
+    // relocated shape.
     expect(LOAD_QUEUE_SOURCE).toMatch(
-      /getRepository\(\)\.forTenant\([^)]+\)\.getRecommendedEdits\(/,
+      /const\s+repo\s*=\s*getRepository\(\)\.forTenant\(/,
     );
+    expect(LOAD_QUEUE_SOURCE).toMatch(/repo\.getRecommendedEdits\(/);
     // Page.tsx must NOT re-fetch edits — single source of truth.
-    expect(PAGE_SOURCE).not.toMatch(
-      /getRepository\(\)\.forTenant\([^)]+\)\.getRecommendedEdits\(/,
-    );
+    expect(PAGE_SOURCE).not.toMatch(/getRecommendedEdits\(/);
     // Must NOT import recommended-edits-persistence's mutable in-memory
     // helper (readRecommendedEditsLocal) — that would be a module-level
     // cache read, the same bug class Sprint 1 fixed for /changes.
@@ -109,8 +112,10 @@ describe("Phase 6A.1.12 — /recommendations page wiring", () => {
 
   it("wraps the edits read in safeCall so a read failure gracefully degrades to empty edits", () => {
     // W3 Step 3.3 (2026-05-01) — assertion now applies to the loader.
+    // CORE 100K Lane A (2026-07-21): the read uses the loader's bound
+    // `repo` variable; the safeCall degradation contract is unchanged.
     expect(LOAD_QUEUE_SOURCE).toMatch(
-      /safeCall\(\s*\(\)\s*=>\s*getRepository\(\)\.forTenant\([^)]+\)\.getRecommendedEdits\(/,
+      /safeCall\(\s*\(\)\s*=>\s*repo\.getRecommendedEdits\(/,
     );
   });
 

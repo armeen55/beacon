@@ -39,7 +39,7 @@ import type {
 } from "./resolved-types";
 import { NEEDS_NEW_PAGE } from "./resolved-types";
 import type { RecConfidenceVerdict } from "./confidence";
-import type { SuggestedEdit } from "./adjudicator-schema";
+import type { SuggestedEdit } from "./recommendation-types";
 import type { RecommendationResponse } from "@/domains/product/recommendation-response-store";
 import { shouldExcludeFromCompetitorRanking } from "./entity-pollution-filter";
 import { deriveConfidence } from "./derived-confidence";

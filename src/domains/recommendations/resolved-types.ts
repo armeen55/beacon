@@ -13,11 +13,11 @@
  * the operator executes it as strengthen / expand / add / create / merge.
  */
 
-import type { RecommendationCandidate } from "./generate";
 import type {
+  RecommendationCandidate,
   PageBrief,
   SuggestedEdit,
-} from "./adjudicator-schema";
+} from "./recommendation-types";
 import type { PageTopicFit } from "./page-topic-fit";
 
 /** Operator-facing final action. The thing they actually do. */

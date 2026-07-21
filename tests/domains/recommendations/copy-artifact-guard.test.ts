@@ -21,7 +21,6 @@ import {
   PUSH_TITLE_MAX_CHARS,
   PUSH_META_MAX_CHARS,
 } from "@/domains/recommendations/copy-artifact-guard";
-import { checkCopyDisplaySafe } from "@/domains/recommendations/suggested-copy-display-guard";
 
 describe("detectCopyArtifact — instruction artifacts", () => {
   it("flags 'Change the page title to …' (instruction, not a title)", () => {
@@ -95,32 +94,6 @@ describe("detectCopyArtifact — duplicate brand suffix", () => {
   });
 });
 
-describe("checkCopyDisplaySafe — composes the artifact rails", () => {
-  it("suppresses instruction-text copy", () => {
-    const r = checkCopyDisplaySafe("Change the page title to Persian Rugs Buyer Guide");
-    expect(r.safe).toBe(false);
-    if (!r.safe) expect(r.reason).toBe("instruction_artifact");
-  });
-  it("suppresses 'Add Add' copy", () => {
-    const r = checkCopyDisplaySafe("Add Add a comparison table");
-    expect(r.safe).toBe(false);
-    if (!r.safe) expect(r.reason).toBe("repeated_action_word");
-  });
-  it("suppresses duplicate-brand-suffix copy", () => {
-    const r = checkCopyDisplaySafe("Buyer Guide | Iranopedia | Iranopedia");
-    expect(r.safe).toBe(false);
-    if (!r.safe) expect(r.reason).toBe("duplicate_brand_suffix");
-  });
-  it("still passes clean, publishable copy", () => {
-    expect(checkCopyDisplaySafe("Persian Rugs Buyer Guide | Iranopedia").safe).toBe(true);
-    expect(
-      checkCopyDisplaySafe(
-        "Authentic Persian koobideh kabob recipe — ground beef, sumac, and a charcoal sear.",
-      ).safe,
-    ).toBe(true);
-  });
-});
-
 describe("length budgets (directive PHASE E) — quality signal, not a suppressor", () => {
   it("title within 50–59 → ok; over 60 → long; under 50 → short", () => {
     expect(titleLengthVerdict("A".repeat(55)).status).toBe("ok");
@@ -136,12 +109,11 @@ describe("length budgets (directive PHASE E) — quality signal, not a suppresso
     expect(metaLengthVerdict("M".repeat(160)).withinHardMax).toBe(false);
     expect(META_HARD_MAX_CHARS).toBe(155);
   });
-  it("an over-budget but otherwise-clean title is NOT suppressed by the guard", () => {
+  it("an over-budget but otherwise-clean title is flagged long (advisory, not fatal)", () => {
     // Length is advisory: a long-but-valid title must still render (don't hide
-    // a useful rec). Only true artifacts suppress.
+    // a useful rec). Length is a quality signal, not a suppressor.
     const longTitle = "Persian Rugs Buyer Guide — Authentic Hand-Knotted Tabriz and Kashan Rugs";
     expect(titleLengthVerdict(longTitle).status).toBe("long");
-    expect(checkCopyDisplaySafe(longTitle).safe).toBe(true);
   });
 });
 

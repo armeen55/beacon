@@ -8,17 +8,13 @@
  * into one immutable, JSON-serializable packet plus a stable
  * `evidenceHash` so caches can detect "same evidence" across runs.
  *
- * This is intentionally separate from
- * `src/domains/recommendations/evidence-packet.ts` (Phase v7, 2026-04-23):
- *
- *   - That packet feeds the GPT-5-mini RECOMMENDATION ADJUDICATOR — it
- *     decides ACTION + MOTIVE + TARGET URL for each rec.
- *   - This packet feeds the SPECIFIC EDIT GENERATOR — it decides
- *     "change H2 X to Y, add FAQ Z, rewrite title to W" given a rec
- *     whose action + target URL is already settled.
- *
- * Two pipelines, two packets. Sharing the type would force one to
- * carry the other's bloat. The two stay independent on purpose.
+ * This packet feeds the SPECIFIC EDIT GENERATOR — it decides
+ * "change H2 X to Y, add FAQ Z, rewrite title to W" given a rec whose
+ * action + target URL is already settled. (It was historically one of two
+ * packet shapes; the sibling adjudicator packet + its `evidence-packet.ts`
+ * were removed with the dead in-file LLM adjudication pipeline. The stable
+ * `canonicalStringify` hash helper it shared now lives locally in this
+ * module.)
  *
  * Hard rules (locked in by tests):
  *   1. `allowedTargetUrls` MUST come from owned inventory only (+ the
@@ -70,7 +66,6 @@ import {
   matchClusterToInventory,
   type PageInventoryEntry,
 } from "./page-inventory";
-import { canonicalStringify } from "./evidence-packet";
 import {
   NEEDS_NEW_PAGE,
   type ResolverTier,
@@ -1515,6 +1510,23 @@ function defaultAllowedActionTypes(): ActionType[] {
  * adjudicator packet uses (key-sorted, array-stable) so future tooling
  * that compares packets across systems is consistent.
  */
+/**
+ * Canonical JSON stringification for stable hashing. Object keys are
+ * sorted, arrays left as-is (the packet arrays are already deterministic
+ * upstream). Relocated here from the removed `evidence-packet.ts` — this
+ * is now its only consumer.
+ */
+function canonicalStringify(value: unknown): string {
+  if (value === null || typeof value !== "object") return JSON.stringify(value);
+  if (Array.isArray(value))
+    return `[${value.map(canonicalStringify).join(",")}]`;
+  const keys = Object.keys(value).sort();
+  const parts = keys.map(
+    (k) => `${JSON.stringify(k)}:${canonicalStringify((value as Record<string, unknown>)[k])}`,
+  );
+  return `{${parts.join(",")}}`;
+}
+
 function computeEvidenceHash(
   withoutHash: Omit<SpecificEditEvidencePacket, "evidenceHash">,
 ): string {
