@@ -154,7 +154,8 @@ describe("Architecture — no tenant_id empty-string literals in production sour
       "src/lib/import/actions.ts",
       // D3 — D-c entry-point-resolved
       "src/domains/results/actions.ts",
-      "src/domains/opportunity-candidates/actions.ts",
+      // (src/domains/opportunity-candidates/actions.ts removed 2026-07-20:
+      // the pre-ActionPack opportunity-candidates domain was retired.)
       "src/app/(shell)/recommendations/actions.ts",
       // (src/app/(shell)/pages/verify-action.ts deleted 2026-07-02, UX5
       // legacy sweep — the unreachable /pages route it served is gone.)

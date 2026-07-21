@@ -44,8 +44,6 @@ function stubRepo(observations: unknown[], snapshots: unknown[]): SeedDataReposi
     getEventDecisions: notImpl,
     getCandidateLinks: notImpl,
     getTruthLabels: notImpl,
-    getActionStates: notImpl,
-    getBriefStates: notImpl,
     getPageIssues: notImpl,
     getRolloutExecutions: notImpl,
     getPatternEvidence: notImpl,

@@ -16,7 +16,6 @@ let _connected: Record<string, boolean> = {
   google_gsc: true,
   google_ga4: true,
   clarity: true,
-  profound: true,
 };
 vi.mock("@/lib/connector-store", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/connector-store")>();
@@ -41,14 +40,11 @@ vi.mock("@/lib/connectors/ga4/sync-url-traffic", () => ({
 vi.mock("@/lib/connectors/clarity/sync-daily-metrics", () => ({
   syncClarityDailyMetricsForTenant: async () => ({ synced: true }),
 }));
-vi.mock("@/lib/connectors/profound/sync-nightly", () => ({
-  syncProfoundNightlyForTenant: async () => ({ synced: true }),
-}));
 
 import { autoRefreshStaleConnectorsForTenant } from "@/lib/connectors/on-use-refresh";
 
 beforeEach(() => {
-  _connected = { google_gsc: true, google_ga4: true, clarity: true, profound: true };
+  _connected = { google_gsc: true, google_ga4: true, clarity: true };
   refreshGa4Sitewide.mockClear();
 });
 
@@ -60,7 +56,7 @@ describe("autoRefreshStaleConnectorsForTenant - Wave 2A sitewide ride-along", ()
   });
 
   it("does NOT pull the sitewide series when GA4 is not connected", async () => {
-    _connected = { google_gsc: true, google_ga4: false, clarity: true, profound: true };
+    _connected = { google_gsc: true, google_ga4: false, clarity: true };
     await autoRefreshStaleConnectorsForTenant("tenant-a");
     expect(refreshGa4Sitewide).not.toHaveBeenCalled();
   });

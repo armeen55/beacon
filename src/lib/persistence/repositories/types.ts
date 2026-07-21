@@ -9,8 +9,6 @@ import type {
   TruthLabel,
 } from "@/domains/attribution/types";
 import type { Finding } from "@/domains/scanning/types";
-import type { PersistedActionState } from "@/domains/actions/types";
-import type { PersistedBriefState } from "@/domains/brief-generation/types";
 import type {
   PersistedIssue,
   RolloutExecution,
@@ -174,8 +172,6 @@ export interface SeedDataRepository {
    */
   getCompetitorPageSnapshots(): Promise<CompetitorPageSnapshot[]>;
   getSourcePatternEvidence(): Promise<SourcePatternEvidence[]>;
-  getActionStates(): Promise<PersistedActionState[]>;
-  getBriefStates(): Promise<PersistedBriefState[]>;
   getTruthLabels(): Promise<TruthLabel[]>;
 
   // Phase 1a — operator loop stores

@@ -43,13 +43,8 @@ describe("connector syncs report synced:false on a DB write failure (no masked s
     expect(src).not.toMatch(/upsert failed[\s\S]{0,160}?return \{ synced: true/);
   });
 
-  it("Profound sync — tracks per-table write failure + returns synced:false if any failed", () => {
-    const src = read("src/lib/connectors/profound/sync-nightly.ts");
-    // all five table writes flip the failure flag
-    expect((src.match(/writeFailed = "/g) ?? []).length).toBeGreaterThanOrEqual(5);
-    // the final return honours the flag
-    expect(src).toMatch(/if \(writeFailed\) return \{ synced: false, reason: writeFailed \}/);
-  });
+  // (Profound sync regression removed 2026-07-20: the borrowed account was fully
+  //  disconnected and src/lib/connectors/profound/sync-nightly.ts deleted.)
 });
 
 describe("push-service finalizes the reserved daily-cap slot on every refusal path", () => {

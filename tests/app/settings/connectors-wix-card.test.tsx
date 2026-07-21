@@ -62,7 +62,6 @@ function clientWith(wix: ConnectorInfo, wixUrlMapCount = 0): string {
       googleSelectedLocation={null}
       ga4={disconnectedInfo()}
       wix={wix}
-      profound={{ status: "disconnected" as const, connected_at: null, expires_at: null, last_synced_at: null }}
       clarity={{ status: "disconnected" as const, connected_at: null, expires_at: null, last_synced_at: null }}
       gscStaleCopy={null}
       ga4StaleCopy={null}

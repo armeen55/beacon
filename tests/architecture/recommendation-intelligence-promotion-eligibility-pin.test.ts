@@ -19,7 +19,7 @@ import {
 } from "@/domains/recommendation-intelligence/promotion-eligibility";
 
 const LOCKED_TABLE: ReadonlyArray<readonly [string, string]> = [
-  // customer-queue-ready (17)
+  // customer-queue-ready (16)
   ["missing_title::edit_title", "customer-queue-ready"],
   ["missing_meta::edit_meta", "customer-queue-ready"],
   // Root-cause-#3 gap (2026-06-16): missing-meta page composeMeta can't
@@ -43,7 +43,6 @@ const LOCKED_TABLE: ReadonlyArray<readonly [string, string]> = [
   ["invalid_schema::fix_schema", "customer-queue-ready"],
   // Insight Graph slice 1 (2026-06-12): GSC low-CTR fused signal.
   ["gsc_low_ctr::edit_title", "customer-queue-ready"],
-  ["semrush_striking_distance::edit_title", "customer-queue-ready"],
   ["missing_schema_store::add_schema", "customer-queue-ready"],
   ["gsc_striking_distance::edit_title", "customer-queue-ready"],
   ["gsc_decay::update_intro", "customer-queue-ready"],
@@ -56,7 +55,7 @@ const LOCKED_TABLE: ReadonlyArray<readonly [string, string]> = [
   ["demand_graph_answer_block::add_answer_block", "customer-queue-ready"],
   ["demand_graph_fix_experience::fix_page_experience", "customer-queue-ready"],
 
-  // operator-review-only (10)
+  // operator-review-only (7)
   ["duplicate_title::edit_title", "operator-review-only"],
   ["duplicate_meta::edit_meta", "operator-review-only"],
   ["canonical_mismatch::fix_canonical", "operator-review-only"],
@@ -80,11 +79,6 @@ const LOCKED_TABLE: ReadonlyArray<readonly [string, string]> = [
   ["title_h1_mismatch::edit_title", "operator-review-only"],
   ["title_h1_mismatch::change_h1", "operator-review-only"],
   ["weak_h1::change_h1", "operator-review-only"],
-  ["semrush_cannibalization::add_internal_link", "operator-review-only"],
-  ["semrush_keyword_gap::create_page", "operator-review-only"],
-  // Audit #13 originality guard (2026-06-12, deliberate): topical
-  // duplicates expand the existing page instead of creating a new one.
-  ["semrush_keyword_gap::add_h2_section", "operator-review-only"],
 
   // diagnostic-only (4)
   ["missing_schema::add_schema", "diagnostic-only"],

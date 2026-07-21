@@ -7,8 +7,11 @@
  *   (c) labels are the plain-English customer ones, and NEVER contain "Profound".
  *   (d) zero connected → empty results.
  *
+ * 2026-07-20 — Profound removed (full account disconnect); three read sources
+ * remain (GSC, GA4, Clarity).
+ *
  * Style matches the existing connectors-action tests: no jsdom, plain function
- * calls + vi.mock for the connector store + the four sync engines.
+ * calls + vi.mock for the connector store + the three sync engines.
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
@@ -26,12 +29,10 @@ let _connected: Record<string, boolean> = {
   google_gsc: true,
   google_ga4: true,
   clarity: true,
-  profound: true,
 };
 let _gsc: unknown = { synced: true, rows_upserted: 100, days: 5 };
 let _ga4: unknown = { synced: true, rows_upserted: 12 };
 let _clarity: unknown = { synced: true, rows_upserted: 4 };
-let _profound: unknown = { synced: true, citation_rows: 7 };
 
 const syncGsc = vi.fn(async () => {
   if (_gsc instanceof Error) throw _gsc;
@@ -44,10 +45,6 @@ const syncGa4 = vi.fn(async () => {
 const syncClarity = vi.fn(async () => {
   if (_clarity instanceof Error) throw _clarity;
   return _clarity;
-});
-const syncProfound = vi.fn(async () => {
-  if (_profound instanceof Error) throw _profound;
-  return _profound;
 });
 
 const updateConnectorToken = vi.fn(async () => {});
@@ -79,9 +76,6 @@ vi.mock("@/lib/connectors/ga4/refresh-ga4-sitewide", () => ({
 vi.mock("@/lib/connectors/clarity/sync-daily-metrics", () => ({
   syncClarityDailyMetricsForTenant: () => syncClarity(),
 }));
-vi.mock("@/lib/connectors/profound/sync-nightly", () => ({
-  syncProfoundNightlyForTenant: () => syncProfound(),
-}));
 
 // Stub the other imports the actions module pulls in (not exercised here).
 vi.mock("@/lib/connectors/gsc/disconnect-flow", () => ({ softDisconnectGsc: async () => {} }));
@@ -105,29 +99,25 @@ beforeEach(() => {
   _connected = {
     google_gsc: true,
     google_ga4: true,
-      clarity: true,
-    profound: true,
+    clarity: true,
   };
   _gsc = { synced: true, rows_upserted: 100, days: 5 };
   _ga4 = { synced: true, rows_upserted: 12 };
   _clarity = { synced: true, rows_upserted: 4 };
-  _profound = { synced: true, citation_rows: 7 };
   syncGsc.mockClear();
   syncGa4.mockClear();
   syncClarity.mockClear();
-  syncProfound.mockClear();
   updateConnectorToken.mockClear();
   refreshGa4Sitewide.mockClear();
 });
 
 describe("refreshAllConnectedDataNow — only connected sources run", () => {
-  it("runs all four when all four are connected", async () => {
+  it("runs all three when all three are connected", async () => {
     const r = await refreshAllConnectedDataNow();
     expect(syncGsc).toHaveBeenCalledTimes(1);
     expect(syncGa4).toHaveBeenCalledTimes(1);
     expect(syncClarity).toHaveBeenCalledTimes(1);
-    expect(syncProfound).toHaveBeenCalledTimes(1);
-    expect(r.results).toHaveLength(4);
+    expect(r.results).toHaveLength(3);
     expect(r.results.every((x) => x.ok)).toBe(true);
     expect(typeof r.ranAt).toBe("string");
     expect(Number.isFinite(Date.parse(r.ranAt))).toBe(true);
@@ -138,22 +128,24 @@ describe("refreshAllConnectedDataNow — only connected sources run", () => {
       google_gsc: true,
       google_ga4: false,
       clarity: false,
-      profound: true,
     };
     const r = await refreshAllConnectedDataNow();
     expect(syncGsc).toHaveBeenCalledTimes(1);
-    expect(syncProfound).toHaveBeenCalledTimes(1);
     expect(syncGa4).not.toHaveBeenCalled();
     expect(syncClarity).not.toHaveBeenCalled();
     expect(r.results.map((x) => x.provider).sort()).toEqual([
       "google_gsc",
-      "profound",
     ]);
   });
 
   it("never includes Wix (publish-only) — there's no wix engine wired", async () => {
     const r = await refreshAllConnectedDataNow();
     expect(r.results.some((x) => x.provider === "wix")).toBe(false);
+  });
+
+  it("never includes a Profound source (fully disconnected)", async () => {
+    const r = await refreshAllConnectedDataNow();
+    expect(r.results.some((x) => x.provider === "profound")).toBe(false);
   });
 });
 
@@ -168,7 +160,7 @@ describe("refreshAllConnectedDataNow — fail-soft", () => {
     expect(gsc.detail).toMatch(/try again/i);
     // The other sources still succeeded — one failure didn't block them.
     expect(r.results.find((x) => x.provider === "ga4")?.ok ?? true).toBe(true);
-    expect(r.results.filter((x) => x.ok)).toHaveLength(3);
+    expect(r.results.filter((x) => x.ok)).toHaveLength(2);
   });
 
   it("a reason-coded engine failure → ok:false (e.g. expired Google grant)", async () => {
@@ -189,7 +181,6 @@ describe("refreshAllConnectedDataNow — labels", () => {
     expect(byProvider["google_gsc"]).toBe("Search (Google)");
     expect(byProvider["google_ga4"]).toBe("Visitors (Google Analytics)");
     expect(byProvider["clarity"]).toBe("Visitor experience");
-    expect(byProvider["profound"]).toBe("AI answers");
     // White-label invariant: the vendor name must never appear anywhere.
     const serialized = JSON.stringify(r);
     expect(serialized).not.toContain("Profound");
@@ -204,7 +195,7 @@ describe("refreshAllConnectedDataNow - Wave 2A sitewide visits", () => {
   });
 
   it("does NOT pull the sitewide series when GA4 is not connected", async () => {
-    _connected = { google_gsc: true, google_ga4: false, clarity: true, profound: true };
+    _connected = { google_gsc: true, google_ga4: false, clarity: true };
     await refreshAllConnectedDataNow();
     expect(refreshGa4Sitewide).not.toHaveBeenCalled();
   });
@@ -216,12 +207,10 @@ describe("refreshAllConnectedDataNow — nothing connected", () => {
       google_gsc: false,
       google_ga4: false,
       clarity: false,
-      profound: false,
     };
     const r = await refreshAllConnectedDataNow();
     expect(r.results).toEqual([]);
     expect(typeof r.ranAt).toBe("string");
     expect(syncGsc).not.toHaveBeenCalled();
-    expect(syncProfound).not.toHaveBeenCalled();
   });
 });

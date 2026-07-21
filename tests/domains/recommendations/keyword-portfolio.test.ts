@@ -2,7 +2,7 @@
  * Expert-rec-engine PHASE D (2026-06-16) — keyword/fanout merge.
  *
  * Pins the directive's PHASE-D/J rules:
- *   • GSC + SEMrush + fanout merge & dedupe into one portfolio;
+ *   • GSC + DataForSEO + fanout merge & dedupe into one portfolio;
  *   • prefer high-volume/low-difficulty ONLY when intent matches the page;
  *   • a high-volume WRONG-INTENT keyword is NOT chased (do-not-target + reason);
  *   • an off-topic keyword is rejected (not stuffed);
@@ -23,10 +23,10 @@ const PAGE_TOKENS = ["persian", "koobideh", "kabob", "recipe", "grilling", "beef
 
 const KEYWORDS: PortfolioInputKeyword[] = [
   { term: "koobideh kabob recipe", source: "gsc", volume: 1800, position: 6 },
-  { term: "Koobideh Kabob Recipe", source: "semrush", volume: 2000, difficulty: 22 }, // dup (case)
+  { term: "Koobideh Kabob Recipe", source: "dataforseo", volume: 2000, difficulty: 22 }, // dup (case)
   { term: "how to grill koobideh", source: "fanout" },
-  { term: "buy koobideh kabob skewers", source: "semrush", volume: 500, difficulty: 30 }, // wrong intent
-  { term: "persian rug cleaning", source: "semrush", volume: 900, difficulty: 18 }, // adjacent topic
+  { term: "buy koobideh kabob skewers", source: "dataforseo", volume: 500, difficulty: 30 }, // wrong intent
+  { term: "persian rug cleaning", source: "dataforseo", volume: 900, difficulty: 18 }, // adjacent topic
   { term: "current time in tehran", source: "gsc", volume: 5000 }, // high-volume, off-topic
 ];
 

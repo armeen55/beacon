@@ -67,6 +67,9 @@ export const TENANT_SCOPED_STORES = new Set<string>([
   "local-reviews",
   "page-visibility",
   "recommendation-responses",
+  // LEGACY (2026-07-20): the pre-ActionPack brief/action compute cluster
+  // that wrote these was retired. Kept registered so any residual on-disk
+  // blobs stay tenant-scoped and resetExperiment can still write them empty.
   "action-states",
   "brief-states",
   "rollout-executions",

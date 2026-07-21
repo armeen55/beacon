@@ -61,16 +61,17 @@ describe("/diagnostics/connectors — gate", () => {
 });
 
 describe("/diagnostics/connectors — rows", () => {
-  it("lists all five cache-backed connectors + the proof recompute", async () => {
+  it("lists all cache-backed connectors + the proof recompute", async () => {
     const html = await render();
     expect(html).toContain("Google Search Console");
     expect(html).toContain("Google Analytics 4");
     expect(html).toContain("Microsoft Clarity");
-    expect(html).toContain("Profound");
+    // Profound removed 2026-07-20 (full account disconnect) — no longer a connector row.
+    expect(html).not.toContain("Profound");
     expect(html).toContain("CallRail");
     expect(html).toContain("Refresh all connected sources");
-    // 2026-06-15 PIVOT — in-house native AEO poll removed; Profound is the
-    // sole AEO source. The "Run today's AI reading" buttons are gone.
+    // 2026-06-15 PIVOT — the old in-house "Run today's AI reading" buttons are gone
+    // (AI-answer evidence now comes from the native engine poll + stored tables).
     expect(html).not.toContain("Run today&#x27;s AI reading");
     expect(html).not.toContain("Run Perplexity reading");
     expect(html).not.toContain("Run ChatGPT reading");

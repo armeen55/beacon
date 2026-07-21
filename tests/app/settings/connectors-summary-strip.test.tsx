@@ -49,7 +49,6 @@ function render(over: {
   google?: ConnectorInfo;
   ga4?: ConnectorInfo;
   wix?: ConnectorInfo;
-  profound?: ConnectorInfo;
   clarity?: ConnectorInfo;
   connectedCount?: number;
   totalCount?: number;
@@ -62,7 +61,6 @@ function render(over: {
       googleSelectedLocation={null}
       ga4={over.ga4 ?? off}
       wix={over.wix ?? off}
-      profound={over.profound ?? off}
       clarity={over.clarity ?? off}
       gscStaleCopy={null}
       ga4StaleCopy={null}

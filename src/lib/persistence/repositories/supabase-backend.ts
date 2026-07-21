@@ -143,8 +143,6 @@ import type {
   SourcePatternEvidence,
 } from "@/domains/pages/competitor-evidence";
 import type { CompetitorPageSnapshot } from "@/domains/pages/competitor-page-snapshots";
-import type { PersistedActionState } from "@/domains/actions/types";
-import type { PersistedBriefState } from "@/domains/brief-generation/types";
 import type { TruthLabel } from "@/domains/attribution/types";
 import type { ChangeContract } from "@/domains/changelog/change-contract";
 import type {
@@ -689,10 +687,6 @@ export const supabaseBackend: SeedDataRepository = {
     readStore<CompetitorPageEvidence>("competitor-page-evidence"),
   getSourcePatternEvidence: async () =>
     readStore<SourcePatternEvidence>("source-pattern-evidence"),
-  getActionStates: async () =>
-    readStore<PersistedActionState>("action-states"),
-  getBriefStates: async () =>
-    readStore<PersistedBriefState>("brief-states", []),
   getTruthLabels: async () => readStore<TruthLabel>("truth-labels"),
 
   // Phase 7 — scan findings via repository

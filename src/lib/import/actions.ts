@@ -491,12 +491,8 @@ export async function resetExperiment(
     params: { preserveTruthLabels: options.preserveTruthLabels ?? false },
   });
   const { getCandidateLinks, getTruthLabels, persistCandidateLinks, persistTruthLabels } = await import("@/domains/attribution/store");
-  const { getActionStates, persistActionStates: _persistActionStates } = await import("@/domains/actions/store");
-  const { getBriefStates, persistBriefStates: _persistBriefStates } = await import("@/domains/brief-generation/store");
   const candidateLinks = await getCandidateLinks();
   const truthLabels = await getTruthLabels();
-  const actionStates = await getActionStates();
-  const briefStates = await getBriefStates();
 
   const [results, changelogEntries, opportunities, competitors, importRuns] =
     await Promise.all([
@@ -523,8 +519,6 @@ export async function resetExperiment(
   competitors.length = 0;
   candidateLinks.length = 0;
   importRuns.length = 0;
-  actionStates.length = 0;
-  briefStates.length = 0;
 
   if (!options.preserveTruthLabels) {
     truthLabels.length = 0;

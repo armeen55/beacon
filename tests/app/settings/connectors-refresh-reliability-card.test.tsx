@@ -81,7 +81,6 @@ function render(args: {
       googleSelectedLocation={null}
       ga4={args.ga4 ?? disconnected()}
       wix={disconnected()}
-      profound={disconnected()}
       clarity={disconnected()}
       gscStaleCopy={null}
       ga4StaleCopy={null}

@@ -37,9 +37,10 @@ const ALLOWLIST = new Set<string>([
   // behind one process-global `_state`, which bled the founder's changelog
   // into every other tenant — caught on the per-tenant proof cron). All 5
   // reads are forTenant-scoped now, so the entries are removed.
-  "domains/actions/store.ts:getActionStates",
+  // (domains/actions/store.ts:getActionStates and
+  // domains/brief-generation/store.ts:getBriefStates removed 2026-07-20:
+  // the pre-ActionPack brief/action compute cluster was retired.)
   "domains/pages/asset-response.ts:getAssetResponses",
-  "domains/brief-generation/store.ts:getBriefStates",
   "domains/pages/frontier-planner.ts:getFrontierOpportunities",
   "domains/pages/outcome-watch.ts:getOutcomeObservations",
   "domains/pages/wave-planner.ts:getRolloutWaves",
@@ -58,7 +59,7 @@ function stripComments(src: string): string {
 }
 
 const TENANT_GETTERS =
-  /getRepository\(\)\.(getActionStates|getAssetResponses|getBriefStates|getChangeContracts|getFrontierOpportunities|getOutcomeObservations|getRecommendationResponses|getRolloutWaves|getVisibilityObservationRunsExplicit|getTrackedPrompts|getTrackedEntities|getRecommendedEdits|getChangelogEntries|getImportRuns|getDailyMetricSnapshots|getObservationRuns|getUrlChangeOutcomes|getScanFindings|getPageSnapshots|getPageIssues|getEventDecisions|getCandidateLinks|getOpportunities|getCompetitors|getResults)\(/g;
+  /getRepository\(\)\.(getAssetResponses|getChangeContracts|getFrontierOpportunities|getOutcomeObservations|getRecommendationResponses|getRolloutWaves|getVisibilityObservationRunsExplicit|getTrackedPrompts|getTrackedEntities|getRecommendedEdits|getChangelogEntries|getImportRuns|getDailyMetricSnapshots|getObservationRuns|getUrlChangeOutcomes|getScanFindings|getPageSnapshots|getPageIssues|getEventDecisions|getCandidateLinks|getOpportunities|getCompetitors|getResults)\(/g;
 
 function walk(dir: string, out: string[] = []): string[] {
   for (const name of readdirSync(dir)) {

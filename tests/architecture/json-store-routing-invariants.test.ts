@@ -399,8 +399,8 @@ describe("Phase 7.8e-3 — mutable-array stores expose cached async getters", ()
     { module: "@/domains/pages/issues", name: "rolloutExecutions" },
     { module: "@/domains/pages/issues", name: "patternEvidence" },
     { module: "@/domains/pages/wave-planner", name: "rolloutWaves" },
-    { module: "@/domains/brief-generation/store", name: "briefStates" },
-    { module: "@/domains/actions/store", name: "actionStates" },
+    // (brief-generation/store:briefStates and actions/store:actionStates
+    // removed 2026-07-20: the pre-ActionPack compute cluster was retired.)
     { module: "@/domains/observations/visibility-observation-explicit-store", name: "visibilityObservationRunsExplicit" },
     { module: "@/domains/product/outcome-store", name: "outcomeRecords" },
     { module: "@/domains/product/recommendation-response-store", name: "recommendationResponses" },

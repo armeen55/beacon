@@ -93,9 +93,10 @@ describe("Connectors settings route smoke", () => {
     const tree = await ConnectorsPage();
     const html = renderToStaticMarkup(tree as ReactElement);
 
-    // 2 of the 5 counted self-serve sources (GSC, GA4, Wix, Profound,
-    // Clarity) are connected in this mock.
-    expect(html).toContain("2 of 5 connected");
+    // 2 of the 4 counted self-serve sources (GSC, GA4, Wix, Clarity) are
+    // connected in this mock. Profound was deliberately removed from the
+    // connectors page (and no longer counts toward the total).
+    expect(html).toContain("2 of 4 connected");
     expect(html).toContain("Automatic upkeep: last finished");
     expect(html).not.toContain("Last night’s sync");
   });

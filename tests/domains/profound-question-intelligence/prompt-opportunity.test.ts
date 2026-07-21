@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { buildPromptOpportunities, type FanoutRow } from "@/domains/profound-question-intelligence/prompt-opportunity";
-import type { ProfoundAnswerRow } from "@/lib/connectors/profound/client";
+import type { ProfoundAnswerRow } from "@/lib/connectors/profound/answer-row";
 
 function ans(p: Partial<ProfoundAnswerRow>): ProfoundAnswerRow {
   return {

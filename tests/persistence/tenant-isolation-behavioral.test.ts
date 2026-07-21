@@ -175,8 +175,6 @@ function buildFakeBase(): SeedDataRepository {
     getOutcomeObservations: notImplemented("getOutcomeObservations"),
     getCompetitorPageEvidence: notImplemented("getCompetitorPageEvidence"),
     getSourcePatternEvidence: notImplemented("getSourcePatternEvidence"),
-    getActionStates: notImplemented("getActionStates"),
-    getBriefStates: notImplemented("getBriefStates"),
     getTruthLabels: notImplemented("getTruthLabels"),
     getRecommendationResponses: notImplemented("getRecommendationResponses"),
     getUrlChangeOutcomes: notImplemented("getUrlChangeOutcomes"),

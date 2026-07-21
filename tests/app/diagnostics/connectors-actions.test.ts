@@ -3,9 +3,11 @@
  * composed per-connector refresh actions / sync engines are mocked; this pins
  * the operator gate + the refreshed/skipped/failed classification + counts.
  *
- * 2026-06-15 — extended for the no-cron golden path: GSC + Profound + Clarity
- * sync engines are now part of refreshAllDataSources (6 sources total), so the
- * operator can refresh every connected source on demand with no cron.
+ * 2026-06-15 — extended for the no-cron golden path: GSC + Clarity sync engines
+ * are part of refreshAllDataSources so the operator can refresh every connected
+ * source on demand with no cron.
+ * 2026-07-20 — Profound removed (full account disconnect); 4 sources total
+ * (gsc, ga4, callrail, clarity).
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
@@ -27,13 +29,11 @@ vi.mock("@/domains/tenants/tenant-features", () => ({
 let _ga4: unknown = { ok: true, rows_upserted: 12, startDate: "2026-05-01", endDate: "2026-06-01" };
 let _callrail: unknown = { ok: true, rowsUpserted: 3, persisted: true };
 let _gsc: unknown = { synced: true, property: "sc-domain:x.com", days: 5, rows_upserted: 100 };
-let _profound: unknown = { synced: true, citation_rows: 7 };
 let _clarity: unknown = { synced: true, rows_upserted: 4 };
 
 const refreshTenantGa4Traffic = vi.fn(async () => _ga4);
 const refreshCallRailMetrics = vi.fn(async () => _callrail);
 const syncGsc = vi.fn(async () => _gsc);
-const syncProfound = vi.fn(async () => _profound);
 const syncClarity = vi.fn(async () => _clarity);
 
 vi.mock("@/app/(shell)/diagnostics/outcome-attribution/actions", () => ({
@@ -44,9 +44,6 @@ vi.mock("@/app/(shell)/diagnostics/callrail/actions", () => ({
 }));
 vi.mock("@/lib/connectors/gsc/sync-search-analytics", () => ({
   syncGscSearchAnalyticsForTenant: () => syncGsc(),
-}));
-vi.mock("@/lib/connectors/profound/sync-nightly", () => ({
-  syncProfoundNightlyForTenant: () => syncProfound(),
 }));
 vi.mock("@/lib/connectors/clarity/sync-daily-metrics", () => ({
   syncClarityDailyMetricsForTenant: () => syncClarity(),
@@ -59,12 +56,10 @@ beforeEach(() => {
   _ga4 = { ok: true, rows_upserted: 12, startDate: "2026-05-01", endDate: "2026-06-01" };
   _callrail = { ok: true, rowsUpserted: 3, persisted: true };
   _gsc = { synced: true, property: "sc-domain:x.com", days: 5, rows_upserted: 100 };
-  _profound = { synced: true, citation_rows: 7 };
   _clarity = { synced: true, rows_upserted: 4 };
   refreshTenantGa4Traffic.mockClear();
   refreshCallRailMetrics.mockClear();
   syncGsc.mockClear();
-  syncProfound.mockClear();
   syncClarity.mockClear();
 });
 
@@ -76,17 +71,16 @@ describe("refreshAllDataSources — operator gate", () => {
     expect(refreshTenantGa4Traffic).not.toHaveBeenCalled();
     expect(refreshCallRailMetrics).not.toHaveBeenCalled();
     expect(syncGsc).not.toHaveBeenCalled();
-    expect(syncProfound).not.toHaveBeenCalled();
     expect(syncClarity).not.toHaveBeenCalled();
   });
 });
 
 describe("refreshAllDataSources — classification", () => {
-  it("all connected + ok → 5 refreshed (gsc, ga4, callrail, profound, clarity)", async () => {
+  it("all connected + ok → 4 refreshed (gsc, ga4, callrail, clarity)", async () => {
     const r = await refreshAllDataSources();
     expect(r.ok).toBe(true);
     if (!r.ok) return;
-    expect(r.refreshedCount).toBe(5);
+    expect(r.refreshedCount).toBe(4);
     expect(r.skippedCount).toBe(0);
     expect(r.failedCount).toBe(0);
     expect(r.results.find((x) => x.provider === "gsc")!.outcome).toBe("refreshed");
@@ -95,20 +89,19 @@ describe("refreshAllDataSources — classification", () => {
     expect(ga4.outcome).toBe("refreshed");
     expect(ga4.detail).toContain("12 URL/day rows");
     expect(r.results.find((x) => x.provider === "callrail")!.detail).toContain("3 URL/day rows");
-    expect(r.results.find((x) => x.provider === "profound")!.outcome).toBe("refreshed");
     expect(r.results.find((x) => x.provider === "clarity")!.outcome).toBe("refreshed");
+    expect(r.results.some((x) => (x.provider as string) === "profound")).toBe(false);
   });
 
-  it("not-connected reasons → skipped (not failed), all 5", async () => {
+  it("not-connected reasons → skipped (not failed), all 4", async () => {
     _ga4 = { ok: false, reason: "no_token" };
     _callrail = { ok: false, reason: "no_key" };
     _gsc = { synced: false, reason: "no_usable_gsc_token" };
-    _profound = { synced: false, reason: "no_key_or_api_error" };
     _clarity = { synced: false, reason: "no_token_or_api_error" };
     const r = await refreshAllDataSources();
     expect(r.ok).toBe(true);
     if (!r.ok) return;
-    expect(r.skippedCount).toBe(5);
+    expect(r.skippedCount).toBe(4);
     expect(r.refreshedCount).toBe(0);
     expect(r.failedCount).toBe(0);
     expect(r.results.every((x) => x.outcome === "skipped")).toBe(true);
@@ -117,14 +110,14 @@ describe("refreshAllDataSources — classification", () => {
   it("error reasons → failed; independent of the others", async () => {
     _ga4 = { ok: false, reason: "api_error" }; // failed
     _callrail = { ok: true, rowsUpserted: 0, persisted: false }; // refreshed
-    // gsc/profound/clarity keep their default ok (synced:true) → refreshed
+    // gsc/clarity keep their default ok (synced:true) → refreshed
     const r = await refreshAllDataSources();
     expect(r.ok).toBe(true);
     if (!r.ok) return;
     expect(r.results.find((x) => x.provider === "ga4")!.outcome).toBe("failed");
     expect(r.results.find((x) => x.provider === "callrail")!.outcome).toBe("refreshed");
-    // callrail + gsc + profound + clarity = 4 refreshed
-    expect(r.refreshedCount).toBe(4);
+    // callrail + gsc + clarity = 3 refreshed
+    expect(r.refreshedCount).toBe(3);
     expect(r.skippedCount).toBe(0);
     expect(r.failedCount).toBe(1);
   });
@@ -149,37 +142,12 @@ describe("refreshAllDataSources — classification", () => {
     expect(r.results.find((x) => x.provider === "gsc")!.outcome).toBe("failed");
   });
 
-  it("Profound with a key but a failed API call (profound_api_error) is a FAILURE", async () => {
-    _profound = { synced: false, reason: "profound_api_error" };
-    const r = await refreshAllDataSources();
-    expect(r.ok).toBe(true);
-    if (!r.ok) return;
-    expect(r.results.find((x) => x.provider === "profound")!.outcome).toBe("failed");
-  });
-
-  it("Profound with NO key (no_profound_key) is a benign skip", async () => {
-    _profound = { synced: false, reason: "no_profound_key" };
-    const r = await refreshAllDataSources();
-    expect(r.ok).toBe(true);
-    if (!r.ok) return;
-    expect(r.results.find((x) => x.provider === "profound")!.outcome).toBe("skipped");
-  });
-
-  it("Profound zero genuine results (synced:true, citation_rows:0) is refreshed, not failed", async () => {
-    _profound = { synced: true, citation_rows: 0 };
-    const r = await refreshAllDataSources();
-    expect(r.ok).toBe(true);
-    if (!r.ok) return;
-    expect(r.results.find((x) => x.provider === "profound")!.outcome).toBe("refreshed");
-  });
-
   it("runs every source even when the first fails", async () => {
     _gsc = { synced: false, reason: "supabase_unavailable" };
     await refreshAllDataSources();
     expect(syncGsc).toHaveBeenCalledTimes(1);
     expect(refreshTenantGa4Traffic).toHaveBeenCalledTimes(1);
     expect(refreshCallRailMetrics).toHaveBeenCalledTimes(1);
-    expect(syncProfound).toHaveBeenCalledTimes(1);
     expect(syncClarity).toHaveBeenCalledTimes(1);
   });
 });
