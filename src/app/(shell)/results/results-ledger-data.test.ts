@@ -15,12 +15,23 @@ const writeStoreMock = vi.fn(async (..._args: unknown[]): Promise<void> => {});
 const afterMock = vi.fn((_cb: () => Promise<void>) => {});
 const loadProofLedgerMock = vi.fn(async (_tenantId: string): Promise<unknown[]> => []);
 const loadProofLedgerPersistedMock = vi.fn(async (_tenantId: string): Promise<unknown[]> => []);
+// Contamination is precomputed at rebuild time (attachControlContaminationForLedger);
+// mock only THAT heavy read - the pure serialize/deserialize/isContaminationFrozen
+// helpers pass through to the real module so the round-trip stays honest.
+const attachContaminationMock = vi.fn(async (..._args: unknown[]): Promise<Map<string, unknown>> => new Map());
 
 vi.mock("server-only", () => ({}));
 vi.mock("@/lib/persistence/json-store", () => ({
   readStore: (...args: unknown[]) => readStoreMock(...args),
   writeStore: (...args: unknown[]) => writeStoreMock(...args),
 }));
+vi.mock("@/domains/proof-gsc/attach-control-contamination", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/domains/proof-gsc/attach-control-contamination")>();
+  return {
+    ...actual,
+    attachControlContaminationForLedger: (...args: unknown[]) => attachContaminationMock(...args),
+  };
+});
 vi.mock("next/server", () => ({
   after: (cb: () => Promise<void>) => afterMock(cb),
 }));
@@ -32,12 +43,31 @@ vi.mock("@/domains/proof-gsc/load-ledger", () => ({
   loadProofLedgerPersisted: (tenantId: string) => loadProofLedgerPersistedMock(tenantId),
 }));
 
-import { ledgerCheckedAgoLine, loadLedgerWithSwr } from "./results-ledger-data";
-import { RESULTS_SURFACE_FRESH_MS } from "./results-surface-store";
+import { ledgerCheckedAgoLine, loadLedgerWithSwr, rebuildResultsSurface } from "./results-ledger-data";
+import { RESULTS_SURFACE_FRESH_MS, type ResultsSurfaceRow } from "./results-surface-store";
+import {
+  serializeContaminationAttachment,
+  type ContaminationAttachment,
+} from "@/domains/proof-gsc/attach-control-contamination";
 import type { ShippedChangeRecord } from "@/domains/proof-gsc/shipped-change-store";
 
 const rec = (id: string, measuredAt?: string): ShippedChangeRecord =>
   ({ id, path: `/${id}`, measuredAt: measuredAt ?? null }) as unknown as ShippedChangeRecord;
+
+/** A record whose stored windows drive isContaminationFrozen (basisDayOf === 28). */
+const recWithWindows = (id: string, windows: Array<{ day: number; ran: boolean }>): ShippedChangeRecord =>
+  ({ id, path: `/${id}`, measuredAt: null, windows }) as unknown as ShippedChangeRecord;
+
+/** A minimal, valid ContaminationAttachment for the mock/round-trip fixtures. */
+const fakeAttachment = (): ContaminationAttachment => ({
+  verdict: { results: [], contaminated: [], hasContamination: false },
+  substitutesByOriginal: new Map(),
+  effectiveControlPages: [],
+  notes: [],
+  poolHealth: { cleanControls: 0, knownDirtyControls: 0, totalControls: 0, spareDonors: 0, lastCleanDonorPaths: [], sentence: "" },
+  poolHealthLine: null,
+  medianBand: null,
+});
 
 beforeEach(() => {
   readStoreMock.mockReset();
@@ -48,6 +78,8 @@ beforeEach(() => {
   loadProofLedgerMock.mockResolvedValue([rec("fresh-1"), rec("fresh-2")]);
   loadProofLedgerPersistedMock.mockReset();
   loadProofLedgerPersistedMock.mockResolvedValue([rec("persisted-1"), rec("persisted-2")]);
+  attachContaminationMock.mockReset();
+  attachContaminationMock.mockResolvedValue(new Map());
 });
 
 describe("loadLedgerWithSwr", () => {
@@ -188,6 +220,81 @@ describe("loadLedgerWithSwr", () => {
     await both;
     expect(loadProofLedgerMock).toHaveBeenCalledTimes(1);
     expect(writeStoreMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("loadLedgerWithSwr - precomputed contamination cache (2026-07-21)", () => {
+  it("OLD snapshot without contaminationByClosedRow -> closedContaminationById is empty (fallback to live compute)", async () => {
+    const computedAt = new Date(Date.now() - 60_000).toISOString();
+    // A snapshot written before the field existed: no contaminationByClosedRow key.
+    readStoreMock.mockResolvedValue([{ computedAt, ledger: [rec("snap-1")] }]);
+    const out = await loadLedgerWithSwr("tenant-test");
+    expect(out.closedContaminationById.size).toBe(0); // nothing to serve -> live compute on the GET
+  });
+
+  it("snapshot WITH contaminationByClosedRow deserializes into closedContaminationById (Map rehydrated)", async () => {
+    const computedAt = new Date(Date.now() - 60_000).toISOString();
+    const serialized = serializeContaminationAttachment(fakeAttachment());
+    readStoreMock.mockResolvedValue([
+      { computedAt, ledger: [rec("snap-1")], contaminationByClosedRow: { "snap-1": serialized } },
+    ]);
+    const out = await loadLedgerWithSwr("tenant-test");
+    expect(out.closedContaminationById.has("snap-1")).toBe(true);
+    expect(out.closedContaminationById.get("snap-1")!.substitutesByOriginal instanceof Map).toBe(true);
+  });
+
+  it("a malformed cached entry is skipped, never crashing the read (fail-soft per row)", async () => {
+    const computedAt = new Date(Date.now() - 60_000).toISOString();
+    readStoreMock.mockResolvedValue([
+      { computedAt, ledger: [rec("snap-1")], contaminationByClosedRow: { "snap-1": null } },
+    ]);
+    const out = await loadLedgerWithSwr("tenant-test");
+    // The malformed entry throws inside deserialize, is caught and skipped, and the
+    // read still returns (that row simply computes live on the GET).
+    expect(out.closedContaminationById.has("snap-1")).toBe(false);
+    expect(out.ledger.map((r) => r.id)).toEqual(["snap-1"]);
+  });
+});
+
+describe("rebuildResultsSurface - precomputes contamination for CLOSED (frozen) rows only", () => {
+  it("stores frozen-row verdicts in the snapshot; OPEN rows are never cached", async () => {
+    const frozen = recWithWindows("frozen-1", [{ day: 28, ran: true }]); // terminal -> frozen
+    const open = recWithWindows("open-1", [{ day: 7, ran: true }]); // still growing -> open
+    loadProofLedgerMock.mockResolvedValue([frozen, open]);
+    attachContaminationMock.mockResolvedValue(
+      new Map<string, unknown>([
+        ["frozen-1", fakeAttachment()],
+        ["open-1", fakeAttachment()],
+      ]),
+    );
+
+    await rebuildResultsSurface("tenant-test");
+
+    expect(writeStoreMock).toHaveBeenCalledOnce();
+    const [store, rows] = writeStoreMock.mock.calls[0] as unknown as [string, ResultsSurfaceRow[]];
+    expect(store).toBe("results-surface");
+    const stored = rows[0].contaminationByClosedRow ?? {};
+    expect(Object.keys(stored)).toEqual(["frozen-1"]); // open-1 excluded from the cache
+  });
+
+  it("omits the field entirely when the ledger has no frozen rows (byte-identical to pre-field snapshot)", async () => {
+    loadProofLedgerMock.mockResolvedValue([recWithWindows("open-only", [{ day: 14, ran: true }])]);
+    attachContaminationMock.mockResolvedValue(new Map<string, unknown>([["open-only", fakeAttachment()]]));
+
+    await rebuildResultsSurface("tenant-test");
+
+    const [, rows] = writeStoreMock.mock.calls[0] as unknown as [string, ResultsSurfaceRow[]];
+    expect(rows[0].contaminationByClosedRow).toBeUndefined();
+  });
+
+  it("a contamination-precompute failure never blocks the ledger snapshot (fail-soft)", async () => {
+    loadProofLedgerMock.mockResolvedValue([recWithWindows("frozen-1", [{ day: 28, ran: true }])]);
+    attachContaminationMock.mockRejectedValue(new Error("permutation-null wedged"));
+
+    await expect(rebuildResultsSurface("tenant-test")).resolves.toBeUndefined();
+    const [, rows] = writeStoreMock.mock.calls[0] as unknown as [string, ResultsSurfaceRow[]];
+    expect(rows[0].ledger.map((r) => r.id)).toEqual(["frozen-1"]); // ledger still persisted
+    expect(rows[0].contaminationByClosedRow).toBeUndefined(); // no cache, GET computes live
   });
 });
 

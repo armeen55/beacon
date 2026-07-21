@@ -2,6 +2,7 @@ import "server-only";
 
 import { readStore, writeStore } from "@/lib/persistence/json-store";
 import type { ShippedChangeRecord } from "@/domains/proof-gsc/shipped-change-store";
+import type { SerializedContaminationAttachment } from "@/domains/proof-gsc/attach-control-contamination";
 
 /**
  * results-surface-store (2026-07-03, R4 - FP1's named follow-up) - a tenant-scoped
@@ -27,7 +28,20 @@ const STORE = "results-surface";
 /** Serve the cached snapshot instantly always; background-refresh once it's older than this. */
 export const RESULTS_SURFACE_FRESH_MS = 15 * 60 * 1000;
 
-export type ResultsSurfaceRow = { computedAt: string; ledger: ShippedChangeRecord[] };
+export type ResultsSurfaceRow = {
+  computedAt: string;
+  ledger: ShippedChangeRecord[];
+  /**
+   * Precomputed control-contamination verdicts for CLOSED (frozen 28-day) rows
+   * only, keyed by ShippedChangeRecord.id. Computed once at rebuild time (the
+   * background pass that already pays the heavy median-band permutation-null
+   * reads) so a GET serves a frozen row's verdict from here instead of
+   * recomputing it. Optional and additive: a snapshot written before this field
+   * (or one whose rows were all open) simply omits it, and the GET falls back to
+   * live compute for any row not present. Open rows are never stored here.
+   */
+  contaminationByClosedRow?: Record<string, SerializedContaminationAttachment>;
+};
 
 /**
  * Sibling fix (2026-07-10 hygiene batch) - `opts.tenantId`, the same purpose as
@@ -47,6 +61,7 @@ export async function writeResultsSurface(
   ledger: ShippedChangeRecord[],
   computedAtIso: string,
   tenantId?: string,
+  contaminationByClosedRow?: Record<string, SerializedContaminationAttachment>,
 ): Promise<void> {
   // Empty-rebuild guard (replicates worklist-surface-store's 2026-07-02 guard):
   // loadProofLedger is fail-soft, so during a Supabase outage it can "successfully"
@@ -63,7 +78,13 @@ export async function writeResultsSurface(
       return;
     }
   }
-  await writeStore<ResultsSurfaceRow>(STORE, [{ computedAt: computedAtIso, ledger }], { tenantId }).catch(() => {});
+  const row: ResultsSurfaceRow = { computedAt: computedAtIso, ledger };
+  // Only attach the field when there is something to store, so a rebuild with no
+  // frozen rows leaves the snapshot byte-identical to the pre-field shape.
+  if (contaminationByClosedRow && Object.keys(contaminationByClosedRow).length > 0) {
+    row.contaminationByClosedRow = contaminationByClosedRow;
+  }
+  await writeStore<ResultsSurfaceRow>(STORE, [row], { tenantId }).catch(() => {});
 }
 
 /** Invalidate the cache so the next /results load re-measures (call after ANY

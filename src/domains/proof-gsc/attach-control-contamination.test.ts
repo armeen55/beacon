@@ -56,12 +56,27 @@ import {
   computeContaminationForShip,
   attachControlContaminationForLedger,
   computeLastCleanDonorHolds,
+  serializeContaminationAttachment,
+  deserializeContaminationAttachment,
+  isContaminationFrozen,
 } from "./attach-control-contamination";
 import type { ShippedChangeRecord } from "./shipped-change-store";
 import type { RankedControl } from "./control-matching";
 
 function donor(url: string, verdict: RankedControl["verdict"] = "kept"): RankedControl {
   return { url, verdict, similarityRatio: 1, slopeDivergence: 0, queryOverlap: 0, reason: verdict };
+}
+
+/** A CLOSED (frozen) ship: its terminal 28-day window has run, so
+ *  isContaminationFrozen(...) === true and its verdict is snapshot-cacheable. */
+function frozenShip(over: Partial<ShippedChangeRecord> = {}): ShippedChangeRecord {
+  return ship({
+    verdict: "won",
+    windows: [
+      { day: 28, checkOn: "2026-06-29", ran: true, treatedDelta: 0, controlDelta: 0, adjustedLift: 0, treatedCtrDelta: 0, controlCtrDelta: 0, adjustedCtrLift: 0, treatedPosDelta: 0, controlPosDelta: 0, adjustedPosLift: 0, controlsUsed: 2 },
+    ],
+    ...over,
+  });
 }
 
 function ship(over: Partial<ShippedChangeRecord> = {}): ShippedChangeRecord {
@@ -423,5 +438,96 @@ describe("attachControlContaminationForLedger - N16 median-band fallback", () =>
     ];
     const out = await attachControlContaminationForLedger("t1", [treatedShip, contaminator]);
     expect(out.get("s1")!.medianBand).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Snapshot precompute (2026-07-21) - the /results SWR snapshot caches CLOSED
+// (frozen 28-day) rows' contamination verdicts so a GET never re-runs their
+// median-band permutation-null read. Three pins: the closed/open discriminator,
+// the JSON round-trip of the serialized field, and that a GET serves frozen
+// rows from cache while NEVER caching (or trusting a cache for) an open row.
+// ---------------------------------------------------------------------------
+
+describe("isContaminationFrozen - the closed/open discriminator", () => {
+  it("is FROZEN only once the terminal 28-day window has run", () => {
+    expect(isContaminationFrozen(frozenShip())).toBe(true); // 28d ran -> immutable
+    expect(isContaminationFrozen(ship())).toBe(false); // default 7d only -> still open
+    expect(isContaminationFrozen({ windows: [{ day: 14, ran: true }] } as unknown as ShippedChangeRecord)).toBe(false); // 14d -> can still grow to 28
+    expect(isContaminationFrozen({ windows: [] } as unknown as ShippedChangeRecord)).toBe(false); // nothing closed
+    expect(isContaminationFrozen({ windows: undefined } as unknown as ShippedChangeRecord)).toBe(false); // absent field tolerated
+  });
+});
+
+describe("serialize/deserialize contamination attachment - snapshot round-trip", () => {
+  it("round-trips every field (Map <-> entries) and survives JSON", async () => {
+    // A frozen row with one promotable donor and a second contaminated control
+    // with none, so verdict, substitutesByOriginal, notes and poolHealth are all
+    // populated (a maximally non-trivial attachment to round-trip).
+    const record = frozenShip({ controlDonorPool: [donor("https://site.com/c")] });
+    const contaminator = ship({ id: "s2", page: "https://site.com/a", path: "/a", shippedAt: "2026-06-05T00:00:00Z", controlPages: [] });
+    const att = (await attachControlContaminationForLedger("t1", [record, contaminator])).get("s1")!;
+    expect(att.verdict.hasContamination).toBe(true); // guard: we're round-tripping a real verdict
+
+    const serialized = serializeContaminationAttachment(att);
+    // Bounded + JSON-safe: no Map survives into the stored shape, and a
+    // JSON.parse(JSON.stringify(...)) is a no-op (nothing lost/mutated).
+    expect(Array.isArray(serialized.substitutesByOriginal)).toBe(true);
+    expect(JSON.parse(JSON.stringify(serialized))).toEqual(serialized);
+
+    const round = deserializeContaminationAttachment(serialized);
+    expect(round.substitutesByOriginal instanceof Map).toBe(true);
+    expect([...round.substitutesByOriginal.entries()]).toEqual([...att.substitutesByOriginal.entries()]);
+    expect(round.verdict).toEqual(att.verdict);
+    expect(round.effectiveControlPages).toEqual(att.effectiveControlPages);
+    expect(round.notes).toEqual(att.notes);
+    expect(round.poolHealth).toEqual(att.poolHealth);
+    expect(round.poolHealthLine).toBe(att.poolHealthLine);
+    expect(round.medianBand).toEqual(att.medianBand);
+  });
+});
+
+describe("attachControlContaminationForLedger - serves FROZEN rows from the snapshot cache", () => {
+  it("serves a frozen row straight from cache: no page_snapshots read, exact object returned", async () => {
+    const record = frozenShip();
+    const cached = computeContaminationForShip({ record, otherShips: [], snapshotsByPath: new Map() })!;
+    rangeCalls.length = 0;
+    const out = await attachControlContaminationForLedger("t1", [record], new Map([["s1", cached]]));
+    expect(out.get("s1")).toBe(cached); // the cached object itself, not a recompute
+    expect(rangeCalls.length).toBe(0); // never touched page_snapshots
+  });
+
+  it("NEVER serves an OPEN row from cache even if present in the map (defensive re-check recomputes live)", async () => {
+    const openRec = ship(); // 7-day only -> not frozen
+    const stale = computeContaminationForShip({ record: openRec, otherShips: [], snapshotsByPath: new Map() })!;
+    rangeCalls.length = 0;
+    const out = await attachControlContaminationForLedger("t1", [openRec], new Map([["s1", stale]]));
+    expect(out.get("s1")).not.toBe(stale); // recomputed, not served from the (untrusted) cache
+    expect(rangeCalls.length).toBeGreaterThan(0); // it did read page_snapshots live
+  });
+
+  it("mixes a cache-served frozen row with a live-computed open row in one pass", async () => {
+    const frozen = frozenShip({ id: "s1", page: "https://site.com/treated", path: "/treated" });
+    const open = ship({ id: "s2", page: "https://site.com/open", path: "/open", controlPages: ["https://site.com/x"] });
+    const cachedFrozen = computeContaminationForShip({
+      record: frozen,
+      otherShips: [{ path: "/open", shippedAt: open.shippedAt }],
+      snapshotsByPath: new Map(),
+    })!;
+    const out = await attachControlContaminationForLedger("t1", [frozen, open], new Map([["s1", cachedFrozen]]));
+    expect(out.get("s1")).toBe(cachedFrozen); // frozen served from cache
+    expect(out.get("s2")).toBeDefined(); // open still computed live
+    expect(rangeCalls.length).toBeGreaterThan(0); // the live open row drove a read
+  });
+
+  it("no cache passed -> byte-identical to the pre-cache behavior (old snapshots keep working)", async () => {
+    snapshotRows = [
+      { url: "https://site.com/a", fetched_at: "2026-06-02T00:00:00Z", content_hash: "x" },
+      { url: "https://site.com/a", fetched_at: "2026-06-10T00:00:00Z", content_hash: "z" },
+    ];
+    const withoutArg = await attachControlContaminationForLedger("t1", [frozenShip()]);
+    const withEmpty = await attachControlContaminationForLedger("t1", [frozenShip()], new Map());
+    expect(withoutArg.get("s1")!.verdict.contaminated.map((c) => c.path)).toContain("/a");
+    expect(withEmpty.get("s1")!.verdict.contaminated.map((c) => c.path)).toContain("/a");
   });
 });

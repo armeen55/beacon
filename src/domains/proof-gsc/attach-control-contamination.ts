@@ -28,7 +28,7 @@ import "server-only";
 
 import { getSupabaseAdmin } from "@/lib/persistence/supabase";
 import { log } from "@/lib/logger";
-import { measurementWindowOf } from "./measurement-maturity";
+import { measurementWindowOf, basisDayOf } from "./measurement-maturity";
 import {
   classifyControls,
   summarizeContamination,
@@ -174,6 +174,72 @@ export type ContaminationAttachment = {
 };
 
 /**
+ * JSON-safe form of a ContaminationAttachment for the /results SWR snapshot
+ * (results-surface-store.ts). Every field is already plain data except
+ * `substitutesByOriginal`, a Map - stored as its `[key, value]` entries. Bounded:
+ * one entry per control page, one note per contaminated control, one PoolHealth
+ * object. Precomputed at rebuild time for CLOSED (frozen) rows only, so a GET
+ * never reclassifies them or re-runs their median-band permutation-null read.
+ */
+export type SerializedContaminationAttachment = {
+  verdict: ContaminationVerdict;
+  substitutesByOriginal: Array<[string, string | null]>;
+  effectiveControlPages: string[];
+  notes: string[];
+  poolHealth: PoolHealth;
+  poolHealthLine: string | null;
+  medianBand: MedianBandRead | null;
+};
+
+/** ContaminationAttachment -> JSON-safe snapshot form (Map -> entries). PURE. */
+export function serializeContaminationAttachment(
+  a: ContaminationAttachment,
+): SerializedContaminationAttachment {
+  return {
+    verdict: a.verdict,
+    substitutesByOriginal: [...a.substitutesByOriginal.entries()],
+    effectiveControlPages: a.effectiveControlPages,
+    notes: a.notes,
+    poolHealth: a.poolHealth,
+    poolHealthLine: a.poolHealthLine,
+    medianBand: a.medianBand,
+  };
+}
+
+/** JSON-safe snapshot form -> ContaminationAttachment (entries -> Map). PURE. */
+export function deserializeContaminationAttachment(
+  s: SerializedContaminationAttachment,
+): ContaminationAttachment {
+  return {
+    verdict: s.verdict,
+    substitutesByOriginal: new Map(s.substitutesByOriginal),
+    effectiveControlPages: s.effectiveControlPages,
+    notes: s.notes,
+    poolHealth: s.poolHealth,
+    poolHealthLine: s.poolHealthLine,
+    medianBand: s.medianBand,
+  };
+}
+
+/**
+ * The closed/open discriminator for snapshot caching. A ship's contamination
+ * verdict is FROZEN (immutable, safe to serve from the snapshot) once its
+ * terminal 28-day measurement window has closed: basisDayOf(windows) === 28
+ * means the longest proof window has run, so the window [start, end) can no
+ * longer grow, no ship recorded later can fall inside it (a shippedAt is always
+ * "now", already past this window's end), and no new page_snapshot can land in
+ * a window that has fully elapsed. The median-band GSC read for such a row is
+ * over finalized history too. Any ledger mutation invalidates the whole results
+ * snapshot (results-surface-store.ts's invalidateResultsSurface on every write),
+ * so a cached frozen verdict is always recomputed on the next rebuild - the
+ * cache can never outlive the ledger it was computed from. An OPEN (still-
+ * growing) window stays live on the GET. PURE - reads only the stored `windows`.
+ */
+export function isContaminationFrozen(record: Pick<ShippedChangeRecord, "windows">): boolean {
+  return basisDayOf(record.windows ?? []) === 28;
+}
+
+/**
  * Compute the contamination attachment for ONE ship. Pure read-time join, no
  * GSC I/O, no re-ranking - promotion draws ONLY from record.controlDonorPool
  * (frozen at ship time). Never throws; a missing/exhausted pool simply yields
@@ -297,9 +363,27 @@ export function computeContaminationForShip(args: {
 export async function attachControlContaminationForLedger(
   tenantId: string,
   records: ReadonlyArray<ShippedChangeRecord>,
+  cachedFrozen?: ReadonlyMap<string, ContaminationAttachment>,
 ): Promise<Map<string, ContaminationAttachment>> {
   const out = new Map<string, ContaminationAttachment>();
   if (!tenantId || records.length === 0) return out;
+
+  // Serve FROZEN (closed 28-day window) rows straight from the precomputed
+  // snapshot cache: their verdict is immutable until the next ledger mutation
+  // invalidates the whole results snapshot, so a GET never reclassifies them or
+  // pays their median-band permutation-null read again. A cache entry is only
+  // trusted when the row is STILL frozen (isContaminationFrozen) - a defensive
+  // re-check so a stale/mismatched cache can never mask a now-open window.
+  const servedFromCache = new Set<string>();
+  if (cachedFrozen && cachedFrozen.size > 0) {
+    for (const r of records) {
+      const cached = cachedFrozen.get(r.id);
+      if (cached && isContaminationFrozen(r)) {
+        out.set(r.id, cached);
+        servedFromCache.add(r.id);
+      }
+    }
+  }
 
   const otherShipsByRecord = new Map<string, LedgerShipRecord[]>();
   const allControlUrls = new Set<string>();
@@ -309,9 +393,14 @@ export async function attachControlContaminationForLedger(
   for (const r of records) {
     const window = measurementWindowOf(r.shippedAt, r.windows ?? []);
     if (!window || r.controlPages.length === 0) continue;
-    for (const cp of r.controlPages) allControlUrls.add(cp);
-    if (earliestStart == null || window.start < earliestStart) earliestStart = window.start;
-    if (latestEnd == null || window.end > latestEnd) latestEnd = window.end;
+    // A cache-served row still contributes its ship date to OTHER rows'
+    // classification (below), but never needs its own controls fetched or
+    // reclassified - keep it out of the snapshot-history query range.
+    if (!servedFromCache.has(r.id)) {
+      for (const cp of r.controlPages) allControlUrls.add(cp);
+      if (earliestStart == null || window.start < earliestStart) earliestStart = window.start;
+      if (latestEnd == null || window.end > latestEnd) latestEnd = window.end;
+    }
     otherShipsByRecord.set(
       r.id,
       records
@@ -319,6 +408,8 @@ export async function attachControlContaminationForLedger(
         .map((other) => ({ path: other.path, shippedAt: other.shippedAt })),
     );
   }
+  // Nothing left to compute live (every eligible row was served from cache, or
+  // the ledger has no measurable controls) - return what the cache gave us.
   if (earliestStart == null || latestEnd == null || allControlUrls.size === 0) return out;
 
   const snapshotsByPath = await loadControlSnapshotHistory(
@@ -329,6 +420,7 @@ export async function attachControlContaminationForLedger(
   ).catch(() => new Map<string, SnapshotPoint[]>());
 
   for (const r of records) {
+    if (servedFromCache.has(r.id)) continue;
     const otherShips = otherShipsByRecord.get(r.id);
     if (!otherShips) continue;
     let attachment: ContaminationAttachment | null = null;
@@ -358,6 +450,9 @@ export async function attachControlContaminationForLedger(
   let medianBandBudget = MAX_MEDIAN_BAND_SHIPS;
   for (const r of records) {
     if (medianBandBudget <= 0) break;
+    // Cache-served rows already carry their frozen median-band (or its absence);
+    // never re-run the permutation-null read the snapshot exists to avoid.
+    if (servedFromCache.has(r.id)) continue;
     const attachment = out.get(r.id);
     if (!attachment || !attachment.verdict.hasContamination) continue;
     const exhausted = [...attachment.substitutesByOriginal.values()].some((s) => s == null);

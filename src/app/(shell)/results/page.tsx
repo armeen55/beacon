@@ -35,7 +35,7 @@ import { eventCaveatForWindow, eventReliabilityFlagsForWindow } from "@/domains/
 import { loadExternalEvents } from "@/domains/events/external-event-store";
 import { attachSeasonalInflectionForLedger } from "@/domains/seasonal/attach-seasonal-inflection";
 import { attachRecrawlClockForLedger } from "@/domains/proof-gsc/attach-recrawl-clock";
-import { attachControlContaminationForLedger } from "@/domains/proof-gsc/attach-control-contamination";
+import { attachControlContaminationForLedger, type ContaminationAttachment } from "@/domains/proof-gsc/attach-control-contamination";
 import type { SparkPoint } from "@/components/data/sparkline";
 import { loadActionPackWorklistForTenant } from "@/domains/action-pack/load";
 import { linkProofRowsToActionPacks, type ProofLink } from "@/domains/action-pack/proof-linker";
@@ -140,6 +140,7 @@ export default async function ProofPage({
     loadResultsLedgerSurface().catch(() => ({
       ledger: [] as ShippedChangeRecord[],
       computedAt: new Date().toISOString(),
+      closedContaminationById: new Map(),
     })),
     LEDGER_DEADLINE_MS,
   );
@@ -187,7 +188,12 @@ export default async function ProofPage({
   // (the cumulative strip, the proof summary, and the measured-outcomes board with
   // its revert offers / alignment / contamination caveats) each await the SAME
   // promise inside their own Suspense boundary.
-  const sideReads = loadResultsSideReads(tenantId, ledger, ownedAlignmentRequests);
+  const sideReads = loadResultsSideReads(
+    tenantId,
+    ledger,
+    ownedAlignmentRequests,
+    ledgerRaced.data.closedContaminationById,
+  );
 
   // W2-B (2026-07-10) - warm the alignment cache OFF the GET: schedule the same
   // batch with persist:true in after() so any freshly-computed alignment is
@@ -532,6 +538,12 @@ function loadResultsSideReads(
   tenantId: string,
   ledger: ShippedChangeRecord[],
   ownedAlignmentRequests: OwnedAlignmentRequest[],
+  /** Precomputed contamination verdicts for CLOSED (frozen 28-day) rows, served
+   *  from the SWR snapshot so this GET never re-runs their median-band
+   *  permutation-null read (the slow ~4.3s cold side-read). Open rows still
+   *  compute live inside attachControlContaminationForLedger. Empty on a
+   *  cold/persisted path or an old snapshot. */
+  closedContaminationById: ReadonlyMap<string, ContaminationAttachment>,
 ) {
   const controlSparkPaths = [
     ...new Set(ledger.slice(0, 8).flatMap((l) => (l.controlPages ?? []).slice(0, 2))),
@@ -588,7 +600,7 @@ function loadResultsSideReads(
     SIDE_READ_DEADLINE_MS,
   );
   const contaminationById = valueWithDeadline(
-    attachControlContaminationForLedger(tenantId, ledger).catch(() => new Map()),
+    attachControlContaminationForLedger(tenantId, ledger, closedContaminationById).catch(() => new Map()),
     new Map(),
     SIDE_READ_DEADLINE_MS,
   );

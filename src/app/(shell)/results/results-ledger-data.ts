@@ -9,6 +9,14 @@ import { runSingleFlight } from "@/lib/single-flight";
 import { loadProofLedger, loadProofLedgerPersisted } from "@/domains/proof-gsc/load-ledger";
 import type { ShippedChangeRecord } from "@/domains/proof-gsc/shipped-change-store";
 import {
+  attachControlContaminationForLedger,
+  serializeContaminationAttachment,
+  deserializeContaminationAttachment,
+  isContaminationFrozen,
+  type ContaminationAttachment,
+  type SerializedContaminationAttachment,
+} from "@/domains/proof-gsc/attach-control-contamination";
+import {
   isResultsSurfaceStale,
   readResultsSurface,
   writeResultsSurface,
@@ -33,7 +41,32 @@ export type ResultsLedgerSurface = {
    *  been measured (Wave 1 P2 fix, 2026-07-10) - the freshness line must never
    *  claim a check that did not happen. */
   computedAt: string | null;
+  /** Precomputed contamination verdicts for CLOSED (frozen 28-day) rows, keyed by
+   *  record id, deserialized from the snapshot. The GET hands this to
+   *  attachControlContaminationForLedger so a frozen row is served from here
+   *  instead of recomputing its median-band permutation-null read. Empty on a
+   *  cold/persisted path (every row then computes live) and for snapshots written
+   *  before the field existed. Open rows are never in here. */
+  closedContaminationById: Map<string, ContaminationAttachment>;
 };
+
+/** Rehydrate the snapshot's stored (JSON) frozen-row verdicts into runtime
+ *  ContaminationAttachments. Fail-soft per entry: a malformed row is skipped and
+ *  simply recomputes live, never crashing the whole read. PURE. */
+function deserializeClosedContamination(
+  raw: Record<string, SerializedContaminationAttachment> | undefined,
+): Map<string, ContaminationAttachment> {
+  const out = new Map<string, ContaminationAttachment>();
+  if (!raw) return out;
+  for (const [id, s] of Object.entries(raw)) {
+    try {
+      out.set(id, deserializeContaminationAttachment(s));
+    } catch {
+      // skip; the row computes live on the GET
+    }
+  }
+  return out;
+}
 
 /** Exported for tests; render paths use loadResultsLedgerSurface below. Sibling fix
  *  (2026-07-10 hygiene batch) - thread the EXPLICIT tenantId into the read and both
@@ -63,7 +96,11 @@ export async function loadLedgerWithSwr(tenantId: string): Promise<ResultsLedger
         }
       });
     }
-    return { ledger: cached.ledger, computedAt: cached.computedAt };
+    return {
+      ledger: cached.ledger,
+      computedAt: cached.computedAt,
+      closedContaminationById: deserializeClosedContamination(cached.contaminationByClosedRow),
+    };
   }
   // First-ever / invalidated → P0-B Wave 1 GET-GUARD: do NOT re-measure on the
   // GET. That cold synchronous rebuild is the >2-minute timeout path (a full
@@ -87,7 +124,14 @@ export async function loadLedgerWithSwr(tenantId: string): Promise<ResultsLedger
       });
     }
   });
-  return { ledger: persisted, computedAt: latestMeasuredAt(persisted) };
+  // Cold/persisted path serves no precomputed contamination - the background
+  // rebuild scheduled above will populate the snapshot's frozen-row cache, and
+  // until then every row computes live on the GET (the pre-cache behavior).
+  return {
+    ledger: persisted,
+    computedAt: latestMeasuredAt(persisted),
+    closedContaminationById: new Map(),
+  };
 }
 
 /** The freshest `measuredAt` across the stored ledger, so the cold GET can serve
@@ -122,7 +166,28 @@ export const loadResultsLedgerSurface = cache(
 export async function rebuildResultsSurface(tenantId: string): Promise<void> {
   const computedAt = new Date().toISOString();
   const fresh = await loadProofLedger(tenantId);
-  await writeResultsSurface(fresh, computedAt, tenantId);
+  // Precompute contamination for the WHOLE ledger HERE, in this background
+  // rebuild, so the heavy median-band permutation-null reads (the ~4.3s cold
+  // cost the GET used to pay for closed rows) run off the request path. Persist
+  // only the FROZEN (closed 28-day) rows into the snapshot: those are immutable
+  // until the next ledger mutation invalidates this snapshot, so serving them
+  // from cache on a GET is exact, not stale. Open rows are intentionally left
+  // out and stay live on the GET. Fail-soft: a contamination failure must never
+  // block the ledger snapshot itself (the GET then simply computes live).
+  let contaminationByClosedRow: Record<string, SerializedContaminationAttachment> | undefined;
+  try {
+    const contamination = await attachControlContaminationForLedger(tenantId, fresh);
+    const frozen: Record<string, SerializedContaminationAttachment> = {};
+    for (const r of fresh) {
+      if (!isContaminationFrozen(r)) continue;
+      const att = contamination.get(r.id);
+      if (att) frozen[r.id] = serializeContaminationAttachment(att);
+    }
+    if (Object.keys(frozen).length > 0) contaminationByClosedRow = frozen;
+  } catch {
+    contaminationByClosedRow = undefined;
+  }
+  await writeResultsSurface(fresh, computedAt, tenantId, contaminationByClosedRow);
 }
 
 /**
