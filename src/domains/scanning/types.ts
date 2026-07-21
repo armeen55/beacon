@@ -97,51 +97,6 @@ export type ScanSettings = {
   enabled: boolean;
 };
 
-export const DEFAULT_SCAN_SETTINGS: ScanSettings = {
-  preferredHour: 9,
-  timezone: "America/Los_Angeles",
-  scope: "full",
-  enabled: true,
-};
-
-export const FINDING_TYPE_LABELS: Record<FindingType, string> = {
-  title_changed: "Title changed",
-  meta_changed: "Meta description changed",
-  h1_changed: "H1 changed",
-  h2_changed: "H2 changed",
-  h3_changed: "H3 changed",
-  canonical_changed: "Canonical changed",
-  faq_changed: "Q&A count changed",
-  schema_changed: "Schema changed",
-  schema_entity_names_changed: "Schema entity names changed",
-  content_changed: "Content changed",
-  links_changed: "Internal links changed",
-  new_guardrail: "New issue detected",
-  guardrail_cleared: "Issue resolved",
-  deploy_mismatch: "Deploy mismatch",
-  unexpected_change: "Unexpected change",
-  page_added: "Page added",
-  page_removed: "Page removed",
-  stale_visibility: "Visibility data stale",
-  faq_without_schema: "FAQ visible, no schema",
-  schema_invalid: "Schema fails rich-result spec",
-  robots_txt_blocked: "robots.txt blocks AI crawler",
-  schema_missing_for_page_type: "Schema missing for page type",
-};
-
-export const FINDING_SEVERITY_LABELS: Record<FindingSeverity, string> = {
-  high: "High",
-  medium: "Medium",
-  low: "Low",
-};
-
-export const FINDING_PRIORITY_LABELS: Record<FindingPriority, string> = {
-  critical: "Critical",
-  important: "Important",
-  minor: "Minor",
-  informational: "FYI",
-};
-
 export const FINDING_PRIORITY_ORDER: Record<FindingPriority, number> = {
   critical: 0,
   important: 1,
@@ -149,9 +104,3 @@ export const FINDING_PRIORITY_ORDER: Record<FindingPriority, number> = {
   informational: 3,
 };
 
-export const PROMOTION_STATUS_LABELS: Record<PromotionStatus, string> = {
-  none: "Not promoted",
-  changelog: "In changelog",
-  secondary_note: "Secondary note",
-  history_only: "History only",
-};

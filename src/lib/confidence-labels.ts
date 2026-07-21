@@ -18,10 +18,6 @@ export const REC_CONFIDENCE_LABEL: Record<string, string> = {
   low: "Early data",
 };
 
-export function recConfidenceLabel(confidence: string): string {
-  return REC_CONFIDENCE_LABEL[confidence] ?? confidence;
-}
-
 // ---------------------------------------------------------------------------
 // Attribution confidence → display
 // ---------------------------------------------------------------------------
@@ -33,10 +29,6 @@ export const ATTRIBUTION_CONFIDENCE_LABEL: Record<string, string> = {
   low: "Weak match",
   uncertain: "Unclear",
 };
-
-export function attributionConfidenceLabel(confidence: string): string {
-  return ATTRIBUTION_CONFIDENCE_LABEL[confidence] ?? confidence;
-}
 
 // ---------------------------------------------------------------------------
 // Change verdict → display
@@ -51,33 +43,6 @@ export const CHANGE_VERDICT_LABEL: Record<string, string> = {
   negative: "Decline detected",
   too_early: "Too early to tell",
   pending: "Not rated",
-};
-
-export function changeVerdictDisplayLabel(verdict: string): string {
-  return CHANGE_VERDICT_LABEL[verdict] ?? String(verdict);
-}
-
-// ---------------------------------------------------------------------------
-// Brief verdict → display
-// ---------------------------------------------------------------------------
-
-export const BRIEF_VERDICT_LABEL: Record<string, string> = {
-  validated: "Positive trend",
-  partially_validated: "Mixed signal",
-  not_validated: "No signal yet",
-  mixed: "Mixed",
-  pending: "Not rated",
-};
-
-// ---------------------------------------------------------------------------
-// Evidence tier → display
-// ---------------------------------------------------------------------------
-
-export const EVIDENCE_TIER_LABEL: Record<string, string> = {
-  high: "Strong signal",
-  medium: "Mixed signals",
-  low: "Limited data",
-  speculative: "Hunch",
 };
 
 // ---------------------------------------------------------------------------
@@ -112,6 +77,3 @@ export const EXPERIMENT_STATUS_LABEL: Record<string, string> = {
   dropped: "Dropped",
 };
 
-export function experimentStatusLabel(status: string): string {
-  return EXPERIMENT_STATUS_LABEL[status] ?? status;
-}

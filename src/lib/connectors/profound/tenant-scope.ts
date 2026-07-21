@@ -60,9 +60,3 @@ const SCOPES: Readonly<Record<string, ProfoundTenantScope>> = {
 export function getProfoundTenantScope(tenantId: string): ProfoundTenantScope | null {
   return SCOPES[tenantId] ?? null;
 }
-
-/** Topic filter for queryProfoundReport / pullProfoundAnswers (verified shape:
- *  field "topic", operator "is", value = topic UUID). */
-export function profoundTopicFilter(scope: ProfoundTenantScope): ReadonlyArray<{ field: string; operator: string; value: string }> {
-  return scope.topicId ? [{ field: "topic", operator: "is", value: scope.topicId }] : [];
-}

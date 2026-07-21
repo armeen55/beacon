@@ -29,15 +29,11 @@ import type { Result } from "@/domains/results/types";
 import type { ChangelogEntry } from "@/domains/changelog/types";
 import type { Opportunity } from "@/domains/opportunities/types";
 import type { Competitor } from "@/domains/competitors/types";
-import type { ImportRun } from "@/lib/import/types";
 import type { Finding } from "@/domains/scanning/types";
 import type { PageEntity, PageSnapshot } from "@/domains/pages/types";
 import type { ObservationRun } from "@/domains/observations/types";
 import type { DailyMetricSnapshot } from "@/domains/daily-metric-snapshots/types";
 import type { ChangeOutcome } from "@/domains/attribution/change-outcome";
-import type { ChangeContract } from "@/domains/changelog/change-contract";
-import type { GuardrailAlert } from "@/domains/pages/guardrails";
-import type { EventDecision, CandidateLink } from "@/domains/attribution/types";
 
 // ---------------------------------------------------------------------------
 // Generic filter
@@ -170,12 +166,6 @@ export async function getCompetitorsForTenant(
   );
 }
 
-export async function getImportRunsForTenant(
-  tenantId: string,
-): Promise<ImportRun[]> {
-  return filterByTenant(await readStore<ImportRun>("import-runs"), tenantId);
-}
-
 export async function getFindingsForTenant(
   tenantId: string,
 ): Promise<Finding[]> {
@@ -230,38 +220,3 @@ export async function getOutcomesForTenant(
   );
 }
 
-export async function getChangeContractsForTenant(
-  tenantId: string,
-): Promise<ChangeContract[]> {
-  return filterByTenant(
-    await readStore<ChangeContract>("change-contracts"),
-    tenantId,
-  );
-}
-
-export async function getGuardrailsForTenant(
-  tenantId: string,
-): Promise<GuardrailAlert[]> {
-  return filterByTenant(
-    await readStore<GuardrailAlert>("page-guardrails"),
-    tenantId,
-  );
-}
-
-export async function getEventDecisionsForTenant(
-  tenantId: string,
-): Promise<EventDecision[]> {
-  return filterByTenant(
-    await readStore<EventDecision>("event-decisions"),
-    tenantId,
-  );
-}
-
-export async function getCandidateLinksForTenant(
-  tenantId: string,
-): Promise<CandidateLink[]> {
-  return filterByTenant(
-    await readStore<CandidateLink>("candidate-links"),
-    tenantId,
-  );
-}

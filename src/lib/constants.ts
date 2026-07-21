@@ -21,13 +21,6 @@ export const PLATFORM_LABELS: Record<Platform, string> = {
 export const PRIORITIES = ["critical", "high", "medium", "low"] as const;
 export type Priority = (typeof PRIORITIES)[number];
 
-export const PRIORITY_LABELS: Record<Priority, string> = {
-  critical: "Critical",
-  high: "High",
-  medium: "Medium",
-  low: "Low",
-};
-
 export const IMPACT_LEVELS = ["high", "medium", "low"] as const;
 export type ImpactLevel = (typeof IMPACT_LEVELS)[number];
 
@@ -53,19 +46,6 @@ export const OPPORTUNITY_STATUSES = [
 ] as const;
 export type OpportunityStatus = (typeof OPPORTUNITY_STATUSES)[number];
 
-export const OPPORTUNITY_STATUS_LABELS: Record<OpportunityStatus, string> = {
-  new: "New",
-  queued: "Queued",
-  executing: "Executing",
-  validating: "Validating",
-  partially_captured: "Partially Captured",
-  captured: "Captured",
-  regressed: "Regressed",
-  monitoring: "Monitoring",
-  deferred: "Deferred",
-  closed: "Closed",
-};
-
 export const OPPORTUNITY_SOURCES = [
   "manual_audit",
   "tool_alert",
@@ -76,15 +56,6 @@ export const OPPORTUNITY_SOURCES = [
 ] as const;
 export type OpportunitySource = (typeof OPPORTUNITY_SOURCES)[number];
 
-export const OPPORTUNITY_SOURCE_LABELS: Record<OpportunitySource, string> = {
-  manual_audit: "Manual Audit",
-  tool_alert: "Tool Alert",
-  competitor_watch: "Competitor Watch",
-  ai_suggestion: "AI Suggestion",
-  brief_discovery: "Brief Discovery",
-  result_analysis: "Result Analysis",
-};
-
 export const CONFIDENCE_LEVELS = [
   "high",
   "medium",
@@ -93,13 +64,6 @@ export const CONFIDENCE_LEVELS = [
 ] as const;
 export type ConfidenceLevel = (typeof CONFIDENCE_LEVELS)[number];
 
-export const CONFIDENCE_LEVEL_LABELS: Record<ConfidenceLevel, string> = {
-  high: "Strong signal",
-  medium: "Mixed signals",
-  low: "Limited data",
-  speculative: "Hunch",
-};
-
 export const CLOSE_REASONS = [
   "dismissed",
   "lost",
@@ -107,13 +71,6 @@ export const CLOSE_REASONS = [
   "irrelevant",
 ] as const;
 export type CloseReason = (typeof CLOSE_REASONS)[number];
-
-export const CLOSE_REASON_LABELS: Record<CloseReason, string> = {
-  dismissed: "Dismissed",
-  lost: "Lost",
-  superseded: "Superseded",
-  irrelevant: "Irrelevant",
-};
 
 export const SCORE_LABELS = [
   "act_now",
@@ -124,14 +81,6 @@ export const SCORE_LABELS = [
 ] as const;
 export type ScoreLabel = (typeof SCORE_LABELS)[number];
 
-export const SCORE_LABEL_DISPLAY: Record<ScoreLabel, string> = {
-  act_now: "Act Now",
-  strong: "Strong",
-  moderate: "Moderate",
-  low: "Low",
-  deferred: "Deferred",
-};
-
 export const THREAT_LEVELS = [
   "none",
   "low",
@@ -141,14 +90,6 @@ export const THREAT_LEVELS = [
 ] as const;
 export type ThreatLevel = (typeof THREAT_LEVELS)[number];
 
-export const THREAT_LEVEL_LABELS: Record<ThreatLevel, string> = {
-  none: "None",
-  low: "Low",
-  medium: "Medium",
-  high: "High",
-  critical: "Critical",
-};
-
 export const BRIEF_STATUSES = [
   "draft",
   "approved",
@@ -157,14 +98,6 @@ export const BRIEF_STATUSES = [
   "blocked",
 ] as const;
 export type BriefStatus = (typeof BRIEF_STATUSES)[number];
-
-export const BRIEF_STATUS_LABELS: Record<BriefStatus, string> = {
-  draft: "Draft",
-  approved: "Approved",
-  in_progress: "In Progress",
-  completed: "Completed",
-  blocked: "Blocked",
-};
 
 export const BRIEF_TYPES = [
   "page_rebuild",
@@ -177,16 +110,6 @@ export const BRIEF_TYPES = [
 ] as const;
 export type BriefType = (typeof BRIEF_TYPES)[number];
 
-export const BRIEF_TYPE_LABELS: Record<BriefType, string> = {
-  page_rebuild: "Rebuild page",
-  new_page: "New page",
-  schema_fix: "Schema / structured data",
-  content_update: "Content refresh",
-  citation_campaign: "Citation push",
-  technical_fix: "Technical fix",
-  off_page: "Off-site work",
-};
-
 export const EFFORT_LEVELS = [
   "trivial",
   "small",
@@ -195,14 +118,6 @@ export const EFFORT_LEVELS = [
   "epic",
 ] as const;
 export type EffortLevel = (typeof EFFORT_LEVELS)[number];
-
-export const EFFORT_LEVEL_LABELS: Record<EffortLevel, string> = {
-  trivial: "Trivial",
-  small: "Small",
-  medium: "Medium",
-  large: "Large",
-  epic: "Epic",
-};
 
 export const CHECKLIST_ITEM_STATUSES = [
   "pending",
@@ -214,13 +129,6 @@ export type ChecklistItemStatus = (typeof CHECKLIST_ITEM_STATUSES)[number];
 
 export const OUTCOME_VERDICTS = ["pending", "hit", "partial", "missed"] as const;
 export type OutcomeVerdict = (typeof OUTCOME_VERDICTS)[number];
-
-export const OUTCOME_VERDICT_LABELS: Record<OutcomeVerdict, string> = {
-  pending: "Pending",
-  hit: "Hit",
-  partial: "Partial",
-  missed: "Missed",
-};
 
 export const SIGNAL_TYPES = [
   "faq",
@@ -235,19 +143,6 @@ export const SIGNAL_TYPES = [
   "service_page",
 ] as const;
 export type SignalType = (typeof SIGNAL_TYPES)[number];
-
-export const SIGNAL_TYPE_LABELS: Record<SignalType, string> = {
-  faq: "FAQ content",
-  content: "On-page copy",
-  technical: "Technical / site",
-  page: "Page launch",
-  citation: "Citations / listings",
-  review: "Reviews program",
-  lead_form: "Lead capture",
-  off_page_seo: "Off-site / authority",
-  measurement: "Tracking & measurement",
-  service_page: "Service page",
-};
 
 export const ASSET_TYPES = [
   "homepage",
@@ -314,16 +209,5 @@ export const METRIC_DIRECTION: Record<
   organic_clicks: "higher_is_better",
   ai_referrals: "higher_is_better",
   form_submissions: "higher_is_better",
-};
-
-export const METRIC_UNITS: Record<MetricType, string> = {
-  visibility_rank: "",
-  citation_share: "%",
-  mention_count: "",
-  share_of_voice: "%",
-  average_position: "",
-  organic_clicks: "",
-  ai_referrals: "",
-  form_submissions: "",
 };
 

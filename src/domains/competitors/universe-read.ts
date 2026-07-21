@@ -131,12 +131,6 @@ export async function loadCompetitorUniverseRuntime(): Promise<CompetitorUnivers
   });
 }
 
-export function activeConfiguredDomainSet(
-  runtime: CompetitorUniverseRuntime
-): Set<string> {
-  return new Set(Object.keys(runtime.domainToLabel));
-}
-
 /** Shape matches `GapLedgerCompetitorUniverseContext` (avoid importing gap-ledger here). */
 export function competitorUniverseForGapLedger(
   runtime: CompetitorUniverseRuntime

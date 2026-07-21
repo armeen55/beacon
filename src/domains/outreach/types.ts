@@ -17,17 +17,6 @@ export type OutreachLeadSource =
 
 export type OutreachStatus = "draft" | "ready" | "sent" | "replied" | "won" | "dead";
 
-/** One candidate outreach target, before a pitch is drafted. */
-export type OutreachLead = {
-  /** Stable id derived from targetDomain + targetUrl (dedupe key). */
-  id: string;
-  targetDomain: string;
-  targetUrl: string;
-  leadSource: OutreachLeadSource;
-  /** Named, honest evidence line - why this domain/url is a real lead. */
-  evidence: string;
-};
-
 /** A persisted row in outreach_pipeline. Mirrors the migration columns. */
 export type OutreachPipelineRow = {
   tenantId: string;
@@ -43,6 +32,3 @@ export type OutreachPipelineRow = {
   lastEventAt: string;
   createdAt: string;
 };
-
-/** Silence window before a sent pitch is eligible for a queued follow-up draft. */
-export const OUTREACH_FOLLOWUP_SILENCE_DAYS = 7;

@@ -95,19 +95,6 @@ export async function readPushLedgerForTenant(tenantId: string): Promise<PushLed
   return (await readPushLedger()).filter((e) => e.tenant_id === tenantId);
 }
 
-/** Durable read of the whole ledger (all tenants) for the operator diagnostics
- *  view. Supabase first, file fallback. */
-export async function readPushLedgerDurable(): Promise<PushLedgerEntry[]> {
-  try {
-    const admin = getSupabaseAdmin();
-    const { data, error } = await admin.from(LEDGER_TABLE).select("*");
-    if (!error) return (data ?? []) as PushLedgerEntry[];
-  } catch {
-    // No Supabase env → file fallback.
-  }
-  return readPushLedger();
-}
-
 /** Append to the file ledger (fallback path + local parity). */
 async function appendPushLedgerFile(entry: PushLedgerEntry): Promise<void> {
   const all = await readPushLedger();
