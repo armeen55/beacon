@@ -9,7 +9,8 @@
  * and build-canonical-changes.test.ts already use for CanonicalChange fixtures).
  */
 import { describe, expect, it } from "vitest";
-import { dedupeIdentity, strongerChange, dedupeChanges, demoteUnsized, reconcileCannibalizationRationale, applySafeRedirectPlans, buildRedirectSafetyEvidence, dropBoardDuplicateNewPageRows, applyOpportunityFreshness, abstentionEvidenceFor, partitionActionableByEvidence, seasonalWaitPathsFrom, applySeasonalWaitPosture } from "./changes-data";
+import { dedupeIdentity, strongerChange, dedupeChanges, demoteUnsized, reconcileCannibalizationRationale, applySafeRedirectPlans, buildRedirectSafetyEvidence, dropBoardDuplicateNewPageRows, applyOpportunityFreshness, abstentionEvidenceFor, partitionActionableByEvidence, seasonalWaitPathsFrom, applySeasonalWaitPosture, sanitizeSurfaceComputedAt } from "./changes-data";
+import { checkedAgoLabel } from "@/components/data/receipt-line";
 import type { SeasonalQuery } from "@/domains/seasonal/seasonality";
 import { cannibalizationDirective } from "@/domains/changes/decide-action";
 import { WATCHING_SENTENCE, heldForEvidenceLine } from "@/domains/recommendations/abstention";
@@ -749,5 +750,32 @@ describe("one-posture-per-page: seasonal wait (Today) never coexists with an act
       expect(actNow.map((c) => c.pagePath)).not.toContain("/iran-flags/flag-history");
       expect(actNow.map((c) => c.pagePath)).toContain("/persian-food");
     });
+  });
+});
+
+describe("sanitizeSurfaceComputedAt - the date-bomb guard (2026-07-20)", () => {
+  const NOW = Date.parse("2026-07-20T12:00:00Z");
+
+  it("passes a real recent stamp through so the age line still renders", () => {
+    const iso = "2026-07-20T11:30:00Z";
+    expect(sanitizeSurfaceComputedAt(iso)).toBe(iso);
+    // and it renders a sane age, never a five-digit day count
+    expect(checkedAgoLabel(sanitizeSurfaceComputedAt(iso), NOW)).toBe("30 minutes ago");
+  });
+
+  it("nulls the epoch-0 stale sentinel (invalidateChangesSurface writes new Date(0)) so the age line is OMITTED", () => {
+    const epoch0 = new Date(0).toISOString();
+    // Before the guard, checkedAgoLabel(epoch0) rendered "20655 days ago".
+    expect(checkedAgoLabel(epoch0, NOW)).toMatch(/\d{5} days ago/);
+    // The guard turns it into null, so the page omits the line entirely.
+    expect(sanitizeSurfaceComputedAt(epoch0)).toBeNull();
+  });
+
+  it("nulls any pre-2026 or unparseable stamp (never a real ranking time)", () => {
+    expect(sanitizeSurfaceComputedAt("2025-12-31T23:59:59Z")).toBeNull();
+    expect(sanitizeSurfaceComputedAt("1970-01-02T00:00:00Z")).toBeNull();
+    expect(sanitizeSurfaceComputedAt("not-a-date")).toBeNull();
+    expect(sanitizeSurfaceComputedAt(null)).toBeNull();
+    expect(sanitizeSurfaceComputedAt(undefined)).toBeNull();
   });
 });

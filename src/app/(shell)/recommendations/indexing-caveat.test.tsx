@@ -107,6 +107,23 @@ function renderV2Card(row: RecommendationActionRow): string {
   );
 }
 
+// Held-for-review posture: an armed site would pass onAcceptAndPublish (one-click
+// live publish). An indexing directive must SUPPRESS even that.
+function renderV2CardArmed(row: RecommendationActionRow): string {
+  return renderToStaticMarkup(
+    <RecommendationV2Card row={row} onAccept={() => {}} onAcceptAndPublish={() => {}} />,
+  );
+}
+
+function indexingRow(editActionType: ActionType): RecommendationActionRow {
+  return makeRow({
+    editActionType,
+    actionType: "review_decision",
+    title: "Remove the noindex tag from the Homepage",
+    proposedText: 'Remove "noindex" from the robots meta tag on https://example.com/.',
+  });
+}
+
 // ── Tests ────────────────────────────────────────────────────────────────
 
 describe("#310 — indexing-safety caveat on the v2 card surface (?v2=1)", () => {
@@ -176,5 +193,53 @@ describe("#310 — indexing-safety caveat on the v2 card surface (?v2=1)", () =>
     );
     expect(html).not.toContain(INDEXING_DIRECTIVE_CAVEAT);
     expect(html).not.toContain("data-recommendation-v2-indexing-caveat");
+  });
+});
+
+describe("held-for-review posture — an indexing directive is NEVER a one-tap change", () => {
+  const INDEXING: ActionType[] = ["fix_noindex", "fix_robots", "fix_canonical", "fix_status_code"];
+
+  for (const t of INDEXING) {
+    it(`${t}: suppresses the one-tap Accept CTA even when onAccept is wired`, () => {
+      const html = renderV2Card(indexingRow(t));
+      // The one-tap Accept button must NOT render for an indexing directive.
+      expect(html).not.toContain('data-recommendation-v2-cta="accept"');
+      // The review link IS present, so the owner is routed to the confirm surface.
+      expect(html).toContain('data-recommendation-v2-cta="review"');
+      expect(html).toContain("Review");
+    });
+
+    it(`${t}: suppresses one-click Accept & publish even when the site is armed`, () => {
+      const html = renderV2CardArmed(indexingRow(t));
+      // Neither the armed publish button nor the staged accept button may render.
+      expect(html).not.toContain('data-recommendation-v2-cta="accept-and-publish"');
+      expect(html).not.toContain('data-recommendation-v2-cta="accept"');
+      // The hold notice still renders.
+      expect(html).toContain(INDEXING_DIRECTIVE_CAVEAT);
+    });
+  }
+
+  it("CONTROL: a benign directive with onAccept DOES render the one-tap Accept CTA", () => {
+    const html = renderV2Card(
+      makeRow({
+        editActionType: "add_faq",
+        actionType: "add_faq",
+        title: "Add an FAQ to the Homepage",
+        proposedText: "What areas do you serve? We serve the whole region.",
+      }),
+    );
+    expect(html).toContain('data-recommendation-v2-cta="accept"');
+  });
+
+  it("CONTROL: a benign directive on an armed site DOES render Accept & publish", () => {
+    const html = renderV2CardArmed(
+      makeRow({
+        editActionType: "add_faq",
+        actionType: "add_faq",
+        title: "Add an FAQ to the Homepage",
+        proposedText: "What areas do you serve? We serve the whole region.",
+      }),
+    );
+    expect(html).toContain('data-recommendation-v2-cta="accept-and-publish"');
   });
 });

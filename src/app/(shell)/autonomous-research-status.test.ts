@@ -64,17 +64,19 @@ describe("autonomousResearchStatusLine", () => {
     expect(line).toContain("10 competitor pages");
     expect(line).toContain("8 final Google winners");
     expect(line).toContain("5 AI topics");
-    expect(line).toContain("6 moves ready to review");
+    expect(line).toContain("6 drafts waiting for your review");
   });
 
   it("states a partial pass and safe retry honestly", () => {
     expect(autonomousResearchStatusLine(receipt(false))).toContain("retry safely");
   });
 
-  it("states plainly when the paid research connector is unavailable", () => {
+  it("states plainly when the paid research connector is unavailable, with no vendor name", () => {
     const row = receipt(true);
     row.summary = { ...summary, dataForSeoStatus: "disabled" };
-    expect(autonomousResearchStatusLine(row)).toContain("DataForSEO is not connected");
+    const line = autonomousResearchStatusLine(row);
+    expect(line).toContain("Competitor keyword mining is off right now.");
+    expect(line).not.toMatch(/dataforseo/i);
   });
 
   it("distinguishes an earlier same-day AI poll from zero new work", () => {

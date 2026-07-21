@@ -822,9 +822,13 @@ export function isIndexingDirectiveActionType(
 }
 
 /**
- * Plain-English warning shown next to an indexing/crawling directive before
- * a non-technical owner pastes it. Operator-locked copy (#310). Kept here so
- * the customer surface and any test reference the same string.
+ * Plain-English HOLD framing shown next to an indexing/crawling directive.
+ * Operator-locked copy (#310; destructive-action audit 2026-07-20). This is a
+ * HELD-FOR-REVIEW notice, not a paste-ready caption: an indexing directive is
+ * never presented as a casual one-tap change (the card suppresses the inline
+ * Accept CTA for these types via `isIndexingDirectiveActionType`, so the owner
+ * must open the review before acting). Kept here so the customer surface and
+ * every test reference the same string. Beacon voice, no dashes.
  */
 export const INDEXING_DIRECTIVE_CAVEAT =
-  "This changes how search engines crawl or index your site. Apply it exactly as shown, or ask a developer — a wrong value here can remove your pages from Google.";
+  "This changes how search engines index this page. Double check the exact value before you touch it; a wrong value can remove this page from Google, so I hold it for review instead of making it one tap.";

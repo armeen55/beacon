@@ -60,7 +60,7 @@ function change(over: Partial<CanonicalChange> = {}): CanonicalChange {
 describe("rankReasonAt - one plain reason a row sits where it does", () => {
   it("names first + demand + winnability from move.demand", () => {
     const r = rankReasonAt(change({ evidenceStrength: "strong" }), { demand: 1200, demandBasis: "gsc" }, 1);
-    expect(r).toBe("This is first because it has real demand (1.2k times shown on Google a month) and you can win it now.");
+    expect(r).toBe("This is first because it has real demand (1.2k times shown on Google in the last 90 days) and you can win it now.");
   });
 
   it("says 'near the top' for ranks 2-3 and 'on the list' beyond", () => {
