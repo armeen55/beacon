@@ -1246,22 +1246,6 @@ describe("Phase 6A.1.11 — source-scan invariants", () => {
     expect(offenders).toEqual([]);
   });
 
-  it("CLI script exists and contains expected hooks", () => {
-    const scriptPath = resolve(
-      __dirname,
-      "../../../scripts/generate-specific-edits.ts",
-    );
-    const src = readFileSync(scriptPath, "utf8");
-    expect(src).toMatch(/runProviderAndPersist/);
-    expect(src).toMatch(/deterministicProvider/);
-    expect(src).toMatch(/--smoke/);
-    expect(src).toMatch(/--packet=/);
-    expect(src).toMatch(/--write/);
-    // No LLM SDK imports.
-    expect(src).not.toMatch(/from\s+["']openai["']/);
-    expect(src).not.toMatch(/from\s+["']@anthropic-ai\/sdk["']/);
-  });
-
   it("dual-write helper is registered with the right onConflict", () => {
     const dualWritePath = resolve(
       __dirname,

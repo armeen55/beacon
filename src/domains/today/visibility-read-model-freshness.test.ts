@@ -10,8 +10,6 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
 
 import {
   computeFreshness,
@@ -169,30 +167,9 @@ describe("buildTodayReadModelCacheTag — tenant scoping", () => {
 // scan block lived here, pinning the native-poll cache invalidation. The
 // in-house native AEO polling engine (run-poll.ts) was deleted — Profound is
 // now the sole AEO source — so the block is gone with it. The freshness
-// pure-function + cache-tag pins above, and the backfill invalidation pin
-// below, are unaffected.
-
-describe("backfill-snapshot-extensions.ts — post-write invalidation", () => {
-  const SRC = readFileSync(
-    resolve(__dirname, "../../../scripts/backfill-snapshot-extensions.ts"),
-    "utf8",
-  );
-
-  it("revalidates the today-readmodel tag after `--commit` writes succeed", () => {
-    expect(SRC).toMatch(/buildTodayReadModelCacheTag/);
-    expect(SRC).toMatch(
-      /revalidateTag\(\s*buildTodayReadModelCacheTag\(t\)\s*,\s*["']default["']\s*\)/,
-    );
-  });
-
-  it("invalidation runs ONLY when `written > 0` (not on a no-op dry-run)", () => {
-    // The block sits inside `if (written > 0) {`. We check the
-    // structural ordering: the literal `if (written > 0)` appears
-    // BEFORE the revalidateTag call.
-    const guardIdx = SRC.indexOf("if (written > 0)");
-    const callIdx = SRC.indexOf("revalidateTag(buildTodayReadModelCacheTag(t)");
-    expect(guardIdx).toBeGreaterThan(-1);
-    expect(callIdx).toBeGreaterThan(-1);
-    expect(callIdx).toBeGreaterThan(guardIdx);
-  });
-});
+// pure-function + cache-tag pins above are unaffected.
+//
+// PIVOT (2026-07-20): the `backfill-snapshot-extensions.ts — post-write
+// invalidation` source-scan block that lived here pinned a one-time backfill
+// script (scripts/backfill-snapshot-extensions.ts), which has since been
+// deleted. Removed along with it.

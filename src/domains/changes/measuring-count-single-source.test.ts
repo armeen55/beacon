@@ -105,7 +105,6 @@ describe("measuring count - one source, every Lane A consumer agrees", () => {
 describe("static guard - no displayed count derives from the raw verdict string", () => {
   const noRawMeasuring = [
     "src/domains/scoreboard/scoreboard.ts",
-    "src/app/(shell)/today-proof-sections.tsx",
     "src/domains/experiments/daily-experiment-dashboard.ts",
     "src/app/(shell)/changes/proof-ledger-strip.tsx",
   ];

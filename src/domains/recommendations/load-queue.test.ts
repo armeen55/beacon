@@ -379,10 +379,6 @@ const PAGE_PATH = resolve(
   __dirname,
   "../../app/(shell)/recommendations/page.tsx",
 );
-const CLI_PATH = resolve(
-  __dirname,
-  "../../../scripts/build-edits-for-queue.ts",
-);
 const LOAD_QUEUE_PATH = resolve(__dirname, "./load-queue.ts");
 
 describe("Phase 6A.1.14 — orchestration is shared between page + CLI", () => {
@@ -410,66 +406,9 @@ describe("Phase 6A.1.14 — orchestration is shared between page + CLI", () => {
     expect(src).not.toMatch(/getRepository\(\)\.getPageSnapshots\(/);
   });
 
-  it("CLI imports loadLiveRecommendationQueue + buildPacketForRec from the SAME module the page uses", () => {
-    const src = readFileSync(CLI_PATH, "utf8");
-    expect(src).toMatch(
-      /from\s+["']\.\.\/src\/domains\/recommendations\/load-queue["']/,
-    );
-    expect(src).toMatch(/loadLiveRecommendationQueue/);
-    expect(src).toMatch(/buildPacketForRec/);
-  });
-
-  it("CLI uses the same persistence helper as Phase 11", () => {
-    const src = readFileSync(CLI_PATH, "utf8");
-    expect(src).toMatch(
-      /from\s+["']\.\.\/src\/domains\/recommendations\/recommended-edits-persistence["']/,
-    );
-    expect(src).toMatch(/runProviderAndPersist/);
-  });
 });
 
-// ── 3. CLI surface invariants ─────────────────────────────────────────────
-
-describe("Phase 6A.1.14 — CLI surface", () => {
-  const SRC = readFileSync(CLI_PATH, "utf8");
-
-  it("supports --list / --rec-id / --all / --write flags", () => {
-    expect(SRC).toMatch(/"--list"/);
-    expect(SRC).toMatch(/"--rec-id="/);
-    expect(SRC).toMatch(/"--all"/);
-    expect(SRC).toMatch(/"--write"/);
-  });
-
-  it("default mode is DRY-RUN (write requires explicit --write)", () => {
-    expect(SRC).toMatch(/dryRun\s*=\s*!flags\.write/);
-  });
-
-  it("reports stableKey + target URL + target element count + accepted/rejected/persisted per rec", () => {
-    expect(SRC).toMatch(/rec=\$\{report\.stableKey\}/);
-    expect(SRC).toMatch(/target_url=\$\{report\.targetUrl\}/);
-    expect(SRC).toMatch(/target_element_count=\$\{report\.targetElementCount\}/);
-    expect(SRC).toMatch(/generated=\$\{report\.generated\}/);
-    expect(SRC).toMatch(/accepted=\$\{report\.accepted\}/);
-    expect(SRC).toMatch(/rejected=\$\{report\.rejected\}/);
-    expect(SRC).toMatch(/persisted=\$\{report\.persisted\}/);
-  });
-
-  it("flags empty page_element_inventory honestly (does not pretend success)", () => {
-    expect(SRC).toMatch(/EMPTY/);
-    expect(SRC).toMatch(/not a real-world signal/);
-  });
-
-  it("does NOT import any LLM SDK", () => {
-    expect(SRC).not.toMatch(/from\s+["']openai["']/);
-    expect(SRC).not.toMatch(/from\s+["']@anthropic-ai\/sdk["']/);
-  });
-
-  it("requires exactly one mode flag (--list / --rec-id / --all)", () => {
-    expect(SRC).toMatch(/Pass only ONE mode flag/);
-  });
-});
-
-// ── 4. No-route-render-generation invariant (CLI must not be route-imported) ──
+// ── 3. No-route-render-generation invariant (CLI must not be route-imported) ──
 
 function walkSync(dir: string, predicate: (p: string) => boolean): string[] {
   const out: string[] = [];

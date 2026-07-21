@@ -152,12 +152,6 @@ const EXTRA_ROUTE_TITLES: RouteTitleEntry[] = [
   { prefix: "/settings/exit-gates", title: "Sign-offs", parentHref: "/settings" },
   { prefix: "/settings/health", title: "Source health", parentHref: "/settings" },
   { prefix: "/diagnostics", title: "Diagnostics" },
-  // P23 (2026-07-03) - the internal reports pack (operator-only, hidden from
-  // nav like /diagnostics; titled here so the header names it plainly instead
-  // of echoing the raw slug).
-  { prefix: "/reports", title: "Monthly report", childTitle: "Export a win" },
-  { prefix: "/reports/win", title: "Export a win", parentHref: "/reports", childTitle: "Export a win" },
-  { prefix: "/review", title: "Attribution review", parentHref: "/diagnostics" },
   { prefix: "/local", title: "Local presence" },
   { prefix: "/observations", title: "Scan report", parentHref: "/settings/history", childTitle: "Scan report" },
   { prefix: "/topics/opportunity", title: "Opportunity detail", parentHref: "/prompts", childTitle: "Opportunity detail" },
