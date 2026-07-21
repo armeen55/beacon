@@ -582,9 +582,19 @@ export async function buildTodayMovesData(
         [] as EvidencePacket[],
       ),
       repo.getRecommendationResponses().catch(() => []),
-      // Previously-generated + persisted AI drafts (answer block / FAQ schema) so
-      // they survive reload. Degrade-safe: empty map if the table isn't migrated.
-      withTimeout(getLatestMoveDrafts(tenantId), 4000, new Map<string, MoveDraftRow>()),
+      // Previously-generated + persisted AI drafts (answer block / FAQ schema) AND
+      // the persisted prepared_packs that ARE this surface's readiness (they feed
+      // persistedReadyPackByUrl -> every ready-pack attach + the row-existence orphan
+      // surfacing below). Degrade-safe: empty map if the table isn't migrated.
+      // Was 4s - the SAME "silently dropped every move's preparedStatus" trap the
+      // packets read above already had to escape: once the nightly enrichment moved
+      // onto the on-visit post-response cycle (cc743bf5), a COLD surface build runs
+      // this read CONCURRENT with that heavy enrichment (GA4/GSC/seasonal Supabase
+      // work), pushing a normally ~1s read past 4s. The empty-Map fallback then wipes
+      // ALL readiness at once (Ready -> 0). This is one bounded query with its own
+      // fail-soft; give it the same 30s cold-build budget the packets/graph reads it
+      // rides beside get, so a busy build never zeroes readiness. Don't disappear.
+      withTimeout(getLatestMoveDrafts(tenantId), 30000, new Map<string, MoveDraftRow>()),
       // Phase 2: the proof ledger → pages mid-measurement are HELD (a 2nd change to
       // a page under measurement contaminates the diff-in-diff). Fail-soft → [].
       withTimeout(loadShippedChanges(), 4000, [] as Awaited<ReturnType<typeof loadShippedChanges>>),
