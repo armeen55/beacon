@@ -10,6 +10,29 @@
 > Older entries (before 2026-07-01) are archived verbatim in `docs/archive/VERIFICATION_LOG_2026H1.md`.
 > That archive holds first-half-2026 history; this file holds 2026-07-01 onward.
 
+> 🟢 **2026-07-21 CORE 100K campaign, banks 1-6 deployed and exact-SHA verified (latest
+> `777c5b44`, production `dpl` confirmed via /api/version at every bank).** The operator's binding
+> mandate is a terminal ceiling of 100,000 combined production plus test TypeScript lines. Six
+> banks landed today: the dead LLM generation pipeline (943d404a); the detached science and
+> shadow-portfolio engines (821734ac); the unreachable outcome-attribution, off-site-authority,
+> and CallRail clusters (b13dbb47); the action-rows renderer collapsed onto the QA verdict path
+> (26da90a3); one verdict engine with the raw change log reading the measurement snapshot, plus
+> pages orphan retirement and small dead-code follow-ups (1392965f, 2967504d, 32e4fc24); the
+> trigger-promotion producer pipeline retired with cold start seeding through demand-graph
+> replenishment, taking eleven satellite domains with it (f4b7488f, minus 52,652 lines in one
+> bank); and the verification-fleet execution wave (777c5b44). A 42-agent finder-skeptic fleet
+> now pre-verifies every deletion; skeptics caught six false premises including importers hidden
+> by literal NUL bytes in six source files (now fixed with escape sequences). The shadcn
+> stylesheet is vendored (74f5e750) after its exports map 500ed every dev route. Campaign
+> metrics: combined 449,894 to 362,497 lines (production 244,365 to 198,700; tests 205,529 to
+> 163,797; cases 13,513 to 10,884). Every bank passed strict typecheck, the full hermetic suite,
+> and a production build before push, and production was verified on the exact SHA after.
+> Measurement truth, tenant isolation, publishing authority, Ready exactness, and the four core
+> surfaces are unchanged; persisted queue rows untouched. Next: checkpoint A at 350,000 combined
+> with the full signed-in production walk, then the persistence-model and routes phases from the
+> two recons now in flight.
+
+
 ## 2026-07-21 - Continuous-work window, second and final batch (099b158e, f5ab307c, 55d52b88)
 
 This entry closes the 2026-07-21 continuous-work window. All three deploys are exact-SHA verified

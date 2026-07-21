@@ -1,5 +1,27 @@
 # Beacon Verified State
 
+> 🟢 **2026-07-21 CORE 100K campaign in progress (banks 1-6 deployed, production exact-SHA
+> `777c5b44`).** Binding operator mandate: reduce the repository to at most 100,000 combined
+> production plus test TypeScript lines while the product stays exactly Today, Changes, Results,
+> Connections, minimal Settings, minimal onboarding, and the on-use background runner. Position:
+> combined 362,497 (production 198,700, tests 163,797, 10,884 cases), from 449,894 at the
+> campaign baseline this morning. Landed so far: the dead LLM generation pipeline, the detached
+> science engines, three unreachable domain clusters, the action-rows renderer collapse, the
+> attribution second verdict engine retirement (the raw change log now reads the same measurement
+> snapshot as the Results bands), the trigger-promotion producer retirement (cold start now seeds
+> through the same demand-graph replenishment every visit runs; eleven satellite trigger domains
+> went with it), and a verification-fleet execution wave. Every deletion is pre-verified by a
+> finder-skeptic agent fleet after two broken recon graphs and NUL-byte-hidden importers proved
+> naive greps unsafe; tsc plus the full hermetic suite plus a production build gate every bank,
+> and production is verified on the exact SHA after every push. Measurement truth (25
+> pre-protocol changes with directional caveats, confirmation_reads still zero until wave 1),
+> tenant isolation, publishing authority, and Ready exactness are unchanged.
+>
+> **Next 3 actions:** 1) Cross checkpoint A (350,000 combined) and run the full signed-in
+> production walk of the four surfaces. 2) Execute the persistence-model phase (Supabase-only
+> production writes, dead repository API columns) from the recon now in flight. 3) Execute the
+> routes/UI phase (non-core route retirement) from its recon.
+
 > 🟢 **2026-07-21 continuous-work window, second and final batch deployed and exact-SHA verified
 > (commits `099b158e`, `f5ab307c`, `55d52b88`, all exact-SHA verified, core routes healthy; the
 > window is now closed).** Results contamination verdicts for closed measurement windows now
