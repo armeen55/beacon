@@ -169,9 +169,6 @@ export function RecommendationDetailClient({
     row.detail.gscEvidenceLines,
     evGuard,
   );
-  // SEMrush removed Phase F.1 — always empty so the SEMrush evidence UI never
-  // renders (kept as a typed [] to avoid touching every downstream render site).
-  const semrushEvidenceLines = [] as typeof gscEvidenceLines;
   // 2026-06-15 — Microsoft Clarity friction evidence (rage-clicks / page
   // errors) + AI-answer gap evidence (white-label). Same [] guard; dormant
   // until those sources are connected.
@@ -220,7 +217,6 @@ export function RecommendationDetailClient({
     !!competitor ||
     gscDemandTile != null ||
     gscEvidenceLines.length > 0 ||
-    semrushEvidenceLines.length > 0 ||
     clarityEvidenceLines.length > 0 ||
     aeoEvidenceLines.length > 0;
 
@@ -411,26 +407,6 @@ export function RecommendationDetailClient({
                 key={line.key}
                 className="text-[13px] text-foreground/85 leading-relaxed"
                 data-recommendation-detail-gsc-evidence-line={line.key}
-              >
-                {line.detail ?? `${line.value} — ${line.label}`}
-              </li>
-            ))}
-          </ul>
-        )}
-        {/* 2026-06-15 follow-up — SEMrush "why this, why now": the specific
-            keyword, its monthly search volume, its difficulty (when known),
-            and the current rank. Rendered only when the SEMrush signal carried
-            a striking-distance keyword. Reuses the GSC list UI. */}
-        {semrushEvidenceLines.length > 0 && (
-          <ul
-            className="space-y-1.5 max-w-2xl"
-            data-recommendation-detail-semrush-evidence="true"
-          >
-            {semrushEvidenceLines.map((line) => (
-              <li
-                key={line.key}
-                className="text-[13px] text-foreground/85 leading-relaxed"
-                data-recommendation-detail-semrush-evidence-line={line.key}
               >
                 {line.detail ?? `${line.value} — ${line.label}`}
               </li>
@@ -632,18 +608,6 @@ export function RecommendationDetailClient({
               value={gscDemandTile.value}
               hint={gscDemandTile.hint}
               dataAttr="gsc-demand"
-            />
-          )}
-          {semrushEvidenceLines.length > 0 && (
-            <EvidenceTile
-              label="Keyword rankings"
-              value={`${semrushEvidenceLines.length}`}
-              hint={
-                semrushEvidenceLines.length === 1
-                  ? "1 ranked keyword grounds this recommendation."
-                  : `${semrushEvidenceLines.length} ranked keywords ground this recommendation.`
-              }
-              dataAttr="semrush"
             />
           )}
           {row.detail.evidenceDepth >= 4 && (

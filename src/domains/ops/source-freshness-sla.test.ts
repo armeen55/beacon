@@ -1,8 +1,9 @@
 /**
- * source-freshness-sla (Wave 3A D5 pin, 2026-07-10) - THE pin for the "5 healthy while AI is
- * 2 weeks old" leak. Health is judged against a per-source DATA-age SLA, not connection status:
- * overall is healthy ONLY when every REQUIRED source is inside its own SLA. GA4 is a removed
- * source (excluded from the tally); Wix is optional (never blocks).
+ * source-freshness-sla (Wave 3A D5 pin, 2026-07-10) - THE pin for the "5 healthy while a
+ * source is 2 weeks old" leak. Health is judged against a per-source DATA-age SLA, not
+ * connection status: overall is healthy ONLY when every REQUIRED source is inside its own
+ * SLA. GA4 is a removed source (excluded from the tally); Wix is optional (never blocks).
+ * (Profound removed 2026-07-20 on full account disconnect.)
  */
 import { describe, it, expect } from "vitest";
 
@@ -21,9 +22,8 @@ const ago = (days: number): string =>
   new Date(NOW.getTime() - days * 86_400_000).toISOString().slice(0, 10);
 
 describe("SOURCE_SLA - the reconciled per-source data-age table", () => {
-  it("gsc 3d, profound 21d, clarity 7d are required; ga4 removed; wix optional with no SLA", () => {
+  it("gsc 3d, clarity 7d are required; ga4 removed; wix optional with no SLA", () => {
     expect(SOURCE_SLA.gsc).toEqual({ slaMaxDataAgeDays: 3, required: true, removed: false });
-    expect(SOURCE_SLA.profound).toEqual({ slaMaxDataAgeDays: 21, required: true, removed: false });
     expect(SOURCE_SLA.clarity).toEqual({ slaMaxDataAgeDays: 7, required: true, removed: false });
     expect(SOURCE_SLA.ga4.removed).toBe(true);
     expect(SOURCE_SLA.ga4.required).toBe(false);
@@ -37,11 +37,6 @@ describe("classifySourceFreshness - each source against its own SLA", () => {
   it("gsc data 1 day old is healthy; 13 days old is stale", () => {
     expect(classifySourceFreshness({ source: "gsc", dataThroughDate: ago(1) }, NOW).state).toBe("healthy");
     expect(classifySourceFreshness({ source: "gsc", dataThroughDate: ago(13) }, NOW).state).toBe("stale");
-  });
-
-  it("profound tolerates 20 days (SLA 21) but not 22", () => {
-    expect(classifySourceFreshness({ source: "profound", dataThroughDate: ago(20) }, NOW).state).toBe("healthy");
-    expect(classifySourceFreshness({ source: "profound", dataThroughDate: ago(22) }, NOW).state).toBe("stale");
   });
 
   it("clarity tolerates 7 days but not 8", () => {
@@ -69,20 +64,18 @@ describe("overallFreshness - healthy only when every required source is in SLA",
   it("all required sources within SLA -> healthy, worst-through is the oldest required data date", () => {
     const overall = overallFreshness([
       cls("gsc", ago(1)),
-      cls("profound", ago(10)),
       cls("clarity", ago(2)),
       cls("ga4", ago(0)), // removed - excluded
       cls("wix", ago(30)), // optional - never blocks
     ]);
     expect(overall.healthy).toBe(true);
     expect(overall.stale).toHaveLength(0);
-    expect(overall.worstThrough).toBe(ago(10)); // profound is the oldest required source
+    expect(overall.worstThrough).toBe(ago(2)); // clarity is the oldest required source
   });
 
   it("a 13-day-stale GSC makes overall NOT healthy", () => {
     const overall = overallFreshness([
       cls("gsc", ago(13)),
-      cls("profound", ago(2)),
       cls("clarity", ago(1)),
     ]);
     expect(overall.healthy).toBe(false);
@@ -92,7 +85,6 @@ describe("overallFreshness - healthy only when every required source is in SLA",
   it("a removed GA4 with ancient data never blocks health, and never appears in the stale list", () => {
     const overall = overallFreshness([
       cls("gsc", ago(1)),
-      cls("profound", ago(2)),
       cls("clarity", ago(1)),
       cls("ga4", ago(999)),
     ]);
@@ -103,24 +95,23 @@ describe("overallFreshness - healthy only when every required source is in SLA",
   it("a required source with no data is not healthy", () => {
     const overall = overallFreshness([
       cls("gsc", ago(1)),
-      cls("profound", null),
-      cls("clarity", ago(1)),
+      cls("clarity", null),
     ]);
     expect(overall.healthy).toBe(false);
-    expect(overall.stale.map((s) => s.source)).toContain("profound");
+    expect(overall.stale.map((s) => s.source)).toContain("clarity");
   });
 });
 
 describe("sourceFreshnessLine - names the worst required data-through, never a bare count", () => {
   it("healthy line names the oldest through date", () => {
-    const overall = overallFreshness([cls("gsc", ago(1)), cls("profound", ago(3)), cls("clarity", ago(2))]);
+    const overall = overallFreshness([cls("gsc", ago(1)), cls("clarity", ago(2))]);
     expect(sourceFreshnessLine(overall, "Jul 12")).toBe(
       "Your key sources are current. The oldest data runs through Jul 12.",
     );
   });
 
   it("unhealthy line names the gap and the worst through date, no em or en dash", () => {
-    const overall = overallFreshness([cls("gsc", ago(13)), cls("profound", ago(2)), cls("clarity", ago(1))]);
+    const overall = overallFreshness([cls("gsc", ago(13)), cls("clarity", ago(1))]);
     const line = sourceFreshnessLine(overall, "Jul 2");
     expect(line).toContain("key source");
     expect(line).toContain("need");

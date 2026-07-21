@@ -31,7 +31,7 @@ const OUTREACH_PITCH_SYSTEM =
   'Return ONLY a JSON object: "subject" (<=80 chars, specific, no clickbait, no ALL CAPS), ' +
   '"body" (<=900 chars, plain first-person business English, references the REAL evidence provided, ' +
   "makes ONE clear ask, ends with a simple next step - no signature block, no placeholders like [Name]), " +
-  '"evidenceRefs" (array of {"source","detail"}, at least one, from the grounding; source one of gsc|ga4|clarity|profound|dataforseo|semrush|competitor_teardown|owned_snapshot|fanout), ' +
+  '"evidenceRefs" (array of {"source","detail"}, at least one, from the grounding; source one of gsc|ga4|clarity|profound|dataforseo|competitor_teardown|owned_snapshot|fanout), ' +
   '"confidence" ("high"|"medium"|"low"), "risks" (array of short strings). ' +
   "Ground the personalization ONLY in the evidence line provided - do NOT invent facts about the recipient's site, their traffic, their audience, or any statistic. No marketing language, no superlatives, no guarantees, no em-dashes. Be brief and respectful of their time.";
 

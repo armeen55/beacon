@@ -99,9 +99,6 @@ export const SEVERITY_BY_TRIGGER_SIGNAL: Readonly<Record<string, number>> = {
   // Present-but-broken structured data (scanner's own validator
   // output). Also earns the fix_ index-blocker bonus at >=medium.
   invalid_schema: 22,
-  // Third-party rank estimate (striking distance) — real signal,
-  // discounted vs first-party per the sourced weighting rule.
-  semrush_striking_distance: 20,
   // Article expectation on content pages — AEO enhancement, not a
   // click blocker.
   missing_schema_content: 18,
@@ -114,12 +111,6 @@ export const SEVERITY_BY_TRIGGER_SIGNAL: Readonly<Record<string, number>> = {
   gsc_decay: 26,
   // Breadcrumb on store products — enhancement, one-click pushable.
   missing_schema_store: 16,
-  // Two own pages splitting one keyword's equity — meaningful but
-  // operator-reviewed (third-party evidence + structural remedy).
-  semrush_cannibalization: 14,
-  // Net-new content territory (competitor-proven demand) — valuable
-  // but the most effortful play; operator-reviewed.
-  semrush_keyword_gap: 12,
 } as const;
 
 export const PAGE_IMPORTANCE_BY_PAGE_TYPE: Readonly<Record<PageType, number>> =

@@ -95,5 +95,3 @@ export function validateBlindHoldout(receipt: BlindHoldoutReceipt): BlindHoldout
   return { releaseEligible: reasons.length === 0, countedCases, spentCases, reasons };
 }
 
-export const NO_BLIND_HOLDOUT_LINE =
-  "No fresh blind result is registered for this release. My known cases only catch regressions.";

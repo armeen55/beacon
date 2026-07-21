@@ -72,16 +72,6 @@ function buildRows({
   return rows.slice(0, 3);
 }
 
-/**
- * #402 — does this tenant have any measured wins to show? The parent
- * section uses this to decide whether to give the wins card a column at
- * all (an empty trophy case shouldn't eat a third of the action grid).
- * Keep this in lockstep with `buildRows`.
- */
-export function hasRecentWins(props: RecentWinsProps): boolean {
-  return buildRows(props).length > 0;
-}
-
 export function TodayV2RecentWins(props: RecentWinsProps) {
   const rows = buildRows(props);
 

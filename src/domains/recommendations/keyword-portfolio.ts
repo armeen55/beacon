@@ -2,7 +2,7 @@
  * Expert-rec-engine PHASE D (2026-06-16) — KEYWORD / FANOUT MERGE.
  *
  * Beacon should not optimize for the single top GSC query. This merges every
- * keyword signal for a page — GSC queries, SEMrush keywords, and fanout
+ * keyword signal for a page — GSC queries, DataForSEO keywords, and fanout
  * questions — into ONE deduped, intent-classified, ranked portfolio, and
  * buckets each term by whether it FITS this page's intent:
  *   • primaryTarget        — best on-intent, on-topic, high-value term
@@ -32,14 +32,14 @@ import { classifyQueryIntent, type IntentClass } from "./page-topic-fit";
 import { normalizeText } from "./match-engine/normalize-text";
 import { tokenize } from "./match-engine/similarity";
 
-export type KeywordSource = "gsc" | "dataforseo" | "semrush" | "fanout";
+export type KeywordSource = "gsc" | "dataforseo" | "fanout";
 
 export type PortfolioInputKeyword = {
   term: string;
   source: KeywordSource;
-  /** Monthly searches (SEMrush) or 90d impressions (GSC). Higher = more demand. */
+  /** Monthly searches (DataForSEO) or 90d impressions (GSC). Higher = more demand. */
   volume?: number | null;
-  /** SEMrush keyword difficulty 0–100, when known. */
+  /** DataForSEO keyword difficulty 0–100, when known. */
   difficulty?: number | null;
   /** Current rank, when known. */
   position?: number | null;

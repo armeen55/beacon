@@ -19,8 +19,6 @@ import {
   disconnectGoogleGa4,
   saveWixConnection,
   disconnectWix,
-  saveProfoundConnection,
-  disconnectProfound,
   saveClarityConnection,
   disconnectClarity,
   syncGoogleReviews,
@@ -30,7 +28,6 @@ import {
   selectGa4Property,
   syncGscNow,
   syncGa4Now,
-  syncProfoundNow,
   syncClarityNow,
 } from "./actions";
 import type { ConnectorSyncNowResult } from "./actions";
@@ -58,7 +55,6 @@ type Props = {
   ga4: ConnectorInfo;
   /** North-star onboarding (2026-06-11), self-serve Wix connection. */
   wix: ConnectorInfo;
-  profound: ConnectorInfo;
   clarity: ConnectorInfo;
   /** J5 (2026-05-18), pre-rendered "GSC data last refreshed X days
    *  ago. Reconnect to refresh." copy. Computed server-side in
@@ -98,7 +94,7 @@ type Props = {
    *  `expires_at` AND status is "disconnected". `null` otherwise. */
   ga4StaleCopy?: string | null;
   /** FP10a (2026-07-02), summary strip counts: how many of the self-serve
-   *  sources (GSC, GA4, Wix, Profound, Clarity) are connected right now,
+   *  sources (GSC, GA4, Wix, Clarity) are connected right now,
    *  out of how many exist. Computed server-side in page.tsx. Defaults keep
    *  older render-test callers (pre-FP10a) working without every prop. */
   connectedCount?: number;
@@ -131,7 +127,7 @@ export type RefreshLedgerFact = {
 };
 
 export type RefreshLedgerFacts = Partial<
-  Record<"gsc" | "ga4" | "clarity" | "profound", RefreshLedgerFact>
+  Record<"gsc" | "ga4" | "clarity", RefreshLedgerFact>
 >;
 
 /** FP10a (2026-07-02) - one line per source: what it actually feeds, in
@@ -141,7 +137,6 @@ const SOURCE_SUMMARY: Record<string, string> = {
   google_gsc: "Feeds what people search to find you.",
   google_ga4: "Feeds which pages bring in visitors.",
   wix: "Publishes approved edits to your live site.",
-  profound: "Feeds where AI assistants mention you.",
   clarity: "Feeds where visitors get stuck on a page.",
 };
 
@@ -365,14 +360,13 @@ export function ConnectorsClient({
   googleSelectedLocation: initialSelectedLocation,
   ga4: initialGa4,
   wix: initialWix,
-  profound: initialProfound,
   clarity: initialClarity,
   gscStaleCopy = null,
   gscReadiness,
   gscGapLine = null,
   ga4StaleCopy = null,
   connectedCount = 0,
-  totalCount = 5,
+  totalCount = 4,
   autonomousState = "none",
   autonomousHeadline = "starts when you use Beacon.",
   wixUrlMapCount = 0,
@@ -388,8 +382,6 @@ export function ConnectorsClient({
   const [wixKeyInput, setWixKeyInput] = useState("");
   const [wixSiteIdInput, setWixSiteIdInput] = useState("");
   // Connect-cards slice (2026-06-12)
-  const [profound, setProfound] = useState<ConnectorInfo>(initialProfound);
-  const [profoundKeyInput, setProfoundKeyInput] = useState("");
   const [clarity, setClarity] = useState<ConnectorInfo>(initialClarity);
   const [clarityTokenInput, setClarityTokenInput] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -405,8 +397,6 @@ export function ConnectorsClient({
   const [gscSyncResult, setGscSyncResult] = useState<SyncResultMsg>(null);
   const [ga4SyncPending, setGa4SyncPending] = useState(false);
   const [ga4SyncResult, setGa4SyncResult] = useState<SyncResultMsg>(null);
-  const [profoundSyncPending, setProfoundSyncPending] = useState(false);
-  const [profoundSyncResult, setProfoundSyncResult] = useState<SyncResultMsg>(null);
   const [claritySyncPending, setClaritySyncPending] = useState(false);
   const [claritySyncResult, setClaritySyncResult] = useState<SyncResultMsg>(null);
 
@@ -1483,125 +1473,6 @@ export function ConnectorsClient({
               </button>
               <p id="wix-connect-hint" className="sr-only">
                 Enter both the API key and Site ID to enable this button.
-              </p>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ── Profound, Connect-cards slice (2026-06-12) ── */}
-      {profound.status === "connected" ? (
-        <details
-          id="connector-profound"
-          className="group rounded-lg border border-border/60 bg-surface-inset/20 scroll-mt-24"
-          data-connector-card="profound"
-        >
-          <summary className="flex cursor-pointer list-none items-center justify-between gap-4 px-5 py-3">
-            <div className="min-w-0 flex items-center gap-2.5">
-              <h3 className="text-[13px] font-semibold text-foreground shrink-0">Profound</h3>
-              <span className="text-[12px] text-muted-foreground truncate">
-                {SOURCE_SUMMARY.profound}
-              </span>
-            </div>
-            <span className="shrink-0 text-[11px] font-medium text-muted-foreground group-open:hidden">
-              Manage
-            </span>
-            <span className="hidden shrink-0 text-[11px] font-medium text-muted-foreground group-open:inline">
-              Hide
-            </span>
-          </summary>
-
-          <div className="border-t border-border/40 px-5 py-4 space-y-1">
-            <p className="text-[12px] text-muted-foreground">
-              Authorized {formatDate(profound.connected_at)}
-            </p>
-            <ConnectorFixLine
-              connector="profound"
-              status={profound.status}
-              lastSyncedAt={profound.last_synced_at}
-            />
-            <RefreshLedgerLine fact={refreshLedger.profound} />
-            {profoundSyncResult ? (
-              <p
-                className={`text-[12px] ${profoundSyncResult.ok ? "text-status-success" : "text-status-warning"}`}
-              >
-                {profoundSyncResult.text}
-              </p>
-            ) : null}
-          </div>
-
-          <div className="flex flex-wrap gap-2 px-5 pb-4">
-            <button
-              type="button"
-              onClick={() =>
-                handleConnectorSyncNow(syncProfoundNow, setProfoundSyncPending, setProfoundSyncResult)
-              }
-              disabled={profoundSyncPending || isPending}
-              className="rounded-md bg-foreground px-3 py-1.5 text-[12px] font-medium text-background transition-colors hover:opacity-90 disabled:opacity-50"
-            >
-              {profoundSyncPending ? "Syncing…" : "Pull my data now"}
-            </button>
-            <button
-              type="button"
-              onClick={() => handleSimpleDisconnect(disconnectProfound, setProfound)}
-              disabled={isPending}
-              className="rounded-md border border-border/60 px-3 py-1.5 text-[12px] font-medium text-muted-foreground transition-colors hover:text-foreground hover:border-foreground/30 disabled:opacity-50"
-            >
-              Disconnect
-            </button>
-          </div>
-
-          <div className="border-t border-border/40 px-5 py-3 bg-surface-inset/10">
-            <p className="text-[11px] text-muted-foreground leading-relaxed">
-              Reconnecting and running Sync now pulls fresh data and uses API
-              units again.
-            </p>
-          </div>
-        </details>
-      ) : (
-        <div
-          id="connector-profound"
-          className="rounded-lg border border-border/60 bg-surface-inset/20 scroll-mt-24 px-5 py-4"
-          data-connector-card="profound"
-        >
-          <h3 className="text-[13px] font-semibold text-foreground">Profound</h3>
-          <p className="mt-1 text-[12px] text-muted-foreground">
-            Connect your Profound API key so I can track how AI assistants
-            mention and cite your site, and where rivals get cited instead.
-            Pulls run on demand only and use your Profound plan&apos;s
-            quota each time.
-          </p>
-
-          <div className="mt-3 space-y-2">
-            <label htmlFor="profound-api-key" className="sr-only">
-              Profound API key
-            </label>
-            <input
-              id="profound-api-key"
-              type="password"
-              value={profoundKeyInput}
-              onChange={(e) => setProfoundKeyInput(e.target.value)}
-              placeholder="Profound API key"
-              className="w-full max-w-md rounded-md border border-border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-accent-primary/30"
-            />
-            <div>
-              <button
-                type="button"
-                onClick={() =>
-                  handleSaveSimpleConnection(
-                    () => saveProfoundConnection({ apiKey: profoundKeyInput }),
-                    setProfound,
-                    () => setProfoundKeyInput(""),
-                  )
-                }
-                disabled={isPending || !profoundKeyInput.trim()}
-                aria-describedby="profound-connect-hint"
-                className="rounded-md border border-border/60 px-3 py-1.5 text-[12px] font-medium text-foreground transition-colors hover:border-foreground/30 disabled:opacity-50"
-              >
-                Connect Profound
-              </button>
-              <p id="profound-connect-hint" className="sr-only">
-                Enter your API key to enable this button.
               </p>
             </div>
           </div>

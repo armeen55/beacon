@@ -30,7 +30,7 @@ export function NativeIntelView({ report }: { report: NativeIntelReport }) {
       <div>
         <h2 className="text-[14px] font-semibold text-gray-900">Who AI keeps recommending</h2>
         <p className="mt-1 text-[11px] text-gray-500">
-          From my own checks of the AI engines ({engineList(enginesSeen)}), not from Profound. I asked{" "}
+          From my own checks of the AI engines ({engineList(enginesSeen)}), not a third-party tracker. I asked{" "}
           {presence.totals.promptsChecked} real question{presence.totals.promptsChecked === 1 ? "" : "s"} directly and
           read what came back.
         </p>

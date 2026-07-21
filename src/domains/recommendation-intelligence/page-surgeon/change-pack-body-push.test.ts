@@ -30,7 +30,7 @@ function packet(over: Partial<EvidencePacket["current"]> = {}): EvidencePacket {
       publishChannel: over.publishChannel ?? "wix_cms",
     },
     sourcesPresent: ["gsc", "crawl"],
-    sourcesConnectedButEmpty: ["ga4", "clarity", "semrush", "profound"],
+    sourcesConnectedButEmpty: ["ga4", "clarity", "profound"],
   } as EvidencePacket;
 }
 

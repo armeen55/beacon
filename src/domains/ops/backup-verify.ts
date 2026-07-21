@@ -282,13 +282,3 @@ async function appendBackupReceipt(result: BackupVerifyResult): Promise<void> {
     .slice(0, MAX_RECEIPTS);
   await writeStore(RECEIPT_STORE, next);
 }
-
-/** Newest-first backup-verify receipts. Fail-soft to []. Diagnostics. */
-export async function listBackupReceipts(limit = 10): Promise<BackupVerifyResult[]> {
-  try {
-    const rows = (await readStore<BackupVerifyResult>(RECEIPT_STORE, [])) ?? [];
-    return rows.sort((a, b) => b.checkedAt.localeCompare(a.checkedAt)).slice(0, limit);
-  } catch {
-    return [];
-  }
-}

@@ -3,8 +3,6 @@ import type { CitationEvidenceIndex } from "@/domains/pages/types";
 import type { CompetitorRankEntry } from "@/lib/performance-timeseries";
 import type { MilestonePeakRow } from "./types";
 
-const MS_DAY = 86_400_000;
-
 export type ProposedPeak = MilestonePeakRow;
 
 function normUrl(u: string): string {
@@ -394,10 +392,4 @@ export function eventSubtitleForPeak(p: ProposedPeak): string {
     return `+${p.value} vs prior week (7-day window)`;
   }
   return p.proofSummary.slice(0, 80);
-}
-
-export function isRecentEvent(iso: string, days: number): boolean {
-  const t = Date.parse(iso);
-  if (Number.isNaN(t)) return false;
-  return Date.now() - t < days * MS_DAY;
 }

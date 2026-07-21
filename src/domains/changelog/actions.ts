@@ -180,34 +180,6 @@ export async function softDeleteChangelogEntry(
   return { success: true };
 }
 
-export async function restoreChangelogEntry(
-  id: string,
-): Promise<{ success: boolean; error?: string }> {
-  const action = "restoreChangelogEntry";
-  const t0 = Date.now();
-  log.info("Action started", { action, params: { id } });
-
-  const changelogEntries = await getChangelogEntries();
-  const entry = changelogEntries.find((c) => c.id === id);
-  if (!entry) return { success: false, error: "Entry not found." };
-
-  entry.archived = false;
-  delete entry.archived_reason;
-  delete entry.archived_at;
-  entry.updated_at = now();
-
-  await writeStore("imported-changes", changelogEntries);
-  try {
-    await syncChangelogEntries([entry], await currentTenantId());
-  } catch (e) {
-    console.error("[changelog] Supabase sync failed:", e);
-  }
-
-  revalidatePath("/", "layout");
-  log.info("Action completed", { action, durationMs: Date.now() - t0 });
-  return { success: true };
-}
-
 // ---------------------------------------------------------------------------
 // Mark a set of changelog entries as "dedupe_reviewed" (operator confirmed
 // they are NOT duplicates). Used by the one-time "Dismiss all remaining"

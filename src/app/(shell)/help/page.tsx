@@ -31,7 +31,7 @@ const REASSURANCE: { q: string; a: string }[] = [
   },
   {
     q: "Does this cost me anything to run?",
-    a: "Using Beacon and reading your connected data does not add charges. The only outside costs are ones you control: a paid data tool you connect on your own plan (like Profound or DataForSEO), and a small amount of AI usage when Beacon drafts wording for you. Beacon never spends or buys anything on your behalf.",
+    a: "Using Beacon and reading your connected data does not add charges. The only outside costs are ones you control: a paid data tool you connect on your own plan (like DataForSEO), and a small amount of AI usage when Beacon drafts wording for you. Beacon never spends or buys anything on your behalf.",
   },
 ];
 

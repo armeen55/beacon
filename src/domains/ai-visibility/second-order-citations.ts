@@ -334,10 +334,8 @@ export function rankSecondOrderDomains(
 // ---------------------------------------------------------------------------
 
 import "server-only";
-import { cache } from "react";
 import { getSupabaseAdmin, isSupabaseConfigured } from "@/lib/persistence/supabase";
 import { getBusinessConfig } from "@/lib/business-config";
-import { currentTenantId } from "@/lib/tenant-context";
 import { log } from "@/lib/logger";
 
 const ROW_PAGE_SIZE = 1000;
@@ -467,11 +465,6 @@ export function citationRowToInput(r: {
     count: typeof r.citation_count === "number" && r.citation_count > 0 ? r.citation_count : 1,
   };
 }
-
-/** Request-memoized: computes on render, no store, no migration. */
-export const loadSecondOrderCitationPlaybook = cache(
-  async (): Promise<SecondOrderPlaybookResult> => loadUncached(await currentTenantId()),
-);
 
 /** Tenant-explicit background/customer-snapshot loader. */
 export async function loadSecondOrderCitationPlaybookForTenant(

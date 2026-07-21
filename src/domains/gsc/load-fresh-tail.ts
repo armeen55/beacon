@@ -148,21 +148,3 @@ export async function refreshGscFreshTail(
     return null;
   }
 }
-
-/**
- * The dotted tail for one tenant's scoreboard, given the chart's last REPORTED
- * (final) date. Null = no tail (fail-soft, chart unchanged). Serves a TTL-fresh
- * cached row, else pays the live refresh. RETAINED for any non-render caller; the
- * scoreboard render path now uses readGscFreshTailCached + an after() refresh.
- */
-export const loadGscFreshTail = cache(
-  async (
-    tenantId: string,
-    lastReportedDate: string | null,
-    now: Date = new Date(),
-  ): Promise<FreshTailPoint[] | null> => {
-    const cached = await readGscFreshTailCached(tenantId, lastReportedDate, now);
-    if (cached && !cached.stale) return cached.points.length > 0 ? cached.points : null;
-    return refreshGscFreshTail(tenantId, lastReportedDate, now);
-  },
-);

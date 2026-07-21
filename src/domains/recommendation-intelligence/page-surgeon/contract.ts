@@ -94,42 +94,6 @@ export type ClarityEvidence = {
   quickbacks: number | null;
   scriptErrors: number | null;
 };
-export type SemrushKeywordRow = {
-  keyword: string;
-  volume: number;
-  /** Keyword difficulty. null = NOT pulled (never coerce to 0 — a 0 reads as
-   *  "trivially easy" and would fabricate a winnability signal). */
-  kd: number | null;
-  /** Cost-per-click. null = NOT pulled (never coerce to 0). */
-  cpc: number | null;
-  intent: string | null;
-  position: number | null;
-};
-/** A market-context keyword from phrase_related / phrase_questions — carries
- *  volume + intent so the judge can prioritise, but no position (it describes
- *  the market, not where this page ranks). */
-export type SemrushExpansionRow = {
-  keyword: string;
-  volume: number;
-  intent: string | null;
-};
-export type SemrushEvidence = {
-  keywords: SemrushKeywordRow[];
-  serpFeatures?: Array<{ query: string; features: string[]; aiOverview: boolean }>;
-  /** Query variants people also search (phrase_related), volume desc. */
-  relatedKeywords?: SemrushExpansionRow[];
-  /** Question-form keywords (phrase_questions) — answer-block / FAQ fodder. */
-  questionKeywords?: SemrushExpansionRow[];
-  /** Organic competitor domains for the site (market rivals). Per-keyword
-   *  competitor ranking URLs are not a supported report → a labelled gap. */
-  competitorDomains?: string[];
-  competitorGaps?: Array<{
-    keyword: string;
-    competitorDomain: string;
-    competitorPosition: number;
-    volume: number;
-  }>;
-};
 export type ProfoundEvidence = {
   aiVisibility: number | null;
   citations: number | null;
@@ -160,7 +124,6 @@ export type EvidencePacket = {
   gsc?: GscEvidence;
   ga4?: Ga4Evidence;
   clarity?: ClarityEvidence;
-  semrush?: SemrushEvidence;
   profound?: ProfoundEvidence;
   crawl?: CrawlEvidence;
   /** Sources with usable data for THIS page. */
@@ -195,7 +158,6 @@ export type ScoreDimension =
   | "ctr_or_ranking_upside"
   | "conversion_engagement_value"
   | "ux_friction_impact"
-  | "semrush_market_opportunity"
   | "aeo_serp_feature_fit"
   | "lost_term_risk"
   | "google_title_rewrite_risk"

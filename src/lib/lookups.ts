@@ -3,13 +3,11 @@ import {
   getBriefs,
   getChangelogEntries,
   getResults,
-  getCompetitors,
 } from "./seed-data.server";
 import type { Opportunity } from "@/domains/opportunities/types";
 import type { Brief } from "@/domains/briefs/types";
 import type { ChangelogEntry } from "@/domains/changelog/types";
 import type { Result } from "@/domains/results/types";
-import type { Competitor } from "@/domains/competitors/types";
 
 function dedupe<T extends { id: string }>(items: T[]): T[] {
   const seen = new Set<string>();
@@ -18,73 +16,6 @@ function dedupe<T extends { id: string }>(items: T[]): T[] {
     seen.add(item.id);
     return true;
   });
-}
-
-// ── Change → Results (reverse: which results attribute this change) ──
-
-export async function getResultsForChange(changeId: string): Promise<Result[]> {
-  const results = await getResults();
-  return results.filter((r) =>
-    r.attributed_changelog_ids.includes(changeId)
-  );
-}
-
-// ── Result → Changes (via attributed_changelog_ids) ──
-
-export async function getChangesForResult(
-  resultId: string,
-): Promise<ChangelogEntry[]> {
-  const [results, changelogEntries] = await Promise.all([
-    getResults(),
-    getChangelogEntries(),
-  ]);
-  const result = results.find((r) => r.id === resultId);
-  if (!result) return [];
-  return changelogEntries.filter((c) =>
-    result.attributed_changelog_ids.includes(c.id)
-  );
-}
-
-// ── Change → Brief (direct FK) ──
-
-export async function getBriefForChange(
-  changeId: string,
-): Promise<Brief | null> {
-  const [changelogEntries, briefs] = await Promise.all([
-    getChangelogEntries(),
-    getBriefs(),
-  ]);
-  const change = changelogEntries.find((c) => c.id === changeId);
-  if (!change?.brief_id) return null;
-  return briefs.find((b) => b.id === change.brief_id) ?? null;
-}
-
-// ── Change → Opportunity (direct FK) ──
-
-export async function getOpportunityForChange(
-  changeId: string,
-): Promise<Opportunity | null> {
-  const [changelogEntries, opportunities] = await Promise.all([
-    getChangelogEntries(),
-    getOpportunities(),
-  ]);
-  const change = changelogEntries.find((c) => c.id === changeId);
-  if (!change?.opportunity_id) return null;
-  return opportunities.find((o) => o.id === change.opportunity_id) ?? null;
-}
-
-// ── Brief → Opportunities (via opportunity_ids) ──
-
-export async function getOpportunityForBrief(
-  briefId: string,
-): Promise<Opportunity[]> {
-  const [briefs, opportunities] = await Promise.all([
-    getBriefs(),
-    getOpportunities(),
-  ]);
-  const brief = briefs.find((b) => b.id === briefId);
-  if (!brief) return [];
-  return opportunities.filter((o) => brief.opportunity_ids.includes(o.id));
 }
 
 // ── Opportunity → Briefs (linked_brief_ids + reverse lookup) ──
@@ -155,19 +86,6 @@ export async function getChangesForBrief(
   );
 }
 
-// ── Brief → Results (through connected changes) ──
-
-export async function getResultsForBrief(briefId: string): Promise<Result[]> {
-  const [changes, results] = await Promise.all([
-    getChangesForBrief(briefId),
-    getResults(),
-  ]);
-  const changeIds = new Set(changes.map((c) => c.id));
-  return results.filter((r) =>
-    r.attributed_changelog_ids.some((id) => changeIds.has(id))
-  );
-}
-
 // ── Competitor → Opportunities (by competitor_ids array) ──
 
 export async function getOpportunitiesForCompetitor(
@@ -175,20 +93,6 @@ export async function getOpportunitiesForCompetitor(
 ): Promise<Opportunity[]> {
   const opportunities = await getOpportunities();
   return opportunities.filter((o) => o.competitor_ids.includes(competitorId));
-}
-
-// ── Opportunity → Competitors (by competitor_ids array) ──
-
-export async function getCompetitorsForOpportunity(
-  opportunityId: string
-): Promise<Competitor[]> {
-  const [opportunities, competitors] = await Promise.all([
-    getOpportunities(),
-    getCompetitors(),
-  ]);
-  const opp = opportunities.find((o) => o.id === opportunityId);
-  if (!opp || opp.competitor_ids.length === 0) return [];
-  return competitors.filter((c) => opp.competitor_ids.includes(c.id));
 }
 
 // ── Opportunity → Related Opportunities ──
@@ -204,27 +108,10 @@ export async function getRelatedOpportunities(
   );
 }
 
-// ── Single-entity lookups ──
-
-export async function getChangeById(
-  changeId: string,
-): Promise<ChangelogEntry | null> {
-  const changelogEntries = await getChangelogEntries();
-  return changelogEntries.find((c) => c.id === changeId) ?? null;
-}
-
-export async function getBriefById(briefId: string): Promise<Brief | null> {
-  const briefs = await getBriefs();
-  return briefs.find((b) => b.id === briefId) ?? null;
-}
-
 // ── Full causal chain for a Result ──
 
-import type { Attribution, ChangeVerdictData } from "@/domains/attribution/types";
-import {
-  computeAttributionsForResult,
-  computeChangeVerdict,
-} from "@/domains/attribution/compute";
+import type { Attribution } from "@/domains/attribution/types";
+import { computeAttributionsForResult } from "@/domains/attribution/compute";
 
 export type ChainLink = {
   opportunity: Opportunity | null;
@@ -273,37 +160,4 @@ export async function getFullChainForResult(
 
       return { opportunity, brief, change, attribution };
     });
-}
-
-// ── Attribution lookups ──
-
-export async function getAttributionsForResult(
-  resultId: string,
-): Promise<Attribution[]> {
-  const [changelogEntries, results, opportunities] = await Promise.all([
-    getChangelogEntries(),
-    getResults(),
-    getOpportunities(),
-  ]);
-  return computeAttributionsForResult(
-    resultId,
-    changelogEntries,
-    results,
-    opportunities
-  );
-}
-
-export async function getChangeVerdictData(
-  changeId: string,
-): Promise<ChangeVerdictData> {
-  const [changelogEntries, results, opportunities] = await Promise.all([
-    getChangelogEntries(),
-    getResults(),
-    getOpportunities(),
-  ]);
-  const change = changelogEntries.find((c) => c.id === changeId);
-  if (!change) {
-    return { verdict: "pending", attributions: [], summary: "Change not found" };
-  }
-  return computeChangeVerdict(change, results, opportunities);
 }

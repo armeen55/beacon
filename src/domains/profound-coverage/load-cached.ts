@@ -18,7 +18,7 @@ import { cache } from "react";
 
 import { log } from "@/lib/logger";
 import { getSupabaseAdmin, isSupabaseConfigured } from "@/lib/persistence/supabase";
-import type { ProfoundAnswerRow } from "@/lib/connectors/profound/client";
+import type { ProfoundAnswerRow } from "@/lib/connectors/profound/answer-row";
 import { getProfoundTenantScope, isProfoundNoisePrompt } from "@/lib/connectors/profound/tenant-scope";
 import { buildPromptOpportunities, type FanoutRow } from "@/domains/profound-question-intelligence/prompt-opportunity";
 

@@ -7,7 +7,7 @@
  */
 
 import { MAX_ENGINE_GAP_CANDIDATES_PER_NIGHT, ENGINE_PLAIN_NAME, type EngineId } from "./engine-types";
-import { promptGapSentence, type EngineGapReport, type PromptEngineMatrixRow } from "./engine-gaps";
+import { promptGapSentence, type PromptEngineMatrixRow } from "./engine-gaps";
 
 /** The note attached to a daily candidate for a page with an engine gap. */
 export type EngineGapNote = {
@@ -51,9 +51,4 @@ export function buildEngineGapNotes(
     });
   }
   return out;
-}
-
-/** Convenience over the full report. */
-export function engineGapNotesFromReport(report: EngineGapReport): Map<string, EngineGapNote> {
-  return buildEngineGapNotes(report.gaps);
 }

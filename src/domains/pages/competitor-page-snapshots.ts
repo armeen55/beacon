@@ -230,11 +230,6 @@ export async function persistCompetitorPageSnapshots(
   _byTenant.clear();
 }
 
-/** Test-only reset. */
-export function _resetCompetitorPageSnapshotsForTests(): void {
-  _byTenant.clear();
-}
-
 // ---------------------------------------------------------------------------
 // Top-N picker (used by scripts/scan-competitor-pages.ts)
 // ---------------------------------------------------------------------------

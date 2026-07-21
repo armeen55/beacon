@@ -1,38 +1,19 @@
 /**
- * Profound Question Intelligence — loader (2026-06-26, I/O).
+ * Profound Question Intelligence — loader (2026-06-26; cached-only 2026-07-20).
  *
- * On-demand (react.cache) pull of the tenant's Iranopedia-topic answers +
- * query-fanouts, scoped to the topic, run through the pure PromptOpportunity
- * builder. NO storage needed for the read surface — this is a live read (the
- * nightly sync + durable tables are a separate slice). Fail-soft everywhere:
- * any API miss → fewer/zero opportunities, never a throw.
+ * Reads the tenant's AI-answer prompt intelligence from OUR OWN durable Supabase
+ * tables (profound_answer_rows / profound_query_fanout_rows) via the shared cached
+ * reader — NEVER any live account call. The live-pull branch was removed when the
+ * account was fully disconnected; this surface now renders stored historical data
+ * only. Fail-soft: empty tables → zero opportunities, never a throw.
  *
- * Borrowed-account safe: only the topic's prompts/answers/fanouts are pulled;
- * Agent Analytics (bots/referrals/domains) is NEVER called here; ownership is
- * decided by iranopedia.com, never the tracked ChatGPT asset.
+ * Ownership is decided by the owned domain (iranopedia.com), never a tracked asset.
  */
 import "server-only";
 import { cache } from "react";
 
-import { log } from "@/lib/logger";
-import { pullProfoundAnswers, queryProfoundReport } from "@/lib/connectors/profound/client";
-import {
-  getProfoundTenantScope,
-  profoundTopicFilter,
-  isProfoundNoisePrompt,
-} from "@/lib/connectors/profound/tenant-scope";
-import {
-  buildPromptOpportunities,
-  type PromptOpportunity,
-  type FanoutRow,
-} from "./prompt-opportunity";
-
-const WINDOW_DAYS = 30;
-const ANSWER_CAP = 3000;
-
-function ymd(d: Date): string {
-  return d.toISOString().slice(0, 10);
-}
+import { loadCachedPromptOpportunities } from "@/domains/profound-coverage/load-cached";
+import { type PromptOpportunity } from "./prompt-opportunity";
 
 export type ProfoundPromptIntelligence = {
   /** False when the tenant has no Profound prompt-intelligence scope. */
@@ -61,69 +42,22 @@ const EMPTY: ProfoundPromptIntelligence = {
 };
 
 async function loadUncached(tenantId: string): Promise<ProfoundPromptIntelligence> {
-  const scope = getProfoundTenantScope(tenantId);
-  if (!scope) return EMPTY;
+  const light = await loadCachedPromptOpportunities(tenantId);
+  if (!light.scopeFound) return EMPTY;
 
-  const end = new Date();
-  const start = new Date(end.getTime() - WINDOW_DAYS * 86_400_000);
-  const startDate = ymd(start);
-  const endDate = ymd(end);
-  const filters = profoundTopicFilter(scope);
-
-  // Answers — the per-prompt gold (mentions + cited URLs + themes).
-  let answers: Awaited<ReturnType<typeof pullProfoundAnswers>> = null;
-  try {
-    answers = await pullProfoundAnswers(
-      { tenantId, categoryId: scope.categoryId, startDate, endDate, filters, maxRows: ANSWER_CAP },
-    );
-  } catch (e) {
-    log.warn("[profound-qi] answers pull failed", { tenantId, error: e instanceof Error ? e.message : String(e) });
-  }
-  const answerRowsArr = answers?.rows ?? [];
-
-  // Query-fanouts. IMPORTANT: Profound canonicalizes dimension order to
-  // [date, model, prompt, query] regardless of request order, and the decoder
-  // maps POSITIONALLY against the requested order — so request that exact order.
-  let fanouts: FanoutRow[] = [];
-  try {
-    const fanRes = await queryProfoundReport({
-      tenantId,
-      report: "query-fanouts",
-      categoryId: scope.categoryId,
-      startDate,
-      endDate,
-      dimensions: ["date", "model", "prompt", "query"],
-      metrics: ["total_fanouts", "share"],
-      filters,
-    });
-    fanouts = (fanRes?.rows ?? []).map((r) => ({
-      prompt: r.dims.prompt ?? "",
-      query: r.dims.query ?? "",
-      model: r.dims.model ?? null,
-    }));
-  } catch (e) {
-    log.warn("[profound-qi] fanouts pull failed", { tenantId, error: e instanceof Error ? e.message : String(e) });
-  }
-
-  const opportunities = buildPromptOpportunities({
-    answers: answerRowsArr,
-    fanouts,
-    ownedDomain: scope.ownedDomain,
-    ownedMentionAliases: scope.ownedMentionAliases,
-    isNoisePrompt: isProfoundNoisePrompt,
-  });
+  const opportunities: PromptOpportunity[] = light.opportunities;
 
   return {
     scopeFound: true,
-    topicLabel: scope.topicLabel,
+    topicLabel: light.topicLabel,
     totalPrompts: opportunities.length,
     gapPrompts: opportunities.filter((o) => o.recommendedMove !== "expand_page").length,
     ownPresentPrompts: opportunities.filter((o) => o.ownCitationCount > 0 || o.ownMentionCount > 0).length,
     opportunities,
-    answerRows: answerRowsArr.length,
-    fanoutRows: fanouts.length,
+    answerRows: light.answerRows,
+    fanoutRows: light.fanoutRows,
   };
 }
 
-/** Request-memoized loader (one live pull per render). */
+/** Request-memoized loader (durable cached read, no live account call). */
 export const loadProfoundPromptIntelligence = cache(loadUncached);

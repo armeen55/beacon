@@ -5,7 +5,7 @@ import type { Opportunity } from "@/domains/opportunities/types";
 import type { EvidenceTier, EvidenceTierMeta } from "@/domains/pages/types";
 import { normalizePageUrl, canonicalizeOwnedUrl } from "@/domains/pages/classify";
 import { METRIC_DIRECTION } from "@/lib/constants";
-import type { Platform, SignalType } from "@/lib/constants";
+import type { Platform } from "@/lib/constants";
 import {
   ATTRIBUTION_CONFIG,
   SIGNAL_PLATFORM_MAP,
@@ -22,9 +22,6 @@ import type {
   MatchStrength,
   ChangeVerdict,
   ChangeVerdictData,
-  BriefVerdict,
-  BriefVerdictData,
-  SignalEffectiveness,
 } from "./types";
 
 // ── Topic matching ──────────────────────────────────────────────────
@@ -523,115 +520,3 @@ export function computeChangeVerdict(
   return { verdict, attributions, summary };
 }
 
-// ── Brief verdict ───────────────────────────────────────────────────
-
-export function computeBriefVerdict(brief: Brief): BriefVerdictData {
-  const outcomes = brief.expected_outcomes;
-  if (outcomes.length === 0) {
-    return { verdict: "pending", hit_rate: 0, summary: "No predictions defined" };
-  }
-
-  const judged = outcomes.filter((o) => o.verdict !== "pending");
-  if (judged.length === 0) {
-    return {
-      verdict: "pending",
-      hit_rate: 0,
-      summary: `${outcomes.length} prediction${outcomes.length !== 1 ? "s" : ""} awaiting results`,
-    };
-  }
-
-  const hits = judged.filter((o) => o.verdict === "hit").length;
-  const partials = judged.filter((o) => o.verdict === "partial").length;
-  const misses = judged.filter((o) => o.verdict === "missed").length;
-  const hit_rate = judged.length > 0 ? (hits + partials * 0.5) / judged.length : 0;
-
-  let verdict: BriefVerdict;
-  if (hits === judged.length) {
-    verdict = "validated";
-  } else if (misses === 0) {
-    verdict = "partially_validated";
-  } else if (hits === 0 && partials === 0) {
-    verdict = "not_validated";
-  } else {
-    verdict = "mixed";
-  }
-
-  const summary =
-    verdict === "validated"
-      ? `All ${hits} prediction${hits !== 1 ? "s" : ""} validated`
-      : verdict === "partially_validated"
-        ? `${hits} hit, ${partials} partial of ${judged.length} predictions`
-        : verdict === "not_validated"
-          ? `${misses} of ${judged.length} predictions missed`
-          : `${hits} hit, ${partials} partial, ${misses} missed of ${judged.length}`;
-
-  return { verdict, hit_rate, summary };
-}
-
-// ── Signal effectiveness (kept for diagnostics) ─────────────────────
-
-export function computeSignalEffectiveness(
-  allChanges: ChangelogEntry[],
-  allResults: Result[],
-  allOpportunities: Opportunity[]
-): SignalEffectiveness[] {
-  const byType = new Map<SignalType, ChangelogEntry[]>();
-  for (const c of allChanges) {
-    const list = byType.get(c.signal_type) ?? [];
-    list.push(c);
-    byType.set(c.signal_type, list);
-  }
-
-  const effectiveness: SignalEffectiveness[] = [];
-
-  for (const [signal_type, changes] of byType) {
-    let withResults = 0;
-    let positiveImpact = 0;
-    const daysToImpact: number[] = [];
-
-    for (const change of changes) {
-      const attributed = allResults.filter((r) =>
-        r.attributed_changelog_ids.includes(change.id)
-      );
-
-      if (attributed.length > 0) {
-        withResults++;
-        const hasPositive = attributed.some(isPositiveDelta);
-        if (hasPositive) {
-          positiveImpact++;
-          const firstPositive = attributed
-            .filter(isPositiveDelta)
-            .sort(
-              (a, b) =>
-                new Date(a.snapshot_date).getTime() -
-                new Date(b.snapshot_date).getTime()
-            )[0];
-          if (firstPositive) {
-            const days = Math.round(
-              (new Date(firstPositive.snapshot_date).getTime() -
-                new Date(change.timestamp).getTime()) /
-                (1000 * 60 * 60 * 24)
-            );
-            daysToImpact.push(days);
-          }
-        }
-      }
-    }
-
-    effectiveness.push({
-      signal_type,
-      total_changes: changes.length,
-      with_results: withResults,
-      positive_impact: positiveImpact,
-      hit_rate: withResults > 0 ? positiveImpact / withResults : 0,
-      average_days_to_impact:
-        daysToImpact.length > 0
-          ? Math.round(
-              daysToImpact.reduce((s, d) => s + d, 0) / daysToImpact.length
-            )
-          : null,
-    });
-  }
-
-  return effectiveness.sort((a, b) => b.hit_rate - a.hit_rate);
-}

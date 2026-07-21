@@ -100,7 +100,7 @@ export function AiQuestionsView({ data }: { data: AiQuestionsData }) {
       </ul>
 
       <p className="text-[11px] leading-relaxed text-gray-400">
-        Sourced from cached AI prompt intelligence (Profound). Questions where AI cites rivals
+        Sourced from cached AI answer tracking. Questions where AI cites rivals
         but not you are shown first, those are the openings.
       </p>
     </div>

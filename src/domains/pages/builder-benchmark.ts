@@ -5,10 +5,8 @@
  * for builder marketers. No jargon. No technical SEO.
  */
 
-import { absoluteUrlForPath } from "@/lib/site-config";
 import type { CitationEvidenceIndex } from "./types";
 import type { PersistedIssue } from "./issues";
-import type { ScorecardRow } from "@/domains/attribution/scorecard";
 
 // ── Benchmark ──
 
@@ -50,32 +48,6 @@ export function prettifyDomain(domain: string): string {
     .filter(Boolean)
     .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
     .join(" ") || domain;
-}
-
-/**
- * Resolve benchmark display options from the CURRENT tenant: its configured
- * directory domains + its competitor-universe display names. Fail-soft to the
- * universal defaults so a no-config tenant still gets sensible output.
- * (Dynamic imports keep the pure compute module free of server-only deps.)
- */
-export async function getCurrentTenantBenchmarkOpts(): Promise<BenchmarkOpts> {
-  try {
-    const [{ getBusinessConfigForCurrentTenant }, { loadCompetitorUniverseRuntime }] =
-      await Promise.all([
-        import("@/lib/business-config"),
-        import("@/domains/competitors/universe-read"),
-      ]);
-    const [cfg, universe] = await Promise.all([
-      getBusinessConfigForCurrentTenant(),
-      loadCompetitorUniverseRuntime(),
-    ]);
-    return {
-      directoryDomains: cfg.directoryDomains?.length ? cfg.directoryDomains : undefined,
-      competitorNames: universe.domainToLabel ?? {},
-    };
-  } catch {
-    return {};
-  }
 }
 
 export function computeMarketBenchmark(
@@ -164,80 +136,3 @@ export function computeMarketBenchmark(
 
 // ── Proof Snapshots ──
 
-export type ProofLabel = "improved" | "likely_improving" | "too_early" | "no_clear_movement";
-
-export type ProofSnapshot = {
-  proofSnapshotId: string;
-  createdAt: string;
-  pagePath: string;
-  changeSummary: string;
-  beforeAIMentions: number | null;
-  afterAIMentions: number | null;
-  proofLabel: ProofLabel;
-  explanation: string;
-};
-
-export function computeProofSnapshots(
-  scorecardRows: ScorecardRow[],
-  citationsByUrl: Map<string, number>
-): ProofSnapshot[] {
-  const proofs: ProofSnapshot[] = [];
-  const now = new Date().toISOString();
-
-  const validated = scorecardRows
-    .filter((r) => r.verdict === "validated" || r.verdict === "partial")
-    .sort((a, b) => (b.topScore ?? 0) - (a.topScore ?? 0))
-    .slice(0, 5);
-
-  for (const row of validated) {
-    const path = row.change.url?.replace(/^\/+/, "/") ?? "";
-    const normUrl = row.change.url
-      ? absoluteUrlForPath(path.startsWith("/") ? path : `/${path}`).toLowerCase()
-      : "";
-    const citations = normUrl ? (citationsByUrl.get(normUrl) ?? 0) : 0;
-    const daysSince = row.daysSinceChange;
-
-    let proofLabel: ProofLabel;
-    let explanation: string;
-
-    if (row.verdict === "validated" && row.operatorConfirmedCount > 0) {
-      proofLabel = "improved";
-      explanation = `You locked a cause in Review for a related visibility shift. ${citations > 0 ? `This URL has ${citations} tracked mentions in our citation sample.` : "Mention counts in the sample are available on the change detail."} Not proof of leads or revenue.`;
-    } else if (row.verdict === "validated") {
-      proofLabel = "likely_improving";
-      explanation = `Model suggests this change may be helping. ${citations > 0 ? `Current sample: ${citations} mentions tied to this page.` : ""}`;
-    } else if (daysSince < 14) {
-      proofLabel = "too_early";
-      explanation = `Changed ${daysSince} day${daysSince !== 1 ? "s" : ""} ago — too early to see clear results yet.`;
-    } else {
-      proofLabel = "no_clear_movement";
-      explanation = `No clear improvement detected yet after ${daysSince} days.`;
-    }
-
-    const changeName = row.change.asset_name
-      .replace(/FAQ/g, "Q&A")
-      .replace(/schema/g, "page details");
-
-    proofs.push({
-      proofSnapshotId: `proof-${row.change.id}`,
-      createdAt: now,
-      pagePath: path || row.change.asset_name,
-      changeSummary: changeName,
-      beforeAIMentions: null,
-      afterAIMentions: citations > 0 ? citations : null,
-      proofLabel,
-      explanation,
-    });
-  }
-
-  return proofs;
-}
-
-// ── Labels ──
-
-export const PROOF_LABELS: Record<ProofLabel, { label: string; color: string }> = {
-  improved: { label: "Review locked cause", color: "text-status-success" },
-  likely_improving: { label: "Model suggests lift", color: "text-accent-primary" },
-  too_early: { label: "Too early to judge", color: "text-muted-foreground" },
-  no_clear_movement: { label: "No clear change in mentions", color: "text-status-warning" },
-};

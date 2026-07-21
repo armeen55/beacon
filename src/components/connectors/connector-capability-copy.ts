@@ -46,14 +46,6 @@ export const CONNECTOR_CAPABILITY: Record<string, ConnectorCapabilityCopy> = {
       "Sign in with the Google account that has your Analytics, then pick your website from the list. After that, every refresh reads your numbers, and Beacon can never change anything in your Analytics.",
   },
 
-  // SEMrush — read-only.
-  semrush: {
-    automated:
-      "Beacon pulls the full list of Google search terms your site already ranks for, the terms competitors are winning that you're missing, and your overall site strength, then writes specific fixes: rewrite this page title to grab a term you're #5 for, build a page for a term a competitor owns, or stop two of your own pages from competing for the same term.",
-    youDo:
-      "Make sure your SEMrush plan includes API access (the Business plan) and that you've added some API 'units' to your account, then paste your SEMrush API key into Beacon once. Each refresh pulls fresh data inside a safe usage budget. Beacon only reads your SEMrush data.",
-  },
-
   // AI answer tracking (provider key: profound) — read-only.
   // NOTE: the copy must never name the vendor — this map also renders on
   // the white-label-guarded Today strip.

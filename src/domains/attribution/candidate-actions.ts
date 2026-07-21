@@ -99,45 +99,6 @@ export async function rejectCandidate(
   return { success: true };
 }
 
-export async function rejectAllCandidates(
-  resultId: string,
-  changeIds: string[]
-): Promise<{ success: boolean }> {
-  const action = "rejectAllCandidates";
-  const t0 = Date.now();
-  log.info("Action started", {
-    action,
-    params: { resultId, changeIdCount: changeIds.length },
-  });
-  const tenantId = await currentTenantId();
-  const candidateLinks = await getCandidateLinks();
-  for (const changeId of changeIds) {
-    const existing = candidateLinks.find(
-      (cl) => cl.result_id === resultId && cl.change_id === changeId
-    );
-    if (existing) {
-      existing.status = "rejected";
-      existing.reviewed_at = now();
-    } else {
-      candidateLinks.push({
-        id: generateId("cl"),
-        result_id: resultId,
-        change_id: changeId,
-        status: "rejected",
-        attribution: null!,
-        created_at: now(),
-        reviewed_at: now(),
-        tenant_id: tenantId,
-      });
-    }
-  }
-
-  await persistCandidateLinks(tenantId);
-  revalidatePath("/", "layout");
-  log.info("Action completed", { action, durationMs: Date.now() - t0 });
-  return { success: true };
-}
-
 export async function addTruthLabel(
   resultId: string,
   changeId: string,

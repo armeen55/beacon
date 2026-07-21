@@ -1,7 +1,6 @@
 import "server-only";
 import { z } from "zod";
 import { checkBudget, recordSpend } from "@/domains/recommendations/adjudicator-budget";
-import { saveMoveDraft } from "@/domains/demand-graph/move-draft-store";
 import { log } from "@/lib/logger";
 import { buildWinnerFewShots, buildWinnerFewShotsWithPattern } from "./winner-memory";
 import type { DraftPatternId } from "./draft-pattern";
@@ -72,7 +71,6 @@ import {
  */
 
 const MODEL = "gpt-5-mini";
-const MAX_DRAFT_CHARS = 11_500; // stay under the move_drafts 12k content cap
 
 /** BEACON_500 item 74: present on a "drafted" result only when a CONFIDENT house
  *  pattern cell backed this draft's prompt (winner-memory's pattern aggregate cleared
@@ -1046,7 +1044,7 @@ const ANSWER_BLOCK_SYSTEM =
   '"answer" (one direct factual answer of 80-150 words an AI assistant could quote verbatim), ' +
   '"citationHook" (a short quotable phrase, or null), ' +
   '"sources" (array of {"url","title","domain","retrievedAt","claim","authority"}: cite 1-2 AUTHORITATIVE sources for the answer\'s claims, each with a real URL, its domain, the date you are citing it, and the specific claim it backs; leave "authority" as "unverified", the caller decides it), ' +
-  '"evidenceRefs" (array of {"source","detail"}, at least one, citing ONLY the grounding provided; source one of gsc|ga4|clarity|profound|dataforseo|semrush|competitor_teardown|owned_snapshot|fanout), ' +
+  '"evidenceRefs" (array of {"source","detail"}, at least one, citing ONLY the grounding provided; source one of gsc|ga4|clarity|profound|dataforseo|competitor_teardown|owned_snapshot|fanout), ' +
   '"confidence" ("high"|"medium"|"low"), "risks" (array of short strings), "operatorSteps" (array of concrete steps), ' +
   '"proofPlan" ({"metrics":[...],"windowsDays":[7,14,28],"controls":"..."}). ' +
   "Ground everything ONLY in the brief/outline/questions provided. Do NOT invent statistics, dates, prices, rankings, or superlatives. No marketing language. No em-dashes. Cite 1-2 authoritative sources for any factual claim (a date, a count, a named fact). Never state one with no source. " +
@@ -1236,7 +1234,7 @@ export type AtomicEditStructuredInput = {
 const ATOMIC_EDIT_SYSTEM =
   "You improve ONE on-page field (a page title or meta description) for an encyclopedia / content site to better match the search intent and earn the click. " +
   'Return ONLY a JSON object: "field" (the field being edited), "before" (the exact current value, or null), "after" (the improved value), ' +
-  '"rationale" (one sentence), "evidenceRefs" (array of {"source","detail"}, at least one, from the grounding; source one of gsc|ga4|clarity|profound|dataforseo|semrush|competitor_teardown|owned_snapshot|fanout), ' +
+  '"rationale" (one sentence), "evidenceRefs" (array of {"source","detail"}, at least one, from the grounding; source one of gsc|ga4|clarity|profound|dataforseo|competitor_teardown|owned_snapshot|fanout), ' +
   '"confidence" ("high"|"medium"|"low"), "risks" (array of short strings), "operatorSteps" (array of concrete steps), ' +
   '"proofPlan" ({"metrics":[...],"windowsDays":[7,14,28],"controls":"..."}). ' +
   "Keep a title under ~60 characters and a meta description 120-160. Ground ONLY in what is provided. Do NOT invent statistics, dates, prices, rankings, or superlatives. No marketing language. No em-dashes.";
@@ -1347,7 +1345,7 @@ const CREATE_PAGE_SYSTEM =
   '"outline" (3-16 H2 section headings, specific to the topic), "faqQuestions" (real questions a reader asks, from the grounding), ' +
   '"schemaTypes" (relevant schema.org types, e.g. Article, FAQPage — only if warranted), ' +
   '"sources" (array of 1-2 {"url","title","domain","retrievedAt","claim","authority"} authoritative sources backing factual opening claims; use a real exact URL from the provided candidates when it supports the claim, leave authority "unverified" for the caller), ' +
-  '"evidenceRefs" (array of {"source","detail"}, at least one, from the grounding; source one of gsc|ga4|clarity|profound|dataforseo|semrush|competitor_teardown|owned_snapshot|fanout), ' +
+  '"evidenceRefs" (array of {"source","detail"}, at least one, from the grounding; source one of gsc|ga4|clarity|profound|dataforseo|competitor_teardown|owned_snapshot|fanout), ' +
   '"confidence" ("high"|"medium"|"low"), "risks" (array of short strings), "operatorSteps" (concrete build steps), ' +
   '"proofPlan" ({"metrics":[...],"windowsDays":[7,14,28],"controls":"..."}). ' +
   "Ground ONLY in what is provided. Do NOT invent statistics, dates, prices, rankings, or superlatives. No marketing language. No em-dashes. " +
@@ -1425,7 +1423,7 @@ const CRO_FIX_SYSTEM =
   "You diagnose ONE on-page UX/conversion friction and prescribe a concrete fix for a content/encyclopedia site. " +
   'Return ONLY a JSON object: "frictionType" (one of dead_click|rage_click|cta_clarity|form_friction|intent_mismatch), ' +
   '"location" (where on the page — be specific), "fix" (a concrete, actionable change — what to inspect and change, not vague advice), ' +
-  '"evidenceRefs" (array of {"source","detail"}, at least one, from the grounding; source one of gsc|ga4|clarity|profound|dataforseo|semrush|competitor_teardown|owned_snapshot|fanout), ' +
+  '"evidenceRefs" (array of {"source","detail"}, at least one, from the grounding; source one of gsc|ga4|clarity|profound|dataforseo|competitor_teardown|owned_snapshot|fanout), ' +
   '"confidence" ("high"|"medium"|"low"), "risks" (array of short strings), "operatorSteps" (concrete steps to inspect + fix), ' +
   '"proofPlan" ({"metrics":[...],"windowsDays":[7,14,28],"controls":"..."}). ' +
   "Ground ONLY in the friction evidence provided — do NOT assert a cause you cannot see in the data (no fake certainty). Prefer a checklist of elements to inspect over prose. No marketing language. No em-dashes. Do NOT invent statistics.";
@@ -1460,57 +1458,6 @@ export async function draftCROFixStructured(
   });
 }
 
-// ── concrete drafter: InternalLinkDraft (contextual internal link) ────────────
-
-export type InternalLinkStructuredInput = {
-  sourcePage: string;
-  targetPage: string;
-  /** What the target page is about (so the anchor describes it honestly). */
-  targetTopic: string;
-  /** Why these two pages relate (grounding — shared topic / cluster). */
-  relationDetail: string;
-};
-
-const INTERNAL_LINK_SYSTEM =
-  "You write ONE contextual internal link from a source page to a target page on the same site. " +
-  'Return ONLY a JSON object: "sourcePage" (the page the link is added to), "targetPage" (the page linked to), ' +
-  '"anchorText" (2-8 words that HONESTLY describe the target page — never misleading), ' +
-  '"linkSentence" (a natural sentence on the source page that contains the anchor and reads in context), ' +
-  '"reason" (why this link helps the reader / topic cluster), "riskNotes" (array of short strings), ' +
-  '"evidenceRefs" (array of {"source","detail"}, at least one, from the grounding; source one of gsc|ga4|clarity|profound|dataforseo|semrush|competitor_teardown|owned_snapshot|fanout), ' +
-  '"confidence" ("high"|"medium"|"low"), "risks" (array), "operatorSteps" (array), ' +
-  '"proofPlan" ({"metrics":[...],"windowsDays":[7,14,28],"controls":"..."}). ' +
-  "The source and target MUST be different pages (never a self-link). The anchor must match what the target is actually about. Ground ONLY in what is provided. No marketing language. No em-dashes. No invented facts.";
-
-/** Draft a schema-valid InternalLinkDraft for one source→target pair. */
-export async function draftInternalLinkStructured(
-  input: InternalLinkStructuredInput,
-  opts: { complete?: CompleteFn; now?: Date; bypassCache?: boolean } = {},
-): Promise<StructuredDraftResult<import("./schemas").InternalLinkDraft>> {
-  // R16 injection firewall: the topic/relation lines can carry crawled text.
-  const targetTopic = sanitizeEvidenceText(input.targetTopic);
-  const relationDetail = sanitizeEvidenceText(input.relationDetail);
-  const grounded = [input.sourcePage, input.targetPage, targetTopic, relationDetail].join(" ");
-  const user = [
-    `Source page (link is added here): ${input.sourcePage}`,
-    `Target page (link points here): ${input.targetPage}`,
-    `Target page is about: ${targetTopic}`,
-    `Why they relate: ${relationDetail}`,
-    "",
-    "Return the JSON now.",
-  ].join("\n");
-  return callStructuredLLM({
-    kind: "internal_link",
-    system: INTERNAL_LINK_SYSTEM,
-    user,
-    grounded,
-    projectedCostUsd: 0.015,
-    complete: opts.complete,
-    now: opts.now,
-    bypassCache: opts.bypassCache,
-  });
-}
-
 // ── concrete drafter: AeoPromptBrief (Profound Question Intelligence) ──────────
 
 export type AeoPromptBriefInput = {
@@ -1539,7 +1486,7 @@ const AEO_PROMPT_BRIEF_SYSTEM =
   '"competitor_pages_to_beat" (array — the cited competitor pages/domains provided), ' +
   '"schema_recommendation" ("FAQPage"|"Article"|"ItemList"|"None"), ' +
   '"internal_links" (array of on-site link suggestions, or []), ' +
-  '"evidenceRefs" (array of {"source","detail"}, at least one; source one of gsc|ga4|clarity|profound|dataforseo|semrush|competitor_teardown|owned_snapshot|fanout), ' +
+  '"evidenceRefs" (array of {"source","detail"}, at least one; source one of gsc|ga4|clarity|profound|dataforseo|competitor_teardown|owned_snapshot|fanout), ' +
   '"confidence" ("high"|"medium"|"low"), "risks" (array of short strings), "operatorSteps" (array of concrete steps). ' +
   "Ground EVERYTHING only in the prompt, fan-out queries, and competitor pages provided. Do NOT invent statistics, dates, prices, rankings, or superlatives (put anything uncertain in facts_to_verify). No marketing language. No em-dashes.";
 
@@ -1620,22 +1567,6 @@ export function deserializeStructuredDraft(
   } catch {
     return null;
   }
-}
-
-/** Persist a validated draft via move_drafts (kind="structured_draft"). Refuses
- *  to write past the content cap (returns false) rather than truncate to junk. */
-export async function saveStructuredDraft(
-  tenantId: string,
-  moveId: string,
-  kind: StructuredDraftKind,
-  value: unknown,
-): Promise<boolean> {
-  const content = serializeStructuredDraft(kind, value);
-  if (content.length > MAX_DRAFT_CHARS) {
-    log.warn("[structured-drafter] draft too large to persist", { tenantId, moveId, kind, size: content.length });
-    return false;
-  }
-  return saveMoveDraft(tenantId, moveId, "structured_draft", content);
 }
 
 // ── team verdict (FINAL PREMIUM PLAN item 25) ─────────────────────────────────

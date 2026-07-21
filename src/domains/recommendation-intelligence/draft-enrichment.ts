@@ -476,7 +476,6 @@ const AEO_MEASURE_PLAN =
 const QUERY_TITLE_TRIGGERS: ReadonlySet<string> = new Set([
   "gsc_low_ctr",
   "gsc_striking_distance",
-  "semrush_striking_distance",
 ]);
 /** A query short enough to BE a title (avoid turning a long-tail query into an
  *  unwieldy title — fall back to the page's own base above this). */

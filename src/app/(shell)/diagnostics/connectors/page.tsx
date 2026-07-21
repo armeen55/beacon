@@ -45,7 +45,6 @@ const CONNECTORS: ReadonlyArray<{
   { label: "Google Search Console", provider: "google_gsc", href: "/settings/connectors" },
   { label: "Google Analytics 4", provider: "google_ga4", href: "/diagnostics/outcome-attribution" },
   { label: "Microsoft Clarity", provider: "clarity", href: "/settings/connectors" },
-  { label: "Profound", provider: "profound", href: "/settings/connectors" },
   { label: "CallRail", provider: "callrail", href: "/diagnostics/callrail" },
   // Semrush removed (dead; DataForSEO is the search-market source, env-based).
 ];
@@ -219,8 +218,7 @@ export default async function ConnectorsDiagnosticPage() {
         Refreshing pulls fresh data from each connected source into
         Beacon&apos;s cache — that&apos;s what keeps Today, Recommendations, and
         the Changes detail current now that nightly crons are off. GSC, GA4,
-        Clarity, Profound + CallRail all refresh in the batch above
-        (Profound is the AEO source — &ldquo;how AI describes you&rdquo;); the
+        Clarity + CallRail all refresh in the batch above; the
         proof recompute is a separate on-demand action.
       </p>
     </div>

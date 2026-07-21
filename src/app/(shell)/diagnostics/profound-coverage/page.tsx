@@ -20,7 +20,6 @@ import { currentTenantId } from "@/lib/tenant-context";
 import { loadCachedProfoundCoverageForTenant } from "@/domains/profound-coverage/load-cached";
 import type { AeoActionPack } from "@/domains/profound-coverage/types";
 import { loadBotReferralSignals } from "@/domains/profound-deep/load-bot-referral-signals";
-import { RefreshCoverageButton } from "./refresh-button";
 
 export const dynamic = "force-dynamic";
 
@@ -139,14 +138,12 @@ export default async function ProfoundCoveragePage() {
         </div>
       ) : empty ? (
         <div className="space-y-3 rounded-lg border border-gray-200 bg-gray-50 p-6 text-sm text-gray-600">
-          <p>No durable Profound coverage stored yet. Click refresh to pull the live data once (≈20s) — after that this page reads it instantly.</p>
-          <RefreshCoverageButton />
+          <p>No stored AI-answer coverage for this tenant yet. This page reads only durable stored rows (no live pull).</p>
         </div>
       ) : (
         <>
           <div className="flex items-center justify-between gap-3">
-            <p className="text-xs text-gray-400">Reading durable Profound coverage (cached, no live API call).</p>
-            <RefreshCoverageButton />
+            <p className="text-xs text-gray-400">Reading durable AI-answer coverage (cached, no live API call).</p>
           </div>
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
             {tiles.map((t) => (

@@ -38,8 +38,8 @@ import { monthDayLabel } from "@/components/data/receipt-line";
  *     connectors page (`/settings/connectors`). That page already owns the
  *     real connect entry points — the Google OAuth `getGoogleAuthUrl` server
  *     action behind the "Connect Google Search Console" / "Connect Google
- *     Analytics" buttons, and the paste-a-key forms for SEMrush, Profound,
- *     Clarity, and Wix. We deep-link straight to each source's card via its
+ *     Analytics" buttons, and the paste-a-key forms for Profound, Clarity,
+ *     and Wix. We deep-link straight to each source's card via its
  *     `data-connector-card` anchor where one exists (#connector-<id>), so the
  *     owner lands on the exact card to finish the connect in one place.
  *
@@ -82,13 +82,7 @@ type DataSource = {
 const DATA_SOURCES: readonly DataSource[] = [
   { provider: "google_gsc", label: "Google Search Console", cardAnchor: "google-gsc" },
   { provider: "google_ga4", label: "Google Analytics 4", cardAnchor: "google-ga4" },
-  // SEMrush removed (dead, replaced by DataForSEO which is env-based / not a connect
-  // card). Search-market status now lives on Connections.
   { provider: "clarity", label: "Microsoft Clarity", cardAnchor: "clarity" },
-  // White-label: never surface the vendor name "Profound" on a customer
-  // surface (main-product-final-confidence-sweep guards src/components/today).
-  // The connectors page card is the one place it's named for key entry.
-  { provider: "profound", label: "AI Answers", cardAnchor: "profound" },
   { provider: "wix", label: "Wix", cardAnchor: "wix" },
 ] as const;
 
@@ -98,7 +92,6 @@ const TEAMMATE_KEY: Partial<Record<ConnectorProvider, string>> = {
   google_gsc: "gsc",
   google_ga4: "ga4",
   clarity: "clarity",
-  profound: "profound",
   wix: "wix",
 };
 
@@ -152,12 +145,11 @@ type SourceStatus = {
 
 /** Wave 3A: providers this strip judges for data freshness, mapped to their canonical SLA
  *  key (source-freshness.ts). GA4 maps to "ga4" (a removed source, excluded from the tally);
- *  a legacy provider not in this map (e.g. semrush) is not part of the freshness verdict. */
+ *  a provider not in this map is not part of the freshness verdict. */
 const PROVIDER_TO_SOURCE: Partial<Record<ConnectorProvider, SourceKey>> = {
   google_gsc: "gsc",
   google_ga4: "ga4",
   clarity: "clarity",
-  profound: "profound",
   wix: "wix",
 };
 
@@ -202,7 +194,7 @@ async function readStatuses(tenantId?: string): Promise<SourceStatus[]> {
  * Wave 3A: judge each source's freshness against its per-source DATA-age SLA (source-freshness.ts),
  * not connection status. A source that is "connected" in the token store but reporting two-week-old
  * data is NOT healthy - that was the "5 healthy while AI is 2 weeks old" leak. GA4 is a removed
- * source (excluded from the tally). A provider with no SLA mapping (legacy semrush) is skipped.
+ * source (excluded from the tally). A provider with no SLA mapping is skipped.
  * The real data-through clock is used when present; until a loader threads it, the sync stamp is
  * the best available recency signal. PURE given the already-read statuses; no new I/O.
  */

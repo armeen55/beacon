@@ -47,15 +47,13 @@ type SourceMeta = {
   blockedWhenMissing: string;
 };
 
-/** The source registry for the operator Data Health surface. White-label:
- *  Profound is "AI answers", never the vendor name. */
+/** The source registry for the operator Data Health surface. */
 export const CONNECTION_SOURCES: readonly SourceMeta[] = [
   { key: "google_gsc", label: "Google Search", role: "what people search to find you, and where you rank on Google", unlocks: "pages losing clicks, pages slipping, and what to fix first", blockedWhenMissing: "almost everything Beacon does" },
   { key: "google_ga4", label: "Website visitors", role: "which pages get the most visitors and sign-ups", unlocks: "focusing on the pages that actually make you money", blockedWhenMissing: "knowing which pages matter most to your business" },
   { key: "dataforseo", label: "Search market (DataForSEO)", role: "live Google SERP results + search volume to validate which pages can win", unlocks: "BUILD/WAIT/SKIP verdicts on new pages, real search volume, and who actually ranks", blockedWhenMissing: "outside-market SERP validation" },
   { key: "clarity", label: "Visitor behavior (Clarity)", role: "where visitors get stuck or frustrated on your pages", unlocks: "spots where visitors get frustrated or click things that do nothing", blockedWhenMissing: "knowing where visitors get stuck" },
   { key: "wix", label: "Your website (Wix)", role: "your live website content and SEO settings (read only, not analytics)", unlocks: "reading your current pages and publishing changes you approve", blockedWhenMissing: "one-click publishing (you can still copy and paste changes yourself)" },
-  { key: "profound", label: "AI answers", role: "whether AI assistants like ChatGPT recommend your business", unlocks: "tracking how often AI tools mention you", blockedWhenMissing: "knowing if AI recommends you" },
 ] as const;
 
 function daysSince(iso: string | null, now: Date): number | null {

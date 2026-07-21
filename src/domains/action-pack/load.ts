@@ -149,7 +149,6 @@ const emptySummary = (mode: WorklistMode): ActionPackWorklist["summary"] => ({
   warnings: [],
 });
 
-const EMPTY: ActionPackWorklist = { packs: [], summary: emptySummary("fast") };
 
 async function loadUncached(tenantId: string, mode: WorklistMode): Promise<ActionPackWorklist> {
   const warnings: string[] = [];
@@ -253,5 +252,3 @@ export function loadActionPackWorklistForTenant(
 ): Promise<ActionPackWorklist> {
   return loadCached(tenantId, opts?.mode ?? "fast");
 }
-
-export { EMPTY as EMPTY_ACTION_PACK_WORKLIST };

@@ -40,7 +40,6 @@ import { revalidatePath } from "next/cache";
 import { syncGscSearchAnalyticsForTenant } from "@/lib/connectors/gsc/sync-search-analytics";
 import { syncGa4UrlTrafficForTenant } from "@/lib/connectors/ga4/sync-url-traffic";
 import { refreshGa4SitewideAndReconcile } from "@/lib/connectors/ga4/refresh-ga4-sitewide";
-import { syncProfoundNightlyForTenant } from "@/lib/connectors/profound/sync-nightly";
 import { syncClarityDailyMetricsForTenant } from "@/lib/connectors/clarity/sync-daily-metrics";
 import { recordSourceRefresh } from "@/domains/ops/record-source-refresh";
 import type { RefreshSource } from "@/domains/ops/refresh-runs-store";
@@ -53,8 +52,6 @@ function manualLedgerSource(provider: FreshnessProvider): RefreshSource {
       return "gsc";
     case "google_ga4":
       return "ga4";
-    case "profound":
-      return "profound";
     case "clarity":
       return "clarity";
   }
@@ -620,52 +617,15 @@ export async function disconnectGoogleGa4(): Promise<{
   }
 }
 
-// ── Connect-cards slice (2026-06-12), SEMrush / Profound / Clarity ──
+// ── Connect-cards slice (2026-06-12), Clarity ──
 // Same self-serve posture as the Wix card: paste a key, it stays on
 // this server, the nightly syncs activate the moment it lands
 // (dormant-honest until then). Disconnect = soft (cached data kept).
 
 // (saveSemrushConnection / disconnectSemrush removed Phase F.1; SEMrush deleted.)
-
-export async function saveProfoundConnection(input: {
-  apiKey: string;
-}): Promise<{ success: boolean; error?: string }> {
-  const action = "saveProfoundConnection";
-  const t0 = Date.now();
-  const apiKey = input.apiKey.trim();
-  if (!apiKey) return { success: false, error: "Enter your Profound API key." };
-  log.info("Action started", { action });
-  try {
-    await saveConnectorToken({
-      provider: "profound",
-      api_key: apiKey,
-      connected_at: now(),
-    });
-    revalidatePath("/settings/connectors");
-    log.info("Action completed", { action, durationMs: Date.now() - t0 });
-    return { success: true };
-  } catch (e) {
-    const err = e instanceof Error ? e.message : String(e);
-    log.error("Action failed", { action, durationMs: Date.now() - t0, error: err.slice(0, 500) });
-    return { success: false, error: err };
-  }
-}
-
-export async function disconnectProfound(): Promise<{ success: boolean; error?: string }> {
-  const action = "disconnectProfound";
-  const t0 = Date.now();
-  log.info("Action started", { action });
-  try {
-    await deleteConnectorToken("profound");
-    revalidatePath("/settings/connectors");
-    log.info("Action completed", { action, durationMs: Date.now() - t0 });
-    return { success: true };
-  } catch (e) {
-    const err = e instanceof Error ? e.message : String(e);
-    log.error("Action failed", { action, durationMs: Date.now() - t0, error: err.slice(0, 500) });
-    return { success: false, error: err };
-  }
-}
+// (saveProfoundConnection / disconnectProfound removed 2026-07-20; the borrowed
+//  Profound account was fully disconnected. The AI-answer evidence surfaces read
+//  only OUR durable stored tables now, never a live account call.)
 
 export async function saveClarityConnection(input: {
   apiToken: string;
@@ -714,8 +674,7 @@ export async function disconnectClarity(): Promise<{ success: boolean; error?: s
 //
 // All GitHub Actions + the Vercel cron are disabled. The per-tenant sync
 // engines (syncGscSearchAnalyticsForTenant / syncGa4UrlTrafficForTenant /
-// syncProfoundNightlyForTenant / syncClarityDailyMetricsForTenant /
-// syncSemrushOrganicKeywordsForTenant) are all pure HTTP→Supabase (no
+// syncClarityDailyMetricsForTenant) are all pure HTTP→Supabase (no
 // subprocess, Vercel-safe) and were previously reachable ONLY from the
 // nightly script. These actions surface each as an operator-clickable
 // "Sync now" so connecting a source actually pulls data. Each is fail-soft
@@ -737,7 +696,6 @@ export type ConnectorSyncNowResult = {
  *
  *   • no_token / no_key / no_property / no_domain / disconnected, never set up.
  *   • no_property_derivable, GSC connected but no domain configured yet.
- *   • no_categories_configured, Profound key works, workspace empty.
  */
 const BENIGN_SKIP_REASONS = new Set([
   "no_token",
@@ -747,11 +705,8 @@ const BENIGN_SKIP_REASONS = new Set([
   // #208, `no_domain` / `no_property_derivable` now route to the more
   // specific NEEDS_DOMAIN_REASONS copy ("set your website domain in
   // Config") instead of the generic "not connected yet" line.
-  "no_categories_configured",
   // GSC: token store genuinely had no row → never connected (#87).
   "no_usable_gsc_token",
-  // Profound: no key connected yet (#88), distinct from profound_api_error.
-  "no_profound_key",
   // Clarity: no token connected yet, distinct from a real API error. (The
   // engine still uses the legacy combined reason; treat it as a skip so an
   // unconnected source never alarms. A genuine upsert_failed stays a failure.)
@@ -789,13 +744,10 @@ const FAILED_REASON_COPY: Record<string, string> = {
   // Writing the pulled rows failed, transient, retry works.
   upsert_failed:
     "Beacon pulled your data but couldn't save it, please try again in a moment.",
-  // SEMrush: the key is missing OR the API rejected the request.
+  // The key is missing OR the API rejected the request.
   no_key_or_api_error:
-    "Couldn't reach SEMrush, check the API key on this card, then try again.",
-  // Profound: the key is present but the API returned an error.
-  profound_api_error:
-    "Couldn't reach Profound, check the API key on this card, then try again.",
-  // Profound: no competitor configured yet to pull citations against.
+    "I could not reach this data source. Check the connection details on this card and try again.",
+  // No competitor configured yet to pull citations against.
   no_known_competitor:
     "Add at least one competitor in Settings → Config, then sync again.",
 };
@@ -939,7 +891,6 @@ function summarizeConnectorSync(result: unknown): ConnectorSyncNowResult {
 type FreshnessProvider =
   | "google_gsc"
   | "google_ga4"
-  | "profound"
   | "clarity";
 
 async function writeLastSyncedAt(
@@ -963,9 +914,6 @@ async function writeLastSyncedAt(
           { ...patch, needs_attention_at: null, needs_attention_since: null, needs_attention_kind: null },
           tenantId,
         );
-        break;
-      case "profound":
-        await updateConnectorToken(provider, patch, tenantId);
         break;
       case "clarity":
         await updateConnectorToken(provider, patch, tenantId);
@@ -1039,15 +987,6 @@ export async function syncGa4Now(): Promise<ConnectorSyncNowResult> {
   );
 }
 
-/** Pull Profound AI-visibility/citation rows for this tenant. */
-export async function syncProfoundNow(): Promise<ConnectorSyncNowResult> {
-  return runConnectorSyncNow(
-    "syncProfoundNow",
-    (tenantId) => syncProfoundNightlyForTenant({ tenantId }),
-    "profound",
-  );
-}
-
 /** Pull Microsoft Clarity daily friction metrics for this tenant. */
 export async function syncClarityNow(): Promise<ConnectorSyncNowResult> {
   return runConnectorSyncNow(
@@ -1066,16 +1005,14 @@ export async function syncClarityNow(): Promise<ConnectorSyncNowResult> {
 // owner asked for a single control on Today ("everything should be updating,
 // I don't need to refresh"). This action pulls EVERY connected READ source in
 // one click, fail-soft, concurrent, and returns a per-source result list the
-// Today button renders. Wix is publish-only (EXCLUDED). White-label rule
-// (main-product-final-confidence-sweep guards src/components/today): the AEO
-// source is labeled "AI answers", NEVER the vendor name "Profound".
+// Today button renders. Wix is publish-only (EXCLUDED).
 // ─────────────────────────────────────────────────────────────────────
 
 /** The READ sources a Today refresh pulls, in display order. Wix is
  *  publish-only and intentionally excluded. Each entry maps a connector-store
  *  provider → its sync engine + plain-English customer label. */
 const REFRESH_ALL_SOURCES: ReadonlyArray<{
-  provider: "google_gsc" | "google_ga4" | "clarity" | "profound";
+  provider: "google_gsc" | "google_ga4" | "clarity";
   label: string;
   run: (tenantId: string) => Promise<unknown>;
   freshnessProvider: FreshnessProvider;
@@ -1097,13 +1034,6 @@ const REFRESH_ALL_SOURCES: ReadonlyArray<{
     label: "Visitor experience",
     run: (tenantId) => syncClarityDailyMetricsForTenant({ tenantId }),
     freshnessProvider: "clarity",
-  },
-  {
-    // White-label: customer-facing copy is "AI answers", never "Profound".
-    provider: "profound",
-    label: "AI answers",
-    run: (tenantId) => syncProfoundNightlyForTenant({ tenantId }),
-    freshnessProvider: "profound",
   },
 ] as const;
 

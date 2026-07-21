@@ -25,7 +25,6 @@ export const EvidenceRefSchema = z.object({
     "clarity",
     "profound",
     "dataforseo",
-    "semrush",
     "competitor_teardown",
     "owned_snapshot",
     "fanout",

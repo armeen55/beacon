@@ -3,7 +3,6 @@ import { getConnectorInfo, updateConnectorToken } from "@/lib/connector-store";
 import { syncGscSearchAnalyticsForTenant } from "@/lib/connectors/gsc/sync-search-analytics";
 import { syncGa4UrlTrafficForTenant } from "@/lib/connectors/ga4/sync-url-traffic";
 import { syncClarityDailyMetricsForTenant } from "@/lib/connectors/clarity/sync-daily-metrics";
-import { syncProfoundNightlyForTenant } from "@/lib/connectors/profound/sync-nightly";
 import { refreshGa4SitewideAndReconcile } from "@/lib/connectors/ga4/refresh-ga4-sitewide";
 import { recordSourceRefresh } from "@/domains/ops/record-source-refresh";
 import type { RefreshSource, RefreshTrigger } from "@/domains/ops/refresh-runs-store";
@@ -37,7 +36,6 @@ export const READ_SOURCES: ReadonlyArray<{
   { provider: "google_gsc", run: (t) => syncGscSearchAnalyticsForTenant({ tenantId: t }) },
   { provider: "google_ga4", run: (t) => syncGa4UrlTrafficForTenant({ tenantId: t }) },
   { provider: "clarity", run: (t) => syncClarityDailyMetricsForTenant({ tenantId: t }) },
-  { provider: "profound", run: (t) => syncProfoundNightlyForTenant({ tenantId: t }) },
 ];
 
 export type CronSyncSourceResult = {
@@ -90,8 +88,6 @@ function ledgerSource(provider: ReadProvider): RefreshSource {
       return "ga4";
     case "clarity":
       return "clarity";
-    case "profound":
-      return "profound";
   }
 }
 
@@ -150,9 +146,6 @@ export async function stampFreshness(provider: ReadProvider, tenantId: string): 
         break;
       case "clarity":
         await updateConnectorToken("clarity", patch, tenantId);
-        break;
-      case "profound":
-        await updateConnectorToken("profound", patch, tenantId);
         break;
     }
   } catch (e) {

@@ -13,7 +13,7 @@ function packet(over: Partial<EvidencePacket["current"]> = {}): EvidencePacket {
       sectionLabel: null, currentText: "Old", cmsFieldMapped: over.cmsFieldMapped ?? true,
       publishChannel: over.publishChannel ?? "wix_cms",
     },
-    sourcesPresent: ["gsc", "crawl"], sourcesConnectedButEmpty: ["ga4", "clarity", "semrush", "profound"],
+    sourcesPresent: ["gsc", "crawl"], sourcesConnectedButEmpty: ["ga4", "clarity", "profound"],
   };
 }
 function art(over: Partial<ChangeArtifact> & { action: ChangeArtifact["action"] }): ChangeArtifact {

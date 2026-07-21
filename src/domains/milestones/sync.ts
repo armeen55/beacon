@@ -54,8 +54,3 @@ export async function syncMilestonesFromWorkspace(input: {
   if (dirty) await persistState(state);
   return { state, newEvents };
 }
-
-/** Read-only snapshot for pages that should not mutate state twice in one request. */
-export async function getMilestoneState(): Promise<MilestoneState> {
-  return await readState();
-}

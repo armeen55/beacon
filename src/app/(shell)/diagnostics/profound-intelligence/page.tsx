@@ -66,8 +66,8 @@ export default async function ProfoundIntelligencePage() {
             ))}
           </div>
           <p className="text-xs text-gray-400">
-            Live read from {intel.answerRows} AI answers + {intel.fanoutRows} fan-out rows over the last 30 days
-            (topic-scoped; no bots/referrals; ownership = iranopedia.com only).
+            Cached read from {intel.answerRows} stored AI answers + {intel.fanoutRows} fan-out rows
+            (topic-scoped; no bots/referrals; ownership = iranopedia.com only; no live API call).
           </p>
 
           {intel.opportunities.length === 0 ? (

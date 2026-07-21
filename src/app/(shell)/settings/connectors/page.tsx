@@ -44,7 +44,6 @@ async function loadConnectorsPageData() {
   const wix = await getConnectorInfo("wix");
   // Connect-cards slice (2026-06-12): the END-STATE contract — every
   // data source connects HERE, self-serve.
-  const profound = await getConnectorInfo("profound");
   const clarity = await getConnectorInfo("clarity");
   // Selected GBP location lives on the (deferred) google_gbp token. Read
   // it so a returning GBP card can immediately show the saved selection.
@@ -137,13 +136,13 @@ async function loadConnectorsPageData() {
 
   // FP10a (2026-07-02) - one summary strip fact instead of the same three
   // facts stated five-plus times across the page. "N of M connected" counts
-  // the five self-serve sources that actually render a card on this page
-  // (GSC, GA4, Wix, Profound, Clarity); Yelp is removed from the UI
+  // the self-serve sources that actually render a card on this page
+  // (GSC, GA4, Wix, Clarity); Yelp is removed from the UI
   // (2026-06-18) and GBP is deferred, so neither counts toward M.
-  const connectedCount = [googleGsc, googleGa4, wix, profound, clarity].filter(
+  const connectedCount = [googleGsc, googleGa4, wix, clarity].filter(
     (c) => c.status === "connected",
   ).length;
-  const totalCount = 5;
+  const totalCount = 4;
 
   // BUG 3 (2026-07-11): per-source refresh-ledger facts for the "last pulled /
   // data through / result" strip. Read-only, fail-soft: any error self-hides the
@@ -162,7 +161,7 @@ async function loadConnectorsPageData() {
       readLastWarmReceipt(tid, "visit"),
     ]);
     const facts: RefreshLedgerFacts = {};
-    for (const key of ["gsc", "ga4", "clarity", "profound"] as const) {
+    for (const key of ["gsc", "ga4", "clarity"] as const) {
       const row = latest[key];
       if (row != null) {
         facts[key] = {
@@ -181,7 +180,6 @@ async function loadConnectorsPageData() {
         ...(googleGsc.status === "connected" ? ["gsc" as const] : []),
         ...(googleGa4.status === "connected" ? ["ga4" as const] : []),
         ...(clarity.status === "connected" ? ["clarity" as const] : []),
-        ...(profound.status === "connected" ? ["profound" as const] : []),
       ],
     });
   } catch {
@@ -192,7 +190,6 @@ async function loadConnectorsPageData() {
     googleGsc,
     googleGa4,
     wix,
-    profound,
     clarity,
     gbpTok,
     gscStaleCopy,
@@ -228,7 +225,6 @@ export default async function ConnectorsPage() {
     googleGsc,
     googleGa4,
     wix,
-    profound,
     clarity,
     gbpTok,
     gscStaleCopy,
@@ -254,7 +250,6 @@ export default async function ConnectorsPage() {
         }
         ga4={googleGa4}
         wix={wix}
-        profound={profound}
         clarity={clarity}
         gscStaleCopy={gscStaleCopy}
         gscReadiness={gscReadiness}

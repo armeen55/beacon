@@ -33,7 +33,6 @@ export const TITLE_WEIGHTS: Record<ScoreDimension, number> = {
   brand_trust_fit: 0.7,
   measurement_clarity: 0.3,
   implementation_risk: 0.3,
-  semrush_market_opportunity: 0.5,
   aeo_serp_feature_fit: 0.5,
   conversion_engagement_value: 0.7,
   ux_friction_impact: 0.1,
@@ -223,13 +222,8 @@ export function scoreTitleCandidate(
 
   // — Sources not present for this tenant yet → unavailable (not faked).
   dims.push(
-    packet.semrush?.keywords?.length
-      ? D("semrush_market_opportunity", 0.5, ["semrush.keywords"])
-      : D("semrush_market_opportunity", 0, [], false),
-  );
-  dims.push(
-    packet.semrush?.serpFeatures?.length || packet.profound
-      ? D("aeo_serp_feature_fit", 0.5, ["semrush.serpFeatures"])
+    packet.profound
+      ? D("aeo_serp_feature_fit", 0.5, ["profound"])
       : D("aeo_serp_feature_fit", 0, [], false),
   );
   dims.push(

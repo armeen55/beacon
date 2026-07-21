@@ -13,7 +13,7 @@
  * 2026-06-26: 200 real prompts → 152 gaps.
  */
 
-import type { ProfoundAnswerRow } from "@/lib/connectors/profound/client";
+import type { ProfoundAnswerRow } from "@/lib/connectors/profound/answer-row";
 
 /** One fan-out row: a tracked prompt expands into a downstream search query. */
 export type FanoutRow = { prompt: string; query: string; model: string | null };

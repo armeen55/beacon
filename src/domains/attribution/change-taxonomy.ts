@@ -307,15 +307,6 @@ export type NoiseBucketId = keyof typeof NOISE_BUCKETS;
 // Union of all bucket ids
 // ---------------------------------------------------------------------------
 
-export type AnyBucketId =
-  | ChangeBucketId
-  | OffsiteOwnedBucketId
-  | OffsiteExternalBucketId
-  | FindingBucketId
-  | StatusBucketId
-  | InfraBucketId
-  | NoiseBucketId;
-
 /** Returns the layer a bucket belongs to, or `null` if the id is unknown. */
 export function layerOf(bucket: string): TaxonomyLayer | null {
   if (bucket in CHANGE_BUCKETS) return "change";
@@ -326,24 +317,6 @@ export function layerOf(bucket: string): TaxonomyLayer | null {
   if (bucket in INFRA_BUCKETS) return "infra";
   if (bucket in NOISE_BUCKETS) return "noise";
   return null;
-}
-
-/** All valid bucket ids (for validation / LLM prompt construction). */
-export function allBucketIds(): string[] {
-  return [
-    ...Object.keys(CHANGE_BUCKETS),
-    ...Object.keys(OFFSITE_OWNED_BUCKETS),
-    ...Object.keys(OFFSITE_EXTERNAL_BUCKETS),
-    ...Object.keys(FINDING_BUCKETS),
-    ...Object.keys(STATUS_BUCKETS),
-    ...Object.keys(INFRA_BUCKETS),
-    ...Object.keys(NOISE_BUCKETS),
-  ];
-}
-
-/** All Change-layer bucket ids (for LLM prompt narrowing). */
-export function changeBucketIds(): string[] {
-  return Object.keys(CHANGE_BUCKETS);
 }
 
 // ---------------------------------------------------------------------------

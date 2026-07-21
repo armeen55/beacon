@@ -7,8 +7,6 @@
 
 import { cache } from "react";
 
-import { writeStore } from "@/lib/persistence/json-store";
-import { syncPageIssues } from "@/lib/persistence/dual-write";
 import { getRepository } from "@/lib/persistence/repositories";
 import { currentTenantId } from "@/lib/tenant-context";
 
@@ -20,16 +18,6 @@ export type IssueStatus =
   | "verified"
   | "not_fixed"
   | "dismissed";
-
-export const ISSUE_STATUS_LABELS: Record<IssueStatus, string> = {
-  new: "New",
-  handed_off: "Handed off",
-  in_progress: "In progress",
-  shipped: "Shipped",
-  verified: "Verified",
-  not_fixed: "Not fixed",
-  dismissed: "Dismissed",
-};
 
 export type PersistedIssue = {
   issueId: string;
@@ -146,30 +134,3 @@ export const getPageIssues = cache(async (): Promise<PersistedIssue[]> => {
   return (await ensureLoaded()).pageIssues!;
 });
 
-export async function persistRolloutExecutions(): Promise<void> {
-  await writeStore("rollout-executions", await getRolloutExecutions());
-}
-
-export function issueIdFromBrief(briefId: string, url: string): string {
-  const path = url.replace(/^https?:\/\/[^/]+/, "").replace(/\/+$/, "") || "/";
-  return `rollout-${briefId}-${path.replace(/\//g, "-").replace(/^-/, "")}`;
-}
-
-export function issueIdFromAlert(category: string, url: string): string {
-  const path = url.replace(/^https?:\/\/[^/]+/, "").replace(/\/+$/, "") || "/";
-  return `issue-${category}-${path.replace(/\//g, "-").replace(/^-/, "")}`;
-}
-
-export async function persistPatternEvidence(): Promise<void> {
-  await writeStore("pattern-evidence", await getPatternEvidence());
-}
-
-export async function persistPageIssues(tenantId: string): Promise<void> {
-  const pageIssues = await getPageIssues();
-  await writeStore("page-issues", pageIssues);
-  await syncPageIssues(pageIssues, tenantId);
-}
-
-export function _resetIssuesStateForTests(): void {
-  _stateByTenant.clear();
-}

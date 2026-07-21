@@ -44,7 +44,5 @@ export type OutreachPipelineRow = {
   createdAt: string;
 };
 
-export const OUTREACH_STATUSES: readonly OutreachStatus[] = ["draft", "ready", "sent", "replied", "won", "dead"];
-
 /** Silence window before a sent pitch is eligible for a queued follow-up draft. */
 export const OUTREACH_FOLLOWUP_SILENCE_DAYS = 7;

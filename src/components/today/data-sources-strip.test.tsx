@@ -45,9 +45,7 @@ type StatusInput = {
 const ALL_SIX: StatusInput[] = [
   { provider: "google_gsc", label: "Google Search Console" },
   { provider: "google_ga4", label: "Google Analytics 4" },
-  { provider: "semrush", label: "SEMrush" },
   { provider: "clarity", label: "Microsoft Clarity" },
-  { provider: "profound", label: "Profound" },
   { provider: "wix", label: "Wix" },
 ];
 
@@ -83,12 +81,10 @@ function render(over?: Parameters<typeof statuses>[0]) {
 describe("DataSourcesStripView — not-connected state", () => {
   it("renders a labeled Connect link for every not-connected source", () => {
     const html = render();
-    // All six names present.
+    // All names present.
     expect(html).toContain("Google Search Console");
     expect(html).toContain("Google Analytics 4");
-    expect(html).toContain("SEMrush");
     expect(html).toContain("Microsoft Clarity");
-    expect(html).toContain("Profound");
     expect(html).toContain("Wix");
     // Each not-connected source exposes a labeled connect affordance.
     expect(html).toContain('aria-label="Connect Google Search Console"');
@@ -113,7 +109,7 @@ describe("DataSourcesStripView — connected state", () => {
     // The GSC source must NOT also render a Connect affordance.
     expect(html).not.toContain('aria-label="Connect Google Search Console"');
     // Other sources are still connectable.
-    expect(html).toContain('aria-label="Connect SEMrush"');
+    expect(html).toContain('aria-label="Connect Microsoft Clarity"');
   });
 
   it("surfaces last-synced copy when available", () => {
@@ -152,20 +148,6 @@ describe("DataSourcesStripView — needs_attention state", () => {
     expect(html).not.toContain('aria-label="Connect Google Analytics 4"');
   });
 
-  it("renders the never-synced reason for a connected source with no first reading", () => {
-    const html = render({
-      semrush: {
-        health: "needs_attention",
-        healthReason: "Connected — click Refresh my data to pull your first reading.",
-      },
-    });
-    expect(html).toContain(
-      "Connected — click Refresh my data to pull your first reading.",
-    );
-    expect(html).toContain('aria-label="SEMrush: needs attention.');
-    expect(html).toContain("min-h-[44px]");
-  });
-
   it("does NOT use the success-green ✓ markup for a needs_attention source", () => {
     const onlyAttention = render({
       google_ga4: {
@@ -189,9 +171,7 @@ describe("DataSourcesStripView — needs_attention state", () => {
         healthReason:
           "Connected — pick your Analytics property to start pulling data.",
       },
-      semrush: { connected: true },
       clarity: { connected: true },
-      profound: { connected: true },
       wix: { connected: true },
     });
     // The collapse confirmation must NOT appear while a source needs attention.
@@ -207,12 +187,10 @@ describe("DataSourcesStripView — all-connected state", () => {
     const html = render({
       google_gsc: { connected: true },
       google_ga4: { connected: true },
-      semrush: { connected: true },
       clarity: { connected: true },
-      profound: { connected: true },
       wix: { connected: true },
     });
-    // Wave 3A: freshness-first health line - the required sources (GSC, Profound, Clarity) are
+    // Wave 3A: freshness-first health line - the required sources (GSC, Clarity) are
     // all within SLA, so it reports currency + the oldest data-through, never a bare count.
     expect(html).toContain("Your key sources are current");
     // No Connect affordances at all in the all-connected confirmation.
@@ -226,9 +204,7 @@ describe("DataSourcesStripView — all-connected state", () => {
     const html = render({
       google_gsc: { connected: true },
       google_ga4: { connected: true },
-      semrush: { connected: true },
       clarity: { connected: true },
-      profound: { connected: true },
       wix: { connected: true },
     });
     expect(html).not.toContain("All data sources connected");
@@ -244,8 +220,6 @@ describe("DataSourcesStripView - freshness-first health line (Wave 3A)", () => {
         health: "needs_attention",
         healthReason: "Connected. Click Refresh my data to pull your first reading.",
       },
-      semrush: { connected: true },
-      profound: { connected: true },
       wix: { connected: true },
     });
     // The health line reports the attention gap, never "6 connected, 6 healthy".
@@ -261,21 +235,19 @@ describe("DataSourcesStripView - freshness-first health line (Wave 3A)", () => {
         health: "needs_attention",
         healthReason: "Connected. Pick your Analytics property to start pulling data.",
       },
-      semrush: { connected: true },
       clarity: { connected: true },
-      profound: { connected: true },
       wix: { connected: true },
     });
-    // GSC + Profound + Clarity are all current; GA4 is removed (excluded), so the line reads current.
+    // GSC + Clarity are all current; GA4 is removed (excluded), so the line reads current.
     expect(html).toContain("Your key sources are current");
   });
 
   it("reports the gap when required sources have never connected", () => {
     const html = render({
-      google_gsc: { connected: true },
+      // Only GA4 (a removed source) connects; both required sources (GSC, Clarity)
+      // have no data, so the line names the multi-source gap, not a connected count.
       google_ga4: { connected: true },
     });
-    // Profound + Clarity (required) have no data; the line names the gap, not a connected count.
     expect(html).toContain("key sources need attention");
     expect(html).not.toContain("2 connected, 2 healthy");
   });

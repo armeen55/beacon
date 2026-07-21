@@ -8,8 +8,6 @@
 
 import { cache } from "react";
 
-import { writeStore } from "@/lib/persistence/json-store";
-import { syncChangeContracts } from "@/lib/persistence/dual-write";
 import { getRepository } from "@/lib/persistence/repositories";
 import { currentTenantId } from "@/lib/tenant-context";
 
@@ -44,34 +42,6 @@ export const CHANGE_TYPES = [
 ] as const;
 
 export type ChangeType = (typeof CHANGE_TYPES)[number];
-
-export const CHANGE_TYPE_LABELS: Record<ChangeType, string> = {
-  faq_addition: "Added Q&A content",
-  schema_addition: "Added structured data",
-  title_meta_change: "Updated page title / description",
-  hero_rewrite: "Rewrote page header",
-  comparison_table: "Added comparison table",
-  internal_linking: "Improved page connections",
-  new_page_creation: "Created new page",
-  page_reconstruction: "Rebuilt page",
-  service_page_upgrade: "Improved service page",
-  city_page_upgrade: "Improved city page",
-  homepage_change: "Updated homepage",
-  project_page_creation: "Added project showcase",
-  trust_page_creation: "Added trust / awards page",
-  entity_profile_update: "Updated business profile",
-  directory_profile_update: "Updated directory listing",
-  technical_rendering_fix: "Fixed technical rendering",
-  prerender_fix: "Fixed server-side rendering",
-  url_migration: "Moved page URL",
-  sitewide_title_meta: "Updated titles across site",
-  sitewide_structural_update: "Structural update across site",
-  guide_page_creation: "Created guide page",
-  llms_txt_update: "Updated AI crawler guidance",
-  image_optimization: "Optimized images",
-  nav_footer_update: "Updated navigation",
-  other: "Other change",
-};
 
 // ── Page Type Taxonomy ──
 
@@ -140,14 +110,6 @@ export type ChangeContract = {
 // ── Verification ──
 
 export type VerificationStatus = "pending" | "verified_match" | "verified_mismatch" | "not_applicable";
-
-export type VerificationCheck = {
-  field: string;
-  expected: string | number;
-  actual: string | number | null;
-  passed: boolean;
-  detail: string;
-};
 
 export function generateVerificationChecks(contract: ChangeContract): string[] {
   const checks: string[] = [];
@@ -259,44 +221,6 @@ export const DEFAULT_OUTCOME_WINDOWS: Record<ChangeType, number> = {
   other: 21,
 };
 
-// ── Validation Rules ──
-
-export type ValidationResult = {
-  valid: boolean;
-  errors: string[];
-  warnings: string[];
-};
-
-export function validateContract(contract: Partial<ChangeContract>): ValidationResult {
-  const errors: string[] = [];
-  const warnings: string[] = [];
-
-  if (!contract.pageUrl) errors.push("Page URL is required");
-  if (!contract.changeType) errors.push("Change type is required");
-  if (!contract.changeSummary || contract.changeSummary.length < 10) errors.push("Change summary must be at least 10 characters");
-  if (!contract.businessGoal) errors.push("Business goal is required. Why does this change matter?");
-  if (!contract.intendedHypothesis) errors.push("Expected outcome is required. What should this improve?");
-  if (!contract.dateRequested) errors.push("Date is required");
-
-  if (contract.pageUrl === "All Pages" || contract.pageUrl === "Priority live pages" || contract.pageUrl === "Sitewide") {
-    errors.push("'All Pages' or 'Sitewide' is not a valid page URL. Create separate entries per page, or use a sitewide change type");
-  }
-
-  if (!contract.city && !contract.service && !contract.topic) {
-    warnings.push("No city, service, or topic. Attribution will be weaker");
-  }
-
-  if (contract.faqCountExpected == null && (contract.changeType === "faq_addition" || contract.changeType === "city_page_upgrade" || contract.changeType === "page_reconstruction")) {
-    warnings.push("FAQ count not specified. Beacon won't be able to verify Q&A completeness");
-  }
-
-  if (contract.schemaTypesExpected?.length === 0 && (contract.changeType === "schema_addition" || contract.changeType === "page_reconstruction" || contract.changeType === "new_page_creation")) {
-    warnings.push("No structured data types specified. Beacon won't be able to verify schema");
-  }
-
-  return { valid: errors.length === 0, errors, warnings };
-}
-
 // ── Persistence ──
 
 // Night-shift fix (2026-06-11): 5th instance of the process-global
@@ -317,16 +241,6 @@ export const getChangeContracts = cache(
     return loaded;
   },
 );
-
-export async function persistChangeContracts(tenantId: string): Promise<void> {
-  const changeContracts = await getChangeContracts();
-  await writeStore("change-contracts", changeContracts);
-  await syncChangeContracts(changeContracts, tenantId);
-}
-
-export function _resetChangeContractsForTests(): void {
-  _contractsByTenant.clear();
-}
 
 // ── Auto-parsing helpers ──
 
@@ -391,31 +305,3 @@ export function suggestOutcomeWindow(changeType: ChangeType): number {
   return DEFAULT_OUTCOME_WINDOWS[changeType] ?? 21;
 }
 
-// ── Draft contract from text ──
-
-export function draftContractFromText(
-  text: string,
-  accountId: string,
-  pageUrl?: string
-): Partial<ChangeContract> {
-  const changeType = inferChangeTypeFromText(text);
-  const url = pageUrl ?? "";
-  const pageType = inferPageTypeFromUrl(url);
-  const faqCount = inferFaqCountFromText(text);
-  const schemas = inferSchemaFromText(text);
-
-  return {
-    accountId,
-    pageUrl: url,
-    pageType,
-    changeType,
-    changeSummary: "",
-    businessGoal: "",
-    intendedHypothesis: "",
-    faqCountExpected: faqCount,
-    schemaTypesExpected: schemas,
-    expectedOutcomeWindowDays: suggestOutcomeWindow(changeType),
-    sourceInputType: "pasted_instructions",
-    attributionReadiness: "weak",
-  };
-}

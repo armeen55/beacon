@@ -105,9 +105,9 @@ export async function SovWeeklySection() {
       </div>
 
       <p className="mt-3 text-[11px] leading-relaxed text-muted-foreground/80">
-        Source: your connected AI engines (native poll). When I have Profound category data for the same topic I show
-        it separately below, since Profound measures share of voice differently and the two numbers are not the same
-        thing.
+        Source: your connected AI engines (native poll). When I have separate AI answer tracking data for the same
+        topic I show it separately below, since it measures share of voice differently and the two numbers are not
+        the same thing.
       </p>
       <ProfoundFootnote merged={result.merged} />
     </section>
@@ -157,11 +157,11 @@ function ProfoundFootnote({ merged }: { merged: import("@/domains/ai-visibility/
   if (withProfound.length === 0) return null;
   return (
     <div className="mt-3 rounded-md border border-border/40 bg-surface-inset/20 px-3 py-2.5">
-      <p className="text-[11px] font-medium text-foreground mb-1">Profound&apos;s own reading (different metric)</p>
+      <p className="text-[11px] font-medium text-foreground mb-1">AI answer tracking reading (different metric)</p>
       <ul className="space-y-1">
         {withProfound.map((m) => (
           <li key={`${m.topic}-${m.weekKey}`} className="text-[11px] text-muted-foreground">
-            {m.topic}: you are {Math.round((m.profound?.ownShareOfVoice ?? 0) * 100)}% of Profound&apos;s tracked answers
+            {m.topic}: you are {Math.round((m.profound?.ownShareOfVoice ?? 0) * 100)}% of tracked AI answers
             {m.profound?.topCompetitor
               ? `, ${m.profound.topCompetitor.assetName} is ${Math.round(m.profound.topCompetitor.shareOfVoice * 100)}%`
               : ""}

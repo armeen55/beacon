@@ -50,19 +50,3 @@ export function classifyCompetitorType(
 
   return "direct";
 }
-
-export const COMPETITOR_TYPE_LABELS: Record<CompetitorType, string> = {
-  direct: "Direct competitor",
-  directory: "Directory / listing",
-  editorial: "Editorial / media",
-  forum: "Forum / community",
-  other: "Other",
-};
-
-export const COMPETITOR_TYPE_COLORS: Record<CompetitorType, string> = {
-  direct: "text-status-danger bg-status-danger/10 border-status-danger/20",
-  directory: "text-muted-foreground bg-surface-inset/60 border-border/40",
-  editorial: "text-accent-primary bg-accent-primary/10 border-accent-primary/20",
-  forum: "text-status-warning bg-status-warning/10 border-status-warning/20",
-  other: "text-muted-foreground bg-surface-inset/40 border-border/30",
-};

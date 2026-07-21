@@ -1,8 +1,7 @@
 import type { OutcomeEvent } from "./events";
-import type { CandidateLink, ChangeVerdict, ChangeVerdictData } from "./types";
+import type { CandidateLink } from "./types";
 import type { CandidateResult } from "./candidates";
 import type { TriageSummary } from "./triage";
-import type { ChangelogEntry } from "@/domains/changelog/types";
 
 export type EventResolutionStatus =
   | "attributed"
@@ -147,45 +146,6 @@ export function computeChangeLearning(
   }
 
   return learnings.sort((a, b) => b.events_attributed - a.events_attributed);
-}
-
-/**
- * Compute event-aware change verdicts. When a change has been confirmed
- * as the primary cause of outcome events, that IS evidence of impact —
- * regardless of whether the raw result has a delta field.
- */
-export function computeEventAwareChangeVerdict(
-  change: ChangelogEntry,
-  learning: ChangeLearning[]
-): ChangeVerdictData {
-  const entry = learning.find((l) => l.change_id === change.id);
-
-  if (!entry) {
-    return {
-      verdict: "pending",
-      attributions: [],
-      summary: "No event evidence yet",
-    };
-  }
-
-  const n = entry.events_attributed;
-  const types = entry.event_types.map((t) => t.replace(/_/g, " ")).join(", ");
-
-  let verdict: ChangeVerdict;
-  let summary: string;
-
-  if (n >= 3) {
-    verdict = "validated";
-    summary = `Confirmed across ${n} events (${types})`;
-  } else if (n >= 1) {
-    verdict = "partial";
-    summary = `Confirmed for ${n} event${n !== 1 ? "s" : ""} (${types})`;
-  } else {
-    verdict = "inconclusive";
-    summary = "Insufficient event evidence";
-  }
-
-  return { verdict, attributions: [], summary };
 }
 
 export type EventIntelligenceSummary = {

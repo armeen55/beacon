@@ -30,18 +30,17 @@ import { currentTenantId } from "@/lib/tenant-context";
 import { log } from "@/lib/logger";
 import { refreshTenantGa4Traffic } from "@/app/(shell)/diagnostics/outcome-attribution/actions";
 import { refreshCallRailMetrics } from "@/app/(shell)/diagnostics/callrail/actions";
-// 2026-06-15 — crons off: the GSC / Profound / Clarity sync engines (pure
+// 2026-06-15 — crons off: the GSC / Clarity sync engines (pure
 // HTTP→Supabase, Vercel-safe) are now part of the one-click on-demand refresh
 // so connecting those sources actually pulls data with no nightly job.
 import { syncGscSearchAnalyticsForTenant } from "@/lib/connectors/gsc/sync-search-analytics";
-import { syncProfoundNightlyForTenant } from "@/lib/connectors/profound/sync-nightly";
 import { syncClarityDailyMetricsForTenant } from "@/lib/connectors/clarity/sync-daily-metrics";
 import { startDeepBackfill, runDeepBackfillChunk, readBackfillProgress } from "@/lib/connectors/gsc/deep-backfill";
 
 const ROUTE = "/diagnostics/connectors";
 
 export type ConnectorRefreshOutcome = {
-  provider: "gsc" | "ga4" | "callrail" | "profound" | "clarity";
+  provider: "gsc" | "ga4" | "callrail" | "clarity";
   /** refreshed = data pulled · skipped = not connected · failed = pull errored */
   outcome: "refreshed" | "skipped" | "failed";
   detail: string;
@@ -101,12 +100,7 @@ const NOT_CONNECTED_REASONS = new Set([
   // reports gsc_token_expired (intentionally NOT here → classifies as failed).
   "no_usable_gsc_token",
   "no_property_derivable",
-  // Profound — no key connected yet (#88). A key-present API error now reports
-  // profound_api_error (intentionally NOT here → failed). Legacy combined
-  // reason kept for back-compat with callers that haven't been re-deployed.
-  "no_profound_key",
   "no_key_or_api_error",
-  "no_categories_configured",
   // Clarity (dormant until token)
   "no_token_or_api_error",
 ]);
@@ -181,19 +175,9 @@ export async function refreshAllDataSources(): Promise<RefreshAllDataSourcesResu
   }
 
   // (SEMrush domain metrics removed Phase F.1 — SEMrush deleted caller-first.)
-
-  // Profound (AI-visibility, secondary signal). Dormant-honest until a key
-  // is connected; pure HTTP→Supabase.
-  try {
-    const profound = await syncProfoundNightlyForTenant({ tenantId });
-    results.push(outcomeFor("profound", profound));
-  } catch (e) {
-    results.push({
-      provider: "profound",
-      outcome: "failed",
-      detail: e instanceof Error ? e.message.slice(0, 120) : "error",
-    });
-  }
+  // (Profound AI-visibility sync removed 2026-07-20 — the borrowed account was
+  //  fully disconnected. AI-answer evidence now reads only OUR durable stored
+  //  tables, refreshed by no live account call.)
 
   // Microsoft Clarity (page-friction signal → clarity_friction trigger).
   try {
@@ -227,9 +211,9 @@ export async function refreshAllDataSourcesFromForm(
 // ─────────────────────────────────────────────────────────────────────
 // PIVOT (2026-06-15): the in-house native AEO polling engine (runNativePoll +
 // the Perplexity/ChatGPT poll adapters) and the operator-only "Run today's AI
-// reading" action that drove it have been removed. Profound is now the SOLE
-// AEO source — its "how AI describes you" data lands via the Profound
-// connector's on-demand refresh (above) + nightly sync, not an in-house poll.
+// reading" action that drove it have been removed. AI-answer evidence now comes
+// from the native engine poll (run-engine-poll) writing to our own observation
+// tables, plus historical AI-answer rows in our durable stored tables.
 // ─────────────────────────────────────────────────────────────────────
 
 // ─────────────────────────────────────────────────────────────────────

@@ -70,7 +70,6 @@ import {
   type QuestionSource,
   type UniverseQuestion,
 } from "./question-universe";
-import { pullProfoundPrompts } from "@/lib/connectors/profound/client";
 import { getProfoundTenantScope, isProfoundNoisePrompt } from "@/lib/connectors/profound/tenant-scope";
 import { loadFanoutSeedsForTenant } from "@/domains/demand-graph/load-fanout-seeds";
 import { getSupabaseAdmin } from "@/lib/persistence/supabase";
@@ -249,23 +248,15 @@ const FANOUT_SEED_CANDIDATES = 50;
 /** Dead prompt statuses excluded from polling (live catalog and snapshot). */
 const INACTIVE_PROMPT_STATUS_RE = /^(paused|archived|deleted|disabled)$/i;
 
-/** The tenant's real Profound tracked prompts, scoped to the tenant's topic
+/** The tenant's tracked AI-answer prompts, scoped to the tenant's topic
  *  (borrowed-account safety: other topics in the shared category never leak)
- *  and pre-filtered for the known hackathon noise seeds. When the LIVE catalog
- *  has no prompts for the topic (verified real on 2026-07-02: the borrowed
- *  workspace can drop the tenant topic's prompts), the synced snapshot in
- *  profound_prompt_rows serves the same questions at $0. Fail-soft to []. */
+ *  and pre-filtered for the known noise seeds. Reads ONLY the durable snapshot
+ *  in profound_prompt_rows (OUR stored table) — the live account pull was
+ *  removed on full disconnect. $0, fail-soft to []. */
 export async function loadProfoundQuestionSeeds(tenantId: string): Promise<ProfoundQuestionInput[]> {
   try {
     const scope = getProfoundTenantScope(tenantId);
     if (!scope) return [];
-    const rows = await pullProfoundPrompts({ tenantId, categoryId: scope.categoryId }).catch(() => null);
-    const live = (rows ?? [])
-      .filter((r) => !scope.topicId || r.topicId === scope.topicId)
-      .filter((r) => !isProfoundNoisePrompt(r.prompt))
-      .filter((r) => !r.status || !INACTIVE_PROMPT_STATUS_RE.test(r.status))
-      .map((r) => ({ id: `pfp-${r.promptId}`, text: r.prompt, topic: r.topic ?? scope.topicLabel ?? null }));
-    if (live.length > 0) return live;
     return await loadSyncedProfoundPromptSeeds(tenantId, scope.topicId, scope.topicLabel);
   } catch (e) {
     log.warn("[engine-poll] profound prompt load failed (fail-soft to library-only)", {
@@ -276,8 +267,8 @@ export async function loadProfoundQuestionSeeds(tenantId: string): Promise<Profo
   }
 }
 
-/** $0 snapshot read of the nightly-synced profound_prompt_rows. Same ids as
- *  the live catalog (pfp-<promptId>) so the 20h answer cache stays continuous.
+/** $0 snapshot read of the durable profound_prompt_rows table. Ids are
+ *  pfp-<promptId> so the 20h answer cache stays continuous.
  *  Fail-soft to [] (missing table, missing creds, anything). */
 async function loadSyncedProfoundPromptSeeds(
   tenantId: string,

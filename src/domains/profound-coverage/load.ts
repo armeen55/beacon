@@ -1,31 +1,22 @@
 /**
- * Profound Prompt-to-Page Coverage — loader (2026-06-26, I/O).
+ * Profound Prompt-to-Page Coverage — owned-page universe + shared types (2026-06-26, I/O).
  *
- * On-demand (react.cache) read that fuses the LIVE Profound prompt intelligence
- * (answers + query-fanouts, topic-scoped) with the tenant's OWNED-page universe
- * (GSC per-page metrics + queries, page snapshots, GA4 visits, Clarity friction)
- * and runs the pure `compileCoverage` decision engine. Output is the ranked
- * page-action plan: which AI prompts map to an existing page, a new page, a hub,
- * an internal-link fix, or noise.
+ * Builds the tenant's OWNED-page universe (GSC per-page metrics + queries, page
+ * snapshots, GA4 visits, Clarity friction) and defines the coverage result
+ * shape. The DURABLE cached reader (`load-cached.ts`) reuses `loadOwnedPageCandidates`
+ * and the `ProfoundCoverage` type; it reconstructs the coverage plan from the
+ * synced profound_answer_rows / profound_query_fanout_rows tables (never the
+ * live Profound API on render).
  *
  * Read-only. NO storage, NO writes, NO bots/referrals. Fail-soft everywhere: any
- * API/store miss → fewer owned pages or fewer opportunities, never a throw.
+ * store miss → fewer owned pages, never a throw.
  *
- * Borrowed-account safe: only the topic's prompts/answers/fanouts are pulled;
- * Agent Analytics is NEVER called here; ownership is decided by the owned domain
+ * Borrowed-account safe: ownership is decided by the owned domain
  * (iranopedia.com), never the tracked ChatGPT asset.
  */
 import "server-only";
-import { cache } from "react";
 
 import { log } from "@/lib/logger";
-import { pullProfoundAnswers, queryProfoundReport } from "@/lib/connectors/profound/client";
-import {
-  getProfoundTenantScope,
-  profoundTopicFilter,
-  isProfoundNoisePrompt,
-} from "@/lib/connectors/profound/tenant-scope";
-import { buildPromptOpportunities, type FanoutRow } from "@/domains/profound-question-intelligence/prompt-opportunity";
 import { loadGscPageSignalsForTenant } from "@/domains/recommendation-intelligence/gsc-page-signals";
 import { loadGa4PageValuesForTenant } from "@/domains/recommendation-intelligence/ga4-page-values";
 import { loadClarityPageSignalsForTenant } from "@/domains/recommendation-intelligence/clarity-page-signals";
@@ -33,17 +24,10 @@ import { getRepository } from "@/lib/persistence/repositories";
 import { canonicalizeCitationUrl } from "@/domains/citation-lifecycle/canonicalize-url";
 import type { PageSnapshot } from "@/domains/pages/types";
 
-import { compileCoverage } from "./compiler";
 import type { AeoActionPack, OwnedPageCandidate, PromptPageAssignment } from "./types";
 
-const WINDOW_DAYS = 30;
-const ANSWER_CAP = 3000;
 /** Bound the owned-page universe to the top GSC pages by clicks (egress-safe). */
 const OWNED_PAGE_CAP = 300;
-
-function ymd(d: Date): string {
-  return d.toISOString().slice(0, 10);
-}
 
 export type ProfoundCoverageSummary = {
   totalPrompts: number;
@@ -66,27 +50,6 @@ export type ProfoundCoverage = {
   opportunityCount: number;
   answerRows: number;
   fanoutRows: number;
-};
-
-const EMPTY_SUMMARY: ProfoundCoverageSummary = {
-  totalPrompts: 0,
-  existingPage: 0,
-  newPage: 0,
-  hubPage: 0,
-  internalLinkFix: 0,
-  ignoredNoise: 0,
-};
-
-const EMPTY: ProfoundCoverage = {
-  scopeFound: false,
-  topicLabel: null,
-  summary: EMPTY_SUMMARY,
-  actionPacks: [],
-  assignments: [],
-  ownedPageCount: 0,
-  opportunityCount: 0,
-  answerRows: 0,
-  fanoutRows: 0,
 };
 
 /** Build the owned-page universe (GSC spine, enriched with snapshot/GA4/Clarity).
@@ -163,67 +126,3 @@ export async function loadOwnedPageCandidates(tenantId: string): Promise<OwnedPa
 function round2(n: number): number {
   return Math.round(n * 100) / 100;
 }
-
-async function loadUncached(tenantId: string): Promise<ProfoundCoverage> {
-  const scope = getProfoundTenantScope(tenantId);
-  if (!scope) return EMPTY;
-
-  const end = new Date();
-  const start = new Date(end.getTime() - WINDOW_DAYS * 86_400_000);
-  const startDate = ymd(start);
-  const endDate = ymd(end);
-  const filters = profoundTopicFilter(scope);
-
-  // ── Live Profound pull (answers + fanouts), identical scoping to the QI loader.
-  let answers: Awaited<ReturnType<typeof pullProfoundAnswers>> = null;
-  try {
-    answers = await pullProfoundAnswers({ tenantId, categoryId: scope.categoryId, startDate, endDate, filters, maxRows: ANSWER_CAP });
-  } catch (e) {
-    log.warn("[profound-coverage] answers pull failed", { tenantId, error: e instanceof Error ? e.message : String(e) });
-  }
-  const answerRowsArr = answers?.rows ?? [];
-
-  let fanouts: FanoutRow[] = [];
-  try {
-    const fanRes = await queryProfoundReport({
-      tenantId,
-      report: "query-fanouts",
-      categoryId: scope.categoryId,
-      startDate,
-      endDate,
-      dimensions: ["date", "model", "prompt", "query"],
-      metrics: ["total_fanouts", "share"],
-      filters,
-    });
-    fanouts = (fanRes?.rows ?? []).map((r) => ({ prompt: r.dims.prompt ?? "", query: r.dims.query ?? "", model: r.dims.model ?? null }));
-  } catch (e) {
-    log.warn("[profound-coverage] fanouts pull failed", { tenantId, error: e instanceof Error ? e.message : String(e) });
-  }
-
-  const opportunities = buildPromptOpportunities({
-    answers: answerRowsArr,
-    fanouts,
-    ownedDomain: scope.ownedDomain,
-    ownedMentionAliases: scope.ownedMentionAliases,
-    isNoisePrompt: isProfoundNoisePrompt,
-  });
-
-  // ── Owned-page universe + the pure decision engine.
-  const ownedPages = await loadOwnedPageCandidates(tenantId);
-  const { assignments, actionPacks, summary } = compileCoverage(opportunities, ownedPages);
-
-  return {
-    scopeFound: true,
-    topicLabel: scope.topicLabel,
-    summary,
-    actionPacks,
-    assignments,
-    ownedPageCount: ownedPages.length,
-    opportunityCount: opportunities.length,
-    answerRows: answerRowsArr.length,
-    fanoutRows: fanouts.length,
-  };
-}
-
-/** Request-memoized loader (one live pull + compile per render). */
-export const loadProfoundCoverageForTenant = cache(loadUncached);

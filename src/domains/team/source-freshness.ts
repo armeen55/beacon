@@ -178,7 +178,6 @@ export function buildTeammateFreshnessMap(
 const TEAMMATE_PROVIDER: Record<string, { provider: import("@/lib/connector-store").ConnectorProvider; label: string; publishOnly?: boolean }> = {
   gsc: { provider: "google_gsc", label: "Search Console" },
   ga4: { provider: "google_ga4", label: "Google Analytics" },
-  profound: { provider: "profound", label: "the AI answer feed" },
   clarity: { provider: "clarity", label: "Visitor behavior data" },
   wix: { provider: "wix", label: "Wix", publishOnly: true },
 };

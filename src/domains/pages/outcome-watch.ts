@@ -19,7 +19,6 @@ import type { OutcomeEvent } from "@/domains/attribution/events";
 
 export const TOO_EARLY_DAYS = 7;
 export const INCUBATING_DAYS = 21;
-export const MATURE_DAYS = 42;
 
 // ── Types ──
 

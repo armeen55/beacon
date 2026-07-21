@@ -309,59 +309,6 @@ export async function getCompetitorAnswerAlignment(
   }
 }
 
-/**
- * Owned-side alignment for one shipped page: "AI quoted this line." Looks up the
- * page's own page_snapshots body text and the cached Profound answer excerpt for
- * one of the prompts that cited it (`promptsNowCiting` from citation-outcome.ts),
- * aligns them, and persists under move_drafts keyed by `${recId}::owned`.
- *
- * Fail-soft - returns null when there is no page body, no matching answer excerpt
- * for any of the citing prompts, or no overlap above the score floor.
- */
-export async function getOwnedAnswerAlignment(
-  tenantId: string,
-  recId: string,
-  ownedUrl: string,
-  citingPrompts: ReadonlyArray<string>,
-): Promise<PersistedAnswerAlignment | null> {
-  if (!tenantId || !recId || !ownedUrl || citingPrompts.length === 0) return null;
-  const draftKey = `${recId}::owned`;
-  try {
-    const [pageText, excerpts, existingDrafts] = await Promise.all([
-      readOwnedPageBodyText(tenantId, ownedUrl),
-      readProfoundAnswerExcerpts(tenantId),
-      getLatestMoveDrafts(tenantId),
-    ]);
-    if (!pageText) return null;
-
-    // Prefer an excerpt whose prompt text matches one of the CONFIRMED citing
-    // prompts exactly (case-insensitive), else fall back to the best topic match
-    // against the first citing prompt's own text.
-    const byExactPrompt = excerpts.find((e) =>
-      citingPrompts.some((p) => p.trim().toLowerCase() === e.prompt.trim().toLowerCase()),
-    );
-    const answerRow = byExactPrompt ?? pickAnswerExcerptForTopic(excerpts, citingPrompts[0] ?? "");
-    if (!answerRow) return null;
-
-    const hash = alignmentContentHash(answerRow.responseExcerpt, pageText);
-    const cached = parsePersistedAnswerAlignment(existingDrafts.get(`${draftKey}::${MOVE_DRAFT_KIND}`)?.content);
-    if (cached && cached.contentHash === hash) return cached;
-
-    const passages = alignAnswerToPage(answerRow.responseExcerpt, pageText);
-    if (passages.length === 0) return null;
-    const result = toPersistable(hash, answerRow.model, answerRow.prompt, passages);
-    await saveMoveDraft(tenantId, draftKey, MOVE_DRAFT_KIND, JSON.stringify(result)).catch(() => false);
-    return result;
-  } catch (e) {
-    log.warn("[answer-alignment] owned alignment failed", {
-      tenantId,
-      recId,
-      error: e instanceof Error ? e.message : String(e),
-    });
-    return null;
-  }
-}
-
 /** W2-B (2026-07-10) - one owned-alignment request in the batched reader below. */
 export type OwnedAlignmentRequest = {
   recId: string;

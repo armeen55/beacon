@@ -75,8 +75,6 @@ function promptToTopic(prompt: string): string {
 
 export type SovEngineId = "chatgpt" | "perplexity" | "gemini" | "claude";
 
-export const SOV_ENGINES: readonly SovEngineId[] = ["chatgpt", "perplexity", "gemini", "claude"];
-
 export const SOV_ENGINE_PLAIN_NAME: Record<SovEngineId, string> = {
   chatgpt: "ChatGPT",
   perplexity: "Perplexity",
@@ -438,15 +436,6 @@ export function mergeSovWeekly(
 // ---------------------------------------------------------------------------
 // Trend + drop detection (pure)
 // ---------------------------------------------------------------------------
-
-export type SovTrendPoint = {
-  engine: SovEngineId;
-  topic: string;
-  weekKey: string;
-  ownedShare: number;
-  belowFloor: boolean;
-  promptsPolled: number;
-};
 
 export type SovTrend = {
   engine: SovEngineId;

@@ -60,44 +60,6 @@ export async function queryPattern(key: PatternKey): Promise<PatternQueryResult 
   return { pattern, evidence };
 }
 
-/**
- * Query all non-suppressed patterns for a given change type + platform.
- * Useful for showing "what patterns exist for FAQ changes on ChatGPT?"
- * regardless of context bin.
- */
-export async function queryPatternsForChangeType(opts: {
-  changeType: string;
-  platform: PatternKey["platform"];
-}): Promise<PatternQueryResult[]> {
-  const all = await listGlobalPatterns();
-  const results: PatternQueryResult[] = [];
-
-  for (const pattern of all) {
-    if (pattern.key.change_type !== opts.changeType) continue;
-    if (pattern.key.platform !== opts.platform) continue;
-    if (pattern.taxonomy_version !== CURRENT_TAXONOMY_VERSION) continue;
-
-    const gate = evaluateConfidenceGate(pattern);
-    if (gate === "suppressed") continue;
-
-    results.push({
-      pattern,
-      evidence: {
-        builder_count: pattern.contributing_tenant_count,
-        positive_rate: pattern.positive_rate,
-        median_days: pattern.median_days_to_signal,
-        seeded_warning: gate === "seeded_warning",
-        gate,
-        narrative: buildNarrative(pattern, gate),
-      },
-    });
-  }
-
-  return results.sort(
-    (a, b) => b.pattern.positive_rate - a.pattern.positive_rate,
-  );
-}
-
 // ---------------------------------------------------------------------------
 // Narrative generation — directional, never causal
 // ---------------------------------------------------------------------------

@@ -13,7 +13,7 @@
  * never blocks health. PURE, no I/O.
  */
 
-export type SourceKey = "gsc" | "ga4" | "profound" | "clarity" | "wix";
+export type SourceKey = "gsc" | "ga4" | "clarity" | "wix";
 export type SourceFreshnessState = "healthy" | "stale" | "no_data" | "removed";
 
 export type SourceSla = {
@@ -29,14 +29,12 @@ export type SourceSla = {
  * THE per-source data-age SLA table. One place; connector-store + data-sources-strip read
  * it so three magic numbers can never drift apart again.
  *   gsc      3d  (Google reports ~3 days behind; older than that is a real gap)
- *   profound 21d (nightly answer-engine reads, thin platform cadence)
  *   clarity  7d  (limited pull budget; a week is the honest freshness bar)
  *   ga4      removed (false-total; never counted)
  *   wix      optional, no data SLA (publish-only, pulls nothing)
  */
 export const SOURCE_SLA: Record<SourceKey, SourceSla> = {
   gsc: { slaMaxDataAgeDays: 3, required: true, removed: false },
-  profound: { slaMaxDataAgeDays: 21, required: true, removed: false },
   clarity: { slaMaxDataAgeDays: 7, required: true, removed: false },
   ga4: { slaMaxDataAgeDays: null, required: false, removed: true },
   wix: { slaMaxDataAgeDays: null, required: false, removed: false },
@@ -57,7 +55,7 @@ export const CONNECTION_LIVENESS_STALE_DAYS = 14;
  * SourceKey above which the data-age SLA table uses. Kept here so every freshness
  * constant lives in one module (the on-use module re-exports this as ReadProvider).
  */
-export type AutoRefreshProvider = "google_gsc" | "google_ga4" | "clarity" | "profound";
+export type AutoRefreshProvider = "google_gsc" | "google_ga4" | "clarity";
 
 /**
  * Per-provider auto-refresh staleness threshold (hours) for the on-USE refresh.
@@ -66,9 +64,6 @@ export type AutoRefreshProvider = "google_gsc" | "google_ga4" | "clarity" | "pro
  * see stale free data. (Their underlying data only changes ~daily - GSC is 3 days
  * behind - so 1h is "always fresh" without re-pulling on every single navigation;
  * the 2-min in-process throttle + durable last_synced_at prevent any hammering.)
- * PAID sources stay daily: Profound runs once a day, so pulling it every login would
- * burn quota for IDENTICAL numbers.
- *
  * This is a SYNC-age threshold (when we last pulled), NOT the DATA-age SLA above
  * (how recent the data is). Both live here so the freshness constants never drift.
  */
@@ -76,7 +71,6 @@ export const AUTO_REFRESH_STALE_HOURS: Record<AutoRefreshProvider, number> = {
   google_gsc: 1,
   google_ga4: 1,
   clarity: 1,
-  profound: 12,
 };
 
 /** SYNC-age staleness check for the on-use auto-refresh: true when a source was

@@ -53,10 +53,6 @@ export const NIGHTLY_PROMPT_CAP = 25;
 /** Engines that go through the paid DataForSEO llm_responses path. */
 export const DATAFORSEO_ENGINES: readonly EngineId[] = ["gemini", "claude"];
 
-/** Hard nightly ceiling on paid DataForSEO llm_responses calls:
- *  2 engines x 25 prompts = 50 calls = ~$1.50/night at ~$0.03/call. */
-export const DATAFORSEO_NIGHTLY_CALL_CAP = NIGHTLY_PROMPT_CAP * DATAFORSEO_ENGINES.length;
-
 /** How many engine-gap findings may feed the daily candidate builder per
  *  night. Bounded so gaps season the plan instead of flooding it. */
 export const MAX_ENGINE_GAP_CANDIDATES_PER_NIGHT = 3;

@@ -131,7 +131,7 @@ export function FirstReadingWaiting({
                 className="font-medium text-foreground underline underline-offset-2 hover:text-accent-primary"
               >
                 Connect your sources
-              </Link>: Google Search Console plus optional GA4, SEMrush, or
+              </Link>: Google Search Console plus optional GA4 or
               Clarity.
             </li>
             <li>

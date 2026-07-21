@@ -75,27 +75,6 @@ export async function persistAssetResponses(): Promise<void> {
   await writeStore("asset-responses", await getAssetResponses());
 }
 
-export async function getAssetResponse(topic: string): Promise<AssetResponse | null> {
-  const assetResponses = await getAssetResponses();
-  return assetResponses.find((a) => a.topic === topic) ?? null;
-}
-
-export async function getAssetResponsesMap(): Promise<Map<string, AssetResponse>> {
-  const assetResponses = await getAssetResponses();
-  return new Map(assetResponses.map((a) => [a.topic, a]));
-}
-
-export async function persistComputedAssetResponses(responses: AssetResponse[]): Promise<void> {
-  const assetResponses = await getAssetResponses();
-  assetResponses.length = 0;
-  assetResponses.push(...responses);
-  await persistAssetResponses();
-}
-
-export function _resetAssetResponsesForTests(): void {
-  _byTenant.clear();
-}
-
 // ── Mapping Logic ──
 
 type MappingInput = {
@@ -223,35 +202,6 @@ export function computeAssetResponse(input: MappingInput): AssetResponse {
     linkedAttackPackageId: null,
     notes: confidenceLabel === "weak_fit" ? "Evidence is limited — recommendation is directional, not definitive" : null,
   };
-}
-
-export function computeAllAssetResponses(
-  competitiveEvidence: Map<string, FrontierCompetitiveSummary>,
-  frontiers: FrontierOpportunity[]
-): AssetResponse[] {
-  const responses: AssetResponse[] = [];
-
-  for (const frontier of frontiers) {
-    const ce = competitiveEvidence.get(frontier.topic);
-    if (!ce) continue;
-
-    const hasOwnedCityPage = frontier.linkedPages.some(u => u.includes("/locations/"));
-    const hasOwnedServicePage = frontier.linkedPages.some(u => u.includes("/services/"));
-
-    responses.push(computeAssetResponse({
-      competitive: ce,
-      frontier,
-      hasOwnedCityPage,
-      hasOwnedServicePage,
-      ownedPageCount: frontier.ownedPageCount,
-      ownedPagesWithFaq: frontier.ownedPagesWithFaq,
-    }));
-  }
-
-  return responses.sort((a, b) => {
-    const confRank: Record<ConfidenceLabel, number> = { strong_fit: 0, probable_fit: 1, weak_fit: 2, mixed: 3 };
-    return confRank[a.confidenceLabel] - confRank[b.confidenceLabel];
-  });
 }
 
 // ── Display config ──

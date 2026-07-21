@@ -148,37 +148,3 @@ export function normalizeCity(raw: string): NormalizedCity {
   };
 }
 
-/**
- * Check if a location term is a region rather than a specific city.
- */
-export function isRegionTerm(term: string): boolean {
-  return REGION_TERMS.has(term.trim().toLowerCase());
-}
-
-/**
- * Get the metro/sub-region for a normalized city.
- */
-export function getMetro(city: string): string | null {
-  return METRO_MAP[city.toLowerCase()] ?? null;
-}
-
-/**
- * Normalize a batch of city strings, deduplicating by canonical form.
- */
-export function normalizeCities(rawCities: string[]): NormalizedCity[] {
-  const seen = new Map<string, NormalizedCity>();
-  for (const raw of rawCities) {
-    const norm = normalizeCity(raw);
-    const existing = seen.get(norm.canonical);
-    if (existing) {
-      if (norm.variants.length > 0) {
-        for (const v of norm.variants) {
-          if (!existing.variants.includes(v)) existing.variants.push(v);
-        }
-      }
-    } else {
-      seen.set(norm.canonical, norm);
-    }
-  }
-  return [...seen.values()];
-}

@@ -5,7 +5,7 @@ import { log } from "@/lib/logger";
 import { getBriefs, getOpportunities } from "@/lib/seed-data.server";
 import { CHECKLIST_TEMPLATES } from "@/domains/briefs/checklist-templates";
 import { generateId, now } from "@/lib/actions";
-import type { BriefStatus, BriefType, Priority, EffortLevel, OutcomeVerdict } from "@/lib/constants";
+import type { BriefStatus, BriefType, Priority, EffortLevel } from "@/lib/constants";
 import type { Brief, ChecklistItem } from "@/domains/briefs/types";
 
 export async function createBrief(
@@ -133,140 +133,6 @@ export async function updateBriefStatus(
       brief.blocked_at = timestamp;
       break;
   }
-
-  revalidatePath("/", "layout");
-  log.info("Action completed", { action, durationMs: Date.now() - t0 });
-  return { success: true };
-}
-
-export async function toggleChecklistItem(
-  briefId: string,
-  itemId: string
-): Promise<{ success: boolean }> {
-  const action = "toggleChecklistItem";
-  const t0 = Date.now();
-  log.info("Action started", { action, params: { briefId, itemId } });
-  const brief = (await getBriefs()).find((b) => b.id === briefId);
-  if (!brief) {
-    log.error("Action failed", {
-      action,
-      durationMs: Date.now() - t0,
-      error: "brief not found",
-    });
-    return { success: false };
-  }
-
-  const item = brief.checklist.find((c) => c.id === itemId);
-  if (!item) {
-    log.error("Action failed", {
-      action,
-      durationMs: Date.now() - t0,
-      error: "item not found",
-    });
-    return { success: false };
-  }
-
-  if (item.status === "done") {
-    item.status = "pending";
-    item.completed_at = null;
-  } else {
-    item.status = "done";
-    item.completed_at = now();
-  }
-  brief.updated_at = now();
-
-  revalidatePath(`/briefs/${briefId}`);
-  log.info("Action completed", { action, durationMs: Date.now() - t0 });
-  return { success: true };
-}
-
-export async function addChecklistItem(
-  briefId: string,
-  label: string
-): Promise<{ success: boolean }> {
-  const action = "addChecklistItem";
-  const t0 = Date.now();
-  log.info("Action started", {
-    action,
-    params: { briefId, labelLength: label.length },
-  });
-  const brief = (await getBriefs()).find((b) => b.id === briefId);
-  if (!brief) {
-    log.error("Action failed", {
-      action,
-      durationMs: Date.now() - t0,
-      error: "brief not found",
-    });
-    return { success: false };
-  }
-  if (!label.trim()) {
-    log.error("Action failed", {
-      action,
-      durationMs: Date.now() - t0,
-      error: "empty label",
-    });
-    return { success: false };
-  }
-
-  const maxOrder = brief.checklist.reduce(
-    (max, c) => Math.max(max, c.sort_order),
-    0
-  );
-
-  brief.checklist.push({
-    id: generateId("chk"),
-    label: label.trim(),
-    status: "pending",
-    sort_order: maxOrder + 1,
-    linked_changelog_id: null,
-    completed_at: null,
-    notes: null,
-  });
-  brief.updated_at = now();
-
-  revalidatePath(`/briefs/${briefId}`);
-  log.info("Action completed", { action, durationMs: Date.now() - t0 });
-  return { success: true };
-}
-
-export async function judgeOutcome(
-  briefId: string,
-  outcomeId: string,
-  verdict: OutcomeVerdict,
-  actualValue?: number
-): Promise<{ success: boolean }> {
-  const action = "judgeOutcome";
-  const t0 = Date.now();
-  log.info("Action started", {
-    action,
-    params: { briefId, outcomeId, verdict },
-  });
-  const brief = (await getBriefs()).find((b) => b.id === briefId);
-  if (!brief) {
-    log.error("Action failed", {
-      action,
-      durationMs: Date.now() - t0,
-      error: "brief not found",
-    });
-    return { success: false };
-  }
-
-  const outcome = brief.expected_outcomes.find((o) => o.id === outcomeId);
-  if (!outcome) {
-    log.error("Action failed", {
-      action,
-      durationMs: Date.now() - t0,
-      error: "outcome not found",
-    });
-    return { success: false };
-  }
-
-  outcome.verdict = verdict;
-  outcome.judged_at = verdict === "pending" ? null : now();
-  if (actualValue !== undefined && !isNaN(actualValue)) {
-    outcome.actual_value = actualValue;
-  }
-  brief.updated_at = now();
 
   revalidatePath("/", "layout");
   log.info("Action completed", { action, durationMs: Date.now() - t0 });

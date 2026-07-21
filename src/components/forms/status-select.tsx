@@ -4,14 +4,11 @@ import { useState, useRef, useEffect, useTransition } from "react";
 import { cn } from "@/lib/utils";
 import { ChevronDown } from "lucide-react";
 import { updateOpportunityStatus } from "@/domains/opportunities/actions";
-import { updateBriefStatus } from "@/domains/briefs/actions";
 import {
   OPPORTUNITY_STATUSES,
   OPPORTUNITY_STATUS_LABELS,
-  BRIEF_STATUSES,
-  BRIEF_STATUS_LABELS,
 } from "@/lib/constants";
-import type { OpportunityStatus, BriefStatus } from "@/lib/constants";
+import type { OpportunityStatus } from "@/lib/constants";
 
 function StatusDropdown<T extends string>({
   value,
@@ -100,25 +97,6 @@ export function OpportunityStatusSelect({
       labels={OPPORTUNITY_STATUS_LABELS}
       onSelect={(status) =>
         updateOpportunityStatus(opportunityId, status as OpportunityStatus)
-      }
-    />
-  );
-}
-
-export function BriefStatusSelect({
-  briefId,
-  currentStatus,
-}: {
-  briefId: string;
-  currentStatus: BriefStatus;
-}) {
-  return (
-    <StatusDropdown
-      value={currentStatus}
-      options={BRIEF_STATUSES}
-      labels={BRIEF_STATUS_LABELS}
-      onSelect={(status) =>
-        updateBriefStatus(briefId, status as BriefStatus)
       }
     />
   );
