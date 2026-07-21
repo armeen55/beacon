@@ -143,7 +143,7 @@ export async function DossierContentSection({ path }: { path: string }) {
 
 export async function DossierTeamReadsSection({ path }: { path: string }) {
   const dossier = await loadPageDossier(path);
-  const { demand, friction, funnel, languageGaps } = dossier.teamReads;
+  const { demand, friction, funnel } = dossier.teamReads;
   const cards: { key: string; label: string; body: React.ReactNode }[] = [];
 
   if (demand) {
@@ -179,20 +179,6 @@ export async function DossierTeamReadsSection({ path }: { path: string }) {
       key: "funnel",
       label: "AI visibility",
       body: <p className="text-[13px] leading-relaxed text-foreground">{funnel.bottleneckSentence}</p>,
-    });
-  }
-
-  if (languageGaps.length > 0) {
-    cards.push({
-      key: "language",
-      label: "Language gap",
-      body: (
-        <div className="space-y-1">
-          {languageGaps.map((g, i) => (
-            <p key={i} className="text-[13px] leading-relaxed text-foreground">{g.sentence}</p>
-          ))}
-        </div>
-      ),
     });
   }
 

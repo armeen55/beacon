@@ -40,7 +40,6 @@ vi.mock("@/domains/demand/load-demand-opportunities", () => ({
 }));
 vi.mock("@/domains/trend-radar/spike-store", () => ({ loadQuerySpikes: async () => [] }));
 vi.mock("@/domains/seasonal/seasonal-store", () => ({ loadSeasonalQueries: async () => [] }));
-vi.mock("@/domains/language-gap/language-gap-store", () => ({ loadLanguageGaps: async () => [] }));
 vi.mock("@/domains/refresh/refresh-store", () => ({ loadRefreshQueue: async () => [] }));
 vi.mock("@/domains/gsc/load-striking-portfolio", () => ({ loadStrikingPortfolio: async () => null }));
 vi.mock("./worklist-surface-store", () => ({ readWorklistSurface: async () => null }));

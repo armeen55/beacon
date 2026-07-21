@@ -14,6 +14,12 @@
  *   2) NO SERIALIZATION: several wedged reads all time out to their fallback within
  *      ONE deadline window (advancing time by ONE deadline settles the whole batch),
  *      not one-deadline-per-read as a sequential await chain would require.
+ *
+ * AMPUTATION P3 L2 (2026-07-21): the batch is no longer awaited as ONE bundle. The
+ * loader returns INDEPENDENT per-field promise handles, so the answer-first strip
+ * (which reads only `shockWindows`) resolves the instant that fast field settles
+ * instead of blocking on the slowest read (contamination). The third pin below locks
+ * that decoupling property directly.
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -82,5 +88,37 @@ describe("/results side-read batch (Promise.all of valueWithDeadline)", () => {
     ]);
     // No timer advance: pure-fast batch settles on microtasks alone.
     await expect(batch).resolves.toEqual(["A", "B"]);
+  });
+
+  it("ANSWER-FIRST: the fast shockWindows handle resolves without waiting on a wedged contamination handle", async () => {
+    vi.useFakeTimers();
+    // Model the decoupled handles the loader now returns: each field is its OWN
+    // promise, started eagerly and independently awaitable. shockWindows is a fast
+    // read; contamination is wedged (only its deadline can settle it).
+    const handles = {
+      shockWindows: valueWithDeadline(Promise.resolve(["shock"]), ["fallback"], DEADLINE),
+      contaminationById: valueWithDeadline(
+        new Promise<Map<string, string>>(() => {}),
+        new Map<string, string>(),
+        DEADLINE,
+      ),
+    };
+
+    // The answer-first strip awaits ONLY shockWindows. It must resolve on microtasks
+    // alone - NO timer advance, so the wedged contamination read is provably still
+    // pending when the answer is ready. Under the old single-Promise.all bundle this
+    // await would have blocked a full DEADLINE on contamination.
+    await expect(handles.shockWindows).resolves.toEqual(["shock"]);
+
+    let contaminationSettled = false;
+    void handles.contaminationById.then(() => {
+      contaminationSettled = true;
+    });
+    await Promise.resolve();
+    expect(contaminationSettled).toBe(false);
+
+    // And the slow field still settles fail-soft to its fallback at its own deadline.
+    await vi.advanceTimersByTimeAsync(DEADLINE + 1);
+    await expect(handles.contaminationById).resolves.toEqual(new Map());
   });
 });

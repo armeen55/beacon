@@ -28,9 +28,6 @@ vi.mock("@/domains/recommendation-intelligence/page-freshness", () => ({
 vi.mock("@/domains/ai-visibility/load-crawl-citation-funnel", () => ({
   loadCrawlCitationFunnel: vi.fn(async () => null),
 }));
-vi.mock("@/domains/language-gap/language-gap-store", () => ({
-  loadLanguageGaps: vi.fn(async () => []),
-}));
 vi.mock("@/domains/proof-gsc/load-ledger", () => ({
   loadProofLedgerCached: vi.fn(async () => []),
 }));
@@ -48,7 +45,6 @@ import { loadGscPageSignalsForTenant } from "@/domains/recommendation-intelligen
 import { loadClarityPageSignalsForTenant } from "@/domains/recommendation-intelligence/clarity-page-signals";
 import { loadPageContentSnapshot } from "@/domains/recommendation-intelligence/page-freshness";
 import { loadCrawlCitationFunnel } from "@/domains/ai-visibility/load-crawl-citation-funnel";
-import { loadLanguageGaps } from "@/domains/language-gap/language-gap-store";
 import { loadProofLedgerCached } from "@/domains/proof-gsc/load-ledger";
 import { loadChangesView } from "../../changes-data";
 import { getAcceptedPlan, getLatestPreviewPlan } from "@/domains/experiments/daily-experiment-plan-store";
@@ -113,7 +109,6 @@ describe("loadPageDossier composition", () => {
     expect(d.teamReads.demand).toBeNull();
     expect(d.teamReads.friction).toBeNull();
     expect(d.teamReads.funnel).toBeNull();
-    expect(d.teamReads.languageGaps).toEqual([]);
     expect(d.history).toEqual([]);
     expect(d.currentMove).toBeNull();
     expect(d.currentPlanPick).toBeNull();
@@ -227,11 +222,7 @@ describe("loadPageDossier composition", () => {
     expect(d.currentPlanPick?.isAccepted).toBe(true);
   });
 
-  it("filters language gaps and the funnel to this page", async () => {
-    vi.mocked(loadLanguageGaps).mockResolvedValue([
-      { page: "https://iranopedia.com/cities", gapKind: "no_native_content", impressions: 900, topVariants: ["شهرهای ایران"], sentence: "People search this in Farsi 900 times and the page has no Farsi." },
-      { page: "https://iranopedia.com/food", gapKind: "no_native_content", impressions: 100, topVariants: [], sentence: "other" },
-    ] as never);
+  it("filters the funnel to this page", async () => {
     vi.mocked(loadCrawlCitationFunnel).mockResolvedValue({
       hasData: true,
       pages: [
@@ -243,7 +234,6 @@ describe("loadPageDossier composition", () => {
       stageCounts: { not_crawled: 0, crawled_not_cited: 1, cited_no_clicks: 0, converting: 1, no_signal: 0 },
     } as never);
     const d = await loadPageDossier(PATH);
-    expect(d.teamReads.languageGaps).toHaveLength(1);
     expect(d.teamReads.funnel?.stage).toBe("crawled_not_cited");
   });
 
@@ -251,7 +241,6 @@ describe("loadPageDossier composition", () => {
     vi.mocked(loadDailyClicksByPathsForTenant).mockRejectedValue(new Error("boom"));
     vi.mocked(loadGscPageSignalsForTenant).mockRejectedValue(new Error("boom"));
     vi.mocked(loadClarityPageSignalsForTenant).mockRejectedValue(new Error("boom"));
-    vi.mocked(loadLanguageGaps).mockRejectedValue(new Error("boom"));
     vi.mocked(loadProofLedgerCached).mockRejectedValue(new Error("boom"));
     vi.mocked(loadChangesView).mockRejectedValue(new Error("boom"));
     vi.mocked(getAcceptedPlan).mockRejectedValue(new Error("boom"));

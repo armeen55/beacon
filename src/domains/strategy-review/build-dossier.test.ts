@@ -3,7 +3,6 @@ import { buildStrategyDossier, renderDossierForPrompt } from "./build-dossier";
 import type { SettledOutcome } from "@/domains/learning/experiment-prior";
 import type { QuerySpike } from "@/domains/trend-radar/query-spikes";
 import type { SeasonalQuery } from "@/domains/seasonal/seasonality";
-import type { LanguageGap } from "@/domains/language-gap/language-gaps";
 import { summarizeForecastCalibration } from "@/domains/experiments/forecast-calibration";
 import type { CalibrationRecord } from "@/domains/experiments/forecast-calibration-store";
 
@@ -17,17 +16,6 @@ function spike(over: Partial<QuerySpike> = {}): QuerySpike {
 
 function seasonal(over: Partial<SeasonalQuery> = {}): SeasonalQuery {
   return { query: "nowruz", peakMonths: [3], share: 0.6, annualImpressions: 1000, topPage: null, ...over } as SeasonalQuery;
-}
-
-function gap(over: Partial<LanguageGap> = {}): LanguageGap {
-  return {
-    page: "/persian-food",
-    gapKind: "farsi_demand_no_farsi_content",
-    impressions: 500,
-    topVariants: [],
-    sentence: "",
-    ...over,
-  } as LanguageGap;
 }
 
 function calRecord(over: Partial<CalibrationRecord> = {}): CalibrationRecord {
@@ -60,7 +48,6 @@ describe("buildStrategyDossier - shape", () => {
       outcomes,
       trends: [],
       seasonalWindows: [],
-      languageGaps: [],
       calibration: null,
     });
     expect(d.leverRecords).toHaveLength(1);
@@ -77,33 +64,28 @@ describe("buildStrategyDossier - shape", () => {
       outcomes,
       trends: [],
       seasonalWindows: [],
-      languageGaps: [],
       calibration: null,
     });
     expect(d.leverRecords).toHaveLength(0);
     expect(d.totalDecided).toBe(0);
   });
 
-  it("bounds trends/seasonal/language-gaps to their max and sorts by strength", () => {
+  it("bounds trends/seasonal to their max and sorts by strength", () => {
     const trends = Array.from({ length: 8 }, (_, i) => spike({ query: `q${i}`, ratio: i }));
     const seasonalWindows = Array.from({ length: 8 }, (_, i) => seasonal({ query: `s${i}`, share: i / 10 }));
-    const languageGaps = Array.from({ length: 8 }, (_, i) => gap({ page: `/p${i}`, impressions: i * 100 }));
     const d = buildStrategyDossier({
       tenantId: "t",
       weekOf: "2026-07-06",
       outcomes: [],
       trends,
       seasonalWindows,
-      languageGaps,
       calibration: null,
     });
     expect(d.trends.length).toBeLessThanOrEqual(5);
     expect(d.seasonalWindows.length).toBeLessThanOrEqual(5);
-    expect(d.languageGaps.length).toBeLessThanOrEqual(5);
-    // Highest ratio/share/impressions first.
+    // Highest ratio/share first.
     expect(d.trends[0]!.query).toBe("q7");
     expect(d.seasonalWindows[0]!.query).toBe("s7");
-    expect(d.languageGaps[0]!.page).toBe("/p7");
   });
 
   it("calibration is null when too thin (below MIN_SETTLED_FOR_CALIBRATION)", () => {
@@ -114,7 +96,6 @@ describe("buildStrategyDossier - shape", () => {
       outcomes: [],
       trends: [],
       seasonalWindows: [],
-      languageGaps: [],
       calibration: summary,
     });
     expect(d.calibration).toBeNull();
@@ -128,7 +109,6 @@ describe("buildStrategyDossier - shape", () => {
       outcomes: [],
       trends: [],
       seasonalWindows: [],
-      languageGaps: [],
       calibration: summary,
     });
     expect(d.calibration).not.toBeNull();
@@ -142,14 +122,12 @@ describe("buildStrategyDossier - shape", () => {
       outcomes: [],
       trends: [],
       seasonalWindows: [],
-      languageGaps: [],
       calibration: null,
     });
     expect(d.leverRecords).toEqual([]);
     expect(d.totalDecided).toBe(0);
     expect(d.trends).toEqual([]);
     expect(d.seasonalWindows).toEqual([]);
-    expect(d.languageGaps).toEqual([]);
     expect(d.calibration).toBeNull();
   });
 });
@@ -162,7 +140,6 @@ describe("renderDossierForPrompt", () => {
       outcomes: [],
       trends: [],
       seasonalWindows: [],
-      languageGaps: [],
       calibration: null,
     });
     const text = renderDossierForPrompt(d);
@@ -184,7 +161,6 @@ describe("renderDossierForPrompt", () => {
       outcomes,
       trends: [],
       seasonalWindows: [],
-      languageGaps: [],
       calibration: null,
     });
     const text = renderDossierForPrompt(d);

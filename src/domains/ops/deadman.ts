@@ -359,7 +359,20 @@ export type DeadmanInput = {
   now: Date;
 };
 
-/** Compose the full verdict: per-job paces, the site check, the banner copy. */
+/**
+ * Compose the full verdict: per-job paces, the site check, the banner copy.
+ *
+ * Honesty invariant (2026-07-21, all 8 Vercel cron routes deleted - the
+ * product now advances on-use, never on a schedule): a job is only ever
+ * classified when it has an entry in `entries` (defaults to the live
+ * CRON_SCHEDULE_MAP, which is `[]` today). `latestRunByJob` /
+ * `diedMidRunByJob` are looked up PER ENTRY, never iterated on their own, so
+ * old cron_runs receipts left over from a job whose schedule entry was
+ * removed can never resurrect a "stalled" verdict - there is no entry to
+ * score them against. With `entries` empty, `jobs` is always `[]` and
+ * `overall` is trivially "healthy" (see the ternary below); only the site
+ * probe can still raise `alarm`.
+ */
 export function assessDeadman(input: DeadmanInput): DeadmanVerdict {
   const entries = input.entries ?? CRON_SCHEDULE_MAP;
   const probes = input.probes ?? [];

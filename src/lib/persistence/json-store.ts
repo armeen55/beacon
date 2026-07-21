@@ -150,11 +150,6 @@ export const SUPABASE_MIRRORED_STORES = new Set<string>([
   // mirror both would be silent-empty (profiles) or lose operator edits
   // (calendar) on hosted prod after a lambda recycle.
   "seasonal-family-profiles",
-  // 2026-07-02 item 24 - nightly Farsi/Finglish language-gap matrix pass.
-  // Written by the cron (Vercel lambda: no disk), read by the Today Demand
-  // band + the daily plan builder; without the mirror the detected gaps
-  // would be silent-empty on hosted prod.
-  "language-gap-matrix",
   // 2026-07-02 item 56 - nightly refresh queue (pages losing clicks quarter
   // over quarter + their evidence briefs). Written by the cron (Vercel
   // lambda: no disk), read by the Today Demand band + the daily plan

@@ -68,10 +68,14 @@ describe("InvestigationSection contract", () => {
     expect(page).toContain("<InvestigationSection tenantId={tenantId} />");
   });
 
-  it("the cron wires the investigation runner as an isolated phase", () => {
-    const cron = readFileSync(resolve(__dirname, "../../lib/connectors/cron-sync.ts"), "utf8");
-    expect(cron).toContain("runInvestigationForTenant(t.id)");
-    expect(cron).toContain("forensic investigation failed");
+  it("the on-use enrichment cycle wires the investigation runner as an isolated step", () => {
+    // Beacon has no scheduler: the nightly cron was deleted and its $0 producers
+    // were re-homed onto the on-use cycle (runOwnedCycle -> runOnVisitEnrichment).
+    const enrichment = readFileSync(resolve(__dirname, "../../domains/ops/on-visit-enrichment.ts"), "utf8");
+    expect(enrichment).toContain("runInvestigationForTenant(tenantId, now)");
+    expect(enrichment).toContain('"forensic-investigation"');
+    const cycle = readFileSync(resolve(__dirname, "../../domains/ops/on-visit-refresh.ts"), "utf8");
+    expect(cycle).toContain("runOnVisitEnrichment(tenantId");
   });
 
   it("the store is registered as global + Supabase-mirrored", () => {

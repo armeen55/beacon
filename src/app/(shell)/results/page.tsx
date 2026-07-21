@@ -452,7 +452,7 @@ async function MeasuredOutcomesContextStream({
   tenantId,
   initialContext,
 }: {
-  sideReads: Promise<ResultsSideReads>;
+  sideReads: ResultsSideReadHandles;
   ledger: ShippedChangeRecord[];
   tenantId: string;
   initialContext: Promise<ResultsInitialContext>;
@@ -528,7 +528,7 @@ async function LearningDiagnosticsStream({
  *      alignments (persist:false -> a GET never writes; the after() warm-up in the
  *      page body is the only writer).
  */
-async function loadResultsSideReads(
+function loadResultsSideReads(
   tenantId: string,
   ledger: ShippedChangeRecord[],
   ownedAlignmentRequests: OwnedAlignmentRequest[],
@@ -537,66 +537,80 @@ async function loadResultsSideReads(
     ...new Set(ledger.slice(0, 8).flatMap((l) => (l.controlPages ?? []).slice(0, 2))),
   ].slice(0, 16);
   const tSide = perfMark();
-  const [
+  // AMPUTATION P3 L2 (2026-07-21) - each side-read is now its OWN independently
+  // awaitable handle instead of one Promise.all bundle. Every read still FIRES
+  // eagerly here (same concurrency, same fail-soft catch + 15s deadline as before),
+  // but a consumer that needs only ONE field (the answer-first cumulative strip and
+  // proof summary need only shockWindows, ~0.75s) no longer waits on the slowest
+  // read in the batch (control contamination's median-band pass, ~4.3s cold). The
+  // heavy per-card board still awaits everything it needs. No read moved, no copy
+  // changed - only the artificial all-or-nothing await gate was deleted.
+  const sparkByPath = valueWithDeadline(
+    loadDailyClicksByPathsForTenant(
+      tenantId,
+      ledger.slice(0, 16).map((l) => l.path),
+    ).catch(() => new Map<string, SparkPoint[]>()),
+    new Map<string, SparkPoint[]>(),
+    SIDE_READ_DEADLINE_MS,
+  );
+  const controlSparkByPath = valueWithDeadline(
+    controlSparkPaths.length > 0
+      ? loadDailyClicksByPathsForTenant(tenantId, controlSparkPaths).catch(
+          () => new Map<string, SparkPoint[]>(),
+        )
+      : Promise.resolve(new Map<string, SparkPoint[]>()),
+    new Map<string, SparkPoint[]>(),
+    SIDE_READ_DEADLINE_MS,
+  );
+  const detectedChangepoints = valueWithDeadline(
+    loadDetectedChangepoints(tenantId).catch(() => []),
+    [],
+    SIDE_READ_DEADLINE_MS,
+  );
+  const shockWindows: Promise<ShockWindow[]> = detectedChangepoints
+    .then((cps) => buildShockWindows({ dailySeries: [], priorChangepoints: cps }))
+    .catch(() => [] as ShockWindow[]);
+  const externalEvents = valueWithDeadline(loadExternalEvents(tenantId).catch(() => []), [], SIDE_READ_DEADLINE_MS);
+  const seasonalInflectionById = valueWithDeadline(
+    attachSeasonalInflectionForLedger(
+      tenantId,
+      ledger.map((l) => ({ id: l.id, path: l.path, shippedAt: l.shippedAt, windows: l.windows ?? [] })),
+    ).catch(() => new Map()),
+    new Map(),
+    SIDE_READ_DEADLINE_MS,
+  );
+  const recrawlClockById = valueWithDeadline(
+    attachRecrawlClockForLedger(
+      tenantId,
+      ledger.map((l) => ({ id: l.id, page: l.page, shippedAt: l.shippedAt, actionType: l.actionType, after: l.after })),
+    ).catch(() => new Map()),
+    new Map(),
+    SIDE_READ_DEADLINE_MS,
+  );
+  const contaminationById = valueWithDeadline(
+    attachControlContaminationForLedger(tenantId, ledger).catch(() => new Map()),
+    new Map(),
+    SIDE_READ_DEADLINE_MS,
+  );
+  const ownedAlignmentByRecId = valueWithDeadline(
+    getOwnedAnswerAlignmentsBatch(tenantId, ownedAlignmentRequests).catch(
+      () => new Map<string, PersistedAnswerAlignment | null>(),
+    ),
+    new Map<string, PersistedAnswerAlignment | null>(),
+    SIDE_READ_DEADLINE_MS,
+  );
+  // Observability preserved: log the whole-batch settle time without gating any
+  // consumer on it (fire-and-forget over allSettled).
+  void Promise.allSettled([
     sparkByPath,
     controlSparkByPath,
-    detectedChangepoints,
+    shockWindows,
     externalEvents,
     seasonalInflectionById,
     recrawlClockById,
     contaminationById,
     ownedAlignmentByRecId,
-  ] = await Promise.all([
-    valueWithDeadline(
-      loadDailyClicksByPathsForTenant(
-        tenantId,
-        ledger.slice(0, 16).map((l) => l.path),
-      ).catch(() => new Map<string, SparkPoint[]>()),
-      new Map<string, SparkPoint[]>(),
-      SIDE_READ_DEADLINE_MS,
-    ),
-    valueWithDeadline(
-      controlSparkPaths.length > 0
-        ? loadDailyClicksByPathsForTenant(tenantId, controlSparkPaths).catch(
-            () => new Map<string, SparkPoint[]>(),
-          )
-        : Promise.resolve(new Map<string, SparkPoint[]>()),
-      new Map<string, SparkPoint[]>(),
-      SIDE_READ_DEADLINE_MS,
-    ),
-    valueWithDeadline(loadDetectedChangepoints(tenantId).catch(() => []), [], SIDE_READ_DEADLINE_MS),
-    valueWithDeadline(loadExternalEvents(tenantId).catch(() => []), [], SIDE_READ_DEADLINE_MS),
-    valueWithDeadline(
-      attachSeasonalInflectionForLedger(
-        tenantId,
-        ledger.map((l) => ({ id: l.id, path: l.path, shippedAt: l.shippedAt, windows: l.windows ?? [] })),
-      ).catch(() => new Map()),
-      new Map(),
-      SIDE_READ_DEADLINE_MS,
-    ),
-    valueWithDeadline(
-      attachRecrawlClockForLedger(
-        tenantId,
-        ledger.map((l) => ({ id: l.id, page: l.page, shippedAt: l.shippedAt, actionType: l.actionType, after: l.after })),
-      ).catch(() => new Map()),
-      new Map(),
-      SIDE_READ_DEADLINE_MS,
-    ),
-    valueWithDeadline(
-      attachControlContaminationForLedger(tenantId, ledger).catch(() => new Map()),
-      new Map(),
-      SIDE_READ_DEADLINE_MS,
-    ),
-    valueWithDeadline(
-      getOwnedAnswerAlignmentsBatch(tenantId, ownedAlignmentRequests).catch(
-        () => new Map<string, PersistedAnswerAlignment | null>(),
-      ),
-      new Map<string, PersistedAnswerAlignment | null>(),
-      SIDE_READ_DEADLINE_MS,
-    ),
-  ]);
-  perfStage("results-side-reads", tSide, { rows: ledger.length });
-  const shockWindows: ShockWindow[] = buildShockWindows({ dailySeries: [], priorChangepoints: detectedChangepoints });
+  ]).then(() => perfStage("results-side-reads", tSide, { rows: ledger.length }));
   return {
     sparkByPath,
     controlSparkByPath,
@@ -609,31 +623,36 @@ async function loadResultsSideReads(
   };
 }
 
-type ResultsSideReads = Awaited<ReturnType<typeof loadResultsSideReads>>;
+/** AMPUTATION P3 L2 - the side-read batch as INDEPENDENT per-field promise handles.
+ *  Each field resolves the instant its own read settles, so a consumer awaits only
+ *  what it renders (fast answer-first fields never block on the slow board fields).
+ *  Derived from the loader so field types match the old resolved bundle exactly. */
+type ResultsSideReadHandles = ReturnType<typeof loadResultsSideReads>;
 
-/** W2-B - the cumulative outcome strip, streamed: awaits the shared side-read batch
- *  for shockWindows inside its own Suspense boundary so the header paints first. */
+/** AMPUTATION P3 L2 - the cumulative outcome strip, streamed: awaits ONLY the
+ *  shockWindows handle (the single field it renders) so the answer-first band no
+ *  longer waits on the slow contamination read behind the old Promise.all gate. */
 async function CumulativeOutcomeStream({
   ledger,
   sideReads,
 }: {
   ledger: ShippedChangeRecord[];
-  sideReads: Promise<ResultsSideReads>;
+  sideReads: ResultsSideReadHandles;
 }) {
-  const { shockWindows } = await sideReads;
+  const shockWindows = await sideReads.shockWindows;
   return <CumulativeOutcomeSection ledger={ledger} shockWindows={shockWindows} />;
 }
 
-/** W2-B - the "Proof at a glance" summary, streamed the same way; keeps its W2-A
- *  BoundedSection floor for the section's own render work. */
+/** AMPUTATION P3 L2 - the "Proof at a glance" summary awaits ONLY shockWindows too;
+ *  keeps its W2-A BoundedSection floor for the section's own render work. */
 async function ProofSummaryStream({
   ledger,
   sideReads,
 }: {
   ledger: ShippedChangeRecord[];
-  sideReads: Promise<ResultsSideReads>;
+  sideReads: ResultsSideReadHandles;
 }) {
-  const { shockWindows } = await sideReads;
+  const shockWindows = await sideReads.shockWindows;
   return <BoundedSection render={() => ProofSummarySection({ ledger, shockWindows })} />;
 }
 
@@ -677,7 +696,7 @@ async function MeasuredOutcomesBoard({
   worklist,
   calibrationByProofId,
 }: {
-  sideReads: Promise<ResultsSideReads>;
+  sideReads: ResultsSideReadHandles;
   ledger: ShippedChangeRecord[];
   latestGscDate: string | null;
   tenantId: string;
@@ -685,7 +704,10 @@ async function MeasuredOutcomesBoard({
   worklist: Awaited<ReturnType<typeof loadActionPackWorklistForTenant>> | null;
   calibrationByProofId: Map<string, CalibrationRecord>;
 }) {
-  const {
+  // AMPUTATION P3 L2 - the per-card board legitimately needs every field, so it
+  // awaits them together; the handles were all started eagerly at call time so this
+  // is one concurrent wait (settles with the slowest read), not a serial waterfall.
+  const [
     sparkByPath,
     controlSparkByPath,
     shockWindows,
@@ -694,7 +716,16 @@ async function MeasuredOutcomesBoard({
     recrawlClockById,
     contaminationById,
     ownedAlignmentByRecId,
-  } = await sideReads;
+  ] = await Promise.all([
+    sideReads.sparkByPath,
+    sideReads.controlSparkByPath,
+    sideReads.shockWindows,
+    sideReads.externalEvents,
+    sideReads.seasonalInflectionById,
+    sideReads.recrawlClockById,
+    sideReads.contaminationById,
+    sideReads.ownedAlignmentByRecId,
+  ]);
 
   // Move 2 - the shared maturity presentation per row, so every card reads the same
   // honest measurement language (an early read is never a final verdict, never red/green).

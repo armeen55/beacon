@@ -15,6 +15,7 @@ import { runAutonomousResearchForTenant } from "./autonomous-research";
 import { recoverAbandonedPageFactoryForTenant } from "./recover-abandoned-work";
 import { replenishReadyQueueForTenant } from "./ready-queue-replenishment";
 import { refreshStaleCrawlForCurrentTenant } from "@/domains/scanning/stale-crawl-refresh";
+import { runOnVisitEnrichment } from "./on-visit-enrichment";
 import {
   readLastWarmReceipt,
   recordWarmRun,
@@ -244,6 +245,29 @@ async function runOwnedCycle(tenantId: string, options: PostResponseCycleOptions
     const prior = await readLastWarmReceipt(tenantId, "visit");
     const shouldRunDeepResearch = shouldRunAutonomousResearch(prior, now);
     if (shouldRunDeepResearch) {
+      // $0 deterministic enrichment spine (trend radar, seasonal, refresh queue,
+      // algorithm weather, pooled/aa calibration, pipeline watchdog, forensic
+      // investigation, etc.) - the per-tenant nightly phases of the deleted
+      // cron-sync, re-homed onto the on-use cycle. Runs once per day (this daily
+      // branch), AFTER the connector auto-refresh above pulled tonight's data and
+      // BEFORE the paid research below, so the LIVE Today/Changes/Results surfaces
+      // that read these stores stop showing frozen data even if research later
+      // times out. Bounded + fail-soft; a failure never touches the research pass.
+      const enrichment = await runOnVisitEnrichment(tenantId, { now: nowFn }).catch((error) => {
+        log.warn("[autonomous] on-visit enrichment failed (non-blocking)", {
+          tenantId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+        return null;
+      });
+      if (enrichment && (enrichment.failed.length > 0 || enrichment.skippedPastDeadline.length > 0)) {
+        log.info("[autonomous] on-visit enrichment finished", {
+          tenantId,
+          ran: enrichment.ran.length,
+          failed: enrichment.failed,
+          skippedPastDeadline: enrichment.skippedPastDeadline,
+        });
+      }
       // Write before work begins. This is the durable cross-instance throttle
       // and gives the UI an honest running state instead of a blank.
       await recordWarmRun(startedReceipt(tenantId, now, prior));

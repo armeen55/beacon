@@ -27,14 +27,11 @@ import { loadQuerySpikes } from "@/domains/trend-radar/spike-store";
 import type { QuerySpike } from "@/domains/trend-radar/query-spikes";
 import { loadSeasonalQueries } from "@/domains/seasonal/seasonal-store";
 import type { SeasonalQuery } from "@/domains/seasonal/seasonality";
-import { loadLanguageGaps } from "@/domains/language-gap/language-gap-store";
-import type { LanguageGap } from "@/domains/language-gap/language-gaps";
 import { loadCalibrationRecords } from "@/domains/experiments/forecast-calibration-store";
 import { summarizeForecastCalibration, MIN_SETTLED_FOR_CALIBRATION } from "@/domains/experiments/forecast-calibration";
 
 const MAX_TRENDS = 5;
 const MAX_SEASONAL = 5;
-const MAX_LANGUAGE_GAPS = 5;
 
 /** One lever family's won/lost record for the week the LLM reads. Mirrors DimPrior's
  *  actionType bucket, but only the fields the review needs (no internal multiplier
@@ -49,7 +46,6 @@ export type DossierLeverRecord = {
 
 export type DossierTrend = { query: string; thisWeek: number; typicalWeek: number; ratio: number | null };
 export type DossierSeasonalWindow = { query: string; peakMonths: number[]; share: number };
-export type DossierLanguageGap = { page: string; gapKind: string; impressions: number };
 
 export type StrategyDossier = {
   tenantId: string;
@@ -64,22 +60,19 @@ export type StrategyDossier = {
   trends: DossierTrend[];
   /** Active/upcoming seasonal windows (item 21), biggest share first. */
   seasonalWindows: DossierSeasonalWindow[];
-  /** Farsi/Finglish demand-vs-content gaps (item 24), biggest impressions first. */
-  languageGaps: DossierLanguageGap[];
   /** Forecast calibration bias (item 28): null when too thin to trust (matches
    *  summarizeForecastCalibration's own MIN_SETTLED_FOR_CALIBRATION floor). */
   calibration: { settledCount: number; hotColdPct: number; sentence: string | null } | null;
 };
 
-/** PURE: fold already-computed priors + trend/seasonal/language-gap + calibration
- *  slices into the bounded dossier shape. No I/O. */
+/** PURE: fold already-computed priors + trend/seasonal + calibration slices into
+ *  the bounded dossier shape. No I/O. */
 export function buildStrategyDossier(input: {
   tenantId: string;
   weekOf: string;
   outcomes: readonly SettledOutcome[];
   trends: readonly QuerySpike[];
   seasonalWindows: readonly SeasonalQuery[];
-  languageGaps: readonly LanguageGap[];
   calibration: ReturnType<typeof summarizeForecastCalibration> | null;
 }): StrategyDossier {
   const priors = computeDimPriors(input.outcomes);
@@ -107,11 +100,6 @@ export function buildStrategyDossier(input: {
     .slice(0, MAX_SEASONAL)
     .map((s) => ({ query: s.query, peakMonths: s.peakMonths, share: Math.round(s.share * 100) / 100 }));
 
-  const languageGaps: DossierLanguageGap[] = [...input.languageGaps]
-    .sort((a, b) => b.impressions - a.impressions)
-    .slice(0, MAX_LANGUAGE_GAPS)
-    .map((g) => ({ page: g.page, gapKind: g.gapKind, impressions: g.impressions }));
-
   const calibration =
     input.calibration && input.calibration.settledCount >= MIN_SETTLED_FOR_CALIBRATION
       ? {
@@ -128,7 +116,6 @@ export function buildStrategyDossier(input: {
     totalDecided,
     trends,
     seasonalWindows,
-    languageGaps,
     calibration,
   };
 }
@@ -136,15 +123,14 @@ export function buildStrategyDossier(input: {
 /** I/O shell: read every existing source (fail-soft, each degrades to an empty
  *  slice on its own) and hand plain data to the pure builder above. */
 export async function loadStrategyDossier(tenantId: string, weekOf: string): Promise<StrategyDossier> {
-  const [outcomes, trends, seasonalWindows, languageGaps, calibrationRecords] = await Promise.all([
+  const [outcomes, trends, seasonalWindows, calibrationRecords] = await Promise.all([
     loadExperimentOutcomes(tenantId).catch(() => []),
     loadQuerySpikes(tenantId).catch(() => []),
     loadSeasonalQueries(tenantId).catch(() => []),
-    loadLanguageGaps(tenantId).catch(() => []),
     loadCalibrationRecords(tenantId).catch(() => []),
   ]);
   const calibration = calibrationRecords.length > 0 ? summarizeForecastCalibration(calibrationRecords) : null;
-  return buildStrategyDossier({ tenantId, weekOf, outcomes, trends, seasonalWindows, languageGaps, calibration });
+  return buildStrategyDossier({ tenantId, weekOf, outcomes, trends, seasonalWindows, calibration });
 }
 
 /** Compact single-string rendering of the dossier for the LLM user prompt +
@@ -164,10 +150,6 @@ export function renderDossierForPrompt(d: StrategyDossier): string {
     d.seasonalWindows.length > 0
       ? d.seasonalWindows.map((s) => `- "${s.query}": peaks month(s) ${s.peakMonths.join(",")}, ${Math.round(s.share * 100)}% of annual demand`).join("\n")
       : "(none)";
-  const gapLines =
-    d.languageGaps.length > 0
-      ? d.languageGaps.map((g) => `- ${g.page}: ${g.gapKind} (${g.impressions} impressions)`).join("\n")
-      : "(none)";
   const calibrationLine = d.calibration
     ? `Forecast calibration: ${d.calibration.settledCount} settled, running ${d.calibration.hotColdPct > 0 ? `${d.calibration.hotColdPct}% hot` : d.calibration.hotColdPct < 0 ? `${Math.abs(d.calibration.hotColdPct)}% cold` : "on target"}.`
     : "Forecast calibration: not enough settled picks yet.";
@@ -184,9 +166,6 @@ export function renderDossierForPrompt(d: StrategyDossier): string {
     "",
     "Active/upcoming seasonal windows:",
     seasonalLines,
-    "",
-    "Farsi/Finglish language gaps:",
-    gapLines,
     "",
     calibrationLine,
   ].join("\n");

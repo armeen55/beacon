@@ -112,14 +112,18 @@ describe("OpsPipelineSection contract", () => {
     expect(opsIdx).toBeLessThan(heroIdx);
   });
 
-  it("the cron wires the invariant check as an isolated final step", () => {
-    const cron = readFileSync(
-      resolve(__dirname, "../../lib/connectors/cron-sync.ts"),
+  it("the on-use enrichment cycle wires the invariant check as an isolated step", () => {
+    // Beacon has no scheduler: the nightly cron was deleted and its $0 producers
+    // were re-homed onto the on-use cycle (runOwnedCycle -> runOnVisitEnrichment).
+    const enrichment = readFileSync(
+      resolve(__dirname, "../../domains/ops/on-visit-enrichment.ts"),
       "utf8",
     );
-    expect(cron).toContain("gatherPipelineReadings(t.id)");
-    expect(cron).toContain("checkPipelineInvariants(readings)");
-    expect(cron).toContain("writePipelineHealth(buildPipelineHealthRow(readings, violations))");
-    expect(cron).toContain("pipeline invariant check failed");
+    expect(enrichment).toContain("gatherPipelineReadings(tenantId)");
+    expect(enrichment).toContain("checkPipelineInvariants(readings)");
+    expect(enrichment).toContain("writePipelineHealth(buildPipelineHealthRow(readings, violations))");
+    expect(enrichment).toContain('"pipeline-invariants"');
+    const cycle = readFileSync(resolve(__dirname, "../../domains/ops/on-visit-refresh.ts"), "utf8");
+    expect(cycle).toContain("runOnVisitEnrichment(tenantId");
   });
 });

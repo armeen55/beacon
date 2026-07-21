@@ -12,8 +12,6 @@ import { loadClarityPageSignalsForTenant, type ClarityPageSignal } from "@/domai
 import { loadPageContentSnapshot, type PageContentSnapshot } from "@/domains/recommendation-intelligence/page-freshness";
 import { loadCrawlCitationFunnel } from "@/domains/ai-visibility/load-crawl-citation-funnel";
 import { funnelPathKey, type PageFunnel } from "@/domains/ai-visibility/crawl-citation-funnel";
-import { loadLanguageGaps } from "@/domains/language-gap/language-gap-store";
-import type { LanguageGap } from "@/domains/language-gap/language-gaps";
 import { loadProofLedgerCached } from "@/domains/proof-gsc/load-ledger";
 import type { ShippedChangeRecord } from "@/domains/proof-gsc/shipped-change-store";
 import { proofMaturityLabel } from "@/domains/proof-gsc/measure-lifecycle";
@@ -90,7 +88,6 @@ export type PageDossier = {
     demand: { clicks90d: number; impressions90d: number; ctr90d: number; position90d: number } | null;
     friction: ClarityPageSignal | null;
     funnel: PageFunnel | null;
-    languageGaps: LanguageGap[];
   };
 
   history: DossierChangeRecord[];
@@ -134,7 +131,6 @@ async function loadDossierUncached(tenantId: string, path: string): Promise<Page
     gscSignals,
     claritySignals,
     slug,
-    languageGaps,
     ledger,
     changesView,
     acceptedPlan,
@@ -144,7 +140,6 @@ async function loadDossierUncached(tenantId: string, path: string): Promise<Page
     loadGscPageSignalsForTenant(tenantId).catch(() => new Map()),
     loadClarityPageSignalsForTenant(tenantId).catch(() => new Map<string, ClarityPageSignal>()),
     currentTenantSlug().catch(() => ""),
-    loadLanguageGaps(tenantId).catch(() => [] as LanguageGap[]),
     loadProofLedgerCached(tenantId).catch(() => [] as ShippedChangeRecord[]),
     loadChangesView().catch(() => null),
     getAcceptedPlan(tenantId).catch(() => null),
@@ -176,8 +171,6 @@ async function loadDossierUncached(tenantId: string, path: string): Promise<Page
     const funnel = await loadCrawlCitationFunnel(tenantId, slug).catch(() => null);
     funnelEntry = funnel?.pages.find((p) => funnelPathKey(p.pagePath) === path) ?? null;
   }
-
-  const pageLanguageGaps = languageGaps.filter((g) => matchesPath(g.page, path));
 
   const history = historyForPath(ledger, path);
   const shipMarkers = history.map((r) => r.shippedAt.slice(0, 10)).sort();
@@ -232,7 +225,6 @@ async function loadDossierUncached(tenantId: string, path: string): Promise<Page
     !!gscEntry ||
     !!clarityEntry ||
     !!funnelEntry ||
-    pageLanguageGaps.length > 0 ||
     history.length > 0 ||
     !!currentMove ||
     !!currentPlanPick ||
@@ -276,7 +268,6 @@ async function loadDossierUncached(tenantId: string, path: string): Promise<Page
         : null,
       friction: clarityEntry,
       funnel: funnelEntry,
-      languageGaps: pageLanguageGaps,
     },
     history,
     currentMove,

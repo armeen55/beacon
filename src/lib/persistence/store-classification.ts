@@ -426,11 +426,6 @@ export const GLOBAL_STORES = new Set<string>([
   // precedent: New Pages reads it with no ambient request context).
   "wiki-gap-article-cache", // Wikipedia action-API 30d cache (domains/wiki-gap/wikipedia-client.ts)
   "wiki-gap-results", // latest per-tenant beat-Wikipedia run (domains/wiki-gap/wiki-gap-store.ts)
-  // Language-gap matrix (2026-07-02, master plan item 24). Same cron fan-out
-  // rationale: rows carry tenant_id. Latest per-tenant Farsi/Finglish demand
-  // vs page-content-language gap findings ($0 Today Demand band + daily plan
-  // hint reads).
-  "language-gap-matrix",
   // Refresh production line (2026-07-02, master plan item 56). Same cron
   // fan-out rationale: rows carry tenant_id. Latest per-tenant ranked refresh
   // queue (pages losing clicks quarter over quarter + evidence briefs; $0

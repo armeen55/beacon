@@ -10,7 +10,7 @@ import {
   summarizeJobReceipts,
   ABANDONED_RUN_GRACE_MS,
 } from "./deadman";
-import type { CronScheduleEntry } from "./cron-schedule-map";
+import { CRON_SCHEDULE_MAP, type CronScheduleEntry } from "./cron-schedule-map";
 
 // Historical schedule math stays unit-tested with explicit fixtures even
 // though the live deployment intentionally has no Vercel schedules.
@@ -374,6 +374,60 @@ describe("assessDeadman", () => {
     expect(verdict.overall).toBe("waiting");
     expect(verdict.alarm).toBe(false);
     expect(verdict.sentences).toEqual([]);
+  });
+});
+
+describe("assessDeadman: empty schedule map (all 8 cron routes deleted, on-use only)", () => {
+  it("the live CRON_SCHEDULE_MAP is empty - Vercel schedules nothing anymore", () => {
+    expect(CRON_SCHEDULE_MAP).toEqual([]);
+  });
+
+  it("historical cron_runs data for a job with no schedule entry never renders an alarm", () => {
+    // sync-connectors ran nightly for months before its cron route was
+    // deleted. Its old receipts still sit in latestRunByJob/cron_runs, and
+    // the ancient started_at below would classify as "stalled" many times
+    // over IF it were ever scored. It must not be: assessDeadman only
+    // classifies jobs present in `entries`, and with entries empty there is
+    // no entry to score sync-connectors' history against.
+    const verdict = assessDeadman({
+      entries: [],
+      latestRunByJob: latest({ "sync-connectors": "2026-06-01T09:00:00.000Z" }),
+      diedMidRunByJob: latest({ "sync-connectors": null }),
+      ledgerBeganAt: "2026-06-01T09:00:00.000Z",
+      now: new Date("2026-07-20T16:00:00.000Z"),
+    });
+    expect(verdict.jobs).toEqual([]);
+    expect(verdict.overall).toBe("healthy");
+    expect(verdict.alarm).toBe(false);
+    expect(verdict.sentences).toEqual([]);
+  });
+
+  it("defaults to the live CRON_SCHEDULE_MAP (empty) when `entries` is omitted", () => {
+    const verdict = assessDeadman({
+      latestRunByJob: latest({ "sync-connectors": "2026-06-01T09:00:00.000Z" }),
+      ledgerBeganAt: "2026-06-01T09:00:00.000Z",
+      now: new Date("2026-07-20T16:00:00.000Z"),
+    });
+    expect(verdict.jobs).toEqual([]);
+    expect(verdict.overall).toBe("healthy");
+    expect(verdict.alarm).toBe(false);
+    expect(verdict.sentences).toEqual([]);
+  });
+
+  it("site-down still alarms on a fully empty job fleet - site-uptime checking stays intact", () => {
+    const verdict = assessDeadman({
+      entries: [],
+      latestRunByJob: latest({}),
+      ledgerBeganAt: null,
+      probes: [
+        { checkedAt: "2026-07-20T09:10:00.000Z", ok: false, status: null },
+        { checkedAt: "2026-07-19T09:10:00.000Z", ok: false, status: 503 },
+      ],
+      now: new Date("2026-07-20T16:00:00.000Z"),
+    });
+    expect(verdict.overall).toBe("healthy"); // no jobs to be unhealthy
+    expect(verdict.siteDown).toBe(true);
+    expect(verdict.alarm).toBe(true); // the site check alone can still fire
   });
 });
 

@@ -41,7 +41,6 @@ const DOSSIER: StrategyDossier = {
   totalDecided: 4,
   trends: [],
   seasonalWindows: [],
-  languageGaps: [],
   calibration: null,
 };
 

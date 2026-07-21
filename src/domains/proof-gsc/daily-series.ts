@@ -11,12 +11,46 @@ import "server-only";
  * before/after line).
  */
 
+import { cache } from "react";
+
 import { getSupabaseAdmin } from "@/lib/persistence/supabase";
 import { log } from "@/lib/logger";
 import {
   loadDailyClicksByPagesForTenant,
   type DailyClicks,
 } from "@/domains/recommendation-intelligence/gsc-page-queries";
+
+/**
+ * The tenant-wide page-totals read (all pages, trailing 70 days), memoized PER
+ * REQUEST with react.cache. AMPUTATION P3 L2 (2026-07-21): /results resolves
+ * ledger paths -> GSC page URLs twice per render (once for the treated-page spark
+ * series, once for the comparison-page spark series). Both used to fire this same
+ * whole-tenant `gsc_page_totals_v1` RPC independently; caching it collapses them to
+ * ONE round-trip per request. Fail-soft -> [] (callers fall back to no spark line).
+ */
+const loadTenantPageTotals = cache(
+  async (tenantId: string): Promise<Array<{ page: string; clicks: number }>> => {
+    try {
+      const admin = getSupabaseAdmin();
+      const since = new Date(Date.now() - 70 * 86400_000).toISOString().slice(0, 10);
+      const { data, error } = await admin.rpc("gsc_page_totals_v1", {
+        p_tenant: tenantId,
+        p_since: since,
+      });
+      if (error || !Array.isArray(data)) return [];
+      return (data as Array<{ page: string; clicks: number | string }>)
+        .filter((r) => !!r.page)
+        .map((r) => ({ page: r.page, clicks: Number(r.clicks) || 0 }));
+    } catch (err) {
+      log.warn("daily-series: path-to-page resolve read failed; before/after line self-hides", {
+        tenant: tenantId,
+        store: "gsc_page_totals_v1",
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return [];
+    }
+  },
+);
 
 function toPath(url: string): string {
   try {
@@ -35,30 +69,14 @@ async function resolvePathsToPages(
 ): Promise<Map<string, string>> {
   const wanted = new Map(paths.map((p) => [toPath(p), p] as const));
   const best = new Map<string, { page: string; clicks: number }>();
-  try {
-    const admin = getSupabaseAdmin();
-    const since = new Date(Date.now() - 70 * 86400_000).toISOString().slice(0, 10);
-    const { data, error } = await admin.rpc("gsc_page_totals_v1", {
-      p_tenant: tenantId,
-      p_since: since,
-    });
-    if (error || !Array.isArray(data)) return new Map();
-    for (const r of data as Array<{ page: string; clicks: number | string }>) {
-      if (!r.page) continue;
-      const path = toPath(r.page);
-      const orig = wanted.get(path);
-      if (orig == null) continue;
-      const clicks = Number(r.clicks) || 0;
-      const prev = best.get(orig);
-      if (!prev || clicks > prev.clicks) best.set(orig, { page: r.page, clicks });
-    }
-  } catch (err) {
-    log.warn("daily-series: path-to-page resolve read failed; before/after line self-hides", {
-      tenant: tenantId,
-      store: "gsc_page_totals_v1",
-      error: err instanceof Error ? err.message : String(err),
-    });
-    return new Map();
+  const totals = await loadTenantPageTotals(tenantId);
+  if (totals.length === 0) return new Map();
+  for (const r of totals) {
+    const path = toPath(r.page);
+    const orig = wanted.get(path);
+    if (orig == null) continue;
+    const prev = best.get(orig);
+    if (!prev || r.clicks > prev.clicks) best.set(orig, { page: r.page, clicks: r.clicks });
   }
   return new Map([...best.entries()].map(([orig, v]) => [orig, v.page]));
 }

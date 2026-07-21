@@ -47,8 +47,6 @@ import { loadSeasonalQueries } from "@/domains/seasonal/seasonal-store";
 import { buildSeasonalHintNotes } from "@/domains/seasonal/seasonal-hints";
 import { loadRefreshQueue } from "@/domains/refresh/refresh-store";
 import { loadPeakCalendar } from "@/domains/seasonal/peak-calendar-store";
-import { loadLanguageGaps } from "@/domains/language-gap/language-gap-store";
-import { buildLanguageGapHintNotes } from "@/domains/language-gap/language-gap-hints";
 import { currentTenantSlug, currentTenant } from "@/lib/tenant-context";
 import { loadCrawlCitationFunnel } from "@/domains/ai-visibility/load-crawl-citation-funnel";
 import { buildCitabilityHintNotes } from "@/domains/citability/citability-hints";
@@ -180,7 +178,7 @@ export type TodayPreviewResult = {
 };
 
 export async function buildTodayExperimentPreview(tenantId: string, now: Date = new Date()): Promise<TodayPreviewResult> {
-  const [signals, ledger, snaps, keywordDemand, keywordDifficulty, serpPatterns, changePacks, engineGapsByUrl, querySpikes, seasonalQueries, featureSteals, languageGaps, citationFunnel, calibrationRecords, teammateFreshness, refreshQueue, peakCalendar] = await Promise.all([
+  const [signals, ledger, snaps, keywordDemand, keywordDifficulty, serpPatterns, changePacks, engineGapsByUrl, querySpikes, seasonalQueries, featureSteals, citationFunnel, calibrationRecords, teammateFreshness, refreshQueue, peakCalendar] = await Promise.all([
     loadGscPageSignalsForTenant(tenantId),
     loadProofLedger(tenantId).catch(() => []),
     getPageSnapshots(),
@@ -211,10 +209,6 @@ export async function buildTodayExperimentPreview(tenantId: string, now: Date = 
     // Empty until live SERP history has captured a snippet/PAA at a qualifying rank.
     // Fail-soft to none.
     loadFeatureStealCandidates(tenantId, now).catch(() => []),
-    // Item 24: $0 read of last night's Farsi/Finglish language-gap matrix pass
-    // (script/language demand vs each page's crawled content language). Empty
-    // until the nightly pass has run. Fail-soft to none.
-    loadLanguageGaps(tenantId, now).catch(() => []),
     // Item 26: $0 read of the item-7 crawl-to-citation funnel (which pages AI
     // reaches but never quotes). Empty until the tenant's own-domain slug or
     // the funnel's feeds are unavailable. Fail-soft to an empty report.
@@ -323,12 +317,6 @@ export async function buildTodayExperimentPreview(tenantId: string, now: Date = 
   // never queued as an easy win. Bounded to 2/night; keyed by query (not page path),
   // matched against each candidate's targetQuery below.
   const featureStealHintsByQuery = buildFeatureStealHintNotes(featureSteals);
-
-  // Item 24 - the language-gap hint feed: a page carrying real Farsi-script or
-  // Finglish demand with no matching-script content (or a missing transliteration
-  // spelling family) becomes a hint here. Bounded to 2/night; composes beside the
-  // spike/seasonal hints without disturbing them.
-  const languageGapHintsByPath = buildLanguageGapHintNotes(languageGaps);
 
   // Item 26 - the citability hint feed: a page the item-7 funnel says AI already
   // reaches but never quotes (crawled_not_cited or cited_no_clicks), whose own
@@ -881,19 +869,6 @@ export async function buildTodayExperimentPreview(tenantId: string, now: Date = 
         label: "Answer box to steal",
         claim: stealHint.sentence,
         confidencePct: 70,
-      });
-    }
-    // Item 24 - the LANGUAGE-GAP voice: when this pick's page carries real Farsi-script
-    // or Finglish demand it does not visibly answer (no matching-script content, or a
-    // transliteration spelling family it never mentions), that gap argues for shipping
-    // this week. Deterministic, from last night's persisted language-gap pass ($0).
-    const languageGapHint = languageGapHintsByPath.get(normalizePath(c.url));
-    if (languageGapHint && c.teamReview && !c.teamReview.voices.some((v) => v.label === "Language gap")) {
-      c.teamReview.voices.push({
-        specialist: "gsc",
-        label: "Language gap",
-        claim: languageGapHint.sentence,
-        confidencePct: 75,
       });
     }
     // Item 26 - the CITABILITY voice + evidence-brief line: when this pick's page is a

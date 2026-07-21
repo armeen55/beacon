@@ -40,6 +40,11 @@ vi.mock("./autonomous-research", () => ({
   runAutonomousResearchForTenant: (...a: unknown[]) => runAutonomousResearchForTenantMock(...a),
 }));
 
+const runOnVisitEnrichmentMock = vi.fn();
+vi.mock("./on-visit-enrichment", () => ({
+  runOnVisitEnrichment: (...a: unknown[]) => runOnVisitEnrichmentMock(...a),
+}));
+
 const replenishReadyQueueForTenantMock = vi.fn();
 vi.mock("./ready-queue-replenishment", () => ({
   replenishReadyQueueForTenant: (...a: unknown[]) => replenishReadyQueueForTenantMock(...a),
@@ -70,6 +75,7 @@ beforeEach(() => {
   readLastWarmReceiptMock.mockResolvedValue(null);
   recordWarmRunMock.mockResolvedValue(undefined);
   runAutonomousResearchForTenantMock.mockResolvedValue({ ok: true, steps: [], date: "2026-07-18", ran_at: "x", totalMs: 1, tenant_id: T });
+  runOnVisitEnrichmentMock.mockResolvedValue({ ran: [], failed: [], skippedPastDeadline: [] });
   replenishReadyQueueForTenantMock.mockResolvedValue({ skipped: true });
   recoverAbandonedPageFactoryForTenantMock.mockResolvedValue({ status: "not_needed" });
   releaseAutonomousRunMock.mockResolvedValue(undefined);

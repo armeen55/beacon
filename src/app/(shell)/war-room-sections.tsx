@@ -34,8 +34,6 @@ import { matchSpikeToMove, type MatchableMove } from "@/domains/trend-radar/spik
 import type { QuerySpike } from "@/domains/trend-radar/query-spikes";
 import { loadSeasonalQueries } from "@/domains/seasonal/seasonal-store";
 import type { SeasonalQuery } from "@/domains/seasonal/seasonality";
-import { loadLanguageGaps } from "@/domains/language-gap/language-gap-store";
-import type { LanguageGap } from "@/domains/language-gap/language-gaps";
 import { loadRefreshQueue } from "@/domains/refresh/refresh-store";
 import { briefSentences, type RefreshBrief } from "@/domains/refresh/refresh-brief";
 // R17a (striking-distance portfolio, v1 267) - the demand band's "close to the
@@ -503,15 +501,6 @@ async function loadTopSeasonalRow(tenantId: string): Promise<SeasonalQuery | nul
   return seasonal[0] ?? null;
 }
 
-/** Master plan item 24 - the single biggest Farsi/Finglish language gap ($0 store read
- *  from the latest language-gap matrix pass). Gaps arrive ranked biggest-impressions-
- *  first, so the first row is the one this slot shows; null when nothing is found (the
- *  row stays silent, never a placeholder). */
-async function loadTopLanguageGapRow(tenantId: string): Promise<LanguageGap | null> {
-  const gaps = await loadLanguageGaps(tenantId).catch(() => [] as LanguageGap[]);
-  return gaps[0] ?? null;
-}
-
 /** Master plan item 56 - the single worst FADING page ($0 store read from the latest
  *  refresh-queue pass over quarter-over-quarter GSC clicks). The queue arrives ranked
  *  worst-lost-clicks-first, so the first row is the one this slot shows; null when nothing
@@ -539,7 +528,6 @@ export async function DemandOpportunitiesSection({ tenantId }: { tenantId: strin
         loadDemandOpportunities(tenantId, { limit: 5 }),
         loadSpikeRows(tenantId),
         loadTopSeasonalRow(tenantId),
-        loadTopLanguageGapRow(tenantId),
         loadTopFadingRow(tenantId),
         // R17a (v1 267) - the striking-distance portfolio line, gated below to
         // a real portfolio (more than STRIKING_BAND_MIN_QUERIES searches).
@@ -547,13 +535,13 @@ export async function DemandOpportunitiesSection({ tenantId }: { tenantId: strin
       ] as const),
     );
     if (raced.timedOut) return <HonestDelay />;
-    const [res, spikeRows, seasonalRow, languageGapRow, fadingRow, portfolioRaw] = raced.data;
+    const [res, spikeRows, seasonalRow, fadingRow, portfolioRaw] = raced.data;
     const strikingPortfolio =
       portfolioRaw && portfolioRaw.queryCount > STRIKING_BAND_MIN_QUERIES ? portfolioRaw : null;
-    // Research never ran and nothing is spiking, seasonal, a language gap, fading,
-    // or close to the top: nothing honest to say yet, stay silent.
-    if (res.keywordsConsidered === 0 && spikeRows.length === 0 && !seasonalRow && !languageGapRow && !fadingRow && !strikingPortfolio) return null;
-    if (res.opportunities.length === 0 && res.trends.length === 0 && spikeRows.length === 0 && !seasonalRow && !languageGapRow && !fadingRow && !strikingPortfolio) {
+    // Research never ran and nothing is spiking, seasonal, fading, or close to the
+    // top: nothing honest to say yet, stay silent.
+    if (res.keywordsConsidered === 0 && spikeRows.length === 0 && !seasonalRow && !fadingRow && !strikingPortfolio) return null;
+    if (res.opportunities.length === 0 && res.trends.length === 0 && spikeRows.length === 0 && !seasonalRow && !fadingRow && !strikingPortfolio) {
       // Item 21 - designed empty state: keyword research DID run and found no new gap.
       return (
         <section aria-label="Demand opportunities" className={CARD}>
@@ -710,19 +698,6 @@ export async function DemandOpportunitiesSection({ tenantId }: { tenantId: strin
               })()}
             </div>
           ) : null}
-          {/* Master plan item 24 - the single biggest Farsi/Finglish language gap, from last
-              night's language-gap matrix pass; silent when none found. Identity color: violet
-              marks "language gap" rows (a different shade family than the new-page violet link
-              above, so it reads as its own row kind while the two never appear adjacent). */}
-          {languageGapRow ? (
-            <div className="space-y-1.5">
-              <p className="px-0.5 text-meta font-semibold text-muted-foreground">Language gaps</p>
-              <div key={`lang-${languageGapRow.page}`} className="rounded-xl bg-violet-50/70 px-3 py-2">
-                <p className="text-body font-medium text-violet-900">{languageGapRow.sentence}</p>
-                <p className="mt-0.5 text-meta text-violet-800/90">Page: {prettyPath(languageGapRow.page)}.</p>
-              </div>
-            </div>
-          ) : null}
         </div>
       </section>
     );
@@ -791,28 +766,25 @@ function loadQuietChecks(tenantId: string): Promise<[boolean, boolean, boolean]>
       .catch(() => true),
     // Demand band renders whenever keyword research has run (gaps or the item-21 empty
     // state) OR a query spike exists (item 14, a $0 store read) OR a seasonal window is
-    // due (master plan item 21, a $0 store read) OR a language gap is found (master plan
-    // item 24, a $0 store read) OR a page is fading (master plan item 56, a $0 store
-    // read), so quiet = research never ran, nothing surfaced, nothing is spiking,
-    // nothing seasonal is due, no language gap was found, and nothing is fading.
+    // due (master plan item 21, a $0 store read) OR a page is fading (master plan item
+    // 56, a $0 store read), so quiet = research never ran, nothing surfaced, nothing is
+    // spiking, nothing seasonal is due, and nothing is fading.
     Promise.all([
       loadDemandOpportunities(tenantId, { limit: 5 }),
       loadQuerySpikes(tenantId).catch(() => []),
       loadTopSeasonalRow(tenantId).catch(() => null),
-      loadTopLanguageGapRow(tenantId).catch(() => null),
       loadTopFadingRow(tenantId).catch(() => null),
       // R17a (v1 267): react cache shares this read with the demand band above,
       // so it is free here. Same gate as the band (> STRIKING_BAND_MIN_QUERIES).
       loadStrikingPortfolio(tenantId).catch(() => null),
     ])
       .then(
-        ([res, spikes, seasonalRow, languageGapRow, fadingRow, portfolio]) =>
+        ([res, spikes, seasonalRow, fadingRow, portfolio]) =>
           res.keywordsConsidered === 0 &&
           res.opportunities.length === 0 &&
           res.trends.length === 0 &&
           spikes.length === 0 &&
           !seasonalRow &&
-          !languageGapRow &&
           !fadingRow &&
           !(portfolio && portfolio.queryCount > STRIKING_BAND_MIN_QUERIES),
       )

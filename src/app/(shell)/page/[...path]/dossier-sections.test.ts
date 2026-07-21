@@ -44,7 +44,6 @@ describe("dossier route composition", () => {
     expect(LOADER).toContain("loadGscPageSignalsForTenant");
     expect(LOADER).toContain("loadClarityPageSignalsForTenant");
     expect(LOADER).toContain("loadCrawlCitationFunnel");
-    expect(LOADER).toContain("loadLanguageGaps");
     expect(LOADER).toContain("loadProofLedgerCached");
     expect(LOADER).toContain("loadChangesView");
     expect(LOADER).toContain("loadPageContentSnapshot");

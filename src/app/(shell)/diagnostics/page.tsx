@@ -100,10 +100,10 @@ async function loadDeadmanLine(tenantId: string): Promise<string> {
     if (verdict.alarm && verdict.sentences.length > 0) return verdict.sentences[0];
     if (verdict.siteDown && verdict.siteSentence) return verdict.siteSentence;
     const map: Record<string, string> = {
-      healthy: "Cron and site checks are healthy.",
-      waiting: "Cron jobs are waiting for their first scheduled run.",
-      late: "A cron job is running late but has not stalled.",
-      stalled: "A cron job has stalled. Check the receipts ledger.",
+      healthy: "I run background upkeep while you use Beacon, and site checks are healthy.",
+      waiting: "Background upkeep is waiting for its first on-use run.",
+      late: "Background upkeep is running behind but has not stalled.",
+      stalled: "Background upkeep has stalled. Check the receipts ledger.",
     };
     return map[verdict.overall] ?? "Cron health is unknown.";
   } catch {
