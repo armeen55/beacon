@@ -31,7 +31,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { deriveAndPersistTenantConfig } from "@/domains/onboarding/launch-config";
 import { dispatchFirstScanForTenant } from "@/domains/onboarding/first-scan-dispatch";
 import { runInProcessColdStartScan } from "@/domains/scanning/in-process-scan";
-import { promoteEligibleCandidates } from "@/domains/recommendation-intelligence/promotion-writer";
+import { replenishReadyQueueForTenant } from "@/domains/ops/ready-queue-replenishment";
 import {
   generateStarterPrompts,
   type PromptDraft,
@@ -124,17 +124,19 @@ export async function executeLaunchTransaction(args: {
    *  brand-new tenant still gets real page inventory on first /today render.
    *  Failure-soft; bounded page/time caps. */
   coldStartScan?: typeof runInProcessColdStartScan;
-  /** 2026-06-23 (audit-6 #3) — injectable promotion. After a cold-start scan
-   *  writes inventory, this turns the fresh snapshots into a visible queue
-   *  (deterministic crawl-evidence recs need no GSC), so the very first
-   *  /today + /recommendations render is non-empty. Failure-soft. */
-  promoteAfterColdStart?: typeof promoteEligibleCandidates;
+  /** 2026-07-21 (trigger-pipeline retirement) - injectable cold-start seeding.
+   *  After a cold-start scan writes inventory, the demand-graph ready-queue
+   *  lane (the SAME lane every later visit uses) prepares whatever the fresh
+   *  inventory can already support, so the first render is as full as the
+   *  engine can honestly make it. Anything it cannot rank yet arrives with
+   *  the first background cycle. Failure-soft. */
+  seedReadyQueue?: typeof replenishReadyQueueForTenant;
 }): Promise<LaunchTransactionOutcome> {
   const { admin, tenantId, now } = args;
   const persistConfig = args.persistConfig ?? deriveAndPersistTenantConfig;
   const dispatchFirstScan = args.dispatchFirstScan ?? dispatchFirstScanForTenant;
   const coldStartScan = args.coldStartScan ?? runInProcessColdStartScan;
-  const promoteAfterColdStart = args.promoteAfterColdStart ?? promoteEligibleCandidates;
+  const seedReadyQueue = args.seedReadyQueue ?? replenishReadyQueueForTenant;
 
   // 1. Fetch tenant row.
   const { data: tenant, error: tFetchErr } = await admin
@@ -379,25 +381,27 @@ export async function executeLaunchTransaction(args: {
             `snapshots=${cold.snapshotsWritten} source=${cold.source} ${cold.durationMs}ms)` +
             (cold.detail ? ` detail=${cold.detail}` : ""),
         );
-        // audit-6 #3: a scan only writes pages/snapshots — nothing turns them
-        // into recommended_edits, so without this the new tenant's first
-        // /today + /recommendations render EMPTY despite a successful crawl.
-        // Promote the fresh inventory into a visible queue (deterministic
-        // crawl-evidence recs need no GSC). Failure-soft — never blocks launch.
+        // 2026-07-21 (trigger-pipeline retirement): a scan only writes
+        // pages/snapshots. Seed the ready queue through the demand-graph
+        // replenishment lane (the same lane every later visit runs) so the
+        // first render carries whatever the fresh inventory already
+        // supports; the rest arrives with the first background cycle.
+        // Failure-soft - never blocks launch.
         if (cold.status === "scanned" && cold.snapshotsWritten > 0) {
           try {
-            const promo = await promoteAfterColdStart({
-              tenantId: tenant.id,
-              dryRun: false,
-            });
+            const seeded = await seedReadyQueue(tenant.id);
             console.info(
-              `[onboard/review] cold-start promotion: ` +
-                `candidates=${promo.candidate_count} eligible=${promo.eligible_count} ` +
-                `promoted=${promo.promoted_count} skipped=${promo.skipped_count}`,
+              `[onboard/review] cold-start ready-queue seed: ` +
+                `ready ${seeded.readyBefore}->${seeded.readyAfter} ` +
+                `prepared=${seeded.prepared} cached=${seeded.cached}` +
+                (seeded.skipped ? " (already at target)" : "") +
+                (seeded.readyAfter === 0
+                  ? "; first recommendations arrive with the first background cycle"
+                  : ""),
             );
           } catch (e) {
             console.error(
-              "[onboard/review] cold-start promotion threw (launch unaffected):",
+              "[onboard/review] cold-start ready-queue seed threw (launch unaffected):",
               e instanceof Error ? e.message : e,
             );
           }

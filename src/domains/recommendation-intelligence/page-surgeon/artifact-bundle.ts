@@ -15,7 +15,7 @@
  */
 
 import { stripBannedDashes } from "@/lib/copy/strip-dashes";
-import { isCmsPlaceholder } from "@/domains/recommendation-intelligence/draft-enrichment";
+import { isCmsPlaceholder } from "./brand-heuristics";
 import type { EvidenceConfidence, EvidencePacket } from "./contract";
 import type {
   AtomicAction,

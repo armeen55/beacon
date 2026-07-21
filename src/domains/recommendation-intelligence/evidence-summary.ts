@@ -35,11 +35,12 @@ import type { ClarityPageSignal } from "./clarity-page-signals";
 // R9 (2026-07-03): read the sourced positions-1-5 benchmark from the ONE
 // canonical curve module (same object gsc-low-ctr re-exports; byte-identical).
 import { SEMRUSH_TOP5_CTR as EXPECTED_CTR_BY_POSITION } from "@/domains/forecast/tenant-ctr-curve";
-import {
-  MIN_CLARITY_SESSIONS,
-  RAGE_RATE,
-  SCRIPT_ERROR_RATE,
-} from "./triggers/clarity-friction";
+// Clarity friction thresholds, relocated verbatim from the retired
+// triggers/clarity-friction.ts (2026-07-21) - evidence-summary is now the
+// only consumer. Copy and predicate must keep agreeing on these values.
+const MIN_CLARITY_SESSIONS = 50;
+const SCRIPT_ERROR_RATE = 0.05;
+const RAGE_RATE = 0.07;
 
 /** One scannable evidence bullet. `value` is the bold number/phrase, `label`
  *  the plain-English caption. `detail` is an optional full-sentence "why now"

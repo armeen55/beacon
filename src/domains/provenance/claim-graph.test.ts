@@ -545,8 +545,6 @@ describe("no em or en dashes anywhere in the provenance module (hard rule)", () 
   for (const name of [
     "claim-graph.ts",
     "claim-graph-loader.ts",
-    "claim-conflict-trigger.ts",
-    "stale-fact-trigger.ts",
     "fact-propagation.ts",
   ]) {
     it(`${name} contains no em or en dashes`, () => {

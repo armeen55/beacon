@@ -1,15 +1,13 @@
 /**
  * CONSTITUTION §1 — Tenant isolation: connector scoping.
  *
- * Consolidated from connector-token-tenant-scope, connector-store-no-disk-write,
- * and load-gsc-signal-tenant-scope. Pins that:
+ * Consolidated from connector-token-tenant-scope and
+ * connector-store-no-disk-write. Pins that:
  *   1. Every connector-store read/write/delete is tenant-scoped (explicit
  *      `tenantId?: string` OR ambient `currentTenantId()`), and every
  *      connector_tokens Supabase chain filters by tenant_id.
  *   2. connector-store never writes tokens to disk (Vercel ENOENT class) —
  *      persistence routes through the Supabase admin client only.
- *   3. The GSC-signal adapter takes an EXPLICIT tenantId, filters its cache
- *      by tenant_id, and never imports a customer-facing surface.
  */
 
 import { describe, expect, it } from "vitest";
@@ -28,7 +26,6 @@ const read = (rel: string) =>
   stripComments(readFileSync(join(REPO_ROOT, rel), "utf-8"));
 
 const STORE_CODE = read("src/lib/connector-store.ts");
-const GSC_CODE = read("src/domains/indexability/load-gsc-signal.ts");
 
 describe("connector-store — tenant scope on signatures", () => {
   for (const fn of [
@@ -106,43 +103,3 @@ describe("connector-store — no disk writes (Supabase-only persistence)", () =>
   });
 });
 
-describe("load-gsc-signal — explicit tenant scope + operator-substrate posture", () => {
-  it("loadGscSignal accepts an explicit tenantId; no ambient tenant reads", () => {
-    expect(/export\s+async\s+function\s+loadGscSignal\s*\(/.test(GSC_CODE)).toBe(
-      true,
-    );
-    expect(/tenantId\s*:\s*string/.test(GSC_CODE)).toBe(true);
-    expect(/\bcurrentTenantSlug\s*\(/.test(GSC_CODE)).toBe(false);
-    expect(/\bcurrentTenantId\s*\(/.test(GSC_CODE)).toBe(false);
-  });
-
-  it("is server-only, cache-filtered by tenant_id, and site-URL comes from env", () => {
-    expect(/import\s+["']server-only["']/.test(GSC_CODE)).toBe(true);
-    expect(/gsc_url_inspections/.test(GSC_CODE)).toBe(true);
-    expect(/\.eq\(\s*["']tenant_id["']\s*,/.test(GSC_CODE)).toBe(true);
-    expect(/BEACON_GSC_SITE_URL/.test(GSC_CODE)).toBe(true);
-    expect(
-      /export\s+const\s+GSC_INSPECT_PER_RENDER_LIMIT\s*=\s*5\b/.test(GSC_CODE),
-    ).toBe(true);
-  });
-
-  it("does NOT import any customer-facing surface module", () => {
-    const forbidden = [
-      /from\s+["']@\/app\//,
-      /from\s+["']@\/components\//,
-      /from\s+["']@\/domains\/today["']/,
-      /from\s+["']@\/domains\/today\//,
-      /from\s+["']@\/domains\/recommendations["']/,
-      /from\s+["']@\/domains\/recommendations\//,
-      /from\s+["']@\/domains\/changes["']/,
-      /from\s+["']@\/domains\/changes\//,
-      /from\s+["']@\/domains\/prompts["']/,
-      /from\s+["']@\/domains\/prompts\//,
-      /from\s+["']@\/domains\/local["']/,
-      /from\s+["']@\/domains\/local\//,
-    ];
-    for (const pat of forbidden) {
-      expect(pat.test(GSC_CODE), `forbidden import: ${pat.source}`).toBe(false);
-    }
-  });
-});

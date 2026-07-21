@@ -40,7 +40,7 @@
 | tenant-isolation-citation-lifecycle | `tests/architecture/02-tenant-isolation-citation-lifecycle.test.ts` | 1 | Citation-lifecycle pure modules never import persistence; every getRepository importer pairs `.forTenant`; loaders and cold-store reads are allowlisted and regime-gated. | active | 2026-07-20 |
 | tenant-isolation-business-config | `tests/architecture/03-tenant-isolation-business-config.test.ts` | 1 | The founder global business-config file never serves a non-founder tenant; customers resolve to a neutral placeholder, and only the founder id re-homes the global file. | active | 2026-07-20 |
 | tenant-isolation-factory-functions | `tests/architecture/04-tenant-isolation-factory-functions.test.ts` | 1 | Every D2 factory declares a required `tenantId`, fails loud on missing, and never emits a `tenant_id: ""` literal. | active | 2026-07-20 |
-| tenant-isolation-connector-scoping | `tests/architecture/05-tenant-isolation-connector-scoping.test.ts` | 1 | connector-store reads/writes are tenant-filtered and disk-free (Supabase only); the GSC-signal adapter takes an explicit tenantId and imports no customer surface. | active | 2026-07-20 |
+| tenant-isolation-connector-scoping | `tests/architecture/05-tenant-isolation-connector-scoping.test.ts` | 1 | connector-store reads/writes are tenant-filtered and disk-free (Supabase only). (GSC-signal adapter half retired 2026-07-21 with the trigger pipeline.) | active | 2026-07-21 |
 | tenant-isolation-scoped-reads | `tests/architecture/06-tenant-isolation-scoped-reads.test.ts` | 1 | No shell or script file performs an unscoped `getRepository().getX()` tenant read outside the allowlist. | active | 2026-07-20 |
 | tenant-isolation-cache-keys | `tests/architecture/07-tenant-isolation-cache-keys.test.ts` | 1 | No tenant-blind module-global store cache or process-global tenant pointer; every cache is keyed per tenant and the allowlist has no stale entries. | active | 2026-07-20 |
 | tenant-isolation-sync-writers | `tests/architecture/08-tenant-isolation-sync-writers.test.ts` | 1 | Every `sync*` writer either requires a tenantId, stamps `tenant_id` on the row, or targets a table in GLOBAL_TABLES. | active | 2026-07-20 |
@@ -78,9 +78,7 @@
 
 | name | source test file | clause | purpose (one sentence) | status | last-verified |
 |---|---|---|---|---|---|
-| destructive-promotion-eligibility | `tests/architecture/17-destructive-promotion-eligibility.test.ts` | 6 | The locked (trigger_signal, action_type) eligibility table is the single source of truth for what may reach the customer queue, including the robots_blocks_ai_bots maps-to-fix_robots correction. | active | 2026-07-20 |
-| destructive-page-type-gates | `tests/architecture/17b-destructive-page-type-gates.test.ts` | 6 | Content-edit families suppress on utility/technical/other page types; indexability fixes bypass the skip; first-party GSC demand overrides only the ambiguous `other` verdict. | active | 2026-07-20 |
-| destructive-indexability-hold | `tests/architecture/18-destructive-indexability-hold.test.ts` | 6 | The indexability loader is tenant-safe, fails loud on tenant-context mismatch, validates the site domain before consuming robots data, returns null flags on every defense branch, and never fetches on the read path. | active | 2026-07-20 |
+| destructive-indexability-hold | `tests/architecture/18-destructive-indexability-hold.test.ts` | 6 | Every live one-tap accept surface references the isIndexingDirectiveActionType guard, so a crawl/index directive is never one tap from applying with a wrong value. (Loader half retired 2026-07-21 with the trigger pipeline.) | active | 2026-07-21 |
 
 ## Clause 7 — Connector and database honesty
 

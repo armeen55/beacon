@@ -297,9 +297,10 @@ describe("D — no rendered 'Ritz' in recommendation copy", () => {
     const t = line.trim();
     return t.startsWith("//") || t.startsWith("*") || t.startsWith("/*");
   };
+  // (2026-07-21) recommendation-evidence-preview.ts was deleted with the
+  // trigger->promotion pipeline (zero importers); action-rows remains.
   for (const rel of [
     "src/domains/recommendations/recommendation-action-rows.ts",
-    "src/domains/recommendations/recommendation-evidence-preview.ts",
   ]) {
     it(`${rel}: every 'Ritz' is in a comment, never a rendered string`, () => {
       const offenders = readFileSync(join(REPO_ROOT, rel), "utf-8")

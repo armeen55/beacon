@@ -1,6 +1,7 @@
 /**
  * #10 learning loop (2026-06-22) — proof-ledger verdicts → per-action_type
- * priority prior, and the bounded priority-score term that consumes it.
+ * priority prior. (The bounded priority-score bonus term died with the
+ * trigger->promotion pipeline, 2026-07-21; /results remains the consumer.)
  */
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 
@@ -9,10 +10,6 @@ import {
   computeOutcomePriorDiagnostics,
   MIN_OUTCOME_SAMPLES,
 } from "@/domains/recommendation-intelligence/outcome-prior";
-import {
-  outcomePriorBonus,
-  MAX_OUTCOME_PRIOR_BONUS,
-} from "@/domains/recommendation-intelligence/priority-score";
 import {
   TEST_CALIBRATED_VERSION,
   registerTestCalibratedVersion,
@@ -65,21 +62,6 @@ describe("computeOutcomePriors — win rate → [-1,+1]", () => {
       rec("section_add", "inconclusive"),
     ]);
     expect(m.get("section_add")).toBe(1); // 3 won / 0 lost
-  });
-});
-
-describe("outcomePriorBonus — bounded, symmetric, priority-only", () => {
-  it("scales [-1,+1] to ±MAX and is neutral on absent/NaN", () => {
-    expect(outcomePriorBonus(1)).toBe(MAX_OUTCOME_PRIOR_BONUS);
-    expect(outcomePriorBonus(-1)).toBe(-MAX_OUTCOME_PRIOR_BONUS);
-    expect(outcomePriorBonus(0)).toBe(0);
-    expect(outcomePriorBonus(undefined)).toBe(0);
-    expect(outcomePriorBonus(Number.NaN)).toBe(0);
-  });
-
-  it("clamps out-of-range priors", () => {
-    expect(outcomePriorBonus(5)).toBe(MAX_OUTCOME_PRIOR_BONUS);
-    expect(outcomePriorBonus(-5)).toBe(-MAX_OUTCOME_PRIOR_BONUS);
   });
 });
 

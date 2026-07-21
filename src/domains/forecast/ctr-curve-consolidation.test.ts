@@ -20,7 +20,6 @@ import {
   forecastRange,
 } from "@/domains/experiments/pick-expectations";
 import { scoreCandidate, type DailyCandidate } from "@/domains/experiments/daily-experiment-planner";
-import { EXPECTED_CTR_BY_POSITION as TRIGGER_BENCHMARK } from "@/domains/recommendation-intelligence/triggers/gsc-low-ctr";
 import {
   EXPECTED_CTR_BY_POSITION as SURGEON_TABLE,
   expectedCtrForPosition,
@@ -86,11 +85,9 @@ describe("daily-experiment-planner (nightly scoring) reads the canonical module"
   });
 });
 
-describe("gsc-low-ctr trigger + evidence-summary read the canonical benchmark", () => {
-  it("the trigger's table IS the canonical Semrush benchmark (same object)", () => {
-    expect(TRIGGER_BENCHMARK).toBe(SEMRUSH_TOP5_CTR);
-  });
-
+// (2026-07-21) The gsc-low-ctr trigger died with the trigger->promotion
+// pipeline; evidence-summary remains the consumer under pin here.
+describe("evidence-summary reads the canonical benchmark", () => {
   it("evidence-summary flags a low-CTR headline query against the canonical benchmark", () => {
     const signal = {
       page: "https://s.com/p",

@@ -6,7 +6,6 @@ import { log } from "@/lib/logger";
 import { getRepository } from "@/lib/persistence/repositories";
 import type { PageSnapshotLinkGraph } from "@/lib/persistence/repositories/types";
 import { canonicalizeCitationUrl } from "@/domains/citation-lifecycle/canonicalize-url";
-import { isNonHtmlAsset } from "@/domains/recommendation-intelligence/page-classifier";
 import {
   getBusinessConfig,
   hydrateBusinessConfigFromSupabase,
@@ -38,6 +37,55 @@ import {
  * a throw - a caller consuming the snapshot must never be able to crash the
  * pipeline it feeds.
  */
+
+/** File extensions that classify a URL as a non-HTML asset. Universal - no
+ *  tenant config needed. Relocated from the retired
+ *  recommendation-intelligence/page-classifier (2026-07-21) - this loader is
+ *  its only live consumer. */
+const NON_HTML_EXTENSIONS: ReadonlySet<string> = new Set([
+  "txt",
+  "xml",
+  "json",
+  "pdf",
+  "css",
+  "js",
+  "map",
+  "webmanifest",
+  "png",
+  "jpg",
+  "jpeg",
+  "gif",
+  "svg",
+  "ico",
+  "webp",
+  "avif",
+  "mp4",
+  "mov",
+  "mp3",
+  "wav",
+  "webm",
+  "ogg",
+]);
+
+function urlPath(url: string): string {
+  const noProtocol = url.replace(/^https?:\/\/[^/]+/, "");
+  const beforeQuery = noProtocol.split(/[?#]/)[0] ?? "";
+  return beforeQuery.toLowerCase();
+}
+
+function urlExtension(path: string): string | null {
+  // Use last path segment only - don't pick up dots in earlier segments
+  // (e.g., `/v1.2/about` should not look like a `.2/about` extension).
+  const lastSegment = path.split("/").pop() ?? "";
+  const idx = lastSegment.lastIndexOf(".");
+  if (idx <= 0) return null;
+  return lastSegment.slice(idx + 1).toLowerCase();
+}
+
+export function isNonHtmlAsset(url: string): boolean {
+  const ext = urlExtension(urlPath(url));
+  return ext != null && NON_HTML_EXTENSIONS.has(ext);
+}
 
 const EMPTY_RESULT: InternalPageRankResult = {
   pages: [],
