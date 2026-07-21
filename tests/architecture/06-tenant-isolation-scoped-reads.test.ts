@@ -57,8 +57,13 @@ function stripComments(src: string): string {
     .join("\n");
 }
 
+// (2026-07-21, CORE 100K Lane O: the deleted repository columns —
+// asset-responses, frontier, outcome-observations, rollout-waves,
+// visibility runs, page-issues, event-decisions, candidate-links — were
+// pruned from this ratchet regex; the methods no longer exist, so any
+// reintroduced call is a compile error before it is a ratchet hit.)
 const TENANT_GETTERS =
-  /getRepository\(\)\.(getAssetResponses|getChangeContracts|getFrontierOpportunities|getOutcomeObservations|getRecommendationResponses|getRolloutWaves|getVisibilityObservationRunsExplicit|getTrackedPrompts|getTrackedEntities|getRecommendedEdits|getChangelogEntries|getImportRuns|getDailyMetricSnapshots|getObservationRuns|getUrlChangeOutcomes|getScanFindings|getPageSnapshots|getPageIssues|getEventDecisions|getCandidateLinks|getOpportunities|getCompetitors|getResults)\(/g;
+  /getRepository\(\)\.(getChangeContracts|getRecommendationResponses|getTrackedPrompts|getTrackedEntities|getRecommendedEdits|getChangelogEntries|getImportRuns|getDailyMetricSnapshots|getObservationRuns|getUrlChangeOutcomes|getScanFindings|getPageSnapshots|getOpportunities|getCompetitors|getResults)\(/g;
 
 function walk(dir: string, out: string[] = []): string[] {
   for (const name of readdirSync(dir)) {

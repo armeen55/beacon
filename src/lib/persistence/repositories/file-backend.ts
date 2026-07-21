@@ -7,38 +7,16 @@ import type { ChangelogEntry } from "@/domains/changelog/types";
 import type { Opportunity } from "@/domains/opportunities/types";
 import type { Competitor } from "@/domains/competitors/types";
 import type { ImportRun } from "@/lib/import/types";
-import type { EventDecision, CandidateLink } from "@/domains/attribution/types";
-import type {
-  PersistedIssue,
-  RolloutExecution,
-  PatternEvidenceRecord,
-} from "@/domains/pages/types";
-import type {
-  RolloutWave,
-  FrontierOpportunity,
-  FrontierAttackPackage,
-  TrackedMissingPage,
-  AssetResponse,
-  OutcomeObservation,
-} from "@/domains/pages/types";
 import type {
   CompetitorPageEvidence,
   SourcePatternEvidence,
 } from "@/domains/pages/competitor-evidence";
 import type { CompetitorPageSnapshot } from "@/domains/pages/competitor-page-snapshots";
-import type { TruthLabel } from "@/domains/attribution/types";
 import type { ChangeContract } from "@/domains/changelog/change-contract";
 import type {
   PageEntity,
-  PageSummary,
   PageSnapshot,
-  PageSnapshotDiff,
-  CitationEvidenceIndex,
-  SitemapReconciliation,
 } from "@/domains/pages/types";
-import type { AnswerIntelligenceIndex } from "@/domains/answer-intelligence/types";
-import type { RenderCheckResult } from "@/domains/pages/render-check";
-import type { VisibilityObservationRun } from "@/domains/observations/visibility-types";
 import type { GuardrailAlert } from "@/domains/pages/guardrails";
 import type { ObservationRun } from "@/domains/observations/types";
 import { readObservationRunsMergedSync } from "@/domains/observations/observation-runs-merge";
@@ -69,33 +47,13 @@ export const fileBackend: SeedDataRepository = {
   getCompetitors: async () => readStore<Competitor>("imported-competitors"),
 
   // Phase 1D
-  getEventDecisions: async () =>
-    readStore<EventDecision>("event-decisions"),
-  getCandidateLinks: async () =>
-    readStore<CandidateLink>("candidate-links"),
-  getPageIssues: async () =>
-    readStore<PersistedIssue>("page-issues"),
+  // (getEventDecisions / getCandidateLinks / getPageIssues removed
+  // 2026-07-21, CORE 100K Lane O: zero callers.)
   getChangeContracts: async () =>
     readStore<ChangeContract>("change-contracts"),
 
   // Phase 1E
   getPages: async () => readStore<PageEntity>("pages"),
-  // Perf+egress bundle 2 (2026-05-12) — narrow projection of `pages`.
-  // The file backend stores full PageEntity rows on disk; the
-  // projection happens in-memory at the boundary so callers see the
-  // same PageSummary shape both backends expose.
-  getPageSummaries: async () => {
-    const pages = await readStore<PageEntity>("pages");
-    return pages.map((p): PageSummary => ({
-      id: p.id,
-      url: p.url,
-      canonical_url: p.canonical_url ?? "",
-      is_owned: p.is_owned,
-      page_type: p.page_type,
-      primary_topic: p.topics.length > 0 ? p.topics[0] : null,
-      tenant_id: p.tenant_id,
-    }));
-  },
 
   getPageSnapshots: async () =>
     (await readDotDataJson<PageSnapshot[]>("page-snapshots")) ?? [],
@@ -116,12 +74,6 @@ export const fileBackend: SeedDataRepository = {
   getGuardrailAlerts: async () =>
     (await readDotDataJson<GuardrailAlert[]>("page-guardrails")) ?? [],
 
-  getCitationEvidenceIndex: async () =>
-    await readDotDataJson<CitationEvidenceIndex>("citation-evidence-index"),
-
-  getAnswerIntelligenceIndex: async () =>
-    await readDotDataJson<AnswerIntelligenceIndex>("answer-intelligence-index"),
-
   getObservationRuns: async () => await readObservationRunsMergedSync(),
 
   getCompetitorConfigEntries: async () => {
@@ -131,42 +83,16 @@ export const fileBackend: SeedDataRepository = {
     return raw?.competitors?.filter(Boolean) ?? [];
   },
 
-  getPageSnapshotDiffs: async () =>
-    (await readDotDataJson<PageSnapshotDiff[]>("page-snapshot-diffs")) ?? [],
-
-  getRenderChecks: async () =>
-    (await readDotDataJson<RenderCheckResult[]>("render-checks")) ?? [],
-
-  getSitemapReconciliation: async () =>
-    await readDotDataJson<SitemapReconciliation>("sitemap-reconciliation"),
-
-  getVisibilityObservationRunsExplicit: async () =>
-    (await readDotDataJson<VisibilityObservationRun[]>(
-      "visibility-observation-runs",
-    )) ?? [],
-
-  getRolloutExecutions: async () =>
-    readStore<RolloutExecution>("rollout-executions"),
-  getPatternEvidence: async () =>
-    readStore<PatternEvidenceRecord>("pattern-evidence"),
-  getRolloutWaves: async () => readStore<RolloutWave>("rollout-waves"),
-  getFrontierOpportunities: async () =>
-    readStore<FrontierOpportunity>("frontier-opportunities"),
-  getFrontierAttackPackages: async () =>
-    readStore<FrontierAttackPackage>("frontier-attack-packages"),
-  getTrackedMissingPages: async () =>
-    readStore<TrackedMissingPage>("tracked-missing-pages"),
-  getAssetResponses: async () =>
-    readStore<AssetResponse>("asset-responses"),
-  getOutcomeObservations: async () =>
-    readStore<OutcomeObservation>("outcome-observations"),
+  // (Dead columns removed 2026-07-21, CORE 100K Lane O: page-snapshot-diffs,
+  // render-checks, legacy-global sitemap-reconciliation, visibility runs,
+  // rollout/pattern/frontier/wave/asset/outcome/truth-label reads,
+  // page summaries, citation/answer-intel index reads — zero callers.)
   getCompetitorPageSnapshots: async () =>
     readStore<CompetitorPageSnapshot>("competitor-page-snapshots"),
   getCompetitorPageEvidence: async () =>
     readStore<CompetitorPageEvidence>("competitor-page-evidence"),
   getSourcePatternEvidence: async () =>
     readStore<SourcePatternEvidence>("source-pattern-evidence"),
-  getTruthLabels: async () => readStore<TruthLabel>("truth-labels"),
 
   // Phase 7 — scan findings via repository
   getScanFindings: async () => getFindings(),

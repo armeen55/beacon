@@ -34,7 +34,6 @@ const flagMocks = vi.hoisted(() => ({
 vi.mock("@/lib/flags", () => ({
   isLifecycleVerdictEnabled: flagMocks.isLifecycleVerdictEnabled,
   // Other flags consumed transitively.
-  isEventTruthPreviewEnabled: () => false,
   isFindingAutoLinkEnabled: () => false,
   isLifecycleEnabled: () => false,
 }));

@@ -93,57 +93,14 @@ describe("Phase 1 Stage B/C migration — Invariant 3: tenant_id index", () => {
 });
 
 // ─── Invariant 4 — Category B dual-write writers stamp tenant_id ─────────
-
-describe("Phase 1 Stage B — Invariant 4: dual-write stamps tenant_id on Cat-B", () => {
-  const dualWrite = readSrc("src/lib/persistence/dual-write.ts");
-
-  it("syncOpportunities requires tenantId and uses tenantizeRows", () => {
-    expect(dualWrite).toMatch(
-      /export async function syncOpportunities\([^)]*tenantId: string[^)]*\):/,
-    );
-    expect(dualWrite).toMatch(
-      /tenantizeRows\(rows, tenantId, "opportunities"\)/,
-    );
-  });
-
-  it("syncCompetitors requires tenantId and uses tenantizeRows", () => {
-    expect(dualWrite).toMatch(
-      /export async function syncCompetitors\([^)]*tenantId: string[^)]*\):/,
-    );
-    expect(dualWrite).toMatch(
-      /tenantizeRows\(rows, tenantId, "competitors"\)/,
-    );
-  });
-
-  it("syncEventDecisions requires tenantId and uses tenantizeRows on attribution_decisions", () => {
-    expect(dualWrite).toMatch(
-      /export async function syncEventDecisions\([^)]*tenantId: string[^)]*\):/,
-    );
-    expect(dualWrite).toMatch(
-      /tenantizeRows\(rows, tenantId, "attribution_decisions"\)/,
-    );
-  });
-
-  it("syncCandidateLinks requires tenantId and uses tenantizeRows", () => {
-    expect(dualWrite).toMatch(
-      /export async function syncCandidateLinks\([^)]*tenantId: string[^)]*\):/,
-    );
-    expect(dualWrite).toMatch(
-      /tenantizeRows\(rows, tenantId, "candidate_links"\)/,
-    );
-  });
-
-  it("syncPageIssues requires tenantId and the row mapper stamps tenant_id", () => {
-    expect(dualWrite).toMatch(
-      /export async function syncPageIssues\([^)]*tenantId: string[^)]*\):/,
-    );
-    // The mapper stamps tenant_id in the row literal.
-    expect(dualWrite).toMatch(/mapPersistedIssueToRow\([^)]*tenantId[^)]*\)/);
-  });
-
-  // syncPageVisibility pin removed 2026-07-21 (CORE 100K Lane K): the writer
-  // and its only caller (page-visibility.ts) were deleted.
-});
+//
+// Invariant-4 writer pins removed 2026-07-21 (CORE 100K Lane O): the Cat-B
+// writers syncOpportunities / syncCompetitors / syncEventDecisions /
+// syncCandidateLinks / syncPageIssues were deleted outright (zero prod
+// callers after the import-cluster retirement), so there is no writer left
+// to pin. The migration-side invariants (1-3, 6-8) still verify the schema
+// contract; syncPageVisibility's pin was removed earlier (Lane K) for the
+// same reason.
 
 // ─── Invariant 5 — Category C still works; tenant_id is canonical ────────
 
@@ -171,14 +128,9 @@ describe("Phase 1 Stage C — Invariant 5: tracked_prompts/entities/change_contr
     );
   });
 
-  it("syncChangeContracts requires tenantId and stamps both tenant_id and account_id", () => {
-    expect(dualWrite).toMatch(
-      /export async function syncChangeContracts\([^)]*tenantId: string[^)]*\):/,
-    );
-    // Map function preserves account_id and stamps tenant_id.
-    expect(dualWrite).toMatch(/account_id: c\.accountId,/);
-    expect(dualWrite).toMatch(/tenant_id: tenantId,/);
-  });
+  // syncChangeContracts pin removed 2026-07-21 (CORE 100K Lane O): the writer
+  // was deleted (zero prod callers); the tenant-scoped getChangeContracts
+  // READ path stays live and is covered by the repository pushdown tests.
 
   it("getTrackedPrompts repository read filters by tenant_id (canonical)", () => {
     expect(supabaseBackend).toMatch(
@@ -252,9 +204,9 @@ describe("Phase 1 Stage B/C migration — Invariant 7: account_id retained on Ca
   });
 
   it("Category C tables still carry account_id semantics in the codebase", () => {
-    // ChangeContract retains account_id in mapping.
-    const dualWrite = readSrc("src/lib/persistence/dual-write.ts");
-    expect(dualWrite).toMatch(/account_id: c\.accountId/);
+    // (ChangeContract's account_id mapping assert removed 2026-07-21, Lane O:
+    // the syncChangeContracts writer + its row mapper were deleted. The
+    // ChangeContract TYPE still carries accountId.)
 
     // tracked_prompts type still has account_id.
     const trackedPromptType = readSrc("src/domains/tracked-prompts/types.ts");

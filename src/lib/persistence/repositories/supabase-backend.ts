@@ -4,158 +4,30 @@
  * still hit disk (`readDotDataJson` / `readStore`) until migrated — same behavior as
  * pre-cutover direct-file access, centralized here.
  */
-import { readDotDataJson } from "../dotdata-json";
 import { readStore } from "../json-store";
 import { getSupabaseAdmin } from "../supabase";
 import type { SeedDataRepository } from "./types";
-import type { ProfoundImportRun } from "@/domains/observation-runs/types";
 
-// ─────────────────────────────────────────────────────────────────────
-// Section 5 durable denominator (2026-05-16) — observation_runs mapper.
-//
-// Production native-poll cron writes one `ObservationRun` row per
-// successful poll to the Supabase `observation_runs` table via
-// `syncObservationRuns()` (see `dual-write.ts:638-701`). Every row
-// carries `run_type === "citation_sample_import"` (the discriminator
-// vs website-crawl rows) and `source ∈ {"perplexity-native-poll",
-// "openai-native-poll"}`. These records have been collecting since
-// 2026-04-22 and are the authoritative denominator source for
-// Section 5's repeat-citation classifier.
-//
-// `getProfoundImportRuns()` on the Supabase backend reads these
-// rows and maps them through `mapObservationRunRowToProfoundImportRun`
-// into the `ProfoundImportRun` shape Section 5 compute expects.
-// NO new table, NO migration, NO new write path. The file-backend
-// keeps its existing per-tenant disk read helper
-// (`readProfoundImportRunsForTenant` in `./tenant-repo`) for local
-// dev fixtures.
-// ─────────────────────────────────────────────────────────────────────
+// (Section 5 observation_runs → ProfoundImportRun mapper removed
+// 2026-07-21, CORE 100K Lane O: the getProfoundImportRuns read path lost
+// its last caller when the repeat-citation loader was deleted.)
 
-type ObservationRunRow = {
-  run_id: unknown;
-  run_type: unknown;
-  source: unknown;
-  status: unknown;
-  started_at: unknown;
-  completed_at: unknown;
-  tenant_id: unknown;
-};
-
-/**
- * Pure mapper — `observation_runs` row → `ProfoundImportRun`.
- *
- * Defensive: returns `null` for any row missing the four required
- * string fields (`run_id`, `tenant_id`, `source`, `completed_at`).
- * Callers filter the nulls.
- *
- * Source → platform mapping:
- *   • `"perplexity-native-poll"` → `"perplexity"`
- *   • `"openai-native-poll"` → `"chatgpt"`
- *   • anything else: pass `source` through as `platform` (forward-
- *     compat — a future native platform's poll script with a new
- *     source literal joins the denominator pool automatically).
- *
- * Status mapping (Section 5 compute filters by `status ===
- * "completed"` downstream; non-completed values are preserved as
- * `"failed"` for type-shape stability):
- *   • `"completed"` → `"completed"`
- *   • `"failed"` → `"failed"`
- *   • `"partial"` → `"failed"`
- *   • anything else → `"failed"`
- *
- * `source_type` is constant `"beacon_native"` because every
- * `citation_sample_import` row by construction comes from the
- * native poll cron.
- */
-export function mapObservationRunRowToProfoundImportRun(
-  row: ObservationRunRow,
-): ProfoundImportRun | null {
-  const runId = row.run_id;
-  const tenantId = row.tenant_id;
-  const source = row.source;
-  const completedAt = row.completed_at;
-  if (
-    typeof runId !== "string" ||
-    typeof tenantId !== "string" ||
-    typeof source !== "string" ||
-    typeof completedAt !== "string"
-  ) {
-    return null;
-  }
-
-  const platform =
-    source === "perplexity-native-poll"
-      ? "perplexity"
-      : source === "openai-native-poll"
-        ? "chatgpt"
-        : source;
-
-  const rawStatus = row.status;
-  const status: ProfoundImportRun["status"] =
-    rawStatus === "completed"
-      ? "completed"
-      : rawStatus === "failed"
-        ? "failed"
-        : rawStatus === "partial"
-          ? "failed"
-          : "failed";
-
-  const startedAt =
-    typeof row.started_at === "string" ? row.started_at : completedAt;
-
-  return {
-    id: runId,
-    account_id: tenantId,
-    import_run_id: null,
-    run_date: completedAt.slice(0, 10),
-    platform,
-    model: null,
-    geo: null,
-    locale: null,
-    source_type: "beacon_native",
-    status,
-    prompt_count: 0,
-    metadata: { source },
-    created_at: startedAt,
-  };
-}
 import type { Result } from "@/domains/results/types";
 import type { ChangelogEntry } from "@/domains/changelog/types";
 import type { Opportunity } from "@/domains/opportunities/types";
 import type { Competitor } from "@/domains/competitors/types";
 import type { ImportRun } from "@/lib/import/types";
-import type { EventDecision, CandidateLink } from "@/domains/attribution/types";
-import type {
-  PersistedIssue,
-  RolloutExecution,
-  PatternEvidenceRecord,
-} from "@/domains/pages/types";
-import type {
-  RolloutWave,
-  FrontierOpportunity,
-  FrontierAttackPackage,
-  TrackedMissingPage,
-  AssetResponse,
-  OutcomeObservation,
-} from "@/domains/pages/types";
 import type {
   CompetitorPageEvidence,
   SourcePatternEvidence,
 } from "@/domains/pages/competitor-evidence";
 import type { CompetitorPageSnapshot } from "@/domains/pages/competitor-page-snapshots";
-import type { TruthLabel } from "@/domains/attribution/types";
 import type { ChangeContract } from "@/domains/changelog/change-contract";
 import type {
   PageEntity,
-  PageSummary,
   PageSnapshot,
-  PageSnapshotDiff,
-  CitationEvidenceIndex,
   SitemapReconciliation,
 } from "@/domains/pages/types";
-import type { AnswerIntelligenceIndex } from "@/domains/answer-intelligence/types";
-import type { RenderCheckResult } from "@/domains/pages/render-check";
-import type { VisibilityObservationRun } from "@/domains/observations/visibility-types";
 import type { GuardrailAlert } from "@/domains/pages/guardrails";
 import type { ObservationRun } from "@/domains/observations/types";
 import type { ConfiguredCompetitorEntry } from "@/domains/competitors/universe-types";
@@ -272,101 +144,9 @@ async function queryAllPaged<T>(table: string): Promise<T[]> {
   return out;
 }
 
-/**
- * Perf+egress bundle 2 (2026-05-12) — projected reader for `pages`.
- *
- * Selects exactly the 6 customer-facing fields + `tenant_id` (used
- * by the file backend's `filterByTenantId` shim). Maps the schema's
- * `topics: string[]` array down to a single `primary_topic` at the
- * boundary so the PageSummary type stays narrow.
- *
- * Two callers: the unscoped base backend (`getPageSummaries` on
- * `supabaseBackend`) and the tenant-scoped variant which adds an
- * `eq("tenant_id", tenantId)` filter at the DB.
- */
-const PAGE_SUMMARY_COLUMNS =
-  "id, url, canonical_url, is_owned, page_type, topics, tenant_id";
-
-type PageSummaryRow = {
-  id: string;
-  url: string;
-  canonical_url: string | null;
-  is_owned: boolean;
-  page_type: string;
-  topics: string[] | null;
-  tenant_id: string;
-};
-
-function rowToPageSummary(row: PageSummaryRow): PageSummary {
-  const topics = Array.isArray(row.topics) ? row.topics : [];
-  return {
-    id: row.id,
-    url: row.url,
-    canonical_url: row.canonical_url ?? "",
-    is_owned: row.is_owned,
-    page_type: row.page_type as PageSummary["page_type"],
-    primary_topic: topics.length > 0 ? topics[0] : null,
-    tenant_id: row.tenant_id,
-  };
-}
-
-async function queryPageSummariesUnscoped(): Promise<PageSummary[]> {
-  const sb = getSupabaseAdmin();
-  const PAGE = 1000;
-  const out: PageSummary[] = [];
-  let from = 0;
-  const t0 = Date.now();
-  for (;;) {
-    const { data, error } = await sb
-      .from("pages")
-      .select(PAGE_SUMMARY_COLUMNS)
-      .range(from, from + PAGE - 1);
-    if (error)
-      throw new Error(`Supabase query failed on pages: ${error.message}`);
-    const rows = (data ?? []) as unknown as PageSummaryRow[];
-    out.push(...rows.map(rowToPageSummary));
-    if (rows.length < PAGE) break;
-    from += PAGE;
-  }
-  logEgress({
-    table: "pages[summaries-paged]",
-    rows: out.length,
-    data: out,
-    durationMs: Date.now() - t0,
-  });
-  return out;
-}
-
-async function queryPageSummariesScoped(
-  tenantId: string,
-): Promise<PageSummary[]> {
-  const sb = getSupabaseAdmin();
-  const PAGE = 1000;
-  const out: PageSummary[] = [];
-  let from = 0;
-  const t0 = Date.now();
-  for (;;) {
-    const { data, error } = await sb
-      .from("pages")
-      .select(PAGE_SUMMARY_COLUMNS)
-      .eq("tenant_id", tenantId)
-      .range(from, from + PAGE - 1);
-    if (error)
-      throw new Error(`Supabase query failed on pages: ${error.message}`);
-    const rows = (data ?? []) as unknown as PageSummaryRow[];
-    out.push(...rows.map(rowToPageSummary));
-    if (rows.length < PAGE) break;
-    from += PAGE;
-  }
-  logEgress({
-    table: "pages[summaries-scoped-paged]",
-    rows: out.length,
-    data: out,
-    durationMs: Date.now() - t0,
-    tenantId,
-  });
-  return out;
-}
+// (PAGE_SUMMARY_COLUMNS / queryPageSummariesUnscoped /
+// queryPageSummariesScoped removed 2026-07-21, CORE 100K Lane O:
+// getPageSummaries had zero callers on either interface.)
 
 async function queryMapped<T>(table: string): Promise<T[]> {
   const { data, error } = await getSupabaseAdmin()
@@ -496,9 +276,8 @@ export const supabaseBackend: SeedDataRepository = {
   getCompetitors: () => query<Competitor>("competitors"),
 
   // Phase 1D
-  getEventDecisions: () => query<EventDecision>("attribution_decisions"),
-  getCandidateLinks: () => query<CandidateLink>("candidate_links"),
-  getPageIssues: () => queryMapped<PersistedIssue>("page_issues"),
+  // (getEventDecisions / getCandidateLinks / getPageIssues removed
+  // 2026-07-21, CORE 100K Lane O: zero callers.)
   getChangeContracts: () => queryMapped<ChangeContract>("change_contracts"),
 
   // Phase 1E
@@ -506,14 +285,6 @@ export const supabaseBackend: SeedDataRepository = {
   // pagination, buildPageInventory saw only ~3 owned rows on hosted and the
   // resolver fell through to create_new_page for every blocker cluster.
   getPages: () => queryAllPaged<PageEntity>("pages"),
-  // Perf+egress bundle 2 (2026-05-12) — narrow projection of `pages`.
-  // Selects 6 columns (+ tenant_id for the file backend's in-memory
-  // tenant filter) instead of the full ~20-field row. Maps the
-  // schema's `topics: string[]` array down to a single
-  // `primary_topic = topics[0] ?? null` at the boundary so the
-  // PageSummary type stays narrow. Used by customer routes that
-  // only need URL → id lookup / ownership classification.
-  getPageSummaries: () => queryPageSummariesUnscoped(),
 
   // Link-graph feed (2026-06-12 night shift): internal_links is
   // DELIBERATELY absent from the lean snapshot projection (the
@@ -569,125 +340,21 @@ export const supabaseBackend: SeedDataRepository = {
   },
   getGuardrailAlerts: () => query<GuardrailAlert>("guardrail_alerts"),
 
-  // Night-shift fix (2026-06-11): the unscoped read now returns the
-  // FOUNDER-era row only via the scoped helper below; ambient callers
-  // go through the tenant-repo wrapper which prefers the scoped read.
-  getCitationEvidenceIndex: async () => {
-    const { data, error } = await getSupabaseAdmin()
-      .from("citation_evidence_index")
-      .select("*")
-      .eq("id", "current")
-      .maybeSingle();
-    if (error)
-      throw new Error(
-        `Supabase query failed on citation_evidence_index: ${error.message}`,
-      );
-    if (!data) return null;
-    return {
-      built_at: data.built_at,
-      total_citations_processed: data.total_citations_processed,
-      by_page_and_topic: data.by_page_and_topic,
-      by_topic: data.by_topic,
-      page_to_topics: data.page_to_topics,
-    } as CitationEvidenceIndex;
-  },
-
-  getCitationEvidenceIndexScoped: async (tenantId: string) => {
-    const { data, error } = await getSupabaseAdmin()
-      .from("citation_evidence_index")
-      .select("*")
-      .eq("id", "current")
-      .eq("tenant_id", tenantId)
-      .maybeSingle();
-    if (error)
-      throw new Error(
-        `Supabase query failed on citation_evidence_index (scoped): ${error.message}`,
-      );
-    if (!data) return null;
-    return {
-      built_at: data.built_at,
-      total_citations_processed: data.total_citations_processed,
-      by_page_and_topic: data.by_page_and_topic,
-      by_topic: data.by_topic,
-      page_to_topics: data.page_to_topics,
-    } as CitationEvidenceIndex;
-  },
-
-  // Phase 3.5E (2026-04-22) — the `answer_intelligence_index` Supabase table
-  // exists and is dual-written on import. Read the `data` jsonb column. Stale
-  // previously-disk-only comment removed; file backend still reads disk for
-  // DATA_SOURCE=file.
-  getAnswerIntelligenceIndex: async () => {
-    const { data, error } = await getSupabaseAdmin()
-      .from("answer_intelligence_index")
-      .select("*")
-      .eq("id", "current")
-      .maybeSingle();
-    if (error)
-      throw new Error(
-        `Supabase query failed on answer_intelligence_index: ${error.message}`,
-      );
-    if (!data) return null;
-    // Row shape: { id, built_at, data: AnswerIntelligenceIndex }
-    return (data.data as AnswerIntelligenceIndex) ?? null;
-  },
-
-  getAnswerIntelligenceIndexScoped: async (tenantId: string) => {
-    const { data, error } = await getSupabaseAdmin()
-      .from("answer_intelligence_index")
-      .select("*")
-      .eq("id", "current")
-      .eq("tenant_id", tenantId)
-      .maybeSingle();
-    if (error)
-      throw new Error(
-        `Supabase query failed on answer_intelligence_index (scoped): ${error.message}`,
-      );
-    if (!data) return null;
-    return data.data as AnswerIntelligenceIndex;
-  },
-
   getObservationRuns: () => query<ObservationRun>("observation_runs"),
   getCompetitorConfigEntries: () =>
     query<ConfiguredCompetitorEntry>("competitor_config"),
 
-  // Supplementary dotdata — no tables yet; read same files as file mode
-  getPageSnapshotDiffs: async () =>
-    (await readDotDataJson<PageSnapshotDiff[]>("page-snapshot-diffs")) ?? [],
-
-  getRenderChecks: async () =>
-    (await readDotDataJson<RenderCheckResult[]>("render-checks")) ?? [],
-
-  getSitemapReconciliation: async () =>
-    await readDotDataJson<SitemapReconciliation>("sitemap-reconciliation"),
-
-  getVisibilityObservationRunsExplicit: async () =>
-    (await readDotDataJson<VisibilityObservationRun[]>(
-      "visibility-observation-runs",
-    )) ?? [],
-
-  getRolloutExecutions: async () =>
-    readStore<RolloutExecution>("rollout-executions"),
-  getPatternEvidence: async () =>
-    readStore<PatternEvidenceRecord>("pattern-evidence"),
-  getRolloutWaves: async () => readStore<RolloutWave>("rollout-waves"),
-  getFrontierOpportunities: async () =>
-    readStore<FrontierOpportunity>("frontier-opportunities"),
-  getFrontierAttackPackages: async () =>
-    readStore<FrontierAttackPackage>("frontier-attack-packages"),
-  getTrackedMissingPages: async () =>
-    readStore<TrackedMissingPage>("tracked-missing-pages"),
-  getAssetResponses: async () =>
-    readStore<AssetResponse>("asset-responses"),
-  getOutcomeObservations: async () =>
-    readStore<OutcomeObservation>("outcome-observations"),
+  // (Dead columns removed 2026-07-21, CORE 100K Lane O: citation/answer-intel
+  // index reads, page-snapshot-diffs, render-checks, legacy-global
+  // sitemap-reconciliation, visibility runs, rollout/pattern/frontier/wave/
+  // asset/outcome/truth-label reads, page summaries — zero callers. The
+  // tenant-scoped sitemap pair in forTenant below is LIVE and untouched.)
   getCompetitorPageSnapshots: async () =>
     readStore<CompetitorPageSnapshot>("competitor-page-snapshots"),
   getCompetitorPageEvidence: async () =>
     readStore<CompetitorPageEvidence>("competitor-page-evidence"),
   getSourcePatternEvidence: async () =>
     readStore<SourcePatternEvidence>("source-pattern-evidence"),
-  getTruthLabels: async () => readStore<TruthLabel>("truth-labels"),
 
   // Phase 7 — scan findings via repository
   getScanFindings: async () => {
@@ -803,33 +470,20 @@ export const supabaseBackend: SeedDataRepository = {
           "recommended_edits",
           tenantId,
         )) as unknown as RecommendedEditRow[],
-      // Night-shift fix (2026-06-11) — per-tenant citation index row.
-      getCitationEvidenceIndex: () =>
-        supabaseBackend.getCitationEvidenceIndexScoped!(tenantId),
       getChangeContracts: () =>
         queryMappedScoped<ChangeContract>("change_contracts", tenantId),
-      // Night-shift sweep (2026-06-11) — same recipe for the remaining
-      // tenant-stamped tables the ambient legacy stores read unscoped.
-      getPageIssues: () =>
-        queryMappedScoped<PersistedIssue>("page_issues", tenantId),
-      getEventDecisions: () =>
-        selectScoped<EventDecision>("attribution_decisions", tenantId),
-      getCandidateLinks: () =>
-        selectScoped<CandidateLink>("candidate_links", tenantId),
+      // (Tenant-scoped getPageIssues / getEventDecisions /
+      // getCandidateLinks and the citation/answer-intel index reads
+      // removed 2026-07-21, CORE 100K Lane O: zero callers.)
       getOpportunities: () =>
         selectScoped<Opportunity>("opportunities", tenantId),
       getCompetitors: () =>
         selectScoped<Competitor>("competitors", tenantId),
-      getAnswerIntelligenceIndex: () =>
-        supabaseBackend.getAnswerIntelligenceIndexScoped!(tenantId),
 
       // Paged reads — defeats PostgREST's default 1000-row cap and keeps
       // the tenant filter in every page request.
       getResults: () => queryAllPagedScoped<Result>("results", tenantId),
       getPages: () => queryAllPagedScoped<PageEntity>("pages", tenantId),
-      // Perf+egress bundle 2 (2026-05-12) — narrow projection. See
-      // `queryPageSummariesScoped` for column list + row→summary map.
-      getPageSummaries: () => queryPageSummariesScoped(tenantId),
       getPageElementInventory: () =>
         queryAllPagedScoped<PageElementInventoryRow>(
           "page_element_inventory",
@@ -1252,51 +906,9 @@ export const supabaseBackend: SeedDataRepository = {
           );
         return (data ?? []) as TrackedEntity[];
       },
-      /**
-       * Section 5 durable denominator (2026-05-16) — explicit-tenant
-       * read of native-poll run records from the existing Supabase
-       * `observation_runs` table.
-       *
-       * Discriminator: `run_type === "citation_sample_import"` is
-       * the structural marker every native-poll `ObservationRun`
-       * row carries (`src/adapters/perplexity/poll.ts:695` +
-       * `src/adapters/openai/poll.ts` via the same builder). Rows
-       * are dual-written by `syncObservationRuns()` on every poll
-       * (`src/lib/persistence/dual-write.ts:638-701`) and have been
-       * collecting since 2026-04-22. No new table, no new write
-       * path — the read-side mapper alone makes Section 5's
-       * denominator durable in production.
-       *
-       * Scoping contract: explicit `.eq("tenant_id", tenantId)`
-       * predicate (pushdown-invariant). The captured `tenantId`
-       * scopes every read; ambient `currentTenantSlug()` is NOT
-       * consulted. Pinned by
-       * `tests/architecture/profound-import-runs-explicit-tenant-scope.test.ts`.
-       *
-       * Mapper: see `mapObservationRunRowToProfoundImportRun`
-       * above for the row→ProfoundImportRun translation rules.
-       */
-      getProfoundImportRuns: async () => {
-        const { data, error } = await getSupabaseAdmin()
-          .from("observation_runs")
-          .select(
-            "run_id, run_type, source, status, started_at, completed_at, tenant_id",
-          )
-          .eq("tenant_id", tenantId)
-          .eq("run_type", "citation_sample_import");
-        if (error) {
-          throw new Error(
-            `Supabase query failed on observation_runs (Section 5 denominator read): ${error.message}`,
-          );
-        }
-        const rows = (data ?? []) as ObservationRunRow[];
-        const out: ProfoundImportRun[] = [];
-        for (const row of rows) {
-          const mapped = mapObservationRunRowToProfoundImportRun(row);
-          if (mapped != null) out.push(mapped);
-        }
-        return out;
-      },
+      // (getProfoundImportRuns removed 2026-07-21, CORE 100K Lane O:
+      // the Section 5 repeat-citation loader that consumed it was
+      // deleted in an earlier campaign.)
     };
   },
 };

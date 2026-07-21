@@ -280,12 +280,16 @@ describe("Phase 1 Stage C — Invariant 9: no app/source files modified", () => 
     "src/lib/persistence/repositories/supabase-backend.ts",
   );
 
-  it("Stage B Cat-B sync wrappers retain their tenantId signatures", () => {
+  it("surviving sync wrappers retain their tenantId signatures", () => {
+    // Repointed 2026-07-21 (CORE 100K Lane O): the original subject
+    // (syncOpportunities) was deleted with the dead import-cluster writers,
+    // so the "app-code shapes survive" spot-check now pins a LIVE Tier A
+    // writer instead.
     expect(dualWrite).toMatch(
-      /export async function syncOpportunities\([^)]*tenantId: string[^)]*\):/,
+      /export async function syncImportRuns\([^)]*tenantId: string[^)]*\):/,
     );
     expect(dualWrite).toMatch(
-      /tenantizeRows\(rows, tenantId, "opportunities"\)/,
+      /tenantizeRows\(runs, tenantId, "import_runs"\)/,
     );
   });
 

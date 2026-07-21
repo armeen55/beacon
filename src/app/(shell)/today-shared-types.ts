@@ -22,19 +22,100 @@ import type { TodayLiveChange } from "@/domains/today/live-changes-data";
 // modules here does not cross the server/client boundary.
 import type { TodaySummary } from "@/lib/today-summary";
 import type { TodayProofContext } from "@/lib/today-proof-context";
-import type { ScoreboardData } from "@/components/today/today-scoreboard";
-import type { PollHealthSnapshot } from "@/domains/observations/poll-health";
+import type {
+  PollHealthSnapshot,
+  SamplingStatus,
+} from "@/domains/observations/poll-health";
 import type {
   EnrichmentRollup,
   EnrichmentV2Data,
 } from "@/domains/prompt-answer-observations/enrichment-rollup";
-import type { PromptsTeaserSummary } from "@/components/today/prompts-teaser";
-import type { TopPickSummary } from "@/components/today/top-pick-card";
+import type { CategoryGroupSummary } from "@/domains/prompts/decision-matrix";
+import type { RecommendationType } from "@/domains/recommendations/recommendation-types";
+import type { RecommendationAction } from "@/domains/recommendations/resolved-types";
 import type {
   VisibilityMetric,
   VisibilityPoint,
   EntityVisibility,
 } from "@/domains/product/visibility-score";
+
+/**
+ * ScoreboardData - the AI-visibility scoreboard view model.
+ *
+ * Relocated here 2026-07-21 (CORE 100K routes cleanup) from
+ * `components/today/today-scoreboard.tsx` after that file's dead
+ * `TodayScoreboard` render was deleted and only this type remained.
+ */
+export type ScoreboardData = {
+  totalCitations: number;
+  totalMentions: number;
+  trendPct: number | null;
+  platformBreakdown: { platform: string; label: string; citations: number; mentions: number }[];
+  citedPageCount: number;
+  resultCount: number;
+  dateRange: { from: string; to: string } | null;
+  mentionRate: number | null;
+  /**
+   * Metric-honesty fix #376 (2026-06-14). Number of AI-answer observations
+   * the `mentionRate` headline % was computed over. Drives an honest
+   * sample-size qualifier so a volatile small-sample rate (e.g. 23% from 13
+   * answers) is never presented as a stable fact. Null when the rate isn't shown.
+   */
+  mentionRateSampleSize?: number | null;
+  decliningTopicCount: number;
+  risingTopicCount: number;
+  weekOverWeekCitations: number | null;
+  weekOverWeekMentions: number | null;
+  /**
+   * Commit 5 (2026-04-24). When non-null, `totalCitations`/`totalMentions`
+   * are read from `daily_metric_snapshots source_type='derived'` for the
+   * given ISO date (today or yesterday), not from the cumulative raw
+   * `results` totals.
+   */
+  derivedKpiAsOfDate?: string | null;
+  /** True when derivedKpiAsOfDate fell back to yesterday's row. */
+  derivedKpiIsFallback?: boolean;
+  /**
+   * Poll Integrity Hardening (2026-05-04, Operator R7). Sampling status of the
+   * as-of-date sample, aggregated across both platforms (worst-case wins). Null
+   * when there is no poll-health signal yet.
+   */
+  derivedKpiSamplingStatus?: SamplingStatus | null;
+  /**
+   * Metric-honesty fix #357 (2026-06-14). TRUE when today's (and yesterday's)
+   * derived daily snapshot is missing, so `totalCitations` / `totalMentions`
+   * fell back to the CUMULATIVE all-time `results` totals. Distinct from
+   * `isFirstRunNoData`: here data EXISTS, it's just not a current-period snapshot.
+   */
+  cumulativeFallback?: boolean;
+};
+
+/**
+ * Today "Top pick" summary (Phase v6 Commit 5, 2026-04-23). Relocated here
+ * 2026-07-21 from `components/today/top-pick-card.tsx` (dead render deleted).
+ */
+export type TopPickSummary = {
+  stableKey: string;
+  /** Legacy candidate type, kept for back-compat but unused for display. */
+  type: RecommendationType;
+  /** Operator-facing title, already sanitized. */
+  title: string;
+  reasoning: string;
+  tier: "now" | "this_week" | "later";
+  /** Resolved final action (post-resolver). Drives the type badge. */
+  action: RecommendationAction;
+  /** Canonical URL when the resolver attached one; null when create_new_page / watch. */
+  resolvedUrl: string | null;
+};
+
+/**
+ * Prompts-teaser summary. Relocated here 2026-07-21 from
+ * `components/today/prompts-teaser.tsx` (dead render deleted).
+ */
+export type PromptsTeaserSummary = {
+  totalPrompts: number;
+  groupSummaries: CategoryGroupSummary[];
+};
 
 export type SerializedFinding = {
   id: string;

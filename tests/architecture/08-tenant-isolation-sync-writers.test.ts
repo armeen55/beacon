@@ -143,8 +143,14 @@ function extractWrittenTable(body: string): string | null {
 }
 
 describe("Architecture — every sync* writer either requires tenantId or targets a global table", () => {
-  it("dual-write.ts source loaded + at least 25 sync* exports detected", () => {
-    expect(SYNC_FNS.length).toBeGreaterThanOrEqual(25);
+  it("dual-write.ts source loaded + at least 17 sync* exports detected", () => {
+    // Floor 25 → 17 on 2026-07-21 (CORE 100K Lane O): the dead writers
+    // syncResults, syncOpportunities, syncCompetitors, syncEventDecisions,
+    // syncCandidateLinks, syncChangeContracts, syncPageIssues,
+    // syncGuardrailAlerts, and syncGuardrailAlertsForUrl were deleted with
+    // zero prod callers. 17 sync* exports survive; the per-writer contract
+    // below is unchanged.
+    expect(SYNC_FNS.length).toBeGreaterThanOrEqual(17);
   });
 
   it("GLOBAL_TABLES set is parsed and non-trivial (sanity)", () => {
@@ -215,6 +221,10 @@ describe("Architecture — every sync* writer either requires tenantId or target
     // syncRawPollChunk, syncCitationEvidenceIndex, syncAnswerIntelligenceIndex,
     // and syncPageVisibility were deleted with their callers, leaving
     // syncBusinessConfig as the one live global-table writer.
+    // 2026-07-21 (Lane O): 9 more dead tenant-scoped writers deleted
+    // (results/opportunities/competitors/attribution/candidate-link/
+    // change-contract/page-issue/guardrail syncs); 16 tenant-scoped
+    // writers survive, so the >= 15 floor holds unchanged.
     const tenantScoped = SYNC_FNS.filter((f) =>
       takesTenantId(f.signatureBlock),
     );

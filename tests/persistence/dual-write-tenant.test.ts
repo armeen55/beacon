@@ -390,21 +390,21 @@ const DUAL_WRITE_SOURCE = readFileSync(
  */
 const TIER_A_SYNC_HELPERS = [
   "syncImportRuns",
-  "syncResults",
   "syncChangelogEntries",
   "syncPages",
   "syncDailyMetricSnapshots",
   "syncPromptAnswerObservations",
   "syncObservationRuns",
   "syncPageSnapshots",
-  "syncGuardrailAlerts",
-  "syncGuardrailAlertsForUrl",
   "syncScanFindings",
   "syncRecommendationResponses",
   "syncUrlChangeOutcomes",
   "syncPageElementInventory",
   // syncChangeOutcomes removed 2026-07-21 (CORE 100K Lane F): its only caller
   // was the retired attribution memory loop (change-outcome.ts).
+  // syncResults + syncGuardrailAlerts + syncGuardrailAlertsForUrl removed
+  // 2026-07-21 (CORE 100K Lane O): dead import-cluster / scan-writer paths,
+  // zero prod callers.
 ] as const;
 
 /** Slice the function body from `export async function NAME(` up to the
@@ -419,10 +419,12 @@ function sliceHelperBody(source: string, name: string): string {
 }
 
 describe("Phase 7.7b Commit 6 — Tier A sync* helpers require tenantId", () => {
-  it("enumerates exactly 14 converted Tier A helpers", () => {
+  it("enumerates exactly 11 converted Tier A helpers", () => {
     // Sanity: keep the list aligned with the operator's plan. Was 15 until
-    // syncChangeOutcomes retired with the attribution memory loop (2026-07-21).
-    expect(TIER_A_SYNC_HELPERS.length).toBe(14);
+    // syncChangeOutcomes retired with the attribution memory loop (2026-07-21,
+    // Lane F), then 14 until syncResults + the two guardrail-alert writers
+    // retired with the dead import/scan write paths (2026-07-21, Lane O).
+    expect(TIER_A_SYNC_HELPERS.length).toBe(11);
   });
 
   for (const helper of TIER_A_SYNC_HELPERS) {
@@ -513,53 +515,55 @@ describe("Phase 7.7c — deleteRecommendationResponseByRecId is tenant-scoped", 
 
 describe("Phase 7.7b Commit 6 — runtime smoke (representative)", () => {
   // These tests exercise the runtime contract end-to-end on one
-  // representative Tier A helper. The full 15-helper coverage is
-  // proven by the static invariants above + the tenantizeRows tests
-  // (which is the validation layer every helper routes through).
+  // representative Tier A helper. Full Tier A coverage is proven by the
+  // static invariants above + the tenantizeRows tests (which is the
+  // validation layer every helper routes through). Representative helper
+  // switched syncResults → syncImportRuns 2026-07-21 (Lane O) when the
+  // dead import-cluster writers were deleted.
 
-  it("syncResults rejects empty tenantId at runtime", async () => {
-    const { syncResults } = await import("@/lib/persistence/dual-write");
+  it("syncImportRuns rejects empty tenantId at runtime", async () => {
+    const { syncImportRuns } = await import("@/lib/persistence/dual-write");
     await expect(
-      syncResults(
+      syncImportRuns(
         [
           {
             id: "r1",
             tenant_id: "",
-          } as unknown as Parameters<typeof syncResults>[0][number],
+          } as unknown as Parameters<typeof syncImportRuns>[0][number],
         ],
         "",
       ),
     ).rejects.toThrow(/tenantId must be a non-empty string/);
   });
 
-  it("syncResults succeeds with valid tenantId when DUAL_WRITE is off (no-op via dualWriteUpsert)", async () => {
+  it("syncImportRuns succeeds with valid tenantId when DUAL_WRITE is off (no-op via dualWriteUpsert)", async () => {
     // Vitest default has DUAL_WRITE unset, so dualWriteUpsert no-ops
     // after tenantizeRows accepts the input. Silent success.
-    const { syncResults } = await import("@/lib/persistence/dual-write");
+    const { syncImportRuns } = await import("@/lib/persistence/dual-write");
     await expect(
-      syncResults(
+      syncImportRuns(
         [
           {
             id: "r1",
             tenant_id: TENANT,
-          } as unknown as Parameters<typeof syncResults>[0][number],
+          } as unknown as Parameters<typeof syncImportRuns>[0][number],
         ],
         TENANT,
       ),
     ).resolves.toBeUndefined();
   });
 
-  it("syncResults rejects cross-tenant mismatch at runtime", async () => {
+  it("syncImportRuns rejects cross-tenant mismatch at runtime", async () => {
     // The actual leak vector: a row pre-stamped with the wrong tenant
     // must throw, not silently overwrite.
-    const { syncResults } = await import("@/lib/persistence/dual-write");
+    const { syncImportRuns } = await import("@/lib/persistence/dual-write");
     await expect(
-      syncResults(
+      syncImportRuns(
         [
           {
             id: "r1",
             tenant_id: OTHER,
-          } as unknown as Parameters<typeof syncResults>[0][number],
+          } as unknown as Parameters<typeof syncImportRuns>[0][number],
         ],
         TENANT,
       ),

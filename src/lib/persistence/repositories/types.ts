@@ -3,25 +3,7 @@ import type { ChangelogEntry } from "@/domains/changelog/types";
 import type { Opportunity } from "@/domains/opportunities/types";
 import type { Competitor } from "@/domains/competitors/types";
 import type { ImportRun } from "@/lib/import/types";
-import type {
-  EventDecision,
-  CandidateLink,
-  TruthLabel,
-} from "@/domains/attribution/types";
 import type { Finding } from "@/domains/scanning/types";
-import type {
-  PersistedIssue,
-  RolloutExecution,
-  PatternEvidenceRecord,
-} from "@/domains/pages/types";
-import type {
-  RolloutWave,
-  FrontierOpportunity,
-  FrontierAttackPackage,
-  TrackedMissingPage,
-  AssetResponse,
-  OutcomeObservation,
-} from "@/domains/pages/types";
 import type {
   CompetitorPageEvidence,
 } from "@/domains/pages/competitor-evidence";
@@ -32,19 +14,12 @@ import type {
 import type { ChangeContract } from "@/domains/changelog/change-contract";
 import type {
   PageEntity,
-  PageSummary,
   PageSnapshot,
-  PageSnapshotDiff,
-  CitationEvidenceIndex,
   SitemapReconciliation,
 } from "@/domains/pages/types";
-import type { AnswerIntelligenceIndex } from "@/domains/answer-intelligence/types";
 import type { RobotsStateFile } from "@/domains/pages/robots-parser";
-import type { RenderCheckResult } from "@/domains/pages/render-check";
-import type { VisibilityObservationRun } from "@/domains/observations/visibility-types";
 import type { GuardrailAlert } from "@/domains/pages/guardrails";
 import type { ObservationRun } from "@/domains/observations/types";
-import type { ProfoundImportRun } from "@/domains/observation-runs/types";
 import type { ConfiguredCompetitorEntry } from "@/domains/competitors/universe-types";
 import type { RecommendationResponse } from "@/domains/product/recommendation-response-store";
 import type { UrlChangeOutcome } from "@/domains/attribution/url-change-outcome";
@@ -88,81 +63,35 @@ export interface SeedDataRepository {
   getCompetitors(): Promise<Competitor[]>;
 
   // Phase 1D — centralized store modules
-  getEventDecisions(): Promise<EventDecision[]>;
-  getCandidateLinks(): Promise<CandidateLink[]>;
-  getPageIssues(): Promise<PersistedIssue[]>;
+  // (getEventDecisions / getCandidateLinks / getPageIssues removed
+  // 2026-07-21, CORE 100K Lane O: zero prod and zero test callers.)
   getChangeContracts(): Promise<ChangeContract[]>;
 
   // Phase 1E — remaining route-critical stores
   getPages(): Promise<PageEntity[]>;
-  /**
-   * Perf+egress bundle 2 (2026-05-12) — narrow projection of
-   * `pages`. Backends select only the 6 columns the projection
-   * needs (id, url, canonical_url, is_owned, page_type, topics,
-   * tenant_id), reducing wire payload ~80% on routes that don't
-   * need full PageEntity fields. Callers that need the full row
-   * MUST stay on `getPages()`.
-   */
-  getPageSummaries(): Promise<PageSummary[]>;
   getPageSnapshots(): Promise<PageSnapshot[]>;
   /** Scoped link-graph read — see PageSnapshotLinkGraph. */
   getPageSnapshotLinkGraphs(): Promise<PageSnapshotLinkGraph[]>;
   getGuardrailAlerts(): Promise<GuardrailAlert[]>;
-  getCitationEvidenceIndex(): Promise<CitationEvidenceIndex | null>;
-  /**
-   * Night-shift fix (2026-06-11): explicit-tenant read of the
-   * per-tenant citation index row (citation_evidence_index keys on
-   * (tenant_id, id) now). Optional: implemented by the Supabase
-   * backend; the file backend's ambient per-tenant routing already
-   * isolates, so the tenant-repo wrapper falls back to the ambient
-   * read when this is absent.
-   */
-  getCitationEvidenceIndexScoped?(
-    tenantId: string,
-  ): Promise<CitationEvidenceIndex | null>;
 
   // Phase 7 — scan findings via repository
   getScanFindings(): Promise<Finding[]>;
   getPendingScanFindings(): Promise<Finding[]>;
-  getAnswerIntelligenceIndex(): Promise<AnswerIntelligenceIndex | null>;
-  /** Night-shift fix (2026-06-11): explicit-tenant read (Supabase only;
-   *  file backend's ambient routing already isolates). */
-  getAnswerIntelligenceIndexScoped?(
-    tenantId: string,
-  ): Promise<AnswerIntelligenceIndex | null>;
   getObservationRuns(): Promise<ObservationRun[]>;
   getCompetitorConfigEntries(): Promise<ConfiguredCompetitorEntry[]>;
-
-  /**
-   * Supplementary `.data/*.json` reads — no DB tables yet. Both backends read
-   * from disk so Supabase-default mode still sees the same files as before.
-   *
-   * Note: `getSitemapReconciliation` here is the LEGACY base-repository
-   * accessor that reads the GLOBAL sitemap-reconciliation.json. Phase A.3
-   * (post-A.3.5) added a tenant-scoped pair on `TenantRepository` below
-   * (`getSitemapReconciliation` / `setSitemapReconciliation`) that reads
-   * the per-tenant Supabase mirror. The base accessor stays for backward
-   * compatibility with any unaudited callers; loaders + diagnostic
-   * surfaces use the tenant-scoped pair.
-   */
-  getPageSnapshotDiffs(): Promise<PageSnapshotDiff[]>;
-  getRenderChecks(): Promise<RenderCheckResult[]>;
-  getSitemapReconciliation(): Promise<SitemapReconciliation | null>;
-  getVisibilityObservationRunsExplicit(): Promise<VisibilityObservationRun[]>;
 
   /**
    * json-store-backed operator / pages domain state — no Postgres tables yet.
    * Both backends delegate to `readStore` so DATA_SOURCE=supabase keeps the same
    * in-process cached array references as file mode (mutation + writeStore paths).
+   *
+   * 2026-07-21 (CORE 100K Lane O): the dead columns of this block
+   * (rollout/pattern/frontier/wave/asset/outcome/truth-label reads, the
+   * legacy-global sitemap/diff/render/visibility reads, page summaries,
+   * and the citation/answer-intel index reads) were deleted — zero prod
+   * and zero test callers. The tenant-scoped sitemap pair on
+   * `TenantRepository` below is LIVE and untouched.
    */
-  getRolloutExecutions(): Promise<RolloutExecution[]>;
-  getPatternEvidence(): Promise<PatternEvidenceRecord[]>;
-  getRolloutWaves(): Promise<RolloutWave[]>;
-  getFrontierOpportunities(): Promise<FrontierOpportunity[]>;
-  getFrontierAttackPackages(): Promise<FrontierAttackPackage[]>;
-  getTrackedMissingPages(): Promise<TrackedMissingPage[]>;
-  getAssetResponses(): Promise<AssetResponse[]>;
-  getOutcomeObservations(): Promise<OutcomeObservation[]>;
   getCompetitorPageEvidence(): Promise<CompetitorPageEvidence[]>;
   /**
    * T-CompPageBlueprints (2026-05-08) — manually-captured competitor
@@ -172,7 +101,6 @@ export interface SeedDataRepository {
    */
   getCompetitorPageSnapshots(): Promise<CompetitorPageSnapshot[]>;
   getSourcePatternEvidence(): Promise<SourcePatternEvidence[]>;
-  getTruthLabels(): Promise<TruthLabel[]>;
 
   // Phase 1a — operator loop stores
   getRecommendationResponses(): Promise<RecommendationResponse[]>;
@@ -267,9 +195,6 @@ export type ScopedObservationReadOptions = WindowedReadOptions & {
 
 export interface TenantRepository {
   getPages(): Promise<PageEntity[]>;
-  /** Perf+egress bundle 2 — narrow projection of `pages`. See base
-   *  `SeedDataRepository.getPageSummaries` docstring. */
-  getPageSummaries(): Promise<PageSummary[]>;
   getPageSnapshots(): Promise<PageSnapshot[]>;
   /**
    * audit #12 (2026-06-14) — fully-paginated, tenant-scoped
@@ -332,21 +257,11 @@ export interface TenantRepository {
   getRecommendationResponses(): Promise<RecommendationResponse[]>;
   /** Night-shift (2026-06-11) — tenant-scoped change contracts. */
   getChangeContracts(): Promise<ChangeContract[]>;
-  /** Night-shift sweep (2026-06-11) — tenant-scoped reads for the
-   *  remaining stamped tables. */
-  getPageIssues(): Promise<PersistedIssue[]>;
-  getEventDecisions(): Promise<EventDecision[]>;
-  getCandidateLinks(): Promise<CandidateLink[]>;
+  // (Tenant-scoped getPageIssues / getEventDecisions / getCandidateLinks
+  // and the citation/answer-intel index reads removed 2026-07-21,
+  // CORE 100K Lane O: zero prod and zero test callers.)
   getOpportunities(): Promise<Opportunity[]>;
   getCompetitors(): Promise<Competitor[]>;
-  /**
-   * Night-shift fix (2026-06-11) — per-tenant citation index. A single
-   * object (not rows), so the wrapper's row filter can't protect it;
-   * the wrapper routes to the backend's explicit-tenant read.
-   */
-  getCitationEvidenceIndex(): Promise<CitationEvidenceIndex | null>;
-  /** Night-shift fix (2026-06-11) — per-tenant answer-intel index. */
-  getAnswerIntelligenceIndex(): Promise<AnswerIntelligenceIndex | null>;
   getChangelogEntries(): Promise<ChangelogEntry[]>;
   getScanFindings(): Promise<Finding[]>;
   getPendingScanFindings(): Promise<Finding[]>;
@@ -389,58 +304,10 @@ export interface TenantRepository {
    */
   getTrackedPrompts(): Promise<TrackedPrompt[]>;
   getTrackedEntities(): Promise<TrackedEntity[]>;
-  /**
-   * Section 5 precursor (2026-05-16) — tenant-scoped read for the
-   * poll-run records that drive repeat-citation denominators.
-   *
-   * IMPORTANT — distinct from `getObservationRuns()` on the same
-   * interface. The repo's `getObservationRuns` returns the website-
-   * crawl `ObservationRun` shape from `@/domains/observations/types`
-   * (`run_id`, `run_type ∈ {"website_crawl" | "website_verify" |
-   * "citation_sample_import" | "composite_placeholder"}`,
-   * pages_scanned / pages_changed / etc.). This method returns the
-   * prompt-centric `ProfoundImportRun` shape from
-   * `@/domains/observation-runs/types` (`run_date`, `platform`,
-   * `source_type ∈ {"beacon_native" | "manual_import" |
-   * "api_import"}`, `status ∈ {"pending" | "running" | "completed"
-   * | "failed"}`). They co-exist in the same `.data/observation-
-   * runs.json` file (mixed-shape historically; tenant-aware path
-   * routes them per tenant); this reader discriminates positively
-   * by the presence of `run_date` + `source_type` and drops every
-   * website-crawl row.
-   *
-   * Section 5 (repeat-citation classifier) uses this method as the
-   * locked G2 denominator source ("successful poll days since
-   * live_at"). Beacon's Section 5 compute MUST NOT consume
-   * `getObservationRuns()` for the denominator — wrong shape.
-   *
-   * Two backend implementations (signature stable across both):
-   *
-   *   • File backend (`tenant-repo.ts`'s
-   *     `readProfoundImportRunsForTenant`) — explicit-tenant disk
-   *     read of `.data/tenants/{slug}/observation-runs.json`. Used
-   *     by local dev with disk fixtures.
-   *
-   *   • Supabase backend
-   *     (`supabase-backend.ts`'s `forTenant.getProfoundImportRuns`)
-   *     — explicit-tenant Supabase query on the existing
-   *     `observation_runs` table filtered by
-   *     `tenant_id = {tenantId}` AND
-   *     `run_type = "citation_sample_import"`. Each row is mapped
-   *     through `mapObservationRunRowToProfoundImportRun` (in
-   *     `supabase-backend.ts`) into the `ProfoundImportRun` shape
-   *     compute expects. Source-to-platform mapping handles
-   *     `"perplexity-native-poll"` → `"perplexity"` and
-   *     `"openai-native-poll"` → `"chatgpt"`; unknown sources pass
-   *     through verbatim for forward-compat.
-   *
-   * Crucially, the existing `getObservationRuns()` method on this
-   * same interface remains the website-crawl reader — it returns
-   * the unmapped `ObservationRun` rows (run_type ∈
-   * `{"website_crawl", "website_verify", "citation_sample_import",
-   * "composite_placeholder"}`) and MUST NOT be used as Section 5's
-   * denominator (wrong type). The two methods are intentionally
-   * distinct.
-   */
-  getProfoundImportRuns(): Promise<ProfoundImportRun[]>;
+  // (getProfoundImportRuns removed 2026-07-21, CORE 100K Lane O: the
+  // Section 5 repeat-citation loader that consumed it was deleted in an
+  // earlier campaign, leaving the whole read path caller-less. The
+  // `ProfoundImportRun` TYPE stays live in
+  // `@/domains/observation-runs/types` — canonical-store still reads the
+  // mixed observation-runs file through it.)
 }

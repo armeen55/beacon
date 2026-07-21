@@ -84,13 +84,9 @@ const ALLOWED_LOADER_FILES: ReadonlySet<string> = new Set([
   // pure Mode A / Mode B / copy modules import-purity-pinned by
   // `change-primary-pure-modules-no-getRepository.test.ts`.
   "load-change-primary-evidence.ts",
-  // Section 5.A (2026-05-16) — repeat-citation classifier loader.
-  // Same caller-bound `.forTenant(tenantId)` discipline. Reads
-  // `getProfoundImportRuns()` (the Section 5 precursor) + windowed
-  // `getPromptAnswerObservations({since: live_at})`. Pure compute
-  // (`compute-repeat-citation.ts`) is import-purity-pinned by
-  // `repeat-citation-pure-purity.test.ts`.
-  "load-repeat-citation.ts",
+  // (load-repeat-citation.ts entry removed 2026-07-21, CORE 100K Lane O:
+  // the Section 5 loader was deleted in an earlier campaign and its
+  // getProfoundImportRuns read path has now been removed too.)
 ]);
 
 /**

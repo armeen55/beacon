@@ -180,7 +180,6 @@ describe("Sprint 1 / Phase 1.3 — /changes fresh-read invariants", () => {
         getCitationEvidenceIndex: vi.fn(async () => null),
       }));
       vi.doMock("@/lib/flags", () => ({
-        isEventTruthPreviewEnabled: () => false,
         // Phase 6A.6 (2026-04-28) — page now reads this flag to drive the
         // attribution-copy resolver's verdict_off vs verdict_baked branches.
         // Default OFF in tests matches production default.

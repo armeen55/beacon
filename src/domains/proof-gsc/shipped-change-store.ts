@@ -917,7 +917,8 @@ async function writeFile(records: ShippedChangeRecord[]): Promise<void> {
 
 /**
  * Codex P2 (2026-07-09): resolve the on-disk slug for an EXPLICIT tenantId,
- * mirroring `resolveSlugForTenant` in tenant-repo.ts. Registry first; then the
+ * mirroring the (since-deleted, 2026-07-21) resolveSlugForTenant helper that
+ * lived in tenant-repo.ts. Registry first; then the
  * operator-bootstrap env match (BEACON_TENANT_ID + BEACON_TENANT_SLUG) ONLY when
  * the explicit tenantId is that same bootstrap tenant. Any other unresolved
  * tenant returns null so the caller FAILS CLOSED (empty ledger) - it NEVER falls
@@ -934,7 +935,8 @@ async function resolveSlugForTenant(tenantId: string): Promise<string | null> {
 
 /**
  * Codex P2 (2026-07-09): tenant-EXPLICIT file fallback for the proof ledger,
- * mirroring `readProfoundImportRunsForTenant` in tenant-repo.ts. Reads
+ * mirroring the (since-deleted, 2026-07-21) readProfoundImportRunsForTenant
+ * pattern from tenant-repo.ts. Reads
  * `.data/tenants/{slug}/proof-gsc-ledger.json` DIRECTLY (getDataDir(slug) +
  * readFileSync) after resolving the slug from the explicit tenantId - it NEVER
  * calls `readStore(STORE)`, which routes through the AMBIENT `currentTenantSlug()`

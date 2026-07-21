@@ -2,20 +2,17 @@
  * Sprint 7 Phase 7.8b-0 (2026-04-25) — single source of truth for which
  * `.data/*.json` stores are per-tenant, per-tenant singleton, or global.
  *
- * Two consumers:
- *   - Runtime persistence layer (Phase 7.8b-1 / 7.8b-2):
+ * Consumer: the runtime persistence layer (Phase 7.8b-1 / 7.8b-2):
  *       `src/lib/persistence/dotdata-json.ts`
  *       `src/lib/persistence/json-store.ts`
  *     Routes reads/writes to the correct subdirectory based on the
  *     classification.
  *
- *   - Migration CLI (Phase 7.8a):
- *       `scripts/migrate-flat-to-tenant-data.ts`
- *     Re-exports these Sets and uses them to plan the flat → per-tenant
- *     move.
+ * (The Phase 7.8a migration CLI, `scripts/migrate-flat-to-tenant-data.ts`,
+ * was the second consumer; it was executed and deleted — 2026-07-21 note.)
  *
  * Keeping a single source prevents drift — a store accidentally
- * promoted to global at the migration layer but still tenant-routed at
+ * promoted to global elsewhere but still tenant-routed at
  * runtime would silently leak across tenants. The shared classification
  * makes that class of bug structurally impossible.
  *
@@ -69,7 +66,8 @@ export const TENANT_SCOPED_STORES = new Set<string>([
   "recommendation-responses",
   // LEGACY (2026-07-20): the pre-ActionPack brief/action compute cluster
   // that wrote these was retired. Kept registered so any residual on-disk
-  // blobs stay tenant-scoped and resetExperiment can still write them empty.
+  // blobs stay tenant-scoped. (The resetExperiment flow that once wrote
+  // them empty was itself deleted — 2026-07-21 note.)
   "action-states",
   "brief-states",
   "rollout-executions",
@@ -611,11 +609,11 @@ export type StoreScope = "per-tenant" | "singleton" | "global" | "unknown";
  * caller. Returns `unknown` for any store name not in the three Sets.
  *
  * Fail-loud contract (finding E, 2026-07-18): `classifyStore` deliberately
- * stays PURE and keeps returning `unknown` rather than throwing, because two
+ * stays PURE and keeps returning `unknown` rather than throwing, because
  * legitimate callers depend on that value:
- *   - the migration CLI (`scripts/migrate-flat-to-tenant-data.ts`) iterates
- *     every store name and SKIPS the unknowns instead of crashing; and
- *   - ~20 store tests assert a specific scope for their store name.
+ *   - ~20 store tests assert a specific scope for their store name (the
+ *     executed-and-deleted migration CLI was the other such caller —
+ *     2026-07-21 note).
  * The fail-loud guarantee lives at the RUNTIME chokepoints instead, where an
  * unclassified store can actually leak: `readStore`/`writeStore`
  * (json-store.ts) and `readDotDataJson`/`writeDotDataJson` (dotdata-json.ts)

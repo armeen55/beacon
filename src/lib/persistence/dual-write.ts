@@ -2,13 +2,13 @@
  * Dual-write engine — file-first, Supabase-second.
  *
  * When DUAL_WRITE=true, every persist call that writes to a .data/*.json
- * file store also upserts the same rows to Supabase. The Supabase write
- * is best-effort: errors are logged but never thrown, so the file-backed
- * path always succeeds.
+ * file store also upserts the same rows to Supabase.
  *
- * Phase 1F covers 7 entity tables:
- *   import_runs, results, changelog_entries, opportunities, competitors,
- *   attribution_decisions, candidate_links
+ * 2026-07-21 (CORE 100K Lane O): the dead import-cluster writers
+ * (results/opportunities/competitors/attribution/candidate-link syncs,
+ * change-contract + page-issue syncs, guardrail-alert syncs, truncate +
+ * clear-all) were deleted — zero prod callers. Surviving writers are the
+ * LIVE nightly/scan/poll paths listed below.
  */
 
 import "server-only";
@@ -259,53 +259,17 @@ export function tenantizeRows<
   });
 }
 
-/**
- * Tenant-scoped truncate. CRITICAL ISOLATION FIX (2026-06-14): the prior
- * `.delete().gte("id", "")` matched EVERY row and wiped ALL tenants' data
- * (a single tenant's "Reset import" deleted import_runs/results/changelog/
- * opportunities/competitors/attribution/candidate_links for every tenant).
- * Every truncated table carries `tenant_id`, so the delete is now filtered
- * to the caller's tenant. `tenantId` is REQUIRED — never truncate unscoped.
- */
-export async function dualWriteTruncate(
-  table: string,
-  tenantId: string,
-): Promise<void> {
-  if (!isDualWriteEnabled()) return;
-  if (!tenantId) {
-    console.error(`[dual-write] ${table}: truncate refused — missing tenantId`);
-    return;
-  }
-
-  try {
-    const sb = getSupabaseAdmin();
-    const { error } = await sb.from(table).delete().eq("tenant_id", tenantId);
-    if (error) {
-      console.error(
-        `[dual-write] ${table}: truncate failed — ${error.message}`,
-      );
-    }
-  } catch (e) {
-    console.error(
-      `[dual-write] ${table}: truncate error — ${e instanceof Error ? e.message : e}`,
-    );
-  }
-}
+// dualWriteTruncate + clearAllImportTables removed 2026-07-21 (CORE 100K
+// Lane O): their only caller was the retired resetExperiment import-reset
+// flow; zero callers remained.
 
 // ── Typed convenience wrappers ──
 
-import type { Result } from "@/domains/results/types";
 import type { ChangelogEntry } from "@/domains/changelog/types";
-import type { Opportunity } from "@/domains/opportunities/types";
-import type { Competitor } from "@/domains/competitors/types";
 import type { ImportRun } from "@/lib/import/types";
-import type { EventDecision, CandidateLink } from "@/domains/attribution/types";
 import type { PageSnapshot, PageEntity } from "@/domains/pages/types";
-import type { GuardrailAlert } from "@/domains/pages/guardrails";
 import type { Finding } from "@/domains/scanning/types";
 import type { ObservationRun } from "@/domains/observations/types";
-import type { ChangeContract } from "@/domains/changelog/change-contract";
-import type { PersistedIssue } from "@/domains/pages/types";
 import type { BusinessConfig } from "@/lib/business-config";
 import type { DailyMetricSnapshot } from "@/domains/daily-metric-snapshots/types";
 import type { PromptAnswerObservation } from "@/domains/prompt-answer-observations/types";
@@ -328,13 +292,10 @@ export async function syncImportRuns(
   await dualWriteUpsert("import_runs", rows as unknown as AnyRow[], "id");
 }
 
-export async function syncResults(
-  rows: Result[],
-  tenantId: string,
-): Promise<void> {
-  const stamped = tenantizeRows(rows, tenantId, "results");
-  await dualWriteUpsert("results", stamped as unknown as AnyRow[], "id");
-}
+// syncResults / syncOpportunities / syncCompetitors / syncEventDecisions /
+// syncCandidateLinks removed 2026-07-21 (CORE 100K Lane O): the CSV
+// import-cluster writers lost their last caller when the import
+// orchestrator's Supabase mirror path was retired; zero prod callers.
 
 /**
  * Map a ChangelogEntry to a DB row. Phase 1a (2026-04-21): schema-experiment
@@ -353,46 +314,6 @@ export async function syncChangelogEntries(
   const stamped = tenantizeRows(rows, tenantId, "changelog_entries");
   const mapped = stamped.map(mapChangelogEntryToRow);
   await dualWriteUpsert("changelog_entries", mapped, "id");
-}
-
-// Phase 1 Stage B (2026-05-09): tenantId is required. The migration
-// `2026-05-09_phase1_stage_b_c_tenant_id_repair.sql` adds tenant_id to
-// these tables; tenantizeRows stamps it on every row. CHECK constraint
-// (DB-side) catches any row that bypasses this helper.
-export async function syncOpportunities(
-  rows: Opportunity[],
-  tenantId: string,
-): Promise<void> {
-  const stamped = tenantizeRows(rows, tenantId, "opportunities");
-  await dualWriteUpsert("opportunities", stamped as unknown as AnyRow[], "id");
-}
-
-export async function syncCompetitors(
-  rows: Competitor[],
-  tenantId: string,
-): Promise<void> {
-  const stamped = tenantizeRows(rows, tenantId, "competitors");
-  await dualWriteUpsert("competitors", stamped as unknown as AnyRow[], "id");
-}
-
-export async function syncEventDecisions(
-  rows: EventDecision[],
-  tenantId: string,
-): Promise<void> {
-  const stamped = tenantizeRows(rows, tenantId, "attribution_decisions");
-  await dualWriteUpsert(
-    "attribution_decisions",
-    stamped as unknown as AnyRow[],
-    "id",
-  );
-}
-
-export async function syncCandidateLinks(
-  rows: CandidateLink[],
-  tenantId: string,
-): Promise<void> {
-  const stamped = tenantizeRows(rows, tenantId, "candidate_links");
-  await dualWriteUpsert("candidate_links", stamped as unknown as AnyRow[], "id");
 }
 
 // ── Entity sync (Phase 6) ──
@@ -512,102 +433,10 @@ export async function syncTenantBusinessConfigConfirmed(
   }
 }
 
-/** Map camelCase ChangeContract to snake_case DB row. PK: contract_id.
- *  Phase 1 Stage C (2026-05-09): tenant_id is the canonical scoping column;
- *  account_id is retained additively for compatibility (cleanup in a later
- *  phase). Both columns are stamped on every write. */
-function mapChangeContractToRow(c: ChangeContract, tenantId: string): AnyRow {
-  return {
-    contract_id: c.contractId,
-    account_id: c.accountId,
-    tenant_id: tenantId,
-    date_requested: c.dateRequested,
-    date_live: c.dateLive,
-    source_document: c.sourceDocument,
-    source_input_type: c.sourceInputType,
-    page_url: c.pageUrl,
-    page_type: c.pageType,
-    city: c.city,
-    service: c.service,
-    topic: c.topic,
-    change_type: c.changeType,
-    change_summary: c.changeSummary,
-    business_goal: c.businessGoal,
-    intended_hypothesis: c.intendedHypothesis,
-    faq_count_expected: c.faqCountExpected,
-    schema_types_expected: c.schemaTypesExpected,
-    h1_expected: c.h1Expected,
-    title_expected: c.titleExpected,
-    meta_expected: c.metaExpected,
-    internal_links_expected: c.internalLinksExpected,
-    expected_verification: c.expectedVerification,
-    expected_outcome_window_days: c.expectedOutcomeWindowDays,
-    attribution_readiness: c.attributionReadiness,
-    linked_issue_id: c.linkedIssueId,
-    linked_plan_id: c.linkedPlanId,
-    linked_wave_id: c.linkedWaveId,
-    linked_frontier_id: c.linkedFrontierId,
-    linked_changelog_entry_id: c.linkedChangelogEntryId,
-    verification_status: c.verificationStatus,
-    verification_result: c.verificationResult,
-    verified_at: c.verifiedAt,
-    created_at: c.createdAt,
-    updated_at: c.updatedAt,
-    notes: c.notes,
-  };
-}
-
-export async function syncChangeContracts(
-  rows: ChangeContract[],
-  tenantId: string,
-): Promise<void> {
-  if (!isDualWriteEnabled() || rows.length === 0) return;
-  if (!tenantId) {
-    throw new Error(
-      "[dual-write/change_contracts] syncChangeContracts: tenantId required",
-    );
-  }
-  const mapped = rows.map((c) => mapChangeContractToRow(c, tenantId));
-  await dualWriteUpsert("change_contracts", mapped, "contract_id");
-}
-
-/** Map camelCase PersistedIssue to snake_case DB row. PK: issue_id.
- *  Phase 1 Stage B (2026-05-09): tenant_id stamped on every row. */
-function mapPersistedIssueToRow(
-  issue: PersistedIssue,
-  tenantId: string,
-): AnyRow {
-  return {
-    issue_id: issue.issueId,
-    tenant_id: tenantId,
-    page_url: issue.pageUrl,
-    page_path: issue.pagePath,
-    category: issue.category,
-    status: issue.status,
-    handed_off_at: issue.handedOffAt,
-    shipped_at: issue.shippedAt,
-    verified_at: issue.verifiedAt,
-    updated_at: issue.updatedAt,
-    verify_result: issue.verifyResult,
-    verification_observation_run_id: issue.verificationObservationRunId ?? null,
-    verification_baseline_observation_run_id:
-      issue.verificationBaselineObservationRunId ?? null,
-  };
-}
-
-export async function syncPageIssues(
-  rows: PersistedIssue[],
-  tenantId: string,
-): Promise<void> {
-  if (!isDualWriteEnabled() || rows.length === 0) return;
-  if (!tenantId) {
-    throw new Error(
-      "[dual-write/page_issues] syncPageIssues: tenantId required",
-    );
-  }
-  const mapped = rows.map((issue) => mapPersistedIssueToRow(issue, tenantId));
-  await dualWriteUpsert("page_issues", mapped, "issue_id");
-}
+// mapChangeContractToRow + syncChangeContracts and mapPersistedIssueToRow +
+// syncPageIssues removed 2026-07-21 (CORE 100K Lane O): zero prod callers —
+// the contract/issue write paths that fed them were retired in earlier
+// campaigns. The tenant-scoped READ paths (getChangeContracts) stay live.
 
 // ── Operator memory sync (Phase 9) ──
 
@@ -796,134 +625,10 @@ export async function syncPageSnapshots(
   await dualWriteUpsert("page_snapshots", stamped as unknown as AnyRow[], "id");
 }
 
-export async function syncGuardrailAlerts(
-  alerts: GuardrailAlert[],
-  tenantId: string,
-): Promise<void> {
-  if (!isDualWriteEnabled() || alerts.length === 0) return;
-
-  // Phase 7.7b Commit 3 (2026-04-25): validate cross-tenant mismatch on
-  // input alerts and stamp `tenant_id` onto the inserted DB rows.
-  const stamped = tenantizeRows(alerts, tenantId, "guardrail_alerts");
-
-  const sb = getSupabaseAdmin();
-  try {
-    // Delete-replace: guardrail_alerts has auto-increment integer PK,
-    // no stable text key for upsert. Local file also fully replaces on each scan.
-    // CRITICAL ISOLATION FIX (2026-06-14): scope the delete to THIS tenant —
-    // the prior `.gte("id", 0)` wiped every tenant's alerts on each scan, so a
-    // Ritz nightly scan deleted Iranopedia's guardrail_alerts.
-    const { error: delErr } = await sb
-      .from("guardrail_alerts")
-      .delete()
-      .eq("tenant_id", tenantId)
-      .gte("id", 0);
-    if (delErr) {
-      console.error(
-        `[dual-write] guardrail_alerts: delete failed — ${delErr.message}`,
-      );
-      return;
-    }
-    // Insert fresh rows without 'id' — let Postgres auto-generate
-    const rows = stamped.map((a) => ({
-      page_id: a.page_id,
-      url: a.url,
-      severity: a.severity,
-      category: a.category,
-      message: a.message,
-      detail: a.detail,
-      observation_run_id: a.observation_run_id ?? null,
-      tenant_id: a.tenant_id,
-    }));
-    for (let i = 0; i < rows.length; i += CHUNK_SIZE) {
-      const chunk = rows.slice(i, i + CHUNK_SIZE);
-      const { error } = await sb.from("guardrail_alerts").insert(chunk);
-      if (error) {
-        console.error(
-          `[dual-write] guardrail_alerts: insert chunk ${i}-${i + chunk.length} failed — ${error.message}`,
-        );
-      }
-    }
-  } catch (e) {
-    console.error(
-      `[dual-write] guardrail_alerts: unexpected error — ${e instanceof Error ? e.message : e}`,
-    );
-  }
-}
-
-/**
- * Phase 4.5 (Sprint 4, 2026-04-24) — URL-scoped guardrail_alerts replace.
- *
- * `syncGuardrailAlerts` above is a GLOBAL delete-replace (nukes every row
- * before re-inserting). That's correct for `orchestrate-scan` which rewrites
- * every URL's alerts in one transaction, but unsafe for verify-action which
- * only has fresh alerts for ONE URL — calling the global helper from verify
- * would wipe every OTHER URL's alerts as a side effect.
- *
- * This helper mirrors verify-action.ts's local-file behavior: delete only
- * the rows matching the passed URL, then insert the fresh alert set for
- * that URL. Other URLs' alerts untouched.
- *
- * Pass `alerts = []` to clear this URL's alerts entirely (valid — means
- * the verify pass found zero guardrail issues).
- */
-export async function syncGuardrailAlertsForUrl(
-  url: string,
-  alerts: GuardrailAlert[],
-  tenantId: string,
-): Promise<void> {
-  if (!isDualWriteEnabled()) return;
-
-  // Phase 7.7b Commit 3 (2026-04-25): validate cross-tenant mismatch on
-  // input alerts and stamp `tenant_id` onto the inserted DB rows. Note:
-  // tenantizeRows accepts an empty alerts array, so the no-alerts /
-  // delete-only path still runs.
-  const stamped = tenantizeRows(alerts, tenantId, "guardrail_alerts");
-
-  const sb = getSupabaseAdmin();
-  try {
-    // Tenant-scope the delete (audit 2026-06-14): the sibling
-    // syncGuardrailAlerts was tenant-scoped by audit #1 (98f3eb7) but this
-    // URL-variant was missed — a bare `.eq("url", url)` deletes every
-    // tenant's alerts at that URL. Latent today (distinct domains) but a
-    // cross-tenant wipe the moment two tenants share a URL string.
-    const { error: delErr } = await sb
-      .from("guardrail_alerts")
-      .delete()
-      .eq("tenant_id", tenantId)
-      .eq("url", url);
-    if (delErr) {
-      console.error(
-        `[dual-write] guardrail_alerts (url=${url}): delete failed — ${delErr.message}`,
-      );
-      return;
-    }
-    if (stamped.length === 0) return;
-    const rows = stamped.map((a) => ({
-      page_id: a.page_id,
-      url: a.url,
-      severity: a.severity,
-      category: a.category,
-      message: a.message,
-      detail: a.detail,
-      observation_run_id: a.observation_run_id ?? null,
-      tenant_id: a.tenant_id,
-    }));
-    for (let i = 0; i < rows.length; i += CHUNK_SIZE) {
-      const chunk = rows.slice(i, i + CHUNK_SIZE);
-      const { error } = await sb.from("guardrail_alerts").insert(chunk);
-      if (error) {
-        console.error(
-          `[dual-write] guardrail_alerts (url=${url}): insert chunk ${i}-${i + chunk.length} failed — ${error.message}`,
-        );
-      }
-    }
-  } catch (e) {
-    console.error(
-      `[dual-write] guardrail_alerts (url=${url}): unexpected error — ${e instanceof Error ? e.message : e}`,
-    );
-  }
-}
+// syncGuardrailAlerts + syncGuardrailAlertsForUrl removed 2026-07-21 (CORE
+// 100K Lane O): zero prod callers — the orchestrate-scan writer path and the
+// verify-action URL-scoped path were both retired in earlier campaigns.
+// The guardrail_alerts READ paths (getGuardrailAlerts) stay live.
 
 // ── Scan findings sync (Phase 3) ──
 
@@ -1271,28 +976,5 @@ export async function syncPageElementInventory(
   );
 }
 
-/**
- * Clear all 7 import-path tables in Supabase (used by resetExperiment).
- * Best-effort — errors logged, never thrown.
- */
-export async function clearAllImportTables(tenantId: string): Promise<void> {
-  if (!isDualWriteEnabled()) return;
-  if (!tenantId) {
-    console.error("[dual-write] clearAllImportTables refused — missing tenantId");
-    return;
-  }
-
-  const tables = [
-    "import_runs",
-    "results",
-    "changelog_entries",
-    "opportunities",
-    "competitors",
-    "attribution_decisions",
-    "candidate_links",
-  ];
-
-  for (const t of tables) {
-    await dualWriteTruncate(t, tenantId);
-  }
-}
+// (clearAllImportTables removed 2026-07-21 with dualWriteTruncate — see the
+// dated note above the typed convenience wrappers.)

@@ -121,8 +121,6 @@ type RouteTitleEntry = {
 // header, so a title entry for it was dead weight.
 const EXTRA_ROUTE_TITLES: RouteTitleEntry[] = [
   { prefix: "/changes", title: "Changes", childTitle: "Change detail" },
-  { prefix: "/changes/dedupe", title: "Duplicate changes", parentHref: "/changes" },
-  { prefix: "/changes/truth", title: "Change verification", parentHref: "/changes" },
   { prefix: "/page", title: "Page report", childTitle: "Page report" },
   { prefix: "/help", title: "Help & glossary" },
   { prefix: "/onboard", title: "Set up your business", childTitle: "Set up your business" },

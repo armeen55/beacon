@@ -11,14 +11,6 @@
 import "server-only";
 
 /**
- * Phase 0.5 — event-level truth side-by-side preview at `/changes/truth`.
- * Off by default; route returns 404 and the `/changes` link is hidden.
- */
-export function isEventTruthPreviewEnabled(): boolean {
-  return process.env.BEACON_EVENT_TRUTH_PREVIEW === "1";
-}
-
-/**
  * Controls whether the scanner auto-links pending findings to recent
  * changelog entries (see `generateFindings()` auto-reconcile loop).
  *

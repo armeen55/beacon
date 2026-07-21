@@ -218,10 +218,10 @@ const DISPLAY_SURFACES = [
   "src/lib/connectors/gsc/readiness.ts",
   "src/components/today/first-reading-waiting.tsx",
   // health-strip.tsx + how-we-know-panel.tsx deleted 2026-07-21 (Phase 4D): the
-  // TodayScoreboard render that mounted them was dead; today-scoreboard.tsx is
-  // now a pure type module.
+  // TodayScoreboard render that mounted them was dead. today-scoreboard.tsx
+  // itself was deleted 2026-07-21 (routes cleanup); its ScoreboardData type
+  // moved into today-shared-types.ts.
   "src/components/today/refresh-my-data-button.tsx",
-  "src/components/today/today-scoreboard.tsx",
   "src/app/(shell)/scoreboard-section.tsx",
   "src/app/(shell)/settings/config/revenue-model-card.tsx",
   "src/domains/scoreboard/scoreboard.ts",

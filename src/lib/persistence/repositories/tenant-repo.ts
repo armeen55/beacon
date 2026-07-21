@@ -21,21 +21,15 @@
 
 import "server-only";
 
-import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
-
 import type { SeedDataRepository, TenantRepository } from "./types";
 import {
   readDotDataJson,
   writeDotDataJson,
 } from "@/lib/persistence/dotdata-json";
-import { getDataDir } from "@/lib/tenant";
-import { getTenant } from "@/domains/tenants/store";
 import type {
   SitemapReconciliation,
 } from "@/domains/pages/types";
 import type { RobotsStateFile } from "@/domains/pages/robots-parser";
-import type { ProfoundImportRun } from "@/domains/observation-runs/types";
 
 /**
  * Loose runtime filter — works for any row shape that may carry a
@@ -47,90 +41,11 @@ function filterByTenantId<T>(rows: T[], tenantId: string): T[] {
   return rows.filter((r) => (r as { tenant_id?: unknown }).tenant_id === tenantId);
 }
 
-/**
- * Section 5 precursor (2026-05-16) — positive-shape discriminator
- * for `ProfoundImportRun` rows in the mixed `.data/observation-
- * runs.json` store. The file historically contains both shapes
- * (website-crawl `ObservationRun` AND poll-run `ProfoundImportRun`);
- * the website-crawl shape has `run_id` + `run_type`, the poll-run
- * shape has `run_date` + `source_type`. We discriminate positively
- * on the two fields the consumer needs (run_date + source_type)
- * rather than negatively on the absence of `run_type`, so a future
- * row that carries both shapes' fields still classifies cleanly.
- */
-export function isProfoundImportRunShape(
-  r: unknown,
-): r is ProfoundImportRun {
-  if (r == null || typeof r !== "object") return false;
-  const row = r as Record<string, unknown>;
-  return typeof row.run_date === "string" && typeof row.source_type === "string";
-}
-
-/**
- * Section 5 precursor (2026-05-16) — explicit-tenant slug resolver
- * for the disk-backed `ProfoundImportRun` read.
- *
- * Resolves the captured `tenantId` argument to its slug WITHOUT
- * touching ambient `currentTenantSlug()` (the contract is that
- * `forTenant(tenantId)` scopes by `tenantId`, not by the active
- * request slug). Returns `null` when neither the tenant registry
- * nor the operator-bootstrap env fallback can supply a slug; the
- * caller treats `null` as "no data" (returns `[]`).
- *
- * Operator-bootstrap fallback rule mirrors `currentTenantSlug()`
- * in `src/lib/tenant-context.ts:78-99`: when the explicit
- * `tenantId` matches `BEACON_TENANT_ID` AND `BEACON_TENANT_SLUG`
- * is set, accept the env slug. For any other tenantId, missing
- * registry entry = null + caller returns `[]`. This preserves
- * Ritz production reads (registry typically empty on Vercel
- * because `.data/global/tenants.json` is gitignored) while
- * refusing to leak data for any non-bootstrap tenant.
- */
-async function resolveSlugForTenant(tenantId: string): Promise<string | null> {
-  const tenant = await getTenant(tenantId);
-  if (tenant) return tenant.slug;
-  const envId = process.env.BEACON_TENANT_ID;
-  const envSlug = process.env.BEACON_TENANT_SLUG;
-  if (envId && envSlug && envId === tenantId) return envSlug;
-  return null;
-}
-
-/**
- * Section 5 precursor (2026-05-16) — explicit-tenant disk read for
- * `ProfoundImportRun[]`. Reads
- * `.data/tenants/{slug}/observation-runs.json` directly via
- * `readFileSync` after resolving the slug from the explicit
- * `tenantId`. NEVER consults `readStore("observation-runs")` (which
- * would route through ambient `currentTenantSlug()` and silently
- * ignore the explicit `tenantId`).
- *
- * Returns `[]` on:
- *   • Missing slug (tenant not in registry AND env fallback doesn't
- *     match) — fail-soft so Section 5's loader treats it as
- *     "no polling-day evidence yet" rather than throwing.
- *   • Missing file (per-tenant directory not yet seeded).
- *   • Malformed JSON.
- *   • Non-array root (defensive).
- *
- * Positive-shape filter runs after the disk read, dropping any
- * website-crawl `ObservationRun` rows that share the same file.
- */
-export async function readProfoundImportRunsForTenant(
-  tenantId: string,
-): Promise<ProfoundImportRun[]> {
-  const slug = await resolveSlugForTenant(tenantId);
-  if (slug == null) return [];
-  const filePath = join(getDataDir(slug), "observation-runs.json");
-  if (!existsSync(filePath)) return [];
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(readFileSync(filePath, "utf-8"));
-  } catch {
-    return [];
-  }
-  if (!Array.isArray(parsed)) return [];
-  return parsed.filter(isProfoundImportRunShape);
-}
+// (isProfoundImportRunShape / resolveSlugForTenant /
+// readProfoundImportRunsForTenant removed 2026-07-21, CORE 100K Lane O:
+// the Section 5 repeat-citation loader that consumed the
+// getProfoundImportRuns read path was deleted in an earlier campaign.
+// shipped-change-store.ts keeps its own inline poll-day reader.)
 
 export function buildTenantRepo(
   base: SeedDataRepository,
@@ -138,12 +53,6 @@ export function buildTenantRepo(
 ): TenantRepository {
   return {
     getPages: async () => filterByTenantId(await base.getPages(), tenantId),
-    // Perf+egress bundle 2 (2026-05-12) — narrow projection of
-    // `pages`. The file backend's `filterByTenantId` requires
-    // `tenant_id` on each row; PageSummary carries it for exactly
-    // this reason.
-    getPageSummaries: async () =>
-      filterByTenantId(await base.getPageSummaries(), tenantId),
     getPageSnapshots: async () =>
       filterByTenantId(await base.getPageSnapshots(), tenantId),
     // audit #12 (2026-06-14) — the file backend's getPageSnapshots reads
@@ -234,53 +143,14 @@ export function buildTenantRepo(
       filterByTenantId(await base.getTrackedPrompts(), tenantId),
     getTrackedEntities: async () =>
       filterByTenantId(await base.getTrackedEntities(), tenantId),
-    // Night-shift fix (2026-06-11) — citation_evidence_index is a
-    // SINGLE OBJECT per tenant (not rows), so filterByTenantId can't
-    // protect it. Pre-fix, hosted reads returned ONE global row blended
-    // across tenants. Prefer the backend's explicit-tenant read when it
-    // exists (Supabase); the file backend's ambient per-tenant routing
-    // already isolates, so fall back to the ambient read there.
-    getCitationEvidenceIndex: async () =>
-      base.getCitationEvidenceIndexScoped
-        ? base.getCitationEvidenceIndexScoped(tenantId)
-        : base.getCitationEvidenceIndex(),
-    getAnswerIntelligenceIndex: async () =>
-      base.getAnswerIntelligenceIndexScoped
-        ? base.getAnswerIntelligenceIndexScoped(tenantId)
-        : base.getAnswerIntelligenceIndex(),
     // Night-shift (2026-06-11) — rows carry tenant_id; the unscoped base
     // read returns every tenant on hosted.
     getChangeContracts: async () =>
       filterByTenantId(await base.getChangeContracts(), tenantId),
-    getPageIssues: async () =>
-      filterByTenantId(await base.getPageIssues(), tenantId),
-    getEventDecisions: async () =>
-      filterByTenantId(await base.getEventDecisions(), tenantId),
-    getCandidateLinks: async () =>
-      filterByTenantId(await base.getCandidateLinks(), tenantId),
     getOpportunities: async () =>
       filterByTenantId(await base.getOpportunities(), tenantId),
     getCompetitors: async () =>
       filterByTenantId(await base.getCompetitors(), tenantId),
-    /**
-     * Section 5 precursor (2026-05-16) — explicit-tenant poll-run
-     * read. Scopes by the captured `tenantId` argument, NOT by
-     * ambient `currentTenantSlug()`. Resolves `tenantId → slug`
-     * via the tenant registry (with operator-bootstrap env
-     * fallback only when `tenantId === BEACON_TENANT_ID`), then
-     * reads `.data/tenants/{slug}/observation-runs.json`
-     * directly. Returns `[]` when the slug is unresolvable, the
-     * file is missing, or the file is malformed — fail-soft for
-     * Section 5's downstream compute.
-     *
-     * Architectural contract: a caller running
-     * `forTenant("tenant-a").getProfoundImportRuns()` while
-     * ambient request slug is `tenant-b` gets tenant-a's data,
-     * not tenant-b's. Pinned by
-     * `tests/architecture/profound-import-runs-explicit-tenant-scope.test.ts`.
-     */
-    getProfoundImportRuns: async () =>
-      readProfoundImportRunsForTenant(tenantId),
     // ─────────────────────────────────────────────────────────────────
     // Phase A.3 (post-A.3.5) — tenant-scoped robots-state +
     // sitemap-reconciliation. File-backend routes both through
