@@ -39,6 +39,8 @@ import {
   latestRefreshBySource,
   buildRefreshRunRow,
   classifyRefreshOutcome,
+  deriveSyncFailureEscalation,
+  SYNC_FAILURE_ESCALATION_MIN_STREAK,
   __testing,
 } from "./refresh-runs-store";
 import { classifyStore } from "@/lib/persistence/store-classification";
@@ -207,5 +209,98 @@ describe("latestRefreshBySource + two-tenant isolation (file mirror)", () => {
 describe("store registration", () => {
   it("refresh-runs is classified GLOBAL (tenant_id carried in-row)", () => {
     expect(classifyStore("refresh-runs")).toBe("global");
+  });
+});
+
+describe("deriveSyncFailureEscalation (pure) — 3-strike escalation", () => {
+  const NOW = new Date("2026-07-20T00:00:00Z");
+  const f = (started_at: string) => ({ started_at, result: "failed" as const });
+  const ok = (started_at: string) => ({ started_at, result: "ok" as const });
+
+  it("threshold constant is 3", () => {
+    expect(SYNC_FAILURE_ESCALATION_MIN_STREAK).toBe(3);
+  });
+
+  it("a non-failed just-finished run never escalates", () => {
+    const r = deriveSyncFailureEscalation(
+      [f("2026-07-19T00:00:00Z"), f("2026-07-18T00:00:00Z")],
+      { result: "ok", startedAt: NOW.toISOString() },
+      NOW,
+    );
+    expect(r).toEqual({ escalate: false, since: null, streak: 0, daysStale: 0 });
+  });
+
+  it("two PRIOR failures + this failure = streak 3 → escalate, since = last good", () => {
+    const r = deriveSyncFailureEscalation(
+      [f("2026-07-19T00:00:00Z"), f("2026-07-18T00:00:00Z"), ok("2026-07-15T00:00:00Z")],
+      { result: "failed", startedAt: NOW.toISOString() },
+      NOW,
+    );
+    expect(r.escalate).toBe(true);
+    expect(r.streak).toBe(3);
+    expect(r.since).toBe("2026-07-15T00:00:00Z");
+    expect(r.daysStale).toBe(5);
+  });
+
+  it("one PRIOR failure + this failure = streak 2 → below threshold, no escalate", () => {
+    const r = deriveSyncFailureEscalation(
+      [f("2026-07-19T00:00:00Z"), ok("2026-07-18T00:00:00Z")],
+      { result: "failed", startedAt: NOW.toISOString() },
+      NOW,
+    );
+    expect(r.escalate).toBe(false);
+    expect(r.streak).toBe(2);
+  });
+
+  it("an ok/partial run BREAKS the streak (only leading failures count)", () => {
+    const r = deriveSyncFailureEscalation(
+      // newest-first: fail, fail, OK (break), fail, fail — streak stops at the ok
+      [
+        f("2026-07-19T00:00:00Z"),
+        f("2026-07-18T00:00:00Z"),
+        ok("2026-07-17T00:00:00Z"),
+        f("2026-07-16T00:00:00Z"),
+      ],
+      { result: "failed", startedAt: NOW.toISOString() },
+      NOW,
+    );
+    // this + two leading priors = 3 (the ok at index 2 halts the walk).
+    expect(r.streak).toBe(3);
+    expect(r.escalate).toBe(true);
+    expect(r.since).toBe("2026-07-17T00:00:00Z");
+  });
+
+  it("no prior good run in-window → since falls back to the oldest failure", () => {
+    const r = deriveSyncFailureEscalation(
+      [f("2026-07-19T00:00:00Z"), f("2026-07-18T00:00:00Z")],
+      { result: "failed", startedAt: NOW.toISOString() },
+      NOW,
+    );
+    expect(r.escalate).toBe(true);
+    expect(r.streak).toBe(3);
+    // oldest failing row is the "since" anchor when no good pull is known.
+    expect(r.since).toBe("2026-07-18T00:00:00Z");
+  });
+
+  it("empty prior history + a single failure = streak 1 → no escalate", () => {
+    const r = deriveSyncFailureEscalation(
+      [],
+      { result: "failed", startedAt: NOW.toISOString() },
+      NOW,
+    );
+    expect(r.escalate).toBe(false);
+    expect(r.streak).toBe(1);
+    expect(r.since).toBe(NOW.toISOString());
+  });
+
+  it("custom minStreak is honored", () => {
+    const r = deriveSyncFailureEscalation(
+      [f("2026-07-19T00:00:00Z")],
+      { result: "failed", startedAt: NOW.toISOString() },
+      NOW,
+      { minStreak: 2 },
+    );
+    expect(r.streak).toBe(2);
+    expect(r.escalate).toBe(true);
   });
 });

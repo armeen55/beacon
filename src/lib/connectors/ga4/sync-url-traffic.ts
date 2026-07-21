@@ -34,12 +34,17 @@ import "server-only";
 
 import { log } from "@/lib/logger";
 import {
+  getConnectorInfo,
   getGoogleConnectorToken,
   persistRefreshedGoogleToken,
   updateConnectorToken,
 } from "@/lib/connector-store";
 import { refreshGoogleAccessToken } from "@/lib/connectors/google-auth";
 import { getRepository } from "@/lib/persistence/repositories";
+import {
+  deriveSyncFailureEscalation,
+  listRecentRefreshRuns,
+} from "@/domains/ops/refresh-runs-store";
 
 import {
   computeRefreshDateRange,
@@ -102,6 +107,14 @@ export async function syncGa4UrlTrafficForTenant(args: {
     if (result.reason === "token_expired") {
       await stampGa4AuthFailure(tenantId, now);
     }
+    // Sync-failure escalation (2026-07-20): a source that fails 3+ times in a
+    // row must stop showing the gentle "I will try again on my own" line and
+    // surface an honest needs-attention state. The existing auth escalation
+    // runs ONLY from the nightly cron and reads ONLY cron-trigger rows — with
+    // crons off, on-use is the only path left, so a persistent on-use failure
+    // never escalated. Evaluate the all-trigger streak here, in the GA4 lane,
+    // so the card tells the truth. Fail-soft: never alters the sync outcome.
+    await escalateGa4SyncFailureIfPersistent(tenantId, now);
     return { synced: false, reason: result.reason };
   }
   // Auth proved good (data fetched + persisted) → clear any prior marker so
@@ -199,7 +212,73 @@ async function stampGa4AuthFailure(tenantId: string, now: Date): Promise<void> {
 
 async function clearGa4AuthFailure(tenantId: string): Promise<void> {
   try {
-    await updateConnectorToken("google_ga4", { auth_failed_at: null }, tenantId);
+    // A good pull clears BOTH the proven-dead reconnect marker AND the softer
+    // sync-failure needs-attention marker, so the card heals immediately on the
+    // first success — from any path (cron/manual/on-use), not just the on-use
+    // stampFreshness step.
+    await updateConnectorToken(
+      "google_ga4",
+      {
+        auth_failed_at: null,
+        needs_attention_at: null,
+        needs_attention_since: null,
+        needs_attention_kind: null,
+      },
+      tenantId,
+    );
+  } catch {
+    /* fail-soft — never alter the sync outcome */
+  }
+}
+
+/**
+ * Escalate the GA4 connector card to needs-attention when the source has failed
+ * to sync on 3+ consecutive attempts (any trigger). Stamps the SAME
+ * needs_attention_* markers the cron auth escalation uses, so the existing card
+ * rendering surfaces the honest "not synced since <date>" state instead of the
+ * gentle retry line. Idempotent (never restamps an existing marker) and
+ * FAIL-SOFT: any read/write error here must never change the sync's outcome.
+ *
+ * Only escalates a genuinely CONNECTED grant with no proven-dead marker — a
+ * revoked grant already shows Reconnect (auth_failed_at) and outranks this.
+ */
+async function escalateGa4SyncFailureIfPersistent(
+  tenantId: string,
+  now: Date,
+): Promise<void> {
+  try {
+    const info = await getConnectorInfo("google_ga4", tenantId);
+    if (info.status !== "connected") return;
+    if (info.auth_failed_at != null && info.auth_failed_at !== "") return;
+    // Already flagged — leave the original "since" date intact; do not refresh
+    // it on every subsequent failure.
+    if (info.needs_attention_at != null && info.needs_attention_at !== "") return;
+
+    // Prior GA4 runs, newest first. This run's own ledger row is written by the
+    // caller AFTER the sync returns, so these are genuinely prior — we add the
+    // just-finished failure ourselves.
+    const priorRuns = await listRecentRefreshRuns(tenantId, { source: "ga4", limit: 12 });
+    const { escalate, since, streak } = deriveSyncFailureEscalation(
+      priorRuns,
+      { result: "failed", startedAt: now.toISOString() },
+      now,
+    );
+    if (!escalate) return;
+
+    await updateConnectorToken(
+      "google_ga4",
+      {
+        needs_attention_at: now.toISOString(),
+        needs_attention_since: since,
+        needs_attention_kind: "streak",
+      },
+      tenantId,
+    );
+    log.warn("[ga4-sync] escalated to needs-attention after consecutive failures", {
+      tenantId,
+      streak,
+      since,
+    });
   } catch {
     /* fail-soft — never alter the sync outcome */
   }

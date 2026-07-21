@@ -360,6 +360,13 @@ export function RecommendationV2Card({
     row.status === "needs_fresh_edit";
   const qaDisplay = deriveRecQaDisplay({ qaVerdict: qa, isSuggestion });
   const qaPushLabel = qa == null ? null : qaDisplay.pushLabel;
+  // #310 / destructive-action audit (2026-07-20) — indexing directives
+  // (robots.txt, meta noindex, canonical, redirect/status) can DEINDEX a live
+  // site. They are HELD FOR REVIEW: type-driven, never copy-driven. When this
+  // is true the card suppresses BOTH one-tap CTAs (Accept and Accept & publish)
+  // and shows the review link instead, so a wrong value can never ship in one
+  // tap. The plain-English hold notice renders above the CTA row.
+  const heldForReview = isIndexingDirectiveActionType(row.detail.editActionType);
   const qaCaution =
     qa != null && (qa.confidence === "rejected" || qa.confidence === "low" || qa.confidence === "needs_more_evidence")
       ? qa.confidenceReason
@@ -724,7 +731,7 @@ export function RecommendationV2Card({
             ARMED PUBLISHING: when the site is armed and this row is safe +
             mapped + high-confidence, the parent passes onAcceptAndPublish and
             the primary CTA becomes one-click "Accept & publish" (live). */}
-        {onAcceptAndPublish != null ? (
+        {heldForReview ? null : onAcceptAndPublish != null ? (
           <button
             type="button"
             onClick={onAcceptAndPublish}
@@ -791,10 +798,12 @@ export function RecommendationV2Card({
           prefetch={false}
           className="text-accent-primary hover:underline"
           data-recommendation-v2-cta={
-            onAccept != null && qaDisplay.actionable ? "review" : "primary"
+            heldForReview || (onAccept != null && qaDisplay.actionable) ? "review" : "primary"
           }
         >
-          {qaDisplay.actionable ? "Review →" : "View details →"}
+          {/* Held indexing directives route to the review/confirm surface — never
+              a one-tap change — so the link always reads "Review". */}
+          {heldForReview || qaDisplay.actionable ? "Review →" : "View details →"}
         </Link>
         {(pageSurgeonReviewVerdict === "approve" || pageSurgeonReviewVerdict === "needs_edit") && (
           <Link

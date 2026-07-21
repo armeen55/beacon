@@ -53,6 +53,12 @@ import "server-only";
 import { getSupabaseAdmin } from "@/lib/persistence/supabase";
 import { currentTenantId } from "@/lib/tenant-context";
 import { CONNECTION_LIVENESS_STALE_DAYS } from "@/domains/ops/source-freshness";
+import {
+  CONNECTOR_REGISTRY,
+  connectorById,
+  isPublishOnly,
+  type LiveConnectorId,
+} from "@/lib/connectors/registry";
 
 // ─────────────────────────────────────────────────────────────────────
 // Provider + token shapes
@@ -565,11 +571,11 @@ export type ConnectorHealthInfo = ConnectorInfo & {
  */
 const STALE_DAYS = CONNECTION_LIVENESS_STALE_DAYS;
 
-/** Providers that require a per-source selection before any data can flow. */
+/** Providers that require a per-source selection before any data can flow.
+ *  Read off the ONE connector registry (GA4 pulls zero rows until the operator
+ *  picks a property). */
 function requiresPropertySelection(provider: ConnectorProvider): boolean {
-  // GA4 pulls zero rows until the operator picks a property. (GBP needs a
-  // location, but GBP is not a strip data source.)
-  return provider === "google_ga4";
+  return connectorById(provider)?.requiresPropertySelection === true;
 }
 
 /** Format an ISO timestamp/date as a friendly "June 30" for operator copy.
@@ -683,12 +689,26 @@ export async function getConnectorHealth(
           : "I have not been able to pull Google data for this site in a while. Reconnect Google and I will start fresh from today.",
       };
     }
+    // Streak escalation (2026-07-20): the source has failed N consecutive syncs
+    // (the "streak" kind). Lead with the day count when we can compute it from the
+    // last good sync (needs_attention_since), so the operator sees exactly how
+    // long it has been silent; fall back to the dated phrasing when there is no
+    // usable since date.
+    const sinceMs = info.needs_attention_since
+      ? Date.parse(info.needs_attention_since)
+      : NaN;
+    const daysStale = Number.isFinite(sinceMs)
+      ? Math.max(0, Math.floor((now - sinceMs) / (24 * 60 * 60 * 1000)))
+      : null;
     return {
       ...info,
       health: "needs_attention",
-      healthReason: since
-        ? `I have not been able to pull your data since ${since}. Reconnecting usually fixes this.`
-        : "I have not been able to pull your data for several days. Reconnecting usually fixes this.",
+      healthReason:
+        daysStale != null
+          ? `This source has not synced in ${daysStale} day${daysStale === 1 ? "" : "s"}. I keep retrying, but it may need your attention.`
+          : since
+            ? `I have not been able to pull your data since ${since}. Reconnecting usually fixes this.`
+            : "I have not been able to pull your data for several days. Reconnecting usually fixes this.",
     };
   }
 
@@ -705,12 +725,14 @@ export async function getConnectorHealth(
     };
   }
 
-  // Data-freshness rules apply ONLY to read sources. Wix is publish-only —
-  // it never "pulls a reading", so a connected Wix is always healthy (a
+  // Data-freshness rules apply ONLY to read sources. A publish-only source (Wix)
+  // never "pulls a reading", so a connected one is always healthy here (a
   // missing/old last_synced_at just means nothing's been published, not a
-  // problem). Skipping it here also avoids the "pull your first reading"
-  // copy nonsensically appearing on Wix.
-  if (provider === "wix") {
+  // problem). Read the publish-only fact off the ONE connector registry. Skipping
+  // it here also avoids the "pull your first reading" copy nonsensically
+  // appearing on a publish-only source.
+  const entry = connectorById(provider);
+  if (entry != null && isPublishOnly(entry)) {
     return { ...info, health: "connected", healthReason: null };
   }
 
@@ -741,17 +763,15 @@ export async function getConnectorHealth(
 
 /**
  * The read data-source connectors that, when ANY is connected, mean the
- * tenant is operating on its own LIVE data — not demo/sample content.
- * (google_gbp + callrail + yelp are excluded: GBP rides the gsc grant,
- * CallRail/Yelp are auxiliary, not a primary visibility/SEO/AEO source.)
+ * tenant is operating on its own LIVE data — not demo/sample content. Derived
+ * from the ONE canonical connector registry (the four live connectors). Legacy
+ * providers (google_gbp rides the gsc grant, CallRail/Yelp are auxiliary, and
+ * profound was disconnected 2026-07-20) are not live sources, so they are not in
+ * the registry and never count toward "this is a real tenant".
  */
-const REAL_DATA_SOURCE_PROVIDERS: ConnectorProvider[] = [
-  "google_gsc",
-  "google_ga4",
-  "profound",
-  "clarity",
-  "wix",
-];
+const REAL_DATA_SOURCE_PROVIDERS: LiveConnectorId[] = CONNECTOR_REGISTRY.map(
+  (c) => c.id,
+);
 
 /**
  * True when the tenant has at least one real data source connected.

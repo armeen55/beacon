@@ -3,6 +3,7 @@
 import { useEffect, useState, useTransition } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import type { ConnectorInfo } from "@/lib/connector-store";
+import { CONNECTOR_REGISTRY, type ConnectorRollup } from "@/lib/connectors/registry";
 import type { Ga4Property } from "@/lib/connectors/ga4/types";
 import { Pill } from "@/components/ui/pill";
 import {
@@ -99,6 +100,14 @@ type Props = {
    *  older render-test callers (pre-FP10a) working without every prop. */
   connectedCount?: number;
   totalCount?: number;
+  /** Honest connector health rollup (2026-07-20). Computed server-side in
+   *  page.tsx from the SAME per-connector health the cards render, so the
+   *  headline + subline count impaired sources truthfully (connected-but-failing
+   *  GA4 ingest, authorized-but-blocked Wix publish) and can never read
+   *  "4 of 4 connected" while a source is broken. Optional so pre-existing
+   *  render-test callers keep working; when absent the strip falls back to the
+   *  bare connected count. */
+  rollup?: ConnectorRollup;
   /** Plain-English state derived from durable on-use source + warm receipts. */
   autonomousState?: AutonomousHealthState;
   autonomousHeadline?: string;
@@ -133,12 +142,9 @@ export type RefreshLedgerFacts = Partial<
 /** FP10a (2026-07-02) - one line per source: what it actually feeds, in
  *  plain English. Lives here once so it never has to repeat in a footer
  *  paragraph, a capability block, AND a page-level intro. */
-const SOURCE_SUMMARY: Record<string, string> = {
-  google_gsc: "Feeds what people search to find you.",
-  google_ga4: "Feeds which pages bring in visitors.",
-  wix: "Publishes approved edits to your live site.",
-  clarity: "Feeds where visitors get stuck on a page.",
-};
+const SOURCE_SUMMARY: Record<string, string> = Object.fromEntries(
+  CONNECTOR_REGISTRY.map((c) => [c.id, c.summary]),
+);
 
 const ERROR_MESSAGES: Record<string, string> = {
   access_denied: "Google authorization was denied. You can try again when ready.",
@@ -329,9 +335,19 @@ function ConnectorFixLine({
   // sentence (the grant is NOT proven dead, so we never say "login expired").
   const isSyncFailing = state === "sync_failing";
   const since = formatSinceDate(needsAttentionSince);
-  const syncFailingProblem = since
-    ? `I have not been able to pull your data since ${since}. Reconnecting usually fixes this.`
-    : "I have not been able to pull your data for several days. Reconnecting usually fixes this.";
+  // Streak escalation (2026-07-20): lead with the day count when we can compute
+  // it from the last good sync, so the operator sees exactly how long it has been
+  // silent. Fall back to the dated phrasing when there is no usable since date.
+  const sinceMs = needsAttentionSince ? Date.parse(needsAttentionSince) : NaN;
+  const daysStale = Number.isFinite(sinceMs)
+    ? Math.max(0, Math.floor((Date.now() - sinceMs) / 86_400_000))
+    : null;
+  const syncFailingProblem =
+    daysStale != null
+      ? `This source has not synced in ${daysStale} day${daysStale === 1 ? "" : "s"}. I keep retrying, but it may need your attention.`
+      : since
+        ? `I have not been able to pull your data since ${since}. Reconnecting usually fixes this.`
+        : "I have not been able to pull your data for several days. Reconnecting usually fixes this.";
   return (
     <div
       role="status"
@@ -366,7 +382,8 @@ export function ConnectorsClient({
   gscGapLine = null,
   ga4StaleCopy = null,
   connectedCount = 0,
-  totalCount = 4,
+  totalCount = CONNECTOR_REGISTRY.length,
+  rollup,
   autonomousState = "none",
   autonomousHeadline = "starts when you use Beacon.",
   wixUrlMapCount = 0,
@@ -788,17 +805,29 @@ export function ConnectorsClient({
 
   const anySync = googleSyncInFlight;
 
-  // FP10a (2026-07-02) - one health color for the summary strip. All
-  // connected + latest upkeep clean is "live"; any issue is "attention";
-  // still missing sources is "waiting"; nothing connected yet is "neutral".
+  // The honest rollup (2026-07-20) is the single source of the summary counts +
+  // copy. Fall back to the bare connected count only when a legacy caller omits
+  // it (render tests), so the strip always renders something coherent.
+  const connected = rollup?.connectedCount ?? connectedCount;
+  const total = rollup?.total ?? totalCount;
+  const needsAttention = rollup?.needsAttentionCount ?? 0;
+  const rollupHeadline =
+    rollup?.headline ?? `${connected} of ${total} connected`;
+
+  // FP10a (2026-07-02) - one health color for the summary strip. A connected
+  // source that is NOT delivering data (needs attention) is an "attention"
+  // state, never "live" - the certified leak was a green "4 of 4" hiding a
+  // broken GA4 ingest + a blocked Wix publish. All connected AND all delivering
+  // AND upkeep clean is "live"; still-missing sources are "waiting"; nothing
+  // connected yet is "neutral".
   const summaryIntent =
-    autonomousState === "issues"
+    autonomousState === "issues" || needsAttention > 0
       ? "attention"
       : autonomousState === "working"
         ? "waiting"
-      : connectedCount >= totalCount && connectedCount > 0
+      : connected >= total && connected > 0
         ? "live"
-        : connectedCount > 0
+        : connected > 0
           ? "waiting"
           : "neutral";
 
@@ -814,13 +843,18 @@ export function ConnectorsClient({
         className="flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-lg border border-border/60 bg-surface-inset/20 px-4 py-3"
         data-connectors-summary-strip="true"
       >
-        <Pill intent={summaryIntent}>
-          {connectedCount} of {totalCount} connected
-        </Pill>
+        <Pill intent={summaryIntent}>{rollupHeadline}</Pill>
         <p className="text-[12px] text-muted-foreground">
           Automatic upkeep: {autonomousHeadline}
         </p>
       </div>
+      {/* Honest subline (2026-07-20) - never undercounts the impaired sources;
+          same rollup as the headline Pill, so the two can never disagree. */}
+      {rollup ? (
+        <p className="text-[12px] text-muted-foreground leading-relaxed">
+          {rollup.subline}
+        </p>
+      ) : null}
       <p className="text-[12px] text-muted-foreground leading-relaxed">
         Once a source is connected I read it in the background and turn what
         I find into fixes. The only thing I never do on my own is change

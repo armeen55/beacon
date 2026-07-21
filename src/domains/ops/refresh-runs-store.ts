@@ -193,6 +193,57 @@ function rowsPersistedOf(source: RefreshSource, value: unknown): number | null {
   return typeof v.rows_upserted === "number" ? (v.rows_upserted as number) : null;
 }
 
+/** How many consecutive FAILED runs for one source escalate the connector card
+ *  from the gentle "I will try again on my own" to a needs-attention state
+ *  (2026-07-20). Counts ANY trigger (cron/manual/on-use), unlike the cron-only
+ *  auth escalation — with the nightly cron disabled, on-use is the only path
+ *  left, so a cron-only streak can never fire. 3 strikes = a durable failure,
+ *  not a one-off blip. */
+export const SYNC_FAILURE_ESCALATION_MIN_STREAK = 3;
+
+/**
+ * PURE: given a source's PRIOR refresh rows (any trigger, NEWEST FIRST) and the
+ * outcome of the run that just finished, decide whether the consecutive
+ * same-source failure streak has reached the escalation threshold.
+ *
+ * The just-finished run is passed separately because the caller evaluates this
+ * BEFORE its own ledger row is written (the on-use path records the row after
+ * the sync returns). Counts that run plus the leading run of prior FAILED rows;
+ * any `ok`/`partial` prior run breaks the streak (the source reached data, so
+ * it is not silently broken). `since` is the started_at of the last good run
+ * before the streak, else the oldest failing run — for "not synced since <date>"
+ * copy. Returns `daysStale` from that `since` for "not synced in N days" copy.
+ */
+export function deriveSyncFailureEscalation(
+  priorRowsNewestFirst: ReadonlyArray<Pick<RefreshRunRow, "started_at" | "result">>,
+  justFinished: { result: RefreshResult; startedAt: string },
+  now: Date = new Date(),
+  opts: { minStreak?: number } = {},
+): { escalate: boolean; since: string | null; streak: number; daysStale: number } {
+  const minStreak = opts.minStreak ?? SYNC_FAILURE_ESCALATION_MIN_STREAK;
+  if (justFinished.result !== "failed") {
+    return { escalate: false, since: null, streak: 0, daysStale: 0 };
+  }
+
+  let streak = 1; // the run that just failed
+  let i = 0;
+  while (i < priorRowsNewestFirst.length && priorRowsNewestFirst[i]!.result === "failed") {
+    streak += 1;
+    i += 1;
+  }
+
+  const lastGood = priorRowsNewestFirst[i]; // first non-failed after the streak
+  const oldestFailing = i > 0 ? priorRowsNewestFirst[i - 1]!.started_at : justFinished.startedAt;
+  const since = lastGood != null ? lastGood.started_at : oldestFailing;
+
+  const sinceMs = Date.parse(since);
+  const daysStale = Number.isFinite(sinceMs)
+    ? Math.max(0, Math.floor((now.getTime() - sinceMs) / (24 * 60 * 60 * 1000)))
+    : 0;
+
+  return { escalate: streak >= minStreak, since, streak, daysStale };
+}
+
 async function readFile(): Promise<FileRow[]> {
   try {
     return (await readStore<FileRow>(STORE, [])) ?? [];

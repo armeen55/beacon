@@ -192,7 +192,7 @@ describe("autonomousResearchHeaderStatus", () => {
       summary,
     });
     expect(autonomousResearchHeaderStatus(row)).toMatchObject({
-      label: "3 moves ready",
+      label: "3 drafts to review",
       tone: "ready",
     });
   });

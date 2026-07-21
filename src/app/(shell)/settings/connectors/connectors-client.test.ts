@@ -17,3 +17,21 @@ describe("ConnectorsClient - no-scheduler honesty (Beacon has no cron)", () => {
     expect(SRC).not.toMatch(/tonight|last night|overnight|nightly/i);
   });
 });
+
+describe("ConnectorsClient - streak-escalation copy (2026-07-20)", () => {
+  it("leads the sync-failing state with the day-count line, first person, no dash", () => {
+    // A source escalated after N consecutive failed pulls reads the day count,
+    // not a bare reconnect nag.
+    expect(SRC).toContain(
+      "This source has not synced in ${daysStale} day",
+    );
+    expect(SRC).toContain("I keep retrying, but it may need your attention.");
+    // Still keeps the dated fallback for when there is no usable since date.
+    expect(SRC).toContain("I have not been able to pull your data since");
+  });
+
+  it("computes the day count from the last good sync (needsAttentionSince)", () => {
+    expect(SRC).toContain("const daysStale =");
+    expect(SRC).toContain("needsAttentionSince ? Date.parse(needsAttentionSince)");
+  });
+});

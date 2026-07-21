@@ -16,6 +16,11 @@ import {
   type SourceFreshness,
   type SourceKey,
 } from "@/domains/ops/source-freshness";
+import {
+  CONNECTOR_REGISTRY,
+  connectorById,
+  isPublishOnly,
+} from "@/lib/connectors/registry";
 import { monthDayLabel } from "@/components/data/receipt-line";
 
 /**
@@ -74,26 +79,23 @@ type DataSource = {
 };
 
 /**
- * The six read/publish sources, in the order the owner most often connects
- * them. Mirrors `REAL_DATA_SOURCE_PROVIDERS` in connector-store (the set that
- * defines a "real, non-demo" tenant), so the strip's all-connected state and
- * the gate agree.
+ * The read/publish sources, in canonical connect order, derived from the ONE
+ * connector registry (the same set as `REAL_DATA_SOURCE_PROVIDERS` in
+ * connector-store, which defines a "real, non-demo" tenant), so the strip's
+ * all-connected state and the gate agree by construction.
  */
-const DATA_SOURCES: readonly DataSource[] = [
-  { provider: "google_gsc", label: "Google Search Console", cardAnchor: "google-gsc" },
-  { provider: "google_ga4", label: "Google Analytics 4", cardAnchor: "google-ga4" },
-  { provider: "clarity", label: "Microsoft Clarity", cardAnchor: "clarity" },
-  { provider: "wix", label: "Wix", cardAnchor: "wix" },
-] as const;
+const DATA_SOURCES: readonly DataSource[] = CONNECTOR_REGISTRY.map((c) => ({
+  provider: c.id,
+  label: c.label,
+  cardAnchor: c.cardAnchor,
+}));
 
 // Item 51 - the strip speaks in TEAMMATE identities: each source renders its teammate's
 // color dot, so the team health strip and the roundtable share one visual language.
-const TEAMMATE_KEY: Partial<Record<ConnectorProvider, string>> = {
-  google_gsc: "gsc",
-  google_ga4: "ga4",
-  clarity: "clarity",
-  wix: "wix",
-};
+// Teammate key comes from the ONE connector registry.
+const TEAMMATE_KEY: Partial<Record<ConnectorProvider, string>> = Object.fromEntries(
+  CONNECTOR_REGISTRY.map((c) => [c.id, c.teammateKey]),
+);
 
 /** Auth-dead detection: a needs_attention reason that means the connection itself is broken
  *  (expired/revoked/invalid) renders RED with a one-click reconnect, not a soft amber. */
@@ -144,14 +146,11 @@ type SourceStatus = {
 };
 
 /** Wave 3A: providers this strip judges for data freshness, mapped to their canonical SLA
- *  key (source-freshness.ts). GA4 maps to "ga4" (a removed source, excluded from the tally);
- *  a provider not in this map is not part of the freshness verdict. */
-const PROVIDER_TO_SOURCE: Partial<Record<ConnectorProvider, SourceKey>> = {
-  google_gsc: "gsc",
-  google_ga4: "ga4",
-  clarity: "clarity",
-  wix: "wix",
-};
+ *  key, derived from the ONE connector registry. GA4 maps to "ga4" (a removed source,
+ *  excluded from the tally); a provider not in this map is not part of the freshness verdict. */
+const PROVIDER_TO_SOURCE: Partial<Record<ConnectorProvider, SourceKey>> = Object.fromEntries(
+  CONNECTOR_REGISTRY.map((c) => [c.id, c.sourceKey]),
+);
 
 /**
  * Read every source's health in parallel, fail-soft per provider. A read
@@ -244,9 +243,13 @@ export async function DataSourcesStrip({
  */
 export async function countConnectedDataSources(tenantId?: string): Promise<number> {
   const statuses = await readStatuses(tenantId);
-  return statuses.filter(
-    (s) => (s.health === "connected" || s.health === "needs_attention") && s.source.provider !== "wix",
-  ).length;
+  return statuses.filter((s) => {
+    if (s.health !== "connected" && s.health !== "needs_attention") return false;
+    // Publish-only sources (Wix) never pull a reading, so they never count as a
+    // "connected DATA source". Read the fact off the ONE connector registry.
+    const entry = connectorById(s.source.provider);
+    return entry == null || !isPublishOnly(entry);
+  }).length;
 }
 
 /**

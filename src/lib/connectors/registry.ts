@@ -1,0 +1,304 @@
+/**
+ * connector registry (2026-07-20) - THE one canonical description of Beacon's
+ * LIVE data connectors. Before this module, every connector's name, label, SLA,
+ * capability copy, freshness mapping, and customer wording was copied into at
+ * least eight modules (connector-store unions, CONNECTOR_CAPABILITY, the Data
+ * Health CONNECTION_SOURCES, SOURCE_SLA, the team TEAMMATE_PROVIDER map, the
+ * data-sources strip arrays, the connectors-client per-card blocks, the activity
+ * labels). Duplicated arrays drift: the certified leak was "4 of 4 connected"
+ * rendering while GA4 ingestion was broken and Wix publishing was blocked, with a
+ * subline that undercounted the impaired sources. One record per connector, read
+ * everywhere, so the same fact can never disagree with itself again.
+ *
+ * SCOPE: this registry lists the FOUR live connectors only. The stored-row
+ * provider union in connector-store (google_gbp, yelp, callrail, profound, ...)
+ * is deliberately WIDER for backward compatibility with historical token rows;
+ * profound in particular stays in the type but is not a live registry entry
+ * (its account was disconnected 2026-07-20). "Live" = shows a connect card, is
+ * counted in the health rollup, and feeds a real surface.
+ *
+ * PURE + isomorphic: no `server-only`, no I/O, no React. Safe to import from
+ * server components, client components, and vitest alike.
+ */
+
+// The connector-store provider key for a live connector. A strict subset of the
+// wider ConnectorProvider union in connector-store (which keeps legacy keys for
+// stored-row compatibility). Kept as its own type so pure/client callers never
+// have to import the server-only connector-store.
+export type LiveConnectorId = "google_gsc" | "google_ga4" | "wix" | "clarity";
+
+// The freshness/SLA key (the data-age SLA table + the strip's freshness verdict
+// speak this shorter dialect). One connector, two keys: `id` names the token row,
+// `sourceKey` names the freshness source.
+export type SourceKey = "gsc" | "ga4" | "clarity" | "wix";
+
+/** Plain-English "what does this connection actually DO?" clarity copy. */
+export type ConnectorCapabilityCopy = {
+  /** "What Beacon does automatically with this". */
+  automated: string;
+  /** "What you need to do". */
+  youDo: string;
+};
+
+/** What a connector can DO for Beacon - the honest capability contract. */
+export type ConnectorCapabilities = {
+  /** Beacon pulls data FROM this source (GSC, GA4, Clarity). */
+  readsData: boolean;
+  /** Beacon publishes approved changes TO this source (Wix only). */
+  publishes: boolean;
+};
+
+/** Per-source DATA-age SLA (the data-freshness verdict reads this). */
+export type ConnectorSla = {
+  /** Max acceptable DATA age in days; null when the source has no data SLA (wix). */
+  slaMaxDataAgeDays: number | null;
+  /** Required sources must all be inside their SLA for overall health. */
+  required: boolean;
+  /** Removed sources (ga4 - the cross-page session sum is a false total) are
+   *  excluded from the tally entirely. */
+  removed: boolean;
+};
+
+/** The Data Health surface's distinct customer wording for one connector. */
+export type ConnectorDataHealthCopy = {
+  /** Label used on the operator Data Health surface (a deliberately different,
+   *  outcome-first scheme, e.g. "Website visitors" for GA4). */
+  label: string;
+  /** What this source TELLS us (the input). */
+  role: string;
+  /** What it UNLOCKS in Beacon (the output). */
+  unlocks: string;
+  /** What's blocked while it's not connected. */
+  blockedWhenMissing: string;
+};
+
+export type ConnectorRegistryEntry = {
+  /** connector-store provider key + stored-row key. */
+  id: LiveConnectorId;
+  /** Freshness/SLA key. */
+  sourceKey: SourceKey;
+  /** Teammate identity key (domains/team/identity) for the color dot. */
+  teammateKey: string;
+  /** The connectors-page card anchor (deep-linked as #connector-<anchor>). */
+  cardAnchor: string;
+  /** Primary customer label (connect card + Today strip). */
+  label: string;
+  /** Label variant for the activity feed's connection events. Defaults to
+   *  `label` when the surface uses the same wording. */
+  activityLabel: string;
+  /** Short label used in the team-standup freshness sentences. */
+  freshnessLabel: string;
+  /** One-line "what it feeds/does", in plain English. */
+  summary: string;
+  capabilities: ConnectorCapabilities;
+  /** True only for sources that need a per-source selection before ANY data can
+   *  flow (GA4 pulls zero rows until the operator picks a property). */
+  requiresPropertySelection: boolean;
+  capabilityCopy: ConnectorCapabilityCopy;
+  dataHealth: ConnectorDataHealthCopy;
+  sla: ConnectorSla;
+};
+
+// HONESTY (crons-off pivot): Beacon runs on-demand - every refresh of your
+// connected data is what triggers the read + analysis. There is NO nightly /
+// scheduled run, so capability copy says "each time you refresh your connected
+// data", never "every night" / "nightly" / "runs on its own".
+export const CONNECTOR_REGISTRY: readonly ConnectorRegistryEntry[] = [
+  {
+    id: "google_gsc",
+    sourceKey: "gsc",
+    teammateKey: "gsc",
+    cardAnchor: "google-gsc",
+    label: "Google Search Console",
+    activityLabel: "Google Search Console",
+    freshnessLabel: "Search Console",
+    summary: "Feeds what people search to find you.",
+    capabilities: { readsData: true, publishes: false },
+    requiresPropertySelection: false,
+    capabilityCopy: {
+      automated:
+        "Each time you refresh your connected data, Beacon reads your real Google numbers, which pages show up, what people search to find you, how often they click, and where you rank, and turns the weak spots into specific fixes (rewrite this title, refresh this fading page, you're one step from page one on this search).",
+      youDo:
+        "Click Connect once and approve Google's read-only access. Your site just needs to already be set up in Google Search Console. That's it. Beacon never changes anything in Google, it only reads.",
+    },
+    dataHealth: {
+      label: "Google Search",
+      role: "what people search to find you, and where you rank on Google",
+      unlocks: "pages losing clicks, pages slipping, and what to fix first",
+      blockedWhenMissing: "almost everything Beacon does",
+    },
+    sla: { slaMaxDataAgeDays: 3, required: true, removed: false },
+  },
+  {
+    id: "google_ga4",
+    sourceKey: "ga4",
+    teammateKey: "ga4",
+    cardAnchor: "google-ga4",
+    label: "Google Analytics 4",
+    activityLabel: "Google Analytics",
+    freshnessLabel: "Google Analytics",
+    summary: "Feeds which pages bring in visitors.",
+    capabilities: { readsData: true, publishes: false },
+    requiresPropertySelection: true,
+    capabilityCopy: {
+      automated:
+        "When you refresh your connected data, Beacon checks your website analytics to see which pages bring in the most visitors and turn them into customers, then focuses its to-do list on improving the pages that matter most to your bottom line.",
+      youDo:
+        "Sign in with the Google account that has your Analytics, then pick your website from the list. After that, every refresh reads your numbers, and Beacon can never change anything in your Analytics.",
+    },
+    dataHealth: {
+      label: "Website visitors",
+      role: "which pages get the most visitors and sign-ups",
+      unlocks: "focusing on the pages that actually make you money",
+      blockedWhenMissing: "knowing which pages matter most to your business",
+    },
+    // GA4's cross-page session sum is a false total (Wave 1 P1), so it is a
+    // removed source: excluded from the data-freshness tally.
+    sla: { slaMaxDataAgeDays: null, required: false, removed: true },
+  },
+  {
+    id: "clarity",
+    sourceKey: "clarity",
+    teammateKey: "clarity",
+    cardAnchor: "clarity",
+    label: "Microsoft Clarity",
+    activityLabel: "Microsoft Clarity",
+    freshnessLabel: "Visitor behavior data",
+    summary: "Feeds where visitors get stuck on a page.",
+    capabilities: { readsData: true, publishes: false },
+    requiresPropertySelection: false,
+    capabilityCopy: {
+      automated:
+        "Beacon checks where visitors get stuck on your pages, errors that break the page, spots people click that don't work, and how far they scroll, and turns the worst ones into fix-it suggestions, each time you refresh your connected data.",
+      youDo:
+        "One-time setup: in Microsoft Clarity, go to Settings then Data Export, click 'Generate new API token', then paste that token into Beacon's Clarity connection. (You'll need to be an admin on the Clarity project.) After that, Beacon reads it on each refresh, and it never changes anything in Clarity.",
+    },
+    dataHealth: {
+      label: "Visitor behavior (Clarity)",
+      role: "where visitors get stuck or frustrated on your pages",
+      unlocks: "spots where visitors get frustrated or click things that do nothing",
+      blockedWhenMissing: "knowing where visitors get stuck",
+    },
+    sla: { slaMaxDataAgeDays: 7, required: true, removed: false },
+  },
+  {
+    id: "wix",
+    sourceKey: "wix",
+    teammateKey: "wix",
+    cardAnchor: "wix",
+    label: "Wix",
+    activityLabel: "Wix",
+    freshnessLabel: "Wix",
+    summary: "Publishes approved edits to your live site.",
+    // The ONLY write path. Reads nothing on a schedule (publish-only).
+    capabilities: { readsData: false, publishes: true },
+    requiresPropertySelection: false,
+    capabilityCopy: {
+      automated:
+        "Beacon writes the fix your page needs, a sharper title, heading, meta description, or the behind-the-scenes code that helps AI assistants quote you, and after you click approve, it publishes that single change to your live Wix site for you (up to 10 a day), then double-checks it actually went live.",
+      youDo:
+        "Connect Wix once by pasting in a Wix API key plus your Site ID, tell Beacon which part of your site holds your pages, then approve each suggested change with a click, and Beacon never auto-publishes. Brand-new blog posts, images, and any link or menu changes still get handled by you in Wix.",
+    },
+    dataHealth: {
+      label: "Your website (Wix)",
+      role: "your live website content and SEO settings (read only, not analytics)",
+      unlocks: "reading your current pages and publishing changes you approve",
+      blockedWhenMissing:
+        "one-click publishing (you can still copy and paste changes yourself)",
+    },
+    sla: { slaMaxDataAgeDays: null, required: false, removed: false },
+  },
+] as const;
+
+/** The live connector ids, in canonical connect order. */
+export const LIVE_CONNECTOR_IDS: readonly LiveConnectorId[] =
+  CONNECTOR_REGISTRY.map((c) => c.id);
+
+/** Registry entry by connector-store provider id (undefined for a legacy/
+ *  non-live provider such as profound/yelp/callrail/google_gbp). */
+export function connectorById(id: string): ConnectorRegistryEntry | undefined {
+  return CONNECTOR_REGISTRY.find((c) => c.id === id);
+}
+
+/** Registry entry by freshness SourceKey. */
+export function connectorBySourceKey(
+  sourceKey: SourceKey,
+): ConnectorRegistryEntry | undefined {
+  return CONNECTOR_REGISTRY.find((c) => c.sourceKey === sourceKey);
+}
+
+/** True when the connector only publishes (writes) and never pulls a reading -
+ *  staleness/first-sync rules must not apply to it (currently Wix). */
+export function isPublishOnly(entry: ConnectorRegistryEntry): boolean {
+  return entry.capabilities.publishes && !entry.capabilities.readsData;
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Honest health rollup - the ONE place the connectors headline + subline count
+// impaired sources, so they can never disagree (the certified "4 of 4 connected"
+// leak that hid a broken GA4 ingest + a blocked Wix publish).
+// ─────────────────────────────────────────────────────────────────────────
+
+/** Per-connector health fact the rollup consumes. Both flags are derived by the
+ *  caller from the SAME connector state the cards render, never re-detected here. */
+export type ConnectorRollupFact = {
+  id: LiveConnectorId;
+  /** A token row exists and is not soft-disconnected. */
+  connected: boolean;
+  /** Connected BUT provably not delivering: a connected-but-failing read (GA4
+   *  ingest failures, never-synced, long-stale, dead grant) or an
+   *  authorized-but-blocked write (Wix connected with zero pages mapped, so not
+   *  one change can publish). Only meaningful when `connected` is true. */
+  needsAttention: boolean;
+};
+
+export type ConnectorRollup = {
+  /** Total live connectors (the registry length). */
+  total: number;
+  /** How many hold a live (non-disconnected) token. */
+  connectedCount: number;
+  /** How many of the connected ones are impaired (see ConnectorRollupFact). */
+  needsAttentionCount: number;
+  /** The headline: e.g. "4 of 4 connected, 2 need attention" (or just
+   *  "4 of 4 connected" when none are impaired). */
+  headline: string;
+  /** The subline, in Beacon voice, that never undercounts the impaired sources. */
+  subline: string;
+};
+
+/**
+ * Roll up per-connector facts into ONE honest count + copy. connected-but-failing
+ * and authorized-but-blocked both count as "needs attention" - a connected token
+ * alone is never enough to call a source healthy. PURE, deterministic; no dashes.
+ */
+export function rollupConnectors(
+  facts: ReadonlyArray<ConnectorRollupFact>,
+): ConnectorRollup {
+  const total = CONNECTOR_REGISTRY.length;
+  const connectedCount = facts.filter((f) => f.connected).length;
+  const needsAttentionCount = facts.filter(
+    (f) => f.connected && f.needsAttention,
+  ).length;
+
+  // Noun plural ("source" -> "sources") gets an "s" for >1; the VERB "need"
+  // inverts ("2 need", but "1 needs"), so it gets an "s" only when singular.
+  const nounS = (n: number) => (n === 1 ? "" : "s");
+  const verbS = (n: number) => (n === 1 ? "s" : "");
+  const headline =
+    needsAttentionCount > 0
+      ? `${connectedCount} of ${total} connected, ${needsAttentionCount} need${verbS(needsAttentionCount)} attention`
+      : `${connectedCount} of ${total} connected`;
+
+  let subline: string;
+  if (needsAttentionCount > 0) {
+    subline = `${needsAttentionCount} connected source${nounS(needsAttentionCount)} ${needsAttentionCount === 1 ? "is" : "are"} not delivering data yet. Open the flagged cards below to fix ${needsAttentionCount === 1 ? "it" : "them"}.`;
+  } else if (connectedCount === 0) {
+    subline = "Connect a source below and I can start telling you what to do next.";
+  } else if (connectedCount < total) {
+    subline = "Everything you have connected is delivering data. Connect the rest to unlock more.";
+  } else {
+    subline = "Everything is connected and delivering data.";
+  }
+
+  return { total, connectedCount, needsAttentionCount, headline, subline };
+}

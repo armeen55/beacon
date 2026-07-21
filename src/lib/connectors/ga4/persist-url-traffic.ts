@@ -68,6 +68,32 @@ import type { Ga4FailReason, Ga4RevenueRow, Ga4UrlTrafficRow } from "./types";
 
 const TABLE = "ga4_url_traffic";
 
+/**
+ * Max rows per upsert round-trip (2026-07-20 — GA4 persist_failed root cause).
+ *
+ * The full-window pull is ~27,000 rows for a mature property (420-day window ×
+ * hundreds of URLs). Sending that as ONE PostgREST upsert made a single heavy
+ * `INSERT … ON CONFLICT DO UPDATE` statement that, under the on-use path's
+ * concurrency (three source syncs in parallel + a page-load's read fan-out on a
+ * small compute instance), routinely exceeded the Postgres statement timeout —
+ * Postgres canceled it ("canceling statement due to statement timeout"), which
+ * PostgREST surfaced as an error and we stamped `persist_failed`. Only the idle
+ * nightly cron ever squeaked under the limit, so GA4 data went stale the moment
+ * crons stopped. Chunking keeps every statement small (sub-second even under
+ * load), so no single upsert can trip the timeout. 1,000 balances round-trips
+ * (~27 calls) against per-statement cost. Tunable; do not raise past a few
+ * thousand without re-checking the timeout margin.
+ */
+const UPSERT_CHUNK_SIZE = 1000;
+
+/** Pure: split an array into fixed-size chunks (last chunk may be smaller). */
+function chunk<T>(rows: ReadonlyArray<T>, size: number): T[][] {
+  if (size <= 0) return [rows.slice()];
+  const out: T[][] = [];
+  for (let i = 0; i < rows.length; i += size) out.push(rows.slice(i, i + size));
+  return out;
+}
+
 /** Default lookback when no edit has an earlier `live_at`. Raised to ~14
  *  months (2026-06-15) — GA4's standard data-retention max — so the unified
  *  dashboard reflects the FULL traffic history the property holds, not just a
@@ -341,26 +367,38 @@ export async function persistGa4UrlTraffic(
   });
   revenueStatus.rows_with_revenue = rowsWithRevenue;
 
-  const { error } = await admin
-    .from(TABLE)
-    .upsert(upsertRows, { onConflict: "tenant_id,url,date" });
+  // Chunked upsert (2026-07-20). One giant statement tripped the Postgres
+  // statement timeout under the on-use path's concurrency; small batches each
+  // finish well inside the limit. Sequential (not parallel) so we never fan a
+  // burst of heavy writes at the same small instance we are trying to protect.
+  // A batch error stops immediately and reports persist_failed honestly with
+  // how many rows had already landed — the next run re-upserts idempotently.
+  let rowsUpserted = 0;
+  for (const batch of chunk(upsertRows, UPSERT_CHUNK_SIZE)) {
+    const { error } = await admin
+      .from(TABLE)
+      .upsert(batch, { onConflict: "tenant_id,url,date" });
 
-  if (error != null) {
-    const message =
-      typeof (error as { message?: unknown }).message === "string"
-        ? ((error as { message?: string }).message as string)
-        : "upsert failed";
-    log.warn("[persist-ga4-url-traffic] upsert failed", {
-      tenantId,
-      rowsAttempted: upsertRows.length,
-      error: message,
-      code: (error as { code?: unknown }).code,
-    });
-    return {
-      ok: false,
-      reason: "persist_failed",
-      message,
-    };
+    if (error != null) {
+      const message =
+        typeof (error as { message?: unknown }).message === "string"
+          ? ((error as { message?: string }).message as string)
+          : "upsert failed";
+      log.warn("[persist-ga4-url-traffic] upsert failed", {
+        tenantId,
+        rowsAttempted: upsertRows.length,
+        rowsUpsertedBeforeFailure: rowsUpserted,
+        batchSize: batch.length,
+        error: message,
+        code: (error as { code?: unknown }).code,
+      });
+      return {
+        ok: false,
+        reason: "persist_failed",
+        message,
+      };
+    }
+    rowsUpserted += batch.length;
   }
 
   // Honest operator signal: revenue fetch worked but the property reported NO
@@ -375,7 +413,7 @@ export async function persistGa4UrlTraffic(
   return {
     ok: true,
     rows_fetched: rowsFetched,
-    rows_upserted: upsertRows.length,
+    rows_upserted: rowsUpserted,
     startDate,
     endDate,
     ...(report.truncated ? { truncated: true } : {}),
@@ -388,4 +426,6 @@ export const __testing = {
   TABLE,
   DEFAULT_LOOKBACK_DAYS,
   MAX_LOOKBACK_DAYS,
+  UPSERT_CHUNK_SIZE,
+  chunk,
 };

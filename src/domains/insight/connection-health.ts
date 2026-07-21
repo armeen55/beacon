@@ -5,6 +5,7 @@ import {
   type ConnectorProvider,
   type ConnectorInfo,
 } from "@/lib/connector-store";
+import { connectorById, type LiveConnectorId } from "@/lib/connectors/registry";
 import { isDataForSeoConfigured } from "@/domains/serp/dataforseo-serp";
 import { log } from "@/lib/logger";
 
@@ -47,13 +48,39 @@ type SourceMeta = {
   blockedWhenMissing: string;
 };
 
-/** The source registry for the operator Data Health surface. */
+/** Map a live connector's canonical registry entry to this surface's SourceMeta,
+ *  reading the Data Health surface's distinct customer wording from the ONE
+ *  registry so labels/role/unlocks copy lives in a single record. */
+function metaFor(id: LiveConnectorId): SourceMeta {
+  const c = connectorById(id)!;
+  return {
+    key: id,
+    label: c.dataHealth.label,
+    role: c.dataHealth.role,
+    unlocks: c.dataHealth.unlocks,
+    blockedWhenMissing: c.dataHealth.blockedWhenMissing,
+  };
+}
+
+/** DataForSEO is env-based (not a token connector), so it is not in the connector
+ *  registry - its Data Health copy stays a local literal. */
+const DATAFORSEO_META: SourceMeta = {
+  key: "dataforseo",
+  label: "Search market (DataForSEO)",
+  role: "live Google SERP results + search volume to validate which pages can win",
+  unlocks: "BUILD/WAIT/SKIP verdicts on new pages, real search volume, and who actually ranks",
+  blockedWhenMissing: "outside-market SERP validation",
+};
+
+/** The source registry for the operator Data Health surface. The four token
+ *  connectors read their copy from the canonical connector registry; DataForSEO
+ *  is env-based and keeps its own literal, in its original slot. */
 export const CONNECTION_SOURCES: readonly SourceMeta[] = [
-  { key: "google_gsc", label: "Google Search", role: "what people search to find you, and where you rank on Google", unlocks: "pages losing clicks, pages slipping, and what to fix first", blockedWhenMissing: "almost everything Beacon does" },
-  { key: "google_ga4", label: "Website visitors", role: "which pages get the most visitors and sign-ups", unlocks: "focusing on the pages that actually make you money", blockedWhenMissing: "knowing which pages matter most to your business" },
-  { key: "dataforseo", label: "Search market (DataForSEO)", role: "live Google SERP results + search volume to validate which pages can win", unlocks: "BUILD/WAIT/SKIP verdicts on new pages, real search volume, and who actually ranks", blockedWhenMissing: "outside-market SERP validation" },
-  { key: "clarity", label: "Visitor behavior (Clarity)", role: "where visitors get stuck or frustrated on your pages", unlocks: "spots where visitors get frustrated or click things that do nothing", blockedWhenMissing: "knowing where visitors get stuck" },
-  { key: "wix", label: "Your website (Wix)", role: "your live website content and SEO settings (read only, not analytics)", unlocks: "reading your current pages and publishing changes you approve", blockedWhenMissing: "one-click publishing (you can still copy and paste changes yourself)" },
+  metaFor("google_gsc"),
+  metaFor("google_ga4"),
+  DATAFORSEO_META,
+  metaFor("clarity"),
+  metaFor("wix"),
 ] as const;
 
 function daysSince(iso: string | null, now: Date): number | null {

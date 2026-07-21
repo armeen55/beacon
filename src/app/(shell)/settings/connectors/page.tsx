@@ -1,4 +1,5 @@
-import { getConnectorInfo, getGoogleConnectorToken } from "@/lib/connector-store";
+import { getConnectorInfo, getConnectorHealth, getGoogleConnectorToken } from "@/lib/connector-store";
+import { rollupConnectors, type ConnectorRollupFact } from "@/lib/connectors/registry";
 import { getWixUrlMap } from "@/lib/connectors/wix/url-map";
 import { formatLastRefreshedCopy } from "@/lib/connectors/gsc/expiry-handler";
 import {
@@ -186,6 +187,53 @@ async function loadConnectorsPageData() {
     refreshLedger = {};
   }
 
+  // Honest connector health rollup (2026-07-20). The certified leak: "N of M
+  // connected" counted only token presence, so it read "4 of 4 connected" while
+  // GA4 ingestion was failing and Wix publishing was blocked (zero pages mapped).
+  // The rollup counts connected-but-failing and authorized-but-blocked as "needs
+  // attention" too, from the SAME per-connector health the cards render, and
+  // rollupConnectors builds the ONE headline + subline both use. A read source is
+  // impaired when getConnectorHealth flags it OR its last refresh-ledger run
+  // failed; Wix (publish-only, always "connected" in getConnectorHealth) is
+  // impaired when it is connected but maps zero pages, so not one change can ship.
+  let rollup;
+  try {
+    const [gscHealth, ga4Health, clarityHealth] = await Promise.all([
+      getConnectorHealth("google_gsc").catch(() => null),
+      getConnectorHealth("google_ga4").catch(() => null),
+      getConnectorHealth("clarity").catch(() => null),
+    ]);
+    const facts: ConnectorRollupFact[] = [
+      {
+        id: "google_gsc",
+        connected: googleGsc.status === "connected",
+        needsAttention:
+          gscHealth?.health === "needs_attention" || refreshLedger.gsc?.result === "failed",
+      },
+      {
+        id: "google_ga4",
+        connected: googleGa4.status === "connected",
+        needsAttention:
+          ga4Health?.health === "needs_attention" || refreshLedger.ga4?.result === "failed",
+      },
+      {
+        id: "clarity",
+        connected: clarity.status === "connected",
+        needsAttention:
+          clarityHealth?.health === "needs_attention" || refreshLedger.clarity?.result === "failed",
+      },
+      {
+        id: "wix",
+        connected: wix.status === "connected",
+        needsAttention: wix.status === "connected" && wixUrlMapCount === 0,
+      },
+    ];
+    rollup = rollupConnectors(facts);
+  } catch {
+    // Fail-soft: without the rollup the client falls back to the bare connected count.
+    rollup = undefined;
+  }
+
   return {
     googleGsc,
     googleGa4,
@@ -198,6 +246,7 @@ async function loadConnectorsPageData() {
     ga4StaleCopy,
     connectedCount,
     totalCount,
+    rollup,
     autonomousHealth,
     wixUrlMapCount,
     refreshLedger,
@@ -233,6 +282,7 @@ export default async function ConnectorsPage() {
     ga4StaleCopy,
     connectedCount,
     totalCount,
+    rollup,
     autonomousHealth,
     wixUrlMapCount,
     refreshLedger,
@@ -257,6 +307,7 @@ export default async function ConnectorsPage() {
         ga4StaleCopy={ga4StaleCopy}
         connectedCount={connectedCount}
         totalCount={totalCount}
+        rollup={rollup}
         autonomousState={autonomousHealth.state}
         autonomousHeadline={autonomousHealth.headline}
         wixUrlMapCount={wixUrlMapCount}

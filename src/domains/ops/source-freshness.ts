@@ -13,32 +13,33 @@
  * never blocks health. PURE, no I/O.
  */
 
-export type SourceKey = "gsc" | "ga4" | "clarity" | "wix";
+import {
+  CONNECTOR_REGISTRY,
+  type ConnectorSla,
+  type SourceKey,
+} from "@/lib/connectors/registry";
+
+// SourceKey + the per-source SLA now live on the canonical connector registry;
+// re-exported here so the many `import { SourceKey } from
+// "@/domains/ops/source-freshness"` callers keep working unchanged.
+export type { SourceKey };
 export type SourceFreshnessState = "healthy" | "stale" | "no_data" | "removed";
 
-export type SourceSla = {
-  /** Max acceptable DATA age in days; null when the source has no data SLA (wix). */
-  slaMaxDataAgeDays: number | null;
-  /** Required sources must all be inside their SLA for overall health. */
-  required: boolean;
-  /** Removed sources (ga4) are excluded from the tally entirely. */
-  removed: boolean;
-};
+/** Alias of the registry's SLA shape, kept for callers importing SourceSla here. */
+export type SourceSla = ConnectorSla;
 
 /**
- * THE per-source data-age SLA table. One place; connector-store + data-sources-strip read
- * it so three magic numbers can never drift apart again.
+ * THE per-source data-age SLA table, derived from the ONE connector registry so a
+ * connector's SLA lives in exactly one record. connector-store + data-sources-strip
+ * read it so three magic numbers can never drift apart again.
  *   gsc      3d  (Google reports ~3 days behind; older than that is a real gap)
  *   clarity  7d  (limited pull budget; a week is the honest freshness bar)
  *   ga4      removed (false-total; never counted)
  *   wix      optional, no data SLA (publish-only, pulls nothing)
  */
-export const SOURCE_SLA: Record<SourceKey, SourceSla> = {
-  gsc: { slaMaxDataAgeDays: 3, required: true, removed: false },
-  clarity: { slaMaxDataAgeDays: 7, required: true, removed: false },
-  ga4: { slaMaxDataAgeDays: null, required: false, removed: true },
-  wix: { slaMaxDataAgeDays: null, required: false, removed: false },
-};
+export const SOURCE_SLA: Record<SourceKey, SourceSla> = Object.fromEntries(
+  CONNECTOR_REGISTRY.map((c) => [c.sourceKey, c.sla]),
+) as Record<SourceKey, SourceSla>;
 
 /**
  * Connection-liveness (SYNC-age) staleness threshold, DISTINCT from the per-source

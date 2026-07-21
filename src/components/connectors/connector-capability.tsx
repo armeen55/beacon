@@ -14,12 +14,11 @@
  * names beyond the connector's own customer-facing label.
  */
 
-export type ConnectorCapabilityCopy = {
-  /** Plain-English "What Beacon does automatically with this". */
-  automated: string;
-  /** Plain-English "What you need to do". */
-  youDo: string;
-};
+// The copy shape is defined once on the canonical connector registry; re-exported
+// here so existing importers of ConnectorCapabilityCopy from this component keep
+// working.
+export type { ConnectorCapabilityCopy } from "@/lib/connectors/registry";
+import type { ConnectorCapabilityCopy } from "@/lib/connectors/registry";
 
 export function ConnectorCapability({
   automated,

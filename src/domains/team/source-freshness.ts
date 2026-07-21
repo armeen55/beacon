@@ -23,6 +23,8 @@
  * Deterministic, $0, no LLM. Pinned by source-freshness.test.ts.
  */
 
+import { CONNECTOR_REGISTRY, isPublishOnly } from "@/lib/connectors/registry";
+
 /** A sync older than this many days reads as "stale", not "fresh". Matches the plain-English
  *  promise in the item ("Search Console data is 3 days old") - short enough that a 2-3 day gap
  *  reads honestly, longer than the pipeline invariant's 48h hard-violation limit (that one alarms
@@ -172,15 +174,20 @@ export function buildTeammateFreshnessMap(
 // at that boundary anyway - this file doesn't need its own second guard.
 
 /** TeammateKey -> the connector provider that backs it, for the sources this
- *  assessor covers. Teammates without a connector-backed source (strategist,
- *  live-Google/DataForSEO which is env-based, commerce, proof/results) are
- *  omitted - they never get a freshness claim. */
-const TEAMMATE_PROVIDER: Record<string, { provider: import("@/lib/connector-store").ConnectorProvider; label: string; publishOnly?: boolean }> = {
-  gsc: { provider: "google_gsc", label: "Search Console" },
-  ga4: { provider: "google_ga4", label: "Google Analytics" },
-  clarity: { provider: "clarity", label: "Visitor behavior data" },
-  wix: { provider: "wix", label: "Wix", publishOnly: true },
-};
+ *  assessor covers, derived from the ONE canonical connector registry (keyed by
+ *  each connector's sourceKey, which is the teammate key here). Teammates without
+ *  a connector-backed source (strategist, live-Google/DataForSEO which is
+ *  env-based, commerce, proof/results) are simply absent from the registry, so
+ *  they never get a freshness claim. */
+const TEAMMATE_PROVIDER: Record<
+  string,
+  { provider: import("@/lib/connector-store").ConnectorProvider; label: string; publishOnly?: boolean }
+> = Object.fromEntries(
+  CONNECTOR_REGISTRY.map((c) => [
+    c.sourceKey,
+    { provider: c.id, label: c.freshnessLabel, publishOnly: isPublishOnly(c) || undefined },
+  ]),
+);
 
 /**
  * Load real freshness for every connector-backed teammate, for one tenant. Fail-soft per source
