@@ -577,3 +577,54 @@ describe("G8: sibling-ctr-basis wiring (build-canonical-changes)", () => {
     expect(poorSingers.tenantId).toBe("poor");
   });
 });
+
+describe("rationale line carries no vendor name or evidence-source slug (2026-07-20)", () => {
+  const RAW_RANK_WHY = "Ranked by rank_revenue + profound + gsc + clarity + competitor_teardown.";
+
+  it("rewrites the raw 'Ranked by <slugs>' rankWhy into plain evidence names", () => {
+    const moves = [mv({ id: "m1", targetUrl: "https://s.com/a", rankWhy: RAW_RANK_WHY })];
+    const out = buildCanonicalChanges({ tenantId: "t", moves, plan: null, reservations: [] });
+    const rationale = out[0]!.rationale;
+    // No snake_case slug and no vendor name reaches the rendered rationale.
+    expect(rationale).not.toMatch(/rank_revenue|profound|dataforseo|competitor_teardown|clarity|gsc/i);
+    // The plain evidence names are present instead.
+    expect(rationale).toContain("revenue impact");
+    expect(rationale).toContain("AI citations");
+    expect(rationale).toContain("competitor research");
+  });
+
+  it("falls back to the move's why when there is no rankWhy", () => {
+    const moves = [mv({ id: "m2", targetUrl: "https://s.com/b", why: "sharpen the title", rankWhy: undefined })];
+    const out = buildCanonicalChanges({ tenantId: "t", moves, plan: null, reservations: [] });
+    expect(out[0]!.rationale).toBe("sharpen the title");
+  });
+});
+
+describe("decision wiring at the assembly boundary (2026-07-20, destructive-hardening lane)", () => {
+  it("a new_page-FAMILY action on an already-live page is decided as an edit, never 'build a new page'", () => {
+    // split_page collapses to the new_page FAMILY, but the target page already exists.
+    const moves = [mv({ id: "m1", targetUrl: "https://s.com/existing-guide", actionType: "split_page", pageLabel: "existing guide", query: "existing guide" })];
+    const out = buildCanonicalChanges({ tenantId: "t", moves, plan: null, reservations: [] });
+    expect(out[0]!.changeFamily).toBe("new_page"); // family still collapses to new_page
+    expect(out[0]!.decision).toBe("edit_existing"); // but a real live pagePath forces edit
+    expect(out[0]!.decision).not.toBe("create_new_page");
+  });
+
+  it("a consolidate (merge) row can never carry paste-ready exactInstructions - they are stripped", () => {
+    const moves = [
+      mv({
+        id: "m2",
+        targetUrl: "https://s.com/kitchen-remodel-tips",
+        actionType: "merge_pages",
+        preparedReady: true,
+        preparedDraftText: "Merge kitchen-remodel-tips into kitchen-remodel: add one internal link.",
+        pageLabel: "kitchen remodel tips",
+        query: "kitchen remodel tips",
+      }),
+    ];
+    const out = buildCanonicalChanges({ tenantId: "t", moves, plan: null, reservations: [] });
+    expect(out[0]!.decision).toBe("consolidate");
+    // A merge destroys URLs; it must ship as advisory prose, never paste-ready instructions.
+    expect(out[0]!.exactInstructions).toBeNull();
+  });
+});

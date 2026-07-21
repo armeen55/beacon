@@ -70,9 +70,9 @@ describe("ActivityList (R14a)", () => {
     );
     const page2 = renderToStaticMarkup(<ActivityList paged={pageActivityEvents(events, 2)} />);
     expect(page2).toContain("Page 2 of 3, 120 entries in all.");
-    expect(page2).toContain('href="/activity?p=1"');
-    expect(page2).toContain('href="/activity?p=3"');
+    expect(page2).toContain('href="/activity?page=1"');
+    expect(page2).toContain('href="/activity?page=3"');
     const page1 = renderToStaticMarkup(<ActivityList paged={pageActivityEvents(events, 1)} />);
-    expect(page1).not.toContain('href="/activity?p=0"');
+    expect(page1).not.toContain('href="/activity?page=0"');
   });
 });

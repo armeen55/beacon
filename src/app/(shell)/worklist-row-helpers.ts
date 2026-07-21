@@ -52,10 +52,17 @@ export function rankReasonAt(
   const demandClause = ((): string | null => {
     const demand = move?.demand ?? null;
     if (demand != null && Number.isFinite(demand) && demand > 0) {
+      // Window honesty (2026-07-20): GSC demand is a 90-day impressions aggregate (see
+      // demand-graph/build-graph.ts: "Real demand: 90d GSC impressions"), so it must say
+      // "in the last 90 days", never "a month" - the same window the card's own "See the math"
+      // line uses. Only search_volume is a genuine monthly figure ("searches a month"); AI
+      // attention keeps its own monthly mentions phrasing.
       const basis =
         move?.demandBasis === "ai_attention"
           ? `${formatMetricCompact(demand)} AI mentions a month`
-          : `${formatMetricCompact(demand)} times shown on Google a month`;
+          : move?.demandBasis === "search_volume"
+            ? `${formatMetricCompact(demand)} searches a month`
+            : `${formatMetricCompact(demand)} times shown on Google in the last 90 days`;
       return `it has real demand (${basis})`;
     }
     if (c.upside != null && Number.isFinite(c.upside) && c.upside > 0) {

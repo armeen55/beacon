@@ -28,6 +28,9 @@ import { teammateOf } from "@/domains/team/identity";
 import { Sparkline } from "@/components/data/sparkline";
 import { formatMetric, formatMetricCompact } from "@/lib/format-metric";
 import { stripBannedDashes } from "@/lib/copy/strip-dashes";
+// m.rankWhy is the demand graph's raw "Ranked by rank_revenue + profound + gsc + ..." string;
+// render it through plainRankedBy so no evidence-source slug or vendor name reaches the card.
+import { plainRankedBy } from "@/lib/plain-language";
 import { LearnedMoveLine } from "./learned-move-line";
 import { rankToVisits } from "@/domains/serp/rank-to-visits";
 import { dossierHref } from "@/lib/page-dossier-link";
@@ -477,7 +480,7 @@ export function MoveCard({
         {m.sparkline && m.sparkline.length >= 5 ? (
           <Sparkline points={m.sparkline} width={72} height={18} className="inline-block align-middle opacity-80" />
         ) : null}
-        {m.rankWhy ? <span className="text-muted-foreground/70">· ranked here: {m.rankWhy}</span> : null}
+        {plainRankedBy(m.rankWhy) ? <span className="text-muted-foreground/70">· ranked here: {plainRankedBy(m.rankWhy)}</span> : null}
       </p>
       <p className="mt-2 text-body leading-relaxed text-foreground-secondary">{m.why}</p>
 

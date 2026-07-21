@@ -275,6 +275,64 @@ export function plainChangeKind(kind: string): string {
 }
 
 // ---------------------------------------------------------------------------
+// 2c. Ranking-transparency sanitizer - the "why did this rank here" line the
+//     demand graph builds ("Ranked by rank_revenue + profound + gsc + clarity +
+//     competitor_teardown.") joins RAW evidence-source keys and vendor names.
+//     Those are internal identifiers, not words a business owner reads. This
+//     rewrites the line at RENDER into plain evidence names, with no vendor
+//     names and no snake_case slugs. The stored/computed key set is untouched.
+// ---------------------------------------------------------------------------
+
+/** Plain evidence names for the source slugs the ranking-transparency string joins.
+ *  Vendor names ("profound", "dataforseo") and snake_case keys never reach a rendered
+ *  surface - each maps to what the operator actually gets from that source. */
+export const EVIDENCE_SOURCE_PLAIN: Record<string, string> = {
+  rank_revenue: "revenue impact",
+  gsc: "your Google search data",
+  ga4: "your analytics",
+  clarity: "visitor behavior",
+  profound: "AI citations",
+  dataforseo: "live Google checks",
+  competitor_teardown: "competitor research",
+};
+
+/** One plain evidence name for a raw source slug; an unknown slug is de-slugged
+ *  (underscores/hyphens to spaces) rather than passed through, so a raw key can
+ *  never survive to the surface. */
+function evidenceSourcePlain(slug: string): string {
+  const key = slug.trim().toLowerCase();
+  return EVIDENCE_SOURCE_PLAIN[key] ?? key.replace(/[_-]+/g, " ").trim();
+}
+
+/**
+ * Turn the raw ranking-transparency string ("Ranked by rank_revenue + profound + gsc +
+ * clarity + competitor_teardown.") into a plain sentence a non-technical operator reads:
+ * "Ranked by revenue impact plus AI citations, your Google search data, visitor behavior,
+ * and competitor research." No vendor names, no snake_case slugs. Returns null for empty
+ * input so callers can fall back to their own copy; a string that is not a "Ranked by ..."
+ * line passes through unchanged (it is already human copy).
+ */
+export function plainRankedBy(rankWhy: string | null | undefined): string | null {
+  if (!rankWhy || !rankWhy.trim()) return null;
+  const m = rankWhy.match(/ranked by\s+(.+?)\s*\.?\s*$/i);
+  if (!m) return rankWhy;
+  const parts = m[1]!
+    .split(/\s*\+\s*/)
+    .map(evidenceSourcePlain)
+    .filter((p) => p.length > 0);
+  const uniq = [...new Set(parts)];
+  if (uniq.length === 0) return null;
+  const lead = uniq[0]!;
+  const rest = uniq.slice(1);
+  if (rest.length === 0) return `Ranked by ${lead}.`;
+  const list =
+    rest.length === 1
+      ? rest[0]!
+      : `${rest.slice(0, -1).join(", ")}, and ${rest[rest.length - 1]!}`;
+  return `Ranked by ${lead} plus ${list}.`;
+}
+
+// ---------------------------------------------------------------------------
 // 3. Brand + headline copy used across the shell (audit: wordmark, nav).
 // ---------------------------------------------------------------------------
 

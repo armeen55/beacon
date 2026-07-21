@@ -446,7 +446,7 @@ describe("connector-store — getConnectorHealth (honest derived state)", () => 
     expect(h.healthReason).toBe(RECONNECT_REASON);
   });
 
-  it("needs_attention (tracked failing streak) uses the 'Reconnecting usually fixes this' copy", async () => {
+  it("needs_attention (tracked failing streak) leads with the day count since the last good sync", async () => {
     await saveConnectorToken(
       gscToken({
         needs_attention_at: "2026-06-14T00:00:00Z",
@@ -457,8 +457,9 @@ describe("connector-store — getConnectorHealth (honest derived state)", () => 
     );
     const h = await getConnectorHealth("google_gsc", "tenant-a", NOW);
     expect(h.health).toBe("needs_attention");
+    // NOW is 2026-06-15T12:00Z, last good sync 2026-06-01T00:00Z -> 14 whole days.
     expect(h.healthReason).toBe(
-      "I have not been able to pull your data since June 1. Reconnecting usually fixes this.",
+      "This source has not synced in 14 days. I keep retrying, but it may need your attention.",
     );
   });
 

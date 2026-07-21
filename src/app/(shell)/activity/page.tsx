@@ -27,7 +27,12 @@ export default async function ActivityPage({
 }) {
   const params = await (searchParams ??
     Promise.resolve<Record<string, string | string[] | undefined>>({}));
-  const requestedPage = typeof params.p === "string" ? Number.parseInt(params.p, 10) : 1;
+  // Matches the `page` searchParam idiom used elsewhere in the app (e.g.
+  // recommendations/page.tsx, results/page.tsx) so a plain "?page=2" deep link
+  // (what curl, SEO crawlers, and no-JS visitors would try first) actually
+  // renders the requested slice server-side instead of silently falling back
+  // to page 1.
+  const requestedPage = typeof params.page === "string" ? Number.parseInt(params.page, 10) : 1;
 
   const raced = await loadWithDeadline(
     loadActivityFeed().catch(() => ({ events: [], anyReadFailed: true })),

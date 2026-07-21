@@ -977,6 +977,20 @@ export function ChangesListClient({ view }: { view: ChangesClientView }) {
             })}
           </div>
         </div>
+        {/* One-count rule (2026-07-20) - the working strip showed only To do / Ready, so the
+            canonical measuring set (the same "In flight" number Today and Results show) was
+            invisible here. Surface it from the ONE canonical field (measuringCountCanonical),
+            in the same "Measuring N" vocabulary, as a read-only pointer to Results (measurement
+            lives there, so this is a link, not a filter tab). Self-hides at zero. */}
+        {view.measuringCountCanonical > 0 ? (
+          <Link
+            href="/results"
+            aria-label={`Measuring ${view.measuringCountCanonical} ${view.measuringCountCanonical === 1 ? "change" : "changes"}, view on Results`}
+            className={`inline-flex min-h-[32px] shrink-0 items-center gap-1 whitespace-nowrap rounded-md px-2.5 py-1 text-body font-medium text-foreground-secondary hover:bg-surface-raised ${FOCUS}`}
+          >
+            Measuring <span aria-hidden className="text-muted-foreground">{view.measuringCountCanonical}</span>
+          </Link>
+        ) : null}
         <input aria-label="Search pages" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search pages…" className={`min-h-[32px] w-full rounded-md border border-border px-2 py-1 text-body sm:ml-auto sm:w-44 ${FOCUS}`} />
       </div>
       {/* D6 - the daily ritual loop's session strip: "You have shipped N changes today" +

@@ -153,12 +153,19 @@ export function autonomousResearchStatusLine(receipt: WarmRunReceipt | null, now
     `${s.aiTopicsPolled.toLocaleString()} AI topics`,
     `${s.questionsRanked.toLocaleString()} questions`,
   ].join(", ");
-  const outcome = `${s.readyToReview.toLocaleString()} move${s.readyToReview === 1 ? "" : "s"} ready to review`;
+  // One-count rule (2026-07-20): this "ready to review" tally counts DRAFTS the research pass
+  // prepared, which is a DIFFERENT thing from the Changes list's "Ready" execution band (picks
+  // prepared into today's plan). Naming both "ready" made "4 moves ready to review" read as
+  // queue-Ready while the band said "Ready 0". Say "drafts waiting for your review" so the word
+  // "ready" is never overloaded across the two surfaces.
+  const outcome = `${s.readyToReview.toLocaleString()} draft${s.readyToReview === 1 ? "" : "s"} waiting for your review`;
+  // Vendor-name honesty (2026-07-20): "DataForSEO" is an internal provider name, not a phrase a
+  // business owner reads. State the capability plainly instead.
   const dataForSeo =
     s.dataForSeoStatus === "disabled"
-      ? " DataForSEO is not connected, so competitor keyword mining stayed off."
+      ? " Competitor keyword mining is off right now."
       : s.dataForSeoStatus === "dry_run"
-        ? " DataForSEO is in dry-run, so its paid lookups were planned but not called."
+        ? " Competitor keyword mining ran in preview only, so no paid lookups were made."
         : "";
   const aiPoll = s.aiEnginePollStatus === "already_ran"
     ? " AI-engine answers were already refreshed today."
@@ -186,7 +193,9 @@ export function autonomousResearchHeaderStatus(receipt: WarmRunReceipt | null, n
   if (!receipt.ok) return { label: "Research partially refreshed", tone: "partial", title, progress: null };
   const ready = receipt.summary?.readyToReview ?? 0;
   return {
-    label: ready > 0 ? `${ready.toLocaleString()} move${ready === 1 ? "" : "s"} ready` : "Research up to date",
+    // "drafts to review", not "moves ready" - see the one-count note in autonomousResearchStatusLine
+    // above: this is a prepared-draft tally, never the Changes list's queue-Ready count.
+    label: ready > 0 ? `${ready.toLocaleString()} draft${ready === 1 ? "" : "s"} to review` : "Research up to date",
     tone: "ready",
     title,
     progress: null,

@@ -100,9 +100,11 @@ describe("BUG 2 - needs-attention escalation banner", () => {
     });
     expect(html).toContain('data-recovery-fix="sync_failing"');
     expect(html).toContain('data-recovery-problem="sync_failing"');
-    expect(html).toContain(
-      "I have not been able to pull your data since June 30. Reconnecting usually fixes this.",
-    );
+    // Streak escalation (2026-07-20) leads with the day count, then the honest,
+    // non-accusatory "may need your attention" ask (the exact N is clock-relative,
+    // so pin the stable copy around it).
+    expect(html).toContain("This source has not synced in");
+    expect(html).toContain("I keep retrying, but it may need your attention.");
     // Never claims revocation for an unproven-dead grant.
     expect(html).not.toContain("login expired");
   });
@@ -128,7 +130,8 @@ describe("BUG 2 - needs-attention escalation banner", () => {
       }),
     });
     expect(html).toContain('data-recovery-fix="sync_failing"');
-    expect(html).toContain("I have not been able to pull your data since June 30");
+    expect(html).toContain("This source has not synced in");
+    expect(html).toContain("I keep retrying, but it may need your attention.");
   });
 
   it("a healthy connector shows no escalation banner", () => {

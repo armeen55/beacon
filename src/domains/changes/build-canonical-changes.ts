@@ -15,8 +15,13 @@ import {
   changeTypeFamily, effortForFamily, expectedEvidenceStrength, defaultEvidenceStrength, deriveStatus,
   type CanonicalChange, type CanonicalStatus, type ProofSignal,
 } from "./canonical-change";
-import { decideChangeAction } from "./decide-action";
+import { decideChangeAction, stripInstructionsOnConsolidate } from "./decide-action";
 import { isZeroClickTrap, zeroClickTrapReason } from "./zero-click-trap";
+// The demand graph's "why this ranked here" string (m.rankWhy) joins RAW evidence-source keys
+// and vendor names ("Ranked by rank_revenue + profound + gsc + clarity + competitor_teardown.").
+// This list's own rationale line must never carry a slug or vendor name, so it is rewritten to
+// plain evidence names here at composition (the one canonical idiom, in plain-language.ts).
+import { plainRankedBy } from "@/lib/plain-language";
 
 /** Structural subset of a worklist TodayMove the adapter needs (keeps the domain free of app types). */
 export type CanonicalMoveInput = {
@@ -106,8 +111,10 @@ function fromPlanItem(
   const changeType = LEVER_TO_ACTION_TYPE[e.lever];
   const family = changeTypeFamily(changeType);
   const status = deriveStatus({ planItemStatus: itemStatus(plan.execution, e.id), selectedForToday: true });
-  const decision = decideChangeAction({ status, changeType, changeFamily: family, qualityDecision: "approved" }).decision;
-  return {
+  // Thread the real pagePath so the decision layer never mislabels an edit to an
+  // already-live page as "build a new page" (see decide-action.ts's resolveDecision).
+  const decision = decideChangeAction({ status, changeType, changeFamily: family, qualityDecision: "approved", pagePath }).decision;
+  const change: CanonicalChange = {
     id: changeId(tenantId, pagePath, family),
     tenantId,
     pagePath,
@@ -160,6 +167,9 @@ function fromPlanItem(
     sourceIds: [e.id],
     alternateOpportunities: [],
   };
+  // A consolidate (merge) is advisory prose only; it must never carry paste-ready
+  // destructive instructions. Strip at this assembly boundary once the decision is known.
+  return stripInstructionsOnConsolidate(decision, change);
 }
 
 /** G8 (Wave 4, 2026-07-11) - the tenant's own sibling pool for sibling-ctr-basis.ts, built ONCE
@@ -292,8 +302,10 @@ function fromMove(tenantId: string, m: CanonicalMoveInput, controlPaths: Set<str
   // Wave 3C - the base decision from this change's own type/family/status. changes-data.ts refines
   // it with the source move's cannibalization case (which this pure adapter cannot see) before the
   // list renders.
-  const decision = decideChangeAction({ status, changeType: m.actionType, changeFamily: family, qualityDecision }).decision;
-  return {
+  // Thread the real pagePath so a new_page-FAMILY action (e.g. split_page) on an
+  // already-live page is decided as an edit, never "build a new page".
+  const decision = decideChangeAction({ status, changeType: m.actionType, changeFamily: family, qualityDecision, pagePath }).decision;
+  const change: CanonicalChange = {
     id: changeId(tenantId, pagePath, family),
     tenantId,
     pagePath,
@@ -308,7 +320,7 @@ function fromMove(tenantId: string, m: CanonicalMoveInput, controlPaths: Set<str
     exactInstructions: status === "ready" ? m.preparedDraftText ?? null : null,
     before: m.before ?? null,
     after: m.after ?? null,
-    rationale: m.rankWhy || m.why,
+    rationale: plainRankedBy(m.rankWhy) ?? m.why,
     estimatedEffortMinutes: effortForFamily(family),
     // impactScore stays a RANKING signal only (never shown to the operator as a claim) - it may
     // fall back to the raw demand score when no source score exists, which is fine for sort order
@@ -377,6 +389,9 @@ function fromMove(tenantId: string, m: CanonicalMoveInput, controlPaths: Set<str
     siblingLowPerMonth,
     siblingHighPerMonth,
   };
+  // A consolidate (merge) is advisory prose only; strip any paste-ready instructions
+  // at this assembly boundary once the decision is known.
+  return stripInstructionsOnConsolidate(decision, change);
 }
 
 const STATUS_RANK: Record<CanonicalStatus, number> = {

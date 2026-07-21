@@ -13,7 +13,7 @@ import { getLatestPreviewPlan, getAcceptedPlan, listActiveReservations } from "@
 import { buildCanonicalChanges, type CanonicalMoveInput } from "@/domains/changes/build-canonical-changes";
 import type { CanonicalChange } from "@/domains/changes/canonical-change";
 import { statusView } from "@/domains/changes/canonical-change";
-import { decideChangeAction, cannibalizationDirective, isActDecision } from "@/domains/changes/decide-action";
+import { decideChangeAction, cannibalizationDirective, isActDecision, stripInstructionsOnConsolidate } from "@/domains/changes/decide-action";
 // One-posture-per-page (2026-07-11) - the SAME persisted seasonal store Today's war-room reads
 // (war-room-sections.tsx -> loadSeasonalQueries -> the "I would prep this page by <date>" row), so
 // the ranked Changes list never holds an act-now card for a page Today is telling the operator to
@@ -82,6 +82,7 @@ import {
   isChangesSurfaceStale,
 } from "./changes-surface-store";
 import { readCustomerSurface, isCustomerSurfaceStale } from "./customer-surface-store";
+import { plainRankedBy } from "@/lib/plain-language";
 
 export type ChangesView = {
   changes: CanonicalChange[];
@@ -714,6 +715,21 @@ export function partitionActionableByEvidence(
   return { kept, held: heldItems, heldCount: heldItems.length };
 }
 
+/** DATE-BOMB GUARD (2026-07-20) - the page renders "I ranked these {ago}." from
+ *  `surfaceComputedAt` via checkedAgoLabel. `invalidateChangesSurface` stamps a stale
+ *  snapshot with `new Date(0).toISOString()` (epoch 0) to preserve the last-known-good
+ *  list while a rebuild runs; that epoch-0 timestamp, fed to checkedAgoLabel, renders a
+ *  nonsense "20655 days ago". A stamp that is unparseable, at/before the Unix epoch, or
+ *  before Beacon existed (pre-2026) is never a real ranking time: return null so the
+ *  page OMITS the age line entirely rather than showing a five-digit day count. PURE. */
+const MIN_VALID_COMPUTED_AT_MS = Date.parse("2026-01-01T00:00:00Z");
+export function sanitizeSurfaceComputedAt(iso: string | null | undefined): string | null {
+  if (!iso) return null;
+  const t = Date.parse(iso);
+  if (!Number.isFinite(t) || t < MIN_VALID_COMPUTED_AT_MS) return null;
+  return iso;
+}
+
 /** W2-B (2026-07-10) - the honest cold/first-ever ChangesView: an empty, non-broken
  *  shape flagged `surfaceBuilding` so the page shows "I'm putting your ranked changes
  *  together" (not the "No changes yet" lie) while the background rebuild runs. */
@@ -783,7 +799,7 @@ export async function loadChangesViewWithSwr(
     }
     return {
       ...customer.changes,
-      surfaceComputedAt: customer.computedAt,
+      surfaceComputedAt: sanitizeSurfaceComputedAt(customer.computedAt),
       surfaceBuilding: false,
       surfaceVersion: customer.releaseId,
     };
@@ -791,7 +807,9 @@ export async function loadChangesViewWithSwr(
   const cached = await readChangesSurface(tenantId).catch(() => null);
   if (cached) {
     if (isChangesSurfaceStale(cached.computedAt, Date.now())) scheduleRebuild("background-refresh");
-    return { ...cached.view, surfaceComputedAt: cached.computedAt, surfaceBuilding: false };
+    // Guard against the epoch-0 stale sentinel (invalidateChangesSurface) leaking to the
+    // page's "I ranked these {ago}" line as a five-digit "20655 days ago".
+    return { ...cached.view, surfaceComputedAt: sanitizeSurfaceComputedAt(cached.computedAt), surfaceBuilding: false };
   }
   // Cold first-ever / invalidated: NEVER block on the fuse (it can exceed the page's
   // 25s always-paint floor). Schedule the rebuild and serve the honest building state.
@@ -938,8 +956,12 @@ async function buildChangesViewUncached(tenantId: string): Promise<ChangesView> 
   const { changes: fusedChanges, entries: unifiedEntries, coverageInputs } = await fuseUnifiedList(tenantId, worklistChanges).catch(() => ({ changes: worklistChanges, entries: [] as UnifiedEntry[], coverageInputs: { serving: [], ownedPages: [] } as OwnedCoverageInput }));
   perfStage("changes-allocator-fuse", tFuse, { fused: fusedChanges.length });
 
+  // The move's "why this ranked here" string (m.rankWhy) joins RAW evidence-source keys and vendor
+  // names ("Ranked by rank_revenue + profound + gsc + clarity + competitor_teardown."). Every
+  // consumer of this view (the slim client payload's rankWhy, the row search haystack, the detail
+  // MoveCard) must read plain evidence names, never a slug, so it is rewritten once here.
   const movesById: Record<string, TodayMove> = {};
-  for (const m of moves) movesById[m.id] = m;
+  for (const m of moves) movesById[m.id] = { ...m, rankWhy: plainRankedBy(m.rankWhy) ?? m.rankWhy };
 
   // FP2 (killer finding 2) - the allocator's own fuseByPage only merges lanes that share a real,
   // non-null page; two lanes independently pitching the SAME not-yet-built topic ("best iranian
@@ -953,7 +975,11 @@ async function buildChangesViewUncached(tenantId: string): Promise<ChangesView> 
   // carries exactly one decision + one CTA before anything ranks or renders.
   const decided = deduped.map((c) => {
     const move = c.sourceIds[0] ? movesById[c.sourceIds[0]] : undefined;
-    return { ...c, decision: decideChangeAction(c, move).decision };
+    // decideChangeAction now reads c.pagePath (a full CanonicalChange), so a new_page-family row on
+    // an already-live page is refined to edit_existing here too. Strip any paste-ready instructions
+    // the instant the refined decision lands on consolidate - a merge is advisory prose only.
+    const decision = decideChangeAction(c, move).decision;
+    return stripInstructionsOnConsolidate(decision, { ...c, decision });
   });
   // FP2 (killer finding 3) - when this row's page has a real cannibalization case, its secondary
   // line must agree with (not contradict) the consolidation directive. Wave 3C: the reconciled

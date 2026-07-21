@@ -156,7 +156,29 @@ export function cannibalizationDirective(i: {
 export type DecideChangeInput = Pick<
   CanonicalChange,
   "status" | "changeType" | "changeFamily" | "qualityDecision"
->;
+> & {
+  /** The change's target page path. Optional so the four-field base-decision
+   *  callers (build-canonical-changes) stay valid, but supplied by every caller
+   *  that passes a full CanonicalChange. When it names a real, already-live page,
+   *  the change can never be a "build a new page" (see resolveDecision). */
+  pagePath?: string | null;
+};
+
+/**
+ * True when `pagePath` names a real, already-live content page (a normal
+ * "/slug" path), as opposed to an empty/root/placeholder or a synthetic
+ * not-yet-created marker. Used to catch the create/edit mislabel: a change
+ * that targets a page which already exists can never be a "build a new page".
+ * Pure.
+ */
+export function isRealExistingPagePath(pagePath: string | null | undefined): boolean {
+  if (pagePath == null) return false;
+  const p = pagePath.trim();
+  if (p === "" || p === "/") return false;
+  // A genuinely not-yet-created page carries a synthetic marker, never a live slug.
+  if (/^(new|draft|proposed|create):/i.test(p)) return false;
+  return p.startsWith("/") && p.length > 1;
+}
 
 export type DecideMoveInput = {
   cannibalization?: ReadonlyArray<{ isLead?: boolean; decision?: ChangeDecision } | null | undefined> | null;
@@ -175,6 +197,33 @@ export function decideChangeAction(c: DecideChangeInput, move?: DecideMoveInput)
   return { decision, cta: DECISION_CTA[decision] };
 }
 
+/**
+ * Destructive-action guard (audit 2026-07-20). A consolidate (merge) is ADVISORY
+ * prose only: merging pages destroys URLs, and shipping a merge as paste-ready
+ * `exactInstructions` would ship destruction with ZERO evidence gating. Today no
+ * path attaches instructions to a consolidate row (they carry exactInstructions:
+ * null), but this is a LATENT gap: if any future path ever does, this strips the
+ * instructions back to advisory and logs LOUDLY. Type-level, total, pure aside
+ * from the console warning. Call at the boundary that assembles a CanonicalChange
+ * (build-canonical-changes / changes-data), right after the decision is known.
+ */
+export function stripInstructionsOnConsolidate<
+  T extends { exactInstructions?: string | null },
+>(decision: ChangeDecision, change: T): T {
+  if (decision === "consolidate" && change.exactInstructions != null) {
+    // LOUD: this must never happen in the current codebase. If it fires, a future
+    // path attached destructive paste-ready text to a merge without evidence
+    // gating — strip it to advisory before it can reach the operator.
+    console.error(
+      "[decide-action] BLOCKED destructive paste-ready text on a consolidate (merge) change; " +
+        "stripping exactInstructions to advisory. Merging pages destroys URLs and must never " +
+        "ship as a one-tap instruction without evidence gating.",
+    );
+    return { ...change, exactInstructions: null };
+  }
+  return change;
+}
+
 function resolveDecision(c: DecideChangeInput, move?: DecideMoveInput): ChangeDecision {
   if (c.status === "skipped" || c.status === "blocked") return "do_nothing";
   if (c.qualityDecision === "flagged") return "watch";
@@ -185,8 +234,16 @@ function resolveDecision(c: DecideChangeInput, move?: DecideMoveInput): ChangeDe
   const t = (c.changeType ?? "").toLowerCase();
   if (/merge|dedupe|consolidat/.test(t)) return "consolidate";
   if (/redirect|prune/.test(t)) return "prune_redirect";
-  if (c.changeFamily === "new_page" || c.changeFamily === "hub" || /create|new_page/.test(t)) {
-    return "create_new_page";
+  // An EXPLICIT create/new-page action type is a genuine build. A new_page
+  // FAMILY alone is not: changeTypeFamily() collapses any "page"/"hub" action
+  // type (e.g. split_page, which EDITS an existing page) into the new_page
+  // family. So when only the family says new_page, a real already-live pagePath
+  // forces the edit family — creating a page at a URL that already has one is
+  // impossible (certified: /iran-animals/red-fox was rendering as "Build a new
+  // page" for a page that already existed).
+  if (/create|new_page/.test(t)) return "create_new_page";
+  if (c.changeFamily === "new_page" || c.changeFamily === "hub") {
+    return isRealExistingPagePath(c.pagePath) ? "edit_existing" : "create_new_page";
   }
   return "edit_existing";
 }

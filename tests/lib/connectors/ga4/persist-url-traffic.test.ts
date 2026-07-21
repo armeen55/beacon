@@ -577,3 +577,78 @@ describe("persistGa4UrlTraffic — revenue enrichment", () => {
     if (r.ok) expect(r.revenue?.synced).toBe(false);
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────
+// Chunked upsert (2026-07-20) — the persist_failed root cause. One giant
+// upsert tripped the Postgres statement timeout; the write is now split into
+// UPSERT_CHUNK_SIZE batches so no single statement can time out.
+// ─────────────────────────────────────────────────────────────────────
+describe("persistGa4UrlTraffic — chunked upsert", () => {
+  function makeRows(n: number) {
+    const rows = [];
+    for (let i = 0; i < n; i++) {
+      rows.push({
+        url: `/p/${i}`,
+        date: "2026-05-19",
+        sessions: 1,
+        engaged_sessions: 1,
+        conversions: 0,
+      });
+    }
+    return rows;
+  }
+
+  it("chunk() splits into fixed-size batches (last is the remainder)", () => {
+    const { chunk } = __testing;
+    expect(chunk([1, 2, 3, 4, 5], 2)).toEqual([[1, 2], [3, 4], [5]]);
+    expect(chunk([1, 2], 5)).toEqual([[1, 2]]);
+    expect(chunk([], 5)).toEqual([]);
+  });
+
+  it("splits a >CHUNK_SIZE pull into multiple upsert calls, each with the conflict target, and sums rows_upserted", async () => {
+    const total = __testing.UPSERT_CHUNK_SIZE * 2 + 5; // 3 batches
+    _runReportMock.mockResolvedValue({ ok: true, rows: makeRows(total) });
+    _upsertMock.mockResolvedValue({ error: null });
+
+    const r = await persistGa4UrlTraffic(HAPPY_ARGS);
+
+    expect(r).toMatchObject({ ok: true, rows_fetched: total, rows_upserted: total });
+    expect(_upsertMock).toHaveBeenCalledTimes(3);
+    // Every batch carries the conflict target and is within the chunk bound.
+    for (const call of _upsertMock.mock.calls) {
+      const [rows, opts] = call;
+      expect(opts).toEqual({ onConflict: "tenant_id,url,date" });
+      expect((rows as unknown[]).length).toBeLessThanOrEqual(__testing.UPSERT_CHUNK_SIZE);
+    }
+    // The batch sizes recompose to the full set.
+    const sizes = _upsertMock.mock.calls.map((c) => (c[0] as unknown[]).length);
+    expect(sizes.reduce((a, b) => a + b, 0)).toBe(total);
+  });
+
+  it("a mid-run batch failure returns persist_failed and stops (idempotent re-run recovers)", async () => {
+    const total = __testing.UPSERT_CHUNK_SIZE * 2 + 1; // 3 batches
+    _runReportMock.mockResolvedValue({ ok: true, rows: makeRows(total) });
+    // First batch ok, second batch times out.
+    _upsertMock
+      .mockResolvedValueOnce({ error: null })
+      .mockResolvedValueOnce({
+        error: { message: "canceling statement due to statement timeout", code: "57014" },
+      });
+
+    const r = await persistGa4UrlTraffic(HAPPY_ARGS);
+
+    expect(r).toMatchObject({
+      ok: false,
+      reason: "persist_failed",
+      message: "canceling statement due to statement timeout",
+    });
+    // Stopped at the failing batch — did NOT attempt the third.
+    expect(_upsertMock).toHaveBeenCalledTimes(2);
+    // The warn carries how many rows had already landed for operator triage.
+    const warn = _logWarn.mock.calls.find((c) => String(c[0]).includes("upsert failed"));
+    expect(warn).toBeDefined();
+    expect((warn![1] as { rowsUpsertedBeforeFailure: number }).rowsUpsertedBeforeFailure).toBe(
+      __testing.UPSERT_CHUNK_SIZE,
+    );
+  });
+});

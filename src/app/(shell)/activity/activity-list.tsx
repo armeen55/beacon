@@ -63,7 +63,7 @@ export function ActivityList({
       {paged.pageCount > 1 ? (
         <div className="mt-3 flex items-center gap-3 text-meta text-muted-foreground tabular-nums">
           {paged.page > 1 ? (
-            <Link href={`/activity?p=${paged.page - 1}`} className="font-medium underline underline-offset-2 hover:text-foreground">
+            <Link href={`/activity?page=${paged.page - 1}`} className="font-medium underline underline-offset-2 hover:text-foreground">
               Newer
             </Link>
           ) : null}
@@ -71,7 +71,7 @@ export function ActivityList({
             Page {paged.page} of {paged.pageCount}, {paged.total} entries in all.
           </span>
           {paged.page < paged.pageCount ? (
-            <Link href={`/activity?p=${paged.page + 1}`} className="font-medium underline underline-offset-2 hover:text-foreground">
+            <Link href={`/activity?page=${paged.page + 1}`} className="font-medium underline underline-offset-2 hover:text-foreground">
               Older
             </Link>
           ) : null}
