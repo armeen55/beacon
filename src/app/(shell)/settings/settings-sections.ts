@@ -8,7 +8,9 @@
  * value: Connections and Business info. The retired subsections (Import,
  * Tracked questions, Data history, Spend, How Beacon measures, How I decide,
  * What I cannot do yet) were read-only views or docs whose underlying stores
- * survive and are surfaced on Today, Changes, and Results.
+ * survive and are surfaced on Today, Changes, and Results. Spend's one number
+ * that actually mattered - this month's total - was folded directly onto the
+ * /settings page itself (see spend-line.tsx) rather than dropped.
  */
 export const SETTINGS_SECTIONS = [
   {

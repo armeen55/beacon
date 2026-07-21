@@ -174,7 +174,6 @@ export async function armPublishing(args: {
 
   const state = await setPublishingMode({ mode: "armed" });
   revalidatePath("/settings/connectors");
-  revalidatePath("/recommendations");
   return { ok: true, state };
 }
 
@@ -186,6 +185,5 @@ export async function disarmPublishing(): Promise<
   }
   const state = await setPublishingMode({ mode: "staged" });
   revalidatePath("/settings/connectors");
-  revalidatePath("/recommendations");
   return { ok: true, state };
 }

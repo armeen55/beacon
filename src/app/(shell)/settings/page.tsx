@@ -2,6 +2,7 @@ import Link from "next/link";
 import { PageHeader } from "@/components/data/page-header";
 import { SETTINGS_SECTIONS } from "./settings-sections";
 import { FinishSetupCard } from "./finish-setup-card";
+import { SpendLine } from "./spend-line";
 
 /**
  * `/settings` index (FP4, 2026-07-03; T0b checklist added 2026-07-03) - renders
@@ -37,6 +38,7 @@ export default async function SettingsPage() {
           </li>
         ))}
       </ul>
+      <SpendLine />
     </div>
   );
 }

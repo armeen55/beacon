@@ -85,7 +85,6 @@ export async function stageMoveInWixAction(input: {
     if (receipt.staged) {
       revalidatePath("/changes");
       revalidatePath("/");
-      revalidatePath("/recommendations");
       revalidatePath("/changes");
     }
     return receipt;

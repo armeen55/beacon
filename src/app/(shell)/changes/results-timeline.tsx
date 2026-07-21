@@ -109,7 +109,7 @@ export async function ResultsTimeline() {
             first change tracked.
           </p>
           <Link
-            href="/recommendations"
+            href="/changes?status=ready"
             className="mt-4 inline-flex text-[13px] font-semibold text-accent-primary underline underline-offset-2 hover:text-accent-primary/85"
           >
             See suggested fixes &rarr;

@@ -1317,7 +1317,7 @@ export function MoveCard({
             {showDraft ? "Hide draft" : "See the draft"}
           </button>
         ) : null}
-        <Link href="/recommendations" className={`inline-flex items-center gap-1 rounded-sm text-body font-medium text-foreground-secondary hover:text-foreground ${FOCUS}`}>
+        <Link href="/changes?status=ready" className={`inline-flex items-center gap-1 rounded-sm text-body font-medium text-foreground-secondary hover:text-foreground ${FOCUS}`}>
           Open in queue →
         </Link>
         <a href={m.targetUrl} target="_blank" rel="noopener noreferrer" className={`inline-flex items-center gap-1 rounded-sm text-body font-medium text-muted-foreground hover:text-foreground-secondary ${FOCUS}`}>

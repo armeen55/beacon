@@ -29,7 +29,22 @@ export const AUTONOMOUS_RETRY_COOLDOWN_MS = 60_000;
 /** Leave enough of the shell's 300-second lifetime to persist a terminal
  * receipt and attempt the deliberately narrow page-factory repair. */
 export const AUTONOMOUS_RUN_DEADLINE_MS = 210_000;
+/** Settle gap between the customer-critical path (research / ready-queue
+ * replenishment / surface warm) finishing and the once-daily enrichment
+ * starting. Enrichment used to run FIRST inside the daily branch, so its bounded
+ * Supabase reads competed with the same visit's SWR surface rebuilds; that shared
+ * connection pressure pushed the readiness-critical drafts read past its timeout
+ * and silently zeroed the Ready queue. Enrichment now runs LAST, and this short
+ * settle keeps its first read from landing on top of the surface reads that just
+ * completed. Tests inject 0. */
+export const ENRICHMENT_SETTLE_MS = 5_000;
 const scheduled = new Set<string>();
+
+/** Real timer sleep; tests inject an instant one (or a 0 delay). Extracted so the
+ *  settle guard below is injectable without pulling in a timer library. */
+function defaultSleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 /** Reasons the deep-backfill continuation returns when there is simply nothing
  *  to do (no backfill started, already finished, or no synced property yet).
@@ -128,6 +143,12 @@ export function withPipelineAdvance(
 export type PostResponseCycleOptions = {
   now?: () => Date;
   deadlineMs?: number;
+  /** Settle delay (ms) before the once-daily enrichment starts, after the
+   *  surface-critical path completes. Defaults to ENRICHMENT_SETTLE_MS; tests
+   *  pass 0 so the delay is instant. */
+  enrichmentSettleMs?: number;
+  /** Injectable sleep so the settle guard is testable without a real 5s wait. */
+  sleep?: (ms: number) => Promise<void>;
 };
 
 export async function runPostResponseCycle(
@@ -171,6 +192,8 @@ export async function runPostResponseCycle(
 async function runOwnedCycle(tenantId: string, options: PostResponseCycleOptions = {}): Promise<void> {
   const nowFn = options.now ?? (() => new Date());
   const deadlineMs = options.deadlineMs ?? AUTONOMOUS_RUN_DEADLINE_MS;
+  const enrichmentSettleMs = options.enrichmentSettleMs ?? ENRICHMENT_SETTLE_MS;
+  const sleep = options.sleep ?? defaultSleep;
   {
     const connectorResults = await autoRefreshStaleConnectorsForTenant(tenantId).catch((error) => {
       log.warn("[autonomous] connector refresh failed", {
@@ -245,29 +268,6 @@ async function runOwnedCycle(tenantId: string, options: PostResponseCycleOptions
     const prior = await readLastWarmReceipt(tenantId, "visit");
     const shouldRunDeepResearch = shouldRunAutonomousResearch(prior, now);
     if (shouldRunDeepResearch) {
-      // $0 deterministic enrichment spine (trend radar, seasonal, refresh queue,
-      // algorithm weather, pooled/aa calibration, pipeline watchdog, forensic
-      // investigation, etc.) - the per-tenant nightly phases of the deleted
-      // cron-sync, re-homed onto the on-use cycle. Runs once per day (this daily
-      // branch), AFTER the connector auto-refresh above pulled tonight's data and
-      // BEFORE the paid research below, so the LIVE Today/Changes/Results surfaces
-      // that read these stores stop showing frozen data even if research later
-      // times out. Bounded + fail-soft; a failure never touches the research pass.
-      const enrichment = await runOnVisitEnrichment(tenantId, { now: nowFn }).catch((error) => {
-        log.warn("[autonomous] on-visit enrichment failed (non-blocking)", {
-          tenantId,
-          error: error instanceof Error ? error.message : String(error),
-        });
-        return null;
-      });
-      if (enrichment && (enrichment.failed.length > 0 || enrichment.skippedPastDeadline.length > 0)) {
-        log.info("[autonomous] on-visit enrichment finished", {
-          tenantId,
-          ran: enrichment.ran.length,
-          failed: enrichment.failed,
-          skippedPastDeadline: enrichment.skippedPastDeadline,
-        });
-      }
       // Write before work begins. This is the durable cross-instance throttle
       // and gives the UI an honest running state instead of a blank.
       await recordWarmRun(startedReceipt(tenantId, now, prior));
@@ -325,6 +325,41 @@ async function runOwnedCycle(tenantId: string, options: PostResponseCycleOptions
     }));
     if (recovery.status !== "not_needed") {
       log.info("[autonomous] page factory recovery checked", { tenantId, recovery });
+    }
+
+    // $0 deterministic enrichment spine (trend radar, seasonal, refresh queue,
+    // algorithm weather, pooled/aa calibration, pipeline watchdog, forensic
+    // investigation, etc.) - the per-tenant nightly phases of the deleted
+    // cron-sync, re-homed onto the on-use cycle. Runs once per day (this daily
+    // branch), AFTER the connector auto-refresh above pulled tonight's data.
+    //
+    // It runs LAST, after the whole customer-critical path (research pass OR
+    // ready-queue replenishment, plus the surface warm / page-factory recovery
+    // above) has finished, and behind a short settle delay. Enrichment used to
+    // run FIRST inside this branch, where its bounded Supabase reads competed with
+    // the same visit's SWR surface rebuilds; that shared connection pressure once
+    // pushed the readiness-critical drafts read past its timeout and silently
+    // zeroed the Ready queue. Moving it here removes that competition entirely:
+    // the surface-critical reads are provably done before enrichment's first read
+    // begins. Nothing enrichment DOES changed - only WHEN. Bounded (its own
+    // ENRICHMENT_DEADLINE_MS) + fail-soft; a failure never touches the surfaces.
+    if (shouldRunDeepResearch) {
+      await sleep(enrichmentSettleMs);
+      const enrichment = await runOnVisitEnrichment(tenantId, { now: nowFn }).catch((error) => {
+        log.warn("[autonomous] on-visit enrichment failed (non-blocking)", {
+          tenantId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+        return null;
+      });
+      if (enrichment && (enrichment.failed.length > 0 || enrichment.skippedPastDeadline.length > 0)) {
+        log.info("[autonomous] on-visit enrichment finished", {
+          tenantId,
+          ran: enrichment.ran.length,
+          failed: enrichment.failed,
+          skippedPastDeadline: enrichment.skippedPastDeadline,
+        });
+      }
     }
   }
 }

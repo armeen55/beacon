@@ -184,7 +184,6 @@ export async function markChangelogEditShipped(args: {
     // contract ("ship a change invalidates it") and every other ship path.
     if (result.flipped > 0) await invalidateChangesSurface().catch(() => {});
     revalidatePath("/changes");
-    revalidatePath("/recommendations");
     revalidatePath("/", "layout");
     return {
       success: true,

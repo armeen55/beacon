@@ -77,7 +77,7 @@ describe("stage-in-wix actions - delegation + receipts", () => {
     const r = await stageMoveInWixAction({ moveId: "rec-9" });
     expect(r.staged).toBe(true);
     expect(_stageCalls[0]).toEqual({ kind: "move", moveId: "rec-9" });
-    expect(_revalidated).toEqual(expect.arrayContaining(["/changes", "/recommendations"]));
+    expect(_revalidated).toEqual(expect.arrayContaining(["/changes"]));
   });
 
   it("a not-staged receipt passes through untouched and revalidates NOTHING", async () => {
