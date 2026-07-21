@@ -9,6 +9,28 @@
 This is the operator's live priority order. I work it strictly top to bottom. The dated
 chronology of what already landed lives in VERIFICATION_LOG.md; this list is only what is next.
 
+> 🟢 **2026-07-21 continuous-work window, FIRST BATCH DEPLOYED AND EXACT-SHA VERIFIED (commit
+> `f06f31d7`, Vercel `dpl_Hez9JmjuDThdjFCjwfasKJosFD9P`; the window is still open and a further
+> entry may follow).** Reliability root fix: background enrichment runs LAST in the visit cycle
+> behind a 5 second settle guard so it can never starve the readiness reads again (root fix for
+> the Ready-zeroing class; the 30 second read bound stays as defense in depth; three regression
+> tests pin the order). Directed fold: the monthly spend total renders as one honest self-hiding
+> line on /settings ("I spent $X.XX this month on AI and data calls. Every call is capped and
+> logged before it runs."), fail-soft reader, five state tests. Defects fixed: the /competitors
+> bookmark stub no longer chains into the deleted /prompts 404 (now /changes); four no-op
+> revalidations of the deleted recommendations route removed; two stub-hop links point directly
+> at /changes?status=ready. master_execution_plan.md compacted 3,370 to 373 lines with full
+> verbatim history in docs/archive/MASTER_EXECUTION_PLAN_HISTORY.md, counts reconciling.
+> Verifications: Wix credential proven LIVE via read-only API check (the Discover-collections
+> unblock will work); help, onboarding, public routes, and the redirect-stub class audited clean;
+> performance advisors zero slow-query findings (55 unused-index INFO notices recorded, index
+> drops operator-gated); server build 112M to 50M after phase 4. Process incident recorded
+> honestly: a lane agent's git stash/checkout cycles on the shared tree wiped uncommitted work
+> including user-owned untracked files; everything was recovered (stash -u parents plus fsck) and
+> re-applied with verification; new standing rules are that agents never run git state commands
+> on the shared tree and work is banked immediately after each landing. **Next is unchanged:**
+> the operator ships wave 1 from the Ready tab.
+
 > 🟢 **2026-07-21 phase 4, THE HIDDEN-SECOND-PRODUCT DELETION, FOUR BANKED DEPLOYS, DEPLOYED AND
 > EXACT-SHA VERIFIED (final fix `50991401`, Vercel `dpl_7F5WVgAUGmUHcwaQs98vANyzXJAg`).** The
 > operator's scope decision is the product boundary: Beacon is Today, Changes, Results,

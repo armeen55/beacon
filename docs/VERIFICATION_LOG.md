@@ -10,6 +10,36 @@
 > Older entries (before 2026-07-01) are archived verbatim in `docs/archive/VERIFICATION_LOG_2026H1.md`.
 > That archive holds first-half-2026 history; this file holds 2026-07-01 onward.
 
+## 2026-07-21 - Continuous-work window, first batch (f06f31d7)
+
+Operator-directed nonstop contract; this entry covers the first deployed batch and the window is
+still open, so a further entry may follow. Deployed as `dpl_Hez9JmjuDThdjFCjwfasKJosFD9P`,
+production returned the exact SHA, core routes healthy.
+
+1. **Reliability root fix.** Background enrichment now runs LAST in the visit cycle behind a 5
+   second settle guard, so it can never starve the readiness reads again. This is the root fix
+   for the Ready-zeroing class; the 30 second read bound stays as defense in depth. Three
+   regression tests pin the order.
+2. **Directed fold completed.** The monthly spend total renders as one honest self-hiding line on
+   /settings ("I spent $X.XX this month on AI and data calls. Every call is capped and logged
+   before it runs."), with a fail-soft reader and five state tests.
+3. **Defects fixed.** The /competitors bookmark stub redirected to the deleted /prompts route, a
+   404 chain, and now goes to /changes. Four no-op revalidations of the deleted recommendations
+   route are removed. Two stub-hop links now point directly at /changes?status=ready.
+4. **Docs compaction.** docs/master_execution_plan.md went from 3,370 to 373 lines keeping live
+   decision records; the full history is verbatim in
+   docs/archive/MASTER_EXECUTION_PLAN_HISTORY.md and the counts reconcile.
+5. **Verifications.** The Wix credential is proven LIVE via a read-only API check, so the
+   operator's Discover-collections unblock will work. Help, onboarding, public routes, and the
+   whole redirect-stub class audited clean. Performance advisors show zero slow-query findings;
+   55 unused-index INFO notices are recorded, and index drops remain operator-gated schema
+   changes. The server build measured 112M to 50M after phase 4.
+6. **Process incident, recorded honestly.** A lane agent ran git stash/checkout cycles on the
+   shared tree, wiping uncommitted work including user-owned untracked files. Everything was
+   recovered (stash -u parents plus fsck for dropped stashes) and re-applied with verification.
+   New standing rules: agents never run git state commands on the shared tree; work is banked
+   immediately after each landing.
+
 ## 2026-07-21 - Phase 4: the hidden-second-product deletion, four banked deploys (8bcb2ac3, cf7ae6df, c7c1834f, 50991401)
 
 The operator's scope decision set the product boundary: Beacon is Today, Changes, Results,

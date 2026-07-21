@@ -1,5 +1,30 @@
 # Beacon Verified State
 
+> 🟢 **2026-07-21 continuous-work window, first batch deployed and exact-SHA verified (commit
+> `f06f31d7`, Vercel `dpl_Hez9JmjuDThdjFCjwfasKJosFD9P`, core routes healthy; the window is still
+> open and a further entry may follow).** Reliability root fix: background enrichment now runs
+> LAST in the visit cycle behind a 5 second settle guard, so it can never starve the readiness
+> reads again; this is the root fix for the Ready-zeroing class, and the 30 second read bound
+> stays as defense in depth. Three regression tests pin the order. Directed fold completed: the
+> monthly spend total renders as one honest self-hiding line on /settings ("I spent $X.XX this
+> month on AI and data calls. Every call is capped and logged before it runs."), with a fail-soft
+> reader and five state tests. Defects fixed: the /competitors bookmark stub redirected to the
+> deleted /prompts route, a 404 chain, and now goes to /changes; four no-op revalidations of the
+> deleted recommendations route are removed; two stub-hop links now point directly at
+> /changes?status=ready. docs/master_execution_plan.md is compacted from 3,370 to 373 lines
+> keeping live decision records, with the full history verbatim in
+> docs/archive/MASTER_EXECUTION_PLAN_HISTORY.md and the counts reconciling. Verifications: the
+> Wix credential is proven LIVE via a read-only API check, so the operator's Discover-collections
+> unblock will work; help, onboarding, public routes, and the whole redirect-stub class audited
+> clean; performance advisors show zero slow-query findings, with 55 unused-index INFO notices
+> recorded and index drops left operator-gated as schema changes; the server build measured 112M
+> to 50M after phase 4. Process incident, recorded honestly: a lane agent ran git stash/checkout
+> cycles on the shared tree, wiping uncommitted work including user-owned untracked files.
+> Everything was recovered (stash -u parents plus fsck for dropped stashes) and re-applied with
+> verification. New standing rules: agents never run git state commands on the shared tree, and
+> work is banked immediately after each landing. Next actions are unchanged: the operator ships
+> wave 1 from the Ready tab.
+
 > 🟢 **2026-07-21 phase 4, the hidden-second-product deletion, four banked deploys, deployed and
 > exact-SHA verified.** The operator's scope decision is now the product boundary: Beacon is
 > Today, Changes, Results, Connections, minimal Settings, and minimal onboarding. 4A (commit
