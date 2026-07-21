@@ -4,7 +4,7 @@ import "server-only";
  * winner-memory (BEACON_500 item 30, 2026-07-02) - feeds the drafters the house's
  * own MEASURED winners instead of letting every draft rediscover style nightly.
  *
- * proof-history-voice.ts's aggregateSettled already tallies won/lost/flat per
+ * daily-experiment-planner.ts's aggregateSettled already tallies won/lost/flat per
  * (pageFamily, actionFamily) for a debate line. This module goes one step
  * further: it retains the actual winning before/after TEXT (when the ledger has
  * it) plus deterministic structural features, and turns the top examples per

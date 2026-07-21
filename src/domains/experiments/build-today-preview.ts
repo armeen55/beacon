@@ -10,16 +10,18 @@ import "server-only";
 import { loadGscPageSignalsForTenant } from "@/domains/recommendation-intelligence/gsc-page-signals";
 import { loadProofLedger } from "@/domains/proof-gsc/load-ledger";
 import { getPageSnapshots } from "@/domains/pages/snapshot-store";
-import { buildDailyCandidates, type GscPageInput, type PageFacts, type BuiltCandidate } from "./build-daily-candidates";
+import { buildDailyCandidates, buildLinkDestinations, toLinkPath, type GscPageInput, type PageFacts, type BuiltCandidate } from "./build-daily-candidates";
 import { reviewRecommendation, passesDailyGate } from "@/domains/recommendations/recommendation-quality";
-import { planDailyExperiments, pageFamilyOf as pageFamilyOfPath } from "./daily-experiment-planner";
+import { planDailyExperiments, pageFamilyOf as pageFamilyOfPath, aggregateSettled, proofHistoryLine, retirementLine } from "./daily-experiment-planner";
 import { deriveExperimentStates, actionFamilyOf } from "./experiment-eligibility";
-import { buildLinkDestinations, toLinkPath } from "./safe-internal-link";
-import { buildDailyPlanRecord } from "./build-daily-plan-record";
-import type { DailyExperimentPlanRecord } from "./daily-plan-types";
+import {
+  stableHash, normalizePath, type DailyExperimentPlanRecord, type PlannedExperimentRecord,
+  type ProposedControlRecord, type ExperimentLever, type ExcludedPickRecord,
+} from "./daily-plan-types";
 import { classifyQueryIntent } from "./answer-intent";
 import { proposeAnswerGap } from "./safe-answer-block";
-import { enrichDailyCandidatesWithLlm, type MetaTitleDrafter } from "./daily-llm-enrich";
+import { buildPickExpectations } from "./pick-expectations";
+import { blendCaptureBand, type FamilyCaptureBand } from "./empirical-capture";
 import { draftAtomicEditStructured, draftAnswerBlockStructured, draftTeamVerdictStructured } from "@/domains/llm/structured-drafter";
 import { applyFinalReviewToPicks } from "@/domains/llm/batch-adjudicator";
 import { readAllCachedKeywordDemand } from "@/domains/serp/dataforseo-keywords";
@@ -33,9 +35,6 @@ import {
 } from "./daily-evidence-brief";
 import { rankDelta, loadFeatureStealCandidates } from "@/domains/serp/serp-history";
 import { buildFeatureStealHintNotes } from "@/domains/serp/feature-steal";
-import { normalizePath } from "./daily-plan-types";
-import { aggregateSettled, proofHistoryLine } from "./proof-history-voice";
-import { retirementLine } from "./lever-retirement";
 import { reviewCandidateWithTeam } from "./team-review";
 import { loadSpecialistWeightTable } from "@/domains/team-scoreboard/load-team-scoreboard";
 import { loadEngineGapNotes } from "@/domains/ai-visibility/gap-store";
@@ -60,14 +59,6 @@ import { loadExperimentOutcomes, gateRecordsToEffectObservations } from "@/domai
 import { computeDimPriors, resolvePrior, canonicalMoveType, pageTypeFromUrl, queryClusterKey } from "@/domains/learning/experiment-prior";
 import { computeEffectSizeTable, resolveEffectPrior } from "@/domains/learning/effect-size-prior";
 import { attachControlContaminationForLedger, computeLastCleanDonorHolds } from "@/domains/proof-gsc/attach-control-contamination";
-// N45 (R21b, 2026-07-03) - the PURE prerequisite gate. Derives dependency edges between the
-// candidates queued together (a content edit on a technically-blocked page waits for the fix; an
-// internal link waits for its destination page to be built; a schema-dependent edit waits for the
-// schema) and returns a path -> plain-reason hold lookup the planner already accepts as
-// prerequisiteHolds. Byte-identical when the batch has no dependency (the common case for the
-// daily content/link/answer levers): empty holds, same plan.
-import { planDependencies, dependencyHoldLookup, type DependencyCandidate } from "./dependency-planner";
-import type { ActionType } from "@/domains/recommendations/action-types";
 import { outcomeStateOf } from "@/domains/proof-gsc/measure-lifecycle";
 import { measurementWindowOf } from "@/domains/proof-gsc/measurement-maturity";
 import { learningEligibleVerdict } from "@/domains/proof-gsc/verdict-calibration";
@@ -78,37 +69,6 @@ import { claimEvidenceForDraft } from "@/domains/provenance/claim-graph";
 const ANIMAL = /\/iran-animals(\/|$)/;
 const pathOf = (u: string) => (u.replace(/^https?:\/\/[^/]+/, "") || "/").replace(/[?#].*$/, "").replace(/\/$/, "") || "/";
 const labelOf = (u: string) => (pathOf(u).split("/").filter(Boolean).at(-1) ?? "").replace(/[-_]+/g, " ");
-
-/** N45 (R21b): the SAME host-stripped path convention daily-experiment-planner.ts uses for its
- *  interference/prerequisite lookups (normPathForInterference), reproduced here so the re-keyed
- *  prerequisiteHolds map lines up byte-for-byte with the planner's own lookup. NOT lowercased and
- *  NOT trailing-slash-stripped, deliberately - it must match the planner, not pathOf above. */
-const normPathForInterference = (u: string) =>
-  (u.replace(/^https?:\/\/[^/]+/, "").replace(/[?#].*$/, "") || "/");
-
-/** N45 (R21b): map a daily lever field to the canonical ActionType dependency-planner.ts reasons
- *  over. The daily pipeline produces only these content/link/answer levers; a seasonal_prep is not
- *  a content optimization and never a dependent, so it maps to full_rewrite's sibling by being
- *  excluded from the planner's CONTENT_OPTIMIZATION set via a non-optimization action - here we use
- *  reorder_sections which the planner does treat as content-optimization, so seasonal_prep is kept
- *  honest as an edit; refresh is a full_rewrite. */
-export function leverFieldToActionType(leverField: BuiltCandidate["leverField"]): ActionType {
-  switch (leverField) {
-    case "title":
-      return "edit_title";
-    case "meta":
-      return "edit_meta";
-    case "h1":
-      return "change_h1";
-    case "internal_link":
-      return "add_internal_link";
-    case "answer_block":
-      return "add_answer_block";
-    case "refresh":
-    case "seasonal_prep":
-      return "full_rewrite";
-  }
-}
 
 /** Item 51 (weekly strategy review) - read the latest signed mix (if any, if fresh) and
  *  compose its per-family weight multiplicatively onto teamScoreMultiplier, the SAME
@@ -606,41 +566,7 @@ export async function buildTodayExperimentPreview(tenantId: string, now: Date = 
     c.evidenceFreshness = classifyOpportunityFreshness([{ kind: "serp_verdict", date: serpDate }], now).verdict;
   }
 
-  // N45 (R21b, 2026-07-03) - PREREQUISITE HOLDS: derive dependency edges across tonight's own
-  // batch (dependency-planner.ts) and hold any candidate whose prerequisite is still pending.
-  // Reuses the SAME candidates/link-destinations this pipeline already built - no new store, no
-  // new read. The daily levers are content/link/answer edits, so the only dependency this batch
-  // can carry today is an internal link pointing at a create_page candidate (build_hub_page);
-  // create_page / add_schema / technical fixes are not daily levers, so in practice this yields
-  // an EMPTY hold lookup and a byte-identical plan (the pin). It is wired now so the moment a
-  // prerequisite-bearing candidate does appear, the dependent is held with the honest
-  // prerequisite_pending sentence in the "Why not the others?" inspector (R14a). Fail-soft ->
-  // no holds. The planner keys prerequisiteHolds by host-stripped path; dependency-planner keys
-  // its own held list by candidate id, so we re-key here (id -> path).
-  let prerequisiteHolds: ReadonlyMap<string, string> = new Map<string, string>();
-  try {
-    const depCandidates: DependencyCandidate[] = teamReviewed.map((c) => ({
-      id: c.url,
-      url: c.url,
-      actionType: leverFieldToActionType(c.leverField),
-      linkDestinationUrl: c.linkDetail?.destinationUrl ?? c.linkDetail?.destinationPath ?? null,
-    }));
-    const plan = planDependencies(depCandidates);
-    const holdById = dependencyHoldLookup(plan);
-    if (holdById.size > 0) {
-      // Re-key id -> host-stripped path so the planner's normPathForInterference lookup applies.
-      const byPath = new Map<string, string>();
-      for (const c of depCandidates) {
-        const reason = holdById.get(c.id);
-        if (reason) byPath.set(normPathForInterference(c.url), reason);
-      }
-      prerequisiteHolds = byPath;
-    }
-  } catch {
-    /* additive - a failed dependency derivation must never block or alter a nightly plan */
-  }
-
-  const plan = planDailyExperiments({ tenantId, date: now.toISOString().slice(0, 10), candidates: teamReviewed, proofLedger: ledger, config: { ...PLANNER_CONFIG, now }, lastCleanDonorHolds, prerequisiteHolds });
+  const plan = planDailyExperiments({ tenantId, date: now.toISOString().slice(0, 10), candidates: teamReviewed, proofLedger: ledger, config: { ...PLANNER_CONFIG, now }, lastCleanDonorHolds });
 
   const byUrl = new Map(built.map((b) => [b.url, b]));
   const selected = plan.selected.map((s) => byUrl.get(s.url)).filter(Boolean) as BuiltCandidate[];
@@ -934,4 +860,296 @@ export async function buildTodayExperimentPreview(tenantId: string, now: Date = 
     .filter((line): line is string => line != null);
 
   return { record, candidatesEvaluated: built.length, excludedByReason, leverRetirementLines };
+}
+
+// ---------------------------------------------------------------------------
+// LLM "write it" pass (2026-07-01, assistant-first phase 2 slice D-1; merged
+// from daily-llm-enrich.ts 2026-07-21). At plan time, for each selected
+// candidate, the intent-aware LLM drafts a sharper version of the proposed text
+// (a description or title) grounded in the page + the searcher's intent. The
+// draft REPLACES the deterministic proposedText and is flagged draftSource="llm"
+// so the card can say "Beacon wrote this, edit before you use it". FALLS BACK to
+// the deterministic text on any of: LLM off, budget hit, error, empty, or
+// no-change. Only drop-in field edits (meta/title) so the operation is
+// unchanged.
+//
+// PURE orchestration: the drafter is injected, so this is unit-tested with zero
+// paid calls (see build-today-preview.test.ts). The real wiring above passes a
+// drafter backed by the budgeted structured-drafter.
+// ---------------------------------------------------------------------------
+
+/** Injected drafter: returns the improved text + a one-line rationale, or null to keep deterministic. */
+export type MetaTitleDrafter = (input: {
+  query: string;
+  pageLabel: string;
+  field: "meta" | "title";
+  currentValue: string | null;
+  intent?: string;
+  /** BEACON_500 item 48: the candidate's page url, so the drafter can look up the page's
+   *  own cached crawl facts (title/h1/meta/body) and ground the rewrite in them. Optional -
+   *  a caller that omits it just gets an ungrounded outline, never an error. */
+  url?: string;
+}) => Promise<{ text: string; rationale: string } | null>;
+
+/**
+ * Enrich the drop-in field candidates (meta/title) in place with an LLM-written version. Never throws
+ * (a per-candidate failure keeps the deterministic text). Returns how many were upgraded to "llm".
+ */
+export async function enrichDailyCandidatesWithLlm(
+  cands: BuiltCandidate[],
+  intentByUrl: Map<string, string | undefined>,
+  draft: MetaTitleDrafter,
+): Promise<number> {
+  let upgraded = 0;
+  await Promise.all(
+    cands.map(async (c) => {
+      if (c.leverField !== "meta" && c.leverField !== "title") return; // drop-in levers only (D-1)
+      const currentValue = c.currentText && c.currentText !== "(none)" ? c.currentText : null;
+      let res: Awaited<ReturnType<MetaTitleDrafter>> = null;
+      try {
+        res = await draft({ query: c.targetQuery, pageLabel: c.pageLabel, field: c.leverField, currentValue, intent: intentByUrl.get(c.url), url: c.url });
+      } catch {
+        res = null; // fail soft -> keep the deterministic proposal
+      }
+      const text = res?.text?.trim();
+      if (text && text !== (currentValue ?? "").trim() && text !== c.proposedText.trim()) {
+        c.proposedText = text;
+        c.draftSource = "llm";
+        c.llmRationale = res!.rationale?.trim() || undefined;
+        upgraded += 1;
+      }
+    }),
+  );
+  return upgraded;
+}
+
+// ---------------------------------------------------------------------------
+// Plan record freezing (2026-06-30; merged from build-daily-plan-record.ts
+// 2026-07-21) - PURE. Freezes a planner output (selected + backup
+// BuiltCandidates) + the active-experiment topology into a reproducible
+// DailyExperimentPlanRecord. No I/O, no side effects, no reservations (preview
+// only). The frozen hashes let acceptance detect a candidate whose page text /
+// evidence / eligibility changed since planning.
+// ---------------------------------------------------------------------------
+
+const PLANNER_VERSION = "safe-levers-v3"; // meta + internal-link + answer-block
+// A preview must survive a normal operating day (plan in the morning, apply through the evening) -
+// 30 min meant a plan was dead before the operator returned to it. Acceptance ALSO re-validates the
+// control topology fresh at accept time, so a longer window doesn't weaken measurement; and a stale
+// plan auto-refreshes on Accept (see acceptDailyExperimentPlanAction) rather than dead-ending.
+const DEFAULT_EXPIRY_MIN = 24 * 60;
+
+function controlRecord(c: BuiltCandidate["suggestedControls"][number]): ProposedControlRecord {
+  return {
+    controlUrl: c.url, controlPath: normalizePath(c.url), score: c.score,
+    pageFamilyMatch: c.pageFamilyMatch, impressionsRatio: c.impressionsRatio,
+    positionDifference: c.positionDifference, why: c.why,
+  };
+}
+
+function detailOf(c: BuiltCandidate): PlannedExperimentRecord["detail"] {
+  if (c.leverField === "internal_link" && c.linkDetail) {
+    return { kind: "internal_link", destinationUrl: c.linkDetail.destinationUrl, anchorText: c.linkDetail.anchorText, wixInstructions: c.linkDetail.wixInstructions, relationship: c.linkDetail.relationship };
+  }
+  if (c.leverField === "answer_block" && c.answerDetail) {
+    return { kind: "answer_block", question: c.answerDetail.question, operation: c.answerDetail.operation, exactInstruction: c.answerDetail.exactInstruction, paragraphIndex: c.answerDetail.paragraphIndex };
+  }
+  if (c.leverField === "meta") return { kind: "meta", source: "page_opening_paragraph" };
+  // Item 56: a refresh pick freezes its evidence brief on the record so the card can argue
+  // the fade (new uncovered queries, losing queries, the winner's newer section).
+  if (c.leverField === "refresh") {
+    return {
+      kind: "refresh_section",
+      briefSentences: c.refreshDetail?.briefSentences ?? [],
+      clicksLostPerMonth: c.refreshDetail?.clicksLostPerMonth ?? 0,
+    };
+  }
+  return { kind: "edit_field", field: c.leverField === "h1" ? "h1" : "title" };
+}
+
+function placementOf(c: BuiltCandidate): string {
+  if (c.leverField === "answer_block" && c.answerDetail) return c.answerDetail.proposedLocation;
+  if (c.leverField === "internal_link" && c.linkDetail) return `paragraph ${c.linkDetail.paragraphIndex + 1}`;
+  if (c.leverField === "refresh") return "a new section (H2) in the page body";
+  return c.leverField;
+}
+
+function leaveUnchangedFor(lever: ExperimentLever): string[] {
+  const all = ["title", "meta", "H1", "other body text", "internal links", "schema"];
+  const touched: Record<ExperimentLever, string> = { meta: "meta", title: "title", h1: "H1", internal_link: "internal links", answer_block: "other body text", refresh: "other body text" };
+  return all.filter((x) => x.toLowerCase() !== touched[lever].toLowerCase());
+}
+
+function toExperimentRecord(
+  planId: string,
+  c: BuiltCandidate,
+  controls: ProposedControlRecord[],
+  correctionFactor: number,
+  captureDistribution: ReadonlyMap<string, FamilyCaptureBand>,
+): PlannedExperimentRecord {
+  const path = normalizePath(c.url);
+  const lever = c.leverField as ExperimentLever;
+  const currentTextHash = stableHash(c.currentText ?? "");
+  const evidenceHash = stableHash([c.targetQuery, c.proposedText, c.ownership.toFixed(3), c.position.toFixed(2)].join("|"));
+  const eligibilityHash = stableHash([JSON.stringify(c.eligibility), controls.map((s) => s.controlPath).sort().join(",")].join("|"));
+  // Item 64: resolve this pick's actionFamily capture band (empty distribution -> every family
+  // falls through to blendCaptureBand's n < MIN_SAMPLES branch, the untouched static 25/75 band -
+  // byte-identical to pre-item-64 output for a fresh tenant or an empty map passed by an older
+  // caller/test).
+  const band = blendCaptureBand(captureDistribution.get(canonicalMoveType(c.actionFamily)));
+  return {
+    id: `${planId}::${path}`,
+    candidateId: path,
+    url: c.url,
+    canonicalUrl: c.url,
+    pageLabel: c.pageLabel,
+    pageFamily: c.pageFamily ?? "",
+    lever,
+    targetQuery: c.targetQuery,
+    whyNow: c.whyNow,
+    draftSource: c.draftSource ?? "deterministic",
+    llmRationale: c.llmRationale,
+    evidenceBrief: c.evidenceBrief,
+    teamReview: c.teamReview,
+    currentText: c.currentText,
+    proposedText: c.proposedText,
+    placement: placementOf(c),
+    leaveUnchanged: leaveUnchangedFor(lever),
+    rollbackText: c.rollbackText,
+    effortMinutes: c.effortMinutes,
+    risk: "low",
+    expectations: buildPickExpectations({
+      lever,
+      ctrOpportunityClicks: c.ctrOpportunityClicks,
+      effortMinutes: c.effortMinutes,
+      correctionFactor,
+      captureBand: { low: band.low, high: band.high, n: band.n, isEmpirical: band.isEmpirical },
+    }),
+    learnedPrior: c.learnedPrior,
+    effectPrior: c.effectPrior,
+    controls,
+    influencedUrls: (c.influencedUrls ?? []).map(normalizePath),
+    evidenceHash,
+    currentTextHash,
+    eligibilityHash,
+    detail: detailOf(c),
+  };
+}
+
+/**
+ * Assign clean controls per experiment. A control is a diff-in-diff BASELINE, so the same untreated
+ * page may baseline multiple experiments (shared controls are compatible - none of them changes it).
+ * The one hard rule: a control must NOT be a page that is itself TREATED in this plan (a changed
+ * page is not a clean baseline). So we exclude in-plan treated paths and keep up to 5 per experiment.
+ * (The reservation id is keyed by experiment, so shared controls are distinct rows; acceptance
+ * blocks only a control that is or becomes a TREATMENT, never a shared baseline.)
+ */
+function assignCleanControls(
+  planId: string,
+  selected: BuiltCandidate[],
+  correctionFactor: number,
+  captureDistribution: ReadonlyMap<string, FamilyCaptureBand>,
+): PlannedExperimentRecord[] {
+  const treatedPaths = new Set(selected.map((c) => normalizePath(c.url)));
+  return selected.map((c) => {
+    const clean: ProposedControlRecord[] = [];
+    for (const ctrl of c.suggestedControls) {
+      if (treatedPaths.has(normalizePath(ctrl.url))) continue; // never a treated page
+      clean.push(controlRecord(ctrl));
+      if (clean.length >= 5) break;
+    }
+    return toExperimentRecord(planId, c, clean, correctionFactor, captureDistribution);
+  });
+}
+
+/** R14a: cap on the exclusions frozen onto a plan record (the "Why not the others?"
+ *  expander renders exactly this many). Plain-sentence holds first - they carry the
+ *  planner's own richest explanations - then the rest in planner order. PURE. */
+const MAX_EXCLUDED_ON_RECORD = 8;
+function capExcludedForRecord(
+  excluded: ReadonlyArray<ExcludedPickRecord>,
+): ExcludedPickRecord[] {
+  const withSentence = excluded.filter((e) => e.plainReason);
+  const rest = excluded.filter((e) => !e.plainReason);
+  return [...withSentence, ...rest]
+    .slice(0, MAX_EXCLUDED_ON_RECORD)
+    .map((e) => ({
+      url: e.url,
+      actionFamily: e.actionFamily,
+      reason: e.reason,
+      ...(e.plainReason ? { plainReason: e.plainReason } : {}),
+    }));
+}
+
+function buildDailyPlanRecord(input: {
+  tenantId: string;
+  date: string;
+  now: Date;
+  selected: BuiltCandidate[];
+  backups: BuiltCandidate[];
+  activeSnapshot: { proofIds: string[]; treatedUrls: string[]; controlUrls: string[]; influencedUrls: string[] };
+  expiresInMinutes?: number;
+  /** Item 27: the measured bias-correction factor from past forecasts vs actuals (default 1.0,
+   *  meaning no correction yet - either no calibration history, or it is too thin to trust).
+   *  Read fail-soft from forecast-calibration.ts above; this function just threads it through
+   *  to every pick's expectations. */
+  correctionFactor?: number;
+  /** Item 64: the per-actionFamily empirical capture distribution (empirical-capture.ts), derived
+   *  from the SAME calibration ledger read as correctionFactor. Omitted (or an empty map, e.g. a
+   *  fresh tenant) resolves every family to the untouched static 25/75 band - byte-identical to
+   *  pre-item-64 output. */
+  captureDistribution?: ReadonlyMap<string, FamilyCaptureBand>;
+  /** R14a: the planner's own exclusion list (ExcludedExperiment rows, adapted by the caller),
+   *  frozen on the record capped at 8 so "Why not the others?" renders at $0. Omitted (or empty)
+   *  leaves the record byte-identical to before R14a. */
+  excluded?: ReadonlyArray<ExcludedPickRecord>;
+}): DailyExperimentPlanRecord {
+  const nowIso = input.now.toISOString();
+  const expiresAt = new Date(input.now.getTime() + (input.expiresInMinutes ?? DEFAULT_EXPIRY_MIN) * 60_000).toISOString();
+  const correctionFactor = input.correctionFactor ?? 1;
+  const captureDistribution = input.captureDistribution ?? new Map<string, FamilyCaptureBand>();
+
+  // inputHash is content-addressed over the selected set + the active topology, so re-planning with
+  // identical inputs yields the same plan id (idempotent preview), and any change → a new plan.
+  const selectedKey = input.selected
+    .map((c) => `${normalizePath(c.url)}:${c.leverField}:${stableHash(c.proposedText)}`)
+    .sort()
+    .join("|");
+  const snapKey = [...input.activeSnapshot.treatedUrls, ...input.activeSnapshot.controlUrls].map(normalizePath).sort().join(",");
+  const inputHash = stableHash(`${input.tenantId}|${input.date}|${selectedKey}|${snapKey}`);
+  const id = `${input.tenantId}::${input.date}::${inputHash.slice(0, 12)}`;
+
+  const selected = assignCleanControls(id, input.selected, correctionFactor, captureDistribution);
+  const backups = assignCleanControls(id, input.backups, correctionFactor, captureDistribution);
+
+  const byLever: Record<string, number> = {};
+  const byPageFamily: Record<string, number> = {};
+  for (const e of selected) {
+    byLever[e.lever] = (byLever[e.lever] ?? 0) + 1;
+    byPageFamily[e.pageFamily] = (byPageFamily[e.pageFamily] ?? 0) + 1;
+  }
+  const estimatedMinutes = selected.reduce((s, e) => s + e.effortMinutes, 0);
+
+  // R14a: freeze the planner's exclusions (capped, plain-sentence holds first) so the
+  // "Why not the others?" expander is pure surfacing. Omitted entirely when empty so
+  // an exclusion-free plan (and every pre-R14a fixture) stays byte-identical.
+  const excluded = capExcludedForRecord(input.excluded ?? []);
+
+  return {
+    version: 1,
+    id,
+    tenantId: input.tenantId,
+    date: input.date,
+    status: "preview",
+    createdAt: nowIso,
+    expiresAt,
+    inputHash,
+    plannerVersion: PLANNER_VERSION,
+    activeExperimentSnapshot: { ...input.activeSnapshot, capturedAt: nowIso },
+    selected,
+    backups,
+    ...(excluded.length > 0 ? { excluded } : {}),
+    distribution: { byLever, byPageFamily },
+    estimatedMinutes,
+  };
 }

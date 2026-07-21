@@ -11,7 +11,14 @@ import {
 beforeAll(registerTestCalibratedVersion);
 afterAll(clearTestCalibratedVersions);
 
-import { planDailyExperiments, scoreCandidate, pageFamilyOf, settledLeverRowsForRetirement, type DailyCandidate } from "./daily-experiment-planner";
+import {
+  planDailyExperiments, scoreCandidate, pageFamilyOf, settledLeverRowsForRetirement,
+  computeLeverRetirementDecisions, RetirementIndex, retirementLine,
+  RETIRE_LOSS_THRESHOLD, RETEST_AFTER_DAYS,
+  aggregateSettled, proofHistoryLine,
+  type DailyCandidate, type SettledLeverRow,
+} from "./daily-experiment-planner";
+import { actionFamilyOf } from "./experiment-eligibility";
 import type { ShippedChangeRecord } from "@/domains/proof-gsc/shipped-change-store";
 import { hasBannedDash } from "@/lib/copy/strip-dashes";
 import { MIN_MULTIPLIER, MAX_MULTIPLIER, type LearnedPrior } from "@/domains/learning/experiment-prior";
@@ -747,5 +754,276 @@ describe("settledLeverRowsForRetirement - review fix 9 (inconclusive flows exact
     ]);
     expect(rows.map((r) => r.verdict)).toEqual(["won", "lost"]);
     expect(rows[1]!.settledAt).toBe("2026-01-02T00:00:00Z"); // falls back to shippedAt
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Folded from lever-retirement.test.ts (module merged into
+// daily-experiment-planner.ts, 2026-07-21). Pins the pure retirement core:
+// retire threshold, zero-wins requirement, 90 day retest, re-retire /
+// unsuppress, the single-slot RetirementIndex, and the plain retirement line.
+// ---------------------------------------------------------------------------
+
+const settledRow = (path: string, actionType: string, verdict: SettledLeverRow["verdict"], settledAt: string): SettledLeverRow => ({
+  path, actionType, verdict, settledAt,
+});
+
+function decisions(rows: SettledLeverRow[], now: Date = NOW) {
+  return computeLeverRetirementDecisions(rows, now, pageFamilyOf, actionFamilyOf);
+}
+
+describe("computeLeverRetirementDecisions - retire threshold + zero-wins requirement", () => {
+  it("does NOT retire with 2 losses (below threshold)", () => {
+    const rows = [
+      settledRow("/cities/tehran", "edit_title", "lost", "2026-01-01T00:00:00Z"),
+      settledRow("/cities/shiraz", "edit_title", "lost", "2026-01-10T00:00:00Z"),
+    ];
+    const d = decisions(rows);
+    expect(d).toHaveLength(1);
+    expect(d[0].status).toBe("active");
+    expect(d[0].lossCount).toBe(2);
+  });
+
+  it(`retires at exactly ${RETIRE_LOSS_THRESHOLD} settled losses with zero wins`, () => {
+    const rows = [
+      settledRow("/cities/tehran", "edit_title", "lost", "2026-01-01T00:00:00Z"),
+      settledRow("/cities/shiraz", "edit_title", "lost", "2026-01-10T00:00:00Z"),
+      settledRow("/cities/isfahan", "edit_title", "lost", "2026-01-20T00:00:00Z"),
+    ];
+    // A "now" right after the 3rd loss - well inside the 90 day wait, so the fresh retirement
+    // itself (not the later retest-due transition) is what this test pins.
+    const d = decisions(rows, new Date("2026-01-21T00:00:00Z"));
+    expect(d).toHaveLength(1);
+    expect(d[0]).toMatchObject({ pageFamily: "cities", lever: "title", status: "retired", lossCount: 3, winCount: 0 });
+    expect(d[0].retiredAtIso).toBe("2026-01-20T00:00:00.000Z"); // the 3rd (threshold-crossing) loss
+  });
+
+  it("does NOT retire when the cell has ANY win, even with 3+ losses", () => {
+    const rows = [
+      settledRow("/cities/tehran", "edit_title", "lost", "2026-01-01T00:00:00Z"),
+      settledRow("/cities/shiraz", "edit_title", "lost", "2026-01-10T00:00:00Z"),
+      settledRow("/cities/isfahan", "edit_title", "lost", "2026-01-20T00:00:00Z"),
+      settledRow("/cities/yazd", "edit_title", "won", "2026-01-25T00:00:00Z"),
+    ];
+    const d = decisions(rows);
+    expect(d[0].status).toBe("active");
+    expect(d[0].winCount).toBe(1);
+    expect(d[0].lossCount).toBe(3);
+  });
+
+  it("inconclusive rows count toward neither bucket and never trigger retirement alone", () => {
+    const rows = [
+      settledRow("/cities/a", "edit_title", "inconclusive", "2026-01-01T00:00:00Z"),
+      settledRow("/cities/b", "edit_title", "inconclusive", "2026-01-10T00:00:00Z"),
+      settledRow("/cities/c", "edit_title", "inconclusive", "2026-01-20T00:00:00Z"),
+    ];
+    const d = decisions(rows);
+    expect(d).toHaveLength(0); // no losses at all -> lossCount 0 -> filtered out entirely
+  });
+
+  it("keeps page families and lever families distinct cells (no cross-contamination)", () => {
+    const rows = [
+      settledRow("/cities/a", "edit_title", "lost", "2026-01-01T00:00:00Z"),
+      settledRow("/cities/b", "edit_title", "lost", "2026-01-10T00:00:00Z"),
+      settledRow("/cities/c", "edit_meta_description", "lost", "2026-01-20T00:00:00Z"), // different lever, same family
+      settledRow("/iran-flags/a", "edit_title", "lost", "2026-01-01T00:00:00Z"), // same lever, different family
+    ];
+    const d = decisions(rows);
+    // cities::title has 2 losses (not retired); cities::meta has 1; iran-flags::title has 1
+    const citiesTitle = d.find((x) => x.pageFamily === "cities" && x.lever === "title");
+    expect(citiesTitle?.status).toBe("active");
+    expect(citiesTitle?.lossCount).toBe(2);
+    expect(d.every((x) => x.status === "active")).toBe(true);
+  });
+});
+
+describe("computeLeverRetirementDecisions - 90 day retest", () => {
+  const threeLosses = [
+    settledRow("/cities/tehran", "edit_title", "lost", "2026-01-01T00:00:00Z"),
+    settledRow("/cities/shiraz", "edit_title", "lost", "2026-01-10T00:00:00Z"),
+    settledRow("/cities/isfahan", "edit_title", "lost", "2026-01-20T00:00:00Z"),
+  ];
+
+  it("stays 'retired' (not yet due) before 90 days pass", () => {
+    const almostThere = new Date(Date.parse("2026-01-20T00:00:00Z") + (RETEST_AFTER_DAYS - 1) * 86_400_000);
+    const d = decisions(threeLosses, almostThere);
+    expect(d[0].status).toBe("retired");
+  });
+
+  it("becomes 'retest_due' exactly at the 90 day mark", () => {
+    const exactlyThere = new Date(Date.parse("2026-01-20T00:00:00Z") + RETEST_AFTER_DAYS * 86_400_000);
+    const d = decisions(threeLosses, exactlyThere);
+    expect(d[0].status).toBe("retest_due");
+    expect(d[0].retestAfterIso).toBe(exactlyThere.toISOString());
+  });
+
+  it("stays 'retest_due' well past the 90 day mark (no further decay)", () => {
+    const wayLater = new Date(Date.parse("2026-01-20T00:00:00Z") + 400 * 86_400_000);
+    const d = decisions(threeLosses, wayLater);
+    expect(d[0].status).toBe("retest_due");
+  });
+});
+
+describe("computeLeverRetirementDecisions - re-retire on retest loss / full unsuppress on retest win", () => {
+  it("a retest LOSS re-retires the cell and RESETS the 90 day clock to the retest loss's own date", () => {
+    const rows = [
+      settledRow("/cities/tehran", "edit_title", "lost", "2026-01-01T00:00:00Z"),
+      settledRow("/cities/shiraz", "edit_title", "lost", "2026-01-10T00:00:00Z"),
+      settledRow("/cities/isfahan", "edit_title", "lost", "2026-01-20T00:00:00Z"), // retires here
+      settledRow("/cities/yazd", "edit_title", "lost", "2026-04-25T00:00:00Z"), // the single retest, settles as a loss
+    ];
+    const d = decisions(rows, new Date("2026-05-01T00:00:00Z"));
+    expect(d[0].status).toBe("retired"); // freshly re-retired, clock restarted
+    expect(d[0].retiredAtIso).toBe(new Date("2026-04-25T00:00:00Z").toISOString());
+    expect(d[0].lossCount).toBe(4);
+    const newRetestAfter = new Date(Date.parse("2026-04-25T00:00:00Z") + RETEST_AFTER_DAYS * 86_400_000);
+    expect(d[0].retestAfterIso).toBe(newRetestAfter.toISOString());
+  });
+
+  it("a retest WIN fully unsuppresses the cell permanently", () => {
+    const rows = [
+      settledRow("/cities/tehran", "edit_title", "lost", "2026-01-01T00:00:00Z"),
+      settledRow("/cities/shiraz", "edit_title", "lost", "2026-01-10T00:00:00Z"),
+      settledRow("/cities/isfahan", "edit_title", "lost", "2026-01-20T00:00:00Z"), // retires here
+      settledRow("/cities/yazd", "edit_title", "won", "2026-04-25T00:00:00Z"), // the single retest, settles as a win
+    ];
+    const d = decisions(rows, new Date("2026-05-01T00:00:00Z"));
+    expect(d[0].status).toBe("active");
+    expect(d[0].winCount).toBe(1);
+    expect(d[0].retiredAtIso).toBeNull();
+  });
+});
+
+describe("RetirementIndex - single-candidate retest gating", () => {
+  it("blocks every candidate in a fully 'retired' (not yet due) cell", () => {
+    const stillWaiting = new Date("2026-01-21T00:00:00Z"); // 1 day after the 3rd loss, well inside 90 days
+    const idx = new RetirementIndex(decisions([
+      settledRow("/cities/a", "edit_title", "lost", "2026-01-01T00:00:00Z"),
+      settledRow("/cities/b", "edit_title", "lost", "2026-01-10T00:00:00Z"),
+      settledRow("/cities/c", "edit_title", "lost", "2026-01-20T00:00:00Z"),
+    ], stillWaiting));
+    expect(idx.admit("cities", "title")).toMatchObject({ blocked: true, retest: false });
+    expect(idx.admit("cities", "title")).toMatchObject({ blocked: true, retest: false });
+  });
+
+  it("admits EXACTLY ONE candidate through a 'retest_due' cell, blocks the rest", () => {
+    const due = new Date(Date.parse("2026-01-20T00:00:00Z") + RETEST_AFTER_DAYS * 86_400_000);
+    const idx = new RetirementIndex(decisions([
+      settledRow("/cities/a", "edit_title", "lost", "2026-01-01T00:00:00Z"),
+      settledRow("/cities/b", "edit_title", "lost", "2026-01-10T00:00:00Z"),
+      settledRow("/cities/c", "edit_title", "lost", "2026-01-20T00:00:00Z"),
+    ], due));
+    const first = idx.admit("cities", "title");
+    expect(first).toMatchObject({ blocked: false, retest: true });
+    const second = idx.admit("cities", "title");
+    expect(second).toMatchObject({ blocked: true, retest: false });
+    const third = idx.admit("cities", "title");
+    expect(third).toMatchObject({ blocked: true, retest: false });
+  });
+
+  it("never blocks an active or absent cell", () => {
+    const idx = new RetirementIndex([]);
+    expect(idx.admit("cities", "title")).toMatchObject({ blocked: false, retest: false });
+    expect(idx.admit("iran-flags", "meta")).toMatchObject({ blocked: false, retest: false });
+  });
+});
+
+describe("retirementLine - plain first-person copy", () => {
+  it("returns null for an active/absent cell", () => {
+    expect(retirementLine(undefined)).toBeNull();
+    const active = decisions([settledRow("/cities/a", "edit_title", "lost", "2026-01-01T00:00:00Z")])[0];
+    expect(retirementLine(active)).toBeNull();
+  });
+
+  it("says the plain lever + family + loss count when retired", () => {
+    const stillWaiting = new Date("2026-01-21T00:00:00Z");
+    const d = decisions([
+      settledRow("/cities/a", "edit_title", "lost", "2026-01-01T00:00:00Z"),
+      settledRow("/cities/b", "edit_title", "lost", "2026-01-10T00:00:00Z"),
+      settledRow("/cities/c", "edit_title", "lost", "2026-01-20T00:00:00Z"),
+    ], stillWaiting)[0];
+    const line = retirementLine(d);
+    expect(line).toContain("I stopped");
+    expect(line).toContain("title change");
+    expect(line).toContain("cities pages");
+    expect(line).toContain("lost 3 times");
+    expect(line).toContain("I will retest it once in");
+  });
+
+  it("says it is ready to retest when the cell is retest_due", () => {
+    const due = new Date(Date.parse("2026-01-20T00:00:00Z") + RETEST_AFTER_DAYS * 86_400_000);
+    const d = decisions([
+      settledRow("/cities/a", "edit_title", "lost", "2026-01-01T00:00:00Z"),
+      settledRow("/cities/b", "edit_title", "lost", "2026-01-10T00:00:00Z"),
+      settledRow("/cities/c", "edit_title", "lost", "2026-01-20T00:00:00Z"),
+    ], due)[0];
+    const line = retirementLine(d);
+    expect(line).toContain("I am ready to retest it once now.");
+  });
+
+  it("never contains a banned em or en dash", () => {
+    const d = decisions([
+      settledRow("/cities/a", "edit_title", "lost", "2026-01-01T00:00:00Z"),
+      settledRow("/cities/b", "edit_title", "lost", "2026-01-10T00:00:00Z"),
+      settledRow("/cities/c", "edit_title", "lost", "2026-01-20T00:00:00Z"),
+    ], NOW)[0];
+    const line = retirementLine(d);
+    expect(hasBannedDash(line)).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Folded from proof-history-voice.test.ts (module merged into
+// daily-experiment-planner.ts, 2026-07-21). Pins the proof-history voice:
+// tally, lever redirection, and family isolation.
+// ---------------------------------------------------------------------------
+
+const verdictRow = (path: string, actionType: string, verdict: string) => ({ path, actionType, verdict });
+
+function settle(rows: ReturnType<typeof verdictRow>[]) {
+  return aggregateSettled(rows, pageFamilyOf, actionFamilyOf);
+}
+
+describe("proof-history-voice (item 27)", () => {
+  it("stays silent with no settled history", () => {
+    const s = settle([verdictRow("/iran-flags/a", "edit_title", "measuring")]);
+    expect(proofHistoryLine(s, pageFamilyOf("/iran-flags/b"), "title")).toBeNull();
+  });
+
+  it("tallies same-lever history on the page family", () => {
+    const s = settle([
+      verdictRow("/iran-flags/a", "edit_meta_description", "won"),
+      verdictRow("/iran-flags/b", "edit_meta_description", "inconclusive"),
+    ]);
+    const line = proofHistoryLine(s, pageFamilyOf("/iran-flags/c"), "meta");
+    expect(line).toContain("We already tried this kind of change");
+    expect(line).toContain("won 1");
+    expect(line).toContain("no clear lift 1");
+  });
+
+  it("explains the lever REDIRECTION when a sibling lever settled flat", () => {
+    const s = settle([verdictRow("/iran-flags/a", "edit_title", "inconclusive")]);
+    const line = proofHistoryLine(s, pageFamilyOf("/iran-flags/b"), "meta");
+    expect(line).toContain("We tried a title change on similar pages");
+    expect(line).toContain("That is why today's change is a description change, not a title change.");
+  });
+
+  it("says so when the sibling lever HURT", () => {
+    const s = settle([verdictRow("/iran-flags/a", "edit_title", "lost")]);
+    const line = proofHistoryLine(s, pageFamilyOf("/iran-flags/b"), "meta");
+    expect(line).toContain("it hurt");
+  });
+
+  it("does NOT redirect off a sibling lever that has a win", () => {
+    const s = settle([
+      verdictRow("/iran-flags/a", "edit_title", "won"),
+      verdictRow("/iran-flags/b", "edit_title", "inconclusive"),
+    ]);
+    expect(proofHistoryLine(s, pageFamilyOf("/iran-flags/c"), "meta")).toBeNull();
+  });
+
+  it("never crosses page families", () => {
+    const s = settle([verdictRow("/cities/tehran", "edit_title", "inconclusive")]);
+    expect(proofHistoryLine(s, pageFamilyOf("/iran-flags/b"), "meta")).toBeNull();
   });
 });

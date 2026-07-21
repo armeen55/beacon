@@ -9,7 +9,7 @@
  *   2. aggregateWinsByPattern(rows) - tallies decided (non-pending) proof-ledger verdicts
  *      by (pattern, pageFamily), with a hard minimum-sample floor before any cell is
  *      considered "confident" enough to quote. Below the floor the cell stays silent,
- *      exactly the discipline proof-history-voice.ts already uses for (pageFamily,
+ *      exactly the discipline the planner's proof-history voice already uses for (pageFamily,
  *      actionFamily) tallies.
  *
  * Tenant-agnostic: pattern ids and page families are derived from content/URLs, never a
