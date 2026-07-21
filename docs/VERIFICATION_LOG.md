@@ -10,6 +10,38 @@
 > Older entries (before 2026-07-01) are archived verbatim in `docs/archive/VERIFICATION_LOG_2026H1.md`.
 > That archive holds first-half-2026 history; this file holds 2026-07-01 onward.
 
+## 2026-07-21 - Continuous-work window, second and final batch (099b158e, f5ab307c, 55d52b88)
+
+This entry closes the 2026-07-21 continuous-work window. All three deploys are exact-SHA verified
+with core routes healthy.
+
+1. **Closed-window contamination precompute (`099b158e`).** Results contamination verdicts for
+   closed measurement windows now precompute into the surface snapshot at rebuild and serve from
+   it at render, skipping the heavy permutation reads for frozen rows; open windows stay live.
+   Immutability is anchored on the completed 28 day basis window plus ledger-mutation
+   invalidation. Verified end to end in production data: the rebuilt blob carries
+   contaminationByClosedRow with 2 frozen rows, honest since only 2 of 25 changes have closed
+   windows.
+2. **Second-order orphan harvest (`f5ab307c`).** A fresh reachability graph over the post-phase-4
+   tree harvested 262 second-order orphan files (60,697 lines) plus the csv-parse dependency.
+   Constitutional pins were pruned only where their subjects died, each justified. Full suite
+   green.
+3. **Dead export prune (`55d52b88`).** Sixty dead exports pruned from surviving files (1,053
+   lines) in a capped batch with the remainder documented.
+4. **Accepted-risk decision recorded.** The moderate @hono/node-server advisory lives in a
+   transitive dependency of the shadcn package, whose stylesheet globals.css genuinely imports.
+   The vector is Windows-only path traversal in static serving Beacon never uses on Linux Vercel.
+   Removal broke the CSS build and was reverted; the risk is accepted and documented rather than
+   silently ignored.
+5. **Blockers recorded for the operator.** The CallRail parked cluster and the off-site authority
+   parked trio (delete or revive are product decisions); 55 unused DB indexes (schema drops); the
+   DataForSEO unfreeze and Perplexity key (paid).
+
+Window metrics: production TypeScript 276,796 to 245,412 lines; test code 234,399 to 205,630;
+test cases 15,194 to 13,513; server build 50M. Final gate: strict typecheck clean; 13,513 passed /
+0 failed; lint clean; `git diff --check` clean; production build passed; one accepted-risk
+advisory documented.
+
 ## 2026-07-21 - Continuous-work window, first batch (f06f31d7)
 
 Operator-directed nonstop contract; this entry covers the first deployed batch and the window is

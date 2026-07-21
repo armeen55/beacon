@@ -9,6 +9,28 @@
 This is the operator's live priority order. I work it strictly top to bottom. The dated
 chronology of what already landed lives in VERIFICATION_LOG.md; this list is only what is next.
 
+> 🟢 **2026-07-21 continuous-work window, SECOND AND FINAL BATCH DEPLOYED AND EXACT-SHA VERIFIED
+> (commits `099b158e`, `f5ab307c`, `55d52b88`; the window is now closed).** Closed-window
+> contamination verdicts precompute into the surface snapshot at rebuild and serve from it at
+> render, skipping the heavy permutation reads for frozen rows while open windows stay live;
+> immutability is anchored on the completed 28 day basis window plus ledger-mutation
+> invalidation, verified end to end in production (contaminationByClosedRow carries 2 frozen
+> rows, honest since only 2 of 25 changes have closed windows). A fresh reachability graph over
+> the post-phase-4 tree harvested 262 second-order orphan files (60,697 lines) plus csv-parse;
+> constitutional pins pruned only where their subjects died, each justified; full suite green.
+> Sixty dead exports pruned from surviving files (1,053 lines) in a capped batch, remainder
+> documented. Accepted-risk decision: the moderate @hono/node-server advisory sits in a
+> transitive dependency of the shadcn package whose globals.css genuinely imports; the vector is
+> Windows-only path traversal in static serving Beacon never uses on Linux Vercel; removal broke
+> the CSS build and was reverted; the risk is accepted and documented. Operator blockers
+> recorded: CallRail parked cluster and off-site authority parked trio (delete or revive are
+> product decisions), 55 unused DB indexes (schema drops), DataForSEO unfreeze and Perplexity key
+> (paid). Window metrics: production TypeScript 276,796 to 245,412 lines; test code 234,399 to
+> 205,630; test cases 15,194 to 13,513; server build 50M. Final gate: typecheck clean; 13,513
+> passed / 0 failed; lint clean; `git diff --check` clean; production build passed; one
+> accepted-risk advisory documented. **Next is unchanged:** the operator ships wave 1 from the
+> Ready tab.
+
 > 🟢 **2026-07-21 continuous-work window, FIRST BATCH DEPLOYED AND EXACT-SHA VERIFIED (commit
 > `f06f31d7`, Vercel `dpl_Hez9JmjuDThdjFCjwfasKJosFD9P`; the window is still open and a further
 > entry may follow).** Reliability root fix: background enrichment runs LAST in the visit cycle

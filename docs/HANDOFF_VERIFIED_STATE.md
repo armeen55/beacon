@@ -1,5 +1,29 @@
 # Beacon Verified State
 
+> 🟢 **2026-07-21 continuous-work window, second and final batch deployed and exact-SHA verified
+> (commits `099b158e`, `f5ab307c`, `55d52b88`, all exact-SHA verified, core routes healthy; the
+> window is now closed).** Results contamination verdicts for closed measurement windows now
+> precompute into the surface snapshot at rebuild and serve from it at render, skipping the heavy
+> permutation reads for frozen rows; open windows stay live. Immutability is anchored on the
+> completed 28 day basis window plus ledger-mutation invalidation, verified end to end in
+> production data: the rebuilt blob carries contaminationByClosedRow with 2 frozen rows, honest
+> since only 2 of 25 changes have closed windows. A fresh reachability graph over the
+> post-phase-4 tree harvested 262 second-order orphan files (60,697 lines) plus the csv-parse
+> dependency; constitutional pins were pruned only where their subjects died, each justified, and
+> the full suite stayed green. Sixty dead exports were pruned from surviving files (1,053 lines)
+> in a capped batch with the remainder documented. Accepted-risk decision recorded: the moderate
+> @hono/node-server advisory lives in a transitive dependency of the shadcn package, whose
+> stylesheet globals.css genuinely imports; the vector is Windows-only path traversal in static
+> serving Beacon never uses on Linux Vercel; removal broke the CSS build and was reverted; the
+> risk is accepted and documented rather than silently ignored. Blockers recorded for the
+> operator: the CallRail parked cluster and the off-site authority parked trio (delete or revive
+> are product decisions), 55 unused DB indexes (schema drops), and the DataForSEO unfreeze and
+> Perplexity key (paid). Window metrics: production TypeScript 276,796 to 245,412 lines; test
+> code 234,399 to 205,630; test cases 15,194 to 13,513; server build 50M. Final gate: strict
+> typecheck clean; 13,513 passed / 0 failed; lint clean; `git diff --check` clean; production
+> build passed; one accepted-risk advisory documented. Next actions are unchanged: the operator
+> ships wave 1 from the Ready tab.
+
 > 🟢 **2026-07-21 continuous-work window, first batch deployed and exact-SHA verified (commit
 > `f06f31d7`, Vercel `dpl_Hez9JmjuDThdjFCjwfasKJosFD9P`, core routes healthy; the window is still
 > open and a further entry may follow).** Reliability root fix: background enrichment now runs
