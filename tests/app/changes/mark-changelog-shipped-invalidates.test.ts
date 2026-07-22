@@ -41,8 +41,8 @@ vi.mock("@/domains/recommendations/recommended-edits-persistence", () => ({
 vi.mock("@/app/(shell)/changes-data", () => ({ loadChangesView: async () => ({ movesById: {} }) }));
 
 const _invalidate = vi.fn(async () => {});
-vi.mock("@/app/(shell)/changes-surface-store", () => ({
-  invalidateChangesSurface: () => _invalidate(),
+vi.mock("@/app/(shell)/surface-release", () => ({
+  invalidateCoreSurfaces: () => _invalidate(),
 }));
 
 import { markChangelogEditShipped } from "@/app/(shell)/changes/actions";

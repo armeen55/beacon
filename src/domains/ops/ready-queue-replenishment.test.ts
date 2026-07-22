@@ -8,8 +8,10 @@ const prepare = vi.fn();
 const readSurface = vi.fn();
 const refreshSurface = vi.fn();
 
-vi.mock("@/app/(shell)/customer-surface-store", () => ({ readCustomerSurface: (...args: unknown[]) => readSurface(...args) }));
-vi.mock("@/app/(shell)/customer-surface-refresh", () => ({ refreshCustomerSurface: (...args: unknown[]) => refreshSurface(...args) }));
+vi.mock("@/app/(shell)/surface-release", () => ({
+  readCustomerSurface: (...args: unknown[]) => readSurface(...args),
+  refreshCustomerSurface: (...args: unknown[]) => refreshSurface(...args),
+}));
 vi.mock("@/domains/demand-graph/prepare-today-moves", () => ({ prepareTodayMovesForTenant: (...args: unknown[]) => prepare(...args) }));
 
 import { READY_QUEUE_MAX_USD, READY_QUEUE_TARGET, replenishReadyQueueForTenant } from "./ready-queue-replenishment";

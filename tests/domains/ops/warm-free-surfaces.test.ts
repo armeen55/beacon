@@ -2,8 +2,9 @@
  * warmFreeSurfaces (2026-07-08) - the FREE cache-warm subset called right after
  * a manual "Update data" refresh so the post-refresh repaint is warm, not a cold
  * ~6s demand-graph rebuild. Pins the composition contract:
- *   - runs the free surfaces (demand-graph -> worklist -> fused Changes -> atomic customer release),
- *   - in dependency order,
+ *   - runs the free surfaces (demand-graph -> the ONE customer release build,
+ *     which itself runs worklist-then-fuse-then-compose and publishes last),
+ *   - in dependency order, with NO duplicate release build,
  *   - NONE of the paid nightly-only steps (displacement / steal / teardown /
  *     prepare-ahead) are touched,
  *   - fail-soft: one failed surface never stops the next.
@@ -27,17 +28,7 @@ vi.mock("@/domains/demand-graph/graph-snapshot-store", () => ({
     calls.push("graph:write");
   }),
 }));
-vi.mock("@/app/(shell)/moves/moves-data", () => ({
-  refreshWorklistSurface: vi.fn(async () => {
-    calls.push("worklist");
-  }),
-}));
-vi.mock("@/app/(shell)/changes-data", () => ({
-  rebuildChangesSurface: vi.fn(async () => {
-    calls.push("changes");
-  }),
-}));
-vi.mock("@/app/(shell)/customer-surface-refresh", () => ({
+vi.mock("@/app/(shell)/surface-release", () => ({
   refreshCustomerSurface: vi.fn(async () => {
     calls.push("customer");
   }),
@@ -52,10 +43,11 @@ describe("warmFreeSurfaces", () => {
     calls.length = 0;
   });
 
-  it("warms the worklist and its fused Changes view in dependency order", async () => {
+  it("warms the graph then publishes the ONE shared customer release, exactly once", async () => {
     await warmFreeSurfaces(TENANT);
-    // Graph is built then persisted; Changes consumes the fresh worklist; the shared customer release publishes last.
-    expect(calls).toEqual(["graph:build", "graph:write", "worklist", "changes", "customer"]);
+    // Graph is built then persisted; the release build (worklist -> fuse -> compose ->
+    // publish) runs once - no second redundant release build.
+    expect(calls).toEqual(["graph:build", "graph:write", "customer"]);
   });
 
   it("never touches a paid nightly-only step (no displacement/steal/teardown/prepare)", async () => {
@@ -72,10 +64,8 @@ describe("warmFreeSurfaces", () => {
         throw new Error("graph build blew up");
       },
     );
-    // Must not throw, and worklist + Changes + the customer release still run despite the graph failure.
+    // Must not throw, and the customer release still publishes despite the graph failure.
     await expect(warmFreeSurfaces(TENANT)).resolves.toBeUndefined();
-    expect(calls).toContain("worklist");
-    expect(calls).toContain("changes");
     expect(calls).toContain("customer");
   });
 });
