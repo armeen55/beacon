@@ -90,7 +90,6 @@ const FORBIDDEN: readonly ForbiddenRule[] = [
   {
     phrase: "decision matrix",
     rationale: "Internal compute layer.",
-    allowedFiles: ["src/domains/prompts/decision-matrix"],
   },
   { phrase: "pattern brain", rationale: "Internal subsystem name." },
   {
