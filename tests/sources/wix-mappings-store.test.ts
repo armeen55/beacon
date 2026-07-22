@@ -23,6 +23,7 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 
 import type { WixCollectionMapping, WixUrlMapEntry } from "@/lib/connectors/wix/types";
+import { makeWixFakeAdmin } from "./_wix-store";
 
 // ── hoisted mock state ────────────────────────────────────────────────
 const mockState = vi.hoisted(() => ({
@@ -32,67 +33,10 @@ const mockState = vi.hoisted(() => ({
   files: new Map<string, unknown[]>(),
 }));
 
-const PK = {
-  wix_collection_config: ["tenant_id", "data_collection_id"],
-  wix_url_map: ["tenant_id", "url"],
-} as Record<string, string[]>;
-
-function tableRows(name: string): Array<Record<string, unknown>> {
-  if (!mockState.tables.has(name)) mockState.tables.set(name, []);
-  return mockState.tables.get(name)!;
-}
-
-const undef = { code: "42P01" };
-
-function fakeAdmin() {
-  return {
-    from(table: string) {
-      return {
-        select(_cols?: string) {
-          return {
-            eq(col: string, val: unknown) {
-              if (mockState.mode === "no_table") return Promise.resolve({ data: null, error: undef });
-              return Promise.resolve({ data: tableRows(table).filter((r) => r[col] === val), error: null });
-            },
-          };
-        },
-        upsert(newRows: Array<Record<string, unknown>>, opts?: { onConflict?: string }) {
-          if (mockState.mode === "no_table") return Promise.resolve({ error: undef });
-          const conflict = (opts?.onConflict ?? PK[table]?.join(",") ?? "").split(",");
-          const arr = tableRows(table);
-          for (const nr of newRows) {
-            const idx = arr.findIndex((r) => conflict.every((k) => r[k] === nr[k]));
-            if (idx >= 0) arr[idx] = { ...nr };
-            else arr.push({ ...nr });
-          }
-          return Promise.resolve({ error: null });
-        },
-        delete() {
-          return {
-            eq(eqCol: string, eqVal: unknown) {
-              return {
-                in(inCol: string, list: unknown[]) {
-                  if (mockState.mode === "no_table") return Promise.resolve({ error: undef });
-                  const set = new Set(list);
-                  mockState.tables.set(
-                    table,
-                    tableRows(table).filter((r) => !(r[eqCol] === eqVal && set.has(r[inCol]))),
-                  );
-                  return Promise.resolve({ error: null });
-                },
-              };
-            },
-          };
-        },
-      };
-    },
-  };
-}
-
 vi.mock("@/lib/persistence/supabase", () => ({
   getSupabaseAdmin: () => {
     if (mockState.mode === "no_env") throw new Error("no supabase env");
-    return fakeAdmin();
+    return makeWixFakeAdmin(mockState);
   },
 }));
 

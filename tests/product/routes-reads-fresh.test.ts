@@ -15,6 +15,32 @@ import {
   isRecSuppressedFromMap,
 } from "@/domains/product/recommendation-response-store";
 
+// Default repo: every getX method returns []. Individual tests override a
+// method (e.g. getChangelogEntries) via the overrides map.
+// `forTenant(tenantId)` returns the same proxy so overrides apply to both
+// unscoped and tenant-scoped reads.
+const buildRepoStub = (overrides: Record<string, () => unknown> = {}) => {
+  const repo: Record<string, unknown> = new Proxy(
+    {} as Record<string, unknown>,
+    {
+      get(_target, prop: string) {
+        if (prop === "forTenant") return () => repo;
+        if (prop in overrides) return overrides[prop];
+        return async () => [];
+      },
+    },
+  );
+  return repo;
+};
+
+const mockRepoWithChangelog = (
+  getChangelogEntries: () => Promise<ChangelogEntry[]> | ChangelogEntry[],
+) => {
+  vi.doMock("@/lib/persistence/repositories", () => ({
+    getRepository: () => buildRepoStub({ getChangelogEntries }),
+  }));
+};
+
 describe("/changes reads fresh", () => {
 
   // ---------------------------------------------------------------------------
@@ -81,27 +107,6 @@ describe("/changes reads fresh", () => {
         },
       ];
 
-      // Default repo: every getX method returns []. Individual tests override
-      // getChangelogEntries via a custom property on the backing object below.
-      // Sprint 7 Phase 7.5b Commit 5 (2026-04-25) — `forTenant(tenantId)`
-      // returns the same proxy so overrides apply to both unscoped and
-      // tenant-scoped reads.
-      const buildRepoStub = (
-        overrides: Record<string, () => unknown> = {},
-      ) => {
-        const repo: Record<string, unknown> = new Proxy(
-          {} as Record<string, unknown>,
-          {
-            get(_target, prop: string) {
-              if (prop === "forTenant") return () => repo;
-              if (prop in overrides) return overrides[prop];
-              return async () => [];
-            },
-          },
-        );
-        return repo;
-      };
-
       beforeEach(() => {
         vi.resetModules();
         vi.doMock("next/cache", () => ({ revalidatePath: vi.fn() }));
@@ -158,16 +163,6 @@ describe("/changes reads fresh", () => {
           getOwnedPages: async () => [],
         }));
       });
-
-      // Helper to inject a custom getChangelogEntries override into the repo
-      // Proxy after beforeEach runs (so each test can pick its own behavior).
-      const mockRepoWithChangelog = (
-        getChangelogEntries: () => Promise<ChangelogEntry[]> | ChangelogEntry[],
-      ) => {
-        vi.doMock("@/lib/persistence/repositories", () => ({
-          getRepository: () => buildRepoStub({ getChangelogEntries }),
-        }));
-      };
 
       it("renders changelog rows returned by getRepository().getChangelogEntries()", async () => {
         mockRepoWithChangelog(async () => mockEntries);
@@ -261,27 +256,6 @@ describe("/changes/[id] reads fresh", () => {
         tenant_id: "ritz",
       };
 
-      // Default repo: every getX method returns []. Individual tests override
-      // getChangelogEntries via the backing object below.
-      // Sprint 7 Phase 7.5b Commit 5 (2026-04-25) — `forTenant(tenantId)`
-      // returns the same proxy so overrides apply to both unscoped and
-      // tenant-scoped reads.
-      const buildRepoStub = (
-        overrides: Record<string, () => unknown> = {},
-      ) => {
-        const repo: Record<string, unknown> = new Proxy(
-          {} as Record<string, unknown>,
-          {
-            get(_target, prop: string) {
-              if (prop === "forTenant") return () => repo;
-              if (prop in overrides) return overrides[prop];
-              return async () => [];
-            },
-          },
-        );
-        return repo;
-      };
-
       beforeEach(() => {
         vi.resetModules();
         // notFound() / redirect() throw special sentinels in Next.js.
@@ -300,14 +274,6 @@ describe("/changes/[id] reads fresh", () => {
           loadProofLedgerPersisted: async () => [],
         }));
       });
-
-      const mockRepoWithChangelog = (
-        getChangelogEntries: () => Promise<ChangelogEntry[]> | ChangelogEntry[],
-      ) => {
-        vi.doMock("@/lib/persistence/repositories", () => ({
-          getRepository: () => buildRepoStub({ getChangelogEntries }),
-        }));
-      };
 
       it("finds a repository-only scan row and sends it to the canonical Results surface", async () => {
         mockRepoWithChangelog(async () => [mockEntry]);

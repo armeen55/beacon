@@ -48,6 +48,7 @@ import {
 } from "@/domains/llm/rewrite-page";
 import type { SectionDraft } from "@/domains/llm/schemas";
 import type { CompleteFn } from "@/domains/llm/structured-drafter";
+import { fakeComplete } from "./_llm";
 
 const BRIEF: FullPageBriefInput = {
   proposedTitle: "Persian Wedding Traditions Explained",
@@ -95,12 +96,6 @@ const GENERIC_SECTION = sectionJson({
   heading: "What is a gift",
   body: "A gift is a voluntarily transferred item, service, or gesture given without payment or legally required compensation, exchanged across many cultures worldwide in social contexts.",
 });
-
-/** A completion fn that replays a fixed queue of responses (last one repeats). */
-function fakeComplete(responses: Array<{ text: string } | { error: string }>): CompleteFn {
-  let i = 0;
-  return async () => responses[Math.min(i++, responses.length - 1)]!;
-}
 
 const ORIGINAL_PROVIDER = process.env.BEACON_LLM_PROVIDER;
 
