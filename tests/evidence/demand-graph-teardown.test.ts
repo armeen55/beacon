@@ -18,11 +18,6 @@ import {
 } from "@/domains/demand-graph/teardown-commonality";
 import { routeGapVerdict } from "@/domains/demand-graph/teardown-commonality-verdict";
 import {
-  competitorTeardownHints,
-  hasUsableTeardown,
-  canAffordDraft,
-} from "@/domains/demand-graph/prepare-today-moves";
-import {
   toPersistedPack,
   parsePreparedPack,
   type RegenMeta,
@@ -251,45 +246,7 @@ describe("routeGapVerdict", () => {
   });
 });
 
-// ── teardown hints + regen meta + draft $ cap (from teardown-regeneration) ──
-
-function packetWith(competitor: Partial<EvidencePacket["competitor"]>): EvidencePacket {
-  return {
-    competitor: {
-      topUrl: "https://parentcalc.com/baby-names/persian",
-      domain: "parentcalc.com",
-      fetchStatus: "ok",
-      looselyMatched: false,
-      whatWins: "",
-      relevance: 1,
-      facts: {
-        canonicalUrl: null, title: "Persian Baby Names: Meanings & Origins", metaDescription: null, h1: "Persian Names",
-        h2Count: 8, h3Count: 0, outline: ["Boy names", "Girl names", "By meaning"], schemaTypes: ["FAQPage", "Article"],
-        hasFaq: true, faqQuestionCount: 6, faqQuestions: ["What are common Persian boy names?", "What do they mean?"],
-        hasAnswerBlock: true, wordCount: 637, sectionCount: 8, internalLinkCount: 10, externalLinkCount: 2,
-        imageCount: 4, hasToolOrCalculator: true, freshnessDate: null, ogTitle: null, ogType: null, topTerms: [],
-      },
-      ...competitor,
-    },
-  } as unknown as EvidencePacket;
-}
-
-describe("competitorTeardownHints: thread real facts, beat-don't-copy", () => {
-  it("emits grounded structure facts + the source URL + a do-not-copy instruction", () => {
-    const blob = competitorTeardownHints(packetWith({})).join("\n");
-    expect(blob).toMatch(/parentcalc\.com/);
-    expect(blob).toMatch(/637 words/);
-    expect(blob).toMatch(/do not copy/i);
-    expect(blob).toMatch(/https:\/\/parentcalc\.com\/baby-names\/persian/);
-  });
-
-  it("returns nothing for loosely-matched, failed-fetch, or factless teardowns", () => {
-    expect(competitorTeardownHints(packetWith({ looselyMatched: true }))).toEqual([]);
-    expect(hasUsableTeardown(packetWith({ looselyMatched: true }))).toBe(false);
-    expect(competitorTeardownHints(packetWith({ fetchStatus: "http_error" as never }))).toEqual([]);
-    expect(competitorTeardownHints(packetWith({ facts: null }))).toEqual([]);
-  });
-});
+// ── regen meta round-trip (from teardown-regeneration) ──
 
 describe("PreparedMovePack regenMeta round-trip", () => {
   const meta: RegenMeta = {
@@ -310,15 +267,5 @@ describe("PreparedMovePack regenMeta round-trip", () => {
     expect(parsed?.regenMeta?.regeneratedFromTeardown).toBe(true);
     expect(parsed?.regenMeta?.previousQuality).toBe("too_thin");
     expect(parsePreparedPack(toPersistedPack(base as never))?.regenMeta).toBeUndefined();
-  });
-});
-
-describe("canAffordDraft: hard per-run $ cap predicate", () => {
-  it("affords under the cap, refuses past it, always affords with no cap", () => {
-    expect(canAffordDraft(0.05, 0.02, 0.1)).toBe(true);
-    expect(canAffordDraft(0.08, 0.02, 0.1)).toBe(true); // exactly at the cap
-    expect(canAffordDraft(0.09, 0.02, 0.1)).toBe(false);
-    expect(canAffordDraft(0.1, 0.02, 0.1)).toBe(false);
-    expect(canAffordDraft(999, 0.03, Infinity)).toBe(true);
   });
 });

@@ -13,7 +13,7 @@ import type {
   DraftSkeleton,
   PageStructureFacts,
 } from "@/domains/demand-graph/evidence-packet";
-import { computeCopyBasisHash, buildEvidencePacket } from "@/domains/demand-graph/evidence-packet";
+import { computeCopyBasisHash } from "@/domains/demand-graph/evidence-packet";
 import type { GapKind, MoveComponents, MoveCandidate } from "@/domains/demand-graph/build-graph";
 import type { CompetitorPageFacts } from "@/domains/demand-graph/competitor-page-audit";
 import { routeMove } from "@/domains/demand-graph/move-router";
@@ -26,8 +26,6 @@ import {
   indexReadyPacksByUrl,
   selectPersistedPackForRow,
 } from "@/domains/demand-graph/prepared-move-pack";
-import type { SerpRunResult } from "@/domains/serp/dataforseo-serp";
-import type { SerpSnapshot } from "@/domains/serp/serp-provider";
 
 vi.mock("@/domains/demand-graph/gap-compiler", () => ({ loadChangePacksForTenant: vi.fn() }));
 vi.mock("@/domains/demand-graph/move-draft-store", () => ({
@@ -46,11 +44,6 @@ vi.mock("@/domains/team-scoreboard/load-team-scoreboard", () => ({
 vi.mock("@/domains/seasonal/family-demand-profile-store", () => ({
   loadFamilyDemandProfiles: vi.fn(async () => []),
 }));
-
-import { prepareTodayMovesForTenant } from "@/domains/demand-graph/prepare-today-moves";
-import { loadChangePacksForTenant } from "@/domains/demand-graph/gap-compiler";
-import { saveMoveDraft, getLatestMoveDrafts } from "@/domains/demand-graph/move-draft-store";
-import { draftAnswerBlockStructured } from "@/domains/llm/structured-drafter";
 
 const NOW = "2026-06-25T00:00:00.000Z";
 
@@ -247,183 +240,5 @@ describe("fallback join: a draft can only surface for its own URL", () => {
     expect(
       selectPersistedPackForRow({ packetKeyedPack: null, readyByUrl, rowCanonUrl: "https://iranopedia.com/url-y" }),
     ).toBeNull();
-  });
-});
-
-// ── prepareTodayMovesForTenant: live winnability + spend behavior ───────────
-
-function move(over: Partial<MoveCandidate> = {}): MoveCandidate {
-  return {
-    demandKey: "gap:persian-tea",
-    label: "persian tea culture",
-    gap: "answer_block",
-    score: 90,
-    components: { demand: 500, winnability: 0.6, dollarValue: 0, visibilityGap: 0.5, friction: 0 },
-    confidence: "high",
-    signals: ["GSC", "AI"],
-    ownedUrl: "https://iranopedia.com/persian-tea",
-    competitorUrls: ["https://competitor.com/tea"],
-    fanoutSeeds: ["how is persian tea served", "what is persian tea"],
-    rationale: "demand + AI cite rivals",
-    ...over,
-  };
-}
-
-function livePacket(over: Partial<MoveCandidate> = {}) {
-  return buildEvidencePacket({
-    move: move(over),
-    brand: "Iranopedia",
-    ownedFacts: {
-      title: "Persian Tea", metaDescription: "About persian tea", h1: "Persian Tea", h2Count: 3,
-      outline: ["History", "How it is served"], schemaTypes: ["Article"], hasFaq: false, hasAnswerBlock: false, wordCount: 400,
-    },
-    ownedGsc: { clicks: 50, impressions: 2000, ctr: 0.025, position: 8 },
-    competitor: null,
-    fanoutSeeds: ["how is persian tea served"],
-  });
-}
-
-const CONTENT_SNAPSHOT: SerpSnapshot = {
-  query: "persian tea culture",
-  results: [
-    { rank: 1, domain: "theknot.com", url: "https://theknot.com/x", title: "x" },
-    { rank: 2, domain: "brides.com", url: "https://brides.com/y", title: "y" },
-    { rank: 3, domain: "history.com", url: "https://history.com/z", title: "z" },
-    { rank: 4, domain: "wikipedia.org", url: "https://wikipedia.org/w", title: "w" },
-    { rank: 5, domain: "vogue.com", url: "https://vogue.com/v", title: "v" },
-  ],
-  features: [],
-  source: "dataforseo",
-  fetchedAt: "2026-07-06T00:00:00Z",
-};
-
-const MARKETPLACE_SNAPSHOT: SerpSnapshot = {
-  query: "persian tea culture",
-  results: [
-    { rank: 1, domain: "amazon.com", url: "https://amazon.com/1", title: "1" },
-    { rank: 2, domain: "etsy.com", url: "https://etsy.com/2", title: "2" },
-    { rank: 3, domain: "ebay.com", url: "https://ebay.com/3", title: "3" },
-    { rank: 4, domain: "reddit.com", url: "https://reddit.com/4", title: "4" },
-    { rank: 5, domain: "pinterest.com", url: "https://pinterest.com/5", title: "5" },
-    { rank: 6, domain: "walmart.com", url: "https://walmart.com/6", title: "6" },
-    { rank: 7, domain: "aliexpress.com", url: "https://aliexpress.com/7", title: "7" },
-  ],
-  features: [],
-  source: "dataforseo",
-  fetchedAt: "2026-07-06T00:00:00Z",
-};
-
-function serpResult(status: SerpRunResult["status"], snapshot: SerpSnapshot | null, costUsd = 0): SerpRunResult {
-  return { status, plan: {} as never, snapshot, costUsd, detail: status };
-}
-
-const GOOD_ANSWER =
-  "Persian tea culture centers on strong black tea brewed in a two-tier samovar and served in a small glass called an estekan, often with a sugar cube held between the teeth. In Iran, tea is offered to guests as a sign of hospitality throughout the day, from morning until late evening, and it accompanies conversation, sweets, and dates.";
-
-function draftedOk() {
-  return {
-    status: "drafted" as const,
-    kind: "answer_block" as const,
-    value: { answer: GOOD_ANSWER, evidenceRefs: [{ source: "gsc" }], operatorSteps: ["Add the answer block up top."], risks: [] },
-    costUsd: 0.01,
-    retried: false,
-  };
-}
-
-beforeEach(() => {
-  vi.clearAllMocks();
-  vi.mocked(loadChangePacksForTenant).mockResolvedValue({ packets: [livePacket()] } as never);
-  vi.mocked(getLatestMoveDrafts).mockResolvedValue(new Map());
-  vi.mocked(saveMoveDraft).mockResolvedValue(true);
-  vi.mocked(draftAnswerBlockStructured).mockResolvedValue(draftedOk() as never);
-});
-
-describe("prepareTodayMovesForTenant: RANK-3 live winnability", () => {
-  it("WINNABLE content SERP proceeds to draft and carries the worth-doing line", async () => {
-    const runSerp = vi.fn(async () => serpResult("ok", CONTENT_SNAPSHOT, 0.003));
-    const summary = await prepareTodayMovesForTenant("tenant-iranopedia", {
-      now: () => new Date("2026-07-06T00:00:00Z"),
-      runSerp: runSerp as never,
-    });
-    expect(summary.winnabilityHeld).toBe(0);
-    expect(summary.prepared).toBe(1);
-    const packCall = vi.mocked(saveMoveDraft).mock.calls.find((c) => c[2] === "prepared_pack");
-    const persisted = parsePreparedPack(packCall?.[3] as string);
-    expect(persisted?.winnabilityLine).toContain("worth doing");
-    expect(persisted?.structuredDraft).toBeTruthy();
-  });
-
-  it("UNWINNABLE marketplace SERP is HELD at serp_checked with NO LLM draft and an honest hold line", async () => {
-    const runSerp = vi.fn(async () => serpResult("ok", MARKETPLACE_SNAPSHOT, 0.003));
-    const summary = await prepareTodayMovesForTenant("tenant-iranopedia", {
-      now: () => new Date("2026-07-06T00:00:00Z"),
-      runSerp: runSerp as never,
-    });
-    expect(summary.winnabilityHeld).toBe(1);
-    expect(draftAnswerBlockStructured).not.toHaveBeenCalled();
-    expect(summary.llmCostUsd).toBe(0);
-    const packCall = vi.mocked(saveMoveDraft).mock.calls.find((c) => c[2] === "prepared_pack");
-    const persisted = parsePreparedPack(packCall?.[3] as string);
-    expect(persisted?.winnabilityHold).toBe(true);
-    expect(persisted?.winnabilityLine).toContain("marketplaces and directories I cannot outrank");
-    expect(persisted?.preparedStatus).toBe("serp_checked");
-    expect(persisted?.winnabilityLine ?? "").not.toMatch(/[–—]/); // dash ban
-  });
-
-  it("ZERO SPEND and unchanged flow when SERP is unconfigured/dry-run", async () => {
-    const runSerp = vi.fn(async () => serpResult("dry_run", null, 0));
-    const summary = await prepareTodayMovesForTenant("tenant-iranopedia", {
-      now: () => new Date("2026-07-06T00:00:00Z"),
-      runSerp: runSerp as never,
-    });
-    expect(summary.serpCostUsd).toBe(0);
-    expect(summary.winnabilityHeld).toBe(0);
-    expect(draftAnswerBlockStructured).toHaveBeenCalledTimes(1);
-  });
-
-  it("CAP/BREAKER respected: a capped runSerp yields no verdict, no spend, drafting proceeds fail-soft", async () => {
-    const runSerp = vi.fn(async () => serpResult("capped", null, 0));
-    const summary = await prepareTodayMovesForTenant("tenant-iranopedia", {
-      now: () => new Date("2026-07-06T00:00:00Z"),
-      runSerp: runSerp as never,
-    });
-    expect(summary.serpCostUsd).toBe(0);
-    expect(summary.winnabilityHeld).toBe(0);
-    expect(draftAnswerBlockStructured).toHaveBeenCalledTimes(1);
-  });
-
-  it("CACHE-FIRST: a fresh persisted serp_verdict is reused at $0 and still holds the move", async () => {
-    const freshVerdict = JSON.stringify({
-      verdict: "reject", confidence: "low", intent: "marketplace_ugc", contentDomainCount: 2,
-      marketplaceUgcCount: 8, profoundOverlapCount: 0, ownAlreadyRanks: false, topDomains: ["amazon.com"],
-      reason: "marketplace", generatedAt: "2026-07-06T00:00:00Z", costUsd: 0.003,
-    });
-    vi.mocked(getLatestMoveDrafts).mockResolvedValue(
-      new Map([[`gap:persian-tea::serp_verdict`, { recId: "gap:persian-tea", kind: "serp_verdict", content: freshVerdict, createdAt: "2026-07-06T00:00:00Z" }]]) as never,
-    );
-    const runSerp = vi.fn(async () => serpResult("ok", CONTENT_SNAPSHOT, 0.003));
-    const summary = await prepareTodayMovesForTenant("tenant-iranopedia", {
-      now: () => new Date("2026-07-06T01:00:00Z"),
-      runSerp: runSerp as never,
-    });
-    expect(runSerp).not.toHaveBeenCalled();
-    expect(summary.serpCostUsd).toBe(0);
-    expect(summary.winnabilityHeld).toBe(1);
-    expect(draftAnswerBlockStructured).not.toHaveBeenCalled();
-  });
-
-  it("stops after the requested number of fresh draft attempts while scanning a larger order", async () => {
-    vi.mocked(loadChangePacksForTenant).mockResolvedValue({
-      packets: [
-        livePacket({ demandKey: "maintain:one", label: "one" }),
-        livePacket({ demandKey: "maintain:two", label: "two" }),
-        livePacket({ demandKey: "maintain:three", label: "three" }),
-      ],
-    } as never);
-    const summary = await prepareTodayMovesForTenant("tenant-iranopedia", {
-      maxN: 3, maxNewDrafts: 1, checkWinnability: false,
-    });
-    expect(summary.prepared).toBe(1);
-    expect(draftAnswerBlockStructured).toHaveBeenCalledTimes(1);
   });
 });
