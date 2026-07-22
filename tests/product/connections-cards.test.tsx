@@ -248,9 +248,9 @@ describe("summary strip health + the once-only publish fact", () => {
     expect(all).toContain("5 of 5 connected");
   });
 
-  it("states the never-auto-publish fact exactly once on the page", () => {
+  it("states the never-touch-your-live-site fact exactly once on the page", () => {
     const html = renderClient({ connectedCount: 0, totalCount: 5 });
-    const matches = html.match(/never do on my own is change your live site/g) ?? [];
+    const matches = html.match(/I never touch your live site/g) ?? [];
     expect(matches.length).toBe(1);
   });
 

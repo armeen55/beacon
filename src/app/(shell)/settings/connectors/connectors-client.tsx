@@ -794,9 +794,9 @@ export function ConnectorsClient({
       ) : null}
       <p className="text-[12px] text-muted-foreground leading-relaxed">
         Once a source is connected I read it in the background and turn what
-        I find into fixes. The only thing I never do on my own is change
-        your live site, that always waits for your one-click approval unless
-        you arm autopilot yourself.
+        I find into exact changes to make. I never touch your live site. You
+        apply each change in your CMS and mark it implemented, then I measure
+        the lift.
       </p>
 
       {error && (

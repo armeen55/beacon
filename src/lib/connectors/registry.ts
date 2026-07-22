@@ -189,22 +189,23 @@ export const CONNECTOR_REGISTRY: readonly ConnectorRegistryEntry[] = [
     label: "Wix",
     activityLabel: "Wix",
     freshnessLabel: "Wix",
-    summary: "Publishes approved edits to your live site.",
-    // The ONLY write path. Reads nothing on a schedule (publish-only).
-    capabilities: { readsData: false, publishes: true },
+    summary: "Reads your live pages so I know what to change.",
+    // Read-side connection: page discovery, content + SEO settings, URL and
+    // collection mapping. Beacon never writes to Wix — publishing is manual.
+    capabilities: { readsData: true, publishes: false },
     requiresPropertySelection: false,
     capabilityCopy: {
       automated:
-        "Beacon writes the fix your page needs, a sharper title, heading, meta description, or the behind-the-scenes code that helps AI assistants quote you, and after you click approve, it publishes that single change to your live Wix site for you (up to 10 a day), then double-checks it actually went live.",
+        "Beacon reads your current Wix pages, their titles, headings, meta descriptions, and structure, so it can tell which pages exist, match a recommendation to the right page, and write the exact change you should make. It never edits your live site.",
       youDo:
-        "Connect Wix once by pasting in a Wix API key plus your Site ID, tell Beacon which part of your site holds your pages, then approve each suggested change with a click, and Beacon never auto-publishes. Brand-new blog posts, images, and any link or menu changes still get handled by you in Wix.",
+        "Connect Wix once by pasting in a Wix API key plus your Site ID, and tell Beacon which part of your site holds your pages. When Beacon recommends a change you paste it into Wix yourself, then click Mark implemented so Beacon measures the lift.",
     },
     dataHealth: {
       label: "Your website (Wix)",
       role: "your live website content and SEO settings (read only, not analytics)",
-      unlocks: "reading your current pages and publishing changes you approve",
+      unlocks: "reading your current pages and matching recommendations to them",
       blockedWhenMissing:
-        "one-click publishing (you can still copy and paste changes yourself)",
+        "page discovery and matching a change to the right page",
     },
     sla: { slaMaxDataAgeDays: null, required: false, removed: false },
   },
