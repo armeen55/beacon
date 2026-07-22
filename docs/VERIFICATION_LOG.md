@@ -10,6 +10,16 @@
 > Older entries (before 2026-07-01) are archived verbatim in `docs/archive/VERIFICATION_LOG_2026H1.md`.
 > That archive holds first-half-2026 history; this file holds 2026-07-01 onward.
 
+> 🟢 **2026-07-22 CORE 100K capability wave 1 + checkpoint B (commit `dcf6899c`, prod-verified
+> `dpl_DSNq6gm68S8Ur24co6rn983WVeNp`).** Operator-authorized lossy collapse. Removed entirely:
+> experiments daily-plan engine, seasonal domain, autopilot framework. Collapsed: ops->on-use
+> refresh, learning->ranking priors, attribution->individual+bundle verdict. Shared diff-in-diff
+> family taxonomy relocated to proof-gsc/change-family. All four surfaces rewired and verified on
+> real Iranopedia data (Today command, Changes Ready 3, Results 7/14/28 honest, Connections 4-of-4).
+> Production 189,682 -> 172,815; combined 265,626 -> 243,296 (checkpoint B). Gate: tsc 0, full suite
+> 4,249 green, build clean, prod exact-SHA verified.
+
+
 > 🟢 **2026-07-21 CORE 100K campaign, banks 1-6 deployed and exact-SHA verified (latest
 > `777c5b44`, production `dpl` confirmed via /api/version at every bank).** The operator's binding
 > mandate is a terminal ceiling of 100,000 combined production plus test TypeScript lines. Six

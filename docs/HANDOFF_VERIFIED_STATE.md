@@ -1,4 +1,17 @@
-# Beacon Verified State
+> 🟢 **2026-07-22 CORE 100K checkpoint B crossed (243,296 combined <= 250,000; production exact-SHA
+> `dcf6899c`, four-surface walk verified on real Iranopedia data: Today command, Changes Ready 3 with
+> exact edits, Results honest 7/14/28 measurement, Connections 4-of-4 with explicit publishing).**
+> Operator authorized a lossy four-kernel collapse: preserve the four-surface OUTCOMES, remove
+> implementations. Capability wave 1 removed experiments/daily-plan, seasonal intelligence, and
+> autopilot's autonomous-action framework entirely; collapsed ops to the on-use background refresh,
+> learning to outcome->ranking priors, attribution to the individual+bundle verdict (-16,867 prod).
+> The four surfaces still deliver their outcomes with cruder-but-honest output where a feature was
+> removed. Baseline 449,894 -> 243,296 (46% removed), all deployed + gated.
+>
+> **Next 3 actions:** 1) Capability wave 2 collapses the core-wedge domains (recommendations 16k,
+> proof-gsc 14.6k, demand-graph 10.8k, serp 8.5k) into the Evidence/Decision/Execution kernels,
+> one kernel at a time with full verification. 2) Then src/app (24.5k) + src/lib (22.7k) trims. 3)
+> Cross checkpoints C (175k) and D (125k) toward the 100k terminal target.
 
 > 🟢 **2026-07-21 CORE 100K CHECKPOINT A CROSSED (349,292 combined <= 350,000; production
 > exact-SHA `9222adbc`, four-surface walk on real tenant data verified honest: Ready 1 with the
