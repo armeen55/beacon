@@ -1,7 +1,16 @@
 # Beacon Verified State
 
-> 🟢 **2026-07-21 CORE 100K campaign in progress (banks 1-6 deployed, production exact-SHA
-> `777c5b44`).** Binding operator mandate: reduce the repository to at most 100,000 combined
+> 🟢 **2026-07-21 CORE 100K CHECKPOINT A CROSSED (349,292 combined <= 350,000; production
+> exact-SHA `9222adbc`, four-surface walk on real tenant data verified honest: Ready 1 with the
+> prepared Tehran title edit, Results self-test honesty band, 4 of 4 connected, publishing Off).
+> Banks 7-9 added the routes/persistence cuts, the golden-pinned proof-gsc consolidation, the
+> validator test-corpus merge, and the today-v2 loader family retirement. Known exceptions
+> recorded honestly: 4 pre-existing lint errors (untouched files, fix task queued), sharp/libvips
+> transitive advisories, one Connections count-wording mismatch queued. Next checkpoint: B at
+> 250,000; the dominant lever is the Phase 6 test rebuild (158k test lines against a 25-35k
+> terminal budget) plus the Today+Changes single-snapshot pipeline (design complete, PR 1 landed).**
+>
+> Earlier same-day summary (banks 1-6): production exact-SHA `777c5b44`. Binding operator mandate: reduce the repository to at most 100,000 combined
 > production plus test TypeScript lines while the product stays exactly Today, Changes, Results,
 > Connections, minimal Settings, minimal onboarding, and the on-use background runner. Position:
 > combined 362,497 (production 198,700, tests 163,797, 10,884 cases), from 449,894 at the
