@@ -1,6 +1,0 @@
-{
-  "runner": "structured-draft",
-  "kind": "batch_adjudication",
-  "grounded": "tonight's picks review",
-  "valueFixture": "schemas/batch_adjudication.json"
-}
