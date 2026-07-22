@@ -1,40 +1,23 @@
 /**
- * fetch-site-profile — North-star onboarding (2026-06-11).
+ * fetch-site-profile — pure URL/nav helpers (Core 100K).
  *
- * Pulls the small page set `deriveBusinessProfile` reads: the homepage
- * plus up to two secondary pages most likely to carry NAP/schema (about
- * + contact), discovered from the homepage's own nav (conventional
- * /about, /contact as fallback candidates). Reuses the competitor-intel
- * polite fetcher: identified UA, robots.txt respected, hard timeout,
- * SEQUENTIAL fetches only, ≤3 pages total — an onboarding derivation
- * costs a stranger's site almost nothing.
+ * The heavyweight site-profile fetch (homepage + about/contact → ≤3 pages
+ * for deriveBusinessProfile) was retired with the legacy onboarding wizard.
+ * What survives are two pure helpers still used across the app:
  *
- * No LLM, no paid APIs. `fetchImpl` injectable so tests never touch the
- * network.
+ *   - normalizeSiteUrl: accept whatever a stranger types → https homepage
+ *     URL + bare domain (used by the URL-entry step and launch-config).
+ *   - pickSecondaryPaths: same-site about/contact candidates from a
+ *     homepage's own nav (reused by the cold-start crawler in
+ *     domains/scanning/in-process-scan for sitemap-less small sites).
+ *
+ * No LLM, no paid APIs, no network — both helpers are pure.
  */
 
 import { load as cheerioLoad } from "cheerio";
 
-import {
-  fetchPageHtml,
-  type PoliteFetchDeps,
-} from "@/domains/competitor-intel/polite-fetch";
-import type { FetchedPage } from "./derive-business-profile";
-
 const MAX_PAGES = 3;
 const SECONDARY_PATH_PATTERN = /about|contact/i;
-
-export type SiteProfileFetchResult =
-  | {
-      ok: true;
-      /** Homepage FIRST — `deriveBusinessProfile`'s contract. */
-      pages: FetchedPage[];
-      /** Canonical homepage URL actually fetched (post-normalization). */
-      homepageUrl: string;
-      /** Lowercased host without www — ready for BusinessConfig.domain. */
-      domain: string;
-    }
-  | { ok: false; reason: "invalid_url" | "homepage_unreachable"; detail?: string };
 
 /**
  * Accepts what a stranger actually types: "acme.com", "www.acme.com",
@@ -85,55 +68,4 @@ export function pickSecondaryPaths(homepageHtml: string): string[] {
     }
   }
   return deduped.slice(0, MAX_PAGES - 1);
-}
-
-/**
- * Fetch the profile page set for a site. Homepage failure is fatal
- * (nothing to derive from); a secondary page failing or being
- * robots-blocked is silently skipped — the homepage alone is enough for
- * a partial profile.
- */
-export async function fetchSiteProfilePages(
-  rawUrl: string,
-  deps: PoliteFetchDeps & {
-    /** Cap total pages (1..3). Default 3. The onboarding business step
-     *  passes 1 (homepage-only) to keep the form submit fast; launch
-     *  uses the full default for the richer derivation. */
-    maxPages?: number;
-  } = {},
-): Promise<SiteProfileFetchResult> {
-  const normalized = normalizeSiteUrl(rawUrl);
-  if (!normalized) return { ok: false, reason: "invalid_url" };
-
-  const maxPages = Math.max(1, Math.min(deps.maxPages ?? MAX_PAGES, MAX_PAGES));
-  const robotsCache = new Map<string, string[]>();
-  const homepage = await fetchPageHtml(
-    normalized.homepageUrl,
-    robotsCache,
-    deps,
-  );
-  if (!homepage.ok) {
-    return {
-      ok: false,
-      reason: "homepage_unreachable",
-      detail: homepage.reason === "robots_blocked" ? "robots_blocked" : homepage.detail,
-    };
-  }
-
-  const pages: FetchedPage[] = [
-    { url: normalized.homepageUrl, html: homepage.html },
-  ];
-  for (const path of pickSecondaryPaths(homepage.html)) {
-    if (pages.length >= maxPages) break;
-    const url = `https://${new URL(normalized.homepageUrl).hostname}${path}`;
-    const res = await fetchPageHtml(url, robotsCache, deps);
-    if (res.ok) pages.push({ url, html: res.html });
-  }
-
-  return {
-    ok: true,
-    pages,
-    homepageUrl: normalized.homepageUrl,
-    domain: normalized.domain,
-  };
 }

@@ -7,7 +7,7 @@
  *   - User resolved from the session cookie, never from form input.
  *   - Tenant resolved via lookupExistingMembership.
  *   - Writes gated by WHERE status = 'pending_onboarding'; never flips
- *     status, never inserts prompts (launch stays in /onboard/review).
+ *     status, never inserts prompts (launch stays on /onboard/done).
  *   - Crawl-only network: a reachability probe, the ≤3-page config
  *     derivation, and one bounded crawl batch of the stranger's OWN site.
  *     Zero paid API calls (day-0 Google checks ride the DataForSEO
@@ -87,12 +87,11 @@ export async function startFromUrl(input: { url: string }): Promise<StartFromUrl
     return { ok: false, error: "Your account has already launched. Head to your dashboard." };
   }
 
-  // 6. Persist the first business config from the site itself (polite ≤3-page
-  //    read; failure-soft: an odd site still saves a domain-keyed config).
-  //    The site's own derived name beats the domain guess; a human-typed name
-  //    from the guided wizard beats both (typed-beats-derived, preserved by
-  //    only filling the name while it is still the placeholder).
-  let derivedName = deriveNameFromDomain(normalized.domain);
+  // 6. Persist the minimal business config keyed on the confirmed domain
+  //    (name + domain; deep site profiling was retired). Failure-soft: an
+  //    unexpected throw never strands the signup — the domain-derived name
+  //    still lands below.
+  const derivedName = deriveNameFromDomain(normalized.domain);
   try {
     const configResult = await deriveAndPersistTenantConfig({
       tenantId,
@@ -100,16 +99,13 @@ export async function startFromUrl(input: { url: string }): Promise<StartFromUrl
       typedName: null,
       typedCities: [],
       competitors: [],
-      timeoutMs: 8_000,
     });
-    const configName = (configResult.config?.name ?? "").trim();
-    if (configName && !isPlaceholderBusinessName(configName)) derivedName = configName;
     console.info(
       `[onboard/url-first] tenant config ${configResult.outcome} for ${tenantId} (${normalized.domain})`,
     );
   } catch (e) {
     console.error(
-      "[onboard/url-first] config derivation threw (continuing with domain-derived name):",
+      "[onboard/url-first] config persist threw (continuing with domain-derived name):",
       e instanceof Error ? e.message : e,
     );
   }

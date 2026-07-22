@@ -58,37 +58,13 @@ vi.mock("@/lib/connectors/clarity/sync-daily-metrics", () => ({
   syncClarityDailyMetricsForTenant: async () => ({ synced: true }),
 }));
 
-// ── IndexNow wiring point mocks ──────────────────────────────────────
-const indexnow = vi.hoisted(() => ({
-  config: null as { key: string; host?: string; keyLocation?: string } | null,
-  pingResult: { ok: true, status: 200 } as
-    | { ok: true; status: number }
-    | { ok: false; status: number | null; error: string },
-  receipts: [] as unknown[],
-  pingCalls: [] as unknown[],
-}));
 
-vi.mock("@/lib/connectors/indexnow/config-store", () => ({
-  getIndexNowConfig: vi.fn(async () => indexnow.config),
-}));
-vi.mock("@/lib/connectors/indexnow/client", () => ({
-  pingIndexNowForUrl: vi.fn(async (args: unknown) => {
-    indexnow.pingCalls.push(args);
-    return indexnow.pingResult;
-  }),
-}));
-vi.mock("@/lib/connectors/indexnow/receipts-store", () => ({
-  appendIndexNowReceipt: vi.fn(async (r: unknown) => {
-    indexnow.receipts.push(r);
-  }),
-}));
 vi.mock("@/domains/tenants/store", () => ({
   getTenant: vi.fn(async () => ({ domain: "example.com" })),
 }));
 
 import { syncSucceeded, autoRefreshStaleConnectorsForTenant } from "@/lib/connectors/on-use-refresh";
 import { fetchClarityUrlMetrics } from "@/lib/connectors/clarity/client";
-import { pingIndexNowOnVerifiedLive } from "@/lib/connectors/indexnow/ping-on-verify";
 
 beforeEach(() => {
   state.connected = { google_gsc: true, google_ga4: true, clarity: true };
@@ -98,10 +74,6 @@ beforeEach(() => {
     connected_at: "2026-06-12T00:00:00Z",
   };
   refreshGa4Sitewide.mockClear();
-  indexnow.config = null;
-  indexnow.pingResult = { ok: true, status: 200 };
-  indexnow.receipts = [];
-  indexnow.pingCalls = [];
 });
 
 afterEach(() => {
@@ -191,40 +163,3 @@ describe("fetchClarityUrlMetrics", () => {
 // ─────────────────────────────────────────────────────────────────────
 // Verify-live → IndexNow wiring point
 // ─────────────────────────────────────────────────────────────────────
-
-describe("pingIndexNowOnVerifiedLive", () => {
-  it("self-hides with no receipt when no key is configured", async () => {
-    indexnow.config = null;
-    await pingIndexNowOnVerifiedLive({ tenantId: "t1", url: "https://example.com/a" });
-    expect(indexnow.pingCalls).toHaveLength(0);
-    expect(indexnow.receipts).toHaveLength(0);
-  });
-
-  it("pings with the configured key and records a receipt on success AND failure", async () => {
-    indexnow.config = { key: "abc12345", host: "example.com" };
-    indexnow.pingResult = { ok: true, status: 202 };
-    await pingIndexNowOnVerifiedLive({
-      tenantId: "t1",
-      url: "https://example.com/a",
-      now: new Date("2026-07-02T00:00:00Z"),
-    });
-    expect(indexnow.pingCalls).toEqual([
-      { url: "https://example.com/a", key: "abc12345", keyLocation: undefined },
-    ]);
-    expect(indexnow.receipts[0]).toMatchObject({ ok: true, status: 202, detail: "accepted" });
-
-    indexnow.pingResult = { ok: false, status: null, error: "network down" };
-    await expect(
-      pingIndexNowOnVerifiedLive({ tenantId: "t1", url: "https://example.com/a" }),
-    ).resolves.toBeUndefined();
-    expect(indexnow.receipts[1]).toMatchObject({ ok: false, detail: "network down" });
-  });
-
-  it("never throws even if the config read itself throws", async () => {
-    const { getIndexNowConfig } = await import("@/lib/connectors/indexnow/config-store");
-    vi.mocked(getIndexNowConfig).mockRejectedValueOnce(new Error("boom"));
-    await expect(
-      pingIndexNowOnVerifiedLive({ tenantId: "t1", url: "https://example.com/a" }),
-    ).resolves.toBeUndefined();
-  });
-});

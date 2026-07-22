@@ -14,12 +14,14 @@
  * your own site is always safe); both revalidate the scorecard.
  */
 
+import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { getSupabaseServerClient } from "@/lib/auth/supabase-server";
 import { getSupabaseAdmin } from "@/lib/persistence/supabase";
 import { lookupExistingMembership } from "@/domains/onboarding/provision-tenant";
 import { runCrawlBatch } from "@/domains/scanning/crawl-frontier";
 import { runFirstLook } from "@/domains/onboarding/url-first";
+import { executeLaunchTransaction } from "../launch-flow";
 
 async function resolveTenant(): Promise<{ tenantId: string; domain: string } | null> {
   const supabase = await getSupabaseServerClient();
@@ -70,4 +72,58 @@ export async function retryFirstLookAction(): Promise<void> {
     console.error("[onboard/done] retry threw:", e instanceof Error ? e.message : e);
   }
   revalidatePath("/onboard/done");
+}
+
+export type LaunchTenantResult =
+  | { ok: true } // success also redirects, so this is mostly the race-won case
+  | { ok: false; error: string };
+
+/**
+ * Finish setup: the FIRST and ONLY code path that flips the tenant from
+ * 'pending_onboarding' to 'active'. Persists the minimal per-tenant config,
+ * seeds the starter prompts, accepts TOS, and flips the tenant. Delegates
+ * the DB work to the testable `executeLaunchTransaction` helper.
+ *
+ * Safety: user from session cookie, tenant via membership, TOS required.
+ */
+export async function launchTenant(input: {
+  tosAccepted: boolean;
+}): Promise<LaunchTenantResult> {
+  if (!input?.tosAccepted) {
+    return { ok: false, error: "tos_not_accepted" };
+  }
+
+  const supabase = await getSupabaseServerClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) {
+    return { ok: false, error: "not_authenticated" };
+  }
+
+  const admin = getSupabaseAdmin();
+  const membership = await lookupExistingMembership(admin, user.id);
+  if (membership.error) {
+    console.error(
+      "[onboard/done] launchTenant membership lookup failed:",
+      membership.error,
+    );
+    return { ok: false, error: "membership_lookup_failed" };
+  }
+  if (!membership.tenantId) {
+    return { ok: false, error: "no_tenant" };
+  }
+
+  const outcome = await executeLaunchTransaction({
+    admin,
+    tenantId: membership.tenantId,
+    now: new Date().toISOString(),
+  });
+
+  if (outcome.kind === "error") {
+    return { ok: false, error: outcome.error };
+  }
+
+  // outcome.kind === "redirect" — call Next.js redirect (throws).
+  redirect(outcome.to);
 }

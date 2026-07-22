@@ -1,17 +1,15 @@
 /**
- * /onboard - the URL-first entry (2026-07-03, BEACON_500 R12 / T0e).
+ * /onboard - the URL-first entry (Core 100K minimal onboarding).
  *
  * One field: the site address. Submitting derives the name and domain,
- * saves them to the pending tenant, persists the first business config,
+ * saves them to the pending tenant, persists the minimal business config,
  * runs the bounded first-look scan (discovery + one crawl batch + day-0
- * baselines), and lands on /onboard/done with an honest scorecard.
- *
- * The guided four-step wizard still exists (/onboard/business); this page
- * links to it for anyone who prefers typing details first. Access control
- * matches every other onboard step: pending_onboarding tenants only.
+ * baselines), and lands on /onboard/done with an honest scorecard where the
+ * tenant confirms and starts tracking. The legacy multi-step wizard
+ * (business/competitors/scope/review) was retired. Access control:
+ * pending_onboarding tenants only.
  */
 
-import Link from "next/link";
 import { requireOnboardingTenant } from "@/domains/onboarding/access";
 import { UrlFirstForm } from "./url-form";
 
@@ -39,13 +37,6 @@ export default async function OnboardUrlFirstPage() {
           </p>
         </div>
         <UrlFirstForm initialUrl={tenant.domain ?? ""} />
-        <p className="text-[12px] text-muted-foreground pt-2">
-          Prefer to type your details first?{" "}
-          <Link href="/onboard/business" className="underline">
-            Start with the guided steps
-          </Link>
-          . Your answers save as you go either way.
-        </p>
       </div>
     </div>
   );

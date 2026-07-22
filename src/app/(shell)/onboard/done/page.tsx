@@ -17,6 +17,7 @@ import { requireOnboardingTenant } from "@/domains/onboarding/access";
 import { loadCrawlFrontier } from "@/domains/scanning/crawl-frontier";
 import { composeFirstAuditScorecard } from "@/domains/onboarding/first-audit";
 import { ConnectGscCard } from "./connect-gsc-card";
+import { LaunchButton } from "./launch-button";
 import { keepScanningAction, retryFirstLookAction } from "./actions";
 
 export const dynamic = "force-dynamic";
@@ -175,23 +176,7 @@ export default async function OnboardDonePage() {
         <ConnectGscCard domain={card.domain} />
 
         {!launched ? (
-          <div className="rounded-md border border-foreground/15 p-4 space-y-2">
-            <p className="text-[13px] font-medium">Finish setting up</p>
-            <ol className="list-decimal pl-5 space-y-1 text-[13px] text-muted-foreground">
-              <li>
-                <Link href="/onboard/scope" className="underline">
-                  Tell me where you work and what you do
-                </Link>{" "}
-                so my suggestions use your words.
-              </li>
-              <li>
-                <Link href="/onboard/review" className="underline">
-                  Review and launch
-                </Link>{" "}
-                to start daily tracking and your first worklist.
-              </li>
-            </ol>
-          </div>
+          <LaunchButton />
         ) : (
           <p className="text-[13px]">
             You are live.{" "}

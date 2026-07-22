@@ -15,7 +15,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   buildTrackedPromptRow,
   executeLaunchTransaction as executeLaunchTransactionReal,
-} from "@/app/(shell)/onboard/review/launch-flow";
+} from "@/app/(shell)/onboard/launch-flow";
 
 const FIXED_NOW = "2026-05-07T18:00:00.000Z";
 
@@ -26,7 +26,6 @@ const FIXED_NOW = "2026-05-07T18:00:00.000Z";
 const persistConfigStub = vi.fn(async () => ({
   outcome: "typed_only_saved" as const,
   derivedFields: [] as string[],
-  suggestedSegment: null,
 }));
 
 /**
@@ -288,7 +287,7 @@ describe("executeLaunchTransaction — happy path", () => {
     }
   });
 
-  it("inserted prompts include all 4 generator families when inputs allow", async () => {
+  it("seeds the minimal brand-discovery starter prompts from the tenant name", async () => {
     const { client, store } = makeMockSupabase({
       tenants: [{ ...PENDING_TENANT }],
     });
@@ -298,14 +297,17 @@ describe("executeLaunchTransaction — happy path", () => {
       tenantId: PENDING_TENANT.id,
       now: FIXED_NOW,
     });
+    const texts = store.tracked_prompts.map((p) => p.text as string);
+    // Core 100K: the elaborate 4-family generator is gone; a minimal brand
+    // set seeds from the confirmed name so a new tenant still tracks something.
+    expect(texts).toEqual([
+      "Acme Builders reviews",
+      "is Acme Builders a good company",
+    ]);
     const tags = new Set(
       store.tracked_prompts.flatMap((p) => p.tags as string[]),
     );
-    // Cluster tag is present per family.
     expect(tags.has("brand_discovery")).toBe(true);
-    expect(tags.has("competitor_comparison")).toBe(true);
-    expect(tags.has("service_in_city")).toBe(true);
-    expect(tags.has("cost_query")).toBe(true);
   });
 });
 
@@ -676,7 +678,6 @@ describe("executeLaunchTransaction — site-derived config", () => {
     const persistFailedStub = vi.fn(async () => ({
       outcome: "persist_failed" as const,
       derivedFields: [] as string[],
-      suggestedSegment: null,
       persistError: "supabase upsert timed out",
     }));
     const r = await executeLaunchTransaction({

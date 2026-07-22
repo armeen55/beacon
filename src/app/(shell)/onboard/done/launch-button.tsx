@@ -1,42 +1,35 @@
 "use client";
 
 /**
- * launch-form — Gap C.4 (2026-05-07).
+ * launch-button — finish-setup control on the first-audit scorecard
+ * (Core 100K minimal onboarding).
  *
- * Step 4 of the onboarding wizard: TOS acceptance + Launch button.
- *
- * Submitting calls `launchTenant` server action which:
- *   - inserts the generated starter prompts into tracked_prompts
- *   - flips tenants.status from 'pending_onboarding' to 'active'
- *   - sets tos_accepted_at
- *   - redirects to /today
- *
- * The button is disabled until the operator checks the consent box.
- * Server-side `launchTenant` re-validates the TOS bit so a tampered
- * client cannot bypass.
+ * Replaces the retired multi-step review wizard. One consent checkbox +
+ * one Launch button. Submitting calls `launchTenant`, which persists the
+ * minimal config, seeds starter prompts, flips the tenant to 'active', and
+ * redirects to the dashboard. Server-side `launchTenant` re-validates the
+ * TOS bit so a tampered client cannot bypass it.
  */
 
 import { useState, useTransition } from "react";
 import { launchTenant } from "./actions";
 
-export function LaunchForm({ promptCount }: { promptCount: number }) {
+export function LaunchButton() {
   const [tosAccepted, setTosAccepted] = useState(false);
   const [topError, setTopError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
 
-  const canLaunch = promptCount > 0 && tosAccepted;
-
   function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setTopError(null);
-    if (!canLaunch) return;
+    if (!tosAccepted) return;
     startTransition(async () => {
       try {
         const r = await launchTenant({ tosAccepted });
         if (!r.ok) {
           setTopError(humanizeError(r.error));
         }
-        // success → server action calls redirect('/today') which throws
+        // success → server action redirects('/') which throws
       } catch (err: unknown) {
         if (
           err &&
@@ -53,7 +46,17 @@ export function LaunchForm({ promptCount }: { promptCount: number }) {
   }
 
   return (
-    <form onSubmit={onSubmit} className="space-y-4" noValidate>
+    <form
+      onSubmit={onSubmit}
+      className="rounded-md border border-foreground/15 p-4 space-y-3"
+      noValidate
+    >
+      <p className="text-[13px] font-medium">Start daily tracking</p>
+      <p className="text-[13px] text-muted-foreground">
+        I will begin checking whether AI assistants recommend you and hand you
+        a daily worklist of changes worth making.
+      </p>
+
       <label
         className={
           "flex items-start gap-3 rounded-md border px-3 py-3 text-[13px] cursor-pointer transition-colors " +
@@ -69,17 +72,9 @@ export function LaunchForm({ promptCount }: { promptCount: number }) {
           className="mt-0.5 accent-foreground"
         />
         <span>
-          I agree that Beacon will start tracking these prompts the next
-          time I refresh my connected data. I can edit or pause them anytime.
+          Start tracking my site. I can edit or pause anything anytime.
         </span>
       </label>
-
-      {promptCount === 0 ? (
-        <p className="text-[13px] text-rose-600" role="alert">
-          We need at least one prompt to launch. Go back and add a city,
-          service, or business name.
-        </p>
-      ) : null}
 
       {topError ? (
         <p className="text-[13px] text-rose-600" role="alert">
@@ -89,10 +84,10 @@ export function LaunchForm({ promptCount }: { promptCount: number }) {
 
       <button
         type="submit"
-        disabled={!canLaunch || isPending}
+        disabled={!tosAccepted || isPending}
         className="w-full rounded-md bg-foreground text-background px-4 py-2.5 text-[14px] font-medium disabled:opacity-50 disabled:cursor-not-allowed"
       >
-        {isPending ? "Launching…" : "Launch Beacon"}
+        {isPending ? "Starting…" : "Start tracking"}
       </button>
     </form>
   );
@@ -101,25 +96,27 @@ export function LaunchForm({ promptCount }: { promptCount: number }) {
 function humanizeError(code: string): string {
   switch (code) {
     case "tos_not_accepted":
-      return "Please check the box above to launch.";
+      return "Please check the box above to start.";
     case "not_authenticated":
       return "Your session expired. Sign in again to continue.";
     case "no_tenant":
-      return "We couldn't find your account. Try signing in again.";
+      return "I could not find your account. Try signing in again.";
     case "tenant_fetch_failed":
     case "tenant_missing":
-      return "We hit a temporary issue loading your account. Try again.";
+      return "I hit a temporary issue loading your account. Try again.";
     case "no_prompts_generated":
-      return "Add at least one city, service, or business name first.";
+      return "Add your business name first, then start tracking.";
+    case "config_persist_failed":
+      return "I could not save your setup just now. Try again in a moment.";
     case "membership_lookup_failed":
-      return "We hit a temporary issue. Try again in a moment.";
+      return "I hit a temporary issue. Try again in a moment.";
     case "existing_prompts_fetch_failed":
     case "prompt_insert_failed":
     case "tenant_activation_failed":
-      return "Something went wrong launching. Try again — we'll pick up where we left off.";
+      return "Something went wrong starting. Try again — I will pick up where we left off.";
     default:
       if (code.startsWith("tenant_invalid_status:")) {
-        return "Your account is in a state we can't auto-launch. Contact support.";
+        return "Your account is in a state I cannot auto-start. Contact support.";
       }
       return "Something went wrong. Try again.";
   }

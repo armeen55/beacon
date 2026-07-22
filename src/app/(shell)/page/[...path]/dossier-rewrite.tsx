@@ -6,27 +6,27 @@ import type { AssembledRewrite } from "@/domains/llm/rewrite-page";
 import {
   generateRewriteAction,
   loadSavedRewriteAction,
-  stageAcceptedRewriteSectionsAction,
+  markRewriteSectionsImplementedAction,
 } from "./page-rewrite-actions";
 
 /**
- * DossierRewrite (BEACON 500 item 61) - the page dossier's "Rewrite this page"
- * review: generate an agentic, section-by-section rewrite grounded on the
- * page's real headings + demand, show OLD vs NEW side by side per section with
- * an accept/reject toggle, and publish ONLY the accepted sections through the
- * existing armed-publish rails (one click, snapshot-protected, revertible).
+ * DossierRewrite (BEACON 500 item 61; Core 100K manual-publish transition
+ * 2026-07-22) - the page dossier's "Rewrite this page" review: generate an
+ * agentic, section-by-section rewrite grounded on the page's real headings +
+ * demand, show OLD vs NEW side by side per section with an accept toggle, and
+ * let the operator mark the sections they applied in their own CMS as live so
+ * Beacon records the shipment and starts measuring.
  *
- * Client-only interaction; every write goes through page-rewrite-actions.ts
- * server actions, which are themselves composition over existing rails
- * (executePush, autoRecordShippedChangeForRec). This component never writes
- * anything directly.
+ * Beacon never writes to the CMS itself. The operator copies the approved NEW
+ * copy, pastes it in their CMS, then clicks "Mark implemented"; that is the only
+ * publish action and it is tracking-only (autoRecordShippedChangeForRec).
  */
 export function DossierRewrite({ path }: { path: string }) {
   const [rewrite, setRewrite] = useState<AssembledRewrite | null>(null);
   const [accepted, setAccepted] = useState<Record<string, boolean>>({});
   const [status, setStatus] = useState<"idle" | "loading" | "generating" | "ok" | "off" | "budget" | "error">("idle");
   const [receipt, setReceipt] = useState<string | null>(null);
-  const [stagePending, startStage] = useTransition();
+  const [markPending, startMark] = useTransition();
   const [genPending, startGen] = useTransition();
 
   useEffect(() => {
@@ -78,12 +78,12 @@ export function DossierRewrite({ path }: { path: string }) {
 
   const acceptedCount = Object.values(accepted).filter(Boolean).length;
 
-  const stage = () => {
+  const markImplemented = () => {
     if (!rewrite) return;
     const chosen = rewrite.sections.filter((s) => s.changed && accepted[s.heading]).map((s) => ({ heading: s.heading, newBody: s.newBody }));
     if (chosen.length === 0) return;
-    startStage(async () => {
-      const r = await stageAcceptedRewriteSectionsAction({ path, accepted: chosen });
+    startMark(async () => {
+      const r = await markRewriteSectionsImplementedAction({ path, accepted: chosen });
       setReceipt(r.receiptLine);
     });
   };
@@ -94,7 +94,7 @@ export function DossierRewrite({ path }: { path: string }) {
         <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Rewrite this page</div>
         <p className="mt-2 text-[13px] leading-relaxed text-muted-foreground">
           I can rewrite this page section by section, grounded in its real headings and search demand. You approve each
-          section before anything goes live.
+          section, paste the ones you want into your CMS, then mark them implemented so I can measure the lift.
         </p>
         <button
           type="button"
@@ -196,11 +196,11 @@ export function DossierRewrite({ path }: { path: string }) {
       <div className="mt-3 flex flex-wrap items-center gap-2">
         <button
           type="button"
-          onClick={stage}
-          disabled={acceptedCount === 0 || stagePending}
+          onClick={markImplemented}
+          disabled={acceptedCount === 0 || markPending}
           className="rounded-md bg-accent-primary px-3 py-1.5 text-[12px] font-medium text-white disabled:opacity-50"
         >
-          {stagePending ? "Publishing..." : `Publish ${acceptedCount} accepted section${acceptedCount === 1 ? "" : "s"}`}
+          {markPending ? "Recording..." : `Mark ${acceptedCount} section${acceptedCount === 1 ? "" : "s"} implemented`}
         </button>
         <button
           type="button"

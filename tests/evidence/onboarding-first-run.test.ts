@@ -24,12 +24,8 @@ vi.mock("@/lib/persistence/dual-write", () => ({
 import {
   normalizeSiteUrl,
   pickSecondaryPaths,
-  fetchSiteProfilePages,
 } from "@/domains/onboarding/fetch-site-profile";
-import {
-  deriveAndPersistTenantConfig,
-  suggestSegmentFromProfile,
-} from "@/domains/onboarding/launch-config";
+import { deriveAndPersistTenantConfig } from "@/domains/onboarding/launch-config";
 import { deriveNameFromDomain, runFirstLook } from "@/domains/onboarding/url-first";
 import {
   composeFirstAuditScorecard,
@@ -44,7 +40,6 @@ import {
   __resetBusinessConfigCacheForTests,
 } from "@/lib/business-config";
 import type { CrawlFrontierState, CrawlPageFact } from "@/domains/scanning/crawl-frontier";
-import type { DerivedBusinessProfile } from "@/domains/onboarding/derive-business-profile";
 
 const TENANT = "tenant-evidence-first-run-test";
 const TENANT_DIR = join(process.cwd(), ".data", "tenants", TENANT);
@@ -55,28 +50,14 @@ afterEach(() => {
   __resetBusinessConfigCacheForTests();
 });
 
-function fakeFetch(routes: Record<string, string | number>) {
-  return vi.fn(async (input: RequestInfo | URL) => {
-    const url = String(input);
-    const route = routes[url];
-    if (route === undefined) return new Response("nf", { status: 404 });
-    if (typeof route === "number") return new Response("", { status: route });
-    return new Response(route, { status: 200 });
-  }) as unknown as typeof fetch;
-}
-
-describe("fetch-site-profile: bounded, robots-respecting, injectable", () => {
-  it("normalizes stranger-typed URLs; garbage yields null and never fetches", async () => {
+describe("fetch-site-profile: pure URL + nav helpers", () => {
+  it("normalizes stranger-typed URLs; garbage yields null", () => {
     expect(normalizeSiteUrl("acme.com")).toEqual({ homepageUrl: "https://acme.com/", domain: "acme.com" });
     expect(normalizeSiteUrl("https://www.acme.com/services/roofing")).toEqual({
       homepageUrl: "https://www.acme.com/",
       domain: "acme.com",
     });
     expect(normalizeSiteUrl("not a url")).toBeNull();
-
-    const fetchImpl = vi.fn() as unknown as typeof fetch;
-    expect(await fetchSiteProfilePages("???", { fetchImpl })).toEqual({ ok: false, reason: "invalid_url" });
-    expect(fetchImpl).not.toHaveBeenCalled();
   });
 
   it("prefers nav-discovered about/contact paths over conventions", () => {
@@ -84,137 +65,49 @@ describe("fetch-site-profile: bounded, robots-respecting, injectable", () => {
     expect(pickSecondaryPaths(html)).toEqual(["/our-story/about-us", "/contact-us"]);
     expect(pickSecondaryPaths(`<nav><a href="/services">Services</a></nav>`)).toEqual(["/about", "/contact"]);
   });
-
-  it("homepage first with <=3 pages; failing secondary skipped; homepage failure FATAL; robots honored", async () => {
-    const ok = await fetchSiteProfilePages("acme.com", {
-      fetchImpl: fakeFetch({
-        "https://acme.com/robots.txt": 404,
-        "https://acme.com/": `<nav><a href="/about-acme">About</a><a href="/contact">Contact</a></nav>`,
-        "https://acme.com/about-acme": "<h1>About</h1>",
-        "https://acme.com/contact": "<h1>Contact</h1>",
-      }),
-    });
-    expect(ok.ok).toBe(true);
-    if (ok.ok) {
-      expect(ok.pages.map((p) => p.url)).toEqual([
-        "https://acme.com/",
-        "https://acme.com/about-acme",
-        "https://acme.com/contact",
-      ]);
-    }
-
-    expect(
-      await fetchSiteProfilePages("dead.com", {
-        fetchImpl: fakeFetch({ "https://dead.com/robots.txt": 404, "https://dead.com/": 500 }),
-      }),
-    ).toEqual({ ok: false, reason: "homepage_unreachable", detail: "http_500" });
-
-    expect(
-      await fetchSiteProfilePages("walled.com", {
-        fetchImpl: fakeFetch({
-          "https://walled.com/robots.txt": "User-agent: *\nDisallow: /",
-          "https://walled.com/": "<h1>never fetched</h1>",
-        }),
-      }),
-    ).toEqual({ ok: false, reason: "homepage_unreachable", detail: "robots_blocked" });
-  });
-
-  it("maxPages: 1 fetches ONLY robots + homepage (fast form submit)", async () => {
-    const fetchImpl = fakeFetch({
-      "https://acme.com/robots.txt": 404,
-      "https://acme.com/": `<nav><a href="/about">About</a></nav>`,
-      "https://acme.com/about": "never fetched",
-    });
-    const result = await fetchSiteProfilePages("acme.com", { fetchImpl, maxPages: 1 });
-    expect(result.ok).toBe(true);
-    expect(
-      (fetchImpl as unknown as { mock: { calls: unknown[][] } }).mock.calls.map((c) => String(c[0])),
-    ).toEqual(["https://acme.com/robots.txt", "https://acme.com/"]);
-  });
 });
 
-const TUCSON_RESTAURANT_HTML = `<!doctype html><html><head>
-<title>La Palma Taqueria | Tucson's Taqueria</title>
-<script type="application/ld+json">
-{
-  "@context": "https://schema.org",
-  "@type": "Restaurant",
-  "name": "La Palma Taqueria",
-  "telephone": "+1-520-555-0199",
-  "address": {"@type": "PostalAddress", "addressLocality": "Tucson", "addressRegion": "AZ"},
-  "areaServed": ["Tucson", "Oro Valley"],
-  "sameAs": ["https://www.yelp.com/biz/la-palma-tucson"]
-}
-</script></head><body>
-<header><nav>
-  <a href="/">Home</a>
-  <a href="/catering">Catering</a>
-  <a href="/taco-bar">Taco Bar</a>
-  <a href="/about">About</a>
-</nav></header>
-</body></html>`;
-
-describe("deriveAndPersistTenantConfig: URL-only acceptance", () => {
-  it("persists a complete derived config for a never-seen site with ZERO cross-tenant leakage", async () => {
+describe("deriveAndPersistTenantConfig: minimal typed-only config (Core 100K)", () => {
+  it("persists name + domain + confirmed cities for a never-seen site, no invented profiling", async () => {
     const result = await deriveAndPersistTenantConfig({
       tenantId: TENANT,
       domain: "lapalma.com",
       typedName: "La Palma Taqueria",
-      typedCities: [],
-      fetchImpl: fakeFetch({ "https://lapalma.com/robots.txt": 404, "https://lapalma.com/": TUCSON_RESTAURANT_HTML }),
+      typedCities: ["Tucson"],
+      competitors: ["Rival Tacos"],
     });
-    expect(result.outcome).toBe("derived_and_saved");
+    expect(result.outcome).toBe("typed_only_saved");
     expect(existsSync(join(TENANT_DIR, "business-config.json"))).toBe(true);
 
     __resetBusinessConfigCacheForTests();
     const cfg = getBusinessConfig(TENANT);
-    expect(cfg.industry).toBe("restaurant");
-    expect(cfg.phone).toBe("+1-520-555-0199");
-    expect(cfg.services).toEqual(expect.arrayContaining(["catering", "taco bar"]));
-    expect(cfg.scanSettings.enabled).toBe(true);
-    expect(cfg.scanSettings.timezone).toBe("UTC");
+    expect(cfg.name).toBe("La Palma Taqueria");
+    expect(cfg.domain).toBe("lapalma.com");
+    expect(cfg.locations).toEqual(["Tucson"]);
+    expect(cfg.primaryCompetitors).toEqual(["Rival Tacos"]);
+    // Nothing invented: deep profiling (industry/services/phone) is gone.
+    expect(cfg.industry).toBe("");
     const flat = JSON.stringify(cfg).toLowerCase();
     for (const banned of ["palo alto", "menlo park", "atherton", "bay area", "ritz", "custom home"]) {
       expect(flat).not.toContain(banned);
     }
   });
 
-  it("typed wizard fields BEAT derived values; unreachable site still persists typed fields", async () => {
+  it("name falls back to the domain when none is typed; a bad domain is skipped", async () => {
     await deriveAndPersistTenantConfig({
       tenantId: TENANT,
-      domain: "lapalma.com",
-      typedName: "La Palma Tacos & Cantina",
-      typedCities: ["Marana"],
-      fetchImpl: fakeFetch({ "https://lapalma.com/robots.txt": 404, "https://lapalma.com/": TUCSON_RESTAURANT_HTML }),
-    });
-    const cfg = getBusinessConfig(TENANT);
-    expect(cfg.name).toBe("La Palma Tacos & Cantina");
-    expect(cfg.locations[0]).toBe("Marana");
-
-    // Fresh tenant state for the unreachable-site path.
-    rmSync(TENANT_DIR, { recursive: true, force: true });
-    __resetBusinessConfigCacheForTests();
-    const down = await deriveAndPersistTenantConfig({
-      tenantId: TENANT,
       domain: "downsite.com",
-      typedName: "Down Site Co",
-      typedCities: ["Reno"],
-      fetchImpl: fakeFetch({ "https://downsite.com/robots.txt": 404, "https://downsite.com/": 500 }),
+      typedName: null,
+      typedCities: [],
     });
-    expect(down.outcome).toBe("typed_only_saved");
-    expect(getBusinessConfig(TENANT).industry).toBe(""); // honest blank, nothing invented
-  });
+    expect(getBusinessConfig(TENANT).name).toBe("downsite.com");
 
-  it("suggestSegmentFromProfile: real presence wins, locations alone never flip local, ambiguity yields null", () => {
-    const fixture = (over: Partial<DerivedBusinessProfile>): DerivedBusinessProfile => ({
-      name: null, nameSource: null, description: null, industry: null, schemaTypes: [],
-      phone: null, address: null, locations: [], services: [], keyPages: [],
-      socialProfiles: [], contentSiteSignal: false, ...over,
+    const skipped = await deriveAndPersistTenantConfig({
+      tenantId: TENANT,
+      domain: "not a url",
+      typedName: "Whatever",
     });
-    expect(suggestSegmentFromProfile(fixture({ contentSiteSignal: true }))).toBe("content_publisher");
-    expect(suggestSegmentFromProfile(fixture({ address: "1 Main St, Tucson, AZ" }))).toBe("local_service");
-    expect(suggestSegmentFromProfile(fixture({ locations: ["ca"] }))).toBeNull();
-    expect(suggestSegmentFromProfile(null)).toBeNull();
+    expect(skipped.outcome).toBe("skipped_no_domain");
   });
 });
 

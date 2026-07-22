@@ -68,7 +68,7 @@ export async function requireOnboardingTenant(opts?: {
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) {
-    redirect("/login?next=/onboard/business");
+    redirect("/login?next=/onboard");
   }
 
   const admin = getSupabaseAdmin();

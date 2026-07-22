@@ -17,7 +17,6 @@ import { currentTenantId } from "@/lib/tenant-context";
 import { latestRefreshBySource } from "@/domains/ops/refresh-runs-store";
 import { PageHeader } from "@/components/data/page-header";
 import { ConnectorsClient, type RefreshLedgerFacts } from "./connectors-client";
-import { PublishingModeCard } from "./publishing-mode-card";
 import { loadRecentUpkeep, RecentUpkeepList, type RecentUpkeepEntry } from "./recent-upkeep";
 import { loadWithDeadline } from "@/lib/load-with-deadline";
 import { HonestDelay } from "@/components/honest-delay";
@@ -303,11 +302,6 @@ export default async function ConnectorsPage() {
         wixUrlMapCount={wixUrlMapCount}
         refreshLedger={refreshLedger}
       />
-      {/* Armed publishing (2026-06-16) — opt in to one-click live publishing
-          for safe, mapped, high-confidence edits. Default stays two-click. */}
-      <div className="mt-6">
-        <PublishingModeCard />
-      </div>
       <RecentUpkeepList entries={recentUpkeep} />
     </div>
   );

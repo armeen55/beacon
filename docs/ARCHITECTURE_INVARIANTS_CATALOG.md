@@ -65,7 +65,6 @@
 | name | source test file | clause | purpose (one sentence) | status | last-verified |
 |---|---|---|---|---|---|
 | publishing-authority | `tests/architecture/14-publishing-authority.test.ts` | 4 | Manual verified-live overrides check `canPublishForCurrentTenant()` before any tenant work; Mark Shipped refuses `recommended` rows and stamps `verified_live` only, never a verdict. | active | 2026-07-20 |
-| publishing-stage-in-wix | `tests/architecture/14b-publishing-stage-in-wix.test.ts` | 4 | Stage-in-Wix composes over the existing push rails, hard-blocks the founder tenant, requires explicit armed mode, and fails closed to the paste instruction on any uncertainty. | active | 2026-07-20 |
 
 ## Clause 5 — Ready exactness
 

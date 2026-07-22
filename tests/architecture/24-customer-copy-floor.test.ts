@@ -209,7 +209,6 @@ const DISPLAY_SURFACES = [
   "src/app/(shell)/settings/connectors/actions.ts",
   "src/app/(shell)/settings/connectors/connectors-client.tsx",
   "src/app/(shell)/settings/connectors/page.tsx",
-  "src/app/(shell)/settings/connectors/publishing-mode-card.tsx",
   "src/domains/recommendation-intelligence/page-surgeon/bridge.ts",
   "src/domains/recommendation-intelligence/evidence-summary.ts",
   "src/lib/connectors/gsc/readiness.ts",

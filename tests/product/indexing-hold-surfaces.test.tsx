@@ -223,9 +223,6 @@ function makeMove(action: string): TodayMove {
     preparedStale: false,
     preparedQuality: null,
     learnedTag: null,
-    // Armed so the "Stage in Wix" one-tap affordance WOULD appear for a benign
-    // move — the test proves an indexing directive suppresses it anyway.
-    staging: { enabled: true, nudge: false },
   } as unknown as TodayMove;
 }
 
@@ -252,8 +249,8 @@ describe("#310 — MoveCard holds an indexing directive for review, never one-ta
     const html = renderMoveCard("add_answer_block");
     expect(html).not.toContain(INDEXING_DIRECTIVE_CAVEAT);
     expect(html).not.toContain('data-move-indexing-hold="true"');
-    // The armed one-tap accept affordance is offered for a benign move.
-    expect(html).toContain("Stage in Wix");
+    // The one-tap Ship affordance is offered for a benign move.
+    expect(html).toContain("Ship it");
   });
 });
 

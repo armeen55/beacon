@@ -4,10 +4,6 @@ import { revalidatePath } from "next/cache";
 
 import { isOperatorModeServer } from "@/lib/operator-mode";
 import { currentTenantId } from "@/lib/tenant-context";
-import { getTenant } from "@/domains/tenants/store";
-import { canPublishForCurrentTenant } from "@/lib/auth/can-publish";
-import { getPublishingMode } from "@/domains/push/publishing-mode-store";
-import { RITZ_TENANT_ID, executePush } from "@/domains/push/push-service";
 import { autoRecordShippedChangeForRec } from "@/domains/proof-gsc/auto-record-on-ship";
 import { saveMoveDraft, getLatestMoveDrafts } from "@/domains/demand-graph/move-draft-store";
 import {
@@ -23,24 +19,23 @@ import {
   type AssembledRewrite,
 } from "@/domains/llm/rewrite-page";
 import { stripBannedDashes } from "@/lib/copy/strip-dashes";
-import type { RecommendedEditRow } from "@/domains/recommendations/recommended-edits-persistence";
 import { normalizeUrl } from "@/lib/url/normalize";
 
 /**
- * page-rewrite-actions (BEACON 500 item 61, 2026-07-02) — the operator actions
- * behind the page dossier's "Rewrite this page" review: generate a grounded,
- * section-by-section rewrite of the page's CURRENT headings (rewrite-page.ts),
- * persist it so the side-by-side review survives reload (move_drafts,
- * kind=page_rewrite), and stage ONLY the sections the operator accepts through
- * the EXISTING body-push rails (executePush's replace_section route) — never a
- * whole-page overwrite, never an unapproved section.
+ * page-rewrite-actions (BEACON 500 item 61, 2026-07-02; Core 100K manual-publish
+ * transition 2026-07-22) — the operator actions behind the page dossier's
+ * "Rewrite this page" review: generate a grounded, section-by-section rewrite of
+ * the page's CURRENT headings (rewrite-page.ts), persist it so the side-by-side
+ * review survives reload (move_drafts, kind=page_rewrite), and let the operator
+ * mark the sections they applied as live so Beacon records the shipment and
+ * starts measuring.
  *
- * Every write here is COMPOSITION over existing rails:
+ * Beacon no longer writes to the CMS itself. The operator pastes the approved
+ * NEW section copy into their own CMS, then clicks "Mark implemented"; that is
+ * the only publish action, and it is tracking-only:
  *   - grounding: the same page-surgeon EvidencePacket assembler item 55 uses
- *   - drafting: rewrite-page.ts (this item's new walker, item-55 quality gates)
- *   - persistence: move_drafts (existing store, new "page_rewrite" kind)
- *   - publish: executePush's replace_section route (item 2's body-merge engine,
- *     the Ritz hard-block, daily cap, pre-push snapshot + revert, never-wipe)
+ *   - drafting: rewrite-page.ts (this item's walker, item-55 quality gates)
+ *   - persistence: move_drafts (existing store, "page_rewrite" kind)
  *   - measurement: autoRecordShippedChangeForRec with actionType "full_rewrite"
  *     so the diff-in-diff ledger enrolls it under its own family (item 61's
  *     "learn separately from single-lever edits" requirement)
@@ -141,146 +136,61 @@ export async function loadSavedRewriteAction(path: string): Promise<AssembledRew
   return { sections: persisted.sections, stats: persisted.stats };
 }
 
-export type StageAcceptedSectionsResponse = {
-  staged: number;
-  refused: Array<{ heading: string; reason: string }>;
+export type MarkRewriteImplementedResponse = {
+  recorded: boolean;
+  sections: number;
   receiptLine: string;
 };
 
 /**
- * Stage ONLY the accepted sections through the existing armed-publish rails.
- * Every gate mirrors stage-change.ts's contract (tenant from server context,
- * Ritz hard-refuse, publish permission, explicit arm, wix_cms target) before
- * ANY push runs; each accepted section is an independent replace_section push
- * so one refusal never blocks the others. On any successful push, auto-enrolls
- * the ship into diff-in-diff measurement under actionType "full_rewrite".
+ * Mark the sections the operator applied in their own CMS as live, so Beacon
+ * records the shipment and starts measuring. Beacon does NOT write to the CMS
+ * itself; the operator pastes the approved NEW section copy shown in the review,
+ * then clicks this. Tracking-only and fail-soft: it enrolls the page into
+ * diff-in-diff measurement under actionType "full_rewrite" (its own family) via
+ * the shipment ledger, exactly like every other "Mark implemented" path.
  */
-export async function stageAcceptedRewriteSectionsAction(args: {
+export async function markRewriteSectionsImplementedAction(args: {
   path: string;
   accepted: Array<{ heading: string; newBody: string }>;
-}): Promise<StageAcceptedSectionsResponse> {
+}): Promise<MarkRewriteImplementedResponse> {
   if (!isOperatorModeServer()) {
-    return { staged: 0, refused: [], receiptLine: "Operator only." };
+    return { recorded: false, sections: 0, receiptLine: "Operator only." };
   }
   const path = (args.path ?? "").trim();
   const sections = (args.accepted ?? []).filter((s) => s.heading?.trim() && s.newBody?.trim());
   if (!path || sections.length === 0) {
-    return { staged: 0, refused: [], receiptLine: "Nothing was accepted, so I published nothing." };
+    return { recorded: false, sections: 0, receiptLine: "Nothing was marked, so I recorded nothing." };
   }
 
   const tenantId = await currentTenantId();
 
-  // Gate: Ritz never stages, full stop (executePush would also refuse; refusing
-  // here first means no cap slot, snapshot, or probe ever runs for Ritz).
-  if (tenantId === RITZ_TENANT_ID) {
-    return {
-      staged: 0,
-      refused: sections.map((s) => ({ heading: s.heading, reason: "this site is advise mode only" })),
-      receiptLine: "This site is set to advise mode, so I never publish to it myself. I left every section for you to paste.",
-    };
-  }
-
-  if (!(await canPublishForCurrentTenant().catch(() => false))) {
-    return {
-      staged: 0,
-      refused: sections.map((s) => ({ heading: s.heading, reason: "no publishing permission" })),
-      receiptLine: "You do not have publishing permission for this site.",
-    };
-  }
-
-  const modeState = await getPublishingMode().catch(() => ({ mode: "staged" as const }));
-  if (modeState.mode !== "armed") {
-    return {
-      staged: 0,
-      refused: sections.map((s) => ({ heading: s.heading, reason: "one-click publishing is off" })),
-      receiptLine: "One-click publishing is not turned on for this site yet. Turn it on in the publishing settings and this becomes one click.",
-    };
-  }
-
-  let publishTarget: string | null = null;
-  try {
-    publishTarget = (await getTenant(tenantId))?.publish_target ?? null;
-  } catch {
-    publishTarget = null;
-  }
-  if (publishTarget !== "wix_cms") {
-    return {
-      staged: 0,
-      refused: sections.map((s) => ({ heading: s.heading, reason: "no live Wix target" })),
-      receiptLine: "This site is not connected for live Wix publishing.",
-    };
-  }
-
   const resolved = await resolvePageForRewrite(tenantId, path);
   if (!resolved) {
     return {
-      staged: 0,
-      refused: sections.map((s) => ({ heading: s.heading, reason: "page not found" })),
-      receiptLine: "I could not resolve this page's live URL, so I published nothing.",
+      recorded: false,
+      sections: 0,
+      receiptLine: stripBannedDashes("I could not resolve this page's live URL, so I recorded nothing."),
     };
   }
 
-  const now = new Date();
-  let staged = 0;
-  const refused: Array<{ heading: string; reason: string }> = [];
+  const count = sections.length;
+  const outcome = await autoRecordShippedChangeForRec({
+    tenantId,
+    pageUrl: resolved.pageUrl,
+    actionType: "full_rewrite",
+    notes: `Operator marked ${count} rewritten section${count === 1 ? "" : "s"} as live on the page.`,
+  }).catch(() => null);
+  const recorded = Boolean(outcome?.recorded);
 
-  for (const section of sections) {
-    const edit: RecommendedEditRow = {
-      id: `rewrite-${Date.now()}-${section.heading.slice(0, 24)}`,
-      tenant_id: tenantId,
-      rec_id: draftRecId(path),
-      action_type: "full_rewrite",
-      target_url: resolved.pageUrl,
-      target_element_key: `section:${section.heading}`,
-      display_label: section.heading,
-      current_text: "",
-      proposed_text: section.newBody,
-      why: "Operator-approved agentic rewrite of this section.",
-      evidence: [],
-      expected_impact: null,
-      difficulty: "low",
-      confidence: "medium",
-      measurement_plan: null,
-      risks: [],
-      source: "openai",
-      provider_name: "openai",
-      evidence_hash: null,
-      model: "gpt-5-mini",
-      cost_usd: null,
-      created_at: now.toISOString(),
-      updated_at: now.toISOString(),
-      implementation_status: "accepted",
-    } as RecommendedEditRow;
-
-    const result = await executePush({ tenantId, edit }, { now });
-    if (result.kind === "pushed") {
-      staged += 1;
-    } else if (result.kind === "refused") {
-      refused.push({ heading: section.heading, reason: stripBannedDashes(result.reason) });
-    } else if (result.kind === "dev_note") {
-      refused.push({ heading: section.heading, reason: stripBannedDashes(result.reason) });
-    } else {
-      refused.push({ heading: section.heading, reason: "the publish path did not complete a live write" });
-    }
-  }
-
-  if (staged > 0) {
-    await autoRecordShippedChangeForRec({
-      tenantId,
-      pageUrl: resolved.pageUrl,
-      actionType: "full_rewrite",
-      notes: `Auto-recorded from an agentic full-page rewrite (${staged} section${staged === 1 ? "" : "s"} published).`,
-    }).catch(() => null);
+  if (recorded) {
     revalidatePath(`/page/${path.replace(/^\/+/, "")}`);
     revalidatePath("/results");
   }
 
-  const receiptLine =
-    staged === 0
-      ? "I could not publish any accepted section, so I left them for you to paste."
-      : refused.length === 0
-        ? `Published ${staged} section${staged === 1 ? "" : "s"}. I saved the old version of each first; one click restores it.`
-        : `Published ${staged} section${staged === 1 ? "" : "s"}; ${refused.length} could not go live and stayed paste-ready.`;
+  const receiptLine = recorded
+    ? `Recorded. I marked ${count} section${count === 1 ? "" : "s"} as live and started measuring the next 7, 14, and 28 days.`
+    : "I saved this change, but I could not start measurement yet. I will pick it up on the next reading.";
 
-  return { staged, refused, receiptLine: stripBannedDashes(receiptLine) };
+  return { recorded, sections: count, receiptLine: stripBannedDashes(receiptLine) };
 }

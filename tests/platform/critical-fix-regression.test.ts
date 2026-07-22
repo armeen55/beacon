@@ -47,25 +47,13 @@ describe("connector syncs report synced:false on a DB write failure (no masked s
   //  disconnected and src/lib/connectors/profound/sync-nightly.ts deleted.)
 });
 
-describe("push-service finalizes the reserved daily-cap slot on every refusal path", () => {
-  it("each post-reservation refusal records a push_failed ledger row", () => {
-    const src = read("src/domains/push/push-service.ts");
-    for (const reason of [
-      "products_query",
-      "product_not_found",
-      "product_read",
-      "merged_tags_limit",
-      "element_key_mismatch",
-      "protected_field",
-      "length_limit",
-      "unmapped_url",
-    ]) {
-      expect(src, `missing recordLedger finalize for "${reason}"`).toContain(reason);
-    }
-    // The Ritz publish hard-block must remain BEFORE adapter/Wix selection.
-    expect(src).toMatch(/Ritz|ritz/);
-  });
-});
+// The "push-service finalizes the reserved daily-cap slot" regression was retired
+// 2026-07-22 (CORE 100K manual-publishing transition): the Wix auto-write path
+// (push-service/executePush) was removed by product decision. Publishing is now
+// manual — the operator applies the edit in their CMS and clicks Mark implemented.
+// The publishing-authority OUTCOME (nothing goes live without the operator) is
+// pinned by tests/architecture/14-publishing-authority and is strictly stronger
+// now that no auto-write path exists at all.
 
 describe("image-alt + product-SEO scan persists under free-text move_drafts kinds (no migration)", () => {
   it("MoveDraftKind includes the Sprint-6 free-text kinds", () => {

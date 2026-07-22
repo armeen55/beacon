@@ -10,8 +10,23 @@
  */
 
 import { useState, useTransition } from "react";
-import { normalizeDomain } from "@/domains/onboarding/profile-validation";
 import { startFromUrl } from "./actions";
+
+/**
+ * Minimal client-side domain preview: strip scheme/www/path so the hint can
+ * echo the bare host. Returns null when it can't be a website address. (The
+ * server action re-validates with normalizeSiteUrl before any write.)
+ */
+function previewDomain(raw: string): string | null {
+  const trimmed = raw.trim().toLowerCase();
+  if (trimmed.length < 4) return null;
+  const host = trimmed
+    .replace(/^https?:\/\//, "")
+    .replace(/^www\./, "")
+    .split(/[/?#]/)[0]!;
+  if (!host.includes(".") || /\s/.test(host)) return null;
+  return host;
+}
 
 export function UrlFirstForm({ initialUrl }: { initialUrl: string }) {
   const [url, setUrl] = useState(initialUrl);
@@ -19,7 +34,7 @@ export function UrlFirstForm({ initialUrl }: { initialUrl: string }) {
   const [isPending, startTransition] = useTransition();
 
   const trimmed = url.trim();
-  const normalized = trimmed ? normalizeDomain(trimmed) : null;
+  const normalized = trimmed ? previewDomain(trimmed) : null;
 
   function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();

@@ -56,8 +56,6 @@ import { displayProofOutcome, UNCALIBRATED_NO_CLEAR_EFFECT_SENTENCE } from "@/do
 import { countLedgerLifecycle } from "@/domains/changes/lifecycle-counts";
 import { loadDemandGraphForTenantCached } from "@/domains/demand-graph/load-graph";
 import { buildMeasuringHold, isHeldForMeasurement } from "./today-measuring-hold";
-import { getStagingAvailability } from "@/domains/push/stage-change";
-import { stageRouteForActionType, STAGING_OFF, copyAllowedForStaging } from "@/domains/push/stage-route";
 import { getWixUrlMap } from "@/lib/connectors/wix/url-map";
 import { getWixConnectorToken } from "@/lib/connector-store";
 import { buildWixEditorLink } from "@/domains/push/wix-deep-link";
@@ -270,11 +268,6 @@ export type TodayMove = {
       warnings: string[];
     } | null;
   } | null;
-  /** Item 15 - one-click "Stage in Wix" (armed publishing). `enabled` shows the
-   *  button (armed + permitted + a pushable change with real text); `nudge` shows
-   *  the quiet publishing-settings pointer (Wix target, pushable, but not armed).
-   *  Optional + additive: precomputed snapshots without it keep paste behavior. */
-  staging?: { enabled: boolean; nudge: boolean };
   /** Item 45 - deep link straight into the Wix dashboard editor for this page's
    *  mapped CMS item (or its Stores product editor). Null/absent when the page
    *  is not resolvable to a live Wix item yet (no site connected, or no
@@ -604,14 +597,12 @@ export async function buildTodayMovesData(
         [] as Awaited<ReturnType<typeof loadDemandGraphForTenantCached>>["graph"]["moves"],
       ),
     ]);
-    // Item 15 - can this operator one-click stage a pushable change in Wix right
-    // now? One read per build; fails to OFF (paste behavior) on any uncertainty,
-    // including the nightly precompute path which has no request context.
-    const stagingAvail = await getStagingAvailability(tenantId).catch(() => STAGING_OFF);
     // Item 45 - "Open in Wix" deep links. ONE url-map read + ONE token read per
-    // build (not per move), matching the staging read above. Fails to an empty
-    // map / null site id on any uncertainty, which resolves every link to
-    // honest null (the card then shows only "View page", today's behavior).
+    // build (not per move). Fails to an empty map / null site id on any
+    // uncertainty, which resolves every link to honest null (the card then shows
+    // only "View page", today's behavior). This is a READ-side navigation
+    // convenience: Beacon opens the operator's Wix editor so they can paste; it
+    // never writes to Wix itself.
     const [wixUrlMap, wixToken] = await Promise.all([
       getWixUrlMap().catch(() => []),
       getWixConnectorToken(tenantId).catch(() => null),
@@ -903,25 +894,10 @@ export async function buildTodayMovesData(
       }
 
       const moveId = (e as { rec_id?: string; id?: string }).rec_id ?? (e as { id?: string }).id ?? pk;
-      // Item 15 - "Stage in Wix": only OFFER the button for a change the existing
-      // push routes could carry, with real proposed text. The server action
-      // re-checks every gate and fails closed to paste.
-      // P2-g (2026-07-10, visual audit) - the server-side backstop (stage-change.ts)
-      // checks a DIFFERENT, older QA verdict (recommendation-qa.ts) that has no idea
-      // about the W5 source-safety gate (missing_source / needs_source_check), so
-      // this button must not offer a one-click push for a draft the card itself
-      // refuses to show as ready copy. copyAllowedForStaging mirrors the SAME
-      // preparedQuality.copyAllowed check the prepared checklist's readyToReview
-      // already uses above.
-      const stageRoute = stageRouteForActionType(e.action_type, e.target_element_key ?? null);
-      const hasStageText = Boolean((e.proposed_text ?? "").trim());
-      const staging = {
-        enabled: stagingAvail.enabled && stageRoute != null && hasStageText && copyAllowedForStaging(preparedQuality),
-        nudge: stagingAvail.wixTarget && !stagingAvail.armed && stageRoute != null && hasStageText,
-      };
       // Item 45 - "Open in Wix": a pure resolve from the same url-map entry the
-      // push service uses, so the link only ever appears for a page Beacon
-      // could actually publish to. Honest null renders no link.
+      // Wix read connection uses, so the link only ever appears for a page mapped
+      // to a live Wix item the operator can open and edit. Honest null renders no
+      // link. Navigation only - Beacon never writes to Wix itself.
       const wixEntry = wixEntryByUrl.get(pk);
       const wixEditorUrl = wixEntry
         ? buildWixEditorLink({
@@ -933,7 +909,6 @@ export async function buildTodayMovesData(
       moves.push({
         id: moveId,
         action: e.action_type,
-        staging,
         wixEditorUrl,
         actionLabel: meta.label,
         actionTone: meta.tone,

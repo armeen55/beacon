@@ -27,7 +27,6 @@ import {
 } from "@/domains/recommendations/action-types";
 import { draftMoveAnswerBlockAction, draftMoveFaqAction, sharpenMovesWithTeardownAction } from "./today-moves-actions";
 import { getCompetitorAnswerAlignmentForClient } from "@/domains/ai-visibility/answer-alignment-actions";
-import { stageMoveInWixAction } from "./stage-in-wix-actions";
 import type { TodayMove } from "./today-moves-data";
 import { teammateOf } from "@/domains/team/identity";
 import { Sparkline } from "@/components/data/sparkline";
@@ -188,7 +187,7 @@ export function MoveCard({
   // meta noindex, canonical, redirect/status) can DEINDEX a live site if applied
   // with a wrong value. It is HELD FOR REVIEW, never a one-tap ship: type-driven,
   // never copy-driven. When true, this card suppresses the one-tap accept/apply
-  // affordances (Stage in Wix, Ship it, "I did it myself", Ship anyway) and shows
+  // affordances (Ship it, Ship anyway) and shows
   // the plain-English hold notice instead, routing the owner to the review path
   // (Open in queue) so a wrong value can never ship in one tap. Benign on-page
   // content moves are unchanged.
@@ -339,37 +338,6 @@ export function MoveCard({
     });
   };
 
-  // Item 15 - "Stage in Wix": one click puts a pushable change into Wix through
-  // the existing armed-publish rails (snapshot first, daily cap, Ritz blocked).
-  // Only offered when the loader says the site is armed + this change is
-  // pushable; the server action re-checks every gate and fails closed to paste.
-  const canStage = Boolean(m.staging?.enabled) && !m.alreadyMeasuring && !m.pageMeasuring && !heldForReview;
-  const [stagedLine, setStagedLine] = useState<string | null>(null);
-  const [stageMsg, setStageMsg] = useState<string | null>(null);
-  const stage = () => {
-    if (heldForReview) return; // #310 - held for review, never one-tap staged
-    startTransition(async () => {
-      setStageMsg(null);
-      try {
-        const r = await stageMoveInWixAction({ moveId: m.id });
-        if (r.staged) {
-          setStagedLine(r.receiptLine);
-          // Record the same accepted response "Ship it" records, so the loop
-          // (confirm live -> measure) continues unchanged. Best-effort: the
-          // stage already landed and is snapshot-protected.
-          try {
-            await respondToRecommendation(m.id, "accepted", { targetPageUrl: m.targetUrl, actionType: m.action, query: m.query });
-          } catch { /* the queue can still be actioned from /recommendations */ }
-          setState("shipped");
-          onAction?.("shipped");
-        } else {
-          setStageMsg(r.receiptLine);
-        }
-      } catch {
-        setStageMsg("I could not stage this one in Wix, so copy and paste it yourself.");
-      }
-    });
-  };
   const snooze = () => {
     setState("snoozed"); // optimistic
     startTransition(async () => {
@@ -389,10 +357,7 @@ export function MoveCard({
           <Check className="h-4 w-4" aria-hidden />
         </span>
         <div className="flex-1">
-          <div className="font-semibold">{stagedLine ? "Staged in Wix" : "Shipped"} - {titleCase(m.query)}</div>
-          {stagedLine ? (
-            <div role="status" className="text-meta text-status-success">{stagedLine}</div>
-          ) : null}
+          <div className="font-semibold">Shipped - {titleCase(m.query)}</div>
           <div className="text-meta text-status-success">
             Once it&apos;s live on the page,{" "}
             <Link href={`/results?page=${encodeURIComponent(m.targetUrl)}`} className={`rounded-sm font-semibold underline hover:opacity-80 ${FOCUS}`}>
@@ -1253,9 +1218,9 @@ export function MoveCard({
 
       {/* #310 - indexing-safety hold notice. A crawl/index directive can DEINDEX a
           live site if applied with a wrong value, so it is never presented as a
-          casual one-tap ship: the notice renders here and the Stage in Wix / Ship
-          affordances below are suppressed. The review route (Open in queue) stays
-          the only path forward. Benign on-page content moves render no notice. */}
+          casual one-tap ship: the notice renders here and the Ship affordance
+          below is suppressed. The review route (Open in queue) stays the only
+          path forward. Benign on-page content moves render no notice. */}
       {heldForReview ? (
         <div
           role="alert"
@@ -1268,30 +1233,20 @@ export function MoveCard({
       ) : null}
 
       <div className="mt-4 flex items-center gap-3 border-t border-border-subtle pt-3">
-        {/* Item 15 - the primary apply affordance becomes "Stage in Wix" when the
-            site is armed and this change is pushable; Ship it stays as the manual
-            fallback ("I did it myself"). #310: both are suppressed for a held
-            indexing directive - the hold notice above replaces them and the owner
-            is routed to the review (Open in queue), never a one-tap change. */}
+        {/* Core 100K (2026-07-22): Beacon no longer writes to the CMS. The operator
+            applies the exact edit in their own CMS, then clicks "Ship it" to record
+            the shipment and start the measure loop. #310: suppressed for a held
+            indexing directive - the hold notice above replaces it and the owner is
+            routed to the review (Open in queue), never a one-tap change. */}
         {!heldForReview ? (
           <>
-            {canStage ? (
-              <button
-                onClick={stage}
-                disabled={pending}
-                className={`inline-flex items-center gap-1 rounded-lg px-3.5 py-1.5 text-body font-semibold text-background transition-colors disabled:opacity-60 ${tone.btn} ${FOCUS}`}
-                title="I make this change in Wix for you and save the old version first, so one click restores it."
-              >
-                <Zap className="h-3.5 w-3.5" aria-hidden />Stage in Wix
-              </button>
-            ) : null}
             {/* Already mid-measurement on this exact page+action: a second ship would
                 contaminate the open proof window - demote Ship, don't block it. */}
             <button
               onClick={ship}
               disabled={pending}
               className={
-                m.alreadyMeasuring || m.pageMeasuring || canStage
+                m.alreadyMeasuring || m.pageMeasuring
                   ? `inline-flex items-center gap-1 rounded-lg border border-border bg-card px-3.5 py-1.5 text-body font-semibold text-foreground-secondary transition-colors hover:bg-surface-raised disabled:opacity-60 ${FOCUS}`
                   : `inline-flex items-center gap-1 rounded-lg px-3.5 py-1.5 text-body font-semibold text-background transition-colors disabled:opacity-60 ${tone.btn} ${FOCUS}`
               }
@@ -1300,12 +1255,10 @@ export function MoveCard({
                   ? "This page+change is already measuring - shipping again would muddy the proof window"
                   : m.pageMeasuring
                     ? "This page is mid-measurement on another change - a second change muddies the open proof window"
-                    : canStage
-                      ? "Applied the change yourself? Click this and I start the measure loop."
-                      : undefined
+                    : "Applied the change yourself in your CMS? Click this and I start the measure loop."
               }
             >
-              {m.alreadyMeasuring || m.pageMeasuring ? "Ship anyway" : canStage ? "I did it myself" : <><Zap className="h-3.5 w-3.5" aria-hidden />Ship it</>}
+              {m.alreadyMeasuring || m.pageMeasuring ? "Ship anyway" : <><Zap className="h-3.5 w-3.5" aria-hidden />Ship it</>}
             </button>
           </>
         ) : null}
@@ -1353,24 +1306,12 @@ export function MoveCard({
         </button>
       </div>
 
-      {/* Item 15 - the paste flow stays the visible fallback next to staging. */}
-      {canStage ? (
+      {/* Core 100K (2026-07-22): the exact edit is shown as copy-ready text above;
+          the operator pastes it into their own CMS, then clicks Ship it. Beacon
+          never writes to the CMS itself. */}
+      {!heldForReview ? (
         <p className="mt-1.5 text-meta text-muted-foreground">
-          Stage in Wix makes this change for you and saves the old version first, or copy and paste it yourself and click I did it myself.
-        </p>
-      ) : null}
-      {stageMsg ? (
-        <p role="status" aria-live="polite" className="mt-1.5 text-meta text-status-warning">{stageMsg}</p>
-      ) : null}
-      {/* Item 15 - quiet nudge: this change is pushable, but publishing is not armed.
-          #310: never nudged for a held indexing directive (it is not a one-tap change). */}
-      {m.staging?.nudge && !canStage && !heldForReview ? (
-        <p className="mt-1.5 text-meta text-muted-foreground">
-          I can put this change into Wix for you.{" "}
-          <Link href="/settings/connectors" className={`rounded-sm font-medium underline underline-offset-2 hover:text-foreground-secondary ${FOCUS}`}>
-            Turn on publishing
-          </Link>{" "}
-          and it becomes one click.
+          Copy this into your CMS, then click Ship it and I start measuring the lift.
         </p>
       ) : null}
     </Card>
