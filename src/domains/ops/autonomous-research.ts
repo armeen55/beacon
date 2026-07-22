@@ -146,15 +146,15 @@ async function defaultBuildResearchPacks(tenantId: string): Promise<ResearchPack
 
 const defaultDeps: AutonomousResearchDeps = {
   publishUsableSurfaces: async (tenantId) => {
-    const { refreshCustomerSurface } = await import("@/app/(shell)/customer-surface-refresh");
+    const { refreshCustomerSurface } = await import("@/app/(shell)/surface-release");
     await refreshCustomerSurface(tenantId);
   },
   prepareTopFive: async (tenantId, now) => {
-    const [{ prepareTodayMovesForTenant }, { readChangesSurface }] = await Promise.all([
+    const [{ prepareTodayMovesForTenant }, { readCustomerSurface }] = await Promise.all([
       import("@/domains/demand-graph/prepare-today-moves"),
-      import("@/app/(shell)/changes-surface-store"),
+      import("@/app/(shell)/surface-release"),
     ]);
-    const rankedEntries = (await readChangesSurface(tenantId).catch(() => null))?.view.rankedPreparationEntries ?? [];
+    const rankedEntries = (await readCustomerSurface(tenantId).catch(() => null))?.changes.rankedPreparationEntries ?? [];
     return prepareTodayMovesForTenant(tenantId, {
       maxN: 5,
       maxUsd: 0.15,
@@ -226,12 +226,12 @@ const defaultDeps: AutonomousResearchDeps = {
     });
   },
   prepareMoves: async (tenantId, now) => {
-    const [{ prepareTodayMovesForTenant }, { readChangesSurface }] = await Promise.all([
+    const [{ prepareTodayMovesForTenant }, { readCustomerSurface }] = await Promise.all([
       import("@/domains/demand-graph/prepare-today-moves"),
-      import("@/app/(shell)/changes-surface-store"),
+      import("@/app/(shell)/surface-release"),
     ]);
-    const rankedEntries = (await readChangesSurface(tenantId).catch(() => null))
-      ?.view.rankedPreparationEntries ?? [];
+    const rankedEntries = (await readCustomerSurface(tenantId).catch(() => null))
+      ?.changes.rankedPreparationEntries ?? [];
     return await prepareTodayMovesForTenant(tenantId, {
       maxN: 5,
       maxUsd: 0.15,

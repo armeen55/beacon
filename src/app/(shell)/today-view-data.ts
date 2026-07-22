@@ -9,11 +9,10 @@ import "server-only";
  */
 import { after } from "next/server";
 import { currentTenantId } from "@/lib/tenant-context";
-import { loadChangesView } from "./changes-data";
+import { loadChangesView, sanitizeSurfaceComputedAt } from "./changes-data";
 import { loadDailyExperimentsView, type DailyExperimentsView } from "./daily-experiments-data";
 import { buildTodayView, type TodayView, type TodayPlanSummary } from "@/domains/changes/today-view";
-import { readTodaySurface, writeTodaySurface, isTodaySurfaceStale } from "./today-surface-store";
-import { readCustomerSurface, isCustomerSurfaceStale } from "./customer-surface-store";
+import { readCustomerSurface, isCustomerSurfaceStale } from "./surface-release";
 
 export type TodayComposite = {
   today: TodayView;
@@ -90,64 +89,40 @@ export async function loadTodayView(): Promise<TodayComposite> {
 type TodayViewBuilder = (tenantId: string) => Promise<TodayComposite>;
 
 /**
- * Exported for tests; render paths go through loadTodayView above. Sibling fix
- * (2026-07-10 hygiene batch) - thread the EXPLICIT tenantId into both the read and
- * the after() background write, the same P2-f discipline changes-surface-store
- * already applies: writeTodaySurface's own persistence would otherwise resolve the
- * write's tenant via json-store's ambient currentTenantSlug() (request-header-based),
- * which is not guaranteed correct in a background task outside the render's request
- * scope.
+ * Exported for tests; render paths go through loadTodayView above.
+ *
+ * ONE REBUILD BODY (loader consolidation, 2026-07-21): stale or cold, the only
+ * thing this loader ever schedules is refreshCustomerSurface - the same
+ * single-flighted release build /changes schedules - so Today and Changes can
+ * never race two concurrent worklist/fuse builds for the same tenant. The
+ * customer release is the ONLY persisted Today snapshot (the legacy
+ * today-surface shadow blob is retired); a cold tenant composes synchronously
+ * once and is warm from the scheduled release build onward.
  */
 export async function loadTodayViewWithSwr(
   tenantId: string,
   deps: { build?: TodayViewBuilder } = {},
 ): Promise<TodayComposite> {
   const build = deps.build ?? loadTodayViewUncached;
+  const scheduleReleaseRebuild = () =>
+    after(async () => {
+      const { refreshCustomerSurface } = await import("./surface-release");
+      await refreshCustomerSurface(tenantId).catch(() => null);
+    });
+
   const customer = await readCustomerSurface(tenantId).catch(() => null);
   if (customer) {
-    if (isCustomerSurfaceStale(customer.computedAt, Date.now())) {
-      after(async () => {
-        const { refreshCustomerSurface } = await import("./customer-surface-refresh");
-        await refreshCustomerSurface(tenantId).catch(() => null);
-      });
-    }
+    if (isCustomerSurfaceStale(customer.computedAt, Date.now())) scheduleReleaseRebuild();
     return {
       ...customer.today,
       surfaceVersion: customer.releaseId,
-      surfaceComputedAt: customer.computedAt,
+      // Same date-bomb guard /changes applies: an epoch-0 invalidation stamp is
+      // never a real build time, so it must not ride into the composite.
+      surfaceComputedAt: sanitizeSurfaceComputedAt(customer.computedAt) ?? undefined,
     };
   }
-  const cached = await readTodaySurface(tenantId).catch(() => null);
-  if (cached) {
-    if (isTodaySurfaceStale(cached.computedAt, Date.now())) {
-      after(async () => {
-        try {
-          const fresh = await build(tenantId);
-          await writeTodaySurface(fresh, new Date().toISOString(), tenantId);
-        } catch {
-          /* best-effort background refresh; the next visit retries */
-        }
-      });
-    }
-    return cached.data;
-  }
-  const fresh = await build(tenantId);
-  await writeTodaySurface(fresh, new Date().toISOString(), tenantId);
-  return fresh;
-}
-
-/**
- * Background warm-pass entry (BEACON 500 item 13): rebuild the Today composite NOW and
- * persist the SWR snapshot - the same `loadTodayViewUncached` + write the background
- * refresh runs. Beacon has no scheduler (no cron triggers this); it exists so an
- * on-demand background pass can refresh the surface after a signed-in visit lands.
- * `tenantId` is threaded explicitly through the write (the compose itself still reads
- * the ambient/runWithTenant-scoped tenant this refresh is wrapped in) so the
- * persisted snapshot can never land under json-store's ambient resolution disagreeing
- * with the tenant this refresh was actually called for. Build-then-write: a failed
- * rebuild throws and the previous snapshot stays in place.
- */
-export async function refreshTodaySurface(tenantId: string): Promise<void> {
-  const fresh = await loadTodayViewUncached();
-  await writeTodaySurface(fresh, new Date().toISOString(), tenantId);
+  // Cold: compose synchronously so the first render still has its greeting and
+  // daily picks, and schedule the release build that makes the next visit warm.
+  scheduleReleaseRebuild();
+  return build(tenantId);
 }

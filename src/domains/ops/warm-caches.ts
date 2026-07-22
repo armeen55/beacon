@@ -168,20 +168,20 @@ async function defaultRefreshDemandGraph(tenantId: string): Promise<void> {
 }
 
 async function defaultRefreshWorklist(tenantId: string): Promise<void> {
-  const [{ refreshWorklistSurface }, { rebuildChangesSurface }] = await Promise.all([
-    import("@/app/(shell)/moves/moves-data"),
-    import("@/app/(shell)/changes-data"),
-  ]);
-  // The worklist and Changes have separate durable SWR snapshots. Research
-  // changes the inputs to both, so warming only /moves leaves /changes serving
-  // the previous ranking until its independent TTL expires. Rebuild in
-  // dependency order: canonical worklist first, then the fused Changes view.
-  await refreshWorklistSurface(tenantId);
-  await rebuildChangesSurface(tenantId);
+  // ONE rebuild body (loader consolidation, 2026-07-21): the fused Changes view
+  // publishes only through the atomic customer release now (the legacy
+  // changes-surface shadow blob is retired). refreshCustomerSurface already
+  // runs worklist-then-fuse in dependency order, so this step both warms the
+  // worklist blob AND publishes an intermediate release carrying tonight's
+  // ranking - which is what the prepare-ahead step later reads its ranked
+  // preparation queue from. The FINAL release publish stays the last step of
+  // the pass (defaultRefreshToday) so prepared drafts land in it.
+  const { refreshCustomerSurface } = await import("@/app/(shell)/surface-release");
+  await refreshCustomerSurface(tenantId);
 }
 
 async function defaultRefreshToday(tenantId: string): Promise<void> {
-  const { refreshCustomerSurface } = await import("@/app/(shell)/customer-surface-refresh");
+  const { refreshCustomerSurface } = await import("@/app/(shell)/surface-release");
   await refreshCustomerSurface(tenantId);
 }
 
@@ -202,7 +202,9 @@ async function defaultRefreshToday(tenantId: string): Promise<void> {
  */
 export async function warmFreeSurfaces(tenantId: string): Promise<void> {
   await defaultRefreshDemandGraph(tenantId).catch(() => {});
-  await defaultRefreshWorklist(tenantId).catch(() => {});
+  // ONE rebuild body: refreshCustomerSurface runs worklist-then-fuse-then-compose
+  // and publishes the shared Today+Changes release in a single pass, so there is
+  // no second "today" step to run (that would just repeat the same ~50s build).
   await defaultRefreshToday(tenantId).catch(() => {});
 }
 
@@ -285,12 +287,16 @@ const MAX_PREPARE_AHEAD_MOVES_PER_NIGHT = 10;
 const MAX_PREPARE_AHEAD_USD_PER_NIGHT = 0.15;
 
 async function defaultRunPrepareAhead(tenantId: string, now: Date): Promise<PrepareMovesSummary> {
-  const [{ prepareTodayMovesForTenant }, { readChangesSurface }] = await Promise.all([
+  const [{ prepareTodayMovesForTenant }, { readCustomerSurface }] = await Promise.all([
     import("@/domains/demand-graph/prepare-today-moves"),
-    import("@/app/(shell)/changes-surface-store"),
+    import("@/app/(shell)/surface-release"),
   ]);
-  const rankedEntries = (await readChangesSurface(tenantId).catch(() => null))
-    ?.view.rankedPreparationEntries ?? [];
+  // The ranked preparation queue rides on the customer release (persisted
+  // server-side; toClientView strips it from the client payload). The
+  // worklist-surface step above published tonight's ranking, so this prepares
+  // from tonight's queue, never yesterday's.
+  const rankedEntries = (await readCustomerSurface(tenantId).catch(() => null))
+    ?.changes.rankedPreparationEntries ?? [];
   return await prepareTodayMovesForTenant(tenantId, {
     maxN: MAX_PREPARE_AHEAD_MOVES_PER_NIGHT,
     maxUsd: MAX_PREPARE_AHEAD_USD_PER_NIGHT,

@@ -103,14 +103,9 @@ export const TENANT_SCOPED_STORES = new Set<string>([
   // TodayMovesHeroData snapshot per tenant. Cold render serves this instantly + refreshes
   // in the background, so the ~32s demand-graph rebuild no longer floors every visit.
   "worklist-surface",
-  // 2026-07-01 item 93 - Today stale-while-revalidate surface (the composed TodayComposite
-  // snapshot per tenant), same discipline as worklist-surface.
-  "today-surface",
-  // 2026-07-10 W2-B - /changes stale-while-revalidate surface (the fully-fused, ranked
-  // ChangesView snapshot per tenant), same discipline as worklist-surface. Presentation
-  // cache only: the moves/plan/ledger sources stay canonical, never here.
-  "changes-surface",
-  // 2026-07-15 - atomic customer-visible release shared by Today and Changes.
+  // 2026-07-15 - atomic customer-visible release shared by Today and Changes
+  // (since the 2026-07-21 loader consolidation, the ONLY persisted Today+Changes
+  // snapshot; the today-surface / changes-surface shadow blobs are retired).
   // Contains the complete ranked Changes view, Today composite, and New Pages
   // board under one release id so visible state never mixes build generations.
   "customer-surface",

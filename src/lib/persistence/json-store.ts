@@ -73,12 +73,11 @@ export const SUPABASE_MIRRORED_STORES = new Set<string>([
   // 2026-07-03 R4 adds results-surface (the re-measured proof ledger snapshot) to the
   // same set: without the mirror every hosted /results open pays the full re-measure.
   "worklist-surface",
-  "today-surface",
   "results-surface",
-  // 2026-07-10 W2-B - the fused, ranked /changes list snapshot. Without the mirror
-  // every hosted lambda starts cold and pays the ~14s allocator fuse; the blob makes
-  // the SWR snapshot warm across instances (same rationale as worklist/today/results).
-  "changes-surface",
+  // 2026-07-15 - the atomic Today+Changes customer release (the ONLY persisted
+  // snapshot for those two routes since the 2026-07-21 loader consolidation
+  // retired the today-surface and changes-surface shadow blobs). Without the
+  // mirror every hosted lambda starts cold and pays the ~14s allocator fuse.
   "customer-surface",
   // 2026-07-08 - the SOURCE demand-graph SWR snapshot (graph-snapshot-store.ts). This was
   // the missed one: worklist-surface + today-surface (both DERIVED from it) were mirrored

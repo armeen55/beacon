@@ -1,7 +1,4 @@
 import "server-only";
-import { cache } from "react";
-
-import { currentTenantId } from "@/lib/tenant-context";
 import { canonicalizeCitationUrl } from "@/domains/citation-lifecycle/canonicalize-url";
 import { summarizeSpecialistDebate } from "@/domains/demand-graph/debate-summary";
 import { loadActionPackWorklistForTenant } from "@/domains/action-pack/load";
@@ -10,8 +7,7 @@ import { ACTION_LABEL, actionFamily, type ActionPack } from "@/domains/action-pa
 
 import { after } from "next/server";
 import { recordAppError, errorFieldsFrom } from "@/lib/obs/error-ledger";
-import { buildTodayMovesData, type TodayMove, type TodayMovesHeroData } from "../today-moves-data";
-import { readWorklistSurface, writeWorklistSurface, isSurfaceStale } from "../worklist-surface-store";
+import { buildTodayMovesData, type TodayMove, type TodayMovesHeroData } from "./today-moves-data";
 import { computeOpportunity } from "@/domains/forecast/opportunity-math";
 import { defaultCtrCurve } from "@/domains/forecast/tenant-ctr-curve";
 import { loadTenantCtrCurve } from "@/domains/forecast/load-tenant-ctr-curve";
@@ -19,6 +15,100 @@ import { rootDomainOf } from "@/domains/serp/serp-teardown-fusion";
 import { buildWinnersPanel, type WinnerAudit, type WinnerLine } from "@/domains/demand-graph/winners-panel";
 import { getCompetitorAuditsForTenantId, type CompetitorPageAudit } from "@/domains/demand-graph/competitor-page-audit";
 import { getBusinessConfig, hydrateBusinessConfigFromSupabase } from "@/lib/business-config";
+import { readStore, writeStore } from "@/lib/persistence/json-store";
+
+/**
+ * worklist-data (2026-07-21 loader consolidation) - the canonical ActionPack worklist
+ * builder AND its tenant-scoped stale-while-revalidate surface cache, merged from
+ * moves/moves-data.ts + worklist-surface-store.ts (the /moves route itself is a
+ * redirect stub to /changes; this data layer feeds /changes and the customer release).
+ *
+ * SURFACE CACHE: the cold compute rebuilds the demand graph from Supabase (~32s) on
+ * EVERY visit with only `react.cache` (per-request), no cross-request persistence.
+ * The persisted snapshot serves the last build INSTANTLY and refreshes in the
+ * background. Honest staleness: the snapshot carries `computedAt`, the TTL bounds
+ * drift, and mutating actions age-stamp it (invalidateWorklistSurface / the
+ * surface-release invalidateCoreSurfaces entry). Tenant-scoped (store-classification)
+ * so one tenant never serves another's surface.
+ */
+
+// ── Worklist surface store ──────────────────────────────────────────────────
+
+const STORE = "worklist-surface";
+
+/** Serve the cached snapshot instantly always; background-refresh once it's older than this. */
+export const SURFACE_FRESH_MS = 15 * 60 * 1000;
+
+export type WorklistSurfaceRow = { computedAt: string; tenantId?: string; data: TodayMovesHeroData };
+
+/**
+ * P2-f sibling fix (2026-07-10 hygiene batch) - `opts.tenantId`, same purpose as
+ * changes-surface-store's: a background caller (moves-data.ts's after() rebuild,
+ * or the nightly refreshWorklistSurface entry) already resolves the tenant it means
+ * explicitly - this lets it thread that SAME tenant into the read/write instead of
+ * falling back to json-store's ambient currentTenantSlug() resolution, which is not
+ * guaranteed correct outside the render's request scope inside after(). Optional
+ * only for backward compatibility with in-request callers.
+ */
+export async function readWorklistSurface(tenantId?: string): Promise<WorklistSurfaceRow | null> {
+  const rows = await readStore<WorklistSurfaceRow>(STORE, [], { tenantId }).catch(() => [] as WorklistSurfaceRow[]);
+  const row = rows[0];
+  // P0 tenant-isolation guard (2026-07-14): legacy snapshots had no embedded
+  // identity, so a background builder could read the env-default tenant and
+  // persist that content under another tenant's correctly scoped blob key.
+  // Explicit callers fail closed on missing/mismatched identity and rebuild.
+  if (tenantId && row?.tenantId !== tenantId) return null;
+  return row && row.data ? row : null;
+}
+
+export async function writeWorklistSurface(data: TodayMovesHeroData, computedAtIso: string, tenantId?: string): Promise<void> {
+  // Empty-rebuild guard (2026-07-02): loadUncached is fail-soft, so during a Supabase
+  // outage it can "successfully" build a surface with zero moves. Persisting that over a
+  // real snapshot poisons the SWR cache and the operator's main list renders empty until
+  // the next healthy rebuild. An empty rebuild never replaces a non-empty snapshot.
+  // invalidateWorklistSurface age-stamps (never empties), so this comparison snapshot
+  // stays alive across mutations and the guard is never disarmed.
+  if (data.moves.length === 0) {
+    const existing = await readWorklistSurface(tenantId);
+    if (existing && existing.data.moves.length > 0) {
+      console.warn(
+        `[worklist-surface] refusing to overwrite a snapshot holding ${existing.data.moves.length} moves with an empty rebuild (likely a degraded build during a data outage); keeping the snapshot from ${existing.computedAt}`,
+      );
+      return;
+    }
+  }
+  await writeStore<WorklistSurfaceRow>(STORE, [{ computedAt: computedAtIso, tenantId, data }], { tenantId }).catch(() => {});
+}
+
+/**
+ * Mark the snapshot stale without deleting the last-known-good worklist.
+ *
+ * This used to hard-empty the store (`writeStore(STORE, [])`). That had two
+ * costs: the very next load had nothing to serve (a rebuilding screen over a
+ * perfectly valid previous ranking), and it deleted the comparison snapshot
+ * the empty-rebuild guard above needs - so a degraded build during an outage
+ * could persist zero moves unopposed. Age-stamp instead (epoch-0 computedAt,
+ * blob preserved), the SAME pattern the customer-surface invalidation uses;
+ * the normal SWR path replaces it atomically in the background. A true
+ * first-ever tenant has no row and stays cold.
+ */
+export async function invalidateWorklistSurface(tenantId?: string): Promise<void> {
+  const existing = await readWorklistSurface(tenantId).catch(() => null);
+  if (!existing) return;
+  await writeStore<WorklistSurfaceRow>(
+    STORE,
+    [{ ...existing, computedAt: new Date(0).toISOString() }],
+    tenantId ? { tenantId } : {},
+  ).catch(() => {});
+}
+
+/** PURE: is a snapshot stale (or its timestamp unparseable)? */
+export function isSurfaceStale(computedAtIso: string, nowMs: number): boolean {
+  const t = Date.parse(computedAtIso);
+  return !Number.isFinite(t) || nowMs - t > SURFACE_FRESH_MS;
+}
+
+// ── Worklist builder ────────────────────────────────────────────────────────
 
 /**
  * /moves data (2026-06-27), the worklist is now driven by the CANONICAL ActionPack
@@ -372,7 +462,8 @@ type WorklistSurfaceBuilder = (tenantId: string) => Promise<TodayMovesHeroData>;
  * the next visit retries). Only the first-ever load (cold cache) pays the full compute.
  * Mutating actions invalidate the surface so operator changes show on the next load.
  *
- * Exported for tests; render paths go through loadMovesWorklist below. The optional
+ * Exported for tests; render paths go through changes-data.ts (the /changes loader
+ * is the one render consumer). The optional
  * `build` dep lets a test observe the cold/stale/tenant-threading behavior with a cheap
  * fake builder instead of the real compute.
  */
@@ -415,11 +506,6 @@ export async function loadSurfaceWithSwr(
   await writeWorklistSurface(fresh, new Date().toISOString(), tenantId);
   return fresh;
 }
-
-/** Request-memoized /moves worklist, ActionPack-powered, SWR-cached cross-request. */
-export const loadMovesWorklist = cache(
-  async (): Promise<TodayMovesHeroData> => loadSurfaceWithSwr(await currentTenantId()),
-);
 
 /**
  * Nightly warm pass entry (BEACON 500 item 13): rebuild the worklist surface NOW and

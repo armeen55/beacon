@@ -2,7 +2,7 @@ import "server-only";
 
 import { runSingleFlight } from "@/lib/single-flight";
 import { runWithTenant } from "@/lib/tenant-context";
-import type { CustomerSurface } from "@/app/(shell)/customer-surface-store";
+import type { CustomerSurface } from "@/app/(shell)/surface-release";
 import type { PrepareMovesSummary } from "@/domains/demand-graph/prepare-today-moves";
 
 export const READY_QUEUE_TARGET = 5;
@@ -33,9 +33,8 @@ type ReadyQueueDeps = {
 };
 
 async function defaultDeps(): Promise<ReadyQueueDeps> {
-  const [{ readCustomerSurface }, { refreshCustomerSurface }, { prepareTodayMovesForTenant }] = await Promise.all([
-    import("@/app/(shell)/customer-surface-store"),
-    import("@/app/(shell)/customer-surface-refresh"),
+  const [{ readCustomerSurface, refreshCustomerSurface }, { prepareTodayMovesForTenant }] = await Promise.all([
+    import("@/app/(shell)/surface-release"),
     import("@/domains/demand-graph/prepare-today-moves"),
   ]);
   return {

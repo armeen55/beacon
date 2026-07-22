@@ -28,7 +28,7 @@ import { rootDomain } from "@/domains/serp/serp-provider";
 import { detectAnswerDrift, type DriftEvent } from "./answer-drift";
 import { ENGINE_PLAIN_NAME, type EngineId } from "./engine-types";
 import { scoreTopicMatch } from "@/domains/evidence/relevance-gate";
-import { readWorklistSurface } from "@/app/(shell)/worklist-surface-store";
+import { readWorklistSurface } from "@/app/(shell)/worklist-data";
 
 const PAGE_SIZE = 1000;
 const MAX_PAGES = 10; // 10k rows ceiling - well above one tenant's poll-window volume

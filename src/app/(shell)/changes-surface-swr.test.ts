@@ -1,32 +1,33 @@
 /**
- * /changes SWR snapshot flow (W2-B, 2026-07-10).
+ * /changes SWR snapshot flow (W2-B, 2026-07-10; ONE-rebuild-body consolidation 2026-07-21).
  *
- * Pins the loadChangesViewWithSwr contract with a cheap injected builder (never the
- * real ~14s fuse):
- *   - COLD (no snapshot): NEVER blocks - serves the honest `surfaceBuilding` empty
- *     state and schedules ONE background rebuild via after().
- *   - STALE snapshot: serves instantly with its computedAt (staleness label) and
- *     schedules ONE background rebuild.
- *   - FRESH snapshot: serves instantly, schedules nothing.
- *   - SINGLE-FLIGHT: two concurrent stale readers -> exactly ONE rebuild.
- *   - TWO-TENANT: the rebuild builds for the EXACT tenantId (explicit threading).
+ * Pins the loadChangesViewWithSwr contract:
+ *   - COLD (no customer release): NEVER blocks - serves the honest
+ *     `surfaceBuilding` empty state and schedules ONE refreshCustomerSurface.
+ *   - CUSTOMER release present: serves it instantly (releaseId + sanitized
+ *     computedAt); stale schedules ONE refreshCustomerSurface; fresh schedules nothing.
+ *   - The customer release is the ONLY snapshot (the changes-surface shadow blob is
+ *     retired); the old private rebuild lane is gone - that dual lane could race TWO
+ *     concurrent worklist/fuse builds, the documented Ready-zeroing load pattern.
+ *   - Epoch-0 invalidation stamps are sanitized out of surfaceComputedAt.
+ *   - A rebuild failure is recorded and swallowed (the next visit retries).
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
-const readChangesSurfaceMock = vi.fn(async (): Promise<unknown> => null);
-const writeChangesSurfaceMock = vi.fn(async (..._a: unknown[]): Promise<void> => {});
-const isStaleMock = vi.fn((_iso: string, _now: number): boolean => false);
+const readCustomerSurfaceMock = vi.fn(async (..._a: unknown[]): Promise<unknown> => null);
+const isCustomerStaleMock = vi.fn((_iso: string, _now: number): boolean => false);
+const refreshCustomerSurfaceMock = vi.fn(async (..._a: unknown[]): Promise<unknown> => null);
 const afterMock = vi.fn((cb: () => Promise<void>) => cb);
 const recordAppErrorMock = vi.fn(async () => {});
 
 vi.mock("server-only", () => ({}));
 vi.mock("next/server", () => ({ after: (cb: () => Promise<void>) => afterMock(cb) }));
-vi.mock("./changes-surface-store", () => ({
-  readChangesSurface: () => readChangesSurfaceMock(),
-  writeChangesSurface: (...a: unknown[]) => writeChangesSurfaceMock(...a),
-  isChangesSurfaceStale: (iso: string, now: number) => isStaleMock(iso, now),
+vi.mock("./surface-release", () => ({
+  readCustomerSurface: (...a: unknown[]) => readCustomerSurfaceMock(...a),
+  isCustomerSurfaceStale: (iso: string, now: number) => isCustomerStaleMock(iso, now),
+  refreshCustomerSurface: (...a: unknown[]) => refreshCustomerSurfaceMock(...a),
 }));
 vi.mock("@/lib/obs/error-ledger", () => ({
   recordAppError: (...a: unknown[]) => recordAppErrorMock(...(a as [])),
@@ -37,7 +38,6 @@ vi.mock("@/lib/tenant-context", () => ({ currentTenantId: async () => "tenant-te
 
 import { loadChangesViewWithSwr } from "./changes-data";
 import type { ChangesView } from "./changes-data";
-import { __resetSingleFlightForTests } from "@/lib/single-flight";
 
 const view = (id: string): ChangesView =>
   ({
@@ -57,140 +57,117 @@ const view = (id: string): ChangesView =>
     watching: [],
   }) as ChangesView;
 
+const release = (id: string, computedAt: string) => ({
+  schemaVersion: 1,
+  releaseId: `tenant-a:${computedAt}`,
+  computedAt,
+  tenantId: "tenant-a",
+  changes: view(id),
+  today: { today: {}, daily: null, hasChanges: true },
+  newPages: null,
+});
+
 beforeEach(() => {
-  readChangesSurfaceMock.mockReset();
-  readChangesSurfaceMock.mockResolvedValue(null);
-  writeChangesSurfaceMock.mockClear();
-  isStaleMock.mockReset();
-  isStaleMock.mockReturnValue(false);
+  readCustomerSurfaceMock.mockReset();
+  readCustomerSurfaceMock.mockResolvedValue(null);
+  isCustomerStaleMock.mockReset();
+  isCustomerStaleMock.mockReturnValue(false);
+  refreshCustomerSurfaceMock.mockReset();
+  refreshCustomerSurfaceMock.mockResolvedValue(null);
   afterMock.mockClear();
   recordAppErrorMock.mockClear();
-  __resetSingleFlightForTests();
 });
 
 afterEach(() => {
-  __resetSingleFlightForTests();
+  vi.clearAllMocks();
 });
 
 describe("loadChangesViewWithSwr", () => {
-  it("COLD (no snapshot): serves the honest building empty state and schedules a rebuild - never blocks", async () => {
-    const build = vi.fn(async (t: string) => view(`built-${t}`));
-    const out = await loadChangesViewWithSwr("tenant-a", { build });
+  it("COLD (no release): serves the honest building empty state and schedules the release rebuild - never blocks", async () => {
+    const out = await loadChangesViewWithSwr("tenant-a");
 
     expect(out.changes).toEqual([]);
     expect(out.surfaceBuilding).toBe(true);
     expect(out.surfaceComputedAt).toBeNull();
-    // The heavy build did NOT run synchronously on the cold GET.
-    expect(build).not.toHaveBeenCalled();
-    // Exactly one background rebuild scheduled; running it builds + persists.
+    // Nothing heavy ran synchronously on the cold GET.
+    expect(refreshCustomerSurfaceMock).not.toHaveBeenCalled();
+    // Exactly one background rebuild scheduled; running it calls THE one body.
     expect(afterMock).toHaveBeenCalledOnce();
-    const cb = afterMock.mock.calls[0][0] as () => Promise<void>;
-    await cb();
-    expect(build).toHaveBeenCalledWith("tenant-a");
-    expect(writeChangesSurfaceMock).toHaveBeenCalledOnce();
+    await (afterMock.mock.calls[0][0] as () => Promise<void>)();
+    expect(refreshCustomerSurfaceMock).toHaveBeenCalledExactlyOnceWith("tenant-a");
   });
 
-  it("STALE snapshot: serves instantly with its computedAt and schedules ONE background rebuild", async () => {
-    const computedAt = "2026-07-10T00:00:00.000Z";
-    readChangesSurfaceMock.mockResolvedValue({ computedAt, view: view("snap") });
-    isStaleMock.mockReturnValue(true);
-    const build = vi.fn(async (t: string) => view(`built-${t}`));
+  it("CUSTOMER release FRESH: serves it instantly with releaseId + computedAt, schedules NOTHING", async () => {
+    const computedAt = "2026-07-21T00:00:00.000Z";
+    readCustomerSurfaceMock.mockResolvedValue(release("rel", computedAt));
 
-    const out = await loadChangesViewWithSwr("tenant-a", { build });
+    const out = await loadChangesViewWithSwr("tenant-a");
 
-    expect((out.changes[0] as { id: string }).id).toBe("snap");
+    expect((out.changes[0] as { id: string }).id).toBe("rel");
     expect(out.surfaceComputedAt).toBe(computedAt);
     expect(out.surfaceBuilding).toBe(false);
-    expect(build).not.toHaveBeenCalled(); // nothing synchronous
+    expect(out.surfaceVersion).toBe(`tenant-a:${computedAt}`);
+    expect(afterMock).not.toHaveBeenCalled();
+  });
+
+  it("CUSTOMER release STALE: serves instantly and schedules ONE refreshCustomerSurface", async () => {
+    readCustomerSurfaceMock.mockResolvedValue(release("rel", "2026-07-21T00:00:00.000Z"));
+    isCustomerStaleMock.mockReturnValue(true);
+
+    const out = await loadChangesViewWithSwr("tenant-a");
+
+    expect((out.changes[0] as { id: string }).id).toBe("rel");
     expect(afterMock).toHaveBeenCalledOnce();
     await (afterMock.mock.calls[0][0] as () => Promise<void>)();
-    expect(build).toHaveBeenCalledWith("tenant-a");
-    expect(writeChangesSurfaceMock).toHaveBeenCalledOnce();
+    expect(refreshCustomerSurfaceMock).toHaveBeenCalledExactlyOnceWith("tenant-a");
   });
 
-  it("FRESH snapshot: serves instantly and schedules NOTHING", async () => {
-    readChangesSurfaceMock.mockResolvedValue({ computedAt: "2026-07-10T00:00:00.000Z", view: view("snap") });
-    isStaleMock.mockReturnValue(false);
-    const build = vi.fn(async (t: string) => view(`built-${t}`));
+  it("EPOCH-0 invalidation stamp on the release never leaks to the age line (sanitized to null)", async () => {
+    readCustomerSurfaceMock.mockResolvedValue(release("rel", new Date(0).toISOString()));
+    isCustomerStaleMock.mockReturnValue(true);
 
-    const out = await loadChangesViewWithSwr("tenant-a", { build });
+    const out = await loadChangesViewWithSwr("tenant-a");
 
-    expect((out.changes[0] as { id: string }).id).toBe("snap");
-    expect(afterMock).not.toHaveBeenCalled();
-    expect(build).not.toHaveBeenCalled();
+    expect((out.changes[0] as { id: string }).id).toBe("rel");
+    expect(out.surfaceComputedAt).toBeNull();
   });
 
-  it("SINGLE-FLIGHT: two concurrent stale readers trigger exactly ONE rebuild", async () => {
-    readChangesSurfaceMock.mockResolvedValue({ computedAt: "old", view: view("snap") });
-    isStaleMock.mockReturnValue(true);
-    let resolveBuild!: (v: ChangesView) => void;
-    const build = vi.fn(
-      (_t: string) =>
-        new Promise<ChangesView>((res) => {
-          resolveBuild = res;
-        }),
-    );
-
-    await loadChangesViewWithSwr("tenant-a", { build });
-    await loadChangesViewWithSwr("tenant-a", { build });
-    const cb1 = afterMock.mock.calls[0][0] as () => Promise<void>;
-    const cb2 = afterMock.mock.calls[1][0] as () => Promise<void>;
-
-    // Fire both scheduled rebuilds concurrently: single-flight collapses them to one.
-    const p = Promise.all([cb1(), cb2()]);
-    expect(build).toHaveBeenCalledTimes(1);
-    resolveBuild(view("built"));
-    await p;
-    expect(writeChangesSurfaceMock).toHaveBeenCalledTimes(1);
-  });
-
-  it("TWO-TENANT: the rebuild builds for the EXACT tenantId (explicit threading, no bleed)", async () => {
-    const build = vi.fn(async (t: string) => view(`built-${t}`));
-    await loadChangesViewWithSwr("tenant-a", { build });
+  it("TWO-TENANT: each scheduled rebuild carries its EXACT tenantId (explicit threading, no bleed)", async () => {
+    await loadChangesViewWithSwr("tenant-a");
+    await loadChangesViewWithSwr("tenant-b");
     await (afterMock.mock.calls[0][0] as () => Promise<void>)();
-    __resetSingleFlightForTests();
-    await loadChangesViewWithSwr("tenant-b", { build });
     await (afterMock.mock.calls[1][0] as () => Promise<void>)();
 
-    expect(build).toHaveBeenCalledWith("tenant-a");
-    expect(build).toHaveBeenCalledWith("tenant-b");
-    // Each persisted view was built for its own tenant.
-    const firstView = writeChangesSurfaceMock.mock.calls[0][0] as ChangesView;
-    const secondView = writeChangesSurfaceMock.mock.calls[1][0] as ChangesView;
-    expect((firstView.changes[0] as { id: string }).id).toBe("built-tenant-a");
-    expect((secondView.changes[0] as { id: string }).id).toBe("built-tenant-b");
-  });
-
-  // P2-f (2026-07-10, visual audit) - the after() rebuild already threads tenantId
-  // explicitly into build(tenantId); the write must carry the SAME explicit tenantId
-  // (never fall back to json-store's ambient currentTenantSlug() resolution, which is
-  // not guaranteed correct outside the render's request scope inside after()).
-  it("P2-f: writeChangesSurface is called with the EXPLICIT tenantId as its third argument", async () => {
-    const build = vi.fn(async (t: string) => view(`built-${t}`));
-    await loadChangesViewWithSwr("tenant-a", { build });
-    await (afterMock.mock.calls[0][0] as () => Promise<void>)();
-
-    expect(writeChangesSurfaceMock).toHaveBeenCalledOnce();
-    const [, , tenantIdArg] = writeChangesSurfaceMock.mock.calls[0] as [ChangesView, string, string];
-    expect(tenantIdArg).toBe("tenant-a");
+    expect(refreshCustomerSurfaceMock.mock.calls.map((c) => c[0])).toEqual(["tenant-a", "tenant-b"]);
   });
 
   it("a background rebuild failure is recorded and swallowed (the next visit retries)", async () => {
-    const build = vi.fn(async () => {
-      throw new Error("fuse wedged");
-    });
-    await loadChangesViewWithSwr("tenant-a", { build });
+    refreshCustomerSurfaceMock.mockRejectedValue(new Error("fuse wedged"));
+    await loadChangesViewWithSwr("tenant-a");
     const cb = afterMock.mock.calls[0][0] as () => Promise<void>;
     await expect(cb()).resolves.toBeUndefined();
     expect(recordAppErrorMock).toHaveBeenCalledOnce();
-    expect(writeChangesSurfaceMock).not.toHaveBeenCalled(); // build-then-write: no write on failure
+  });
+});
+
+describe("ONE rebuild body (loader consolidation, 2026-07-21)", () => {
+  it("changes-data.ts holds no private rebuild lane - the only single-flight key is the customer release's", () => {
+    const changesSource = readFileSync(resolve(__dirname, "changes-data.ts"), "utf8");
+    const refreshSource = readFileSync(resolve(__dirname, "surface-release.ts"), "utf8");
+
+    // The dual-lane bug: a stale changes-surface used to schedule its own
+    // "changes-surface:{t}" single-flight beside "customer-surface:{t}",
+    // letting one request pair run two concurrent worklist/fuse builds.
+    expect(changesSource).not.toContain("changes-surface:${");
+    expect(changesSource).not.toContain("runSingleFlight");
+    expect(refreshSource).toContain("customer-surface:${tenantId}");
   });
 });
 
 describe("Changes background rebuild tenant-source wiring", () => {
   it("passes the explicit tenant through every ambient-capable source", () => {
     const changesSource = readFileSync(resolve(__dirname, "changes-data.ts"), "utf8");
-    const worklistSource = readFileSync(resolve(__dirname, "moves/moves-data.ts"), "utf8");
+    const worklistSource = readFileSync(resolve(__dirname, "worklist-data.ts"), "utf8");
 
     expect(changesSource).toContain("loadSurfaceWithSwr(tenantId)");
     expect(changesSource).toContain("buildNewPagesData(tenantId)");

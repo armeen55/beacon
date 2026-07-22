@@ -763,7 +763,7 @@ describe("sanitizeSurfaceComputedAt - the date-bomb guard (2026-07-20)", () => {
     expect(checkedAgoLabel(sanitizeSurfaceComputedAt(iso), NOW)).toBe("30 minutes ago");
   });
 
-  it("nulls the epoch-0 stale sentinel (invalidateChangesSurface writes new Date(0)) so the age line is OMITTED", () => {
+  it("nulls the epoch-0 stale sentinel (invalidateCustomerSurface writes new Date(0)) so the age line is OMITTED", () => {
     const epoch0 = new Date(0).toISOString();
     // Before the guard, checkedAgoLabel(epoch0) rendered "20655 days ago".
     expect(checkedAgoLabel(epoch0, NOW)).toMatch(/\d{5} days ago/);

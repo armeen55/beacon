@@ -1071,11 +1071,12 @@ async function invalidateResultsSurfaceSafe(): Promise<void> {
     /* best-effort; the snapshot TTL still bounds staleness */
   }
   // W2-B (2026-07-10): a ledger mutation also changes the /changes measuring/decided
-  // counts (both read the same lifecycle split), so refresh that SWR snapshot too.
-  // Same best-effort dynamic-import posture; the TTL bounds staleness on any failure.
+  // counts (both read the same lifecycle split), so age-stamp the core Today/Changes
+  // surface caches too (one entry: invalidateCoreSurfaces). Same best-effort
+  // dynamic-import posture; the TTL bounds staleness on any failure.
   try {
-    const { invalidateChangesSurface } = await import("@/app/(shell)/changes-surface-store");
-    await invalidateChangesSurface();
+    const { invalidateCoreSurfaces } = await import("@/app/(shell)/surface-release");
+    await invalidateCoreSurfaces();
   } catch {
     /* best-effort */
   }

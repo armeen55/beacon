@@ -8,7 +8,7 @@ import "server-only";
  * working actions).
  */
 import { currentTenantId } from "@/lib/tenant-context";
-import { loadSurfaceWithSwr } from "./moves/moves-data";
+import { loadSurfaceWithSwr } from "./worklist-data";
 import { getLatestPreviewPlan, getAcceptedPlan, listActiveReservations } from "@/domains/experiments/daily-experiment-plan-store";
 import { buildCanonicalChanges, type CanonicalMoveInput } from "@/domains/changes/build-canonical-changes";
 import type { CanonicalChange } from "@/domains/changes/canonical-change";
@@ -74,14 +74,8 @@ import { canonicalizeCitationUrl } from "@/domains/citation-lifecycle/canonicali
 import { classifyOpportunityFreshness, summarizeExpiry } from "@/domains/changes/opportunity-expiry";
 import { perfMark, perfStage } from "@/lib/obs/perf-log";
 import { after } from "next/server";
-import { runSingleFlight } from "@/lib/single-flight";
 import { recordAppError, errorFieldsFrom } from "@/lib/obs/error-ledger";
-import {
-  readChangesSurface,
-  writeChangesSurface,
-  isChangesSurfaceStale,
-} from "./changes-surface-store";
-import { readCustomerSurface, isCustomerSurfaceStale } from "./customer-surface-store";
+import { readCustomerSurface, isCustomerSurfaceStale } from "./surface-release";
 import { plainRankedBy } from "@/lib/plain-language";
 
 export type ChangesView = {
@@ -754,36 +748,33 @@ const EMPTY_CHANGES_VIEW: ChangesView = {
 
 /**
  * W2-B (2026-07-10) - THE render entry (request-cached). Serves the ranked ChangesView
- * from the tenant-scoped SWR snapshot: a present snapshot serves INSTANTLY (with its
- * computedAt for the honest staleness line) and, when stale, schedules ONE
- * single-flighted background rebuild via after(). A COLD first-ever load NEVER blocks
- * on the ~14s fuse: it serves the honest "building" empty state and schedules the
- * rebuild, so the next visit is instant. Every surface that reads the view (Today,
- * lifecycle counts, page dossier) shares this one snapshot per request via react.cache.
+ * from the tenant-scoped customer release: a present release serves INSTANTLY (with its
+ * computedAt for the honest staleness line) and, when stale, schedules the ONE rebuild
+ * body via after(). A COLD first-ever load NEVER blocks on the ~14s fuse: it serves the
+ * honest "building" empty state and schedules the rebuild, so the next visit is instant.
+ * Every surface that reads the view (Today, lifecycle counts, page dossier) shares this
+ * one snapshot per request via react.cache.
  */
 export const loadChangesView = cache(
   async (): Promise<ChangesView> => loadChangesViewWithSwr(await currentTenantId()),
 );
 
-/** Injectable builder so tests can drive the SWR flow without running the heavy fuse. */
-type ChangesViewBuilder = (tenantId: string) => Promise<ChangesView>;
-
 /**
- * Exported for tests; render paths go through loadChangesView above. The optional
- * `build` dep lets a test observe the cold/stale/fresh/single-flight/tenant-threading
- * behavior with a cheap fake builder instead of the real ~14s fuse.
+ * Exported for tests; render paths go through loadChangesView above.
+ *
+ * ONE REBUILD BODY (loader consolidation, 2026-07-21): stale or cold, the only thing
+ * this loader ever schedules is refreshCustomerSurface, which single-flights on
+ * "customer-surface:{tenantId}". The old private "changes-surface:{tenantId}" rebuild
+ * lane is gone - it let one request pair race TWO concurrent worklist/fuse builds
+ * (one per key), which is exactly the Supabase load that pushed the 30s-bounded
+ * drafts read past its timeout (the documented Ready-zeroing failure mode).
  */
-export async function loadChangesViewWithSwr(
-  tenantId: string,
-  deps: { build?: ChangesViewBuilder } = {},
-): Promise<ChangesView> {
-  const build = deps.build ?? buildChangesViewUncached;
-  const scheduleRebuild = (action: string) =>
+export async function loadChangesViewWithSwr(tenantId: string): Promise<ChangesView> {
+  const scheduleReleaseRebuild = (action: string) =>
     after(async () => {
       try {
-        // Single-flight: concurrent stale/cold readers in this lambda collapse to ONE
-        // rebuild instead of racing duplicate fuses.
-        await runSingleFlight(`changes-surface:${tenantId}`, () => rebuildChangesSurfaceWith(tenantId, build));
+        const { refreshCustomerSurface } = await import("./surface-release");
+        await refreshCustomerSurface(tenantId);
       } catch (e) {
         await recordAppError({ route: "/changes", tenantId, action, ...errorFieldsFrom(e) });
       }
@@ -791,59 +782,28 @@ export async function loadChangesViewWithSwr(
 
   const customer = await readCustomerSurface(tenantId).catch(() => null);
   if (customer) {
-    if (isCustomerSurfaceStale(customer.computedAt, Date.now())) {
-      after(async () => {
-        const { refreshCustomerSurface } = await import("./customer-surface-refresh");
-        await refreshCustomerSurface(tenantId).catch(() => null);
-      });
-    }
+    if (isCustomerSurfaceStale(customer.computedAt, Date.now())) scheduleReleaseRebuild("background-refresh");
     return {
       ...customer.changes,
+      // Guard against the epoch-0 stale sentinel (invalidateCustomerSurface) leaking to
+      // the page's "I ranked these {ago}" line as a five-digit "20655 days ago".
       surfaceComputedAt: sanitizeSurfaceComputedAt(customer.computedAt),
       surfaceBuilding: false,
       surfaceVersion: customer.releaseId,
     };
   }
-  const cached = await readChangesSurface(tenantId).catch(() => null);
-  if (cached) {
-    if (isChangesSurfaceStale(cached.computedAt, Date.now())) scheduleRebuild("background-refresh");
-    // Guard against the epoch-0 stale sentinel (invalidateChangesSurface) leaking to the
-    // page's "I ranked these {ago}" line as a five-digit "20655 days ago".
-    return { ...cached.view, surfaceComputedAt: sanitizeSurfaceComputedAt(cached.computedAt), surfaceBuilding: false };
-  }
   // Cold first-ever / invalidated: NEVER block on the fuse (it can exceed the page's
   // 25s always-paint floor). Schedule the rebuild and serve the honest building state.
-  scheduleRebuild("cold-rebuild");
+  scheduleReleaseRebuild("cold-rebuild");
   return EMPTY_CHANGES_VIEW;
 }
 
-/**
- * W2-B - rebuild the ranked ChangesView NOW and persist the snapshot (the background
- * refresh body; also the nightly-warm entry). Build-then-write: a failed build throws
- * and the previous snapshot stays in place.
- */
-export async function rebuildChangesSurface(tenantId: string): Promise<ChangesView> {
-  return rebuildChangesSurfaceWith(tenantId, buildChangesViewUncached);
-}
-
-async function rebuildChangesSurfaceWith(tenantId: string, build: ChangesViewBuilder): Promise<ChangesView> {
-  const computedAt = new Date().toISOString();
-  const view = await build(tenantId);
-  // P2-f (2026-07-10, visual audit HARD lint) - this runs inside next/server's after()
-  // (see scheduleRebuild above), OUTSIDE the render's request scope. writeChangesSurface's
-  // own persistence would otherwise resolve the write's tenant via json-store's ambient
-  // currentTenantSlug() (request-header-based), which is not the tenant this rebuild is
-  // for in a background task. `tenantId` is already threaded through `build(tenantId)`
-  // above - thread it through the write too, so the two can never disagree.
-  await writeChangesSurface(view, computedAt, tenantId);
-  return view;
-}
-
 // FP3 - the heavy compute. Formerly `loadChangesView` (react.cache'd inline); now the
-// SWR snapshot's build body, called from rebuildChangesSurface in after() (off the
-// render critical path). Tenant is passed EXPLICITLY so the after() rebuild is
-// tenant-correct even outside the render's ambient scope.
-async function buildChangesViewUncached(tenantId: string): Promise<ChangesView> {
+// customer release's build body, called from refreshCustomerSurface (off the render
+// critical path). Tenant is passed EXPLICITLY so the background rebuild is
+// tenant-correct even outside the render's ambient scope. Build-then-publish lives in
+// customer-surface-refresh: a failed build throws and the previous release stays.
+export async function buildChangesViewUncached(tenantId: string): Promise<ChangesView> {
   // Move 3 — every source is fail-soft so one failing store can never blank the whole
   // Changes list. A plan-store outage drops the "today" slice but keeps the ranked moves;
   // a worklist outage keeps any selected plan items. The page renders with what loaded.

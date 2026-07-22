@@ -3,8 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { after } from "next/server";
 import { log } from "@/lib/logger";
-import { invalidateWorklistSurface } from "./worklist-surface-store";
-import { invalidateChangesSurface } from "./changes-surface-store";
+import { invalidateCoreSurfaces } from "./surface-release";
 import { invalidateDemandGraph } from "@/domains/demand-graph/graph-snapshot-store";
 import { isOperatorModeServer } from "@/lib/operator-mode";
 import { currentTenantId } from "@/lib/tenant-context";
@@ -89,8 +88,7 @@ export async function sharpenMovesWithTeardownAction(
     tenantId,
     limit: opts.limit ?? 12,
   });
-  await invalidateWorklistSurface().catch(() => {}); // fresh teardown → "what wins" changes → recompute
-  await invalidateChangesSurface().catch(() => {});
+  await invalidateCoreSurfaces().catch(() => {}); // fresh teardown → "what wins" changes → recompute
   revalidatePath("/");
   revalidatePath("/changes");
   return { status: "ok", audited: audited.length, targets, cached };
@@ -128,7 +126,7 @@ export async function markMoveAppliedAction(args: {
     // applyProofOutcomeCautionToMoves holds/demotes it) → invalidate the graph (clears
     // the derived worklist surface too).
     await invalidateDemandGraph("change shipped → page enters measurement").catch(() => {});
-    await invalidateChangesSurface().catch(() => {}); // measuring count on /changes changed
+    await invalidateCoreSurfaces().catch(() => {}); // measuring count on /changes changed
     revalidatePath("/");
     revalidatePath("/changes");
     return { ok: true, recorded: res.recorded, reason: res.reason };
@@ -165,7 +163,7 @@ export async function measureAppliedMovesAction(opts: { maxRecords?: number } = 
       // fresh won/lost verdict updates each teammate's Brier score on the next Today render.
       await buildTeamScoreboardSummary(tenantId).catch(() => {});
     }
-    await invalidateChangesSurface().catch(() => {}); // settled verdicts → decided/measuring counts changed
+    await invalidateCoreSurfaces().catch(() => {}); // settled verdicts → decided/measuring counts changed
     revalidatePath("/");
     revalidatePath("/changes");
     revalidatePath("/results");

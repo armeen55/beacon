@@ -1,27 +1,26 @@
 /**
- * loadTodayViewWithSwr tenant-threading pins (2026-07-10 hygiene batch, sibling fix
- * to changes-surface-swr.test.ts). Before this fix, `loadTodayView()` took no tenant
- * argument at all, and its after() background rebuild wrote through
- * writeTodaySurface(fresh, iso) with NO tenantId - the write resolved its tenant via
- * json-store's ambient currentTenantSlug(), unreliable outside the render's request
- * scope inside after(). This pins the SAME cold/stale/two-tenant contract
- * loadChangesViewWithSwr already proves, with a cheap injected builder.
+ * loadTodayViewWithSwr pins (2026-07-10 hygiene batch; ONE-rebuild-body consolidation
+ * 2026-07-21). Today schedules the SAME single release rebuild /changes schedules
+ * (refreshCustomerSurface) on stale or cold - never a private today-surface write -
+ * so the two routes can never race two concurrent worklist/fuse builds. The customer
+ * release is the ONLY persisted Today snapshot (the today-surface shadow blob is
+ * retired); a cold tenant composes synchronously once and warms from the release.
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
-const readTodaySurfaceMock = vi.fn(async (..._a: unknown[]): Promise<unknown> => null);
-const writeTodaySurfaceMock = vi.fn(async (..._a: unknown[]): Promise<void> => {});
-const isTodaySurfaceStaleMock = vi.fn((_iso: string, _now: number): boolean => false);
+const readCustomerSurfaceMock = vi.fn(async (..._a: unknown[]): Promise<unknown> => null);
+const isCustomerStaleMock = vi.fn((_iso: string, _now: number): boolean => false);
+const refreshCustomerSurfaceMock = vi.fn(async (..._a: unknown[]): Promise<unknown> => null);
 const afterMock = vi.fn((cb: () => Promise<void>) => cb);
 
 vi.mock("server-only", () => ({}));
 vi.mock("next/server", () => ({ after: (cb: () => Promise<void>) => afterMock(cb) }));
-vi.mock("./today-surface-store", () => ({
-  readTodaySurface: (...a: unknown[]) => readTodaySurfaceMock(...a),
-  writeTodaySurface: (...a: unknown[]) => writeTodaySurfaceMock(...a),
-  isTodaySurfaceStale: (iso: string, now: number) => isTodaySurfaceStaleMock(iso, now),
+vi.mock("./surface-release", () => ({
+  readCustomerSurface: (...a: unknown[]) => readCustomerSurfaceMock(...a),
+  isCustomerSurfaceStale: (iso: string, now: number) => isCustomerStaleMock(iso, now),
+  refreshCustomerSurface: (...a: unknown[]) => refreshCustomerSurfaceMock(...a),
 }));
 vi.mock("@/lib/tenant-context", () => ({ currentTenantId: async () => "tenant-test" }));
 
@@ -33,67 +32,99 @@ const composite = (id: string): TodayComposite =>
   ({ today: { id } as never, daily: null, hasChanges: false }) as unknown as TodayComposite;
 
 beforeEach(() => {
-  readTodaySurfaceMock.mockReset();
-  readTodaySurfaceMock.mockResolvedValue(null);
-  writeTodaySurfaceMock.mockClear();
-  isTodaySurfaceStaleMock.mockReset();
-  isTodaySurfaceStaleMock.mockReturnValue(false);
+  readCustomerSurfaceMock.mockReset();
+  readCustomerSurfaceMock.mockResolvedValue(null);
+  isCustomerStaleMock.mockReset();
+  isCustomerStaleMock.mockReturnValue(false);
+  refreshCustomerSurfaceMock.mockReset();
+  refreshCustomerSurfaceMock.mockResolvedValue(null);
   afterMock.mockClear();
 });
 
 describe("loadTodayViewWithSwr", () => {
-  it("COLD (no snapshot): computes synchronously and persists with the EXPLICIT tenantId", async () => {
+  it("COLD (no release): composes synchronously and schedules the release rebuild", async () => {
     const build = vi.fn(async (t: string) => composite(`built-${t}`));
     const out = await loadTodayViewWithSwr("tenant-a", { build });
 
     expect((out.today as unknown as { id: string }).id).toBe("built-tenant-a");
     expect(build).toHaveBeenCalledWith("tenant-a");
-    expect(writeTodaySurfaceMock).toHaveBeenCalledOnce();
-    const [, , tenantIdArg] = writeTodaySurfaceMock.mock.calls[0] as [TodayComposite, string, string];
-    expect(tenantIdArg).toBe("tenant-a");
+    expect(afterMock).toHaveBeenCalledOnce();
+    await (afterMock.mock.calls[0][0] as () => Promise<void>)();
+    expect(refreshCustomerSurfaceMock).toHaveBeenCalledExactlyOnceWith("tenant-a");
   });
 
-  it("STALE snapshot: serves instantly and schedules ONE background rebuild via after()", async () => {
-    const computedAt = "2026-07-10T00:00:00.000Z";
-    readTodaySurfaceMock.mockResolvedValue({ computedAt, data: composite("snap") });
-    isTodaySurfaceStaleMock.mockReturnValue(true);
+  it("CUSTOMER release FRESH: serves it with releaseId + computedAt, schedules NOTHING", async () => {
+    const computedAt = "2026-07-21T00:00:00.000Z";
+    readCustomerSurfaceMock.mockResolvedValue({
+      schemaVersion: 1,
+      releaseId: `tenant-a:${computedAt}`,
+      computedAt,
+      tenantId: "tenant-a",
+      changes: {},
+      today: composite("release"),
+      newPages: null,
+    });
     const build = vi.fn(async (t: string) => composite(`built-${t}`));
 
     const out = await loadTodayViewWithSwr("tenant-a", { build });
 
-    expect((out.today as unknown as { id: string }).id).toBe("snap");
+    expect((out.today as unknown as { id: string }).id).toBe("release");
+    expect(out.surfaceVersion).toBe(`tenant-a:${computedAt}`);
+    expect(out.surfaceComputedAt).toBe(computedAt);
+    expect(build).not.toHaveBeenCalled();
+    expect(afterMock).not.toHaveBeenCalled();
+  });
+
+  it("CUSTOMER release STALE: serves instantly and schedules ONE release rebuild", async () => {
+    readCustomerSurfaceMock.mockResolvedValue({
+      schemaVersion: 1,
+      releaseId: "tenant-a:r1",
+      computedAt: "2026-07-21T00:00:00.000Z",
+      tenantId: "tenant-a",
+      changes: {},
+      today: composite("release"),
+      newPages: null,
+    });
+    isCustomerStaleMock.mockReturnValue(true);
+    const build = vi.fn(async (t: string) => composite(`built-${t}`));
+
+    const out = await loadTodayViewWithSwr("tenant-a", { build });
+
+    expect((out.today as unknown as { id: string }).id).toBe("release");
     expect(build).not.toHaveBeenCalled();
     expect(afterMock).toHaveBeenCalledOnce();
     await (afterMock.mock.calls[0][0] as () => Promise<void>)();
-    expect(build).toHaveBeenCalledWith("tenant-a");
-    expect(writeTodaySurfaceMock).toHaveBeenCalledOnce();
-    const [, , tenantIdArg] = writeTodaySurfaceMock.mock.calls[0] as [TodayComposite, string, string];
-    expect(tenantIdArg).toBe("tenant-a");
+    expect(refreshCustomerSurfaceMock).toHaveBeenCalledExactlyOnceWith("tenant-a");
   });
 
-  it("FRESH snapshot: serves instantly and schedules NOTHING", async () => {
-    readTodaySurfaceMock.mockResolvedValue({ computedAt: "2026-07-10T00:00:00.000Z", data: composite("snap") });
-    isTodaySurfaceStaleMock.mockReturnValue(false);
-    const build = vi.fn(async (t: string) => composite(`built-${t}`));
+  it("CUSTOMER release with an epoch-0 invalidation stamp: the date bomb never rides into the composite", async () => {
+    readCustomerSurfaceMock.mockResolvedValue({
+      schemaVersion: 1,
+      releaseId: "tenant-a:stale",
+      computedAt: new Date(0).toISOString(),
+      tenantId: "tenant-a",
+      changes: {},
+      today: composite("release"),
+      newPages: null,
+    });
+    isCustomerStaleMock.mockReturnValue(true);
 
-    const out = await loadTodayViewWithSwr("tenant-a", { build });
-
-    expect((out.today as unknown as { id: string }).id).toBe("snap");
-    expect(afterMock).not.toHaveBeenCalled();
-    expect(build).not.toHaveBeenCalled();
+    const out = await loadTodayViewWithSwr("tenant-a");
+    expect(out.surfaceComputedAt).toBeUndefined();
   });
 
-  it("TWO-TENANT: the rebuild reads + builds + persists for the EXACT tenantId, no bleed", async () => {
+  it("TWO-TENANT: each cold compose and scheduled rebuild carries its EXACT tenantId, no bleed", async () => {
     const build = vi.fn(async (t: string) => composite(`built-${t}`));
     await loadTodayViewWithSwr("tenant-a", { build });
     await loadTodayViewWithSwr("tenant-b", { build });
+    await (afterMock.mock.calls[0][0] as () => Promise<void>)();
+    await (afterMock.mock.calls[1][0] as () => Promise<void>)();
 
     expect(build).toHaveBeenCalledWith("tenant-a");
     expect(build).toHaveBeenCalledWith("tenant-b");
-    expect(readTodaySurfaceMock).toHaveBeenCalledWith("tenant-a");
-    expect(readTodaySurfaceMock).toHaveBeenCalledWith("tenant-b");
-    const tenantArgs = writeTodaySurfaceMock.mock.calls.map((c) => c[2]);
-    expect(tenantArgs).toEqual(["tenant-a", "tenant-b"]);
+    expect(readCustomerSurfaceMock).toHaveBeenCalledWith("tenant-a");
+    expect(readCustomerSurfaceMock).toHaveBeenCalledWith("tenant-b");
+    expect(refreshCustomerSurfaceMock.mock.calls.map((c) => c[0])).toEqual(["tenant-a", "tenant-b"]);
   });
 });
 

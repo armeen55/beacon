@@ -24,10 +24,6 @@ import type { LoadGraphResult } from "./load-graph";
  */
 
 const STORE = "demand-graph-snapshot";
-/** The derived worklist surface store name (cleared together, it's graph-derived). Kept
- *  as a literal to avoid importing the app-layer worklist module (would cycle through
- *  today-moves-data → load-graph). */
-const WORKLIST_SURFACE_STORE = "worklist-surface";
 
 /** Bump when the graph SHAPE changes (fields consumers read) or the scoring contract
  *  changes, old snapshots are then ignored, not trusted.
@@ -87,9 +83,17 @@ export async function writeGraphSnapshot(data: LoadGraphResult, computedAtIso: s
  */
 export async function invalidateDemandGraph(reason: string): Promise<void> {
   log.info("[graph-snapshot] invalidate", { reason });
+  // The graph snapshot itself hard-empties (recompute from inputs is the
+  // point); the derived worklist surface age-stamps instead of emptying so
+  // its blob keeps serving stale-while-revalidate and the empty-rebuild
+  // guard keeps its comparison snapshot (aligned with the single-snapshot
+  // invalidation model, 2026-07-21).
+  const { invalidateWorklistSurface } = await import(
+    "@/app/(shell)/worklist-data"
+  );
   await Promise.all([
     writeStore<GraphSnapshotRow>(STORE, []).catch(() => {}),
-    writeStore(WORKLIST_SURFACE_STORE, []).catch(() => {}),
+    invalidateWorklistSurface().catch(() => {}),
   ]);
 }
 
