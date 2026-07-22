@@ -126,12 +126,20 @@ describe("windowed-read API exists end-to-end + LARGE READ alarm is wired", () =
     ).not.toBeNull();
   });
 
-  it("canonical-store exposes the windowed options and threads them down", () => {
-    expect(CANONICAL_STORE_SRC.includes("FreshCanonicalDataOptions")).toBe(true);
-    expect(CANONICAL_STORE_SRC.includes("observationsSince?: string")).toBe(true);
-    expect(CANONICAL_STORE_SRC.includes("snapshotsSince?: string")).toBe(true);
+  it("canonical-store's seeding path threads the since windows down", () => {
+    // 2026-07-21 (CORE 100K): the FreshCanonicalDataOptions surface died
+    // with loadFreshCanonicalData. The windowed-read contract survives on
+    // the seeding path, which passes explicit since windows to both
+    // Tier A reads; the repo-level option threading stays pinned above.
     expect(
-      CANONICAL_STORE_SRC.includes("tenantRepo.getPromptAnswerObservations(observationsOpt)"),
+      /tenantRepo\.getPromptAnswerObservations\(\{\s*since:/.test(
+        CANONICAL_STORE_SRC,
+      ),
+    ).toBe(true);
+    expect(
+      /tenantRepo\.getDailyMetricSnapshots\(\{\s*since:/.test(
+        CANONICAL_STORE_SRC,
+      ),
     ).toBe(true);
   });
 });

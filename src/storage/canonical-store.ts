@@ -96,7 +96,7 @@ function emptyState(): State {
 
 // Night-shift cache sweep (2026-06-11): `_state` was a SINGLE process-global
 // State object keyed by NOTHING. The live customer render path uses
-// `loadFreshCanonicalData()` (already forTenant-scoped, bypasses this cache),
+// the deleted loadFreshCanonicalData() helper (removed 2026-07-21),
 // but the module-level getters below — used by the poll pipeline,
 // orchestrate-scan, url-citation-history and the Profound importer — served
 // the FIRST tenant's eight canonical arrays to every later tenant in a warm
@@ -136,7 +136,7 @@ function mergeById<T extends { id: string }>(target: T[], incoming: T[]): void {
  *
  * Render paths get a windowed in-memory cache; non-render consumers
  * that genuinely need broader history (URL watcher Z-score baseline,
- * one-off rebuild scripts) should call `loadFreshCanonicalData(...)`
+ * one-off rebuild scripts) formerly called the deleted loadFreshCanonicalData
  * with an explicit wider `since`, or read the repo directly with
  * `{ since: ... }` — both bypass the seed's cap.
  *
@@ -314,128 +314,11 @@ export function invalidateCanonicalStoresSeed(): void {
   _resetCanonicalStoreStateForTests();
 }
 
-/**
- * Phase 4.9 (Sprint 4, 2026-04-24) — fresh canonical data per render.
- *
- * Bypasses the lazy-getter cache entirely. Render paths that show
- * visibility/decision data (Today, Recommendations, Prompts) call this
- * once per request and pass the returned arrays to downstream pure
- * functions. Module-level getters remain for non-render consumers
- * (poll pipeline, prompt-library, url-citation-history,
- * import-orchestrator, build-from-observations, orchestrate-scan).
- *
- * On repo failure the helper throws. Callers wrap in `safeCall` /
- * try-catch and graceful-degrade to empty arrays with a banner.
- */
-export type FreshCanonicalData = {
-  trackedPrompts: TrackedPrompt[];
-  promptAnswerObservations: PromptAnswerObservation[];
-  trackedEntities: TrackedEntity[];
-  dailyMetricSnapshots: DailyMetricSnapshot[];
-};
 
-/**
- * E3 (operator audit, 2026-05-05) — optional date-window for the two
- * heaviest reads. /today + /prompts only need 30-90 days of recent
- * observations + snapshots (descriptor rollup window is 7 days, the
- * visibility chart shows 14-90 days). Loading the full ~14k-row
- * observation table on every render is the dominant Supabase egress
- * cost. Passing `observationsSince` cuts the wire payload by 60-90%.
- *
- * Default behavior (no options) loads full history — scripts +
- * non-render consumers (URL watcher, materializer, citation index
- * rebuild) keep working unchanged.
- */
-export type FreshCanonicalDataOptions = {
-  /** ISO date string. When set, prompt_answer_observations are filtered
-   *  at the DB with `observed_at >= since`. */
-  observationsSince?: string;
-  /** ISO date string. When set, daily_metric_snapshots are filtered at
-   *  the DB with `for_date >= since`. */
-  snapshotsSince?: string;
-  /** Optional lean PostgREST projection (comma-separated columns) for the
-   *  daily_metric_snapshots read, pushed to the DB so only those columns
-   *  cross the wire. The caller MUST only read the columns it requested
-   *  (the file backend returns full rows regardless). Used by /today,
-   *  whose only snapshot consumer needs `date` for two counts — pulling
-   *  the full JSONB-carrying rows was ~90% wasted egress. */
-  snapshotsColumns?: string;
-  /** Skip the daily_metric_snapshots read entirely (resolves to []). For
-   *  callers that never consume snapshots — /recommendations' load-queue
-   *  builds the matrix from observations only and discards snapshots, so
-   *  reading them was ~9 MB + ~19 paged round-trips of pure waste per render
-   *  for a data-rich tenant. Additive: default false keeps every existing
-   *  caller's behavior unchanged. */
-  skipSnapshots?: boolean;
-  /** Optional lean PostgREST projection (comma-separated columns) for the
-   *  prompt_answer_observations read — same contract as `snapshotsColumns`.
-   *  /today (2026-06-15) passes the 23 columns its matrix + descriptor
-   *  rollups read and OMITS the heavy `metadata` (~5.9 MB / 60d for a busy
-   *  tenant) + `citation_domains` / `citation_categories` / search-query
-   *  columns it never touches — the read was ~17 MB and the dominant cause
-   *  of the /today canonical-read statement-timeout. The packet builder on
-   *  the /recommendations-live path (which DOES read `metadata`) passes no
-   *  projection, so it still gets full rows. */
-  observationsColumns?: string;
-};
-
-export async function loadFreshCanonicalData(
-  options?: FreshCanonicalDataOptions,
-): Promise<FreshCanonicalData> {
-  // Customer-2 isolation fix (operator audit, 2026-05-06) — ALL four
-  // reads here now go through `tenantRepo.forTenant(tenantId)`. The
-  // pre-fix path was Tier-A-scoped + Tier-C-unscoped, which would
-  // have leaked Ritz's tracked_prompts + tracked_entities into a
-  // second tenant's /today leaderboard at customer-2 onboarding
-  // time. Both stores ARE tenant-scoped at the schema level
-  // (column: `account_id text NOT NULL`, value: tenant slug); rows
-  // on disk carry both `tenant_id` and `account_id`. Pinned by
-  // `tests/architecture/canonical-store-tenant-isolation.test.ts`.
-  const tenantId = await currentTenantId();
-  const repo = getRepository();
-  const tenantRepo = repo.forTenant(tenantId);
-  const observationsOpt =
-    options?.observationsSince || options?.observationsColumns
-      ? {
-          ...(options.observationsSince
-            ? { since: options.observationsSince }
-            : {}),
-          ...(options.observationsColumns
-            ? { columns: options.observationsColumns }
-            : {}),
-        }
-      : undefined;
-  const snapshotsOpt =
-    options?.snapshotsSince || options?.snapshotsColumns
-      ? {
-          ...(options.snapshotsSince ? { since: options.snapshotsSince } : {}),
-          ...(options.snapshotsColumns
-            ? { columns: options.snapshotsColumns }
-            : {}),
-        }
-      : undefined;
-  const [prompts, observations, entities, snapshots] = await Promise.all([
-    tenantRepo.getTrackedPrompts(),
-    tenantRepo.getPromptAnswerObservations(observationsOpt),
-    tenantRepo.getTrackedEntities(),
-    // Skip the snapshot read for callers that never consume it (load-queue) —
-    // resolves to [] with zero DB round-trips instead of paging the full table.
-    options?.skipSnapshots
-      ? Promise.resolve([] as Awaited<ReturnType<typeof tenantRepo.getDailyMetricSnapshots>>)
-      : tenantRepo.getDailyMetricSnapshots(snapshotsOpt),
-  ]);
-  // `repo` is intentionally retained above for access to non-tenant-
-  // scoped global stores (none used in this function today; reserved
-  // for future global lookups like change-patterns or tenants-registry
-  // diagnostics). If a future change drops the binding, that's fine.
-  void repo;
-  return {
-    trackedPrompts: prompts,
-    promptAnswerObservations: observations,
-    trackedEntities: entities,
-    dailyMetricSnapshots: snapshots,
-  };
-}
+// loadFreshCanonicalData removed 2026-07-21 (CORE 100K): its last
+// render-time callers died with the today-v2 loader family; the seeding
+// path above (tenantRepo.* reads in loadFromDiskAndMerge) is the one
+// surviving tenant-scoped canonical read.
 
 // ---------------------------------------------------------------------------
 // Persistence helpers.

@@ -126,10 +126,11 @@ describe("Customer-2 isolation — canonical-store.ts uses tenant-scoped reads",
     ).toBe(true);
   });
 
-  it("BOTH call sites use tenantRepo (Supabase merge + fresh-load)", () => {
-    // Two call sites must use the tenant-scoped form: line ~134 inside
-    // loadFromDiskAndMerge (Supabase merge path) and line ~301 inside
-    // loadFreshCanonicalData. Count occurrences to defend both paths.
+  it("the surviving call site uses tenantRepo (Supabase merge path)", () => {
+    // Floor 2 -> 1 on 2026-07-21 (CORE 100K): loadFreshCanonicalData was
+    // deleted with its last render-time callers, leaving the
+    // loadFromDiskAndMerge (Supabase merge) path as the one call site.
+    // The tenant-scoped form is still mandatory there.
     const promptsCalls = (
       CANONICAL_STORE_CODE.match(/tenantRepo\.getTrackedPrompts\s*\(/g) ?? []
     ).length;
@@ -138,18 +139,18 @@ describe("Customer-2 isolation — canonical-store.ts uses tenant-scoped reads",
     ).length;
     expect(
       promptsCalls,
-      "expected at least 2 tenantRepo.getTrackedPrompts() call sites in " +
-        "canonical-store.ts (Supabase merge + fresh-load); found " +
+      "expected at least 1 tenantRepo.getTrackedPrompts() call site in " +
+        "canonical-store.ts (Supabase merge); found " +
         promptsCalls +
         ".",
-    ).toBeGreaterThanOrEqual(2);
+    ).toBeGreaterThanOrEqual(1);
     expect(
       entitiesCalls,
-      "expected at least 2 tenantRepo.getTrackedEntities() call sites in " +
-        "canonical-store.ts (Supabase merge + fresh-load); found " +
+      "expected at least 1 tenantRepo.getTrackedEntities() call site in " +
+        "canonical-store.ts (Supabase merge); found " +
         entitiesCalls +
         ".",
-    ).toBeGreaterThanOrEqual(2);
+    ).toBeGreaterThanOrEqual(1);
   });
 });
 

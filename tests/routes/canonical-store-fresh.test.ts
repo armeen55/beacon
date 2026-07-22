@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
@@ -49,100 +49,10 @@ const SRC = Object.fromEntries(
 ) as Record<keyof typeof FILES, string>;
 
 describe("Sprint 4 / Phase 4.9 — canonical-store fresh-per-render", () => {
-  describe("loadFreshCanonicalData helper", () => {
-    beforeEach(() => {
-      vi.resetModules();
-    });
-
-    it("fetches all four canonical tables fresh from the repository", async () => {
-      const getTrackedPrompts = vi.fn(async () => [
-        { id: "p-1", text: "test prompt", is_active: true } as never,
-      ]);
-      const getPromptAnswerObservations = vi.fn(async () => [
-        { id: "o-1", prompt_id: "p-1", observed_at: "2026-04-24T10:00:00Z" } as never,
-      ]);
-      const getTrackedEntities = vi.fn(async () => [
-        { id: "e-1", name: "Ritz Builders" } as never,
-      ]);
-      const getDailyMetricSnapshots = vi.fn(async () => [
-        { id: "s-1", date: "2026-04-24" } as never,
-      ]);
-
-      // Sprint 7 Phase 7.5c/2 (2026-04-25) — `loadFreshCanonicalData` now
-      // calls Tier A reads via `getRepository().forTenant(tenantId).getX()`.
-      // Self-referential mock returns the same repo from `forTenant` so
-      // overrides apply to both call shapes.
-      vi.doMock("@/lib/persistence/repositories", () => {
-        const repo = {
-          getTrackedPrompts,
-          getPromptAnswerObservations,
-          getTrackedEntities,
-          getDailyMetricSnapshots,
-          forTenant: (_tenantId: string) => repo,
-        };
-        return { getRepository: () => repo };
-      });
-      vi.doMock("@/lib/tenant-context", () => ({
-        currentTenantId: async () => "tenant-ritz-founder",
-        currentTenantSlug: async () => "ritz-builders",
-      }));
-
-      const { loadFreshCanonicalData } = await import(
-        "@/storage/canonical-store"
-      );
-      const data = await loadFreshCanonicalData();
-
-      expect(getTrackedPrompts).toHaveBeenCalledTimes(1);
-      expect(getPromptAnswerObservations).toHaveBeenCalledTimes(1);
-      expect(getTrackedEntities).toHaveBeenCalledTimes(1);
-      expect(getDailyMetricSnapshots).toHaveBeenCalledTimes(1);
-      expect(data.trackedPrompts).toHaveLength(1);
-      expect(data.promptAnswerObservations).toHaveLength(1);
-      expect(data.trackedEntities).toHaveLength(1);
-      expect(data.dailyMetricSnapshots).toHaveLength(1);
-    });
-
-    it("each call triggers a fresh fetch — bypasses the _canonSeeded cache", async () => {
-      const getTrackedPrompts = vi.fn(async () => []);
-      const getPromptAnswerObservations = vi.fn(async () => []);
-      const getTrackedEntities = vi.fn(async () => []);
-      const getDailyMetricSnapshots = vi.fn(async () => []);
-
-      // Sprint 7 Phase 7.5c/2 (2026-04-25) — `loadFreshCanonicalData` now
-      // calls Tier A reads via `getRepository().forTenant(tenantId).getX()`.
-      // Self-referential mock returns the same repo from `forTenant` so
-      // overrides apply to both call shapes.
-      vi.doMock("@/lib/persistence/repositories", () => {
-        const repo = {
-          getTrackedPrompts,
-          getPromptAnswerObservations,
-          getTrackedEntities,
-          getDailyMetricSnapshots,
-          forTenant: (_tenantId: string) => repo,
-        };
-        return { getRepository: () => repo };
-      });
-      vi.doMock("@/lib/tenant-context", () => ({
-        currentTenantId: async () => "tenant-ritz-founder",
-        currentTenantSlug: async () => "ritz-builders",
-      }));
-
-      const { loadFreshCanonicalData } = await import(
-        "@/storage/canonical-store"
-      );
-      await loadFreshCanonicalData();
-      await loadFreshCanonicalData();
-      await loadFreshCanonicalData();
-
-      // Three calls → three actual Supabase round-trips. No request-level
-      // cache, no `_canonSeeded`-style one-shot. This is the whole point
-      // of the helper — cross-lambda freshness trumps in-process caching.
-      expect(getTrackedPrompts).toHaveBeenCalledTimes(3);
-      expect(getPromptAnswerObservations).toHaveBeenCalledTimes(3);
-      expect(getTrackedEntities).toHaveBeenCalledTimes(3);
-      expect(getDailyMetricSnapshots).toHaveBeenCalledTimes(3);
-    });
-  });
+  // The "loadFreshCanonicalData helper" describes were retired 2026-07-21
+  // (CORE 100K): the helper was deleted after its last render-time callers
+  // died with the today-v2 loader family. The tenant-scoping invariants on
+  // the surviving seeding path stay below.
 
   describe("Sprint 7 Phase 7.5c/2 — canonical-store tenant-scoping invariants", () => {
     const CANONICAL_STORE_PATH = resolve(
