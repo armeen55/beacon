@@ -52,7 +52,7 @@ function op(over: Partial<SpecialistOpinion> & { specialist: Specialist }): Spec
 }
 
 describe("routeMove — graceful degradation", () => {
-  it("with NO opinions reproduces the graph gap + score (cannot regress today)", () => {
+  it("with NO opinions reproduces the graph gap + score (cannot regress today); the N6 intent classifier abstains on the default 'what' label", () => {
     for (const gap of ["create_page", "edit_page", "answer_block", "fix_experience", "healthy"] as GapKind[]) {
       const d = routeMove({ packet: packet(gap), opinions: [] });
       expect(d.action).toBe(GAP_TO_ACTION[gap]);
@@ -60,6 +60,9 @@ describe("routeMove — graceful degradation", () => {
       expect(d.baseScore).toBe(1000);
       expect(d.electedBy).toBe("seed");
       expect(d.margin).toBe(0);
+      // The 'persian wedding traditions' fixture is a plain 'what' intent, so
+      // the N6 query-intent veto never fires and no objection is applied.
+      expect(d.appliedObjections).toEqual([]);
     }
   });
 });
@@ -381,19 +384,8 @@ describe("routeMove - item 70: learned specialist vote weights (byte-identical w
 });
 
 describe("routeMove - N6: query-intent veto (byte-identical when the classifier abstains)", () => {
-  it("every pre-N6 fixture in this file (label 'persian wedding traditions', a 'what' default) is untouched", () => {
-    // 'persian wedding traditions' has no when/cost/navigational/transactional cue, so it defaults
-    // to 'what' - which never triggers rule 1 (only when/cost break an answer block) and is not a
-    // change_title_meta-on-navigational or create_page-on-transactional shape either. This pins that
-    // every existing test's fixture keeps routing exactly as before N6.
-    for (const gap of ["create_page", "edit_page", "answer_block", "fix_experience", "healthy"] as GapKind[]) {
-      const d = routeMove({ packet: packet(gap), opinions: [] });
-      expect(d.action).toBe(GAP_TO_ACTION[gap]);
-      expect(d.adjustedScore).toBe(d.baseScore);
-      expect(d.appliedObjections).toEqual([]);
-    }
-  });
-
+  // The default-'what'-label abstention across all five gaps is pinned in the
+  // "graceful degradation" test above (it also asserts appliedObjections === []).
   it("intentVeto: { enabled: false } fully disables the check (explicit opt-out stays byte-identical)", () => {
     const p = packet("answer_block", {}, { fanoutSeeds: ["when is chaharshanbe suri", "chaharshanbe suri date"] });
     const withCheck = routeMove({ packet: { ...p, move: { ...p.move, label: "chaharshanbe suri 2026" } }, opinions: [] });
