@@ -19,33 +19,21 @@
  * Every step uses `safeCall` so a single layer's failure degrades
  * gracefully — same posture as the page render.
  *
- * Companion helper `buildPacketForRec` produces a
- * `SpecificEditEvidencePacket` for one queue rec using the orchestration
- * outputs + a fetched `pageElementInventory`. The page does NOT call this
- * helper; only the CLI (and Sprint 6A.2's evidence-cache builder) does.
+ * Core 100K wave 2 (DECISION kernel collapse): the evidence-packet
+ * builder (`buildPacketForRec`) and the full generation pipeline it fed
+ * were deleted — they had no live caller. What remains is the persisted
+ * fast loader (`loadPersistedRecommendationQueueForPage`) that the live
+ * surfaces + publish-time QA lookup read.
  *
- * Pure of side effects EXCEPT the seeding calls + repository reads —
- * matches what the page render already does.
+ * Pure of side effects EXCEPT the repository reads.
  */
 
 import "server-only";
 
-import type { PageInventoryEntry } from "./page-inventory";
 import type { RecommendationCandidate } from "./recommendation-types";
-import type { CrossTenantPattern } from "./cross-tenant-brain";
-import {
-  buildSpecificEditEvidencePacket,
-  type SpecificEditEvidencePacket,
-} from "./specific-edit-evidence";
 import type { ResolvedRecommendationCandidate } from "./resolved-types";
-import type { DecisionMatrix } from "@/domains/prompts/decision-matrix";
 import { getRepository } from "@/lib/persistence/repositories";
-import type { PromptAnswerObservation } from "@/domains/prompt-answer-observations/types";
 import type { TrackedPrompt } from "@/domains/tracked-prompts/types";
-import type { TrackedEntity } from "@/domains/tracked-entities/types";
-import type { CompetitorPageSnapshot } from "@/domains/pages/competitor-page-snapshots";
-import type { PageElementInventoryRow } from "@/domains/pages/extractors/persist";
-import type { RecConfidenceVerdict } from "./confidence";
 import type { RecommendedEditRow } from "./recommended-edits-persistence";
 import {
   loadGscPageSignalsForTenant,
@@ -90,7 +78,10 @@ export type PrioritizedRecommendation = RecommendationCandidate & {
  * UI / log surfaces don't have to defensively branch.
  */
 export type LiveRecQueueItem = PrioritizedRecommendation & {
-  engineConfidence: RecConfidenceVerdict;
+  engineConfidence: {
+    confidence: "low" | "medium" | "high";
+    reasons: ReadonlyArray<string>;
+  };
   /** Pivot (2026-06-13) — per-page Google Search Console signal for this rec's
    *  target URL (28-day clicks/impressions/CTR/position/top queries), or null
    *  when the page has no GSC data. Lets the card lead with first-party search
@@ -103,52 +94,6 @@ export type LiveRecQueueItem = PrioritizedRecommendation & {
    *  the search signals can't see. */
   claritySignal?: ClarityPageSignal | null;
 };
-
-/**
- * Output of `loadLiveRecommendationQueue`. Shape mirrors what the
- * `/recommendations` page render needs, plus the intermediate inputs
- * the CLI uses to build SpecificEditEvidencePackets.
- */
-export type LiveRecommendationQueue = {
-  queue: LiveRecQueueItem[];
-  /** Watchlist items are the unprioritized winning-cluster `watch` recs
-   *  — `prioritizeRecommendations` never adds rank/score/tier to them. */
-  watchlist: RecommendationCandidate[];
-  /** Null only when the matrix step failed catastrophically — page
-   *  renders an error banner; CLI exits with a non-zero code. */
-  matrix: DecisionMatrix | null;
-  trackedPrompts: TrackedPrompt[];
-  trackedEntities: TrackedEntity[];
-  promptAnswerObservations: PromptAnswerObservation[];
-  pageInventory: PageInventoryEntry[];
-  /**
-   * W3 Step 3.3 (2026-05-01) — recommended_edits rows fresh-read by
-   * the loader so the page render and the engineConfidence stamp
-   * see the same set. Page consumers can use this directly instead
-   * of re-fetching.
-   */
-  recommendedEdits: RecommendedEditRow[];
-  /**
-   * T-CompPageBlueprints (2026-05-08) — manually-captured competitor
-   * page snapshots, keyed by url. Empty Map when no scanner has run
-   * (today's default state). When populated, the LLM packet's
-   * competitorPageBlueprints get real h1/topH2s/faqQuestions/
-   * metaDescription instead of hardcoded null/[].
-   */
-  competitorPageSnapshotsByUrl: Map<string, CompetitorPageSnapshot>;
-  /**
-   * T-CompPageBlueprints (2026-05-08) — flat list of brand-name
-   * aliases the blueprint scrub drops from any captured h1/topH2s/
-   * faqQuestions. Includes operator's own brand (tracked-entities
-   * row is_owned=true) + every active competitor name.
-   */
-  competitorBlueprintBrandScrubAliases: string[];
-  /** Per-step error strings collected via `safeCall`. Empty when
-   *  everything succeeded. The page surfaces these in a banner; the
-   *  CLI prints them to stderr. */
-  errors: string[];
-};
-
 
 async function safeCall<T>(
   fn: () => Promise<T> | T,
@@ -236,7 +181,7 @@ const REC_QUEUE_CACHE_TTL_SECONDS = 1800;
 import type { RecommendationResponse } from "@/domains/product/recommendation-response-store";
 import type { ActionType } from "@/domains/recommendations/action-types";
 import type { EvidenceRef } from "@/domains/recommendations/resolved-types";
-import type { SpecificEditEvidenceRef } from "@/domains/recommendations/specific-edit-provider";
+import type { SpecificEditEvidenceRef } from "@/domains/recommendations/recommended-edits-persistence";
 
 /** Shape consumed by the v2 page + v2 detail page. Mirrors the page-shaped
  *  cached loader's output (queue + watchlist + matrix/null + small
@@ -609,110 +554,4 @@ export async function loadPersistedRecommendationQueueForPage(opts: {
     },
   );
   return cached();
-}
-
-// ---------------------------------------------------------------------------
-// Packet builder for one queue rec — pure given the queue context + the
-// inventory rows. The CLI calls this; the page does NOT (the page only
-// renders the queue + previously-persisted edits).
-// ---------------------------------------------------------------------------
-
-export type BuildPacketForRecArgs = {
-  rec: PrioritizedRecommendation;
-  context: LiveRecommendationQueue;
-  pageElementInventory: ReadonlyArray<PageElementInventoryRow>;
-  tenantId: string;
-  now?: Date;
-  /**
-   * Phase A.2 §3.2 — pre-computed cross-tenant patterns from the async
-   * producer, threaded through the sync packet-build chain. Omitted by
-   * every current caller → the packet builder falls back to the sync
-   * stub ([]), so byte-identical until the async ancestor computes +
-   * passes real patterns (gated by BEACON_CROSS_TENANT_BRAIN).
-   */
-  crossTenantPatterns?: ReadonlyArray<CrossTenantPattern>;
-};
-
-/**
- * Build a `SpecificEditEvidencePacket` for one queue rec. Pure
- * function: given the same `context + pageElementInventory`, it
- * produces the same packet.
- *
- * `targetPageElements` will be empty when the inventory is empty
- * (production today, before a scan has run after Phase 6 wiring).
- * Callers should report this honestly rather than pretend the
- * downstream generators have signal to work with — `add_h2_section`
- * and `add_faq` would propose against a phantom baseline.
- */
-export function buildPacketForRec(
-  args: BuildPacketForRecArgs,
-): SpecificEditEvidencePacket {
-  const { rec, context, pageElementInventory, tenantId, now } = args;
-  if (!context.matrix) {
-    throw new Error(
-      "buildPacketForRec: matrix is null (load-queue step failed) — cannot build packet",
-    );
-  }
-
-  const primarySummaries = Object.values(context.matrix.primaryByPromptId);
-
-  return buildSpecificEditEvidencePacket({
-    tenantId,
-    crossTenantPatterns: args.crossTenantPatterns,
-    recId: rec.stableKey,
-    clusterLabel: rec.clusterLabel,
-    clusterKind: rec.clusterKind,
-    affectedPromptIds: rec.affectedPromptIds,
-    promptOpportunities: context.matrix.prompts,
-    trackedPrompts: context.trackedPrompts,
-    primarySummaries,
-    ownedPageInventory: context.pageInventory,
-    pageElementInventory,
-    // Sprint 6A.2g.E (2026-04-26) — packet enrichment. Thread the full
-    // observation set already loaded by `loadLiveRecommendationQueue`
-    // so the packet builder can aggregate Phase D extraction (search
-    // queries the AI emitted), citation URLs (sources to outrank), and
-    // descriptor windows (tone-mirroring) per affected prompt. The
-    // builder filters by affectedPromptIds internally — passing the
-    // full set keeps `buildPacketForRec` pure of further repository
-    // reads. Pre-Phase-D observations contribute empty arrays (graceful
-    // — see Phase D.1 report; ~986 legacy native-poll rows lack the
-    // metadata.extracted block).
-    observations: context.promptAnswerObservations,
-    // Step 1.4 (master plan) — thread the tracked-entity registry so the
-    // packet's `competitorAngles` block excludes directories + generic
-    // nouns, matching the /today leaderboard's filter.
-    trackedEntities: context.trackedEntities,
-    // Sprint 6A.2g.A (2026-04-26) — strict target alignment. The
-    // page-intent resolver runs before prioritization (load-queue step
-    // 6) and stamps `rec.resolution.targetUrl` on every queued rec.
-    // Threading it here forces `allowedTargetUrls` to anchor the LLM
-    // to the rec's resolved page (or `needs_new_page` for create/page-
-    // level recs). Falls back to `null` only if the resolver was
-    // skipped, preserving the legacy candidate-set behavior for
-    // graceful degradation.
-    singleTargetUrl: rec.resolution?.targetUrl ?? null,
-    // LLM-DryRun-3 (2026-05-05) — surface the FULL resolver context
-    // (confidence + tier + action) so the LLM's structural-abstention
-    // rule (Rule 16.A trigger 2) can actually fire. Before this, the
-    // model could see brandAssertions empty but had no way to evaluate
-    // `confidence === "low"` for multi-prompt packets — the rule was
-    // structurally unenforceable in that branch. With this in place
-    // the JSON-stringified user message carries a literal
-    // `"resolution": { "confidence": "low", ... }` block.
-    resolution: rec.resolution
-      ? {
-          confidence: rec.resolution.confidence,
-          tier: rec.resolution.tier,
-          action: rec.resolution.action,
-        }
-      : null,
-    // T-CompPageBlueprints (2026-05-08) — populates competitor page
-    // h1/topH2s/faqQuestions/metaDescription on blueprints. Empty Map
-    // preserves pre-patch byte-identical behavior.
-    competitorPageSnapshotsByUrl: context.competitorPageSnapshotsByUrl,
-    competitorBlueprintBrandScrubAliases:
-      context.competitorBlueprintBrandScrubAliases,
-    now,
-  });
 }

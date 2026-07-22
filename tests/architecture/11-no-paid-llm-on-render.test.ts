@@ -107,16 +107,18 @@ describe("only documented files reach api.openai.com", () => {
   });
 });
 
-describe("OpenAI provider build-time guard is pinned in source", () => {
-  const PROVIDER_PATH = resolve(
-    SRC_ROOT,
-    "domains/recommendations/providers/openai.ts",
-  );
-  it("checks VERCEL, VITEST, and provides a BEACON_LLM_BUILD_OK escape hatch", () => {
-    const src = readFileSync(PROVIDER_PATH, "utf8");
-    expect(src).toMatch(/process\.env\.VERCEL\s*===\s*"1"/);
+describe("the single LLM gateway carries the fail-closed paid-call guard", () => {
+  // CORE 100K (2026-07-22): the dead recommendations/providers/openai.ts was
+  // deleted with the retired specific-edit generation cluster. The live and
+  // only api.openai.com caller is llm/gateway.ts (the allowlist above), so the
+  // "no paid LLM slips through" invariant is now pinned on it: every dispatch
+  // routes through assertPaidCallAllowed (the fail-closed spend cap), and the
+  // test environment is hard-gated so no suite can reach a paid provider.
+  const GATEWAY_PATH = resolve(SRC_ROOT, "domains/llm/gateway.ts");
+  it("routes every call through assertPaidCallAllowed and hard-gates the test env", () => {
+    const src = readFileSync(GATEWAY_PATH, "utf8");
+    expect(src).toMatch(/assertPaidCallAllowed/);
     expect(src).toMatch(/process\.env\.VITEST\s*===\s*"true"/);
-    expect(src).toMatch(/BEACON_LLM_BUILD_OK/);
   });
 });
 
