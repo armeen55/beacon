@@ -286,24 +286,9 @@ describe("C — no banned dash in display surfaces (hard rule)", () => {
   });
 });
 
-// ═══ D. No rendered tenant name in recommendation copy ══════════════
-describe("D — no rendered 'Ritz' in recommendation copy", () => {
-  const isComment = (line: string) => {
-    const t = line.trim();
-    return t.startsWith("//") || t.startsWith("*") || t.startsWith("/*");
-  };
-  // (2026-07-21) recommendation-evidence-preview.ts was deleted with the
-  // trigger->promotion pipeline (zero importers); action-rows remains.
-  for (const rel of [
-    "src/domains/recommendations/recommendation-action-rows.ts",
-  ]) {
-    it(`${rel}: every 'Ritz' is in a comment, never a rendered string`, () => {
-      const offenders = readFileSync(join(REPO_ROOT, rel), "utf-8")
-        .split("\n")
-        .map((line, i) => ({ line, n: i + 1 }))
-        .filter(({ line }) => /Ritz/.test(line) && !isComment(line))
-        .map((o) => `${rel}:${o.n}: ${o.line.trim()}`);
-      expect(offenders).toEqual([]);
-    });
-  }
-});
+// ═══ D. Retired 2026-07-22 ═══════════════════════════════════════════
+// The "no rendered 'Ritz' in recommendation copy" section scanned only
+// recommendation-action-rows.ts and recommendation-evidence-preview.ts,
+// both deleted with the QA-verdict / publishing cascade. Tenant-name-leak
+// on the LIVE recommendation-copy path is covered by
+// tests/changes/customer-copy-bans + tests/evidence/evidence-tenant-isolation.
