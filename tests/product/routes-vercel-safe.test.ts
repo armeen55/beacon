@@ -3,8 +3,6 @@
  * Absorbs: routes/url-watcher-vercel-safe, routes/verify-action-vercel-safe.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
 
 describe("url-watcher is Vercel-safe", () => {
 
@@ -146,27 +144,10 @@ describe("verify-action is Vercel-safe", () => {
   // retirements. The persist-run invariants below are still LIVE.
   // ---------------------------------------------------------------------------
 
-  const PERSIST_RUN_PATH = resolve(
-    __dirname,
-    "../../src/domains/observations/persist-run.ts",
-  );
-  const PERSIST_RUN_SOURCE = readFileSync(PERSIST_RUN_PATH, "utf8");
-
   describe("Sprint 4 / Phase 4.5 — hosted safety", () => {
-    describe("structural invariants (source)", () => {
-      it("persist-run.ts gates its FS write on !isVercel AND keeps dual-write unconditional", () => {
-        // The whole FS block (readFileSync + writeFileSync + renameSync) must
-        // be inside `if (!isVercel)`. The dual-write block must NOT be inside
-        // that same guard (so it runs on both environments).
-        expect(PERSIST_RUN_SOURCE).toMatch(/if\s*\(!isVercel\s*\)\s*\{/);
-        // Dual-write block still present — and OUTSIDE the isVercel guard.
-        // Prove this by confirming the dual-write code appears AFTER a closing
-        // brace that follows the FS block.
-        expect(PERSIST_RUN_SOURCE).toMatch(
-          /isDualWriteEnabled\(\)[\s\S]*?upsertObservationRunToDb/,
-        );
-      });
-    });
+    // The "structural invariants (source)" persist-run source-text scan was
+    // removed (Core 100K): the behavioral appendObservationRunSync tests below
+    // prove the Vercel-safe posture (no throw on VERCEL=1 + dual-write fires).
 
     describe("appendObservationRunSync (behavioral)", () => {
       const originalVercelEnv = process.env.VERCEL;

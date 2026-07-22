@@ -26,8 +26,6 @@ import {
   registerTestCalibratedVersion,
   clearTestCalibratedVersions,
 } from "@/domains/proof-gsc/verdict-calibration-test-support";
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import { buildScoreboard, type ScoreboardDay, type ScoreboardLedgerRow } from "@/domains/scoreboard/scoreboard";
 
 // Registered at module-eval time (not beforeAll) because CANONICAL_MEASURING
@@ -299,20 +297,7 @@ describe("measuring count - one source, every Lane A consumer agrees", () => {
   });
 });
 
-describe("static guard - no displayed count derives from the raw verdict string", () => {
-  const noRawMeasuring = [
-    "src/domains/scoreboard/scoreboard.ts",
-  ];
-  for (const rel of noRawMeasuring) {
-    it(`${rel} contains no verdict === "measuring"`, () => {
-      const src = readFileSync(join(process.cwd(), rel), "utf8");
-      expect(src.includes('verdict === "measuring"')).toBe(false);
-      expect(src.includes('verdict==="measuring"')).toBe(false);
-    });
-  }
-
-  it("today-moves-data.ts no longer counts measuring off a raw maturity filter", () => {
-    const src = readFileSync(join(process.cwd(), "src/app/(shell)/today-moves-data.ts"), "utf8");
-    expect(src.includes('filter((p) => p.maturity !== "mature_result").length')).toBe(false);
-  });
-});
+// "static guard - no displayed count derives from the raw verdict string"
+// source-text scans removed (Core 100K): redundant with the behavioral
+// consumer-agreement tests directly above, which prove every Lane A consumer
+// derives the SAME canonical measuring count.

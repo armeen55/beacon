@@ -901,78 +901,12 @@ describe("S4 — computeChangeVerdict honors samplingStatusByDate", () => {
 
 });
 
-import { readFileSync } from "node:fs";
-import { resolve as resolvePath, join as joinPath } from "node:path";
 import { computeUrlVerdict, DEFAULT_THRESHOLDS } from "@/domains/attribution/url-verdict";
 
-describe("T6.7 materializer demotion semantics (source-text invariants)", () => {
-const REPO_ROOT = resolvePath(__dirname, "../..");
-const SRC = readFileSync(
-  joinPath(REPO_ROOT, "src/domains/attribution/url-change-outcome.ts"),
-  "utf-8",
-);
-
-describe("T6.7 — materializer demotion semantics (source-text invariants)", () => {
-  it("FRESH_INSERT_VERDICTS set is declared and includes weak_signal", () => {
-    expect(/const FRESH_INSERT_VERDICTS:\s*ReadonlySet<VerdictLabel>/.test(SRC)).toBe(true);
-    expect(/"weak_signal"/.test(SRC)).toBe(true);
-    // Pin the full set membership — this catches accidental re-additions
-    // of pre-landing verdicts that would re-pollute the store.
-    const setBlock = SRC.match(
-      /const FRESH_INSERT_VERDICTS[\s\S]*?\]\)/,
-    )?.[0];
-    expect(setBlock).toBeTruthy();
-    if (setBlock) {
-      expect(setBlock).toContain('"helping"');
-      expect(setBlock).toContain('"hurting"');
-      expect(setBlock).toContain('"nothing_yet"');
-      expect(setBlock).toContain('"not_implemented"');
-      expect(setBlock).toContain('"weak_signal"');
-      // Negative assertions — these MUST NOT be in the set.
-      expect(setBlock).not.toContain('"too_early"');
-      expect(setBlock).not.toContain('"not_enough_data"');
-      expect(setBlock).not.toContain('"not_enough_native_baseline"');
-    }
-  });
-
-  it("recordUrlOutcome skips fresh inserts of non-FRESH_INSERT verdicts", () => {
-    expect(
-      /if\s*\(\s*existingIdx\s*===\s*-1\s*&&\s*!FRESH_INSERT_VERDICTS\.has\(v\.verdict\)\s*\)/.test(
-        SRC,
-      ),
-      "recordUrlOutcome must skip when existingIdx === -1 AND verdict is not in FRESH_INSERT_VERDICTS — pin the gate's exact source-text shape against drift.",
-    ).toBe(true);
-  });
-
-  it("recordUrlOutcome no longer has the legacy isTerminalVerdict-only gate", () => {
-    // Pre-T6.7 the gate was `if (!isTerminalVerdict(v.verdict)) return null;`
-    // sitting BEFORE the existingIdx lookup. T6.7 replaces it with the
-    // existingIdx-aware gate. This negative invariant catches a future
-    // regression where someone re-introduces the old single-line gate.
-    expect(
-      /^\s*if\s*\(\s*!isTerminalVerdict\(v\.verdict\)\s*\)\s*return\s+null;\s*$/m.test(
-        SRC.split("export async function recordUrlOutcome")[1] ?? "",
-      ),
-    ).toBe(false);
-  });
-
-  it("isTerminalVerdict membership is unchanged (pre-landing verdicts stay non-terminal)", () => {
-    // T6.7 deliberately does NOT promote pre-landing verdicts to terminal.
-    // The fix is at the persistence gate, not the verdict taxonomy.
-    const setBlock = SRC.match(/const TERMINAL_VERDICTS[\s\S]*?\]\)/)?.[0];
-    expect(setBlock).toBeTruthy();
-    if (setBlock) {
-      expect(setBlock).toContain('"helping"');
-      expect(setBlock).toContain('"hurting"');
-      expect(setBlock).toContain('"nothing_yet"');
-      expect(setBlock).toContain('"not_implemented"');
-      expect(setBlock).not.toContain('"weak_signal"');
-      expect(setBlock).not.toContain('"too_early"');
-    }
-  });
-
-});
-});
+// T6.7 materializer demotion source-text-invariant scans removed (Core 100K):
+// fragile readFileSync regex pins on the private FRESH_INSERT_VERDICTS /
+// TERMINAL_VERDICTS consts. Terminal-verdict behavior stays covered by the
+// isTerminalVerdict cases above.
 
 describe("computeUrlVerdict boundary (folded from the url-verdict suite)", () => {
 function series(start: string, counts: number[]): DailyPoint[] {
