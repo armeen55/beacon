@@ -80,14 +80,23 @@ const resolveTenantIdFromRequest = cache(async (): Promise<string> => {
     // Not in a request context (CLI / vitest / module init). Fall through to env.
   }
   if (headerValue) return headerValue;
+  // SaaS-foundation hardening (CORE 100K, 2026-07-22): an AUTHENTICATED request
+  // must NEVER fall back to the env tenant. The middleware always injects
+  // x-beacon-tenant for an authenticated user with a resolved tenant, so a
+  // missing header inside a real request means auth/middleware failed — fail
+  // closed rather than silently resolve to BEACON_TENANT_ID (a cross-tenant
+  // leak). The env fallback survives ONLY for the explicit auth-disabled bypass
+  // (BEACON_AUTH_DISABLED=1: local audit + CLI) and for out-of-request contexts
+  // (scripts / module init / vitest), which are never authenticated user traffic.
+  const authBypass = process.env.BEACON_AUTH_DISABLED === "1";
+  if (inRequestContext && !authBypass) {
+    throw new Error(
+      "currentTenantId: authenticated request has no x-beacon-tenant header. " +
+        "The middleware did not resolve a tenant for this user; failing closed " +
+        "rather than falling back to an env tenant (cross-tenant leak guard).",
+    );
+  }
   if (process.env.BEACON_TENANT_ID) {
-    if (inRequestContext) {
-      console.warn(
-        `[tenant-context] SAFETY: reached BEACON_TENANT_ID env fallback (${process.env.BEACON_TENANT_ID}) ` +
-          "inside a request context with NO x-beacon-tenant header. The middleware failed to inject a tenant; " +
-          "this request may resolve to the wrong tenant. Check middleware tenant_lookup health.",
-      );
-    }
     return process.env.BEACON_TENANT_ID;
   }
   throw new Error(

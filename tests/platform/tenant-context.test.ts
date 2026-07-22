@@ -55,16 +55,31 @@ describe("currentTenantId resolution order", () => {
     expect(await currentTenantId()).toBe("tenant-acme");
   });
 
-  it("falls back to BEACON_TENANT_ID when no header, and is stable across calls", async () => {
+  it("SaaS hardening: an authenticated request with no header FAILS CLOSED, never env fallback", async () => {
+    // In a request context (headers available) with auth ENABLED, a missing
+    // x-beacon-tenant means the middleware failed to resolve a tenant. Falling
+    // back to BEACON_TENANT_ID would be a cross-tenant leak, so we throw.
+    delete process.env.BEACON_AUTH_DISABLED;
+    process.env.BEACON_TENANT_ID = "tenant-ritz-founder";
+    const { currentTenantId } = await loadResolver();
+    await expect(currentTenantId()).rejects.toThrow(/authenticated request has no x-beacon-tenant header/);
+  });
+
+  it("the auth-disabled bypass (BEACON_AUTH_DISABLED=1) still resolves the env tenant", async () => {
+    // Local audit + CLI bypass: not authenticated user traffic, so the env
+    // tenant remains the deliberate resolution.
+    process.env.BEACON_AUTH_DISABLED = "1";
     process.env.BEACON_TENANT_ID = "tenant-ritz-founder";
     const { currentTenantId } = await loadResolver();
     expect(await currentTenantId()).toBe("tenant-ritz-founder");
-    expect(await currentTenantId()).toBe("tenant-ritz-founder");
+    delete process.env.BEACON_AUTH_DISABLED;
   });
 
   it("throws fail-loud when neither header nor env is set", async () => {
+    delete process.env.BEACON_AUTH_DISABLED;
+    delete process.env.BEACON_TENANT_ID;
     const { currentTenantId } = await loadResolver();
-    await expect(currentTenantId()).rejects.toThrow(/no x-beacon-tenant header and no BEACON_TENANT_ID/);
+    await expect(currentTenantId()).rejects.toThrow(/x-beacon-tenant header/);
   });
 });
 
