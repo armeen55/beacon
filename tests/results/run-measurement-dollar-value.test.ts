@@ -62,32 +62,12 @@ vi.mock("@/lib/business-config", () => ({
 
 import { measureRecord } from "@/domains/proof-gsc/run-measurement";
 import type { ShippedChangeRecord } from "@/domains/proof-gsc/shipped-change-store";
+import { singersRecord } from "./_fixtures";
 
+// Dollar-value cases default to no target queries; the shared builder defaults
+// to ["persian singers"], so override here (callers can still pass their own).
 function record(overrides: Partial<ShippedChangeRecord> = {}): ShippedChangeRecord {
-  return {
-    id: "singers::2026-05-01",
-    page: "https://iranopedia.com/singers",
-    path: "/singers",
-    actionType: "edit_title",
-    before: "old title",
-    after: "new title",
-    shippedAt: "2026-05-01",
-    baseline: { clicks: 50, impressions: 800, ctr: 0.06, position: 12, windowDays: 28 },
-    targetQueries: [],
-    controlPages: [],
-    windows: [],
-    verdict: "measuring",
-    confidence: "low",
-    measuredAt: null,
-    notes: null,
-    verifiedLive: false,
-    liveSourceUrl: null,
-    recrawlRequestedAt: null,
-    operatorVerdictOverride: null, calibrationVersion: null,
-    createdAt: "2026-05-01T00:00:00Z",
-    updatedAt: "2026-05-01T00:00:00Z",
-    ...overrides,
-  };
+  return singersRecord({ targetQueries: [], ...overrides });
 }
 
 const treatedPage = "https://iranopedia.com/singers";

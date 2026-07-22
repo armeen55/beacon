@@ -12,17 +12,7 @@ import {
   draftProseStringValues,
   type StructuredDraftKind,
 } from "@/domains/llm/schemas";
-
-const validAnswer = {
-  answer:
-    "Persian weddings center on the sofreh aghd, a ceremonial spread of symbolic items the couple sits before while honored guests hold a canopy above them, followed by the aghd vows and a celebratory jashn reception with family and friends. The spread gathers a mirror, twin candelabras, flatbread, fresh herbs, and sweets, each chosen to wish the couple light, health, and a sweet life together. Elders witness the reading of the marriage contract, the newlyweds share a taste of honey, and the music, dancing, and feasting of the reception then carry the celebration late into the night for every guest.",
-  citationHook: "the sofreh aghd is the heart of a Persian wedding",
-  evidenceRefs: [{ source: "competitor_teardown", detail: "the cited page leads with a sofreh aghd explainer" }],
-  confidence: "high",
-  risks: ["keep claims neutral"],
-  operatorSteps: ["Add this answer block directly under the H1"],
-  proofPlan: { metrics: ["Profound citations", "position"], windowsDays: [7, 14, 28], controls: "comparable unchanged pages" },
-};
+import { validAnswer } from "./_llm";
 
 describe("AnswerBlockDraftSchema", () => {
   it("accepts a valid grounded draft", () => {

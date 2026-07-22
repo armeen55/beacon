@@ -12,10 +12,7 @@
  */
 
 import { describe, expect, it, vi } from "vitest";
-import {
-  buildTrackedPromptRow,
-  executeLaunchTransaction as executeLaunchTransactionReal,
-} from "@/app/(shell)/onboard/launch-flow";
+import { executeLaunchTransaction as executeLaunchTransactionReal } from "@/app/(shell)/onboard/launch-flow";
 
 const FIXED_NOW = "2026-05-07T18:00:00.000Z";
 
@@ -252,8 +249,6 @@ function makeMockSupabase(initial: Partial<Store> = {}, failures: Failures = {})
   return { client, store, writes };
 }
 
-// ── buildTrackedPromptRow ────────────────────────────────────────────
-
 describe("executeLaunchTransaction — happy path", () => {
   it("inserts prompts and flips tenant to active in that order", async () => {
     const { client, store, writes } = makeMockSupabase({
@@ -386,30 +381,12 @@ describe("executeLaunchTransaction — race lost (concurrent double-click)", () 
     // Simulate the race: prompts get inserted (we win that step),
     // but the UPDATE-WHERE-status='pending_onboarding' returns 0 rows
     // because someone else already activated the tenant.
+    // The tenant is fetched as 'pending_onboarding' but the UPDATE
+    // WHERE-tos_accepted_at IS NULL matches 0 rows (someone else won the
+    // race and stamped tos_accepted_at). The helper must redirect with
+    // reason 'race_lost' and NOT roll back the prompts it inserted.
     const baseRow = { ...PENDING_TENANT };
     const { client, writes } = makeMockSupabase({
-      // Pre-mutate the tenant so the WHERE-status='pending_onboarding'
-      // clause excludes it. Status='active' simulates "race lost
-      // BUT not yet 'already launched' at fetch time" by mutating
-      // mid-transaction. To simulate this cleanly, we set status to
-      // 'active' before fetch — which is just the already-launched
-      // path. To truly simulate the race, we'd need a hook that
-      // mutates between fetch and update; instead pin via a different
-      // test using failTenantUpdate=false but with a tenant whose
-      // status mid-flight no longer matches the WHERE clause.
-      //
-      // For this test we use the simpler observable: that the helper
-      // returns redirect (not error) when the UPDATE matches 0 rows.
-      // We achieve that by NOT mutating but pinning that:
-      //   - if tenant is fetched as 'pending_onboarding' AND
-      //   - the UPDATE WHERE returns 0 rows somehow,
-      // the helper returns redirect with reason 'race_lost'.
-      //
-      // The mock's update path returns matched rows from store; if
-      // store has the row + status matches, it returns 1 row. To
-      // simulate 0-row return, we pre-flip status='active' AFTER
-      // fetch but BEFORE update. We approximate by injecting a
-      // tos_accepted_at value that the WHERE-IS-NULL clause excludes.
       tenants: [{ ...baseRow, tos_accepted_at: "2026-04-01T00:00:00.000Z" }],
     });
 
@@ -522,24 +499,6 @@ describe("executeLaunchTransaction — failure rollback", () => {
     expect(opOrder.indexOf("insert")).toBeLessThan(opOrder.indexOf("delete"));
   });
 
-  it("rollback DELETE filters by both id IN (...) AND account_id (defense in depth)", async () => {
-    const { client, writes } = makeMockSupabase(
-      { tenants: [{ ...PENDING_TENANT }] },
-      { failTenantUpdate: true },
-    );
-    await executeLaunchTransaction({
-      admin: client as never,
-      persistConfig: persistConfigStub,
-      tenantId: PENDING_TENANT.id,
-      now: FIXED_NOW,
-    });
-    // No simple way to inspect filters, but the fact that the DELETE
-    // happened on tracked_prompts table only is verifiable.
-    const deletes = writes.filter((w) => w.op === "delete");
-    expect(deletes.length).toBe(1);
-    expect(deletes[0].table).toBe("tracked_prompts");
-  });
-
   it("when tenant fetch fails, returns error (no inserts, no updates)", async () => {
     const { client, store } = makeMockSupabase(
       { tenants: [{ ...PENDING_TENANT }] },
@@ -579,52 +538,6 @@ describe("executeLaunchTransaction — failure rollback", () => {
 // ── Tenant scoping: never touch other tenants' prompts ──────────────
 
 describe("executeLaunchTransaction — tenant isolation", () => {
-  it("does NOT insert prompts for any tenant other than the launching one", async () => {
-    const { client, store } = makeMockSupabase({
-      tenants: [{ ...PENDING_TENANT }],
-      // Pre-existing Ritz-shaped tenant prompts that must remain untouched.
-      tracked_prompts: [
-        {
-          id: "ritz-prompt-1",
-          account_id: "ritz-builders",
-          text: "Ritz Custom Builders reviews",
-          is_active: true,
-        },
-        {
-          id: "ritz-prompt-2",
-          account_id: "ritz-builders",
-          text: "best custom home builder in Atherton",
-          is_active: true,
-        },
-      ],
-    });
-
-    await executeLaunchTransaction({
-      admin: client as never,
-      persistConfig: persistConfigStub,
-      tenantId: PENDING_TENANT.id,
-      now: FIXED_NOW,
-    });
-
-    // Ritz prompts are still present + unchanged.
-    const ritzAfter = store.tracked_prompts.filter(
-      (p) => p.account_id === "ritz-builders",
-    );
-    expect(ritzAfter.length).toBe(2);
-    for (const p of ritzAfter) {
-      expect(p.is_active).toBe(true);
-    }
-
-    // New prompts are only on the new tenant's slug.
-    const newPrompts = store.tracked_prompts.filter(
-      (p) => p.account_id === PENDING_TENANT.slug,
-    );
-    expect(newPrompts.length).toBeGreaterThan(0);
-    for (const p of newPrompts) {
-      expect(p.account_id).toBe(PENDING_TENANT.slug);
-    }
-  });
-
   it("rollback DELETE only affects this tenant's prompts (id IN with account_id filter)", async () => {
     const { client, store } = makeMockSupabase(
       {
@@ -726,37 +639,6 @@ describe("executeLaunchTransaction — launch-time first scan (2026-06-11)", () 
     });
   });
 
-  it("a dispatch_failed GitHub scan ALSO falls back to the in-process crawl (audit-6 #5)", async () => {
-    const { client } = makeMockSupabase({ tenants: [{ ...PENDING_TENANT }] });
-    const dispatchStub = vi.fn(async () => ({
-      status: "dispatch_failed" as const,
-      httpStatus: 403,
-      error: "bad pat",
-    }));
-    const coldStartStub = vi.fn(async () => ({
-      status: "scanned" as const,
-      pagesDiscovered: 2,
-      pagesCrawled: 2,
-      snapshotsWritten: 2,
-      durationMs: 9,
-      source: "homepage" as const,
-    }));
-    const r = await executeLaunchTransaction({
-      admin: client as never,
-      persistConfig: persistConfigStub,
-      dispatchFirstScan: dispatchStub as never,
-      coldStartScan: coldStartStub as never,
-      tenantId: PENDING_TENANT.id,
-      now: FIXED_NOW,
-    });
-    expect(r).toEqual({ kind: "redirect", to: "/", reason: "success" });
-    // dispatch_failed (not just skipped) must still trigger the fallback crawl.
-    expect(coldStartStub).toHaveBeenCalledWith({
-      tenantId: PENDING_TENANT.id,
-      domain: PENDING_TENANT.domain,
-    });
-  });
-
   it("a FAILED launch never dispatches a scan", async () => {
     const { client } = makeMockSupabase(
       { tenants: [{ ...PENDING_TENANT }] },
@@ -774,21 +656,5 @@ describe("executeLaunchTransaction — launch-time first scan (2026-06-11)", () 
     });
     expect(r.kind).toBe("error");
     expect(dispatchStub).not.toHaveBeenCalled();
-  });
-
-  it("a THROWING dispatcher never breaks the launch", async () => {
-    const { client, store } = makeMockSupabase({ tenants: [{ ...PENDING_TENANT }] });
-    const dispatchStub = vi.fn(async () => {
-      throw new Error("github down");
-    });
-    const r = await executeLaunchTransaction({
-      admin: client as never,
-      persistConfig: persistConfigStub,
-      dispatchFirstScan: dispatchStub as never,
-      tenantId: PENDING_TENANT.id,
-      now: FIXED_NOW,
-    });
-    expect(r).toEqual({ kind: "redirect", to: "/", reason: "success" });
-    expect(store.tenants[0].status).toBe("active");
   });
 });

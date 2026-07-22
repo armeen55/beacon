@@ -85,33 +85,9 @@ import {
 } from "@/domains/proof-gsc/verdict-calibration-test-support";
 import type { ShippedChangeRecord } from "@/domains/proof-gsc/shipped-change-store";
 import type { ShockWindow } from "@/domains/proof-gsc/algorithm-weather";
+import { singersRecord } from "./_fixtures";
 
-function record(overrides: Partial<ShippedChangeRecord> = {}): ShippedChangeRecord {
-  return {
-    id: "singers::2026-05-01",
-    page: "https://iranopedia.com/singers",
-    path: "/singers",
-    actionType: "edit_title",
-    before: "old title",
-    after: "new title",
-    shippedAt: "2026-05-01",
-    baseline: { clicks: 50, impressions: 800, ctr: 0.06, position: 12, windowDays: 28 },
-    targetQueries: ["persian singers"],
-    controlPages: [],
-    windows: [],
-    verdict: "measuring",
-    confidence: "low",
-    measuredAt: null,
-    notes: null,
-    verifiedLive: false,
-    liveSourceUrl: null,
-    recrawlRequestedAt: null,
-    operatorVerdictOverride: null, calibrationVersion: null,
-    createdAt: "2026-05-01T00:00:00Z",
-    updatedAt: "2026-05-01T00:00:00Z",
-    ...overrides,
-  };
-}
+const record = singersRecord;
 
 describe("measureRecord - rank re-check integration (item 19)", () => {
   beforeEach(() => {
