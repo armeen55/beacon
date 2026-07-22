@@ -1,7 +1,6 @@
 import Link from "next/link";
 import { PageHeader } from "@/components/data/page-header";
 import { SETTINGS_SECTIONS } from "./settings-sections";
-import { FinishSetupCard } from "./finish-setup-card";
 import { SpendLine } from "./spend-line";
 
 /**
@@ -22,7 +21,6 @@ export default async function SettingsPage() {
         title="Settings"
         description="Your business info, connections, and how Beacon measures things."
       />
-      <FinishSetupCard />
       <ul className="space-y-2">
         {SETTINGS_SECTIONS.map((item) => (
           <li key={item.href}>

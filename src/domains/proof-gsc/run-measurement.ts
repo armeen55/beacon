@@ -34,14 +34,6 @@ import {
   type ChangeRevenueModel,
 } from "./change-dollar-value";
 import { isUsableRevenueModel } from "@/domains/revenue/compute-unit-economics";
-import { listPlans } from "@/domains/experiments/daily-experiment-plan-store";
-import { findForecastedPickForProofId } from "@/domains/experiments/forecast-calibration";
-import {
-  hasCalibrationRecord,
-  appendCalibrationRecord,
-  buildCalibrationRecord,
-} from "@/domains/experiments/forecast-calibration-store";
-import { expectedCtrAt } from "@/domains/experiments/pick-expectations";
 import {
   getBusinessConfig,
   hydrateBusinessConfigFromSupabase,
@@ -271,68 +263,6 @@ export async function captureChangeMeta(
   return { canonPage, path, before, after, targetQueries, headlineAction };
 }
 
-/**
- * Items 27/28/64 - find the plan pick that shipped as this proof row (by proofId) and, if it
- * carries a numeric forecast, write ONE calibration record scoring the realized 28-day monthly
- * click lift against that forecast range. Fail-soft everywhere: a missing plan, a pick with no
- * numeric forecast (prose-only or planned before this field existed), or a store error all resolve
- * to a quiet no-op - this must never throw into measureRecord's caller.
- *
- * `adjustedLift28` is the day-28 window's clicks-unit adjusted lift over its (pro-rated) 28-day
- * pre window, i.e. already a monthly figure - the same shape as the forecast range
- * ("roughly N to M extra clicks a month"), so no further scaling is needed.
- *
- * `treatedPostImpressions28` is the day-28 window's treated-page post-window Search impressions
- * (empirical-capture.ts's precision-weight input). Optional/undefined is a valid, honest input
- * (the window field itself is optional for back-compat) - it simply persists as `undefined` and
- * empirical-capture.ts treats a missing value as zero precision (full shrink toward the family
- * mean), never a fabricated volume.
- *
- * Item 64's `gapClicksPerMonth` is derived HERE from `record.baseline` - the SAME formula
- * pick-expectations.ts uses at plan time (expectedCtrAt(position) - ctr) * impressions - but off
- * the ledger's own pre-ship baseline snapshot rather than the plan pick (the plan record does not
- * carry position/ctr, only the already-computed opportunity), scaled from the baseline window's
- * own length to a monthly figure so it lines up with `actual`. A non-positive gap (page already at
- * or above the curve, or a zero/legacy baseline window) is honestly omitted, never coerced to a
- * fabricated positive number - empirical-capture.ts skips a record with no gap the same way it
- * skips one predating this field.
- */
-async function writeCalibrationIfDue(
-  tenantId: string,
-  record: ShippedChangeRecord,
-  adjustedLift28: number,
-  treatedPostImpressions28?: number,
-): Promise<void> {
-  try {
-    const plans = await listPlans(tenantId, 60);
-    const forecasted = findForecastedPickForProofId(plans, record.id);
-    if (!forecasted) return; // no pick found, or the pick has no numeric forecast - honest skip
-    if (await hasCalibrationRecord(tenantId, forecasted.pickId)) return; // idempotent per pick
-    const baseline = record.baseline;
-    const windowDays = baseline?.windowDays && baseline.windowDays > 0 ? baseline.windowDays : BASELINE_WINDOW_DAYS;
-    const rawGap =
-      baseline && baseline.impressions > 0
-        ? Math.max(0, expectedCtrAt(baseline.position) - Math.max(0, baseline.ctr)) * baseline.impressions
-        : 0;
-    const gapClicksPerMonth = rawGap > 0 ? (rawGap / windowDays) * 30 : undefined;
-    const rec = buildCalibrationRecord({
-      pickId: forecasted.pickId,
-      tenantId,
-      proofId: record.id,
-      page: forecasted.page,
-      lever: forecasted.lever,
-      forecastLow: forecasted.forecastLow,
-      forecastHigh: forecasted.forecastHigh,
-      actual: adjustedLift28,
-      at: new Date().toISOString(),
-      gapClicksPerMonth,
-      windowImpressions: treatedPostImpressions28,
-    });
-    await appendCalibrationRecord(rec);
-  } catch {
-    /* best-effort - a calibration write must never block a measurement */
-  }
-}
 
 /**
  * Recompute the 7/14/28-day outcome for a shipped change from GSC. Reads the
@@ -459,7 +389,6 @@ export async function measureRecord(
   // existed, or too small to render a range) are honestly skipped - never fabricated a range.
   const day28 = windows.find((w) => w.day === 28);
   if (day28?.ran) {
-    await writeCalibrationIfDue(tenantId, record, day28.adjustedLift, day28.treatedPostImpressions).catch(() => {});
   }
 
   // Baseline impressions/clicks for the verdict gate come from the pre window

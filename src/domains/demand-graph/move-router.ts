@@ -43,7 +43,7 @@
 
 import type { EvidencePacket } from "./evidence-packet";
 import type { GapKind, MoveCandidate, ConfidenceLevel } from "./build-graph";
-import { actionFamilyOf } from "@/domains/experiments/experiment-eligibility";
+import { actionFamilyOf } from "@/domains/proof-gsc/change-family";
 import { checkIntentVeto } from "./intent-veto";
 import type {
   MoveRouterAction,

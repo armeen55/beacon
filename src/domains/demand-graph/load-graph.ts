@@ -40,8 +40,6 @@ import { loadExperimentOutcomes, loadChangePatternOutcomes, loadEffectObservatio
 import { applyExperimentPriorToMoves, canonicalMoveType, pageTypeFromUrl, queryClusterKey } from "@/domains/learning/experiment-prior";
 import { applyEffectSizePriorToMoves } from "@/domains/learning/effect-size-prior";
 import { applyProofOutcomeCautionToMoves } from "@/domains/demand-graph/proof-outcome-caution";
-import { applyDismissalLearning } from "@/domains/learning/dismissal-learning";
-import { loadDismissalSignals } from "@/domains/learning/load-dismissal-signals";
 import {
   buildDemandGraph,
   type DemandInput,
@@ -625,23 +623,8 @@ export async function loadDemandGraphForTenant(
   // skipping (>= 3 dismissals, bounded [0.8, 1.0]). DECIDED-ONLY: a fresh tenant
   // with no dismissals and no shipped changes gets its moves back UNCHANGED
   // (byte-identical). Fail-soft; raw MoveComponents are never touched.
-  try {
-    const signals = await loadDismissalSignals(tenantId);
-    if (signals.doNotRepeat.length > 0 || signals.dismissals.length > 0) {
-      const learned = applyDismissalLearning(moves, signals);
-      moves = learned.moves;
-      if (learned.suppressed.length > 0 || learned.demotions.length > 0) {
-        log.info("[load-graph] dismissal learning", {
-          tenantId,
-          suppressed: learned.suppressed.length,
-          suppressedLabels: learned.suppressed.map((s) => s.label),
-          demotedKinds: learned.demotions.map((d) => `${d.kind}(x${d.dismissals})`),
-        });
-      }
-    }
-  } catch {
-    /* additive - never let the skip-learning layer break the graph */
-  }
+  // (the dismissal-learning re-rank was removed with the learning domain, CORE 100K;
+  // moves pass through unchanged.)
   // Profound AEO EVIDENCE fusion (evidence-only; no score change, no new actions).
   // Reads the DURABLE cached store (loadCachedPromptOpportunities, NO live
   // Profound API on render), time-boxed + fail-soft so it can never hang or break

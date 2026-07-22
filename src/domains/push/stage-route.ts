@@ -13,8 +13,17 @@
  * No I/O. No server-only imports (client cards import this directly).
  */
 
-import { LEVER_TO_ACTION_TYPE } from "@/domains/experiments/execution-state";
 import { stripBannedDashes } from "@/lib/copy/strip-dashes";
+
+// Relocated from the retired experiments domain (CORE 100K): the lever→action-type map.
+const LEVER_TO_ACTION_TYPE: Record<string, string> = {
+  meta: "edit_meta",
+  internal_link: "add_internal_link",
+  answer_block: "add_answer_block",
+  title: "edit_title",
+  h1: "change_h1",
+  refresh: "add_h2_section",
+};
 
 /** The existing push-service routes a staged change can travel. */
 export type StageRoute = "field" | "schema" | "body";

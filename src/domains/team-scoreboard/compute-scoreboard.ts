@@ -33,10 +33,21 @@ import {
 import { buildShockWindows, overlappingShock, type ShockWindow } from "@/domains/proof-gsc/algorithm-weather";
 import { loadDetectedChangepoints } from "@/domains/proof-gsc/algorithm-weather-store";
 import { learningEligibleVerdict } from "@/domains/proof-gsc/verdict-calibration";
-import { actionFamilyOf } from "@/domains/experiments/experiment-eligibility";
-import { listPlans } from "@/domains/experiments/daily-experiment-plan-store";
-import type { DailyExperimentPlanRecord, PlannedExperimentRecord } from "@/domains/experiments/daily-plan-types";
-import type { TeamReview } from "@/domains/experiments/team-review";
+import { actionFamilyOf } from "@/domains/proof-gsc/change-family";
+
+// The experiments domain (daily plans, team-review) was removed. Minimal inline types keep this
+// module's exported contract intact; with no plan store to read, the settled-verdict -> team-review
+// join simply finds nothing (settledJoined stays 0) and the scoreboard falls back to its
+// fresh-tenant empty shape.
+type TeamReview = {
+  voices: Array<{ specialist: string; label: string; confidencePct: number }>;
+  objections: Array<{ label: string; severity: "veto" | "downgrade" }>;
+};
+type PlannedExperimentRecord = { id: string; teamReview?: TeamReview };
+type DailyExperimentPlanRecord = {
+  execution?: { items?: Record<string, { proofId?: string }> };
+  selected: PlannedExperimentRecord[];
+};
 import {
   voiceProbability,
   dissentProbability,
@@ -198,9 +209,13 @@ export type TeamScoreboardSummary = {
  */
 export async function buildTeamScoreboardSummary(tenantId: string, now: Date = new Date()): Promise<TeamScoreboardSummary> {
   let records: ShippedChangeRecord[];
-  let plans: DailyExperimentPlanRecord[];
+  // The daily-plan store was removed with the experiments domain; there are no plans to join, so
+  // every settled row settles honestly with zero votes (settledJoined = 0) instead of a fabricated
+  // join. The scoreboard then reads with its fresh-tenant defaults, exactly like a tenant that
+  // never settled a plan-backed pick.
+  const plans: DailyExperimentPlanRecord[] = [];
   try {
-    [records, plans] = await Promise.all([loadShippedChanges(), listPlans(tenantId, PLAN_HISTORY_LIMIT)]);
+    records = await loadShippedChanges();
   } catch {
     return { rows: [], settledJoined: 0, totalSettled: 0, computedAt: now.toISOString() };
   }

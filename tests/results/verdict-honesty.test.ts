@@ -23,9 +23,7 @@ import {
 } from "@/domains/proof-gsc/verdict-calibration-test-support";
 import { verdictSchedule, type VerdictScheduleRow } from "@/domains/proof-gsc/verdict-schedule";
 import { buildScoreboard, type ScoreboardDay } from "@/domains/scoreboard/scoreboard";
-import { buildDailyExperimentDashboard } from "@/domains/experiments/daily-experiment-dashboard";
 import { monthDayLabel } from "@/components/data/receipt-line";
-import type { ShippedChangeRecord } from "@/domains/proof-gsc/shipped-change-store";
 
 afterEach(clearTestCalibratedVersions);
 
@@ -303,15 +301,6 @@ describe("every date consumer equals verdictSchedule.firstReadOn", () => {
   it("scoreboard.nextVerdictDate == firstReadOn", () => {
     const s = buildScoreboard(days28(), LEDGER, NOW)!;
     expect(s.nextVerdictDate).toBe(SCHEDULE.firstReadOn);
-  });
-
-  it("daily-experiment dashboard nextCheckpoint == firstReadOn and reliableDataDate == reliableDataOn", () => {
-    const dash = buildDailyExperimentDashboard({
-      ledger: LEDGER as unknown as ShippedChangeRecord[],
-      now: NOW,
-    });
-    expect(dash.activeProofBatch?.nextCheckpoint).toBe(SCHEDULE.firstReadOn);
-    expect(dash.activeProofBatch?.reliableDataDate).toBe(SCHEDULE.reliableDataOn);
   });
 });
 

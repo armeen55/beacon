@@ -16,7 +16,6 @@ import Link from "next/link";
 import { requireOnboardingTenant } from "@/domains/onboarding/access";
 import { loadCrawlFrontier } from "@/domains/scanning/crawl-frontier";
 import { composeFirstAuditScorecard } from "@/domains/onboarding/first-audit";
-import { FinishSetupCard } from "@/app/(shell)/settings/finish-setup-card";
 import { ConnectGscCard } from "./connect-gsc-card";
 import { keepScanningAction, retryFirstLookAction } from "./actions";
 
@@ -203,8 +202,7 @@ export default async function OnboardDonePage() {
           </p>
         )}
 
-        <FinishSetupCard />
-      </div>
+        </div>
     </div>
   );
 }

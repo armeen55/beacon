@@ -32,7 +32,7 @@ function surface(over: Partial<CustomerSurface> = {}): CustomerSurface {
     computedAt: "2026-07-15T12:00:00.000Z",
     tenantId: "tenant-a",
     changes: { changes: [{ id: "change-1" }] } as never,
-    today: { today: { cards: [] } as never, daily: null, hasChanges: true },
+    today: { today: { cards: [] } as never, hasChanges: true },
     newPages: null,
     ...over,
   };

@@ -25,8 +25,6 @@ import {
 import { evaluatePreparedPackQuality } from "@/domains/drafts/draft-quality";
 import { ExperimentPlanSchema, type ExperimentPlan, type ImplementationStep } from "@/domains/llm/schemas";
 import type { EvidencePacket } from "./evidence-packet";
-import { classifyQueryIntent } from "@/domains/experiments/answer-intent";
-import { loadFamilyDemandProfiles } from "@/domains/seasonal/family-demand-profile-store";
 import { runSerpQuery, type SerpRunResult } from "@/domains/serp/dataforseo-serp";
 import { validateCreatePage } from "@/domains/serp/serp-validation";
 import { rootDomain } from "@/domains/serp/serp-provider";
@@ -215,15 +213,9 @@ async function draftForPacket(
   const evidenceHints = evidenceHintsFor(packet);
   // Prefer the tenant's real, impression-weighted GSC queries. Cold-start and
   // create-page moves retain the conservative label + fanout fallback.
-  const observedQueries = packet.demand.queries
-    .filter((row) => row.query.trim() && row.impressions > 0)
-    .map((row) => ({ query: row.query, impressions: row.impressions }));
-  const intent = classifyQueryIntent(observedQueries.length > 0
-    ? observedQueries
-    : [
-        { query: packet.move.label, impressions: 2 },
-        ...(packet.demand.fanoutSeeds ?? []).map((q) => ({ query: q, impressions: 1 })),
-      ])?.dominant;
+  // The answer-shape intent hint was dropped with the experiments domain (CORE 100K);
+  // the drafter falls back to its own outline/evidence context.
+  const intent = undefined;
   const common = {
     query: packet.move.label,
     pageLabel: packet.yourPage.url ?? packet.move.label,
@@ -539,12 +531,8 @@ export async function prepareTodayMovesForTenant(
   const ownDomain = deriveOwnDomainFromPackets(packets);
 
   // Seasonality voice (BEACON_500 item 69): loaded ONCE per run (a cheap $0
-  // json-store read), then looked up per Move by page family, so the team's
-  // seasonal specialist can object to shipping into a demand cliff / flag
-  // proactive prep the same way every other specialist reasons from its own
-  // pre-loaded evidence.
-  const seasonalProfiles = await loadFamilyDemandProfiles(tenantId).catch(() => []);
-  const seasonalProfileByFamily = new Map(seasonalProfiles.map((p) => [p.pageFamily, p] as const));
+  // (the seasonal specialist + family-demand profiles were removed with the
+  // seasonal domain, CORE 100K.)
 
   // Item 70: learned per-specialist vote weights (neutral 1.0 until the scoreboard has
   // settled verdicts, so cold routing stays byte-identical). Loaded once per prepare run.
@@ -557,10 +545,7 @@ export async function prepareTodayMovesForTenant(
     if (opts.maxNewDrafts != null && summary.prepared >= opts.maxNewDrafts) break;
     const moveId = packet.move.key;
     try {
-      const seasonalProfile = packet.yourPage.url
-        ? (seasonalProfileByFamily.get(pageFamilyOfUrl(packet.yourPage.url)) ?? null)
-        : null;
-      const opinions = attachOpinions(packet, { nowIso, seasonalProfile });
+      const opinions = attachOpinions(packet, { nowIso });
       const decision = routeMove({ packet, opinions, specialistWeight });
 
       // RANK-3: LIVE Google-results winnability check for existing-page moves

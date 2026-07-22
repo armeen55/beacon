@@ -31,7 +31,6 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { deriveAndPersistTenantConfig } from "@/domains/onboarding/launch-config";
 import { dispatchFirstScanForTenant } from "@/domains/onboarding/first-scan-dispatch";
 import { runInProcessColdStartScan } from "@/domains/scanning/in-process-scan";
-import { replenishReadyQueueForTenant } from "@/domains/ops/ready-queue-replenishment";
 import {
   generateStarterPrompts,
   type PromptDraft,
@@ -124,19 +123,11 @@ export async function executeLaunchTransaction(args: {
    *  brand-new tenant still gets real page inventory on first /today render.
    *  Failure-soft; bounded page/time caps. */
   coldStartScan?: typeof runInProcessColdStartScan;
-  /** 2026-07-21 (trigger-pipeline retirement) - injectable cold-start seeding.
-   *  After a cold-start scan writes inventory, the demand-graph ready-queue
-   *  lane (the SAME lane every later visit uses) prepares whatever the fresh
-   *  inventory can already support, so the first render is as full as the
-   *  engine can honestly make it. Anything it cannot rank yet arrives with
-   *  the first background cycle. Failure-soft. */
-  seedReadyQueue?: typeof replenishReadyQueueForTenant;
 }): Promise<LaunchTransactionOutcome> {
   const { admin, tenantId, now } = args;
   const persistConfig = args.persistConfig ?? deriveAndPersistTenantConfig;
   const dispatchFirstScan = args.dispatchFirstScan ?? dispatchFirstScanForTenant;
   const coldStartScan = args.coldStartScan ?? runInProcessColdStartScan;
-  const seedReadyQueue = args.seedReadyQueue ?? replenishReadyQueueForTenant;
 
   // 1. Fetch tenant row.
   const { data: tenant, error: tFetchErr } = await admin
@@ -381,31 +372,9 @@ export async function executeLaunchTransaction(args: {
             `snapshots=${cold.snapshotsWritten} source=${cold.source} ${cold.durationMs}ms)` +
             (cold.detail ? ` detail=${cold.detail}` : ""),
         );
-        // 2026-07-21 (trigger-pipeline retirement): a scan only writes
-        // pages/snapshots. Seed the ready queue through the demand-graph
-        // replenishment lane (the same lane every later visit runs) so the
-        // first render carries whatever the fresh inventory already
-        // supports; the rest arrives with the first background cycle.
-        // Failure-soft - never blocks launch.
-        if (cold.status === "scanned" && cold.snapshotsWritten > 0) {
-          try {
-            const seeded = await seedReadyQueue(tenant.id);
-            console.info(
-              `[onboard/review] cold-start ready-queue seed: ` +
-                `ready ${seeded.readyBefore}->${seeded.readyAfter} ` +
-                `prepared=${seeded.prepared} cached=${seeded.cached}` +
-                (seeded.skipped ? " (already at target)" : "") +
-                (seeded.readyAfter === 0
-                  ? "; first recommendations arrive with the first background cycle"
-                  : ""),
-            );
-          } catch (e) {
-            console.error(
-              "[onboard/review] cold-start ready-queue seed threw (launch unaffected):",
-              e instanceof Error ? e.message : e,
-            );
-          }
-        }
+        // Core 100K: the cold-start ready-queue seeding lane was retired. A scan writes
+        // pages/snapshots; the first on-visit surface rebuild prepares whatever the fresh
+        // inventory can support, so nothing extra is seeded here.
       } else {
         console.info(
           "[onboard/review] in-process cold-start scan skipped: no domain on tenant",

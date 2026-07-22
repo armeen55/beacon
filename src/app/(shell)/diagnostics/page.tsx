@@ -9,16 +9,15 @@ import { rollupConnectors, type ConnectorRollupFact } from "@/lib/connectors/reg
 import { getWixUrlMap } from "@/lib/connectors/wix/url-map";
 import { readBackfillProgress, isBackfillStalled } from "@/lib/connectors/gsc/deep-backfill";
 import { readLastWarmReceipt } from "@/domains/ops/warm-receipt-store";
-import { loadDeadmanVerdict } from "@/domains/ops/deadman-view";
 
 /**
  * Operator health page (2026-07-20 diagnostics amputation). The sprawling
  * /diagnostics web product (60+ operator dashboards) is gone; every deep route
  * now 404s. This one compact page is the whole operator-facing health surface:
- * connector rollup, GSC backfill, last warm pass, cron/site deadman, and a link
- * to the real connector controls under Settings. Read-only by design - the
- * on-use warm cycle already refreshes data and continues backfills, so there
- * is nothing here to trigger by hand.
+ * connector rollup, GSC backfill, last warm pass, and a link to the real
+ * connector controls under Settings. Read-only by design - the on-use warm
+ * cycle already refreshes data and continues backfills, so there is nothing
+ * here to trigger by hand.
  *
  * Operator-gated twice: once by the /diagnostics layout, and again inline here
  * because /settings/health re-exports this default and sits outside that layout.
@@ -94,23 +93,6 @@ async function loadWarmLine(tenantId: string): Promise<string> {
   }
 }
 
-async function loadDeadmanLine(tenantId: string): Promise<string> {
-  try {
-    const verdict = await loadDeadmanVerdict(tenantId);
-    if (verdict.alarm && verdict.sentences.length > 0) return verdict.sentences[0];
-    if (verdict.siteDown && verdict.siteSentence) return verdict.siteSentence;
-    const map: Record<string, string> = {
-      healthy: "I run background upkeep while you use Beacon, and site checks are healthy.",
-      waiting: "Background upkeep is waiting for its first on-use run.",
-      late: "Background upkeep is running behind but has not stalled.",
-      stalled: "Background upkeep has stalled. Check the receipts ledger.",
-    };
-    return map[verdict.overall] ?? "Cron health is unknown.";
-  } catch {
-    return "Could not read cron/site health right now.";
-  }
-}
-
 function Row({ label, value }: { label: string; value: string }) {
   return (
     <li className="flex flex-col gap-0.5 py-3">
@@ -124,11 +106,10 @@ export default async function OperatorHealthPage() {
   if (!isOperatorModeServer()) notFound();
 
   const tenantId = await currentTenantId();
-  const [connectors, backfill, warm, deadman] = await Promise.all([
+  const [connectors, backfill, warm] = await Promise.all([
     loadConnectorLine(),
     loadBackfillLine(tenantId),
     loadWarmLine(tenantId),
-    loadDeadmanLine(tenantId),
   ]);
 
   return (
@@ -143,7 +124,6 @@ export default async function OperatorHealthPage() {
           <Row label="Connectors" value={connectors} />
           <Row label="GSC backfill" value={backfill} />
           <Row label="Last warm pass" value={warm} />
-          <Row label="Cron / site" value={deadman} />
         </ul>
       </section>
 

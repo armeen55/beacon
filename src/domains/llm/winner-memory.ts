@@ -30,7 +30,7 @@ import "server-only";
 import { readStore, writeStore } from "@/lib/persistence/json-store";
 import { log } from "@/lib/logger";
 import { loadShippedChanges, type ShippedChangeRecord } from "@/domains/proof-gsc/shipped-change-store";
-import { actionFamilyOf, type ExperimentFamily } from "@/domains/experiments/experiment-eligibility";
+import { actionFamilyOf, type ExperimentFamily } from "@/domains/proof-gsc/change-family";
 import { deriveMeasurementMaturity } from "@/domains/proof-gsc/measurement-maturity";
 import { isCalibratedVerdict } from "@/domains/proof-gsc/verdict-calibration";
 import { classifyDraftPattern, aggregateWinsByPattern, bestConfidentPattern, patternInsightSentence, MIN_DECIDED_FOR_CONFIDENCE, PATTERN_LABEL, type DraftPatternId, type PatternOutcomeRow, type PatternCellTally } from "./draft-pattern";

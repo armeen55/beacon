@@ -443,12 +443,15 @@ describe("routeMove - N6: query-intent veto (byte-identical when the classifier 
   });
 
   it("downgrades (does not veto) add_answer_block when the intent mismatch is only probable", () => {
-    // label defaults to 'what' (weight 2); fanouts add two 'when' signals (weight 1 each) -> when
-    // share = 2/4 = 0.5, inside the probable-not-certain band (0.4 to 0.55) -> downgrade only.
+    // "when" leads but only just: 52 vs 48 impressions -> when share ~0.52, inside the
+    // probable-not-certain band (0.4 to 0.55) -> downgrade only, never a hard veto.
     const p = packet(
       "answer_block",
       { label: "nowruz traditions" },
-      { fanoutSeeds: ["when is nowruz", "nowruz date this year"] },
+      { queries: [
+        { query: "when is nowruz 2027", impressions: 52, source: "gsc" },
+        { query: "nowruz traditions", impressions: 48, source: "gsc" },
+      ] },
     );
     const d = routeMove({ packet: p, opinions: [] });
     expect(d.action).toBe("add_answer_block"); // not overridden - downgrade, not veto

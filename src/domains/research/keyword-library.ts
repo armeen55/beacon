@@ -10,7 +10,7 @@ import { readKeywordGapResults } from "@/domains/serp/keyword-gap-store";
 import { loadLatestSerpReadingsByQuery } from "@/domains/serp/serp-history";
 import { featureStealHistoryRows } from "@/domains/serp/serp-history";
 import { loadQuerySpikes } from "@/domains/trend-radar/spike-store";
-import { loadSeasonalQueries } from "@/domains/seasonal/seasonal-store";
+// The seasonal domain was removed; seasonal tagging is dropped (no seasonal queries surfaced).
 import { loadTopTenantQueriesWithOwner } from "@/domains/recommendation-intelligence/gsc-page-queries";
 import { currentTenantId } from "@/lib/tenant-context";
 import { getTenant } from "@/domains/tenants/store";
@@ -337,7 +337,8 @@ export async function loadKeywordLibraryForTenant(tenantId: string): Promise<Key
     loadLatestSerpReadingsByQuery(tenantId).catch(() => new Map()),
     featureStealHistoryRows(tenantId).catch(() => []),
     loadQuerySpikes(tenantId).catch(() => []),
-    loadSeasonalQueries(tenantId).catch(() => []),
+    // Seasonal domain removed: no seasonal queries to tag (empty, was an optional enrichment).
+    Promise.resolve<{ query: string }[]>([]),
   ]);
 
   const paaByQuery = new Map<string, { question: string }[]>();

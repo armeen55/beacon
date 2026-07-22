@@ -22,7 +22,11 @@ import {
 } from "@/domains/recommendation-intelligence/gsc-page-queries";
 import { getPageSnapshots } from "@/domains/pages/snapshot-store";
 import { loadChangePacksForTenant } from "@/domains/demand-graph/gap-compiler";
-import { normalizePath } from "@/domains/experiments/daily-plan-types";
+/** Path normalizer (inlined; the daily-experiment domain that owned it was removed). */
+function normalizePath(u: string | null | undefined): string {
+  if (!u) return "";
+  return ((u.replace(/^https?:\/\/[^/]+/i, "") || "/").replace(/[?#].*$/, "").replace(/\/+$/, "") || "/").toLowerCase();
+}
 import type { PageSnapshot } from "@/domains/pages/types";
 import type { RefreshCandidateRank } from "./decay-queue";
 import { buildRefreshBrief, type RefreshBrief, type LosingQuery } from "./refresh-brief";

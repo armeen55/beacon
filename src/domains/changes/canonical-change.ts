@@ -6,7 +6,6 @@
  * (status, evidence strength, effort, strategy ranking, goal filters). Internal concepts
  * (recommendation/draft/ActionPack/experiment/reservation/proof) never surface as separate workflows.
  */
-import { isActiveStatus, type DailyExperimentItemStatus } from "@/domains/experiments/execution-state";
 import type { ChangeDecision } from "./decide-action";
 
 export type CanonicalStatus =
@@ -236,7 +235,6 @@ export type StatusSignal = {
   proofStatus?: ProofSignal;
   alreadyMeasuring?: boolean;
   pageMeasuring?: boolean;
-  planItemStatus?: DailyExperimentItemStatus | null;
   selectedForToday?: boolean;
   preparedReady?: boolean;
   skipped?: boolean;
@@ -253,15 +251,8 @@ export function deriveStatus(sig: StatusSignal): CanonicalStatus {
   if (sig.proofStatus === "won" || sig.proofStatus === "no_lift" || sig.proofStatus === "no_clear_lift") return "result";
   // 2) live proof
   if (sig.proofStatus === "measuring" || sig.alreadyMeasuring) return "measuring";
-  // 3) execution stage (daily-plan item)
-  const item = sig.planItemStatus;
-  if (item) {
-    if (isActiveStatus(item)) return "measuring";
-    if (item === "verified_live" || item === "verification_pending" || item === "activation_pending") return "verify";
-    if (item === "skipped") return "skipped";
-    if (item === "ready_to_apply" || item === "verification_failed") return "apply"; // accepted, awaiting the Wix edit
-  }
-  // 4) a different change is mid-measurement on this page → not safe to act now
+  // (the daily-plan execution-stage branch was removed with the experiments domain, CORE 100K)
+  // 3) a different change is mid-measurement on this page → not safe to act now
   if (sig.pageMeasuring) return "blocked";
   // 5) selected into today's plan (preview) OR a prepared draft → ready (exact instructions exist)
   if (sig.selectedForToday || sig.preparedReady) return "ready";

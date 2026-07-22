@@ -50,32 +50,6 @@ async function reportStageError(action: string, e: unknown): Promise<void> {
   });
 }
 
-/** Stage ONE accepted daily-plan pick in Wix (the paste flow stays the fallback). */
-export async function stageDailyPickInWixAction(input: {
-  planId: string;
-  experimentId: string;
-  editedText?: string;
-}): Promise<StageInWixResult> {
-  if (!(await isOperatorModeServer())) return NOT_ALLOWED;
-  try {
-    const receipt = await stageChangeForRecord({
-      kind: "daily_pick",
-      planId: input.planId,
-      experimentId: input.experimentId,
-      editedText: input.editedText,
-    });
-    if (receipt.staged) {
-      revalidatePath("/changes");
-      revalidatePath("/");
-    }
-    return receipt;
-  } catch (e) {
-    await reportStageError("stage-daily-pick", e);
-    return failClosed(e);
-  }
-}
-
-/** Stage ONE worklist move in Wix (resolves the move to its pushable edit). */
 export async function stageMoveInWixAction(input: {
   moveId: string;
 }): Promise<StageInWixResult> {

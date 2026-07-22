@@ -20,8 +20,6 @@ import type { CanonicalChange } from "@/domains/changes/canonical-change";
 // Dossier honesty (2026-07-11) - name the zero-click trap plainly when this page's own numbers
 // show it, so the dossier never leaves it unexplained while the demand read sits right there.
 import { isZeroClickTrap, ZERO_CLICK_TRAP_REASON_GENERAL } from "@/domains/changes/zero-click-trap";
-import { getAcceptedPlan, getLatestPreviewPlan } from "@/domains/experiments/daily-experiment-plan-store";
-import type { PlannedExperimentRecord } from "@/domains/experiments/daily-plan-types";
 
 /**
  * page-dossier-data (BEACON_500 item 54, carry-over 87) - the "everything the team
@@ -46,9 +44,12 @@ export type DossierMove = {
   measurementHeadline: string | null;
 };
 
+/** Retired with the daily-experiment plan (Core 100K): the dossier no longer surfaces a
+ *  "planned pick" band, so `currentPlanPick` is always null. Kept on the type (and the
+ *  section's conditional) so the section self-hides rather than the consumer breaking. */
 export type DossierPlanPick = {
   id: string;
-  lever: PlannedExperimentRecord["lever"];
+  lever: string;
   targetQuery: string;
   whyNow: string;
   isAccepted: boolean;
@@ -133,8 +134,6 @@ async function loadDossierUncached(tenantId: string, path: string): Promise<Page
     slug,
     ledger,
     changesView,
-    acceptedPlan,
-    previewPlan,
   ] = await Promise.all([
     loadDailyClicksByPathsForTenant(tenantId, [path]).catch(() => new Map<string, DailyClicks[]>()),
     loadGscPageSignalsForTenant(tenantId).catch(() => new Map()),
@@ -142,8 +141,6 @@ async function loadDossierUncached(tenantId: string, path: string): Promise<Page
     currentTenantSlug().catch(() => ""),
     loadProofLedgerCached(tenantId).catch(() => [] as ShippedChangeRecord[]),
     loadChangesView().catch(() => null),
-    getAcceptedPlan(tenantId).catch(() => null),
-    getLatestPreviewPlan(tenantId).catch(() => null),
   ]);
 
   // GSC page signals are keyed by canonicalized full URL - find the one whose
@@ -192,31 +189,21 @@ async function loadDossierUncached(tenantId: string, path: string): Promise<Page
       }
     : null;
 
-  // Current plan pick: the accepted plan wins over a preview (mirrors changes-data's
-  // own accepted-over-preview precedence).
-  const plan = acceptedPlan ?? previewPlan;
-  const pick = plan?.selected.find((p) => matchesPath(p.canonicalUrl, path) || matchesPath(p.url, path)) ?? null;
-  const currentPlanPick: DossierPlanPick | null = pick
-    ? {
-        id: pick.id,
-        lever: pick.lever,
-        targetQuery: pick.targetQuery,
-        whyNow: pick.whyNow,
-        isAccepted: !!acceptedPlan,
-      }
-    : null;
+  // Current plan pick retired with the daily-experiment plan (Core 100K): the dossier's
+  // "current recommendation" now comes from the canonical Changes list alone.
+  const currentPlanPick: DossierPlanPick | null = null;
 
-  // Prefer the worklist/plan label when present (it may carry a richer name). Raw
-  // labels are often lowercase slug words ("cities") which read fine inline on a
-  // card but not as this page's headline, so title-case ONLY when the label has no
-  // uppercase at all; an already-curated label ("Cities of Iran") passes untouched.
-  const rawLabel = change?.pageLabel || pick?.pageLabel || labelFromPath(path);
+  // Prefer the worklist label when present (it may carry a richer name). Raw labels are
+  // often lowercase slug words ("cities") which read fine inline on a card but not as this
+  // page's headline, so title-case ONLY when the label has no uppercase at all; an
+  // already-curated label ("Cities of Iran") passes untouched.
+  const rawLabel = change?.pageLabel || labelFromPath(path);
   const pageLabel = /\p{Lu}/u.test(rawLabel) ? rawLabel : rawLabel.replace(/\b\p{Ll}/gu, (c) => c.toUpperCase());
 
   // Best-known full URL for the "visit the live page" link: GSC's own canonical
   // URL wins (it is Google's crawl of the real page), then whatever the worklist
-  // or plan already resolved, then the most recent shipped-change record.
-  const liveUrl = gscEntry?.page || change?.pageUrl || pick?.canonicalUrl || pick?.url || history[0]?.page || null;
+  // already resolved, then the most recent shipped-change record.
+  const liveUrl = gscEntry?.page || change?.pageUrl || history[0]?.page || null;
 
   const content = liveUrl ? await loadPageContentSnapshot(tenantId, liveUrl).catch(() => null) : null;
 

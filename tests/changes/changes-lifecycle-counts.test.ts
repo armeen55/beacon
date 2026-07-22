@@ -29,8 +29,6 @@ import {
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { buildScoreboard, type ScoreboardDay, type ScoreboardLedgerRow } from "@/domains/scoreboard/scoreboard";
-import { buildDailyExperimentDashboard } from "@/domains/experiments/daily-experiment-dashboard";
-import type { ShippedChangeRecord } from "@/domains/proof-gsc/shipped-change-store";
 
 // Registered at module-eval time (not beforeAll) because CANONICAL_MEASURING
 // below is derived at import time and must see calibrated fixtures as decided.
@@ -293,14 +291,6 @@ describe("measuring count - one source, every Lane A consumer agrees", () => {
     expect(s.measuringCount).toBe(CANONICAL_MEASURING);
   });
 
-  it("daily-experiment dashboard experimentCount == countLedgerLifecycle.measuring", () => {
-    const dash = buildDailyExperimentDashboard({
-      ledger: LEDGER as unknown as ShippedChangeRecord[],
-      now: NOW,
-    });
-    expect(dash.activeProofBatch?.experimentCount).toBe(CANONICAL_MEASURING);
-  });
-
   it("two-tenant isolation: a second tenant's larger ledger never bleeds into the first's count", () => {
     const tenantB = [...LEDGER, consumerRow("b-extra", "measuring", OPEN_WINDOWS), consumerRow("b-extra2", "measuring", OPEN_WINDOWS)];
     expect(countLedgerLifecycle(LEDGER, NOW).measuring).toBe(4);
@@ -312,7 +302,6 @@ describe("measuring count - one source, every Lane A consumer agrees", () => {
 describe("static guard - no displayed count derives from the raw verdict string", () => {
   const noRawMeasuring = [
     "src/domains/scoreboard/scoreboard.ts",
-    "src/domains/experiments/daily-experiment-dashboard.ts",
   ];
   for (const rel of noRawMeasuring) {
     it(`${rel} contains no verdict === "measuring"`, () => {

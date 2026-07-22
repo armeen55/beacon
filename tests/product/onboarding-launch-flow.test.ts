@@ -709,22 +709,11 @@ describe("executeLaunchTransaction — launch-time first scan (2026-06-11)", () 
       durationMs: 12,
       source: "sitemap" as const,
     }));
-    // 2026-07-21 (trigger-pipeline retirement) - after a successful cold-start
-    // scan the launch seeds the ready queue through the demand-graph
-    // replenishment lane. Inject a stub + assert it fires with the tenant id.
-    const seedStub = vi.fn(async () => ({
-      readyBefore: 0,
-      readyAfter: 3,
-      prepared: 3,
-      cached: 0,
-      skipped: false,
-    }));
     const r = await executeLaunchTransaction({
       admin: client as never,
       persistConfig: persistConfigStub,
       dispatchFirstScan: dispatchStub as never,
       coldStartScan: coldStartStub as never,
-      seedReadyQueue: seedStub as never,
       tenantId: PENDING_TENANT.id,
       now: FIXED_NOW,
     });
@@ -734,7 +723,6 @@ describe("executeLaunchTransaction — launch-time first scan (2026-06-11)", () 
       tenantId: PENDING_TENANT.id,
       domain: PENDING_TENANT.domain,
     });
-    expect(seedStub).toHaveBeenCalledWith(PENDING_TENANT.id);
   });
 
   it("a dispatch_failed GitHub scan ALSO falls back to the in-process crawl (audit-6 #5)", async () => {
@@ -752,19 +740,11 @@ describe("executeLaunchTransaction — launch-time first scan (2026-06-11)", () 
       durationMs: 9,
       source: "homepage" as const,
     }));
-    const seedStub = vi.fn(async () => ({
-      readyBefore: 0,
-      readyAfter: 0,
-      prepared: 0,
-      cached: 0,
-      skipped: false,
-    }));
     const r = await executeLaunchTransaction({
       admin: client as never,
       persistConfig: persistConfigStub,
       dispatchFirstScan: dispatchStub as never,
       coldStartScan: coldStartStub as never,
-      seedReadyQueue: seedStub as never,
       tenantId: PENDING_TENANT.id,
       now: FIXED_NOW,
     });
@@ -774,9 +754,6 @@ describe("executeLaunchTransaction — launch-time first scan (2026-06-11)", () 
       tenantId: PENDING_TENANT.id,
       domain: PENDING_TENANT.domain,
     });
-    // A seed that prepares nothing is still a success: the launch stays
-    // honest (first recommendations arrive with the first background cycle).
-    expect(seedStub).toHaveBeenCalledWith(PENDING_TENANT.id);
   });
 
   it("a FAILED launch never dispatches a scan", async () => {

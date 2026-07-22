@@ -77,13 +77,6 @@ import {
   SYNC_FAILURE_ESCALATION_MIN_STREAK,
 } from "@/domains/ops/refresh-runs-store";
 import {
-  recordCronRun,
-  beginCronRun,
-  finishCronRun,
-  listRecentCronRuns,
-  __testing as cronTesting,
-} from "@/domains/ops/cron-runs-store";
-import {
   hasWarmRunForDay,
   recordWarmRun,
   readLastWarmReceipt,
@@ -222,88 +215,6 @@ describe("deriveSyncFailureEscalation — 3-strike escalation (pure)", () => {
   });
 });
 
-// ── cron-runs ───────────────────────────────────────────────────────────────
-
-describe("cron-runs store — fail-soft + started-row lifecycle", () => {
-  it("isMissingTable matches 42P01, PGRST205, PGRST204, and schema-cache messages", () => {
-    expect(cronTesting.isMissingTable({ code: "42P01" })).toBe(true);
-    expect(cronTesting.isMissingTable({ code: "PGRST205" })).toBe(true);
-    expect(cronTesting.isMissingTable({ code: "PGRST204" })).toBe(true);
-    expect(cronTesting.isMissingTable({ message: "Could not find the table 'public.cron_runs'" })).toBe(true);
-    expect(cronTesting.isMissingTable({ code: "23505" })).toBe(false);
-    expect(cronTesting.isMissingTable(null)).toBe(false);
-  });
-
-  it("recordCronRun never throws without Supabase env and lands on the file mirror", async () => {
-    supabaseThrows = true;
-    await expect(
-      recordCronRun({
-        job: "sync-connectors",
-        startedAt: "2026-07-03T09:00:00.000Z",
-        finishedAt: "2026-07-03T09:01:00.000Z",
-        ok: true,
-        perSource: [],
-      }),
-    ).resolves.toBeUndefined();
-    expect(fileRows).toHaveLength(1);
-    expect(fileRows[0]!.job).toBe("sync-connectors");
-  });
-
-  it("begin INSERTS a running receipt (never a success) and finish UPDATES it in place", async () => {
-    const handle = await beginCronRun({ job: "sync-connectors", startedAt: "2026-07-12T09:00:00.000Z" });
-    expect(handle.storage).toBe("supabase");
-    expect(insertedRows[0]!.phase).toBe("running");
-    expect(insertedRows[0]!.ok).toBe(false);
-
-    await finishCronRun(handle, {
-      ok: true,
-      perSource: [{ tenantId: "tenant-a", provider: "google_gsc", ok: true, detail: "synced" }],
-      finishedAt: "2026-07-12T09:01:40.000Z",
-    });
-    expect(updatedRows).toHaveLength(1);
-    expect(updatedRows[0]!.phase).toBe("finished");
-    expect(updatedRows[0]!.ok).toBe(true);
-    expect(updatedRows[0]!.duration_ms).toBe(100_000);
-  });
-
-  it("begin/finish on the FILE mirror updates the same row (no duplicate started row left behind)", async () => {
-    supabaseThrows = true;
-    const handle = await beginCronRun({ job: "measure-due", startedAt: "2026-07-12T09:30:00.000Z" });
-    expect(handle.storage).toBe("file");
-    expect(fileRows).toHaveLength(1);
-    await finishCronRun(handle, {
-      ok: false,
-      perSource: [{ tenantId: "tenant-a", provider: "measure", ok: false, detail: "boom" }],
-      finishedAt: "2026-07-12T09:30:05.000Z",
-    });
-    expect(fileRows).toHaveLength(1);
-    expect(fileRows[0]!.phase).toBe("finished");
-    expect(fileRows[0]!.duration_ms).toBe(5_000);
-  });
-
-  it("listRecentCronRuns falls back to the file on a missing table and returns [] on weird errors", async () => {
-    forceError = { code: "42P01", message: "undefined_table" };
-    fileRows = [
-      {
-        id: "1",
-        tenant_id: null,
-        job: "sync-connectors",
-        started_at: "2026-07-03T09:00:00.000Z",
-        finished_at: "2026-07-03T09:01:00.000Z",
-        duration_ms: 60_000,
-        ok: true,
-        per_source: [],
-        notes: {},
-        created_at: "2026-07-03T09:01:00.000Z",
-      },
-    ];
-    expect(await listRecentCronRuns("sync-connectors")).toHaveLength(1);
-    forceError = { code: "23505", message: "weird" };
-    fileRows = [];
-    expect(await listRecentCronRuns("sync-connectors")).toEqual([]);
-  });
-});
-
 // ── warm receipts ───────────────────────────────────────────────────────────
 
 describe("warm-receipt store — run-marker idempotency", () => {
@@ -345,8 +256,7 @@ describe("warm-receipt store — run-marker idempotency", () => {
 });
 
 describe("store registration pins", () => {
-  it("refresh-runs and cron-runs are GLOBAL stores (fleet rows, tenant_id carried in-row)", () => {
+  it("refresh-runs is a GLOBAL store (fleet rows, tenant_id carried in-row)", () => {
     expect(classifyStore("refresh-runs")).toBe("global");
-    expect(classifyStore("cron-runs")).toBe("global");
   });
 });

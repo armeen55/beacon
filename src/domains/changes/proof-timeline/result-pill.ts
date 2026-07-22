@@ -28,7 +28,13 @@ import type {
   MeasurementDirection,
   MeasurementMaturity,
 } from "@/domains/proof-gsc/measurement-maturity";
-import type { LifecycleTabClass } from "@/domains/attribution/lifecycle-classification";
+type LifecycleTabClass =
+  | "live_verified"
+  | "pending_implementation"
+  | "needs_review"
+  | "imported_legacy"
+  | "scan_confirmed"
+  | "unclassified";
 import type { ImplementationStatus } from "@/domains/recommendations/recommended-edits-persistence";
 
 export type ProofPillKind =

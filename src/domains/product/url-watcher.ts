@@ -42,9 +42,9 @@ import { getChangelogEntries } from "@/lib/seed-data.server";
 import { currentTenantId } from "@/lib/tenant-context";
 import {
   materializeUrlOutcomes,
-  getUrlChangeOutcomes,
 } from "@/domains/attribution/url-change-outcome";
-import { materializeUrlChangePatterns } from "@/domains/learning/change-patterns";
+// The learning/change-patterns module (URL-level pattern brain) was removed; its rebuild step is
+// dropped below (patternsRebuilt reports 0), the rest of the URL-outcome pass is unaffected.
 
 export type UrlWatcherRunResult = {
   ran: boolean;
@@ -132,10 +132,9 @@ export async function runUrlWatcher(
       asOfDate: history.date_range.last ?? undefined,
     });
 
-    // 5. Rebuild the URL-level pattern brain from the updated outcome store.
-    // Groups by (edit_type_token × asset_type) so G5 can look up
-    // "how fast do similar changes typically land?" by pattern.
-    const urlPatterns = await materializeUrlChangePatterns(await getUrlChangeOutcomes());
+    // 5. (removed) The URL-level pattern brain (learning/change-patterns) was deleted; the
+    //    per-URL outcome store above is still written, but the pattern rebuild no longer runs.
+    const patternsRebuilt = 0;
 
     const durationMs = Date.now() - t0;
     const stats = {
@@ -144,7 +143,7 @@ export async function runUrlWatcher(
       outcomesProcessed: outcomesResult.processed,
       outcomesRecorded: outcomesResult.recorded,
       outcomeTransitions: outcomesResult.transitions,
-      patternsRebuilt: urlPatterns.length,
+      patternsRebuilt,
       durationMs,
     };
 

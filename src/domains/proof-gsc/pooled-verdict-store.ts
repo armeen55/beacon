@@ -19,7 +19,7 @@ import "server-only";
 
 import { readStore, writeStore } from "@/lib/persistence/json-store";
 import { log } from "@/lib/logger";
-import type { ExperimentFamily } from "@/domains/experiments/experiment-eligibility";
+import type { ExperimentFamily } from "@/domains/proof-gsc/change-family";
 
 /** The three honest outcomes a pooled batch verdict can take (formerly declared by the
  *  deleted pooled-verdict.ts estimator; the stored rows keep the same vocabulary). */

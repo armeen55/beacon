@@ -5,9 +5,11 @@
  * has ONE identity across preparation → execution → measurement → result. Genuinely different levers
  * on a page stay separate; duplicate representations of the SAME edit collapse (most-advanced wins).
  */
-import { normalizePath, type DailyExperimentPlanRecord, type ControlReservationRecord } from "@/domains/experiments/daily-plan-types";
-import { itemStatus, LEVER_TO_ACTION_TYPE } from "@/domains/experiments/execution-state";
-import { wixInstructions } from "@/domains/experiments/execution-checklist";
+// Path normalizer relocated from the retired experiments domain (CORE 100K).
+function normalizePath(u: string | null | undefined): string {
+  if (!u) return "";
+  return ((u.replace(/^https?:\/\/[^/]+/i, "") || "/").replace(/[?#].*$/, "").replace(/\/+$/, "") || "/").toLowerCase();
+}
 import { internalLinkRelevance } from "@/domains/evidence/relevance-gate";
 import { computeOpportunity, computeOpportunityFromGap, type OpportunityForecast } from "@/domains/forecast/opportunity-math";
 import { computeSiblingCtrBasis, SIBLING_MIN_IMPRESSIONS_28D, type SiblingPageStat } from "@/domains/forecast/sibling-ctr-basis";
@@ -99,77 +101,6 @@ function hashId(s: string): string {
   let h = 5381;
   for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) >>> 0;
   return h.toString(16);
-}
-
-/** A daily-plan selected item → CanonicalChange (today's picks; exact instructions + strong evidence). */
-function fromPlanItem(
-  tenantId: string,
-  plan: DailyExperimentPlanRecord,
-  e: DailyExperimentPlanRecord["selected"][number],
-): CanonicalChange {
-  const pagePath = normalizePath(e.url);
-  const changeType = LEVER_TO_ACTION_TYPE[e.lever];
-  const family = changeTypeFamily(changeType);
-  const status = deriveStatus({ planItemStatus: itemStatus(plan.execution, e.id), selectedForToday: true });
-  // Thread the real pagePath so the decision layer never mislabels an edit to an
-  // already-live page as "build a new page" (see decide-action.ts's resolveDecision).
-  const decision = decideChangeAction({ status, changeType, changeFamily: family, qualityDecision: "approved", pagePath }).decision;
-  const change: CanonicalChange = {
-    id: changeId(tenantId, pagePath, family),
-    tenantId,
-    pagePath,
-    pageUrl: e.canonicalUrl || e.url,
-    pageLabel: e.pageLabel,
-    opportunityType: opportunityLabel(e.lever === "answer_block" ? "citation" : "clicks"),
-    changeType,
-    changeFamily: family,
-    status,
-    recommendation: LEVER_RECOMMENDATION[e.lever] ?? "Apply this change",
-    exactInstructions: wixInstructions(e),
-    before: e.currentText || null,
-    after: e.proposedText || null,
-    rationale: `Selected for today: “${e.targetQuery}”. Beacon will measure it against ${e.controls.length} comparison pages.`,
-    estimatedEffortMinutes: e.effortMinutes,
-    impactScore: 500, // today's picks rank prominently within their status view
-    // D7: the plan pick already carries a numeric forecast from buildPickExpectations
-    // (pick-expectations.ts) - the SAME honest CTR-curve + correction-factor + empirical
-    // capture-band machinery opportunity-math.ts composes. `upside` is that range's midpoint,
-    // never a raw demand number (plan items never had one here).
-    upside:
-      e.expectations?.forecastLow != null && e.expectations?.forecastHigh != null
-        ? Math.round((e.expectations.forecastLow + e.expectations.forecastHigh) / 2)
-        : null,
-    expectedOutcome: e.expectations?.forecast ?? null,
-    expectedOutcomeLow: e.expectations?.forecastLow ?? null,
-    expectedOutcomeHigh: e.expectations?.forecastHigh ?? null,
-    // Plan picks always promise the 14-day read (see pick-expectations.ts's changeOurMind line,
-    // "If clicks do not move by the 14-day read...") - the same number, not a separate guess.
-    expectedOutcomeDays: e.expectations?.forecastLow != null ? 14 : null,
-    // Same deterministic id shape opportunity-math.ts uses (tenant+page+lever+day), so this plan
-    // pick's hypothesis can be logged the same way even though its range came from
-    // buildPickExpectations directly rather than a computeOpportunity() call.
-    hypothesisId: e.expectations?.forecastLow != null ? hashId(`${tenantId}|${pagePath}|${e.lever}|${new Date().toISOString().slice(0, 10)}`) : null,
-    riskLevel: "low",
-    evidenceStrength: "strong", // reserved diff-in-diff controls
-    measurementMethod: `Diff-in-diff vs ${e.controls.length} control pages`,
-    selectedForToday: true,
-    activeExperiment: status === "measuring",
-    protectedControl: false,
-    blockedReason: null,
-    result: null,
-    measurementHeadline: null, // plan items execute via the Daily panel, not proof yet
-    measurementDetail: null,
-    nextCheckpoint: null,
-    attributionLimited: false,
-    qualityDecision: "approved", // plan items already passed the Move-4 quality gate
-    qualityNote: null,
-    decision,
-    sourceIds: [e.id],
-    alternateOpportunities: [],
-  };
-  // A consolidate (merge) is advisory prose only; it must never carry paste-ready
-  // destructive instructions. Strip at this assembly boundary once the decision is known.
-  return stripInstructionsOnConsolidate(decision, change);
 }
 
 /** G8 (Wave 4, 2026-07-11) - the tenant's own sibling pool for sibling-ctr-basis.ts, built ONCE
@@ -401,23 +332,16 @@ const STATUS_RANK: Record<CanonicalStatus, number> = {
 export function buildCanonicalChanges(input: {
   tenantId: string;
   moves: CanonicalMoveInput[];
-  plan: DailyExperimentPlanRecord | null;
-  reservations: ControlReservationRecord[];
 }): CanonicalChange[] {
-  const controlPaths = new Set(input.reservations.filter((r) => r.status === "reserved" || r.status === "active").map((r) => normalizePath(r.controlPath)));
+  // The daily-plan + control-reservation sources were removed with the experiments
+  // domain (CORE 100K); canonical changes now come from the worklist moves alone.
+  const controlPaths = new Set<string>();
   const byId = new Map<string, CanonicalChange>();
   // G8 - this tenant's own sibling pool (see buildSiblingPool's doc): built once from the SAME
   // moves this one call already has, so a sibling can never cross the tenantId this call is for.
   const siblingPool = buildSiblingPool(input.moves);
 
-  // Plan items first: they own their page+lever identity (today's selection / execution truth).
-  if (input.plan) {
-    for (const e of input.plan.selected) {
-      const c = fromPlanItem(input.tenantId, input.plan, e);
-      byId.set(c.id, c);
-    }
-  }
-  // Moves next: collapse onto an existing id when present (keep the most-advanced lifecycle).
+  // Collapse onto an existing id when present (keep the most-advanced lifecycle).
   for (const m of input.moves) {
     const c = fromMove(input.tenantId, m, controlPaths, siblingPool);
     const prev = byId.get(c.id);

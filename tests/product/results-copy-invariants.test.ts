@@ -181,8 +181,6 @@ const FILES = [
   "page.tsx",
   "proof-ledger-client.tsx",
   "proof-summary-section.tsx",
-  "forecast-calibration-section.tsx",
-  "../../../domains/experiments/forecast-receipts.ts",
   "../changes/changes-v2-client.tsx",
 ] as const;
 

@@ -12,7 +12,7 @@
  * every render site formats it with monthDayLabel (src/components/data/receipt-line.ts).
  */
 import { addDays, proofCheckDates, PROOF_WINDOW_DAYS, type ProofWindowDay } from "./measure";
-import { GSC_LAG_DAYS } from "@/domains/experiments/experiment-eligibility";
+import { GSC_LAG_DAYS } from "@/domains/proof-gsc/change-family";
 import { splitLedgerLifecycle, type LedgerLifecycleRow } from "@/domains/changes/lifecycle-counts";
 
 /** The final proof window; a change reaches its earliest final verdict at ship + this. */

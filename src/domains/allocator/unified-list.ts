@@ -36,7 +36,11 @@ import {
 import type { PersistedGapVerdict } from "@/domains/demand-graph/teardown-commonality-verdict";
 import type { StealBrief } from "@/domains/serp/serp-steal-lane";
 import type { KeywordLibraryRow } from "@/domains/research/keyword-library";
-import { normalizePath } from "@/domains/experiments/daily-plan-types";
+/** Path normalizer (inlined; the daily-experiment domain that owned it was removed). */
+function normalizePath(u: string | null | undefined): string {
+  if (!u) return "";
+  return ((u.replace(/^https?:\/\/[^/]+/i, "") || "/").replace(/[?#].*$/, "").replace(/\/+$/, "") || "/").toLowerCase();
+}
 import { resolveOwner, type OwnershipRegistry } from "@/domains/ownership/registry";
 import type { OwnedCoverageMatch } from "@/domains/demand-graph/owned-coverage";
 import type { AeoEvidence } from "@/domains/demand-graph/profound-evidence-fusion";

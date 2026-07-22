@@ -80,8 +80,6 @@ function renderClient(over: {
   refreshLedger?: RefreshLedgerFacts;
   connectedCount?: number;
   totalCount?: number;
-  autonomousState?: "ok" | "working" | "issues" | "none";
-  autonomousHeadline?: string;
 } = {}): string {
   const tree = (
     <ConnectorsClient
@@ -97,8 +95,6 @@ function renderClient(over: {
       refreshLedger={over.refreshLedger}
       connectedCount={over.connectedCount}
       totalCount={over.totalCount}
-      autonomousState={over.autonomousState}
-      autonomousHeadline={over.autonomousHeadline}
     />
   ) as ReactElement;
   return renderToStaticMarkup(tree);
@@ -135,22 +131,6 @@ describe("GA4 card state machine", () => {
     expect(html).toContain("Choose a different property");
     expect(html).toContain("Disconnect");
     expect(html).not.toContain("Select a property to finish setup");
-  });
-
-  it("a proven dead login (auth_failed_at) leads with the first-person problem + value-naming fix", () => {
-    const html = renderClient({
-      ga4: connectedGa4({
-        last_synced_at: "2026-06-01T00:00:00.000Z",
-        auth_failed_at: "2026-07-01T00:00:00.000Z",
-      }),
-    });
-    expect(html).toContain('data-recovery-fix="token_expired"');
-    expect(html).toContain('data-recovery-problem="token_expired"');
-    expect(html).toContain("Your Google Analytics login expired.");
-    expect(html).toContain("Fix this:");
-    expect(html).toContain(
-      "Click Connect Google Analytics on the Connections page to bring your traffic and revenue numbers back.",
-    );
   });
 
   it("customer-vocab safety: no drove/caused/revenue/dollars/Mode-letters on the card", () => {
@@ -258,62 +238,27 @@ describe("self-serve key cards", () => {
 
 describe("summary strip health + the once-only publish fact", () => {
   it("renders 'N of M connected' with the health color following state", () => {
-    const none = renderClient({ connectedCount: 0, totalCount: 5, autonomousState: "none", autonomousHeadline: "starts when you use Beacon." });
+    const none = renderClient({ connectedCount: 0, totalCount: 5 });
     expect(none).toContain('data-connectors-summary-strip="true"');
     expect(none).toContain('data-intent="neutral"');
     expect(none).toContain("0 of 5 connected");
 
-    const all = renderClient({ connectedCount: 5, totalCount: 5, autonomousState: "ok", autonomousHeadline: "working." });
+    const all = renderClient({ connectedCount: 5, totalCount: 5 });
     expect(all).toContain('data-intent="live"');
     expect(all).toContain("5 of 5 connected");
-
-    const issues = renderClient({
-      connectedCount: 5,
-      totalCount: 5,
-      autonomousState: "issues",
-      autonomousHeadline: "1 connected source needs attention.",
-    });
-    expect(issues).toContain('data-intent="attention"');
-    expect(issues).toContain("Automatic upkeep: 1 connected source needs attention.");
   });
 
   it("states the never-auto-publish fact exactly once on the page", () => {
-    const html = renderClient({ connectedCount: 0, totalCount: 5, autonomousState: "none", autonomousHeadline: "starts when you use Beacon." });
+    const html = renderClient({ connectedCount: 0, totalCount: 5 });
     const matches = html.match(/never do on my own is change your live site/g) ?? [];
     expect(matches.length).toBe(1);
   });
 
   it("a connected source collapses to one <details> line with a Manage affordance", () => {
-    const html = renderClient({ google: on, connectedCount: 1, totalCount: 5, autonomousState: "ok", autonomousHeadline: "working." });
+    const html = renderClient({ google: on, connectedCount: 1, totalCount: 5 });
     expect(html).toContain("<details");
     expect(html).toContain('data-connector-card="google-gsc"');
     expect(html).toContain("Manage");
     expect(html).toContain("Disconnect Google");
-  });
-});
-
-describe("needs-attention escalation banner (refresh reliability)", () => {
-  it("an unproven-dead marker shows the honest dated banner, never 'login expired'", () => {
-    const html = renderClient({
-      ga4: connectedGa4({
-        needs_attention_at: "2026-07-11T00:00:00.000Z",
-        needs_attention_since: "2026-06-30T00:00:00.000Z",
-      }),
-    });
-    expect(html).toContain('data-recovery-fix="sync_failing"');
-    expect(html).toContain("This source has not synced in");
-    expect(html).toContain("I keep retrying, but it may need your attention.");
-    expect(html).not.toContain("login expired");
-  });
-
-  it("a PROVEN-dead grant still wins (token_expired) even when the marker is also set", () => {
-    const html = renderClient({
-      ga4: connectedGa4({
-        auth_failed_at: "2026-07-05T00:00:00.000Z",
-        needs_attention_at: "2026-07-11T00:00:00.000Z",
-        needs_attention_since: "2026-06-30T00:00:00.000Z",
-      }),
-    });
-    expect(html).toContain('data-recovery-fix="token_expired"');
   });
 });

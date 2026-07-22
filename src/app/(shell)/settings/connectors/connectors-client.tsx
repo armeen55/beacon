@@ -7,11 +7,6 @@ import { CONNECTOR_REGISTRY, type ConnectorRollup } from "@/lib/connectors/regis
 import type { Ga4Property } from "@/lib/connectors/ga4/types";
 import { Pill } from "@/components/ui/pill";
 import {
-  deriveConnectorFailureState,
-  recoveryForConnectorFailure,
-  type ConnectorKind as RecoveryConnectorKind,
-} from "@/domains/ops/recovery-actions";
-import {
   getGoogleAuthUrl,
   getGoogleGscConnectorStatus,
   getGoogleGa4ConnectorStatus,
@@ -37,9 +32,6 @@ import type { ConnectorSyncNowResult } from "./actions";
 type SelectedLocation = { id: string; name: string } | null;
 
 type LocationOption = { locationId: string; locationName: string; address: string | null };
-
-/** Real on-use lifecycle state for the summary strip. */
-export type AutonomousHealthState = "ok" | "working" | "issues" | "none";
 
 /**
  * 2026-05-16, GSC scope split: the Google card is GSC-focused for v1.
@@ -109,9 +101,6 @@ type Props = {
    *  render-test callers keep working; when absent the strip falls back to the
    *  bare connected count. */
   rollup?: ConnectorRollup;
-  /** Plain-English state derived from durable on-use source + warm receipts. */
-  autonomousState?: AutonomousHealthState;
-  autonomousHeadline?: string;
   /** T0b (2026-07-03), how many pages Wix's url map currently covers.
    *  Computed server-side in page.tsx from getWixUrlMap().length. A
    *  connected-but-zero-mapped Wix can't publish anything, this drives the
@@ -216,16 +205,6 @@ function formatDate(iso: string | null): string {
   }
 }
 
-/**
- * T0b (BEACON_500, 2026-07-03) - the ONE fix line every unhealthy connector
- * card shows, sourced from the shared recovery map (recovery-actions.ts) so
- * this card, the cron health panel, and Today's data-pipe alert can never
- * disagree on the fix for the same broken connector. Self-hides when the
- * connector is healthy (derive returns null). GSC keeps its own richer
- * readiness block (gscReadiness) below this - this line still renders for
- * GSC so a proven auth failure or long-stale sync gets the same words as
- * every other card, even though GSC also shows the deeper property detail.
- */
 /** Friendly "Jul 8" for a YYYY-MM-DD source data date. Null-safe. */
 function formatDataDate(ymd?: string | null): string | null {
   if (!ymd) return null;
@@ -277,101 +256,6 @@ function RefreshLedgerLine({ fact }: { fact?: RefreshLedgerFact }) {
   );
 }
 
-/** Friendly "June 30" for the needs-attention "since <date>" copy. Falls back
- *  to null (date-free wording) on an empty/invalid value. */
-function formatSinceDate(iso?: string | null): string | null {
-  if (!iso) return null;
-  const ms = Date.parse(iso);
-  if (!Number.isFinite(ms)) return null;
-  try {
-    return new Date(ms).toLocaleDateString("en-US", {
-      month: "long",
-      day: "numeric",
-      timeZone: "UTC",
-    });
-  } catch {
-    return null;
-  }
-}
-
-function ConnectorFixLine({
-  connector,
-  status,
-  authFailedAt,
-  needsAttentionAt,
-  needsAttentionSince,
-  lastSyncedAt,
-  missingRequiredSelection,
-  className,
-}: {
-  connector: RecoveryConnectorKind;
-  status: "connected" | "disconnected";
-  authFailedAt?: string | null;
-  needsAttentionAt?: string | null;
-  needsAttentionSince?: string | null;
-  lastSyncedAt?: string | null;
-  missingRequiredSelection?: boolean;
-  /** Extra classes for the root; applied only when the line actually renders,
-   *  so a healthy connector shows nothing (no empty bordered strip). */
-  className?: string;
-}) {
-  // Never-connected is each card's own "Connect" button state (already
-  // rendered); this line only speaks up for a CONNECTED card that has gone
-  // unhealthy, so it never duplicates the bare not-connected copy.
-  if (status !== "connected") return null;
-  const state = deriveConnectorFailureState(
-    { status, authFailedAt, needsAttentionAt, lastSyncedAt, missingRequiredSelection },
-    new Date(),
-  );
-  if (state == null || state === "never_connected") return null;
-  const action = recoveryForConnectorFailure(connector, state);
-  if (action == null) return null;
-  // A proven dead login is more urgent than a stale sync: lead with the honest
-  // first-person problem ("Your GA4 login expired.") so the operator SEES which
-  // connector broke and why, then the exact reconnect fix. A merely-stale sync
-  // stays a single soft "Fix this" line (no alarming problem sentence).
-  // ("token_revoked" was removed 2026-07-09; expired covers both cases.)
-  const isDeadLogin = state === "token_expired";
-  // BUG 2: the escalation state leads with the honest, non-accusatory dated
-  // sentence (the grant is NOT proven dead, so we never say "login expired").
-  const isSyncFailing = state === "sync_failing";
-  const since = formatSinceDate(needsAttentionSince);
-  // Streak escalation (2026-07-20): lead with the day count when we can compute
-  // it from the last good sync, so the operator sees exactly how long it has been
-  // silent. Fall back to the dated phrasing when there is no usable since date.
-  const sinceMs = needsAttentionSince ? Date.parse(needsAttentionSince) : NaN;
-  const daysStale = Number.isFinite(sinceMs)
-    ? Math.max(0, Math.floor((Date.now() - sinceMs) / 86_400_000))
-    : null;
-  const syncFailingProblem =
-    daysStale != null
-      ? `This source has not synced in ${daysStale} day${daysStale === 1 ? "" : "s"}. I keep retrying, but it may need your attention.`
-      : since
-        ? `I have not been able to pull your data since ${since}. Reconnecting usually fixes this.`
-        : "I have not been able to pull your data for several days. Reconnecting usually fixes this.";
-  return (
-    <div
-      role="status"
-      data-recovery-fix={state}
-      className={className ? `${className} space-y-0.5` : "space-y-0.5"}
-    >
-      {isDeadLogin ? (
-        <p className="text-[12px] font-medium text-status-danger" data-recovery-problem={state}>
-          {action.plainProblem}
-        </p>
-      ) : null}
-      {isSyncFailing ? (
-        <p className="text-[12px] font-medium text-status-warning" data-recovery-problem={state}>
-          {syncFailingProblem}
-        </p>
-      ) : null}
-      <p className="text-[12px] text-status-warning">
-        <span className="font-semibold">Fix this:</span> {action.exactFix}
-      </p>
-    </div>
-  );
-}
-
 export function ConnectorsClient({
   google: initialGoogle,
   googleSelectedLocation: initialSelectedLocation,
@@ -385,8 +269,6 @@ export function ConnectorsClient({
   connectedCount = 0,
   totalCount = CONNECTOR_REGISTRY.length,
   rollup,
-  autonomousState = "none",
-  autonomousHeadline = "starts when you use Beacon.",
   wixUrlMapCount = 0,
   refreshLedger = {},
 }: Props) {
@@ -878,13 +760,11 @@ export function ConnectorsClient({
   // source that is NOT delivering data (needs attention) is an "attention"
   // state, never "live" - the certified leak was a green "4 of 4" hiding a
   // broken GA4 ingest + a blocked Wix publish. All connected AND all delivering
-  // AND upkeep clean is "live"; still-missing sources are "waiting"; nothing
-  // connected yet is "neutral".
+  // is "live"; still-missing sources are "waiting"; nothing connected yet is
+  // "neutral".
   const summaryIntent =
-    autonomousState === "issues" || needsAttention > 0
+    needsAttention > 0
       ? "attention"
-      : autonomousState === "working"
-        ? "waiting"
       : connected >= total && connected > 0
         ? "live"
         : connected > 0
@@ -904,9 +784,6 @@ export function ConnectorsClient({
         data-connectors-summary-strip="true"
       >
         <Pill intent={summaryIntent}>{rollupHeadline}</Pill>
-        <p className="text-[12px] text-muted-foreground">
-          Automatic upkeep: {autonomousHeadline}
-        </p>
       </div>
       {/* Honest subline (2026-07-20) - never undercounts the impaired sources;
           same rollup as the headline Pill, so the two can never disagree. */}
@@ -1109,20 +986,6 @@ export function ConnectorsClient({
             </div>
           ) : null}
 
-          {/* BUG 2 (2026-07-11): the shared recovery fix line. Renders the
-              proven-dead reconnect prompt AND the bounded needs-attention
-              escalation ("I have not been able to pull your data since <date>")
-              for GSC, with the same words every other card uses. Self-hides when
-              the connection is healthy (no empty bordered strip). */}
-          <ConnectorFixLine
-            connector="google_gsc"
-            status={google.status}
-            authFailedAt={google.auth_failed_at}
-            needsAttentionAt={google.needs_attention_at}
-            needsAttentionSince={google.needs_attention_since}
-            lastSyncedAt={google.last_synced_at}
-            className="border-t border-border/40 px-5 py-3"
-          />
 
           {/* ── Location picker (Google connected), GBP only ── */}
           {GBP_AFFORDANCES_ENABLED ? (
@@ -1286,16 +1149,6 @@ export function ConnectorsClient({
                 Connected, select a property to finish setup.
               </p>
             )}
-            {ga4.ga4_property_id ? (
-              <ConnectorFixLine
-                connector="google_ga4"
-                status={ga4.status}
-                authFailedAt={ga4.auth_failed_at}
-                needsAttentionAt={ga4.needs_attention_at}
-                needsAttentionSince={ga4.needs_attention_since}
-                lastSyncedAt={ga4.last_synced_at}
-              />
-            ) : null}
             {ga4.ga4_property_id ? (
               <RefreshLedgerLine fact={refreshLedger.ga4} />
             ) : null}
@@ -1617,11 +1470,6 @@ export function ConnectorsClient({
             <p className="text-[12px] text-muted-foreground">
               Authorized {formatDate(clarity.connected_at)}
             </p>
-            <ConnectorFixLine
-              connector="clarity"
-              status={clarity.status}
-              lastSyncedAt={clarity.last_synced_at}
-            />
             <RefreshLedgerLine fact={refreshLedger.clarity} />
             {claritySyncResult ? (
               <p

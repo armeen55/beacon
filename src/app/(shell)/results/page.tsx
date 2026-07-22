@@ -18,7 +18,6 @@ import { gscLagStatus, isDueForMeasure } from "@/domains/proof-gsc/measure-lifec
 import {
   buildMeasurementPresentation,
   detectMeasurementOverlaps,
-  directionOf,
   measurementWindowOf,
   type MeasurementPresentation,
 } from "@/domains/proof-gsc/measurement-maturity";
@@ -33,29 +32,17 @@ import { loadDetectedChangepoints } from "@/domains/proof-gsc/algorithm-weather-
 // verbatim, so if both fire, only one sentence shows). Self-hides when the ledger is empty.
 import { eventCaveatForWindow, eventReliabilityFlagsForWindow } from "@/domains/events/external-event-ledger";
 import { loadExternalEvents } from "@/domains/events/external-event-store";
-import { attachSeasonalInflectionForLedger } from "@/domains/seasonal/attach-seasonal-inflection";
 import { attachRecrawlClockForLedger } from "@/domains/proof-gsc/attach-recrawl-clock";
 import { attachControlContaminationForLedger, type ContaminationAttachment } from "@/domains/proof-gsc/attach-control-contamination";
 import type { SparkPoint } from "@/components/data/sparkline";
 import { loadActionPackWorklistForTenant } from "@/domains/action-pack/load";
 import { linkProofRowsToActionPacks, type ProofLink } from "@/domains/action-pack/proof-linker";
 import { ProofSummarySection } from "./proof-summary-section";
-import { ForecastCalibrationSection } from "./forecast-calibration-section";
 import { PooledVerdictSection } from "./pooled-verdict-section";
-import { loadCalibrationRecords, type CalibrationRecord } from "@/domains/experiments/forecast-calibration-store";
 import { computeOutcomePriorDiagnostics } from "@/domains/recommendation-intelligence/outcome-prior";
 import { getOwnedAnswerAlignmentsBatch, type OwnedAlignmentRequest, type PersistedAnswerAlignment } from "@/domains/ai-visibility/answer-alignment-store";
 import type { ShippedChangeRecord } from "@/domains/proof-gsc/shipped-change-store";
 import { presentationVerdictFor } from "./proof-badge";
-import {
-  findExistingRevertRecord,
-  hasRevertNote,
-  isRevertRecord,
-  liftLabelFor,
-  resolveRevertSource,
-} from "@/domains/autopilot/run-revert";
-import { decideRevert, type RevertDecision } from "@/domains/autopilot/revert-policy";
-import { getAutopilotConfig } from "@/domains/autopilot/autopilot-store";
 import {
   RecomputeLedgerButton,
   RecordAnyPageForm,
@@ -131,7 +118,7 @@ export default async function ProofPage({
   const tenantId = await currentTenantId();
   perfStage("tenant-resolve", tResolve);
   // The ledger is the ONE read needed to paint Results. Connection health,
-  // action packs, GSC finalization, calibration, and operator mode feed later
+  // action packs, GSC finalization, and operator mode feed later
   // banners/cards only. Start them in parallel but do not await them here, so a
   // 15-second side dependency can never delay the header or ledger shell.
   const initialContext = loadResultsInitialContext(tenantId);
@@ -186,7 +173,7 @@ export default async function ProofPage({
   // deadline; see loadResultsSideReads below) but NOT awaited: the header, honest
   // banners, and record form paint first, and the sections that need these reads
   // (the cumulative strip, the proof summary, and the measured-outcomes board with
-  // its revert offers / alignment / contamination caveats) each await the SAME
+  // its alignment receipts / contamination caveats) each await the SAME
   // promise inside their own Suspense boundary.
   const sideReads = loadResultsSideReads(
     tenantId,
@@ -251,12 +238,6 @@ export default async function ProofPage({
         <ProofSummaryStream ledger={ledger} sideReads={sideReads} />
       </Suspense>
 
-      {/* Item 27 - the promise ledger: forecast vs delivered, reconciled monthly. Sibling to the
-          summary above; self-hides until at least 3 picks have settled at their 28-day window. */}
-      <Suspense fallback={null}>
-        <BoundedSection render={() => ForecastCalibrationSection()} />
-      </Suspense>
-
       {/* Item 34 - pooled batch verdict: when a same-plan same-lever batch of 3+ pages has
           measured reads, one confident "as a group" line above the per-page rows below.
           Self-hides otherwise. */}
@@ -265,7 +246,7 @@ export default async function ProofPage({
       </Suspense>
 
       {/* ── Measured outcomes (shipped changes being tracked vs controls) ──
-          W2-B: the cards board (with its revert offers, alignment receipts, and
+          W2-B: the cards board (with its alignment receipts and
           contamination caveats) streams inside its own Suspense boundary so the
           header + summary above paint first. The fallback is row-shaped honest
           loading copy, so the settle does not shift the layout. */}
@@ -334,15 +315,14 @@ export default async function ProofPage({
  * fail-soft fallback. */
 async function loadResultsInitialContext(tenantId: string) {
   const tContext = perfMark();
-  const [connHealth, worklist, latestGscDate, calibrationRecords, isOperator] = await Promise.all([
+  const [connHealth, worklist, latestGscDate, isOperator] = await Promise.all([
     valueWithDeadline(loadConnectionHealth(tenantId).catch(() => []), [], SIDE_READ_DEADLINE_MS),
     valueWithDeadline(loadActionPackWorklistForTenant(tenantId).catch(() => null), null, SIDE_READ_DEADLINE_MS),
     valueWithDeadline(readLastFinalizedDate(tenantId).catch(() => null), null, SIDE_READ_DEADLINE_MS),
-    valueWithDeadline(loadCalibrationRecords(tenantId).catch(() => [] as CalibrationRecord[]), [] as CalibrationRecord[], SIDE_READ_DEADLINE_MS),
     valueWithDeadline(Promise.resolve().then(() => isOperatorModeServer()).catch(() => false), false, SIDE_READ_DEADLINE_MS),
   ]);
   perfStage("results-streamed-context", tContext);
-  return { connHealth, worklist, latestGscDate, calibrationRecords, isOperator };
+  return { connHealth, worklist, latestGscDate, isOperator };
 }
 
 type ResultsInitialContext = Awaited<ReturnType<typeof loadResultsInitialContext>>;
@@ -463,17 +443,14 @@ async function MeasuredOutcomesContextStream({
   tenantId: string;
   initialContext: Promise<ResultsInitialContext>;
 }) {
-  const { latestGscDate, isOperator, worklist, calibrationRecords } = await initialContext;
-  const calibrationByProofId = new Map(calibrationRecords.map((r) => [r.proofId, r] as const));
+  const { latestGscDate, worklist } = await initialContext;
   return (
     <MeasuredOutcomesBoard
       sideReads={sideReads}
       ledger={ledger}
       latestGscDate={latestGscDate}
       tenantId={tenantId}
-      isOperator={isOperator}
       worklist={worklist}
-      calibrationByProofId={calibrationByProofId}
     />
   );
 }
@@ -583,14 +560,9 @@ function loadResultsSideReads(
     .then((cps) => buildShockWindows({ dailySeries: [], priorChangepoints: cps }))
     .catch(() => [] as ShockWindow[]);
   const externalEvents = valueWithDeadline(loadExternalEvents(tenantId).catch(() => []), [], SIDE_READ_DEADLINE_MS);
-  const seasonalInflectionById = valueWithDeadline(
-    attachSeasonalInflectionForLedger(
-      tenantId,
-      ledger.map((l) => ({ id: l.id, path: l.path, shippedAt: l.shippedAt, windows: l.windows ?? [] })),
-    ).catch(() => new Map()),
-    new Map(),
-    SIDE_READ_DEADLINE_MS,
-  );
+  // Seasonal inflection was removed with the seasonal domain (CORE 100K); the
+  // ledger no longer annotates rows with a seasonal-demand caveat.
+  const seasonalInflectionById = Promise.resolve(new Map());
   const recrawlClockById = valueWithDeadline(
     attachRecrawlClockForLedger(
       tenantId,
@@ -695,26 +667,22 @@ function MeasuredOutcomesFallback({ rowCount }: { rowCount: number }) {
 /**
  * W2-B (2026-07-10) - the streamed measured-outcomes board: awaits the shared
  * side-read batch, then builds the per-row presentation (maturity, caveats,
- * grades), the operator revert offers, and the three lifecycle bands - everything
- * that used to block the whole page before the header could paint. Content and
- * behavior are unchanged; only WHERE the awaiting happens moved.
+ * grades) and the three lifecycle bands - everything that used to block the
+ * whole page before the header could paint. Content and behavior are
+ * unchanged; only WHERE the awaiting happens moved.
  */
 async function MeasuredOutcomesBoard({
   sideReads,
   ledger,
   latestGscDate,
   tenantId,
-  isOperator,
   worklist,
-  calibrationByProofId,
 }: {
   sideReads: ResultsSideReadHandles;
   ledger: ShippedChangeRecord[];
   latestGscDate: string | null;
   tenantId: string;
-  isOperator: boolean;
   worklist: Awaited<ReturnType<typeof loadActionPackWorklistForTenant>> | null;
-  calibrationByProofId: Map<string, CalibrationRecord>;
 }) {
   // AMPUTATION P3 L2 - the per-card board legitimately needs every field, so it
   // awaits them together; the handles were all started eagerly at call time so this
@@ -758,8 +726,7 @@ async function MeasuredOutcomesBoard({
           // uncalibrated won/lost yields exactly the neutral presentation a
           // mature inconclusive row gets - headline, Search line, tone, and the
           // grade sentence all read neutral, never "This helped." or "Likely
-          // helping (high confidence)". The stored verdict is untouched; the
-          // revert-offer brake below reads the RAW verdict on purpose.
+          // helping (high confidence)". The stored verdict is untouched.
           verdict: presentationVerdictFor(l),
           controlsUsed: basisWin?.controlsUsed ?? 0,
           baselineImpressions: l.baseline?.impressions ?? 0,
@@ -920,73 +887,6 @@ async function MeasuredOutcomesBoard({
   // below only gets a small "seasonal swing overlaps" chip.
   const seasonalCount = ledger.filter((l) => presById.get(l.id)?.seasonalInflectionFlagged).length;
 
-  // Item 11 - one-click restore offers for rows that are measuring negative
-  // (7/14/28 day reads). The shared revert policy only ever proposes (E-36:
-  // never auto-revert, ask first); the snapshot lookup is bounded to the
-  // first few negatives. Rows already restored are badged instead.
-  // Operator-only (the action re-gates anyway).
-  const revertById = new Map<string, RevertDecision>();
-  const restoredIds = new Set(ledger.filter((l) => hasRevertNote(l)).map((l) => l.id));
-  if (isOperator) {
-    // Quarantine exception (review fix 1): the revert OFFER is a protective
-    // brake, so its direction reads the RAW stored verdict (directionOf), not
-    // the calibration-aware presentation above - the quarantine removes unearned
-    // trust in wins, it must never remove caution on a possible loss.
-    const negativeRows = ledger
-      .filter((l) => {
-        const p = presById.get(l.id);
-        return (
-          !!p &&
-          directionOf(l.verdict) === "negative" &&
-          (p.basisDay ?? 0) >= 7 &&
-          !isRevertRecord(l) &&
-          !hasRevertNote(l) &&
-          findExistingRevertRecord(ledger, l) == null
-        );
-      })
-      .slice(0, 6);
-    if (negativeRows.length > 0) {
-      // W2-A - up to 6 sequential snapshot lookups; bounded as ONE unit so a wedged
-      // read costs at most one deadline, not one per row. On a timeout the restore
-      // offers simply don't show this visit - the rows themselves still render.
-      const offers = await valueWithDeadline(
-        (async () => {
-          // W2-B (2026-07-10) - the autopilot config + every row's snapshot lookup
-          // are independent reads; run them as ONE parallel batch instead of the
-          // old per-row sequential await chain (up to 6 snapshot reads back to
-          // back). Each snapshot read keeps its own fail-soft `.catch(() => null)`.
-          const [autopilotConfig, sources] = await Promise.all([
-            getAutopilotConfig().catch(() => null),
-            Promise.all(negativeRows.map((rec) => resolveRevertSource(tenantId, rec).catch(() => null))),
-          ]);
-          const out: Array<readonly [string, RevertDecision]> = [];
-          negativeRows.forEach((rec, i) => {
-            const p = presById.get(rec.id)!;
-            const source = sources[i];
-            const decision = decideRevert({
-              tenantId,
-              // Same brake rule as the filter above: raw stored direction.
-              direction: directionOf(rec.verdict),
-              windowDay: p.basisDay,
-              attributionQuality: p.attributionQuality,
-              lever: rec.actionType,
-              config: autopilotConfig,
-              snapshotAvailable: source != null,
-              alreadyReverted: false,
-              now: new Date(),
-              liftLabel: liftLabelFor(rec),
-            });
-            if (decision.action !== "none") out.push([rec.id, decision] as const);
-          });
-          return out;
-        })(),
-        [],
-        SIDE_READ_DEADLINE_MS,
-      );
-      for (const [id, decision] of offers) revertById.set(id, decision);
-    }
-  }
-
   // Phase 4 - deterministic ActionPack↔proof linker (pure, no migration). Each
   // shipped change is traced back to the Move that recommended it (or honestly
   // labelled manual/legacy). Measurement math is untouched.
@@ -1050,7 +950,7 @@ async function MeasuredOutcomesBoard({
           <p className="mt-0.5 text-[11px] text-muted-foreground">
             These changes beat their comparison pages over the full window. Real lifts, measured.
           </p>
-          <LedgerRowGroup rows={winRows} band="win" linkByRowId={linkByRowId} presById={presById} compoundById={compoundById} gradeById={gradeById} eventCaveatById={eventCaveatById} sparkByPath={sparkByPath} controlSparkByPath={controlSparkByPath} revertById={revertById} restoredIds={restoredIds} calibrationByProofId={calibrationByProofId} ownedAlignmentByRecId={ownedAlignmentByRecId} />
+          <LedgerRowGroup rows={winRows} band="win" linkByRowId={linkByRowId} presById={presById} compoundById={compoundById} gradeById={gradeById} eventCaveatById={eventCaveatById} sparkByPath={sparkByPath} controlSparkByPath={controlSparkByPath} ownedAlignmentByRecId={ownedAlignmentByRecId} />
         </div>
       ) : null}
 
@@ -1063,7 +963,7 @@ async function MeasuredOutcomesBoard({
           <p className="mt-0.5 text-[11px] text-muted-foreground">
             These changes did not move the number, and that teaches us which lever to try next on pages like these.
           </p>
-          <LedgerRowGroup rows={learningRows} band="learning" linkByRowId={linkByRowId} presById={presById} compoundById={compoundById} gradeById={gradeById} eventCaveatById={eventCaveatById} sparkByPath={sparkByPath} controlSparkByPath={controlSparkByPath} revertById={revertById} restoredIds={restoredIds} calibrationByProofId={calibrationByProofId} ownedAlignmentByRecId={ownedAlignmentByRecId} />
+          <LedgerRowGroup rows={learningRows} band="learning" linkByRowId={linkByRowId} presById={presById} compoundById={compoundById} gradeById={gradeById} eventCaveatById={eventCaveatById} sparkByPath={sparkByPath} controlSparkByPath={controlSparkByPath} ownedAlignmentByRecId={ownedAlignmentByRecId} />
         </div>
       ) : null}
 
@@ -1081,7 +981,7 @@ async function MeasuredOutcomesBoard({
             </div>
             <span className="text-[10px] text-muted-foreground">Nothing to do until a read lands</span>
           </div>
-          <LedgerRowGroup rows={closestInFlightRows} band="inflight" linkByRowId={linkByRowId} presById={presById} compoundById={compoundById} gradeById={gradeById} eventCaveatById={eventCaveatById} sparkByPath={sparkByPath} controlSparkByPath={controlSparkByPath} revertById={revertById} restoredIds={restoredIds} ownedAlignmentByRecId={ownedAlignmentByRecId} />
+          <LedgerRowGroup rows={closestInFlightRows} band="inflight" linkByRowId={linkByRowId} presById={presById} compoundById={compoundById} gradeById={gradeById} eventCaveatById={eventCaveatById} sparkByPath={sparkByPath} controlSparkByPath={controlSparkByPath} ownedAlignmentByRecId={ownedAlignmentByRecId} />
           {laterInFlightRows.length > 0 ? (
             <details className="mt-3 rounded-xl border border-border-subtle bg-surface-raised px-3 py-2.5">
               <summary className="cursor-pointer text-[12px] font-medium text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1">
@@ -1090,7 +990,7 @@ async function MeasuredOutcomesBoard({
               <p className="mt-1 text-[10px] text-muted-foreground">
                 These are healthy and still collecting data. They are hidden by default so the nearest decisions stay clear.
               </p>
-              <LedgerRowGroup rows={laterInFlightRows} band="inflight" linkByRowId={linkByRowId} presById={presById} compoundById={compoundById} gradeById={gradeById} eventCaveatById={eventCaveatById} sparkByPath={sparkByPath} controlSparkByPath={controlSparkByPath} revertById={revertById} restoredIds={restoredIds} ownedAlignmentByRecId={ownedAlignmentByRecId} />
+              <LedgerRowGroup rows={laterInFlightRows} band="inflight" linkByRowId={linkByRowId} presById={presById} compoundById={compoundById} gradeById={gradeById} eventCaveatById={eventCaveatById} sparkByPath={sparkByPath} controlSparkByPath={controlSparkByPath} ownedAlignmentByRecId={ownedAlignmentByRecId} />
             </details>
           ) : null}
         </div>

@@ -14,7 +14,11 @@
  * beside the other hint families in build-today-preview.ts.
  */
 
-import { normalizePath } from "@/domains/experiments/daily-plan-types";
+/** Path normalizer (inlined; the daily-experiment domain that owned it was removed). */
+function normalizePath(u: string | null | undefined): string {
+  if (!u) return "";
+  return ((u.replace(/^https?:\/\/[^/]+/i, "") || "/").replace(/[?#].*$/, "").replace(/\/+$/, "") || "/").toLowerCase();
+}
 import type { FunnelReport, FunnelStage } from "@/domains/ai-visibility/crawl-citation-funnel";
 import { scorePageCitability, type CitabilityScore } from "./citability-score";
 import type { CitationPatternBucket } from "./pattern-classifier";

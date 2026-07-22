@@ -34,10 +34,6 @@ vi.mock("@/domains/proof-gsc/load-ledger", () => ({
 vi.mock("@/app/(shell)/changes-data", () => ({
   loadChangesView: vi.fn(async () => null),
 }));
-vi.mock("@/domains/experiments/daily-experiment-plan-store", () => ({
-  getAcceptedPlan: vi.fn(async () => null),
-  getLatestPreviewPlan: vi.fn(async () => null),
-}));
 
 import { loadPageDossier, pathFromSegments, labelFromPath } from "@/app/(shell)/page/[...path]/page-dossier-data";
 import { loadDailyClicksByPathsForTenant } from "@/domains/proof-gsc/daily-series";
@@ -47,7 +43,6 @@ import { loadPageContentSnapshot } from "@/domains/recommendation-intelligence/p
 import { loadCrawlCitationFunnel } from "@/domains/ai-visibility/load-crawl-citation-funnel";
 import { loadProofLedgerCached } from "@/domains/proof-gsc/load-ledger";
 import { loadChangesView } from "@/app/(shell)/changes-data";
-import { getAcceptedPlan, getLatestPreviewPlan } from "@/domains/experiments/daily-experiment-plan-store";
 import { ZERO_CLICK_TRAP_REASON_GENERAL } from "@/domains/changes/zero-click-trap";
 
 const PATH = "/cities";
@@ -208,20 +203,6 @@ describe("loadPageDossier composition", () => {
     expect(d.pageLabel).toBe("Cities of Iran");
   });
 
-  it("prefers the accepted plan over the preview for the plan pick", async () => {
-    vi.mocked(getAcceptedPlan).mockResolvedValue({
-      id: "plan-a",
-      selected: [{ id: "p1", url: "https://iranopedia.com/cities", canonicalUrl: "https://iranopedia.com/cities", pageLabel: "Cities", lever: "meta_description", targetQuery: "iran cities", whyNow: "Position 6 with real demand." }],
-    } as never);
-    vi.mocked(getLatestPreviewPlan).mockResolvedValue({
-      id: "plan-b",
-      selected: [{ id: "p2", url: "https://iranopedia.com/cities", canonicalUrl: "https://iranopedia.com/cities", pageLabel: "Cities", lever: "title", targetQuery: "x", whyNow: "preview" }],
-    } as never);
-    const d = await loadPageDossier(PATH);
-    expect(d.currentPlanPick?.id).toBe("p1");
-    expect(d.currentPlanPick?.isAccepted).toBe(true);
-  });
-
   it("filters the funnel to this page", async () => {
     vi.mocked(loadCrawlCitationFunnel).mockResolvedValue({
       hasData: true,
@@ -243,8 +224,6 @@ describe("loadPageDossier composition", () => {
     vi.mocked(loadClarityPageSignalsForTenant).mockRejectedValue(new Error("boom"));
     vi.mocked(loadProofLedgerCached).mockRejectedValue(new Error("boom"));
     vi.mocked(loadChangesView).mockRejectedValue(new Error("boom"));
-    vi.mocked(getAcceptedPlan).mockRejectedValue(new Error("boom"));
-    vi.mocked(getLatestPreviewPlan).mockRejectedValue(new Error("boom"));
     vi.mocked(loadCrawlCitationFunnel).mockRejectedValue(new Error("boom"));
     vi.mocked(loadPageContentSnapshot).mockRejectedValue(new Error("boom"));
     const d = await loadPageDossier(PATH);

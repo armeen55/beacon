@@ -38,10 +38,11 @@ import type { EvidencePacket } from "@/domains/demand-graph/evidence-packet";
 import { moveCandidateToActionPack, aeoActionPackToActionPack, dedupeActionPacks, collapseCreateContentPacks } from "./adapters";
 import { readAllCachedKeywordDemand, type KeywordDemand } from "@/domains/serp/dataforseo-keywords";
 import { actionFamily, type ActionPack, type EvidenceSource } from "./types";
-import { getLatestPreviewPlan, getAcceptedPlan, listActiveReservations } from "@/domains/experiments/daily-experiment-plan-store";
-import { normalizePath } from "@/domains/experiments/daily-plan-types";
-import { deriveExperimentStates } from "@/domains/experiments/experiment-eligibility";
-import { loadShippedChanges } from "@/domains/proof-gsc/shipped-change-store";
+/** Path normalizer (inlined; the daily-experiment domain that owned it was removed). */
+function normalizePath(u: string | null | undefined): string {
+  if (!u) return "";
+  return ((u.replace(/^https?:\/\/[^/]+/i, "") || "/").replace(/[?#].*$/, "").replace(/\/+$/, "") || "/").toLowerCase();
+}
 
 /**
  * Pages already owned by an active experiment must NOT also appear in the main worklist as a
@@ -54,32 +55,11 @@ import { loadShippedChanges } from "@/domains/proof-gsc/shipped-change-store";
  *    daily surface but could quietly resurface here as a competing demand-graph pack.
  * Fail-soft: any read error → empty set (the worklist renders exactly as before).
  */
-async function loadDailyExperimentBlockedPaths(tenantId: string): Promise<Set<string>> {
-  try {
-    const [preview, accepted, reservations, ledger] = await Promise.all([
-      getLatestPreviewPlan(tenantId), getAcceptedPlan(tenantId), listActiveReservations(tenantId),
-      loadShippedChanges().catch(() => []),
-    ]);
-    const blocked = new Set<string>();
-    for (const plan of [preview, accepted]) {
-      if (!plan) continue;
-      for (const e of plan.selected) {
-        blocked.add(normalizePath(e.url));
-        if (e.canonicalUrl) blocked.add(normalizePath(e.canonicalUrl));
-      }
-    }
-    for (const r of reservations) blocked.add(normalizePath(r.controlPath));
-    // The proof-ledger gate: active treatments AND their controls, windowed by the same
-    // outcome-state logic the planner uses (a stale "measuring" row past its window frees up).
-    for (const [path, st] of deriveExperimentStates(ledger, new Date())) {
-      if (st.activeTreatments.length > 0 || st.activeControlAssignments.length > 0) {
-        blocked.add(normalizePath(path));
-      }
-    }
-    return blocked;
-  } catch {
-    return new Set();
-  }
+// The daily-experiment domain that supplied the plan/reservation/ledger gate was removed.
+// Contract preserved by skipping the gate: nothing is blocked, so the worklist renders every
+// pack (the same fail-soft "empty set" behavior the gate degraded to on any read error).
+async function loadDailyExperimentBlockedPaths(_tenantId: string): Promise<Set<string>> {
+  return new Set();
 }
 
 export type WorklistMode = "fast" | "full";

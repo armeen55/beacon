@@ -21,12 +21,7 @@ import { ScoreboardSection } from "./scoreboard-section";
 import { loadProofLedgerCached } from "@/domains/proof-gsc/load-ledger";
 import { perfMark, perfStage } from "@/lib/obs/perf-log";
 import { shippedInLastDays } from "@/domains/proof-gsc/weekly-recap";
-import { CircuitBreakerSection } from "./circuit-breaker-section";
 import { loadLifecycleCounts } from "./lifecycle-counts-data";
-import { readPipelineHealth } from "@/domains/ops/pipeline-health-store";
-import { loadDeadmanVerdict } from "@/domains/ops/deadman-view";
-import { loadErrorSpikeLine } from "@/domains/ops/error-spike";
-import { deriveDefectSignal } from "@/domains/ops/defect-signal";
 import { InvestigationAlertLine } from "./investigation-alert";
 import { createPerfTrace, readPerfTraceIdFromHeaders } from "@/lib/perf-trace";
 import { loadWithDeadline, valueWithDeadline } from "@/lib/load-with-deadline";
@@ -116,11 +111,6 @@ async function Cockpit() {
  *  only fire when things are genuinely wedged, not on a cold lambda). */
 const TODAY_HERO_DEADLINE_MS = 8000;
 
-/** P2-a (2026-07-10) - the deadman + error-spike reads feed the command's defect
- *  signal (deriveDefectSignal). Their bounded deadline used to live on the deleted
- *  OpsPipelineSection; it lives here now, on the reads that actually still run. */
-const DEADMAN_DEADLINE_MS = 3500;
-
 async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
   // FP1 (2026-07-02) - the gate read is deadline-bounded so the CockpitSkeleton
   // pulse can never strand. Past the deadline, say so honestly; the abandoned
@@ -158,30 +148,25 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
   } catch {
     return <HonestDelay message="Couldn’t load Today just now. Your data is safe, and Beacon is retrying automatically." />;
   }
-  const { today, daily } = composite;
+  const { today } = composite;
   const tenantId = await currentTenantId();
   const nowPacific = new Date();
-  const activePlan = daily?.dashboard.acceptedPlan ?? daily?.dashboard.previewPlan;
+  // The daily-experiment plan was removed with the experiments domain (CORE 100K);
+  // Today's picks/minutes and "fix ready" set now come from the ranked changes.
 
-  // Today context parallelization (2026-07-12): these eight reads are mutually
+  // Today context parallelization (2026-07-12): these reads are mutually
   // independent once tenant + cached composite are known. Start each exactly
-  // once and wait for the slowest, never the sum. Every one now feeds either the
-  // one command, the scoreboard, or the proof strip - the drawer/band reads that
-  // used to ride along here (calibration, strategy mix, last-seen) died with
-  // their surfaces (Phase 4D).
+  // once and wait for the slowest, never the sum. Every one feeds either the
+  // one command, the scoreboard, or the proof strip.
   const tLedger = perfMark();
   const [
     connectedSourceCount,
-    pipelineHealth,
     ledgerRows,
     lifecycle,
     leadStoryDays,
     decaySignals,
-    deadmanVerdict,
-    errorSpikeLine,
   ] = await Promise.all([
     valueWithDeadline(countConnectedDataSources(tenantId).catch(() => 0), 0),
-    valueWithDeadline(readPipelineHealth(tenantId).catch(() => null), null),
     valueWithDeadline(
       loadProofLedgerCached(tenantId).catch(() => [] as Awaited<ReturnType<typeof loadProofLedgerCached>>),
       [],
@@ -196,13 +181,9 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
       [],
     ),
     valueWithDeadline(loadGscDecaySignalsForTenant(tenantId, new Date()).catch(() => new Map()), new Map(), TODAY_HERO_DEADLINE_MS),
-    valueWithDeadline(loadDeadmanVerdict(tenantId).catch(() => null), null, DEADMAN_DEADLINE_MS),
-    valueWithDeadline(loadErrorSpikeLine(tenantId).catch(() => null), null, DEADMAN_DEADLINE_MS),
   ]);
   perfStage("today-parallel-context", tLedger, { rows: ledgerRows.length });
 
-  const pipelineDegraded = Boolean(pipelineHealth && pipelineHealth.violations.length > 0);
-  const pipelineCheckedAt = pipelineHealth?.checked_at ?? null;
   const streak = shippedInLastDays(ledgerRows, Date.now());
   // FP3 (2026-07-02, supersedes A2's verdict-field count) - THE ONE-COUNT RULE: every
   // lifecycle count on this page (the measuring strip) comes from the shared lifecycle
@@ -215,8 +196,8 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
   const dayLine = nowPacific.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", timeZone: "America/Los_Angeles" });
   const hour = Number(nowPacific.toLocaleString("en-US", { hour: "numeric", hour12: false, timeZone: "America/Los_Angeles" }));
   const greeting = hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening";
-  const picks = activePlan?.selected.length ?? 0;
-  const minutes = activePlan?.estimatedMinutes ?? 0;
+  const picks = 0;
+  const minutes = 0;
   // The same 84-day click series the scoreboard reads (react.cache-shared, so this costs
   // nothing extra). Feeds the command's week-over-week loss check.
   const nowMs = Date.now();
@@ -226,12 +207,7 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
   // scoreboard card reads. pagesWithFixReady = the pages tonight's plan already has a queued
   // change for, so "I have a fix ready" is only said when it is true. $0-ish read, fail-soft
   // to null (no alarm). It feeds the command; it is not rendered as its own card.
-  const pagesWithFixReady = new Set<string>(
-    (activePlan?.selected ?? []).map((s) => {
-      const p = (s.pageLabel || "").replace(/^https?:\/\/[^/]+/i, "").replace(/\/$/, "");
-      return p || "/";
-    }),
-  );
+  const pagesWithFixReady = new Set<string>();
   const decayRows = Array.from(
     (decaySignals as Map<string, { page: string; clicksNow: number; clicksPrior: number; windowNowEnd?: string }>).values(),
   );
@@ -245,23 +221,10 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
   });
 
   // Wave 3B - THE ONE COMMAND. Every input reuses a number another surface owns, and the
-  // priority (defect > material loss > top move > observe) picks exactly one directive so two
+  // priority (material loss > top move > observe) picks exactly one directive so two
   // "do this" cards can never shout at once. The week-over-week delta comes from the SAME
   // buildScoreboard the hero chart reads (react.cache-shared), and the next-read date comes from
   // the ONE verdictSchedule the proof strip + Results share.
-  // P2-a (2026-07-10) - the command's defect signal fires on EVERY signal that the deleted ops
-  // banner used to raise (pipeline violations, a stalled overnight job, a run of failures).
-  // deriveDefectSignal (domains/ops/defect-signal.ts) is the ONE pure read; there is no second
-  // banner to disagree with it now.
-  const defectSignal = deriveDefectSignal({
-    violations: pipelineHealth?.violations ?? [],
-    deadman: deadmanVerdict,
-    errorSpikeLine,
-  });
-  const pipelineAlarms = defectSignal.sentences;
-  const dataTrustBroken = defectSignal.alarmViolations.length > 0 || Boolean(
-    deadmanVerdict?.jobs.some((job) => job.job === "sync-connectors" && job.pace === "stalled"),
-  );
   const scoreboardDeltaPct =
     buildScoreboard(
       leadStoryDays.map((d) => ({ date: d.date, clicks: d.clicks, impressions: 0 })),
@@ -274,8 +237,7 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
   const schedule = verdictSchedule(ledgerRows, new Date(nowMs));
   const firstReadOn = schedule.firstReadOn;
   const command = buildTodayCommand({
-    pipelineAlarms,
-    dataTrustBroken,
+    pipelineAlarms: [],
     smokeAlarm,
     scoreboardDeltaPct,
     topOpportunity: today.nextOpportunities[0] ?? null,
@@ -295,20 +257,17 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
         }.`
       : "";
   // Operator spec 2026-07-09 B-14: no "team" framing - purely functional.
-  const brief =
-    (picks > 0
-      ? `${dayLine}. ${picks} change${picks === 1 ? "" : "s"} ready, about ${Math.max(minutes, picks)} minutes.`
-      : `${dayLine}. ${today.headerSentence}`) + streakLine;
+  // The daily-plan picks/minutes brief was removed with the experiments domain
+  // (CORE 100K); the header sentence carries the day's summary.
+  void picks;
+  void minutes;
+  const brief = `${dayLine}. ${today.headerSentence}` + streakLine;
 
   return (
     <div className="space-y-6">
       {/* ── SLOT 1: critical truth warnings, self-hiding ──────────────────────────────────
-          A paused autopilot and a fresh background investigation are the only things that
-          outrank the one command. Both self-hide when there is nothing to say, so a normal
-          day starts clean. A broken data pipe no longer needs its own banner: the command's
-          defect signal (deriveDefectSignal) reads the same pipeline/deadman/error inputs and
-          raises the alarm as the ONE command when they turn red. */}
-      <Suspense fallback={null}><CircuitBreakerSection /></Suspense>
+          A fresh background investigation is the only thing that outranks the one command.
+          It self-hides when there is nothing to say, so a normal day starts clean. */}
       {/* Item 53 (Phase 4D fold) - the overnight forensic investigation's ONE headline
           conclusion, folded from its old drawer card into a single compact alert line. */}
       <Suspense fallback={null}><InvestigationAlertLine tenantId={tenantId} /></Suspense>
@@ -329,7 +288,7 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
           week-over-week window) and the ONE consolidated proof strip (canonical measuring
           count + next-read date + Search Console freshness). */}
       <Suspense fallback={<div className="h-56 animate-pulse rounded-2xl border border-border bg-surface-inset" />}>
-        <ScoreboardSection tenantId={tenantId} stale={pipelineDegraded} staleCheckedAt={pipelineCheckedAt} />
+        <ScoreboardSection tenantId={tenantId} />
       </Suspense>
       <TodayProofStrip
         measuringCount={measuringCount}

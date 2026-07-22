@@ -78,16 +78,13 @@ describe("Today stripped-spine structure (source invariants)", () => {
   });
 
   it("slot 1: the truth warnings are self-hiding (Suspense fallback null), never a hard banner", () => {
-    expect(PAGE).toContain("<Suspense fallback={null}><CircuitBreakerSection /></Suspense>");
     expect(PAGE).toContain("<Suspense fallback={null}><InvestigationAlertLine tenantId={tenantId} /></Suspense>");
   });
 
-  it("the redundant ops-pipeline banner is gone (its defect signal feeds the command)", () => {
+  it("the redundant ops-pipeline banner is gone", () => {
     // the banner is neither imported nor mounted (a comment may still name it)
     expect(PAGE).not.toContain("<OpsPipelineSection");
     expect(PAGE).not.toContain('from "@/app/(shell)/ops-pipeline-section"');
-    // the command still consumes the same inputs the banner used to
-    expect(PAGE).toContain("deriveDefectSignal");
   });
 
   it("the war-room bands and the north-star line are removed from Today", () => {

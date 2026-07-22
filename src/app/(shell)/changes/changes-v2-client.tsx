@@ -63,7 +63,6 @@ import {
   projectChangeTitle,
   clampShortTitle,
 } from "@/domains/changes/proof-timeline/title-projection";
-import type { LifecycleTabClass } from "@/domains/attribution/lifecycle-classification";
 import type { ImplementationStatus } from "@/domains/recommendations/recommended-edits-persistence";
 
 import {
@@ -79,8 +78,9 @@ export type ChangesV2ClientProps = {
   /** Already-enriched rows from the server page. Newest-first sort
    *  expected (the legacy page sorts before this point). */
   rows: ReadonlyArray<EnrichedChangeRow>;
-  /** Lifecycle class per row (keyed by changelog id). */
-  classByChangelogId: Record<string, LifecycleTabClass>;
+  /** Retired (Core 100K): the lifecycle-classification tab map. Always an empty object
+   *  now - each row's pill is driven by its joined proof coverage, not a tab class. */
+  classByChangelogId: Record<string, string>;
   /** Linked-edit implementation status per row (when joined). */
   editStatusByChangelogId: Record<string, ImplementationStatus>;
   /** Count of GSC-proof tracked experiments shown in the strip above. When
@@ -254,7 +254,7 @@ function ChangesV2CardWithActions({ row }: { row: ProjectedCardRow }) {
 
 type ProjectInput = {
   rows: ReadonlyArray<EnrichedChangeRow>;
-  classByChangelogId: Record<string, LifecycleTabClass>;
+  classByChangelogId: Record<string, string>;
   editStatusByChangelogId: Record<string, ImplementationStatus>;
 };
 
@@ -267,19 +267,18 @@ type ProjectedCardRow = ChangesV2CardRow & {
 
 function projectToCardRows({
   rows,
-  classByChangelogId,
   editStatusByChangelogId,
 }: ProjectInput): ProjectedCardRow[] {
   return rows.map((row) => {
     const ch = row.change;
-    const lifecycleClass: LifecycleTabClass =
-      classByChangelogId[ch.id] ?? "unclassified";
     const lifecycleStatus: ImplementationStatus | null =
       editStatusByChangelogId[ch.id] ?? null;
 
+    // Core 100K: no tab classification anymore - each row's pill is resolved from its
+    // joined proof coverage (and, for the Mark-shipped gate, its linked edit status).
     const pill: ProofPill = resolveProofPill({
       proof: row.proof,
-      lifecycleClass,
+      lifecycleClass: null,
       lifecycleStatus,
     });
 

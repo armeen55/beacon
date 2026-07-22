@@ -17,7 +17,20 @@
  */
 
 import { fuseTeardownTargets, rootDomainOf } from "@/domains/serp/serp-teardown-fusion";
-import { whatToSteal, type CompetitorFactsLite } from "@/domains/experiments/daily-evidence-brief";
+
+// Relocated from the retired experiments domain (CORE 100K): the cached
+// competitor-facts shape the winner audit carries. The "what to steal" prose
+// builder was removed with that domain; whyPlain is now null (no fabrication).
+type CompetitorFactsLite = {
+  hasAnswerBlock?: boolean;
+  hasFaq?: boolean;
+  faqQuestionCount?: number;
+  schemaTypes?: string[];
+  hasToolOrCalculator?: boolean;
+  wordCount?: number;
+  sectionCount?: number;
+  hasReviewSchema?: boolean;
+};
 
 /** Never show more than 5 winners, the panel is a scan, not a second SERP. */
 const MAX_WINNERS = 5;
@@ -84,7 +97,7 @@ export function buildWinnersPanel(input: {
       domain,
       overlap: t.isOverlap,
       sources: t.sources,
-      whyPlain: audit?.facts ? whatToSteal(audit.facts) : null,
+      whyPlain: null,
       collectedLabel: collectedDateLabel(audit?.auditedAt ?? null),
     });
   }

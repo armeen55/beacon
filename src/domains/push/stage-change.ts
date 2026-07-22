@@ -59,16 +59,6 @@ import {
   STAGING_OFF,
   type StagingAvailability,
 } from "./stage-route";
-import { getPlan } from "@/domains/experiments/daily-experiment-plan-store";
-import {
-  itemStatus,
-  LEVER_TO_ACTION_TYPE,
-} from "@/domains/experiments/execution-state";
-import {
-  withApprovedExperimentText,
-  type DailyExperimentPlanRecord,
-  type PlannedExperimentRecord,
-} from "@/domains/experiments/daily-plan-types";
 import { getRepository } from "@/lib/persistence/repositories";
 import {
   markRecommendedEditPushResult,
@@ -84,20 +74,11 @@ import { assertPaidCallAllowed } from "@/domains/safety/cost-breaker";
 
 export type { StagingAvailability } from "./stage-route";
 
-export type StageChangeInput =
-  | {
-      kind: "daily_pick";
-      planId: string;
-      experimentId: string;
-      /** The operator's inline tweak (D-3); staged text must match what they
-       *  actually approved on the card. Text levers only. */
-      editedText?: string;
-    }
-  | {
-      kind: "move";
-      /** The MoveCard id (rec_id, falling back to the edit id). */
-      moveId: string;
-    };
+export type StageChangeInput = {
+  kind: "move";
+  /** The MoveCard id (rec_id, falling back to the edit id). */
+  moveId: string;
+};
 
 export type StageChangeReceipt = {
   staged: boolean;
@@ -110,9 +91,6 @@ export type StageChangeReceipt = {
  *  Production callers pass nothing; tests must never reach Wix or the network. */
 export type StageDeps = PushDeps & { fetchImpl?: typeof fetch };
 
-/** Daily-pick item states a stage click is allowed from. Anything already
- *  live/tracking (or skipped) refuses; a second push would muddy the proof. */
-const DAILY_STAGEABLE_STATUSES = new Set(["ready_to_apply", "verification_failed"]);
 
 /** Action types whose proposed_text is prose worth entailment-checking (title/
  *  meta/h1 rewrites and additive body/answer-block sections). Schema and other
@@ -249,10 +227,7 @@ export async function stageChangeForRecord(
   }
 
   // Resolve the record to its pushable edit (fail-closed at every step).
-  const resolved =
-    input.kind === "daily_pick"
-      ? await resolveDailyPick(tenantId, input, now)
-      : await resolveMove(tenantId, input);
+  const resolved = await resolveMove(tenantId, input);
   if (!resolved.ok) return notStaged(resolved.reason);
   const { edit } = resolved;
   const correctionSuffix = resolved.corrections?.length
@@ -326,89 +301,6 @@ type Resolved =
   | { ok: true; edit: RecommendedEditRow; corrections?: string[] }
   | { ok: false; reason: string };
 
-/** A daily-plan pick -> a synthetic pushable edit row (the plan is the source
- *  of truth; nothing is persisted here - executePush owns ledger + snapshot). */
-async function resolveDailyPick(
-  tenantId: string,
-  input: Extract<StageChangeInput, { kind: "daily_pick" }>,
-  now: Date,
-): Promise<Resolved> {
-  let plan: DailyExperimentPlanRecord | null = null;
-  try {
-    plan = await getPlan(tenantId, input.planId);
-  } catch {
-    plan = null;
-  }
-  if (!plan) return { ok: false, reason: "I could not find today's approved plan" };
-  if (plan.status !== "accepted") {
-    return { ok: false, reason: "approve today's plan first, then I can stage its changes" };
-  }
-  const exp = plan.selected.find((e) => e.id === input.experimentId);
-  if (!exp) return { ok: false, reason: "I could not find this change in today's plan" };
-
-  const status = itemStatus(plan.execution, input.experimentId);
-  if (!DAILY_STAGEABLE_STATUSES.has(status)) {
-    return {
-      ok: false,
-      reason:
-        status === "skipped"
-          ? "this change was set aside, so I did not stage it"
-          : "this change is already live and tracking, so I did not stage it again",
-    };
-  }
-
-  if (stageRouteForLever(exp.lever) == null) {
-    return {
-      ok: false,
-      reason: "this kind of change has no one-click path yet",
-    };
-  }
-
-  return { ok: true, edit: editRowForDailyPick(tenantId, exp, input.editedText, now) };
-}
-
-/** Mirror of the apply action's D-3 rule: honor the operator's inline tweak for
- *  text levers so what stages is exactly what they approved on the card. */
-function editRowForDailyPick(
-  tenantId: string,
-  exp: PlannedExperimentRecord,
-  editedText: string | undefined,
-  now: Date,
-): RecommendedEditRow {
-  const approved = withApprovedExperimentText(exp, editedText);
-  return {
-    id: `stage-${exp.id}`,
-    tenant_id: tenantId,
-    rec_id: exp.candidateId || exp.id,
-    action_type: LEVER_TO_ACTION_TYPE[exp.lever] as RecommendedEditRow["action_type"],
-    target_url: exp.canonicalUrl || exp.url,
-    // No explicit element key: executePush derives the operator-mapped CMS
-    // field (title/meta/h1) or routes an answer block to the mapped body
-    // field - exactly the existing routes, nothing new.
-    target_element_key: null,
-    display_label: exp.pageLabel,
-    current_text: exp.currentText ?? "",
-    proposed_text: approved.proposedText,
-    why: exp.whyNow ?? "",
-    evidence: [],
-    expected_impact: null,
-    difficulty: "low",
-    confidence: "medium",
-    measurement_plan: null,
-    risks: [],
-    source: "deterministic" as RecommendedEditRow["source"],
-    provider_name: null,
-    evidence_hash: exp.evidenceHash ?? null,
-    model: null,
-    cost_usd: null,
-    created_at: now.toISOString(),
-    updated_at: now.toISOString(),
-    implementation_status: "accepted",
-  } as RecommendedEditRow;
-}
-
-/** A worklist move -> its persisted recommended edit (by rec id or edit id),
- *  plus the same deterministic QA backstop the armed one-click accept uses. */
 async function resolveMove(
   tenantId: string,
   input: Extract<StageChangeInput, { kind: "move" }>,

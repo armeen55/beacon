@@ -233,8 +233,13 @@ describe("checkIntentVeto rule 1: answer block cannot serve a date/price lookup"
   });
 
   it("downgrades (not vetoes) when the dominant share is only probable (0.4-0.55)", () => {
+    // "when" leads but only just: 52 vs 48 impressions -> share ~0.52, inside the
+    // probable-not-certain band (0.4 to 0.55) -> downgrade, never a hard veto.
     const obj = checkIntentVeto({
-      packet: packet("nowruz traditions", "answer_block", ["when is nowruz", "nowruz date this year"]),
+      packet: packet("nowruz traditions", "answer_block", [], [
+        { query: "when is nowruz 2027", impressions: 52, source: "gsc" },
+        { query: "nowruz traditions", impressions: 48, source: "gsc" },
+      ]),
       action: "add_answer_block",
     });
     expect(obj!.severity).toBe("downgrade");

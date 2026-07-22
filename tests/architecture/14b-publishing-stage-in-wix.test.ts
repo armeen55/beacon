@@ -31,7 +31,6 @@ const stageChangeSrc = read("src/domains/push/stage-change.ts");
 const stageRouteSrc = read("src/domains/push/stage-route.ts");
 const actionsSrc = read("src/app/(shell)/stage-in-wix-actions.ts");
 const moveCardSrc = read("src/app/(shell)/today-moves-card.tsx");
-const dailyDataSrc = read("src/app/(shell)/daily-experiments-data.ts");
 const movesDataSrc = read("src/app/(shell)/today-moves-data.ts");
 
 const BANNED_DASH = /[‒–—―]/; // figure, en, em, horizontal bar
@@ -59,15 +58,6 @@ describe("item 15 - stage-change is composition over the existing push rails", (
   it("keeps the QA backstop the armed one-click accept uses (moves)", () => {
     expect(stageChangeSrc).toMatch(/loadActionRowByEditId/);
     expect(stageChangeSrc).toMatch(/pushReadiness !== "paste_ready"/);
-  });
-});
-
-describe("item 15 - daily loader surface", () => {
-  // The daily-experiments-section.tsx card was deleted 2026-07-21 (reachability
-  // amputation): its surface was unreachable. The loader (daily-experiments-data)
-  // survives, so its staging fail-safe stays pinned.
-  it("the loader threads staging availability fail-safe (OFF on any uncertainty)", () => {
-    expect(dailyDataSrc).toMatch(/getStagingAvailability\(tenantId\)\.catch\(\(\) => STAGING_OFF\)/);
   });
 });
 
@@ -110,13 +100,11 @@ describe("item 15 - worklist MoveCard surface", () => {
 });
 
 describe("item 15 - server actions are thin and operator-gated", () => {
-  it("both actions gate on operator mode before delegating", () => {
-    const daily = actionsSrc.indexOf("stageDailyPickInWixAction");
+  it("the move action gates on operator mode before delegating", () => {
     const move = actionsSrc.indexOf("stageMoveInWixAction");
-    expect(daily).toBeGreaterThan(-1);
     expect(move).toBeGreaterThan(-1);
     const gates = actionsSrc.match(/if \(!\(await isOperatorModeServer\(\)\)\) return NOT_ALLOWED;/g) ?? [];
-    expect(gates.length).toBe(2);
+    expect(gates.length).toBe(1);
     expect(actionsSrc).toMatch(/stageChangeForRecord\(/);
   });
 

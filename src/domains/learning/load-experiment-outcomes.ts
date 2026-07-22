@@ -271,27 +271,13 @@ export async function loadExperimentOutcomes(tenantId: string): Promise<SettledO
 }
 
 /**
- * RANK-1 (2026-07-06) - fold the change-pattern brain's per-(signal x asset)
- * success-rate signal INTO the SAME outcome list the win-rate prior consumes, so
- * it feeds the ONE bounded multiplier (never a parallel prior). Reads the stored
- * change-patterns aggregate and reduces every pattern that cleared its own
- * >= MIN_DECIDED sample floor into synthetic decided outcomes on the actionType
- * dimension (changePatternsToOutcomes). Fail-soft -> [] : a fresh tenant with no
- * materialized patterns adds nothing, so the ranking stays byte-identical.
- * Read-only over an already-computed store; nothing here recomputes or mutates
- * measurement history.
+ * Change-pattern outcome signal was removed in the Core 100K collapse (the
+ * change-patterns learning module was deleted). Ranking now relies on the
+ * proof-ledger win-rate + effect-size priors only. Kept as a stable no-op so
+ * the ranking consumer (demand-graph/load-graph) keeps compiling; always [].
  */
 export async function loadChangePatternOutcomes(): Promise<SettledOutcome[]> {
-  try {
-    const { readStore } = await import("@/lib/persistence/json-store");
-    const { changePatternsToOutcomes } = await import("./change-patterns");
-    const patterns = await readStore<
-      import("./change-patterns").ChangePattern
-    >("change-patterns");
-    return changePatternsToOutcomes(patterns);
-  } catch {
-    return [];
-  }
+  return [];
 }
 
 /** Map the tenant's proof ledger into PAGE-keyed rows for the page-specific outcome

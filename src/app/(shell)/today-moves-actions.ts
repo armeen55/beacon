@@ -1,8 +1,6 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { after } from "next/server";
-import { log } from "@/lib/logger";
 import { invalidateCoreSurfaces } from "./surface-release";
 import { invalidateDemandGraph } from "@/domains/demand-graph/graph-snapshot-store";
 import { isOperatorModeServer } from "@/lib/operator-mode";
@@ -31,39 +29,19 @@ export type AutoAdvancePrepareResult =
   | { ok: true; scheduled: boolean };
 
 /**
- * R20 (D6 dynamic auto-mode) - auto-advance prepare. When the operator ships a change in the
- * session flow, keep five quality-ready opportunities available. The maintenance
- * lane reranks after the action, prepares only missing capacity from cached evidence,
- * and atomically republishes Today + Changes. It remains bounded, fail-soft, and
- * never publishes a site edit.
+ * autoAdvancePrepareAction - the ready-queue replenishment lane it once scheduled was
+ * retired with the daily-experiment-plan engine (Core 100K). The on-visit surface
+ * rebuild (refreshCustomerSurface) now keeps the ranked queue fresh, so this action is
+ * a no-op that reports it scheduled nothing. Kept so the session flow's optimistic call
+ * site stays wired without a dangling import.
  */
 export async function autoAdvancePrepareAction(): Promise<AutoAdvancePrepareResult> {
-  let tenantId: string;
   try {
-    tenantId = await currentTenantId();
+    await currentTenantId();
   } catch {
     return { ok: false, reason: "No tenant context." };
   }
-  try {
-    after(async () => {
-      try {
-        const { replenishReadyQueueForTenant } = await import("@/domains/ops/ready-queue-replenishment");
-        const result = await replenishReadyQueueForTenant(tenantId);
-        revalidatePath("/");
-        revalidatePath("/changes");
-        log.info("[auto-advance-prepare] maintained ready queue", { tenantId, ...result });
-      } catch (e) {
-        log.warn("[auto-advance-prepare] pass failed (non-blocking)", {
-          tenantId,
-          error: e instanceof Error ? e.message.slice(0, 200) : String(e),
-        });
-      }
-    });
-    return { ok: true, scheduled: true };
-  } catch {
-    // after() is only valid inside a request scope - never fail the operator's action on it.
-    return { ok: true, scheduled: false };
-  }
+  return { ok: true, scheduled: false };
 }
 
 /**

@@ -22,7 +22,6 @@
  */
 import { internalLinkRelevance } from "@/domains/evidence/relevance-gate";
 import { evaluateDraftQuality, evaluateTitleMetaQuality, evaluateInternalLinkQuality, DEFAULT_CONTEXT_TOKENS } from "@/domains/drafts/draft-quality";
-import { checkAnswerFactualSafety } from "@/domains/experiments/safe-answer-block";
 import { detectSourceContradictions, type SourceContradiction, type SourceContradictionInputs } from "@/domains/evidence/source-contradiction";
 
 const STOP = new Set(["the", "a", "an", "of", "and", "for", "to", "in", "on", "with", "flag", "page", "iran", "iranian"]);
@@ -265,10 +264,8 @@ export function reviewRecommendation(input: RecommendationInput): Recommendation
     // long-form word floor does NOT apply. Gate on: real text, the factual firewall,
     // and answer placement. Intent/year/origin checks already ran above.
     if (proposed.split(/\s+/).filter(Boolean).length < 4) hardFailures.push(hard("thin_or_malformed", "Answer is too short to be useful."));
-    if (input.sourceSentences && input.sourceSentences.length > 0) {
-      const safety = checkAnswerFactualSafety(proposed, input.sourceSentences);
-      if (!safety.passed) { needsEvidence = true; cautions.push(soft("unsupported_fact", safety.reasons[0] ?? "Claim not supported by the page text.")); }
-    }
+    // (the answer-block factual-firewall check moved out with the experiments domain,
+    // CORE 100K; the drafts factual-entailment gate still covers unsupported claims.)
     if (input.answerAtTop === false) cautions.push(soft("query_action_mismatch", "The answer isn’t near the top of the page."));
   } else if (input.lever === "internal_link") {
     // ── F. INTERNAL-LINK QUALITY ──────────────────────────────────────────────

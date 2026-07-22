@@ -28,7 +28,12 @@ import "server-only";
 import { log } from "@/lib/logger";
 import { getSupabaseAdmin, isSupabaseConfigured } from "@/lib/persistence/supabase";
 import { loadDailyClicksByPagesForTenant } from "@/domains/recommendation-intelligence/gsc-page-queries";
-import { pageFamilyOf } from "@/domains/experiments/daily-experiment-planner";
+/** First path segment groups a page family (inlined; the experiments domain that owned it was removed). */
+function pageFamilyOf(url: string): string {
+  const path = (url ?? "").replace(/^https?:\/\/[^/]+/, "").replace(/[?#].*$/, "");
+  const segs = path.split("/").filter(Boolean);
+  return segs.length >= 2 ? segs[0]! : (segs[0] ?? "root");
+}
 import type { PageDailyRow } from "./family-collapse";
 
 /** How many distinct families the nightly pass watches (top by clicks). */

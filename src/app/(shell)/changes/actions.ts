@@ -5,7 +5,6 @@ import { log } from "@/lib/logger";
 import { getRepository } from "@/lib/persistence/repositories";
 import { currentTenantId } from "@/lib/tenant-context";
 import { canPublishForCurrentTenant } from "@/lib/auth/can-publish";
-import { changelogJoinKey, indexEditsByJoinKey } from "@/domains/attribution/lifecycle-classification";
 import {
   editLifecycleStatus,
   markRecommendedEditsAsShipped,
@@ -13,6 +12,32 @@ import {
 import { loadChangesView } from "../changes-data";
 import { invalidateCoreSurfaces } from "../surface-release";
 import type { TodayMove } from "../today-moves-data";
+
+/**
+ * Inline changelog-to-edit join (Core 100K: the attribution/lifecycle-classification module
+ * that owned these helpers was retired). A changelog row links to its recommended_edit by
+ * the (rec id, action type, target element) triple both sides carry; a row missing any leg
+ * has no linkage (legacy / free-form) and resolves to null.
+ */
+function changelogJoinKey(entry: {
+  source_rec_id?: string | null;
+  action_type?: string | null;
+  target_element_key?: string | null;
+}): string | null {
+  if (!entry.source_rec_id || !entry.action_type || !entry.target_element_key) return null;
+  return `${entry.source_rec_id}__${entry.action_type}__${entry.target_element_key}`;
+}
+
+function indexEditsByJoinKey<
+  T extends { rec_id?: string | null; action_type?: string | null; target_element_key?: string | null },
+>(edits: readonly T[]): Map<string, T> {
+  const map = new Map<string, T>();
+  for (const edit of edits) {
+    if (!edit.rec_id || !edit.action_type || !edit.target_element_key) continue;
+    map.set(`${edit.rec_id}__${edit.action_type}__${edit.target_element_key}`, edit);
+  }
+  return map;
+}
 
 /**
  * W2-B (2026-07-10) - PAYLOAD: the on-demand detail fetch behind the collapsed

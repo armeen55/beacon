@@ -13,7 +13,8 @@
  * "improve this page" card.
  */
 
-import type { ExperimentEligibility } from "@/domains/experiments/experiment-eligibility";
+/** Minimal inline type (the eligibility engine was removed with the experiments domain). */
+type ExperimentEligibility = { eligible: boolean; reason?: string };
 import {
   briefSentences,
   buildNewQueryGapSentence,
@@ -83,11 +84,9 @@ export function findRefreshCandidates(input: FindRefreshCandidatesInput): Refres
     if (out.length >= cap) break;
     const path = pathOf(brief.page);
     if (already.has(path)) continue; // one card per page per night
-    const elig = input.eligibility.get(path);
-    // E-39: refresh auto-suggestions stay CONSERVATIVE - only a fully CLEAN page,
-    // never a mid-measurement / comparison page (admit-with-caution). Not a
-    // lockout: the page still surfaces its own daily candidate with the caution.
-    if (!elig || !elig.eligible || elig.reason !== "clean") continue;
+    // The eligibility engine (mid-measurement / active-control gating) was removed with the
+    // experiments domain. The gate is dropped: every queued page passes through here. The
+    // `eligibility` input is retained on the type for caller compatibility but no longer gates.
 
     // Concrete section target: the winner's missing section beats a raw query gap (it
     // carries competitor proof), and a query gap beats nothing.

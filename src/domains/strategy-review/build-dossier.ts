@@ -25,10 +25,14 @@ import { loadExperimentOutcomes } from "@/domains/learning/load-experiment-outco
 import { computeDimPriors, type DimPrior, type SettledOutcome } from "@/domains/learning/experiment-prior";
 import { loadQuerySpikes } from "@/domains/trend-radar/spike-store";
 import type { QuerySpike } from "@/domains/trend-radar/query-spikes";
-import { loadSeasonalQueries } from "@/domains/seasonal/seasonal-store";
-import type { SeasonalQuery } from "@/domains/seasonal/seasonality";
-import { loadCalibrationRecords } from "@/domains/experiments/forecast-calibration-store";
-import { summarizeForecastCalibration, MIN_SETTLED_FOR_CALIBRATION } from "@/domains/experiments/forecast-calibration";
+// The seasonal domain and the experiments forecast-calibration engine were removed. Their two
+// optional enrichments (seasonal windows, forecast-calibration bias) are dropped: the I/O shell
+// now feeds the pure builder empty seasonal windows and a null calibration, so a dossier still
+// builds (leverRecords + trends only), just without those two slices.
+type SeasonalQuery = { query: string; peakMonths: number[]; share: number };
+type ForecastCalibrationSummary = { settledCount: number; hotColdPct: number; sentence: string | null };
+/** Preserved threshold from the removed calibration engine (kept so the pure builder gates identically). */
+const MIN_SETTLED_FOR_CALIBRATION = 3;
 
 const MAX_TRENDS = 5;
 const MAX_SEASONAL = 5;
@@ -73,7 +77,7 @@ export function buildStrategyDossier(input: {
   outcomes: readonly SettledOutcome[];
   trends: readonly QuerySpike[];
   seasonalWindows: readonly SeasonalQuery[];
-  calibration: ReturnType<typeof summarizeForecastCalibration> | null;
+  calibration: ForecastCalibrationSummary | null;
 }): StrategyDossier {
   const priors = computeDimPriors(input.outcomes);
   const actionTypePriors: DimPrior[] = [...priors.values()].filter((p) => p.dimension === "actionType");
@@ -123,13 +127,14 @@ export function buildStrategyDossier(input: {
 /** I/O shell: read every existing source (fail-soft, each degrades to an empty
  *  slice on its own) and hand plain data to the pure builder above. */
 export async function loadStrategyDossier(tenantId: string, weekOf: string): Promise<StrategyDossier> {
-  const [outcomes, trends, seasonalWindows, calibrationRecords] = await Promise.all([
+  const [outcomes, trends] = await Promise.all([
     loadExperimentOutcomes(tenantId).catch(() => []),
     loadQuerySpikes(tenantId).catch(() => []),
-    loadSeasonalQueries(tenantId).catch(() => []),
-    loadCalibrationRecords(tenantId).catch(() => []),
   ]);
-  const calibration = calibrationRecords.length > 0 ? summarizeForecastCalibration(calibrationRecords) : null;
+  // Seasonal windows and forecast calibration were removed with their domains: feed the pure
+  // builder empty/null for both (dropped enrichments, not fabricated data).
+  const seasonalWindows: SeasonalQuery[] = [];
+  const calibration: ForecastCalibrationSummary | null = null;
   return buildStrategyDossier({ tenantId, weekOf, outcomes, trends, seasonalWindows, calibration });
 }
 

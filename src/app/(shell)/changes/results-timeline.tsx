@@ -17,16 +17,6 @@ import {
   buildMeasurementPresentation,
   detectMeasurementOverlaps,
 } from "@/domains/proof-gsc/measurement-maturity";
-import {
-  changelogJoinKey,
-  classifyAll,
-  indexEditsByJoinKey,
-} from "@/domains/attribution/lifecycle-classification";
-import {
-  buildSyntheticChangelogRows,
-  computeLifecycleCounts,
-  editNeedsRewrite,
-} from "@/domains/attribution/pending-timeline-rows";
 import type {
   ImplementationStatus,
   RecommendedEditRow,
@@ -35,6 +25,33 @@ import {
   createPerfTrace,
   readPerfTraceIdFromHeaders,
 } from "@/lib/perf-trace";
+
+/**
+ * Inline changelog-to-edit join (Core 100K: the attribution/lifecycle-classification module
+ * that owned these helpers was retired). Links a changelog row to its recommended_edit by
+ * the (rec id, action type, target element) triple both sides carry, so the per-row
+ * "Mark shipped" affordance still knows which edits are accepted. A row missing any leg
+ * has no linkage and resolves to null.
+ */
+function changelogJoinKey(entry: {
+  source_rec_id?: string | null;
+  action_type?: string | null;
+  target_element_key?: string | null;
+}): string | null {
+  if (!entry.source_rec_id || !entry.action_type || !entry.target_element_key) return null;
+  return `${entry.source_rec_id}__${entry.action_type}__${entry.target_element_key}`;
+}
+
+function indexEditsByJoinKey<
+  T extends { rec_id?: string | null; action_type?: string | null; target_element_key?: string | null },
+>(edits: readonly T[]): Map<string, T> {
+  const map = new Map<string, T>();
+  for (const edit of edits) {
+    if (!edit.rec_id || !edit.action_type || !edit.target_element_key) continue;
+    map.set(`${edit.rec_id}__${edit.action_type}__${edit.target_element_key}`, edit);
+  }
+  return map;
+}
 
 /**
  * ResultsTimeline — the "what changed / is it measuring / did it work" timeline.
@@ -120,36 +137,19 @@ export async function ResultsTimeline() {
       console.error("[results-timeline] URL watcher refresh error (non-fatal)", err);
     }
 
-    const lifecycleBuckets = computeLifecycleCounts(recommendedEdits);
-    const syntheticPendingRows = buildSyntheticChangelogRows({
-      changelogEntries: liveEntries,
-      editsToSynthesize: [
-        ...lifecycleBuckets.buckets.pendingEdits,
-        ...lifecycleBuckets.buckets.needsReviewEdits,
-      ],
-    });
-    const allRowsForClassifier = [...liveEntries, ...syntheticPendingRows];
-
+    // Core 100K: the lifecycle-classification + synthetic-pending-row enrichment was retired.
+    // This is now the raw change log - live changelog rows only, joined to their recommended
+    // edit ONLY to keep the per-row "Mark shipped" affordance (edit status = accepted). No tab
+    // classification; the proof coverage joined below drives each row's pill.
+    const allRowsForClassifier = liveEntries;
     const editsByJoinKey = indexEditsByJoinKey(recommendedEdits);
-    const classification = classifyAll({
-      entries: allRowsForClassifier,
-      editsByJoinKey,
-    });
     const editStatusByChangelogId: Record<string, ImplementationStatus> = {};
-    const editLiveAtByChangelogId: Record<string, string> = {};
-    const editNeedsRewriteByChangelogId: Record<string, boolean> = {};
     for (const entry of allRowsForClassifier) {
       const joinKey = changelogJoinKey(entry);
       if (!joinKey) continue;
       const edit = editsByJoinKey.get(joinKey);
       if (edit?.implementation_status) {
         editStatusByChangelogId[entry.id] = edit.implementation_status;
-      }
-      if (edit?.live_at) {
-        editLiveAtByChangelogId[entry.id] = edit.live_at;
-      }
-      if (edit && editNeedsRewrite(edit)) {
-        editNeedsRewriteByChangelogId[entry.id] = true;
       }
     }
 
@@ -215,7 +215,7 @@ export async function ResultsTimeline() {
     return (
       <ChangesV2Client
         rows={enriched}
-        classByChangelogId={Object.fromEntries(classification.classOf)}
+        classByChangelogId={{}}
         editStatusByChangelogId={editStatusByChangelogId}
         proofLedgerCount={proofLedgerCount}
         showHeader={false}

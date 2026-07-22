@@ -88,11 +88,6 @@ vi.mock("@/lib/connectors/wix/client", async (importOriginal) => {
   };
 });
 
-let _plan: Record<string, unknown> | null = null;
-vi.mock("@/domains/experiments/daily-experiment-plan-store", () => ({
-  getPlan: async () => _plan,
-}));
-
 let _edits: Array<Record<string, unknown>> = [];
 vi.mock("@/lib/persistence/repositories", () => ({
   getRepository: () => ({
@@ -134,47 +129,6 @@ const fetchWith = (html: string): typeof fetch =>
     status: 200,
     text: async () => html,
   })) as unknown as typeof fetch;
-
-function dailyPick(over: Record<string, unknown> = {}): Record<string, unknown> {
-  return {
-    id: "plan-1::/famous-iranian-poets",
-    candidateId: "cand-1",
-    url: PAGE_URL,
-    canonicalUrl: PAGE_URL,
-    pageLabel: "Famous Iranian Poets",
-    pageFamily: "poets",
-    lever: "title",
-    targetQuery: "famous iranian poets",
-    whyNow: "biggest striking-distance query on the page",
-    currentText: "Old Title",
-    proposedText: "Famous Iranian Poets and Their Work",
-    placement: "title",
-    leaveUnchanged: [],
-    rollbackText: "Old Title",
-    effortMinutes: 2,
-    risk: "low",
-    controls: [],
-    influencedUrls: [],
-    evidenceHash: "eh1",
-    currentTextHash: "cth1",
-    eligibilityHash: "elh1",
-    detail: { kind: "edit_field", field: "title" },
-    ...over,
-  };
-}
-
-function acceptedPlan(exp: Record<string, unknown>, over: Record<string, unknown> = {}): Record<string, unknown> {
-  return {
-    version: 1,
-    id: "plan-1",
-    tenantId: "tenant-iranopedia",
-    date: "2026-07-02",
-    status: "accepted",
-    selected: [exp],
-    backups: [],
-    ...over,
-  };
-}
 
 function moveEdit(over: Record<string, unknown> = {}): Record<string, unknown> {
   return {
@@ -218,7 +172,6 @@ beforeEach(() => {
   _bodyResolved = null;
   _itemData = { title: "Old Title" };
   _updateCalls = [];
-  _plan = acceptedPlan(dailyPick());
   _edits = [moveEdit()];
   _pushResults = [];
   _actionRow = null;
@@ -240,7 +193,7 @@ describe("stage-change - Ritz hard block (Invariant 2 regression)", () => {
   it("refuses for Ritz before ANY rail runs: no write, no ledger, no snapshot", async () => {
     _ambientTenant = "tenant-ritz-founder";
     const r = await stageChangeForRecord(
-      { kind: "daily_pick", planId: "plan-1", experimentId: "plan-1::/famous-iranian-poets" },
+      { kind: "move", moveId: "rec-1" },
       { now: NOW },
     );
     expect(r.staged).toBe(false);
@@ -256,7 +209,7 @@ describe("stage-change - armed-required pin", () => {
   it("staged (default) mode fails closed to paste with a settings pointer; no write", async () => {
     _mode = "staged";
     const r = await stageChangeForRecord(
-      { kind: "daily_pick", planId: "plan-1", experimentId: "plan-1::/famous-iranian-poets" },
+      { kind: "move", moveId: "rec-1" },
       { now: NOW },
     );
     expect(r.staged).toBe(false);
@@ -265,61 +218,11 @@ describe("stage-change - armed-required pin", () => {
   });
 });
 
-describe("stage-change - daily-plan picks", () => {
-  it("stages a title pick through the existing field route with snapshot + ledger + receipt", async () => {
-    const r = await stageChangeForRecord(
-      { kind: "daily_pick", planId: "plan-1", experimentId: "plan-1::/famous-iranian-poets" },
-      { now: NOW },
-    );
-    expect(r.staged).toBe(true);
-    expect(r.receiptLine).toContain("Staged in Wix at 2:14am.");
-    expect(r.receiptLine).toContain("I saved the old version first; one click restores it.");
-    expect(_updateCalls).toHaveLength(1);
-    expect(_updateCalls[0]!.field).toBe("title");
-    expect(_updateCalls[0]!.value).toBe("Famous Iranian Poets and Their Work");
-    // The existing rails ran: snapshot BEFORE write + a finalized ledger row.
-    const snaps = _stores.get("push-snapshots") ?? [];
-    expect(snaps).toHaveLength(1);
-    expect((snaps[0] as { previous_text: string }).previous_text).toBe("Old Title");
-    const ledger = (_stores.get("push-ledger") ?? []) as Array<{ result: string }>;
-    expect(ledger.some((e) => e.result === "pushed")).toBe(true);
-  });
-
-  it("a preview (un-accepted) plan refuses: approval comes first", async () => {
-    _plan = acceptedPlan(dailyPick(), { status: "preview" });
-    const r = await stageChangeForRecord(
-      { kind: "daily_pick", planId: "plan-1", experimentId: "plan-1::/famous-iranian-poets" },
-      { now: NOW },
-    );
-    expect(r.staged).toBe(false);
-    expect(r.reason).toContain("approve");
-    expect(_updateCalls).toHaveLength(0);
-  });
-
-  it("an already-live item never re-stages (proof-window protection)", async () => {
-    _plan = acceptedPlan(dailyPick(), {
-      execution: {
-        items: {
-          "plan-1::/famous-iranian-poets": { experimentId: "plan-1::/famous-iranian-poets", status: "active", receipts: [] },
-        },
-        updatedAt: "2026-07-02T00:00:00Z",
-      },
-    });
-    const r = await stageChangeForRecord(
-      { kind: "daily_pick", planId: "plan-1", experimentId: "plan-1::/famous-iranian-poets" },
-      { now: NOW },
-    );
-    expect(r.staged).toBe(false);
-    expect(r.reason).toContain("already live");
-    expect(_updateCalls).toHaveLength(0);
-  });
-});
-
 describe("stage-change - never-stage-without-snapshot pin", () => {
   it("a failed snapshot write means NO live write and a paste fallback", async () => {
     _failSnapshotWrite = true;
     const r = await stageChangeForRecord(
-      { kind: "daily_pick", planId: "plan-1", experimentId: "plan-1::/famous-iranian-poets" },
+      { kind: "move", moveId: "rec-1" },
       { now: NOW },
     );
     expect(r.staged).toBe(false);
@@ -346,7 +249,7 @@ describe("stage-change - daily push cap pin", () => {
       })),
     );
     const r = await stageChangeForRecord(
-      { kind: "daily_pick", planId: "plan-1", experimentId: "plan-1::/famous-iranian-poets" },
+      { kind: "move", moveId: "rec-1" },
       { now: NOW },
     );
     expect(r.staged).toBe(false);
@@ -389,12 +292,6 @@ describe("stage-change - worklist moves", () => {
 describe("stage-change - dash guard on every receipt", () => {
   it("staged, refused, and raw push-service reasons all render dash-free", async () => {
     const outcomes = [] as Array<{ staged: boolean; receiptLine: string; reason?: string }>;
-    outcomes.push(
-      await stageChangeForRecord(
-        { kind: "daily_pick", planId: "plan-1", experimentId: "plan-1::/famous-iranian-poets" },
-        { now: NOW },
-      ),
-    );
     _urlMapEntry = null; // the push-service unmapped reason historically carried an em dash
     _deriveFieldKey = null;
     outcomes.push(await stageChangeForRecord({ kind: "move", moveId: "rec-1" }, { now: NOW }));

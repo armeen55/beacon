@@ -15,7 +15,6 @@ import { buildKeywordPortfolio } from "@/domains/recommendations/keyword-portfol
 import { classifyQueryIntent } from "@/domains/recommendations/page-topic-fit";
 import { topicTokens } from "@/domains/evidence/relevance-gate";
 import { readCachedSerpPatterns } from "@/domains/serp/research-enrichment-producer";
-import { whatToSteal } from "@/domains/experiments/daily-evidence-brief";
 import { getLatestMoveDrafts, type MoveDraftRow } from "@/domains/demand-graph/move-draft-store";
 import { evaluatePreparedPackQuality, type DraftQualityResult } from "@/domains/drafts/draft-quality";
 import { getBusinessConfig, hydrateBusinessConfigFromSupabase } from "@/lib/business-config";
@@ -98,8 +97,8 @@ export type TodayMove = {
   demandBasis: "gsc" | "search_volume" | "ai_attention" | "mixed" | null;
   whoCited: string | null;
   whatWins: string | null;
-  /** Phase 1d: the actionable "steal this" line from the top competitor's page structure
-   *  (direct answer / FAQ / tool / schema / depth), reusing the daily card's whatToSteal builder. */
+  /** Retired: the competitor "steal this" line rode the deleted daily-evidence brief and
+   *  is now always null. Kept on the type so persisted snapshots deserialize cleanly. */
   competitorSteal?: string | null;
   /** §1 "Your gap" - what the cited competitor has that your page lacks (plain language). */
   yourGap: string;
@@ -880,22 +879,10 @@ export async function buildTodayMovesData(
         packet?.competitor?.domain && packet.competitor.fetchStatus === "ok" && !looselyMatched && compRelevant
           ? packet.competitor.domain
           : null;
-      // Phase 1d: the actionable "steal this" line from the on-topic competitor's page structure
-      // (reuses the daily card's pure whatToSteal builder). Only when we have a real, relevant teardown.
-      const cf = packet?.competitor?.facts;
-      const competitorSteal =
-        whoCited && cf
-          ? whatToSteal({
-              hasAnswerBlock: cf.hasAnswerBlock,
-              hasFaq: cf.hasFaq,
-              faqQuestionCount: cf.faqQuestionCount,
-              schemaTypes: cf.schemaTypes,
-              hasToolOrCalculator: cf.hasToolOrCalculator,
-              wordCount: cf.wordCount,
-              sectionCount: cf.sectionCount,
-              hasReviewSchema: cf.eeat?.hasReviewSchema,
-            })
-          : null;
+      // The competitor-structure "steal this" line rode the retired daily-evidence
+      // brief; it no longer contributes to the card. The teardown's "what wins" line
+      // above still carries the actionable competitor signal.
+      const competitorSteal = null;
 
       const query =
         packet?.move?.label ??

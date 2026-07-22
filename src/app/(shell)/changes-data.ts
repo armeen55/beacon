@@ -1,36 +1,21 @@
 import "server-only";
 
 /**
- * changes-data (2026-07-01) — server loader for the canonical Changes list. Fans in the EXISTING
- * sources (the ActionPack worklist + today's daily plan + reservations) and runs the pure
- * buildCanonicalChanges adapter. READ-ONLY, fail-soft, no new persistence. Returns the canonical
- * changes + a sourceId→TodayMove map so a row can expand into the existing rich card (no rewrite of
- * working actions).
+ * changes-data (2026-07-01) — server loader for the canonical Changes list. Fans in the ActionPack
+ * worklist and runs the pure buildCanonicalChanges adapter. READ-ONLY, fail-soft, no new
+ * persistence. Returns the canonical changes + a sourceId→TodayMove map so a row can expand into
+ * the existing rich card (no rewrite of working actions). (Core 100K: the daily-experiment-plan,
+ * reservation, and seasonal enrichment lanes were retired; the ranked queue derives from the
+ * worklist and the proof ledger alone.)
  */
 import { currentTenantId } from "@/lib/tenant-context";
 import { loadSurfaceWithSwr } from "./worklist-data";
-import { getLatestPreviewPlan, getAcceptedPlan, listActiveReservations } from "@/domains/experiments/daily-experiment-plan-store";
 import { buildCanonicalChanges, type CanonicalMoveInput } from "@/domains/changes/build-canonical-changes";
 import type { CanonicalChange } from "@/domains/changes/canonical-change";
 import { statusView } from "@/domains/changes/canonical-change";
-import { decideChangeAction, cannibalizationDirective, isActDecision, stripInstructionsOnConsolidate } from "@/domains/changes/decide-action";
-// One-posture-per-page (2026-07-11) - the SAME persisted seasonal store Today's war-room reads
-// (war-room-sections.tsx -> loadSeasonalQueries -> the "I would prep this page by <date>" row), so
-// the ranked Changes list never holds an act-now card for a page Today is telling the operator to
-// wait on. Read-only; PREP_WINDOW_DAYS is the same urgency window the seasonal hint feed uses.
-import { loadSeasonalQueries } from "@/domains/seasonal/seasonal-store";
-import type { SeasonalQuery } from "@/domains/seasonal/seasonality";
-import { PREP_WINDOW_DAYS } from "@/domains/seasonal/seasonal-hints";
-import { normalizePath } from "@/domains/experiments/daily-plan-types";
+import { decideChangeAction, cannibalizationDirective, stripInstructionsOnConsolidate } from "@/domains/changes/decide-action";
 import type { TodayMove } from "./today-moves-data";
-// D7 (honest opportunity math) - the SAME bias-correction factor + per-family empirical capture
-// band build-today-preview.ts already resolves for the nightly plan, reused here so the ranked
-// Changes list forecasts with the tenant's own track record instead of the static 25/75 fallback
-// whenever enough settled history exists. Read-only; this file only reads the cached ledger.
-import { loadCalibrationRecords } from "@/domains/experiments/forecast-calibration-store";
-import { summarizeForecastCalibration, captureDistributionFromCalibrationRecords } from "@/domains/experiments/forecast-calibration";
 import { canonicalMoveType } from "@/domains/learning/experiment-prior";
-import { blendCaptureBand } from "@/domains/experiments/empirical-capture";
 import { captureHypothesis } from "@/domains/forecast/hypothesis-log";
 // UX0 (2026-07-02) - the SAME canonical "measuring" count Today reads, so the worklist
 // header never shows a different number than Today for the same word. Read-only import;
@@ -39,7 +24,7 @@ import { loadProofLedgerCached } from "@/domains/proof-gsc/load-ledger";
 // FP3 (2026-07-02) - THE ONE-COUNT RULE: measuring/decided are computed by the shared
 // lifecycle classifier (the same split Results renders as its bands), never by this
 // file's own verdict-field filter. See domains/changes/lifecycle-counts.ts.
-import { countLedgerLifecycle, excludeRevertBookkeeping, tonightCounts } from "@/domains/changes/lifecycle-counts";
+import { countLedgerLifecycle, excludeRevertBookkeeping } from "@/domains/changes/lifecycle-counts";
 // FP5b (2026-07-02) - the New Pages board is the ONE home for not-yet-built topics; a
 // page-less create row whose topic already has a board card is a duplicate, not a
 // second opportunity. Same normalizer the board's own dedupe pass uses.
@@ -49,7 +34,7 @@ import { valueWithDeadline } from "@/lib/load-with-deadline";
 import { cache } from "react";
 // R14b (receipts everywhere) - the shared one-line receipt builder; the line is
 // composed HERE (server) so the client list renders a stable string.
-import { buildReceiptLine, checkedAgoLabel } from "@/components/data/receipt-line";
+import { buildReceiptLine } from "@/components/data/receipt-line";
 // D4/N1 (unified allocator, 2026-07-02) - fuse D2's AEO gap verdicts + D3's SERP steal briefs +
 // undercovered keyword-library demand onto this SAME ranked list, so /changes becomes the
 // operator's "one ranked decision" across every opportunity source, not just the ActionPack
@@ -587,48 +572,6 @@ export function applyOpportunityFreshness(
   });
 }
 
-/** One-posture-per-page (2026-07-11) - the pages Today's war-room is holding in a SEASONAL WAIT
- *  posture, keyed by normalized path -> the exact sentence Today shows ("I would prep this page by
- *  <date>, six weeks ahead, so Google has it indexed before the wave."). A page is in a WAIT
- *  posture (not a "prep now" one) when its prep deadline is further out than the SAME
- *  PREP_WINDOW_DAYS urgency window the seasonal hint feed uses: inside that window the prep IS the
- *  act-now move, so Today and Changes already agree and nothing is demoted. Only entries with a
- *  known top page contribute (nothing else is exact to a page). PURE; exported for a direct test pin. */
-export function seasonalWaitPathsFrom(seasonal: readonly SeasonalQuery[], now: Date = new Date()): Map<string, string> {
-  const out = new Map<string, string>();
-  for (const s of seasonal) {
-    if (!s.topPage) continue;
-    const target = Date.parse(`${s.prepByDate}T00:00:00Z`);
-    if (!Number.isFinite(target)) continue;
-    const days = Math.round((target - now.getTime()) / 86_400_000);
-    if (days <= PREP_WINDOW_DAYS) continue; // prep is due/urgent -> act now, not a wait
-    const key = normalizePath(s.topPage);
-    if (!out.has(key)) out.set(key, s.sentence);
-  }
-  return out;
-}
-
-/** One-posture-per-page (2026-07-11) - when a page is held in a seasonal WAIT posture on another
- *  surface (Today's war-room), the Changes board must not ALSO hold an act-now card for it, or the
- *  operator sees "act now" and "wait until <date>" for the same page at once. For each act-now
- *  change on such a page, demote it to the SAME watching state the zero-click trap uses (decision
- *  "watch", held with the seasonal sentence as its honest reason), reusing decide-action's existing
- *  vocabulary. A row already watching / blocked / measuring / settled is left untouched, and a page
- *  with no matching wait posture rides through byte-identical. PURE; exported for a direct test pin. */
-export function applySeasonalWaitPosture(
-  changes: readonly CanonicalChange[],
-  seasonalWaitByPath: ReadonlyMap<string, string>,
-): CanonicalChange[] {
-  if (seasonalWaitByPath.size === 0) return [...changes];
-  return changes.map((c) => {
-    if (!isActDecision(c.decision)) return c;
-    const sentence = seasonalWaitByPath.get(c.pagePath);
-    if (!sentence) return c;
-    const status = c.status === "ready" ? "suggested" : c.status;
-    return { ...c, status, qualityDecision: "flagged", qualityNote: sentence, decision: "watch" };
-  });
-}
-
 // N49 (R21b, 2026-07-03) - CALIBRATED ABSTENTION, LIVE. The Quality Constitution's law 2:
 // Beacon never presents a confident move it has no real evidence for. abstention.ts is the pure
 // gate; this is its live wire-in on the ONE list the operator acts on. It runs as a FINAL filter
@@ -805,16 +748,11 @@ export async function loadChangesViewWithSwr(tenantId: string): Promise<ChangesV
 // customer-surface-refresh: a failed build throws and the previous release stays.
 export async function buildChangesViewUncached(tenantId: string): Promise<ChangesView> {
   // Move 3 — every source is fail-soft so one failing store can never blank the whole
-  // Changes list. A plan-store outage drops the "today" slice but keeps the ranked moves;
-  // a worklist outage keeps any selected plan items. The page renders with what loaded.
+  // Changes list. A worklist outage still renders whatever the ledger and board know.
   const tSources = perfMark();
-  const [wl, accepted, preview, reservations, ledgerRows, calibrationRecords, boardTopicKeys, seasonalQueries] = await Promise.all([
+  const [wl, ledgerRows, boardTopicKeys] = await Promise.all([
     loadSurfaceWithSwr(tenantId).catch(() => ({ moves: [] as TodayMove[], stats: undefined })),
-    getAcceptedPlan(tenantId).catch(() => null),
-    getLatestPreviewPlan(tenantId).catch(() => null),
-    listActiveReservations(tenantId).catch(() => []),
     loadProofLedgerCached(tenantId).catch(() => []),
-    loadCalibrationRecords(tenantId).catch(() => []),
     valueWithDeadline(
       buildNewPagesData(tenantId)
         .then((d) => new Set(d.opportunities.map((o) => topicIdentityKey(o.topic))))
@@ -822,9 +760,6 @@ export async function buildChangesViewUncached(tenantId: string): Promise<Change
       new Set<string>(),
       BOARD_TOPICS_DEADLINE_MS,
     ),
-    // One-posture-per-page - the same seasonal store Today reads; fail-soft (an outage just means
-    // no seasonal demotion this build, never a blanked list).
-    loadSeasonalQueries(tenantId).catch(() => [] as SeasonalQuery[]),
   ]);
   perfStage("changes-source-read", tSources, { moves: (wl.moves ?? []).length, ledger: ledgerRows.length });
   // FP3 - THE ONE-COUNT RULE (domains/changes/lifecycle-counts.ts): the same classifier
@@ -832,15 +767,12 @@ export async function buildChangesViewUncached(tenantId: string): Promise<Change
   const ledgerCounts = countLedgerLifecycle(ledgerRows);
   const measuringCountCanonical = ledgerCounts.measuring;
   const decidedCountCanonical = ledgerCounts.decided;
-  const plan = accepted ?? preview;
 
-  // R20 (D6 dynamic auto-mode) - the session strip's live counter numbers, from the SAME FP3
-  // lifecycle rule the Tonight chip uses. `readyCount` = tonight's picks not yet applied
-  // (prepared, still waiting on the operator's edit); `shippedThisWeekCount` = changes shipped
-  // in the trailing 7 days from the SAME proof ledger the counts above read. Both derived here,
-  // no second store.
-  const tonight = tonightCounts(accepted, preview);
-  const readyCount = Math.max(0, tonight.picked - tonight.applied);
+  // R20 (D6 dynamic auto-mode) - the session strip's shipped-this-week counter, from the SAME
+  // proof ledger the lifecycle counts above read. `readyCount` (tonight's picks not yet applied)
+  // rode the retired daily-experiment plan, so it is 0 now: the ranked "Ready" tab count in
+  // `summary.ready` below is the live truth the strip reads instead.
+  const readyCount = 0;
   const weekCutoffMs = Date.now() - 7 * 24 * 60 * 60 * 1000;
   // Bug #14 - count DISTINCT operator changes, not the revert bookkeeping rows (a
   // revert_* row is not a change the operator shipped), so this session-strip counter
@@ -862,16 +794,12 @@ export async function buildChangesViewUncached(tenantId: string): Promise<Change
     suppressedRowsNote = `${heldWhileMeasuring} more idea${heldWhileMeasuring === 1 ? "" : "s"} exist${heldWhileMeasuring === 1 ? "s" : ""} for pages that are mid-measurement right now. I'll surface them once those results settle.`;
   }
 
-  // D7 - the tenant's own bias-correction factor + per-actionFamily empirical capture band, the
-  // SAME machinery build-today-preview.ts already resolves for the nightly plan (forecast-
-  // calibration.ts). A fresh tenant with no settled history yet gets factor 1.0 and the static
-  // 25/75 band - byte-identical to the pre-D7 forecastRange defaults.
-  const calibrationSummary = summarizeForecastCalibration(calibrationRecords);
-  const captureDistribution = captureDistributionFromCalibrationRecords(calibrationRecords);
-
+  // The tenant-specific forecast calibration + empirical capture band rode the retired
+  // forecast-calibration store. Omitting correctionFactor/captureBand/settledResultsCount below
+  // lands opportunity-math.ts on its honest defaults (factor 1.0, static 25/75 band) for every
+  // row - the same fallback a fresh tenant with no settled history always got.
   const moveInputs: CanonicalMoveInput[] = moves.map((m) => {
     const tq = [...(m.topQueries ?? [])].sort((a, b) => b.impressions - a.impressions)[0];
-    const band = blendCaptureBand(captureDistribution.get(canonicalMoveType(m.action)));
     return {
       id: m.id,
       actionType: m.action,
@@ -890,9 +818,6 @@ export async function buildChangesViewUncached(tenantId: string): Promise<Change
       topQueryImpressions90d: tq?.impressions ?? null,
       topQueryClicks90d: tq?.clicks ?? null,
       hasIndependentAeoEvidence: Boolean(m.whoCited),
-      correctionFactor: calibrationSummary.correctionFactor,
-      captureBand: { low: band.low, high: band.high, n: band.n, isEmpirical: band.isEmpirical },
-      settledResultsCount: calibrationSummary.settledCount,
       proofStatus: m.proofStatus ?? null,
       alreadyMeasuring: m.alreadyMeasuring,
       pageMeasuring: m.pageMeasuring,
@@ -906,7 +831,7 @@ export async function buildChangesViewUncached(tenantId: string): Promise<Change
     };
   });
 
-  const worklistChanges = buildCanonicalChanges({ tenantId, moves: moveInputs, plan: plan ?? null, reservations });
+  const worklistChanges = buildCanonicalChanges({ tenantId, moves: moveInputs });
 
   // D4/N1 (unified allocator) - fuse in the lanes buildCanonicalChanges cannot see: D2's AEO gap
   // verdicts, D3's SERP steal briefs, and undercovered keyword-library demand, into ONE ranked
@@ -946,19 +871,11 @@ export async function buildChangesViewUncached(tenantId: string): Promise<Change
   // rationale is built from the DECIDED action above, never the ambiguous fix text.
   const redirectEvidence = buildRedirectSafetyEvidence(coverageInputs);
   const reconciled = applySafeRedirectPlans(reconcileCannibalizationRationale(decided, movesById), movesById, redirectEvidence);
-  // One-posture-per-page (2026-07-11) - a page Today's war-room is telling the operator to WAIT on
-  // (a seasonal window whose prep deadline is still months out) must not carry an act-now card here
-  // at the same time. Demote any such act-now row to the same watching state the zero-click trap
-  // uses, held with the exact seasonal sentence Today shows. Applied BEFORE the ranking input below
-  // (and before the client ranks) so the board order reflects the demotion, never a surface-local
-  // patch. Byte-identical when nothing is in a seasonal wait posture.
-  const seasonalWaitByPath = seasonalWaitPathsFrom(seasonalQueries);
-  const oneposture = applySeasonalWaitPosture(reconciled, seasonalWaitByPath);
   // FP2 (killer finding 1) - a row whose only sizing is opportunity-math's honest "not enough
   // history"/"gap too small" fallback must never outrank a row with a real forecast. strategy.ts's
   // ranking is untouched; this only adjusts the ranking INPUT so unsized rows sort to the bottom
   // of their status bucket instead of mixing in among sized ones.
-  const demoted = demoteUnsized(oneposture);
+  const demoted = demoteUnsized(reconciled);
   // FP5b - one home per job: a not-yet-built topic that already has a New Pages board
   // card must not ALSO render as a ranked list row ("biggest cities in iran" appearing
   // three times in two formats). The board is the richer home; the list keeps every
@@ -966,10 +883,11 @@ export async function buildChangesViewUncached(tenantId: string): Promise<Change
   const boardCleaned = dropBoardDuplicateNewPageRows(demoted, boardTopicKeys);
 
   // N46 (R6, 2026-07-03) - OPPORTUNITY EXPIRATION, applied AFTER dedupe/rank (never re-ranks,
-  // only marks freshness + agingChip on the existing rows in place). Today's plan's own
-  // createdAt is the one genuinely dated piece of evidence available at this seam.
-  const planItemIds = new Set<string>([...(plan?.selected ?? []).map((e) => e.id), ...(plan?.backups ?? []).map((e) => e.id)]);
-  const fresh = applyOpportunityFreshness(boardCleaned, plan?.createdAt ?? null, planItemIds);
+  // only marks freshness + agingChip on the existing rows in place). The daily plan was the one
+  // genuinely dated piece of evidence at this seam; with it retired there is nothing dated to age
+  // a worklist row against yet, so every row rides through on classifyOpportunityFreshness's
+  // honest "fresh" default.
+  const fresh = applyOpportunityFreshness(boardCleaned, null, new Set<string>());
 
   // N49 (R21b, 2026-07-03) - CALIBRATED ABSTENTION, LIVE (the FINAL filter, after dedupe/rank/
   // freshness). A bare suggestion with none of the three real-signal classes (demand, competitor
@@ -1034,16 +952,14 @@ export async function buildChangesViewUncached(tenantId: string): Promise<Change
   }
 
   // R14b (receipts everywhere) - the list is ranked at request time from the demand
-  // data above; when tonight's plan contributed rows, its own assembly stamp joins
-  // the line so "why does this say Tuesday" never needs a support ticket.
+  // data above, so the receipt says when and from what, plainly.
   const nowMs = Date.now();
-  const planAgo = plan?.createdAt ? checkedAgoLabel(plan.createdAt, nowMs) : null;
   const receiptLine = buildReceiptLine({
     source: "your Search Console demand data",
     checkedAt: new Date(nowMs).toISOString(),
     verb: "ranked",
     nowMs,
-    note: planAgo ? `Today's picks were put together ${planAgo}.` : null,
+    note: null,
   });
 
   perfStage("changes-assembly", tSources, { changes: changes.length, watching: watching.length });
@@ -1052,8 +968,8 @@ export async function buildChangesViewUncached(tenantId: string): Promise<Change
     movesById,
     rankedPreparationEntries,
     summary,
-    hasPlan: !!plan,
-    planAccepted: !!accepted,
+    hasPlan: false,
+    planAccepted: false,
     readyZeroHint,
     measuringCountCanonical,
     decidedCountCanonical,

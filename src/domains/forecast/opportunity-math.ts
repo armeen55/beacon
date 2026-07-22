@@ -34,13 +34,55 @@
  * should now display nothing (or this honest sentence) rather than keep the old number.
  */
 
-import {
-  ctrOpportunity90d,
-  forecastRange,
-  clampCorrectionFactor,
-  type CaptureFractions,
-} from "@/domains/experiments/pick-expectations";
-import type { TenantCtrCurve } from "./tenant-ctr-curve";
+import { defaultExpectedCtrAt, type TenantCtrCurve } from "./tenant-ctr-curve";
+
+// The experiments/pick-expectations module that owned this forecast math was removed. The pure
+// functions are inlined here unchanged (byte-identical formulas) so this module's opportunity-
+// forecast contract for its callers is fully preserved.
+
+/** Expected CTR at a position: the tenant's fitted curve when present, else the industry default. */
+function expectedCtrAt(position: number, curve?: TenantCtrCurve | null): number {
+  return curve ? curve.expectedCtrAt(position) : defaultExpectedCtrAt(position);
+}
+
+/** 90d CTR-curve opportunity for a query the page already ranks for (clicks left on the table). */
+function ctrOpportunity90d(
+  input: { position: number; ctr: number; impressions90d: number },
+  curve?: TenantCtrCurve | null,
+): number {
+  if (!Number.isFinite(input.impressions90d) || input.impressions90d <= 0) return 0;
+  return Math.max(0, expectedCtrAt(input.position, curve) - Math.max(0, input.ctr)) * input.impressions90d;
+}
+
+// `friendly` (round to an estimate-shaped unit) is already defined lower in this file; reused here.
+
+const CORRECTION_FACTOR_MIN = 0.7;
+const CORRECTION_FACTOR_MAX = 1.3;
+/** Clamp the learned bias-correction factor to a safe band. */
+function clampCorrectionFactor(factor: number): number {
+  if (!Number.isFinite(factor)) return 1;
+  return Math.min(CORRECTION_FACTOR_MAX, Math.max(CORRECTION_FACTOR_MIN, factor));
+}
+
+type CaptureFractions = { low: number; high: number };
+const DEFAULT_CAPTURE: CaptureFractions = { low: 0.25, high: 0.75 };
+
+/** Monthly extra-clicks range from the 90-day CTR-curve opportunity (25%-75% capture by default). */
+function forecastRange(
+  ctrOpportunityClicks90d: number,
+  correctionFactor: number = 1,
+  captureFractions: CaptureFractions = DEFAULT_CAPTURE,
+): { low: number; high: number } | null {
+  if (!Number.isFinite(ctrOpportunityClicks90d) || ctrOpportunityClicks90d <= 0) return null;
+  const factor = clampCorrectionFactor(correctionFactor);
+  const monthly = (ctrOpportunityClicks90d / 3) * factor;
+  const captureLow = Number.isFinite(captureFractions.low) ? captureFractions.low : DEFAULT_CAPTURE.low;
+  const captureHigh = Number.isFinite(captureFractions.high) ? captureFractions.high : DEFAULT_CAPTURE.high;
+  const low = friendly(monthly * captureLow);
+  const high = friendly(monthly * captureHigh);
+  if (high < 3) return null;
+  return { low: Math.max(1, low), high: Math.max(high, Math.max(1, low)) };
+}
 
 /** FP2 (2026-07-02) - noun phrases for the honest no-history fallback ("coverage", "internal
  *  linking"), distinct from LEVER_PLAIN's "a TITLE change" clause shape so the two fallback

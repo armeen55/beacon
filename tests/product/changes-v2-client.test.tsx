@@ -35,7 +35,6 @@ vi.mock("@/app/(shell)/changes/actions", () => ({
 
 import { ChangesV2Client } from "@/app/(shell)/changes/changes-v2-client";
 import type { EnrichedChangeRow, ChangeRowProof } from "@/app/(shell)/changes/types";
-import type { LifecycleTabClass } from "@/domains/attribution/lifecycle-classification";
 import type { ImplementationStatus } from "@/domains/recommendations/recommended-edits-persistence";
 
 type RowOverrides = {
@@ -94,7 +93,7 @@ function makeRow(over: RowOverrides = {}): EnrichedChangeRow {
 
 function render(input: {
   rows: EnrichedChangeRow[];
-  classByChangelogId?: Record<string, LifecycleTabClass>;
+  classByChangelogId?: Record<string, string>;
   editStatusByChangelogId?: Record<string, ImplementationStatus>;
 }): string {
   return renderToStaticMarkup(
@@ -343,7 +342,7 @@ describe("ChangesV2Client — proof timeline", () => {
         timestamp: `2026-05-${String((i % 28) + 1).padStart(2, "0")}T00:00:00Z`,
       }),
     );
-    const classByChangelogId: Record<string, LifecycleTabClass> = {};
+    const classByChangelogId: Record<string, string> = {};
     for (const r of many) {
       classByChangelogId[r.change.id] = "live_verified";
     }

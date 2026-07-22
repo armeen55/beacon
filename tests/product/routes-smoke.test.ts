@@ -107,7 +107,6 @@ describe("Connectors settings route smoke", () => {
     expect(html).toContain('data-connector-card="clarity"');
     expect(html).not.toContain("Enter Yelp API Key");
     expect(html).toContain('data-connectors-summary-strip="true"');
-    expect(html).toContain("Automatic upkeep:");
     expect(html).toContain("The only thing I never do on my own is change your live site");
   });
 
@@ -127,7 +126,6 @@ describe("Connectors settings route smoke", () => {
     const tree = await ConnectorsPage();
     const html = renderToStaticMarkup(tree as ReactElement);
     expect(html).toContain("2 of 4 connected");
-    expect(html).toContain("Automatic upkeep: last finished");
   });
 });
 

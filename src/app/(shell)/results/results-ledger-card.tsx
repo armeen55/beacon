@@ -11,11 +11,6 @@ import { UNCALIBRATED_NO_CLEAR_EFFECT_SENTENCE } from "@/domains/proof-gsc/verdi
 import type { VerdictReliabilityResult } from "@/domains/proof-gsc/verdict-reliability";
 import { Sparkline, type SparkPoint } from "@/components/data/sparkline";
 import type { ProofLink } from "@/domains/action-pack/proof-linker";
-import type { CalibrationRecord } from "@/domains/experiments/forecast-calibration-store";
-import {
-  buildForecastReceiptLine,
-  shouldShowForecastReceipt,
-} from "@/domains/experiments/forecast-receipts";
 import {
   addDays,
   formatWindowLift,
@@ -40,11 +35,9 @@ import {
   reconciliationSentence,
   searchAndTrafficDisagree,
 } from "./proof-reconciliation";
-import type { RevertDecision } from "@/domains/autopilot/revert-policy";
 import {
   ExcludeFromLearningButton,
   RecrawlButton,
-  RestoreOldVersionButton,
   RollbackCopyButton,
 } from "./proof-ledger-client";
 import { Card } from "@/components/ui/card";
@@ -172,9 +165,6 @@ export function LedgerRowGroup({
   eventCaveatById,
   sparkByPath,
   controlSparkByPath,
-  revertById,
-  restoredIds,
-  calibrationByProofId,
   ownedAlignmentByRecId,
 }: {
   rows: ShippedChangeRecord[];
@@ -188,9 +178,6 @@ export function LedgerRowGroup({
   sparkByPath: Map<string, SparkPoint[]>;
   /** R14b (named controls) - comparison pages' own daily-clicks series. */
   controlSparkByPath?: Map<string, SparkPoint[]>;
-  revertById: Map<string, RevertDecision>;
-  restoredIds: Set<string>;
-  calibrationByProofId?: Map<string, CalibrationRecord>;
   /** W2-B (2026-07-10) - batched "AI quoted this line" alignments, keyed by rec id,
    *  resolved once on the page (READ-ONLY on the GET) instead of per-card async reads. */
   ownedAlignmentByRecId?: Map<string, PersistedAnswerAlignment | null>;
@@ -217,9 +204,6 @@ export function LedgerRowGroup({
         eventCaveat={eventCaveatById?.get(rec.id) ?? null}
         spark={sparkByPath.get(rec.path)}
         controlSparks={controlSparks}
-        revert={revertById.get(rec.id) ?? null}
-        restored={restoredIds.has(rec.id)}
-        calibration={calibrationByProofId?.get(rec.id) ?? null}
         ownedAlignment={ownedAlignmentByRecId?.get(rec.id) ?? null}
       />
     );
@@ -251,7 +235,7 @@ export function LedgerRowGroup({
   );
 }
 
-function LedgerCard({ rec, link, pres, compound, grade, eventCaveat, spark, controlSparks, band, revert, restored, calibration, ownedAlignment }: { rec: ShippedChangeRecord; link?: ProofLink | null; pres?: MeasurementPresentation | null; compound?: CompoundActionGroup | null; grade?: VerdictReliabilityResult | null; eventCaveat?: string | null; spark?: SparkPoint[]; controlSparks?: Array<{ path: string; points: SparkPoint[] }>; band?: LedgerBand; revert?: RevertDecision | null; restored?: boolean; calibration?: CalibrationRecord | null; ownedAlignment?: PersistedAnswerAlignment | null }) {
+function LedgerCard({ rec, link, pres, compound, grade, eventCaveat, spark, controlSparks, band, ownedAlignment }: { rec: ShippedChangeRecord; link?: ProofLink | null; pres?: MeasurementPresentation | null; compound?: CompoundActionGroup | null; grade?: VerdictReliabilityResult | null; eventCaveat?: string | null; spark?: SparkPoint[]; controlSparks?: Array<{ path: string; points: SparkPoint[] }>; band?: LedgerBand; ownedAlignment?: PersistedAnswerAlignment | null }) {
   // Judge a meta/title test on CTR, a content test on position, else clicks, so
   // every line on this card reads in the unit that actually moved.
   const metric = pickProofMetric(rec.actionType);
@@ -600,17 +584,6 @@ function LedgerCard({ rec, link, pres, compound, grade, eventCaveat, spark, cont
         <p className="mt-1 text-[12px] text-foreground/80">{rec.weekdayAdjustedLift.sentence}</p>
       ) : null}
 
-      {/* Forecast receipt (master plan item 42): grade the numeric forecast this pick carried
-          against what actually happened, straight from the persisted calibration record (item
-          28's day-28 writer) - never recomputed here. Only a MATURE (settled) row can carry a
-          receipt; a measuring row is never graded. Silent when this pick had no numeric forecast
-          or hasn't reached its calibration write yet. */}
-      {shouldShowForecastReceipt({ mature, calibration }) ? (
-        <p className="mt-1 text-[12px] font-medium text-foreground/80">
-          {buildForecastReceiptLine(calibration!)}
-        </p>
-      ) : null}
-
       {/* Item C5 - the untouched-pages comparison used to lead with the raw "Out of
           60, 60 moved as much" trap sentence, which reads like proof when it is
           actually the honest opposite (normal noise, not evidence). The plain line
@@ -940,23 +913,10 @@ function LedgerCard({ rec, link, pres, compound, grade, eventCaveat, spark, cont
         </div>
       ) : null}
 
-      {/* Put the old version back (item 11; E-36: never auto-revert, ask
-          first): a restored row says so; a row that is measuring negative
-          with a saved snapshot gets the one-click restore offer plus the
-          reason sentence, and nothing ships until the operator clicks it;
-          everything else keeps the manual copy fallback. */}
-      {restored ? (
-        <p className="mt-3 border-t border-border/40 pt-2.5 text-[11px] text-emerald-700">
-          The old version is back on this page. I recorded the restore as its own change and I am measuring it.
-        </p>
-      ) : revert ? (
-        <div className="mt-3 border-t border-border/40 pt-2.5">
-          <p className="text-[11px] text-foreground/75">{revert.reason}</p>
-          <div className="mt-1.5 flex flex-wrap items-center gap-2">
-            <RestoreOldVersionButton recordId={rec.id} />
-          </div>
-        </div>
-      ) : rec.before ? (
+      {/* Roll back by hand: publishing and reverting stay explicit and manual, so
+          a row with saved before-copy offers the one-click copy of the old text
+          for the operator to paste back into their CMS. */}
+      {rec.before ? (
         <div className="mt-3 flex items-center gap-2 border-t border-border/40 pt-2.5">
           <RollbackCopyButton before={rec.before} />
           <span className="text-[10px] text-muted-foreground">

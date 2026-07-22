@@ -4,9 +4,9 @@ import { cache } from "react";
 /**
  * lifecycle-counts-data (2026-07-02, FP3) - the ONE request-cached loader behind every
  * rendered lifecycle-stage count. Reads the canonical stores exactly once per request
- * (the proof ledger via the already-request-cached loadProofLedgerCached, the daily
- * plan store, and the canonical Changes list for the backlog count) and runs the pure
- * ONE-COUNT-RULE math in src/domains/changes/lifecycle-counts.ts.
+ * (the proof ledger via the already-request-cached loadProofLedgerCached, and the
+ * canonical Changes list for the backlog count) and runs the pure ONE-COUNT-RULE math
+ * in src/domains/changes/lifecycle-counts.ts.
  *
  * Consumers: Today (tiles + standup + measuring strip), the worklist Tonight chip,
  * and the Results header strip. Because loadProofLedgerCached and loadChangesView are
@@ -19,7 +19,6 @@ import { cache } from "react";
  */
 import { currentTenantId } from "@/lib/tenant-context";
 import { loadProofLedgerCached } from "@/domains/proof-gsc/load-ledger";
-import { getAcceptedPlan, getLatestPreviewPlan } from "@/domains/experiments/daily-experiment-plan-store";
 import { computeLifecycleCounts, type LifecycleCounts } from "@/domains/changes/lifecycle-counts";
 import { loadChangesView } from "./changes-data";
 import { valueWithDeadline } from "@/lib/load-with-deadline";
@@ -34,15 +33,15 @@ const BACKLOG_DEADLINE_MS = 3_500;
 
 export const loadLifecycleCounts = cache(async (): Promise<LifecycleCounts> => {
   const tenantId = await currentTenantId();
-  const [ledger, accepted, preview, backlogToDo] = await Promise.all([
+  const [ledger, backlogToDo] = await Promise.all([
     loadProofLedgerCached(tenantId).catch(() => []),
-    getAcceptedPlan(tenantId).catch(() => null),
-    getLatestPreviewPlan(tenantId).catch(() => null),
     valueWithDeadline(
       loadChangesView().then((v) => v.summary.todo).catch(() => 0),
       0,
       BACKLOG_DEADLINE_MS,
     ),
   ]);
-  return computeLifecycleCounts({ ledger, acceptedPlan: accepted, previewPlan: preview, backlogToDo });
+  // The daily-experiment plan was retired (Core 100K); tonight-picked/applied counts are gone, so
+  // the plan inputs are null and lifecycle counts come from the proof ledger + backlog alone.
+  return computeLifecycleCounts({ ledger, acceptedPlan: null, previewPlan: null, backlogToDo });
 });

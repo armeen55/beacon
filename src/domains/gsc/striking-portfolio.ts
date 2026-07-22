@@ -18,9 +18,35 @@
  * PURE, no I/O. The loader edge is load-striking-portfolio.ts.
  */
 
-import { forecastRange } from "@/domains/experiments/pick-expectations";
 import type { TenantCtrCurve } from "@/domains/forecast/tenant-ctr-curve";
 import { isBrandQuery } from "./brand-split";
+
+// The experiments/pick-expectations module that owned forecastRange was removed. Inlined here
+// unchanged (byte-identical formula + capture band) so the portfolio forecast is unaffected.
+function friendly(n: number): number {
+  if (n >= 100) return Math.round(n / 10) * 10;
+  if (n >= 10) return Math.round(n / 5) * 5;
+  return Math.round(n);
+}
+function clampCorrectionFactor(factor: number): number {
+  if (!Number.isFinite(factor)) return 1;
+  return Math.min(1.3, Math.max(0.7, factor));
+}
+function forecastRange(
+  ctrOpportunityClicks90d: number,
+  correctionFactor: number = 1,
+  captureFractions: { low: number; high: number } = { low: 0.25, high: 0.75 },
+): { low: number; high: number } | null {
+  if (!Number.isFinite(ctrOpportunityClicks90d) || ctrOpportunityClicks90d <= 0) return null;
+  const factor = clampCorrectionFactor(correctionFactor);
+  const monthly = (ctrOpportunityClicks90d / 3) * factor;
+  const captureLow = Number.isFinite(captureFractions.low) ? captureFractions.low : 0.25;
+  const captureHigh = Number.isFinite(captureFractions.high) ? captureFractions.high : 0.75;
+  const low = friendly(monthly * captureLow);
+  const high = friendly(monthly * captureHigh);
+  if (high < 3) return null;
+  return { low: Math.max(1, low), high: Math.max(high, Math.max(1, low)) };
+}
 
 /** Striking-distance test: ranking on page 1's lower half / page 2 top, with
  *  enough impressions that climbing a few spots is worth real clicks.

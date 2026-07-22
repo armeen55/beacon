@@ -15,8 +15,6 @@ import { loadGscIngestionGapReport } from "@/domains/gsc/load-ingestion-gaps";
 import { ingestionGapLine } from "@/domains/gsc/ingestion-gaps";
 import { currentTenantId } from "@/lib/tenant-context";
 import { latestRefreshBySource } from "@/domains/ops/refresh-runs-store";
-import { readLastWarmReceipt } from "@/domains/ops/warm-receipt-store";
-import { buildAutonomousHealth } from "@/domains/ops/autonomous-health";
 import { PageHeader } from "@/components/data/page-header";
 import { ConnectorsClient, type RefreshLedgerFacts } from "./connectors-client";
 import { PublishingModeCard } from "./publishing-mode-card";
@@ -52,9 +50,8 @@ async function loadConnectorsPageData() {
   const gbpTok = await getGoogleConnectorToken("gbp");
 
   // T0b (2026-07-03) - how many pages Wix's url map covers right now. A
-  // connected-but-zero-mapped Wix can't publish a single change; the fix
-  // line on the Wix card (recovery-actions.ts) reads this to decide whether
-  // to show the "map your pages first" recovery sentence.
+  // connected-but-zero-mapped Wix can't publish a single change; the Wix card
+  // reads this to decide whether to show the "map your pages first" fix line.
   const wixUrlMapCount = wix.status === "connected"
     ? await getWixUrlMap().then((m) => m.length).catch(() => 0)
     : 0;
@@ -151,17 +148,9 @@ async function loadConnectorsPageData() {
   // strip rather than blocking the page. Sourced from the SAME ledger the cron,
   // manual, and on-use refresh paths all record into.
   let refreshLedger: RefreshLedgerFacts = {};
-  let autonomousHealth = buildAutonomousHealth({
-    receipt: null,
-    latestBySource: {},
-    connectedSources: [],
-  });
   try {
     const tid = await currentTenantId();
-    const [latest, warmReceipt] = await Promise.all([
-      latestRefreshBySource(tid),
-      readLastWarmReceipt(tid, "visit"),
-    ]);
+    const latest = await latestRefreshBySource(tid);
     const facts: RefreshLedgerFacts = {};
     for (const key of ["gsc", "ga4", "clarity"] as const) {
       const row = latest[key];
@@ -175,15 +164,6 @@ async function loadConnectorsPageData() {
       }
     }
     refreshLedger = facts;
-    autonomousHealth = buildAutonomousHealth({
-      receipt: warmReceipt,
-      latestBySource: latest,
-      connectedSources: [
-        ...(googleGsc.status === "connected" ? ["gsc" as const] : []),
-        ...(googleGa4.status === "connected" ? ["ga4" as const] : []),
-        ...(clarity.status === "connected" ? ["clarity" as const] : []),
-      ],
-    });
   } catch {
     refreshLedger = {};
   }
@@ -259,7 +239,6 @@ async function loadConnectorsPageData() {
     connectedCount,
     totalCount,
     rollup,
-    autonomousHealth,
     wixUrlMapCount,
     refreshLedger,
     recentUpkeep,
@@ -296,7 +275,6 @@ export default async function ConnectorsPage() {
     connectedCount,
     totalCount,
     rollup,
-    autonomousHealth,
     wixUrlMapCount,
     refreshLedger,
     recentUpkeep,
@@ -322,8 +300,6 @@ export default async function ConnectorsPage() {
         connectedCount={connectedCount}
         totalCount={totalCount}
         rollup={rollup}
-        autonomousState={autonomousHealth.state}
-        autonomousHeadline={autonomousHealth.headline}
         wixUrlMapCount={wixUrlMapCount}
         refreshLedger={refreshLedger}
       />
@@ -331,10 +307,6 @@ export default async function ConnectorsPage() {
           for safe, mapped, high-confidence edits. Default stays two-click. */}
       <div className="mt-6">
         <PublishingModeCard />
-      </div>
-      {/* Trust-budget autopilot (2026-07-01, item 1) - opt in to a weekly
-          budget of auto-shipped changes from proven change types. Default OFF. */}
-      <div className="mt-6">
       </div>
       <RecentUpkeepList entries={recentUpkeep} />
     </div>

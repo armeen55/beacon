@@ -19,7 +19,6 @@
 import type { EvidencePacket } from "./evidence-packet";
 import type { SerpValidation } from "@/domains/serp/serp-validation";
 import { competitorRelevance } from "@/domains/evidence/relevance-gate";
-import { emitSeasonalOpinion } from "@/domains/seasonal/seasonality-voice";
 
 /** The teammates. Each maps to a connector (or, for the last two, a synthesis
  *  role). `commerce_asset` is the Opportunity/Asset/Commerce Strategist - it
@@ -148,7 +147,6 @@ export type SpecialistExtras = {
    *  threaded by the loader from family-demand-profile-store.ts. undefined ⇒ no
    *  profile computed yet for this tenant/family ⇒ the seasonal specialist
    *  abstains (never fabricates a seasonal read off missing data). */
-  seasonalProfile?: import("@/domains/seasonal/family-demand-profile").FamilyDemandProfile | null;
 };
 
 // ── cadences (staleAt = now + cadence). Real, per the connector audit:
@@ -519,6 +517,5 @@ export function attachOpinions(p: EvidencePacket, extras: SpecialistExtras = {})
     emitWixOpinion(p, ctx),
     emitLlmOpinion(p, ctx),
     emitCommerceAssetOpinion(p, ctx),
-    emitSeasonalOpinion(p, ctx),
   ].filter((o): o is SpecialistOpinion => o != null);
 }

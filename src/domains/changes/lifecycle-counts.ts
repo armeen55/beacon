@@ -49,7 +49,19 @@ import {
   type OverlapContext,
 } from "@/domains/proof-gsc/measurement-maturity";
 import { displayProofOutcome } from "@/domains/proof-gsc/verdict-calibration";
-import type { DailyExperimentItemStatus } from "@/domains/experiments/execution-state";
+// Relocated from the retired experiments domain (CORE 100K): the legacy plan
+// item-status union, kept only for the historical execution-block reader below.
+type DailyExperimentItemStatus =
+  | "ready_to_apply"
+  | "verification_pending"
+  | "verification_failed"
+  | "verified_live"
+  | "activation_pending"
+  | "active"
+  | "gsc_submission_pending"
+  | "gsc_submitted"
+  | "skipped"
+  | "rolled_back";
 
 export type LifecycleCounts = {
   /** Open ideas on the canonical Changes list (suggested + blocked, post-dedupe). */

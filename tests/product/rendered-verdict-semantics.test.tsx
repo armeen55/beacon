@@ -48,7 +48,6 @@ import type { PooledVerdictRow } from "@/domains/proof-gsc/pooled-verdict-store"
 import type { ProofLink } from "@/domains/action-pack/proof-linker";
 import type { MeasurementPresentation } from "@/domains/proof-gsc/measurement-maturity";
 import type { CompoundActionGroup } from "@/domains/proof-gsc/compound-actions";
-import type { RevertDecision } from "@/domains/autopilot/revert-policy";
 import type { SparkPoint } from "@/components/data/sparkline";
 import {
   TEST_CALIBRATED_VERSION,
@@ -116,8 +115,6 @@ function renderRow(rec: ShippedChangeRecord): string {
       presById={new Map<string, MeasurementPresentation>()}
       compoundById={new Map<string, CompoundActionGroup>()}
       sparkByPath={new Map<string, SparkPoint[]>()}
-      revertById={new Map<string, RevertDecision>()}
-      restoredIds={new Set<string>()}
     />,
   );
 }

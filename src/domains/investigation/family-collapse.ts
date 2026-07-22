@@ -16,7 +16,12 @@
  */
 
 import { detectSpikes, type WeeklySeries, type SpikeSignal } from "../trend-radar/spike-detector";
-import { pageFamilyOf } from "../experiments/daily-experiment-planner";
+/** First path segment groups a page family (inlined; the experiments domain that owned it was removed). */
+function pageFamilyOf(url: string): string {
+  const path = (url ?? "").replace(/^https?:\/\/[^/]+/, "").replace(/[?#].*$/, "");
+  const segs = path.split("/").filter(Boolean);
+  return segs.length >= 2 ? segs[0]! : (segs[0] ?? "root");
+}
 
 /** A collapse must be at least this fraction below the typical week (0.4 =
  *  lost 40 percent or more) to register at all. */

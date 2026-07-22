@@ -8,7 +8,11 @@
  * is bounded so spikes season the plan instead of flooding it.
  */
 
-import { normalizePath } from "@/domains/experiments/daily-plan-types";
+// normalizePath relocated from the retired experiments domain (CORE 100K).
+function normalizePath(u: string | null | undefined): string {
+  if (!u) return "";
+  return ((u.replace(/^https?:\/\/[^/]+/i, "") || "/").replace(/[?#].*$/, "").replace(/\/+$/, "") || "/").toLowerCase();
+}
 import type { QuerySpike } from "./query-spikes";
 
 /** At most this many spike hints reach the plan builder per night. */

@@ -293,50 +293,6 @@ export async function markRecrawlRequestedAction(args: {
 }
 
 /**
- * Item 11 (2026-07-02): one-click "Put the old version back" for a proof row
- * that is measuring negative. Eligibility is RE-DERIVED server side (never
- * trusted from the client), then the restore ships through the same
- * executePush path as every publish (Ritz hard-refuse, daily cap, pre-push
- * snapshot, ledger). The original row only gains an additive note; its
- * measurement history is never mutated. Operator-only.
- */
-export async function restoreOldVersionAction(args: {
-  id: string;
-}): Promise<ProofLedgerActionResponse> {
-  if (!isOperatorModeServer()) return { success: false, error: "Operator only." };
-  const id = args?.id?.trim();
-  if (!id) return { success: false, error: "Missing record id." };
-  try {
-    const tenantId = await currentTenantId();
-    const { evaluateRevertDecisionForRecord, runRevertForProofRecord } = await import(
-      "@/domains/autopilot/run-revert"
-    );
-    const { getAutopilotConfig } = await import("@/domains/autopilot/autopilot-store");
-    const config = await getAutopilotConfig().catch(() => null);
-    const evaluated = await evaluateRevertDecisionForRecord(tenantId, id, config);
-    if (evaluated == null) return { success: false, error: "Proof record not found." };
-    if (evaluated.decision.action === "none") {
-      return { success: false, error: evaluated.decision.reason };
-    }
-    const res = await runRevertForProofRecord({
-      tenantId,
-      recordId: id,
-      lessonLine: evaluated.decision.lessonLine,
-      source: "operator",
-    });
-    if (!res.ok) return { success: false, error: res.detail };
-    revalidatePath("/results");
-    revalidatePath("/changes");
-    return { success: true };
-  } catch (err) {
-    return {
-      success: false,
-      error: err instanceof Error ? err.message : "Failed to restore the old version.",
-    };
-  }
-}
-
-/**
  * Operator excludes (or re-includes) a shipped change from LEARNING by pinning
  * its verdict to "inconclusive". Use when a measured "won"/"lost" is
  * mis-attributed (control contamination / seasonal co-movement) and would

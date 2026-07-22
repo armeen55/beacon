@@ -9,7 +9,6 @@ import {
   recomputeProofLedgerAction,
   markRecrawlRequestedAction,
   markVerdictInconclusiveAction,
-  restoreOldVersionAction,
 } from "./actions";
 
 /**
@@ -334,54 +333,6 @@ export function RecordShippedButton({
         title="Confirm you shipped this change live (e.g. manually in Wix). Beacon records how the page performs today and measures the next 7/14/28 days vs comparison pages. Nothing publishes."
       >
         {pending ? "Saving…" : "I made this change"}
-      </button>
-      {feedback ? (
-        <span
-          aria-live="polite"
-          className={feedback.isError ? "text-[11px] text-rose-600" : "text-[11px] text-emerald-700"}
-        >
-          {feedback.message}
-        </span>
-      ) : null}
-    </span>
-  );
-}
-
-/**
- * Item 11 (2026-07-02): one-click restore for a change that is measuring
- * negative. Calls the operator-gated server action; the restore ships through
- * the same publish path as every push (never a raw CMS write). The server
- * re-derives eligibility, so this button can never force an ineligible revert.
- */
-export function RestoreOldVersionButton({ recordId }: { recordId: string }) {
-  const router = useRouter();
-  const [pending, startTransition] = useTransition();
-  const [feedback, setFeedback] = useState<{ message: string; isError: boolean } | null>(null);
-
-  return (
-    <span className="inline-flex flex-wrap items-center gap-2">
-      <button
-        type="button"
-        disabled={pending}
-        onClick={() =>
-          startTransition(async () => {
-            setFeedback(null);
-            const res = await restoreOldVersionAction({ id: recordId });
-            if (res.success) {
-              setFeedback({
-                message: "Done. The old version is going back live now.",
-                isError: false,
-              });
-              router.refresh();
-            } else {
-              setFeedback({ message: res.error ?? "Failed.", isError: true });
-            }
-          })
-        }
-        className={`rounded-md border border-foreground bg-foreground px-2.5 py-1 text-[11px] font-medium text-background hover:opacity-90 disabled:opacity-50 ${FOCUS}`}
-        title="Publish the saved old version back to this page. It goes through the same safety checks as every publish."
-      >
-        {pending ? "Restoring…" : "Put the old version back"}
       </button>
       {feedback ? (
         <span

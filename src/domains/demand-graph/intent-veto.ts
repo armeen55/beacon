@@ -23,8 +23,61 @@
  * intent-veto.test.ts.
  */
 
-import { classifyQueryIntent, type QueryIntent } from "@/domains/experiments/answer-intent";
 import { classifyQueryIntent as classifySurfaceIntent } from "./query-intent";
+
+// Relocated from the retired experiments domain (CORE 100K): the answer-shape
+// intent taxonomy + a compact keyword classifier. Only when/cost drive a hard
+// veto (an answer block cannot serve a bare date/price), so those keywords are
+// matched first; the rest are best-effort labels for the plain-English note.
+type QueryIntent =
+  | "when"
+  | "cost"
+  | "how"
+  | "where"
+  | "who"
+  | "list"
+  | "compare"
+  | "what";
+
+function intentOfQuery(query: string): QueryIntent {
+  const q = (query || "").toLowerCase();
+  if (/\bwhen\b|\bwhat (day|date|time|year)\b|\b(19|20)\d\d\b/.test(q)) return "when";
+  if (/\bcost|price|how much|\$|cheap|expensive|fee\b/.test(q)) return "cost";
+  if (/\bhow to\b|\bhow do\b|\bsteps\b|\bguide\b|\btutorial\b/.test(q)) return "how";
+  if (/\bwhere\b|\bnear me\b|\blocation\b/.test(q)) return "where";
+  if (/\bwho\b/.test(q)) return "who";
+  if (/\bbest\b|\btop \d|\blist\b|\bideas\b|\bexamples\b/.test(q)) return "list";
+  if (/\bvs\b|\bversus\b|\bcompare\b|\bdifference\b/.test(q)) return "compare";
+  return "what";
+}
+
+type IntentSignal = { query: string; impressions: number; intent: QueryIntent };
+type IntentDistribution = {
+  dominant: QueryIntent;
+  dominantShare: number;
+  signals: IntentSignal[];
+};
+
+/** Impression-weighted intent distribution over the observed queries. Null when there is
+ *  no usable signal, so the veto abstains rather than guessing. */
+function classifyQueryIntent(
+  rows: ReadonlyArray<{ query: string; impressions: number }>,
+): IntentDistribution | null {
+  const signals: IntentSignal[] = rows
+    .filter((r) => r.query && r.query.trim())
+    .map((r) => ({ query: r.query, impressions: Math.max(0, r.impressions || 0), intent: intentOfQuery(r.query) }));
+  if (signals.length === 0) return null;
+  const totals = new Map<QueryIntent, number>();
+  let grand = 0;
+  for (const s of signals) {
+    totals.set(s.intent, (totals.get(s.intent) ?? 0) + s.impressions + 1);
+    grand += s.impressions + 1;
+  }
+  let dominant: QueryIntent = signals[0].intent;
+  let best = -1;
+  for (const [intent, n] of totals) if (n > best) { best = n; dominant = intent; }
+  return { dominant, dominantShare: grand > 0 ? best / grand : 0, signals };
+}
 import type { EvidencePacket } from "./evidence-packet";
 import type { MoveRouterAction, Objection, EvidenceRef } from "./specialist-opinions";
 
