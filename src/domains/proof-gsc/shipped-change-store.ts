@@ -39,17 +39,17 @@ import type { BehaviorOutcome } from "./behavior-outcome";
 import type { CitationOutcome } from "./citation-outcome";
 import type { RankRecheckResult } from "./rank-recheck";
 import type { ChangeDollarValue } from "./change-dollar-value";
-import type { PermutationRead } from "./permutation-null";
-import type { BayesianRead } from "./bayesian-read";
-import type { TargetQueryRead } from "./target-query-read";
+import type {
+  PermutationRead,
+  BayesianRead,
+  EarlySignalRead,
+  NoveltyDecayRead,
+  EquivalenceRead,
+  FdrRead,
+} from "./reliability-extras";
+import type { TargetQueryRead, QueryPanelOutcome, QueryBreadthRead } from "./gsc-query-reads";
 import type { RankedControl } from "./control-matching";
-import type { QueryPanelOutcome } from "./query-panel";
 import type { WeekdayAdjustedRead } from "./weekday-baseline";
-import type { EarlySignalRead } from "./early-signal";
-import type { NoveltyDecayRead } from "./novelty-decay";
-import type { QueryBreadthRead } from "./query-breadth";
-import type { EquivalenceRead } from "./equivalence";
-import type { FdrRead } from "./fdr-adjust";
 import type { CleanWindowLift } from "./clean-window-salvage";
 import type { VerdictRevision } from "./verdict-revisions";
 

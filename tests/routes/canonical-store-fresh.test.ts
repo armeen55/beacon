@@ -24,10 +24,11 @@ import { resolve } from "node:path";
 //   (3) /prompts source uses it + doesn't import the module arrays
 //   (4) /prompts/[id] source uses it
 //   (5) /settings/prompts source uses it
-//   (6) the /today loader source uses it + has no dynamic imports that
-//       would shadow the module arrays. 2026-07-01 (FINAL PREMIUM PLAN
-//       item 101): the legacy today-data.ts was deleted; the /today
-//       render-time canonical read now lives in today-v2-data.ts.
+//   (6) [retired 2026-07-21, Lane S] the /today section loaders that read
+//       the canonical bundle fresh per render (today-v2-data.ts) were dead
+//       code and were deleted; NO render path calls loadFreshCanonicalData
+//       any more, which is pinned as a stronger invariant below and in
+//       tests/architecture/13-egress-boundary.test.ts.
 // ---------------------------------------------------------------------------
 
 const FILES = {
@@ -38,9 +39,9 @@ const FILES = {
   ),
   // Surface-collapse (2026-07-21): the standalone /prompts + /prompts/[id]
   // render paths AND the /settings/prompts management UI were deleted; their
-  // fresh-per-render pins went with them. The surviving render-path freshness
-  // invariants (recommendations redirect, today-v2-data) stay pinned below.
-  todayData: resolve(__dirname, "../../src/app/(shell)/today-v2-data.ts"),
+  // fresh-per-render pins went with them. Lane S then deleted the dead
+  // today-v2-data.ts loaders; the surviving /today gate loader is pinned below.
+  todayGate: resolve(__dirname, "../../src/app/(shell)/today-gate-data.ts"),
 };
 
 const SRC = Object.fromEntries(
@@ -241,42 +242,13 @@ describe("Sprint 4 / Phase 4.9 — canonical-store fresh-per-render", () => {
     // the surviving settings/prompts + today-v2-data assertions here and by
     // tests/architecture/*scoped-reads*.
 
-    it("today-v2-data.ts imports loadFreshCanonicalData AND does not statically import dailyMetricSnapshots", () => {
-      const canonImports = SRC.todayData.match(
-        /import\s+\{[^}]+\}\s+from\s+["']@\/storage\/canonical-store["']/g,
-      );
-      expect(canonImports).not.toBeNull();
-      const joined = canonImports!.join("\n");
-      expect(joined).toMatch(/\bloadFreshCanonicalData\b/);
-      expect(joined).not.toMatch(/\bdailyMetricSnapshots\b/);
-    });
-
-    it("today-v2-data.ts has NO remaining dynamic imports of canonical-store (all replaced with outer-scope fresh reads)", () => {
-      // Dynamic imports like `await import("@/storage/canonical-store")`
-      // would shadow the outer fresh locals with stale module references.
-      // Must be zero.
-      expect(SRC.todayData).not.toMatch(
-        /await\s+import\(\s*["']@\/storage\/canonical-store["']\s*\)/,
-      );
-    });
-
-    it("only the /today loader calls loadFreshCanonicalData() at render time", () => {
-      // Emergency P0 fix (2026-05-12) — `/prompts` and `/prompts/[id]`
-      // read directly from the tenant repo (scoped `since` window)
-      // because `loadFreshCanonicalData` is a 4-table fan-out costing
-      // 8-11 s in production for routes that only needed observations.
-      //
-      // CORE 100K Lane A (2026-07-21): load-queue's only caller of
-      // `loadFreshCanonicalData` was the deleted dead LLM queue builder,
-      // so /today (today-v2-data.ts) is now the SOLE render-time caller.
-      const directTargets = [
-        { name: "today-v2-data.ts", src: SRC.todayData },
-      ];
-      for (const { name, src } of directTargets) {
-        expect(src, `${name} must call loadFreshCanonicalData()`).toMatch(
-          /loadFreshCanonicalData\(/,
-        );
-      }
+    it("the /today gate loader never imports canonical-store (statically or dynamically)", () => {
+      // Lane S (2026-07-21): the dead today-v2-data.ts section loaders were
+      // the LAST render-time callers of `loadFreshCanonicalData`. The
+      // surviving gate loader reads only lean tenant-scoped repo projections,
+      // so the render path must not regrow a canonical-store dependency.
+      expect(SRC.todayGate).not.toMatch(/@\/storage\/canonical-store/);
+      expect(SRC.todayGate).not.toMatch(/loadFreshCanonicalData/);
       expect(SRC.recommendations).toMatch(/\bredirect\(/);
     });
   });

@@ -1,6 +1,4 @@
 import "server-only";
-import { cache } from "react";
-import { currentTenantId } from "@/lib/tenant-context";
 import { loadDemandGraphForTenantCached } from "@/domains/demand-graph/load-graph";
 import { getCompetitorAuditsForTenantId, whatWins } from "@/domains/demand-graph/competitor-page-audit";
 import { getLatestMoveDrafts, type MoveDraftRow } from "@/domains/demand-graph/move-draft-store";
@@ -720,7 +718,3 @@ export function buildWikiGapOpportunities(stored: StoredWikiGaps | null, existin
   }
   return out;
 }
-
-export const loadNewPagesData = cache(
-  async (): Promise<NewPagesData> => buildNewPagesData(await currentTenantId()),
-);

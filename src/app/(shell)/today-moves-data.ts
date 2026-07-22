@@ -1,6 +1,4 @@
 import "server-only";
-import { cache } from "react";
-import { currentTenantId } from "@/lib/tenant-context";
 import { getRepository } from "@/lib/persistence/repositories";
 import { loadChangePacksForTenant } from "@/domains/demand-graph/gap-compiler";
 import { canonicalizeCitationUrl } from "@/domains/citation-lifecycle/canonicalize-url";
@@ -1484,8 +1482,3 @@ export async function buildTodayMovesData(
       })(),
     };
 }
-
-export const loadTodayMovesHeroData = cache(
-  async (opts: { limit?: number } = {}): Promise<TodayMovesHeroData> =>
-    buildTodayMovesData(await currentTenantId(), opts),
-);

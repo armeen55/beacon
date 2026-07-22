@@ -323,80 +323,29 @@ describe("openai provider — success path", () => {
 });
 
 describe("openai provider — failure modes return empty bundle (no throw)", () => {
-  it("5xx response → empty bundle", async () => {
-    const fetchImpl = vi.fn(
-      async () => new Response("internal error", { status: 500 }),
-    );
-    const bundle = await generateOpenAIBundle(makePacket(), {
-      fetchImpl,
-      now: FROZEN_NOW,
-    });
-    expect(bundle.recommendations).toEqual([]);
-    expect(bundle.providerName).toBe("openai");
-    expect(bundle.totalCostUsd).toBe(0);
-  });
-
-  it("4xx response → empty bundle", async () => {
-    const fetchImpl = vi.fn(
-      async () => new Response("rate limited", { status: 429 }),
-    );
-    const bundle = await generateOpenAIBundle(makePacket(), {
-      fetchImpl,
-      now: FROZEN_NOW,
-    });
-    expect(bundle.recommendations).toEqual([]);
-  });
-
-  it("network error → empty bundle", async () => {
-    const fetchImpl = vi.fn(async () => {
-      throw new Error("ENETDOWN");
-    });
-    const bundle = await generateOpenAIBundle(makePacket(), {
-      fetchImpl,
-      now: FROZEN_NOW,
-    });
-    expect(bundle.recommendations).toEqual([]);
-  });
-
-  it("malformed top-level JSON in HTTP body → empty bundle", async () => {
-    const fetchImpl = vi.fn(
-      async () => new Response("not-json", { status: 200 }),
-    );
-    const bundle = await generateOpenAIBundle(makePacket(), {
-      fetchImpl,
-      now: FROZEN_NOW,
-    });
-    expect(bundle.recommendations).toEqual([]);
-  });
-
-  it("malformed JSON inside `choices[0].message.content` → empty bundle", async () => {
-    const fetchImpl = vi.fn(async () =>
-      makeChatResponse({ content: "{not valid json" }),
-    );
-    const bundle = await generateOpenAIBundle(makePacket(), {
-      fetchImpl,
-      now: FROZEN_NOW,
-    });
-    expect(bundle.recommendations).toEqual([]);
-  });
-
-  it("missing message.content → empty bundle", async () => {
-    const fetchImpl = vi.fn(
+  const FAILURE_MODES: ReadonlyArray<[string, () => Promise<Response>]> = [
+    ["5xx response", async () => new Response("internal error", { status: 500 })],
+    ["4xx response", async () => new Response("rate limited", { status: 429 })],
+    [
+      "network error",
+      async () => {
+        throw new Error("ENETDOWN");
+      },
+    ],
+    ["malformed top-level JSON in HTTP body", async () => new Response("not-json", { status: 200 })],
+    [
+      "malformed JSON inside `choices[0].message.content`",
+      async () => makeChatResponse({ content: "{not valid json" }),
+    ],
+    [
+      "missing message.content",
       async () =>
-        new Response(
-          JSON.stringify({ choices: [{ message: {} }] }),
-          { status: 200 },
-        ),
-    );
-    const bundle = await generateOpenAIBundle(makePacket(), {
-      fetchImpl,
-      now: FROZEN_NOW,
-    });
-    expect(bundle.recommendations).toEqual([]);
-  });
-
-  it("model refusal → empty bundle", async () => {
-    const fetchImpl = vi.fn(
+        new Response(JSON.stringify({ choices: [{ message: {} }] }), {
+          status: 200,
+        }),
+    ],
+    [
+      "model refusal",
       async () =>
         new Response(
           JSON.stringify({
@@ -404,23 +353,22 @@ describe("openai provider — failure modes return empty bundle (no throw)", () 
           }),
           { status: 200 },
         ),
-    );
-    const bundle = await generateOpenAIBundle(makePacket(), {
-      fetchImpl,
-      now: FROZEN_NOW,
-    });
-    expect(bundle.recommendations).toEqual([]);
-  });
+    ],
+    [
+      "recommendations is not an array",
+      async () => makeChatResponse({ content: { recommendations: "oops" } }),
+    ],
+  ];
 
-  it("recommendations is not an array → empty bundle", async () => {
-    const fetchImpl = vi.fn(async () =>
-      makeChatResponse({ content: { recommendations: "oops" } }),
-    );
+  it.each(FAILURE_MODES)("%s → empty bundle", async (_name, impl) => {
+    const fetchImpl = vi.fn(impl);
     const bundle = await generateOpenAIBundle(makePacket(), {
       fetchImpl,
       now: FROZEN_NOW,
     });
     expect(bundle.recommendations).toEqual([]);
+    expect(bundle.providerName).toBe("openai");
+    expect(bundle.totalCostUsd).toBe(0);
   });
 });
 

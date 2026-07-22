@@ -27,8 +27,7 @@ import {
 import { citationLineFor } from "@/domains/proof-gsc/citation-outcome";
 import { shouldShowChangeDollarLine } from "@/domains/proof-gsc/change-dollar-value";
 import type { PersistedAnswerAlignment } from "@/domains/ai-visibility/answer-alignment-store";
-import { permutationSentenceFromCounts } from "@/domains/proof-gsc/permutation-null";
-import { selectHeadlineSentence } from "@/domains/proof-gsc/bayesian-read";
+import { permutationSentenceFromCounts, selectHeadlineSentence } from "@/domains/proof-gsc/reliability-extras";
 import type { ShippedChangeRecord } from "@/domains/proof-gsc/shipped-change-store";
 import {
   isUncalibratedDecidedRecord,

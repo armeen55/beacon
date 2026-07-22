@@ -204,52 +204,32 @@ function buildArgs(
 // ── Core build invariants ──────────────────────────────────────────────────
 
 describe("Phase 6A.1.7 — buildSpecificEditEvidencePacket core invariants", () => {
-  it("returns a packet with schemaVersion specific-edit/v1", () => {
+  it("threads schemaVersion / tenantId / recId / generatedAt; required fields always present", () => {
     const packet = buildSpecificEditEvidencePacket(buildArgs());
     expect(packet.schemaVersion).toBe("specific-edit/v1");
-  });
-
-  it("threads tenantId + recId from args to packet", () => {
-    const packet = buildSpecificEditEvidencePacket(buildArgs());
     expect(packet.tenantId).toBe(TENANT_ID);
     expect(packet.recId).toBe(REC_ID);
-  });
-
-  it("threads clusterLabel + clusterKind unchanged at top level", () => {
-    const packet = buildSpecificEditEvidencePacket(
-      buildArgs({ clusterLabel: "Burbank", clusterKind: "geo" }),
-    );
-    expect(packet.clusterLabel).toBe("Burbank");
-    expect(packet.clusterKind).toBe("geo");
-  });
-
-  it("threads optional clusterId — defaults to null when not provided", () => {
-    const packet = buildSpecificEditEvidencePacket(buildArgs());
-    expect(packet.clusterId).toBeNull();
-  });
-
-  it("threads optional clusterId from args when provided", () => {
-    const packet = buildSpecificEditEvidencePacket(
-      buildArgs({ clusterId: "cluster-geo-burbank-2026-04-24" }),
-    );
-    expect(packet.clusterId).toBe("cluster-geo-burbank-2026-04-24");
-  });
-
-  it("required fields are always present on the packet (tenantId, recId, hash, schemaVersion)", () => {
-    const packet = buildSpecificEditEvidencePacket(buildArgs());
-    expect(packet.tenantId).toBeTruthy();
-    expect(packet.recId).toBeTruthy();
+    expect(packet.generatedAt).toBe(FROZEN_NOW.toISOString());
     expect(packet.evidenceHash).toBeTruthy();
-    expect(packet.schemaVersion).toBe("specific-edit/v1");
     // Cluster fields exist (may be null) — the keys must be present.
     expect("clusterId" in packet).toBe(true);
     expect("clusterLabel" in packet).toBe(true);
     expect("clusterKind" in packet).toBe(true);
   });
 
-  it("emits generatedAt from the provided now", () => {
-    const packet = buildSpecificEditEvidencePacket(buildArgs());
-    expect(packet.generatedAt).toBe(FROZEN_NOW.toISOString());
+  it("threads clusterLabel + clusterKind + optional clusterId (defaults null, passes through when set)", () => {
+    const defaulted = buildSpecificEditEvidencePacket(buildArgs());
+    expect(defaulted.clusterId).toBeNull();
+    const packet = buildSpecificEditEvidencePacket(
+      buildArgs({
+        clusterLabel: "Burbank",
+        clusterKind: "geo",
+        clusterId: "cluster-geo-burbank-2026-04-24",
+      }),
+    );
+    expect(packet.clusterLabel).toBe("Burbank");
+    expect(packet.clusterKind).toBe("geo");
+    expect(packet.clusterId).toBe("cluster-geo-burbank-2026-04-24");
   });
 
   it("output is JSON-serializable + round-trips losslessly", () => {
@@ -887,85 +867,60 @@ describe("Phase 6A.1.7 — priorOutcomes", () => {
 // ── evidenceHash ────────────────────────────────────────────────────────────
 
 describe("Phase 6A.1.7 — evidenceHash", () => {
-  it("is a non-empty hex string", () => {
-    const packet = buildSpecificEditEvidencePacket(buildArgs());
-    expect(packet.evidenceHash).toMatch(/^[0-9a-f]+$/);
-    expect(packet.evidenceHash.length).toBeGreaterThanOrEqual(8);
-  });
-
-  it("is deterministic — same inputs produce same hash", () => {
+  it("is a non-empty hex string and deterministic for identical inputs", () => {
     const a = buildSpecificEditEvidencePacket(buildArgs());
     const b = buildSpecificEditEvidencePacket(buildArgs());
+    expect(a.evidenceHash).toMatch(/^[0-9a-f]+$/);
+    expect(a.evidenceHash.length).toBeGreaterThanOrEqual(8);
     expect(a.evidenceHash).toBe(b.evidenceHash);
   });
 
-  it("changes when tenantId changes", () => {
-    const a = buildSpecificEditEvidencePacket(buildArgs());
-    const b = buildSpecificEditEvidencePacket(
-      buildArgs({ tenantId: "tenant-other" }),
-    );
-    expect(a.evidenceHash).not.toBe(b.evidenceHash);
+  it("changes when any identity field changes (tenantId / recId / clusterLabel / clusterId)", () => {
+    const base = buildSpecificEditEvidencePacket(buildArgs()).evidenceHash;
+    const variants: Array<Partial<BuildSpecificEditEvidencePacketArgs>> = [
+      { tenantId: "tenant-other" },
+      { recId: "rec-other" },
+      { clusterLabel: "different cluster", clusterKind: "topic" },
+      { clusterId: "cluster-XYZ" },
+    ];
+    for (const v of variants) {
+      expect(
+        buildSpecificEditEvidencePacket(buildArgs(v)).evidenceHash,
+      ).not.toBe(base);
+    }
   });
 
-  it("changes when recId changes", () => {
-    const a = buildSpecificEditEvidencePacket(buildArgs());
-    const b = buildSpecificEditEvidencePacket(
-      buildArgs({ recId: "rec-other" }),
-    );
-    expect(a.evidenceHash).not.toBe(b.evidenceHash);
-  });
-
-  it("changes when clusterLabel changes", () => {
-    const a = buildSpecificEditEvidencePacket(buildArgs());
-    const b = buildSpecificEditEvidencePacket(
-      buildArgs({ clusterLabel: "different cluster", clusterKind: "topic" }),
-    );
-    expect(a.evidenceHash).not.toBe(b.evidenceHash);
-  });
-
-  it("changes when clusterId changes (null → set)", () => {
-    const a = buildSpecificEditEvidencePacket(buildArgs());
-    const b = buildSpecificEditEvidencePacket(
-      buildArgs({ clusterId: "cluster-XYZ" }),
-    );
-    expect(a.evidenceHash).not.toBe(b.evidenceHash);
-  });
-
-  it("changes when affectedPromptIds change", () => {
-    const a = buildSpecificEditEvidencePacket(buildArgs());
-    const b = buildSpecificEditEvidencePacket(
-      buildArgs({
-        affectedPromptIds: ["prompt-1", "prompt-2"],
-        trackedPrompts: [
-          makePrompt("prompt-1", "p1"),
-          makePrompt("prompt-2", "p2"),
-        ],
-        promptOpportunities: [
-          makeOpportunity("prompt-1"),
-          makeOpportunity("prompt-2"),
-        ],
-        primarySummaries: [makeSummary("prompt-1"), makeSummary("prompt-2")],
-      }),
-    );
-    expect(a.evidenceHash).not.toBe(b.evidenceHash);
-  });
-
-  it("changes when targetPageElements content changes (element_text edited)", () => {
-    const baseElements = buildArgs().pageElementInventory;
-    const editedElements = baseElements.map((r) =>
+  it("changes when evidence content changes (prompts / element text / candidate set / allowedActionTypes)", () => {
+    const base = buildSpecificEditEvidencePacket(buildArgs()).evidenceHash;
+    // affectedPromptIds change:
+    expect(
+      buildSpecificEditEvidencePacket(
+        buildArgs({
+          affectedPromptIds: ["prompt-1", "prompt-2"],
+          trackedPrompts: [
+            makePrompt("prompt-1", "p1"),
+            makePrompt("prompt-2", "p2"),
+          ],
+          promptOpportunities: [
+            makeOpportunity("prompt-1"),
+            makeOpportunity("prompt-2"),
+          ],
+          primarySummaries: [makeSummary("prompt-1"), makeSummary("prompt-2")],
+        }),
+      ).evidenceHash,
+    ).not.toBe(base);
+    // element_text edit:
+    const editedElements = buildArgs().pageElementInventory.map((r) =>
       r.element_key === "h1[0]:hash-bbb"
         ? { ...r, element_text: "TOTALLY NEW H1" }
         : r,
     );
-    const a = buildSpecificEditEvidencePacket(buildArgs());
-    const b = buildSpecificEditEvidencePacket(
-      buildArgs({ pageElementInventory: editedElements }),
-    );
-    expect(a.evidenceHash).not.toBe(b.evidenceHash);
-  });
-
-  it("changes when ownedPageCandidates set changes", () => {
-    const a = buildSpecificEditEvidencePacket(buildArgs());
+    expect(
+      buildSpecificEditEvidencePacket(
+        buildArgs({ pageElementInventory: editedElements }),
+      ).evidenceHash,
+    ).not.toBe(base);
+    // ownedPageCandidates set change:
     const extraInventory: PageInventoryEntry[] = [
       ...buildArgs().ownedPageInventory,
       makeInventoryEntry("https://example.com/services/expanders", {
@@ -976,22 +931,21 @@ describe("Phase 6A.1.7 — evidenceHash", () => {
         routeType: "service",
       }),
     ];
-    const b = buildSpecificEditEvidencePacket(
-      buildArgs({
-        clusterLabel: "palatal expander",
-        clusterKind: "topic",
-        ownedPageInventory: extraInventory,
-      }),
-    );
-    expect(a.evidenceHash).not.toBe(b.evidenceHash);
-  });
-
-  it("changes when allowedActionTypes changes", () => {
-    const a = buildSpecificEditEvidencePacket(buildArgs());
-    const b = buildSpecificEditEvidencePacket(
-      buildArgs({ allowedActionTypes: ["edit_title"] }),
-    );
-    expect(a.evidenceHash).not.toBe(b.evidenceHash);
+    expect(
+      buildSpecificEditEvidencePacket(
+        buildArgs({
+          clusterLabel: "palatal expander",
+          clusterKind: "topic",
+          ownedPageInventory: extraInventory,
+        }),
+      ).evidenceHash,
+    ).not.toBe(base);
+    // allowedActionTypes change:
+    expect(
+      buildSpecificEditEvidencePacket(
+        buildArgs({ allowedActionTypes: ["edit_title"] }),
+      ).evidenceHash,
+    ).not.toBe(base);
   });
 
   it("does NOT depend on the input array order of allowedActionTypes (sorted before hashing)", () => {
@@ -1545,74 +1499,64 @@ describe("W3 Step 3.2 — aiSearchSignal aggregation", () => {
     }
   });
 
+  type TrackedEntityFixture = NonNullable<
+    BuildSpecificEditEvidencePacketArgs["trackedEntities"]
+  >[number];
+
+  function makeTrackedEntity(args: {
+    id: string;
+    name: string;
+    entity_type: TrackedEntityFixture["entity_type"];
+    domain: string;
+    aliases?: string[];
+  }): TrackedEntityFixture {
+    return {
+      id: args.id,
+      name: args.name,
+      entity_type: args.entity_type,
+      domain: args.domain,
+      aliases: args.aliases ?? [],
+      url: null,
+      location_scope: null,
+      service_scope: null,
+      is_owned: false,
+      is_active: true,
+      metadata: {},
+      created_at: "2026-04-01T00:00:00Z",
+      updated_at: "2026-04-24T00:00:00Z",
+      account_id: "acc-test",
+    };
+  }
+
   it("excludes Houzz/Yelp/Angi/BuildZoom from competitor co-mentions when listed in trackedEntities", () => {
     const packet = buildSpecificEditEvidencePacket(
       buildSearchSignalArgs({
         trackedEntities: [
-          {
+          makeTrackedEntity({
             id: "ent-houzz",
             name: "Houzz",
             entity_type: "directory_source",
             domain: "houzz.com",
-            aliases: [],
-            url: null,
-            location_scope: null,
-            service_scope: null,
-            is_owned: false,
-            is_active: true,
-            metadata: {},
-            created_at: "2026-04-01T00:00:00Z",
-            updated_at: "2026-04-24T00:00:00Z",
-            account_id: "acc-test",
-          },
-          {
+          }),
+          makeTrackedEntity({
             id: "ent-yelp",
             name: "Yelp",
             entity_type: "directory_source",
             domain: "yelp.com",
-            aliases: [],
-            url: null,
-            location_scope: null,
-            service_scope: null,
-            is_owned: false,
-            is_active: true,
-            metadata: {},
-            created_at: "2026-04-01T00:00:00Z",
-            updated_at: "2026-04-24T00:00:00Z",
-            account_id: "acc-test",
-          },
-          {
+          }),
+          makeTrackedEntity({
             id: "ent-buildzoom",
             name: "BuildZoom",
             entity_type: "directory_source",
             domain: "buildzoom.com",
-            aliases: [],
-            url: null,
-            location_scope: null,
-            service_scope: null,
-            is_owned: false,
-            is_active: true,
-            metadata: {},
-            created_at: "2026-04-01T00:00:00Z",
-            updated_at: "2026-04-24T00:00:00Z",
-            account_id: "acc-test",
-          },
-          {
+          }),
+          makeTrackedEntity({
             id: "ent-de-mattei",
             name: "De Mattei Construction",
             entity_type: "competitor",
             domain: "demattei.com",
             aliases: ["De Mattei"],
-            url: null,
-            location_scope: null,
-            service_scope: null,
-            is_owned: false,
-            is_active: true,
-            metadata: {},
-            created_at: "2026-04-01T00:00:00Z",
-            updated_at: "2026-04-24T00:00:00Z",
-            account_id: "acc-test",
-          },
+          }),
         ],
         observations: [
           makeObservation(PROMPT_A, {
@@ -1642,22 +1586,12 @@ describe("W3 Step 3.2 — aiSearchSignal aggregation", () => {
     const packet = buildSpecificEditEvidencePacket(
       buildSearchSignalArgs({
         trackedEntities: [
-          {
+          makeTrackedEntity({
             id: "ent-bay-builders",
             name: "Bay Builders",
             entity_type: "competitor",
             domain: "baybuilders.example",
-            aliases: [],
-            url: null,
-            location_scope: null,
-            service_scope: null,
-            is_owned: false,
-            is_active: true,
-            metadata: {},
-            created_at: "2026-04-01T00:00:00Z",
-            updated_at: "2026-04-24T00:00:00Z",
-            account_id: "acc-test",
-          },
+          }),
         ],
         observations: [
           makeObservation(PROMPT_A, {
@@ -1672,8 +1606,8 @@ describe("W3 Step 3.2 — aiSearchSignal aggregation", () => {
     expect(names).toEqual(["Bay Builders"]);
   });
 
-  it("returns empty arrays when observations have no signal (better empty than fake)", () => {
-    const packet = buildSpecificEditEvidencePacket(
+  it("returns empty arrays for signal-less or absent observations (better empty than fake); caps still reported", () => {
+    const emptySignal = buildSpecificEditEvidencePacket(
       buildSearchSignalArgs({
         observations: [
           makeObservation(PROMPT_A, {
@@ -1684,22 +1618,18 @@ describe("W3 Step 3.2 — aiSearchSignal aggregation", () => {
         ],
       }),
     );
-    expect(packet.aiSearchSignal.topSearchQueries).toEqual([]);
-    expect(packet.aiSearchSignal.topDescriptors).toEqual([]);
-    expect(packet.aiSearchSignal.topCompetitorCoMentions).toEqual([]);
-  });
-
-  it("returns empty arrays when no observations are passed at all", () => {
-    const packet = buildSpecificEditEvidencePacket(
+    const noObs = buildSpecificEditEvidencePacket(
       buildSearchSignalArgs({ observations: [] }),
     );
-    expect(packet.aiSearchSignal.topSearchQueries).toEqual([]);
-    expect(packet.aiSearchSignal.topDescriptors).toEqual([]);
-    expect(packet.aiSearchSignal.topCompetitorCoMentions).toEqual([]);
+    for (const packet of [emptySignal, noObs]) {
+      expect(packet.aiSearchSignal.topSearchQueries).toEqual([]);
+      expect(packet.aiSearchSignal.topDescriptors).toEqual([]);
+      expect(packet.aiSearchSignal.topCompetitorCoMentions).toEqual([]);
+    }
     // Caps are still reported so consumers can read them defensively.
-    expect(packet.aiSearchSignal.caps.maxSearchQueries).toBeGreaterThan(0);
-    expect(packet.aiSearchSignal.caps.maxDescriptors).toBeGreaterThan(0);
-    expect(packet.aiSearchSignal.caps.maxCompetitorCoMentions).toBeGreaterThan(0);
+    expect(noObs.aiSearchSignal.caps.maxSearchQueries).toBeGreaterThan(0);
+    expect(noObs.aiSearchSignal.caps.maxDescriptors).toBeGreaterThan(0);
+    expect(noObs.aiSearchSignal.caps.maxCompetitorCoMentions).toBeGreaterThan(0);
   });
 
   it("ignores non-string entries in source arrays (defensive)", () => {
@@ -1921,44 +1851,39 @@ describe("W3 Step 3.2 — competitorPageBlueprints", () => {
     expect(top.metaDescription).toBeNull();
   });
 
-  it("returns [] when no observations cite any competitor URLs", () => {
-    const packet = buildSpecificEditEvidencePacket(
-      buildBlueprintArgs({
-        observations: [
-          makeObservation(PROMPT, { citation_urls: [] }),
-        ],
-      }),
-    );
-    expect(packet.competitorPageBlueprints).toEqual([]);
-  });
-
-  it("returns [] when no observations are passed at all", () => {
-    const packet = buildSpecificEditEvidencePacket(
-      buildBlueprintArgs({ observations: [] }),
-    );
-    expect(packet.competitorPageBlueprints).toEqual([]);
+  it("returns [] when no observations cite competitor URLs and when no observations exist at all", () => {
+    expect(
+      buildSpecificEditEvidencePacket(
+        buildBlueprintArgs({
+          observations: [makeObservation(PROMPT, { citation_urls: [] })],
+        }),
+      ).competitorPageBlueprints,
+    ).toEqual([]);
+    expect(
+      buildSpecificEditEvidencePacket(buildBlueprintArgs({ observations: [] }))
+        .competitorPageBlueprints,
+    ).toEqual([]);
   });
 });
 
 describe("W3 Step 3.2 — crossTenantPatterns stub", () => {
-  it("returns [] for any packet (single-tenant single-user, today)", () => {
-    const packet = buildSpecificEditEvidencePacket(buildArgs());
-    expect(packet.crossTenantPatterns).toEqual([]);
-  });
-
-  it("is stable across runs (still empty even with rich observations)", () => {
-    const packet = buildSpecificEditEvidencePacket(
-      buildArgs({
-        observations: [
-          makeObservation("prompt-1", {
-            search_queries: ["x"],
-            descriptor_window: ["y"],
-            competitor_co_mentions: ["Z"],
-          }),
-        ],
-      }),
-    );
-    expect(packet.crossTenantPatterns).toEqual([]);
+  it("returns [] for any packet, even with rich observations (single-tenant single-user, today)", () => {
+    expect(
+      buildSpecificEditEvidencePacket(buildArgs()).crossTenantPatterns,
+    ).toEqual([]);
+    expect(
+      buildSpecificEditEvidencePacket(
+        buildArgs({
+          observations: [
+            makeObservation("prompt-1", {
+              search_queries: ["x"],
+              descriptor_window: ["y"],
+              competitor_co_mentions: ["Z"],
+            }),
+          ],
+        }),
+      ).crossTenantPatterns,
+    ).toEqual([]);
   });
 });
 

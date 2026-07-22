@@ -175,11 +175,9 @@ describe("B — no operator jargon / vendor names in src/app + src/components", 
     const violations = files.flatMap(jargonHits);
     expect(violations, violations.join("\n")).toEqual([]);
   });
-  it("the live win-card surface leads with correlation phrasing (M3 positive presence)", () => {
-    const src = readFileSync(join(REPO_ROOT, "src/app/(shell)/today-v2-data.ts"), "utf8");
-    expect(src.includes("Citation lift detected")).toBe(true);
-    expect(src.includes("URL-level correlation")).toBe(true);
-  });
+  // The "live win-card surface leads with correlation phrasing" pin was
+  // removed 2026-07-21 (Lane S): its subject, the dead today-v2-data.ts
+  // action-cards loader that built the win cards, was deleted outright.
 });
 
 // ═══ C. No banned dash on display surfaces ══════════════════════════
@@ -192,7 +190,6 @@ function stripForDash(src: string): string {
     .join("\n");
 }
 const DISPLAY_SURFACES = [
-  "src/app/(shell)/today-v2-data.ts",
   "src/app/(shell)/changes/page.tsx",
   "src/app/(shell)/changes/changes-v2-client.tsx",
   "src/app/(shell)/results/page.tsx",
@@ -220,7 +217,8 @@ const DISPLAY_SURFACES = [
   // health-strip.tsx + how-we-know-panel.tsx deleted 2026-07-21 (Phase 4D): the
   // TodayScoreboard render that mounted them was dead. today-scoreboard.tsx
   // itself was deleted 2026-07-21 (routes cleanup); its ScoreboardData type
-  // moved into today-shared-types.ts.
+  // parked in today-shared-types.ts until Lane S deleted that dead type module
+  // too (the live scoreboard types live in src/domains/scoreboard).
   "src/components/today/refresh-my-data-button.tsx",
   "src/app/(shell)/scoreboard-section.tsx",
   "src/app/(shell)/settings/config/revenue-model-card.tsx",

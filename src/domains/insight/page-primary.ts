@@ -5,8 +5,10 @@
  * CTA resolver) and its `REVIEW_HREF` fallback were deleted 2026-07-02 (UX5
  * legacy sweep) alongside the whole `/workbench` route and the dead
  * State of the Union chain — none of those surfaces ever shipped a live
- * caller. `actionLabel`/`PRIMARY_ACTION_LABEL` remain: `today-v2-data.ts`
- * still uses `actionLabel` to render Page Surgeon action headlines.
+ * caller. `actionLabel`/`PRIMARY_ACTION_LABEL` remain, though their last
+ * runtime consumer (the dead `today-v2-data.ts` action-cards loader) was
+ * deleted 2026-07-21 (Lane S), so they are candidates for a follow-up reap if no new
+ * Page Surgeon headline surface adopts them.
  */
 
 /** Page Surgeon `recommended_atomic_action` → imperative operator headline.

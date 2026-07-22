@@ -465,7 +465,7 @@ export async function attachControlContaminationForLedger(
       // the permutation-null module pulls the page-surgeon context chain, which
       // only this rare exhausted-pool branch needs - keep it off the module graph
       // for every ordinary attach pass, and inside the fail-soft catch here.
-      const { buildPermutationNull } = await import("./permutation-null");
+      const { buildPermutationNull } = await import("./reliability-extras");
       const excludePaths = new Set<string>([
         pathOf(r.page),
         ...r.controlPages.map(pathOf),

@@ -572,19 +572,25 @@ describe("W3 Step 3.1 — add_faq abstains when evidence is too thin", () => {
     expect(generateAddFaq(packet)).toEqual([]);
   });
 
+  const PLACEHOLDER_PATTERNS: ReadonlyArray<RegExp> = [
+    /draft answer/i,
+    /operator\s*:\s*rewrite/i,
+    /\[insert\b/i,
+    /\bTBD\b/i,
+    /\bplaceholder\b/i,
+    /\bTODO\s*:/i,
+    /rewrite below/i,
+  ];
+
   it("EMIT — multiple descriptors carry the answer (real grounded copy)", () => {
     const packet = buildPacket();
     const edits = generateAddFaq(packet);
     expect(edits).toHaveLength(1);
     const e = edits[0];
     // Output must NOT contain any placeholder phrase.
-    expect(e.targetElement?.proposedText).not.toMatch(/draft answer/i);
-    expect(e.targetElement?.proposedText).not.toMatch(/operator\s*:\s*rewrite/i);
-    expect(e.targetElement?.proposedText).not.toMatch(/\[insert\b/i);
-    expect(e.targetElement?.proposedText).not.toMatch(/\bTBD\b/i);
-    expect(e.targetElement?.proposedText).not.toMatch(/\bplaceholder\b/i);
-    expect(e.targetElement?.proposedText).not.toMatch(/\bTODO\s*:/i);
-    expect(e.targetElement?.proposedText).not.toMatch(/rewrite below/i);
+    for (const re of PLACEHOLDER_PATTERNS) {
+      expect(e.targetElement?.proposedText).not.toMatch(re);
+    }
     // The seed answer should reference at least one descriptor by name
     // (the basePacketArgs seeds "board-certified", "ages 7+", "Invisalign").
     const proposed = e.targetElement?.proposedText ?? "";
@@ -658,7 +664,7 @@ describe("W3 Step 3.1 — add_faq abstains when evidence is too thin", () => {
     expect(generateAddFaq(packet)).toEqual([]);
   });
 
-  it("REGRESSION — emitted FAQ proposedText never contains placeholder phrases on the basePacketArgs fixture", () => {
+  it("REGRESSION — emitted proposedText never contains placeholder phrases on the basePacketArgs fixture", () => {
     // Cross-generator invariant for the W3 placeholder kill.
     const packet = buildPacket();
     const allEdits = [
@@ -668,13 +674,9 @@ describe("W3 Step 3.1 — add_faq abstains when evidence is too thin", () => {
     ];
     for (const e of allEdits) {
       const txt = e.targetElement?.proposedText ?? "";
-      expect(txt).not.toMatch(/draft answer/i);
-      expect(txt).not.toMatch(/operator\s*:\s*rewrite/i);
-      expect(txt).not.toMatch(/\[insert\b/i);
-      expect(txt).not.toMatch(/\bTBD\b/i);
-      expect(txt).not.toMatch(/\bplaceholder\b/i);
-      expect(txt).not.toMatch(/\bTODO\s*:/i);
-      expect(txt).not.toMatch(/rewrite below/i);
+      for (const re of PLACEHOLDER_PATTERNS) {
+        expect(txt).not.toMatch(re);
+      }
     }
   });
 });
@@ -682,7 +684,7 @@ describe("W3 Step 3.1 — add_faq abstains when evidence is too thin", () => {
 // ── Cross-generator invariants ────────────────────────────────────────────
 
 describe("Phase 6A.1.9 — cross-generator invariants", () => {
-  it("no generator emits a targetUrl outside packet.allowedTargetUrls", () => {
+  it("no generator emits a targetUrl outside allowedTargetUrls, an actionType outside allowedActionTypes, or a non-ACTION_TYPES member", () => {
     const packet = buildPacket();
     const allEdits: SpecificEdit[] = [
       ...generateEditTitle(packet),
@@ -692,29 +694,7 @@ describe("Phase 6A.1.9 — cross-generator invariants", () => {
     expect(allEdits.length).toBeGreaterThan(0);
     for (const e of allEdits) {
       expect(packet.allowedTargetUrls).toContain(e.targetUrl);
-    }
-  });
-
-  it("no generator emits an actionType outside packet.allowedActionTypes", () => {
-    const packet = buildPacket();
-    const allEdits: SpecificEdit[] = [
-      ...generateEditTitle(packet),
-      ...generateAddH2Section(packet),
-      ...generateAddFaq(packet),
-    ];
-    for (const e of allEdits) {
       expect(packet.allowedActionTypes).toContain(e.actionType);
-    }
-  });
-
-  it("every emitted actionType is a valid ACTION_TYPES enum member", () => {
-    const packet = buildPacket();
-    const allEdits: SpecificEdit[] = [
-      ...generateEditTitle(packet),
-      ...generateAddH2Section(packet),
-      ...generateAddFaq(packet),
-    ];
-    for (const e of allEdits) {
       expect(ACTION_TYPES).toContain(e.actionType);
     }
   });

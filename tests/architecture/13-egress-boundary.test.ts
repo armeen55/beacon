@@ -29,9 +29,11 @@ const strip = (s: string) =>
 const LOAD_QUEUE_SRC = read("src/domains/recommendations/load-queue.ts");
 // Surface-collapse (2026-07-21): the /prompts list + /prompts/[id] detail pages
 // and the /settings/prompts management UI were all deleted. Their bounded-window
-// egress guards went with them; the surviving route-render egress surfaces
-// (load-queue, today-v2-data) are still pinned below.
-const TODAY_V2_DATA_SRC = read("src/app/(shell)/today-v2-data.ts");
+// egress guards went with them. Lane S (2026-07-21) then retired the dead
+// today-v2-data.ts section loaders; the surviving /today gate loader
+// (today-gate-data.ts) reads a lean 7d tenant-scoped projection and never
+// touches the canonical fan-out at all (pinned below).
+const TODAY_GATE_DATA_SRC = read("src/app/(shell)/today-gate-data.ts");
 const CANONICAL_STORE_SRC = read("src/storage/canonical-store.ts");
 const SUPABASE_BACKEND_SRC = read("src/lib/persistence/repositories/supabase-backend.ts");
 const REPO_TYPES_SRC = read("src/lib/persistence/repositories/types.ts");
@@ -50,19 +52,20 @@ describe("route loaders read observations bounded, never unbounded", () => {
     expect(LOAD_QUEUE_SRC).not.toMatch(/loadFreshCanonicalData/);
   });
 
-  it("today-v2-data windows both observations (60d) and snapshots (120d)", () => {
-    expect(TODAY_V2_DATA_SRC).toContain("60 * 86_400_000");
-    expect(TODAY_V2_DATA_SRC).toContain("120 * 86_400_000");
-    expect(TODAY_V2_DATA_SRC).toContain("snapshotsSince");
-    expect(
-      TODAY_V2_DATA_SRC.match(/loadFreshCanonicalData\(\s*\{\s*\n?\s*observationsSince/),
-    ).not.toBeNull();
+  it("the /today gate loader never touches the canonical observation pipeline", () => {
+    // Lane S (2026-07-21): the dead today-v2-data section loaders (the last
+    // render-time callers of `loadFreshCanonicalData`) were deleted. The
+    // surviving gate loader reads a lean tenant-scoped 7d `observed_at`
+    // projection + tracked_prompts; it must never grow a canonical fan-out.
+    expect(TODAY_GATE_DATA_SRC).not.toMatch(/loadFreshCanonicalData/);
+    expect(TODAY_GATE_DATA_SRC).toContain('columns: "observed_at"');
+    expect(TODAY_GATE_DATA_SRC).toMatch(/7\s*\*\s*86_400_000/);
   });
 
   it("no bare loadFreshCanonicalData() across the route-render sources", () => {
     const all = [
       LOAD_QUEUE_SRC,
-      TODAY_V2_DATA_SRC,
+      TODAY_GATE_DATA_SRC,
     ].join("\n");
     expect(all).not.toMatch(/loadFreshCanonicalData\(\s*\)/);
   });

@@ -1,7 +1,11 @@
 /**
- * target-query-read.test.ts (master plan item 68, 2026-07-02).
+ * gsc-query-reads.test.ts - the folded suites of the three modules the
+ * consolidated reader replaced (Core 100K lane P, 2026-07-21). Every distinct
+ * behavioral pin from target-query-read.test.ts, query-panel.test.ts, and
+ * query-breadth.test.ts is kept verbatim; only the shared fixtures and the
+ * dash guard were deduplicated.
  *
- * Pins:
+ * Target-query pins (master plan item 68):
  *   - www-variant safety: gsc_daily_rows rows stored under the raw www. host
  *     still match a canonicalized (bare-host) page/control input.
  *   - thin-data silence: a target query with < 50 impressions in either
@@ -11,8 +15,21 @@
  *   - missing target queries -> [] without any read attempted.
  *   - paging discipline mirrors auto-record-on-ship.ts's proven pattern.
  *   - the plain-English sentence names the exact query and both numbers.
+ *
+ * Panel pins (P4 R10a, v1 item 150): the panel/page percent pair, the
+ * direction-disagreement call with its 5 percent noise floor, both plain
+ * disagreement sentences, the pre-window pro-rating, and the honest-absence
+ * rules (thin panel -> null; thin clicks -> percent null, never a fabricated
+ * rate).
+ *
+ * Breadth pins (P4 R10b, v1 item 151): the reach-vs-depth call: the broader
+ * floor (absolute AND fractional), the deeper fallback (breadth flat, clicks
+ * up), the flat default, the honest-absence null when neither window has
+ * query-grain presence, and both plain sentences.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 
 vi.mock("@/lib/logger", () => ({
   log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
@@ -59,7 +76,15 @@ vi.mock("@/lib/persistence/supabase", () => ({
   getSupabaseAdmin: () => ({ from: () => chainFor() }),
 }));
 
-import { buildTargetQueryReads, targetQuerySentence, MIN_QUERY_IMPRESSIONS } from "./target-query-read";
+import {
+  buildTargetQueryReads,
+  targetQuerySentence,
+  MIN_QUERY_IMPRESSIONS,
+  computeQueryPanelOutcome,
+  type QueryPanelWindow,
+  computeQueryBreadth,
+  BROADER_MIN_EXTRA_QUERIES,
+} from "./gsc-query-reads";
 import { log } from "@/lib/logger";
 
 const PRE = { start: "2026-05-01", end: "2026-05-29" };
@@ -372,11 +397,252 @@ describe("targetQuerySentence - plain language, exact numbers, no dashes", () =>
   });
 });
 
-describe("dash guard (hard rule)", () => {
-  it("target-query-read.ts contains no em or en dashes", () => {
-    const fs = require("node:fs") as typeof import("node:fs");
-    const path = require("node:path") as typeof import("node:path");
-    const src = fs.readFileSync(path.join(__dirname, "target-query-read.ts"), "utf8");
+// ---------------------------------------------------------------------------
+// Fixed query panel (P4 R10a, v1 item 150)
+// ---------------------------------------------------------------------------
+
+const win = (clicks: number, impressions: number): QueryPanelWindow => ({
+  clicks,
+  impressions,
+  ctr: impressions > 0 ? clicks / impressions : 0,
+  position: impressions > 0 ? 5 : 0,
+});
+
+const base = {
+  queriesInPanel: 3,
+  windowDays: 28,
+  preWindowDays: 28,
+  panelPre: win(100, 1000),
+  panelPost: win(112, 1000),
+  pagePreClicks: 400,
+  pagePostClicks: 380,
+};
+
+describe("computeQueryPanelOutcome - disagreement", () => {
+  it("panel up while the page fell: the exact plain sentence", () => {
+    const out = computeQueryPanelOutcome(base);
+    expect(out).not.toBeNull();
+    expect(out!.panelClicksPct).toBeCloseTo(0.12, 5);
+    expect(out!.pageClicksPct).toBeCloseTo(-0.05, 5);
+    expect(out!.disagreesWithPage).toBe(true);
+    expect(out!.sentence).toBe(
+      "The searches this change targeted grew 12 percent, but the page overall fell 5 percent. Something else on the page lost ground.",
+    );
+  });
+
+  it("panel down while the page grew: the gain-from-other-searches sentence", () => {
+    const out = computeQueryPanelOutcome({
+      ...base,
+      panelPost: win(80, 900),
+      pagePostClicks: 480,
+    });
+    expect(out).not.toBeNull();
+    expect(out!.disagreesWithPage).toBe(true);
+    expect(out!.sentence).toBe(
+      "The searches this change targeted fell 20 percent, but the page overall grew 20 percent. The gain is coming from other searches, not the ones we aimed at.",
+    );
+  });
+
+  it("agreeing directions carry no disagreement sentence", () => {
+    const out = computeQueryPanelOutcome({ ...base, pagePostClicks: 440 });
+    expect(out).not.toBeNull();
+    expect(out!.disagreesWithPage).toBe(false);
+    expect(out!.sentence).toBeNull();
+  });
+
+  it("movement under the 5 percent floor on either side never counts as disagreement", () => {
+    // Panel +2 percent, page -20 percent: the panel side is inside noise.
+    const out = computeQueryPanelOutcome({
+      ...base,
+      panelPost: win(102, 1000),
+      pagePostClicks: 320,
+    });
+    expect(out).not.toBeNull();
+    expect(out!.disagreesWithPage).toBe(false);
+    expect(out!.sentence).toBeNull();
+  });
+
+  it("pro-rates the pre window to a shorter post window before comparing", () => {
+    // 7-day window vs a 28-day pre: 100 pre clicks scale to 25.
+    const out = computeQueryPanelOutcome({
+      ...base,
+      windowDays: 7,
+      panelPost: win(30, 300),
+      pagePreClicks: 400, // scales to 100
+      pagePostClicks: 80,
+    });
+    expect(out).not.toBeNull();
+    expect(out!.panelClicksPct).toBeCloseTo(0.2, 5);
+    expect(out!.pageClicksPct).toBeCloseTo(-0.2, 5);
+    expect(out!.disagreesWithPage).toBe(true);
+    expect(out!.sentence).toContain("grew 20 percent");
+    expect(out!.sentence).toContain("fell 20 percent");
+  });
+});
+
+describe("computeQueryPanelOutcome - honest absence", () => {
+  it("null when the panel had no real pre-ship presence (under 50 impressions)", () => {
+    const out = computeQueryPanelOutcome({ ...base, panelPre: win(10, 30) });
+    expect(out).toBeNull();
+  });
+
+  it("null when there were no query-grain rows at all (all-zero pre window)", () => {
+    const out = computeQueryPanelOutcome({ ...base, panelPre: win(0, 0), panelPost: win(0, 0) });
+    expect(out).toBeNull();
+  });
+
+  it("percent is null (never a fabricated rate) when the pro-rated pre clicks are too thin", () => {
+    const out = computeQueryPanelOutcome({
+      ...base,
+      panelPre: win(2, 500),
+      panelPost: win(9, 500),
+    });
+    expect(out).not.toBeNull();
+    expect(out!.panelClicksPct).toBeNull();
+    expect(out!.disagreesWithPage).toBe(false);
+    expect(out!.sentence).toBeNull();
+  });
+
+  it("null on an empty panel", () => {
+    expect(computeQueryPanelOutcome({ ...base, queriesInPanel: 0 })).toBeNull();
+  });
+});
+
+describe("computeQueryPanelOutcome - the always-available panel line", () => {
+  it("names the panel size and the before/after clicks in window units", () => {
+    const out = computeQueryPanelOutcome({ ...base, windowDays: 7, panelPost: win(30, 300) });
+    expect(out!.panelLine).toBe(
+      "The 3 searches this change targeted went from about 25 clicks to 30 clicks over the 7 day window.",
+    );
+  });
+
+  it("uses the singular form for a one-query panel", () => {
+    const out = computeQueryPanelOutcome({ ...base, queriesInPanel: 1 });
+    expect(out!.panelLine).toContain("The 1 search this change targeted");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Query breadth (P4 R10b, v1 item 151)
+// ---------------------------------------------------------------------------
+
+function read(over: Partial<Parameters<typeof computeQueryBreadth>[0]> = {}) {
+  return computeQueryBreadth({
+    beforeQueries: 40,
+    afterQueries: 40,
+    beforeClicks: 100,
+    afterClicks: 100,
+    windowDays: 28,
+    ...over,
+  });
+}
+
+describe("computeQueryBreadth - the broader (reach) call", () => {
+  it("meaningfully more distinct searches reads broader with the reach sentence", () => {
+    const r = read({ beforeQueries: 40, afterQueries: 58 });
+    expect(r?.kind).toBe("broader");
+    expect(r?.sentence).toBe(
+      "This page now shows up for 18 more searches than before; the win is reach, not just rank.",
+    );
+  });
+
+  it("the broader floor is the LARGER of 3 extra queries and 15 percent of before", () => {
+    // before 40 -> fractional floor ceil(0.15 * 40) = 6, which beats the absolute 3.
+    expect(read({ beforeQueries: 40, afterQueries: 45 })?.kind).not.toBe("broader"); // +5 < 6
+    expect(read({ beforeQueries: 40, afterQueries: 46 })?.kind).toBe("broader"); // +6 = 6
+    // before 10 -> fractional floor ceil(1.5) = 2, absolute 3 governs.
+    expect(read({ beforeQueries: 10, afterQueries: 12 })?.kind).not.toBe("broader"); // +2 < 3
+    expect(read({ beforeQueries: 10, afterQueries: 13 })?.kind).toBe("broader"); // +3 = 3
+    expect(BROADER_MIN_EXTRA_QUERIES).toBe(3);
+  });
+
+  it("a brand-new page (0 before, real after) reads broader, not a crash", () => {
+    const r = read({ beforeQueries: 0, afterQueries: 18, beforeClicks: 0, afterClicks: 30 });
+    expect(r?.kind).toBe("broader");
+    expect(r?.sentence).toContain("18 more searches");
+  });
+
+  it("a single extra search pluralizes honestly", () => {
+    // before 1 -> floor max(3, ceil(0.15)) = 3; force the singular via the
+    // sentence builder by growing exactly the floor from a tiny base... a +3
+    // growth can never read "1 more search", so pin the plural path instead.
+    const r = read({ beforeQueries: 1, afterQueries: 4, beforeClicks: 0, afterClicks: 0 });
+    expect(r?.kind).toBe("broader");
+    expect(r?.sentence).toContain("3 more searches");
+  });
+});
+
+describe("computeQueryBreadth - the deeper (depth) call", () => {
+  it("flat breadth with meaningful click growth reads deeper with the depth sentence", () => {
+    const r = read({ beforeClicks: 100, afterClicks: 130 });
+    expect(r?.kind).toBe("deeper");
+    expect(r?.sentence).toBe(
+      "This page shows up for about the same searches as before, but they are sending 30 more clicks; the win is depth, not reach.",
+    );
+  });
+
+  it("the deeper floor is the LARGER of 3 clicks and 10 percent of before clicks", () => {
+    // before 100 clicks -> fractional floor 10 beats the absolute 3.
+    expect(read({ beforeClicks: 100, afterClicks: 109 })?.kind).toBe("flat"); // +9 < 10
+    expect(read({ beforeClicks: 100, afterClicks: 110 })?.kind).toBe("deeper"); // +10 = 10
+    // before 10 clicks -> absolute 3 governs.
+    expect(read({ beforeClicks: 10, afterClicks: 12 })?.kind).toBe("flat"); // +2 < 3
+    expect(read({ beforeClicks: 10, afterClicks: 13 })?.kind).toBe("deeper"); // +3 = 3
+  });
+
+  it("broader wins over deeper when both fire (reach is the stronger claim)", () => {
+    const r = read({ beforeQueries: 10, afterQueries: 20, beforeClicks: 100, afterClicks: 150 });
+    expect(r?.kind).toBe("broader");
+  });
+});
+
+describe("computeQueryBreadth - flat and honest absence", () => {
+  it("neither breadth nor depth moving reads flat with a null sentence but a real breadth line", () => {
+    const r = read();
+    expect(r?.kind).toBe("flat");
+    expect(r?.sentence).toBeNull();
+    expect(r?.breadthLine).toBe(
+      "This page showed up for 40 different searches in the 28 days before the change and 40 in the 28 days after.",
+    );
+  });
+
+  it("fewer searches after (breadth shrank) without click growth reads flat, never broader", () => {
+    const r = read({ beforeQueries: 40, afterQueries: 30 });
+    expect(r?.kind).toBe("flat");
+  });
+
+  it("no query-grain presence in EITHER window is an honest null, never a fabricated zero story", () => {
+    expect(read({ beforeQueries: 0, afterQueries: 0, beforeClicks: 0, afterClicks: 0 })).toBeNull();
+  });
+
+  it("a non-positive window is a guard null", () => {
+    expect(read({ windowDays: 0 })).toBeNull();
+  });
+
+  it("pluralizes the breadth line for a single search", () => {
+    const r = read({ beforeQueries: 1, afterQueries: 2, beforeClicks: 0, afterClicks: 0 });
+    expect(r?.breadthLine).toContain("1 different search in the");
+  });
+});
+
+describe("copy guard - dash-clean, no em or en dashes", () => {
+  it("gsc-query-reads.ts contains no em or en dashes", () => {
+    const src = readFileSync(join(__dirname, "gsc-query-reads.ts"), "utf8");
     expect(src).not.toMatch(/[–—]/);
+  });
+
+  it("every sentence and breadth line across the kinds is dash-clean and jargon-free", () => {
+    const reads = [
+      read({ beforeQueries: 40, afterQueries: 58 }),
+      read({ beforeClicks: 100, afterClicks: 130 }),
+      read(),
+    ];
+    for (const r of reads) {
+      for (const text of [r?.sentence, r?.breadthLine]) {
+        if (!text) continue;
+        expect(text).not.toMatch(/[–—]/);
+        expect(text.toLowerCase()).not.toMatch(/baseline|serp|experiment|control/);
+      }
+    }
   });
 });

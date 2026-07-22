@@ -25,7 +25,7 @@ import { measureRecord } from "./run-measurement";
 import { readLastFinalizedDate } from "./gsc-window";
 import { buildShockWindows } from "./algorithm-weather";
 import { loadDetectedChangepoints } from "./algorithm-weather-store";
-import { attachFdrToLedger } from "./fdr-adjust";
+import { attachFdrToLedger } from "./reliability-extras";
 import { activeTreatmentPaths } from "@/domains/experiments/experiment-eligibility";
 import { perfMark, perfStage } from "@/lib/obs/perf-log";
 import { log } from "@/lib/logger";

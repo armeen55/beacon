@@ -44,13 +44,18 @@ vi.mock("@/lib/persistence/supabase", () => ({
   getSupabaseAdmin: () => ({ from: () => chainFor() }),
 }));
 
-// N16: the median-band fallback lazily imports permutation-null (a heavy
-// page-surgeon chain in production). Mocked here to a controllable
-// distribution so the batch tests stay hermetic and deterministic.
+// N16: the median-band fallback lazily imports the permutation-null builder
+// (a heavy page-surgeon chain in production, now part of reliability-extras).
+// Mocked here to a controllable distribution so the batch tests stay hermetic
+// and deterministic.
 let nullDistPages: Array<{ page: string; delta: number; pseudoLift: number }> = [];
-vi.mock("./permutation-null", () => ({
-  buildPermutationNull: vi.fn(async () => ({ pages: nullDistPages, shipDate: "2026-06-01", windowDays: 7 })),
-}));
+vi.mock("./reliability-extras", async () => {
+  const actual = await vi.importActual<typeof import("./reliability-extras")>("./reliability-extras");
+  return {
+    ...actual,
+    buildPermutationNull: vi.fn(async () => ({ pages: nullDistPages, shipDate: "2026-06-01", windowDays: 7 })),
+  };
+});
 
 import {
   computeContaminationForShip,

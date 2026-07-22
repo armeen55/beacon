@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach } from "vitest";
+import { describe, it, expect, afterEach, beforeEach } from "vitest";
 import type { PageElementInventoryRow } from "@/domains/pages/extractors/persist";
 import type { TrackedPrompt } from "@/domains/tracked-prompts/types";
 import type { PromptOpportunity } from "@/domains/prompts/opportunity-classify";
@@ -8,24 +8,41 @@ import {
   buildSpecificEditEvidencePacket,
   type BuildSpecificEditEvidencePacketArgs,
   type SpecificEditEvidencePacket,
+  type AffectedPromptBlock,
+  type OwnedPageCandidateBlock,
+  type CompetitorAngleBlock,
+  type AiSearchQueryAggregate,
 } from "./specific-edit-evidence";
 import type { SpecificEdit, SpecificEditBundle } from "./specific-edit-provider";
+import type { BrandAssertion } from "./brand-assertions";
 import { deterministicProvider } from "./providers/deterministic";
 import {
   buildCompetitorAliases,
+  checkAbstentionContract,
   isAdditiveElementKey,
   parseElementTypeFromKey,
+  validateAbstentionContract,
   validateSerializable,
   validateSpecificEdit,
   validateSpecificEditBundle,
+  type AbstentionRejectReason,
 } from "./specific-edit-validator";
 
 // ---------------------------------------------------------------------------
-// Sprint 6A.1 Phase 10 — output validation layer.
+// Consolidated validator suite (Core 100K lane R, 2026-07-21).
 //
-// Covers per-edit validator + bundle validator + key-parsing helpers.
-// Fixtures are neutral (orthodontics) so the no-Ritz-hardcoding
-// invariant holds at the test layer too.
+// Absorbs the former variant files as internal sections:
+//   specific-edit-validator-llm-hardening.test.ts   (Sprint 6A.2d)
+//   specific-edit-validator-abstention.test.ts      (Trust T4.1)
+//   specific-edit-validator-brand-claims.test.ts    (W3 §3.7 / §3.7s)
+//   specific-edit-validator-leading-superlative.test.ts (W3 §3.12)
+//   specific-edit-validator-faq-pairing.test.ts     (W3 §3.8)
+//
+// Fixtures are neutral (orthodontics) except where the invariant under
+// test is tenant-specific (Ritz brand-voice gates). Two fixture
+// families exist: builder-based (buildSpecificEditEvidencePacket) for
+// the core + LLM-hardening sections, and literal-packet based for the
+// abstention / brand / superlative / FAQ-pairing sections.
 // ---------------------------------------------------------------------------
 
 const FROZEN_NOW = new Date("2026-04-24T12:00:00Z");
@@ -33,7 +50,7 @@ const TENANT = "tenant-test";
 const REC = "rec-2026-04-24-1";
 const URL_BRACES = "https://example.com/services/braces";
 
-// ── Fixture builders ───────────────────────────────────────────────────────
+// ── Builder-based fixture family ───────────────────────────────────────────
 
 function makePrompt(id: string, text: string): TrackedPrompt {
   return {
@@ -211,11 +228,8 @@ function validAddH2Fixture(): SpecificEdit {
       elementKey: "h2[new]:abc123def456",
       displayLabel: 'H2 heading (new): "Why teams choose us"',
       currentText: null,
-      // Sprint 6A.2g.B (2026-04-26) — proposedText must NOT name a
-      // competitor. The packet's primarySummaries include "AcmeOrtho",
-      // so any AcmeOrtho-bearing copy would fail the new gate.
-      // Differentiation goes in the why; the visible copy stays
-      // generic.
+      // 6A.2g.B: proposedText must NOT name a competitor — the packet's
+      // primarySummaries include "AcmeOrtho".
       proposedText:
         "Why teams choose a board-certified orthodontist for their teen.",
     },
@@ -230,6 +244,74 @@ function validAddH2Fixture(): SpecificEdit {
     providerName: "deterministic",
     model: null,
     costUsd: null,
+  };
+}
+
+/** Restore-or-delete an env var after a test body. */
+function restoreEnv(key: string, original: string | undefined): void {
+  if (original === undefined) delete process.env[key];
+  else process.env[key] = original;
+}
+
+// ── Literal-packet fixture family (abstention / brand / superlative / FAQ) ─
+
+function literalSignal(
+  queries: AiSearchQueryAggregate[] = [],
+): SpecificEditEvidencePacket["aiSearchSignal"] {
+  return {
+    topSearchQueries: queries,
+    topDescriptors: [],
+    topCompetitorCoMentions: [],
+    caps: {
+      maxSearchQueries: 10,
+      maxDescriptors: 12,
+      maxCompetitorCoMentions: 8,
+    },
+  };
+}
+
+function literalPrompt(
+  overrides: Partial<AffectedPromptBlock> = {},
+): AffectedPromptBlock {
+  return {
+    promptId: "11111111-2222-3333-4444-555555555555",
+    promptText: "best whole home remodel builders bay area",
+    category: "absent",
+    observationCount: 6,
+    brandPrimaryShare: 0,
+    topPrimaryCompetitor: null,
+    descriptorsNearBrand: [],
+    actualSearchQueries: [],
+    citedSourcePages: [],
+    descriptorWindows: [],
+    ...overrides,
+  };
+}
+
+function literalPacket(
+  overrides: Partial<SpecificEditEvidencePacket> = {},
+): SpecificEditEvidencePacket {
+  return {
+    schemaVersion: "specific-edit/v1",
+    generatedAt: "2026-05-03T00:00:00Z",
+    tenantId: "tenant-test",
+    recId: "rec-test",
+    clusterId: null,
+    clusterLabel: "Test cluster",
+    clusterKind: "topic",
+    affectedPrompts: [],
+    ownedPageCandidates: [],
+    targetPageElements: [],
+    competitorAngles: [],
+    priorOutcomes: [],
+    allowedTargetUrls: ["https://example.com/test"],
+    allowedActionTypes: ["add_h2_section", "add_faq", "edit_meta"],
+    aiSearchSignal: literalSignal(),
+    competitorPageBlueprints: [],
+    crossTenantPatterns: [],
+    brandAssertions: [],
+    evidenceHash: "deadbeef00000000",
+    ...overrides,
   };
 }
 
@@ -294,7 +376,7 @@ describe("Phase 6A.1.10 — validateSerializable", () => {
   });
 });
 
-// ── validateSpecificEdit ──────────────────────────────────────────────────
+// ── validateSpecificEdit — positive ───────────────────────────────────────
 
 describe("Phase 6A.1.10 — validateSpecificEdit (positive)", () => {
   it("accepts a valid deterministic edit_title fixture", () => {
@@ -310,15 +392,9 @@ describe("Phase 6A.1.10 — validateSpecificEdit (positive)", () => {
   });
 
   it("accepts ALL non-FAQ outputs of the deterministic provider with Phase-6A.2g opt-outs set (Phase 9 generators predate Rules 12/13)", async () => {
-    // Sprint 6A.2g.B/C (2026-04-26) — the Phase 9 deterministic
-    // generators predate the new Rule 12 (no competitor names in copy)
-    // and Rule 13 (FAQ questions must end in "?"). Their outputs
-    // legitimately fail the new gates. Filter FAQ rows AND set the
-    // competitor-copy opt-out to assert that everything else (which
-    // wasn't in scope for either rule) still validates cleanly.
-    // Operator-approved scoping: the deterministic generator rewrite
-    // is a separate sprint; the new gates protect LLM provider
-    // outputs from day one.
+    // Phase 9 deterministic generators predate Rule 12 (no competitor
+    // names in copy) and Rule 13 (FAQ "?"). Filter FAQ rows AND set the
+    // competitor-copy opt-out; everything else must validate cleanly.
     const original = process.env.BEACON_ALLOW_COMPETITOR_COPY;
     process.env.BEACON_ALLOW_COMPETITOR_COPY = "1";
     try {
@@ -335,18 +411,12 @@ describe("Phase 6A.1.10 — validateSpecificEdit (positive)", () => {
         expect(validateSpecificEdit(edit, packet)).toEqual({ ok: true });
       }
     } finally {
-      if (original === undefined) {
-        delete process.env.BEACON_ALLOW_COMPETITOR_COPY;
-      } else {
-        process.env.BEACON_ALLOW_COMPETITOR_COPY = original;
-      }
+      restoreEnv("BEACON_ALLOW_COMPETITOR_COPY", original);
     }
   });
 
   it("accepts a page-level lifecycle edit with targetElement=null (watch)", () => {
     const packet = buildPacket();
-    // Need to allow `watch` action type — Phase 9 default allowedActionTypes
-    // doesn't include it. Patch the packet:
     const widened: SpecificEditEvidencePacket = {
       ...packet,
       allowedActionTypes: [...packet.allowedActionTypes, "watch"],
@@ -376,6 +446,8 @@ describe("Phase 6A.1.10 — validateSpecificEdit (positive)", () => {
   });
 });
 
+// ── validateSpecificEdit — negatives ──────────────────────────────────────
+
 describe("Phase 6A.1.10 — validateSpecificEdit (negative — actionType)", () => {
   it("rejects unknown actionType", () => {
     const packet = buildPacket();
@@ -390,12 +462,8 @@ describe("Phase 6A.1.10 — validateSpecificEdit (negative — actionType)", () 
 
   it("rejects actionType not in packet.allowedActionTypes", () => {
     const packet = buildPacket();
-    // Slice 4.5.B.α₀ (2026-05-19): `edit_meta` flipped to
-    // generatorActive=true, so it's now in the default v1
-    // allowedActionTypes set. Slice 4.5.E.α₁a (2026-05-21):
-    // `rewrite_h2` flipped active. Use a still-inactive type
-    // for the negative case — `rewrite_faq` stays
-    // `generatorActive: false` until Slice 4.5.E.α₂.
+    // `rewrite_faq` stays generatorActive: false (until Slice 4.5.E.α₂)
+    // so it is NOT in the default v1 allowedActionTypes set.
     const bad = validEditTitleFixture(packet, {
       actionType: "rewrite_faq",
     });
@@ -504,8 +572,7 @@ describe("Phase 6A.1.10 — validateSpecificEdit (negative — targetElement)", 
 
   it("rejects element_type not in actionType's elementTypeDomain", () => {
     const packet = buildPacket();
-    // edit_title's domain is ["title"]. Passing an h2 inventory key
-    // should fail.
+    // edit_title's domain is ["title"]; an h2 inventory key must fail.
     const bad = validEditTitleFixture(packet, {
       targetElement: {
         elementKey: "h2[0]:hash-h2a", // present in inventory
@@ -629,42 +696,27 @@ describe("Phase 6A.1.10 — validateSpecificEdit (negative — evidence)", () =>
   });
 });
 
-describe("Phase 6A.1.10 — validateSpecificEdit (negative — enums + types)", () => {
-  it("rejects invalid difficulty enum", () => {
+describe("Phase 6A.1.10 — validateSpecificEdit (negative — enums + coherence)", () => {
+  it("rejects invalid difficulty / confidence / source enum values (field pinned each)", () => {
     const packet = buildPacket();
-    const bad = validEditTitleFixture(packet, {
+    const cases: Array<[Partial<SpecificEdit>, string]> = [
       // @ts-expect-error — testing runtime rejection
-      difficulty: "epic",
-    });
-    const r = validateSpecificEdit(bad, packet);
-    expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.field).toBe("difficulty");
+      [{ difficulty: "epic" }, "difficulty"],
+      // @ts-expect-error — testing runtime rejection
+      [{ confidence: "very_high" }, "confidence"],
+      // @ts-expect-error — testing runtime rejection
+      [{ source: "vibes" }, "source"],
+    ];
+    for (const [overrides, field] of cases) {
+      const r = validateSpecificEdit(
+        validEditTitleFixture(packet, overrides),
+        packet,
+      );
+      expect(r.ok).toBe(false);
+      if (!r.ok) expect(r.field).toBe(field);
+    }
   });
 
-  it("rejects invalid confidence enum", () => {
-    const packet = buildPacket();
-    const bad = validEditTitleFixture(packet, {
-      // @ts-expect-error — testing runtime rejection
-      confidence: "very_high",
-    });
-    const r = validateSpecificEdit(bad, packet);
-    expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.field).toBe("confidence");
-  });
-
-  it("rejects invalid source enum", () => {
-    const packet = buildPacket();
-    const bad = validEditTitleFixture(packet, {
-      // @ts-expect-error — testing runtime rejection
-      source: "vibes",
-    });
-    const r = validateSpecificEdit(bad, packet);
-    expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.field).toBe("source");
-  });
-});
-
-describe("Phase 6A.1.10 — validateSpecificEdit (negative — coherence)", () => {
   it("rejects deterministic source with non-null model", () => {
     const packet = buildPacket();
     const bad = validEditTitleFixture(packet, {
@@ -708,37 +760,31 @@ describe("Phase 6A.1.10 — validateSpecificEdit (negative — coherence)", () =
 });
 
 describe("Phase 6A.1.10 — validateSpecificEdit (negative — non-serializable)", () => {
-  it("rejects an edit containing a Date object somewhere", () => {
+  it("rejects edits containing Date / function / Map values (never throws)", () => {
     const packet = buildPacket();
-    const bad = validEditTitleFixture(packet, {
-      // @ts-expect-error — testing runtime rejection
-      expectedImpact: new Date(),
-    });
-    const r = validateSpecificEdit(bad, packet);
-    expect(r.ok).toBe(false);
     // expectedImpact has a type-level guard before serializability, so
     // it lands on the type check field.
-    if (!r.ok) expect(r.field).toBe("expectedImpact");
-  });
-
-  it("rejects an edit containing a function in why field", () => {
-    const packet = buildPacket();
-    const bad = validEditTitleFixture(packet, {
+    const r1 = validateSpecificEdit(
       // @ts-expect-error — testing runtime rejection
-      why: () => "lazy",
-    });
-    const r = validateSpecificEdit(bad, packet);
-    expect(r.ok).toBe(false);
-  });
-
-  it("rejects an edit containing a Map deep inside risks", () => {
-    const packet = buildPacket();
-    const bad = validEditTitleFixture(packet, {
-      // @ts-expect-error — testing runtime rejection
-      risks: [new Map()],
-    });
-    const r = validateSpecificEdit(bad, packet);
-    expect(r.ok).toBe(false);
+      validEditTitleFixture(packet, { expectedImpact: new Date() }),
+      packet,
+    );
+    expect(r1.ok).toBe(false);
+    if (!r1.ok) expect(r1.field).toBe("expectedImpact");
+    expect(
+      validateSpecificEdit(
+        // @ts-expect-error — testing runtime rejection
+        validEditTitleFixture(packet, { why: () => "lazy" }),
+        packet,
+      ).ok,
+    ).toBe(false);
+    expect(
+      validateSpecificEdit(
+        // @ts-expect-error — testing runtime rejection
+        validEditTitleFixture(packet, { risks: [new Map()] }),
+        packet,
+      ).ok,
+    ).toBe(false);
   });
 });
 
@@ -746,10 +792,9 @@ describe("Phase 6A.1.10 — validateSpecificEdit (negative — non-serializable)
 
 /**
  * The packet's affected prompt is "What are the best teen braces?" —
- * already grammatical question form. The validator's stem check
- * normalizes both to "what are the best teen braces" (first 50 chars,
- * lowercased, punctuation stripped). Any FAQ proposedText whose
- * normalized prefix matches this stem is rejected unless
+ * the validator's stem check normalizes to "what are the best teen
+ * braces" (first 50 chars, lowercased, punctuation stripped). Any FAQ
+ * proposedText whose normalized prefix matches is rejected unless
  * BEACON_ALLOW_SYNTHETIC_FAQ_COPY=1.
  */
 function validAddFaqQuestionFixture(
@@ -782,15 +827,27 @@ function validAddFaqQuestionFixture(
   };
 }
 
+/** Build the FAQ fixture with only proposedText swapped. */
+function faqWithText(
+  packet: SpecificEditEvidencePacket,
+  proposedText: string,
+  elementKey = "faq_question[new]:abc123def456",
+  displayLabel = "FAQ question (new)",
+): SpecificEdit {
+  return validAddFaqQuestionFixture(packet, {
+    targetElement: {
+      elementKey,
+      displayLabel,
+      currentText: null,
+      proposedText,
+    },
+  });
+}
+
 describe("Sprint 6A.2g.C — FAQ intent rewriting (validateFaqIntentRewriting)", () => {
-  // Restore env after every test — the opt-out gate is process-global.
   const ORIGINAL = process.env.BEACON_ALLOW_SYNTHETIC_FAQ_COPY;
   afterEach(() => {
-    if (ORIGINAL === undefined) {
-      delete process.env.BEACON_ALLOW_SYNTHETIC_FAQ_COPY;
-    } else {
-      process.env.BEACON_ALLOW_SYNTHETIC_FAQ_COPY = ORIGINAL;
-    }
+    restoreEnv("BEACON_ALLOW_SYNTHETIC_FAQ_COPY", ORIGINAL);
   });
 
   it("ACCEPT — paraphrased customer-voice FAQ question on add_faq", () => {
@@ -801,15 +858,10 @@ describe("Sprint 6A.2g.C — FAQ intent rewriting (validateFaqIntentRewriting)",
 
   it("REJECT — proposedText does not end in '?'", () => {
     const packet = buildPacket();
-    const edit = validAddFaqQuestionFixture(packet, {
-      targetElement: {
-        elementKey: "faq_question[new]:abc123def456",
-        displayLabel: "FAQ question (new)",
-        currentText: null,
-        proposedText: "How long do braces take",
-      },
-    });
-    const r = validateSpecificEdit(edit, packet);
+    const r = validateSpecificEdit(
+      faqWithText(packet, "How long do braces take"),
+      packet,
+    );
     expect(r.ok).toBe(false);
     if (!r.ok) {
       expect(r.field).toBe("targetElement.proposedText");
@@ -819,18 +871,13 @@ describe("Sprint 6A.2g.C — FAQ intent rewriting (validateFaqIntentRewriting)",
 
   it("REJECT — proposedText lifts synthetic prompt stem verbatim (add_faq)", () => {
     const packet = buildPacket();
-    // basePacketArgs uses prompt text "What are the best teen braces?".
-    // Lifting it as the FAQ question is exactly the pattern Rule 13
-    // forbids — it ends in ? but is the synthetic prompt verbatim.
-    const edit = validAddFaqQuestionFixture(packet, {
-      targetElement: {
-        elementKey: "faq_question[new]:abc123def456",
-        displayLabel: "FAQ question (new)",
-        currentText: null,
-        proposedText: "What are the best teen braces?",
-      },
-    });
-    const r = validateSpecificEdit(edit, packet);
+    // Lifting the tracked-prompt text as the FAQ question is exactly
+    // the pattern Rule 13 forbids — it ends in ? but is the synthetic
+    // prompt verbatim.
+    const r = validateSpecificEdit(
+      faqWithText(packet, "What are the best teen braces?"),
+      packet,
+    );
     expect(r.ok).toBe(false);
     if (!r.ok) {
       expect(r.field).toBe("targetElement.proposedText");
@@ -839,91 +886,38 @@ describe("Sprint 6A.2g.C — FAQ intent rewriting (validateFaqIntentRewriting)",
     }
   });
 
-  it("REJECT — proposedText lifts synthetic prompt stem (rewrite_faq path)", () => {
-    const packet = buildPacket({ allowedActionTypes: ["rewrite_faq"] });
-    const edit = validAddFaqQuestionFixture(packet, {
-      actionType: "rewrite_faq",
-      targetElement: {
-        elementKey: "faq_question[0]:hash-existing",
-        displayLabel: "Existing FAQ question",
-        currentText: "Old FAQ question?",
-        proposedText: "What are the best teen braces options?",
-      },
-    });
-    // rewrite_faq requires the elementKey to exist in inventory; we
-    // don't have a faq_question in basePacketArgs's pageElementInventory.
-    // Use the additive form instead — but rewrite_faq has
-    // requiresCurrentText=true, which rejects [new] keys (rule 3c).
-    // Switch to the additive add_faq path for the lift check.
-    const edit2 = validAddFaqQuestionFixture(packet, {
-      actionType: "add_faq",
-      targetElement: {
-        elementKey: "faq_question[new]:zzz",
-        displayLabel: "FAQ question (new)",
-        currentText: null,
-        proposedText: "What are the best teen braces?",
-      },
-    });
-    // basePacketArgs allowedActionTypes defaults exclude rewrite_faq, so
-    // run through with add_faq + lifted prompt:
-    const packet2 = buildPacket();
-    const r2 = validateSpecificEdit(edit2, packet2);
-    expect(r2.ok).toBe(false);
-    if (!r2.ok) {
-      expect(r2.reason).toMatch(/lifts synthetic prompt text verbatim/);
-    }
-
-    // Reference unused `edit` to keep the function signature audit
-    // honest (no unused fixture variables).
-    expect(edit.actionType).toBe("rewrite_faq");
-  });
-
   it("ACCEPT — verbatim stem allowed when BEACON_ALLOW_SYNTHETIC_FAQ_COPY=1 (still enforces '?')", () => {
     process.env.BEACON_ALLOW_SYNTHETIC_FAQ_COPY = "1";
     const packet = buildPacket();
-    const edit = validAddFaqQuestionFixture(packet, {
-      targetElement: {
-        elementKey: "faq_question[new]:abc123def456",
-        displayLabel: "FAQ question (new)",
-        currentText: null,
-        proposedText: "What are the best teen braces?",
-      },
-    });
-    expect(validateSpecificEdit(edit, packet)).toEqual({ ok: true });
+    expect(
+      validateSpecificEdit(
+        faqWithText(packet, "What are the best teen braces?"),
+        packet,
+      ),
+    ).toEqual({ ok: true });
   });
 
   it("REJECT — opt-out is set BUT proposedText still doesn't end in '?'", () => {
     process.env.BEACON_ALLOW_SYNTHETIC_FAQ_COPY = "1";
     const packet = buildPacket();
-    const edit = validAddFaqQuestionFixture(packet, {
-      targetElement: {
-        elementKey: "faq_question[new]:abc123def456",
-        displayLabel: "FAQ question (new)",
-        currentText: null,
-        proposedText: "What are the best teen braces",
-      },
-    });
-    const r = validateSpecificEdit(edit, packet);
+    const r = validateSpecificEdit(
+      faqWithText(packet, "What are the best teen braces"),
+      packet,
+    );
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.reason).toMatch(/must end with "\?"/);
   });
 
   it("UNAFFECTED — faq_answer element bypasses the FAQ-question rule (answers don't end in '?')", () => {
-    // W3 §3.8 (2026-05-03): faq_answer rows now have their own
-    // word-floor gate (≥ 30 words). Provide a substantive 30+ word
-    // answer so the new gate doesn't fire — the test's intent is to
-    // verify the FAQ-question rule (must end with "?") doesn't fire
-    // on answer rows, not to exercise the answer-length floor.
+    // W3 §3.8: faq_answer rows carry their own ≥30-word floor; give a
+    // substantive answer so only the question-rule bypass is under test.
     const packet = buildPacket();
-    const edit = validAddFaqQuestionFixture(packet, {
-      targetElement: {
-        elementKey: "faq_answer[new]:abc123def456",
-        displayLabel: "FAQ answer (new)",
-        currentText: null,
-        proposedText:
-          "Choosing the best teen braces depends on alignment goals, treatment timeline, and household budget. Most families balance aesthetics, comfort, and total cost across at least three options including traditional metal, ceramic, and clear-aligner systems before making a final selection with their orthodontist.",
-      },
-    });
+    const edit = faqWithText(
+      packet,
+      "Choosing the best teen braces depends on alignment goals, treatment timeline, and household budget. Most families balance aesthetics, comfort, and total cost across at least three options including traditional metal, ceramic, and clear-aligner systems before making a final selection with their orthodontist.",
+      "faq_answer[new]:abc123def456",
+      "FAQ answer (new)",
+    );
     expect(validateSpecificEdit(edit, packet)).toEqual({ ok: true });
   });
 
@@ -941,67 +935,41 @@ describe("Sprint 6A.2g.C — FAQ intent rewriting (validateFaqIntentRewriting)",
     expect(validateSpecificEdit(edit, packet)).toEqual({ ok: true });
   });
 
-  it("ACCEPT — paraphrase that prepends a question word evades the stem prefix match", () => {
+  it("ACCEPT — paraphrase with a different prefix evades the stem match; mid-sentence stem also passes", () => {
     const packet = buildPacket();
-    // Affected prompt: "What are the best teen braces?"
-    // Normalized: "what are the best teen braces"
-    // Paraphrase: "Which teen braces options are best for the visitor?"
-    // Normalized: "which teen braces options are best for the visitor"
     // Different prefix → no match → accepted.
-    const edit = validAddFaqQuestionFixture(packet, {
-      targetElement: {
-        elementKey: "faq_question[new]:abc123def456",
-        displayLabel: "FAQ question (new)",
-        currentText: null,
-        proposedText: "Which teen braces options are best for the visitor?",
-      },
-    });
-    expect(validateSpecificEdit(edit, packet)).toEqual({ ok: true });
-  });
-
-  it("ACCEPT — proposedText that incidentally contains the stem mid-sentence (not at start)", () => {
-    const packet = buildPacket();
+    expect(
+      validateSpecificEdit(
+        faqWithText(packet, "Which teen braces options are best for the visitor?"),
+        packet,
+      ),
+    ).toEqual({ ok: true });
     // Stem appears mid-sentence — the rule only blocks PREFIX matches.
-    const edit = validAddFaqQuestionFixture(packet, {
-      targetElement: {
-        elementKey: "faq_question[new]:abc123def456",
-        displayLabel: "FAQ question (new)",
-        currentText: null,
-        proposedText:
-          "Cost-wise, what are the best teen braces in this market?",
-      },
-    });
-    expect(validateSpecificEdit(edit, packet)).toEqual({ ok: true });
+    expect(
+      validateSpecificEdit(
+        faqWithText(packet, "Cost-wise, what are the best teen braces in this market?"),
+        packet,
+      ),
+    ).toEqual({ ok: true });
   });
 
   it("REJECT — punctuation differences alone don't escape the stem check (normalize strips punctuation)", () => {
     const packet = buildPacket();
-    const edit = validAddFaqQuestionFixture(packet, {
-      targetElement: {
-        elementKey: "faq_question[new]:abc123def456",
-        displayLabel: "FAQ question (new)",
-        currentText: null,
-        // Same words as the affected prompt with extra commas — the
-        // normalize step strips punctuation so the stem still matches.
-        proposedText: "What, are, the best teen braces?",
-      },
-    });
-    const r = validateSpecificEdit(edit, packet);
+    const r = validateSpecificEdit(
+      faqWithText(packet, "What, are, the best teen braces?"),
+      packet,
+    );
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.reason).toMatch(/lifts synthetic prompt text verbatim/);
   });
 
   it("ACCEPT — empty affected prompts list bypasses the stem check (graceful)", () => {
-    // Edge case: rec with no affected prompts can't have its stem
-    // matched. Validator must not crash.
     const packet = buildPacket({
       affectedPromptIds: [],
       promptOpportunities: [],
       trackedPrompts: [],
       primarySummaries: [],
     });
-    // Build the edit inline since validAddFaqQuestionFixture references
-    // packet.affectedPrompts[0].promptId, which doesn't exist here.
     const edit: SpecificEdit = {
       actionType: "add_faq",
       targetUrl: URL_BRACES,
@@ -1030,60 +998,45 @@ describe("Sprint 6A.2g.C — FAQ intent rewriting (validateFaqIntentRewriting)",
 // ── Sprint 6A.2g.B — Competitor public-copy safety ──────────────────────
 
 describe("Sprint 6A.2g.B — buildCompetitorAliases (alias generation)", () => {
-  it("includes the full trimmed name first (always)", () => {
+  it("includes the full trimmed name first, strips closed-set suffixes iteratively, trims trailing periods, preserves case", () => {
     expect(buildCompetitorAliases("De Mattei Construction")).toEqual([
       "De Mattei Construction",
       "De Mattei",
     ]);
-  });
-
-  it("strips closed-set suffixes iteratively", () => {
     expect(buildCompetitorAliases("Acme Builders Inc")).toEqual([
       "Acme Builders Inc",
       "Acme Builders",
       "Acme",
     ]);
+    expect(buildCompetitorAliases("Acme Inc.")).toEqual(["Acme Inc.", "Acme"]);
+    expect(buildCompetitorAliases("de mattei construction")).toEqual([
+      "de mattei construction",
+      "de mattei",
+    ]);
   });
 
-  it("does NOT strip suffixes outside the closed set (e.g., 'Solutions')", () => {
+  it("does NOT strip suffixes outside the closed set, nor split mid-name", () => {
     expect(buildCompetitorAliases("Acme Solutions")).toEqual(["Acme Solutions"]);
-  });
-
-  it("does NOT split mid-name on closed-set words at non-trailing position", () => {
     // "Pacific" isn't in the closed set; stripping stops.
     expect(buildCompetitorAliases("Co Pacific")).toEqual(["Co Pacific"]);
   });
 
-  it("skips suffix-stripped aliases shorter than 3 characters", () => {
-    // "X Co" → strip "Co" → "X" (1 char) → guard kicks in, only the
-    // full name is kept.
+  it("suppresses stripped aliases below the 4-char floor (W3 §3.8.6) while keeping the full name", () => {
+    // "X Co" → strip "Co" → "X" (1 char) → suppressed.
     expect(buildCompetitorAliases("X Co")).toEqual(["X Co"]);
-  });
-
-  it("ALSO works with single-suffix LLC", () => {
-    // W3 §3.8.6: alias floor raised 3 → 4. Stripped "ABC" (3 chars)
-    // no longer makes the cut; only the full name remains.
+    // Floor raised 3 → 4: "ABC" (3 chars) no longer makes the cut.
     expect(buildCompetitorAliases("ABC LLC")).toEqual(["ABC LLC"]);
-  });
-
-  it("ALSO works with longer base names: 'ABCD LLC' produces ['ABCD LLC', 'ABCD']", () => {
-    // The stripped 4-char alias passes the new floor.
+    // The stripped 4-char alias passes the floor.
     expect(buildCompetitorAliases("ABCD LLC")).toEqual(["ABCD LLC", "ABCD"]);
+    // "Foo" (3 chars) below floor; 4-char "Quux" survives.
+    expect(buildCompetitorAliases("Foo Group")).toEqual(["Foo Group"]);
+    expect(buildCompetitorAliases("Quux Group")).toEqual(["Quux Group", "Quux"]);
+    // 2-char FULL name is kept regardless of length (floor only applies
+    // to stripped derivatives).
+    expect(buildCompetitorAliases("AB")).toEqual(["AB"]);
   });
 
-  it("dedupes when iterative stripping produces a duplicate (4+ char floor)", () => {
-    // W3 §3.8.6: 'Foo' (3 chars) is now below the alias floor; only
-    // the full name remains. Use a 4-char base to verify dedupe still
-    // works on longer names.
-    const a = buildCompetitorAliases("Foo Group");
-    expect(a).toEqual(["Foo Group"]);
-    const b = buildCompetitorAliases("Quux Group");
-    expect(b).toEqual(["Quux Group", "Quux"]);
-  });
-
-  it("caps aliases at 5 per competitor", () => {
-    // No realistic competitor name produces 6+ aliases with the closed
-    // set, but the cap is contractual.
+  it("caps aliases at 5 per competitor (contractual)", () => {
     const a = buildCompetitorAliases("A Builders Construction Group LLC Co");
     expect(a.length).toBeLessThanOrEqual(5);
     expect(a[0]).toBe("A Builders Construction Group LLC Co");
@@ -1096,28 +1049,11 @@ describe("Sprint 6A.2g.B — buildCompetitorAliases (alias generation)", () => {
       buildCompetitorAliases(null as unknown as string),
     ).toEqual([]);
   });
-
-  it("includes the full name even when it would be too short for a stripped alias", () => {
-    // 2-char full name — kept as the full alias regardless of length.
-    expect(buildCompetitorAliases("AB")).toEqual(["AB"]);
-  });
-
-  it("case-preserving on the full name (regex check is case-insensitive at match time)", () => {
-    expect(buildCompetitorAliases("de mattei construction")).toEqual([
-      "de mattei construction",
-      "de mattei",
-    ]);
-  });
-
-  it("trims trailing period on suffix (e.g., 'Inc.')", () => {
-    expect(buildCompetitorAliases("Acme Inc.")).toEqual(["Acme Inc.", "Acme"]);
-  });
 });
 
 /**
  * Helper: build a packet whose competitorAngles contains the given
- * competitor name(s). Builds on basePacketArgs which already populates
- * "AcmeOrtho" via the primary summary. We can extend it.
+ * competitor name(s), with grounding seeded so abstention passes.
  */
 function buildPacketWithCompetitors(
   competitorNames: string[],
@@ -1141,8 +1077,6 @@ function buildPacketWithCompetitors(
       },
     ],
   });
-  // T4.1 (2026-05-06): seed grounding so abstention contract passes;
-  // these tests target competitor public-copy validator, not abstention.
   return {
     ...built,
     aiSearchSignal: {
@@ -1190,14 +1124,9 @@ function makeAddH2EditWithProposedText(
 }
 
 describe("Sprint 6A.2g.B — competitor public-copy validator", () => {
-  // Restore env after every test — opt-out gate is process-global.
   const ORIGINAL = process.env.BEACON_ALLOW_COMPETITOR_COPY;
   afterEach(() => {
-    if (ORIGINAL === undefined) {
-      delete process.env.BEACON_ALLOW_COMPETITOR_COPY;
-    } else {
-      process.env.BEACON_ALLOW_COMPETITOR_COPY = ORIGINAL;
-    }
+    restoreEnv("BEACON_ALLOW_COMPETITOR_COPY", ORIGINAL);
   });
 
   it("REJECT — full competitor name appears in proposedText", () => {
@@ -1215,13 +1144,12 @@ describe("Sprint 6A.2g.B — competitor public-copy validator", () => {
     }
   });
 
-  it("REJECT — suffix-stripped alias appears in proposedText (e.g., 'vs De Mattei' from 'De Mattei Construction')", () => {
+  it("REJECT — suffix-stripped alias appears in proposedText ('vs De Mattei')", () => {
     const packet = buildPacketWithCompetitors(["De Mattei Construction"]);
-    const edit = makeAddH2EditWithProposedText(
+    const r = validateSpecificEdit(
+      makeAddH2EditWithProposedText(packet, "Why teams choose us vs De Mattei"),
       packet,
-      "Why teams choose us vs De Mattei",
     );
-    const r = validateSpecificEdit(edit, packet);
     expect(r.ok).toBe(false);
     if (!r.ok) {
       expect(r.reason).toMatch(/De Mattei/);
@@ -1231,12 +1159,14 @@ describe("Sprint 6A.2g.B — competitor public-copy validator", () => {
 
   it("REJECT — competitor alias appears in displayLabel", () => {
     const packet = buildPacketWithCompetitors(["De Mattei Construction"]);
-    const edit = makeAddH2EditWithProposedText(
+    const r = validateSpecificEdit(
+      makeAddH2EditWithProposedText(
+        packet,
+        "Why teams choose a board-certified design-build partner.",
+        "vs De Mattei",
+      ),
       packet,
-      "Why teams choose a board-certified design-build partner.",
-      "vs De Mattei",
     );
-    const r = validateSpecificEdit(edit, packet);
     expect(r.ok).toBe(false);
     if (!r.ok) {
       expect(r.field).toBe("targetElement.displayLabel");
@@ -1246,139 +1176,146 @@ describe("Sprint 6A.2g.B — competitor public-copy validator", () => {
 
   it("ACCEPT — proposedText with no competitor names passes", () => {
     const packet = buildPacketWithCompetitors(["De Mattei Construction"]);
-    const edit = makeAddH2EditWithProposedText(
-      packet,
-      "Why Bay Area homeowners choose a design-build partner.",
-    );
-    expect(validateSpecificEdit(edit, packet)).toEqual({ ok: true });
+    expect(
+      validateSpecificEdit(
+        makeAddH2EditWithProposedText(
+          packet,
+          "Why Bay Area homeowners choose a design-build partner.",
+        ),
+        packet,
+      ),
+    ).toEqual({ ok: true });
   });
 
-  it("REJECT — possessive form catches alias (e.g., 'De Mattei's pricing')", () => {
+  it("REJECT — possessive form catches alias ('De Mattei's pricing')", () => {
     const packet = buildPacketWithCompetitors(["De Mattei Construction"]);
-    const edit = makeAddH2EditWithProposedText(
+    const r = validateSpecificEdit(
+      makeAddH2EditWithProposedText(
+        packet,
+        "We compete on transparency and timeline beyond De Mattei's pricing model.",
+      ),
       packet,
-      "We compete on transparency and timeline beyond De Mattei's pricing model.",
     );
-    const r = validateSpecificEdit(edit, packet);
     expect(r.ok).toBe(false);
-    if (!r.ok) {
-      expect(r.reason).toMatch(/De Mattei/);
-    }
+    if (!r.ok) expect(r.reason).toMatch(/De Mattei/);
   });
 
   it("ACCEPT — env opt-out BEACON_ALLOW_COMPETITOR_COPY=1 skips the rule entirely", () => {
     process.env.BEACON_ALLOW_COMPETITOR_COPY = "1";
     const packet = buildPacketWithCompetitors(["De Mattei Construction"]);
-    const edit = makeAddH2EditWithProposedText(
-      packet,
-      "Why teams choose us over De Mattei Construction",
-    );
-    expect(validateSpecificEdit(edit, packet)).toEqual({ ok: true });
+    expect(
+      validateSpecificEdit(
+        makeAddH2EditWithProposedText(
+          packet,
+          "Why teams choose us over De Mattei Construction",
+        ),
+        packet,
+      ),
+    ).toEqual({ ok: true });
   });
 
-  it("WORD-BOUNDARY — alias 'Reno' does NOT match 'Renovation' (no false positive)", () => {
+  it("WORD-BOUNDARY — alias 'Reno' does NOT match 'Renovation' but DOES match standalone 'Reno'", () => {
     const packet = buildPacketWithCompetitors(["Reno"]);
-    const edit = makeAddH2EditWithProposedText(
+    expect(
+      validateSpecificEdit(
+        makeAddH2EditWithProposedText(
+          packet,
+          "Renovation timelines for Bay Area projects.",
+        ),
+        packet,
+      ),
+    ).toEqual({ ok: true });
+    const r = validateSpecificEdit(
+      makeAddH2EditWithProposedText(
+        packet,
+        "We've completed projects in Reno before.",
+      ),
       packet,
-      "Renovation timelines for Bay Area projects.",
     );
-    expect(validateSpecificEdit(edit, packet)).toEqual({ ok: true });
-  });
-
-  it("WORD-BOUNDARY — alias 'Reno' DOES match standalone 'Reno' (true positive)", () => {
-    const packet = buildPacketWithCompetitors(["Reno"]);
-    const edit = makeAddH2EditWithProposedText(
-      packet,
-      "We've completed projects in Reno before.",
-    );
-    const r = validateSpecificEdit(edit, packet);
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.reason).toMatch(/Reno/);
   });
 
-  it("CLOSED SUFFIX — competitor 'Acme Solutions' does NOT generate 'Acme' alias (Solutions not in closed set)", () => {
+  it("CLOSED SUFFIX — 'Acme Solutions' does NOT generate an 'Acme' alias but matches verbatim", () => {
     const packet = buildPacketWithCompetitors(["Acme Solutions"]);
-    // Bare "Acme" should NOT be rejected — the full name is the only
-    // alias, and the proposedText doesn't contain "Acme Solutions".
-    const edit = makeAddH2EditWithProposedText(
+    // Bare "Acme" must NOT be rejected — the full name is the only alias.
+    expect(
+      validateSpecificEdit(
+        makeAddH2EditWithProposedText(
+          packet,
+          "Acme is a great word and Acme Anvils Inc is unrelated.",
+        ),
+        packet,
+      ),
+    ).toEqual({ ok: true });
+    const r = validateSpecificEdit(
+      makeAddH2EditWithProposedText(
+        packet,
+        "Choose us over Acme Solutions for design-build expertise.",
+      ),
       packet,
-      "Acme is a great word and Acme Anvils Inc is unrelated.",
     );
-    expect(validateSpecificEdit(edit, packet)).toEqual({ ok: true });
-  });
-
-  it("CLOSED SUFFIX — competitor 'Acme Solutions' DOES match 'Acme Solutions' verbatim in copy", () => {
-    const packet = buildPacketWithCompetitors(["Acme Solutions"]);
-    const edit = makeAddH2EditWithProposedText(
-      packet,
-      "Choose us over Acme Solutions for design-build expertise.",
-    );
-    const r = validateSpecificEdit(edit, packet);
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.reason).toMatch(/Acme Solutions/);
   });
 
-  it("SHORT ALIAS GUARD — competitor 'X Co' generates only ['X Co'] (not 'X')", () => {
-    const packet = buildPacketWithCompetitors(["X Co"]);
-    // "X" alone must not match — the bare-X alias was suppressed by
-    // the MIN_COMPETITOR_ALIAS_LENGTH guard (raised 3 → 4 in W3
-    // §3.8.6 to suppress short-fragment false positives like
-    // "Bay Builders" → "Bay" matching "Bay Area" geo copy).
-    // proposedText intentionally avoids brand-claim regex hits so
-    // the competitor-alias check is the only thing under test.
-    const edit = makeAddH2EditWithProposedText(
-      packet,
-      "X marks the spot in our design-build process.",
-    );
-    expect(validateSpecificEdit(edit, packet)).toEqual({ ok: true });
-  });
-
-  it("SHORT ALIAS GUARD — 'Bay Builders' competitor does NOT trip on 'Bay Area' copy (W3 §3.8.6)", () => {
-    // Operator-caught regression on the Luxury Home Builder Bay Area
-    // dry-run: bare-"Bay" alias of "Bay Builders" matched every
-    // "Bay Area" mention in legitimate geo copy. Raising the alias
-    // floor from 3 → 4 chars suppresses bare "Bay". The full name
-    // "Bay Builders" still matches when actually present in copy.
-    const packet = buildPacketWithCompetitors(["Bay Builders"]);
-    const edit = makeAddH2EditWithProposedText(
-      packet,
-      "Ritz Builders emphasizes an architect-led design-build approach for luxury custom homes in the Bay Area. Our team coordinates architecture, engineering, and permitting from concept through construction.",
-    );
-    expect(validateSpecificEdit(edit, packet)).toEqual({ ok: true });
+  it("SHORT ALIAS GUARD — 4-char floor suppresses bare fragments ('X', 'Bay') in legit copy (W3 §3.8.6)", () => {
+    // Operator-caught regression: bare-"Bay" alias of "Bay Builders"
+    // matched every "Bay Area" mention in legitimate geo copy.
+    const packetX = buildPacketWithCompetitors(["X Co"]);
+    expect(
+      validateSpecificEdit(
+        makeAddH2EditWithProposedText(
+          packetX,
+          "X marks the spot in our design-build process.",
+        ),
+        packetX,
+      ),
+    ).toEqual({ ok: true });
+    const packetBay = buildPacketWithCompetitors(["Bay Builders"]);
+    expect(
+      validateSpecificEdit(
+        makeAddH2EditWithProposedText(
+          packetBay,
+          "Ritz Builders emphasizes an architect-led design-build approach for luxury custom homes in the Bay Area. Our team coordinates architecture, engineering, and permitting from concept through construction.",
+        ),
+        packetBay,
+      ),
+    ).toEqual({ ok: true });
   });
 
   it("SHORT ALIAS GUARD — 'Bay Builders' STILL matches the full name in copy", () => {
-    // The floor only suppresses the suffix-stripped derivative.
-    // Full-name mentions still trip the gate as before.
     const packet = buildPacketWithCompetitors(["Bay Builders"]);
-    const edit = makeAddH2EditWithProposedText(
+    const r = validateSpecificEdit(
+      makeAddH2EditWithProposedText(
+        packet,
+        "Ritz Builders emphasizes design-build, unlike Bay Builders.",
+      ),
       packet,
-      "Ritz Builders emphasizes design-build, unlike Bay Builders.",
     );
-    const r = validateSpecificEdit(edit, packet);
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.reason).toMatch(/Bay Builders/);
   });
 
   it("NO TOKEN-LEVEL SCAN — 'De' alone does NOT match 'De Mattei Construction'", () => {
-    // "De Mattei Construction" → aliases ["De Mattei Construction", "De Mattei"].
-    // Neither alias matches a bare "De" in copy — we don't decompose
-    // by tokens.
     const packet = buildPacketWithCompetitors(["De Mattei Construction"]);
-    const edit = makeAddH2EditWithProposedText(
-      packet,
-      "De facto, we lead the market for design-build projects.",
-    );
-    expect(validateSpecificEdit(edit, packet)).toEqual({ ok: true });
+    expect(
+      validateSpecificEdit(
+        makeAddH2EditWithProposedText(
+          packet,
+          "De facto, we lead the market for design-build projects.",
+        ),
+        packet,
+      ),
+    ).toEqual({ ok: true });
   });
 
   it("CASE-INSENSITIVE — 'de mattei' lowercased in copy still matches alias 'De Mattei'", () => {
     const packet = buildPacketWithCompetitors(["De Mattei Construction"]);
-    const edit = makeAddH2EditWithProposedText(
+    const r = validateSpecificEdit(
+      makeAddH2EditWithProposedText(packet, "Why teams choose us over de mattei"),
       packet,
-      "Why teams choose us over de mattei",
     );
-    const r = validateSpecificEdit(edit, packet);
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.reason).toMatch(/De Mattei/);
   });
@@ -1388,33 +1325,22 @@ describe("Sprint 6A.2g.B — competitor public-copy validator", () => {
       "De Mattei Construction",
       "Supple Homes",
     ]);
-    const edit = makeAddH2EditWithProposedText(
+    const r = validateSpecificEdit(
+      makeAddH2EditWithProposedText(packet, "Why teams choose us over Supple Homes."),
       packet,
-      "Why teams choose us over Supple Homes.",
     );
-    const r = validateSpecificEdit(edit, packet);
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.reason).toMatch(/Supple Homes/);
   });
 
-  it("WHY field with competitor names is allowed (rule does NOT scan why)", () => {
+  it("WHY + EVIDENCE fields with competitor names are allowed (rule scans public copy only)", () => {
     const packet = buildPacketWithCompetitors(["De Mattei Construction"]);
     const edit = makeAddH2EditWithProposedText(
       packet,
       "Why we lead in design-build.",
     );
-    // Override why to name the competitor explicitly.
     edit.why =
       "Differentiates against De Mattei Construction (3/5 prompts primary).";
-    expect(validateSpecificEdit(edit, packet)).toEqual({ ok: true });
-  });
-
-  it("EVIDENCE refs with competitor names are allowed (rule does NOT scan evidence)", () => {
-    const packet = buildPacketWithCompetitors(["De Mattei Construction"]);
-    const edit = makeAddH2EditWithProposedText(
-      packet,
-      "Why we lead in design-build.",
-    );
     edit.evidence = [
       { type: "competitor", competitorName: "De Mattei Construction" },
     ];
@@ -1448,23 +1374,22 @@ describe("Sprint 6A.2g.B — competitor public-copy validator", () => {
 
   it("EMPTY competitorAngles — rule passes trivially", () => {
     const packet = buildPacketWithCompetitors([]);
-    const edit = makeAddH2EditWithProposedText(
-      packet,
-      "Anything is fine here, even De Mattei Construction.",
-    );
-    // No competitor in packet → no aliases to match → ACCEPT.
-    expect(validateSpecificEdit(edit, packet)).toEqual({ ok: true });
+    expect(
+      validateSpecificEdit(
+        makeAddH2EditWithProposedText(
+          packet,
+          "Anything is fine here, even De Mattei Construction.",
+        ),
+        packet,
+      ),
+    ).toEqual({ ok: true });
   });
 });
 
 // ── Bundle validator ───────────────────────────────────────────────────────
 
 describe("Phase 6A.1.10 — validateSpecificEditBundle", () => {
-  it("accepts a deterministic provider's bundle in full (FAQ rows filtered + competitor-copy opt-out set for Phase-9 H2 generator)", async () => {
-    // Sprint 6A.2g.B/C (2026-04-26) — see the Phase-9-predates-rules
-    // note on the analogous test above. This bundle-level test does
-    // the same filter + opt-out so the rest of the bundle still
-    // round-trips through validateSpecificEditBundle cleanly.
+  it("accepts a deterministic provider's bundle in full (FAQ rows filtered + competitor-copy opt-out set)", async () => {
     const original = process.env.BEACON_ALLOW_COMPETITOR_COPY;
     process.env.BEACON_ALLOW_COMPETITOR_COPY = "1";
     try {
@@ -1482,11 +1407,7 @@ describe("Phase 6A.1.10 — validateSpecificEditBundle", () => {
       expect(result.rejectedCount).toBe(0);
       expect(result.acceptedCount).toBe(filteredBundle.recommendations.length);
     } finally {
-      if (original === undefined) {
-        delete process.env.BEACON_ALLOW_COMPETITOR_COPY;
-      } else {
-        process.env.BEACON_ALLOW_COMPETITOR_COPY = original;
-      }
+      restoreEnv("BEACON_ALLOW_COMPETITOR_COPY", original);
     }
   });
 
@@ -1505,51 +1426,23 @@ describe("Phase 6A.1.10 — validateSpecificEditBundle", () => {
     expect(validateSpecificEditBundle(bundle, packet).ok).toBe(true);
   });
 
-  it("flags bundle.tenantId mismatch as a bundle-level error", async () => {
+  it("flags tenantId / recId / evidenceHash mismatches and negative totalCostUsd as bundle-level errors", async () => {
     const packet = buildPacket();
     const bundle = await deterministicProvider.generate(packet);
-    const tampered = { ...bundle, tenantId: "tenant-other" };
-    const result = validateSpecificEditBundle(tampered, packet);
-    expect(result.ok).toBe(false);
-    expect(result.bundleErrors.some((e) => e.field === "tenantId")).toBe(true);
-  });
-
-  it("flags bundle.recId mismatch", async () => {
-    const packet = buildPacket();
-    const bundle = await deterministicProvider.generate(packet);
-    const tampered = { ...bundle, recId: "rec-other" };
-    const result = validateSpecificEditBundle(tampered, packet);
-    expect(result.ok).toBe(false);
-    expect(result.bundleErrors.some((e) => e.field === "recId")).toBe(true);
-  });
-
-  it("flags bundle.evidenceHash mismatch", async () => {
-    const packet = buildPacket();
-    const bundle = await deterministicProvider.generate(packet);
-    const tampered = { ...bundle, evidenceHash: "deadbeef00000000" };
-    const result = validateSpecificEditBundle(tampered, packet);
-    expect(result.ok).toBe(false);
-    expect(
-      result.bundleErrors.some((e) => e.field === "evidenceHash"),
-    ).toBe(true);
-  });
-
-  it("flags negative totalCostUsd", async () => {
-    const packet = buildPacket();
-    const bundle = await deterministicProvider.generate(packet);
-    const tampered = { ...bundle, totalCostUsd: -1 };
-    const result = validateSpecificEditBundle(tampered, packet);
-    expect(result.ok).toBe(false);
-    expect(
-      result.bundleErrors.some((e) => e.field === "totalCostUsd"),
-    ).toBe(true);
+    const tampers: Array<[Partial<SpecificEditBundle>, string]> = [
+      [{ tenantId: "tenant-other" }, "tenantId"],
+      [{ recId: "rec-other" }, "recId"],
+      [{ evidenceHash: "deadbeef00000000" }, "evidenceHash"],
+      [{ totalCostUsd: -1 }, "totalCostUsd"],
+    ];
+    for (const [tamper, field] of tampers) {
+      const result = validateSpecificEditBundle({ ...bundle, ...tamper }, packet);
+      expect(result.ok).toBe(false);
+      expect(result.bundleErrors.some((e) => e.field === field)).toBe(true);
+    }
   });
 
   it("aggregates rejected per-edit results into rejectedCount + accepts the rest", async () => {
-    // Sprint 6A.2g.B/C (2026-04-26) — start from a deterministic bundle
-    // that's already filtered to non-FAQ rows + run with the
-    // competitor-copy opt-out set, so the natural-rejections from the
-    // Phase-9 generators don't mask the deliberate-tamper count.
     const original = process.env.BEACON_ALLOW_COMPETITOR_COPY;
     process.env.BEACON_ALLOW_COMPETITOR_COPY = "1";
     try {
@@ -1563,7 +1456,6 @@ describe("Phase 6A.1.10 — validateSpecificEditBundle", () => {
         ),
       };
       expect(bundle.recommendations.length).toBeGreaterThan(0);
-      // Mutate one edit to be invalid.
       const tampered: SpecificEditBundle = {
         ...bundle,
         recommendations: [
@@ -1579,11 +1471,7 @@ describe("Phase 6A.1.10 — validateSpecificEditBundle", () => {
       expect(result.rejectedCount).toBe(1);
       expect(result.acceptedCount).toBe(bundle.recommendations.length - 1);
     } finally {
-      if (original === undefined) {
-        delete process.env.BEACON_ALLOW_COMPETITOR_COPY;
-      } else {
-        process.env.BEACON_ALLOW_COMPETITOR_COPY = original;
-      }
+      restoreEnv("BEACON_ALLOW_COMPETITOR_COPY", original);
     }
   });
 });
@@ -1591,7 +1479,7 @@ describe("Phase 6A.1.10 — validateSpecificEditBundle", () => {
 // ── Validator never mutates inputs ────────────────────────────────────────
 
 describe("Phase 6A.1.10 — validator never mutates inputs", () => {
-  it("validateSpecificEdit does not mutate the edit or packet", () => {
+  it("neither validateSpecificEdit nor validateSpecificEditBundle mutates edit/bundle/packet", async () => {
     const packet = buildPacket();
     const edit = validEditTitleFixture(packet);
     const beforeEdit = JSON.stringify(edit);
@@ -1599,114 +1487,46 @@ describe("Phase 6A.1.10 — validator never mutates inputs", () => {
     validateSpecificEdit(edit, packet);
     expect(JSON.stringify(edit)).toBe(beforeEdit);
     expect(JSON.stringify(packet)).toBe(beforePacket);
-  });
 
-  it("validateSpecificEditBundle does not mutate the bundle or packet", async () => {
-    const packet = buildPacket();
     const bundle = await deterministicProvider.generate(packet);
     const beforeBundle = JSON.stringify(bundle);
-    const beforePacket = JSON.stringify(packet);
     validateSpecificEditBundle(bundle, packet);
     expect(JSON.stringify(bundle)).toBe(beforeBundle);
     expect(JSON.stringify(packet)).toBe(beforePacket);
   });
 });
 
-// ── W3 Step 3.1 — placeholder + FAQ structural-quality gate ────────────────
+// ── W3 Step 3.1 — placeholder phrase rejection ────────────────────────────
 
 describe("W3 Step 3.1 — validateNoPlaceholder (phrase rejection)", () => {
-  it("REJECT — proposedText contains 'Draft answer'", () => {
+  const PLACEHOLDER_CASES: ReadonlyArray<[string, RegExp]> = [
+    ["Draft answer (operator: rewrite)", /draft_answer/],
+    ["Pricing is [insert price] per square foot", /insert_bracket/],
+    ["Pricing TBD for new patients", /tbd/],
+    ["Stub copy. Rewrite below.", /rewrite_below/],
+    ["This is just a placeholder for now", /placeholder_word/],
+    ["TODO: write the real title", /todo_marker/],
+  ];
+
+  it("REJECT — every placeholder pattern in proposedText (six pattern ids pinned)", () => {
     const packet = buildPacket();
-    const edit = validEditTitleFixture(packet, {
-      targetElement: {
-        elementKey: "title[0]:hash-title",
-        displayLabel: "Title tag",
-        currentText: "Braces · Acme",
-        proposedText: "Draft answer (operator: rewrite)",
-      },
-    });
-    const r = validateSpecificEdit(edit, packet);
-    expect(r.ok).toBe(false);
-    if (!r.ok) {
-      expect(r.field).toBe("targetElement.proposedText");
-      expect(r.reason).toMatch(/placeholder pattern/);
-      expect(r.reason).toMatch(/draft_answer/);
+    for (const [text, patternId] of PLACEHOLDER_CASES) {
+      const edit = validEditTitleFixture(packet, {
+        targetElement: {
+          elementKey: "title[0]:hash-title",
+          displayLabel: "Title tag",
+          currentText: "Braces · Acme",
+          proposedText: text,
+        },
+      });
+      const r = validateSpecificEdit(edit, packet);
+      expect(r.ok).toBe(false);
+      if (!r.ok) {
+        expect(r.field).toBe("targetElement.proposedText");
+        expect(r.reason).toMatch(/placeholder pattern/);
+        expect(r.reason).toMatch(patternId);
+      }
     }
-  });
-
-  it("REJECT — proposedText contains '[insert ...]'", () => {
-    const packet = buildPacket();
-    const edit = validEditTitleFixture(packet, {
-      targetElement: {
-        elementKey: "title[0]:hash-title",
-        displayLabel: "Title tag",
-        currentText: "Braces · Acme",
-        proposedText: "Pricing is [insert price] per square foot",
-      },
-    });
-    const r = validateSpecificEdit(edit, packet);
-    expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.reason).toMatch(/insert_bracket/);
-  });
-
-  it("REJECT — proposedText contains 'TBD'", () => {
-    const packet = buildPacket();
-    const edit = validEditTitleFixture(packet, {
-      targetElement: {
-        elementKey: "title[0]:hash-title",
-        displayLabel: "Title tag",
-        currentText: "Braces · Acme",
-        proposedText: "Pricing TBD for new patients",
-      },
-    });
-    const r = validateSpecificEdit(edit, packet);
-    expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.reason).toMatch(/tbd/);
-  });
-
-  it("REJECT — proposedText contains 'rewrite below'", () => {
-    const packet = buildPacket();
-    const edit = validEditTitleFixture(packet, {
-      targetElement: {
-        elementKey: "title[0]:hash-title",
-        displayLabel: "Title tag",
-        currentText: "Braces · Acme",
-        proposedText: "Stub copy. Rewrite below.",
-      },
-    });
-    const r = validateSpecificEdit(edit, packet);
-    expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.reason).toMatch(/rewrite_below/);
-  });
-
-  it("REJECT — proposedText contains 'placeholder'", () => {
-    const packet = buildPacket();
-    const edit = validEditTitleFixture(packet, {
-      targetElement: {
-        elementKey: "title[0]:hash-title",
-        displayLabel: "Title tag",
-        currentText: "Braces · Acme",
-        proposedText: "This is just a placeholder for now",
-      },
-    });
-    const r = validateSpecificEdit(edit, packet);
-    expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.reason).toMatch(/placeholder_word/);
-  });
-
-  it("REJECT — proposedText contains 'TODO:'", () => {
-    const packet = buildPacket();
-    const edit = validEditTitleFixture(packet, {
-      targetElement: {
-        elementKey: "title[0]:hash-title",
-        displayLabel: "Title tag",
-        currentText: "Braces · Acme",
-        proposedText: "TODO: write the real title",
-      },
-    });
-    const r = validateSpecificEdit(edit, packet);
-    expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.reason).toMatch(/todo_marker/);
   });
 
   it("REJECT — displayLabel contains 'Draft answer'", () => {
@@ -1727,15 +1547,12 @@ describe("W3 Step 3.1 — validateNoPlaceholder (phrase rejection)", () => {
     }
   });
 
-  it("ACCEPT — clean copy with no placeholder phrases", () => {
+  it("ACCEPT — clean copy, including placeholder-adjacent words without the exact phrase", () => {
     const packet = buildPacket();
-    const edit = validEditTitleFixture(packet);
-    expect(validateSpecificEdit(edit, packet)).toEqual({ ok: true });
-  });
-
-  it("ACCEPT — copy contains placeholder-adjacent words but no exact phrase", () => {
-    const packet = buildPacket();
-    // "operator" and "draft" appear separately, not as the placeholder phrases.
+    expect(validateSpecificEdit(validEditTitleFixture(packet), packet)).toEqual(
+      { ok: true },
+    );
+    // "operator" and "draft" appear separately, not as the phrases.
     const edit = validEditTitleFixture(packet, {
       targetElement: {
         elementKey: "title[0]:hash-title",
@@ -1748,161 +1565,1613 @@ describe("W3 Step 3.1 — validateNoPlaceholder (phrase rejection)", () => {
   });
 });
 
-describe("W3 Step 3.1 — validateNoPlaceholder (FAQ structural quality)", () => {
-  // W3 §3.8 (2026-05-03): bundled `Q: …\n\nA: …` proposedText on a
-  // faq_question[new] row is now operator-locked OUT — the new gate
-  // rejects bundled rows BEFORE the structural-quality (parseFaqProposedText)
-  // gate can run. The tests below were rewritten to use the modern
-  // PAIRED FAQ shape: faq_question[new] holds question-only text,
-  // faq_answer[new] holds answer-only text. The new W3 §3.8 gate's
-  // word-floor / question-shape checks substitute for the old
-  // structural-quality reasons (too_short / repeats_question).
-
-  it("REJECT — bundled `Q: … \\n A: …` on a faq_question row (W3 §3.8)", () => {
-    const packet = buildPacket();
-    const edit: SpecificEdit = {
-      actionType: "add_faq",
-      targetUrl: URL_BRACES,
-      targetElement: {
-        elementKey: "faq_question[new]:abc123def456",
-        displayLabel: "FAQ question (new)",
-        currentText: null,
-        proposedText:
-          "Q: How much does treatment cost in Atherton?\n\nA: Costs vary by complexity.",
-      },
-      why: "No FAQ section addresses cost intent.",
-      evidence: [
-        { type: "prompt", promptId: packet.affectedPrompts[0].promptId },
-      ],
-      expectedImpact: null,
-      difficulty: "low",
-      confidence: "medium",
-      measurementPlan: null,
-      risks: [],
-      source: "deterministic",
-      providerName: "deterministic",
-      model: null,
-      costUsd: null,
-    };
-    const r = validateSpecificEdit(edit, packet);
-    expect(r.ok).toBe(false);
-    if (!r.ok) {
-      expect(r.field).toBe("targetElement.proposedText");
-      // W3 §3.8 rejects the bundled shape with a clear actionable
-      // reason; the structural-quality check no longer runs on
-      // bundled rows.
-      expect(r.reason).toMatch(
-        /(Q:\s*\/\s*A:\s*bundled format|contains an answer body)/,
-      );
-    }
-  });
-
-  it("REJECT — FAQ answer row under 30 words is too short (W3 §3.8)", () => {
-    const packet = buildPacket();
-    const edit: SpecificEdit = {
-      actionType: "add_faq",
-      targetUrl: URL_BRACES,
-      targetElement: {
-        elementKey: "faq_answer[new]:abc123def456",
-        displayLabel: "FAQ answer (new)",
-        currentText: null,
-        proposedText: "Costs vary by complexity and timeline.",
-      },
-      why: "No FAQ section addresses cost intent.",
-      evidence: [
-        { type: "prompt", promptId: packet.affectedPrompts[0].promptId },
-      ],
-      expectedImpact: null,
-      difficulty: "low",
-      confidence: "medium",
-      measurementPlan: null,
-      risks: [],
-      source: "deterministic",
-      providerName: "deterministic",
-      model: null,
-      costUsd: null,
-    };
-    const r = validateSpecificEdit(edit, packet);
-    expect(r.ok).toBe(false);
-    if (!r.ok) {
-      expect(r.field).toBe("targetElement.proposedText");
-      expect(r.reason).toMatch(/too short/);
-    }
-  });
+describe("W3 Step 3.1 — FAQ structural quality (non-Ritz packet path)", () => {
+  // The full W3 §3.8 shape gates (bundled Q+A, word floor, pairing) are
+  // pinned in the "W3 §3.8 — FAQ Q+A pairing" section below on the
+  // ritz-founder packet. These two pins are unique to this packet shape.
 
   it("ACCEPT — paired FAQ answer with specific 30+ word content passes (W3 §3.8)", () => {
     const packet = buildPacket();
-    const edit: SpecificEdit = {
+    const edit = faqWithText(
+      packet,
+      "A typical full-gut kitchen remodel in Atherton takes twelve to sixteen weeks once permits clear: roughly three weeks for demolition and rough framing, four for cabinet and millwork installation, and five for finishes plus appliance commissioning. The schedule shifts when permits or supplier lead times slip.",
+      "faq_answer[new]:abc123def456",
+      "FAQ answer (new)",
+    );
+    expect(validateSpecificEdit(edit, packet)).toEqual({ ok: true });
+  });
+
+  it("UNAFFECTED — non-FAQ edits skip the structural test; question-only FAQ copy skips it too", () => {
+    const packet = buildPacket();
+    // edit_title proposedText is intentionally short; FAQ rule must not fire.
+    expect(validateSpecificEdit(validEditTitleFixture(packet), packet)).toEqual(
+      { ok: true },
+    );
+    // Question-only text (no "A:" half) — structural test sees no Q+A
+    // shape and skips; the "?" rule still passes.
+    expect(
+      validateSpecificEdit(
+        faqWithText(packet, "Which option is best for my situation?"),
+        packet,
+      ),
+    ).toEqual({ ok: true });
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Absorbed section — Sprint 6A.2d LLM hardening
+// (formerly specific-edit-validator-llm-hardening.test.ts)
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe("Sprint 6A.2d — LLM hardening", () => {
+  /** Fully-valid openai-sourced edit_title edit. */
+  function makeLlmEdit(
+    packet: SpecificEditEvidencePacket,
+    overrides: Partial<SpecificEdit> = {},
+  ): SpecificEdit {
+    return validEditTitleFixture(packet, {
+      source: "openai",
+      providerName: "openai",
+      model: "gpt-5-mini",
+      costUsd: 0.001,
+      ...overrides,
+    });
+  }
+
+  describe("LLM low-confidence gate", () => {
+    const ORIGINAL = process.env.BEACON_LLM_LOW_CONF;
+    beforeEach(() => {
+      delete process.env.BEACON_LLM_LOW_CONF;
+    });
+    afterEach(() => {
+      restoreEnv("BEACON_LLM_LOW_CONF", ORIGINAL);
+    });
+
+    it("rejects confidence=low from openai by default (never throws)", () => {
+      const packet = buildPacket();
+      const edit = makeLlmEdit(packet, { confidence: "low" });
+      expect(() => validateSpecificEdit(edit, packet)).not.toThrow();
+      const result = validateSpecificEdit(edit, packet);
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.field).toBe("confidence");
+        expect(result.reason).toMatch(/BEACON_LLM_LOW_CONF/);
+      }
+    });
+
+    it("rejects confidence=low from anthropic by default", () => {
+      const packet = buildPacket();
+      const result = validateSpecificEdit(
+        makeLlmEdit(packet, {
+          source: "anthropic",
+          providerName: "anthropic",
+          confidence: "low",
+        }),
+        packet,
+      );
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.field).toBe("confidence");
+    });
+
+    it("accepts confidence=low from openai when BEACON_LLM_LOW_CONF=1", () => {
+      process.env.BEACON_LLM_LOW_CONF = "1";
+      const packet = buildPacket();
+      expect(
+        validateSpecificEdit(makeLlmEdit(packet, { confidence: "low" }), packet)
+          .ok,
+      ).toBe(true);
+    });
+
+    it("env value 'true' (not '1') does NOT open the gate", () => {
+      process.env.BEACON_LLM_LOW_CONF = "true";
+      const packet = buildPacket();
+      expect(
+        validateSpecificEdit(makeLlmEdit(packet, { confidence: "low" }), packet)
+          .ok,
+      ).toBe(false);
+    });
+
+    it("accepts confidence=medium and high from openai (default)", () => {
+      const packet = buildPacket();
+      expect(
+        validateSpecificEdit(makeLlmEdit(packet, { confidence: "medium" }), packet)
+          .ok,
+      ).toBe(true);
+      expect(
+        validateSpecificEdit(makeLlmEdit(packet, { confidence: "high" }), packet)
+          .ok,
+      ).toBe(true);
+    });
+
+    it("DOES NOT gate confidence=low for source=deterministic (gate is LLM-only)", () => {
+      const packet = buildPacket();
+      expect(
+        validateSpecificEdit(
+          validEditTitleFixture(packet, { confidence: "low" }),
+          packet,
+        ).ok,
+      ).toBe(true);
+    });
+
+    it("DOES NOT gate confidence=low for source=operator_edited (originator preserved per spec)", () => {
+      const packet = buildPacket();
+      expect(
+        validateSpecificEdit(
+          makeLlmEdit(packet, {
+            source: "operator_edited",
+            confidence: "low",
+          }),
+          packet,
+        ).ok,
+      ).toBe(true);
+    });
+  });
+
+  describe("defense-in-depth length caps", () => {
+    function elementWith(
+      overrides: Partial<NonNullable<SpecificEdit["targetElement"]>>,
+    ): NonNullable<SpecificEdit["targetElement"]> {
+      return {
+        elementKey: "title[0]:hash-title",
+        displayLabel: "Title tag",
+        currentText: "Braces · Acme",
+        proposedText: "Braces · Acme · proposed",
+        ...overrides,
+      };
+    }
+
+    it("rejects every over-cap field with the field pinned (proposedText 2000 reason includes the cap)", () => {
+      const packet = buildPacket();
+      const cases: Array<[Partial<SpecificEdit>, string]> = [
+        [
+          { targetElement: elementWith({ proposedText: "x".repeat(2001) }) },
+          "targetElement.proposedText",
+        ],
+        [
+          { targetElement: elementWith({ currentText: "x".repeat(4001) }) },
+          "targetElement.currentText",
+        ],
+        [
+          { targetElement: elementWith({ displayLabel: "x".repeat(201) }) },
+          "targetElement.displayLabel",
+        ],
+        [{ why: "x".repeat(501) }, "why"],
+        [{ expectedImpact: "x".repeat(201) }, "expectedImpact"],
+        [{ measurementPlan: "x".repeat(301) }, "measurementPlan"],
+        [{ risks: ["short risk", "x".repeat(201)] }, "risks[1]"],
+      ];
+      for (const [overrides, field] of cases) {
+        const edit = makeLlmEdit(packet, overrides);
+        expect(() => validateSpecificEdit(edit, packet)).not.toThrow();
+        const result = validateSpecificEdit(edit, packet);
+        expect(result.ok).toBe(false);
+        if (!result.ok) {
+          expect(result.field).toBe(field);
+          if (field === "targetElement.proposedText") {
+            expect(result.reason).toMatch(/2000/);
+          }
+        }
+      }
+    });
+
+    it("accepts a fully valid edit at ALL length boundaries (2000/4000/200/500/200/300/200)", () => {
+      const packet = buildPacket();
+      const edit = makeLlmEdit(packet, {
+        why: "x".repeat(500),
+        expectedImpact: "x".repeat(200),
+        measurementPlan: "x".repeat(300),
+        risks: ["x".repeat(200), "y".repeat(200)],
+        targetElement: {
+          elementKey: "title[0]:hash-title",
+          displayLabel: "x".repeat(200),
+          currentText: "x".repeat(4000),
+          proposedText: "x".repeat(2000),
+        },
+      });
+      expect(validateSpecificEdit(edit, packet).ok).toBe(true);
+    });
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Absorbed section — Trust T4.1 abstention contract
+// (formerly specific-edit-validator-abstention.test.ts)
+//
+// Validator-side enforcement of SYSTEM_PROMPT Rule 16.A. Four reject
+// reasons, priority order A → B → C → D:
+//   abstention_contract_low_confidence_no_brand_assertions
+//   abstention_contract_no_grounding_signals
+//   abstention_contract_single_prompt_thin_evidence
+//   abstention_contract_thin_faq_answer
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe("Trust T4.1 — abstention contract", () => {
+  const sig = literalSignal;
+  const abPacket = literalPacket;
+  const abPrompt = (promptId: string): AffectedPromptBlock =>
+    literalPrompt({ promptId });
+
+  function ownedPage(): OwnedPageCandidateBlock {
+    return {
+      url: "https://example.com/test",
+      routeType: "service_page",
+      detectedGeo: null,
+      detectedService: null,
+      matchScore: 0.8,
+      matchReasons: ["geo_match"],
+      title: "Test page",
+      h1: "Test",
+      h2s: ["Section 1"],
+    };
+  }
+
+  function competitorAngle(): CompetitorAngleBlock {
+    return {
+      competitorName: "De Mattei Construction",
+      promptsWherePrimary: 1,
+      totalAffectedPrompts: 2,
+      totalPrimaryObservations: 3,
+    };
+  }
+
+  function searchQuery(): AiSearchQueryAggregate {
+    return { query: "luxury custom home builders bay area", count: 3, promptIds: ["p1"], platforms: ["chatgpt"] };
+  }
+
+  function brandAssertion(): BrandAssertion {
+    return {
+      id: "ritz_process",
+      phrase: "architect-led design-build",
+      category: "process",
+    };
+  }
+
+  function blueprint(
+    url = "https://comp.example.com/home-builder",
+  ): SpecificEditEvidencePacket["competitorPageBlueprints"][number] {
+    return {
+      url,
+      domain: new URL(url).hostname,
+      topic: null,
+      citationCount: 3,
+      promptsCitedOn: ["p1"],
+      pageTitle: null,
+      h1: null,
+      topH2s: [],
+      faqQuestions: [],
+      metaDescription: null,
+    };
+  }
+
+  function abEditBase(
+    overrides: Partial<SpecificEdit> & Pick<SpecificEdit, "targetElement">,
+  ): SpecificEdit {
+    return {
       actionType: "add_faq",
-      targetUrl: URL_BRACES,
+      targetUrl: "https://example.com/test",
+      why: "operator-facing reasoning",
+      expectedImpact: "anchors customer-voice copy",
+      measurementPlan: "re-poll affected prompts at T+7 / T+14",
+      risks: [],
+      difficulty: "low",
+      confidence: "medium",
+      source: "openai",
+      providerName: "openai",
+      model: "gpt-5-mini",
+      costUsd: 0.005,
+      evidence: [{ type: "prompt", promptId: "p1" }],
+      ...overrides,
+    };
+  }
+
+  function makeFaqAnswerEdit(promptId: string): SpecificEdit {
+    return abEditBase({
       targetElement: {
-        elementKey: "faq_answer[new]:abc123def456",
-        displayLabel: "FAQ answer (new)",
+        elementKey: "faq_answer[new]:abc12345",
+        displayLabel: "Test answer",
         currentText: null,
-        // 50+ word substantive answer that is NOT a bare question
-        // and meets the W3 §3.8 word floor. Brand-name + voice rules
-        // are preserved (uses third-person service-focused phrasing,
-        // avoids "Ritz Builders" so the brand-name-first gate stays
-        // inert under this fixture's tenant config).
         proposedText:
-          "A typical full-gut kitchen remodel in Atherton takes twelve to sixteen weeks once permits clear: roughly three weeks for demolition and rough framing, four for cabinet and millwork installation, and five for finishes plus appliance commissioning. The schedule shifts when permits or supplier lead times slip.",
+          "Bay Area renovations typically take 6-12 months from design through final inspection, depending on scope and permits.",
       },
-      why: "No FAQ addresses timeline intent.",
-      evidence: [
-        { type: "prompt", promptId: packet.affectedPrompts[0].promptId },
-      ],
-      expectedImpact: null,
-      difficulty: "low",
-      confidence: "medium",
-      measurementPlan: null,
-      risks: [],
-      source: "deterministic",
-      providerName: "deterministic",
-      model: null,
-      costUsd: null,
-    };
-    expect(validateSpecificEdit(edit, packet)).toEqual({ ok: true });
-  });
+      evidence: [{ type: "prompt", promptId }],
+    });
+  }
 
-  it("UNAFFECTED — non-FAQ edits don't go through the structural test", () => {
-    // edit_title proposedText is intentionally short; the structural
-    // FAQ rule should NOT fire on titles.
-    const packet = buildPacket();
-    const edit = validEditTitleFixture(packet);
-    expect(validateSpecificEdit(edit, packet)).toEqual({ ok: true });
-  });
-
-  it("UNAFFECTED — FAQ proposedText that doesn't match Q:/A: shape skips structural test", () => {
-    // If an LLM emits FAQ copy in a different shape (no "Q:" prefix),
-    // the structural test silently passes. The phrase rejection still
-    // runs; the existing 6A.2g.C ? + verbatim-stem rules still run.
-    const packet = buildPacket();
-    const edit: SpecificEdit = {
-      actionType: "add_faq",
-      targetUrl: URL_BRACES,
+  function makeFaqQuestionEdit(promptId: string): SpecificEdit {
+    return abEditBase({
       targetElement: {
-        elementKey: "faq_question[new]:abc123def456",
-        displayLabel: "FAQ question (new)",
+        elementKey: "faq_question[new]:abc12345",
+        displayLabel: "Test question",
         currentText: null,
-        // Just the question, no "A:" half. The 6A.2g.C rule already
-        // enforces "?" so this passes; structural test sees no Q+A
-        // shape and skips.
-        proposedText: "Which option is best for my situation?",
+        proposedText: "How long does a whole-home renovation take in the Bay Area?",
       },
-      why: "No FAQ addresses this intent.",
-      evidence: [
-        { type: "prompt", promptId: packet.affectedPrompts[0].promptId },
-      ],
-      expectedImpact: null,
+      evidence: [{ type: "prompt", promptId }],
+    });
+  }
+
+  function makeH2Edit(promptId: string): SpecificEdit {
+    return abEditBase({
+      actionType: "add_h2_section",
+      targetElement: {
+        elementKey: "h2[new]:abc12345",
+        displayLabel: "How to choose a builder for whole-home renovations",
+        currentText: null,
+        proposedText:
+          "When evaluating builders for a whole-home renovation in the Bay Area, look for an architect-led design-build firm with documented permitting workflow and a fixed-fee preconstruction phase.",
+      },
+      costUsd: 0.0025,
+      evidence: [{ type: "prompt", promptId }],
+    });
+  }
+
+  function makeBundle(
+    edits: SpecificEdit[],
+    packet: SpecificEditEvidencePacket,
+  ): SpecificEditBundle {
+    return {
+      schemaVersion: "specific-edit-bundle/v1",
+      generatedAt: "2026-05-06T00:00:00Z",
+      tenantId: packet.tenantId,
+      recId: packet.recId,
+      evidenceHash: packet.evidenceHash,
+      providerName: "openai",
+      recommendations: edits,
+      totalCostUsd: edits.reduce((s, e) => s + (e.costUsd ?? 0), 0),
+    };
+  }
+
+  describe("checkAbstentionContract — Rule A: low confidence + no brand assertions", () => {
+    it("rejects when resolution.confidence='low' AND brandAssertions empty", () => {
+      const packet = abPacket({
+        resolution: { confidence: "low", tier: "deterministic_only", action: { type: "create_cluster_page", clusterKind: "topic" } as never },
+        affectedPrompts: [abPrompt("p1"), abPrompt("p2")],
+        ownedPageCandidates: [ownedPage()],
+        competitorAngles: [competitorAngle()],
+        brandAssertions: [],
+      });
+      const reason = checkAbstentionContract(packet, makeH2Edit("p1"));
+      expect(reason).toBe<AbstentionRejectReason>("abstention_contract_low_confidence_no_brand_assertions");
+    });
+
+    it("does NOT reject when resolution.confidence='low' but brandAssertions is non-empty", () => {
+      const packet = abPacket({
+        resolution: { confidence: "low", tier: "deterministic_only", action: { type: "create_cluster_page", clusterKind: "topic" } as never },
+        affectedPrompts: [abPrompt("p1"), abPrompt("p2")],
+        ownedPageCandidates: [ownedPage()],
+        brandAssertions: [brandAssertion()],
+      });
+      const reason = checkAbstentionContract(packet, makeH2Edit("p1"));
+      expect(reason).not.toBe("abstention_contract_low_confidence_no_brand_assertions");
+    });
+
+    it("does NOT reject when resolution is missing entirely (back-compat)", () => {
+      const packet = abPacket({
+        affectedPrompts: [abPrompt("p1"), abPrompt("p2")],
+        ownedPageCandidates: [ownedPage()],
+        competitorAngles: [competitorAngle()],
+        aiSearchSignal: sig([searchQuery()]),
+      });
+      expect(checkAbstentionContract(packet, makeH2Edit("p1"))).toBeNull();
+    });
+  });
+
+  describe("checkAbstentionContract — Rule B: no grounding signals", () => {
+    it("rejects when blueprints + topSearchQueries + brandAssertions are ALL empty", () => {
+      const packet = abPacket({
+        affectedPrompts: [abPrompt("p1"), abPrompt("p2")],
+        ownedPageCandidates: [ownedPage()],
+        competitorAngles: [competitorAngle()],
+        competitorPageBlueprints: [],
+        aiSearchSignal: sig(),
+        brandAssertions: [],
+      });
+      const reason = checkAbstentionContract(packet, makeH2Edit("p1"));
+      expect(reason).toBe<AbstentionRejectReason>("abstention_contract_no_grounding_signals");
+    });
+
+    it("passes when topSearchQueries has at least one item", () => {
+      const packet = abPacket({
+        affectedPrompts: [abPrompt("p1"), abPrompt("p2")],
+        ownedPageCandidates: [ownedPage()],
+        aiSearchSignal: sig([searchQuery()]),
+        brandAssertions: [],
+        competitorPageBlueprints: [],
+      });
+      expect(checkAbstentionContract(packet, makeH2Edit("p1"))).toBeNull();
+    });
+
+    it("passes when brandAssertions has at least one item", () => {
+      const packet = abPacket({
+        affectedPrompts: [abPrompt("p1"), abPrompt("p2")],
+        ownedPageCandidates: [ownedPage()],
+        brandAssertions: [brandAssertion()],
+      });
+      expect(checkAbstentionContract(packet, makeH2Edit("p1"))).toBeNull();
+    });
+  });
+
+  describe("checkAbstentionContract — Rule C: single-prompt thin evidence", () => {
+    it("single-prompt thin packet with NO grounding: Rule B fires first (priority A → B → C → D)", () => {
+      const packet = abPacket({
+        affectedPrompts: [abPrompt("p1")],
+        ownedPageCandidates: [],
+        competitorAngles: [],
+        brandAssertions: [],
+        aiSearchSignal: sig(),
+      });
+      const reason = checkAbstentionContract(packet, makeH2Edit("p1"));
+      expect(reason).toBe<AbstentionRejectReason>("abstention_contract_no_grounding_signals");
+    });
+
+    it("rejects single-prompt thin packet when blueprints satisfy Rule B (Rule C alone)", () => {
+      const packet = abPacket({
+        affectedPrompts: [abPrompt("p1")],
+        ownedPageCandidates: [],
+        competitorAngles: [],
+        competitorPageBlueprints: [
+          {
+            ...blueprint("https://demattei.example.com/luxury-home-builders"),
+            topic: "Luxury Home Builders",
+            citationCount: 5,
+            pageTitle: "Luxury Home Builders",
+          },
+        ],
+        brandAssertions: [],
+        aiSearchSignal: sig(),
+      });
+      const reason = checkAbstentionContract(packet, makeH2Edit("p1"));
+      expect(reason).toBe<AbstentionRejectReason>("abstention_contract_single_prompt_thin_evidence");
+    });
+
+    it("passes single-prompt when ownedPageCandidates is non-empty", () => {
+      const packet = abPacket({
+        affectedPrompts: [abPrompt("p1")],
+        ownedPageCandidates: [ownedPage()],
+        competitorAngles: [],
+        brandAssertions: [],
+        aiSearchSignal: sig([searchQuery()]), // grounding so Rule B passes
+      });
+      expect(checkAbstentionContract(packet, makeH2Edit("p1"))).toBeNull();
+    });
+  });
+
+  describe("checkAbstentionContract — Rule D: thin FAQ answer", () => {
+    // Base fixture: one prompt, no owned page, no brand, no search query,
+    // grounded through competitorAngles + a blueprint so Rule B passes.
+    function ruleDPacket(
+      overrides: Partial<SpecificEditEvidencePacket> = {},
+    ): SpecificEditEvidencePacket {
+      return abPacket({
+        affectedPrompts: [abPrompt("p1")],
+        ownedPageCandidates: [],
+        competitorAngles: [competitorAngle()],
+        competitorPageBlueprints: [blueprint()],
+        brandAssertions: [],
+        aiSearchSignal: sig(),
+        ...overrides,
+      });
+    }
+
+    it("rejects faq_answer when packet has only one prompt + no owned page + no brand + no search query", () => {
+      const reason = checkAbstentionContract(ruleDPacket(), makeFaqAnswerEdit("p1"));
+      expect(reason).toBe<AbstentionRejectReason>("abstention_contract_thin_faq_answer");
+    });
+
+    it("ALLOWS faq_question even when same packet would reject the answer", () => {
+      expect(
+        checkAbstentionContract(ruleDPacket(), makeFaqQuestionEdit("p1")),
+      ).toBeNull();
+    });
+
+    it("ALLOWS faq_answer when packet has 2+ affected prompts (multi-prompt grounding)", () => {
+      const packet = ruleDPacket({
+        affectedPrompts: [abPrompt("p1"), abPrompt("p2")],
+      });
+      expect(checkAbstentionContract(packet, makeFaqAnswerEdit("p1"))).toBeNull();
+    });
+
+    it("ALLOWS faq_answer when packet has owned page", () => {
+      const packet = ruleDPacket({ ownedPageCandidates: [ownedPage()] });
+      expect(checkAbstentionContract(packet, makeFaqAnswerEdit("p1"))).toBeNull();
+    });
+
+    it("ALLOWS faq_answer grounded in a brand assertion (single prompt is fine when assertion exists)", () => {
+      const packet = abPacket({
+        affectedPrompts: [abPrompt("p1")],
+        ownedPageCandidates: [],
+        competitorAngles: [competitorAngle()],
+        brandAssertions: [brandAssertion()],
+      });
+      expect(checkAbstentionContract(packet, makeFaqAnswerEdit("p1"))).toBeNull();
+    });
+  });
+
+  describe("checkAbstentionContract — passing fixtures (sanity)", () => {
+    it("medium confidence + owned page + competitor angle + search query: passes", () => {
+      const packet = abPacket({
+        affectedPrompts: [abPrompt("p1"), abPrompt("p2")],
+        ownedPageCandidates: [ownedPage()],
+        competitorAngles: [competitorAngle()],
+        brandAssertions: [],
+        aiSearchSignal: sig([searchQuery()]),
+      });
+      expect(checkAbstentionContract(packet, makeH2Edit("p1"))).toBeNull();
+    });
+
+    it("FAQ question with one prompt + owned page: passes", () => {
+      const packet = abPacket({
+        affectedPrompts: [abPrompt("p1")],
+        ownedPageCandidates: [ownedPage()],
+        competitorAngles: [competitorAngle()],
+        brandAssertions: [],
+        aiSearchSignal: sig([searchQuery()]),
+      });
+      expect(checkAbstentionContract(packet, makeFaqQuestionEdit("p1"))).toBeNull();
+    });
+
+    it("operator_edited row with valid evidence: passes", () => {
+      const packet = abPacket({
+        affectedPrompts: [abPrompt("p1"), abPrompt("p2")],
+        ownedPageCandidates: [ownedPage()],
+        competitorAngles: [competitorAngle()],
+        brandAssertions: [brandAssertion()],
+      });
+      const edit = { ...makeH2Edit("p1"), source: "operator_edited" as const, providerName: "deterministic" as const, model: null };
+      expect(checkAbstentionContract(packet, edit)).toBeNull();
+    });
+  });
+
+  describe("validateAbstentionContract integration with validateSpecificEdit", () => {
+    it("validateSpecificEdit fails with the abstention reason when packet violates Rule B", () => {
+      const packet = abPacket({
+        affectedPrompts: [abPrompt("p1"), abPrompt("p2")],
+        ownedPageCandidates: [ownedPage()],
+        competitorAngles: [competitorAngle()],
+        brandAssertions: [],
+        aiSearchSignal: sig(),
+        competitorPageBlueprints: [],
+      });
+      const r = validateSpecificEdit(makeH2Edit("p1"), packet);
+      expect(r.ok).toBe(false);
+      if (!r.ok) {
+        expect(r.field).toBe("packet");
+        expect(r.reason).toBe<AbstentionRejectReason>("abstention_contract_no_grounding_signals");
+      }
+    });
+
+    it("validateSpecificEdit does NOT fire abstention when packet has full grounding", () => {
+      const packet = abPacket({
+        affectedPrompts: [abPrompt("p1"), abPrompt("p2")],
+        ownedPageCandidates: [ownedPage()],
+        competitorAngles: [competitorAngle()],
+        brandAssertions: [],
+        aiSearchSignal: sig([searchQuery()]),
+        targetPageElements: [],
+      });
+      const r = validateSpecificEdit(makeH2Edit("p1"), packet);
+      // Downstream gates may still fire; the abstention reason must not.
+      if (!r.ok) {
+        expect(r.field).not.toBe("packet");
+      }
+    });
+
+    it("validateAbstentionContract directly returns OK when packet is well-grounded", () => {
+      const packet = abPacket({
+        affectedPrompts: [abPrompt("p1"), abPrompt("p2")],
+        ownedPageCandidates: [ownedPage()],
+        competitorAngles: [competitorAngle()],
+        brandAssertions: [brandAssertion()],
+      });
+      expect(validateAbstentionContract(makeH2Edit("p1"), packet).ok).toBe(true);
+    });
+  });
+
+  describe("validateSpecificEditBundle: rejected edits cannot persist (rejection reason visible)", () => {
+    it("a Rule-B-violating bundle has acceptedCount=0 and every per-edit carries the abstention reason", () => {
+      const packet = abPacket({
+        affectedPrompts: [abPrompt("p1"), abPrompt("p2")],
+        ownedPageCandidates: [ownedPage()],
+        competitorAngles: [competitorAngle()],
+        brandAssertions: [],
+        aiSearchSignal: sig(),
+        competitorPageBlueprints: [],
+      });
+      const bundle = makeBundle([makeH2Edit("p1"), makeFaqQuestionEdit("p1")], packet);
+      const result = validateSpecificEditBundle(bundle, packet);
+      expect(result.acceptedCount).toBe(0);
+      expect(result.rejectedCount).toBeGreaterThan(0);
+      const reasons = result.perEdit.map((p) => (p.result.ok ? null : p.result.reason));
+      expect(reasons.every((r) => r != null && r.startsWith("abstention_contract_"))).toBe(true);
+    });
+
+    it("a passing packet keeps the existing per-edit gates (e.g., FAQ pairing) in force", () => {
+      const packet = abPacket({
+        affectedPrompts: [abPrompt("p1"), abPrompt("p2")],
+        ownedPageCandidates: [ownedPage()],
+        competitorAngles: [competitorAngle()],
+        brandAssertions: [brandAssertion()],
+        targetPageElements: [],
+      });
+      // Single faq_question with no matching faq_answer: existing FAQ
+      // pairing gate must fire — abstention is additive, not a replacement.
+      const bundle = makeBundle([makeFaqQuestionEdit("p1")], packet);
+      const result = validateSpecificEditBundle(bundle, packet);
+      expect(result.ok).toBe(false);
+      expect(result.bundleErrors.length + result.rejectedCount).toBeGreaterThan(0);
+    });
+  });
+
+  describe("Architecture — abstention reasons are stable strings", () => {
+    it("the four reject reasons have the exact operator-locked names", () => {
+      // These strings appear in the operator runbook + audit script;
+      // changing them is a breaking change. TS compilation pins each.
+      const expected: ReadonlyArray<AbstentionRejectReason> = [
+        "abstention_contract_low_confidence_no_brand_assertions",
+        "abstention_contract_no_grounding_signals",
+        "abstention_contract_single_prompt_thin_evidence",
+        "abstention_contract_thin_faq_answer",
+      ];
+      for (const e of expected) {
+        expect(typeof e).toBe("string");
+      }
+    });
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Absorbed section — W3 §3.7 brand-claim grounding + §3.7s public-copy style
+// (formerly specific-edit-validator-brand-claims.test.ts)
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe("W3 §3.7 — brand-claim grounding validator", () => {
+  function makePacket(
+    overrides: Partial<SpecificEditEvidencePacket> = {},
+  ): SpecificEditEvidencePacket {
+    return literalPacket({
+      clusterLabel: "Whole Home Renovation Builders",
+      affectedPrompts: [literalPrompt()],
+      allowedTargetUrls: ["https://example.com/services/whole-home-remodel"],
+      // T4.1: seed one search query so abstention Rule B passes.
+      aiSearchSignal: literalSignal([
+        { query: "whole home remodel builders bay area", count: 3, promptIds: ["11111111-2222-3333-4444-555555555555"], platforms: ["chatgpt"] },
+      ]),
+      ...overrides,
+    });
+  }
+
+  function makeH2Edit(
+    proposedText: string,
+    displayLabel = "Architect-led design-build advantage",
+  ): SpecificEdit {
+    return {
+      actionType: "add_h2_section",
+      targetUrl: "https://example.com/services/whole-home-remodel",
+      targetElement: {
+        elementKey: "h2[new]:abc12345",
+        displayLabel,
+        currentText: null,
+        proposedText,
+      },
+      why: "evidence-grounded reasoning lives here, may reference any context",
+      expectedImpact: "anchors the cluster intent",
+      measurementPlan: "re-poll affected prompts at T+7 / T+14",
+      risks: [],
       difficulty: "low",
       confidence: "medium",
-      measurementPlan: null,
-      risks: [],
-      source: "deterministic",
-      providerName: "deterministic",
-      model: null,
-      costUsd: null,
+      source: "openai",
+      providerName: "openai",
+      model: "gpt-5-mini",
+      costUsd: 0.0025,
+      evidence: [
+        {
+          type: "prompt",
+          promptId: "11111111-2222-3333-4444-555555555555",
+        },
+      ],
     };
-    expect(validateSpecificEdit(edit, packet)).toEqual({ ok: true });
+  }
+
+  const RITZ_PROCESS_ASSERTION: BrandAssertion = {
+    id: "ritz_process_design_build",
+    phrase: "architect-led design-build",
+    category: "process",
+  };
+
+  const AWARD_ASSERTION: BrandAssertion = {
+    id: "ritz_award_2025",
+    phrase: "2025 Americas Property Awards winner",
+    category: "award",
+    supportedBy: "https://propertyawards.net/winners/ritz-2025",
+  };
+
+  const POPULARITY_ASSERTION: BrandAssertion = {
+    id: "ritz_popularity_houzz",
+    phrase: "frequently recommended on Houzz with 50+ five-star reviews",
+    category: "popularity",
+    supportedBy: "https://houzz.com/ritz-builders",
+  };
+
+  const ritzPacket = (overrides: Partial<SpecificEditEvidencePacket> = {}) =>
+    makePacket({
+      tenantId: "tenant-ritz-founder",
+      brandAssertions: [RITZ_PROCESS_ASSERTION],
+      ...overrides,
+    });
+
+  describe("rejects unsupported public copy", () => {
+    it("rejects each forbidden pattern in proposedText with its pattern id pinned", () => {
+      const cases: Array<[string, RegExp, SpecificEditEvidencePacket]> = [
+        [
+          "Ritz Builders is frequently recommended for whole-home remodels.",
+          /frequently_recommended/,
+          makePacket({ brandAssertions: [RITZ_PROCESS_ASSERTION] }),
+        ],
+        [
+          "Hire an award-winning, architect-led design-build firm.",
+          /award_winning/,
+          makePacket({ brandAssertions: [RITZ_PROCESS_ASSERTION] }),
+        ],
+        [
+          "Ritz is the best builder for whole-home remodels in Atherton.",
+          /best_in_market/,
+          makePacket(),
+        ],
+        [
+          "Ritz is the #1 design-build firm in the Bay Area.",
+          /ranked_number_one/,
+          makePacket(),
+        ],
+      ];
+      for (const [copy, patternId, packet] of cases) {
+        const result = validateSpecificEdit(makeH2Edit(copy), packet);
+        expect(result.ok).toBe(false);
+        if (!result.ok) {
+          expect(result.field).toBe("targetElement.proposedText");
+          expect(result.reason).toMatch(/unsupported brand claim/);
+          expect(result.reason).toMatch(patternId);
+        }
+      }
+    });
+
+    it("rejects 'most trusted' in displayLabel even when proposedText is clean", () => {
+      const edit = makeH2Edit(
+        "Architect-led design-build keeps everything coordinated.",
+        "Ritz: most trusted Bay Area builder",
+      );
+      const result = validateSpecificEdit(edit, makePacket());
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.field).toBe("targetElement.displayLabel");
+        expect(result.reason).toMatch(/most_trusted/);
+      }
+    });
+
+    it("rejects outcome guarantees regardless of operator assertions (permanently locked)", () => {
+      const edit = makeH2Edit(
+        "Ritz guarantees on-time delivery for every project.",
+      );
+      const result = validateSpecificEdit(
+        edit,
+        makePacket({
+          brandAssertions: [
+            RITZ_PROCESS_ASSERTION,
+            AWARD_ASSERTION,
+            POPULARITY_ASSERTION,
+            { id: "x", phrase: "y", category: "trust" },
+            { id: "z", phrase: "w", category: "ranking_first" },
+            { id: "a", phrase: "b", category: "tenure" },
+            { id: "c", phrase: "d", category: "client_outcome" },
+          ],
+        }),
+      );
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.reason).toMatch(/guarantee_outcome/);
+      }
+    });
+  });
+
+  describe("allows operator-grounded copy", () => {
+    it("allows process phrasing, 'award-winning' with award assertion, 'frequently recommended' with popularity assertion", () => {
+      expect(
+        validateSpecificEdit(
+          makeH2Edit(
+            "Architect-led design-build keeps design, budget, and construction tightly coordinated, reducing schedule delays.",
+          ),
+          makePacket({ brandAssertions: [RITZ_PROCESS_ASSERTION] }),
+        ).ok,
+      ).toBe(true);
+      expect(
+        validateSpecificEdit(
+          makeH2Edit(
+            "Award-winning, architect-led design-build firm in Silicon Valley.",
+          ),
+          makePacket({
+            brandAssertions: [RITZ_PROCESS_ASSERTION, AWARD_ASSERTION],
+          }),
+        ).ok,
+      ).toBe(true);
+      expect(
+        validateSpecificEdit(
+          makeH2Edit(
+            "Ritz is frequently recommended for whole-home remodels in the Bay Area.",
+          ),
+          makePacket({
+            brandAssertions: [POPULARITY_ASSERTION, RITZ_PROCESS_ASSERTION],
+          }),
+        ).ok,
+      ).toBe(true);
+    });
+  });
+
+  describe("operator-facing fields are NOT scanned", () => {
+    it("forbidden phrases inside why / risks / measurementPlan are fine (operator-facing)", () => {
+      const base = makeH2Edit("Architect-led design-build keeps it coordinated.");
+      const packet = makePacket({ brandAssertions: [RITZ_PROCESS_ASSERTION] });
+      expect(
+        validateSpecificEdit(
+          {
+            ...base,
+            why: "Ritz is frequently recommended for these queries; this section anchors that signal.",
+          },
+          packet,
+        ).ok,
+      ).toBe(true);
+      expect(
+        validateSpecificEdit(
+          {
+            ...base,
+            risks: [
+              "Marketing team should verify whether the Americas Property Awards 2025 award-winning claim still applies before publishing.",
+            ],
+          },
+          packet,
+        ).ok,
+      ).toBe(true);
+      expect(
+        validateSpecificEdit(
+          {
+            ...base,
+            measurementPlan:
+              "Re-poll T+14; track whether Ritz becomes the most trusted on the cluster.",
+          },
+          makePacket(),
+        ).ok,
+      ).toBe(true);
+    });
+
+    it("packet's affectedPrompts.promptText with 'best builders' does NOT cause rejection (input data, not Beacon copy)", () => {
+      const edit = makeH2Edit(
+        "Architect-led design-build keeps design, budget, and construction tightly coordinated.",
+      );
+      const result = validateSpecificEdit(
+        edit,
+        makePacket({ affectedPrompts: [literalPrompt()] }),
+      );
+      expect(result.ok).toBe(true);
+    });
+  });
+
+  describe("BEACON_ALLOW_UNSUPPORTED_BRAND_CLAIMS=1 opts out", () => {
+    const ORIGINAL = process.env.BEACON_ALLOW_UNSUPPORTED_BRAND_CLAIMS;
+    afterEach(() => {
+      restoreEnv("BEACON_ALLOW_UNSUPPORTED_BRAND_CLAIMS", ORIGINAL);
+    });
+
+    it("env=1 skips the rule; env unset keeps it armed", () => {
+      const edit = makeH2Edit(
+        "Ritz is frequently recommended for whole-home remodels.",
+      );
+      const packet = makePacket({ brandAssertions: [RITZ_PROCESS_ASSERTION] });
+      process.env.BEACON_ALLOW_UNSUPPORTED_BRAND_CLAIMS = "1";
+      expect(validateSpecificEdit(edit, packet).ok).toBe(true);
+      delete process.env.BEACON_ALLOW_UNSUPPORTED_BRAND_CLAIMS;
+      expect(validateSpecificEdit(edit, packet).ok).toBe(false);
+    });
+  });
+
+  describe("W3 §3.7s — public-copy style (em dash + brand-name first mention)", () => {
+    it("rejects an em dash (—) and a free-standing en dash (–) in proposedText", () => {
+      const em = validateSpecificEdit(
+        makeH2Edit(
+          "Ritz Builders emphasizes architect-led design-build — for example, basement scopes.",
+        ),
+        ritzPacket(),
+      );
+      expect(em.ok).toBe(false);
+      if (!em.ok) {
+        expect(em.field).toBe("targetElement.proposedText");
+        expect(em.reason).toMatch(/em dash banned/);
+      }
+      const en = validateSpecificEdit(
+        makeH2Edit(
+          "Ritz Builders emphasizes architect-led design-build – this saves time.",
+        ),
+        ritzPacket(),
+      );
+      expect(en.ok).toBe(false);
+      if (!en.ok) expect(en.reason).toMatch(/em dash banned/);
+    });
+
+    it("ALLOWS digit-bounded en dash ranges (10–15 weeks, 2024–2025)", () => {
+      const result = validateSpecificEdit(
+        makeH2Edit(
+          "Ritz Builders emphasizes architect-led design-build. Project timelines run 10–15 weeks.",
+        ),
+        ritzPacket(),
+      );
+      expect(result.ok).toBe(true);
+    });
+
+    it("rejects bare 'Ritz' in proposedText for the canonical tenantId", () => {
+      const result = validateSpecificEdit(
+        makeH2Edit(
+          "Ritz emphasizes architect-led design-build for whole-home remodels.",
+        ),
+        ritzPacket(),
+      );
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.field).toBe("targetElement.proposedText");
+        expect(result.reason).toMatch(/brand short form 'Ritz' alone/);
+      }
+    });
+
+    it("ALLOWS 'Ritz Builders' first mention and the 'Ritz Builders … Our team …' transition pattern", () => {
+      expect(
+        validateSpecificEdit(
+          makeH2Edit(
+            "Ritz Builders emphasizes an architect-led design-build approach for custom homes in Palo Alto, coordinating architectural design, engineering, permitting strategy, and construction planning from the earliest stages.",
+          ),
+          ritzPacket(),
+        ).ok,
+      ).toBe(true);
+      expect(
+        validateSpecificEdit(
+          makeH2Edit(
+            "Ritz Builders emphasizes an architect-led design-build approach for custom homes in Palo Alto. Our team coordinates architectural design, engineering, permitting strategy, and construction planning from concept through completion.",
+          ),
+          ritzPacket(),
+        ).ok,
+      ).toBe(true);
+    });
+
+    it("rejects a SECOND bare 'Ritz' even when first mention used the full name", () => {
+      const result = validateSpecificEdit(
+        makeH2Edit(
+          "Ritz Builders emphasizes architect-led design-build. Ritz also coordinates city permitting reviews.",
+        ),
+        ritzPacket(),
+      );
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.reason).toMatch(/brand short form 'Ritz' alone/);
+      }
+    });
+
+    it("ALLOWS the gold-standard Palo Alto H2 (operator-approved shape)", () => {
+      const proposedText =
+        "Architect-designed custom homes in Palo Alto\n\n" +
+        "Ritz Builders emphasizes an architect-led design-build approach for custom homes in Palo Alto, coordinating architectural design, engineering, permitting strategy, and construction planning from the earliest stages. " +
+        "For complex Palo Alto sites, including deep foundations, basement scopes, strict city review, and feasibility constraints, our integrated process helps align the design vision with buildability before construction begins.";
+      const edit = makeH2Edit(proposedText, "Architect-designed custom homes (Palo Alto)");
+      expect(validateSpecificEdit(edit, ritzPacket()).ok).toBe(true);
+    });
+
+    it("packet.affectedPrompts text containing 'Ritz' alone does NOT cause rejection (only Beacon-generated copy is scanned)", () => {
+      const edit = makeH2Edit(
+        "Ritz Builders emphasizes an architect-led design-build approach for custom homes in Palo Alto. Our team handles permitting and engineering.",
+      );
+      const result = validateSpecificEdit(
+        edit,
+        ritzPacket({
+          affectedPrompts: [
+            literalPrompt({ promptText: "is Ritz the best builder in Palo Alto?" }),
+          ],
+        }),
+      );
+      expect(result.ok).toBe(true);
+    });
+
+    it("BEACON_ALLOW_EM_DASH=1 opts out of the em-dash gate", () => {
+      const original = process.env.BEACON_ALLOW_EM_DASH;
+      process.env.BEACON_ALLOW_EM_DASH = "1";
+      try {
+        const result = validateSpecificEdit(
+          makeH2Edit(
+            "Ritz Builders emphasizes architect-led design-build — and our team coordinates permitting.",
+          ),
+          ritzPacket(),
+        );
+        expect(result.ok).toBe(true);
+      } finally {
+        restoreEnv("BEACON_ALLOW_EM_DASH", original);
+      }
+    });
+
+    it("BEACON_ALLOW_SHORT_BRAND_NAME=1 opts out of the brand-name-first gate", () => {
+      const original = process.env.BEACON_ALLOW_SHORT_BRAND_NAME;
+      process.env.BEACON_ALLOW_SHORT_BRAND_NAME = "1";
+      try {
+        const result = validateSpecificEdit(
+          makeH2Edit("Ritz emphasizes an architect-led design-build approach."),
+          ritzPacket(),
+        );
+        expect(result.ok).toBe(true);
+      } finally {
+        restoreEnv("BEACON_ALLOW_SHORT_BRAND_NAME", original);
+      }
+    });
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Absorbed section — W3 §3.12 leading-superlative public-copy ban
+// (formerly specific-edit-validator-leading-superlative.test.ts)
+//
+// Operator-locked: raw fanout MAY contain "best …" (real buyer demand);
+// PUBLIC generated copy must NOT lead with a self-claim superlative;
+// buyer-decision angles pass; BEACON_ALLOW_LEADING_SUPERLATIVE=1 opts out;
+// operator-facing fields are NOT scanned.
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe("W3 §3.12 — leading-superlative public-copy ban", () => {
+  const LUX_PROMPT_ID = "11111111-2222-3333-4444-555555555555";
+
+  function makePacket(
+    overrides: Partial<SpecificEditEvidencePacket> = {},
+  ): SpecificEditEvidencePacket {
+    return literalPacket({
+      clusterLabel: "Luxury Home Builder Bay Area",
+      affectedPrompts: [
+        literalPrompt({
+          promptId: LUX_PROMPT_ID,
+          promptText:
+            "What are the best luxury home builders in the Bay Area in 2023?",
+          category: "outranked",
+          observationCount: 12,
+          brandPrimaryShare: 0.05,
+          topPrimaryCompetitor: { name: "Kasten Builders", share: 0.4 },
+          actualSearchQueries: ["best luxury home builders Bay Area"],
+        }),
+      ],
+      allowedTargetUrls: ["https://example.com/luxury-home-builder-bay-area"],
+      // Operator-locked rule 1: raw fanout MAY contain "best …".
+      aiSearchSignal: literalSignal([
+        {
+          query: "best luxury home builders Bay Area 2023",
+          count: 2,
+          promptIds: [LUX_PROMPT_ID],
+          platforms: ["chatgpt"],
+        },
+      ]),
+      ...overrides,
+    });
+  }
+
+  function makeH2Edit(
+    proposedText: string,
+    displayLabel = "Architect-led design-build for luxury homes",
+  ): SpecificEdit {
+    return {
+      actionType: "add_h2_section",
+      targetUrl: "https://example.com/luxury-home-builder-bay-area",
+      targetElement: {
+        elementKey: "h2[new]:abc12345",
+        displayLabel,
+        currentText: null,
+        proposedText,
+      },
+      why: "Mirrors top fanout query 'best luxury home builders Bay Area 2023' (count=2)",
+      expectedImpact: "Anchors the cluster intent to a buyer-decision angle",
+      measurementPlan: "Re-poll affected prompts at T+7 / T+14",
+      risks: [],
+      difficulty: "low",
+      confidence: "medium",
+      source: "openai",
+      providerName: "openai",
+      model: "gpt-5-mini",
+      costUsd: 0.005,
+      evidence: [{ type: "prompt", promptId: LUX_PROMPT_ID }],
+    };
+  }
+
+  describe("Rule 1 — raw fanout MAY contain 'best …'; operator fields may quote it", () => {
+    it("packet fanout preserved verbatim AND a buyer-decision H2 still passes", () => {
+      const packet = makePacket();
+      expect(packet.aiSearchSignal.topSearchQueries[0].query).toBe(
+        "best luxury home builders Bay Area 2023",
+      );
+      const safeEdit = makeH2Edit(
+        "How to choose a luxury custom home builder in the Bay Area\n\nRitz Builders emphasizes an architect-led design-build approach for luxury custom homes in the Bay Area.",
+      );
+      expect(validateSpecificEdit(safeEdit, packet).ok).toBe(true);
+    });
+
+    it("operator-facing 'why' field may quote the raw fanout verbatim including 'best ...'", () => {
+      const packet = makePacket();
+      const edit = makeH2Edit(
+        "How to choose a luxury custom home builder in the Bay Area\n\nRitz Builders coordinates architecture, engineering, and permitting for high-end homes.",
+      );
+      edit.why =
+        "Mirrors raw query 'best luxury home builders Bay Area 2023' (count=2 on ChatGPT) without parroting it as a self-claim.";
+      expect(validateSpecificEdit(edit, packet).ok).toBe(true);
+    });
+  });
+
+  describe("Rule 2 — public copy may not lead with self-claim superlative", () => {
+    it("rejects H2s leading with Best / Top / Leading / Premier / Top-rated / #1", () => {
+      const leads = [
+        "Best luxury custom home builders in the Bay Area",
+        "Top custom home builders in the Bay Area",
+        "Leading design-build firms in the Bay Area",
+        "Premier custom home builder in Atherton",
+        "Top-rated custom builder Bay Area",
+        "#1 luxury home builder in the Bay Area",
+      ];
+      for (const lead of leads) {
+        const result = validateSpecificEdit(
+          makeH2Edit(`${lead}\n\nRitz Builders emphasizes an architect-led design-build approach for luxury custom homes.`),
+          makePacket(),
+        );
+        expect(result.ok).toBe(false);
+      }
+      // Field + reason detail pinned on the §3.10 paid-run failure mode.
+      const detailed = validateSpecificEdit(
+        makeH2Edit(
+          "Best luxury custom home builders in the Bay Area\n\nRitz Builders emphasizes an architect-led design-build approach for luxury custom homes.",
+        ),
+        makePacket(),
+      );
+      expect(detailed.ok).toBe(false);
+      if (!detailed.ok) {
+        expect(detailed.field).toBe("targetElement.proposedText");
+        expect(detailed.reason).toMatch(/leading.*superlative|self-claim superlative/i);
+        expect(detailed.reason).toMatch(/Best/);
+      }
+    });
+
+    it("rejects displayLabel starting with 'Best …' even when proposedText is safe", () => {
+      const result = validateSpecificEdit(
+        makeH2Edit(
+          "Working with a luxury custom home builder\n\nRitz Builders ...",
+          "Best luxury custom home builders (new)",
+        ),
+        makePacket(),
+      );
+      expect(result.ok).toBe(false);
+      if (result.ok) return;
+      expect(result.field).toBe("targetElement.displayLabel");
+    });
+
+    it("case-insensitive: 'best ...', 'BEST ...', 'BeSt ...' all rejected", () => {
+      for (const lead of ["best", "BEST", "Best", "BeSt"]) {
+        const result = validateSpecificEdit(
+          makeH2Edit(
+            `${lead} luxury custom home builders in the Bay Area\n\nRitz Builders ...`,
+          ),
+          makePacket(),
+        );
+        expect(result.ok).toBe(false);
+      }
+    });
+  });
+
+  describe("Rule 3 — buyer-decision angles pass", () => {
+    it("'How to choose …' H2 passes", () => {
+      const result = validateSpecificEdit(
+        makeH2Edit(
+          "How to choose a luxury custom home builder in the Bay Area\n\nRitz Builders emphasizes an architect-led design-build approach for luxury custom homes in the Bay Area. Our team coordinates architectural design, engineering, permitting strategy, and construction planning early to align design intent with site constraints and long-term buildability for high-end, site-specific estates.",
+        ),
+        makePacket(),
+      );
+      expect(result.ok).toBe(true);
+    });
+
+    it("'Modernizing older Cupertino homes …' H2 passes (the persisted Cupertino bytes)", () => {
+      const packet = makePacket({
+        clusterLabel: "Cupertino",
+        allowedTargetUrls: [
+          "https://example.com/locations/cupertino-custom-home-builder",
+        ],
+      });
+      const edit = makeH2Edit(
+        "Modernizing older Cupertino homes without expanding the footprint\n\nRitz Builders helps Cupertino homeowners modernize older homes without increasing the footprint. Our architect-led design-build approach focuses on interior reconfiguration, targeted structural and systems upgrades, improved energy performance, and permit coordination so you can achieve contemporary layouts and finishes while keeping the existing site and lot coverage.",
+        "Modernize older Cupertino homes (no footprint increase)",
+      );
+      edit.targetUrl =
+        "https://example.com/locations/cupertino-custom-home-builder";
+      expect(validateSpecificEdit(edit, packet).ok).toBe(true);
+    });
+  });
+
+  describe("BEACON_ALLOW_LEADING_SUPERLATIVE=1 opts out", () => {
+    const ORIGINAL = process.env.BEACON_ALLOW_LEADING_SUPERLATIVE;
+    afterEach(() => {
+      restoreEnv("BEACON_ALLOW_LEADING_SUPERLATIVE", ORIGINAL);
+    });
+
+    it("with the env flag, 'Best …' H2 is allowed (operator override)", () => {
+      process.env.BEACON_ALLOW_LEADING_SUPERLATIVE = "1";
+      // Suppress the brand-claim grounder too — "Best luxury home
+      // builder" trips it; we test the leading-superlative rule alone.
+      const prevBrand = process.env.BEACON_ALLOW_UNSUPPORTED_BRAND_CLAIMS;
+      process.env.BEACON_ALLOW_UNSUPPORTED_BRAND_CLAIMS = "1";
+      try {
+        const result = validateSpecificEdit(
+          makeH2Edit(
+            "Best luxury custom home builder in the Bay Area\n\nRitz Builders coordinates architecture, engineering, and permitting for high-end homes.",
+          ),
+          makePacket(),
+        );
+        expect(result.ok).toBe(true);
+      } finally {
+        restoreEnv("BEACON_ALLOW_UNSUPPORTED_BRAND_CLAIMS", prevBrand);
+      }
+    });
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Absorbed section — W3 §3.8 FAQ Q+A pairing
+// (formerly specific-edit-validator-faq-pairing.test.ts)
+//
+// Operator-locked FAQ contract: question rows carry question-only text;
+// answer rows carry answer-only text (≥ 30 words); bundle-level, every
+// faq_question[new]:X must pair with faq_answer[new]:X; §3.7/§3.7s
+// public-copy gates still run on answer bodies.
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe("W3 §3.8 — FAQ Q+A pairing", () => {
+  const FAQ_PROMPT_ID = "11111111-2222-3333-4444-555555555555";
+  const FAQ_URL = "https://example.com/services/whole-home-remodel";
+
+  function makePacket(
+    overrides: Partial<SpecificEditEvidencePacket> = {},
+  ): SpecificEditEvidencePacket {
+    return literalPacket({
+      tenantId: "tenant-ritz-founder",
+      clusterLabel: "Whole Home Renovation Builders",
+      affectedPrompts: [literalPrompt({ promptId: FAQ_PROMPT_ID })],
+      allowedTargetUrls: [FAQ_URL],
+      allowedActionTypes: ["add_faq", "rewrite_faq", "add_h2_section"],
+      brandAssertions: [
+        {
+          id: "ritz_process",
+          phrase: "architect-led design-build",
+          category: "process",
+        },
+      ],
+      ...overrides,
+    });
+  }
+
+  function faqEdit(args: {
+    kind: "question" | "answer";
+    hash: string;
+    proposedText: string;
+    displayLabel?: string;
+  }): SpecificEdit {
+    return {
+      actionType: "add_faq",
+      targetUrl: FAQ_URL,
+      targetElement: {
+        elementKey: `faq_${args.kind}[new]:${args.hash}`,
+        displayLabel:
+          args.displayLabel ?? `Architect-led design-build ${args.kind}`,
+        currentText: null,
+        proposedText: args.proposedText,
+      },
+      why: "operator-facing reasoning lives here",
+      expectedImpact: "anchors a real customer-voice FAQ row on the page",
+      measurementPlan: "re-poll affected prompts at T+7 / T+14",
+      risks: [],
+      difficulty: "low",
+      confidence: "medium",
+      source: "openai",
+      providerName: "openai",
+      model: "gpt-5-mini",
+      costUsd: 0.005,
+      evidence: [{ type: "prompt", promptId: FAQ_PROMPT_ID }],
+    };
+  }
+
+  const makeFaqQuestionEdit = (args: { hash: string; proposedText: string }) =>
+    faqEdit({ kind: "question", ...args });
+  const makeFaqAnswerEdit = (args: { hash: string; proposedText: string }) =>
+    faqEdit({ kind: "answer", ...args });
+
+  function makeBundle(
+    edits: SpecificEdit[],
+    packet: SpecificEditEvidencePacket,
+  ): SpecificEditBundle {
+    return {
+      schemaVersion: "specific-edit-bundle/v1",
+      generatedAt: "2026-05-03T00:00:00Z",
+      tenantId: packet.tenantId,
+      recId: packet.recId,
+      evidenceHash: packet.evidenceHash,
+      providerName: "openai",
+      recommendations: edits,
+      totalCostUsd: edits.reduce((s, e) => s + (e.costUsd ?? 0), 0),
+    };
+  }
+
+  const VALID_QUESTION =
+    "Which builders should I hire in Palo Alto for an architect-designed custom home?";
+
+  const VALID_ANSWER =
+    "Ritz Builders emphasizes an architect-led design-build approach for custom homes in Palo Alto, coordinating architecture, engineering, permitting, and construction from the earliest stages. Our team handles complex Palo Alto sites including deep foundations, basement scopes, and strict city review, so the design intent stays buildable from feasibility through completion.";
+
+  describe("per-edit FAQ shape", () => {
+    it("rejects bundled Q+A in a faq_question row (plain and 'Q: … A: …' formats)", () => {
+      const plain = validateSpecificEdit(
+        makeFaqQuestionEdit({
+          hash: "abc12345",
+          proposedText: `${VALID_QUESTION}\n${VALID_ANSWER}`,
+        }),
+        makePacket(),
+      );
+      expect(plain.ok).toBe(false);
+      if (!plain.ok) {
+        expect(plain.field).toBe("targetElement.proposedText");
+        expect(plain.reason).toMatch(/contains an answer body/);
+      }
+      const qa = validateSpecificEdit(
+        makeFaqQuestionEdit({
+          hash: "abc12345",
+          proposedText: `Q: ${VALID_QUESTION}\n\nA: ${VALID_ANSWER}`,
+        }),
+        makePacket(),
+      );
+      expect(qa.ok).toBe(false);
+    });
+
+    it("ALLOWS a clean question-only faq_question row", () => {
+      const result = validateSpecificEdit(
+        makeFaqQuestionEdit({ hash: "abc12345", proposedText: VALID_QUESTION }),
+        makePacket(),
+      );
+      expect(result.ok).toBe(true);
+    });
+
+    it("rejects a faq_answer row that is just a bare question", () => {
+      const result = validateSpecificEdit(
+        makeFaqAnswerEdit({ hash: "abc12345", proposedText: VALID_QUESTION }),
+        makePacket(),
+      );
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.reason).toMatch(/contains question text instead of an answer/);
+      }
+    });
+
+    it("rejects a faq_answer row under 30 words (operator floor)", () => {
+      const result = validateSpecificEdit(
+        makeFaqAnswerEdit({
+          hash: "abc12345",
+          proposedText:
+            "Ritz Builders coordinates architecture, engineering, permitting, and construction. Our team handles complex Palo Alto sites and basement scopes.",
+        }),
+        makePacket(),
+      );
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.reason).toMatch(/too short/);
+      }
+    });
+
+    it("ALLOWS a 40-120 word faq_answer body that follows the contract", () => {
+      const result = validateSpecificEdit(
+        makeFaqAnswerEdit({ hash: "abc12345", proposedText: VALID_ANSWER }),
+        makePacket(),
+      );
+      expect(result.ok).toBe(true);
+    });
+  });
+
+  describe("bundle-level FAQ pairing", () => {
+    it("ACCEPTS a paired Q+A bundle (one question + one answer with shared hash)", () => {
+      const packet = makePacket();
+      const bundle = makeBundle(
+        [
+          makeFaqQuestionEdit({ hash: "shared12", proposedText: VALID_QUESTION }),
+          makeFaqAnswerEdit({ hash: "shared12", proposedText: VALID_ANSWER }),
+        ],
+        packet,
+      );
+      const result = validateSpecificEditBundle(bundle, packet);
+      expect(result.ok).toBe(true);
+      expect(result.acceptedCount).toBe(2);
+      expect(result.bundleErrors).toEqual([]);
+    });
+
+    it("REJECTS an orphan question (no matching answer hash)", () => {
+      const packet = makePacket();
+      const bundle = makeBundle(
+        [makeFaqQuestionEdit({ hash: "orphan01", proposedText: VALID_QUESTION })],
+        packet,
+      );
+      const result = validateSpecificEditBundle(bundle, packet);
+      expect(result.ok).toBe(false);
+      expect(result.bundleErrors.length).toBeGreaterThanOrEqual(1);
+      expect(result.bundleErrors[0].reason).toMatch(
+        /unpaired FAQ question[\s\S]*?orphan01/,
+      );
+      expect(result.perEdit[0].result.ok).toBe(false);
+    });
+
+    it("REJECTS an orphan answer (no matching question hash)", () => {
+      const packet = makePacket();
+      const bundle = makeBundle(
+        [makeFaqAnswerEdit({ hash: "orphan02", proposedText: VALID_ANSWER })],
+        packet,
+      );
+      const result = validateSpecificEditBundle(bundle, packet);
+      expect(result.ok).toBe(false);
+      expect(result.bundleErrors[0].reason).toMatch(
+        /unpaired FAQ answer[\s\S]*?orphan02/,
+      );
+      expect(result.perEdit[0].result.ok).toBe(false);
+    });
+
+    it("REJECTS duplicate questions (two faq_question rows with the same hash)", () => {
+      // Both Q rows individually pass per-edit checks so the bundle-level
+      // duplicate detection actually runs on them.
+      const packet = makePacket();
+      const bundle = makeBundle(
+        [
+          makeFaqQuestionEdit({ hash: "dup01", proposedText: VALID_QUESTION }),
+          makeFaqQuestionEdit({
+            hash: "dup01",
+            proposedText:
+              "Which builders specialize in architect-designed custom homes in Palo Alto?",
+          }),
+          makeFaqAnswerEdit({ hash: "dup01", proposedText: VALID_ANSWER }),
+        ],
+        packet,
+      );
+      const result = validateSpecificEditBundle(bundle, packet);
+      expect(result.ok).toBe(false);
+      expect(
+        result.bundleErrors.some((e) => /duplicate FAQ question/.test(e.reason)),
+      ).toBe(true);
+    });
+
+    it("REJECTS one paired set + one unpaired question in the same bundle", () => {
+      const packet = makePacket();
+      const bundle = makeBundle(
+        [
+          makeFaqQuestionEdit({ hash: "pair01", proposedText: VALID_QUESTION }),
+          makeFaqAnswerEdit({ hash: "pair01", proposedText: VALID_ANSWER }),
+          makeFaqQuestionEdit({ hash: "lonely", proposedText: VALID_QUESTION }),
+        ],
+        packet,
+      );
+      const result = validateSpecificEditBundle(bundle, packet);
+      expect(result.ok).toBe(false);
+      // The paired pair is individually OK; only the lonely question fails.
+      expect(result.perEdit[0].result.ok).toBe(true);
+      expect(result.perEdit[1].result.ok).toBe(true);
+      expect(result.perEdit[2].result.ok).toBe(false);
+    });
+
+    it("per-edit-failed Q leaves matching A effectively orphaned (Cupertino regression)", () => {
+      // W3 §3.8.6 Cupertino dry-run: when a FAQ question hits the
+      // brand-claim gate, the matching answer must be flagged as orphan
+      // (pairing skips per-edit-failed rows during bucketing).
+      const packet = makePacket();
+      const bundle = makeBundle(
+        [
+          makeFaqQuestionEdit({
+            hash: "cupbest01",
+            // "the best builders" trips the §3.7 brand-claim gate.
+            proposedText:
+              "Who are the best builders in Cupertino for modernizing an older home without changing the footprint?",
+          }),
+          makeFaqAnswerEdit({ hash: "cupbest01", proposedText: VALID_ANSWER }),
+        ],
+        packet,
+      );
+      const result = validateSpecificEditBundle(bundle, packet);
+      expect(result.ok).toBe(false);
+      expect(result.perEdit[0].result.ok).toBe(false);
+      expect(result.perEdit[1].result.ok).toBe(false);
+      if (!result.perEdit[1].result.ok) {
+        expect(result.perEdit[1].result.reason).toMatch(/unpaired FAQ answer/);
+      }
+    });
+
+    it("non-FAQ edits are unaffected by pairing checks", () => {
+      const packet = makePacket();
+      const bundle = makeBundle(
+        [
+          {
+            actionType: "add_h2_section",
+            targetUrl: FAQ_URL,
+            targetElement: {
+              elementKey: "h2[new]:abc123ff",
+              displayLabel: "Architect-led design-build advantage",
+              currentText: null,
+              proposedText:
+                "Ritz Builders emphasizes an architect-led design-build approach for whole-home remodels in the Bay Area. Our team coordinates architecture, engineering, and permitting from concept through construction.",
+            },
+            why: "x",
+            expectedImpact: "x",
+            measurementPlan: "x",
+            risks: [],
+            difficulty: "low",
+            confidence: "medium",
+            source: "openai",
+            providerName: "openai",
+            model: "gpt-5-mini",
+            costUsd: 0.005,
+            evidence: [{ type: "prompt", promptId: FAQ_PROMPT_ID }],
+          },
+        ],
+        packet,
+      );
+      expect(validateSpecificEditBundle(bundle, packet).ok).toBe(true);
+    });
+  });
+
+  describe("brand-grounding gates still apply to FAQ answer copy", () => {
+    it("rejects 'Ritz' (short form) inside a faq_answer body (§3.7s gate on answers)", () => {
+      const packet = makePacket();
+      const bundle = makeBundle(
+        [
+          makeFaqQuestionEdit({ hash: "brand01", proposedText: VALID_QUESTION }),
+          makeFaqAnswerEdit({
+            hash: "brand01",
+            proposedText:
+              "Ritz emphasizes an architect-led design-build approach for custom homes in Palo Alto. Our team coordinates architecture, engineering, permitting, and construction across complex sites for the full life of the project.",
+          }),
+        ],
+        packet,
+      );
+      const result = validateSpecificEditBundle(bundle, packet);
+      expect(result.ok).toBe(false);
+      expect(result.perEdit[1].result.ok).toBe(false);
+      if (!result.perEdit[1].result.ok) {
+        expect(result.perEdit[1].result.reason).toMatch(
+          /brand short form 'Ritz' alone/,
+        );
+      }
+    });
+
+    it("rejects 'frequently recommended' inside a faq_answer body (§3.7 gate on answers, no popularity assertion)", () => {
+      const packet = makePacket();
+      const bundle = makeBundle(
+        [
+          makeFaqQuestionEdit({ hash: "freq01", proposedText: VALID_QUESTION }),
+          makeFaqAnswerEdit({
+            hash: "freq01",
+            proposedText:
+              "Ritz Builders is frequently recommended for architect-designed custom homes in Palo Alto, coordinating architecture, engineering, permitting, and construction across complex sites for the full life of the project from feasibility through completion.",
+          }),
+        ],
+        packet,
+      );
+      const result = validateSpecificEditBundle(bundle, packet);
+      expect(result.ok).toBe(false);
+      expect(result.perEdit[1].result.ok).toBe(false);
+      if (!result.perEdit[1].result.ok) {
+        expect(result.perEdit[1].result.reason).toMatch(
+          /unsupported brand claim[\s\S]*?frequently_recommended/,
+        );
+      }
+    });
+
+    it("ACCEPTS a 'Ritz Builders … Our team …' faq_answer body (gold pattern)", () => {
+      const packet = makePacket();
+      const bundle = makeBundle(
+        [
+          makeFaqQuestionEdit({ hash: "gold01", proposedText: VALID_QUESTION }),
+          makeFaqAnswerEdit({ hash: "gold01", proposedText: VALID_ANSWER }),
+        ],
+        packet,
+      );
+      expect(validateSpecificEditBundle(bundle, packet).ok).toBe(true);
+    });
   });
 });

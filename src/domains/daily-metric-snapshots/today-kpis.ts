@@ -51,8 +51,7 @@ type PlatformRow = {
  * `citation_count`/`mention_count` across EVERY tenant's derived platform
  * rows for the date — one customer saw other customers' numbers folded
  * into their core dashboard tile. `tenantId` is REQUIRED (no cross-tenant
- * default) so the isolation contract is enforced by the type system, the
- * same way the sibling today-primary-share.ts binds .forTenant(tenantId).
+ * default) so the isolation contract is enforced by the type system.
  */
 async function fetchPlatformRowsForDate(
   dateISO: string,

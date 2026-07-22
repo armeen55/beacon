@@ -48,9 +48,10 @@ vi.mock("./algorithm-weather", () => ({
 vi.mock("./algorithm-weather-store", () => ({
   loadDetectedChangepoints: () => loadDetectedChangepointsMock(),
 }));
-vi.mock("./fdr-adjust", () => ({
-  attachFdrToLedger: (rows: unknown[]) => rows,
-}));
+vi.mock("./reliability-extras", async () => {
+  const actual = await vi.importActual<typeof import("./reliability-extras")>("./reliability-extras");
+  return { ...actual, attachFdrToLedger: (rows: unknown[]) => rows };
+});
 vi.mock("@/domains/experiments/experiment-eligibility", () => ({
   activeTreatmentPaths: () => activeTreatmentPathsMock(),
 }));

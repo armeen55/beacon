@@ -14,7 +14,7 @@ import { PageHeader } from "@/components/data/page-header";
 import { FirstReadingWaiting } from "@/components/today/first-reading-waiting";
 import { countConnectedDataSources } from "@/components/today/data-sources-strip";
 import { RefreshMyDataButton } from "@/components/today/refresh-my-data-button";
-import { loadTodayV2GateData } from "./today-v2-data";
+import { loadTodayV2GateData } from "./today-gate-data";
 import { loadTodayView } from "./today-view-data";
 import { currentTenantId } from "@/lib/tenant-context";
 import { ScoreboardSection } from "./scoreboard-section";

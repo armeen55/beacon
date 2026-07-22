@@ -70,14 +70,14 @@ vi.mock("./aa-calibration-store", () => ({
 const { buildPermutationNullMock } = vi.hoisted(() => ({
   buildPermutationNullMock: vi.fn(),
 }));
-vi.mock("./permutation-null", async () => {
-  const actual = await vi.importActual<typeof import("./permutation-null")>("./permutation-null");
+vi.mock("./reliability-extras", async () => {
+  const actual = await vi.importActual<typeof import("./reliability-extras")>("./reliability-extras");
   return { ...actual, buildPermutationNull: buildPermutationNullMock };
 });
 
 import { measureRecord } from "./run-measurement";
 import type { ShippedChangeRecord } from "./shipped-change-store";
-import type { PermutationNull } from "./permutation-null";
+import type { PermutationNull } from "./reliability-extras";
 
 function record(overrides: Partial<ShippedChangeRecord> = {}): ShippedChangeRecord {
   return {

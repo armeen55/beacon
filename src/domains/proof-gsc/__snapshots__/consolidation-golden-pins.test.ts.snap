@@ -1,0 +1,908 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`golden: bayesian-read > ctr and clicks reads across win, loss, flat, and small-sample 1`] = `
+{
+  "clicksFlat": {
+    "ci90High": 39.41,
+    "ci90Low": -39.84,
+    "expectedMonthlyLift": -0.21,
+    "pWin": 0.4965,
+    "sentence": "Too close to call yet, likely 40 fewer to 39 extra clicks a month either way.",
+    "smallSample": false,
+  },
+  "clicksSmall": {
+    "ci90High": 5.79,
+    "ci90Low": -4.08,
+    "expectedMonthlyLift": 0.86,
+    "pWin": 0.6125,
+    "sentence": "Too close to call yet, likely 4 fewer to 6 extra clicks a month either way. Early read, small sample so far.",
+    "smallSample": true,
+  },
+  "clicksWin": {
+    "ci90High": 83.51,
+    "ci90Low": 1.78,
+    "expectedMonthlyLift": 42.64,
+    "pWin": 0.9570000000000001,
+    "sentence": "I am 96 percent sure this helped, likely 2 to 84 extra clicks a month.",
+    "smallSample": false,
+  },
+  "ctrLoss": {
+    "ci90High": -2.27,
+    "ci90Low": -87.18,
+    "expectedMonthlyLift": -44.72,
+    "pWin": 0.0416,
+    "sentence": "I am 96 percent sure this hurt, likely 2 to 87 fewer clicks a month.",
+    "smallSample": false,
+  },
+  "ctrSmall": {
+    "ci90High": 14.27,
+    "ci90Low": -16.13,
+    "expectedMonthlyLift": -0.93,
+    "pWin": 0.4598,
+    "sentence": "Too close to call yet, likely 16 fewer to 14 extra clicks a month either way. Early read, small sample so far.",
+    "smallSample": true,
+  },
+  "ctrWin": {
+    "ci90High": 60.38,
+    "ci90Low": -5.56,
+    "expectedMonthlyLift": 27.41,
+    "pWin": 0.9142,
+    "sentence": "We are 91 percent sure this helped, likely 6 fewer to 60 extra clicks a month.",
+    "smallSample": false,
+  },
+  "routedClicks": {
+    "ci90High": 83.51,
+    "ci90Low": 1.78,
+    "expectedMonthlyLift": 42.64,
+    "pWin": 0.9570000000000001,
+    "sentence": "I am 96 percent sure this helped, likely 2 to 84 extra clicks a month.",
+    "smallSample": false,
+  },
+  "routedCtr": {
+    "ci90High": 60.38,
+    "ci90Low": -5.56,
+    "expectedMonthlyLift": 27.41,
+    "pWin": 0.9142,
+    "sentence": "We are 91 percent sure this helped, likely 6 fewer to 60 extra clicks a month.",
+    "smallSample": false,
+  },
+  "routedPosition": null,
+}
+`;
+
+exports[`golden: bayesian-read > sentence bands and headline selection 1`] = `
+{
+  "agreeLost": true,
+  "agreeWon": true,
+  "cdf": [
+    0.022750062887256395,
+    0.5000000005,
+    0.9500000138907008,
+  ],
+  "coinFlip": "Too close to call yet, likely 10 fewer to 10 extra clicks a month either way.",
+  "disagreeWon": false,
+  "headlineKept": "floor sentence",
+  "headlineNoRead": "floor sentence",
+  "headlineUpgraded": "bayes wins",
+  "hurt": "I am 98 percent sure this hurt, likely 5 to 40 fewer clicks a month.",
+  "likely": "We are 80 percent sure this helped, likely 5 to 40 extra clicks a month.",
+  "neverMeasuring": false,
+  "point": "We are 80 percent sure this helped, about 7 extra clicks a month.",
+  "probablyHurt": "We are 75 percent sure this hurt, likely 40 fewer to 5 extra clicks a month.",
+  "small": "We are 80 percent sure this helped, likely 5 to 40 extra clicks a month. Early read, small sample so far.",
+  "sure": "I am 97 percent sure this helped, likely 5 to 40 extra clicks a month.",
+}
+`;
+
+exports[`golden: daily-series > resolves ledger paths to the highest-clicks GSC page variant and keys by original path 1`] = `
+[
+  [
+    "/cities",
+    [
+      {
+        "clicks": 3,
+        "date": "2026-06-01",
+      },
+      {
+        "clicks": 5,
+        "date": "2026-06-02",
+      },
+    ],
+  ],
+]
+`;
+
+exports[`golden: early-signal > decisive up, decisive down, futile, quiet, and honest absence 1`] = `
+{
+  "baselineUncovered": null,
+  "decisiveDown": {
+    "direction": "down",
+    "earlyDecisive": true,
+    "earlyFutile": false,
+    "postDaysRead": 7,
+    "qualifyingRunDays": 7,
+    "sentence": "This is hurting so clearly I do not need the full 28 days to tell you. Every one of the last 7 days is far below this page's normal range. The full 28-day read still waits for the window to close.",
+  },
+  "decisiveUp": {
+    "direction": "up",
+    "earlyDecisive": true,
+    "earlyFutile": false,
+    "postDaysRead": 7,
+    "qualifyingRunDays": 7,
+    "sentence": "This is working so clearly I do not need the full 28 days to tell you. Every one of the last 7 days is far above this page's normal range. The full 28-day read still waits for the window to close.",
+  },
+  "futile": {
+    "direction": null,
+    "earlyDecisive": false,
+    "earlyFutile": true,
+    "postDaysRead": 14,
+    "qualifyingRunDays": 0,
+    "sentence": "After 14 days this change is very unlikely to move this page in any meaningful way. I will still let the full window finish before calling it.",
+  },
+  "noPostDays": null,
+  "shortRun": {
+    "direction": null,
+    "earlyDecisive": false,
+    "earlyFutile": false,
+    "postDaysRead": 7,
+    "qualifyingRunDays": 3,
+    "sentence": null,
+  },
+}
+`;
+
+exports[`golden: equivalence > proven neutral, not proven, small sample, no baseline 1`] = `
+{
+  "allNegative": {
+    "bandClicksPerMonth": 10,
+    "ci90High": -2,
+    "ci90Low": -8,
+    "provenNeutral": true,
+    "sentence": "This change genuinely did nothing, and I can prove that now; that is different from not knowing. The plausible effect sits between 2 and 8 fewer clicks a month, too small to matter either way.",
+  },
+  "noBaseline": null,
+  "notProven": {
+    "bandClicksPerMonth": 10,
+    "ci90High": 25,
+    "ci90Low": -6,
+    "provenNeutral": false,
+    "sentence": null,
+  },
+  "proven": {
+    "bandClicksPerMonth": 10,
+    "ci90High": 4,
+    "ci90Low": -6,
+    "provenNeutral": true,
+    "sentence": "This change genuinely did nothing, and I can prove that now; that is different from not knowing. The plausible effect sits between 6 fewer and 4 extra clicks a month, too small to matter either way.",
+  },
+  "smallSample": null,
+  "tightBand": {
+    "bandClicksPerMonth": 5,
+    "ci90High": 2,
+    "ci90Low": -3,
+    "provenNeutral": true,
+    "sentence": "This change genuinely did nothing, and I can prove that now; that is different from not knowing. The plausible effect sits between 3 fewer and 2 extra clicks a month, too small to matter either way.",
+  },
+}
+`;
+
+exports[`golden: fdr-adjust > p-values, step-up survivors, cautions, and the ledger pass 1`] = `
+{
+  "cautions": [
+    [
+      "a",
+      {
+        "fdrCaution": false,
+        "pValue": 0.001,
+        "poolSize": 4,
+        "sentence": null,
+      },
+    ],
+    [
+      "b",
+      {
+        "fdrCaution": false,
+        "pValue": 0.02,
+        "poolSize": 4,
+        "sentence": null,
+      },
+    ],
+    [
+      "c",
+      {
+        "fdrCaution": true,
+        "pValue": 0.09,
+        "poolSize": 4,
+        "sentence": "With 4 changes measured at once, one or two will look like winners by chance; this one is close enough to that line that I am holding the champagne.",
+      },
+    ],
+    [
+      "d",
+      {
+        "fdrCaution": false,
+        "pValue": 0.5,
+        "poolSize": 4,
+        "sentence": null,
+      },
+    ],
+  ],
+  "ledgerPass": [
+    {
+      "baseline": {
+        "clicks": 400,
+        "windowDays": 28,
+      },
+      "fdrRead": {
+        "fdrCaution": false,
+        "pValue": 0,
+        "poolSize": 2,
+        "sentence": null,
+      },
+      "id": "won-strong",
+      "permutationRead": {
+        "nGreater": 0,
+        "nTotal": 40,
+      },
+      "verdict": "won",
+      "windows": [
+        {
+          "adjustedLift": 80,
+          "day": 28,
+          "ran": true,
+        },
+      ],
+    },
+    {
+      "baseline": {
+        "clicks": 400,
+        "windowDays": 28,
+      },
+      "fdrRead": {
+        "fdrCaution": false,
+        "pValue": 0.075,
+        "poolSize": 2,
+        "sentence": null,
+      },
+      "id": "won-close",
+      "permutationRead": {
+        "nGreater": 3,
+        "nTotal": 40,
+      },
+      "verdict": "won",
+      "windows": [
+        {
+          "adjustedLift": 10,
+          "day": 28,
+          "ran": true,
+        },
+      ],
+    },
+    {
+      "baseline": {
+        "clicks": 400,
+        "windowDays": 28,
+      },
+      "id": "won-immature",
+      "verdict": "won",
+      "windows": [
+        {
+          "adjustedLift": 10,
+          "day": 7,
+          "ran": true,
+        },
+      ],
+    },
+    {
+      "baseline": {
+        "clicks": 400,
+        "windowDays": 28,
+      },
+      "id": "lost-row",
+      "verdict": "lost",
+      "windows": [
+        {
+          "adjustedLift": -30,
+          "day": 28,
+          "ran": true,
+        },
+      ],
+    },
+  ],
+  "pFallback": 0.0013499672813147567,
+  "pFromPerm": 0.05,
+  "sentence": "With 12 changes measured at once, one or two will look like winners by chance; this one is close enough to that line that I am holding the champagne.",
+  "singleton": [
+    {
+      "baseline": {
+        "clicks": 400,
+        "windowDays": 28,
+      },
+      "id": "won-strong",
+      "permutationRead": {
+        "nGreater": 0,
+        "nTotal": 40,
+      },
+      "verdict": "won",
+      "windows": [
+        {
+          "adjustedLift": 80,
+          "day": 28,
+          "ran": true,
+        },
+      ],
+    },
+  ],
+  "survivors": [
+    "a",
+    "b",
+  ],
+}
+`;
+
+exports[`golden: gradeFromPresentation (the protected verdict grade path) > won / lost / too-early / quarantined and every extras branch 1`] = `
+{
+  "decentAdequateNotDeep": {
+    "grade": "decent",
+    "reasons": [
+      "the sample is adequate but not deep",
+    ],
+    "sentence": "I would treat this read as decent: 28 days mature and clean, but the sample is not deep enough to call it solid.",
+  },
+  "decentBehaviorContradicts": {
+    "grade": "decent",
+    "reasons": [
+      "the search numbers improved but visitors behaved worse on the page after the change",
+    ],
+    "sentence": "I would treat this read as decent: the search numbers look like a win over 28 days, but visitors behaved worse on the page after the change, so I am holding it at decent until behavior agrees.",
+  },
+  "decentEarlyDecisive": {
+    "grade": "decent",
+    "reasons": [
+      "only 7 days in, but every recent day is far outside this page's normal range",
+    ],
+    "sentence": "I would treat this read as decent: only 7 days in, but this is moving so clearly I do not need the full 28 days to tell you which way it is going. The full 28-day read still waits for the window to close.",
+  },
+  "decentFdrCaution": {
+    "grade": "decent",
+    "reasons": [
+      "measured alongside many changes at once, this win sits close to the line where one of them looks good by chance",
+    ],
+    "sentence": "I would treat this read as decent: with 12 changes measured at once, one or two will look like winners by chance, and this one is close enough to that line that I am holding the champagne.",
+  },
+  "decentFdrCautionNoPool": {
+    "grade": "decent",
+    "reasons": [
+      "measured alongside many changes at once, this win sits close to the line where one of them looks good by chance",
+    ],
+    "sentence": "I would treat this read as decent: with several changes measured at once, one or two will look like winners by chance, and this one is close enough to that line that I am holding the champagne.",
+  },
+  "decentInterim": {
+    "grade": "decent",
+    "reasons": [
+      "only 7 days in, directional not final",
+    ],
+    "sentence": "I would treat this read as decent: 7 days in with clean comparisons, but not the final word yet.",
+  },
+  "provenNeutralWrongDay": {
+    "grade": "decent",
+    "reasons": [
+      "only 14 days in, directional not final",
+    ],
+    "sentence": "I would treat this read as decent: 14 days in with clean comparisons, but not the final word yet.",
+  },
+  "quarantinedWeather": {
+    "grade": "shaky",
+    "reasons": [
+      "this window overlapped a Google update or a sitewide shift",
+    ],
+    "sentence": "I would treat this read as shaky: this window overlapped a Google update or a sitewide shift.",
+  },
+  "shakyContamination": {
+    "grade": "shaky",
+    "reasons": [
+      "a comparison page changed mid-window and I could not find a clean replacement",
+    ],
+    "sentence": "I would treat this read as shaky: a comparison page changed mid-window and I could not find a clean replacement.",
+  },
+  "shakyInterference": {
+    "grade": "shaky",
+    "reasons": [
+      "a linked or same-family page still measuring could bleed into this result",
+    ],
+    "sentence": "I would treat this read as shaky: a linked or same-family page still measuring could bleed into this result.",
+  },
+  "shakyNoveltyDecay": {
+    "grade": "shaky",
+    "reasons": [
+      "the first week jump faded back toward normal, so this looks like novelty, not a lasting win",
+    ],
+    "sentence": "I would treat this read as shaky: the first week jump faded back toward normal, so this looks like novelty, not a lasting win.",
+  },
+  "shakyPanelDisagrees": {
+    "grade": "shaky",
+    "reasons": [
+      "the searches this change targeted moved the opposite way from the page total, so something else on the page is muddying this read",
+    ],
+    "sentence": "I would treat this read as shaky: the searches this change targeted moved the opposite way from the page total, so something else on the page is muddying this read.",
+  },
+  "shakySeasonal": {
+    "grade": "shaky",
+    "reasons": [
+      "this window overlapped a seasonal demand swing for this page's family",
+    ],
+    "sentence": "I would treat this read as shaky: this window overlapped a seasonal demand swing for this page's family.",
+  },
+  "shakySharedAttribution": {
+    "grade": "shaky",
+    "reasons": [
+      "another change touches this page within the same window",
+    ],
+    "sentence": "I would treat this read as shaky: another change touches this page within the same window.",
+  },
+  "shakyThinSample": {
+    "grade": "shaky",
+    "reasons": [
+      "traffic is too thin to be confident yet",
+    ],
+    "sentence": "I would treat this read as shaky: traffic is too thin to be confident yet.",
+  },
+  "shakyWeakComparison": {
+    "grade": "shaky",
+    "reasons": [
+      "the comparison pages were not moving like this page before the change",
+    ],
+    "sentence": "I would treat this read as shaky: the comparison pages were not moving like this page before the change.",
+  },
+  "solidProvenNeutral": {
+    "grade": "solid",
+    "reasons": [
+      "28 days mature",
+      "the plausible effect range is proven too small to matter",
+      "the lesson is reliable even though the change did not win",
+    ],
+    "sentence": "I would treat this read as solid: this change genuinely did nothing, and I can prove that now; that is different from not knowing. The lesson still counts.",
+  },
+  "tooEarlyNoCheckpoint": {
+    "grade": "too early",
+    "reasons": [
+      "No checkpoint has closed yet.",
+    ],
+    "sentence": "I would call this too early to read: no checkpoint has closed yet.",
+  },
+  "tooEarlyRecrawl": {
+    "grade": "too early",
+    "reasons": [
+      "Google has not re-read this page yet, so the search clock has not started.",
+    ],
+    "sentence": "I would call this too early to read: Google has not re-read this page yet, so the search clock has not started.",
+  },
+  "tooEarlyScheduled": {
+    "grade": "too early",
+    "reasons": [
+      "This change has not shipped yet.",
+    ],
+    "sentence": "I would call this too early to read: this change has not shipped yet.",
+  },
+  "wonShakyPermutationNoise": {
+    "grade": "shaky",
+    "reasons": [
+      "pages I did not touch moved this much on their own, so this could be normal noise",
+    ],
+    "sentence": "I would treat this read as shaky: pages I did not touch moved this much on their own, so this could be normal noise.",
+  },
+  "wonSolidNoPermutation": {
+    "grade": "solid",
+    "reasons": [
+      "28 days mature",
+      "clean comparisons",
+      "enough traffic to mean something",
+    ],
+    "sentence": "I would treat this read as solid: 28 days mature, clean comparisons, enough traffic to mean something.",
+  },
+  "wonSolidPermutationAgrees": {
+    "grade": "solid",
+    "reasons": [
+      "28 days mature",
+      "clean comparisons",
+      "enough traffic to mean something",
+      "untouched pages agree this is a real signal",
+    ],
+    "sentence": "I would treat this read as solid: 28 days mature, clean comparisons, enough traffic to mean something, and pages I did not touch rarely moved this much on their own.",
+  },
+}
+`;
+
+exports[`golden: novelty-decay > decay fired, sustained win, incomplete coverage 1`] = `
+{
+  "baselineUncovered": null,
+  "decayed": {
+    "noveltyDecay": true,
+    "sentence": "The first week jump faded. This looks like novelty, not a lasting win. Week 1 ran about 5 extra clicks a day and week 4 is back to about 0.5 extra clicks a day.",
+    "weeklyLift": [
+      5,
+      2,
+      1,
+      0.5,
+    ],
+  },
+  "decayedToZero": {
+    "noveltyDecay": true,
+    "sentence": "The first week jump faded. This looks like novelty, not a lasting win. Week 1 ran about 6 extra clicks a day and week 4 is back to its old level.",
+    "weeklyLift": [
+      6,
+      2,
+      1,
+      0,
+    ],
+  },
+  "sustained": {
+    "noveltyDecay": false,
+    "sentence": null,
+    "weeklyLift": [
+      5,
+      5,
+      5,
+      5,
+    ],
+  },
+  "windowOpen": null,
+}
+`;
+
+exports[`golden: permutation-null > buildPermutationNull with injected context, ledger, and windows 1`] = `
+{
+  "enough": true,
+  "firstFive": [
+    {
+      "delta": -0.75,
+      "page": "https://site.com/p3",
+      "pseudoLift": 2.3365384615384617,
+    },
+    {
+      "delta": 0,
+      "page": "https://site.com/p4",
+      "pseudoLift": 3.1153846153846154,
+    },
+    {
+      "delta": 0.75,
+      "page": "https://site.com/p5",
+      "pseudoLift": 3.894230769230769,
+    },
+    {
+      "delta": -1.5,
+      "page": "https://site.com/p6",
+      "pseudoLift": 1.5576923076923075,
+    },
+    {
+      "delta": -0.75,
+      "page": "https://site.com/p7",
+      "pseudoLift": 2.3365384615384617,
+    },
+  ],
+  "pageCount": 27,
+  "percentile": {
+    "nGreater": 0,
+    "nTotal": 27,
+    "percentile": 0,
+  },
+  "sentence": "Out of 27 untouched pages, none moved as much as this one did. That is a strong estimate the change did it, not proof.",
+  "shipDate": "2026-06-01",
+  "windowDays": 7,
+}
+`;
+
+exports[`golden: permutation-null > sentences from counts across none, one, strong, weak, empty 1`] = `
+{
+  "empty": null,
+  "emptyDist": {
+    "nGreater": 0,
+    "nTotal": 0,
+    "percentile": 1,
+  },
+  "none": "Out of 40 untouched pages, none moved as much as this one did. That is a strong estimate the change did it, not proof.",
+  "one": "Out of 40 untouched pages, only 1 moved as much as this one did. That is a strong estimate the change did it, not proof.",
+  "strong": "Out of 40 untouched pages, only 2 moved as much as this one did. That is a strong estimate the change did it, not proof.",
+  "weak": "Out of 40 untouched pages, 10 moved as much as this one did. Untouched pages swing this much on their own, so I would not call this strong evidence yet.",
+}
+`;
+
+exports[`golden: query-breadth > buildQueryBreadth counts distinct impressed queries per window (both host forms) 1`] = `
+{
+  "after": 5,
+  "before": 2,
+  "breadthLine": "This page showed up for 2 different searches in the 7 days before the change and 5 in the 7 days after.",
+  "kind": "broader",
+  "sentence": "This page now shows up for 3 more searches than before; the win is reach, not just rank.",
+  "windowDays": 7,
+}
+`;
+
+exports[`golden: query-breadth > pure matrix: broader, deeper, flat, absence 1`] = `
+{
+  "absence": null,
+  "broader": {
+    "after": 58,
+    "before": 40,
+    "breadthLine": "This page showed up for 40 different searches in the 7 days before the change and 58 in the 7 days after.",
+    "kind": "broader",
+    "sentence": "This page now shows up for 18 more searches than before; the win is reach, not just rank.",
+    "windowDays": 7,
+  },
+  "deeper": {
+    "after": 41,
+    "before": 40,
+    "breadthLine": "This page showed up for 40 different searches in the 7 days before the change and 41 in the 7 days after.",
+    "kind": "deeper",
+    "sentence": "This page shows up for about the same searches as before, but they are sending 30 more clicks; the win is depth, not reach.",
+    "windowDays": 7,
+  },
+  "flat": {
+    "after": 41,
+    "before": 40,
+    "breadthLine": "This page showed up for 40 different searches in the 7 days before the change and 41 in the 7 days after.",
+    "kind": "flat",
+    "sentence": null,
+    "windowDays": 7,
+  },
+  "singular": {
+    "after": 5,
+    "before": 1,
+    "breadthLine": "This page showed up for 1 different search in the 7 days before the change and 5 in the 7 days after.",
+    "kind": "broader",
+    "sentence": "This page now shows up for 4 more searches than before; the win is reach, not just rank.",
+    "windowDays": 7,
+  },
+}
+`;
+
+exports[`golden: query-panel > buildQueryPanelOutcome reads the frozen set through the shared window reader 1`] = `
+{
+  "disagreesWithPage": true,
+  "pageClicksPct": -0.2,
+  "panelClicksPct": 0.6,
+  "panelLine": "The 2 searches this change targeted went from about 10 clicks to 16 clicks over the 7 day window.",
+  "panelPost": {
+    "clicks": 16,
+    "ctr": 0.13333333333333333,
+    "impressions": 120,
+    "position": 5.75,
+  },
+  "panelPre": {
+    "clicks": 40,
+    "ctr": 0.1,
+    "impressions": 400,
+    "position": 6.5,
+  },
+  "queriesInPanel": 2,
+  "sentence": "The searches this change targeted grew 60 percent, but the page overall fell 20 percent. Something else on the page lost ground.",
+  "windowDays": 7,
+}
+`;
+
+exports[`golden: query-panel > pure matrix: disagree both ways, agree, thin pre, thin pct 1`] = `
+{
+  "agree": {
+    "disagreesWithPage": false,
+    "pageClicksPct": 0.4,
+    "panelClicksPct": 0.4,
+    "panelLine": "The 3 searches this change targeted went from about 10 clicks to 14 clicks over the 7 day window.",
+    "panelPost": {
+      "clicks": 14,
+      "ctr": 0.14,
+      "impressions": 100,
+      "position": 5,
+    },
+    "panelPre": {
+      "clicks": 40,
+      "ctr": 0.1,
+      "impressions": 400,
+      "position": 5,
+    },
+    "queriesInPanel": 3,
+    "sentence": null,
+    "windowDays": 7,
+  },
+  "panelDownPageUp": {
+    "disagreesWithPage": true,
+    "pageClicksPct": 0.6,
+    "panelClicksPct": -0.5,
+    "panelLine": "The 3 searches this change targeted went from about 20 clicks to 10 clicks over the 7 day window.",
+    "panelPost": {
+      "clicks": 10,
+      "ctr": 0.1,
+      "impressions": 100,
+      "position": 5,
+    },
+    "panelPre": {
+      "clicks": 80,
+      "ctr": 0.1,
+      "impressions": 800,
+      "position": 5,
+    },
+    "queriesInPanel": 3,
+    "sentence": "The searches this change targeted fell 50 percent, but the page overall grew 60 percent. The gain is coming from other searches, not the ones we aimed at.",
+    "windowDays": 7,
+  },
+  "panelUpPageDown": {
+    "disagreesWithPage": true,
+    "pageClicksPct": -0.2,
+    "panelClicksPct": 0.4,
+    "panelLine": "The 3 searches this change targeted went from about 10 clicks to 14 clicks over the 7 day window.",
+    "panelPost": {
+      "clicks": 14,
+      "ctr": 0.14,
+      "impressions": 100,
+      "position": 5,
+    },
+    "panelPre": {
+      "clicks": 40,
+      "ctr": 0.1,
+      "impressions": 400,
+      "position": 5,
+    },
+    "queriesInPanel": 3,
+    "sentence": "The searches this change targeted grew 40 percent, but the page overall fell 20 percent. Something else on the page lost ground.",
+    "windowDays": 7,
+  },
+  "thinPct": {
+    "disagreesWithPage": false,
+    "pageClicksPct": 0,
+    "panelClicksPct": null,
+    "panelLine": "The 3 searches this change targeted went from about 1 clicks to 9 clicks over the 7 day window.",
+    "panelPost": {
+      "clicks": 9,
+      "ctr": 0.09,
+      "impressions": 100,
+      "position": 5,
+    },
+    "panelPre": {
+      "clicks": 4,
+      "ctr": 0.01,
+      "impressions": 400,
+      "position": 5,
+    },
+    "queriesInPanel": 3,
+    "sentence": null,
+    "windowDays": 7,
+  },
+  "thinPre": null,
+  "zeroQueries": null,
+}
+`;
+
+exports[`golden: rank-recheck > pure pieces: target query, was rank, idempotency, due window 1`] = `
+{
+  "already": true,
+  "due": 7,
+  "noTarget": null,
+  "notYet": false,
+  "target": "persian singers",
+  "was": {
+    "capturedAt": "2026-06-01T10:00:00Z",
+    "rank": 9,
+  },
+  "wasNone": {
+    "capturedAt": "2026-06-01T10:00:00Z",
+    "rank": 9,
+  },
+}
+`;
+
+exports[`golden: rank-recheck > runRankRecheck win / hold / fell-out / idempotent-skip 1`] = `
+{
+  "fellOut": {
+    "delta": null,
+    "nowAt": "2026-06-09T12:00:00.000Z",
+    "nowRank": null,
+    "query": "persian singers",
+    "sentence": null,
+    "wasAt": "2026-06-01T10:00:00Z",
+    "wasRank": 9,
+    "window": 7,
+  },
+  "hold": {
+    "delta": 0,
+    "nowAt": "2026-06-09T12:00:00.000Z",
+    "nowRank": 9,
+    "query": "persian singers",
+    "sentence": "Google has held this page at spot 9 for "persian singers" since the change.",
+    "wasAt": "2026-06-01T10:00:00Z",
+    "wasRank": 9,
+    "window": 7,
+  },
+  "idempotent": null,
+  "win": {
+    "delta": 5,
+    "nowAt": "2026-06-09T12:00:00.000Z",
+    "nowRank": 4,
+    "query": "persian singers",
+    "sentence": "Google moved this page 9 to 4 for "persian singers" since the change.",
+    "wasAt": "2026-06-01T10:00:00Z",
+    "wasRank": 9,
+    "window": 7,
+  },
+}
+`;
+
+exports[`golden: target-query-read > fail-soft: read error resolves to [] and empty inputs never read 1`] = `
+{
+  "errored": [],
+  "noQueries": [],
+  "thrown": [],
+}
+`;
+
+exports[`golden: target-query-read > full diff-in-diff with control, www trap, thin query, and missing query 1`] = `
+[
+  {
+    "controlsUsed": 1,
+    "ctrDelta": 0.05,
+    "positionDelta": 1.6,
+    "query": "persian singers",
+    "sentence": "On the exact search we aimed at ("persian singers"): click rate up 6 points, position 7.9 to 6.1.",
+    "treatedPost": {
+      "clicks": 32,
+      "ctr": 0.16,
+      "impressions": 200,
+      "position": 6.1,
+    },
+    "treatedPre": {
+      "clicks": 20,
+      "ctr": 0.1,
+      "impressions": 200,
+      "position": 7.9,
+    },
+  },
+]
+`;
+
+exports[`golden: target-query-read > readTargetQueryWindow folds variants onto the canonical key 1`] = `
+[
+  [
+    "https://site.com/a",
+    [
+      [
+        "q1",
+        {
+          "clicks": 5,
+          "impressions": 50,
+          "posWeighted": 290,
+        },
+      ],
+      [
+        "q2",
+        {
+          "clicks": 1,
+          "impressions": 10,
+          "posWeighted": 90,
+        },
+      ],
+    ],
+  ],
+]
+`;
+
+exports[`golden: target-query-read > sentence shapes: both metrics, ctr only, decline, silence 1`] = `
+{
+  "both": "On the exact search we aimed at ("persian singers"): click rate up 1.2 points, position 7.9 to 6.1.",
+  "ctrOnly": "On the exact search we aimed at ("q"): click rate up 1 point.",
+  "down": "On the exact search we aimed at ("q"): click rate down 2 points.",
+  "silent": null,
+}
+`;
+
+exports[`golden: target-query-read > withWwwVariant both directions and malformed input 1`] = `
+{
+  "bare": [
+    "https://iranopedia.com/singers",
+    "https://www.iranopedia.com/singers",
+  ],
+  "malformed": [
+    "not a url",
+  ],
+  "www": [
+    "https://www.iranopedia.com/singers",
+    "https://iranopedia.com/singers",
+  ],
+}
+`;

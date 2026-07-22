@@ -5,9 +5,10 @@ import type { VisibilityObservationRun } from "@/domains/observations/visibility
  * `buildTodaySummary` (the function that used to populate these types) was
  * deleted 2026-07-02 (UX5 legacy sweep) — it had zero callers anywhere and
  * its only reachable output, a "No urgent queue item" fallback, linked to
- * the (also now-deleted) `/pages` stub. The types below remain: they are
- * still the shape `today-shared-types.ts`'s `TodayClientProps.summary`
- * field is declared against.
+ * the (also now-deleted) `/pages` stub. The types below lost their last
+ * consumer 2026-07-21 (Lane S deleted `today-shared-types.ts`, whose
+ * `TodayClientProps.summary` was declared against them) — this module is
+ * a candidate for a follow-up reap.
  */
 
 export type TodayVerifiedFix = {
