@@ -24,8 +24,7 @@ import {
 } from "@/domains/demand-graph/prepared-move-pack";
 import { evaluatePreparedPackQuality } from "@/domains/drafts/draft-quality";
 import type { EvidencePacket } from "@/domains/demand-graph/evidence-packet";
-import type { MoveComponents } from "@/domains/demand-graph/build-graph";
-import type { GapKind } from "@/domains/demand-graph/gap-compiler";
+import type { MoveComponents, GapKind } from "@/domains/demand-graph/build-graph";
 
 const NOW = "2026-07-22T00:00:00.000Z";
 const TENANT = "tenant-iranopedia";
@@ -46,7 +45,7 @@ function packet(gapType: GapKind, over: { label?: string; url?: string | null } 
     draft: { kind: "deterministic_skeleton", titleSuggestion: null, metaBrief: null, outline: [], answerBlockBrief: null, faqQuestions: [], schemaRecommendations: [], assetSpec: null, asset: null, note: "" },
     proofPlan: { metrics: ["clicks"], windowsDays: [7, 14, 28], controls: "comparable pages" },
     evidenceHash: "cold-hash",
-  } as EvidencePacket;
+  } as unknown as EvidencePacket;
 }
 
 describe("COLD PATH 1 — existing-page exact edit is generated, validated, and loadable", () => {
