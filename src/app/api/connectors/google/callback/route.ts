@@ -70,7 +70,6 @@ import {
   decodeGoogleIdToken,
 } from "@/lib/connectors/google-auth";
 import { getSupabaseServerClient } from "@/lib/auth/supabase-server";
-import { isOperatorModeServer } from "@/lib/operator-mode";
 
 /**
  * Night-shift hardening (2026-06-11): the signed state carries the
@@ -82,13 +81,10 @@ import { isOperatorModeServer } from "@/lib/operator-mode";
  * Defense-in-depth: verify membership, fail-closed.
  */
 async function callerIsMemberOfTenant(tenantId: string): Promise<boolean> {
-  // Operator god-view: on the auth bypass / operator mode there's no Supabase
-  // user, so the membership lookup below always fails and blocks the founder
-  // from connecting their own sources. The OAuth `state` is HMAC-signed, so
-  // the tenantId can't be forged; operator mode is the trusted founder
-  // context. Customers never run in operator mode, so they still go through
-  // the membership check.
-  if (isOperatorModeServer()) return true;
+  // Connector ownership requires a real membership on the state's account.
+  // No environment flag bypasses this (2026-07-23 account-isolation
+  // contraction): the OAuth state is HMAC-signed, but the signed-in caller
+  // must still be a member of that account.
   try {
     const supabase = await getSupabaseServerClient();
     const { data: userData } = await supabase.auth.getUser();

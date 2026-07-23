@@ -21,11 +21,13 @@ export type Account = {
   id: string;                     // "tenant-<slug>" — the tenant_id every row carries
   slug: string;                   // URL-safe
   /**
-   * Display name seeded at signup from the email domain or typed during
-   * onboarding. The confirmed BusinessProfile.name is canonical once set;
-   * this field is the pre-profile fallback, never a second authority.
+   * INTERNAL provisional signup seed (the physical tenants.business_name
+   * column), readable only by pre-activation onboarding code. It is NOT a
+   * business-name authority: every active customer surface and evidence
+   * decision reads the canonical BusinessProfile name, with the Website
+   * domain as the fallback identity.
    */
-  business_name: string;
+  provisional_name: string;
   /** The account's one canonical domain. Consumers of URL identity use websiteOf(). */
   domain: string;
   /**

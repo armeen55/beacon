@@ -11,7 +11,7 @@
 // BusinessProfile (confirmed structured truth with per-section provenance).
 export type { Account, AccountStatus, Website } from "./tenants/types";
 export { websiteOf } from "./tenants/types";
-export { getTenant, getTenantBySlug, listActiveTenants } from "./tenants/store";
+export { getTenant, getTenantBySlug } from "./tenants/store";
 export type {
   BusinessProfile,
   ProfileSection,

@@ -54,7 +54,7 @@ export const PROVISIONING_DEFAULTS = {
 export type ProvisionInput = {
   /** Supabase auth user id (UUID). */
   userId: string;
-  /** User's email (used for slug derivation + business_name placeholder). */
+  /** User's email (used for slug derivation + provisional_name placeholder). */
   email: string;
 };
 
@@ -92,7 +92,7 @@ const FREE_EMAIL_DOMAINS = new Set([
 ]);
 
 /**
- * Derive a placeholder business_name from email. Used as a stub until
+ * Derive a placeholder provisional_name from email. Used as a stub until
  * the user fills in the real name in /onboard/business (Gap C).
  *
  * "joe@acme-builders.com" → "Acme Builders" (best-effort title-cased
@@ -195,7 +195,7 @@ export async function provisionTenantForNewUser(
   const tenantRow = {
     id: tenantId,
     slug,
-    business_name: derivePlaceholderBusinessName(input.email),
+    provisional_name: derivePlaceholderBusinessName(input.email),
     domain: "",
     signup_date: ts,
     tos_accepted_at: null,

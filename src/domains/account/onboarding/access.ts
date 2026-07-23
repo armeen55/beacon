@@ -34,7 +34,7 @@ export type OnboardingTenantContext = {
   tenantId: string;
   tenant: Pick<
     Account,
-    "id" | "slug" | "business_name" | "domain" | "status" | "tos_accepted_at"
+    "id" | "slug" | "provisional_name" | "domain" | "status" | "tos_accepted_at"
   >;
 };
 
@@ -78,7 +78,7 @@ export async function requireOnboardingTenant(opts?: {
 
   const { data: tenant, error: tErr } = await admin
     .from("tenants")
-    .select("id, slug, business_name, domain, status, tos_accepted_at")
+    .select("id, slug, provisional_name, domain, status, tos_accepted_at")
     .eq("id", tenantId)
     .maybeSingle();
 

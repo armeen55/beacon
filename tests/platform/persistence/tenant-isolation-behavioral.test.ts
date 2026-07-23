@@ -461,17 +461,49 @@ describe("generic Account + BusinessProfile (Slice 1 closure)", () => {
     expect("domain" in profile).toBe(false);
   });
 
+  it("active customer copy uses the BusinessProfile name, never the provisional signup seed", async () => {
+    vi.doMock("@/lib/tenant-context", () => ({ currentTenantId: async () => "tenant-copy" }));
+    vi.doMock("next/cache", () => ({ revalidatePath: vi.fn() }));
+    const store = await import("@/domains/account/tenants/store");
+    const bp = await import("@/domains/account/business-profile");
+    bp.__resetBusinessProfileCacheForTests();
+    const account = {
+      id: "tenant-copy", slug: "copy", provisional_name: "seed-name-visible-nowhere",
+      domain: "copy-co.example", status: "active" as const, signup_date: "2026-01-01",
+      tos_accepted_at: null, daily_budget_usd: 5, created_at: "2026-01-01", updated_at: "2026-01-01",
+    };
+    store.setAccountRepositoryForTests({
+      getAccountById: async (id) => (id === account.id ? account : null),
+      getAccountBySlug: async () => null,
+    });
+    bp.seedBusinessProfileForTests("tenant-copy", {
+      name: { value: "Confirmed Co", origin: "operator_confirmed", confidence: 1, sourceUrls: [] },
+    });
+    try {
+      const { loadSetup } = await import("@/app/(shell)/settings/config/actions");
+      const view = await loadSetup();
+      expect(view.name).toBe("Confirmed Co");
+      expect(view.name).not.toContain("seed-name");
+      expect(view.websiteDomain).toBe("copy-co.example");
+    } finally {
+      store.setAccountRepositoryForTests(null);
+      bp.setBusinessProfileRepositoryForTests(null);
+      bp.__resetBusinessProfileCacheForTests();
+      vi.doUnmock("@/lib/tenant-context");
+      vi.doUnmock("next/cache");
+    }
+  });
+
   it("the account store resolves through the injected scoped repository and fails to no-account, never a default", async () => {
     const store = await import("@/domains/account/tenants/store");
     const memA = {
-      id: "tenant-mem-a", slug: "mem-a", business_name: "Mem A", domain: "mem-a.example",
+      id: "tenant-mem-a", slug: "mem-a", provisional_name: "Mem A", domain: "mem-a.example",
       status: "active" as const, signup_date: "2026-01-01", tos_accepted_at: null,
       daily_budget_usd: 5, created_at: "2026-01-01", updated_at: "2026-01-01",
     };
     store.setAccountRepositoryForTests({
       getAccountById: async (id) => (id === memA.id ? memA : null),
       getAccountBySlug: async (slug) => (slug === memA.slug ? memA : null),
-      listActiveAccounts: async () => [memA],
     });
     try {
       expect((await store.getTenant("tenant-mem-a"))?.slug).toBe("mem-a");

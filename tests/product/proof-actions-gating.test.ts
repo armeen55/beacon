@@ -1,14 +1,16 @@
 /**
- * GSC Proof ledger — server-action gating (Phase 5, Path B).
+ * GSC Proof ledger — server-action gating.
  *
- * The record / recompute actions are OPERATOR-ONLY and must never run their
- * heavy GSC reads or writes for a non-operator. Mocks the server-only deps so
- * this is a fast behavioral test of the gate.
+ * Measurement mutations are ACCOUNT-OWNER-ONLY (2026-07-23 account-isolation
+ * contraction): the record / recompute actions must never run their heavy GSC
+ * reads or writes unless the authenticated user owns the current account. No
+ * environment flag can grant this. Mocks the server-only deps so this is a
+ * fast behavioral test of the gate.
  */
 import { describe, it, expect, beforeEach, vi } from "vitest";
 
-const { operatorFlag, mocks } = vi.hoisted(() => ({
-  operatorFlag: { value: true },
+const { ownerFlag, mocks } = vi.hoisted(() => ({
+  ownerFlag: { value: true },
   mocks: {
     loadProofPlan: vi.fn(),
     captureChangeMeta: vi.fn(),
@@ -21,7 +23,12 @@ const { operatorFlag, mocks } = vi.hoisted(() => ({
   },
 }));
 
-vi.mock("@/lib/operator-mode", () => ({ isOperatorModeServer: () => operatorFlag.value }));
+vi.mock("@/lib/auth/can-publish", () => ({
+  isAccountOwner: async () => ownerFlag.value,
+}));
+// The presentation-only operator flag must be POWERLESS here: force it on to
+// prove it cannot authorize a mutation for a non-owner.
+vi.mock("@/lib/operator-mode", () => ({ isOperatorModeServer: () => true }));
 vi.mock("@/lib/tenant-context", () => ({ currentTenantId: vi.fn(async () => "tenant-test") }));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 vi.mock("@/domains/decision/recommendation-intelligence/page-surgeon/bridge", () => ({
@@ -50,7 +57,7 @@ import {
 } from "@/app/(shell)/results/actions";
 
 beforeEach(() => {
-  operatorFlag.value = true;
+  ownerFlag.value = true;
   Object.values(mocks).forEach((m) => m.mockReset());
   mocks.loadProofPlan.mockResolvedValue([
     { pageUrl: "https://x.test/cities", controlPaths: ["/a", "/b"], headlineAction: "title" },
@@ -74,17 +81,17 @@ beforeEach(() => {
   ]);
 });
 
-describe("recordShippedChangeAction — operator gating", () => {
-  it("non-operator ⇒ refused, no record written", async () => {
-    operatorFlag.value = false;
+describe("recordShippedChangeAction — account-owner gating", () => {
+  it("non-owner ⇒ refused even with the operator env flag on, no record written", async () => {
+    ownerFlag.value = false;
     const res = await recordShippedChangeAction({ pageUrl: "https://x.test/cities" });
     expect(res.success).toBe(false);
-    expect(res.error).toMatch(/operator/i);
+    expect(res.error).toMatch(/owner/i);
     expect(mocks.recordShippedChange).not.toHaveBeenCalled();
     expect(mocks.upsertShippedChange).not.toHaveBeenCalled();
   });
 
-  it("operator ⇒ captures baseline + persists the record", async () => {
+  it("account owner ⇒ captures baseline + persists the record", async () => {
     const res = await recordShippedChangeAction({ pageUrl: "https://x.test/cities" });
     expect(res.success).toBe(true);
     expect(mocks.recordShippedChange).toHaveBeenCalledOnce();
@@ -183,9 +190,9 @@ describe("recordShippedChangeAction — operator gating", () => {
   });
 });
 
-describe("recomputeProofLedgerAction — operator gating", () => {
-  it("non-operator ⇒ refused, nothing recomputed", async () => {
-    operatorFlag.value = false;
+describe("recomputeProofLedgerAction — account-owner gating", () => {
+  it("non-owner ⇒ refused, nothing recomputed", async () => {
+    ownerFlag.value = false;
     const res = await recomputeProofLedgerAction();
     expect(res.success).toBe(false);
     expect(mocks.loadShippedChanges).not.toHaveBeenCalled();
@@ -194,7 +201,7 @@ describe("recomputeProofLedgerAction — operator gating", () => {
 
 describe("markRecrawlRequestedAction — operator gating + toggle", () => {
   it("non-operator ⇒ refused, nothing written", async () => {
-    operatorFlag.value = false;
+    ownerFlag.value = false;
     const res = await markRecrawlRequestedAction({ id: "/cities::2026-06-20", requested: true });
     expect(res.success).toBe(false);
     expect(mocks.upsertShippedChange).not.toHaveBeenCalled();

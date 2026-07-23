@@ -41,7 +41,7 @@ export async function loadScoreboardBrandLens(
       getTenant(tenantId),
       loadBusinessProfile(tenantId),
     ]);
-    const name = profile.name.value.trim() || account?.business_name || "";
+    const name = profile.name.value.trim();
     const domain = account ? websiteOf(account).domain : "";
     tokens = brandTokensForConfig({ name, domain });
   } catch {

@@ -14,7 +14,7 @@
 
 import { revalidatePath } from "next/cache";
 
-import { isOperatorModeServer } from "@/lib/operator-mode";
+import { isAccountOwner } from "@/lib/auth/can-publish";
 import { currentTenantId } from "@/lib/tenant-context";
 import { loadProofPlan } from "@/domains/decision";
 import {
@@ -85,7 +85,7 @@ export async function recordShippedChangeAction(args: {
   verifiedLive?: boolean;
   liveSourceUrl?: string;
 }): Promise<ProofLedgerActionResponse> {
-  if (!isOperatorModeServer()) return { success: false, error: "Operator only." };
+  if (!(await isAccountOwner())) return { success: false, error: "Only this account's owner can change measurement records." };
   const pageUrl = args?.pageUrl?.trim();
   if (!pageUrl) return { success: false, error: "Enter the page path or URL." };
 
@@ -233,7 +233,7 @@ export async function recordShippedChangeAction(args: {
 }
 
 export async function recomputeProofLedgerAction(): Promise<ProofLedgerActionResponse> {
-  if (!isOperatorModeServer()) return { success: false, error: "Operator only." };
+  if (!(await isAccountOwner())) return { success: false, error: "Only this account's owner can change measurement records." };
   try {
     const tenantId = await currentTenantId();
     const records = await loadShippedChanges();
@@ -272,7 +272,7 @@ export async function markRecrawlRequestedAction(args: {
   id: string;
   requested: boolean;
 }): Promise<ProofLedgerActionResponse> {
-  if (!isOperatorModeServer()) return { success: false, error: "Operator only." };
+  if (!(await isAccountOwner())) return { success: false, error: "Only this account's owner can change measurement records." };
   const id = args?.id?.trim();
   if (!id) return { success: false, error: "Missing record id." };
   try {
@@ -308,7 +308,7 @@ export async function markVerdictInconclusiveAction(args: {
   id: string;
   excluded: boolean;
 }): Promise<ProofLedgerActionResponse> {
-  if (!isOperatorModeServer()) return { success: false, error: "Operator only." };
+  if (!(await isAccountOwner())) return { success: false, error: "Only this account's owner can change measurement records." };
   const id = args?.id?.trim();
   if (!id) return { success: false, error: "Missing record id." };
   try {

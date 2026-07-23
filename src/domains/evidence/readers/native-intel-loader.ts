@@ -19,6 +19,7 @@ import "server-only";
 import { getSupabaseAdmin, isSupabaseConfigured } from "@/lib/persistence/supabase";
 import { log } from "@/lib/logger";
 import { getTenant } from "@/domains/account/tenants/store";
+import { loadBusinessProfile } from "@/domains/account/business-profile";
 import { rootDomain } from "@/domains/evidence/readers/serp-provider";
 import { ENGINE_PLAIN_NAME } from "./engine-types";
 import {
@@ -117,11 +118,15 @@ const EMPTY_REPORT: NativeIntelReport = {
 async function loadUncached(tenantId: string): Promise<NativeIntelReport> {
   if (!tenantId) return EMPTY_REPORT;
   try {
-    const [rows, tenant] = await Promise.all([readObservationRows(tenantId), getTenant(tenantId)]);
+    const [rows, tenant, profile] = await Promise.all([
+      readObservationRows(tenantId),
+      getTenant(tenantId),
+      loadBusinessProfile(tenantId).catch(() => null),
+    ]);
     if (rows.length === 0) return EMPTY_REPORT;
 
     const ownedRoot = tenant?.domain ? rootDomain(tenant.domain) : "";
-    const brandVariants = [tenant?.business_name, ownedRoot.replace(/\..*$/, "")].filter(
+    const brandVariants = [profile?.name.value, ownedRoot.replace(/\..*$/, "")].filter(
       (v): v is string => typeof v === "string" && v.length >= 2,
     );
 

@@ -41,7 +41,7 @@ export async function loadSetup(): Promise<SetupView> {
     loadBusinessProfile(tenantId),
   ]);
   return {
-    name: profile.name.value || account?.business_name || "",
+    name: profile.name.value,
     websiteDomain: account ? websiteOf(account).domain : "",
     businessType: profile.businessType.value ?? "",
     geographicScopeLine: profile.geographicScope.value.join(", "),

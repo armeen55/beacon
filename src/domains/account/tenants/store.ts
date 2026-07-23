@@ -2,12 +2,12 @@
  * Account store — reads for the canonical Account record.
  *
  * Production reads go through Supabase (`tenants` table) only, and every
- * individual resolution is an account-scoped query (`eq`), never a
- * load-every-account scan filtered in memory. `listActiveTenants` is the one
- * deliberate enumeration, bounded to active accounts for orchestration and
- * the switcher. A missing or unreadable registry resolves to "no account",
- * never to a default or another business. Tests inject an in-memory
- * repository via setAccountRepositoryForTests.
+ * resolution is an account-scoped query (`eq`), never a load-every-account
+ * scan. No account enumeration exists: one login resolves one account, and
+ * visit-driven work runs only for the authenticated current account. A
+ * missing or unreadable registry resolves to "no account", never to a
+ * default or another business. Tests inject an in-memory repository via
+ * setAccountRepositoryForTests.
  */
 
 import "server-only";
@@ -17,7 +17,6 @@ import type { Account, AccountStatus } from "./types";
 export type AccountRepository = {
   getAccountById(id: string): Promise<Account | null>;
   getAccountBySlug(slug: string): Promise<Account | null>;
-  listActiveAccounts(): Promise<Account[]>;
 };
 
 /** Map a Supabase `tenants` row to the canonical Account. Legacy vertical
@@ -30,7 +29,7 @@ export function mapRowToAccount(r: Record<string, unknown>): Account {
   return {
     id: String(r.id),
     slug: String(r.slug ?? ""),
-    business_name: String(r.business_name ?? ""),
+    provisional_name: String(r.business_name ?? ""),
     domain: String(r.domain ?? ""),
     status,
     signup_date: String(r.signup_date ?? r.created_at ?? ""),
@@ -71,25 +70,6 @@ async function scopedRow(
 const supabaseRepository: AccountRepository = {
   getAccountById: (id) => scopedRow("id", id),
   getAccountBySlug: (slug) => scopedRow("slug", slug),
-  async listActiveAccounts(): Promise<Account[]> {
-    try {
-      const { getSupabaseAdmin } = await import("@/lib/persistence/supabase");
-      const { data, error } = await getSupabaseAdmin()
-        .from("tenants")
-        .select("*")
-        .eq("status", "active");
-      if (error) {
-        console.error(`[account/store] active tenants read FAILED: ${error.message}`);
-        return [];
-      }
-      return (data ?? []).map((r) => mapRowToAccount(r as Record<string, unknown>));
-    } catch (e) {
-      console.error(
-        `[account/store] active tenants read THREW: ${e instanceof Error ? e.message : String(e)}`,
-      );
-      return [];
-    }
-  },
 };
 
 let repository: AccountRepository = supabaseRepository;
@@ -107,15 +87,6 @@ export async function getTenant(id: string): Promise<Account | null> {
 export async function getTenantBySlug(slug: string): Promise<Account | null> {
   if (!slug) return null;
   return repository.getAccountBySlug(slug);
-}
-
-/**
- * Accounts eligible for background work and switching (status === "active").
- * A paused/cancelled/pending account still RESOLVES via getTenant so its
- * stored data is never orphaned, but consumes zero fan-out work.
- */
-export async function listActiveTenants(): Promise<Account[]> {
-  return repository.listActiveAccounts();
 }
 
 export async function getTenantOrThrow(id: string): Promise<Account> {

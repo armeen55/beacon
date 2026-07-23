@@ -54,11 +54,11 @@ export type FirstReadingDetection =
 export type FirstReadingDetectorInput = {
   /**
    * The current tenant's row (or null if unresolvable). Only the
-   * status / business_name / domain fields are read.
+   * status / provisional_name / domain fields are read.
    */
   tenant: Pick<
     Account,
-    "status" | "business_name" | "domain"
+    "status" | "provisional_name" | "domain"
   > | null;
   /**
    * Count of `is_active=true` tracked_prompts for this tenant.
@@ -102,7 +102,7 @@ export function detectFirstReadingState(
   return {
     isFirstReading: true,
     context: {
-      businessName: (tenant.business_name ?? "").trim() || "your business",
+      businessName: (tenant.provisional_name ?? "").trim() || "your business",
       domain: (tenant.domain ?? "").trim(),
       promptCount: activePromptCount,
       // Customer-safe phrasing. NEVER mention cron / UTC / GitHub /

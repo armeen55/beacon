@@ -9,7 +9,7 @@ import "server-only";
 
 import Link from "next/link";
 import { currentTenantId } from "@/lib/tenant-context";
-import { getTenant } from "@/domains/account";
+import { getTenant, websiteOf, loadBusinessProfile } from "@/domains/account";
 import { loadDailyTotalsForTenant } from "@/domains/decision";
 import { loadWithDeadline } from "@/lib/load-with-deadline";
 
@@ -26,11 +26,16 @@ export async function CockpitBar() {
         Promise.all([
           getTenant(tenantId).catch(() => null),
           loadDailyTotalsForTenant(tenantId, 21).catch(() => []),
+          loadBusinessProfile(tenantId).catch(() => null),
         ] as const),
       ),
     );
     if (raced.timedOut) return null;
-    const [tenant, daily] = raced.data;
+    const [tenant, daily, profile] = raced.data;
+    // Canonical business name: the confirmed BusinessProfile, falling back to
+    // the Website domain — never the provisional signup seed.
+    const displayName =
+      profile?.name.value.trim() || (tenant ? websiteOf(tenant).domain : "");
     const rows = [...daily].sort((a, b) => a.date.localeCompare(b.date));
     const lastDate = rows.length >= 8 ? rows[rows.length - 1]!.date : null;
     const lagDays = lastDate ? Math.round((Date.now() - Date.parse(lastDate + "T00:00:00Z")) / DAY_MS) : null;
@@ -50,8 +55,8 @@ export async function CockpitBar() {
     // at-a-glance freshness dot so a stale connection is still visible everywhere.
     return (
       <div className="flex items-center gap-3 text-[12px] tabular-nums">
-        {tenant?.business_name ? (
-          <span className="hidden font-semibold text-foreground sm:inline">{tenant.business_name}</span>
+        {displayName ? (
+          <span className="hidden font-semibold text-foreground sm:inline">{displayName}</span>
         ) : null}
         {dot && dotTitle ? (
           <span className="inline-flex items-center gap-1.5" title={dotTitle}>
