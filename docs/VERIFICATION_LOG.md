@@ -27,5 +27,18 @@ frozen. Full pre-July history and the older rebuild banks live in git history.
 > (main tree). Turbopack's persistent cache shows phantom module-not-found after a file move; trust
 > `next build`, not the dev console.
 
-<!-- Append the Final Foundation Lock entry (5-domain consolidation, markdown reset, guard budgets,
-     tag foundation-frozen-mvp-start) here once that slice is deployed and verified. -->
+> 🟢 **2026-07-22 — FINAL FOUNDATION LOCK. Committed `a4863a65`, prod `dpl_5ge1nr7bjWJvrKzJ7cnsocUoAh4E`,
+> tag `foundation-frozen-mvp-start`.** Consolidated src/domains 28 → **5 kernels** (account, evidence,
+> decision, measurement, runtime); src/app server loaders consume kernels through public facades only;
+> client/presentation components import client-safe deep modules (Turbopack server-only boundary is their
+> guard). Extended the firewall: domains ≤5, facade rule, kernel dependency-direction check (6 pre-existing
+> leaks grandfathered, non-increasing), public-export cap (1,936→target 1,200), and a Markdown budget.
+> Markdown reset: 135 files / 76,717 lines → 15 / ~1,935 (deleted docs/archive + ~40 obsolete docs; rewrote
+> the canonical set accurate to the 5-kernel reality). Gate green: guard, tsc 0, 211/211 tests, build. Four
+> surfaces walked on the real main tree (beacon-audit :3141): Today ("2 ideas, 15 measuring"), Changes
+> (ranked queue + full New-page proposal), Results (WINS 4, directional reads), Connections ("4 of 4
+> connected"). Final: prod ~70,400 / test ~3,900 / combined ~74,300 LOC; 5 domains. Combined is above the
+> ≤65k goal because the six connector boundaries + persistence are mandatory working capability; the tracked
+> path to ≤65k is the Supabase-only persistence cleanup (NEXT_PHASE step 1). LESSON: a kernel facade
+> re-exports server-only modules, so a client-bundled component must import client-safe deep modules, not
+> the facade — caught by `next build`, not tsc.
