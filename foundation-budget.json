@@ -111,7 +111,7 @@
   },
   "markdown": {
     "_note": "Documentation budget. Git history is the archive. No docs/archive/. No new AUDIT/REPORT/WIP/HISTORY/ROADMAP/dated-plan docs without operator approval.",
-    "maxFiles": 8,
+    "maxFiles": 4,
     "maxTotalLines": 1000,
     "forbidArchive": true,
     "forbiddenNamePattern": "(AUDIT|REPORT|_WIP|WIP_|HISTORY|ROADMAP|NIGHT_SHIFT|AUTONOMOUS_PROGRESS)",
@@ -119,19 +119,13 @@
       "AGENTS.md",
       "CLAUDE.md",
       "docs/HANDOFF_VERIFIED_STATE.md",
-      "docs/VERIFICATION_LOG.md",
-      "docs/architecture.md",
-      "migrations/README.md",
-      "src/components/ui/README.md"
+      "docs/PRODUCT_TRUTH.md"
     ],
     "perFileCeilings": {
       "AGENTS.md": 200,
       "CLAUDE.md": 45,
       "docs/HANDOFF_VERIFIED_STATE.md": 200,
-      "docs/VERIFICATION_LOG.md": 300,
-      "docs/architecture.md": 250,
-      "migrations/README.md": 40,
-      "src/components/ui/README.md": 20
+      "docs/PRODUCT_TRUTH.md": 600
     }
   },
   "deps": {

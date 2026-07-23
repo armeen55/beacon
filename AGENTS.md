@@ -1,6 +1,6 @@
 # Beacon — instructions for Codex (Code / CLI / any agent)
 
-**Read first:** `docs/HANDOFF_VERIFIED_STATE.md` before non-trivial work.
+**Read first, in order:** `docs/PRODUCT_TRUTH.md`, then `docs/HANDOFF_VERIFIED_STATE.md`, before non-trivial work.
 
 This file is the **portable** project contract (use here, in Codex, or anywhere else). Cursor-specific rules live in `.cursor/rules/core.mdc` — keep them aligned when both are in use.
 
@@ -8,9 +8,10 @@ This file is the **portable** project contract (use here, in Codex, or anywhere 
 
 ## Product
 
-- Build Beacon as a real long-term product, not a throwaway prototype.
-- Optimize for a premium **single-user internal** app first.
-- Do **not** add auth, billing, teams, permissions, webhooks, cron jobs, or external integrations unless explicitly asked.
+- Build Beacon as the product defined in `docs/PRODUCT_TRUTH.md`, not a throwaway prototype.
+- The MVP is a tenant-scoped SaaS: one user, one account, one website.
+- Do **not** add billing, teams, permissions, webhooks, cron jobs, schedulers, automated publishing, or
+  unapproved integrations.
 - Keep files modular and reasonably small.
 - Do not modify unrelated files.
 - Reuse existing patterns whenever possible.
@@ -55,11 +56,10 @@ when it's not.
 ## Documentation policy
 
 - `docs/HANDOFF_VERIFIED_STATE.md` is the concise current state. Update it only when the verified state changes.
-- `docs/VERIFICATION_LOG.md` gets one concise entry per deployed vertical slice.
-- `docs/architecture.md` changes only when the architecture changes.
-- The operator-approved product truth, once written after the vision interview, is changed only with explicit operator approval.
+- `docs/PRODUCT_TRUTH.md` is the complete product contract. Only the operator may approve edits.
 - A completed task normally edits zero or one Markdown file.
-- Never create task summaries, dated audits, roadmaps, WIP logs, or in-repo archives. Git history is the archive.
+- Never create verification logs, architecture duplicates, task summaries, dated audits, roadmaps, WIP logs,
+  migration READMEs, component READMEs, or in-repo archives. Git history and deployed state are the archive.
 
 **Finish** with: **Task completed**, 1–5 bullets of what changed, and **exactly one** next best recommendation aligned with the current handoff and operator-approved product truth.
 
@@ -88,6 +88,19 @@ Before starting and again at the end of each task, recommend **one** tier and a 
 - **Stack:** Next.js (App Router), TypeScript strict, `.data/*.json` + optional Supabase dual-write (`DUAL_WRITE=true`).
 - **Data:** `.data/` is **gitignored** — not committed; keep local backups of CSVs/exports you care about.
 - **Quality gate:** `npm run typecheck && npm run test` before considering work done.
+- **Migrations:** applied SQL migrations are immutable and date-prefixed. Use the configured Supabase
+  management connection; never print credentials or run irreversible migrations without approval.
+
+## Product-experience floor
+
+- Four primary surfaces only: Today, Changes, Results, Connections.
+- Customer-facing UI is generic and tenant-driven; no real customer name or domain is hardcoded.
+- First render saved truth immediately; visit-driven work resumes after the response and persists real progress.
+- All OpenAI outputs use strict Structured Outputs plus server validation.
+- DataForSEO is the SEO and external AI-observation backbone. Do not revive SEMrush, Profound, borrowed-account,
+  or parallel native-provider architectures.
+- Publishing is manual. Beacon may research, recommend, verify, and measure autonomously.
+- Reuse UI primitives, tokens, and existing layout patterns. No one-off design systems or component families.
 
 ---
 
@@ -129,7 +142,7 @@ never up without explicit operator approval.
 - One production persistence path (Supabase); a tiny in-memory repo for tests. No
   file/JSON dual-write, no seed/demo data as live infrastructure, no implicit
   tenant resolution. Every op explicitly tenant- and site-scoped, fail-closed.
-- No speculative systems (billing, teams, cron, auto-publishing, agent
+- No speculative systems (billing, teams, cron, schedulers, auto-publishing, agent
   frameworks, experiments, "future intelligence") until a real MVP workflow needs
   it. Publishing is manual: recommend, operator applies, Mark implemented.
 

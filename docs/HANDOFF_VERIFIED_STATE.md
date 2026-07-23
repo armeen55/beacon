@@ -1,76 +1,85 @@
-# Beacon — MVP REBUILD START HERE
+# Beacon Verified State
 
-> This is the single current-state document. Read it first. Foundation is frozen and deployed; the next phase
-> is the MVP rebuild, which EXTENDS this foundation. Exact deployed SHA + deployment id are in the latest
-> `docs/VERIFICATION_LOG.md` entry. Ceiling: 200 lines.
+> This file says what is implemented and verified now. The target product is `PRODUCT_TRUTH.md`. Never describe
+> target behavior here as shipped behavior. Update this file only after a verified deployed state change.
 
-## What Beacon is now
+## Current foundation
 
-A small, mechanically protected, fully deployed foundation on **five kernels** behind **four surfaces**. All
-domain logic lives in `src/domains/{account,evidence,decision,measurement,runtime}/`; `src/app` and
-`src/components` consume each kernel through its public facade (`index.ts`) only. Single-user internal product
-(tenant `tenant-iranopedia`); no auth/billing/teams unless explicitly requested.
+- Branch: `main`; verified starting commit before the MVP rebuild: `4669fbb5`.
+- Stack: Next.js App Router, strict TypeScript, Supabase, Vercel.
+- Production TypeScript is approximately 70,400 lines; tests approximately 3,900; combined approximately 74,300.
+- The foundation guard caps production, tests, combined LOC, domains, routes, exports, files, dependencies, and
+  Markdown. `npm run gate` runs the guard, typecheck, tests, and build.
+- Five kernels exist: Account, Evidence, Decision, Measurement, Runtime.
+- Four primary surfaces exist: Today, Changes, Results, Connections.
+- Supabase authentication provisions one membership and one tenant per new user.
+- The current tenant record holds one domain, matching the one-account and one-website MVP direction.
+- Publishing remains manual.
 
-## Final foundation numbers (see VERIFICATION_LOG for the exact SHA/deploy)
+## What is real but incomplete
 
-- production TypeScript ≈ 70,400  ·  test ≈ 3,900  ·  combined ≈ 74,300 (guard hard cap 100,000; target 60,000)
-- top-level domains: **5** (account, evidence, decision, measurement, runtime)
-- exported symbols: 1,936 (capped; target 1,200)  ·  tracked Markdown: 15 files / ~1,935 lines
-- 211 behavioral tests · four surfaces verified on the real main tree (Iranopedia data)
+- URL-first onboarding crawls a bounded part of the site and shows a first scorecard.
+- Launch currently seeds only two brand prompts, not the approved 50-prompt system.
+- On-visit refresh uses Next `after()` and a once-daily receipt, but lacks a durable phased Research Run and
+  cross-instance lease.
+- DataForSEO code currently implements basic keyword volume and one-query Google organic SERP only.
+- Google SERP parsing already recognizes organic results, AI Overview citations, featured snippets, and PAA.
+- OpenAI drafting validates JSON with Zod after free-form generation; it is not yet the approved Responses API
+  plus native strict Structured Outputs gateway.
+- Recommendation, manual implementation, verification, and 7/14/28 measurement foundations exist.
 
-Combined LOC is above the ≤65k goal because the six connector boundaries and the persistence layer are
-mandatory working capability. The tracked path to ≤65k is the Supabase-only persistence cleanup (see
-NEXT_PHASE step 1).
+## Known target mismatches
 
-## The five kernels + dependency direction
+- Canonical tenant types still contain builder, city, budget, role, and publishing assumptions.
+- Real-customer names and founder fallbacks remain in generic code, comments, examples, and at least one
+  customer-visible placeholder.
+- Profound source names and gates remain in schemas, prompt seeding, decisions, runtime health, and historical
+  reads after the connector was removed.
+- SEMrush and borrowed-account assumptions must not be revived.
+- Four AI engines are declared in types, but the active runners that would populate those observations are absent.
+- A GitHub Actions first-scan dispatch remains connected to onboarding and conflicts with the approved
+  visit-driven runtime.
+- DataForSEO Labs, ChatGPT Scraper, LLM Responses, LLM Mentions, full keyword research, and competitor/domain
+  endpoints are not implemented.
+- Product copy and architecture documents before Product Truth described a single-user internal tool.
 
-Account → Evidence → Decision → Measurement; Runtime orchestrates. Forbidden (guard-enforced): Evidence
-importing Decision/Measurement; Measurement importing Decision. Six pre-existing leaks are grandfathered
-(`foundation-budget.json` → `kernelDirectionExceptions`) and tracked for severance; no new leak may be added.
+## Environment readiness
 
-## Allowed routes
+Verified variable-name presence without reading or printing values:
 
-Four surfaces: Today (`/`), Changes (`/changes`, `/changes/[id]`), Results (`/results`), Connections
-(`/settings/connectors`). Plus `/settings`, `/settings/config`, `/onboard`, `/onboard/done`, `/login`,
-`/signup`; API `api/connectors/google/callback` and `api/version`. New customer routes need operator approval.
+- Local and Vercel production have Supabase and OpenAI credentials.
+- Vercel production has Google OAuth client credentials and a GSC site configuration.
+- Neither local nor Vercel production currently has verified DataForSEO credentials or production provider
+  settings. Required before live provider validation: DataForSEO authentication, provider selection, an
+  explicit dry-run decision, and a fail-closed spend cap.
 
-## Canonical data records (one per concept)
+Never place credentials in chat, documentation, commits, or command output.
 
-Tenant / Membership / Site / Connection (account) · EvidenceSnapshot (evidence, normalizes all six sources) ·
-ChangeProposal (decision: one existing-page path + one new-page path, one validator, one ranker) ·
-Shipment / Measurement (measurement: 7/14/28-day reads). Supabase is the production repository, every op
-tenant- and site-scoped; all historical production records preserved.
+## Current routes
 
-## Six connector boundaries
+- Today `/`
+- Changes `/changes` and `/changes/[id]`
+- Results `/results`
+- Connections `/settings/connectors`
+- Minimal settings, onboarding, login, signup, Google callback, and version routes
 
-Google Search Console · Google Analytics 4 · Microsoft Clarity · DataForSEO SERP · native AI visibility · Wix
-(read for context; write only on explicit approval). Publishing is manual; Beacon never edits the live site.
+New customer routes require operator approval.
 
-## Foundation guard budgets (`foundation-budget.json`)
+## First MVP slice
 
-production ≤71,000 · tests ≤5,000 · combined hard cap 100,000 (target 60,000) · domains ≤5 · exports ≤1,936 ·
-new file ≤500 lines / hard max 800 (30 grandfathered, non-increasing) · Markdown ≤20 files / ≤3,000 lines with
-per-file ceilings and a name/archive block · runtime deps allowlisted · facade boundary + kernel direction
-enforced. Remaining grandfathered giant files (shrink, never grow) are listed in `files.grandfathered` — the
-largest are `decision/llm/structured-drafter.ts`, `lib/connectors/ga4/data-api.ts`, and
-`settings/connectors/actions.ts`; each mixes concerns and is a split candidate.
+Before implementation, reconcile the repository against `PRODUCT_TRUTH.md` and propose one bounded first slice:
 
-## How to run
+1. Make Account and Business Profile generic.
+2. Remove real-customer, founder, vertical, publishing-target, and old-provider assumptions from that boundary.
+3. Preserve all historical customer data through explicit migration or mapping.
+4. Do not begin DataForSEO expansion or onboarding UI in the same slice.
 
-- **Local (real main tree, Iranopedia data):** dev server `beacon-audit` (port 3141, runs from
-  `/Users/armeen/beacon`). Verify surfaces there — never the `beacon-iranopedia`/`beacon-filemode` worktree
-  configs' old copies (now repointed). Clear `.next` before a clean render check after file moves.
-- **Full gate:** `npm run gate` (guard:foundation + typecheck + test + build). CI: `.github/workflows/foundation.yml`.
+The proposal must include the eight fields required by `AGENTS.md` and identify exact old code deleted.
 
-## Tomorrow's first MVP feature must state (before any code — see AGENTS.md)
+## Verification
 
-1. exact user problem · 2. existing kernel it extends · 3. public API change · 4. max net LOC · 5. old code
-deleted/replaced · 6. behavioral test · 7. success signal · 8. kill condition.
-
-## The one next step
-
-Wait for the operator to describe tomorrow's MVP. Do not begin the MVP, add a feature, produce an ideas list,
-or start another cleanup until that definition arrives.
-
-The previous product specification was removed from the working tree after review. Git history preserves it.
-The next product contract will be written only after the operator completes the new vision interview.
+- Use the real main tree at `/Users/armeen/beacon`.
+- Preserve unrelated untracked `.codex/` and `supabase/` content.
+- Run `npm run gate` before completion.
+- An accepted implementation plan authorizes commit, push to `origin/main`, Vercel deployment, and hosted smoke
+  verification, subject to the destructive and external-state pauses in `AGENTS.md`.
