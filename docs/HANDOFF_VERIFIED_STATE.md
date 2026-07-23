@@ -43,7 +43,13 @@
 - Launch currently seeds only two brand prompts, not the approved 50-prompt system.
 - On-visit refresh uses Next `after()` and a once-daily receipt, but lacks a durable phased Research Run and
   cross-instance lease.
-- DataForSEO code currently implements basic keyword volume and one-query Google organic SERP only.
+- One canonical DataForSEO boundary exists (Slice 2, 2026-07-23): every call flows through
+  `dataForSeoRequest` with typed states (not_configured / dry_run / capped / ok / error), dry-run the
+  default, the global breaker and per-platform monthly cap failing closed before any network access,
+  actual provider cost recorded per account with provenance and a deterministic idempotency key.
+  Endpoint coverage is still keyword volume + one-query Google organic SERP. The boundary is
+  implemented and deployed; transport behavior is hermetically validated; the live provider response
+  is NOT yet validated (no credentials, no paid call has ever been made).
 - Google SERP parsing already recognizes organic results, AI Overview citations, featured snippets, and PAA.
 - OpenAI drafting validates JSON with Zod after free-form generation; it is not yet the approved Responses API
   plus native strict Structured Outputs gateway.
@@ -51,13 +57,11 @@
 
 ## Known target mismatches
 
-- Profound source names and gates remain in schemas, prompt seeding, decisions, runtime health, and historical
-  reads after the connector was removed (including a customer-visible confidence gate on change cards).
-- A SEMrush-sourced CTR benchmark constant remains in forecast calibration.
-- SEMrush and borrowed-account assumptions must not be revived.
+- Profound and SEMrush survive only as historical-row reads and inert comments (Slice 2 removed the
+  connector provider, runtime health entries, question seeding, drafter sources, the customer-visible AEO
+  confidence gate, the vendor-named benchmark, the GitHub Actions dispatch, and the provider-import
+  architecture). SEMrush and borrowed-account assumptions must not be revived.
 - Four AI engines are declared in types, but the active runners that would populate those observations are absent.
-- A GitHub Actions first-scan dispatch remains connected to onboarding (inert: no PAT, workflow file absent)
-  and conflicts with the approved visit-driven runtime.
 - DataForSEO Labs, ChatGPT Scraper, LLM Responses, LLM Mentions, full keyword research, and competitor/domain
   endpoints are not implemented.
 - Real-customer names remain in historical code comments outside the Account boundary (executable strings and
@@ -88,11 +92,9 @@ New customer routes require operator approval.
 
 ## Next slice
 
-Slice 1 (generic Account, Website, BusinessProfile) plus its closure repair and the account-isolation
-contraction are complete and deployed. The next build-order step is Slice 2: one canonical DataForSEO
-evidence boundary, deleting the Profound gates and reads, the SEMrush benchmark constant, the GitHub Actions
-first-scan dispatch, and the phantom native-provider architecture it replaces. It requires the eight fields
-from `AGENTS.md` and explicit operator approval before implementation.
+Slices 1 and 2 are complete and deployed. The next build-order step is Slice 3: replace free-form Chat
+Completions generation with the canonical OpenAI Responses API + strict Structured Outputs gateway
+(operator-approved 2026-07-23).
 
 ## Verification
 
