@@ -6,7 +6,6 @@
  * Stage D2 (2026-05-09) closed the 14 D-b factory paths:
  *   src/domains/pages/extractor.ts     (extractPageSnapshot)
  *   src/domains/pages/discover.ts      (discoverPages — opts.tenantId)
- *   src/domains/pages/guardrails.ts    (classifyGuardrails)
  *   src/domains/attribution/change-outcome.ts
  *                                      (insightToOutcome)
  *
@@ -58,7 +57,10 @@ const D2_FACTORIES: ReadonlyArray<FactoryContract> = [
   // mapCompetitorRow) deleted 2026-07-21 (Phase 4D): the CSV import engine was
   // dead code (no importers); its tenant-isolation contract retired with it.
   { file: "src/domains/pages/extractor.ts", fn: "extractPageSnapshot", shape: "positional" },
-  { file: "src/domains/pages/guardrails.ts", fn: "classifyGuardrails", shape: "positional" },
+  // src/domains/pages/guardrails.ts (classifyGuardrails) deleted 2026-07-22
+  // (CORE 100K Foundation trim): the guardrail-classification module was dead
+  // code (no production importer, no test); its tenant-isolation contract
+  // retired with it.
   // src/domains/attribution/change-outcome.ts (insightToOutcome) deleted
   // 2026-07-21 (CORE 100K Lane F): the attribution memory loop was a closed
   // producer with no rendered consumer; its tenant-isolation contract retired
