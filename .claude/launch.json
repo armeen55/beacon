@@ -21,7 +21,7 @@
       "runtimeExecutable": "sh",
       "runtimeArgs": [
         "-c",
-        "cd /Users/armeen/beacon/.claude/worktrees/objective-davinci-c81e70 && DATA_SOURCE=supabase BEACON_AUTH_DISABLED=1 BEACON_OPERATOR_MODE=true BEACON_TENANT_ID=tenant-iranopedia BEACON_TENANT_SLUG=iranopedia npm run dev -- -p 3142"
+        "cd /Users/armeen/beacon && DATA_SOURCE=supabase BEACON_AUTH_DISABLED=1 BEACON_OPERATOR_MODE=true BEACON_TENANT_ID=tenant-iranopedia BEACON_TENANT_SLUG=iranopedia npm run dev -- -p 3142"
       ],
       "port": 3142
     },
@@ -30,7 +30,7 @@
       "runtimeExecutable": "sh",
       "runtimeArgs": [
         "-c",
-        "cd /Users/armeen/beacon/.claude/worktrees/objective-davinci-c81e70 && DATA_SOURCE=file DUAL_WRITE=false BEACON_AUTH_DISABLED=1 BEACON_TENANT_ID=tenant-iranopedia BEACON_TENANT_SLUG=iranopedia npm run dev -- -p 3140"
+        "cd /Users/armeen/beacon && DATA_SOURCE=file DUAL_WRITE=false BEACON_AUTH_DISABLED=1 BEACON_TENANT_ID=tenant-iranopedia BEACON_TENANT_SLUG=iranopedia npm run dev -- -p 3140"
       ],
       "port": 3140
     }

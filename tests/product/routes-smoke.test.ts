@@ -37,10 +37,10 @@ vi.mock("@/lib/connector-store", async () => {
     getYelpConnectorToken: vi.fn(async () => null),
   };
 });
-vi.mock("@/domains/ops/refresh-runs-store", () => ({
+vi.mock("@/domains/runtime/ops/refresh-runs-store", () => ({
   latestRefreshBySource: vi.fn(async () => ({})),
 }));
-vi.mock("@/domains/ops/warm-receipt-store", () => ({
+vi.mock("@/domains/runtime/ops/warm-receipt-store", () => ({
   readLastWarmReceipt: vi.fn(async () => ({
     tenant_id: "tenant-iranopedia",
     date: "2026-07-17",

@@ -3,7 +3,7 @@
  *
  * Bundle (2026-05-10) — renders ONE pill per timeline card from the
  * pure resolver in
- * `src/domains/changes/proof-timeline/result-pill.ts`. Replaces the
+ * `src/domains/decision/changes/proof-timeline/result-pill.ts`. Replaces the
  * legacy three-pill row (Attribution Status + Impact Direction +
  * Verdict) with a single customer-readable signal.
  *
@@ -11,7 +11,7 @@
  * used by the rest of the v2 surfaces (today + recommendations).
  */
 import { cn } from "@/lib/utils";
-import type { ProofPill, ProofPillTone } from "@/domains/changes/proof-timeline/result-pill";
+import type { ProofPill, ProofPillTone } from "@/domains/decision/changes/proof-timeline/result-pill";
 
 const PILL_TONE_CLASS: Record<ProofPillTone, string> = {
   success: "border-status-success/35 bg-status-success/[0.08] text-status-success",

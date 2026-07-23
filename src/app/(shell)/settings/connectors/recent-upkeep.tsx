@@ -5,7 +5,7 @@ import "server-only";
  * list on /settings/connectors. /activity is retired (its two customer-facing
  * value props were the latest per-source refresh receipt and a short recent-
  * refresh history - both already sourced from this same ledger). This module
- * folds that forward: read @/domains/ops/refresh-runs-store (the same store this
+ * folds that forward: read @/domains/runtime/ops/refresh-runs-store (the same store this
  * page already reads for its per-source "last pulled" strip - no new store, no
  * new write path) and render the last ~10 refresh entries as plain sentences.
  * The cron-run / error-ledger / spend rows /activity also rendered were
@@ -17,7 +17,7 @@ import {
   listRecentRefreshRuns,
   type RefreshRunRow,
   type RefreshSource,
-} from "@/domains/ops/refresh-runs-store";
+} from "@/domains/runtime";
 import { Card } from "@/components/ui/card";
 
 /** How many of the most recent refresh entries stay visible - Beacon's daily

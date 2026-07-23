@@ -18,7 +18,7 @@ import "server-only";
 
 import { getSupabaseAdmin, isSupabaseConfigured } from "@/lib/persistence/supabase";
 import { log } from "@/lib/logger";
-import { getTenant } from "@/domains/tenants/store";
+import { getTenant } from "@/domains/account/tenants/store";
 import { rootDomain } from "@/domains/evidence/readers/serp-provider";
 import { ENGINE_PLAIN_NAME } from "./engine-types";
 import {

@@ -6,9 +6,9 @@ import { after } from "next/server";
 import { currentTenantId } from "@/lib/tenant-context";
 import { recordAppError, errorFieldsFrom } from "@/lib/obs/error-ledger";
 import { runSingleFlight } from "@/lib/single-flight";
-import { readLastFinalizedDate } from "@/domains/proof-gsc";
-import { loadProofLedger, loadProofLedgerPersisted } from "@/domains/proof-gsc";
-import { readLedger, type KernelRead } from "@/domains/proof-gsc";
+import { readLastFinalizedDate } from "@/domains/measurement";
+import { loadProofLedger, loadProofLedgerPersisted } from "@/domains/measurement";
+import { readLedger, type KernelRead } from "@/domains/measurement";
 import {
   isResultsSurfaceStale,
   readResultsSurface,

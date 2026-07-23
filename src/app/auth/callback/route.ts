@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { getSupabaseServerClient } from "@/lib/auth/supabase-server";
 import { getSupabaseAdmin } from "@/lib/persistence/supabase";
-import { provisionTenantForNewUser } from "@/domains/onboarding/provision-tenant";
+import { provisionTenantForNewUser } from "@/domains/account";
 
 /**
  * Supabase magic-link callback. Exchanges the `code` query param for a

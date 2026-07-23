@@ -1,7 +1,7 @@
 import "server-only";
 
 import { readStore, writeStore } from "@/lib/persistence/json-store";
-import type { KernelRead } from "@/domains/proof-gsc";
+import type { KernelRead } from "@/domains/measurement/proof-gsc";
 
 /**
  * results-surface-store (CORE 100K) - a tenant-scoped stale-while-revalidate cache

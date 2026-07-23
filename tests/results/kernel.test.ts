@@ -12,7 +12,7 @@ import {
   verdictPhrase,
   type KernelInput,
   type LedgerRecordLike,
-} from "@/domains/proof-gsc/kernel";
+} from "@/domains/measurement/proof-gsc/kernel";
 
 /**
  * Outcome-level contract tests for the measurement kernel. These pin CUSTOMER

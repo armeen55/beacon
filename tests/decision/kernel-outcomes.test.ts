@@ -27,7 +27,7 @@ import {
   type EvidenceInput,
   type ChangeProposal,
 } from "@/domains/decision/contracts";
-import type { CompleteFn } from "@/domains/llm/structured-drafter";
+import type { CompleteFn } from "@/domains/decision/llm/structured-drafter";
 
 // ── fixtures ──────────────────────────────────────────────────────────────────
 

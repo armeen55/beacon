@@ -11,8 +11,8 @@
  * deleted as dead code.) Reaping the dead write/seed functions is a
  * follow-up (4C).
  * **Profound / import pipeline only.** App routes must not use this for website
- * crawl/verify runs — those are `domains/observations/read.ts` → repository.
- * Event decisions for routes use `domains/attribution/store.ts`.
+ * crawl/verify runs — those are `domains/evidence/observations/read.ts` → repository.
+ * Event decisions for routes use `domains/measurement/attribution/store.ts`.
  *
  * Hot stores: loaded eagerly via json-store (small collections).
  * Cold stores: loaded on-demand via cold-store (large observation data).
@@ -49,11 +49,11 @@ import {
 } from "@/lib/persistence/dual-write";
 import { getRepository } from "@/lib/persistence/repositories";
 import { currentTenantId } from "@/lib/tenant-context";
-import type { TrackedPrompt } from "@/domains/ai-visibility/tracked-prompts";
-import type { TrackedEntity } from "@/domains/ai-visibility/tracked-entities";
-import type { ProfoundImportRun } from "@/domains/ai-visibility/observation-runs";
-import type { PromptAnswerObservation } from "@/domains/ai-visibility/prompt-answer-observations";
-import type { DailyMetricSnapshot } from "@/domains/daily-metric-snapshots/types";
+import type { TrackedPrompt } from "@/domains/evidence/ai-visibility/tracked-prompts";
+import type { TrackedEntity } from "@/domains/evidence/ai-visibility/tracked-entities";
+import type { ProfoundImportRun } from "@/domains/evidence/ai-visibility/observation-runs";
+import type { PromptAnswerObservation } from "@/domains/evidence/ai-visibility/prompt-answer-observations";
+import type { DailyMetricSnapshot } from "@/domains/evidence/daily-metric-snapshots/types";
 
 // ---------------------------------------------------------------------------
 // Process-level mutable state.

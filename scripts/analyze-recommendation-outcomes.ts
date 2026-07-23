@@ -39,12 +39,12 @@ if (existsSync(envPath)) {
   }
 }
 
-import { readRecommendedEditsLocal } from "../src/domains/changes/recommended-edits-persistence";
-import { getUrlChangeOutcomes } from "../src/domains/attribution/url-change-outcome";
-import type { RecommendedEditRow, ImplementationStatus } from "../src/domains/changes/recommended-edits-persistence";
+import { readRecommendedEditsLocal } from "../src/domains/decision/changes/recommended-edits-persistence";
+import { getUrlChangeOutcomes } from "../src/domains/measurement/attribution/url-change-outcome";
+import type { RecommendedEditRow, ImplementationStatus } from "../src/domains/decision/changes/recommended-edits-persistence";
 import { normalizeUrl } from "../src/lib/url/normalize";
 import { getChangelogEntries } from "../src/lib/seed-data.server";
-import type { ChangelogEntry } from "../src/domains/changelog/types";
+import type { ChangelogEntry } from "../src/domains/measurement/changelog/types";
 
 const REPO_ROOT = resolve(__dirname, "..");
 const REPORTS_DIR = join(REPO_ROOT, ".data", "_reports");

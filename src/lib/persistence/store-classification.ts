@@ -158,7 +158,7 @@ export const TENANT_SCOPED_STORES = new Set<string>([
   "indexnow-receipts",
   // On-visit refresh throttle marker (operator spec 2026-07-09, I-59). One tiny row
   // per tenant recording the last time an on-visit auto-refresh fired, so rapid
-  // revisits can't trigger a refresh storm (src/domains/ops/on-visit-refresh.ts).
+  // revisits can't trigger a refresh storm (src/domains/runtime/ops/on-visit-refresh.ts).
   // Written from the Today render context (ambient tenant), so file-routed
   // tenant-scoped, not a cron-fan-out GLOBAL store.
   "on-visit-refresh-marker",
@@ -280,7 +280,7 @@ export const GLOBAL_STORES = new Set<string>([
   // survives Vercel lambdas and a retry can never double-publish.
   "publish-outbox",
   // Backup-verification receipts (2026-07-03, BEACON_500 R22a / T0d).
-  // LEGACY (2026-07-21, Phase 4A Lane 2): the producer (domains/ops/backup-verify.ts,
+  // LEGACY (2026-07-21, Phase 4A Lane 2): the producer (domains/runtime/ops/backup-verify.ts,
   // a final phase of the nightly cron) was deleted with the rest of the cron-era
   // fleet producers - nothing writes new receipts and nothing reads this store on
   // any live surface anymore. Kept registered (not removed) because a real historical
@@ -471,14 +471,14 @@ export const GLOBAL_STORES = new Set<string>([
   // v1 264). Rows carry tenant_id; one row per tenant, 3h TTL. Holds Google's
   // EARLY (dataState all) per-day counts for the final-lag window ONLY -
   // never written to the final daily tables (the is_final discipline is
-  // inviolable; src/domains/gsc/load-fresh-tail.ts).
+  // inviolable; src/domains/evidence/gsc/load-fresh-tail.ts).
   "gsc-fresh-tail",
   // Discover-probe volatile presentation cache (2026-07-03, BEACON_500 R17c,
   // v1 493). Rows carry tenant_id; one row per tenant, 12h TTL. Holds only the
   // aggregate Google Discover totals (a separate feed most properties never
   // receive); a null totals is cached so an unavailable feed does not re-probe.
   // Read-only, never written to the final daily tables
-  // (src/domains/gsc/load-footprint.ts).
+  // (src/domains/evidence/gsc/load-footprint.ts).
   "gsc-discover-probe",
 ]);
 

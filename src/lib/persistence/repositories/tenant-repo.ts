@@ -26,7 +26,7 @@ import {
   readDotDataJson,
   writeDotDataJson,
 } from "@/lib/persistence/dotdata-json";
-import type { RobotsStateFile } from "@/domains/pages/robots-parser";
+import type { RobotsStateFile } from "@/domains/evidence/pages/robots-parser";
 
 /**
  * Loose runtime filter — works for any row shape that may carry a

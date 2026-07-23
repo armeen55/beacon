@@ -22,12 +22,15 @@
 import Link from "next/link";
 
 import { cn } from "@/lib/utils";
-import type { ProofPill } from "@/domains/changes/proof-timeline/result-pill";
+import type { ProofPill } from "@/domains/decision/changes/proof-timeline/result-pill";
+// Presentation component (pulled into the client bundle): import the client-safe
+// action-types module directly, not the decision facade (which re-exports
+// server-only modules).
 import {
   isIndexingDirectiveActionType,
   INDEXING_DIRECTIVE_CAVEAT,
   type ActionType,
-} from "@/domains/changes/action-types";
+} from "@/domains/decision/changes/action-types";
 
 import { ChangesV2ResultPill } from "./changes-v2-result-pill";
 

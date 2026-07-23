@@ -14,7 +14,7 @@ import "server-only";
 
 import { cache } from "react";
 import { getSupabaseAdmin } from "@/lib/persistence/supabase";
-import { canonicalizeCitationUrl } from "@/domains/ai-visibility/canonicalize-citation-url";
+import { canonicalizeCitationUrl } from "@/domains/evidence/ai-visibility/canonicalize-citation-url";
 import { log } from "@/lib/logger";
 import {
   normalizePageRevenue,

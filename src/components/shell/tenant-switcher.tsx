@@ -7,7 +7,7 @@
  */
 
 import { getSupabaseServerClient } from "@/lib/auth/supabase-server";
-import { getTenant, listActiveTenants } from "@/domains/tenants/store";
+import { getTenant, listActiveTenants } from "@/domains/account";
 import { currentTenantId } from "@/lib/tenant-context";
 import { isOperatorModeServer } from "@/lib/operator-mode";
 import { switchTenantFromForm } from "@/app/(shell)/tenant-switch-action";

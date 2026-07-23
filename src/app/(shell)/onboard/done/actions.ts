@@ -18,9 +18,9 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { getSupabaseServerClient } from "@/lib/auth/supabase-server";
 import { getSupabaseAdmin } from "@/lib/persistence/supabase";
-import { lookupExistingMembership } from "@/domains/onboarding/provision-tenant";
-import { runCrawlBatch } from "@/domains/scanning/crawl-frontier";
-import { runFirstLook } from "@/domains/onboarding/url-first";
+import { lookupExistingMembership } from "@/domains/account";
+import { runCrawlBatch } from "@/domains/evidence";
+import { runFirstLook } from "@/domains/account";
 import { executeLaunchTransaction } from "../launch-flow";
 
 async function resolveTenant(): Promise<{ tenantId: string; domain: string } | null> {

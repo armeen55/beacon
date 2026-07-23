@@ -17,7 +17,7 @@ import { getRepository } from "@/lib/persistence/repositories";
 
 export type TodayV2GateData = {
   isDemoMode: boolean;
-  firstReading: import("@/domains/onboarding/first-reading-state").FirstReadingDetection;
+  firstReading: import("@/domains/account/onboarding/first-reading-state").FirstReadingDetection;
 };
 
 export async function loadTodayV2GateData(): Promise<TodayV2GateData> {
@@ -80,7 +80,7 @@ export async function loadTodayV2GateData(): Promise<TodayV2GateData> {
   try {
     const { currentTenant } = await import("@/lib/tenant-context");
     const { detectFirstReadingState } = await import(
-      "@/domains/onboarding/first-reading-state"
+      "@/domains/account/onboarding/first-reading-state"
     );
     const tenant = await currentTenant();
     return {

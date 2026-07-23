@@ -92,11 +92,11 @@ export const SUPABASE_MIRRORED_STORES = new Set<string>([
   // mirror is what lets the crawl advance past batch one on hosted prod.
   "crawl-frontier",
   // Structured-drafter call cache (content hash -> validated output): the
-  // $0-repeat guarantee on Vercel. domains/llm/call-cache.ts.
+  // $0-repeat guarantee on Vercel. domains/decision/llm/call-cache.ts.
   "llm-call-cache",
   // Nightly precompute warm receipts; read by warm-receipt-store.ts.
   "precompute-warm-receipts",
-  // Winner memory (few-shot injection for the drafter); domains/llm/winner-memory.ts.
+  // Winner memory (few-shot injection for the drafter); domains/decision/llm/winner-memory.ts.
   "winner-memory",
   // Demand-ranked question universe; read by the ai-visibility + evidence readers.
   "question-universe",

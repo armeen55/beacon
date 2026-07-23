@@ -1,14 +1,14 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
-import type { ChangelogEntry } from "@/domains/changelog/types";
+import type { ChangelogEntry } from "@/domains/measurement/changelog/types";
 import { getRepository } from "@/lib/persistence/repositories";
 import { currentTenantId } from "@/lib/tenant-context";
 import {
   createPerfTrace,
   readPerfTraceIdFromHeaders,
 } from "@/lib/perf-trace";
-import { loadProofLedgerPersisted } from "@/domains/proof-gsc";
-import { findProofForChange, proofResultHref } from "@/domains/proof-gsc";
+import { loadProofLedgerPersisted } from "@/domains/measurement";
+import { findProofForChange, proofResultHref } from "@/domains/measurement";
 
 // Phase 1.6 (Sprint 1 follow-up, 2026-04-24): force dynamic render so every
 // request runs the fresh-repo-read pattern below. Matches /changes main list.

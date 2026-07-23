@@ -261,7 +261,7 @@ async function checkPollFreshness(): Promise<{ status: Outcome["status"]; detail
 
 async function checkLiveAtFreshness(): Promise<{ status: Outcome["status"]; detail: string }> {
   const { readRecommendedEditsLocal } = await import(
-    "../src/domains/changes/recommended-edits-persistence"
+    "../src/domains/decision/changes/recommended-edits-persistence"
   );
   const recs = await readRecommendedEditsLocal();
   const cutoff = new Date(Date.now() - LIVE_AT_STUCK_DAYS * 24 * 3600 * 1000).toISOString();

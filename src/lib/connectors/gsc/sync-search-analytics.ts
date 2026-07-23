@@ -46,7 +46,7 @@ import {
   persistRefreshedGoogleToken,
   updateConnectorToken,
 } from "@/lib/connector-store";
-import { getTenant } from "@/domains/tenants/store";
+import { getTenant } from "@/domains/account/tenants/store";
 import { log } from "@/lib/logger";
 
 import {
@@ -61,8 +61,8 @@ import { refreshGoogleAccessToken } from "@/lib/connectors/google-auth";
 // nightly run also re-pulls days that are MISSING inside the covered range
 // (sync holes the trailing REPULL window can never reach back to), capped per
 // night. Classification is the shared pure module the connections card reads.
-import { loadGscIngestionGapReport } from "@/domains/gsc/load-ingestion-gaps";
-import { selectGapRepullDates } from "@/domains/gsc/ingestion-gaps";
+import { loadGscIngestionGapReport } from "@/domains/evidence/gsc/load-ingestion-gaps";
+import { selectGapRepullDates } from "@/domains/evidence/gsc/ingestion-gaps";
 
 /** Exported so ingestion-gaps.GSC_FINAL_LAG_DAYS can be pinned in lockstep. */
 export const FINAL_LAG_DAYS = 3;

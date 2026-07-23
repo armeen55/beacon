@@ -32,7 +32,7 @@ const DATA_DIR = join(process.cwd(), ".data");
 // Sharded citations — one file per date in .data/citations-by-date/
 // ---------------------------------------------------------------------------
 
-import type { CitationObservation } from "@/domains/ai-visibility/citation-observations";
+import type { CitationObservation } from "@/domains/evidence/ai-visibility/citation-observations";
 
 const CITATION_DIR = join(DATA_DIR, "citations-by-date");
 

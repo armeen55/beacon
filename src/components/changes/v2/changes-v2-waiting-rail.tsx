@@ -12,7 +12,7 @@
 import Link from "next/link";
 
 import { cn } from "@/lib/utils";
-import type { WaitingRailItem } from "@/domains/changes/proof-timeline/waiting-rail";
+import type { WaitingRailItem } from "@/domains/decision/changes/proof-timeline/waiting-rail";
 
 export function ChangesV2WaitingRail({
   items,

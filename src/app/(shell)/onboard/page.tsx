@@ -10,7 +10,7 @@
  * pending_onboarding tenants only.
  */
 
-import { requireOnboardingTenant } from "@/domains/onboarding/access";
+import { requireOnboardingTenant } from "@/domains/account";
 import { UrlFirstForm } from "./url-form";
 
 export const dynamic = "force-dynamic";

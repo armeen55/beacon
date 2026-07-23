@@ -54,7 +54,7 @@ vi.mock("@/lib/connectors/clarity/sync-daily-metrics", () => ({
 }));
 
 
-vi.mock("@/domains/tenants/store", () => ({
+vi.mock("@/domains/account/tenants/store", () => ({
   getTenant: vi.fn(async () => ({ domain: "example.com" })),
 }));
 

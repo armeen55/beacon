@@ -1,5 +1,5 @@
 import { buildCsv } from "@/lib/csv";
-import { verdictPhrase, type KernelRead } from "@/domains/proof-gsc";
+import { verdictPhrase, type KernelRead } from "@/domains/measurement";
 
 /**
  * results-csv (CORE 100K) - the "Download as spreadsheet" export of the SAME

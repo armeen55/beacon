@@ -10,18 +10,18 @@ import { AppHeader } from "@/components/shell/app-header";
 import { CommandPalette, type PaletteItem } from "@/components/shell/command-palette";
 import { getChangelogEntries } from "@/lib/seed-data.server";
 import { allNavItems } from "@/lib/navigation";
-import { getPendingFindings } from "@/domains/scanning/findings-store";
-import { CONTENT_CHANGE_TYPES } from "@/domains/scanning/content-change-types";
+import { getPendingFindings } from "@/domains/evidence";
+import { CONTENT_CHANGE_TYPES } from "@/domains/evidence";
 import {
   getWatchingUrlOutcomes,
   ensureUrlChangeOutcomesSeeded,
-} from "@/domains/attribution/url-change-outcome";
+} from "@/domains/measurement";
 import {
   createPerfTrace,
   readPerfTraceIdFromHeaders,
 } from "@/lib/perf-trace";
 import { currentTenantId } from "@/lib/tenant-context";
-import { scheduleAutonomousRefreshOnVisit } from "@/domains/ops/on-visit-refresh";
+import { scheduleAutonomousRefreshOnVisit } from "@/domains/runtime";
 import { loadWithDeadline } from "@/lib/load-with-deadline";
 
 // T-CustomerNav (2026-05-08) - keys aligned with `navigationGroups`

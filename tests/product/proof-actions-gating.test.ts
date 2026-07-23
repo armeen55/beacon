@@ -24,21 +24,21 @@ const { operatorFlag, mocks } = vi.hoisted(() => ({
 vi.mock("@/lib/operator-mode", () => ({ isOperatorModeServer: () => operatorFlag.value }));
 vi.mock("@/lib/tenant-context", () => ({ currentTenantId: vi.fn(async () => "tenant-test") }));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
-vi.mock("@/domains/recommendation-intelligence/page-surgeon/bridge", () => ({
+vi.mock("@/domains/decision/recommendation-intelligence/page-surgeon/bridge", () => ({
   loadProofPlan: mocks.loadProofPlan,
 }));
-vi.mock("@/domains/recommendation-intelligence/page-surgeon/assemble-packet", () => ({
+vi.mock("@/domains/decision/recommendation-intelligence/page-surgeon/assemble-packet", () => ({
   loadPageSurgeonContext: mocks.loadPageSurgeonContext,
   topPagesByDemand: mocks.topPagesByDemand,
 }));
-vi.mock("@/domains/proof-gsc/measure-pass", () => ({
+vi.mock("@/domains/measurement/proof-gsc/measure-pass", () => ({
   captureChangeMeta: mocks.captureChangeMeta,
   recordShippedChange: mocks.recordShippedChange,
   measureRecord: mocks.measureRecord,
   // audit-4: actions.ts now defaults shipDate to the Pacific calendar day.
   defaultPacificShipDate: () => "2026-06-22",
 }));
-vi.mock("@/domains/proof-gsc/shipped-change-store", () => ({
+vi.mock("@/domains/measurement/proof-gsc/shipped-change-store", () => ({
   loadShippedChanges: mocks.loadShippedChanges,
   upsertShippedChange: mocks.upsertShippedChange,
 }));

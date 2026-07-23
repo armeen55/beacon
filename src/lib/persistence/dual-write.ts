@@ -266,15 +266,15 @@ export function tenantizeRows<
 // ── Typed convenience wrappers ──
 
 import type { ImportRun } from "@/lib/import/types";
-import type { PageSnapshot, PageEntity } from "@/domains/pages/types";
-import type { Finding } from "@/domains/scanning/types";
+import type { PageSnapshot, PageEntity } from "@/domains/evidence/pages/types";
+import type { Finding } from "@/domains/evidence/scanning/types";
 import type { BusinessConfig } from "@/lib/business-config";
-import type { DailyMetricSnapshot } from "@/domains/daily-metric-snapshots/types";
-import type { PromptAnswerObservation } from "@/domains/ai-visibility/prompt-answer-observations";
-import type { TrackedPrompt } from "@/domains/ai-visibility/tracked-prompts";
-import type { TrackedEntity } from "@/domains/ai-visibility/tracked-entities";
-import type { RecommendationResponse } from "@/domains/product/recommendation-response-store";
-import type { UrlChangeOutcome } from "@/domains/attribution/url-change-outcome";
+import type { DailyMetricSnapshot } from "@/domains/evidence/daily-metric-snapshots/types";
+import type { PromptAnswerObservation } from "@/domains/evidence/ai-visibility/prompt-answer-observations";
+import type { TrackedPrompt } from "@/domains/evidence/ai-visibility/tracked-prompts";
+import type { TrackedEntity } from "@/domains/evidence/ai-visibility/tracked-entities";
+import type { RecommendationResponse } from "@/domains/evidence/product/recommendation-response-store";
+import type { UrlChangeOutcome } from "@/domains/measurement/attribution/url-change-outcome";
 
 type AnyRow = Record<string, unknown>;
 
@@ -825,7 +825,7 @@ export async function syncUrlChangeOutcomes(
  * `\\d recommended_edits` before changing this string.
  */
 export async function syncRecommendedEdits(
-  rows: import("@/domains/changes/recommended-edits-persistence").RecommendedEditRow[],
+  rows: import("@/domains/decision/changes/recommended-edits-persistence").RecommendedEditRow[],
   tenantId: string,
 ): Promise<void> {
   if (!isDualWriteEnabled() || rows.length === 0) return;
@@ -861,11 +861,11 @@ export async function syncRecommendedEdits(
  *     ON page_element_inventory (tenant_id, source_snapshot_id, element_key)
  *
  * Rows arrive already snake_cased + DB-shaped from
- * `buildPageElementRows` in `src/domains/pages/extractors/persist.ts` —
+ * `buildPageElementRows` in `src/domains/evidence/pages/extractors/persist.ts` —
  * pass-through, no mapping needed.
  */
 export async function syncPageElementInventory(
-  rows: import("@/domains/pages/extractors/persist").PageElementInventoryRow[],
+  rows: import("@/domains/evidence/pages/extractors/persist").PageElementInventoryRow[],
   tenantId: string,
 ): Promise<void> {
   if (!isDualWriteEnabled() || rows.length === 0) return;

@@ -1,138 +1,42 @@
 # Beacon — instructions for Claude (Code / CLI / any agent)
 
-**Read first:** `docs/HANDOFF_VERIFIED_STATE.md`, then `docs/NEXT_PHASE_EXECUTION_PLAN.md` before non-trivial work.
+**Read first:** `docs/HANDOFF_VERIFIED_STATE.md`. The full, binding development contract is **`AGENTS.md`** —
+architecture, the five kernels, the foundation firewall, persistence, the growth policy, and the eight
+required fields for any new feature. Read it before non-trivial work. This file holds only Claude-specific rules.
 
-**BINDING (2026-07-22): Foundation Freeze + bloat firewall.** Beacon was rebuilt to a ~95k Foundation on three kernels (Evidence/Decision/Measurement) behind four surfaces. `npm run guard:foundation` (`foundation-budget.json`) mechanically caps LOC, routes, domains, file sizes, and deps — run `npm run gate`. Ordinary feature ≤750 net lines; a replacement deletes the old path in the same phase; no new domain/route/dependency without operator approval; one customer outcome per task; never "build N ideas"/continuous-feature prompts. Full policy: the "FOUNDATION FREEZE" section of `AGENTS.md`.
+**Foundation is frozen.** `npm run gate` (guard:foundation + typecheck + test + build) must pass. The guard
+(`foundation-budget.json`) mechanically caps LOC, routes, domains, file sizes, deps, public exports, and
+Markdown. No new top-level domain, customer route, dependency, or Markdown plan/report without operator
+approval. One customer outcome per task. See AGENTS.md for the numeric budgets and the 8-field feature rule.
 
-This file is the **portable** project contract (use here, in Claude Code, or anywhere else). Cursor-specific rules live in `.cursor/rules/core.mdc` — keep them aligned when both are in use.
+**Beacon voice** (every operator-facing string): first person ("I checked"); a concrete number when one
+exists; always a next step; never a raw lab word (experiment, control, baseline, treatment, SERP) on a
+primary surface; wins in one sentence; misses owned plainly; no hedging; **no em or en dashes ever**.
 
----
+**Operator-journey rule (before marking ANY feature complete):** code green is not done. Walk the surface on
+the rendered app with real tenant data as a smart non-technical customer — "what is this telling me / what do
+I do next / did my action work / is this live or planned" must be obvious, with no jargon, raw slugs, or bare
+zeros. Quote the rendered copy in the report. Verify on the **main tree** (`beacon-audit`, port 3141 →
+`/Users/armeen/beacon`), never a worktree. Judge performance on prod, not dev compile times.
 
-## Product
+**The $250 ritual (before any UI change is done):** does this screen convince a stranger to pay $250/mo? What
+number does it show? What decision does it enable? What would you cut? A weak answer means it is not done.
 
-- Build Beacon as a real long-term product, not a throwaway prototype.
-- Optimize for a premium **single-user internal** app first.
-- Do **not** add auth, billing, teams, permissions, webhooks, cron jobs, or external integrations unless explicitly asked.
-- Keep files modular and reasonably small.
-- Do not modify unrelated files.
-- Reuse existing patterns whenever possible.
-- Explain the plan before implementing major changes.
-- Do not leave placeholder comments like "rest of logic here".
-- Prefer production-shaped architecture without premature SaaS complexity.
-- **Pages stay thin**; domain logic belongs in `src/domains`.
+**Execution contract:** an accepted plan authorizes the full landing strip — edit, test, commit (one per
+coherent step), push `origin/main`, deploy, verify the exact prod SHA. Not "done" until deployed. **Pause
+before** destructive ops (file/branch deletion, `rm -rf`, force-push, `git reset --hard`), Supabase data
+deletion, hosted env-var changes, schema-dropping migrations, or over-budget paid runs. Report what was
+committed / pushed (SHAs) / deployed / verified; truth-up if a step could not run here.
 
-## Operator-journey rule (mandatory before marking ANY feature complete)
+**Supabase:** agents own all Supabase work through the MCP / management connection (ref `vlxwevsdvwxvopkjsewo`);
+never print secrets; pause for a human only when Supabase itself needs a login the agent cannot perform.
 
-Code green is not done. Every feature must be walked as a REAL operator journey on the rendered
-app (dev server with real tenant data, or prod) before its checkbox is ticked:
-1. Open the surface the feature lives on and read it top to bottom as a smart non-technical
-   customer. The seven questions must have obvious answers: What is this telling me? Is something
-   broken? What do I do next? Why is Beacon recommending this? Did my action work? Is this live,
-   waiting, measuring, or merely planned? Why would the same thing appear in two places?
-2. The feature must be INTEGRATED, not bolted on: no new status word when an existing one fits,
-   no second widget for a number another widget already shows, no section that renders raw slugs,
-   internal keys, jargon, or a bare zero without saying what makes it non-zero and when.
-3. Quote the actual rendered copy in the completion report. A feature whose rendered surface
-   would embarrass us in front of a paying customer is NOT complete regardless of test counts.
-4. Dev-server load times are compile artifacts; judge performance on prod only.
-(Established 2026-07-02 after the operator-experience checkpoint found contradicting counts,
-status-word sprawl, and jargon leaks that every individual feature's tests had passed over.)
+**Documentation policy (lean):** a completed task normally edits ZERO or ONE doc, not four. Update
+`HANDOFF_VERIFIED_STATE.md` only when verified current state changes; append ONE `VERIFICATION_LOG.md` entry
+per deployed slice; touch `NEXT_PHASE_EXECUTION_PLAN.md` / `master_execution_plan.md` only when priorities or
+durable decisions change. Never create task-specific summary docs or in-repo archives — git history is the
+archive. Canonical doc line ceilings are guard-enforced.
 
----
-
-## Execution contract (Beacon override of base CLAUDE Code rules)
-
-When the operator (Armeen) **accepts an execution plan** for a step or phase, that
-acceptance authorizes the full landing-strip — not just local edits. Concretely,
-"accepted execution plan" means I am authorized to:
-
-- edit files
-- run tests
-- create logical commits (one per coherent step)
-- push to `origin/main` (or the agreed branch)
-- let Vercel auto-deploy
-- verify hosted production / preview rendering
-
-Rule: do NOT stop after local tests pass and call the work "done" if the product is
-not deployed. Continuous execution through deploy is the contract.
-
-**Always pause** before:
-- destructive operations (file deletion, branch deletion, `rm -rf`, force-push, `git reset --hard`)
-- data deletion in `.data/` or Supabase
-- modifying hosted environment variables (Vercel, Supabase config)
-- irreversible migrations (schema changes that drop data)
-- paid API runs that would exceed an agreed budget
-
-After every commit/push/deploy, **report exactly** what was committed (per-step summary),
-what was pushed (commit SHAs), what deployed (Vercel build status), and what was verified
-(hosted smoke results). Truth-up immediately if any step couldn't run from this environment
-(e.g., Vercel CLI unavailable, hosted env vars unreadable) — never imply work is deployed
-when it's not.
-
----
-
-## Supabase ownership (agent responsibility)
-
-Beacon agents OWN all Supabase work — migrations, tables, indexes, functions/RPCs, RLS,
-schema-cache reloads, verification, transactional tests, repairs, migration bookkeeping — through
-the configured Supabase MCP / management connection (project ref `vlxwevsdvwxvopkjsewo`).
-
-- **Do NOT delegate routine SQL Editor work to the operator.** Pause for a human only when Supabase
-  itself requires a login/authorization the agent genuinely cannot perform.
-- A temporary MCP transport failure (`net::ERR_FAILED`) is **not** a reason to hand SQL to the
-  operator: retry with backoff, use the foreground MCP context (never a background subagent that
-  lacks it), check `npm run supabase:management-check`, and wait for recovery.
-- The shell `SUPABASE_ACCESS_TOKEN` may be stale (401) — never treat it as authoritative; prefer the
-  MCP, then a write-scoped `SUPABASE_MGMT_TOKEN`. Never print secrets.
-- If every management path is down after reasonable retries: pause, report "Supabase management
-  connector unavailable", preserve work, and retry when it recovers — do not improvise unsafe DDL or
-  delegate it.
-
----
-
-## Documentation sync (mandatory)
-
-After **any** task that changes behavior or plans, update if impacted:
-
-1. `docs/HANDOFF_VERIFIED_STATE.md` — current state + next 3 actions  
-2. `docs/NEXT_PHASE_EXECUTION_PLAN.md` — mark steps done / reorder if needed  
-3. `docs/VERIFICATION_LOG.md` — dated entry: what changed, what verified (`npm run typecheck` / `npm run test` / `npm run build` as applicable)  
-4. `docs/master_execution_plan.md` — new ideas or decisions only when relevant  
-
-**The Beacon voice (apply to every operator-facing string):** first person ("I checked", "we
-think"); always a concrete number when one exists; always a next step; never a raw code or lab
-word (experiment, control, baseline, treatment, reservation, SERP) on a primary surface; wins
-celebrated in one sentence; misses owned plainly ("That one did not work. Here is what we
-learned."); no hedging filler; no em or en dashes ever.
-
-**The $250 ritual (mandatory before calling any UI change done):** answer in the report:
-does this screen convince a stranger to pay $250/mo? What number does it show? What decision
-does it enable? What would you cut? A weak answer means the change is not done.
-
-**Finish** with: **Task completed**, 1–5 bullets of what changed, **exactly one** next best recommendation (aligned with `NEXT_PHASE_EXECUTION_PLAN.md`).
-
-**Do not:** create new docs unless necessary, duplicate plans, or leave docs stale after code changes.
-
----
-
-## Model / capability tier (Claude mapping)
-
-Before starting and again at the end of each task, recommend **one** tier and a one-line reason:
-
-| Tier | Claude mapping (typical) | Use when |
-|------|---------------------------|----------|
-| **Fast** | Haiku / fast models | Simple UI, loading states, styling, cleanup, bounded components, straightforward CRUD, repetitive safe edits |
-| **Balanced** | Sonnet | Logic changes, behavior changes, medium refactors, data flow, routes, reasoning-heavy but bounded work |
-| **Max** | Opus | Architecture, phase transitions, multi-file system design, ambiguous or high-risk work, trust/scoring/attribution/persistence/core wedge |
-
-**Final output must include:** `Recommended capability for next step: [Fast / Balanced / Max]` + one-line why.
-
-*(If you also use Cursor, you can map Fast→Composer 2, Balanced→Opus 4.6, Max→Opus 4.6 Max for that tool.)*
-
----
-
-## Repo quick facts
-
-- **Stack:** Next.js (App Router), TypeScript strict, `.data/*.json` + optional Supabase dual-write (`DUAL_WRITE=true`).
-- **Data:** `.data/` is **gitignored** — not committed; keep local backups of CSVs/exports you care about.
-- **Quality gate:** `npm run typecheck && npm run test` before considering work done.
+**Finish every task with:** `Task completed`, 1–5 bullets, exactly one next recommendation, and
+`Recommended capability for next step: [Fast / Balanced / Max]` + one-line why (Fast=Haiku, Balanced=Sonnet,
+Max=Opus).

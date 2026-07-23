@@ -26,9 +26,9 @@ import {
   evaluateCreatePageBriefQuality,
   type DraftQualityResult,
   type DraftQualityStatus,
-} from "@/domains/drafts/draft-quality";
-import { checkFactualEntailment, type AuthoritativeFact } from "@/domains/drafts/factual-entailment";
-import type { ClassifiableSource } from "@/domains/drafts/source-authority";
+} from "@/domains/decision/drafts/draft-quality";
+import { checkFactualEntailment, type AuthoritativeFact } from "@/domains/decision/drafts/factual-entailment";
+import type { ClassifiableSource } from "@/domains/decision/drafts/source-authority";
 import { looksLikePlaceholder } from "./placeholder-detection";
 import { containsUuid } from "./copy-sanitize";
 import type { ChangeProposal, ProposalStatus } from "./contracts";

@@ -2,7 +2,7 @@
  * URL normalization — canonical helper.
  *
  * History:
- *   - Originally co-located in `src/domains/product/url-citation-history.ts`
+ *   - Originally co-located in `src/domains/evidence/product/url-citation-history.ts`
  *     for the citation history index's owned-URL match path.
  *   - Trust Sprint T6.3 (2026-05-06) discovered that recommended_edits.target_url
  *     stores full URLs ("https://ritzbuilders.com/locations/los-altos") while

@@ -11,10 +11,10 @@ import {
 // R17a (ingestion gaps, v1 266) - one honest line when days are missing INSIDE
 // the covered Google range (a sync hole, not Google's normal lag). The nightly
 // sync re-pulls the same dates this line names.
-import { loadGscIngestionGapReport } from "@/domains/gsc/load-ingestion-gaps";
-import { ingestionGapLine } from "@/domains/gsc/ingestion-gaps";
+import { loadGscIngestionGapReport } from "@/domains/evidence";
+import { ingestionGapLine } from "@/domains/evidence";
 import { currentTenantId } from "@/lib/tenant-context";
-import { latestRefreshBySource } from "@/domains/ops/refresh-runs-store";
+import { latestRefreshBySource } from "@/domains/runtime";
 import { PageHeader } from "@/components/data/page-header";
 import { ConnectorsClient, type RefreshLedgerFacts } from "./connectors-client";
 import { loadRecentUpkeep, RecentUpkeepList, type RecentUpkeepEntry } from "./recent-upkeep";

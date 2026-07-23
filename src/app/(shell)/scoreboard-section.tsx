@@ -5,11 +5,11 @@
  * it, one plain sentence with the week-over-week verdict. Server component, pure SVG, no deps,
  * fail-soft (self-hides without enough history so it never renders an empty box).
  */
-import { loadDailyTotalsForTenant } from "@/domains/recommendation-intelligence/gsc-page-queries";
-import { loadShippedChanges } from "@/domains/proof-gsc";
-import { buildScoreboard, buildMoneyLine, type Scoreboard } from "@/domains/scoreboard/scoreboard";
-import { loadRevenueByDayForTenant } from "@/domains/revenue/load-revenue";
-import { loadOwnCitationsByDay } from "@/domains/recommendation-intelligence/citations-daily";
+import { loadDailyTotalsForTenant } from "@/domains/decision";
+import { loadShippedChanges } from "@/domains/measurement";
+import { buildScoreboard, buildMoneyLine, type Scoreboard } from "@/domains/measurement";
+import { loadRevenueByDayForTenant } from "@/domains/measurement";
+import { loadOwnCitationsByDay } from "@/domains/decision";
 import { currentTenantSlug } from "@/lib/tenant-context";
 import { Sparkline } from "@/components/data/sparkline";
 import { ScoreboardChartTabs, type ChartTabDef } from "./scoreboard-chart-tabs";
@@ -21,16 +21,16 @@ import { buildReceiptLine, ReceiptLine } from "@/components/data/receipt-line";
 // R17a (brand split, v1 265) - the non-brand growth lens: clicks from searches
 // that do not mention the business name, windowed on the SAME reported days the
 // headline uses. Fail-soft null -> the sub-line self-hides.
-import { loadScoreboardBrandLens } from "@/domains/gsc/load-brand-split";
+import { loadScoreboardBrandLens } from "@/domains/evidence";
 // R17b (v1 136 + 268) - the weekly "how you show up" lens: rich-result styling
 // share + phones vs computers, from the weekly GSC dimensions store. Fail-soft
 // null -> the expander self-hides.
-import { loadGscWeeklyLens } from "@/domains/gsc/load-weekly-dimensions";
+import { loadGscWeeklyLens } from "@/domains/evidence";
 // R17b (v1 264) - the dotted "still settling" tail: Google's EARLY counts for
 // the final-lag days the chart's final lane excludes. Opt-in read behind a 3h
 // volatile cache; fail-soft null -> no tail, chart byte-identical.
-import { readGscFreshTailCached, refreshGscFreshTail } from "@/domains/gsc/load-fresh-tail";
-import { FRESH_TAIL_NOTE, type FreshTailPoint } from "@/domains/gsc/fresh-tail";
+import { readGscFreshTailCached, refreshGscFreshTail } from "@/domains/evidence";
+import { FRESH_TAIL_NOTE, type FreshTailPoint } from "@/domains/evidence";
 import { after } from "next/server";
 
 const W = 720;

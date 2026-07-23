@@ -71,3 +71,28 @@ export { loadClarityPageSignalsForTenant } from "./readers/clarity-page-signals"
 export type { KeywordDemand } from "./readers/dataforseo-keywords";
 export { readAllCachedKeywordDemand } from "./readers/dataforseo-keywords";
 export { loadNativeIntelForTenant } from "./readers/native-intel-loader";
+
+// --- App/component surface re-exports (curated) ---
+
+// GSC scoreboard + weekly + fresh-tail + ingestion-gap surfaces
+export { loadScoreboardBrandLens } from "./gsc/load-brand-split";
+export { loadGscWeeklyLens } from "./gsc/load-weekly-dimensions";
+export { readGscFreshTailCached, refreshGscFreshTail } from "./gsc/load-fresh-tail";
+export { FRESH_TAIL_NOTE, type FreshTailPoint } from "./gsc/fresh-tail";
+export { loadGscIngestionGapReport } from "./gsc/load-ingestion-gaps";
+export { ingestionGapLine } from "./gsc/ingestion-gaps";
+
+// Scanning surfaces
+export { getPendingFindings } from "./scanning/findings-store";
+export { CONTENT_CHANGE_TYPES } from "./scanning/content-change-types";
+export { runInProcessColdStartScan } from "./scanning/in-process-scan";
+export { loadCrawlFrontier, runCrawlBatch } from "./scanning/crawl-frontier";
+
+// Product URL watcher
+export { maybeRefreshUrlWatcher } from "./product/url-watcher";
+
+// Competitor-intel polite fetch
+export { fetchPageHtml } from "./competitor-intel/polite-fetch";
+
+// AI-visibility citation canonicalization
+export { canonicalizeCitationUrl } from "./ai-visibility/canonicalize-citation-url";

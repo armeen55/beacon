@@ -26,8 +26,8 @@ import {
   draftAtomicEditStructured,
   draftCreatePageStructured,
   type CompleteFn,
-} from "@/domains/llm/structured-drafter";
-import type { AtomicEditDraft, CreatePageBrief } from "@/domains/llm/schemas";
+} from "@/domains/decision/llm/structured-drafter";
+import type { AtomicEditDraft, CreatePageBrief } from "@/domains/decision/llm/schemas";
 import {
   type EvidenceInput,
   type ChangeProposal,

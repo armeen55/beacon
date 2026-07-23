@@ -18,22 +18,22 @@ import { loadTodayV2GateData } from "./today-gate-data";
 import { loadTodayView } from "./today-view-data";
 import { currentTenantId } from "@/lib/tenant-context";
 import { ScoreboardSection } from "./scoreboard-section";
-import { loadProofLedgerCached } from "@/domains/proof-gsc";
+import { loadProofLedgerCached } from "@/domains/measurement";
 import { perfMark, perfStage } from "@/lib/obs/perf-log";
-import { shippedInLastDays } from "@/domains/proof-gsc";
+import { shippedInLastDays } from "@/domains/measurement";
 import { loadLifecycleCounts } from "./lifecycle-counts-data";
 import { createPerfTrace, readPerfTraceIdFromHeaders } from "@/lib/perf-trace";
 import { loadWithDeadline, valueWithDeadline } from "@/lib/load-with-deadline";
 import { HonestDelay } from "@/components/honest-delay";
-import { loadDailyTotalsForTenant } from "@/domains/recommendation-intelligence/gsc-page-queries";
+import { loadDailyTotalsForTenant } from "@/domains/decision";
 // Wave 3B (2026-07-10) - Today is MISSION CONTROL: ONE command answers "what is the single
 // best thing I should do now?". The command model is a pure selector (domains/today); its card +
 // the consolidated proof strip are token-only (src/components/today, outside the (shell) ratchet).
-import { buildTodayCommand, commandAllowsCelebration } from "@/domains/today/today-command";
+import { buildTodayCommand, commandAllowsCelebration } from "@/domains/measurement";
 import { TodayCommandCard } from "@/components/today/today-command-card";
 import { TodayProofStrip } from "@/components/today/today-proof-strip";
-import { verdictSchedule } from "@/domains/proof-gsc";
-import { buildScoreboard } from "@/domains/scoreboard/scoreboard";
+import { verdictSchedule } from "@/domains/measurement";
+import { buildScoreboard } from "@/domains/measurement";
 import { buildTodaySmokeAlarm } from "@/components/today/today-smoke-alarm";
 import { loadGscDecaySignalsForTenant } from "@/domains/evidence";
 

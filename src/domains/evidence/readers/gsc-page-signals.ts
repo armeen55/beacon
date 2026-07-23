@@ -22,10 +22,10 @@ import "server-only";
 
 import { cache } from "react";
 import { getSupabaseAdmin } from "@/lib/persistence/supabase";
-import { canonicalizeCitationUrl } from "@/domains/ai-visibility/canonicalize-citation-url";
-import { readLastFinalizedDate } from "@/domains/proof-gsc/gsc-window";
+import { canonicalizeCitationUrl } from "@/domains/evidence/ai-visibility/canonicalize-citation-url";
+import { readLastFinalizedDate } from "@/domains/measurement/proof-gsc/gsc-window";
 import { log } from "@/lib/logger";
-import { densifyDailyClicks } from "@/domains/gsc/densify-daily-series";
+import { densifyDailyClicks } from "@/domains/evidence/gsc/densify-daily-series";
 
 export type GscQuerySignal = {
   query: string;
@@ -52,7 +52,7 @@ export type GscPageSignal = {
    *  grain only (gsc_daily_rows), BEFORE the page-totals override below. The
    *  true page totals (impressions90d, from gsc_daily_page_totals) include the
    *  anonymized queries GSC hides; total minus this visible sum is the
-   *  anonymized share (see domains/gsc/anonymized-share.ts). Optional so
+   *  anonymized share (see domains/evidence/gsc/anonymized-share.ts). Optional so
    *  existing fixtures/mocks keep compiling; 0 for a page seen only in totals. */
   queryVisibleImpressions90d?: number;
 };

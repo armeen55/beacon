@@ -20,7 +20,7 @@ import "server-only";
 
 import { log } from "@/lib/logger";
 import { loadEvidenceSnapshot } from "@/domains/evidence/snapshot-loader";
-import { getCuratedSourceDomains } from "@/domains/drafts/tenant-source-allowlist";
+import { getCuratedSourceDomains } from "@/domains/decision/drafts/tenant-source-allowlist";
 import { snapshotToEvidenceInputs } from "./opportunities";
 import { proposeChange, type ProposeOptions } from "./propose";
 import { saveChangeProposal } from "./proposal-store";

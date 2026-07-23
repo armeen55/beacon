@@ -5,18 +5,15 @@ import Link from "next/link";
 import { loadResultsLedgerSurface } from "../results/results-ledger-data";
 import { isOperatorModeServer } from "@/lib/operator-mode";
 import { normalizeUrl } from "@/lib/url/normalize";
-import type { ChangelogEntry } from "@/domains/changelog/types";
+import type { ChangelogEntry } from "@/domains/measurement/changelog/types";
 import type { EnrichedChangeRow, ChangeRowProof } from "./types";
 import { ChangesV2Client } from "./changes-v2-client";
 import { getRepository } from "@/lib/persistence/repositories";
 import { currentTenantId } from "@/lib/tenant-context";
-import { maybeRefreshUrlWatcher } from "@/domains/product/url-watcher";
-import type { KernelRead } from "@/domains/proof-gsc";
-import { kernelProofSummary } from "@/domains/changes/proof-timeline/result-pill";
-import type {
-  ImplementationStatus,
-  RecommendedEditRow,
-} from "@/domains/changes/recommended-edits-persistence";
+import { maybeRefreshUrlWatcher } from "@/domains/evidence";
+import type { KernelRead } from "@/domains/measurement/proof-gsc";
+import { kernelProofSummary } from "@/domains/decision";
+import type { ImplementationStatus, RecommendedEditRow } from "@/domains/decision/changes/recommended-edits-persistence";
 import {
   createPerfTrace,
   readPerfTraceIdFromHeaders,

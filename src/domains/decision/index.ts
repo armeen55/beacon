@@ -53,3 +53,44 @@ export { proposeChange, proposeExistingPageChange, proposeNewPageChange } from "
 export { rankProposals, proposalValueScore } from "./rank-proposals";
 export type { ProposalVerdict, ProposalValidation, ValidateProposalOptions } from "./validate-proposal";
 export { validateProposal } from "./validate-proposal";
+
+// --- App/component surface re-exports (curated) ---
+
+// Recommendation-intelligence surfaces
+export { loadDailyTotalsForTenant } from "./recommendation-intelligence/gsc-page-queries";
+export { loadOwnCitationsByDay } from "./recommendation-intelligence/citations-daily";
+export { loadProofPlan } from "./recommendation-intelligence/page-surgeon/bridge";
+export {
+  loadPageSurgeonContext,
+  topPagesByDemand,
+} from "./recommendation-intelligence/page-surgeon/assemble-packet";
+
+// Changes: lifecycle counts
+export {
+  computeLifecycleCounts,
+  countLedgerLifecycle,
+  type LifecycleCounts,
+} from "./changes/lifecycle-counts";
+
+// Changes: proof-timeline surfaces
+export { resolveProofPill, kernelProofSummary, type ProofPill } from "./changes/proof-timeline/result-pill";
+export {
+  computeProofCounters,
+  PROOF_COUNTER_LABEL,
+  type ProofCounters,
+} from "./changes/proof-timeline/counters";
+export { buildWaitingRail, type WaitingRailInput } from "./changes/proof-timeline/waiting-rail";
+export { projectChangeTitle, clampShortTitle } from "./changes/proof-timeline/title-projection";
+
+// Changes: recommended-edits persistence
+export {
+  editLifecycleStatus,
+  markRecommendedEditsAsShipped,
+} from "./changes/recommended-edits-persistence";
+
+// Changes: action-types
+export {
+  isIndexingDirectiveActionType,
+  INDEXING_DIRECTIVE_CAVEAT,
+  type ActionType,
+} from "./changes/action-types";

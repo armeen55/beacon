@@ -6,7 +6,7 @@ import { cache } from "react";
  * rendered lifecycle-stage count. Reads the canonical stores exactly once per request
  * (the proof ledger via the already-request-cached loadProofLedgerCached, and the
  * canonical Changes list for the backlog count) and runs the pure ONE-COUNT-RULE math
- * in src/domains/changes/lifecycle-counts.ts.
+ * in src/domains/decision/changes/lifecycle-counts.ts.
  *
  * Consumers: Today (tiles + standup + measuring strip), the worklist Tonight chip,
  * and the Results header strip. Because loadProofLedgerCached and loadChangesView are
@@ -18,8 +18,8 @@ import { cache } from "react";
  * /changes it is free because the list itself already computed it this request).
  */
 import { currentTenantId } from "@/lib/tenant-context";
-import { loadProofLedgerCached } from "@/domains/proof-gsc";
-import { computeLifecycleCounts, type LifecycleCounts } from "@/domains/changes/lifecycle-counts";
+import { loadProofLedgerCached } from "@/domains/measurement";
+import { computeLifecycleCounts, type LifecycleCounts } from "@/domains/decision";
 import { loadChangesView } from "./changes-data";
 import { valueWithDeadline } from "@/lib/load-with-deadline";
 

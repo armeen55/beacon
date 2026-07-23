@@ -17,7 +17,7 @@ import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
 
 import { getSupabaseServerClient } from "@/lib/auth/supabase-server";
-import { getTenant } from "@/domains/tenants/store";
+import { getTenant } from "@/domains/account";
 import { isOperatorModeServer } from "@/lib/operator-mode";
 import {
   TENANT_COOKIE,

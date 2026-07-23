@@ -21,7 +21,7 @@
  */
 
 import Link from "next/link";
-import type { FirstReadingContext } from "@/domains/onboarding/first-reading-state";
+import type { FirstReadingContext } from "@/domains/account/onboarding/first-reading-state";
 
 export function FirstReadingWaiting({
   context,

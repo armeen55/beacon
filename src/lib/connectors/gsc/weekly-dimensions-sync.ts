@@ -50,7 +50,7 @@ import {
   shouldPullWeeklyDimensions,
   WEEKLY_SNAPSHOT_CAP,
   type GscWeeklyDimensionsSnapshot,
-} from "@/domains/gsc/weekly-dimensions";
+} from "@/domains/evidence/gsc/weekly-dimensions";
 
 export const GSC_WEEKLY_DIMENSIONS_STORE = "gsc-weekly-dimensions";
 

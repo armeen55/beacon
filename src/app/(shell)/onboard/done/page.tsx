@@ -13,9 +13,9 @@
  */
 
 import Link from "next/link";
-import { requireOnboardingTenant } from "@/domains/onboarding/access";
-import { loadCrawlFrontier } from "@/domains/scanning/crawl-frontier";
-import { composeFirstAuditScorecard } from "@/domains/onboarding/first-audit";
+import { requireOnboardingTenant } from "@/domains/account";
+import { loadCrawlFrontier } from "@/domains/evidence";
+import { composeFirstAuditScorecard } from "@/domains/account";
 import { ConnectGscCard } from "./connect-gsc-card";
 import { LaunchButton } from "./launch-button";
 import { keepScanningAction, retryFirstLookAction } from "./actions";

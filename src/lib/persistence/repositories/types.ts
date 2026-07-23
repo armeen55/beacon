@@ -1,30 +1,30 @@
-import type { Result } from "@/domains/results/types";
-import type { ChangelogEntry } from "@/domains/changelog/types";
-import type { Opportunity } from "@/domains/opportunities/types";
-import type { Competitor } from "@/domains/competitors/types";
+import type { Result } from "@/domains/measurement/results/types";
+import type { ChangelogEntry } from "@/domains/measurement/changelog/types";
+import type { Opportunity } from "@/domains/decision/opportunities/types";
+import type { Competitor } from "@/domains/evidence/competitors/types";
 import type { ImportRun } from "@/lib/import/types";
-import type { Finding } from "@/domains/scanning/types";
+import type { Finding } from "@/domains/evidence/scanning/types";
 import type {
   CompetitorPageEvidence,
-} from "@/domains/pages/competitor-evidence";
-import type { CompetitorPageSnapshot } from "@/domains/pages/competitor-page-snapshots";
+} from "@/domains/evidence/pages/competitor-evidence";
+import type { CompetitorPageSnapshot } from "@/domains/evidence/pages/competitor-page-snapshots";
 import type {
   SourcePatternEvidence,
-} from "@/domains/pages/competitor-evidence";
-import type { ChangeContract } from "@/domains/changelog/change-contract";
+} from "@/domains/evidence/pages/competitor-evidence";
+import type { ChangeContract } from "@/domains/measurement/changelog/change-contract";
 import type {
   PageEntity,
   PageSnapshot,
-} from "@/domains/pages/types";
-import type { RobotsStateFile } from "@/domains/pages/robots-parser";
-import type { ObservationRun } from "@/domains/observations/types";
-import type { RecommendationResponse } from "@/domains/product/recommendation-response-store";
-import type { UrlChangeOutcome } from "@/domains/attribution/url-change-outcome";
-import type { RecommendedEditRow } from "@/domains/changes/recommended-edits-persistence";
-import type { PromptAnswerObservation } from "@/domains/ai-visibility/prompt-answer-observations";
-import type { DailyMetricSnapshot } from "@/domains/daily-metric-snapshots/types";
-import type { TrackedEntity } from "@/domains/ai-visibility/tracked-entities";
-import type { TrackedPrompt } from "@/domains/ai-visibility/tracked-prompts";
+} from "@/domains/evidence/pages/types";
+import type { RobotsStateFile } from "@/domains/evidence/pages/robots-parser";
+import type { ObservationRun } from "@/domains/evidence/observations/types";
+import type { RecommendationResponse } from "@/domains/evidence/product/recommendation-response-store";
+import type { UrlChangeOutcome } from "@/domains/measurement/attribution/url-change-outcome";
+import type { RecommendedEditRow } from "@/domains/decision/changes/recommended-edits-persistence";
+import type { PromptAnswerObservation } from "@/domains/evidence/ai-visibility/prompt-answer-observations";
+import type { DailyMetricSnapshot } from "@/domains/evidence/daily-metric-snapshots/types";
+import type { TrackedEntity } from "@/domains/evidence/ai-visibility/tracked-entities";
+import type { TrackedPrompt } from "@/domains/evidence/ai-visibility/tracked-prompts";
 
 /**
  * Async read interface for route-critical and repository-routed stores.
@@ -253,6 +253,6 @@ export interface TenantRepository {
   // Section 5 repeat-citation loader that consumed it was deleted in an
   // earlier campaign, leaving the whole read path caller-less. The
   // `ProfoundImportRun` TYPE stays live in
-  // `@/domains/ai-visibility/observation-runs` — canonical-store still reads the
+  // `@/domains/evidence/ai-visibility/observation-runs` — canonical-store still reads the
   // mixed observation-runs file through it.)
 }

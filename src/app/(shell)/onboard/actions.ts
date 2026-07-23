@@ -20,11 +20,11 @@
 import { redirect } from "next/navigation";
 import { getSupabaseServerClient } from "@/lib/auth/supabase-server";
 import { getSupabaseAdmin } from "@/lib/persistence/supabase";
-import { lookupExistingMembership, isPlaceholderBusinessName } from "@/domains/onboarding/provision-tenant";
-import { normalizeSiteUrl } from "@/domains/onboarding/fetch-site-profile";
-import { fetchPageHtml } from "@/domains/competitor-intel/polite-fetch";
-import { deriveAndPersistTenantConfig } from "@/domains/onboarding/launch-config";
-import { runFirstLook, deriveNameFromDomain } from "@/domains/onboarding/url-first";
+import { lookupExistingMembership, isPlaceholderBusinessName } from "@/domains/account";
+import { normalizeSiteUrl } from "@/domains/account";
+import { fetchPageHtml } from "@/domains/evidence";
+import { deriveAndPersistTenantConfig } from "@/domains/account";
+import { runFirstLook, deriveNameFromDomain } from "@/domains/account";
 
 export type StartFromUrlResult = { ok: true } | { ok: false; error: string };
 

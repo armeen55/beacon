@@ -1,6 +1,6 @@
 /**
  * The Prepared Output Quality Gate (Core 100K Phase 6 merge of
- * src/domains/drafts/draft-quality.test.ts + draft-quality-repeat-flag.test.ts,
+ * src/domains/decision/drafts/draft-quality.test.ts + draft-quality-repeat-flag.test.ts,
  * trimmed to boundary + operator-locked fixture cases).
  *
  * Cases are pinned to the REAL Iranopedia draft audit + the adversarial
@@ -19,7 +19,7 @@ import {
   evaluateInternalLinkQuality,
   evaluateCROFixQuality,
   evaluateSectionDraftQuality,
-} from "@/domains/drafts/draft-quality";
+} from "@/domains/decision/drafts/draft-quality";
 
 const NOWRUZ_ANSWER =
   "Nowruz Activities USA refers to community and cultural events held across the United States to observe Nowruz, the Persian New Year, each spring. Local Iranian-American associations in cities such as Los Angeles, Washington, and Houston organize Haft-Seen table displays, traditional Persian music performances, and folk dance shows during the two-week celebration window that follows the spring equinox. Families gather for shared meals, poetry readings, and craft workshops for children, while community centers coordinate a public calendar of events. Many gatherings also host a small Nowruz market selling sweets, herbs, and handmade goods from Persian vendors.";

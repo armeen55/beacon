@@ -28,7 +28,7 @@
  */
 
 import { z } from "zod";
-import type { AuthoritativeFact } from "@/domains/drafts/factual-entailment";
+import type { AuthoritativeFact } from "@/domains/decision/drafts/factual-entailment";
 
 // ── EvidenceInput — the ONE normalized input the kernel consumes ──────────────
 

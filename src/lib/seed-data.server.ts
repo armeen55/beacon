@@ -24,7 +24,7 @@ import { cache } from "react";
 import { getRepository } from "./persistence/repositories";
 import { currentTenantId } from "./tenant-context";
 
-import type { ChangelogEntry } from "@/domains/changelog/types";
+import type { ChangelogEntry } from "@/domains/measurement/changelog/types";
 import type { ImportRun } from "./import/types";
 
 type State = {

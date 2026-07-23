@@ -13,24 +13,27 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 
 import { PageHeader } from "@/components/data/page-header";
+// Client component: import the pure client-safe presentation helpers from their
+// deep modules, not the decision facade (the facade re-exports server-only
+// modules; Turbopack's server-only boundary is this file's guardrail).
 import {
   resolveProofPill,
   type ProofPill,
-} from "@/domains/changes/proof-timeline/result-pill";
+} from "@/domains/decision/changes/proof-timeline/result-pill";
 import {
   computeProofCounters,
   PROOF_COUNTER_LABEL,
   type ProofCounters,
-} from "@/domains/changes/proof-timeline/counters";
+} from "@/domains/decision/changes/proof-timeline/counters";
 import {
   buildWaitingRail,
   type WaitingRailInput,
-} from "@/domains/changes/proof-timeline/waiting-rail";
+} from "@/domains/decision/changes/proof-timeline/waiting-rail";
 import {
   projectChangeTitle,
   clampShortTitle,
-} from "@/domains/changes/proof-timeline/title-projection";
-import type { ImplementationStatus } from "@/domains/changes/recommended-edits-persistence";
+} from "@/domains/decision/changes/proof-timeline/title-projection";
+import type { ImplementationStatus } from "@/domains/decision/changes/recommended-edits-persistence";
 
 import {
   ChangesV2Card,

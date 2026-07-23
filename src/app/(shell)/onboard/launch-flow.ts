@@ -32,9 +32,9 @@
 
 import { randomUUID } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { deriveAndPersistTenantConfig } from "@/domains/onboarding/launch-config";
-import { dispatchFirstScanForTenant } from "@/domains/onboarding/first-scan-dispatch";
-import { runInProcessColdStartScan } from "@/domains/scanning/in-process-scan";
+import { deriveAndPersistTenantConfig } from "@/domains/account";
+import { dispatchFirstScanForTenant } from "@/domains/account";
+import { runInProcessColdStartScan } from "@/domains/evidence";
 
 /**
  * Minimal starter-prompt shape. The launch inserts these directly; the

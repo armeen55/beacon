@@ -7,14 +7,16 @@
 //   1. production TypeScript LOC <= production.max
 //   2. test TypeScript LOC <= tests.max
 //   3. combined LOC <= combined.hardCap
-//   4. customer page routes are a subset of routes.pagesAllow (no new customer route)
+//   4. customer page routes are a subset of routes.pagesAllow
 //   5. api routes are a subset of routes.apiAllow
-//   6. top-level src/domains count <= domains.max (no new top-level domain)
-//   7. no NEW production file > files.newFileMax lines; grandfathered oversized
-//      files must not exceed their recorded ceiling in files.grandfathered
-//   8. src/app imports only allowed boundaries (kernel facades + lib + components +
-//      framework), never a private kernel internal path in imports.appForbiddenDomainDeep
-//   9. package.json dependencies are a subset of deps.allow (no new dependency)
+//   6. top-level src/domains count <= domains.max (the five kernels)
+//   7. no NEW production file > files.newFileMax; grandfathered files must not exceed their ceiling
+//   8. src/app + src/components import the 5 kernels through facades only (deep VALUE imports forbidden;
+//      import type deep-imports allowed)
+//   9. kernel dependency direction: forbidden inter-kernel edges (with a non-increasing exceptions allowlist)
+//  10. exported-symbol count <= exports.max (public surface cap)
+//  11. Markdown budget: file count, total LOC, per-file ceilings, no archive, no forbidden-name docs
+//  12. package.json dependencies are a subset of deps.allow
 
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join, resolve, relative, sep } from "node:path";
@@ -24,12 +26,12 @@ const cfg = JSON.parse(readFileSync(join(ROOT, "foundation-budget.json"), "utf8"
 const failures = [];
 const fail = (m) => failures.push(m);
 
-function walk(dir, exts = /\.(ts|tsx)$/) {
+function walk(dir, exts) {
   const out = [];
   let entries;
   try { entries = readdirSync(dir); } catch { return out; }
   for (const name of entries) {
-    if (name === "node_modules" || name === ".next" || name === ".git" || name === ".codex") continue;
+    if (name === "node_modules" || name === ".next" || name === ".git" || name === ".codex" || name === ".claude") continue;
     const full = join(dir, name);
     let st; try { st = statSync(full); } catch { continue; }
     if (st.isDirectory()) out.push(...walk(full, exts));
@@ -37,11 +39,11 @@ function walk(dir, exts = /\.(ts|tsx)$/) {
   }
   return out;
 }
-const isTest = (f) => /\.test\.(ts|tsx)$/.test(f) || `${sep}tests${sep}` === f.slice(ROOT.length).replace(/[^/\\]+$/, "").slice(0, 7) || relative(ROOT, f).startsWith("tests" + sep);
 const loc = (f) => readFileSync(f, "utf8").split("\n").length;
+const rel = (f) => relative(ROOT, f).split(sep).join("/");
 
-const srcFiles = walk(join(ROOT, "src"));
-const testTreeFiles = walk(join(ROOT, "tests"));
+const srcFiles = walk(join(ROOT, "src"), /\.(ts|tsx)$/);
+const testTreeFiles = walk(join(ROOT, "tests"), /\.(ts|tsx)$/);
 const prodFiles = srcFiles.filter((f) => !/\.test\.(ts|tsx)$/.test(f));
 const testFiles = [...srcFiles.filter((f) => /\.test\.(ts|tsx)$/.test(f)), ...testTreeFiles];
 
@@ -56,9 +58,7 @@ if (testLoc > cfg.tests.max) fail(`test LOC ${testLoc} > budget ${cfg.tests.max}
 if (combined > cfg.combined.hardCap) fail(`combined LOC ${combined} > hard cap ${cfg.combined.hardCap}`);
 
 // 4-5. route allowlists
-const rel = (f) => relative(ROOT, f).split(sep).join("/");
-const pageRoutes = prodFiles
-  .map(rel)
+const pageRoutes = prodFiles.map(rel)
   .filter((f) => /^src\/app\/.*\/page\.tsx$/.test(f) || f === "src/app/page.tsx")
   .map((f) => f.replace(/^src\/app\//, "").replace(/\/?page\.tsx$/, "") || "/");
 const apiRoutes = prodFiles.map(rel).filter((f) => /^src\/app\/api\/.*\/route\.ts$/.test(f))
@@ -83,27 +83,83 @@ for (const f of prodFiles) {
   if (n > cfg.files.hardMax && ceiling === undefined) fail(`file exceeds hard max ${cfg.files.hardMax}: ${r} (${n})`);
 }
 
-// 8. app boundary — src/app must not deep-import a forbidden private kernel internal
+// import-statement scanner: returns [{spec, isType}], handling multi-line imports; skips `import type`
+function imports(src) {
+  const out = [];
+  const re = /\bimport\s+(type\s+)?[\s\S]*?\bfrom\s+["']([^"']+)["']/g;
+  let m;
+  while ((m = re.exec(src))) out.push({ spec: m[2], isType: !!m[1] });
+  return out;
+}
+
+// 8. SERVER data-loader surfaces (src/app, non-"use client") must consume kernels via facade (deep VALUE
+//    imports forbidden; import type deep allowed). Client components ("use client") and src/components
+//    presentation are exempt: a kernel facade re-exports server-only modules, so a component pulled into
+//    the client bundle physically cannot import it; Turbopack's server-only boundary is the guardrail
+//    there, and presentation legitimately imports client-safe deep modules (proof-timeline, action-types).
 if (cfg.imports && Array.isArray(cfg.imports.appForbiddenDomainDeep)) {
-  const appFiles = prodFiles.filter((f) => rel(f).startsWith("src/app/"));
-  const importRe = /from\s+["']([^"']+)["']/g;
-  for (const f of appFiles) {
+  const faceFiles = prodFiles.filter((f) => rel(f).startsWith("src/app/"));
+  for (const f of faceFiles) {
     const src = readFileSync(f, "utf8");
-    let m;
-    while ((m = importRe.exec(src))) {
-      const spec = m[1];
+    if (/^\s*["']use client["']/m.test(src)) continue;
+    for (const { spec, isType } of imports(src)) {
+      if (isType) continue;
       for (const forbidden of cfg.imports.appForbiddenDomainDeep) {
-        if (spec.includes(forbidden)) fail(`src/app import of forbidden kernel internal: ${rel(f)} -> ${spec} (import the kernel facade, not internals)`);
+        if (spec.includes(forbidden)) fail(`facade violation: ${rel(f)} value-imports kernel internal ${spec} (import the kernel facade, not internals)`);
       }
     }
   }
 }
 
-// 9. dependency allowlist
+// 9. kernel dependency direction (with non-increasing exceptions)
+if (cfg.imports && cfg.imports.kernelForbiddenEdges) {
+  const exceptions = new Set(cfg.imports.kernelDirectionExceptions || []);
+  for (const [kernel, forbiddenTargets] of Object.entries(cfg.imports.kernelForbiddenEdges)) {
+    const kfiles = prodFiles.filter((f) => rel(f).startsWith(`src/domains/${kernel}/`));
+    for (const f of kfiles) {
+      const r = rel(f);
+      for (const { spec } of imports(readFileSync(f, "utf8"))) {
+        for (const t of forbiddenTargets) {
+          if (spec.includes(`@/domains/${t}/`) && !exceptions.has(`${r}->${t}`)) {
+            fail(`kernel direction violation: ${r} imports ${t} (${spec}); ${kernel} must not import ${t}`);
+          }
+        }
+      }
+    }
+  }
+}
+
+// 10. exported-symbol cap
+if (cfg.exports && typeof cfg.exports.max === "number") {
+  const exportRe = /^export\s+(?:default\s+)?(?:abstract\s+)?(?:async\s+)?(type|interface|class|enum|const|function|let|var)\s+[A-Za-z0-9_$]+/gm;
+  let count = 0;
+  for (const f of prodFiles) { const s = readFileSync(f, "utf8"); const mm = s.match(exportRe); if (mm) count += mm.length; }
+  if (count > cfg.exports.max) fail(`exported-symbol count ${count} > budget ${cfg.exports.max} (keep internal helpers/types internal)`);
+  cfg._exportCount = count;
+}
+
+// 11. Markdown budget
+let mdCount = 0, mdLines = 0;
+if (cfg.markdown) {
+  const md = walk(ROOT, /\.md$/).map(rel).filter((r) => !r.startsWith("migrations/") ? true : true);
+  mdCount = md.length; mdLines = md.reduce((a, r) => a + loc(join(ROOT, r)), 0);
+  const namePat = cfg.markdown.forbiddenNamePattern ? new RegExp(cfg.markdown.forbiddenNamePattern) : null;
+  const allow = new Set(cfg.markdown.allowlist || []);
+  if (mdCount > cfg.markdown.maxFiles) fail(`Markdown file count ${mdCount} > budget ${cfg.markdown.maxFiles}`);
+  if (mdLines > cfg.markdown.maxTotalLines) fail(`Markdown total lines ${mdLines} > budget ${cfg.markdown.maxTotalLines}`);
+  for (const r of md) {
+    if (cfg.markdown.forbidArchive && r.includes("/archive/")) fail(`forbidden archive doc: ${r} (git history is the archive)`);
+    const base = r.split("/").pop();
+    if (namePat && namePat.test(base) && !allow.has(r)) fail(`forbidden doc name: ${r} (AUDIT/REPORT/WIP/HISTORY/ROADMAP need operator approval)`);
+    const cap = cfg.markdown.perFileCeilings && cfg.markdown.perFileCeilings[r];
+    if (cap !== undefined && loc(join(ROOT, r)) > cap) fail(`doc over ceiling: ${r} is ${loc(join(ROOT, r))} > ${cap} (compact it)`);
+  }
+}
+
+// 12. dependency allowlist
 if (cfg.deps && Array.isArray(cfg.deps.allow)) {
   const pkg = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8"));
-  const declared = Object.keys(pkg.dependencies || {});
-  for (const d of declared) if (!cfg.deps.allow.includes(d)) fail(`unauthorized dependency: ${d} (add to deps.allow only with operator approval)`);
+  for (const d of Object.keys(pkg.dependencies || {})) if (!cfg.deps.allow.includes(d)) fail(`unauthorized dependency: ${d} (add to deps.allow only with operator approval)`);
 }
 
 // report
@@ -115,6 +171,9 @@ console.log(line("combined LOC", combined, cfg.combined.hardCap));
 console.log(line("customer routes", pageRoutes.length));
 console.log(line("api routes", apiRoutes.length));
 console.log(line("top-level domains", domains.size, cfg.domains.max));
+if (cfg._exportCount !== undefined) console.log(line("exported symbols", cfg._exportCount, cfg.exports.max));
+console.log(line("markdown files", mdCount, cfg.markdown ? cfg.markdown.maxFiles : undefined));
+console.log(line("markdown lines", mdLines, cfg.markdown ? cfg.markdown.maxTotalLines : undefined));
 
 if (failures.length) {
   console.error(`\nFOUNDATION GUARD FAILED (${failures.length}):`);

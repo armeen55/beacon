@@ -1,295 +1,99 @@
 # Beacon Architecture
 
-> **PURPOSE:** System map. Routes, domains, data flow, persistence, scan pipeline, import pipeline.
-> This file answers: "How does the system fit together?"
->
-> **NOT FOR:** What to do next (→ `NEXT_PHASE_EXECUTION_PLAN.md`), current state summary (→ `HANDOFF_VERIFIED_STATE.md`), historical phase details (→ `master_execution_plan.md`).
+> **PURPOSE:** the system map — kernels, surfaces, records, persistence, measurement, and the invariants
+> the tests and guard enforce. Answers "how does it fit together?" Not a plan (→ `NEXT_PHASE_EXECUTION_PLAN.md`)
+> or current state (→ `HANDOFF_VERIFIED_STATE.md`). Ceiling: 250 lines.
 
-**Tier 1 vault closure (operator):** Evidence for the internal dogfood week lives in **`docs/TIER_1_DOGFOOD_WEEK_LOG.md`** (daily table + final note). Until that file records consecutive real-use days with no P0 trust regressions, treat **Tier 1** as not fully closed per `master_execution_plan.md` — even if Sign-offs are `passed`.
+## What Beacon is
 
----
+Beacon is a single-user internal product that helps an operator get found on Google and AI search. It reads
+the sources a business already uses, turns what it finds into exact, ranked changes to make, and honestly
+measures whether each shipped change helped. Publishing is manual: Beacon never edits the live site.
 
-## What Beacon Is
+Stack: Next.js 16 (App Router), React 19, TypeScript strict, Supabase (Postgres) as the production
+repository, vitest for tests. Deployed on Vercel (`main` → `beacon-bice.vercel.app`).
 
-Beacon is an attribution-triage system for AI/AEO visibility.
-It ingests changes (what you did) and results (what happened), then uses deterministic logic to connect cause and effect.
+## The five kernels
 
-**Stack:** Next.js 16 (App Router), React 19, TypeScript strict, `.data/*.json` persistence, optional Supabase dual-write.
+All domain logic lives under `src/domains/` in exactly five top-level kernels. `src/app` and `src/components`
+consume a kernel only through its public facade (`src/domains/<kernel>/index.ts`) for value imports; deep
+`import type` is allowed. The foundation guard enforces this.
 
----
+- **account** — tenants, memberships, onboarding, site/account config, explicit tenant/site resolution.
+- **evidence** — the six source boundaries normalized into one `EvidenceSnapshot`: pages/scanning, GSC signals,
+  GA4 values, Microsoft Clarity, DataForSEO SERP, native AI-visibility (citations, tracked prompts/entities),
+  competitor evidence, CTR-curve forecasting input.
+- **decision** — proposes and validates change proposals: recommendation-intelligence + page-surgeon, LLM
+  drafting, factual/destructive validation, ranking, the `changes` lifecycle, opportunities.
+- **measurement** — proof-gsc (the 7/14/28 read kernel), attribution, changelog, results, revenue, scoreboard.
+- **runtime** — on-visit refresh, background surface preparation, connector orchestration, operational
+  failure state.
 
-## Data Flow
+**Dependency direction:** Account → Evidence → Decision → Measurement; Runtime orchestrates. Forbidden edges
+(guard-checked): Evidence importing Decision or Measurement; Measurement importing Decision. A small set of
+pre-existing leaks is grandfathered in the guard (`kernelDirectionExceptions`, non-increasing) and tracked
+for severance — no new leak may be added.
 
-```
-Workbook/CSV Import (or Profound adapter)
-    ↓
-Changes + Results + Opportunities + Competitors
-    ↓
-Candidate Discovery (change × result scoring)
-    ↓
-Auto-Triage (confirm/reject/review)
-    ↓
-Outcome Events (derived from result time series)
-    ↓
-Event Resolution (attributed / no_cause / pending)
-    ↓
-Recommendations (replicate / strengthen / investigate)
-    ↓
-Priority Engine (single primary action)
-    ↓
-Today Morning Briefing
-```
+## The four surfaces + allowed routes
 
----
+The customer product is four surfaces plus settings and minimal onboarding. Routes are allowlisted in
+`foundation-budget.json`; a new customer route needs operator approval.
 
-## Routes
+- **Today** (`/`) — one command: the single most important thing to do, plus a scoreboard and proof strip.
+- **Changes** (`/changes`, `/changes/[id]`) — the ranked queue of proposed changes (To do / Ready /
+  Measuring / Results), each with exact copy and honest confidence.
+- **Results** (`/results`) — every shipped change and whether it helped, as directional reads vs comparison
+  pages (never a causal claim).
+- **Connections** (`/settings/connectors`) — the six sources, their connection and freshness state.
 
-### Primary navigation (6 items — `src/lib/navigation.ts`)
+Also: `/settings`, `/settings/config`, `/onboard`, `/onboard/done`, `/login`, `/signup`, and one API route
+`api/connectors/google/callback` (+ `api/version`).
 
-| Route | Component | What it does | Score |
-|-------|-----------|-------------|-------|
-| **Today** `/` | `page.tsx` → `today-data.ts` → `today-client.tsx` | Morning briefing: scan status, optional **local attention** strip (`TodayLocalAttentionStrip` from `getLocalPresenceSnapshot` when not all-good), primary action, findings, visibility KPIs, milestones. Auto-scan trigger when overdue | 60/100 |
-| **Pages** `/pages` | `pages/page.tsx` (818 lines) → `pages-client.tsx` (1168 lines) | Page health: every tracked URL with status, snapshots, diffs, guardrails, fix briefs, playbook briefs, rollout waves, findings | 75/100 |
-| **Market** `/competitors` | `competitors/page.tsx` | Competitive analysis + compact **`MarketLocalStrip`** (listing health tier, NAP state with tone, optional listing-completeness phrase, imported reviews line, link to `/local`). AI share, rankings, topic signals, co-mention, source trust, battlecards | 62/100 |
-| **Local** `/local` | `local/page.tsx` | Track 1.4: read-only local presence (page header states Config/import/sync scope, not live directory truth) — explicit **NAP state**; **Data freshness** strip (`lastSync.google` / `yelp` / `manual` from `getLocalPresenceSnapshot()` — connector `last_synced_at` vs manual `ImportRun` excluding `connector:*`); **Listing completeness** (read-only field presence audit: `listingCompleteness` on snapshot — no live GBP verification); 7-component listing health; methodology `#review-source-timestamps` + `#nap-consistency` + `#listing-health` + `#listing-completeness` + `#local-reviews` | — |
-| **Changes** `/changes` | `changes/page.tsx` (594 lines) → 3 tabs (Outcomes/Replicate/Attribution) | Change impact: scorecard, verdicts, evidence tiers, pattern mining, replication targets, attribution review | 70/100 |
-| **Settings** `/settings` | Server `settings/layout.tsx` (readiness hint + client tab bar) | Import, **Config**, **Connectors**, **Data** (`/settings/history`), **Sign-offs** (`/settings/exit-gates` — internal Daily Ritual, Replication, **Local layer** exit gates; `.data/exit-gates.json`), **Methodology**. **`/settings/health`** remains valid (diagnostics) but **not** in the tab bar |
+## Canonical records
 
-### Settings sub-routes
+One canonical business record per concept — no duplicate shapes:
 
-| Tab | Route | Re-exports | Purpose |
-|-----|-------|------------|---------|
-| Import | `/settings/import` | `settings/import/page.tsx` → `./import-page.tsx` (**only** entry; standalone **`/import`** removed — Phase 3-5) | Workbook upload, Profound adapter, CSV/JSON import (including **Local reviews** entity → `.data/local-reviews.json`) |
-| Config | `/settings/config` | `settings/config/page.tsx` + `config-form.tsx` + **`actions.ts`** (`saveSetup` / `loadSetup`) | Editable business profile; **`/setup`** route removed (Phase 3-6)—**only** this path for setup/config UI |
-| Connectors | `/settings/connectors` | `settings/connectors/page.tsx` + `connectors-client.tsx` + **`actions.ts`** (Google OAuth + **`loadGoogleLocations`** / **`selectGoogleLocation`** / **`syncGoogleReviews`**; Yelp **`saveYelpApiKey`** / **`syncYelpReviews`** / **`disconnectYelp`**) | **Google:** OAuth + **location picker** (`fetchGoogleLocations` → select → `selected_location_id` on token) + on-demand **Sync now** (requires location) → `runGoogleReviewsSync` → GBP v4 reviews for selected location → `LocalReview` → `mergeUpsertLocalReviews`; callback `/api/connectors/google/callback`. **Yelp:** API key only (server store) + **Sync now** → Fusion `businesses/{id}` + `reviews` → `runYelpReviewsSync` → same merge path; `connector:google` / `connector:yelp` import runs. Tokens + `last_synced_at` + `selected_location_id`: `connector-store.ts` → `.data/connector-tokens.json`. **Yelp business id** from `business-config.json` (`yelpBusinessId`) or token `business_id` |
-| Health | `/settings/health` | `../../diagnostics/page` | Attribution diagnostics (developer-facing). **Not** shown in settings tab nav (direct URL only) |
-| Data (tab) | `/settings/history`, **`/settings/history/[id]`** | `settings/history/page.tsx` (framing + `./results-page`), **`results-page.tsx`**, **`results-client.tsx`**, **`[id]/page.tsx`** (Phase 3-7: former **`(shell)/results/`** tree; standalone **`/results`** removed) | Imported measurement / citation evidence + row detail; tab label **Data** |
-| Sign-offs | `/settings/exit-gates` | `settings/exit-gates/page.tsx` + `exit-gates-client.tsx` + **`actions.ts`** + **`exit-gates-settings-hint-client.tsx`** | Internal operator sign-off only (`readExitGates` / `updateExitGate` → **`exit-gates.json`**; keys `daily_ritual`, `replication`, `local_layer`). Does not affect metrics, scores, freshness states, or proof. Settings layout hint when not all gates `passed` (engaged and/or Sign-offs page + **`local_layer`** rule); **hidden when all three `passed`**. Methodology **`#exit-gates`** |
-| Methodology | `/settings/methodology` | `settings/methodology/page.tsx` (static, 5 sections + FAQ) | Proof layer (1.1c + **1.1j 2026-04-13**): per-metric **How to read it** / **Beacon does not know** blocks, expanded FAQ (incl. coverage states), boundaries. Anchors: **`#exit-gates`**, **`#nap-consistency`**, **`#local-reviews`**, **`#review-source-timestamps`**, **`#listing-health`**, **`#listing-completeness`**, **`#review-monitoring-v1`**, **`#review-connectors`**, **`#coverage-states`**, **`#boundaries`**. Specs: `docs/TIER_1_4D_REVIEW_MONITORING_V1_SPEC.md`, `docs/TIER_1_4E_REVIEW_CONNECTORS_SPEC.md`. Linked from HowWeKnowPanel, Today coverage line, Market/Changes `<details>`, **`/local`** disclosure |
-
-### Hidden / secondary routes
-
-| Route | Purpose | How accessed |
-|-------|---------|-------------|
-| `/diagnostics` | Attribution model diagnostics | Direct URL (not in nav) |
-| `/expansion` | Quarantined hypothesis backlog | Direct URL (gated behind experiment flag) |
-| `/briefs`, `/briefs/[id]`, `/briefs/proposed` | Brief management | Linked from Pages |
-| `/review` | Attribution review queue | Embedded in Changes > Attribution tab |
-| `/topics`, `/topics/opportunity/[id]` | Topic detail views | Command palette |
-| `/observations/[id]` | Crawl proof detail | Linked from finding provenance |
-| `/changes/[id]` | Change detail + inline recommendations | Linked from Changes list |
-| `/local` | Local presence (GBP/reviews read-path v1) | Primary nav **Local**; command palette |
-
----
-
-## Domains (31 modules under `src/domains/`)
-
-| Domain | Purpose | Key files | Type |
-|--------|---------|-----------|------|
-| `attribution/` | Cause-effect scoring, triage, golden tests | `compute.ts`, `candidates.ts`, `triage.ts`, `events.ts` | Computed |
-| `scanning/` | Scan orchestration, findings, scan state | `orchestrate-scan.ts`, `detect-findings.ts`, `findings-store.ts` | Computed + Persisted |
-| `pages/` | Page registry, snapshots, guardrails, fix briefs, playbooks | `snapshot-store.ts`, `guardrails.ts`, `extractor.ts` | Imported + Computed |
-| `competitors/` | Rankings, co-mention, source trust, battlecards, snippet intel | `co-mention.ts`, `source-trust.ts`, `battlecards.ts` | Computed |
-| `product/` | Recommendations, priority, replication, experiments, milestones | `recommendation-engine.ts`, `priority-engine.ts`, `replication-engine.ts` | Computed |
-| `observations/` | Crawl run management, merged reads | `read.ts`, `observation-runs-merge.ts` | Imported |
-| `opportunities/` | Opportunity scoring and guidance | — | Imported + Computed |
-| `actions/` | Action cluster detection | — | Computed |
-| `brief-generation/` | Brief template creation | — | Computed |
-| `briefs/` | Brief types and lifecycle | — | Computed |
-| `patterns/` | Pattern detection for replication | — | Computed |
-| `entity/` | Entity extraction, discrepancy detection | `entity-extract.ts`, `discrepancy-detect.ts` | Computed |
-| `geo/` | Geographic normalization, coverage gaps | `normalize.ts`, `coverage.ts` | Computed |
-| `prompts/` | Prompt library, journey coverage, adversarial templates | `prompt-library.ts`, `journey-coverage.ts` | Managed |
-| `milestones/` | All-time highs, first-time outcomes | `compute.ts`, `apply.ts` | Computed |
-| `local-operator/` | Local market surface signals | `surface.ts` | Computed |
-| `changelog/` | Change contract types | — | Imported |
-| `results/` | Result actions and scoring | — | Imported |
-| Remaining 13 domains | Type definitions, small utilities | — | Various |
-
----
+- **Tenant / Membership / Site / Connection** (account) — who the operator is and what is connected.
+- **EvidenceSnapshot** (evidence) — the normalized read of all six sources for a page/tenant.
+- **ChangeProposal** (decision) — one existing-page edit path and one new-page brief path, one validator, one
+  ranker.
+- **Shipment / Measurement** (measurement) — a shipped change and its 7/14/28-day reads.
 
 ## Persistence
 
-### Primary: File-based (`.data/*.json`)
+Supabase (Postgres) is the production repository, reached through `getRepository().forTenant(tenantId)` — every
+read and write is tenant- and site-scoped. A tiny in-memory/file repository backs tests and local runs
+(`DATA_SOURCE=file`). Historical production records are preserved. New store tables are classified in
+`src/lib/persistence/store-classification.ts`; an unknown store fails loud at the boundary. (Retiring the
+legacy `.data` JSON mirror + dual-write path toward Supabase-only is tracked in the execution plan.)
 
-All route-critical data persists as JSON files under `.data/` via `src/lib/persistence/json-store.ts`. Server-only, enforced by `import "server-only"`.
+## Measurement
 
-**Tenant-aware routing (Sprint 7 Phase 7.8b):** Every `.data` read/write dispatches through `src/lib/persistence/resolve-data-path.ts`, which classifies stores via `src/lib/persistence/store-classification.ts` and routes them into one of three layouts:
+`proof-gsc` reads each shipped change over 7/14/28-day windows against comparison pages that were not changed,
+and emits a directional verdict — never a causal claim. Verdict vocabulary: `waiting`, `insufficient_evidence`,
+`directional_decline`, `no_clear_movement`, `directional_improvement`, `stronger_improvement`, `confounded`.
+Overlapping changes on one page resolve to `confounded`. The measurement boundary (native regime start) is a
+single locked constant; cross-regime windows abstain. Every count on Today matches the same count on Results
+(the ONE-COUNT RULE).
 
-| Scope | Layout | Examples |
-|---|---|---|
-| **Per-tenant** (array stores carrying `tenant_id`) | `.data/tenants/<slug>/<name>.json` | `imported-changes`, `pages`, `page-snapshots`, `scan-findings`, `recommendation-responses`, `import-runs`, … |
-| **Singleton** (one row per tenant; no `tenant_id` column) | `.data/tenants/<slug>/<name>.json` | `business-config`, `connector-tokens`, `exit-gates`, `local-reviews`, `local-presence`, … |
-| **Global** (cross-tenant aggregates / shared registries / built indices) | `.data/global/<name>.json` | `tracked-prompts`, `tracked-entities`, `change-patterns`, `triage-rules`, `confidence-calibration`, `citation-evidence-index`, `answer-intelligence-index`, … |
-| **Tenant registry** | `.data/global/tenants.json` (the registry OF tenants, classified as global) | `tenants` |
-| **Unknown** (no classification) | throws fail-loud at the read/write boundary | — |
+## Invariants (enforced by `tests/` + the foundation guard)
 
-Phase 7.8d (2026-04-26) made the routed layout the sole runtime truth: there is **no flat fallback**. Reads for known stores resolve to their routed path or return `[]` / `null` when the file isn't on disk yet; reads/writes for unknown stores throw with a message naming `src/lib/persistence/store-classification.ts`. The pre-7.8d flat originals were moved to `.data/_legacy/` (local-only — `.data/` is gitignored) and remain available for emergency rollback (`mv .data/_legacy/*.json .data/ && rmdir .data/_legacy`). The in-process cache and write-locks are keyed by resolved location (`<name>::tenant:<slug>`, `<name>::global`), so cross-tenant cache pollution is structurally impossible. The tenant slug for per-tenant + singleton scopes is resolved through `currentTenantSlug()` in `src/lib/tenant-context.ts` (`x-beacon-tenant` request header → `BEACON_TENANT_ID` env var → throw).
+- **Tenant isolation, fail-closed** — an authenticated request never falls back to another tenant or an env
+  default; scoped reads only; caches are keyed per tenant.
+- **No paid provider calls on render** — no shell page imports an LLM/GA4 live path; proposal generation runs
+  in background refresh, not on the render path.
+- **Bounded egress** — route loaders read observations windowed and column-projected, never unbounded.
+- **Publishing authority** — Beacon never writes the live site; "Mark implemented" stamps `verified_live`
+  only; a crawl/index directive is always held for review, never one tap.
+- **Ready exactness** — active proposals carry exact copy, no raw UUIDs, no placeholder phrases.
+- **Customer-copy floor** — no lab/cron vocabulary, no vendor names, no causal overclaim, no tenant-name leak,
+  and **no em or en dashes** on any primary surface.
 
-**Async surface:** Both `readStore` and `writeStore` are `async` (Sprint 7 Phase 7.8b-2-b). Every caller awaits. `tests/architecture/json-store-routing-invariants.test.ts` pins the contract — `await readStore(...)` is required, the cache must key by resolved cacheKey, the import-runs anti-race guard (refuses to overwrite a non-empty file with `[]`) must remain in place, the helpers must NOT log `[json-store] flat-fallback read` / `[dotdata-json] flat-fallback read` (7.8d-1 negation), and the helpers must NOT reference `resolved.flatPath` outside the resolver itself.
+## The foundation firewall
 
-**Migration phases:**
-- 7.8a / 7.8a.1 classified 100+ stores into per-tenant / singleton / global / unknown.
-- 7.8b-1 routed `dotdata-json`; 7.8b-2-a–d converted `readStore` / `writeStore` to async + tenant-aware and cascaded the async signature through every caller.
-- 7.8b-2-e added 6 architectural invariants pinning the contract.
-- 7.8c ran `--commit` to physically copy 70 flat files into `.data/tenants/<slug>/` + `.data/global/`.
-- 7.8c.1 cleaned test pollution and preserved a freshly-rebuilt routed `co-mention-matrix.json` against migration-overwrite.
-- **7.8d (this section's contract): COMPLETE.** Flat fallback removed; unknown stores throw; the 72 flat originals moved to `.data/_legacy/`; routed dirs are sole runtime truth.
-- 7.8e (next): lift `seed-data.server.ts`'s top-level await to request-scope.
-
-### Optional: Supabase dual-write
-
-| Layer | Role |
-|-------|------|
-| **Postgres (Supabase)** | Canonical read source when `DATA_SOURCE=supabase` |
-| **`.data/*.json`** | On-disk truth, always written first. Enables instant rollback via `DATA_SOURCE=file` |
-| **`SeedDataRepository`** | Default read path — switches backend from env |
-| **Thin domain stores** | Wrap repository for single domain (snapshots, guardrails, etc.) |
-| **`storage/canonical-store.ts`** | Profound import pipeline only |
-
-**Rollback:** Set `DATA_SOURCE=file` in `.env.local` and restart.
-
-### Data freshness
-
-| Data | Freshness | Mechanism |
-|------|-----------|-----------|
-| **UI coverage label** (Today / Market / Changes) | Derived | `src/lib/coverage-state.ts` — `deriveCoverageState()` (fresh / aging / stale / critical / partial) from crawl age vs fixed thresholds (`T=3` days), optional missing-crawl flag, visibility-vs-crawl, and sample tier only. No persistence. |
-| Page snapshots | FRESH | `readDotDataJson()` — no cache, disk read every call |
-| Guardrail alerts | FRESH | `readDotDataJson()` |
-| Scan state | FRESH | `readDotDataJson()` |
-| Citation evidence | FRESH | `readDotDataJson()` |
-| Results, changes, opportunities, competitors | MODULE-CACHED | `seed-data.server.ts` top-level await, populated once |
-| Event decisions | MODULE-CACHED | `attribution/store.ts` |
-| Recommendation responses, experiments, page issues | IN-MEMORY | `json-store` first-read cache |
-
-### Persistence stores
-
-| Store basename | Domain | Written by |
-|----------------|--------|------------|
-| `pages` | Page registry | `adapters/profound/import-orchestrator` |
-| `page-snapshots` | Crawl snapshots | `scripts/scan-owned-pages.ts` |
-| `page-snapshots-prev` | Prior crawl baseline | `scripts/scan-owned-pages.ts` |
-| `page-snapshot-diffs` | Snapshot diffs | `scripts/scan-owned-pages.ts` |
-| `page-guardrails` | Guardrail alerts | `scripts/scan-owned-pages.ts` |
-| `render-checks` | Render check results | `scripts/scan-owned-pages.ts` |
-| `observation-runs` | Website crawl runs | `scripts/scan-owned-pages.ts` + `storage/canonical-store.ts` |
-| `sitemap-reconciliation` | Sitemap reconciliation | `scripts/scan-owned-pages.ts` |
-| `scan-findings` | Detection findings | `domains/scanning/findings-store.ts` |
-| `last-scan-result` | Structured scan result | `scripts/scan-owned-pages.ts` |
-| `scan-state` | Scan lifecycle state | `domains/scanning/orchestrate-scan.ts` |
-| `imported-results` | Imported results | `lib/import/actions.ts` |
-| `imported-changes` | Imported changelog | `lib/import/actions.ts` |
-| `imported-opportunities` | Imported opportunities | `lib/import/actions.ts` |
-| `imported-competitors` | Imported competitors | `lib/import/actions.ts` |
-| `import-runs` | Import run records | `lib/import/actions.ts` |
-| `candidate-links` | Attribution candidates | `domains/attribution/store.ts` |
-| `truth-labels` | Attribution truth labels | `domains/attribution/store.ts` |
-| `event-decisions` | Review decisions | `domains/attribution/store.ts` |
-| `recommendation-responses` | Accept/dismiss/defer | `domains/product/recommendation-response-store.ts` |
-| `experiments` | Watch-list tracking | `domains/product/experiment-store.ts` |
-| `competitor-universe` | Competitor config | `universe-read.ts` |
-| `business-config` | Business profile | `setup/actions.ts` |
-| `scan-settings` | Scan schedule config | `domains/scanning/scan-settings.ts` |
-| `exit-gates` | Track 1.2 / 1.3 / 1.4l internal sign-off (Daily Ritual, Replication, Local layer) | `lib/exit-gates-store.ts` + `settings/exit-gates/actions.ts` |
-
-### Cold stores
-
-| Path | Content | Access |
-|------|---------|--------|
-| `.data/answer-texts.json` | ~9,596 entries, ~27 MB | `cold-store.ts` on-demand |
-| `.data/citations-by-date/{date}.json` | ~85,004 citation rows | `cold-store.ts` sharded |
-
----
-
-## Scan Pipeline
-
-**Orchestrator:** `src/domains/scanning/orchestrate-scan.ts` — single `runWebsiteScan({ trigger })` function. Render-safe (no `revalidatePath`).
-
-**Flow:**
-1. Capture previous snapshots/guardrails
-2. Write `scan-state.json` → `running`
-3. Execute CLI (`scripts/scan-owned-pages.ts`) via `child_process.exec` (120s timeout)
-4. CLI fetches live sitemap → fetches each page → extracts title/meta/H1/schema/FAQ/links/word count → writes structured `.data/*.json` atomically
-5. Read `last-scan-result.json`
-6. Run `regenerateScanFindings()` — compares current vs previous snapshots, generates findings
-7. Write terminal scan state (`success` / `partial` / `failed`)
-8. Return structured `WebsiteScanResult`
-
-**Entry points:**
-- **Today** (`page.tsx`) — when `isScanOverdue()` is true
-- **Pages** (`scan-action.ts`) — manual "Scan now" button → calls `revalidatePath` after
-- **Import** (`postImportSetup()`) — after workbook import → calls `revalidatePath` after
-
-**Cache invalidation:** `revalidatePath("/", "layout")` and `revalidatePath("/pages", "layout")` are called only from server actions (`scan-action.ts`, `import/actions.ts`), never from the render path.
-
-**Finding detection:** 15 types from snapshot diff with priority scoring (severity + homepage + citations + changelog contradiction). Priority buckets: critical ≥60, important ≥35, minor ≥15, informational <15.
-
----
-
-## Import Pipeline
-
-**Primary:** Workbook upload → `src/lib/import/actions.ts` → parse CSV/JSON/XLSX → persist to `.data/imported-*.json` + optional Supabase dual-write.
-
-**Profound adapter:** `src/adapters/profound/` — maps Profound CSV exports to canonical Beacon types.
-
-**Post-import automation:** `postImportSetup()` — runs registry build + page scan after successful workbook import.
-
----
-
-## Component Architecture
-
-### Server/client boundary
-
-- Server components (pages) fetch data, compute, pass serialized props to client components
-- Client components render UI, handle interactions, call server actions for mutations
-- `seed-data.server.ts`: server-only data layer
-- No client-side data fetching (no SWR/React Query)
-- All mutations go through server actions (`"use server"`) — no API routes
-
-### Shared components
-
-| Category | Count | Key examples |
-|----------|-------|-------------|
-| Shell | 4 | Sidebar, header, command palette, provider |
-| Viz | 19 | ConfidenceBadge, FreshnessDot, KpiCard, Sparkline, DonutRing, AreaChart, etc. |
-| Data | 21 | PageHeader, StatCard, EmptyState, etc. |
-| Display | 16 | Badge variants, cards, metric displays |
-| Form | 6 | Import forms, record sheets |
-
-### Abstraction layers (visual + data swappability)
-
-```
-Data Adapters              View Models             Chart Components
-┌─────────────┐           ┌──────────────┐         ┌──────────────┐
-│ Profound     │──────────▶│ visibility   │────────▶│ KpiCard      │
-│ (current)    │           │ score        │         │ AreaChart    │
-│              │           │ geo          │         │ RadialScore  │
-│ Native       │           │ journey      │         │ DonutRing    │
-│ (future)     │──────────▶│ competitors  │────────▶│ MiniBarChart │
-└─────────────┘           └──────────────┘         │ etc.         │
-                                                    └──────────────┘
-```
-
-- **Data adapters** (`src/lib/data-adapters/`): Interface per domain. Current: `profound-adapter.ts`. Swap: change import in `index.ts`.
-- **View models** (`src/lib/view-models/`): Pure functions. Domain data → chart-ready props. 5 modules.
-- **Chart interfaces** (`src/components/viz/chart-types.ts`): Canonical prop shapes. Any chart library can implement.
-
----
-
-## Attribution Engine
-
-**Config SSOT:** `src/domains/attribution/config.ts`
-- Weights: platform=20, topic=25, url=5, geo=15, temporal=20, sourceCategory=15
-- Strength: strong=1.0, partial=0.5, unknown=0, none=0
-- Confidence bands: high≥70, medium≥45, low≥20
-
-**Scoring model (priority engine — 0-100, 7 dimensions):**
-1. Impact confidence (0-25)
-2. Evidence strength (0-20)
-3. Pattern strength (0-15)
-4. Replication potential (0-15)
-5. Type urgency (0-15)
-6. Recency (0-10)
-7. Track record (-5 to +10)
-
-**Buckets:** CRITICAL ≥72, HIGH_LEVERAGE ≥50, OPPORTUNISTIC ≥25, NOISE <25.
+`npm run guard:foundation` (`scripts/check-foundation-budget.mjs`, config `foundation-budget.json`)
+mechanically caps production/test/combined LOC, customer routes, top-level domains (5), file sizes,
+public-export count, Markdown files/lines, and runtime dependencies; it enforces the facade boundary and the
+kernel dependency direction. CI runs it via `.github/workflows/foundation.yml`. `npm run gate` runs
+guard + typecheck + test + build. The full growth policy and the eight required fields for any new feature
+live in `AGENTS.md`.

@@ -1,5 +1,5 @@
-import type { ChangelogEntry } from "@/domains/changelog/types";
-import type { ProofMeasurementSummary } from "@/domains/changes/proof-timeline/result-pill";
+import type { ChangelogEntry } from "@/domains/measurement/changelog/types";
+import type { ProofMeasurementSummary } from "@/domains/decision/changes/proof-timeline/result-pill";
 
 /**
  * Shared /changes row types.

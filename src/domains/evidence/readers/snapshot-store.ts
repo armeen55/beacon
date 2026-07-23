@@ -1,7 +1,7 @@
 import "server-only";
 
 import { readDotDataJson } from "@/lib/persistence/dotdata-json";
-import type { PageSnapshot } from "@/domains/pages/types";
+import type { PageSnapshot } from "@/domains/evidence/pages/types";
 
 /** Always reads `.data/page-snapshots.json` from disk (no import-time cache). */
 export async function getPageSnapshots(): Promise<PageSnapshot[]> {

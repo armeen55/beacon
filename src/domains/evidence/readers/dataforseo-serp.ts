@@ -8,7 +8,7 @@ import {
   recordSpendSupabase,
   getTenantSpentThisMonthUsd,
 } from "@/lib/cost/budget-ledger-supabase";
-import { assertPaidCallAllowed } from "@/domains/safety/cost-breaker";
+import { assertPaidCallAllowed } from "@/lib/cost/cost-breaker";
 import type { SerpSnapshot, SerpResult, SerpFeature } from "./serp-provider";
 import { rootDomain } from "./serp-provider";
 

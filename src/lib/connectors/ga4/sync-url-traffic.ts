@@ -44,7 +44,7 @@ import { getRepository } from "@/lib/persistence/repositories";
 import {
   deriveSyncFailureEscalation,
   listRecentRefreshRuns,
-} from "@/domains/ops/refresh-runs-store";
+} from "@/domains/runtime/ops/refresh-runs-store";
 
 import {
   computeRefreshDateRange,

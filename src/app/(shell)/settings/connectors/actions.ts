@@ -1,7 +1,7 @@
 "use server";
 
 import { log } from "@/lib/logger";
-import { warmFreeSurfaces } from "@/domains/ops/warm-caches";
+import { warmFreeSurfaces } from "@/domains/runtime";
 import {
   getConnectorInfo,
   getGoogleConnectorToken,
@@ -39,8 +39,8 @@ import { revalidatePath } from "next/cache";
 import { syncGscSearchAnalyticsForTenant } from "@/lib/connectors/gsc/sync-search-analytics";
 import { syncGa4UrlTrafficForTenant } from "@/lib/connectors/ga4/sync-url-traffic";
 import { syncClarityDailyMetricsForTenant } from "@/lib/connectors/clarity/sync-daily-metrics";
-import { recordSourceRefresh } from "@/domains/ops/record-source-refresh";
-import type { RefreshSource } from "@/domains/ops/refresh-runs-store";
+import { recordSourceRefresh } from "@/domains/runtime";
+import type { RefreshSource } from "@/domains/runtime/ops/refresh-runs-store";
 import { getBusinessConfig } from "@/lib/business-config";
 import {
   discoverAndMapWixCollections,

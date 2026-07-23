@@ -16,25 +16,25 @@ import { revalidatePath } from "next/cache";
 
 import { isOperatorModeServer } from "@/lib/operator-mode";
 import { currentTenantId } from "@/lib/tenant-context";
-import { loadProofPlan } from "@/domains/recommendation-intelligence/page-surgeon/bridge";
+import { loadProofPlan } from "@/domains/decision";
 import {
   loadPageSurgeonContext,
   topPagesByDemand,
-} from "@/domains/recommendation-intelligence/page-surgeon/assemble-packet";
-import { canonicalizeCitationUrl } from "@/domains/ai-visibility/canonicalize-citation-url";
+} from "@/domains/decision";
+import { canonicalizeCitationUrl } from "@/domains/evidence";
 import {
   recordShippedChange,
   captureChangeMeta,
   measureRecord,
   defaultPacificShipDate,
-} from "@/domains/proof-gsc";
+} from "@/domains/measurement";
 import {
   loadShippedChanges,
   upsertShippedChange,
   type ShippedChangeRecord,
-} from "@/domains/proof-gsc";
-import { readLastFinalizedDate } from "@/domains/proof-gsc";
-import { readLedger } from "@/domains/proof-gsc";
+} from "@/domains/measurement";
+import { readLastFinalizedDate } from "@/domains/measurement";
+import { readLedger } from "@/domains/measurement";
 import { writeResultsSurface } from "./results-surface-store";
 
 export type ProofLedgerActionResponse = { success: boolean; error?: string };

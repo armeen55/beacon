@@ -1,21 +1,21 @@
 {
-  "_doc": "The bloat firewall. Ceilings are NON-INCREASING: ratchet them DOWN as code shrinks, never up without explicit operator approval. Enforced by scripts/check-foundation-budget.mjs (npm run guard:foundation). Targets: production <=55000, tests <=18000, combined <=75000, absolute MVP hard cap 100000. Ordinary feature task: <=750 net new lines; >750 needs operator approval; >2000 must decompose or replace existing code; a replacement deletes the old path in the same phase; no new top-level domain / customer route / dependency without explicit approval.",
+  "_doc": "Bloat firewall. Ceilings are NON-INCREASING: ratchet DOWN as code shrinks, never up without operator approval. Enforced by scripts/check-foundation-budget.mjs (npm run guard:foundation). Foundation is frozen; see AGENTS.md for the growth policy and the 8-field feature rule.",
   "production": {
     "max": 71000,
     "target": 55000
   },
   "tests": {
-    "max": 6000,
-    "target": 18000
+    "max": 5000,
+    "target": 4000
   },
   "combined": {
     "hardCap": 100000,
-    "target": 75000
+    "target": 60000
   },
   "domains": {
-    "max": 28,
-    "target": 10,
-    "_note": "ratchet down as legacy domains are internalized behind the five kernel facades"
+    "max": 5,
+    "target": 5,
+    "_note": "The five kernels: account, evidence, decision, measurement, runtime. No new top-level domain without operator approval."
   },
   "routes": {
     "pagesAllow": [
@@ -42,47 +42,108 @@
   "files": {
     "newFileMax": 500,
     "hardMax": 800,
-    "_note": "A NEW production file may not exceed newFileMax. Grandfathered oversized files below have a non-increasing ceiling = their current size; shrink them, never grow them. Clearing a file from this list (by trimming under newFileMax) is encouraged.",
+    "_note": "NEW production file may not exceed newFileMax. Grandfathered files below carry a non-increasing ceiling = current size; shrink them, never grow. Clearing a file (trim under newFileMax) is encouraged.",
     "grandfathered": {
-      "src/domains/llm/structured-drafter.ts": 1633,
-      "src/app/(shell)/settings/connectors/connectors-client.tsx": 1382,
-      "src/lib/connectors/ga4/data-api.ts": 1381,
-      "src/app/(shell)/settings/connectors/actions.ts": 1242,
-      "src/lib/connector-store.ts": 1171,
-      "src/domains/drafts/draft-quality.ts": 988,
-      "src/lib/persistence/dual-write.ts": 910,
-      "src/domains/recommendation-intelligence/gsc-page-queries.ts": 884,
-      "src/domains/recommendation-intelligence/page-surgeon/page-decision.ts": 836,
-      "src/lib/business-config.ts": 831,
-      "src/domains/attribution/url-change-outcome.ts": 825,
-      "src/domains/attribution/url-verdict.ts": 777,
-      "src/domains/proof-gsc/kernel.ts": 773,
-      "src/lib/persistence/repositories/supabase-backend.ts": 746,
-      "src/domains/evidence/snapshot.ts": 721,
-      "src/lib/connectors/gsc/sync-search-analytics.ts": 708,
-      "src/domains/drafts/source-authority.ts": 694,
-      "src/domains/pages/extractor.ts": 668,
-      "src/domains/evidence/readers/dataforseo-serp.ts": 668,
-      "src/domains/pages/types.ts": 656,
-      "src/domains/scanning/crawl-frontier.ts": 645,
-      "src/lib/net/safe-source-fetch.ts": 616,
-      "src/domains/llm/schemas.ts": 612,
-      "src/lib/connectors/google-auth.ts": 595,
-      "src/domains/product/url-citation-history.ts": 573,
-      "src/domains/pages/extractors/extractors.ts": 571,
-      "src/domains/evidence/readers/gsc-page-signals.ts": 560,
-      "src/domains/changes/recommended-edits-persistence.ts": 547,
-      "src/lib/persistence/store-classification.ts": 531,
-      "src/lib/connectors/wix/client.ts": 512
+      "src/domains/decision/llm/structured-drafter.ts": 1628,
+      "src/app/(shell)/settings/connectors/connectors-client.tsx": 1377,
+      "src/lib/connectors/ga4/data-api.ts": 1376,
+      "src/app/(shell)/settings/connectors/actions.ts": 1237,
+      "src/lib/connector-store.ts": 1166,
+      "src/domains/decision/drafts/draft-quality.ts": 983,
+      "src/lib/persistence/dual-write.ts": 905,
+      "src/domains/decision/recommendation-intelligence/gsc-page-queries.ts": 879,
+      "src/domains/decision/recommendation-intelligence/page-surgeon/page-decision.ts": 831,
+      "src/lib/business-config.ts": 826,
+      "src/domains/measurement/attribution/url-change-outcome.ts": 820,
+      "src/domains/measurement/attribution/url-verdict.ts": 772,
+      "src/domains/measurement/proof-gsc/kernel.ts": 768,
+      "src/lib/persistence/repositories/supabase-backend.ts": 741,
+      "src/domains/evidence/snapshot.ts": 716,
+      "src/lib/connectors/gsc/sync-search-analytics.ts": 703,
+      "src/domains/decision/drafts/source-authority.ts": 689,
+      "src/domains/evidence/readers/dataforseo-serp.ts": 663,
+      "src/domains/evidence/pages/extractor.ts": 663,
+      "src/domains/evidence/pages/types.ts": 651,
+      "src/domains/evidence/scanning/crawl-frontier.ts": 640,
+      "src/lib/net/safe-source-fetch.ts": 611,
+      "src/domains/decision/llm/schemas.ts": 607,
+      "src/lib/connectors/google-auth.ts": 590,
+      "src/domains/evidence/product/url-citation-history.ts": 568,
+      "src/domains/evidence/pages/extractors/extractors.ts": 566,
+      "src/domains/evidence/readers/gsc-page-signals.ts": 555,
+      "src/domains/decision/changes/recommended-edits-persistence.ts": 548,
+      "src/lib/persistence/store-classification.ts": 526,
+      "src/lib/connectors/wix/client.ts": 507
     }
   },
   "imports": {
-    "_note": "src/app (customer surfaces) must consume the kernels through their facades, never reach into private internals. Add a domain-internal path here once the kernel exposes a public index facade the surfaces use instead.",
+    "_note": "src/app + src/components consume the 5 kernels through their public facade (index.ts) only. Deep VALUE imports of kernel internals are forbidden; import type deep-imports are allowed (erased at compile).",
     "appForbiddenDomainDeep": [
+      "@/domains/account/",
       "@/domains/evidence/",
       "@/domains/decision/",
-      "@/domains/proof-gsc/"
+      "@/domains/measurement/",
+      "@/domains/runtime/"
+    ],
+    "_directionNote": "Dependency direction: Account -> Evidence -> Decision -> Measurement; Runtime orchestrates. Forbidden: Evidence importing Decision/Measurement; Measurement importing Decision. Known pre-existing leaks are grandfathered below (non-increasing) and tracked for severance; no NEW leak may be added.",
+    "kernelForbiddenEdges": {
+      "evidence": [
+        "decision",
+        "measurement"
+      ],
+      "measurement": [
+        "decision"
+      ]
+    },
+    "kernelDirectionExceptions": [
+      "src/domains/evidence/product/url-watcher.ts->measurement",
+      "src/domains/evidence/readers/gsc-page-signals.ts->measurement",
+      "src/domains/measurement/proof-gsc/auto-measure-on-use.ts->decision",
+      "src/domains/measurement/proof-gsc/measure-pass.ts->decision",
+      "src/domains/measurement/proof-gsc/verdict-schedule.ts->decision",
+      "src/domains/measurement/scoreboard/scoreboard.ts->decision"
     ]
+  },
+  "exports": {
+    "max": 1936,
+    "target": 1200,
+    "_note": "Exported type/interface/class/enum/const/function symbols in src (non-test). Non-increasing; keep internal helpers/types internal. Ratchet DOWN."
+  },
+  "markdown": {
+    "_note": "Documentation budget. Git history is the archive. No docs/archive/. No new AUDIT/REPORT/WIP/HISTORY/ROADMAP/dated-plan docs without operator approval.",
+    "maxFiles": 20,
+    "maxTotalLines": 3000,
+    "forbidArchive": true,
+    "forbiddenNamePattern": "(AUDIT|REPORT|_WIP|WIP_|HISTORY|ROADMAP|NIGHT_SHIFT|AUTONOMOUS_PROGRESS)",
+    "allowlist": [
+      "AGENTS.md",
+      "CLAUDE.md",
+      "README.md",
+      "docs/HANDOFF_VERIFIED_STATE.md",
+      "docs/NEXT_PHASE_EXECUTION_PLAN.md",
+      "docs/VERIFICATION_LOG.md",
+      "docs/master_execution_plan.md",
+      "docs/architecture.md",
+      "docs/GOLDEN_PATH_SETUP.md",
+      "docs/OWNERS_MANUAL.md",
+      "docs/OPERATOR_PRODUCT_SPEC_2026-07-09.md",
+      "migrations/README.md",
+      "src/components/ui/README.md",
+      "src/storage/README.md",
+      "src/derivations/README.md",
+      "tests/fixtures/ci-data/README.md"
+    ],
+    "perFileCeilings": {
+      "AGENTS.md": 200,
+      "CLAUDE.md": 45,
+      "docs/HANDOFF_VERIFIED_STATE.md": 200,
+      "docs/NEXT_PHASE_EXECUTION_PLAN.md": 150,
+      "docs/VERIFICATION_LOG.md": 300,
+      "docs/master_execution_plan.md": 150,
+      "docs/architecture.md": 250,
+      "docs/GOLDEN_PATH_SETUP.md": 120,
+      "docs/OWNERS_MANUAL.md": 100
+    }
   },
   "deps": {
     "_note": "Runtime dependencies. Adding one requires explicit operator approval.",

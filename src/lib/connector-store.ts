@@ -52,7 +52,7 @@ import "server-only";
 
 import { getSupabaseAdmin } from "@/lib/persistence/supabase";
 import { currentTenantId } from "@/lib/tenant-context";
-import { CONNECTION_LIVENESS_STALE_DAYS } from "@/domains/ops/source-freshness";
+import { CONNECTION_LIVENESS_STALE_DAYS } from "@/domains/runtime/ops/source-freshness";
 import {
   CONNECTOR_REGISTRY,
   connectorById,
@@ -565,7 +565,7 @@ export type ConnectorHealthInfo = ConnectorInfo & {
  * reconciliation: this is a SYNC-age connection-liveness threshold ("is this connection
  * still alive"), DISTINCT from the per-source DATA-age SLA (gsc 3d, profound 21d, clarity
  * 7d) that decides whether a source's numbers are current. Both now live in ONE module
- * (src/domains/ops/source-freshness.ts): the data-age SLA is SOURCE_SLA, this liveness
+ * (src/domains/runtime/ops/source-freshness.ts): the data-age SLA is SOURCE_SLA, this liveness
  * threshold is CONNECTION_LIVENESS_STALE_DAYS, so the three old scattered constants
  * (this 14, the strip's 24h, golden-path's 2d) can never drift apart again.
  */

@@ -15,7 +15,7 @@ import Link from "next/link";
 
 import { Card } from "@/components/ui/card";
 import { Pill, type PillIntent } from "@/components/ui/pill";
-import type { TodayCommand, TodayCommandKind } from "@/domains/today/today-command";
+import type { TodayCommand, TodayCommandKind } from "@/domains/measurement/today/today-command";
 
 /** Card surface per kind: alerts (defect / loss) ride the danger surface, a move rides the
  *  default card, a quiet day rides the calm quiet surface. */

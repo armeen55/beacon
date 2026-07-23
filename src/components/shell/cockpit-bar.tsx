@@ -9,8 +9,8 @@ import "server-only";
 
 import Link from "next/link";
 import { currentTenantId } from "@/lib/tenant-context";
-import { getTenant } from "@/domains/tenants/store";
-import { loadDailyTotalsForTenant } from "@/domains/recommendation-intelligence/gsc-page-queries";
+import { getTenant } from "@/domains/account";
+import { loadDailyTotalsForTenant } from "@/domains/decision";
 import { loadWithDeadline } from "@/lib/load-with-deadline";
 
 const DAY_MS = 86_400_000;

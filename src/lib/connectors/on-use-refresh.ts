@@ -3,13 +3,13 @@ import { getConnectorInfo, updateConnectorToken } from "@/lib/connector-store";
 import { syncGscSearchAnalyticsForTenant } from "@/lib/connectors/gsc/sync-search-analytics";
 import { syncGa4UrlTrafficForTenant } from "@/lib/connectors/ga4/sync-url-traffic";
 import { syncClarityDailyMetricsForTenant } from "@/lib/connectors/clarity/sync-daily-metrics";
-import { recordSourceRefresh } from "@/domains/ops/record-source-refresh";
-import type { RefreshSource, RefreshTrigger } from "@/domains/ops/refresh-runs-store";
+import { recordSourceRefresh } from "@/domains/runtime/ops/record-source-refresh";
+import type { RefreshSource, RefreshTrigger } from "@/domains/runtime/ops/refresh-runs-store";
 import {
   AUTO_REFRESH_STALE_HOURS,
   isStale,
   type AutoRefreshProvider,
-} from "@/domains/ops/source-freshness";
+} from "@/domains/runtime/ops/source-freshness";
 
 /**
  * on-use-refresh — the ON-USE half of the connector sync, split out of cron-sync.ts

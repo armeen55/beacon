@@ -25,8 +25,8 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { cache } from "react";
 import { headers } from "next/headers";
 
-import { getTenantOrThrow, getTenant } from "@/domains/tenants/store";
-import type { BeaconTenant } from "@/domains/tenants/types";
+import { getTenantOrThrow, getTenant } from "@/domains/account/tenants/store";
+import type { BeaconTenant } from "@/domains/account/tenants/types";
 
 /**
  * Explicit-tenant override (2026-07-11, refresh-reliability wave, BUG 1).

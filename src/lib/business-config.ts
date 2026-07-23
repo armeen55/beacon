@@ -9,7 +9,7 @@ import {
 import { EVENT_PRIORS_V1 as EVENT_PRIORS_V1_SOURCE } from "@/lib/event-priors";
 import { log } from "@/lib/logger";
 import { currentTenantId } from "@/lib/tenant-context";
-import { getCuratedSourceDomains } from "@/domains/drafts/tenant-source-allowlist";
+import { getCuratedSourceDomains } from "@/domains/decision/drafts/tenant-source-allowlist";
 
 /** Re-export for backwards compatibility with code that imports from business-config. */
 export const EVENT_PRIORS_V1 = EVENT_PRIORS_V1_SOURCE;
@@ -66,7 +66,7 @@ export interface BusinessConfig {
    * W5 (2026-07-09, J-69), tenant-curated domains that count as an
    * AUTHORITATIVE source for this tenant's own factual-source gate, on top of
    * the universal .gov/.edu + named encyclopedic/major-press set
-   * (`src/domains/drafts/source-authority.ts`). Per-tenant DATA, never code,    * Iranopedia might add its own museum/embassy/academic domains here, but
+   * (`src/domains/decision/drafts/source-authority.ts`). Per-tenant DATA, never code,    * Iranopedia might add its own museum/embassy/academic domains here, but
    * the classifier ships useful with this unset. Unset = only the universal
    * set applies (never a made-up allowlist for a tenant that hasn't set one).
    */
@@ -78,7 +78,7 @@ export interface BusinessConfig {
    * term's first mention; `transliteration` requires a Latin-script rendering
    * alongside it; `englishContext` requires a short English gloss for readers
    * who don't read the native script. Checked by
-   * `src/domains/drafts/first-mention-check.ts`, a MISS is always a soft
+   * `src/domains/decision/drafts/first-mention-check.ts`, a MISS is always a soft
    * "worth a look" reason, never a hard block. Null/absent = the rule
    * contributes nothing (byte-identical evaluation for every other tenant).
    */
@@ -551,7 +551,7 @@ function warnPlaceholderOnce(tenantId: string): void {
  */
 /**
  * Drafter last-mile G7 (2026-07-10): fill `authoritativeSourceDomains` from the
- * tenant's CURATED code-path default (src/domains/drafts/tenant-source-allowlist
+ * tenant's CURATED code-path default (src/domains/decision/drafts/tenant-source-allowlist
  * .ts) when the resolved config has NOT set its own. Gated strictly by canonical
  * tenant id: a tenant with no curated entry is returned unchanged (empty-allowlist
  * behavior byte-identical for every other tenant + the founder - no leak), and a
