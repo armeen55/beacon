@@ -123,8 +123,10 @@ async function loadPageSurgeonContextUncached(
     tenantId,
     brand: inferBrandSuffix(snapshots.values()),
     boilerplateTerms: deriveBoilerplate(snapshots),
-    publishChannel:
-      (tenant?.publish_target as PageSurgeonContext["publishChannel"]) ?? "none",
+    // Publishing is manual in the MVP (Product Truth: autonomy and approval).
+    // The legacy per-tenant publish_target channel is retired; every pack is
+    // prepared for manual implementation.
+    publishChannel: "none",
     snapshotByCanon,
     gscByUrl,
     clarityByUrl,

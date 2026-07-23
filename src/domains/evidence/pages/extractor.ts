@@ -8,7 +8,7 @@ import { createHash } from "node:crypto";
 import type { PageSnapshot, FaqItem, PageImage } from "./types";
 import { validateSchemaToStrings } from "./schema-validator";
 import {
-  getBusinessConfig,
+  getBusinessProfile,
   getLocationRegex,
   getServiceRegex,
 } from "@/lib/business-config";
@@ -406,12 +406,12 @@ export function extractPageSnapshot(
     // implicitly read the process-env tenant. Production behavior is
     // identical for a real tenant; the inline-default catch below stays
     // as the safety net if business-config fails to load.
-    const cfg = getBusinessConfig(tenantId);
+    const cfg = getBusinessProfile(tenantId);
     locationRegex = getLocationRegex(cfg);
     serviceRegex = getServiceRegex(cfg);
   } catch {
-    locationRegex = /\b(palo alto|menlo park|atherton|los altos|cupertino|saratoga|woodside|portola valley|mountain view|sunnyvale|san jose|bay area|silicon valley|emerald hills)\b/gi;
-    serviceRegex = /\b(custom home|remodel|renovation|new construction|tear[ -]?down|rebuild|home builder|general contractor|addition|ADU|design[- ]build)\b/gi;
+    locationRegex = /(?!)/g; // missing config fails GENERIC: never-match
+    serviceRegex = /(?!)/g; // never another business's vocabulary
   }
   const locationTerms = extractTermsByPattern(bodyText, locationRegex);
   const serviceTerms = extractTermsByPattern(bodyText, serviceRegex);

@@ -26,14 +26,14 @@ import "server-only";
 import { log } from "@/lib/logger";
 import { getSupabaseAdmin } from "@/lib/persistence/supabase";
 import {
-  getBusinessConfig,
-  hydrateBusinessConfigFromSupabase,
-  type BusinessConfig,
+  getBusinessProfile,
+  hydrateBusinessProfile,
+  type BusinessProfile,
 } from "@/lib/business-config";
 import { fetchAdNetworkRevenueForTenant } from "@/lib/connectors/adnetwork/registry";
 import { AD_NETWORK_MEASURED_BASIS } from "@/lib/connectors/adnetwork/types";
 
-export type RevenueModel = NonNullable<BusinessConfig["revenueModel"]>;
+export type RevenueModel = NonNullable<BusinessProfile["revenueModel"]>;
 
 export type RevenueSource =
   | "ad_network"
@@ -222,7 +222,7 @@ export async function runRevenueFactsPass(
 
   // Unit economics: the operator's rate x real GA4 traffic. Dormant until
   // the operator sets a rate in settings.
-  const cfg = (await hydrateBusinessConfigFromSupabase(tenantId)) ?? getBusinessConfig(tenantId);
+  const cfg = (await hydrateBusinessProfile(tenantId)) ?? getBusinessProfile(tenantId);
   const model = cfg.revenueModel;
   if (!isUsableRevenueModel(model)) {
     if (adNetworkRows > 0) return { ran: true, rowsUpserted: adNetworkRows, adNetworkRows };

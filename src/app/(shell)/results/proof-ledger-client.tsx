@@ -120,7 +120,7 @@ export function RecordAnyPageForm({ initialPage = "" }: { initialPage?: string }
           onKeyDown={(e) => {
             if (e.key === "Enter" && !showDetails) submit();
           }}
-          placeholder="/cities  or  https://www.iranopedia.com/cities"
+          placeholder="/pricing  or  https://your-site.com/pricing"
           className={`min-w-[260px] flex-1 rounded-md border border-border bg-background px-2.5 py-1.5 text-[12px] text-foreground placeholder:text-muted-foreground/60 ${FOCUS}`}
         />
         <button

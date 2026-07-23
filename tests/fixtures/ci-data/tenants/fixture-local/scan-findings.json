@@ -1,7 +1,7 @@
 [
   {
     "id": "ci-fix-finding-001",
-    "tenant_id": "tenant-ritz-founder",
+    "tenant_id": "tenant-fixture-local",
     "type": "faq_without_schema",
     "url": "https://example.com/ci-fixture",
     "pagePath": "/ci-fixture",

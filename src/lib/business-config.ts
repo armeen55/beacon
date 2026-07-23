@@ -1,115 +1,80 @@
 import "server-only";
 
-import { readFileSync, existsSync, writeFileSync, mkdirSync } from "fs";
-import path from "path";
-import {
-  syncBusinessConfig,
-  syncTenantBusinessConfig,
-} from "@/lib/persistence/dual-write";
 import { EVENT_PRIORS_V1 as EVENT_PRIORS_V1_SOURCE } from "@/lib/event-priors";
 import { log } from "@/lib/logger";
 import { currentTenantId } from "@/lib/tenant-context";
-import { getCuratedSourceDomains } from "@/domains/decision/drafts/tenant-source-allowlist";
 
-/** Re-export for backwards compatibility with code that imports from business-config. */
+/** Re-export for code that imports the priors from this module. */
 export const EVENT_PRIORS_V1 = EVENT_PRIORS_V1_SOURCE;
 
-export interface BusinessConfig {
+/**
+ * Canonical BusinessProfile (Product Truth: canonical business records).
+ *
+ * The structured, confirmed truth about one account's business, backed by
+ * the tenant-keyed `business_config` Supabase row (JSONB). One authority:
+ * the confirmed business name and structured facts live HERE; the Account
+ * row's business_name is only the signup seed, and the Website projection
+ * owns domain identity.
+ *
+ * Resolution is per-account and fail-generic: in-memory cache, then the
+ * account's own Supabase row, then the neutral placeholder. There is no
+ * env-blob, no shared file, no founder fallback, and no path that can
+ * resolve another business's profile. Tests inject state via
+ * setBusinessProfileForTests / setBusinessProfileRepositoryForTests.
+ */
+export interface BusinessProfile {
   name: string;
   domain: string;
   industry: string;
-  /**
-   * Operator spec 2026-07-09 A-3: the tenant's monthly-visit revival goal (the north
-   * star Today renders progress against). Optional and per-tenant DATA, never code -
-   * no goal configured means no goal line renders, never a made-up target.
-   */
+  /** The account's monthly-visit goal. Per-account DATA; unset = no goal line renders. */
   monthlyVisitGoal?: number | null;
   /**
-   * P0 wall 3 (2026-06-10) — content-site classification mode. When
-   * true (encyclopedias, blogs, docs sites — content_publisher-segment
-   * tenants), HTML pages that aren't homepage/hub/utility/asset
-   * classify as "content" detail pages instead of falling to "other",
-   * so content-edit triggers (title/meta/h1/…) actually apply to the
-   * site's real pages. Local-service sites leave this unset — their
-   * "other" pages stay conservatively excluded from content edits.
+   * Content-site classification mode. When true (encyclopedias, blogs, docs
+   * sites), HTML pages that aren't homepage/hub/utility/asset classify as
+   * "content" detail pages instead of falling to "other". Local-service
+   * sites leave this unset.
    */
   contentSiteMode?: boolean;
   /**
-   * Works-for-ANY-business profile engine (2026-07-06) — the auto-derived
-   * business TYPE, so the local-SEO engine + segment toggles light up per
-   * business type with no manual config:
-   *   • local_service     — serves customers in physical places; the local
-   *     engine fires and `locations` are its service areas.
+   * The derived business TYPE — the canonical classification (the legacy
+   * tenants.segment column is not read):
+   *   • local_service     — serves customers in physical places; `locations`
+   *     are its service areas.
    *   • content_publisher — encyclopedia/blog/news/docs; no service areas.
    *   • ecommerce         — sells products online; no service areas.
    *   • saas              — software product/app; no service areas.
    *   • other             — ambiguous; local engines stay off until confirmed.
-   * Derived from the tenant's own data (schema types, nav/service vocabulary,
-   * GSC query intent, physical presence). Operator-editable on the config
-   * screen; a manual value is PINNED and never clobbered by re-derivation.
-   * Absent = never derived yet (older tenants stay byte-identical).
+   * Derived from the account's own data; a manually confirmed value is
+   * pinned and never clobbered by re-derivation.
    */
   businessType?: "local_service" | "content_publisher" | "ecommerce" | "saas" | "other";
   /**
-   * Night-shift #35/#67 (2026-06-11) — per-tenant CONTENT RULES.
-   * Plain-English rules every LLM generation for this tenant must
-   * follow (e.g. "Call the language Persian, never Farsi."). The page
-   * factory injects these as defaults when a cluster plan doesn't
-   * carry its own; violations of `flaggedTerms` are HARD-REJECTED
-   * (audit #47). Per-tenant config — never hardcoded vocabulary.
+   * Per-account CONTENT RULES: plain-English rules every generation for this
+   * account must follow. Violations of `flaggedTerms` are hard-rejected.
+   * Per-account config — never hardcoded vocabulary.
    */
   contentRules?: string[];
-  /** Banned terms enforced by the factory validator (word-boundary,
-   *  case-sensitive). Pairs with `contentRules`. */
+  /** Banned terms enforced by the draft validator (word-boundary, case-sensitive). */
   flaggedTerms?: string[];
   /**
-   * W5 (2026-07-09, J-69), tenant-curated domains that count as an
-   * AUTHORITATIVE source for this tenant's own factual-source gate, on top of
-   * the universal .gov/.edu + named encyclopedic/major-press set
-   * (`src/domains/decision/drafts/source-authority.ts`). Per-tenant DATA, never code,    * Iranopedia might add its own museum/embassy/academic domains here, but
-   * the classifier ships useful with this unset. Unset = only the universal
-   * set applies (never a made-up allowlist for a tenant that hasn't set one).
+   * Account-curated domains that count as AUTHORITATIVE sources for this
+   * account's factual-source gate, on top of the universal .gov/.edu +
+   * encyclopedic/major-press set (source-authority.ts). Per-account DATA,
+   * never code. Unset = only the universal set applies.
    */
   authoritativeSourceDomains?: string[];
   /**
-   * W5 (2026-07-09, J-70), first-mention rule for a tenant whose content
-   * names terms in a non-English script. `native` is the Unicode character-
-   * range (e.g. Persian/Arabic `"؀-ۿ"`) checked for presence at a
-   * term's first mention; `transliteration` requires a Latin-script rendering
-   * alongside it; `englishContext` requires a short English gloss for readers
-   * who don't read the native script. Checked by
-   * `src/domains/decision/drafts/first-mention-check.ts`, a MISS is always a soft
-   * "worth a look" reason, never a hard block. Null/absent = the rule
-   * contributes nothing (byte-identical evaluation for every other tenant).
+   * First-mention rule for an account whose content names terms in a
+   * non-English script: `native` is the Unicode range checked at first
+   * mention; `transliteration` requires a Latin rendering alongside;
+   * `englishContext` requires a short English gloss. A miss is a soft
+   * "worth a look", never a hard block. Null/absent = contributes nothing.
    */
   firstMention?: { native: string; transliteration: boolean; englishContext: boolean } | null;
   /**
-   * Profound topic-scoping (2026-06-24). When the tenant's AEO prompts live
-   * INSIDE a shared/borrowed Profound workspace category (one category that
-   * mixes many subjects' topics), set this so the nightly sync scopes every
-   * report to the tenant's OWN topic instead of pulling the whole category
-   * (which would drown the tenant in unrelated citations — e.g. a borrowed
-   * "Frontier Models" category whose Iranopedia prompts are one topic among 16).
-   * `topicId` = the Profound topic UUID (filter `{field:"topic",operator:"is",
-   * value:topicId}`); optional `categoryId` restricts the sync to that one
-   * category. Unset → sync pulls the full category (original behavior).
-   * Per-tenant connection config — never hardcoded vocabulary.
-   */
-  profound?: {
-    categoryId?: string;
-    topicId?: string;
-    topicLabel?: string;
-  };
-  /**
-   * Revenue facts item 3 (2026-07-01) - operator-set unit economics. The
-   * nightly revenue pass multiplies these rates by REAL measured GA4
-   * traffic to write `revenue_facts` rows with source='unit_economics'.
-   * Every dollar produced this way is labeled "your rate x real traffic",
-   * never presented as a measured payout. Unset = the pass stays dormant
-   * and no estimated dollars appear anywhere.
-   *   kind 'rpm'      - content tenants: dollars earned per 1,000 sessions.
-   *   kind 'per_lead' - service tenants: dollars one lead (GA4 key event)
-   *                     is worth to the business.
+   * Operator-set unit economics. Multiplied by real measured traffic to
+   * label estimated dollars as "your rate x real traffic", never a measured
+   * payout. Unset = dormant, no estimated dollars appear.
    */
   revenueModel?: {
     kind: "rpm" | "per_lead";
@@ -118,33 +83,16 @@ export interface BusinessConfig {
   };
   phone: string;
   address: string;
-  /** Yelp Fusion business id or alias (used by Settings → Connectors → Yelp sync). */
+  /** Yelp Fusion business id or alias (Settings → Connectors → Yelp sync). */
   yelpBusinessId: string;
   /**
-   * Section 7 C7g v1 (2026-05-16) — operator-entered off-site profile
-   * URLs. Each field defaults to "" when the operator has not yet
-   * configured a URL for that channel; an empty value keeps the
-   * corresponding `OffSiteChannelState` in the C7a snapshot's
-   * inferred/unknown state. When non-empty, the value MUST begin
-   * with `https://` or `http://` (validated downstream in
-   * `compute-snapshot.ts`); arbitrary strings are rejected.
-   *
-   * v1 carries `confidence: "medium"` for these channels because
-   * Beacon does NOT HTTP-verify the URL — the operator vouches for
-   * the listing. The diagnostic page renders these as "Configured"
-   * (not "Confirmed") so the trust level is honest.
-   *
-   * Multi-tenant note: BusinessConfig is tenant-keyed as of MT-1
-   * (resolve via `getBusinessConfig(tenantId)` /
-   * `getBusinessConfigForCurrentTenant()`). C7g v1's operator-entered
-   * URLs are read per-tenant; customer surfaces (C7d/C7e) now ship on
-   * the tenant-correct path (MT-2/MT-3*).
+   * Operator-entered off-site profile URLs. "" = not configured; a value
+   * must begin with https:// or http:// (validated downstream). Beacon does
+   * not HTTP-verify these; the operator vouches for them.
    */
   houzzProfileUrl: string;
   angiProfileUrl: string;
   bbbProfileUrl: string;
-  /** Operator-curated industry directory profile URL. v1 supports
-   *  ONE URL; multi-directory support is C7g v2. */
   industryDirectoryProfileUrl: string;
   locations: string[];
   services: string[];
@@ -153,7 +101,7 @@ export interface BusinessConfig {
   locationTerms: string[];
   serviceTerms: string[];
   directoryDomains: string[];
-  /** Duplicate of `.data/scan-settings.json` — not read by the scan CLI; prefer `getScanSettings()` for runtime truth. */
+  /** Duplicate of scan settings — prefer `getScanSettings()` for runtime truth. */
   scanSettings: {
     preferredHour: number;
     timezone: string;
@@ -161,45 +109,25 @@ export interface BusinessConfig {
     enabled: boolean;
   };
 
-  // ---------------------------------------------------------------------------
-  // Domain knowledge — drives section analysis, page type inference, and FAQ
-  // generation. These fields make Beacon portable across industries.
-  // ---------------------------------------------------------------------------
+  // Domain knowledge — drives section analysis, page-type inference, and FAQ
+  // generation. These fields keep Beacon portable across industries.
 
-  /** URL path prefixes that identify page types. Keys are page type names. */
+  /** URL path prefixes that identify page types (e.g. city/service/project). */
   urlPatterns?: {
-    city?: string;       // e.g., "/locations/"
-    service?: string;    // e.g., "/services/"
-    project?: string;    // e.g., "/explore-projects/"
+    city?: string;
+    service?: string;
+    project?: string;
   };
-
-  /**
-   * Words to strip when normalizing H2s for section comparison.
-   * Should include brand-specific words, city names, and local geography.
-   * Merged with a universal set (articles, prepositions).
-   */
+  /** Words stripped when normalizing H2s for section comparison (brand words, geography). */
   stripWords?: string[];
-
-  /**
-   * Additional section themes beyond the universal set.
-   * Each entry: { pattern: regex source string, label: internal key, display: human label }
-   * These are appended to (not replacing) the universal themes.
-   */
+  /** Additional section themes beyond the universal set. */
   industryThemes?: { pattern: string; label: string; display: string }[];
-
-  /**
-   * FAQ question templates keyed by topic-matching pattern.
-   * Each entry: { topicPattern: regex source string, questions: template strings with {topic} and {city} placeholders }
-   * Checked in order; first match wins. Falls back to generic if none match.
-   */
+  /** FAQ question templates keyed by topic-matching pattern; first match wins. */
   faqTemplates?: { topicPattern: string; questions: string[] }[];
-
   /**
-   * Phase 0 — static edit-type priors used by the event-attributor when
-   * scoring sitewide rollouts. Values are the prior probability that an event
-   * of the given type moves owned-citation volume. Every use of this table
-   * MUST be accompanied by `confidence_source: "seed_prior"` on the
-   * attribution record so seed priors never masquerade as learned truth.
+   * Static edit-type priors used when scoring sitewide rollouts. Every use
+   * MUST carry `confidence_source: "seed_prior"` so seed priors never
+   * masquerade as learned truth.
    */
   event_priors_v1?: {
     metadata_publication: number;
@@ -210,109 +138,28 @@ export interface BusinessConfig {
     content_rollout: number;
     content_edit: number;
   };
-
   /**
-   * D1 (operator audit, 2026-05-05) — when the resolved config is the
-   * neutral placeholder (i.e., NO operator-curated tenant data was found
-   * via env var, top-level file, or global file), this flag is `true`.
-   * Consumer surfaces (settings, /today, etc.) can branch on this to show
-   * a "configuration needed" affordance instead of pretending to be a
-   * real business.
-   *
-   * Real loaded configs MUST omit this field (it's strictly the
-   * placeholder marker — never persist `__placeholder: true` to disk).
+   * True only on the neutral placeholder (no confirmed profile found).
+   * Consumer surfaces branch on this to show a "configuration needed"
+   * affordance instead of pretending to be a real business. Real loaded
+   * profiles MUST omit this field.
    */
   __placeholder?: true;
 }
 
-
 /**
- * ISOLATION-CRITICAL (2026-06-15) — the FOUNDER tenant id.
- *
- * The legacy single-tenant resolution chain (the `BEACON_BUSINESS_CONFIG_JSON`
- * env blob + `.data/business-config.json` + `.data/global/business-config.json`)
- * describes ONE specific tenant: the founder's. That global file literally
- * contains the founder's brand ("Ritz Builders"). It must serve ONLY the
- * founder tenant — NEVER an arbitrary active tenant.
- *
- * Pre-fix, the legacy chain was gated `tenantId === process.env.BEACON_TENANT_ID`,
- * which meant "whoever the deploy/CLI env points at." On a per-tenant dev/CLI
- * run (or any deploy where `BEACON_TENANT_ID` is set to a CUSTOMER tenant, e.g.
- * `tenant-iranopedia`), the gate fired for the customer and served them the
- * founder's global "Ritz Builders" config — a cross-tenant brand leak onto a
- * customer surface ("Who AI thinks you are" rendered "Ritz Builders" for
- * Iranopedia). Non-founder tenants resolve via their per-tenant file (priority
- * c), their `BEACON_BUSINESS_CONFIG_JSON_BY_TENANT` entry (priority a), or their
- * own `business_config` Supabase row (hydrate) — never the founder's global file.
- *
- * `tenant-ritz-founder` is the well-known founder id across the codebase
- * (seed-data owner, tenant-features all-on fallback, tenant-context dev hint).
- * Kept overridable via `BEACON_FOUNDER_TENANT_ID` for non-Ritz founder deploys.
- * Read lazily (function, not module-load constant) so an env override set after
- * module init — and the test suite's per-case env — is honored.
+ * Neutral placeholder profile. All brand-shaped fields are EMPTY or
+ * generic; domain-knowledge fields are minimal/universal; the
+ * `__placeholder: true` flag pins detection. No business, vertical,
+ * geography, or provider literal may ever appear here.
  */
-function founderTenantId(): string {
-  const override = process.env.BEACON_FOUNDER_TENANT_ID;
-  return typeof override === "string" && override.length > 0
-    ? override
-    : "tenant-ritz-founder";
-}
-
-// Runtime tenant data is deliberately outside the bundle. Without this trace
-// boundary Turbopack treats process.cwd() as a request to package the entire
-// repository into every route that reads business config.
-const DATA_DIR = path.join(/*turbopackIgnore: true*/ process.cwd(), ".data");
-/**
- * Pre-2026-05-05 read path. Kept as the FIRST file location to preserve
- * /settings/config save-path behavior (saves write here). Operator-edited
- * config still lands here.
- */
-const TOP_LEVEL_CONFIG_PATH = path.join(DATA_DIR, "business-config.json");
-/**
- * Canonical store-classification path. `business-config` is registered in
- * `GLOBAL_STORES` (see `src/lib/persistence/store-classification.ts:136`),
- * so the json-store routing layer expects this location. We read here as
- * a secondary fallback so a Ritz-style tenant whose config was migrated
- * to the global path keeps working.
- */
-const GLOBAL_CONFIG_PATH = path.join(DATA_DIR, "global", "business-config.json");
-/**
- * MT-1 (2026-05-22) — per-tenant local/dev config dir. Resolution
- * priority (c) reads `.data/tenants/<tenantId>/business-config.json`.
- * Local/dev only; Vercel's `.data` is not bundled into the lambda.
- */
-const TENANTS_DIR = path.join(DATA_DIR, "tenants");
-
-/**
- * D1 (operator audit, 2026-05-05) — neutral placeholder config.
- *
- * This replaces the previous Ritz-Builders-flavored DEFAULT_CONFIG. When
- * the resolved config falls through to this placeholder, the consumer
- * sees clearly-empty brand fields (no name, no domain, no services) and
- * can detect the state via `isPlaceholderConfig()`. Customer-2 onboarding
- * the platform without a tenant config file will land here — and will NOT
- * silently render Ritz-flavored copy.
- *
- * Operator-locked rules:
- *   • All brand-shaped fields (`name`, `domain`, `industry`, `locations`,
- *     `services`, `primaryCompetitors`, etc.) are EMPTY or generic.
- *   • Domain knowledge fields (`urlPatterns`, `stripWords`, `industryThemes`,
- *     `faqTemplates`) are minimal/universal — they must not bias the
- *     section analyzer or FAQ generator toward any specific industry.
- *   • `__placeholder: true` flag pins detection.
- *   • NO Ritz literals (no "Ritz", "ritzbuilders", "Bay Area", "Atherton",
- *     "Palo Alto", "design-build", etc.). Pinned by tests.
- */
-const PLACEHOLDER_CONFIG: BusinessConfig = {
+const PLACEHOLDER_PROFILE: BusinessProfile = {
   name: "",
   domain: "",
   industry: "",
   phone: "",
   address: "",
   yelpBusinessId: "",
-  // Section 7 C7g v1 (2026-05-16) — operator-entered off-site profile
-  // URLs. Default to "" so the placeholder config leaves all 4
-  // channels in their inferred/unknown state.
   houzzProfileUrl: "",
   angiProfileUrl: "",
   bbbProfileUrl: "",
@@ -324,11 +171,7 @@ const PLACEHOLDER_CONFIG: BusinessConfig = {
   locationTerms: [],
   serviceTerms: [],
   // Universal directory/aggregator blocklist — AI-answer sources that pollute
-  // ANY vertical's leaderboard (not real competitors). De-verticalized
-  // (2026-06-15): dropped the home-services-specific directories
-  // (houzz/angi/thumbtack/homeadvisor/buildzoom — those belong in a builder
-  // tenant's OWN config, not the universal placeholder) and kept only
-  // cross-industry channels.
+  // ANY vertical's leaderboard (not real competitors). Cross-industry only.
   directoryDomains: [
     "yelp.com",
     "reddit.com",
@@ -343,9 +186,8 @@ const PLACEHOLDER_CONFIG: BusinessConfig = {
     preferredHour: 9,
     timezone: "UTC",
     scope: "priority",
-    // Default OFF for placeholder — a customer-2 with no curated config
-    // should NOT auto-trigger paid scans on their domain until they've
-    // explicitly opted in via /settings/config.
+    // Default OFF — an account with no confirmed profile should not
+    // auto-trigger scans until it explicitly opts in.
     enabled: false,
   },
   urlPatterns: undefined,
@@ -356,348 +198,125 @@ const PLACEHOLDER_CONFIG: BusinessConfig = {
   __placeholder: true,
 };
 
-/**
- * Public predicate: is the resolved config the neutral placeholder?
- *
- * Use this in consumer code that needs to branch on "configuration
- * needed" state — e.g., to show a setup banner on /today instead of
- * rendering empty leaderboards.
- *
- * Pure. Idempotent.
- */
-export function isPlaceholderConfig(config: BusinessConfig): boolean {
-  return config.__placeholder === true;
+/** Is the resolved profile the neutral placeholder ("configuration needed")? Pure. */
+export function isPlaceholderProfile(profile: BusinessProfile): boolean {
+  return profile.__placeholder === true;
 }
 
-/**
- * D1 — env-var-driven config override for hosted (Vercel) environments
- * where `.data/` is not bundled into the build. The operator can set
- * `BEACON_BUSINESS_CONFIG_JSON` to the full JSON payload of their tenant
- * config; if set and parseable, it takes precedence over both file paths.
- *
- * Returns null when the env var is unset, empty, or unparseable. The
- * caller falls through to file/placeholder.
- */
-function readConfigFromEnv(): Partial<BusinessConfig> | null {
-  const raw = process.env.BEACON_BUSINESS_CONFIG_JSON;
-  if (typeof raw !== "string" || raw.trim().length === 0) return null;
-  try {
-    const parsed = JSON.parse(raw) as Partial<BusinessConfig>;
-    // Defensive: strip any persisted `__placeholder` flag — env vars
-    // describe REAL configs, never the placeholder marker.
-    if ("__placeholder" in parsed) delete parsed.__placeholder;
-    return parsed;
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Try a list of file paths in order; return the parsed contents of the
- * first one that exists and parses cleanly. Returns null if none match.
- */
-function readConfigFromFiles(): Partial<BusinessConfig> | null {
-  for (const candidate of [TOP_LEVEL_CONFIG_PATH, GLOBAL_CONFIG_PATH]) {
-    if (!existsSync(candidate)) continue;
-    try {
-      const raw = readFileSync(candidate, "utf-8");
-      const parsed = JSON.parse(raw) as Partial<BusinessConfig>;
-      if ("__placeholder" in parsed) delete parsed.__placeholder;
-      return parsed;
-    } catch {
-      // Continue to next candidate on parse failure.
-    }
-  }
-  return null;
-}
-
-/**
- * MT-1 (2026-05-22) — multi-tenant env source (resolution priority a).
- * The operator sets `BEACON_BUSINESS_CONFIG_JSON_BY_TENANT` to a JSON
- * object keyed by CANONICAL tenantId, e.g.
- * `{"tenant-acme":{...},"tenant-foo":{...}}`. Returns the entry for
- * `tenantId` when present + parseable, else null. Checked BEFORE the
- * single-tenant back-compat chain so a per-tenant entry always wins.
- *
- * Returns null (caller falls through) when the env var is unset/empty/
- * unparseable OR has no entry for this tenant.
- */
-function readConfigFromByTenantEnv(
-  tenantId: string,
-): Partial<BusinessConfig> | null {
-  const raw = process.env.BEACON_BUSINESS_CONFIG_JSON_BY_TENANT;
-  if (typeof raw !== "string" || raw.trim().length === 0) return null;
-  try {
-    const parsed = JSON.parse(raw) as Record<string, Partial<BusinessConfig>>;
-    if (parsed == null || typeof parsed !== "object") return null;
-    const entry = parsed[tenantId];
-    if (entry == null || typeof entry !== "object") return null;
-    // Defensive: env describes REAL configs, never the placeholder marker.
-    if ("__placeholder" in entry) delete entry.__placeholder;
-    return entry;
-  } catch {
-    return null;
-  }
-}
-
-/**
- * MT-1 (2026-05-22) — per-tenant local/dev file source (resolution
- * priority c). Reads `.data/tenants/<tenantId>/business-config.json`.
- * Returns null when the file is absent or unparseable.
- */
-function readConfigFromTenantFile(
-  tenantId: string,
-): Partial<BusinessConfig> | null {
-  // Tenant data dirs are keyed by SLUG on disk (.data/tenants/<slug>/).
-  // Try the id-named dir (legacy), then the slug dir when the CLI env
-  // pair (BEACON_TENANT_ID + BEACON_TENANT_SLUG) identifies this exact
-  // tenant — scan/poll/generation matrix jobs always set both.
-  let candidate = path.join(TENANTS_DIR, tenantId, "business-config.json");
-  if (!existsSync(candidate)) {
-    const envSlug = process.env.BEACON_TENANT_SLUG;
-    if (
-      typeof envSlug === "string" &&
-      envSlug.length > 0 &&
-      process.env.BEACON_TENANT_ID === tenantId
-    ) {
-      candidate = path.join(TENANTS_DIR, envSlug, "business-config.json");
-    }
-  }
-  if (!existsSync(candidate)) return null;
-  try {
-    const raw = readFileSync(candidate, "utf-8");
-    const parsed = JSON.parse(raw) as Partial<BusinessConfig>;
-    if ("__placeholder" in parsed) delete parsed.__placeholder;
-    return parsed;
-  } catch {
-    return null;
-  }
-}
-
-/**
- * MT-1 (2026-05-22) — tenant-keyed config cache. Replaces the prior
- * process-level singleton (`let _cached: BusinessConfig | null`). Keyed
- * by CANONICAL tenantId (e.g. "tenant-ritz-founder"), NEVER by slug. Two
- * distinct tenants sharing one lambda each cache their own config — no
- * cross-tenant bleed. Cleared by `__resetBusinessConfigCacheForTests`.
- */
-const _cacheByTenant = new Map<string, BusinessConfig>();
-/**
- * MT-1 — per-tenant "already warned" set for the placeholder log.
- * Without this, every render that resolves the placeholder for a tenant
- * would re-emit the warning, flooding the production log. Tenant-keyed
- * so each tenant warns at most once per process. Reset by
- * `__resetBusinessConfigCacheForTests`.
- */
+/** Per-account profile cache. Keyed by canonical tenantId, never by slug. */
+const _cacheByTenant = new Map<string, BusinessProfile>();
+/** One-time-per-account placeholder warning memo. */
 const _placeholderWarnedTenants = new Set<string>();
-/**
- * North-star onboarding (2026-06-11) — per-tenant "Supabase hydrate
- * already attempted" memo. Prevents every placeholder render from
- * re-querying the `business_config` table when the tenant genuinely has
- * no row yet. Cleared per tenant on save (a new row may now exist) and
- * by `__resetBusinessConfigCacheForTests`.
- */
+/** Per-account "Supabase hydrate already attempted" memo. */
 const _supabaseHydrateAttempted = new Set<string>();
 
-/**
- * MT-1 (2026-05-22) — synchronous tenant resolution for the deprecated
- * no-arg path. Mirrors the fail-loud spirit of `currentTenantId` but
- * cannot read request headers (it's synchronous), so it resolves only
- * from `BEACON_TENANT_ID`. Throws when that env var is unset.
- */
-function resolveTenantIdFromEnvSync(): string {
-  const envId = process.env.BEACON_TENANT_ID;
-  if (typeof envId === "string" && envId.length > 0) return envId;
-  throw new Error(
-    "getBusinessConfig(): no tenantId argument and no BEACON_TENANT_ID env var. " +
-      "Pass an explicit tenantId or use getBusinessConfigForCurrentTenant(). " +
-      "In dev/test set BEACON_TENANT_ID=tenant-ritz-founder.",
-  );
-}
+/** Injected persistence for the profile row. Production default = Supabase. */
+export type BusinessProfileRepository = {
+  load(tenantId: string): Promise<Partial<BusinessProfile> | null>;
+  save(tenantId: string, profile: BusinessProfile): Promise<{ ok: boolean; reason?: string }>;
+};
 
-/**
- * MT-1 — one-time placeholder warning, per tenant. Fires AT MOST ONCE
- * per tenant per process so production dashboards surface the
- * "configuration needed" state without log flooding.
- */
-function warnPlaceholderOnce(tenantId: string): void {
-  if (_placeholderWarnedTenants.has(tenantId)) return;
-  _placeholderWarnedTenants.add(tenantId);
-  log.warn(
-    "[business-config] no tenant config found — running on neutral placeholder. Set BEACON_BUSINESS_CONFIG_JSON env var or place a .data/global/business-config.json to load real tenant config.",
-    {
-      tenantId,
-      envVarSet: typeof process.env.BEACON_BUSINESS_CONFIG_JSON === "string",
-      topLevelFileExists: existsSync(TOP_LEVEL_CONFIG_PATH),
-      globalFileExists: existsSync(GLOBAL_CONFIG_PATH),
-      runningOn: process.env.VERCEL === "1" ? "vercel" : "local",
-    },
-  );
-}
-
-/**
- * MT-1 — pure resolution chain for ONE tenant. Priority order:
- *   a. `BEACON_BUSINESS_CONFIG_JSON_BY_TENANT[tenantId]` (multi-tenant).
- *   b. when `tenantId === BEACON_TENANT_ID`: today's single-tenant chain,
- *      preserved EXACTLY — `BEACON_BUSINESS_CONFIG_JSON` →
- *      `.data/business-config.json` → `.data/global/business-config.json`
- *      (back-compat; keeps the env-named tenant byte-identical).
- *   c. `.data/tenants/<tenantId>/business-config.json` (local/dev).
- *   d. `PLACEHOLDER_CONFIG` (neutral, `__placeholder: true`).
- *
- * For sources a–c, missing fields are filled from the placeholder via
- * `mergeWithPlaceholder`. For source d, the placeholder is returned
- * verbatim and the one-time per-tenant warning fires.
- */
-/**
- * Drafter last-mile G7 (2026-07-10): fill `authoritativeSourceDomains` from the
- * tenant's CURATED code-path default (src/domains/decision/drafts/tenant-source-allowlist
- * .ts) when the resolved config has NOT set its own. Gated strictly by canonical
- * tenant id: a tenant with no curated entry is returned unchanged (empty-allowlist
- * behavior byte-identical for every other tenant + the founder - no leak), and a
- * tenant that HAS curated its own allowlist (via env/file/Supabase row) always
- * wins. The durable channel remains the tenant's `business_config` row; this is
- * the fallback so the field is readable through business-config with no extra
- * wiring. Returns a NEW object only when it actually fills the field.
- */
-function applyCuratedSourceDomains(tenantId: string, config: BusinessConfig): BusinessConfig {
-  if (config.authoritativeSourceDomains && config.authoritativeSourceDomains.length > 0) return config;
-  const curated = getCuratedSourceDomains(tenantId);
-  if (!curated || curated.length === 0) return config;
-  return { ...config, authoritativeSourceDomains: curated };
-}
-
-function resolveConfigForTenant(tenantId: string): BusinessConfig {
-  return applyCuratedSourceDomains(tenantId, resolveConfigForTenantRaw(tenantId));
-}
-
-function resolveConfigForTenantRaw(tenantId: string): BusinessConfig {
-  const fromByTenant = readConfigFromByTenantEnv(tenantId);
-  if (fromByTenant !== null) return mergeWithPlaceholder(fromByTenant);
-
-  // P0 wall 3 fix (2026-06-10): the per-tenant file now BEATS the
-  // legacy env-named chain. Pre-fix, any per-tenant CLI job (matrix
-  // scan/generation sets BEACON_TENANT_ID=<that tenant>) fell into the
-  // legacy branch and read the GLOBAL business-config file — serving
-  // tenant B the founder tenant's config (caught live: Iranopedia
-  // classified with Ritz's urlPatterns). A tenant with its own config
-  // file gets its own config, full stop; the legacy chain remains as
-  // the founder-deploy fallback for tenants WITHOUT a per-tenant file.
-  const fromTenantFile = readConfigFromTenantFile(tenantId);
-  if (fromTenantFile !== null) return mergeWithPlaceholder(fromTenantFile);
-
-  // ISOLATION-CRITICAL (2026-06-15): the legacy single-tenant chain
-  // (`BEACON_BUSINESS_CONFIG_JSON` env blob + `.data/business-config.json` +
-  // `.data/global/business-config.json`) is the FOUNDER's config — the global
-  // file literally carries the founder's brand. It may serve ONLY the founder
-  // tenant. The previous gate (`tenantId === process.env.BEACON_TENANT_ID`)
-  // served whichever tenant the deploy/CLI env named, so a per-tenant run with
-  // `BEACON_TENANT_ID=<customer>` leaked the founder's "Ritz Builders" config
-  // onto that customer's surface. Non-founder tenants resolve via priority a
-  // (BY_TENANT env), priority c (per-tenant file) above, or their own Supabase
-  // row (hydrate) — never the founder's global file.
-  if (tenantId === founderTenantId()) {
-    const fromEnv = readConfigFromEnv();
-    if (fromEnv !== null) return mergeWithPlaceholder(fromEnv);
-    const fromFile = readConfigFromFiles();
-    if (fromFile !== null) return mergeWithPlaceholder(fromFile);
-  }
-
-  warnPlaceholderOnce(tenantId);
-  return PLACEHOLDER_CONFIG;
-}
-
-/**
- * Resolve the active business config for a tenant. Tenant-keyed cache;
- * resolution order documented on `resolveConfigForTenant`.
- *
- * Operator audit (2026-05-05) — when resolution falls through to the
- * neutral placeholder, a one-time-per-tenant `log.warn` fires so
- * production dashboards surface the "configuration needed" state.
- * Consumer code can branch on `isPlaceholderConfig(cfg)` for UI
- * affordances. Customer-facing surfaces should NOT show a scary
- * warning — only admin / diagnostic surfaces should expose this state.
- */
-export function getBusinessConfig(tenantId: string): BusinessConfig;
-/**
- * @deprecated MT-1 back-compat ONLY. Resolves the tenant synchronously
- * from `process.env.BEACON_TENANT_ID` and delegates to the tenant-aware
- * form. This no-arg path keeps existing consumers green during the
- * multi-tenant migration and will be REMOVED in a later MT slice once
- * every consumer threads an explicit tenantId (or uses
- * `getBusinessConfigForCurrentTenant`). Do NOT add new no-arg call-sites.
- */
-export function getBusinessConfig(): BusinessConfig;
-export function getBusinessConfig(tenantId?: string): BusinessConfig {
-  const resolvedTenantId =
-    typeof tenantId === "string" && tenantId.length > 0
-      ? tenantId
-      : resolveTenantIdFromEnvSync();
-
-  const cached = _cacheByTenant.get(resolvedTenantId);
-  if (cached) return cached;
-
-  const resolved = resolveConfigForTenant(resolvedTenantId);
-  _cacheByTenant.set(resolvedTenantId, resolved);
-  return resolved;
-}
-
-/**
- * Async entry point for server components / actions / loaders. Resolves
- * the current tenant via `currentTenantId()` (request header → env) and
- * returns that tenant's config. Preferred over the deprecated no-arg
- * `getBusinessConfig()` — it routes per-request, not per-process-env.
- */
-export async function getBusinessConfigForCurrentTenant(): Promise<BusinessConfig> {
-  const tenantId = await currentTenantId();
-  const resolved = getBusinessConfig(tenantId);
-  if (!resolved.__placeholder) return resolved;
-  // North-star onboarding (2026-06-11): the sync chain (env → files)
-  // came up empty. On Vercel `.data` doesn't exist, so a self-served
-  // tenant's only durable config channel is its per-tenant Supabase row
-  // — consult it before settling for the placeholder.
-  const hydrated = await hydrateBusinessConfigFromSupabase(tenantId);
-  return hydrated ?? resolved;
-}
-
-/**
- * North-star onboarding (2026-06-11) — hosted per-tenant config read.
- *
- * Reads the `business_config` Supabase row keyed by `tenantId` (written
- * by `saveBusinessConfig` via `syncTenantBusinessConfig`) and caches the
- * merged result. This is what makes a stranger's onboarding-saved config
- * actually resolve on Vercel, where the file chain can never exist and
- * the only pre-existing channel was the operator-hand-written
- * `BEACON_BUSINESS_CONFIG_JSON_BY_TENANT` env blob.
- *
- * Returns null (and memoizes the miss) when the tenant has no row —
- * callers keep the placeholder. Failure-soft: any Supabase error returns
- * null rather than crashing a render.
- */
-export async function hydrateBusinessConfigFromSupabase(
-  tenantId: string,
-): Promise<BusinessConfig | null> {
-  // Run the SYNC chain first so the operator's env-blob / file config
-  // always beats the Supabase row (priority a–c before d') — a cron
-  // calling hydrate as its first config touch must not invert the
-  // resolution order.
-  const resolved = getBusinessConfig(tenantId);
-  if (!resolved.__placeholder) return resolved;
-  if (_supabaseHydrateAttempted.has(tenantId)) return null;
-  _supabaseHydrateAttempted.add(tenantId);
-  try {
+const supabaseProfileRepository: BusinessProfileRepository = {
+  async load(tenantId) {
     const { getSupabaseAdmin } = await import("@/lib/persistence/supabase");
-    const sb = getSupabaseAdmin();
-    const { data, error } = await sb
+    const { data, error } = await getSupabaseAdmin()
       .from("business_config")
       .select("data")
       .eq("id", tenantId)
       .maybeSingle();
     if (error || !data?.data) return null;
-    // G7 (2026-07-10): apply the curated allowlist fallback here too, so a tenant
-    // whose prod row hasn't set `authoritativeSourceDomains` yet still resolves it
-    // through business-config (the row, once it sets the field, always wins).
-    const merged = applyCuratedSourceDomains(tenantId, mergeWithPlaceholder(data.data as Partial<BusinessConfig>));
+    return data.data as Partial<BusinessProfile>;
+  },
+  async save(tenantId, profile) {
+    try {
+      const { getSupabaseAdmin } = await import("@/lib/persistence/supabase");
+      const { error } = await getSupabaseAdmin()
+        .from("business_config")
+        .upsert(
+          { id: tenantId, data: profile as unknown as Record<string, unknown>, updated_at: new Date().toISOString() },
+          { onConflict: "id" },
+        );
+      if (error) return { ok: false, reason: error.message.slice(0, 300) };
+      return { ok: true };
+    } catch (e) {
+      return { ok: false, reason: e instanceof Error ? e.message.slice(0, 300) : "unknown" };
+    }
+  },
+};
+
+let profileRepository: BusinessProfileRepository = supabaseProfileRepository;
+
+/** Tests inject an in-memory repository; pass null to restore production. */
+export function setBusinessProfileRepositoryForTests(
+  repo: BusinessProfileRepository | null,
+): void {
+  profileRepository = repo ?? supabaseProfileRepository;
+}
+
+/** Test seam: seed the resolved profile for an account directly (sync readers see it). */
+export function setBusinessProfileForTests(
+  tenantId: string,
+  patch: Partial<BusinessProfile>,
+): void {
+  _cacheByTenant.set(tenantId, mergeWithPlaceholder(patch));
+}
+
+function warnPlaceholderOnce(tenantId: string): void {
+  if (_placeholderWarnedTenants.has(tenantId)) return;
+  _placeholderWarnedTenants.add(tenantId);
+  log.warn(
+    "[business-profile] no confirmed profile for this account — running on the neutral placeholder until onboarding confirms one.",
+    { tenantId },
+  );
+}
+
+/**
+ * Synchronous profile read for an account: cache, else the neutral
+ * placeholder. The durable Supabase row is consulted by the async paths
+ * (getBusinessProfileForCurrentTenant / hydrateBusinessProfile), which
+ * fill this cache. Missing configuration always resolves generically —
+ * never another business's data.
+ */
+export function getBusinessProfile(tenantId: string): BusinessProfile {
+  if (typeof tenantId !== "string" || tenantId.length === 0) {
+    throw new Error("getBusinessProfile(): tenantId is required.");
+  }
+  const cached = _cacheByTenant.get(tenantId);
+  if (cached) return cached;
+  warnPlaceholderOnce(tenantId);
+  return PLACEHOLDER_PROFILE;
+}
+
+/**
+ * Async entry point for server components / actions / loaders: resolves the
+ * current account and returns its profile, consulting the durable Supabase
+ * row before settling for the placeholder.
+ */
+export async function getBusinessProfileForCurrentTenant(): Promise<BusinessProfile> {
+  const tenantId = await currentTenantId();
+  const resolved = getBusinessProfile(tenantId);
+  if (!resolved.__placeholder) return resolved;
+  const hydrated = await hydrateBusinessProfile(tenantId);
+  return hydrated ?? resolved;
+}
+
+/**
+ * Durable per-account profile read: loads the account's `business_config`
+ * row through the injected repository and caches the merged result.
+ * Returns null (and memoizes the miss) when the account has no row.
+ * Failure-soft: an error returns null rather than crashing a render.
+ */
+export async function hydrateBusinessProfile(
+  tenantId: string,
+): Promise<BusinessProfile | null> {
+  const cached = _cacheByTenant.get(tenantId);
+  if (cached && !cached.__placeholder) return cached;
+  if (_supabaseHydrateAttempted.has(tenantId)) return null;
+  _supabaseHydrateAttempted.add(tenantId);
+  try {
+    const loaded = await profileRepository.load(tenantId);
+    if (!loaded) return null;
+    const merged = mergeWithPlaceholder(loaded);
     _cacheByTenant.set(tenantId, merged);
     return merged;
   } catch {
@@ -705,121 +324,71 @@ export async function hydrateBusinessConfigFromSupabase(
   }
 }
 
-/**
- * Build a complete BusinessConfig by overlaying real values on top of the
- * placeholder — so missing fields don't crash consumers. Strips the
- * `__placeholder` marker (a real loaded config is NOT the placeholder).
- */
-function mergeWithPlaceholder(
-  loaded: Partial<BusinessConfig>,
-): BusinessConfig {
-  const merged: BusinessConfig = { ...PLACEHOLDER_CONFIG, ...loaded };
+/** Overlay real values on the placeholder so missing fields never crash
+ *  consumers; strips the placeholder marker and any legacy provider keys. */
+function mergeWithPlaceholder(loaded: Partial<BusinessProfile>): BusinessProfile {
+  const cleaned = { ...loaded } as Record<string, unknown>;
+  delete cleaned.__placeholder;
+  // Legacy provider-scoping keys from removed connectors may persist in old
+  // rows; they are not part of the canonical profile and are never read.
+  delete cleaned.profound;
+  const merged: BusinessProfile = { ...PLACEHOLDER_PROFILE, ...(cleaned as Partial<BusinessProfile>) };
   delete merged.__placeholder;
   return merged;
 }
 
-export function saveBusinessConfig(
-  tenantId: string,
-  patch: Partial<BusinessConfig>,
-): BusinessConfig;
+export type SaveBusinessProfileResult = {
+  profile: BusinessProfile;
+  /** True when the durable Supabase write landed. Callers that must not
+   *  proceed on a lost write (onboarding launch) check this. */
+  persisted: boolean;
+  persistError?: string;
+};
+
 /**
- * @deprecated MT-1 back-compat ONLY — the no-tenant form for the
- * existing settings call-site. Resolves the tenant from
- * `BEACON_TENANT_ID`. Will be tightened to a required tenantId in a
- * later MT slice. Do NOT add new no-tenant call-sites.
+ * Save a profile patch for an account. Single write path: the account's
+ * own Supabase `business_config` row. The merged profile is cached for
+ * this process so sync readers see it immediately.
  */
-export function saveBusinessConfig(patch: Partial<BusinessConfig>): BusinessConfig;
-export function saveBusinessConfig(
-  arg1: string | Partial<BusinessConfig>,
-  arg2?: Partial<BusinessConfig>,
-): BusinessConfig {
-  const tenantId =
-    typeof arg1 === "string" ? arg1 : resolveTenantIdFromEnvSync();
-  const patch = typeof arg1 === "string" ? (arg2 ?? {}) : arg1;
-
-  const current = getBusinessConfig(tenantId);
-  const updated = { ...current, ...patch };
-  // Saving makes this a real config; clear the placeholder marker.
-  delete updated.__placeholder;
-
-  // MT-1 back-compat: the env-named tenant keeps writing the shared
-  // top-level file so the operator's /settings/config save path is
-  // byte-identical to today.
-  // audit-wave6 #7: gate the shared TOP-LEVEL config write on the FOUNDER tenant
-  // (symmetric with the read gate), not raw BEACON_TENANT_ID — otherwise a deploy
-  // with BEACON_TENANT_ID set to a CUSTOMER tenant would write that customer's
-  // config into the founder's shared file.
-  if (process.env.VERCEL !== "1" && tenantId === founderTenantId()) {
-    if (!existsSync(DATA_DIR)) mkdirSync(DATA_DIR, { recursive: true });
-    writeFileSync(TOP_LEVEL_CONFIG_PATH, JSON.stringify(updated, null, 2));
+export async function saveBusinessProfile(
+  tenantId: string,
+  patch: Partial<BusinessProfile>,
+): Promise<SaveBusinessProfileResult> {
+  if (typeof tenantId !== "string" || tenantId.length === 0) {
+    throw new Error("saveBusinessProfile(): tenantId is required.");
   }
-  // North-star onboarding (2026-06-11) — the "later MT slice" lands:
-  // EVERY tenant's save persists to its own per-tenant file
-  // (.data/tenants/<tenantId>/business-config.json — the exact path
-  // resolution priority (c) already reads), so a save survives a
-  // process restart instead of living only in the in-memory cache.
-  if (process.env.VERCEL !== "1") {
-    const tenantDir = path.join(TENANTS_DIR, tenantId);
-    if (!existsSync(tenantDir)) mkdirSync(tenantDir, { recursive: true });
-    writeFileSync(
-      path.join(tenantDir, "business-config.json"),
-      JSON.stringify(updated, null, 2),
-    );
-  }
+  const current = _cacheByTenant.get(tenantId) ?? (await hydrateBusinessProfile(tenantId)) ?? PLACEHOLDER_PROFILE;
+  const updated = mergeWithPlaceholder({ ...current, ...patch });
   _cacheByTenant.set(tenantId, updated);
-  // A fresh save invalidates the "no Supabase row" memo so the next
-  // hydrate sees the new row.
+  // A fresh save invalidates the "no row" memo so the next hydrate re-reads.
   _supabaseHydrateAttempted.delete(tenantId);
-  // Fire-and-forget: saveBusinessConfig is synchronous, dual-write is
-  // async best-effort. The per-tenant row is the hosted source of truth
-  // (read back by hydrateBusinessConfigFromSupabase); the legacy
-  // singleton row (id="current") keeps the env-named tenant's
-  // pre-multi-tenant channel byte-identical.
-  syncTenantBusinessConfig(tenantId, updated).catch(() => {});
-  // audit-wave6 #7: the legacy singleton "current" Supabase row belongs to the
-  // FOUNDER tenant — gate on founderTenantId() (symmetric with the read path) so
-  // a customer save can't overwrite the founder's singleton.
-  if (tenantId === founderTenantId()) {
-    syncBusinessConfig(updated).catch(() => {});
-  }
-  return updated;
+  const saved = await profileRepository.save(tenantId, updated);
+  return { profile: updated, persisted: saved.ok, persistError: saved.reason };
 }
 
-/**
- * Test-only — reset the in-memory cache so a fresh getBusinessConfig()
- * call re-runs the full resolution chain. Also resets the
- * "already warned" flag so the placeholder log can fire again per test.
- * Production code does NOT use this; the cache is intentional (config
- * is read once per process).
- */
-export function __resetBusinessConfigCacheForTests(): void {
+/** Test-only — reset caches so resolution re-runs per test. */
+export function __resetBusinessProfileCacheForTests(): void {
   _cacheByTenant.clear();
   _placeholderWarnedTenants.clear();
   _supabaseHydrateAttempted.clear();
 }
 
-// MT-3C.2 (2026-05-23) — `config` is REQUIRED (no no-arg fallback). The
-// only runtime caller is the pure page extractor, which now resolves the
-// per-tenant config from its `tenantId` param and injects it.
-export function getLocationRegex(config: BusinessConfig): RegExp {
+/** Location term matcher from the profile; never-match when unset. Pure. */
+export function getLocationRegex(profile: BusinessProfile): RegExp {
   const terms =
-    config.locationTerms.length > 0
-      ? config.locationTerms
-      : config.locations;
+    profile.locationTerms.length > 0 ? profile.locationTerms : profile.locations;
   if (terms.length === 0) return /(?!)/g;
   const escaped = terms.map((t) => t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
   return new RegExp(`\\b(${escaped.join("|")})\\b`, "gi");
 }
 
-export function getServiceRegex(config: BusinessConfig): RegExp {
+/** Service term matcher from the profile; never-match when unset. Pure. */
+export function getServiceRegex(profile: BusinessProfile): RegExp {
   const terms =
-    config.serviceTerms.length > 0
-      ? config.serviceTerms
-      : config.services;
+    profile.serviceTerms.length > 0 ? profile.serviceTerms : profile.services;
   if (terms.length === 0) return /(?!)/g;
   const escaped = terms.map((t) =>
     t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/\s+/g, "[\\s-]?"),
   );
   return new RegExp(`\\b(${escaped.join("|")})\\b`, "gi");
 }
-

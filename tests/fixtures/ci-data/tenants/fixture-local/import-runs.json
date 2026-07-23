@@ -1,7 +1,7 @@
 [
   {
     "id": "ci-fix-import-001",
-    "tenant_id": "tenant-ritz-founder",
+    "tenant_id": "tenant-fixture-local",
     "source_system": "ci-fixture",
     "entity_type": "results",
     "format": "csv",

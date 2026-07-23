@@ -1,6 +1,6 @@
 {
-  "name": "Ritz Builders",
-  "domain": "ritzbuilders.com",
+  "name": "Harborview Services",
+  "domain": "fixture-local.example",
   "industry": "home-builder",
   "phone": "",
   "address": "",
@@ -49,7 +49,7 @@
     "park",
     "palo",
     "alto",
-    "ritz",
+    "harborview",
     "builders"
   ],
   "industryThemes": [

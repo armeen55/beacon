@@ -27,22 +27,14 @@ import { redirect } from "next/navigation";
 import { getSupabaseServerClient } from "@/lib/auth/supabase-server";
 import { getSupabaseAdmin } from "@/lib/persistence/supabase";
 import { lookupExistingMembership } from "./provision-tenant";
-import type { BeaconTenant } from "@/domains/account/tenants/types";
+import type { Account } from "@/domains/account/tenants/types";
 
 export type OnboardingTenantContext = {
   user: { id: string; email: string };
   tenantId: string;
   tenant: Pick<
-    BeaconTenant,
-    | "id"
-    | "slug"
-    | "business_name"
-    | "domain"
-    | "cities_served"
-    | "project_mix"
-    | "discovered_competitors"
-    | "status"
-    | "tos_accepted_at"
+    Account,
+    "id" | "slug" | "business_name" | "domain" | "status" | "tos_accepted_at"
   >;
 };
 
@@ -86,9 +78,7 @@ export async function requireOnboardingTenant(opts?: {
 
   const { data: tenant, error: tErr } = await admin
     .from("tenants")
-    .select(
-      "id, slug, business_name, domain, cities_served, project_mix, discovered_competitors, status, tos_accepted_at",
-    )
+    .select("id, slug, business_name, domain, status, tos_accepted_at")
     .eq("id", tenantId)
     .maybeSingle();
 

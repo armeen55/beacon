@@ -1,4 +1,4 @@
-import { getBusinessConfigForCurrentTenant } from "@/lib/business-config";
+import { getBusinessProfileForCurrentTenant } from "@/lib/business-config";
 import { PageHeader } from "@/components/data/page-header";
 import { TenantSwitcher } from "@/components/shell/tenant-switcher";
 import { ConfigForm } from "./config-form";
@@ -8,7 +8,7 @@ import { RevenueModelCard, type RevenueModelInitial } from "./revenue-model-card
 export const dynamic = "force-dynamic";
 
 export default async function SettingsConfigPage() {
-  const cfg = await getBusinessConfigForCurrentTenant();
+  const cfg = await getBusinessProfileForCurrentTenant();
 
   const initial = {
     name: cfg.name,

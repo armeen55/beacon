@@ -14,7 +14,7 @@ import { appendConnectorReviewsImportRun } from "@/lib/connectors/connector-revi
 import { mapYelpReviewToLocalReview } from "@/lib/connectors/yelp-reviews-map";
 import type { LocalReview } from "@/lib/local-reviews-types";
 import { mergeUpsertLocalReviews } from "@/lib/local-reviews-store";
-import { getBusinessConfigForCurrentTenant } from "@/lib/business-config";
+import { getBusinessProfileForCurrentTenant } from "@/lib/business-config";
 import { now } from "@/lib/actions";
 import { revalidatePath } from "next/cache";
 
@@ -96,7 +96,7 @@ export async function runYelpReviewsSync(): Promise<YelpReviewsSyncResult> {
     };
   }
 
-  const cfg = await getBusinessConfigForCurrentTenant();
+  const cfg = await getBusinessProfileForCurrentTenant();
   const businessId = (
     cfg.yelpBusinessId?.trim() ||
     token0.business_id?.trim() ||

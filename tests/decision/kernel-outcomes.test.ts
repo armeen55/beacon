@@ -71,8 +71,8 @@ const VALID_CREATE_PAGE = {
 };
 
 const EXISTING_INPUT: EvidenceInput = {
-  tenantId: "iranopedia",
-  page: { path: "/nowruz", url: "https://iranopedia.com/nowruz", label: "Nowruz" },
+  tenantId: "referencepedia",
+  page: { path: "/nowruz", url: "https://fixture-content.example/nowruz", label: "Nowruz" },
   opportunity: {
     query: "nowruz traditions",
     kind: "existing_edit",
@@ -89,7 +89,7 @@ const EXISTING_INPUT: EvidenceInput = {
 };
 
 const NEW_PAGE_INPUT: EvidenceInput = {
-  tenantId: "iranopedia",
+  tenantId: "referencepedia",
   page: { path: null, url: null, label: "Haft-Seen table" },
   opportunity: {
     query: "haft-seen table",
@@ -115,11 +115,11 @@ afterEach(() => {
 /** A minimal safe existing-edit proposal, for constructing rejection variants. */
 function baseProposal(over: Partial<ChangeProposal> = {}): ChangeProposal {
   return {
-    id: "iranopedia::/x::existing_edit::title",
-    tenantId: "iranopedia",
+    id: "referencepedia::/x::existing_edit::title",
+    tenantId: "referencepedia",
     kind: "existing_edit",
     pagePath: "/x",
-    pageUrl: "https://iranopedia.com/x",
+    pageUrl: "https://fixture-content.example/x",
     pageLabel: "X",
     primaryQuery: "nowruz traditions",
     opportunityType: "Capture clicks",

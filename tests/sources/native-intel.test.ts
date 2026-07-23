@@ -52,9 +52,9 @@ describe("rankRecurringDomains - the people on the lists", () => {
 
   it("excludes the tenant's own domain and subdomains", () => {
     const rows: NativeObservationInput[] = [
-      row({ citationDomains: ["iranopedia.com", "en.iranopedia.com", "jozan.net"] }),
+      row({ citationDomains: ["fixture-content.example", "en.fixture-content.example", "jozan.net"] }),
     ];
-    const ranked = rankRecurringDomains(rows, { ownedRoot: "iranopedia.com" });
+    const ranked = rankRecurringDomains(rows, { ownedRoot: "fixture-content.example" });
     expect(ranked.map((d) => d.domain)).toEqual(["jozan.net"]);
   });
 
@@ -89,9 +89,9 @@ describe("rankRecurringPages - the exact URLs cited repeatedly", () => {
 
   it("excludes the tenant's own pages", () => {
     const rows: NativeObservationInput[] = [
-      row({ citationUrls: ["https://www.iranopedia.com/persian-rugs", "https://jozan.net/guide"] }),
+      row({ citationUrls: ["https://www.fixture-content.example/persian-rugs", "https://jozan.net/guide"] }),
     ];
-    const ranked = rankRecurringPages(rows, { ownedRoot: "iranopedia.com" });
+    const ranked = rankRecurringPages(rows, { ownedRoot: "fixture-content.example" });
     expect(ranked.map((p) => p.url)).toEqual(["https://jozan.net/guide"]);
   });
 
@@ -106,13 +106,13 @@ describe("rankRecurringPages - the exact URLs cited repeatedly", () => {
 
 describe("findAnswerSentence - the exact sentence naming the brand", () => {
   it("returns the sentence containing a brand variant", () => {
-    const text = "Here are some options. Iranopedia has a great rug guide. It covers many styles.";
-    expect(findAnswerSentence(text, ["Iranopedia"])).toBe("Iranopedia has a great rug guide.");
+    const text = "Here are some options. Referencepedia has a great rug guide. It covers many styles.";
+    expect(findAnswerSentence(text, ["Referencepedia"])).toBe("Referencepedia has a great rug guide.");
   });
 
 
   it("returns null when the brand is not present", () => {
-    expect(findAnswerSentence("No mention of any brand here.", ["Iranopedia"])).toBeNull();
+    expect(findAnswerSentence("No mention of any brand here.", ["Referencepedia"])).toBeNull();
   });
 
 
@@ -127,10 +127,10 @@ describe("buildPresenceMatrix - we are / we are not", () => {
         engine: "perplexity",
         trackedBrandMentioned: true,
         trackedBrandCited: true,
-        answerText: "Iranopedia has the best guide.",
+        answerText: "Referencepedia has the best guide.",
       }),
     ];
-    const matrix = buildPresenceMatrix(rows, { brandVariants: ["Iranopedia"] });
+    const matrix = buildPresenceMatrix(rows, { brandVariants: ["Referencepedia"] });
     expect(matrix.rows).toHaveLength(1);
     const p1 = matrix.rows[0]!;
     expect(p1.presentAnywhere).toBe(true);
@@ -138,7 +138,7 @@ describe("buildPresenceMatrix - we are / we are not", () => {
     const pplx = p1.byEngine.find((c) => c.engine === "perplexity")!;
     expect(pplx.mentioned).toBe(true);
     expect(pplx.cited).toBe(true);
-    expect(pplx.answerSentence).toBe("Iranopedia has the best guide.");
+    expect(pplx.answerSentence).toBe("Referencepedia has the best guide.");
     const chatgpt = p1.byEngine.find((c) => c.engine === "chatgpt")!;
     expect(chatgpt.answerSentence).toBeNull();
   });
@@ -161,7 +161,7 @@ describe("buildPresenceMatrix - we are / we are not", () => {
         observedAt: "2026-06-20T00:00:00Z",
         trackedBrandMentioned: true,
         trackedBrandCited: true,
-        answerText: "Iranopedia used to be cited.",
+        answerText: "Referencepedia used to be cited.",
       }),
       row({
         promptId: "p1",
@@ -172,7 +172,7 @@ describe("buildPresenceMatrix - we are / we are not", () => {
         answerText: "No longer mentioned.",
       }),
     ];
-    const matrix = buildPresenceMatrix(rows, { brandVariants: ["Iranopedia"] });
+    const matrix = buildPresenceMatrix(rows, { brandVariants: ["Referencepedia"] });
     expect(matrix.rows[0]!.byEngine).toHaveLength(1);
     expect(matrix.rows[0]!.byEngine[0]!.mentioned).toBe(false);
   });
@@ -229,7 +229,7 @@ describe("buildNativeIntelReport - the combined report", () => {
       row({
         promptId: "p1",
         engine: "chatgpt",
-        answerText: "Iranopedia has a great guide. What is Nowruz?",
+        answerText: "Referencepedia has a great guide. What is Nowruz?",
         citationDomains: ["jozan.net"],
         citationUrls: ["https://jozan.net/guide"],
         trackedBrandMentioned: true,
@@ -245,7 +245,7 @@ describe("buildNativeIntelReport - the combined report", () => {
         trackedBrandCited: false,
       }),
     ];
-    const report = buildNativeIntelReport(rows, { ownedRoot: "iranopedia.com", brandVariants: ["Iranopedia"] });
+    const report = buildNativeIntelReport(rows, { ownedRoot: "fixture-content.example", brandVariants: ["Referencepedia"] });
     expect(report.rowsScanned).toBe(2);
     expect(report.enginesSeen).toEqual(["chatgpt", "perplexity"]);
     expect(report.recurringDomains.map((d) => d.domain)).toEqual(["jozan.net"]);

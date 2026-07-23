@@ -100,7 +100,7 @@ describe("parseDataForSeoSerp wiring (item 25)", () => {
 
   it("carries snippetOwner=null and paaQuestions=[] when neither feature renders (absent-feature fixture)", () => {
     const body = {
-      tasks: [{ result: [{ items: [{ type: "organic", url: "https://iranopedia.com/iran-flag", title: "Iran Flag" }] }] }],
+      tasks: [{ result: [{ items: [{ type: "organic", url: "https://fixture-content.example/iran-flag", title: "Iran Flag" }] }] }],
     };
     const parsed = parseDataForSeoSerp("iran flag", body, nowIso);
     expect(parsed.snippetOwner).toBeNull();
@@ -129,7 +129,7 @@ describe("parseDataForSeoSerp wiring (item 25)", () => {
                     { title: "When was it adopted?" },
                   ],
                 },
-                { type: "organic", url: "https://iranopedia.com/iran-flag", title: "Iran Flag" },
+                { type: "organic", url: "https://fixture-content.example/iran-flag", title: "Iran Flag" },
               ],
             },
           ],
@@ -162,7 +162,7 @@ describe("parseDataForSeoSerp wiring (item 25)", () => {
 describe("buildSerpHistoryRow wiring (item 25)", () => {
   const snapshot: SerpSnapshot = {
     query: "iran flag",
-    results: [{ rank: 4, url: "https://iranopedia.com/iran-flag", title: "Iran Flag", domain: "iranopedia.com" }],
+    results: [{ rank: 4, url: "https://fixture-content.example/iran-flag", title: "Iran Flag", domain: "fixture-content.example" }],
     features: ["featured_snippet"],
     source: "dataforseo",
     fetchedAt: "2026-07-02T00:00:00.000Z",
@@ -170,11 +170,11 @@ describe("buildSerpHistoryRow wiring (item 25)", () => {
 
   it("defaults to snippet_owner=null and paa_questions=[] when omitted (backfill-script safe)", () => {
     const row = buildSerpHistoryRow({
-      tenantId: "tenant-iranopedia",
+      tenantId: "tenant-fixture-content",
       query: "iran flag",
       location: "2840|en",
       snapshot,
-      tenantDomain: "iranopedia.com",
+      tenantDomain: "fixture-content.example",
       capturedAt: "2026-07-02T00:00:00.000Z",
       costUsd: 0.003,
     });
@@ -184,11 +184,11 @@ describe("buildSerpHistoryRow wiring (item 25)", () => {
 
   it("persists a real snippet owner + PAA questions when provided", () => {
     const row = buildSerpHistoryRow({
-      tenantId: "tenant-iranopedia",
+      tenantId: "tenant-fixture-content",
       query: "iran flag",
       location: "2840|en",
       snapshot,
-      tenantDomain: "iranopedia.com",
+      tenantDomain: "fixture-content.example",
       capturedAt: "2026-07-02T00:00:00.000Z",
       costUsd: 0.003,
       snippetOwner: { ownerDomain: "smallblog.com", ownerUrl: "https://smallblog.com/x", textExcerpt: "text", format: "paragraph" },
@@ -212,7 +212,7 @@ import { runSerpQuery, type SerpRunDeps } from "@/domains/evidence/readers/dataf
 
 const okSnapshot: SerpSnapshot = {
   query: "persian singers",
-  results: [{ rank: 4, url: "https://iranopedia.com/singers", title: "Singers", domain: "iranopedia.com" }],
+  results: [{ rank: 4, url: "https://fixture-content.example/singers", title: "Singers", domain: "fixture-content.example" }],
   features: [],
   source: "dataforseo",
   fetchedAt: "2026-06-08T00:00:00.000Z",
@@ -222,12 +222,12 @@ function baseDeps(overrides: Partial<SerpRunDeps> = {}): Partial<SerpRunDeps> {
   return {
     env: { ...process.env, BEACON_SERP_PROVIDER: "dataforseo", DATAFORSEO_AUTH_B64: "abc123", DATAFORSEO_DRY_RUN: "false" },
     now: () => new Date("2026-06-08T00:00:00Z"),
-    tenantId: async () => "tenant-iranopedia",
+    tenantId: async () => "tenant-fixture-content",
     spentThisMonthUsd: async () => 0,
     recordSpend: async () => {},
     readCache: async () => [{ key: "2840|en|persian singers", snapshot: okSnapshot, fetchedAt: "2026-06-07T00:00:00Z" }],
     writeCache: async () => {},
-    tenantDomain: async () => "iranopedia.com",
+    tenantDomain: async () => "fixture-content.example",
     appendHistory: async () => {},
     ...overrides,
   };
@@ -244,7 +244,7 @@ describe("runSerpQuery - forceFresh cache bypass (item 19)", () => {
   it("skips the cache and fetches when forceFresh is true", async () => {
     const fetchImpl = vi.fn(async () =>
       new Response(
-        JSON.stringify({ tasks: [{ result: [{ items: [{ type: "organic", url: "https://iranopedia.com/singers", title: "Singers" }] }] }] }),
+        JSON.stringify({ tasks: [{ result: [{ items: [{ type: "organic", url: "https://fixture-content.example/singers", title: "Singers" }] }] }] }),
         { status: 200 },
       ),
     );

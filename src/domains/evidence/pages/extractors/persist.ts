@@ -60,7 +60,7 @@ export type PageElementInventoryRow = {
  * Inputs to the per-snapshot extract+wrap step.
  *
  * Dictionaries are passed in by the caller — the helper does NOT reach
- * for `getBusinessConfig()` itself. This keeps the function pure +
+ * for `getBusinessProfile()` itself. This keeps the function pure +
  * tenant-agnostic + safe to import from the scan CLI without dragging
  * server-only config readers into the child process.
  */

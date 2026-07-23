@@ -40,6 +40,13 @@ if (!url || !key) {
 
 const sb = createClient(url, key, { auth: { persistSession: false } });
 
+/** Operator scripts require an explicit account id; no customer default ever. */
+function requireEnvTenantId(): string {
+  const id = process.env.BEACON_TENANT_ID;
+  if (!id) throw new Error("Set BEACON_TENANT_ID to the target account id (no default).");
+  return id;
+}
+
 // ── File reading ──
 
 const DATA_DIR = join(process.cwd(), ".data");
@@ -230,7 +237,7 @@ async function backfill() {
     // backfill stamps the founder tenant (overridable via
     // BEACON_TENANT_ID) and uses the composite conflict key — without
     // this it would fail against the post-migration schema.
-    const backfillTenantId = process.env.BEACON_TENANT_ID || "tenant-ritz-founder";
+    const backfillTenantId = requireEnvTenantId();
     const row = {
       id: "current",
       tenant_id: backfillTenantId,

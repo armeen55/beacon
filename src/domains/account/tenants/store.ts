@@ -1,199 +1,104 @@
 /**
- * Tenant store — CRUD for BeaconTenant records.
+ * Account store — reads for the canonical Account record.
  *
- * Persisted to `.data/tenants.json` (global store, not per-tenant).
- * Dual-write to Supabase `tenants` table when DUAL_WRITE=true.
+ * Production reads go through Supabase (`tenants` table) only. There is no
+ * file registry, no DATA_SOURCE branch, and no env fallback: a missing or
+ * unreadable registry resolves to "no account", never to another business.
+ * Tests inject an in-memory repository via setAccountRepositoryForTests.
  *
- * This store is intentionally NOT behind the tenant-scoped readStore
- * path — it's the registry OF tenants, not data that belongs to one.
+ * Writes: account rows are created by provision-tenant (signup) and updated
+ * by the onboarding launch flow directly against Supabase. This store is
+ * read-side; the legacy createTenant/updateTenant file writers are gone.
  */
 
-// Registry reads can touch the Supabase service-role client (admin) via the
-// dynamic import below; pin this module server-only so it can never be pulled
-// into a client bundle (the dynamic import alone is not a hard guarantee).
 import "server-only";
 
-import { readStore, writeStore } from "@/lib/persistence/json-store";
-import type { BeaconTenant } from "./types";
+import type { Account, AccountStatus } from "./types";
 
-const STORE_NAME = "tenants";
+/** Injected read repository. Production default queries Supabase. */
+export type AccountRepository = {
+  listAccounts(): Promise<Account[]>;
+};
 
-/** Coerce a raw `tenants.role` value to a valid BeaconTenantRole. The DB has
- *  carried legacy/wrong values (e.g. "owner" — that's a tenant_members role,
- *  NOT a tenant tier). Anything outside the tier union defaults to the
- *  LEAST-privileged tier, never "founder": founder gates the legacy
- *  single-tenant fallback in tenant-data.ts, so a wrong founder tag could
- *  attach untagged data to the wrong tenant. */
-function coerceTenantRole(v: unknown): BeaconTenant["role"] {
-  return v === "founder" || v === "beta_customer" || v === "paid_customer"
-    ? v
-    : "paid_customer";
-}
-
-function coerceTenantSegment(v: unknown): BeaconTenant["segment"] {
-  return v === "local_residential_builder" ||
-    v === "local_service" ||
-    v === "content_publisher" ||
-    v === "product_app"
-    ? v
-    : "unknown";
-}
-
-// ---------------------------------------------------------------------------
-// Read
-// ---------------------------------------------------------------------------
-
-/** Map a Supabase `tenants` row → BeaconTenant. Inverse of the onboarding
- *  write mapping (column names mirror the field names 1:1). Null arrays
- *  default to []; a null/absent publish_target → undefined (the type's
- *  "safe default: nothing publishes" — executePush then routes dev_note). */
-export function mapRowToTenant(r: Record<string, unknown>): BeaconTenant {
-  const arr = (v: unknown): string[] =>
-    Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [];
-  const pt = r.publish_target;
+/** Map a Supabase `tenants` row to the canonical Account. Legacy vertical
+ *  columns on the row are intentionally ignored. */
+export function mapRowToAccount(r: Record<string, unknown>): Account {
+  const status: AccountStatus =
+    r.status === "active" || r.status === "paused" || r.status === "cancelled" || r.status === "pending_onboarding"
+      ? r.status
+      : "paused";
   return {
     id: String(r.id),
     slug: String(r.slug ?? ""),
     business_name: String(r.business_name ?? ""),
     domain: String(r.domain ?? ""),
-    segment: coerceTenantSegment(r.segment),
-    project_mix: arr(r.project_mix) as BeaconTenant["project_mix"],
-    cities_served: arr(r.cities_served),
-    budget_range: (r.budget_range as BeaconTenant["budget_range"]) ?? "mixed",
-    publish_target:
-      pt === "wix_cms" || pt === "git_pr" || pt === "dev_note" ? pt : undefined,
+    status,
     signup_date: String(r.signup_date ?? r.created_at ?? ""),
-    role: coerceTenantRole(r.role),
     tos_accepted_at: (r.tos_accepted_at as string | null) ?? null,
-    discovered_competitors: arr(r.discovered_competitors),
     daily_budget_usd:
       typeof r.daily_budget_usd === "number"
         ? r.daily_budget_usd
         : Number(r.daily_budget_usd ?? 0) || 0,
-    status: (r.status as BeaconTenant["status"]) ?? "active",
-    email_frequency:
-      (r.email_frequency as BeaconTenant["email_frequency"]) ?? "weekly",
     created_at: String(r.created_at ?? ""),
     updated_at: String(r.updated_at ?? ""),
   };
 }
 
-export async function listTenants(): Promise<BeaconTenant[]> {
-  // Hosted (DATA_SOURCE=supabase): the `.data/global/tenants.json` registry
-  // file is NOT deployed (gitignored + read-only lambda FS), so the file
-  // path returns [] and getTenant() resolves null in production — which
-  // breaks the tenant switcher's name lookup AND makes executePush fall back
-  // to dev_note (no Wix push). Read the registry from the Supabase `tenants`
-  // table (the dual-write target) so the hosted app resolves real tenants.
-  // Fail-soft to the file path on any error (covers local file-mode + tests).
-  if (process.env.DATA_SOURCE === "supabase") {
+const supabaseRepository: AccountRepository = {
+  async listAccounts(): Promise<Account[]> {
     try {
       const { getSupabaseAdmin } = await import("@/lib/persistence/supabase");
-      const { data, error } = await getSupabaseAdmin()
-        .from("tenants")
-        .select("*");
+      const { data, error } = await getSupabaseAdmin().from("tenants").select("*");
       if (error) {
-        // LOUD: on hosted the file fallback is the (undeployed, gitignored)
-        // registry → it returns []. An empty registry silently breaks the
-        // tenant switcher's name lookup AND routes every push to dev_note.
-        // Never let that fail silently — surface it in the function logs.
-        console.error(
-          `[tenants/store] Supabase tenants read FAILED (DATA_SOURCE=supabase): ${error.message}. ` +
-            `Falling back to the file registry, which is EMPTY on hosted — switcher + push routing will break until this is fixed.`,
-        );
-      } else if (!Array.isArray(data) || data.length === 0) {
-        console.error(
-          `[tenants/store] Supabase tenants read returned 0 rows (DATA_SOURCE=supabase). ` +
-            `The tenant registry is empty — was the tenants table seeded? Switcher + push routing will break.`,
-        );
-      } else {
-        return data.map((r) => mapRowToTenant(r as Record<string, unknown>));
+        // LOUD: an unreadable registry breaks account resolution. Fail to
+        // "no accounts" (callers render generic signed-out/error paths),
+        // never to a default or another business.
+        console.error(`[account/store] Supabase tenants read FAILED: ${error.message}`);
+        return [];
       }
+      return (data ?? []).map((r) => mapRowToAccount(r as Record<string, unknown>));
     } catch (e) {
       console.error(
-        `[tenants/store] Supabase tenants read THREW (DATA_SOURCE=supabase): ` +
-          `${e instanceof Error ? e.message : String(e)}. Falling back to the file registry (EMPTY on hosted).`,
+        `[account/store] Supabase tenants read THREW: ${e instanceof Error ? e.message : String(e)}`,
       );
+      return [];
     }
-  }
-  return await readStore<BeaconTenant>(STORE_NAME);
+  },
+};
+
+let repository: AccountRepository = supabaseRepository;
+
+/** Tests inject an in-memory repository; pass null to restore production. */
+export function setAccountRepositoryForTests(repo: AccountRepository | null): void {
+  repository = repo ?? supabaseRepository;
+}
+
+export async function listTenants(): Promise<Account[]> {
+  return repository.listAccounts();
 }
 
 /**
- * Tenants eligible for background/paid work and switchable-to (status === "active").
- *
- * 2026-07-18 tenant-safety fix: a paused/cancelled/pending_onboarding tenant must
- * still RESOLVE (getTenant / getTenantOrThrow / slug lookups keep working so its
- * stored data is never orphaned), but it must consume ZERO fan-out work and must
- * never be switchable-to. Every caller that ENUMERATES tenants to DO work (cron
- * fan-outs, precompute/warm passes, nightly aggregates, the cross-tenant brain
- * producer) must enumerate through this helper, not `listTenants`. Identity /
- * resolution callers keep using `listTenants` (a paused tenant must still resolve).
+ * Accounts eligible for background/paid work and switchable-to (status === "active").
+ * A paused/cancelled/pending account must still RESOLVE (getTenant keeps working so
+ * its stored data is never orphaned) but consumes zero fan-out work. Enumerating
+ * callers that DO work must use this helper, not listTenants.
  */
-export async function listActiveTenants(): Promise<BeaconTenant[]> {
+export async function listActiveTenants(): Promise<Account[]> {
   return (await listTenants()).filter((t) => t.status === "active");
 }
 
-export async function getTenant(id: string): Promise<BeaconTenant | null> {
+export async function getTenant(id: string): Promise<Account | null> {
   return (await listTenants()).find((t) => t.id === id) ?? null;
 }
 
-export async function getTenantBySlug(
-  slug: string,
-): Promise<BeaconTenant | null> {
+export async function getTenantBySlug(slug: string): Promise<Account | null> {
   return (await listTenants()).find((t) => t.slug === slug) ?? null;
 }
 
-export async function getTenantOrThrow(id: string): Promise<BeaconTenant> {
+export async function getTenantOrThrow(id: string): Promise<Account> {
   const tenant = await getTenant(id);
   if (!tenant) {
-    throw new Error(
-      `Unknown tenant: ${id}. Available: ${(await listTenants()).map((t) => t.id).join(", ") || "(none)"}`,
-    );
+    throw new Error(`Unknown account: ${id}`);
   }
   return tenant;
-}
-
-// ---------------------------------------------------------------------------
-// Write
-// ---------------------------------------------------------------------------
-
-export async function createTenant(
-  partial: Omit<BeaconTenant, "created_at" | "updated_at">,
-): Promise<BeaconTenant> {
-  const now = new Date().toISOString();
-  const tenant: BeaconTenant = {
-    ...partial,
-    created_at: now,
-    updated_at: now,
-  };
-
-  const all = await listTenants();
-  const existing = all.findIndex((t) => t.id === tenant.id);
-  if (existing >= 0) {
-    all[existing] = tenant;
-  } else {
-    all.push(tenant);
-  }
-
-  await writeStore(STORE_NAME, all);
-  return tenant;
-}
-
-export async function updateTenant(
-  id: string,
-  patch: Partial<Omit<BeaconTenant, "id" | "slug" | "created_at">>,
-): Promise<BeaconTenant> {
-  const all = await listTenants();
-  const idx = all.findIndex((t) => t.id === id);
-  if (idx < 0) throw new Error(`Tenant not found: ${id}`);
-
-  all[idx] = {
-    ...all[idx],
-    ...patch,
-    updated_at: new Date().toISOString(),
-  };
-
-  await writeStore(STORE_NAME, all);
-  return all[idx];
 }

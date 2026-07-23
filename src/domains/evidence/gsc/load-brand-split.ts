@@ -16,7 +16,7 @@
 import "server-only";
 
 import { getSupabaseAdmin } from "@/lib/persistence/supabase";
-import { getBusinessConfig } from "@/lib/business-config";
+import { getBusinessProfile } from "@/lib/business-config";
 import { log } from "@/lib/logger";
 import {
   brandTokensForConfig,
@@ -36,7 +36,7 @@ export async function loadScoreboardBrandLens(
   if (!tenantId || reportedDates.length < 14) return null;
   let tokens: string[];
   try {
-    const cfg = getBusinessConfig(tenantId);
+    const cfg = getBusinessProfile(tenantId);
     tokens = brandTokensForConfig({ name: cfg.name, domain: cfg.domain });
   } catch {
     return null;

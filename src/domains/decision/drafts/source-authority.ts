@@ -18,7 +18,7 @@
  *      cross-industry, never tenant-specific (English-first product; no
  *      vertical hardcoding).
  *   4. The tenant's own `authoritativeSourceDomains` allowlist
- *      (`BusinessConfig`). Per-tenant DATA, never code. Unset for a tenant
+ *      (`BusinessProfile`). Per-tenant DATA, never code. Unset for a tenant
  *      = this tier contributes nothing (byte-identical for every tenant that
  *      hasn't curated one).
  *   5. Anything else with a real claim: "weak" (a real citation, just not

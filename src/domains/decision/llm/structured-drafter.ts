@@ -686,7 +686,7 @@ export type StructuredDraftRequest<K extends StructuredDraftKind> = {
    *  absent the guard reads the last cached outputs for this kind. */
   recentOutputs?: string[];
   /** W5 (J-69): this tenant's curated authoritative-domain allowlist
-   *  (BusinessConfig.authoritativeSourceDomains), used ONLY to re-stamp any
+   *  (BusinessProfile.authoritativeSourceDomains), used ONLY to re-stamp any
    *  `sources` field on the validated draft. Omitted = only the universal
    *  .gov/.edu + named encyclopedic/press set applies. */
   authoritativeSourceDomains?: readonly string[];

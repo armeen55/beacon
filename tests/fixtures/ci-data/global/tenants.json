@@ -1,9 +1,9 @@
 [
   {
-    "id": "tenant-ritz-founder",
-    "slug": "ritz-builders",
-    "business_name": "Ritz Builders",
-    "domain": "ritzbuilders.com",
+    "id": "tenant-fixture-local",
+    "slug": "fixture-local",
+    "business_name": "Harborview Services",
+    "domain": "fixture-local.example",
     "segment": "local_residential_builder",
     "project_mix": [
       "new_construction",

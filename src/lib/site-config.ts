@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { getBusinessConfig } from "@/lib/business-config";
+import { getBusinessProfile } from "@/lib/business-config";
 
 /**
  * Single-tenant site settings. Override with env for another builder site.
@@ -51,7 +51,7 @@ function readConfig(tenantId: string | null): SiteConfig {
   let tenantBusiness: { domain?: string; name?: string } | null = null;
   if (tenantId) {
     try {
-      const config = getBusinessConfig(tenantId);
+      const config = getBusinessProfile(tenantId);
       if (!config.__placeholder) tenantBusiness = config;
     } catch { /* use explicit env/file fallback */ }
   }
@@ -105,20 +105,14 @@ export function absoluteUrlForPath(path: string, tenantId?: string): string {
 /** Origins to strip when normalizing URLs to site-relative paths. */
 function ownedUrlPrefixes(tenantId?: string): string[] {
   const { siteOrigin, siteDomain } = getSiteConfig(tenantId);
+  // Only the account's own domain identity is ever stripped. When no domain
+  // is configured the list stays generic and empty-ish; another business's
+  // host must never appear here.
   const base = [
     siteOrigin.replace(/\/+$/, ""),
     `https://${siteDomain}`,
     `http://${siteDomain}`,
   ];
-  if (!explicitSiteDomainSet()) {
-    // Bundled sample data often uses this host; strip it even when config defaults are neutral.
-    base.push(
-      "https://ritzbuilders.com",
-      "http://ritzbuilders.com",
-      "https://www.ritzbuilders.com",
-      "http://www.ritzbuilders.com"
-    );
-  }
   const extra =
     process.env.BEACON_EXTRA_URL_STRIP_PREFIXES?.split(",")
       .map((s) => s.trim().replace(/\/+$/, ""))

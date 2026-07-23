@@ -26,7 +26,7 @@ import { cache } from "react";
 import { headers } from "next/headers";
 
 import { getTenantOrThrow, getTenant } from "@/domains/account/tenants/store";
-import type { BeaconTenant } from "@/domains/account/tenants/types";
+import type { Account } from "@/domains/account/tenants/types";
 
 /**
  * Explicit-tenant override (2026-07-11, refresh-reliability wave, BUG 1).
@@ -102,7 +102,7 @@ const resolveTenantIdFromRequest = cache(async (): Promise<string> => {
   throw new Error(
     "currentTenantId: no x-beacon-tenant header and no BEACON_TENANT_ID env var. " +
       "In production this means middleware (Phase 7.4) didn't run. " +
-      "In dev/test set BEACON_TENANT_ID=tenant-ritz-founder.",
+      "In dev/test set BEACON_TENANT_ID to your account id.",
   );
 });
 
@@ -118,7 +118,7 @@ export const currentTenantId = async (): Promise<string> => {
   return resolveTenantIdFromRequest();
 };
 
-const resolveTenantFromRequest = cache(async (): Promise<BeaconTenant> => {
+const resolveTenantFromRequest = cache(async (): Promise<Account> => {
   return await getTenantOrThrow(await resolveTenantIdFromRequest());
 });
 
@@ -127,7 +127,7 @@ const resolveTenantFromRequest = cache(async (): Promise<BeaconTenant> => {
  * resolved ID doesn't exist in the tenant store — same fail-loud posture
  * as `currentTenantId`. Honors the `runWithTenant` override.
  */
-export const currentTenant = async (): Promise<BeaconTenant> => {
+export const currentTenant = async (): Promise<Account> => {
   const override = tenantOverride.getStore();
   if (override) return await getTenantOrThrow(override);
   return resolveTenantFromRequest();

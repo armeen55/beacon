@@ -1,7 +1,7 @@
 [
   {
     "run_id": "ci-fix-run-001",
-    "tenant_id": "tenant-ritz-founder",
+    "tenant_id": "tenant-fixture-local",
     "started_at": "2026-05-09T00:00:00.000Z",
     "completed_at": "2026-05-09T00:00:00.000Z",
     "kind": "website_verify",

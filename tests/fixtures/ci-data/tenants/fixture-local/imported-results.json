@@ -1,7 +1,7 @@
 [
   {
     "id": "ci-fix-result-001",
-    "tenant_id": "tenant-ritz-founder",
+    "tenant_id": "tenant-fixture-local",
     "snapshot_date": "2026-05-01",
     "platform": "openai",
     "metric_type": "mention",

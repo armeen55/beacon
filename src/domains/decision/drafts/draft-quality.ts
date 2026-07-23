@@ -326,10 +326,10 @@ export type EvaluateDraftInput = {
    *  honest default for most drafts today. */
   sources?: readonly ClassifiableSource[];
   /** W5 (J-69): this tenant's own curated authoritative-domain allowlist
-   *  (BusinessConfig.authoritativeSourceDomains). Omitted = only the
+   *  (BusinessProfile.authoritativeSourceDomains). Omitted = only the
    *  universal .gov/.edu + named encyclopedic/press set applies. */
   authoritativeSourceDomains?: readonly string[];
-  /** W5 (J-70): this tenant's first-mention rule (BusinessConfig.
+  /** W5 (J-70): this tenant's first-mention rule (BusinessProfile.
    *  firstMention). Null/omitted = the rule contributes nothing, byte-
    *  identical evaluation to a tenant that never configured one. */
   firstMentionConfig?: FirstMentionConfig | null;

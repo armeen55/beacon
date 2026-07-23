@@ -1,7 +1,7 @@
 [
   {
     "id": "ci-fix-rec-001",
-    "tenant_id": "tenant-ritz-founder",
+    "tenant_id": "tenant-fixture-local",
     "rec_id": "ci-fix-rec-001",
     "action_type": "add_faq",
     "target_url": "https://example.com/services/custom-home",
@@ -29,7 +29,7 @@
   },
   {
     "id": "ci-fix-rec-002",
-    "tenant_id": "tenant-ritz-founder",
+    "tenant_id": "tenant-fixture-local",
     "rec_id": "ci-fix-rec-002",
     "action_type": "add_h2_section",
     "target_url": "https://example.com/locations/palo-alto",
@@ -61,7 +61,7 @@
   },
   {
     "id": "ci-fix-rec-003",
-    "tenant_id": "tenant-ritz-founder",
+    "tenant_id": "tenant-fixture-local",
     "rec_id": "ci-fix-rec-003",
     "action_type": "add_h2_section",
     "target_url": "https://example.com/services/remodel",
@@ -90,7 +90,7 @@
   },
   {
     "id": "ci-fix-rec-004",
-    "tenant_id": "tenant-ritz-founder",
+    "tenant_id": "tenant-fixture-local",
     "rec_id": "ci-fix-rec-004",
     "action_type": "add_h2_section",
     "target_url": "https://example.com/services/design-build",
@@ -119,7 +119,7 @@
   },
   {
     "id": "ci-fix-rec-005",
-    "tenant_id": "tenant-ritz-founder",
+    "tenant_id": "tenant-fixture-local",
     "rec_id": "ci-fix-rec-005",
     "action_type": "add_faq",
     "target_url": "https://example.com/services/custom-home",
@@ -150,7 +150,7 @@
   },
   {
     "id": "create_cluster_page:geo:Los Altos__add_faq__faq_question[new]:d1b049c63d8a",
-    "tenant_id": "tenant-ritz-founder",
+    "tenant_id": "tenant-fixture-local",
     "rec_id": "create_cluster_page:geo:Los Altos__add_faq__faq_question[new]:d1b049c63d8a",
     "action_type": "add_faq",
     "target_url": "https://example.com/locations/los-altos",
@@ -177,7 +177,7 @@
   },
   {
     "id": "create_cluster_page:geo:Los Altos__add_faq__faq_question[new]:f2dcb7022c42",
-    "tenant_id": "tenant-ritz-founder",
+    "tenant_id": "tenant-fixture-local",
     "rec_id": "create_cluster_page:geo:Los Altos__add_faq__faq_question[new]:f2dcb7022c42",
     "action_type": "add_faq",
     "target_url": "https://example.com/locations/los-altos",
@@ -204,7 +204,7 @@
   },
   {
     "id": "create_cluster_page:geo:Los Altos__add_faq__faq_question[new]:93a207d063c1",
-    "tenant_id": "tenant-ritz-founder",
+    "tenant_id": "tenant-fixture-local",
     "rec_id": "create_cluster_page:geo:Los Altos__add_faq__faq_question[new]:93a207d063c1",
     "action_type": "add_faq",
     "target_url": "https://example.com/locations/los-altos",
@@ -231,7 +231,7 @@
   },
   {
     "id": "create_cluster_page:geo:Los Altos__add_faq__faq_question[new]:ff677f6f3ded",
-    "tenant_id": "tenant-ritz-founder",
+    "tenant_id": "tenant-fixture-local",
     "rec_id": "create_cluster_page:geo:Los Altos__add_faq__faq_question[new]:ff677f6f3ded",
     "action_type": "add_faq",
     "target_url": "https://example.com/locations/los-altos",

@@ -36,27 +36,18 @@
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { BeaconTenant } from "@/domains/account/tenants/types";
+import type { Account } from "@/domains/account/tenants/types";
 
 /**
- * Operator-locked defaults for new tenants. Pinned by invariant tests
+ * Operator-locked defaults for new accounts. Pinned by behavioral tests
  * so a future regression that changes any of these (e.g., flipping
- * status to 'active' on signup) fails the build.
+ * status to 'active' on signup) fails the build. The account record is
+ * fully generic: no vertical, publishing, or provider vocabulary. Legacy
+ * `tenants` columns not listed here take their neutral database defaults.
  */
 export const PROVISIONING_DEFAULTS = {
   status: "pending_onboarding" as const,
-  role: "beta_customer" as const,
   daily_budget_usd: 5,
-  // Audit #17 (2026-06-10): a brand-new stranger must NOT be born a
-  // builder. `content_publisher` is the neutral default — its feature
-  // resolution turns OFF every local-service engine (no off-site
-  // authority, no call-tracking, no geo/city recs), so a non-builder
-  // signup never inherits Ritz's vertical. The onboarding scope step
-  // sets the real segment; until it does, all-features-off is the safe
-  // floor. (A builder signup gets corrected during onboarding.)
-  segment: "content_publisher" as const,
-  budget_range: "mixed" as const,
-  email_frequency: "off" as const,
   member_role: "owner" as const,
 };
 
@@ -197,29 +188,22 @@ export async function provisionTenantForNewUser(
   const tenantId = deriveTenantId(input.userId);
   const slug = tenantId.replace(/^tenant-/, "");
   const ts = now();
+  // Fully generic account row. Legacy vertical columns (segment, project_mix,
+  // cities_served, budget_range, publish_target, role, email_frequency,
+  // discovered_competitors) are intentionally OMITTED: the database supplies
+  // neutral defaults, and application code never writes vertical vocabulary.
   const tenantRow = {
     id: tenantId,
     slug,
     business_name: derivePlaceholderBusinessName(input.email),
     domain: "",
-    segment: PROVISIONING_DEFAULTS.segment,
-    project_mix: [] as string[],
-    cities_served: [] as string[],
-    budget_range: PROVISIONING_DEFAULTS.budget_range,
     signup_date: ts,
-    role: PROVISIONING_DEFAULTS.role,
     tos_accepted_at: null,
-    discovered_competitors: [] as string[],
     daily_budget_usd: PROVISIONING_DEFAULTS.daily_budget_usd,
     status: PROVISIONING_DEFAULTS.status,
-    email_frequency: PROVISIONING_DEFAULTS.email_frequency,
     created_at: ts,
     updated_at: ts,
-  } satisfies Omit<BeaconTenant, "project_mix" | "cities_served" | "discovered_competitors"> & {
-    project_mix: string[];
-    cities_served: string[];
-    discovered_competitors: string[];
-  };
+  } satisfies Omit<Account, "id"> & { id: string };
 
   // 3. Insert tenant. `onConflict: 'id', ignoreDuplicates: true` makes
   // this a no-op when the orphaned row already exists.

@@ -29,7 +29,7 @@ import {
   type GbpLocationInfo,
 } from "@/lib/connectors/google-reviews-sync";
 import { runYelpReviewsSync } from "@/lib/connectors/yelp-reviews-sync";
-import { getBusinessConfigForCurrentTenant } from "@/lib/business-config";
+import { getBusinessProfileForCurrentTenant } from "@/lib/business-config";
 import { currentTenantId } from "@/lib/tenant-context";
 import { now } from "@/lib/actions";
 import { revalidatePath } from "next/cache";
@@ -41,7 +41,7 @@ import { syncGa4UrlTrafficForTenant } from "@/lib/connectors/ga4/sync-url-traffi
 import { syncClarityDailyMetricsForTenant } from "@/lib/connectors/clarity/sync-daily-metrics";
 import { recordSourceRefresh } from "@/domains/runtime";
 import type { RefreshSource } from "@/domains/runtime/ops/refresh-runs-store";
-import { getBusinessConfig } from "@/lib/business-config";
+import { getBusinessProfile, hydrateBusinessProfile } from "@/lib/business-config";
 import {
   discoverAndMapWixCollections,
   type DiscoverWixResult,
@@ -191,7 +191,12 @@ export async function discoverWixCollections(): Promise<DiscoverWixResult> {
   log.info("Action started", { action });
   try {
     const tenantId = await currentTenantId();
-    const domain = (getBusinessConfig(tenantId).domain ?? "").trim();
+    // Hydrate the durable profile first: this action can run on a cold
+    // lambda where the sync cache is empty.
+    const profile =
+      (await hydrateBusinessProfile(tenantId).catch(() => null)) ??
+      getBusinessProfile(tenantId);
+    const domain = (profile.domain ?? "").trim();
     if (domain === "") {
       // A well-formed site base URL needs the operator's domain; without it we
       // cannot derive any page URLs. Surface it as an honest api_error-adjacent
@@ -238,7 +243,7 @@ export async function saveYelpApiKey(
   }
   log.info("Action started", { action });
   try {
-    const bid = (await getBusinessConfigForCurrentTenant()).yelpBusinessId.trim();
+    const bid = (await getBusinessProfileForCurrentTenant()).yelpBusinessId.trim();
     await saveConnectorToken({
       provider: "yelp",
       api_key: trimmed,
@@ -676,11 +681,6 @@ export async function disconnectGoogleGa4(): Promise<{
 // Same self-serve posture as the Wix card: paste a key, it stays on
 // this server, the nightly syncs activate the moment it lands
 // (dormant-honest until then). Disconnect = soft (cached data kept).
-
-// (saveSemrushConnection / disconnectSemrush removed Phase F.1; SEMrush deleted.)
-// (saveProfoundConnection / disconnectProfound removed 2026-07-20; the borrowed
-//  Profound account was fully disconnected. The AI-answer evidence surfaces read
-//  only OUR durable stored tables now, never a live account call.)
 
 export async function saveClarityConnection(input: {
   apiToken: string;

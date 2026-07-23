@@ -58,7 +58,7 @@ import {
   syncPromptAnswerObservations,
 } from "@/lib/persistence/dual-write";
 
-const TENANT = "tenant-ritz-founder";
+const TENANT = "tenant-fixture-local";
 const OTHER = "tenant-other";
 
 // ── A. buildTenantRepo facade ───────────────────────────────────────────────
@@ -301,5 +301,123 @@ describe("syncPromptAnswerObservations same-day re-poll recovery", () => {
   it("other constraint errors still throw (the paid-poll gate keeps its job)", async () => {
     _upsertResults.push({ error: { message: 'violates unique constraint "something_else"' } });
     await expect(syncPromptAnswerObservations([obs("p1")], "tenant-test")).rejects.toThrow(/something_else/);
+  });
+});
+
+// ───────────────────────────────────────────────────────────────────────────
+// F. Generic Account + BusinessProfile (Slice 1 acceptance).
+//    A freshly provisioned account is fully generic; missing configuration
+//    fails generically at every former leak site; no Account/Profile read
+//    depends on files, env blobs, founder fallbacks, or implicit tenants.
+// ───────────────────────────────────────────────────────────────────────────
+
+describe("generic Account + BusinessProfile (Slice 1)", () => {
+  const FORBIDDEN_VOCAB =
+    /(ritz|iranopedia|builder|project_mix|budget_range|cities_served|publish_target|email_frequency|profound|semrush|founder|bay area)/i;
+
+  it("a freshly provisioned account row carries no vertical, customer, publishing, or provider vocabulary", async () => {
+    const { provisionTenantForNewUser, PROVISIONING_DEFAULTS } = await import(
+      "@/domains/account/onboarding/provision-tenant"
+    );
+    expect(JSON.stringify(PROVISIONING_DEFAULTS)).not.toMatch(FORBIDDEN_VOCAB);
+
+    const inserted: Record<string, unknown>[] = [];
+    const fakeSupabase = {
+      from: (table: string) => ({
+        select: () => ({ eq: async () => ({ data: [], error: null }) }),
+        upsert: async (row: Record<string, unknown>) => {
+          inserted.push({ __table: table, ...row });
+          return { error: null };
+        },
+      }),
+    } as never;
+    const out = await provisionTenantForNewUser(fakeSupabase, {
+      userId: "12345678-abcd-abcd-abcd-1234567890ab",
+      email: "owner@gmail.com",
+    });
+    expect(out.ok).toBe(true);
+    const tenantRow = inserted.find((r) => r.__table === "tenants")!;
+    expect(tenantRow).toBeTruthy();
+    expect(JSON.stringify(tenantRow)).not.toMatch(FORBIDDEN_VOCAB);
+    // Legacy vertical columns are OMITTED entirely (DB supplies neutral defaults).
+    for (const k of ["segment", "project_mix", "cities_served", "budget_range", "publish_target", "role", "email_frequency"]) {
+      expect(k in tenantRow).toBe(false);
+    }
+  });
+
+  it("an unknown account resolves the neutral placeholder profile, never another business", async () => {
+    const cfg = await import("@/lib/business-config");
+    cfg.__resetBusinessProfileCacheForTests();
+    const profile = cfg.getBusinessProfile("tenant-never-configured");
+    expect(cfg.isPlaceholderProfile(profile)).toBe(true);
+    expect(profile.name).toBe("");
+    expect(profile.domain).toBe("");
+    expect(profile.locations).toEqual([]);
+    expect(JSON.stringify(profile)).not.toMatch(FORBIDDEN_VOCAB);
+    // Former leak sites: term matchers never-match on the placeholder.
+    expect(cfg.getLocationRegex(profile).test("palo alto custom homes")).toBe(false);
+    expect(cfg.getServiceRegex(profile).test("whole home remodel")).toBe(false);
+  });
+
+  it("profile resolution ignores legacy env blobs (no env/file/founder fallback layers remain)", async () => {
+    const cfg = await import("@/lib/business-config");
+    cfg.__resetBusinessProfileCacheForTests();
+    const prevEnv = process.env.BEACON_BUSINESS_CONFIG_JSON;
+    process.env.BEACON_BUSINESS_CONFIG_JSON = JSON.stringify({ name: "Env Leak Co", domain: "leak.example" });
+    try {
+      const profile = cfg.getBusinessProfile("tenant-env-probe");
+      expect(cfg.isPlaceholderProfile(profile)).toBe(true);
+      expect(profile.name).toBe("");
+    } finally {
+      if (prevEnv === undefined) delete process.env.BEACON_BUSINESS_CONFIG_JSON;
+      else process.env.BEACON_BUSINESS_CONFIG_JSON = prevEnv;
+      cfg.__resetBusinessProfileCacheForTests();
+    }
+  });
+
+  it("the injected in-memory profile repository is the only durable channel tests touch", async () => {
+    const cfg = await import("@/lib/business-config");
+    cfg.__resetBusinessProfileCacheForTests();
+    const rows = new Map<string, Record<string, unknown>>();
+    cfg.setBusinessProfileRepositoryForTests({
+      load: async (id) => (rows.get(id) as never) ?? null,
+      save: async (id, profile) => {
+        rows.set(id, profile as never);
+        return { ok: true };
+      },
+    });
+    try {
+      const saved = await cfg.saveBusinessProfile("tenant-mem-a", { name: "Mem A", domain: "mem-a.example" });
+      expect(saved.persisted).toBe(true);
+      cfg.__resetBusinessProfileCacheForTests();
+      const hydrated = await cfg.hydrateBusinessProfile("tenant-mem-a");
+      expect(hydrated?.name).toBe("Mem A");
+      // Isolation: a different account sees the placeholder, not Mem A.
+      const other = cfg.getBusinessProfile("tenant-mem-b");
+      expect(cfg.isPlaceholderProfile(other)).toBe(true);
+    } finally {
+      cfg.setBusinessProfileRepositoryForTests(null);
+      cfg.__resetBusinessProfileCacheForTests();
+    }
+  });
+
+  it("the account store resolves through the injected repository and fails to no-account, never a default", async () => {
+    const store = await import("@/domains/account/tenants/store");
+    store.setAccountRepositoryForTests({
+      listAccounts: async () => [
+        {
+          id: "tenant-mem-a", slug: "mem-a", business_name: "Mem A", domain: "mem-a.example",
+          status: "active", signup_date: "2026-01-01", tos_accepted_at: null,
+          daily_budget_usd: 5, created_at: "2026-01-01", updated_at: "2026-01-01",
+        },
+      ],
+    });
+    try {
+      expect((await store.getTenant("tenant-mem-a"))?.slug).toBe("mem-a");
+      expect(await store.getTenant("tenant-absent")).toBeNull();
+      await expect(store.getTenantOrThrow("tenant-absent")).rejects.toThrow(/Unknown account/);
+    } finally {
+      store.setAccountRepositoryForTests(null);
+    }
   });
 });

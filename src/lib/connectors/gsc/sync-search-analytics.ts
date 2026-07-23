@@ -40,7 +40,7 @@
 import "server-only";
 
 import { getSupabaseAdmin } from "@/lib/persistence/supabase";
-import { getBusinessConfig } from "@/lib/business-config";
+import { getBusinessProfile } from "@/lib/business-config";
 import {
   getGoogleConnectorToken,
   persistRefreshedGoogleToken,
@@ -272,7 +272,7 @@ export async function resolveProperty(
   // operator's Settings→Config domain only reaches the nightly sync via the
   // registry (Supabase-backed). Without this fallback the hosted sync gets no
   // domain → no_property_derivable → never runs.
-  let domain: string | undefined = getBusinessConfig(tenantId).domain?.trim();
+  let domain: string | undefined = getBusinessProfile(tenantId).domain?.trim();
   if (!domain) {
     try {
       domain = (await getTenant(tenantId))?.domain?.trim() || undefined;

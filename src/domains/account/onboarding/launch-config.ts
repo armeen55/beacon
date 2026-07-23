@@ -2,13 +2,13 @@
  * launch-config — minimal per-tenant config persistence (Core 100K).
  *
  * Turns "stranger confirmed a URL + name" into a PERSISTED per-tenant
- * BusinessConfig. The elaborate site-profile derivation (fetch ≤3 pages →
+ * BusinessProfile. The elaborate site-profile derivation (fetch ≤3 pages →
  * deriveBusinessProfile → deriveBusinessConfig → industry/services/segment
  * inference) was retired with the legacy onboarding wizard. The config is
  * now built from the tenant's confirmed fields alone:
  *
  *   name + domain + confirmed cities (locations) + competitors
- *     → saveBusinessConfig (per-tenant file + per-tenant Supabase row)
+ *     → saveBusinessProfile (per-tenant file + per-tenant Supabase row)
  *
  * FAILURE-SOFT BY CONTRACT: an active tenant NEVER runs on the neutral
  * placeholder — a minimal config is always persisted. On Vercel the durable
@@ -19,8 +19,7 @@
  * point.
  */
 
-import { saveBusinessConfig, type BusinessConfig } from "@/lib/business-config";
-import { syncTenantBusinessConfigConfirmed } from "@/lib/persistence/dual-write";
+import { saveBusinessProfile, type BusinessProfile } from "@/lib/business-config";
 import { normalizeSiteUrl } from "./fetch-site-profile";
 
 export type LaunchConfigArgs = {
@@ -45,7 +44,7 @@ export type LaunchConfigResult = {
   /** Set when outcome is "persist_failed" — the Supabase upsert error. */
   persistError?: string;
   /** The persisted config (undefined only when skipped). */
-  config?: Partial<BusinessConfig>;
+  config?: Partial<BusinessProfile>;
 };
 
 export async function deriveAndPersistTenantConfig(
@@ -64,34 +63,24 @@ export async function deriveAndPersistTenantConfig(
 
   // Minimal config from the confirmed fields. name falls back to the domain
   // when the tenant has not typed one yet.
-  const config: Partial<BusinessConfig> = {
+  const config: Partial<BusinessProfile> = {
     name: typedName || normalized.domain,
     domain: normalized.domain,
     locations: typedCities,
     primaryCompetitors: competitors,
   };
 
-  // saveBusinessConfig merges the patch with the current config and returns
-  // the full BusinessConfig actually persisted — confirm THAT (not the patch)
-  // so the durable row matches what every reader expects.
-  const savedConfig = saveBusinessConfig(args.tenantId, config);
-
-  // An active tenant must NEVER exist without a durable config. Off-Vercel the
-  // per-tenant file write IS the durable channel. On Vercel the Supabase row
-  // is the sole durable channel and its write is fire-and-forget — confirm it
-  // landed and report persist_failed if not, so the launch refuses to flip.
-  if (process.env.VERCEL === "1") {
-    const persisted = await syncTenantBusinessConfigConfirmed(
-      args.tenantId,
-      savedConfig,
-    );
-    if (!persisted.ok) {
-      return {
-        outcome: "persist_failed",
-        derivedFields: [],
-        persistError: persisted.reason,
-      };
-    }
+  // saveBusinessProfile merges the patch with the current profile and writes
+  // the account's own Supabase row — the single durable channel. An active
+  // account must never exist without a durable profile, so a failed write
+  // reports persist_failed and the launch refuses to flip.
+  const saved = await saveBusinessProfile(args.tenantId, config);
+  if (!saved.persisted) {
+    return {
+      outcome: "persist_failed",
+      derivedFields: [],
+      persistError: saved.persistError,
+    };
   }
 
   return {

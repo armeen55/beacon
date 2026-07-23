@@ -45,7 +45,14 @@ if (existsSync(envPath)) {
 }
 
 const REPO_ROOT = resolve(__dirname, "..");
-const TENANT_SLUG = process.env.BEACON_TENANT_SLUG ?? "ritz-builders";
+
+/** Operator scripts require an explicit account slug; no customer default ever. */
+function requireEnvTenantSlug(): string {
+  const slug = process.env.BEACON_TENANT_SLUG;
+  if (!slug) throw new Error("Set BEACON_TENANT_SLUG to the target account slug (no default).");
+  return slug;
+}
+const TENANT_SLUG = requireEnvTenantSlug();
 const TENANT_DIR = join(REPO_ROOT, ".data", "tenants", TENANT_SLUG);
 const BRAIN_DIR = join(TENANT_DIR, "brain");
 const POLL_FRESHNESS_HOURS = 36;

@@ -3,7 +3,7 @@
  *
  * Relocated from the retired /onboard/review step. This is the FIRST and
  * ONLY code path that flips a tenants.status from 'pending_onboarding' to
- * 'active'. It persists the tenant's minimal BusinessConfig, seeds a small
+ * 'active'. It persists the tenant's minimal BusinessProfile, seeds a small
  * starter prompt set, accepts TOS, and flips the tenant. From this point
  * the nightly fleet includes the tenant and polls its prompts.
  *
@@ -132,7 +132,7 @@ export function buildTrackedPromptRow(args: {
  *   1. Fetch tenant row.
  *   2. If status='active' → returns `{ redirect, reason: "already_launched" }`.
  *   3. If status != 'pending_onboarding' → error.
- *   4. Persist the minimal per-tenant BusinessConfig (name + domain).
+ *   4. Persist the minimal per-tenant BusinessProfile (name + domain).
  *   5. Build minimal starter prompts; validate ≥1.
  *   6. Dedup against existing tracked_prompts.text (case-insensitive).
  *   7. INSERT new prompts (is_active=true).
@@ -166,9 +166,7 @@ export async function executeLaunchTransaction(args: {
   // 1. Fetch tenant row.
   const { data: tenant, error: tFetchErr } = await admin
     .from("tenants")
-    .select(
-      "id, slug, business_name, domain, cities_served, project_mix, discovered_competitors, status, tos_accepted_at",
-    )
+    .select("id, slug, business_name, domain, status, tos_accepted_at")
     .eq("id", tenantId)
     .maybeSingle();
   if (tFetchErr) {
@@ -188,7 +186,7 @@ export async function executeLaunchTransaction(args: {
     return { kind: "error", error: `tenant_invalid_status:${tenant.status}` };
   }
 
-  // 2.5 Persist the minimal per-tenant BusinessConfig BEFORE anything else —
+  // 2.5 Persist the minimal per-tenant BusinessProfile BEFORE anything else —
   //     an active tenant must never exist without a config row (every
   //     downstream engine reads it). The minimal config is name + domain +
   //     confirmed cities/competitors; deep site profiling was retired.
@@ -196,12 +194,15 @@ export async function executeLaunchTransaction(args: {
   //     DURABLE write (persist_failed) DOES abort — a config-less active
   //     tenant resolves PLACEHOLDER_CONFIG everywhere.
   try {
+    // Locations and competitors are BusinessProfile truth confirmed during
+    // onboarding, not account columns; the URL-first flow has no city or
+    // competitor entry step, so the launch seeds none.
     const configResult = await persistConfig({
       tenantId: tenant.id,
       domain: tenant.domain ?? "",
       typedName: tenant.business_name,
-      typedCities: tenant.cities_served ?? [],
-      competitors: tenant.discovered_competitors ?? [],
+      typedCities: [],
+      competitors: [],
     });
     console.info(`[onboard/launch] tenant config ${configResult.outcome}`);
     if (configResult.outcome === "persist_failed") {

@@ -19,7 +19,7 @@ import {
   type EvidenceSourceKind,
 } from "./snapshot";
 
-const SCOPE = { tenantId: "t_iran", site: "iranopedia.com", builtAt: "2026-07-22T00:00:00.000Z" };
+const SCOPE = { tenantId: "t_iran", site: "fixture-content.example", builtAt: "2026-07-22T00:00:00.000Z" };
 
 /** A fully-populated six-source fixture (existing owned page + a cited competitor). */
 function fullInput(): EvidenceSnapshotInput {
@@ -30,7 +30,7 @@ function fullInput(): EvidenceSnapshotInput {
       lastSyncedAt: "2026-07-21T00:00:00.000Z",
       payload: [
         {
-          url: "https://iranopedia.com/flag",
+          url: "https://fixture-content.example/flag",
           clicks90d: 40,
           impressions90d: 4000,
           ctr90d: 0.01,
@@ -41,7 +41,7 @@ function fullInput(): EvidenceSnapshotInput {
           ],
         },
         {
-          url: "https://iranopedia.com/flag-history",
+          url: "https://fixture-content.example/flag-history",
           clicks90d: 5,
           impressions90d: 900,
           ctr90d: 0.005,
@@ -55,7 +55,7 @@ function fullInput(): EvidenceSnapshotInput {
       lastSyncedAt: "2026-07-21T00:00:00.000Z",
       payload: [
         {
-          url: "https://iranopedia.com/flag",
+          url: "https://fixture-content.example/flag",
           sessions28d: 800,
           engaged28d: 500,
           conversions28d: 12,
@@ -68,7 +68,7 @@ function fullInput(): EvidenceSnapshotInput {
       lastSyncedAt: "2026-07-20T00:00:00.000Z",
       payload: [
         {
-          url: "https://iranopedia.com/flag",
+          url: "https://fixture-content.example/flag",
           title: "The Iran Flag: Meaning and Colors",
           metaDescription: "What the Iran flag means.",
           h1: "The Iran Flag",
@@ -82,7 +82,7 @@ function fullInput(): EvidenceSnapshotInput {
           fetchedAt: "2026-07-20T00:00:00.000Z",
         },
         {
-          url: "https://iranopedia.com/flag-history",
+          url: "https://fixture-content.example/flag-history",
           title: "Iran Flag History Through the Ages",
           metaDescription: null,
           h1: "Iran Flag History",
@@ -102,7 +102,7 @@ function fullInput(): EvidenceSnapshotInput {
       lastSyncedAt: "2026-07-21T00:00:00.000Z",
       payload: [
         {
-          url: "https://iranopedia.com/flag",
+          url: "https://fixture-content.example/flag",
           sessions: 800,
           rageClicks: 20,
           deadClicks: 10,
@@ -128,7 +128,7 @@ function fullInput(): EvidenceSnapshotInput {
         enginesSeen: ["chatgpt", "perplexity"],
         citedPages: [
           {
-            url: "https://iranopedia.com/flag",
+            url: "https://fixture-content.example/flag",
             isOwned: true,
             citationCount: 4,
             distinctPrompts: 3,
@@ -163,7 +163,7 @@ describe("buildEvidenceSnapshot — six-source normalization", () => {
 
   it("joins GSC + GA4 + Wix + Clarity + AI onto ONE owned page by canonical URL", () => {
     const snap = buildEvidenceSnapshot(fullInput());
-    const flag = snap.ownedPages.find((p) => p.url === "iranopedia.com/flag");
+    const flag = snap.ownedPages.find((p) => p.url === "fixture-content.example/flag");
     expect(flag).toBeTruthy();
     expect(flag!.search?.clicks90d).toBe(40); // GSC
     expect(flag!.engagement?.revenueUsd).toBe(340); // GA4 revenue
@@ -203,8 +203,8 @@ describe("buildEvidenceSnapshot — six-source normalization", () => {
     const cannib = snap.cannibalization.find((c) => c.query === "iran flag meaning");
     expect(cannib).toBeTruthy();
     expect(cannib!.competingUrls).toEqual([
-      "iranopedia.com/flag",
-      "iranopedia.com/flag-history",
+      "fixture-content.example/flag",
+      "fixture-content.example/flag-history",
     ]);
   });
 

@@ -13,7 +13,12 @@
 - Five kernels exist: Account, Evidence, Decision, Measurement, Runtime.
 - Four primary surfaces exist: Today, Changes, Results, Connections.
 - Supabase authentication provisions one membership and one tenant per new user.
-- The current tenant record holds one domain, matching the one-account and one-website MVP direction.
+- Canonical Account, Website, and BusinessProfile records exist (Slice 1, 2026-07-23): the Account is the
+  `tenants` row with vertical columns retired to unread legacy; Website is a typed projection of the
+  account's one domain; BusinessProfile is the tenant-keyed `business_config` row, resolved per account
+  through Supabase only (no env, file, founder, or curated-code fallback). Provisioning writes a fully
+  generic row. Missing configuration fails generic at every former leak site. Test fixtures carry no real
+  customer identity.
 - Publishing remains manual.
 
 ## What is real but incomplete
@@ -30,18 +35,18 @@
 
 ## Known target mismatches
 
-- Canonical tenant types still contain builder, city, budget, role, and publishing assumptions.
-- Real-customer names and founder fallbacks remain in generic code, comments, examples, and at least one
-  customer-visible placeholder.
 - Profound source names and gates remain in schemas, prompt seeding, decisions, runtime health, and historical
-  reads after the connector was removed.
+  reads after the connector was removed (including a customer-visible confidence gate on change cards).
+- A SEMrush-sourced CTR benchmark constant remains in forecast calibration.
 - SEMrush and borrowed-account assumptions must not be revived.
 - Four AI engines are declared in types, but the active runners that would populate those observations are absent.
-- A GitHub Actions first-scan dispatch remains connected to onboarding and conflicts with the approved
-  visit-driven runtime.
+- A GitHub Actions first-scan dispatch remains connected to onboarding (inert: no PAT, workflow file absent)
+  and conflicts with the approved visit-driven runtime.
 - DataForSEO Labs, ChatGPT Scraper, LLM Responses, LLM Mentions, full keyword research, and competitor/domain
   endpoints are not implemented.
-- Product copy and architecture documents before Product Truth described a single-user internal tool.
+- Real-customer names remain in historical code comments outside the Account boundary (executable strings and
+  fixtures are clean).
+- Legacy `.data`/dual-write code remains for non-account stores; the Account/Profile path no longer uses it.
 
 ## Environment readiness
 
@@ -65,16 +70,12 @@ Never place credentials in chat, documentation, commits, or command output.
 
 New customer routes require operator approval.
 
-## First MVP slice
+## Next slice
 
-Before implementation, reconcile the repository against `PRODUCT_TRUTH.md` and propose one bounded first slice:
-
-1. Make Account and Business Profile generic.
-2. Remove real-customer, founder, vertical, publishing-target, and old-provider assumptions from that boundary.
-3. Preserve all historical customer data through explicit migration or mapping.
-4. Do not begin DataForSEO expansion or onboarding UI in the same slice.
-
-The proposal must include the eight fields required by `AGENTS.md` and identify exact old code deleted.
+Slice 1 (generic Account, Website, BusinessProfile) is complete and deployed. The next build-order step is
+Slice 2: one canonical DataForSEO evidence boundary, deleting the Profound gates and reads, the SEMrush
+benchmark constant, the GitHub Actions first-scan dispatch, and the phantom native-provider architecture it
+replaces. It requires the eight fields from `AGENTS.md` and explicit operator approval before implementation.
 
 ## Verification
 

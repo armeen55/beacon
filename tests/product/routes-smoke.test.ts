@@ -42,7 +42,7 @@ vi.mock("@/domains/runtime/ops/refresh-runs-store", () => ({
 }));
 vi.mock("@/domains/runtime/ops/warm-receipt-store", () => ({
   readLastWarmReceipt: vi.fn(async () => ({
-    tenant_id: "tenant-iranopedia",
+    tenant_id: "tenant-fixture-content",
     date: "2026-07-17",
     ran_at: "2026-07-18T05:30:00.000Z",
     ok: true,

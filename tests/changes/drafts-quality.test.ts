@@ -3,7 +3,7 @@
  * src/domains/decision/drafts/draft-quality.test.ts + draft-quality-repeat-flag.test.ts,
  * trimmed to boundary + operator-locked fixture cases).
  *
- * Cases are pinned to the REAL Iranopedia draft audit + the adversarial
+ * Cases are pinned to the REAL Referencepedia draft audit + the adversarial
  * false-rejection findings. Locked rules: J-69 "no exceptions" source gate
  * (the cheetah fixture holds without a source, ships with one), the 80-150
  * word band, the never-ready-without-verification pin for robots-blocked
@@ -63,7 +63,7 @@ describe("evaluateDraftQuality - answer blocks", () => {
   it("REJECTS a meta non-answer that talks about the page (rec-5/rec-12)", () => {
     const r = evaluateDraftQuality({
       answer:
-        "The Iranopedia page summarizes reported designs, colors, and symbolic elements attributed to those banners. The team has documented this topic and cites wrmea.org as a source; consult that citation for details on Persian Empire flags and their history over time.",
+        "The Referencepedia page summarizes reported designs, colors, and symbolic elements attributed to those banners. The team has documented this topic and cites wrmea.org as a source; consult that citation for details on Persian Empire flags and their history over time.",
     });
     expect(r.status).toBe("too_thin");
     expect(r.copyAllowed).toBe(false);
@@ -263,9 +263,9 @@ describe("evaluateDraftQuality - factual entailment (N8, additive/opt-in)", () =
 
 describe("operator correction (page is stale, dated evidence backs the draft)", () => {
   const RECIPES_ANSWER =
-    "Iranopedia now lists 4500 Persian recipes in its growing collection, spanning regional dishes, holiday specialties, and everyday family meals from every corner of Iran and its many worldwide diaspora communities. Each recipe entry includes a short history of the dish alongside step by step cooking instructions contributed by home cooks and professional chefs. Readers can filter the collection by region, occasion, or main ingredient to find dishes suited to a specific holiday table or an everyday weeknight meal. New recipes are added every month as contributors submit family recipes passed down across several generations of home cooking.";
+    "Referencepedia now lists 4500 Persian recipes in its growing collection, spanning regional dishes, holiday specialties, and everyday family meals from every corner of Iran and its many worldwide diaspora communities. Each recipe entry includes a short history of the dish alongside step by step cooking instructions contributed by home cooks and professional chefs. Readers can filter the collection by region, occasion, or main ingredient to find dishes suited to a specific holiday table or an everyday weeknight meal. New recipes are added every month as contributors submit family recipes passed down across several generations of home cooking.";
   const STALE_PAGE =
-    "Iranopedia lists 3000 Persian recipes in its growing collection, spanning regional dishes and everyday family meals across Iran. Readers can filter the collection by region, occasion, or main ingredient.";
+    "Referencepedia lists 3000 Persian recipes in its growing collection, spanning regional dishes and everyday family meals across Iran. Readers can filter the collection by region, occasion, or main ingredient.";
 
   it("a draft that CONTRADICTS the page but is backed by a dated authoritative fact stays ready AND carries the correction", () => {
     const r = evaluateDraftQuality({
@@ -278,7 +278,7 @@ describe("operator correction (page is stale, dated evidence backs the draft)", 
       sources: [
         {
           domain: "britannica.com",
-          claim: "Iranopedia's collection spans regional Persian dishes and holiday specialties",
+          claim: "Referencepedia's collection spans regional Persian dishes and holiday specialties",
           verified: true,
           supportingExcerpt: RECIPES_ANSWER,
         },
@@ -398,7 +398,7 @@ describe("evaluateSectionDraftQuality (outline-to-draft pipeline)", () => {
     expect(unsourced.status).toBe("missing_source");
   });
 
-  it("REJECTS plan-not-prose language ('this section will present…') caught in the first real Iranopedia run", () => {
+  it("REJECTS plan-not-prose language ('this section will present…') caught in the first real Referencepedia run", () => {
     const r = evaluateSectionDraftQuality({
       heading: "Historical and cultural origins",
       body: "This section will present the historical and cultural origins of Persian mythology as a focused topic. Intended chronological context: outline the timeframes and cultural phases that influenced myth formation across the Iranian cultural sphere and its neighbors over the centuries.",
@@ -436,15 +436,15 @@ describe("evaluateSectionDraftQuality (outline-to-draft pipeline)", () => {
 describe("formatting kinds - never source-gated", () => {
   it("internal link: rejects a self-link; passes a distinct in-context link with zero sources", () => {
     const selfLink = evaluateInternalLinkQuality({
-      sourcePage: "https://iranopedia.com/cities",
-      targetPage: "https://www.iranopedia.com/cities/",
+      sourcePage: "https://fixture-content.example/cities",
+      targetPage: "https://www.fixture-content.example/cities/",
       anchorText: "Iranian cities",
       linkSentence: "See our guide to Iranian cities for more.",
     });
     expect(selfLink.status).toBe("relevance_rejected");
     const good = evaluateInternalLinkQuality({
-      sourcePage: "https://iranopedia.com/nowruz",
-      targetPage: "https://iranopedia.com/haft-seen",
+      sourcePage: "https://fixture-content.example/nowruz",
+      targetPage: "https://fixture-content.example/haft-seen",
       anchorText: "Haft-Seen table",
       linkSentence: "Families arrange a Haft-Seen table during Nowruz celebrations.",
     });

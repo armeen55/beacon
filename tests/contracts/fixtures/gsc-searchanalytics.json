@@ -1,21 +1,21 @@
 {
   "rows": [
     {
-      "keys": ["https://www.iranopedia.com/koobideh-kabob", "koobideh kabob recipe"],
+      "keys": ["https://www.fixture-content.example/koobideh-kabob", "koobideh kabob recipe"],
       "clicks": 42,
       "impressions": 1180,
       "ctr": 0.035593220338983054,
       "position": 4.23
     },
     {
-      "keys": ["https://www.iranopedia.com/chaharshanbe-suri", "chaharshanbe suri 2026"],
+      "keys": ["https://www.fixture-content.example/chaharshanbe-suri", "chaharshanbe suri 2026"],
       "clicks": 17,
       "impressions": 940,
       "ctr": 0.018085106382978723,
       "position": 7.8
     },
     {
-      "keys": ["https://www.iranopedia.com/persian-cat", "persian cat origin"],
+      "keys": ["https://www.fixture-content.example/persian-cat", "persian cat origin"],
       "clicks": 0,
       "impressions": 312,
       "ctr": 0,

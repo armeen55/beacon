@@ -20,7 +20,7 @@
  * Supabase, or any internal infrastructure.
  */
 
-import type { BeaconTenant } from "@/domains/account/tenants/types";
+import type { Account } from "@/domains/account/tenants/types";
 
 export type FirstReadingContext = {
   /** Customer's business name as saved during onboarding. */
@@ -57,7 +57,7 @@ export type FirstReadingDetectorInput = {
    * status / business_name / domain fields are read.
    */
   tenant: Pick<
-    BeaconTenant,
+    Account,
     "status" | "business_name" | "domain"
   > | null;
   /**

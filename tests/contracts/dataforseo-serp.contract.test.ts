@@ -55,7 +55,7 @@ describe("DataForSEO SERP items contract", () => {
       position: 1,
     });
     expect(parsed.aiOverview.citedDomains[1]).toMatchObject({
-      domain: "iranopedia.com",
+      domain: "fixture-content.example",
       position: 2,
     });
     expect(parsed.aiOverview.overviewTextExcerpt.length).toBeGreaterThan(0);
@@ -75,7 +75,7 @@ describe("DataForSEO SERP items contract", () => {
     expect(parsed.paaQuestions).toHaveLength(2);
     expect(parsed.paaQuestions[0]).toEqual({
       question: "What is koobideh made of?",
-      answerDomain: "iranopedia.com",
+      answerDomain: "fixture-content.example",
     });
     // No expanded answer -> no answerDomain (never guessed).
     expect(parsed.paaQuestions[1]).toEqual({
@@ -84,9 +84,9 @@ describe("DataForSEO SERP items contract", () => {
   });
 
   it("resolves the tenant's own rank from the parsed items", () => {
-    expect(resolveOwnRank(parsed.organicItems, "iranopedia.com")).toEqual({
+    expect(resolveOwnRank(parsed.organicItems, "fixture-content.example")).toEqual({
       ownRank: 2,
-      ownUrl: "https://www.iranopedia.com/koobideh-kabob",
+      ownUrl: "https://www.fixture-content.example/koobideh-kabob",
     });
   });
 

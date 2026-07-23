@@ -117,7 +117,7 @@ describe("recordShippedChangeAction — operator gating", () => {
       notes: "manual wix edit",
       targetQueries: "cities in iran\nlargest cities in iran, cities of iran",
       verifiedLive: true,
-      liveSourceUrl: "https://www.iranopedia.com/cities",
+      liveSourceUrl: "https://www.fixture-content.example/cities",
     });
     expect(res.success).toBe(true);
     const arg = mocks.recordShippedChange.mock.calls[0][0];
@@ -126,7 +126,7 @@ describe("recordShippedChangeAction — operator gating", () => {
     expect(arg.after).toBe("new meta");
     expect(arg.notes).toBe("manual wix edit");
     expect(arg.verifiedLive).toBe(true);
-    expect(arg.liveSourceUrl).toBe("https://www.iranopedia.com/cities");
+    expect(arg.liveSourceUrl).toBe("https://www.fixture-content.example/cities");
     expect(arg.targetQueries).toEqual([
       "cities in iran",
       "largest cities in iran",

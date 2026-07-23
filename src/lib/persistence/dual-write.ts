@@ -268,7 +268,7 @@ export function tenantizeRows<
 import type { ImportRun } from "@/lib/import/types";
 import type { PageSnapshot, PageEntity } from "@/domains/evidence/pages/types";
 import type { Finding } from "@/domains/evidence/scanning/types";
-import type { BusinessConfig } from "@/lib/business-config";
+import type { BusinessProfile } from "@/lib/business-config";
 import type { DailyMetricSnapshot } from "@/domains/evidence/daily-metric-snapshots/types";
 import type { PromptAnswerObservation } from "@/domains/evidence/ai-visibility/prompt-answer-observations";
 import type { TrackedPrompt } from "@/domains/evidence/ai-visibility/tracked-prompts";
@@ -310,112 +310,11 @@ export async function syncPages(
   await dualWriteUpsert("pages", stamped as unknown as AnyRow[], "id");
 }
 
-export async function syncBusinessConfig(
-  config: BusinessConfig,
-): Promise<void> {
-  if (!isDualWriteEnabled()) return;
-  const sb = getSupabaseAdmin();
-  try {
-    const { error } = await sb.from("business_config").upsert(
-      {
-        id: "current",
-        data: config,
-        updated_at: new Date().toISOString(),
-      },
-      { onConflict: "id" },
-    );
-    if (error) {
-      console.error(`[dual-write] business_config: ${error.message}`);
-    }
-  } catch (e) {
-    console.error(
-      `[dual-write] business_config: ${e instanceof Error ? e.message : e}`,
-    );
-  }
-}
-
-/**
- * North-star onboarding (2026-06-11) — PER-TENANT business-config row.
- *
- * `syncBusinessConfig` above is the legacy SINGLETON channel (id="current",
- * pre-multi-tenant): every tenant's save would clobber one shared row, so
- * hosted resolution had to rely on the hand-written
- * `BEACON_BUSINESS_CONFIG_JSON_BY_TENANT` env blob. This writes the same
- * table keyed by the tenant id instead — additive (text PK, no migration),
- * one row per tenant, read back by `hydrateBusinessConfigFromSupabase`.
- * Refuses the literal "current" id so the legacy row can never be
- * clobbered by a tenant write.
- */
-export async function syncTenantBusinessConfig(
-  tenantId: string,
-  config: BusinessConfig,
-): Promise<void> {
-  if (!isDualWriteEnabled()) return;
-  if (!tenantId || tenantId === "current") return;
-  const sb = getSupabaseAdmin();
-  try {
-    const { error } = await sb.from("business_config").upsert(
-      {
-        id: tenantId,
-        data: config,
-        updated_at: new Date().toISOString(),
-      },
-      { onConflict: "id" },
-    );
-    if (error) {
-      console.error(
-        `[dual-write] business_config(${tenantId}): ${error.message}`,
-      );
-    }
-  } catch (e) {
-    console.error(
-      `[dual-write] business_config(${tenantId}): ${e instanceof Error ? e.message : e}`,
-    );
-  }
-}
-
-/**
- * wave-4 #2 (2026-06-14) — CONFIRMED business_config upsert for the
- * ONBOARDING path. Unlike syncTenantBusinessConfig (fire-and-forget,
- * DUAL_WRITE-gated, void), this RETURNS whether the row durably landed and
- * is NOT gated on DUAL_WRITE — onboarding MUST persist the config row
- * regardless of the nightly-mirror flag, because on Vercel (where the file
- * write is skipped) the Supabase row is the ONLY durable channel and an
- * active tenant must never exist without a config (every downstream engine
- * reads it). The launch flow gates the status→active flip on a true result.
- */
-export async function syncTenantBusinessConfigConfirmed(
-  tenantId: string,
-  config: BusinessConfig,
-): Promise<{ ok: boolean; reason?: string }> {
-  if (!tenantId || tenantId === "current") {
-    return { ok: false, reason: "invalid_tenant_id" };
-  }
-  try {
-    const sb = getSupabaseAdmin();
-    const { error } = await sb.from("business_config").upsert(
-      {
-        id: tenantId,
-        data: config,
-        updated_at: new Date().toISOString(),
-      },
-      { onConflict: "id" },
-    );
-    if (error) {
-      console.error(
-        `[dual-write] business_config(${tenantId}) CONFIRMED upsert failed: ${error.message}`,
-      );
-      return { ok: false, reason: error.message };
-    }
-    return { ok: true };
-  } catch (e) {
-    const reason = e instanceof Error ? e.message : String(e);
-    console.error(
-      `[dual-write] business_config(${tenantId}) CONFIRMED upsert threw: ${reason}`,
-    );
-    return { ok: false, reason };
-  }
-}
+// syncBusinessConfig / syncTenantBusinessConfig / syncTenantBusinessConfigConfirmed
+// removed (Slice 1, generic Account + BusinessProfile): the canonical
+// BusinessProfile write path is saveBusinessProfile in src/lib/business-config.ts,
+// which upserts the account's own business_config row directly. The legacy
+// singleton "current" row is never written again (historical row preserved).
 
 // mapChangeContractToRow + syncChangeContracts and mapPersistedIssueToRow +
 // syncPageIssues removed 2026-07-21 (CORE 100K Lane O): zero prod callers —

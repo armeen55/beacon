@@ -125,7 +125,7 @@ describe("Sprint 7 Phase 7.4 — middleware tenant injection", () => {
 
   it("authenticated user with exactly one tenant_members row gets x-beacon-tenant injected", async () => {
     supabaseState.user = { id: "user-1" };
-    supabaseState.tenantMembersRows = [{ tenant_id: "tenant-ritz-founder" }];
+    supabaseState.tenantMembersRows = [{ tenant_id: "tenant-fixture-local" }];
     const req = makeRequest("/today", {
       headers: { "x-beacon-tenant": "tenant-attacker" },
     });
@@ -135,7 +135,7 @@ describe("Sprint 7 Phase 7.4 — middleware tenant injection", () => {
     // The forwarded request header (visible via x-middleware-request-x-beacon-tenant)
     // should be the resolved tenant, NOT the inbound spoof.
     const forwarded = res.headers.get("x-middleware-request-x-beacon-tenant");
-    expect(forwarded).toBe("tenant-ritz-founder");
+    expect(forwarded).toBe("tenant-fixture-local");
   });
 
   it("authenticated user with zero tenant_members rows redirects to /login?error=no_tenant", async () => {
@@ -219,7 +219,7 @@ describe("Sprint 7 Phase 7.4 — middleware tenant injection", () => {
   });
 
   // 2026-07-18 tenant-safety fix: a failed/timed-out tenant lookup NEVER falls
-  // through to the resolver's BEACON_TENANT_ID env fallback (which names ritz in
+  // through to the resolver's BEACON_TENANT_ID env fallback (which names harborview in
   // prod and silently rendered the WRONG tenant during the incident). With no
   // beacon_tenant cookie the request takes a safe login redirect; with the
   // cookie present it is honored for continuity (the successful path scrubs any
@@ -241,10 +241,10 @@ describe("Sprint 7 Phase 7.4 — middleware tenant injection", () => {
     supabaseState.user = { id: "user-1" };
     supabaseState.tenantMembersError = { message: "simulated DB outage" };
     const req = makeRequest("/today");
-    req.cookies.set("beacon_tenant", "tenant-iranopedia");
+    req.cookies.set("beacon_tenant", "tenant-fixture-content");
     const res = await updateSession(req);
     expect(res.status).toBe(200);
-    expect(res.headers.get("x-middleware-request-x-beacon-tenant")).toBe("tenant-iranopedia");
+    expect(res.headers.get("x-middleware-request-x-beacon-tenant")).toBe("tenant-fixture-content");
   });
 
   it("tenant lookup throw (e.g., edge fetch failure) with NO cookie redirects to /login?error=tenant_unavailable (never the env fallback)", async () => {
@@ -263,10 +263,10 @@ describe("Sprint 7 Phase 7.4 — middleware tenant injection", () => {
     supabaseState.user = { id: "user-1" };
     supabaseState.tenantQueryThrows = true;
     const req = makeRequest("/today");
-    req.cookies.set("beacon_tenant", "tenant-iranopedia");
+    req.cookies.set("beacon_tenant", "tenant-fixture-content");
     const res = await updateSession(req);
     expect(res.status).toBe(200);
-    expect(res.headers.get("x-middleware-request-x-beacon-tenant")).toBe("tenant-iranopedia");
+    expect(res.headers.get("x-middleware-request-x-beacon-tenant")).toBe("tenant-fixture-content");
   });
 
   // 2026-07-08: the MIDDLEWARE_INVOCATION_TIMEOUT class. A slow/cold Supabase must
@@ -316,12 +316,12 @@ describe("Sprint 7 Phase 7.4 — middleware tenant injection", () => {
       supabaseState.user = { id: "user-1" };
       supabaseState.tenantHangs = true;
       const req = makeRequest("/today");
-      req.cookies.set("beacon_tenant", "tenant-iranopedia");
+      req.cookies.set("beacon_tenant", "tenant-fixture-content");
       const p = updateSession(req);
       await vi.advanceTimersByTimeAsync(5001);
       const res = await p;
       expect(res.status).toBe(200);
-      expect(res.headers.get("x-middleware-request-x-beacon-tenant")).toBe("tenant-iranopedia");
+      expect(res.headers.get("x-middleware-request-x-beacon-tenant")).toBe("tenant-fixture-content");
     } finally {
       vi.useRealTimers();
     }
@@ -333,26 +333,26 @@ describe("Sprint 7 Phase 7.4 — middleware tenant injection", () => {
   it("successful lookup with a STALE non-member cookie injects the real membership and overwrites the cookie", async () => {
     supabaseState.user = { id: "user-1" };
     supabaseState.tenantMembersRows = [
-      { tenant_id: "tenant-iranopedia", created_at: "2026-01-01T00:00:00Z" },
+      { tenant_id: "tenant-fixture-content", created_at: "2026-01-01T00:00:00Z" },
     ];
     const req = makeRequest("/today");
-    req.cookies.set("beacon_tenant", "tenant-ritz-founder"); // not a membership
+    req.cookies.set("beacon_tenant", "tenant-fixture-local"); // not a membership
     const res = await updateSession(req);
-    expect(res.headers.get("x-middleware-request-x-beacon-tenant")).toBe("tenant-iranopedia");
+    expect(res.headers.get("x-middleware-request-x-beacon-tenant")).toBe("tenant-fixture-content");
     const beaconCookie = res.headers.getSetCookie().find((c) => c.startsWith("beacon_tenant="));
     expect(beaconCookie).toBeDefined();
-    expect(beaconCookie).toContain("beacon_tenant=tenant-iranopedia");
+    expect(beaconCookie).toContain("beacon_tenant=tenant-fixture-content");
   });
 
   it("successful lookup with a VALID member cookie leaves the cookie untouched", async () => {
     supabaseState.user = { id: "user-1" };
     supabaseState.tenantMembersRows = [
-      { tenant_id: "tenant-iranopedia", created_at: "2026-01-01T00:00:00Z" },
+      { tenant_id: "tenant-fixture-content", created_at: "2026-01-01T00:00:00Z" },
     ];
     const req = makeRequest("/today");
-    req.cookies.set("beacon_tenant", "tenant-iranopedia");
+    req.cookies.set("beacon_tenant", "tenant-fixture-content");
     const res = await updateSession(req);
-    expect(res.headers.get("x-middleware-request-x-beacon-tenant")).toBe("tenant-iranopedia");
+    expect(res.headers.get("x-middleware-request-x-beacon-tenant")).toBe("tenant-fixture-content");
     expect(res.headers.getSetCookie().find((c) => c.startsWith("beacon_tenant="))).toBeUndefined();
   });
 });

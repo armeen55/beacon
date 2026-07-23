@@ -61,7 +61,7 @@ import "server-only";
 
 import { getSupabaseAdmin } from "@/lib/persistence/supabase";
 import { log } from "@/lib/logger";
-import { getBusinessConfig } from "@/lib/business-config";
+import { getBusinessProfile } from "@/lib/business-config";
 import { runGa4RevenueReport, runGa4UrlTrafficReport } from "./data-api";
 import { normalizeGa4PagePathToFullUrl } from "./normalize-page-path";
 import type { Ga4FailReason, Ga4RevenueRow, Ga4UrlTrafficRow } from "./types";
@@ -293,7 +293,7 @@ export async function persistGa4UrlTraffic(
   // path-only value AND emits a single operator-side warn so the
   // operator can fix the config; Mode A continues to surface
   // `no_traffic_data` honestly in that case.
-  const businessConfig = getBusinessConfig(tenantId);
+  const businessConfig = getBusinessProfile(tenantId);
   const domain = businessConfig.domain ?? "";
   if (domain.trim() === "" && report.rows.length > 0) {
     log.warn(

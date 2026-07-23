@@ -2,9 +2,9 @@
 
 import { log } from "@/lib/logger";
 import {
-  saveBusinessConfig,
-  getBusinessConfigForCurrentTenant,
-  type BusinessConfig,
+  saveBusinessProfile,
+  getBusinessProfileForCurrentTenant,
+  type BusinessProfile,
 } from "@/lib/business-config";
 import {
   getYelpConnectorToken,
@@ -13,7 +13,7 @@ import {
 import { currentTenantId } from "@/lib/tenant-context";
 import { revalidatePath } from "next/cache";
 
-/** The business types the config screen offers. Mirrors BusinessConfig.businessType. */
+/** The business types the config screen offers. Mirrors BusinessProfile.businessType. */
 const BUSINESS_TYPES = new Set([
   "local_service",
   "content_publisher",
@@ -63,7 +63,7 @@ export async function saveSetup(data: {
     // When the operator flags a content publisher we also set contentSiteMode
     // so their pages classify as content (mirrors the derived path); we never
     // turn contentSiteMode OFF here (that stays an explicit operator decision).
-    const patch: Partial<BusinessConfig> = {
+    const patch: Partial<BusinessProfile> = {
       name: data.name,
       domain: data.domain,
       industry: data.industry,
@@ -78,7 +78,7 @@ export async function saveSetup(data: {
     };
     const bt = (data.businessType ?? "").trim();
     if (bt && BUSINESS_TYPES.has(bt)) {
-      patch.businessType = bt as BusinessConfig["businessType"];
+      patch.businessType = bt as BusinessProfile["businessType"];
       if (bt === "content_publisher") patch.contentSiteMode = true;
     }
     // Wave 2A - monthly-visits goal. undefined = leave untouched; null = clear;
@@ -95,7 +95,10 @@ export async function saveSetup(data: {
         patch.monthlyVisitGoal = goal;
       }
     }
-    saveBusinessConfig(tenantId, patch);
+    const saved = await saveBusinessProfile(tenantId, patch);
+    if (!saved.persisted) {
+      return { success: false, error: "I couldn't save your business details just now. Try again in a moment." };
+    }
     const yelpBid = (data.yelpBusinessId ?? "").trim();
     const yelp = await getYelpConnectorToken();
     if (yelp) {
@@ -116,8 +119,8 @@ export async function saveSetup(data: {
   }
 }
 
-export async function loadSetup(): Promise<BusinessConfig> {
-  return await getBusinessConfigForCurrentTenant();
+export async function loadSetup(): Promise<BusinessProfile> {
+  return await getBusinessProfileForCurrentTenant();
 }
 
 /**
@@ -135,18 +138,24 @@ export async function saveRevenueModel(data: {
   try {
     const tenantId = await currentTenantId();
     if (data.kind === "off") {
-      saveBusinessConfig(tenantId, { revenueModel: undefined });
+      const saved = await saveBusinessProfile(tenantId, { revenueModel: undefined });
+      if (!saved.persisted) {
+        return { success: false, error: "I couldn't save that just now. Try again in a moment." };
+      }
     } else {
       const rate = Number(data.rate);
       if (!Number.isFinite(rate) || rate <= 0) {
         return { success: false, error: "Enter a dollar amount above zero." };
       }
-      saveBusinessConfig(tenantId, {
+      const saved = await saveBusinessProfile(tenantId, {
         revenueModel:
           data.kind === "rpm"
             ? { kind: "rpm", rpmUsd: rate }
             : { kind: "per_lead", dollarsPerLead: rate },
       });
+      if (!saved.persisted) {
+        return { success: false, error: "I couldn't save that just now. Try again in a moment." };
+      }
     }
     revalidatePath("/settings/config");
     revalidatePath("/", "layout");

@@ -1,7 +1,7 @@
 [
   {
     "id": "ci-fix-outcome-001",
-    "tenant_id": "tenant-ritz-founder",
+    "tenant_id": "tenant-fixture-local",
     "change_id": "ci-fix-change-001",
     "topic_targeted": "CI fixture topic",
     "changed_at": "2026-05-01T00:00:00.000Z",

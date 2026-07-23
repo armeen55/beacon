@@ -1,7 +1,7 @@
 /**
  * first-mention-check (W5, 2026-07-09, J-70), "First mention: Persian
  * spelling where available + transliteration + English context." Generalized
- * so this is never Persian-specific: the tenant's own `BusinessConfig.
+ * so this is never Persian-specific: the tenant's own `BusinessProfile.
  * firstMention` config supplies the native SCRIPT (a Unicode character-range
  * source string, the same idea `draft-quality.ts`'s `PERSIAN_SCRIPT` uses,
  * just tenant-configured instead of hardcoded) plus which extra checks to

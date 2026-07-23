@@ -7,7 +7,9 @@
  * `src/components` may import for VALUE imports. Internal files stay private.
  */
 
-// Tenant store
+// Canonical records: Account (identity + lifecycle) and Website (domain identity)
+export type { Account, AccountStatus, Website } from "./tenants/types";
+export { websiteOf } from "./tenants/types";
 export { getTenant, listActiveTenants } from "./tenants/store";
 
 // Onboarding: provisioning + membership

@@ -41,7 +41,7 @@ describe("GSC searchanalytics.query contract", () => {
     const rows = await gscSearchAnalyticsQuery(
       {
         accessToken: "test-token",
-        siteUrl: "sc-domain:iranopedia.com",
+        siteUrl: "sc-domain:fixture-content.example",
         startDate: "2026-07-01",
         endDate: "2026-07-01",
         dimensions: ["page", "query"],
@@ -84,7 +84,7 @@ describe("GSC searchanalytics.query contract", () => {
     const rows = await gscSearchAnalyticsQuery(
       {
         accessToken: "t",
-        siteUrl: "sc-domain:iranopedia.com",
+        siteUrl: "sc-domain:fixture-content.example",
         startDate: "2026-07-01",
         endDate: "2026-07-01",
         dimensions: ["page"],
@@ -107,7 +107,7 @@ describe("GSC sites.list contract", () => {
       expect(typeof s.permissionLevel).toBe("string");
     }
 
-    expect(pickGscPropertyForDomain(sites, "iranopedia.com")).toBe("sc-domain:iranopedia.com");
+    expect(pickGscPropertyForDomain(sites, "fixture-content.example")).toBe("sc-domain:fixture-content.example");
     // Unverified-only domains resolve to null (we cannot read their analytics).
     expect(pickGscPropertyForDomain(sites, "unverified.example.com")).toBeNull();
   });

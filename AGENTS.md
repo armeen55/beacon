@@ -138,9 +138,10 @@ never up without explicit operator approval.
   Runtime. Surfaces import facades, never a kernel's private internals.
 - Dependency direction: Account -> Evidence -> Decision -> Measurement; Runtime
   orchestrates. Measurement never imports drafting/UI/page-surgeon-as-public.
-- One canonical type per business record (User/Tenant/Membership/Site/Connection/
-  Page/EvidenceSnapshot/ChangeProposal/Shipment/Measurement). No duplicate status
-  unions or shapes. No barrel-exporting everything.
+- One canonical type per business record (Account, Membership, Website, BusinessProfile,
+  Connection, Page, EvidenceObservation, EvidenceSnapshot, ResearchRun, ChangeProposal,
+  ChangeBundle, Shipment, Measurement). No duplicate status unions or shapes. No
+  barrel-exporting everything.
 - One production persistence path (Supabase); a tiny in-memory repo for tests. No
   file/JSON dual-write, no seed/demo data as live infrastructure, no implicit
   tenant resolution. Every op explicitly tenant- and site-scoped, fail-closed.

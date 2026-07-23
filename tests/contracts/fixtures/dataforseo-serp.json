@@ -33,9 +33,9 @@
                   "source": "Serious Eats"
                 },
                 {
-                  "url": "https://www.iranopedia.com/koobideh-kabob",
+                  "url": "https://www.fixture-content.example/koobideh-kabob",
                   "title": "Koobideh Kabob",
-                  "source": "Iranopedia"
+                  "source": "Referencepedia"
                 },
                 { "title": "malformed reference with no url", "source": "nowhere" }
               ],
@@ -82,8 +82,8 @@
                     {
                       "type": "people_also_ask_expanded_element",
                       "featured_title": "Koobideh Kabob",
-                      "url": "https://www.iranopedia.com/koobideh-kabob",
-                      "domain": "www.iranopedia.com",
+                      "url": "https://www.fixture-content.example/koobideh-kabob",
+                      "domain": "www.fixture-content.example",
                       "description": "Koobideh is made of ground lamb or beef with grated onion."
                     }
                   ]
@@ -98,9 +98,9 @@
               "type": "organic",
               "rank_group": 2,
               "rank_absolute": 5,
-              "domain": "www.iranopedia.com",
+              "domain": "www.fixture-content.example",
               "title": "Koobideh Kabob: The Complete Persian Recipe",
-              "url": "https://www.iranopedia.com/koobideh-kabob"
+              "url": "https://www.fixture-content.example/koobideh-kabob"
             },
             {
               "type": "organic",

@@ -1,7 +1,7 @@
 [
   {
     "id": "ci-fix-change-001",
-    "tenant_id": "tenant-ritz-founder",
+    "tenant_id": "tenant-fixture-local",
     "timestamp": "2026-05-01T00:00:00.000Z",
     "signal_type": "manual",
     "asset_type": "page",

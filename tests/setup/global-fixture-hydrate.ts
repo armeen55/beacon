@@ -5,7 +5,7 @@
  * Why this exists
  * ---------------
  * Several tests read on-disk JSON under `.data/` (the operator's
- * gitignored data directory). Locally the operator has a real Ritz
+ * gitignored data directory). Locally the operator has a real Harborview
  * dogfeed copy of `.data/` and the tests pass. In CI / fresh clones
  * the directory does not exist, so the same tests either:
  *
@@ -69,7 +69,7 @@ function copyDirRecursive(src: string, dest: string): void {
 }
 
 export async function setup(): Promise<void> {
-  // Local dev: real Ritz `.data/` already on disk → no-op.
+  // Local dev: real Harborview `.data/` already on disk → no-op.
   if (existsSync(SENTINEL)) {
     hydratedByThisHook = false;
     return;

@@ -95,7 +95,7 @@ describe("recordSpendDualWrite — flag-gated", () => {
   it("flag unset (or '0') → no Supabase write attempted at all", async () => {
     delete process.env.BEACON_BUDGET_LEDGER_DUAL_WRITE;
     expect(isBudgetLedgerDualWriteEnabled()).toBe(false);
-    await recordSpendDualWrite({ tenantId: "tenant-ritz-founder", platform: "perplexity", costUsd: 0.0917 });
+    await recordSpendDualWrite({ tenantId: "tenant-fixture-local", platform: "perplexity", costUsd: 0.0917 });
     expect(SUPABASE_STATE.fromTablesCalled).toEqual([]);
     process.env.BEACON_BUDGET_LEDGER_DUAL_WRITE = "0";
     expect(isBudgetLedgerDualWriteEnabled()).toBe(false);
@@ -111,7 +111,7 @@ describe("recordSpendDualWrite — upserts when enabled", () => {
 
   it("inserts a new row when one does not exist", async () => {
     await recordSpendDualWrite({
-      tenantId: "tenant-ritz-founder",
+      tenantId: "tenant-fixture-local",
       platform: "perplexity",
       costUsd: 0.0917,
       promptCount: 100,
@@ -120,7 +120,7 @@ describe("recordSpendDualWrite — upserts when enabled", () => {
     });
     expect(SUPABASE_STATE.insertCalls).toHaveLength(1);
     const inserted = SUPABASE_STATE.insertCalls[0]!;
-    expect(inserted.tenant_id).toBe("tenant-ritz-founder");
+    expect(inserted.tenant_id).toBe("tenant-fixture-local");
     expect(inserted.spent_usd).toBe(0.0917);
     expect(inserted.call_count).toBe(1);
     expect(SUPABASE_STATE.updateCalls).toHaveLength(0);
@@ -132,7 +132,7 @@ describe("recordSpendDualWrite — upserts when enabled", () => {
       error: null,
     };
     await recordSpendDualWrite({
-      tenantId: "tenant-ritz-founder",
+      tenantId: "tenant-fixture-local",
       platform: "openai",
       costUsd: 2.88,
       promptCount: 100,
@@ -155,7 +155,7 @@ describe("recordSpendDualWrite — never throws, validates before I/O", () => {
   it("a Supabase failure logs and returns; recording can never block a poll", async () => {
     SUPABASE_STATE.selectResult = { data: null, error: { message: "boom" } };
     await expect(
-      recordSpendDualWrite({ tenantId: "tenant-ritz-founder", platform: "perplexity", costUsd: 0.05 }),
+      recordSpendDualWrite({ tenantId: "tenant-fixture-local", platform: "perplexity", costUsd: 0.05 }),
     ).resolves.toBeUndefined();
     expect(warnSpy).toHaveBeenCalled();
     expect(SUPABASE_STATE.insertCalls).toEqual([]);
@@ -189,13 +189,13 @@ describe("readSpendSnapshotForDate — calm fallback, not flag-gated", () => {
     delete process.env.BEACON_BUDGET_LEDGER_DUAL_WRITE;
     SUPABASE_STATE.listResult = {
       data: [
-        { tenant_id: "tenant-ritz-founder", platform: "perplexity", spent_usd: "0.0917", daily_cap_usd: null, prompt_count: 100 },
+        { tenant_id: "tenant-fixture-local", platform: "perplexity", spent_usd: "0.0917", daily_cap_usd: null, prompt_count: 100 },
       ],
       error: null,
     };
     const out = await readSpendSnapshotForDate("2026-05-09");
     expect(out).toEqual([
-      { tenant_id: "tenant-ritz-founder", platform: "perplexity", spent_usd: 0.0917, cap_usd: null, prompt_count: 100 },
+      { tenant_id: "tenant-fixture-local", platform: "perplexity", spent_usd: 0.0917, cap_usd: null, prompt_count: 100 },
     ]);
     expect(SUPABASE_STATE.fromTablesCalled).toContain("llm_budget_ledger");
   });
