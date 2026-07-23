@@ -62,7 +62,7 @@ export async function latestDataDateForSource(
     case "gsc":
       return newestDate("gsc_daily_rows", tenantId, true);
     case "ga4":
-      return newestDate("ga4_daily_totals", tenantId);
+      return newestDate("ga4_url_traffic", tenantId);
     case "clarity":
       return newestDate("clarity_daily_url_metrics", tenantId);
     case "profound":

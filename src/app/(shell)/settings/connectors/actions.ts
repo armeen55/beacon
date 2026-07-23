@@ -38,7 +38,6 @@ import { revalidatePath } from "next/cache";
 // triggerable from the product. Each "Sync now" action wraps one.
 import { syncGscSearchAnalyticsForTenant } from "@/lib/connectors/gsc/sync-search-analytics";
 import { syncGa4UrlTrafficForTenant } from "@/lib/connectors/ga4/sync-url-traffic";
-import { refreshGa4SitewideAndReconcile } from "@/lib/connectors/ga4/refresh-ga4-sitewide";
 import { syncClarityDailyMetricsForTenant } from "@/lib/connectors/clarity/sync-daily-metrics";
 import { recordSourceRefresh } from "@/domains/ops/record-source-refresh";
 import type { RefreshSource } from "@/domains/ops/refresh-runs-store";
@@ -1199,14 +1198,6 @@ export async function refreshAllConnectedDataNow(): Promise<RefreshAllConnectedR
         };
       }),
     );
-
-    // Wave 2A: when GA4 is connected, also pull the TRUE sitewide visits series +
-    // reconcile it so the north-star card can light up on this manual refresh (the
-    // GA4 source above pulls only the per-PAGE traffic table). Fail-soft, dormant-
-    // until-key; runs before the warm below so the repaint sees the fresh verdict.
-    if (connected.some((s) => s.provider === "google_ga4")) {
-      await refreshGa4SitewideAndReconcile(tenantId);
-    }
 
     // Warm the shared surfaces BEFORE the repaint so the render after this
     // refresh is instant, not a cold ~6s demand-graph rebuild right when the

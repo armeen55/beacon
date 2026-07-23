@@ -18,16 +18,12 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
 
 // ─── Mocks ───────────────────────────────────────────────────────────
 
-const _runSitewideMock = vi.fn();
 const _runReportMock = vi.fn();
 const _runRevenueMock = vi.fn();
 vi.mock("@/lib/connectors/ga4/data-api", () => ({
-  runGa4SitewideSessionsReport: (...a: unknown[]) => _runSitewideMock(...a),
   runGa4UrlTrafficReport: (...a: unknown[]) => _runReportMock(...a),
   runGa4RevenueReport: (...a: unknown[]) => _runRevenueMock(...a),
 }));
@@ -67,21 +63,12 @@ vi.mock("@/lib/business-config", () => ({
   }),
 }));
 
-import { persistGa4SitewideDailyTotals } from "@/lib/connectors/ga4/persist-sitewide-sessions";
 import {
   computeRefreshDateRange,
   persistGa4UrlTraffic,
   __testing,
 } from "@/lib/connectors/ga4/persist-url-traffic";
 import { normalizeGa4PagePathToFullUrl } from "@/lib/connectors/ga4/normalize-page-path";
-
-const SITEWIDE_ARGS = {
-  tenantId: "tenant-iranopedia",
-  propertyId: "123456789",
-  startDate: "2026-06-01",
-  endDate: "2026-07-10",
-  now: new Date("2026-07-10T00:00:00Z"),
-};
 
 const URL_ARGS = {
   tenantId: "tenant-test",
@@ -91,7 +78,6 @@ const URL_ARGS = {
 };
 
 beforeEach(() => {
-  _runSitewideMock.mockReset();
   _runReportMock.mockReset();
   _runRevenueMock.mockReset();
   _runRevenueMock.mockResolvedValue({ ok: false, reason: "revenue_unavailable" });
@@ -100,107 +86,6 @@ beforeEach(() => {
   _configuredProperty = "123456789";
   _logWarn.mockReset();
   _businessConfigDomain.current = "ritzbuilders.com";
-});
-
-// ─────────────────────────────────────────────────────────────────────
-// persistGa4SitewideDailyTotals
-// ─────────────────────────────────────────────────────────────────────
-
-describe("persistGa4SitewideDailyTotals — fails closed + idempotent", () => {
-  it("refuses to persist when the report property != the configured ga4_property_id", async () => {
-    _configuredProperty = "999999999";
-    const r = await persistGa4SitewideDailyTotals(SITEWIDE_ARGS);
-    expect(r).toMatchObject({ ok: false, reason: "property_mismatch" });
-    expect(_runSitewideMock).not.toHaveBeenCalled();
-    expect(_upsertMock).not.toHaveBeenCalled();
-  });
-
-  it("upserts on (tenant_id, property_id, date); every row carries tenant + property + timezone", async () => {
-    _runSitewideMock.mockResolvedValue({
-      ok: true,
-      propertyTimezone: "America/Los_Angeles",
-      rows: [
-        { date: "2026-06-01", sessions: 500, engaged_sessions: 320 },
-        { date: "2026-06-02", sessions: 12, engaged_sessions: 9 },
-      ],
-    });
-    _upsertMock.mockResolvedValue({ error: null });
-
-    const r = await persistGa4SitewideDailyTotals(SITEWIDE_ARGS);
-    expect(r).toMatchObject({ ok: true, rows_fetched: 2, rows_upserted: 2 });
-
-    const [rows, opts] = _upsertMock.mock.calls[0]!;
-    expect(opts).toEqual({ onConflict: "tenant_id,property_id,date" });
-    expect((rows as Array<Record<string, unknown>>)[0]).toMatchObject({
-      tenant_id: "tenant-iranopedia",
-      property_id: "123456789",
-      date: "2026-06-01",
-      sessions: 500,
-      property_timezone: "America/Los_Angeles",
-    });
-  });
-
-  it("two tenants / two properties isolated: rows carry each caller's own tenant + property", async () => {
-    _runSitewideMock.mockResolvedValue({
-      ok: true,
-      propertyTimezone: null,
-      rows: [{ date: "2026-06-01", sessions: 7, engaged_sessions: 3 }],
-    });
-    _upsertMock.mockResolvedValue({ error: null });
-
-    _configuredProperty = "prop-A";
-    await persistGa4SitewideDailyTotals({ ...SITEWIDE_ARGS, tenantId: "tenant-a", propertyId: "prop-A" });
-    _configuredProperty = "prop-B";
-    await persistGa4SitewideDailyTotals({ ...SITEWIDE_ARGS, tenantId: "tenant-b", propertyId: "prop-B" });
-
-    const a = _upsertMock.mock.calls[0]![0] as Array<Record<string, unknown>>;
-    const b = _upsertMock.mock.calls[1]![0] as Array<Record<string, unknown>>;
-    expect(a[0]).toMatchObject({ tenant_id: "tenant-a", property_id: "prop-A" });
-    expect(b[0]).toMatchObject({ tenant_id: "tenant-b", property_id: "prop-B" });
-  });
-
-  it("empty report → ok with zero counts and NO upsert (never a fabricated zero)", async () => {
-    _runSitewideMock.mockResolvedValue({ ok: true, propertyTimezone: null, rows: [] });
-    const r = await persistGa4SitewideDailyTotals(SITEWIDE_ARGS);
-    expect(r).toMatchObject({ ok: true, rows_fetched: 0, rows_upserted: 0 });
-    expect(_upsertMock).not.toHaveBeenCalled();
-  });
-
-  it("dead-grant passthrough; admin throw → admin_unavailable; upsert error → persist_failed; never throws", async () => {
-    _runSitewideMock.mockResolvedValue({ ok: false, reason: "token_expired" });
-    expect(await persistGa4SitewideDailyTotals(SITEWIDE_ARGS)).toMatchObject({
-      ok: false,
-      reason: "token_expired",
-    });
-    expect(_upsertMock).not.toHaveBeenCalled();
-
-    _runSitewideMock.mockResolvedValue({
-      ok: true,
-      propertyTimezone: null,
-      rows: [{ date: "2026-06-01", sessions: 1, engaged_sessions: 1 }],
-    });
-    _adminThrows = true;
-    expect(await persistGa4SitewideDailyTotals(SITEWIDE_ARGS)).toMatchObject({
-      ok: false,
-      reason: "admin_unavailable",
-    });
-
-    _adminThrows = false;
-    _upsertMock.mockResolvedValue({ error: { message: "boom", code: "23505" } });
-    await expect(persistGa4SitewideDailyTotals(SITEWIDE_ARGS)).resolves.toMatchObject({
-      ok: false,
-      reason: "persist_failed",
-    });
-  });
-
-  it("SOURCE PIN: the module never reads ga4_url_traffic and never sums a pagePath", () => {
-    const src = readFileSync(
-      resolve(__dirname, "../../src/lib/connectors/ga4/persist-sitewide-sessions.ts"),
-      "utf8",
-    );
-    expect(src).not.toContain("ga4_url_traffic");
-    expect(src).not.toContain("pagePath");
-  });
 });
 
 // ─────────────────────────────────────────────────────────────────────

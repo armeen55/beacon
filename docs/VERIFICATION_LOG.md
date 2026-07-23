@@ -10,6 +10,34 @@
 > Older entries (before 2026-07-01) are archived verbatim in `docs/archive/VERIFICATION_LOG_2026H1.md`.
 > That archive holds first-half-2026 history; this file holds 2026-07-01 onward.
 
+> 🟢 **2026-07-22 CORE 100K platform-layer collapse (north-star sever + seed-data de-live +
+> section-analyzer) — local gates green, not yet committed/deployed.** Four bounded, verified
+> collapses landed on the working tree. (1) North-star sever: the GA4 sitewide+reconcile
+> ride-along was write-only dead (no surface reads the reconciled sitewide visits since the
+> north-star card was removed). Deleted `src/domains/north-star/` (3 files), `refresh-ga4-sitewide.ts`,
+> `sync-sitewide-sessions.ts`, `persist-sitewide-sessions.ts`; removed the two call sites in
+> `settings/connectors/actions.ts` and `on-use-refresh.ts`; re-pointed the Connections "data through"
+> GA4 freshness reader (`domains/ops/source-data-date.ts`) from `ga4_daily_totals` to the still-live
+> `ga4_url_traffic` (both keyed by date) so the Connections outcome is preserved. (2) Seed-data is no
+> longer live infrastructure: `seed-data.server.ts` now reads real tenant rows through
+> `getRepository().forTenant(tenantId)` only (275->84 lines), the founder demo-fixture fallback and
+> the "Sample data" banner are gone. Deleted `src/lib/seed-data.ts` (1,356-line fixtures),
+> `src/lib/demo-mode.ts`, `src/components/shell/demo-banner.tsx`; trimmed `layout.tsx` and
+> `shell-provider.tsx` of the isDemoMode thread. No test imported the fixtures; scripts use only the
+> kept `getChangelogEntries`. (3) Dead section-analyzer cluster removed: `section-analyzer.ts` (240
+> lines) was reachable only through business-config's zero-consumer helpers; deleted it plus
+> `getSectionAnalyzerConfig`, `getFaqTemplates`, `FaqTemplate`, and `isDirectoryDomain` from
+> `business-config.ts`. Tests re-pointed: the two sitewide ride-along assertions dropped from
+> `refresh-all-connected.test.ts` and `connector-refresh.test.ts`; the sitewide-persist block excised
+> from the NUL-byte `ga4-persist.test.ts` (byte-safe). Metrics: production TypeScript 75,145 -> 72,123
+> lines (-3,022); test code 25,205 -> 25,046. Gate: `npx tsc --noEmit` = 0; full hermetic suite 105
+> files / 1,594 passed / 0 failed (~6s). Not run from this environment: git/commit/push/deploy (agent
+> was instructed not to run git). Deliberately deferred with reasons: the persistence file-write-path
+> removal (dual-write already had its dead-writer Lane-O pass; `syncChangelogEntries`/`syncObservationRuns`
+> are prod-dead but pinned by two constitutional isolation specs, low value/higher risk); connector-store
+> readers (six-connector preserve constraint); onboarding is already minimized (first-audit still feeds
+> the /onboard/done scorecard, so it is live, not dead).
+
 > 🟢 **2026-07-22 CORE 100K capability wave 1 + checkpoint B (commit `dcf6899c`, prod-verified
 > `dpl_DSNq6gm68S8Ur24co6rn983WVeNp`).** Operator-authorized lossy collapse. Removed entirely:
 > experiments daily-plan engine, seasonal domain, autopilot framework. Collapsed: ops->on-use

@@ -28,11 +28,6 @@ const state = vi.hoisted(() => ({
   } as unknown,
 }));
 
-const refreshGa4Sitewide = vi.fn(async (_tenantId?: string) => {});
-vi.mock("@/lib/connectors/ga4/refresh-ga4-sitewide", () => ({
-  refreshGa4SitewideAndReconcile: (tenantId: string) => refreshGa4Sitewide(tenantId),
-}));
-
 vi.mock("@/lib/connector-store", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/connector-store")>();
   return {
@@ -63,7 +58,7 @@ vi.mock("@/domains/tenants/store", () => ({
   getTenant: vi.fn(async () => ({ domain: "example.com" })),
 }));
 
-import { syncSucceeded, autoRefreshStaleConnectorsForTenant } from "@/lib/connectors/on-use-refresh";
+import { syncSucceeded } from "@/lib/connectors/on-use-refresh";
 import { fetchClarityUrlMetrics } from "@/lib/connectors/clarity/client";
 
 beforeEach(() => {
@@ -73,7 +68,6 @@ beforeEach(() => {
     api_token: "tok",
     connected_at: "2026-06-12T00:00:00Z",
   };
-  refreshGa4Sitewide.mockClear();
 });
 
 afterEach(() => {
@@ -100,23 +94,6 @@ describe("syncSucceeded (audit-3 #5)", () => {
   });
 });
 
-// ─────────────────────────────────────────────────────────────────────
-// on-USE refresh — sitewide ride-along (Wave 2A)
-// ─────────────────────────────────────────────────────────────────────
-
-describe("autoRefreshStaleConnectorsForTenant — sitewide ride-along", () => {
-  it("pulls the true sitewide series + reconciliation when GA4 refreshed on this visit", async () => {
-    await autoRefreshStaleConnectorsForTenant("tenant-a");
-    expect(refreshGa4Sitewide).toHaveBeenCalledTimes(1);
-    expect(refreshGa4Sitewide).toHaveBeenCalledWith("tenant-a");
-  });
-
-  it("does NOT pull the sitewide series when GA4 is not connected", async () => {
-    state.connected = { google_gsc: true, google_ga4: false, clarity: true };
-    await autoRefreshStaleConnectorsForTenant("tenant-a");
-    expect(refreshGa4Sitewide).not.toHaveBeenCalled();
-  });
-});
 
 // ─────────────────────────────────────────────────────────────────────
 // Clarity Data Export parser

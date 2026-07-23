@@ -8,13 +8,7 @@ import { Suspense } from "react";
 import { CockpitBar } from "@/components/shell/cockpit-bar";
 import { AppHeader } from "@/components/shell/app-header";
 import { CommandPalette, type PaletteItem } from "@/components/shell/command-palette";
-import { DemoBannerGate } from "@/components/shell/demo-banner";
-import { getConnectorInfo } from "@/lib/connector-store";
-import {
-  getChangelogEntries,
-  hasActiveExperiment,
-} from "@/lib/seed-data.server";
-import { shouldServeDemoData } from "@/lib/demo-mode";
+import { getChangelogEntries } from "@/lib/seed-data.server";
 import { allNavItems } from "@/lib/navigation";
 import { getPendingFindings } from "@/domains/scanning/findings-store";
 import { CONTENT_CHANGE_TYPES } from "@/domains/scanning/content-change-types";
@@ -105,7 +99,6 @@ export default async function ShellLayout({
             tabIndex={-1}
             className="flex-1 overflow-y-auto"
           >
-            <DemoBannerGate />
             {/* #515 - step the mobile padding down (p-3) so dense tables
                 don't lose ~13% horizontal room on a ~360px phone; restore
                 the roomy padding from sm upward. */}
@@ -132,15 +125,14 @@ async function DeferredShellData() {
     SHELL_DATA_DEADLINE_MS,
   );
   if (result.timedOut || !result.data) return null;
-  const { badges, isDemoMode, latePaletteItems } = result.data;
+  const { badges, latePaletteItems } = result.data;
   return (
-    <ShellDataHydrator badges={badges} isDemoMode={isDemoMode} latePaletteItems={latePaletteItems} />
+    <ShellDataHydrator badges={badges} latePaletteItems={latePaletteItems} />
   );
 }
 
 async function loadShellData(): Promise<{
   badges: NavBadges;
-  isDemoMode: boolean;
   latePaletteItems: LatePaletteItem[];
 }> {
   // Perf bundle 7 (2026-05-12) - production-safe perf tracing.
@@ -164,25 +156,16 @@ async function loadShellData(): Promise<{
   //
   // Phase 3.5C (2026-04-22): the seed is required so the Changes-badge
   // count reflects real verdict state on Vercel.
-  const [
-    ,
-    pendingFindings,
-    isDemoModeRaw,
-    changelogEntries,
-    wixInfo,
-    gscInfo,
-  ] = await trace.time("parallel_4_awaits", () =>
-    Promise.all([
-      trace.time("ensureUrlChangeOutcomesSeeded", () =>
-        ensureUrlChangeOutcomesSeeded(),
-      ),
-      trace.time("getPendingFindings", () => getPendingFindings()),
-      trace.time("hasActiveExperiment", () => hasActiveExperiment()),
-      trace.time("getChangelogEntries", () => getChangelogEntries()),
-      // Demo/sample framing must drop the moment a real source is wired.
-      trace.time("connector_wix", () => getConnectorInfo("wix")),
-      trace.time("connector_gsc", () => getConnectorInfo("google_gsc")),
-    ]),
+  const [, pendingFindings, changelogEntries] = await trace.time(
+    "parallel_4_awaits",
+    () =>
+      Promise.all([
+        trace.time("ensureUrlChangeOutcomesSeeded", () =>
+          ensureUrlChangeOutcomesSeeded(),
+        ),
+        trace.time("getPendingFindings", () => getPendingFindings()),
+        trace.time("getChangelogEntries", () => getChangelogEntries()),
+      ]),
   );
   const watchingUrlOutcomes = await trace.time("getWatchingUrlOutcomes", () =>
     getWatchingUrlOutcomes(),
@@ -223,24 +206,6 @@ async function loadShellData(): Promise<{
   if (todayBadge > 0) badges["/"] = todayBadge;
   if (changesBadge > 0) badges["/results"] = changesBadge;
 
-  // "Sample data" banner uses the SAME predicate seed-data.server.ts uses to
-  // decide whether to serve fixture rows (shouldServeDemoData in
-  // demo-mode.ts) so the two can never disagree: fixtures render implies
-  // the banner is visible, and the banner is visible implies fixtures are
-  // rendering. Before this fix the banner only checked "no real connector",
-  // so the founder tenant with GSC connected and zero import runs got the
-  // fixture dataset with NO banner (2026-07-18).
-  const hasRealConnector =
-    wixInfo.status === "connected" || gscInfo.status === "connected";
-  const isDemoMode = shouldServeDemoData({
-    tenantId: await currentTenantId(),
-    // `isDemoModeRaw` is `hasActiveExperiment()` - true when import runs
-    // exist. The predicate only cares whether the count is zero, so a
-    // presence flag is coerced to a stand-in count (0 or 1).
-    importRunsCount: isDemoModeRaw ? 1 : 0,
-    hasRealConnector,
-  });
-
   // ── Late palette items ──
   // T-CustomerNav (2026-05-08) - palette items only surface customer-facing
   // routes; the pre-T-CustomerNav "Market" group over hidden routes stays dead.
@@ -262,5 +227,5 @@ async function loadShellData(): Promise<{
   trace.data("changes_badge", badges["/results"] ?? 0);
   trace.flush();
 
-  return { badges, isDemoMode, latePaletteItems };
+  return { badges, latePaletteItems };
 }

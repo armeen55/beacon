@@ -1,3 +1,20 @@
+> 🟡 **2026-07-22 CORE 100K platform-layer collapse (uncommitted, local gates green).** Four bounded
+> collapses landed on the working tree with `tsc=0` and the full hermetic suite green (105 files /
+> 1,594 tests). Severed the write-only-dead GA4 north-star sitewide+reconcile cluster (Connections
+> "data through" freshness preserved by re-pointing to `ga4_url_traffic`); removed seed-data as live
+> infrastructure (`seed-data.server.ts` is now repo-only, the 1,356-line founder fixtures + demo-mode +
+> "Sample data" banner are deleted); deleted the dead section-analyzer cluster and its business-config
+> helpers. Production TypeScript 75,145 -> 72,123 lines. NOT committed/pushed/deployed (git not run
+> this session). Remaining toward prod <=50k: the persistence file-write-path removal (dual-write /
+> json-store / store-classification — the largest and riskiest lever, left intact and green rather
+> than started-and-red), connector-store trim (readers preserved), and the src/app + kernel-domain
+> diet. Full detail in `docs/VERIFICATION_LOG.md` (2026-07-22 entry).
+>
+> **Next 3 actions:** 1) Review + commit + deploy this collapse, verify the four surfaces render on
+> real Iranopedia data (Connections "data through" date, Changes palette). 2) Execute the persistence
+> file-write-path removal as its own verified phase (keep the file backend ONLY as the hermetic test
+> substrate; production reads/writes Supabase). 3) Continue the numeric diet toward prod <=50k.
+
 > 🟢 **2026-07-22 CORE 100K checkpoint B crossed (243,296 combined <= 250,000; production exact-SHA
 > `dcf6899c`, four-surface walk verified on real Iranopedia data: Today command, Changes Ready 3 with
 > exact edits, Results honest 7/14/28 measurement, Connections 4-of-4 with explicit publishing).**

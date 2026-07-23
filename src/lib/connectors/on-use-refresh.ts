@@ -3,7 +3,6 @@ import { getConnectorInfo, updateConnectorToken } from "@/lib/connector-store";
 import { syncGscSearchAnalyticsForTenant } from "@/lib/connectors/gsc/sync-search-analytics";
 import { syncGa4UrlTrafficForTenant } from "@/lib/connectors/ga4/sync-url-traffic";
 import { syncClarityDailyMetricsForTenant } from "@/lib/connectors/clarity/sync-daily-metrics";
-import { refreshGa4SitewideAndReconcile } from "@/lib/connectors/ga4/refresh-ga4-sitewide";
 import { recordSourceRefresh } from "@/domains/ops/record-source-refresh";
 import type { RefreshSource, RefreshTrigger } from "@/domains/ops/refresh-runs-store";
 import {
@@ -215,12 +214,5 @@ export async function autoRefreshStaleConnectorsForTenant(
     }),
   );
 
-  // Wave 2A: the READ_SOURCES GA4 entry pulls only the per-PAGE traffic table. When
-  // GA4 refreshed here, also pull the TRUE sitewide series + reconcile it so the
-  // north-star visits card can light up on this on-use refresh, not only after the
-  // nightly cron's dedicated sitewide phases. Fail-soft, dormant-until-key.
-  if (stale.some(({ source }) => source.provider === "google_ga4")) {
-    await refreshGa4SitewideAndReconcile(tenantId);
-  }
   return results;
 }
