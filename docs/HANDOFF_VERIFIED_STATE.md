@@ -13,6 +13,14 @@
 - Five kernels exist: Account, Evidence, Decision, Measurement, Runtime.
 - Four primary surfaces exist: Today, Changes, Results, Connections.
 - Supabase authentication provisions one membership and one tenant per new user.
+- One login resolves exactly one account, fail-closed (2026-07-23): the middleware injects the single
+  membership's account; zero, multiple, erroring, or timed-out membership lookups all redirect to login
+  (`no_account` / `multiple_accounts_unsupported` / `account_unavailable`). No account switcher, account
+  enumeration, or selection cookie exists (the retired `beacon_tenant` cookie is never read and is actively
+  expired), and an authenticated request can never reach an env-tenant fallback. `BEACON_OPERATOR_MODE` is
+  presentation-only: OAuth connector ownership and every measurement/publish mutation require the
+  authenticated account owner's membership row. The Account's `provisional_name` is an internal signup seed;
+  active surfaces render the BusinessProfile name with the Website domain as fallback.
 - Canonical Account, Website, and BusinessProfile records exist (Slice 1 + closure, 2026-07-23): the
   Account is the `tenants` row (vertical columns retired to unread legacy) resolved through account-scoped
   Supabase queries; Website is the one canonical projection of `Account.domain` (the only persisted website
@@ -80,10 +88,11 @@ New customer routes require operator approval.
 
 ## Next slice
 
-Slice 1 (generic Account, Website, BusinessProfile) is complete and deployed. The next build-order step is
-Slice 2: one canonical DataForSEO evidence boundary, deleting the Profound gates and reads, the SEMrush
-benchmark constant, the GitHub Actions first-scan dispatch, and the phantom native-provider architecture it
-replaces. It requires the eight fields from `AGENTS.md` and explicit operator approval before implementation.
+Slice 1 (generic Account, Website, BusinessProfile) plus its closure repair and the account-isolation
+contraction are complete and deployed. The next build-order step is Slice 2: one canonical DataForSEO
+evidence boundary, deleting the Profound gates and reads, the SEMrush benchmark constant, the GitHub Actions
+first-scan dispatch, and the phantom native-provider architecture it replaces. It requires the eight fields
+from `AGENTS.md` and explicit operator approval before implementation.
 
 ## Verification
 
