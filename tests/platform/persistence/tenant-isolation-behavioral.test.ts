@@ -57,7 +57,6 @@ import {
   syncImportRuns,
   syncPromptAnswerObservations,
 } from "@/lib/persistence/dual-write";
-import { getChangesForTenant, getResultsForTenant, getPagesForTenant } from "@/lib/tenant-data";
 
 const TENANT = "tenant-ritz-founder";
 const OTHER = "tenant-other";
@@ -305,23 +304,5 @@ describe("syncPromptAnswerObservations same-day re-poll recovery", () => {
   it("other constraint errors still throw (the paid-poll gate keeps its job)", async () => {
     _upsertResults.push({ error: { message: 'violates unique constraint "something_else"' } });
     await expect(syncPromptAnswerObservations([obs("p1")], "tenant-test")).rejects.toThrow(/something_else/);
-  });
-});
-
-// ── E. tenant-data adapters ─────────────────────────────────────────────────
-
-describe("tenant-data adapters never leak across tenants", () => {
-  it("a nonexistent tenant reads empty from every representative adapter", async () => {
-    expect(await getChangesForTenant("tenant-does-not-exist")).toEqual([]);
-    expect(await getResultsForTenant("tenant-does-not-exist")).toEqual([]);
-    expect(await getPagesForTenant("tenant-does-not-exist")).toEqual([]);
-  });
-
-  it("two different tenant ids return disjoint change sets, and every founder row is founder-stamped", async () => {
-    const founderChanges = await getChangesForTenant(TENANT);
-    const otherChanges = await getChangesForTenant("tenant-other-test");
-    expect(founderChanges.length).toBeGreaterThan(0);
-    expect(otherChanges.length).toBe(0);
-    for (const c of founderChanges) expect(c.tenant_id).toBe(TENANT);
   });
 });

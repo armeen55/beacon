@@ -55,15 +55,6 @@ export function scheduleAutoMeasure(tenantId: string): void {
               error: e instanceof Error ? e.message : String(e),
             });
           }
-          try {
-            const { buildTeamScoreboardSummary } = await import("@/domains/team-scoreboard/compute-scoreboard");
-            await buildTeamScoreboardSummary(tenantId);
-          } catch (e) {
-            log.warn("[auto-measure-on-use] team scoreboard recompute failed (non-blocking)", {
-              tenantId,
-              error: e instanceof Error ? e.message : String(e),
-            });
-          }
         }
       } catch (e) {
         log.warn("[auto-measure-on-use] passive pass failed (non-blocking)", {

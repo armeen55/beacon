@@ -20,7 +20,7 @@
  * silently dropped. No I/O - fully unit-testable.
  */
 
-import { NIGHTLY_PROMPT_CAP } from "./engine-types";
+import { NIGHTLY_PROMPT_CAP } from "@/domains/evidence/readers/engine-types";
 
 export type QuestionSource = "library" | "profound" | "fanout";
 

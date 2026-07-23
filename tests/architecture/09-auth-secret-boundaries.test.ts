@@ -124,7 +124,7 @@ describe("operator-mode — the SOLE gate; no direct env reads outside the helpe
   }
 
   it("a real server gate imports + uses isOperatorModeServer (non-vacuous)", () => {
-    const rel = "src/app/(shell)/diagnostics/layout.tsx";
+    const rel = "src/app/(shell)/layout.tsx";
     const src = readFileSync(join(REPO_ROOT, rel), "utf-8");
     expect(src).toContain("isOperatorModeServer");
     expect(src).toMatch(/from\s+["']@\/lib\/operator-mode["']/);

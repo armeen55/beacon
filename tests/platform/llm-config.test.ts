@@ -6,64 +6,10 @@
  * No real network calls, no real SDK imports, no live provider activation.
  */
 
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect } from "vitest";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { resolve } from "node:path";
 import { LLM_OUTPUT_SCHEMAS, type LlmOutputSchemaName } from "@/domains/llm/schemas";
-
-describe("resolveLLMProvider config gate", () => {
-  const ORIGINAL_ENV = { ...process.env };
-
-  beforeEach(() => {
-    process.env = { ...ORIGINAL_ENV };
-    delete process.env.BEACON_LLM_PROVIDER;
-    delete process.env.OPENAI_API_KEY;
-  });
-
-  afterEach(() => {
-    process.env = { ...ORIGINAL_ENV };
-  });
-
-  it("defaults to 'deterministic' when unset, empty, or whitespace", async () => {
-    const { resolveLLMProvider } = await import("@/lib/llm/config");
-    expect(resolveLLMProvider()).toBe("deterministic");
-    process.env.BEACON_LLM_PROVIDER = "   ";
-    expect(resolveLLMProvider()).toBe("deterministic");
-  });
-
-  it("'openai' resolves only when OPENAI_API_KEY is set; missing/blank key throws", async () => {
-    const { resolveLLMProvider } = await import("@/lib/llm/config");
-    process.env.BEACON_LLM_PROVIDER = "openai";
-    process.env.OPENAI_API_KEY = "sk-test-fixture";
-    expect(resolveLLMProvider()).toBe("openai");
-    process.env.OPENAI_API_KEY = "   ";
-    expect(() => resolveLLMProvider()).toThrow(/OPENAI_API_KEY/);
-    delete process.env.OPENAI_API_KEY;
-    expect(() => resolveLLMProvider()).toThrow(/OPENAI_API_KEY/);
-  });
-
-  it("an invalid or unactivated provider name throws with the allowed-values list", async () => {
-    const { resolveLLMProvider, isAllowedProvider } = await import("@/lib/llm/config");
-    process.env.OPENAI_API_KEY = "sk-test-fixture";
-    for (const bad of ["totally-bogus", "anthropic"]) {
-      process.env.BEACON_LLM_PROVIDER = bad;
-      let caught: unknown;
-      try {
-        resolveLLMProvider();
-      } catch (err) {
-        caught = err;
-      }
-      expect(caught).toBeInstanceOf(Error);
-      const msg = (caught as Error).message;
-      expect(msg).toMatch(/invalid BEACON_LLM_PROVIDER/);
-      expect(msg).toMatch(/"deterministic"/);
-      expect(msg).toMatch(/"openai"/);
-    }
-    expect(isAllowedProvider("deterministic")).toBe(true);
-    expect(isAllowedProvider("openai")).toBe(true);
-    expect(isAllowedProvider("anthropic")).toBe(false);
-  });
-});
 
 // ── Schema registry: every structured LLM output shape parses its fixture ──
 

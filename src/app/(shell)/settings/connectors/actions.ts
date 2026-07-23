@@ -1,7 +1,6 @@
 "use server";
 
 import { log } from "@/lib/logger";
-import { invalidateDemandGraph } from "@/domains/demand-graph/graph-snapshot-store";
 import { warmFreeSurfaces } from "@/domains/ops/warm-caches";
 import {
   getConnectorInfo,
@@ -209,7 +208,6 @@ export async function discoverWixCollections(): Promise<DiscoverWixResult> {
     if (result.ok) {
       // A fresh url map changes what the push service can resolve; drop the
       // cross-request graph snapshot so the next render sees it.
-      await invalidateDemandGraph(`wix discover: ${action}`).catch(() => {});
       revalidatePath("/settings/connectors");
     }
     log.info("Action completed", {
@@ -1013,7 +1011,6 @@ async function runConnectorSyncNow(
     // → invalidate the cross-request graph snapshot + derived worklist surface so the next
     // render rebuilds on fresh data instead of serving a stale graph.
     if (summary.ok) {
-      await invalidateDemandGraph(`connector sync: ${action}`).catch(() => {});
     }
     revalidatePath("/settings/connectors");
     log.info("Action completed", { action, durationMs: Date.now() - t0, ok: summary.ok });

@@ -14,9 +14,9 @@ import { getRepository } from "@/lib/persistence/repositories";
 import { getTenant } from "@/domains/tenants/store";
 import { canonicalizeCitationUrl } from "@/domains/citation-lifecycle/canonicalize-url";
 import { inferBrandSuffix } from "./brand-heuristics";
-import { loadGscPageSignalsForTenant } from "@/domains/recommendation-intelligence/gsc-page-signals";
-import { loadClarityPageSignalsForTenant } from "@/domains/recommendation-intelligence/clarity-page-signals";
-import { loadGa4PageValuesForTenant } from "@/domains/recommendation-intelligence/ga4-page-values";
+import { loadGscPageSignalsForTenant } from "@/domains/evidence/readers/gsc-page-signals";
+import { loadClarityPageSignalsForTenant } from "@/domains/evidence/readers/clarity-page-signals";
+import { loadGa4PageValuesForTenant } from "@/domains/evidence/readers/ga4-page-values";
 import type { PageSnapshot } from "@/domains/pages/types";
 
 import type { EvidencePacket } from "./contract";

@@ -57,11 +57,3 @@ describe("connector syncs report synced:false on a DB write failure (no masked s
 // pinned by tests/architecture/14-publishing-authority and is strictly stronger
 // now that no auto-write path exists at all.
 
-describe("image-alt + product-SEO scan persists under free-text move_drafts kinds (no migration)", () => {
-  it("MoveDraftKind includes the Sprint-6 free-text kinds", () => {
-    const src = read("src/domains/demand-graph/move-draft-store.ts");
-    expect(src).toContain('"image_alt_findings"');
-    expect(src).toContain('"product_seo_findings"');
-    expect(src).toContain('"page_eeat_findings"');
-  });
-});

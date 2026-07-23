@@ -13,7 +13,7 @@ import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
-import { parseDataForSeoSerp, resolveOwnRank } from "@/domains/serp/dataforseo-serp";
+import { parseDataForSeoSerp, resolveOwnRank } from "@/domains/evidence/readers/dataforseo-serp";
 
 const NOW_ISO = "2026-07-03T12:00:00.000Z";
 

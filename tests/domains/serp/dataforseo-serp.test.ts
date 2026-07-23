@@ -13,7 +13,7 @@ import {
   buildSerpHistoryRow,
   type SerpRunDeps,
   type SerpHistoryRow,
-} from "@/domains/serp/dataforseo-serp";
+} from "@/domains/evidence/readers/dataforseo-serp";
 
 const CONFIGURED = {
   DATAFORSEO_LOGIN: "u",

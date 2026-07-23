@@ -25,7 +25,6 @@ import { readFileSync, readdirSync, statSync } from "node:fs";
 import path, { resolve, join, sep } from "node:path";
 import { describe, expect, it } from "vitest";
 
-import { actionLabel } from "@/domains/insight/page-primary";
 import { verdictPhrase, type KernelVerdict } from "@/domains/proof-gsc/kernel";
 
 const REPO_ROOT = resolve(__dirname, "../..");
@@ -191,21 +190,17 @@ const DISPLAY_SURFACES = [
   "src/app/(shell)/results/page.tsx",
   "src/app/(shell)/results/results-ledger-card.tsx",
   "src/app/(shell)/results/proof-ledger-client.tsx",
-  "src/app/(shell)/opportunities/page.tsx",
   // Surface-collapse (2026-07-21): the recommendations v2 card was deleted; its
   // customer-copy responsibility (incl. the indexing-safety hold notice) folded
   // into the surviving Changes card, which is now the dash-floored surface.
   "src/components/changes/v2/changes-v2-card.tsx",
   "src/domains/recommendation-intelligence/page-surgeon/change-pack.ts",
-  "src/domains/insight/connection-health.ts",
-  "src/domains/insight/page-primary.ts",
   "src/domains/proof-gsc/kernel.ts",
   "src/app/(shell)/connections/page.tsx",
   "src/app/(shell)/settings/connectors/actions.ts",
   "src/app/(shell)/settings/connectors/connectors-client.tsx",
   "src/app/(shell)/settings/connectors/page.tsx",
   "src/domains/recommendation-intelligence/page-surgeon/bridge.ts",
-  "src/domains/recommendation-intelligence/evidence-summary.ts",
   "src/lib/connectors/gsc/readiness.ts",
   "src/components/today/first-reading-waiting.tsx",
   // health-strip.tsx + how-we-know-panel.tsx deleted 2026-07-21 (Phase 4D): the
@@ -231,25 +226,6 @@ describe("C — no banned dash in display surfaces (hard rule)", () => {
       .map((l, i) => ({ l, n: i + 1 }))
       .filter(({ l }) => BANNED_DASH.test(l));
     expect(offending.map(({ l, n }) => `${n}: ${l.trim()}`)).toEqual([]);
-  });
-
-  it("actionLabel never returns a banned dash", () => {
-    for (const k of [
-      "edit_title",
-      "edit_meta",
-      "change_h1",
-      "intro_answer_block",
-      "section_add",
-      "faq",
-      "schema",
-      "add_internal_link",
-      "keep_current",
-      "monitor",
-      "change",
-      null,
-      undefined,
-    ])
-      expect(BANNED_DASH.test(actionLabel(k))).toBe(false);
   });
 
   it("every kernel verdict phrase is free of a banned dash", () => {

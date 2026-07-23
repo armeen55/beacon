@@ -4,8 +4,8 @@
  */
 import { describe, it, expect, vi } from "vitest";
 
-import { parseDataForSeoSerp, parseFeaturedSnippet, parsePaaQuestions, buildSerpHistoryRow } from "@/domains/serp/dataforseo-serp";
-import type { SerpSnapshot } from "@/domains/serp/serp-provider";
+import { parseDataForSeoSerp, parseFeaturedSnippet, parsePaaQuestions, buildSerpHistoryRow } from "@/domains/evidence/readers/dataforseo-serp";
+import type { SerpSnapshot } from "@/domains/evidence/readers/serp-provider";
 
 /**
  * BEACON_500 item 25: featured-snippet owner + PAA question capture, at $0 added
@@ -200,7 +200,7 @@ describe("buildSerpHistoryRow wiring (item 25)", () => {
 });
 
 
-import { runSerpQuery, type SerpRunDeps } from "@/domains/serp/dataforseo-serp";
+import { runSerpQuery, type SerpRunDeps } from "@/domains/evidence/readers/dataforseo-serp";
 
 /**
  * Item 19: forceFresh is a minimal, additive bypass of the 14-day cache on

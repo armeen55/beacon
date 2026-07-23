@@ -64,7 +64,6 @@ const D2_FACTORIES: ReadonlyArray<FactoryContract> = [
   // producer with no rendered consumer; its tenant-isolation contract retired
   // with it.
   // Opts-object `opts.tenantId: string`
-  { file: "src/domains/pages/discover.ts", fn: "discoverPages", shape: "opts" },
   // snapshot-builder / detect-findings / answer-intelligence build-index /
   // visibility-events engine deleted 2026-07-21 (reachability amputation): the
   // factories were dead code (no production importer); their tenant-isolation

@@ -22,7 +22,6 @@ import { loadProofLedgerCached } from "@/domains/proof-gsc/load-ledger";
 import { perfMark, perfStage } from "@/lib/obs/perf-log";
 import { shippedInLastDays } from "@/domains/proof-gsc/weekly-recap";
 import { loadLifecycleCounts } from "./lifecycle-counts-data";
-import { InvestigationAlertLine } from "./investigation-alert";
 import { createPerfTrace, readPerfTraceIdFromHeaders } from "@/lib/perf-trace";
 import { loadWithDeadline, valueWithDeadline } from "@/lib/load-with-deadline";
 import { HonestDelay } from "@/components/honest-delay";
@@ -36,7 +35,7 @@ import { TodayProofStrip } from "@/components/today/today-proof-strip";
 import { verdictSchedule } from "@/domains/proof-gsc/verdict-schedule";
 import { buildScoreboard } from "@/domains/scoreboard/scoreboard";
 import { buildTodaySmokeAlarm } from "@/components/today/today-smoke-alarm";
-import { loadGscDecaySignalsForTenant } from "@/domains/recommendation-intelligence/gsc-page-signals";
+import { loadGscDecaySignalsForTenant } from "@/domains/evidence/readers/gsc-page-signals";
 
 /**
  * Today `/` - the focused daily slice of the ONE canonical model (2026-07-01, Move 5).
@@ -268,10 +267,6 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
       {/* ── SLOT 1: critical truth warnings, self-hiding ──────────────────────────────────
           A fresh background investigation is the only thing that outranks the one command.
           It self-hides when there is nothing to say, so a normal day starts clean. */}
-      {/* Item 53 (Phase 4D fold) - the overnight forensic investigation's ONE headline
-          conclusion, folded from its old drawer card into a single compact alert line. */}
-      <Suspense fallback={null}><InvestigationAlertLine tenantId={tenantId} /></Suspense>
-
       {/* The greeting + the one refresh control (page chrome, not a command). */}
       <PageHeader title={greeting} description={brief}>
         <RefreshMyDataButton connectedCount={connectedSourceCount} />

@@ -4,7 +4,7 @@ import {
   NoopSerpProvider,
   DataForSeoSerpProvider,
   rootDomain,
-} from "@/domains/serp/serp-provider";
+} from "@/domains/evidence/readers/serp-provider";
 
 describe("serp-provider (L7, off by default)", () => {
   it("defaults to no-op when BEACON_SERP_PROVIDER is unset", async () => {

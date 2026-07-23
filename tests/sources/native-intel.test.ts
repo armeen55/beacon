@@ -11,7 +11,7 @@ import {
   rollUpNativeQuestions,
   buildNativeIntelReport,
   type NativeObservationInput,
-} from "@/domains/ai-visibility/native-intel";
+} from "@/domains/evidence/readers/native-intel";
 
 function row(over: Partial<NativeObservationInput> = {}): NativeObservationInput {
   return {

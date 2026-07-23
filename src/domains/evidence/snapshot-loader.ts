@@ -15,13 +15,13 @@
 import "server-only";
 
 import { log } from "@/lib/logger";
-import { loadGscPageSignalsForTenant, type GscPageSignal } from "@/domains/recommendation-intelligence/gsc-page-signals";
-import { loadGa4PageValuesForTenant, loadGa4PageRevenueForTenant, type Ga4PageValue } from "@/domains/recommendation-intelligence/ga4-page-values";
-import type { PageRevenueValue } from "@/domains/recommendation-intelligence/ga4-revenue";
-import { loadClarityPageSignalsForTenant, type ClarityPageSignal } from "@/domains/recommendation-intelligence/clarity-page-signals";
-import { readAllCachedKeywordDemand } from "@/domains/serp/dataforseo-keywords";
-import { loadNativeIntelForTenant } from "@/domains/ai-visibility/native-intel-loader";
-import { getPageSnapshots } from "@/domains/pages/snapshot-store";
+import { loadGscPageSignalsForTenant, type GscPageSignal } from "@/domains/evidence/readers/gsc-page-signals";
+import { loadGa4PageValuesForTenant, loadGa4PageRevenueForTenant, type Ga4PageValue } from "@/domains/evidence/readers/ga4-page-values";
+import type { PageRevenueValue } from "@/domains/evidence/readers/ga4-revenue";
+import { loadClarityPageSignalsForTenant, type ClarityPageSignal } from "@/domains/evidence/readers/clarity-page-signals";
+import { readAllCachedKeywordDemand } from "@/domains/evidence/readers/dataforseo-keywords";
+import { loadNativeIntelForTenant } from "@/domains/evidence/readers/native-intel-loader";
+import { getPageSnapshots } from "@/domains/evidence/readers/snapshot-store";
 
 import {
   buildEvidenceSnapshot,

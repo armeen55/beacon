@@ -20,20 +20,8 @@ import "server-only";
  */
 
 /**
- * Build the graph fresh, THEN persist the snapshot - the same two exported
- * calls the SWR loader's miss path composes (load-graph buildAndPersistOnce).
- * Build-then-write means a failed build keeps the previous snapshot.
- */
-async function refreshDemandGraph(tenantId: string): Promise<void> {
-  const { loadDemandGraphForTenant } = await import("@/domains/demand-graph/load-graph");
-  const { writeGraphSnapshot } = await import("@/domains/demand-graph/graph-snapshot-store");
-  const fresh = await loadDemandGraphForTenant(tenantId);
-  await writeGraphSnapshot(fresh, new Date().toISOString(), tenantId);
-}
-
-/**
- * refreshCustomerSurface runs worklist-then-fuse-then-compose and publishes the
- * shared Today + Changes release in a single pass.
+ * refreshCustomerSurface runs the decision-kernel fuse-then-compose and
+ * publishes the shared Today + Changes release in a single pass.
  */
 async function refreshSurface(tenantId: string): Promise<void> {
   const { refreshCustomerSurface } = await import("@/app/(shell)/surface-release");
@@ -41,11 +29,9 @@ async function refreshSurface(tenantId: string): Promise<void> {
 }
 
 /**
- * Rebuild the shared demand-graph snapshot, then the fused Today + Changes
- * surface release, in dependency order, each fail-soft. Safe to call
+ * Rebuild the fused Today + Changes surface release, fail-soft. Safe to call
  * synchronously from a request-context server action.
  */
 export async function warmFreeSurfaces(tenantId: string): Promise<void> {
-  await refreshDemandGraph(tenantId).catch(() => {});
   await refreshSurface(tenantId).catch(() => {});
 }

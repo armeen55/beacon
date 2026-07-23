@@ -66,28 +66,6 @@ describe("Today route smoke", () => {
 });
 
 describe("FP4 route redirects smoke", () => {
-  it("/worklist permanently redirects to /changes, preserving the query string", async () => {
-    const { default: WorklistRedirect } = await import("@/app/(shell)/worklist/page");
-    await expect(WorklistRedirect({ searchParams: Promise.resolve({}) })).rejects.toThrow(
-      "NEXT_REDIRECT:/changes",
-    );
-    await expect(
-      WorklistRedirect({ searchParams: Promise.resolve({ status: "ready" }) }),
-    ).rejects.toThrow("NEXT_REDIRECT:/changes?status=ready");
-  });
-
-  it("/proof permanently redirects to /results (query preserved)", async () => {
-    const { default: ProofRedirect } = await import("@/app/(shell)/proof/page");
-    await expect(
-      ProofRedirect({ searchParams: Promise.resolve({ page: "/cheetah" }) }),
-    ).rejects.toThrow("NEXT_REDIRECT:/results?page=%2Fcheetah");
-  });
-
-  it("/competitors redirects to /changes (competitor intelligence feeds the queue)", async () => {
-    const { default: CompetitorsPageRedirect } = await import("@/app/(shell)/competitors/page");
-    expect(() => CompetitorsPageRedirect()).toThrow("NEXT_REDIRECT:/changes");
-  });
-
   it("the /changes index is the real Changes list, not a redirect", () => {
     const src = readFileSync(resolve(process.cwd(), "src/app/(shell)/changes/page.tsx"), "utf8");
     expect(src).not.toMatch(/permanentRedirect|\bredirect\(/);

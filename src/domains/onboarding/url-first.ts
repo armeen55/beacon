@@ -28,7 +28,7 @@ import {
   type CrawlFrontierDeps,
 } from "@/domains/scanning/crawl-frontier";
 import { seedTenantQuestionLibraryIfEmpty } from "@/domains/ai-visibility/tenant-question-library";
-import { runSerpQuery } from "@/domains/serp/dataforseo-serp";
+import { runSerpQuery } from "@/domains/evidence/readers/dataforseo-serp";
 import {
   deriveQuestionSeedsFromFacts,
   deriveSerpTermsFromFacts,

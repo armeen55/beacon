@@ -9,7 +9,7 @@ import {
   type LibraryQuestionInput,
   type ProfoundQuestionInput,
 } from "@/domains/ai-visibility/question-universe";
-import { NIGHTLY_PROMPT_CAP } from "@/domains/ai-visibility/engine-types";
+import { NIGHTLY_PROMPT_CAP } from "@/domains/evidence/readers/engine-types";
 
 const lib = (n: number, text?: string): LibraryQuestionInput => ({
   id: `prm-${n}`,
