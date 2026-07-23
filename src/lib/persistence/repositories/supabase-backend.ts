@@ -26,16 +26,12 @@ import type { ChangeContract } from "@/domains/changelog/change-contract";
 import type {
   PageEntity,
   PageSnapshot,
-  SitemapReconciliation,
 } from "@/domains/pages/types";
-import type { GuardrailAlert } from "@/domains/pages/guardrails";
 import type { ObservationRun } from "@/domains/observations/types";
-import type { ConfiguredCompetitorEntry } from "@/domains/competitors/universe-types";
 import type { Finding } from "@/domains/scanning/types";
 import type { RecommendationResponse } from "@/domains/product/recommendation-response-store";
 import type { UrlChangeOutcome } from "@/domains/attribution/url-change-outcome";
 import type { RecommendedEditRow } from "@/domains/recommendations/recommended-edits-persistence";
-import type { PageElementInventoryRow } from "@/domains/pages/extractors/persist";
 import type { PromptAnswerObservation } from "@/domains/prompt-answer-observations/types";
 import type { DailyMetricSnapshot } from "@/domains/daily-metric-snapshots/types";
 import type { TrackedEntity } from "@/domains/tracked-entities/types";
@@ -338,11 +334,7 @@ export const supabaseBackend: SeedDataRepository = {
     }
     return latest;
   },
-  getGuardrailAlerts: () => query<GuardrailAlert>("guardrail_alerts"),
-
   getObservationRuns: () => query<ObservationRun>("observation_runs"),
-  getCompetitorConfigEntries: () =>
-    query<ConfiguredCompetitorEntry>("competitor_config"),
 
   // (Dead columns removed 2026-07-21, CORE 100K Lane O: citation/answer-intel
   // index reads, page-snapshot-diffs, render-checks, legacy-global
@@ -369,21 +361,6 @@ export const supabaseBackend: SeedDataRepository = {
       mapRowToEntity<Finding>(row as Record<string, unknown>),
     );
   },
-  getPendingScanFindings: async () => {
-    const { data, error } = await getSupabaseAdmin()
-      .from("scan_findings")
-      .select("*")
-      .eq("status", "pending")
-      .order("priority_score", { ascending: false });
-    if (error)
-      throw new Error(
-        `Supabase query failed on scan_findings: ${error.message}`,
-      );
-    return (data ?? []).map((row) =>
-      mapRowToEntity<Finding>(row as Record<string, unknown>),
-    );
-  },
-
   // Phase 1a — operator loop stores
   getRecommendationResponses: async () => {
     const { data, error } = await getSupabaseAdmin()
@@ -427,14 +404,6 @@ export const supabaseBackend: SeedDataRepository = {
     return (data ?? []) as unknown as RecommendedEditRow[];
   },
 
-  // Sprint 6A.1 Phase 14 — page_element_inventory read path.
-  // Phase 15 (2026-04-25): a single scan produces ~4300 rows for 35
-  // pages. PostgREST's default `max-rows` is 1000, so a non-paged
-  // query silently truncates. Use queryAllPaged like the other
-  // big tables.
-  getPageElementInventory: async () =>
-    queryAllPaged<PageElementInventoryRow>("page_element_inventory"),
-
   // Phase 3.5E — hero-surface data. Paged reads for the two large tables
   // (prompt_answer_observations 11,996 rows, daily_metric_snapshots 24,085
   // rows) to defeat PostgREST's default 1000-row cap.
@@ -459,8 +428,6 @@ export const supabaseBackend: SeedDataRepository = {
       getImportRuns: () => selectScoped<ImportRun>("import_runs", tenantId),
       getChangelogEntries: () =>
         selectScoped<ChangelogEntry>("changelog_entries", tenantId),
-      getGuardrailAlerts: () =>
-        selectScoped<GuardrailAlert>("guardrail_alerts", tenantId),
       getObservationRuns: () =>
         selectScoped<ObservationRun>("observation_runs", tenantId),
       getUrlChangeOutcomes: () =>
@@ -484,11 +451,6 @@ export const supabaseBackend: SeedDataRepository = {
       // the tenant filter in every page request.
       getResults: () => queryAllPagedScoped<Result>("results", tenantId),
       getPages: () => queryAllPagedScoped<PageEntity>("pages", tenantId),
-      getPageElementInventory: () =>
-        queryAllPagedScoped<PageElementInventoryRow>(
-          "page_element_inventory",
-          tenantId,
-        ),
       // E3 (operator audit, 2026-05-05) — accept optional `{ since }`
       // window. Without it, behavior is unchanged (full history).
       // /today + /prompts pass a 60-90-day window to avoid pulling
@@ -605,66 +567,6 @@ export const supabaseBackend: SeedDataRepository = {
         return latest;
       },
 
-      // audit #12 (2026-06-14) — fully-paginated "latest snapshot per
-      // page" read for the NIGHTLY GENERATION path. The capped
-      // getPageSnapshots() above protects the hot web surfaces, but its
-      // .limit(500) silently drops pages for large content sites (a
-      // single Iranopedia scan already writes >430 rows/2d), starving
-      // every trigger of the pages past the cap. This pages through ALL
-      // of the tenant's rows with the SAME lean projection (no heavy
-      // payload fields → egress-safe) and the same page_id dedup. Runs
-      // once per generation (cron), never on a web request, so the
-      // unbounded read can't re-trigger the EGRESS-P0 incident.
-      //
-      // NOTE: the projection string is duplicated (not factored to a
-      // const) on purpose — the EGRESS-P0.4 pin asserts the capped
-      // method's inline `.select("id, page_id, ...")` literal verbatim.
-      getAllPageSnapshotsForGeneration: async () => {
-        const t0 = Date.now();
-        const PAGE = 1000;
-        const sb = getSupabaseAdmin();
-        const all: PageSnapshot[] = [];
-        let from = 0;
-        for (;;) {
-          const { data, error } = await sb
-            .from("page_snapshots")
-            .select(
-              "id, page_id, observation_run_id, url, canonical_url, fetched_at, http_status, title, meta_description, h1, h2_list, h3_count, faqs, schema_types, location_terms, service_terms, internal_link_count, external_link_count, word_count, robots_meta, has_canonical_mismatch, content_hash, headings_hash, faq_hash, schema_hash, extraction_certainty, faq_schema_block_count, structural_warnings, table_count, h3_list, schema_validation_warnings, tenant_id",
-            )
-            .eq("tenant_id", tenantId)
-            .order("fetched_at", { ascending: false })
-            .range(from, from + PAGE - 1);
-          if (error)
-            throw new Error(
-              `Supabase query failed on page_snapshots (generation): ${error.message}`,
-            );
-          const rows = (data ?? []) as PageSnapshot[];
-          all.push(...rows);
-          if (rows.length < PAGE) break;
-          from += PAGE;
-        }
-        // Dedup to the latest snapshot per page. The global
-        // fetched_at-DESC order across pages means the FIRST occurrence
-        // of each page_id is its newest snapshot.
-        const seen = new Set<string>();
-        const latest: PageSnapshot[] = [];
-        for (const row of all) {
-          if (!seen.has(row.page_id)) {
-            seen.add(row.page_id);
-            latest.push(row);
-          }
-        }
-        logEgress({
-          table: "page_snapshots[generation-paged+dedup+projected]",
-          rows: latest.length,
-          data: all,
-          durationMs: Date.now() - t0,
-          tenantId,
-          filter: "paged dedup_by=page_id projected_columns",
-        });
-        return latest;
-      },
-
       // Link-graph feed (2026-06-12): tenant-scoped variant of the
       // scoped internal_links read (see base impl note) — placed AFTER
       // getPageSnapshots so the egress pin's block regex anchors on the
@@ -695,8 +597,8 @@ export const supabaseBackend: SeedDataRepository = {
       },
 
       // ─────────────────────────────────────────────────────────────
-      // Phase A.3 (post-A.3.5) — robots_state + sitemap_reconciliation
-      // tenant-scoped read/write pair.
+      // Phase A.3 (post-A.3.5) — robots_state tenant-scoped read/write
+      // pair.
       //
       // Sequencing model A (operator-locked): reads soft-fail to null
       // when the migration hasn't applied yet, recognized by the
@@ -757,66 +659,6 @@ export const supabaseBackend: SeedDataRepository = {
             `Supabase upsert failed on robots_state: ${error.message}`,
           );
       },
-      getSitemapReconciliation: async () => {
-        const { data, error } = await getSupabaseAdmin()
-          .from("sitemap_reconciliation")
-          .select(
-            "tenant_id, sitemap_domain, sitemap_url_count, canonical_pages, stale_pages, registry_matched, sitemap_only, fetched_at, schema_version",
-          )
-          .eq("tenant_id", tenantId)
-          .maybeSingle();
-        if (error) {
-          if (error.code === "42P01" || error.code === "PGRST205") return null; // undefined_table / schema-cache soft-fail (audit-wave6 #5)
-          throw new Error(
-            `Supabase query failed on sitemap_reconciliation: ${error.message}`,
-          );
-        }
-        if (data == null) return null;
-        const row = data as {
-          sitemap_domain: string;
-          sitemap_url_count: number;
-          canonical_pages: SitemapReconciliation["canonical_pages"];
-          stale_pages: SitemapReconciliation["stale_pages"];
-          registry_matched: number;
-          sitemap_only: number;
-          fetched_at: string;
-          schema_version: number;
-        };
-        if (row.schema_version !== 1) return null;
-        return {
-          canonical_pages: row.canonical_pages,
-          stale_pages: row.stale_pages,
-          sitemap_url_count: row.sitemap_url_count,
-          sitemap_domain: row.sitemap_domain,
-          registry_matched: row.registry_matched,
-          sitemap_only: row.sitemap_only,
-          fetched_at: row.fetched_at,
-        };
-      },
-      setSitemapReconciliation: async (recon: SitemapReconciliation) => {
-        const { error } = await getSupabaseAdmin()
-          .from("sitemap_reconciliation")
-          .upsert(
-            {
-              tenant_id: tenantId,
-              sitemap_domain: recon.sitemap_domain ?? "",
-              sitemap_url_count: recon.sitemap_url_count,
-              canonical_pages: recon.canonical_pages,
-              stale_pages: recon.stale_pages,
-              registry_matched: recon.registry_matched ?? 0,
-              sitemap_only: recon.sitemap_only ?? 0,
-              fetched_at: recon.fetched_at ?? new Date().toISOString(),
-              schema_version: 1,
-              updated_at: new Date().toISOString(),
-            },
-            { onConflict: "tenant_id" },
-          );
-        if (error)
-          throw new Error(
-            `Supabase upsert failed on sitemap_reconciliation: ${error.message}`,
-          );
-      },
-
       // scan_findings: tenant-scoped + camelCase mapping.
       getScanFindings: async () => {
         const { data, error } = await getSupabaseAdmin()
@@ -831,22 +673,6 @@ export const supabaseBackend: SeedDataRepository = {
           mapRowToEntity<Finding>(row as Record<string, unknown>),
         );
       },
-      getPendingScanFindings: async () => {
-        const { data, error } = await getSupabaseAdmin()
-          .from("scan_findings")
-          .select("*")
-          .eq("tenant_id", tenantId)
-          .eq("status", "pending")
-          .order("priority_score", { ascending: false });
-        if (error)
-          throw new Error(
-            `Supabase query failed on scan_findings: ${error.message}`,
-          );
-        return (data ?? []).map((row) =>
-          mapRowToEntity<Finding>(row as Record<string, unknown>),
-        );
-      },
-
       // recommendation_responses: tenant-scoped + custom row → camelCase shape.
       getRecommendationResponses: async () => {
         const { data, error } = await getSupabaseAdmin()

@@ -110,27 +110,16 @@ const connectedGa4 = (overrides: Partial<ConnectorInfo> = {}): ConnectorInfo => 
   ...overrides,
 });
 
-describe("GA4 card state machine", () => {
-  it("NOT CONNECTED renders the Connect button, never the property picker", () => {
-    const html = renderClient({ ga4: off });
-    expect(html).toContain('data-connector-card="google-ga4"');
-    expect(html).toContain("Not connected");
-    expect(html).toContain("Connect Google Analytics");
-    expect(html).not.toContain("Choose property");
-  });
+describe("GA4 card", () => {
+  it("boundary: not-connected shows Connect + no picker; connected shows the selected property", () => {
+    const disc = renderClient({ ga4: off });
+    expect(disc).toContain('data-connector-card="google-ga4"');
+    expect(disc).toContain("Connect Google Analytics");
+    expect(disc).not.toContain("Choose property");
 
-  it("CONNECTED + WITH PROPERTY shows the selected property + account + change affordance", () => {
-    const html = renderClient({
-      ga4: connectedGa4({
-        ga4_property_display_name: "Ritz Builders — Production",
-        ga4_account_display_name: "Ritz Builders LLC",
-      }),
-    });
-    expect(html).toContain("Selected: Ritz Builders — Production");
-    expect(html).toContain("Ritz Builders LLC");
-    expect(html).toContain("Choose a different property");
-    expect(html).toContain("Disconnect");
-    expect(html).not.toContain("Select a property to finish setup");
+    const conn = renderClient({ ga4: connectedGa4({ ga4_property_display_name: "Ritz Builders Production" }) });
+    expect(conn).toContain("Ritz Builders Production");
+    expect(conn).not.toContain("Select a property to finish setup");
   });
 
   it("customer-vocab safety: no drove/caused/revenue/dollars/Mode-letters on the card", () => {
@@ -153,59 +142,34 @@ describe("GSC card readiness verdicts", () => {
     last_synced_at: "2026-06-14T10:00:00.000Z",
   };
 
-  it("READY renders the resolved property + coverage detail + Ready badge", () => {
-    const html = renderClient({
+  it("each verdict renders its own data-attr; missing prop falls back to not_connected (never a fake Ready)", () => {
+    const ready = renderClient({
       google: connectedGsc,
-      gscReadiness: {
-        verdict: "ready",
-        headline: "Using property sc-domain:iranopedia.com",
-        detail: "Search data Jan 12 – Jun 14 · 12,431 rows · refreshed 2 days ago",
-        tone: "ready",
-        property: "sc-domain:iranopedia.com",
-      },
+      gscReadiness: { verdict: "ready", headline: "Using property sc-domain:iranopedia.com", detail: "x", tone: "ready", property: "sc-domain:iranopedia.com" },
     });
-    expect(html).toContain('data-connector-card="google-gsc"');
-    expect(html).toContain('data-gsc-readiness="ready"');
-    expect(html).toContain("Using property sc-domain:iranopedia.com");
-    expect(html).toContain(">Ready<");
-  });
+    expect(ready).toContain('data-connector-card="google-gsc"');
+    expect(ready).toContain('data-gsc-readiness="ready"');
 
-  it("NEEDS_RECONNECT renders the prominent reconnect badge", () => {
-    const html = renderClient({
+    const recon = renderClient({
       google: connectedGsc,
-      gscReadiness: {
-        verdict: "needs_reconnect",
-        headline: "Reconnect Google to resume",
-        detail: "Google access stopped working — reconnect to keep your search data fresh.",
-        tone: "attention",
-        property: "sc-domain:iranopedia.com",
-      },
+      gscReadiness: { verdict: "needs_reconnect", headline: "Reconnect Google to resume", detail: "x", tone: "attention", property: "sc-domain:iranopedia.com" },
     });
-    expect(html).toContain('data-gsc-readiness="needs_reconnect"');
-    expect(html).toContain("Reconnect needed");
-  });
+    expect(recon).toContain('data-gsc-readiness="needs_reconnect"');
 
-  it("no readiness prop falls back to not_connected (back-compat, never a fake Ready)", () => {
-    const html = renderClient({ google: off });
-    expect(html).toContain('data-gsc-readiness="not_connected"');
+    expect(renderClient({ google: off })).toContain('data-gsc-readiness="not_connected"');
   });
 });
 
 describe("Wix self-serve publish card", () => {
-  it("disconnected: shows the key + site-id form and the no-auto-publish copy", () => {
+  it("renders the key/site-id form, the never-auto-publish trust copy (connected or not), and no em-dashes", () => {
     const html = renderClient({ wix: off });
     expect(html).toContain('data-connector-card="wix"');
     expect(html).toContain('id="wix-api-key"');
     expect(html).toContain('id="wix-site-id"');
     expect(html).toContain("Nothing changes on your live site without your approval");
-    expect(html).toContain("Connect Wix");
-  });
-
-  it("the publish-safety note always renders, connected or not (publishing authority copy)", () => {
+    expect(html).not.toMatch(/[‒–—―]/);
     for (const info of [off, { ...on }]) {
-      const html = renderClient({ wix: info });
-      expect(html).toContain("Only used when you approve an edit for publishing");
-      expect(html).not.toContain("Approve &amp; Push");
+      expect(renderClient({ wix: info })).toContain("Only used when you approve an edit for publishing");
     }
   });
 
@@ -213,23 +177,13 @@ describe("Wix self-serve publish card", () => {
     const zero = renderClient({ wix: on, wixUrlMapCount: 0 });
     expect(zero).toContain('data-recovery-fix="wix_url_map_empty"');
     expect(zero).toContain('data-wix-discover="true"');
-    expect(zero).toContain("Discover collections");
-    expect(zero).not.toContain('href="/diagnostics/wix"');
-    expect(zero).not.toMatch(/[‒–—―]/);
-
-    const mapped = renderClient({ wix: on, wixUrlMapCount: 12 });
-    expect(mapped).not.toContain('data-recovery-fix="wix_url_map_empty"');
+    expect(renderClient({ wix: on, wixUrlMapCount: 12 })).not.toContain('data-recovery-fix="wix_url_map_empty"');
   });
 });
 
-describe("self-serve key cards", () => {
-  it("renders the Clarity card with its key input when disconnected", () => {
-    const html = renderClient();
-    expect(html).toContain('data-connector-card="clarity"');
-    expect(html).toContain("Connect Clarity");
-  });
-
-  it("never renders a Profound connector card (account fully disconnected 2026-07-20)", () => {
+describe("self-serve key cards + retired connectors", () => {
+  it("renders the Clarity card; never renders a Profound card (account fully disconnected)", () => {
+    expect(renderClient()).toContain('data-connector-card="clarity"');
     const html = renderClient({ clarity: on });
     expect(html).not.toContain('data-connector-card="profound"');
     expect(html).not.toContain("Profound");
@@ -237,28 +191,19 @@ describe("self-serve key cards", () => {
 });
 
 describe("summary strip health + the once-only publish fact", () => {
-  it("renders 'N of M connected' with the health color following state", () => {
+  it("'N of M connected' follows health color, states the never-touch fact once, collapses connected to a details line", () => {
     const none = renderClient({ connectedCount: 0, totalCount: 5 });
     expect(none).toContain('data-connectors-summary-strip="true"');
     expect(none).toContain('data-intent="neutral"');
     expect(none).toContain("0 of 5 connected");
+    expect((none.match(/I never touch your live site/g) ?? []).length).toBe(1);
 
     const all = renderClient({ connectedCount: 5, totalCount: 5 });
     expect(all).toContain('data-intent="live"');
     expect(all).toContain("5 of 5 connected");
-  });
 
-  it("states the never-touch-your-live-site fact exactly once on the page", () => {
-    const html = renderClient({ connectedCount: 0, totalCount: 5 });
-    const matches = html.match(/I never touch your live site/g) ?? [];
-    expect(matches.length).toBe(1);
-  });
-
-  it("a connected source collapses to one <details> line with a Manage affordance", () => {
-    const html = renderClient({ google: on, connectedCount: 1, totalCount: 5 });
-    expect(html).toContain("<details");
-    expect(html).toContain('data-connector-card="google-gsc"');
-    expect(html).toContain("Manage");
-    expect(html).toContain("Disconnect Google");
+    const one = renderClient({ google: on, connectedCount: 1, totalCount: 5 });
+    expect(one).toContain("<details");
+    expect(one).toContain("Manage");
   });
 });

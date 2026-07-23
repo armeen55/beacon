@@ -207,13 +207,16 @@ function sliceHelperBody(source: string, name: string): string {
 }
 
 describe("Tier A sync* helpers stay tenant-wired (static invariant)", () => {
+  // syncChangelogEntries + syncObservationRuns removed 2026-07-22 (CORE 100K
+  // persistence collapse): both writers were dead (zero live callers) and were
+  // deleted from dual-write.ts. The tenant-isolation INVARIANT stays proven by
+  // the surviving Tier A helpers below (every one still requires tenantId and
+  // routes rows through tenantizeRows before any I/O).
   const TIER_A_SYNC_HELPERS = [
     "syncImportRuns",
-    "syncChangelogEntries",
     "syncPages",
     "syncDailyMetricSnapshots",
     "syncPromptAnswerObservations",
-    "syncObservationRuns",
     "syncPageSnapshots",
     "syncScanFindings",
     "syncRecommendationResponses",
@@ -231,12 +234,6 @@ describe("Tier A sync* helpers stay tenant-wired (static invariant)", () => {
       expect(body).toMatch(/tenantizeRows\(/);
     });
   }
-
-  it("syncObservationRuns dedupes by run_id before upserting (the 2026-04-27 ON CONFLICT fix)", () => {
-    const body = sliceHelperBody(DUAL_WRITE_SOURCE, "syncObservationRuns");
-    expect(body).toMatch(/dedupedByRunId\s*=\s*new Map/);
-    expect(body).toMatch(/dualWriteUpsert\(\s*["']observation_runs["'][^)]*dedupedRows/);
-  });
 
   it("syncRecommendedEdits uses STRICT dualWriteUpsertScoped with the tenant-leading compound key", () => {
     const body = sliceHelperBody(DUAL_WRITE_SOURCE, "syncRecommendedEdits");

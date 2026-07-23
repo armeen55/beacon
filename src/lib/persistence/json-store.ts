@@ -62,280 +62,47 @@ import { resolveDataPath } from "./resolve-data-path";
  * Migration: migrations/2026-07-01_json_store_blobs.sql (additive).
  */
 export const SUPABASE_MIRRORED_STORES = new Set<string>([
-  "dataforseo-keywords-cache",
-  "dataforseo-serp-cache",
-  "research-serp-patterns",
+  // 2026-07-22 (CORE 100K persistence collapse): pruned to the stores with a
+  // SURVIVING live reader/writer. The 28-domain strip deleted every producer/
+  // consumer of the other ~42 stores that used to live here (autopilot-state,
+  // demand-graph-snapshot, worklist-surface, the seasonality/forecast/team fleet,
+  // publish-outbox, claim-graph, etc.); their mirror registrations were pure dead
+  // weight — nothing calls readStore/writeStore with those names anymore. Each
+  // name below is grep-verified to have at least one live consumer file.
+
+  // Public market-data caches — the cost-discipline guarantee (a re-run inside
+  // the TTL must not re-spend); read by the evidence readers.
+  "dataforseo-keywords-cache", // domains/evidence/readers/dataforseo-keywords.ts
+  "dataforseo-serp-cache", // domains/evidence/readers/dataforseo-serp.ts
+  // Deterministic competitor-page teardown; read by passage-answerability.ts.
   "competitor-page-audit",
-  "dataforseo-llm-mentions",
-  "citation-intelligence-snapshot",
-  // 2026-07-01 items 93/94 - the SWR surface snapshots. Without the mirror, Vercel lambdas
-  // only keep them in-process (warm-lambda-only); the blob makes warm true across instances.
-  // 2026-07-03 R4 adds results-surface (the re-measured proof ledger snapshot) to the
-  // same set: without the mirror every hosted /results open pays the full re-measure.
-  "worklist-surface",
-  "results-surface",
-  // 2026-07-15 - the atomic Today+Changes customer release (the ONLY persisted
-  // snapshot for those two routes since the 2026-07-21 loader consolidation
-  // retired the today-surface and changes-surface shadow blobs). Without the
-  // mirror every hosted lambda starts cold and pays the ~14s allocator fuse.
+  // The two customer-visible SWR surface snapshots (the ONLY persisted Today+
+  // Changes / re-measured proof-ledger releases). Without the mirror every
+  // hosted lambda starts cold and pays the full rebuild/re-measure.
   "customer-surface",
-  // 2026-07-08 - the SOURCE demand-graph SWR snapshot (graph-snapshot-store.ts). This was
-  // the missed one: worklist-surface + today-surface (both DERIVED from it) were mirrored
-  // on 2026-07-01, but the ~6s graph build they read was not, so on Vercel it lived only in
-  // one warm lambda's memory and evaporated between instances - meaning nearly EVERY /today,
-  // /worklist, and /new-pages load paid the full cold rebuild (prod had zero snapshot rows
-  // while the two derived surfaces persisted fine). Mirroring it makes the cross-request
-  // stale-while-revalidate cache actually work on hosted prod: first build persists, every
-  // later request on any instance serves it instantly and refreshes in the background.
-  "demand-graph-snapshot",
-  // 2026-07-01 item 1 - trust-budget autopilot state (armed config + daily-run marker +
-  // receipts). Must be durable on hosted prod: a file-only write would silently lose the
-  // operator's arming and the weekly-budget count on lambda recycle. Fail direction is
-  // safe: a missing blob reads as the default DISABLED config.
-  "autopilot-state",
-  // 2026-07-09 I-59 - on-visit refresh throttle marker. Written from the Today render
-  // (Vercel lambda: no disk) and read on the next visit to throttle the background
-  // auto-refresh; without the mirror the marker dies between lambdas and every visit
-  // would re-fire a refresh (a refresh storm) instead of respecting the throttle window.
-  "on-visit-refresh-marker",
-  // 2026-07-01 item 4 - nightly AI-engines poll. The answer cache is a COST guarantee
-  // (a same-night retry must not re-spend), the run guard is the idempotency guarantee,
-  // and the gap summary is what Today + the candidate builder read; on Vercel none of
-  // these survive without the mirror.
-  "ai-engine-answers",
+  "results-surface",
+  // Nightly AI-engines poll idempotency guard; read by warm-receipt-store.ts.
   "ai-engine-poll-runs",
-  "ai-engine-gap-summary",
-  // 2026-07-02 item 10 - nightly pipeline invariant check results. Written by the
-  // cron (Vercel lambda: no disk), read by the Today Ops card; without the mirror
-  // the watchdog's own output would be silent-empty on hosted prod.
+  // Ops ledgers written from cron lambdas (no disk), read by error-ledger.ts /
+  // the Today Ops + deadman cards.
   "pipeline-violations",
-  // 2026-07-03 T0c - nightly site uptime probes (status + TTFB per tenant).
-  // Written by the cron (Vercel lambda: no disk), read by the deadman banner
-  // on Today; without the mirror "down twice in a row" could never be seen
-  // across lambda instances on hosted prod.
   "site-uptime-probes",
-  // 2026-07-03 R12/T0e - the resumable cold-start crawl queue (frontier +
-  // cursor + per-page audit facts). Every batch runs in its own lambda, so
-  // without the mirror the cursor resets to page zero on every invocation
-  // and the crawl could never get past one batch on hosted prod.
-  "crawl-frontier",
-  // 2026-07-03 R16 (P6 LLM engine pack) - the structured-drafter call cache
-  // (content hash -> validated output). Without the mirror every hosted lambda
-  // starts cold and an identical regeneration request pays the LLM again; the
-  // mirror is what makes the $0-repeat guarantee true on Vercel.
-  "llm-call-cache",
-  // 2026-07-02 item 13 - nightly precompute warm pass. The per-day run marker
-  // (double-fire idempotency) and the "last warmed" receipt /diagnostics shows
-  // must survive lambda recycling; losing the marker only costs a harmless
-  // re-warm, but the mirror keeps the receipt line truthful on hosted prod.
-  "precompute-warm-receipts",
-  // 2026-07-02 item 14 - nightly query-spike radar. Written by the cron (Vercel
-  // lambda: no disk), read by the Today Demand band + the daily plan builder;
-  // without the mirror this week's spikes would be silent-empty on hosted prod.
-  "trend-query-spikes",
-  // 2026-07-02 item 21 - nightly seasonality pass over the permanent GSC
-  // monthly archive. Written by the cron (Vercel lambda: no disk), read by
-  // the Today Demand band + the daily plan builder; without the mirror the
-  // detected seasonal windows would be silent-empty on hosted prod.
-  "seasonal-windows",
-  // 2026-07-02 item 63 - the proven-vs-one_season peak calendar (seasonal
-  // windows cross-checked against DataForSEO Labs historical volume). Written
-  // by the cron (Vercel lambda: no disk), read by the daily plan candidate
-  // feed; without the mirror the calendar would be silent-empty on hosted prod.
-  "seasonal-peak-calendar",
-  // 2026-07-02 item 69 - per-pageFamily weekly+annual demand profiles and the
-  // tenant's event calendar (derived entries + operator edits). Written by the
-  // seasonality pass / operator CRUD (Vercel lambda: no disk); without the
-  // mirror both would be silent-empty (profiles) or lose operator edits
-  // (calendar) on hosted prod after a lambda recycle.
-  "seasonal-family-profiles",
-  // 2026-07-02 item 56 - nightly refresh queue (pages losing clicks quarter
-  // over quarter + their evidence briefs). Written by the cron (Vercel
-  // lambda: no disk), read by the Today Demand band + the daily plan
-  // builder; without the mirror the queue would be silent-empty on hosted prod.
-  "refresh-queue",
-  // 2026-07-02 item 26 - the mined citability pattern profile (what AI
-  // actually quotes in this tenant's space). Written by the mining pass
-  // (no disk on Vercel lambdas), read by the daily card's evidence brief
-  // and the citability hint feed; without the mirror the profile would be
-  // silent-empty on hosted prod.
-  // 2026-07-02 items 27/28 - the forecast calibration ledger (per-pick forecast
-  // range vs the realized 28-day monthly click lift, plus outcome inside/above/
-  // below). Written by the day-28 measure pass (Vercel lambda, no disk); read by
-  // the /results "how honest are my forecasts" card and by pick-expectations.ts's
-  // bias-correction factor. Without the mirror both would be silent-empty on
-  // hosted prod after every lambda recycle.
-  "forecast-calibration",
-  // 2026-07-02 item 30 - winner memory (retained mature-won before/after text +
-  // structural features per actionFamily, harvested from the measure-pass tail).
-  // Written by a Vercel lambda (no disk); read by structured-drafter's few-shot
-  // injection. Without the mirror the drafter would silently never see house
-  // winners on hosted prod even after real ships settle.
-  "winner-memory",
-  // 2026-07-02 item 31 - A/A calibration harness (nightly placebo pass measuring
-  // Beacon's own false-positive rate + deriving per-traffic-tier verdict floors).
-  // Written by a Vercel lambda (no disk); read by measure.ts's readFloorsFor on
-  // every real verdict and by the /results explainer's honesty sentence. Without
-  // the mirror both would silently fall back to the shipped defaults forever.
-  "aa-calibration",
-  // 2026-07-02 item 32 - algorithm-weather guard (nightly CUSUM changepoint
-  // pass over sitewide daily GSC totals, detecting Google core-update-shaped
-  // sitewide shocks). Written by a Vercel lambda (no disk); read by the
-  // Results page caveat line and the prior/lesson exclusion gate. Without the
-  // mirror the detected shocks would be silent-empty on hosted prod after
-  // every lambda recycle, and quarantined verdicts would silently un-quarantine.
-  "algorithm-weather-shocks",
-  // 2026-07-03 BEACON_500 N32 - external-event ledger (nightly merge of
-  // algorithm-weather shocks + deadman connector outages + own-site change
-  // clusters into ONE honest-context ledger). Written by a Vercel lambda (no
-  // disk); read by the Results caveat line. Without the mirror every detected
-  // outage/cluster would be silent-empty on hosted prod after a lambda recycle.
-  "external-event-ledger",
-  // 2026-07-02 item 34 - pooled batch verdicts (same-plan same-lever multi-page
-  // batches stacked into one powered estimate). Written by a Vercel lambda (no
-  // disk) from the measure-pass tail; read by /results's batch line. Without the
-  // mirror every pooled verdict would be silent-empty on hosted prod after every
-  // lambda recycle, hiding a real cross-page pattern the operator paid to learn.
-  "pooled-verdicts",
-  // 2026-07-02 item 16 - competitor keyword gap engine. The Labs cache is a COST
-  // guarantee (a re-run within 30 days must not re-spend, which only holds on
-  // Vercel with the mirror); the results store is what the New Pages board reads
-  // at $0. File-only, both would be silent-empty on hosted prod.
-  "dataforseo-labs-cache",
-  "keyword-gap-results",
-  // 2026-07-02 item 23 - beat-Wikipedia finder. The article-facts cache is a
-  // COST/POLITENESS guarantee (a re-run within 30 days must not re-hit the free
-  // Wikipedia API, which only holds on Vercel with the mirror); the results
-  // store is what the New Pages board reads at $0. File-only, both would be
-  // silent-empty on hosted prod.
-  "wiki-gap-article-cache",
-  "wiki-gap-results",
-  // 2026-07-02 item 38 - team scoreboard (per-specialist and per (specialist,
-  // actionFamily) Brier scores + won/flat/lost tallies, joined from settled proof
-  // verdicts back to the TeamReview voices on the plan pick that shipped them).
-  // Written by a Vercel lambda (no disk) from the measure-pass tail; read by the
-  // Today standup strip's honest best-forecaster footer. Without the mirror the
-  // scoreboard would be silent-empty on hosted prod after every lambda recycle.
-  "team-scoreboard",
-  // 2026-07-02 item 51 - the weekly strategy review's append-only lever-mix
-  // history (proposed lever weights + focus families + signed memo per week).
-  // Written by the Sunday-night cron (Vercel lambda, no disk); read by
-  // build-today-preview.ts's multiplier and the Monday recap band. Without the
-  // mirror the mix would silently reset to neutral on hosted prod every recycle.
-  "strategy-mix-history",
-  // 2026-07-02 item 53 - overnight forensic investigation diagnosis cards (one
-  // row per tenant/family/week). Written by the nightly cron's isolated
-  // investigation phase (Vercel lambda, no disk); read by the Today
-  // investigation card. Without the mirror a diagnosis would vanish on the
-  // next lambda recycle, and the idempotency check (one investigation per
-  // family per week) would silently stop working too.
-  "forensic-investigations",
-  // 2026-07-02 item 62 - the page factory's weekly batch of demand-validated,
-  // drafted-but-staged candidates (one row per tenant/weekOf). Written by the
-  // weekly cron (Vercel lambda, no disk); read by the New Pages board's
-  // review card. Without the mirror the batch (and its per-page approve/skip
-  // state) would vanish on the next lambda recycle, and the weekly idempotency
-  // check would silently stop working too.
-  "page-factory-batches",
-  // 2026-07-02 item 60 - clone-and-beat briefs (traffic-weighted competitor money
-  // pages run through the existing teardown, "their best page, our better version").
-  // Written by the operator-triggered producer (Vercel lambda, no disk); read by
-  // /competitors at $0. Without the mirror the briefs would vanish on the next
-  // lambda recycle, forcing a re-spend to see them again.
-  "clone-brief-results",
-  // 2026-07-02 item 65 - the shadow portfolio (top rejected-but-eligible candidates
-  // captured at plan time). Written inside build-today-preview.ts (Vercel lambda, no
-  // disk); read by the /results "picks vs skipped" line and the drift-vs-forecast
-  // calibration feed. Without the mirror each night's captured batch would vanish on
-  // the next lambda recycle, and the comparison would never accumulate a real sample.
-  "shadow-portfolio-candidates",
-  // 2026-07-02 item 73 - Wikidata entity grounding. Same COST/POLITENESS rationale as
-  // wiki-gap-article-cache: a re-run within 30 days must not re-hit the free Wikidata
-  // API, which only holds on Vercel with the mirror (file-only writes skip disk there).
-  "wikidata-entity-cache",
-  // 2026-07-02 BEACON_500 item 75 - IndexNow lane. The config (operator-pasted key +
-  // optional host/keyLocation/Bing Webmaster key) is written from a request-context
-  // server action; the receipts are written from the verify-live path. Both are Vercel
-  // lambda writes (no disk) - without the mirror the operator's saved key would vanish
-  // on the next lambda recycle (silently disarming the lane) and the receipt trail
-  // ("I told Bing X minutes after this went live") would always read empty on hosted prod.
-  "indexnow-config",
-  "indexnow-receipts",
-  // 2026-07-02 master plan item 86 - the nightly publish-path canary (Wix token
-  // probe + dry-run per tenant). Written by the cron (Vercel lambda: no disk),
-  // read by the publishing-mode card; without the mirror a dead token or stale
-  // url-map would only ever be visible for one warm-lambda instance, not the
-  // durable "I checked your connection last night" the operator relies on.
-  "publish-health",
-  // 2026-07-03 BEACON_500 R7 / N39 - the production error spine (app-errors).
-  // Errors are recorded almost exclusively ON Vercel lambdas (cron phases,
-  // background refreshes, server actions) where file writes skip disk; without
-  // the mirror /diagnostics/errors and the Today error-spike line would be
-  // silent-empty on hosted prod, which is exactly the failure class the spine
-  // exists to end. The blob helpers' PGRST205/42P01 handling doubles as the
-  // required file-fallback before the json_store_blobs migration exists.
   "app-errors",
-  // 2026-07-02 DREAM SITE V1 item D7 - the opportunity hypothesis log (every
-  // forecast opportunity-math.ts renders to the operator, logged so a later
-  // day-28 settle can be graded against it). Written from request-context page
-  // loads (Vercel lambda: no disk) - without the mirror the log would vanish on
-  // the next lambda recycle and forecasts could never be graded for real.
-  "opportunity-hypotheses",
-  // 2026-07-03 BEACON_500 R11 / N30 - the demand-ranked question universe.
-  // Rebuilt + written by the nightly cron on Vercel lambdas (no disk); without
-  // the mirror every consumer (drafter seeding, /prompts unanswered-questions
-  // section, New Pages brief questions) would read empty on hosted prod the
-  // moment the lambda recycled, silently muting the whole N30 feature.
+  // Resumable cold-start crawl cursor — every batch is its own lambda, so the
+  // mirror is what lets the crawl advance past batch one on hosted prod.
+  "crawl-frontier",
+  // Structured-drafter call cache (content hash -> validated output): the
+  // $0-repeat guarantee on Vercel. domains/llm/call-cache.ts.
+  "llm-call-cache",
+  // Nightly precompute warm receipts; read by warm-receipt-store.ts.
+  "precompute-warm-receipts",
+  // Winner memory (few-shot injection for the drafter); domains/llm/winner-memory.ts.
+  "winner-memory",
+  // Demand-ranked question universe; read by the ai-visibility + evidence readers.
   "question-universe",
-  // 2026-07-03 BEACON_500 R13 / N3 - the claim-level provenance graph.
-  // Rebuilt by the nightly cron on Vercel lambdas (no disk) and appended
-  // from the ship path (also a lambda); without the mirror every consumer
-  // (the daily card's per-claim source lines, the claim-conflict trigger,
-  // /diagnostics/provenance) would read empty on hosted prod the moment the
-  // lambda recycled, silently muting the whole N3 feature.
-  "claim-graph",
-  // 2026-07-03 BEACON_500 R13b / N26 - fact-propagation plans. Appended from
-  // the ship path (a lambda); without the mirror the propagation history on
-  // /diagnostics/provenance would vanish on the next lambda recycle and the
-  // operator could never see which prepared one-line fixes are still open.
-  "fact-propagation-plans",
-  // 2026-07-03 BEACON_500 R17b (v1 136+268) - weekly GSC dimension snapshots
-  // (searchAppearance + device aggregates). Written by the nightly cron on
-  // Vercel lambdas (no disk); the weekly cadence check reads the newest
-  // snapshot, so without the mirror every lambda recycle would look like
-  // "never pulled" and the pass would re-spend its API calls nightly.
+  // Weekly GSC dimension snapshots + the fresh-tail volatile presentation cache.
   "gsc-weekly-dimensions",
-  // 2026-07-03 BEACON_500 R17b (v1 264) - the fresh-tail volatile cache
-  // (Google's EARLY per-day counts for the settling window). Presentation
-  // cache only, 3h TTL; the mirror makes the TTL hold across lambda
-  // instances so a busy Today page fires at most one fresh read per window.
   "gsc-fresh-tail",
-  // 2026-07-03 BEACON_500 R17c (v1 493) - the Discover-probe volatile cache
-  // (aggregate Google Discover totals, a separate feed most properties never
-  // receive). Presentation cache only, 12h TTL; the mirror makes the TTL hold
-  // across lambda instances so a quiet feed is probed at most once per window.
-  "gsc-discover-probe",
-  // 2026-07-03 BEACON_500 R22a / N41 - idempotent publish outbox. Rows carry
-  // tenant_id; written on the push path (a Vercel lambda, no disk). Without the
-  // mirror the terminal per-key row would vanish on the next lambda recycle and a
-  // cron retry or a delayed re-click could double-publish the SAME change to the
-  // live site, which is the exact hole this outbox exists to close.
-  "publish-outbox",
-  // 2026-07-03 BEACON_500 R22a / T0d - backup-verification receipts.
-  // LEGACY (2026-07-21, Phase 4A Lane 2): the producer was cron-only and was
-  // deleted with the rest of the unwired fleet producers; nothing writes here
-  // anymore. Left in the mirrored set (not removed) so the historical prod blob
-  // stays readable rather than orphaned. This was always the verify module's
-  // OWN receipt (a distinct scope_key), never one of the stores it verified.
-  "backup-verify-receipts",
-  // Release-level blind benchmark receipts. Without this mirror a legitimate
-  // hosted receipt would disappear with the Vercel instance and the release
-  // could never carry durable independent-validation evidence.
-  "blind-holdout-receipts",
-  // Server-stamped preregistration/prediction/reveal events. These are the
-  // evidence substrate from which a blind receipt is generated; they must
-  // survive Vercel instance recycling just like the receipt they support.
-  "blind-holdout-case-events",
 ]);
 
 const BLOBS_TABLE = "json_store_blobs";

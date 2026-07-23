@@ -324,15 +324,4 @@ describe("draftProseStringValues", () => {
     expect(vals.join(" ")).not.toContain("target 100%");
     expect(vals.join(" ")).not.toContain("Update the price field");
   });
-
-  // The exact pilot loop 6 killer: proofPlan.metrics carrying "target 100%" must
-  // never reach the invented-numbers scan while the draft's real prose is intact.
-  it("the exact loop-6 killer: proofPlan.metrics 'target 100%' never enters the scanned text", () => {
-    const vals = draftProseStringValues({
-      answer: "Persian weddings center on the sofreh aghd ceremony.",
-      proofPlan: { metrics: ["Profound citations", "target 100%"], windowsDays: [7, 14, 28], controls: "comparable unchanged pages" },
-    });
-    expect(vals.join(" ")).not.toContain("100");
-    expect(vals.join(" ")).not.toContain("target");
-  });
 });

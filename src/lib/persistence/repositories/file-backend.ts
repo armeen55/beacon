@@ -17,15 +17,12 @@ import type {
   PageEntity,
   PageSnapshot,
 } from "@/domains/pages/types";
-import type { GuardrailAlert } from "@/domains/pages/guardrails";
 import type { ObservationRun } from "@/domains/observations/types";
 import { readObservationRunsMergedSync } from "@/domains/observations/observation-runs-merge";
-import type { ConfiguredCompetitorEntry } from "@/domains/competitors/universe-types";
-import { getFindings, getPendingFindings } from "@/domains/scanning/findings-store";
+import { getFindings } from "@/domains/scanning/findings-store";
 import type { RecommendationResponse } from "@/domains/product/recommendation-response-store";
 import type { UrlChangeOutcome } from "@/domains/attribution/url-change-outcome";
 import type { RecommendedEditRow } from "@/domains/recommendations/recommended-edits-persistence";
-import type { PageElementInventoryRow } from "@/domains/pages/extractors/persist";
 import type { PromptAnswerObservation } from "@/domains/prompt-answer-observations/types";
 import type { DailyMetricSnapshot } from "@/domains/daily-metric-snapshots/types";
 import type { TrackedEntity } from "@/domains/tracked-entities/types";
@@ -71,17 +68,7 @@ export const fileBackend: SeedDataRepository = {
         internal_links: s.internal_links!,
       })),
 
-  getGuardrailAlerts: async () =>
-    (await readDotDataJson<GuardrailAlert[]>("page-guardrails")) ?? [],
-
   getObservationRuns: async () => await readObservationRunsMergedSync(),
-
-  getCompetitorConfigEntries: async () => {
-    const raw = await readDotDataJson<{ competitors?: ConfiguredCompetitorEntry[] }>(
-      "competitor-universe",
-    );
-    return raw?.competitors?.filter(Boolean) ?? [];
-  },
 
   // (Dead columns removed 2026-07-21, CORE 100K Lane O: page-snapshot-diffs,
   // render-checks, legacy-global sitemap-reconciliation, visibility runs,
@@ -96,7 +83,6 @@ export const fileBackend: SeedDataRepository = {
 
   // Phase 7 — scan findings via repository
   getScanFindings: async () => getFindings(),
-  getPendingScanFindings: async () => getPendingFindings(),
 
   // Phase 1a — operator loop stores
   getRecommendationResponses: async () =>
@@ -110,12 +96,6 @@ export const fileBackend: SeedDataRepository = {
   // empty array when missing.
   getRecommendedEdits: async () =>
     (await readDotDataJson<RecommendedEditRow[]>("recommended-edits")) ?? [],
-
-  // Sprint 6A.1 Phase 14 — page_element_inventory read path.
-  // .data/page-element-inventory.json is written by scan-owned-pages CLI;
-  // local-mode reads through readDotDataJson. Empty when no scan has run.
-  getPageElementInventory: async () =>
-    (await readDotDataJson<PageElementInventoryRow[]>("page-element-inventory")) ?? [],
 
   // Phase 3.5E — hero-surface data (local mode reads same files canonical-store
   // reads at module init; arrays are already hot in memory, so these re-reads

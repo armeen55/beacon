@@ -26,9 +26,6 @@ import {
   readDotDataJson,
   writeDotDataJson,
 } from "@/lib/persistence/dotdata-json";
-import type {
-  SitemapReconciliation,
-} from "@/domains/pages/types";
 import type { RobotsStateFile } from "@/domains/pages/robots-parser";
 
 /**
@@ -55,16 +52,8 @@ export function buildTenantRepo(
     getPages: async () => filterByTenantId(await base.getPages(), tenantId),
     getPageSnapshots: async () =>
       filterByTenantId(await base.getPageSnapshots(), tenantId),
-    // audit #12 (2026-06-14) — the file backend's getPageSnapshots reads
-    // every row off disk (no 500-row cap), so the generation read is the
-    // same tenant-filtered full set. The cap only exists on the Supabase
-    // tenant-scoped reader; here there's nothing to un-cap.
-    getAllPageSnapshotsForGeneration: async () =>
-      filterByTenantId(await base.getPageSnapshots(), tenantId),
     getPageSnapshotLinkGraphs: async () =>
       filterByTenantId(await base.getPageSnapshotLinkGraphs(), tenantId),
-    getPageElementInventory: async () =>
-      filterByTenantId(await base.getPageElementInventory(), tenantId),
     getRecommendedEdits: async () =>
       filterByTenantId(await base.getRecommendedEdits(), tenantId),
     getRecommendationResponses: async () =>
@@ -73,10 +62,6 @@ export function buildTenantRepo(
       filterByTenantId(await base.getChangelogEntries(), tenantId),
     getScanFindings: async () =>
       filterByTenantId(await base.getScanFindings(), tenantId),
-    getPendingScanFindings: async () =>
-      filterByTenantId(await base.getPendingScanFindings(), tenantId),
-    getGuardrailAlerts: async () =>
-      filterByTenantId(await base.getGuardrailAlerts(), tenantId),
     getObservationRuns: async () =>
       filterByTenantId(await base.getObservationRuns(), tenantId),
     getResults: async () => filterByTenantId(await base.getResults(), tenantId),
@@ -152,35 +137,18 @@ export function buildTenantRepo(
     getCompetitors: async () =>
       filterByTenantId(await base.getCompetitors(), tenantId),
     // ─────────────────────────────────────────────────────────────────
-    // Phase A.3 (post-A.3.5) — tenant-scoped robots-state +
-    // sitemap-reconciliation. File-backend routes both through
-    // dotdata-json's classification dispatch:
-    //   • `robots-state` is SINGLETON → resolved to
-    //     `.data/tenants/{slug}/robots-state.json` (slug from
-    //     AsyncLocalStorage). The pre-A.3 flat-path file
-    //     (`.data/robots-state.json`) is retired by the parallel
-    //     robots-parser retrofit.
-    //   • `sitemap-reconciliation` was flipped GLOBAL → TENANT_SCOPED
-    //     in `store-classification.ts` as part of this step; it now
-    //     resolves to `.data/tenants/{slug}/sitemap-reconciliation.json`.
-    // Soft-fail to null on missing data — supabase-backend matches
-    // this with the 42P01 undefined-table soft-fail (sequencing
-    // model A).
+    // Phase A.3 (post-A.3.5) — tenant-scoped robots-state. File-backend
+    // routes it through dotdata-json's classification dispatch:
+    // `robots-state` is SINGLETON → resolved to
+    // `.data/tenants/{slug}/robots-state.json` (slug from
+    // AsyncLocalStorage). Soft-fail to null on missing data —
+    // supabase-backend matches this with the 42P01 undefined-table
+    // soft-fail (sequencing model A).
     // ─────────────────────────────────────────────────────────────────
     getRobotsState: async () =>
       (await readDotDataJson<RobotsStateFile>("robots-state")) ?? null,
     setRobotsState: async (state: RobotsStateFile) => {
       await writeDotDataJson<RobotsStateFile>("robots-state", state);
-    },
-    getSitemapReconciliation: async () =>
-      (await readDotDataJson<SitemapReconciliation>(
-        "sitemap-reconciliation",
-      )) ?? null,
-    setSitemapReconciliation: async (recon: SitemapReconciliation) => {
-      await writeDotDataJson<SitemapReconciliation>(
-        "sitemap-reconciliation",
-        recon,
-      );
     },
   };
 }

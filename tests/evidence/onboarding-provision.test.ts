@@ -90,18 +90,10 @@ const USER = {
 // ── Pure helpers ──────────────────────────────────────────────────────
 
 describe("deriveTenantId", () => {
-  it("produces a deterministic id from the auth user UUID", () => {
+  it("is deterministic, strips dashes, and lowercases uppercase UUIDs", () => {
     expect(deriveTenantId(USER.userId)).toBe("tenant-8c9d2f4a");
-  });
-
-  it("strips dashes and lowercases (UUIDs may arrive uppercase)", () => {
-    expect(deriveTenantId("ABCD1234-EF56-7890-AB12-CD34EF567890")).toBe(
-      "tenant-abcd1234",
-    );
-  });
-
-  it("same userId → same tenantId (idempotency at the id level)", () => {
     expect(deriveTenantId(USER.userId)).toBe(deriveTenantId(USER.userId));
+    expect(deriveTenantId("ABCD1234-EF56-7890-AB12-CD34EF567890")).toBe("tenant-abcd1234");
   });
 });
 
@@ -142,22 +134,12 @@ describe("derivePlaceholderBusinessName", () => {
 });
 
 describe("PROVISIONING_DEFAULTS — operator-locked", () => {
-  it("status is pending_onboarding (NEVER active on signup)", () => {
+  it("locks status=pending_onboarding (never active on signup), role=beta_customer, budget=5, member_role=owner", () => {
+    // status must never flip to 'active' — that would auto-include the new
+    // tenant in cron polling (the active-status lister).
     expect(PROVISIONING_DEFAULTS.status).toBe("pending_onboarding");
-    // Pin against accidental flip to 'active' which would auto-include
-    // the new tenant in cron polling (Gap A's lister filters status='active').
-    expect(PROVISIONING_DEFAULTS.status as string).not.toBe("active");
-  });
-
-  it("role is beta_customer (NOT founder, NOT paid_customer)", () => {
     expect(PROVISIONING_DEFAULTS.role).toBe("beta_customer");
-  });
-
-  it("daily_budget_usd defaults to 5", () => {
     expect(PROVISIONING_DEFAULTS.daily_budget_usd).toBe(5);
-  });
-
-  it("member_role is owner (first user owns their tenant)", () => {
     expect(PROVISIONING_DEFAULTS.member_role).toBe("owner");
   });
 });

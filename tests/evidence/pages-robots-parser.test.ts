@@ -277,61 +277,24 @@ describe("evaluateGooglebotAccess", () => {
     expect(v.allowed).toBe(true);
   });
 
-  it("matches the User-agent case-insensitively (lowercase 'googlebot')", () => {
-    const text = [
-      "User-agent: googlebot",
-      "Disallow: /private/",
-    ].join("\n");
-    const r = parseRobotsText(text, "x", 200);
-    const v = evaluateGooglebotAccess(r, "/private/report");
-    expect(v.allowed).toBe(false);
-  });
-
-  it("matches the User-agent case-insensitively (mixed-case 'GoogleBot')", () => {
-    const text = [
-      "User-agent: GoogleBot",
-      "Disallow: /private/",
-    ].join("\n");
-    const r = parseRobotsText(text, "x", 200);
-    const v = evaluateGooglebotAccess(r, "/private/report");
-    expect(v.allowed).toBe(false);
-  });
-
-  it("does NOT affect AI crawler evaluation — AI-bot output unchanged when Googlebot block exists", () => {
-    // Googlebot-only block; AI bots fall through to default allow
-    // (no AI-specific block, no *).
-    const text = [
-      "User-agent: Googlebot",
-      "Disallow: /private/",
-    ].join("\n");
-    const r = parseRobotsText(text, "x", 200);
-    const ai = evaluateAiBotAccess(r, "/private/report");
-    // Every AI crawler default-allows when no rules apply.
-    expect(ai.anyDisallowed).toBe(false);
-    for (const crawler of AI_CRAWLERS) {
-      expect(ai.perCrawler[crawler].allowed).toBe(true);
+  it("matches the User-agent case-insensitively (lowercase + mixed-case)", () => {
+    for (const agent of ["googlebot", "GoogleBot"]) {
+      const r = parseRobotsText([`User-agent: ${agent}`, "Disallow: /private/"].join("\n"), "x", 200);
+      expect(evaluateGooglebotAccess(r, "/private/report").allowed).toBe(false);
     }
-    // And Googlebot itself IS blocked on the same path.
-    expect(evaluateGooglebotAccess(r, "/private/report").allowed).toBe(
-      false,
-    );
   });
 
-  it("does NOT affect AI crawler evaluation — when a * block also exists, AI bots see the * rule independently", () => {
-    // * block disallows /admin/ globally. Googlebot block carves an
-    // exception for itself. AI bots should still see the * rule.
-    const text = [
-      "User-agent: *",
-      "Disallow: /admin/",
-      "",
-      "User-agent: Googlebot",
-      "Disallow:",
-    ].join("\n");
-    const r = parseRobotsText(text, "x", 200);
-    expect(
-      evaluateGooglebotAccess(r, "/admin/dashboard").allowed,
-    ).toBe(true);
-    const ai = evaluateAiBotAccess(r, "/admin/dashboard");
-    expect(ai.anyDisallowed).toBe(true);
+  it("Googlebot and AI-crawler evaluation are independent (each sees its own block, or the * rule)", () => {
+    // Googlebot-only block: AI bots fall through to default allow, Googlebot is blocked.
+    const gbOnly = parseRobotsText(["User-agent: Googlebot", "Disallow: /private/"].join("\n"), "x", 200);
+    const aiUnblocked = evaluateAiBotAccess(gbOnly, "/private/report");
+    expect(aiUnblocked.anyDisallowed).toBe(false);
+    for (const crawler of AI_CRAWLERS) expect(aiUnblocked.perCrawler[crawler].allowed).toBe(true);
+    expect(evaluateGooglebotAccess(gbOnly, "/private/report").allowed).toBe(false);
+
+    // * block disallows /admin/, Googlebot carves an exception for itself; AI bots still see the * rule.
+    const withStar = parseRobotsText(["User-agent: *", "Disallow: /admin/", "", "User-agent: Googlebot", "Disallow:"].join("\n"), "x", 200);
+    expect(evaluateGooglebotAccess(withStar, "/admin/dashboard").allowed).toBe(true);
+    expect(evaluateAiBotAccess(withStar, "/admin/dashboard").anyDisallowed).toBe(true);
   });
 });

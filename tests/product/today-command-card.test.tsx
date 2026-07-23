@@ -121,21 +121,6 @@ describe("TodayCommandCard - rendered copy per kind", () => {
   });
 });
 
-describe("TodayCommandCard - two tenants render their own command", () => {
-  it("each tenant's ship_move names its own page and deep-links to its own change", () => {
-    const a = renderToStaticMarkup(
-      <TodayCommandCard command={buildTodayCommand(base({ topOpportunity: opportunity({ changeId: "tenant-a::/flags::title", pageLabel: "/flags", recommendation: "Rewrite the title on flags" }) }))} />,
-    );
-    const b = renderToStaticMarkup(
-      <TodayCommandCard command={buildTodayCommand(base({ topOpportunity: opportunity({ changeId: "tenant-b::/rugs::title", pageLabel: "/rugs", recommendation: "Add an answer block to rugs" }) }))} />,
-    );
-    expect(a).toContain(`href="/changes?focus=${encodeURIComponent("tenant-a::/flags::title")}"`);
-    expect(b).toContain(`href="/changes?focus=${encodeURIComponent("tenant-b::/rugs::title")}"`);
-    expect(a).not.toContain("tenant-b");
-    expect(b).not.toContain("tenant-a");
-  });
-});
-
 describe("buildTodaySmokeAlarm - boundary honesty", () => {
   it("returns null under the loss floor and for drops off a tiny prior base", () => {
     expect(

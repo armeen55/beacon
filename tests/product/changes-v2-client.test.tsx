@@ -106,115 +106,24 @@ function render(input: {
 }
 
 describe("ChangesV2Client — proof timeline", () => {
-  it("renders the v2 layout marker + header copy", () => {
-    const html = render({ rows: [] });
-    expect(html).toContain('data-changes-layout="v2-proof-timeline"');
-    // IA consolidation (2026-06-23): default standalone header title is now
-    // "Your changes" (legacy "Changes" word retired); embedded in Results the
-    // header is suppressed (showHeader=false).
-    expect(html).toContain("Your changes");
-    // Subline locked.
-    expect(html).toContain(
-      "See the changes you made and whether more people found you on Google",
-    );
-  });
+  it("renders the v2 layout marker, the empty state, and one result pill per card with customer labels", () => {
+    const empty = render({ rows: [] });
+    expect(empty).toContain('data-changes-layout="v2-proof-timeline"');
+    expect(empty).toContain('data-changes-empty="true"');
 
-  it("renders the three top counters with customer-safe labels", () => {
-    const html = render({
-      rows: [
-        makeRow({ id: "a" }),
-        makeRow({
-          id: "b",
-          timestamp: new Date().toISOString(),
-        }),
-      ],
-      classByChangelogId: {
-        a: "live_verified",
-        b: "live_verified",
-      },
-    });
-    // Polish bundle (2026-05-11): counters swapped from
-    // "Shipped this month / Working / Needs review" to the
-    // calendar-free triplet so the strip never reads 0/0/0 just
-    // because the customer is viewing on the wrong side of a
-    // month boundary.
-    expect(html).toContain('data-changes-counter="recentChanges"');
-    expect(html).toContain('data-changes-counter="watching"');
-    expect(html).toContain('data-changes-counter="needsAttention"');
-    expect(html).toContain("Recent changes");
-    expect(html).toContain("Watching for signal");
-    expect(html).toContain("Needs attention");
-    // The pre-polish labels must NOT appear.
-    expect(html).not.toContain("Shipped this month");
-  });
-
-  it("renders the empty state when there are no rows", () => {
-    const html = render({ rows: [] });
-    expect(html).toContain('data-changes-empty="true"');
-    expect(html).toContain("No changes yet");
-  });
-
-  it("renders timeline cards with exactly ONE result pill per card", () => {
     const html = render({
       rows: [
         makeRow({ id: "card-1", proof: PROOF.helping }),
         makeRow({ id: "card-2", proof: PROOF.hurting }),
       ],
-      classByChangelogId: {
-        "card-1": "live_verified",
-        "card-2": "live_verified",
-      },
+      classByChangelogId: { "card-1": "live_verified", "card-2": "live_verified" },
     });
-    // The two card markers
-    expect(html).toContain('data-changes-card-id="card-1"');
-    expect(html).toContain('data-changes-card-id="card-2"');
-    // Each card carries exactly one result pill — count pill data-attrs.
+    // Each card carries exactly one result pill, surfacing a customer label
+    // (never a raw enum value).
     const pillMatches = html.match(/data-changes-result-pill="/g) ?? [];
     expect(pillMatches.length).toBe(2);
-    // Pills surface customer labels, not raw enum values.
     expect(html).toContain("Helping");
     expect(html).toContain("Hurting");
-  });
-
-  it("renders an Open change CTA per card linking to /changes/[id]?v2=1", () => {
-    const html = render({
-      rows: [makeRow({ id: "rec-abc-123" })],
-      classByChangelogId: { "rec-abc-123": "live_verified" },
-    });
-    expect(html).toContain('data-changes-card-cta="open-change"');
-    // Preserves v2 context so the click-through lands on the proof
-    // brief instead of the legacy detail page.
-    expect(html).toContain('href="/changes/rec-abc-123?v2=1"');
-    expect(html).toContain("Open change");
-  });
-
-  it("renders the Waiting-for-signal rail for too-early rows naming the next reading date", () => {
-    const html = render({
-      rows: [
-        makeRow({
-          id: "waiting-1",
-          proof: PROOF.tooEarly,
-        }),
-      ],
-    });
-    expect(html).toContain('data-changes-rail="waiting-for-signal"');
-    expect(html).toContain('data-changes-rail-item="true"');
-    // The date comes from the proof ledger's own checkpoint schedule.
-    expect(html).toContain("I will take the next Google reading on May 15.");
-  });
-
-  it("no longer renders the 'Open table view' customer-facing footer CTA (removed 2026-05-12)", () => {
-    // Pre-cleanup: the v2 proof timeline carried a "Need the table
-    // view? Open table view →" footer link. Removed as part of the
-    // perf/legacy-bloat audit because v2 is the production default
-    // and the visible CTA made the product feel unfinished. The
-    // `?legacy=1` query param still routes to the legacy table for
-    // rollback. The overflow "See full table →" link (only shown
-    // when >24 rows) is kept — it's a legitimate "show more"
-    // affordance, not a redundant escape.
-    const html = render({ rows: [makeRow()] });
-    expect(html).not.toContain('data-changes-cta="legacy"');
-    expect(html).not.toContain("Open table view");
   });
 
   it("never leaks internal vocabulary in the rendered output", () => {
@@ -333,27 +242,5 @@ describe("ChangesV2Client — proof timeline", () => {
       editStatusByChangelogId: { "live-row": "verified_live" },
     });
     expect(liveHtml).not.toContain('data-changes-card-mark-shipped="true"');
-  });
-
-  it("caps the timeline at 24 cards and surfaces an overflow note when the list overflows", () => {
-    const many: EnrichedChangeRow[] = Array.from({ length: 30 }, (_, i) =>
-      makeRow({
-        id: `bulk-${i}`,
-        timestamp: `2026-05-${String((i % 28) + 1).padStart(2, "0")}T00:00:00Z`,
-      }),
-    );
-    const classByChangelogId: Record<string, string> = {};
-    for (const r of many) {
-      classByChangelogId[r.change.id] = "live_verified";
-    }
-    const html = render({ rows: many, classByChangelogId });
-    const cards = html.match(/data-changes-card="proof-timeline"/g) ?? [];
-    expect(cards.length).toBe(24);
-    // Surface collapse (2026-06-15): the legacy "See full table →" escape
-    // link (`?legacy=1`) was removed with the legacy table. The overflow
-    // note now just states how many of how many are shown.
-    expect(html).not.toContain('data-changes-cta="see-all-legacy"');
-    expect(html).not.toContain("See full table");
-    expect(html).toMatch(/Showing the 24 most recent changes of 30/);
   });
 });

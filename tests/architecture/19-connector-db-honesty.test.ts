@@ -71,18 +71,10 @@ describe("dual-write — onConflict targets match real unique indexes", () => {
     expect(b).toMatch(/["']tenant_id,source_snapshot_id,element_key["']/);
     expect(b).toMatch(/dedupedByKey\s*=\s*new Map/);
   });
-  it("syncObservationRuns dedupes by run_id before upsert", () => {
-    const b = body("syncObservationRuns");
-    expect(b).toMatch(/dedupedByRunId\s*=\s*new Map/);
-    expect(b).toMatch(
-      /dualWriteUpsert\(\s*["']observation_runs["'][^)]*dedupedRows[^)]*["']run_id["']/,
-    );
-  });
-  it("syncChangelogEntries → id (single-column PK)", () => {
-    expect(body("syncChangelogEntries")).toMatch(
-      /dualWriteUpsert\(\s*["']changelog_entries["'][^)]*,\s*mapped,\s*["']id["']\s*\)/,
-    );
-  });
+  // syncObservationRuns + syncChangelogEntries onConflict pins removed
+  // 2026-07-22 (CORE 100K persistence collapse): both writers were dead and
+  // were deleted from dual-write.ts. The remaining onConflict pins above keep
+  // the "targets match real unique indexes" invariant real for every LIVE writer.
 });
 
 describe("robots-state — per-tenant Supabase mirror with honest soft-fail", () => {

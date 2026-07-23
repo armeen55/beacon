@@ -143,14 +143,17 @@ function extractWrittenTable(body: string): string | null {
 }
 
 describe("Architecture — every sync* writer either requires tenantId or targets a global table", () => {
-  it("dual-write.ts source loaded + at least 17 sync* exports detected", () => {
+  it("dual-write.ts source loaded + at least 15 sync* exports detected", () => {
     // Floor 25 → 17 on 2026-07-21 (CORE 100K Lane O): the dead writers
     // syncResults, syncOpportunities, syncCompetitors, syncEventDecisions,
     // syncCandidateLinks, syncChangeContracts, syncPageIssues,
     // syncGuardrailAlerts, and syncGuardrailAlertsForUrl were deleted with
-    // zero prod callers. 17 sync* exports survive; the per-writer contract
-    // below is unchanged.
-    expect(SYNC_FNS.length).toBeGreaterThanOrEqual(17);
+    // zero prod callers.
+    // Floor 17 → 15 on 2026-07-22 (CORE 100K persistence collapse): the two
+    // remaining dead writers syncChangelogEntries + syncObservationRuns were
+    // deleted (zero live callers). 15 sync* exports survive; the per-writer
+    // contract below is unchanged — the isolation INVARIANT stays fully real.
+    expect(SYNC_FNS.length).toBeGreaterThanOrEqual(15);
   });
 
   it("GLOBAL_TABLES set is parsed and non-trivial (sanity)", () => {
@@ -223,8 +226,11 @@ describe("Architecture — every sync* writer either requires tenantId or target
     // syncBusinessConfig as the one live global-table writer.
     // 2026-07-21 (Lane O): 9 more dead tenant-scoped writers deleted
     // (results/opportunities/competitors/attribution/candidate-link/
-    // change-contract/page-issue/guardrail syncs); 16 tenant-scoped
-    // writers survive, so the >= 15 floor holds unchanged.
+    // change-contract/page-issue/guardrail syncs).
+    // 2026-07-22 (persistence collapse): syncChangelogEntries +
+    // syncObservationRuns deleted (both tenant-scoped, zero live callers),
+    // so the tenant-scoped floor drops 15 → 14. 14 tenant-scoped writers
+    // survive; the global floor (syncBusinessConfig) is unchanged.
     const tenantScoped = SYNC_FNS.filter((f) =>
       takesTenantId(f.signatureBlock),
     );
@@ -233,7 +239,7 @@ describe("Architecture — every sync* writer either requires tenantId or target
       const t = extractWrittenTable(f.bodyBlock);
       return t != null && GLOBAL_TABLES.has(t);
     });
-    expect(tenantScoped.length).toBeGreaterThanOrEqual(15);
+    expect(tenantScoped.length).toBeGreaterThanOrEqual(14);
     expect(globalScoped.length).toBeGreaterThanOrEqual(1);
   });
 });

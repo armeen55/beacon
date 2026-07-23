@@ -57,23 +57,13 @@ export const TENANT_SCOPED_STORES = new Set<string>([
   "experiments",
   "change-outcomes",
   "change-contracts",
-  "truth-labels",
   "tracked-prompts",
   "tracked-entities",
   "prompt-answer-observations",
   "local-reviews",
   "page-visibility",
   "recommendation-responses",
-  // LEGACY (2026-07-20): the pre-ActionPack brief/action compute cluster
-  // that wrote these was retired. Kept registered so any residual on-disk
-  // blobs stay tenant-scoped. (The resetExperiment flow that once wrote
-  // them empty was itself deleted — 2026-07-21 note.)
-  "action-states",
-  "brief-states",
-  "rollout-executions",
   "pattern-evidence",
-  "frontier-attack-packages",
-  "tracked-missing-pages",
   "asset-responses",
   "outcome-store",
   "competitor-page-evidence",
@@ -113,50 +103,10 @@ export const TENANT_SCOPED_STORES = new Set<string>([
   // ledger snapshot per tenant), same discipline as worklist-surface. Presentation
   // cache only: measurement history stays in shipped_changes, never here.
   "results-surface",
-  // 2026-07-03 P21 - the operator's last Today visit (timestamp + a snapshot of the
-  // canonical decided/won/toDo counts at that visit) per tenant. Read by the
-  // while-you-were-away block to report only the delta since the previous visit.
-  "today-last-seen",
   // 2026-06-29 cross-request Demand Graph SWR snapshot — the computed LoadGraphResult per
   // tenant. The ~6s graph build is shared across requests (New Pages, Today, Recs, Drafts,
   // page-factory, enrichment) instead of each surface rebuilding it. Versioned + bounded.
   "demand-graph-snapshot",
-  // 2026-07-03 R18 / N23 - internal authority + click-depth snapshot per tenant.
-  // The computed InternalPageRankResult (per-page PageRank + BFS click-depth +
-  // orphan status) over the tenant's own internal_links adjacency. One snapshot
-  // row per tenant, written by the nightly cron fan-out (no ambient request
-  // context) and served stale-while-revalidate, same discipline as
-  // demand-graph-snapshot (src/domains/linkgraph/internal-pagerank-loader.ts).
-  "internal-pagerank",
-  // 2026-06-09 §competitor-intel — structural changes detected when a
-  // fresh competitor-page fetch differs from the stored snapshot
-  // (FAQ added, new sections, retitle, meta added). Written by
-  // refresh-intel.ts at fetch time (the snapshot store keeps
-  // latest-per-URL, so the diff only exists at that moment); read by
-  // move detection ("steal this move").
-  "competitor-structural-changes",
-  // De-vert/isolation (2026-06-15): competitor-monitoring holds a tenant's
-  // OWN competitor sitemap snapshots + recentChanges (which feed Today's
-  // competitor alerts). It was GLOBAL — so every tenant read the founder's
-  // builder competitors (Iranopedia's dashboard showed "De Mattei
-  // Construction"), and concurrent crawls clobbered one shared file.
-  // Now per-tenant: each tenant gets its own snapshots; an un-crawled tenant
-  // gets EMPTY_STATE (no cross-tenant bleed).
-  "competitor-monitoring",
-  // 2026-06-09 §competitor-intel — durable history of sitemap-level
-  // competitor page changes (added/updated). The per-tenant
-  // competitor-monitoring state REPLACES recentChanges on every crawl
-  // (Today's alerts read it); move detection needs a rolling window,
-  // so each refresh appends here too.
-  "competitor-sitemap-changes",
-  // 2026-06-10 §push — publish layer stores (tenant-scoped):
-  //   push-ledger: per-day push counts + outcomes (Invariant-3 caps math)
-  //   wix-url-map: canonical page URL → Wix CMS (collection, item)
-  //   wix-collection-config: operator-entered dynamic-page mappings
-  "push-ledger",
-  // Night-shift #82 (2026-06-11): pre-push field snapshots — the
-  // revert safety net (one row per field write, capped 1000).
-  "push-snapshots",
   "wix-url-map",
   "wix-collection-config",
   // 2026-06-19 Phase 5 — GSC Proof ledger: manually-shipped change records +
@@ -165,16 +115,8 @@ export const TENANT_SCOPED_STORES = new Set<string>([
   "source-pattern-evidence",
   "render-checks",
   "page-snapshot-diffs",
-  // Phase 7.8a.1 (2026-04-25) — classified from the live dry-run.
-  // 9 stores added; rationale recorded in docs/VERIFICATION_LOG.md.
-  "change-events", // per-tenant Phase 0 truth-layer events
-  "classified-events", // per-tenant taxonomy classification of historical changes
-  "data-quality-flags", // per-tenant data-quality flags for ingestion windows
-  "event-attributions", // per-tenant attribution verdicts on change-events
-  "natural-control-results", // per-tenant natural-control attribution per event
   "page-element-inventory", // Sprint 6A.1 P6; rows already carry tenant_id
   "recommended-edits", // Sprint 6A.1 P11; rows already carry tenant_id
-  "site-movement-events", // per-tenant Phase 0 movement events
   "url-change-outcomes", // Tier A; rows already carry tenant_id
   // Phase 7.8d-1 (2026-04-26) — flat-fallback removal exposed runtime
   // calls to these stores. Classified now (no migration since flat
@@ -194,7 +136,6 @@ export const TENANT_SCOPED_STORES = new Set<string>([
   // tenant's pages and citations). Single-operator Ritz today, so any
   // classification routes correctly; per-tenant matches future scaling.
   "answer-snapshots",
-  "frontier-opportunities",
   // Phase A.3 (post-A.3.5, 2026-05-15) — sitemap-reconciliation moved
   // from GLOBAL → TENANT_SCOPED. Previously a single
   // `.data/global/sitemap-reconciliation.json` shared across tenants;
@@ -219,7 +160,7 @@ export const TENANT_SCOPED_STORES = new Set<string>([
   // per tenant recording the last time an on-visit auto-refresh fired, so rapid
   // revisits can't trigger a refresh storm (src/domains/ops/on-visit-refresh.ts).
   // Written from the Today render context (ambient tenant), so file-routed
-  // tenant-scoped like today-last-seen, not a cron-fan-out GLOBAL store.
+  // tenant-scoped, not a cron-fan-out GLOBAL store.
   "on-visit-refresh-marker",
   // 2026-07-18 cross-tenant leak hardening (finding A) — answer_texts is the
   // per-observation AI answer body, read by discrepancy-detect inside a
@@ -246,27 +187,10 @@ export const TENANT_SCOPED_STORES = new Set<string>([
 ]);
 
 export const SINGLETON_STORES = new Set<string>([
-  "answer-intelligence-index",
   "citation-evidence-index",
-  // Audit #5 (2026-06-10): co-mention matrix is DERIVED per-tenant
-  // competitive data, not operator config. Moved GLOBAL → per-tenant
-  // singleton so tenant B never reads tenant A's market. Not
-  // Supabase-backed; the /competitors page recomputes on a per-tenant
-  // miss, so the move is lossless (one recompute from the tenant's own
-  // citations).
-  "co-mention-matrix",
-  // Phase 7.8a.1 (2026-04-25) — per-tenant singletons added from
-  // the live dry-run. Each is a single object scoped to one tenant
-  // (or trivially scoped because the operator runs one site today).
-  "change-outcomes-summary", // aggregate of change-outcomes
-  "natural-control-summary", // aggregate of natural-control-results
   "robots-state", // per-tenant parsed robots.txt for the tenant's domain
-  "site-citation-timeline", // per-tenant timeline; root object carries tenant_id
-  "taxonomy-distribution-report", // aggregate of classified-events
   "url-daily-citations", // per-tenant daily citation series (single-entry)
   "url-watcher-state", // per-tenant watcher throttle/phase state
-  // Phase 7.8d-1 (2026-04-26) — single object loaded by `loadLocalOperatorImport`.
-  "local-operator-surface", // operator-edited local-listings notes (optional)
   // 2026-07-01 BEACON 500 item 1 - trust-budget autopilot: per-tenant config +
   // daily-run marker + receipts (one state object; Supabase-mirrored blob).
   "autopilot-state",
@@ -284,11 +208,7 @@ export const GLOBAL_STORES = new Set<string>([
   "confidence-calibration",
   "business-config",
   "competitor-universe",
-  // "exit-gates" was removed 2026-07-21 (Phase 4D): its only reader/writer
-  // (lib/exit-gates-store.ts) was deleted with the phase-sign-off surface.
-  "milestone-state",
   "scan-state",
-  "last-scan-result",
   // NOTE: "sitemap-reconciliation" was moved to TENANT_SCOPED_STORES
   // as part of Phase A.3 (post-A.3.5, 2026-05-15). See the entry
   // above + the migration in `migrations/<date>_phase_a3_sitemap_reconciliation_mirror.sql`.
@@ -340,13 +260,6 @@ export const GLOBAL_STORES = new Set<string>([
   // fan-out (no ambient request context) AND the manual/on-use refresh paths,
   // so GLOBAL is the safe classification - same rationale as cron-runs.
   "refresh-runs",
-  // Confirmation reads (2026-07-13, proof-model Lane P2, protocol 4.2). File-
-  // fallback mirror of the append-only `confirmation_reads` table for pre-
-  // migration / no-Supabase-env windows. Rows carry tenant_id in-row; written by
-  // the measure/classifier paths (nightly cron fan-out with no ambient request
-  // context, plus on-use / manual re-measure), so GLOBAL is the safe
-  // classification - same rationale as refresh-runs / cron-runs.
-  "confirmation-reads",
   // Site uptime probes (2026-07-03, BEACON_500 T0c). Rows carry tenant_id;
   // written by the nightly sync's uptime phase (no ambient request context,
   // same cron fan-out rationale as the peers above). One HEAD/GET status +
@@ -474,20 +387,7 @@ export const GLOBAL_STORES = new Set<string>([
   "team-scoreboard",
   "adjudicator-history", // LLM call audit log; operator-shared
   "llm-budget", // operator-paid monthly LLM spend cap
-  // retrieval-twin-budget (2026-07-02, master plan item 50) - the retrieval twin's OWN
-  // monthly embeddings spend cap. Same shape/rationale as llm-budget (one shared operator
-  // pot, single JSON blob, no per-tenant fan-out) but a SEPARATE ledger surface so embedding
-  // spend can never drain (or be drained by) the adjudicator/drafting caps.
-  "retrieval-twin-budget",
   "llm-history-specific-edits", // Sprint 6A.2c (2026-04-26) — Specific
-  // Edit LLM call audit log; operator-shared budget pot, same shape as
-  // adjudicator-history but for the SpecificEditProvider pipeline
-  "shared-brain", // explicit cross-tenant pattern aggregate
-  "shared-brain-summary", // aggregate of shared-brain
-  "url-change-patterns", // global learning aggregate (mirror of change-patterns)
-  // Phase 7.8d-1 (2026-04-26) — explicit cross-tenant pattern store.
-  // Self-documented as global in src/domains/global-patterns/store.ts.
-  "global-patterns",
   // Weekly strategy review (2026-07-02, master plan item 51). Rows carry
   // tenant_id; written by the Sunday-night cron (no ambient request context,
   // same fan-out rationale as the stores above). Append-only per-week history

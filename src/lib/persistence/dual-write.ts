@@ -265,11 +265,9 @@ export function tenantizeRows<
 
 // ── Typed convenience wrappers ──
 
-import type { ChangelogEntry } from "@/domains/changelog/types";
 import type { ImportRun } from "@/lib/import/types";
 import type { PageSnapshot, PageEntity } from "@/domains/pages/types";
 import type { Finding } from "@/domains/scanning/types";
-import type { ObservationRun } from "@/domains/observations/types";
 import type { BusinessConfig } from "@/lib/business-config";
 import type { DailyMetricSnapshot } from "@/domains/daily-metric-snapshots/types";
 import type { PromptAnswerObservation } from "@/domains/prompt-answer-observations/types";
@@ -297,24 +295,10 @@ export async function syncImportRuns(
 // import-cluster writers lost their last caller when the import
 // orchestrator's Supabase mirror path was retired; zero prod callers.
 
-/**
- * Map a ChangelogEntry to a DB row. Phase 1a (2026-04-21): schema-experiment
- * fields + rec/pattern linkage + dedupe/archive flags + tenant_id are now
- * columns on `changelog_entries`, so we pass the full shape through.
- * `tenant_id` defaults to '' server-side when absent.
- */
-function mapChangelogEntryToRow(entry: ChangelogEntry): AnyRow {
-  return entry as unknown as AnyRow;
-}
-
-export async function syncChangelogEntries(
-  rows: ChangelogEntry[],
-  tenantId: string,
-): Promise<void> {
-  const stamped = tenantizeRows(rows, tenantId, "changelog_entries");
-  const mapped = stamped.map(mapChangelogEntryToRow);
-  await dualWriteUpsert("changelog_entries", mapped, "id");
-}
+// syncChangelogEntries + mapChangelogEntryToRow removed 2026-07-22 (CORE 100K
+// persistence collapse): zero live callers — the changelog write path that fed
+// it was retired with the 28-domain strip. The tenant-scoped READ path
+// (getChangelogEntries) stays live.
 
 // ── Entity sync (Phase 6) ──
 
@@ -552,70 +536,10 @@ export async function syncPromptAnswerObservations(
 
 // ── Scan output sync (Phases 2 & 4) ──
 
-export async function syncObservationRuns(
-  runs: ObservationRun[],
-  tenantId: string,
-): Promise<void> {
-  // Phase 7.7b Commit 4 (2026-04-25): validate cross-tenant mismatch on
-  // input runs and stamp tenant_id onto the inserted DB rows. The
-  // explicit column-mapping below previously dropped tenant_id entirely;
-  // the field is now passed through from the tenantized input.
-  const stamped = tenantizeRows(runs, tenantId, "observation_runs");
-  // PK is run_id, NOT id.
-  // Local file may contain mixed run types (website crawl + Profound import)
-  // with extra fields not in the DB schema. Map explicitly to table columns.
-  const rows: AnyRow[] = stamped
-    .filter((r) => r.run_id && r.run_type)
-    .map((r) => ({
-      run_id: r.run_id,
-      run_type: r.run_type,
-      source: r.source,
-      status: r.status,
-      started_at: r.started_at,
-      completed_at: r.completed_at,
-      scope_label: r.scope_label,
-      parser_version: r.parser_version ?? null,
-      pages_scanned: r.pages_scanned,
-      pages_changed: r.pages_changed,
-      pages_with_errors: r.pages_with_errors,
-      guardrail_alerts: r.guardrail_alerts,
-      critical_count: r.critical_count,
-      regression_count: r.regression_count,
-      improvement_count: r.improvement_count,
-      baseline_run_id: r.baseline_run_id ?? null,
-      competitor_universe_version: r.competitor_universe_version ?? null,
-      competitor_universe_fingerprint: r.competitor_universe_fingerprint ?? null,
-      competitor_universe_scope: r.competitor_universe_scope ?? null,
-      competitor_universe_pin_status: r.competitor_universe_pin_status ?? null,
-      tenant_id: r.tenant_id,
-    }));
-
-  // 2026-04-27 Accept-bug follow-up: dedupe by run_id before upsert.
-  //
-  // Postgres rejects an upsert batch that touches the same target row
-  // twice in one statement with:
-  //   "ON CONFLICT DO UPDATE command cannot affect row a second time"
-  //
-  // The local `.data/observation-runs.json` can accumulate duplicate
-  // run_id rows (test fixtures + verify-page-fix runs that re-use the
-  // same id for repeated invocations) and the orchestrator currently
-  // ships the entire array to this helper in one batch. Dedupe by
-  // keeping the LAST occurrence per run_id — matches the in-memory
-  // mutation order semantics the rest of dual-write uses.
-  //
-  // Pinned by tests/architecture/dual-write-onconflict.test.ts +
-  // a unit test in tests/persistence/dual-write-observation-runs-dedup.test.ts.
-  const dedupedByRunId = new Map<string, AnyRow>();
-  for (const row of rows) {
-    const key = row.run_id;
-    if (typeof key === "string" && key.length > 0) {
-      dedupedByRunId.set(key, row);
-    }
-  }
-  const dedupedRows = Array.from(dedupedByRunId.values());
-
-  await dualWriteUpsert("observation_runs", dedupedRows, "run_id");
-}
+// syncObservationRuns removed 2026-07-22 (CORE 100K persistence collapse): zero
+// live callers — the scan/poll orchestrators that wrote observation_runs through
+// it were retired with the 28-domain strip. The tenant-scoped READ path
+// (getObservationRuns) stays live.
 
 export async function syncPageSnapshots(
   rows: PageSnapshot[],

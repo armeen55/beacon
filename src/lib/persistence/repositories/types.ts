@@ -15,16 +15,12 @@ import type { ChangeContract } from "@/domains/changelog/change-contract";
 import type {
   PageEntity,
   PageSnapshot,
-  SitemapReconciliation,
 } from "@/domains/pages/types";
 import type { RobotsStateFile } from "@/domains/pages/robots-parser";
-import type { GuardrailAlert } from "@/domains/pages/guardrails";
 import type { ObservationRun } from "@/domains/observations/types";
-import type { ConfiguredCompetitorEntry } from "@/domains/competitors/universe-types";
 import type { RecommendationResponse } from "@/domains/product/recommendation-response-store";
 import type { UrlChangeOutcome } from "@/domains/attribution/url-change-outcome";
 import type { RecommendedEditRow } from "@/domains/recommendations/recommended-edits-persistence";
-import type { PageElementInventoryRow } from "@/domains/pages/extractors/persist";
 import type { PromptAnswerObservation } from "@/domains/prompt-answer-observations/types";
 import type { DailyMetricSnapshot } from "@/domains/daily-metric-snapshots/types";
 import type { TrackedEntity } from "@/domains/tracked-entities/types";
@@ -72,13 +68,10 @@ export interface SeedDataRepository {
   getPageSnapshots(): Promise<PageSnapshot[]>;
   /** Scoped link-graph read — see PageSnapshotLinkGraph. */
   getPageSnapshotLinkGraphs(): Promise<PageSnapshotLinkGraph[]>;
-  getGuardrailAlerts(): Promise<GuardrailAlert[]>;
 
   // Phase 7 — scan findings via repository
   getScanFindings(): Promise<Finding[]>;
-  getPendingScanFindings(): Promise<Finding[]>;
   getObservationRuns(): Promise<ObservationRun[]>;
-  getCompetitorConfigEntries(): Promise<ConfiguredCompetitorEntry[]>;
 
   /**
    * json-store-backed operator / pages domain state — no Postgres tables yet.
@@ -109,12 +102,6 @@ export interface SeedDataRepository {
   // Sprint 6A.1 Phase 12 (2026-04-24) — specific edits read path.
   // Fetched fresh per request on /recommendations (Sprint 1 pattern).
   getRecommendedEdits(): Promise<RecommendedEditRow[]>;
-
-  // Sprint 6A.1 Phase 14 (2026-04-24) — page_element_inventory read path.
-  // Used by the queue-driven CLI to feed `targetPageElements` into
-  // `buildSpecificEditEvidencePacket`. Production-empty until a scan
-  // runs after Phase 6's wiring (callers must handle empty gracefully).
-  getPageElementInventory(): Promise<PageElementInventoryRow[]>;
 
   // Phase 3.5E — hosted hero-surface data (visibility score / rankings /
   // competitor comparison / entity universe). File backend wraps existing
@@ -196,47 +183,8 @@ export type ScopedObservationReadOptions = WindowedReadOptions & {
 export interface TenantRepository {
   getPages(): Promise<PageEntity[]>;
   getPageSnapshots(): Promise<PageSnapshot[]>;
-  /**
-   * audit #12 (2026-06-14) — fully-paginated, tenant-scoped
-   * "latest snapshot per page" read for the NIGHTLY GENERATION path only.
-   *
-   * `getPageSnapshots()` is hard-capped at 500 rows (EGRESS-P0) to protect
-   * the hot web surfaces (/today, /recommendations, /changes), which call
-   * it on every page load. That cap silently DROPS pages for large content
-   * sites: a single Iranopedia scan already writes >430 snapshot rows in
-   * 2 days, so a tenant a little past ~250 pages would have its later pages
-   * vanish from every trigger (the same silent-truncation class as the
-   * `getPages()` 1000-row incident). The generation pipeline MUST see every
-   * page, so this pages through ALL of the tenant's rows with the same lean
-   * projection + page_id dedup. It runs once per generation (cron), so the
-   * unbounded read is egress-safe — the cap only matters on the web path.
-   *
-   * OPTIONAL: only the real backends implement it. Generation callers fall
-   * back to `getPageSnapshots()` when a backend (or a test fake) omits it,
-   * preserving prior behavior.
-   */
-  getAllPageSnapshotsForGeneration?(): Promise<PageSnapshot[]>;
   /** Scoped link-graph read — see PageSnapshotLinkGraph. */
   getPageSnapshotLinkGraphs(): Promise<PageSnapshotLinkGraph[]>;
-  /**
-   * Phase A.3 (post-A.3.5) — tenant-scoped sitemap reconciliation read.
-   * Supabase-backend reads `public.sitemap_reconciliation` filtered by
-   * tenant_id. File-backend reads
-   * `.data/tenants/{slug}/sitemap-reconciliation.json` (after the
-   * store-classification flip from GLOBAL → TENANT_SCOPED in
-   * `store-classification.ts`). Soft-fails to null when the
-   * migration hasn't applied yet (PostgreSQL error code 42P01 —
-   * "undefined_table") so production code is safe to deploy before
-   * the migration runs.
-   */
-  getSitemapReconciliation(): Promise<SitemapReconciliation | null>;
-  /**
-   * Phase A.3 (post-A.3.5) — paired write. Dual-writes to Supabase +
-   * tenant-routed disk in the file-backend. FAIL-LOUD on missing
-   * table: scan-owned-pages.ts will error and surface the missing
-   * migration to the operator (sequencing model A).
-   */
-  setSitemapReconciliation(recon: SitemapReconciliation): Promise<void>;
   /**
    * Phase A.3 (post-A.3.5) — tenant-scoped robots-state read. Supabase-
    * backend reads `public.robots_state` filtered by tenant_id. File-
@@ -252,7 +200,6 @@ export interface TenantRepository {
    * tenant-routed disk. FAIL-LOUD on missing table.
    */
   setRobotsState(state: RobotsStateFile): Promise<void>;
-  getPageElementInventory(): Promise<PageElementInventoryRow[]>;
   getRecommendedEdits(): Promise<RecommendedEditRow[]>;
   getRecommendationResponses(): Promise<RecommendationResponse[]>;
   /** Night-shift (2026-06-11) — tenant-scoped change contracts. */
@@ -264,8 +211,6 @@ export interface TenantRepository {
   getCompetitors(): Promise<Competitor[]>;
   getChangelogEntries(): Promise<ChangelogEntry[]>;
   getScanFindings(): Promise<Finding[]>;
-  getPendingScanFindings(): Promise<Finding[]>;
-  getGuardrailAlerts(): Promise<GuardrailAlert[]>;
   getObservationRuns(): Promise<ObservationRun[]>;
   getResults(): Promise<Result[]>;
   getImportRuns(): Promise<ImportRun[]>;
