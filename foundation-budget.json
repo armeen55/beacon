@@ -111,38 +111,27 @@
   },
   "markdown": {
     "_note": "Documentation budget. Git history is the archive. No docs/archive/. No new AUDIT/REPORT/WIP/HISTORY/ROADMAP/dated-plan docs without operator approval.",
-    "maxFiles": 20,
-    "maxTotalLines": 3000,
+    "maxFiles": 8,
+    "maxTotalLines": 1000,
     "forbidArchive": true,
     "forbiddenNamePattern": "(AUDIT|REPORT|_WIP|WIP_|HISTORY|ROADMAP|NIGHT_SHIFT|AUTONOMOUS_PROGRESS)",
     "allowlist": [
       "AGENTS.md",
       "CLAUDE.md",
-      "README.md",
       "docs/HANDOFF_VERIFIED_STATE.md",
-      "docs/NEXT_PHASE_EXECUTION_PLAN.md",
       "docs/VERIFICATION_LOG.md",
-      "docs/master_execution_plan.md",
       "docs/architecture.md",
-      "docs/GOLDEN_PATH_SETUP.md",
-      "docs/OWNERS_MANUAL.md",
-      "docs/OPERATOR_PRODUCT_SPEC_2026-07-09.md",
       "migrations/README.md",
-      "src/components/ui/README.md",
-      "src/storage/README.md",
-      "src/derivations/README.md",
-      "tests/fixtures/ci-data/README.md"
+      "src/components/ui/README.md"
     ],
     "perFileCeilings": {
       "AGENTS.md": 200,
       "CLAUDE.md": 45,
       "docs/HANDOFF_VERIFIED_STATE.md": 200,
-      "docs/NEXT_PHASE_EXECUTION_PLAN.md": 150,
       "docs/VERIFICATION_LOG.md": 300,
-      "docs/master_execution_plan.md": 150,
       "docs/architecture.md": 250,
-      "docs/GOLDEN_PATH_SETUP.md": 120,
-      "docs/OWNERS_MANUAL.md": 100
+      "migrations/README.md": 40,
+      "src/components/ui/README.md": 20
     }
   },
   "deps": {

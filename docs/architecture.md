@@ -1,8 +1,8 @@
 # Beacon Architecture
 
 > **PURPOSE:** the system map — kernels, surfaces, records, persistence, measurement, and the invariants
-> the tests and guard enforce. Answers "how does it fit together?" Not a plan (→ `NEXT_PHASE_EXECUTION_PLAN.md`)
-> or current state (→ `HANDOFF_VERIFIED_STATE.md`). Ceiling: 250 lines.
+> the tests and guard enforce. Answers "how does it fit together?" Current state lives in
+> `HANDOFF_VERIFIED_STATE.md`. Ceiling: 250 lines.
 
 ## What Beacon is
 

@@ -8,7 +8,7 @@ function requireEnv(name: string): string {
   if (!value) {
     throw new Error(
       `Missing required environment variable: ${name}. ` +
-        `Add it to .env.local (see docs/master_execution_plan.md).`,
+        `Add it to .env.local and the matching hosted environment.`,
     );
   }
   return value;

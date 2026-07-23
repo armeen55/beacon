@@ -1,7 +1,7 @@
 # Beacon Verification Log
 
 > **PURPOSE:** Dated proof of what changed, what was tested, and results. Answers "what did we verify and when?"
-> **NOT FOR:** what to do next (→ `NEXT_PHASE_EXECUTION_PLAN.md`), current state (→ `HANDOFF_VERIFIED_STATE.md`).
+> **NOT FOR:** what to do next or current state (→ `HANDOFF_VERIFIED_STATE.md`).
 > **POLICY:** append ONE concise entry per deployed vertical slice. Keep only the current campaign and the most
 > recent meaningful deployed entries here — git history is the archive. No `docs/archive/`. Ceiling: 300 lines.
 

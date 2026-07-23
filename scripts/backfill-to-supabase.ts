@@ -256,7 +256,7 @@ async function backfill() {
   // observation_runs: .data/observation-runs.json is mixed (ProfoundImportRun +
   // website ObservationRun). This script does not bulk-upsert that file; it only
   // pushes visibility-observation-runs.json when present. Website crawl rows are
-  // aligned via Phase 3C merge + dual-write / manual ops — see master_execution_plan.
+  // aligned through the historical Phase 3C merge plus dual-write/manual operations.
   const visRuns = readJsonFile<Record<string, unknown>[]>(
     "visibility-observation-runs",
   );

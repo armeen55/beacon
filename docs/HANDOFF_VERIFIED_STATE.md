@@ -72,5 +72,5 @@ deleted/replaced · 6. behavioral test · 7. success signal · 8. kill condition
 Wait for the operator to describe tomorrow's MVP. Do not begin the MVP, add a feature, produce an ideas list,
 or start another cleanup until that definition arrives.
 
-> Open decision for the operator: `docs/OPERATOR_PRODUCT_SPEC_2026-07-09.md` was kept (memory marks it "THE
-> contract") though the reset removed old specs — delete it or keep it as canonical.
+The previous product specification was removed from the working tree after review. Git history preserves it.
+The next product contract will be written only after the operator completes the new vision interview.

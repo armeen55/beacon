@@ -33,9 +33,8 @@ never print secrets; pause for a human only when Supabase itself needs a login t
 
 **Documentation policy (lean):** a completed task normally edits ZERO or ONE doc, not four. Update
 `HANDOFF_VERIFIED_STATE.md` only when verified current state changes; append ONE `VERIFICATION_LOG.md` entry
-per deployed slice; touch `NEXT_PHASE_EXECUTION_PLAN.md` / `master_execution_plan.md` only when priorities or
-durable decisions change. Never create task-specific summary docs or in-repo archives — git history is the
-archive. Canonical doc line ceilings are guard-enforced.
+per deployed slice; touch `architecture.md` only when the architecture changes. Never create task-specific
+summary docs or in-repo archives — git history is the archive. Canonical doc line ceilings are guard-enforced.
 
 **Finish every task with:** `Task completed`, 1–5 bullets, exactly one next recommendation, and
 `Recommended capability for next step: [Fast / Balanced / Max]` + one-line why (Fast=Haiku, Balanced=Sonnet,

@@ -1,6 +1,6 @@
 # Beacon — instructions for Codex (Code / CLI / any agent)
 
-**Read first:** `docs/HANDOFF_VERIFIED_STATE.md`, then `docs/NEXT_PHASE_EXECUTION_PLAN.md` before non-trivial work.
+**Read first:** `docs/HANDOFF_VERIFIED_STATE.md` before non-trivial work.
 
 This file is the **portable** project contract (use here, in Codex, or anywhere else). Cursor-specific rules live in `.cursor/rules/core.mdc` — keep them aligned when both are in use.
 
@@ -52,18 +52,18 @@ when it's not.
 
 ---
 
-## Documentation sync (mandatory)
+## Documentation policy
 
-After **any** task that changes behavior or plans, update if impacted:
+- `docs/HANDOFF_VERIFIED_STATE.md` is the concise current state. Update it only when the verified state changes.
+- `docs/VERIFICATION_LOG.md` gets one concise entry per deployed vertical slice.
+- `docs/architecture.md` changes only when the architecture changes.
+- The operator-approved product truth, once written after the vision interview, is changed only with explicit operator approval.
+- A completed task normally edits zero or one Markdown file.
+- Never create task summaries, dated audits, roadmaps, WIP logs, or in-repo archives. Git history is the archive.
 
-1. `docs/HANDOFF_VERIFIED_STATE.md` — current state + next 3 actions  
-2. `docs/NEXT_PHASE_EXECUTION_PLAN.md` — mark steps done / reorder if needed  
-3. `docs/VERIFICATION_LOG.md` — dated entry: what changed, what verified (`npm run typecheck` / `npm run test` / `npm run build` as applicable)  
-4. `docs/master_execution_plan.md` — new ideas or decisions only when relevant  
+**Finish** with: **Task completed**, 1–5 bullets of what changed, and **exactly one** next best recommendation aligned with the current handoff and operator-approved product truth.
 
-**Finish** with: **Task completed**, 1–5 bullets of what changed, **exactly one** next best recommendation (aligned with `NEXT_PHASE_EXECUTION_PLAN.md`).
-
-**Do not:** create new docs unless necessary, duplicate plans, or leave docs stale after code changes.
+**Do not:** create new docs unless necessary, duplicate plans, or preserve superseded product ideas as active context.
 
 ---
 
