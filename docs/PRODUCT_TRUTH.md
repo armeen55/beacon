@@ -117,6 +117,11 @@ Lifecycle:
 
 `Suggested -> Approved -> Implemented -> Measuring -> Result`
 
+A Suggested Change may be Dismissed by the operator or Withdrawn by Beacon when its evidence expires or
+becomes invalid. These are terminal dispositions, not additional lifecycle stages. A dangerous Change
+requires the approved two-step confirmation before entering Approved. Implementation must converge on one
+canonical stage vocabulary and one canonical terminal disposition, never several competing status systems.
+
 Every list item shows:
 
 - exact action;
@@ -236,6 +241,12 @@ Beacon maintains two deliberately different sets.
 - Remain stable unless evidence supports a deliberate replacement.
 - Every addition, removal, or wording change is versioned so trend discontinuities are visible.
 
+Beacon targets seven-day freshness for every core prompt and engine pair and never refreshes a pair that
+is still fresh. Research Runs refresh stale pairs by prompt importance and oldest observation first, within
+per-run and monthly spend caps. If the cap prevents a complete sweep, Beacon shows the exact checked
+coverage and staleness rather than implying full coverage. A fixed sweep cost must not be promised until it
+has been benchmarked against the pinned models using actual provider cost receipts.
+
 ### Research queries
 
 - Include AI fan-out queries, People Also Ask questions, related searches, GSC queries, keyword expansions,
@@ -257,7 +268,8 @@ and provider-specific native polling architectures rather than keeping compatibi
 
 The MVP uses DataForSEO for:
 
-- ChatGPT Search-mode answers, sources, brands, results, and query fan-outs;
+- ChatGPT search-mode scraping: answers, sources, brands, results, and query fan-outs; the Gemini
+  scraper where it provides material distinct evidence;
 - standardized ChatGPT, Perplexity, Gemini, and Claude response observations;
 - Google organic SERPs, AI Overview, AI Mode, featured snippets, People Also Ask, and related searches;
 - keyword suggestions, related keywords, keyword ideas, search intent, volume, trends, and difficulty;
@@ -266,13 +278,21 @@ The MVP uses DataForSEO for:
 - relevant pages, SERP competitors, domain intersections, and page intersections;
 - historical keyword and SERP evidence where it materially improves a decision.
 
+The provider's brand-mentions corpus product is outside the MVP. Endpoint URLs, current prices,
+concurrency limits, and sandbox mechanics are implementation details that belong in code contracts and
+the implementation plan, never in this document.
+
 Collection rules:
 
 - use United States and English;
-- pin the chosen model/version for repeated AI measurements;
+- repeated measurements use full model version identifiers; Beacon records both the requested model and
+  the model version actually served, and every model change creates a visible measurement boundary so
+  model drift cannot masquerade as visibility movement;
 - preserve provider, endpoint, model, query, location, language, timestamp, cost, and response provenance;
 - never claim an API observation perfectly reproduces a personalized consumer application;
-- request web search where supported and store whether it actually ran;
+- request web search where supported; record the provider-reported search state separately from whether
+  citations were actually returned; citation-free answers are weaker evidence and never prove that useful
+  web research occurred;
 - treat missing citations or fan-outs as missing evidence, never as an empty factual truth;
 - use live methods for visit-driven work unless a durable queued result can be resumed without a scheduler;
 - respect provider concurrency and function-duration limits;
@@ -383,7 +403,11 @@ Measurement is honest and useful before it is statistically impressive:
 - day 7: early movement;
 - day 14: provisional read;
 - day 28: primary directional read;
-- day 56: longer-term read when the signal remained unclear or strategically important.
+- day 56: runs when the day-28 read was confounded, insufficient, or unclear, or when the Change was
+  classified as destructive; otherwise Beacon omits the day-56 read.
+
+Measurement reads are computed from historical source data on the first visit after a window becomes due.
+A late visit computes every due read in order. No measurement window requires scheduled execution.
 
 Search data can lag, so Results shows the source watermark and never treats missing recent data as a loss.
 
@@ -429,6 +453,11 @@ Allowed shared learning:
 Never share or expose customer names, domains, URLs, queries unique to a customer, copy, credentials, or
 private metrics. At small sample sizes, do not pretend cross-account learning is meaningful.
 
+Cross-account learning is post-MVP. The MVP preserves the record shapes needed for future anonymized
+learning but builds no cross-account aggregation, scoring, model, or customer-facing claim. Ordinary
+canonical outcome fields are preserved as usual; no speculative future-learning fields are added solely
+for this deferred capability.
+
 ## Visit-driven runtime
 
 This MVP has no cron, scheduler, GitHub Action, or third-party workflow platform.
@@ -468,6 +497,11 @@ If the app is completely closed, work may pause. The UI must never imply that un
 - Batch where the provider charges primarily per task.
 - A cache hit must be observable internally and cost zero.
 - Cost optimization may never silently reduce the promised evidence coverage.
+
+Before onboarding is completed, Beacon may spend at most $2 total for that account. No recurring paid
+observation work begins before activation. If the cap is reached, onboarding completes honestly with
+partial evidence rather than spending more or blocking the user. This pre-activation lifetime cap is
+separate from the active account's recurring spend cap.
 
 ## Product voice and experience
 
@@ -525,19 +559,23 @@ Do not build until separately approved:
 
 ## Build order
 
-1. Reconcile generic account identity and Business Profile; remove customer and vertical special cases.
-2. Replace old provider and phantom-engine architecture with one DataForSEO evidence boundary.
-3. Build the complete onboarding and 50-prompt approval flow.
-4. Build durable visit-driven Research Runs with real progress.
-5. Build the full DataForSEO research funnel and cache.
-6. Produce one deeply evidenced existing-page Change Bundle.
-7. Produce one deeply evidenced new-page Change.
-8. Verify manual implementation.
-9. Complete the measurement and overlap loop.
-10. Dogfood both account archetypes before broadening capability.
+1. Reconcile generic Account, Website, and Business Profile records and remove customer and vertical
+   special cases.
+2. Establish one canonical DataForSEO evidence boundary while deleting the Profound, SEMrush,
+   borrowed-account, GitHub Actions, and phantom native-provider architecture it replaces.
+3. Replace free-form Chat Completions generation with the canonical Responses API and strict Structured
+   Outputs gateway.
+4. Build durable visit-driven Research Runs with Supabase phases, leases, idempotency, progress, pause,
+   and resume.
+5. Build the complete onboarding and 50-core-prompt approval flow on those real foundations.
+6. Build the complete DataForSEO research funnel and caching.
+7. Produce one deeply evidenced existing-page Change Bundle.
+8. Produce one deeply evidenced new-page Change.
+9. Build one canonical Shipment with live implementation verification.
+10. Complete 7/14/28/56 measurement, overlap honesty, and both-archetype dogfooding.
 
-Each step is one bounded vertical slice with a behavioral acceptance test. Delete superseded code in the same
-slice. Do not create a second pipeline for compatibility.
+Each step is one bounded vertical slice with a behavioral acceptance test. Delete superseded code in the
+same slice. No slice may build a temporary duplicate pipeline for a later slice to replace.
 
 ## Protection against future bloat
 

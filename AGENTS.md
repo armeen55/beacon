@@ -85,9 +85,10 @@ Before starting and again at the end of each task, recommend **one** tier and a 
 
 ## Repo quick facts
 
-- **Stack:** Next.js (App Router), TypeScript strict, `.data/*.json` + optional Supabase dual-write (`DUAL_WRITE=true`).
+- **Stack:** Next.js (App Router), TypeScript strict, Supabase. Supabase is the REQUIRED production
+  persistence destination. Legacy `.data/`/dual-write code is current removal work and must not be extended.
 - **Data:** `.data/` is **gitignored** — not committed; keep local backups of CSVs/exports you care about.
-- **Quality gate:** `npm run typecheck && npm run test` before considering work done.
+- **Quality gate:** `npm run gate` (guard:foundation + typecheck + test + build) before considering work done.
 - **Migrations:** applied SQL migrations are immutable and date-prefixed. Use the configured Supabase
   management connection; never print credentials or run irreversible migrations without approval.
 
@@ -123,7 +124,8 @@ public exports, file sizes, or dependencies exceed budget. Run it in the gate:
 never up without explicit operator approval.
 
 ### Growth policy
-- Preferred combined foundation ≤75,000; production ≤55,000; tests ≤18,000.
+- `foundation-budget.json` is the authoritative numeric ceiling for every budget (LOC, routes, domains,
+  exports, files, deps, Markdown). Prose never overrides it; today it caps tests at 5,000.
 - Absolute MVP hard cap: 100,000 combined.
 - Ordinary feature task: ≤750 net new lines.
 - >750 net requires explicit operator approval. >2,000 must be decomposed or
