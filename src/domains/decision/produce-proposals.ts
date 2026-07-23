@@ -20,7 +20,7 @@ import "server-only";
 
 import { log } from "@/lib/logger";
 import { loadEvidenceSnapshot } from "@/domains/evidence/snapshot-loader";
-import { hydrateBusinessProfile } from "@/lib/business-config";
+import { loadBusinessProfile } from "@/domains/account";
 import { snapshotToEvidenceInputs } from "./opportunities";
 import { proposeChange, type ProposeOptions } from "./propose";
 import { saveChangeProposal } from "./proposal-store";
@@ -58,12 +58,12 @@ export async function produceProposalsForTenant(
   const persist = opts.persist ?? true;
 
   const snapshot = await loadEvidenceSnapshot(tenantId, { now: opts.now });
-  // The account-curated authoritative-source allowlist is BusinessProfile
-  // DATA (the account's own business_config row), never code. Unset = only
-  // the universal source-authority set applies.
-  const profile = await hydrateBusinessProfile(tenantId).catch(() => null);
+  // The account-curated trusted-source domains are BusinessProfile DATA
+  // (the account's own row), never code. Unset = only the universal
+  // source-authority set applies.
+  const profile = await loadBusinessProfile(tenantId).catch(() => null);
   const allowlist =
-    opts.authoritativeSourceDomains ?? profile?.authoritativeSourceDomains ?? [];
+    opts.authoritativeSourceDomains ?? profile?.trustedSourceDomains.value ?? [];
 
   const inputs = snapshotToEvidenceInputs(snapshot).slice(0, maxDrafts);
 

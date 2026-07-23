@@ -97,8 +97,6 @@ export async function startFromUrl(input: { url: string }): Promise<StartFromUrl
       tenantId,
       domain: normalized.domain,
       typedName: null,
-      typedCities: [],
-      competitors: [],
     });
     console.info(
       `[onboard/url-first] tenant config ${configResult.outcome} for ${tenantId} (${normalized.domain})`,

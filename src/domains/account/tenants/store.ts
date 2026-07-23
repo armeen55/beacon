@@ -1,23 +1,23 @@
 /**
  * Account store — reads for the canonical Account record.
  *
- * Production reads go through Supabase (`tenants` table) only. There is no
- * file registry, no DATA_SOURCE branch, and no env fallback: a missing or
- * unreadable registry resolves to "no account", never to another business.
- * Tests inject an in-memory repository via setAccountRepositoryForTests.
- *
- * Writes: account rows are created by provision-tenant (signup) and updated
- * by the onboarding launch flow directly against Supabase. This store is
- * read-side; the legacy createTenant/updateTenant file writers are gone.
+ * Production reads go through Supabase (`tenants` table) only, and every
+ * individual resolution is an account-scoped query (`eq`), never a
+ * load-every-account scan filtered in memory. `listActiveTenants` is the one
+ * deliberate enumeration, bounded to active accounts for orchestration and
+ * the switcher. A missing or unreadable registry resolves to "no account",
+ * never to a default or another business. Tests inject an in-memory
+ * repository via setAccountRepositoryForTests.
  */
 
 import "server-only";
 
 import type { Account, AccountStatus } from "./types";
 
-/** Injected read repository. Production default queries Supabase. */
 export type AccountRepository = {
-  listAccounts(): Promise<Account[]>;
+  getAccountById(id: string): Promise<Account | null>;
+  getAccountBySlug(slug: string): Promise<Account | null>;
+  listActiveAccounts(): Promise<Account[]>;
 };
 
 /** Map a Supabase `tenants` row to the canonical Account. Legacy vertical
@@ -44,22 +44,48 @@ export function mapRowToAccount(r: Record<string, unknown>): Account {
   };
 }
 
+async function scopedRow(
+  column: "id" | "slug",
+  value: string,
+): Promise<Account | null> {
+  try {
+    const { getSupabaseAdmin } = await import("@/lib/persistence/supabase");
+    const { data, error } = await getSupabaseAdmin()
+      .from("tenants")
+      .select("*")
+      .eq(column, value)
+      .maybeSingle();
+    if (error) {
+      console.error(`[account/store] scoped tenants read FAILED (${column}): ${error.message}`);
+      return null;
+    }
+    return data ? mapRowToAccount(data as Record<string, unknown>) : null;
+  } catch (e) {
+    console.error(
+      `[account/store] scoped tenants read THREW (${column}): ${e instanceof Error ? e.message : String(e)}`,
+    );
+    return null;
+  }
+}
+
 const supabaseRepository: AccountRepository = {
-  async listAccounts(): Promise<Account[]> {
+  getAccountById: (id) => scopedRow("id", id),
+  getAccountBySlug: (slug) => scopedRow("slug", slug),
+  async listActiveAccounts(): Promise<Account[]> {
     try {
       const { getSupabaseAdmin } = await import("@/lib/persistence/supabase");
-      const { data, error } = await getSupabaseAdmin().from("tenants").select("*");
+      const { data, error } = await getSupabaseAdmin()
+        .from("tenants")
+        .select("*")
+        .eq("status", "active");
       if (error) {
-        // LOUD: an unreadable registry breaks account resolution. Fail to
-        // "no accounts" (callers render generic signed-out/error paths),
-        // never to a default or another business.
-        console.error(`[account/store] Supabase tenants read FAILED: ${error.message}`);
+        console.error(`[account/store] active tenants read FAILED: ${error.message}`);
         return [];
       }
       return (data ?? []).map((r) => mapRowToAccount(r as Record<string, unknown>));
     } catch (e) {
       console.error(
-        `[account/store] Supabase tenants read THREW: ${e instanceof Error ? e.message : String(e)}`,
+        `[account/store] active tenants read THREW: ${e instanceof Error ? e.message : String(e)}`,
       );
       return [];
     }
@@ -73,26 +99,23 @@ export function setAccountRepositoryForTests(repo: AccountRepository | null): vo
   repository = repo ?? supabaseRepository;
 }
 
-export async function listTenants(): Promise<Account[]> {
-  return repository.listAccounts();
-}
-
-/**
- * Accounts eligible for background/paid work and switchable-to (status === "active").
- * A paused/cancelled/pending account must still RESOLVE (getTenant keeps working so
- * its stored data is never orphaned) but consumes zero fan-out work. Enumerating
- * callers that DO work must use this helper, not listTenants.
- */
-export async function listActiveTenants(): Promise<Account[]> {
-  return (await listTenants()).filter((t) => t.status === "active");
-}
-
 export async function getTenant(id: string): Promise<Account | null> {
-  return (await listTenants()).find((t) => t.id === id) ?? null;
+  if (!id) return null;
+  return repository.getAccountById(id);
 }
 
 export async function getTenantBySlug(slug: string): Promise<Account | null> {
-  return (await listTenants()).find((t) => t.slug === slug) ?? null;
+  if (!slug) return null;
+  return repository.getAccountBySlug(slug);
+}
+
+/**
+ * Accounts eligible for background work and switching (status === "active").
+ * A paused/cancelled/pending account still RESOLVES via getTenant so its
+ * stored data is never orphaned, but consumes zero fan-out work.
+ */
+export async function listActiveTenants(): Promise<Account[]> {
+  return repository.listActiveAccounts();
 }
 
 export async function getTenantOrThrow(id: string): Promise<Account> {

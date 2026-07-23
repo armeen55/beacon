@@ -36,6 +36,7 @@ import {
   parseSitemapIndexLocs,
   dedupeSitemapEntries,
 } from "@/domains/evidence/scanning/sitemap-parse";
+import { loadBusinessProfile } from "@/domains/account";
 import { extractPageSnapshot } from "@/domains/evidence/pages/extractor";
 import type { PageEntity, PageSnapshot, PageType } from "@/domains/evidence/pages/types";
 import { syncPages, syncPageSnapshots } from "@/lib/persistence/dual-write";
@@ -266,6 +267,8 @@ export async function runInProcessColdStartScan(args: {
     const pages: PageEntity[] = [];
     let crawled = 0;
     const nowIso = new Date(now()).toISOString();
+    // One durable profile read for the whole scan; extraction is pure.
+    const profile = await loadBusinessProfile(tenantId).catch(() => null);
 
     for (const c of candidates) {
       if (now() - started > budgetMs) break;
@@ -273,7 +276,7 @@ export async function runInProcessColdStartScan(args: {
       crawled++;
       if (!res.ok) continue;
       const id = pageIdFor(c.key);
-      const snap = extractPageSnapshot(res.html, c.url, id, tenantId, res.status);
+      const snap = extractPageSnapshot(res.html, c.url, id, tenantId, res.status, profile);
       snapshots.push(snap);
       pages.push({
         id,

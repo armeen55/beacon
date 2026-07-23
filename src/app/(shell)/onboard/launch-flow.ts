@@ -194,15 +194,10 @@ export async function executeLaunchTransaction(args: {
   //     DURABLE write (persist_failed) DOES abort — a config-less active
   //     tenant resolves PLACEHOLDER_CONFIG everywhere.
   try {
-    // Locations and competitors are BusinessProfile truth confirmed during
-    // onboarding, not account columns; the URL-first flow has no city or
-    // competitor entry step, so the launch seeds none.
     const configResult = await persistConfig({
       tenantId: tenant.id,
       domain: tenant.domain ?? "",
       typedName: tenant.business_name,
-      typedCities: [],
-      competitors: [],
     });
     console.info(`[onboard/launch] tenant config ${configResult.outcome}`);
     if (configResult.outcome === "persist_failed") {

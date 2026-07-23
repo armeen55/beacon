@@ -14,7 +14,6 @@ import { appendConnectorReviewsImportRun } from "@/lib/connectors/connector-revi
 import { mapYelpReviewToLocalReview } from "@/lib/connectors/yelp-reviews-map";
 import type { LocalReview } from "@/lib/local-reviews-types";
 import { mergeUpsertLocalReviews } from "@/lib/local-reviews-store";
-import { getBusinessProfileForCurrentTenant } from "@/lib/business-config";
 import { now } from "@/lib/actions";
 import { revalidatePath } from "next/cache";
 
@@ -96,19 +95,16 @@ export async function runYelpReviewsSync(): Promise<YelpReviewsSyncResult> {
     };
   }
 
-  const cfg = await getBusinessProfileForCurrentTenant();
-  const businessId = (
-    cfg.yelpBusinessId?.trim() ||
-    token0.business_id?.trim() ||
-    ""
-  ).trim();
+  // Connection owns connector configuration: the business id lives on the
+  // connector token only.
+  const businessId = (token0.business_id ?? "").trim();
 
   if (!businessId) {
     return {
       ok: false,
       code: "sync_failed",
       message:
-        "Set your Yelp business ID or alias in Settings → Config (Yelp business ID), then sync again.",
+        "Add your Yelp business ID to the Yelp connection, then sync again.",
     };
   }
 

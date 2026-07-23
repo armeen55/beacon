@@ -40,7 +40,6 @@
 import "server-only";
 
 import { getSupabaseAdmin } from "@/lib/persistence/supabase";
-import { getBusinessProfile } from "@/lib/business-config";
 import {
   getGoogleConnectorToken,
   persistRefreshedGoogleToken,
@@ -267,13 +266,9 @@ export async function resolveProperty(
   if (env != null && env !== "" && envTenant != null && envTenant === tenantId) {
     return env;
   }
-  // Domain source: business-config first, then the tenant REGISTRY. On hosted
-  // (read-only lambda FS) the business-config files don't deploy, so the
-  // operator's Settings→Config domain only reaches the nightly sync via the
-  // registry (Supabase-backed). Without this fallback the hosted sync gets no
-  // domain → no_property_derivable → never runs.
-  let domain: string | undefined = getBusinessProfile(tenantId).domain?.trim();
-  if (!domain) {
+  // Canonical Website: the Account row owns the one domain.
+  let domain: string | undefined;
+  {
     try {
       domain = (await getTenant(tenantId))?.domain?.trim() || undefined;
     } catch {

@@ -7,17 +7,13 @@
  * tail read unless the operator wires a GitHub PAT. This module turns the
  * cold-start into a durable QUEUE: every invocation crawls one BOUNDED batch
  * (max pages + a hard time budget, both well inside a serverless window),
- * persists the frontier cursor, and stops. The nightly sync (one isolated
- * fail-soft phase in cron-sync.ts) and the on-demand "Keep scanning" action
- * on /onboard/done each continue exactly one more batch until the frontier
- * is exhausted or the 150-page cap is reached.
+ * persists the frontier cursor, and stops. Visit-driven continuation and the
+ * on-demand "Keep scanning" action each run exactly one more batch until the
+ * frontier is exhausted or the 150-page cap is reached.
  *
- * Persistence follows the site-uptime-store sibling pattern: a GLOBAL
- * json-store ("crawl-frontier") whose rows carry tenant_id, because the
- * nightly cron fans out across tenants with no ambient request context.
- * It is Supabase-mirrored (json_store_blobs) so the cursor survives
- * Vercel's read-only, recycled lambdas - without the mirror every hosted
- * batch would restart from page zero.
+ * Persistence: a GLOBAL json-store ("crawl-frontier") whose rows carry
+ * tenant_id, Supabase-mirrored so the cursor survives Vercel's read-only,
+ * recycled lambdas.
  *
  * Discipline (same posture as in-process-scan):
  *   - Crawl-only, $0: polite fetch (identified UA, robots.txt respected,
@@ -31,6 +27,7 @@
  */
 
 import { fetchPageHtml } from "@/domains/evidence/competitor-intel/polite-fetch";
+import { loadBusinessProfile } from "@/domains/account";
 import { extractPageSnapshot } from "@/domains/evidence/pages/extractor";
 import type { PageEntity, PageSnapshot } from "@/domains/evidence/pages/types";
 import { syncPages, syncPageSnapshots } from "@/lib/persistence/dual-write";
@@ -479,6 +476,9 @@ export async function runCrawlBatch(args: {
     let failed = 0;
     let attempts = 0;
     const nowIso = new Date(now()).toISOString();
+    // One durable profile read for the whole batch; extraction is pure.
+    const profile = await loadBusinessProfile(args.tenantId).catch(() => null);
+
 
     while (frontier.length > 0 && attempts < maxPages && now() < deadlineAt) {
       if (visited.size >= state.page_cap) break;
@@ -494,7 +494,7 @@ export async function runCrawlBatch(args: {
         continue;
       }
       const id = pageIdFor(n.key);
-      const snap = extractPageSnapshot(res.html, n.url, id, args.tenantId, res.status);
+      const snap = extractPageSnapshot(res.html, n.url, id, args.tenantId, res.status, profile);
       snapshots.push(snap);
       newFacts.push(pageFactFromSnapshot(snap, n.path));
       pages.push({
@@ -600,9 +600,8 @@ export async function runCrawlBatch(args: {
 }
 
 /**
- * The nightly-cron entry point: continue exactly one more batch for a tenant
- * whose crawl is still in progress. A no-op for tenants that never started
- * one, finished, or hit an unreachable site. Never throws.
+ * Continue exactly one more batch for a tenant whose crawl is still in
+ * progress. A no-op when never started, finished, or unreachable. Never throws.
  */
 export async function continueColdStartCrawlIfStarted(
   tenantId: string,

@@ -16,7 +16,7 @@
 import "server-only";
 
 import { getSupabaseAdmin } from "@/lib/persistence/supabase";
-import { getBusinessProfile } from "@/lib/business-config";
+import { getTenant, websiteOf, loadBusinessProfile } from "@/domains/account";
 import { log } from "@/lib/logger";
 import {
   brandTokensForConfig,
@@ -36,8 +36,14 @@ export async function loadScoreboardBrandLens(
   if (!tenantId || reportedDates.length < 14) return null;
   let tokens: string[];
   try {
-    const cfg = getBusinessProfile(tenantId);
-    tokens = brandTokensForConfig({ name: cfg.name, domain: cfg.domain });
+    // Canonical identity: confirmed profile name + the Account's one Website.
+    const [account, profile] = await Promise.all([
+      getTenant(tenantId),
+      loadBusinessProfile(tenantId),
+    ]);
+    const name = profile.name.value.trim() || account?.business_name || "";
+    const domain = account ? websiteOf(account).domain : "";
+    tokens = brandTokensForConfig({ name, domain });
   } catch {
     return null;
   }

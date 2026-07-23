@@ -53,7 +53,6 @@
       "src/lib/persistence/dual-write.ts": 905,
       "src/domains/decision/recommendation-intelligence/gsc-page-queries.ts": 879,
       "src/domains/decision/recommendation-intelligence/page-surgeon/page-decision.ts": 831,
-      "src/lib/business-config.ts": 826,
       "src/domains/measurement/attribution/url-change-outcome.ts": 820,
       "src/domains/measurement/attribution/url-verdict.ts": 772,
       "src/domains/measurement/proof-gsc/kernel.ts": 768,

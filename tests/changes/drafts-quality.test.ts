@@ -159,13 +159,13 @@ describe("evaluateDraftQuality - G5 needs_source_check (honest unfetchable-sourc
       sources: [
         { domain: "britannica.com", claim: "blocked one", verified: false, fetchBlocked: true },
         {
-          domain: "iranicaonline.org",
+          domain: "heritage-encyclopedia.example",
           claim: "the Asiatic cheetah is Iran's national animal and is critically endangered",
           verified: true,
           supportingExcerpt: CHEETAH,
         },
       ],
-      authoritativeSourceDomains: ["iranicaonline.org"],
+      authoritativeSourceDomains: ["heritage-encyclopedia.example"],
     });
     expect(r.status).toBe("ready");
     expect(r.copyAllowed).toBe(true);

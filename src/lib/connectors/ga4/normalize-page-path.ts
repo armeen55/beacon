@@ -50,7 +50,7 @@ import "server-only";
  *   `cleanDomain` strips a leading `http(s)://` (defensive against
  *   accidental scheme inclusion), strips leading `www.`, lowercases
  *   the host, and strips trailing slashes. This mirrors the
- *   `src/lib/site-config.ts:40` shape the rest of the codebase uses
+ *   canonical Website shape
  *   for `business-config.domain`.
  *
  * Pinned by:

@@ -268,7 +268,6 @@ export function tenantizeRows<
 import type { ImportRun } from "@/lib/import/types";
 import type { PageSnapshot, PageEntity } from "@/domains/evidence/pages/types";
 import type { Finding } from "@/domains/evidence/scanning/types";
-import type { BusinessProfile } from "@/lib/business-config";
 import type { DailyMetricSnapshot } from "@/domains/evidence/daily-metric-snapshots/types";
 import type { PromptAnswerObservation } from "@/domains/evidence/ai-visibility/prompt-answer-observations";
 import type { TrackedPrompt } from "@/domains/evidence/ai-visibility/tracked-prompts";
@@ -312,7 +311,7 @@ export async function syncPages(
 
 // syncBusinessConfig / syncTenantBusinessConfig / syncTenantBusinessConfigConfirmed
 // removed (Slice 1, generic Account + BusinessProfile): the canonical
-// BusinessProfile write path is saveBusinessProfile in src/lib/business-config.ts,
+// BusinessProfile write path is saveBusinessProfile in src/domains/account/business-profile.ts,
 // which upserts the account's own business_config row directly. The legacy
 // singleton "current" row is never written again (historical row preserved).
 

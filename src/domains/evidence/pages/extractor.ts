@@ -8,10 +8,9 @@ import { createHash } from "node:crypto";
 import type { PageSnapshot, FaqItem, PageImage } from "./types";
 import { validateSchemaToStrings } from "./schema-validator";
 import {
-  getBusinessProfile,
-  getLocationRegex,
-  getServiceRegex,
-} from "@/lib/business-config";
+  locationRegexFrom,
+  serviceRegexFrom,
+} from "@/domains/account";
 
 function hash(input: string): string {
   return createHash("sha256").update(input).digest("hex").slice(0, 16);
@@ -23,6 +22,7 @@ export function extractPageSnapshot(
   pageId: string,
   tenantId: string,
   httpStatus: number = 200,
+  profile?: import("@/domains/account").BusinessProfile | null,
 ): PageSnapshot {
   if (!tenantId) {
     throw new Error(
@@ -397,22 +397,11 @@ export function extractPageSnapshot(
   const wordCount = bodyText ? bodyText.split(/\s+/).length : 0;
 
   // ── Location + service terms (from business config or inline defaults) ──
-  let locationRegex: RegExp;
-  let serviceRegex: RegExp;
-  try {
-    // MT-3C.2 (2026-05-23) - resolve THIS tenant's config (the extractor
-    // already requires tenantId) and inject it into the now-required-
-    // config pure helpers, instead of the deprecated no-arg path that
-    // implicitly read the process-env tenant. Production behavior is
-    // identical for a real tenant; the inline-default catch below stays
-    // as the safety net if business-config fails to load.
-    const cfg = getBusinessProfile(tenantId);
-    locationRegex = getLocationRegex(cfg);
-    serviceRegex = getServiceRegex(cfg);
-  } catch {
-    locationRegex = /(?!)/g; // missing config fails GENERIC: never-match
-    serviceRegex = /(?!)/g; // never another business's vocabulary
-  }
+  // The caller supplies the account's loaded BusinessProfile (async reads
+  // live upstream). Missing profile fails GENERIC: never-match, never
+  // another business's vocabulary.
+  const locationRegex = profile ? locationRegexFrom(profile) : /(?!)/g;
+  const serviceRegex = profile ? serviceRegexFrom(profile) : /(?!)/g;
   const locationTerms = extractTermsByPattern(bodyText, locationRegex);
   const serviceTerms = extractTermsByPattern(bodyText, serviceRegex);
 

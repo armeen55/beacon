@@ -5,6 +5,7 @@ import { warmFreeSurfaces } from "@/domains/runtime";
 import {
   getConnectorInfo,
   getGoogleConnectorToken,
+  getYelpConnectorToken,
   deleteConnectorToken,
   saveConnectorToken,
   updateConnectorToken,
@@ -29,7 +30,7 @@ import {
   type GbpLocationInfo,
 } from "@/lib/connectors/google-reviews-sync";
 import { runYelpReviewsSync } from "@/lib/connectors/yelp-reviews-sync";
-import { getBusinessProfileForCurrentTenant } from "@/lib/business-config";
+import { getTenant, websiteOf } from "@/domains/account";
 import { currentTenantId } from "@/lib/tenant-context";
 import { now } from "@/lib/actions";
 import { revalidatePath } from "next/cache";
@@ -41,7 +42,6 @@ import { syncGa4UrlTrafficForTenant } from "@/lib/connectors/ga4/sync-url-traffi
 import { syncClarityDailyMetricsForTenant } from "@/lib/connectors/clarity/sync-daily-metrics";
 import { recordSourceRefresh } from "@/domains/runtime";
 import type { RefreshSource } from "@/domains/runtime/ops/refresh-runs-store";
-import { getBusinessProfile, hydrateBusinessProfile } from "@/lib/business-config";
 import {
   discoverAndMapWixCollections,
   type DiscoverWixResult,
@@ -191,12 +191,9 @@ export async function discoverWixCollections(): Promise<DiscoverWixResult> {
   log.info("Action started", { action });
   try {
     const tenantId = await currentTenantId();
-    // Hydrate the durable profile first: this action can run on a cold
-    // lambda where the sync cache is empty.
-    const profile =
-      (await hydrateBusinessProfile(tenantId).catch(() => null)) ??
-      getBusinessProfile(tenantId);
-    const domain = (profile.domain ?? "").trim();
+    // Canonical Website: the Account row owns the one domain.
+    const account = await getTenant(tenantId).catch(() => null);
+    const domain = account ? websiteOf(account).domain : "";
     if (domain === "") {
       // A well-formed site base URL needs the operator's domain; without it we
       // cannot derive any page URLs. Surface it as an honest api_error-adjacent
@@ -243,12 +240,14 @@ export async function saveYelpApiKey(
   }
   log.info("Action started", { action });
   try {
-    const bid = (await getBusinessProfileForCurrentTenant()).yelpBusinessId.trim();
+    // Connection owns connector configuration; the business id lives on the
+    // connector token, never on the BusinessProfile.
+    const existingToken = await getYelpConnectorToken();
     await saveConnectorToken({
       provider: "yelp",
       api_key: trimmed,
       connected_at: now(),
-      business_id: bid,
+      business_id: existingToken?.business_id ?? "",
     });
     revalidatePath("/settings/connectors");
     log.info("Action completed", { action, durationMs: Date.now() - t0 });

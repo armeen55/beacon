@@ -311,9 +311,9 @@ describe("syncPromptAnswerObservations same-day re-poll recovery", () => {
 //    depends on files, env blobs, founder fallbacks, or implicit tenants.
 // ───────────────────────────────────────────────────────────────────────────
 
-describe("generic Account + BusinessProfile (Slice 1)", () => {
+describe("generic Account + BusinessProfile (Slice 1 closure)", () => {
   const FORBIDDEN_VOCAB =
-    /(ritz|iranopedia|builder|project_mix|budget_range|cities_served|publish_target|email_frequency|profound|semrush|founder|bay area)/i;
+    /(harborview|referencepedia|builder|project_mix|budget_range|cities_served|publish_target|email_frequency|profound|semrush|founder|bay area)/i;
 
   it("a freshly provisioned account row carries no vertical, customer, publishing, or provider vocabulary", async () => {
     const { provisionTenantForNewUser, PROVISIONING_DEFAULTS } = await import(
@@ -339,83 +339,149 @@ describe("generic Account + BusinessProfile (Slice 1)", () => {
     const tenantRow = inserted.find((r) => r.__table === "tenants")!;
     expect(tenantRow).toBeTruthy();
     expect(JSON.stringify(tenantRow)).not.toMatch(FORBIDDEN_VOCAB);
-    // Legacy vertical columns are OMITTED entirely (DB supplies neutral defaults).
     for (const k of ["segment", "project_mix", "cities_served", "budget_range", "publish_target", "role", "email_frequency"]) {
       expect(k in tenantRow).toBe(false);
     }
   });
 
-  it("an unknown account resolves the neutral placeholder profile, never another business", async () => {
-    const cfg = await import("@/lib/business-config");
-    cfg.__resetBusinessProfileCacheForTests();
-    const profile = cfg.getBusinessProfile("tenant-never-configured");
-    expect(cfg.isPlaceholderProfile(profile)).toBe(true);
-    expect(profile.name).toBe("");
-    expect(profile.domain).toBe("");
-    expect(profile.locations).toEqual([]);
-    expect(JSON.stringify(profile)).not.toMatch(FORBIDDEN_VOCAB);
-    // Former leak sites: term matchers never-match on the placeholder.
-    expect(cfg.getLocationRegex(profile).test("palo alto custom homes")).toBe(false);
-    expect(cfg.getServiceRegex(profile).test("whole home remodel")).toBe(false);
-  });
-
-  it("profile resolution ignores legacy env blobs (no env/file/founder fallback layers remain)", async () => {
-    const cfg = await import("@/lib/business-config");
-    cfg.__resetBusinessProfileCacheForTests();
-    const prevEnv = process.env.BEACON_BUSINESS_CONFIG_JSON;
-    process.env.BEACON_BUSINESS_CONFIG_JSON = JSON.stringify({ name: "Env Leak Co", domain: "leak.example" });
-    try {
-      const profile = cfg.getBusinessProfile("tenant-env-probe");
-      expect(cfg.isPlaceholderProfile(profile)).toBe(true);
-      expect(profile.name).toBe("");
-    } finally {
-      if (prevEnv === undefined) delete process.env.BEACON_BUSINESS_CONFIG_JSON;
-      else process.env.BEACON_BUSINESS_CONFIG_JSON = prevEnv;
-      cfg.__resetBusinessProfileCacheForTests();
-    }
-  });
-
-  it("the injected in-memory profile repository is the only durable channel tests touch", async () => {
-    const cfg = await import("@/lib/business-config");
-    cfg.__resetBusinessProfileCacheForTests();
-    const rows = new Map<string, Record<string, unknown>>();
-    cfg.setBusinessProfileRepositoryForTests({
-      load: async (id) => (rows.get(id) as never) ?? null,
-      save: async (id, profile) => {
-        rows.set(id, profile as never);
-        return { ok: true };
+  it("cold first read resolves the real account identity; no placeholder is ever cached as identity", async () => {
+    const bp = await import("@/domains/account/business-profile");
+    bp.__resetBusinessProfileCacheForTests();
+    const row = {
+      schemaVersion: 2,
+      name: { value: "Real Cold Co", origin: "operator_confirmed", confidence: 1, sourceUrls: [] },
+    };
+    let loads = 0;
+    bp.setBusinessProfileRepositoryForTests({
+      load: async () => {
+        loads++;
+        // First call: the row does NOT exist yet (cold signup race)…
+        if (loads === 1) return null;
+        // …then the durable row lands.
+        return row as never;
       },
+      save: async () => ({ ok: true }),
     });
     try {
-      const saved = await cfg.saveBusinessProfile("tenant-mem-a", { name: "Mem A", domain: "mem-a.example" });
-      expect(saved.persisted).toBe(true);
-      cfg.__resetBusinessProfileCacheForTests();
-      const hydrated = await cfg.hydrateBusinessProfile("tenant-mem-a");
-      expect(hydrated?.name).toBe("Mem A");
-      // Isolation: a different account sees the placeholder, not Mem A.
-      const other = cfg.getBusinessProfile("tenant-mem-b");
-      expect(cfg.isPlaceholderProfile(other)).toBe(true);
+      const first = await bp.loadBusinessProfile("tenant-cold");
+      expect(first.name.value).toBe(""); // honest empty, not another business
+      // The miss must NOT have been memoized: the next read sees the real row.
+      const second = await bp.loadBusinessProfile("tenant-cold");
+      expect(second.name.value).toBe("Real Cold Co");
+      // And the REAL profile is now cached (no further repo hits).
+      const before = loads;
+      await bp.loadBusinessProfile("tenant-cold");
+      expect(loads).toBe(before);
     } finally {
-      cfg.setBusinessProfileRepositoryForTests(null);
-      cfg.__resetBusinessProfileCacheForTests();
+      bp.setBusinessProfileRepositoryForTests(null);
+      bp.__resetBusinessProfileCacheForTests();
     }
   });
 
-  it("the account store resolves through the injected repository and fails to no-account, never a default", async () => {
+  it("a transient repository failure recovers on the next read", async () => {
+    const bp = await import("@/domains/account/business-profile");
+    bp.__resetBusinessProfileCacheForTests();
+    let calls = 0;
+    bp.setBusinessProfileRepositoryForTests({
+      load: async () => {
+        calls++;
+        if (calls === 1) throw new Error("transient network failure");
+        return { schemaVersion: 2, name: { value: "Recovered Co", origin: "operator_confirmed", confidence: 1, sourceUrls: [] } } as never;
+      },
+      save: async () => ({ ok: true }),
+    });
+    try {
+      const first = await bp.loadBusinessProfile("tenant-flaky");
+      expect(first.name.value).toBe(""); // fail-generic now…
+      const second = await bp.loadBusinessProfile("tenant-flaky");
+      expect(second.name.value).toBe("Recovered Co"); // …retry succeeded
+    } finally {
+      bp.setBusinessProfileRepositoryForTests(null);
+      bp.__resetBusinessProfileCacheForTests();
+    }
+  });
+
+  it("one account's cached identity can never serve another account", async () => {
+    const bp = await import("@/domains/account/business-profile");
+    bp.__resetBusinessProfileCacheForTests();
+    bp.setBusinessProfileRepositoryForTests({
+      load: async (id) =>
+        id === "tenant-a"
+          ? ({ schemaVersion: 2, name: { value: "Account A", origin: "operator_confirmed", confidence: 1, sourceUrls: [] } } as never)
+          : null,
+      save: async () => ({ ok: true }),
+    });
+    try {
+      const a = await bp.loadBusinessProfile("tenant-a");
+      expect(a.name.value).toBe("Account A");
+      const b = await bp.loadBusinessProfile("tenant-b");
+      expect(b.name.value).toBe("");
+      expect(b.accountId).toBe("tenant-b");
+    } finally {
+      bp.setBusinessProfileRepositoryForTests(null);
+      bp.__resetBusinessProfileCacheForTests();
+    }
+  });
+
+  it("a historical pre-canonical row maps into canonical sections with legacy provenance and preserved raw JSON", async () => {
+    const bp = await import("@/domains/account/business-profile");
+    const legacyRow = {
+      name: "Historic Publisher",
+      businessType: "content_publisher",
+      contentSiteMode: true,
+      services: ["guides"],
+      serviceTerms: ["reference articles"],
+      locations: ["US"],
+      keyPages: ["/about"],
+      contentRules: ["Use plain English."],
+      flaggedTerms: ["cheap"],
+      authoritativeSourceDomains: ["wikipedia.org"],
+      primaryCompetitors: ["rival.example"],
+      yelpBusinessId: "legacy-yelp",
+      revenueModel: { kind: "rpm", rpmUsd: 5 },
+    };
+    const profile = bp.profileFromRow("tenant-hist", legacyRow as never);
+    expect(profile.schemaVersion).toBe(2);
+    expect(profile.name.value).toBe("Historic Publisher");
+    expect(profile.name.origin).toBe("legacy");
+    expect(profile.businessType.value).toBe("content_publisher");
+    expect(profile.siteArchetype.value).toBe("content_site");
+    expect(profile.offerings.value.sort()).toEqual(["guides", "reference articles"].sort());
+    expect(profile.geographicScope.value).toEqual(["US"]);
+    expect(profile.importantPages.value).toEqual(["/about"]);
+    expect(profile.constraints.value.editorial).toEqual(["Use plain English."]);
+    expect(profile.constraints.value.bannedTerms).toEqual(["cheap"]);
+    expect(profile.trustedSourceDomains.value).toEqual(["wikipedia.org"]);
+    expect(profile.competitors.value).toEqual([{ name: "rival.example", evidenceUrls: [] }]);
+    // Raw legacy JSON preserved verbatim and inert.
+    expect(profile.legacy).toEqual(legacyRow);
+    // Removed contract fields do not surface as active truth.
+    expect("yelpBusinessId" in profile).toBe(false);
+    expect("revenueModel" in profile).toBe(false);
+    expect("domain" in profile).toBe(false);
+  });
+
+  it("the account store resolves through the injected scoped repository and fails to no-account, never a default", async () => {
     const store = await import("@/domains/account/tenants/store");
+    const memA = {
+      id: "tenant-mem-a", slug: "mem-a", business_name: "Mem A", domain: "mem-a.example",
+      status: "active" as const, signup_date: "2026-01-01", tos_accepted_at: null,
+      daily_budget_usd: 5, created_at: "2026-01-01", updated_at: "2026-01-01",
+    };
     store.setAccountRepositoryForTests({
-      listAccounts: async () => [
-        {
-          id: "tenant-mem-a", slug: "mem-a", business_name: "Mem A", domain: "mem-a.example",
-          status: "active", signup_date: "2026-01-01", tos_accepted_at: null,
-          daily_budget_usd: 5, created_at: "2026-01-01", updated_at: "2026-01-01",
-        },
-      ],
+      getAccountById: async (id) => (id === memA.id ? memA : null),
+      getAccountBySlug: async (slug) => (slug === memA.slug ? memA : null),
+      listActiveAccounts: async () => [memA],
     });
     try {
       expect((await store.getTenant("tenant-mem-a"))?.slug).toBe("mem-a");
       expect(await store.getTenant("tenant-absent")).toBeNull();
       await expect(store.getTenantOrThrow("tenant-absent")).rejects.toThrow(/Unknown account/);
+      // Website is the canonical projection of the account's one domain.
+      const { websiteOf } = await import("@/domains/account/tenants/types");
+      expect(websiteOf(memA)).toEqual({
+        account_id: "tenant-mem-a", domain: "mem-a.example", canonical_url: "https://mem-a.example",
+      });
     } finally {
       store.setAccountRepositoryForTests(null);
     }

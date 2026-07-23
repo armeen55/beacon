@@ -7,10 +7,27 @@
  * `src/components` may import for VALUE imports. Internal files stay private.
  */
 
-// Canonical records: Account (identity + lifecycle) and Website (domain identity)
+// Canonical records: Account (identity + lifecycle), Website (domain identity),
+// BusinessProfile (confirmed structured truth with per-section provenance).
 export type { Account, AccountStatus, Website } from "./tenants/types";
 export { websiteOf } from "./tenants/types";
-export { getTenant, listActiveTenants } from "./tenants/store";
+export { getTenant, getTenantBySlug, listActiveTenants } from "./tenants/store";
+export type {
+  BusinessProfile,
+  ProfileSection,
+  ProfileOrigin,
+  BusinessType,
+  BusinessConstraints,
+  CompetitorRef,
+} from "./business-profile";
+export {
+  loadBusinessProfile,
+  saveBusinessProfile,
+  emptyBusinessProfile,
+  isProfileEmpty,
+  locationRegexFrom,
+  serviceRegexFrom,
+} from "./business-profile";
 
 // Onboarding: provisioning + membership
 export {

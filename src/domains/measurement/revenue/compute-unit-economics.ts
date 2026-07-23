@@ -25,15 +25,17 @@ import "server-only";
 
 import { log } from "@/lib/logger";
 import { getSupabaseAdmin } from "@/lib/persistence/supabase";
-import {
-  getBusinessProfile,
-  hydrateBusinessProfile,
-  type BusinessProfile,
-} from "@/lib/business-config";
 import { fetchAdNetworkRevenueForTenant } from "@/lib/connectors/adnetwork/registry";
 import { AD_NETWORK_MEASURED_BASIS } from "@/lib/connectors/adnetwork/types";
 
-export type RevenueModel = NonNullable<BusinessProfile["revenueModel"]>;
+/** Operator-set unit economics. Revenue attribution is an MVP non-goal; the
+ * settings surface that configured this was removed, so no account can set a
+ * model and this path stays dormant (kept only for the ad-network read). */
+export type RevenueModel = {
+  kind: "rpm" | "per_lead";
+  rpmUsd?: number;
+  dollarsPerLead?: number;
+};
 
 export type RevenueSource =
   | "ad_network"
@@ -220,10 +222,9 @@ export async function runRevenueFactsPass(
     adNetworkRows = measured.length;
   }
 
-  // Unit economics: the operator's rate x real GA4 traffic. Dormant until
-  // the operator sets a rate in settings.
-  const cfg = (await hydrateBusinessProfile(tenantId)) ?? getBusinessProfile(tenantId);
-  const model = cfg.revenueModel;
+  // Unit economics is dormant: revenue attribution is an MVP non-goal and the
+  // canonical BusinessProfile carries no revenue model.
+  const model: RevenueModel | undefined = undefined;
   if (!isUsableRevenueModel(model)) {
     if (adNetworkRows > 0) return { ran: true, rowsUpserted: adNetworkRows, adNetworkRows };
     return { ran: false, reason: "no_revenue_model" };

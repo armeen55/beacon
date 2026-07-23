@@ -61,7 +61,7 @@ import "server-only";
 
 import { getSupabaseAdmin } from "@/lib/persistence/supabase";
 import { log } from "@/lib/logger";
-import { getBusinessProfile } from "@/lib/business-config";
+import { getTenant, websiteOf } from "@/domains/account";
 import { runGa4RevenueReport, runGa4UrlTrafficReport } from "./data-api";
 import { normalizeGa4PagePathToFullUrl } from "./normalize-page-path";
 import type { Ga4FailReason, Ga4RevenueRow, Ga4UrlTrafficRow } from "./types";
@@ -293,8 +293,9 @@ export async function persistGa4UrlTraffic(
   // path-only value AND emits a single operator-side warn so the
   // operator can fix the config; Mode A continues to surface
   // `no_traffic_data` honestly in that case.
-  const businessConfig = getBusinessProfile(tenantId);
-  const domain = businessConfig.domain ?? "";
+  // Canonical Website: the Account row owns the one domain.
+  const account = await getTenant(tenantId).catch(() => null);
+  const domain = account ? websiteOf(account).domain : "";
   if (domain.trim() === "" && report.rows.length > 0) {
     log.warn(
       "[persist-ga4-url-traffic] business-config.domain empty; GA4 path-only rows will store unprefixed (Mode A will surface no_traffic_data until fixed)",

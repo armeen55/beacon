@@ -10,7 +10,7 @@ import { currentTenantId } from "@/lib/tenant-context";
 import { writeStore } from "@/lib/persistence/json-store";
 import { getRepository } from "@/lib/persistence/repositories";
 import type { CitationEvidenceIndex } from "./types";
-import { getSiteConfig } from "@/lib/site-config";
+import { loadBusinessProfile } from "@/domains/account";
 
 // ── Source type classification ──
 
@@ -171,7 +171,8 @@ export async function computeCompetitorEvidence(
   const competitorPages = await getCompetitorPages();
   const sourcePatternsState = await getSourcePatterns();
   const results = new Map<string, FrontierCompetitiveSummary>();
-  const brand = getSiteConfig(await currentTenantId()).ownedBrandShort;
+  const profileA = await loadBusinessProfile(await currentTenantId());
+  const brand = profileA.name.value.trim() || "You";
   const hasNoEquiv =
     brand === "You" ? "you have" : `${brand} has`;
 
@@ -369,7 +370,8 @@ async function rebuildSummariesFromStores(
   const competitorPages = await getCompetitorPages();
   const sourcePatterns = await getSourcePatterns();
   const results = new Map<string, FrontierCompetitiveSummary>();
-  const brand = getSiteConfig(await currentTenantId()).ownedBrandShort;
+  const profileB = await loadBusinessProfile(await currentTenantId());
+  const brand = profileB.name.value.trim() || "You";
   const hasNoEquiv = brand === "You" ? "you have" : `${brand} has`;
 
   const topicKeys = new Set(competitorPages.map((c) => c.frontierKey));
