@@ -31,7 +31,7 @@ vi.mock("@/domains/recommendation-intelligence/page-surgeon/assemble-packet", ()
   loadPageSurgeonContext: mocks.loadPageSurgeonContext,
   topPagesByDemand: mocks.topPagesByDemand,
 }));
-vi.mock("@/domains/proof-gsc/run-measurement", () => ({
+vi.mock("@/domains/proof-gsc/measure-pass", () => ({
   captureChangeMeta: mocks.captureChangeMeta,
   recordShippedChange: mocks.recordShippedChange,
   measureRecord: mocks.measureRecord,

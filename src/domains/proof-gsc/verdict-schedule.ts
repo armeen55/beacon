@@ -11,8 +11,14 @@
  * "N measuring" count can never describe different sets. Every date is YYYY-MM-DD (UTC);
  * every render site formats it with monthDayLabel (src/components/data/receipt-line.ts).
  */
-import { addDays, proofCheckDates, PROOF_WINDOW_DAYS, type ProofWindowDay } from "./measure";
+import { addDays } from "./kernel";
+import { PROOF_WINDOW_DAYS, type ProofWindowDay } from "./types";
 import { GSC_LAG_DAYS } from "@/domains/proof-gsc/change-family";
+
+/** The check-in dates after a ship date, one per window day. Pure (UTC). */
+function proofCheckDates(shippedAtIso: string): Record<ProofWindowDay, string> {
+  return { 7: addDays(shippedAtIso, 7), 14: addDays(shippedAtIso, 14), 28: addDays(shippedAtIso, 28) };
+}
 import { splitLedgerLifecycle, type LedgerLifecycleRow } from "@/domains/changes/lifecycle-counts";
 
 /** The final proof window; a change reaches its earliest final verdict at ship + this. */

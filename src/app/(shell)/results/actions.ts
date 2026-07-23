@@ -27,12 +27,14 @@ import {
   captureChangeMeta,
   measureRecord,
   defaultPacificShipDate,
-} from "@/domains/proof-gsc/run-measurement";
+} from "@/domains/proof-gsc/measure-pass";
 import {
   loadShippedChanges,
   upsertShippedChange,
   type ShippedChangeRecord,
 } from "@/domains/proof-gsc/shipped-change-store";
+import { readLastFinalizedDate } from "@/domains/proof-gsc/gsc-window";
+import { readLedger } from "@/domains/proof-gsc/kernel";
 import { writeResultsSurface } from "./results-surface-store";
 
 export type ProofLedgerActionResponse = { success: boolean; error?: string };
@@ -246,7 +248,9 @@ export async function recomputeProofLedgerAction(): Promise<ProofLedgerActionRes
     // the fresh snapshot now instead of making the very next render re-measure the
     // whole ledger a second time. Measurement history itself lives in the upserts.
     if (measuredAll.length > 0) {
-      await writeResultsSurface(measuredAll, new Date().toISOString());
+      const latestGscDate = await readLastFinalizedDate(tenantId).catch(() => null);
+      const reads = readLedger(measuredAll, new Date(), latestGscDate);
+      await writeResultsSurface(reads, new Date().toISOString(), tenantId);
     }
     revalidatePath("/results");
     revalidatePath("/changes");

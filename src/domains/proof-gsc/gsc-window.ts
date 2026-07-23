@@ -19,7 +19,7 @@ import { cache } from "react";
 import { getSupabaseAdmin } from "@/lib/persistence/supabase";
 import { canonicalizeCitationUrl } from "@/domains/citation-lifecycle/canonicalize-url";
 import { log } from "@/lib/logger";
-import type { GscWindowMetrics } from "./measure";
+import type { GscWindowMetrics } from "./types";
 
 type Cumulative = { clicks: number; impressions: number; posWeighted: number };
 

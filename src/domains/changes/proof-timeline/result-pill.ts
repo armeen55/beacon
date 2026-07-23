@@ -24,10 +24,61 @@
  *   - Never reference maturity enums, calibration, lifecycle
  *     classification, or any other internal subsystem.
  */
-import type {
-  MeasurementDirection,
-  MeasurementMaturity,
-} from "@/domains/proof-gsc/measurement-maturity";
+/** Maturity + direction of a measurement, kept local (CORE 100K) so the pill has
+ *  no dependency on a retired presentation module. Mapped from the kernel read. */
+export type MeasurementMaturity =
+  | "scheduled"
+  | "collecting"
+  | "early_checkpoint"
+  | "interim_checkpoint"
+  | "mature_result"
+  | "inconclusive"
+  | "blocked_data"
+  | "unresolved"
+  | "attribution_limited";
+export type MeasurementDirection = "positive" | "negative" | "neutral" | "unknown";
+
+import type { KernelRead } from "@/domains/proof-gsc/kernel";
+
+/** The proof summary a timeline row / Today card needs, mapped from a kernel read. */
+export type KernelProofSummary = {
+  maturity: MeasurementMaturity;
+  direction: MeasurementDirection;
+  verdict: "helped" | "no_lift" | "did_not_help" | null;
+  headline: string;
+  /** Soonest future proof checkpoint date (YYYY-MM-DD), or null. */
+  nextCheckpoint: string | null;
+};
+
+/** Map a kernel read to the shared proof summary. PURE. */
+export function kernelProofSummary(read: KernelRead): KernelProofSummary {
+  const improving = read.verdict === "directional_improvement" || read.verdict === "stronger_improvement";
+  const direction: MeasurementDirection = improving ? "positive" : read.verdict === "directional_decline" ? "negative" : "neutral";
+  const verdict: KernelProofSummary["verdict"] = improving
+    ? "helped"
+    : read.verdict === "directional_decline"
+      ? "did_not_help"
+      : read.basisDay === 28 && read.verdict === "no_clear_movement"
+        ? "no_lift"
+        : null;
+  const maturity: MeasurementMaturity =
+    read.verdict === "confounded"
+      ? "attribution_limited"
+      : read.basisDay === 28
+        ? read.verdict === "insufficient_evidence"
+          ? "inconclusive"
+          : "mature_result"
+        : read.basisDay === 14
+          ? "interim_checkpoint"
+          : read.basisDay === 7
+            ? "early_checkpoint"
+            : read.windows.some((w) => w.state === "pending_data")
+              ? "blocked_data"
+              : "collecting";
+  const nextCheckpoint = read.windows.find((w) => w.state !== "closed")?.closesOn ?? null;
+  return { maturity, direction, verdict, headline: read.headline, nextCheckpoint };
+}
+
 type LifecycleTabClass =
   | "live_verified"
   | "pending_implementation"

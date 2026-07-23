@@ -13,11 +13,10 @@ import "server-only";
  * ran:false → true since the last measure).
  */
 
-import { measureRecord } from "./run-measurement";
+import { measureRecord } from "./measure-pass";
 import { readLastFinalizedDate } from "./gsc-window";
 import { loadShippedChanges, upsertShippedChange, type ShippedChangeRecord } from "./shipped-change-store";
 import { isDueForMeasure, outcomeStateOf, type OutcomeState } from "./measure-lifecycle";
-import { MAX_RANK_RECHECKS_PER_PASS } from "./rank-recheck";
 import { log } from "@/lib/logger";
 
 export type AutoMeasureOutcome = {
@@ -68,8 +67,6 @@ export type MeasureDueContext = {
   lastFinal: string | null;
   /** Passed to measureRecord as its excludeControls arg. undefined = exclude nothing. */
   excludeControls: Set<string> | undefined;
-  /** Whether the bounded paid live-SERP rank re-check may be spent this pass. */
-  allowPaidRankRecheck: boolean;
   /** Persist one freshly measured record. Return { ok:false } to count a failure
    *  without throwing. */
   persist: (measured: ShippedChangeRecord) => Promise<{ ok: boolean }>;
@@ -82,14 +79,11 @@ export async function measureDueRecords(
   due: ReadonlyArray<ShippedChangeRecord>,
   ctx: MeasureDueContext,
 ): Promise<{ measured: number; failed: number }> {
-  let rankRechecksUsed = 0;
   let measured = 0;
   let failed = 0;
   for (const record of due) {
     try {
-      const allowRankRecheck = ctx.allowPaidRankRecheck && rankRechecksUsed < MAX_RANK_RECHECKS_PER_PASS;
-      const next = await measureRecord(tenantId, record, ctx.now, ctx.lastFinal, ctx.excludeControls, allowRankRecheck);
-      if (allowRankRecheck && next.rankOutcome != null) rankRechecksUsed += 1;
+      const next = await measureRecord(tenantId, record, ctx.now, ctx.lastFinal, ctx.excludeControls);
       const { ok } = await ctx.persist(next);
       if (!ok) {
         failed += 1;
@@ -115,11 +109,6 @@ export async function autoMeasureDuePass(
 ): Promise<AutoMeasurePassResult> {
   const now = opts.now ?? new Date();
   const max = opts.maxRecords ?? 15;
-  // P0-B Wave 1 GET-GUARD: a pass fired from a page GET's after() (on-visit
-  // settle) must spend nothing. Only an explicit operator action may allow the
-  // bounded paid live-SERP rank re-check. Default true preserves the explicit
-  // action + existing test behavior.
-  const allowPaid = opts.allowPaidRankRecheck ?? true;
   const result: AutoMeasurePassResult = {
     considered: 0,
     due: 0,
@@ -143,15 +132,12 @@ export async function autoMeasureDuePass(
   const due = records.filter((r) => isDueForMeasure(r, lastFinal, now)).slice(0, max);
   result.due = due.length;
 
-  // Item 19: the bounded live-SERP rank re-check budget for the WHOLE pass lives in
-  // measureDueRecords now (MAX_RANK_RECHECKS_PER_PASS x ~$0.003, never per-record).
   // This pass excludes no controls (undefined) and persists via upsertShippedChange;
   // its rich per-record accounting (changed / settled / outcomes) rides onMeasured.
   const { measured, failed } = await measureDueRecords(tenantId, due, {
     now,
     lastFinal,
     excludeControls: undefined,
-    allowPaidRankRecheck: allowPaid,
     persist: async (next) => {
       await upsertShippedChange(next);
       return { ok: true };

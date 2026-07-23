@@ -7,14 +7,7 @@
  * isolated; the pattern aggregate honors the min-sample floor; the
  * fail-closed calibration quarantine holds on BOTH the write and READ paths.
  */
-import { beforeEach, beforeAll, afterAll, describe, expect, it, vi } from "vitest";
-import {
-  TEST_CALIBRATED_VERSION,
-  registerTestCalibratedVersion,
-  clearTestCalibratedVersions,
-} from "@/domains/proof-gsc/verdict-calibration-test-support";
-beforeAll(registerTestCalibratedVersion);
-afterAll(clearTestCalibratedVersions);
+import { beforeEach, afterAll, describe, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
@@ -60,6 +53,7 @@ function win28(over: Partial<ShippedChangeRecord["windows"][number]> = {}): Ship
     controlPosDelta: 0,
     adjustedPosLift: 1,
     controlsUsed: 3,
+    treatedPostImpressions: 4000,
     ...over,
   };
 }
@@ -89,7 +83,7 @@ function record(over: Partial<ShippedChangeRecord> = {}): ShippedChangeRecord {
     liveSourceUrl: null,
     recrawlRequestedAt: null,
     operatorVerdictOverride: null,
-    calibrationVersion: TEST_CALIBRATED_VERSION,
+    calibrationVersion: null,
     createdAt: "2026-05-20T00:00:00.000Z",
     updatedAt: "2026-06-18T00:00:00.000Z",
     ...over,
@@ -144,10 +138,13 @@ describe("harvestWinners - mature-won-only pin", () => {
   });
 
   it("does NOT harvest lost/inconclusive verdicts, or a mature result with insufficient controls", async () => {
+    // The kernel recomputes the verdict from the window deltas, so a non-win is
+    // encoded in the window math (a real decline, a flat read, or too few
+    // comparison pages), not in a stored verdict string.
     ledger = [
-      record({ verdict: "lost", id: "p5::2026-05-20" }),
-      record({ verdict: "inconclusive", id: "p6::2026-05-20" }),
-      record({ controlPages: [], id: "p7::2026-05-20" }),
+      record({ windows: [win28({ adjustedCtrLift: -0.028, treatedCtrDelta: -0.03 })], id: "p5::2026-05-20" }),
+      record({ windows: [win28({ adjustedCtrLift: 0.0005, treatedCtrDelta: 0.001 })], id: "p6::2026-05-20" }),
+      record({ windows: [win28({ controlsUsed: 1 })], id: "p7::2026-05-20" }),
     ];
     expect((await harvestWinners("tenant-a", { now: NOW })).harvested).toBe(0);
   });
@@ -172,7 +169,6 @@ describe("harvestWinners - mature-won-only pin", () => {
       features: extractStructuralFeatures("some other tenant's winner"),
       measuredLift: 0.01,
       verdict: "won",
-      calibrationVersion: TEST_CALIBRATED_VERSION,
       shippedAt: "2026-05-01T00:00:00.000Z",
       capturedAt: NOW.toISOString(),
     });
@@ -185,16 +181,19 @@ describe("harvestWinners - mature-won-only pin", () => {
 
 describe("loadPatternAggregate - min-sample floor over the WHOLE ledger", () => {
   it("stays unconfident below the sample floor even at a 100% win rate; clears the floor at 3 decided with an honest winRate", async () => {
+    // Ship dates are spaced >28 days apart so these same-page changes do not
+    // overlap (the kernel would honestly read overlapping same-page changes as
+    // confounded and exclude them from the tally).
     ledger = [
-      record({ id: "a::1", after: "12 legendary voices lead this list." }),
-      record({ id: "a::2", after: "15 more voices round out the list.", shippedAt: "2026-05-21T00:00:00.000Z" }),
+      record({ id: "a::1", after: "12 legendary voices lead this list.", shippedAt: "2026-03-01T00:00:00.000Z" }),
+      record({ id: "a::2", after: "15 more voices round out the list.", shippedAt: "2026-04-15T00:00:00.000Z" }),
     ];
     const below = await loadPatternAggregate("tenant-a", { now: NOW });
     expect(below.find((c) => c.pattern === "stat_first")!.confident).toBe(false);
 
     ledger = [
       ...ledger,
-      record({ id: "a::3", after: "9 fewer known names complete the set.", shippedAt: "2026-05-22T00:00:00.000Z", verdict: "lost" }),
+      record({ id: "a::3", after: "9 fewer known names complete the set.", shippedAt: "2026-05-30T00:00:00.000Z", windows: [win28({ adjustedCtrLift: -0.028, treatedCtrDelta: -0.03 })] }),
     ];
     const at = await loadPatternAggregate("tenant-a", { now: NOW });
     const cell = at.find((c) => c.pattern === "stat_first" && c.pageFamily === "singers")!;
@@ -220,10 +219,12 @@ describe("buildWinnerFewShotsWithPattern - confident-cell injection", () => {
   });
 
   it("appends a pattern hint once confident; names a real winning page, never a fabricated one", async () => {
+    // Ship dates spaced >28 days apart so the same-page changes are independent
+    // (not confounded by overlapping windows).
     ledger = [
-      record({ id: "a::1", after: "12 legendary voices lead this list." }),
-      record({ id: "a::2", after: "15 more voices round out the list.", shippedAt: "2026-05-21T00:00:00.000Z" }),
-      record({ id: "a::3", after: "20 total names complete the roster.", shippedAt: "2026-05-22T00:00:00.000Z" }),
+      record({ id: "a::1", after: "12 legendary voices lead this list.", shippedAt: "2026-03-01T00:00:00.000Z" }),
+      record({ id: "a::2", after: "15 more voices round out the list.", shippedAt: "2026-04-15T00:00:00.000Z" }),
+      record({ id: "a::3", after: "20 total names complete the roster.", shippedAt: "2026-05-30T00:00:00.000Z" }),
     ];
     await harvestWinners("tenant-a", { now: NOW });
     const { fragment, patternHint } = await buildWinnerFewShotsWithPattern("tenant-a", "title", "singers");
@@ -231,61 +232,21 @@ describe("buildWinnerFewShotsWithPattern - confident-cell injection", () => {
     expect(patternHint!.winningPage).toBe("https://iranopedia.com/singers");
     expect(fragment).toContain("Winning style for singers pages here");
 
-    // All-losses cell: hint exists but winningPage is honestly null.
-    ledger = ledger.map((r, i) => ({ ...r, id: `l::${i}`, verdict: "lost" }));
+    // All-losses cell: hint exists but winningPage is honestly null. The kernel
+    // reads the loss from the window deltas, not a stored verdict string.
+    ledger = ledger.map((r, i) => ({ ...r, id: `l::${i}`, windows: [win28({ adjustedCtrLift: -0.028, treatedCtrDelta: -0.03 })] }));
     const losses = await buildWinnerFewShotsWithPattern("tenant-a", "title", "singers");
     expect(losses.patternHint).not.toBeNull();
     expect(losses.patternHint!.winningPage).toBeNull();
   });
 });
 
-describe("fail-closed calibration quarantine", () => {
-  it("harvests NO winners from an UNCALIBRATED mature won, and few-shots stay empty", async () => {
-    ledger = [record({ calibrationVersion: null })];
-    const res = await harvestWinners("iranopedia", { now: NOW });
-    expect(res.harvested).toBe(0);
-    expect(await buildWinnerFewShots("iranopedia", "title")).toBe("");
-  });
-
-  it("READ path: winners persisted with no version or an unregistered version are never served", async () => {
-    stored.push(
-      {
-        tenantId: "iranopedia",
-        actionFamily: "title",
-        page: "https://iranopedia.com/legacy",
-        beforeText: "Old title",
-        afterText: "Legacy winner text with 12 words in it for the extractor",
-        features: extractStructuralFeatures("Legacy winner text with 12 words in it for the extractor"),
-        pattern: classifyDraftPattern("Legacy winner text with 12 words in it for the extractor"),
-        measuredLift: 0.02,
-        verdict: "won",
-        shippedAt: "2026-05-01T00:00:00.000Z",
-        capturedAt: "2026-06-01T00:00:00.000Z",
-      } as (typeof stored)[number],
-      {
-        tenantId: "iranopedia",
-        actionFamily: "title",
-        page: "https://iranopedia.com/unknown-version",
-        beforeText: null,
-        afterText: "Winner stored under a version nobody registered",
-        features: extractStructuralFeatures("Winner stored under a version nobody registered"),
-        pattern: classifyDraftPattern("Winner stored under a version nobody registered"),
-        measuredLift: 0.02,
-        verdict: "won",
-        calibrationVersion: "never-registered-v9",
-        shippedAt: "2026-05-01T00:00:00.000Z",
-        capturedAt: "2026-06-01T00:00:00.000Z",
-      } as (typeof stored)[number],
-    );
-    expect(await loadWinners("iranopedia")).toHaveLength(0);
-    expect(await buildWinnerFewShots("iranopedia", "title")).toBe("");
-  });
-
-  it("a freshly harvested CALIBRATED winner is stored WITH its version and served normally", async () => {
+describe("mature-win harvesting (kernel gate)", () => {
+  it("a freshly harvested MATURE won is stored and served as a few-shot", async () => {
     ledger = [record()];
     await harvestWinners("iranopedia", { now: NOW });
     const winners = await loadWinners("iranopedia");
-    expect(winners[0]!.calibrationVersion).toBe(TEST_CALIBRATED_VERSION);
+    expect(winners).toHaveLength(1);
     expect(await buildWinnerFewShots("iranopedia", "title")).toContain("House patterns");
   });
 });

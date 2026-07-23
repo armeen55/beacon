@@ -3,20 +3,16 @@ import Link from "next/link";
 // uses the same request-memoized SWR snapshot the page already serves instead of
 // re-triggering a full re-measure (loadProofLedger).
 import { loadResultsLedgerSurface } from "../results/results-ledger-data";
-import { presentationVerdictFor } from "../results/proof-badge";
 import { isOperatorModeServer } from "@/lib/operator-mode";
+import { normalizeUrl } from "@/lib/url/normalize";
 import type { ChangelogEntry } from "@/domains/changelog/types";
 import type { EnrichedChangeRow, ChangeRowProof } from "./types";
 import { ChangesV2Client } from "./changes-v2-client";
 import { getRepository } from "@/lib/persistence/repositories";
 import { currentTenantId } from "@/lib/tenant-context";
 import { maybeRefreshUrlWatcher } from "@/domains/product/url-watcher";
-import { findProofForChange } from "@/domains/proof-gsc/change-proof-link";
-import type { ShippedChangeRecord } from "@/domains/proof-gsc/shipped-change-store";
-import {
-  buildMeasurementPresentation,
-  detectMeasurementOverlaps,
-} from "@/domains/proof-gsc/measurement-maturity";
+import type { KernelRead } from "@/domains/proof-gsc/kernel";
+import { kernelProofSummary } from "@/domains/changes/proof-timeline/result-pill";
 import type {
   ImplementationStatus,
   RecommendedEditRow,
@@ -157,60 +153,34 @@ export async function ResultsTimeline() {
     // surface read is request-memoized (React cache), so this shares ONE
     // snapshot with the rest of /results. Fail-soft to [] - the rows then
     // render the honest not-measured line, same posture as the count below.
-    let ledger: ShippedChangeRecord[] = [];
+    let reads: KernelRead[] = [];
     try {
-      ledger = (await loadResultsLedgerSurface()).ledger;
+      reads = (await loadResultsLedgerSurface())?.reads ?? [];
     } catch (err) {
       console.error("[results-timeline] proof ledger read failed (non-fatal)", err);
     }
 
-    const proofNow = new Date();
-    const overlapById = detectMeasurementOverlaps(
-      ledger.map((r) => ({ id: r.id, path: r.path, shippedAt: r.shippedAt })),
-    );
-    // Same compact presentation input today-moves-data.ts uses: the pill needs
-    // mature-vs-not + direction, not the blocked/collecting split, so the GSC
-    // watermark is omitted. The calibration quarantine (presentationVerdictFor)
-    // keeps an uncalibrated won/lost reading as inconclusive, matching the
-    // Results cards above this section.
-    const proofSummaryFor = (record: ShippedChangeRecord): ChangeRowProof => {
-      const basisWin = (record.windows ?? [])
-        .filter((w) => w.ran)
-        .sort((a, b) => b.day - a.day)[0];
-      const pres = buildMeasurementPresentation({
-        shippedAt: record.shippedAt,
-        now: proofNow,
-        latestGscDate: null,
-        windows: (record.windows ?? []).map((w) => ({ day: w.day, ran: w.ran })),
-        verdict: presentationVerdictFor(record),
-        controlsUsed: basisWin?.controlsUsed ?? 0,
-        baselineImpressions: record.baseline?.impressions ?? 0,
-        overlap: overlapById.get(record.id) ?? null,
-        live: true,
-        weakComparison: record.controlMatchWeak === true,
-      });
-      return {
-        maturity: pres.maturity,
-        direction: pres.direction,
-        verdict: pres.verdict,
-        nextCheckpoint: pres.nextCheckpoint,
-      };
+    const readById = new Map(reads.map((r) => [r.id, r] as const));
+    const dateOnly = (v: string): string | null => /^\d{4}-\d{2}-\d{2}/.exec(v.trim())?.[0] ?? null;
+    const findReadForChange = (change: Pick<ChangelogEntry, "id" | "url" | "timestamp">): KernelRead | null => {
+      const direct = readById.get(change.id);
+      if (direct) return direct;
+      const path = change.url ? normalizeUrl(change.url) : null;
+      const shipDate = dateOnly(change.timestamp);
+      if (!path || !shipDate) return null;
+      return reads.find((r) => normalizeUrl(r.path || r.page) === path && r.id.endsWith(`::${shipDate}`)) ?? null;
     };
 
     const sortedRows = [...allRowsForClassifier].sort(
-      (a, b) =>
-        new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime(),
+      (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime(),
     );
 
     const enriched: EnrichedChangeRow[] = sortedRows.map((change) => {
-      const record = findProofForChange(change, ledger);
-      return {
-        change,
-        proof: record ? proofSummaryFor(record) : null,
-      };
+      const read = findReadForChange(change);
+      return { change, proof: read ? readToChangeRowProof(read) : null };
     });
 
-    const proofLedgerCount = isOperatorModeServer() ? ledger.length : 0;
+    const proofLedgerCount = isOperatorModeServer() ? reads.length : 0;
 
     return (
       <ChangesV2Client
@@ -224,6 +194,12 @@ export async function ResultsTimeline() {
   } finally {
     trace.flush();
   }
+}
+
+/** Map a kernel read to the timeline row's proof summary (drops the headline). */
+function readToChangeRowProof(read: KernelRead): ChangeRowProof {
+  const { maturity, direction, verdict, nextCheckpoint } = kernelProofSummary(read);
+  return { maturity, direction, verdict, nextCheckpoint };
 }
 
 /**

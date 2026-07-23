@@ -24,15 +24,7 @@
 import "server-only";
 
 import { loadShippedChanges, type ShippedChangeRecord } from "@/domains/proof-gsc/shipped-change-store";
-import {
-  deriveMeasurementMaturity,
-  detectMeasurementOverlaps,
-  measurementWindowOf,
-  type OverlapContext,
-} from "@/domains/proof-gsc/measurement-maturity";
-import { buildShockWindows, overlappingShock, type ShockWindow } from "@/domains/proof-gsc/algorithm-weather";
-import { loadDetectedChangepoints } from "@/domains/proof-gsc/algorithm-weather-store";
-import { learningEligibleVerdict } from "@/domains/proof-gsc/verdict-calibration";
+import { readRecordsForLearning, learningVerdictOf } from "@/domains/proof-gsc/kernel";
 import { actionFamilyOf } from "@/domains/proof-gsc/change-family";
 
 // The experiments domain (daily plans, team-review) was removed. Minimal inline types keep this
@@ -91,53 +83,6 @@ export function findPlanPickForProofId(
     }
   }
   return null;
-}
-
-async function loadShockWindowsForGate(tenantId: string): Promise<ShockWindow[]> {
-  try {
-    const changepoints = await loadDetectedChangepoints(tenantId);
-    return buildShockWindows({ dailySeries: [], priorChangepoints: changepoints });
-  } catch {
-    return [];
-  }
-}
-
-/** Same gate as maturityGatedVerdict in load-experiment-outcomes.ts: non-mature or
- *  weather-quarantined records read as still measuring (no vote), everything else keeps its real
- *  verdict. Duplicated (not imported) because that function is internal to load-experiment-outcomes
- *  - the logic is small, pure, and pinned by this module's own tests + the shared source it mirrors. */
-function settledVerdictOf(
-  r: ShippedChangeRecord,
-  overlap: OverlapContext | null,
-  now: Date,
-  shockWindows: ReadonlyArray<ShockWindow>,
-): ShippedChangeRecord["verdict"] {
-  const basisWin = (r.windows ?? []).filter((w) => w.ran).sort((a, b) => b.day - a.day)[0];
-  const maturity = deriveMeasurementMaturity({
-    shippedAt: r.shippedAt,
-    now,
-    latestGscDate: null,
-    windows: (r.windows ?? []).map((w) => ({ day: w.day, ran: w.ran })),
-    verdict: r.verdict,
-    controlsUsed: basisWin?.controlsUsed ?? 0,
-    baselineImpressions: r.baseline?.impressions ?? 0,
-    overlap,
-    live: true,
-  });
-  if (maturity !== "mature_result") return "measuring";
-  const window = measurementWindowOf(r.shippedAt, r.windows ?? []);
-  if (window && shockWindows.length > 0 && overlappingShock(window.start, window.end, shockWindows)) {
-    return "measuring";
-  }
-  // Fail-closed calibration quarantine (2026-07-11): an uncalibrated decided
-  // verdict trains no specialist reliability weight - same choke point the
-  // learning prior uses (verdict-calibration.ts). A neutralized decided verdict
-  // reads as "measuring" here too, so it carries no vote (settledVerdictOf's
-  // callers require won/lost). With no calibrated rows the scoreboard falls back
-  // to its fresh-tenant defaults, exactly like a tenant that never settled one.
-  const eligible = learningEligibleVerdict(r);
-  if (eligible != null) return eligible as ShippedChangeRecord["verdict"];
-  return (r.verdict === "won" || r.verdict === "lost" ? "measuring" : r.verdict) as ShippedChangeRecord["verdict"];
 }
 
 /** Turn one settled record's team review into scored votes: one per supporting voice, one per
@@ -220,8 +165,7 @@ export async function buildTeamScoreboardSummary(tenantId: string, now: Date = n
     return { rows: [], settledJoined: 0, totalSettled: 0, computedAt: now.toISOString() };
   }
 
-  const overlaps = detectMeasurementOverlaps(records.map((r) => ({ id: r.id, path: r.path, shippedAt: r.shippedAt })));
-  const shockWindows = await loadShockWindowsForGate(tenantId);
+  const settledVerdicts = readRecordsForLearning(records, now).map(learningVerdictOf);
 
   let totalSettled = 0;
   let settledJoined = 0;
@@ -231,8 +175,9 @@ export async function buildTeamScoreboardSummary(tenantId: string, now: Date = n
   const convictionsBySpecialist = new Map<string, ConvictionObservation[]>();
   const objectionObservations: ObjectionObservation[] = [];
 
-  for (const r of records) {
-    const verdict = settledVerdictOf(r, overlaps.get(r.id) ?? null, now, shockWindows);
+  for (let idx = 0; idx < records.length; idx += 1) {
+    const r = records[idx];
+    const verdict = settledVerdicts[idx];
     if (verdict !== "won" && verdict !== "lost") continue; // only a real settled call carries a vote
     totalSettled++;
 

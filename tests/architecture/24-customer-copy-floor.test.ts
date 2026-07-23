@@ -26,10 +26,7 @@ import path, { resolve, join, sep } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import { actionLabel } from "@/domains/insight/page-primary";
-import {
-  proofOutcomeSentence,
-  type GscProofVerdict,
-} from "@/domains/proof-gsc/measure";
+import { verdictPhrase, type KernelVerdict } from "@/domains/proof-gsc/kernel";
 
 const REPO_ROOT = resolve(__dirname, "../..");
 
@@ -192,7 +189,7 @@ const DISPLAY_SURFACES = [
   "src/app/(shell)/changes/page.tsx",
   "src/app/(shell)/changes/changes-v2-client.tsx",
   "src/app/(shell)/results/page.tsx",
-  "src/app/(shell)/results/proof-summary-section.tsx",
+  "src/app/(shell)/results/results-ledger-card.tsx",
   "src/app/(shell)/results/proof-ledger-client.tsx",
   "src/app/(shell)/opportunities/page.tsx",
   // Surface-collapse (2026-07-21): the recommendations v2 card was deleted; its
@@ -202,8 +199,7 @@ const DISPLAY_SURFACES = [
   "src/domains/recommendation-intelligence/page-surgeon/change-pack.ts",
   "src/domains/insight/connection-health.ts",
   "src/domains/insight/page-primary.ts",
-  "src/domains/proof-gsc/measure.ts",
-  "src/domains/proof-gsc/measurement-maturity.ts",
+  "src/domains/proof-gsc/kernel.ts",
   "src/app/(shell)/connections/page.tsx",
   "src/app/(shell)/settings/connectors/actions.ts",
   "src/app/(shell)/settings/connectors/connectors-client.tsx",
@@ -256,30 +252,17 @@ describe("C — no banned dash in display surfaces (hard rule)", () => {
       expect(BANNED_DASH.test(actionLabel(k))).toBe(false);
   });
 
-  it("proofOutcomeSentence never returns a banned dash", () => {
-    const basis = {
-      day: 28 as const,
-      checkOn: "2026-07-18",
-      ran: true,
-      treatedDelta: 30,
-      controlDelta: 2,
-      adjustedLift: 28,
-      treatedCtrDelta: 0.01,
-      controlCtrDelta: 0.002,
-      adjustedCtrLift: 0.008,
-      treatedPosDelta: 1.5,
-      controlPosDelta: 0.3,
-      adjustedPosLift: 1.2,
-      controlsUsed: 3,
-    };
+  it("every kernel verdict phrase is free of a banned dash", () => {
     for (const verdict of [
-      "measuring",
-      "won",
-      "lost",
-      "inconclusive",
-      "insufficient_data",
-    ] as GscProofVerdict[]) {
-      const s = proofOutcomeSentence({ verdict, confidence: "high", basis });
+      "waiting",
+      "insufficient_evidence",
+      "directional_decline",
+      "no_clear_movement",
+      "directional_improvement",
+      "stronger_improvement",
+      "confounded",
+    ] as KernelVerdict[]) {
+      const s = verdictPhrase(verdict);
       expect(BANNED_DASH.test(s), `verdict=${verdict}: "${s}"`).toBe(false);
     }
   });

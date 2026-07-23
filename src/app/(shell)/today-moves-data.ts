@@ -46,13 +46,8 @@ import {
   type PreparedMovePack,
 } from "@/domains/demand-graph/prepared-move-pack";
 import { loadShippedChanges } from "@/domains/proof-gsc/shipped-change-store";
-import {
-  buildMeasurementPresentation,
-  detectMeasurementOverlaps,
-  type MeasurementPresentation,
-} from "@/domains/proof-gsc/measurement-maturity";
-import { proofCheckDates } from "@/domains/proof-gsc/measure";
-import { displayProofOutcome, UNCALIBRATED_NO_CLEAR_EFFECT_SENTENCE } from "@/domains/proof-gsc/verdict-calibration";
+import { readRecordsForLearning } from "@/domains/proof-gsc/kernel";
+import { kernelProofSummary, type KernelProofSummary } from "@/domains/changes/proof-timeline/result-pill";
 import { countLedgerLifecycle } from "@/domains/changes/lifecycle-counts";
 import { loadDemandGraphForTenantCached } from "@/domains/demand-graph/load-graph";
 import { buildMeasuringHold, isHeldForMeasurement } from "./today-measuring-hold";
@@ -229,10 +224,10 @@ export type TodayMove = {
    *  early → interim → mature/inconclusive/blocked/attribution_limited). The
    *  canonical Changes adapter uses this so an EARLY read shows as "Measuring",
    *  never a final "Result". Null when no proof row matches. */
-  proofMaturity?: import("@/domains/proof-gsc/measurement-maturity").MeasurementMaturity | null;
+  proofMaturity?: import("@/domains/changes/proof-timeline/result-pill").MeasurementMaturity | null;
   /** Move 2 - which way the basis window moved (positive/negative/neutral/unknown),
    *  independent of maturity. */
-  proofDirection?: import("@/domains/proof-gsc/measurement-maturity").MeasurementDirection | null;
+  proofDirection?: import("@/domains/changes/proof-timeline/result-pill").MeasurementDirection | null;
   /** PageResearchPack v1 (2026-06-29) - the per-page "what should this page OWN"
    *  research summary: intent clustering (own vs cross-link sibling) + the proof-aware
    *  primary lever + blocked levers + the top element opportunities. Computed from the
@@ -632,28 +627,12 @@ export async function buildTodayMovesData(
     // settled outcome is surfaced ONLY at mature_result; everything else stays
     // "measuring" with honest maturity language.
     const proofNow = new Date();
-    const overlapById = detectMeasurementOverlaps(
-      ledger.map((r) => ({ id: r.id, path: r.path, shippedAt: r.shippedAt })),
+    // Kernel reads over the whole ledger (ran-flag windows + overlap detection),
+    // aligned 1:1 with `ledger`, mapped to the shared proof summary each card uses.
+    const kernelReads = readRecordsForLearning(ledger, proofNow);
+    const summaryByRecordId = new Map<string, KernelProofSummary>(
+      ledger.map((r, i) => [r.id, kernelProofSummary(kernelReads[i])] as const),
     );
-    const presentationOf = (r: (typeof ledger)[number]): MeasurementPresentation => {
-      const basisWin = (r.windows ?? []).filter((w) => w.ran).sort((a, b) => b.day - a.day)[0];
-      return buildMeasurementPresentation({
-        shippedAt: r.shippedAt,
-        now: proofNow,
-        latestGscDate: null, // card needs mature-vs-not, not the blocked/collecting split
-        windows: (r.windows ?? []).map((w) => ({ day: w.day, ran: w.ran })),
-        verdict: r.verdict,
-        controlsUsed: basisWin?.controlsUsed ?? 0,
-        baselineImpressions: r.baseline?.impressions ?? 0,
-        overlap: overlapById.get(r.id) ?? null,
-        live: true,
-        // Parallel-trends veto (master plan item 33), additive - same posture
-        // as the rest of this call site's omissions (e.g. shockWindows): a
-        // missing field here just means this card doesn't show the caveat,
-        // it never breaks the maturity/verdict computed above.
-        weakComparison: r.controlMatchWeak === true,
-      });
-    };
     // Learning summary (hero) - count MATURE outcomes only; everything else is still
     // measuring. Honest: a 7-day "lost" is not a loss.
     // Fail-closed calibration quarantine, review fix 8 (2026-07-11): ALL THREE
@@ -671,12 +650,12 @@ export async function buildTodayMovesData(
     // Outcome-threading (2026-06-28; Move 2): the most recent shipped change per page,
     // carrying its maturity presentation so a card shows honest measurement language
     // without opening Results. Keyed by canonical page URL. Display only.
-    const proofByPage = new Map<string, { pres: MeasurementPresentation; shippedAt: string; actionType: string; verdict: string; calibrationVersion: string | null }>();
+    const proofByPage = new Map<string, { pres: KernelProofSummary; shippedAt: string; actionType: string; verdict: string }>();
     for (const r of ledger) {
       const key = canon(r.page) || canon(r.path);
       const prev = proofByPage.get(key);
       if (!prev || Date.parse(r.shippedAt) > Date.parse(prev.shippedAt)) {
-        proofByPage.set(key, { pres: presentationOf(r), shippedAt: r.shippedAt, actionType: r.actionType, verdict: r.verdict, calibrationVersion: r.calibrationVersion });
+        proofByPage.set(key, { pres: summaryByRecordId.get(r.id)!, shippedAt: r.shippedAt, actionType: r.actionType, verdict: r.verdict });
       }
     }
     // Owned-page paths currently on measurement-hold (verdict still measuring,
@@ -1113,15 +1092,7 @@ export async function buildTodayMovesData(
           // real next checkpoint (p.nextCheckpoint is null) - skip the ship+28d
           // fallback for it too, or this would resurrect exactly the stale
           // "Next read <date long past>" line the terminal state exists to kill.
-          m.proofNextCheckpoint = p.maturity === "unresolved" ? null : p.nextCheckpoint ?? proofCheckDates(pr.shippedAt)[28];
-        } else if (displayProofOutcome({ verdict: pr.verdict, calibrationVersion: pr.calibrationVersion }).kind === "no_clear_effect_uncalibrated") {
-          // Fail-closed calibration quarantine (2026-07-11): a mature won/lost
-          // measured under thresholds that failed Beacon's self-test is not a
-          // trustworthy win/loss. Read it as no clear effect (never "won"/"no
-          // lift"), the one honest sentence, matching Results' band placement.
-          m.proofStatus = "measuring";
-          m.proofLabel = UNCALIBRATED_NO_CLEAR_EFFECT_SENTENCE;
-          m.proofNextCheckpoint = null; // the window closed; there is no next read to wait on
+          m.proofNextCheckpoint = p.maturity === "unresolved" ? null : p.nextCheckpoint;
         } else if (p.verdict === "helped") {
           m.proofStatus = "won";
           m.proofLabel = p.headline; // "Helped" / "Likely helped"

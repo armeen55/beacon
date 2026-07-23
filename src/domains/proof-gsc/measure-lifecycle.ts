@@ -6,9 +6,14 @@
  * measure-lifecycle.test.ts.
  */
 
-import { addDays, proofCheckDates, PROOF_WINDOW_DAYS, type ProofWindowDay } from "./measure";
-import { displayProofOutcome, type CalibratableRecord } from "./verdict-calibration";
+import { addDays } from "./kernel";
+import { PROOF_WINDOW_DAYS, type ProofWindowDay } from "./types";
 import type { ShippedChangeRecord } from "./shipped-change-store";
+
+/** The check-in dates after a ship date, one per window day. Pure (UTC). */
+function proofCheckDates(shippedAtIso: string): Record<ProofWindowDay, string> {
+  return { 7: addDays(shippedAtIso, 7), 14: addDays(shippedAtIso, 14), 28: addDays(shippedAtIso, 28) };
+}
 
 const MAX_MEASURE_WINDOW_DAYS = Math.max(...PROOF_WINDOW_DAYS);
 /** Grace after the last window before a still-"measuring" record is "stale". */
@@ -207,19 +212,14 @@ export function proofMaturityLabel(verdict: string, basisDay: number | null): st
 }
 
 /**
- * Fail-closed calibration quarantine (2026-07-11), review fix 3 - THE shared
- * calibration-aware wrapper over proofMaturityLabel. An uncalibrated won/lost
- * (measured under thresholds that failed Beacon's self-test) reads as "No clear
- * change yet", never "Helped"/"Did not help"; everything else keeps the normal
- * maturity-aware label. One home (Ask's fact assembly and the page dossier both
- * import this) so the same record can never carry two different labels on two
- * surfaces. PURE.
+ * Maturity-aware label for a record's stored verdict. PURE. One home (Ask's fact
+ * assembly and the page dossier both import this) so the same record can never
+ * carry two different labels on two surfaces.
  */
 export function maturityLabelForRecord(
-  record: CalibratableRecord,
+  record: { verdict: string },
   basisDay: number | null = null,
 ): string {
-  if (displayProofOutcome(record).kind === "no_clear_effect_uncalibrated") return "No clear change yet";
   return proofMaturityLabel(record.verdict, basisDay);
 }
 

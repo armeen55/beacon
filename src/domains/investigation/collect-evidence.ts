@@ -25,8 +25,8 @@ import { fetchPageHtml } from "@/domains/competitor-intel/polite-fetch";
 import { rankSeriesFor, computeRankDelta } from "@/domains/serp/serp-history";
 import { loadTopQueriesForPages } from "@/domains/recommendation-intelligence/gsc-page-queries";
 import { readPushLedgerForTenant } from "@/domains/push/caps";
-import { readAlgorithmWeatherSummary } from "@/domains/proof-gsc/algorithm-weather-store";
-import { buildShockWindows, overlappingShock } from "@/domains/proof-gsc/algorithm-weather";
+import { readAlgorithmWeatherSummary } from "@/domains/algorithm-weather/algorithm-weather-store";
+import { buildShockWindows, overlappingShock } from "@/domains/algorithm-weather/algorithm-weather";
 import type { IndexabilityFinding, RecentChangeFinding, SerpFinding, WeatherFinding } from "./rank-causes";
 
 /** Hard cap: at most this many live page fetches per investigation (the plan's

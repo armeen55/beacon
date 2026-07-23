@@ -26,122 +26,35 @@ import {
   type TitleSignalWeights,
 } from "@/domains/demand-graph/ctr-title-scorer";
 import { getBusinessConfig } from "@/lib/business-config";
-import {
-  deriveMeasurementMaturity,
-  detectMeasurementOverlaps,
-  measurementWindowOf,
-  type OverlapContext,
-} from "@/domains/proof-gsc/measurement-maturity";
-import { buildShockWindows, overlappingShock, type ShockWindow } from "@/domains/proof-gsc/algorithm-weather";
-import { loadDetectedChangepoints } from "@/domains/proof-gsc/algorithm-weather-store";
-import { learningEligibleVerdict } from "@/domains/proof-gsc/verdict-calibration";
+import { readRecordsForLearning, learningVerdictOf } from "@/domains/proof-gsc/kernel";
 import type { ProofOutcomeRow } from "@/domains/demand-graph/proof-outcome-caution";
 
 /**
- * Algorithm-weather guard (master plan item 32) - the tenant's shock windows,
- * loaded ONCE per call and passed into every record's gate below. Fail-soft:
- * a store error or empty history means no shocks are known, so the gate falls
- * through to exactly its pre-item-32 behavior (no false quarantine from a
- * broken read). No fresh CUSUM run happens here (that is the nightly cron's
- * job, see cron-sync.ts) - this only reads what the last nightly pass found.
+ * LEARNING ELIGIBILITY GATE (kernel). Durable learning trains ONLY on MATURE,
+ * cleanly-separable results: the kernel reads each record from its stored 28-day
+ * window, holds an early (7/14-day) read as "measuring", and holds a change that
+ * overlaps another change on the same page (confounded) as "measuring" too, so a
+ * direction that can still reverse or cannot be attributed never permanently
+ * biases ranking. Returns the settled verdict per record aligned 1:1 with
+ * `records`, in the legacy learning vocabulary ("won" / "lost" / "measuring").
  */
-async function loadShockWindowsForGate(tenantId: string): Promise<ShockWindow[]> {
-  try {
-    const changepoints = await loadDetectedChangepoints(tenantId);
-    return buildShockWindows({ dailySeries: [], priorChangepoints: changepoints });
-  } catch {
-    return [];
-  }
+function settledLearningVerdicts(records: ShippedChangeRecord[], now: Date): string[] {
+  return readRecordsForLearning(records, now).map(learningVerdictOf);
 }
 
 /**
- * Move 2 — LEARNING ELIGIBILITY GATE. Durable learning may train ONLY on MATURE
- * results (the 28-day window closed, sufficient data, clean attribution). A 7/14-day
- * provisional read, a blocked/collecting record, or an overlapping (attribution-
- * limited) measurement must NOT permanently bias ranking or block a lever — its
- * direction can still reverse at 28 days. We neutralize a non-mature verdict to
- * "measuring" (treated as in-flight, never "decided") at the load edge, so the pure
- * experiment-prior / proof-outcome-caution stay unchanged. PURE gate, no I/O added.
- *
- * Extended by the algorithm-weather guard (item 32): a verdict whose measurement
- * window overlapped a confirmed Google update or a detected sitewide shock is ALSO
- * neutralized to "measuring", the same way a non-mature or accidentally-overlapping
- * read already is. A shift in the whole site's baseline during the window makes the
- * diff-in-diff comparison to controls unreliable for that specific record, so it
- * must not permanently bias the prior even though the window itself closed cleanly.
- *
- * Extended again by the parallel-trends veto (item 33): a record whose comparison
- * pages were not moving like the treated page before the ship (control-matching.ts's
- * usedFallback, persisted as ShippedChangeRecord.controlMatchWeak) is ALSO
- * neutralized to "measuring" - the diff-in-diff isn't trustworthy enough to
- * permanently bias the prior even though the window closed cleanly and no shock
- * overlapped it.
- *
- * Exported (BEACON_500 item 66) so the cross-tenant nightly aggregation
- * (global-patterns/nightly-aggregate.ts) can apply the IDENTICAL eligibility gate
- * to every tenant's ledger, rather than re-deriving a second copy of this logic.
- */
-export function maturityGatedVerdict(
-  r: ShippedChangeRecord,
-  overlap: OverlapContext | null,
-  now: Date,
-  shockWindows: ReadonlyArray<ShockWindow>,
-): string {
-  const basisWin = (r.windows ?? []).filter((w) => w.ran).sort((a, b) => b.day - a.day)[0];
-  const maturity = deriveMeasurementMaturity({
-    shippedAt: r.shippedAt,
-    now,
-    latestGscDate: null, // not consulted for the mature/non-mature decision
-    windows: (r.windows ?? []).map((w) => ({ day: w.day, ran: w.ran })),
-    verdict: r.verdict,
-    controlsUsed: basisWin?.controlsUsed ?? 0,
-    baselineImpressions: r.baseline?.impressions ?? 0,
-    overlap,
-    live: true,
-  });
-  if (maturity !== "mature_result") return "measuring";
-  // An intentional same-day package may earn a page-level result, but that
-  // result cannot train any member lever by itself. The stable combo identity
-  // is preserved by compound-actions.ts for a future bundle learner; until
-  // that learner has repeated calibrated packages, individual priors stay neutral.
-  if (overlap?.kind === "compound") return "measuring";
-  // Additive weather gate: a mature, cleanly-attributed result STILL doesn't
-  // train the prior when its own window overlapped a sitewide shock.
-  const window = measurementWindowOf(r.shippedAt, r.windows ?? []);
-  if (window && shockWindows.length > 0 && overlappingShock(window.start, window.end, shockWindows)) {
-    return "measuring";
-  }
-  // Additive parallel-trends gate (item 33): same posture as the weather gate -
-  // a mature, cleanly-attributed, weather-clean result STILL doesn't train the
-  // prior when its own comparison pages were a fallback match.
-  if (r.controlMatchWeak === true) return "measuring";
-  // Fail-closed calibration quarantine (2026-07-11): even a mature, clean,
-  // weather-clean, well-matched result STILL doesn't train the prior when it was
-  // measured under thresholds that failed Beacon's self-test. learningEligibleVerdict
-  // is the shared choke point (verdict-calibration.ts): it returns the real verdict
-  // for a calibrated row and null for an uncalibrated one (every row today). A
-  // neutralized decided verdict reads as "measuring", exactly like the gates above.
-  const eligible = learningEligibleVerdict(r);
-  if (eligible != null) return eligible;
-  return r.verdict === "won" || r.verdict === "lost" ? "measuring" : r.verdict;
-}
-
-/**
- * Apply the SAME maturity/weather/parallel-trends gate to an explicit set of
- * records for an explicit tenant, without going through the ambient
- * `loadShippedChanges()` read. Extracted (item 66) so a cross-tenant job that
- * already fetched every tenant's rows (one cross-tenant query, not N ambient
- * ones) can gate them identically to the per-tenant loader below.
+ * Apply the kernel learning gate to an explicit set of records for an explicit
+ * tenant. Extracted so a cross-tenant job that already fetched every tenant's
+ * rows can gate them identically to the per-tenant loader below.
  */
 export async function gateRecordsToOutcomes(
-  tenantId: string,
+  _tenantId: string,
   records: ShippedChangeRecord[],
 ): Promise<SettledOutcome[]> {
   const now = new Date();
-  const overlaps = detectMeasurementOverlaps(records.map((r) => ({ id: r.id, path: r.path, shippedAt: r.shippedAt })));
-  const shockWindows = await loadShockWindowsForGate(tenantId);
-  return records.map((r) => ({
-    verdict: maturityGatedVerdict(r, overlaps.get(r.id) ?? null, now, shockWindows),
+  const verdicts = settledLearningVerdicts(records, now);
+  return records.map((r, i) => ({
+    verdict: verdicts[i],
     operatorVerdictOverride: r.operatorVerdictOverride,
     dims: {
       actionType: canonicalMoveType(r.actionType),
@@ -161,26 +74,25 @@ export async function gateRecordsToOutcomes(
  * Read-only over the ledger - nothing here mutates measurement history.
  */
 export async function gateRecordsToEffectObservations(
-  tenantId: string,
+  _tenantId: string,
   records: ShippedChangeRecord[],
 ): Promise<EffectObservation[]> {
   const now = new Date();
-  const overlaps = detectMeasurementOverlaps(records.map((r) => ({ id: r.id, path: r.path, shippedAt: r.shippedAt })));
-  const shockWindows = await loadShockWindowsForGate(tenantId);
+  const verdicts = settledLearningVerdicts(records, now);
   const out: EffectObservation[] = [];
-  for (const r of records) {
-    if (r.operatorVerdictOverride === "inconclusive") continue; // operator pinned out of learning
-    const verdict = maturityGatedVerdict(r, overlaps.get(r.id) ?? null, now, shockWindows);
-    if (verdict !== "won" && verdict !== "lost") continue; // DECIDED rows only
+  records.forEach((r, i) => {
+    if (r.operatorVerdictOverride === "inconclusive") return; // operator pinned out of learning
+    const verdict = verdicts[i];
+    if (verdict !== "won" && verdict !== "lost") return; // DECIDED rows only
     const relativeLift = relativeClicksLift(r);
-    if (relativeLift == null) continue; // baseline too thin for an honest percent
+    if (relativeLift == null) return; // baseline too thin for an honest percent
     out.push({
       leverFamily: canonicalMoveType(r.actionType),
       pageType: pageTypeFromUrl(r.page),
       relativeLift,
       settledAt: r.measuredAt ?? r.shippedAt,
     });
-  }
+  });
   return out;
 }
 
@@ -198,8 +110,7 @@ export async function gateRecordsToTitleSignalObservations(
   records: ShippedChangeRecord[],
 ): Promise<TitleSignalObservation[]> {
   const now = new Date();
-  const overlaps = detectMeasurementOverlaps(records.map((r) => ({ id: r.id, path: r.path, shippedAt: r.shippedAt })));
-  const shockWindows = await loadShockWindowsForGate(tenantId);
+  const verdicts = settledLearningVerdicts(records, now);
   let brand = "";
   try {
     brand = getBusinessConfig(tenantId).name ?? "";
@@ -207,21 +118,21 @@ export async function gateRecordsToTitleSignalObservations(
     brand = "";
   }
   const out: TitleSignalObservation[] = [];
-  for (const r of records) {
-    if (!/title/i.test(r.actionType ?? "")) continue; // title-family text tests only
+  records.forEach((r, i) => {
+    if (!/title/i.test(r.actionType ?? "")) return; // title-family text tests only
     const after = (r.after ?? "").trim();
-    if (!after) continue; // no shipped text on record -> no signals to learn from
-    if (r.operatorVerdictOverride === "inconclusive") continue;
-    const verdict = maturityGatedVerdict(r, overlaps.get(r.id) ?? null, now, shockWindows);
-    if (verdict !== "won" && verdict !== "lost") continue; // DECIDED rows only
+    if (!after) return; // no shipped text on record -> no signals to learn from
+    if (r.operatorVerdictOverride === "inconclusive") return;
+    const verdict = verdicts[i];
+    if (verdict !== "won" && verdict !== "lost") return; // DECIDED rows only
     const relativeLift = relativeClicksLift(r);
-    if (relativeLift == null) continue; // baseline too thin for an honest percent
+    if (relativeLift == null) return; // baseline too thin for an honest percent
     out.push({
       signals: scoreTitle(after, r.targetQueries?.[0] ?? "", brand).signals,
       relativeLift,
       settledAt: r.measuredAt ?? r.shippedAt,
     });
-  }
+  });
   return out;
 }
 
@@ -292,15 +203,15 @@ export async function loadProofOutcomeRows(tenantId: string): Promise<ProofOutco
     return [];
   }
   const now = new Date();
-  const overlaps = detectMeasurementOverlaps(records.map((r) => ({ id: r.id, path: r.path, shippedAt: r.shippedAt })));
-  const shockWindows = await loadShockWindowsForGate(tenantId);
-  return records.map((r) => {
-    // Same maturity gate: a non-mature verdict reads as "measuring" (held while in
-    // flight) so a 7-day signal can't fire a permanent no-lift caution on a page.
-    const verdict = maturityGatedVerdict(r, overlaps.get(r.id) ?? null, now, shockWindows);
+  const verdicts = settledLearningVerdicts(records, now);
+  return records.map((r, i) => {
+    // Kernel learning gate: a non-mature or confounded verdict reads as
+    // "measuring" (held while in flight) so a 7-day or unseparable signal can't
+    // fire a permanent no-lift caution on a page.
+    const verdict = verdicts[i];
     // Confidence only matters for the win-caution path, which requires a decided
-    // verdict; downgrade to "low" whenever the verdict was neutralized.
-    const confidence = verdict === r.verdict ? r.confidence : "low";
+    // verdict; downgrade to "low" whenever the verdict was held.
+    const confidence = verdict === "won" || verdict === "lost" ? r.confidence : "low";
     return {
       id: r.id,
       page: r.page,

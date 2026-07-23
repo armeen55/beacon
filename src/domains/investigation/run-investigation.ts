@@ -43,8 +43,8 @@ import {
   collectWeatherEvidence,
 } from "./collect-evidence";
 import { hasRecentInvestigation, writeInvestigation, investigationKey } from "./investigation-store";
-import { readAlgorithmWeatherSummary } from "@/domains/proof-gsc/algorithm-weather-store";
-import type { Changepoint } from "@/domains/proof-gsc/changepoint";
+import { readAlgorithmWeatherSummary } from "@/domains/algorithm-weather/algorithm-weather-store";
+import type { Changepoint } from "@/domains/algorithm-weather/changepoint";
 
 /** Cap: at most this many fresh investigations run per tenant per night. */
 export const MAX_INVESTIGATIONS_PER_NIGHT = 2;

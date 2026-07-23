@@ -15,6 +15,6 @@ export const dynamic = "force-dynamic";
 
 export async function GET(): Promise<Response> {
   const surface = await loadResultsLedgerSurface().catch(() => null);
-  const csv = buildResultsCsv(surface?.ledger ?? []);
+  const csv = buildResultsCsv(surface?.reads ?? []);
   return new NextResponse(csv, { headers: csvResponseHeaders("beacon-results.csv") });
 }

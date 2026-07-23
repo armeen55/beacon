@@ -13,11 +13,6 @@ import { describe, it, expect, afterAll } from "vitest";
 import { buildTodayView, dynamicOpportunityCount, type TodayPlanSummary } from "@/domains/changes/today-view";
 import type { CanonicalChange, EvidenceStrength } from "@/domains/changes/canonical-change";
 import { countLedgerLifecycle } from "@/domains/changes/lifecycle-counts";
-import {
-  TEST_CALIBRATED_VERSION,
-  registerTestCalibratedVersion,
-  clearTestCalibratedVersions,
-} from "@/domains/proof-gsc/verdict-calibration-test-support";
 
 const LC0 = { measuring: 0, decided: 0 };
 
@@ -117,14 +112,13 @@ describe("buildTodayView — Today is a focused slice, deduped from the canonica
 describe("FP3 divergence pin - Today's counts equal countLedgerLifecycle for a release with a divergent row", () => {
   // The exact "25 vs 7" class: a change's snapshot status still says "measuring"
   // while the ledger already classifies the SAME page's shipped change as decided.
-  registerTestCalibratedVersion();
-  afterAll(clearTestCalibratedVersions);
-
   const NOW = new Date("2026-07-02T12:00:00Z");
+  // The kernel recomputes the verdict from the window deltas, so a decided "win"
+  // is encoded as a real CTR gain on the 28-day window (edit_title is CTR-judged).
   const MATURE = [
-    { day: 7, ran: true, controlsUsed: 3 },
-    { day: 14, ran: true, controlsUsed: 3 },
-    { day: 28, ran: true, controlsUsed: 3 },
+    { day: 7, ran: true, controlsUsed: 3, adjustedCtrLift: 0.02, treatedPostImpressions: 4000 },
+    { day: 14, ran: true, controlsUsed: 3, adjustedCtrLift: 0.02, treatedPostImpressions: 4000 },
+    { day: 28, ran: true, controlsUsed: 3, adjustedCtrLift: 0.02, treatedPostImpressions: 4000 },
   ];
   const OPEN = [
     { day: 7, ran: false },
@@ -132,8 +126,8 @@ describe("FP3 divergence pin - Today's counts equal countLedgerLifecycle for a r
     { day: 28, ran: false },
   ];
   const ledger = [
-    { id: "l-divergent", path: "/divergent", shippedAt: "2026-05-01T00:00:00.000Z", verdict: "won", windows: MATURE, baseline: { impressions: 1000 }, actionType: "edit_title", calibrationVersion: TEST_CALIBRATED_VERSION },
-    { id: "l-open", path: "/gone-from-worklist", shippedAt: "2026-06-25T00:00:00.000Z", verdict: "measuring", windows: OPEN, baseline: { impressions: 1000 }, actionType: "edit_meta", calibrationVersion: TEST_CALIBRATED_VERSION },
+    { id: "l-divergent", path: "/divergent", shippedAt: "2026-05-01T00:00:00.000Z", verdict: "won", windows: MATURE, baseline: { impressions: 1000 }, actionType: "edit_title" },
+    { id: "l-open", path: "/gone-from-worklist", shippedAt: "2026-06-25T00:00:00.000Z", verdict: "measuring", windows: OPEN, baseline: { impressions: 1000 }, actionType: "edit_meta" },
   ];
 
   it("headerSentence and needsAttention side with the ledger classifier, not the stale status slice", () => {

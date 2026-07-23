@@ -31,8 +31,7 @@ import { readStore, writeStore } from "@/lib/persistence/json-store";
 import { log } from "@/lib/logger";
 import { loadShippedChanges, type ShippedChangeRecord } from "@/domains/proof-gsc/shipped-change-store";
 import { actionFamilyOf, type ExperimentFamily } from "@/domains/proof-gsc/change-family";
-import { deriveMeasurementMaturity } from "@/domains/proof-gsc/measurement-maturity";
-import { isCalibratedVerdict } from "@/domains/proof-gsc/verdict-calibration";
+import { readRecordsForLearning, learningVerdictOf } from "@/domains/proof-gsc/kernel";
 import { classifyDraftPattern, aggregateWinsByPattern, bestConfidentPattern, patternInsightSentence, MIN_DECIDED_FOR_CONFIDENCE, PATTERN_LABEL, type DraftPatternId, type PatternOutcomeRow, type PatternCellTally } from "./draft-pattern";
 
 const STORE = "winner-memory";
@@ -67,12 +66,6 @@ export type WinnerExample = {
   /** Observational CTR lift (0-1 scale) from the mature 28-day window, when known. */
   measuredLift: number | null;
   verdict: "won";
-  /** Fail-closed calibration quarantine, review fix 6 (2026-07-11): the source
-   *  record's classifier version, copied at harvest time. Optional so a winner
-   *  persisted BEFORE the quarantine reads as null = uncalibrated, and the read
-   *  path below (loadWinners) refuses to serve it as a few-shot - the store is
-   *  history, but only calibrated wins may teach the drafters. */
-  calibrationVersion?: string | null;
   shippedAt: string;
   capturedAt: string;
 };
@@ -130,23 +123,11 @@ function matureCtrLift(record: ShippedChangeRecord): number | null {
 }
 
 function isMatureWon(record: ShippedChangeRecord, now: Date): boolean {
-  if (record.verdict !== "won") return false;
-  // Fail-closed calibration quarantine (2026-07-11): an uncalibrated "won" is
-  // not a trustworthy winner, so it is never harvested as house style. With no
-  // calibrated wins, buildWinnerFewShots returns "" and the drafters run without
-  // few-shots (their existing designed fallback).
-  if (!isCalibratedVerdict(record)) return false;
-  const maturity = deriveMeasurementMaturity({
-    shippedAt: record.shippedAt,
-    now,
-    latestGscDate: record.measuredAt,
-    windows: record.windows.map((w) => ({ day: w.day, ran: w.ran })),
-    verdict: record.verdict,
-    controlsUsed: record.controlPages.length,
-    baselineImpressions: record.baseline?.impressions ?? 0,
-    live: record.verifiedLive,
-  });
-  return maturity === "mature_result";
+  // Kernel gate: only a MATURE (28-day) directional improvement is a winner.
+  // An early/interim signal or a confounded / inconclusive result is never
+  // harvested as house style. With no wins, buildWinnerFewShots returns "" and
+  // the drafters run without few-shots (their existing designed fallback).
+  return learningVerdictOf(readRecordsForLearning([record], now)[0]) === "won";
 }
 
 /**
@@ -181,10 +162,6 @@ export async function harvestWinners(
         pattern: classifyDraftPattern(afterText),
         measuredLift: matureCtrLift(r),
         verdict: "won",
-        // Review fix 6: copy the source record's version so the READ path can
-        // re-verify calibration at serve time (a later registry change or a
-        // legacy stored row must never leak an uncalibrated few-shot).
-        calibrationVersion: r.calibrationVersion ?? null,
         shippedAt: r.shippedAt,
         capturedAt: now.toISOString(),
       };
@@ -227,7 +204,6 @@ export async function loadWinners(tenantId: string): Promise<WinnerExample[]> {
     const all = await readAll();
     return all
       .filter((r) => r.tenantId === tenantId)
-      .filter((r) => isCalibratedVerdict({ verdict: r.verdict, calibrationVersion: r.calibrationVersion ?? null }))
       .sort((a, b) => (a.shippedAt < b.shippedAt ? 1 : -1));
   } catch {
     return [];
@@ -293,34 +269,16 @@ export async function buildWinnerFewShots(
 // pageFamily). Never mutates shipped_change_proof or move_drafts - this is a pure
 // projection computed fresh from loadShippedChanges() on every call.
 
-/** A mature/decided GSC verdict counts toward the pattern tally; "measuring" (an
- *  active, still-running window) is honestly excluded as pending, matching the
- *  same maturity gate harvestWinners already applies to "won". */
-function isDecided(record: ShippedChangeRecord, now: Date): boolean {
-  if (record.verdict === "measuring") return false;
-  // Fail-closed calibration quarantine (2026-07-11): the pattern aggregate learns
-  // "which structure wins" from decided verdicts, so an uncalibrated row must not
-  // feed it either. With no calibrated decided rows the aggregate is empty and
-  // buildWinnerFewShotsWithPattern adds no style hint (byte-identical to a fresh
-  // tenant).
-  if (!isCalibratedVerdict(record)) return false;
-  const maturity = deriveMeasurementMaturity({
-    shippedAt: record.shippedAt,
-    now,
-    latestGscDate: record.measuredAt,
-    windows: record.windows.map((w) => ({ day: w.day, ran: w.ran })),
-    verdict: record.verdict,
-    controlsUsed: record.controlPages.length,
-    baselineImpressions: record.baseline?.impressions ?? 0,
-    live: record.verifiedLive,
-  });
-  return maturity === "mature_result" || maturity === "inconclusive";
-}
-
-function ledgerVerdictOf(record: ShippedChangeRecord): "won" | "lost" | "inconclusive" | "insufficient_data" {
-  if (record.verdict === "won") return "won";
-  if (record.verdict === "lost") return "lost";
-  if (record.verdict === "insufficient_data") return "insufficient_data";
+/** Map a mature kernel read to the pattern-tally vocabulary. A 28-day directional
+ *  improvement is "won", a decline "lost", clear-but-flat "inconclusive"; a read
+ *  that has not matured, is confounded, or is too thin is null (excluded). */
+function decidedVerdictOf(
+  read: ReturnType<typeof readRecordsForLearning>[number],
+): "won" | "lost" | "inconclusive" | null {
+  if (read.basisDay !== 28) return null; // still measuring
+  if (read.verdict === "confounded" || read.verdict === "insufficient_evidence") return null;
+  if (read.verdict === "directional_improvement" || read.verdict === "stronger_improvement") return "won";
+  if (read.verdict === "directional_decline") return "lost";
   return "inconclusive";
 }
 
@@ -353,19 +311,21 @@ export async function loadPatternAggregateWithRows(
   const now = opts.now ?? new Date();
   try {
     const records = await loadShippedChanges();
+    const reads = readRecordsForLearning(records, now);
     const rows: TaggedShippedRow[] = [];
-    for (const r of records) {
+    records.forEach((r, i) => {
       const afterText = (r.after ?? "").trim();
-      if (afterText === "") continue; // nothing to classify - honest skip
-      if (!isDecided(r, now)) continue; // pending window - excluded from the tally entirely
+      if (afterText === "") return; // nothing to classify - honest skip
+      const verdict = decidedVerdictOf(reads[i]);
+      if (verdict == null) return; // pending / confounded / thin - excluded from the tally
       rows.push({
         pattern: classifyDraftPattern(afterText),
         pageFamily: pageFamilyOfUrl(r.page || r.path),
-        verdict: ledgerVerdictOf(r),
-        citationVerdict: r.citationOutcome?.verdict ?? null,
+        verdict,
+        citationVerdict: null,
         page: r.page || r.path,
       });
-    }
+    });
     return { cells: aggregateWinsByPattern(rows), rows };
   } catch (e) {
     log.warn("[winner-memory] pattern aggregate failed (non-blocking)", {

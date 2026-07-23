@@ -42,13 +42,7 @@
  * list (changes-data.ts canonical annotations), the worklist Tonight chip, and the
  * Results page (header strip + the three bands themselves via splitLedgerLifecycle).
  */
-import {
-  deriveMeasurementMaturity,
-  detectMeasurementOverlaps,
-  isMatureOutcome,
-  type OverlapContext,
-} from "@/domains/proof-gsc/measurement-maturity";
-import { displayProofOutcome } from "@/domains/proof-gsc/verdict-calibration";
+import { bandOf, readRecordsForLearning, type LedgerRecordLike } from "@/domains/proof-gsc/kernel";
 // Relocated from the retired experiments domain (CORE 100K): the legacy plan
 // item-status union, kept only for the historical execution-block reader below.
 type DailyExperimentItemStatus =
@@ -84,10 +78,20 @@ export type LifecycleCounts = {
 export type LedgerLifecycleRow = {
   id: string;
   path: string;
+  page?: string;
   shippedAt: string;
   verdict: string;
-  windows: ReadonlyArray<{ day: number; ran: boolean; controlsUsed?: number | null }>;
-  baseline?: { impressions?: number | null } | null;
+  windows: ReadonlyArray<{
+    day: number;
+    ran: boolean;
+    controlsUsed?: number | null;
+    adjustedLift?: number;
+    adjustedCtrLift?: number;
+    adjustedPosLift?: number;
+    adjustedImpressionsLift?: number;
+    treatedPostImpressions?: number;
+  }>;
+  baseline?: { impressions?: number | null; clicks?: number | null } | null;
   /** Bug #14 (2026-07-06): a revert executor records "I put the old version back" as
    *  its OWN ledger row with actionType `revert_<original>` (run-revert.ts). That row is
    *  bookkeeping, NOT a distinct operator change - excludeRevertBookkeeping below drops
@@ -130,68 +134,54 @@ export function excludeRevertBookkeeping<T extends Pick<LedgerLifecycleRow, "act
 
 export type LedgerLifecycleStage = "won" | "learned" | "measuring";
 
-/**
- * Classify ONE ledger row. Mirrors the Results bands exactly: mature + won -> "won"
- * (the Wins band), mature + lost -> "learned" (What we learned), everything else ->
- * "measuring" (In flight). `overlap` comes from detectMeasurementOverlaps over the
- * whole ledger (an overlapping edit caps maturity, so an overlapped row is always
- * measuring). latestGscDate is passed as null on purpose: it only distinguishes
- * collecting from blocked_data, and both count as measuring here.
- */
-export function ledgerLifecycleStage(
-  row: LedgerLifecycleRow,
-  overlap: OverlapContext | null,
-  now: Date = new Date(),
-): LedgerLifecycleStage {
-  const basisWin = [...row.windows].filter((w) => w.ran).sort((a, b) => b.day - a.day)[0];
-  const maturity = deriveMeasurementMaturity({
+/** Map a lifecycle row to the kernel's ledger-record shape. Full records already
+ *  carry every field; a minimal row falls back to safe defaults. */
+function toLedgerRecordLike(row: LedgerLifecycleRow): LedgerRecordLike & { operatorVerdictOverride?: string | null } {
+  return {
+    id: row.id,
+    page: row.page ?? row.path,
+    path: row.path,
+    actionType: row.actionType ?? "change",
     shippedAt: row.shippedAt,
-    now,
-    latestGscDate: null,
-    windows: row.windows.map((w) => ({ day: w.day, ran: w.ran })),
-    verdict: row.verdict,
-    controlsUsed: basisWin?.controlsUsed ?? 0,
-    baselineImpressions: row.baseline?.impressions ?? 0,
-    overlap,
-    live: true,
-  });
-  if (!isMatureOutcome(maturity)) return "measuring";
-  // Fail-closed calibration quarantine (2026-07-11): a mature won/lost measured
-  // under thresholds that failed Beacon's self-test is NOT a trustworthy win or
-  // loss. displayProofOutcome is the shared selector: a calibrated win/loss keeps
-  // its band; an uncalibrated one returns "no_clear_effect_uncalibrated" and lands
-  // in the SAME in-flight bucket as inconclusive/measuring - so every count tile
-  // that reads this split collapses together at once (the one-count rule), never
-  // claiming a "won" or a loss ("learned") the ledger cannot stand behind.
-  const outcome = displayProofOutcome({ verdict: row.verdict, calibrationVersion: row.calibrationVersion });
-  if (outcome.kind === "won") return "won";
-  if (outcome.kind === "lost") return "learned";
-  return "measuring";
+    baseline: { impressions: row.baseline?.impressions ?? 0, clicks: row.baseline?.clicks ?? 0 },
+    windows: row.windows.map((w) => ({
+      day: w.day,
+      ran: w.ran,
+      adjustedLift: w.adjustedLift,
+      adjustedCtrLift: w.adjustedCtrLift,
+      adjustedPosLift: w.adjustedPosLift,
+      adjustedImpressionsLift: w.adjustedImpressionsLift,
+      controlsUsed: w.controlsUsed ?? 0,
+      treatedPostImpressions: w.treatedPostImpressions,
+    })),
+  };
 }
 
 export type LedgerLifecycleSplit<T> = { won: T[]; learned: T[]; measuring: T[] };
 
 /**
- * Split a whole ledger into the three Results bands - the ONE band membership rule.
- * Results renders these arrays directly, and countLedgerLifecycle below counts them,
- * so a band heading count and a cross-surface count can never diverge.
+ * Split a whole ledger into the three Results bands - the ONE band membership rule,
+ * from the SAME kernel read the Results page renders (bandOf). Results renders
+ * these arrays directly and countLedgerLifecycle counts them, so a band heading
+ * count and a cross-surface count can never diverge.
  */
 export function splitLedgerLifecycle<T extends LedgerLifecycleRow>(
   rows: ReadonlyArray<T>,
   now: Date = new Date(),
 ): LedgerLifecycleSplit<T> {
   // Bug #14 - filter revert bookkeeping FIRST so it neither double-counts nor poisons
-  // the same-page overlap detection below (a revert's ship must not flag the original it
+  // same-page overlap detection (a revert's ship must not flag the original it
   // restored as attribution limited). No-revert ledgers pass through untouched.
   const real = excludeRevertBookkeeping(rows);
-  const overlapById = detectMeasurementOverlaps(
-    real.map((r) => ({ id: r.id, path: r.path, shippedAt: r.shippedAt })),
-  );
+  const reads = readRecordsForLearning(real.map(toLedgerRecordLike), now);
   const out: LedgerLifecycleSplit<T> = { won: [], learned: [], measuring: [] };
-  for (const row of real) {
-    out[ledgerLifecycleStage(row, overlapById.get(row.id) ?? null, now)].push(row);
-  }
+  real.forEach((row, i) => out[bandOf(reads[i])].push(row));
   return out;
+}
+
+/** Classify ONE ledger row into its band. */
+export function ledgerLifecycleStage(row: LedgerLifecycleRow, now: Date = new Date()): LedgerLifecycleStage {
+  return bandOf(readRecordsForLearning([toLedgerRecordLike(row)], now)[0]);
 }
 
 /** The three ledger-derived counts, from the same split Results renders. */

@@ -48,8 +48,8 @@
  * Pinned by external-event-ledger.test.ts.
  */
 
-import { overlappingShock, type ShockWindow } from "@/domains/proof-gsc/algorithm-weather";
-import type { DailyPoint } from "@/domains/proof-gsc/changepoint";
+import { overlappingShock, type ShockWindow } from "@/domains/algorithm-weather/algorithm-weather";
+import type { DailyPoint } from "@/domains/algorithm-weather/changepoint";
 
 // ---------------------------------------------------------------------------
 // Contract
