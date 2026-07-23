@@ -13,12 +13,20 @@
 - Five kernels exist: Account, Evidence, Decision, Measurement, Runtime.
 - Four primary surfaces exist: Today, Changes, Results, Connections.
 - Supabase authentication provisions one membership and one tenant per new user.
-- Canonical Account, Website, and BusinessProfile records exist (Slice 1, 2026-07-23): the Account is the
-  `tenants` row with vertical columns retired to unread legacy; Website is a typed projection of the
-  account's one domain; BusinessProfile is the tenant-keyed `business_config` row, resolved per account
-  through Supabase only (no env, file, founder, or curated-code fallback). Provisioning writes a fully
-  generic row. Missing configuration fails generic at every former leak site. Test fixtures carry no real
-  customer identity.
+- Canonical Account, Website, and BusinessProfile records exist (Slice 1 + closure, 2026-07-23): the
+  Account is the `tenants` row (vertical columns retired to unread legacy) resolved through account-scoped
+  Supabase queries; Website is the one canonical projection of `Account.domain` (the only persisted website
+  authority; Settings shows it read-only); BusinessProfile lives in the Account kernel as provenance-carrying
+  sections (`ProfileSection`: value, origin, confidence, source URLs) over the approved Product Truth fields,
+  backed by the `business_config` row at schemaVersion 2 with raw pre-canonical JSON preserved under an inert
+  `legacy` key. Profile reads are async and Supabase-backed only: a cold first read resolves the real account
+  identity, a missing row or transient failure is never cached as identity, and no file, env, founder, or
+  process-global site fallback exists (`business-config.ts` and `site-config.ts` are deleted). Provisioning
+  writes a fully generic row; missing configuration fails generic at every former leak site.
+- Test fixtures carry generic account identities and domains; synthetic non-Latin-script sample content is
+  retained deliberately for multilingual behavioral coverage.
+- Revenue settings and the operator revenue model were removed (revenue attribution is an MVP non-goal);
+  the unit-economics pass is dormant with no configurable model.
 - Publishing remains manual.
 
 ## What is real but incomplete
